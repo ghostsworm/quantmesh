@@ -48,6 +48,47 @@ OpenSQT is a high-performance, low-latency cryptocurrency market maker system fo
 | **Bitget**        | ✅ Stable      
 | **Gate.io**       | ✅ Stable      
 
+
+## 模块架构
+
+```
+opensqt_platform/
+├── main.go                    # 主程序入口，组件编排
+│
+├── config/                    # 配置管理
+│   └── config.go              # YAML配置加载与验证
+│
+├── exchange/                  # 交易所抽象层（核心）
+│   ├── interface.go           # IExchange 统一接口
+│   ├── factory.go             # 工厂模式创建交易所实例
+│   ├── types.go               # 通用数据结构
+│   ├── wrapper_*.go           # 适配器（包装各交易所）
+│   ├── binance/               # 币安实现
+│   ├── bitget/                # Bitget实现
+│   └── gate/                  # Gate.io实现
+│
+├── logger/                    # 日志系统
+│   └── logger.go              # 文件日志 + 控制台日志
+│
+├── monitor/                   # 价格监控
+│   └── price_monitor.go       # 全局唯一价格流
+│
+├── order/                     # 订单执行层
+│   └── executor_adapter.go    # 订单执行器（限流+重试）
+│
+├── position/                  # 仓位管理（核心）
+│   └── super_position_manager.go  # 超级槽位管理器
+│
+├── safety/                    # 安全与风控
+│   ├── safety.go              # 启动前安全检查
+│   ├── risk_monitor.go        # 主动风控（K线监控）
+│   ├── reconciler.go          # 持仓对账
+│   └── order_cleaner.go       # 订单清理
+│
+└── utils/                     # 工具函数
+    └── orderid.go             # 自定义订单ID生成
+```
+
 ## 最佳实践
 1.用来刷交易所vip，本系统是刷量神器，如果上涨下跌幅度不大，3000美元保证金两三天即可刷出1000万美元交易量。
 
