@@ -1,5 +1,8 @@
 <div align="center">
   <img src="https://r2.opensqt.com/opensqt_logo.png" alt="OpenSQT Logo" width="600"/>
+
+  # OpenSQT Market Maker
+  
   **毫秒级高频加密货币做市商系统 | High-Frequency Crypto Market Maker**
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
   [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
