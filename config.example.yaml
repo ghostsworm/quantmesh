@@ -19,20 +19,20 @@ exchanges:
 
   bybit:
   #BYBIT 开户邀请码【OPENSQT】开户链接：https://partner.bybit.com/b/OPENSQT
-    api_key: ""
+    api_key: "YOUR_API_KEY"
     secret_key: ""
     fee_rate: 0.0002
 
   gate:
   #GATE.IO 用我链接开户每笔交易省20%手续费 邀请码【OPENSQTC】开户链接：https://www.gatenode.xyz/share/OPENSQTC
-    api_key: ""
-    secret_key: ""
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
 
   edgex:
   #EDGEX 用我链接开户直升vip1,每笔交易省20%手续费 邀请码【OPENSQT】开户链接：https://pro.edgex.exchange/referral/OPENSQT
-    api_key: ""
-    secret_key: ""
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
     
   bit:
