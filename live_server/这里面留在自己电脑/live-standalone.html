@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenSQT.com 策略直播 - 独立版</title>
+    
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    
+    <style>
+        @keyframes floatUp {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+            20% { transform: translate(-50%, -100%) scale(1.2); opacity: 1; }
+            100% { transform: translate(-50%, -200%) scale(1); opacity: 0; }
+        }
+
+        .animate-spin-slow {
+            animation: spin 3s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotateY(0deg); }
+            to { transform: rotateY(360deg); }
+        }
+
+        .animate-pulse-slow {
+            animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.5s;
+        }
+        .fade-enter, .fade-leave-to {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body class="m-0 p-0 overflow-hidden">
+    <div id="app" class="relative w-full h-screen bg-black text-white overflow-hidden font-mono">
+        <!-- 1. 顶部控制栏 -->
+        <div class="absolute top-[80px] right-0 z-40 p-4 flex gap-2 items-center bg-gradient-to-b from-black/80 to-transparent pointer-events-auto justify-end">
+            <!-- 声音开关 -->
+            <button 
+                id="muteBtn"
+                class="bg-gray-800 hover:bg-gray-700 text-white p-2 rounded-full mr-2 transition-colors relative"
+                title="静音/取消静音"
+            >
+                <span id="soundIcon">🔇</span>
+                <div id="muteLine" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div class="w-full h-0.5 bg-red-500 -rotate-45 transform scale-75"></div>
+                </div>
+            </button>
+
+            <input 
+                id="wsUrl"
+                type="text"
+                value=""
+                placeholder="ws://IP:Port/ws (留空使用默认)" 
+                class="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm w-64 focus:outline-none focus:border-yellow-500 text-white"
+            />
+            
+            <button 
+                id="connectBtn"
+                class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-1 rounded text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                🔌 连接直播
+            </button>
+            
+            <button 
+                id="disconnectBtn"
+                class="bg-red-600 hover:bg-red-500 text-white px-4 py-1 rounded text-sm transition-colors hidden"
+            >
+                ❌ 断开连接
+            </button>
+            
+            <div id="liveIndicator" class="flex items-center gap-2 ml-2 hidden">
+                <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span class="text-xs text-green-500">Live Data</span>
+            </div>
+            
+            <!-- 错误提示 -->
+            <div id="errorBox" class="ml-4 text-xs text-red-400 bg-red-900/30 px-3 py-1 rounded border border-red-500/50 max-w-md hidden">
+            </div>
+        </div>
+
+        <!-- 2. 头部 HUD (统计信息) -->
+        <div class="absolute top-[90px] left-4 z-40 bg-gray-900/90 border border-gray-800 p-4 rounded-lg backdrop-blur-sm shadow-xl min-w-[240px]">
+            <div class="text-xs text-gray-400 mb-2">STRATEGY LIVE</div>
+            <div id="symbol" class="text-xl font-bold text-yellow-400 mb-3">---</div>
+            
+            <div class="flex justify-between items-center text-sm mb-2">
+                <span class="text-gray-400">Balance:</span>
+                <span id="balance" class="font-medium">0.00 USDT</span>
+            </div>
+            
+            <div class="flex justify-between items-center text-sm mb-2">
+                <span class="text-gray-400">Profit:</span>
+                <span id="profit" class="text-green-400 font-medium">+0.00</span>
+            </div>
+            
+            <div class="border-t border-gray-700 my-2"></div>
+            
+            <div class="flex justify-between items-center text-sm mb-1">
+                <span class="text-gray-400">Total Buys:</span>
+                <span id="totalBuys" class="text-red-400 font-medium">0</span>
+            </div>
+            
+            <div class="flex justify-between items-center text-sm">
+                <span class="text-gray-400">Total Sells:</span>
+                <span id="totalSells" class="text-green-400 font-medium">0</span>
+            </div>
+        </div>
+
+        <!-- 3. 中间提示信息 (未连接时显示) -->
+        <div id="welcomeScreen" class="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
+            <div class="bg-gray-900/95 border-2 border-yellow-500/50 rounded-xl p-8 text-center shadow-2xl animate-pulse-slow max-w-lg">
+                <div class="text-6xl mb-4">📊</div>
+                <h2 class="text-2xl font-bold text-yellow-400 mb-4">欢迎使用交易直播</h2>
+                <p class="text-gray-300 text-lg mb-2">请点击右上角 <span class="text-yellow-400 font-semibold">「连接直播」</span></p>
+                <p class="text-gray-400 text-sm">或连接您自己的 OpenSQT Live Server</p>
+                <p class="text-gray-500 text-xs mt-4">💡 本地版本支持 ws:// 和 wss:// 连接</p>
+            </div>
+        </div>
+
+        <!-- 4. 动画覆盖层 (金币、飘字) -->
+        <div id="animationLayer" class="absolute inset-0 pointer-events-none z-30 overflow-hidden"></div>
+
+        <!-- 5. TradingView 容器 -->
+        <div id="chartContainer" class="w-full h-full"></div>
+    </div>
+
+    <script>
+        // ============ State Variables ============
+        let ws = null;
+        let chart = null;
+        let candleSeries = null;
+        let volumeSeries = null;
+        let chartMarkers = [];
+        let activeOrderLines = new Map();
+        let hasConnectedOnce = false;
+        let isMuted = true;
+
+        const stats = {
+            symbol: 'ETHUSDC',
+            balance: 0,
+            profit: 0,
+            totalBuys: 0,
+            totalSells: 0
+        };
+
+        // ============ DOM Elements ============
+        const muteBtn = document.getElementById('muteBtn');
+        const soundIcon = document.getElementById('soundIcon');
+        const muteLine = document.getElementById('muteLine');
+        const wsUrlInput = document.getElementById('wsUrl');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const liveIndicator = document.getElementById('liveIndicator');
+        const errorBox = document.getElementById('errorBox');
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const chartContainer = document.getElementById('chartContainer');
+        const animationLayer = document.getElementById('animationLayer');
+
+        // ============ Helper Functions ============
+        function formatNumber(num) {
+            return new Intl.NumberFormat('en-US', { 
+                minimumFractionDigits: 2, 
+                maximumFractionDigits: 2 
+            }).format(num);
+        }
+
+        function updateStats() {
+            document.getElementById('symbol').textContent = stats.symbol || '---';
+            document.getElementById('balance').textContent = formatNumber(stats.balance) + ' USDT';
+            
+            const profitEl = document.getElementById('profit');
+            profitEl.textContent = (stats.profit >= 0 ? '+' : '') + formatNumber(stats.profit);
+            profitEl.className = stats.profit >= 0 ? 'text-green-400 font-medium' : 'text-red-400 font-medium';
+            
+            document.getElementById('totalBuys').textContent = stats.totalBuys;
+            document.getElementById('totalSells').textContent = stats.totalSells;
+        }
+
+        function showError(message) {
+            errorBox.textContent = message;
+            errorBox.classList.remove('hidden');
+        }
+
+        function hideError() {
+            errorBox.classList.add('hidden');
+        }
+
+        function playSound(type) {
+            if (isMuted) return;
+            
+            const audio = new Audio('coin.mp3');
+            audio.volume = 0.5;
+            audio.play().catch(e => console.error('Play sound failed:', e));
+        }
+
+        function triggerAnimation(type, price) {
+            const animDiv = document.createElement('div');
+            animDiv.className = 'absolute flex flex-col items-center justify-center pointer-events-none';
+            animDiv.style.left = '50%';
+            animDiv.style.top = '40%';
+            animDiv.style.transform = 'translate(-50%, -50%)';
+
+            if (type === 'sell') {
+                animDiv.innerHTML = `
+                    <div class="w-16 h-16 rounded-full border-4 border-yellow-500 bg-yellow-400/20 animate-spin-slow flex items-center justify-center mb-2 shadow-[0_0_20px_rgba(234,179,8,0.5)]">
+                        <span class="text-3xl">💰</span>
+                    </div>
+                `;
+            }
+
+            const textDiv = document.createElement('div');
+            textDiv.className = `text-4xl font-black drop-shadow-lg transform transition-all duration-1000 ease-out ${type === 'buy' ? 'text-red-500' : 'text-green-500'}`;
+            textDiv.style.animation = 'floatUp 2s forwards';
+            textDiv.innerHTML = `
+                ${type === 'buy' ? '买入' : '卖出'}
+                <span class="text-2xl block text-center text-white/80">${price}</span>
+            `;
+            animDiv.appendChild(textDiv);
+            
+            animationLayer.appendChild(animDiv);
+            playSound(type);
+
+            setTimeout(() => {
+                animDiv.remove();
+            }, 2000);
+        }
+
+        // ============ WebSocket Connection ============
+        function connect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+
+            const targetUrl = wsUrlInput.value.trim() || 'ws://localhost:8888/ws';
+            
+            // 验证 URL 格式
+            if (!targetUrl.startsWith('ws://') && !targetUrl.startsWith('wss://')) {
+                showError('⚠️ 请输入有效的 WebSocket 地址 (ws:// 或 wss://)');
+                return;
+            }
+            
+            hideError();
+            hasConnectedOnce = false;
+            
+            console.log('🔄 正在连接到:', targetUrl);
+            connectBtn.textContent = '⏳ 连接中...';
+            connectBtn.disabled = true;
+
+            try {
+                ws = new WebSocket(targetUrl);
+
+                // 连接超时
+                const connectTimeout = setTimeout(() => {
+                    if (!hasConnectedOnce && ws && ws.readyState !== WebSocket.OPEN) {
+                        console.error('❌ 连接超时');
+                        showError('连接超时，请检查服务器地址和网络');
+                        ws.close();
+                        connectBtn.textContent = '🔌 连接直播';
+                        connectBtn.disabled = false;
+                    }
+                }, 10000);
+
+                ws.onopen = () => {
+                    clearTimeout(connectTimeout);
+                    hasConnectedOnce = true;
+                    hideError();
+                    
+                    connectBtn.classList.add('hidden');
+                    disconnectBtn.classList.remove('hidden');
+                    liveIndicator.classList.remove('hidden');
+                    welcomeScreen.classList.add('hidden');
+                    
+                    console.log('✅ 已连接到策略直播服务器:', targetUrl);
+                };
+
+                ws.onclose = (event) => {
+                    clearTimeout(connectTimeout);
+                    
+                    connectBtn.classList.remove('hidden');
+                    disconnectBtn.classList.add('hidden');
+                    liveIndicator.classList.add('hidden');
+                    welcomeScreen.classList.remove('hidden');
+                    connectBtn.textContent = '🔌 连接直播';
+                    connectBtn.disabled = false;
+                    
+                    console.log('❌ 连接关闭', { code: event.code, reason: event.reason });
+                    
+                    if (hasConnectedOnce) {
+                        if (event.code === 1000) {
+                            showError('连接已正常关闭');
+                        } else {
+                            showError(`连接已断开 (代码: ${event.code})`);
+                        }
+                    } else {
+                        if (event.code === 1006) {
+                            showError('无法连接到服务器，请检查地址和端口是否正确');
+                        } else {
+                            showError(`连接失败 (代码: ${event.code}${event.reason ? ': ' + event.reason : ''})`);
+                        }
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    clearTimeout(connectTimeout);
+                    console.error('❌ WebSocket 错误:', error);
+                    connectBtn.textContent = '🔌 连接直播';
+                    connectBtn.disabled = false;
+                    
+                    if (!errorBox.textContent) {
+                        showError('连接出错，请检查服务器地址');
+                    }
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        handleMessage(msg);
+                    } catch (e) {
+                        console.error('解析消息错误:', e);
+                    }
+                };
+            } catch (error) {
+                console.error('❌ 创建 WebSocket 失败:', error);
+                showError('无法创建 WebSocket 连接: ' + error.message);
+                connectBtn.textContent = '🔌 连接直播';
+                connectBtn.disabled = false;
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        // ============ Message Handler ============
+        function handleMessage(msg) {
+            if (msg.type === 'history') {
+                if (candleSeries && volumeSeries) {
+                    const candles = msg.data.map(item => ({
+                        time: Number(item.time),
+                        open: parseFloat(item.open),
+                        high: parseFloat(item.high),
+                        low: parseFloat(item.low),
+                        close: parseFloat(item.close),
+                    }));
+                    
+                    const volumes = msg.data.map(item => ({
+                        time: Number(item.time),
+                        value: parseFloat(item.volume),
+                        color: parseFloat(item.close) >= parseFloat(item.open) ? '#26a69a' : '#ef5350',
+                    }));
+
+                    candleSeries.setData(candles);
+                    volumeSeries.setData(volumes);
+                    chart.timeScale().fitContent();
+                }
+            } else if (msg.type === 'kline') {
+                if (candleSeries && volumeSeries) {
+                    const time = Number(msg.data.time);
+                    const open = parseFloat(msg.data.open);
+                    const high = parseFloat(msg.data.high);
+                    const low = parseFloat(msg.data.low);
+                    const close = parseFloat(msg.data.close);
+                    const volume = parseFloat(msg.data.volume);
+                    
+                    candleSeries.update({ time, open, high, low, close });
+                    volumeSeries.update({ 
+                        time, 
+                        value: volume,
+                        color: close >= open ? '#26a69a' : '#ef5350'
+                    });
+                }
+            } else if (msg.type === 'account') {
+                if (msg.data && msg.data.asset) {
+                    // Update balance for stablecoin assets
+                    if (msg.data.asset === 'USDC' || msg.data.asset === 'USDT') {
+                        const balanceValue = msg.data.balance || msg.data.marginBalance || msg.data.free;
+                        if (balanceValue) {
+                            stats.balance = parseFloat(balanceValue);
+                            console.log(`💰 账户余额更新: ${stats.balance.toFixed(2)} ${msg.data.asset}`);
+                            updateStats();
+                        }
+                    }
+
+                    // Prefer explicit `symbol` field from server; fallback to `asset`
+                    const tradingSymbol = msg.data.symbol || msg.data.asset;
+                    if (tradingSymbol) {
+                        stats.symbol = tradingSymbol;
+                        updateStats();
+                    }
+                }
+            } else if (msg.type === 'orders') {
+                if (candleSeries) {
+                    const orders = Array.isArray(msg.data) ? msg.data : [msg.data];
+                    
+                    orders.forEach(order => {
+                        const orderId = String(order.id || `${order.side}-${order.price}`);
+                        
+                        console.log(`📋 Order Update: ID=${orderId}, Status=${order.status}`);
+                        
+                        if (order.status === 'FILLED' || order.status === 'CANCELED' || order.status === 'EXPIRED') {
+                            if (activeOrderLines.has(orderId)) {
+                                candleSeries.removePriceLine(activeOrderLines.get(orderId));
+                                activeOrderLines.delete(orderId);
+                                console.log(`✅ Removed order line: ${orderId}`);
+                            }
+                            return;
+                        }
+
+                        if (order.status === 'NEW' || order.status === 'PARTIALLY_FILLED') {
+                            if (activeOrderLines.has(orderId)) {
+                                candleSeries.removePriceLine(activeOrderLines.get(orderId));
+                            }
+
+                            const price = parseFloat(order.price);
+                            const priceLine = candleSeries.createPriceLine({
+                                price: price,
+                                color: order.side === 'BUY' ? '#22c55e' : '#ef4444',
+                                lineWidth: 2,
+                                lineStyle: 2,
+                                axisLabelVisible: true,
+                                title: order.side === 'BUY' ? '买' : '卖',
+                            });
+                            activeOrderLines.set(orderId, priceLine);
+                            console.log(`➕ Added order line: ${orderId} @ ${order.price}`);
+                        }
+                    });
+                }
+            } else if (msg.type === 'trade_event') {
+                const price = parseFloat(msg.data.price);
+                const side = msg.data.side;
+                let tradeTime = msg.data.time || Math.floor(Date.now() / 1000);
+                tradeTime = Math.floor(tradeTime / 60) * 60;
+                
+                if (side === 'buy') {
+                    stats.totalBuys++;
+                } else {
+                    stats.totalSells++;
+                    stats.profit += 1.0;
+                }
+                updateStats();
+                
+                const newMarker = {
+                    time: tradeTime,
+                    position: side === 'buy' ? 'belowBar' : 'aboveBar',
+                    color: side === 'buy' ? '#ef4444' : '#22c55e',
+                    shape: side === 'buy' ? 'arrowUp' : 'arrowDown',
+                    text: side === 'buy' ? '买' : '卖',
+                    size: 2,
+                };
+                
+                chartMarkers.push(newMarker);
+                
+                if (chartMarkers.length > 50) {
+                    chartMarkers = chartMarkers.slice(-50);
+                }
+                
+                chartMarkers.sort((a, b) => a.time - b.time);
+                
+                if (candleSeries) {
+                    try {
+                        candleSeries.setMarkers(chartMarkers);
+                    } catch (err) {
+                        console.error('Error setting markers:', err);
+                    }
+                }
+
+                triggerAnimation(side, price.toFixed(2));
+                console.log(`✅ Trade Marker Added: ${side.toUpperCase()} @ ${price}`);
+            }
+        }
+
+        // ============ Event Listeners ============
+        muteBtn.addEventListener('click', () => {
+            isMuted = !isMuted;
+            soundIcon.textContent = isMuted ? '🔇' : '🔊';
+            muteLine.style.display = isMuted ? 'flex' : 'none';
+        });
+
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+
+        // ============ Chart Initialization ============
+        function initChart() {
+            chart = LightweightCharts.createChart(chartContainer, {
+                layout: {
+                    background: { color: '#000000' },
+                    textColor: '#d1d5db',
+                },
+                grid: {
+                    vertLines: { color: '#1f2937' },
+                    horzLines: { color: '#1f2937' },
+                },
+                width: chartContainer.clientWidth,
+                height: chartContainer.clientHeight,
+                timeScale: {
+                    timeVisible: true,
+                    secondsVisible: true,
+                    rightOffset: 5,
+                },
+            });
+
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#22c55e',
+                downColor: '#ef4444',
+                borderVisible: false,
+                wickUpColor: '#22c55e',
+                wickDownColor: '#ef4444',
+            });
+            
+            volumeSeries = chart.addHistogramSeries({
+                color: '#26a69a',
+                priceFormat: {
+                    type: 'volume',
+                },
+                priceScaleId: '',
+            });
+            
+            volumeSeries.priceScale().applyOptions({
+                scaleMargins: {
+                    top: 0.8,
+                    bottom: 0,
+                },
+            });
+
+            // Resize observer
+            const resizeObserver = new ResizeObserver(entries => {
+                if (entries.length === 0 || entries[0].target !== chartContainer) return;
+                const newRect = entries[0].contentRect;
+                chart.applyOptions({ width: newRect.width, height: newRect.height });
+            });
+            resizeObserver.observe(chartContainer);
+            
+            console.log('✅ Chart initialized successfully');
+            
+            // 自动连接
+            setTimeout(() => {
+                connect();
+                console.log('Auto-connecting to default live server...');
+            }, 500);
+        }
+
+        // ============ Initialize on Load ============
+        window.addEventListener('load', () => {
+            initChart();
+        });
+
+        // Cleanup on unload
+        window.addEventListener('beforeunload', () => {
+            if (ws) ws.close();
+            if (chart) chart.remove();
+        });
+    </script>
+</body>
+</html>
+

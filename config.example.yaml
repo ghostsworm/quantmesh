@@ -1,0 +1,133 @@
+# 应用配置
+app:
+  current_exchange: "bitget"  # 当前使用的交易所: binance, bitget, bybit, gate, edgex
+
+# 多交易所配置
+exchanges:
+  binance:
+  #币安 开户邀请码【OPENSQT】开户链接：https://accounts.maxweb.chat/register?ref=OPENSQT
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0000  # USDT 合约手续费率 0.02%
+  
+  bitget:
+  #BITGET 用我链接开户每笔交易省20%手续费 邀请码【opensqt】开户链接：https://partner.hdmune.cn/bg/mtm6553a
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    passphrase: "YOUR_PASSPHRASE"
+    fee_rate: 0.0002
+
+  bybit:
+  #BYBIT 开户邀请码【OPENSQT】开户链接：https://partner.bybit.com/b/OPENSQT
+    api_key: ""
+    secret_key: ""
+    fee_rate: 0.0002
+
+  gate:
+  #GATE.IO 用我链接开户每笔交易省20%手续费 邀请码【OPENSQTC】开户链接：https://www.gatenode.xyz/share/OPENSQTC
+    api_key: ""
+    secret_key: ""
+    fee_rate: 0.0002
+
+  edgex:
+  #EDGEX 用我链接开户直升vip1,每笔交易省20%手续费 邀请码【OPENSQT】开户链接：https://pro.edgex.exchange/referral/OPENSQT
+    api_key: ""
+    secret_key: ""
+    fee_rate: 0.0002
+    
+  bit:
+  #bit.com 用我链接开户,每笔交易省50%手续费 邀请码【OPENSQT】开户链接：https://bitweb.bitexch.io/zh-CN/signup?code=OPENSQT
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+####################################
+
+trading:
+  symbol: "ETHUSDT"
+  price_interval: 2         # 价格间隔（1美元）
+  order_quantity: 30        # 每单购买金额（USDT/USDC）如 30 表示每单投入30U
+  min_order_value: 20       # 最小订单价值（USDT），小于此值不挂单（默认20U）
+  # 注意：price_decimals 和 quantity_decimals 已移除，现在从交易所自动获取
+  
+  #ETH配置建议(每单赚1美分):
+  #价格间隔：1 美元
+  #订单金额：30 USDT（每单投入30U，价格3000时买0.01 ETH，价格1500时买0.02 ETH）
+  #价格小数位数：2
+  #数量小数位数：3
+
+  #ETH配置建议(每单赚10美分):
+  #价格间隔：10 美元
+  #订单金额：300 USDT (每单投入300U，需要大量保证金)
+  #价格小数位数：2
+
+  #DOGE建议（每单赚2美分）：
+  #价格间隔：0.0001 美元
+  #订单金额：20 USDT（价格0.1时买200 DOGE，价格0.2时买100 DOGE）
+  #价格小数位数：6
+
+#####################################
+
+  # 滑动窗口配置
+  buy_window_size: 10          # 下方买单数量
+  sell_window_size: 10         # 上方卖单数量
+
+  # 对账配置
+  reconcile_interval: 60      # 对账间隔（秒）
+
+  # 订单管理配置
+  order_cleanup_threshold: 50      # 订单清理上限（超过此数量时触发清理）
+  cleanup_batch_size: 20           # 清理批次大小（每次清理的买单和卖单数量）
+  margin_lock_duration_seconds: 20  # 保证金不足时锁定时间（秒，默认10秒）
+  
+  # 持仓安全性配置
+  position_safety_check: 100        # 持仓安全性检查（默认100，最少能向下持有多少仓）
+
+
+# 时间间隔配置
+timing:
+  # WebSocket相关
+  websocket_reconnect_delay: 5      # WebSocket断线重连等待时间（秒，默认5）
+  websocket_write_wait: 10          # WebSocket写入等待时间（秒，默认10）
+  websocket_pong_wait: 60           # WebSocket PONG等待时间（秒，默认60）
+  websocket_ping_interval: 20       # WebSocket PING间隔（秒，默认20）
+  listen_key_keepalive_interval: 30 # listenKey保活间隔（分钟，默认30）
+
+  # 价格监控相关
+  price_send_interval: 50           # 定期发送价格的间隔（毫秒，默认50）
+
+  # 订单执行相关
+  rate_limit_retry_delay: 1         # 速率限制重试等待时间（秒，默认1）
+  order_retry_delay: 500            # 其他错误重试等待时间（毫秒，默认500）
+  price_poll_interval: 500          # 等待获取价格的轮询间隔（毫秒，默认500）
+  status_print_interval: 1          # 定期打印状态的间隔（分钟，默认1）
+  order_cleanup_interval: 10        # 订单清理检查间隔（秒，默认10）
+
+system:
+  # 日志级别: DEBUG(调试) / INFO(信息) / WARN(警告) / ERROR(错误) / FATAL(致命)
+  # DEBUG: 输出所有日志，包括调试信息（最详细）
+  # INFO: 输出一般信息、警告、错误和致命错误（推荐生产环境）
+  # WARN: 只输出警告、错误和致命错误
+  # ERROR: 只输出错误和致命错误
+  # FATAL: 只输出致命错误
+  log_level: "INFO"
+  cancel_on_exit: true        # 退出时撤销所有订单（默认开启true,关闭用false）
+
+# 主动安全风控配置（基于移动平均线）
+risk_control:
+  enabled: true               # 是否启用风控（默认开启true,关闭用false）
+  
+  # 监控的主流币种（用于判断市场整体情绪）
+  monitor_symbols:
+    - "BTCUSDT"
+    - "ETHUSDT"
+    - "SOLUSDT"
+    - "XRPUSDT"
+    - "DOGEUSDT"
+  
+  interval: "1m"              # K线周期：1m / 3m / 5m
+  volume_multiplier: 3.0      # 成交量倍数：当前量 > 均值×3倍视为异常
+  average_window: 20          # 移动平均窗口：50根K线
+  recovery_threshold: 3       # 恢复交易所需的正常币种数量（默认3个币种恢复正常即可恢复交易）
+  
+  # 触发条件：当前价格 < 移动均价 且 成交量 > 均值×倍数
+  # 解除条件：至少 recovery_threshold 个币种满足（当前价格 > 移动均价 且 成交量 < 均值×倍数）
