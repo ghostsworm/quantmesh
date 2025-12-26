@@ -23,6 +23,8 @@
 - 新增修改密码 API (`POST /api/auth/password/change`)
 - **引入 Tailwind CSS 现代化 UI 框架**，提升前端开发效率和界面美观度
 - **新增亏损率显示功能**，在持仓概览页面显示相对于持仓成本的盈亏百分比
+- **新增K线图页面**，支持查看当前交易币种的K线数据和成交量，支持时间周期切换（1m/5m/15m/30m/1h/4h/1d），使用 lightweight-charts 库渲染专业级K线图表
+- 新增K线数据API (`GET /api/klines`)，支持查询历史K线数据
 
 ### 修复
 - 修复 ReduceOnly 订单被拒绝时持续重试的问题（币安 API 错误码 -2022）
