@@ -115,12 +115,24 @@ type BinanceAdapter struct {
 	quantityDecimals int    // 数量精度（小数位数）
 	baseAsset        string // 基础资产（交易币种），如 BTC
 	quoteAsset       string // 计价资产（结算币种），如 USDT、USD
+	useTestnet       bool   // 是否使用测试网
 }
 
 // NewBinanceAdapter 创建币安适配器
 func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, error) {
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
+	testnetStr := cfg["testnet"]
+
+	// 解析测试网配置
+	useTestnet := false
+	if testnetStr == "true" {
+		useTestnet = true
+		logger.Info("🌐 [Binance] 使用测试网模式")
+	}
+
+	// 设置测试网模式（必须在创建客户端之前设置）
+	futures.UseTestnet = useTestnet
 
 	if apiKey == "" || secretKey == "" {
 		return nil, fmt.Errorf("Binance API 配置不完整")
@@ -131,12 +143,13 @@ func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, e
 	// 同步服务器时间
 	client.NewSetServerTimeService().Do(context.Background())
 
-	wsManager := NewWebSocketManager(apiKey, secretKey)
+	wsManager := NewWebSocketManager(apiKey, secretKey, useTestnet)
 
 	adapter := &BinanceAdapter{
-		client:    client,
-		symbol:    symbol,
-		wsManager: wsManager,
+		client:     client,
+		symbol:     symbol,
+		wsManager:  wsManager,
+		useTestnet: useTestnet,
 	}
 
 	// 获取合约信息（价格精度、数量精度等）
@@ -565,7 +578,7 @@ func (b *BinanceAdapter) StartPriceStream(ctx context.Context, symbol string, ca
 // StartKlineStream 启动K线流（WebSocket）
 func (b *BinanceAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(candle interface{})) error {
 	if b.klineWSManager == nil {
-		b.klineWSManager = NewKlineWebSocketManager()
+		b.klineWSManager = NewKlineWebSocketManager(b.useTestnet)
 	}
 	return b.klineWSManager.Start(ctx, symbols, interval, callback)
 }

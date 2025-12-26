@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	MaxLeverage = 10 // 最大允许杠杆倍数（硬编码）
+	DefaultMaxLeverage = 10 // 默认最大允许杠杆倍数
 )
 
 // CheckAccountSafety 检查账户安全性（支持所有交易所）
@@ -21,7 +21,8 @@ const (
 //   - feeRate: 手续费率
 //   - requiredPositions: 要求的最少持仓数量（默认100）
 //   - priceDecimals: 价格小数位数（用于格式化显示）
-func CheckAccountSafety(ex exchange.IExchange, symbol string, currentPrice, orderAmount, priceInterval, feeRate float64, requiredPositions, priceDecimals int) error {
+//   - maxLeverage: 最大允许杠杆倍数（0表示不限制，默认使用DefaultMaxLeverage）
+func CheckAccountSafety(ex exchange.IExchange, symbol string, currentPrice, orderAmount, priceInterval, feeRate float64, requiredPositions, priceDecimals int, maxLeverage int) error {
 	logger.Info("🔒 ===== 开始持仓安全性检查 =====")
 
 	// 从交易所接口获取计价币种（支持U本位和币本位合约）
@@ -80,9 +81,15 @@ func CheckAccountSafety(ex exchange.IExchange, symbol string, currentPrice, orde
 
 	logger.Info("📊 交易所: %s, 交易对: %s, 当前杠杆倍数: %dx, 当前持仓: %.4f", exchangeName, symbol, leverage, positionAmt)
 
-	// 3. 强制杠杆倍数检查（硬编码最多10倍）
-	if leverage > MaxLeverage {
-		return fmt.Errorf("您的账户杠杆倍率太高（%dx），风险太大，禁止开仓。最大允许杠杆倍数: %dx", leverage, MaxLeverage)
+	// 3. 强制杠杆倍数检查
+	// 如果 maxLeverage 为 0，使用默认值；如果 maxLeverage > 0，使用配置值
+	effectiveMaxLeverage := maxLeverage
+	if effectiveMaxLeverage == 0 {
+		effectiveMaxLeverage = DefaultMaxLeverage
+	}
+	
+	if effectiveMaxLeverage > 0 && leverage > effectiveMaxLeverage {
+		return fmt.Errorf("您的账户杠杆倍率太高（%dx），风险太大，禁止开仓。最大允许杠杆倍数: %dx（可在配置文件中修改 risk_control.max_leverage）", leverage, effectiveMaxLeverage)
 	}
 
 	// 4. 计算最大可持有仓位

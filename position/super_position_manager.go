@@ -914,6 +914,59 @@ func (spm *SuperPositionManager) IterateSlots(fn func(price float64, slot interf
 	})
 }
 
+// DetailedSlotData 详细槽位数据结构（包含所有字段）
+type DetailedSlotData struct {
+	Price          float64
+	PositionStatus string
+	PositionQty    float64
+	OrderID        int64
+	ClientOID      string
+	OrderSide      string
+	OrderStatus    string
+	OrderPrice     float64
+	OrderFilledQty float64
+	OrderCreatedAt time.Time
+	SlotStatus     string
+}
+
+// GetAllSlotsDetailed 获取所有槽位的详细信息
+func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
+	var slots []DetailedSlotData
+	spm.slots.Range(func(key, value interface{}) bool {
+		price := key.(float64)
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		
+		slots = append(slots, DetailedSlotData{
+			Price:          price,
+			PositionStatus: slot.PositionStatus,
+			PositionQty:    slot.PositionQty,
+			OrderID:        slot.OrderID,
+			ClientOID:      slot.ClientOID,
+			OrderSide:      slot.OrderSide,
+			OrderStatus:    slot.OrderStatus,
+			OrderPrice:     slot.OrderPrice,
+			OrderFilledQty: slot.OrderFilledQty,
+			OrderCreatedAt: slot.OrderCreatedAt,
+			SlotStatus:     slot.SlotStatus,
+		})
+		
+		slot.mu.RUnlock()
+		return true
+	})
+	return slots
+}
+
+// GetSlotCount 获取槽位总数
+func (spm *SuperPositionManager) GetSlotCount() int {
+	count := 0
+	spm.slots.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+	return count
+}
+
 // GetTotalBuyQty 获取累计买入数量（IPositionManager 接口方法，供 Reconciler 使用）
 func (spm *SuperPositionManager) GetTotalBuyQty() float64 {
 	return spm.totalBuyQty.Load().(float64)
@@ -937,6 +990,15 @@ func (spm *SuperPositionManager) IncrementReconcileCount() {
 // UpdateLastReconcileTime 更新最后对账时间（IPositionManager 接口方法，供 Reconciler 使用）
 func (spm *SuperPositionManager) UpdateLastReconcileTime(t time.Time) {
 	spm.lastReconcileTime.Store(t)
+}
+
+// GetLastReconcileTime 获取最后对账时间
+func (spm *SuperPositionManager) GetLastReconcileTime() time.Time {
+	v := spm.lastReconcileTime.Load()
+	if v == nil {
+		return time.Time{}
+	}
+	return v.(time.Time)
 }
 
 // GetSymbol 获取交易符号

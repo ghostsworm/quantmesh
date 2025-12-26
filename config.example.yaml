@@ -9,6 +9,7 @@ exchanges:
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0000  # USDT 合约手续费率 0.02%
+    testnet: false    # 是否使用测试网（true=测试网, false=主网）
   
   bitget:
   #BITGET 用我链接开户每笔交易省20%手续费 邀请码【opensqt】开户链接：https://partner.hdmune.cn/bg/mtm6553a
@@ -128,6 +129,69 @@ risk_control:
   volume_multiplier: 3.0      # 成交量倍数：当前量 > 均值×3倍视为异常
   average_window: 20          # 移动平均窗口：50根K线
   recovery_threshold: 3       # 恢复交易所需的正常币种数量（默认3个币种恢复正常即可恢复交易）
+  max_leverage: 10            # 最大允许杠杆倍数（默认10，设置为0表示不限制）
   
   # 触发条件：当前价格 < 移动均价 且 成交量 > 均值×倍数
   # 解除条件：至少 recovery_threshold 个币种满足（当前价格 > 移动均价 且 成交量 < 均值×倍数）
+
+# 通知配置
+notifications:
+  enabled: true               # 是否启用通知（默认开启true,关闭用false）
+  
+  telegram:
+    enabled: false            # 是否启用 Telegram 通知
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+  
+  webhook:
+    enabled: false            # 是否启用 Webhook 通知
+    url: "https://your-webhook-url.com/api/notify"
+    timeout: 3                # 超时时间（秒，默认3）
+  
+  email:
+    enabled: false            # 是否启用邮件通知
+    provider: "smtp"          # 邮件服务商：smtp/resend/mailgun
+    
+    # SMTP 配置
+    smtp:
+      host: "smtp.example.com"
+      port: 587
+      username: "your_username"
+      password: "your_password"
+    
+    # Resend 配置（需要安装 resend-go 库）
+    resend:
+      api_key: "YOUR_RESEND_API_KEY"
+    
+    # Mailgun 配置（需要安装 mailgun-go 库）
+    mailgun:
+      api_key: "YOUR_MAILGUN_API_KEY"
+      domain: "your_domain.com"
+    
+    from: "alerts@yourdomain.com"
+    to: "admin@yourdomain.com"
+    subject: "OpenSQT 交易通知"
+  
+  # 通知规则：哪些事件需要通知
+  rules:
+    order_placed: false       # 订单下单（默认关闭，避免通知过多）
+    order_filled: true        # 订单成交（默认开启）
+    risk_triggered: true      # 风控触发（默认开启）
+    stop_loss: true          # 止损触发（默认开启）
+    error: true              # 系统错误（默认开启）
+
+# 存储配置
+storage:
+  enabled: true               # 是否启用数据存储（默认开启true,关闭用false）
+  type: "sqlite"              # 存储类型：sqlite
+  path: "./data/opensqt.db"   # 数据库文件路径
+  buffer_size: 1000           # 缓冲区大小（默认1000）
+  batch_size: 100             # 批量写入大小（默认100）
+  flush_interval: 5           # 刷新间隔（秒，默认5）
+
+# Web服务配置
+web:
+  enabled: true               # 是否启用Web服务（默认开启true,关闭用false）
+  host: "0.0.0.0"             # 监听地址（默认0.0.0.0，监听所有地址）
+  port: 28888                 # 监听端口（默认28888，使用10000以上端口避免常见端口冲突）
+  api_key: ""                 # API密钥（可选，用于认证）

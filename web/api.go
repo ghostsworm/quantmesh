@@ -1,0 +1,1489 @@
+package web
+
+import (
+	"math"
+	"net/http"
+	"reflect"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"opensqt/position"
+	"opensqt/storage"
+)
+
+// SystemStatus 系统状态
+type SystemStatus struct {
+	Running       bool    `json:"running"`
+	Exchange      string  `json:"exchange"`
+	Symbol        string  `json:"symbol"`
+	CurrentPrice  float64 `json:"current_price"`
+	TotalPnL      float64 `json:"total_pnl"`
+	TotalTrades   int     `json:"total_trades"`
+	RiskTriggered bool    `json:"risk_triggered"`
+	Uptime        int64   `json:"uptime"` // 运行时间（秒）
+}
+
+var (
+	// 全局状态（需要从 main.go 注入）
+	currentStatus *SystemStatus
+)
+
+// SetStatusProvider 设置状态提供者
+func SetStatusProvider(status *SystemStatus) {
+	currentStatus = status
+}
+
+func getStatus(c *gin.Context) {
+	if currentStatus == nil {
+		c.JSON(http.StatusOK, &SystemStatus{
+			Running: false,
+		})
+		return
+	}
+	c.JSON(http.StatusOK, currentStatus)
+}
+
+// PositionSummary 持仓汇总信息
+type PositionSummary struct {
+	TotalQuantity    float64 `json:"total_quantity"`     // 总持仓数量
+	TotalValue       float64 `json:"total_value"`        // 总持仓价值（当前价格 * 数量）
+	PositionCount    int     `json:"position_count"`     // 持仓槽位数
+	AveragePrice     float64 `json:"average_price"`       // 平均持仓价格
+	CurrentPrice     float64 `json:"current_price"`       // 当前市场价格
+	UnrealizedPnL    float64 `json:"unrealized_pnl"`      // 未实现盈亏
+	Positions        []PositionInfo `json:"positions"`     // 持仓列表
+}
+
+// PositionInfo 单个持仓信息
+type PositionInfo struct {
+	Price          float64 `json:"price"`           // 持仓价格
+	Quantity       float64 `json:"quantity"`        // 持仓数量
+	Value          float64 `json:"value"`           // 持仓价值
+	UnrealizedPnL  float64 `json:"unrealized_pnl"`  // 未实现盈亏
+}
+
+var (
+	// 价格提供者（需要从main.go注入）
+	priceProvider PriceProvider
+)
+
+// PriceProvider 价格提供者接口
+type PriceProvider interface {
+	GetLastPrice() float64
+}
+
+// SetPriceProvider 设置价格提供者
+func SetPriceProvider(provider PriceProvider) {
+	priceProvider = provider
+}
+
+// getPositions 获取持仓列表（从槽位数据筛选）
+func getPositions(c *gin.Context) {
+	if positionManagerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"positions": []interface{}{}})
+		return
+	}
+
+	slots := positionManagerProvider.GetAllSlots()
+	var positions []PositionInfo
+	currentPrice := 0.0
+	if priceProvider != nil {
+		currentPrice = priceProvider.GetLastPrice()
+	}
+
+	totalQuantity := 0.0
+	totalValue := 0.0
+	positionCount := 0
+
+	// 筛选有持仓的槽位
+	for _, slot := range slots {
+		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 {
+			positionCount++
+			totalQuantity += slot.PositionQty
+			
+			// 计算持仓价值（使用当前价格）
+			value := slot.PositionQty * currentPrice
+			if currentPrice == 0 {
+				// 如果当前价格不可用，使用持仓价格
+				value = slot.PositionQty * slot.Price
+			}
+			totalValue += value
+
+			// 计算未实现盈亏
+			unrealizedPnL := 0.0
+			if currentPrice > 0 {
+				unrealizedPnL = (currentPrice - slot.Price) * slot.PositionQty
+			}
+
+			positions = append(positions, PositionInfo{
+				Price:         slot.Price,
+				Quantity:      slot.PositionQty,
+				Value:         value,
+				UnrealizedPnL: unrealizedPnL,
+			})
+		}
+	}
+
+	// 计算平均持仓价格
+	averagePrice := 0.0
+	if totalQuantity > 0 {
+		totalCost := 0.0
+		for _, pos := range positions {
+			totalCost += pos.Price * pos.Quantity
+		}
+		averagePrice = totalCost / totalQuantity
+	}
+
+	// 计算总未实现盈亏
+	totalUnrealizedPnL := 0.0
+	if currentPrice > 0 {
+		for _, pos := range positions {
+			totalUnrealizedPnL += pos.UnrealizedPnL
+		}
+	}
+
+	summary := PositionSummary{
+		TotalQuantity: totalQuantity,
+		TotalValue:    totalValue,
+		PositionCount: positionCount,
+		AveragePrice:  averagePrice,
+		CurrentPrice:  currentPrice,
+		UnrealizedPnL: totalUnrealizedPnL,
+		Positions:     positions,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"summary": summary})
+}
+
+// getPositionsSummary 获取持仓汇总
+// GET /api/positions/summary
+func getPositionsSummary(c *gin.Context) {
+	if positionManagerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"total_quantity": 0,
+			"total_value":    0,
+			"position_count": 0,
+			"average_price":  0,
+			"current_price":  0,
+			"unrealized_pnl": 0,
+		})
+		return
+	}
+
+	slots := positionManagerProvider.GetAllSlots()
+	currentPrice := 0.0
+	if priceProvider != nil {
+		currentPrice = priceProvider.GetLastPrice()
+	}
+
+	totalQuantity := 0.0
+	totalValue := 0.0
+	positionCount := 0
+	totalCost := 0.0
+
+	// 筛选有持仓的槽位
+	for _, slot := range slots {
+		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 {
+			positionCount++
+			totalQuantity += slot.PositionQty
+			totalCost += slot.Price * slot.PositionQty
+			
+			// 计算持仓价值（使用当前价格）
+			if currentPrice > 0 {
+				totalValue += slot.PositionQty * currentPrice
+			} else {
+				// 如果当前价格不可用，使用持仓价格
+				totalValue += slot.PositionQty * slot.Price
+			}
+		}
+	}
+
+	// 计算平均持仓价格
+	averagePrice := 0.0
+	if totalQuantity > 0 {
+		averagePrice = totalCost / totalQuantity
+	}
+
+	// 计算总未实现盈亏
+	unrealizedPnL := 0.0
+	if currentPrice > 0 && totalQuantity > 0 {
+		unrealizedPnL = (currentPrice - averagePrice) * totalQuantity
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"total_quantity": totalQuantity,
+		"total_value":    totalValue,
+		"position_count": positionCount,
+		"average_price":  averagePrice,
+		"current_price":  currentPrice,
+		"unrealized_pnl": unrealizedPnL,
+	})
+}
+
+// getOrders 获取订单列表（历史订单）
+// GET /api/orders
+func getOrders(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
+		return
+	}
+
+	// 解析参数
+	limitStr := c.DefaultQuery("limit", "100")
+	offsetStr := c.DefaultQuery("offset", "0")
+	status := c.Query("status")
+	
+	limit := 100
+	offset := 0
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+	}
+	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		offset = o
+	}
+
+	orders, err := storage.QueryOrders(limit, offset, status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"orders": orders})
+}
+
+// getOrderHistory 获取订单历史
+// GET /api/orders/history
+func getOrderHistory(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
+		return
+	}
+
+	// 解析参数
+	limitStr := c.DefaultQuery("limit", "100")
+	offsetStr := c.DefaultQuery("offset", "0")
+	
+	limit := 100
+	offset := 0
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+	}
+	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		offset = o
+	}
+
+	// 只查询已完成或已取消的订单
+	orders, err := storage.QueryOrders(limit, offset, "FILLED")
+	if err != nil {
+		// 如果查询失败，尝试查询所有状态的订单
+		orders, err = storage.QueryOrders(limit, offset, "")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	// 也查询已取消的订单
+	canceledOrders, err := storage.QueryOrders(limit, offset, "CANCELED")
+	if err == nil {
+		orders = append(orders, canceledOrders...)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"orders": orders})
+}
+
+var (
+	// 存储服务提供者（需要从main.go注入）
+	storageServiceProvider StorageServiceProvider
+)
+
+// StorageServiceProvider 存储服务提供者接口
+type StorageServiceProvider interface {
+	GetStorage() storage.Storage
+}
+
+// SetStorageServiceProvider 设置存储服务提供者
+func SetStorageServiceProvider(provider StorageServiceProvider) {
+	storageServiceProvider = provider
+}
+
+// storageServiceAdapter 存储服务适配器
+type storageServiceAdapter struct {
+	service *storage.StorageService
+}
+
+// NewStorageServiceAdapter 创建存储服务适配器
+func NewStorageServiceAdapter(service *storage.StorageService) StorageServiceProvider {
+	return &storageServiceAdapter{service: service}
+}
+
+// GetStorage 获取存储接口
+func (a *storageServiceAdapter) GetStorage() storage.Storage {
+	if a.service == nil {
+		return nil
+	}
+	return a.service.GetStorage()
+}
+
+// getStatistics 获取统计数据
+// GET /api/statistics
+func getStatistics(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"total_trades":  0,
+			"total_volume":  0,
+			"total_pnl":     0,
+			"win_rate":      0,
+		})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"total_trades":  0,
+			"total_volume":  0,
+			"total_pnl":     0,
+			"win_rate":      0,
+		})
+		return
+	}
+
+	// 从数据库获取统计汇总
+	summary, err := storage.GetStatisticsSummary()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 如果数据库没有数据，尝试从 SuperPositionManager 计算
+	if summary.TotalTrades == 0 && positionManagerProvider != nil {
+		slots := positionManagerProvider.GetAllSlots()
+		totalBuyQty := 0.0
+		totalSellQty := 0.0
+		
+		for _, slot := range slots {
+			if slot.OrderSide == "BUY" && slot.OrderStatus == "FILLED" {
+				totalBuyQty += slot.OrderFilledQty
+			} else if slot.OrderSide == "SELL" && slot.OrderStatus == "FILLED" {
+				totalSellQty += slot.OrderFilledQty
+			}
+		}
+		
+		// 估算交易数（买卖配对）
+		totalTrades := int((totalBuyQty + totalSellQty) / 2)
+		if totalTrades > 0 {
+			summary.TotalTrades = totalTrades
+			summary.TotalVolume = totalBuyQty + totalSellQty
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"total_trades": summary.TotalTrades,
+		"total_volume": summary.TotalVolume,
+		"total_pnl":    summary.TotalPnL,
+		"win_rate":     summary.WinRate,
+	})
+}
+
+// getDailyStatistics 获取每日统计
+// GET /api/statistics/daily
+func getDailyStatistics(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"statistics": []interface{}{}})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"statistics": []interface{}{}})
+		return
+	}
+
+	// 解析参数
+	daysStr := c.DefaultQuery("days", "30")
+	days := 30
+	if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+		days = d
+	}
+
+	startDate := time.Now().AddDate(0, 0, -days)
+	endDate := time.Now()
+
+	stats, err := storage.QueryStatistics(startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"statistics": stats})
+}
+
+// getTradeStatistics 获取交易统计
+// GET /api/statistics/trades
+func getTradeStatistics(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"trades": []interface{}{}})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"trades": []interface{}{}})
+		return
+	}
+
+	// 解析参数
+	limitStr := c.DefaultQuery("limit", "100")
+	offsetStr := c.DefaultQuery("offset", "0")
+	limit := 100
+	offset := 0
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+	}
+	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		offset = o
+	}
+
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+	
+	var startTime, endTime time.Time
+	var err error
+	
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			return
+		}
+	} else {
+		startTime = time.Now().AddDate(0, 0, -7) // 默认最近7天
+	}
+	
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	trades, err := storage.QueryTrades(startTime, endTime, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"trades": trades})
+}
+
+func getConfig(c *gin.Context) {
+	// TODO: 实现获取配置
+	c.JSON(http.StatusOK, gin.H{"config": map[string]interface{}{}})
+}
+
+func updateConfig(c *gin.Context) {
+	// TODO: 实现更新配置
+	c.JSON(http.StatusOK, gin.H{"message": "配置更新成功"})
+}
+
+func startTrading(c *gin.Context) {
+	// TODO: 实现启动交易
+	c.JSON(http.StatusOK, gin.H{"message": "交易已启动"})
+}
+
+func stopTrading(c *gin.Context) {
+	// TODO: 实现停止交易
+	c.JSON(http.StatusOK, gin.H{"message": "交易已停止"})
+}
+
+// ========== 系统监控相关API ==========
+
+var (
+	// 系统监控数据提供者（需要从main.go注入）
+	systemMetricsProvider SystemMetricsProvider
+)
+
+// SystemMetricsProvider 系统监控数据提供者接口
+type SystemMetricsProvider interface {
+	GetCurrentMetrics() (*SystemMetricsResponse, error)
+	GetMetrics(startTime, endTime time.Time, granularity string) ([]*SystemMetricsResponse, error)
+	GetDailyMetrics(days int) ([]*DailySystemMetricsResponse, error)
+}
+
+// SystemMetricsResponse 系统监控数据响应
+type SystemMetricsResponse struct {
+	Timestamp     time.Time `json:"timestamp"`
+	CPUPercent    float64   `json:"cpu_percent"`
+	MemoryMB      float64   `json:"memory_mb"`
+	MemoryPercent float64   `json:"memory_percent"`
+	ProcessID     int       `json:"process_id"`
+}
+
+// DailySystemMetricsResponse 每日汇总数据响应
+type DailySystemMetricsResponse struct {
+	Date          time.Time `json:"date"`
+	AvgCPUPercent float64   `json:"avg_cpu_percent"`
+	MaxCPUPercent float64   `json:"max_cpu_percent"`
+	MinCPUPercent float64   `json:"min_cpu_percent"`
+	AvgMemoryMB   float64   `json:"avg_memory_mb"`
+	MaxMemoryMB   float64   `json:"max_memory_mb"`
+	MinMemoryMB   float64   `json:"min_memory_mb"`
+	SampleCount   int       `json:"sample_count"`
+}
+
+// SetSystemMetricsProvider 设置系统监控数据提供者
+func SetSystemMetricsProvider(provider SystemMetricsProvider) {
+	systemMetricsProvider = provider
+}
+
+// getSystemMetrics 获取系统监控数据
+// GET /api/system/metrics
+// 参数：
+//   - start_time: 开始时间（可选，ISO 8601格式，默认最近7天）
+//   - end_time: 结束时间（可选，ISO 8601格式，默认当前时间）
+//   - granularity: 粒度（detail/daily，默认detail）
+func getSystemMetrics(c *gin.Context) {
+	if systemMetricsProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"metrics": []interface{}{}})
+		return
+	}
+
+	// 解析参数
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+	granularity := c.DefaultQuery("granularity", "detail")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr == "" {
+		// 默认最近7天
+		startTime = time.Now().Add(-7 * 24 * time.Hour)
+	} else {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			return
+		}
+	}
+
+	if endTimeStr == "" {
+		endTime = time.Now()
+	} else {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			return
+		}
+	}
+
+	if granularity == "daily" {
+		// 返回每日汇总数据
+		days := int(endTime.Sub(startTime).Hours() / 24)
+		if days <= 0 {
+			days = 30 // 默认30天
+		}
+		dailyMetrics, err := systemMetricsProvider.GetDailyMetrics(days)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"metrics": dailyMetrics, "granularity": "daily"})
+	} else {
+		// 返回细粒度数据
+		metrics, err := systemMetricsProvider.GetMetrics(startTime, endTime, "detail")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"metrics": metrics, "granularity": "detail"})
+	}
+}
+
+// getCurrentSystemMetrics 获取当前系统状态
+// GET /api/system/metrics/current
+func getCurrentSystemMetrics(c *gin.Context) {
+	if systemMetricsProvider == nil {
+		// 返回完整的对象结构，避免前端访问 undefined 字段
+		c.JSON(http.StatusOK, &SystemMetricsResponse{
+			Timestamp:     time.Now(),
+			CPUPercent:     0,
+			MemoryMB:       0,
+			MemoryPercent:  0,
+			ProcessID:      0,
+		})
+		return
+	}
+
+	metrics, err := systemMetricsProvider.GetCurrentMetrics()
+	if err != nil {
+		// 即使出错也返回完整的对象结构
+		c.JSON(http.StatusOK, &SystemMetricsResponse{
+			Timestamp:     time.Now(),
+			CPUPercent:     0,
+			MemoryMB:       0,
+			MemoryPercent:  0,
+			ProcessID:      0,
+		})
+		return
+	}
+
+	// 确保所有字段都有默认值
+	if metrics == nil {
+		metrics = &SystemMetricsResponse{
+			Timestamp:     time.Now(),
+			CPUPercent:     0,
+			MemoryMB:       0,
+			MemoryPercent:  0,
+			ProcessID:      0,
+		}
+	}
+
+	c.JSON(http.StatusOK, metrics)
+}
+
+// getDailySystemMetrics 获取每日汇总数据
+// GET /api/system/metrics/daily
+// 参数：
+//   - days: 查询天数（默认30天）
+func getDailySystemMetrics(c *gin.Context) {
+	if systemMetricsProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"metrics": []interface{}{}})
+		return
+	}
+
+	daysStr := c.DefaultQuery("days", "30")
+	days := 30
+	if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+		days = d
+	}
+
+	metrics, err := systemMetricsProvider.GetDailyMetrics(days)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"metrics": metrics})
+}
+
+// ========== 槽位数据相关API ==========
+
+var (
+	// 槽位数据提供者（需要从main.go注入）
+	positionManagerProvider PositionManagerProvider
+	// 订单金额配置（用于计算订单数量）
+	orderQuantityConfig float64
+)
+
+// SetOrderQuantityConfig 设置订单金额配置
+func SetOrderQuantityConfig(quantity float64) {
+	orderQuantityConfig = quantity
+}
+
+// PositionManagerProvider 槽位数据提供者接口
+type PositionManagerProvider interface {
+	GetAllSlots() []SlotInfo
+	GetSlotCount() int
+	GetReconcileCount() int64
+	GetLastReconcileTime() time.Time
+	GetTotalBuyQty() float64
+	GetTotalSellQty() float64
+	GetPriceInterval() float64
+}
+
+// SlotInfo 槽位信息
+type SlotInfo struct {
+	Price          float64   `json:"price"`
+	PositionStatus string    `json:"position_status"` // EMPTY/FILLED
+	PositionQty    float64   `json:"position_qty"`
+	OrderID        int64     `json:"order_id"`
+	ClientOID      string    `json:"client_order_id"`
+	OrderSide      string    `json:"order_side"`      // BUY/SELL
+	OrderStatus    string    `json:"order_status"`    // NOT_PLACED/PLACED/CONFIRMED/PARTIALLY_FILLED/FILLED/CANCELED
+	OrderPrice     float64   `json:"order_price"`
+	OrderFilledQty float64   `json:"order_filled_qty"`
+	OrderCreatedAt time.Time `json:"order_created_at"`
+	SlotStatus     string    `json:"slot_status"` // FREE/PENDING/LOCKED
+}
+
+// SetPositionManagerProvider 设置槽位数据提供者
+func SetPositionManagerProvider(provider PositionManagerProvider) {
+	positionManagerProvider = provider
+}
+
+// positionManagerAdapter 槽位管理器适配器
+type positionManagerAdapter struct {
+	manager *position.SuperPositionManager
+}
+
+// NewPositionManagerAdapter 创建槽位管理器适配器
+func NewPositionManagerAdapter(manager *position.SuperPositionManager) PositionManagerProvider {
+	return &positionManagerAdapter{manager: manager}
+}
+
+// GetAllSlots 获取所有槽位信息
+func (a *positionManagerAdapter) GetAllSlots() []SlotInfo {
+	detailedSlots := a.manager.GetAllSlotsDetailed()
+	slots := make([]SlotInfo, len(detailedSlots))
+	for i, ds := range detailedSlots {
+		slots[i] = SlotInfo{
+			Price:          ds.Price,
+			PositionStatus: ds.PositionStatus,
+			PositionQty:    ds.PositionQty,
+			OrderID:        ds.OrderID,
+			ClientOID:      ds.ClientOID,
+			OrderSide:      ds.OrderSide,
+			OrderStatus:    ds.OrderStatus,
+			OrderPrice:     ds.OrderPrice,
+			OrderFilledQty: ds.OrderFilledQty,
+			OrderCreatedAt: ds.OrderCreatedAt,
+			SlotStatus:     ds.SlotStatus,
+		}
+	}
+	return slots
+}
+
+// GetSlotCount 获取槽位总数
+func (a *positionManagerAdapter) GetSlotCount() int {
+	return a.manager.GetSlotCount()
+}
+
+// GetReconcileCount 获取对账次数
+func (a *positionManagerAdapter) GetReconcileCount() int64 {
+	return a.manager.GetReconcileCount()
+}
+
+// GetLastReconcileTime 获取最后对账时间
+func (a *positionManagerAdapter) GetLastReconcileTime() time.Time {
+	return a.manager.GetLastReconcileTime()
+}
+
+// GetTotalBuyQty 获取累计买入数量
+func (a *positionManagerAdapter) GetTotalBuyQty() float64 {
+	return a.manager.GetTotalBuyQty()
+}
+
+// GetTotalSellQty 获取累计卖出数量
+func (a *positionManagerAdapter) GetTotalSellQty() float64 {
+	return a.manager.GetTotalSellQty()
+}
+
+// GetPriceInterval 获取价格间隔
+func (a *positionManagerAdapter) GetPriceInterval() float64 {
+	return a.manager.GetPriceInterval()
+}
+
+// getSlots 获取所有槽位信息
+// GET /api/slots
+func getSlots(c *gin.Context) {
+	if positionManagerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"slots": []interface{}{}, "count": 0})
+		return
+	}
+
+	slots := positionManagerProvider.GetAllSlots()
+	count := positionManagerProvider.GetSlotCount()
+
+	c.JSON(http.StatusOK, gin.H{
+		"slots": slots,
+		"count": count,
+	})
+}
+
+// ========== 策略资金分配相关API ==========
+
+var (
+	// 策略数据提供者（需要从main.go注入）
+	strategyProvider StrategyProvider
+)
+
+// StrategyProvider 策略资金分配提供者接口
+type StrategyProvider interface {
+	GetCapitalAllocation() map[string]StrategyCapitalInfo
+}
+
+// StrategyCapitalInfo 策略资金信息
+type StrategyCapitalInfo struct {
+	Allocated float64 `json:"allocated"` // 分配的资金
+	Used      float64 `json:"used"`      // 已使用的资金（保证金）
+	Available float64 `json:"available"` // 可用资金
+	Weight    float64 `json:"weight"`    // 权重
+	FixedPool float64 `json:"fixed_pool"` // 固定资金池（如果指定）
+}
+
+// SetStrategyProvider 设置策略数据提供者
+func SetStrategyProvider(provider StrategyProvider) {
+	strategyProvider = provider
+}
+
+// strategyProviderAdapter 策略提供者适配器
+type strategyProviderAdapter struct {
+	getAllocationFunc func() map[string]StrategyCapitalInfo
+}
+
+// NewStrategyProviderAdapter 创建策略提供者适配器
+func NewStrategyProviderAdapter(getAllocationFunc func() map[string]StrategyCapitalInfo) StrategyProvider {
+	return &strategyProviderAdapter{getAllocationFunc: getAllocationFunc}
+}
+
+// GetCapitalAllocation 获取策略资金分配信息
+func (a *strategyProviderAdapter) GetCapitalAllocation() map[string]StrategyCapitalInfo {
+	return a.getAllocationFunc()
+}
+
+// getStrategyAllocation 获取策略资金分配信息
+// GET /api/strategies/allocation
+func getStrategyAllocation(c *gin.Context) {
+	if strategyProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"allocation": map[string]interface{}{}})
+		return
+	}
+
+	allocation := strategyProvider.GetCapitalAllocation()
+	c.JSON(http.StatusOK, gin.H{"allocation": allocation})
+}
+
+// ========== 待成交订单相关API ==========
+
+// getPendingOrders 获取待成交订单列表
+// GET /api/orders/pending
+func getPendingOrders(c *gin.Context) {
+	if positionManagerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
+		return
+	}
+
+	slots := positionManagerProvider.GetAllSlots()
+	var pendingOrders []PendingOrderInfo
+
+	for _, slot := range slots {
+		// 筛选状态为 PLACED/CONFIRMED/PARTIALLY_FILLED 的订单
+		if slot.OrderStatus == "PLACED" || slot.OrderStatus == "CONFIRMED" || slot.OrderStatus == "PARTIALLY_FILLED" {
+			// 计算订单原始数量：使用配置的订单金额 / 订单价格
+			var quantity float64
+			if slot.OrderPrice > 0 && orderQuantityConfig > 0 {
+				quantity = orderQuantityConfig / slot.OrderPrice
+			} else if slot.OrderFilledQty > 0 {
+				// 如果无法计算，使用已成交数量作为估算
+				quantity = slot.OrderFilledQty
+			}
+			
+			pendingOrders = append(pendingOrders, PendingOrderInfo{
+				OrderID:        slot.OrderID,
+				ClientOrderID:  slot.ClientOID,
+				Price:          slot.OrderPrice,
+				Quantity:       quantity,
+				Side:           slot.OrderSide,
+				Status:         slot.OrderStatus,
+				FilledQuantity: slot.OrderFilledQty,
+				CreatedAt:      slot.OrderCreatedAt,
+				SlotPrice:      slot.Price,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"orders": pendingOrders, "count": len(pendingOrders)})
+}
+
+// PendingOrderInfo 待成交订单信息
+type PendingOrderInfo struct {
+	OrderID        int64     `json:"order_id"`
+	ClientOrderID  string    `json:"client_order_id"`
+	Price          float64   `json:"price"`
+	Quantity       float64   `json:"quantity"`
+	Side           string    `json:"side"` // BUY/SELL
+	Status         string    `json:"status"`
+	FilledQuantity float64   `json:"filled_quantity"`
+	CreatedAt      time.Time `json:"created_at"`
+	SlotPrice      float64   `json:"slot_price"` // 槽位价格
+}
+
+// ========== 日志相关API ==========
+
+var (
+	// 日志存储提供者（需要从main.go注入）
+	logStorageProvider LogStorageProvider
+)
+
+// LogStorageProvider 日志存储提供者接口
+type LogStorageProvider interface {
+	GetLogs(startTime, endTime time.Time, level, keyword string, limit, offset int) ([]*LogRecordResponse, int, error)
+}
+
+// logStorageAdapter 日志存储适配器
+type logStorageAdapter struct {
+	storage *storage.LogStorage
+}
+
+// NewLogStorageAdapter 创建日志存储适配器
+func NewLogStorageAdapter(ls *storage.LogStorage) LogStorageProvider {
+	return &logStorageAdapter{storage: ls}
+}
+
+// GetLogs 实现 LogStorageProvider 接口
+func (a *logStorageAdapter) GetLogs(startTime, endTime time.Time, level, keyword string, limit, offset int) ([]*LogRecordResponse, int, error) {
+	params := storage.LogQueryParams{
+		StartTime: startTime,
+		EndTime:   endTime,
+		Level:     level,
+		Keyword:   keyword,
+		Limit:     limit,
+		Offset:    offset,
+	}
+
+	logs, total, err := a.storage.GetLogs(params)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 转换为响应格式
+	result := make([]*LogRecordResponse, len(logs))
+	for i, log := range logs {
+		result[i] = &LogRecordResponse{
+			ID:        log.ID,
+			Timestamp: log.Timestamp,
+			Level:     log.Level,
+			Message:   log.Message,
+		}
+	}
+
+	return result, total, nil
+}
+
+// LogRecordResponse 日志记录响应
+type LogRecordResponse struct {
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+}
+
+// SetLogStorageProvider 设置日志存储提供者
+func SetLogStorageProvider(provider LogStorageProvider) {
+	logStorageProvider = provider
+}
+
+// getLogs 获取日志
+// GET /api/logs
+// 参数：
+//   - start_time: 开始时间（可选，ISO 8601格式）
+//   - end_time: 结束时间（可选，ISO 8601格式，默认当前时间）
+//   - level: 日志级别（可选，DEBUG/INFO/WARN/ERROR/FATAL）
+//   - keyword: 关键词搜索（可选）
+//   - limit: 每页数量（可选，默认100，最大1000）
+//   - offset: 偏移量（可选，默认0）
+func getLogs(c *gin.Context) {
+	if logStorageProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"logs": []interface{}{}, "total": 0})
+		return
+	}
+
+	// 解析参数
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+	level := c.Query("level")
+	keyword := c.Query("keyword")
+	limitStr := c.DefaultQuery("limit", "100")
+	offsetStr := c.DefaultQuery("offset", "0")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			return
+		}
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	// 如果没有指定开始时间，默认最近7天
+	if startTime.IsZero() {
+		startTime = endTime.AddDate(0, 0, -7)
+	}
+
+	limit := 100
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+		if limit > 1000 {
+			limit = 1000
+		}
+	}
+
+	offset := 0
+	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		offset = o
+	}
+
+	// 查询日志
+	logs, total, err := logStorageProvider.GetLogs(startTime, endTime, level, keyword, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"logs":  logs,
+		"total": total,
+		"limit": limit,
+		"offset": offset,
+	})
+}
+
+// ReconciliationStatus 对账状态
+type ReconciliationStatus struct {
+	ReconcileCount      int64     `json:"reconcile_count"`       // 对账次数
+	LastReconcileTime   time.Time `json:"last_reconcile_time"`  // 最后对账时间
+	LocalPosition       float64   `json:"local_position"`      // 本地持仓
+	TotalBuyQty         float64   `json:"total_buy_qty"`        // 累计买入
+	TotalSellQty        float64   `json:"total_sell_qty"`      // 累计卖出
+	EstimatedProfit     float64   `json:"estimated_profit"`    // 预计盈利
+}
+
+// ReconciliationHistoryInfo 对账历史信息
+type ReconciliationHistoryInfo struct {
+	ID                int64     `json:"id"`
+	Symbol            string    `json:"symbol"`
+	ReconcileTime     time.Time `json:"reconcile_time"`
+	LocalPosition     float64   `json:"local_position"`
+	ExchangePosition  float64   `json:"exchange_position"`
+	PositionDiff      float64   `json:"position_diff"`
+	ActiveBuyOrders   int       `json:"active_buy_orders"`
+	ActiveSellOrders  int       `json:"active_sell_orders"`
+	PendingSellQty    float64   `json:"pending_sell_qty"`
+	TotalBuyQty       float64   `json:"total_buy_qty"`
+	TotalSellQty      float64   `json:"total_sell_qty"`
+	EstimatedProfit   float64   `json:"estimated_profit"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+// getReconciliationStatus 获取对账状态
+// GET /api/reconciliation/status
+func getReconciliationStatus(c *gin.Context) {
+	if positionManagerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"reconcile_count":     0,
+			"last_reconcile_time": time.Time{},
+			"local_position":      0,
+			"total_buy_qty":        0,
+			"total_sell_qty":       0,
+			"estimated_profit":     0,
+		})
+		return
+	}
+
+	// 从 PositionManager 获取对账统计
+	reconcileCount := positionManagerProvider.GetReconcileCount()
+	lastReconcileTime := positionManagerProvider.GetLastReconcileTime()
+	totalBuyQty := positionManagerProvider.GetTotalBuyQty()
+	totalSellQty := positionManagerProvider.GetTotalSellQty()
+	priceInterval := positionManagerProvider.GetPriceInterval()
+	estimatedProfit := totalSellQty * priceInterval
+
+	// 计算本地持仓
+	slots := positionManagerProvider.GetAllSlots()
+	localPosition := 0.0
+	for _, slot := range slots {
+		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 {
+			localPosition += slot.PositionQty
+		}
+	}
+
+	status := ReconciliationStatus{
+		ReconcileCount:    reconcileCount,
+		LastReconcileTime: lastReconcileTime,
+		LocalPosition:     localPosition,
+		TotalBuyQty:       totalBuyQty,
+		TotalSellQty:      totalSellQty,
+		EstimatedProfit:   estimatedProfit,
+	}
+
+	c.JSON(http.StatusOK, status)
+}
+
+// getReconciliationHistory 获取对账历史
+// GET /api/reconciliation/history
+func getReconciliationHistory(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
+		return
+	}
+
+	// 解析参数
+	symbol := c.Query("symbol")
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+	limitStr := c.DefaultQuery("limit", "100")
+	offsetStr := c.DefaultQuery("offset", "0")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			return
+		}
+	} else {
+		// 默认最近7天
+		startTime = time.Now().AddDate(0, 0, -7)
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	limit := 100
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+	}
+
+	offset := 0
+	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		offset = o
+	}
+
+	// 查询对账历史
+	histories, err := storage.QueryReconciliationHistory(symbol, startTime, endTime, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 转换为 API 响应格式
+	result := make([]ReconciliationHistoryInfo, len(histories))
+	for i, h := range histories {
+		result[i] = ReconciliationHistoryInfo{
+			ID:              h.ID,
+			Symbol:          h.Symbol,
+			ReconcileTime:   h.ReconcileTime,
+			LocalPosition:   h.LocalPosition,
+			ExchangePosition: h.ExchangePosition,
+			PositionDiff:    h.PositionDiff,
+			ActiveBuyOrders: h.ActiveBuyOrders,
+			ActiveSellOrders: h.ActiveSellOrders,
+			PendingSellQty:  h.PendingSellQty,
+			TotalBuyQty:     h.TotalBuyQty,
+			TotalSellQty:    h.TotalSellQty,
+			EstimatedProfit: h.EstimatedProfit,
+			CreatedAt:       h.CreatedAt,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"history": result})
+}
+
+// PnLSummaryResponse 盈亏汇总响应
+type PnLSummaryResponse struct {
+	Symbol        string  `json:"symbol"`
+	TotalPnL      float64 `json:"total_pnl"`
+	TotalTrades   int     `json:"total_trades"`
+	TotalVolume   float64 `json:"total_volume"`
+	WinRate       float64 `json:"win_rate"`
+	WinningTrades int     `json:"winning_trades"`
+	LosingTrades  int     `json:"losing_trades"`
+}
+
+// getPnLBySymbol 按币种对查询盈亏数据
+// GET /api/statistics/pnl/symbol
+func getPnLBySymbol(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "存储服务不可用"})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "存储服务不可用"})
+		return
+	}
+
+	symbol := c.Query("symbol")
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少币种对参数"})
+		return
+	}
+
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			return
+		}
+	} else {
+		// 默认最近30天
+		startTime = time.Now().AddDate(0, 0, -30)
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	// 查询盈亏数据
+	summary, err := storage.GetPnLBySymbol(symbol, startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := PnLSummaryResponse{
+		Symbol:        summary.Symbol,
+		TotalPnL:      summary.TotalPnL,
+		TotalTrades:   summary.TotalTrades,
+		TotalVolume:   summary.TotalVolume,
+		WinRate:       summary.WinRate,
+		WinningTrades: summary.WinningTrades,
+		LosingTrades:  summary.LosingTrades,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// PnLBySymbolResponse 按币种对的盈亏数据
+type PnLBySymbolResponse struct {
+	Symbol      string  `json:"symbol"`
+	TotalPnL    float64 `json:"total_pnl"`
+	TotalTrades int     `json:"total_trades"`
+	TotalVolume float64 `json:"total_volume"`
+	WinRate     float64 `json:"win_rate"`
+}
+
+// getPnLByTimeRange 按时间区间查询盈亏数据（按币种对分组）
+// GET /api/statistics/pnl/time-range
+func getPnLByTimeRange(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"pnl_by_symbol": []interface{}{}})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"pnl_by_symbol": []interface{}{}})
+		return
+	}
+
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			return
+		}
+	} else {
+		// 默认最近30天
+		startTime = time.Now().AddDate(0, 0, -30)
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	// 查询盈亏数据
+	results, err := storage.GetPnLByTimeRange(startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 转换为 API 响应格式
+	response := make([]PnLBySymbolResponse, len(results))
+	for i, r := range results {
+		response[i] = PnLBySymbolResponse{
+			Symbol:      r.Symbol,
+			TotalPnL:    r.TotalPnL,
+			TotalTrades: r.TotalTrades,
+			TotalVolume: r.TotalVolume,
+			WinRate:     r.WinRate,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"pnl_by_symbol": response})
+}
+
+// RiskMonitorProvider 风控监控提供者接口
+type RiskMonitorProvider interface {
+	IsTriggered() bool
+	GetTriggeredTime() time.Time
+	GetRecoveredTime() time.Time
+	GetMonitorSymbols() []string
+	GetSymbolData(symbol string) interface{}
+}
+
+var (
+	riskMonitorProvider RiskMonitorProvider
+)
+
+// SetRiskMonitorProvider 设置风控监控提供者
+func SetRiskMonitorProvider(provider RiskMonitorProvider) {
+	riskMonitorProvider = provider
+}
+
+// RiskStatusResponse 风控状态响应
+type RiskStatusResponse struct {
+	Triggered      bool      `json:"triggered"`
+	TriggeredTime  time.Time `json:"triggered_time"`
+	RecoveredTime  time.Time `json:"recovered_time"`
+	MonitorSymbols []string  `json:"monitor_symbols"`
+}
+
+// SymbolMonitorData 币种监控数据
+type SymbolMonitorData struct {
+	Symbol         string    `json:"symbol"`
+	CurrentPrice   float64   `json:"current_price"`
+	AveragePrice   float64   `json:"average_price"`
+	PriceDeviation float64   `json:"price_deviation"`
+	CurrentVolume  float64   `json:"current_volume"`
+	AverageVolume  float64   `json:"average_volume"`
+	VolumeRatio    float64   `json:"volume_ratio"`
+	IsAbnormal     bool      `json:"is_abnormal"`
+	LastUpdate     time.Time `json:"last_update"`
+}
+
+// getRiskStatus 获取风控状态
+// GET /api/risk/status
+func getRiskStatus(c *gin.Context) {
+	if riskMonitorProvider == nil {
+		c.JSON(http.StatusOK, RiskStatusResponse{
+			Triggered:      false,
+			MonitorSymbols: []string{},
+		})
+		return
+	}
+
+	response := RiskStatusResponse{
+		Triggered:      riskMonitorProvider.IsTriggered(),
+		TriggeredTime:  riskMonitorProvider.GetTriggeredTime(),
+		RecoveredTime:  riskMonitorProvider.GetRecoveredTime(),
+		MonitorSymbols: riskMonitorProvider.GetMonitorSymbols(),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// getRiskMonitorData 获取监控币种数据
+// GET /api/risk/monitor
+func getRiskMonitorData(c *gin.Context) {
+	if riskMonitorProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"symbols": []interface{}{}})
+		return
+	}
+
+	symbols := riskMonitorProvider.GetMonitorSymbols()
+	var monitorData []SymbolMonitorData
+
+	for _, symbol := range symbols {
+		data := riskMonitorProvider.GetSymbolData(symbol)
+		if data == nil {
+			continue
+		}
+
+		// 使用反射提取数据
+		v := reflect.ValueOf(data)
+		if v.Kind() == reflect.Ptr {
+			v = v.Elem()
+		}
+
+		symbolData := SymbolMonitorData{
+			Symbol: symbol,
+		}
+
+		// 提取字段
+		if field := v.FieldByName("CurrentPrice"); field.IsValid() && field.CanFloat() {
+			symbolData.CurrentPrice = field.Float()
+		}
+		if field := v.FieldByName("AveragePrice"); field.IsValid() && field.CanFloat() {
+			symbolData.AveragePrice = field.Float()
+		}
+		if field := v.FieldByName("CurrentVolume"); field.IsValid() && field.CanFloat() {
+			symbolData.CurrentVolume = field.Float()
+		}
+		if field := v.FieldByName("AverageVolume"); field.IsValid() && field.CanFloat() {
+			symbolData.AverageVolume = field.Float()
+		}
+		if field := v.FieldByName("LastUpdate"); field.IsValid() {
+			if t, ok := field.Interface().(time.Time); ok {
+				symbolData.LastUpdate = t
+			}
+		}
+
+		// 计算偏离度和比率
+		if symbolData.AveragePrice > 0 {
+			symbolData.PriceDeviation = (symbolData.CurrentPrice - symbolData.AveragePrice) / symbolData.AveragePrice * 100
+		}
+		if symbolData.AverageVolume > 0 {
+			symbolData.VolumeRatio = symbolData.CurrentVolume / symbolData.AverageVolume
+		}
+
+		// 判断是否异常（简单判断）
+		symbolData.IsAbnormal = math.Abs(symbolData.PriceDeviation) > 10 || symbolData.VolumeRatio > 3
+
+		monitorData = append(monitorData, symbolData)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"symbols": monitorData})
+}
+

@@ -44,12 +44,20 @@ type IPositionManager interface {
 	GetPriceInterval() float64
 }
 
+// ReconciliationStorage 对账存储接口（避免循环导入，使用函数类型）
+type ReconciliationStorage interface {
+	SaveReconciliationHistory(symbol string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
+		activeBuyOrders, activeSellOrders int, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit float64) error
+}
+
+
 // Reconciler 持仓对账器
 type Reconciler struct {
 	cfg          *config.Config
 	exchange     IExchange
 	pm           IPositionManager
 	pauseChecker func() bool
+	storage      ReconciliationStorage // 可选的存储服务
 }
 
 // NewReconciler 创建对账器
@@ -59,6 +67,11 @@ func NewReconciler(cfg *config.Config, exchange IExchange, pm IPositionManager) 
 		exchange: exchange,
 		pm:       pm,
 	}
+}
+
+// SetStorage 设置存储服务（可选）
+func (r *Reconciler) SetStorage(storage ReconciliationStorage) {
+	r.storage = storage
 }
 
 // SetPauseChecker 设置暂停检查函数（用于风控暂停）
@@ -200,6 +213,22 @@ func (r *Reconciler) Reconcile() error {
 	estimatedProfit := totalSellQty * priceInterval
 	logger.Info("📊 [统计] 对账次数: %d, 累计买入: %.2f, 累计卖出: %.2f, 预计盈利: %.2f U",
 		r.pm.GetReconcileCount(), totalBuyQty, totalSellQty, estimatedProfit)
+	
+	// 6. 保存对账历史到数据库（如果存储服务可用）
+	if r.storage != nil {
+		reconcileTime := time.Now()
+		// 尝试解析交易所持仓（如果可能）
+		exchangePosition := 0.0
+		// 这里可以根据不同交易所类型解析，暂时使用本地持仓作为参考
+		// 实际应用中需要根据具体交易所返回的数据结构解析
+		positionDiff := localTotal - exchangePosition
+		
+		if err := r.storage.SaveReconciliationHistory(symbol, reconcileTime, localTotal, exchangePosition, positionDiff,
+			activeBuyOrders, activeSellOrders, localPendingSellQty, totalBuyQty, totalSellQty, estimatedProfit); err != nil {
+			logger.Warn("⚠️ 保存对账历史失败: %v", err)
+		}
+	}
+	
 	logger.Debugln("🔍 ===== 对账完成 =====")
 	return nil
 }

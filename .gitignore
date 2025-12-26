@@ -1,50 +1,64 @@
-################################
-# Go 构建产物 / 二进制文件
-################################
-# go build 输出（当前目录）
-./opensqt_free
-./opensqt
-# 一般二进制可执行文件（无扩展名）
+# Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# 其它常见构建/缓存目录
-bin/
-dist/
-build/
-test/
-################################
-# 日志文件
-################################
-log/
-*.log
+# Go build output
+opensqt_market_maker
+/opensqt_market_maker
+*.test
+*.out
 
-################################
-# 配置文件
-################################
-# 真实配置（包含密钥等）
-config.yaml
+# Go workspace file
+go.work
 
-# 如果以后有本地覆盖配置，也可以加：
-# config.local.yaml
-
-################################
-# Go 相关忽略
-################################
-# go module 缓存
+# Dependency directories
 vendor/
 
-# IDE / 编辑器文件
+# IDE and editor files
 .vscode/
 .idea/
-*.iml
-
-# 系统文件
+*.swp
+*.swo
+*~
 .DS_Store
+
+# Data and runtime files
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Config files with sensitive data (keep example configs)
+config.yaml
+config.json
+!config.example.yaml
+!config.example.json
+
+# Frontend build output and dependencies
+webui/node_modules/
+webui/dist/
+webui/.vite/
+webui/.cache/
+webui/package-lock.json
+webui/yarn.lock
+webui/pnpm-lock.yaml
+
+# Test coverage
+*.cover
+coverage.txt
+coverage.html
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# OS specific
 Thumbs.db
-
-
-opensqt
+.Spotlight-V100
+.Trashes

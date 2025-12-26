@@ -85,7 +85,9 @@ func (k *KlineWebSocketManager) connectLoop(ctx context.Context) {
 
 		logger.Info("🔗 正在连接 Bitget K线WebSocket...")
 
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		// 使用支持代理的 Dialer
+		dialer := getProxyDialer()
+		conn, _, err := dialer.Dial(wsURL, nil)
 		if err != nil {
 			logger.Error("❌ Bitget K线WebSocket连接失败: %v，%v后重试", err, k.reconnectDelay)
 			// 使用 select 等待，可以立即响应 context 取消

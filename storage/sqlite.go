@@ -1,0 +1,646 @@
+package storage
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+// SQLiteStorage SQLite 存储实现
+type SQLiteStorage struct {
+	db *sql.DB
+}
+
+// NewSQLiteStorage 创建 SQLite 存储
+func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
+	// 使用 WAL 模式提高并发性能
+	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_synchronous=NORMAL")
+	if err != nil {
+		return nil, fmt.Errorf("打开数据库失败: %w", err)
+	}
+
+	// 设置连接池
+	db.SetMaxOpenConns(1) // SQLite 并发限制
+	db.SetMaxIdleConns(1)
+
+	// 创建表
+	if err := createTables(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("创建表失败: %w", err)
+	}
+
+	return &SQLiteStorage{db: db}, nil
+}
+
+// createTables 创建表
+func createTables(db *sql.DB) error {
+	// 订单表
+	ordersSQL := `
+	CREATE TABLE IF NOT EXISTS orders (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		order_id BIGINT UNIQUE,
+		client_order_id TEXT,
+		symbol TEXT,
+		side TEXT,
+		price DECIMAL(20,8),
+		quantity DECIMAL(20,8),
+		status TEXT,
+		created_at TIMESTAMP,
+		updated_at TIMESTAMP
+	);`
+
+	// 持仓表
+	positionsSQL := `
+	CREATE TABLE IF NOT EXISTS positions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		slot_price DECIMAL(20,8),
+		symbol TEXT,
+		size DECIMAL(20,8),
+		entry_price DECIMAL(20,8),
+		current_price DECIMAL(20,8),
+		pnl DECIMAL(20,8),
+		opened_at TIMESTAMP,
+		closed_at TIMESTAMP
+	);`
+
+	// 交易表（买卖配对）
+	tradesSQL := `
+	CREATE TABLE IF NOT EXISTS trades (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		buy_order_id BIGINT,
+		sell_order_id BIGINT,
+		symbol TEXT,
+		buy_price DECIMAL(20,8),
+		sell_price DECIMAL(20,8),
+		quantity DECIMAL(20,8),
+		pnl DECIMAL(20,8),
+		created_at TIMESTAMP
+	);`
+
+	// 事件表
+	eventsSQL := `
+	CREATE TABLE IF NOT EXISTS events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		event_type TEXT,
+		data TEXT,
+		created_at TIMESTAMP
+	);`
+
+	// 系统监控细粒度数据表
+	systemMetricsSQL := `
+	CREATE TABLE IF NOT EXISTS system_metrics (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp DATETIME NOT NULL,
+		cpu_percent REAL NOT NULL,
+		memory_mb REAL NOT NULL,
+		memory_percent REAL,
+		process_id INTEGER,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_system_metrics_timestamp ON system_metrics(timestamp);`
+
+	// 系统监控每日汇总数据表
+	dailySystemMetricsSQL := `
+	CREATE TABLE IF NOT EXISTS daily_system_metrics (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		date DATE NOT NULL UNIQUE,
+		avg_cpu_percent REAL NOT NULL,
+		max_cpu_percent REAL NOT NULL,
+		min_cpu_percent REAL NOT NULL,
+		avg_memory_mb REAL NOT NULL,
+		max_memory_mb REAL NOT NULL,
+		min_memory_mb REAL NOT NULL,
+		sample_count INTEGER NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_daily_system_metrics_date ON daily_system_metrics(date);`
+
+	// 统计表
+	statisticsSQL := `
+	CREATE TABLE IF NOT EXISTS statistics (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		date DATE UNIQUE,
+		total_trades INTEGER,
+		total_volume DECIMAL(20,8),
+		total_pnl DECIMAL(20,8),
+		win_rate DECIMAL(5,2),
+		created_at TIMESTAMP
+	);`
+
+	// 对账历史表
+	reconciliationHistorySQL := `
+	CREATE TABLE IF NOT EXISTS reconciliation_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		symbol TEXT,
+		reconcile_time TIMESTAMP,
+		local_position DECIMAL(20,8),
+		exchange_position DECIMAL(20,8),
+		position_diff DECIMAL(20,8),
+		active_buy_orders INTEGER,
+		active_sell_orders INTEGER,
+		pending_sell_qty DECIMAL(20,8),
+		total_buy_qty DECIMAL(20,8),
+		total_sell_qty DECIMAL(20,8),
+		estimated_profit DECIMAL(20,8),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_symbol ON reconciliation_history(symbol);
+	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_time ON reconciliation_history(reconcile_time);`
+
+	// 创建索引
+	indexesSQL := `
+	CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
+	CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+	CREATE INDEX IF NOT EXISTS idx_positions_slot_price ON positions(slot_price);
+	CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at);
+	CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
+	CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
+	`
+
+	// 执行创建语句
+	sqls := []string{
+		ordersSQL,
+		positionsSQL,
+		tradesSQL,
+		eventsSQL,
+		systemMetricsSQL,
+		dailySystemMetricsSQL,
+		statisticsSQL,
+		reconciliationHistorySQL,
+		indexesSQL,
+	}
+	for _, sql := range sqls {
+		if _, err := db.Exec(sql); err != nil {
+			return fmt.Errorf("执行 SQL 失败: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SaveOrder 保存订单
+func (s *SQLiteStorage) SaveOrder(order *Order) error {
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO orders 
+		(order_id, client_order_id, symbol, side, price, quantity, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
+		order.Price, order.Quantity, order.Status, order.CreatedAt, order.UpdatedAt)
+	return err
+}
+
+// SavePosition 保存持仓
+func (s *SQLiteStorage) SavePosition(position *Position) error {
+	var closedAt interface{}
+	if position.ClosedAt != nil {
+		closedAt = *position.ClosedAt
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO positions 
+		(slot_price, symbol, size, entry_price, current_price, pnl, opened_at, closed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, position.SlotPrice, position.Symbol, position.Size,
+		position.EntryPrice, position.CurrentPrice, position.PnL,
+		position.OpenedAt, closedAt)
+	return err
+}
+
+// SaveTrade 保存交易
+func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
+	_, err := s.db.Exec(`
+		INSERT INTO trades 
+		(buy_order_id, sell_order_id, symbol, buy_price, sell_price, quantity, pnl, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, trade.BuyOrderID, trade.SellOrderID, trade.Symbol,
+		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.CreatedAt)
+	return err
+}
+
+// SaveSystemMetrics 保存系统监控细粒度数据
+func (s *SQLiteStorage) SaveSystemMetrics(metrics *SystemMetrics) error {
+	var memoryPercent interface{}
+	if metrics.MemoryPercent > 0 {
+		memoryPercent = metrics.MemoryPercent
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO system_metrics 
+		(timestamp, cpu_percent, memory_mb, memory_percent, process_id)
+		VALUES (?, ?, ?, ?, ?)
+	`, metrics.Timestamp, metrics.CPUPercent, metrics.MemoryMB, memoryPercent, metrics.ProcessID)
+	return err
+}
+
+// SaveDailySystemMetrics 保存系统监控每日汇总数据
+func (s *SQLiteStorage) SaveDailySystemMetrics(metrics *DailySystemMetrics) error {
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO daily_system_metrics 
+		(date, avg_cpu_percent, max_cpu_percent, min_cpu_percent, 
+		 avg_memory_mb, max_memory_mb, min_memory_mb, sample_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, metrics.Date, metrics.AvgCPUPercent, metrics.MaxCPUPercent, metrics.MinCPUPercent,
+		metrics.AvgMemoryMB, metrics.MaxMemoryMB, metrics.MinMemoryMB, metrics.SampleCount)
+	return err
+}
+
+// SaveEvent 保存事件
+func (s *SQLiteStorage) SaveEvent(eventType string, data map[string]interface{}) error {
+	// 检查是否是系统监控事件
+	if eventType == "system_metrics" {
+		return s.saveSystemMetricsFromMap(data)
+	}
+
+	// 将 data 序列化为 JSON
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("序列化事件数据失败: %w", err)
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO events (event_type, data, created_at)
+		VALUES (?, ?, ?)
+	`, eventType, string(jsonData), time.Now())
+	return err
+}
+
+// saveSystemMetricsFromMap 从 map 保存系统监控数据
+func (s *SQLiteStorage) saveSystemMetricsFromMap(data map[string]interface{}) error {
+	metrics := &SystemMetrics{}
+
+	if timestamp, ok := data["timestamp"].(time.Time); ok {
+		metrics.Timestamp = timestamp
+	} else if timestampStr, ok := data["timestamp"].(string); ok {
+		var err error
+		metrics.Timestamp, err = time.Parse(time.RFC3339, timestampStr)
+		if err != nil {
+			metrics.Timestamp = time.Now()
+		}
+	} else {
+		metrics.Timestamp = time.Now()
+	}
+
+	if cpuPercent, ok := data["cpu_percent"].(float64); ok {
+		metrics.CPUPercent = cpuPercent
+	}
+	if memoryMB, ok := data["memory_mb"].(float64); ok {
+		metrics.MemoryMB = memoryMB
+	}
+	if memoryPercent, ok := data["memory_percent"].(float64); ok {
+		metrics.MemoryPercent = memoryPercent
+	}
+	if processID, ok := data["process_id"].(int); ok {
+		metrics.ProcessID = processID
+	} else if processID, ok := data["process_id"].(float64); ok {
+		metrics.ProcessID = int(processID)
+	}
+
+	return s.SaveSystemMetrics(metrics)
+}
+
+// SaveStatistics 保存统计
+func (s *SQLiteStorage) SaveStatistics(stats *Statistics) error {
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO statistics 
+		(date, total_trades, total_volume, total_pnl, win_rate, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, stats.Date, stats.TotalTrades, stats.TotalVolume,
+		stats.TotalPnL, stats.WinRate, stats.CreatedAt)
+	return err
+}
+
+// QueryOrders 查询订单
+func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order, error) {
+	query := `
+		SELECT order_id, client_order_id, symbol, side, price, quantity, status, created_at, updated_at
+		FROM orders
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	
+	if status != "" {
+		query += " AND status = ?"
+		args = append(args, status)
+	}
+	
+	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+	
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查询订单失败: %w", err)
+	}
+	defer rows.Close()
+	
+	var orders []*Order
+	for rows.Next() {
+		order := &Order{}
+		err := rows.Scan(
+			&order.OrderID,
+			&order.ClientOrderID,
+			&order.Symbol,
+			&order.Side,
+			&order.Price,
+			&order.Quantity,
+			&order.Status,
+			&order.CreatedAt,
+			&order.UpdatedAt,
+		)
+		if err != nil {
+			continue
+		}
+		orders = append(orders, order)
+	}
+	
+	return orders, nil
+}
+
+// QueryTrades 查询交易
+func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error) {
+	rows, err := s.db.Query(`
+		SELECT buy_order_id, sell_order_id, symbol, buy_price, sell_price, quantity, pnl, created_at
+		FROM trades
+		WHERE created_at >= ? AND created_at <= ?
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
+	`, startTime, endTime, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("查询交易失败: %w", err)
+	}
+	defer rows.Close()
+	
+	var trades []*Trade
+	for rows.Next() {
+		trade := &Trade{}
+		err := rows.Scan(
+			&trade.BuyOrderID,
+			&trade.SellOrderID,
+			&trade.Symbol,
+			&trade.BuyPrice,
+			&trade.SellPrice,
+			&trade.Quantity,
+			&trade.PnL,
+			&trade.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+		trades = append(trades, trade)
+	}
+	
+	return trades, nil
+}
+
+// QueryStatistics 查询统计数据
+func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error) {
+	rows, err := s.db.Query(`
+		SELECT date, total_trades, total_volume, total_pnl, win_rate, created_at
+		FROM statistics
+		WHERE date >= ? AND date <= ?
+		ORDER BY date DESC
+	`, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("查询统计数据失败: %w", err)
+	}
+	defer rows.Close()
+	
+	var stats []*Statistics
+	for rows.Next() {
+		stat := &Statistics{}
+		err := rows.Scan(
+			&stat.Date,
+			&stat.TotalTrades,
+			&stat.TotalVolume,
+			&stat.TotalPnL,
+			&stat.WinRate,
+			&stat.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+		stats = append(stats, stat)
+	}
+	
+	return stats, nil
+}
+
+// GetStatisticsSummary 获取统计汇总
+func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
+	row := s.db.QueryRow(`
+		SELECT 
+			SUM(total_trades) as total_trades,
+			SUM(total_volume) as total_volume,
+			SUM(total_pnl) as total_pnl,
+			AVG(win_rate) as win_rate
+		FROM statistics
+	`)
+	
+	stat := &Statistics{}
+	var totalTrades sql.NullInt64
+	var totalVolume sql.NullFloat64
+	var totalPnL sql.NullFloat64
+	var winRate sql.NullFloat64
+	
+	err := row.Scan(&totalTrades, &totalVolume, &totalPnL, &winRate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &Statistics{}, nil
+		}
+		return nil, fmt.Errorf("查询统计汇总失败: %w", err)
+	}
+	
+	if totalTrades.Valid {
+		stat.TotalTrades = int(totalTrades.Int64)
+	}
+	if totalVolume.Valid {
+		stat.TotalVolume = totalVolume.Float64
+	}
+	if totalPnL.Valid {
+		stat.TotalPnL = totalPnL.Float64
+	}
+	if winRate.Valid {
+		stat.WinRate = winRate.Float64
+	}
+	
+	return stat, nil
+}
+
+// SaveReconciliationHistory 保存对账历史
+func (s *SQLiteStorage) SaveReconciliationHistory(history *ReconciliationHistory) error {
+	_, err := s.db.Exec(`
+		INSERT INTO reconciliation_history 
+		(symbol, reconcile_time, local_position, exchange_position, position_diff,
+		 active_buy_orders, active_sell_orders, pending_sell_qty,
+		 total_buy_qty, total_sell_qty, estimated_profit)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, history.Symbol, history.ReconcileTime, history.LocalPosition, history.ExchangePosition,
+		history.PositionDiff, history.ActiveBuyOrders, history.ActiveSellOrders,
+		history.PendingSellQty, history.TotalBuyQty, history.TotalSellQty, history.EstimatedProfit)
+	return err
+}
+
+// QueryReconciliationHistory 查询对账历史
+func (s *SQLiteStorage) QueryReconciliationHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error) {
+	query := `
+		SELECT id, symbol, reconcile_time, local_position, exchange_position, position_diff,
+		       active_buy_orders, active_sell_orders, pending_sell_qty,
+		       total_buy_qty, total_sell_qty, estimated_profit, created_at
+		FROM reconciliation_history
+		WHERE reconcile_time >= ? AND reconcile_time <= ?
+	`
+	args := []interface{}{startTime, endTime}
+	
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	
+	query += " ORDER BY reconcile_time DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+	
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查询对账历史失败: %w", err)
+	}
+	defer rows.Close()
+	
+	var histories []*ReconciliationHistory
+	for rows.Next() {
+		h := &ReconciliationHistory{}
+		err := rows.Scan(
+			&h.ID,
+			&h.Symbol,
+			&h.ReconcileTime,
+			&h.LocalPosition,
+			&h.ExchangePosition,
+			&h.PositionDiff,
+			&h.ActiveBuyOrders,
+			&h.ActiveSellOrders,
+			&h.PendingSellQty,
+			&h.TotalBuyQty,
+			&h.TotalSellQty,
+			&h.EstimatedProfit,
+			&h.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+		histories = append(histories, h)
+	}
+	
+	return histories, nil
+}
+
+// GetPnLBySymbol 按币种对查询盈亏数据
+func (s *SQLiteStorage) GetPnLBySymbol(symbol string, startTime, endTime time.Time) (*PnLSummary, error) {
+	row := s.db.QueryRow(`
+		SELECT 
+			COUNT(*) as total_trades,
+			SUM(pnl) as total_pnl,
+			SUM(quantity) as total_volume,
+			SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
+			SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades
+		FROM trades
+		WHERE symbol = ? AND created_at >= ? AND created_at <= ?
+	`, symbol, startTime, endTime)
+	
+	summary := &PnLSummary{
+		Symbol: symbol,
+	}
+	
+	var totalTrades sql.NullInt64
+	var totalPnL sql.NullFloat64
+	var totalVolume sql.NullFloat64
+	var winningTrades sql.NullInt64
+	var losingTrades sql.NullInt64
+	
+	err := row.Scan(&totalTrades, &totalPnL, &totalVolume, &winningTrades, &losingTrades)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return summary, nil
+		}
+		return nil, fmt.Errorf("查询盈亏数据失败: %w", err)
+	}
+	
+	if totalTrades.Valid {
+		summary.TotalTrades = int(totalTrades.Int64)
+	}
+	if totalPnL.Valid {
+		summary.TotalPnL = totalPnL.Float64
+	}
+	if totalVolume.Valid {
+		summary.TotalVolume = totalVolume.Float64
+	}
+	if winningTrades.Valid {
+		summary.WinningTrades = int(winningTrades.Int64)
+	}
+	if losingTrades.Valid {
+		summary.LosingTrades = int(losingTrades.Int64)
+	}
+	
+	if summary.TotalTrades > 0 {
+		summary.WinRate = float64(summary.WinningTrades) / float64(summary.TotalTrades)
+	}
+	
+	return summary, nil
+}
+
+// GetPnLByTimeRange 按时间区间查询盈亏数据（按币种对分组）
+func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLBySymbol, error) {
+	rows, err := s.db.Query(`
+		SELECT 
+			symbol,
+			COUNT(*) as total_trades,
+			SUM(pnl) as total_pnl,
+			SUM(quantity) as total_volume,
+			CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as win_rate
+		FROM trades
+		WHERE created_at >= ? AND created_at <= ?
+		GROUP BY symbol
+		ORDER BY total_pnl DESC
+	`, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("查询盈亏数据失败: %w", err)
+	}
+	defer rows.Close()
+	
+	var results []*PnLBySymbol
+	for rows.Next() {
+		r := &PnLBySymbol{}
+		var totalTrades sql.NullInt64
+		var totalPnL sql.NullFloat64
+		var totalVolume sql.NullFloat64
+		var winRate sql.NullFloat64
+		
+		err := rows.Scan(&r.Symbol, &totalTrades, &totalPnL, &totalVolume, &winRate)
+		if err != nil {
+			continue
+		}
+		
+		if totalTrades.Valid {
+			r.TotalTrades = int(totalTrades.Int64)
+		}
+		if totalPnL.Valid {
+			r.TotalPnL = totalPnL.Float64
+		}
+		if totalVolume.Valid {
+			r.TotalVolume = totalVolume.Float64
+		}
+		if winRate.Valid {
+			r.WinRate = winRate.Float64
+		}
+		
+		results = append(results, r)
+	}
+	
+	return results, nil
+}
+
+// Close 关闭数据库连接
+func (s *SQLiteStorage) Close() error {
+	return s.db.Close()
+}
+

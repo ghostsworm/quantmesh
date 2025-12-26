@@ -31,6 +31,10 @@ var (
 	currentDate  string
 	fileMu       sync.Mutex
 	logDir       = "log" // 日志文件夹
+	
+	// SQLite 日志存储（通过函数指针避免循环依赖）
+	logStorageWriter func(level, message string)
+	logStorageMu     sync.RWMutex
 )
 
 // String 返回日志级别的字符串表示
@@ -168,9 +172,20 @@ func checkAndRotateLog() {
 	}
 }
 
+// InitLogStorage 初始化日志存储（通过函数指针避免循环依赖）
+func InitLogStorage(writer func(level, message string)) {
+	logStorageMu.Lock()
+	defer logStorageMu.Unlock()
+	logStorageWriter = writer
+}
+
 // Close 关闭文件日志（程序退出时调用）
 func Close() {
 	closeFileLogger()
+	// 清理日志存储写入器
+	logStorageMu.Lock()
+	defer logStorageMu.Unlock()
+	logStorageWriter = nil
 }
 
 // GetLevel 获取全局日志级别
@@ -207,6 +222,24 @@ func logf(level LogLevel, format string, args ...interface{}) {
 		}
 		fileMu.Unlock()
 	}
+	
+	// 写入 SQLite 数据库（异步，不阻塞）
+	logStorageMu.RLock()
+	writer := logStorageWriter
+	logStorageMu.RUnlock()
+	
+	if writer != nil {
+		// 使用 goroutine 异步写入，避免阻塞
+		go func() {
+			defer func() {
+				// 恢复 panic，确保不影响主程序
+				if r := recover(); r != nil {
+					// 静默处理，不输出错误（避免循环日志）
+				}
+			}()
+			writer(level.String(), message)
+		}()
+	}
 }
 
 // logln 内部日志输出函数（无格式）
@@ -230,6 +263,24 @@ func logln(level LogLevel, args ...interface{}) {
 			fileLogger.Printf("%s %s", time.Now().Format("2006/01/02 15:04:05"), strings.TrimSuffix(message, "\n"))
 		}
 		fileMu.Unlock()
+	}
+	
+	// 写入 SQLite 数据库（异步，不阻塞）
+	logStorageMu.RLock()
+	writer := logStorageWriter
+	logStorageMu.RUnlock()
+	
+	if writer != nil {
+		// 使用 goroutine 异步写入，避免阻塞
+		go func() {
+			defer func() {
+				// 恢复 panic，确保不影响主程序
+				if r := recover(); r != nil {
+					// 静默处理，不输出错误（避免循环日志）
+				}
+			}()
+			writer(level.String(), strings.TrimSuffix(message, "\n"))
+		}()
 	}
 }
 

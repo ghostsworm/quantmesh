@@ -27,6 +27,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -79,6 +82,69 @@ type WebSocketManager struct {
 	privateReconnectChan chan struct{}
 	reconnectDelay       time.Duration
 	subscribedSymbol     string // 记录订阅的交易对，用于重连后重新订阅
+
+	// WebSocket Dialer（支持代理）
+	dialer *websocket.Dialer
+}
+
+// getProxyDialer 创建支持代理的 WebSocket Dialer
+func getProxyDialer() *websocket.Dialer {
+	dialer := &websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	// 从环境变量读取代理配置
+	proxyURL := getProxyFromEnv()
+	if proxyURL != nil {
+		logger.Info("🌐 [Bitget WS] 使用代理: %s", proxyURL.String())
+		dialer.Proxy = http.ProxyURL(proxyURL)
+	} else {
+		logger.Debug("🌐 [Bitget WS] 未配置代理，使用直连")
+	}
+
+	return dialer
+}
+
+// getProxyFromEnv 从环境变量读取代理配置
+// 优先级: all_proxy > https_proxy > http_proxy
+func getProxyFromEnv() *url.URL {
+	var proxyStr string
+
+	// 优先使用 all_proxy（支持 socks5）
+	if proxyStr = os.Getenv("all_proxy"); proxyStr != "" {
+		logger.Debug("🌐 [Bitget WS] 从 all_proxy 读取代理: %s", proxyStr)
+	} else if proxyStr = os.Getenv("ALL_PROXY"); proxyStr != "" {
+		logger.Debug("🌐 [Bitget WS] 从 ALL_PROXY 读取代理: %s", proxyStr)
+	} else if proxyStr = os.Getenv("https_proxy"); proxyStr != "" {
+		logger.Debug("🌐 [Bitget WS] 从 https_proxy 读取代理: %s", proxyStr)
+	} else if proxyStr = os.Getenv("HTTPS_PROXY"); proxyStr != "" {
+		logger.Debug("🌐 [Bitget WS] 从 HTTPS_PROXY 读取代理: %s", proxyStr)
+	} else if proxyStr = os.Getenv("http_proxy"); proxyStr != "" {
+		logger.Debug("🌐 [Bitget WS] 从 http_proxy 读取代理: %s", proxyStr)
+	} else if proxyStr = os.Getenv("HTTP_PROXY"); proxyStr != "" {
+		logger.Debug("🌐 [Bitget WS] 从 HTTP_PROXY 读取代理: %s", proxyStr)
+	}
+
+	if proxyStr == "" {
+		return nil
+	}
+
+	// 解析代理 URL
+	proxyURL, err := url.Parse(proxyStr)
+	if err != nil {
+		logger.Warn("⚠️ [Bitget WS] 代理 URL 解析失败: %v, 将使用直连", err)
+		return nil
+	}
+
+	// 如果协议是 socks5，需要转换为 http（gorilla/websocket 不支持 socks5）
+	// 但我们可以尝试使用，如果失败会回退到直连
+	if proxyURL.Scheme == "socks5" || proxyURL.Scheme == "socks5h" {
+		logger.Warn("⚠️ [Bitget WS] 检测到 socks5 代理，gorilla/websocket 可能不支持，建议使用 http/https 代理")
+		// 尝试转换为 http（某些代理工具支持）
+		// 如果不行，可能需要使用其他库如 golang.org/x/net/proxy
+	}
+
+	return proxyURL
 }
 
 // SetPriceCallback 设置价格回调
@@ -147,6 +213,7 @@ func NewWebSocketManager(apiKey, secretKey, passphrase string) *WebSocketManager
 		publicReconnectChan:  make(chan struct{}, 1),
 		privateReconnectChan: make(chan struct{}, 1),
 		reconnectDelay:       5 * time.Second,
+		dialer:               getProxyDialer(), // 初始化支持代理的 Dialer
 	}
 }
 
@@ -164,8 +231,8 @@ func (w *WebSocketManager) publicConnectLoop() {
 
 		logger.Info("🔗 [Bitget WS公共] 正在连接...")
 
-		// 连接公共频道
-		conn, _, err := websocket.DefaultDialer.Dial(BitgetWSPublic, nil)
+		// 连接公共频道（使用支持代理的 Dialer）
+		conn, _, err := w.dialer.Dial(BitgetWSPublic, nil)
 		if err != nil {
 			logger.Error("❌ [Bitget WS公共] 连接失败: %v，%v后重试", err, w.reconnectDelay)
 			// 使用 select 等待，可以立即响应 context 取消
@@ -186,6 +253,7 @@ func (w *WebSocketManager) publicConnectLoop() {
 		logger.Info("✅ [Bitget WS公共] 已连接")
 
 		// 订阅价格更新
+		logger.Info("📡 [Bitget WS公共] 正在订阅价格更新: %s", symbol)
 		if err := w.subscribeTicker(symbol); err != nil {
 			logger.Error("❌ [Bitget WS公共] 订阅失败: %v", err)
 			conn.Close()
@@ -401,7 +469,7 @@ func (w *WebSocketManager) Stop() {
 
 // connectPrivate 连接私有 WebSocket
 func (w *WebSocketManager) connectPrivate() error {
-	conn, _, err := websocket.DefaultDialer.Dial(BitgetWSPrivate, nil)
+	conn, _, err := w.dialer.Dial(BitgetWSPrivate, nil)
 	if err != nil {
 		return err
 	}
@@ -444,7 +512,7 @@ func (w *WebSocketManager) connectPrivate() error {
 
 // connectPublic 连接公共 WebSocket
 func (w *WebSocketManager) connectPublic() error {
-	conn, _, err := websocket.DefaultDialer.Dial(BitgetWSPublic, nil)
+	conn, _, err := w.dialer.Dial(BitgetWSPublic, nil)
 	if err != nil {
 		return err
 	}
@@ -562,9 +630,12 @@ func (w *WebSocketManager) handlePublicMessages(conn *websocket.Conn) {
 	// 🔥 设置读取超时：90秒（大于3倍ping间隔）
 	conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 
+	logger.Debug("📥 [Bitget WS公共] 开始监听消息...")
+
 	for {
 		select {
 		case <-w.ctx.Done():
+			logger.Debug("📥 [Bitget WS公共] 停止监听消息（上下文取消）")
 			return
 		default:
 			_, message, err := conn.ReadMessage()
@@ -587,6 +658,8 @@ func (w *WebSocketManager) handlePublicMessages(conn *websocket.Conn) {
 				continue
 			}
 
+			logger.Debug("📨 [Bitget WS公共] 收到消息: %s", string(message))
+
 			var msg struct {
 				Arg    WSSubscribeArg  `json:"arg"`
 				Action string          `json:"action"`
@@ -594,14 +667,26 @@ func (w *WebSocketManager) handlePublicMessages(conn *websocket.Conn) {
 			}
 
 			if err := json.Unmarshal(message, &msg); err != nil {
-				logger.Warn("⚠️ [Bitget WebSocket] 解析公共消息失败: %v", err)
+				logger.Warn("⚠️ [Bitget WebSocket] 解析公共消息失败: %v, 原始消息: %s", err, string(message))
 				continue
+			}
+
+			// 记录订阅确认
+			if msg.Action == "subscribe" && msg.Arg.Channel == "ticker" {
+				logger.Info("✅ [Bitget WS公共] 订阅确认: %s/%s", msg.Arg.InstType, msg.Arg.InstId)
 			}
 
 			// 处理价格更新
 			// Bitget V2 推送格式: {"action":"snapshot","arg":{"instType":"USDT-FUTURES","channel":"ticker","instId":"ETHUSDT"},"data":[...]}
-			if msg.Arg.Channel == "ticker" && len(msg.Data) > 0 {
-				w.handlePriceUpdate(msg.Data)
+			if msg.Arg.Channel == "ticker" {
+				if len(msg.Data) > 0 {
+					logger.Debug("📊 [Bitget WS公共] 收到 ticker 数据，action=%s, instId=%s", msg.Action, msg.Arg.InstId)
+					w.handlePriceUpdate(msg.Data)
+				} else {
+					logger.Debug("⚠️ [Bitget WS公共] ticker 消息数据为空")
+				}
+			} else {
+				logger.Debug("🔍 [Bitget WS公共] 收到其他频道消息: channel=%s, action=%s", msg.Arg.Channel, msg.Action)
 			}
 		}
 	}
@@ -655,6 +740,13 @@ func (w *WebSocketManager) handlePriceUpdate(data json.RawMessage) {
 		return
 	}
 
+	if len(updates) == 0 {
+		logger.Warn("⚠️ [Bitget WebSocket] 收到空的价格更新数据")
+		return
+	}
+
+	logger.Debug("📊 [Bitget WS] 收到价格更新，数据条数: %d", len(updates))
+
 	for _, update := range updates {
 		// Bitget V2 Ticker 字段是 lastPr
 		lastStr, ok := update["lastPr"].(string)
@@ -663,19 +755,36 @@ func (w *WebSocketManager) handlePriceUpdate(data json.RawMessage) {
 			lastStr, ok = update["last"].(string)
 		}
 
-		if ok {
-			price, _ := strconv.ParseFloat(lastStr, 64)
-			if price > 0 {
-				w.priceMu.Lock()
-				w.latestPrice = price
-				w.priceMu.Unlock()
+		if !ok {
+			logger.Debug("⚠️ [Bitget WS] 价格更新中未找到 lastPr 或 last 字段，数据: %+v", update)
+			continue
+		}
 
-				if w.priceCallback != nil {
-					// instId 是交易对名称
-					symbol, _ := update["instId"].(string)
-					w.priceCallback(symbol, price)
-				}
+		price, err := strconv.ParseFloat(lastStr, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Bitget WS] 解析价格失败: lastPr=%s, error=%v", lastStr, err)
+			continue
+		}
+
+		if price > 0 {
+			w.priceMu.Lock()
+			oldPrice := w.latestPrice
+			w.latestPrice = price
+			w.priceMu.Unlock()
+
+			// 记录首次价格或价格变化
+			if oldPrice == 0 {
+				symbol, _ := update["instId"].(string)
+				logger.Info("✅ [Bitget WS] 收到首个价格: %s = %.2f", symbol, price)
 			}
+
+			if w.priceCallback != nil {
+				// instId 是交易对名称
+				symbol, _ := update["instId"].(string)
+				w.priceCallback(symbol, price)
+			}
+		} else {
+			logger.Warn("⚠️ [Bitget WS] 收到无效价格: %.2f", price)
 		}
 	}
 }

@@ -19,12 +19,14 @@ type SymbolData struct {
 
 // RiskMonitor 主动安全风控监视器
 type RiskMonitor struct {
-	cfg           *config.Config
-	exchange      exchange.IExchange
-	symbolDataMap map[string]*SymbolData
-	mu            sync.RWMutex
-	triggered     bool
-	lastMsg       string
+	cfg            *config.Config
+	exchange       exchange.IExchange
+	symbolDataMap  map[string]*SymbolData
+	mu             sync.RWMutex
+	triggered      bool
+	triggeredTime  time.Time
+	recoveredTime  time.Time
+	lastMsg        string
 }
 
 // NewRiskMonitor 创建风控监视器
@@ -187,6 +189,7 @@ func (r *RiskMonitor) checkMarket() {
 				recoveredCount, len(r.cfg.RiskControl.MonitorSymbols), r.cfg.RiskControl.RecoveryThreshold)
 			logger.Info("详情: %s", strings.Join(details, ", "))
 			r.triggered = false
+			r.recoveredTime = time.Now()
 			r.lastMsg = "已恢复正常"
 		} else {
 			r.lastMsg = fmt.Sprintf("风控中，等待恢复: %s", strings.Join(details, ","))
@@ -211,6 +214,7 @@ func (r *RiskMonitor) checkMarket() {
 			logger.Warn("🚨🚨🚨 触发主动安全风控！市场出现集体异动！🚨🚨🚨")
 			logger.Warn("详情: %s", strings.Join(details, ", "))
 			r.triggered = true
+			r.triggeredTime = time.Now()
 			r.lastMsg = fmt.Sprintf("触发风控: %d/%d 币种异常 (%s)", panicCount, len(r.cfg.RiskControl.MonitorSymbols), strings.Join(details, ","))
 		} else {
 			r.lastMsg = "监控正常"
@@ -371,6 +375,81 @@ func (r *RiskMonitor) IsTriggered() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.triggered
+}
+
+// GetTriggeredTime 获取触发时间
+func (r *RiskMonitor) GetTriggeredTime() time.Time {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.triggeredTime
+}
+
+// GetRecoveredTime 获取恢复时间
+func (r *RiskMonitor) GetRecoveredTime() time.Time {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.recoveredTime
+}
+
+// GetMonitorSymbols 获取监控币种列表
+func (r *RiskMonitor) GetMonitorSymbols() []string {
+	return r.cfg.RiskControl.MonitorSymbols
+}
+
+// GetSymbolData 获取币种数据（返回最新K线和统计信息）
+func (r *RiskMonitor) GetSymbolData(symbol string) interface{} {
+	r.mu.RLock()
+	symbolData, exists := r.symbolDataMap[symbol]
+	r.mu.RUnlock()
+
+	if !exists {
+		return nil
+	}
+
+	symbolData.mu.RLock()
+	defer symbolData.mu.RUnlock()
+
+	if len(symbolData.candles) == 0 {
+		return nil
+	}
+
+	// 获取最新K线
+	latestCandle := symbolData.candles[len(symbolData.candles)-1]
+
+	// 计算平均价格和平均成交量
+	var totalPrice, totalVolume float64
+	var count int
+	window := r.cfg.RiskControl.AverageWindow
+	
+	for i := len(symbolData.candles) - 1; i >= 0 && count < window; i-- {
+		if symbolData.candles[i].IsClosed {
+			totalPrice += symbolData.candles[i].Close
+			totalVolume += symbolData.candles[i].Volume
+			count++
+		}
+	}
+
+	avgPrice := 0.0
+	avgVolume := 0.0
+	if count > 0 {
+		avgPrice = totalPrice / float64(count)
+		avgVolume = totalVolume / float64(count)
+	}
+
+	// 返回结构化数据
+	return &struct {
+		CurrentPrice  float64
+		AveragePrice  float64
+		CurrentVolume float64
+		AverageVolume float64
+		LastUpdate    time.Time
+	}{
+		CurrentPrice:  latestCandle.Close,
+		AveragePrice:  avgPrice,
+		CurrentVolume: latestCandle.Volume,
+		AverageVolume: avgVolume,
+		LastUpdate:    time.Now(), // 使用当前时间
+	}
 }
 
 // reportLoop 定期报告状态（每60秒）

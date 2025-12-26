@@ -38,15 +38,17 @@ type KlineWebSocketManager struct {
 	pingInterval   time.Duration
 	pongWait       time.Duration
 	isRunning      bool
+	useTestnet     bool // 是否使用测试网
 }
 
 // NewKlineWebSocketManager 创建K线WebSocket管理器
-func NewKlineWebSocketManager() *KlineWebSocketManager {
+func NewKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
 	return &KlineWebSocketManager{
 		done:           make(chan struct{}),
 		reconnectDelay: 5 * time.Second,  // 重连延迟
 		pingInterval:   30 * time.Second, // Ping间隔
 		pongWait:       60 * time.Second, // Pong等待超时
+		useTestnet:     useTestnet,
 	}
 }
 
@@ -87,7 +89,13 @@ func (k *KlineWebSocketManager) connectLoop(ctx context.Context) {
 		for i, symbol := range k.symbols {
 			streams[i] = fmt.Sprintf("%s@kline_%s", strings.ToLower(symbol), k.interval)
 		}
-		wsURL := fmt.Sprintf("wss://fstream.binance.com/stream?streams=%s", strings.Join(streams, "/"))
+		var wsURL string
+		if k.useTestnet {
+			wsURL = fmt.Sprintf("wss://stream.binancefuture.com/stream?streams=%s", strings.Join(streams, "/"))
+			logger.Info("🌐 [Binance Kline WS] 使用测试网 WebSocket")
+		} else {
+			wsURL = fmt.Sprintf("wss://fstream.binance.com/stream?streams=%s", strings.Join(streams, "/"))
+		}
 
 		logger.Info("🔗 正在连接 Binance K线WebSocket...")
 

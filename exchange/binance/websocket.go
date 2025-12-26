@@ -26,6 +26,7 @@ type WebSocketManager struct {
 	mu        sync.RWMutex
 	callbacks []OrderUpdateCallback
 	isRunning bool
+	useTestnet bool // 是否使用测试网
 
 	// 价格缓存
 	latestPrice float64
@@ -38,11 +39,12 @@ type WebSocketManager struct {
 }
 
 // NewWebSocketManager 创建 WebSocket 管理器
-func NewWebSocketManager(apiKey, secretKey string) *WebSocketManager {
+func NewWebSocketManager(apiKey, secretKey string, useTestnet bool) *WebSocketManager {
 	return &WebSocketManager{
 		client:            futures.NewClient(apiKey, secretKey),
 		apiKey:            apiKey,
 		secretKey:         secretKey,
+		useTestnet:        useTestnet,
 		doneC:             make(chan struct{}),
 		stopC:             make(chan struct{}),
 		callbacks:         make([]OrderUpdateCallback, 0),
@@ -83,10 +85,17 @@ func (w *WebSocketManager) Start(ctx context.Context, callback OrderUpdateCallba
 // StartPriceStream 启动价格流
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	// 使用原生 WebSocket 连接（go-binance 的 WsAggTradeServe 有 Bug）
-	// 格式: wss://fstream.binance.com/ws/<symbol>@aggTrade
+	// 格式: wss://fstream.binance.com/ws/<symbol>@aggTrade (主网)
+	//       wss://stream.binancefuture.com/ws/<symbol>@aggTrade (测试网)
 
 	symbolLower := strings.ToLower(symbol)
-	url := fmt.Sprintf("wss://fstream.binance.com/ws/%s@aggTrade", symbolLower)
+	var url string
+	if w.useTestnet {
+		url = fmt.Sprintf("wss://stream.binancefuture.com/ws/%s@aggTrade", symbolLower)
+		logger.Info("🌐 [Binance WS] 使用测试网 WebSocket: %s", url)
+	} else {
+		url = fmt.Sprintf("wss://fstream.binance.com/ws/%s@aggTrade", symbolLower)
+	}
 
 	// 使用通道等待首个价格
 	firstPriceCh := make(chan struct{})
