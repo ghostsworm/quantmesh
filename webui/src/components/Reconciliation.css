@@ -130,3 +130,77 @@
   border-bottom: none;
 }
 
+/* 盈利图数据点样式 */
+.profit-point {
+  cursor: pointer;
+  transition: r 0.2s, opacity 0.2s;
+}
+
+.profit-point:hover {
+  r: 6;
+  opacity: 0.8;
+}
+
+/* Tooltip 样式 */
+.profit-tooltip {
+  z-index: 1000;
+  margin-bottom: 8px;
+}
+
+.tooltip-content {
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  min-width: 200px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tooltip-content::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid rgba(0, 0, 0, 0.85);
+}
+
+.tooltip-header {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.tooltip-header strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tooltip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tooltip-label {
+  color: rgba(255, 255, 255, 0.7);
+  margin-right: 8px;
+}
+
+.tooltip-value {
+  font-weight: 600;
+  text-align: right;
+}
+

@@ -13,6 +13,7 @@
 ## [未发布] - Unreleased
 
 ### 新增
+- **盈利图交互式提示功能**：鼠标悬停在数据点上时显示详细信息（对账时间、预计盈利、实际盈利、持仓等），提升用户体验
 - 创建 CHANGELOG.md 文件，建立版本管理规范
 - 添加 ReduceOnly 订单错误自动处理机制
 - 新增 `BatchPlaceOrdersWithDetails()` 方法，返回详细的订单执行结果
@@ -25,6 +26,7 @@
 - **新增亏损率显示功能**，在持仓概览页面显示相对于持仓成本的盈亏百分比
 - **新增K线图页面**，支持查看当前交易币种的K线数据和成交量，支持时间周期切换（1m/5m/15m/30m/1h/4h/1d），使用 lightweight-charts 库渲染专业级K线图表
 - 新增K线数据API (`GET /api/klines`)，支持查询历史K线数据
+- **盈利图交互式提示功能**：鼠标悬停在数据点上时显示详细信息（对账时间、预计盈利、实际盈利、持仓等），提升用户体验
 
 ### 修复
 - 修复 ReduceOnly 订单被拒绝时持续重试的问题（币安 API 错误码 -2022）
@@ -41,6 +43,7 @@
 - **修复会话 ID 在 Cookie 中被转义导致无法识别的问题（去除 Base64 填充）**
 - 从 Git 版本控制中移除 `.opensqt.pid` 文件（运行时临时文件，不应被跟踪）
 - **修复 K 线图页面交易币种为空导致报错的问题**：前端直接读取 `/api/status` 返回的扁平字段 `symbol`，避免使用不存在的 `status.symbol`
+- **修复盈利图负盈利显示问题**：改进 Y 轴范围计算逻辑，确保当所有盈利值为负数时也能正确显示，添加 0 线作为参考
 - **修复 Tailwind CSS v4 PostCSS 配置问题**，安装 `@tailwindcss/postcss` 包并更新配置以适配 Tailwind CSS v4 的新架构
 - **修复 WebAuthn 注册失败问题**：
   - 前端：将 ArrayBuffer 数组格式改为 base64url 字符串格式，符合 go-webauthn 库的期望格式
@@ -53,6 +56,11 @@
   - 在 `SaveCredential` 函数中添加详细的保存日志，包括凭证ID、设备名称、影响行数等
   - 在 `ListCredentials` 函数中添加查询日志，记录查询结果和找到的凭证数量
   - 便于诊断凭证保存和查询问题
+- **修复系统监控页面无法显示CPU和内存数据的问题**：
+  - 修复前端API接口定义，将字段名改为与后端匹配（cpu_percent, memory_mb, memory_percent, process_id）
+  - 修复SystemMonitor组件中使用了未定义的`api`变量，改为使用正确的API函数（getCurrentSystemMetrics, getSystemMetrics, getDailySystemMetrics）
+  - 修复API返回数据结构解析，后端`/api/system/metrics/current`直接返回SystemMetrics对象，而不是包装在metrics字段中
+  - 更新getSystemMetrics函数支持查询参数（start_time, end_time, granularity）
 
 ### 变更
 - 改进订单执行器错误处理逻辑，ReduceOnly 错误不再重试
@@ -64,6 +72,20 @@
 - **优化首次设置流程**，使用 sessionStorage 跟踪设置状态，确保密码设置后能继续 WebAuthn 注册
 - **将会话 Cookie 的 SameSite 模式从 Strict 改为 Lax**，提高同站请求的兼容性
 - **前端 API 基址改为同源绝对地址**，避免代理/扩展劫持相对路径导致设置密码请求未发送
+- **优化K线图数据拉取性能**：
+  - 根据时间周期（interval）动态调整刷新间隔：1m(30s)、5m(2min)、15m(5min)、30m(10min)、1h(15min)、4h(30min)、1d(1h)
+  - 根据时间周期动态调整数据量（limit）：1m(500条)、5m(300条)、15m/30m/1h(200条)、4h(150条)、1d(100条)
+  - 添加防抖机制（300ms），避免快速切换interval时频繁请求
+  - 添加请求取消机制（AbortController），避免并发重复请求和资源浪费
+  - 优化API函数支持请求取消（signal参数）
+- **进一步优化K线图前端渲染性能**：
+  - 实现增量更新机制：只更新变更的K线数据，而不是全量替换，大幅减少图表重绘开销
+  - 添加数据缓存机制：缓存已加载的K线数据，用于增量更新判断
+  - 优化图表视图调整：只在首次加载时调用 `fitContent()`，后续更新不再重置用户视图
+  - 使用 `useMemo` 缓存数据转换结果，避免重复计算
+  - 优化窗口resize事件处理：添加150ms节流，减少不必要的图表重绘
+  - 使用 `React.memo` 优化按钮组件渲染，避免不必要的重渲染
+  - 优化loading状态显示：只在初始加载时显示，后续增量更新不显示loading
 
 ### 技术细节
 - 修改文件：
@@ -96,6 +118,12 @@
   - `webui/tailwind.config.js`: 创建 Tailwind CSS 配置文件，配置内容扫描路径
   - `webui/postcss.config.js`: 创建 PostCSS 配置文件，集成 Tailwind 和 Autoprefixer
   - `webui/src/index.css`: 添加 Tailwind CSS 指令（@tailwind base/components/utilities），保留现有基础样式
+  - `webui/src/components/KlineChart.tsx`: 
+    - 优化K线图数据拉取性能，添加动态刷新间隔、防抖、请求取消等机制
+    - 实现增量更新机制，只更新变更的K线数据，减少图表重绘
+    - 添加数据缓存和智能更新逻辑
+    - 优化resize事件处理（节流）和组件渲染（React.memo）
+  - `webui/src/services/api.ts`: `getKlines` 函数支持可选的 `signal` 参数，用于请求取消
 - 新增文档：
   - `rdocs/ReduceOnly错误处理说明.md`
   - `rdocs/退出流程优化说明.md`

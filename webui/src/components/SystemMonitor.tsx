@@ -1,38 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { getCurrentSystemMetrics, getDailySystemMetrics, SystemMetrics } from '../services/api';
+import { getCurrentSystemMetrics, getDailySystemMetrics, getSystemMetrics, SystemMetrics, DailySystemMetric } from '../services/api';
 import './SystemMonitor.css';
 
-interface SystemMetrics {
-  timestamp: string;
-  cpu_percent: number;
-  memory_mb: number;
-  memory_percent: number;
-  process_id: number;
-}
-
-interface DailySystemMetrics {
-  date: string;
-  avg_cpu_percent: number;
-  max_cpu_percent: number;
-  min_cpu_percent: number;
-  avg_memory_mb: number;
-  max_memory_mb: number;
-  min_memory_mb: number;
-  sample_count: number;
-}
-
-interface CurrentMetrics {
-  timestamp: string;
-  cpu_percent: number;
-  memory_mb: number;
-  memory_percent: number;
-  process_id: number;
-}
-
 const SystemMonitor: React.FC = () => {
-  const [currentMetrics, setCurrentMetrics] = useState<CurrentMetrics | null>(null);
+  const [currentMetrics, setCurrentMetrics] = useState<SystemMetrics | null>(null);
   const [metrics, setMetrics] = useState<SystemMetrics[]>([]);
-  const [dailyMetrics, setDailyMetrics] = useState<DailySystemMetrics[]>([]);
+  const [dailyMetrics, setDailyMetrics] = useState<DailySystemMetric[]>([]);
   const [timeRange, setTimeRange] = useState<string>('24h');
   const [metricType, setMetricType] = useState<'cpu' | 'memory'>('cpu');
   const [loading, setLoading] = useState<boolean>(false);
@@ -40,10 +13,11 @@ const SystemMonitor: React.FC = () => {
   // 获取当前系统状态
   const fetchCurrentMetrics = async () => {
     try {
-      const data = await api.get('/api/system/metrics/current');
+      const data = await getCurrentSystemMetrics();
       setCurrentMetrics(data);
     } catch (error) {
       console.error('获取当前系统状态失败:', error);
+      setCurrentMetrics(null);
     }
   };
 
@@ -78,15 +52,17 @@ const SystemMonitor: React.FC = () => {
 
       if (useDaily) {
         const days = Math.ceil((now.getTime() - startTime.getTime()) / (24 * 60 * 60 * 1000));
-        const data = await api.get(`/api/system/metrics/daily?days=${days}`);
+        const data = await getDailySystemMetrics(days);
         setDailyMetrics(data.metrics || []);
         setMetrics([]);
       } else {
         const startTimeStr = startTime.toISOString();
         const endTimeStr = now.toISOString();
-        const data = await api.get(
-          `/api/system/metrics?start_time=${startTimeStr}&end_time=${endTimeStr}&granularity=detail`
-        );
+        const data = await getSystemMetrics({
+          start_time: startTimeStr,
+          end_time: endTimeStr,
+          granularity: 'detail'
+        });
         setMetrics(data.metrics || []);
         setDailyMetrics([]);
       }

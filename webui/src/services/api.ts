@@ -229,35 +229,61 @@ export async function getPnLByTimeRange(startTime: string, endTime: string): Pro
 // System Metrics
 export interface SystemMetrics {
   timestamp: string
-  cpu_usage: number
-  memory_usage: number
-  goroutines: number
-  heap_alloc: number
-  heap_sys: number
+  cpu_percent: number
+  memory_mb: number
+  memory_percent: number
+  process_id: number
 }
 
 export interface SystemMetricsResponse {
   metrics: SystemMetrics[]
+  granularity?: string
 }
 
-export async function getSystemMetrics(): Promise<SystemMetricsResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/system/metrics`)
+export interface SystemMetricsParams {
+  start_time?: string
+  end_time?: string
+  granularity?: string
 }
 
-export interface CurrentSystemMetricsResponse {
-  metrics: SystemMetrics
+export async function getSystemMetrics(params?: SystemMetricsParams): Promise<SystemMetricsResponse> {
+  const queryParams = new URLSearchParams()
+  if (params?.start_time) queryParams.append('start_time', params.start_time)
+  if (params?.end_time) queryParams.append('end_time', params.end_time)
+  if (params?.granularity) queryParams.append('granularity', params.granularity)
+  
+  const url = `${API_BASE_URL}/system/metrics${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
+}
+
+export interface CurrentSystemMetricsResponse extends SystemMetrics {
 }
 
 export async function getCurrentSystemMetrics(): Promise<CurrentSystemMetricsResponse> {
   return fetchWithAuth(`${API_BASE_URL}/system/metrics/current`)
 }
 
-export interface DailySystemMetricsResponse {
-  metrics: SystemMetrics[]
+export interface DailySystemMetric {
+  date: string
+  avg_cpu_percent: number
+  max_cpu_percent: number
+  min_cpu_percent: number
+  avg_memory_mb: number
+  max_memory_mb: number
+  min_memory_mb: number
+  sample_count: number
 }
 
-export async function getDailySystemMetrics(): Promise<DailySystemMetricsResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/system/metrics/daily`)
+export interface DailySystemMetricsResponse {
+  metrics: DailySystemMetric[]
+}
+
+export async function getDailySystemMetrics(days?: number): Promise<DailySystemMetricsResponse> {
+  const queryParams = new URLSearchParams()
+  if (days) queryParams.append('days', days.toString())
+  
+  const url = `${API_BASE_URL}/system/metrics/daily${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 // Logs
@@ -529,10 +555,12 @@ export interface KlinesResponse {
   interval: string
 }
 
-export async function getKlines(interval: string = '1m', limit: number = 500): Promise<KlinesResponse> {
+export async function getKlines(interval: string = '1m', limit: number = 500, signal?: AbortSignal): Promise<KlinesResponse> {
   const queryParams = new URLSearchParams({
     interval,
     limit: limit.toString(),
   })
-  return fetchWithAuth(`${API_BASE_URL}/klines?${queryParams.toString()}`)
+  return fetchWithAuth(`${API_BASE_URL}/klines?${queryParams.toString()}`, {
+    signal,
+  })
 }

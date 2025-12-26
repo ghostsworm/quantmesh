@@ -27,6 +27,13 @@ interface ReconciliationHistoryItem {
   created_at: string
 }
 
+interface TooltipData {
+  x: number
+  y: number
+  item: ReconciliationHistoryItem
+  type: 'estimated' | 'actual'
+}
+
 const Reconciliation: React.FC = () => {
   const [status, setStatus] = useState<ReconciliationStatus | null>(null)
   const [history, setHistory] = useState<ReconciliationHistoryItem[]>([])
@@ -34,6 +41,7 @@ const Reconciliation: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [historyLimit, setHistoryLimit] = useState(50)
   const [historyOffset, setHistoryOffset] = useState(0)
+  const [tooltip, setTooltip] = useState<TooltipData | null>(null)
 
   const fetchStatus = async () => {
     try {
@@ -171,11 +179,37 @@ const Reconciliation: React.FC = () => {
                   const sortedHistory = [...history].reverse()
                   const maxProfit = Math.max(...sortedHistory.map(h => Math.max(h.estimated_profit, h.actual_profit)))
                   const minProfit = Math.min(...sortedHistory.map(h => Math.min(h.estimated_profit, h.actual_profit)))
-                  const range = maxProfit - minProfit || 1
-                  const padding = range * 0.1
+                  
+                  // 改进 Y 轴范围计算，确保负数能正确显示
+                  // 如果最小值为负数，确保范围包含 0 或至少正确显示负数范围
+                  let yMin = minProfit
+                  let yMax = maxProfit
+                  
+                  // 如果所有值都是负数，确保 Y 轴范围能正确显示
+                  if (minProfit < 0 && maxProfit < 0) {
+                    // 全部为负数时，保持原范围，但添加适当的 padding
+                    yMin = minProfit
+                    yMax = maxProfit
+                  } else if (minProfit < 0 && maxProfit >= 0) {
+                    // 有正有负时，确保包含 0
+                    yMin = minProfit
+                    yMax = maxProfit
+                  } else if (minProfit >= 0 && maxProfit >= 0) {
+                    // 全部为正数时，保持原逻辑
+                    yMin = minProfit
+                    yMax = maxProfit
+                  }
+                  
+                  const range = yMax - yMin || 1
+                  const padding = Math.max(range * 0.1, Math.abs(yMin) * 0.1, Math.abs(yMax) * 0.1) || 1
+                  
+                  // 确保 padding 不会让范围变得不合理
+                  const finalMin = yMin - padding
+                  const finalMax = yMax + padding
+                  const finalRange = finalMax - finalMin
                   
                   const getY = (value: number) => {
-                    return 290 - ((value - minProfit + padding) / (range + 2 * padding)) * 240
+                    return 290 - ((value - finalMin) / finalRange) * 240
                   }
                   
                   const getX = (index: number) => {
@@ -192,23 +226,122 @@ const Reconciliation: React.FC = () => {
                     `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(item.actual_profit)}`
                   ).join(' ')
                   
+                  // 绘制 0 线（如果范围包含 0）
+                  const zeroY = finalMin <= 0 && finalMax >= 0 ? getY(0) : null
+                  
                   return (
                     <>
+                      {/* 0 线 */}
+                      {zeroY !== null && (
+                        <line
+                          x1="60"
+                          y1={zeroY}
+                          x2="780"
+                          y2={zeroY}
+                          stroke="#999"
+                          strokeWidth="1"
+                          strokeDasharray="4,4"
+                          opacity="0.5"
+                        />
+                      )}
+                      
                       {/* 预计盈利曲线 */}
                       <path d={estimatedPath} fill="none" stroke="#1890ff" strokeWidth="2" />
-                      {sortedHistory.map((item, i) => (
-                        <circle key={`est-${i}`} cx={getX(i)} cy={getY(item.estimated_profit)} r="4" fill="#1890ff" />
-                      ))}
+                      {sortedHistory.map((item, i) => {
+                        const x = getX(i)
+                        const y = getY(item.estimated_profit)
+                        return (
+                          <circle
+                            key={`est-${i}`}
+                            cx={x}
+                            cy={y}
+                            r="4"
+                            fill="#1890ff"
+                            className="profit-point"
+                            onMouseEnter={(e) => {
+                              const circle = e.currentTarget
+                              const svg = circle.ownerSVGElement as SVGSVGElement
+                              if (svg) {
+                                const svgRect = svg.getBoundingClientRect()
+                                const point = svg.createSVGPoint()
+                                point.x = parseFloat(circle.getAttribute('cx') || '0')
+                                point.y = parseFloat(circle.getAttribute('cy') || '0')
+                                const screenCTM = circle.getScreenCTM()
+                                if (screenCTM) {
+                                  const transformedPoint = point.matrixTransform(screenCTM)
+                                  setTooltip({
+                                    x: transformedPoint.x - svgRect.left,
+                                    y: transformedPoint.y - svgRect.top - 10,
+                                    item,
+                                    type: 'estimated'
+                                  })
+                                } else {
+                                  // 降级方案：使用 getBoundingClientRect
+                                  const rect = circle.getBoundingClientRect()
+                                  setTooltip({
+                                    x: rect.left - svgRect.left + rect.width / 2,
+                                    y: rect.top - svgRect.top - 10,
+                                    item,
+                                    type: 'estimated'
+                                  })
+                                }
+                              }
+                            }}
+                            onMouseLeave={() => setTooltip(null)}
+                          />
+                        )
+                      })}
                       
                       {/* 实际盈利曲线 */}
                       <path d={actualPath} fill="none" stroke="#52c41a" strokeWidth="2" />
-                      {sortedHistory.map((item, i) => (
-                        <circle key={`act-${i}`} cx={getX(i)} cy={getY(item.actual_profit)} r="4" fill="#52c41a" />
-                      ))}
+                      {sortedHistory.map((item, i) => {
+                        const x = getX(i)
+                        const y = getY(item.actual_profit)
+                        return (
+                          <circle
+                            key={`act-${i}`}
+                            cx={x}
+                            cy={y}
+                            r="4"
+                            fill="#52c41a"
+                            className="profit-point"
+                            onMouseEnter={(e) => {
+                              const circle = e.currentTarget
+                              const svg = circle.ownerSVGElement as SVGSVGElement
+                              if (svg) {
+                                const svgRect = svg.getBoundingClientRect()
+                                const point = svg.createSVGPoint()
+                                point.x = parseFloat(circle.getAttribute('cx') || '0')
+                                point.y = parseFloat(circle.getAttribute('cy') || '0')
+                                const screenCTM = circle.getScreenCTM()
+                                if (screenCTM) {
+                                  const transformedPoint = point.matrixTransform(screenCTM)
+                                  setTooltip({
+                                    x: transformedPoint.x - svgRect.left,
+                                    y: transformedPoint.y - svgRect.top - 10,
+                                    item,
+                                    type: 'actual'
+                                  })
+                                } else {
+                                  // 降级方案：使用 getBoundingClientRect
+                                  const rect = circle.getBoundingClientRect()
+                                  setTooltip({
+                                    x: rect.left - svgRect.left + rect.width / 2,
+                                    y: rect.top - svgRect.top - 10,
+                                    item,
+                                    type: 'actual'
+                                  })
+                                }
+                              }
+                            }}
+                            onMouseLeave={() => setTooltip(null)}
+                          />
+                        )
+                      })}
                       
                       {/* Y轴刻度 */}
                       {[0, 1, 2, 3, 4].map(i => {
-                        const value = minProfit - padding + (range + 2 * padding) * (4 - i) / 4
+                        const value = finalMin + finalRange * (4 - i) / 4
                         return (
                           <text key={`y-${i}`} x="50" y={50 + i * 60 + 5} textAnchor="end" fontSize="12" fill="#666">
                             {value.toFixed(2)}
@@ -229,6 +362,52 @@ const Reconciliation: React.FC = () => {
                   )
                 })()}
               </svg>
+              
+              {/* Tooltip */}
+              {tooltip && (
+                <div
+                  className="profit-tooltip"
+                  style={{
+                    position: 'absolute',
+                    left: `${tooltip.x}px`,
+                    top: `${tooltip.y}px`,
+                    transform: 'translate(-50%, -100%)',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <div className="tooltip-content">
+                    <div className="tooltip-header">
+                      <strong>{formatTime(tooltip.item.reconcile_time)}</strong>
+                    </div>
+                    <div className="tooltip-body">
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">预计盈利:</span>
+                        <span className="tooltip-value" style={{ color: tooltip.item.estimated_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                          {tooltip.item.estimated_profit.toFixed(2)} USDT
+                        </span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">实际盈利:</span>
+                        <span className="tooltip-value" style={{ color: tooltip.item.actual_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                          {tooltip.item.actual_profit.toFixed(2)} USDT
+                        </span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">本地持仓:</span>
+                        <span className="tooltip-value">{tooltip.item.local_position.toFixed(4)}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">累计买入:</span>
+                        <span className="tooltip-value">{tooltip.item.total_buy_qty.toFixed(2)}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">累计卖出:</span>
+                        <span className="tooltip-value">{tooltip.item.total_sell_qty.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
