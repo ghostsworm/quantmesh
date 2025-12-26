@@ -10,6 +10,27 @@
 
 ---
 
+## v3.3.2 - 2025年12月27日
+
+**Git Tag**: `v3.3.2`
+
+### 变更 (Changed)
+- **时区处理统一**：所有时间统一使用东8区（UTC+8）返回给客户端，数据库存储统一使用UTC时间
+  - 程序启动时自动设置时区为东8区（Asia/Shanghai）
+  - 创建时间工具包（utils/timezone.go），提供UTC和UTC+8时间转换函数
+  - API返回的所有时间字段自动转换为UTC+8时区
+  - 数据库存储时自动将时间转换为UTC时区
+  - 确保时间数据的一致性和准确性
+  - 技术细节：
+    - 新增 `utils.ToUTC8()` 函数：将UTC时间转换为东8区时间（用于API返回）
+    - 新增 `utils.ToUTC()` 函数：将时间转换为UTC时间（用于数据库存储）
+    - 新增 `utils.NowUTC()` 和 `utils.NowUTC8()` 函数：获取当前UTC或UTC+8时间
+    - 修改所有API返回函数，在返回前将时间字段转换为UTC+8
+    - 修改所有数据库存储函数，在存储前将时间字段转换为UTC
+    - 涉及的文件：`main.go`, `web/api.go`, `web/system_metrics_provider.go`, `storage/sqlite.go`, `storage/storage.go`, `storage/log_storage.go`
+
+---
+
 ## [未发布] - Unreleased
 
 ### 变更

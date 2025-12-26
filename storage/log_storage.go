@@ -8,6 +8,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"quantmesh/utils"
 )
 
 // LogStorage 日志存储
@@ -102,7 +103,7 @@ func (ls *LogStorage) WriteLog(level, message string) {
 	entry := &logEntry{
 		level:     level,
 		message:   message,
-		timestamp: time.Now(),
+		timestamp: utils.NowUTC(),
 	}
 
 	select {

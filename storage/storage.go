@@ -11,6 +11,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/logger"
+	"quantmesh/utils"
 )
 
 // Storage 存储接口
@@ -121,7 +122,7 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(symbol string, reconci
 	
 	history := &ReconciliationHistory{
 		Symbol:            symbol,
-		ReconcileTime:     reconcileTime,
+		ReconcileTime:     utils.ToUTC(reconcileTime),
 		LocalPosition:     localPosition,
 		ExchangePosition:  exchangePosition,
 		PositionDiff:      positionDiff,
@@ -132,6 +133,7 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(symbol string, reconci
 		TotalSellQty:      totalSellQty,
 		EstimatedProfit:   estimatedProfit,
 		ActualProfit:      actualProfit,
+		CreatedAt:         utils.NowUTC(),
 	}
 	return ss.storage.SaveReconciliationHistory(history)
 }
@@ -319,11 +321,11 @@ func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 		order.Status = status
 	}
 	if createdAt, ok := data["created_at"].(time.Time); ok {
-		order.CreatedAt = createdAt
+		order.CreatedAt = utils.ToUTC(createdAt)
 	} else {
-		order.CreatedAt = time.Now()
+		order.CreatedAt = utils.NowUTC()
 	}
-	order.UpdatedAt = time.Now()
+	order.UpdatedAt = utils.NowUTC()
 
 	return ss.storage.SaveOrder(order)
 }
@@ -350,12 +352,13 @@ func (ss *StorageService) savePositionFromMap(data map[string]interface{}) error
 		position.PnL = pnl
 	}
 	if openedAt, ok := data["opened_at"].(time.Time); ok {
-		position.OpenedAt = openedAt
+		position.OpenedAt = utils.ToUTC(openedAt)
 	} else {
-		position.OpenedAt = time.Now()
+		position.OpenedAt = utils.NowUTC()
 	}
 	if closedAt, ok := data["closed_at"].(*time.Time); ok {
-		position.ClosedAt = closedAt
+		closedAtUTC := utils.ToUTC(*closedAt)
+		position.ClosedAt = &closedAtUTC
 	}
 
 	return ss.storage.SavePosition(position)

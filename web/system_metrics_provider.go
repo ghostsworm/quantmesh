@@ -6,6 +6,7 @@ import (
 
 	"quantmesh/monitor"
 	"quantmesh/storage"
+	"quantmesh/utils"
 )
 
 // SystemMetricsProviderImpl 系统监控数据提供者实现
@@ -32,7 +33,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 
 	if p.storageService == nil {
 		return &SystemMetricsResponse{
-			Timestamp:     time.Now(),
+			Timestamp:     utils.ToUTC8(time.Now()),
 			CPUPercent:    0,
 			MemoryMB:      0,
 			MemoryPercent: 0,
@@ -43,7 +44,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 	storage := p.storageService.GetStorage()
 	if storage == nil {
 		return &SystemMetricsResponse{
-			Timestamp:     time.Now(),
+			Timestamp:     utils.ToUTC8(time.Now()),
 			CPUPercent:    0,
 			MemoryMB:      0,
 			MemoryPercent: 0,
@@ -54,7 +55,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 	latest, err := storage.GetLatestSystemMetrics()
 	if err != nil {
 		return &SystemMetricsResponse{
-			Timestamp:     time.Now(),
+			Timestamp:     utils.ToUTC8(time.Now()),
 			CPUPercent:    0,
 			MemoryMB:      0,
 			MemoryPercent: 0,
@@ -64,7 +65,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 
 	if latest == nil {
 		return &SystemMetricsResponse{
-			Timestamp:     time.Now(),
+			Timestamp:     utils.ToUTC8(time.Now()),
 			CPUPercent:    0,
 			MemoryMB:      0,
 			MemoryPercent: 0,
@@ -73,7 +74,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 	}
 
 	return &SystemMetricsResponse{
-		Timestamp:     latest.Timestamp,
+		Timestamp:     utils.ToUTC8(latest.Timestamp),
 		CPUPercent:    latest.CPUPercent,
 		MemoryMB:      latest.MemoryMB,
 		MemoryPercent: latest.MemoryPercent,
@@ -100,7 +101,7 @@ func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, gra
 	metrics := make([]*SystemMetricsResponse, len(storageMetrics))
 	for i, sm := range storageMetrics {
 		metrics[i] = &SystemMetricsResponse{
-			Timestamp:     sm.Timestamp,
+			Timestamp:     utils.ToUTC8(sm.Timestamp),
 			CPUPercent:    sm.CPUPercent,
 			MemoryMB:      sm.MemoryMB,
 			MemoryPercent: sm.MemoryPercent,
@@ -130,7 +131,7 @@ func (p *SystemMetricsProviderImpl) GetDailyMetrics(days int) ([]*DailySystemMet
 	metrics := make([]*DailySystemMetricsResponse, len(dailyMetrics))
 	for i, dm := range dailyMetrics {
 		metrics[i] = &DailySystemMetricsResponse{
-			Date:          dm.Date,
+			Date:          utils.ToUTC8(dm.Date),
 			AvgCPUPercent: dm.AvgCPUPercent,
 			MaxCPUPercent: dm.MaxCPUPercent,
 			MinCPUPercent: dm.MinCPUPercent,

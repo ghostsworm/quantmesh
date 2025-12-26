@@ -12,6 +12,7 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/position"
 	"quantmesh/storage"
+	"quantmesh/utils"
 )
 
 // SystemStatus 系统状态
@@ -294,7 +295,23 @@ func getOrders(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"orders": orders})
+	// 转换时间为UTC+8
+	ordersResponse := make([]map[string]interface{}, len(orders))
+	for i, order := range orders {
+		ordersResponse[i] = map[string]interface{}{
+			"order_id":        order.OrderID,
+			"client_order_id": order.ClientOrderID,
+			"symbol":          order.Symbol,
+			"side":            order.Side,
+			"price":           order.Price,
+			"quantity":       order.Quantity,
+			"status":          order.Status,
+			"created_at":      utils.ToUTC8(order.CreatedAt),
+			"updated_at":      utils.ToUTC8(order.UpdatedAt),
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"orders": ordersResponse})
 }
 
 // getOrderHistory 获取订单历史
@@ -529,7 +546,22 @@ func getTradeStatistics(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"trades": trades})
+	// 转换时间为UTC+8
+	tradesResponse := make([]map[string]interface{}, len(trades))
+	for i, trade := range trades {
+		tradesResponse[i] = map[string]interface{}{
+			"buy_order_id":  trade.BuyOrderID,
+			"sell_order_id": trade.SellOrderID,
+			"symbol":        trade.Symbol,
+			"buy_price":     trade.BuyPrice,
+			"sell_price":    trade.SellPrice,
+			"quantity":      trade.Quantity,
+			"pnl":           trade.PnL,
+			"created_at":    utils.ToUTC8(trade.CreatedAt),
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"trades": tradesResponse})
 }
 
 func getConfig(c *gin.Context) {
@@ -662,7 +694,7 @@ func getCurrentSystemMetrics(c *gin.Context) {
 	if systemMetricsProvider == nil {
 		// 返回完整的对象结构，避免前端访问 undefined 字段
 		c.JSON(http.StatusOK, &SystemMetricsResponse{
-			Timestamp:     time.Now(),
+			Timestamp:     utils.ToUTC8(time.Now()),
 			CPUPercent:     0,
 			MemoryMB:       0,
 			MemoryPercent:  0,
@@ -675,7 +707,7 @@ func getCurrentSystemMetrics(c *gin.Context) {
 	if err != nil {
 		// 即使出错也返回完整的对象结构
 		c.JSON(http.StatusOK, &SystemMetricsResponse{
-			Timestamp:     time.Now(),
+			Timestamp:     utils.ToUTC8(time.Now()),
 			CPUPercent:     0,
 			MemoryMB:       0,
 			MemoryPercent:  0,
@@ -687,7 +719,7 @@ func getCurrentSystemMetrics(c *gin.Context) {
 	// 确保所有字段都有默认值
 	if metrics == nil {
 		metrics = &SystemMetricsResponse{
-			Timestamp:     time.Now(),
+			Timestamp:     utils.ToUTC8(time.Now()),
 			CPUPercent:     0,
 			MemoryMB:       0,
 			MemoryPercent:  0,
@@ -793,7 +825,7 @@ func (a *positionManagerAdapter) GetAllSlots() []SlotInfo {
 			OrderStatus:    ds.OrderStatus,
 			OrderPrice:     ds.OrderPrice,
 			OrderFilledQty: ds.OrderFilledQty,
-			OrderCreatedAt: ds.OrderCreatedAt,
+			OrderCreatedAt: utils.ToUTC8(ds.OrderCreatedAt),
 			SlotStatus:     ds.SlotStatus,
 		}
 	}
@@ -933,7 +965,7 @@ func getPendingOrders(c *gin.Context) {
 				Side:           slot.OrderSide,
 				Status:         slot.OrderStatus,
 				FilledQuantity: slot.OrderFilledQty,
-				CreatedAt:      slot.OrderCreatedAt,
+				CreatedAt:      utils.ToUTC8(slot.OrderCreatedAt),
 				SlotPrice:      slot.Price,
 			})
 		}
@@ -998,7 +1030,7 @@ func (a *logStorageAdapter) GetLogs(startTime, endTime time.Time, level, keyword
 	for i, log := range logs {
 		result[i] = &LogRecordResponse{
 			ID:        log.ID,
-			Timestamp: log.Timestamp,
+			Timestamp: utils.ToUTC8(log.Timestamp),
 			Level:     log.Level,
 			Message:   log.Message,
 		}
@@ -1159,7 +1191,7 @@ func getReconciliationStatus(c *gin.Context) {
 
 	status := ReconciliationStatus{
 		ReconcileCount:    reconcileCount,
-		LastReconcileTime: lastReconcileTime,
+		LastReconcileTime: utils.ToUTC8(lastReconcileTime),
 		LocalPosition:     localPosition,
 		TotalBuyQty:       totalBuyQty,
 		TotalSellQty:      totalSellQty,
@@ -1237,7 +1269,7 @@ func getReconciliationHistory(c *gin.Context) {
 		result[i] = ReconciliationHistoryInfo{
 			ID:              h.ID,
 			Symbol:          h.Symbol,
-			ReconcileTime:   h.ReconcileTime,
+			ReconcileTime:   utils.ToUTC8(h.ReconcileTime),
 			LocalPosition:   h.LocalPosition,
 			ExchangePosition: h.ExchangePosition,
 			PositionDiff:    h.PositionDiff,
@@ -1248,7 +1280,7 @@ func getReconciliationHistory(c *gin.Context) {
 			TotalSellQty:    h.TotalSellQty,
 			EstimatedProfit: h.EstimatedProfit,
 			ActualProfit:    h.ActualProfit,
-			CreatedAt:       h.CreatedAt,
+			CreatedAt:       utils.ToUTC8(h.CreatedAt),
 		}
 	}
 
@@ -1611,7 +1643,7 @@ func getRiskCheckHistory(c *gin.Context) {
 			}
 		}
 		result[i] = RiskCheckHistoryResponse{
-			CheckTime:    h.CheckTime,
+			CheckTime:    utils.ToUTC8(h.CheckTime),
 			Symbols:      symbols,
 			HealthyCount: h.HealthyCount,
 			TotalCount:   h.TotalCount,

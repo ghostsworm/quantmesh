@@ -29,7 +29,7 @@ import (
 )
 
 // Version 版本号
-var Version = "v3.3.1"
+var Version = "v3.3.2"
 
 // 全局日志存储实例（用于清理任务和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -71,7 +71,17 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, symbol st
 }
 
 func main() {
-	// 0. 最早初始化日志存储（在配置加载之前，使用默认路径）
+	// 0. 设置时区为东8区（UTC+8）
+	// 这样所有获取的时间都是东8区时间
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		// 如果加载失败，使用固定偏移量创建
+		loc = time.FixedZone("UTC+8", 8*60*60)
+	}
+	time.Local = loc
+	logger.Info("🌏 时区已设置为: %s (UTC+8)", loc.String())
+
+	// 1. 最早初始化日志存储（在配置加载之前，使用默认路径）
 	// 这样即使配置加载失败，也能记录日志
 	logStoragePath := "./logs.db"
 	if len(os.Args) > 2 && os.Args[1] == "--log-db" {

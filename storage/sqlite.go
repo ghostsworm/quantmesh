@@ -7,6 +7,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"quantmesh/utils"
 )
 
 // SQLiteStorage SQLite 存储实现
@@ -233,20 +234,26 @@ func migrateReconciliationHistory(db *sql.DB) error {
 
 // SaveOrder 保存订单
 func (s *SQLiteStorage) SaveOrder(order *Order) error {
+	// 转换为UTC时间存储
+	createdAt := utils.ToUTC(order.CreatedAt)
+	updatedAt := utils.ToUTC(order.UpdatedAt)
 	_, err := s.db.Exec(`
 		INSERT OR REPLACE INTO orders 
 		(order_id, client_order_id, symbol, side, price, quantity, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
-		order.Price, order.Quantity, order.Status, order.CreatedAt, order.UpdatedAt)
+		order.Price, order.Quantity, order.Status, createdAt, updatedAt)
 	return err
 }
 
 // SavePosition 保存持仓
 func (s *SQLiteStorage) SavePosition(position *Position) error {
+	// 转换为UTC时间存储
+	openedAt := utils.ToUTC(position.OpenedAt)
 	var closedAt interface{}
 	if position.ClosedAt != nil {
-		closedAt = *position.ClosedAt
+		closedAtUTC := utils.ToUTC(*position.ClosedAt)
+		closedAt = closedAtUTC
 	}
 
 	_, err := s.db.Exec(`
@@ -255,23 +262,27 @@ func (s *SQLiteStorage) SavePosition(position *Position) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`, position.SlotPrice, position.Symbol, position.Size,
 		position.EntryPrice, position.CurrentPrice, position.PnL,
-		position.OpenedAt, closedAt)
+		openedAt, closedAt)
 	return err
 }
 
 // SaveTrade 保存交易
 func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
+	// 转换为UTC时间存储
+	createdAt := utils.ToUTC(trade.CreatedAt)
 	_, err := s.db.Exec(`
 		INSERT INTO trades 
 		(buy_order_id, sell_order_id, symbol, buy_price, sell_price, quantity, pnl, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`, trade.BuyOrderID, trade.SellOrderID, trade.Symbol,
-		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.CreatedAt)
+		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, createdAt)
 	return err
 }
 
 // SaveSystemMetrics 保存系统监控细粒度数据
 func (s *SQLiteStorage) SaveSystemMetrics(metrics *SystemMetrics) error {
+	// 转换为UTC时间存储
+	timestamp := utils.ToUTC(metrics.Timestamp)
 	var memoryPercent interface{}
 	if metrics.MemoryPercent > 0 {
 		memoryPercent = metrics.MemoryPercent
@@ -281,18 +292,20 @@ func (s *SQLiteStorage) SaveSystemMetrics(metrics *SystemMetrics) error {
 		INSERT INTO system_metrics 
 		(timestamp, cpu_percent, memory_mb, memory_percent, process_id)
 		VALUES (?, ?, ?, ?, ?)
-	`, metrics.Timestamp, metrics.CPUPercent, metrics.MemoryMB, memoryPercent, metrics.ProcessID)
+	`, timestamp, metrics.CPUPercent, metrics.MemoryMB, memoryPercent, metrics.ProcessID)
 	return err
 }
 
 // SaveDailySystemMetrics 保存系统监控每日汇总数据
 func (s *SQLiteStorage) SaveDailySystemMetrics(metrics *DailySystemMetrics) error {
+	// 转换为UTC时间存储
+	date := utils.ToUTC(metrics.Date)
 	_, err := s.db.Exec(`
 		INSERT OR REPLACE INTO daily_system_metrics 
 		(date, avg_cpu_percent, max_cpu_percent, min_cpu_percent, 
 		 avg_memory_mb, max_memory_mb, min_memory_mb, sample_count)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, metrics.Date, metrics.AvgCPUPercent, metrics.MaxCPUPercent, metrics.MinCPUPercent,
+	`, date, metrics.AvgCPUPercent, metrics.MaxCPUPercent, metrics.MinCPUPercent,
 		metrics.AvgMemoryMB, metrics.MaxMemoryMB, metrics.MinMemoryMB, metrics.SampleCount)
 	return err
 }
@@ -313,7 +326,7 @@ func (s *SQLiteStorage) SaveEvent(eventType string, data map[string]interface{})
 	_, err = s.db.Exec(`
 		INSERT INTO events (event_type, data, created_at)
 		VALUES (?, ?, ?)
-	`, eventType, string(jsonData), time.Now())
+	`, eventType, string(jsonData), utils.NowUTC())
 	return err
 }
 
@@ -322,15 +335,17 @@ func (s *SQLiteStorage) saveSystemMetricsFromMap(data map[string]interface{}) er
 	metrics := &SystemMetrics{}
 
 	if timestamp, ok := data["timestamp"].(time.Time); ok {
-		metrics.Timestamp = timestamp
+		metrics.Timestamp = utils.ToUTC(timestamp)
 	} else if timestampStr, ok := data["timestamp"].(string); ok {
 		var err error
-		metrics.Timestamp, err = time.Parse(time.RFC3339, timestampStr)
+		parsedTime, err := time.Parse(time.RFC3339, timestampStr)
 		if err != nil {
-			metrics.Timestamp = time.Now()
+			metrics.Timestamp = utils.NowUTC()
+		} else {
+			metrics.Timestamp = utils.ToUTC(parsedTime)
 		}
 	} else {
-		metrics.Timestamp = time.Now()
+		metrics.Timestamp = utils.NowUTC()
 	}
 
 	if cpuPercent, ok := data["cpu_percent"].(float64); ok {
@@ -353,12 +368,15 @@ func (s *SQLiteStorage) saveSystemMetricsFromMap(data map[string]interface{}) er
 
 // SaveStatistics 保存统计
 func (s *SQLiteStorage) SaveStatistics(stats *Statistics) error {
+	// 转换为UTC时间存储
+	date := utils.ToUTC(stats.Date)
+	createdAt := utils.ToUTC(stats.CreatedAt)
 	_, err := s.db.Exec(`
 		INSERT OR REPLACE INTO statistics 
 		(date, total_trades, total_volume, total_pnl, win_rate, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, stats.Date, stats.TotalTrades, stats.TotalVolume,
-		stats.TotalPnL, stats.WinRate, stats.CreatedAt)
+	`, date, stats.TotalTrades, stats.TotalVolume,
+		stats.TotalPnL, stats.WinRate, createdAt)
 	return err
 }
 
@@ -520,15 +538,18 @@ func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
 
 // SaveReconciliationHistory 保存对账历史
 func (s *SQLiteStorage) SaveReconciliationHistory(history *ReconciliationHistory) error {
+	// 转换为UTC时间存储
+	reconcileTime := utils.ToUTC(history.ReconcileTime)
+	createdAt := utils.ToUTC(history.CreatedAt)
 	_, err := s.db.Exec(`
 		INSERT INTO reconciliation_history 
 		(symbol, reconcile_time, local_position, exchange_position, position_diff,
 		 active_buy_orders, active_sell_orders, pending_sell_qty,
-		 total_buy_qty, total_sell_qty, estimated_profit, actual_profit)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, history.Symbol, history.ReconcileTime, history.LocalPosition, history.ExchangePosition,
+		 total_buy_qty, total_sell_qty, estimated_profit, actual_profit, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, history.Symbol, reconcileTime, history.LocalPosition, history.ExchangePosition,
 		history.PositionDiff, history.ActiveBuyOrders, history.ActiveSellOrders,
-		history.PendingSellQty, history.TotalBuyQty, history.TotalSellQty, history.EstimatedProfit, history.ActualProfit)
+		history.PendingSellQty, history.TotalBuyQty, history.TotalSellQty, history.EstimatedProfit, history.ActualProfit, createdAt)
 	return err
 }
 
@@ -716,11 +737,13 @@ func (s *SQLiteStorage) GetActualProfitBySymbol(symbol string, beforeTime time.T
 
 // SaveRiskCheck 保存风控检查记录
 func (s *SQLiteStorage) SaveRiskCheck(record *RiskCheckRecord) error {
+	// 转换为UTC时间存储
+	checkTime := utils.ToUTC(record.CheckTime)
 	_, err := s.db.Exec(`
 		INSERT INTO risk_check_history 
 		(check_time, symbol, is_healthy, price_deviation, volume_ratio, reason)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, record.CheckTime, record.Symbol, record.IsHealthy, record.PriceDeviation, record.VolumeRatio, record.Reason)
+	`, checkTime, record.Symbol, record.IsHealthy, record.PriceDeviation, record.VolumeRatio, record.Reason)
 	return err
 }
 
