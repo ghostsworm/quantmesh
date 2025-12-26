@@ -14,6 +14,7 @@ import RiskMonitor from './components/RiskMonitor'
 import Profile from './components/Profile'
 import Login from './components/Login'
 import FirstTimeSetup from './components/FirstTimeSetup'
+import KlineChart from './components/KlineChart'
 import { logout } from './services/auth'
 import './App.css'
 
@@ -110,6 +111,7 @@ const AppContent: React.FC = () => {
                 <Link to="/reconciliation">对账</Link>
                 <Link to="/risk">风控监控</Link>
                 <Link to="/system-monitor">系统监控</Link>
+                <Link to="/kline">K线图</Link>
                 <Link to="/logs">日志</Link>
                 <Link to="/profile">个人资料</Link>
       </nav>
@@ -124,6 +126,7 @@ const AppContent: React.FC = () => {
                   <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
                   <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
                   <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
+                  <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
                   <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
                   <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/login" element={<Login />} />
