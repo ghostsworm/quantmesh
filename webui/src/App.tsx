@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Dashboard from './components/Dashboard'
 import Positions from './components/Positions'
@@ -15,6 +15,7 @@ import Profile from './components/Profile'
 import Login from './components/Login'
 import FirstTimeSetup from './components/FirstTimeSetup'
 import KlineChart from './components/KlineChart'
+import Footer from './components/Footer'
 import { logout } from './services/auth'
 import './App.css'
 
@@ -37,6 +38,21 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   return <>{children}</>
+}
+
+// 导航链接组件，支持活跃状态
+const NavLink: React.FC<{ to: string; children: React.ReactNode }> = ({ to, children }) => {
+  const location = useLocation()
+  const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to))
+
+  return (
+    <Link
+      to={to}
+      className={`app-nav-link ${isActive ? 'active' : ''}`}
+    >
+      {children}
+    </Link>
+  )
 }
 
 // 主应用内容
@@ -83,37 +99,37 @@ const AppContent: React.FC = () => {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>QuantMesh Market Maker</h1>
-        {isAuthenticated && (
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: '#ff4d4f',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            退出登录
-          </button>
-        )}
+        <div className="app-header-content">
+          <div className="app-header-brand">
+            <h1 className="app-header-title">QuantMesh Market Maker</h1>
+          </div>
+          {isAuthenticated && (
+            <div className="app-header-actions">
+              <button
+                onClick={handleLogout}
+                className="app-header-logout-btn"
+              >
+                退出登录
+              </button>
+            </div>
+          )}
+        </div>
       </header>
       <nav className="app-nav">
-        <Link to="/">仪表盘</Link>
-        <Link to="/positions">持仓</Link>
-        <Link to="/orders">订单</Link>
-        <Link to="/slots">槽位</Link>
-        <Link to="/strategies">策略配比</Link>
-        <Link to="/statistics">统计</Link>
-                <Link to="/reconciliation">对账</Link>
-                <Link to="/risk">风控监控</Link>
-                <Link to="/system-monitor">系统监控</Link>
-                <Link to="/kline">K线图</Link>
-                <Link to="/logs">日志</Link>
-                <Link to="/profile">个人资料</Link>
+        <div className="app-nav-container">
+          <NavLink to="/">仪表盘</NavLink>
+          <NavLink to="/positions">持仓</NavLink>
+          <NavLink to="/orders">订单</NavLink>
+          <NavLink to="/slots">槽位</NavLink>
+          <NavLink to="/strategies">策略配比</NavLink>
+          <NavLink to="/statistics">统计</NavLink>
+          <NavLink to="/reconciliation">对账</NavLink>
+          <NavLink to="/risk">风控监控</NavLink>
+          <NavLink to="/system-monitor">系统监控</NavLink>
+          <NavLink to="/kline">K线图</NavLink>
+          <NavLink to="/logs">日志</NavLink>
+          <NavLink to="/profile">个人资料</NavLink>
+        </div>
       </nav>
       <main className="app-main">
         <Routes>
@@ -123,17 +139,18 @@ const AppContent: React.FC = () => {
           <Route path="/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
           <Route path="/strategies" element={<ProtectedRoute><StrategyAllocation /></ProtectedRoute>} />
           <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
-                  <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
-                  <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
-                  <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
-                  <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
-                  <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
-                  <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
+          <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
+          <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
+          <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
+          <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={<FirstTimeSetup />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+      <Footer />
     </div>
   )
 }

@@ -112,3 +112,30 @@ type PnLBySymbol struct {
 	WinRate       float64
 }
 
+// RiskCheckRecord 风控检查记录（单条）
+type RiskCheckRecord struct {
+	CheckTime      time.Time
+	Symbol         string
+	IsHealthy      bool
+	PriceDeviation float64
+	VolumeRatio    float64
+	Reason         string
+}
+
+// RiskCheckSymbol 风控检查中的币种状态
+type RiskCheckSymbol struct {
+	Symbol         string
+	IsHealthy      bool
+	PriceDeviation float64
+	VolumeRatio    float64
+	Reason         string
+}
+
+// RiskCheckHistory 风控检查历史（按时间分组）
+type RiskCheckHistory struct {
+	CheckTime    time.Time
+	Symbols      []*RiskCheckSymbol
+	HealthyCount int
+	TotalCount   int
+}
+

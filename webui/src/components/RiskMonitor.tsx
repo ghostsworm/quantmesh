@@ -1,14 +1,25 @@
 import React, { useEffect, useState } from 'react'
-import { getRiskStatus, getRiskMonitorData, RiskStatusResponse, SymbolMonitorData } from '../services/api'
+import { 
+  getRiskStatus, 
+  getRiskMonitorData, 
+  getRiskCheckHistory,
+  RiskStatusResponse, 
+  SymbolMonitorData,
+  RiskCheckHistoryItem 
+} from '../services/api'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
 import './RiskMonitor.css'
 
 const RiskMonitor: React.FC = () => {
   const [riskStatus, setRiskStatus] = useState<RiskStatusResponse | null>(null)
   const [monitorData, setMonitorData] = useState<SymbolMonitorData[]>([])
+  const [historyData, setHistoryData] = useState<RiskCheckHistoryItem[]>([])
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [loadingData, setLoadingData] = useState(true)
+  const [loadingHistory, setLoadingHistory] = useState(true)
   const [errorStatus, setErrorStatus] = useState<string | null>(null)
   const [errorData, setErrorData] = useState<string | null>(null)
+  const [errorHistory, setErrorHistory] = useState<string | null>(null)
 
   // Fetch Risk Status
   useEffect(() => {
@@ -49,6 +60,34 @@ const RiskMonitor: React.FC = () => {
 
     fetchData()
     const interval = setInterval(fetchData, 5000) // Refresh every 5 seconds
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch History Data
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        setLoadingHistory(true)
+        const endTime = new Date()
+        const startTime = new Date()
+        startTime.setDate(startTime.getDate() - 90) // 最近90天
+        
+        const data = await getRiskCheckHistory({
+          start_time: startTime.toISOString(),
+          end_time: endTime.toISOString(),
+        })
+        setHistoryData(data.history)
+        setErrorHistory(null)
+      } catch (err) {
+        setErrorHistory(err instanceof Error ? err.message : 'Failed to fetch history data')
+        console.error('Failed to fetch history data:', err)
+      } finally {
+        setLoadingHistory(false)
+      }
+    }
+
+    fetchHistory()
+    const interval = setInterval(fetchHistory, 30000) // Refresh every 30 seconds
     return () => clearInterval(interval)
   }, [])
 
@@ -143,6 +182,131 @@ const RiskMonitor: React.FC = () => {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* History Health Chart */}
+      <h3 style={{ marginTop: '32px' }}>历史健康度</h3>
+      {loadingHistory && historyData.length === 0 ? (
+        <p>加载历史数据...</p>
+      ) : errorHistory ? (
+        <p style={{ color: 'red' }}>错误: {errorHistory}</p>
+      ) : historyData.length === 0 ? (
+        <p>暂无历史数据</p>
+      ) : (
+        <div style={{ marginTop: '16px', width: '100%', height: '400px' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={historyData.map((item, itemIndex) => {
+                // 为每个检查时间段创建数据点
+                const dataPoint: any = {
+                  time: new Date(item.check_time).toLocaleString('zh-CN', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  }),
+                  timestamp: item.check_time,
+                  symbols: item.symbols,
+                  total: item.total_count,
+                  healthy: item.healthy_count,
+                }
+                
+                // 为每个币种添加堆叠数据（每个币种占1个单位高度）
+                item.symbols.forEach((symbol, symbolIndex) => {
+                  dataPoint[`symbol_${symbolIndex}`] = 1
+                })
+                
+                return dataPoint
+              })}
+              margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+            >
+              <XAxis 
+                dataKey="time" 
+                angle={-45}
+                textAnchor="end"
+                height={80}
+                interval="preserveStartEnd"
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis 
+                label={{ value: '币种数', angle: -90, position: 'insideLeft' }}
+                domain={[0, 'dataMax']}
+                ticks={historyData.length > 0 ? Array.from({ length: historyData[0].total_count + 1 }, (_, i) => i) : []}
+              />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload || !payload.length) return null
+                  
+                  const data = payload[0].payload
+                  const checkTime = new Date(data.timestamp).toLocaleString('zh-CN')
+                  
+                  return (
+                    <div style={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                      padding: '12px',
+                      border: '1px solid #ccc',
+                      borderRadius: '4px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                      maxWidth: '300px'
+                    }}>
+                      <p style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>
+                        检查时间: {checkTime}
+                      </p>
+                      <p style={{ marginBottom: '8px', fontSize: '13px' }}>
+                        健康: {data.healthy} / {data.total}
+                      </p>
+                      <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                        {data.symbols && data.symbols.map((symbol: any, index: number) => (
+                          <div 
+                            key={index}
+                            style={{ 
+                              margin: '4px 0',
+                              padding: '4px',
+                              backgroundColor: symbol.is_healthy ? '#f6ffed' : '#fff1f0',
+                              borderRadius: '4px',
+                              fontSize: '12px'
+                            }}
+                          >
+                            <span style={{ 
+                              color: symbol.is_healthy ? '#52c41a' : '#ff4d4f',
+                              fontWeight: 'bold'
+                            }}>
+                              {symbol.symbol}: {symbol.is_healthy ? '✓ 健康' : '⚠ 异常'}
+                            </span>
+                            {symbol.reason && !symbol.is_healthy && (
+                              <div style={{ fontSize: '11px', color: '#666', marginTop: '2px', marginLeft: '8px' }}>
+                                {symbol.reason}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                }}
+              />
+              {historyData.length > 0 && historyData[0].symbols.map((symbol, index) => (
+                <Bar
+                  key={index}
+                  dataKey={`symbol_${index}`}
+                  stackId="health"
+                  name={symbol.symbol}
+                  isAnimationActive={false}
+                >
+                  {historyData.map((entry, entryIndex) => {
+                    const symbolData = entry.symbols[index]
+                    return (
+                      <Cell
+                        key={`cell-${entryIndex}-${index}`}
+                        fill={symbolData?.is_healthy ? '#52c41a' : '#ff4d4f'}
+                      />
+                    )
+                  })}
+                </Bar>
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
     </div>

@@ -1528,6 +1528,99 @@ func getRiskMonitorData(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"symbols": monitorData})
 }
 
+// RiskCheckHistoryResponse 风控检查历史响应
+type RiskCheckHistoryResponse struct {
+	CheckTime    time.Time              `json:"check_time"`
+	Symbols      []RiskCheckSymbolInfo  `json:"symbols"`
+	HealthyCount int                    `json:"healthy_count"`
+	TotalCount   int                    `json:"total_count"`
+}
+
+// RiskCheckSymbolInfo 风控检查币种信息
+type RiskCheckSymbolInfo struct {
+	Symbol         string  `json:"symbol"`
+	IsHealthy      bool    `json:"is_healthy"`
+	PriceDeviation float64 `json:"price_deviation"`
+	VolumeRatio    float64 `json:"volume_ratio"`
+	Reason         string  `json:"reason"`
+}
+
+// getRiskCheckHistory 获取风控检查历史
+// GET /api/risk/history
+// 参数：
+//   - start_time: 开始时间（可选，ISO 8601格式，默认最近90天）
+//   - end_time: 结束时间（可选，ISO 8601格式，默认当前时间）
+func getRiskCheckHistory(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
+		return
+	}
+
+	// 解析参数
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr == "" {
+		// 默认最近90天
+		startTime = time.Now().AddDate(0, 0, -90)
+	} else {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			return
+		}
+	}
+
+	if endTimeStr == "" {
+		endTime = time.Now()
+	} else {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			return
+		}
+	}
+
+	// 查询历史数据
+	histories, err := storage.QueryRiskCheckHistory(startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 转换为 API 响应格式
+	result := make([]RiskCheckHistoryResponse, len(histories))
+	for i, h := range histories {
+		symbols := make([]RiskCheckSymbolInfo, len(h.Symbols))
+		for j, s := range h.Symbols {
+			symbols[j] = RiskCheckSymbolInfo{
+				Symbol:         s.Symbol,
+				IsHealthy:      s.IsHealthy,
+				PriceDeviation: s.PriceDeviation,
+				VolumeRatio:    s.VolumeRatio,
+				Reason:         s.Reason,
+			}
+		}
+		result[i] = RiskCheckHistoryResponse{
+			CheckTime:    h.CheckTime,
+			Symbols:      symbols,
+			HealthyCount: h.HealthyCount,
+			TotalCount:   h.TotalCount,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"history": result})
+}
+
 // KlineData K线数据响应格式
 type KlineData struct {
 	Time   int64   `json:"time"`   // 时间戳（秒）

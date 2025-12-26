@@ -152,6 +152,22 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_symbol ON reconciliation_history(symbol);
 	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_time ON reconciliation_history(reconcile_time);`
 
+	// 风控检查历史表
+	riskCheckHistorySQL := `
+	CREATE TABLE IF NOT EXISTS risk_check_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		check_time TIMESTAMP NOT NULL,
+		symbol TEXT NOT NULL,
+		is_healthy INTEGER NOT NULL,
+		price_deviation REAL,
+		volume_ratio REAL,
+		reason TEXT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time ON risk_check_history(check_time);
+	CREATE INDEX IF NOT EXISTS idx_risk_check_history_symbol ON risk_check_history(symbol);
+	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time_symbol ON risk_check_history(check_time, symbol);`
+
 	// 创建索引
 	indexesSQL := `
 	CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
@@ -172,6 +188,7 @@ func createTables(db *sql.DB) error {
 		dailySystemMetricsSQL,
 		statisticsSQL,
 		reconciliationHistorySQL,
+		riskCheckHistorySQL,
 		indexesSQL,
 	}
 	for _, sql := range sqls {
@@ -695,6 +712,105 @@ func (s *SQLiteStorage) GetActualProfitBySymbol(symbol string, beforeTime time.T
 	}
 	
 	return 0, nil
+}
+
+// SaveRiskCheck 保存风控检查记录
+func (s *SQLiteStorage) SaveRiskCheck(record *RiskCheckRecord) error {
+	_, err := s.db.Exec(`
+		INSERT INTO risk_check_history 
+		(check_time, symbol, is_healthy, price_deviation, volume_ratio, reason)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, record.CheckTime, record.Symbol, record.IsHealthy, record.PriceDeviation, record.VolumeRatio, record.Reason)
+	return err
+}
+
+// QueryRiskCheckHistory 查询风控检查历史
+func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time) ([]*RiskCheckHistory, error) {
+	rows, err := s.db.Query(`
+		SELECT check_time, symbol, is_healthy, price_deviation, volume_ratio, reason
+		FROM risk_check_history
+		WHERE check_time >= ? AND check_time <= ?
+		ORDER BY check_time ASC
+	`, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("查询风控检查历史失败: %w", err)
+	}
+	defer rows.Close()
+
+	// 按检查时间分组
+	historyMap := make(map[time.Time]*RiskCheckHistory)
+	
+	for rows.Next() {
+		var checkTime time.Time
+		var symbol string
+		var isHealthy int
+		var priceDeviation sql.NullFloat64
+		var volumeRatio sql.NullFloat64
+		var reason sql.NullString
+
+		err := rows.Scan(&checkTime, &symbol, &isHealthy, &priceDeviation, &volumeRatio, &reason)
+		if err != nil {
+			continue
+		}
+
+		// 将时间戳精确到分钟（同一分钟内的检查归为一组）
+		checkTimeRounded := checkTime.Truncate(time.Minute)
+
+		history, exists := historyMap[checkTimeRounded]
+		if !exists {
+			history = &RiskCheckHistory{
+				CheckTime: checkTimeRounded,
+				Symbols:   []*RiskCheckSymbol{},
+			}
+			historyMap[checkTimeRounded] = history
+		}
+
+		symbolData := &RiskCheckSymbol{
+			Symbol:      symbol,
+			IsHealthy:   isHealthy == 1,
+		}
+		if priceDeviation.Valid {
+			symbolData.PriceDeviation = priceDeviation.Float64
+		}
+		if volumeRatio.Valid {
+			symbolData.VolumeRatio = volumeRatio.Float64
+		}
+		if reason.Valid {
+			symbolData.Reason = reason.String
+		}
+
+		history.Symbols = append(history.Symbols, symbolData)
+		if symbolData.IsHealthy {
+			history.HealthyCount++
+		}
+		history.TotalCount++
+	}
+
+	// 转换为切片并排序
+	result := make([]*RiskCheckHistory, 0, len(historyMap))
+	for _, history := range historyMap {
+		result = append(result, history)
+	}
+
+	// 按时间排序
+	for i := 0; i < len(result)-1; i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[i].CheckTime.After(result[j].CheckTime) {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// CleanupRiskCheckHistory 清理指定时间之前的风控检查历史
+func (s *SQLiteStorage) CleanupRiskCheckHistory(beforeTime time.Time) error {
+	_, err := s.db.Exec(`
+		DELETE FROM risk_check_history 
+		WHERE check_time < ?
+	`, beforeTime)
+	return err
 }
 
 // Close 关闭数据库连接

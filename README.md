@@ -6,7 +6,7 @@
   **毫秒级高频加密货币做市商系统 | High-Frequency Crypto Market Maker**
 
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
-  [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 </div>
 
 ---
@@ -176,9 +176,55 @@ This software is for educational and research purposes only. Cryptocurrency trad
 - Always test thoroughly on Testnet before using real funds.
 - The developers are not liable for losses due to software bugs, network latency, or exchange failures.
 
+## 📜 许可证 (License)
+
+本项目采用**双许可模式 (Dual License)**：
+
+### AGPL-3.0 开源许可
+- ✅ 免费使用、修改和分发
+- ⚠️ **所有衍生作品必须开源**，并在 AGPL-3.0 许可下发布
+- ⚠️ 即使通过网络服务使用，也必须提供源代码
+- ⚠️ 修改后的代码必须回馈给社区
+
+### 商业许可
+如果您需要在专有应用或服务中使用本软件，或者不希望开源您的修改，您需要购买商业许可证。
+
+**商业许可授权范围：**
+- 在专有应用中使用本软件
+- 修改代码无需开源
+- 将本软件集成到专有产品中分发
+- 优先技术支持和技术更新
+
+**商业许可咨询：**
+- 📧 Email: commercial@quantmesh.io
+- 🌐 Website: https://quantmesh.io/commercial
+
+---
+
+### License Details
+
+This project is dual-licensed under:
+
+1. **AGPL-3.0 (GNU Affero General Public License v3.0)**
+   - Free for use, modification, and distribution
+   - All derivative works must be open-sourced under AGPL-3.0
+   - Source code must be provided to all users, even for network services
+   - Modifications must be contributed back to the community
+
+2. **Commercial License**
+   - Required for proprietary use
+   - No obligation to open-source modifications
+   - Includes priority support and updates
+
+For commercial licensing inquiries, please contact:
+- 📧 Email: commercial@quantmesh.com
+- 🌐 Website: https://quantmesh.com/commercial
+
 ## 🤝 贡献 (Contributing)
 
 欢迎提交 Issue 和 Pull Request！
+
+**注意：** 根据 AGPL-3.0 许可，所有对本项目的贡献都将以相同的 AGPL-3.0 许可发布。
 
 ---
 Copyright © 2025 QuantMesh Team. All Rights Reserved.

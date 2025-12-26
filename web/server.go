@@ -69,6 +69,7 @@ func SetupRoutes(r *gin.Engine) {
 			protected.GET("/reconciliation/history", getReconciliationHistory)
 			protected.GET("/risk/status", getRiskStatus)
 			protected.GET("/risk/monitor", getRiskMonitorData)
+			protected.GET("/risk/history", getRiskCheckHistory)
 			protected.GET("/config", getConfig)
 			protected.POST("/config/update", updateConfig)
 			protected.POST("/trading/start", startTrading)

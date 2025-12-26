@@ -45,6 +45,31 @@ func (a *reconciliationStorageAdapter) SaveReconciliationHistory(symbol string, 
 		activeBuyOrders, activeSellOrders, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit)
 }
 
+// tradeStorageAdapter 交易存储适配器
+type tradeStorageAdapter struct {
+	storageService *storage.StorageService
+}
+
+func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error {
+	if a.storageService == nil {
+		return nil
+	}
+	st := a.storageService.GetStorage()
+	if st == nil {
+		return nil
+	}
+	return st.SaveTrade(&storage.Trade{
+		BuyOrderID:  buyOrderID,
+		SellOrderID: sellOrderID,
+		Symbol:      symbol,
+		BuyPrice:    buyPrice,
+		SellPrice:   sellPrice,
+		Quantity:    quantity,
+		PnL:         pnl,
+		CreatedAt:   createdAt,
+	})
+}
+
 func main() {
 	// 0. 最早初始化日志存储（在配置加载之前，使用默认路径）
 	// 这样即使配置加载失败，也能记录日志
@@ -356,12 +381,21 @@ func main() {
 	// 创建交易所适配器（匹配 position.IExchange 接口）
 	exchangeAdapter = &positionExchangeAdapter{exchange: ex}
 	superPositionManager = position.NewSuperPositionManager(cfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
+	// 设置交易存储适配器（用于保存交易记录）
+	if storageService != nil {
+		tradeStorageAdapter := &tradeStorageAdapter{storageService: storageService}
+		superPositionManager.SetTradeStorage(tradeStorageAdapter)
+	}
 
 	// === 多策略系统集成（提前声明，以便在订单更新回调中使用） ===
 	// 变量已在前面声明
 
 	// === 新增：初始化风控监视器 ===
 	riskMonitor = safety.NewRiskMonitor(cfg, ex)
+	// 设置存储服务（用于保存检查历史）
+	if storageService != nil {
+		riskMonitor.SetStorage(storageService.GetStorage())
+	}
 
 	// === 创建对账器（从仓位管理器剖离） ===
 	reconciler = safety.NewReconciler(cfg, exchangeAdapter, superPositionManager)

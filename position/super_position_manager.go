@@ -136,6 +136,12 @@ type IExchange interface {
 	CancelAllOrders(ctx context.Context, symbol string) error // 取消所有订单
 }
 
+// TradeStorage 交易存储接口（避免循环导入）
+// 用于保存交易记录（买卖配对）
+type TradeStorage interface {
+	SaveTrade(buyOrderID, sellOrderID int64, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error
+}
+
 // SuperPositionManager 超级仓位管理器
 type SuperPositionManager struct {
 	config   *config.Config
@@ -165,6 +171,9 @@ type SuperPositionManager struct {
 	reconcileCount    atomic.Int64 // 对账次数
 	lastReconcileTime atomic.Value // time.Time - 最后对账时间
 
+	// 交易存储（可选，用于保存交易记录）
+	tradeStorage TradeStorage
+
 	// 初始化标志
 	isInitialized atomic.Bool
 
@@ -186,12 +195,18 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		marginLockDuration: time.Duration(marginLockSec) * time.Second,
 		priceDecimals:      priceDecimals,
 		quantityDecimals:   quantityDecimals,
+		tradeStorage:       nil, // 默认不保存交易记录，可通过 SetTradeStorage 设置
 	}
 	spm.totalBuyQty.Store(0.0)
 	spm.totalSellQty.Store(0.0)
 	spm.lastReconcileTime.Store(time.Now())
 	spm.lastMarketPrice.Store(0.0)
 	return spm
+}
+
+// SetTradeStorage 设置交易存储接口（用于保存交易记录）
+func (spm *SuperPositionManager) SetTradeStorage(storage TradeStorage) {
+	spm.tradeStorage = storage
 }
 
 // Initialize 初始化管理器（设置价格锚点并创建初始槽位）
@@ -769,6 +784,31 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				// 累加统计
 				oldTotal := spm.totalSellQty.Load().(float64)
 				spm.totalSellQty.Store(oldTotal + deltaQty)
+
+				// 🔥 保存交易记录（买卖配对完成）
+				if spm.tradeStorage != nil {
+					// 买入价格就是槽位的价格（每个槽位对应一个买入价格点）
+					buyPrice := slot.Price
+					// 卖出价格使用成交均价，如果没有则使用订单价格
+					sellPrice := update.AvgPrice
+					if sellPrice <= 0 {
+						sellPrice = update.Price
+					}
+					if sellPrice <= 0 {
+						sellPrice = slot.OrderPrice
+					}
+					// 计算盈亏：(卖出价格 - 买入价格) * 数量
+					pnl := (sellPrice - buyPrice) * deltaQty
+					// 保存交易记录（买入订单ID设为0，因为无法追溯历史订单）
+					buyOrderID := int64(0)
+					sellOrderID := update.OrderID
+					if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, time.Now()); err != nil {
+						logger.Warn("⚠️ 保存交易记录失败: %v", err)
+					} else {
+						logger.Debug("💰 [交易记录已保存] 买入价: %s, 卖出价: %s, 数量: %.4f, 盈亏: %.4f",
+							formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl)
+					}
+				}
 			}
 
 			if update.Status == "FILLED" {

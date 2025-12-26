@@ -503,6 +503,39 @@ export async function getRiskMonitorData(): Promise<RiskMonitorDataResponse> {
   return fetchWithAuth(`${API_BASE_URL}/risk/monitor`)
 }
 
+export interface RiskCheckSymbolInfo {
+  symbol: string
+  is_healthy: boolean
+  price_deviation: number
+  volume_ratio: number
+  reason: string
+}
+
+export interface RiskCheckHistoryItem {
+  check_time: string | Date
+  symbols: RiskCheckSymbolInfo[]
+  healthy_count: number
+  total_count: number
+}
+
+export interface RiskCheckHistoryResponse {
+  history: RiskCheckHistoryItem[]
+}
+
+export interface RiskCheckHistoryParams {
+  start_time?: string
+  end_time?: string
+}
+
+export async function getRiskCheckHistory(params?: RiskCheckHistoryParams): Promise<RiskCheckHistoryResponse> {
+  const queryParams = new URLSearchParams()
+  if (params?.start_time) queryParams.append('start_time', params.start_time)
+  if (params?.end_time) queryParams.append('end_time', params.end_time)
+  
+  const url = `${API_BASE_URL}/risk/history${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
+}
+
 // Config
 export interface Config {
   symbol: string

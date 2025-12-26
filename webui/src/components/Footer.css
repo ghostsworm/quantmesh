@@ -1,0 +1,64 @@
+.app-footer {
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.95), rgba(250, 250, 250, 0.98));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 2.5rem 2rem;
+  margin-top: auto;
+  animation: fadeIn 0.6s ease-out;
+}
+
+.app-footer-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.app-footer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.app-footer-copyright {
+  font-size: 0.875rem;
+  color: rgba(0, 0, 0, 0.6);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.app-footer-disclaimer {
+  max-width: 800px;
+}
+
+.app-footer-disclaimer-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.8);
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.01em;
+}
+
+.app-footer-disclaimer-text {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: rgba(0, 0, 0, 0.65);
+  letter-spacing: 0.01em;
+}
+
+@media (max-width: 768px) {
+  .app-footer {
+    padding: 2rem 1.5rem;
+  }
+
+  .app-footer-content {
+    gap: 1.5rem;
+  }
+
+  .app-footer-disclaimer-text {
+    font-size: 0.75rem;
+  }
+}
+

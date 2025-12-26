@@ -36,6 +36,9 @@ type Storage interface {
 	GetPnLBySymbol(symbol string, startTime, endTime time.Time) (*PnLSummary, error)
 	GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLBySymbol, error)
 	GetActualProfitBySymbol(symbol string, beforeTime time.Time) (float64, error)
+	SaveRiskCheck(record *RiskCheckRecord) error
+	QueryRiskCheckHistory(startTime, endTime time.Time) ([]*RiskCheckHistory, error)
+	CleanupRiskCheckHistory(beforeTime time.Time) error
 	Close() error
 }
 

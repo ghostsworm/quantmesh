@@ -6,6 +6,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/logger"
+	"quantmesh/storage"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ type SymbolData struct {
 type RiskMonitor struct {
 	cfg            *config.Config
 	exchange       exchange.IExchange
+	storage        storage.Storage
 	symbolDataMap  map[string]*SymbolData
 	mu             sync.RWMutex
 	triggered      bool
@@ -43,6 +45,13 @@ func NewRiskMonitor(cfg *config.Config, ex exchange.IExchange) *RiskMonitor {
 		exchange:      ex,
 		symbolDataMap: symbolDataMap,
 	}
+}
+
+// SetStorage 设置存储服务（用于保存检查历史）
+func (r *RiskMonitor) SetStorage(storage storage.Storage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.storage = storage
 }
 
 // Start 启动监控
@@ -167,6 +176,9 @@ func (r *RiskMonitor) onCandleUpdate(candle *exchange.Candle) {
 
 // checkMarket 执行市场检查（实时，无日志）
 func (r *RiskMonitor) checkMarket() {
+	checkTime := time.Now()
+	var checkRecords []*storage.RiskCheckRecord
+
 	// 先检查当前状态（不持有锁）
 	r.mu.RLock()
 	triggered := r.triggered
@@ -175,6 +187,47 @@ func (r *RiskMonitor) checkMarket() {
 	if triggered {
 		// 已触发状态：检查是否可以解除
 		canRecover, details := r.checkRecovery()
+
+		// 收集恢复检查结果
+		for _, symbol := range r.cfg.RiskControl.MonitorSymbols {
+			isRecovered, reason := r.checkSymbolRecovery(symbol)
+			record := &storage.RiskCheckRecord{
+				CheckTime: checkTime,
+				Symbol:    symbol,
+				IsHealthy: isRecovered,
+				Reason:    reason,
+			}
+			// 获取价格偏离和成交量比率
+			if symbolData, exists := r.symbolDataMap[symbol]; exists {
+				symbolData.mu.RLock()
+				candles := symbolData.candles
+				candleCount := len(candles)
+				symbolData.mu.RUnlock()
+
+				if candleCount >= r.cfg.RiskControl.AverageWindow+1 {
+					currentCandle := candles[candleCount-1]
+					var totalPrice, totalVol float64
+					var validCount int
+					window := r.cfg.RiskControl.AverageWindow
+
+					for i := candleCount - 2; i >= 0 && validCount < window; i-- {
+						if candles[i].IsClosed {
+							totalPrice += candles[i].Close
+							totalVol += candles[i].Volume
+							validCount++
+						}
+					}
+
+					if validCount >= window {
+						avgPrice := totalPrice / float64(validCount)
+						avgVol := totalVol / float64(validCount)
+						record.PriceDeviation = (currentCandle.Close - avgPrice) / avgPrice * 100
+						record.VolumeRatio = currentCandle.Volume / avgVol
+					}
+				}
+			}
+			checkRecords = append(checkRecords, record)
+		}
 
 		r.mu.Lock()
 		if canRecover {
@@ -202,6 +255,45 @@ func (r *RiskMonitor) checkMarket() {
 
 		for _, symbol := range r.cfg.RiskControl.MonitorSymbols {
 			isPanic, reason := r.checkSymbol(symbol)
+			
+			// 收集检查结果
+			record := &storage.RiskCheckRecord{
+				CheckTime: checkTime,
+				Symbol:    symbol,
+				IsHealthy: !isPanic,
+				Reason:    reason,
+			}
+			// 获取价格偏离和成交量比率
+			if symbolData, exists := r.symbolDataMap[symbol]; exists {
+				symbolData.mu.RLock()
+				candles := symbolData.candles
+				candleCount := len(candles)
+				symbolData.mu.RUnlock()
+
+				if candleCount >= r.cfg.RiskControl.AverageWindow+1 {
+					currentCandle := candles[candleCount-1]
+					var totalPrice, totalVol float64
+					var validCount int
+					window := r.cfg.RiskControl.AverageWindow
+
+					for i := candleCount - 2; i >= 0 && validCount < window; i-- {
+						if candles[i].IsClosed {
+							totalPrice += candles[i].Close
+							totalVol += candles[i].Volume
+							validCount++
+						}
+					}
+
+					if validCount >= window {
+						avgPrice := totalPrice / float64(validCount)
+						avgVol := totalVol / float64(validCount)
+						record.PriceDeviation = (currentCandle.Close - avgPrice) / avgPrice * 100
+						record.VolumeRatio = currentCandle.Volume / avgVol
+					}
+				}
+			}
+			checkRecords = append(checkRecords, record)
+
 			if isPanic {
 				panicCount++
 				details = append(details, fmt.Sprintf("%s(%s)", symbol, reason))
@@ -220,6 +312,17 @@ func (r *RiskMonitor) checkMarket() {
 			r.lastMsg = "监控正常"
 		}
 		r.mu.Unlock()
+	}
+
+	// 异步保存检查结果（不阻塞）
+	if r.storage != nil && len(checkRecords) > 0 {
+		go func() {
+			for _, record := range checkRecords {
+				if err := r.storage.SaveRiskCheck(record); err != nil {
+					logger.Debug("保存风控检查记录失败: %v", err)
+				}
+			}
+		}()
 	}
 }
 
