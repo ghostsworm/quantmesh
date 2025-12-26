@@ -25,22 +25,16 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
 // System Status
 export interface SystemStatus {
   running: boolean
-  start_time: string
-  uptime: number
+  exchange: string
   symbol: string
-  interval: string
-  order_quantity: number
-  total_filled_position: number
-  total_buy_qty: number
-  total_sell_qty: number
-  estimated_profit: number
+  current_price: number
+  total_pnl: number
+  total_trades: number
+  risk_triggered: boolean
+  uptime: number
 }
 
-export interface SystemStatusResponse {
-  status: SystemStatus
-}
-
-export async function getSystemStatus(): Promise<SystemStatusResponse> {
+export async function getSystemStatus(): Promise<SystemStatus> {
   return fetchWithAuth(`${API_BASE_URL}/status`)
 }
 

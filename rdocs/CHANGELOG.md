@@ -40,6 +40,19 @@
 - **修复前端密码设置请求未发送的问题（state setter 覆盖了 API 方法）**
 - **修复会话 ID 在 Cookie 中被转义导致无法识别的问题（去除 Base64 填充）**
 - 从 Git 版本控制中移除 `.opensqt.pid` 文件（运行时临时文件，不应被跟踪）
+- **修复 K 线图页面交易币种为空导致报错的问题**：前端直接读取 `/api/status` 返回的扁平字段 `symbol`，避免使用不存在的 `status.symbol`
+- **修复 Tailwind CSS v4 PostCSS 配置问题**，安装 `@tailwindcss/postcss` 包并更新配置以适配 Tailwind CSS v4 的新架构
+- **修复 WebAuthn 注册失败问题**：
+  - 前端：将 ArrayBuffer 数组格式改为 base64url 字符串格式，符合 go-webauthn 库的期望格式
+  - 后端：添加 `normalizeWebAuthnResponse` 函数，自动将数组格式转换为 base64url 字符串格式，兼容旧版本前端代码
+- **增强 WebAuthn 注册流程的日志记录**：在后端添加详细的调试日志，包括请求体内容、响应结构、会话数据等，便于诊断注册失败问题
+- **修复已注册设备列表显示问题**：
+  - 后端：处理 `device_name` 字段可能为 NULL 的情况，为空时显示"未命名设备"
+  - 前端：添加日期格式化函数，正确处理日期显示，避免显示 "Invalid Date"
+- **增强 WebAuthn 凭证保存和查询的日志记录**：
+  - 在 `SaveCredential` 函数中添加详细的保存日志，包括凭证ID、设备名称、影响行数等
+  - 在 `ListCredentials` 函数中添加查询日志，记录查询结果和找到的凭证数量
+  - 便于诊断凭证保存和查询问题
 
 ### 变更
 - 改进订单执行器错误处理逻辑，ReduceOnly 错误不再重试

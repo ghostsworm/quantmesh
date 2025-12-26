@@ -60,6 +60,97 @@ func deleteWebAuthnSession(key string) {
 	delete(webauthnSessionStore.data, key)
 }
 
+// normalizeWebAuthnResponse 规范化 WebAuthn 响应，将数组格式转换为 base64url 字符串
+func normalizeWebAuthnResponse(response map[string]interface{}) map[string]interface{} {
+	if response == nil {
+		return nil
+	}
+
+	normalized := make(map[string]interface{})
+	
+	// 复制所有字段
+	for k, v := range response {
+		normalized[k] = v
+	}
+
+	// 转换 rawId：如果是数组，转换为 base64url 字符串
+	if rawId, ok := normalized["rawId"]; ok {
+		if rawIdArray, ok := rawId.([]interface{}); ok {
+			// 转换为字节数组
+			bytes := make([]byte, len(rawIdArray))
+			for i, v := range rawIdArray {
+				if num, ok := v.(float64); ok {
+					bytes[i] = byte(num)
+				} else {
+					return nil // 无效的数组元素
+				}
+			}
+			// 转换为 base64url 字符串
+			normalized["rawId"] = base64.RawURLEncoding.EncodeToString(bytes)
+			if globalWebAuthnManager != nil && globalWebAuthnManager.log != nil {
+				globalWebAuthnManager.log.Debugf("[WebAuthn注册] 转换 rawId: 数组[%d] -> base64url字符串[%d]", len(rawIdArray), len(normalized["rawId"].(string)))
+			}
+		}
+		// 如果已经是字符串，保持不变
+	}
+
+	// 转换 response 对象
+	if resp, ok := normalized["response"].(map[string]interface{}); ok {
+		normalizedResp := make(map[string]interface{})
+		
+		// 转换 attestationObject
+		if attObj, ok := resp["attestationObject"]; ok {
+			if attObjArray, ok := attObj.([]interface{}); ok {
+				bytes := make([]byte, len(attObjArray))
+				for i, v := range attObjArray {
+					if num, ok := v.(float64); ok {
+						bytes[i] = byte(num)
+					} else {
+						return nil
+					}
+				}
+				normalizedResp["attestationObject"] = base64.RawURLEncoding.EncodeToString(bytes)
+				if globalWebAuthnManager != nil && globalWebAuthnManager.log != nil {
+					globalWebAuthnManager.log.Debugf("[WebAuthn注册] 转换 attestationObject: 数组[%d] -> base64url字符串[%d]", len(attObjArray), len(normalizedResp["attestationObject"].(string)))
+				}
+			} else {
+				normalizedResp["attestationObject"] = attObj
+			}
+		}
+
+		// 转换 clientDataJSON
+		if clientData, ok := resp["clientDataJSON"]; ok {
+			if clientDataArray, ok := clientData.([]interface{}); ok {
+				bytes := make([]byte, len(clientDataArray))
+				for i, v := range clientDataArray {
+					if num, ok := v.(float64); ok {
+						bytes[i] = byte(num)
+					} else {
+						return nil
+					}
+				}
+				normalizedResp["clientDataJSON"] = base64.RawURLEncoding.EncodeToString(bytes)
+				if globalWebAuthnManager != nil && globalWebAuthnManager.log != nil {
+					globalWebAuthnManager.log.Debugf("[WebAuthn注册] 转换 clientDataJSON: 数组[%d] -> base64url字符串[%d]", len(clientDataArray), len(normalizedResp["clientDataJSON"].(string)))
+				}
+			} else {
+				normalizedResp["clientDataJSON"] = clientData
+			}
+		}
+
+		// 复制其他字段
+		for k, v := range resp {
+			if k != "attestationObject" && k != "clientDataJSON" {
+				normalizedResp[k] = v
+			}
+		}
+
+		normalized["response"] = normalizedResp
+	}
+
+	return normalized
+}
+
 // beginWebAuthnRegistration 开始 WebAuthn 注册
 // POST /api/webauthn/register/begin
 func beginWebAuthnRegistration(c *gin.Context) {
@@ -174,8 +265,21 @@ func finishWebAuthnRegistration(c *gin.Context) {
 	// 读取请求体
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		if globalWebAuthnManager.log != nil {
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 读取请求体失败: %v", err)
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败"})
 		return
+	}
+
+	if globalWebAuthnManager.log != nil {
+		globalWebAuthnManager.log.Debugf("[WebAuthn注册] 收到注册完成请求，请求体长度: %d 字节", len(bodyBytes))
+		// 记录请求体前500个字符（避免日志过长）
+		bodyPreview := string(bodyBytes)
+		if len(bodyPreview) > 500 {
+			bodyPreview = bodyPreview[:500] + "...(截断)"
+		}
+		globalWebAuthnManager.log.Debugf("[WebAuthn注册] 请求体预览: %s", bodyPreview)
 	}
 
 	var req struct {
@@ -185,29 +289,102 @@ func finishWebAuthnRegistration(c *gin.Context) {
 	}
 
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		if globalWebAuthnManager.log != nil {
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] JSON 解析失败: %v, 请求体: %s", err, string(bodyBytes))
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
 		return
+	}
+
+	if globalWebAuthnManager.log != nil {
+		globalWebAuthnManager.log.Debugf("[WebAuthn注册] 解析请求成功 - SessionKey: %s, DeviceName: %s", req.SessionKey, req.DeviceName)
+		// 记录 response 的结构信息
+		if req.Response != nil {
+			responseKeys := make([]string, 0, len(req.Response))
+			for k := range req.Response {
+				responseKeys = append(responseKeys, k)
+			}
+			globalWebAuthnManager.log.Debugf("[WebAuthn注册] Response 包含字段: %v", responseKeys)
+			
+			// 检查关键字段
+			if id, ok := req.Response["id"].(string); ok {
+				globalWebAuthnManager.log.Debugf("[WebAuthn注册] Response.id: %s", id)
+			}
+			if rawId, ok := req.Response["rawId"]; ok {
+				if rawIdArray, ok := rawId.([]interface{}); ok {
+					globalWebAuthnManager.log.Debugf("[WebAuthn注册] Response.rawId 类型: []interface{}, 长度: %d", len(rawIdArray))
+				} else {
+					globalWebAuthnManager.log.Debugf("[WebAuthn注册] Response.rawId 类型: %T", rawId)
+				}
+			}
+			if resp, ok := req.Response["response"].(map[string]interface{}); ok {
+				respKeys := make([]string, 0, len(resp))
+				for k := range resp {
+					respKeys = append(respKeys, k)
+				}
+				globalWebAuthnManager.log.Debugf("[WebAuthn注册] Response.response 包含字段: %v", respKeys)
+			}
+		} else {
+			globalWebAuthnManager.log.Warnf("[WebAuthn注册] Response 为 nil")
+		}
 	}
 
 	// 从临时存储获取 sessionData
 	sessionData := getWebAuthnSession(req.SessionKey)
 	if sessionData == nil {
+		if globalWebAuthnManager.log != nil {
+			globalWebAuthnManager.log.Warnf("[WebAuthn注册] 会话数据不存在 - SessionKey: %s", req.SessionKey)
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "会话已过期，请重新开始注册"})
 		return
+	}
+
+	if globalWebAuthnManager.log != nil {
+		globalWebAuthnManager.log.Debugf("[WebAuthn注册] 会话数据获取成功 - Challenge 长度: %d", len(sessionData.Challenge))
 	}
 
 	// 获取用户
 	user, err := globalWebAuthnManager.GetUser(session.Username)
 	if err != nil {
+		if globalWebAuthnManager.log != nil {
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 获取用户失败 - Username: %s, Error: %v", session.Username, err)
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "获取用户失败"})
 		return
 	}
 
-	// 将 response 转换为 JSON，作为新的请求体传递给 webauthn 库
-	responseBytes, err := json.Marshal(req.Response)
-	if err != nil {
+	if globalWebAuthnManager.log != nil {
+		globalWebAuthnManager.log.Debugf("[WebAuthn注册] 用户获取成功 - Username: %s, 已有凭证数: %d", session.Username, len(user.WebAuthnCredentials()))
+	}
+
+	// 转换数组格式为 base64url 字符串格式（兼容旧版本前端）
+	normalizedResponse := normalizeWebAuthnResponse(req.Response)
+	if normalizedResponse == nil {
+		if globalWebAuthnManager.log != nil {
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 规范化 Response 失败")
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "处理响应失败"})
 		return
+	}
+
+	// 将 response 转换为 JSON，作为新的请求体传递给 webauthn 库
+	responseBytes, err := json.Marshal(normalizedResponse)
+	if err != nil {
+		if globalWebAuthnManager.log != nil {
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 序列化 Response 失败: %v", err)
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "处理响应失败"})
+		return
+	}
+
+	if globalWebAuthnManager.log != nil {
+		globalWebAuthnManager.log.Debugf("[WebAuthn注册] Response 序列化成功，长度: %d 字节", len(responseBytes))
+		// 记录序列化后的 JSON 预览（前500字符）
+		responsePreview := string(responseBytes)
+		if len(responsePreview) > 500 {
+			responsePreview = responsePreview[:500] + "...(截断)"
+		}
+		globalWebAuthnManager.log.Debugf("[WebAuthn注册] 序列化后的 Response 预览: %s", responsePreview)
 	}
 
 	// 创建新的请求体供 webauthn 库使用
@@ -215,22 +392,43 @@ func finishWebAuthnRegistration(c *gin.Context) {
 	r.Body = io.NopCloser(bytes.NewBuffer(responseBytes))
 
 	// 验证并完成注册
+	if globalWebAuthnManager.log != nil {
+		globalWebAuthnManager.log.Debugf("[WebAuthn注册] 开始调用 FinishRegistration")
+	}
 	credential, err := globalWebAuthnManager.webauthn.FinishRegistration(user, *sessionData, r)
 	if err != nil {
 		if globalWebAuthnManager.log != nil {
-			globalWebAuthnManager.log.Errorf("完成 WebAuthn 注册失败: %v", err)
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 完成 WebAuthn 注册失败: %v", err)
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 错误详情 - Username: %s, SessionKey: %s, DeviceName: %s", 
+				session.Username, req.SessionKey, req.DeviceName)
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] Response 结构: id=%v, rawId类型=%T, response类型=%T", 
+				req.Response["id"], req.Response["rawId"], req.Response["response"])
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "注册失败: " + err.Error()})
 		return
 	}
 
 	// 保存凭证到数据库
+	if globalWebAuthnManager.log != nil {
+		credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
+		globalWebAuthnManager.log.Infof("[WebAuthn注册] 准备保存凭证 - Username: %s, DeviceName: %s, CredentialID: %s", 
+			session.Username, req.DeviceName, credentialID)
+	}
+	
 	if err := globalWebAuthnManager.SaveCredential(session.Username, session.Username, credential, req.DeviceName); err != nil {
 		if globalWebAuthnManager.log != nil {
-			globalWebAuthnManager.log.Errorf("保存凭证失败: %v", err)
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 保存凭证失败: %v", err)
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 保存失败详情 - Username: %s, DeviceName: %s", 
+				session.Username, req.DeviceName)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存凭证失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存凭证失败: " + err.Error()})
 		return
+	}
+
+	if globalWebAuthnManager.log != nil {
+		credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
+		globalWebAuthnManager.log.Infof("[WebAuthn注册] 凭证保存成功 - Username: %s, DeviceName: %s, CredentialID: %s", 
+			session.Username, req.DeviceName, credentialID)
 	}
 
 	// 删除临时会话数据

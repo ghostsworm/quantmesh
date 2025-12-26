@@ -208,19 +208,46 @@ func (wm *WebAuthnManager) GetUser(username string) (*WebAuthnUser, error) {
 func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *webauthn.Credential, deviceName string) error {
 	credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
 	
+	if wm.log != nil {
+		wm.log.Debugf("[WebAuthn] 开始保存凭证 - Username: %s, DeviceName: %s, CredentialID: %s", 
+			username, deviceName, credentialID)
+	}
+
 	// 序列化公钥
 	publicKeyJSON, err := json.Marshal(credential.PublicKey)
 	if err != nil {
+		if wm.log != nil {
+			wm.log.Errorf("[WebAuthn] 序列化公钥失败: %v", err)
+		}
 		return fmt.Errorf("序列化公钥失败: %v", err)
 	}
 
 	counter := credential.Authenticator.SignCount
 
-	_, err = wm.db.Exec(`
+	if wm.log != nil {
+		wm.log.Debugf("[WebAuthn] 执行数据库插入 - CredentialID: %s, Counter: %d, PublicKey长度: %d", 
+			credentialID, counter, len(publicKeyJSON))
+	}
+
+	result, err := wm.db.Exec(`
 		INSERT INTO webauthn_credentials (id, user_id, username, credential_id, public_key, counter, device_name)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, credentialID, userID, username, credentialID, string(publicKeyJSON), counter, deviceName)
-	return err
+	
+	if err != nil {
+		if wm.log != nil {
+			wm.log.Errorf("[WebAuthn] 数据库插入失败: %v", err)
+		}
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if wm.log != nil {
+		wm.log.Infof("[WebAuthn] 凭证保存成功 - Username: %s, DeviceName: %s, CredentialID: %s, 影响行数: %d", 
+			username, deviceName, credentialID, rowsAffected)
+	}
+
+	return nil
 }
 
 // UpdateCredentialCounter 更新凭证计数器
@@ -241,6 +268,10 @@ func (wm *WebAuthnManager) UpdateCredentialCounter(credentialID string, counter 
 
 // ListCredentials 列出用户的所有凭证
 func (wm *WebAuthnManager) ListCredentials(username string) ([]CredentialInfo, error) {
+	if wm.log != nil {
+		wm.log.Debugf("[WebAuthn] 查询凭证列表 - Username: %s", username)
+	}
+
 	rows, err := wm.db.Query(`
 		SELECT id, credential_id, device_name, created_at, last_used_at, is_active
 		FROM webauthn_credentials
@@ -248,24 +279,50 @@ func (wm *WebAuthnManager) ListCredentials(username string) ([]CredentialInfo, e
 		ORDER BY created_at DESC
 	`, username)
 	if err != nil {
+		if wm.log != nil {
+			wm.log.Errorf("[WebAuthn] 查询凭证失败: %v", err)
+		}
 		return nil, fmt.Errorf("查询凭证失败: %v", err)
 	}
 	defer rows.Close()
 
 	var credentials []CredentialInfo
+	count := 0
 	for rows.Next() {
 		var cred CredentialInfo
+		var deviceName sql.NullString
 		var lastUsedAt sql.NullTime
 
-		if err := rows.Scan(&cred.ID, &cred.CredentialID, &cred.DeviceName, &cred.CreatedAt, &lastUsedAt, &cred.IsActive); err != nil {
+		if err := rows.Scan(&cred.ID, &cred.CredentialID, &deviceName, &cred.CreatedAt, &lastUsedAt, &cred.IsActive); err != nil {
+			if wm.log != nil {
+				wm.log.Warnf("[WebAuthn] 扫描凭证数据失败: %v", err)
+			}
 			continue
 		}
 
+		// 处理 device_name 可能为 NULL 的情况
+		if deviceName.Valid {
+			cred.DeviceName = deviceName.String
+		} else {
+			cred.DeviceName = "未命名设备"
+		}
+
+		// 处理 last_used_at 可能为 NULL 的情况
 		if lastUsedAt.Valid {
 			cred.LastUsedAt = &lastUsedAt.Time
 		}
 
 		credentials = append(credentials, cred)
+		count++
+
+		if wm.log != nil {
+			wm.log.Debugf("[WebAuthn] 找到凭证 - ID: %s, DeviceName: %s, CreatedAt: %v, IsActive: %v", 
+				cred.ID, cred.DeviceName, cred.CreatedAt, cred.IsActive)
+		}
+	}
+
+	if wm.log != nil {
+		wm.log.Infof("[WebAuthn] 查询完成 - Username: %s, 找到 %d 条凭证记录", username, count)
 	}
 
 	return credentials, nil

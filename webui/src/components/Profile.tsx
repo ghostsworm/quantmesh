@@ -127,17 +127,45 @@ const Profile: React.FC = () => {
         publicKey: publicKeyOptions,
       }) as PublicKeyCredential
 
-      // 4. 转换响应格式
+      console.log('[WebAuthn] 浏览器凭证创建成功:', {
+        id: credential.id,
+        type: credential.type,
+        rawIdLength: credential.rawId.byteLength,
+      })
+
+      // 4. 转换响应格式 - 将 ArrayBuffer 转换为 base64url 字符串
       const response = credential.response as AuthenticatorAttestationResponse
+      
+      // 辅助函数：将 ArrayBuffer 转换为 base64url 字符串
+      const arrayBufferToBase64URL = (buffer: ArrayBuffer): string => {
+        const bytes = new Uint8Array(buffer)
+        let binary = ''
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i])
+        }
+        const base64 = btoa(binary)
+        // 转换为 base64url：替换 + 为 -，/ 为 _，移除填充 =
+        return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+      }
+
       const credentialResponse = {
         id: credential.id,
-        rawId: Array.from(new Uint8Array(credential.rawId)),
+        rawId: arrayBufferToBase64URL(credential.rawId),
         response: {
-          attestationObject: Array.from(new Uint8Array(response.attestationObject)),
-          clientDataJSON: Array.from(new Uint8Array(response.clientDataJSON)),
+          attestationObject: arrayBufferToBase64URL(response.attestationObject),
+          clientDataJSON: arrayBufferToBase64URL(response.clientDataJSON),
         },
         type: credential.type,
       }
+
+      console.log('[WebAuthn] 准备发送注册完成请求:', {
+        sessionKey: beginResponse.session_key,
+        deviceName,
+        responseId: credentialResponse.id,
+        rawIdLength: credentialResponse.rawId.length,
+        attestationObjectLength: credentialResponse.response.attestationObject.length,
+        clientDataJSONLength: credentialResponse.response.clientDataJSON.length,
+      })
 
       // 5. 完成注册
       await finishWebAuthnRegistration(
@@ -299,25 +327,44 @@ const Profile: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {credentials.map((cred) => (
-                      <tr key={cred.id}>
-                        <td>{cred.device_name}</td>
-                        <td>{new Date(cred.created_at).toLocaleString('zh-CN')}</td>
-                        <td>
-                          {cred.last_used_at
-                            ? new Date(cred.last_used_at).toLocaleString('zh-CN')
-                            : '未使用'}
-                        </td>
-                        <td>
-                          <button
-                            className="btn btn-danger btn-sm"
-                            onClick={() => handleDeleteCredential(cred.credential_id, cred.device_name)}
-                          >
-                            删除
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {credentials.map((cred) => {
+                      // 格式化日期，处理可能的无效日期
+                      const formatDate = (dateStr: string | undefined): string => {
+                        if (!dateStr) return '未使用'
+                        try {
+                          const date = new Date(dateStr)
+                          if (isNaN(date.getTime())) {
+                            return '无效日期'
+                          }
+                          return date.toLocaleString('zh-CN', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                          })
+                        } catch (e) {
+                          return '无效日期'
+                        }
+                      }
+
+                      return (
+                        <tr key={cred.id}>
+                          <td>{cred.device_name || '未命名设备'}</td>
+                          <td>{formatDate(cred.created_at)}</td>
+                          <td>{formatDate(cred.last_used_at)}</td>
+                          <td>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => handleDeleteCredential(cred.credential_id, cred.device_name || '未命名设备')}
+                            >
+                              删除
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               )}

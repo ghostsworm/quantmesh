@@ -93,7 +93,7 @@ const KlineChart: React.FC = () => {
     const fetchSymbol = async () => {
       try {
         const response = await getStatus()
-        setSymbol(response.status.symbol || '')
+        setSymbol(response.symbol || '')
       } catch (err) {
         console.error('获取交易币种失败:', err)
       }

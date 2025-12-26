@@ -113,17 +113,45 @@ const FirstTimeSetup: React.FC = () => {
         publicKey: publicKeyOptions,
       }) as PublicKeyCredential
 
-      // 4. 转换响应格式
+      console.log('[WebAuthn] 浏览器凭证创建成功:', {
+        id: credential.id,
+        type: credential.type,
+        rawIdLength: credential.rawId.byteLength,
+      })
+
+      // 4. 转换响应格式 - 将 ArrayBuffer 转换为 base64url 字符串
       const response = credential.response as AuthenticatorAttestationResponse
+      
+      // 辅助函数：将 ArrayBuffer 转换为 base64url 字符串
+      const arrayBufferToBase64URL = (buffer: ArrayBuffer): string => {
+        const bytes = new Uint8Array(buffer)
+        let binary = ''
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i])
+        }
+        const base64 = btoa(binary)
+        // 转换为 base64url：替换 + 为 -，/ 为 _，移除填充 =
+        return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+      }
+
       const credentialResponse = {
         id: credential.id,
-        rawId: Array.from(new Uint8Array(credential.rawId)),
+        rawId: arrayBufferToBase64URL(credential.rawId),
         response: {
-          attestationObject: Array.from(new Uint8Array(response.attestationObject)),
-          clientDataJSON: Array.from(new Uint8Array(response.clientDataJSON)),
+          attestationObject: arrayBufferToBase64URL(response.attestationObject),
+          clientDataJSON: arrayBufferToBase64URL(response.clientDataJSON),
         },
         type: credential.type,
       }
+
+      console.log('[WebAuthn] 准备发送注册完成请求:', {
+        sessionKey: beginResponse.session_key,
+        deviceName,
+        responseId: credentialResponse.id,
+        rawIdLength: credentialResponse.rawId.length,
+        attestationObjectLength: credentialResponse.response.attestationObject.length,
+        clientDataJSONLength: credentialResponse.response.clientDataJSON.length,
+      })
 
       // 5. 完成注册
       await finishWebAuthnRegistration(
