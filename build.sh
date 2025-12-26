@@ -4,7 +4,7 @@
 
 set -e
 
-echo "🚀 开始构建 OpenSQT Market Maker..."
+echo "🚀 开始构建 QuantMesh Market Maker..."
 
 # 1. 构建前端
 if [ -d "webui" ]; then
@@ -21,8 +21,8 @@ fi
 
 # 2. 构建 Go 程序（会自动嵌入 dist/ 目录）
 echo "🔨 构建后端..."
-go build -o opensqt .
+go build -o quantmesh .
 
 echo "✅ 构建完成！"
-echo "📦 可执行文件: ./opensqt"
+echo "📦 可执行文件: ./quantmesh"
 

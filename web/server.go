@@ -33,6 +33,13 @@ func SetupRoutes(r *gin.Engine) {
 			auth.POST("/logout", logout)
 		}
 
+		// 需要认证的认证路由
+		authProtected := api.Group("/auth")
+		authProtected.Use(authMiddleware())
+		{
+			authProtected.POST("/password/change", changePassword)
+		}
+
 		// WebAuthn API（部分需要认证，部分不需要）
 		webauthn := api.Group("/webauthn")
 		{
@@ -83,6 +90,9 @@ func SetupRoutes(r *gin.Engine) {
 
 			// 待成交订单API
 			protected.GET("/orders/pending", getPendingOrders)
+
+			// K线数据API
+			protected.GET("/klines", getKlines)
 		}
 	}
 

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/smtp"
 
-	"opensqt/config"
-	"opensqt/event"
-	"opensqt/logger"
+	"quantmesh/config"
+	"quantmesh/event"
+	"quantmesh/logger"
 )
 
 // EmailNotifier 邮件通知器
@@ -71,7 +71,7 @@ func (en *EmailNotifier) Send(evt *event.Event) error {
 	message := formatEmailMessage(evt)
 	subject := en.subject
 	if subject == "" {
-		subject = fmt.Sprintf("OpenSQT 通知: %s", string(evt.Type))
+		subject = fmt.Sprintf("QuantMesh 通知: %s", string(evt.Type))
 	}
 
 	switch en.provider {

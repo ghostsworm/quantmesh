@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"opensqt/order"
-	"opensqt/position"
+	"quantmesh/order"
+	"quantmesh/position"
 )
 
 // MultiStrategyExecutor 多策略订单执行器
@@ -84,8 +84,21 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 
 // BatchPlaceOrders 批量下单
 func (mse *MultiStrategyExecutor) BatchPlaceOrders(strategyName string, orders []*position.OrderRequest) ([]*position.Order, bool) {
-	var placedOrders []*position.Order
-	var marginError bool
+	result := mse.BatchPlaceOrdersWithDetails(strategyName, orders)
+	return result.PlacedOrders, result.HasMarginError
+}
+
+// BatchPlaceOrdersWithDetails 批量下单（返回详细结果）
+func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName string, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	result := &position.BatchPlaceOrdersResult{
+		PlacedOrders:     make([]*position.Order, 0),
+		HasMarginError:   false,
+		ReduceOnlyErrors: make(map[string]bool),
+	}
+
+	// 转换为 order.OrderRequest
+	orderReqs := make([]*order.OrderRequest, 0, len(orders))
+	orderAmounts := make(map[string]float64) // ClientOrderID -> orderAmount
 
 	for _, req := range orders {
 		orderAmount := req.Quantity * req.Price
@@ -100,7 +113,6 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrders(strategyName string, orders [
 			continue
 		}
 
-		// 执行订单
 		orderReq := &order.OrderRequest{
 			Symbol:        req.Symbol,
 			Side:          req.Side,
@@ -111,24 +123,23 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrders(strategyName string, orders [
 			PostOnly:      req.PostOnly,
 			ClientOrderID: req.ClientOrderID,
 		}
+		orderReqs = append(orderReqs, orderReq)
+		orderAmounts[req.ClientOrderID] = orderAmount
+	}
 
-		ord, err := mse.executor.PlaceOrder(orderReq)
-		if err != nil {
-			// 下单失败，释放资金
-			mse.allocator.Release(strategyName, orderAmount)
-			// 检查是否是保证金不足错误
-			if err.Error() == "margin insufficient" {
-				marginError = true
-			}
-			continue
-		}
+	// 批量下单
+	batchResult := mse.executor.BatchPlaceOrdersWithDetails(orderReqs)
+	result.HasMarginError = batchResult.HasMarginError
+	result.ReduceOnlyErrors = batchResult.ReduceOnlyErrors
 
+	// 处理成功的订单
+	for _, ord := range batchResult.PlacedOrders {
 		// 标记订单
 		mse.mu.Lock()
 		mse.strategies[fmt.Sprintf("%d", ord.OrderID)] = strategyName
 		mse.mu.Unlock()
 
-		placedOrders = append(placedOrders, &position.Order{
+		result.PlacedOrders = append(result.PlacedOrders, &position.Order{
 			OrderID:       ord.OrderID,
 			ClientOrderID: ord.ClientOrderID,
 			Symbol:        ord.Symbol,
@@ -140,7 +151,18 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrders(strategyName string, orders [
 		})
 	}
 
-	return placedOrders, marginError
+	// 释放失败订单的资金
+	placedClientOIDs := make(map[string]bool)
+	for _, ord := range batchResult.PlacedOrders {
+		placedClientOIDs[ord.ClientOrderID] = true
+	}
+	for clientOID, amount := range orderAmounts {
+		if !placedClientOIDs[clientOID] {
+			mse.allocator.Release(strategyName, amount)
+		}
+	}
+
+	return result
 }
 
 // BatchCancelOrders 批量撤单

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { getLogs, LogEntry } from '../services/api'
+import { getLogs, LogEntry, subscribeLogs } from '../services/api'
 import './Logs.css'
 
 // Alias for backward compatibility

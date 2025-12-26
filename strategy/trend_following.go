@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"opensqt/config"
-	"opensqt/logger"
-	"opensqt/position"
+	"quantmesh/config"
+	"quantmesh/logger"
+	"quantmesh/position"
 )
 
 // TrendFollowingStrategy 趋势跟踪策略

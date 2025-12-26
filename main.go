@@ -13,19 +13,19 @@ import (
 	"syscall"
 	"time"
 
-	"opensqt/config"
-	"opensqt/event"
-	"opensqt/exchange"
-	"opensqt/logger"
-	"opensqt/monitor"
-	"opensqt/notify"
-	"opensqt/order"
-	"opensqt/position"
-	"opensqt/safety"
-	"opensqt/storage"
-	"opensqt/strategy"
-	"opensqt/web"
-	watchdogMonitor "opensqt/monitor"
+	"quantmesh/config"
+	"quantmesh/event"
+	"quantmesh/exchange"
+	"quantmesh/logger"
+	"quantmesh/monitor"
+	"quantmesh/notify"
+	"quantmesh/order"
+	"quantmesh/position"
+	"quantmesh/safety"
+	"quantmesh/storage"
+	"quantmesh/strategy"
+	"quantmesh/web"
+	watchdogMonitor "quantmesh/monitor"
 )
 
 // Version 版本号
@@ -70,7 +70,7 @@ func main() {
 		log.Printf("[INFO] 日志存储已初始化: %s", logStoragePath)
 	}
 
-	logger.Info("🚀 www.OpenSQT.com 做市商系统启动...")
+	logger.Info("🚀 QuantMesh 做市商系统启动...")
 	logger.Info("📦 版本号: %s", Version)
 
 	// 1. 加载配置
@@ -534,6 +534,12 @@ func main() {
 			web.SetPriceProvider(priceMonitor)
 		}
 
+		// 设置交易所提供者（用于获取K线数据）
+		if ex != nil {
+			exchangeAdapter := &exchangeProviderAdapter{exchange: ex}
+			web.SetExchangeProvider(exchangeAdapter)
+		}
+
 		// 设置存储服务提供者（用于查询历史数据）
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
@@ -873,11 +879,7 @@ waitForSignal:
 		cancelTimeout()
 	}
 
-	// 🔥 第二优先级：停止所有协程（取消 context）
-	// 这会通知所有使用 ctx 的协程停止工作
-	cancel()
-
-	// 🔥 第三优先级：优雅停止各个组件
+	// 🔥 第二优先级：优雅停止各个组件（按依赖关系从上到下）
 	// 注意：这些组件的 Stop() 方法内部会处理 WebSocket 关闭等清理工作
 	logger.Info("⏹️ 正在停止价格监控...")
 	if priceMonitor != nil {
@@ -912,13 +914,21 @@ waitForSignal:
 		watchdog.Stop()
 	}
 
+	// 🔥 第三优先级：停止所有协程（取消 context）
+	// 这会通知所有使用 ctx 的协程停止工作（包括事件处理协程）
+	cancel()
+
+	// 等待一小段时间，让事件处理协程完成清理（确保事件队列被处理完）
+	time.Sleep(500 * time.Millisecond)
+
+	// 🔥 第四优先级：停止存储服务（确保所有事件都已处理完毕）
 	logger.Info("⏹️ 正在停止存储服务...")
 	if storageService != nil {
 		storageService.Stop()
 	}
 
-	// 等待一小段时间，让协程完成清理（避免强制退出导致日志丢失）
-	time.Sleep(500 * time.Millisecond)
+	// 再等待一小段时间，让存储服务完成最后的写入
+	time.Sleep(200 * time.Millisecond)
 
 	// 打印最终状态
 	if superPositionManager != nil {
@@ -935,7 +945,7 @@ waitForSignal:
 		}
 	}
 
-	logger.Info("✅ 系统已安全退出 www.OpenSQT.com")
+	logger.Info("✅ 系统已安全退出 QuantMesh")
 }
 
 // loggerAdapter 适配 logger 到 WebAuthnLogger 接口
@@ -1000,6 +1010,15 @@ func (a *positionExchangeAdapter) CancelAllOrders(ctx context.Context, symbol st
 	return a.exchange.CancelAllOrders(ctx, symbol)
 }
 
+// exchangeProviderAdapter 适配器，将 exchange.IExchange 转换为 web.ExchangeProvider
+type exchangeProviderAdapter struct {
+	exchange exchange.IExchange
+}
+
+func (a *exchangeProviderAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*exchange.Candle, error) {
+	return a.exchange.GetHistoricalKlines(ctx, symbol, interval, limit)
+}
+
 // exchangeExecutorAdapter 适配器，将 order.ExchangeOrderExecutor 转换为 position.OrderExecutorInterface
 type exchangeExecutorAdapter struct {
 	executor *order.ExchangeOrderExecutor
@@ -1053,6 +1072,11 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 }
 
 func (a *exchangeExecutorAdapter) BatchPlaceOrders(orders []*position.OrderRequest) ([]*position.Order, bool) {
+	result := a.BatchPlaceOrdersWithDetails(orders)
+	return result.PlacedOrders, result.HasMarginError
+}
+
+func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
 	orderReqs := make([]*order.OrderRequest, len(orders))
 	for i, req := range orders {
 		orderReqs[i] = &order.OrderRequest{
@@ -1066,10 +1090,16 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrders(orders []*position.OrderReque
 			ClientOrderID: req.ClientOrderID, // 传递 ClientOrderID
 		}
 	}
-	ords, marginError := a.executor.BatchPlaceOrders(orderReqs)
-	result := make([]*position.Order, len(ords))
-	for i, ord := range ords {
-		result[i] = &position.Order{
+	batchResult := a.executor.BatchPlaceOrdersWithDetails(orderReqs)
+	
+	result := &position.BatchPlaceOrdersResult{
+		PlacedOrders:     make([]*position.Order, len(batchResult.PlacedOrders)),
+		HasMarginError:   batchResult.HasMarginError,
+		ReduceOnlyErrors: batchResult.ReduceOnlyErrors,
+	}
+	
+	for i, ord := range batchResult.PlacedOrders {
+		result.PlacedOrders[i] = &position.Order{
 			OrderID:       ord.OrderID,
 			ClientOrderID: ord.ClientOrderID, // 返回 ClientOrderID
 			Symbol:        ord.Symbol,
@@ -1097,7 +1127,7 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrders(orders []*position.OrderReque
 			})
 		}
 	}
-	return result, marginError
+	return result
 }
 
 func (a *exchangeExecutorAdapter) BatchCancelOrders(orderIDs []int64) error {

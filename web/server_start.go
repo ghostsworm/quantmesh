@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"opensqt/config"
-	"opensqt/logger"
+	"quantmesh/config"
+	"quantmesh/logger"
 )
 
 // WebServer Web服务器

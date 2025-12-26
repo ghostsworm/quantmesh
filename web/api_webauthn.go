@@ -158,8 +158,88 @@ func finishWebAuthnRegistration(c *gin.Context) {
 		return
 	}
 
-	// TODO: 实现 WebAuthn 注册完成流程
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "WebAuthn 功能需要添加依赖库"})
+	// 检查是否已登录（需要密码验证）
+	sm := GetSessionManager()
+	if sm == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
+		return
+	}
+
+	session, exists := sm.GetSessionFromRequest(c.Request)
+	if !exists || session == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
+		return
+	}
+
+	// 读取请求体
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败"})
+		return
+	}
+
+	var req struct {
+		SessionKey string                 `json:"session_key"`
+		DeviceName string                 `json:"device_name"`
+		Response   map[string]interface{} `json:"response"`
+	}
+
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	// 从临时存储获取 sessionData
+	sessionData := getWebAuthnSession(req.SessionKey)
+	if sessionData == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "会话已过期，请重新开始注册"})
+		return
+	}
+
+	// 获取用户
+	user, err := globalWebAuthnManager.GetUser(session.Username)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "获取用户失败"})
+		return
+	}
+
+	// 将 response 转换为 JSON，作为新的请求体传递给 webauthn 库
+	responseBytes, err := json.Marshal(req.Response)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "处理响应失败"})
+		return
+	}
+
+	// 创建新的请求体供 webauthn 库使用
+	r := c.Request
+	r.Body = io.NopCloser(bytes.NewBuffer(responseBytes))
+
+	// 验证并完成注册
+	credential, err := globalWebAuthnManager.webauthn.FinishRegistration(user, *sessionData, r)
+	if err != nil {
+		if globalWebAuthnManager.log != nil {
+			globalWebAuthnManager.log.Errorf("完成 WebAuthn 注册失败: %v", err)
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "注册失败: " + err.Error()})
+		return
+	}
+
+	// 保存凭证到数据库
+	if err := globalWebAuthnManager.SaveCredential(session.Username, session.Username, credential, req.DeviceName); err != nil {
+		if globalWebAuthnManager.log != nil {
+			globalWebAuthnManager.log.Errorf("保存凭证失败: %v", err)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存凭证失败"})
+		return
+	}
+
+	// 删除临时会话数据
+	deleteWebAuthnSession(req.SessionKey)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "WebAuthn 注册成功",
+	})
 }
 
 // beginWebAuthnLogin 开始 WebAuthn 登录

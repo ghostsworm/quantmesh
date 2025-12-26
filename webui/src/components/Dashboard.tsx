@@ -233,6 +233,12 @@ const Dashboard: React.FC = () => {
                 {(positionsSummary.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.unrealized_pnl?.toFixed(2) || '0'}
               </div>
             </div>
+            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
+              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>亏损率</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: (positionsSummary.pnl_percentage || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                {(positionsSummary.pnl_percentage || 0) >= 0 ? '+' : ''}{(positionsSummary.pnl_percentage || 0).toFixed(2) || '0.00'}%
+              </div>
+            </div>
           </div>
           <Link to="/positions" style={{ fontSize: '14px', color: '#1890ff', marginTop: '16px', display: 'inline-block' }}>
             查看详细持仓 →

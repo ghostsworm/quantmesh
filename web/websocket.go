@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"opensqt/storage"
+	"quantmesh/storage"
 )
 
 var upgrader = websocket.Upgrader{

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"opensqt/logger"
+	"quantmesh/logger"
 
 	"github.com/gorilla/websocket"
 )

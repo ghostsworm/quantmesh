@@ -88,6 +88,7 @@ type ReconciliationHistory struct {
 	TotalBuyQty       float64
 	TotalSellQty      float64
 	EstimatedProfit   float64
+	ActualProfit      float64 // 实际盈利（从 trades 表统计）
 	CreatedAt         time.Time
 }
 

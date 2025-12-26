@@ -8,6 +8,8 @@
 # Go build output
 opensqt_market_maker
 /opensqt_market_maker
+quantmesh
+opensqt
 *.test
 *.out
 
@@ -28,9 +30,15 @@ vendor/
 # Data and runtime files
 data/
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 *.log
+
+# Process ID files
+*.pid
+.quantmesh.pid
 
 # Config files with sensitive data (keep example configs)
 config.yaml

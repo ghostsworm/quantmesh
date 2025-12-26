@@ -2,7 +2,7 @@ package exchange
 
 import (
 	"context"
-	"opensqt/exchange/bitget"
+	"quantmesh/exchange/bitget"
 )
 
 // bitgetWrapper 包装 Bitget 适配器以实现 IExchange 接口

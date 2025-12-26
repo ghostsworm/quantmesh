@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"opensqt/logger"
-	"opensqt/utils"
+	"quantmesh/logger"
+	"quantmesh/utils"
 
 	"github.com/adshao/go-binance/v2/futures"
 )

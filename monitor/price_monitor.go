@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"opensqt/exchange"
-	"opensqt/logger"
+	"quantmesh/exchange"
+	"quantmesh/logger"
 )
 
 /*

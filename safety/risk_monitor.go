@@ -3,9 +3,9 @@ package safety
 import (
 	"context"
 	"fmt"
-	"opensqt/config"
-	"opensqt/exchange"
-	"opensqt/logger"
+	"quantmesh/config"
+	"quantmesh/exchange"
+	"quantmesh/logger"
 	"strings"
 	"sync"
 	"time"

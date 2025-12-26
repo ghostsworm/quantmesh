@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://r2.opensqt.com/opensqt_logo.png" alt="OpenSQT Logo" width="600"/>
+  <img src="https://r2.quantmesh.com/quantmesh_logo.png" alt="QuantMesh Logo" width="600"/>
   
-  # OpenSQT Market Maker
+  # QuantMesh Market Maker
   
   **毫秒级高频加密货币做市商系统 | High-Frequency Crypto Market Maker**
 
@@ -13,19 +13,19 @@
 
 ## 📖 项目简介 (Introduction)
 
-OpenSQT Market Maker 是一个高性能、低延迟的加密货币做市商系统，专注于永续合约市场的单向做多无限独立网格交易策略。系统采用 Go 语言开发，基于 WebSocket 实时数据流驱动，旨在为 Binance、Bitget、Gate.io 等主流交易所提供稳定的流动性支持。
+QuantMesh Market Maker 是一个高性能、低延迟的加密货币做市商系统，专注于永续合约市场的单向做多无限独立网格交易策略。系统采用 Go 语言开发，基于 WebSocket 实时数据流驱动，旨在为 Binance、Bitget、Gate.io 等主流交易所提供稳定的流动性支持。
 
 经过数个版本迭代，我们已经使用此系统交易超过1亿美元的虚拟货币，例如，交易币安ETHUSDC，0手续，价格间隔1美元，每笔购买300美元，每天的交易量将达到300万美元以上，一个月可以交易5000万美元以上，只要市场是震荡或向上将持续产生盈利，如果市场单边下跌，3万美元保证金可以保证下跌1000个点不爆仓，通过不断交易拉低成本，只要回涨50%即可保本，涨回开仓原价可以赚到丰厚利润，如果出现单边极速下跌，主动风控系统将会自动识别立刻停止交易，当市场恢复后才允许继续下单，不担心插针爆仓。
 
 举例： eth 3000点开始交易，价格下跌到2700点，亏损约3000美元，价格涨回2850点以上已经保本，涨回3000点，盈利在1000-3000美元。
 
-OpenSQT is a high-performance, low-latency cryptocurrency market maker system focusing on long grid trading strategies for perpetual contract markets. Developed in Go and driven by WebSocket real-time data streams, it aims to provide stable liquidity support for major exchanges like Binance, Bitget, and Gate.io.
+QuantMesh is a high-performance, low-latency cryptocurrency market maker system focusing on long grid trading strategies for perpetual contract markets. Developed in Go and driven by WebSocket real-time data streams, it aims to provide stable liquidity support for major exchanges like Binance, Bitget, and Gate.io.
 
 ## 📺 实时演示 (Live Demo)
 
-<video src="https://r2.opensqt.com/product_review.mp4" controls="controls" width="100%"></video>
+<video src="https://r2.quantmesh.com/product_review.mp4" controls="controls" width="100%"></video>
 
-[点击观看演示视频 / Watch Demo Video](https://r2.opensqt.com/product_review.mp4)
+[点击观看演示视频 / Watch Demo Video](https://r2.quantmesh.com/product_review.mp4)
 
 ## ✨ 核心特性 (Key Features)
 
@@ -52,7 +52,7 @@ OpenSQT is a high-performance, low-latency cryptocurrency market maker system fo
 ## 模块架构
 
 ```
-opensqt_platform/
+quantmesh_platform/
 ├── main.go                    # 主程序入口，组件编排
 │
 ├── config/                    # 配置管理
@@ -104,8 +104,8 @@ opensqt_platform/
 
 1. **克隆仓库**
    ```bash
-   git clone https://github.com/dennisyang1986/opensqt_market_maker.git
-   cd opensqt_market_maker
+   git clone https://github.com/dennisyang1986/quantmesh_market_maker.git
+   cd quantmesh_market_maker
    ```
 
 2. **安装依赖**
@@ -149,8 +149,8 @@ go run main.go
 或者编译后运行：
 
 ```bash
-go build -o opensqt
-./opensqt
+go build -o quantmesh
+./quantmesh
 ```
 
 ## 🏗️ 系统架构 (Architecture)
@@ -181,4 +181,4 @@ This software is for educational and research purposes only. Cryptocurrency trad
 欢迎提交 Issue 和 Pull Request！
 
 ---
-Copyright © 2025 OpenSQT Team. All Rights Reserved.
+Copyright © 2025 QuantMesh Team. All Rights Reserved.

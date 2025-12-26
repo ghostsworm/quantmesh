@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  setPassword,
+  setPassword as setPasswordAPI,
   beginWebAuthnRegistration,
   finishWebAuthnRegistration,
 } from '../services/auth'
@@ -10,8 +10,11 @@ import {
 const FirstTimeSetup: React.FC = () => {
   const navigate = useNavigate()
   const { refreshAuth } = useAuth()
-  const [step, setStep] = useState<'password' | 'webauthn'>('password')
-  const [password, setPassword] = useState('')
+  const [step, setStep] = useState<'password' | 'webauthn'>(() => {
+    // 从 sessionStorage 恢复设置流程状态
+    return (sessionStorage.getItem('setup_step') as 'password' | 'webauthn') || 'password'
+  })
+  const [password, setPasswordInput] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [deviceName, setDeviceName] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -19,6 +22,9 @@ const FirstTimeSetup: React.FC = () => {
 
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    console.log('🔐 handleSetPassword 被调用')
+    console.log('🔐 密码长度:', password.length)
     
     if (!password.trim()) {
       setError('请输入密码')
@@ -39,9 +45,23 @@ const FirstTimeSetup: React.FC = () => {
     setError(null)
 
     try {
-      await setPassword(password)
+      console.log('🔐 准备调用 setPassword API...')
+      await setPasswordAPI(password)
+      console.log('🔐 setPassword API 调用成功')
+      // 等待一小段时间确保 Cookie 被浏览器处理
+      await new Promise(resolve => setTimeout(resolve, 100))
+      // 设置密码后自动登录，刷新认证状态
+      console.log('🔐 准备刷新认证状态...')
+      await refreshAuth()
+      console.log('🔐 认证状态刷新完成')
+      // 标记正在进行首次设置流程
+      sessionStorage.setItem('setup_step', 'webauthn')
       setStep('webauthn')
     } catch (err) {
+      console.error('🔐 设置密码失败:', err)
+      // 失败时清理流程标记并回到密码步骤
+      sessionStorage.removeItem('setup_step')
+      setStep('password')
       setError(err instanceof Error ? err.message : '设置密码失败')
     } finally {
       setIsLoading(false)
@@ -112,6 +132,8 @@ const FirstTimeSetup: React.FC = () => {
         credentialResponse
       )
 
+      // 清除设置流程标记
+      sessionStorage.removeItem('setup_step')
       // 刷新认证状态
       await refreshAuth()
       navigate('/')
@@ -126,6 +148,8 @@ const FirstTimeSetup: React.FC = () => {
   }
 
   const skipWebAuthn = () => {
+    // 清除设置流程标记
+    sessionStorage.removeItem('setup_step')
     // 跳过指纹注册，直接进入系统
     refreshAuth()
     navigate('/')
@@ -147,9 +171,18 @@ const FirstTimeSetup: React.FC = () => {
         width: '100%',
         maxWidth: '500px'
       }}>
-        <h2 style={{ textAlign: 'center', marginBottom: '30px' }}>
+        <h2 style={{ textAlign: 'center', marginBottom: '10px' }}>
           {step === 'password' ? '首次设置 - 设置密码' : '首次设置 - 注册指纹'}
         </h2>
+        <div style={{ 
+          textAlign: 'center', 
+          marginBottom: '20px', 
+          fontSize: '12px', 
+          color: '#999',
+          fontFamily: 'monospace'
+        }}>
+          版本: v2.0.{new Date().getTime()} | 构建时间: {new Date().toLocaleString('zh-CN')}
+        </div>
 
         {error && (
           <div style={{
@@ -173,7 +206,7 @@ const FirstTimeSetup: React.FC = () => {
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => setPasswordInput(e.target.value)}
                 disabled={isLoading}
                 style={{
                   width: '100%',

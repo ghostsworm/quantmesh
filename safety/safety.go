@@ -3,8 +3,8 @@ package safety
 import (
 	"context"
 	"fmt"
-	"opensqt/exchange"
-	"opensqt/logger"
+	"quantmesh/exchange"
+	"quantmesh/logger"
 )
 
 const (

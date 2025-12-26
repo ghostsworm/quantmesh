@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"opensqt/logger"
-	"opensqt/utils"
+	"quantmesh/logger"
+	"quantmesh/utils"
 
 	"github.com/gorilla/websocket"
 )

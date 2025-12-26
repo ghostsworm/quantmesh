@@ -3,7 +3,7 @@ package event
 import (
 	"time"
 
-	"opensqt/logger"
+	"quantmesh/logger"
 )
 
 // EventType 事件类型

@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"opensqt/config"
-	"opensqt/logger"
-	"opensqt/monitor"
-	"opensqt/position"
+	"quantmesh/config"
+	"quantmesh/logger"
+	"quantmesh/monitor"
+	"quantmesh/position"
 )
 
 // DynamicAdjuster 动态调整器

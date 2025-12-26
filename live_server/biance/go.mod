@@ -1,4 +1,4 @@
-module opensqt_live_server
+module quantmesh_live_server
 
 go 1.25.4
 

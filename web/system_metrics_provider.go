@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"opensqt/monitor"
-	"opensqt/storage"
+	"quantmesh/monitor"
+	"quantmesh/storage"
 )
 
 // SystemMetricsProviderImpl 系统监控数据提供者实现

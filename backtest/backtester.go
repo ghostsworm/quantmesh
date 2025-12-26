@@ -3,8 +3,8 @@ package backtest
 import (
 	"time"
 
-	"opensqt/exchange"
-	"opensqt/strategy"
+	"quantmesh/exchange"
+	"quantmesh/strategy"
 )
 
 // Backtester 回测器

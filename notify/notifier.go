@@ -3,9 +3,9 @@ package notify
 import (
 	"sync"
 
-	"opensqt/config"
-	"opensqt/event"
-	"opensqt/logger"
+	"quantmesh/config"
+	"quantmesh/event"
+	"quantmesh/logger"
 )
 
 // Notifier 通知接口

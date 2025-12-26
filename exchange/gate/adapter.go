@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"opensqt/logger"
-	"opensqt/utils"
+	"quantmesh/logger"
+	"quantmesh/utils"
 )
 
 type OrderUpdateCallback func(update OrderUpdate)

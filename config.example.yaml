@@ -170,7 +170,7 @@ notifications:
     
     from: "alerts@yourdomain.com"
     to: "admin@yourdomain.com"
-    subject: "OpenSQT 交易通知"
+    subject: "QuantMesh 交易通知"
   
   # 通知规则：哪些事件需要通知
   rules:
@@ -184,7 +184,7 @@ notifications:
 storage:
   enabled: true               # 是否启用数据存储（默认开启true,关闭用false）
   type: "sqlite"              # 存储类型：sqlite
-  path: "./data/opensqt.db"   # 数据库文件路径
+  path: "./data/quantmesh.db"   # 数据库文件路径
   buffer_size: 1000           # 缓冲区大小（默认1000）
   batch_size: 100             # 批量写入大小（默认100）
   flush_interval: 5           # 刷新间隔（秒，默认5）

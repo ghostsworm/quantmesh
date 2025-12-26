@@ -2,8 +2,8 @@ package exchange
 
 import (
 	"context"
-	"opensqt/exchange/gate"
-	"opensqt/utils"
+	"quantmesh/exchange/gate"
+	"quantmesh/utils"
 )
 
 // gateWrapper 包装 Gate.io 适配器以实现 IExchange 接口

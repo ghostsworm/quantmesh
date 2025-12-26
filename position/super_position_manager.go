@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"opensqt/config"
-	"opensqt/logger"
-	"opensqt/utils"
+	"quantmesh/config"
+	"quantmesh/logger"
+	"quantmesh/utils"
 )
 
 // OrderUpdate 订单更新事件（避免依赖 websocket 包）
@@ -29,10 +29,18 @@ type OrderUpdate struct {
 	UpdateTime    int64
 }
 
+// BatchPlaceOrdersResult 批量下单结果
+type BatchPlaceOrdersResult struct {
+	PlacedOrders     []*Order        // 成功下单的订单列表
+	HasMarginError   bool            // 是否出现保证金不足错误
+	ReduceOnlyErrors map[string]bool // ReduceOnly错误的订单（key为ClientOrderID）
+}
+
 // OrderExecutorInterface 订单执行器接口（避免循环导入）
 type OrderExecutorInterface interface {
 	PlaceOrder(req *OrderRequest) (*Order, error)
 	BatchPlaceOrders(orders []*OrderRequest) ([]*Order, bool)
+	BatchPlaceOrdersWithDetails(orders []*OrderRequest) *BatchPlaceOrdersResult
 	BatchCancelOrders(orderIDs []int64) error
 }
 
@@ -552,9 +560,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 执行下单
 	if len(ordersToPlace) > 0 {
 		logger.Debug("🔄 [实时调整] 需要新增: %d 个订单", len(ordersToPlace))
-		placedOrders, marginError := spm.executor.BatchPlaceOrders(ordersToPlace)
+		result := spm.executor.BatchPlaceOrdersWithDetails(ordersToPlace)
 
-		if marginError {
+		if result.HasMarginError {
 			logger.Warn("⚠️ [保证金不足] 检测到保证金不足错误，暂停下单 %d 秒", int(spm.marginLockDuration.Seconds()))
 			spm.insufficientMargin = true
 			spm.marginLockTime = time.Now()
@@ -563,14 +571,32 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 		// 🔥 构建成功订单的ClientOrderID集合
 		placedClientOIDs := make(map[string]bool)
-		for _, ord := range placedOrders {
+		for _, ord := range result.PlacedOrders {
 			placedClientOIDs[ord.ClientOrderID] = true
+		}
+
+		// 🔥 处理 ReduceOnly 错误：清空对应槽位的持仓
+		for clientOID := range result.ReduceOnlyErrors {
+			price, side, valid := spm.parseClientOrderID(clientOID)
+			if valid && side == "SELL" {
+				slot := spm.getOrCreateSlot(price)
+				slot.mu.Lock()
+				if slot.PositionStatus == PositionStatusFilled {
+					logger.Warn("⚠️ [ReduceOnly错误处理] 清空槽位持仓: 价格=%s, 原持仓=%.4f",
+						formatPrice(price, spm.priceDecimals), slot.PositionQty)
+					// 清空持仓状态
+					slot.PositionStatus = PositionStatusEmpty
+					slot.PositionQty = 0
+					slot.SlotStatus = SlotStatusFree
+				}
+				slot.mu.Unlock()
+			}
 		}
 
 		// 🔥 释放未成功提交订单的槽位锁
 		for _, req := range ordersToPlace {
-			if !placedClientOIDs[req.ClientOrderID] {
-				// 这个订单没有成功提交，需要释放槽位锁
+			if !placedClientOIDs[req.ClientOrderID] && !result.ReduceOnlyErrors[req.ClientOrderID] {
+				// 这个订单没有成功提交（且不是ReduceOnly错误，因为已经处理过了），需要释放槽位锁
 				price, _, valid := spm.parseClientOrderID(req.ClientOrderID)
 				if valid {
 					slot := spm.getOrCreateSlot(price)
@@ -585,7 +611,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			}
 		}
 
-		for _, ord := range placedOrders {
+		for _, ord := range result.PlacedOrders {
 			// 解析 ClientOrderID
 			price, side, valid := spm.parseClientOrderID(ord.ClientOrderID)
 

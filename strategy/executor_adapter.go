@@ -1,7 +1,7 @@
 package strategy
 
 import (
-	"opensqt/position"
+	"quantmesh/position"
 )
 
 // MultiStrategyExecutorAdapter 适配器，将 MultiStrategyExecutor 转换为 position.OrderExecutorInterface
@@ -26,6 +26,11 @@ func (a *MultiStrategyExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*
 // BatchPlaceOrders 批量下单
 func (a *MultiStrategyExecutorAdapter) BatchPlaceOrders(orders []*position.OrderRequest) ([]*position.Order, bool) {
 	return a.executor.BatchPlaceOrders(a.strategyName, orders)
+}
+
+// BatchPlaceOrdersWithDetails 批量下单（返回详细结果）
+func (a *MultiStrategyExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	return a.executor.BatchPlaceOrdersWithDetails(a.strategyName, orders)
 }
 
 // BatchCancelOrders 批量撤单

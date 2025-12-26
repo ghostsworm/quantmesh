@@ -1,4 +1,4 @@
-module opensqt
+module quantmesh
 
 go 1.25.4
 

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"opensqt/config"
-	"opensqt/event"
+	"quantmesh/config"
+	"quantmesh/event"
 )
 
 // WebhookNotifier Webhook 通知器

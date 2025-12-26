@@ -1,4 +1,5 @@
-const API_BASE_URL = '/api'
+// 使用页面同源，避免相对路径被代理/扩展劫持
+const API_BASE_URL = `${window.location.origin}/api`
 
 // Helper function to make authenticated requests
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
@@ -298,6 +299,55 @@ export async function getLogs(params?: LogsParams): Promise<LogsResponse> {
   return fetchWithAuth(url)
 }
 
+export type LogSubscribeHandler = (log: LogEntry) => void
+export type LogSubscribeErrorHandler = (event: Event) => void
+
+export function subscribeLogs(onLog: LogSubscribeHandler, onError?: LogSubscribeErrorHandler) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host
+  const wsUrl = `${protocol}//${host}/ws?subscribe_logs=true`
+  const socket = new WebSocket(wsUrl)
+
+  const handleMessage = (event: MessageEvent) => {
+    try {
+      const payload = JSON.parse(event.data)
+      if (payload?.type === 'log' && payload.data) {
+        onLog({
+          id: payload.data.id,
+          timestamp: payload.data.timestamp,
+          level: payload.data.level,
+          message: payload.data.message,
+        })
+      }
+    } catch (err) {
+      console.error('解析日志消息失败:', err)
+    }
+  }
+
+  const handleError = (event: Event) => {
+    if (onError) {
+      onError(event)
+    }
+  }
+
+  const handleClose = (event: CloseEvent) => {
+    if (onError && !event.wasClean) {
+      onError(event)
+    }
+  }
+
+  socket.addEventListener('message', handleMessage)
+  socket.addEventListener('error', handleError)
+  socket.addEventListener('close', handleClose)
+
+  return () => {
+    socket.removeEventListener('message', handleMessage)
+    socket.removeEventListener('error', handleError)
+    socket.removeEventListener('close', handleClose)
+    socket.close()
+  }
+}
+
 // Slots
 export interface SlotInfo {
   slot_id: number
@@ -467,4 +517,28 @@ export async function stopTrading(): Promise<{ message: string }> {
   return fetchWithAuth(`${API_BASE_URL}/trading/stop`, {
     method: 'POST',
   })
+}
+
+// K线数据
+export interface KlineData {
+  time: number    // 时间戳（秒）
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export interface KlinesResponse {
+  klines: KlineData[]
+  symbol: string
+  interval: string
+}
+
+export async function getKlines(interval: string = '1m', limit: number = 500): Promise<KlinesResponse> {
+  const queryParams = new URLSearchParams({
+    interval,
+    limit: limit.toString(),
+  })
+  return fetchWithAuth(`${API_BASE_URL}/klines?${queryParams.toString()}`)
 }

@@ -64,7 +64,7 @@ func NewWebAuthnManager(log WebAuthnLogger, dataDir string, rpID string, rpOrigi
 
 	// 初始化 WebAuthn
 	wconfig := &webauthn.Config{
-		RPDisplayName: "OpenSQT",
+		RPDisplayName: "QuantMesh",
 		RPID:          rpID,
 		RPOrigins:     []string{rpOrigin},
 	}

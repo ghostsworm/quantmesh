@@ -16,7 +16,7 @@
 - ✅ **端口冲突处理**：自动检测并释放被占用的端口
 - ✅ **自动构建前端和后端**：如果需要，自动构建前端（React）和后端（Go）
 - ✅ **后台运行**：服务在后台运行，输出重定向到日志文件
-- ✅ **PID管理**：保存进程ID到 `.opensqt.pid` 文件，方便管理
+- ✅ **PID管理**：保存进程ID到 `.quantmesh.pid` 文件，方便管理
 
 ### stop.sh（停止脚本）
 
@@ -73,14 +73,14 @@ web:
 
 ## 日志文件
 
-日志文件保存在 `logs/opensqt.log`，可以通过以下命令查看：
+日志文件保存在 `logs/quantmesh.log`，可以通过以下命令查看：
 
 ```bash
 # 查看实时日志
-tail -f logs/opensqt.log
+tail -f logs/quantmesh.log
 
 # 查看最近100行
-tail -n 100 logs/opensqt.log
+tail -n 100 logs/quantmesh.log
 ```
 
 ## 进程管理
@@ -89,17 +89,17 @@ tail -n 100 logs/opensqt.log
 
 ```bash
 # 查看PID文件
-cat .opensqt.pid
+cat .quantmesh.pid
 
 # 查看进程
-ps aux | grep opensqt
+ps aux | grep quantmesh
 ```
 
 ### 手动停止
 
 ```bash
 # 通过PID停止
-kill $(cat .opensqt.pid)
+kill $(cat .quantmesh.pid)
 
 # 或直接使用stop.sh
 ./stop.sh
@@ -118,7 +118,7 @@ kill $(cat .opensqt.pid)
 
 1. 检查配置文件是否存在
 2. 检查端口是否被占用：`lsof -i:28888`
-3. 查看日志文件：`tail -f logs/opensqt.log`
+3. 查看日志文件：`tail -f logs/quantmesh.log`
 
 ### 端口被占用
 
@@ -133,6 +133,6 @@ lsof -ti:28888 | xargs kill -9
 
 ```bash
 # 强制停止所有相关进程
-pkill -9 opensqt
+pkill -9 quantmesh
 ```
 

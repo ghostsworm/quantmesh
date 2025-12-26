@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"opensqt/config"
-	"opensqt/logger"
-	"opensqt/notify"
-	"opensqt/storage"
+	"quantmesh/config"
+	"quantmesh/logger"
+	"quantmesh/notify"
+	"quantmesh/storage"
 )
 
 // Watchdog 系统资源监控看门狗

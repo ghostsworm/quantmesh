@@ -15,6 +15,7 @@ interface PositionSummary {
   average_price: number
   current_price: number
   unrealized_pnl: number
+  pnl_percentage: number
 }
 
 interface PositionsResponse {
@@ -25,6 +26,7 @@ interface PositionsResponse {
     average_price: number
     current_price: number
     unrealized_pnl: number
+    pnl_percentage: number
     positions: PositionInfo[]
   }
 }
@@ -107,6 +109,12 @@ const Positions: React.FC = () => {
             <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>未实现盈亏</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold', color: summary.unrealized_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
               {summary.unrealized_pnl >= 0 ? '+' : ''}{summary.unrealized_pnl.toFixed(2)}
+            </div>
+          </div>
+          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
+            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>亏损率</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: (summary.pnl_percentage || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
+              {(summary.pnl_percentage || 0) >= 0 ? '+' : ''}{(summary.pnl_percentage || 0).toFixed(2)}%
             </div>
           </div>
         </div>

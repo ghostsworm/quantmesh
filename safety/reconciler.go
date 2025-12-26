@@ -3,8 +3,8 @@ package safety
 import (
 	"context"
 	"fmt"
-	"opensqt/config"
-	"opensqt/logger"
+	"quantmesh/config"
+	"quantmesh/logger"
 	"reflect"
 	"time"
 )

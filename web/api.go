@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"reflect"
@@ -8,8 +9,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"opensqt/position"
-	"opensqt/storage"
+	"quantmesh/exchange"
+	"quantmesh/position"
+	"quantmesh/storage"
 )
 
 // SystemStatus 系统状态
@@ -52,6 +54,7 @@ type PositionSummary struct {
 	AveragePrice     float64 `json:"average_price"`       // 平均持仓价格
 	CurrentPrice     float64 `json:"current_price"`       // 当前市场价格
 	UnrealizedPnL    float64 `json:"unrealized_pnl"`      // 未实现盈亏
+	PnlPercentage    float64 `json:"pnl_percentage"`      // 盈亏百分比
 	Positions        []PositionInfo `json:"positions"`     // 持仓列表
 }
 
@@ -76,6 +79,21 @@ type PriceProvider interface {
 // SetPriceProvider 设置价格提供者
 func SetPriceProvider(provider PriceProvider) {
 	priceProvider = provider
+}
+
+var (
+	// 交易所提供者（需要从main.go注入）
+	exchangeProvider ExchangeProvider
+)
+
+// ExchangeProvider 交易所提供者接口
+type ExchangeProvider interface {
+	GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*exchange.Candle, error)
+}
+
+// SetExchangeProvider 设置交易所提供者
+func SetExchangeProvider(provider ExchangeProvider) {
+	exchangeProvider = provider
 }
 
 // getPositions 获取持仓列表（从槽位数据筛选）
@@ -143,6 +161,18 @@ func getPositions(c *gin.Context) {
 		}
 	}
 
+	// 计算总持仓成本
+	totalCost := 0.0
+	for _, pos := range positions {
+		totalCost += pos.Price * pos.Quantity
+	}
+
+	// 计算亏损率（相对于持仓成本的百分比）
+	pnlPercentage := 0.0
+	if totalCost > 0 {
+		pnlPercentage = (totalUnrealizedPnL / totalCost) * 100.0
+	}
+
 	summary := PositionSummary{
 		TotalQuantity: totalQuantity,
 		TotalValue:    totalValue,
@@ -150,6 +180,7 @@ func getPositions(c *gin.Context) {
 		AveragePrice:  averagePrice,
 		CurrentPrice:  currentPrice,
 		UnrealizedPnL: totalUnrealizedPnL,
+		PnlPercentage: pnlPercentage,
 		Positions:     positions,
 	}
 
@@ -167,6 +198,7 @@ func getPositionsSummary(c *gin.Context) {
 			"average_price":  0,
 			"current_price":  0,
 			"unrealized_pnl": 0,
+			"pnl_percentage": 0,
 		})
 		return
 	}
@@ -211,6 +243,12 @@ func getPositionsSummary(c *gin.Context) {
 		unrealizedPnL = (currentPrice - averagePrice) * totalQuantity
 	}
 
+	// 计算亏损率（相对于持仓成本的百分比）
+	pnlPercentage := 0.0
+	if totalCost > 0 {
+		pnlPercentage = (unrealizedPnL / totalCost) * 100.0
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"total_quantity": totalQuantity,
 		"total_value":    totalValue,
@@ -218,6 +256,7 @@ func getPositionsSummary(c *gin.Context) {
 		"average_price":  averagePrice,
 		"current_price":  currentPrice,
 		"unrealized_pnl": unrealizedPnL,
+		"pnl_percentage": pnlPercentage,
 	})
 }
 
@@ -1082,6 +1121,7 @@ type ReconciliationHistoryInfo struct {
 	TotalBuyQty       float64   `json:"total_buy_qty"`
 	TotalSellQty      float64   `json:"total_sell_qty"`
 	EstimatedProfit   float64   `json:"estimated_profit"`
+	ActualProfit      float64   `json:"actual_profit"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
@@ -1207,6 +1247,7 @@ func getReconciliationHistory(c *gin.Context) {
 			TotalBuyQty:     h.TotalBuyQty,
 			TotalSellQty:    h.TotalSellQty,
 			EstimatedProfit: h.EstimatedProfit,
+			ActualProfit:    h.ActualProfit,
 			CreatedAt:       h.CreatedAt,
 		}
 	}
@@ -1485,5 +1526,73 @@ func getRiskMonitorData(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"symbols": monitorData})
+}
+
+// KlineData K线数据响应格式
+type KlineData struct {
+	Time   int64   `json:"time"`   // 时间戳（秒）
+	Open   float64 `json:"open"`
+	High   float64 `json:"high"`
+	Low    float64 `json:"low"`
+	Close  float64 `json:"close"`
+	Volume float64 `json:"volume"`
+}
+
+// getKlines 获取K线数据
+// GET /api/klines
+// 查询参数：
+//   - interval: K线周期（1m/5m/15m/30m/1h/4h/1d等，默认1m）
+//   - limit: 返回K线数量（默认500，最大1000）
+func getKlines(c *gin.Context) {
+	if exchangeProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"klines": []interface{}{}})
+		return
+	}
+
+	// 获取当前交易币种（从系统状态）
+	symbol := ""
+	if currentStatus != nil {
+		symbol = currentStatus.Symbol
+	}
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无法获取交易币种"})
+		return
+	}
+
+	// 解析查询参数
+	interval := c.DefaultQuery("interval", "1m")
+	limitStr := c.DefaultQuery("limit", "500")
+
+	limit := 500
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+		if limit > 1000 {
+			limit = 1000
+		}
+	}
+
+	// 调用交易所接口获取K线数据
+	ctx := c.Request.Context()
+	candles, err := exchangeProvider.GetHistoricalKlines(ctx, symbol, interval, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 转换为API响应格式
+	klines := make([]KlineData, len(candles))
+	for i, candle := range candles {
+		// 将毫秒时间戳转换为秒（lightweight-charts使用秒级时间戳）
+		klines[i] = KlineData{
+			Time:   candle.Timestamp / 1000,
+			Open:   candle.Open,
+			High:   candle.High,
+			Low:    candle.Low,
+			Close:  candle.Close,
+			Volume: candle.Volume,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"klines": klines, "symbol": symbol, "interval": interval})
 }
 

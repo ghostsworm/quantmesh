@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# OpenSQT Market Maker 停止脚本
+# QuantMesh Market Maker 停止脚本
 
 set -e
 
@@ -12,8 +12,8 @@ NC='\033[0m' # No Color
 
 # 配置
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_NAME="opensqt"
-BINARY_NAME="opensqt"
+APP_NAME="quantmesh"
+BINARY_NAME="quantmesh"
 PID_FILE="${SCRIPT_DIR}/.${APP_NAME}.pid"
 
 log_info() {
@@ -86,7 +86,7 @@ stop_service() {
 }
 
 log_info "=========================================="
-log_info "停止 OpenSQT Market Maker"
+log_info "停止 QuantMesh Market Maker"
 log_info "=========================================="
 
 stop_service

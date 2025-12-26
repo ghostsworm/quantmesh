@@ -2,7 +2,7 @@ package exchange
 
 import (
 	"context"
-	"opensqt/exchange/binance"
+	"quantmesh/exchange/binance"
 )
 
 // binanceWrapper 包装 Binance 适配器以实现 IExchange 接口

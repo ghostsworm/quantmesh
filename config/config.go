@@ -445,7 +445,7 @@ func (c *Config) Validate() error {
 		c.Storage.Type = "sqlite" // 默认SQLite
 	}
 	if c.Storage.Path == "" {
-		c.Storage.Path = "./data/opensqt.db" // 默认路径
+		c.Storage.Path = "./data/quantmesh.db" // 默认路径
 	}
 	if c.Storage.BufferSize <= 0 {
 		c.Storage.BufferSize = 1000 // 默认1000

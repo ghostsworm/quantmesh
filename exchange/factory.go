@@ -2,10 +2,10 @@ package exchange
 
 import (
 	"fmt"
-	"opensqt/config"
-	"opensqt/exchange/binance"
-	"opensqt/exchange/bitget"
-	"opensqt/exchange/gate"
+	"quantmesh/config"
+	"quantmesh/exchange/binance"
+	"quantmesh/exchange/bitget"
+	"quantmesh/exchange/gate"
 )
 
 // NewExchange 创建交易所实例

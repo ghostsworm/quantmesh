@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"opensqt/config"
-	"opensqt/logger"
-	"opensqt/position"
+	"quantmesh/config"
+	"quantmesh/logger"
+	"quantmesh/position"
 )
 
 // GridStrategy 网格策略包装

@@ -1,4 +1,5 @@
-const API_BASE = '/api'
+// 使用页面同源，避免某些环境下相对路径被代理/扩展劫持
+const API_BASE = `${window.location.origin}/api`
 
 export interface AuthStatus {
   has_password: boolean
@@ -26,17 +27,30 @@ export async function checkAuthStatus(): Promise<AuthStatus> {
 
 // 设置密码
 export async function setPassword(password: string): Promise<void> {
+  console.log('setPassword API called')
   const response = await fetch(`${API_BASE}/auth/password/set`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     credentials: 'include',
+    cache: 'no-store',
     body: JSON.stringify({ password }),
   })
   if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.error || 'Failed to set password')
+    // 尝试解析 JSON，否则退回纯文本，附带状态码
+    let message = `设置密码失败 (HTTP ${response.status})`
+    try {
+      const error = await response.json()
+      message = error.error || message
+    } catch {
+      try {
+        message = await response.text()
+      } catch {
+        // ignore
+      }
+    }
+    throw new Error(message)
   }
 }
 
@@ -53,6 +67,25 @@ export async function verifyPassword(password: string): Promise<void> {
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.error || 'Failed to verify password')
+  }
+}
+
+// 修改密码
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/auth/password/change`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify({ 
+      current_password: currentPassword,
+      new_password: newPassword 
+    }),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || 'Failed to change password')
   }
 }
 

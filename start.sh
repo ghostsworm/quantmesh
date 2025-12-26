@@ -2,7 +2,7 @@
 # 使用 HTTP 端口（不是 SOCKS5 端口）
 export https_proxy=http://127.0.0.1:7895
 export http_proxy=http://127.0.0.1:7895
-# OpenSQT Market Maker 启动/重启脚本
+# QuantMesh Market Maker 启动/重启脚本
 # 功能：
 # 1. 检查并杀掉旧进程（重启模式）
 # 2. 杀掉占用端口的进程
@@ -19,8 +19,8 @@ NC='\033[0m' # No Color
 
 # 配置
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_NAME="opensqt"
-BINARY_NAME="opensqt"
+APP_NAME="quantmesh"
+BINARY_NAME="quantmesh"
 CONFIG_FILE="${1:-config.yaml}"
 PID_FILE="${SCRIPT_DIR}/.${APP_NAME}.pid"
 LOG_FILE="${SCRIPT_DIR}/logs/${APP_NAME}.log"
@@ -280,7 +280,7 @@ check_and_build() {
 
 # 主流程
 log_info "=========================================="
-log_info "启动 OpenSQT Market Maker"
+log_info "启动 QuantMesh Market Maker"
 log_info "=========================================="
 
 # 0. 检查并构建（如果需要）
@@ -319,8 +319,16 @@ if kill -0 "${NEW_PID}" 2>/dev/null; then
     log_info "   日志: ${LOG_FILE}"
     log_info "   配置文件: ${CONFIG_FILE}"
     log_info ""
-    log_info "查看日志: tail -f ${LOG_FILE}"
     log_info "停止服务: kill ${NEW_PID} 或运行 stop.sh"
+    log_info "按 Ctrl+C 停止查看日志（服务会继续运行）"
+    log_info ""
+    log_info "=========================================="
+    log_info "正在跟踪日志..."
+    log_info "=========================================="
+    sleep 1
+    
+    # 自动跟踪日志
+    tail -f "${LOG_FILE}"
 else
     log_error "❌ 服务启动失败！"
     log_error "请查看日志: ${LOG_FILE}"

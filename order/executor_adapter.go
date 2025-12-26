@@ -3,8 +3,8 @@ package order
 import (
 	"context"
 	"fmt"
-	"opensqt/exchange"
-	"opensqt/logger"
+	"quantmesh/exchange"
+	"quantmesh/logger"
 	"strings"
 	"time"
 
@@ -69,6 +69,18 @@ func isPostOnlyError(err error) bool {
 		strings.Contains(errStr, "post_only") ||
 		strings.Contains(errStr, "would immediately match") ||
 		strings.Contains(errStr, "ORDER_POC_IMMEDIATE")
+}
+
+// isReduceOnlyError 检查是否为ReduceOnly错误（无持仓时尝试减仓）
+func isReduceOnlyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// Binance: code=-2022, msg=ReduceOnly Order is rejected
+	return strings.Contains(errStr, "-2022") ||
+		strings.Contains(errStr, "ReduceOnly Order is rejected") ||
+		strings.Contains(errStr, "reduce only")
 }
 
 // PlaceOrder 下单（带重试）
@@ -167,6 +179,11 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		} else if strings.Contains(errStr, "-1021") {
 			// 时间戳不同步，不重试
 			return nil, err
+		} else if isReduceOnlyError(err) {
+			// 🔥 ReduceOnly订单被拒绝：无持仓时尝试减仓，不重试
+			logger.Warn("⚠️ [%s] ReduceOnly订单被拒绝（无持仓）: %s %.2f",
+				oe.exchange.GetName(), req.Side, req.Price)
+			return nil, fmt.Errorf("ReduceOnly订单被拒绝（无持仓）: %w", err)
 		}
 
 		// 其他错误，短暂等待后重试
@@ -178,11 +195,27 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 	return nil, fmt.Errorf("下单失败（重试%d次）: %w", maxRetries, lastErr)
 }
 
+// BatchPlaceOrdersResult 批量下单结果
+type BatchPlaceOrdersResult struct {
+	PlacedOrders       []*Order          // 成功下单的订单列表
+	HasMarginError     bool              // 是否出现保证金不足错误
+	ReduceOnlyErrors   map[string]bool   // ReduceOnly错误的订单（key为ClientOrderID）
+}
+
 // BatchPlaceOrders 批量下单
-// 返回：成功下单的订单列表，以及是否出现保证金不足错误
+// 返回：成功下单的订单列表、是否出现保证金不足错误、ReduceOnly错误的订单
 func (oe *ExchangeOrderExecutor) BatchPlaceOrders(orders []*OrderRequest) ([]*Order, bool) {
-	placedOrders := make([]*Order, 0, len(orders))
-	hasMarginError := false
+	result := oe.BatchPlaceOrdersWithDetails(orders)
+	return result.PlacedOrders, result.HasMarginError
+}
+
+// BatchPlaceOrdersWithDetails 批量下单（返回详细结果）
+func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequest) *BatchPlaceOrdersResult {
+	result := &BatchPlaceOrdersResult{
+		PlacedOrders:     make([]*Order, 0, len(orders)),
+		HasMarginError:   false,
+		ReduceOnlyErrors: make(map[string]bool),
+	}
 
 	for _, orderReq := range orders {
 		order, err := oe.PlaceOrder(orderReq)
@@ -190,18 +223,22 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrders(orders []*OrderRequest) ([]*Or
 			logger.Warn("⚠️ [%s] 下单失败 %.2f %s: %v",
 				oe.exchange.GetName(), orderReq.Price, orderReq.Side, err)
 
-			// 检查是否是保证金不足错误
+			// 检查错误类型
 			errStr := err.Error()
 			if strings.Contains(errStr, "保证金不足") || strings.Contains(errStr, "-2019") || strings.Contains(errStr, "insufficient") {
-				hasMarginError = true
+				result.HasMarginError = true
 				logger.Error("❌ [保证金不足] 订单 %.2f %s 因保证金不足失败", orderReq.Price, orderReq.Side)
+			} else if isReduceOnlyError(err) {
+				// 记录 ReduceOnly 错误
+				result.ReduceOnlyErrors[orderReq.ClientOrderID] = true
+				logger.Error("❌ [ReduceOnly错误] 订单 %.2f %s 无持仓，需要清空槽位", orderReq.Price, orderReq.Side)
 			}
 			continue
 		}
-		placedOrders = append(placedOrders, order)
+		result.PlacedOrders = append(result.PlacedOrders, order)
 	}
 
-	return placedOrders, hasMarginError
+	return result
 }
 
 // CancelOrder 取消订单

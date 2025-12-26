@@ -5,9 +5,9 @@ import (
 	"math"
 	"sync"
 
-	"opensqt/config"
-	"opensqt/logger"
-	"opensqt/position"
+	"quantmesh/config"
+	"quantmesh/logger"
+	"quantmesh/position"
 )
 
 // MeanReversionStrategy 均值回归策略

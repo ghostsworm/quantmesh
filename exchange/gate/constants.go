@@ -8,5 +8,5 @@ const (
 	GateWSURL = "wss://fx-ws.gateio.ws/v4/ws/usdt"
 
 	// 渠道标识
-	GateChannelID = "opensqt"
+	GateChannelID = "quantmesh"
 )

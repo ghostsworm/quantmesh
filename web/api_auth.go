@@ -60,7 +60,12 @@ func getAuthStatus(c *gin.Context) {
 // setPassword 设置密码
 // POST /api/auth/password/set
 func setPassword(c *gin.Context) {
+	println("\n\n🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐")
+	println("🔐 收到设置密码请求")
+	println("🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐")
+	
 	if globalPasswordManager == nil {
+		println("✗ 密码管理器未初始化")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码管理器未初始化"})
 		return
 	}
@@ -70,6 +75,7 @@ func setPassword(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		println("✗ 请求参数无效:", err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
 		return
 	}
@@ -77,9 +83,60 @@ func setPassword(c *gin.Context) {
 	// 单用户场景，使用固定用户名
 	username := "admin"
 	if err := globalPasswordManager.SetPassword(username, req.Password); err != nil {
+		println("✗ 设置密码失败:", err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置密码失败"})
 		return
 	}
+	println("✓ 密码已保存到数据库")
+
+	// 首次设置密码后自动创建会话（自动登录）
+	// 必须在 c.JSON() 之前设置 Cookie
+	sm := GetSessionManager()
+	if sm == nil {
+		println("✗ 会话管理器未初始化")
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "密码设置成功"})
+		return
+	}
+	
+	ip := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+	println("✓ 会话管理器已就绪，准备创建会话")
+	println("  IP:", ip)
+	println("  UserAgent:", userAgent)
+	
+	session, err := sm.CreateSession(username, "admin", ip, userAgent)
+	if err != nil {
+		println("✗ 创建会话失败:", err.Error())
+		c.JSON(http.StatusOK, gin.H{
+			"success": true, 
+			"message": "密码设置成功，但会话创建失败",
+			"warning": "请手动登录",
+		})
+		return
+	}
+	
+	println("✓ 会话已创建，SessionID:", session.SessionID)
+	
+	// 使用 Gin 的 SetCookie 方法设置会话Cookie
+	// MaxAge: 24小时 = 86400秒
+	println("准备设置 Cookie...")
+	c.SetCookie(
+		"session_id",      // name
+		session.SessionID, // value
+		86400,             // maxAge (24小时)
+		"/",               // path
+		"",                // domain (空字符串表示当前域)
+		false,             // secure (HTTP 环境设为 false)
+		true,              // httpOnly
+	)
+	println("✓ Cookie 已通过 Gin 设置")
+	println("  Name: session_id")
+	println("  Value:", session.SessionID[:20]+"...")
+	println("  Path: /")
+	println("  MaxAge: 86400")
+	println("  HttpOnly: true")
+	println("  Secure: false")
+	println("🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐\n\n")
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "密码设置成功"})
 }
@@ -128,6 +185,58 @@ func verifyPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// changePassword 修改密码
+// POST /api/auth/password/change
+func changePassword(c *gin.Context) {
+	if globalPasswordManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码管理器未初始化"})
+		return
+	}
+
+	// 检查是否已登录
+	sm := GetSessionManager()
+	if sm == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
+		return
+	}
+
+	session, exists := sm.GetSessionFromRequest(c.Request)
+	if !exists || session == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password" binding:"required"`
+		NewPassword     string `json:"new_password" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
+		return
+	}
+
+	// 验证当前密码
+	valid, err := globalPasswordManager.VerifyPassword(session.Username, req.CurrentPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "验证密码失败"})
+		return
+	}
+
+	if !valid {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "当前密码错误"})
+		return
+	}
+
+	// 设置新密码
+	if err := globalPasswordManager.SetPassword(session.Username, req.NewPassword); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "修改密码失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "密码修改成功"})
 }
 
 // logout 退出登录

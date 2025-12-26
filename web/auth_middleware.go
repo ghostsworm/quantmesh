@@ -17,13 +17,24 @@ func authMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 从请求中获取会话
-		session, exists := sm.GetSessionFromRequest(c.Request)
-		if !exists || session == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录，请先登录"})
-			c.Abort()
-			return
+	// 从请求中获取会话
+	session, exists := sm.GetSessionFromRequest(c.Request)
+	if !exists || session == nil {
+		// 调试日志：打印请求中的所有 Cookie
+		cookies := c.Request.Cookies()
+		println("✗ 认证失败，请求路径:", c.Request.URL.Path)
+		println("  Cookie 数量:", len(cookies))
+		for _, cookie := range cookies {
+			val := cookie.Value
+			if len(val) > 20 {
+				val = val[:20] + "..."
+			}
+			println("  - Cookie:", cookie.Name, "=", val)
 		}
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录，请先登录"})
+		c.Abort()
+		return
+	}
 
 		// 将会话信息存储到上下文中，供后续处理使用
 		c.Set("session", session)

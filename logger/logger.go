@@ -113,7 +113,7 @@ func initFileLogger() {
 	}
 	
 	// 创建日志文件（按日期命名）
-	logFileName := filepath.Join(logDir, fmt.Sprintf("opensqt-%s.log", today))
+	logFileName := filepath.Join(logDir, fmt.Sprintf("quantmesh-%s.log", today))
 	file, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		// 如果打开失败，只输出到控制台
@@ -160,7 +160,7 @@ func checkAndRotateLog() {
 		}
 		
 		// 创建新的日志文件
-		logFileName := filepath.Join(logDir, fmt.Sprintf("opensqt-%s.log", today))
+		logFileName := filepath.Join(logDir, fmt.Sprintf("quantmesh-%s.log", today))
 		file, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return

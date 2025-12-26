@@ -10,12 +10,12 @@ build-frontend:
 
 build-backend:
 	@echo "Building backend..."
-	@go build -o opensqt .
+	@go build -o quantmesh .
 
 build: build-frontend build-backend
 
 all: build
 
 clean:
-	@rm -rf opensqt webui/dist
+	@rm -rf quantmesh webui/dist
 

@@ -64,7 +64,8 @@ func (sm *SessionManager) generateSessionID() (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return base64.URLEncoding.EncodeToString(b), nil
+	// 使用无填充的 URL 安全编码，避免 Cookie 中的 '=' 被转义导致会话查找失败
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // CreateSession 创建会话
@@ -128,16 +129,28 @@ func (sm *SessionManager) GetSessionFromRequest(r *http.Request) (*Session, bool
 
 // SetSessionCookie 设置会话Cookie
 func (sm *SessionManager) SetSessionCookie(w http.ResponseWriter, sessionID string, secure bool) {
+	// 在本地开发环境（localhost）中，强制 secure=false
+	// 因为 localhost 通常使用 HTTP 而不是 HTTPS
 	cookie := &http.Cookie{
 		Name:     "session_id",
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   false, // 本地开发环境使用 HTTP，不需要 Secure 标志
+		SameSite: http.SameSiteLaxMode, // 使用 Lax 模式，确保同站请求能正常携带 Cookie
 		MaxAge:   int(sm.sessionTimeout.Seconds()),
 	}
 	http.SetCookie(w, cookie)
+	
+	// 调试日志
+	println("✓ Cookie 已设置:")
+	println("  Name:", cookie.Name)
+	println("  Value:", sessionID[:20]+"...")
+	println("  Path:", cookie.Path)
+	println("  MaxAge:", cookie.MaxAge)
+	println("  HttpOnly:", cookie.HttpOnly)
+	println("  Secure:", cookie.Secure)
+	println("  SameSite:", cookie.SameSite)
 }
 
 // ClearSessionCookie 清除会话Cookie

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"opensqt/config"
-	"opensqt/logger"
+	"quantmesh/config"
+	"quantmesh/logger"
 )
 
 // Storage 存储接口
@@ -35,6 +35,7 @@ type Storage interface {
 	QueryReconciliationHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error)
 	GetPnLBySymbol(symbol string, startTime, endTime time.Time) (*PnLSummary, error)
 	GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLBySymbol, error)
+	GetActualProfitBySymbol(symbol string, beforeTime time.Time) (float64, error)
 	Close() error
 }
 
@@ -54,6 +55,8 @@ type StorageService struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	fallbackPath string
+	stopped      bool
+	stopMu       sync.Mutex
 }
 
 // NewStorageService 创建存储服务
@@ -105,6 +108,14 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(symbol string, reconci
 	if ss.storage == nil {
 		return nil
 	}
+	
+	// 计算实际盈利（从 trades 表统计截止到对账时间的累计盈亏）
+	actualProfit, err := ss.storage.GetActualProfitBySymbol(symbol, reconcileTime)
+	if err != nil {
+		logger.Warn("⚠️ 计算实际盈利失败: %v，使用 0 作为默认值", err)
+		actualProfit = 0
+	}
+	
 	history := &ReconciliationHistory{
 		Symbol:            symbol,
 		ReconcileTime:     reconcileTime,
@@ -117,6 +128,7 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(symbol string, reconci
 		TotalBuyQty:       totalBuyQty,
 		TotalSellQty:      totalSellQty,
 		EstimatedProfit:   estimatedProfit,
+		ActualProfit:      actualProfit,
 	}
 	return ss.storage.SaveReconciliationHistory(history)
 }
@@ -133,12 +145,26 @@ func (ss *StorageService) Start() {
 
 // Stop 停止存储服务
 func (ss *StorageService) Stop() {
+	ss.stopMu.Lock()
+	if ss.stopped {
+		ss.stopMu.Unlock()
+		return
+	}
+	ss.stopped = true
+	ss.stopMu.Unlock()
+
+	// 取消 context（通知 processEvents 协程退出）
 	if ss.cancel != nil {
 		ss.cancel()
 	}
-	// 刷新缓冲区
+
+	// 等待 processEvents 协程处理完队列中的事件
+	time.Sleep(100 * time.Millisecond)
+
+	// 最后刷新缓冲区（确保所有事件都被处理）
 	ss.flush()
-	// 关闭存储
+
+	// 关闭存储（关闭数据库连接）
 	if ss.storage != nil {
 		ss.storage.Close()
 	}
@@ -147,6 +173,16 @@ func (ss *StorageService) Stop() {
 // Save 保存数据（完全异步，不阻塞）
 func (ss *StorageService) Save(eventType string, data interface{}) {
 	if ss.storage == nil {
+		return
+	}
+
+	// 检查服务是否已停止
+	ss.stopMu.Lock()
+	stopped := ss.stopped
+	ss.stopMu.Unlock()
+
+	if stopped {
+		// 服务已停止，不再接受新事件
 		return
 	}
 
@@ -214,6 +250,11 @@ func (ss *StorageService) flush() {
 
 // batchSave 批量保存
 func (ss *StorageService) batchSave(events []*storageEvent) error {
+	// 检查存储是否可用
+	if ss.storage == nil {
+		return fmt.Errorf("存储服务未初始化")
+	}
+
 	// 使用事务批量写入
 	for _, event := range events {
 		var err error
@@ -239,6 +280,10 @@ func (ss *StorageService) batchSave(events []*storageEvent) error {
 		}
 
 		if err != nil {
+			// 检查是否是数据库关闭错误
+			if err.Error() == "sql: database is closed" {
+				return fmt.Errorf("数据库已关闭，停止保存")
+			}
 			return fmt.Errorf("保存 %s 失败: %w", event.eventType, err)
 		}
 	}

@@ -3,7 +3,7 @@ package monitor
 import (
 	"time"
 
-	"opensqt/config"
+	"quantmesh/config"
 )
 
 // ThresholdChecker 阈值检查器

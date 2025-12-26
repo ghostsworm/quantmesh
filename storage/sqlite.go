@@ -11,7 +11,8 @@ import (
 
 // SQLiteStorage SQLite 存储实现
 type SQLiteStorage struct {
-	db *sql.DB
+	db     *sql.DB
+	closed bool
 }
 
 // NewSQLiteStorage 创建 SQLite 存储
@@ -145,6 +146,7 @@ func createTables(db *sql.DB) error {
 		total_buy_qty DECIMAL(20,8),
 		total_sell_qty DECIMAL(20,8),
 		estimated_profit DECIMAL(20,8),
+		actual_profit DECIMAL(20,8) DEFAULT 0,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_symbol ON reconciliation_history(symbol);
@@ -178,6 +180,37 @@ func createTables(db *sql.DB) error {
 		}
 	}
 
+	// 迁移：为已存在的表添加 actual_profit 字段（如果不存在）
+	if err := migrateReconciliationHistory(db); err != nil {
+		return fmt.Errorf("迁移对账历史表失败: %w", err)
+	}
+
+	return nil
+}
+
+// migrateReconciliationHistory 迁移对账历史表，添加 actual_profit 字段
+func migrateReconciliationHistory(db *sql.DB) error {
+	// 检查 actual_profit 字段是否存在
+	row := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('reconciliation_history') 
+		WHERE name='actual_profit'
+	`)
+	var count int
+	if err := row.Scan(&count); err != nil {
+		return err
+	}
+	
+	// 如果字段不存在，添加它
+	if count == 0 {
+		_, err := db.Exec(`
+			ALTER TABLE reconciliation_history 
+			ADD COLUMN actual_profit DECIMAL(20,8) DEFAULT 0
+		`)
+		if err != nil {
+			return err
+		}
+	}
+	
 	return nil
 }
 
@@ -474,11 +507,11 @@ func (s *SQLiteStorage) SaveReconciliationHistory(history *ReconciliationHistory
 		INSERT INTO reconciliation_history 
 		(symbol, reconcile_time, local_position, exchange_position, position_diff,
 		 active_buy_orders, active_sell_orders, pending_sell_qty,
-		 total_buy_qty, total_sell_qty, estimated_profit)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 total_buy_qty, total_sell_qty, estimated_profit, actual_profit)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, history.Symbol, history.ReconcileTime, history.LocalPosition, history.ExchangePosition,
 		history.PositionDiff, history.ActiveBuyOrders, history.ActiveSellOrders,
-		history.PendingSellQty, history.TotalBuyQty, history.TotalSellQty, history.EstimatedProfit)
+		history.PendingSellQty, history.TotalBuyQty, history.TotalSellQty, history.EstimatedProfit, history.ActualProfit)
 	return err
 }
 
@@ -487,7 +520,7 @@ func (s *SQLiteStorage) QueryReconciliationHistory(symbol string, startTime, end
 	query := `
 		SELECT id, symbol, reconcile_time, local_position, exchange_position, position_diff,
 		       active_buy_orders, active_sell_orders, pending_sell_qty,
-		       total_buy_qty, total_sell_qty, estimated_profit, created_at
+		       total_buy_qty, total_sell_qty, estimated_profit, actual_profit, created_at
 		FROM reconciliation_history
 		WHERE reconcile_time >= ? AND reconcile_time <= ?
 	`
@@ -523,6 +556,7 @@ func (s *SQLiteStorage) QueryReconciliationHistory(symbol string, startTime, end
 			&h.TotalBuyQty,
 			&h.TotalSellQty,
 			&h.EstimatedProfit,
+			&h.ActualProfit,
 			&h.CreatedAt,
 		)
 		if err != nil {
@@ -639,8 +673,36 @@ func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLB
 	return results, nil
 }
 
+// GetActualProfitBySymbol 计算指定币种在指定时间之前的累计实际盈利
+func (s *SQLiteStorage) GetActualProfitBySymbol(symbol string, beforeTime time.Time) (float64, error) {
+	row := s.db.QueryRow(`
+		SELECT COALESCE(SUM(pnl), 0) as total_pnl
+		FROM trades
+		WHERE symbol = ? AND created_at <= ?
+	`, symbol, beforeTime)
+	
+	var totalPnL sql.NullFloat64
+	err := row.Scan(&totalPnL)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("查询实际盈利失败: %w", err)
+	}
+	
+	if totalPnL.Valid {
+		return totalPnL.Float64, nil
+	}
+	
+	return 0, nil
+}
+
 // Close 关闭数据库连接
 func (s *SQLiteStorage) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
 	return s.db.Close()
 }
 

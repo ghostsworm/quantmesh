@@ -11,6 +11,7 @@ import Slots from './components/Slots'
 import StrategyAllocation from './components/StrategyAllocation'
 import Reconciliation from './components/Reconciliation'
 import RiskMonitor from './components/RiskMonitor'
+import Profile from './components/Profile'
 import Login from './components/Login'
 import FirstTimeSetup from './components/FirstTimeSetup'
 import { logout } from './services/auth'
@@ -55,7 +56,11 @@ const AppContent: React.FC = () => {
   }
 
   // 根据认证状态决定显示的内容
-  if (!hasPassword) {
+  // 检查是否正在进行首次设置流程
+  const isInSetupFlow = sessionStorage.getItem('setup_step') !== null
+
+  // 如果未设置密码，或正在进行首次设置流程，显示设置页面
+  if (!hasPassword || isInSetupFlow) {
     return (
       <Routes>
         <Route path="/setup" element={<FirstTimeSetup />} />
@@ -64,6 +69,7 @@ const AppContent: React.FC = () => {
     )
   }
 
+  // 如果已设置密码但未登录，显示登录页
   if (!isAuthenticated) {
     return (
       <Routes>
@@ -76,7 +82,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>OpenSQT Market Maker</h1>
+        <h1>QuantMesh Market Maker</h1>
         {isAuthenticated && (
           <button
             onClick={handleLogout}
@@ -105,6 +111,7 @@ const AppContent: React.FC = () => {
                 <Link to="/risk">风控监控</Link>
                 <Link to="/system-monitor">系统监控</Link>
                 <Link to="/logs">日志</Link>
+                <Link to="/profile">个人资料</Link>
       </nav>
       <main className="app-main">
         <Routes>
@@ -118,6 +125,7 @@ const AppContent: React.FC = () => {
                   <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
                   <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
                   <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
+                  <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={<FirstTimeSetup />} />
           <Route path="*" element={<Navigate to="/" replace />} />

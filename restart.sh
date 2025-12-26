@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# OpenSQT Market Maker 启动/重启脚本
+# QuantMesh Market Maker 启动/重启脚本
 # 功能：
 # - 如果服务未运行，直接启动
 # - 如果服务正在运行，先停止再启动（重启模式）
@@ -13,9 +13,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${1:-config.yaml}"
 
 # 检查是否有服务在运行
-APP_NAME="opensqt"
+APP_NAME="quantmesh"
 PID_FILE="${SCRIPT_DIR}/.${APP_NAME}.pid"
-BINARY_NAME="opensqt"
+BINARY_NAME="quantmesh"
 
 # 检查是否有运行中的服务
 has_running_service() {
