@@ -92,8 +92,8 @@ const KlineChart: React.FC = () => {
   useEffect(() => {
     const fetchSymbol = async () => {
       try {
-        const status = await getStatus()
-        setSymbol(status.status.symbol || '')
+        const response = await getStatus()
+        setSymbol(response.status.symbol || '')
       } catch (err) {
         console.error('获取交易币种失败:', err)
       }
@@ -112,9 +112,9 @@ const KlineChart: React.FC = () => {
       try {
         const response = await getKlines(interval, 500)
         
-        // 转换数据格式
+        // 转换数据格式（lightweight-charts使用Unix时间戳，单位为秒）
         const candleData = response.klines.map((k: KlineData) => ({
-          time: k.time as any,
+          time: k.time as number,
           open: k.open,
           high: k.high,
           low: k.low,
@@ -122,7 +122,7 @@ const KlineChart: React.FC = () => {
         }))
 
         const volumeData = response.klines.map((k: KlineData) => ({
-          time: k.time as any,
+          time: k.time as number,
           value: k.volume,
           color: k.close >= k.open ? '#26a69a80' : '#ef535080',
         }))
