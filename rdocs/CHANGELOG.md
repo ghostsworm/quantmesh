@@ -34,6 +34,60 @@
 ## [未发布] - Unreleased
 
 ### 新增
+- **修复统计页面胜率计算问题**，改为从 trades 表实时计算（而不是使用 AVG(win_rate)）
+- **新增日历视图功能**，在统计页面显示当前月份的每日交易统计（总盈利、胜率、盈利/亏损交易数）
+- 新增 `QueryDailyStatisticsFromTrades()` 方法，从 trades 表按日期查询统计（包含盈利/亏损交易数）
+- 统计 API 支持混合模式：优先使用 statistics 表，缺失的日期（特别是今天）从 trades 表实时补充
+- **可配置系统时区支持**：
+  - 支持在配置文件中指定系统时区（如 `Asia/Shanghai`, `UTC`, `America/New_York`）
+  - 全局统一时区处理：系统内部所有时间展示和统计均遵循配置的时区
+  - Web 界面支持：在系统配置页面新增“系统时区”设置项，支持通过界面修改并即时备份
+  - 变更重启提示：修改时区后会提示用户需要重启系统以确保所有组件同步应用
+  - 技术细节：
+    - 在 `Config` 结构体中新增 `System.Timezone` 字段
+    - 升级 `utils/timezone.go`，将硬编码的东8区改为动态加载的全局时区
+    - 改造 `logger/logger.go`，支持按配置时区生成日志文件名和日志时间戳
+    - 升级 `web/api.go` 中的统计查询逻辑，使用配置时区计算日期范围
+    - 保持向后兼容：保留 `ToUTC8` 和 `NowUTC8` 函数作为别名，实际按配置时区处理
+    - 涉及的文件：`config/config.go`, `utils/timezone.go`, `logger/logger.go`, `main.go`, `web/api.go`, `webui/src/components/Configuration.tsx`, `webui/src/services/config.ts`, `config/diff.go`
+
+- **自动化单元测试第一阶段实现**：
+  - 为系统的基础组件和核心逻辑添加了首批单元测试，提高了代码的可靠性和可维护性
+  - 基础工具测试：`utils/orderid_test.go`，验证了订单ID的生成与解析逻辑
+  - 配置管理测试：`config/config_test.go`，验证了配置验证、差异对比和热更新逻辑
+  - 存储层测试：`storage/sqlite_test.go`，验证了SQLite数据库的CRUD操作和变动存储逻辑
+  - 仓位管理初步测试：`position/super_position_manager_test.go`，实现了Mock执行器和交易所，验证了管理器的初始化和成交回调逻辑
+  - 技术细节：
+    - 修复了 `config/backup.go` 中备份文件名识别和时间戳解析的 bug
+    - 规范了存储层测试中的时区处理（统一使用 UTC）
+    - 涉及的文件：`utils/orderid_test.go`, `config/config_test.go`, `storage/sqlite_test.go`, `position/super_position_manager_test.go`, `config/backup.go`
+- **自动化单元测试第二、三阶段实现**：
+  - 风控与安全测试：
+    - 账户安全检查：`safety/safety_test.go`，验证了余额不足、杠杆过高、已有持仓跳过检查以及利润无法覆盖手续费等场景。
+    - 主动风控监控：`safety/risk_monitor_test.go`，验证了市场异常触发熔断和行情恢复解除风控的逻辑。
+    - 持仓对账：`safety/reconciler_test.go`，通过 Mock 模拟本地与交易所状态差异，验证了对账流程的正确性。
+  - 策略逻辑测试：
+    - 趋势检测：`strategy/trend_detector_test.go`，验证了 MA/EMA 计算逻辑以及根据趋势调整买卖窗口的准确性。
+    - 动态参数调整：`strategy/dynamic_adjuster_test.go`，验证了基于波动率动态调整价格间隔以及基于资金利用率调整窗口大小的逻辑。
+    - 网格执行包装：`strategy/grid_strategy_test.go`，验证了策略层对底层仓位管理器的调用和回调分发逻辑。
+  - 技术细节：
+    - 使用反射和 Mock 接口解决了跨包接口依赖和循环导入导致的测试难题。
+    - 涉及的文件：`safety/safety_test.go`, `safety/risk_monitor_test.go`, `safety/reconciler_test.go`, `strategy/trend_detector_test.go`, `strategy/dynamic_adjuster_test.go`, `strategy/grid_strategy_test.go`
+- **Web界面配置管理系统**：
+  - 新增配置编辑页面（`/config`），用户可通过Web界面修改配置，无需直接编辑YAML文件
+  - 支持配置变更预览：保存前显示所有变更项及前后对比，提示哪些配置需要重启
+  - 自动配置备份：每次保存配置前自动备份，保留最近50个版本，支持恢复和删除备份
+  - 配置热更新：自动检测并应用可热更新的配置（交易参数、风控参数等），无需重启
+  - 配置文件监控：监控配置文件外部修改，自动重新加载并应用热更新
+  - 涉及的文件：
+    - 后端：`config/backup.go`, `config/diff.go`, `config/hot_reload.go`, `config/watcher.go`, `web/api_config.go`, `config/config.go`
+    - 前端：`webui/src/components/Configuration.tsx`, `webui/src/services/config.ts`
+    - 集成：`main.go`, `web/server.go`, `webui/src/App.tsx`
+  - 技术细节：
+    - 配置备份存储在 `./config_backups/` 目录，文件名格式：`config.yaml.backup.{timestamp}.yaml`
+    - 热更新判断规则：交易所切换、Web端口、存储路径等需要重启；交易参数、风控参数等可热更新
+    - 使用 `fsnotify` 监控配置文件变化，支持外部编辑自动生效
+    - API端点：`GET /api/config`, `GET /api/config/json`, `POST /api/config/preview`, `POST /api/config/update`, `GET /api/config/backups`, `POST /api/config/restore/:backup_id`, `DELETE /api/config/backup/:backup_id`
 - **退出时自动平仓功能**：
   - 新增配置项 `system.close_positions_on_exit`（默认 `false`，需用户主动开启）
   - 程序退出时，如果启用此选项，会自动查询所有持仓并下 ReduceOnly 平仓单
@@ -46,6 +100,24 @@
     - 多仓（Size > 0）下 SELL 单平仓，空仓（Size < 0）下 BUY 单平仓
     - 价格优先级：当前价格 > 标记价格 > 开仓价格
     - 平仓超时时间：30秒，每个订单间隔100ms避免请求过快
+- **集成 Chakra UI v2 现代化 UI 组件库**：
+  - 安装 Chakra UI v2.10.9 及相关依赖（@emotion/react、@emotion/styled、framer-motion、@chakra-ui/icons）
+  - 创建自定义主题配置（`webui/src/theme.ts`），定义品牌色、字体等设计令牌
+  - 配置 ChakraProvider 包裹整个应用，提供全局主题支持
+  - 改造核心页面使用 Chakra UI 组件：
+    - 登录页面：使用 Box、Container、VStack、Input、Button、Alert 等组件
+    - 仪表盘：使用 SimpleGrid、Card、Stat、Badge、Toast 等组件展示系统状态和统计数据
+    - 订单管理：使用 Tabs、Table、Badge 等组件优化订单列表展示
+    - 持仓管理：使用 Card、Stat、Table、Skeleton 等组件展示持仓信息
+    - 系统监控：使用 Select、Progress、Stat 等组件展示系统指标
+  - 改造应用主布局：使用 Box、Flex、Container 等布局组件替代传统 CSS
+  - 技术细节：
+    - Chakra UI 与 Tailwind CSS 共存，Chakra 主要用于组件，Tailwind 用于自定义布局
+    - 使用 CSS-in-JS 方案（@emotion），支持主题定制和响应式设计
+    - 所有组件内置 ARIA 支持，提升可访问性
+    - 涉及的文件：
+      - 配置：`webui/src/theme.ts`、`webui/src/App.tsx`、`webui/package.json`
+      - 核心页面：`webui/src/components/Login.tsx`、`webui/src/components/Dashboard.tsx`、`webui/src/components/Orders.tsx`、`webui/src/components/Positions.tsx`、`webui/src/components/SystemMonitor.tsx`
 
 ### 变更
 - **许可证变更**：从 MIT 许可证变更为 AGPL-3.0 双许可模式
@@ -126,6 +198,7 @@
 - **盈利图交互式提示功能**：鼠标悬停在数据点上时显示详细信息（对账时间、预计盈利、实际盈利、持仓等），提升用户体验
 
 ### 修复
+- **修复 Gate.io 包装器资产信息获取问题**：修复了 `gateWrapper` 中 `GetBaseAsset()`、`GetQuoteAsset()` 和 `GetPriceDecimals()` 等方法未正确委托给底层适配器的问题。此前 `GetBaseAsset()` 始终返回空字符串，导致前端显示和对账报告中的仓位币种缺失。
 - **修复版本号不匹配问题**：修复 `main.go` 中 `Version` 变量与 CHANGELOG.md 中记录的版本号不一致的问题，将版本号从 `v3.3.1` 更正为 `v3.3.2`，确保版本信息准确性
 - **修复对账历史表迁移问题**：修复 `reconciliation_history` 表的迁移函数，现在会同时检查和添加 `actual_profit` 和 `created_at` 两个字段，避免旧数据库在插入操作时因缺少 `created_at` 列而失败
 - **修复实际盈利总是显示为0的问题**：

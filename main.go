@@ -26,6 +26,7 @@ import (
 	"quantmesh/safety"
 	"quantmesh/storage"
 	"quantmesh/strategy"
+	"quantmesh/utils"
 	"quantmesh/web"
 )
 
@@ -73,8 +74,8 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, symbol st
 
 func main() {
 	// 注意：不再设置 time.Local，避免竞态条件
-	// 时区处理统一使用 utils.UTC8Location（通过 init() 安全初始化）
-	// 所有时间操作应使用 utils.ToUTC8()、utils.ToUTC()、utils.NowUTC8() 等工具函数
+	// 时区处理统一使用 utils.GlobalLocation（通过 init() 或 config 设置）
+	// 所有时间操作应使用 utils.ToConfiguredTimezone()、utils.ToUTC()、utils.NowConfiguredTimezone() 等工具函数
 
 	// 1. 最早初始化日志存储（在配置加载之前，使用默认路径）
 	// 这样即使配置加载失败，也能记录日志
@@ -113,6 +114,16 @@ func main() {
 	if err != nil {
 		logger.Fatalf("❌ 加载配置失败: %v", err)
 	}
+
+	// 初始化时区
+	if err := utils.SetLocation(cfg.System.Timezone); err != nil {
+		logger.Warn("⚠️ 加载时区 %s 失败: %v，将使用默认时区 Asia/Shanghai", cfg.System.Timezone, err)
+		utils.SetLocation("Asia/Shanghai")
+	} else {
+		logger.Info("✅ 系统时区设置为: %s", cfg.System.Timezone)
+	}
+	// 同步设置日志时区
+	logger.SetLocation(utils.GlobalLocation)
 
 	// 初始化日志级别
 	logLevel := logger.ParseLogLevel(cfg.System.LogLevel)
@@ -750,7 +761,7 @@ func main() {
 			logger.Warn("⚠️ 启动配置监控器失败: %v", err)
 		} else {
 			logger.Info("✅ 配置监控器已启动")
-			
+
 			// 处理配置更新通知
 			go func() {
 				for {

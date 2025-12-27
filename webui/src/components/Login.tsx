@@ -1,5 +1,20 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  Box,
+  Container,
+  VStack,
+  Heading,
+  FormControl,
+  FormLabel,
+  Input,
+  Button,
+  Alert,
+  AlertIcon,
+  AlertDescription,
+  Text,
+  useColorModeValue,
+} from '@chakra-ui/react'
 import { useAuth } from '../contexts/AuthContext'
 import {
   verifyPassword,
@@ -13,7 +28,9 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showWebAuthn, setShowWebAuthn] = useState(false)
+
+  const bgColor = useColorModeValue('gray.50', 'gray.900')
+  const cardBg = useColorModeValue('white', 'gray.800')
 
   useEffect(() => {
     // 如果已经登录，重定向到主页
@@ -128,115 +145,85 @@ const Login: React.FC = () => {
   }
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      justifyContent: 'center', 
-      alignItems: 'center', 
-      minHeight: '100vh',
-      backgroundColor: '#f5f5f5'
-    }}>
-      <div style={{
-        backgroundColor: 'white',
-        padding: '40px',
-        borderRadius: '8px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        width: '100%',
-        maxWidth: '400px'
-      }}>
-        <h2 style={{ textAlign: 'center', marginBottom: '30px' }}>登录</h2>
+    <Box
+      minH="100vh"
+      display="flex"
+      alignItems="center"
+      justifyContent="center"
+      bg={bgColor}
+    >
+      <Container maxW="md">
+        <Box
+          bg={cardBg}
+          p={8}
+          borderRadius="lg"
+          boxShadow="lg"
+        >
+          <VStack spacing={6} align="stretch">
+            <Heading size="lg" textAlign="center">
+              登录
+            </Heading>
 
-        {error && (
-          <div style={{
-            padding: '12px',
-            backgroundColor: '#fff2f0',
-            border: '1px solid #ffccc7',
-            borderRadius: '4px',
-            color: '#ff4d4f',
-            marginBottom: '20px'
-          }}>
-            {error}
-          </div>
-        )}
+            {error && (
+              <Alert status="error" borderRadius="md">
+                <AlertIcon />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-        <form onSubmit={handlePasswordLogin}>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-              密码
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-              style={{
-                width: '100%',
-                padding: '12px',
-                border: '1px solid #d9d9d9',
-                borderRadius: '4px',
-                fontSize: '14px'
-              }}
-              placeholder="请输入密码"
-            />
-          </div>
+            <form onSubmit={handlePasswordLogin}>
+              <VStack spacing={4} align="stretch">
+                <FormControl isRequired>
+                  <FormLabel>密码</FormLabel>
+                  <Input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="请输入密码"
+                    size="lg"
+                    isDisabled={isLoading}
+                  />
+                </FormControl>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            style={{
-              width: '100%',
-              padding: '12px',
-              backgroundColor: '#1890ff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '16px',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              opacity: isLoading ? 0.6 : 1,
-              marginBottom: '16px'
-            }}
-          >
-            {isLoading ? '登录中...' : '密码登录'}
-          </button>
-        </form>
+                <Button
+                  type="submit"
+                  colorScheme="blue"
+                  size="lg"
+                  width="full"
+                  isLoading={isLoading}
+                  loadingText="登录中..."
+                >
+                  密码登录
+                </Button>
+              </VStack>
+            </form>
 
-        {hasWebAuthn && (
-          <button
-            onClick={handleWebAuthnLogin}
-            disabled={isLoading}
-            style={{
-              width: '100%',
-              padding: '12px',
-              backgroundColor: '#52c41a',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '16px',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              opacity: isLoading ? 0.6 : 1
-            }}
-          >
-            {isLoading ? '验证中...' : '指纹登录'}
-          </button>
-        )}
+            {hasWebAuthn && (
+              <Button
+                colorScheme="green"
+                size="lg"
+                width="full"
+                onClick={handleWebAuthnLogin}
+                isLoading={isLoading}
+                loadingText="验证中..."
+              >
+                指纹登录
+              </Button>
+            )}
 
-        {!hasWebAuthn && (
-          <div style={{
-            marginTop: '20px',
-            padding: '12px',
-            backgroundColor: '#f6ffed',
-            border: '1px solid #b7eb8f',
-            borderRadius: '4px',
-            color: '#389e0d',
-            fontSize: '14px',
-            textAlign: 'center'
-          }}>
-            未注册指纹，请先完成首次设置
-          </div>
-        )}
-      </div>
-    </div>
+            {!hasWebAuthn && (
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <AlertDescription>
+                  未注册指纹，请先完成首次设置
+                </AlertDescription>
+              </Alert>
+            )}
+          </VStack>
+        </Box>
+      </Container>
+    </Box>
   )
 }
 
 export default Login
-

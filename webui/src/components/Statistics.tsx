@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { getStatistics, getDailyStatistics } from '../services/api'
+import StatisticsCalendar from './StatisticsCalendar'
 
 interface StatisticsData {
   total_trades: number
@@ -14,6 +15,8 @@ interface DailyStatistics {
   total_volume: number
   total_pnl: number
   win_rate: number
+  winning_trades?: number
+  losing_trades?: number
 }
 
 interface PnLBySymbol {
@@ -33,6 +36,8 @@ const Statistics: React.FC = () => {
   const [days, setDays] = useState(30)
   const [startDate, setStartDate] = useState<string>(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1)
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
 
   useEffect(() => {
     const fetchData = async () => {
@@ -128,6 +133,54 @@ const Statistics: React.FC = () => {
         </div>
       )}
 
+      {/* 日历视图 */}
+      <div style={{ marginTop: '32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3>日历视图</h3>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <button
+              onClick={() => {
+                if (currentMonth === 1) {
+                  setCurrentMonth(12)
+                  setCurrentYear(currentYear - 1)
+                } else {
+                  setCurrentMonth(currentMonth - 1)
+                }
+              }}
+              style={{ padding: '6px 12px', border: '1px solid #d9d9d9', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              上一月
+            </button>
+            <span style={{ minWidth: '120px', textAlign: 'center' }}>
+              {currentYear}年{currentMonth}月
+            </span>
+            <button
+              onClick={() => {
+                if (currentMonth === 12) {
+                  setCurrentMonth(1)
+                  setCurrentYear(currentYear + 1)
+                } else {
+                  setCurrentMonth(currentMonth + 1)
+                }
+              }}
+              style={{ padding: '6px 12px', border: '1px solid #d9d9d9', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              下一月
+            </button>
+          </div>
+        </div>
+        
+        {/* 日历组件 */}
+        <StatisticsCalendar 
+          year={currentYear}
+          month={currentMonth}
+          dailyStats={dailyStats.filter(stat => {
+            const statDate = new Date(stat.date)
+            return statDate.getFullYear() === currentYear && statDate.getMonth() + 1 === currentMonth
+          })}
+        />
+      </div>
+
       {/* 每日统计 */}
       <div style={{ marginTop: '32px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -148,6 +201,7 @@ const Statistics: React.FC = () => {
                   <th style={{ padding: '12px', textAlign: 'right' }}>交易量</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>盈亏</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>胜率</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>盈利/亏损</th>
                 </tr>
               </thead>
               <tbody>
@@ -160,6 +214,15 @@ const Statistics: React.FC = () => {
                       {stat.total_pnl >= 0 ? '+' : ''}{stat.total_pnl.toFixed(2)}
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{(stat.win_rate * 100).toFixed(2)}%</td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#8c8c8c' }}>
+                      {stat.winning_trades !== undefined && stat.losing_trades !== undefined ? (
+                        <>
+                          <span style={{ color: '#52c41a' }}>{stat.winning_trades}</span>
+                          {' / '}
+                          <span style={{ color: '#ff4d4f' }}>{stat.losing_trades}</span>
+                        </>
+                      ) : '-'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

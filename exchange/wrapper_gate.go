@@ -304,23 +304,19 @@ func (w *gateWrapper) GetHistoricalKlines(ctx context.Context, symbol string, in
 }
 
 func (w *gateWrapper) GetPriceDecimals() int {
-	// 从 adapter 获取价格精度
-	return 2 // 默认值，实际应从 adapter 获取
+	return w.adapter.GetPriceDecimals()
 }
 
 func (w *gateWrapper) GetQuantityDecimals() int {
-	// 从 adapter 获取数量精度
 	return w.adapter.GetQuantityDecimals()
 }
 
 func (w *gateWrapper) GetBaseAsset() string {
-	// 从交易对中提取基础资产
-	return ""
+	return w.adapter.GetBaseAsset()
 }
 
 func (w *gateWrapper) GetQuoteAsset() string {
-	// 从交易对中提取计价资产
-	return "USDT"
+	return w.adapter.GetQuoteAsset()
 }
 
 func (w *gateWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {

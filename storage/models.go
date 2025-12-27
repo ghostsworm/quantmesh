@@ -49,6 +49,17 @@ type Statistics struct {
 	CreatedAt   time.Time
 }
 
+// DailyStatisticsWithTradeCount 每日统计（包含盈利/亏损交易数）
+type DailyStatisticsWithTradeCount struct {
+	Date          time.Time
+	TotalTrades   int
+	TotalVolume   float64
+	TotalPnL      float64
+	WinRate       float64
+	WinningTrades int
+	LosingTrades  int
+}
+
 // SystemMetrics 系统监控细粒度数据模型
 type SystemMetrics struct {
 	ID            int64

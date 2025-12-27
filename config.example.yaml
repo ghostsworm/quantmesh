@@ -105,12 +105,8 @@ timing:
 
 system:
   # 日志级别: DEBUG(调试) / INFO(信息) / WARN(警告) / ERROR(错误) / FATAL(致命)
-  # DEBUG: 输出所有日志，包括调试信息（最详细）
-  # INFO: 输出一般信息、警告、错误和致命错误（推荐生产环境）
-  # WARN: 只输出警告、错误和致命错误
-  # ERROR: 只输出错误和致命错误
-  # FATAL: 只输出致命错误
   log_level: "INFO"
+  timezone: "Asia/Shanghai"   # 系统时区，如 "Asia/Shanghai", "UTC", "America/New_York"
   cancel_on_exit: true        # 退出时撤销所有订单（默认开启true,关闭用false）
   close_positions_on_exit: false  # 退出时是否平仓（默认关闭false，开启后会在退出时自动平掉所有持仓）
 

@@ -94,6 +94,7 @@ type Config struct {
 
 	System struct {
 		LogLevel            string `yaml:"log_level"`
+		Timezone            string `yaml:"timezone"` // 时区，如 "Asia/Shanghai"
 		CancelOnExit        bool   `yaml:"cancel_on_exit"`
 		ClosePositionsOnExit bool  `yaml:"close_positions_on_exit"` // 退出时是否平仓（默认false）
 	} `yaml:"system"`
@@ -412,6 +413,41 @@ func LoadConfig(configPath string) (*Config, error) {
 	return &cfg, nil
 }
 
+// LoadConfigFromBytes 从字节数组加载配置（用于测试）
+func LoadConfigFromBytes(data []byte) (*Config, error) {
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("解析配置文件失败: %v", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("配置验证失败: %v", err)
+	}
+
+	return &cfg, nil
+}
+
+// SaveConfig 保存配置到文件
+func SaveConfig(cfg *Config, configPath string) error {
+	// 验证配置
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("配置验证失败: %v", err)
+	}
+
+	// 序列化为YAML
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("序列化配置失败: %v", err)
+	}
+
+	// 写入文件
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("写入配置文件失败: %v", err)
+	}
+
+	return nil
+}
+
 // Validate 验证配置
 func (c *Config) Validate() error {
 	// 验证交易所配置
@@ -459,6 +495,10 @@ func (c *Config) Validate() error {
 	}
 
 	// 设置默认时间间隔
+	if c.System.Timezone == "" {
+		c.System.Timezone = "Asia/Shanghai" // 默认东8区
+	}
+
 	if c.Timing.WebSocketReconnectDelay <= 0 {
 		c.Timing.WebSocketReconnectDelay = 5 // 默认5秒
 	}

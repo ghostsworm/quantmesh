@@ -455,7 +455,7 @@ func getStatistics(c *gin.Context) {
 	})
 }
 
-// getDailyStatistics 获取每日统计
+// getDailyStatistics 获取每日统计（混合模式：优先使用 statistics 表，缺失的日期从 trades 表补充）
 // GET /api/statistics/daily
 func getDailyStatistics(c *gin.Context) {
 	if storageServiceProvider == nil {
@@ -463,8 +463,8 @@ func getDailyStatistics(c *gin.Context) {
 		return
 	}
 
-	storage := storageServiceProvider.GetStorage()
-	if storage == nil {
+	st := storageServiceProvider.GetStorage()
+	if st == nil {
 		c.JSON(http.StatusOK, gin.H{"statistics": []interface{}{}})
 		return
 	}
@@ -476,16 +476,100 @@ func getDailyStatistics(c *gin.Context) {
 		days = d
 	}
 
-	startDate := time.Now().AddDate(0, 0, -days)
-	endDate := time.Now()
+	startDate := utils.NowConfiguredTimezone().AddDate(0, 0, -days)
+	endDate := utils.NowConfiguredTimezone()
 
-	stats, err := storage.QueryStatistics(startDate, endDate)
+	// 1. 先从 statistics 表查询
+	statsFromTable, err := st.QueryStatistics(startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"statistics": stats})
+	// 2. 构建日期映射（statistics 表中已有的日期）
+	statsMap := make(map[string]*storage.Statistics)
+	for _, stat := range statsFromTable {
+		dateKey := stat.Date.Format("2006-01-02")
+		statsMap[dateKey] = stat
+	}
+
+	// 3. 从 trades 表查询所有日期（包含缺失的日期和盈利/亏损交易数）
+	tradesStatsMap := make(map[string]*storage.DailyStatisticsWithTradeCount)
+	tradesStats, err2 := st.QueryDailyStatisticsFromTrades(startDate, endDate)
+	if err2 == nil {
+		for _, tradeStat := range tradesStats {
+			dateKey := tradeStat.Date.Format("2006-01-02")
+			tradesStatsMap[dateKey] = tradeStat
+		}
+	}
+
+	// 4. 合并数据：优先使用 statistics 表的数据，缺失的日期使用 trades 表的数据
+	// 构建最终结果
+	var result []map[string]interface{}
+	startDateStr := startDate.Format("2006-01-02")
+	endDateStr := endDate.Format("2006-01-02")
+
+	// 处理所有日期（包括 statistics 表和 trades 表中的日期）
+	allDates := make(map[string]bool)
+	for dateKey := range statsMap {
+		allDates[dateKey] = true
+	}
+	for dateKey := range tradesStatsMap {
+		allDates[dateKey] = true
+	}
+
+	// 转换为列表
+	var dateList []string
+	for dateKey := range allDates {
+		if dateKey >= startDateStr && dateKey <= endDateStr {
+			dateList = append(dateList, dateKey)
+		}
+	}
+
+	// 按日期倒序排序
+	for i := 0; i < len(dateList)-1; i++ {
+		for j := i + 1; j < len(dateList); j++ {
+			if dateList[i] < dateList[j] {
+				dateList[i], dateList[j] = dateList[j], dateList[i]
+			}
+		}
+	}
+
+	// 构建结果
+	for _, dateKey := range dateList {
+		item := make(map[string]interface{})
+		item["date"] = dateKey
+
+		// 优先使用 statistics 表的数据
+		if stat, exists := statsMap[dateKey]; exists {
+			item["total_trades"] = stat.TotalTrades
+			item["total_volume"] = stat.TotalVolume
+			item["total_pnl"] = stat.TotalPnL
+			item["win_rate"] = stat.WinRate
+		} else if tradeStat, exists := tradesStatsMap[dateKey]; exists {
+			// 使用 trades 表的数据
+			item["total_trades"] = tradeStat.TotalTrades
+			item["total_volume"] = tradeStat.TotalVolume
+			item["total_pnl"] = tradeStat.TotalPnL
+			item["win_rate"] = tradeStat.WinRate
+			item["winning_trades"] = tradeStat.WinningTrades
+			item["losing_trades"] = tradeStat.LosingTrades
+		} else {
+			continue
+		}
+
+		// 如果 statistics 表的数据存在，但从 trades 表可以获取盈利/亏损交易数，也添加进去
+		if _, exists := statsMap[dateKey]; exists {
+			if tradeStat, exists := tradesStatsMap[dateKey]; exists {
+				item["winning_trades"] = tradeStat.WinningTrades
+				item["losing_trades"] = tradeStat.LosingTrades
+			}
+		}
+
+		result = append(result, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"statistics": result})
 }
 
 // getTradeStatistics 获取交易统计
@@ -527,7 +611,7 @@ func getTradeStatistics(c *gin.Context) {
 			return
 		}
 	} else {
-		startTime = time.Now().AddDate(0, 0, -7) // 默认最近7天
+		startTime = utils.NowConfiguredTimezone().AddDate(0, 0, -7) // 默认最近7天
 	}
 	
 	if endTimeStr != "" {
@@ -537,7 +621,7 @@ func getTradeStatistics(c *gin.Context) {
 			return
 		}
 	} else {
-		endTime = time.Now()
+		endTime = utils.NowConfiguredTimezone()
 	}
 
 	trades, err := storage.QueryTrades(startTime, endTime, limit, offset)
@@ -646,7 +730,7 @@ func getSystemMetrics(c *gin.Context) {
 
 	if startTimeStr == "" {
 		// 默认最近7天
-		startTime = time.Now().Add(-7 * 24 * time.Hour)
+		startTime = utils.NowConfiguredTimezone().Add(-7 * 24 * time.Hour)
 	} else {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
@@ -656,7 +740,7 @@ func getSystemMetrics(c *gin.Context) {
 	}
 
 	if endTimeStr == "" {
-		endTime = time.Now()
+		endTime = utils.NowConfiguredTimezone()
 	} else {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {

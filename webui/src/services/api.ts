@@ -2,7 +2,7 @@
 const API_BASE_URL = `${window.location.origin}/api`
 
 // Helper function to make authenticated requests
-async function fetchWithAuth(url: string, options: RequestInit = {}) {
+export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -156,10 +156,12 @@ export async function getStatistics(): Promise<StatisticsSummaryResponse> {
 
 export interface DailyStatistics {
   date: string
-  trades: number
-  volume: number
-  pnl: number
+  total_trades: number
+  total_volume: number
+  total_pnl: number
   win_rate: number
+  winning_trades?: number
+  losing_trades?: number
 }
 
 export interface DailyStatisticsResponse {

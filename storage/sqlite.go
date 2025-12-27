@@ -530,15 +530,19 @@ func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statis
 	return stats, nil
 }
 
-// GetStatisticsSummary 获取统计汇总
+// GetStatisticsSummary 获取统计汇总（从 trades 表实时计算）
 func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
 	row := s.db.QueryRow(`
 		SELECT 
-			SUM(total_trades) as total_trades,
-			SUM(total_volume) as total_volume,
-			SUM(total_pnl) as total_pnl,
-			AVG(win_rate) as win_rate
-		FROM statistics
+			COUNT(*) as total_trades,
+			COALESCE(SUM(quantity), 0) as total_volume,
+			COALESCE(SUM(pnl), 0) as total_pnl,
+			CASE 
+				WHEN COUNT(*) > 0 THEN 
+					CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)
+				ELSE 0
+			END as win_rate
+		FROM trades
 	`)
 	
 	stat := &Statistics{}
@@ -569,6 +573,83 @@ func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
 	}
 	
 	return stat, nil
+}
+
+// QueryDailyStatisticsFromTrades 从 trades 表查询每日统计（包含盈利/亏损交易数）
+func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
+	// 转换为日期字符串（YYYY-MM-DD格式）
+	startDateStr := startDate.Format("2006-01-02")
+	endDateStr := endDate.Format("2006-01-02")
+	
+	rows, err := s.db.Query(`
+		SELECT 
+			date(created_at) as date,
+			COUNT(*) as total_trades,
+			COALESCE(SUM(quantity), 0) as total_volume,
+			COALESCE(SUM(pnl), 0) as total_pnl,
+			CASE 
+				WHEN COUNT(*) > 0 THEN 
+					CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)
+				ELSE 0
+			END as win_rate,
+			SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
+			SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades
+		FROM trades
+		WHERE date(created_at) >= ? AND date(created_at) <= ?
+		GROUP BY date(created_at)
+		ORDER BY date DESC
+	`, startDateStr, endDateStr)
+	if err != nil {
+		return nil, fmt.Errorf("查询每日统计失败: %w", err)
+	}
+	defer rows.Close()
+	
+	var stats []*DailyStatisticsWithTradeCount
+	for rows.Next() {
+		stat := &DailyStatisticsWithTradeCount{}
+		var dateStr string
+		var totalTrades sql.NullInt64
+		var totalVolume sql.NullFloat64
+		var totalPnL sql.NullFloat64
+		var winRate sql.NullFloat64
+		var winningTrades sql.NullInt64
+		var losingTrades sql.NullInt64
+		
+		err := rows.Scan(&dateStr, &totalTrades, &totalVolume, &totalPnL, &winRate, &winningTrades, &losingTrades)
+		if err != nil {
+			continue
+		}
+		
+		// 解析日期
+		date, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			continue
+		}
+		stat.Date = date
+		
+		if totalTrades.Valid {
+			stat.TotalTrades = int(totalTrades.Int64)
+		}
+		if totalVolume.Valid {
+			stat.TotalVolume = totalVolume.Float64
+		}
+		if totalPnL.Valid {
+			stat.TotalPnL = totalPnL.Float64
+		}
+		if winRate.Valid {
+			stat.WinRate = winRate.Float64
+		}
+		if winningTrades.Valid {
+			stat.WinningTrades = int(winningTrades.Int64)
+		}
+		if losingTrades.Valid {
+			stat.LosingTrades = int(losingTrades.Int64)
+		}
+		
+		stats = append(stats, stat)
+	}
+	
+	return stats, nil
 }
 
 // SaveReconciliationHistory 保存对账历史

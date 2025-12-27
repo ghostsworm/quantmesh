@@ -1,5 +1,25 @@
 import React, { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link as RouterLink } from 'react-router-dom'
+import {
+  Box,
+  Heading,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Button,
+  ButtonGroup,
+  Card,
+  CardHeader,
+  CardBody,
+  Badge,
+  Text,
+  Link,
+  Spinner,
+  Center,
+  useToast,
+} from '@chakra-ui/react'
 import { getStatus, startTrading, stopTrading } from '../services/api'
 import { getSlots, SlotsResponse } from '../services/api'
 import { getStrategyAllocation, StrategyAllocationResponse } from '../services/api'
@@ -24,6 +44,7 @@ const Dashboard: React.FC = () => {
   const [pendingOrders, setPendingOrders] = useState<PendingOrdersResponse | null>(null)
   const [positionsSummary, setPositionsSummary] = useState<any>(null)
   const [isTrading, setIsTrading] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     const fetchData = async () => {
@@ -56,9 +77,20 @@ const Dashboard: React.FC = () => {
     try {
       await startTrading()
       setIsTrading(true)
+      toast({
+        title: '交易已启动',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      })
     } catch (error) {
-      console.error('Failed to start trading:', error)
-      alert('启动交易失败: ' + (error instanceof Error ? error.message : 'Unknown error'))
+      toast({
+        title: '启动交易失败',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      })
     }
   }
 
@@ -66,14 +98,29 @@ const Dashboard: React.FC = () => {
     try {
       await stopTrading()
       setIsTrading(false)
+      toast({
+        title: '交易已停止',
+        status: 'info',
+        duration: 3000,
+        isClosable: true,
+      })
     } catch (error) {
-      console.error('Failed to stop trading:', error)
-      alert('停止交易失败: ' + (error instanceof Error ? error.message : 'Unknown error'))
+      toast({
+        title: '停止交易失败',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      })
     }
   }
 
   if (!status) {
-    return <div>加载中...</div>
+    return (
+      <Center h="200px">
+        <Spinner size="xl" />
+      </Center>
+    )
   }
 
   const formatUptime = (seconds: number) => {
@@ -86,183 +133,231 @@ const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className="dashboard">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <h2>系统状态</h2>
-        <div style={{ display: 'flex', gap: '8px' }}>
+    <Box>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={6}>
+        <Heading size="lg">系统状态</Heading>
+        <ButtonGroup>
           {isTrading ? (
-            <button
+            <Button
+              colorScheme="red"
               onClick={handleStopTrading}
-              style={{
-                padding: '8px 16px',
-                background: '#ff4d4f',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
             >
               停止交易
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              colorScheme="green"
               onClick={handleStartTrading}
-              style={{
-                padding: '8px 16px',
-                background: '#52c41a',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
             >
               启动交易
-            </button>
+            </Button>
           )}
-        </div>
-      </div>
-      <div className="status-grid">
-        <div className="status-item">
-          <label>运行状态:</label>
-          <span className={status.running ? 'running' : 'stopped'}>
-            {status.running ? '运行中' : '已停止'}
-          </span>
-        </div>
-        <div className="status-item">
-          <label>交易所:</label>
-          <span>{status.exchange}</span>
-        </div>
-        <div className="status-item">
-          <label>交易对:</label>
-          <span>{status.symbol}</span>
-        </div>
-        <div className="status-item">
-          <label>当前价格:</label>
-          <span>{status.current_price.toFixed(2)}</span>
-        </div>
-        <div className="status-item">
-          <label>总盈亏:</label>
-          <span className={status.total_pnl >= 0 ? 'profit' : 'loss'}>
-            {status.total_pnl.toFixed(2)}
-          </span>
-        </div>
-        <div className="status-item">
-          <label>总交易数:</label>
-          <span>{status.total_trades}</span>
-        </div>
-        <div className="status-item">
-          <label>风控状态:</label>
-          <span className={status.risk_triggered ? 'risk-triggered' : 'normal'}>
-            {status.risk_triggered ? '已触发' : '正常'}
-          </span>
-        </div>
-        <div className="status-item">
-          <label>运行时间:</label>
-          <span>{formatUptime(status.uptime)}</span>
-        </div>
-      </div>
+        </ButtonGroup>
+      </Box>
+
+      <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={8}>
+        <Card>
+          <CardBody>
+            <Stat>
+              <StatLabel>运行状态</StatLabel>
+              <StatNumber>
+                <Badge colorScheme={status.running ? 'green' : 'red'} fontSize="md">
+                  {status.running ? '运行中' : '已停止'}
+                </Badge>
+              </StatNumber>
+            </Stat>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody>
+            <Stat>
+              <StatLabel>交易所</StatLabel>
+              <StatNumber fontSize="xl">{status.exchange}</StatNumber>
+              <StatHelpText>{status.symbol}</StatHelpText>
+            </Stat>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody>
+            <Stat>
+              <StatLabel>当前价格</StatLabel>
+              <StatNumber>{status.current_price.toFixed(2)}</StatNumber>
+            </Stat>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody>
+            <Stat>
+              <StatLabel>总盈亏</StatLabel>
+              <StatNumber color={status.total_pnl >= 0 ? 'green.500' : 'red.500'}>
+                {status.total_pnl >= 0 ? '+' : ''}{status.total_pnl.toFixed(2)}
+              </StatNumber>
+            </Stat>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody>
+            <Stat>
+              <StatLabel>总交易数</StatLabel>
+              <StatNumber>{status.total_trades}</StatNumber>
+            </Stat>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody>
+            <Stat>
+              <StatLabel>风控状态</StatLabel>
+              <StatNumber>
+                <Badge colorScheme={status.risk_triggered ? 'red' : 'green'} fontSize="md">
+                  {status.risk_triggered ? '已触发' : '正常'}
+                </Badge>
+              </StatNumber>
+            </Stat>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody>
+            <Stat>
+              <StatLabel>运行时间</StatLabel>
+              <StatNumber fontSize="lg">{formatUptime(status.uptime)}</StatNumber>
+            </Stat>
+          </CardBody>
+        </Card>
+      </SimpleGrid>
 
       {/* 槽位统计卡片 */}
       {slotsInfo && (
-        <div style={{ marginTop: '32px' }}>
-          <h3>槽位统计</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginTop: '16px' }}>
-            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>总槽位数</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{slotsInfo.count}</div>
-              <Link to="/slots" style={{ fontSize: '12px', color: '#1890ff', marginTop: '8px', display: 'block' }}>
-                查看详情 →
-              </Link>
-            </div>
-            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>有仓槽位</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#52c41a' }}>
-                {slotsInfo.slots.filter(s => s.position_status === 'FILLED').length}
-              </div>
-            </div>
-            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>空仓槽位</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#8c8c8c' }}>
-                {slotsInfo.slots.filter(s => s.position_status === 'EMPTY').length}
-              </div>
-            </div>
-          </div>
-        </div>
+        <Box mb={8}>
+          <Heading size="md" mb={4}>槽位统计</Heading>
+          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>总槽位数</StatLabel>
+                  <StatNumber>{slotsInfo.count}</StatNumber>
+                  <StatHelpText>
+                    <Link as={RouterLink} to="/slots" color="blue.500">
+                      查看详情 →
+                    </Link>
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>有仓槽位</StatLabel>
+                  <StatNumber color="green.500">
+                    {slotsInfo.slots.filter(s => s.position_status === 'FILLED').length}
+                  </StatNumber>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>空仓槽位</StatLabel>
+                  <StatNumber color="gray.500">
+                    {slotsInfo.slots.filter(s => s.position_status === 'EMPTY').length}
+                  </StatNumber>
+                </Stat>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
+        </Box>
       )}
 
       {/* 策略配比概览 */}
       {strategyAllocation && Object.keys(strategyAllocation.allocation).length > 0 && (
-        <div style={{ marginTop: '32px' }}>
-          <h3>策略资金配比</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginTop: '16px' }}>
+        <Box mb={8}>
+          <Heading size="md" mb={4}>策略资金配比</Heading>
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
             {Object.entries(strategyAllocation.allocation).map(([name, cap]) => (
-              <div key={name} style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-                <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{name}</div>
-                <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{cap.allocated.toFixed(2)} USDT</div>
-                <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '4px' }}>
-                  权重: {(cap.weight * 100).toFixed(1)}%
-                </div>
-                <div style={{ fontSize: '12px', color: '#52c41a', marginTop: '4px' }}>
-                  可用: {cap.available.toFixed(2)} USDT
-                </div>
-              </div>
+              <Card key={name}>
+                <CardBody>
+                  <Stat>
+                    <StatLabel>{name}</StatLabel>
+                    <StatNumber>{cap.allocated.toFixed(2)} USDT</StatNumber>
+                    <StatHelpText>
+                      权重: {(cap.weight * 100).toFixed(1)}% | 可用: {cap.available.toFixed(2)} USDT
+                    </StatHelpText>
+                  </Stat>
+                </CardBody>
+              </Card>
             ))}
-          </div>
-          <Link to="/strategies" style={{ fontSize: '14px', color: '#1890ff', marginTop: '16px', display: 'inline-block' }}>
+          </SimpleGrid>
+          <Link as={RouterLink} to="/strategies" color="blue.500" mt={4} display="inline-block">
             查看详细配比 →
           </Link>
-        </div>
+        </Box>
       )}
 
       {/* 持仓汇总卡片 */}
       {positionsSummary && positionsSummary.position_count > 0 && (
-        <div style={{ marginTop: '32px' }}>
-          <h3>持仓概览</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginTop: '16px' }}>
-            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>总持仓数量</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{positionsSummary.total_quantity?.toFixed(4) || '0'}</div>
-            </div>
-            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>总持仓价值</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{positionsSummary.total_value?.toFixed(2) || '0'}</div>
-            </div>
-            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>未实现盈亏</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: (positionsSummary.unrealized_pnl || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
-                {(positionsSummary.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.unrealized_pnl?.toFixed(2) || '0'}
-              </div>
-            </div>
-            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>亏损率</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: (positionsSummary.pnl_percentage || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
-                {(positionsSummary.pnl_percentage || 0) >= 0 ? '+' : ''}{(positionsSummary.pnl_percentage || 0).toFixed(2) || '0.00'}%
-              </div>
-            </div>
-          </div>
-          <Link to="/positions" style={{ fontSize: '14px', color: '#1890ff', marginTop: '16px', display: 'inline-block' }}>
+        <Box mb={8}>
+          <Heading size="md" mb={4}>持仓概览</Heading>
+          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>总持仓数量</StatLabel>
+                  <StatNumber>{positionsSummary.total_quantity?.toFixed(4) || '0'}</StatNumber>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>总持仓价值</StatLabel>
+                  <StatNumber>{positionsSummary.total_value?.toFixed(2) || '0'}</StatNumber>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>未实现盈亏</StatLabel>
+                  <StatNumber color={(positionsSummary.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'}>
+                    {(positionsSummary.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.unrealized_pnl?.toFixed(2) || '0'}
+                  </StatNumber>
+                </Stat>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
+          <Link as={RouterLink} to="/positions" color="blue.500" mt={4} display="inline-block">
             查看详细持仓 →
           </Link>
-        </div>
+        </Box>
       )}
 
       {/* 待成交订单提示 */}
       {pendingOrders && pendingOrders.count > 0 && (
-        <div style={{ marginTop: '32px' }}>
-          <h3>待成交订单</h3>
-          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px', marginTop: '16px' }}>
-            <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
-              当前有 {pendingOrders.count} 个待成交订单
-            </div>
-            <Link to="/orders" style={{ fontSize: '14px', color: '#1890ff' }}>
-              查看详情 →
-            </Link>
-          </div>
-        </div>
+        <Box>
+          <Heading size="md" mb={4}>待成交订单</Heading>
+          <Card>
+            <CardBody>
+              <Text fontSize="lg" fontWeight="bold" mb={2}>
+                当前有 {pendingOrders.count} 个待成交订单
+              </Text>
+              <Link as={RouterLink} to="/orders" color="blue.500">
+                查看详情 →
+              </Link>
+            </CardBody>
+          </Card>
+        </Box>
       )}
-    </div>
+    </Box>
   )
 }
 
 export default Dashboard
-

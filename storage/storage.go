@@ -32,6 +32,7 @@ type Storage interface {
 	QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error)
 	QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error)
 	GetStatisticsSummary() (*Statistics, error)
+	QueryDailyStatisticsFromTrades(startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	SaveReconciliationHistory(history *ReconciliationHistory) error
 	QueryReconciliationHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error)
 	GetPnLBySymbol(symbol string, startTime, endTime time.Time) (*PnLSummary, error)
@@ -390,7 +391,7 @@ func (ss *StorageService) fallbackToLog(events []*storageEvent) {
 		if err != nil {
 			continue
 		}
-		line := fmt.Sprintf("%s %s\n", time.Now().Format(time.RFC3339), string(data))
+		line := fmt.Sprintf("%s %s\n", utils.NowConfiguredTimezone().Format(time.RFC3339), string(data))
 		file.WriteString(line)
 	}
 }

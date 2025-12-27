@@ -32,6 +32,10 @@ var (
 	fileMu       sync.Mutex
 	logDir       = "log" // 日志文件夹
 	
+	// 时区相关
+	globalLocation *time.Location = time.Local
+	locationMu     sync.RWMutex
+	
 	// SQLite 日志存储（通过函数指针避免循环依赖）
 	logStorageWriter func(level, message string)
 	logStorageMu     sync.RWMutex
@@ -88,13 +92,24 @@ func SetLevel(level LogLevel) {
 	}
 }
 
+// SetLocation 设置全局日志时区
+func SetLocation(loc *time.Location) {
+	locationMu.Lock()
+	defer locationMu.Unlock()
+	globalLocation = loc
+}
+
 // initFileLogger 初始化文件日志（当日志级别为DEBUG时）
 func initFileLogger() {
 	fileMu.Lock()
 	defer fileMu.Unlock()
 	
 	// 如果已经初始化且日期相同，不需要重新初始化
-	today := time.Now().Format("2006-01-02")
+	locationMu.RLock()
+	loc := globalLocation
+	locationMu.RUnlock()
+	
+	today := time.Now().In(loc).Format("2006-01-02")
 	if fileLogger != nil && currentDate == today {
 		return
 	}
@@ -145,7 +160,11 @@ func closeFileLogger() {
 // checkAndRotateLog 检查并轮转日志文件（如果需要）
 // 注意：调用此函数前必须已持有fileMu锁
 func checkAndRotateLog() {
-	today := time.Now().Format("2006-01-02")
+	locationMu.RLock()
+	loc := globalLocation
+	locationMu.RUnlock()
+	
+	today := time.Now().In(loc).Format("2006-01-02")
 	if currentDate != today {
 		// 日期变化，重新初始化文件日志
 		// 关闭旧文件
@@ -218,7 +237,10 @@ func logf(level LogLevel, format string, args ...interface{}) {
 		checkAndRotateLog()
 		if fileLogger != nil {
 			// 写入文件（包含时间戳）
-			fileLogger.Printf("%s %s", time.Now().Format("2006/01/02 15:04:05"), message)
+			locationMu.RLock()
+			loc := globalLocation
+			locationMu.RUnlock()
+			fileLogger.Printf("%s %s", time.Now().In(loc).Format("2006/01/02 15:04:05"), message)
 		}
 		fileMu.Unlock()
 	}
@@ -260,7 +282,10 @@ func logln(level LogLevel, args ...interface{}) {
 		checkAndRotateLog()
 		if fileLogger != nil {
 			// 写入文件（包含时间戳，去掉末尾的换行符，因为Println会自动添加）
-			fileLogger.Printf("%s %s", time.Now().Format("2006/01/02 15:04:05"), strings.TrimSuffix(message, "\n"))
+			locationMu.RLock()
+			loc := globalLocation
+			locationMu.RUnlock()
+			fileLogger.Printf("%s %s", time.Now().In(loc).Format("2006/01/02 15:04:05"), strings.TrimSuffix(message, "\n"))
 		}
 		fileMu.Unlock()
 	}
