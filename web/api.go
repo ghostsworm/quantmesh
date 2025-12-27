@@ -564,14 +564,14 @@ func getTradeStatistics(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"trades": tradesResponse})
 }
 
+// 这些函数已移动到 web/api_config.go
+// 保留这些存根函数以保持向后兼容（如果其他地方有引用）
 func getConfig(c *gin.Context) {
-	// TODO: 实现获取配置
-	c.JSON(http.StatusOK, gin.H{"config": map[string]interface{}{}})
+	getConfigHandler(c)
 }
 
 func updateConfig(c *gin.Context) {
-	// TODO: 实现更新配置
-	c.JSON(http.StatusOK, gin.H{"message": "配置更新成功"})
+	updateConfigHandler(c)
 }
 
 func startTrading(c *gin.Context) {
@@ -1719,5 +1719,130 @@ func getKlines(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"klines": klines, "symbol": symbol, "interval": interval})
+}
+
+// ========== 资金费率相关API ==========
+
+var (
+	// 资金费率监控提供者（需要从main.go注入）
+	fundingMonitorProvider FundingMonitorProvider
+)
+
+// FundingMonitorProvider 资金费率监控提供者接口
+type FundingMonitorProvider interface {
+	GetCurrentFundingRates() (map[string]float64, error)
+}
+
+// SetFundingMonitorProvider 设置资金费率监控提供者
+func SetFundingMonitorProvider(provider FundingMonitorProvider) {
+	fundingMonitorProvider = provider
+}
+
+// getFundingRate 获取当前资金费率
+// GET /api/funding/current
+func getFundingRate(c *gin.Context) {
+	rates := make(map[string]interface{})
+
+	// 从监控服务获取当前资金费率
+	if fundingMonitorProvider != nil {
+		currentRates, err := fundingMonitorProvider.GetCurrentFundingRates()
+		if err == nil {
+			for symbol, rate := range currentRates {
+				rates[symbol] = map[string]interface{}{
+					"rate":      rate,
+					"rate_pct":  rate * 100, // 转换为百分比
+					"timestamp": time.Now(),
+				}
+			}
+		}
+	}
+
+	// 从数据库获取最新记录
+	if storageServiceProvider != nil {
+		storage := storageServiceProvider.GetStorage()
+		if storage != nil {
+			// 获取当前交易所名称
+			exchangeName := ""
+			if currentStatus != nil {
+				exchangeName = currentStatus.Exchange
+			}
+
+			// 获取主流交易对的最新资金费率
+			symbols := []string{"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"}
+			for _, symbol := range symbols {
+				latestRate, err := storage.GetLatestFundingRate(symbol, exchangeName)
+				if err == nil {
+					// 如果监控服务没有提供，使用数据库中的值
+					if _, exists := rates[symbol]; !exists {
+						rates[symbol] = map[string]interface{}{
+							"rate":      latestRate,
+							"rate_pct":  latestRate * 100,
+							"timestamp": time.Now(),
+						}
+					}
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"rates": rates})
+}
+
+// getFundingRateHistory 获取资金费率历史
+// GET /api/funding/history
+// 查询参数：
+//   - symbol: 交易对（可选）
+//   - limit: 返回数量（默认100）
+func getFundingRateHistory(c *gin.Context) {
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
+		return
+	}
+
+	storage := storageServiceProvider.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
+		return
+	}
+
+	// 解析查询参数
+	symbol := c.Query("symbol")
+	limitStr := c.DefaultQuery("limit", "100")
+	limit := 100
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+		if limit > 1000 {
+			limit = 1000 // 限制最大数量
+		}
+	}
+
+	// 获取交易所名称
+	exchangeName := ""
+	if currentStatus != nil {
+		exchangeName = currentStatus.Exchange
+	}
+
+	// 查询历史数据
+	history, err := storage.GetFundingRateHistory(symbol, exchangeName, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 转换为API响应格式
+	response := make([]map[string]interface{}, len(history))
+	for i, fr := range history {
+		response[i] = map[string]interface{}{
+			"id":        fr.ID,
+			"symbol":    fr.Symbol,
+			"exchange":  fr.Exchange,
+			"rate":      fr.Rate,
+			"rate_pct":  fr.Rate * 100, // 转换为百分比
+			"timestamp": fr.Timestamp,
+			"created_at": fr.CreatedAt,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"history": response})
 }
 

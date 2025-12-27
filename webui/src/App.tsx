@@ -15,6 +15,8 @@ import Profile from './components/Profile'
 import Login from './components/Login'
 import FirstTimeSetup from './components/FirstTimeSetup'
 import KlineChart from './components/KlineChart'
+import Configuration from './components/Configuration'
+import FundingRate from './components/FundingRate'
 import Footer from './components/Footer'
 import { logout } from './services/auth'
 import './App.css'
@@ -127,7 +129,9 @@ const AppContent: React.FC = () => {
           <NavLink to="/risk">风控监控</NavLink>
           <NavLink to="/system-monitor">系统监控</NavLink>
           <NavLink to="/kline">K线图</NavLink>
+          <NavLink to="/funding-rate">资金费率</NavLink>
           <NavLink to="/logs">日志</NavLink>
+          <NavLink to="/config">配置</NavLink>
           <NavLink to="/profile">个人资料</NavLink>
         </div>
       </nav>
@@ -143,7 +147,9 @@ const AppContent: React.FC = () => {
           <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
           <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
           <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
+          <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
           <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
+          <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={<FirstTimeSetup />} />

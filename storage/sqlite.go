@@ -169,6 +169,20 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_risk_check_history_symbol ON risk_check_history(symbol);
 	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time_symbol ON risk_check_history(check_time, symbol);`
 
+	// 资金费率表
+	fundingRatesSQL := `
+	CREATE TABLE IF NOT EXISTS funding_rates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		symbol TEXT NOT NULL,
+		exchange TEXT NOT NULL,
+		rate REAL NOT NULL,
+		timestamp TIMESTAMP NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_funding_rates_symbol ON funding_rates(symbol);
+	CREATE INDEX IF NOT EXISTS idx_funding_rates_timestamp ON funding_rates(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_funding_rates_symbol_timestamp ON funding_rates(symbol, timestamp);`
+
 	// 创建索引
 	indexesSQL := `
 	CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
@@ -190,6 +204,7 @@ func createTables(db *sql.DB) error {
 		statisticsSQL,
 		reconciliationHistorySQL,
 		riskCheckHistorySQL,
+		fundingRatesSQL,
 		indexesSQL,
 	}
 	for _, sql := range sqls {
@@ -854,6 +869,90 @@ func (s *SQLiteStorage) CleanupRiskCheckHistory(beforeTime time.Time) error {
 		WHERE check_time < ?
 	`, beforeTime)
 	return err
+}
+
+// SaveFundingRate 保存资金费率（仅在变动时存储）
+func (s *SQLiteStorage) SaveFundingRate(symbol, exchange string, rate float64, timestamp time.Time) error {
+	// 获取该交易对的最新资金费率
+	latestRate, err := s.GetLatestFundingRate(symbol, exchange)
+	if err == nil {
+		// 比较新旧费率（考虑浮点精度误差）
+		const epsilon = 0.0000001
+		if abs(latestRate-rate) < epsilon {
+			// 费率未变化，不存储
+			return nil
+		}
+	}
+
+	// 费率有变化，插入新记录
+	_, err = s.db.Exec(`
+		INSERT INTO funding_rates (symbol, exchange, rate, timestamp, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, symbol, exchange, rate, timestamp, time.Now())
+	return err
+}
+
+// GetLatestFundingRate 获取最新的资金费率
+func (s *SQLiteStorage) GetLatestFundingRate(symbol, exchange string) (float64, error) {
+	var rate float64
+	err := s.db.QueryRow(`
+		SELECT rate FROM funding_rates
+		WHERE symbol = ? AND exchange = ?
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`, symbol, exchange).Scan(&rate)
+	if err == sql.ErrNoRows {
+		return 0, fmt.Errorf("未找到资金费率记录")
+	}
+	return rate, err
+}
+
+// GetFundingRateHistory 获取资金费率历史
+func (s *SQLiteStorage) GetFundingRateHistory(symbol, exchange string, limit int) ([]*FundingRate, error) {
+	query := `
+		SELECT id, symbol, exchange, rate, timestamp, created_at
+		FROM funding_rates
+		WHERE 1=1
+	`
+	args := []interface{}{}
+
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+
+	query += " ORDER BY timestamp DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rates []*FundingRate
+	for rows.Next() {
+		var fr FundingRate
+		err := rows.Scan(&fr.ID, &fr.Symbol, &fr.Exchange, &fr.Rate, &fr.Timestamp, &fr.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		rates = append(rates, &fr)
+	}
+
+	return rates, rows.Err()
+}
+
+// abs 计算绝对值（用于浮点数比较）
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // Close 关闭数据库连接

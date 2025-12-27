@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -679,6 +680,72 @@ func (g *GateAdapter) StopKlineStream() {
 	if g.klineWSManager != nil {
 		g.klineWSManager.Stop()
 	}
+}
+
+// GetBaseAsset 获取基础资产（交易币种）
+func (g *GateAdapter) GetBaseAsset() string {
+	// 从交易对中提取基础资产（如 BTCUSDT -> BTC）
+	parts := strings.Split(g.symbol, "USDT")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
+// GetQuoteAsset 获取计价资产（结算币种）
+func (g *GateAdapter) GetQuoteAsset() string {
+	// Gate.io USDT永续合约使用USDT作为计价资产
+	return "USDT"
+}
+
+// GetFundingRate 获取资金费率
+func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	// Gate.io API: GET /api/v4/futures/{settle}/funding_rate
+	// 需要转换交易对格式
+	gateSymbol := convertToGateSymbol(symbol)
+
+	path := fmt.Sprintf("/futures/%s/funding_rate", g.settle)
+	queryString := fmt.Sprintf("contract=%s", gateSymbol)
+
+	respBody, err := g.client.DoRequest(ctx, "GET", path, queryString, nil)
+	if err != nil {
+		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+	}
+
+	// 解析响应（Gate.io返回数组）
+	var results []struct {
+		Contract    string `json:"contract"`
+		FundingRate string `json:"funding_rate"` // Gate.io返回字符串格式
+	}
+
+	if err := json.Unmarshal(respBody, &results); err != nil {
+		// 尝试解析单个对象格式
+		var result struct {
+			Contract    string `json:"contract"`
+			FundingRate string `json:"funding_rate"`
+		}
+		if err2 := json.Unmarshal(respBody, &result); err2 == nil {
+			fundingRate, err3 := strconv.ParseFloat(result.FundingRate, 64)
+			if err3 != nil {
+				return 0, fmt.Errorf("解析资金费率失败: %w", err3)
+			}
+			return fundingRate, nil
+		}
+		return 0, fmt.Errorf("解析响应失败: %w, 响应: %s", err, string(respBody))
+	}
+
+	// 查找匹配的交易对
+	for _, result := range results {
+		if result.Contract == gateSymbol {
+			fundingRate, err := strconv.ParseFloat(result.FundingRate, 64)
+			if err != nil {
+				return 0, fmt.Errorf("解析资金费率失败: %w", err)
+			}
+			return fundingRate, nil
+		}
+	}
+
+	return 0, fmt.Errorf("未找到交易对 %s 的资金费率", symbol)
 }
 
 // calculateDecimalPlaces 计算小数位数

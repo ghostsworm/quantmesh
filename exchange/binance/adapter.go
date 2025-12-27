@@ -645,3 +645,28 @@ func (b *BinanceAdapter) GetBaseAsset() string {
 func (b *BinanceAdapter) GetQuoteAsset() string {
 	return b.quoteAsset
 }
+
+// GetFundingRate 获取资金费率
+func (b *BinanceAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	// 使用币安期货API获取资金费率
+	// API: GET /fapi/v1/premiumIndex
+	premiumIndexList, err := b.client.NewPremiumIndexService().Symbol(symbol).Do(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+	}
+
+	// PremiumIndexService 返回数组，取第一个元素
+	if len(premiumIndexList) == 0 {
+		return 0, fmt.Errorf("未找到交易对 %s 的资金费率", symbol)
+	}
+
+	premiumIndex := premiumIndexList[0]
+
+	// 解析资金费率（字符串转浮点数）
+	fundingRate, err := strconv.ParseFloat(premiumIndex.LastFundingRate, 64)
+	if err != nil {
+		return 0, fmt.Errorf("解析资金费率失败: %w", err)
+	}
+
+	return fundingRate, nil
+}

@@ -285,3 +285,7 @@ func (w *bitgetWrapper) GetBaseAsset() string {
 func (w *bitgetWrapper) GetQuoteAsset() string {
 	return w.adapter.GetQuoteAsset()
 }
+
+func (w *bitgetWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	return w.adapter.GetFundingRate(ctx, symbol)
+}

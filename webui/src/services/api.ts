@@ -597,3 +597,41 @@ export async function getKlines(interval: string = '1m', limit: number = 500, si
     signal,
   })
 }
+
+// Funding Rate
+export interface FundingRateInfo {
+  rate: number
+  rate_pct: number
+  timestamp: string
+}
+
+export interface FundingRateCurrentResponse {
+  rates: Record<string, FundingRateInfo>
+}
+
+export async function getFundingRateCurrent(): Promise<FundingRateCurrentResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/funding/current`)
+}
+
+export interface FundingRateHistoryItem {
+  id: number
+  symbol: string
+  exchange: string
+  rate: number
+  rate_pct: number
+  timestamp: string
+  created_at: string
+}
+
+export interface FundingRateHistoryResponse {
+  history: FundingRateHistoryItem[]
+}
+
+export async function getFundingRateHistory(symbol?: string, limit: number = 100): Promise<FundingRateHistoryResponse> {
+  const queryParams = new URLSearchParams()
+  if (symbol) {
+    queryParams.append('symbol', symbol)
+  }
+  queryParams.append('limit', limit.toString())
+  return fetchWithAuth(`${API_BASE_URL}/funding/history?${queryParams.toString()}`)
+}

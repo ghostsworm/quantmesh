@@ -322,3 +322,7 @@ func (w *gateWrapper) GetQuoteAsset() string {
 	// 从交易对中提取计价资产
 	return "USDT"
 }
+
+func (w *gateWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	return w.adapter.GetFundingRate(ctx, symbol)
+}

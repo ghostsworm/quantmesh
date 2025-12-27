@@ -139,3 +139,13 @@ type RiskCheckHistory struct {
 	TotalCount   int
 }
 
+// FundingRate 资金费率模型
+type FundingRate struct {
+	ID        int64
+	Symbol    string
+	Exchange  string
+	Rate      float64
+	Timestamp time.Time
+	CreatedAt time.Time
+}
+

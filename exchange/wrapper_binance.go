@@ -298,3 +298,7 @@ func (w *binanceWrapper) GetBaseAsset() string {
 func (w *binanceWrapper) GetQuoteAsset() string {
 	return w.adapter.GetQuoteAsset()
 }
+
+func (w *binanceWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	return w.adapter.GetFundingRate(ctx, symbol)
+}

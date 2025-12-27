@@ -70,8 +70,17 @@ func SetupRoutes(r *gin.Engine) {
 			protected.GET("/risk/status", getRiskStatus)
 			protected.GET("/risk/monitor", getRiskMonitorData)
 			protected.GET("/risk/history", getRiskCheckHistory)
-			protected.GET("/config", getConfig)
-			protected.POST("/config/update", updateConfig)
+
+			// 配置管理API
+			protected.GET("/config", getConfigHandler)
+			protected.GET("/config/json", getConfigJSONHandler)
+			protected.POST("/config/validate", validateConfigHandler)
+			protected.POST("/config/preview", previewConfigHandler)
+			protected.POST("/config/update", updateConfigHandler)
+			protected.GET("/config/backups", getBackupsHandler)
+			protected.POST("/config/restore/:backup_id", restoreBackupHandler)
+			protected.DELETE("/config/backup/:backup_id", deleteBackupHandler)
+
 			protected.POST("/trading/start", startTrading)
 			protected.POST("/trading/stop", stopTrading)
 
@@ -94,6 +103,10 @@ func SetupRoutes(r *gin.Engine) {
 
 			// K线数据API
 			protected.GET("/klines", getKlines)
+
+			// 资金费率API
+			protected.GET("/funding/current", getFundingRate)
+			protected.GET("/funding/history", getFundingRateHistory)
 		}
 	}
 

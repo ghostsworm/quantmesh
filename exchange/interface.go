@@ -88,4 +88,11 @@ type IExchange interface {
 	// GetQuoteAsset 获取计价资产（结算币种）
 	// 例如: BTCUSDT -> USDT, ETHUSDT -> USDT, BTCUSD_PERP -> USD
 	GetQuoteAsset() string
+
+	// === 资金费率 ===
+
+	// GetFundingRate 获取资金费率
+	// symbol: 交易对（如 BTCUSDT）
+	// 返回: 资金费率（如 0.0001 表示 0.01%）
+	GetFundingRate(ctx context.Context, symbol string) (float64, error)
 }

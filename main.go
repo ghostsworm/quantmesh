@@ -122,6 +122,8 @@ func main() {
 	logger.Info("✅ 配置加载成功: 交易对=%s, 窗口大小=%d, 当前交易所=%s",
 		cfg.Trading.Symbol, cfg.Trading.BuyWindowSize, cfg.App.CurrentExchange)
 
+	// 1.5 初始化配置管理系统（变量声明在后面的变量声明区域）
+
 	// 2. 创建交易所实例（使用工厂模式）
 	ex, err := exchange.NewExchange(cfg)
 	if err != nil {
@@ -181,6 +183,9 @@ func main() {
 	var exchangeCfg config.ExchangeConfig
 	var pollInterval time.Duration
 	var maxLeverage int
+	var configBackupMgr *config.BackupManager
+	var configHotReloader *config.HotReloader
+	var configWatcher *config.ConfigWatcher
 
 	if cfg.Web.Enabled {
 		webServer = web.NewWebServer(cfg)
@@ -645,6 +650,26 @@ func main() {
 			web.SetRiskMonitorProvider(riskMonitor)
 		}
 
+		// 初始化资金费率监控服务
+		if storageService != nil && ex != nil {
+			// 默认监控主流交易对
+			symbols := []string{
+				"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+				"ADAUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "AVAXUSDT",
+			}
+			fundingMonitor := monitor.NewFundingMonitor(
+				storageService.GetStorage(),
+				ex,
+				symbols,
+				8, // 每8小时检查一次
+			)
+			fundingMonitor.Start()
+
+			// 设置资金费率监控提供者
+			web.SetFundingMonitorProvider(fundingMonitor)
+			logger.Info("✅ 资金费率监控服务已启动")
+		}
+
 		// 初始化认证系统
 		dataDir := "./data"
 		if cfg.Storage.Enabled && cfg.Storage.Path != "" {
@@ -665,6 +690,14 @@ func main() {
 		sessionManager := web.GetSessionManager()
 		web.SetSessionManager(sessionManager)
 		logger.Info("✅ 会话管理器已初始化")
+
+		// 初始化配置管理器（用于Web API）
+		configManager := web.NewConfigManager(configPath)
+		configManager.UpdateConfig(cfg) // 设置初始配置
+		web.SetConfigManager(configManager)
+		web.SetConfigBackupManager(configBackupMgr)
+		web.SetConfigHotReloader(configHotReloader)
+		logger.Info("✅ 配置管理器已初始化")
 
 		// 创建 WebAuthn 管理器
 		// 确定 RPID 和 RPOrigin
@@ -699,6 +732,39 @@ func main() {
 		} else {
 			web.SetWebAuthnManager(webauthnManager)
 			logger.Info("✅ WebAuthn 管理器已初始化，RPID: %s, RPOrigin: %s", rpID, rpOrigin)
+		}
+	}
+
+	// === 初始化配置管理系统 ===
+	configBackupMgr = config.NewBackupManager()
+	configHotReloader = config.NewHotReloader(cfg)
+	configWatcher, err = config.NewConfigWatcher(configPath, configHotReloader, configBackupMgr)
+	if err != nil {
+		logger.Warn("⚠️ 初始化配置监控器失败: %v（配置文件外部修改将不会自动生效）", err)
+		configWatcher = nil
+	}
+
+	// === 启动配置监控器 ===
+	if configWatcher != nil {
+		if err := configWatcher.Start(ctx); err != nil {
+			logger.Warn("⚠️ 启动配置监控器失败: %v", err)
+		} else {
+			logger.Info("✅ 配置监控器已启动")
+			
+			// 处理配置更新通知
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case newConfig := <-configWatcher.GetUpdateChan():
+						logger.Info("📝 检测到配置文件外部修改，部分配置需要重启才能生效")
+						logger.Info("当前配置: 交易对=%s, 价格间隔=%.2f", newConfig.Trading.Symbol, newConfig.Trading.PriceInterval)
+					case err := <-configWatcher.GetErrorChan():
+						logger.Error("配置监控错误: %v", err)
+					}
+				}
+			}()
 		}
 	}
 

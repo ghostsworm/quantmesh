@@ -1104,3 +1104,45 @@ func (b *BitgetAdapter) GetBaseAsset() string {
 func (b *BitgetAdapter) GetQuoteAsset() string {
 	return b.quoteAsset
 }
+
+// GetFundingRate 获取资金费率
+func (b *BitgetAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	// Bitget API: GET /api/v2/mix/market/current-fundRate
+	// 需要转换交易对格式
+	bitgetSymbol := convertToBitgetSymbol(symbol)
+
+	path := fmt.Sprintf("/api/v2/mix/market/current-fundRate?symbol=%s&productType=USDT-FUTURES", bitgetSymbol)
+
+	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+	}
+
+	// 解析响应
+	var result struct {
+		FundingRate string `json:"fundingRate"`
+	}
+
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		// 尝试解析数组格式（Bitget可能返回数组）
+		var results []struct {
+			Symbol      string `json:"symbol"`
+			FundingRate string `json:"fundingRate"`
+		}
+		if err2 := json.Unmarshal(resp.Data, &results); err2 == nil && len(results) > 0 {
+			fundingRate, err3 := strconv.ParseFloat(results[0].FundingRate, 64)
+			if err3 != nil {
+				return 0, fmt.Errorf("解析资金费率失败: %w", err3)
+			}
+			return fundingRate, nil
+		}
+		return 0, fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	fundingRate, err := strconv.ParseFloat(result.FundingRate, 64)
+	if err != nil {
+		return 0, fmt.Errorf("解析资金费率失败: %w", err)
+	}
+
+	return fundingRate, nil
+}
