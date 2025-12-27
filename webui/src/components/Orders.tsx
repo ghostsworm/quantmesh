@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useSymbol } from '../contexts/SymbolContext'
 import {
   Box,
   Heading,
@@ -40,6 +41,7 @@ interface OrderInfo {
 }
 
 const Orders: React.FC = () => {
+  const { selectedExchange, selectedSymbol } = useSymbol()
   const [pendingOrders, setPendingOrders] = useState<PendingOrderInfo[]>([])
   const [historyOrders, setHistoryOrders] = useState<OrderInfo[]>([])
   const [tabIndex, setTabIndex] = useState(0)

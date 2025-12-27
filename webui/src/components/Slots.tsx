@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
+import { useSymbol } from '../contexts/SymbolContext'
 import { getSlots, SlotInfo } from '../services/api'
 
 const Slots: React.FC = () => {
+  const { selectedExchange, selectedSymbol } = useSymbol()
   const [slots, setSlots] = useState<SlotInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -12,7 +14,7 @@ const Slots: React.FC = () => {
     const fetchSlots = async () => {
       try {
         setLoading(true)
-        const data = await getSlots()
+        const data = await getSlots(selectedExchange || undefined, selectedSymbol || undefined)
         setSlots(data.slots)
         setError(null)
       } catch (err) {
@@ -28,7 +30,7 @@ const Slots: React.FC = () => {
     const interval = setInterval(fetchSlots, 5000)
 
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedExchange, selectedSymbol])
 
   const sortedSlots = [...slots].sort((a, b) => {
     if (sortBy === 'price') {

@@ -29,13 +29,19 @@ func CollectSystemMetrics() (*SystemMetrics, error) {
 	}
 
 	// 采集CPU占用率
+	// 注意：CPUPercent() 第一次调用可能返回0，因为它需要时间间隔来计算
+	// 如果返回0或错误，使用系统CPU使用率作为备用
 	cpuPercent, err := p.CPUPercent()
-	if err != nil {
-		// 如果获取失败，尝试使用系统CPU使用率
-		cpuPercent, err = getSystemCPUPercent()
-		if err != nil {
+	if err != nil || cpuPercent == 0 {
+		// 如果获取失败或返回0，尝试使用系统CPU使用率
+		systemCPU, err2 := getSystemCPUPercent()
+		if err2 == nil && systemCPU > 0 {
+			cpuPercent = systemCPU
+		} else if err != nil {
+			// 如果进程CPU获取失败，且系统CPU也失败，返回错误
 			return nil, fmt.Errorf("获取CPU占用率失败: %w", err)
 		}
+		// 如果进程CPU返回0但系统CPU也失败，继续使用0（可能是进程刚启动）
 	}
 
 	// 采集内存占用（RSS - Resident Set Size，实际物理内存）

@@ -1,9 +1,67 @@
 import { fetchWithAuth } from './api'
 
-// 配置类型定义（简化版，根据实际需要扩展）
+// 交易所配置
+export interface ExchangeConfig {
+  api_key: string
+  secret_key: string
+  passphrase?: string
+  fee_rate: number
+  testnet: boolean
+}
+
+// AI模块配置
+export interface AIModuleConfig {
+  enabled: boolean
+  update_interval?: number
+  optimization_interval?: number
+  auto_apply?: boolean
+  analysis_interval?: number
+  data_sources?: {
+    news?: {
+      enabled: boolean
+      rss_feeds: string[]
+      fetch_interval: number
+    }
+    fear_greed_index?: {
+      enabled: boolean
+      api_url: string
+      fetch_interval: number
+    }
+    social_media?: {
+      enabled: boolean
+      subreddits?: string[]
+      post_limit?: number
+    }
+  }
+  api_url?: string
+  analysis_interval?: number
+  markets?: {
+    keywords: string[]
+    min_liquidity: number
+    min_volume_24h: number
+    min_days_to_expiry: number
+    max_days_to_expiry: number
+  }
+  signal_generation?: {
+    buy_threshold: number
+    sell_threshold: number
+    min_signal_strength: number
+    min_confidence: number
+  }
+}
+
+// 配置类型定义（完整版）
 export interface Config {
   app: {
     current_exchange: string
+  }
+  exchanges: {
+    binance?: ExchangeConfig
+    bitget?: ExchangeConfig
+    bybit?: ExchangeConfig
+    gate?: ExchangeConfig
+    edgex?: ExchangeConfig
+    bit?: ExchangeConfig
   }
   trading: {
     symbol: string
@@ -17,6 +75,57 @@ export interface Config {
     cleanup_batch_size: number
     margin_lock_duration_seconds: number
     position_safety_check: number
+    dynamic_adjustment?: {
+      enabled: boolean
+      price_interval?: {
+        enabled: boolean
+        min: number
+        max: number
+        volatility_window: number
+        volatility_threshold: number
+        adjustment_step: number
+        check_interval: number
+      }
+      window_size?: {
+        enabled: boolean
+        buy_window: {
+          min: number
+          max: number
+        }
+        sell_window: {
+          min: number
+          max: number
+        }
+        utilization_threshold: number
+        adjustment_step: number
+        check_interval: number
+      }
+      order_quantity?: {
+        enabled: boolean
+        min: number
+        max: number
+        frequency_threshold: number
+        adjustment_step: number
+      }
+    }
+    smart_position?: {
+      enabled: boolean
+      trend_detection?: {
+        enabled: boolean
+        window: number
+        method: string
+        short_period: number
+        long_period: number
+        check_interval: number
+      }
+      window_adjustment?: {
+        enabled: boolean
+        max_adjustment: number
+        adjustment_step: number
+        min_buy_window: number
+        min_sell_window: number
+      }
+    }
   }
   system: {
     log_level: string
@@ -32,6 +141,19 @@ export interface Config {
     average_window: number
     recovery_threshold: number
     max_leverage: number
+  }
+  timing: {
+    websocket_reconnect_delay: number
+    websocket_write_wait: number
+    websocket_pong_wait: number
+    websocket_ping_interval: number
+    listen_key_keepalive_interval: number
+    price_send_interval: number
+    rate_limit_retry_delay: number
+    order_retry_delay: number
+    price_poll_interval: number
+    status_print_interval: number
+    order_cleanup_interval: number
   }
   notifications: {
     enabled: boolean
@@ -54,6 +176,16 @@ export interface Config {
         username: string
         password: string
       }
+      resend: {
+        api_key: string
+      }
+      mailgun: {
+        api_key: string
+        domain: string
+      }
+      from: string
+      to: string
+      subject: string
     }
     rules: {
       order_placed: boolean
@@ -82,6 +214,84 @@ export interface Config {
     provider: string
     api_key: string
     base_url: string
+    modules: {
+      market_analysis?: AIModuleConfig
+      parameter_optimization?: AIModuleConfig
+      risk_analysis?: AIModuleConfig
+      sentiment_analysis?: AIModuleConfig
+      polymarket_signal?: AIModuleConfig
+      strategy_generation?: AIModuleConfig
+    }
+    decision_mode: string
+    execution_rules: {
+      high_risk_threshold: number
+      low_risk_threshold: number
+      require_confirmation: boolean
+    }
+  }
+  strategies?: {
+    enabled: boolean
+    capital_allocation?: {
+      mode: string
+      total_capital: number
+      fixed?: {
+        enabled: boolean
+        rebalance_on_start: boolean
+      }
+      dynamic?: {
+        enabled: boolean
+        rebalance_interval: number
+        max_change_per_rebalance: number
+        min_weight: number
+        max_weight: number
+        performance_weights: {
+          max_drawdown: number
+          sharpe_ratio: number
+          total_pnl: number
+          win_rate: number
+        }
+      }
+    }
+    configs?: Record<string, any>
+  }
+  backtest?: {
+    enabled: boolean
+    start_time: string
+    end_time: string
+    initial_capital: number
+  }
+  metrics?: {
+    enabled: boolean
+    collect_interval: number
+  }
+  watchdog?: {
+    enabled: boolean
+    sampling: {
+      interval: number
+    }
+    retention: {
+      detail_days: number
+      daily_days: number
+    }
+    notifications: {
+      enabled: boolean
+      fixed_threshold: {
+        enabled: boolean
+        cpu_percent: number
+        memory_mb: number
+      }
+      rate_threshold: {
+        enabled: boolean
+        window_minutes: number
+        cpu_increase: number
+        memory_increase_mb: number
+      }
+      cooldown_minutes: number
+    }
+    aggregation: {
+      enabled: boolean
+      schedule: string
+    }
   }
   [key: string]: any
 }

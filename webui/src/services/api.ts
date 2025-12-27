@@ -34,12 +34,40 @@ export interface SystemStatus {
   uptime: number
 }
 
-export async function getSystemStatus(): Promise<SystemStatus> {
-  return fetchWithAuth(`${API_BASE_URL}/status`)
+export async function getSystemStatus(exchange?: string, symbol?: string): Promise<SystemStatus> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/status${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 // Alias for backward compatibility
 export const getStatus = getSystemStatus
+
+// Symbols and Exchanges
+export interface SymbolInfo {
+  exchange: string
+  symbol: string
+  is_active: boolean
+  current_price: number
+}
+
+export interface SymbolsResponse {
+  symbols: SymbolInfo[]
+}
+
+export async function getSymbols(): Promise<SymbolsResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/symbols`)
+}
+
+export interface ExchangesResponse {
+  exchanges: string[]
+}
+
+export async function getExchanges(): Promise<ExchangesResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/exchanges`)
+}
 
 // Positions
 export interface PositionInfo {
@@ -55,8 +83,12 @@ export interface PositionsResponse {
   positions: PositionInfo[]
 }
 
-export async function getPositions(): Promise<PositionsResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/positions`)
+export async function getPositions(exchange?: string, symbol?: string): Promise<PositionsResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/positions${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 export interface PositionSummary {
@@ -70,8 +102,12 @@ export interface PositionsSummaryResponse {
   summary: PositionSummary
 }
 
-export async function getPositionsSummary(): Promise<PositionsSummaryResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/positions/summary`)
+export async function getPositionsSummary(exchange?: string, symbol?: string): Promise<PositionsSummaryResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/positions/summary${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 // Orders
@@ -93,8 +129,12 @@ export interface OrdersResponse {
   orders: OrderInfo[]
 }
 
-export async function getOrders(): Promise<OrdersResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/orders`)
+export async function getOrders(exchange?: string, symbol?: string): Promise<OrdersResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/orders${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 export interface OrderHistoryParams {
@@ -152,8 +192,12 @@ export interface StatisticsSummaryResponse {
   summary: StatisticsSummary
 }
 
-export async function getStatistics(): Promise<StatisticsSummaryResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/statistics`)
+export async function getStatistics(exchange?: string, symbol?: string): Promise<StatisticsSummaryResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/statistics${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 export interface DailyStatistics {
@@ -170,8 +214,12 @@ export interface DailyStatisticsResponse {
   daily_statistics: DailyStatistics[]
 }
 
-export async function getDailyStatistics(): Promise<DailyStatisticsResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/statistics/daily`)
+export async function getDailyStatistics(exchange?: string, symbol?: string): Promise<DailyStatisticsResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/statistics/daily${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 export interface TradeStatistics {
@@ -391,8 +439,12 @@ export interface SlotsResponse {
   slots: SlotInfo[]
 }
 
-export async function getSlots(): Promise<SlotsResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/slots`)
+export async function getSlots(exchange?: string, symbol?: string): Promise<SlotsResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/slots${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 // Strategy Allocation
@@ -594,11 +646,13 @@ export interface KlinesResponse {
   interval: string
 }
 
-export async function getKlines(interval: string = '1m', limit: number = 500, signal?: AbortSignal): Promise<KlinesResponse> {
+export async function getKlines(interval: string = '1m', limit: number = 500, exchange?: string, symbol?: string, signal?: AbortSignal): Promise<KlinesResponse> {
   const queryParams = new URLSearchParams({
     interval,
     limit: limit.toString(),
   })
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
   return fetchWithAuth(`${API_BASE_URL}/klines?${queryParams.toString()}`, {
     signal,
   })
@@ -615,8 +669,12 @@ export interface FundingRateCurrentResponse {
   rates: Record<string, FundingRateInfo>
 }
 
-export async function getFundingRateCurrent(): Promise<FundingRateCurrentResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/funding/current`)
+export async function getFundingRateCurrent(exchange?: string, symbol?: string): Promise<FundingRateCurrentResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/funding/current${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 export interface FundingRateHistoryItem {

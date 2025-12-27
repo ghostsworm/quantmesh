@@ -56,6 +56,8 @@ func SetupRoutes(r *gin.Engine) {
 		protected.Use(authMiddleware())
 		{
 			protected.GET("/status", getStatus)
+			protected.GET("/symbols", getSymbols)
+			protected.GET("/exchanges", getExchanges)
 			protected.GET("/positions", getPositions)
 			protected.GET("/positions/summary", getPositionsSummary)
 			protected.GET("/orders", getOrders)

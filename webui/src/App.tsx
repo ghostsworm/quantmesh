@@ -1,10 +1,14 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { ChakraProvider, Box, Flex, Heading, Button, Container, Link as ChakraLink, Spinner, Center } from '@chakra-ui/react'
+import { ChakraProvider, Box, Flex, Heading, Button, Container, Link as ChakraLink, Spinner, Center, Select, Badge, Text } from '@chakra-ui/react'
 import { Link as RouterLink } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
-import theme from './theme'
+import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
+import { lightTheme, darkTheme } from './theme'
 import Dashboard from './components/Dashboard'
+import GlobalDashboard from './components/GlobalDashboard'
+import SymbolSelector from './components/SymbolSelector'
+import StatusBar from './components/StatusBar'
 import Positions from './components/Positions'
 import Orders from './components/Orders'
 import Statistics from './components/Statistics'
@@ -25,6 +29,7 @@ import AIAnalysis from './components/AIAnalysis'
 import AIPromptManager from './components/AIPromptManager'
 import Footer from './components/Footer'
 import { logout } from './services/auth'
+import { getSymbols, getFundingRateCurrent, SymbolInfo } from './services/api'
 import './App.css'
 
 // 受保护的路由组件
@@ -84,6 +89,7 @@ const NavLink: React.FC<{ to: string; children: React.ReactNode }> = ({ to, chil
 // 主应用内容
 const AppContent: React.FC = () => {
   const { isAuthenticated, hasPassword, isLoading } = useAuth()
+  const { isGlobalView } = useSymbol()
 
   const handleLogout = async () => {
     try {
@@ -102,28 +108,35 @@ const AppContent: React.FC = () => {
   // 检查是否正在进行首次设置流程
   const isInSetupFlow = sessionStorage.getItem('setup_step') !== null
 
-  // 如果未设置密码，或正在进行首次设置流程，显示设置页面
+  // 如果未设置密码，或正在进行首次设置流程，显示设置页面（使用亮色主题）
   if (!hasPassword || isInSetupFlow) {
     return (
-      <Routes>
-        <Route path="/setup" element={<FirstTimeSetup />} />
-        <Route path="*" element={<Navigate to="/setup" replace />} />
-      </Routes>
+      <Box bg="gray.50" minH="100vh">
+        <Routes>
+          <Route path="/setup" element={<FirstTimeSetup />} />
+          <Route path="*" element={<Navigate to="/setup" replace />} />
+        </Routes>
+      </Box>
     )
   }
 
-  // 如果已设置密码但未登录，显示登录页
+  // 如果已设置密码但未登录，显示登录页（使用亮色主题）
   if (!isAuthenticated) {
     return (
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <Box bg="gray.50" minH="100vh">
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </Box>
     )
   }
 
   return (
     <Box minH="100vh" display="flex" flexDirection="column">
+      {/* Status Bar */}
+      <StatusBar />
+
       {/* Header */}
       <Box
         position="sticky"
@@ -139,6 +152,12 @@ const AppContent: React.FC = () => {
             <Heading size="md" fontWeight="semibold" color="gray.800">
               QuantMesh Market Maker
             </Heading>
+            
+            {/* Symbol Selector in Center */}
+            <Box flex="1" display="flex" justifyContent="center">
+              <SymbolSelector />
+            </Box>
+
             {isAuthenticated && (
               <Button
                 colorScheme="red"
@@ -152,50 +171,56 @@ const AppContent: React.FC = () => {
         </Container>
       </Box>
 
-      {/* Navigation */}
-      <Box
-        position="sticky"
-        top="64px"
-        zIndex={99}
-        bg="white"
-        borderBottom="1px"
-        borderColor="gray.200"
-        overflowX="auto"
-        css={{
-          '&::-webkit-scrollbar': {
-            display: 'none',
-          },
-          scrollbarWidth: 'none',
-        }}
-      >
-        <Container maxW="container.xl">
-          <Flex gap={1} py={2} alignItems="center">
-            <NavLink to="/">仪表盘</NavLink>
-            <NavLink to="/positions">持仓</NavLink>
-            <NavLink to="/orders">订单</NavLink>
-            <NavLink to="/slots">槽位</NavLink>
-            <NavLink to="/strategies">策略配比</NavLink>
-            <NavLink to="/statistics">统计</NavLink>
-            <NavLink to="/reconciliation">对账</NavLink>
-            <NavLink to="/risk">风控监控</NavLink>
-            <NavLink to="/system-monitor">系统监控</NavLink>
-            <NavLink to="/kline">K线图</NavLink>
-            <NavLink to="/funding-rate">资金费率</NavLink>
-            <NavLink to="/market-intelligence">市场情报</NavLink>
-            <NavLink to="/ai-analysis">AI分析</NavLink>
-            <NavLink to="/ai-prompts">AI提示词</NavLink>
-            <NavLink to="/logs">日志</NavLink>
-            <NavLink to="/config">配置</NavLink>
-            <NavLink to="/profile">个人资料</NavLink>
-          </Flex>
-        </Container>
-      </Box>
+      {/* Navigation - 只在非全局视图下显示 */}
+      {!isGlobalView && (
+        <Box
+          position="sticky"
+          top="64px"
+          zIndex={99}
+          bg="white"
+          borderBottom="1px"
+          borderColor="gray.200"
+          overflowX="auto"
+          css={{
+            '&::-webkit-scrollbar': {
+              display: 'none',
+            },
+            scrollbarWidth: 'none',
+          }}
+        >
+          <Container maxW="container.xl">
+            <Flex gap={1} py={2} alignItems="center">
+              <NavLink to="/">仪表盘</NavLink>
+              <NavLink to="/positions">持仓</NavLink>
+              <NavLink to="/orders">订单</NavLink>
+              <NavLink to="/slots">槽位</NavLink>
+              <NavLink to="/strategies">策略配比</NavLink>
+              <NavLink to="/statistics">统计</NavLink>
+              <NavLink to="/reconciliation">对账</NavLink>
+              <NavLink to="/risk">风控监控</NavLink>
+              <NavLink to="/system-monitor">系统监控</NavLink>
+              <NavLink to="/kline">K线图</NavLink>
+              <NavLink to="/funding-rate">资金费率</NavLink>
+              <NavLink to="/market-intelligence">市场情报</NavLink>
+              <NavLink to="/ai-analysis">AI分析</NavLink>
+              <NavLink to="/ai-prompts">AI提示词</NavLink>
+              <NavLink to="/logs">日志</NavLink>
+              <NavLink to="/config">配置</NavLink>
+              <NavLink to="/profile">个人资料</NavLink>
+            </Flex>
+          </Container>
+        </Box>
+      )}
 
       {/* Main Content */}
-      <Box flex="1" py={6}>
-        <Container maxW="container.xl">
+      <Box flex="1" py={isGlobalView ? 0 : 6}>
+        <Container maxW={isGlobalView ? "full" : "container.xl"} px={isGlobalView ? 0 : undefined}>
           <Routes>
-            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/" element={
+              <ProtectedRoute>
+                {isGlobalView ? <GlobalDashboard /> : <Dashboard />}
+              </ProtectedRoute>
+            } />
             <Route path="/positions" element={<ProtectedRoute><Positions /></ProtectedRoute>} />
             <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
             <Route path="/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
@@ -224,15 +249,27 @@ const AppContent: React.FC = () => {
   )
 }
 
+// Theme wrapper component
+const ThemedApp: React.FC = () => {
+  const { isGlobalView } = useSymbol()
+  const currentTheme = isGlobalView ? darkTheme : lightTheme
+
+  return (
+    <ChakraProvider theme={currentTheme}>
+      <AppContent />
+    </ChakraProvider>
+  )
+}
+
 function App() {
   return (
-    <ChakraProvider theme={theme}>
-      <BrowserRouter>
-        <AuthProvider>
-          <AppContent />
-        </AuthProvider>
-      </BrowserRouter>
-    </ChakraProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <SymbolProvider>
+          <ThemedApp />
+        </SymbolProvider>
+      </AuthProvider>
+    </BrowserRouter>
   )
 }
 

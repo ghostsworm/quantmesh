@@ -18,6 +18,7 @@ type Config struct {
 	Exchanges map[string]ExchangeConfig `yaml:"exchanges"`
 
 	Trading struct {
+		// 兼容旧配置：单交易对字段（若启用多交易对，将自动转换为 Symbols 列表）
 		Symbol                string  `yaml:"symbol"`
 		PriceInterval         float64 `yaml:"price_interval"`
 		OrderQuantity         float64 `yaml:"order_quantity"`  // 每单购买金额（USDT/USDC）
@@ -29,6 +30,8 @@ type Config struct {
 		CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小（默认10）
 		MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保证金锁定时间（秒，默认10）
 		PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持仓安全性检查（默认100，最少能向下持有多少仓）
+		// 多交易对配置
+		Symbols []SymbolConfig `yaml:"symbols"`
 		// 注意：price_decimals 和 quantity_decimals 已废弃，现在从交易所自动获取
 
 		// 动态调整网格参数
@@ -378,6 +381,22 @@ type Config struct {
 	} `yaml:"ai"`
 }
 
+// SymbolConfig 单个交易对配置（可指定所属交易所及交易参数）
+type SymbolConfig struct {
+	Exchange              string  `yaml:"exchange"`                  // 所属交易所，默认为 app.current_exchange
+	Symbol                string  `yaml:"symbol"`                    // 交易对，如 BTCUSDT
+	PriceInterval         float64 `yaml:"price_interval"`            // 价格间隔
+	OrderQuantity         float64 `yaml:"order_quantity"`            // 每单金额（USDT/USDC）
+	MinOrderValue         float64 `yaml:"min_order_value"`           // 最小订单价值
+	BuyWindowSize         int     `yaml:"buy_window_size"`           // 买单窗口
+	SellWindowSize        int     `yaml:"sell_window_size"`          // 卖单窗口
+	ReconcileInterval     int     `yaml:"reconcile_interval"`        // 对账间隔（秒）
+	OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`   // 订单清理上限
+	CleanupBatchSize      int     `yaml:"cleanup_batch_size"`        // 清理批次大小
+	MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保证金锁定时间（秒）
+	PositionSafetyCheck   int     `yaml:"position_safety_check"`     // 持仓安全性检查
+}
+
 // StrategyConfig 策略配置
 type StrategyConfig struct {
 	Enabled bool                   `yaml:"enabled"`
@@ -474,24 +493,154 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("交易所 %s 的手续费率不能为负数", c.App.CurrentExchange)
 	}
 
-	if c.Trading.Symbol == "" {
-		return fmt.Errorf("交易对不能为空")
+	// ==== 多交易对配置校验（兼容旧配置）====
+	normalizeSymbol := func(sc SymbolConfig) (SymbolConfig, error) {
+		// 交易所
+		if sc.Exchange == "" {
+			sc.Exchange = c.App.CurrentExchange
+		}
+		exCfg, ok := c.Exchanges[sc.Exchange]
+		if !ok {
+			return sc, fmt.Errorf("交易所 %s 的配置不存在", sc.Exchange)
+		}
+		if exCfg.APIKey == "" || exCfg.SecretKey == "" {
+			return sc, fmt.Errorf("交易所 %s 的 API 配置不完整", sc.Exchange)
+		}
+		if exCfg.FeeRate < 0 {
+			return sc, fmt.Errorf("交易所 %s 的手续费率不能为负数", sc.Exchange)
+		}
+
+		// 交易对
+		if sc.Symbol == "" {
+			return sc, fmt.Errorf("交易对不能为空")
+		}
+
+		// 数值默认
+		if sc.PriceInterval <= 0 {
+			sc.PriceInterval = c.Trading.PriceInterval
+		}
+		if sc.PriceInterval <= 0 {
+			return sc, fmt.Errorf("交易对 %s 的价格间隔必须大于0", sc.Symbol)
+		}
+
+		if sc.OrderQuantity <= 0 {
+			sc.OrderQuantity = c.Trading.OrderQuantity
+		}
+		if sc.OrderQuantity <= 0 {
+			return sc, fmt.Errorf("交易对 %s 的订单金额必须大于0", sc.Symbol)
+		}
+
+		if sc.MinOrderValue <= 0 {
+			if c.Trading.MinOrderValue > 0 {
+				sc.MinOrderValue = c.Trading.MinOrderValue
+			} else {
+				sc.MinOrderValue = 20.0
+			}
+		}
+
+		if sc.BuyWindowSize <= 0 {
+			sc.BuyWindowSize = c.Trading.BuyWindowSize
+		}
+		if sc.BuyWindowSize <= 0 {
+			return sc, fmt.Errorf("交易对 %s 的买单窗口大小必须大于0", sc.Symbol)
+		}
+
+		if sc.SellWindowSize <= 0 {
+			if c.Trading.SellWindowSize > 0 {
+				sc.SellWindowSize = c.Trading.SellWindowSize
+			} else {
+				sc.SellWindowSize = sc.BuyWindowSize
+			}
+		}
+
+		if sc.ReconcileInterval <= 0 {
+			if c.Trading.ReconcileInterval > 0 {
+				sc.ReconcileInterval = c.Trading.ReconcileInterval
+			} else {
+				sc.ReconcileInterval = 60
+			}
+		}
+
+		if sc.OrderCleanupThreshold <= 0 {
+			if c.Trading.OrderCleanupThreshold > 0 {
+				sc.OrderCleanupThreshold = c.Trading.OrderCleanupThreshold
+			} else {
+				sc.OrderCleanupThreshold = 50
+			}
+		}
+
+		if sc.CleanupBatchSize <= 0 {
+			if c.Trading.CleanupBatchSize > 0 {
+				sc.CleanupBatchSize = c.Trading.CleanupBatchSize
+			} else {
+				sc.CleanupBatchSize = 10
+			}
+		}
+
+		if sc.MarginLockDurationSec <= 0 {
+			if c.Trading.MarginLockDurationSec > 0 {
+				sc.MarginLockDurationSec = c.Trading.MarginLockDurationSec
+			} else {
+				sc.MarginLockDurationSec = 10
+			}
+		}
+
+		if sc.PositionSafetyCheck <= 0 {
+			if c.Trading.PositionSafetyCheck > 0 {
+				sc.PositionSafetyCheck = c.Trading.PositionSafetyCheck
+			} else {
+				sc.PositionSafetyCheck = 100
+			}
+		}
+
+		return sc, nil
 	}
-	if c.Trading.OrderQuantity <= 0 {
-		return fmt.Errorf("订单金额必须大于0")
+
+	// 若未配置 symbols，则兼容旧配置转换为单元素
+	if len(c.Trading.Symbols) == 0 {
+		if c.Trading.Symbol == "" {
+			return fmt.Errorf("交易对不能为空")
+		}
+		c.Trading.Symbols = []SymbolConfig{{
+			Exchange:              c.App.CurrentExchange,
+			Symbol:                c.Trading.Symbol,
+			PriceInterval:         c.Trading.PriceInterval,
+			OrderQuantity:         c.Trading.OrderQuantity,
+			MinOrderValue:         c.Trading.MinOrderValue,
+			BuyWindowSize:         c.Trading.BuyWindowSize,
+			SellWindowSize:        c.Trading.SellWindowSize,
+			ReconcileInterval:     c.Trading.ReconcileInterval,
+			OrderCleanupThreshold: c.Trading.OrderCleanupThreshold,
+			CleanupBatchSize:      c.Trading.CleanupBatchSize,
+			MarginLockDurationSec: c.Trading.MarginLockDurationSec,
+			PositionSafetyCheck:   c.Trading.PositionSafetyCheck,
+		}}
 	}
-	if c.Trading.BuyWindowSize <= 0 {
-		return fmt.Errorf("买单窗口大小必须大于0")
+
+	normalized := make([]SymbolConfig, 0, len(c.Trading.Symbols))
+	for _, sc := range c.Trading.Symbols {
+		norm, err := normalizeSymbol(sc)
+		if err != nil {
+			return err
+		}
+		normalized = append(normalized, norm)
 	}
-	if c.Trading.SellWindowSize <= 0 {
-		c.Trading.SellWindowSize = c.Trading.BuyWindowSize // 默认与买单窗口相同
-	}
-	if c.Trading.CleanupBatchSize <= 0 {
-		c.Trading.CleanupBatchSize = 10 // 默认10
-	}
-	// 注意：price_decimals 和 quantity_decimals 已从配置中移除，现在从交易所自动获取
-	if c.Trading.MinOrderValue <= 0 {
-		c.Trading.MinOrderValue = 20.0 // 默认6U (币安通常最小5U)
+	c.Trading.Symbols = normalized
+
+	// 兼容旧字段：保持首个交易对到旧字段，供未改造代码使用
+	if len(c.Trading.Symbols) > 0 {
+		primary := c.Trading.Symbols[0]
+		c.Trading.Symbol = primary.Symbol
+		c.Trading.PriceInterval = primary.PriceInterval
+		c.Trading.OrderQuantity = primary.OrderQuantity
+		c.Trading.MinOrderValue = primary.MinOrderValue
+		c.Trading.BuyWindowSize = primary.BuyWindowSize
+		c.Trading.SellWindowSize = primary.SellWindowSize
+		c.Trading.ReconcileInterval = primary.ReconcileInterval
+		c.Trading.OrderCleanupThreshold = primary.OrderCleanupThreshold
+		c.Trading.CleanupBatchSize = primary.CleanupBatchSize
+		c.Trading.MarginLockDurationSec = primary.MarginLockDurationSec
+		c.Trading.PositionSafetyCheck = primary.PositionSafetyCheck
 	}
 
 	// 设置默认时间间隔

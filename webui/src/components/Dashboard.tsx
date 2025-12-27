@@ -20,6 +20,7 @@ import {
   Center,
   useToast,
 } from '@chakra-ui/react'
+import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, startTrading, stopTrading } from '../services/api'
 import { getSlots, SlotsResponse } from '../services/api'
 import { getStrategyAllocation, StrategyAllocationResponse } from '../services/api'
@@ -38,6 +39,7 @@ interface SystemStatus {
 }
 
 const Dashboard: React.FC = () => {
+  const { selectedExchange, selectedSymbol } = useSymbol()
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [slotsInfo, setSlotsInfo] = useState<SlotsResponse | null>(null)
   const [strategyAllocation, setStrategyAllocation] = useState<StrategyAllocationResponse | null>(null)
@@ -50,11 +52,11 @@ const Dashboard: React.FC = () => {
     const fetchData = async () => {
       try {
         const [statusData, slotsData, allocationData, ordersData, positionsData] = await Promise.all([
-          getStatus(),
-          getSlots().catch(() => null),
+          getStatus(selectedExchange || undefined, selectedSymbol || undefined),
+          getSlots(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
           getStrategyAllocation().catch(() => null),
           getPendingOrders().catch(() => null),
-          getPositionsSummary().catch(() => null),
+          getPositionsSummary(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
         ])
         setStatus(statusData)
         setSlotsInfo(slotsData)
@@ -71,7 +73,7 @@ const Dashboard: React.FC = () => {
     const interval = setInterval(fetchData, 5000) // 每5秒更新一次
 
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedExchange, selectedSymbol])
 
   const handleStartTrading = async () => {
     try {

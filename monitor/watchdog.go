@@ -173,6 +173,19 @@ func (w *Watchdog) updateHistoryCache(metrics *SystemMetrics) {
 	}
 }
 
+// GetLatestMetrics 获取最新的系统监控数据（从缓存中）
+func (w *Watchdog) GetLatestMetrics() *SystemMetrics {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	if len(w.historyCache) == 0 {
+		return nil
+	}
+
+	// 返回最新的数据（最后一个）
+	return w.historyCache[len(w.historyCache)-1]
+}
+
 // checkThresholds 检查阈值并发送通知
 func (w *Watchdog) checkThresholds(current *SystemMetrics) error {
 	checker := NewThresholdChecker(w.cfg)

@@ -44,6 +44,34 @@ exchanges:
 ####################################
 
 trading:
+  # 多交易对配置（推荐）。exchange 留空时默认使用 app.current_exchange
+  symbols:
+    - exchange: "bitget"
+      symbol: "ETHUSDT"
+      price_interval: 2
+      order_quantity: 30
+      min_order_value: 20
+      buy_window_size: 10
+      sell_window_size: 10
+      reconcile_interval: 60
+      order_cleanup_threshold: 50
+      cleanup_batch_size: 20
+      margin_lock_duration_seconds: 20
+      position_safety_check: 100
+    - exchange: "binance"
+      symbol: "BTCUSDT"
+      price_interval: 10
+      order_quantity: 50
+      min_order_value: 20
+      buy_window_size: 8
+      sell_window_size: 8
+      reconcile_interval: 60
+      order_cleanup_threshold: 50
+      cleanup_batch_size: 20
+      margin_lock_duration_seconds: 20
+      position_safety_check: 100
+
+  # 兼容旧版：单交易对配置（如配置了 symbols 会自动忽略此项）
   symbol: "ETHUSDT"
   price_interval: 2         # 价格间隔（1美元）
   order_quantity: 30        # 每单购买金额（USDT/USDC）如 30 表示每单投入30U

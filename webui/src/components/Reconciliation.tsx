@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useSymbol } from '../contexts/SymbolContext'
 import './Reconciliation.css'
 
 interface ReconciliationStatus {
@@ -42,6 +43,7 @@ interface PositionTooltipData {
 }
 
 const Reconciliation: React.FC = () => {
+  const { selectedExchange, selectedSymbol } = useSymbol()
   const [status, setStatus] = useState<ReconciliationStatus | null>(null)
   const [history, setHistory] = useState<ReconciliationHistoryItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,7 +60,10 @@ const Reconciliation: React.FC = () => {
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch('/api/reconciliation/status', {
+      const params = new URLSearchParams()
+      if (selectedExchange) params.append('exchange', selectedExchange)
+      if (selectedSymbol) params.append('symbol', selectedSymbol)
+      const response = await fetch(`/api/reconciliation/status?${params}`, {
         credentials: 'include',
       })
       if (!response.ok) throw new Error('获取对账状态失败')
@@ -76,6 +81,8 @@ const Reconciliation: React.FC = () => {
         limit: historyLimit.toString(),
         offset: historyOffset.toString(),
       })
+      if (selectedExchange) params.append('exchange', selectedExchange)
+      if (selectedSymbol) params.append('symbol', selectedSymbol)
       const response = await fetch(`/api/reconciliation/history?${params}`, {
         credentials: 'include',
       })
@@ -98,7 +105,7 @@ const Reconciliation: React.FC = () => {
     fetchData()
     const interval = setInterval(fetchData, 10000) // 每10秒刷新一次
     return () => clearInterval(interval)
-  }, [historyLimit, historyOffset])
+  }, [historyLimit, historyOffset, selectedExchange, selectedSymbol])
 
   const formatTime = (timeStr: string) => {
     try {

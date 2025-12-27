@@ -21,6 +21,7 @@ import {
   Skeleton,
   SkeletonText,
 } from '@chakra-ui/react'
+import { useSymbol } from '../contexts/SymbolContext'
 import { getPositions, getPositionsSummary } from '../services/api'
 
 interface PositionInfo {
@@ -52,6 +53,7 @@ interface PositionsResponse {
 }
 
 const Positions: React.FC = () => {
+  const { selectedExchange, selectedSymbol } = useSymbol()
   const [summary, setSummary] = useState<PositionSummary | null>(null)
   const [positions, setPositions] = useState<PositionInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,7 +63,7 @@ const Positions: React.FC = () => {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const data = await getPositions()
+        const data = await getPositions(selectedExchange || undefined, selectedSymbol || undefined)
         setSummary(data.summary)
         setPositions(data.summary.positions || [])
         setError(null)
@@ -78,7 +80,7 @@ const Positions: React.FC = () => {
     const interval = setInterval(fetchData, 5000)
 
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedExchange, selectedSymbol])
 
   if (loading && !summary) {
     return (

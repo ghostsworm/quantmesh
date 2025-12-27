@@ -18,6 +18,7 @@ const MarketIntelligence: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true)
+      setError(null)
       const params: any = {
         limit: 50,
       }
@@ -29,9 +30,21 @@ const MarketIntelligence: React.FC = () => {
       }
       const response = await getMarketIntelligence(params)
       setData(response)
-      setError(null)
+      
+      // 检查数据是否为空
+      const isEmpty = (
+        response.rss_feeds.length === 0 &&
+        response.fear_greed === null &&
+        response.reddit_posts.length === 0 &&
+        response.polymarket.length === 0
+      )
+      
+      if (isEmpty) {
+        setError('暂无数据，请稍后重试或点击刷新按钮')
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '获取市场情报失败')
+      const errorMessage = err instanceof Error ? err.message : '获取市场情报失败'
+      setError(`获取数据失败: ${errorMessage}。请检查网络连接或稍后重试。`)
       console.error('Failed to fetch market intelligence:', err)
     } finally {
       setLoading(false)
@@ -40,8 +53,8 @@ const MarketIntelligence: React.FC = () => {
 
   useEffect(() => {
     fetchData()
-    // 每5分钟刷新一次
-    const interval = setInterval(fetchData, 5 * 60 * 1000)
+    // 每10分钟刷新一次
+    const interval = setInterval(fetchData, 10 * 60 * 1000)
     return () => clearInterval(interval)
   }, [searchKeyword, selectedSource])
 
@@ -113,11 +126,42 @@ const MarketIntelligence: React.FC = () => {
           <option value="reddit">Reddit</option>
           <option value="polymarket">Polymarket</option>
         </select>
+        <button
+          onClick={fetchData}
+          disabled={loading}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: loading ? '#9ca3af' : '#10b981',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}
+          title="手动刷新数据"
+        >
+          <span style={{ fontSize: '16px' }}>🔄</span>
+          {loading ? '刷新中...' : '刷新'}
+        </button>
       </div>
 
       {error && (
-        <div style={{ padding: '10px', marginBottom: '20px', backgroundColor: '#fee', color: '#c33', borderRadius: '4px' }}>
-          错误: {error}
+        <div style={{ 
+          padding: '12px 16px', 
+          marginBottom: '20px', 
+          backgroundColor: error.includes('暂无数据') ? '#fef3c7' : '#fee', 
+          color: error.includes('暂无数据') ? '#92400e' : '#c33', 
+          borderRadius: '6px',
+          border: `1px solid ${error.includes('暂无数据') ? '#fbbf24' : '#f87171'}`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <span style={{ fontSize: '18px' }}>{error.includes('暂无数据') ? '⚠️' : '❌'}</span>
+          <span>{error}</span>
         </div>
       )}
 

@@ -9,8 +9,14 @@ import (
 )
 
 // NewExchange 创建交易所实例
-func NewExchange(cfg *config.Config) (IExchange, error) {
-	exchangeName := cfg.App.CurrentExchange
+// exchangeName/symbol 允许覆盖配置中的当前交易所和交易对，便于多交易对场景
+func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, error) {
+	if exchangeName == "" {
+		exchangeName = cfg.App.CurrentExchange
+	}
+	if symbol == "" {
+		symbol = cfg.Trading.Symbol
+	}
 
 	switch exchangeName {
 	case "bitget":
@@ -24,7 +30,7 @@ func NewExchange(cfg *config.Config) (IExchange, error) {
 			"secret_key": exchangeCfg.SecretKey,
 			"passphrase": exchangeCfg.Passphrase,
 		}
-		adapter, err := bitget.NewBitgetAdapter(cfgMap, cfg.Trading.Symbol)
+		adapter, err := bitget.NewBitgetAdapter(cfgMap, symbol)
 		if err != nil {
 			return nil, err
 		}
@@ -40,7 +46,7 @@ func NewExchange(cfg *config.Config) (IExchange, error) {
 			"secret_key": exchangeCfg.SecretKey,
 			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet), // 传递测试网配置
 		}
-		adapter, err := binance.NewBinanceAdapter(cfgMap, cfg.Trading.Symbol)
+		adapter, err := binance.NewBinanceAdapter(cfgMap, symbol)
 		if err != nil {
 			return nil, err
 		}
@@ -56,7 +62,7 @@ func NewExchange(cfg *config.Config) (IExchange, error) {
 			"secret_key": exchangeCfg.SecretKey,
 			"settle":     "usdt", // 默认 USDT 永续合约
 		}
-		adapter, err := gate.NewGateAdapter(cfgMap, cfg.Trading.Symbol)
+		adapter, err := gate.NewGateAdapter(cfgMap, symbol)
 		if err != nil {
 			return nil, err
 		}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useSymbol } from '../contexts/SymbolContext'
 import { getStatistics, getDailyStatistics } from '../services/api'
 import StatisticsCalendar from './StatisticsCalendar'
 
@@ -28,6 +29,7 @@ interface PnLBySymbol {
 }
 
 const Statistics: React.FC = () => {
+  const { selectedExchange, selectedSymbol } = useSymbol()
   const [stats, setStats] = useState<StatisticsData | null>(null)
   const [dailyStats, setDailyStats] = useState<DailyStatistics[]>([])
   const [pnlByTimeRange, setPnlByTimeRange] = useState<PnLBySymbol[]>([])
@@ -44,8 +46,8 @@ const Statistics: React.FC = () => {
       try {
         setLoading(true)
         const [statsData, dailyData] = await Promise.all([
-          getStatistics(),
-          getDailyStatistics(days).catch(() => ({ statistics: [] })),
+          getStatistics(selectedExchange || undefined, selectedSymbol || undefined),
+          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined).catch(() => ({ statistics: [] })),
         ])
         setStats(statsData)
         setDailyStats(dailyData.statistics || [])
@@ -63,7 +65,7 @@ const Statistics: React.FC = () => {
     const interval = setInterval(fetchData, 30000)
 
     return () => clearInterval(interval)
-  }, [days])
+  }, [days, selectedExchange, selectedSymbol])
 
   // 获取按时间区间的盈亏数据
   useEffect(() => {

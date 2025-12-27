@@ -211,7 +211,7 @@ const AIAnalysis: React.FC = () => {
           </HStack>
         </CardHeader>
         <CardBody>
-          {marketAnalysis ? (
+          {marketAnalysis && marketAnalysis.analysis ? (
             <VStack align="stretch" spacing={4}>
               <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
                 <Stat>
@@ -263,7 +263,7 @@ const AIAnalysis: React.FC = () => {
           </HStack>
         </CardHeader>
         <CardBody>
-          {parameterOptimization ? (
+          {parameterOptimization && parameterOptimization.optimization ? (
             <VStack align="stretch" spacing={4}>
               <SimpleGrid columns={{ base: 1, md: 4 }} spacing={4}>
                 <Stat>
@@ -319,7 +319,7 @@ const AIAnalysis: React.FC = () => {
           </HStack>
         </CardHeader>
         <CardBody>
-          {riskAnalysis ? (
+          {riskAnalysis && riskAnalysis.analysis ? (
             <VStack align="stretch" spacing={4}>
               <HStack>
                 <Text>风险等级:</Text>
@@ -329,7 +329,7 @@ const AIAnalysis: React.FC = () => {
                 <Text>风险评分:</Text>
                 <Badge>{(riskAnalysis.analysis.risk_score * 100).toFixed(1)}</Badge>
               </HStack>
-              {riskAnalysis.analysis.warnings.length > 0 && (
+              {riskAnalysis.analysis.warnings && riskAnalysis.analysis.warnings.length > 0 && (
                 <Box>
                   <Text fontWeight="bold" mb={2}>警告:</Text>
                   <VStack align="stretch" spacing={2}>
@@ -342,7 +342,7 @@ const AIAnalysis: React.FC = () => {
                   </VStack>
                 </Box>
               )}
-              {riskAnalysis.analysis.recommendations.length > 0 && (
+              {riskAnalysis.analysis.recommendations && riskAnalysis.analysis.recommendations.length > 0 && (
                 <Box>
                   <Text fontWeight="bold" mb={2}>建议:</Text>
                   <VStack align="stretch" spacing={2}>
@@ -379,7 +379,7 @@ const AIAnalysis: React.FC = () => {
           </HStack>
         </CardHeader>
         <CardBody>
-          {sentimentAnalysis ? (
+          {sentimentAnalysis && sentimentAnalysis.analysis ? (
             <VStack align="stretch" spacing={4}>
               <HStack>
                 <Text>情绪评分:</Text>
@@ -389,7 +389,7 @@ const AIAnalysis: React.FC = () => {
                 <Text>趋势:</Text>
                 <Badge>{sentimentAnalysis.analysis.trend.toUpperCase()}</Badge>
               </HStack>
-              {sentimentAnalysis.analysis.key_factors.length > 0 && (
+              {sentimentAnalysis.analysis.key_factors && sentimentAnalysis.analysis.key_factors.length > 0 && (
                 <Box>
                   <Text fontWeight="bold" mb={2}>关键因素:</Text>
                   <VStack align="stretch" spacing={2}>
@@ -426,7 +426,7 @@ const AIAnalysis: React.FC = () => {
           </HStack>
         </CardHeader>
         <CardBody>
-          {polymarketSignal ? (
+          {polymarketSignal && polymarketSignal.analysis ? (
             <VStack align="stretch" spacing={4}>
               <HStack>
                 <Text>信号:</Text>

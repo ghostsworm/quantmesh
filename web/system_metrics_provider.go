@@ -25,60 +25,56 @@ func NewSystemMetricsProvider(storageService *storage.StorageService, watchdog *
 
 // GetCurrentMetrics 获取当前系统状态
 func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse, error) {
-	// 尝试从watchdog获取最新数据
+	// 优先从watchdog获取最新数据（从缓存中）
 	if p.watchdog != nil {
-		// TODO: 在watchdog中添加GetLatestMetrics方法
-		// 暂时从数据库获取最新数据
+		latest := p.watchdog.GetLatestMetrics()
+		if latest != nil {
+			return &SystemMetricsResponse{
+				Timestamp:     utils.ToUTC8(latest.Timestamp),
+				CPUPercent:    latest.CPUPercent,
+				MemoryMB:      latest.MemoryMB,
+				MemoryPercent: latest.MemoryPercent,
+				ProcessID:     latest.ProcessID,
+			}, nil
+		}
 	}
 
-	if p.storageService == nil {
+	// 如果watchdog没有数据，实时采集一次
+	metrics, err := monitor.CollectSystemMetrics()
+	if err == nil && metrics != nil {
 		return &SystemMetricsResponse{
-			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:    0,
-			MemoryMB:      0,
-			MemoryPercent: 0,
-			ProcessID:     0,
+			Timestamp:     utils.ToUTC8(metrics.Timestamp),
+			CPUPercent:    metrics.CPUPercent,
+			MemoryMB:      metrics.MemoryMB,
+			MemoryPercent: metrics.MemoryPercent,
+			ProcessID:     metrics.ProcessID,
 		}, nil
 	}
 
-	storage := p.storageService.GetStorage()
-	if storage == nil {
-		return &SystemMetricsResponse{
-			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:    0,
-			MemoryMB:      0,
-			MemoryPercent: 0,
-			ProcessID:     0,
-		}, nil
+	// 如果实时采集失败，尝试从数据库获取最新数据
+	if p.storageService != nil {
+		storage := p.storageService.GetStorage()
+		if storage != nil {
+			latest, err := storage.GetLatestSystemMetrics()
+			if err == nil && latest != nil {
+				return &SystemMetricsResponse{
+					Timestamp:     utils.ToUTC8(latest.Timestamp),
+					CPUPercent:    latest.CPUPercent,
+					MemoryMB:      latest.MemoryMB,
+					MemoryPercent: latest.MemoryPercent,
+					ProcessID:     latest.ProcessID,
+				}, nil
+			}
+		}
 	}
 
-	latest, err := storage.GetLatestSystemMetrics()
-	if err != nil {
-		return &SystemMetricsResponse{
-			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:    0,
-			MemoryMB:      0,
-			MemoryPercent: 0,
-			ProcessID:     0,
-		}, nil
-	}
-
-	if latest == nil {
-		return &SystemMetricsResponse{
-			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:    0,
-			MemoryMB:      0,
-			MemoryPercent: 0,
-			ProcessID:     0,
-		}, nil
-	}
-
+	// 所有方法都失败，返回默认值（但这种情况应该很少发生）
 	return &SystemMetricsResponse{
-		Timestamp:     utils.ToUTC8(latest.Timestamp),
-		CPUPercent:    latest.CPUPercent,
-		MemoryMB:      latest.MemoryMB,
-		MemoryPercent: latest.MemoryPercent,
-		ProcessID:     latest.ProcessID,
+		Timestamp:     utils.ToUTC8(time.Now()),
+		CPUPercent:    0,
+		MemoryMB:      0,
+		MemoryPercent: 0,
+		ProcessID:     0,
 	}, nil
 }
 

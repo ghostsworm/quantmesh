@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts'
+import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, getKlines, KlineData } from '../services/api'
 
 const INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'] as const
@@ -60,6 +61,7 @@ const getLimitByInterval = (interval: Interval): number => {
 }
 
 const KlineChart: React.FC = () => {
+  const { selectedExchange, selectedSymbol } = useSymbol()
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -292,7 +294,7 @@ const KlineChart: React.FC = () => {
     
     try {
       const limit = getLimitByInterval(currentInterval)
-      const response = await getKlines(currentInterval, limit, abortController.signal)
+      const response = await getKlines(currentInterval, limit, selectedExchange || undefined, selectedSymbol || undefined, abortController.signal)
       
       // 检查请求是否已被取消
       if (abortController.signal.aborted) {
