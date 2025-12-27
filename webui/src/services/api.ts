@@ -123,8 +123,10 @@ export interface PendingOrderInfo {
   side: string
   price: number
   quantity: number
+  filled_quantity: number
   status: string
   created_at: string
+  slot_price: number
 }
 
 export interface PendingOrdersResponse {

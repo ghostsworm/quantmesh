@@ -49,9 +49,10 @@ const Orders: React.FC = () => {
     const fetchPendingOrders = async () => {
       try {
         const data = await getPendingOrders()
-        setPendingOrders(data.orders)
+        setPendingOrders(data.orders || [])
       } catch (err) {
         console.error('Failed to fetch pending orders:', err)
+        setPendingOrders([])
       }
     }
 
@@ -61,6 +62,7 @@ const Orders: React.FC = () => {
         setHistoryOrders(data.orders || [])
       } catch (err) {
         console.error('Failed to fetch history orders:', err)
+        setHistoryOrders([])
       }
     }
 
