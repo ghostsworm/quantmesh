@@ -230,3 +230,15 @@ func (po *ParameterOptimizer) GetLastOptimization() *ParameterOptimizationRespon
 	return po.lastOptimization
 }
 
+// GetLastOptimizationTime 获取最后一次优化时间
+func (po *ParameterOptimizer) GetLastOptimizationTime() time.Time {
+	po.mu.RLock()
+	defer po.mu.RUnlock()
+	return po.lastOptimizationTime
+}
+
+// TriggerOptimization 手动触发优化
+func (po *ParameterOptimizer) TriggerOptimization() error {
+	return po.performOptimization()
+}
+

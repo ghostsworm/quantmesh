@@ -47,6 +47,132 @@ func (a *reconciliationStorageAdapter) SaveReconciliationHistory(symbol string, 
 		activeBuyOrders, activeSellOrders, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit)
 }
 
+// AI适配器（用于Web API）
+type aiMarketAdapter struct {
+	analyzer *ai.MarketAnalyzer
+}
+
+func (a *aiMarketAdapter) GetLastAnalysis() interface{} {
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *aiMarketAdapter) GetLastAnalysisTime() time.Time {
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *aiMarketAdapter) PerformAnalysis() error {
+	return a.analyzer.TriggerAnalysis()
+}
+
+type aiParamAdapter struct {
+	optimizer *ai.ParameterOptimizer
+}
+
+func (a *aiParamAdapter) GetLastOptimization() interface{} {
+	return a.optimizer.GetLastOptimization()
+}
+
+func (a *aiParamAdapter) GetLastOptimizationTime() time.Time {
+	return a.optimizer.GetLastOptimizationTime()
+}
+
+func (a *aiParamAdapter) PerformOptimization() error {
+	return a.optimizer.TriggerOptimization()
+}
+
+type aiRiskAdapter struct {
+	analyzer *ai.RiskAnalyzer
+}
+
+func (a *aiRiskAdapter) GetLastAnalysis() interface{} {
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *aiRiskAdapter) GetLastAnalysisTime() time.Time {
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *aiRiskAdapter) PerformAnalysis() error {
+	return a.analyzer.TriggerAnalysis()
+}
+
+type aiSentimentAdapter struct {
+	analyzer *ai.SentimentAnalyzer
+}
+
+func (a *aiSentimentAdapter) GetLastAnalysis() interface{} {
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *aiSentimentAdapter) GetLastAnalysisTime() time.Time {
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *aiSentimentAdapter) PerformAnalysis() error {
+	// 由于performAnalysis是私有方法，我们需要通过其他方式触发
+	return fmt.Errorf("请通过配置启用情绪分析的自动分析功能")
+}
+
+type aiPolymarketAdapter struct {
+	analyzer *ai.PolymarketSignalAnalyzer
+}
+
+func (a *aiPolymarketAdapter) GetLastAnalysis() interface{} {
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *aiPolymarketAdapter) GetLastAnalysisTime() time.Time {
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *aiPolymarketAdapter) PerformAnalysis() error {
+	// 由于performAnalysis是私有方法，我们需要通过其他方式触发
+	return fmt.Errorf("请通过配置启用Polymarket信号的自动分析功能")
+}
+
+type aiPromptAdapter struct {
+	manager *ai.PromptManager
+}
+
+func (a *aiPromptAdapter) GetAllPrompts() (map[string]interface{}, error) {
+	prompts, err := a.manager.GetAllPrompts()
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]interface{})
+	for k, v := range prompts {
+		result[k] = map[string]interface{}{
+			"module":        v.Module,
+			"template":      v.Template,
+			"system_prompt": v.SystemPrompt,
+		}
+	}
+	return result, nil
+}
+
+func (a *aiPromptAdapter) UpdatePrompt(module, template, systemPrompt string) error {
+	return a.manager.UpdatePrompt(module, template, systemPrompt)
+}
+
+// reconciliationRestoreAdapter 对账恢复适配器（用于从数据库恢复对账统计）
+type reconciliationRestoreAdapter struct {
+	storage storage.Storage
+}
+
+func (a *reconciliationRestoreAdapter) GetLatestReconciliationHistory(symbol string) (interface{}, error) {
+	if a.storage == nil {
+		return nil, nil
+	}
+	return a.storage.GetLatestReconciliationHistory(symbol)
+}
+
+func (a *reconciliationRestoreAdapter) GetReconciliationCount(symbol string) (int64, error) {
+	if a.storage == nil {
+		return 0, nil
+	}
+	return a.storage.GetReconciliationCount(symbol)
+}
+
 // tradeStorageAdapter 交易存储适配器
 type tradeStorageAdapter struct {
 	storageService *storage.StorageService
@@ -537,6 +663,18 @@ func main() {
 		logger.Fatalf("❌ 初始化超级仓位管理器失败: %v", err)
 	}
 
+	// 恢复对账统计值（从数据库加载历史数据）
+	if storageService != nil {
+		storage := storageService.GetStorage()
+		if storage != nil {
+			restoreAdapter := &reconciliationRestoreAdapter{storage: storage}
+			symbol := cfg.Trading.Symbol
+			if err := superPositionManager.RestoreReconciliationStats(restoreAdapter, symbol); err != nil {
+				logger.Warn("⚠️ 恢复对账统计失败: %v（将继续运行，使用默认值）", err)
+			}
+		}
+	}
+
 	// 启动持仓对账（使用独立的 Reconciler）
 	reconciler.Start(ctx)
 
@@ -562,8 +700,14 @@ func main() {
 	go riskMonitor.Start(ctx)
 
 	// === AI服务初始化 ===
+	var aiPromptManager *ai.PromptManager
 	if cfg.AI.Enabled {
 		logger.Info("🤖 初始化AI服务...")
+
+		// 创建提示词管理器
+		if storageService != nil {
+			aiPromptManager = ai.NewPromptManager(storageService.GetStorage())
+		}
 
 		// 创建AI服务工厂
 		factory := ai.NewAIServiceFactory()
@@ -575,7 +719,7 @@ func main() {
 		}
 
 		var err error
-		aiService, err = factory.CreateService(serviceType, cfg.AI.APIKey, cfg.AI.BaseURL)
+		aiService, err = factory.CreateService(serviceType, cfg.AI.APIKey, cfg.AI.BaseURL, aiPromptManager)
 		if err != nil {
 			logger.Warn("⚠️ 创建AI服务失败: %v（AI功能将不可用）", err)
 		} else {
@@ -639,6 +783,28 @@ func main() {
 			web.SetOrderQuantityConfig(cfg.Trading.OrderQuantity)
 		}
 
+		// 设置AI提供者
+		if cfg.AI.Enabled {
+			if aiMarketAnalyzer != nil {
+				web.SetAIMarketAnalyzerProvider(&aiMarketAdapter{analyzer: aiMarketAnalyzer})
+			}
+			if aiParameterOptimizer != nil {
+				web.SetAIParameterOptimizerProvider(&aiParamAdapter{optimizer: aiParameterOptimizer})
+			}
+			if aiRiskAnalyzer != nil {
+				web.SetAIRiskAnalyzerProvider(&aiRiskAdapter{analyzer: aiRiskAnalyzer})
+			}
+			if aiSentimentAnalyzer != nil {
+				web.SetAISentimentAnalyzerProvider(&aiSentimentAdapter{analyzer: aiSentimentAnalyzer})
+			}
+			if aiPolymarketSignalAnalyzer != nil {
+				web.SetAIPolymarketSignalProvider(&aiPolymarketAdapter{analyzer: aiPolymarketSignalAnalyzer})
+			}
+			if aiPromptManager != nil {
+				web.SetAIPromptManagerProvider(&aiPromptAdapter{manager: aiPromptManager})
+			}
+		}
+
 		// 设置价格提供者（用于计算持仓价值）
 		if priceMonitor != nil {
 			web.SetPriceProvider(priceMonitor)
@@ -681,6 +847,23 @@ func main() {
 			logger.Info("✅ 资金费率监控服务已启动")
 		}
 
+		// 初始化市场情报数据源提供者
+		if aiDataSourceMgr != nil {
+			// 获取配置的RSS源
+			rssFeeds := cfg.AI.Modules.SentimentAnalysis.DataSources.News.RSSFeeds
+			fearGreedAPIURL := cfg.AI.Modules.SentimentAnalysis.DataSources.FearGreedIndex.APIURL
+			polymarketAPIURL := cfg.AI.Modules.PolymarketSignal.APIURL
+			
+			dataSourceAdapter := web.NewDataSourceAdapter(
+				aiDataSourceMgr,
+				rssFeeds,
+				fearGreedAPIURL,
+				polymarketAPIURL,
+			)
+			web.SetDataSourceProvider(dataSourceAdapter)
+			logger.Info("✅ 市场情报数据源提供者已初始化")
+		}
+
 		// 初始化认证系统
 		dataDir := "./data"
 		if cfg.Storage.Enabled && cfg.Storage.Path != "" {
@@ -701,6 +884,10 @@ func main() {
 		sessionManager := web.GetSessionManager()
 		web.SetSessionManager(sessionManager)
 		logger.Info("✅ 会话管理器已初始化")
+
+		// === 初始化配置管理系统（需要在设置到web包之前创建） ===
+		configBackupMgr = config.NewBackupManager()
+		configHotReloader = config.NewHotReloader(cfg)
 
 		// 初始化配置管理器（用于Web API）
 		configManager := web.NewConfigManager(configPath)
@@ -746,9 +933,7 @@ func main() {
 		}
 	}
 
-	// === 初始化配置管理系统 ===
-	configBackupMgr = config.NewBackupManager()
-	configHotReloader = config.NewHotReloader(cfg)
+	// === 初始化配置监控器（在配置管理系统初始化之后） ===
 	configWatcher, err = config.NewConfigWatcher(configPath, configHotReloader, configBackupMgr)
 	if err != nil {
 		logger.Warn("⚠️ 初始化配置监控器失败: %v（配置文件外部修改将不会自动生效）", err)
@@ -1019,7 +1204,49 @@ func main() {
 		}()
 	}
 
-	// 15. 等待退出信号
+	// 15. 启动风控检查历史数据清理任务（每天清理一次超过90天的数据）
+	if storageService != nil {
+		go func() {
+			// 计算到下一个凌晨的时间
+			now := time.Now()
+			nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+			initialDelay := nextMidnight.Sub(now)
+
+			// 等待到第一个凌晨
+			time.Sleep(initialDelay)
+
+			// 每天凌晨执行一次清理
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+
+			storage := storageService.GetStorage()
+			if storage != nil {
+				// 立即执行一次清理（启动时）
+				cutoffTime := time.Now().AddDate(0, 0, -90) // 保留90天
+				if err := storage.CleanupRiskCheckHistory(cutoffTime); err != nil {
+					logger.Warn("⚠️ 清理旧风控检查历史失败: %v", err)
+				} else {
+					logger.Info("✅ 已清理超过90天的风控检查历史")
+				}
+
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						cutoffTime := time.Now().AddDate(0, 0, -90) // 保留90天
+						if err := storage.CleanupRiskCheckHistory(cutoffTime); err != nil {
+							logger.Warn("⚠️ 清理旧风控检查历史失败: %v", err)
+						} else {
+							logger.Debug("✅ 已清理超过90天的风控检查历史")
+						}
+					}
+				}
+			}
+		}()
+	}
+
+	// 16. 等待退出信号
 waitForSignal:
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

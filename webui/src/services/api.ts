@@ -639,3 +639,70 @@ export async function getFundingRateHistory(symbol?: string, limit: number = 100
   queryParams.append('limit', limit.toString())
   return fetchWithAuth(`${API_BASE_URL}/funding/history?${queryParams.toString()}`)
 }
+
+// Market Intelligence
+export interface RSSItemInfo {
+  title: string
+  description: string
+  link: string
+  pub_date: string
+  source: string
+}
+
+export interface RSSFeedInfo {
+  title: string
+  description: string
+  url: string
+  items: RSSItemInfo[]
+  last_update: string
+}
+
+export interface FearGreedIndexInfo {
+  value: number
+  classification: string
+  timestamp: string
+}
+
+export interface RedditPostInfo {
+  title: string
+  content: string
+  url: string
+  subreddit: string
+  score: number
+  upvote_ratio: number
+  created_at: string
+  author: string
+}
+
+export interface PolymarketMarketInfo {
+  id: string
+  question: string
+  description: string
+  end_date: string
+  outcomes: string[]
+  volume: number
+  liquidity: number
+}
+
+export interface MarketIntelligenceResponse {
+  rss_feeds: RSSFeedInfo[]
+  fear_greed: FearGreedIndexInfo | null
+  reddit_posts: RedditPostInfo[]
+  polymarket: PolymarketMarketInfo[]
+}
+
+export interface MarketIntelligenceParams {
+  source?: 'rss' | 'fear_greed' | 'reddit' | 'polymarket'
+  keyword?: string
+  limit?: number
+}
+
+export async function getMarketIntelligence(params?: MarketIntelligenceParams): Promise<MarketIntelligenceResponse> {
+  const queryParams = new URLSearchParams()
+  if (params?.source) queryParams.append('source', params.source)
+  if (params?.keyword) queryParams.append('keyword', params.keyword)
+  if (params?.limit) queryParams.append('limit', params.limit.toString())
+  
+  const url = `${API_BASE_URL}/market-intelligence${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
+}

@@ -35,15 +35,20 @@ type Storage interface {
 	QueryDailyStatisticsFromTrades(startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	SaveReconciliationHistory(history *ReconciliationHistory) error
 	QueryReconciliationHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error)
+	GetLatestReconciliationHistory(symbol string) (*ReconciliationHistory, error)
+	GetReconciliationCount(symbol string) (int64, error)
 	GetPnLBySymbol(symbol string, startTime, endTime time.Time) (*PnLSummary, error)
 	GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLBySymbol, error)
 	GetActualProfitBySymbol(symbol string, beforeTime time.Time) (float64, error)
 	SaveRiskCheck(record *RiskCheckRecord) error
-	QueryRiskCheckHistory(startTime, endTime time.Time) ([]*RiskCheckHistory, error)
+	QueryRiskCheckHistory(startTime, endTime time.Time, limit int) ([]*RiskCheckHistory, error)
 	CleanupRiskCheckHistory(beforeTime time.Time) error
 	SaveFundingRate(symbol, exchange string, rate float64, timestamp time.Time) error
 	GetLatestFundingRate(symbol, exchange string) (float64, error)
 	GetFundingRateHistory(symbol, exchange string, limit int) ([]*FundingRate, error)
+	GetAIPromptTemplate(module string) (*AIPromptTemplate, error)
+	SetAIPromptTemplate(template *AIPromptTemplate) error
+	GetAllAIPromptTemplates() ([]*AIPromptTemplate, error)
 	Close() error
 }
 

@@ -106,7 +106,21 @@ func SetupRoutes(r *gin.Engine) {
 
 			// 资金费率API
 			protected.GET("/funding/current", getFundingRate)
+
+			// AI分析API
+			protected.GET("/ai/status", getAIAnalysisStatus)
+			protected.GET("/ai/analysis/market", getAIMarketAnalysis)
+			protected.GET("/ai/analysis/parameter", getAIParameterOptimization)
+			protected.GET("/ai/analysis/risk", getAIRiskAnalysis)
+			protected.GET("/ai/analysis/sentiment", getAISentimentAnalysis)
+			protected.GET("/ai/analysis/polymarket", getAIPolymarketSignal)
+			protected.POST("/ai/analysis/trigger/:module", triggerAIAnalysis)
+			protected.GET("/ai/prompts", getAIPrompts)
+			protected.POST("/ai/prompts", updateAIPrompt)
 			protected.GET("/funding/history", getFundingRateHistory)
+
+			// 市场情报API
+			protected.GET("/market-intelligence", getMarketIntelligence)
 		}
 	}
 

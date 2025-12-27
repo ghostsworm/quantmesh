@@ -242,3 +242,8 @@ func (ra *RiskAnalyzer) GetLastAnalysisTime() time.Time {
 	return ra.lastAnalysisTime
 }
 
+// TriggerAnalysis 手动触发分析
+func (ra *RiskAnalyzer) TriggerAnalysis() error {
+	return ra.performAnalysis()
+}
+

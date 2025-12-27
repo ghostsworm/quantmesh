@@ -24,6 +24,7 @@ type RiskMonitor struct {
 	exchange       exchange.IExchange
 	storage        storage.Storage
 	symbolDataMap  map[string]*SymbolData
+	lastHealthStatus map[string]bool // 缓存每个币种的上一次健康状态
 	mu             sync.RWMutex
 	triggered      bool
 	triggeredTime  time.Time
@@ -41,9 +42,10 @@ func NewRiskMonitor(cfg *config.Config, ex exchange.IExchange) *RiskMonitor {
 	}
 
 	return &RiskMonitor{
-		cfg:           cfg,
-		exchange:      ex,
-		symbolDataMap: symbolDataMap,
+		cfg:             cfg,
+		exchange:        ex,
+		symbolDataMap:   symbolDataMap,
+		lastHealthStatus: make(map[string]bool),
 	}
 }
 
@@ -314,10 +316,32 @@ func (r *RiskMonitor) checkMarket() {
 		r.mu.Unlock()
 	}
 
-	// 异步保存检查结果（不阻塞）
+	// 异步保存检查结果（只在状态变化时保存，减少数据量）
 	if r.storage != nil && len(checkRecords) > 0 {
 		go func() {
+			r.mu.RLock()
+			lastStatus := make(map[string]bool)
+			for k, v := range r.lastHealthStatus {
+				lastStatus[k] = v
+			}
+			r.mu.RUnlock()
+
+			var recordsToSave []*storage.RiskCheckRecord
 			for _, record := range checkRecords {
+				// 检查状态是否发生变化
+				lastHealthy, exists := lastStatus[record.Symbol]
+				if !exists || lastHealthy != record.IsHealthy {
+					// 状态发生变化，需要保存
+					recordsToSave = append(recordsToSave, record)
+					// 更新缓存
+					r.mu.Lock()
+					r.lastHealthStatus[record.Symbol] = record.IsHealthy
+					r.mu.Unlock()
+				}
+			}
+
+			// 只在状态变化时保存
+			for _, record := range recordsToSave {
 				if err := r.storage.SaveRiskCheck(record); err != nil {
 					logger.Debug("保存风控检查记录失败: %v", err)
 				}

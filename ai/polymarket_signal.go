@@ -417,6 +417,11 @@ func (psa *PolymarketSignalAnalyzer) GetLastAnalysisTime() time.Time {
 	return psa.lastAnalysisTime
 }
 
+// TriggerAnalysis 手动触发分析
+func (psa *PolymarketSignalAnalyzer) TriggerAnalysis() error {
+	return psa.performAnalysis()
+}
+
 // 辅助函数
 func abs(x float64) float64 {
 	if x < 0 {

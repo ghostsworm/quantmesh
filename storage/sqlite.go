@@ -183,6 +183,17 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_funding_rates_timestamp ON funding_rates(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_funding_rates_symbol_timestamp ON funding_rates(symbol, timestamp);`
 
+	// AI提示词模板表
+	aiPromptsSQL := `
+	CREATE TABLE IF NOT EXISTS ai_prompts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		module TEXT UNIQUE NOT NULL,
+		template TEXT NOT NULL,
+		system_prompt TEXT,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_ai_prompts_module ON ai_prompts(module);`
+
 	// 创建索引
 	indexesSQL := `
 	CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
@@ -205,6 +216,7 @@ func createTables(db *sql.DB) error {
 		reconciliationHistorySQL,
 		riskCheckHistorySQL,
 		fundingRatesSQL,
+		aiPromptsSQL,
 		indexesSQL,
 	}
 	for _, sql := range sqls {
@@ -722,6 +734,64 @@ func (s *SQLiteStorage) QueryReconciliationHistory(symbol string, startTime, end
 	return histories, nil
 }
 
+// GetLatestReconciliationHistory 获取指定币种的最新对账记录
+func (s *SQLiteStorage) GetLatestReconciliationHistory(symbol string) (*ReconciliationHistory, error) {
+	query := `
+		SELECT id, symbol, reconcile_time, local_position, exchange_position, position_diff,
+		       active_buy_orders, active_sell_orders, pending_sell_qty,
+		       total_buy_qty, total_sell_qty, estimated_profit, actual_profit, created_at
+		FROM reconciliation_history
+		WHERE symbol = ?
+		ORDER BY reconcile_time DESC
+		LIMIT 1
+	`
+	
+	row := s.db.QueryRow(query, symbol)
+	h := &ReconciliationHistory{}
+	
+	err := row.Scan(
+		&h.ID,
+		&h.Symbol,
+		&h.ReconcileTime,
+		&h.LocalPosition,
+		&h.ExchangePosition,
+		&h.PositionDiff,
+		&h.ActiveBuyOrders,
+		&h.ActiveSellOrders,
+		&h.PendingSellQty,
+		&h.TotalBuyQty,
+		&h.TotalSellQty,
+		&h.EstimatedProfit,
+		&h.ActualProfit,
+		&h.CreatedAt,
+	)
+	
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // 没有记录，返回 nil 而不是错误
+		}
+		return nil, fmt.Errorf("查询最新对账记录失败: %w", err)
+	}
+	
+	return h, nil
+}
+
+// GetReconciliationCount 获取指定币种的对账次数（统计历史记录数量）
+func (s *SQLiteStorage) GetReconciliationCount(symbol string) (int64, error) {
+	query := `SELECT COUNT(*) FROM reconciliation_history WHERE symbol = ?`
+	
+	var count int64
+	err := s.db.QueryRow(query, symbol).Scan(&count)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil // 没有记录，返回 0
+		}
+		return 0, fmt.Errorf("统计对账次数失败: %w", err)
+	}
+	
+	return count, nil
+}
+
 // GetPnLBySymbol 按币种对查询盈亏数据
 func (s *SQLiteStorage) GetPnLBySymbol(symbol string, startTime, endTime time.Time) (*PnLSummary, error) {
 	row := s.db.QueryRow(`
@@ -864,13 +934,37 @@ func (s *SQLiteStorage) SaveRiskCheck(record *RiskCheckRecord) error {
 }
 
 // QueryRiskCheckHistory 查询风控检查历史
-func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time) ([]*RiskCheckHistory, error) {
+func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limit int) ([]*RiskCheckHistory, error) {
+	// 如果 limit <= 0，默认限制为 500 条
+	if limit <= 0 {
+		limit = 500
+	}
+	
+	// 根据时间范围决定聚合粒度
+	timeRange := endTime.Sub(startTime)
+	var truncateDuration time.Duration
+	if timeRange > 30*24*time.Hour {
+		// 超过30天，按小时聚合
+		truncateDuration = time.Hour
+	} else if timeRange > 7*24*time.Hour {
+		// 超过7天，按30分钟聚合
+		truncateDuration = 30 * time.Minute
+	} else if timeRange > 24*time.Hour {
+		// 超过1天，按10分钟聚合
+		truncateDuration = 10 * time.Minute
+	} else {
+		// 1天内，按分钟聚合
+		truncateDuration = time.Minute
+	}
+	
+	// 查询数据，按时间倒序，限制数量
 	rows, err := s.db.Query(`
 		SELECT check_time, symbol, is_healthy, price_deviation, volume_ratio, reason
 		FROM risk_check_history
 		WHERE check_time >= ? AND check_time <= ?
-		ORDER BY check_time ASC
-	`, startTime, endTime)
+		ORDER BY check_time DESC
+		LIMIT ?
+	`, startTime, endTime, limit*10) // 多查询一些，因为后面会聚合
 	if err != nil {
 		return nil, fmt.Errorf("查询风控检查历史失败: %w", err)
 	}
@@ -892,8 +986,8 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time) ([]*
 			continue
 		}
 
-		// 将时间戳精确到分钟（同一分钟内的检查归为一组）
-		checkTimeRounded := checkTime.Truncate(time.Minute)
+		// 根据时间范围聚合时间戳
+		checkTimeRounded := checkTime.Truncate(truncateDuration)
 
 		history, exists := historyMap[checkTimeRounded]
 		if !exists {
@@ -938,6 +1032,11 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time) ([]*
 				result[i], result[j] = result[j], result[i]
 			}
 		}
+	}
+
+	// 限制返回数量（取最新的 limit 条）
+	if len(result) > limit {
+		result = result[len(result)-limit:]
 	}
 
 	return result, nil
@@ -1034,6 +1133,60 @@ func abs(x float64) float64 {
 		return -x
 	}
 	return x
+}
+
+// GetAIPromptTemplate 获取AI提示词模板
+func (s *SQLiteStorage) GetAIPromptTemplate(module string) (*AIPromptTemplate, error) {
+	var template AIPromptTemplate
+	err := s.db.QueryRow(
+		"SELECT id, module, template, system_prompt, updated_at FROM ai_prompts WHERE module = ?",
+		module,
+	).Scan(&template.ID, &template.Module, &template.Template, &template.SystemPrompt, &template.UpdatedAt)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil // 不存在，返回nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &template, nil
+}
+
+// SetAIPromptTemplate 设置AI提示词模板
+func (s *SQLiteStorage) SetAIPromptTemplate(template *AIPromptTemplate) error {
+	_, err := s.db.Exec(
+		`INSERT INTO ai_prompts (module, template, system_prompt, updated_at) 
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(module) DO UPDATE SET 
+		 template = excluded.template,
+		 system_prompt = excluded.system_prompt,
+		 updated_at = excluded.updated_at`,
+		template.Module, template.Template, template.SystemPrompt, time.Now(),
+	)
+	return err
+}
+
+// GetAllAIPromptTemplates 获取所有AI提示词模板
+func (s *SQLiteStorage) GetAllAIPromptTemplates() ([]*AIPromptTemplate, error) {
+	rows, err := s.db.Query(
+		"SELECT id, module, template, system_prompt, updated_at FROM ai_prompts ORDER BY module",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var templates []*AIPromptTemplate
+	for rows.Next() {
+		var template AIPromptTemplate
+		err := rows.Scan(&template.ID, &template.Module, &template.Template, &template.SystemPrompt, &template.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		templates = append(templates, &template)
+	}
+
+	return templates, rows.Err()
 }
 
 // Close 关闭数据库连接

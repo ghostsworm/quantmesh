@@ -160,3 +160,12 @@ type FundingRate struct {
 	CreatedAt time.Time
 }
 
+// AIPromptTemplate AI提示词模板模型
+type AIPromptTemplate struct {
+	ID          int64
+	Module      string    // 模块名: market_analysis, parameter_optimization, risk_analysis, sentiment_analysis
+	Template    string    // 提示词模板（支持占位符）
+	SystemPrompt string   // 系统提示词（可选）
+	UpdatedAt    time.Time
+}
+

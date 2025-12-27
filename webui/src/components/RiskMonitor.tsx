@@ -63,6 +63,8 @@ const RiskMonitor: React.FC = () => {
     return () => clearInterval(interval)
   }, [])
 
+  const [timeRange, setTimeRange] = useState<number>(7) // 默认7天
+
   // Fetch History Data
   useEffect(() => {
     const fetchHistory = async () => {
@@ -70,7 +72,7 @@ const RiskMonitor: React.FC = () => {
         setLoadingHistory(true)
         const endTime = new Date()
         const startTime = new Date()
-        startTime.setDate(startTime.getDate() - 90) // 最近90天
+        startTime.setDate(startTime.getDate() - timeRange)
         
         const data = await getRiskCheckHistory({
           start_time: startTime.toISOString(),
@@ -89,7 +91,7 @@ const RiskMonitor: React.FC = () => {
     fetchHistory()
     const interval = setInterval(fetchHistory, 30000) // Refresh every 30 seconds
     return () => clearInterval(interval)
-  }, [])
+  }, [timeRange])
 
   const formatTime = (timeStr: string | Date) => {
     if (!timeStr) return 'N/A'
@@ -186,7 +188,28 @@ const RiskMonitor: React.FC = () => {
       )}
 
       {/* History Health Chart */}
-      <h3 style={{ marginTop: '32px' }}>历史健康度</h3>
+      <div style={{ marginTop: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3 style={{ margin: 0 }}>历史健康度</h3>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <label style={{ fontSize: '14px' }}>时间范围：</label>
+          <select 
+            value={timeRange} 
+            onChange={(e) => setTimeRange(Number(e.target.value))}
+            style={{ 
+              padding: '4px 8px', 
+              fontSize: '14px',
+              border: '1px solid #d9d9d9',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            <option value={1}>最近1天</option>
+            <option value={7}>最近7天</option>
+            <option value={30}>最近30天</option>
+            <option value={90}>最近90天</option>
+          </select>
+        </div>
+      </div>
       {loadingHistory && historyData.length === 0 ? (
         <p>加载历史数据...</p>
       ) : errorHistory ? (

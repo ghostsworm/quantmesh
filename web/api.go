@@ -2,10 +2,12 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -1681,13 +1683,15 @@ func getRiskCheckHistory(c *gin.Context) {
 	// 解析参数
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
+	limitStr := c.Query("limit")
 
 	var startTime, endTime time.Time
 	var err error
+	limit := 500 // 默认限制500条
 
 	if startTimeStr == "" {
-		// 默认最近90天
-		startTime = time.Now().AddDate(0, 0, -90)
+		// 默认最近7天（减少默认数据量）
+		startTime = time.Now().AddDate(0, 0, -7)
 	} else {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
@@ -1706,8 +1710,18 @@ func getRiskCheckHistory(c *gin.Context) {
 		}
 	}
 
+	if limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+			// 最大限制为2000条
+			if limit > 2000 {
+				limit = 2000
+			}
+		}
+	}
+
 	// 查询历史数据
-	histories, err := storage.QueryRiskCheckHistory(startTime, endTime)
+	histories, err := storage.QueryRiskCheckHistory(startTime, endTime, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -1928,5 +1942,1000 @@ func getFundingRateHistory(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"history": response})
+}
+
+// ========== 市场情报数据源相关API ==========
+
+var (
+	// 数据源管理器提供者（需要从main.go注入）
+	dataSourceProvider DataSourceProvider
+)
+
+// DataSourceProvider 数据源提供者接口
+type DataSourceProvider interface {
+	GetRSSFeeds() ([]RSSFeedInfo, error)
+	GetFearGreedIndex() (*FearGreedIndexInfo, error)
+	GetRedditPosts(subreddits []string, limit int) ([]RedditPostInfo, error)
+	GetPolymarketMarkets(keywords []string) ([]PolymarketMarketInfo, error)
+}
+
+// RSSFeedInfo RSS源信息
+type RSSFeedInfo struct {
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	URL         string    `json:"url"`
+	Items       []RSSItemInfo `json:"items"`
+	LastUpdate  time.Time `json:"last_update"`
+}
+
+// RSSItemInfo RSS项信息
+type RSSItemInfo struct {
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Link        string    `json:"link"`
+	PubDate     time.Time `json:"pub_date"`
+	Source      string    `json:"source"`
+}
+
+// FearGreedIndexInfo 恐慌贪婪指数信息
+type FearGreedIndexInfo struct {
+	Value         int       `json:"value"`
+	Classification string    `json:"classification"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+// RedditPostInfo Reddit帖子信息
+type RedditPostInfo struct {
+	Title       string    `json:"title"`
+	Content     string    `json:"content"`
+	URL         string    `json:"url"`
+	Subreddit   string    `json:"subreddit"`
+	Score       int       `json:"score"`
+	UpvoteRatio float64   `json:"upvote_ratio"`
+	CreatedAt   time.Time `json:"created_at"`
+	Author      string    `json:"author"`
+}
+
+// PolymarketMarketInfo Polymarket市场信息
+type PolymarketMarketInfo struct {
+	ID          string    `json:"id"`
+	Question    string    `json:"question"`
+	Description string    `json:"description"`
+	EndDate     time.Time `json:"end_date"`
+	Outcomes    []string  `json:"outcomes"`
+	Volume      float64   `json:"volume"`
+	Liquidity   float64   `json:"liquidity"`
+}
+
+// SetDataSourceProvider 设置数据源提供者
+func SetDataSourceProvider(provider DataSourceProvider) {
+	dataSourceProvider = provider
+}
+
+// dataSourceAdapter 数据源适配器
+// 注意：这个适配器使用反射来调用方法，避免循环依赖
+type dataSourceAdapter struct {
+	dsm interface{}
+	rssFeeds []string
+	fearGreedAPIURL string
+	polymarketAPIURL string
+}
+
+// NewDataSourceAdapter 创建数据源适配器
+// dsm 应该是 *ai.DataSourceManager 类型，但使用 interface{} 避免循环依赖
+func NewDataSourceAdapter(dsm interface{}, rssFeeds []string, fearGreedAPIURL, polymarketAPIURL string) DataSourceProvider {
+	return &dataSourceAdapter{
+		dsm: dsm,
+		rssFeeds: rssFeeds,
+		fearGreedAPIURL: fearGreedAPIURL,
+		polymarketAPIURL: polymarketAPIURL,
+	}
+}
+
+// GetRSSFeeds 获取RSS源
+func (a *dataSourceAdapter) GetRSSFeeds() ([]RSSFeedInfo, error) {
+	if a.dsm == nil {
+		return nil, fmt.Errorf("数据源管理器未初始化")
+	}
+
+	// 使用反射调用方法（避免循环依赖）
+	dsmValue := reflect.ValueOf(a.dsm)
+	if !dsmValue.IsValid() {
+		return nil, fmt.Errorf("无效的数据源管理器")
+	}
+
+	feeds := make([]RSSFeedInfo, 0)
+	
+	// 如果没有配置RSS源，使用默认源
+	rssFeeds := a.rssFeeds
+	if len(rssFeeds) == 0 {
+		rssFeeds = []string{
+			"https://www.coindesk.com/arc/outboundfeeds/rss/",
+			"https://cointelegraph.com/rss",
+			"https://cryptonews.com/news/feed/",
+		}
+	}
+
+	for _, feedURL := range rssFeeds {
+		method := dsmValue.MethodByName("FetchRSSFeed")
+		if !method.IsValid() {
+			continue
+		}
+
+		results := method.Call([]reflect.Value{reflect.ValueOf(feedURL)})
+		if len(results) != 2 {
+			continue
+		}
+
+		if !results[1].IsNil() {
+			// 错误，跳过这个源
+			continue
+		}
+
+		itemsValue := results[0]
+		if itemsValue.IsNil() {
+			continue
+		}
+
+		// 转换为[]NewsItem（ai包中的类型）
+		items := itemsValue.Interface()
+		itemsSlice := reflect.ValueOf(items)
+		if itemsSlice.Kind() != reflect.Slice {
+			continue
+		}
+
+		rssItems := make([]RSSItemInfo, 0)
+		for i := 0; i < itemsSlice.Len(); i++ {
+			item := itemsSlice.Index(i)
+			if !item.IsValid() {
+				continue
+			}
+
+			// 提取字段
+			title := getFieldString(item, "Title")
+			description := getFieldString(item, "Description")
+			url := getFieldString(item, "URL")
+			source := getFieldString(item, "Source")
+			pubDate := getFieldTime(item, "PublishedAt")
+
+			rssItems = append(rssItems, RSSItemInfo{
+				Title:       title,
+				Description: description,
+				Link:        url,
+				PubDate:     pubDate,
+				Source:      source,
+			})
+		}
+
+		if len(rssItems) > 0 {
+			// 从URL提取源名称
+			sourceName := extractSourceName(feedURL)
+			feeds = append(feeds, RSSFeedInfo{
+				Title:       sourceName,
+				Description: fmt.Sprintf("来自 %s 的加密货币新闻", sourceName),
+				URL:         feedURL,
+				Items:       rssItems,
+				LastUpdate:  time.Now(),
+			})
+		}
+	}
+
+	return feeds, nil
+}
+
+// GetFearGreedIndex 获取恐慌贪婪指数
+func (a *dataSourceAdapter) GetFearGreedIndex() (*FearGreedIndexInfo, error) {
+	if a.dsm == nil {
+		return nil, fmt.Errorf("数据源管理器未初始化")
+	}
+
+	apiURL := a.fearGreedAPIURL
+	if apiURL == "" {
+		apiURL = "https://api.alternative.me/fng/"
+	}
+
+	dsmValue := reflect.ValueOf(a.dsm)
+	method := dsmValue.MethodByName("FetchFearGreedIndex")
+	if !method.IsValid() {
+		return nil, fmt.Errorf("方法不存在")
+	}
+
+	results := method.Call([]reflect.Value{reflect.ValueOf(apiURL)})
+	if len(results) != 2 {
+		return nil, fmt.Errorf("返回值数量错误")
+	}
+
+	if !results[1].IsNil() {
+		return nil, results[1].Interface().(error)
+	}
+
+	indexValue := results[0]
+	if indexValue.IsNil() {
+		return nil, fmt.Errorf("返回值为空")
+	}
+
+	index := indexValue.Elem()
+	value := int(getFieldInt(index, "Value"))
+	classification := getFieldString(index, "Classification")
+	timestamp := getFieldTime(index, "Timestamp")
+
+	return &FearGreedIndexInfo{
+		Value:         value,
+		Classification: classification,
+		Timestamp:     timestamp,
+	}, nil
+}
+
+// GetRedditPosts 获取Reddit帖子
+func (a *dataSourceAdapter) GetRedditPosts(subreddits []string, limit int) ([]RedditPostInfo, error) {
+	if a.dsm == nil {
+		return nil, fmt.Errorf("数据源管理器未初始化")
+	}
+
+	if len(subreddits) == 0 {
+		subreddits = []string{"Bitcoin", "ethereum", "CryptoCurrency", "CryptoMarkets"}
+	}
+
+	dsmValue := reflect.ValueOf(a.dsm)
+	method := dsmValue.MethodByName("FetchRedditPosts")
+	if !method.IsValid() {
+		return nil, fmt.Errorf("方法不存在")
+	}
+
+	results := method.Call([]reflect.Value{
+		reflect.ValueOf(subreddits),
+		reflect.ValueOf(limit),
+	})
+
+	if len(results) != 2 {
+		return nil, fmt.Errorf("返回值数量错误")
+	}
+
+	if !results[1].IsNil() {
+		return nil, results[1].Interface().(error)
+	}
+
+	postsValue := results[0]
+	if postsValue.IsNil() {
+		return []RedditPostInfo{}, nil
+	}
+
+	postsSlice := reflect.ValueOf(postsValue.Interface())
+	if postsSlice.Kind() != reflect.Slice {
+		return []RedditPostInfo{}, nil
+	}
+
+	posts := make([]RedditPostInfo, 0)
+	for i := 0; i < postsSlice.Len(); i++ {
+		post := postsSlice.Index(i)
+		if !post.IsValid() {
+			continue
+		}
+
+		posts = append(posts, RedditPostInfo{
+			Title:       getFieldString(post, "Title"),
+			Content:     getFieldString(post, "Content"),
+			URL:         getFieldString(post, "URL"),
+			Subreddit:   getFieldString(post, "Subreddit"),
+			Score:       int(getFieldInt(post, "Score")),
+			UpvoteRatio: getFieldFloat(post, "UpvoteRatio"),
+			CreatedAt:   getFieldTime(post, "CreatedAt"),
+			Author:      getFieldString(post, "Author"),
+		})
+	}
+
+	return posts, nil
+}
+
+// GetPolymarketMarkets 获取Polymarket市场
+func (a *dataSourceAdapter) GetPolymarketMarkets(keywords []string) ([]PolymarketMarketInfo, error) {
+	if a.dsm == nil {
+		return nil, fmt.Errorf("数据源管理器未初始化")
+	}
+
+	apiURL := a.polymarketAPIURL
+	if apiURL == "" {
+		apiURL = "https://api.polymarket.com/graphql"
+	}
+
+	dsmValue := reflect.ValueOf(a.dsm)
+	method := dsmValue.MethodByName("FetchPolymarketMarkets")
+	if !method.IsValid() {
+		return nil, fmt.Errorf("方法不存在")
+	}
+
+	results := method.Call([]reflect.Value{
+		reflect.ValueOf(apiURL),
+		reflect.ValueOf(keywords),
+	})
+
+	if len(results) != 2 {
+		return nil, fmt.Errorf("返回值数量错误")
+	}
+
+	if !results[1].IsNil() {
+		return nil, results[1].Interface().(error)
+	}
+
+	marketsValue := results[0]
+	if marketsValue.IsNil() {
+		return []PolymarketMarketInfo{}, nil
+	}
+
+	marketsSlice := reflect.ValueOf(marketsValue.Interface())
+	if marketsSlice.Kind() != reflect.Slice {
+		return []PolymarketMarketInfo{}, nil
+	}
+
+	markets := make([]PolymarketMarketInfo, 0)
+	for i := 0; i < marketsSlice.Len(); i++ {
+		market := marketsSlice.Index(i)
+		if !market.IsValid() {
+			continue
+		}
+
+		// 处理指针类型
+		if market.Kind() == reflect.Ptr {
+			market = market.Elem()
+		}
+
+		outcomesValue := market.FieldByName("Outcomes")
+		outcomes := []string{}
+		if outcomesValue.IsValid() && outcomesValue.Kind() == reflect.Slice {
+			for j := 0; j < outcomesValue.Len(); j++ {
+				outcomes = append(outcomes, outcomesValue.Index(j).String())
+			}
+		}
+
+		markets = append(markets, PolymarketMarketInfo{
+			ID:          getFieldString(market, "ID"),
+			Question:    getFieldString(market, "Question"),
+			Description: getFieldString(market, "Description"),
+			EndDate:     getFieldTime(market, "EndDate"),
+			Outcomes:    outcomes,
+			Volume:      getFieldFloat(market, "Volume"),
+			Liquidity:   getFieldFloat(market, "Liquidity"),
+		})
+	}
+
+	return markets, nil
+}
+
+// 辅助函数：从反射值获取字符串字段
+func getFieldString(v reflect.Value, fieldName string) string {
+	field := v.FieldByName(fieldName)
+	if !field.IsValid() {
+		return ""
+	}
+	return field.String()
+}
+
+// 辅助函数：从反射值获取整数字段
+func getFieldInt(v reflect.Value, fieldName string) int64 {
+	field := v.FieldByName(fieldName)
+	if !field.IsValid() {
+		return 0
+	}
+	return field.Int()
+}
+
+// 辅助函数：从反射值获取浮点数字段
+func getFieldFloat(v reflect.Value, fieldName string) float64 {
+	field := v.FieldByName(fieldName)
+	if !field.IsValid() {
+		return 0
+	}
+	return field.Float()
+}
+
+// 辅助函数：从反射值获取时间字段
+func getFieldTime(v reflect.Value, fieldName string) time.Time {
+	field := v.FieldByName(fieldName)
+	if !field.IsValid() {
+		return time.Now()
+	}
+	if t, ok := field.Interface().(time.Time); ok {
+		return t
+	}
+	return time.Now()
+}
+
+// 辅助函数：从URL提取源名称
+func extractSourceName(url string) string {
+	url = strings.TrimPrefix(url, "https://")
+	url = strings.TrimPrefix(url, "http://")
+	parts := strings.Split(url, "/")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return url
+}
+
+// getMarketIntelligence 获取市场情报数据
+// GET /api/market-intelligence
+// 查询参数：
+//   - source: 数据源类型（rss, fear_greed, reddit, polymarket，默认全部）
+//   - keyword: 搜索关键词（可选）
+//   - limit: 返回数量限制（默认50）
+func getMarketIntelligence(c *gin.Context) {
+	if dataSourceProvider == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"rss_feeds":      []interface{}{},
+			"fear_greed":     nil,
+			"reddit_posts":   []interface{}{},
+			"polymarket":     []interface{}{},
+		})
+		return
+	}
+
+	source := c.Query("source")
+	keyword := c.Query("keyword")
+	limitStr := c.DefaultQuery("limit", "50")
+	limit := 50
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+		if limit > 200 {
+			limit = 200 // 最大限制200
+		}
+	}
+
+	result := make(map[string]interface{})
+
+	// 获取RSS新闻
+	if source == "" || source == "rss" {
+		rssFeeds, err := dataSourceProvider.GetRSSFeeds()
+		if err == nil {
+			// 如果有关键词，进行筛选
+			if keyword != "" {
+				filtered := make([]RSSFeedInfo, 0)
+				keywordLower := strings.ToLower(keyword)
+				for _, feed := range rssFeeds {
+					filteredItems := make([]RSSItemInfo, 0)
+					for _, item := range feed.Items {
+						titleLower := strings.ToLower(item.Title)
+						descLower := strings.ToLower(item.Description)
+						if strings.Contains(titleLower, keywordLower) || strings.Contains(descLower, keywordLower) {
+							filteredItems = append(filteredItems, item)
+						}
+					}
+					if len(filteredItems) > 0 {
+						feed.Items = filteredItems[:min(len(filteredItems), limit)]
+						filtered = append(filtered, feed)
+					}
+				}
+				result["rss_feeds"] = filtered
+			} else {
+				// 限制每个源的条目数
+				for i := range rssFeeds {
+					if len(rssFeeds[i].Items) > limit {
+						rssFeeds[i].Items = rssFeeds[i].Items[:limit]
+					}
+				}
+				result["rss_feeds"] = rssFeeds
+			}
+		} else {
+			result["rss_feeds"] = []interface{}{}
+		}
+	}
+
+	// 获取恐慌贪婪指数
+	if source == "" || source == "fear_greed" {
+		fearGreed, err := dataSourceProvider.GetFearGreedIndex()
+		if err == nil {
+			result["fear_greed"] = fearGreed
+		} else {
+			result["fear_greed"] = nil
+		}
+	}
+
+	// 获取Reddit帖子
+	if source == "" || source == "reddit" {
+		// 默认子版块
+		subreddits := []string{"Bitcoin", "ethereum", "CryptoCurrency", "CryptoMarkets"}
+		redditPosts, err := dataSourceProvider.GetRedditPosts(subreddits, limit)
+		if err == nil {
+			// 如果有关键词，进行筛选
+			if keyword != "" {
+				filtered := make([]RedditPostInfo, 0)
+				keywordLower := strings.ToLower(keyword)
+				for _, post := range redditPosts {
+					titleLower := strings.ToLower(post.Title)
+					contentLower := strings.ToLower(post.Content)
+					if strings.Contains(titleLower, keywordLower) || strings.Contains(contentLower, keywordLower) {
+						filtered = append(filtered, post)
+					}
+				}
+				result["reddit_posts"] = filtered[:min(len(filtered), limit)]
+			} else {
+				result["reddit_posts"] = redditPosts
+			}
+		} else {
+			result["reddit_posts"] = []interface{}{}
+		}
+	}
+
+	// 获取Polymarket市场
+	if source == "" || source == "polymarket" {
+		keywords := []string{}
+		if keyword != "" {
+			keywords = []string{keyword}
+		}
+		polymarketMarkets, err := dataSourceProvider.GetPolymarketMarkets(keywords)
+		if err == nil {
+			if len(polymarketMarkets) > limit {
+				result["polymarket"] = polymarketMarkets[:limit]
+			} else {
+				result["polymarket"] = polymarketMarkets
+			}
+		} else {
+			result["polymarket"] = []interface{}{}
+		}
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// min 返回两个整数中的较小值
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// ========== AI分析相关API ==========
+
+var (
+	// AI模块提供者（需要从main.go注入）
+	aiMarketAnalyzerProvider      AIMarketAnalyzerProvider
+	aiParameterOptimizerProvider  AIParameterOptimizerProvider
+	aiRiskAnalyzerProvider        AIRiskAnalyzerProvider
+	aiSentimentAnalyzerProvider   AISentimentAnalyzerProvider
+	aiPolymarketSignalProvider    AIPolymarketSignalProvider
+	aiPromptManagerProvider       AIPromptManagerProvider
+)
+
+// AI提供者接口
+type AIMarketAnalyzerProvider interface {
+	GetLastAnalysis() interface{}
+	GetLastAnalysisTime() time.Time
+	PerformAnalysis() error
+}
+
+type AIParameterOptimizerProvider interface {
+	GetLastOptimization() interface{}
+	GetLastOptimizationTime() time.Time
+	PerformOptimization() error
+}
+
+type AIRiskAnalyzerProvider interface {
+	GetLastAnalysis() interface{}
+	GetLastAnalysisTime() time.Time
+	PerformAnalysis() error
+}
+
+type AISentimentAnalyzerProvider interface {
+	GetLastAnalysis() interface{}
+	GetLastAnalysisTime() time.Time
+	PerformAnalysis() error
+}
+
+type AIPolymarketSignalProvider interface {
+	GetLastAnalysis() interface{}
+	GetLastAnalysisTime() time.Time
+	PerformAnalysis() error
+}
+
+type AIPromptManagerProvider interface {
+	GetAllPrompts() (map[string]interface{}, error)
+	UpdatePrompt(module, template, systemPrompt string) error
+}
+
+// SetAIProviders 设置AI提供者
+func SetAIMarketAnalyzerProvider(provider AIMarketAnalyzerProvider) {
+	aiMarketAnalyzerProvider = provider
+}
+
+func SetAIParameterOptimizerProvider(provider AIParameterOptimizerProvider) {
+	aiParameterOptimizerProvider = provider
+}
+
+func SetAIRiskAnalyzerProvider(provider AIRiskAnalyzerProvider) {
+	aiRiskAnalyzerProvider = provider
+}
+
+func SetAISentimentAnalyzerProvider(provider AISentimentAnalyzerProvider) {
+	aiSentimentAnalyzerProvider = provider
+}
+
+func SetAIPolymarketSignalProvider(provider AIPolymarketSignalProvider) {
+	aiPolymarketSignalProvider = provider
+}
+
+func SetAIPromptManagerProvider(provider AIPromptManagerProvider) {
+	aiPromptManagerProvider = provider
+}
+
+// getAIAnalysisStatus 获取AI系统状态
+// GET /api/ai/status
+func getAIAnalysisStatus(c *gin.Context) {
+	status := map[string]interface{}{
+		"enabled": true,
+		"modules": map[string]interface{}{
+			"market_analysis": map[string]interface{}{
+				"enabled":      aiMarketAnalyzerProvider != nil,
+				"last_update":  nil,
+				"has_data":     false,
+			},
+			"parameter_optimization": map[string]interface{}{
+				"enabled":      aiParameterOptimizerProvider != nil,
+				"last_update":  nil,
+				"has_data":     false,
+			},
+			"risk_analysis": map[string]interface{}{
+				"enabled":      aiRiskAnalyzerProvider != nil,
+				"last_update":  nil,
+				"has_data":     false,
+			},
+			"sentiment_analysis": map[string]interface{}{
+				"enabled":      aiSentimentAnalyzerProvider != nil,
+				"last_update":  nil,
+				"has_data":     false,
+			},
+			"polymarket_signal": map[string]interface{}{
+				"enabled":      aiPolymarketSignalProvider != nil,
+				"last_update":  nil,
+				"has_data":     false,
+			},
+		},
+	}
+
+	// 更新各模块状态
+	if aiMarketAnalyzerProvider != nil {
+		lastTime := aiMarketAnalyzerProvider.GetLastAnalysisTime()
+		lastAnalysis := aiMarketAnalyzerProvider.GetLastAnalysis()
+		status["modules"].(map[string]interface{})["market_analysis"].(map[string]interface{})["last_update"] = lastTime
+		status["modules"].(map[string]interface{})["market_analysis"].(map[string]interface{})["has_data"] = lastAnalysis != nil
+	}
+
+	if aiParameterOptimizerProvider != nil {
+		lastTime := aiParameterOptimizerProvider.GetLastOptimizationTime()
+		lastOptimization := aiParameterOptimizerProvider.GetLastOptimization()
+		status["modules"].(map[string]interface{})["parameter_optimization"].(map[string]interface{})["last_update"] = lastTime
+		status["modules"].(map[string]interface{})["parameter_optimization"].(map[string]interface{})["has_data"] = lastOptimization != nil
+	}
+
+	if aiRiskAnalyzerProvider != nil {
+		lastTime := aiRiskAnalyzerProvider.GetLastAnalysisTime()
+		lastAnalysis := aiRiskAnalyzerProvider.GetLastAnalysis()
+		status["modules"].(map[string]interface{})["risk_analysis"].(map[string]interface{})["last_update"] = lastTime
+		status["modules"].(map[string]interface{})["risk_analysis"].(map[string]interface{})["has_data"] = lastAnalysis != nil
+	}
+
+	if aiSentimentAnalyzerProvider != nil {
+		lastTime := aiSentimentAnalyzerProvider.GetLastAnalysisTime()
+		lastAnalysis := aiSentimentAnalyzerProvider.GetLastAnalysis()
+		status["modules"].(map[string]interface{})["sentiment_analysis"].(map[string]interface{})["last_update"] = lastTime
+		status["modules"].(map[string]interface{})["sentiment_analysis"].(map[string]interface{})["has_data"] = lastAnalysis != nil
+	}
+
+	if aiPolymarketSignalProvider != nil {
+		lastTime := aiPolymarketSignalProvider.GetLastAnalysisTime()
+		lastAnalysis := aiPolymarketSignalProvider.GetLastAnalysis()
+		status["modules"].(map[string]interface{})["polymarket_signal"].(map[string]interface{})["last_update"] = lastTime
+		status["modules"].(map[string]interface{})["polymarket_signal"].(map[string]interface{})["has_data"] = lastAnalysis != nil
+	}
+
+	c.JSON(http.StatusOK, status)
+}
+
+// getAIMarketAnalysis 获取市场分析结果
+// GET /api/ai/analysis/market
+func getAIMarketAnalysis(c *gin.Context) {
+	if aiMarketAnalyzerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "市场分析模块未启用"})
+		return
+	}
+
+	analysis := aiMarketAnalyzerProvider.GetLastAnalysis()
+	if analysis == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "暂无分析数据"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"analysis": analysis, "last_update": aiMarketAnalyzerProvider.GetLastAnalysisTime()})
+}
+
+// getAIParameterOptimization 获取参数优化结果
+// GET /api/ai/analysis/parameter
+func getAIParameterOptimization(c *gin.Context) {
+	if aiParameterOptimizerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "参数优化模块未启用"})
+		return
+	}
+
+	optimization := aiParameterOptimizerProvider.GetLastOptimization()
+	if optimization == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "暂无优化数据"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"optimization": optimization, "last_update": aiParameterOptimizerProvider.GetLastOptimizationTime()})
+}
+
+// getAIRiskAnalysis 获取风险分析结果
+// GET /api/ai/analysis/risk
+func getAIRiskAnalysis(c *gin.Context) {
+	if aiRiskAnalyzerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "风险分析模块未启用"})
+		return
+	}
+
+	analysis := aiRiskAnalyzerProvider.GetLastAnalysis()
+	if analysis == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "暂无分析数据"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"analysis": analysis, "last_update": aiRiskAnalyzerProvider.GetLastAnalysisTime()})
+}
+
+// getAISentimentAnalysis 获取情绪分析结果
+// GET /api/ai/analysis/sentiment
+func getAISentimentAnalysis(c *gin.Context) {
+	if aiSentimentAnalyzerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "情绪分析模块未启用"})
+		return
+	}
+
+	analysis := aiSentimentAnalyzerProvider.GetLastAnalysis()
+	if analysis == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "暂无分析数据"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"analysis": analysis, "last_update": aiSentimentAnalyzerProvider.GetLastAnalysisTime()})
+}
+
+// getAIPolymarketSignal 获取Polymarket信号分析结果
+// GET /api/ai/analysis/polymarket
+func getAIPolymarketSignal(c *gin.Context) {
+	if aiPolymarketSignalProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "Polymarket信号模块未启用"})
+		return
+	}
+
+	analysis := aiPolymarketSignalProvider.GetLastAnalysis()
+	if analysis == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "暂无分析数据"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"analysis": analysis, "last_update": aiPolymarketSignalProvider.GetLastAnalysisTime()})
+}
+
+// triggerAIAnalysis 手动触发AI分析
+// POST /api/ai/analysis/trigger/:module
+func triggerAIAnalysis(c *gin.Context) {
+	module := c.Param("module")
+	var err error
+
+	switch module {
+	case "market":
+		if aiMarketAnalyzerProvider != nil {
+			err = aiMarketAnalyzerProvider.PerformAnalysis()
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "市场分析模块未启用"})
+			return
+		}
+	case "parameter":
+		if aiParameterOptimizerProvider != nil {
+			err = aiParameterOptimizerProvider.PerformOptimization()
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "参数优化模块未启用"})
+			return
+		}
+	case "risk":
+		if aiRiskAnalyzerProvider != nil {
+			err = aiRiskAnalyzerProvider.PerformAnalysis()
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "风险分析模块未启用"})
+			return
+		}
+	case "sentiment":
+		if aiSentimentAnalyzerProvider != nil {
+			err = aiSentimentAnalyzerProvider.PerformAnalysis()
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "情绪分析模块未启用"})
+			return
+		}
+	case "polymarket":
+		if aiPolymarketSignalProvider != nil {
+			err = aiPolymarketSignalProvider.PerformAnalysis()
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Polymarket信号模块未启用"})
+			return
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未知的模块: " + module})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "分析已触发"})
+}
+
+// getAIPrompts 获取所有提示词模板
+// GET /api/ai/prompts
+func getAIPrompts(c *gin.Context) {
+	if aiPromptManagerProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"prompts": map[string]interface{}{}})
+		return
+	}
+
+	prompts, err := aiPromptManagerProvider.GetAllPrompts()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"prompts": prompts})
+}
+
+// updateAIPrompt 更新提示词模板
+// POST /api/ai/prompts
+func updateAIPrompt(c *gin.Context) {
+	if aiPromptManagerProvider == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "提示词管理器未启用"})
+		return
+	}
+
+	var req struct {
+		Module       string `json:"module"`
+		Template     string `json:"template"`
+		SystemPrompt string `json:"system_prompt"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Module == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "模块名不能为空"})
+		return
+	}
+
+	if req.Template == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "提示词模板不能为空"})
+		return
+	}
+
+	if err := aiPromptManagerProvider.UpdatePrompt(req.Module, req.Template, req.SystemPrompt); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "提示词已更新"})
+}
+
+// AI模块适配器
+type aiMarketAnalyzerAdapter struct {
+	analyzer interface {
+		GetLastAnalysis() interface{}
+		GetLastAnalysisTime() time.Time
+		PerformAnalysis() error
+	}
+}
+
+func (a *aiMarketAnalyzerAdapter) GetLastAnalysis() interface{} {
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *aiMarketAnalyzerAdapter) GetLastAnalysisTime() time.Time {
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *aiMarketAnalyzerAdapter) PerformAnalysis() error {
+	return a.analyzer.PerformAnalysis()
+}
+
+type aiParameterOptimizerAdapter struct {
+	optimizer interface {
+		GetLastOptimization() interface{}
+		GetLastOptimizationTime() time.Time
+		PerformOptimization() error
+	}
+}
+
+func (a *aiParameterOptimizerAdapter) GetLastOptimization() interface{} {
+	return a.optimizer.GetLastOptimization()
+}
+
+func (a *aiParameterOptimizerAdapter) GetLastOptimizationTime() time.Time {
+	return a.optimizer.GetLastOptimizationTime()
+}
+
+func (a *aiParameterOptimizerAdapter) PerformOptimization() error {
+	return a.optimizer.PerformOptimization()
+}
+
+type aiRiskAnalyzerAdapter struct {
+	analyzer interface {
+		GetLastAnalysis() interface{}
+		GetLastAnalysisTime() time.Time
+		PerformAnalysis() error
+	}
+}
+
+func (a *aiRiskAnalyzerAdapter) GetLastAnalysis() interface{} {
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *aiRiskAnalyzerAdapter) GetLastAnalysisTime() time.Time {
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *aiRiskAnalyzerAdapter) PerformAnalysis() error {
+	return a.analyzer.PerformAnalysis()
+}
+
+type aiSentimentAnalyzerAdapter struct {
+	analyzer interface {
+		GetLastAnalysis() interface{}
+		GetLastAnalysisTime() time.Time
+		PerformAnalysis() error
+	}
+}
+
+func (a *aiSentimentAnalyzerAdapter) GetLastAnalysis() interface{} {
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *aiSentimentAnalyzerAdapter) GetLastAnalysisTime() time.Time {
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *aiSentimentAnalyzerAdapter) PerformAnalysis() error {
+	return a.analyzer.PerformAnalysis()
+}
+
+type aiPolymarketSignalAdapter struct {
+	analyzer interface {
+		GetLastAnalysis() interface{}
+		GetLastAnalysisTime() time.Time
+		PerformAnalysis() error
+	}
+}
+
+func (a *aiPolymarketSignalAdapter) GetLastAnalysis() interface{} {
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *aiPolymarketSignalAdapter) GetLastAnalysisTime() time.Time {
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *aiPolymarketSignalAdapter) PerformAnalysis() error {
+	return a.analyzer.PerformAnalysis()
+}
+
+type aiPromptManagerAdapter struct {
+	manager interface {
+		GetAllPrompts() (map[string]interface{}, error)
+		UpdatePrompt(module, template, systemPrompt string) error
+	}
+}
+
+func (a *aiPromptManagerAdapter) GetAllPrompts() (map[string]interface{}, error) {
+	return a.manager.GetAllPrompts()
+}
+
+func (a *aiPromptManagerAdapter) UpdatePrompt(module, template, systemPrompt string) error {
+	return a.manager.UpdatePrompt(module, template, systemPrompt)
 }
 

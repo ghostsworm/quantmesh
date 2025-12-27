@@ -123,7 +123,22 @@ func getConfigJSONHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, cfg)
+	// 使用YAML序列化然后解析为map，以保留YAML标签的字段名（snake_case）
+	// 这样前端就能正确读取字段名
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "序列化配置失败: " + err.Error()})
+		return
+	}
+
+	// 解析YAML为map，这样字段名就是YAML标签的值（snake_case）
+	var configMap map[string]interface{}
+	if err := yaml.Unmarshal(yamlData, &configMap); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "转换配置格式失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, configMap)
 }
 
 // validateConfigHandler 验证配置（不保存）

@@ -14,9 +14,10 @@ import (
 
 // GeminiService Gemini AI服务实现
 type GeminiService struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
+	apiKey        string
+	baseURL       string
+	client        *http.Client
+	promptManager *PromptManager
 }
 
 // GeminiRequest Gemini API请求结构
@@ -52,7 +53,7 @@ type GeminiError struct {
 }
 
 // NewGeminiService 创建Gemini服务
-func NewGeminiService(apiKey string, baseURL string) (*GeminiService, error) {
+func NewGeminiService(apiKey string, baseURL string, promptManager *PromptManager) (*GeminiService, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("Gemini API Key不能为空")
 	}
@@ -62,8 +63,9 @@ func NewGeminiService(apiKey string, baseURL string) (*GeminiService, error) {
 	}
 
 	return &GeminiService{
-		apiKey:  apiKey,
-		baseURL: baseURL,
+		apiKey:        apiKey,
+		baseURL:       baseURL,
+		promptManager: promptManager,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -203,7 +205,19 @@ func (gs *GeminiService) Close() error {
 
 // buildMarketAnalysisPrompt 构建市场分析Prompt
 func (gs *GeminiService) buildMarketAnalysisPrompt(req *MarketAnalysisRequest) string {
-	return fmt.Sprintf(`你是一个专业的加密货币市场分析师。请分析以下市场数据并给出专业的市场分析。
+	var template, systemPrompt string
+	var err error
+	
+	if gs.promptManager != nil {
+		template, systemPrompt, err = gs.promptManager.GetPrompt("market_analysis")
+		if err != nil {
+			logger.Warn("⚠️ 获取提示词模板失败，使用默认模板: %v", err)
+		}
+	}
+	
+	// 如果模板为空，使用默认模板
+	if template == "" {
+		template = `你是一个专业的加密货币市场分析师。请分析以下市场数据并给出专业的市场分析。
 
 交易对: %s
 当前价格: %.2f
@@ -217,7 +231,12 @@ func (gs *GeminiService) buildMarketAnalysisPrompt(req *MarketAnalysisRequest) s
   "confidence": 0.0-1.0,
   "signal": "buy|sell|hold",
   "reasoning": "分析理由"
-}`, req.Symbol, req.CurrentPrice, req.Volume)
+}`
+	}
+	
+	_ = systemPrompt // 暂时未使用系统提示词
+	
+	return fmt.Sprintf(template, req.Symbol, req.CurrentPrice, req.Volume)
 }
 
 // parseMarketAnalysisResponse 解析市场分析响应
@@ -242,7 +261,19 @@ func (gs *GeminiService) parseMarketAnalysisResponse(response string) (*MarketAn
 
 // buildParameterOptimizationPrompt 构建参数优化Prompt
 func (gs *GeminiService) buildParameterOptimizationPrompt(req *ParameterOptimizationRequest) string {
-	return fmt.Sprintf(`你是一个专业的量化交易参数优化专家。请根据以下数据优化交易参数。
+	var template, systemPrompt string
+	var err error
+	
+	if gs.promptManager != nil {
+		template, systemPrompt, err = gs.promptManager.GetPrompt("parameter_optimization")
+		if err != nil {
+			logger.Warn("⚠️ 获取提示词模板失败，使用默认模板: %v", err)
+		}
+	}
+	
+	// 如果模板为空，使用默认模板
+	if template == "" {
+		template = `你是一个专业的量化交易参数优化专家。请根据以下数据优化交易参数。
 
 当前参数:
 - 价格间隔: %.2f
@@ -269,7 +300,12 @@ func (gs *GeminiService) buildParameterOptimizationPrompt(req *ParameterOptimiza
   "expected_improvement": 预期改进百分比,
   "confidence": 0.0-1.0,
   "reasoning": "优化理由"
-}`, req.CurrentParams.PriceInterval, req.CurrentParams.BuyWindowSize, 
+}`
+	}
+	
+	_ = systemPrompt // 暂时未使用系统提示词
+	
+	return fmt.Sprintf(template, req.CurrentParams.PriceInterval, req.CurrentParams.BuyWindowSize, 
 		req.CurrentParams.SellWindowSize, req.CurrentParams.OrderQuantity,
 		req.Performance.TotalTrades, req.Performance.WinRate*100,
 		req.Performance.TotalPnL, req.Performance.MaxDrawdown*100)
@@ -290,7 +326,19 @@ func (gs *GeminiService) parseParameterOptimizationResponse(response string) (*P
 
 // buildRiskAnalysisPrompt 构建风险分析Prompt
 func (gs *GeminiService) buildRiskAnalysisPrompt(req *RiskAnalysisRequest) string {
-	return fmt.Sprintf(`你是一个专业的风险管理专家。请分析以下交易风险。
+	var template, systemPrompt string
+	var err error
+	
+	if gs.promptManager != nil {
+		template, systemPrompt, err = gs.promptManager.GetPrompt("risk_analysis")
+		if err != nil {
+			logger.Warn("⚠️ 获取提示词模板失败，使用默认模板: %v", err)
+		}
+	}
+	
+	// 如果模板为空，使用默认模板
+	if template == "" {
+		template = `你是一个专业的风险管理专家。请分析以下交易风险。
 
 交易对: %s
 当前价格: %.2f
@@ -309,7 +357,12 @@ func (gs *GeminiService) buildRiskAnalysisPrompt(req *RiskAnalysisRequest) strin
   "warnings": ["警告1", "警告2"],
   "recommendations": ["建议1", "建议2"],
   "reasoning": "分析理由"
-}`, req.Symbol, req.CurrentPrice, req.AccountBalance, req.UsedMargin,
+}`
+	}
+	
+	_ = systemPrompt // 暂时未使用系统提示词
+	
+	return fmt.Sprintf(template, req.Symbol, req.CurrentPrice, req.AccountBalance, req.UsedMargin,
 		req.MarketVolatility*100, len(req.Positions), req.OpenOrders)
 }
 
@@ -328,6 +381,42 @@ func (gs *GeminiService) parseRiskAnalysisResponse(response string) (*RiskAnalys
 
 // buildSentimentAnalysisPrompt 构建情绪分析Prompt
 func (gs *GeminiService) buildSentimentAnalysisPrompt(req *SentimentAnalysisRequest) string {
+	var template, systemPrompt string
+	var err error
+	
+	if gs.promptManager != nil {
+		template, systemPrompt, err = gs.promptManager.GetPrompt("sentiment_analysis")
+		if err != nil {
+			logger.Warn("⚠️ 获取提示词模板失败，使用默认模板: %v", err)
+		}
+	}
+	
+	// 如果模板为空，使用默认模板
+	if template == "" {
+		template = `你是一个专业的市场情绪分析师。请分析以下市场情绪数据。
+
+交易对: %s
+
+新闻摘要:
+%s
+
+%s%s
+
+请分析市场情绪（-1到1，-1极度悲观，1极度乐观）、趋势（bullish/bearish/neutral）、关键因素和理由。
+
+请以JSON格式返回，格式如下：
+{
+  "sentiment_score": -1.0到1.0,
+  "trend": "bullish|bearish|neutral",
+  "key_factors": ["因素1", "因素2"],
+  "news_summary": "新闻摘要",
+  "reasoning": "分析理由"
+}`
+	}
+	
+	_ = systemPrompt // 暂时未使用系统提示词
+	
+	// 构建数据部分
 	newsSummary := ""
 	for i, news := range req.NewsItems {
 		if i >= 5 { // 只取前5条
@@ -353,25 +442,7 @@ func (gs *GeminiService) buildSentimentAnalysisPrompt(req *SentimentAnalysisRequ
 		}
 	}
 
-	return fmt.Sprintf(`你是一个专业的市场情绪分析师。请分析以下市场情绪数据。
-
-交易对: %s
-
-新闻摘要:
-%s
-
-%s%s
-
-请分析市场情绪（-1到1，-1极度悲观，1极度乐观）、趋势（bullish/bearish/neutral）、关键因素和理由。
-
-请以JSON格式返回，格式如下：
-{
-  "sentiment_score": -1.0到1.0,
-  "trend": "bullish|bearish|neutral",
-  "key_factors": ["因素1", "因素2"],
-  "news_summary": "新闻摘要",
-  "reasoning": "分析理由"
-}`, req.Symbol, newsSummary, fearGreedInfo, redditSummary)
+	return fmt.Sprintf(template, req.Symbol, newsSummary, fearGreedInfo, redditSummary)
 }
 
 // parseSentimentAnalysisResponse 解析情绪分析响应

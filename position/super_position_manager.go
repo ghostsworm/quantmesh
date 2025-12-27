@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -140,6 +141,13 @@ type IExchange interface {
 // 用于保存交易记录（买卖配对）
 type TradeStorage interface {
 	SaveTrade(buyOrderID, sellOrderID int64, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error
+}
+
+// ReconciliationStorage 对账存储接口（避免循环导入）
+// 用于恢复对账统计值
+type ReconciliationStorage interface {
+	GetLatestReconciliationHistory(symbol string) (interface{}, error) // 返回 *storage.ReconciliationHistory
+	GetReconciliationCount(symbol string) (int64, error)
 }
 
 // SuperPositionManager 超级仓位管理器
@@ -1075,6 +1083,79 @@ func (spm *SuperPositionManager) GetSymbol() string {
 // GetPriceInterval 获取价格间隔
 func (spm *SuperPositionManager) GetPriceInterval() float64 {
 	return spm.config.Trading.PriceInterval
+}
+
+// RestoreReconciliationStats 从数据库恢复对账统计值
+// storage 是对账存储接口，symbol 是交易符号
+func (spm *SuperPositionManager) RestoreReconciliationStats(storage ReconciliationStorage, symbol string) error {
+	if storage == nil {
+		return nil // 存储服务不可用，不报错
+	}
+
+	// 1. 获取最新对账记录
+	latestHistoryInterface, err := storage.GetLatestReconciliationHistory(symbol)
+	if err != nil {
+		return fmt.Errorf("获取最新对账记录失败: %w", err)
+	}
+
+	// 2. 获取对账次数
+	reconcileCount, err := storage.GetReconciliationCount(symbol)
+	if err != nil {
+		return fmt.Errorf("获取对账次数失败: %w", err)
+	}
+
+	// 3. 如果没有历史记录，不恢复（保持默认值）
+	if latestHistoryInterface == nil {
+		logger.Info("📊 [对账恢复] 未找到历史对账记录，使用默认值")
+		return nil
+	}
+
+	// 4. 使用反射提取对账记录字段
+	v := reflect.ValueOf(latestHistoryInterface)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return fmt.Errorf("对账记录类型错误: %T", latestHistoryInterface)
+	}
+
+	// 提取字段的辅助函数
+	getFloat64Field := func(name string) float64 {
+		field := v.FieldByName(name)
+		if field.IsValid() && field.CanFloat() {
+			return field.Float()
+		}
+		return 0.0
+	}
+
+	getTimeField := func(name string) time.Time {
+		field := v.FieldByName(name)
+		if field.IsValid() && field.Kind() == reflect.Interface {
+			if t, ok := field.Interface().(time.Time); ok {
+				return t
+			}
+		} else if field.IsValid() && field.Type().String() == "time.Time" {
+			if t, ok := field.Interface().(time.Time); ok {
+				return t
+			}
+		}
+		return time.Time{}
+	}
+
+	// 5. 恢复统计值
+	totalBuyQty := getFloat64Field("TotalBuyQty")
+	totalSellQty := getFloat64Field("TotalSellQty")
+	lastReconcileTime := getTimeField("ReconcileTime")
+
+	spm.totalBuyQty.Store(totalBuyQty)
+	spm.totalSellQty.Store(totalSellQty)
+	spm.reconcileCount.Store(reconcileCount)
+	spm.lastReconcileTime.Store(lastReconcileTime)
+
+	logger.Info("✅ [对账恢复] 已恢复对账统计: 次数=%d, 累计买入=%.4f, 累计卖出=%.4f, 最后对账时间=%s",
+		reconcileCount, totalBuyQty, totalSellQty, lastReconcileTime.Format("2006-01-02 15:04:05"))
+
+	return nil
 }
 
 // ===== 订单清理功能已迁移到 safety.OrderCleaner =====

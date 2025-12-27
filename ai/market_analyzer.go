@@ -204,3 +204,8 @@ func (ma *MarketAnalyzer) GetLastAnalysisTime() time.Time {
 	return ma.lastAnalysisTime
 }
 
+// TriggerAnalysis 手动触发分析
+func (ma *MarketAnalyzer) TriggerAnalysis() error {
+	return ma.performAnalysis()
+}
+

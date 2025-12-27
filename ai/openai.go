@@ -14,9 +14,10 @@ import (
 
 // OpenAIService OpenAI AI服务实现
 type OpenAIService struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
+	apiKey        string
+	baseURL       string
+	client        *http.Client
+	promptManager *PromptManager
 }
 
 // OpenAIRequest OpenAI API请求结构
@@ -51,7 +52,7 @@ type OpenAIError struct {
 }
 
 // NewOpenAIService 创建OpenAI服务
-func NewOpenAIService(apiKey string, baseURL string) (*OpenAIService, error) {
+func NewOpenAIService(apiKey string, baseURL string, promptManager *PromptManager) (*OpenAIService, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("OpenAI API Key不能为空")
 	}
@@ -61,8 +62,9 @@ func NewOpenAIService(apiKey string, baseURL string) (*OpenAIService, error) {
 	}
 
 	return &OpenAIService{
-		apiKey:  apiKey,
-		baseURL: baseURL,
+		apiKey:        apiKey,
+		baseURL:       baseURL,
+		promptManager: promptManager,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -131,8 +133,18 @@ func (os *OpenAIService) callAPI(ctx context.Context, messages []OpenAIMessage) 
 // AnalyzeMarket 分析市场
 func (os *OpenAIService) AnalyzeMarket(ctx context.Context, req *MarketAnalysisRequest) (*MarketAnalysisResponse, error) {
 	prompt := os.buildMarketAnalysisPrompt(req)
+	
+	// 获取系统提示词
+	systemPrompt := "你是一个专业的加密货币市场分析师。"
+	if os.promptManager != nil {
+		_, sp, err := os.promptManager.GetPrompt("market_analysis")
+		if err == nil && sp != "" {
+			systemPrompt = sp
+		}
+	}
+	
 	messages := []OpenAIMessage{
-		{Role: "system", Content: "你是一个专业的加密货币市场分析师。"},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}
 	
@@ -147,8 +159,18 @@ func (os *OpenAIService) AnalyzeMarket(ctx context.Context, req *MarketAnalysisR
 // OptimizeParameters 优化参数
 func (os *OpenAIService) OptimizeParameters(ctx context.Context, req *ParameterOptimizationRequest) (*ParameterOptimizationResponse, error) {
 	prompt := os.buildParameterOptimizationPrompt(req)
+	
+	// 获取系统提示词
+	systemPrompt := "你是一个专业的量化交易参数优化专家。"
+	if os.promptManager != nil {
+		_, sp, err := os.promptManager.GetPrompt("parameter_optimization")
+		if err == nil && sp != "" {
+			systemPrompt = sp
+		}
+	}
+	
 	messages := []OpenAIMessage{
-		{Role: "system", Content: "你是一个专业的量化交易参数优化专家。"},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}
 	
@@ -163,8 +185,18 @@ func (os *OpenAIService) OptimizeParameters(ctx context.Context, req *ParameterO
 // AnalyzeRisk 分析风险
 func (os *OpenAIService) AnalyzeRisk(ctx context.Context, req *RiskAnalysisRequest) (*RiskAnalysisResponse, error) {
 	prompt := os.buildRiskAnalysisPrompt(req)
+	
+	// 获取系统提示词
+	systemPrompt := "你是一个专业的风险管理专家。"
+	if os.promptManager != nil {
+		_, sp, err := os.promptManager.GetPrompt("risk_analysis")
+		if err == nil && sp != "" {
+			systemPrompt = sp
+		}
+	}
+	
 	messages := []OpenAIMessage{
-		{Role: "system", Content: "你是一个专业的风险管理专家。"},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}
 	
@@ -179,8 +211,18 @@ func (os *OpenAIService) AnalyzeRisk(ctx context.Context, req *RiskAnalysisReque
 // AnalyzeSentiment 分析情绪
 func (os *OpenAIService) AnalyzeSentiment(ctx context.Context, req *SentimentAnalysisRequest) (*SentimentAnalysisResponse, error) {
 	prompt := os.buildSentimentAnalysisPrompt(req)
+	
+	// 获取系统提示词
+	systemPrompt := "你是一个专业的市场情绪分析师。"
+	if os.promptManager != nil {
+		_, sp, err := os.promptManager.GetPrompt("sentiment_analysis")
+		if err == nil && sp != "" {
+			systemPrompt = sp
+		}
+	}
+	
 	messages := []OpenAIMessage{
-		{Role: "system", Content: "你是一个专业的市场情绪分析师。"},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}
 	
@@ -217,7 +259,19 @@ func (os *OpenAIService) Close() error {
 
 // buildMarketAnalysisPrompt 构建市场分析Prompt（与Gemini相同）
 func (os *OpenAIService) buildMarketAnalysisPrompt(req *MarketAnalysisRequest) string {
-	return fmt.Sprintf(`请分析以下市场数据并给出专业的市场分析。
+	var template, systemPrompt string
+	var err error
+	
+	if os.promptManager != nil {
+		template, systemPrompt, err = os.promptManager.GetPrompt("market_analysis")
+		if err != nil {
+			logger.Warn("⚠️ 获取提示词模板失败，使用默认模板: %v", err)
+		}
+	}
+	
+	// 如果模板为空，使用默认模板
+	if template == "" {
+		template = `请分析以下市场数据并给出专业的市场分析。
 
 交易对: %s
 当前价格: %.2f
@@ -231,7 +285,16 @@ func (os *OpenAIService) buildMarketAnalysisPrompt(req *MarketAnalysisRequest) s
   "confidence": 0.0-1.0,
   "signal": "buy|sell|hold",
   "reasoning": "分析理由"
-}`, req.Symbol, req.CurrentPrice, req.Volume)
+}`
+	}
+	
+	// 使用系统提示词（如果存在）
+	if systemPrompt != "" {
+		// OpenAI使用消息格式，系统提示词在消息中
+		return fmt.Sprintf(template, req.Symbol, req.CurrentPrice, req.Volume)
+	}
+	
+	return fmt.Sprintf(template, req.Symbol, req.CurrentPrice, req.Volume)
 }
 
 // parseMarketAnalysisResponse 解析市场分析响应（与Gemini相同）
@@ -254,7 +317,19 @@ func (os *OpenAIService) parseMarketAnalysisResponse(response string) (*MarketAn
 
 // buildParameterOptimizationPrompt 构建参数优化Prompt（与Gemini相同）
 func (os *OpenAIService) buildParameterOptimizationPrompt(req *ParameterOptimizationRequest) string {
-	return fmt.Sprintf(`请根据以下数据优化交易参数。
+	var template, systemPrompt string
+	var err error
+	
+	if os.promptManager != nil {
+		template, systemPrompt, err = os.promptManager.GetPrompt("parameter_optimization")
+		if err != nil {
+			logger.Warn("⚠️ 获取提示词模板失败，使用默认模板: %v", err)
+		}
+	}
+	
+	// 如果模板为空，使用默认模板
+	if template == "" {
+		template = `请根据以下数据优化交易参数。
 
 当前参数:
 - 价格间隔: %.2f
@@ -281,7 +356,12 @@ func (os *OpenAIService) buildParameterOptimizationPrompt(req *ParameterOptimiza
   "expected_improvement": 预期改进百分比,
   "confidence": 0.0-1.0,
   "reasoning": "优化理由"
-}`, req.CurrentParams.PriceInterval, req.CurrentParams.BuyWindowSize, 
+}`
+	}
+	
+	_ = systemPrompt // 在Analyze方法中使用
+	
+	return fmt.Sprintf(template, req.CurrentParams.PriceInterval, req.CurrentParams.BuyWindowSize, 
 		req.CurrentParams.SellWindowSize, req.CurrentParams.OrderQuantity,
 		req.Performance.TotalTrades, req.Performance.WinRate*100,
 		req.Performance.TotalPnL, req.Performance.MaxDrawdown*100)
@@ -302,7 +382,19 @@ func (os *OpenAIService) parseParameterOptimizationResponse(response string) (*P
 
 // buildRiskAnalysisPrompt 构建风险分析Prompt（与Gemini相同）
 func (os *OpenAIService) buildRiskAnalysisPrompt(req *RiskAnalysisRequest) string {
-	return fmt.Sprintf(`请分析以下交易风险。
+	var template, systemPrompt string
+	var err error
+	
+	if os.promptManager != nil {
+		template, systemPrompt, err = os.promptManager.GetPrompt("risk_analysis")
+		if err != nil {
+			logger.Warn("⚠️ 获取提示词模板失败，使用默认模板: %v", err)
+		}
+	}
+	
+	// 如果模板为空，使用默认模板
+	if template == "" {
+		template = `请分析以下交易风险。
 
 交易对: %s
 当前价格: %.2f
@@ -321,7 +413,12 @@ func (os *OpenAIService) buildRiskAnalysisPrompt(req *RiskAnalysisRequest) strin
   "warnings": ["警告1", "警告2"],
   "recommendations": ["建议1", "建议2"],
   "reasoning": "分析理由"
-}`, req.Symbol, req.CurrentPrice, req.AccountBalance, req.UsedMargin,
+}`
+	}
+	
+	_ = systemPrompt // 在Analyze方法中使用
+	
+	return fmt.Sprintf(template, req.Symbol, req.CurrentPrice, req.AccountBalance, req.UsedMargin,
 		req.MarketVolatility*100, len(req.Positions), req.OpenOrders)
 }
 
@@ -340,6 +437,42 @@ func (os *OpenAIService) parseRiskAnalysisResponse(response string) (*RiskAnalys
 
 // buildSentimentAnalysisPrompt 构建情绪分析Prompt（与Gemini相同）
 func (os *OpenAIService) buildSentimentAnalysisPrompt(req *SentimentAnalysisRequest) string {
+	var template, systemPrompt string
+	var err error
+	
+	if os.promptManager != nil {
+		template, systemPrompt, err = os.promptManager.GetPrompt("sentiment_analysis")
+		if err != nil {
+			logger.Warn("⚠️ 获取提示词模板失败，使用默认模板: %v", err)
+		}
+	}
+	
+	// 如果模板为空，使用默认模板
+	if template == "" {
+		template = `请分析以下市场情绪数据。
+
+交易对: %s
+
+新闻摘要:
+%s
+
+%s%s
+
+请分析市场情绪（-1到1，-1极度悲观，1极度乐观）、趋势（bullish/bearish/neutral）、关键因素和理由。
+
+请以JSON格式返回，格式如下：
+{
+  "sentiment_score": -1.0到1.0,
+  "trend": "bullish|bearish|neutral",
+  "key_factors": ["因素1", "因素2"],
+  "news_summary": "新闻摘要",
+  "reasoning": "分析理由"
+}`
+	}
+	
+	_ = systemPrompt // 在Analyze方法中使用
+	
+	// 构建数据部分
 	newsSummary := ""
 	for i, news := range req.NewsItems {
 		if i >= 5 {
@@ -365,25 +498,7 @@ func (os *OpenAIService) buildSentimentAnalysisPrompt(req *SentimentAnalysisRequ
 		}
 	}
 
-	return fmt.Sprintf(`请分析以下市场情绪数据。
-
-交易对: %s
-
-新闻摘要:
-%s
-
-%s%s
-
-请分析市场情绪（-1到1，-1极度悲观，1极度乐观）、趋势（bullish/bearish/neutral）、关键因素和理由。
-
-请以JSON格式返回，格式如下：
-{
-  "sentiment_score": -1.0到1.0,
-  "trend": "bullish|bearish|neutral",
-  "key_factors": ["因素1", "因素2"],
-  "news_summary": "新闻摘要",
-  "reasoning": "分析理由"
-}`, req.Symbol, newsSummary, fearGreedInfo, redditSummary)
+	return fmt.Sprintf(template, req.Symbol, newsSummary, fearGreedInfo, redditSummary)
 }
 
 // parseSentimentAnalysisResponse 解析情绪分析响应（与Gemini相同）

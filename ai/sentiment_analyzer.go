@@ -261,3 +261,8 @@ func (sa *SentimentAnalyzer) GetLastAnalysisTime() time.Time {
 	return sa.lastAnalysisTime
 }
 
+// TriggerAnalysis 手动触发分析
+func (sa *SentimentAnalyzer) TriggerAnalysis() error {
+	return sa.performAnalysis()
+}
+

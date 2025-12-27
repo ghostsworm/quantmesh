@@ -35,12 +35,12 @@ func NewAIServiceFactory() *AIServiceFactory {
 }
 
 // CreateService 创建AI服务实例
-func (f *AIServiceFactory) CreateService(serviceType AIServiceType, apiKey string, baseURL string) (AIService, error) {
+func (f *AIServiceFactory) CreateService(serviceType AIServiceType, apiKey string, baseURL string, promptManager *PromptManager) (AIService, error) {
 	switch serviceType {
 	case AIServiceGemini:
-		return NewGeminiService(apiKey, baseURL)
+		return NewGeminiService(apiKey, baseURL, promptManager)
 	case AIServiceOpenAI:
-		return NewOpenAIService(apiKey, baseURL)
+		return NewOpenAIService(apiKey, baseURL, promptManager)
 	default:
 		return nil, fmt.Errorf("不支持的AI服务类型: %s", serviceType)
 	}
