@@ -93,8 +93,9 @@ type Config struct {
 	} `yaml:"trading"`
 
 	System struct {
-		LogLevel     string `yaml:"log_level"`
-		CancelOnExit bool   `yaml:"cancel_on_exit"`
+		LogLevel            string `yaml:"log_level"`
+		CancelOnExit        bool   `yaml:"cancel_on_exit"`
+		ClosePositionsOnExit bool  `yaml:"close_positions_on_exit"` // 退出时是否平仓（默认false）
 	} `yaml:"system"`
 
 	// 主动安全风控配置

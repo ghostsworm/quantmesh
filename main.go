@@ -973,6 +973,15 @@ waitForSignal:
 		cancelTimeout()
 	}
 
+	// 🔥 第一点五优先级：平掉所有持仓（如果启用）
+	// 注意：平仓应该在撤单之后进行，避免平仓单被撤销
+	if cfg.System.ClosePositionsOnExit {
+		logger.Info("🔄 正在平掉所有持仓...")
+		closeCtx, closeTimeout := context.WithTimeout(context.Background(), 30*time.Second)
+		closeAllPositions(closeCtx, ex, cfg.Trading.Symbol, priceMonitor)
+		closeTimeout()
+	}
+
 	// 🔥 第二优先级：优雅停止各个组件（按依赖关系从上到下）
 	// 注意：这些组件的 Stop() 方法内部会处理 WebSocket 关闭等清理工作
 	logger.Info("⏹️ 正在停止价格监控...")
@@ -1006,6 +1015,23 @@ waitForSignal:
 	logger.Info("⏹️ 正在停止看门狗监控...")
 	if watchdog != nil {
 		watchdog.Stop()
+	}
+
+	logger.Info("⏹️ 正在停止AI模块...")
+	if aiMarketAnalyzer != nil {
+		aiMarketAnalyzer.Stop()
+	}
+	if aiParameterOptimizer != nil {
+		aiParameterOptimizer.Stop()
+	}
+	if aiRiskAnalyzer != nil {
+		aiRiskAnalyzer.Stop()
+	}
+	if aiSentimentAnalyzer != nil {
+		aiSentimentAnalyzer.Stop()
+	}
+	if aiPolymarketSignalAnalyzer != nil {
+		aiPolymarketSignalAnalyzer.Stop()
 	}
 
 	// 🔥 第三优先级：停止所有协程（取消 context）
@@ -1226,4 +1252,123 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 
 func (a *exchangeExecutorAdapter) BatchCancelOrders(orderIDs []int64) error {
 	return a.executor.BatchCancelOrders(orderIDs)
+}
+
+// closeAllPositions 平掉所有持仓（退出时使用）
+func closeAllPositions(ctx context.Context, ex exchange.IExchange, symbol string, priceMonitor *monitor.PriceMonitor) {
+	// 1. 查询所有持仓
+	positions, err := ex.GetPositions(ctx, symbol)
+	if err != nil {
+		logger.Error("❌ 查询持仓失败，无法平仓: %v", err)
+		return
+	}
+
+	if len(positions) == 0 {
+		logger.Info("ℹ️ 当前没有持仓，无需平仓")
+		return
+	}
+
+	// 2. 获取当前价格（用于平仓单）
+	currentPrice := 0.0
+	if priceMonitor != nil {
+		currentPrice = priceMonitor.GetLastPrice()
+	}
+
+	// 如果价格监控器没有价格，尝试从交易所获取
+	if currentPrice <= 0 {
+		var priceErr error
+		currentPrice, priceErr = ex.GetLatestPrice(ctx, symbol)
+		if priceErr != nil || currentPrice <= 0 {
+			logger.Warn("⚠️ 无法获取当前价格，将使用持仓标记价格平仓")
+		}
+	}
+
+	// 3. 统计需要平仓的持仓
+	needCloseCount := 0
+	for _, pos := range positions {
+		// Size 正数表示多仓，负数表示空仓，为0表示无持仓
+		if pos.Size != 0 {
+			needCloseCount++
+		}
+	}
+
+	if needCloseCount == 0 {
+		logger.Info("ℹ️ 当前没有有效持仓，无需平仓")
+		return
+	}
+
+	logger.Info("🔄 发现 %d 个持仓需要平仓", needCloseCount)
+
+	// 4. 对每个持仓下平仓单
+	successCount := 0
+	failCount := 0
+
+	for _, pos := range positions {
+		// 跳过无持仓
+		if pos.Size == 0 {
+			continue
+		}
+
+		// 确定平仓方向和数量
+		var side exchange.Side
+		quantity := pos.Size
+		if quantity > 0 {
+			// 多仓，需要下 SELL 单平仓
+			side = exchange.SideSell
+		} else {
+			// 空仓，需要下 BUY 单平仓（注意 Size 是负数）
+			side = exchange.SideBuy
+			quantity = -quantity // 转为正数
+		}
+
+		// 确定平仓价格：优先使用当前价格，否则使用标记价格，最后使用开仓价格
+		closePrice := currentPrice
+		if closePrice <= 0 && pos.MarkPrice > 0 {
+			closePrice = pos.MarkPrice
+		}
+		if closePrice <= 0 && pos.EntryPrice > 0 {
+			closePrice = pos.EntryPrice
+		}
+
+		if closePrice <= 0 {
+			logger.Error("❌ [平仓] 无法确定价格，跳过持仓 %s (Size: %.6f)", pos.Symbol, pos.Size)
+			failCount++
+			continue
+		}
+
+		// 下单平仓
+		logger.Info("🔄 [平仓] %s %s %.6f @ %.2f (ReduceOnly)", side, pos.Symbol, quantity, closePrice)
+
+		orderReq := &exchange.OrderRequest{
+			Symbol:        symbol,
+			Side:          side,
+			Type:          exchange.OrderTypeLimit,
+			TimeInForce:   exchange.TimeInForceGTC,
+			Quantity:      quantity,
+			Price:         closePrice,
+			ReduceOnly:    true, // 只减仓
+			PostOnly:      false,
+			PriceDecimals: ex.GetPriceDecimals(),
+		}
+
+		_, err := ex.PlaceOrder(ctx, orderReq)
+		if err != nil {
+			logger.Error("❌ [平仓] 下单失败 %s %.6f @ %.2f: %v", side, quantity, closePrice, err)
+			failCount++
+		} else {
+			logger.Info("✅ [平仓] 已下单 %s %.6f @ %.2f", side, quantity, closePrice)
+			successCount++
+		}
+
+		// 避免请求过快，稍微延迟
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	logger.Info("📊 [平仓完成] 成功: %d, 失败: %d", successCount, failCount)
+
+	// 5. 等待一段时间，让平仓单成交（可选）
+	if successCount > 0 {
+		logger.Info("⏳ 等待平仓单成交...")
+		time.Sleep(2 * time.Second)
+	}
 }

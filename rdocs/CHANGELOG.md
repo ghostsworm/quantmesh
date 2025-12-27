@@ -33,6 +33,20 @@
 
 ## [未发布] - Unreleased
 
+### 新增
+- **退出时自动平仓功能**：
+  - 新增配置项 `system.close_positions_on_exit`（默认 `false`，需用户主动开启）
+  - 程序退出时，如果启用此选项，会自动查询所有持仓并下 ReduceOnly 平仓单
+  - 支持多仓和空仓的自动平仓，使用当前价格或标记价格下单
+  - 平仓操作在撤单之后、停止组件之前执行，确保顺序正确
+  - 提供详细的平仓日志，包括成功/失败统计
+  - 涉及的文件：`main.go`, `config/config.go`, `config.example.yaml`
+  - 技术细节：
+    - 实现 `closeAllPositions()` 函数，查询持仓并使用 ReduceOnly 订单平仓
+    - 多仓（Size > 0）下 SELL 单平仓，空仓（Size < 0）下 BUY 单平仓
+    - 价格优先级：当前价格 > 标记价格 > 开仓价格
+    - 平仓超时时间：30秒，每个订单间隔100ms避免请求过快
+
 ### 变更
 - **许可证变更**：从 MIT 许可证变更为 AGPL-3.0 双许可模式
   - 开源版本采用 AGPL-3.0 (GNU Affero General Public License v3.0)
@@ -131,6 +145,14 @@
 - 修复日志页面缺少实时订阅函数导致 `/logs` 页面报错的问题
 - **修复 session_id Cookie 因 Base64 填充符导致会话查找失败的问题**
 - **修复前端命名遮蔽导致设置密码请求未发送的问题**
+- **修复 DataSourceManager.getCached 方法的并发安全问题**：
+  - 问题：`getCached` 方法使用读锁（RLock）但调用了 `delete()` 操作，这会导致运行时panic（"fatal error: concurrent map modification"）
+  - 解决方案：修改为先释放读锁检查过期状态，如需删除则获取写锁执行删除操作，使用双重检查确保线程安全
+  - 涉及的文件：`ai/data_sources.go`
+- **修复 AI 模块关闭时资源泄漏问题**：
+  - 问题：AI模块（MarketAnalyzer、ParameterOptimizer、RiskAnalyzer、SentimentAnalyzer、PolymarketSignalAnalyzer）启动后，在程序关闭时未调用 `Stop()` 方法，导致goroutine泄漏和资源泄漏
+  - 解决方案：在程序关闭序列中添加所有AI模块的 `Stop()` 方法调用，确保优雅关闭
+  - 涉及的文件：`main.go`
 - **实现 WebAuthn 注册完成功能**
 - **修复前端密码设置请求未发送的问题（state setter 覆盖了 API 方法）**
 - **修复会话 ID 在 Cookie 中被转义导致无法识别的问题（去除 Base64 填充）**

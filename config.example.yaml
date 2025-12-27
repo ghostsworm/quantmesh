@@ -112,6 +112,7 @@ system:
   # FATAL: 只输出致命错误
   log_level: "INFO"
   cancel_on_exit: true        # 退出时撤销所有订单（默认开启true,关闭用false）
+  close_positions_on_exit: false  # 退出时是否平仓（默认关闭false，开启后会在退出时自动平掉所有持仓）
 
 # 主动安全风控配置（基于移动平均线）
 risk_control:

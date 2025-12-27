@@ -206,19 +206,28 @@ func (dsm *DataSourceManager) FetchFearGreedIndex(apiURL string) (*FearGreedInde
 // getCached 获取缓存
 func (dsm *DataSourceManager) getCached(key string) interface{} {
 	dsm.mu.RLock()
-	defer dsm.mu.RUnlock()
-
 	cached, exists := dsm.cache[key]
 	if !exists {
+		dsm.mu.RUnlock()
 		return nil
 	}
 
-	if time.Now().After(cached.ExpiresAt) {
-		delete(dsm.cache, key)
+	expired := time.Now().After(cached.ExpiresAt)
+	data := cached.Data
+	dsm.mu.RUnlock()
+
+	// 如果缓存已过期，需要写锁来删除
+	if expired {
+		dsm.mu.Lock()
+		// 双重检查：可能在释放读锁和获取写锁之间，其他协程已经删除了该键
+		if cached, exists := dsm.cache[key]; exists && time.Now().After(cached.ExpiresAt) {
+			delete(dsm.cache, key)
+		}
+		dsm.mu.Unlock()
 		return nil
 	}
 
-	return cached.Data
+	return data
 }
 
 // setCached 设置缓存
