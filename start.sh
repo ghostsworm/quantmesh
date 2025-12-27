@@ -1,7 +1,7 @@
 #!/bin/bash
 # 使用 HTTP 端口（不是 SOCKS5 端口）
-export https_proxy=http://127.0.0.1:7895
-export http_proxy=http://127.0.0.1:7895
+export https_proxy=http://127.0.0.1:7890
+export http_proxy=http://127.0.0.1:7890
 # QuantMesh Market Maker 启动/重启脚本
 # 功能：
 # 1. 检查并杀掉旧进程（重启模式）
@@ -249,6 +249,13 @@ check_and_build() {
         fi
         if [ -d "${SCRIPT_DIR}/web/dist" ] && [ "${SCRIPT_DIR}/web/dist" -nt "${SCRIPT_DIR}/${BINARY_NAME}" ] 2>/dev/null; then
             frontend_newer=true
+        fi
+        
+        # 检查前端源码是否比二进制新
+        if [ -d "${SCRIPT_DIR}/webui/src" ]; then
+            if find "${SCRIPT_DIR}/webui/src" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.jsx" -o -name "*.js" -o -name "*.css" \) -newer "${SCRIPT_DIR}/${BINARY_NAME}" 2>/dev/null | grep -q .; then
+                frontend_newer=true
+            fi
         fi
         
         if [ "$go_files_newer" = true ] || [ "$frontend_newer" = true ]; then
