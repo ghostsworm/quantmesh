@@ -21,6 +21,8 @@ import KlineChart from './components/KlineChart'
 import Configuration from './components/Configuration'
 import FundingRate from './components/FundingRate'
 import MarketIntelligence from './components/MarketIntelligence'
+import AIAnalysis from './components/AIAnalysis'
+import AIPromptManager from './components/AIPromptManager'
 import Footer from './components/Footer'
 import { logout } from './services/auth'
 import './App.css'
@@ -180,6 +182,8 @@ const AppContent: React.FC = () => {
             <NavLink to="/kline">K线图</NavLink>
             <NavLink to="/funding-rate">资金费率</NavLink>
             <NavLink to="/market-intelligence">市场情报</NavLink>
+            <NavLink to="/ai-analysis">AI分析</NavLink>
+            <NavLink to="/ai-prompts">AI提示词</NavLink>
             <NavLink to="/logs">日志</NavLink>
             <NavLink to="/config">配置</NavLink>
             <NavLink to="/profile">个人资料</NavLink>
@@ -203,6 +207,8 @@ const AppContent: React.FC = () => {
             <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
             <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
             <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
+            <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
+            <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
             <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
             <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

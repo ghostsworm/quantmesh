@@ -640,6 +640,154 @@ export async function getFundingRateHistory(symbol?: string, limit: number = 100
   return fetchWithAuth(`${API_BASE_URL}/funding/history?${queryParams.toString()}`)
 }
 
+// AI Analysis API
+export interface AIAnalysisStatus {
+  enabled: boolean
+  modules: {
+    [key: string]: {
+      enabled: boolean
+      last_update: string | null
+      has_data: boolean
+    }
+  }
+}
+
+export async function getAIAnalysisStatus(): Promise<AIAnalysisStatus> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/status`)
+}
+
+export interface AIMarketAnalysis {
+  trend: string
+  confidence: number
+  signal: string
+  reasoning: string
+  price_prediction?: {
+    short_term: number
+    long_term: number
+    timeframe: string
+  }
+}
+
+export interface AIMarketAnalysisResponse {
+  analysis: AIMarketAnalysis
+  last_update: string
+}
+
+export async function getAIMarketAnalysis(): Promise<AIMarketAnalysisResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/analysis/market`)
+}
+
+export interface AIParameterOptimization {
+  recommended_params: {
+    price_interval: number
+    buy_window_size: number
+    sell_window_size: number
+    order_quantity: number
+  }
+  expected_improvement: number
+  confidence: number
+  reasoning: string
+}
+
+export interface AIParameterOptimizationResponse {
+  optimization: AIParameterOptimization
+  last_update: string
+}
+
+export async function getAIParameterOptimization(): Promise<AIParameterOptimizationResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/analysis/parameter`)
+}
+
+export interface AIRiskAnalysis {
+  risk_score: number
+  risk_level: string
+  warnings: string[]
+  recommendations: string[]
+  reasoning: string
+}
+
+export interface AIRiskAnalysisResponse {
+  analysis: AIRiskAnalysis
+  last_update: string
+}
+
+export async function getAIRiskAnalysis(): Promise<AIRiskAnalysisResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/analysis/risk`)
+}
+
+export interface AISentimentAnalysis {
+  sentiment_score: number
+  trend: string
+  key_factors: string[]
+  news_summary: string
+  reasoning: string
+}
+
+export interface AISentimentAnalysisResponse {
+  analysis: AISentimentAnalysis
+  last_update: string
+}
+
+export async function getAISentimentAnalysis(): Promise<AISentimentAnalysisResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/analysis/sentiment`)
+}
+
+export interface AIPolymarketSignal {
+  signal: string
+  strength: number
+  confidence: number
+  reasoning: string
+  signals?: Array<{
+    question: string
+    signal: string
+    probability: number
+    strength: number
+    confidence: number
+    reasoning: string
+    relevance: string
+  }>
+}
+
+export interface AIPolymarketSignalResponse {
+  analysis: AIPolymarketSignal
+  last_update: string
+}
+
+export async function getAIPolymarketSignal(): Promise<AIPolymarketSignalResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/analysis/polymarket`)
+}
+
+export async function triggerAIAnalysis(module: string): Promise<{ message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/analysis/trigger/${module}`, {
+    method: 'POST',
+  })
+}
+
+export interface AIPromptTemplate {
+  module: string
+  template: string
+  system_prompt: string
+}
+
+export interface AIPromptsResponse {
+  prompts: Record<string, AIPromptTemplate>
+}
+
+export async function getAIPrompts(): Promise<AIPromptsResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/prompts`)
+}
+
+export async function updateAIPrompt(module: string, template: string, systemPrompt?: string): Promise<{ message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/prompts`, {
+    method: 'POST',
+    body: JSON.stringify({
+      module,
+      template,
+      system_prompt: systemPrompt || '',
+    }),
+  })
+}
+
 // Market Intelligence
 export interface RSSItemInfo {
   title: string

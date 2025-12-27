@@ -109,8 +109,7 @@ func (a *aiSentimentAdapter) GetLastAnalysisTime() time.Time {
 }
 
 func (a *aiSentimentAdapter) PerformAnalysis() error {
-	// 由于performAnalysis是私有方法，我们需要通过其他方式触发
-	return fmt.Errorf("请通过配置启用情绪分析的自动分析功能")
+	return a.analyzer.TriggerAnalysis()
 }
 
 type aiPolymarketAdapter struct {
@@ -126,8 +125,7 @@ func (a *aiPolymarketAdapter) GetLastAnalysisTime() time.Time {
 }
 
 func (a *aiPolymarketAdapter) PerformAnalysis() error {
-	// 由于performAnalysis是私有方法，我们需要通过其他方式触发
-	return fmt.Errorf("请通过配置启用Polymarket信号的自动分析功能")
+	return a.analyzer.TriggerAnalysis()
 }
 
 type aiPromptAdapter struct {
