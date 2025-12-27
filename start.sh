@@ -8,6 +8,10 @@ export http_proxy=http://127.0.0.1:7890
 # 2. 杀掉占用端口的进程
 # 3. 自动构建前端和后端（如果需要）
 # 4. 启动新服务
+#
+# 使用方法：
+#   ./start.sh [config.yaml] [-f|--force]
+#   -f, --force: 强制重新编译前后端
 
 set -e
 
@@ -17,11 +21,52 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# 显示帮助信息
+show_help() {
+    echo "使用方法: $0 [配置文件] [选项]"
+    echo ""
+    echo "选项:"
+    echo "  -f, --force    强制重新编译前后端（忽略时间戳检查）"
+    echo "  -h, --help     显示此帮助信息"
+    echo ""
+    echo "示例:"
+    echo "  $0                    # 使用默认配置文件 config.yaml"
+    echo "  $0 config.yaml        # 使用指定配置文件"
+    echo "  $0 -f                 # 强制重新编译"
+    echo "  $0 config.yaml -f     # 使用指定配置文件并强制重新编译"
+    echo ""
+    exit 0
+}
+
+# 解析参数
+FORCE_BUILD=false
+CONFIG_FILE=""
+
+for arg in "$@"; do
+    case $arg in
+        -h|--help)
+            show_help
+            ;;
+        -f|--force)
+            FORCE_BUILD=true
+            ;;
+        -*)
+            log_error "未知选项: $arg"
+            show_help
+            ;;
+        *)
+            if [ -z "$CONFIG_FILE" ]; then
+                CONFIG_FILE="$arg"
+            fi
+            ;;
+    esac
+done
+
 # 配置
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="quantmesh"
 BINARY_NAME="quantmesh"
-CONFIG_FILE="${1:-config.yaml}"
+CONFIG_FILE="${CONFIG_FILE:-config.yaml}"
 PID_FILE="${SCRIPT_DIR}/.${APP_NAME}.pid"
 LOG_FILE="${SCRIPT_DIR}/logs/${APP_NAME}.log"
 
@@ -154,8 +199,12 @@ build_frontend() {
     # 检查是否需要构建前端
     local need_build=false
     
+    # 如果强制构建，直接设置为 true
+    if [ "$FORCE_BUILD" = true ]; then
+        need_build=true
+        log_info "强制构建模式，将重新构建前端"
     # 如果 dist 目录不存在，需要构建
-    if [ ! -d "${SCRIPT_DIR}/webui/dist" ]; then
+    elif [ ! -d "${SCRIPT_DIR}/webui/dist" ]; then
         need_build=true
         log_info "前端 dist 目录不存在，需要构建前端"
     else
@@ -175,6 +224,13 @@ build_frontend() {
     if [ "$need_build" = true ]; then
         log_info "构建前端..."
         cd "${SCRIPT_DIR}/webui"
+        
+        # 如果是强制构建，先清理旧的构建产物
+        if [ "$FORCE_BUILD" = true ]; then
+            log_info "清理旧的前端构建产物..."
+            rm -rf dist
+            rm -rf "${SCRIPT_DIR}/web/dist"
+        fi
         
         # 检查 node_modules，如果没有则安装
         if [ ! -d "node_modules" ]; then
@@ -229,8 +285,12 @@ build_frontend() {
 check_and_build() {
     local need_build=false
     
+    # 如果强制构建，直接设置为 true
+    if [ "$FORCE_BUILD" = true ]; then
+        need_build=true
+        log_info "强制构建模式，将重新构建项目"
     # 如果二进制文件不存在，需要构建
-    if [ ! -f "${SCRIPT_DIR}/${BINARY_NAME}" ]; then
+    elif [ ! -f "${SCRIPT_DIR}/${BINARY_NAME}" ]; then
         need_build=true
         log_info "二进制文件不存在，需要构建"
     else
