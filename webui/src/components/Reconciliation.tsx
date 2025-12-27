@@ -50,6 +50,11 @@ const Reconciliation: React.FC = () => {
   const [historyOffset, setHistoryOffset] = useState(0)
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [positionTooltip, setPositionTooltip] = useState<PositionTooltipData | null>(null)
+  // 图例显示状态
+  const [showEstimated, setShowEstimated] = useState(true)
+  const [showActual, setShowActual] = useState(true)
+  const [showLocalPosition, setShowLocalPosition] = useState(true)
+  const [showExchangePosition, setShowExchangePosition] = useState(true)
 
   const fetchStatus = async () => {
     try {
@@ -254,8 +259,8 @@ const Reconciliation: React.FC = () => {
                       )}
                       
                       {/* 预计盈利曲线 */}
-                      <path d={estimatedPath} fill="none" stroke="#1890ff" strokeWidth="2" />
-                      {sortedHistory.map((item, i) => {
+                      {showEstimated && <path d={estimatedPath} fill="none" stroke="#1890ff" strokeWidth="2" />}
+                      {showEstimated && sortedHistory.map((item, i) => {
                         const x = getX(i)
                         const y = getY(item.estimated_profit)
                         return (
@@ -301,8 +306,8 @@ const Reconciliation: React.FC = () => {
                       })}
                       
                       {/* 实际盈利曲线 */}
-                      <path d={actualPath} fill="none" stroke="#52c41a" strokeWidth="2" />
-                      {sortedHistory.map((item, i) => {
+                      {showActual && <path d={actualPath} fill="none" stroke="#52c41a" strokeWidth="2" />}
+                      {showActual && sortedHistory.map((item, i) => {
                         const x = getX(i)
                         const y = getY(item.actual_profit)
                         return (
@@ -358,13 +363,21 @@ const Reconciliation: React.FC = () => {
                       })}
                       
                       {/* 图例 */}
-                      <g transform="translate(650, 20)">
-                        <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" />
-                        <text x="35" y="5" fontSize="12" fill="#666">预计盈利</text>
+                      <g 
+                        transform="translate(650, 20)" 
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => setShowEstimated(!showEstimated)}
+                      >
+                        <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" opacity={showEstimated ? 1 : 0.3} />
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showEstimated ? 1 : 0.5}>预计盈利</text>
                       </g>
-                      <g transform="translate(650, 35)">
-                        <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" />
-                        <text x="35" y="5" fontSize="12" fill="#666">实际盈利</text>
+                      <g 
+                        transform="translate(650, 35)" 
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => setShowActual(!showActual)}
+                      >
+                        <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" opacity={showActual ? 1 : 0.3} />
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showActual ? 1 : 0.5}>实际盈利</text>
                       </g>
                     </>
                   )
@@ -491,8 +504,8 @@ const Reconciliation: React.FC = () => {
                   return (
                     <>
                       {/* 本地持仓曲线 */}
-                      <path d={localPositionPath} fill="none" stroke="#1890ff" strokeWidth="2" />
-                      {sortedHistory.map((item, i) => {
+                      {showLocalPosition && <path d={localPositionPath} fill="none" stroke="#1890ff" strokeWidth="2" />}
+                      {showLocalPosition && sortedHistory.map((item, i) => {
                         const x = getX(i)
                         const y = getY(item.local_position)
                         return (
@@ -537,8 +550,8 @@ const Reconciliation: React.FC = () => {
                       })}
                       
                       {/* 交易所持仓曲线 */}
-                      <path d={exchangePositionPath} fill="none" stroke="#52c41a" strokeWidth="2" />
-                      {sortedHistory.map((item, i) => {
+                      {showExchangePosition && <path d={exchangePositionPath} fill="none" stroke="#52c41a" strokeWidth="2" />}
+                      {showExchangePosition && sortedHistory.map((item, i) => {
                         const x = getX(i)
                         const y = getY(item.exchange_position)
                         return (
@@ -593,13 +606,21 @@ const Reconciliation: React.FC = () => {
                       })}
                       
                       {/* 图例 */}
-                      <g transform="translate(650, 20)">
-                        <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" />
-                        <text x="35" y="5" fontSize="12" fill="#666">本地持仓</text>
+                      <g 
+                        transform="translate(650, 20)" 
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => setShowLocalPosition(!showLocalPosition)}
+                      >
+                        <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" opacity={showLocalPosition ? 1 : 0.3} />
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showLocalPosition ? 1 : 0.5}>本地持仓</text>
                       </g>
-                      <g transform="translate(650, 35)">
-                        <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" />
-                        <text x="35" y="5" fontSize="12" fill="#666">交易所持仓</text>
+                      <g 
+                        transform="translate(650, 35)" 
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => setShowExchangePosition(!showExchangePosition)}
+                      >
+                        <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" opacity={showExchangePosition ? 1 : 0.3} />
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showExchangePosition ? 1 : 0.5}>交易所持仓</text>
                       </g>
                     </>
                   )
