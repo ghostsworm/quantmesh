@@ -164,6 +164,12 @@ build_frontend() {
             need_build=true
             log_info "检测到前端依赖更新，需要重新构建"
         fi
+        
+        # 检查前端源码文件是否比 dist 新
+        if find "${SCRIPT_DIR}/webui/src" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.jsx" -o -name "*.js" -o -name "*.css" \) -newer "${SCRIPT_DIR}/webui/dist" 2>/dev/null | grep -q .; then
+            need_build=true
+            log_info "检测到前端源码更新，需要重新构建"
+        fi
     fi
 
     if [ "$need_build" = true ]; then
