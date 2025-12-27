@@ -146,78 +146,101 @@ const AIPromptManager: React.FC = () => {
       </Alert>
 
       <VStack align="stretch" spacing={6}>
-        {Object.entries(prompts).map(([module, prompt]) => (
-          <Card key={module}>
-            <CardHeader>
-              <HStack justify="space-between">
-                <Heading size="md">{moduleNames[module] || module}</Heading>
-                {editing === module ? (
-                  <HStack>
-                    <Button
-                      size="sm"
-                      colorScheme="green"
-                      onClick={() => handleSave(module)}
-                      isLoading={saving === module}
-                    >
-                      保存
-                    </Button>
-                    <Button size="sm" onClick={handleCancel}>
-                      取消
-                    </Button>
-                  </HStack>
-                ) : (
-                  <Button size="sm" colorScheme="blue" onClick={() => handleEdit(module)}>
-                    编辑
-                  </Button>
-                )}
-              </HStack>
-            </CardHeader>
+        {Object.keys(prompts).length === 0 ? (
+          <Card>
             <CardBody>
-              <VStack align="stretch" spacing={4}>
-                <Box>
-                  <Text fontWeight="bold" mb={2}>系统提示词:</Text>
-                  {editing === module ? (
-                    <Textarea
-                      value={editedPrompts[module]?.systemPrompt || ''}
-                      onChange={(e) => handleSystemPromptChange(module, e.target.value)}
-                      rows={2}
-                      placeholder="系统提示词（可选）"
-                    />
-                  ) : (
-                    <Text p={2} bg="gray.50" borderRadius="md" minH="40px">
-                      {prompt.system_prompt || '(未设置)'}
-                    </Text>
-                  )}
-                </Box>
-                <Divider />
-                <Box>
-                  <Text fontWeight="bold" mb={2}>提示词模板:</Text>
-                  {editing === module ? (
-                    <Textarea
-                      value={editedPrompts[module]?.template || ''}
-                      onChange={(e) => handleTemplateChange(module, e.target.value)}
-                      rows={10}
-                      fontFamily="mono"
-                      fontSize="sm"
-                    />
-                  ) : (
-                    <Text
-                      p={2}
-                      bg="gray.50"
-                      borderRadius="md"
-                      fontFamily="mono"
-                      fontSize="sm"
-                      whiteSpace="pre-wrap"
-                      minH="200px"
-                    >
-                      {prompt.template}
-                    </Text>
-                  )}
-                </Box>
-              </VStack>
+              <Center py={8}>
+                <VStack spacing={4}>
+                  <Alert status="info" maxW="md">
+                    <AlertIcon />
+                    <Box>
+                      <Text fontWeight="bold">暂无提示词数据</Text>
+                      <Text fontSize="sm" mt={1}>
+                        系统将自动加载默认提示词，请稍候或刷新页面
+                      </Text>
+                    </Box>
+                  </Alert>
+                  <Button colorScheme="blue" onClick={fetchPrompts}>
+                    刷新数据
+                  </Button>
+                </VStack>
+              </Center>
             </CardBody>
           </Card>
-        ))}
+        ) : (
+          Object.entries(prompts).map(([module, prompt]) => (
+            <Card key={module}>
+              <CardHeader>
+                <HStack justify="space-between">
+                  <Heading size="md">{moduleNames[module] || module}</Heading>
+                  {editing === module ? (
+                    <HStack>
+                      <Button
+                        size="sm"
+                        colorScheme="green"
+                        onClick={() => handleSave(module)}
+                        isLoading={saving === module}
+                      >
+                        保存
+                      </Button>
+                      <Button size="sm" onClick={handleCancel}>
+                        取消
+                      </Button>
+                    </HStack>
+                  ) : (
+                    <Button size="sm" colorScheme="blue" onClick={() => handleEdit(module)}>
+                      编辑
+                    </Button>
+                  )}
+                </HStack>
+              </CardHeader>
+              <CardBody>
+                <VStack align="stretch" spacing={4}>
+                  <Box>
+                    <Text fontWeight="bold" mb={2}>系统提示词:</Text>
+                    {editing === module ? (
+                      <Textarea
+                        value={editedPrompts[module]?.systemPrompt || ''}
+                        onChange={(e) => handleSystemPromptChange(module, e.target.value)}
+                        rows={2}
+                        placeholder="系统提示词（可选）"
+                      />
+                    ) : (
+                      <Text p={2} bg="gray.50" borderRadius="md" minH="40px">
+                        {prompt.system_prompt || '(未设置)'}
+                      </Text>
+                    )}
+                  </Box>
+                  <Divider />
+                  <Box>
+                    <Text fontWeight="bold" mb={2}>提示词模板:</Text>
+                    {editing === module ? (
+                      <Textarea
+                        value={editedPrompts[module]?.template || ''}
+                        onChange={(e) => handleTemplateChange(module, e.target.value)}
+                        rows={10}
+                        fontFamily="mono"
+                        fontSize="sm"
+                      />
+                    ) : (
+                      <Text
+                        p={2}
+                        bg="gray.50"
+                        borderRadius="md"
+                        fontFamily="mono"
+                        fontSize="sm"
+                        whiteSpace="pre-wrap"
+                        minH="200px"
+                      >
+                        {prompt.template}
+                      </Text>
+                    )}
+                  </Box>
+                </VStack>
+              </CardBody>
+            </Card>
+          ))
+        )}
       </VStack>
     </Box>
   )

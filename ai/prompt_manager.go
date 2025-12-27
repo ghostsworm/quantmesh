@@ -136,6 +136,34 @@ func (pm *PromptManager) ReloadCache() error {
 // GetAllPrompts 获取所有提示词
 func (pm *PromptManager) GetAllPrompts() (map[string]*AIPromptTemplate, error) {
 	pm.mu.RLock()
+	cacheLen := len(pm.cache)
+	pm.mu.RUnlock()
+	
+	// 如果缓存为空，返回默认提示词
+	if cacheLen == 0 {
+		defaultModules := []string{
+			"market_analysis",
+			"parameter_optimization",
+			"risk_analysis",
+			"sentiment_analysis",
+		}
+		
+		result := make(map[string]*AIPromptTemplate)
+		for _, module := range defaultModules {
+			template, systemPrompt := pm.getDefaultPrompt(module)
+			if template != "" {
+				result[module] = &AIPromptTemplate{
+					Module:       module,
+					Template:     template,
+					SystemPrompt: systemPrompt,
+				}
+			}
+		}
+		return result, nil
+	}
+	
+	// 如果缓存不为空，返回缓存数据
+	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	
 	result := make(map[string]*AIPromptTemplate)
