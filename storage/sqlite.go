@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -935,8 +936,12 @@ func (s *SQLiteStorage) SaveRiskCheck(record *RiskCheckRecord) error {
 
 // QueryRiskCheckHistory 查询风控检查历史
 func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limit int) ([]*RiskCheckHistory, error) {
-	// 如果 limit <= 0，默认限制为 500 条
+	// 如果 limit <= 0，默认限制为 200 条，防止前端渲染数据过大导致卡顿
 	if limit <= 0 {
+		limit = 200
+	}
+	// 上限限制，避免一次性拉取过多数据占用内存/CPU
+	if limit > 500 {
 		limit = 500
 	}
 	
@@ -964,7 +969,7 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limi
 		WHERE check_time >= ? AND check_time <= ?
 		ORDER BY check_time DESC
 		LIMIT ?
-	`, startTime, endTime, limit*10) // 多查询一些，因为后面会聚合
+	`, startTime, endTime, limit*4) // 多查询一些，因为后面会聚合，但限制在 4 倍以内防止过大
 	if err != nil {
 		return nil, fmt.Errorf("查询风控检查历史失败: %w", err)
 	}
@@ -1025,14 +1030,10 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limi
 		result = append(result, history)
 	}
 
-	// 按时间排序
-	for i := 0; i < len(result)-1; i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[i].CheckTime.After(result[j].CheckTime) {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	// 按时间排序（升序），使用 sort.Slice 替代 O(n^2) 嵌套循环
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CheckTime.Before(result[j].CheckTime)
+	})
 
 	// 限制返回数量（取最新的 limit 条）
 	if len(result) > limit {

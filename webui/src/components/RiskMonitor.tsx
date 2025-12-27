@@ -74,9 +74,11 @@ const RiskMonitor: React.FC = () => {
         const startTime = new Date()
         startTime.setDate(startTime.getDate() - timeRange)
         
+        // 限制返回数量，避免前端渲染过多数据导致卡顿
         const data = await getRiskCheckHistory({
           start_time: startTime.toISOString(),
           end_time: endTime.toISOString(),
+          limit: 200,
         })
         setHistoryData(data.history)
         setErrorHistory(null)
