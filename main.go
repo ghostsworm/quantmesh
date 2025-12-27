@@ -314,6 +314,7 @@ func main() {
 	var aiSentimentAnalyzer *ai.SentimentAnalyzer
 	var aiPolymarketSignalAnalyzer *ai.PolymarketSignalAnalyzer
 	var aiDataSourceMgr *ai.DataSourceManager
+	var aiPromptManager *ai.PromptManager
 	var requiredPositions int
 	var exchangeCfg config.ExchangeConfig
 	var pollInterval time.Duration
@@ -698,7 +699,6 @@ func main() {
 	go riskMonitor.Start(ctx)
 
 	// === AI服务初始化 ===
-	var aiPromptManager *ai.PromptManager
 	if cfg.AI.Enabled {
 		logger.Info("🤖 初始化AI服务...")
 
@@ -851,7 +851,7 @@ func main() {
 			rssFeeds := cfg.AI.Modules.SentimentAnalysis.DataSources.News.RSSFeeds
 			fearGreedAPIURL := cfg.AI.Modules.SentimentAnalysis.DataSources.FearGreedIndex.APIURL
 			polymarketAPIURL := cfg.AI.Modules.PolymarketSignal.APIURL
-			
+
 			dataSourceAdapter := web.NewDataSourceAdapter(
 				aiDataSourceMgr,
 				rssFeeds,
@@ -929,36 +929,38 @@ func main() {
 			web.SetWebAuthnManager(webauthnManager)
 			logger.Info("✅ WebAuthn 管理器已初始化，RPID: %s, RPOrigin: %s", rpID, rpOrigin)
 		}
-	}
 
-	// === 初始化配置监控器（在配置管理系统初始化之后） ===
-	configWatcher, err = config.NewConfigWatcher(configPath, configHotReloader, configBackupMgr)
-	if err != nil {
-		logger.Warn("⚠️ 初始化配置监控器失败: %v（配置文件外部修改将不会自动生效）", err)
-		configWatcher = nil
-	}
+		// === 初始化配置监控器（在配置管理系统初始化之后） ===
+		// 注意：configWatcher 依赖于 configHotReloader 和 configBackupMgr，
+		// 这些变量只在 Web 启用时创建，所以 configWatcher 也应该只在 Web 启用时初始化
+		configWatcher, err = config.NewConfigWatcher(configPath, configHotReloader, configBackupMgr)
+		if err != nil {
+			logger.Warn("⚠️ 初始化配置监控器失败: %v（配置文件外部修改将不会自动生效）", err)
+			configWatcher = nil
+		}
 
-	// === 启动配置监控器 ===
-	if configWatcher != nil {
-		if err := configWatcher.Start(ctx); err != nil {
-			logger.Warn("⚠️ 启动配置监控器失败: %v", err)
-		} else {
-			logger.Info("✅ 配置监控器已启动")
+		// === 启动配置监控器 ===
+		if configWatcher != nil {
+			if err := configWatcher.Start(ctx); err != nil {
+				logger.Warn("⚠️ 启动配置监控器失败: %v", err)
+			} else {
+				logger.Info("✅ 配置监控器已启动")
 
-			// 处理配置更新通知
-			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case newConfig := <-configWatcher.GetUpdateChan():
-						logger.Info("📝 检测到配置文件外部修改，部分配置需要重启才能生效")
-						logger.Info("当前配置: 交易对=%s, 价格间隔=%.2f", newConfig.Trading.Symbol, newConfig.Trading.PriceInterval)
-					case err := <-configWatcher.GetErrorChan():
-						logger.Error("配置监控错误: %v", err)
+				// 处理配置更新通知
+				go func() {
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case newConfig := <-configWatcher.GetUpdateChan():
+							logger.Info("📝 检测到配置文件外部修改，部分配置需要重启才能生效")
+							logger.Info("当前配置: 交易对=%s, 价格间隔=%.2f", newConfig.Trading.Symbol, newConfig.Trading.PriceInterval)
+						case err := <-configWatcher.GetErrorChan():
+							logger.Error("配置监控错误: %v", err)
+						}
 					}
-				}
-			}()
+				}()
+			}
 		}
 	}
 
