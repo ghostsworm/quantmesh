@@ -769,9 +769,3 @@ func calculateDecimalPlaces(value float64) int {
 
 	return 0
 }
-
-// convertToBitgetSymbol 转换交易对格式（兼容性函数）
-func convertToBitgetSymbol(symbol string) string {
-	// Gate.io 使用下划线格式
-	return convertToGateSymbol(symbol)
-}
