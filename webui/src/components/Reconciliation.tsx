@@ -34,6 +34,13 @@ interface TooltipData {
   type: 'estimated' | 'actual'
 }
 
+interface PositionTooltipData {
+  x: number
+  y: number
+  item: ReconciliationHistoryItem
+  type: 'local' | 'exchange'
+}
+
 const Reconciliation: React.FC = () => {
   const [status, setStatus] = useState<ReconciliationStatus | null>(null)
   const [history, setHistory] = useState<ReconciliationHistoryItem[]>([])
@@ -42,6 +49,7 @@ const Reconciliation: React.FC = () => {
   const [historyLimit, setHistoryLimit] = useState(50)
   const [historyOffset, setHistoryOffset] = useState(0)
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
+  const [positionTooltip, setPositionTooltip] = useState<PositionTooltipData | null>(null)
 
   const fetchStatus = async () => {
     try {
@@ -154,7 +162,7 @@ const Reconciliation: React.FC = () => {
           <h3>盈利趋势</h3>
           <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-              <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet">
+              <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setTooltip(null)}>
                 {/* 绘制网格线 */}
                 <g>
                   {[0, 1, 2, 3, 4].map(i => (
@@ -403,6 +411,239 @@ const Reconciliation: React.FC = () => {
                       <div className="tooltip-row">
                         <span className="tooltip-label">累计卖出:</span>
                         <span className="tooltip-value">{tooltip.item.total_sell_qty.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 仓位走势图 */}
+      {history.length > 0 && (
+        <div style={{ marginTop: '32px' }}>
+          <h3>仓位走势</h3>
+          <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+              <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setPositionTooltip(null)}>
+                {/* 绘制网格线 */}
+                <g>
+                  {[0, 1, 2, 3, 4].map(i => (
+                    <line
+                      key={`pos-grid-${i}`}
+                      x1="60"
+                      y1={50 + i * 60}
+                      x2="780"
+                      y2={50 + i * 60}
+                      stroke="#e8e8e8"
+                      strokeWidth="1"
+                    />
+                  ))}
+                </g>
+                
+                {/* 绘制坐标轴 */}
+                <line x1="60" y1="290" x2="780" y2="290" stroke="#333" strokeWidth="2" />
+                <line x1="60" y1="50" x2="60" y2="290" stroke="#333" strokeWidth="2" />
+                
+                {/* 绘制曲线 */}
+                {(() => {
+                  const sortedHistory = [...history].reverse()
+                  const maxPosition = Math.max(...sortedHistory.map(h => Math.max(h.local_position, h.exchange_position)))
+                  const minPosition = Math.min(...sortedHistory.map(h => Math.min(h.local_position, h.exchange_position)))
+                  
+                  // 计算 Y 轴范围
+                  let yMin = minPosition
+                  let yMax = maxPosition
+                  
+                  // 如果所有值都是0或很小，设置一个最小范围
+                  if (yMax - yMin < 0.0001) {
+                    yMin = Math.max(0, yMin - Math.max(Math.abs(yMin) * 0.1, 0.01))
+                    yMax = yMax + Math.max(Math.abs(yMax) * 0.1, 0.01)
+                  }
+                  
+                  const range = yMax - yMin || 0.01
+                  const padding = Math.max(range * 0.1, 0.01)
+                  
+                  const finalMin = Math.max(0, yMin - padding)
+                  const finalMax = yMax + padding
+                  const finalRange = finalMax - finalMin
+                  
+                  const getY = (value: number) => {
+                    return 290 - ((value - finalMin) / finalRange) * 240
+                  }
+                  
+                  const getX = (index: number) => {
+                    return 60 + (index / Math.max(sortedHistory.length - 1, 1)) * 720
+                  }
+                  
+                  // 本地持仓曲线
+                  const localPositionPath = sortedHistory.map((item, i) => 
+                    `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(item.local_position)}`
+                  ).join(' ')
+                  
+                  // 交易所持仓曲线
+                  const exchangePositionPath = sortedHistory.map((item, i) => 
+                    `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(item.exchange_position)}`
+                  ).join(' ')
+                  
+                  return (
+                    <>
+                      {/* 本地持仓曲线 */}
+                      <path d={localPositionPath} fill="none" stroke="#1890ff" strokeWidth="2" />
+                      {sortedHistory.map((item, i) => {
+                        const x = getX(i)
+                        const y = getY(item.local_position)
+                        return (
+                          <circle
+                            key={`local-pos-${i}`}
+                            cx={x}
+                            cy={y}
+                            r="4"
+                            fill="#1890ff"
+                            className="profit-point"
+                            onMouseEnter={(e) => {
+                              const circle = e.currentTarget
+                              const svg = circle.ownerSVGElement as SVGSVGElement
+                              if (svg) {
+                                const svgRect = svg.getBoundingClientRect()
+                                const point = svg.createSVGPoint()
+                                point.x = parseFloat(circle.getAttribute('cx') || '0')
+                                point.y = parseFloat(circle.getAttribute('cy') || '0')
+                                const screenCTM = circle.getScreenCTM()
+                                if (screenCTM) {
+                                  const transformedPoint = point.matrixTransform(screenCTM)
+                                  setPositionTooltip({
+                                    x: transformedPoint.x - svgRect.left,
+                                    y: transformedPoint.y - svgRect.top - 10,
+                                    item,
+                                    type: 'local'
+                                  })
+                                } else {
+                                  const rect = circle.getBoundingClientRect()
+                                  setPositionTooltip({
+                                    x: rect.left - svgRect.left + rect.width / 2,
+                                    y: rect.top - svgRect.top - 10,
+                                    item,
+                                    type: 'local'
+                                  })
+                                }
+                              }
+                            }}
+                            onMouseLeave={() => setPositionTooltip(null)}
+                          />
+                        )
+                      })}
+                      
+                      {/* 交易所持仓曲线 */}
+                      <path d={exchangePositionPath} fill="none" stroke="#52c41a" strokeWidth="2" />
+                      {sortedHistory.map((item, i) => {
+                        const x = getX(i)
+                        const y = getY(item.exchange_position)
+                        return (
+                          <circle
+                            key={`exchange-pos-${i}`}
+                            cx={x}
+                            cy={y}
+                            r="4"
+                            fill="#52c41a"
+                            className="profit-point"
+                            onMouseEnter={(e) => {
+                              const circle = e.currentTarget
+                              const svg = circle.ownerSVGElement as SVGSVGElement
+                              if (svg) {
+                                const svgRect = svg.getBoundingClientRect()
+                                const point = svg.createSVGPoint()
+                                point.x = parseFloat(circle.getAttribute('cx') || '0')
+                                point.y = parseFloat(circle.getAttribute('cy') || '0')
+                                const screenCTM = circle.getScreenCTM()
+                                if (screenCTM) {
+                                  const transformedPoint = point.matrixTransform(screenCTM)
+                                  setPositionTooltip({
+                                    x: transformedPoint.x - svgRect.left,
+                                    y: transformedPoint.y - svgRect.top - 10,
+                                    item,
+                                    type: 'exchange'
+                                  })
+                                } else {
+                                  const rect = circle.getBoundingClientRect()
+                                  setPositionTooltip({
+                                    x: rect.left - svgRect.left + rect.width / 2,
+                                    y: rect.top - svgRect.top - 10,
+                                    item,
+                                    type: 'exchange'
+                                  })
+                                }
+                              }
+                            }}
+                            onMouseLeave={() => setPositionTooltip(null)}
+                          />
+                        )
+                      })}
+                      
+                      {/* Y轴刻度 */}
+                      {[0, 1, 2, 3, 4].map(i => {
+                        const value = finalMin + finalRange * (4 - i) / 4
+                        return (
+                          <text key={`pos-y-${i}`} x="50" y={50 + i * 60 + 5} textAnchor="end" fontSize="12" fill="#666">
+                            {value.toFixed(4)}
+                          </text>
+                        )
+                      })}
+                      
+                      {/* 图例 */}
+                      <g transform="translate(650, 20)">
+                        <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" />
+                        <text x="35" y="5" fontSize="12" fill="#666">本地持仓</text>
+                      </g>
+                      <g transform="translate(650, 35)">
+                        <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" />
+                        <text x="35" y="5" fontSize="12" fill="#666">交易所持仓</text>
+                      </g>
+                    </>
+                  )
+                })()}
+              </svg>
+              
+              {/* Position Tooltip */}
+              {positionTooltip && (
+                <div
+                  className="profit-tooltip"
+                  style={{
+                    position: 'absolute',
+                    left: `${positionTooltip.x}px`,
+                    top: `${positionTooltip.y}px`,
+                    transform: 'translate(-50%, -100%)',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <div className="tooltip-content">
+                    <div className="tooltip-header">
+                      <strong>{formatTime(positionTooltip.item.reconcile_time)}</strong>
+                    </div>
+                    <div className="tooltip-body">
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">本地持仓:</span>
+                        <span className="tooltip-value">{positionTooltip.item.local_position.toFixed(4)}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">交易所持仓:</span>
+                        <span className="tooltip-value">{positionTooltip.item.exchange_position.toFixed(4)}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">持仓差异:</span>
+                        <span className="tooltip-value" style={{ color: Math.abs(positionTooltip.item.position_diff) > 0.0001 ? '#ff4d4f' : '#52c41a' }}>
+                          {positionTooltip.item.position_diff.toFixed(4)}
+                        </span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">挂单买单:</span>
+                        <span className="tooltip-value">{positionTooltip.item.active_buy_orders}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">挂单卖单:</span>
+                        <span className="tooltip-value">{positionTooltip.item.active_sell_orders}</span>
                       </div>
                     </div>
                   </div>

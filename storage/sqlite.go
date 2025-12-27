@@ -206,7 +206,7 @@ func createTables(db *sql.DB) error {
 	return nil
 }
 
-// migrateReconciliationHistory 迁移对账历史表，添加 actual_profit 字段
+// migrateReconciliationHistory 迁移对账历史表，添加 actual_profit 和 created_at 字段（如果不存在）
 func migrateReconciliationHistory(db *sql.DB) error {
 	// 检查 actual_profit 字段是否存在
 	row := db.QueryRow(`
@@ -223,6 +223,26 @@ func migrateReconciliationHistory(db *sql.DB) error {
 		_, err := db.Exec(`
 			ALTER TABLE reconciliation_history 
 			ADD COLUMN actual_profit DECIMAL(20,8) DEFAULT 0
+		`)
+		if err != nil {
+			return err
+		}
+	}
+	
+	// 检查 created_at 字段是否存在
+	row = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('reconciliation_history') 
+		WHERE name='created_at'
+	`)
+	if err := row.Scan(&count); err != nil {
+		return err
+	}
+	
+	// 如果字段不存在，添加它
+	if count == 0 {
+		_, err := db.Exec(`
+			ALTER TABLE reconciliation_history 
+			ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		`)
 		if err != nil {
 			return err

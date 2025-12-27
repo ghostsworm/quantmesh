@@ -195,3 +195,74 @@ web:
   host: "0.0.0.0"             # 监听地址（默认0.0.0.0，监听所有地址）
   port: 28888                 # 监听端口（默认28888，使用10000以上端口避免常见端口冲突）
   api_key: ""                 # API密钥（可选，用于认证）
+
+# AI配置
+ai:
+  enabled: false              # 是否启用AI功能（默认关闭）
+  provider: "gemini"          # AI服务提供商：gemini, openai
+  api_key: "YOUR_AI_API_KEY"  # AI服务API密钥
+  base_url: ""                # 可选，自定义API端点
+  
+  # 各模块开关
+  modules:
+    market_analysis:
+      enabled: false          # 是否启用市场分析
+      update_interval: 60     # 更新间隔（秒）
+    
+    parameter_optimization:
+      enabled: false          # 是否启用参数优化
+      optimization_interval: 3600  # 优化间隔（秒）
+      auto_apply: false       # 是否自动应用优化结果
+    
+    risk_analysis:
+      enabled: false          # 是否启用风险分析
+      analysis_interval: 300  # 分析间隔（秒）
+    
+    sentiment_analysis:
+      enabled: false          # 是否启用情绪分析
+      analysis_interval: 600  # 分析间隔（秒）
+      data_sources:
+        news:
+          enabled: true       # 是否启用新闻源
+          rss_feeds: []       # RSS源列表（空则使用默认源）
+          fetch_interval: 300 # 获取间隔（秒）
+        fear_greed_index:
+          enabled: true       # 是否启用恐慌贪婪指数
+          api_url: ""        # API地址（空则使用默认）
+          fetch_interval: 3600 # 获取间隔（秒）
+        social_media:
+          enabled: false      # 是否启用社交媒体（暂未实现）
+    
+    polymarket_signal:
+      enabled: false          # 是否启用Polymarket预测市场信号
+      analysis_interval: 300 # 分析间隔（秒）
+      api_url: "https://api.polymarket.com/graphql"  # Polymarket API地址
+      markets:
+        keywords:             # 关注的市场关键词（用于筛选相关市场）
+          - "bitcoin"
+          - "btc"
+          - "ethereum"
+          - "eth"
+          - "crypto"
+          - "regulation"
+        min_liquidity: 10000  # 最小流动性要求（USDC）
+        min_volume_24h: 5000   # 最小24小时交易量（USDC）
+        min_days_to_expiry: 1  # 最小到期天数
+        max_days_to_expiry: 90 # 最大到期天数
+      signal_generation:
+        buy_threshold: 0.65    # 买入信号阈值（概率>此值生成买入信号）
+        sell_threshold: 0.35   # 卖出信号阈值（概率<此值生成卖出信号）
+        min_signal_strength: 0.3  # 最小信号强度
+        min_confidence: 0.5       # 最小置信度
+    
+    strategy_generation:
+      enabled: false          # 是否启用策略生成（实验性功能）
+  
+  # 决策模式：advisor（建议模式）, executor（执行模式）, hybrid（混合模式）
+  decision_mode: "hybrid"
+  
+  # 执行模式规则
+  execution_rules:
+    high_risk_threshold: 0.8   # 高风险阈值（超过此值仅建议）
+    low_risk_threshold: 0.3   # 低风险阈值（低于此值可直接执行）
+    require_confirmation: true  # 是否需要人工确认

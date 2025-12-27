@@ -13,11 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	"quantmesh/ai"
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/monitor"
+	watchdogMonitor "quantmesh/monitor"
 	"quantmesh/notify"
 	"quantmesh/order"
 	"quantmesh/position"
@@ -25,7 +27,6 @@ import (
 	"quantmesh/storage"
 	"quantmesh/strategy"
 	"quantmesh/web"
-	watchdogMonitor "quantmesh/monitor"
 )
 
 // Version 版本号
@@ -71,15 +72,9 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, symbol st
 }
 
 func main() {
-	// 0. 设置时区为东8区（UTC+8）
-	// 这样所有获取的时间都是东8区时间
-	loc, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		// 如果加载失败，使用固定偏移量创建
-		loc = time.FixedZone("UTC+8", 8*60*60)
-	}
-	time.Local = loc
-	logger.Info("🌏 时区已设置为: %s (UTC+8)", loc.String())
+	// 注意：不再设置 time.Local，避免竞态条件
+	// 时区处理统一使用 utils.UTC8Location（通过 init() 安全初始化）
+	// 所有时间操作应使用 utils.ToUTC8()、utils.ToUTC()、utils.NowUTC8() 等工具函数
 
 	// 1. 最早初始化日志存储（在配置加载之前，使用默认路径）
 	// 这样即使配置加载失败，也能记录日志
@@ -88,7 +83,7 @@ func main() {
 		logStoragePath = os.Args[2]
 		os.Args = append(os.Args[:1], os.Args[3:]...)
 	}
-	
+
 	logStorage, err := storage.NewLogStorage(logStoragePath)
 	if err != nil {
 		// 初始化失败，但不退出程序（使用标准库输出错误）
@@ -174,6 +169,14 @@ func main() {
 	var strategyManager *strategy.StrategyManager
 	var totalCapital float64
 	var multiExecutor *strategy.MultiStrategyExecutor
+	var aiService ai.AIService
+	var aiDecisionEngine *ai.DecisionEngine
+	var aiMarketAnalyzer *ai.MarketAnalyzer
+	var aiParameterOptimizer *ai.ParameterOptimizer
+	var aiRiskAnalyzer *ai.RiskAnalyzer
+	var aiSentimentAnalyzer *ai.SentimentAnalyzer
+	var aiPolymarketSignalAnalyzer *ai.PolymarketSignalAnalyzer
+	var aiDataSourceMgr *ai.DataSourceManager
 	var requiredPositions int
 	var exchangeCfg config.ExchangeConfig
 	var pollInterval time.Duration
@@ -185,7 +188,7 @@ func main() {
 			logger.Error("❌ 启动Web服务器失败: %v", err)
 		} else {
 			logger.Info("✅ Web服务器已启动，可通过 http://%s:%d 访问", cfg.Web.Host, cfg.Web.Port)
-			
+
 			// === 初始化系统状态提供者（提前初始化，确保前端能看到状态）===
 			startTime := time.Now()
 			systemStatus := &web.SystemStatus{
@@ -383,9 +386,9 @@ func main() {
 	)
 	// 创建带事件发布的执行器适配器
 	executorAdapter = &exchangeExecutorAdapter{
-		executor:  exchangeExecutor,
-		eventBus:  eventBus,
-		symbol:    cfg.Trading.Symbol,
+		executor: exchangeExecutor,
+		eventBus: eventBus,
+		symbol:   cfg.Trading.Symbol,
 	}
 
 	// 创建交易所适配器（匹配 position.IExchange 接口）
@@ -489,7 +492,7 @@ func main() {
 			eventBus.Publish(&event.Event{
 				Type: eventType,
 				Data: map[string]interface{}{
-					"order_id":       posUpdate.OrderID,
+					"order_id":        posUpdate.OrderID,
 					"client_order_id": posUpdate.ClientOrderID,
 					"symbol":          posUpdate.Symbol,
 					"side":            posUpdate.Side,
@@ -541,6 +544,53 @@ func main() {
 
 	// 启动风控监控
 	go riskMonitor.Start(ctx)
+
+	// === AI服务初始化 ===
+	if cfg.AI.Enabled {
+		logger.Info("🤖 初始化AI服务...")
+
+		// 创建AI服务工厂
+		factory := ai.NewAIServiceFactory()
+
+		// 创建AI服务实例
+		serviceType := ai.AIServiceType(cfg.AI.Provider)
+		if serviceType == "" {
+			serviceType = ai.AIServiceGemini // 默认使用Gemini
+		}
+
+		var err error
+		aiService, err = factory.CreateService(serviceType, cfg.AI.APIKey, cfg.AI.BaseURL)
+		if err != nil {
+			logger.Warn("⚠️ 创建AI服务失败: %v（AI功能将不可用）", err)
+		} else {
+			logger.Info("✅ AI服务已创建: %s", serviceType)
+
+			// 创建数据源管理器
+			aiDataSourceMgr = ai.NewDataSourceManager()
+
+			// 创建各个AI模块
+			aiMarketAnalyzer = ai.NewMarketAnalyzer(aiService, cfg, priceMonitor, ex, storageService.GetStorage(), superPositionManager)
+			aiParameterOptimizer = ai.NewParameterOptimizer(aiService, cfg, storageService.GetStorage())
+			aiRiskAnalyzer = ai.NewRiskAnalyzer(aiService, cfg, ex, superPositionManager)
+			aiSentimentAnalyzer = ai.NewSentimentAnalyzer(aiService, cfg, aiDataSourceMgr)
+
+			// 创建预测市场信号分析器
+			aiPolymarketSignalAnalyzer = ai.NewPolymarketSignalAnalyzer(aiService, cfg, aiDataSourceMgr)
+
+			// 创建决策引擎
+			aiDecisionEngine = ai.NewDecisionEngine(cfg, aiMarketAnalyzer, aiParameterOptimizer, aiRiskAnalyzer, aiSentimentAnalyzer, aiPolymarketSignalAnalyzer)
+			_ = aiDecisionEngine // 暂时未使用，保留供后续使用
+
+			// 启动各个AI模块
+			aiMarketAnalyzer.Start()
+			aiParameterOptimizer.Start()
+			aiRiskAnalyzer.Start()
+			aiSentimentAnalyzer.Start()
+			aiPolymarketSignalAnalyzer.Start()
+
+			logger.Info("✅ AI系统已启动")
+		}
+	}
 
 	// === 新增：启动看门狗监控 ===
 	// 变量已在前面声明，这里直接使用
@@ -862,21 +912,21 @@ func main() {
 			now := time.Now()
 			nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
 			initialDelay := nextMidnight.Sub(now)
-			
+
 			// 等待到第一个凌晨
 			time.Sleep(initialDelay)
-			
+
 			// 每天凌晨执行一次清理
 			ticker := time.NewTicker(24 * time.Hour)
 			defer ticker.Stop()
-			
+
 			// 立即执行一次清理（启动时）
 			if err := globalLogStorage.CleanOldLogs(7); err != nil {
 				logger.Warn("⚠️ 清理旧日志失败: %v", err)
 			} else {
 				logger.Info("✅ 已清理超过7天的日志")
 			}
-			
+
 			for {
 				select {
 				case <-ctx.Done():
@@ -1091,12 +1141,12 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 		a.eventBus.Publish(&event.Event{
 			Type: event.EventTypeOrderPlaced,
 			Data: map[string]interface{}{
-				"order_id":       ord.OrderID,
+				"order_id":        ord.OrderID,
 				"client_order_id": ord.ClientOrderID,
 				"symbol":          ord.Symbol,
 				"side":            ord.Side,
 				"price":           ord.Price,
-				"quantity":       ord.Quantity,
+				"quantity":        ord.Quantity,
 				"status":          ord.Status,
 				"created_at":      ord.CreatedAt,
 			},
@@ -1135,13 +1185,13 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 		}
 	}
 	batchResult := a.executor.BatchPlaceOrdersWithDetails(orderReqs)
-	
+
 	result := &position.BatchPlaceOrdersResult{
 		PlacedOrders:     make([]*position.Order, len(batchResult.PlacedOrders)),
 		HasMarginError:   batchResult.HasMarginError,
 		ReduceOnlyErrors: batchResult.ReduceOnlyErrors,
 	}
-	
+
 	for i, ord := range batchResult.PlacedOrders {
 		result.PlacedOrders[i] = &position.Order{
 			OrderID:       ord.OrderID,
@@ -1159,12 +1209,12 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 			a.eventBus.Publish(&event.Event{
 				Type: event.EventTypeOrderPlaced,
 				Data: map[string]interface{}{
-					"order_id":       ord.OrderID,
+					"order_id":        ord.OrderID,
 					"client_order_id": ord.ClientOrderID,
 					"symbol":          ord.Symbol,
 					"side":            ord.Side,
 					"price":           ord.Price,
-					"quantity":       ord.Quantity,
+					"quantity":        ord.Quantity,
 					"status":          ord.Status,
 					"created_at":      ord.CreatedAt,
 				},

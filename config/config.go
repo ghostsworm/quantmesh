@@ -290,6 +290,90 @@ type Config struct {
 			Schedule string `yaml:"schedule"` // 每日汇总执行时间（格式：HH:MM，默认00:00）
 		} `yaml:"aggregation"`
 	} `yaml:"watchdog"`
+
+	// AI配置
+	AI struct {
+		Enabled  bool   `yaml:"enabled"`
+		Provider string `yaml:"provider"` // gemini, openai
+		APIKey   string `yaml:"api_key"`
+		BaseURL  string `yaml:"base_url"` // 可选，用于自定义API端点
+
+		// 各模块开关
+		Modules struct {
+			MarketAnalysis struct {
+				Enabled       bool `yaml:"enabled"`
+				UpdateInterval int `yaml:"update_interval"` // 秒
+			} `yaml:"market_analysis"`
+
+			ParameterOptimization struct {
+				Enabled             bool `yaml:"enabled"`
+				OptimizationInterval int `yaml:"optimization_interval"` // 秒
+				AutoApply           bool `yaml:"auto_apply"`            // 是否自动应用优化结果
+			} `yaml:"parameter_optimization"`
+
+			RiskAnalysis struct {
+				Enabled        bool `yaml:"enabled"`
+				AnalysisInterval int `yaml:"analysis_interval"` // 秒
+			} `yaml:"risk_analysis"`
+
+			SentimentAnalysis struct {
+				Enabled         bool `yaml:"enabled"`
+				AnalysisInterval int `yaml:"analysis_interval"` // 秒
+				DataSources     struct {
+					News struct {
+						Enabled      bool     `yaml:"enabled"`
+						RSSFeeds     []string `yaml:"rss_feeds"`
+						FetchInterval int     `yaml:"fetch_interval"` // 秒
+					} `yaml:"news"`
+
+					FearGreedIndex struct {
+						Enabled      bool   `yaml:"enabled"`
+						APIURL       string `yaml:"api_url"`
+						FetchInterval int   `yaml:"fetch_interval"` // 秒
+					} `yaml:"fear_greed_index"`
+
+					SocialMedia struct {
+						Enabled    bool     `yaml:"enabled"`
+						Subreddits []string `yaml:"subreddits"` // Reddit子版块列表
+						PostLimit  int      `yaml:"post_limit"`  // 每个子版块获取的帖子数量
+					} `yaml:"social_media"`
+				} `yaml:"data_sources"`
+			} `yaml:"sentiment_analysis"`
+
+			StrategyGeneration struct {
+				Enabled bool `yaml:"enabled"` // 实验性功能
+			} `yaml:"strategy_generation"`
+
+			PolymarketSignal struct {
+				Enabled         bool `yaml:"enabled"`
+				AnalysisInterval int `yaml:"analysis_interval"` // 秒
+				APIURL          string `yaml:"api_url"` // Polymarket API地址
+				Markets         struct {
+					Keywords        []string `yaml:"keywords"` // 关注的市场关键词
+					MinLiquidity    float64  `yaml:"min_liquidity"` // 最小流动性（USDC）
+					MinVolume24h    float64  `yaml:"min_volume_24h"` // 最小24小时交易量（USDC）
+					MinDaysToExpiry int      `yaml:"min_days_to_expiry"` // 最小到期天数
+					MaxDaysToExpiry int      `yaml:"max_days_to_expiry"` // 最大到期天数
+				} `yaml:"markets"`
+				SignalGeneration struct {
+					BuyThreshold      float64 `yaml:"buy_threshold"` // 买入信号阈值（概率>此值）
+					SellThreshold     float64 `yaml:"sell_threshold"` // 卖出信号阈值（概率<此值）
+					MinSignalStrength float64 `yaml:"min_signal_strength"` // 最小信号强度
+					MinConfidence     float64 `yaml:"min_confidence"` // 最小置信度
+				} `yaml:"signal_generation"`
+			} `yaml:"polymarket_signal"`
+		} `yaml:"modules"`
+
+		// 决策模式
+		DecisionMode string `yaml:"decision_mode"` // advisor, executor, hybrid
+
+		// 执行模式规则
+		ExecutionRules struct {
+			HighRiskThreshold    float64 `yaml:"high_risk_threshold"`    // 高风险场景：仅建议
+			LowRiskThreshold     float64 `yaml:"low_risk_threshold"`     // 低风险场景：可直接执行
+			RequireConfirmation  bool    `yaml:"require_confirmation"`   // 需要人工确认的场景
+		} `yaml:"execution_rules"`
+	} `yaml:"ai"`
 }
 
 // StrategyConfig 策略配置
