@@ -1641,6 +1641,7 @@ type ReconciliationStatus struct {
 	TotalBuyQty         float64   `json:"total_buy_qty"`        // 累计买入
 	TotalSellQty        float64   `json:"total_sell_qty"`      // 累计卖出
 	EstimatedProfit     float64   `json:"estimated_profit"`    // 预计盈利
+	ActualProfit        float64   `json:"actual_profit"`       // 实际盈利（来自 trades 表）
 }
 
 // ReconciliationHistoryInfo 对账历史信息
@@ -1673,6 +1674,7 @@ func getReconciliationStatus(c *gin.Context) {
 			"total_buy_qty":        0,
 			"total_sell_qty":       0,
 			"estimated_profit":     0,
+			"actual_profit":        0,
 		})
 		return
 	}
@@ -1694,6 +1696,21 @@ func getReconciliationStatus(c *gin.Context) {
 		}
 	}
 
+	// 获取实际盈利
+	actualProfit := 0.0
+	symbol := c.Query("symbol")
+	if symbol == "" {
+		if st := pickStatus(c); st != nil {
+			symbol = st.Symbol
+		}
+	}
+	
+	storageProv := pickStorageProvider(c)
+	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
+		// 查询截止到现在的累计实际盈利
+		actualProfit, _ = storageProv.GetStorage().GetActualProfitBySymbol(symbol, time.Now().UTC())
+	}
+
 	status := ReconciliationStatus{
 		ReconcileCount:    reconcileCount,
 		LastReconcileTime: utils.ToUTC8(lastReconcileTime),
@@ -1701,6 +1718,7 @@ func getReconciliationStatus(c *gin.Context) {
 		TotalBuyQty:       totalBuyQty,
 		TotalSellQty:      totalSellQty,
 		EstimatedProfit:   estimatedProfit,
+		ActualProfit:      actualProfit,
 	}
 
 	c.JSON(http.StatusOK, status)

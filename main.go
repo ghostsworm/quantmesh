@@ -455,6 +455,7 @@ func main() {
 			go func(r *SymbolRuntime, st *web.SystemStatus, started time.Time) {
 				ticker := time.NewTicker(2 * time.Second)
 				defer ticker.Stop()
+				dbQueryCounter := 0
 				for {
 					select {
 					case <-ctx.Done():
@@ -471,13 +472,53 @@ func main() {
 						if r.RiskMonitor != nil {
 							st.RiskTriggered = r.RiskMonitor.IsTriggered()
 						}
+						
+						// 更新统计信息
 						if r.SuperPositionManager != nil {
-							totalBuyQty := r.SuperPositionManager.GetTotalBuyQty()
-							totalSellQty := r.SuperPositionManager.GetTotalSellQty()
-							priceInterval := r.SuperPositionManager.GetPriceInterval()
-							st.TotalPnL = totalSellQty * priceInterval
-							st.TotalTrades = int((totalBuyQty + totalSellQty) / (r.Config.OrderQuantity * 2))
+							// 增加计数器，每 10 秒（5个周期）从数据库同步一次真实数据
+							dbQueryCounter++
+							
+							useEstimation := true
+							if storageService != nil && storageService.GetStorage() != nil {
+								// 每 10 秒更新一次，或者如果当前 PnL 还是 0 则更新
+								if dbQueryCounter >= 5 || st.TotalPnL == 0 {
+									dbQueryCounter = 0
+									// 获取今日 00:00:00 的时间（系统配置时区）
+									now := utils.NowConfiguredTimezone()
+									todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+									
+									// 转换为 UTC 时间进行数据库查询，确保时区一致
+									pnlSummary, err := storageService.GetStorage().GetPnLBySymbol(r.Config.Symbol, utils.ToUTC(todayStart), utils.ToUTC(now))
+									if err == nil {
+										st.TotalPnL = pnlSummary.TotalPnL
+										st.TotalTrades = pnlSummary.TotalTrades
+										useEstimation = false
+									}
+								} else {
+									// 在非更新周期，保持之前的值，不使用估算
+									useEstimation = false
+								}
+							}
+							
+							// 如果无法从数据库获取（或未启用存储），回退到估算逻辑
+							if useEstimation {
+								totalBuyQty := r.SuperPositionManager.GetTotalBuyQty()
+								totalSellQty := r.SuperPositionManager.GetTotalSellQty()
+								priceInterval := r.SuperPositionManager.GetPriceInterval()
+								
+								// 修正盈亏估算：仅作为参考
+								st.TotalPnL = totalSellQty * priceInterval
+								
+								// 修正成交次数估算：数量之和 / (单笔数量 * 2)
+								if st.CurrentPrice > 0 {
+									orderQtyInBase := r.Config.OrderQuantity / st.CurrentPrice
+									if orderQtyInBase > 0 {
+										st.TotalTrades = int((totalBuyQty + totalSellQty) / (orderQtyInBase * 2))
+									}
+								}
+							}
 						}
+						
 						st.Uptime = int64(time.Since(started).Seconds())
 						if r == firstRuntime {
 							// 兼容旧接口
