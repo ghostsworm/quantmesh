@@ -55,6 +55,7 @@ QuantMesh is a high-performance, low-latency cryptocurrency market maker system 
 | **Bitfinex**      | ✅ Stable     | $1B+      | 老牌交易所，流动性好
 | **MEXC（抹茶）**   | ✅ Stable     | $8B+      | 合约交易量大，山寨币丰富，支持测试网
 | **BingX**         | ✅ Stable     | $3B+      | 社交交易平台，合约体验好，支持测试网
+| **Deribit**       | ✅ Stable     | $2B+      | 全球最大期权交易所，支持期货+期权，支持测试网
 
 
 ## 模块架构
