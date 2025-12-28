@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
 import {
   Box,
   Heading,
@@ -10,22 +9,34 @@ import {
   StatHelpText,
   Button,
   ButtonGroup,
-  Card,
-  CardHeader,
-  CardBody,
   Badge,
   Text,
-  Link,
   Spinner,
   Center,
   useToast,
+  Flex,
+  VStack,
+  HStack,
+  Icon,
+  Divider,
+  useColorModeValue,
+  Container,
 } from '@chakra-ui/react'
+import { 
+  TriangleUpIcon, 
+  TriangleDownIcon, 
+  TimeIcon, 
+  SettingsIcon,
+  CheckCircleIcon,
+  WarningIcon,
+  RepeatIcon,
+} from '@chakra-ui/icons'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getStatus, startTrading, stopTrading } from '../services/api'
-import { getSlots, SlotsResponse } from '../services/api'
-import { getStrategyAllocation, StrategyAllocationResponse } from '../services/api'
-import { getPendingOrders, PendingOrdersResponse } from '../services/api'
-import { getPositionsSummary } from '../services/api'
+import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary } from '../services/api'
+
+const MotionBox = motion(Box)
+const MotionFlex = motion(Flex)
 
 interface SystemStatus {
   running: boolean
@@ -38,6 +49,31 @@ interface SystemStatus {
   uptime: number
 }
 
+const GlassCard: React.FC<{ title?: string; children: React.ReactNode; p?: number | string }> = ({ title, children, p = 6 }) => {
+  const bg = useColorModeValue('white', 'rgba(255, 255, 255, 0.05)')
+  const borderColor = useColorModeValue('gray.100', 'whiteAlpha.100')
+  
+  return (
+    <Box
+      bg={bg}
+      p={p}
+      borderRadius="3xl"
+      border="1px solid"
+      borderColor={borderColor}
+      boxShadow="sm"
+      backdropFilter="blur(20px)"
+      overflow="hidden"
+    >
+      {title && (
+        <Heading size="xs" color="gray.500" textTransform="uppercase" letterSpacing="widest" mb={5}>
+          {title}
+        </Heading>
+      )}
+      {children}
+    </Box>
+  )
+}
+
 const Dashboard: React.FC = () => {
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [status, setStatus] = useState<SystemStatus | null>(null)
@@ -46,7 +82,10 @@ const Dashboard: React.FC = () => {
   const [pendingOrders, setPendingOrders] = useState<PendingOrdersResponse | null>(null)
   const [positionsSummary, setPositionsSummary] = useState<any>(null)
   const [isTrading, setIsTrading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const toast = useToast()
+
+  const cardBg = useColorModeValue('white', 'gray.800')
 
   useEffect(() => {
     const fetchData = async () => {
@@ -64,301 +103,242 @@ const Dashboard: React.FC = () => {
         setPendingOrders(ordersData)
         setPositionsSummary(positionsData)
         setIsTrading(statusData?.running || false)
+        setLoading(false)
       } catch (error) {
         console.error('Failed to fetch data:', error)
       }
     }
 
     fetchData()
-    const interval = setInterval(fetchData, 5000) // 每5秒更新一次
-
+    const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
   }, [selectedExchange, selectedSymbol])
 
-  const handleStartTrading = async () => {
+  const handleToggleTrading = async () => {
     try {
-      await startTrading()
-      setIsTrading(true)
-      toast({
-        title: '交易已启动',
-        status: 'success',
-        duration: 3000,
-        isClosable: true,
-      })
+      if (isTrading) {
+        await stopTrading()
+        setIsTrading(false)
+        toast({ title: '交易已停止', status: 'info', borderRadius: 'full' })
+      } else {
+        await startTrading()
+        setIsTrading(true)
+        toast({ title: '交易已启动', status: 'success', borderRadius: 'full' })
+      }
     } catch (error) {
-      toast({
-        title: '启动交易失败',
-        description: error instanceof Error ? error.message : 'Unknown error',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      })
+      toast({ title: '操作失败', description: error instanceof Error ? error.message : '未知错误', status: 'error' })
     }
   }
 
-  const handleStopTrading = async () => {
-    try {
-      await stopTrading()
-      setIsTrading(false)
-      toast({
-        title: '交易已停止',
-        status: 'info',
-        duration: 3000,
-        isClosable: true,
-      })
-    } catch (error) {
-      toast({
-        title: '停止交易失败',
-        description: error instanceof Error ? error.message : 'Unknown error',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      })
-    }
+  const formatUptime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    return `${hours}h ${minutes}m`
   }
 
-  if (!status) {
+  if (loading || !status) {
     return (
-      <Center h="200px">
-        <Spinner size="xl" />
+      <Center h="400px">
+        <Spinner size="xl" thickness="4px" color="blue.500" speed="0.8s" />
       </Center>
     )
   }
 
-  const formatUptime = (seconds: number) => {
-    const days = Math.floor(seconds / 86400)
-    const hours = Math.floor((seconds % 86400) / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    if (days > 0) return `${days}天 ${hours}小时 ${minutes}分钟`
-    if (hours > 0) return `${hours}小时 ${minutes}分钟`
-    return `${minutes}分钟`
-  }
-
   return (
-    <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={6}>
-        <Heading size="lg">系统状态</Heading>
-        <ButtonGroup>
-          {isTrading ? (
-            <Button
-              colorScheme="red"
-              onClick={handleStopTrading}
-            >
-              停止交易
-            </Button>
-          ) : (
-            <Button
-              colorScheme="green"
-              onClick={handleStartTrading}
-            >
-              启动交易
-            </Button>
-          )}
-        </ButtonGroup>
-      </Box>
+    <Container maxW="container.xl" py={4}>
+      <VStack spacing={8} align="stretch">
+        {/* Header Area */}
+        <Flex justify="space-between" align="center" direction={{ base: 'column', md: 'row' }} gap={4}>
+          <HStack spacing={4} align="center">
+            <Box p={3} bg="blue.500" borderRadius="2xl" boxShadow="0 10px 15px -3px rgba(49, 130, 206, 0.3)">
+              <Icon as={RepeatIcon} color="white" w={6} h={6} />
+            </Box>
+            <VStack align="start" spacing={0}>
+              <HStack>
+                <Heading size="lg" fontWeight="800">{selectedSymbol}</Heading>
+                <Badge colorScheme="blue" variant="subtle" borderRadius="full" px={3}>{selectedExchange?.toUpperCase()}</Badge>
+              </HStack>
+              <Text color="gray.500" fontSize="sm">当前价格: <Text as="span" fontWeight="bold" color="blue.500">${status.current_price.toFixed(2)}</Text></Text>
+            </VStack>
+          </HStack>
 
-      <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={8}>
-        <Card>
-          <CardBody>
-            <Stat>
-              <StatLabel>运行状态</StatLabel>
-              <StatNumber>
-                <Badge colorScheme={status.running ? 'green' : 'red'} fontSize="md">
-                  {status.running ? '运行中' : '已停止'}
-                </Badge>
-              </StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
+          <GlassCard p={2}>
+            <HStack spacing={6} px={4}>
+              <VStack align="start" spacing={0}>
+                <Text fontSize="10px" fontWeight="bold" color="gray.400" textTransform="uppercase">Status</Text>
+                <HStack spacing={2}>
+                  <Box w={2} h={2} borderRadius="full" bg={isTrading ? 'green.500' : 'red.500'} boxShadow={isTrading ? '0 0 8px #48BB78' : 'none'} />
+                  <Text fontWeight="bold" fontSize="sm">{isTrading ? 'Running' : 'Stopped'}</Text>
+                </HStack>
+              </VStack>
+              <Divider orientation="vertical" h="30px" />
+              <Button
+                size="md"
+                colorScheme={isTrading ? 'red' : 'green'}
+                onClick={handleToggleTrading}
+                borderRadius="2xl"
+                px={8}
+                fontSize="sm"
+                fontWeight="800"
+                boxShadow={isTrading ? '0 4px 12px rgba(245, 101, 101, 0.3)' : '0 4px 12px rgba(72, 187, 120, 0.3)'}
+                _hover={{ transform: 'translateY(-2px)' }}
+                _active={{ transform: 'scale(0.95)' }}
+              >
+                {isTrading ? 'STOP' : 'START'}
+              </Button>
+            </HStack>
+          </GlassCard>
+        </Flex>
 
-        <Card>
-          <CardBody>
+        {/* Top Metrics Row */}
+        <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
+          <GlassCard>
             <Stat>
-              <StatLabel>交易所</StatLabel>
-              <StatNumber fontSize="xl">{status.exchange}</StatNumber>
-              <StatHelpText>{status.symbol}</StatHelpText>
-            </Stat>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardBody>
-            <Stat>
-              <StatLabel>当前价格</StatLabel>
-              <StatNumber>{status.current_price.toFixed(2)}</StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardBody>
-            <Stat>
-              <StatLabel>总盈亏</StatLabel>
-              <StatNumber color={status.total_pnl >= 0 ? 'green.500' : 'red.500'}>
+              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>TOTAL P&L</StatLabel>
+              <StatNumber fontSize="3xl" fontWeight="800" color={status.total_pnl >= 0 ? 'green.500' : 'red.500'}>
                 {status.total_pnl >= 0 ? '+' : ''}{status.total_pnl.toFixed(2)}
+                <Text as="span" fontSize="sm" ml={1} color="gray.400">USDT</Text>
               </StatNumber>
+              <StatHelpText>
+                <HStack spacing={1}>
+                  <Icon as={status.total_pnl >= 0 ? TriangleUpIcon : TriangleDownIcon} />
+                  <Text fontWeight="600">{((status.total_pnl / 1000) * 100).toFixed(2)}%</Text>
+                  <Text color="gray.400">ROI</Text>
+                </HStack>
+              </StatHelpText>
             </Stat>
-          </CardBody>
-        </Card>
+          </GlassCard>
 
-        <Card>
-          <CardBody>
+          <GlassCard>
             <Stat>
-              <StatLabel>总交易数</StatLabel>
-              <StatNumber>{status.total_trades}</StatNumber>
+              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>TRADING VOLUME</StatLabel>
+              <StatNumber fontSize="3xl" fontWeight="800">{status.total_trades}</StatNumber>
+              <StatHelpText>
+                <HStack spacing={1}>
+                  <Text fontWeight="600" color="blue.500">{(status.total_trades / (status.uptime / 3600)).toFixed(1)}</Text>
+                  <Text color="gray.400">trades / hour</Text>
+                </HStack>
+              </StatHelpText>
             </Stat>
-          </CardBody>
-        </Card>
+          </GlassCard>
 
-        <Card>
-          <CardBody>
+          <GlassCard>
             <Stat>
-              <StatLabel>风控状态</StatLabel>
-              <StatNumber>
-                <Badge colorScheme={status.risk_triggered ? 'red' : 'green'} fontSize="md">
-                  {status.risk_triggered ? '已触发' : '正常'}
-                </Badge>
-              </StatNumber>
+              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>SYSTEM UPTIME</StatLabel>
+              <StatNumber fontSize="3xl" fontWeight="800">{formatUptime(status.uptime)}</StatNumber>
+              <StatHelpText>
+                <HStack spacing={1}>
+                  <Icon as={CheckCircleIcon} color="green.500" />
+                  <Text fontWeight="600" color="green.500">Normal</Text>
+                  <Text color="gray.400">Status</Text>
+                </HStack>
+              </StatHelpText>
             </Stat>
-          </CardBody>
-        </Card>
+          </GlassCard>
+        </SimpleGrid>
 
-        <Card>
-          <CardBody>
-            <Stat>
-              <StatLabel>运行时间</StatLabel>
-              <StatNumber fontSize="lg">{formatUptime(status.uptime)}</StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
-      </SimpleGrid>
+        {/* Details Grid */}
+        <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={8}>
+          {/* Slots & Allocation */}
+          <VStack align="stretch" spacing={6}>
+            <GlassCard title="Slots Matrix">
+              {slotsInfo ? (
+                <SimpleGrid columns={4} spacing={4}>
+                  {slotsInfo.slots.map((slot, i) => (
+                    <VStack 
+                      key={i} 
+                      bg={slot.position_status === 'FILLED' ? 'green.50' : 'gray.50'} 
+                      p={3} 
+                      borderRadius="xl"
+                      border="1px solid"
+                      borderColor={slot.position_status === 'FILLED' ? 'green.100' : 'gray.100'}
+                    >
+                      <Text fontSize="10px" fontWeight="bold" color="gray.400">#{i+1}</Text>
+                      <Box w={3} h={3} borderRadius="full" bg={slot.position_status === 'FILLED' ? 'green.500' : 'gray.300'} />
+                    </VStack>
+                  ))}
+                </SimpleGrid>
+              ) : (
+                <Text color="gray.400" fontSize="sm">No slots information available</Text>
+              )}
+            </GlassCard>
 
-      {/* 槽位统计卡片 */}
-      {slotsInfo && (
-        <Box mb={8}>
-          <Heading size="md" mb={4}>槽位统计</Heading>
-          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-            <Card>
-              <CardBody>
-                <Stat>
-                  <StatLabel>总槽位数</StatLabel>
-                  <StatNumber>{slotsInfo.count}</StatNumber>
-                  <StatHelpText>
-                    <Link as={RouterLink} to="/slots" color="blue.500">
-                      查看详情 →
-                    </Link>
-                  </StatHelpText>
-                </Stat>
-              </CardBody>
-            </Card>
+            {strategyAllocation && (
+              <GlassCard title="Capital Allocation">
+                <VStack spacing={4} align="stretch">
+                  {Object.entries(strategyAllocation.allocation).map(([name, cap]) => (
+                    <Box key={name}>
+                      <Flex justify="space-between" mb={2}>
+                        <Text fontSize="sm" fontWeight="bold">{name}</Text>
+                        <Text fontSize="sm" fontWeight="bold">${cap.allocated.toFixed(1)}</Text>
+                      </Flex>
+                      <Box w="100%" h="6px" bg="gray.100" borderRadius="full" overflow="hidden">
+                        <Box w={`${(cap.allocated / 500) * 100}%`} h="100%" bg="blue.500" borderRadius="full" />
+                      </Box>
+                    </Box>
+                  ))}
+                </VStack>
+              </GlassCard>
+            )}
+          </VStack>
 
-            <Card>
-              <CardBody>
-                <Stat>
-                  <StatLabel>有仓槽位</StatLabel>
-                  <StatNumber color="green.500">
-                    {slotsInfo.slots.filter(s => s.position_status === 'FILLED').length}
-                  </StatNumber>
-                </Stat>
-              </CardBody>
-            </Card>
+          {/* Positions & Orders */}
+          <VStack align="stretch" spacing={6}>
+            <GlassCard title="Active Positions">
+              {positionsSummary && positionsSummary.position_count > 0 ? (
+                <VStack align="stretch" spacing={4}>
+                  <Flex justify="space-between" align="center">
+                    <VStack align="start" spacing={0}>
+                      <Text fontSize="xs" color="gray.500">Size</Text>
+                      <Text fontWeight="800" fontSize="xl">{positionsSummary.total_quantity?.toFixed(4)}</Text>
+                    </VStack>
+                    <VStack align="end" spacing={0}>
+                      <Text fontSize="xs" color="gray.500">Unrealized P&L</Text>
+                      <Text fontWeight="800" fontSize="xl" color={(positionsSummary.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'}>
+                        {(positionsSummary.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.unrealized_pnl?.toFixed(2)}
+                      </Text>
+                    </VStack>
+                  </Flex>
+                  <Divider />
+                  <Flex justify="space-between">
+                    <Text fontSize="xs" color="gray.500">Entry Price: ${positionsSummary.average_entry_price?.toFixed(2)}</Text>
+                    <Text fontSize="xs" color="gray.500">Value: ${positionsSummary.total_value?.toFixed(2)}</Text>
+                  </Flex>
+                </VStack>
+              ) : (
+                <Center h="100px">
+                  <VStack spacing={2}>
+                    <Icon as={InfoIcon} color="gray.300" w={6} h={6} />
+                    <Text color="gray.400" fontSize="sm">No active positions</Text>
+                  </VStack>
+                </Center>
+              )}
+            </GlassCard>
 
-            <Card>
-              <CardBody>
-                <Stat>
-                  <StatLabel>空仓槽位</StatLabel>
-                  <StatNumber color="gray.500">
-                    {slotsInfo.slots.filter(s => s.position_status === 'EMPTY').length}
-                  </StatNumber>
-                </Stat>
-              </CardBody>
-            </Card>
-          </SimpleGrid>
-        </Box>
-      )}
-
-      {/* 策略配比概览 */}
-      {strategyAllocation && Object.keys(strategyAllocation.allocation).length > 0 && (
-        <Box mb={8}>
-          <Heading size="md" mb={4}>策略资金配比</Heading>
-          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
-            {Object.entries(strategyAllocation.allocation).map(([name, cap]) => (
-              <Card key={name}>
-                <CardBody>
-                  <Stat>
-                    <StatLabel>{name}</StatLabel>
-                    <StatNumber>{cap.allocated.toFixed(2)} USDT</StatNumber>
-                    <StatHelpText>
-                      权重: {(cap.weight * 100).toFixed(1)}% | 可用: {cap.available.toFixed(2)} USDT
-                    </StatHelpText>
-                  </Stat>
-                </CardBody>
-              </Card>
-            ))}
-          </SimpleGrid>
-          <Link as={RouterLink} to="/strategies" color="blue.500" mt={4} display="inline-block">
-            查看详细配比 →
-          </Link>
-        </Box>
-      )}
-
-      {/* 持仓汇总卡片 */}
-      {positionsSummary && positionsSummary.position_count > 0 && (
-        <Box mb={8}>
-          <Heading size="md" mb={4}>持仓概览</Heading>
-          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-            <Card>
-              <CardBody>
-                <Stat>
-                  <StatLabel>总持仓数量</StatLabel>
-                  <StatNumber>{positionsSummary.total_quantity?.toFixed(4) || '0'}</StatNumber>
-                </Stat>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody>
-                <Stat>
-                  <StatLabel>总持仓价值</StatLabel>
-                  <StatNumber>{positionsSummary.total_value?.toFixed(2) || '0'}</StatNumber>
-                </Stat>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody>
-                <Stat>
-                  <StatLabel>未实现盈亏</StatLabel>
-                  <StatNumber color={(positionsSummary.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'}>
-                    {(positionsSummary.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.unrealized_pnl?.toFixed(2) || '0'}
-                  </StatNumber>
-                </Stat>
-              </CardBody>
-            </Card>
-          </SimpleGrid>
-          <Link as={RouterLink} to="/positions" color="blue.500" mt={4} display="inline-block">
-            查看详细持仓 →
-          </Link>
-        </Box>
-      )}
-
-      {/* 待成交订单提示 */}
-      {pendingOrders && pendingOrders.count > 0 && (
-        <Box>
-          <Heading size="md" mb={4}>待成交订单</Heading>
-          <Card>
-            <CardBody>
-              <Text fontSize="lg" fontWeight="bold" mb={2}>
-                当前有 {pendingOrders.count} 个待成交订单
-              </Text>
-              <Link as={RouterLink} to="/orders" color="blue.500">
-                查看详情 →
-              </Link>
-            </CardBody>
-          </Card>
-        </Box>
-      )}
-    </Box>
+            <GlassCard title="Recent Activity">
+              {pendingOrders && pendingOrders.count > 0 ? (
+                <VStack align="stretch" spacing={3}>
+                  {pendingOrders.orders.slice(0, 3).map((order, i) => (
+                    <Flex key={i} justify="space-between" align="center" bg="gray.50" p={3} borderRadius="xl">
+                      <HStack>
+                        <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>{order.side}</Badge>
+                        <Text fontSize="sm" fontWeight="bold">{order.price.toFixed(2)}</Text>
+                      </HStack>
+                      <Text fontSize="xs" color="gray.400">{new Date(order.created_at).toLocaleTimeString()}</Text>
+                    </Flex>
+                  ))}
+                  {pendingOrders.count > 3 && (
+                    <Text fontSize="xs" color="blue.500" textAlign="center" cursor="pointer">View all {pendingOrders.count} orders</Text>
+                  )}
+                </VStack>
+              ) : (
+                <Text color="gray.400" fontSize="sm" textAlign="center">No pending orders</Text>
+              )}
+            </GlassCard>
+          </VStack>
+        </SimpleGrid>
+      </VStack>
+    </Container>
   )
 }
 

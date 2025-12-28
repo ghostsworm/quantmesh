@@ -156,7 +156,7 @@ func (w *cryptocomWrapper) StartOrderStream(ctx context.Context, callback func(i
 	return nil // WebSocket 占位符
 }
 
-func (w *cryptapper) StopOrderStream() error {
+func (w *cryptocomWrapper) StopOrderStream() error {
 	return nil
 }
 
@@ -188,7 +188,7 @@ func (w *cryptocomWrapper) GetHistoricalKlines(ctx context.Context, symbol strin
 			Symbol:    kline.Symbol,
 			Open:      kline.Open,
 			High:      kline.High,
-			Lowe.Low,
+			Low:       kline.Low,
 			Close:     kline.Close,
 			Volume:    kline.Volume,
 			Timestamp: kline.Timestamp,

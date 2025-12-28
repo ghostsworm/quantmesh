@@ -13,8 +13,24 @@ NC='\033[0m' # 无颜色
 echo "🚀 开始运行交易所单元测试..."
 echo "=========================================="
 
-# 测试的交易所列表
+# 测试的交易所列表（所有22个交易所）
 EXCHANGES=(
+    "binance"
+    "okx"
+    "bybit"
+    "huobi"
+    "kucoin"
+    "kraken"
+    "bitfinex"
+    "mexc"
+    "bingx"
+    "deribit"
+    "bitmex"
+    "phemex"
+    "woox"
+    "coinex"
+    "gate"
+    "bitget"
     "bitrue"
     "xtcom"
     "btcc"

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Box, Flex, Text, Badge, Spinner } from '@chakra-ui/react'
+import { Flex, Text, Badge, Spinner, HStack, Tooltip } from '@chakra-ui/react'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getFundingRateCurrent } from '../services/api'
 
@@ -18,7 +18,6 @@ const StatusBar: React.FC = () => {
       setLoading(true)
       try {
         const data = await getFundingRateCurrent(selectedExchange, selectedSymbol)
-        // 从返回的 rates 对象中获取对应交易对的费率
         const symbolKey = selectedSymbol
         if (data.rates && data.rates[symbolKey]) {
           setFundingRate(data.rates[symbolKey].rate_pct)
@@ -34,24 +33,15 @@ const StatusBar: React.FC = () => {
     }
 
     fetchFundingRate()
-    const interval = setInterval(fetchFundingRate, 60000) // 每分钟更新一次
+    const interval = setInterval(fetchFundingRate, 60000)
     return () => clearInterval(interval)
   }, [selectedExchange, selectedSymbol, isGlobalView])
 
   if (isGlobalView) {
     return (
-      <Box
-        bg="gray.100"
-        borderBottom="1px"
-        borderColor="gray.200"
-        py={2}
-      >
-        <Flex maxW="container.xl" mx="auto" px={4} align="center" justify="center">
-          <Badge colorScheme="purple" fontSize="sm" px={3} py={1}>
-            全局概览模式
-          </Badge>
-        </Flex>
-      </Box>
+      <Badge colorScheme="purple" variant="subtle" fontSize="10px" borderRadius="full" px={3}>
+        Global View
+      </Badge>
     )
   }
 
@@ -60,55 +50,32 @@ const StatusBar: React.FC = () => {
   }
 
   return (
-    <Box
-      bg="gray.100"
-      borderBottom="1px"
-      borderColor="gray.200"
-      py={2}
-    >
-      <Flex
-        maxW="container.xl"
-        mx="auto"
-        px={4}
-        align="center"
-        justify="space-between"
-        gap={4}
-      >
-        <Flex align="center" gap={4}>
-          <Text fontSize="sm" fontWeight="medium" color="gray.700">
-            当前交易对:
-          </Text>
-          <Badge colorScheme="blue" fontSize="sm" px={3} py={1}>
-            {selectedExchange.toUpperCase()} / {selectedSymbol}
-          </Badge>
-        </Flex>
-
-        {loading ? (
-          <Flex align="center" gap={2}>
-            <Spinner size="xs" color="gray.600" />
-            <Text fontSize="sm" color="gray.600">
-              加载资金费率...
-            </Text>
-          </Flex>
-        ) : fundingRate !== null ? (
-          <Flex align="center" gap={2}>
-            <Text fontSize="sm" fontWeight="medium" color="gray.700">
-              资金费率:
-            </Text>
+    <HStack spacing={3}>
+      <Tooltip label={`${selectedExchange.toUpperCase()} 资金费率`}>
+        <HStack spacing={2} bg="gray.50" px={3} py={1} borderRadius="full" border="1px" borderColor="gray.100">
+          <Text fontSize="10px" fontWeight="bold" color="gray.400">FR</Text>
+          {loading ? (
+            <Spinner size="xs" speed="0.8s" thickness="1px" />
+          ) : fundingRate !== null ? (
             <Text
-              fontSize="sm"
+              fontSize="11px"
               fontWeight="bold"
-              color={fundingRate >= 0 ? 'green.600' : 'red.600'}
+              color={fundingRate >= 0 ? 'green.500' : 'red.500'}
             >
               {fundingRate >= 0 ? '+' : ''}
               {(fundingRate * 100).toFixed(4)}%
             </Text>
-          </Flex>
-        ) : null}
-      </Flex>
-    </Box>
+          ) : (
+            <Text fontSize="11px" color="gray.400">--</Text>
+          )}
+        </HStack>
+      </Tooltip>
+      
+      <Badge colorScheme="blue" variant="solid" fontSize="10px" borderRadius="full" px={3}>
+        {selectedSymbol}
+      </Badge>
+    </HStack>
   )
 }
 
 export default StatusBar
-

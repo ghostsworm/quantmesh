@@ -1,7 +1,27 @@
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { ChakraProvider, Box, Flex, Heading, Button, Container, Link as ChakraLink, Spinner, Center, Select, Badge, Text, HStack } from '@chakra-ui/react'
-import { Link as RouterLink } from 'react-router-dom'
+import { 
+  ChakraProvider, 
+  Box, 
+  Flex, 
+  Heading, 
+  Button, 
+  Container, 
+  Spinner, 
+  Center, 
+  Badge, 
+  Text, 
+  HStack,
+  useColorModeValue,
+  IconButton,
+  Drawer,
+  DrawerOverlay,
+  DrawerContent,
+  DrawerCloseButton,
+  useDisclosure,
+} from '@chakra-ui/react'
+import { HamburgerIcon } from '@chakra-ui/icons'
+import { motion, AnimatePresence } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
 import { lightTheme, darkTheme } from './theme'
@@ -30,8 +50,23 @@ import AIPromptManager from './components/AIPromptManager'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import { logout } from './services/auth'
-import { getSymbols, getFundingRateCurrent, SymbolInfo } from './services/api'
 import './App.css'
+
+const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const location = useLocation()
+  return (
+    <motion.div
+      key={location.pathname}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+      style={{ width: '100%', height: '100%' }}
+    >
+      {children}
+    </motion.div>
+  )
+}
 
 // 受保护的路由组件
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -40,57 +75,29 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   if (isLoading) {
     return (
       <Center h="200px">
-        <Spinner size="xl" />
+        <Spinner size="xl" thickness="4px" color="blue.500" />
       </Center>
     )
   }
 
-  // 如果未设置密码，显示首次设置向导
-  if (!hasPassword) {
-    return <Navigate to="/setup" replace />
-  }
+  if (!hasPassword) return <Navigate to="/setup" replace />
+  if (!isAuthenticated) return <Navigate to="/login" replace />
 
-  // 如果未登录，重定向到登录页
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
-
-  return <>{children}</>
-}
-
-// 导航链接组件，支持活跃状态
-const NavLink: React.FC<{ to: string; children: React.ReactNode }> = ({ to, children }) => {
-  const location = useLocation()
-  const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to))
-
-  return (
-    <ChakraLink
-      as={RouterLink}
-      to={to}
-      px={4}
-      py={2}
-      borderRadius="md"
-      fontSize="sm"
-      fontWeight={isActive ? 'semibold' : 'medium'}
-      color={isActive ? 'blue.600' : 'gray.700'}
-      bg={isActive ? 'blue.50' : 'transparent'}
-      _hover={{
-        bg: isActive ? 'blue.100' : 'gray.100',
-        textDecoration: 'none',
-        transform: 'translateY(-1px)',
-      }}
-      transition="all 0.2s"
-      whiteSpace="nowrap"
-    >
-      {children}
-    </ChakraLink>
-  )
+  return <PageWrapper>{children}</PageWrapper>
 }
 
 // 主应用内容
 const AppContent: React.FC = () => {
   const { isAuthenticated, hasPassword, isLoading } = useAuth()
   const { isGlobalView } = useSymbol()
+  const { isOpen, onOpen, onClose } = useDisclosure()
+  
+  const headerBg = useColorModeValue('rgba(255, 255, 255, 0.8)', 'rgba(26, 32, 44, 0.8)')
+  const borderColor = useColorModeValue('gray.100', 'whiteAlpha.100')
+  const contentBg = useColorModeValue(
+    isGlobalView ? 'gray.50' : 'white',
+    isGlobalView ? 'gray.900' : 'gray.800'
+  )
 
   const handleLogout = async () => {
     try {
@@ -102,14 +109,15 @@ const AppContent: React.FC = () => {
   }
 
   if (isLoading) {
-    return <div style={{ padding: '40px', textAlign: 'center' }}>加载中...</div>
+    return (
+      <Center h="100vh">
+        <Spinner size="xl" thickness="4px" color="blue.500" />
+      </Center>
+    )
   }
 
-  // 根据认证状态决定显示的内容
-  // 检查是否正在进行首次设置流程
   const isInSetupFlow = sessionStorage.getItem('setup_step') !== null
 
-  // 如果未设置密码，或正在进行首次设置流程，显示设置页面（使用亮色主题）
   if (!hasPassword || isInSetupFlow) {
     return (
       <Box bg="gray.50" minH="100vh">
@@ -121,7 +129,6 @@ const AppContent: React.FC = () => {
     )
   }
 
-  // 如果已设置密码但未登录，显示登录页（使用亮色主题）
   if (!isAuthenticated) {
     return (
       <Box bg="gray.50" minH="100vh">
@@ -135,89 +142,131 @@ const AppContent: React.FC = () => {
 
   return (
     <Box minH="100vh" display="flex" flexDirection="column">
-      {/* Status Bar */}
-      <StatusBar />
-
       {/* Header */}
       <Box
         position="sticky"
         top={0}
         zIndex={100}
-        bg="white"
+        bg={headerBg}
+        backdropFilter="blur(20px)"
         borderBottom="1px"
-        borderColor="gray.200"
-        boxShadow="sm"
+        borderColor={borderColor}
       >
-        <Container maxW="full" px={6}>
-          <Flex h="16" alignItems="center" justifyContent="space-between">
-            <HStack spacing={4}>
-              <Heading size="md" fontWeight="black" color="blue.600" letterSpacing="tight">
+        <Container maxW="full" px={{ base: 4, md: 6 }}>
+          <Flex h="14" alignItems="center" justifyContent="space-between">
+            <HStack spacing={{ base: 2, md: 4 }}>
+              <IconButton
+                display={{ base: 'flex', md: 'none' }}
+                aria-label="Open menu"
+                icon={<HamburgerIcon />}
+                variant="ghost"
+                onClick={onOpen}
+              />
+              <Heading size="sm" fontWeight="800" color="blue.600" letterSpacing="tighter">
                 QuantMesh
               </Heading>
-              <Badge colorScheme="blue" variant="outline" fontSize="xs">
-                Market Maker
+              <Badge 
+                display={{ base: 'none', sm: 'inline-block' }}
+                colorScheme="blue" 
+                variant="subtle" 
+                fontSize="10px" 
+                borderRadius="full" 
+                px={2}
+              >
+                MM
               </Badge>
             </HStack>
             
-            {/* Symbol Selector in Center */}
             <Box flex="1" display="flex" justifyContent="center">
               <SymbolSelector />
             </Box>
 
             {isAuthenticated && (
-              <Button
-                variant="ghost"
-                colorScheme="red"
-                size="sm"
-                onClick={handleLogout}
-                fontWeight="medium"
-              >
-                退出登录
-              </Button>
+              <HStack spacing={{ base: 2, md: 4 }}>
+                <Box display={{ base: 'none', lg: 'block' }}>
+                  <StatusBar />
+                </Box>
+                <Button
+                  variant="ghost"
+                  colorScheme="gray"
+                  size="xs"
+                  onClick={handleLogout}
+                  fontWeight="600"
+                  borderRadius="full"
+                >
+                  退出
+                </Button>
+              </HStack>
             )}
           </Flex>
         </Container>
       </Box>
 
       <Flex flex="1" overflow="hidden">
-        {/* Sidebar */}
-        <Sidebar />
+        {/* Desktop Sidebar */}
+        <Box display={{ base: 'none', md: 'block' }}>
+          <Sidebar />
+        </Box>
 
-        {/* Main Content */}
+        {/* Mobile Sidebar (Drawer) */}
+        <Drawer isOpen={isOpen} placement="left" onClose={onClose}>
+          <DrawerOverlay />
+          <DrawerContent bg={useColorModeValue('white', 'gray.800')} maxW="240px">
+            <DrawerCloseButton zIndex={20} />
+            <Sidebar onNavItemClick={onClose} isDrawer />
+          </DrawerContent>
+        </Drawer>
+
         <Box 
           flex="1" 
           ml={{ base: 0, md: '240px' }} 
-          py={isGlobalView ? 0 : 6}
-          bg={isGlobalView ? 'gray.900' : 'gray.50'}
-          minH="calc(100vh - 64px)"
+          bg={contentBg}
+          minH="calc(100vh - 56px)"
+          position="relative"
+          transition="margin-left 0.3s"
         >
-          <Container maxW={isGlobalView ? "full" : "container.xl"} px={isGlobalView ? 0 : 6}>
-            <Routes>
-              <Route path="/" element={
-                <ProtectedRoute>
-                  {isGlobalView ? <GlobalDashboard /> : <Dashboard />}
-                </ProtectedRoute>
-              } />
-              <Route path="/positions" element={<ProtectedRoute><Positions /></ProtectedRoute>} />
-              <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
-              <Route path="/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
-              <Route path="/strategies" element={<ProtectedRoute><StrategyAllocation /></ProtectedRoute>} />
-              <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
-              <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
-              <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
-              <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
-              <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
-              <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
-              <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
-              <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
-              <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
-              <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
-              <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
-              <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/setup" element={<FirstTimeSetup />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+          {/* Subtle Background Accent */}
+          <Box
+            position="absolute"
+            top="0"
+            right="0"
+            w="400px"
+            h="400px"
+            bgGradient="radial(blue.500, transparent)"
+            opacity="0.03"
+            filter="blur(60px)"
+            pointerEvents="none"
+          />
+
+          <Container maxW={isGlobalView ? "full" : "container.xl"} px={{ base: 4, md: 8 }} py={{ base: 6, md: 8 }}>
+            <AnimatePresence mode="wait">
+              <Routes>
+                <Route path="/" element={
+                  <ProtectedRoute>
+                    {isGlobalView ? <GlobalDashboard /> : <Dashboard />}
+                  </ProtectedRoute>
+                } />
+                <Route path="/positions" element={<ProtectedRoute><Positions /></ProtectedRoute>} />
+                <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
+                <Route path="/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
+                <Route path="/strategies" element={<ProtectedRoute><StrategyAllocation /></ProtectedRoute>} />
+                <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
+                <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
+                <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
+                <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
+                <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
+                <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
+                <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
+                <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
+                <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
+                <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
+                <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
+                <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/setup" element={<FirstTimeSetup />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </AnimatePresence>
           </Container>
           <Footer />
         </Box>
@@ -226,7 +275,6 @@ const AppContent: React.FC = () => {
   )
 }
 
-// Theme wrapper component
 const ThemedApp: React.FC = () => {
   const { isGlobalView } = useSymbol()
   const currentTheme = isGlobalView ? darkTheme : lightTheme
@@ -251,4 +299,3 @@ function App() {
 }
 
 export default App
-
