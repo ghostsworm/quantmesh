@@ -19,7 +19,6 @@ import {
   HStack,
   Icon,
   Divider,
-  useColorModeValue,
   Container,
 } from '@chakra-ui/react'
 import { 
@@ -50,8 +49,8 @@ interface SystemStatus {
 }
 
 const GlassCard: React.FC<{ title?: string; children: React.ReactNode; p?: number | string }> = ({ title, children, p = 6 }) => {
-  const bg = useColorModeValue('white', 'rgba(255, 255, 255, 0.05)')
-  const borderColor = useColorModeValue('gray.100', 'whiteAlpha.100')
+  const bg = 'white'
+  const borderColor = 'gray.100'
   
   return (
     <Box
@@ -85,7 +84,7 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const toast = useToast()
 
-  const cardBg = useColorModeValue('white', 'gray.800')
+  const cardBg = 'white'
 
   useEffect(() => {
     const fetchData = async () => {
@@ -301,7 +300,7 @@ const Dashboard: React.FC = () => {
                   </Flex>
                   <Divider />
                   <Flex justify="space-between">
-                    <Text fontSize="xs" color="gray.500">Entry Price: ${positionsSummary.average_entry_price?.toFixed(2)}</Text>
+                    <Text fontSize="xs" color="gray.500">Entry Price: ${positionsSummary.average_price?.toFixed(2) || '0.00'}</Text>
                     <Text fontSize="xs" color="gray.500">Value: ${positionsSummary.total_value?.toFixed(2)}</Text>
                   </Flex>
                 </VStack>

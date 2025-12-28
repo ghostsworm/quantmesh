@@ -33,6 +33,13 @@ func SetupRoutes(r *gin.Engine) {
 			auth.POST("/logout", logout)
 		}
 
+		// 配置引导路由（不需要认证，在配置完成前使用）
+		setup := api.Group("/setup")
+		{
+			setup.GET("/status", getSetupStatusHandler)
+			setup.POST("/init", initSetupHandler)
+		}
+
 		// 需要认证的认证路由
 		authProtected := api.Group("/auth")
 		authProtected.Use(authMiddleware())
@@ -67,6 +74,7 @@ func SetupRoutes(r *gin.Engine) {
 			protected.GET("/statistics/trades", getTradeStatistics)
 			protected.GET("/statistics/pnl/symbol", getPnLBySymbol)
 			protected.GET("/statistics/pnl/time-range", getPnLByTimeRange)
+			protected.GET("/statistics/anomalous-trades", getAnomalousTrades)
 			protected.GET("/reconciliation/status", getReconciliationStatus)
 			protected.GET("/reconciliation/history", getReconciliationHistory)
 			protected.GET("/risk/status", getRiskStatus)

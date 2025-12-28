@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Abmelden",
+    "global": "Global",
+    "system": "System",
+    "trading": "Trading"
+  },
+  "sidebar": {
+    "overview": "Übersicht",
+    "performanceMonitor": "Leistungsmonitor",
+    "runLogs": "Ausführungsprotokolle",
+    "aiPrompts": "KI-Aufforderungen",
+    "tradingPanel": "Handelspanel",
+    "currentPositions": "Aktuelle Positionen",
+    "orderManagement": "Auftragsverwaltung",
+    "strategySlots": "Strategieslots",
+    "strategyAllocation": "Strategieallokation",
+    "profitStatistics": "Gewinnstatistiken",
+    "reconciliation": "Kontenabstimmung",
+    "riskMonitor": "Risikomonitor",
+    "klineDepth": "K-Line-Tiefe",
+    "fundingRate": "Funding Rate",
+    "configManagement": "Konfiguration",
+    "profile": "Profil"
+  },
+  "statusBar": {
+    "globalView": "Globale Ansicht",
+    "fundingRate": "Funding Rate",
+    "fundingRateError": "Fehler beim Abrufen des Funding Rates"
+  },
+  "app": {
+    "logoutError": "Abmeldung fehlgeschlagen"
+  }
+}
+

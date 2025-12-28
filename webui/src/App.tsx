@@ -12,7 +12,6 @@ import {
   Badge, 
   Text, 
   HStack,
-  useColorModeValue,
   IconButton,
   Drawer,
   DrawerOverlay,
@@ -24,7 +23,7 @@ import { HamburgerIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
-import { lightTheme, darkTheme } from './theme'
+import { lightTheme } from './theme'
 import Dashboard from './components/Dashboard'
 import GlobalDashboard from './components/GlobalDashboard'
 import SymbolSelector from './components/SymbolSelector'
@@ -41,7 +40,9 @@ import RiskMonitor from './components/RiskMonitor'
 import Profile from './components/Profile'
 import Login from './components/Login'
 import FirstTimeSetup from './components/FirstTimeSetup'
+import ConfigSetup from './components/ConfigSetup'
 import KlineChart from './components/KlineChart'
+import { checkSetupStatus } from './services/setup'
 import Configuration from './components/Configuration'
 import FundingRate from './components/FundingRate'
 import MarketIntelligence from './components/MarketIntelligence'
@@ -49,7 +50,9 @@ import AIAnalysis from './components/AIAnalysis'
 import AIPromptManager from './components/AIPromptManager'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
+import LanguageSelector from './components/LanguageSelector'
 import { logout } from './services/auth'
+import { useTranslation } from 'react-i18next'
 import './App.css'
 
 const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -91,28 +94,57 @@ const AppContent: React.FC = () => {
   const { isAuthenticated, hasPassword, isLoading } = useAuth()
   const { isGlobalView } = useSymbol()
   const { isOpen, onOpen, onClose } = useDisclosure()
+  const { t } = useTranslation()
+  const [needsConfig, setNeedsConfig] = useState<boolean | null>(null)
+  const [configLoading, setConfigLoading] = useState(true)
   
-  const headerBg = useColorModeValue('rgba(255, 255, 255, 0.8)', 'rgba(26, 32, 44, 0.8)')
-  const borderColor = useColorModeValue('gray.100', 'whiteAlpha.100')
-  const contentBg = useColorModeValue(
-    isGlobalView ? 'gray.50' : 'white',
-    isGlobalView ? 'gray.900' : 'gray.800'
-  )
+  const headerBg = 'rgba(255, 255, 255, 0.8)'
+  const borderColor = 'gray.100'
+  const contentBg = isGlobalView ? 'gray.50' : 'white'
+
+  // 检查配置状态
+  useEffect(() => {
+    const checkConfig = async () => {
+      try {
+        const status = await checkSetupStatus()
+        setNeedsConfig(status.needs_setup)
+      } catch (error) {
+        console.error('检查配置状态失败:', error)
+        // 如果检查失败，假设需要配置
+        setNeedsConfig(true)
+      } finally {
+        setConfigLoading(false)
+      }
+    }
+    checkConfig()
+  }, [])
 
   const handleLogout = async () => {
     try {
       await logout()
       window.location.href = '/login'
     } catch (error) {
-      console.error('退出登录失败:', error)
+      console.error(t('app.logoutError'), error)
     }
   }
 
-  if (isLoading) {
+  if (isLoading || configLoading) {
     return (
       <Center h="100vh">
         <Spinner size="xl" thickness="4px" color="blue.500" />
       </Center>
+    )
+  }
+
+  // 如果配置不完整，显示配置引导页面
+  if (needsConfig) {
+    return (
+      <Box bg="gray.50" minH="100vh">
+        <Routes>
+          <Route path="/config-setup" element={<ConfigSetup />} />
+          <Route path="*" element={<Navigate to="/config-setup" replace />} />
+        </Routes>
+      </Box>
     )
   }
 
@@ -186,6 +218,7 @@ const AppContent: React.FC = () => {
                 <Box display={{ base: 'none', lg: 'block' }}>
                   <StatusBar />
                 </Box>
+                <LanguageSelector />
                 <Button
                   variant="ghost"
                   colorScheme="gray"
@@ -194,7 +227,7 @@ const AppContent: React.FC = () => {
                   fontWeight="600"
                   borderRadius="full"
                 >
-                  退出
+                  {t('common.logout')}
                 </Button>
               </HStack>
             )}
@@ -211,7 +244,7 @@ const AppContent: React.FC = () => {
         {/* Mobile Sidebar (Drawer) */}
         <Drawer isOpen={isOpen} placement="left" onClose={onClose}>
           <DrawerOverlay />
-          <DrawerContent bg={useColorModeValue('white', 'gray.800')} maxW="240px">
+          <DrawerContent bg="white" maxW="240px">
             <DrawerCloseButton zIndex={20} />
             <Sidebar onNavItemClick={onClose} isDrawer />
           </DrawerContent>
@@ -276,11 +309,8 @@ const AppContent: React.FC = () => {
 }
 
 const ThemedApp: React.FC = () => {
-  const { isGlobalView } = useSymbol()
-  const currentTheme = isGlobalView ? darkTheme : lightTheme
-
   return (
-    <ChakraProvider theme={currentTheme}>
+    <ChakraProvider theme={lightTheme}>
       <AppContent />
     </ChakraProvider>
   )

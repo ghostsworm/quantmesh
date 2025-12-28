@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Cerrar sesión",
+    "global": "Global",
+    "system": "Sistema",
+    "trading": "Trading"
+  },
+  "sidebar": {
+    "overview": "Resumen",
+    "performanceMonitor": "Monitor de rendimiento",
+    "runLogs": "Registros de ejecución",
+    "aiPrompts": "Solicitudes IA",
+    "tradingPanel": "Panel de trading",
+    "currentPositions": "Posiciones actuales",
+    "orderManagement": "Gestión de órdenes",
+    "strategySlots": "Ranuras de estrategia",
+    "strategyAllocation": "Asignación de estrategia",
+    "profitStatistics": "Estadísticas de ganancias",
+    "reconciliation": "Reconciliación",
+    "riskMonitor": "Monitor de riesgo",
+    "klineDepth": "Profundidad K-Line",
+    "fundingRate": "Tasa de financiamiento",
+    "configManagement": "Configuración",
+    "profile": "Perfil"
+  },
+  "statusBar": {
+    "globalView": "Vista global",
+    "fundingRate": "Tasa de financiamiento",
+    "fundingRateError": "Error al obtener la tasa de financiamiento"
+  },
+  "app": {
+    "logoutError": "Error al cerrar sesión"
+  }
+}
+

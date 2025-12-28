@@ -430,17 +430,17 @@ export function subscribeLogs(onLog: LogSubscribeHandler, onError?: LogSubscribe
 
 // Slots
 export interface SlotInfo {
-  slot_id: number
-  symbol: string
-  buy_price: number
-  buy_quantity: number
-  buy_order_id: number
-  sell_price: number
-  sell_quantity: number
-  sell_order_id: number
-  status: string
-  created_at: string
-  updated_at: string
+  price: number
+  position_status: string  // EMPTY/FILLED
+  position_qty: number
+  order_id: number
+  client_order_id: string
+  order_side: string  // BUY/SELL
+  order_status: string  // NOT_PLACED/PLACED/CONFIRMED/PARTIALLY_FILLED/FILLED/CANCELED
+  order_price: number
+  order_filled_qty: number
+  order_created_at: string
+  slot_status: string  // FREE/PENDING/LOCKED
 }
 
 export interface SlotsResponse {

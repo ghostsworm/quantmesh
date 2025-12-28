@@ -13,7 +13,6 @@ import {
   AlertIcon,
   AlertDescription,
   Text,
-  useColorModeValue,
 } from '@chakra-ui/react'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -29,8 +28,8 @@ const Login: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const bgColor = useColorModeValue('gray.50', 'gray.900')
-  const cardBg = useColorModeValue('white', 'gray.800')
+  const bgColor = 'gray.50'
+  const cardBg = 'white'
 
   useEffect(() => {
     // 如果已经登录，重定向到主页

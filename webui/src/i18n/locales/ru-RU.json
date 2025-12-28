@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Выход",
+    "global": "Глобальный",
+    "system": "Система",
+    "trading": "Торговля"
+  },
+  "sidebar": {
+    "overview": "Обзор",
+    "performanceMonitor": "Монитор производительности",
+    "runLogs": "Журналы выполнения",
+    "aiPrompts": "AI-запросы",
+    "tradingPanel": "Панель торговли",
+    "currentPositions": "Текущие позиции",
+    "orderManagement": "Управление заказами",
+    "strategySlots": "Слоты стратегии",
+    "strategyAllocation": "Распределение стратегии",
+    "profitStatistics": "Статистика прибыли",
+    "reconciliation": "Сверка",
+    "riskMonitor": "Монитор рисков",
+    "klineDepth": "Глубина K-Line",
+    "fundingRate": "Ставка финансирования",
+    "configManagement": "Управление конфигурацией",
+    "profile": "Профиль"
+  },
+  "statusBar": {
+    "globalView": "Глобальный вид",
+    "fundingRate": "Ставка финансирования",
+    "fundingRateError": "Ошибка получения ставки финансирования"
+  },
+  "app": {
+    "logoutError": "Ошибка выхода"
+  }
+}
+

@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react'
 import { Flex, Text, Badge, Spinner, HStack, Tooltip } from '@chakra-ui/react'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getFundingRateCurrent } from '../services/api'
+import { useTranslation } from 'react-i18next'
 
 const StatusBar: React.FC = () => {
   const { selectedExchange, selectedSymbol, isGlobalView } = useSymbol()
   const [fundingRate, setFundingRate] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
+  const { t } = useTranslation()
 
   useEffect(() => {
     if (isGlobalView || !selectedExchange || !selectedSymbol) {
@@ -25,7 +27,7 @@ const StatusBar: React.FC = () => {
           setFundingRate(null)
         }
       } catch (error) {
-        console.error('获取资金费率失败:', error)
+        console.error(t('statusBar.fundingRateError'), error)
         setFundingRate(null)
       } finally {
         setLoading(false)
@@ -40,7 +42,7 @@ const StatusBar: React.FC = () => {
   if (isGlobalView) {
     return (
       <Badge colorScheme="purple" variant="subtle" fontSize="10px" borderRadius="full" px={3}>
-        Global View
+        {t('statusBar.globalView')}
       </Badge>
     )
   }
@@ -51,7 +53,7 @@ const StatusBar: React.FC = () => {
 
   return (
     <HStack spacing={3}>
-      <Tooltip label={`${selectedExchange.toUpperCase()} 资金费率`}>
+      <Tooltip label={`${selectedExchange.toUpperCase()} ${t('statusBar.fundingRate')}`}>
         <HStack spacing={2} bg="gray.50" px={3} py={1} borderRadius="full" border="1px" borderColor="gray.100">
           <Text fontSize="10px" fontWeight="bold" color="gray.400">FR</Text>
           {loading ? (

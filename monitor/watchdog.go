@@ -16,6 +16,7 @@ import (
 type Watchdog struct {
 	cfg            *config.Config
 	storageService *storage.StorageService
+	logStorage     *storage.LogStorage // 日志存储（用于清理日志）
 	notifier       *notify.NotificationService
 	sampleInterval time.Duration
 	cleanupInterval time.Duration
@@ -33,7 +34,7 @@ type Watchdog struct {
 }
 
 // NewWatchdog 创建看门狗实例
-func NewWatchdog(cfg *config.Config, storageService *storage.StorageService, notifier *notify.NotificationService) *Watchdog {
+func NewWatchdog(cfg *config.Config, storageService *storage.StorageService, logStorage *storage.LogStorage, notifier *notify.NotificationService) *Watchdog {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sampleInterval := time.Duration(cfg.Watchdog.Sampling.Interval) * time.Second
@@ -57,6 +58,7 @@ func NewWatchdog(cfg *config.Config, storageService *storage.StorageService, not
 	return &Watchdog{
 		cfg:                  cfg,
 		storageService:       storageService,
+		logStorage:           logStorage,
 		notifier:             notifier,
 		sampleInterval:       sampleInterval,
 		cleanupInterval:      cleanupInterval,
@@ -357,6 +359,18 @@ func (w *Watchdog) cleanup() error {
 			logger.Warn("⚠️ 清理汇总数据失败: %v", err)
 		} else {
 			logger.Debug("🧹 清理汇总数据（早于 %s）", cutoffDate.Format("2006-01-02"))
+		}
+	}
+
+	// 清理日志（超过保留天数）
+	if w.logStorage != nil {
+		logRetentionDays := w.cfg.System.LogRetentionDays
+		if logRetentionDays > 0 {
+			if err := w.logStorage.CleanOldLogs(logRetentionDays); err != nil {
+				logger.Warn("⚠️ 清理过期日志失败: %v", err)
+			} else {
+				logger.Debug("🧹 清理过期日志（保留最近 %d 天）", logRetentionDays)
+			}
 		}
 	}
 

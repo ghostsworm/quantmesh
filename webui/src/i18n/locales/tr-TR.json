@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Çıkış",
+    "global": "Global",
+    "system": "Sistem",
+    "trading": "İşlem"
+  },
+  "sidebar": {
+    "overview": "Genel Bakış",
+    "performanceMonitor": "Performans Monitörü",
+    "runLogs": "Çalışma Logları",
+    "aiPrompts": "AI İstemleri",
+    "tradingPanel": "İşlem Paneli",
+    "currentPositions": "Mevcut Pozisyonlar",
+    "orderManagement": "Emir Yönetimi",
+    "strategySlots": "Strateji Yuvaları",
+    "strategyAllocation": "Strateji Tahsisi",
+    "profitStatistics": "Kâr İstatistikleri",
+    "reconciliation": "Mutabakat",
+    "riskMonitor": "Risk Monitörü",
+    "klineDepth": "K-Line Derinliği",
+    "fundingRate": "Fonlama Oranı",
+    "configManagement": "Yapılandırma",
+    "profile": "Profil"
+  },
+  "statusBar": {
+    "globalView": "Global Görünüm",
+    "fundingRate": "Fonlama Oranı",
+    "fundingRateError": "Fonlama oranı alınamadı"
+  },
+  "app": {
+    "logoutError": "Çıkış başarısız"
+  }
+}
+

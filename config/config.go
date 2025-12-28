@@ -100,6 +100,7 @@ type Config struct {
 		Timezone            string `yaml:"timezone"` // 时区，如 "Asia/Shanghai"
 		CancelOnExit        bool   `yaml:"cancel_on_exit"`
 		ClosePositionsOnExit bool  `yaml:"close_positions_on_exit"` // 退出时是否平仓（默认false）
+		LogRetentionDays    int    `yaml:"log_retention_days"`      // 日志保留天数（默认30天，0表示不清理）
 	} `yaml:"system"`
 
 	// 主动安全风控配置
@@ -467,6 +468,204 @@ func SaveConfig(cfg *Config, configPath string) error {
 	return nil
 }
 
+// SaveConfigWithoutValidation 保存配置到文件（不验证，用于保存最小化配置）
+func SaveConfigWithoutValidation(cfg *Config, configPath string) error {
+	// 序列化为YAML
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("序列化配置失败: %v", err)
+	}
+
+	// 写入文件
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("写入配置文件失败: %v", err)
+	}
+
+	return nil
+}
+
+// CreateMinimalConfig 创建最小化配置（仅用于启动 Web 服务）
+func CreateMinimalConfig() *Config {
+	cfg := &Config{}
+	
+	// 应用配置
+	cfg.App.CurrentExchange = ""
+	
+	// 交易所配置（空）
+	cfg.Exchanges = make(map[string]ExchangeConfig)
+	
+	// 交易配置（空）
+	cfg.Trading.Symbol = ""
+	cfg.Trading.PriceInterval = 0
+	cfg.Trading.OrderQuantity = 0
+	cfg.Trading.MinOrderValue = 20
+	cfg.Trading.BuyWindowSize = 0
+	cfg.Trading.SellWindowSize = 0
+	cfg.Trading.ReconcileInterval = 60
+	cfg.Trading.OrderCleanupThreshold = 50
+	cfg.Trading.CleanupBatchSize = 10
+	cfg.Trading.MarginLockDurationSec = 10
+	cfg.Trading.PositionSafetyCheck = 100
+	
+	// 系统配置
+	cfg.System.LogLevel = "INFO"
+	cfg.System.Timezone = "Asia/Shanghai"
+	cfg.System.CancelOnExit = true
+	cfg.System.ClosePositionsOnExit = false
+	cfg.System.LogRetentionDays = 30 // 默认保留30天
+	
+	// Web 服务配置（启用）
+	cfg.Web.Enabled = true
+	cfg.Web.Host = "0.0.0.0"
+	cfg.Web.Port = 28888
+	cfg.Web.APIKey = ""
+	
+	// 其他配置使用默认值
+	cfg.RiskControl.Enabled = true
+	cfg.RiskControl.Interval = "1m"
+	cfg.RiskControl.VolumeMultiplier = 3.0
+	cfg.RiskControl.AverageWindow = 20
+	cfg.RiskControl.RecoveryThreshold = 3
+	cfg.RiskControl.MaxLeverage = 10
+	cfg.RiskControl.MonitorSymbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}
+	
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = "./data/quantmesh.db"
+	cfg.Storage.BufferSize = 1000
+	cfg.Storage.BatchSize = 100
+	cfg.Storage.FlushInterval = 5
+	
+	cfg.Notifications.Enabled = false
+	cfg.Notifications.Webhook.Timeout = 3
+	cfg.Notifications.Email.Provider = "smtp"
+	
+	cfg.Metrics.Enabled = true
+	cfg.Metrics.CollectInterval = 60
+	
+	cfg.Watchdog.Enabled = true
+	cfg.Watchdog.Sampling.Interval = 60
+	cfg.Watchdog.Retention.DetailDays = 7
+	cfg.Watchdog.Retention.DailyDays = 90
+	cfg.Watchdog.Notifications.Enabled = true
+	cfg.Watchdog.Notifications.FixedThreshold.Enabled = true
+	cfg.Watchdog.Notifications.FixedThreshold.CPUPercent = 80
+	cfg.Watchdog.Notifications.FixedThreshold.MemoryMB = 1024
+	cfg.Watchdog.Notifications.RateThreshold.Enabled = true
+	cfg.Watchdog.Notifications.RateThreshold.WindowMinutes = 5
+	cfg.Watchdog.Notifications.RateThreshold.CPUIncrease = 30
+	cfg.Watchdog.Notifications.RateThreshold.MemoryIncreaseMB = 200
+	cfg.Watchdog.Notifications.CooldownMinutes = 30
+	cfg.Watchdog.Aggregation.Enabled = true
+	cfg.Watchdog.Aggregation.Schedule = "00:00"
+	
+	cfg.AI.Enabled = false
+	cfg.AI.Provider = "gemini"
+	cfg.AI.DecisionMode = "hybrid"
+	cfg.AI.ExecutionRules.HighRiskThreshold = 0.8
+	cfg.AI.ExecutionRules.LowRiskThreshold = 0.3
+	cfg.AI.ExecutionRules.RequireConfirmation = true
+	
+	cfg.Strategies.Enabled = false
+	cfg.Strategies.CapitalAllocation.Mode = "fixed"
+	cfg.Strategies.CapitalAllocation.TotalCapital = 5000
+	
+	// 时间间隔配置
+	cfg.Timing.WebSocketReconnectDelay = 5
+	cfg.Timing.WebSocketWriteWait = 10
+	cfg.Timing.WebSocketPongWait = 60
+	cfg.Timing.WebSocketPingInterval = 20
+	cfg.Timing.ListenKeyKeepAliveInterval = 30
+	cfg.Timing.PriceSendInterval = 50
+	cfg.Timing.RateLimitRetryDelay = 1
+	cfg.Timing.OrderRetryDelay = 500
+	cfg.Timing.PricePollInterval = 500
+	cfg.Timing.StatusPrintInterval = 1
+	cfg.Timing.OrderCleanupInterval = 60
+	
+	return cfg
+}
+
+// SetupData 引导配置数据
+type SetupData struct {
+	Exchange      string  `json:"exchange"`
+	APIKey        string  `json:"api_key"`
+	SecretKey     string  `json:"secret_key"`
+	Passphrase    string  `json:"passphrase,omitempty"`
+	Symbol        string  `json:"symbol"`
+	PriceInterval float64 `json:"price_interval"`
+	OrderQuantity float64 `json:"order_quantity"`
+	MinOrderValue float64 `json:"min_order_value,omitempty"`
+	BuyWindowSize int     `json:"buy_window_size"`
+	SellWindowSize int    `json:"sell_window_size"`
+	Testnet       bool    `json:"testnet,omitempty"`
+	FeeRate       float64 `json:"fee_rate,omitempty"`
+}
+
+// CreateConfigFromSetup 从引导数据创建完整配置
+func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
+	// 创建最小化配置作为基础
+	cfg := CreateMinimalConfig()
+	
+	// 设置交易所
+	cfg.App.CurrentExchange = setup.Exchange
+	
+	// 设置交易所配置
+	exchangeCfg := ExchangeConfig{
+		APIKey:    setup.APIKey,
+		SecretKey: setup.SecretKey,
+		Passphrase: setup.Passphrase,
+		Testnet:   setup.Testnet,
+		FeeRate:   setup.FeeRate,
+	}
+	
+	// 如果手续费率未设置，使用默认值
+	if exchangeCfg.FeeRate <= 0 {
+		exchangeCfg.FeeRate = 0.0002
+	}
+	
+	cfg.Exchanges[setup.Exchange] = exchangeCfg
+	
+	// 设置交易配置
+	cfg.Trading.Symbol = setup.Symbol
+	cfg.Trading.PriceInterval = setup.PriceInterval
+	cfg.Trading.OrderQuantity = setup.OrderQuantity
+	
+	if setup.MinOrderValue > 0 {
+		cfg.Trading.MinOrderValue = setup.MinOrderValue
+	} else {
+		cfg.Trading.MinOrderValue = 20
+	}
+	
+	cfg.Trading.BuyWindowSize = setup.BuyWindowSize
+	cfg.Trading.SellWindowSize = setup.SellWindowSize
+	
+	// 设置默认值
+	if cfg.Trading.SellWindowSize <= 0 {
+		cfg.Trading.SellWindowSize = cfg.Trading.BuyWindowSize
+	}
+	
+	// 创建交易对配置
+	cfg.Trading.Symbols = []SymbolConfig{
+		{
+			Exchange:              setup.Exchange,
+			Symbol:                setup.Symbol,
+			PriceInterval:         setup.PriceInterval,
+			OrderQuantity:         setup.OrderQuantity,
+			MinOrderValue:         cfg.Trading.MinOrderValue,
+			BuyWindowSize:         setup.BuyWindowSize,
+			SellWindowSize:        cfg.Trading.SellWindowSize,
+			ReconcileInterval:     60,
+			OrderCleanupThreshold:  50,
+			CleanupBatchSize:      10,
+			MarginLockDurationSec:  10,
+			PositionSafetyCheck:   100,
+		},
+	}
+	
+	return cfg, nil
+}
+
 // Validate 验证配置
 func (c *Config) Validate() error {
 	// 验证交易所配置
@@ -646,6 +845,9 @@ func (c *Config) Validate() error {
 	// 设置默认时间间隔
 	if c.System.Timezone == "" {
 		c.System.Timezone = "Asia/Shanghai" // 默认东8区
+	}
+	if c.System.LogRetentionDays <= 0 {
+		c.System.LogRetentionDays = 30 // 默认保留30天
 	}
 
 	if c.Timing.WebSocketReconnectDelay <= 0 {

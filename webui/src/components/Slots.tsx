@@ -11,11 +11,14 @@ const Slots: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string>('all')
 
   useEffect(() => {
+    // 🔥 修复：切换交易对时立即清空旧数据
+    setSlots([])
+    setLoading(true)
+    
     const fetchSlots = async () => {
       try {
-        setLoading(true)
         const data = await getSlots(selectedExchange || undefined, selectedSymbol || undefined)
-        setSlots(data.slots)
+        setSlots(data.slots || [])
         setError(null)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch slots')
@@ -29,7 +32,11 @@ const Slots: React.FC = () => {
     // 每5秒刷新一次
     const interval = setInterval(fetchSlots, 5000)
 
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      // 🔥 修复：组件卸载时清空数据
+      setSlots([])
+    }
   }, [selectedExchange, selectedSymbol])
 
   const sortedSlots = [...slots].sort((a, b) => {

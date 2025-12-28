@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "ログアウト",
+    "global": "グローバル",
+    "system": "システム",
+    "trading": "トレーディング"
+  },
+  "sidebar": {
+    "overview": "概要",
+    "performanceMonitor": "パフォーマンスモニター",
+    "runLogs": "実行ログ",
+    "aiPrompts": "AIプロンプト",
+    "tradingPanel": "トレーディングパネル",
+    "currentPositions": "現在のポジション",
+    "orderManagement": "注文管理",
+    "strategySlots": "戦略スロット",
+    "strategyAllocation": "戦略配分",
+    "profitStatistics": "利益統計",
+    "reconciliation": "照合",
+    "riskMonitor": "リスクモニター",
+    "klineDepth": "K線深度",
+    "fundingRate": "ファンディングレート",
+    "configManagement": "設定",
+    "profile": "プロフィール"
+  },
+  "statusBar": {
+    "globalView": "グローバルビュー",
+    "fundingRate": "ファンディングレート",
+    "fundingRateError": "ファンディングレートの取得に失敗しました"
+  },
+  "app": {
+    "logoutError": "ログアウトに失敗しました"
+  }
+}
+

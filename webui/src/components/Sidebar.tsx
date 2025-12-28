@@ -7,7 +7,6 @@ import {
   Flex,
   Divider,
   Heading,
-  useColorModeValue,
 } from '@chakra-ui/react'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -29,6 +28,7 @@ import {
   AddIcon,
 } from '@chakra-ui/icons'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useTranslation } from 'react-i18next'
 
 const MotionBox = motion(Box)
 const MotionFlex = motion(Flex)
@@ -42,10 +42,10 @@ interface NavItemProps {
 }
 
 const NavItem: React.FC<NavItemProps> = ({ icon, children, to, isActive, onClick }) => {
-  const activeBg = useColorModeValue('blue.50', 'rgba(66, 153, 225, 0.15)')
-  const activeColor = useColorModeValue('blue.600', 'blue.300')
-  const hoverBg = useColorModeValue('gray.50', 'rgba(255, 255, 255, 0.05)')
-  const textColor = useColorModeValue('gray.600', 'gray.400')
+  const activeBg = 'blue.50'
+  const activeColor = 'blue.600'
+  const hoverBg = 'gray.50'
+  const textColor = 'gray.600'
 
   return (
     <MotionFlex
@@ -65,7 +65,7 @@ const NavItem: React.FC<NavItemProps> = ({ icon, children, to, isActive, onClick
       whileTap={{ scale: 0.98 }}
       _hover={{
         bg: isActive ? activeBg : hoverBg,
-        color: isActive ? activeColor : useColorModeValue('gray.900', 'white'),
+        color: isActive ? activeColor : 'gray.900',
       }}
       transition="all 0.2s"
       mb={0.5}
@@ -77,7 +77,7 @@ const NavItem: React.FC<NavItemProps> = ({ icon, children, to, isActive, onClick
         as={icon}
         color={isActive ? activeColor : 'inherit'}
         _groupHover={{
-          color: isActive ? activeColor : useColorModeValue('blue.500', 'blue.200'),
+          color: isActive ? activeColor : 'blue.500',
         }}
       />
       <Text fontSize="sm" fontWeight={isActive ? '600' : 'medium'} letterSpacing="tight">
@@ -109,9 +109,10 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
   const { isGlobalView, selectedSymbol } = useSymbol()
   const location = useLocation()
+  const { t } = useTranslation()
   
-  const bgColor = useColorModeValue('rgba(255, 255, 255, 0.8)', 'rgba(26, 32, 44, 0.8)')
-  const borderColor = useColorModeValue('gray.100', 'rgba(255, 255, 255, 0.08)')
+  const bgColor = 'rgba(255, 255, 255, 0.8)'
+  const borderColor = 'gray.100'
 
   const isRouteActive = (path: string) => {
     if (path === '/' && location.pathname === '/') return true
@@ -148,7 +149,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           width: '6px',
         },
         '&::-webkit-scrollbar-thumb': {
-          background: useColorModeValue('rgba(0,0,0,0.05)', 'rgba(255,255,255,0.05)'),
+          background: 'rgba(0,0,0,0.05)',
           borderRadius: '24px',
         },
       }}
@@ -156,7 +157,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
       <VStack align="stretch" spacing={1} mt={isDrawer ? 10 : 5}>
         <Box px="7" mb="2">
           <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-            Global
+            {t('common.global')}
           </Heading>
         </Box>
         <NavItem 
@@ -165,7 +166,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           isActive={isRouteActive('/') && isGlobalView}
           onClick={onNavItemClick}
         >
-          概览
+          {t('sidebar.overview')}
         </NavItem>
         <NavItem 
           icon={SettingsIcon} 
@@ -173,7 +174,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           isActive={isRouteActive('/system-monitor')}
           onClick={onNavItemClick}
         >
-          性能监控
+          {t('sidebar.performanceMonitor')}
         </NavItem>
         <NavItem 
           icon={EditIcon} 
@@ -181,7 +182,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           isActive={isRouteActive('/logs')}
           onClick={onNavItemClick}
         >
-          运行日志
+          {t('sidebar.runLogs')}
         </NavItem>
         <NavItem 
           icon={QuestionIcon} 
@@ -189,7 +190,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           isActive={isRouteActive('/ai-prompts')}
           onClick={onNavItemClick}
         >
-          AI 提示词
+          {t('sidebar.aiPrompts')}
         </NavItem>
 
         <AnimatePresence>
@@ -205,7 +206,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               
               <Box px="7" mb="2">
                 <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-                  Trading: {selectedSymbol}
+                  {t('common.trading')}: {selectedSymbol}
                 </Heading>
               </Box>
               <NavItem 
@@ -214,7 +215,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/') && !isGlobalView}
                 onClick={onNavItemClick}
               >
-                交易面板
+                {t('sidebar.tradingPanel')}
               </NavItem>
               <NavItem 
                 icon={DragHandleIcon} 
@@ -222,7 +223,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/positions')}
                 onClick={onNavItemClick}
               >
-                当前持仓
+                {t('sidebar.currentPositions')}
               </NavItem>
               <NavItem 
                 icon={RepeatIcon} 
@@ -230,7 +231,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/orders')}
                 onClick={onNavItemClick}
               >
-                订单管理
+                {t('sidebar.orderManagement')}
               </NavItem>
               <NavItem 
                 icon={AddIcon} 
@@ -238,7 +239,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/slots')}
                 onClick={onNavItemClick}
               >
-                策略槽位
+                {t('sidebar.strategySlots')}
               </NavItem>
               <NavItem 
                 icon={StarIcon} 
@@ -246,7 +247,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/strategies')}
                 onClick={onNavItemClick}
               >
-                策略配比
+                {t('sidebar.strategyAllocation')}
               </NavItem>
               <NavItem 
                 icon={CalendarIcon} 
@@ -254,7 +255,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/statistics')}
                 onClick={onNavItemClick}
               >
-                收益统计
+                {t('sidebar.profitStatistics')}
               </NavItem>
               <NavItem 
                 icon={SearchIcon} 
@@ -262,7 +263,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/reconciliation')}
                 onClick={onNavItemClick}
               >
-                对账校验
+                {t('sidebar.reconciliation')}
               </NavItem>
               <NavItem 
                 icon={TriangleUpIcon} 
@@ -270,7 +271,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/risk')}
                 onClick={onNavItemClick}
               >
-                风控监控
+                {t('sidebar.riskMonitor')}
               </NavItem>
               <NavItem 
                 icon={TimeIcon} 
@@ -278,7 +279,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/kline')}
                 onClick={onNavItemClick}
               >
-                K线深度
+                {t('sidebar.klineDepth')}
               </NavItem>
               <NavItem 
                 icon={AtSignIcon} 
@@ -286,7 +287,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 isActive={isRouteActive('/funding-rate')}
                 onClick={onNavItemClick}
               >
-                资金费率
+                {t('sidebar.fundingRate')}
               </NavItem>
             </MotionBox>
           )}
@@ -296,7 +297,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
 
         <Box px="7" mb="2">
           <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-            System
+            {t('common.system')}
           </Heading>
         </Box>
         <NavItem 
@@ -305,7 +306,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           isActive={isRouteActive('/config')}
           onClick={onNavItemClick}
         >
-          配置管理
+          {t('sidebar.configManagement')}
         </NavItem>
         <NavItem 
           icon={LockIcon} 
@@ -313,7 +314,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           isActive={isRouteActive('/profile')}
           onClick={onNavItemClick}
         >
-          个人资料
+          {t('sidebar.profile')}
         </NavItem>
       </VStack>
     </Box>

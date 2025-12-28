@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "تسجيل الخروج",
+    "global": "عام",
+    "system": "النظام",
+    "trading": "التداول"
+  },
+  "sidebar": {
+    "overview": "نظرة عامة",
+    "performanceMonitor": "مراقب الأداء",
+    "runLogs": "سجلات التشغيل",
+    "aiPrompts": "مطالبات الذكاء الاصطناعي",
+    "tradingPanel": "لوحة التداول",
+    "currentPositions": "المراكز الحالية",
+    "orderManagement": "إدارة الطلبات",
+    "strategySlots": "فتحات الاستراتيجية",
+    "strategyAllocation": "توزيع الاستراتيجية",
+    "profitStatistics": "إحصائيات الربح",
+    "reconciliation": "التسوية",
+    "riskMonitor": "مراقب المخاطر",
+    "klineDepth": "عمق K-Line",
+    "fundingRate": "معدل التمويل",
+    "configManagement": "الإعدادات",
+    "profile": "الملف الشخصي"
+  },
+  "statusBar": {
+    "globalView": "العرض العام",
+    "fundingRate": "معدل التمويل",
+    "fundingRateError": "فشل في جلب معدل التمويل"
+  },
+  "app": {
+    "logoutError": "فشل تسجيل الخروج"
+  }
+}
+

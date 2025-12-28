@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "退出",
+    "global": "Global",
+    "system": "System",
+    "trading": "Trading"
+  },
+  "sidebar": {
+    "overview": "概览",
+    "performanceMonitor": "性能监控",
+    "runLogs": "运行日志",
+    "aiPrompts": "AI 提示词",
+    "tradingPanel": "交易面板",
+    "currentPositions": "当前持仓",
+    "orderManagement": "订单管理",
+    "strategySlots": "策略槽位",
+    "strategyAllocation": "策略配比",
+    "profitStatistics": "收益统计",
+    "reconciliation": "对账校验",
+    "riskMonitor": "风控监控",
+    "klineDepth": "K线深度",
+    "fundingRate": "资金费率",
+    "configManagement": "配置管理",
+    "profile": "个人资料"
+  },
+  "statusBar": {
+    "globalView": "Global View",
+    "fundingRate": "资金费率",
+    "fundingRateError": "获取资金费率失败"
+  },
+  "app": {
+    "logoutError": "退出登录失败"
+  }
+}
+

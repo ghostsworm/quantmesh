@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/exchange"
+	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/utils"
@@ -67,6 +68,8 @@ func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedPro
 	}
 	key := makeSymbolKey(exchange, symbol)
 	
+	logger.Info("[DEBUG] RegisterSymbolProviders - registering key=%s, hasPosition=%v", key, providers.Position != nil)
+	
 	// 使用写锁保护并发写入
 	statusMu.Lock()
 	statusBySymbol[key] = providers.Status
@@ -81,6 +84,7 @@ func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedPro
 	}
 	if providers.Position != nil {
 		positionProviders[key] = providers.Position
+		logger.Info("[DEBUG] RegisterSymbolProviders - registered position provider for key=%s", key)
 	}
 	if providers.Risk != nil {
 		riskProviders[key] = providers.Risk
@@ -117,8 +121,11 @@ func resolveSymbolKey(c *gin.Context) string {
 	ex := c.Query("exchange")
 	sym := c.Query("symbol")
 	if ex != "" && sym != "" {
-		return makeSymbolKey(ex, sym)
+		key := makeSymbolKey(ex, sym)
+		logger.Info("[DEBUG] resolveSymbolKey - ex=%s, sym=%s, key=%s", ex, sym, key)
+		return key
 	}
+	logger.Info("[DEBUG] resolveSymbolKey - no params, returning defaultSymbolKey=%s", defaultSymbolKey)
 	return defaultSymbolKey
 }
 
@@ -171,14 +178,22 @@ func pickExchangeProvider(c *gin.Context) ExchangeProvider {
 }
 
 func pickPositionProvider(c *gin.Context) PositionManagerProvider {
-	if key := resolveSymbolKey(c); key != "" {
+	key := resolveSymbolKey(c)
+	logger.Info("[DEBUG] pickPositionProvider - resolvedKey=%s", key)
+	
+	if key != "" {
 		providersMu.RLock()
 		p, ok := positionProviders[key]
 		providersMu.RUnlock()
+		
+		logger.Info("[DEBUG] pickPositionProvider - found in map: %v, provider!=nil: %v", ok, p != nil)
+		
 		if ok && p != nil {
 			return p
 		}
 	}
+	
+	logger.Info("[DEBUG] pickPositionProvider - returning default provider")
 	return positionManagerProvider
 }
 
@@ -359,6 +374,12 @@ func SetExchangeProvider(provider ExchangeProvider) {
 
 // getPositions 获取持仓列表（从槽位数据筛选）
 func getPositions(c *gin.Context) {
+	// 调试：记录接收到的参数
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+	resolvedKey := resolveSymbolKey(c)
+	logger.Info("[DEBUG] getPositions called - exchange=%s, symbol=%s, resolvedKey=%s", exchange, symbol, resolvedKey)
+	
 	pmProvider := pickPositionProvider(c)
 	priceProv := pickPriceProvider(c)
 
@@ -368,6 +389,7 @@ func getPositions(c *gin.Context) {
 	}
 
 	slots := pmProvider.GetAllSlots()
+	logger.Info("[DEBUG] getPositions - got %d slots for key=%s", len(slots), resolvedKey)
 	var positions []PositionInfo
 	currentPrice := 0.0
 	if priceProv != nil {
@@ -380,7 +402,8 @@ func getPositions(c *gin.Context) {
 
 	// 筛选有持仓的槽位
 	for _, slot := range slots {
-		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 {
+		// 🔥 添加价格验证：确保槽位价格有效（大于0且合理）
+		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
 			positionCount++
 			totalQuantity += slot.PositionQty
 			
@@ -394,8 +417,41 @@ func getPositions(c *gin.Context) {
 
 			// 计算未实现盈亏
 			unrealizedPnL := 0.0
-			if currentPrice > 0 {
-				unrealizedPnL = (currentPrice - slot.Price) * slot.PositionQty
+			if currentPrice > 0 && slot.Price > 0 {
+				// 🔥 添加价格合理性检查：如果当前价格相对于持仓价格偏差过大，可能是价格异常
+				priceDeviation := (currentPrice - slot.Price) / slot.Price
+				
+				// 检查是否是单位问题（比如当前价格是持仓价格的100倍或0.01倍）
+				priceRatio := currentPrice / slot.Price
+				adjustedCurrentPrice := currentPrice
+				if priceRatio > 50 {
+					// 当前价格可能是持仓价格的100倍，尝试除以100
+					adjustedPrice := currentPrice / 100
+					if math.Abs(adjustedPrice-slot.Price)/slot.Price < 0.1 {
+						logger.Warn("⚠️ [getPositions] 检测到价格单位问题（当前价格可能是持仓价格的100倍），已自动修正: %.2f -> %.2f", 
+							currentPrice, adjustedPrice)
+						adjustedCurrentPrice = adjustedPrice
+					}
+				} else if priceRatio < 0.02 {
+					// 当前价格可能是持仓价格的0.01倍，尝试乘以100
+					adjustedPrice := currentPrice * 100
+					if math.Abs(adjustedPrice-slot.Price)/slot.Price < 0.1 {
+						logger.Warn("⚠️ [getPositions] 检测到价格单位问题（当前价格可能是持仓价格的0.01倍），已自动修正: %.2f -> %.2f", 
+							currentPrice, adjustedPrice)
+						adjustedCurrentPrice = adjustedPrice
+					}
+				}
+				
+				// 重新计算价格偏差
+				priceDeviation = (adjustedCurrentPrice - slot.Price) / slot.Price
+				if priceDeviation > 0.5 || priceDeviation < -0.5 {
+					// 价格偏差仍然过大，使用持仓价格（未实现盈亏为0）
+					logger.Warn("⚠️ [getPositions] 价格偏差过大，使用持仓价格计算（未实现盈亏设为0）: currentPrice=%.2f, slotPrice=%.2f, 偏差=%.2f%%", 
+						adjustedCurrentPrice, slot.Price, priceDeviation*100)
+					adjustedCurrentPrice = slot.Price
+				}
+				
+				unrealizedPnL = (adjustedCurrentPrice - slot.Price) * slot.PositionQty
 			}
 
 			positions = append(positions, PositionInfo{
@@ -448,7 +504,16 @@ func getPositions(c *gin.Context) {
 		Positions:     positions,
 	}
 
-	c.JSON(http.StatusOK, gin.H{"summary": summary})
+	// 调试：在响应中包含请求的交易对信息
+	c.JSON(http.StatusOK, gin.H{
+		"summary": summary,
+		"_debug": gin.H{
+			"exchange":    exchange,
+			"symbol":      symbol,
+			"resolvedKey": resolvedKey,
+			"slotCount":   len(slots),
+		},
+	})
 }
 
 // getPositionsSummary 获取持仓汇总
@@ -483,7 +548,8 @@ func getPositionsSummary(c *gin.Context) {
 
 	// 筛选有持仓的槽位
 	for _, slot := range slots {
-		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 {
+		// 🔥 添加价格验证：确保槽位价格有效（大于0且合理）
+		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
 			positionCount++
 			totalQuantity += slot.PositionQty
 			totalCost += slot.Price * slot.PositionQty
@@ -506,8 +572,53 @@ func getPositionsSummary(c *gin.Context) {
 
 	// 计算总未实现盈亏
 	unrealizedPnL := 0.0
-	if currentPrice > 0 && totalQuantity > 0 {
+	if currentPrice > 0 && totalQuantity > 0 && averagePrice > 0 {
+		// 🔥 添加价格合理性检查：如果当前价格相对于平均价格偏差过大（超过50%），可能是价格异常
+		priceDeviation := (currentPrice - averagePrice) / averagePrice
+		
+		// 检查是否是单位问题（比如当前价格是平均价格的100倍或0.01倍）
+		priceRatio := currentPrice / averagePrice
+		if priceRatio > 50 || priceRatio < 0.02 {
+			// 可能是单位问题，尝试修正
+			if priceRatio > 50 {
+				// 当前价格可能是平均价格的100倍，尝试除以100
+				adjustedPrice := currentPrice / 100
+				if math.Abs(adjustedPrice-averagePrice)/averagePrice < 0.1 {
+					logger.Warn("⚠️ [getPositionsSummary] 检测到价格单位问题（当前价格可能是平均价格的100倍），已自动修正: %.2f -> %.2f", 
+						currentPrice, adjustedPrice)
+					currentPrice = adjustedPrice
+				}
+			} else if priceRatio < 0.02 {
+				// 当前价格可能是平均价格的0.01倍，尝试乘以100
+				adjustedPrice := currentPrice * 100
+				if math.Abs(adjustedPrice-averagePrice)/averagePrice < 0.1 {
+					logger.Warn("⚠️ [getPositionsSummary] 检测到价格单位问题（当前价格可能是平均价格的0.01倍），已自动修正: %.2f -> %.2f", 
+						currentPrice, adjustedPrice)
+					currentPrice = adjustedPrice
+				}
+			}
+		}
+		
+		// 重新计算价格偏差
+		priceDeviation = (currentPrice - averagePrice) / averagePrice
+		if priceDeviation > 0.5 || priceDeviation < -0.5 {
+			// 价格偏差仍然过大，记录详细警告并使用平均价格
+			logger.Warn("⚠️ [getPositionsSummary] 当前价格异常: currentPrice=%.2f, averagePrice=%.2f, 偏差=%.2f%%, totalQuantity=%.4f", 
+				currentPrice, averagePrice, priceDeviation*100, totalQuantity)
+			logger.Warn("⚠️ [getPositionsSummary] 价格偏差过大，使用平均价格计算（未实现盈亏设为0）")
+			currentPrice = averagePrice // 使用平均价格，使未实现盈亏为0
+		}
+		
 		unrealizedPnL = (currentPrice - averagePrice) * totalQuantity
+		
+		// 🔥 添加未实现盈亏合理性检查：如果未实现盈亏相对于持仓成本过大（超过100%），记录警告
+		if totalCost > 0 {
+			pnlRatio := unrealizedPnL / totalCost
+			if pnlRatio > 1.0 || pnlRatio < -1.0 {
+				logger.Warn("⚠️ [getPositionsSummary] 未实现盈亏异常: unrealizedPnL=%.2f, totalCost=%.2f, 比例=%.2f%%, currentPrice=%.2f, averagePrice=%.2f", 
+					unrealizedPnL, totalCost, pnlRatio*100, currentPrice, averagePrice)
+			}
+		}
 	}
 
 	// 计算亏损率（相对于持仓成本的百分比）
@@ -626,7 +737,23 @@ func getOrderHistory(c *gin.Context) {
 		orders = append(orders, canceledOrders...)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"orders": orders})
+	// 转换时间为UTC+8并格式化返回数据
+	ordersResponse := make([]map[string]interface{}, len(orders))
+	for i, order := range orders {
+		ordersResponse[i] = map[string]interface{}{
+			"order_id":        order.OrderID,
+			"client_order_id": order.ClientOrderID,
+			"symbol":          order.Symbol,
+			"side":            order.Side,
+			"price":           order.Price,
+			"quantity":        order.Quantity,
+			"status":          order.Status,
+			"created_at":      utils.ToUTC8(order.CreatedAt),
+			"updated_at":      utils.ToUTC8(order.UpdatedAt),
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"orders": ordersResponse})
 }
 
 var (
@@ -1169,6 +1296,13 @@ func NewPositionManagerAdapter(manager *position.SuperPositionManager) PositionM
 // GetAllSlots 获取所有槽位信息
 func (a *positionManagerAdapter) GetAllSlots() []SlotInfo {
 	detailedSlots := a.manager.GetAllSlotsDetailed()
+	
+	// 🔥 调试：打印管理器的交易对信息
+	symbol := a.manager.GetSymbol()
+	anchorPrice := a.manager.GetAnchorPrice()
+	logger.Info("[DEBUG] GetAllSlots called - symbol=%s, anchorPrice=%.2f, slotsCount=%d", 
+		symbol, anchorPrice, len(detailedSlots))
+	
 	slots := make([]SlotInfo, len(detailedSlots))
 	for i, ds := range detailedSlots {
 		slots[i] = SlotInfo{
@@ -1221,6 +1355,9 @@ func (a *positionManagerAdapter) GetPriceInterval() float64 {
 // getSlots 获取所有槽位信息
 // GET /api/slots
 func getSlots(c *gin.Context) {
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+	
 	pmProvider := pickPositionProvider(c)
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{"slots": []interface{}{}, "count": 0})
@@ -1229,6 +1366,15 @@ func getSlots(c *gin.Context) {
 
 	slots := pmProvider.GetAllSlots()
 	count := pmProvider.GetSlotCount()
+
+	// 🔥 调试：打印前3个槽位的价格
+	if len(slots) > 0 {
+		logger.Info("[DEBUG] getSlots - exchange=%s, symbol=%s, total=%d, first 3 prices: %.2f, %.2f, %.2f",
+			exchange, symbol, len(slots),
+			slots[0].Price,
+			slots[min(1, len(slots)-1)].Price,
+			slots[min(2, len(slots)-1)].Price)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"slots": slots,
@@ -1797,6 +1943,66 @@ func getPnLByTimeRange(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"pnl_by_symbol": response})
+}
+
+// getAnomalousTrades 检查异常交易记录（用于调试盈亏计算问题）
+// GET /api/statistics/anomalous-trades
+func getAnomalousTrades(c *gin.Context) {
+	storageProv := pickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusOK, gin.H{"anomalous_trades": []interface{}{}})
+		return
+	}
+
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusOK, gin.H{"anomalous_trades": []interface{}{}})
+		return
+	}
+
+	symbol := c.Query("symbol")
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少币种对参数"})
+		return
+	}
+
+	// 查询所有交易记录
+	trades, err := st.QueryTrades(time.Time{}, time.Now(), 1000, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var anomalousTrades []map[string]interface{}
+	for _, trade := range trades {
+		if trade.Symbol != symbol {
+			continue
+		}
+
+		// 计算订单金额
+		orderAmount := trade.BuyPrice * trade.Quantity
+		
+		// 检查是否异常：盈亏超过订单金额的50%可能是错误的
+		if orderAmount > 0 && math.Abs(trade.PnL) > orderAmount*0.5 {
+			anomalousTrades = append(anomalousTrades, map[string]interface{}{
+				"buy_order_id":  trade.BuyOrderID,
+				"sell_order_id": trade.SellOrderID,
+				"symbol":        trade.Symbol,
+				"buy_price":     trade.BuyPrice,
+				"sell_price":    trade.SellPrice,
+				"quantity":      trade.Quantity,
+				"pnl":           trade.PnL,
+				"order_amount":  orderAmount,
+				"pnl_rate":      (trade.PnL / orderAmount) * 100,
+				"created_at":    utils.ToUTC8(trade.CreatedAt),
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"anomalous_trades": anomalousTrades,
+		"count":            len(anomalousTrades),
+	})
 }
 
 // RiskMonitorProvider 风控监控提供者接口

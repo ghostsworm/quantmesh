@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Đăng xuất",
+    "global": "Toàn cục",
+    "system": "Hệ thống",
+    "trading": "Giao dịch"
+  },
+  "sidebar": {
+    "overview": "Tổng quan",
+    "performanceMonitor": "Giám sát hiệu suất",
+    "runLogs": "Nhật ký chạy",
+    "aiPrompts": "Lời nhắc AI",
+    "tradingPanel": "Bảng giao dịch",
+    "currentPositions": "Vị thế hiện tại",
+    "orderManagement": "Quản lý đơn hàng",
+    "strategySlots": "Khe chiến lược",
+    "strategyAllocation": "Phân bổ chiến lược",
+    "profitStatistics": "Thống kê lợi nhuận",
+    "reconciliation": "Đối chiếu",
+    "riskMonitor": "Giám sát rủi ro",
+    "klineDepth": "Độ sâu K-Line",
+    "fundingRate": "Tỷ lệ tài trợ",
+    "configManagement": "Cấu hình",
+    "profile": "Hồ sơ"
+  },
+  "statusBar": {
+    "globalView": "Chế độ xem toàn cục",
+    "fundingRate": "Tỷ lệ tài trợ",
+    "fundingRateError": "Không thể lấy tỷ lệ tài trợ"
+  },
+  "app": {
+    "logoutError": "Đăng xuất thất bại"
+  }
+}
+

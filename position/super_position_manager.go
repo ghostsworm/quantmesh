@@ -286,6 +286,24 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 	// 如果再次四舍五入，可能因为浮点数精度问题导致多个不同价格被映射到同一个槽位
 	// 例如: 3116.85 和 3114.85 可能都被四舍五入成同一个值
 
+	// 🔥 添加价格合理性检查：如果解析出的价格明显异常（比如小于1000但应该是8万多），记录警告
+	// 这可能是 priceDecimals 参数错误导致的
+	if spm.anchorPrice > 1000 && price < 1000 && price > 0 {
+		logger.Warn("⚠️ [价格解析异常] ClientOrderID=%s, 解析价格=%.2f, 锚点价格=%.2f, priceDecimals=%d, 可能 priceDecimals 参数错误",
+			clientOrderID, price, spm.anchorPrice, spm.priceDecimals)
+		// 尝试使用不同的 priceDecimals 重新解析
+		for testDecimals := 1; testDecimals <= 3; testDecimals++ {
+			if testDecimals == spm.priceDecimals {
+				continue
+			}
+			testPrice, _, _, testValid := utils.ParseOrderID(cleanID, testDecimals)
+			if testValid && testPrice > 1000 && math.Abs(testPrice-spm.anchorPrice) < spm.anchorPrice*0.5 {
+				logger.Warn("⚠️ [价格解析修复] 使用 priceDecimals=%d 重新解析得到价格=%.2f", testDecimals, testPrice)
+				return testPrice, side, true
+			}
+		}
+	}
+
 	return price, side, true
 }
 
@@ -805,16 +823,34 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					if sellPrice <= 0 {
 						sellPrice = slot.OrderPrice
 					}
-					// 计算盈亏：(卖出价格 - 买入价格) * 数量
-					pnl := (sellPrice - buyPrice) * deltaQty
-					// 保存交易记录（买入订单ID设为0，因为无法追溯历史订单）
-					buyOrderID := int64(0)
-					sellOrderID := update.OrderID
-					if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, time.Now()); err != nil {
-						logger.Warn("⚠️ 保存交易记录失败: %v", err)
+					
+					// 🔥 验证价格和数量的合理性
+					if buyPrice <= 0 || sellPrice <= 0 || deltaQty <= 0 {
+						logger.Warn("⚠️ [交易记录异常] 买入价: %.2f, 卖出价: %.2f, 数量: %.4f, 跳过保存",
+							buyPrice, sellPrice, deltaQty)
 					} else {
-						logger.Debug("💰 [交易记录已保存] 买入价: %s, 卖出价: %s, 数量: %.4f, 盈亏: %.4f",
-							formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl)
+						// 计算盈亏：(卖出价格 - 买入价格) * 数量
+						// 注意：对于USDT本位合约（如BTCUSDT），价格是USDT，数量是BTC，盈亏单位是USDT
+						pnl := (sellPrice - buyPrice) * deltaQty
+						
+						// 🔥 添加合理性检查：如果盈亏异常大，记录警告
+						// 对于BTCUSDT，如果价格差是100 USDT，数量是0.01 BTC，盈亏应该是1 USDT
+						// 如果盈亏超过订单金额的50%，可能是计算错误
+						orderAmount := buyPrice * deltaQty
+						if orderAmount > 0 && math.Abs(pnl) > orderAmount*0.5 {
+							logger.Warn("⚠️ [盈亏异常] 买入价: %.2f, 卖出价: %.2f, 数量: %.4f, 盈亏: %.2f, 订单金额: %.2f, 盈亏率: %.2f%%",
+								buyPrice, sellPrice, deltaQty, pnl, orderAmount, (pnl/orderAmount)*100)
+						}
+						
+						// 保存交易记录（买入订单ID设为0，因为无法追溯历史订单）
+						buyOrderID := int64(0)
+						sellOrderID := update.OrderID
+						if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, time.Now()); err != nil {
+							logger.Warn("⚠️ 保存交易记录失败: %v", err)
+						} else {
+							logger.Debug("💰 [交易记录已保存] 买入价: %s, 卖出价: %s, 数量: %.4f, 盈亏: %.4f",
+								formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl)
+						}
 					}
 				}
 			}
@@ -1083,6 +1119,11 @@ func (spm *SuperPositionManager) GetSymbol() string {
 // GetPriceInterval 获取价格间隔
 func (spm *SuperPositionManager) GetPriceInterval() float64 {
 	return spm.config.Trading.PriceInterval
+}
+
+// GetAnchorPrice 获取价格锚点
+func (spm *SuperPositionManager) GetAnchorPrice() float64 {
+	return spm.anchorPrice
 }
 
 // RestoreReconciliationStats 从数据库恢复对账统计值

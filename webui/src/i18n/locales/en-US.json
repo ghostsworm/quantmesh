@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Logout",
+    "global": "Global",
+    "system": "System",
+    "trading": "Trading"
+  },
+  "sidebar": {
+    "overview": "Overview",
+    "performanceMonitor": "Performance Monitor",
+    "runLogs": "Run Logs",
+    "aiPrompts": "AI Prompts",
+    "tradingPanel": "Trading Panel",
+    "currentPositions": "Current Positions",
+    "orderManagement": "Order Management",
+    "strategySlots": "Strategy Slots",
+    "strategyAllocation": "Strategy Allocation",
+    "profitStatistics": "Profit Statistics",
+    "reconciliation": "Reconciliation",
+    "riskMonitor": "Risk Monitor",
+    "klineDepth": "K-Line Depth",
+    "fundingRate": "Funding Rate",
+    "configManagement": "Configuration",
+    "profile": "Profile"
+  },
+  "statusBar": {
+    "globalView": "Global View",
+    "fundingRate": "Funding Rate",
+    "fundingRateError": "Failed to fetch funding rate"
+  },
+  "app": {
+    "logoutError": "Logout failed"
+  }
+}
+

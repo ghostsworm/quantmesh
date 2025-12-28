@@ -15,7 +15,6 @@ import {
   useToast,
   Flex,
   Icon,
-  useColorModeValue,
   VStack,
   HStack,
   Tooltip,
@@ -37,8 +36,8 @@ const MotionBox = motion(Box)
 const DashboardCard: React.FC<{ title: string; children: React.ReactNode; icon?: any; helpText?: string }> = ({ 
   title, children, icon, helpText 
 }) => {
-  const bg = useColorModeValue('white', 'gray.800')
-  const borderColor = useColorModeValue('gray.100', 'whiteAlpha.100')
+  const bg = 'white'
+  const borderColor = 'gray.100'
   
   return (
     <Box
@@ -77,8 +76,8 @@ const GlobalDashboard: React.FC = () => {
   const toast = useToast()
   const { setSymbolPair } = useSymbol()
 
-  const cardBg = useColorModeValue('white', 'rgba(26, 32, 44, 0.6)')
-  const borderColor = useColorModeValue('gray.100', 'whiteAlpha.100')
+  const cardBg = 'white'
+  const borderColor = 'gray.100'
 
   useEffect(() => {
     const fetchData = async () => {
@@ -143,17 +142,9 @@ const GlobalDashboard: React.FC = () => {
   }, [symbols, symbolStatuses, dailyStats])
 
   const chartData = useMemo(() => {
-    // 如果没有数据，提供一些默认数据以展示图表效果
+    // 如果没有数据，返回空数组，不显示假数据
     if (dailyStats.length === 0) {
-      return [
-        { time: '12/21', pnl: 100 },
-        { time: '12/22', pnl: 250 },
-        { time: '12/23', pnl: 180 },
-        { time: '12/24', pnl: 420 },
-        { time: '12/25', pnl: 380 },
-        { time: '12/26', pnl: 550 },
-        { time: '12/27', pnl: 720 },
-      ]
+      return []
     }
     return dailyStats.map(d => ({
       time: new Date(d.date).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }),

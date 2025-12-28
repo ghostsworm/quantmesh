@@ -242,9 +242,40 @@ func main() {
 		configPath = os.Args[1]
 	}
 
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		logger.Fatalf("❌ 加载配置失败: %v", err)
+	// 检查配置文件是否存在
+	var cfg *config.Config
+	var configComplete bool
+	_, err = os.Stat(configPath)
+	if os.IsNotExist(err) {
+		// 配置文件不存在，创建最小化配置
+		logger.Info("ℹ️ 配置文件不存在，创建最小化配置（仅启用 Web 服务）")
+		cfg = config.CreateMinimalConfig()
+		configComplete = false
+		
+		// 保存最小化配置到文件（不验证，因为配置不完整）
+		if err := config.SaveConfigWithoutValidation(cfg, configPath); err != nil {
+			logger.Warn("⚠️ 保存最小化配置失败: %v，将继续运行", err)
+		} else {
+			logger.Info("✅ 已创建最小化配置文件: %s", configPath)
+		}
+	} else {
+		// 配置文件存在，加载配置
+		cfg, err = config.LoadConfig(configPath)
+		if err != nil {
+			logger.Fatalf("❌ 加载配置失败: %v", err)
+		}
+		
+		// 检查配置是否完整（是否有交易所配置和交易对配置）
+		configComplete = cfg.App.CurrentExchange != "" && 
+			len(cfg.Exchanges) > 0 && 
+			cfg.Exchanges[cfg.App.CurrentExchange].APIKey != "" &&
+			cfg.Exchanges[cfg.App.CurrentExchange].SecretKey != "" &&
+			len(cfg.Trading.Symbols) > 0 &&
+			cfg.Trading.Symbols[0].Symbol != ""
+		
+		if !configComplete {
+			logger.Info("ℹ️ 配置不完整，仅启动 Web 服务，请通过引导页面完成配置")
+		}
 	}
 
 	if err := utils.SetLocation(cfg.System.Timezone); err != nil {
@@ -302,7 +333,7 @@ func main() {
 	// 初始化 Watchdog（系统监控）
 	var watchdog *monitor.Watchdog
 	if cfg.Watchdog.Enabled {
-		watchdog = monitor.NewWatchdog(cfg, storageService, notifier)
+		watchdog = monitor.NewWatchdog(cfg, storageService, globalLogStorage, notifier)
 		if err := watchdog.Start(ctx); err != nil {
 			logger.Error("❌ 启动 Watchdog 失败: %v", err)
 		} else {
@@ -351,6 +382,13 @@ func main() {
 		web.SetConfigHotReloader(hotReloader)
 		logger.Info("✅ 配置热更新器已初始化")
 
+		// 设置日志存储提供者（用于Web API日志查询）
+		if globalLogStorage != nil {
+			logStorageAdapter := web.NewLogStorageAdapter(globalLogStorage)
+			web.SetLogStorageProvider(logStorageAdapter)
+			logger.Info("✅ 日志存储提供者已设置")
+		}
+
 		webServer = web.NewWebServer(cfg)
 		if err := webServer.Start(ctx); err != nil {
 			logger.Error("❌ 启动Web服务器失败: %v", err)
@@ -361,26 +399,32 @@ func main() {
 
 	symbolManager := NewSymbolManager(cfg)
 
-	// 启动所有交易对
+	// 只有在配置完整时才启动交易系统
 	var firstRuntime *SymbolRuntime
-	for _, symCfg := range cfg.Trading.Symbols {
-		rt, err := startSymbolRuntime(ctx, cfg, symCfg, eventBus, storageService)
-		if err != nil {
-			logger.Error("❌ [%s:%s] 启动失败: %v", symCfg.Exchange, symCfg.Symbol, err)
-			continue
+	if configComplete {
+		// 启动所有交易对
+		for _, symCfg := range cfg.Trading.Symbols {
+			rt, err := startSymbolRuntime(ctx, cfg, symCfg, eventBus, storageService)
+			if err != nil {
+				logger.Error("❌ [%s:%s] 启动失败: %v", symCfg.Exchange, symCfg.Symbol, err)
+				continue
+			}
+			symbolManager.Add(rt)
+			if firstRuntime == nil {
+				firstRuntime = rt
+			}
 		}
-		symbolManager.Add(rt)
-		if firstRuntime == nil {
-			firstRuntime = rt
-		}
-	}
 
-	if firstRuntime == nil {
-		logger.Fatalf("❌ 所有交易对启动失败，无法继续运行")
+		if firstRuntime == nil {
+			logger.Warn("⚠️ 所有交易对启动失败，但 Web 服务将继续运行")
+			configComplete = false // 标记为不完整，避免后续绑定数据
+		}
+	} else {
+		logger.Info("ℹ️ 配置不完整，跳过交易系统启动，仅运行 Web 服务")
 	}
 
 	// Web 绑定数据提供者（兼容旧前端：使用第一个运行时，同时注册多交易对）
-	if webServer != nil {
+	if webServer != nil && configComplete && firstRuntime != nil {
 		statusMap := make(map[string]*web.SystemStatus)
 		for _, rt := range symbolManager.List() {
 			if rt == nil {
@@ -450,6 +494,26 @@ func main() {
 			web.SetOrderQuantityConfig(firstRuntime.Config.OrderQuantity)
 		}
 
+		// 资金费率监控（复用旧逻辑，默认主流交易对）
+		if storageService != nil {
+			symbols := []string{
+				"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+				"ADAUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "AVAXUSDT",
+			}
+			fundingMonitor := monitor.NewFundingMonitor(
+				storageService.GetStorage(),
+				firstRuntime.Exchange,
+				symbols,
+				8,
+			)
+			fundingMonitor.Start()
+			web.RegisterFundingProvider(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, fundingMonitor)
+			web.SetFundingMonitorProvider(fundingMonitor)
+		}
+
+		logger.Info("✅ 所有交易对已初始化，进入运行状态")
+	} else if webServer != nil {
+		// 配置不完整，只设置存储服务提供者
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
@@ -461,26 +525,9 @@ func main() {
 			web.SetSystemMetricsProvider(systemMetricsProvider)
 			logger.Info("✅ 系统监控数据提供者已设置")
 		}
-	}
 
-	// 资金费率监控（复用旧逻辑，默认主流交易对）
-	if webServer != nil && storageService != nil && firstRuntime != nil {
-		symbols := []string{
-			"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-			"ADAUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "AVAXUSDT",
-		}
-		fundingMonitor := monitor.NewFundingMonitor(
-			storageService.GetStorage(),
-			firstRuntime.Exchange,
-			symbols,
-			8,
-		)
-		fundingMonitor.Start()
-		web.RegisterFundingProvider(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, fundingMonitor)
-		web.SetFundingMonitorProvider(fundingMonitor)
+		logger.Info("ℹ️ Web 服务已启动，等待配置完成")
 	}
-
-	logger.Info("✅ 所有交易对已初始化，进入运行状态")
 
 	// 6. 等待从 WebSocket 获取初始价格
 	sigChan := make(chan os.Signal, 1)
@@ -499,34 +546,36 @@ func main() {
 		})
 	}
 
-	// 🔥 第一优先级：撤销各交易对的订单
-	if cfg.System.CancelOnExit {
-		for _, rt := range symbolManager.List() {
-			logger.Info("🔄 [%s:%s] 正在撤销所有订单...", rt.Config.Exchange, rt.Config.Symbol)
-			cancelCtx, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
-			if err := rt.Exchange.CancelAllOrders(cancelCtx, rt.Config.Symbol); err != nil {
-				logger.Error("❌ [%s:%s] 撤销订单失败: %v", rt.Config.Exchange, rt.Config.Symbol, err)
-			} else {
-				logger.Info("✅ [%s:%s] 已撤销所有订单", rt.Config.Exchange, rt.Config.Symbol)
+	// 🔥 第一优先级：撤销各交易对的订单（仅在配置完整时）
+	if configComplete {
+		if cfg.System.CancelOnExit {
+			for _, rt := range symbolManager.List() {
+				logger.Info("🔄 [%s:%s] 正在撤销所有订单...", rt.Config.Exchange, rt.Config.Symbol)
+				cancelCtx, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
+				if err := rt.Exchange.CancelAllOrders(cancelCtx, rt.Config.Symbol); err != nil {
+					logger.Error("❌ [%s:%s] 撤销订单失败: %v", rt.Config.Exchange, rt.Config.Symbol, err)
+				} else {
+					logger.Info("✅ [%s:%s] 已撤销所有订单", rt.Config.Exchange, rt.Config.Symbol)
+				}
+				cancelTimeout()
 			}
-			cancelTimeout()
 		}
-	}
 
-	// 🔥 平仓（可选）
-	if cfg.System.ClosePositionsOnExit {
+		// 🔥 平仓（可选）
+		if cfg.System.ClosePositionsOnExit {
+			for _, rt := range symbolManager.List() {
+				logger.Info("🔄 [%s:%s] 正在平掉所有持仓...", rt.Config.Exchange, rt.Config.Symbol)
+				closeCtx, closeTimeout := context.WithTimeout(context.Background(), 30*time.Second)
+				closeAllPositions(closeCtx, rt.Exchange, rt.Config.Symbol, rt.PriceMonitor)
+				closeTimeout()
+			}
+		}
+
+		// 🔥 停止所有交易对组件
 		for _, rt := range symbolManager.List() {
-			logger.Info("🔄 [%s:%s] 正在平掉所有持仓...", rt.Config.Exchange, rt.Config.Symbol)
-			closeCtx, closeTimeout := context.WithTimeout(context.Background(), 30*time.Second)
-			closeAllPositions(closeCtx, rt.Exchange, rt.Config.Symbol, rt.PriceMonitor)
-			closeTimeout()
-		}
-	}
-
-	// 🔥 停止所有交易对组件
-	for _, rt := range symbolManager.List() {
-		if rt.Stop != nil {
-			rt.Stop()
+			if rt.Stop != nil {
+				rt.Stop()
+			}
 		}
 	}
 
@@ -546,10 +595,12 @@ func main() {
 	// 再等待一小段时间，让存储服务完成最后的写入
 	time.Sleep(200 * time.Millisecond)
 
-	// 打印最终状态
-	for _, rt := range symbolManager.List() {
-		if rt.SuperPositionManager != nil {
-			rt.SuperPositionManager.PrintPositions()
+	// 打印最终状态（仅在配置完整时）
+	if configComplete {
+		for _, rt := range symbolManager.List() {
+			if rt.SuperPositionManager != nil {
+				rt.SuperPositionManager.PrintPositions()
+			}
 		}
 	}
 

@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "로그아웃",
+    "global": "전역",
+    "system": "시스템",
+    "trading": "트레이딩"
+  },
+  "sidebar": {
+    "overview": "개요",
+    "performanceMonitor": "성능 모니터",
+    "runLogs": "실행 로그",
+    "aiPrompts": "AI 프롬프트",
+    "tradingPanel": "트레이딩 패널",
+    "currentPositions": "현재 포지션",
+    "orderManagement": "주문 관리",
+    "strategySlots": "전략 슬롯",
+    "strategyAllocation": "전략 할당",
+    "profitStatistics": "수익 통계",
+    "reconciliation": "조정",
+    "riskMonitor": "위험 모니터",
+    "klineDepth": "K선 깊이",
+    "fundingRate": "자금 조달 이자율",
+    "configManagement": "설정 관리",
+    "profile": "프로필"
+  },
+  "statusBar": {
+    "globalView": "전역 보기",
+    "fundingRate": "자금 조달 이자율",
+    "fundingRateError": "자금 조달 이자율을 가져오는 데 실패했습니다"
+  },
+  "app": {
+    "logoutError": "로그아웃에 실패했습니다"
+  }
+}
+

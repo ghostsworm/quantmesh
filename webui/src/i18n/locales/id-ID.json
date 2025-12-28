@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Keluar",
+    "global": "Global",
+    "system": "Sistem",
+    "trading": "Trading"
+  },
+  "sidebar": {
+    "overview": "Ikhtisar",
+    "performanceMonitor": "Monitor Kinerja",
+    "runLogs": "Log Eksekusi",
+    "aiPrompts": "Prompt AI",
+    "tradingPanel": "Panel Trading",
+    "currentPositions": "Posisi Saat Ini",
+    "orderManagement": "Manajemen Pesanan",
+    "strategySlots": "Slot Strategi",
+    "strategyAllocation": "Alokasi Strategi",
+    "profitStatistics": "Statistik Keuntungan",
+    "reconciliation": "Rekonsiliasi",
+    "riskMonitor": "Monitor Risiko",
+    "klineDepth": "Kedalaman K-Line",
+    "fundingRate": "Tingkat Pendanaan",
+    "configManagement": "Konfigurasi",
+    "profile": "Profil"
+  },
+  "statusBar": {
+    "globalView": "Tampilan Global",
+    "fundingRate": "Tingkat Pendanaan",
+    "fundingRateError": "Gagal mengambil tingkat pendanaan"
+  },
+  "app": {
+    "logoutError": "Keluar gagal"
+  }
+}
+

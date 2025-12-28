@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "लॉगआउट",
+    "global": "ग्लोबल",
+    "system": "सिस्टम",
+    "trading": "ट्रेडिंग"
+  },
+  "sidebar": {
+    "overview": "अवलोकन",
+    "performanceMonitor": "प्रदर्शन मॉनिटर",
+    "runLogs": "रन लॉग",
+    "aiPrompts": "AI प्रॉम्प्ट",
+    "tradingPanel": "ट्रेडिंग पैनल",
+    "currentPositions": "वर्तमान पोजीशन",
+    "orderManagement": "ऑर्डर प्रबंधन",
+    "strategySlots": "रणनीति स्लॉट",
+    "strategyAllocation": "रणनीति आवंटन",
+    "profitStatistics": "लाभ आँकड़े",
+    "reconciliation": "मिलान",
+    "riskMonitor": "जोखिम मॉनिटर",
+    "klineDepth": "K-Line गहराई",
+    "fundingRate": "वित्तपोषण दर",
+    "configManagement": "कॉन्फ़िग प्रबंधन",
+    "profile": "प्रोफ़ाइल"
+  },
+  "statusBar": {
+    "globalView": "ग्लोबल व्यू",
+    "fundingRate": "वित्तपोषण दर",
+    "fundingRateError": "वित्तपोषण दर प्राप्त करने में विफल"
+  },
+  "app": {
+    "logoutError": "लॉगआउट विफल"
+  }
+}
+

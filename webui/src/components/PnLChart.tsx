@@ -8,7 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { Box, useColorModeValue } from '@chakra-ui/react'
+import { Box, Center, Text } from '@chakra-ui/react'
 
 interface PnLDataPoint {
   time: string
@@ -25,10 +25,10 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
       <Box
-        bg={useColorModeValue('white', 'gray.800')}
+        bg="white"
         p={3}
         border="1px solid"
-        borderColor={useColorModeValue('gray.100', 'whiteAlpha.100')}
+        borderColor="gray.100"
         borderRadius="xl"
         boxShadow="xl"
         backdropFilter="blur(10px)"
@@ -44,8 +44,19 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 }
 
 const PnLChart: React.FC<PnLChartProps> = ({ data, height = 300, color = '#3182ce' }) => {
-  const gridColor = useColorModeValue('rgba(0,0,0,0.05)', 'rgba(255,255,255,0.05)')
-  const axisColor = useColorModeValue('gray.400', 'gray.600')
+  const gridColor = 'rgba(0,0,0,0.05)'
+  const axisColor = 'gray.400'
+
+  // 如果没有数据，显示空状态提示
+  if (!data || data.length === 0) {
+    return (
+      <Box w="100%" h={height}>
+        <Center h="100%">
+          <Text color="gray.500" fontSize="sm">暂无数据，等待交易数据生成...</Text>
+        </Center>
+      </Box>
+    )
+  }
 
   return (
     <Box w="100%" h={height}>

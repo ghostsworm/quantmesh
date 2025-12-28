@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "ออกจากระบบ",
+    "global": "ทั่วโลก",
+    "system": "ระบบ",
+    "trading": "การซื้อขาย"
+  },
+  "sidebar": {
+    "overview": "ภาพรวม",
+    "performanceMonitor": "ตัวตรวจสอบประสิทธิภาพ",
+    "runLogs": "บันทึกการทำงาน",
+    "aiPrompts": "คำสั่ง AI",
+    "tradingPanel": "แผงการซื้อขาย",
+    "currentPositions": "ตำแหน่งปัจจุบัน",
+    "orderManagement": "การจัดการคำสั่งซื้อ",
+    "strategySlots": "ช่องกลยุทธ์",
+    "strategyAllocation": "การจัดสรรกลยุทธ์",
+    "profitStatistics": "สถิติกำไร",
+    "reconciliation": "การปรับยอด",
+    "riskMonitor": "ตัวตรวจสอบความเสี่ยง",
+    "klineDepth": "ความลึก K-Line",
+    "fundingRate": "อัตราการเงินทุน",
+    "configManagement": "การกำหนดค่า",
+    "profile": "โปรไฟล์"
+  },
+  "statusBar": {
+    "globalView": "มุมมองทั่วโลก",
+    "fundingRate": "อัตราการเงินทุน",
+    "fundingRateError": "ไม่สามารถดึงอัตราการเงินทุนได้"
+  },
+  "app": {
+    "logoutError": "ออกจากระบบล้มเหลว"
+  }
+}
+

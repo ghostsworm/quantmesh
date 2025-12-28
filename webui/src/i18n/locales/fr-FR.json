@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Déconnexion",
+    "global": "Global",
+    "system": "Système",
+    "trading": "Trading"
+  },
+  "sidebar": {
+    "overview": "Vue d'ensemble",
+    "performanceMonitor": "Moniteur de performance",
+    "runLogs": "Journaux d'exécution",
+    "aiPrompts": "Invites IA",
+    "tradingPanel": "Panneau de trading",
+    "currentPositions": "Positions actuelles",
+    "orderManagement": "Gestion des ordres",
+    "strategySlots": "Emplacements de stratégie",
+    "strategyAllocation": "Allocation de stratégie",
+    "profitStatistics": "Statistiques de profit",
+    "reconciliation": "Réconciliation",
+    "riskMonitor": "Moniteur de risque",
+    "klineDepth": "Profondeur K-Line",
+    "fundingRate": "Taux de financement",
+    "configManagement": "Configuration",
+    "profile": "Profil"
+  },
+  "statusBar": {
+    "globalView": "Vue globale",
+    "fundingRate": "Taux de financement",
+    "fundingRateError": "Échec de la récupération du taux de financement"
+  },
+  "app": {
+    "logoutError": "Échec de la déconnexion"
+  }
+}
+

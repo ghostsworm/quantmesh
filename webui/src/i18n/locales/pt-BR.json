@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Sair",
+    "global": "Global",
+    "system": "Sistema",
+    "trading": "Trading"
+  },
+  "sidebar": {
+    "overview": "Visão geral",
+    "performanceMonitor": "Monitor de desempenho",
+    "runLogs": "Logs de execução",
+    "aiPrompts": "Prompts IA",
+    "tradingPanel": "Painel de trading",
+    "currentPositions": "Posições atuais",
+    "orderManagement": "Gestão de ordens",
+    "strategySlots": "Slots de estratégia",
+    "strategyAllocation": "Alocação de estratégia",
+    "profitStatistics": "Estatísticas de lucro",
+    "reconciliation": "Reconciliação",
+    "riskMonitor": "Monitor de risco",
+    "klineDepth": "Profundidade K-Line",
+    "fundingRate": "Taxa de financiamento",
+    "configManagement": "Gestão de configuração",
+    "profile": "Perfil"
+  },
+  "statusBar": {
+    "globalView": "Visão global",
+    "fundingRate": "Taxa de financiamento",
+    "fundingRateError": "Falha ao obter taxa de financiamento"
+  },
+  "app": {
+    "logoutError": "Falha ao sair"
+  }
+}
+

@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Uitloggen",
+    "global": "Globaal",
+    "system": "Systeem",
+    "trading": "Handel"
+  },
+  "sidebar": {
+    "overview": "Overzicht",
+    "performanceMonitor": "Prestatiemonitor",
+    "runLogs": "Uitvoeringslogboeken",
+    "aiPrompts": "AI-prompts",
+    "tradingPanel": "Handelspanel",
+    "currentPositions": "Huidige posities",
+    "orderManagement": "Orderbeheer",
+    "strategySlots": "Strategieslots",
+    "strategyAllocation": "Strategietoewijzing",
+    "profitStatistics": "Winststatistieken",
+    "reconciliation": "Afstemming",
+    "riskMonitor": "Risicomonitor",
+    "klineDepth": "K-Line diepte",
+    "fundingRate": "Financieringspercentage",
+    "configManagement": "Configuratie",
+    "profile": "Profiel"
+  },
+  "statusBar": {
+    "globalView": "Globale weergave",
+    "fundingRate": "Financieringspercentage",
+    "fundingRateError": "Kan financieringspercentage niet ophalen"
+  },
+  "app": {
+    "logoutError": "Uitloggen mislukt"
+  }
+}
+

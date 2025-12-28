@@ -1,0 +1,35 @@
+{
+  "common": {
+    "logout": "Disconnetti",
+    "global": "Globale",
+    "system": "Sistema",
+    "trading": "Trading"
+  },
+  "sidebar": {
+    "overview": "Panoramica",
+    "performanceMonitor": "Monitor delle prestazioni",
+    "runLogs": "Log di esecuzione",
+    "aiPrompts": "Prompt IA",
+    "tradingPanel": "Pannello di trading",
+    "currentPositions": "Posizioni attuali",
+    "orderManagement": "Gestione ordini",
+    "strategySlots": "Slot strategia",
+    "strategyAllocation": "Allocazione strategia",
+    "profitStatistics": "Statistiche profitti",
+    "reconciliation": "Riconciliazione",
+    "riskMonitor": "Monitor dei rischi",
+    "klineDepth": "Profondità K-Line",
+    "fundingRate": "Tasso di finanziamento",
+    "configManagement": "Configurazione",
+    "profile": "Profilo"
+  },
+  "statusBar": {
+    "globalView": "Vista globale",
+    "fundingRate": "Tasso di finanziamento",
+    "fundingRateError": "Impossibile recuperare il tasso di finanziamento"
+  },
+  "app": {
+    "logoutError": "Disconnessione fallita"
+  }
+}
+

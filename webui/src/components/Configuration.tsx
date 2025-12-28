@@ -51,7 +51,6 @@ import {
   Tabs,
   TabList,
   Tab,
-  useColorModeValue,
   SimpleGrid,
 } from '@chakra-ui/react'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
@@ -72,8 +71,8 @@ import {
 const MotionBox = motion(Box)
 
 const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: any }> = ({ title, children, icon }) => {
-  const bg = useColorModeValue('white', 'gray.800')
-  const borderColor = useColorModeValue('gray.100', 'whiteAlpha.100')
+  const bg = 'white'
+  const borderColor = 'gray.100'
   
   return (
     <Box
@@ -273,7 +272,7 @@ const Configuration: React.FC = () => {
           colorScheme="blue"
         >
           <TabList 
-            bg={useColorModeValue('gray.100', 'whiteAlpha.100')} 
+            bg="gray.100" 
             p={1} 
             borderRadius="full" 
             display="inline-flex"
@@ -285,7 +284,7 @@ const Configuration: React.FC = () => {
                 fontWeight="600" 
                 px={6} 
                 borderRadius="full"
-                _selected={{ bg: useColorModeValue('white', 'gray.700'), boxShadow: 'sm', color: 'blue.600' }}
+                _selected={{ bg: 'white', boxShadow: 'sm', color: 'blue.600' }}
               >
                 {tab}
               </Tab>
@@ -612,7 +611,7 @@ const Configuration: React.FC = () => {
             <ModalBody>
               <VStack spacing={4} align="stretch">
                 {previewDiff?.changes.map((change, i) => (
-                  <Box key={i} p={3} borderRadius="lg" bg={useColorModeValue('gray.50', 'gray.700')}>
+                  <Box key={i} p={3} borderRadius="lg" bg="gray.50">
                     <Text fontSize="xs" fontWeight="bold" mb={1}>{change.path}</Text>
                     <HStack fontSize="sm">
                       <Badge colorScheme="red">{JSON.stringify(change.old_value)}</Badge>

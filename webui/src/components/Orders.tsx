@@ -198,15 +198,15 @@ const Orders: React.FC = () => {
                             {order.side === 'BUY' ? '买入' : '卖出'}
                           </Badge>
                         </Td>
-                        <Td isNumeric>{order.price.toFixed(2)}</Td>
-                        <Td isNumeric>{order.quantity.toFixed(4)}</Td>
-                        <Td isNumeric>{order.filled_quantity.toFixed(4)}</Td>
+                        <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
+                        <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
+                        <Td isNumeric>{order.filled_quantity != null ? order.filled_quantity.toFixed(4) : '-'}</Td>
                         <Td>
                           <Badge colorScheme={getStatusColorScheme(order.status)}>
                             {getStatusText(order.status)}
                           </Badge>
                         </Td>
-                        <Td isNumeric>{order.slot_price.toFixed(2)}</Td>
+                        <Td isNumeric>{order.slot_price != null ? order.slot_price.toFixed(2) : '-'}</Td>
                         <Td>{formatTime(order.created_at)}</Td>
                       </Tr>
                     ))}
@@ -288,8 +288,8 @@ const Orders: React.FC = () => {
                             {order.side === 'BUY' ? '买入' : '卖出'}
                           </Badge>
                         </Td>
-                        <Td isNumeric>{order.price.toFixed(2)}</Td>
-                        <Td isNumeric>{order.quantity.toFixed(4)}</Td>
+                        <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
+                        <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
                         <Td>
                           <Badge colorScheme={getStatusColorScheme(order.status)}>
                             {getStatusText(order.status)}
