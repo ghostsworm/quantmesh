@@ -19,6 +19,7 @@ import (
 	"quantmesh/exchange/phemex"
 	"quantmesh/exchange/woox"
 	"quantmesh/exchange/coinex"
+	"quantmesh/exchange/bitrue"
 )
 
 // NewExchange 创建交易所实例
@@ -286,6 +287,22 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			return nil, err
 		}
 		return &coinexWrapper{adapter: adapter}, nil
+
+	case "bitrue":
+		exchangeCfg, exists := cfg.Exchanges["bitrue"]
+		if !exists {
+			return nil, fmt.Errorf("bitrue 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := bitrue.NewAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bitrueWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未实现")
