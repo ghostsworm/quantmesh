@@ -299,6 +299,17 @@ func main() {
 		}
 	}()
 
+	// 初始化 Watchdog（系统监控）
+	var watchdog *monitor.Watchdog
+	if cfg.Watchdog.Enabled {
+		watchdog = monitor.NewWatchdog(cfg, storageService, notifier)
+		if err := watchdog.Start(ctx); err != nil {
+			logger.Error("❌ 启动 Watchdog 失败: %v", err)
+		} else {
+			logger.Info("✅ Watchdog 系统监控已启动")
+		}
+	}
+
 	// Web 服务器
 	var webServer *web.WebServer
 	if cfg.Web.Enabled {
@@ -442,6 +453,13 @@ func main() {
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
+		}
+
+		// 设置系统监控数据提供者
+		if watchdog != nil {
+			systemMetricsProvider := web.NewSystemMetricsProvider(storageService, watchdog)
+			web.SetSystemMetricsProvider(systemMetricsProvider)
+			logger.Info("✅ 系统监控数据提供者已设置")
 		}
 	}
 
