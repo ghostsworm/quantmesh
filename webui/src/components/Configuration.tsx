@@ -54,7 +54,7 @@ import {
   useColorModeValue,
   SimpleGrid,
 } from '@chakra-ui/react'
-import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, ShieldCheckIcon } from '@chakra-ui/icons'
+import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSymbol } from '../contexts/SymbolContext'
 import {
@@ -532,7 +532,7 @@ const Configuration: React.FC = () => {
                 )}
 
                 {tabIndex === 1 && (
-                  <ConfigCard title="风险控制设置" icon={<ShieldCheckIcon />}>
+                  <ConfigCard title="风险控制设置" icon={<LockIcon />}>
                     <Flex justify="space-between" align="center" mb={6}>
                       <Box>
                         <Text fontWeight="600">启用风控引擎</Text>
