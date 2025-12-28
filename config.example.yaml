@@ -1,6 +1,6 @@
 # 应用配置
 app:
-  current_exchange: "bitget"  # 当前使用的交易所: binance, bitget, bybit, gate, edgex
+  current_exchange: "bitget"  # 当前使用的交易所: binance, bitget, bybit, gate, okx, huobi, kucoin, kraken, bitfinex, edgex
 
 # 多交易所配置
 exchanges:
@@ -23,8 +23,9 @@ exchanges:
   bybit:
   #BYBIT 开户邀请码【OPENSQT】开户链接：https://partner.bybit.com/b/OPENSQT
     api_key: "YOUR_API_KEY"
-    secret_key: ""
+    secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
+    testnet: false    # 是否使用测试网（true=测试网, false=主网）
 
   gate:
   #GATE.IO 用我链接开户每笔交易省20%手续费 邀请码【OPENSQTC】开户链接：https://www.gatenode.xyz/share/OPENSQTC
@@ -32,12 +33,45 @@ exchanges:
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
 
+  okx:
+  #OKX 开户邀请码【OPENSQT】开户链接：https://www.okx.com/join/OPENSQT
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    passphrase: "YOUR_PASSPHRASE"
+    fee_rate: 0.0002
+    testnet: false    # 是否使用模拟盘（true=模拟盘, false=实盘）
+
   edgex:
   #EDGEX 用我链接开户直升vip1,每笔交易省20%手续费 邀请码【OPENSQT】开户链接：https://pro.edgex.exchange/referral/OPENSQT
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
     
+  huobi:
+  #Huobi (HTX) 开户邀请码【OPENSQT】开户链接：https://www.huobi.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+
+  kucoin:
+  #KuCoin 开户邀请码【OPENSQT】开户链接：https://www.kucoin.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    passphrase: "YOUR_PASSPHRASE"
+    fee_rate: 0.0002
+
+  kraken:
+  #Kraken 开户邀请码【OPENSQT】开户链接：https://www.kraken.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0003
+
+  bitfinex:
+  #Bitfinex 开户邀请码【OPENSQT】开户链接：https://www.bitfinex.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+
   bit:
   #bit.com 用我链接开户,每笔交易省50%手续费 邀请码【OPENSQT】开户链接：https://bitweb.bitexch.io/zh-CN/signup?code=OPENSQT
     api_key: "YOUR_API_KEY"

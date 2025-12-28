@@ -42,11 +42,17 @@ QuantMesh is a high-performance, low-latency cryptocurrency market maker system 
 
 ## 🏦 支持的交易所 (Supported Exchanges)
 
-| 交易所 (Exchange) | 状态 (Status) 
-|-------------------|---------------
-| **Binance**       | ✅ Stable      
-| **Bitget**        | ✅ Stable      
-| **Gate.io**       | ✅ Stable      
+| 交易所 (Exchange) | 状态 (Status) | 日均交易量 | 备注
+|-------------------|---------------|-----------|-----
+| **Binance**       | ✅ Stable     | $50B+     | 全球最大交易所
+| **Bitget**        | ✅ Stable     | $10B+     | 合约交易主流平台
+| **Gate.io**       | ✅ Stable     | $5B+      | 老牌交易所
+| **OKX**           | ✅ Stable     | $20B+     | 全球前三，中文用户多
+| **Bybit**         | ✅ Stable     | $15B+     | 合约交易主流平台
+| **Huobi (HTX)**   | 🚧 Beta       | $5B+      | 老牌交易所（开发中）
+| **KuCoin**        | 🚧 Beta       | $3B+      | 山寨币丰富（开发中）
+| **Kraken**        | 🚧 Beta       | $2B+      | 合规性强（开发中）
+| **Bitfinex**      | 🚧 Beta       | $1B+      | 老牌交易所（开发中）
 
 
 ## 模块架构

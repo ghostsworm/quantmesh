@@ -5,7 +5,9 @@ import (
 	"quantmesh/config"
 	"quantmesh/exchange/binance"
 	"quantmesh/exchange/bitget"
+	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/gate"
+	"quantmesh/exchange/okx"
 )
 
 // NewExchange 创建交易所实例
@@ -68,8 +70,50 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 		}
 		return &gateWrapper{adapter: adapter}, nil
 
+	case "okx":
+		exchangeCfg, exists := cfg.Exchanges["okx"]
+		if !exists {
+			return nil, fmt.Errorf("okx 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"passphrase": exchangeCfg.Passphrase,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := okx.NewOKXAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &okxWrapper{adapter: adapter}, nil
+
 	case "bybit":
-		return nil, fmt.Errorf("bybit 尚未实现")
+		exchangeCfg, exists := cfg.Exchanges["bybit"]
+		if !exists {
+			return nil, fmt.Errorf("bybit 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := bybit.NewBybitAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bybitWrapper{adapter: adapter}, nil
+
+	case "huobi":
+		return nil, fmt.Errorf("Huobi (HTX) 开发中，预计第3周完成")
+
+	case "kucoin":
+		return nil, fmt.Errorf("KuCoin 开发中，预计第4周完成")
+
+	case "kraken":
+		return nil, fmt.Errorf("Kraken 开发中，预计第5周完成")
+
+	case "bitfinex":
+		return nil, fmt.Errorf("Bitfinex 开发中，预计第6周完成")
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未实现")
