@@ -20,6 +20,7 @@ import (
 	"quantmesh/exchange/woox"
 	"quantmesh/exchange/coinex"
 	"quantmesh/exchange/bitrue"
+	"quantmesh/exchange/xtcom"
 )
 
 // NewExchange 创建交易所实例
@@ -303,6 +304,22 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			return nil, err
 		}
 		return &bitrueWrapper{adapter: adapter}, nil
+
+	case "xtcom":
+		exchangeCfg, exists := cfg.Exchanges["xtcom"]
+		if !exists {
+			return nil, fmt.Errorf("xtcom 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := xtcom.NewAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &xtcomWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未实现")
