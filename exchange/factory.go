@@ -16,6 +16,7 @@ import (
 	"quantmesh/exchange/kucoin"
 	"quantmesh/exchange/mexc"
 	"quantmesh/exchange/okx"
+	"quantmesh/exchange/phemex"
 )
 
 // NewExchange 创建交易所实例
@@ -235,6 +236,22 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			return nil, err
 		}
 		return &bitmexWrapper{adapter: adapter}, nil
+
+	case "phemex":
+		exchangeCfg, exists := cfg.Exchanges["phemex"]
+		if !exists {
+			return nil, fmt.Errorf("phemex 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := phemex.NewAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &phemexWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未实现")
