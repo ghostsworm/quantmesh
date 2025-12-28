@@ -6,6 +6,7 @@ import (
 	"quantmesh/exchange/binance"
 	"quantmesh/exchange/bitfinex"
 	"quantmesh/exchange/bitget"
+	"quantmesh/exchange/bingx"
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/gate"
 	"quantmesh/exchange/huobi"
@@ -184,6 +185,22 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			return nil, err
 		}
 		return &mexcWrapper{adapter: adapter}, nil
+
+	case "bingx":
+		exchangeCfg, exists := cfg.Exchanges["bingx"]
+		if !exists {
+			return nil, fmt.Errorf("bingx 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := bingx.NewAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bingxWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未实现")

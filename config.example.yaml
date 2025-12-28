@@ -1,6 +1,6 @@
 # 应用配置
 app:
-  current_exchange: "bitget"  # 当前使用的交易所: binance, bitget, bybit, gate, okx, huobi, kucoin, kraken, bitfinex, mexc, edgex
+  current_exchange: "bitget"  # 当前使用的交易所: binance, bitget, bybit, gate, okx, huobi, kucoin, kraken, bitfinex, mexc, bingx, edgex
 
 # 多交易所配置
 exchanges:
@@ -74,6 +74,13 @@ exchanges:
 
   mexc:
   #MEXC（抹茶）开户邀请码【OPENSQT】开户链接：https://www.mexc.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+    testnet: false    # 是否使用测试网（true=测试网, false=主网）
+
+  bingx:
+  #BingX 开户邀请码【OPENSQT】开户链接：https://www.bingx.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
