@@ -22,6 +22,7 @@ import (
 	"quantmesh/exchange/bitrue"
 	"quantmesh/exchange/xtcom"
 	"quantmesh/exchange/btcc"
+	"quantmesh/exchange/ascendex"
 )
 
 // NewExchange 创建交易所实例
@@ -337,6 +338,22 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			return nil, err
 		}
 		return &btccWrapper{adapter: adapter}, nil
+
+	case "ascendex":
+		exchangeCfg, exists := cfg.Exchanges["ascendex"]
+		if !exists {
+			return nil, fmt.Errorf("ascendex 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := ascendex.NewAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &ascendexWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未实现")
