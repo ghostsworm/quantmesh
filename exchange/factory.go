@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"quantmesh/config"
 	"quantmesh/exchange/binance"
+	"quantmesh/exchange/bitfinex"
 	"quantmesh/exchange/bitget"
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/gate"
@@ -153,7 +154,19 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 		return &krakenWrapper{adapter: adapter}, nil
 
 	case "bitfinex":
-		return nil, fmt.Errorf("Bitfinex 开发中，预计第6周完成")
+		exchangeCfg, exists := cfg.Exchanges["bitfinex"]
+		if !exists {
+			return nil, fmt.Errorf("bitfinex 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+		}
+		adapter, err := bitfinex.NewBitfinexAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bitfinexWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未实现")
