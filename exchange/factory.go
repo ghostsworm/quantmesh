@@ -8,6 +8,7 @@ import (
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/gate"
 	"quantmesh/exchange/huobi"
+	"quantmesh/exchange/kraken"
 	"quantmesh/exchange/kucoin"
 	"quantmesh/exchange/okx"
 )
@@ -137,7 +138,19 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 		return &kucoinWrapper{adapter: adapter}, nil
 
 	case "kraken":
-		return nil, fmt.Errorf("Kraken 开发中，预计第5周完成")
+		exchangeCfg, exists := cfg.Exchanges["kraken"]
+		if !exists {
+			return nil, fmt.Errorf("kraken 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+		}
+		adapter, err := kraken.NewKrakenAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &krakenWrapper{adapter: adapter}, nil
 
 	case "bitfinex":
 		return nil, fmt.Errorf("Bitfinex 开发中，预计第6周完成")

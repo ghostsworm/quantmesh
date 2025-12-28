@@ -51,7 +51,7 @@ QuantMesh is a high-performance, low-latency cryptocurrency market maker system 
 | **Bybit**         | ✅ Stable     | $15B+     | 合约交易主流平台
 | **Huobi (HTX)**   | ✅ Stable     | $5B+      | 老牌交易所，中文市场强
 | **KuCoin**        | ✅ Stable     | $3B+      | 山寨币丰富，期货合约支持
-| **Kraken**        | 🚧 Beta       | $2B+      | 合规性强（开发中）
+| **Kraken**        | ✅ Stable     | $2B+      | 合规性强，欧美市场主流
 | **Bitfinex**      | 🚧 Beta       | $1B+      | 老牌交易所（开发中）
 
 
