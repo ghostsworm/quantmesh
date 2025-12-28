@@ -223,6 +223,30 @@ web:
   port: 28888                 # 监听端口（默认28888，使用10000以上端口避免常见端口冲突）
   api_key: ""                 # API密钥（可选，用于认证）
 
+# 系统监控配置（Watchdog）
+watchdog:
+  enabled: true               # 是否启用系统监控（建议开启）
+  sampling:
+    interval: 60              # 采样间隔（秒，默认60秒）
+  retention:
+    detail_days: 7            # 细粒度数据保留天数（默认7天）
+    daily_days: 90            # 每日汇总数据保留天数（默认90天）
+  notifications:
+    enabled: true             # 是否启用告警通知
+    fixed_threshold:
+      enabled: true           # 是否启用固定阈值告警
+      cpu_percent: 80         # CPU使用率告警阈值（百分比）
+      memory_mb: 1024         # 内存使用告警阈值（MB）
+    rate_threshold:
+      enabled: true           # 是否启用变化率告警
+      window_minutes: 5       # 监控时间窗口（分钟）
+      cpu_increase: 30        # CPU增长率告警阈值（百分比）
+      memory_increase_mb: 200 # 内存增长告警阈值（MB）
+    cooldown_minutes: 30      # 告警冷却时间（分钟）
+  aggregation:
+    enabled: true             # 是否启用每日汇总
+    schedule: "00:00"         # 汇总时间（HH:MM格式）
+
 # AI配置
 ai:
   enabled: false              # 是否启用AI功能（默认关闭）
