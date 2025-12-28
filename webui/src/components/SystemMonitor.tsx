@@ -179,6 +179,55 @@ const SystemMonitor: React.FC = () => {
     const range = maxValue - minValue || 1
     const avgValue = values.reduce((a, b) => a + b, 0) / values.length
 
+    // 格式化时间标签
+    const formatTimeLabel = (timestamp: string) => {
+      if (!timestamp) return ''
+      const date = new Date(timestamp)
+      if (isNaN(date.getTime())) return ''
+      
+      // 根据时间范围决定显示格式
+      if (timeRange === '1h' || timeRange === '6h') {
+        // 短时间范围显示时:分
+        return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      } else if (timeRange === '24h' || timeRange === '7d') {
+        // 中等时间范围显示月/日 时:分
+        return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-')
+      } else {
+        // 长时间范围显示月-日
+        return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }).replace(/\//g, '-')
+      }
+    }
+
+    // 计算要显示的时间标签（避免太密集）
+    const getTimeLabels = () => {
+      const labels = chartData.labels
+      if (labels.length === 0) return []
+      
+      // 根据数据点数量决定显示几个标签
+      const maxLabels = 5
+      const step = Math.max(1, Math.floor(labels.length / maxLabels))
+      const result = []
+      
+      for (let i = 0; i < labels.length; i += step) {
+        result.push({
+          index: i,
+          label: formatTimeLabel(labels[i] as string)
+        })
+      }
+      
+      // 确保显示最后一个标签
+      if (result[result.length - 1]?.index !== labels.length - 1) {
+        result.push({
+          index: labels.length - 1,
+          label: formatTimeLabel(labels[labels.length - 1] as string)
+        })
+      }
+      
+      return result
+    }
+
+    const timeLabels = getTimeLabels()
+
     return (
       <Box>
         <Heading size="md" mb={4}>
@@ -198,12 +247,20 @@ const SystemMonitor: React.FC = () => {
                 h={`${Math.max(height, 2)}%`}
                 bg="blue.500"
                 borderRadius="sm"
-                title={`${label}: ${value.toFixed(2)}${metricType === 'cpu' ? '%' : ' MB'}`}
+                title={`${formatTimeLabel(label as string)}: ${value.toFixed(2)}${metricType === 'cpu' ? '%' : ' MB'}`}
                 cursor="pointer"
                 _hover={{ bg: 'blue.600' }}
               />
             )
           })}
+        </Box>
+        {/* 时间轴 */}
+        <Box display="flex" justifyContent="space-between" mt={2} px={1}>
+          {timeLabels.map((item, idx) => (
+            <Text key={idx} fontSize="xs" color="gray.500">
+              {item.label}
+            </Text>
+          ))}
         </Box>
         <SimpleGrid columns={3} spacing={4} mt={4}>
           <Stat size="sm">
