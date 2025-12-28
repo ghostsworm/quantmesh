@@ -142,6 +142,8 @@ export interface OrderHistoryParams {
   offset?: number
   start_time?: string
   end_time?: string
+  exchange?: string
+  symbol?: string
 }
 
 export async function getOrderHistory(params?: OrderHistoryParams): Promise<OrdersResponse> {
@@ -150,6 +152,8 @@ export async function getOrderHistory(params?: OrderHistoryParams): Promise<Orde
   if (params?.offset) queryParams.append('offset', params.offset.toString())
   if (params?.start_time) queryParams.append('start_time', params.start_time)
   if (params?.end_time) queryParams.append('end_time', params.end_time)
+  if (params?.exchange) queryParams.append('exchange', params.exchange)
+  if (params?.symbol) queryParams.append('symbol', params.symbol)
   
   const url = `${API_BASE_URL}/orders/history${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
@@ -173,8 +177,12 @@ export interface PendingOrdersResponse {
   orders: PendingOrderInfo[]
 }
 
-export async function getPendingOrders(): Promise<PendingOrdersResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/orders/pending`)
+export async function getPendingOrders(exchange?: string, symbol?: string): Promise<PendingOrdersResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/orders/pending${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 // Statistics

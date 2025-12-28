@@ -50,7 +50,7 @@ const Orders: React.FC = () => {
   useEffect(() => {
     const fetchPendingOrders = async () => {
       try {
-        const data = await getPendingOrders()
+        const data = await getPendingOrders(selectedExchange, selectedSymbol)
         setPendingOrders(data.orders || [])
       } catch (err) {
         console.error('Failed to fetch pending orders:', err)
@@ -60,7 +60,10 @@ const Orders: React.FC = () => {
 
     const fetchHistoryOrders = async () => {
       try {
-        const data = await getOrderHistory()
+        const data = await getOrderHistory({
+          exchange: selectedExchange,
+          symbol: selectedSymbol,
+        })
         setHistoryOrders(data.orders || [])
       } catch (err) {
         console.error('Failed to fetch history orders:', err)
@@ -85,7 +88,7 @@ const Orders: React.FC = () => {
     }, tabIndex === 0 ? 5000 : 30000)
 
     return () => clearInterval(interval)
-  }, [tabIndex])
+  }, [tabIndex, selectedExchange, selectedSymbol])
 
   const formatTime = (timeStr: string) => {
     try {
@@ -149,7 +152,10 @@ const Orders: React.FC = () => {
 
   return (
     <Box>
-      <Heading size="lg" mb={6}>订单管理</Heading>
+      <Heading size="lg" mb={4}>订单管理</Heading>
+      <Text fontSize="md" color="gray.600" mb={4}>
+        当前交易对: {selectedExchange} - {selectedSymbol}
+      </Text>
 
       <Tabs index={tabIndex} onChange={setTabIndex} colorScheme="blue">
         <TabList>
@@ -168,6 +174,7 @@ const Orders: React.FC = () => {
                   <Thead>
                     <Tr>
                       <Th>订单ID</Th>
+                      <Th>交易对</Th>
                       <Th>方向</Th>
                       <Th isNumeric>价格</Th>
                       <Th isNumeric>数量</Th>
@@ -181,6 +188,11 @@ const Orders: React.FC = () => {
                     {pendingOrders.map((order) => (
                       <Tr key={order.order_id}>
                         <Td>{order.order_id}</Td>
+                        <Td>
+                          <Badge colorScheme="purple" variant="subtle">
+                            {order.symbol}
+                          </Badge>
+                        </Td>
                         <Td>
                           <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
                             {order.side === 'BUY' ? '买入' : '卖出'}
@@ -253,6 +265,7 @@ const Orders: React.FC = () => {
                   <Thead>
                     <Tr>
                       <Th>订单ID</Th>
+                      <Th>交易对</Th>
                       <Th>方向</Th>
                       <Th isNumeric>价格</Th>
                       <Th isNumeric>数量</Th>
@@ -265,6 +278,11 @@ const Orders: React.FC = () => {
                     {historyOrders.map((order) => (
                       <Tr key={order.order_id}>
                         <Td>{order.order_id}</Td>
+                        <Td>
+                          <Badge colorScheme="purple" variant="subtle">
+                            {order.symbol}
+                          </Badge>
+                        </Td>
                         <Td>
                           <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
                             {order.side === 'BUY' ? '买入' : '卖出'}

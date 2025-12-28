@@ -151,6 +151,31 @@ func startSymbolRuntime(
 	quantityDecimals := ex.GetQuantityDecimals()
 	logger.Info("ℹ️ [%s] 精度 - 价格:%d 数量:%d", symCfg.Symbol, priceDecimals, quantityDecimals)
 
+	// 获取交易手续费率
+	// 币安期货API不提供获取手续费率的接口，因此使用以下策略：
+	// 1. 如果配置文件中设置了费率且不为0，使用配置值
+	// 2. 否则使用币安期货默认Taker费率（0.04%）作为保守估计
+	configFeeRate := baseCfg.Exchanges[symCfg.Exchange].FeeRate
+	feeRate := configFeeRate
+	
+	if symCfg.Exchange == "binance" {
+		// 币安期货默认费率：Maker 0.02%, Taker 0.04%
+		// 网格策略使用限价单，通常作为Maker成交，但为保守起见使用Taker费率
+		defaultBinanceTakerFee := 0.0004 // 0.04%
+		
+		if configFeeRate == 0 {
+			// 配置文件中未设置或设置为0，使用默认Taker费率
+			feeRate = defaultBinanceTakerFee
+			logger.Info("💳 [%s] 配置文件未设置手续费率，使用币安期货默认Taker费率: %.4f%%", symCfg.Symbol, feeRate*100)
+		} else {
+			// 使用配置文件中的费率
+			logger.Info("💳 [%s] 使用配置文件中的手续费率: %.4f%%", symCfg.Symbol, feeRate*100)
+		}
+		logger.Info("ℹ️ [%s] 提示：币安期货实际费率取决于您的VIP等级，请在配置文件中设置准确的费率", symCfg.Symbol)
+	} else {
+		logger.Info("💳 [%s] 使用配置文件中的手续费率: %.4f%%", symCfg.Symbol, feeRate*100)
+	}
+
 	// 持仓安全性检查
 	maxLeverage := baseCfg.RiskControl.MaxLeverage
 	if err := safety.CheckAccountSafety(
@@ -159,7 +184,7 @@ func startSymbolRuntime(
 		currentPrice,
 		symCfg.OrderQuantity,
 		symCfg.PriceInterval,
-		baseCfg.Exchanges[symCfg.Exchange].FeeRate,
+		feeRate,
 		symCfg.PositionSafetyCheck,
 		priceDecimals,
 		maxLeverage,
