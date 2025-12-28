@@ -105,6 +105,13 @@ exchanges:
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0000
+    testnet: false
+
+  woox:
+  #WOO X 开户邀请码【OPENSQT】开户链接：https://x.woo.org/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
     testnet: false    # 是否使用测试网（true=测试网, false=主网）
 
   bit:
