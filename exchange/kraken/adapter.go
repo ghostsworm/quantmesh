@@ -70,11 +70,13 @@ func convertToKrakenSymbol(symbol string) string {
 	// BTCUSDT -> PI_XBTUSD
 	// ETHUSDT -> PI_ETHUSD
 	symbol = strings.ToUpper(symbol)
-	symbol = strings.ReplaceAll(symbol, "USDT", "")
+	// 只移除末尾的 USDT
+	symbol = strings.TrimSuffix(symbol, "USDT")
 	
 	// BTC -> XBT (Kraken 使用 XBT 代表 BTC)
+	// 只替换开头的 BTC，避免替换符号内部出现的 BTC
 	if strings.HasPrefix(symbol, "BTC") {
-		symbol = strings.ReplaceAll(symbol, "BTC", "XBT")
+		symbol = "XBT" + strings.TrimPrefix(symbol, "BTC")
 	}
 	
 	return "PI_" + symbol + "USD"
@@ -83,8 +85,9 @@ func convertToKrakenSymbol(symbol string) string {
 // extractBaseAsset 提取基础资产
 func extractBaseAsset(symbol string) string {
 	symbol = strings.ToUpper(symbol)
-	symbol = strings.ReplaceAll(symbol, "USDT", "")
-	symbol = strings.ReplaceAll(symbol, "USD", "")
+	// 只移除末尾的报价资产
+	symbol = strings.TrimSuffix(symbol, "USDT")
+	symbol = strings.TrimSuffix(symbol, "USD")
 	return symbol
 }
 

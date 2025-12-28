@@ -11,6 +11,7 @@ import (
 	"quantmesh/exchange/huobi"
 	"quantmesh/exchange/kraken"
 	"quantmesh/exchange/kucoin"
+	"quantmesh/exchange/mexc"
 	"quantmesh/exchange/okx"
 )
 
@@ -167,6 +168,22 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			return nil, err
 		}
 		return &bitfinexWrapper{adapter: adapter}, nil
+
+	case "mexc":
+		exchangeCfg, exists := cfg.Exchanges["mexc"]
+		if !exists {
+			return nil, fmt.Errorf("mexc 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := mexc.NewAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &mexcWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未实现")
