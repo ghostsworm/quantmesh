@@ -12,496 +12,501 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"quantmesh/logger"
 )
 
 const (
-	BitfinexBaseURL = "https://api.bitfinex.com" // Bitfinex API
+	BitfinexBaseURL = "https://api.bitfinex.com" // Bitfinex API v2
 )
 
-// BitfinexClient 结构体
+// BitfinexClient Bitfinex 客户端
 type BitfinexClient struct {
-	apiKey    string
-	secretKey string
+	apiKey     string
+	secretKey  string
 	httpClient *http.Client
 }
 
-// NewBitfinexClient 创建 Bitfinex 客户端实例
+// NewBitfinexClient 创建 Bitfinex 客户端
 func NewBitfinexClient(apiKey, secretKey string) *BitfinexClient {
 	return &BitfinexClient{
-		apiKey:    apiKey,
-		secretKey: secretKey,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		apiKey:     apiKey,
+		secretKey:  secretKey,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// signRequest 对请求进行签名
+// signRequest Bitfinex v2 签名：HMAC-SHA384
 func (c *BitfinexClient) signRequest(path, nonce, body string) string {
-	// Bitfinex 签名算法：HMAC-SHA384
 	// 签名字符串：/api + path + nonce + body
-	signStr := "/api" + path + nonce + body
-
+	payload := "/api" + path + nonce + body
+	
 	h := hmac.New(sha512.New384, []byte(c.secretKey))
-	h.Write([]byte(signStr))
-	signature := hex.EncodeToString(h.Sum(nil))
-
-	return signature
+	h.Write([]byte(payload))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
-// sendRequest 发送 HTTP 请求
-func (c *BitfinexClient) sendRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
-	reqURL := fmt.Sprintf("%s%s", BitfinexBaseURL, path)
-
+// sendAuthRequest 发送认证请求
+func (c *BitfinexClient) sendAuthRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
+	reqURL := BitfinexBaseURL + path
+	
 	var bodyBytes []byte
 	var err error
 	bodyStr := ""
-
+	
 	if body != nil {
 		bodyBytes, err = json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("marshal request body error: %w", err)
+			return nil, fmt.Errorf("marshal body error: %w", err)
 		}
 		bodyStr = string(bodyBytes)
 	}
-
+	
 	req, err := http.NewRequestWithContext(ctx, method, reqURL, strings.NewReader(bodyStr))
 	if err != nil {
 		return nil, fmt.Errorf("create request error: %w", err)
 	}
-
-	// 生成 nonce（毫秒时间戳）
+	
+	// Bitfinex v2 认证头
 	nonce := strconv.FormatInt(time.Now().UnixMilli(), 10)
-
-	// 签名
 	signature := c.signRequest(path, nonce, bodyStr)
-
-	// 设置请求头
+	
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("bfx-nonce", nonce)
 	req.Header.Set("bfx-apikey", c.apiKey)
 	req.Header.Set("bfx-signature", signature)
-
+	
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("send request error: %w", err)
 	}
 	defer resp.Body.Close()
-
+	
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response body error: %w", err)
+		return nil, fmt.Errorf("read response error: %w", err)
 	}
-
+	
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP error! Status: %s, Body: %s", resp.Status, string(respBody))
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
-
-	// 检查是否有错误响应
-	var errorResp []interface{}
-	if err := json.Unmarshal(respBody, &errorResp); err == nil {
-		if len(errorResp) > 0 {
-			if errStr, ok := errorResp[0].(string); ok && errStr == "error" {
-				return nil, fmt.Errorf("API error! Message: %v", errorResp)
+	
+	// 检查错误响应：["error", CODE, "ERROR_MESSAGE"]
+	var errorCheck []interface{}
+	if err := json.Unmarshal(respBody, &errorCheck); err == nil {
+		if len(errorCheck) > 0 {
+			if errType, ok := errorCheck[0].(string); ok && errType == "error" {
+				return nil, fmt.Errorf("API error: %v", errorCheck)
 			}
 		}
 	}
-
+	
 	return respBody, nil
 }
 
-// GetExchangeInfo 获取合约信息
-func (c *BitfinexClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error) {
-	path := "/v2/conf/pub:list:pair:exchange"
+// sendPublicRequest 发送公开请求
+func (c *BitfinexClient) sendPublicRequest(ctx context.Context, path string) ([]byte, error) {
+	reqURL := BitfinexBaseURL + path
 	
-	reqURL := fmt.Sprintf("%s%s", BitfinexBaseURL, path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request error: %w", err)
 	}
-
+	
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("send request error: %w", err)
 	}
 	defer resp.Body.Close()
-
+	
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response body error: %w", err)
-	}
-
-	var symbols [][]string
-	if err := json.Unmarshal(respBody, &symbols); err != nil {
-		return nil, fmt.Errorf("unmarshal exchange info error: %w", err)
-	}
-
-	exchangeInfo := &ExchangeInfo{
-		Symbols: make(map[string]ContractInfo),
+		return nil, fmt.Errorf("read response error: %w", err)
 	}
 	
-	if len(symbols) > 0 {
-		for _, symbol := range symbols[0] {
-			exchangeInfo.Symbols[symbol] = ContractInfo{
-				Symbol: symbol,
-			}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	
+	return respBody, nil
+}
+
+// GetTradingPairs 获取交易对列表
+func (c *BitfinexClient) GetTradingPairs(ctx context.Context) ([]string, error) {
+	path := "/v2/conf/pub:list:pair:exchange"
+	respBody, err := c.sendPublicRequest(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 响应格式：[0, ["BTCUSD", "ETHUSD", ...]]
+	var result []interface{}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal error: %w", err)
+	}
+	
+	if len(result) < 2 {
+		return nil, fmt.Errorf("invalid response format")
+	}
+	
+	pairsInterface, ok := result[1].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid pairs format")
+	}
+	
+	pairs := make([]string, 0, len(pairsInterface))
+	for _, p := range pairsInterface {
+		if pair, ok := p.(string); ok {
+			pairs = append(pairs, pair)
 		}
 	}
-
-	return exchangeInfo, nil
+	
+	return pairs, nil
 }
 
 // PlaceOrder 下单
+// Bitfinex 订单响应：[MTS, TYPE, MESSAGE_ID, null, [[ORDER_DATA]], null, "SUCCESS", "Order placed"]
 func (c *BitfinexClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
 	path := "/v2/auth/w/order/submit"
 	
+	// Bitfinex 订单类型：LIMIT, MARKET, STOP, STOP LIMIT, etc.
 	orderType := "LIMIT"
-	if req.Type == "market" {
+	if strings.ToUpper(req.Type) == "MARKET" {
 		orderType = "MARKET"
 	}
-
+	
+	// 金额：正数=买入，负数=卖出
+	amount := req.Quantity
+	if strings.ToUpper(req.Side) == "SELL" {
+		amount = -amount
+	}
+	
 	body := map[string]interface{}{
 		"type":   orderType,
-		"symbol": req.Symbol,
-		"amount": fmt.Sprintf("%.8f", req.Quantity),
+		"symbol": "t" + req.Symbol, // 添加 t 前缀表示交易对
+		"amount": fmt.Sprintf("%.8f", amount),
 	}
-
-	if req.Type == "limit" {
+	
+	if orderType == "LIMIT" {
 		body["price"] = fmt.Sprintf("%.2f", req.Price)
 	}
-
-	respBody, err := c.sendRequest(ctx, http.MethodPost, path, body)
+	
+	if req.ClientOrderID != "" {
+		body["cid"] = req.ClientOrderID
+	}
+	
+	respBody, err := c.sendAuthRequest(ctx, http.MethodPost, path, body)
 	if err != nil {
 		return nil, err
 	}
-
+	
+	// 解析响应：[MTS, TYPE, MESSAGE_ID, null, [[ORDER_ID, GID, CID, ...]], ...]
 	var resp []interface{}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal place order response error: %w", err)
+		return nil, fmt.Errorf("unmarshal response error: %w", err)
 	}
-
-	if len(resp) < 4 {
-		return nil, fmt.Errorf("invalid place order response: %v", resp)
+	
+	if len(resp) < 5 {
+		return nil, fmt.Errorf("invalid response format: %v", resp)
 	}
-
-	// Bitfinex 返回格式：[MTS, TYPE, MESSAGE_ID, null, [[ORDER_ID, GID, CID, ...]]]
-	if orders, ok := resp[4].([]interface{}); ok && len(orders) > 0 {
-		if order, ok := orders[0].([]interface{}); ok && len(order) > 0 {
-			orderID := fmt.Sprintf("%v", order[0])
-			return &OrderResponse{OrderID: orderID}, nil
-		}
+	
+	// 提取订单数据
+	ordersData, ok := resp[4].([]interface{})
+	if !ok || len(ordersData) == 0 {
+		return nil, fmt.Errorf("no order data in response")
 	}
-
-	return nil, fmt.Errorf("failed to parse order ID from response")
+	
+	orderArray, ok := ordersData[0].([]interface{})
+	if !ok || len(orderArray) == 0 {
+		return nil, fmt.Errorf("invalid order array")
+	}
+	
+	// ORDER_ID 在索引 0
+	orderID := fmt.Sprintf("%v", orderArray[0])
+	
+	logger.Info("Bitfinex order placed: %s", orderID)
+	return &OrderResponse{OrderID: orderID}, nil
 }
 
 // CancelOrder 取消订单
-func (c *BitfinexClient) CancelOrder(ctx context.Context, orderID string) (*CancelOrderResponse, error) {
+func (c *BitfinexClient) CancelOrder(ctx context.Context, orderID string) error {
 	path := "/v2/auth/w/order/cancel"
 	
-	orderIDInt, _ := strconv.ParseInt(orderID, 10, 64)
+	orderIDInt, err := strconv.ParseInt(orderID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid order ID: %w", err)
+	}
+	
 	body := map[string]interface{}{
 		"id": orderIDInt,
 	}
-
-	respBody, err := c.sendRequest(ctx, http.MethodPost, path, body)
+	
+	respBody, err := c.sendAuthRequest(ctx, http.MethodPost, path, body)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	var resp []interface{}
-	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal cancel order response error: %w", err)
-	}
-
-	return &CancelOrderResponse{OrderID: orderID}, nil
+	
+	logger.Info("Bitfinex order cancelled: %s, response: %s", orderID, string(respBody))
+	return nil
 }
 
-// GetOrderInfo 查询订单
-func (c *BitfinexClient) GetOrderInfo(ctx context.Context, symbol string, orderID string) (*OrderInfo, error) {
-	path := "/v2/auth/r/orders"
-	respBody, err := c.sendRequest(ctx, http.MethodPost, path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var orders [][]interface{}
-	if err := json.Unmarshal(respBody, &orders); err != nil {
-		return nil, fmt.Errorf("unmarshal get order info response error: %w", err)
-	}
-
-	// 查找指定订单
-	for _, order := range orders {
-		if len(order) > 0 {
-			currentOrderID := fmt.Sprintf("%v", order[0])
-			if currentOrderID == orderID {
-				return parseOrderInfo(order), nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("order %s not found", orderID)
-}
-
-// GetOpenOrders 查询未完成订单
-func (c *BitfinexClient) GetOpenOrders(ctx context.Context, symbol string) ([]OrderInfo, error) {
+// GetActiveOrders 获取活跃订单
+// 响应格式：[[ORDER_ID, GID, CID, SYMBOL, MTS_CREATE, MTS_UPDATE, AMOUNT, AMOUNT_ORIG, TYPE, ...], ...]
+func (c *BitfinexClient) GetActiveOrders(ctx context.Context, symbol string) ([]OrderInfo, error) {
 	path := "/v2/auth/r/orders"
 	if symbol != "" {
-		path += "/" + symbol
+		path += "/t" + symbol
 	}
-
-	respBody, err := c.sendRequest(ctx, http.MethodPost, path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var orders [][]interface{}
-	if err := json.Unmarshal(respBody, &orders); err != nil {
-		return nil, fmt.Errorf("unmarshal get open orders response error: %w", err)
-	}
-
-	result := make([]OrderInfo, 0, len(orders))
-	for _, order := range orders {
-		result = append(result, *parseOrderInfo(order))
-	}
-
-	return result, nil
-}
-
-// GetAccountInfo 获取账户信息
-func (c *BitfinexClient) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
-	path := "/v2/auth/r/wallets"
-	respBody, err := c.sendRequest(ctx, http.MethodPost, path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var wallets [][]interface{}
-	if err := json.Unmarshal(respBody, &wallets); err != nil {
-		return nil, fmt.Errorf("unmarshal get account info response error: %w", err)
-	}
-
-	accountInfo := &AccountInfo{
-		Wallets: make([]WalletInfo, 0, len(wallets)),
-	}
-
-	for _, wallet := range wallets {
-		if len(wallet) >= 5 {
-			walletType := fmt.Sprintf("%v", wallet[0])
-			currency := fmt.Sprintf("%v", wallet[1])
-			balance, _ := parseFloat(wallet[2])
-			
-			accountInfo.Wallets = append(accountInfo.Wallets, WalletInfo{
-				Type:     walletType,
-				Currency: currency,
-				Balance:  balance,
-			})
-
-			if walletType == "exchange" {
-				accountInfo.TotalBalance += balance
-			}
-		}
-	}
-
-	return accountInfo, nil
-}
-
-// GetPositionInfo 获取持仓信息
-func (c *BitfinexClient) GetPositionInfo(ctx context.Context) ([]BitfinexPositionInfo, error) {
-	path := "/v2/auth/r/positions"
-	respBody, err := c.sendRequest(ctx, http.MethodPost, path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var positions [][]interface{}
-	if err := json.Unmarshal(respBody, &positions); err != nil {
-		return nil, fmt.Errorf("unmarshal get position info response error: %w", err)
-	}
-
-	result := make([]BitfinexPositionInfo, 0, len(positions))
-	for _, pos := range positions {
-		if len(pos) >= 10 {
-			symbol := fmt.Sprintf("%v", pos[0])
-			amount, _ := parseFloat(pos[2])
-			basePrice, _ := parseFloat(pos[3])
-			pl, _ := parseFloat(pos[6])
-
-			result = append(result, BitfinexPositionInfo{
-				Symbol:    symbol,
-				Amount:    amount,
-				BasePrice: basePrice,
-				PL:        pl,
-			})
-		}
-	}
-
-	return result, nil
-}
-
-// GetFundingRate 获取资金费率
-func (c *BitfinexClient) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
-	// Bitfinex 没有直接的资金费率 API，返回 0
-	return 0, nil
-}
-
-// GetHistoricalKlines 获取历史K线数据
-func (c *BitfinexClient) GetHistoricalKlines(ctx context.Context, symbol string, timeframe string, limit int) ([]Candle, error) {
-	// Bitfinex K线 API: /v2/candles/trade:TIMEFRAME:SYMBOL/hist
-	path := fmt.Sprintf("/v2/candles/trade:%s:%s/hist?limit=%d", timeframe, symbol, limit)
 	
-	reqURL := fmt.Sprintf("%s%s", BitfinexBaseURL, path)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	respBody, err := c.sendAuthRequest(ctx, http.MethodPost, path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request error: %w", err)
+		return nil, err
 	}
+	
+	var ordersArray [][]interface{}
+	if err := json.Unmarshal(respBody, &ordersArray); err != nil {
+		return nil, fmt.Errorf("unmarshal orders error: %w", err)
+	}
+	
+	orders := make([]OrderInfo, 0, len(ordersArray))
+	for _, orderData := range ordersArray {
+		order := parseOrderArray(orderData)
+		orders = append(orders, order)
+	}
+	
+	return orders, nil
+}
 
-	resp, err := c.httpClient.Do(req)
+// GetWallets 获取钱包余额
+// 响应格式：[[WALLET_TYPE, CURRENCY, BALANCE, UNSETTLED_INTEREST, BALANCE_AVAILABLE], ...]
+func (c *BitfinexClient) GetWallets(ctx context.Context) ([]WalletInfo, error) {
+	path := "/v2/auth/r/wallets"
+	
+	respBody, err := c.sendAuthRequest(ctx, http.MethodPost, path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("send request error: %w", err)
+		return nil, err
 	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response body error: %w", err)
+	
+	var walletsArray [][]interface{}
+	if err := json.Unmarshal(respBody, &walletsArray); err != nil {
+		return nil, fmt.Errorf("unmarshal wallets error: %w", err)
 	}
-
-	var candles [][]interface{}
-	if err := json.Unmarshal(respBody, &candles); err != nil {
-		return nil, fmt.Errorf("unmarshal historical klines response error: %w", err)
-	}
-
-	result := make([]Candle, 0, len(candles))
-	for _, candle := range candles {
-		if len(candle) >= 6 {
-			timestamp, _ := parseFloat(candle[0])
-			open, _ := parseFloat(candle[1])
-			close, _ := parseFloat(candle[2])
-			high, _ := parseFloat(candle[3])
-			low, _ := parseFloat(candle[4])
-			volume, _ := parseFloat(candle[5])
-
-			result = append(result, Candle{
-				Time:   int64(timestamp),
-				Open:   open,
-				High:   high,
-				Low:    low,
-				Close:  close,
-				Volume: volume,
-			})
+	
+	wallets := make([]WalletInfo, 0, len(walletsArray))
+	for _, walletData := range walletsArray {
+		if len(walletData) >= 5 {
+			wallet := WalletInfo{
+				Type:              fmt.Sprintf("%v", walletData[0]),
+				Currency:          fmt.Sprintf("%v", walletData[1]),
+				Balance:           parseFloat64(walletData[2]),
+				UnsettledInterest: parseFloat64(walletData[3]),
+				BalanceAvailable:  parseFloat64(walletData[4]),
+			}
+			wallets = append(wallets, wallet)
 		}
 	}
-
-	return result, nil
+	
+	return wallets, nil
 }
 
-// parseOrderInfo 解析订单信息
-func parseOrderInfo(order []interface{}) *OrderInfo {
-	if len(order) < 10 {
-		return &OrderInfo{}
+// GetPositions 获取持仓
+// 响应格式：[[SYMBOL, STATUS, AMOUNT, BASE_PRICE, MARGIN_FUNDING, MARGIN_FUNDING_TYPE, PL, PL_PERC, ...], ...]
+func (c *BitfinexClient) GetPositions(ctx context.Context) ([]PositionInfo, error) {
+	path := "/v2/auth/r/positions"
+	
+	respBody, err := c.sendAuthRequest(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return nil, err
 	}
+	
+	var positionsArray [][]interface{}
+	if err := json.Unmarshal(respBody, &positionsArray); err != nil {
+		return nil, fmt.Errorf("unmarshal positions error: %w", err)
+	}
+	
+	positions := make([]PositionInfo, 0, len(positionsArray))
+	for _, posData := range positionsArray {
+		if len(posData) >= 8 {
+			position := PositionInfo{
+				Symbol:    strings.TrimPrefix(fmt.Sprintf("%v", posData[0]), "t"),
+				Status:    fmt.Sprintf("%v", posData[1]),
+				Amount:    parseFloat64(posData[2]),
+				BasePrice: parseFloat64(posData[3]),
+				PL:        parseFloat64(posData[6]),
+				PLPerc:    parseFloat64(posData[7]),
+			}
+			positions = append(positions, position)
+		}
+	}
+	
+	return positions, nil
+}
 
-	orderID := fmt.Sprintf("%v", order[0])
-	symbol := fmt.Sprintf("%v", order[3])
-	amount, _ := parseFloat(order[6])
-	price, _ := parseFloat(order[16])
-	status := fmt.Sprintf("%v", order[13])
+// GetTicker 获取行情
+// 响应格式：[BID, BID_SIZE, ASK, ASK_SIZE, DAILY_CHANGE, DAILY_CHANGE_RELATIVE, LAST_PRICE, VOLUME, HIGH, LOW]
+func (c *BitfinexClient) GetTicker(ctx context.Context, symbol string) (*TickerInfo, error) {
+	path := fmt.Sprintf("/v2/ticker/t%s", symbol)
+	
+	respBody, err := c.sendPublicRequest(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	
+	var tickerArray []interface{}
+	if err := json.Unmarshal(respBody, &tickerArray); err != nil {
+		return nil, fmt.Errorf("unmarshal ticker error: %w", err)
+	}
+	
+	if len(tickerArray) < 10 {
+		return nil, fmt.Errorf("invalid ticker format")
+	}
+	
+	ticker := &TickerInfo{
+		Bid:       parseFloat64(tickerArray[0]),
+		BidSize:   parseFloat64(tickerArray[1]),
+		Ask:       parseFloat64(tickerArray[2]),
+		AskSize:   parseFloat64(tickerArray[3]),
+		LastPrice: parseFloat64(tickerArray[6]),
+		Volume:    parseFloat64(tickerArray[7]),
+		High:      parseFloat64(tickerArray[8]),
+		Low:       parseFloat64(tickerArray[9]),
+	}
+	
+	return ticker, nil
+}
 
-	return &OrderInfo{
-		OrderID: orderID,
-		Symbol:  symbol,
-		Amount:  amount,
-		Price:   price,
-		Status:  status,
+// GetCandles 获取K线数据
+// 响应格式：[[MTS, OPEN, CLOSE, HIGH, LOW, VOLUME], ...]
+func (c *BitfinexClient) GetCandles(ctx context.Context, symbol, timeframe string, limit int) ([]Candle, error) {
+	path := fmt.Sprintf("/v2/candles/trade:%s:t%s/hist?limit=%d", timeframe, symbol, limit)
+	
+	respBody, err := c.sendPublicRequest(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	
+	var candlesArray [][]interface{}
+	if err := json.Unmarshal(respBody, &candlesArray); err != nil {
+		return nil, fmt.Errorf("unmarshal candles error: %w", err)
+	}
+	
+	candles := make([]Candle, 0, len(candlesArray))
+	for _, candleData := range candlesArray {
+		if len(candleData) >= 6 {
+			candle := Candle{
+				Timestamp: int64(parseFloat64(candleData[0])),
+				Open:      parseFloat64(candleData[1]),
+				Close:     parseFloat64(candleData[2]),
+				High:      parseFloat64(candleData[3]),
+				Low:       parseFloat64(candleData[4]),
+				Volume:    parseFloat64(candleData[5]),
+			}
+			candles = append(candles, candle)
+		}
+	}
+	
+	return candles, nil
+}
+
+// parseOrderArray 解析订单数组
+// 格式：[ID, GID, CID, SYMBOL, MTS_CREATE, MTS_UPDATE, AMOUNT, AMOUNT_ORIG, TYPE, TYPE_PREV, ...]
+func parseOrderArray(data []interface{}) OrderInfo {
+	if len(data) < 10 {
+		return OrderInfo{}
+	}
+	
+	return OrderInfo{
+		ID:           fmt.Sprintf("%v", data[0]),
+		GID:          fmt.Sprintf("%v", data[1]),
+		CID:          fmt.Sprintf("%v", data[2]),
+		Symbol:       strings.TrimPrefix(fmt.Sprintf("%v", data[3]), "t"),
+		MTSCreate:    int64(parseFloat64(data[4])),
+		MTSUpdate:    int64(parseFloat64(data[5])),
+		Amount:       parseFloat64(data[6]),
+		AmountOrig:   parseFloat64(data[7]),
+		Type:         fmt.Sprintf("%v", data[8]),
+		TypePrev:     fmt.Sprintf("%v", data[9]),
 	}
 }
 
-// parseFloat 解析浮点数
-func parseFloat(v interface{}) (float64, error) {
+// parseFloat64 安全解析 float64
+func parseFloat64(v interface{}) float64 {
 	switch val := v.(type) {
 	case float64:
-		return val, nil
+		return val
 	case string:
-		return strconv.ParseFloat(val, 64)
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
 	case int:
-		return float64(val), nil
+		return float64(val)
 	case int64:
-		return float64(val), nil
+		return float64(val)
 	default:
-		return 0, fmt.Errorf("unsupported type: %T", v)
+		return 0
 	}
 }
 
-// ExchangeInfo 交易所信息
-type ExchangeInfo struct {
-	Symbols map[string]ContractInfo
-}
+// 数据结构定义
 
-// ContractInfo 合约信息
-type ContractInfo struct {
-	Symbol string
-}
-
-// OrderRequest 下单请求
 type OrderRequest struct {
-	ClientOrderID    string
-	Symbol           string
-	Side             string // "buy" or "sell"
-	Type             string // "limit" or "market"
-	Price            float64
-	Quantity         float64
-	PriceDecimals    int
-	QuantityDecimals int
+	Symbol          string
+	Side            string  // BUY/SELL
+	Type            string  // LIMIT/MARKET
+	Price           float64
+	Quantity        float64
+	ClientOrderID   string
 }
 
-// OrderResponse 下单响应
 type OrderResponse struct {
 	OrderID string
 }
 
-// CancelOrderResponse 取消订单响应
-type CancelOrderResponse struct {
-	OrderID string
-}
-
-// OrderInfo 订单信息
 type OrderInfo struct {
-	OrderID string
-	Symbol  string
-	Amount  float64
-	Price   float64
-	Status  string
+	ID         string
+	GID        string
+	CID        string
+	Symbol     string
+	MTSCreate  int64
+	MTSUpdate  int64
+	Amount     float64  // 正数=买入，负数=卖出
+	AmountOrig float64
+	Type       string
+	TypePrev   string
 }
 
-// AccountInfo 账户信息
-type AccountInfo struct {
-	TotalBalance float64
-	Wallets      []WalletInfo
-}
-
-// WalletInfo 钱包信息
 type WalletInfo struct {
-	Type     string
-	Currency string
-	Balance  float64
+	Type              string
+	Currency          string
+	Balance           float64
+	UnsettledInterest float64
+	BalanceAvailable  float64
 }
 
-// BitfinexPositionInfo 持仓信息
-type BitfinexPositionInfo struct {
+type PositionInfo struct {
 	Symbol    string
-	Amount    float64
+	Status    string
+	Amount    float64  // 正数=多仓，负数=空仓
 	BasePrice float64
 	PL        float64
+	PLPerc    float64
 }
 
-// Candle K线数据
+type TickerInfo struct {
+	Bid       float64
+	BidSize   float64
+	Ask       float64
+	AskSize   float64
+	LastPrice float64
+	Volume    float64
+	High      float64
+	Low       float64
+}
+
 type Candle struct {
-	Time   int64
-	Open   float64
-	High   float64
-	Low    float64
-	Close  float64
-	Volume float64
+	Timestamp int64
+	Open      float64
+	Close     float64
+	High      float64
+	Low       float64
+	Volume    float64
 }
-

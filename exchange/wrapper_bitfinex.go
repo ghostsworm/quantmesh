@@ -29,7 +29,6 @@ func (w *bitfinexWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*O
 		Price:         req.Price,
 		ReduceOnly:    req.ReduceOnly,
 		PostOnly:      req.PostOnly,
-		PriceDecimals: req.PriceDecimals,
 		ClientOrderID: req.ClientOrderID,
 		Timestamp:     time.Now().UnixMilli(),
 	}
@@ -55,7 +54,6 @@ func (w *bitfinexWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderR
 			Price:         order.Price,
 			ReduceOnly:    order.ReduceOnly,
 			PostOnly:      order.PostOnly,
-			PriceDecimals: order.PriceDecimals,
 			ClientOrderID: order.ClientOrderID,
 			Timestamp:     time.Now().UnixMilli(),
 		})
@@ -144,8 +142,6 @@ func (w *bitfinexWrapper) GetPositions(ctx context.Context, symbol string) ([]*P
 			MarkPrice:      bitfinexPos.MarkPrice,
 			UnrealizedPNL:  bitfinexPos.UnrealizedPnL,
 			Leverage:       int(bitfinexPos.Leverage),
-			MarginType:     bitfinexPos.MarginType,
-			IsolatedMargin: bitfinexPos.IsolatedMargin,
 		})
 	}
 	return positions, nil
@@ -188,7 +184,7 @@ func (w *bitfinexWrapper) StartKlineStream(ctx context.Context, symbols []string
 				Low:       bitfinexCandle.Low,
 				Close:     bitfinexCandle.Close,
 				Volume:    bitfinexCandle.Volume,
-				Timestamp: bitfinexCandle.Time,
+				Timestamp: bitfinexCandle.Timestamp,
 				IsClosed:  true,
 			}
 			callback(exchangeCandle)
@@ -212,7 +208,7 @@ func (w *bitfinexWrapper) GetHistoricalKlines(ctx context.Context, symbol string
 	candles := make([]*Candle, 0, len(bitfinexCandles))
 	for _, bitfinexCandle := range bitfinexCandles {
 		candles = append(candles, &Candle{
-			Symbol:    symbol,
+			Symbol:    bitfinexCandle.Symbol,
 			Open:      bitfinexCandle.Open,
 			High:      bitfinexCandle.High,
 			Low:       bitfinexCandle.Low,
@@ -268,11 +264,8 @@ func convertBitfinexOrderToExchangeOrder(bitfinexOrder *bitfinex.Order) *Order {
 	}
 }
 
-// parseBitfinexOrderID 解析订单 ID（Bitfinex 使用字符串 ID，需要转换）
+// parseBitfinexOrderID 解析订单 ID
 func parseBitfinexOrderID(orderID string) int64 {
-	// Bitfinex 使用字符串 ID，这里简化处理，返回 0
-	// 实际使用时，可以使用 hash 或其他方式转换
 	id, _ := strconv.ParseInt(orderID, 10, 64)
 	return id
 }
-

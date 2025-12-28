@@ -3,6 +3,7 @@ package bitfinex
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -12,14 +13,14 @@ import (
 
 // Adapter Bitfinex 适配器
 type Adapter struct {
-	client            *BitfinexClient
-	wsManager         *WebSocketManager
-	klineWSManager    *KlineWebSocketManager
-	symbol            string
-	priceDecimals     int
-	quantityDecimals  int
-	baseAsset         string
-	quoteAsset        string
+	client           *BitfinexClient
+	wsManager        *WebSocketManager
+	klineWSManager   *KlineWebSocketManager
+	symbol           string
+	priceDecimals    int
+	quantityDecimals int
+	baseAsset        string
+	quoteAsset       string
 }
 
 // NewBitfinexAdapter 创建 Bitfinex 适配器
@@ -33,57 +34,42 @@ func NewBitfinexAdapter(config map[string]string, symbol string) (*Adapter, erro
 
 	client := NewBitfinexClient(apiKey, secretKey)
 
-	// 解析交易对：Bitfinex 使用 PI_XBTUSD 格式（永续合约）
-	// 将 BTCUSDT 转换为 PI_XBTUSD
+	// 转换符号格式：BTCUSDT -> BTCUSD
 	bitfinexSymbol := convertToBitfinexSymbol(symbol)
+	
+	// 解析基础资产和报价资产
+	baseAsset, quoteAsset := parseSymbol(bitfinexSymbol)
 
 	adapter := &Adapter{
 		client:           client,
 		symbol:           bitfinexSymbol,
-		priceDecimals:    1,
-		quantityDecimals: 0, // Bitfinex 期货使用整数张数
-		baseAsset:        extractBaseAsset(symbol),
-		quoteAsset:       "USD",
+		priceDecimals:    2,    // Bitfinex 默认价格精度
+		quantityDecimals: 8,    // Bitfinex 默认数量精度
+		baseAsset:        baseAsset,
+		quoteAsset:       quoteAsset,
 	}
 
-	// Bitfinex 使用默认精度
-	logger.Info("Bitfinex symbol %s precision: price=%d, quantity=%d", bitfinexSymbol, adapter.priceDecimals, adapter.quantityDecimals)
-
+	logger.Info("Bitfinex adapter created for symbol: %s (base: %s, quote: %s)", bitfinexSymbol, baseAsset, quoteAsset)
 	return adapter, nil
 }
 
-// convertToBitfinexSymbol 将标准符号转换为 Bitfinex 符号
+// convertToBitfinexSymbol 转换为 Bitfinex 符号格式
 func convertToBitfinexSymbol(symbol string) string {
-	// BTCUSDT -> PI_XBTUSD
-	// ETHUSDT -> PI_ETHUSD
+	// BTCUSDT -> BTCUSD
 	symbol = strings.ToUpper(symbol)
-	symbol = strings.ReplaceAll(symbol, "USDT", "")
-	
-	// BTC -> XBT (Bitfinex 使用 XBT 代表 BTC)
-	if strings.HasPrefix(symbol, "BTC") {
-		symbol = strings.ReplaceAll(symbol, "BTC", "XBT")
-	}
-	
-	return "PI_" + symbol + "USD"
-}
-
-// extractBaseAsset 提取基础资产
-func extractBaseAsset(symbol string) string {
-	symbol = strings.ToUpper(symbol)
-	symbol = strings.ReplaceAll(symbol, "USDT", "")
-	symbol = strings.ReplaceAll(symbol, "USD", "")
+	symbol = strings.ReplaceAll(symbol, "USDT", "USD")
 	return symbol
 }
 
-// getPrecision 根据 tickSize 计算精度
-func getPrecision(tickSize float64) int {
-	str := fmt.Sprintf("%.10f", tickSize)
-	str = strings.TrimRight(str, "0")
-	parts := strings.Split(str, ".")
-	if len(parts) == 2 {
-		return len(parts[1])
+// parseSymbol 解析符号
+func parseSymbol(symbol string) (string, string) {
+	// BTCUSD -> BTC, USD
+	if strings.HasSuffix(symbol, "USD") {
+		base := strings.TrimSuffix(symbol, "USD")
+		return base, "USD"
 	}
-	return 0
+	// 默认返回
+	return symbol[:3], symbol[3:]
 }
 
 // GetName 获取交易所名称
@@ -93,17 +79,15 @@ func (a *Adapter) GetName() string {
 
 // PlaceOrder 下单
 func (a *Adapter) PlaceOrder(ctx context.Context, req *BitfinexOrderRequest) (*Order, error) {
-	clientOrderID := fmt.Sprintf("order_%d", req.Timestamp)
+	clientOrderID := fmt.Sprintf("order_%d", time.Now().UnixMilli())
 	
 	orderReq := &OrderRequest{
-		ClientOrderID:    clientOrderID,
-		Symbol:           a.symbol,
-		Side:             strings.ToLower(string(req.Side)),
-		Type:             strings.ToLower(string(req.Type)),
-		Price:            req.Price,
-		Quantity:         req.Quantity,
-		PriceDecimals:    a.priceDecimals,
-		QuantityDecimals: a.quantityDecimals,
+		Symbol:        a.symbol,
+		Side:          string(req.Side),
+		Type:          string(req.Type),
+		Price:         req.Price,
+		Quantity:      req.Quantity,
+		ClientOrderID: clientOrderID,
 	}
 
 	resp, err := a.client.PlaceOrder(ctx, orderReq)
@@ -119,11 +103,12 @@ func (a *Adapter) PlaceOrder(ctx context.Context, req *BitfinexOrderRequest) (*O
 		Type:          string(req.Type),
 		Price:         req.Price,
 		Quantity:      req.Quantity,
-		Status:        "NEW",
-		Timestamp:     req.Timestamp,
+		Status:        string(OrderStatusNew),
+		CreatedAt:     time.Now(),
 	}
 
-	logger.Info("Bitfinex order placed: %s, side: %s, price: %.2f, quantity: %.2f", order.OrderID, order.Side, order.Price, order.Quantity)
+	logger.Info("Bitfinex order placed: %s, side: %s, price: %.2f, quantity: %.8f", 
+		order.OrderID, order.Side, order.Price, order.Quantity)
 	return order, nil
 }
 
@@ -148,12 +133,12 @@ func (a *Adapter) BatchPlaceOrders(ctx context.Context, orders []*BitfinexOrderR
 // CancelOrder 取消订单
 func (a *Adapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	orderIDStr := strconv.FormatInt(orderID, 10)
-	_, err := a.client.CancelOrder(ctx, orderIDStr)
+	err := a.client.CancelOrder(ctx, orderIDStr)
 	if err != nil {
 		return fmt.Errorf("cancel order error: %w", err)
 	}
 
-	logger.Info("Bitfinex order cancelled: %s", orderIDStr)
+	logger.Info("Bitfinex order cancelled: %d", orderID)
 	return nil
 }
 
@@ -169,42 +154,48 @@ func (a *Adapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs
 
 // CancelAllOrders 取消所有订单
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	orders, err := a.client.GetOpenOrders(ctx, symbol)
+	orders, err := a.client.GetActiveOrders(ctx, a.symbol)
 	if err != nil {
-		return fmt.Errorf("get open orders error: %w", err)
+		return fmt.Errorf("get active orders error: %w", err)
 	}
 
 	for _, order := range orders {
-		if _, err := a.client.CancelOrder(ctx, order.OrderID); err != nil {
-			logger.Error("Cancel order %s failed: %v", order.OrderID, err)
+		if err := a.client.CancelOrder(ctx, order.ID); err != nil {
+			logger.Error("Cancel order %s failed: %v", order.ID, err)
 		}
 	}
 
-	logger.Info("Bitfinex all orders cancelled")
+	logger.Info("Bitfinex all orders cancelled for symbol: %s", symbol)
 	return nil
 }
 
 // GetOrder 查询订单
 func (a *Adapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
-	orderIDStr := strconv.FormatInt(orderID, 10)
-	orderInfo, err := a.client.GetOrderInfo(ctx, symbol, orderIDStr)
+	orders, err := a.client.GetActiveOrders(ctx, a.symbol)
 	if err != nil {
 		return nil, fmt.Errorf("get order error: %w", err)
 	}
 
-	return a.convertToOrder(orderInfo), nil
+	orderIDStr := strconv.FormatInt(orderID, 10)
+	for _, orderInfo := range orders {
+		if orderInfo.ID == orderIDStr {
+			return a.convertToOrder(&orderInfo), nil
+		}
+	}
+
+	return nil, fmt.Errorf("order %d not found", orderID)
 }
 
 // GetOpenOrders 查询未完成订单
 func (a *Adapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
-	orders, err := a.client.GetOpenOrders(ctx, symbol)
+	orders, err := a.client.GetActiveOrders(ctx, a.symbol)
 	if err != nil {
 		return nil, fmt.Errorf("get open orders error: %w", err)
 	}
 
 	result := make([]*Order, 0, len(orders))
-	for _, order := range orders {
-		result = append(result, a.convertToOrder(&order))
+	for _, orderInfo := range orders {
+		result = append(result, a.convertToOrder(&orderInfo))
 	}
 
 	return result, nil
@@ -212,16 +203,23 @@ func (a *Adapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, e
 
 // GetAccount 获取账户信息
 func (a *Adapter) GetAccount(ctx context.Context) (*Account, error) {
-	accountInfo, err := a.client.GetAccountInfo(ctx)
+	wallets, err := a.client.GetWallets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get account error: %w", err)
 	}
 
+	var totalBalance, availableBalance float64
+	for _, wallet := range wallets {
+		if wallet.Type == "exchange" && wallet.Currency == a.quoteAsset {
+			totalBalance += wallet.Balance
+			availableBalance += wallet.BalanceAvailable
+		}
+	}
+
 	account := &Account{
-		TotalBalance:     accountInfo.TotalBalance,
-		AvailableBalance: accountInfo.TotalBalance,
-		UnrealizedPnL:    0,
-		MarginBalance:    accountInfo.TotalBalance,
+		TotalBalance:     totalBalance,
+		AvailableBalance: availableBalance,
+		MarginBalance:    totalBalance,
 	}
 
 	return account, nil
@@ -229,13 +227,17 @@ func (a *Adapter) GetAccount(ctx context.Context) (*Account, error) {
 
 // GetPositions 获取持仓信息
 func (a *Adapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
-	positions, err := a.client.GetPositionInfo(ctx)
+	positions, err := a.client.GetPositions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get positions error: %w", err)
 	}
 
 	result := make([]*Position, 0, len(positions))
 	for _, pos := range positions {
+		if pos.Symbol != a.symbol {
+			continue
+		}
+
 		side := "LONG"
 		size := pos.Amount
 		if pos.Amount < 0 {
@@ -259,12 +261,18 @@ func (a *Adapter) GetPositions(ctx context.Context, symbol string) ([]*Position,
 
 // GetBalance 获取余额
 func (a *Adapter) GetBalance(ctx context.Context, asset string) (float64, error) {
-	accountInfo, err := a.client.GetAccountInfo(ctx)
+	wallets, err := a.client.GetWallets(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("get balance error: %w", err)
 	}
 
-	return accountInfo.TotalBalance, nil
+	for _, wallet := range wallets {
+		if wallet.Type == "exchange" && wallet.Currency == asset {
+			return wallet.BalanceAvailable, nil
+		}
+	}
+
+	return 0, nil
 }
 
 // StartOrderStream 启动订单流
@@ -293,16 +301,12 @@ func (a *Adapter) StopOrderStream() error {
 
 // GetLatestPrice 获取最新价格
 func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	positions, err := a.client.GetPositionInfo(ctx)
+	ticker, err := a.client.GetTicker(ctx, a.symbol)
 	if err != nil {
 		return 0, fmt.Errorf("get latest price error: %w", err)
 	}
 
-	if len(positions) > 0 {
-		return positions[0].BasePrice, nil
-	}
-
-	return 0, fmt.Errorf("no position found")
+	return ticker.LastPrice, nil
 }
 
 // StartPriceStream 启动价格流
@@ -344,8 +348,8 @@ func (a *Adapter) StopKlineStream() error {
 
 // GetHistoricalKlines 获取历史K线数据
 func (a *Adapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*BitfinexCandle, error) {
-	resolution := convertIntervalToResolution(interval)
-	candles, err := a.client.GetHistoricalKlines(ctx, a.symbol, resolution, limit)
+	timeframe := convertIntervalToTimeframe(interval)
+	candles, err := a.client.GetCandles(ctx, a.symbol, timeframe, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get historical klines error: %w", err)
 	}
@@ -353,13 +357,15 @@ func (a *Adapter) GetHistoricalKlines(ctx context.Context, symbol string, interv
 	result := make([]*BitfinexCandle, 0, len(candles))
 	for _, candle := range candles {
 		result = append(result, &BitfinexCandle{
-			OpenTime:  candle.Time,
+			Symbol:    a.symbol,
 			Open:      candle.Open,
 			High:      candle.High,
 			Low:       candle.Low,
 			Close:     candle.Close,
 			Volume:    candle.Volume,
-			CloseTime: candle.Time,
+			OpenTime:  candle.Timestamp,
+			CloseTime: candle.Timestamp,
+			IsClosed:  true,
 		})
 	}
 
@@ -388,32 +394,44 @@ func (a *Adapter) GetQuoteAsset() string {
 
 // GetFundingRate 获取资金费率
 func (a *Adapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
-	return a.client.GetFundingRate(ctx, a.symbol)
+	// Bitfinex 现货交易没有资金费率
+	return 0, nil
 }
 
 // convertToOrder 将 Bitfinex 订单转换为通用订单
 func (a *Adapter) convertToOrder(orderInfo *OrderInfo) *Order {
-	status := orderInfo.Status
-	if status == "" {
-		status = "NEW"
+	side := "BUY"
+	quantity := orderInfo.Amount
+	if orderInfo.Amount < 0 {
+		side = "SELL"
+		quantity = -orderInfo.Amount
+	}
+
+	executedQty := orderInfo.AmountOrig - math.Abs(orderInfo.Amount)
+
+	status := string(OrderStatusNew)
+	if executedQty > 0 && executedQty < orderInfo.AmountOrig {
+		status = string(OrderStatusPartiallyFilled)
+	} else if executedQty >= orderInfo.AmountOrig {
+		status = string(OrderStatusFilled)
 	}
 
 	return &Order{
-		OrderID:       orderInfo.OrderID,
-		ClientOrderID: "",
+		OrderID:       orderInfo.ID,
+		ClientOrderID: orderInfo.CID,
 		Symbol:        orderInfo.Symbol,
-		Side:          "BUY",
-		Type:          "LIMIT",
-		Price:         orderInfo.Price,
-		Quantity:      orderInfo.Amount,
-		ExecutedQty:   0,
+		Side:          side,
+		Type:          orderInfo.Type,
+		Quantity:      quantity,
+		ExecutedQty:   executedQty,
 		Status:        status,
-		CreatedAt:     time.Now(),
+		CreatedAt:     time.Unix(0, orderInfo.MTSCreate*int64(time.Millisecond)),
+		UpdateTime:    orderInfo.MTSUpdate,
 	}
 }
 
-// convertIntervalToResolution 将时间间隔转换为 Bitfinex 的 resolution
-func convertIntervalToResolution(interval string) string {
+// convertIntervalToTimeframe 将时间间隔转换为 Bitfinex 时间框架
+func convertIntervalToTimeframe(interval string) string {
 	switch interval {
 	case "1m":
 		return "1m"
@@ -425,16 +443,21 @@ func convertIntervalToResolution(interval string) string {
 		return "30m"
 	case "1h":
 		return "1h"
-	case "4h":
-		return "4h"
+	case "3h":
+		return "3h"
+	case "6h":
+		return "6h"
 	case "12h":
 		return "12h"
 	case "1d":
-		return "1d"
+		return "1D"
 	case "1w":
-		return "1w"
+		return "7D"
+	case "2w":
+		return "14D"
+	case "1M":
+		return "1M"
 	default:
 		return "1h" // 默认 1 小时
 	}
 }
-

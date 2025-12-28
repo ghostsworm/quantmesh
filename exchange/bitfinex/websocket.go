@@ -2,9 +2,12 @@ package bitfinex
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,7 +16,7 @@ import (
 )
 
 const (
-	BitfinexWSURL = "wss://futures.bitfinex.com/ws/v1"
+	BitfinexWSURL = "wss://api.bitfinex.com/ws/2"
 )
 
 // WebSocketManager Bitfinex WebSocket 管理器
@@ -26,6 +29,7 @@ type WebSocketManager struct {
 	mu             sync.RWMutex
 	stopChan       chan struct{}
 	reconnectDelay time.Duration
+	channelMap     map[int]string // chanID -> channel type
 }
 
 // NewWebSocketManager 创建 WebSocket 管理器
@@ -35,6 +39,7 @@ func NewWebSocketManager(client *BitfinexClient, symbol string) (*WebSocketManag
 		symbol:         symbol,
 		reconnectDelay: 5 * time.Second,
 		stopChan:       make(chan struct{}),
+		channelMap:     make(map[int]string),
 	}, nil
 }
 
@@ -53,24 +58,13 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 
 	logger.Info("Bitfinex WebSocket connected: %s", BitfinexWSURL)
 
-	// 认证（如果需要私有频道）
-	// Bitfinex 使用 challenge-response 认证机制
-	// 这里简化处理，实际需要实现完整的认证流程
-
-	// 订阅订单更新
-	subscribeMsg := map[string]interface{}{
-		"event": "subscribe",
-		"feed":  "fills",
+	// 认证
+	if err := w.authenticate(); err != nil {
+		return fmt.Errorf("authenticate error: %w", err)
 	}
-	if err := conn.WriteJSON(subscribeMsg); err != nil {
-		return fmt.Errorf("subscribe order stream error: %w", err)
-	}
-
-	logger.Info("Bitfinex subscribed to order stream")
 
 	// 启动消息处理
 	go w.handleMessages(ctx)
-	go w.ping(ctx)
 
 	return nil
 }
@@ -81,9 +75,9 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(f
 	w.priceCallback = callback
 	w.mu.Unlock()
 
-	// 如果已经连接，直接订阅价格流
+	// 如果已经连接，订阅 ticker
 	if w.conn != nil {
-		return w.subscribePriceStream()
+		return w.subscribeTicker()
 	}
 
 	// 连接 WebSocket
@@ -95,30 +89,55 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(f
 
 	logger.Info("Bitfinex WebSocket connected for price stream: %s", BitfinexWSURL)
 
-	// 订阅价格流
-	if err := w.subscribePriceStream(); err != nil {
+	// 订阅 ticker
+	if err := w.subscribeTicker(); err != nil {
 		return err
 	}
 
 	// 启动消息处理
 	go w.handleMessages(ctx)
-	go w.ping(ctx)
 
 	return nil
 }
 
-// subscribePriceStream 订阅价格流
-func (w *WebSocketManager) subscribePriceStream() error {
-	subscribeMsg := map[string]interface{}{
-		"event":        "subscribe",
-		"feed":         "ticker",
-		"product_ids":  []string{w.symbol},
+// authenticate Bitfinex WebSocket 认证
+func (w *WebSocketManager) authenticate() error {
+	nonce := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	authPayload := "AUTH" + nonce
+	
+	h := hmac.New(sha512.New384, []byte(w.client.secretKey))
+	h.Write([]byte(authPayload))
+	signature := hex.EncodeToString(h.Sum(nil))
+	
+	authMsg := map[string]interface{}{
+		"event":       "auth",
+		"apiKey":      w.client.apiKey,
+		"authSig":     signature,
+		"authNonce":   nonce,
+		"authPayload": authPayload,
 	}
-	if err := w.conn.WriteJSON(subscribeMsg); err != nil {
-		return fmt.Errorf("subscribe price stream error: %w", err)
+	
+	if err := w.conn.WriteJSON(authMsg); err != nil {
+		return fmt.Errorf("send auth message error: %w", err)
 	}
+	
+	logger.Info("Bitfinex WebSocket authentication sent")
+	return nil
+}
 
-	logger.Info("Bitfinex subscribed to price stream: %s", w.symbol)
+// subscribeTicker 订阅 ticker
+func (w *WebSocketManager) subscribeTicker() error {
+	subscribeMsg := map[string]interface{}{
+		"event":   "subscribe",
+		"channel": "ticker",
+		"symbol":  "t" + w.symbol,
+	}
+	
+	if err := w.conn.WriteJSON(subscribeMsg); err != nil {
+		return fmt.Errorf("subscribe ticker error: %w", err)
+	}
+	
+	logger.Info("Bitfinex subscribed to ticker: %s", w.symbol)
 	return nil
 }
 
@@ -151,133 +170,157 @@ func (w *WebSocketManager) handleMessages(ctx context.Context) {
 
 // processMessage 处理消息
 func (w *WebSocketManager) processMessage(message []byte) {
-	var baseMsg struct {
-		Event string          `json:"event"`
-		Feed  string          `json:"feed"`
-		Data  json.RawMessage `json:"data"`
-	}
-
-	if err := json.Unmarshal(message, &baseMsg); err != nil {
-		logger.Error("Bitfinex unmarshal message error: %v, message: %s", err, string(message))
+	// Bitfinex WebSocket 消息格式：
+	// 1. 事件消息：{"event": "...", ...}
+	// 2. 数据消息：[CHANNEL_ID, DATA]
+	
+	// 尝试解析为事件消息
+	var eventMsg map[string]interface{}
+	if err := json.Unmarshal(message, &eventMsg); err == nil {
+		w.handleEventMessage(eventMsg)
 		return
 	}
+	
+	// 尝试解析为数据消息
+	var dataMsg []interface{}
+	if err := json.Unmarshal(message, &dataMsg); err == nil {
+		w.handleDataMessage(dataMsg)
+		return
+	}
+	
+	logger.Warn("Bitfinex unknown message format: %s", string(message))
+}
 
-	// 处理不同类型的消息
-	switch baseMsg.Event {
+// handleEventMessage 处理事件消息
+func (w *WebSocketManager) handleEventMessage(msg map[string]interface{}) {
+	event, ok := msg["event"].(string)
+	if !ok {
+		return
+	}
+	
+	switch event {
 	case "info":
-		logger.Info("Bitfinex WebSocket info message received")
+		logger.Info("Bitfinex WebSocket info: %v", msg)
+	case "auth":
+		status, _ := msg["status"].(string)
+		if status == "OK" {
+			logger.Info("Bitfinex WebSocket authenticated successfully")
+		} else {
+			logger.Error("Bitfinex WebSocket authentication failed: %v", msg)
+		}
 	case "subscribed":
-		logger.Info("Bitfinex WebSocket subscription confirmed: %s", baseMsg.Feed)
-	case "heartbeat":
-		// 心跳响应
-	default:
-		// 数据消息
-		w.handleDataMessage(baseMsg.Feed, message)
+		// 订阅成功，记录 channel ID
+		chanID, _ := msg["chanId"].(float64)
+		channel, _ := msg["channel"].(string)
+		w.mu.Lock()
+		w.channelMap[int(chanID)] = channel
+		w.mu.Unlock()
+		logger.Info("Bitfinex subscribed to %s, chanID: %d", channel, int(chanID))
+	case "unsubscribed":
+		chanID, _ := msg["chanId"].(float64)
+		logger.Info("Bitfinex unsubscribed from chanID: %d", int(chanID))
+	case "error":
+		logger.Error("Bitfinex WebSocket error: %v", msg)
 	}
 }
 
 // handleDataMessage 处理数据消息
-func (w *WebSocketManager) handleDataMessage(feed string, message []byte) {
-	// 订单更新
-	if strings.Contains(feed, "fills") {
-		w.handleOrderUpdate(message)
+func (w *WebSocketManager) handleDataMessage(msg []interface{}) {
+	if len(msg) < 2 {
 		return
 	}
-
-	// 价格更新
-	if strings.Contains(feed, "ticker") {
-		w.handlePriceUpdate(message)
+	
+	chanID, ok := msg[0].(float64)
+	if !ok {
 		return
+	}
+	
+	// 检查是否是心跳消息
+	if hb, ok := msg[1].(string); ok && hb == "hb" {
+		return
+	}
+	
+	// 获取 channel 类型
+	w.mu.RLock()
+	channelType := w.channelMap[int(chanID)]
+	w.mu.RUnlock()
+	
+	switch channelType {
+	case "ticker":
+		w.handleTickerData(msg[1])
+	default:
+		// 认证频道的消息
+		w.handleAuthChannelData(msg)
+	}
+}
+
+// handleTickerData 处理 ticker 数据
+func (w *WebSocketManager) handleTickerData(data interface{}) {
+	w.mu.RLock()
+	callback := w.priceCallback
+	w.mu.RUnlock()
+	
+	if callback == nil {
+		return
+	}
+	
+	// Ticker 格式：[BID, BID_SIZE, ASK, ASK_SIZE, DAILY_CHANGE, DAILY_CHANGE_RELATIVE, LAST_PRICE, ...]
+	tickerArray, ok := data.([]interface{})
+	if !ok || len(tickerArray) < 7 {
+		return
+	}
+	
+	lastPrice, ok := tickerArray[6].(float64)
+	if !ok {
+		return
+	}
+	
+	callback(lastPrice)
+}
+
+// handleAuthChannelData 处理认证频道数据
+func (w *WebSocketManager) handleAuthChannelData(msg []interface{}) {
+	if len(msg) < 2 {
+		return
+	}
+	
+	// 订单更新格式：[0, "on", [ORDER_DATA]]
+	// 订单取消格式：[0, "oc", [ORDER_DATA]]
+	// 订单执行格式：[0, "ou", [ORDER_DATA]]
+	
+	msgType, ok := msg[1].(string)
+	if !ok {
+		return
+	}
+	
+	switch msgType {
+	case "on", "ou", "oc": // order new, order update, order cancel
+		w.handleOrderUpdate(msg)
 	}
 }
 
 // handleOrderUpdate 处理订单更新
-func (w *WebSocketManager) handleOrderUpdate(message []byte) {
+func (w *WebSocketManager) handleOrderUpdate(msg []interface{}) {
 	w.mu.RLock()
 	callback := w.orderCallback
 	w.mu.RUnlock()
-
+	
 	if callback == nil {
 		return
 	}
-
-	var orderUpdate struct {
-		Feed string `json:"feed"`
-		Data []struct {
-			OrderID    string  `json:"order_id"`
-			CliOrdId   string  `json:"cliOrdId"`
-			Symbol     string  `json:"instrument"`
-			Side       string  `json:"side"`
-			Quantity   int     `json:"qty"`
-			Filled     int     `json:"filled"`
-			Price      float64 `json:"price"`
-			FillTime   string  `json:"fillTime"`
-		} `json:"fills"`
-	}
-
-	if err := json.Unmarshal(message, &orderUpdate); err != nil {
-		logger.Error("Bitfinex unmarshal order update error: %v", err)
+	
+	if len(msg) < 3 {
 		return
 	}
-
-	for _, fill := range orderUpdate.Data {
-		logger.Info("Bitfinex order update: %s, filled: %d/%d", fill.OrderID, fill.Filled, fill.Quantity)
-		callback(fill)
-	}
-}
-
-// handlePriceUpdate 处理价格更新
-func (w *WebSocketManager) handlePriceUpdate(message []byte) {
-	w.mu.RLock()
-	callback := w.priceCallback
-	w.mu.RUnlock()
-
-	if callback == nil {
+	
+	orderData, ok := msg[2].([]interface{})
+	if !ok {
 		return
 	}
-
-	var priceUpdate struct {
-		Feed   string `json:"feed"`
-		Symbol string `json:"product_id"`
-		Time   int64  `json:"time"`
-		Bid    float64 `json:"bid"`
-		Ask    float64 `json:"ask"`
-		Last   float64 `json:"last"`
-		Volume float64 `json:"volume"`
-	}
-
-	if err := json.Unmarshal(message, &priceUpdate); err != nil {
-		logger.Error("Bitfinex unmarshal price update error: %v", err)
-		return
-	}
-
-	// 使用最新成交价
-	if priceUpdate.Last > 0 {
-		callback(priceUpdate.Last)
-	}
-}
-
-// ping 发送心跳
-func (w *WebSocketManager) ping(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-w.stopChan:
-			return
-		case <-ticker.C:
-			pingMsg := map[string]interface{}{
-				"event": "ping",
-			}
-			if err := w.conn.WriteJSON(pingMsg); err != nil {
-				logger.Error("Bitfinex send ping error: %v", err)
-				return
-			}
-		}
-	}
+	
+	order := parseOrderArray(orderData)
+	logger.Info("Bitfinex order update: %s, type: %s, amount: %.8f", order.ID, msg[1], order.Amount)
+	callback(order)
 }
 
 // reconnect 重连
