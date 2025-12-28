@@ -1,0 +1,254 @@
+app:
+    current_exchange: binance
+exchanges:
+    binance:
+        api_key: test_key
+        secret_key: test_secret
+        passphrase: ""
+        fee_rate: 0.0002
+        testnet: false
+trading:
+    symbol: BTCUSDT
+    price_interval: 100
+    order_quantity: 100
+    min_order_value: 20
+    buy_window_size: 10
+    sell_window_size: 10
+    reconcile_interval: 60
+    order_cleanup_threshold: 50
+    cleanup_batch_size: 10
+    margin_lock_duration_seconds: 10
+    position_safety_check: 100
+    symbols:
+        - exchange: binance
+          symbol: BTCUSDT
+          price_interval: 100
+          order_quantity: 100
+          min_order_value: 20
+          buy_window_size: 10
+          sell_window_size: 10
+          reconcile_interval: 60
+          order_cleanup_threshold: 50
+          cleanup_batch_size: 10
+          margin_lock_duration_seconds: 10
+          position_safety_check: 100
+    dynamic_adjustment:
+        enabled: false
+        price_interval:
+            enabled: false
+            min: 0
+            max: 0
+            volatility_window: 0
+            volatility_threshold: 0
+            adjustment_step: 0
+            check_interval: 0
+        window_size:
+            enabled: false
+            buy_window:
+                min: 0
+                max: 0
+            sell_window:
+                min: 0
+                max: 0
+            utilization_threshold: 0
+            adjustment_step: 0
+            check_interval: 0
+        order_quantity:
+            enabled: false
+            min: 0
+            max: 0
+            frequency_threshold: 0
+            adjustment_step: 0
+    smart_position:
+        enabled: false
+        trend_detection:
+            enabled: false
+            window: 0
+            method: ""
+            short_period: 0
+            long_period: 0
+            check_interval: 0
+        window_adjustment:
+            enabled: false
+            max_adjustment: 0
+            adjustment_step: 0
+            min_buy_window: 0
+            min_sell_window: 0
+system:
+    log_level: ""
+    timezone: Asia/Shanghai
+    cancel_on_exit: false
+    close_positions_on_exit: false
+risk_control:
+    enabled: false
+    monitor_symbols:
+        - BTCUSDT
+        - ETHUSDT
+        - SOLUSDT
+        - XRPUSDT
+        - DOGEUSDT
+    interval: 1m
+    volume_multiplier: 3
+    average_window: 20
+    recovery_threshold: 3
+    max_leverage: 0
+timing:
+    websocket_reconnect_delay: 5
+    websocket_write_wait: 10
+    websocket_pong_wait: 60
+    websocket_ping_interval: 20
+    listen_key_keepalive_interval: 30
+    price_send_interval: 50
+    rate_limit_retry_delay: 1
+    order_retry_delay: 500
+    price_poll_interval: 500
+    status_print_interval: 1
+    order_cleanup_interval: 60
+notifications:
+    enabled: false
+    telegram:
+        enabled: false
+        bot_token: ""
+        chat_id: ""
+    webhook:
+        enabled: false
+        url: ""
+        timeout: 3
+    email:
+        enabled: false
+        provider: smtp
+        smtp:
+            host: ""
+            port: 0
+            username: ""
+            password: ""
+        resend:
+            api_key: ""
+        mailgun:
+            api_key: ""
+            domain: ""
+        from: ""
+        to: ""
+        subject: ""
+    rules:
+        order_placed: false
+        order_filled: false
+        risk_triggered: false
+        stop_loss: false
+        error: false
+storage:
+    enabled: false
+    type: sqlite
+    path: ./data/quantmesh.db
+    buffer_size: 1000
+    batch_size: 100
+    flush_interval: 5
+web:
+    enabled: false
+    host: 0.0.0.0
+    port: 28888
+    api_key: ""
+strategies:
+    enabled: false
+    capital_allocation:
+        mode: fixed
+        total_capital: 5000
+        fixed:
+            enabled: false
+            rebalance_on_start: false
+        dynamic:
+            enabled: false
+            rebalance_interval: 3600
+            max_change_per_rebalance: 0.05
+            min_weight: 0.1
+            max_weight: 0.7
+            performance_weights:
+                max_drawdown: 0.1
+                sharpe_ratio: 0.3
+                total_pnl: 0.4
+                win_rate: 0.2
+    configs: {}
+backtest:
+    enabled: false
+    start_time: ""
+    end_time: ""
+    initial_capital: 0
+metrics:
+    enabled: false
+    collect_interval: 60
+watchdog:
+    enabled: false
+    sampling:
+        interval: 0
+    retention:
+        detail_days: 0
+        daily_days: 0
+    notifications:
+        enabled: false
+        fixed_threshold:
+            enabled: false
+            cpu_percent: 0
+            memory_mb: 0
+        rate_threshold:
+            enabled: false
+            window_minutes: 0
+            cpu_increase: 0
+            memory_increase_mb: 0
+        cooldown_minutes: 0
+    aggregation:
+        enabled: false
+        schedule: ""
+ai:
+    enabled: false
+    provider: ""
+    api_key: ""
+    base_url: ""
+    modules:
+        market_analysis:
+            enabled: false
+            update_interval: 0
+        parameter_optimization:
+            enabled: false
+            optimization_interval: 0
+            auto_apply: false
+        risk_analysis:
+            enabled: false
+            analysis_interval: 0
+        sentiment_analysis:
+            enabled: false
+            analysis_interval: 0
+            data_sources:
+                news:
+                    enabled: false
+                    rss_feeds: []
+                    fetch_interval: 0
+                fear_greed_index:
+                    enabled: false
+                    api_url: ""
+                    fetch_interval: 0
+                social_media:
+                    enabled: false
+                    subreddits: []
+                    post_limit: 0
+        strategy_generation:
+            enabled: false
+        polymarket_signal:
+            enabled: false
+            analysis_interval: 0
+            api_url: ""
+            markets:
+                keywords: []
+                min_liquidity: 0
+                min_volume_24h: 0
+                min_days_to_expiry: 0
+                max_days_to_expiry: 0
+            signal_generation:
+                buy_threshold: 0
+                sell_threshold: 0
+                min_signal_strength: 0
+                min_confidence: 0
+    decision_mode: ""
+    execution_rules:
+        high_risk_threshold: 0
+        low_risk_threshold: 0
+        require_confirmation: false

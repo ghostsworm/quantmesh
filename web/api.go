@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,8 @@ var (
 	// 多交易对状态（key: exchange:symbol）
 	statusBySymbol = make(map[string]*SystemStatus)
 	defaultSymbolKey string
+	// 保护 statusBySymbol 的读写锁
+	statusMu sync.RWMutex
 )
 
 // SymbolScopedProviders 组合一个交易对的所有依赖
@@ -63,7 +66,13 @@ func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedPro
 		return
 	}
 	key := makeSymbolKey(exchange, symbol)
+	
+	// 使用写锁保护并发写入
+	statusMu.Lock()
 	statusBySymbol[key] = providers.Status
+	statusMu.Unlock()
+	
+	providersMu.Lock()
 	if providers.Price != nil {
 		priceProviders[key] = providers.Price
 	}
@@ -82,6 +91,7 @@ func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedPro
 	if providers.Funding != nil {
 		fundingProviders[key] = providers.Funding
 	}
+	providersMu.Unlock()
 }
 
 // RegisterFundingProvider 单独注册资金费率提供者
@@ -90,7 +100,11 @@ func RegisterFundingProvider(exchange, symbol string, provider FundingMonitorPro
 		return
 	}
 	key := makeSymbolKey(exchange, symbol)
+	
+	// 使用写锁保护并发写入
+	providersMu.Lock()
 	fundingProviders[key] = provider
+	providersMu.Unlock()
 }
 
 // SetDefaultSymbolKey 设置默认交易对（兼容旧接口）
@@ -116,11 +130,16 @@ var (
 	riskProviders     = make(map[string]RiskMonitorProvider)
 	storageProviders  = make(map[string]StorageServiceProvider)
 	fundingProviders  = make(map[string]FundingMonitorProvider)
+	// 保护所有 provider 映射的读写锁
+	providersMu sync.RWMutex
 )
 
 func pickStatus(c *gin.Context) *SystemStatus {
 	if key := resolveSymbolKey(c); key != "" {
-		if st, ok := statusBySymbol[key]; ok && st != nil {
+		statusMu.RLock()
+		st, ok := statusBySymbol[key]
+		statusMu.RUnlock()
+		if ok && st != nil {
 			return st
 		}
 	}
@@ -129,7 +148,10 @@ func pickStatus(c *gin.Context) *SystemStatus {
 
 func pickPriceProvider(c *gin.Context) PriceProvider {
 	if key := resolveSymbolKey(c); key != "" {
-		if p, ok := priceProviders[key]; ok && p != nil {
+		providersMu.RLock()
+		p, ok := priceProviders[key]
+		providersMu.RUnlock()
+		if ok && p != nil {
 			return p
 		}
 	}
@@ -138,7 +160,10 @@ func pickPriceProvider(c *gin.Context) PriceProvider {
 
 func pickExchangeProvider(c *gin.Context) ExchangeProvider {
 	if key := resolveSymbolKey(c); key != "" {
-		if p, ok := exchangeProviders[key]; ok && p != nil {
+		providersMu.RLock()
+		p, ok := exchangeProviders[key]
+		providersMu.RUnlock()
+		if ok && p != nil {
 			return p
 		}
 	}
@@ -147,7 +172,10 @@ func pickExchangeProvider(c *gin.Context) ExchangeProvider {
 
 func pickPositionProvider(c *gin.Context) PositionManagerProvider {
 	if key := resolveSymbolKey(c); key != "" {
-		if p, ok := positionProviders[key]; ok && p != nil {
+		providersMu.RLock()
+		p, ok := positionProviders[key]
+		providersMu.RUnlock()
+		if ok && p != nil {
 			return p
 		}
 	}
@@ -156,7 +184,10 @@ func pickPositionProvider(c *gin.Context) PositionManagerProvider {
 
 func pickRiskProvider(c *gin.Context) RiskMonitorProvider {
 	if key := resolveSymbolKey(c); key != "" {
-		if p, ok := riskProviders[key]; ok && p != nil {
+		providersMu.RLock()
+		p, ok := riskProviders[key]
+		providersMu.RUnlock()
+		if ok && p != nil {
 			return p
 		}
 	}
@@ -165,7 +196,10 @@ func pickRiskProvider(c *gin.Context) RiskMonitorProvider {
 
 func pickStorageProvider(c *gin.Context) StorageServiceProvider {
 	if key := resolveSymbolKey(c); key != "" {
-		if p, ok := storageProviders[key]; ok && p != nil {
+		providersMu.RLock()
+		p, ok := storageProviders[key]
+		providersMu.RUnlock()
+		if ok && p != nil {
 			return p
 		}
 	}
@@ -174,7 +208,10 @@ func pickStorageProvider(c *gin.Context) StorageServiceProvider {
 
 func pickFundingProvider(c *gin.Context) FundingMonitorProvider {
 	if key := resolveSymbolKey(c); key != "" {
-		if p, ok := fundingProviders[key]; ok && p != nil {
+		providersMu.RLock()
+		p, ok := fundingProviders[key]
+		providersMu.RUnlock()
+		if ok && p != nil {
 			return p
 		}
 	}
@@ -206,6 +243,8 @@ func getSymbols(c *gin.Context) {
 	activeList := make([]SymbolItem, 0)
 	inactiveList := make([]SymbolItem, 0)
 	
+	// 使用读锁保护遍历操作
+	statusMu.RLock()
 	for _, st := range statusBySymbol {
 		if st == nil {
 			continue
@@ -222,6 +261,7 @@ func getSymbols(c *gin.Context) {
 			inactiveList = append(inactiveList, item)
 		}
 	}
+	statusMu.RUnlock()
 	
 	// 活跃的交易对排在前面
 	list = append(list, activeList...)
@@ -244,12 +284,15 @@ func getSymbols(c *gin.Context) {
 func getExchanges(c *gin.Context) {
 	exchangeSet := make(map[string]bool)
 	
+	// 使用读锁保护遍历操作
+	statusMu.RLock()
 	for _, st := range statusBySymbol {
 		if st == nil {
 			continue
 		}
 		exchangeSet[st.Exchange] = true
 	}
+	statusMu.RUnlock()
 	
 	// 向后兼容
 	if len(exchangeSet) == 0 && currentStatus != nil {

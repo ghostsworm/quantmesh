@@ -1435,7 +1435,9 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 // PrintPositions 打印持仓状态（由 main.go 定期调用和退出时调用）
 // 注意：该方法内部使用 totalBuyQty 和 totalSellQty 统计数据
 func (spm *SuperPositionManager) PrintPositions() {
-	logger.Info("📊 ===== 当前持仓 =====")
+	// 从配置中获取交易对信息
+	symbol := spm.config.Trading.Symbol
+	logger.Info("📊 ===== 当前持仓 [%s] =====", symbol)
 	total := 0.0
 	count := 0
 
@@ -1501,23 +1503,23 @@ func (spm *SuperPositionManager) PrintPositions() {
 			statusIcon, priceStr, positionDesc, orderInfo, slotStatusInfo)
 	}
 
-	logger.Info("持仓统计: %.4f %s (%d 个槽位)", total, baseCurrency, count)
+	logger.Info("[%s] 持仓统计: %.4f %s (%d 个槽位)", spm.config.Trading.Symbol, total, baseCurrency, count)
 	totalBuyQty := spm.totalBuyQty.Load().(float64)
 	totalSellQty := spm.totalSellQty.Load().(float64)
 	// 预计盈利 = 累计卖出数量 × 价格间距（每笔盈利 = 价格间距 × 数量）
 	estimatedProfit := totalSellQty * spm.config.Trading.PriceInterval
-	logger.Info("累计买入: %.2f, 累计卖出: %.2f, 预计盈利: %.2f U",
-		totalBuyQty, totalSellQty, estimatedProfit)
+	logger.Info("[%s] 累计买入: %.2f, 累计卖出: %.2f, 预计盈利: %.2f U",
+		spm.config.Trading.Symbol, totalBuyQty, totalSellQty, estimatedProfit)
 
 	// === 新增：打印买单窗口详细信息 ===
-	logger.Info("🔍 ===== 买单窗口状态 =====")
+	logger.Info("🔍 ===== 买单窗口状态 [%s] =====", spm.config.Trading.Symbol)
 
 	// 获取最后的市场价格
 	lastPrice, ok := spm.lastMarketPrice.Load().(float64)
 	if !ok || lastPrice <= 0 {
 		lastPrice = spm.anchorPrice // 如果没有更新过，使用锚点价格
 	}
-	logger.Info("当前市场价格: %s", formatPrice(lastPrice, spm.priceDecimals))
+	logger.Info("[%s] 当前市场价格: %s", spm.config.Trading.Symbol, formatPrice(lastPrice, spm.priceDecimals))
 
 	// 收集所有槽位信息（包括买单和空槽位）
 	type slotInfo struct {
@@ -1557,7 +1559,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 
 	// 找到最接近当前价格的网格价格
 	currentGridPrice := spm.findNearestGridPrice(lastPrice)
-	logger.Info("当前网格价格: %s", formatPrice(currentGridPrice, spm.priceDecimals))
+	logger.Info("[%s] 当前网格价格: %s", spm.config.Trading.Symbol, formatPrice(currentGridPrice, spm.priceDecimals))
 
 	// 计算买单窗口范围（当前网格价格下方的买单窗口）
 	buyWindowSize := spm.config.Trading.BuyWindowSize
@@ -1570,7 +1572,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 	}
 
 	// 打印买单窗口内的所有槽位
-	logger.Info("买单窗口大小: %d 个槽位 (当前网格价格下方)", buyWindowSize)
+	logger.Info("[%s] 买单窗口大小: %d 个槽位 (当前网格价格下方)", spm.config.Trading.Symbol, buyWindowSize)
 	buyOrderCount := 0
 	emptySlotCount := 0
 	filledSlotCount := 0
@@ -1614,8 +1616,8 @@ func (spm *SuperPositionManager) PrintPositions() {
 		}
 	}
 
-	logger.Info("窗口统计: %d 个买单活跃, %d 个已持仓, %d 个空槽位",
-		buyOrderCount, filledSlotCount, emptySlotCount)
+	logger.Info("[%s] 窗口统计: %d 个买单活跃, %d 个已持仓, %d 个空槽位",
+		spm.config.Trading.Symbol, buyOrderCount, filledSlotCount, emptySlotCount)
 	logger.Info("==========================")
 }
 
