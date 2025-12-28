@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { ChakraProvider, Box, Flex, Heading, Button, Container, Link as ChakraLink, Spinner, Center, Select, Badge, Text } from '@chakra-ui/react'
+import { ChakraProvider, Box, Flex, Heading, Button, Container, Link as ChakraLink, Spinner, Center, Select, Badge, Text, HStack } from '@chakra-ui/react'
 import { Link as RouterLink } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
@@ -28,6 +28,7 @@ import MarketIntelligence from './components/MarketIntelligence'
 import AIAnalysis from './components/AIAnalysis'
 import AIPromptManager from './components/AIPromptManager'
 import Footer from './components/Footer'
+import Sidebar from './components/Sidebar'
 import { logout } from './services/auth'
 import { getSymbols, getFundingRateCurrent, SymbolInfo } from './services/api'
 import './App.css'
@@ -147,11 +148,16 @@ const AppContent: React.FC = () => {
         borderColor="gray.200"
         boxShadow="sm"
       >
-        <Container maxW="container.xl">
+        <Container maxW="full" px={6}>
           <Flex h="16" alignItems="center" justifyContent="space-between">
-            <Heading size="md" fontWeight="semibold" color="gray.800">
-              QuantMesh Market Maker
-            </Heading>
+            <HStack spacing={4}>
+              <Heading size="md" fontWeight="black" color="blue.600" letterSpacing="tight">
+                QuantMesh
+              </Heading>
+              <Badge colorScheme="blue" variant="outline" fontSize="xs">
+                Market Maker
+              </Badge>
+            </HStack>
             
             {/* Symbol Selector in Center */}
             <Box flex="1" display="flex" justifyContent="center">
@@ -160,9 +166,11 @@ const AppContent: React.FC = () => {
 
             {isAuthenticated && (
               <Button
+                variant="ghost"
                 colorScheme="red"
                 size="sm"
                 onClick={handleLogout}
+                fontWeight="medium"
               >
                 退出登录
               </Button>
@@ -171,80 +179,49 @@ const AppContent: React.FC = () => {
         </Container>
       </Box>
 
-      {/* Navigation - 只在非全局视图下显示 */}
-      {!isGlobalView && (
-        <Box
-          position="sticky"
-          top="64px"
-          zIndex={99}
-          bg="white"
-          borderBottom="1px"
-          borderColor="gray.200"
-          overflowX="auto"
-          css={{
-            '&::-webkit-scrollbar': {
-              display: 'none',
-            },
-            scrollbarWidth: 'none',
-          }}
+      <Flex flex="1" overflow="hidden">
+        {/* Sidebar */}
+        <Sidebar />
+
+        {/* Main Content */}
+        <Box 
+          flex="1" 
+          ml={{ base: 0, md: '240px' }} 
+          py={isGlobalView ? 0 : 6}
+          bg={isGlobalView ? 'gray.900' : 'gray.50'}
+          minH="calc(100vh - 64px)"
         >
-          <Container maxW="container.xl">
-            <Flex gap={1} py={2} alignItems="center">
-              <NavLink to="/">仪表盘</NavLink>
-              <NavLink to="/positions">持仓</NavLink>
-              <NavLink to="/orders">订单</NavLink>
-              <NavLink to="/slots">槽位</NavLink>
-              <NavLink to="/strategies">策略配比</NavLink>
-              <NavLink to="/statistics">统计</NavLink>
-              <NavLink to="/reconciliation">对账</NavLink>
-              <NavLink to="/risk">风控监控</NavLink>
-              <NavLink to="/system-monitor">系统监控</NavLink>
-              <NavLink to="/kline">K线图</NavLink>
-              <NavLink to="/funding-rate">资金费率</NavLink>
-              <NavLink to="/market-intelligence">市场情报</NavLink>
-              <NavLink to="/ai-analysis">AI分析</NavLink>
-              <NavLink to="/ai-prompts">AI提示词</NavLink>
-              <NavLink to="/logs">日志</NavLink>
-              <NavLink to="/config">配置</NavLink>
-              <NavLink to="/profile">个人资料</NavLink>
-            </Flex>
+          <Container maxW={isGlobalView ? "full" : "container.xl"} px={isGlobalView ? 0 : 6}>
+            <Routes>
+              <Route path="/" element={
+                <ProtectedRoute>
+                  {isGlobalView ? <GlobalDashboard /> : <Dashboard />}
+                </ProtectedRoute>
+              } />
+              <Route path="/positions" element={<ProtectedRoute><Positions /></ProtectedRoute>} />
+              <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
+              <Route path="/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
+              <Route path="/strategies" element={<ProtectedRoute><StrategyAllocation /></ProtectedRoute>} />
+              <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
+              <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
+              <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
+              <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
+              <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
+              <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
+              <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
+              <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
+              <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
+              <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
+              <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
+              <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/setup" element={<FirstTimeSetup />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
           </Container>
+          <Footer />
         </Box>
-      )}
-
-      {/* Main Content */}
-      <Box flex="1" py={isGlobalView ? 0 : 6}>
-        <Container maxW={isGlobalView ? "full" : "container.xl"} px={isGlobalView ? 0 : undefined}>
-          <Routes>
-            <Route path="/" element={
-              <ProtectedRoute>
-                {isGlobalView ? <GlobalDashboard /> : <Dashboard />}
-              </ProtectedRoute>
-            } />
-            <Route path="/positions" element={<ProtectedRoute><Positions /></ProtectedRoute>} />
-            <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
-            <Route path="/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
-            <Route path="/strategies" element={<ProtectedRoute><StrategyAllocation /></ProtectedRoute>} />
-            <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
-            <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
-            <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
-            <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
-            <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
-            <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
-            <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
-            <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
-            <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
-            <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
-            <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
-            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/setup" element={<FirstTimeSetup />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Container>
-      </Box>
-
-      <Footer />
+      </Flex>
     </Box>
   )
 }

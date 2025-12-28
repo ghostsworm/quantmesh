@@ -68,8 +68,12 @@ func parseSymbol(symbol string) (string, string) {
 		base := strings.TrimSuffix(symbol, "USD")
 		return base, "USD"
 	}
-	// 默认返回
-	return symbol[:3], symbol[3:]
+	// 确保长度足够，避免切片越界
+	if len(symbol) >= 6 {
+		return symbol[:3], symbol[3:]
+	}
+	// 对于长度不足的符号，返回原符号和空报价资产
+	return symbol, ""
 }
 
 // GetName 获取交易所名称

@@ -84,29 +84,26 @@ const SymbolSelector: React.FC = () => {
   }
 
   return (
-    <Flex align="center" gap={4}>
+    <Flex align="center" gap={3}>
       <Button
-        size="sm"
-        variant={isGlobalView ? 'solid' : 'outline'}
+        size="xs"
+        variant={isGlobalView ? 'solid' : 'ghost'}
         colorScheme="blue"
         onClick={clearSelection}
+        leftIcon={<span>🌐</span>}
       >
         全局概览
       </Button>
 
-      <Flex align="center" gap={2}>
-        <Text fontSize="sm" fontWeight="medium" whiteSpace="nowrap" color="gray.700">
-          交易所:
-        </Text>
+      <Flex align="center" gap={1}>
         <Select
-          size="sm"
-          w="150px"
+          size="xs"
+          w="110px"
           value={selectedExchange || ''}
           onChange={handleExchangeChange}
           placeholder="选择交易所"
-          bg="white"
-          color="gray.800"
-          borderColor="gray.300"
+          variant="filled"
+          borderRadius="md"
         >
           {exchanges.map((ex) => (
             <option key={ex} value={ex}>
@@ -116,35 +113,31 @@ const SymbolSelector: React.FC = () => {
         </Select>
       </Flex>
 
-      <Flex align="center" gap={2}>
-        <Text fontSize="sm" fontWeight="medium" whiteSpace="nowrap" color="gray.700">
-          交易对:
-        </Text>
+      <Flex align="center" gap={1}>
         <Select
-          size="sm"
-          w="180px"
+          size="xs"
+          w="140px"
           value={selectedSymbol || ''}
           onChange={handleSymbolChange}
           placeholder="选择交易对"
           isDisabled={!selectedExchange}
-          bg="white"
-          color="gray.800"
-          borderColor="gray.300"
+          variant="filled"
+          borderRadius="md"
         >
           {activeSymbols.length > 0 && (
-            <optgroup label="━━ 运行中 ━━">
+            <optgroup label="运行中">
               {activeSymbols.map((sym) => (
                 <option key={sym.symbol} value={sym.symbol}>
-                  ● {sym.symbol}
+                  🟢 {sym.symbol}
                 </option>
               ))}
             </optgroup>
           )}
           {inactiveSymbols.length > 0 && (
-            <optgroup label="━━ 未运行 ━━">
+            <optgroup label="未运行">
               {inactiveSymbols.map((sym) => (
                 <option key={sym.symbol} value={sym.symbol}>
-                  ○ {sym.symbol}
+                  ⚪ {sym.symbol}
                 </option>
               ))}
             </optgroup>
