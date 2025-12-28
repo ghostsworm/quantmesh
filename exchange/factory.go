@@ -7,6 +7,7 @@ import (
 	"quantmesh/exchange/bitget"
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/gate"
+	"quantmesh/exchange/huobi"
 	"quantmesh/exchange/okx"
 )
 
@@ -104,7 +105,19 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 		return &bybitWrapper{adapter: adapter}, nil
 
 	case "huobi":
-		return nil, fmt.Errorf("Huobi (HTX) 开发中，预计第3周完成")
+		exchangeCfg, exists := cfg.Exchanges["huobi"]
+		if !exists {
+			return nil, fmt.Errorf("huobi 配置不存在")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+		}
+		adapter, err := huobi.NewHuobiAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &huobiWrapper{adapter: adapter}, nil
 
 	case "kucoin":
 		return nil, fmt.Errorf("KuCoin 开发中，预计第4周完成")

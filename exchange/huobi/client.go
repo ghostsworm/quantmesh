@@ -2,7 +2,6 @@ package huobi
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -314,8 +313,8 @@ func (c *HuobiClient) GetAccountInfo(ctx context.Context, symbol string) ([]Acco
 	return accounts, nil
 }
 
-// PositionInfo 持仓信息
-type PositionInfo struct {
+// HuobiPositionInfo 持仓信息
+type HuobiPositionInfo struct {
 	Symbol         string  `json:"symbol"`
 	ContractCode   string  `json:"contract_code"`
 	Volume         float64 `json:"volume"`
@@ -328,7 +327,7 @@ type PositionInfo struct {
 }
 
 // GetPositionInfo 获取持仓信息
-func (c *HuobiClient) GetPositionInfo(ctx context.Context, symbol string) ([]PositionInfo, error) {
+func (c *HuobiClient) GetPositionInfo(ctx context.Context, symbol string) ([]HuobiPositionInfo, error) {
 	body := map[string]interface{}{}
 	if symbol != "" {
 		body["contract_code"] = symbol
@@ -339,7 +338,7 @@ func (c *HuobiClient) GetPositionInfo(ctx context.Context, symbol string) ([]Pos
 		return nil, err
 	}
 
-	var positions []PositionInfo
+	var positions []HuobiPositionInfo
 	if err := json.Unmarshal(data, &positions); err != nil {
 		return nil, fmt.Errorf("解析持仓信息失败: %w", err)
 	}
@@ -407,17 +406,6 @@ func (c *HuobiClient) GetFundingRate(ctx context.Context, symbol string) (*Fundi
 	}
 
 	return &rate, nil
-}
-
-// decompressGzip 解压 gzip 数据
-func decompressGzip(data []byte) ([]byte, error) {
-	reader, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	return io.ReadAll(reader)
 }
 
 func init() {
