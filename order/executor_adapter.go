@@ -3,8 +3,11 @@ package order
 import (
 	"context"
 	"fmt"
+	"math"
 	"quantmesh/exchange"
+	"quantmesh/lock"
 	"quantmesh/logger"
+	"quantmesh/metrics"
 	"strings"
 	"time"
 
@@ -40,6 +43,7 @@ type ExchangeOrderExecutor struct {
 	exchange    exchange.IExchange
 	symbol      string
 	rateLimiter *rate.Limiter
+	lock        lock.DistributedLock // 分布式锁
 
 	// 时间配置
 	rateLimitRetryDelay time.Duration
@@ -47,11 +51,12 @@ type ExchangeOrderExecutor struct {
 }
 
 // NewExchangeOrderExecutor 创建基于交易所接口的订单执行器
-func NewExchangeOrderExecutor(ex exchange.IExchange, symbol string, rateLimitRetryDelay, orderRetryDelay int) *ExchangeOrderExecutor {
+func NewExchangeOrderExecutor(ex exchange.IExchange, symbol string, rateLimitRetryDelay, orderRetryDelay int, distributedLock lock.DistributedLock) *ExchangeOrderExecutor {
 	return &ExchangeOrderExecutor{
 		exchange:            ex,
 		symbol:              symbol,
 		rateLimiter:         rate.NewLimiter(rate.Limit(25), 30), // 25单/秒，突发30
+		lock:                distributedLock,
 		rateLimitRetryDelay: time.Duration(rateLimitRetryDelay) * time.Second,
 		orderRetryDelay:     time.Duration(orderRetryDelay) * time.Millisecond,
 	}
@@ -85,6 +90,34 @@ func isReduceOnlyError(err error) bool {
 
 // PlaceOrder 下单（带重试）
 func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
+	startTime := time.Now()
+	pm := metrics.GetPrometheusMetrics()
+	exchangeName := oe.exchange.GetName()
+
+	// 分布式锁：防止多实例对同一价格位重复下单
+	// 使用价格区间锁（中粒度）：每10个价格间隔一个锁
+	priceLevel := math.Floor(req.Price/10) * 10
+	lockKey := fmt.Sprintf("order:%s:%s:%.0f", exchangeName, req.Symbol, priceLevel)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	acquired, err := oe.lock.TryLock(ctx, lockKey, 5*time.Second)
+	if err != nil {
+		logger.Warn("⚠️ [%s] 获取锁失败: %v", exchangeName, err)
+		// 锁获取失败不阻塞，继续执行（降级策略）
+	} else if !acquired {
+		logger.Debug("🔒 [%s] 价格位 %.2f 已被其他实例锁定，跳过", exchangeName, req.Price)
+		return nil, nil // 返回 nil 表示跳过，不是错误
+	} else {
+		// 成功获取锁，defer 释放
+		defer func() {
+			if unlockErr := oe.lock.Unlock(ctx, lockKey); unlockErr != nil {
+				logger.Warn("⚠️ [%s] 释放锁失败: %v", exchangeName, unlockErr)
+			}
+		}()
+	}
+
 	// 限流
 	if err := oe.rateLimiter.Wait(context.Background()); err != nil {
 		return nil, fmt.Errorf("速率限制等待失败: %v", err)
@@ -133,6 +166,11 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 				CreatedAt:     time.Now(),
 			}
 
+			// 记录 Prometheus 指标
+			duration := time.Since(startTime)
+			pm.RecordOrder(exchangeName, req.Symbol, req.Side, string(exchangeOrder.Status))
+			pm.RecordOrderSuccess(exchangeName, req.Symbol, req.Side, duration)
+
 			// 根据实际使用的订单类型显示日志
 			orderTypeDesc := "PostOnly"
 			if !exchangeReq.PostOnly {
@@ -153,6 +191,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			return nil, fmt.Errorf("持仓模式不匹配: %w", err)
 		} else if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "rate limit") {
 			// 速率限制，等待后重试
+			pm.RecordAPIRateLimitHit(exchangeName)
 			logger.Warn("⚠️ 触发速率限制，等待后重试...")
 			time.Sleep(oe.rateLimitRetryDelay)
 			continue
@@ -192,6 +231,8 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		}
 	}
 
+	// 记录失败指标
+	pm.RecordOrderFailure(exchangeName, req.Symbol, req.Side, "max_retries_exceeded")
 	return nil, fmt.Errorf("下单失败（重试%d次）: %w", maxRetries, lastErr)
 }
 
@@ -243,12 +284,36 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 
 // CancelOrder 取消订单
 func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
+	exchangeName := oe.exchange.GetName()
+	
+	// 分布式锁：防止多实例同时取消同一订单
+	lockKey := fmt.Sprintf("cancel:%s:%d", exchangeName, orderID)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	
+	acquired, err := oe.lock.TryLock(ctx, lockKey, 3*time.Second)
+	if err != nil {
+		logger.Warn("⚠️ [%s] 获取取消锁失败: %v", exchangeName, err)
+		// 锁获取失败不阻塞，继续执行（降级策略）
+	} else if !acquired {
+		logger.Debug("🔒 [%s] 订单 %d 正在被其他实例取消，跳过", exchangeName, orderID)
+		return nil // 跳过，不是错误
+	} else {
+		// 成功获取锁，defer 释放
+		defer func() {
+			if unlockErr := oe.lock.Unlock(ctx, lockKey); unlockErr != nil {
+				logger.Warn("⚠️ [%s] 释放取消锁失败: %v", exchangeName, unlockErr)
+			}
+		}()
+	}
+	
 	// 限流
 	if err := oe.rateLimiter.Wait(context.Background()); err != nil {
 		return fmt.Errorf("速率限制等待失败: %v", err)
 	}
 
-	err := oe.exchange.CancelOrder(context.Background(), oe.symbol, orderID)
+	err = oe.exchange.CancelOrder(context.Background(), oe.symbol, orderID)
 	if err != nil {
 		// 如果是"Unknown order"错误，说明订单已经不存在（可能已成交或已取消），不算错误
 		errStr := err.Error()

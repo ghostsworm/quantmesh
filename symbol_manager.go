@@ -9,6 +9,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/event"
+	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/monitor"
 	"quantmesh/order"
@@ -95,6 +96,7 @@ func startSymbolRuntime(
 	symCfg config.SymbolConfig,
 	eventBus *event.EventBus,
 	storageService *storage.StorageService,
+	distributedLock lock.DistributedLock,
 ) (*SymbolRuntime, error) {
 	// 为该交易对构造局部配置（避免修改全局 cfg）
 	localCfg := *baseCfg
@@ -199,6 +201,7 @@ func startSymbolRuntime(
 		symCfg.Symbol,
 		localCfg.Timing.RateLimitRetryDelay,
 		localCfg.Timing.OrderRetryDelay,
+		distributedLock,
 	)
 	executorAdapter := &exchangeExecutorAdapter{
 		executor: exchangeExecutor,
@@ -218,7 +221,7 @@ func startSymbolRuntime(
 		riskMonitor.SetStorage(storageService.GetStorage())
 	}
 
-	reconciler := safety.NewReconciler(&localCfg, exchangeAdapter, superPositionManager)
+	reconciler := safety.NewReconciler(&localCfg, exchangeAdapter, superPositionManager, distributedLock)
 	reconciler.SetPauseChecker(func() bool {
 		return riskMonitor.IsTriggered()
 	})

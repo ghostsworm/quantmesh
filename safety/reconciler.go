@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"quantmesh/config"
+	"quantmesh/lock"
 	"quantmesh/logger"
 	"reflect"
 	"time"
@@ -58,14 +59,16 @@ type Reconciler struct {
 	pm           IPositionManager
 	pauseChecker func() bool
 	storage      ReconciliationStorage // 可选的存储服务
+	lock         lock.DistributedLock  // 分布式锁
 }
 
 // NewReconciler 创建对账器
-func NewReconciler(cfg *config.Config, exchange IExchange, pm IPositionManager) *Reconciler {
+func NewReconciler(cfg *config.Config, exchange IExchange, pm IPositionManager, distributedLock lock.DistributedLock) *Reconciler {
 	return &Reconciler{
 		cfg:      cfg,
 		exchange: exchange,
 		pm:       pm,
+		lock:     distributedLock,
 	}
 }
 
@@ -111,9 +114,34 @@ func (r *Reconciler) Reconcile() error {
 		return nil
 	}
 
-	logger.Debugln("🔍 ===== 开始持仓对账 =====")
-
 	symbol := r.pm.GetSymbol()
+	exchangeName := "unknown"
+	if r.exchange != nil {
+		// 尝试获取交易所名称（如果接口支持）
+		if named, ok := r.exchange.(interface{ GetName() string }); ok {
+			exchangeName = named.GetName()
+		}
+	}
+
+	// 分布式锁：防止多实例同时对账造成数据不一致
+	lockKey := fmt.Sprintf("reconcile:%s:%s", exchangeName, symbol)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	// 使用阻塞锁（Lock）而非 TryLock，确保对账一定执行
+	err := r.lock.Lock(ctx, lockKey, 30*time.Second)
+	if err != nil {
+		logger.Warn("⚠️ [%s] 获取对账锁失败: %v，跳过本次对账", exchangeName, err)
+		return nil // 锁获取失败不返回错误，只是跳过
+	}
+	defer func() {
+		if unlockErr := r.lock.Unlock(ctx, lockKey); unlockErr != nil {
+			logger.Warn("⚠️ [%s] 释放对账锁失败: %v", exchangeName, unlockErr)
+		}
+	}()
+
+	logger.Debugln("🔍 ===== 开始持仓对账 =====")
 
 	// 1. 查询交易所持仓信息（使用通用接口）
 	positionsRaw, err := r.exchange.GetPositions(context.Background(), symbol)

@@ -11,9 +11,13 @@ import (
 
 	"quantmesh/ai"
 	"quantmesh/config"
+	"quantmesh/database"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/i18n"
+	"quantmesh/lock"
 	"quantmesh/logger"
+	"quantmesh/metrics"
 	"quantmesh/monitor"
 	"quantmesh/notify"
 	"quantmesh/order"
@@ -290,6 +294,21 @@ func main() {
 	logger.SetLevel(logLevel)
 	logger.Info("日志级别设置为: %s", logLevel.String())
 
+	// 初始化 i18n 系统
+	logLang := cfg.System.LogLanguage
+	if logLang == "" {
+		logLang = "zh-CN" // 默认中文
+	}
+	if err := i18n.Init(logLang); err != nil {
+		logger.Warn("⚠️ 初始化 i18n 失败: %v，将使用默认语言", err)
+	} else {
+		logger.Info("✅ i18n 系统已初始化，日志语言: %s", logLang)
+	}
+	
+	// 设置 logger 的语言和翻译函数
+	logger.SetLogLanguage(logLang)
+	logger.SetTranslateFunc(i18n.T)
+
 	logger.Info("✅ 配置加载成功: 交易对数量=%d, 当前默认交易所=%s",
 		len(cfg.Trading.Symbols), cfg.App.CurrentExchange)
 
@@ -329,6 +348,58 @@ func main() {
 			}
 		}
 	}()
+
+	// 初始化 Prometheus 系统指标采集器
+	systemMetricsCollector := metrics.NewSystemMetricsCollector(10 * time.Second)
+	systemMetricsCollector.Start()
+	logger.Info("✅ Prometheus 系统指标采集器已启动")
+
+	// 初始化分布式锁（多实例模式）
+	var distributedLock lock.DistributedLock
+	lockConfig := &lock.Config{
+		Enabled:    cfg.DistributedLock.Enabled,
+		Type:       cfg.DistributedLock.Type,
+		Prefix:     cfg.DistributedLock.Prefix,
+		DefaultTTL: time.Duration(cfg.DistributedLock.DefaultTTL) * time.Second,
+		Redis: lock.RedisConfig{
+			Addr:     cfg.DistributedLock.Redis.Addr,
+			Password: cfg.DistributedLock.Redis.Password,
+			DB:       cfg.DistributedLock.Redis.DB,
+			PoolSize: cfg.DistributedLock.Redis.PoolSize,
+		},
+	}
+	distributedLock, err = lock.NewDistributedLock(lockConfig)
+	if err != nil {
+		logger.Fatalf("❌ 初始化分布式锁失败: %v", err)
+	}
+	defer distributedLock.Close()
+
+	if cfg.DistributedLock.Enabled {
+		logger.Info("✅ 分布式锁已启用 (类型: %s, 实例: %s)", cfg.DistributedLock.Type, cfg.Instance.ID)
+	} else {
+		logger.Info("ℹ️ 分布式锁未启用（单机模式）")
+	}
+
+	// 初始化数据库（可选，用于未来迁移）
+	var db database.Database
+	if cfg.Database.Type != "" && cfg.Database.DSN != "" {
+		dbConfig := &database.Config{
+			Type:            cfg.Database.Type,
+			DSN:             cfg.Database.DSN,
+			MaxOpenConns:    cfg.Database.MaxOpenConns,
+			MaxIdleConns:    cfg.Database.MaxIdleConns,
+			ConnMaxLifetime: time.Duration(cfg.Database.ConnMaxLifetime) * time.Second,
+			LogLevel:        cfg.Database.LogLevel,
+		}
+		db, err = database.NewDatabase(dbConfig)
+		if err != nil {
+			logger.Warn("⚠️ 初始化数据库失败: %v (将继续使用现有存储)", err)
+			db = nil
+		} else {
+			defer db.Close()
+			logger.Info("✅ 数据库已初始化 (类型: %s)", cfg.Database.Type)
+		}
+	}
 
 	// 初始化 Watchdog（系统监控）
 	var watchdog *monitor.Watchdog
@@ -404,7 +475,7 @@ func main() {
 	if configComplete {
 		// 启动所有交易对
 		for _, symCfg := range cfg.Trading.Symbols {
-			rt, err := startSymbolRuntime(ctx, cfg, symCfg, eventBus, storageService)
+			rt, err := startSymbolRuntime(ctx, cfg, symCfg, eventBus, storageService, distributedLock)
 			if err != nil {
 				logger.Error("❌ [%s:%s] 启动失败: %v", symCfg.Exchange, symCfg.Symbol, err)
 				continue

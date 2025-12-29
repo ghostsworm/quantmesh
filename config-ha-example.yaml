@@ -1,0 +1,155 @@
+# QuantMesh 高可用配置示例
+
+# 实例配置
+instance:
+  id: "instance-1"  # 实例唯一标识
+  index: 0          # 实例索引（用于交易对分配）
+  total: 3          # 总实例数
+
+# 数据库配置
+database:
+  # 数据库类型: sqlite, postgres, mysql
+  type: "postgres"
+  
+  # 数据源名称 (DSN)
+  # SQLite: ./data/quantmesh.db
+  # PostgreSQL: host=localhost user=quantmesh password=secret dbname=quantmesh port=5432 sslmode=disable
+  # MySQL: quantmesh:secret@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=Local
+  dsn: "host=localhost user=quantmesh password=secret dbname=quantmesh port=5432 sslmode=disable"
+  
+  # 连接池配置
+  max_open_conns: 100      # 最大打开连接数
+  max_idle_conns: 10       # 最大空闲连接数
+  conn_max_lifetime: 3600  # 连接最大生命周期（秒）
+  
+  # 日志级别: silent, error, warn, info
+  log_level: "error"
+
+# 分布式锁配置
+distributed_lock:
+  enabled: true  # 是否启用分布式锁
+  type: "redis"  # 锁类型: redis, etcd, database
+  
+  # Redis 配置
+  redis:
+    addr: "localhost:6379"
+    password: ""
+    db: 0
+    pool_size: 10
+  
+  # 锁配置
+  prefix: "quantmesh:lock:"  # 锁键前缀
+  default_ttl: 5             # 默认锁过期时间（秒）
+
+# 应用配置
+app:
+  current_exchange: "binance"
+
+# 交易所配置
+exchanges:
+  binance:
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+    fee_rate: 0.0002
+    testnet: false
+
+# 交易配置
+trading:
+  # 交易对配置
+  # 多实例模式下，每个实例负责不同的交易对
+  symbols:
+    # 实例 0 负责
+    - exchange: "binance"
+      symbol: "ETHUSDT"
+      price_interval: 2
+      order_quantity: 30
+      window_size: 5
+      
+    - exchange: "binance"
+      symbol: "BTCUSDT"
+      price_interval: 50
+      order_quantity: 0.001
+      window_size: 5
+
+# 系统配置
+system:
+  log_level: "INFO"
+  timezone: "Asia/Shanghai"
+  cancel_on_exit: true
+  close_positions_on_exit: false
+
+# 风控配置
+risk_control:
+  enabled: true
+  monitor_symbols:
+    - "ETHUSDT"
+    - "BTCUSDT"
+  interval: "1m"
+  volume_multiplier: 3.0
+  average_window: 10
+  recovery_threshold: 2
+  max_leverage: 10
+
+# 通知配置
+notifications:
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+  
+  webhook:
+    enabled: false
+    url: ""
+  
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    username: ""
+    password: ""
+    from: ""
+    to: []
+
+# 存储配置
+storage:
+  enabled: true
+  type: "database"  # 使用数据库抽象层
+  buffer_size: 1000
+  batch_size: 100
+  flush_interval: 10
+
+# Web 服务配置
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 28888
+  api_key: ""
+
+# Watchdog 配置
+watchdog:
+  enabled: true
+  sampling_interval: 10
+  retention_days: 30
+  notifications:
+    enabled: true
+    cpu_threshold: 80
+    memory_threshold: 80
+  aggregation:
+    enabled: true
+    interval: "1h"
+
+# AI 功能配置
+ai:
+  enabled: false
+  provider: "openai"
+  api_key: ""
+  modules:
+    market_analysis: false
+    parameter_optimization: false
+    risk_analysis: false
+    sentiment_analysis: false
+    polymarket_signal: false
+    strategy_generation: false
+
+
+

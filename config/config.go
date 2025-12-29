@@ -97,11 +97,44 @@ type Config struct {
 
 	System struct {
 		LogLevel            string `yaml:"log_level"`
-		Timezone            string `yaml:"timezone"` // 时区，如 "Asia/Shanghai"
+		Timezone            string `yaml:"timezone"`     // 时区，如 "Asia/Shanghai"
+		LogLanguage         string `yaml:"log_language"` // 日志语言，如 "zh-CN" 或 "en-US"
 		CancelOnExit        bool   `yaml:"cancel_on_exit"`
 		ClosePositionsOnExit bool  `yaml:"close_positions_on_exit"` // 退出时是否平仓（默认false）
 		LogRetentionDays    int    `yaml:"log_retention_days"`      // 日志保留天数（默认30天，0表示不清理）
 	} `yaml:"system"`
+
+	// 实例配置（多实例部署）
+	Instance struct {
+		ID    string `yaml:"id"`    // 实例唯一标识，默认为空（单实例模式）
+		Index int    `yaml:"index"` // 实例索引，用于交易对分配，默认0
+		Total int    `yaml:"total"` // 总实例数，默认1
+	} `yaml:"instance"`
+
+	// 数据库配置（支持 SQLite、PostgreSQL、MySQL）
+	Database struct {
+		Type            string `yaml:"type"`              // 数据库类型: sqlite, postgres, mysql，默认 sqlite
+		DSN             string `yaml:"dsn"`               // 数据源名称，默认 ./data/quantmesh.db
+		MaxOpenConns    int    `yaml:"max_open_conns"`    // 最大打开连接数，默认100
+		MaxIdleConns    int    `yaml:"max_idle_conns"`    // 最大空闲连接数，默认10
+		ConnMaxLifetime int    `yaml:"conn_max_lifetime"` // 连接最大生命周期（秒），默认3600
+		LogLevel        string `yaml:"log_level"`         // 日志级别: silent, error, warn, info，默认 error
+	} `yaml:"database"`
+
+	// 分布式锁配置（多实例部署）
+	DistributedLock struct {
+		Enabled    bool   `yaml:"enabled"`     // 是否启用分布式锁，默认false（单实例模式）
+		Type       string `yaml:"type"`        // 锁类型: redis, etcd, database，默认 redis
+		Prefix     string `yaml:"prefix"`      // 锁键前缀，默认 "quantmesh:lock:"
+		DefaultTTL int    `yaml:"default_ttl"` // 默认锁过期时间（秒），默认5
+
+		Redis struct {
+			Addr     string `yaml:"addr"`      // Redis 地址，默认 localhost:6379
+			Password string `yaml:"password"`  // Redis 密码，默认为空
+			DB       int    `yaml:"db"`        // Redis 数据库，默认0
+			PoolSize int    `yaml:"pool_size"` // 连接池大小，默认10
+		} `yaml:"redis"`
+	} `yaml:"distributed_lock"`
 
 	// 主动安全风控配置
 	RiskControl struct {
@@ -939,6 +972,54 @@ func (c *Config) Validate() error {
 	}
 	if c.Web.Port <= 0 {
 		c.Web.Port = 28888 // 默认端口（使用10000以上端口，避免常见端口冲突）
+	}
+
+	// 设置实例配置默认值
+	if c.Instance.ID == "" {
+		c.Instance.ID = "default-instance" // 默认实例ID
+	}
+	if c.Instance.Total <= 0 {
+		c.Instance.Total = 1 // 默认单实例
+	}
+
+	// 设置数据库配置默认值
+	if c.Database.Type == "" {
+		c.Database.Type = "sqlite" // 默认 SQLite（单机模式）
+	}
+	if c.Database.DSN == "" {
+		if c.Database.Type == "sqlite" {
+			c.Database.DSN = "./data/quantmesh.db" // 默认 SQLite 路径
+		}
+	}
+	if c.Database.MaxOpenConns <= 0 {
+		c.Database.MaxOpenConns = 100 // 默认100
+	}
+	if c.Database.MaxIdleConns <= 0 {
+		c.Database.MaxIdleConns = 10 // 默认10
+	}
+	if c.Database.ConnMaxLifetime <= 0 {
+		c.Database.ConnMaxLifetime = 3600 // 默认1小时
+	}
+	if c.Database.LogLevel == "" {
+		c.Database.LogLevel = "error" // 默认只记录错误
+	}
+
+	// 设置分布式锁配置默认值
+	// 注意：默认不启用分布式锁（单机模式）
+	if c.DistributedLock.Type == "" {
+		c.DistributedLock.Type = "redis" // 默认使用 Redis
+	}
+	if c.DistributedLock.Prefix == "" {
+		c.DistributedLock.Prefix = "quantmesh:lock:" // 默认前缀
+	}
+	if c.DistributedLock.DefaultTTL <= 0 {
+		c.DistributedLock.DefaultTTL = 5 // 默认5秒
+	}
+	if c.DistributedLock.Redis.Addr == "" {
+		c.DistributedLock.Redis.Addr = "localhost:6379" // 默认 Redis 地址
+	}
+	if c.DistributedLock.Redis.PoolSize <= 0 {
+		c.DistributedLock.Redis.PoolSize = 10 // 默认连接池大小
 	}
 
 	// 设置监控配置默认值
