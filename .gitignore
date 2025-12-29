@@ -55,6 +55,7 @@ webui/package-lock.json
 webui/yarn.lock
 webui/pnpm-lock.yaml
 web/dist/
+!web/dist/.gitkeep
 
 # Test coverage
 *.cover
@@ -71,3 +72,6 @@ temp/
 Thumbs.db
 .Spotlight-V100
 .Trashes
+
+# Personal private directory (not tracked by git)
+_mine/

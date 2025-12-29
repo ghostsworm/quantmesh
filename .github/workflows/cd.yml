@@ -127,7 +127,7 @@ jobs:
         fi
         # 确保 dist 目录至少有一个文件，避免 go:embed 报错
         if [ ! "$(ls -A web/dist 2>/dev/null)" ]; then
-          touch web/dist/.gitkeep
+          echo "# Placeholder" > web/dist/.gitkeep
         fi
         
     - name: Build
