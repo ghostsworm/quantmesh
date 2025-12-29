@@ -28,6 +28,15 @@ jobs:
     - name: Download dependencies
       run: go mod download
       
+    - name: Build frontend (for go:embed)
+      run: |
+        if [ -d "webui" ]; then
+          cd webui && npm ci && npm run build && cd ..
+          mkdir -p web/dist && cp -r webui/dist/* web/dist/ || true
+        else
+          mkdir -p web/dist
+        fi
+        
     - name: Run go vet
       run: go vet ./...
       
@@ -37,6 +46,15 @@ jobs:
           echo "Go code is not formatted:"
           gofmt -d .
           exit 1
+        fi
+        
+    - name: Build frontend (for go:embed)
+      run: |
+        if [ -d "webui" ]; then
+          cd webui && npm ci && npm run build && cd ..
+          mkdir -p web/dist && cp -r webui/dist/* web/dist/ || true
+        else
+          mkdir -p web/dist
         fi
         
     - name: Run tests
@@ -113,6 +131,15 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
+        
+    - name: Build frontend (for go:embed)
+      run: |
+        if [ -d "webui" ]; then
+          cd webui && npm ci && npm run build && cd ..
+          mkdir -p web/dist && cp -r webui/dist/* web/dist/ || true
+        else
+          mkdir -p web/dist
+        fi
         
     - name: Build
       env:
