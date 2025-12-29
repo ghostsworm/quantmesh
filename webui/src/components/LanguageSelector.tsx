@@ -8,7 +8,8 @@ const LanguageSelector: React.FC = () => {
   const { i18n } = useTranslation()
 
   const languages = [
-    { code: 'zh-CN', name: '中文' },
+    { code: 'zh-CN', name: '简体中文' },
+    { code: 'zh-TW', name: '繁體中文' },
     { code: 'en-US', name: 'English' },
     { code: 'fr-FR', name: 'Français' },
     { code: 'es-ES', name: 'Español' },
@@ -16,14 +17,12 @@ const LanguageSelector: React.FC = () => {
     { code: 'hi-IN', name: 'हिन्दी' },
     { code: 'pt-BR', name: 'Português' },
     { code: 'de-DE', name: 'Deutsch' },
-    { code: 'ja-JP', name: '日本語' },
     { code: 'ko-KR', name: '한국어' },
     { code: 'ar-SA', name: 'العربية' },
     { code: 'tr-TR', name: 'Türkçe' },
     { code: 'vi-VN', name: 'Tiếng Việt' },
     { code: 'it-IT', name: 'Italiano' },
     { code: 'id-ID', name: 'Bahasa Indonesia' },
-    { code: 'th-TH', name: 'ไทย' },
     { code: 'nl-NL', name: 'Nederlands' },
   ]
 

@@ -58,7 +58,9 @@ func normalizeLanguage(lang string) string {
 	
 	// 映射常见的语言代码
 	switch {
-	case strings.HasPrefix(lang, "zh-cn"), strings.HasPrefix(lang, "zh_cn"), lang == "zh":
+	case strings.HasPrefix(lang, "zh-tw"), strings.HasPrefix(lang, "zh_tw"), strings.HasPrefix(lang, "zh-hant"):
+		return "zh-TW"
+	case strings.HasPrefix(lang, "zh-cn"), strings.HasPrefix(lang, "zh_cn"), strings.HasPrefix(lang, "zh-hans"), lang == "zh":
 		return "zh-CN"
 	case strings.HasPrefix(lang, "en"), strings.HasPrefix(lang, "en-us"), strings.HasPrefix(lang, "en_us"):
 		return "en-US"
@@ -74,8 +76,6 @@ func normalizeLanguage(lang string) string {
 		return "pt-BR"
 	case strings.HasPrefix(lang, "de"):
 		return "de-DE"
-	case strings.HasPrefix(lang, "ja"):
-		return "ja-JP"
 	case strings.HasPrefix(lang, "ko"):
 		return "ko-KR"
 	case strings.HasPrefix(lang, "ar"):
@@ -88,8 +88,6 @@ func normalizeLanguage(lang string) string {
 		return "it-IT"
 	case strings.HasPrefix(lang, "id"):
 		return "id-ID"
-	case strings.HasPrefix(lang, "th"):
-		return "th-TH"
 	case strings.HasPrefix(lang, "nl"):
 		return "nl-NL"
 	default:
