@@ -28,7 +28,10 @@ import (
 )
 
 // Version 版本号
-var Version = "v3.3.2"
+var Version = "3.3.2"
+
+// BuildCommit Git 提交哈希（短格式）
+var BuildCommit = "unknown"
 
 // 全局日志存储实例（用于清理任务和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -213,6 +216,14 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, symbol st
 }
 
 func main() {
+	// 检查版本参数
+	if len(os.Args) > 1 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
+		fmt.Printf("QuantMesh Market Maker\n")
+		fmt.Printf("Version: %s\n", Version)
+		fmt.Printf("Build: %s\n", BuildCommit)
+		os.Exit(0)
+	}
+
 	// 注意：不再设置 time.Local，避免竞态条件
 	// 时区处理统一使用 utils.GlobalLocation（通过 init() 或 config 设置）
 	// 所有时间操作应使用 utils.ToConfiguredTimezone()、utils.ToUTC()、utils.NowConfiguredTimezone() 等工具函数

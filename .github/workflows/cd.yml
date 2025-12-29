@@ -109,6 +109,12 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
         cache: true
         
+    - name: Get Git commit hash
+      id: git_commit
+      run: |
+        COMMIT=$(git rev-parse --short HEAD)
+        echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
+        
     - name: Build
       env:
         GOOS: ${{ matrix.goos }}
@@ -116,7 +122,8 @@ jobs:
         CGO_ENABLED: 0
       run: |
         VERSION=${{ needs.release.outputs.version }}
-        go build -ldflags="-s -w -X main.Version=${VERSION}" -o quantmesh-${{ matrix.goos }}-${{ matrix.goarch }} .
+        COMMIT=${{ steps.git_commit.outputs.commit }}
+        go build -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildCommit=${COMMIT}" -o quantmesh-${{ matrix.goos }}-${{ matrix.goarch }} .
         
     - name: Create archive
       run: |
