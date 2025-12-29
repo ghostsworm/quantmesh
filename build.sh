@@ -15,6 +15,13 @@ if [ -d "webui" ]; then
     fi
     npm run build
     cd ..
+    
+    # 复制 webui/dist 到 web/dist 供 go:embed 使用
+    if [ -d "webui/dist" ]; then
+        echo "📋 复制前端文件到 web/dist..."
+        mkdir -p web/dist
+        cp -r webui/dist/* web/dist/
+    fi
 else
     echo "⚠️  前端目录不存在，跳过前端构建"
 fi
