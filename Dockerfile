@@ -20,9 +20,8 @@ COPY . .
 
 # 构建应用
 RUN VERSION=$$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "unknown") && \
-    COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-s -w -X main.Version=$$VERSION -X main.BuildCommit=$$COMMIT" \
+    -ldflags="-s -w -X main.Version=$$VERSION" \
     -o quantmesh .
 
 # 运行阶段

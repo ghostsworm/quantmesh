@@ -30,9 +30,6 @@ import (
 // Version 版本号
 var Version = "3.3.2"
 
-// BuildCommit Git 提交哈希（短格式）
-var BuildCommit = "unknown"
-
 // 全局日志存储实例（用于清理任务和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
 
@@ -220,7 +217,6 @@ func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
 		fmt.Printf("QuantMesh Market Maker\n")
 		fmt.Printf("Version: %s\n", Version)
-		fmt.Printf("Build: %s\n", BuildCommit)
 		os.Exit(0)
 	}
 

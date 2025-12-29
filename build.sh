@@ -22,9 +22,8 @@ fi
 # 2. 构建 Go 程序（会自动嵌入 dist/ 目录）
 echo "🔨 构建后端..."
 
-# 获取版本号和 Git commit hash
+# 获取版本号
 VERSION="3.3.2"
-COMMIT="unknown"
 
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
     # 尝试从 git tag 获取版本号（去掉 v 前缀）
@@ -38,15 +37,11 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
             VERSION=$(echo "$GIT_DESCRIBE" | sed 's/^v//')
         fi
     fi
-    
-    # 获取短 commit hash
-    COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 fi
 
 echo "📌 版本号: ${VERSION}"
-echo "📌 Git Commit: ${COMMIT}"
 
-go build -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildCommit=${COMMIT}" -o quantmesh .
+go build -ldflags="-s -w -X main.Version=${VERSION}" -o quantmesh .
 
 echo "✅ 构建完成！"
 echo "📦 可执行文件: ./quantmesh"
