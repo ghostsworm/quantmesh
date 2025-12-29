@@ -39,6 +39,14 @@ var (
 	// SQLite 日志存储（通过函数指针避免循环依赖）
 	logStorageWriter func(level, message string)
 	logStorageMu     sync.RWMutex
+	
+	// 日志语言配置
+	logLanguage string = "zh-CN"
+	langMu      sync.RWMutex
+	
+	// i18n 翻译函数（避免循环依赖）
+	translateFunc func(key string, data ...interface{}) string
+	translateMu   sync.RWMutex
 )
 
 // String 返回日志级别的字符串表示
@@ -97,6 +105,47 @@ func SetLocation(loc *time.Location) {
 	locationMu.Lock()
 	defer locationMu.Unlock()
 	globalLocation = loc
+}
+
+// SetLogLanguage 设置日志语言
+func SetLogLanguage(lang string) {
+	langMu.Lock()
+	defer langMu.Unlock()
+	if lang != "" {
+		logLanguage = lang
+	}
+}
+
+// GetLogLanguage 获取日志语言
+func GetLogLanguage() string {
+	langMu.RLock()
+	defer langMu.RUnlock()
+	return logLanguage
+}
+
+// SetTranslateFunc 设置翻译函数（由 main 包调用，避免循环依赖）
+func SetTranslateFunc(fn func(key string, data ...interface{}) string) {
+	translateMu.Lock()
+	defer translateMu.Unlock()
+	translateFunc = fn
+}
+
+// translate 翻译消息（如果翻译函数未设置或翻译失败，返回原始消息）
+func translate(message string) string {
+	translateMu.RLock()
+	fn := translateFunc
+	translateMu.RUnlock()
+	
+	if fn == nil {
+		return message
+	}
+	
+	// 尝试翻译，如果失败则返回原始消息
+	translated := fn(message)
+	if translated == message || translated == "" {
+		return message
+	}
+	return translated
 }
 
 // initFileLogger 初始化文件日志（当日志级别为DEBUG时）

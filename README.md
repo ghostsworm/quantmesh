@@ -21,6 +21,25 @@ QuantMesh Market Maker 是一个高性能、低延迟的加密货币做市商系
 
 QuantMesh is a high-performance, low-latency cryptocurrency market maker system focusing on long grid trading strategies for perpetual contract markets. Developed in Go and driven by WebSocket real-time data streams, it aims to provide stable liquidity support for major exchanges like Binance, Bitget, and Gate.io.
 
+## 📜 项目来源 (Project Origin)
+
+本项目最初基于 [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) 开发，原始项目由 [dennisyang1986](https://github.com/dennisyang1986) 发布，采用 MIT 许可证。
+
+在原始项目的基础上，我们进行了以下主要改进和扩展：
+
+- ✨ **完整的前端界面**：新增 React + TypeScript 构建的 Web 管理界面，提供可视化的交易监控、配置管理和数据分析
+- 🏦 **交易所扩展**：从原始项目的 3 个交易所（Binance, Bitget, Gate.io）扩展到 **20+ 个主流交易所**
+- 🔒 **金融级稳定性**：全面提升系统可靠性，包括完善的错误处理、并发安全机制、数据一致性保证、自动恢复等
+- 📊 **增强监控**：完善日志系统、指标收集（Prometheus）、健康检查和实时告警
+- 🛡️ **强化风控**：多层级风险监控、自动对账、异常熔断、资金安全保护
+- 🔌 **插件系统**：支持扩展插件机制，便于功能定制和二次开发
+- 📱 **国际化支持**：多语言界面（中英文），i18n 支持
+- 🧪 **测试网支持**：支持多个交易所的测试网环境，便于开发和测试
+
+详细的改进说明和第三方软件信息请参阅 [NOTICE](NOTICE) 文件。
+
+**重要说明**：本项目现采用 **GNU Affero General Public License v3.0 (AGPL-3.0)** 进行分发。根据原始项目的 MIT 许可证要求，我们保留了对原始项目的致谢声明。
+
 ## 📺 实时演示 (Live Demo)
 
 <video src="https://r2.quantmesh.com/product_review.mp4" controls="controls" width="100%"></video>
@@ -244,6 +263,10 @@ For commercial licensing inquiries, please contact:
 欢迎提交 Issue 和 Pull Request！
 
 **注意：** 根据 AGPL-3.0 许可，所有对本项目的贡献都将以相同的 AGPL-3.0 许可发布。
+
+## 🙏 致谢 (Acknowledgments)
+
+感谢原始项目 [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) 的作者 [dennisyang1986](https://github.com/dennisyang1986) 的开源贡献，为本项目提供了坚实的基础。更多信息请参阅 [NOTICE](NOTICE) 文件。
 
 ---
 Copyright © 2025 QuantMesh Team. All Rights Reserved.

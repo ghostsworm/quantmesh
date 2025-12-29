@@ -1,0 +1,42 @@
+[Unit]
+Description=QuantMesh Market Maker Service
+Documentation=https://quantmesh.com
+After=network.target
+
+[Service]
+Type=simple
+User=quantmesh
+Group=quantmesh
+WorkingDirectory=/opt/quantmesh
+ExecStart=/opt/quantmesh/quantmesh
+ExecStop=/bin/kill -s TERM $MAINPID
+
+# 环境变量（可选）
+# Environment="BACKUP_UPLOAD_ENABLED=true"
+# Environment="HTTPS_PROXY=http://127.0.0.1:7890"
+
+# 重启策略
+Restart=on-failure
+RestartSec=10s
+StartLimitInterval=5min
+StartLimitBurst=3
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/quantmesh/data /opt/quantmesh/logs /opt/quantmesh/backups
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quantmesh
+
+[Install]
+WantedBy=multi-user.target
+

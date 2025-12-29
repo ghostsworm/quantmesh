@@ -12,7 +12,7 @@ func authMiddleware() gin.HandlerFunc {
 		// 获取会话管理器
 		sm := GetSessionManager()
 		if sm == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "会话管理器未初始化"})
+			respondError(c, http.StatusInternalServerError, "error.session_manager_not_initialized")
 			c.Abort()
 			return
 		}
@@ -31,7 +31,7 @@ func authMiddleware() gin.HandlerFunc {
 			}
 			println("  - Cookie:", cookie.Name, "=", val)
 		}
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录，请先登录"})
+		respondError(c, http.StatusUnauthorized, "error.not_logged_in")
 		c.Abort()
 		return
 	}

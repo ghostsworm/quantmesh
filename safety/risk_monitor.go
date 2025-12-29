@@ -6,6 +6,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/logger"
+	"quantmesh/metrics"
 	"quantmesh/storage"
 	"strings"
 	"sync"
@@ -304,14 +305,25 @@ func (r *RiskMonitor) checkMarket() {
 
 		// 全部币种都出现异常时才触发
 		r.mu.Lock()
+		pm := metrics.GetPrometheusMetrics()
 		if panicCount > 0 && panicCount >= len(r.cfg.RiskControl.MonitorSymbols) {
 			logger.Warn("🚨🚨🚨 触发主动安全风控！市场出现集体异动！🚨🚨🚨")
 			logger.Warn("详情: %s", strings.Join(details, ", "))
 			r.triggered = true
 			r.triggeredTime = time.Now()
 			r.lastMsg = fmt.Sprintf("触发风控: %d/%d 币种异常 (%s)", panicCount, len(r.cfg.RiskControl.MonitorSymbols), strings.Join(details, ","))
+			
+			// 记录风控触发指标
+			for _, symbol := range r.cfg.RiskControl.MonitorSymbols {
+				pm.SetRiskControlStatus(r.exchange.GetName(), symbol, true)
+				pm.RecordRiskControlTrigger(r.exchange.GetName(), symbol, "market_anomaly")
+			}
 		} else {
 			r.lastMsg = "监控正常"
+			// 记录风控正常状态
+			for _, symbol := range r.cfg.RiskControl.MonitorSymbols {
+				pm.SetRiskControlStatus(r.exchange.GetName(), symbol, false)
+			}
 		}
 		r.mu.Unlock()
 	}

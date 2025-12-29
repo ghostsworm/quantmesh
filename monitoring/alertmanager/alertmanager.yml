@@ -1,0 +1,111 @@
+global:
+  resolve_timeout: 5m
+
+# 告警路由配置
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'default'
+  
+  routes:
+    # P0 级别告警：立即发送，不聚合
+    - match:
+        severity: P0
+      receiver: 'telegram-p0'
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 5m
+      continue: true
+    
+    # P1 级别告警：5分钟聚合
+    - match:
+        severity: P1
+      receiver: 'telegram-p1'
+      group_wait: 5m
+      group_interval: 5m
+      repeat_interval: 1h
+      continue: true
+    
+    # P2 级别告警：10分钟聚合
+    - match:
+        severity: P2
+      receiver: 'telegram-p2'
+      group_wait: 10m
+      group_interval: 10m
+      repeat_interval: 4h
+
+# 告警接收器配置
+receivers:
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://host.docker.internal:28888/api/alerts/webhook'
+        send_resolved: true
+
+  # Telegram 告警（P0 级别）
+  - name: 'telegram-p0'
+    telegram_configs:
+      - bot_token: 'YOUR_BOT_TOKEN'
+        chat_id: YOUR_CHAT_ID
+        parse_mode: 'HTML'
+        message: |
+          🚨 <b>P0 级别告警</b> 🚨
+          
+          <b>告警名称:</b> {{ .GroupLabels.alertname }}
+          <b>严重程度:</b> {{ .CommonLabels.severity }}
+          <b>分类:</b> {{ .CommonLabels.category }}
+          
+          {{ range .Alerts }}
+          <b>描述:</b> {{ .Annotations.description }}
+          <b>时间:</b> {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+
+  # Telegram 告警（P1 级别）
+  - name: 'telegram-p1'
+    telegram_configs:
+      - bot_token: 'YOUR_BOT_TOKEN'
+        chat_id: YOUR_CHAT_ID
+        parse_mode: 'HTML'
+        message: |
+          ⚠️ <b>P1 级别告警</b>
+          
+          <b>告警名称:</b> {{ .GroupLabels.alertname }}
+          <b>数量:</b> {{ .Alerts | len }}
+          
+          {{ range .Alerts }}
+          • {{ .Annotations.summary }}
+          {{ end }}
+
+  # Telegram 告警（P2 级别）
+  - name: 'telegram-p2'
+    telegram_configs:
+      - bot_token: 'YOUR_BOT_TOKEN'
+        chat_id: YOUR_CHAT_ID
+        parse_mode: 'HTML'
+        message: |
+          ℹ️ <b>P2 级别告警</b>
+          
+          <b>告警名称:</b> {{ .GroupLabels.alertname }}
+          <b>数量:</b> {{ .Alerts | len }}
+          
+          {{ range .Alerts }}
+          • {{ .Annotations.summary }}
+          {{ end }}
+
+# 告警抑制规则
+inhibit_rules:
+  # 当 QuantMesh 服务停止时，抑制其他所有告警
+  - source_match:
+      alertname: 'QuantMeshDown'
+    target_match_re:
+      alertname: '.*'
+    equal: ['instance']
+  
+  # 当风控触发时，抑制订单相关告警
+  - source_match:
+      alertname: 'RiskControlTriggered'
+    target_match:
+      category: 'trading'
+    equal: ['exchange', 'symbol']
+

@@ -3,8 +3,12 @@ const API_BASE_URL = `${window.location.origin}/api`
 
 // Helper function to make authenticated requests
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  // 获取当前语言设置
+  const currentLang = localStorage.getItem('i18nextLng') || 'zh-CN'
+  
   const headers = {
     'Content-Type': 'application/json',
+    'Accept-Language': currentLang,
     ...options.headers,
   }
 

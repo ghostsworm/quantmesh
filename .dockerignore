@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+.github
+
+# Build artifacts
+quantmesh
+opensqt
+opensqt_market_maker
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+coverage.out
+*.test
+
+# Data directories
+data/
+logs/
+backups/
+config_backups/
+
+# Configuration
+config.yaml
+*.db
+*.db-shm
+*.db-wal
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Monitoring
+monitoring/
+
+# Node modules (if any)
+node_modules/
+webui/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+

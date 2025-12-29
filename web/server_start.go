@@ -32,6 +32,9 @@ func NewWebServer(cfg *config.Config) *WebServer {
 
 	r := gin.Default()
 
+	// 添加 i18n 中间件
+	r.Use(I18nMiddleware())
+
 	// 设置路由
 	SetupRoutes(r)
 

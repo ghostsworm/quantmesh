@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
 import {
   Box,
@@ -41,6 +42,7 @@ interface OrderInfo {
 }
 
 const Orders: React.FC = () => {
+  const { t } = useTranslation()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [pendingOrders, setPendingOrders] = useState<PendingOrderInfo[]>([])
   const [historyOrders, setHistoryOrders] = useState<OrderInfo[]>([])
@@ -118,15 +120,15 @@ const Orders: React.FC = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'PLACED':
-        return '已下单'
+        return t('orders.placed')
       case 'CONFIRMED':
-        return '已确认'
+        return t('orders.confirmed')
       case 'PARTIALLY_FILLED':
-        return '部分成交'
+        return t('orders.partiallyFilled')
       case 'FILLED':
-        return '已完成'
+        return t('orders.filled')
       case 'CANCELED':
-        return '已取消'
+        return t('orders.canceled')
       default:
         return status
     }
@@ -152,36 +154,36 @@ const Orders: React.FC = () => {
 
   return (
     <Box>
-      <Heading size="lg" mb={4}>订单管理</Heading>
+      <Heading size="lg" mb={4}>{t('orders.title')}</Heading>
       <Text fontSize="md" color="gray.600" mb={4}>
-        当前交易对: {selectedExchange} - {selectedSymbol}
+        {t('orders.currentPair', { exchange: selectedExchange, symbol: selectedSymbol })}
       </Text>
 
       <Tabs index={tabIndex} onChange={setTabIndex} colorScheme="blue">
         <TabList>
-          <Tab>待成交 ({pendingOrders.length})</Tab>
-          <Tab>历史订单 ({historyOrders.length})</Tab>
+          <Tab>{t('orders.pendingTab')} ({pendingOrders.length})</Tab>
+          <Tab>{t('orders.historyTab')} ({historyOrders.length})</Tab>
         </TabList>
 
         <TabPanels>
           {/* 待成交订单 */}
           <TabPanel>
             {pendingOrders.length === 0 ? (
-              <Text color="gray.500" textAlign="center" py={8}>暂无待成交订单</Text>
+              <Text color="gray.500" textAlign="center" py={8}>{t('orders.noPendingOrders')}</Text>
             ) : (
               <TableContainer>
                 <Table variant="simple">
                   <Thead>
                     <Tr>
-                      <Th>订单ID</Th>
-                      <Th>交易对</Th>
-                      <Th>方向</Th>
-                      <Th isNumeric>价格</Th>
-                      <Th isNumeric>数量</Th>
-                      <Th isNumeric>已成交</Th>
-                      <Th>状态</Th>
-                      <Th isNumeric>槽位价格</Th>
-                      <Th>创建时间</Th>
+                      <Th>{t('orders.orderId')}</Th>
+                      <Th>{t('orders.symbol')}</Th>
+                      <Th>{t('orders.side')}</Th>
+                      <Th isNumeric>{t('orders.price')}</Th>
+                      <Th isNumeric>{t('orders.quantity')}</Th>
+                      <Th isNumeric>{t('orders.filled')}</Th>
+                      <Th>{t('orders.status')}</Th>
+                      <Th isNumeric>{t('orders.slotPrice')}</Th>
+                      <Th>{t('orders.createdAt')}</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
@@ -195,7 +197,7 @@ const Orders: React.FC = () => {
                         </Td>
                         <Td>
                           <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
-                            {order.side === 'BUY' ? '买入' : '卖出'}
+                            {order.side === 'BUY' ? t('orders.buy') : t('orders.sell')}
                           </Badge>
                         </Td>
                         <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
@@ -223,7 +225,7 @@ const Orders: React.FC = () => {
               <Card>
                 <CardBody>
                   <Stat>
-                    <StatLabel>今日订单数</StatLabel>
+                    <StatLabel>{t('orders.todayOrders')}</StatLabel>
                     <StatNumber>{todayOrders.length}</StatNumber>
                   </Stat>
                 </CardBody>
@@ -232,7 +234,7 @@ const Orders: React.FC = () => {
               <Card>
                 <CardBody>
                   <Stat>
-                    <StatLabel>总订单数</StatLabel>
+                    <StatLabel>{t('orders.totalOrders')}</StatLabel>
                     <StatNumber>{historyOrders.length}</StatNumber>
                   </Stat>
                 </CardBody>
@@ -241,7 +243,7 @@ const Orders: React.FC = () => {
               <Card>
                 <CardBody>
                   <Stat>
-                    <StatLabel>成功率</StatLabel>
+                    <StatLabel>{t('orders.successRate')}</StatLabel>
                     <StatNumber>{successRate.toFixed(2)}%</StatNumber>
                   </Stat>
                 </CardBody>
@@ -264,13 +266,13 @@ const Orders: React.FC = () => {
                 <Table variant="simple">
                   <Thead>
                     <Tr>
-                      <Th>订单ID</Th>
-                      <Th>交易对</Th>
-                      <Th>方向</Th>
-                      <Th isNumeric>价格</Th>
-                      <Th isNumeric>数量</Th>
-                      <Th>状态</Th>
-                      <Th>创建时间</Th>
+                      <Th>{t('orders.orderId')}</Th>
+                      <Th>{t('orders.symbol')}</Th>
+                      <Th>{t('orders.side')}</Th>
+                      <Th isNumeric>{t('orders.price')}</Th>
+                      <Th isNumeric>{t('orders.quantity')}</Th>
+                      <Th>{t('orders.status')}</Th>
+                      <Th>{t('orders.createdAt')}</Th>
                       <Th>更新时间</Th>
                     </Tr>
                   </Thead>
@@ -285,7 +287,7 @@ const Orders: React.FC = () => {
                         </Td>
                         <Td>
                           <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
-                            {order.side === 'BUY' ? '买入' : '卖出'}
+                            {order.side === 'BUY' ? t('orders.buy') : t('orders.sell')}
                           </Badge>
                         </Td>
                         <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>

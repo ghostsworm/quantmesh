@@ -1,0 +1,124 @@
+# System log messages
+[log.system_starting]
+other = "🚀 QuantMesh Market Maker System Starting..."
+
+[log.version]
+other = "📦 Version: {{.Version}}"
+
+[log.log_storage_init_failed]
+other = "Failed to initialize log storage: {{.Error}}, will continue running without database logging"
+
+[log.log_storage_initialized]
+other = "Log storage initialized: {{.Path}}"
+
+# HTTP error messages
+[error.session_manager_not_initialized]
+other = "Session manager not initialized"
+
+[error.not_logged_in]
+other = "Not logged in, please login first"
+
+[error.invalid_time_format]
+other = "Invalid time format"
+
+[error.invalid_start_time]
+other = "Invalid start time format"
+
+[error.invalid_end_time]
+other = "Invalid end time format"
+
+[error.query_orders_failed]
+other = "Failed to query orders"
+
+[error.query_statistics_failed]
+other = "Failed to query statistics"
+
+[error.query_trades_failed]
+other = "Failed to query trades"
+
+[error.get_metrics_failed]
+other = "Failed to get metrics"
+
+[error.get_logs_failed]
+other = "Failed to get logs"
+
+[error.query_reconciliation_failed]
+other = "Failed to query reconciliation history"
+
+[error.storage_unavailable]
+other = "Storage service unavailable"
+
+[error.missing_symbol_param]
+other = "Missing symbol parameter"
+
+[error.get_pnl_failed]
+other = "Failed to get P&L data"
+
+[error.get_klines_failed]
+other = "Failed to get K-line data"
+
+[error.get_funding_rate_failed]
+other = "Failed to get funding rate"
+
+[error.market_analysis_not_enabled]
+other = "Market analysis module not enabled"
+
+[error.no_analysis_data]
+other = "No analysis data available"
+
+[error.parameter_optimization_not_enabled]
+other = "Parameter optimization module not enabled"
+
+[error.no_optimization_data]
+other = "No optimization data available"
+
+[error.risk_analysis_not_enabled]
+other = "Risk analysis module not enabled"
+
+[error.sentiment_analysis_not_enabled]
+other = "Sentiment analysis module not enabled"
+
+[error.polymarket_signal_not_enabled]
+other = "Polymarket signal module not enabled"
+
+[error.unknown_module]
+other = "Unknown module: {{.Module}}"
+
+[error.trigger_analysis_failed]
+other = "Failed to trigger analysis"
+
+[error.prompt_manager_not_enabled]
+other = "Prompt manager not enabled"
+
+[error.get_prompts_failed]
+other = "Failed to get prompts"
+
+[error.invalid_request]
+other = "Invalid request"
+
+[error.module_name_empty]
+other = "Module name cannot be empty"
+
+[error.template_empty]
+other = "Prompt template cannot be empty"
+
+[error.update_prompt_failed]
+other = "Failed to update prompt"
+
+# Database related errors
+[error.database_error]
+other = "Database error"
+
+[error.open_log_database_failed]
+other = "Failed to open log database"
+
+[error.create_log_table_failed]
+other = "Failed to create log table"
+
+# Configuration related errors
+[error.load_config_failed]
+other = "Failed to load configuration"
+
+[error.save_config_failed]
+other = "Failed to save configuration"
+

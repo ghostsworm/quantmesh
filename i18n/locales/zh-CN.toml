@@ -1,0 +1,124 @@
+# 系统日志消息
+[log.system_starting]
+other = "🚀 QuantMesh 做市商系统启动..."
+
+[log.version]
+other = "📦 版本号: {{.Version}}"
+
+[log.log_storage_init_failed]
+other = "初始化日志存储失败: {{.Error}}，将继续运行但不保存日志到数据库"
+
+[log.log_storage_initialized]
+other = "日志存储已初始化: {{.Path}}"
+
+# HTTP 错误消息
+[error.session_manager_not_initialized]
+other = "会话管理器未初始化"
+
+[error.not_logged_in]
+other = "未登录，请先登录"
+
+[error.invalid_time_format]
+other = "无效的时间格式"
+
+[error.invalid_start_time]
+other = "无效的开始时间格式"
+
+[error.invalid_end_time]
+other = "无效的结束时间格式"
+
+[error.query_orders_failed]
+other = "查询订单失败"
+
+[error.query_statistics_failed]
+other = "查询统计数据失败"
+
+[error.query_trades_failed]
+other = "查询交易记录失败"
+
+[error.get_metrics_failed]
+other = "获取指标失败"
+
+[error.get_logs_failed]
+other = "获取日志失败"
+
+[error.query_reconciliation_failed]
+other = "查询对账历史失败"
+
+[error.storage_unavailable]
+other = "存储服务不可用"
+
+[error.missing_symbol_param]
+other = "缺少币种对参数"
+
+[error.get_pnl_failed]
+other = "获取盈亏数据失败"
+
+[error.get_klines_failed]
+other = "获取K线数据失败"
+
+[error.get_funding_rate_failed]
+other = "获取资金费率失败"
+
+[error.market_analysis_not_enabled]
+other = "市场分析模块未启用"
+
+[error.no_analysis_data]
+other = "暂无分析数据"
+
+[error.parameter_optimization_not_enabled]
+other = "参数优化模块未启用"
+
+[error.no_optimization_data]
+other = "暂无优化数据"
+
+[error.risk_analysis_not_enabled]
+other = "风险分析模块未启用"
+
+[error.sentiment_analysis_not_enabled]
+other = "情绪分析模块未启用"
+
+[error.polymarket_signal_not_enabled]
+other = "Polymarket信号模块未启用"
+
+[error.unknown_module]
+other = "未知的模块: {{.Module}}"
+
+[error.trigger_analysis_failed]
+other = "触发分析失败"
+
+[error.prompt_manager_not_enabled]
+other = "提示词管理器未启用"
+
+[error.get_prompts_failed]
+other = "获取提示词失败"
+
+[error.invalid_request]
+other = "无效的请求"
+
+[error.module_name_empty]
+other = "模块名不能为空"
+
+[error.template_empty]
+other = "提示词模板不能为空"
+
+[error.update_prompt_failed]
+other = "更新提示词失败"
+
+# 数据库相关错误
+[error.database_error]
+other = "数据库错误"
+
+[error.open_log_database_failed]
+other = "打开日志数据库失败"
+
+[error.create_log_table_failed]
+other = "创建日志表失败"
+
+# 配置相关错误
+[error.load_config_failed]
+other = "加载配置失败"
+
+[error.save_config_failed]
+other = "保存配置失败"
+

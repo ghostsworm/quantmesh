@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Box, Center, Text } from '@chakra-ui/react'
+import { useTranslation } from 'react-i18next'
 
 interface PnLDataPoint {
   time: string
@@ -44,6 +45,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 }
 
 const PnLChart: React.FC<PnLChartProps> = ({ data, height = 300, color = '#3182ce' }) => {
+  const { t } = useTranslation()
   const gridColor = 'rgba(0,0,0,0.05)'
   const axisColor = 'gray.400'
 
@@ -52,7 +54,7 @@ const PnLChart: React.FC<PnLChartProps> = ({ data, height = 300, color = '#3182c
     return (
       <Box w="100%" h={height}>
         <Center h="100%">
-          <Text color="gray.500" fontSize="sm">暂无数据，等待交易数据生成...</Text>
+          <Text color="gray.500" fontSize="sm">{t('pnlChart.noData')}</Text>
         </Center>
       </Box>
     )

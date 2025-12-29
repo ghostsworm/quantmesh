@@ -29,8 +29,10 @@ import {
   CheckCircleIcon,
   WarningIcon,
   RepeatIcon,
+  InfoIcon,
 } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary } from '../services/api'
 
@@ -74,6 +76,7 @@ const GlassCard: React.FC<{ title?: string; children: React.ReactNode; p?: numbe
 }
 
 const Dashboard: React.FC = () => {
+  const { t } = useTranslation()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [slotsInfo, setSlotsInfo] = useState<SlotsResponse | null>(null)
@@ -118,14 +121,14 @@ const Dashboard: React.FC = () => {
       if (isTrading) {
         await stopTrading()
         setIsTrading(false)
-        toast({ title: '交易已停止', status: 'info', borderRadius: 'full' })
+        toast({ title: t('dashboard.tradingStopped'), status: 'info', borderRadius: 'full' })
       } else {
         await startTrading()
         setIsTrading(true)
-        toast({ title: '交易已启动', status: 'success', borderRadius: 'full' })
+        toast({ title: t('dashboard.tradingStarted'), status: 'success', borderRadius: 'full' })
       }
     } catch (error) {
-      toast({ title: '操作失败', description: error instanceof Error ? error.message : '未知错误', status: 'error' })
+      toast({ title: t('dashboard.operationFailed'), description: error instanceof Error ? error.message : t('dashboard.unknownError'), status: 'error' })
     }
   }
 
@@ -157,17 +160,17 @@ const Dashboard: React.FC = () => {
                 <Heading size="lg" fontWeight="800">{selectedSymbol}</Heading>
                 <Badge colorScheme="blue" variant="subtle" borderRadius="full" px={3}>{selectedExchange?.toUpperCase()}</Badge>
               </HStack>
-              <Text color="gray.500" fontSize="sm">当前价格: <Text as="span" fontWeight="bold" color="blue.500">${status.current_price.toFixed(2)}</Text></Text>
+              <Text color="gray.500" fontSize="sm">{t('dashboard.currentPrice')}: <Text as="span" fontWeight="bold" color="blue.500">${status.current_price.toFixed(2)}</Text></Text>
             </VStack>
           </HStack>
 
           <GlassCard p={2}>
             <HStack spacing={6} px={4}>
               <VStack align="start" spacing={0}>
-                <Text fontSize="10px" fontWeight="bold" color="gray.400" textTransform="uppercase">Status</Text>
+                <Text fontSize="10px" fontWeight="bold" color="gray.400" textTransform="uppercase">{t('dashboard.status')}</Text>
                 <HStack spacing={2}>
                   <Box w={2} h={2} borderRadius="full" bg={isTrading ? 'green.500' : 'red.500'} boxShadow={isTrading ? '0 0 8px #48BB78' : 'none'} />
-                  <Text fontWeight="bold" fontSize="sm">{isTrading ? 'Running' : 'Stopped'}</Text>
+                  <Text fontWeight="bold" fontSize="sm">{isTrading ? t('dashboard.running') : t('dashboard.stopped')}</Text>
                 </HStack>
               </VStack>
               <Divider orientation="vertical" h="30px" />
@@ -183,7 +186,7 @@ const Dashboard: React.FC = () => {
                 _hover={{ transform: 'translateY(-2px)' }}
                 _active={{ transform: 'scale(0.95)' }}
               >
-                {isTrading ? 'STOP' : 'START'}
+                {isTrading ? t('dashboard.stop') : t('dashboard.start')}
               </Button>
             </HStack>
           </GlassCard>
@@ -240,7 +243,7 @@ const Dashboard: React.FC = () => {
         <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={8}>
           {/* Slots & Allocation */}
           <VStack align="stretch" spacing={6}>
-            <GlassCard title="Slots Matrix">
+            <GlassCard title={t('dashboard.slotsMatrix')}>
               {slotsInfo ? (
                 <SimpleGrid columns={4} spacing={4}>
                   {slotsInfo.slots.map((slot, i) => (
@@ -258,12 +261,12 @@ const Dashboard: React.FC = () => {
                   ))}
                 </SimpleGrid>
               ) : (
-                <Text color="gray.400" fontSize="sm">No slots information available</Text>
+                <Text color="gray.400" fontSize="sm">{t('dashboard.noSlotsInfo')}</Text>
               )}
             </GlassCard>
 
             {strategyAllocation && (
-              <GlassCard title="Capital Allocation">
+              <GlassCard title={t('dashboard.capitalAllocation')}>
                 <VStack spacing={4} align="stretch">
                   {Object.entries(strategyAllocation.allocation).map(([name, cap]) => (
                     <Box key={name}>
@@ -283,16 +286,16 @@ const Dashboard: React.FC = () => {
 
           {/* Positions & Orders */}
           <VStack align="stretch" spacing={6}>
-            <GlassCard title="Active Positions">
+            <GlassCard title={t('dashboard.activePositions')}>
               {positionsSummary && positionsSummary.position_count > 0 ? (
                 <VStack align="stretch" spacing={4}>
                   <Flex justify="space-between" align="center">
                     <VStack align="start" spacing={0}>
-                      <Text fontSize="xs" color="gray.500">Size</Text>
+                      <Text fontSize="xs" color="gray.500">{t('dashboard.size')}</Text>
                       <Text fontWeight="800" fontSize="xl">{positionsSummary.total_quantity?.toFixed(4)}</Text>
                     </VStack>
                     <VStack align="end" spacing={0}>
-                      <Text fontSize="xs" color="gray.500">Unrealized P&L</Text>
+                      <Text fontSize="xs" color="gray.500">{t('dashboard.unrealizedPnL')}</Text>
                       <Text fontWeight="800" fontSize="xl" color={(positionsSummary.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'}>
                         {(positionsSummary.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.unrealized_pnl?.toFixed(2)}
                       </Text>
@@ -300,21 +303,21 @@ const Dashboard: React.FC = () => {
                   </Flex>
                   <Divider />
                   <Flex justify="space-between">
-                    <Text fontSize="xs" color="gray.500">Entry Price: ${positionsSummary.average_price?.toFixed(2) || '0.00'}</Text>
-                    <Text fontSize="xs" color="gray.500">Value: ${positionsSummary.total_value?.toFixed(2)}</Text>
+                    <Text fontSize="xs" color="gray.500">{t('dashboard.entryPrice')}: ${positionsSummary.average_price?.toFixed(2) || '0.00'}</Text>
+                    <Text fontSize="xs" color="gray.500">{t('dashboard.value')}: ${positionsSummary.total_value?.toFixed(2)}</Text>
                   </Flex>
                 </VStack>
               ) : (
                 <Center h="100px">
                   <VStack spacing={2}>
                     <Icon as={InfoIcon} color="gray.300" w={6} h={6} />
-                    <Text color="gray.400" fontSize="sm">No active positions</Text>
+                    <Text color="gray.400" fontSize="sm">{t('dashboard.noActivePositions')}</Text>
                   </VStack>
                 </Center>
               )}
             </GlassCard>
 
-            <GlassCard title="Recent Activity">
+            <GlassCard title={t('dashboard.recentActivity')}>
               {pendingOrders && pendingOrders.count > 0 ? (
                 <VStack align="stretch" spacing={3}>
                   {pendingOrders.orders.slice(0, 3).map((order, i) => (
@@ -327,11 +330,11 @@ const Dashboard: React.FC = () => {
                     </Flex>
                   ))}
                   {pendingOrders.count > 3 && (
-                    <Text fontSize="xs" color="blue.500" textAlign="center" cursor="pointer">View all {pendingOrders.count} orders</Text>
+                    <Text fontSize="xs" color="blue.500" textAlign="center" cursor="pointer">{t('dashboard.viewAllOrders', { count: pendingOrders.count })}</Text>
                   )}
                 </VStack>
               ) : (
-                <Text color="gray.400" fontSize="sm" textAlign="center">No pending orders</Text>
+                <Text color="gray.400" fontSize="sm" textAlign="center">{t('dashboard.noPendingOrders')}</Text>
               )}
             </GlassCard>
           </VStack>

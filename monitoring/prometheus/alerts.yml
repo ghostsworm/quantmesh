@@ -1,0 +1,140 @@
+groups:
+  - name: trading_alerts
+    interval: 30s
+    rules:
+      # P0 级别告警：立即处理
+      
+      - alert: RiskControlTriggered
+        expr: quantmesh_risk_control_triggered == 1
+        labels:
+          severity: P0
+          category: risk_control
+        annotations:
+          summary: "风控系统已触发 - {{ $labels.exchange }}:{{ $labels.symbol }}"
+          description: "风控系统检测到市场异常，交易已暂停。Exchange: {{ $labels.exchange }}, Symbol: {{ $labels.symbol }}"
+          
+      - alert: WebSocketDisconnected
+        expr: quantmesh_websocket_connected == 0
+        for: 1m
+        labels:
+          severity: P0
+          category: connectivity
+        annotations:
+          summary: "WebSocket 断开连接 - {{ $labels.exchange }}:{{ $labels.stream_type }}"
+          description: "WebSocket 连接已断开超过 1 分钟。Exchange: {{ $labels.exchange }}, Stream: {{ $labels.stream_type }}"
+      
+      - alert: NoOrdersPlaced
+        expr: rate(quantmesh_order_total[5m]) == 0
+        for: 10m
+        labels:
+          severity: P0
+          category: trading
+        annotations:
+          summary: "系统停止下单 - {{ $labels.exchange }}:{{ $labels.symbol }}"
+          description: "过去 10 分钟没有任何订单被下达，系统可能出现故障。"
+
+      # P1 级别告警：30分钟内处理
+      
+      - alert: LowOrderSuccessRate
+        expr: |
+          (
+            rate(quantmesh_order_success_total[5m]) 
+            / 
+            rate(quantmesh_order_total[5m])
+          ) < 0.95
+        for: 5m
+        labels:
+          severity: P1
+          category: trading
+        annotations:
+          summary: "订单成功率低于 95% - {{ $labels.exchange }}:{{ $labels.symbol }}"
+          description: "订单成功率: {{ $value | humanizePercentage }}。Exchange: {{ $labels.exchange }}, Symbol: {{ $labels.symbol }}, Side: {{ $labels.side }}"
+      
+      - alert: HighAPIRateLimitHits
+        expr: rate(quantmesh_api_rate_limit_hit_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: P1
+          category: api
+        annotations:
+          summary: "API 限流频繁触发 - {{ $labels.exchange }}"
+          description: "过去 5 分钟内频繁触发 API 限流，速率: {{ $value | humanize }}/s"
+      
+      - alert: HighOrderLatency
+        expr: |
+          histogram_quantile(0.95, 
+            rate(quantmesh_order_duration_seconds_bucket[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: P1
+          category: performance
+        annotations:
+          summary: "订单延迟过高 - {{ $labels.exchange }}:{{ $labels.symbol }}"
+          description: "P95 订单延迟: {{ $value | humanizeDuration }}。Exchange: {{ $labels.exchange }}, Symbol: {{ $labels.symbol }}"
+
+      # P2 级别告警：2小时内处理
+      
+      - alert: HighGoroutineCount
+        expr: quantmesh_goroutine_count > 1000
+        for: 10m
+        labels:
+          severity: P2
+          category: system
+        annotations:
+          summary: "Goroutine 数量过高"
+          description: "当前 Goroutine 数量: {{ $value }}，可能存在 Goroutine 泄漏。"
+      
+      - alert: HighMemoryUsage
+        expr: quantmesh_memory_alloc_bytes > 1073741824
+        for: 10m
+        labels:
+          severity: P2
+          category: system
+        annotations:
+          summary: "内存使用过高"
+          description: "当前内存使用: {{ $value | humanize1024 }}B (超过 1GB)"
+      
+      - alert: FrequentWebSocketReconnects
+        expr: rate(quantmesh_websocket_reconnect_count_total[10m]) > 0.1
+        for: 10m
+        labels:
+          severity: P2
+          category: connectivity
+        annotations:
+          summary: "WebSocket 频繁重连 - {{ $labels.exchange }}:{{ $labels.stream_type }}"
+          description: "WebSocket 重连频率: {{ $value | humanize }}/s"
+      
+      - alert: HighReconciliationDiffs
+        expr: rate(quantmesh_reconciliation_diff_found_total[10m]) > 0.5
+        for: 10m
+        labels:
+          severity: P2
+          category: reconciliation
+        annotations:
+          summary: "对账差异频繁出现 - {{ $labels.exchange }}:{{ $labels.symbol }}"
+          description: "对账差异频率: {{ $value | humanize }}/s，类型: {{ $labels.type }}"
+
+  - name: system_health
+    interval: 30s
+    rules:
+      - alert: QuantMeshDown
+        expr: up{job="quantmesh"} == 0
+        for: 1m
+        labels:
+          severity: P0
+          category: system
+        annotations:
+          summary: "QuantMesh 服务不可用"
+          description: "QuantMesh 服务已停止响应超过 1 分钟。Instance: {{ $labels.instance }}"
+      
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total{job="quantmesh"}[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: P2
+          category: system
+        annotations:
+          summary: "CPU 使用率过高"
+          description: "CPU 使用率: {{ $value | humanizePercentage }}，持续 10 分钟以上。"
+

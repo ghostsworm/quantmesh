@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
 import './Reconciliation.css'
 
@@ -43,6 +44,7 @@ interface PositionTooltipData {
 }
 
 const Reconciliation: React.FC = () => {
+  const { t } = useTranslation()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [status, setStatus] = useState<ReconciliationStatus | null>(null)
   const [history, setHistory] = useState<ReconciliationHistoryItem[]>([])
@@ -66,12 +68,12 @@ const Reconciliation: React.FC = () => {
       const response = await fetch(`/api/reconciliation/status?${params}`, {
         credentials: 'include',
       })
-      if (!response.ok) throw new Error('获取对账状态失败')
+      if (!response.ok) throw new Error('Failed to fetch reconciliation status')
       const data = await response.json()
       setStatus(data)
     } catch (err) {
       console.error('Failed to fetch reconciliation status:', err)
-      setError(err instanceof Error ? err.message : '获取对账状态失败')
+      setError(err instanceof Error ? err.message : 'Failed to fetch reconciliation status')
     }
   }
 
@@ -86,12 +88,12 @@ const Reconciliation: React.FC = () => {
       const response = await fetch(`/api/reconciliation/history?${params}`, {
         credentials: 'include',
       })
-      if (!response.ok) throw new Error('获取对账历史失败')
+      if (!response.ok) throw new Error('Failed to fetch reconciliation history')
       const data = await response.json()
       setHistory(data.history || [])
     } catch (err) {
       console.error('Failed to fetch reconciliation history:', err)
-      setError(err instanceof Error ? err.message : '获取对账历史失败')
+      setError(err instanceof Error ? err.message : 'Failed to fetch reconciliation history')
     }
   }
 
@@ -118,7 +120,7 @@ const Reconciliation: React.FC = () => {
   if (loading && !status) {
     return (
       <div className="reconciliation">
-        <h2>对账状态</h2>
+        <h2>{t('reconciliation.history')}</h2>
         <p>加载中...</p>
       </div>
     )
@@ -127,7 +129,7 @@ const Reconciliation: React.FC = () => {
   if (error) {
     return (
       <div className="reconciliation">
-        <h2>对账状态</h2>
+        <h2>{t('reconciliation.history')}</h2>
         <p style={{ color: 'red' }}>错误: {error}</p>
       </div>
     )
@@ -135,32 +137,32 @@ const Reconciliation: React.FC = () => {
 
   return (
     <div className="reconciliation">
-      <h2>对账状态</h2>
+      <h2>{t('reconciliation.history')}</h2>
 
       {status && (
         <div className="status-cards">
           <div className="status-card">
-            <h3>对账次数</h3>
+            <h3>{t('reconciliation.history')}</h3>
             <p className="value">{status.reconcile_count}</p>
           </div>
           <div className="status-card">
-            <h3>最后对账时间</h3>
+            <h3>{t('reconciliation.reconcileTime')}</h3>
             <p className="value">{formatTime(status.last_reconcile_time)}</p>
           </div>
           <div className="status-card">
-            <h3>本地持仓</h3>
+            <h3>{t('reconciliation.localPosition')}</h3>
             <p className="value">{status.local_position.toFixed(4)}</p>
           </div>
           <div className="status-card">
-            <h3>累计买入</h3>
+            <h3>{t('reconciliation.totalBuyQty')}</h3>
             <p className="value">{status.total_buy_qty.toFixed(2)}</p>
           </div>
           <div className="status-card">
-            <h3>累计卖出</h3>
+            <h3>{t('reconciliation.totalSellQty')}</h3>
             <p className="value">{status.total_sell_qty.toFixed(2)}</p>
           </div>
           <div className="status-card">
-            <h3>预计盈利</h3>
+            <h3>{t('reconciliation.estimatedProfit')}</h3>
             <p className="value" style={{ color: status.estimated_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
               {status.estimated_profit.toFixed(2)} USDT
             </p>
@@ -683,39 +685,39 @@ const Reconciliation: React.FC = () => {
       )}
 
       <div style={{ marginTop: '32px' }}>
-        <h3>对账历史</h3>
+        <h3>{t('reconciliation.history')}</h3>
         <div className="history-filters">
           <label>
-            每页:
+            {t('reconciliation.perPage')}
             <select value={historyLimit} onChange={(e) => setHistoryLimit(Number(e.target.value))}>
               <option value={20}>20</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </select>
           </label>
-          <button onClick={() => setHistoryOffset(prev => Math.max(0, prev - historyLimit))}>上一页</button>
-          <span>页 {Math.floor(historyOffset / historyLimit) + 1}</span>
-          <button onClick={() => setHistoryOffset(prev => prev + historyLimit)}>下一页</button>
+          <button onClick={() => setHistoryOffset(prev => Math.max(0, prev - historyLimit))}>{t('reconciliation.previousPage')}</button>
+          <span>{t('reconciliation.page')} {Math.floor(historyOffset / historyLimit) + 1}</span>
+          <button onClick={() => setHistoryOffset(prev => prev + historyLimit)}>{t('reconciliation.nextPage')}</button>
         </div>
 
         {history.length === 0 ? (
-          <p>暂无对账历史</p>
+          <p>{t('reconciliation.noHistory')}</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table className="history-table">
               <thead>
                 <tr>
-                  <th>对账时间</th>
-                  <th>本地持仓</th>
-                  <th>交易所持仓</th>
-                  <th>差异</th>
-                  <th>挂单买单</th>
-                  <th>挂单卖单</th>
-                  <th>待卖数量</th>
-                  <th>累计买入</th>
-                  <th>累计卖出</th>
-                  <th>预计盈利</th>
-                  <th>实际盈利</th>
+                  <th>{t('reconciliation.reconcileTime')}</th>
+                  <th>{t('reconciliation.localPosition')}</th>
+                  <th>{t('reconciliation.exchangePosition')}</th>
+                  <th>{t('reconciliation.difference')}</th>
+                  <th>{t('reconciliation.activeBuyOrders')}</th>
+                  <th>{t('reconciliation.activeSellOrders')}</th>
+                  <th>{t('reconciliation.pendingSellQty')}</th>
+                  <th>{t('reconciliation.totalBuyQty')}</th>
+                  <th>{t('reconciliation.totalSellQty')}</th>
+                  <th>{t('reconciliation.estimatedProfit')}</th>
+                  <th>{t('reconciliation.actualProfit')}</th>
                 </tr>
               </thead>
               <tbody>

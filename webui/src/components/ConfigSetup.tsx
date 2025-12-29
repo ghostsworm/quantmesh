@@ -1,8 +1,10 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { saveInitialConfig, SetupInitRequest } from '../services/setup'
 
 const ConfigSetup: React.FC = () => {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [formData, setFormData] = useState<SetupInitRequest>({
     exchange: 'bitget',
@@ -42,35 +44,35 @@ const ConfigSetup: React.FC = () => {
 
     // 验证必填字段
     if (!formData.exchange) {
-      setError('请选择交易所')
+      setError(t('configSetup.selectExchange'))
       return
     }
     if (!formData.api_key.trim()) {
-      setError('请输入 API Key')
+      setError(t('configSetup.enterApiKey'))
       return
     }
     if (!formData.secret_key.trim()) {
-      setError('请输入 Secret Key')
+      setError(t('configSetup.enterSecretKey'))
       return
     }
     if (exchangesRequiringPassphrase.includes(formData.exchange) && !formData.passphrase?.trim()) {
-      setError('该交易所需要 Passphrase')
+      setError(t('configSetup.exchangeRequiresPassphrase'))
       return
     }
     if (!formData.symbol.trim()) {
-      setError('请输入交易对')
+      setError(t('configSetup.enterSymbol'))
       return
     }
     if (formData.price_interval <= 0) {
-      setError('价格间隔必须大于 0')
+      setError(t('configSetup.priceIntervalMustBeGreaterThanZero'))
       return
     }
     if (formData.order_quantity <= 0) {
-      setError('订单金额必须大于 0')
+      setError(t('configSetup.orderAmountMustBeGreaterThanZero'))
       return
     }
     if (formData.buy_window_size <= 0) {
-      setError('买单窗口大小必须大于 0')
+      setError(t('configSetup.buyWindowSizeMustBeGreaterThanZero'))
       return
     }
 
@@ -85,10 +87,10 @@ const ConfigSetup: React.FC = () => {
           window.location.reload()
         }, 3000)
       } else {
-        setError(response.message || '保存配置失败')
+        setError(response.message || t('configSetup.saveFailed'))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存配置失败')
+      setError(err instanceof Error ? err.message : t('configSetup.saveFailed'))
     } finally {
       setIsLoading(false)
     }
@@ -112,10 +114,10 @@ const ConfigSetup: React.FC = () => {
         maxWidth: '600px'
       }}>
         <h2 style={{ textAlign: 'center', marginBottom: '30px', color: '#1890ff' }}>
-          配置引导
+          {t('configSetup.title')}
         </h2>
         <p style={{ textAlign: 'center', marginBottom: '30px', color: '#8c8c8c', fontSize: '14px' }}>
-          请填写以下基本信息以完成系统配置
+          {t('configSetup.subtitle')}
         </p>
 
         {error && (
@@ -140,7 +142,7 @@ const ConfigSetup: React.FC = () => {
             color: '#52c41a',
             marginBottom: '20px'
           }}>
-            配置已保存！系统将在 3 秒后自动刷新，或请手动重启系统以应用配置。
+            {t('configSetup.saveSuccess')}
           </div>
         )}
 
@@ -148,12 +150,12 @@ const ConfigSetup: React.FC = () => {
           {/* 交易所配置 */}
           <div style={{ marginBottom: '24px' }}>
             <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: 'bold' }}>
-              交易所配置
+              {t('configSetup.exchangeConfig')}
             </h3>
             
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                交易所 <span style={{ color: '#ff4d4f' }}>*</span>
+                {t('configSetup.exchange')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
               </label>
               <select
                 name="exchange"
@@ -195,7 +197,7 @@ const ConfigSetup: React.FC = () => {
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                API Key <span style={{ color: '#ff4d4f' }}>*</span>
+                {t('configSetup.apiKey')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
               </label>
               <input
                 type="text"
@@ -210,13 +212,13 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="请输入 API Key"
+                placeholder={t('configSetup.apiKeyPlaceholder')}
               />
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                Secret Key <span style={{ color: '#ff4d4f' }}>*</span>
+                {t('configSetup.secretKey')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
               </label>
               <input
                 type="password"
@@ -231,14 +233,14 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="请输入 Secret Key"
+                placeholder={t('configSetup.secretKeyPlaceholder')}
               />
             </div>
 
             {exchangesRequiringPassphrase.includes(formData.exchange) && (
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                  Passphrase <span style={{ color: '#ff4d4f' }}>*</span>
+                  {t('configSetup.passphrase')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
                 </label>
                 <input
                   type="password"
@@ -253,7 +255,7 @@ const ConfigSetup: React.FC = () => {
                     borderRadius: '4px',
                     fontSize: '14px'
                   }}
-                  placeholder="请输入 Passphrase"
+                  placeholder={t('configSetup.passphrasePlaceholder')}
                 />
               </div>
             )}
@@ -268,13 +270,13 @@ const ConfigSetup: React.FC = () => {
                   disabled={isLoading}
                   style={{ marginRight: '8px' }}
                 />
-                <span style={{ fontSize: '14px' }}>使用测试网</span>
+                <span style={{ fontSize: '14px' }}>{t('configSetup.useTestnet')}</span>
               </label>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                手续费率（可选）
+                {t('configSetup.feeRateOptional')}
               </label>
               <input
                 type="number"
@@ -291,10 +293,10 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="0.0002 (默认)"
+                placeholder={t('configSetup.feeRatePlaceholder')}
               />
               <div style={{ marginTop: '4px', fontSize: '12px', color: '#8c8c8c' }}>
-                例如：0.0002 表示 0.02%
+                {t('configSetup.feeRateExample')}
               </div>
             </div>
           </div>
@@ -302,12 +304,12 @@ const ConfigSetup: React.FC = () => {
           {/* 交易配置 */}
           <div style={{ marginBottom: '24px' }}>
             <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: 'bold' }}>
-              交易配置
+              {t('configSetup.tradingConfig')}
             </h3>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                交易对 <span style={{ color: '#ff4d4f' }}>*</span>
+                {t('configSetup.symbol')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
               </label>
               <input
                 type="text"
@@ -322,13 +324,13 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="例如：BTCUSDT, ETHUSDT"
+                placeholder={t('configSetup.symbolPlaceholder')}
               />
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                价格间隔 <span style={{ color: '#ff4d4f' }}>*</span>
+                {t('configSetup.priceInterval')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
               </label>
               <input
                 type="number"
@@ -345,16 +347,16 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="例如：2 (美元)"
+                placeholder={t('configSetup.priceIntervalPlaceholder')}
               />
               <div style={{ marginTop: '4px', fontSize: '12px', color: '#8c8c8c' }}>
-                建议：ETH 使用 2，BTC 使用 10
+                {t('configSetup.priceIntervalSuggestion')}
               </div>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                订单金额（USDT） <span style={{ color: '#ff4d4f' }}>*</span>
+                {t('configSetup.orderAmount')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
               </label>
               <input
                 type="number"
@@ -371,16 +373,16 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="例如：30"
+                placeholder={t('configSetup.orderAmountPlaceholder')}
               />
               <div style={{ marginTop: '4px', fontSize: '12px', color: '#8c8c8c' }}>
-                每单投入的金额（USDT）
+                {t('configSetup.orderAmountDesc')}
               </div>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                最小订单价值（USDT）
+                {t('configSetup.minOrderValue')}
               </label>
               <input
                 type="number"
@@ -397,13 +399,13 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="20 (默认)"
+                placeholder={t('configSetup.minOrderValuePlaceholder')}
               />
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                买单窗口大小 <span style={{ color: '#ff4d4f' }}>*</span>
+                {t('configSetup.buyWindowSize')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
               </label>
               <input
                 type="number"
@@ -420,16 +422,16 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="例如：10"
+                placeholder={t('configSetup.buyWindowSizePlaceholder')}
               />
               <div style={{ marginTop: '4px', fontSize: '12px', color: '#8c8c8c' }}>
-                下方挂单数量
+                {t('configSetup.buyWindowSizeDesc')}
               </div>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                卖单窗口大小
+                {t('configSetup.sellWindowSize')}
               </label>
               <input
                 type="number"
@@ -446,10 +448,10 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="默认与买单窗口相同"
+                placeholder={t('configSetup.sellWindowSizePlaceholder')}
               />
               <div style={{ marginTop: '4px', fontSize: '12px', color: '#8c8c8c' }}>
-                上方挂单数量，留空则与买单窗口相同
+                {t('configSetup.sellWindowSizeDesc')}
               </div>
             </div>
           </div>
@@ -469,7 +471,7 @@ const ConfigSetup: React.FC = () => {
               opacity: (isLoading || success) ? 0.6 : 1
             }}
           >
-            {isLoading ? '保存中...' : success ? '配置已保存' : '保存配置'}
+            {isLoading ? t('configSetup.saving') : success ? t('configSetup.saved') : t('configSetup.saveConfig')}
           </button>
         </form>
       </div>

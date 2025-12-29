@@ -8,6 +8,7 @@ import (
 
 	"quantmesh/exchange"
 	"quantmesh/logger"
+	"quantmesh/metrics"
 )
 
 /*
@@ -117,6 +118,11 @@ func (pm *PriceMonitor) updatePrice(newPrice float64) {
 	pm.lastPrice.Store(newPrice)
 	pm.lastPriceStr.Store(fmt.Sprintf("%f", newPrice)) // 简单转换，精度由后续逻辑处理
 	pm.lastPriceTime.Store(time.Now())
+
+	// 记录 Prometheus 指标
+	promMetrics := metrics.GetPrometheusMetrics()
+	promMetrics.SetCurrentPrice(pm.exchange.GetName(), pm.symbol, newPrice)
+	promMetrics.RecordPriceUpdate(pm.exchange.GetName(), pm.symbol)
 
 	// 如果价格有变化，生成事件
 	if oldPrice > 0 && newPrice != oldPrice {

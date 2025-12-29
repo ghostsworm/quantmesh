@@ -14,6 +14,7 @@ import {
   AlertDescription,
   Text,
 } from '@chakra-ui/react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
 import {
   verifyPassword,
@@ -22,6 +23,7 @@ import {
 } from '../services/auth'
 
 const Login: React.FC = () => {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { isAuthenticated, hasWebAuthn, refreshAuth } = useAuth()
   const [password, setPassword] = useState('')
@@ -41,7 +43,7 @@ const Login: React.FC = () => {
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!password.trim()) {
-      setError('请输入密码')
+      setError(t('login.enterPassword'))
       return
     }
 
@@ -54,7 +56,7 @@ const Login: React.FC = () => {
       await refreshAuth()
       navigate('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '密码错误')
+      setError(err instanceof Error ? err.message : t('login.passwordError'))
     } finally {
       setIsLoading(false)
     }
@@ -62,7 +64,7 @@ const Login: React.FC = () => {
 
   const handleWebAuthnLogin = async () => {
     if (!hasWebAuthn) {
-      setError('未注册指纹，请先设置')
+      setError(t('login.webauthnNotRegistered'))
       return
     }
 
@@ -73,7 +75,7 @@ const Login: React.FC = () => {
       // 1. 开始 WebAuthn 登录
       const beginResponse = await beginWebAuthnLogin('admin')
       if (!beginResponse.success) {
-        throw new Error('WebAuthn 登录失败')
+        throw new Error(t('login.webauthnLoginError'))
       }
 
       // 2. 转换 challenge 和 allowCredentials
@@ -121,9 +123,9 @@ const Login: React.FC = () => {
       }
 
       // 5. 完成登录（需要密码）
-      const passwordForWebAuthn = prompt('请输入密码以完成指纹登录:')
+      const passwordForWebAuthn = prompt(t('login.webauthnPasswordPrompt'))
       if (!passwordForWebAuthn) {
-        setError('需要密码才能完成指纹登录')
+        setError(t('login.webauthnPasswordRequired'))
         setIsLoading(false)
         return
       }
@@ -135,9 +137,9 @@ const Login: React.FC = () => {
       navigate('/')
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {
-        setError('用户取消了指纹验证')
+        setError(t('login.userCancelled'))
       } else {
-        setError(err.message || '指纹登录失败')
+        setError(err.message || t('login.webauthnLoginFailed'))
       }
       setIsLoading(false)
     }
@@ -160,7 +162,7 @@ const Login: React.FC = () => {
         >
           <VStack spacing={6} align="stretch">
             <Heading size="lg" textAlign="center">
-              登录
+              {t('login.title')}
             </Heading>
 
             {error && (
@@ -173,12 +175,12 @@ const Login: React.FC = () => {
             <form onSubmit={handlePasswordLogin}>
               <VStack spacing={4} align="stretch">
                 <FormControl isRequired>
-                  <FormLabel>密码</FormLabel>
+                  <FormLabel>{t('login.password')}</FormLabel>
                   <Input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="请输入密码"
+                    placeholder={t('login.passwordPlaceholder')}
                     size="lg"
                     isDisabled={isLoading}
                   />
@@ -190,9 +192,9 @@ const Login: React.FC = () => {
                   size="lg"
                   width="full"
                   isLoading={isLoading}
-                  loadingText="登录中..."
+                  loadingText={t('login.loading')}
                 >
-                  密码登录
+                  {t('login.passwordLogin')}
                 </Button>
               </VStack>
             </form>
@@ -204,9 +206,9 @@ const Login: React.FC = () => {
                 width="full"
                 onClick={handleWebAuthnLogin}
                 isLoading={isLoading}
-                loadingText="验证中..."
+                loadingText={t('login.verifying')}
               >
-                指纹登录
+                {t('login.webauthnLogin')}
               </Button>
             )}
 
@@ -214,7 +216,7 @@ const Login: React.FC = () => {
               <Alert status="info" borderRadius="md">
                 <AlertIcon />
                 <AlertDescription>
-                  未注册指纹，请先完成首次设置
+                  {t('login.webauthnNotRegisteredMessage')}
                 </AlertDescription>
               </Alert>
             )}

@@ -13,11 +13,40 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/exchange"
+	qmi18n "quantmesh/i18n"
 	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/utils"
 )
+
+// respondError 返回翻译后的错误响应
+func respondError(c *gin.Context, status int, messageKey string, args ...interface{}) {
+	lang := GetLanguage(c)
+	
+	var data map[string]interface{}
+	var errObj error
+	
+	// 解析参数
+	for _, arg := range args {
+		if err, ok := arg.(error); ok {
+			errObj = err
+		} else if m, ok := arg.(map[string]interface{}); ok {
+			data = m
+		}
+	}
+	
+	// 翻译错误消息
+	message := qmi18n.TWithLang(lang, messageKey, data)
+	
+	// 如果有实际的错误对象，添加详细信息（仅在开发模式）
+	if errObj != nil && status >= 500 {
+		// 在生产环境可能需要隐藏详细错误信息
+		message = fmt.Sprintf("%s: %v", message, errObj)
+	}
+	
+	c.JSON(status, gin.H{"error": message})
+}
 
 // SystemStatus 系统状态
 type SystemStatus struct {
@@ -68,7 +97,8 @@ func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedPro
 	}
 	key := makeSymbolKey(exchange, symbol)
 	
-	logger.Info("[DEBUG] RegisterSymbolProviders - registering key=%s, hasPosition=%v", key, providers.Position != nil)
+	logger.Info("[DEBUG] RegisterSymbolProviders - registering key=%s, hasPosition=%v, hasPrice=%v", 
+		key, providers.Position != nil, providers.Price != nil)
 	
 	// 使用写锁保护并发写入
 	statusMu.Lock()
@@ -78,6 +108,7 @@ func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedPro
 	providersMu.Lock()
 	if providers.Price != nil {
 		priceProviders[key] = providers.Price
+		logger.Info("[DEBUG] RegisterSymbolProviders - registered price provider for key=%s", key)
 	}
 	if providers.Exchange != nil {
 		exchangeProviders[key] = providers.Exchange
@@ -159,9 +190,12 @@ func pickPriceProvider(c *gin.Context) PriceProvider {
 		p, ok := priceProviders[key]
 		providersMu.RUnlock()
 		if ok && p != nil {
+			logger.Info("[DEBUG] pickPriceProvider - found provider for key=%s", key)
 			return p
 		}
+		logger.Warn("⚠️ [pickPriceProvider] no provider found for key=%s, falling back to default", key)
 	}
+	logger.Info("[DEBUG] pickPriceProvider - using default priceProvider")
 	return priceProvider
 }
 
@@ -394,6 +428,11 @@ func getPositions(c *gin.Context) {
 	currentPrice := 0.0
 	if priceProv != nil {
 		currentPrice = priceProv.GetLastPrice()
+		logger.Info("[DEBUG] getPositions - [%s:%s] resolvedKey=%s, priceProvider!=nil, currentPrice=%.2f", 
+			exchange, symbol, resolvedKey, currentPrice)
+	} else {
+		logger.Warn("⚠️ [getPositions] [%s:%s] resolvedKey=%s, priceProvider is nil!", 
+			exchange, symbol, resolvedKey)
 	}
 
 	totalQuantity := 0.0
@@ -428,16 +467,16 @@ func getPositions(c *gin.Context) {
 					// 当前价格可能是持仓价格的100倍，尝试除以100
 					adjustedPrice := currentPrice / 100
 					if math.Abs(adjustedPrice-slot.Price)/slot.Price < 0.1 {
-						logger.Warn("⚠️ [getPositions] 检测到价格单位问题（当前价格可能是持仓价格的100倍），已自动修正: %.2f -> %.2f", 
-							currentPrice, adjustedPrice)
+						logger.Warn("⚠️ [getPositions] [%s:%s] 检测到价格单位问题（当前价格可能是持仓价格的100倍），已自动修正: %.2f -> %.2f", 
+							exchange, symbol, currentPrice, adjustedPrice)
 						adjustedCurrentPrice = adjustedPrice
 					}
 				} else if priceRatio < 0.02 {
 					// 当前价格可能是持仓价格的0.01倍，尝试乘以100
 					adjustedPrice := currentPrice * 100
 					if math.Abs(adjustedPrice-slot.Price)/slot.Price < 0.1 {
-						logger.Warn("⚠️ [getPositions] 检测到价格单位问题（当前价格可能是持仓价格的0.01倍），已自动修正: %.2f -> %.2f", 
-							currentPrice, adjustedPrice)
+						logger.Warn("⚠️ [getPositions] [%s:%s] 检测到价格单位问题（当前价格可能是持仓价格的0.01倍），已自动修正: %.2f -> %.2f", 
+							exchange, symbol, currentPrice, adjustedPrice)
 						adjustedCurrentPrice = adjustedPrice
 					}
 				}
@@ -446,8 +485,8 @@ func getPositions(c *gin.Context) {
 				priceDeviation = (adjustedCurrentPrice - slot.Price) / slot.Price
 				if priceDeviation > 0.5 || priceDeviation < -0.5 {
 					// 价格偏差仍然过大，使用持仓价格（未实现盈亏为0）
-					logger.Warn("⚠️ [getPositions] 价格偏差过大，使用持仓价格计算（未实现盈亏设为0）: currentPrice=%.2f, slotPrice=%.2f, 偏差=%.2f%%", 
-						adjustedCurrentPrice, slot.Price, priceDeviation*100)
+					logger.Warn("⚠️ [getPositions] [%s:%s] 价格偏差过大，使用持仓价格计算（未实现盈亏设为0）: currentPrice=%.2f, slotPrice=%.2f, 偏差=%.2f%%, resolvedKey=%s", 
+						exchange, symbol, adjustedCurrentPrice, slot.Price, priceDeviation*100, resolvedKey)
 					adjustedCurrentPrice = slot.Price
 				}
 				
@@ -669,7 +708,7 @@ func getOrders(c *gin.Context) {
 
 	orders, err := storage.QueryOrders(limit, offset, status)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, http.StatusInternalServerError, "error.query_orders_failed", err)
 		return
 	}
 
@@ -1006,7 +1045,7 @@ func getTradeStatistics(c *gin.Context) {
 	if startTimeStr != "" {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
 			return
 		}
 	} else {
@@ -1016,7 +1055,7 @@ func getTradeStatistics(c *gin.Context) {
 	if endTimeStr != "" {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
 			return
 		}
 	} else {
@@ -1133,7 +1172,7 @@ func getSystemMetrics(c *gin.Context) {
 	} else {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
 			return
 		}
 	}
@@ -1143,7 +1182,7 @@ func getSystemMetrics(c *gin.Context) {
 	} else {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
 			return
 		}
 	}
@@ -1585,7 +1624,7 @@ func getLogs(c *gin.Context) {
 	if startTimeStr != "" {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
 			return
 		}
 	}
@@ -1593,7 +1632,7 @@ func getLogs(c *gin.Context) {
 	if endTimeStr != "" {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
 			return
 		}
 	} else {
@@ -1752,7 +1791,7 @@ func getReconciliationHistory(c *gin.Context) {
 	if startTimeStr != "" {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
 			return
 		}
 	} else {
@@ -1763,7 +1802,7 @@ func getReconciliationHistory(c *gin.Context) {
 	if endTimeStr != "" {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
 			return
 		}
 	} else {
@@ -1827,19 +1866,19 @@ type PnLSummaryResponse struct {
 func getPnLBySymbol(c *gin.Context) {
 	storageProv := pickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"error": "存储服务不可用"})
+		respondError(c, http.StatusOK, "error.storage_unavailable")
 		return
 	}
 
 	storage := storageProv.GetStorage()
 	if storage == nil {
-		c.JSON(http.StatusOK, gin.H{"error": "存储服务不可用"})
+		respondError(c, http.StatusOK, "error.storage_unavailable")
 		return
 	}
 
 	symbol := c.Query("symbol")
 	if symbol == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少币种对参数"})
+		respondError(c, http.StatusBadRequest, "error.missing_symbol_param")
 		return
 	}
 
@@ -1852,7 +1891,7 @@ func getPnLBySymbol(c *gin.Context) {
 	if startTimeStr != "" {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
 			return
 		}
 	} else {
@@ -1863,7 +1902,7 @@ func getPnLBySymbol(c *gin.Context) {
 	if endTimeStr != "" {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
 			return
 		}
 	} else {
@@ -1923,7 +1962,7 @@ func getPnLByTimeRange(c *gin.Context) {
 	if startTimeStr != "" {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
 			return
 		}
 	} else {
@@ -1934,7 +1973,7 @@ func getPnLByTimeRange(c *gin.Context) {
 	if endTimeStr != "" {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
 			return
 		}
 	} else {
@@ -1980,7 +2019,7 @@ func getAnomalousTrades(c *gin.Context) {
 
 	symbol := c.Query("symbol")
 	if symbol == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少币种对参数"})
+		respondError(c, http.StatusBadRequest, "error.missing_symbol_param")
 		return
 	}
 
@@ -2198,7 +2237,7 @@ func getRiskCheckHistory(c *gin.Context) {
 	} else {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的开始时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
 			return
 		}
 	}
@@ -2208,7 +2247,7 @@ func getRiskCheckHistory(c *gin.Context) {
 	} else {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的结束时间格式"})
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
 			return
 		}
 	}

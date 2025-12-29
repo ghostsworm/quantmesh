@@ -54,6 +54,7 @@ webui/.cache/
 webui/package-lock.json
 webui/yarn.lock
 webui/pnpm-lock.yaml
+web/dist/
 
 # Test coverage
 *.cover

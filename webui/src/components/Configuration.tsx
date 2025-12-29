@@ -55,6 +55,7 @@ import {
 } from '@chakra-ui/react'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
 import {
   getConfig,
@@ -96,6 +97,7 @@ const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: an
 }
 
 const Configuration: React.FC = () => {
+  const { t } = useTranslation()
   const { isGlobalView, selectedSymbol } = useSymbol()
   const [config, setConfig] = useState<Config | null>(null)
   const [loading, setLoading] = useState(true)
@@ -129,7 +131,7 @@ const Configuration: React.FC = () => {
       const cfg = await getConfig()
       setConfig(cfg)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载配置失败')
+      setError(err instanceof Error ? err.message : t('configuration.loadFailed'))
     } finally {
       setLoading(false)
     }
@@ -140,7 +142,7 @@ const Configuration: React.FC = () => {
       const backupList = await getBackups()
       setBackups(backupList)
     } catch (err) {
-      console.error('加载备份列表失败:', err)
+      console.error(t('configuration.loadBackupListFailed'), err)
     }
   }
 
@@ -162,7 +164,7 @@ const Configuration: React.FC = () => {
       setRequiresRestart(diff.requires_restart)
       onPreviewOpen()
     } catch (err) {
-      toast({ title: '预览失败', status: 'error' })
+      toast({ title: t('configuration.previewFailed'), status: 'error' })
     }
   }
 
@@ -173,10 +175,10 @@ const Configuration: React.FC = () => {
       const result = await updateConfig(config)
       setSuccess(result.message)
       onPreviewClose()
-      toast({ title: '保存成功', status: 'success' })
+      toast({ title: t('configuration.saveSuccess'), status: 'success' })
       await loadConfig()
     } catch (err) {
-      setError('保存配置失败')
+      setError(t('configuration.saveFailed'))
     } finally {
       setSaving(false)
     }
@@ -223,7 +225,7 @@ const Configuration: React.FC = () => {
             variant="ghost"
             size="sm"
             onClick={() => togglePasswordVisibility(key)}
-            aria-label={show ? '隐藏' : '显示'}
+            aria-label={show ? t('configuration.hide') : t('configuration.show')}
             icon={show ? <ViewOffIcon /> : <ViewIcon />}
           />
         </InputRightElement>
@@ -242,10 +244,10 @@ const Configuration: React.FC = () => {
   }
 
   if (loading) return <Center h="400px"><Spinner size="xl" thickness="4px" color="blue.500" /></Center>
-  if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />加载配置失败</Alert></Container>
+  if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />{t('configuration.loadFailed')}</Alert></Container>
 
-  const globalTabs = ["常规设置", "交易所 API", "通知设置", "存储与 Web"]
-  const symbolTabs = ["交易参数", "风险控制", "AI 策略"]
+  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb')]
+  const symbolTabs = [t('configuration.symbolTabs.tradingParams'), t('configuration.symbolTabs.riskControl'), t('configuration.symbolTabs.aiStrategy')]
 
   const activeTabs = isGlobalView ? globalTabs : symbolTabs
 
@@ -254,14 +256,14 @@ const Configuration: React.FC = () => {
       <VStack spacing={8} align="stretch">
         <Flex justify="space-between" align="flex-end">
           <Box>
-            <Heading size="xl" fontWeight="800" mb={2}>设置</Heading>
+            <Heading size="xl" fontWeight="800" mb={2}>{t('configuration.title')}</Heading>
             <Text color="gray.500">
-              {isGlobalView ? "配置全局系统参数" : `管理 ${selectedSymbol} 的专用配置`}
+              {isGlobalView ? t('configuration.globalDescription') : t('configuration.symbolDescription', { symbol: selectedSymbol })}
             </Text>
           </Box>
           <HStack spacing={3}>
-            <Button size="sm" variant="outline" onClick={onBackupsOpen} borderRadius="full">备份管理</Button>
-            <Button size="sm" colorScheme="blue" onClick={handleSave} isLoading={saving} borderRadius="full" px={6}>保存更改</Button>
+            <Button size="sm" variant="outline" onClick={onBackupsOpen} borderRadius="full">{t('configuration.backupManagement')}</Button>
+            <Button size="sm" colorScheme="blue" onClick={handleSave} isLoading={saving} borderRadius="full" px={6}>{t('configuration.saveChanges')}</Button>
           </HStack>
         </Flex>
 
@@ -304,9 +306,9 @@ const Configuration: React.FC = () => {
               <>
                 {tabIndex === 0 && (
                   <VStack spacing={6} align="stretch">
-                    <ConfigCard title="常规应用配置" icon={<SettingsIcon />}>
+                    <ConfigCard title={t('configuration.generalAppConfig')} icon={<SettingsIcon />}>
                       <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">默认交易所</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.defaultExchange')}</FormLabel>
                         <Select
                           value={config.app?.current_exchange || ''}
                           onChange={(e) => updateConfigField('app.current_exchange', e.target.value)}
@@ -318,10 +320,10 @@ const Configuration: React.FC = () => {
                         </Select>
                       </FormControl>
                     </ConfigCard>
-                    <ConfigCard title="系统基础配置" icon={<SettingsIcon />}>
+                    <ConfigCard title={t('configuration.systemBasicConfig')} icon={<SettingsIcon />}>
                       <SimpleGrid columns={2} spacing={6}>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">日志级别</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.logLevel')}</FormLabel>
                           <Select
                             value={config.system?.log_level || 'INFO'}
                             onChange={(e) => updateConfigField('system.log_level', e.target.value)}
@@ -334,7 +336,7 @@ const Configuration: React.FC = () => {
                           </Select>
                         </FormControl>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">时区</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.timezone')}</FormLabel>
                           <Input
                             value={config.system?.timezone || ''}
                             onChange={(e) => updateConfigField('system.timezone', e.target.value)}
@@ -347,8 +349,8 @@ const Configuration: React.FC = () => {
                       <Stack spacing={4}>
                         <Flex justify="space-between" align="center">
                           <Box>
-                            <Text fontWeight="600" size="sm">退出时撤销所有订单</Text>
-                            <Text fontSize="xs" color="gray.500">停止程序时自动清理未完成的委托</Text>
+                            <Text fontWeight="600" size="sm">{t('configuration.cancelOnExit')}</Text>
+                            <Text fontSize="xs" color="gray.500">{t('configuration.cancelOnExitDesc')}</Text>
                           </Box>
                           <Switch
                             isChecked={config.system?.cancel_on_exit || false}
@@ -357,8 +359,8 @@ const Configuration: React.FC = () => {
                         </Flex>
                         <Flex justify="space-between" align="center">
                           <Box>
-                            <Text fontWeight="600" size="sm" color="red.500">退出时自动平仓</Text>
-                            <Text fontSize="xs" color="gray.500">⚠️ 高风险：停止程序时将以市价卖出所有持仓</Text>
+                            <Text fontWeight="600" size="sm" color="red.500">{t('configuration.closePositionsOnExit')}</Text>
+                            <Text fontSize="xs" color="gray.500">{t('configuration.closePositionsOnExitDesc')}</Text>
                           </Box>
                           <Switch
                             colorScheme="red"
@@ -392,10 +394,10 @@ const Configuration: React.FC = () => {
                               isChecked={getNestedValue(config, `exchanges.${exchange}.testnet`) || false}
                               onChange={(e) => updateConfigField(`exchanges.${exchange}.testnet`, e.target.checked)}
                             />
-                            <Text fontSize="sm" fontWeight="600">使用测试网 (Testnet)</Text>
+                            <Text fontSize="sm" fontWeight="600">{t('configuration.useTestnet')}</Text>
                           </HStack>
                           <HStack>
-                            <Text fontSize="xs" color="gray.500">手续费率:</Text>
+                            <Text fontSize="xs" color="gray.500">{t('configuration.feeRate')}</Text>
                             <NumberInput
                               size="sm"
                               w="100px"
@@ -415,9 +417,9 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 2 && (
                   <VStack spacing={6} align="stretch">
-                    <ConfigCard title="全局通知开关" icon={<BellIcon />}>
+                    <ConfigCard title={t('configuration.globalNotificationSwitch')} icon={<BellIcon />}>
                       <Flex justify="space-between" align="center">
-                        <Text fontWeight="600">启用通知系统</Text>
+                        <Text fontWeight="600">{t('configuration.enableNotifications')}</Text>
                         <Switch
                           isChecked={config.notifications?.enabled || false}
                           onChange={(e) => updateConfigField('notifications.enabled', e.target.checked)}
@@ -456,9 +458,9 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 3 && (
                   <SimpleGrid columns={2} spacing={6}>
-                    <ConfigCard title="数据存储" icon={<SettingsIcon />}>
+                    <ConfigCard title={t('configuration.dataStorage')} icon={<SettingsIcon />}>
                       <FormControl mb={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold">数据库路径</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.databasePath')}</FormLabel>
                         <Input
                           value={config.storage?.path || ''}
                           onChange={(e) => updateConfigField('storage.path', e.target.value)}
@@ -467,28 +469,28 @@ const Configuration: React.FC = () => {
                       </FormControl>
                       <HStack spacing={4}>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">缓冲区</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buffer')}</FormLabel>
                           <NumberInput value={config.storage?.buffer_size || 1000} onChange={(_, v) => updateConfigField('storage.buffer_size', v)}>
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">刷新 (秒)</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.flushInterval')}</FormLabel>
                           <NumberInput value={config.storage?.flush_interval || 5} onChange={(_, v) => updateConfigField('storage.flush_interval', v)}>
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>
                       </HStack>
                     </ConfigCard>
-                    <ConfigCard title="Web 服务" icon={<SettingsIcon />}>
+                    <ConfigCard title={t('configuration.webService')} icon={<SettingsIcon />}>
                       <FormControl mb={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold">监听端口</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.listenPort')}</FormLabel>
                         <NumberInput value={config.web?.port || 28888} onChange={(_, v) => updateConfigField('web.port', v)}>
                           <NumberInputField borderRadius="xl" />
                         </NumberInput>
                       </FormControl>
                       <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold">API 密钥 (可选)</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.apiKeyOptional')}</FormLabel>
                         {renderPasswordInput('web.api_key')}
                       </FormControl>
                     </ConfigCard>
@@ -499,28 +501,28 @@ const Configuration: React.FC = () => {
               <>
                 {tabIndex === 0 && (
                   <VStack spacing={6} align="stretch">
-                    <ConfigCard title={`交易对参数: ${selectedSymbol}`} icon={<RepeatIcon />}>
+                    <ConfigCard title={t('configuration.tradingPairParams', { symbol: selectedSymbol })} icon={<RepeatIcon />}>
                       <SimpleGrid columns={2} spacing={6}>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">价格间隔 (Interval)</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceInterval')}</FormLabel>
                           <NumberInput value={config.trading?.price_interval || 0} onChange={(_, v) => updateConfigField('trading.price_interval', v)} precision={6} step={0.01}>
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">单笔订单金额 (USDT)</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.orderAmount')}</FormLabel>
                           <NumberInput value={config.trading?.order_quantity || 0} onChange={(_, v) => updateConfigField('trading.order_quantity', v)} precision={2}>
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">买单窗口大小</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buyWindowSize')}</FormLabel>
                           <NumberInput value={config.trading?.buy_window_size || 0} onChange={(_, v) => updateConfigField('trading.buy_window_size', v)}>
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">卖单窗口大小</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.sellWindowSize')}</FormLabel>
                           <NumberInput value={config.trading?.sell_window_size || 0} onChange={(_, v) => updateConfigField('trading.sell_window_size', v)}>
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
@@ -531,11 +533,11 @@ const Configuration: React.FC = () => {
                 )}
 
                 {tabIndex === 1 && (
-                  <ConfigCard title="风险控制设置" icon={<LockIcon />}>
+                  <ConfigCard title={t('configuration.riskControlSettings')} icon={<LockIcon />}>
                     <Flex justify="space-between" align="center" mb={6}>
                       <Box>
-                        <Text fontWeight="600">启用风控引擎</Text>
-                        <Text fontSize="xs" color="gray.500">自动监控异常市场波动并采取保护措施</Text>
+                        <Text fontWeight="600">{t('configuration.enableRiskEngine')}</Text>
+                        <Text fontSize="xs" color="gray.500">{t('configuration.enableRiskEngineDesc')}</Text>
                       </Box>
                       <Switch
                         colorScheme="orange"
@@ -545,13 +547,13 @@ const Configuration: React.FC = () => {
                     </Flex>
                     <SimpleGrid columns={2} spacing={6}>
                       <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold">最大允许杠杆</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.maxLeverage')}</FormLabel>
                         <NumberInput value={config.risk_control?.max_leverage || 0} onChange={(_, v) => updateConfigField('risk_control.max_leverage', v)}>
                           <NumberInputField borderRadius="xl" />
                         </NumberInput>
                       </FormControl>
                       <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold">成交量异常倍数</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.volumeMultiplier')}</FormLabel>
                         <NumberInput value={config.risk_control?.volume_multiplier || 0} onChange={(_, v) => updateConfigField('risk_control.volume_multiplier', v)} precision={1}>
                           <NumberInputField borderRadius="xl" />
                         </NumberInput>
@@ -562,11 +564,11 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 2 && (
                   <VStack spacing={6} align="stretch">
-                    <ConfigCard title="AI 决策引擎" icon={<StarIcon />}>
+                    <ConfigCard title={t('configuration.aiDecisionEngine')} icon={<StarIcon />}>
                       <Flex justify="space-between" align="center" mb={6}>
                         <Box>
-                          <Text fontWeight="600">启用 AI 辅助决策</Text>
-                          <Text fontSize="xs" color="gray.500">使用大模型分析行情并优化交易参数</Text>
+                          <Text fontWeight="600">{t('configuration.enableAIAssist')}</Text>
+                          <Text fontSize="xs" color="gray.500">{t('configuration.enableAIAssistDesc')}</Text>
                         </Box>
                         <Switch
                           colorScheme="purple"
@@ -576,22 +578,22 @@ const Configuration: React.FC = () => {
                       </Flex>
                       <SimpleGrid columns={2} spacing={6}>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">服务商</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.provider')}</FormLabel>
                           <Select value={config.ai?.provider || ''} onChange={(e) => updateConfigField('ai.provider', e.target.value)} borderRadius="xl">
                             <option value="gemini">Gemini</option>
                             <option value="openai">OpenAI</option>
                           </Select>
                         </FormControl>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">决策模式</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.decisionMode')}</FormLabel>
                           <Select value={config.ai?.decision_mode || ''} onChange={(e) => updateConfigField('ai.decision_mode', e.target.value)} borderRadius="xl">
-                            <option value="advisor">建议模式 (只读)</option>
-                            <option value="executor">执行模式 (自动下单)</option>
+                            <option value="advisor">{t('configuration.advisorMode')}</option>
+                            <option value="executor">{t('configuration.executorMode')}</option>
                           </Select>
                         </FormControl>
                       </SimpleGrid>
                       <FormControl mt={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold">API Key</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.apiKey')}</FormLabel>
                         {renderPasswordInput('ai.api_key')}
                       </FormControl>
                     </ConfigCard>
@@ -606,7 +608,7 @@ const Configuration: React.FC = () => {
         <Modal isOpen={isPreviewOpen} onClose={onPreviewClose} size="xl">
           <ModalOverlay backdropFilter="blur(4px)" />
           <ModalContent borderRadius="2xl">
-            <ModalHeader>确认变更</ModalHeader>
+            <ModalHeader>{t('configuration.confirmChanges')}</ModalHeader>
             <ModalCloseButton />
             <ModalBody>
               <VStack spacing={4} align="stretch">
@@ -623,8 +625,8 @@ const Configuration: React.FC = () => {
               </VStack>
             </ModalBody>
             <ModalFooter>
-              <Button variant="ghost" mr={3} onClick={onPreviewClose}>取消</Button>
-              <Button colorScheme="blue" onClick={handleSave} isLoading={saving}>确认保存</Button>
+              <Button variant="ghost" mr={3} onClick={onPreviewClose}>{t('configuration.cancel')}</Button>
+              <Button colorScheme="blue" onClick={handleSave} isLoading={saving}>{t('configuration.confirmSave')}</Button>
             </ModalFooter>
           </ModalContent>
         </Modal>
@@ -633,19 +635,19 @@ const Configuration: React.FC = () => {
         <Modal isOpen={isBackupsOpen} onClose={onBackupsClose} size="lg">
           <ModalOverlay backdropFilter="blur(4px)" />
           <ModalContent borderRadius="2xl">
-            <ModalHeader>备份管理</ModalHeader>
+            <ModalHeader>{t('configuration.backupManagementTitle')}</ModalHeader>
             <ModalCloseButton />
             <ModalBody>
               <TableContainer>
                 <Table variant="simple" size="sm">
-                  <Thead><Tr><Th>时间</Th><Th>大小</Th><Th>操作</Th></Tr></Thead>
+                  <Thead><Tr><Th>{t('configuration.time')}</Th><Th>{t('configuration.size')}</Th><Th>{t('configuration.action')}</Th></Tr></Thead>
                   <Tbody>
                     {backups.map((b) => (
                       <Tr key={b.id}>
                         <Td>{new Date(b.timestamp).toLocaleString()}</Td>
                         <Td>{(b.size / 1024).toFixed(1)}KB</Td>
                         <Td>
-                          <Button size="xs" variant="link" colorScheme="blue" onClick={() => {}}>恢复</Button>
+                          <Button size="xs" variant="link" colorScheme="blue" onClick={() => {}}>{t('configuration.restore')}</Button>
                         </Td>
                       </Tr>
                     ))}
