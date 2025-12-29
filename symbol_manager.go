@@ -233,6 +233,15 @@ func startSymbolRuntime(
 			return
 		}
 
+		// 🔥 关键修复：过滤掉不属于当前交易对的订单更新
+		// 币安的 WebSocket 订单流是全局的，会推送所有交易对的订单
+		// 必须检查 Symbol 是否匹配，避免不同交易对的订单互相干扰
+		if posUpdate.Symbol != symCfg.Symbol {
+			logger.Debug("⏭️ [订单过滤] 跳过其他交易对的订单: Symbol=%s (当前交易对: %s), ClientOID=%s",
+				posUpdate.Symbol, symCfg.Symbol, posUpdate.ClientOrderID)
+			return
+		}
+
 		// 发布订单事件
 		if eventBus != nil && posUpdate.Symbol != "" {
 			var eventType event.EventType

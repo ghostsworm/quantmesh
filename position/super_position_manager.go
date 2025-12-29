@@ -286,12 +286,18 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 	// 如果再次四舍五入，可能因为浮点数精度问题导致多个不同价格被映射到同一个槽位
 	// 例如: 3116.85 和 3114.85 可能都被四舍五入成同一个值
 
-	// 🔥 添加价格合理性检查：如果解析出的价格明显异常（比如小于1000但应该是8万多），记录警告
-	// 这可能是 priceDecimals 参数错误导致的
+	// 🔥 添加价格合理性检查：如果解析出的价格明显异常，记录警告
+	// 可能原因：
+	// 1. priceDecimals 参数错误
+	// 2. 多交易对场景下，订单属于其他交易对（应该在上层过滤，但这里作为兜底检查）
+	// 3. 历史遗留订单（切换交易对后的旧订单）
 	if spm.anchorPrice > 1000 && price < 1000 && price > 0 {
-		logger.Warn("⚠️ [价格解析异常] ClientOrderID=%s, 解析价格=%.2f, 锚点价格=%.2f, priceDecimals=%d, 可能 priceDecimals 参数错误",
+		logger.Warn("⚠️ [价格解析异常] ClientOrderID=%s, 解析价格=%.2f, 锚点价格=%.2f, priceDecimals=%d",
 			clientOrderID, price, spm.anchorPrice, spm.priceDecimals)
-		// 尝试使用不同的 priceDecimals 重新解析
+		logger.Warn("💡 [可能原因] 1) 此订单属于其他交易对 2) priceDecimals 参数错误 3) 历史遗留订单")
+		logger.Warn("💡 [建议] 检查是否运行了多个交易对，确保订单推送已正确过滤 Symbol")
+		
+		// 尝试使用不同的 priceDecimals 重新解析（用于诊断）
 		for testDecimals := 1; testDecimals <= 3; testDecimals++ {
 			if testDecimals == spm.priceDecimals {
 				continue
@@ -302,6 +308,9 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 				return testPrice, side, true
 			}
 		}
+		
+		// 无法修复，返回无效（避免创建错误的槽位）
+		return 0, "", false
 	}
 
 	return price, side, true
