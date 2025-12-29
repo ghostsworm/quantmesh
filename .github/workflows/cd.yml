@@ -111,11 +111,23 @@ jobs:
         
     - name: Build frontend (for go:embed)
       run: |
+        mkdir -p web/dist
         if [ -d "webui" ]; then
-          cd webui && npm ci && npm run build && cd ..
-          mkdir -p web/dist && cp -r webui/dist/* web/dist/ || true
-        else
-          mkdir -p web/dist
+          cd webui
+          if [ -f "package.json" ]; then
+            npm ci || npm install
+            npm run build
+            cd ..
+            if [ -d "webui/dist" ] && [ "$(ls -A webui/dist 2>/dev/null)" ]; then
+              cp -r webui/dist/* web/dist/ || true
+            fi
+          else
+            cd ..
+          fi
+        fi
+        # 确保 dist 目录至少有一个文件，避免 go:embed 报错
+        if [ ! "$(ls -A web/dist 2>/dev/null)" ]; then
+          touch web/dist/.gitkeep
         fi
         
     - name: Build
