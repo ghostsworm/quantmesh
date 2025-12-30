@@ -239,6 +239,14 @@ type Config struct {
 		APIKey  string `yaml:"api_key"` // API 密钥（可选，用于认证）
 	} `yaml:"web"`
 
+	// 插件配置
+	Plugins struct {
+		Enabled   bool                              `yaml:"enabled"`   // 是否启用插件系统，默认false
+		Directory string                            `yaml:"directory"` // 插件目录，默认 ./plugins
+		Licenses  map[string]string                 `yaml:"licenses"`  // 插件 License Keys
+		Config    map[string]map[string]interface{} `yaml:"config"`    // 插件配置
+	} `yaml:"plugins"`
+
 	// 多策略配置
 	Strategies struct {
 		Enabled bool `yaml:"enabled"`

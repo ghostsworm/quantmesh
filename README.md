@@ -203,6 +203,54 @@ This software is for educational and research purposes only. Cryptocurrency trad
 - Always test thoroughly on Testnet before using real funds.
 - The developers are not liable for losses due to software bugs, network latency, or exchange failures.
 
+## 🪙 Crypto Payment Support
+
+QuantMesh supports cryptocurrency payments for subscriptions and licenses:
+
+### Supported Cryptocurrencies
+- **BTC** (Bitcoin)
+- **ETH** (Ethereum)
+- **USDT** (Tether, ERC20)
+- **USDC** (USD Coin, ERC20)
+
+### Payment Methods
+1. **Coinbase Commerce** (Recommended)
+   - Automatic confirmation
+   - Multiple cryptocurrencies supported
+   - Easy payment page
+
+2. **Direct Wallet Payment**
+   - No third-party involvement
+   - More privacy
+   - Manual confirmation (1-24 hours)
+
+### Quick Start
+```bash
+# Method A: Coinbase Commerce (15 minutes)
+# 1. Register at https://commerce.coinbase.com
+# 2. Configure API Key in .env.crypto
+# 3. Start service
+
+# Method B: Direct Wallet (5 minutes)
+# 1. Configure wallet addresses
+# 2. Start service
+# 3. Manual confirmation
+```
+
+### Documentation
+- 📖 [User Payment Guide](docs/CRYPTO_PAYMENT_GUIDE.md)
+- 🚀 [Quick Start Guide](docs/CRYPTO_PAYMENT_QUICKSTART.md)
+- 🔧 [Setup Guide](docs/CRYPTO_PAYMENT_SETUP.md)
+- 📊 [Implementation Summary](CRYPTO_PAYMENT_SUMMARY.md)
+
+### Why Crypto Payments?
+✅ No credit card or bank account required  
+✅ Global accessibility, no regional restrictions  
+✅ Lower transaction fees (1% vs 2.9%)  
+✅ Better privacy protection  
+✅ Fast confirmation (10-30 minutes)  
+✅ Perfect fit for crypto trading software  
+
 ## 📜 License
 
 This project uses a **Dual License model**:

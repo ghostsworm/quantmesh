@@ -22,11 +22,14 @@ type LicenseInfo struct {
 	PluginName    string    `json:"plugin_name"`    // 插件名称
 	LicenseKey    string    `json:"license_key"`    // 许可证密钥
 	CustomerID    string    `json:"customer_id"`    // 客户ID
+	Email         string    `json:"email"`          // 客户邮箱
+	Plan          string    `json:"plan"`           // 套餐: starter/professional/enterprise
 	ExpiryDate    time.Time `json:"expiry_date"`    // 过期时间
 	MaxInstances  int       `json:"max_instances"`  // 最大实例数
 	Features      []string  `json:"features"`       // 授权功能列表
 	IssuedAt      time.Time `json:"issued_at"`      // 签发时间
 	MachineID     string    `json:"machine_id"`     // 机器ID (可选)
+	CloudVerify   bool      `json:"cloud_verify"`   // 是否需要云端验证
 	Signature     string    `json:"signature"`      // 签名
 }
 
@@ -305,13 +308,23 @@ func decrypt(ciphertext []byte, key []byte) ([]byte, error) {
 
 // LicenseValidator 许可证验证器
 type LicenseValidator struct {
-	store *LicenseStore
+	store          *LicenseStore
+	cloudValidator *CloudValidator
 }
 
 // NewLicenseValidator 创建许可证验证器
 func NewLicenseValidator() *LicenseValidator {
 	return &LicenseValidator{
-		store: NewLicenseStore(),
+		store:          NewLicenseStore(),
+		cloudValidator: NewCloudValidator(""),
+	}
+}
+
+// NewLicenseValidatorWithEndpoint 创建许可证验证器(指定云端地址)
+func NewLicenseValidatorWithEndpoint(cloudEndpoint string) *LicenseValidator {
+	return &LicenseValidator{
+		store:          NewLicenseStore(),
+		cloudValidator: NewCloudValidator(cloudEndpoint),
 	}
 }
 
@@ -346,7 +359,14 @@ func (v *LicenseValidator) ValidatePlugin(pluginName string, licenseKey string) 
 		}
 	}
 
-	// 6. 存储许可证
+	// 6. 云端验证 (如果需要)
+	if info.CloudVerify && v.cloudValidator != nil {
+		if err := v.cloudValidator.ValidateWithRetry(licenseKey, 3); err != nil {
+			return fmt.Errorf("云端验证失败: %v", err)
+		}
+	}
+
+	// 7. 存储许可证
 	return v.store.Store(pluginName, licenseKey)
 }
 

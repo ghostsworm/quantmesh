@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  quantmesh:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quantmesh
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./plugins:/app/plugins:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - GIN_MODE=release
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - quantmesh-network
+
+  # PostgreSQL 数据库 (可选,用于多实例部署)
+  postgres:
+    image: postgres:15-alpine
+    container_name: quantmesh-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=quantmesh
+      - POSTGRES_PASSWORD=quantmesh_password
+      - POSTGRES_DB=quantmesh
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - quantmesh-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantmesh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (可选,用于分布式锁)
+  redis:
+    image: redis:7-alpine
+    container_name: quantmesh-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - quantmesh-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Prometheus (可选,用于监控)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: quantmesh-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - quantmesh-network
+
+  # Grafana (可选,用于可视化)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: quantmesh-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - quantmesh-network
+    depends_on:
+      - prometheus
+
+networks:
+  quantmesh-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+

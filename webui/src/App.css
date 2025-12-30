@@ -245,6 +245,34 @@
   color: green;
 }
 
+/* 移动端触摸优化 */
+@media (hover: none) and (pointer: coarse) {
+  /* 触摸设备的按钮最小尺寸 */
+  button, a, .clickable {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* 禁用触摸时的高亮 */
+  * {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+
+  /* 优化滚动性能 */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* 安全区域适配（iPhone 刘海屏等） */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+}
+
 /* Responsive Design */
 @media (max-width: 1024px) {
   .app-header-content {
@@ -309,6 +337,42 @@
 
   .app-main {
     padding: 1.5rem 1.25rem;
+    padding-bottom: calc(1.5rem + 60px); /* 为底部导航预留空间 */
+  }
+
+  /* 移动端表格优化 */
+  table {
+    font-size: 0.875rem;
+  }
+
+  /* 移动端卡片优化 */
+  .chakra-card {
+    padding: 1rem !important;
+  }
+
+  /* 移动端表单优化 */
+  input, select, textarea {
+    font-size: 16px !important; /* 防止 iOS 自动缩放 */
+  }
+}
+
+/* 小屏手机优化 */
+@media (max-width: 375px) {
+  .app-header-content {
+    padding: 0.875rem 1rem;
+  }
+
+  .app-header-title {
+    font-size: 1rem;
+  }
+
+  .app-main {
+    padding: 1rem;
+    padding-bottom: calc(1rem + 60px);
+  }
+
+  .status-grid {
+    grid-template-columns: 1fr;
   }
 }
 

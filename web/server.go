@@ -98,6 +98,48 @@ func SetupRoutes(r *gin.Engine) {
 			protected.GET("/statistics/pnl/time-range", getPnLByTimeRange)
 			protected.GET("/statistics/anomalous-trades", getAnomalousTrades)
 			protected.GET("/reconciliation/status", getReconciliationStatus)
+			
+			// SaaS 管理 API
+			saas := protected.Group("/saas")
+			{
+				saas.POST("/instances/create", createInstanceHandler)
+				saas.GET("/instances", listInstancesHandler)
+				saas.GET("/instances/:id", getInstanceHandler)
+				saas.POST("/instances/:id/stop", stopInstanceHandler)
+				saas.POST("/instances/:id/start", startInstanceHandler)
+				saas.POST("/instances/:id/restart", restartInstanceHandler)
+				saas.DELETE("/instances/:id", deleteInstanceHandler)
+				saas.GET("/instances/:id/logs", getInstanceLogsHandler)
+				saas.GET("/instances/:id/metrics", getInstanceMetricsHandler)
+				saas.GET("/metrics", getAllInstancesMetricsHandler)
+			}
+			
+			// 计费 API
+			billing := protected.Group("/billing")
+			{
+				billing.GET("/plans", getPlansHandler)
+				billing.POST("/subscriptions/create", createSubscriptionHandler)
+				billing.GET("/subscriptions", getSubscriptionHandler)
+				billing.POST("/subscriptions/update-plan", updateSubscriptionPlanHandler)
+				billing.POST("/subscriptions/cancel", cancelSubscriptionHandler)
+			}
+			
+			// 加密货币支付 API
+			cryptoPayment := protected.Group("/payment/crypto")
+			{
+				cryptoPayment.GET("/currencies", getSupportedCryptoCurrenciesHandler)
+				cryptoPayment.POST("/coinbase/create", createCoinbasePaymentHandler)
+				cryptoPayment.POST("/direct/create", createDirectPaymentHandler)
+				cryptoPayment.GET("/list", listUserPaymentsHandler)
+				cryptoPayment.GET("/:id", getPaymentStatusHandler)
+				cryptoPayment.POST("/:id/submit-tx", submitTransactionHashHandler)
+				cryptoPayment.POST("/:id/confirm", confirmDirectPaymentHandler) // 管理员
+			}
+		}
+		
+		// Webhooks (不需要认证,但需要验证签名)
+		api.POST("/billing/webhook/stripe", stripeWebhookHandler)
+		api.POST("/payment/crypto/webhook/coinbase", coinbaseWebhookHandler)
 			protected.GET("/reconciliation/history", getReconciliationHistory)
 			protected.GET("/risk/status", getRiskStatus)
 			protected.GET("/risk/monitor", getRiskMonitorData)
@@ -153,6 +195,12 @@ func SetupRoutes(r *gin.Engine) {
 
 			// 市场情报API
 			protected.GET("/market-intelligence", getMarketIntelligence)
+
+			// API 权限检测
+			protected.GET("/permissions/check", getAPIPermissions)
+
+			// 审计日志
+			protected.GET("/audit/logs", getAuditLogs)
 		}
 	}
 

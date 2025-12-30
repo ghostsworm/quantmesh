@@ -442,3 +442,30 @@ ai:
     high_risk_threshold: 0.8   # 高风险阈值（超过此值仅建议）
     low_risk_threshold: 0.3   # 低风险阈值（低于此值可直接执行）
     require_confirmation: true  # 是否需要人工确认
+
+# 插件配置（可选）
+plugins:
+  enabled: false  # 是否启用插件系统
+  directory: "./plugins"  # 插件目录
+  
+  # 插件 License Keys (商业插件需要)
+  licenses:
+    ai_strategy: ""       # AI 策略插件 License
+    multi_strategy: ""    # 多策略插件 License
+    advanced_risk: ""     # 高级风控插件 License
+  
+  # 插件配置
+  config:
+    ai_strategy:
+      gemini_api_key: ""
+      openai_api_key: ""
+      analysis_interval: 300  # 分析间隔(秒)
+    
+    multi_strategy:
+      default_strategy: "grid"
+      enable_momentum: false
+      enable_mean_reversion: false
+    
+    advanced_risk:
+      ml_model_path: "./models/risk_model.pkl"
+      risk_threshold: 0.7

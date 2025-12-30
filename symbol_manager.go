@@ -120,6 +120,42 @@ func startSymbolRuntime(
 	}
 	logger.Info("✅ [%s] 交易所实例已创建 (symbol=%s)", ex.GetName(), symCfg.Symbol)
 
+	// API 权限安全检测
+	logger.Info("🔐 [%s:%s] 开始检测 API 权限...", symCfg.Exchange, symCfg.Symbol)
+	permCheckCtx, permCheckCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer permCheckCancel()
+	
+	if checker, ok := ex.(exchange.PermissionChecker); ok {
+		permissions, err := checker.CheckAPIPermissions(permCheckCtx)
+		if err != nil {
+			logger.Warn("⚠️ [%s:%s] API 权限检测失败: %v (将继续启动)", symCfg.Exchange, symCfg.Symbol, err)
+		} else {
+			// 检查是否安全
+			if !permissions.IsSecure() {
+				logger.Error("🚨 [%s:%s] API 密钥存在安全风险！", symCfg.Exchange, symCfg.Symbol)
+				warnings := permissions.GetWarnings()
+				for _, warning := range warnings {
+					logger.Error("   %s", warning)
+				}
+				// 可以选择是否继续启动，这里我们记录错误但继续
+				logger.Warn("⚠️ [%s:%s] 尽管存在安全风险，系统仍将继续启动。强烈建议修改 API 权限设置！", symCfg.Exchange, symCfg.Symbol)
+			} else {
+				logger.Info("✅ [%s:%s] API 权限检测通过 (安全评分: %d/100, 风险等级: %s)", 
+					symCfg.Exchange, symCfg.Symbol, permissions.SecurityScore, permissions.RiskLevel)
+				
+				// 显示建议
+				warnings := permissions.GetWarnings()
+				if len(warnings) > 0 {
+					for _, warning := range warnings {
+						logger.Info("   %s", warning)
+					}
+				}
+			}
+		}
+	} else {
+		logger.Info("ℹ️ [%s:%s] 该交易所暂不支持自动权限检测，请手动确认 API 权限设置", symCfg.Exchange, symCfg.Symbol)
+	}
+
 	// 价格监控
 	priceMonitor := monitor.NewPriceMonitor(
 		ex,

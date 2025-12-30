@@ -50,9 +50,11 @@ import AIAnalysis from './components/AIAnalysis'
 import AIPromptManager from './components/AIPromptManager'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
+import MobileNav from './components/MobileNav'
 import LanguageSelector from './components/LanguageSelector'
 import { logout } from './services/auth'
 import { useTranslation } from 'react-i18next'
+import { useResponsive } from './hooks/useResponsive'
 import './App.css'
 
 const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -97,6 +99,7 @@ const AppContent: React.FC = () => {
   const { t } = useTranslation()
   const [needsConfig, setNeedsConfig] = useState<boolean | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
+  const { isMobile } = useResponsive()
   
   const headerBg = 'rgba(255, 255, 255, 0.8)'
   const borderColor = 'gray.100'
@@ -257,6 +260,7 @@ const AppContent: React.FC = () => {
           minH="calc(100vh - 56px)"
           position="relative"
           transition="margin-left 0.3s"
+          pb={isMobile ? '60px' : 0}
         >
           {/* Subtle Background Accent */}
           <Box
@@ -301,9 +305,12 @@ const AppContent: React.FC = () => {
               </Routes>
             </AnimatePresence>
           </Container>
-          <Footer />
+          {!isMobile && <Footer />}
         </Box>
       </Flex>
+
+      {/* 移动端底部导航 */}
+      {isMobile && isAuthenticated && <MobileNav onMenuOpen={onOpen} />}
     </Box>
   )
 }
