@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"fmt"
 	"time"
 
 	"quantmesh/exchange"
@@ -114,6 +115,12 @@ func (bt *Backtester) SetFees(takerFee, makerFee, slippage float64) {
 
 // Run 运行回测
 func (bt *Backtester) Run() (*BacktestResult, error) {
+	// Bug Fix 1: 检查 candles 是否为空
+	if len(bt.candles) == 0 {
+		logger.Error("❌ 回测失败: K线数据为空")
+		return nil, fmt.Errorf("candles data is empty")
+	}
+
 	bt.cash = bt.initialCapital
 	bt.position = 0
 
@@ -145,7 +152,7 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 	}
 
 	// 如果还有持仓，按最后价格平仓
-	if bt.position > 0 {
+	if bt.position > 0 && len(bt.candles) > 0 {
 		lastCandle := bt.candles[len(bt.candles)-1]
 		bt.executeSell(lastCandle)
 		logger.Info("📊 回测结束，强制平仓")
@@ -159,13 +166,19 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 	// 计算风险指标
 	riskMetrics := CalculateRiskMetrics(bt.equity)
 
+	// Bug Fix 1: 检查 equity 是否为空（虽然理论上不会，但加上防御性检查）
+	finalCapital := bt.initialCapital
+	if len(bt.equity) > 0 {
+		finalCapital = bt.equity[len(bt.equity)-1].Equity
+	}
+
 	return &BacktestResult{
 		Symbol:         bt.symbol,
 		Strategy:       bt.strategy.GetName(),
 		StartTime:      time.Unix(bt.candles[0].Timestamp/1000, 0),
 		EndTime:        time.Unix(bt.candles[len(bt.candles)-1].Timestamp/1000, 0),
 		InitialCapital: bt.initialCapital,
-		FinalCapital:   bt.equity[len(bt.equity)-1].Equity,
+		FinalCapital:   finalCapital,
 		Equity:         bt.equity,
 		Trades:         bt.trades,
 		Metrics:        metrics,
@@ -201,8 +214,17 @@ func (bt *Backtester) executeSell(candle *exchange.Candle) {
 	quantity := bt.position
 	fee := quantity * price * bt.takerFee
 
-	// 计算盈亏
-	buyFee := bt.trades[len(bt.trades)-1].Fee
+	// Bug Fix 2: 计算盈亏时检查 trades 是否为空
+	buyFee := 0.0
+	if len(bt.trades) > 0 {
+		// 找到最近的买入交易
+		for i := len(bt.trades) - 1; i >= 0; i-- {
+			if bt.trades[i].Type == "buy" {
+				buyFee = bt.trades[i].Fee
+				break
+			}
+		}
+	}
 	pnl := (price-bt.entryPrice)*quantity - fee - buyFee
 
 	bt.cash += quantity*price - fee
