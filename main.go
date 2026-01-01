@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"quantmesh/ai"
+	// "quantmesh/ai" // AI 功能已迁移到商业插件
 	"quantmesh/config"
 	"quantmesh/database"
 	"quantmesh/event"
@@ -64,6 +64,10 @@ func (a *reconciliationStorageAdapter) SaveReconciliationHistory(symbol string, 
 }
 
 // AI适配器（用于Web API）
+// 注意：AI 功能已迁移到商业插件，开源版不再包含
+// 如需使用 AI 功能，请购买商业插件：https://quantmesh.io/plugins
+
+/*
 type aiMarketAdapter struct {
 	analyzer *ai.MarketAnalyzer
 }
@@ -167,6 +171,7 @@ func (a *aiPromptAdapter) GetAllPrompts() (map[string]interface{}, error) {
 func (a *aiPromptAdapter) UpdatePrompt(module, template, systemPrompt string) error {
 	return a.manager.UpdatePrompt(module, template, systemPrompt)
 }
+*/
 
 // reconciliationRestoreAdapter 对账恢复适配器（用于从数据库恢复对账统计）
 type reconciliationRestoreAdapter struct {
