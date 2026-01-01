@@ -214,11 +214,11 @@ func GenerateLicense(
 
 // generateSignature 生成签名
 func generateSignature(info *LicenseInfo, secretKey string) string {
-	data := fmt.Sprintf("%s:%s:%s:%d:%s",
+	// 必须与 license-server 的签名算法一致
+	data := fmt.Sprintf("%s:%s:%s:%s",
 		info.PluginName,
 		info.CustomerID,
 		info.ExpiryDate.Format(time.RFC3339),
-		info.MaxInstances,
 		secretKey,
 	)
 	hash := sha256.Sum256([]byte(data))
@@ -255,8 +255,16 @@ func getMachineID() string {
 // getEncryptionKey 获取加密密钥
 func getEncryptionKey() []byte {
 	// 使用固定密钥 (实际应用中应该更安全)
-	key := "quantmesh-encryption-key-32b!"
-	return []byte(key)
+	// AES-256 需要 32 字节密钥
+	key := "quantmesh-encryption-key-2025"
+	// 确保是32字节
+	keyBytes := []byte(key)
+	if len(keyBytes) < 32 {
+		// 填充到32字节
+		padding := make([]byte, 32-len(keyBytes))
+		keyBytes = append(keyBytes, padding...)
+	}
+	return keyBytes[:32]
 }
 
 // encrypt 加密数据
@@ -314,9 +322,10 @@ type LicenseValidator struct {
 
 // NewLicenseValidator 创建许可证验证器
 func NewLicenseValidator() *LicenseValidator {
+	// 使用本地测试服务器
 	return &LicenseValidator{
 		store:          NewLicenseStore(),
-		cloudValidator: NewCloudValidator(""),
+		cloudValidator: NewCloudValidator("http://127.0.0.1:8000"),
 	}
 }
 

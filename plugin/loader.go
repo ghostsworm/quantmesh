@@ -101,7 +101,7 @@ func (l *PluginLoader) LoadPlugin(pluginName, pluginPath, licenseKey string) err
 	return nil
 }
 
-// LoadPluginsFromDirectory 从目录加载所有插件
+// LoadPluginsFromDirectory 从目录加载所有插件（递归查找子目录）
 func (l *PluginLoader) LoadPluginsFromDirectory(dir string, licenses map[string]string) error {
 	// 检查目录是否存在
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -117,7 +117,12 @@ func (l *PluginLoader) LoadPluginsFromDirectory(dir string, licenses map[string]
 	
 	loadedCount := 0
 	for _, file := range files {
+		// 如果是子目录，递归查找
 		if file.IsDir() {
+			subDir := filepath.Join(dir, file.Name())
+			if err := l.LoadPluginsFromDirectory(subDir, licenses); err != nil {
+				logger.Warn("⚠️ 递归加载子目录 %s 失败: %v", subDir, err)
+			}
 			continue
 		}
 		
@@ -138,7 +143,9 @@ func (l *PluginLoader) LoadPluginsFromDirectory(dir string, licenses map[string]
 		loadedCount++
 	}
 	
-	logger.Info("📦 从目录 %s 加载了 %d 个插件", dir, loadedCount)
+	if loadedCount > 0 {
+		logger.Info("📦 从目录 %s 加载了 %d 个插件", dir, loadedCount)
+	}
 	return nil
 }
 
@@ -228,7 +235,7 @@ func (l *PluginLoader) InitializePlugin(pluginName string, config map[string]int
 
 // CallPluginMethod 调用插件方法 (通用接口)
 func (l *PluginLoader) CallPluginMethod(pluginName, methodName string, args ...interface{}) (interface{}, error) {
-	p, err := l.GetPlugin(pluginName)
+	_, err := l.GetPlugin(pluginName)
 	if err != nil {
 		return nil, err
 	}

@@ -21,6 +21,7 @@ import (
 	"quantmesh/monitor"
 	"quantmesh/notify"
 	"quantmesh/order"
+	"quantmesh/plugin"
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/utils"
@@ -422,6 +423,53 @@ func main() {
 		} else {
 			logger.Info("✅ Watchdog 系统监控已启动")
 		}
+	}
+
+	// 初始化插件系统
+	var pluginLoader *plugin.PluginLoader
+	if cfg.Plugins.Enabled {
+		logger.Info("🔌 开始加载插件系统...")
+		pluginLoader = plugin.NewPluginLoader()
+
+		// 从目录加载所有插件
+		pluginDir := cfg.Plugins.Directory
+		if pluginDir == "" {
+			pluginDir = "./plugins"
+		}
+
+		logger.Info("📂 插件目录: %s", pluginDir)
+		if err := pluginLoader.LoadPluginsFromDirectory(pluginDir, cfg.Plugins.Licenses); err != nil {
+			logger.Warn("⚠️ 加载插件失败: %v", err)
+		} else {
+			// 初始化每个已加载的插件
+			loadedPlugins := pluginLoader.ListPlugins()
+			logger.Info("📦 已发现 %d 个插件", len(loadedPlugins))
+
+			for _, p := range loadedPlugins {
+				pluginConfig, exists := cfg.Plugins.Config[p.Name]
+				if !exists {
+					pluginConfig = make(map[string]interface{})
+				}
+
+				if err := pluginLoader.InitializePlugin(p.Name, pluginConfig); err != nil {
+					logger.Warn("⚠️ 初始化插件 %s 失败: %v", p.Name, err)
+				} else {
+					logger.Info("✅ 插件 %s (版本 %s) 初始化成功", p.Name, p.Version)
+				}
+			}
+
+			logger.Info("✅ 插件系统启动完成")
+		}
+
+		// 在程序退出时卸载所有插件
+		defer func() {
+			if pluginLoader != nil {
+				pluginLoader.UnloadAll()
+				logger.Info("✅ 所有插件已卸载")
+			}
+		}()
+	} else {
+		logger.Info("ℹ️ 插件系统未启用")
 	}
 
 	// Web 服务器

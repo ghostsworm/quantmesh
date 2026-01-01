@@ -16,7 +16,7 @@ type StrategyAdapter interface {
 
 // Signal 交易信号
 type Signal struct {
-	Action string  // "buy", "sell", "hold"
+	Action string // "buy", "sell", "hold"
 	Price  float64
 	Reason string
 }

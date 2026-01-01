@@ -444,28 +444,40 @@ ai:
     require_confirmation: true  # 是否需要人工确认
 
 # 插件配置（可选）
+# 插件系统配置
 plugins:
-  enabled: false  # 是否启用插件系统
-  directory: "./plugins"  # 插件目录
+  enabled: false  # 设置为 true 启用插件系统
+  directory: "../quantmesh-premium/plugins"  # 插件目录（相对路径或绝对路径）
   
-  # 插件 License Keys (商业插件需要)
+  # 插件 License Keys（商业插件需要有效的 License）
+  # 如需购买 License，请访问：https://quantmesh.io/commercial
   licenses:
-    ai_strategy: ""       # AI 策略插件 License
-    multi_strategy: ""    # 多策略插件 License
-    advanced_risk: ""     # 高级风控插件 License
+    ai_strategy: ""       # AI 策略插件 License Key
+    multi_strategy: ""    # 多策略插件 License Key
+    advanced_risk: ""     # 高级风控插件 License Key
   
-  # 插件配置
+  # 插件配置参数
   config:
+    # AI 策略插件配置
     ai_strategy:
-      gemini_api_key: ""
-      openai_api_key: ""
-      analysis_interval: 300  # 分析间隔(秒)
+      gemini_api_key: ""           # Google Gemini API Key
+      openai_api_key: ""           # OpenAI API Key
+      analysis_interval: 300       # 分析间隔（秒）
+      enable_market_analysis: true # 启用市场分析
+      enable_param_optimization: true  # 启用参数优化
+      enable_risk_analysis: true   # 启用风险分析
     
+    # 多策略插件配置
     multi_strategy:
-      default_strategy: "grid"
-      enable_momentum: false
-      enable_mean_reversion: false
+      default_strategy: "grid"     # 默认策略：grid/momentum/mean_reversion/trend_following
+      enable_momentum: false       # 启用动量策略
+      enable_mean_reversion: false # 启用均值回归策略
+      enable_trend_following: false # 启用趋势跟踪策略
+      capital_allocation: "equal"  # 资金分配方式：equal/weighted/dynamic
     
+    # 高级风控插件配置
     advanced_risk:
-      ml_model_path: "./models/risk_model.pkl"
-      risk_threshold: 0.7
+      enable_ml_risk_model: true   # 启用机器学习风险模型
+      enable_portfolio_optimizer: true  # 启用投资组合优化
+      risk_threshold: 0.7          # 风险阈值（0-1）
+      rebalance_interval: 3600     # 再平衡间隔（秒）
