@@ -124,9 +124,19 @@ func SetupRoutes(r *gin.Engine) {
 				billing.POST("/subscriptions/cancel", cancelSubscriptionHandler)
 			}
 			
-			// 加密货币支付 API
-			cryptoPayment := protected.Group("/payment/crypto")
-			{
+		// 回测 API
+		backtestAPI := protected.Group("/backtest")
+		{
+			backtestAPI.POST("/run", runBacktest)
+			backtestAPI.GET("/cache/stats", getCacheStats)
+			backtestAPI.GET("/cache/list", listCache)
+			backtestAPI.DELETE("/cache/:key", deleteCache)
+			backtestAPI.DELETE("/cache", clearCache)
+		}
+		
+		// 加密货币支付 API
+		cryptoPayment := protected.Group("/payment/crypto")
+		{
 				cryptoPayment.GET("/currencies", getSupportedCryptoCurrenciesHandler)
 				cryptoPayment.POST("/coinbase/create", createCoinbasePaymentHandler)
 				cryptoPayment.POST("/direct/create", createDirectPaymentHandler)
