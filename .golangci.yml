@@ -1,0 +1,49 @@
+# golangci-lint 配置文件
+# 排除独立的工具和测试程序文件
+
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+    - webui
+    - node_modules
+  skip-files:
+    # 排除独立的工具和测试程序（它们有自己的 main 函数）
+    - "analyze_market_data.go"
+    - "run_1m_backtest.go"
+    - "run_3m_backtest.go"
+    - "run_eth_backtest.go"
+    - "test_intrabar_backtest.go"
+    - "test_intrabar_quick.go"
+    - "test_license_validation.go"
+    - "test_plugin_detailed.go"
+    - "test_plugin_loading.go"
+    - "test_zero_fee.go"
+
+issues:
+  exclude-rules:
+    # 排除工具文件中的 main 函数重复声明错误
+    - path: _test\.go
+      linters:
+        - typecheck
+    - text: "main redeclared"
+      path: "(analyze_market_data|run_|test_).*\.go"
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+
+linters-settings:
+  govet:
+    check-shadowing: true
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
