@@ -24,11 +24,11 @@ run:
 issues:
   exclude-rules:
     # 排除工具文件中的 main 函数重复声明错误
-    - path: _test\.go
+    - path: '_test\.go'
       linters:
         - typecheck
     - text: "main redeclared"
-      path: "(analyze_market_data|run_|test_).*\.go"
+      path: '(analyze_market_data|run_|test_).*\.go'
 
 linters:
   enable:
