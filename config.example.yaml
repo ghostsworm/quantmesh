@@ -5,7 +5,7 @@ app:
 # 多交易所配置
 exchanges:
   binance:
-  #币安 开户邀请码【OPENSQT】开户链接：https://accounts.maxweb.chat/register?ref=OPENSQT
+  #币安 开户邀请码【QUANTMESH】开户链接：https://accounts.bmwweb.link/register?ref=QUANTMESH
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0004  # 交易手续费率（0.0004 = 0.04% Taker费率，0.0002 = 0.02% Maker费率）
@@ -14,27 +14,27 @@ exchanges:
     testnet: false    # 是否使用测试网（true=测试网, false=主网）
   
   bitget:
-  #BITGET 用我链接开户每笔交易省20%手续费 邀请码【opensqt】开户链接：https://partner.hdmune.cn/bg/mtm6553a
+  #BITGET 用我链接开户每笔交易省20%手续费 邀请码【quantmesh】开户链接：https://partner.hdmune.cn/bg/mtm6553a
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     passphrase: "YOUR_PASSPHRASE"
     fee_rate: 0.0002
 
   bybit:
-  #BYBIT 开户邀请码【OPENSQT】开户链接：https://partner.bybit.com/b/OPENSQT
+  #BYBIT 开户邀请码【QUANTMESH】开户链接：https://partner.bybit.com/b/QUANTMESH
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
     testnet: false    # 是否使用测试网（true=测试网, false=主网）
 
   gate:
-  #GATE.IO 用我链接开户每笔交易省20%手续费 邀请码【OPENSQTC】开户链接：https://www.gatenode.xyz/share/OPENSQTC
+  #GATE.IO 用我链接开户每笔交易省20%手续费 邀请码【QUANTMESHC】开户链接：https://www.gatenode.xyz/share/QUANTMESHC
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
 
   okx:
-  #OKX 开户邀请码【OPENSQT】开户链接：https://www.okx.com/join/OPENSQT
+  #OKX 开户邀请码【QUANTMESH】开户链接：https://www.okx.com/join/QUANTMESH
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     passphrase: "YOUR_PASSPHRASE"
@@ -42,129 +42,129 @@ exchanges:
     testnet: false    # 是否使用模拟盘（true=模拟盘, false=实盘）
 
   edgex:
-  #EDGEX 用我链接开户直升vip1,每笔交易省20%手续费 邀请码【OPENSQT】开户链接：https://pro.edgex.exchange/referral/OPENSQT
+  #EDGEX 用我链接开户直升vip1,每笔交易省20%手续费 邀请码【QUANTMESH】开户链接：https://pro.edgex.exchange/referral/QUANTMESH
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
     
   huobi:
-  #Huobi (HTX) 开户邀请码【OPENSQT】开户链接：https://www.huobi.com/
+  #Huobi (HTX) 开户邀请码【QUANTMESH】开户链接：https://www.huobi.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
 
   kucoin:
-  #KuCoin 开户邀请码【OPENSQT】开户链接：https://www.kucoin.com/
+  #KuCoin 开户邀请码【QUANTMESH】开户链接：https://www.kucoin.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     passphrase: "YOUR_PASSPHRASE"
     fee_rate: 0.0002
 
   kraken:
-  #Kraken 开户邀请码【OPENSQT】开户链接：https://www.kraken.com/
+  #Kraken 开户邀请码【QUANTMESH】开户链接：https://www.kraken.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0003
 
   bitfinex:
-  #Bitfinex 开户邀请码【OPENSQT】开户链接：https://www.bitfinex.com/
+  #Bitfinex 开户邀请码【QUANTMESH】开户链接：https://www.bitfinex.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
 
   mexc:
-  #MEXC（抹茶）开户邀请码【OPENSQT】开户链接：https://www.mexc.com/
+  #MEXC（抹茶）开户邀请码【QUANTMESH】开户链接：https://www.mexc.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
     testnet: false    # 是否使用测试网（true=测试网, false=主网）
 
   bingx:
-  #BingX 开户邀请码【OPENSQT】开户链接：https://www.bingx.com/
+  #BingX 开户邀请码【QUANTMESH】开户链接：https://www.bingx.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
     testnet: false    # 是否使用测试网（true=测试网, false=主网）
 
   deribit:
-  #Deribit 开户邀请码【OPENSQT】开户链接：https://www.deribit.com/
+  #Deribit 开户邀请码【QUANTMESH】开户链接：https://www.deribit.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0003
     testnet: false
 
   bitmex:
-  #BitMEX 开户邀请码【OPENSQT】开户链接：https://www.bitmex.com/
+  #BitMEX 开户邀请码【QUANTMESH】开户链接：https://www.bitmex.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.00075
     testnet: false
 
   phemex:
-  #Phemex 开户邀请码【OPENSQT】开户链接：https://phemex.com/
+  #Phemex 开户邀请码【QUANTMESH】开户链接：https://phemex.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0000
     testnet: false
 
   woox:
-  #WOO X 开户邀请码【OPENSQT】开户链接：https://x.woo.org/
+  #WOO X 开户邀请码【QUANTMESH】开户链接：https://x.woo.org/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
     testnet: false
 
   coinex:
-  #CoinEx 开户邀请码【OPENSQT】开户链接：https://www.coinex.com/
+  #CoinEx 开户邀请码【QUANTMESH】开户链接：https://www.coinex.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
     testnet: false
 
   bitrue:
-  #Bitrue 开户邀请码【OPENSQT】开户链接：https://www.bitrue.com/
+  #Bitrue 开户邀请码【QUANTMESH】开户链接：https://www.bitrue.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.001
     testnet: false
 
   xtcom:
-  #XT.COM 开户邀请码【OPENSQT】开户链接：https://www.xt.com/
+  #XT.COM 开户邀请码【QUANTMESH】开户链接：https://www.xt.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.002
     testnet: false
 
   btcc:
-  #BTCC 开户邀请码【OPENSQT】开户链接：https://www.btcc.com/
+  #BTCC 开户邀请码【QUANTMESH】开户链接：https://www.btcc.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0005
     testnet: false
 
   ascendex:
-  #AscendEX 开户邀请码【OPENSQT】开户链接：https://ascendex.com/
+  #AscendEX 开户邀请码【QUANTMESH】开户链接：https://ascendex.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.001
     testnet: false
 
   poloniex:
-  #Poloniex 开户邀请码【OPENSQT】开户链接：https://poloniex.com/
+  #Poloniex 开户邀请码【QUANTMESH】开户链接：https://poloniex.com/
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.002
     testnet: false
 
   cryptocom:
-  #Crypto.com 开户邀请码【OPENSQT】开户链接：https://crypto.com/exchange
+  #Crypto.com 开户邀请码【QUANTMESH】开户链接：https://crypto.com/exchange
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.001
     testnet: false    # 是否使用测试网（true=测试网, false=主网）
 
   bit:
-  #bit.com 用我链接开户,每笔交易省50%手续费 邀请码【OPENSQT】开户链接：https://bitweb.bitexch.io/zh-CN/signup?code=OPENSQT
+  #bit.com 用我链接开户,每笔交易省50%手续费 邀请码【QUANTMESH】开户链接：https://bitweb.bitexch.io/zh-CN/signup?code=QUANTMESH
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
