@@ -1,6 +1,8 @@
 # golangci-lint 配置文件
 # 排除独立的工具和测试程序文件
 
+version: 2
+
 run:
   timeout: 5m
   tests: true
