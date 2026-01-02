@@ -86,11 +86,11 @@ jobs:
         cache: true
         
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v6
+      uses: golangci/golangci-lint-action@v7
       with:
         version: latest
         args: --timeout=5m
-        go-version: ${{ env.GO_VERSION }}
+        only-new-issues: false
         
   # 安全扫描
   security:
