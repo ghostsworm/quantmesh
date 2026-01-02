@@ -12,7 +12,7 @@ import {
   ViewIcon,
   SettingsIcon,
   InfoIcon,
-  ChartBarIcon,
+  TriangleUpIcon,
 } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 
@@ -40,7 +40,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ onMenuOpen }) => {
     },
     {
       path: '/positions',
-      icon: ChartBarIcon,
+      icon: TriangleUpIcon,
       label: t('nav.positions', '持仓'),
     },
     {
