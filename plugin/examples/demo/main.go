@@ -21,7 +21,7 @@ func main() {
 	cfg := &config.Config{}
 
 	// 2. 创建插件加载器
-	loader := plugin.NewPluginLoader(cfg)
+	loader := plugin.NewPluginLoader()
 	fmt.Println("✅ 插件加载器已创建")
 
 	// 3. 演示免费插件
@@ -46,7 +46,7 @@ func main() {
 
 	// 7. 清理
 	fmt.Println("\n🧹 清理资源...")
-	loader.GetRegistry().CloseAll()
+	loader.UnloadAll()
 	fmt.Println("✅ 演示完成!")
 }
 
@@ -207,8 +207,7 @@ func demoLicenseSystem() {
 
 // listPlugins 列出所有插件
 func listPlugins(loader *plugin.PluginLoader) {
-	registry := loader.GetRegistry()
-	plugins := registry.List()
+	plugins := loader.ListPlugins()
 
 	if len(plugins) == 0 {
 		fmt.Println("未加载任何插件")

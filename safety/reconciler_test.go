@@ -3,6 +3,7 @@ package safety
 import (
 	"context"
 	"quantmesh/config"
+	"quantmesh/lock"
 	"testing"
 	"time"
 )
@@ -79,7 +80,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 		OrderStatus:    "PLACED",
 	}
 
-	r := NewReconciler(cfg, ex, pm)
+	// 创建一个 mock 分布式锁
+	mockLock := lock.NewNopLock() // 使用无操作锁用于测试
+	r := NewReconciler(cfg, ex, pm, mockLock)
 
 	// 模拟执行对账
 	err := r.Reconcile()
