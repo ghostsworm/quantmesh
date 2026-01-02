@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	
+	"quantmesh/event"
 	"quantmesh/logger"
 	"quantmesh/notify"
 )
@@ -15,11 +16,11 @@ import (
 type InstanceManagerV2 struct {
 	*InstanceManager // 继承现有实现
 	
-	notifier *notify.Notifier
+	notifier notify.Notifier
 }
 
 // NewInstanceManagerV2 创建增强版实例管理器
-func NewInstanceManagerV2(im *InstanceManager, notifier *notify.Notifier) *InstanceManagerV2 {
+func NewInstanceManagerV2(im *InstanceManager, notifier notify.Notifier) *InstanceManagerV2 {
 	return &InstanceManagerV2{
 		InstanceManager: im,
 		notifier:        notifier,
@@ -58,10 +59,13 @@ func (m *InstanceManagerV2) CreateInstanceWithMonitoring(
 	
 	// 4. 发送通知
 	if m.notifier != nil {
-		m.notifier.Send(fmt.Sprintf(
-			"✅ 实例创建成功\n用户: %s\n套餐: %s\n实例ID: %s",
-			userID, plan, instance.ID,
-		))
+		m.notifier.Send(&event.Event{
+			Type:      event.EventTypeSystemStart,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"message": fmt.Sprintf("✅ 实例创建成功\n用户: %s\n套餐: %s\n实例ID: %s", userID, plan, instance.ID),
+			},
+		})
 	}
 	
 	return instance, nil
@@ -185,7 +189,13 @@ func (m *InstanceManagerV2) handleHighCPU(instance *Instance, usage *ResourceUsa
 	logger.Warn(msg)
 	
 	if m.notifier != nil {
-		m.notifier.Send(msg)
+		m.notifier.Send(&event.Event{
+			Type:      event.EventTypeError,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"message": msg,
+			},
+		})
 	}
 }
 
@@ -199,7 +209,13 @@ func (m *InstanceManagerV2) handleHighMemory(instance *Instance, usage *Resource
 	logger.Warn(msg)
 	
 	if m.notifier != nil {
-		m.notifier.Send(msg)
+		m.notifier.Send(&event.Event{
+			Type:      event.EventTypeError,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"message": msg,
+			},
+		})
 	}
 }
 
@@ -209,12 +225,12 @@ func (m *InstanceManagerV2) scaleUp(instance *Instance) {
 	
 	// 计算新的资源限制
 	newCPU := instance.CPU * 1.5
-	newMemory := instance.Memory * 1.5
+	newMemory := int64(float64(instance.Memory) * 1.5)
 	
 	// 更新容器资源限制
 	cmd := exec.Command("docker", "update",
 		"--cpus", fmt.Sprintf("%.1f", newCPU),
-		"--memory", fmt.Sprintf("%dm", int64(newMemory)),
+		"--memory", fmt.Sprintf("%dm", newMemory),
 		instance.ContainerID,
 	)
 	
@@ -226,19 +242,25 @@ func (m *InstanceManagerV2) scaleUp(instance *Instance) {
 	// 更新实例记录
 	m.mu.Lock()
 	instance.CPU = newCPU
-	instance.Memory = int64(newMemory)
+	instance.Memory = newMemory
 	m.mu.Unlock()
 	
 	msg := fmt.Sprintf(
 		"✅ 实例 %s 扩容成功\nCPU: %.1f → %.1f\n内存: %dMB → %dMB",
 		instance.ID, instance.CPU/1.5, instance.CPU,
-		int64(instance.Memory/1.5), instance.Memory,
+		int64(float64(instance.Memory)/1.5), instance.Memory,
 	)
 	
 	logger.Info(msg)
 	
 	if m.notifier != nil {
-		m.notifier.Send(msg)
+		m.notifier.Send(&event.Event{
+			Type:      event.EventTypeError,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"message": msg,
+			},
+		})
 	}
 }
 
@@ -248,21 +270,21 @@ func (m *InstanceManagerV2) scaleDown(instance *Instance) {
 	
 	// 计算新的资源限制
 	newCPU := instance.CPU * 0.75
-	newMemory := instance.Memory * 0.75
+	newMemory := int64(float64(instance.Memory) * 0.75)
 	
 	// 确保不低于最小值
 	resources := m.allocateResources(instance.Plan)
 	if newCPU < resources.CPU {
 		newCPU = resources.CPU
 	}
-	if newMemory < float64(resources.Memory) {
-		newMemory = float64(resources.Memory)
+	if newMemory < resources.Memory {
+		newMemory = resources.Memory
 	}
 	
 	// 更新容器资源限制
 	cmd := exec.Command("docker", "update",
 		"--cpus", fmt.Sprintf("%.1f", newCPU),
-		"--memory", fmt.Sprintf("%dm", int64(newMemory)),
+		"--memory", fmt.Sprintf("%dm", newMemory),
 		instance.ContainerID,
 	)
 	
@@ -274,7 +296,7 @@ func (m *InstanceManagerV2) scaleDown(instance *Instance) {
 	// 更新实例记录
 	m.mu.Lock()
 	instance.CPU = newCPU
-	instance.Memory = int64(newMemory)
+	instance.Memory = newMemory
 	m.mu.Unlock()
 	
 	logger.Info("✅ 实例 %s 缩容成功", instance.ID)

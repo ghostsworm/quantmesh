@@ -439,7 +439,7 @@ type Order struct {
 	FilledQty   float64 `json:"cumFilledQty,string"`
 	Status      string  `json:"status"`
 	CreateTime  int64   `json:"lastExecTime"`
-	UpdateTime  int64   `json:"lastExecTime"`
+	UpdateTime  int64   `json:"updateTime"`
 }
 
 type Balance struct {

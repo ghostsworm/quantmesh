@@ -2,6 +2,27 @@ package plugin
 
 import "context"
 
+// PluginType 插件类型
+type PluginType string
+
+const (
+	PluginTypeStrategy PluginType = "strategy" // 策略插件 - 自定义交易策略
+	PluginTypeAI      PluginType = "ai"       // AI插件 - 市场分析和预测
+	PluginTypeRisk    PluginType = "risk"     // 风控插件 - 自定义风险控制
+	PluginTypeSignal  PluginType = "signal"   // 信号插件 - 外部信号接入
+)
+
+// PluginMetadata 插件元数据
+type PluginMetadata struct {
+	Name        string     // 插件名称
+	Version     string     // 插件版本
+	Author      string     // 作者
+	Description string     // 描述
+	Type        PluginType // 插件类型
+	License     string     // 许可证类型: "free" 或 "commercial"
+	RequiresKey bool       // 是否需要许可证密钥
+}
+
 // Plugin 插件基础接口
 type Plugin interface {
 	// Name 返回插件名称
