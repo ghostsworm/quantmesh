@@ -59,8 +59,23 @@ jobs:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
       run: |
+        # 临时移动工具文件，避免 main 函数冲突
+        mkdir -p .tools_backup
+        for file in analyze_market_data.go run_1m_backtest.go run_3m_backtest.go run_eth_backtest.go test_intrabar_backtest.go test_intrabar_quick.go test_license_validation.go test_plugin_detailed.go test_plugin_loading.go test_zero_fee.go; do
+          if [ -f "$file" ]; then
+            mv "$file" .tools_backup/ || true
+          fi
+        done
+        
+        # 构建
         VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
         go build -ldflags="-s -w -X main.Version=${VERSION}" -o quantmesh-${{ matrix.name }} .
+        
+        # 恢复工具文件
+        if [ -d ".tools_backup" ]; then
+          mv .tools_backup/* . 2>/dev/null || true
+          rmdir .tools_backup 2>/dev/null || true
+        fi
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
