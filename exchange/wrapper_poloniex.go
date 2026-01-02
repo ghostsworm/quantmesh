@@ -283,3 +283,9 @@ func (w *poloniexWrapper) GetFundingRate(ctx context.Context, symbol string) (fl
 	return w.adapter.GetFundingRate(ctx)
 }
 
+
+
+// GetSpotPrice 获取现货市场价格（未实现）
+func (w *poloniexWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	return 0, ErrNotImplemented
+}

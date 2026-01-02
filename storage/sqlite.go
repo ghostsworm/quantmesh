@@ -195,6 +195,23 @@ func createTables(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_ai_prompts_module ON ai_prompts(module);`
 
+	// 价差数据表
+	basisDataSQL := `
+	CREATE TABLE IF NOT EXISTS basis_data (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		symbol TEXT NOT NULL,
+		exchange TEXT NOT NULL,
+		spot_price REAL NOT NULL,
+		futures_price REAL NOT NULL,
+		basis REAL NOT NULL,
+		basis_percent REAL NOT NULL,
+		funding_rate REAL,
+		timestamp DATETIME NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_basis_symbol_time ON basis_data(symbol, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_basis_exchange ON basis_data(exchange);`
+
 	// 创建索引
 	indexesSQL := `
 	CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
@@ -218,6 +235,7 @@ func createTables(db *sql.DB) error {
 		riskCheckHistorySQL,
 		fundingRatesSQL,
 		aiPromptsSQL,
+		basisDataSQL,
 		indexesSQL,
 	}
 	for _, sql := range sqls {
@@ -1188,6 +1206,151 @@ func (s *SQLiteStorage) GetAllAIPromptTemplates() ([]*AIPromptTemplate, error) {
 	}
 
 	return templates, rows.Err()
+}
+
+// SaveBasisData 保存价差数据
+func (s *SQLiteStorage) SaveBasisData(data *BasisData) error {
+	_, err := s.db.Exec(`
+		INSERT INTO basis_data (symbol, exchange, spot_price, futures_price, basis, basis_percent, funding_rate, timestamp)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, data.Symbol, data.Exchange, data.SpotPrice, data.FuturesPrice, data.Basis, data.BasisPercent, data.FundingRate, data.Timestamp)
+	return err
+}
+
+// GetLatestBasis 获取最新价差数据
+func (s *SQLiteStorage) GetLatestBasis(symbol, exchange string) (*BasisData, error) {
+	var data BasisData
+	err := s.db.QueryRow(`
+		SELECT symbol, exchange, spot_price, futures_price, basis, basis_percent, funding_rate, timestamp
+		FROM basis_data
+		WHERE symbol = ? AND exchange = ?
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`, symbol, exchange).Scan(
+		&data.Symbol, &data.Exchange, &data.SpotPrice, &data.FuturesPrice,
+		&data.Basis, &data.BasisPercent, &data.FundingRate, &data.Timestamp,
+	)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &data, nil
+}
+
+// GetBasisHistory 获取价差历史数据
+func (s *SQLiteStorage) GetBasisHistory(symbol, exchange string, limit int) ([]*BasisData, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	
+	rows, err := s.db.Query(`
+		SELECT symbol, exchange, spot_price, futures_price, basis, basis_percent, funding_rate, timestamp
+		FROM basis_data
+		WHERE symbol = ? AND exchange = ?
+		ORDER BY timestamp DESC
+		LIMIT ?
+	`, symbol, exchange, limit)
+	
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var result []*BasisData
+	for rows.Next() {
+		var data BasisData
+		err := rows.Scan(
+			&data.Symbol, &data.Exchange, &data.SpotPrice, &data.FuturesPrice,
+			&data.Basis, &data.BasisPercent, &data.FundingRate, &data.Timestamp,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &data)
+	}
+	
+	return result, rows.Err()
+}
+
+// GetBasisStatistics 获取价差统计数据
+func (s *SQLiteStorage) GetBasisStatistics(symbol, exchange string, hours int) (*BasisStats, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	
+	cutoffTime := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+	
+	rows, err := s.db.Query(`
+		SELECT basis_percent
+		FROM basis_data
+		WHERE symbol = ? AND exchange = ? AND timestamp >= ?
+		ORDER BY timestamp DESC
+	`, symbol, exchange, cutoffTime)
+	
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var values []float64
+	for rows.Next() {
+		var value float64
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	
+	if len(values) == 0 {
+		return nil, fmt.Errorf("没有找到数据")
+	}
+	
+	// 计算统计数据
+	var sum, max, min float64
+	max = values[0]
+	min = values[0]
+	
+	for _, v := range values {
+		sum += v
+		if v > max {
+			max = v
+		}
+		if v < min {
+			min = v
+		}
+	}
+	
+	avg := sum / float64(len(values))
+	
+	// 计算标准差
+	var variance float64
+	for _, v := range values {
+		diff := v - avg
+		variance += diff * diff
+	}
+	variance /= float64(len(values))
+	stdDev := 0.0
+	if variance > 0 {
+		// 简化的平方根计算
+		stdDev = variance
+		for i := 0; i < 10; i++ {
+			stdDev = (stdDev + variance/stdDev) / 2
+		}
+	}
+	
+	return &BasisStats{
+		Symbol:     symbol,
+		Exchange:   exchange,
+		AvgBasis:   avg,
+		MaxBasis:   max,
+		MinBasis:   min,
+		StdDev:     stdDev,
+		DataPoints: len(values),
+		Hours:      hours,
+	}, nil
 }
 
 // Close 关闭数据库连接

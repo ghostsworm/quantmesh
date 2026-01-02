@@ -169,3 +169,27 @@ type AIPromptTemplate struct {
 	UpdatedAt    time.Time
 }
 
+// BasisData 价差数据
+type BasisData struct {
+	Symbol        string    `json:"symbol"`         // 交易对
+	Exchange      string    `json:"exchange"`       // 交易所
+	SpotPrice     float64   `json:"spot_price"`     // 现货价格
+	FuturesPrice  float64   `json:"futures_price"`  // 合约价格
+	Basis         float64   `json:"basis"`          // 价差（合约-现货）
+	BasisPercent  float64   `json:"basis_percent"`  // 价差百分比
+	FundingRate   float64   `json:"funding_rate"`   // 资金费率
+	Timestamp     time.Time `json:"timestamp"`      // 时间戳
+}
+
+// BasisStats 价差统计数据
+type BasisStats struct {
+	Symbol       string  `json:"symbol"`
+	Exchange     string  `json:"exchange"`
+	AvgBasis     float64 `json:"avg_basis"`      // 平均价差
+	MaxBasis     float64 `json:"max_basis"`      // 最大价差
+	MinBasis     float64 `json:"min_basis"`      // 最小价差
+	StdDev       float64 `json:"std_dev"`        // 标准差
+	DataPoints   int     `json:"data_points"`    // 数据点数量
+	Hours        int     `json:"hours"`          // 统计时间范围（小时）
+}
+

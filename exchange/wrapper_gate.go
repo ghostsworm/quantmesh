@@ -322,3 +322,8 @@ func (w *gateWrapper) GetQuoteAsset() string {
 func (w *gateWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
+
+// GetSpotPrice 获取现货市场价格
+func (w *gateWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	return w.adapter.GetSpotPrice(ctx, symbol)
+}

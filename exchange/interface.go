@@ -1,6 +1,14 @@
 package exchange
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// 错误定义
+var (
+	ErrNotImplemented = errors.New("功能未实现")
+)
 
 // IExchange 交易所接口（所有交易所必须实现）
 type IExchange interface {
@@ -95,4 +103,12 @@ type IExchange interface {
 	// symbol: 交易对（如 BTCUSDT）
 	// 返回: 资金费率（如 0.0001 表示 0.01%）
 	GetFundingRate(ctx context.Context, symbol string) (float64, error)
+
+	// === 现货价格 ===
+
+	// GetSpotPrice 获取现货市场价格
+	// symbol: 交易对（如 BTCUSDT）
+	// 返回: 现货价格
+	// 注意: 此方法用于获取现货市场价格，与 GetLatestPrice（合约价格）区分
+	GetSpotPrice(ctx context.Context, symbol string) (float64, error)
 }

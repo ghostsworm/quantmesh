@@ -310,3 +310,8 @@ func (w *okxWrapper) GetFundingRate(ctx context.Context, symbol string) (float64
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
+
+// GetSpotPrice 获取现货市场价格
+func (w *okxWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	return w.adapter.GetSpotPrice(ctx, symbol)
+}

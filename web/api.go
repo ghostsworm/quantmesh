@@ -3488,3 +3488,129 @@ func (a *aiPromptManagerAdapter) UpdatePrompt(module, template, systemPrompt str
 	return a.manager.UpdatePrompt(module, template, systemPrompt)
 }
 
+// ==================== 价差监控 API ====================
+
+// BasisMonitorProvider 价差监控提供者接口
+type BasisMonitorProvider interface {
+	GetCurrentBasis(symbol string) (*storage.BasisData, error)
+	GetAllCurrentBasis() []*storage.BasisData
+	GetBasisHistory(symbol string, limit int) ([]*storage.BasisData, error)
+	GetBasisStatistics(symbol string, hours int) (*storage.BasisStats, error)
+}
+
+var (
+	basisMonitorProvider BasisMonitorProvider
+	basisMonitorMu       sync.RWMutex
+)
+
+// SetBasisMonitorProvider 设置价差监控提供者
+func SetBasisMonitorProvider(provider BasisMonitorProvider) {
+	basisMonitorMu.Lock()
+	defer basisMonitorMu.Unlock()
+	basisMonitorProvider = provider
+}
+
+// getBasisMonitorProvider 获取价差监控提供者
+func getBasisMonitorProvider() BasisMonitorProvider {
+	basisMonitorMu.RLock()
+	defer basisMonitorMu.RUnlock()
+	return basisMonitorProvider
+}
+
+// getBasisCurrent 获取当前价差数据
+// GET /api/basis/current?symbol=BTCUSDT
+func getBasisCurrent(c *gin.Context) {
+	provider := getBasisMonitorProvider()
+	if provider == nil {
+		respondError(c, http.StatusServiceUnavailable, "errors.service_unavailable")
+		return
+	}
+
+	symbol := c.Query("symbol")
+	if symbol == "" {
+		// 如果没有指定交易对，返回所有交易对的当前价差
+		allBasis := provider.GetAllCurrentBasis()
+		c.JSON(http.StatusOK, gin.H{
+			"data": allBasis,
+			"count": len(allBasis),
+		})
+		return
+	}
+
+	// 获取指定交易对的价差
+	data, err := provider.GetCurrentBasis(symbol)
+	if err != nil {
+		respondError(c, http.StatusNotFound, "errors.not_found", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": data})
+}
+
+// getBasisHistory 获取价差历史数据
+// GET /api/basis/history?symbol=BTCUSDT&limit=100
+func getBasisHistory(c *gin.Context) {
+	provider := getBasisMonitorProvider()
+	if provider == nil {
+		respondError(c, http.StatusServiceUnavailable, "errors.service_unavailable")
+		return
+	}
+
+	symbol := c.Query("symbol")
+	if symbol == "" {
+		respondError(c, http.StatusBadRequest, "errors.missing_parameter", 
+			map[string]interface{}{"param": "symbol"})
+		return
+	}
+
+	limit := 100
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	history, err := provider.GetBasisHistory(symbol, limit)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "errors.internal_error", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": history,
+		"count": len(history),
+	})
+}
+
+// getBasisStatistics 获取价差统计数据
+// GET /api/basis/statistics?symbol=BTCUSDT&hours=24
+func getBasisStatistics(c *gin.Context) {
+	provider := getBasisMonitorProvider()
+	if provider == nil {
+		respondError(c, http.StatusServiceUnavailable, "errors.service_unavailable")
+		return
+	}
+
+	symbol := c.Query("symbol")
+	if symbol == "" {
+		respondError(c, http.StatusBadRequest, "errors.missing_parameter",
+			map[string]interface{}{"param": "symbol"})
+		return
+	}
+
+	hours := 24
+	if hoursStr := c.Query("hours"); hoursStr != "" {
+		if h, err := strconv.Atoi(hoursStr); err == nil && h > 0 {
+			hours = h
+		}
+	}
+
+	stats, err := provider.GetBasisStatistics(symbol, hours)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "errors.internal_error", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": stats})
+}
+

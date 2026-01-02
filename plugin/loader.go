@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"plugin"
+	"runtime"
+	"strings"
 	"sync"
 	
 	"quantmesh/logger"
@@ -54,9 +56,23 @@ func (l *PluginLoader) LoadPlugin(pluginName, pluginPath, licenseKey string) err
 		return fmt.Errorf("插件文件不存在: %s", pluginPath)
 	}
 	
-	// 3. 加载插件 .so 文件
+	// 3. 加载插件 .so 文件（带版本检测）
 	p, err := plugin.Open(pluginPath)
 	if err != nil {
+		// 检测是否是版本不匹配错误
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "different version") || strings.Contains(errMsg, "incompatible") {
+			currentGoVersion := runtime.Version()
+			return fmt.Errorf(
+				"插件版本不匹配: %v\n"+
+					"⚠️  原因: 插件和主程序使用了不同的 Go 版本或依赖版本\n"+
+					"📌 当前 Go 版本: %s\n"+
+					"💡 解决方案:\n"+
+					"   1. 使用预编译版本（推荐）- 无需担心版本问题\n"+
+					"   2. 确保使用相同的 Go 版本重新编译插件和主程序\n"+
+					"   3. 检查依赖包版本是否一致",
+				err, currentGoVersion)
+		}
 		return fmt.Errorf("加载插件失败: %v", err)
 	}
 	

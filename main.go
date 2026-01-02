@@ -672,18 +672,32 @@ func main() {
 				"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
 				"ADAUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "AVAXUSDT",
 			}
-			fundingMonitor := monitor.NewFundingMonitor(
+		fundingMonitor := monitor.NewFundingMonitor(
+			storageService.GetStorage(),
+			firstRuntime.Exchange,
+			symbols,
+			8,
+		)
+		fundingMonitor.Start()
+		web.RegisterFundingProvider(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, fundingMonitor)
+		web.SetFundingMonitorProvider(fundingMonitor)
+
+		// 初始化价差监控
+		if cfg.BasisMonitor.Enabled {
+			logger.Info("🔍 初始化价差监控...")
+			basisMonitor := monitor.NewBasisMonitor(
 				storageService.GetStorage(),
 				firstRuntime.Exchange,
-				symbols,
-				8,
+				cfg.BasisMonitor.Symbols,
+				cfg.BasisMonitor.IntervalMinutes,
 			)
-			fundingMonitor.Start()
-			web.RegisterFundingProvider(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, fundingMonitor)
-			web.SetFundingMonitorProvider(fundingMonitor)
+			basisMonitor.Start()
+			web.SetBasisMonitorProvider(basisMonitor)
+			logger.Info("✅ 价差监控已启动")
 		}
+	}
 
-		logger.Info("✅ 所有交易对已初始化，进入运行状态")
+	logger.Info("✅ 所有交易对已初始化，进入运行状态")
 	} else if webServer != nil {
 		// 配置不完整，只设置存储服务提供者
 		if storageService != nil {

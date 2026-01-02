@@ -273,3 +273,9 @@ func parseOrderID(orderID string) int64 {
 	// 实际使用时，可以使用 hash 或其他方式转换
 	return 0
 }
+
+
+// GetSpotPrice 获取现货市场价格（未实现）
+func (w *kucoinWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	return 0, ErrNotImplemented
+}

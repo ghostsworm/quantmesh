@@ -445,6 +445,16 @@ ai:
 
 # 插件配置（可选）
 # 插件系统配置
+# 价差监控配置
+basis_monitor:
+  enabled: true  # 设置为 true 启用价差监控
+  interval_minutes: 1  # 检查间隔（分钟）
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+    - BNBUSDT
+    - SOLUSDT
+
 plugins:
   enabled: false  # 设置为 true 启用插件系统
   directory: "../quantmesh-premium/plugins"  # 插件目录（相对路径或绝对路径）
@@ -455,6 +465,7 @@ plugins:
     ai_strategy: ""       # AI 策略插件 License Key
     multi_strategy: ""    # 多策略插件 License Key
     advanced_risk: ""     # 高级风控插件 License Key
+    basis_alert: ""       # 价差预警插件 License Key
   
   # 插件配置参数
   config:
@@ -481,3 +492,28 @@ plugins:
       enable_portfolio_optimizer: true  # 启用投资组合优化
       risk_threshold: 0.7          # 风险阈值（0-1）
       rebalance_interval: 3600     # 再平衡间隔（秒）
+    
+    # 价差预警插件配置
+    basis_alert:
+      enabled: true
+      check_interval_seconds: 60   # 检查间隔（秒）
+      
+      # 预警阈值
+      thresholds:
+        BTCUSDT:
+          basis_percent_high: 0.5   # 价差过高阈值（0.5%）
+          basis_percent_low: -0.5   # 价差过低阈值（-0.5%）
+          zscore_threshold: 2.0     # Z-score 阈值
+        ETHUSDT:
+          basis_percent_high: 0.8
+          basis_percent_low: -0.8
+          zscore_threshold: 2.0
+      
+      # 通知设置
+      notifications:
+        cooldown_minutes: 30  # 同一交易对预警冷却时间（分钟）
+        telegram_enabled: false
+        telegram_bot_token: ""
+        telegram_chat_id: ""
+        webhook_enabled: false
+        webhook_url: ""

@@ -247,6 +247,13 @@ type Config struct {
 		Config    map[string]map[string]interface{} `yaml:"config"`    // 插件配置
 	} `yaml:"plugins"`
 
+	// 价差监控配置
+	BasisMonitor struct {
+		Enabled         bool     `yaml:"enabled"`          // 是否启用价差监控，默认false
+		IntervalMinutes int      `yaml:"interval_minutes"` // 检查间隔（分钟），默认1
+		Symbols         []string `yaml:"symbols"`          // 监控的交易对列表
+	} `yaml:"basis_monitor"`
+
 	// 多策略配置
 	Strategies struct {
 		Enabled bool `yaml:"enabled"`

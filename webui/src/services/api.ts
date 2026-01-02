@@ -926,3 +926,56 @@ export async function getMarketIntelligence(params?: MarketIntelligenceParams): 
   const url = `${API_BASE_URL}/market-intelligence${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
+
+// ==================== 价差监控 ====================
+
+export interface BasisData {
+  symbol: string
+  exchange: string
+  spot_price: number
+  futures_price: number
+  basis: number
+  basis_percent: number
+  funding_rate: number
+  timestamp: string
+}
+
+export interface BasisStats {
+  symbol: string
+  exchange: string
+  avg_basis: number
+  max_basis: number
+  min_basis: number
+  std_dev: number
+  data_points: number
+  hours: number
+}
+
+export async function getBasisCurrent(symbol?: string): Promise<BasisData[]> {
+  const queryParams = new URLSearchParams()
+  if (symbol) queryParams.append('symbol', symbol)
+  
+  const url = `${API_BASE_URL}/basis/current${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  const response = await fetchWithAuth(url)
+  return response.data
+}
+
+export async function getBasisHistory(symbol: string, limit: number = 100): Promise<BasisData[]> {
+  const queryParams = new URLSearchParams()
+  queryParams.append('symbol', symbol)
+  queryParams.append('limit', limit.toString())
+  
+  const url = `${API_BASE_URL}/basis/history?${queryParams.toString()}`
+  const response = await fetchWithAuth(url)
+  return response.data
+}
+
+export async function getBasisStatistics(symbol: string, hours: number = 24): Promise<BasisStats> {
+  const queryParams = new URLSearchParams()
+  queryParams.append('symbol', symbol)
+  queryParams.append('hours', hours.toString())
+  
+  const url = `${API_BASE_URL}/basis/statistics?${queryParams.toString()}`
+  const response = await fetchWithAuth(url)
+  return response.data
+}

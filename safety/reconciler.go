@@ -7,6 +7,7 @@ import (
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"reflect"
+	"sync"
 	"time"
 )
 
@@ -60,15 +61,26 @@ type Reconciler struct {
 	pauseChecker func() bool
 	storage      ReconciliationStorage // 可选的存储服务
 	lock         lock.DistributedLock  // 分布式锁
+	lastReconcileTime time.Time        // 上次对账时间
+	reconcileMu       sync.Mutex        // 对账互斥锁
+	minReconcileInterval time.Duration  // 最小对账间隔（防止频繁调用）
 }
 
 // NewReconciler 创建对账器
 func NewReconciler(cfg *config.Config, exchange IExchange, pm IPositionManager, distributedLock lock.DistributedLock) *Reconciler {
+	// 设置最小对账间隔，默认30秒（即使配置更短也要保证最小间隔）
+	minInterval := 30 * time.Second
+	reconcileInterval := time.Duration(cfg.Trading.ReconcileInterval) * time.Second
+	if reconcileInterval > 0 && reconcileInterval < minInterval {
+		minInterval = reconcileInterval
+	}
+	
 	return &Reconciler{
-		cfg:      cfg,
-		exchange: exchange,
-		pm:       pm,
-		lock:     distributedLock,
+		cfg:                 cfg,
+		exchange:            exchange,
+		pm:                  pm,
+		lock:                distributedLock,
+		minReconcileInterval: minInterval,
 	}
 }
 
@@ -113,6 +125,19 @@ func (r *Reconciler) Reconcile() error {
 	if r.pauseChecker != nil && r.pauseChecker() {
 		return nil
 	}
+
+	// 速率限制：确保最小对账间隔
+	r.reconcileMu.Lock()
+	elapsed := time.Since(r.lastReconcileTime)
+	if elapsed < r.minReconcileInterval {
+		waitTime := r.minReconcileInterval - elapsed
+		r.reconcileMu.Unlock()
+		logger.Debug("⏳ [对账] 等待 %v 后执行（最小间隔限制）", waitTime)
+		time.Sleep(waitTime)
+		r.reconcileMu.Lock()
+	}
+	r.lastReconcileTime = time.Now()
+	r.reconcileMu.Unlock()
 
 	symbol := r.pm.GetSymbol()
 	exchangeName := "unknown"

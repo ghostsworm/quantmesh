@@ -635,3 +635,19 @@ func (b *BybitAdapter) GetFundingRate(ctx context.Context, symbol string) (float
 	return rate, nil
 }
 
+// GetSpotPrice 获取现货市场价格
+func (b *BybitAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	// Bybit 现货使用 category=spot
+	ticker, err := b.client.GetTicker(ctx, "spot", symbol)
+	if err != nil {
+		return 0, fmt.Errorf("获取现货价格失败: %w", err)
+	}
+	
+	price, err := strconv.ParseFloat(ticker.LastPrice, 64)
+	if err != nil {
+		return 0, fmt.Errorf("解析现货价格失败: %w", err)
+	}
+	
+	return price, nil
+}
+

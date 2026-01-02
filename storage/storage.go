@@ -49,6 +49,10 @@ type Storage interface {
 	GetAIPromptTemplate(module string) (*AIPromptTemplate, error)
 	SetAIPromptTemplate(template *AIPromptTemplate) error
 	GetAllAIPromptTemplates() ([]*AIPromptTemplate, error)
+	SaveBasisData(data *BasisData) error
+	GetLatestBasis(symbol, exchange string) (*BasisData, error)
+	GetBasisHistory(symbol, exchange string, limit int) ([]*BasisData, error)
+	GetBasisStatistics(symbol, exchange string, hours int) (*BasisStats, error)
 	Close() error
 }
 

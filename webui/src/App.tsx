@@ -45,6 +45,7 @@ import KlineChart from './components/KlineChart'
 import { checkSetupStatus } from './services/setup'
 import Configuration from './components/Configuration'
 import FundingRate from './components/FundingRate'
+import BasisMonitor from './components/BasisMonitor'
 import MarketIntelligence from './components/MarketIntelligence'
 import AIAnalysis from './components/AIAnalysis'
 import AIPromptManager from './components/AIPromptManager'
@@ -293,6 +294,7 @@ const AppContent: React.FC = () => {
                 <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
                 <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
                 <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
+                <Route path="/basis-monitor" element={<ProtectedRoute><BasisMonitor /></ProtectedRoute>} />
                 <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
                 <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
                 <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />

@@ -289,6 +289,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               >
                 {t('sidebar.fundingRate')}
               </NavItem>
+              <NavItem 
+                icon={AtSignIcon} 
+                to="/basis-monitor" 
+                isActive={isRouteActive('/basis-monitor')}
+                onClick={onNavItemClick}
+              >
+                {t('sidebar.basisMonitor')}
+              </NavItem>
             </MotionBox>
           )}
         </AnimatePresence>

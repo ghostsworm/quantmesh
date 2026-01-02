@@ -302,3 +302,8 @@ func (w *binanceWrapper) GetQuoteAsset() string {
 func (w *binanceWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
+
+// GetSpotPrice 获取现货市场价格
+func (w *binanceWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	return w.adapter.GetSpotPrice(ctx, symbol)
+}

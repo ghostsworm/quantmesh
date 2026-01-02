@@ -203,6 +203,11 @@ func SetupRoutes(r *gin.Engine) {
 			protected.POST("/ai/prompts", updateAIPrompt)
 			protected.GET("/funding/history", getFundingRateHistory)
 
+			// 价差监控
+			protected.GET("/basis/current", getBasisCurrent)
+			protected.GET("/basis/history", getBasisHistory)
+			protected.GET("/basis/statistics", getBasisStatistics)
+
 			// 市场情报API
 			protected.GET("/market-intelligence", getMarketIntelligence)
 

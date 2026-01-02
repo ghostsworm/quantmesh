@@ -269,3 +269,9 @@ func parseBitfinexOrderID(orderID string) int64 {
 	id, _ := strconv.ParseInt(orderID, 10, 64)
 	return id
 }
+
+
+// GetSpotPrice 获取现货市场价格（未实现）
+func (w *bitfinexWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	return 0, ErrNotImplemented
+}

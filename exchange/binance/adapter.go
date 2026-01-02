@@ -2,9 +2,14 @@ package binance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"quantmesh/logger"
@@ -116,6 +121,11 @@ type BinanceAdapter struct {
 	baseAsset        string // 基础资产（交易币种），如 BTC
 	quoteAsset       string // 计价资产（结算币种），如 USDT、USD
 	useTestnet       bool   // 是否使用测试网
+	
+	// 速率限制相关
+	lastAPICallTime time.Time // 上次API调用时间
+	apiCallMu       sync.Mutex // API调用互斥锁
+	minAPIInterval  time.Duration // 最小API调用间隔
 }
 
 // APIPermissions API 权限信息（临时定义，避免循环导入）
@@ -160,10 +170,11 @@ func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, e
 	wsManager := NewWebSocketManager(apiKey, secretKey, useTestnet)
 
 	adapter := &BinanceAdapter{
-		client:     client,
-		symbol:     symbol,
-		wsManager:  wsManager,
-		useTestnet: useTestnet,
+		client:         client,
+		symbol:         symbol,
+		wsManager:      wsManager,
+		useTestnet:     useTestnet,
+		minAPIInterval: 200 * time.Millisecond, // 最小API调用间隔200ms，避免触发限流
 	}
 
 	// 获取合约信息（价格精度、数量精度等）
@@ -385,39 +396,85 @@ func (b *BinanceAdapter) GetOrder(ctx context.Context, symbol string, orderID in
 	}, nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查询未完成订单（添加速率限制和重试逻辑）
 func (b *BinanceAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
-	orders, err := b.client.NewListOpenOrdersService().
-		Symbol(symbol).
-		Do(ctx)
+	const maxRetries = 5
+	var lastErr error
+	
+	for retry := 0; retry < maxRetries; retry++ {
+		// 速率限制：确保最小调用间隔
+		b.apiCallMu.Lock()
+		elapsed := time.Since(b.lastAPICallTime)
+		if elapsed < b.minAPIInterval {
+			waitTime := b.minAPIInterval - elapsed
+			b.apiCallMu.Unlock()
+			time.Sleep(waitTime)
+			b.apiCallMu.Lock()
+		}
+		b.lastAPICallTime = time.Now()
+		b.apiCallMu.Unlock()
+		
+		orders, err := b.client.NewListOpenOrdersService().
+			Symbol(symbol).
+			Do(ctx)
 
-	if err != nil {
-		return nil, err
+		if err == nil {
+			result := make([]*Order, 0, len(orders))
+			for _, order := range orders {
+				price, _ := strconv.ParseFloat(order.Price, 64)
+				quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+				executedQty, _ := strconv.ParseFloat(order.ExecutedQuantity, 64)
+				avgPrice, _ := strconv.ParseFloat(order.AvgPrice, 64)
+
+				result = append(result, &Order{
+					OrderID:       order.OrderID,
+					ClientOrderID: order.ClientOrderID,
+					Symbol:        order.Symbol,
+					Side:          Side(order.Side),
+					Type:          OrderType(order.Type),
+					Price:         price,
+					Quantity:      quantity,
+					ExecutedQty:   executedQty,
+					AvgPrice:      avgPrice,
+					Status:        OrderStatus(order.Status),
+					UpdateTime:    order.UpdateTime,
+				})
+			}
+			return result, nil
+		}
+		
+		lastErr = err
+		errStr := err.Error()
+		
+		// 检查是否是速率限制错误
+		if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "Way too many requests") || 
+		   strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "banned until") {
+			// 计算等待时间
+			waitDuration := waitForRateLimit(err, retry)
+			
+			// 检查上下文是否已取消
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("上下文已取消: %w", ctx.Err())
+			default:
+			}
+			
+			// 等待后重试
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("上下文已取消: %w", ctx.Err())
+			case <-time.After(waitDuration):
+				// 继续重试
+			}
+			continue
+		}
+		
+		// 其他错误直接返回
+		return nil, fmt.Errorf("查询挂单失败: %w", err)
 	}
-
-	result := make([]*Order, 0, len(orders))
-	for _, order := range orders {
-		price, _ := strconv.ParseFloat(order.Price, 64)
-		quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
-		executedQty, _ := strconv.ParseFloat(order.ExecutedQuantity, 64)
-		avgPrice, _ := strconv.ParseFloat(order.AvgPrice, 64)
-
-		result = append(result, &Order{
-			OrderID:       order.OrderID,
-			ClientOrderID: order.ClientOrderID,
-			Symbol:        order.Symbol,
-			Side:          Side(order.Side),
-			Type:          OrderType(order.Type),
-			Price:         price,
-			Quantity:      quantity,
-			ExecutedQty:   executedQty,
-			AvgPrice:      avgPrice,
-			Status:        OrderStatus(order.Status),
-			UpdateTime:    order.UpdateTime,
-		})
-	}
-
-	return result, nil
+	
+	// 所有重试都失败
+	return nil, fmt.Errorf("查询挂单失败（重试%d次）: %w", maxRetries, lastErr)
 }
 
 // GetAccount 获取账户信息（合约账户）
@@ -481,36 +538,135 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓信息（使用PositionRisk API获取准确的杠杆倍数）
-func (b *BinanceAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
-	// 🔥 使用 PositionRisk API，可以获取准确的杠杆信息
-	positionRisks, err := b.client.NewGetPositionRiskService().Symbol(symbol).Do(ctx)
+// parseBanTime 从错误消息中解析封禁时间（毫秒时间戳）
+// 错误格式: "IP(130.176.187.84) banned until 1767288777555"
+func parseBanTime(errMsg string) (time.Time, bool) {
+	re := regexp.MustCompile(`banned until (\d+)`)
+	matches := re.FindStringSubmatch(errMsg)
+	if len(matches) < 2 {
+		return time.Time{}, false
+	}
+	
+	banTimestamp, err := strconv.ParseInt(matches[1], 10, 64)
 	if err != nil {
-		return nil, err
+		return time.Time{}, false
 	}
+	
+	// 转换为time.Time（毫秒时间戳）
+	banTime := time.Unix(banTimestamp/1000, (banTimestamp%1000)*1000000)
+	return banTime, true
+}
 
-	result := make([]*Position, 0)
-	for _, pos := range positionRisks {
-		posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
-		entryPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
-		unrealizedPNL, _ := strconv.ParseFloat(pos.UnRealizedProfit, 64)
-		markPrice, _ := strconv.ParseFloat(pos.MarkPrice, 64)
-		isolatedMargin, _ := strconv.ParseFloat(pos.IsolatedMargin, 64)
-		leverage, _ := strconv.Atoi(pos.Leverage)
-
-		result = append(result, &Position{
-			Symbol:         pos.Symbol,
-			Size:           posAmt,
-			EntryPrice:     entryPrice,
-			MarkPrice:      markPrice,
-			UnrealizedPNL:  unrealizedPNL,
-			Leverage:       leverage,
-			MarginType:     pos.MarginType,
-			IsolatedMargin: isolatedMargin,
-		})
+// waitForRateLimit 等待速率限制，包括解析封禁时间
+func waitForRateLimit(err error, retryCount int) time.Duration {
+	errStr := err.Error()
+	
+	// 检查是否是 -1003 错误（速率限制）
+	if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "Way too many requests") {
+		// 尝试解析封禁时间
+		if banTime, ok := parseBanTime(errStr); ok {
+			now := time.Now()
+			if banTime.After(now) {
+				waitDuration := banTime.Sub(now) + time.Second // 多等1秒确保解封
+				logger.Warn("⚠️ [Binance] IP被封禁直到 %v，等待 %v 后重试", banTime, waitDuration)
+				return waitDuration
+			}
+		}
+		
+		// 如果没有解析到封禁时间，使用指数退避
+		backoff := time.Duration(1<<uint(retryCount)) * time.Second
+		if backoff > 60*time.Second {
+			backoff = 60 * time.Second // 最大等待60秒
+		}
+		logger.Warn("⚠️ [Binance] 触发速率限制，等待 %v 后重试 (第%d次)", backoff, retryCount+1)
+		return backoff
 	}
+	
+	// 其他错误使用指数退避
+	backoff := time.Duration(1<<uint(retryCount)) * time.Second
+	if backoff > 10*time.Second {
+		backoff = 10 * time.Second
+	}
+	return backoff
+}
 
-	return result, nil
+// GetPositions 获取持仓信息（使用PositionRisk API获取准确的杠杆倍数）
+// 添加速率限制和重试逻辑，避免触发 Binance API 限流
+func (b *BinanceAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
+	const maxRetries = 5
+	var lastErr error
+	
+	for retry := 0; retry < maxRetries; retry++ {
+		// 速率限制：确保最小调用间隔
+		b.apiCallMu.Lock()
+		elapsed := time.Since(b.lastAPICallTime)
+		if elapsed < b.minAPIInterval {
+			waitTime := b.minAPIInterval - elapsed
+			b.apiCallMu.Unlock()
+			time.Sleep(waitTime)
+			b.apiCallMu.Lock()
+		}
+		b.lastAPICallTime = time.Now()
+		b.apiCallMu.Unlock()
+		
+		// 🔥 使用 PositionRisk API，可以获取准确的杠杆信息
+		positionRisks, err := b.client.NewGetPositionRiskService().Symbol(symbol).Do(ctx)
+		if err == nil {
+			result := make([]*Position, 0)
+			for _, pos := range positionRisks {
+				posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
+				entryPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
+				unrealizedPNL, _ := strconv.ParseFloat(pos.UnRealizedProfit, 64)
+				markPrice, _ := strconv.ParseFloat(pos.MarkPrice, 64)
+				isolatedMargin, _ := strconv.ParseFloat(pos.IsolatedMargin, 64)
+				leverage, _ := strconv.Atoi(pos.Leverage)
+
+				result = append(result, &Position{
+					Symbol:         pos.Symbol,
+					Size:           posAmt,
+					EntryPrice:     entryPrice,
+					MarkPrice:      markPrice,
+					UnrealizedPNL:  unrealizedPNL,
+					Leverage:       leverage,
+					MarginType:     pos.MarginType,
+					IsolatedMargin: isolatedMargin,
+				})
+			}
+			return result, nil
+		}
+		
+		lastErr = err
+		errStr := err.Error()
+		
+		// 检查是否是速率限制错误
+		if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "Way too many requests") || 
+		   strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "banned until") {
+			// 计算等待时间
+			waitDuration := waitForRateLimit(err, retry)
+			
+			// 检查上下文是否已取消
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("上下文已取消: %w", ctx.Err())
+			default:
+			}
+			
+			// 等待后重试
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("上下文已取消: %w", ctx.Err())
+			case <-time.After(waitDuration):
+				// 继续重试
+			}
+			continue
+		}
+		
+		// 其他错误直接返回
+		return nil, fmt.Errorf("查询持仓失败: %w", err)
+	}
+	
+	// 所有重试都失败
+	return nil, fmt.Errorf("查询持仓失败（重试%d次）: %w", maxRetries, lastErr)
 }
 
 // GetBalance 获取余额
@@ -683,6 +839,48 @@ func (b *BinanceAdapter) GetFundingRate(ctx context.Context, symbol string) (flo
 	}
 
 	return fundingRate, nil
+}
+
+// GetSpotPrice 获取现货市场价格
+func (b *BinanceAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	// 使用币安现货API获取价格
+	// API: GET /api/v3/ticker/price
+	// 注意: 需要使用现货API客户端，这里使用HTTP直接调用
+	
+	url := fmt.Sprintf("https://api.binance.com/api/v3/ticker/price?symbol=%s", symbol)
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("创建请求失败: %w", err)
+	}
+	
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("请求现货价格失败: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("API返回错误状态 %d: %s", resp.StatusCode, string(body))
+	}
+	
+	var result struct {
+		Symbol string `json:"symbol"`
+		Price  string `json:"price"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("解析响应失败: %w", err)
+	}
+	
+	price, err := strconv.ParseFloat(result.Price, 64)
+	if err != nil {
+		return 0, fmt.Errorf("解析价格失败: %w", err)
+	}
+	
+	return price, nil
 }
 
 // CheckAPIPermissions 检查 API 密钥权限

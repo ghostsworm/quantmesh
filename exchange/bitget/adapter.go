@@ -1146,3 +1146,38 @@ func (b *BitgetAdapter) GetFundingRate(ctx context.Context, symbol string) (floa
 
 	return fundingRate, nil
 }
+
+// GetSpotPrice 获取现货市场价格
+func (b *BitgetAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	// 转换为 Bitget 现货格式: BTCUSDT -> BTCUSDT
+	bitgetSymbol := convertToBitgetSymbol(symbol)
+	
+	// Bitget 现货 API: GET /api/v2/spot/market/tickers
+	path := fmt.Sprintf("/api/v2/spot/market/tickers?symbol=%s", bitgetSymbol)
+	
+	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return 0, fmt.Errorf("获取现货价格失败: %w", err)
+	}
+	
+	// 解析响应
+	var results []struct {
+		Symbol   string `json:"symbol"`
+		LastPr   string `json:"lastPr"`
+	}
+	
+	if err := json.Unmarshal(resp.Data, &results); err != nil {
+		return 0, fmt.Errorf("解析响应失败: %w", err)
+	}
+	
+	if len(results) == 0 {
+		return 0, fmt.Errorf("未找到交易对 %s 的现货价格", symbol)
+	}
+	
+	price, err := strconv.ParseFloat(results[0].LastPr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("解析价格失败: %w", err)
+	}
+	
+	return price, nil
+}
