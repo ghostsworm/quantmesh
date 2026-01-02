@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"quantmesh/config"
 	"quantmesh/plugin"
 	"quantmesh/plugin/examples"
 )
@@ -17,10 +16,7 @@ func main() {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 
-	// 1. 创建配置
-	cfg := &config.Config{}
-
-	// 2. 创建插件加载器
+	// 1. 创建插件加载器
 	loader := plugin.NewPluginLoader()
 	fmt.Println("✅ 插件加载器已创建")
 
@@ -61,21 +57,12 @@ func demoFreePlugin(loader *plugin.PluginLoader) {
 	fmt.Printf("许可证:   %s\n", freePlugin.GetMetadata().License)
 	fmt.Printf("需要密钥: %v\n", freePlugin.GetMetadata().RequiresKey)
 
-	// 加载插件
-	err := loader.LoadPlugin(
-		freePlugin,
-		"", // 免费插件不需要许可证
-		map[string]interface{}{
-			"param1": "value1",
-			"param2": 123,
-		},
-	)
-
-	if err != nil {
-		fmt.Printf("❌ 加载失败: %v\n", err)
-	} else {
-		fmt.Println("✅ 加载成功!")
-	}
+	// 注意：LoadPlugin 需要插件文件路径，这里只是演示插件元数据
+	// 实际使用时，需要先编译插件为 .so 文件，然后使用路径加载
+	fmt.Println("\n💡 提示：要实际加载插件，需要：")
+	fmt.Println("   1. 将插件编译为 .so 文件")
+	fmt.Println("   2. 使用 loader.LoadPlugin(pluginName, pluginPath, licenseKey) 加载")
+	fmt.Println("   3. 插件路径示例: \"./plugins/example_strategy.so\"")
 }
 
 // demoCommercialPlugin 演示商业插件
@@ -107,21 +94,12 @@ func demoCommercialPlugin(loader *plugin.PluginLoader) {
 	fmt.Println("\n生成的许可证密钥:")
 	fmt.Println(licenseKey[:80] + "...")
 
-	// 尝试加载 (会失败，因为这只是演示)
-	err = loader.LoadPlugin(
-		commercialPlugin,
-		licenseKey,
-		map[string]interface{}{
-			"ai_model": "gpt-4",
-		},
-	)
-
-	if err != nil {
-		fmt.Printf("\n⚠️  预期的失败: %v\n", err)
-		fmt.Println("(这是正常的，因为商业插件的实际代码未实现)")
-	} else {
-		fmt.Println("✅ 加载成功!")
-	}
+	// 注意：LoadPlugin 需要插件文件路径，这里只是演示插件元数据和许可证生成
+	// 实际使用时，需要先编译插件为 .so 文件，然后使用路径加载
+	fmt.Println("\n💡 提示：要实际加载商业插件，需要：")
+	fmt.Println("   1. 将插件编译为 .so 文件")
+	fmt.Println("   2. 使用 loader.LoadPlugin(pluginName, pluginPath, licenseKey) 加载")
+	fmt.Println("   3. 提供有效的许可证密钥")
 }
 
 // demoLicenseSystem 演示许可证系统
@@ -216,13 +194,16 @@ func listPlugins(loader *plugin.PluginLoader) {
 
 	fmt.Printf("已加载 %d 个插件:\n\n", len(plugins))
 
-	for i, meta := range plugins {
-		fmt.Printf("%d. %s\n", i+1, meta.Name)
-		fmt.Printf("   版本:     %s\n", meta.Version)
-		fmt.Printf("   作者:     %s\n", meta.Author)
-		fmt.Printf("   类型:     %s\n", meta.Type)
-		fmt.Printf("   许可证:   %s\n", meta.License)
-		fmt.Printf("   描述:     %s\n", meta.Description)
+	for i, p := range plugins {
+		fmt.Printf("%d. %s\n", i+1, p.Name)
+		fmt.Printf("   版本:     %s\n", p.Version)
+		fmt.Printf("   路径:     %s\n", p.Path)
+		fmt.Printf("   许可证:   %s\n", func() string {
+			if p.LicenseKey != "" {
+				return "已提供"
+			}
+			return "未提供"
+		}())
 		fmt.Println()
 	}
 }
