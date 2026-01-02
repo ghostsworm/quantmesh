@@ -19,16 +19,16 @@ const (
 
 // BackupInfo 备份信息
 type BackupInfo struct {
-	ID          string    `json:"id"`           // 备份ID（文件名）
-	Timestamp   time.Time `json:"timestamp"`    // 备份时间
-	FilePath    string    `json:"file_path"`    // 备份文件路径
-	Size        int64     `json:"size"`         // 文件大小（字节）
-	Description string    `json:"description"`  // 描述信息（可选）
+	ID          string    `json:"id"`          // 备份ID（文件名）
+	Timestamp   time.Time `json:"timestamp"`   // 备份时间
+	FilePath    string    `json:"file_path"`   // 备份文件路径
+	Size        int64     `json:"size"`        // 文件大小（字节）
+	Description string    `json:"description"` // 描述信息（可选）
 }
 
 // BackupManager 配置备份管理器
 type BackupManager struct {
-	backupDir string
+	backupDir  string
 	maxBackups int
 }
 
@@ -153,7 +153,7 @@ func (bm *BackupManager) ListBackups() ([]*BackupInfo, error) {
 // RestoreBackup 恢复指定备份
 func (bm *BackupManager) RestoreBackup(backupID string, targetPath string) error {
 	backupPath := filepath.Join(bm.backupDir, backupID)
-	
+
 	// 检查备份文件是否存在
 	if _, err := os.Stat(backupPath); err != nil {
 		return fmt.Errorf("备份文件不存在: %v", err)
@@ -187,7 +187,7 @@ func (bm *BackupManager) RestoreBackup(backupID string, targetPath string) error
 // DeleteBackup 删除指定备份
 func (bm *BackupManager) DeleteBackup(backupID string) error {
 	backupPath := filepath.Join(bm.backupDir, backupID)
-	
+
 	// 检查备份文件是否存在
 	if _, err := os.Stat(backupPath); err != nil {
 		return fmt.Errorf("备份文件不存在: %v", err)
@@ -228,7 +228,7 @@ func (bm *BackupManager) CleanOldBackups() error {
 // GetBackup 获取指定备份信息
 func (bm *BackupManager) GetBackup(backupID string) (*BackupInfo, error) {
 	backupPath := filepath.Join(bm.backupDir, backupID)
-	
+
 	fileInfo, err := os.Stat(backupPath)
 	if err != nil {
 		return nil, fmt.Errorf("备份文件不存在: %v", err)
@@ -250,9 +250,9 @@ func (bm *BackupManager) GetBackup(backupID string) (*BackupInfo, error) {
 // isBackupFile 判断是否是备份文件
 func isBackupFile(filename string) bool {
 	// 格式: config.yaml.backup.20060102150405.yaml
-	return len(filename) > 30 && 
-		   filename[:19] == "config.yaml.backup." &&
-		   filename[len(filename)-5:] == ".yaml"
+	return len(filename) > 30 &&
+		filename[:19] == "config.yaml.backup." &&
+		filename[len(filename)-5:] == ".yaml"
 }
 
 // parseBackupTimestamp 解析备份文件中的时间戳
@@ -270,4 +270,3 @@ func parseBackupTimestamp(filename string) (time.Time, error) {
 
 	return time.Parse("20060102150405", timestampStr)
 }
-

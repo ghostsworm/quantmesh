@@ -26,9 +26,9 @@ type WebSocketHub struct {
 }
 
 var (
-	hub            *WebSocketHub
-	logStorage     *storage.LogStorage
-	logStorageMu   sync.RWMutex
+	hub          *WebSocketHub
+	logStorage   *storage.LogStorage
+	logStorageMu sync.RWMutex
 )
 
 func init() {
@@ -108,13 +108,13 @@ func handleWebSocket(c *gin.Context) {
 
 	// 检查是否订阅日志
 	subscribeLogs := c.Query("subscribe_logs") == "true"
-	
+
 	var logCh chan *storage.LogRecord
 	if subscribeLogs {
 		logStorageMu.RLock()
 		ls := logStorage
 		logStorageMu.RUnlock()
-		
+
 		if ls != nil {
 			logCh = ls.Subscribe()
 			defer ls.Unsubscribe(logCh)
@@ -161,4 +161,3 @@ func handleWebSocket(c *gin.Context) {
 		}
 	}
 }
-

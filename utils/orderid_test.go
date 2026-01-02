@@ -83,4 +83,3 @@ func TestBrokerPrefix(t *testing.T) {
 		t.Errorf("Gate.io前缀移除失败: 期望 %s, 得到 %s", clientOID, removedGate)
 	}
 }
-

@@ -3,9 +3,9 @@ package web
 import (
 	"fmt"
 	"io"
-	
+
 	"github.com/gin-gonic/gin"
-	
+
 	"quantmesh/saas"
 )
 
@@ -25,46 +25,46 @@ func createCoinbasePaymentHandler(c *gin.Context) {
 		Plan  string `json:"plan" binding:"required"`
 		Email string `json:"email" binding:"required"`
 	}
-	
+
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "无效的请求参数"})
 		return
 	}
-	
+
 	userID := c.GetString("user_id")
 	if userID == "" {
 		userID = "demo_user"
 	}
-	
+
 	// 获取套餐价格
 	prices := map[string]float64{
 		"starter":      49.00,
 		"professional": 199.00,
 		"enterprise":   999.00,
 	}
-	
+
 	amount, exists := prices[req.Plan]
 	if !exists {
 		c.JSON(400, gin.H{"error": "无效的套餐"})
 		return
 	}
-	
+
 	// 创建 Coinbase Charge
 	payment, err := cryptoPaymentService.CreateCoinbaseCharge(userID, req.Email, req.Plan, amount)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{
-		"payment_id":      payment.ID,
-		"charge_id":       payment.ChargeID,
-		"payment_url":     payment.PaymentAddress,
-		"amount":          payment.Amount,
-		"currency":        payment.Currency,
-		"expires_at":      payment.ExpiresAt,
-		"status":          payment.Status,
-		"message":         "请在支付页面完成付款",
+		"payment_id":  payment.ID,
+		"charge_id":   payment.ChargeID,
+		"payment_url": payment.PaymentAddress,
+		"amount":      payment.Amount,
+		"currency":    payment.Currency,
+		"expires_at":  payment.ExpiresAt,
+		"status":      payment.Status,
+		"message":     "请在支付页面完成付款",
 	})
 }
 
@@ -76,30 +76,30 @@ func createDirectPaymentHandler(c *gin.Context) {
 		Email          string `json:"email" binding:"required"`
 		CryptoCurrency string `json:"crypto_currency" binding:"required"` // BTC, ETH, USDT, USDC
 	}
-	
+
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "无效的请求参数"})
 		return
 	}
-	
+
 	userID := c.GetString("user_id")
 	if userID == "" {
 		userID = "demo_user"
 	}
-	
+
 	// 获取套餐价格
 	prices := map[string]float64{
 		"starter":      49.00,
 		"professional": 199.00,
 		"enterprise":   999.00,
 	}
-	
+
 	amount, exists := prices[req.Plan]
 	if !exists {
 		c.JSON(400, gin.H{"error": "无效的套餐"})
 		return
 	}
-	
+
 	// 创建直接支付
 	payment, err := cryptoPaymentService.CreateDirectPayment(
 		userID, req.Email, req.Plan, req.CryptoCurrency, amount,
@@ -108,16 +108,16 @@ func createDirectPaymentHandler(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{
-		"payment_id":       payment.ID,
-		"crypto_currency":  payment.CryptoCurrency,
-		"crypto_amount":    payment.CryptoAmount,
-		"payment_address":  payment.PaymentAddress,
-		"amount_usd":       payment.Amount,
-		"expires_at":       payment.ExpiresAt,
-		"status":           payment.Status,
-		"message":          "请向指定地址转账,并保存交易哈希",
+		"payment_id":      payment.ID,
+		"crypto_currency": payment.CryptoCurrency,
+		"crypto_amount":   payment.CryptoAmount,
+		"payment_address": payment.PaymentAddress,
+		"amount_usd":      payment.Amount,
+		"expires_at":      payment.ExpiresAt,
+		"status":          payment.Status,
+		"message":         "请向指定地址转账,并保存交易哈希",
 		"instructions": map[string]string{
 			"step1": "复制支付地址",
 			"step2": "使用钱包转账指定金额",
@@ -130,26 +130,26 @@ func createDirectPaymentHandler(c *gin.Context) {
 // GET /api/payment/crypto/:id
 func getPaymentStatusHandler(c *gin.Context) {
 	paymentID := c.Param("id")
-	
+
 	var id int
 	if _, err := fmt.Sscanf(paymentID, "%d", &id); err != nil {
 		c.JSON(400, gin.H{"error": "无效的支付ID"})
 		return
 	}
-	
+
 	payment, err := cryptoPaymentService.GetPayment(id)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "支付记录不存在"})
 		return
 	}
-	
+
 	// 验证权限
 	userID := c.GetString("user_id")
 	if userID != "" && payment.UserID != userID {
 		c.JSON(403, gin.H{"error": "无权访问"})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{
 		"payment": payment,
 	})
@@ -162,13 +162,13 @@ func listUserPaymentsHandler(c *gin.Context) {
 	if userID == "" {
 		userID = "demo_user"
 	}
-	
+
 	payments, err := cryptoPaymentService.ListUserPayments(userID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{
 		"payments": payments,
 		"total":    len(payments),
@@ -179,44 +179,44 @@ func listUserPaymentsHandler(c *gin.Context) {
 // POST /api/payment/crypto/:id/submit-tx
 func submitTransactionHashHandler(c *gin.Context) {
 	paymentID := c.Param("id")
-	
+
 	var id int
 	if _, err := fmt.Sscanf(paymentID, "%d", &id); err != nil {
 		c.JSON(400, gin.H{"error": "无效的支付ID"})
 		return
 	}
-	
+
 	var req struct {
 		TransactionHash string `json:"transaction_hash" binding:"required"`
 	}
-	
+
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "无效的请求参数"})
 		return
 	}
-	
+
 	// 获取支付信息
 	payment, err := cryptoPaymentService.GetPayment(id)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "支付记录不存在"})
 		return
 	}
-	
+
 	// 验证权限
 	userID := c.GetString("user_id")
 	if userID != "" && payment.UserID != userID {
 		c.JSON(403, gin.H{"error": "无权操作"})
 		return
 	}
-	
+
 	// 保存交易哈希 (等待管理员确认)
 	// TODO: 实现保存交易哈希的逻辑
-	
+
 	c.JSON(200, gin.H{
-		"message": "交易哈希已提交,等待管理员确认",
-		"payment_id": id,
+		"message":          "交易哈希已提交,等待管理员确认",
+		"payment_id":       id,
 		"transaction_hash": req.TransactionHash,
-		"status": "pending_confirmation",
+		"status":           "pending_confirmation",
 	})
 }
 
@@ -224,32 +224,32 @@ func submitTransactionHashHandler(c *gin.Context) {
 // POST /api/payment/crypto/:id/confirm
 func confirmDirectPaymentHandler(c *gin.Context) {
 	paymentID := c.Param("id")
-	
+
 	var id int
 	if _, err := fmt.Sscanf(paymentID, "%d", &id); err != nil {
 		c.JSON(400, gin.H{"error": "无效的支付ID"})
 		return
 	}
-	
+
 	var req struct {
 		TransactionHash string `json:"transaction_hash" binding:"required"`
 	}
-	
+
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "无效的请求参数"})
 		return
 	}
-	
+
 	// TODO: 验证管理员权限
-	
+
 	// 确认支付
 	if err := cryptoPaymentService.ConfirmDirectPayment(id, req.TransactionHash); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{
-		"message": "支付已确认",
+		"message":    "支付已确认",
 		"payment_id": id,
 	})
 }
@@ -263,16 +263,16 @@ func coinbaseWebhookHandler(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "无法读取请求体"})
 		return
 	}
-	
+
 	// 获取签名
 	signature := c.GetHeader("X-CC-Webhook-Signature")
-	
+
 	// 处理 webhook
 	if err := cryptoPaymentService.HandleCoinbaseWebhook(body, signature); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{"received": true})
 }
 
@@ -313,9 +313,8 @@ func getSupportedCryptoCurrenciesHandler(c *gin.Context) {
 			"recommended": true,
 		},
 	}
-	
+
 	c.JSON(200, gin.H{
 		"currencies": currencies,
 	})
 }
-

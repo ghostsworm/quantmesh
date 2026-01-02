@@ -32,11 +32,11 @@ type WebSocketManager struct {
 	passphrase string
 	useTestnet bool
 
-	conn         *websocket.Conn
-	mu           sync.RWMutex
-	stopChan     chan struct{}
-	isRunning    atomic.Bool
-	lastPrice    atomic.Value
+	conn          *websocket.Conn
+	mu            sync.RWMutex
+	stopChan      chan struct{}
+	isRunning     atomic.Bool
+	lastPrice     atomic.Value
 	orderCallback func(OrderUpdate)
 	priceCallback func(float64)
 }
@@ -130,9 +130,9 @@ func (w *WebSocketManager) subscribeOrders(instId string) error {
 		"op": "subscribe",
 		"args": []map[string]string{
 			{
-				"channel": "orders",
+				"channel":  "orders",
 				"instType": "SWAP",
-				"instId": instId,
+				"instId":   instId,
 			},
 		},
 	}
@@ -401,4 +401,3 @@ func (w *WebSocketManager) Stop() {
 
 	logger.Info("🛑 [OKX WebSocket] 已停止")
 }
-

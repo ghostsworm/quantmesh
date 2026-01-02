@@ -11,10 +11,10 @@ import (
 
 // TrendFollowingStrategy 趋势跟踪策略
 type TrendFollowingStrategy struct {
-	name      string
-	cfg       *config.Config
-	executor  position.OrderExecutorInterface
-	exchange  position.IExchange
+	name        string
+	cfg         *config.Config
+	executor    position.OrderExecutorInterface
+	exchange    position.IExchange
 	strategyCfg map[string]interface{}
 
 	// 价格历史
@@ -26,11 +26,11 @@ type TrendFollowingStrategy struct {
 	longMA  []float64
 
 	// 持仓
-	position *Position
+	position   *Position
 	entryPrice float64
 
 	// 参数
-	method      string  // ma/ema
+	method      string // ma/ema
 	shortPeriod int
 	longPeriod  int
 	stopLoss    float64 // 止损比例
@@ -52,11 +52,11 @@ func NewTrendFollowingStrategy(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	tfs := &TrendFollowingStrategy{
-		name:        name,
-		cfg:         cfg,
-		executor:    executor,
-		exchange:    exchange,
-		strategyCfg: strategyCfg,
+		name:         name,
+		cfg:          cfg,
+		executor:     executor,
+		exchange:     exchange,
+		strategyCfg:  strategyCfg,
 		priceHistory: make([]float64, 0, 100),
 		shortMA:      make([]float64, 0, 100),
 		longMA:       make([]float64, 0, 100),
@@ -316,4 +316,3 @@ func (tfs *TrendFollowingStrategy) GetStatistics() *StrategyStatistics {
 		TotalVolume: 0,
 	}
 }
-

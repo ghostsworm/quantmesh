@@ -110,4 +110,3 @@ func (tc *ThresholdChecker) CheckMemoryRateThreshold(
 	change := current.MemoryMB - oldest.MemoryMB
 	return change >= thresholdMB
 }
-

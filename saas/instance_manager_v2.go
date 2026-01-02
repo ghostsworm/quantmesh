@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-	
+
 	"quantmesh/event"
 	"quantmesh/logger"
 	"quantmesh/notify"
@@ -15,7 +15,7 @@ import (
 // InstanceManagerV2 增强版实例管理器
 type InstanceManagerV2 struct {
 	*InstanceManager // 继承现有实现
-	
+
 	notifier notify.Notifier
 }
 
@@ -46,17 +46,17 @@ func (m *InstanceManagerV2) CreateInstanceWithMonitoring(
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 2. 配置监控标签
 	if err := m.setupMonitoring(instance); err != nil {
 		logger.Warn("⚠️ 配置监控失败: %v", err)
 	}
-	
+
 	// 3. 配置告警规则
 	if err := m.setupAlerts(instance); err != nil {
 		logger.Warn("⚠️ 配置告警失败: %v", err)
 	}
-	
+
 	// 4. 发送通知
 	if m.notifier != nil {
 		m.notifier.Send(&event.Event{
@@ -67,7 +67,7 @@ func (m *InstanceManagerV2) CreateInstanceWithMonitoring(
 			},
 		})
 	}
-	
+
 	return instance, nil
 }
 
@@ -82,11 +82,11 @@ func (m *InstanceManagerV2) setupMonitoring(instance *Instance) error {
 		"--label", fmt.Sprintf("quantmesh.instance.plan=%s", instance.Plan),
 		instance.ContainerID,
 	)
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("添加监控标签失败: %v, 输出: %s", err, output)
 	}
-	
+
 	logger.Info("✅ 实例 %s 监控配置完成", instance.ID)
 	return nil
 }
@@ -103,9 +103,9 @@ func (m *InstanceManagerV2) setupAlerts(instance *Instance) error {
 func (m *InstanceManagerV2) MonitorResources(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	
+
 	logger.Info("🔍 启动实例资源监控")
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -127,17 +127,17 @@ func (m *InstanceManagerV2) checkInstanceResources(instance *Instance) {
 		logger.Error("❌ 获取实例 %s 资源使用失败: %v", instance.ID, err)
 		return
 	}
-	
+
 	// 检查 CPU 使用率
 	if usage.CPU > 0.9 {
 		m.handleHighCPU(instance, usage)
 	}
-	
+
 	// 检查内存使用率
 	if usage.MemoryPct > 0.9 {
 		m.handleHighMemory(instance, usage)
 	}
-	
+
 	// 企业版自动扩容
 	if instance.Plan == "enterprise" {
 		if usage.CPU > 0.8 || usage.MemoryPct > 0.8 {
@@ -151,31 +151,31 @@ func (m *InstanceManagerV2) getResourceUsage(containerID string) (*ResourceUsage
 	// 使用 docker stats 获取资源使用
 	cmd := exec.Command("docker", "stats", containerID, "--no-stream", "--format",
 		"{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}")
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 解析输出
 	// 格式: 12.34%|123.4MiB / 2GiB|6.17%|1.23MB / 4.56MB
 	parts := strings.Split(strings.TrimSpace(string(output)), "|")
 	if len(parts) < 4 {
 		return nil, fmt.Errorf("无效的 stats 输出")
 	}
-	
+
 	usage := &ResourceUsage{}
-	
+
 	// 解析 CPU (去掉 % 符号)
 	cpuStr := strings.TrimSuffix(parts[0], "%")
 	fmt.Sscanf(cpuStr, "%f", &usage.CPU)
 	usage.CPU /= 100.0
-	
+
 	// 解析内存百分比
 	memPctStr := strings.TrimSuffix(parts[2], "%")
 	fmt.Sscanf(memPctStr, "%f", &usage.MemoryPct)
 	usage.MemoryPct /= 100.0
-	
+
 	return usage, nil
 }
 
@@ -185,9 +185,9 @@ func (m *InstanceManagerV2) handleHighCPU(instance *Instance, usage *ResourceUsa
 		"⚠️ 实例 %s CPU 使用率过高: %.1f%%\n套餐: %s\n用户: %s",
 		instance.ID, usage.CPU*100, instance.Plan, instance.UserID,
 	)
-	
+
 	logger.Warn(msg)
-	
+
 	if m.notifier != nil {
 		m.notifier.Send(&event.Event{
 			Type:      event.EventTypeError,
@@ -205,9 +205,9 @@ func (m *InstanceManagerV2) handleHighMemory(instance *Instance, usage *Resource
 		"⚠️ 实例 %s 内存使用率过高: %.1f%%\n套餐: %s\n用户: %s",
 		instance.ID, usage.MemoryPct*100, instance.Plan, instance.UserID,
 	)
-	
+
 	logger.Warn(msg)
-	
+
 	if m.notifier != nil {
 		m.notifier.Send(&event.Event{
 			Type:      event.EventTypeError,
@@ -222,37 +222,37 @@ func (m *InstanceManagerV2) handleHighMemory(instance *Instance, usage *Resource
 // scaleUp 扩容实例
 func (m *InstanceManagerV2) scaleUp(instance *Instance) {
 	logger.Info("🔼 尝试扩容实例 %s", instance.ID)
-	
+
 	// 计算新的资源限制
 	newCPU := instance.CPU * 1.5
 	newMemory := int64(float64(instance.Memory) * 1.5)
-	
+
 	// 更新容器资源限制
 	cmd := exec.Command("docker", "update",
 		"--cpus", fmt.Sprintf("%.1f", newCPU),
 		"--memory", fmt.Sprintf("%dm", newMemory),
 		instance.ContainerID,
 	)
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		logger.Error("❌ 扩容失败: %v, 输出: %s", err, output)
 		return
 	}
-	
+
 	// 更新实例记录
 	m.mu.Lock()
 	instance.CPU = newCPU
 	instance.Memory = newMemory
 	m.mu.Unlock()
-	
+
 	msg := fmt.Sprintf(
 		"✅ 实例 %s 扩容成功\nCPU: %.1f → %.1f\n内存: %dMB → %dMB",
 		instance.ID, instance.CPU/1.5, instance.CPU,
 		int64(float64(instance.Memory)/1.5), instance.Memory,
 	)
-	
+
 	logger.Info(msg)
-	
+
 	if m.notifier != nil {
 		m.notifier.Send(&event.Event{
 			Type:      event.EventTypeError,
@@ -267,11 +267,11 @@ func (m *InstanceManagerV2) scaleUp(instance *Instance) {
 // scaleDown 缩容实例
 func (m *InstanceManagerV2) scaleDown(instance *Instance) {
 	logger.Info("🔽 尝试缩容实例 %s", instance.ID)
-	
+
 	// 计算新的资源限制
 	newCPU := instance.CPU * 0.75
 	newMemory := int64(float64(instance.Memory) * 0.75)
-	
+
 	// 确保不低于最小值
 	resources := m.allocateResources(instance.Plan)
 	if newCPU < resources.CPU {
@@ -280,25 +280,25 @@ func (m *InstanceManagerV2) scaleDown(instance *Instance) {
 	if newMemory < resources.Memory {
 		newMemory = resources.Memory
 	}
-	
+
 	// 更新容器资源限制
 	cmd := exec.Command("docker", "update",
 		"--cpus", fmt.Sprintf("%.1f", newCPU),
 		"--memory", fmt.Sprintf("%dm", newMemory),
 		instance.ContainerID,
 	)
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		logger.Error("❌ 缩容失败: %v, 输出: %s", err, output)
 		return
 	}
-	
+
 	// 更新实例记录
 	m.mu.Lock()
 	instance.CPU = newCPU
 	instance.Memory = newMemory
 	m.mu.Unlock()
-	
+
 	logger.Info("✅ 实例 %s 缩容成功", instance.ID)
 }
 
@@ -308,12 +308,12 @@ func (m *InstanceManagerV2) GetInstanceMetrics(instanceID string) (map[string]in
 	if err != nil {
 		return nil, err
 	}
-	
+
 	usage, err := m.getResourceUsage(instance.ContainerID)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return map[string]interface{}{
 		"instance_id":  instance.ID,
 		"user_id":      instance.UserID,
@@ -332,13 +332,12 @@ func (m *InstanceManagerV2) GetInstanceMetrics(instanceID string) (map[string]in
 func (m *InstanceManagerV2) GetAllInstancesMetrics() ([]map[string]interface{}, error) {
 	instances := m.ListInstances()
 	metrics := make([]map[string]interface{}, 0, len(instances))
-	
+
 	for _, inst := range instances {
 		if metric, err := m.GetInstanceMetrics(inst.ID); err == nil {
 			metrics = append(metrics, metric)
 		}
 	}
-	
+
 	return metrics, nil
 }
-

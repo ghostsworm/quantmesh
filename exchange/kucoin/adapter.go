@@ -11,14 +11,14 @@ import (
 
 // Adapter KuCoin 适配器
 type Adapter struct {
-	client            *KuCoinClient
-	wsManager         *WebSocketManager
-	klineWSManager    *KlineWebSocketManager
-	symbol            string
-	priceDecimals     int
-	quantityDecimals  int
-	baseAsset         string
-	quoteAsset        string
+	client           *KuCoinClient
+	wsManager        *WebSocketManager
+	klineWSManager   *KlineWebSocketManager
+	symbol           string
+	priceDecimals    int
+	quantityDecimals int
+	baseAsset        string
+	quoteAsset       string
 }
 
 // NewKuCoinAdapter 创建 KuCoin 适配器
@@ -99,7 +99,7 @@ func (a *Adapter) GetName() string {
 // PlaceOrder 下单
 func (a *Adapter) PlaceOrder(ctx context.Context, req *KuCoinOrderRequest) (*Order, error) {
 	clientOrderID := fmt.Sprintf("order_%d", req.Timestamp)
-	
+
 	orderReq := &OrderRequest{
 		ClientOrderID:    clientOrderID,
 		Symbol:           a.symbol,
@@ -405,7 +405,7 @@ func (a *Adapter) GetFundingRate(ctx context.Context, symbol string) (float64, e
 // convertToOrder 将 KuCoin 订单转换为通用订单
 func (a *Adapter) convertToOrder(orderInfo *OrderInfo) *Order {
 	price, _ := strconv.ParseFloat(orderInfo.Price, 64)
-	
+
 	status := "NEW"
 	if orderInfo.IsActive {
 		status = "PARTIALLY_FILLED"

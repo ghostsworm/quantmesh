@@ -39,18 +39,18 @@ type Config struct {
 			Enabled bool `yaml:"enabled"`
 
 			PriceInterval struct {
-				Enabled            bool    `yaml:"enabled"`
-				Min                float64 `yaml:"min"`                 // 最小价格间隔
-				Max                float64 `yaml:"max"`                 // 最大价格间隔
-				VolatilityWindow   int     `yaml:"volatility_window"`   // 波动率计算窗口（K线数量）
+				Enabled             bool    `yaml:"enabled"`
+				Min                 float64 `yaml:"min"`                  // 最小价格间隔
+				Max                 float64 `yaml:"max"`                  // 最大价格间隔
+				VolatilityWindow    int     `yaml:"volatility_window"`    // 波动率计算窗口（K线数量）
 				VolatilityThreshold float64 `yaml:"volatility_threshold"` // 波动率阈值
-				AdjustmentStep     float64 `yaml:"adjustment_step"`     // 每次调整步长
-				CheckInterval      int     `yaml:"check_interval"`      // 检查间隔（秒）
+				AdjustmentStep      float64 `yaml:"adjustment_step"`      // 每次调整步长
+				CheckInterval       int     `yaml:"check_interval"`       // 检查间隔（秒）
 			} `yaml:"price_interval"`
 
 			WindowSize struct {
-				Enabled              bool    `yaml:"enabled"`
-				BuyWindow            struct {
+				Enabled   bool `yaml:"enabled"`
+				BuyWindow struct {
 					Min int `yaml:"min"`
 					Max int `yaml:"max"`
 				} `yaml:"buy_window"`
@@ -77,12 +77,12 @@ type Config struct {
 			Enabled bool `yaml:"enabled"`
 
 			TrendDetection struct {
-				Enabled     bool   `yaml:"enabled"`
-				Window      int    `yaml:"window"`       // 趋势判断窗口（价格数量）
-				Method      string `yaml:"method"`       // 方法：ma/ema
-				ShortPeriod int    `yaml:"short_period"` // 短期均线周期
-				LongPeriod  int    `yaml:"long_period"`  // 长期均线周期
-				CheckInterval int  `yaml:"check_interval"` // 检查间隔（秒）
+				Enabled       bool   `yaml:"enabled"`
+				Window        int    `yaml:"window"`         // 趋势判断窗口（价格数量）
+				Method        string `yaml:"method"`         // 方法：ma/ema
+				ShortPeriod   int    `yaml:"short_period"`   // 短期均线周期
+				LongPeriod    int    `yaml:"long_period"`    // 长期均线周期
+				CheckInterval int    `yaml:"check_interval"` // 检查间隔（秒）
 			} `yaml:"trend_detection"`
 
 			WindowAdjustment struct {
@@ -96,12 +96,12 @@ type Config struct {
 	} `yaml:"trading"`
 
 	System struct {
-		LogLevel            string `yaml:"log_level"`
-		Timezone            string `yaml:"timezone"`     // 时区，如 "Asia/Shanghai"
-		LogLanguage         string `yaml:"log_language"` // 日志语言，如 "zh-CN" 或 "en-US"
-		CancelOnExit        bool   `yaml:"cancel_on_exit"`
-		ClosePositionsOnExit bool  `yaml:"close_positions_on_exit"` // 退出时是否平仓（默认false）
-		LogRetentionDays    int    `yaml:"log_retention_days"`      // 日志保留天数（默认30天，0表示不清理）
+		LogLevel             string `yaml:"log_level"`
+		Timezone             string `yaml:"timezone"`     // 时区，如 "Asia/Shanghai"
+		LogLanguage          string `yaml:"log_language"` // 日志语言，如 "zh-CN" 或 "en-US"
+		CancelOnExit         bool   `yaml:"cancel_on_exit"`
+		ClosePositionsOnExit bool   `yaml:"close_positions_on_exit"` // 退出时是否平仓（默认false）
+		LogRetentionDays     int    `yaml:"log_retention_days"`      // 日志保留天数（默认30天，0表示不清理）
 	} `yaml:"system"`
 
 	// 实例配置（多实例部署）
@@ -226,7 +226,7 @@ type Config struct {
 		Enabled       bool   `yaml:"enabled"`
 		Type          string `yaml:"type"`           // sqlite
 		Path          string `yaml:"path"`           // 数据库文件路径
-		BufferSize    int    `yaml:"buffer_size"`   // 缓冲区大小（默认1000）
+		BufferSize    int    `yaml:"buffer_size"`    // 缓冲区大小（默认1000）
 		BatchSize     int    `yaml:"batch_size"`     // 批量写入大小（默认100）
 		FlushInterval int    `yaml:"flush_interval"` // 刷新间隔（秒，默认5）
 	} `yaml:"storage"`
@@ -260,7 +260,7 @@ type Config struct {
 
 		// 资金分配配置
 		CapitalAllocation struct {
-			Mode        string  `yaml:"mode"`         // fixed/dynamic/both
+			Mode         string  `yaml:"mode"`          // fixed/dynamic/both
 			TotalCapital float64 `yaml:"total_capital"` // 总资金（USDT）
 
 			// 固定分配
@@ -271,11 +271,11 @@ type Config struct {
 
 			// 动态分配
 			DynamicAllocation struct {
-				Enabled              bool    `yaml:"enabled"`
-				RebalanceInterval    int     `yaml:"rebalance_interval"`     // 重新平衡间隔（秒，默认3600）
+				Enabled               bool    `yaml:"enabled"`
+				RebalanceInterval     int     `yaml:"rebalance_interval"`       // 重新平衡间隔（秒，默认3600）
 				MaxChangePerRebalance float64 `yaml:"max_change_per_rebalance"` // 每次最大调整比例（默认0.05）
-				MinWeight            float64 `yaml:"min_weight"`              // 最小权重（默认0.1）
-				MaxWeight            float64 `yaml:"max_weight"`              // 最大权重（默认0.7）
+				MinWeight             float64 `yaml:"min_weight"`               // 最小权重（默认0.1）
+				MaxWeight             float64 `yaml:"max_weight"`               // 最大权重（默认0.7）
 
 				// 评估指标权重
 				PerformanceWeights map[string]float64 `yaml:"performance_weights"`
@@ -296,8 +296,8 @@ type Config struct {
 
 	// 监控配置
 	Metrics struct {
-		Enabled        bool `yaml:"enabled"`
-		CollectInterval int `yaml:"collect_interval"` // 收集间隔（秒，默认60）
+		Enabled         bool `yaml:"enabled"`
+		CollectInterval int  `yaml:"collect_interval"` // 收集间隔（秒，默认60）
 	} `yaml:"metrics"`
 
 	// 看门狗配置
@@ -329,8 +329,8 @@ type Config struct {
 			// 变化率阈值通知
 			RateThreshold struct {
 				Enabled          bool    `yaml:"enabled"`
-				WindowMinutes    int     `yaml:"window_minutes"`    // 时间窗口（分钟）
-				CPUIncrease      float64 `yaml:"cpu_increase"`      // CPU占用在窗口内上涨超过此值时通知
+				WindowMinutes    int     `yaml:"window_minutes"`     // 时间窗口（分钟）
+				CPUIncrease      float64 `yaml:"cpu_increase"`       // CPU占用在窗口内上涨超过此值时通知
 				MemoryIncreaseMB float64 `yaml:"memory_increase_mb"` // 内存占用在窗口内上涨超过此值时通知（可选，0表示不检查）
 			} `yaml:"rate_threshold"`
 
@@ -355,41 +355,41 @@ type Config struct {
 		// 各模块开关
 		Modules struct {
 			MarketAnalysis struct {
-				Enabled       bool `yaml:"enabled"`
-				UpdateInterval int `yaml:"update_interval"` // 秒
+				Enabled        bool `yaml:"enabled"`
+				UpdateInterval int  `yaml:"update_interval"` // 秒
 			} `yaml:"market_analysis"`
 
 			ParameterOptimization struct {
-				Enabled             bool `yaml:"enabled"`
-				OptimizationInterval int `yaml:"optimization_interval"` // 秒
-				AutoApply           bool `yaml:"auto_apply"`            // 是否自动应用优化结果
+				Enabled              bool `yaml:"enabled"`
+				OptimizationInterval int  `yaml:"optimization_interval"` // 秒
+				AutoApply            bool `yaml:"auto_apply"`            // 是否自动应用优化结果
 			} `yaml:"parameter_optimization"`
 
 			RiskAnalysis struct {
-				Enabled        bool `yaml:"enabled"`
-				AnalysisInterval int `yaml:"analysis_interval"` // 秒
+				Enabled          bool `yaml:"enabled"`
+				AnalysisInterval int  `yaml:"analysis_interval"` // 秒
 			} `yaml:"risk_analysis"`
 
 			SentimentAnalysis struct {
-				Enabled         bool `yaml:"enabled"`
-				AnalysisInterval int `yaml:"analysis_interval"` // 秒
-				DataSources     struct {
+				Enabled          bool `yaml:"enabled"`
+				AnalysisInterval int  `yaml:"analysis_interval"` // 秒
+				DataSources      struct {
 					News struct {
-						Enabled      bool     `yaml:"enabled"`
-						RSSFeeds     []string `yaml:"rss_feeds"`
-						FetchInterval int     `yaml:"fetch_interval"` // 秒
+						Enabled       bool     `yaml:"enabled"`
+						RSSFeeds      []string `yaml:"rss_feeds"`
+						FetchInterval int      `yaml:"fetch_interval"` // 秒
 					} `yaml:"news"`
 
 					FearGreedIndex struct {
-						Enabled      bool   `yaml:"enabled"`
-						APIURL       string `yaml:"api_url"`
-						FetchInterval int   `yaml:"fetch_interval"` // 秒
+						Enabled       bool   `yaml:"enabled"`
+						APIURL        string `yaml:"api_url"`
+						FetchInterval int    `yaml:"fetch_interval"` // 秒
 					} `yaml:"fear_greed_index"`
 
 					SocialMedia struct {
 						Enabled    bool     `yaml:"enabled"`
 						Subreddits []string `yaml:"subreddits"` // Reddit子版块列表
-						PostLimit  int      `yaml:"post_limit"`  // 每个子版块获取的帖子数量
+						PostLimit  int      `yaml:"post_limit"` // 每个子版块获取的帖子数量
 					} `yaml:"social_media"`
 				} `yaml:"data_sources"`
 			} `yaml:"sentiment_analysis"`
@@ -399,21 +399,21 @@ type Config struct {
 			} `yaml:"strategy_generation"`
 
 			PolymarketSignal struct {
-				Enabled         bool `yaml:"enabled"`
-				AnalysisInterval int `yaml:"analysis_interval"` // 秒
-				APIURL          string `yaml:"api_url"` // Polymarket API地址
-				Markets         struct {
-					Keywords        []string `yaml:"keywords"` // 关注的市场关键词
-					MinLiquidity    float64  `yaml:"min_liquidity"` // 最小流动性（USDC）
-					MinVolume24h    float64  `yaml:"min_volume_24h"` // 最小24小时交易量（USDC）
+				Enabled          bool   `yaml:"enabled"`
+				AnalysisInterval int    `yaml:"analysis_interval"` // 秒
+				APIURL           string `yaml:"api_url"`           // Polymarket API地址
+				Markets          struct {
+					Keywords        []string `yaml:"keywords"`           // 关注的市场关键词
+					MinLiquidity    float64  `yaml:"min_liquidity"`      // 最小流动性（USDC）
+					MinVolume24h    float64  `yaml:"min_volume_24h"`     // 最小24小时交易量（USDC）
 					MinDaysToExpiry int      `yaml:"min_days_to_expiry"` // 最小到期天数
 					MaxDaysToExpiry int      `yaml:"max_days_to_expiry"` // 最大到期天数
 				} `yaml:"markets"`
 				SignalGeneration struct {
-					BuyThreshold      float64 `yaml:"buy_threshold"` // 买入信号阈值（概率>此值）
-					SellThreshold     float64 `yaml:"sell_threshold"` // 卖出信号阈值（概率<此值）
+					BuyThreshold      float64 `yaml:"buy_threshold"`       // 买入信号阈值（概率>此值）
+					SellThreshold     float64 `yaml:"sell_threshold"`      // 卖出信号阈值（概率<此值）
 					MinSignalStrength float64 `yaml:"min_signal_strength"` // 最小信号强度
-					MinConfidence     float64 `yaml:"min_confidence"` // 最小置信度
+					MinConfidence     float64 `yaml:"min_confidence"`      // 最小置信度
 				} `yaml:"signal_generation"`
 			} `yaml:"polymarket_signal"`
 		} `yaml:"modules"`
@@ -423,27 +423,27 @@ type Config struct {
 
 		// 执行模式规则
 		ExecutionRules struct {
-			HighRiskThreshold    float64 `yaml:"high_risk_threshold"`    // 高风险场景：仅建议
-			LowRiskThreshold     float64 `yaml:"low_risk_threshold"`     // 低风险场景：可直接执行
-			RequireConfirmation  bool    `yaml:"require_confirmation"`   // 需要人工确认的场景
+			HighRiskThreshold   float64 `yaml:"high_risk_threshold"`  // 高风险场景：仅建议
+			LowRiskThreshold    float64 `yaml:"low_risk_threshold"`   // 低风险场景：可直接执行
+			RequireConfirmation bool    `yaml:"require_confirmation"` // 需要人工确认的场景
 		} `yaml:"execution_rules"`
 	} `yaml:"ai"`
 }
 
 // SymbolConfig 单个交易对配置（可指定所属交易所及交易参数）
 type SymbolConfig struct {
-	Exchange              string  `yaml:"exchange"`                  // 所属交易所，默认为 app.current_exchange
-	Symbol                string  `yaml:"symbol"`                    // 交易对，如 BTCUSDT
-	PriceInterval         float64 `yaml:"price_interval"`            // 价格间隔
-	OrderQuantity         float64 `yaml:"order_quantity"`            // 每单金额（USDT/USDC）
-	MinOrderValue         float64 `yaml:"min_order_value"`           // 最小订单价值
-	BuyWindowSize         int     `yaml:"buy_window_size"`           // 买单窗口
-	SellWindowSize        int     `yaml:"sell_window_size"`          // 卖单窗口
-	ReconcileInterval     int     `yaml:"reconcile_interval"`        // 对账间隔（秒）
-	OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`   // 订单清理上限
-	CleanupBatchSize      int     `yaml:"cleanup_batch_size"`        // 清理批次大小
+	Exchange              string  `yaml:"exchange"`                     // 所属交易所，默认为 app.current_exchange
+	Symbol                string  `yaml:"symbol"`                       // 交易对，如 BTCUSDT
+	PriceInterval         float64 `yaml:"price_interval"`               // 价格间隔
+	OrderQuantity         float64 `yaml:"order_quantity"`               // 每单金额（USDT/USDC）
+	MinOrderValue         float64 `yaml:"min_order_value"`              // 最小订单价值
+	BuyWindowSize         int     `yaml:"buy_window_size"`              // 买单窗口
+	SellWindowSize        int     `yaml:"sell_window_size"`             // 卖单窗口
+	ReconcileInterval     int     `yaml:"reconcile_interval"`           // 对账间隔（秒）
+	OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`      // 订单清理上限
+	CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小
 	MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保证金锁定时间（秒）
-	PositionSafetyCheck   int     `yaml:"position_safety_check"`     // 持仓安全性检查
+	PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持仓安全性检查
 }
 
 // StrategyConfig 策略配置
@@ -535,13 +535,13 @@ func SaveConfigWithoutValidation(cfg *Config, configPath string) error {
 // CreateMinimalConfig 创建最小化配置（仅用于启动 Web 服务）
 func CreateMinimalConfig() *Config {
 	cfg := &Config{}
-	
+
 	// 应用配置
 	cfg.App.CurrentExchange = ""
-	
+
 	// 交易所配置（空）
 	cfg.Exchanges = make(map[string]ExchangeConfig)
-	
+
 	// 交易配置（空）
 	cfg.Trading.Symbol = ""
 	cfg.Trading.PriceInterval = 0
@@ -554,20 +554,20 @@ func CreateMinimalConfig() *Config {
 	cfg.Trading.CleanupBatchSize = 10
 	cfg.Trading.MarginLockDurationSec = 10
 	cfg.Trading.PositionSafetyCheck = 100
-	
+
 	// 系统配置
 	cfg.System.LogLevel = "INFO"
 	cfg.System.Timezone = "Asia/Shanghai"
 	cfg.System.CancelOnExit = true
 	cfg.System.ClosePositionsOnExit = false
 	cfg.System.LogRetentionDays = 30 // 默认保留30天
-	
+
 	// Web 服务配置（启用）
 	cfg.Web.Enabled = true
 	cfg.Web.Host = "0.0.0.0"
 	cfg.Web.Port = 28888
 	cfg.Web.APIKey = ""
-	
+
 	// 其他配置使用默认值
 	cfg.RiskControl.Enabled = true
 	cfg.RiskControl.Interval = "1m"
@@ -576,21 +576,21 @@ func CreateMinimalConfig() *Config {
 	cfg.RiskControl.RecoveryThreshold = 3
 	cfg.RiskControl.MaxLeverage = 10
 	cfg.RiskControl.MonitorSymbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}
-	
+
 	cfg.Storage.Enabled = true
 	cfg.Storage.Type = "sqlite"
 	cfg.Storage.Path = "./data/quantmesh.db"
 	cfg.Storage.BufferSize = 1000
 	cfg.Storage.BatchSize = 100
 	cfg.Storage.FlushInterval = 5
-	
+
 	cfg.Notifications.Enabled = false
 	cfg.Notifications.Webhook.Timeout = 3
 	cfg.Notifications.Email.Provider = "smtp"
-	
+
 	cfg.Metrics.Enabled = true
 	cfg.Metrics.CollectInterval = 60
-	
+
 	cfg.Watchdog.Enabled = true
 	cfg.Watchdog.Sampling.Interval = 60
 	cfg.Watchdog.Retention.DetailDays = 7
@@ -606,18 +606,18 @@ func CreateMinimalConfig() *Config {
 	cfg.Watchdog.Notifications.CooldownMinutes = 30
 	cfg.Watchdog.Aggregation.Enabled = true
 	cfg.Watchdog.Aggregation.Schedule = "00:00"
-	
+
 	cfg.AI.Enabled = false
 	cfg.AI.Provider = "gemini"
 	cfg.AI.DecisionMode = "hybrid"
 	cfg.AI.ExecutionRules.HighRiskThreshold = 0.8
 	cfg.AI.ExecutionRules.LowRiskThreshold = 0.3
 	cfg.AI.ExecutionRules.RequireConfirmation = true
-	
+
 	cfg.Strategies.Enabled = false
 	cfg.Strategies.CapitalAllocation.Mode = "fixed"
 	cfg.Strategies.CapitalAllocation.TotalCapital = 5000
-	
+
 	// 时间间隔配置
 	cfg.Timing.WebSocketReconnectDelay = 5
 	cfg.Timing.WebSocketWriteWait = 10
@@ -630,69 +630,69 @@ func CreateMinimalConfig() *Config {
 	cfg.Timing.PricePollInterval = 500
 	cfg.Timing.StatusPrintInterval = 1
 	cfg.Timing.OrderCleanupInterval = 60
-	
+
 	return cfg
 }
 
 // SetupData 引导配置数据
 type SetupData struct {
-	Exchange      string  `json:"exchange"`
-	APIKey        string  `json:"api_key"`
-	SecretKey     string  `json:"secret_key"`
-	Passphrase    string  `json:"passphrase,omitempty"`
-	Symbol        string  `json:"symbol"`
-	PriceInterval float64 `json:"price_interval"`
-	OrderQuantity float64 `json:"order_quantity"`
-	MinOrderValue float64 `json:"min_order_value,omitempty"`
-	BuyWindowSize int     `json:"buy_window_size"`
-	SellWindowSize int    `json:"sell_window_size"`
-	Testnet       bool    `json:"testnet,omitempty"`
-	FeeRate       float64 `json:"fee_rate,omitempty"`
+	Exchange       string  `json:"exchange"`
+	APIKey         string  `json:"api_key"`
+	SecretKey      string  `json:"secret_key"`
+	Passphrase     string  `json:"passphrase,omitempty"`
+	Symbol         string  `json:"symbol"`
+	PriceInterval  float64 `json:"price_interval"`
+	OrderQuantity  float64 `json:"order_quantity"`
+	MinOrderValue  float64 `json:"min_order_value,omitempty"`
+	BuyWindowSize  int     `json:"buy_window_size"`
+	SellWindowSize int     `json:"sell_window_size"`
+	Testnet        bool    `json:"testnet,omitempty"`
+	FeeRate        float64 `json:"fee_rate,omitempty"`
 }
 
 // CreateConfigFromSetup 从引导数据创建完整配置
 func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 	// 创建最小化配置作为基础
 	cfg := CreateMinimalConfig()
-	
+
 	// 设置交易所
 	cfg.App.CurrentExchange = setup.Exchange
-	
+
 	// 设置交易所配置
 	exchangeCfg := ExchangeConfig{
-		APIKey:    setup.APIKey,
-		SecretKey: setup.SecretKey,
+		APIKey:     setup.APIKey,
+		SecretKey:  setup.SecretKey,
 		Passphrase: setup.Passphrase,
-		Testnet:   setup.Testnet,
-		FeeRate:   setup.FeeRate,
+		Testnet:    setup.Testnet,
+		FeeRate:    setup.FeeRate,
 	}
-	
+
 	// 如果手续费率未设置，使用默认值
 	if exchangeCfg.FeeRate <= 0 {
 		exchangeCfg.FeeRate = 0.0002
 	}
-	
+
 	cfg.Exchanges[setup.Exchange] = exchangeCfg
-	
+
 	// 设置交易配置
 	cfg.Trading.Symbol = setup.Symbol
 	cfg.Trading.PriceInterval = setup.PriceInterval
 	cfg.Trading.OrderQuantity = setup.OrderQuantity
-	
+
 	if setup.MinOrderValue > 0 {
 		cfg.Trading.MinOrderValue = setup.MinOrderValue
 	} else {
 		cfg.Trading.MinOrderValue = 20
 	}
-	
+
 	cfg.Trading.BuyWindowSize = setup.BuyWindowSize
 	cfg.Trading.SellWindowSize = setup.SellWindowSize
-	
+
 	// 设置默认值
 	if cfg.Trading.SellWindowSize <= 0 {
 		cfg.Trading.SellWindowSize = cfg.Trading.BuyWindowSize
 	}
-	
+
 	// 创建交易对配置
 	cfg.Trading.Symbols = []SymbolConfig{
 		{
@@ -704,13 +704,13 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 			BuyWindowSize:         setup.BuyWindowSize,
 			SellWindowSize:        cfg.Trading.SellWindowSize,
 			ReconcileInterval:     60,
-			OrderCleanupThreshold:  50,
+			OrderCleanupThreshold: 50,
 			CleanupBatchSize:      10,
-			MarginLockDurationSec:  10,
+			MarginLockDurationSec: 10,
 			PositionSafetyCheck:   100,
 		},
 	}
-	
+
 	return cfg, nil
 }
 
@@ -1063,9 +1063,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights == nil {
 		c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{
-			"total_pnl":   0.4,
+			"total_pnl":    0.4,
 			"sharpe_ratio": 0.3,
-			"win_rate":    0.2,
+			"win_rate":     0.2,
 			"max_drawdown": 0.1,
 		}
 	}

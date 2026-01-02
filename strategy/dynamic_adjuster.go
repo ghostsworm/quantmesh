@@ -325,4 +325,3 @@ func (da *DynamicAdjuster) updateWindowSize(buyWindow, sellWindow int) {
 	da.cfg.Trading.SellWindowSize = sellWindow
 	logger.Info("✅ [动态调整] 窗口大小已更新: 买单窗口=%d, 卖单窗口=%d", buyWindow, sellWindow)
 }
-

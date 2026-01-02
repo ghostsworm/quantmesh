@@ -268,4 +268,3 @@ func main() {
 	fmt.Println("  ls -lt *ETHUSDT*.md | head -12")
 	fmt.Println("")
 }
-

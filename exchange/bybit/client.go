@@ -41,9 +41,9 @@ func NewBybitClient(apiKey, secretKey string, useTestnet bool) *BybitClient {
 	}
 
 	return &BybitClient{
-		apiKey:     apiKey,
-		secretKey:  secretKey,
-		baseURL:    baseURL,
+		apiKey:    apiKey,
+		secretKey: secretKey,
+		baseURL:   baseURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -146,11 +146,11 @@ func (c *BybitClient) request(ctx context.Context, method, path string, params m
 
 // Instrument 合约信息
 type Instrument struct {
-	Symbol         string `json:"symbol"`
-	BaseCoin       string `json:"baseCoin"`
-	QuoteCoin      string `json:"quoteCoin"`
-	PriceFilter    PriceFilter    `json:"priceFilter"`
-	LotSizeFilter  LotSizeFilter  `json:"lotSizeFilter"`
+	Symbol        string        `json:"symbol"`
+	BaseCoin      string        `json:"baseCoin"`
+	QuoteCoin     string        `json:"quoteCoin"`
+	PriceFilter   PriceFilter   `json:"priceFilter"`
+	LotSizeFilter LotSizeFilter `json:"lotSizeFilter"`
 }
 
 type PriceFilter struct {
@@ -227,17 +227,17 @@ func (c *BybitClient) CancelOrder(ctx context.Context, category, symbol, orderId
 
 // BybitOrder 订单信息
 type BybitOrder struct {
-	OrderId      string `json:"orderId"`
-	OrderLinkId  string `json:"orderLinkId"`
-	Symbol       string `json:"symbol"`
-	Side         string `json:"side"`
-	OrderType    string `json:"orderType"`
-	Price        string `json:"price"`
-	Qty          string `json:"qty"`
-	CumExecQty   string `json:"cumExecQty"`
-	AvgPrice     string `json:"avgPrice"`
-	OrderStatus  string `json:"orderStatus"`
-	UpdatedTime  string `json:"updatedTime"`
+	OrderId     string `json:"orderId"`
+	OrderLinkId string `json:"orderLinkId"`
+	Symbol      string `json:"symbol"`
+	Side        string `json:"side"`
+	OrderType   string `json:"orderType"`
+	Price       string `json:"price"`
+	Qty         string `json:"qty"`
+	CumExecQty  string `json:"cumExecQty"`
+	AvgPrice    string `json:"avgPrice"`
+	OrderStatus string `json:"orderStatus"`
+	UpdatedTime string `json:"updatedTime"`
 }
 
 // GetOrder 查询订单
@@ -301,9 +301,9 @@ func (c *BybitClient) GetOpenOrders(ctx context.Context, category, symbol string
 
 // Balance 账户余额
 type Balance struct {
-	TotalEquity            string `json:"totalEquity"`
-	TotalAvailableBalance  string `json:"totalAvailableBalance"`
-	TotalMarginBalance     string `json:"totalMarginBalance"`
+	TotalEquity           string `json:"totalEquity"`
+	TotalAvailableBalance string `json:"totalAvailableBalance"`
+	TotalMarginBalance    string `json:"totalMarginBalance"`
 }
 
 // GetBalance 获取账户余额
@@ -507,4 +507,3 @@ func sortParams(params map[string]interface{}) string {
 func init() {
 	logger.Info("📦 [Bybit Client] REST API 客户端已初始化")
 }
-

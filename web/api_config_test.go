@@ -20,7 +20,7 @@ func setupTestRouter() *gin.Engine {
 	// 创建临时配置管理器
 	tempDir, _ := os.MkdirTemp("", "config_test_*")
 	testConfigPath := filepath.Join(tempDir, "test_config.yaml")
-	
+
 	// 创建测试配置（使用YAML内容）
 	testConfigContent := `
 app:
@@ -40,7 +40,7 @@ exchanges:
 
 	// 保存测试配置
 	os.WriteFile(testConfigPath, []byte(testConfigContent), 0644)
-	
+
 	// 加载配置以确保格式正确
 	testConfig, err := config.LoadConfig(testConfigPath)
 	if err != nil {
@@ -127,10 +127,10 @@ func TestValidateConfig(t *testing.T) {
 			"current_exchange": "binance",
 		},
 		"trading": map[string]interface{}{
-			"symbol":        "BTCUSDT",
-			"price_interval": 100,
-			"order_quantity": 100,
-			"buy_window_size": 10,
+			"symbol":           "BTCUSDT",
+			"price_interval":   100,
+			"order_quantity":   100,
+			"buy_window_size":  10,
 			"sell_window_size": 10,
 		},
 		"exchanges": map[string]interface{}{
@@ -172,10 +172,10 @@ func TestPreviewConfig(t *testing.T) {
 			"current_exchange": "binance",
 		},
 		"trading": map[string]interface{}{
-			"symbol":        "ETHUSDT", // 变更
-			"price_interval": 50,       // 变更
-			"order_quantity": 100,
-			"buy_window_size": 10,
+			"symbol":           "ETHUSDT", // 变更
+			"price_interval":   50,        // 变更
+			"order_quantity":   100,
+			"buy_window_size":  10,
 			"sell_window_size": 10,
 		},
 		"exchanges": map[string]interface{}{
@@ -267,10 +267,10 @@ func TestUpdateConfig(t *testing.T) {
 			"current_exchange": "binance",
 		},
 		"trading": map[string]interface{}{
-			"symbol":        "BTCUSDT",
-			"price_interval": 200, // 变更
-			"order_quantity": 100,
-			"buy_window_size": 10,
+			"symbol":           "BTCUSDT",
+			"price_interval":   200, // 变更
+			"order_quantity":   100,
+			"buy_window_size":  10,
 			"sell_window_size": 10,
 		},
 		"exchanges": map[string]interface{}{
@@ -312,4 +312,3 @@ func TestUpdateConfig(t *testing.T) {
 		t.Error("响应中应该包含 backup_id")
 	}
 }
-

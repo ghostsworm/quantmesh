@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	CryptoComMainnetBaseURL = "https://api.crypto.com/v2"           // Crypto.com 主网
-	CryptoComTestnetBaseURL = "https://uat-api.crypto.com/v2"       // Crypto.com 测试网
+	CryptoComMainnetBaseURL = "https://api.crypto.com/v2"     // Crypto.com 主网
+	CryptoComTestnetBaseURL = "https://uat-api.crypto.com/v2" // Crypto.com 测试网
 )
 
 // CryptoComClient Crypto.com 客户端
@@ -65,7 +65,7 @@ func (c *CryptoComClient) signRequest(method string, params map[string]interface
 	}
 
 	signPayload := method + strconv.FormatInt(nonce, 10) + c.apiKey + paramStr.String()
-	
+
 	h := hmac.New(sha256.New, []byte(c.secretKey))
 	h.Write([]byte(signPayload))
 	return hex.EncodeToString(h.Sum(nil))
@@ -74,14 +74,14 @@ func (c *CryptoComClient) signRequest(method string, params map[string]interface
 // sendRequest 发送请求
 func (c *CryptoComClient) sendRequest(ctx context.Context, method string, params map[string]interface{}) ([]byte, error) {
 	nonce := time.Now().UnixMilli()
-	
+
 	// 构建请求体
 	requestBody := map[string]interface{}{
-		"id":     nonce,
-		"method": method,
+		"id":      nonce,
+		"method":  method,
 		"api_key": c.apiKey,
-		"params": params,
-		"nonce":  nonce,
+		"params":  params,
+		"nonce":   nonce,
 	}
 
 	// 签名
@@ -374,13 +374,13 @@ type APIResponse struct {
 }
 
 type Instrument struct {
-	InstrumentName    string  `json:"instrument_name"`
-	QuoteCurrency     string  `json:"quote_currency"`
-	BaseCurrency      string  `json:"base_currency"`
-	PriceDecimals     int     `json:"price_decimals"`
-	QuantityDecimals  int     `json:"quantity_decimals"`
-	MinQuantity       float64 `json:"min_quantity,string"`
-	MaxQuantity       float64 `json:"max_quantity,string"`
+	InstrumentName   string  `json:"instrument_name"`
+	QuoteCurrency    string  `json:"quote_currency"`
+	BaseCurrency     string  `json:"base_currency"`
+	PriceDecimals    int     `json:"price_decimals"`
+	QuantityDecimals int     `json:"quantity_decimals"`
+	MinQuantity      float64 `json:"min_quantity,string"`
+	MaxQuantity      float64 `json:"max_quantity,string"`
 }
 
 type InstrumentsResult struct {
@@ -389,8 +389,8 @@ type InstrumentsResult struct {
 
 type OrderRequest struct {
 	InstrumentName string
-	Side           string  // BUY, SELL
-	Type           string  // LIMIT, MARKET
+	Side           string // BUY, SELL
+	Type           string // LIMIT, MARKET
 	Quantity       float64
 	Price          float64
 	ClientOID      string
@@ -457,4 +457,3 @@ type CandlestickResult struct {
 	Interval       string        `json:"interval"`
 	Data           []Candlestick `json:"data"`
 }
-

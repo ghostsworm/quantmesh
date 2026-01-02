@@ -36,7 +36,7 @@ func CalculateRiskMetrics(equity []EquityPoint) RiskMetrics {
 	cvar99 := calculateCVaR(returns, 0.99)
 
 	return RiskMetrics{
-		VaR95:  var95 * 100,  // 转换为百分比
+		VaR95:  var95 * 100, // 转换为百分比
 		VaR99:  var99 * 100,
 		CVaR95: cvar95 * 100,
 		CVaR99: cvar99 * 100,
@@ -99,4 +99,3 @@ func calculateCVaR(returns []float64, confidence float64) float64 {
 
 	return math.Abs(sum / float64(count))
 }
-

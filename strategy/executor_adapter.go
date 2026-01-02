@@ -6,14 +6,14 @@ import (
 
 // MultiStrategyExecutorAdapter 适配器，将 MultiStrategyExecutor 转换为 position.OrderExecutorInterface
 type MultiStrategyExecutorAdapter struct {
-	executor *MultiStrategyExecutor
+	executor     *MultiStrategyExecutor
 	strategyName string
 }
 
 // NewMultiStrategyExecutorAdapter 创建适配器
 func NewMultiStrategyExecutorAdapter(executor *MultiStrategyExecutor, strategyName string) *MultiStrategyExecutorAdapter {
 	return &MultiStrategyExecutorAdapter{
-		executor: executor,
+		executor:     executor,
 		strategyName: strategyName,
 	}
 }
@@ -37,4 +37,3 @@ func (a *MultiStrategyExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*pos
 func (a *MultiStrategyExecutorAdapter) BatchCancelOrders(orderIDs []int64) error {
 	return a.executor.BatchCancelOrders(orderIDs)
 }
-

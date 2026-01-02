@@ -55,7 +55,7 @@ func (hr *HotReloader) UpdateConfig(newConfig *Config) (*ConfigDiff, error) {
 	if len(restartRequiredChanges) > 0 {
 		// 创建只包含可热更新变更的配置
 		partialConfig := hr.applyHotReloadableChanges(hr.currentConfig, newConfig, hotReloadableChanges)
-		
+
 		// 应用可热更新的变更
 		if err := hr.applyConfigUpdate(hr.currentConfig, partialConfig, hotReloadableChanges); err != nil {
 			return nil, fmt.Errorf("应用热更新失败: %v", err)
@@ -144,4 +144,3 @@ func (hr *HotReloader) cloneConfig(config *Config) *Config {
 	// 为了简化，这里暂时返回原配置（实际应该使用gob或json序列化）
 	return config
 }
-

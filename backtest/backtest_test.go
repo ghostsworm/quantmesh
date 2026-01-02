@@ -167,7 +167,7 @@ func TestReportGeneration(t *testing.T) {
 func generateMockCandles(symbol string, count int, basePrice float64, volatility float64) []*exchange.Candle {
 	candles := make([]*exchange.Candle, count)
 	currentPrice := basePrice
-	timestamp := time.Now().Add(-time.Duration(count) * time.Hour).Unix() * 1000
+	timestamp := time.Now().Add(-time.Duration(count)*time.Hour).Unix() * 1000
 
 	for i := 0; i < count; i++ {
 		// 随机波动
@@ -206,7 +206,7 @@ func generateMockCandles(symbol string, count int, basePrice float64, volatility
 func generateTrendingCandles(symbol string, count int, basePrice float64, trendRate float64) []*exchange.Candle {
 	candles := make([]*exchange.Candle, count)
 	currentPrice := basePrice
-	timestamp := time.Now().Add(-time.Duration(count) * time.Hour).Unix() * 1000
+	timestamp := time.Now().Add(-time.Duration(count)*time.Hour).Unix() * 1000
 
 	for i := 0; i < count; i++ {
 		// 趋势上涨
@@ -231,4 +231,3 @@ func generateTrendingCandles(symbol string, count int, basePrice float64, trendR
 
 	return candles
 }
-

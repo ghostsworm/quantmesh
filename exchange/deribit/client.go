@@ -17,18 +17,18 @@ import (
 )
 
 const (
-	DeribitMainnetBaseURL = "https://www.deribit.com"       // Deribit 主网
-	DeribitTestnetBaseURL = "https://test.deribit.com"      // Deribit 测试网
+	DeribitMainnetBaseURL = "https://www.deribit.com"  // Deribit 主网
+	DeribitTestnetBaseURL = "https://test.deribit.com" // Deribit 测试网
 )
 
 // DeribitClient Deribit 客户端
 type DeribitClient struct {
-	apiKey     string
-	secretKey  string
-	baseURL    string
-	httpClient *http.Client
-	isTestnet  bool
-	accessToken string
+	apiKey       string
+	secretKey    string
+	baseURL      string
+	httpClient   *http.Client
+	isTestnet    bool
+	accessToken  string
 	refreshToken string
 }
 
@@ -73,7 +73,7 @@ type RPCError struct {
 // sendRequest 发送 JSON-RPC 请求
 func (c *DeribitClient) sendRequest(ctx context.Context, method string, params map[string]interface{}) (json.RawMessage, error) {
 	reqID := time.Now().UnixNano()
-	
+
 	rpcReq := JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      reqID,
@@ -132,7 +132,7 @@ func (c *DeribitClient) Authenticate(ctx context.Context) error {
 
 	// 签名字符串：timestamp + "\n" + nonce + "\n" + data
 	signStr := timestamp + "\n" + nonce + "\n" + data
-	
+
 	h := hmac.New(sha256.New, []byte(c.secretKey))
 	h.Write([]byte(signStr))
 	signature := hex.EncodeToString(h.Sum(nil))
@@ -285,7 +285,7 @@ func (c *DeribitClient) GetOrderState(ctx context.Context, orderID string) (*Ord
 // GetOpenOrders 获取活跃订单
 func (c *DeribitClient) GetOpenOrders(ctx context.Context, instrumentName string) ([]OrderInfo, error) {
 	params := map[string]interface{}{}
-	
+
 	if instrumentName != "" {
 		params["instrument_name"] = instrumentName
 	}
@@ -385,22 +385,22 @@ func (c *DeribitClient) GetTradingViewChartData(ctx context.Context, instrumentN
 // 数据结构定义
 
 type Instrument struct {
-	InstrumentName    string  `json:"instrument_name"`
-	Kind              string  `json:"kind"`
-	BaseCurrency      string  `json:"base_currency"`
-	QuoteCurrency     string  `json:"quote_currency"`
-	SettlementPeriod  string  `json:"settlement_period"`
-	ContractSize      float64 `json:"contract_size"`
-	MinTradeAmount    float64 `json:"min_trade_amount"`
-	TickSize          float64 `json:"tick_size"`
-	IsActive          bool    `json:"is_active"`
-	ExpirationTimestamp int64 `json:"expiration_timestamp"`
+	InstrumentName      string  `json:"instrument_name"`
+	Kind                string  `json:"kind"`
+	BaseCurrency        string  `json:"base_currency"`
+	QuoteCurrency       string  `json:"quote_currency"`
+	SettlementPeriod    string  `json:"settlement_period"`
+	ContractSize        float64 `json:"contract_size"`
+	MinTradeAmount      float64 `json:"min_trade_amount"`
+	TickSize            float64 `json:"tick_size"`
+	IsActive            bool    `json:"is_active"`
+	ExpirationTimestamp int64   `json:"expiration_timestamp"`
 }
 
 type OrderRequest struct {
 	InstrumentName string
 	Amount         float64
-	Type           string  // limit, market
+	Type           string // limit, market
 	Price          float64
 	Label          string
 }
@@ -417,30 +417,30 @@ type OrderResponse struct {
 }
 
 type OrderInfo struct {
-	OrderID        string  `json:"order_id"`
-	InstrumentName string  `json:"instrument_name"`
-	Direction      string  `json:"direction"`
-	Price          float64 `json:"price"`
-	Amount         float64 `json:"amount"`
-	FilledAmount   float64 `json:"filled_amount"`
-	AveragePrice   float64 `json:"average_price"`
-	OrderState     string  `json:"order_state"`
-	OrderType      string  `json:"order_type"`
-	Label          string  `json:"label"`
-	CreationTimestamp int64 `json:"creation_timestamp"`
-	LastUpdateTimestamp int64 `json:"last_update_timestamp"`
+	OrderID             string  `json:"order_id"`
+	InstrumentName      string  `json:"instrument_name"`
+	Direction           string  `json:"direction"`
+	Price               float64 `json:"price"`
+	Amount              float64 `json:"amount"`
+	FilledAmount        float64 `json:"filled_amount"`
+	AveragePrice        float64 `json:"average_price"`
+	OrderState          string  `json:"order_state"`
+	OrderType           string  `json:"order_type"`
+	Label               string  `json:"label"`
+	CreationTimestamp   int64   `json:"creation_timestamp"`
+	LastUpdateTimestamp int64   `json:"last_update_timestamp"`
 }
 
 type AccountSummary struct {
-	Currency            string  `json:"currency"`
-	Balance             float64 `json:"balance"`
-	Equity              float64 `json:"equity"`
-	AvailableFunds      float64 `json:"available_funds"`
+	Currency                 string  `json:"currency"`
+	Balance                  float64 `json:"balance"`
+	Equity                   float64 `json:"equity"`
+	AvailableFunds           float64 `json:"available_funds"`
 	AvailableWithdrawalFunds float64 `json:"available_withdrawal_funds"`
-	InitialMargin       float64 `json:"initial_margin"`
-	MaintenanceMargin   float64 `json:"maintenance_margin"`
-	MarginBalance       float64 `json:"margin_balance"`
-	TotalPL             float64 `json:"total_pl"`
+	InitialMargin            float64 `json:"initial_margin"`
+	MaintenanceMargin        float64 `json:"maintenance_margin"`
+	MarginBalance            float64 `json:"margin_balance"`
+	TotalPL                  float64 `json:"total_pl"`
 }
 
 type PositionInfo struct {
@@ -483,4 +483,3 @@ type ChartData struct {
 	Close  []float64 `json:"close"`
 	Volume []float64 `json:"volume"`
 }
-

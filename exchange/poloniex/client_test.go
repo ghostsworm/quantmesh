@@ -32,19 +32,19 @@ func TestNewPoloniexClient(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	client := NewPoloniexClient("test_key", "test_secret", false)
-	
+
 	body := `{"symbol":"BTC_USDT","side":"BUY"}`
 	signature := client.signRequest(body)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证签名长度（HMAC-SHA256 应该产生 64 字符的十六进制字符串）
 	if len(signature) != 64 {
 		t.Errorf("签名长度错误: 期望 64, 得到 %d", len(signature))
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := client.signRequest(body)
 	if signature != signature2 {
@@ -125,4 +125,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

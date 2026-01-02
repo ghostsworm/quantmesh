@@ -37,9 +37,9 @@ type HuobiClient struct {
 // NewHuobiClient 创建 Huobi 客户端
 func NewHuobiClient(apiKey, secretKey string) *HuobiClient {
 	return &HuobiClient{
-		apiKey:     apiKey,
-		secretKey:  secretKey,
-		baseURL:    MainnetRestURL,
+		apiKey:    apiKey,
+		secretKey: secretKey,
+		baseURL:   MainnetRestURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -131,8 +131,8 @@ func (c *HuobiClient) request(ctx context.Context, method, path string, params m
 
 	// 检查 Huobi API 响应
 	var apiResp struct {
-		Status string          `json:"status"`
-		ErrCode int            `json:"err_code"`
+		Status  string          `json:"status"`
+		ErrCode int             `json:"err_code"`
 		ErrMsg  string          `json:"err_msg"`
 		Data    json.RawMessage `json:"data"`
 	}
@@ -315,15 +315,15 @@ func (c *HuobiClient) GetAccountInfo(ctx context.Context, symbol string) ([]Acco
 
 // HuobiPositionInfo 持仓信息
 type HuobiPositionInfo struct {
-	Symbol         string  `json:"symbol"`
-	ContractCode   string  `json:"contract_code"`
-	Volume         float64 `json:"volume"`
-	Available      float64 `json:"available"`
-	CostOpen       float64 `json:"cost_open"`
-	CostHold       float64 `json:"cost_hold"`
-	ProfitUnreal   float64 `json:"profit_unreal"`
-	LeverRate      int     `json:"lever_rate"`
-	Direction      string  `json:"direction"` // buy, sell
+	Symbol       string  `json:"symbol"`
+	ContractCode string  `json:"contract_code"`
+	Volume       float64 `json:"volume"`
+	Available    float64 `json:"available"`
+	CostOpen     float64 `json:"cost_open"`
+	CostHold     float64 `json:"cost_hold"`
+	ProfitUnreal float64 `json:"profit_unreal"`
+	LeverRate    int     `json:"lever_rate"`
+	Direction    string  `json:"direction"` // buy, sell
 }
 
 // GetPositionInfo 获取持仓信息
@@ -383,10 +383,10 @@ func (c *HuobiClient) GetKlines(ctx context.Context, symbol, period string, size
 
 // FundingRate 资金费率
 type FundingRate struct {
-	Symbol       string  `json:"symbol"`
-	ContractCode string  `json:"contract_code"`
-	FundingRate  string  `json:"funding_rate"`
-	FundingTime  string  `json:"funding_time"`
+	Symbol       string `json:"symbol"`
+	ContractCode string `json:"contract_code"`
+	FundingRate  string `json:"funding_rate"`
+	FundingTime  string `json:"funding_time"`
 }
 
 // GetFundingRate 获取资金费率
@@ -411,4 +411,3 @@ func (c *HuobiClient) GetFundingRate(ctx context.Context, symbol string) (*Fundi
 func init() {
 	logger.Info("📦 [Huobi Client] REST API 客户端已初始化")
 }
-

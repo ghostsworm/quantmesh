@@ -82,29 +82,29 @@ type Order struct {
 
 // Statistics 统计数据
 type Statistics struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Exchange  string    `gorm:"index:idx_exchange_symbol_date;size:50" json:"exchange"`
-	Symbol    string    `gorm:"index:idx_exchange_symbol_date;size:50" json:"symbol"`
-	Date      time.Time `gorm:"index:idx_exchange_symbol_date" json:"date"`
-	TotalPnL  float64   `json:"total_pnl"`
-	WinRate   float64   `json:"win_rate"`
-	Volume    float64   `json:"volume"`
-	TradeCount int      `json:"trade_count"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Exchange   string    `gorm:"index:idx_exchange_symbol_date;size:50" json:"exchange"`
+	Symbol     string    `gorm:"index:idx_exchange_symbol_date;size:50" json:"symbol"`
+	Date       time.Time `gorm:"index:idx_exchange_symbol_date" json:"date"`
+	TotalPnL   float64   `json:"total_pnl"`
+	WinRate    float64   `json:"win_rate"`
+	Volume     float64   `json:"volume"`
+	TradeCount int       `json:"trade_count"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // Reconciliation 对账记录
 type Reconciliation struct {
-	ID           int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Exchange     string    `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"`
-	Symbol       string    `gorm:"index:idx_exchange_symbol;size:50" json:"symbol"`
-	Type         string    `gorm:"size:50" json:"type"` // order_diff, position_diff
-	LocalValue   string    `gorm:"type:text" json:"local_value"`
-	RemoteValue  string    `gorm:"type:text" json:"remote_value"`
-	Diff         string    `gorm:"type:text" json:"diff"`
-	Resolved     bool      `gorm:"index" json:"resolved"`
-	ResolvedAt   *time.Time `json:"resolved_at"`
-	CreatedAt    time.Time `gorm:"index" json:"created_at"`
+	ID          int64      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Exchange    string     `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"`
+	Symbol      string     `gorm:"index:idx_exchange_symbol;size:50" json:"symbol"`
+	Type        string     `gorm:"size:50" json:"type"` // order_diff, position_diff
+	LocalValue  string     `gorm:"type:text" json:"local_value"`
+	RemoteValue string     `gorm:"type:text" json:"remote_value"`
+	Diff        string     `gorm:"type:text" json:"diff"`
+	Resolved    bool       `gorm:"index" json:"resolved"`
+	ResolvedAt  *time.Time `json:"resolved_at"`
+	CreatedAt   time.Time  `gorm:"index" json:"created_at"`
 }
 
 // RiskCheck 风控检查记录
@@ -171,6 +171,3 @@ type RiskCheckFilter struct {
 	Limit     int
 	Offset    int
 }
-
-
-

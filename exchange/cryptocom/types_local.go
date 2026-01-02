@@ -14,11 +14,11 @@ const (
 type OrderStatus string
 
 const (
-	OrderStatusActive          OrderStatus = "ACTIVE"
-	OrderStatusFilled          OrderStatus = "FILLED"
-	OrderStatusCanceled        OrderStatus = "CANCELED"
-	OrderStatusRejected        OrderStatus = "REJECTED"
-	OrderStatusExpired         OrderStatus = "EXPIRED"
+	OrderStatusActive   OrderStatus = "ACTIVE"
+	OrderStatusFilled   OrderStatus = "FILLED"
+	OrderStatusCanceled OrderStatus = "CANCELED"
+	OrderStatusRejected OrderStatus = "REJECTED"
+	OrderStatusExpired  OrderStatus = "EXPIRED"
 )
 
 // OrderLocal 订单信息
@@ -99,4 +99,3 @@ func ConvertInterval(interval string) CryptoComTimeframe {
 		return CryptoComTimeframe1m
 	}
 }
-

@@ -3,8 +3,8 @@ package cryptocom
 import (
 	"context"
 	"fmt"
-	"strings"
 	"quantmesh/logger"
+	"strings"
 )
 
 type Adapter struct {
@@ -174,10 +174,10 @@ func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limi
 	return result, nil
 }
 
-func (a *Adapter) GetPriceDecimals() int { return a.priceDecimals }
-func (a *Adapter) GetQuantityDecimals() int { return a.quantityDecimals }
-func (a *Adapter) GetBaseAsset() string { return a.baseAsset }
-func (a *Adapter) GetQuoteAsset() string { return a.quoteAsset }
+func (a *Adapter) GetPriceDecimals() int                               { return a.priceDecimals }
+func (a *Adapter) GetQuantityDecimals() int                            { return a.quantityDecimals }
+func (a *Adapter) GetBaseAsset() string                                { return a.baseAsset }
+func (a *Adapter) GetQuoteAsset() string                               { return a.quoteAsset }
 func (a *Adapter) GetFundingRate(ctx context.Context) (float64, error) { return 0, nil }
 
 func (a *Adapter) convertOrder(order *Order) *OrderLocal {

@@ -29,7 +29,7 @@ func TestConcurrentProviderAccess(t *testing.T) {
 			for j := 0; j < numOperations; j++ {
 				exchange := "binance"
 				symbol := "BTCUSDT"
-				
+
 				status := &SystemStatus{
 					Running:      true,
 					Exchange:     exchange,
@@ -42,7 +42,7 @@ func TestConcurrentProviderAccess(t *testing.T) {
 				}
 
 				RegisterSymbolProviders(exchange, symbol, providers)
-				
+
 				// 短暂休眠以增加并发冲突的可能性
 				time.Sleep(time.Microsecond)
 			}
@@ -56,7 +56,7 @@ func TestConcurrentProviderAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numOperations; j++ {
 				key := makeSymbolKey("binance", "BTCUSDT")
-				
+
 				// 读取 statusBySymbol
 				statusMu.RLock()
 				_ = statusBySymbol[key]
@@ -112,7 +112,7 @@ func TestConcurrentFundingProviderRegistration(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			// 每个 goroutine 注册多个 providers
 			for j := 0; j < 10; j++ {
 				RegisterFundingProvider("binance", "BTCUSDT", nil)
@@ -126,7 +126,7 @@ func TestConcurrentFundingProviderRegistration(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < 10; j++ {
 				key := makeSymbolKey("binance", "BTCUSDT")
 				providersMu.RLock()
@@ -145,7 +145,7 @@ func TestConcurrentFundingProviderRegistration(t *testing.T) {
 func TestConcurrentSymbolIteration(t *testing.T) {
 	// 初始化一些测试数据
 	statusBySymbol = make(map[string]*SystemStatus)
-	
+
 	symbols := []string{"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"}
 	for _, symbol := range symbols {
 		key := makeSymbolKey("binance", symbol)
@@ -174,7 +174,7 @@ func TestConcurrentSymbolIteration(t *testing.T) {
 					}
 				}
 				statusMu.RUnlock()
-				
+
 				// 由于并发写入,数量可能会增加(XRPUSDT被添加)
 				if count < len(symbols) {
 					t.Errorf("期望至少 %d 个交易对，实际 %d 个", len(symbols), count)
@@ -207,4 +207,3 @@ func TestConcurrentSymbolIteration(t *testing.T) {
 	wg.Wait()
 	t.Log("并发遍历测试完成")
 }
-

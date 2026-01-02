@@ -227,4 +227,3 @@ func (k *KlineWebSocketManager) Stop() {
 
 	logger.Info("🛑 [Huobi K线 WebSocket] 已停止")
 }
-

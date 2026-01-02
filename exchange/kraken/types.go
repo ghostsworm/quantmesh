@@ -129,4 +129,3 @@ type KrakenCandle struct {
 
 // CandleUpdateCallback K线更新回调函数
 type CandleUpdateCallback func(candle interface{})
-

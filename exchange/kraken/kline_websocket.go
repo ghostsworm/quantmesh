@@ -143,11 +143,11 @@ func (k *KlineWebSocketManager) handleTradeUpdate(message []byte) {
 		Feed   string `json:"feed"`
 		Symbol string `json:"product_id"`
 		Trades []struct {
-			Price     string `json:"price"`
-			Qty       int    `json:"qty"`
-			Side      string `json:"side"`
-			Time      int64  `json:"time"`
-			TradeID   string `json:"uid"`
+			Price   string `json:"price"`
+			Qty     int    `json:"qty"`
+			Side    string `json:"side"`
+			Time    int64  `json:"time"`
+			TradeID string `json:"uid"`
 		} `json:"trades"`
 	}
 
@@ -160,7 +160,7 @@ func (k *KlineWebSocketManager) handleTradeUpdate(message []byte) {
 	// 实际应该聚合多个交易到一个 K线周期
 	for _, trade := range tradeUpdate.Trades {
 		price, _ := strconv.ParseFloat(trade.Price, 64)
-		
+
 		candle := &Candle{
 			Time:   trade.Time,
 			Open:   trade.Price,
@@ -224,4 +224,3 @@ func (k *KlineWebSocketManager) Stop() {
 	}
 	logger.Info("Kraken K线 WebSocket stopped")
 }
-

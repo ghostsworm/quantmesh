@@ -24,8 +24,8 @@ const (
 
 // KrakenClient 结构体
 type KrakenClient struct {
-	apiKey    string
-	secretKey string
+	apiKey     string
+	secretKey  string
 	httpClient *http.Client
 }
 
@@ -178,7 +178,7 @@ func (c *KrakenClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	}
 
 	var resp struct {
-		Result    string `json:"result"`
+		Result     string `json:"result"`
 		SendStatus struct {
 			OrderID string `json:"order_id"`
 			Status  string `json:"status"`
@@ -306,7 +306,7 @@ func (c *KrakenClient) GetPositionInfo(ctx context.Context) ([]KrakenPositionInf
 	}
 
 	var resp struct {
-		Result        string                `json:"result"`
+		Result        string               `json:"result"`
 		OpenPositions []KrakenPositionInfo `json:"openPositions"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
@@ -356,7 +356,7 @@ func (c *KrakenClient) GetFundingRate(ctx context.Context, symbol string) (float
 func (c *KrakenClient) GetHistoricalKlines(ctx context.Context, symbol string, resolution string, limit int) ([]Candle, error) {
 	// Kraken 使用 resolution: 1m, 5m, 15m, 30m, 1h, 4h, 12h, 1d, 1w
 	path := fmt.Sprintf("/api/charts/v1/trade/%s/%s", symbol, resolution)
-	
+
 	// 计算时间范围
 	to := time.Now().Unix()
 	from := to - int64(limit*getResolutionSeconds(resolution))
@@ -421,20 +421,20 @@ type ExchangeInfo struct {
 
 // ContractInfo 合约信息
 type ContractInfo struct {
-	Symbol              string  `json:"symbol"`
-	Type                string  `json:"type"`
-	Underlying          string  `json:"underlying"`
-	TickSize            float64 `json:"tickSize"`
-	ContractSize        float64 `json:"contractSize"`
-	MaxPositionSize     int     `json:"maxPositionSize"`
-	ImpactMidSize       int     `json:"impactMidSize"`
-	OpeningDate         string  `json:"openingDate"`
-	MarginLevels        []struct {
-		Contracts       int     `json:"contracts"`
-		InitialMargin   float64 `json:"initialMargin"`
+	Symbol          string  `json:"symbol"`
+	Type            string  `json:"type"`
+	Underlying      string  `json:"underlying"`
+	TickSize        float64 `json:"tickSize"`
+	ContractSize    float64 `json:"contractSize"`
+	MaxPositionSize int     `json:"maxPositionSize"`
+	ImpactMidSize   int     `json:"impactMidSize"`
+	OpeningDate     string  `json:"openingDate"`
+	MarginLevels    []struct {
+		Contracts         int     `json:"contracts"`
+		InitialMargin     float64 `json:"initialMargin"`
 		MaintenanceMargin float64 `json:"maintenanceMargin"`
 	} `json:"marginLevels"`
-	TradingHours        string  `json:"tradingHours"`
+	TradingHours           string  `json:"tradingHours"`
 	FundingRateCoefficient float64 `json:"fundingRateCoefficient"`
 }
 
@@ -462,48 +462,47 @@ type CancelOrderResponse struct {
 
 // OrderInfo 订单信息
 type OrderInfo struct {
-	OrderID       string  `json:"order_id"`
-	CliOrdId      string  `json:"cliOrdId"`
-	Symbol        string  `json:"symbol"`
-	Side          string  `json:"side"`
-	OrderType     string  `json:"orderType"`
-	LimitPrice    float64 `json:"limitPrice"`
-	Quantity      int     `json:"quantity"`
-	Filled        int     `json:"filled"`
-	Timestamp     string  `json:"timestamp"`
-	LastUpdateTime string `json:"lastUpdateTimestamp"`
-	ReduceOnly    bool    `json:"reduceOnly"`
+	OrderID        string  `json:"order_id"`
+	CliOrdId       string  `json:"cliOrdId"`
+	Symbol         string  `json:"symbol"`
+	Side           string  `json:"side"`
+	OrderType      string  `json:"orderType"`
+	LimitPrice     float64 `json:"limitPrice"`
+	Quantity       int     `json:"quantity"`
+	Filled         int     `json:"filled"`
+	Timestamp      string  `json:"timestamp"`
+	LastUpdateTime string  `json:"lastUpdateTimestamp"`
+	ReduceOnly     bool    `json:"reduceOnly"`
 }
 
 // AccountInfo 账户信息
 type AccountInfo struct {
-	Name             string  `json:"name"`
-	Type             string  `json:"type"`
-	Currency         string  `json:"currency"`
-	BalanceValue     float64 `json:"balanceValue"`
-	AvailableMargin  float64 `json:"availableMargin"`
-	MarginEquity     float64 `json:"marginEquity"`
-	PortfolioValue   float64 `json:"portfolioValue"`
+	Name              string  `json:"name"`
+	Type              string  `json:"type"`
+	Currency          string  `json:"currency"`
+	BalanceValue      float64 `json:"balanceValue"`
+	AvailableMargin   float64 `json:"availableMargin"`
+	MarginEquity      float64 `json:"marginEquity"`
+	PortfolioValue    float64 `json:"portfolioValue"`
 	UnrealisedFunding float64 `json:"unrealisedFunding"`
 }
 
 // KrakenPositionInfo 持仓信息
 type KrakenPositionInfo struct {
-	Symbol           string  `json:"symbol"`
-	Side             string  `json:"side"` // "long" or "short"
-	Size             int     `json:"size"`
-	Price            float64 `json:"price"`
-	FillTime         string  `json:"fillTime"`
-	PnL              float64 `json:"pnl"`
+	Symbol   string  `json:"symbol"`
+	Side     string  `json:"side"` // "long" or "short"
+	Size     int     `json:"size"`
+	Price    float64 `json:"price"`
+	FillTime string  `json:"fillTime"`
+	PnL      float64 `json:"pnl"`
 }
 
 // Candle K线数据
 type Candle struct {
-	Time   int64   `json:"time"`
-	Open   string  `json:"open"`
-	High   string  `json:"high"`
-	Low    string  `json:"low"`
-	Close  string  `json:"close"`
-	Volume string  `json:"volume"`
+	Time   int64  `json:"time"`
+	Open   string `json:"open"`
+	High   string `json:"high"`
+	Low    string `json:"low"`
+	Close  string `json:"close"`
+	Volume string `json:"volume"`
 }
-

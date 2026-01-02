@@ -47,4 +47,3 @@ func (s *Signer) GetAPIKey() string {
 func (s *Signer) GetPassphrase() string {
 	return s.passphrase
 }
-

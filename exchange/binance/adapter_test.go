@@ -89,4 +89,3 @@ func TestOrderStatusConstants(t *testing.T) {
 		}
 	}
 }
-

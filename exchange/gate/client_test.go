@@ -38,19 +38,19 @@ func TestNewSigner(t *testing.T) {
 
 func TestSignREST(t *testing.T) {
 	signer := NewSigner("test_key", "test_secret")
-	
+
 	method := "POST"
 	urlPath := "/api/v4/futures/usdt/orders"
 	queryString := "settle=usdt"
 	body := `{"contract":"BTC_USDT","size":1,"price":"50000"}`
 	timestamp := int64(1234567890)
-	
+
 	signature := signer.SignREST(method, urlPath, queryString, body, timestamp)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := signer.SignREST(method, urlPath, queryString, body, timestamp)
 	if signature != signature2 {
@@ -107,4 +107,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

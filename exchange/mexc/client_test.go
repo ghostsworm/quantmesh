@@ -23,18 +23,18 @@ func TestNewMEXCClient(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	client := NewMEXCClient("test_key", "test_secret", false)
-	
+
 	params := make(map[string][]string)
 	params["symbol"] = []string{"BTC_USDT"}
 	params["side"] = []string{"BUY"}
-	
+
 	urlValues := url.Values(params)
 	signature := client.signRequest(urlValues)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := client.signRequest(urlValues)
 	if signature != signature2 {
@@ -91,4 +91,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

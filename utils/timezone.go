@@ -69,4 +69,3 @@ func NowConfiguredTimezone() time.Time {
 func NowUTC8() time.Time {
 	return NowConfiguredTimezone()
 }
-

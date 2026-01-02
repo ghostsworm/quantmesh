@@ -50,6 +50,3 @@ func (n *NopLock) Extend(ctx context.Context, key string, ttl time.Duration) err
 func (n *NopLock) Close() error {
 	return nil
 }
-
-
-

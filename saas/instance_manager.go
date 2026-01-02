@@ -18,7 +18,7 @@ import (
 type Instance struct {
 	ID          string    `json:"id"`
 	UserID      string    `json:"user_id"`
-	Plan        string    `json:"plan"` // starter/professional/enterprise
+	Plan        string    `json:"plan"`   // starter/professional/enterprise
 	Status      string    `json:"status"` // running/stopped/error
 	ContainerID string    `json:"container_id"`
 	Port        int       `json:"port"`
@@ -122,19 +122,19 @@ func (m *InstanceManager) allocateResources(plan string) *Resources {
 	case "starter":
 		return &Resources{
 			CPU:    1.0,
-			Memory: 1024, // 1GB
+			Memory: 1024,  // 1GB
 			Disk:   10240, // 10GB
 		}
 	case "professional":
 		return &Resources{
 			CPU:    2.0,
-			Memory: 2048, // 2GB
+			Memory: 2048,  // 2GB
 			Disk:   51200, // 50GB
 		}
 	case "enterprise":
 		return &Resources{
 			CPU:    4.0,
-			Memory: 8192, // 8GB
+			Memory: 8192,   // 8GB
 			Disk:   204800, // 200GB
 		}
 	default:
@@ -549,4 +549,3 @@ func (m *InstanceManager) LoadFromDatabase() error {
 func generateInstanceID(userID string) string {
 	return fmt.Sprintf("qm-%s-%d", userID[:8], time.Now().Unix())
 }
-

@@ -72,4 +72,3 @@ type CandleLocal struct {
 
 // CandleUpdateCallback K线更新回调
 type CandleUpdateCallbackLocal func(candle *CandleLocal)
-

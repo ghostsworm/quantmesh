@@ -59,25 +59,25 @@ func getSetupStatusHandler(c *gin.Context) {
 
 // SetupInitRequest 配置初始化请求
 type SetupInitRequest struct {
-	Exchange      string  `json:"exchange" binding:"required"`
-	APIKey        string  `json:"api_key" binding:"required"`
-	SecretKey     string  `json:"secret_key" binding:"required"`
-	Passphrase    string  `json:"passphrase,omitempty"`
-	Symbol        string  `json:"symbol" binding:"required"`
-	PriceInterval float64 `json:"price_interval" binding:"required,gt=0"`
-	OrderQuantity float64 `json:"order_quantity" binding:"required,gt=0"`
-	MinOrderValue float64 `json:"min_order_value,omitempty"`
-	BuyWindowSize int     `json:"buy_window_size" binding:"required,gt=0"`
-	SellWindowSize int    `json:"sell_window_size,omitempty"`
-	Testnet       bool    `json:"testnet,omitempty"`
-	FeeRate       float64 `json:"fee_rate,omitempty"`
+	Exchange       string  `json:"exchange" binding:"required"`
+	APIKey         string  `json:"api_key" binding:"required"`
+	SecretKey      string  `json:"secret_key" binding:"required"`
+	Passphrase     string  `json:"passphrase,omitempty"`
+	Symbol         string  `json:"symbol" binding:"required"`
+	PriceInterval  float64 `json:"price_interval" binding:"required,gt=0"`
+	OrderQuantity  float64 `json:"order_quantity" binding:"required,gt=0"`
+	MinOrderValue  float64 `json:"min_order_value,omitempty"`
+	BuyWindowSize  int     `json:"buy_window_size" binding:"required,gt=0"`
+	SellWindowSize int     `json:"sell_window_size,omitempty"`
+	Testnet        bool    `json:"testnet,omitempty"`
+	FeeRate        float64 `json:"fee_rate,omitempty"`
 }
 
 // SetupInitResponse 配置初始化响应
 type SetupInitResponse struct {
-	Success   bool   `json:"success"`
-	Message   string `json:"message"`
-	RequiresRestart bool `json:"requires_restart"`
+	Success         bool   `json:"success"`
+	Message         string `json:"message"`
+	RequiresRestart bool   `json:"requires_restart"`
 }
 
 // initSetupHandler 初始化配置
@@ -94,18 +94,18 @@ func initSetupHandler(c *gin.Context) {
 
 	// 创建配置数据
 	setupData := &config.SetupData{
-		Exchange:      req.Exchange,
-		APIKey:        req.APIKey,
-		SecretKey:     req.SecretKey,
-		Passphrase:    req.Passphrase,
-		Symbol:        req.Symbol,
-		PriceInterval: req.PriceInterval,
-		OrderQuantity: req.OrderQuantity,
-		MinOrderValue: req.MinOrderValue,
-		BuyWindowSize: req.BuyWindowSize,
+		Exchange:       req.Exchange,
+		APIKey:         req.APIKey,
+		SecretKey:      req.SecretKey,
+		Passphrase:     req.Passphrase,
+		Symbol:         req.Symbol,
+		PriceInterval:  req.PriceInterval,
+		OrderQuantity:  req.OrderQuantity,
+		MinOrderValue:  req.MinOrderValue,
+		BuyWindowSize:  req.BuyWindowSize,
 		SellWindowSize: req.SellWindowSize,
-		Testnet:       req.Testnet,
-		FeeRate:       req.FeeRate,
+		Testnet:        req.Testnet,
+		FeeRate:        req.FeeRate,
 	}
 
 	// 如果卖单窗口大小未设置，使用买单窗口大小
@@ -177,9 +177,8 @@ func initSetupHandler(c *gin.Context) {
 	logger.Info("✅ 配置初始化成功: 交易所=%s, 交易对=%s", req.Exchange, req.Symbol)
 
 	c.JSON(http.StatusOK, SetupInitResponse{
-		Success:        true,
-		Message:        "配置已保存，请重启系统以应用配置",
+		Success:         true,
+		Message:         "配置已保存，请重启系统以应用配置",
 		RequiresRestart: true,
 	})
 }
-

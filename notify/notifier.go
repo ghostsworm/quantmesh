@@ -113,4 +113,3 @@ func (ns *NotificationService) Send(evt *event.Event) {
 		wg.Wait()
 	}()
 }
-

@@ -106,7 +106,7 @@ func (k *KlineWebSocketManager) processMessage(message []byte) {
 		k.handleEventMessage(eventMsg)
 		return
 	}
-	
+
 	// 尝试解析为数据消息
 	var dataMsg []interface{}
 	if err := json.Unmarshal(message, &dataMsg); err == nil {
@@ -121,7 +121,7 @@ func (k *KlineWebSocketManager) handleEventMessage(msg map[string]interface{}) {
 	if !ok {
 		return
 	}
-	
+
 	switch event {
 	case "subscribed":
 		chanID, _ := msg["chanId"].(float64)
@@ -140,17 +140,17 @@ func (k *KlineWebSocketManager) handleDataMessage(msg []interface{}) {
 	if len(msg) < 2 {
 		return
 	}
-	
+
 	chanID, ok := msg[0].(float64)
 	if !ok {
 		return
 	}
-	
+
 	// 检查是否是心跳消息
 	if hb, ok := msg[1].(string); ok && hb == "hb" {
 		return
 	}
-	
+
 	// K线数据
 	k.handleCandleData(int(chanID), msg[1])
 }
@@ -161,22 +161,22 @@ func (k *KlineWebSocketManager) handleCandleData(chanID int, data interface{}) {
 	callback := k.callback
 	key := k.channelMap[chanID]
 	k.mu.RUnlock()
-	
+
 	if callback == nil {
 		return
 	}
-	
+
 	// K线格式：[MTS, OPEN, CLOSE, HIGH, LOW, VOLUME]
 	candleArray, ok := data.([]interface{})
 	if !ok || len(candleArray) < 6 {
 		return
 	}
-	
+
 	timestamp, ok := candleArray[0].(float64)
 	if !ok {
 		return
 	}
-	
+
 	candle := &Candle{
 		Timestamp: int64(timestamp),
 		Open:      parseFloat64(candleArray[1]),
@@ -185,10 +185,10 @@ func (k *KlineWebSocketManager) handleCandleData(chanID int, data interface{}) {
 		Low:       parseFloat64(candleArray[4]),
 		Volume:    parseFloat64(candleArray[5]),
 	}
-	
+
 	logger.Debug("Bitfinex K线 update: key=%s, time=%d, open=%.2f, high=%.2f, low=%.2f, close=%.2f, volume=%.2f",
 		key, candle.Timestamp, candle.Open, candle.High, candle.Low, candle.Close, candle.Volume)
-	
+
 	callback(candle)
 }
 

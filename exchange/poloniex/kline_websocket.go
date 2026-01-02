@@ -112,7 +112,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, symbol, interval st
 // subscribe 订阅 K线
 func (k *KlineWebSocketManager) subscribe(symbol, interval string) error {
 	subMsg := map[string]interface{}{
-		"event": "subscribe",
+		"event":   "subscribe",
 		"channel": []string{fmt.Sprintf("candles_%s.%s", interval, symbol)},
 	}
 
@@ -238,4 +238,3 @@ func (k *KlineWebSocketManager) parseKline(data map[string]interface{}) *Kline {
 
 	return kline
 }
-

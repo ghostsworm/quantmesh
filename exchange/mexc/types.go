@@ -30,10 +30,10 @@ const (
 type MEXCOrderState int
 
 const (
-	MEXCOrderStateNew            MEXCOrderState = 1 // 未成交
+	MEXCOrderStateNew             MEXCOrderState = 1 // 未成交
 	MEXCOrderStatePartiallyFilled MEXCOrderState = 2 // 部分成交
-	MEXCOrderStateFilled         MEXCOrderState = 3 // 已成交
-	MEXCOrderStateCanceled       MEXCOrderState = 4 // 已撤销
+	MEXCOrderStateFilled          MEXCOrderState = 3 // 已成交
+	MEXCOrderStateCanceled        MEXCOrderState = 4 // 已撤销
 	MEXCOrderStatePartialCanceled MEXCOrderState = 5 // 部分成交已撤销
 )
 
@@ -94,4 +94,3 @@ func ConvertInterval(interval string) MEXCInterval {
 		return MEXCInterval1m
 	}
 }
-

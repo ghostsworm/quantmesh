@@ -11,16 +11,16 @@ import (
 
 var (
 	// 全局配置管理器（需要从main.go注入）
-	configManager      *ConfigManager
-	configBackupMgr    *config.BackupManager
-	configHotReloader  *config.HotReloader
+	configManager     *ConfigManager
+	configBackupMgr   *config.BackupManager
+	configHotReloader *config.HotReloader
 )
 
 // ConfigManager 配置管理器
 type ConfigManager struct {
-	configPath string
+	configPath    string
 	currentConfig *config.Config
-	mu         sync.RWMutex
+	mu            sync.RWMutex
 }
 
 // NewConfigManager 创建配置管理器
@@ -159,7 +159,7 @@ func validateConfigHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"valid": true,
+		"valid":   true,
 		"message": "配置验证通过",
 	})
 }
@@ -190,7 +190,7 @@ func previewConfigHandler(c *gin.Context) {
 	diff := config.DiffConfig(oldConfig, &newConfig)
 
 	c.JSON(http.StatusOK, gin.H{
-		"diff": diff,
+		"diff":             diff,
 		"requires_restart": diff.RequiresRestart,
 	})
 }
@@ -252,9 +252,9 @@ func updateConfigHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "配置更新成功",
-		"backup_id": backupInfo.ID,
-		"diff": diff,
+		"message":          "配置更新成功",
+		"backup_id":        backupInfo.ID,
+		"diff":             diff,
 		"requires_restart": diff.RequiresRestart,
 	})
 }
@@ -275,7 +275,7 @@ func getBackupsHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"backups": backups,
-		"count": len(backups),
+		"count":   len(backups),
 	})
 }
 
@@ -313,7 +313,7 @@ func restoreBackupHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "备份恢复成功",
+		"message":   "备份恢复成功",
 		"backup_id": backupID,
 	})
 }
@@ -338,8 +338,7 @@ func deleteBackupHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "备份删除成功",
+		"message":   "备份删除成功",
 		"backup_id": backupID,
 	})
 }
-

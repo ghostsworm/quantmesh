@@ -98,4 +98,3 @@ func ConvertInterval(interval string) WOOXInterval {
 		return WOOXInterval1m
 	}
 }
-

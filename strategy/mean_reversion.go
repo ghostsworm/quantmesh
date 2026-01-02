@@ -12,10 +12,10 @@ import (
 
 // MeanReversionStrategy 均值回归策略
 type MeanReversionStrategy struct {
-	name      string
-	cfg       *config.Config
-	executor  position.OrderExecutorInterface
-	exchange  position.IExchange
+	name        string
+	cfg         *config.Config
+	executor    position.OrderExecutorInterface
+	exchange    position.IExchange
 	strategyCfg map[string]interface{}
 
 	// 价格历史
@@ -23,12 +23,12 @@ type MeanReversionStrategy struct {
 	mu           sync.RWMutex
 
 	// 参数
-	period              int
-	stdMultiplier       float64
-	reversionThreshold  float64
+	period             int
+	stdMultiplier      float64
+	reversionThreshold float64
 
 	// 持仓
-	position *Position
+	position   *Position
 	entryPrice float64
 
 	ctx    context.Context
@@ -46,11 +46,11 @@ func NewMeanReversionStrategy(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	mrs := &MeanReversionStrategy{
-		name:        name,
-		cfg:         cfg,
-		executor:    executor,
-		exchange:    exchange,
-		strategyCfg: strategyCfg,
+		name:         name,
+		cfg:          cfg,
+		executor:     executor,
+		exchange:     exchange,
+		strategyCfg:  strategyCfg,
 		priceHistory: make([]float64, 0, 100),
 		ctx:          ctx,
 		cancel:       cancel,
@@ -254,4 +254,3 @@ func (mrs *MeanReversionStrategy) GetStatistics() *StrategyStatistics {
 		TotalVolume: 0,
 	}
 }
-

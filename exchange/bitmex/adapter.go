@@ -10,14 +10,14 @@ import (
 
 // Adapter BitMEX 适配器
 type Adapter struct {
-	client          *BitMEXClient
-	wsManager       *WebSocketManager
-	klineWSManager  *KlineWebSocketManager
-	symbol          string
-	priceDecimals   int
+	client           *BitMEXClient
+	wsManager        *WebSocketManager
+	klineWSManager   *KlineWebSocketManager
+	symbol           string
+	priceDecimals    int
 	quantityDecimals int
-	baseAsset       string
-	quoteAsset      string
+	baseAsset        string
+	quoteAsset       string
 }
 
 // NewAdapter 创建 BitMEX 适配器
@@ -337,4 +337,3 @@ func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 		UpdateTime:    order.TransactTime.UnixMilli(),
 	}
 }
-

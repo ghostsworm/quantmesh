@@ -19,18 +19,18 @@ import (
 
 // LicenseInfo 许可证信息
 type LicenseInfo struct {
-	PluginName    string    `json:"plugin_name"`    // 插件名称
-	LicenseKey    string    `json:"license_key"`    // 许可证密钥
-	CustomerID    string    `json:"customer_id"`    // 客户ID
-	Email         string    `json:"email"`          // 客户邮箱
-	Plan          string    `json:"plan"`           // 套餐: starter/professional/enterprise
-	ExpiryDate    time.Time `json:"expiry_date"`    // 过期时间
-	MaxInstances  int       `json:"max_instances"`  // 最大实例数
-	Features      []string  `json:"features"`       // 授权功能列表
-	IssuedAt      time.Time `json:"issued_at"`      // 签发时间
-	MachineID     string    `json:"machine_id"`     // 机器ID (可选)
-	CloudVerify   bool      `json:"cloud_verify"`   // 是否需要云端验证
-	Signature     string    `json:"signature"`      // 签名
+	PluginName   string    `json:"plugin_name"`   // 插件名称
+	LicenseKey   string    `json:"license_key"`   // 许可证密钥
+	CustomerID   string    `json:"customer_id"`   // 客户ID
+	Email        string    `json:"email"`         // 客户邮箱
+	Plan         string    `json:"plan"`          // 套餐: starter/professional/enterprise
+	ExpiryDate   time.Time `json:"expiry_date"`   // 过期时间
+	MaxInstances int       `json:"max_instances"` // 最大实例数
+	Features     []string  `json:"features"`      // 授权功能列表
+	IssuedAt     time.Time `json:"issued_at"`     // 签发时间
+	MachineID    string    `json:"machine_id"`    // 机器ID (可选)
+	CloudVerify  bool      `json:"cloud_verify"`  // 是否需要云端验证
+	Signature    string    `json:"signature"`     // 签名
 }
 
 // LicenseStore 许可证存储
@@ -393,4 +393,3 @@ func (v *LicenseValidator) CheckFeature(pluginName, feature string) bool {
 	}
 	return false
 }
-

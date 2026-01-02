@@ -134,7 +134,7 @@ func (w *WebSocketManager) connect(ctx context.Context, market string) {
 func (w *WebSocketManager) authenticate() error {
 	timestamp := time.Now().Unix()
 	message := fmt.Sprintf("access_id=%s&timestamp=%d&secret_key=%s", w.apiKey, timestamp, w.secretKey)
-	
+
 	h := md5.New()
 	h.Write([]byte(message))
 	signature := hex.EncodeToString(h.Sum(nil))
@@ -269,4 +269,3 @@ func (w *WebSocketManager) getNextReqID() int64 {
 	w.reqID++
 	return w.reqID
 }
-

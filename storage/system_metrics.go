@@ -136,4 +136,3 @@ func (s *SQLiteStorage) CleanupDailySystemMetrics(beforeDate time.Time) error {
 	`, beforeDate)
 	return err
 }
-

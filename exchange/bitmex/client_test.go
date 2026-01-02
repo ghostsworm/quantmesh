@@ -22,18 +22,18 @@ func TestNewBitMEXClient(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	client := NewBitMEXClient("test_key", "test_secret", false)
-	
+
 	verb := "POST"
 	path := "/api/v1/order"
 	nonce := "1234567890"
 	data := `{"symbol":"XBTUSD","side":"Buy"}`
-	
+
 	signature := client.signRequest(verb, path, nonce, data)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := client.signRequest(verb, path, nonce, data)
 	if signature != signature2 {
@@ -90,4 +90,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

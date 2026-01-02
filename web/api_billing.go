@@ -2,7 +2,7 @@ package web
 
 import (
 	"github.com/gin-gonic/gin"
-	
+
 	"quantmesh/saas"
 )
 
@@ -22,25 +22,25 @@ func createSubscriptionHandler(c *gin.Context) {
 		Plan  string `json:"plan" binding:"required"`
 		Email string `json:"email" binding:"required"`
 	}
-	
+
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "无效的请求参数"})
 		return
 	}
-	
+
 	// 获取用户ID
 	userID := c.GetString("user_id")
 	if userID == "" {
 		userID = "demo_user"
 	}
-	
+
 	// 创建订阅
 	subscription, err := billingService.CreateSubscription(userID, req.Email, req.Plan)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{
 		"subscription": subscription,
 		"message":      "订阅创建成功",
@@ -54,13 +54,13 @@ func getSubscriptionHandler(c *gin.Context) {
 	if userID == "" {
 		userID = "demo_user"
 	}
-	
+
 	subscription, err := billingService.GetSubscription(userID)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "未找到订阅"})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{
 		"subscription": subscription,
 	})
@@ -72,22 +72,22 @@ func updateSubscriptionPlanHandler(c *gin.Context) {
 	var req struct {
 		NewPlan string `json:"new_plan" binding:"required"`
 	}
-	
+
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "无效的请求参数"})
 		return
 	}
-	
+
 	userID := c.GetString("user_id")
 	if userID == "" {
 		userID = "demo_user"
 	}
-	
+
 	if err := billingService.UpdateSubscriptionPlan(userID, req.NewPlan); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{"message": "订阅套餐已更新"})
 }
 
@@ -97,19 +97,19 @@ func cancelSubscriptionHandler(c *gin.Context) {
 	var req struct {
 		Immediately bool `json:"immediately"`
 	}
-	
+
 	c.BindJSON(&req)
-	
+
 	userID := c.GetString("user_id")
 	if userID == "" {
 		userID = "demo_user"
 	}
-	
+
 	if err := billingService.CancelSubscription(userID, req.Immediately); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(200, gin.H{"message": "订阅已取消"})
 }
 
@@ -160,7 +160,7 @@ func getPlansHandler(c *gin.Context) {
 			"description": "适合机构、大资金、团队",
 		},
 	}
-	
+
 	c.JSON(200, gin.H{
 		"plans": plans,
 	})
@@ -176,7 +176,6 @@ func stripeWebhookHandler(c *gin.Context) {
 	// - customer.subscription.deleted
 	// - invoice.paid
 	// - invoice.payment_failed
-	
+
 	c.JSON(200, gin.H{"received": true})
 }
-

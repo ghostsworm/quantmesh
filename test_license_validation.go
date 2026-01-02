@@ -51,14 +51,14 @@ func main() {
 	fmt.Println("📋 测试 2: 本地签名验证")
 	fmt.Println("-" + string(make([]rune, 70)) + "-")
 	validator := plugin.NewLicenseValidator()
-	
+
 	for pluginName, licenseKey := range licenses {
 		totalTests++
-		
+
 		// 临时禁用云端验证来测试本地验证
 		info, _ := plugin.ParseLicense(licenseKey)
 		info.CloudVerify = false
-		
+
 		// 这里我们只测试解析和基本验证
 		if time.Now().After(info.ExpiryDate) {
 			logger.Error("❌ %s License 已过期", pluginName)
@@ -72,13 +72,13 @@ func main() {
 
 	fmt.Println("📋 测试 3: 云端 License 验证 (有效 License)")
 	fmt.Println("-" + string(make([]rune, 70)) + "-")
-	
+
 	for pluginName, licenseKey := range licenses {
 		totalTests++
-		
+
 		logger.Info("🔍 验证插件: %s", pluginName)
 		err := validator.ValidatePlugin(pluginName, licenseKey)
-		
+
 		if err != nil {
 			logger.Error("❌ %s License 验证失败: %v", pluginName, err)
 			failedTests++
@@ -86,7 +86,7 @@ func main() {
 			logger.Info("✅ %s License 验证通过 (包含云端验证)", pluginName)
 			passedTests++
 		}
-		
+
 		// 短暂延迟
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -94,19 +94,19 @@ func main() {
 
 	fmt.Println("📋 测试 4: 无效 License 拒绝测试")
 	fmt.Println("-" + string(make([]rune, 70)) + "-")
-	
+
 	invalidLicenses := map[string]string{
-		"格式错误":      "invalid_base64_string",
-		"空 License":   "",
+		"格式错误":       "invalid_base64_string",
+		"空 License":  "",
 		"过期 License": "eyJwbHVnaW5fbmFtZSI6ImFpX3N0cmF0ZWd5IiwiY3VzdG9tZXJfaWQiOiJ0ZXN0IiwiZW1haWwiOiIiLCJwbGFuIjoicHJvZmVzc2lvbmFsIiwiZXhwaXJ5X2RhdGUiOiIyMDIwLTAxLTAxVDAwOjAwOjAwWiIsImlzc3VlZF9hdCI6IjIwMjAtMDEtMDFUMDA6MDA6MDBaIiwiY2xvdWRfdmVyaWZ5IjpmYWxzZSwic2lnbmF0dXJlIjoiIn0=",
 	}
-	
+
 	for testName, licenseKey := range invalidLicenses {
 		totalTests++
-		
+
 		logger.Info("🔍 测试: %s", testName)
 		err := validator.ValidatePlugin("test_plugin", licenseKey)
-		
+
 		if err != nil {
 			logger.Info("✅ 正确拒绝无效 License: %s", testName)
 			logger.Info("   错误信息: %v", err)
@@ -120,10 +120,10 @@ func main() {
 
 	fmt.Println("📋 测试 5: 插件加载器集成测试")
 	fmt.Println("-" + string(make([]rune, 70)) + "-")
-	
+
 	loader := plugin.NewPluginLoader()
 	pluginDir := "../quantmesh-premium/plugins"
-	
+
 	// 尝试加载插件 (带 License)
 	pluginsToLoad := []struct {
 		name string
@@ -134,13 +134,13 @@ func main() {
 		{"multi_strategy", pluginDir + "/multi_strategy/multi_strategy.so", licenses["multi_strategy"]},
 		{"advanced_risk", pluginDir + "/advanced_risk/advanced_risk.so", licenses["advanced_risk"]},
 	}
-	
+
 	for _, p := range pluginsToLoad {
 		totalTests++
-		
+
 		logger.Info("🔍 加载插件: %s", p.name)
 		err := loader.LoadPlugin(p.name, p.path, p.key)
-		
+
 		if err != nil {
 			logger.Error("❌ 插件 %s 加载失败: %v", p.name, err)
 			failedTests++
@@ -148,7 +148,7 @@ func main() {
 			logger.Info("✅ 插件 %s 加载成功 (License 验证通过)", p.name)
 			passedTests++
 		}
-		
+
 		time.Sleep(500 * time.Millisecond)
 	}
 	fmt.Println()
@@ -169,9 +169,8 @@ func main() {
 		fmt.Println("⚠️ 部分测试失败，请检查日志")
 		log.Fatal("测试失败")
 	}
-	
+
 	// 清理
 	loader.UnloadAll()
 	logger.Info("✅ 插件已卸载")
 }
-

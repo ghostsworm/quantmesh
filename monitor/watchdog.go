@@ -14,15 +14,15 @@ import (
 
 // Watchdog 系统资源监控看门狗
 type Watchdog struct {
-	cfg            *config.Config
-	storageService *storage.StorageService
-	logStorage     *storage.LogStorage // 日志存储（用于清理日志）
-	notifier       *notify.NotificationService
-	sampleInterval time.Duration
+	cfg             *config.Config
+	storageService  *storage.StorageService
+	logStorage      *storage.LogStorage // 日志存储（用于清理日志）
+	notifier        *notify.NotificationService
+	sampleInterval  time.Duration
 	cleanupInterval time.Duration
-	ctx            context.Context
-	cancel         context.CancelFunc
-	mu             sync.RWMutex
+	ctx             context.Context
+	cancel          context.CancelFunc
+	mu              sync.RWMutex
 
 	// 通知冷却机制
 	lastNotificationTime map[string]time.Time
@@ -561,4 +561,3 @@ func parseSchedule(schedule string) (int, int) {
 	}
 	return hour, min
 }
-

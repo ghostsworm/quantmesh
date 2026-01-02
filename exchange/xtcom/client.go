@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	XTMainnetBaseURL = "https://sapi.xt.com"           // XT.COM 主网
-	XTTestnetBaseURL = "https://testnet.xt.com"        // XT.COM 测试网
+	XTMainnetBaseURL = "https://sapi.xt.com"    // XT.COM 主网
+	XTTestnetBaseURL = "https://testnet.xt.com" // XT.COM 测试网
 )
 
 // XTClient XT.COM 客户端
@@ -85,7 +85,7 @@ func (c *XTClient) sendRequest(ctx context.Context, method, path string, params 
 	if needSign {
 		timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		signature := c.signRequest(method, path+queryString, timestamp, bodyStr)
-		
+
 		req.Header.Set("xt-validate-appkey", c.apiKey)
 		req.Header.Set("xt-validate-timestamp", timestamp)
 		req.Header.Set("xt-validate-signature", signature)
@@ -362,23 +362,23 @@ type APIResponse struct {
 }
 
 type Symbol struct {
-	Symbol              string `json:"symbol"`
-	BaseCurrency        string `json:"baseCurrency"`
-	QuoteCurrency       string `json:"quoteCurrency"`
-	PricePrecision      int    `json:"pricePrecision"`
-	QuantityPrecision   int    `json:"quantityPrecision"`
-	MinQuantity         string `json:"minQuantity"`
-	MaxQuantity         string `json:"maxQuantity"`
-	MinAmount           string `json:"minAmount"`
-	MaxAmount           string `json:"maxAmount"`
+	Symbol            string `json:"symbol"`
+	BaseCurrency      string `json:"baseCurrency"`
+	QuoteCurrency     string `json:"quoteCurrency"`
+	PricePrecision    int    `json:"pricePrecision"`
+	QuantityPrecision int    `json:"quantityPrecision"`
+	MinQuantity       string `json:"minQuantity"`
+	MaxQuantity       string `json:"maxQuantity"`
+	MinAmount         string `json:"minAmount"`
+	MaxAmount         string `json:"maxAmount"`
 }
 
 type OrderRequest struct {
-	Symbol       string `json:"symbol"`
-	Side         string `json:"side"`         // BUY, SELL
-	Type         string `json:"type"`         // LIMIT, MARKET
-	Quantity     string `json:"quantity"`
-	Price        string `json:"price,omitempty"`
+	Symbol        string `json:"symbol"`
+	Side          string `json:"side"` // BUY, SELL
+	Type          string `json:"type"` // LIMIT, MARKET
+	Quantity      string `json:"quantity"`
+	Price         string `json:"price,omitempty"`
 	ClientOrderID string `json:"clientOrderId,omitempty"`
 }
 
@@ -416,4 +416,3 @@ type Kline struct {
 	Close  string `json:"c"`
 	Volume string `json:"v"`
 }
-

@@ -32,19 +32,19 @@ func TestNewBitrueClient(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	client := NewBitrueClient("test_key", "test_secret", false)
-	
+
 	queryString := "symbol=BTCUSDT&timestamp=1234567890"
 	signature := client.signRequest(queryString)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证签名长度（HMAC-SHA256 应该产生 64 字符的十六进制字符串）
 	if len(signature) != 64 {
 		t.Errorf("签名长度错误: 期望 64, 得到 %d", len(signature))
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := client.signRequest(queryString)
 	if signature != signature2 {
@@ -135,4 +135,3 @@ func TestAdapterGetQuantityDecimals(t *testing.T) {
 		t.Errorf("数量精度应该大于 0, 得到 %d", decimals)
 	}
 }
-

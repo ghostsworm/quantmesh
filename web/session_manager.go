@@ -136,12 +136,12 @@ func (sm *SessionManager) SetSessionCookie(w http.ResponseWriter, sessionID stri
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // 本地开发环境使用 HTTP，不需要 Secure 标志
+		Secure:   false,                // 本地开发环境使用 HTTP，不需要 Secure 标志
 		SameSite: http.SameSiteLaxMode, // 使用 Lax 模式，确保同站请求能正常携带 Cookie
 		MaxAge:   int(sm.sessionTimeout.Seconds()),
 	}
 	http.SetCookie(w, cookie)
-	
+
 	// 调试日志
 	println("✓ Cookie 已设置:")
 	println("  Name:", cookie.Name)
@@ -178,4 +178,3 @@ func GetSessionManager() *SessionManager {
 	})
 	return globalSessionManager
 }
-

@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"golang.org/x/crypto/bcrypt"
 	_ "github.com/mattn/go-sqlite3"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // PasswordManager 密码管理器
@@ -127,4 +127,3 @@ func (pm *PasswordManager) HasPassword(username string) (bool, error) {
 func (pm *PasswordManager) Close() error {
 	return pm.db.Close()
 }
-

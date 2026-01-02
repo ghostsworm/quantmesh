@@ -62,7 +62,7 @@ func (w *krakenWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderReq
 	}
 
 	krakenResults, allSuccess := w.adapter.BatchPlaceOrders(ctx, krakenOrders)
-	
+
 	results := make([]*Order, 0, len(krakenResults))
 	for _, krakenOrder := range krakenResults {
 		results = append(results, convertKrakenOrderToExchangeOrder(krakenOrder))
@@ -281,8 +281,6 @@ func parseKrakenOrderID(orderID string) int64 {
 	id, _ := strconv.ParseInt(orderID, 10, 64)
 	return id
 }
-
-
 
 // GetSpotPrice 获取现货市场价格（未实现）
 func (w *krakenWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

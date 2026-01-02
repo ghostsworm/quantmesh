@@ -42,7 +42,7 @@ type MockGridExchange struct {
 	position.IExchange
 }
 
-func (m *MockGridExchange) GetName() string { return "mock" }
+func (m *MockGridExchange) GetName() string      { return "mock" }
 func (m *MockGridExchange) GetBaseAsset() string { return "BTC" }
 func (m *MockGridExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
 	return nil, nil
@@ -58,7 +58,7 @@ func TestGridStrategy_Delegation(t *testing.T) {
 
 	executor := &MockGridExecutor{}
 	ex := &MockGridExchange{}
-	
+
 	// 创建 SuperPositionManager
 	spm := position.NewSuperPositionManager(cfg, executor, ex, 2, 3)
 	spm.Initialize(50000.0, "50000.00")
@@ -82,4 +82,3 @@ func TestGridStrategy_Delegation(t *testing.T) {
 		t.Fatalf("OnOrderUpdate failed: %v", err)
 	}
 }
-

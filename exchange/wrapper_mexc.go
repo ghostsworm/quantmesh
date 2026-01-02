@@ -283,7 +283,6 @@ func (w *mexcWrapper) GetFundingRate(ctx context.Context, symbol string) (float6
 	return w.adapter.GetFundingRate(ctx)
 }
 
-
 // GetSpotPrice 获取现货市场价格（未实现）
 func (w *mexcWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return 0, ErrNotImplemented

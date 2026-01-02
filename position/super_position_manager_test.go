@@ -2,8 +2,8 @@ package position
 
 import (
 	"context"
-	"testing"
 	"quantmesh/config"
+	"testing"
 )
 
 // MockExecutor 模拟订单执行器
@@ -58,7 +58,7 @@ func (m *MockExchange) GetOpenOrders(ctx context.Context, symbol string) (interf
 func (m *MockExchange) GetOrder(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
 	return nil, nil
 }
-func (m *MockExchange) GetBaseAsset() string { return "BTC" }
+func (m *MockExchange) GetBaseAsset() string                                     { return "BTC" }
 func (m *MockExchange) CancelAllOrders(ctx context.Context, symbol string) error { return nil }
 
 func TestSuperPositionManager_Initialize(t *testing.T) {
@@ -152,4 +152,3 @@ func TestSuperPositionManager_OnOrderUpdate(t *testing.T) {
 		t.Errorf("槽位持仓状态错误: 期望 FILLED, 得到 %s", testSlot.PositionStatus)
 	}
 }
-

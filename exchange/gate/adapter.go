@@ -752,35 +752,35 @@ func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float6
 func (g *GateAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	// 转换为 Gate.io 现货格式: BTCUSDT -> BTC_USDT
 	spotSymbol := convertToGateSymbol(symbol)
-	
+
 	// Gate.io 现货 API: GET /api/v4/spot/tickers
 	path := "/spot/tickers"
 	queryString := fmt.Sprintf("currency_pair=%s", spotSymbol)
-	
+
 	respBody, err := g.client.DoRequest(ctx, "GET", path, queryString, nil)
 	if err != nil {
 		return 0, fmt.Errorf("获取现货价格失败: %w", err)
 	}
-	
+
 	// 解析响应
 	var results []struct {
 		CurrencyPair string `json:"currency_pair"`
 		Last         string `json:"last"`
 	}
-	
+
 	if err := json.Unmarshal(respBody, &results); err != nil {
 		return 0, fmt.Errorf("解析响应失败: %w", err)
 	}
-	
+
 	if len(results) == 0 {
 		return 0, fmt.Errorf("未找到交易对 %s 的现货价格", symbol)
 	}
-	
+
 	price, err := strconv.ParseFloat(results[0].Last, 64)
 	if err != nil {
 		return 0, fmt.Errorf("解析价格失败: %w", err)
 	}
-	
+
 	return price, nil
 }
 

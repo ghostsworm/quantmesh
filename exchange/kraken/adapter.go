@@ -12,14 +12,14 @@ import (
 
 // Adapter Kraken 适配器
 type Adapter struct {
-	client            *KrakenClient
-	wsManager         *WebSocketManager
-	klineWSManager    *KlineWebSocketManager
-	symbol            string
-	priceDecimals     int
-	quantityDecimals  int
-	baseAsset         string
-	quoteAsset        string
+	client           *KrakenClient
+	wsManager        *WebSocketManager
+	klineWSManager   *KlineWebSocketManager
+	symbol           string
+	priceDecimals    int
+	quantityDecimals int
+	baseAsset        string
+	quoteAsset       string
 }
 
 // NewKrakenAdapter 创建 Kraken 适配器
@@ -72,13 +72,13 @@ func convertToKrakenSymbol(symbol string) string {
 	symbol = strings.ToUpper(symbol)
 	// 只移除末尾的 USDT
 	symbol = strings.TrimSuffix(symbol, "USDT")
-	
+
 	// BTC -> XBT (Kraken 使用 XBT 代表 BTC)
 	// 只替换开头的 BTC，避免替换符号内部出现的 BTC
 	if strings.HasPrefix(symbol, "BTC") {
 		symbol = "XBT" + strings.TrimPrefix(symbol, "BTC")
 	}
-	
+
 	return "PI_" + symbol + "USD"
 }
 
@@ -110,7 +110,7 @@ func (a *Adapter) GetName() string {
 // PlaceOrder 下单
 func (a *Adapter) PlaceOrder(ctx context.Context, req *KrakenOrderRequest) (*Order, error) {
 	clientOrderID := fmt.Sprintf("order_%d", req.Timestamp)
-	
+
 	orderReq := &OrderRequest{
 		ClientOrderID:    clientOrderID,
 		Symbol:           a.symbol,
@@ -461,4 +461,3 @@ func convertIntervalToResolution(interval string) string {
 		return "1h" // 默认 1 小时
 	}
 }
-

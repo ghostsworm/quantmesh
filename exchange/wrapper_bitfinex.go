@@ -60,7 +60,7 @@ func (w *bitfinexWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderR
 	}
 
 	bitfinexResults, allSuccess := w.adapter.BatchPlaceOrders(ctx, bitfinexOrders)
-	
+
 	results := make([]*Order, 0, len(bitfinexResults))
 	for _, bitfinexOrder := range bitfinexResults {
 		results = append(results, convertBitfinexOrderToExchangeOrder(bitfinexOrder))
@@ -136,12 +136,12 @@ func (w *bitfinexWrapper) GetPositions(ctx context.Context, symbol string) ([]*P
 		}
 
 		positions = append(positions, &Position{
-			Symbol:         bitfinexPos.Symbol,
-			Size:           size,
-			EntryPrice:     bitfinexPos.EntryPrice,
-			MarkPrice:      bitfinexPos.MarkPrice,
-			UnrealizedPNL:  bitfinexPos.UnrealizedPnL,
-			Leverage:       int(bitfinexPos.Leverage),
+			Symbol:        bitfinexPos.Symbol,
+			Size:          size,
+			EntryPrice:    bitfinexPos.EntryPrice,
+			MarkPrice:     bitfinexPos.MarkPrice,
+			UnrealizedPNL: bitfinexPos.UnrealizedPnL,
+			Leverage:      int(bitfinexPos.Leverage),
 		})
 	}
 	return positions, nil
@@ -269,7 +269,6 @@ func parseBitfinexOrderID(orderID string) int64 {
 	id, _ := strconv.ParseInt(orderID, 10, 64)
 	return id
 }
-
 
 // GetSpotPrice 获取现货市场价格（未实现）
 func (w *bitfinexWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

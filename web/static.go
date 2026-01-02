@@ -32,4 +32,3 @@ func GetAssetsFS() http.FileSystem {
 	}
 	return http.FS(assetsFS)
 }
-

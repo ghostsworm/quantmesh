@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	BingXMainnetBaseURL = "https://open-api.bingx.com"       // BingX 主网
-	BingXTestnetBaseURL = "https://open-api-vst.bingx.com"   // BingX 测试网
+	BingXMainnetBaseURL = "https://open-api.bingx.com"     // BingX 主网
+	BingXTestnetBaseURL = "https://open-api-vst.bingx.com" // BingX 测试网
 )
 
 // BingXClient BingX 客户端
@@ -174,10 +174,10 @@ func (c *BingXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order
 	path := "/openApi/swap/v2/trade/order"
 	params := url.Values{}
 	params.Set("symbol", req.Symbol)
-	params.Set("side", req.Side)           // BUY, SELL
+	params.Set("side", req.Side)                 // BUY, SELL
 	params.Set("positionSide", req.PositionSide) // LONG, SHORT
-	params.Set("type", req.Type)           // LIMIT, MARKET
-	
+	params.Set("type", req.Type)                 // LIMIT, MARKET
+
 	if req.Price > 0 {
 		params.Set("price", fmt.Sprintf("%.8f", req.Price))
 	}
@@ -404,21 +404,21 @@ type ExchangeInfo struct {
 }
 
 type ContractDetail struct {
-	Symbol          string  `json:"symbol"`
-	Size            float64 `json:"size"`
-	QuantityPrecision int   `json:"quantityPrecision"`
-	PricePrecision  int     `json:"pricePrecision"`
-	FeeRate         float64 `json:"feeRate"`
-	TradeMinLimit   float64 `json:"tradeMinLimit"`
-	Currency        string  `json:"currency"`
-	Asset           string  `json:"asset"`
+	Symbol            string  `json:"symbol"`
+	Size              float64 `json:"size"`
+	QuantityPrecision int     `json:"quantityPrecision"`
+	PricePrecision    int     `json:"pricePrecision"`
+	FeeRate           float64 `json:"feeRate"`
+	TradeMinLimit     float64 `json:"tradeMinLimit"`
+	Currency          string  `json:"currency"`
+	Asset             string  `json:"asset"`
 }
 
 type OrderRequest struct {
 	Symbol        string
-	Side          string  // BUY, SELL
-	PositionSide  string  // LONG, SHORT
-	Type          string  // LIMIT, MARKET
+	Side          string // BUY, SELL
+	PositionSide  string // LONG, SHORT
+	Type          string // LIMIT, MARKET
 	Price         float64
 	Quantity      float64
 	ClientOrderID string
@@ -475,17 +475,17 @@ type PositionInfo struct {
 }
 
 type TickerInfo struct {
-	Symbol       string  `json:"symbol"`
-	LastPrice    float64 `json:"lastPrice,string"`
-	BidPrice     float64 `json:"bidPrice,string"`
-	AskPrice     float64 `json:"askPrice,string"`
-	Volume       float64 `json:"volume,string"`
-	OpenPrice    float64 `json:"openPrice,string"`
-	HighPrice    float64 `json:"highPrice,string"`
-	LowPrice     float64 `json:"lowPrice,string"`
-	PriceChange  float64 `json:"priceChange,string"`
-	FundingRate  float64 `json:"fundingRate,string"`
-	Time         int64   `json:"time"`
+	Symbol      string  `json:"symbol"`
+	LastPrice   float64 `json:"lastPrice,string"`
+	BidPrice    float64 `json:"bidPrice,string"`
+	AskPrice    float64 `json:"askPrice,string"`
+	Volume      float64 `json:"volume,string"`
+	OpenPrice   float64 `json:"openPrice,string"`
+	HighPrice   float64 `json:"highPrice,string"`
+	LowPrice    float64 `json:"lowPrice,string"`
+	PriceChange float64 `json:"priceChange,string"`
+	FundingRate float64 `json:"fundingRate,string"`
+	Time        int64   `json:"time"`
 }
 
 type Kline struct {

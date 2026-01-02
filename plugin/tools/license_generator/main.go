@@ -69,4 +69,3 @@ func main() {
 	fmt.Println(licenseKey)
 	fmt.Println("\n请将此密钥提供给客户")
 }
-

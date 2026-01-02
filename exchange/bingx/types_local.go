@@ -101,4 +101,3 @@ func ConvertInterval(interval string) BingXInterval {
 		return BingXInterval1m
 	}
 }
-

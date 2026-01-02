@@ -223,4 +223,3 @@ func (cw *ConfigWatcher) GetUpdateChan() <-chan *Config {
 func (cw *ConfigWatcher) GetErrorChan() <-chan error {
 	return cw.errorChan
 }
-

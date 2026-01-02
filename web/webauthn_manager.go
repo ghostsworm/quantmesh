@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/go-webauthn/webauthn/webauthn"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // WebAuthnLogger WebAuthn 日志接口
@@ -207,9 +207,9 @@ func (wm *WebAuthnManager) GetUser(username string) (*WebAuthnUser, error) {
 // SaveCredential 保存凭证
 func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *webauthn.Credential, deviceName string) error {
 	credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
-	
+
 	if wm.log != nil {
-		wm.log.Debugf("[WebAuthn] 开始保存凭证 - Username: %s, DeviceName: %s, CredentialID: %s", 
+		wm.log.Debugf("[WebAuthn] 开始保存凭证 - Username: %s, DeviceName: %s, CredentialID: %s",
 			username, deviceName, credentialID)
 	}
 
@@ -225,7 +225,7 @@ func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *w
 	counter := credential.Authenticator.SignCount
 
 	if wm.log != nil {
-		wm.log.Debugf("[WebAuthn] 执行数据库插入 - CredentialID: %s, Counter: %d, PublicKey长度: %d", 
+		wm.log.Debugf("[WebAuthn] 执行数据库插入 - CredentialID: %s, Counter: %d, PublicKey长度: %d",
 			credentialID, counter, len(publicKeyJSON))
 	}
 
@@ -233,7 +233,7 @@ func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *w
 		INSERT INTO webauthn_credentials (id, user_id, username, credential_id, public_key, counter, device_name)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, credentialID, userID, username, credentialID, string(publicKeyJSON), counter, deviceName)
-	
+
 	if err != nil {
 		if wm.log != nil {
 			wm.log.Errorf("[WebAuthn] 数据库插入失败: %v", err)
@@ -243,7 +243,7 @@ func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *w
 
 	rowsAffected, _ := result.RowsAffected()
 	if wm.log != nil {
-		wm.log.Infof("[WebAuthn] 凭证保存成功 - Username: %s, DeviceName: %s, CredentialID: %s, 影响行数: %d", 
+		wm.log.Infof("[WebAuthn] 凭证保存成功 - Username: %s, DeviceName: %s, CredentialID: %s, 影响行数: %d",
 			username, deviceName, credentialID, rowsAffected)
 	}
 
@@ -316,7 +316,7 @@ func (wm *WebAuthnManager) ListCredentials(username string) ([]CredentialInfo, e
 		count++
 
 		if wm.log != nil {
-			wm.log.Debugf("[WebAuthn] 找到凭证 - ID: %s, DeviceName: %s, CreatedAt: %v, IsActive: %v", 
+			wm.log.Debugf("[WebAuthn] 找到凭证 - ID: %s, DeviceName: %s, CreatedAt: %v, IsActive: %v",
 				cred.ID, cred.DeviceName, cred.CreatedAt, cred.IsActive)
 		}
 	}
@@ -365,4 +365,3 @@ func (wm *WebAuthnManager) HasCredentials(username string) (bool, error) {
 func (wm *WebAuthnManager) Close() error {
 	return wm.db.Close()
 }
-

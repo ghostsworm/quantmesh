@@ -110,9 +110,9 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(f
 // subscribePriceStream 订阅价格流
 func (w *WebSocketManager) subscribePriceStream() error {
 	subscribeMsg := map[string]interface{}{
-		"event":        "subscribe",
-		"feed":         "ticker",
-		"product_ids":  []string{w.symbol},
+		"event":       "subscribe",
+		"feed":        "ticker",
+		"product_ids": []string{w.symbol},
 	}
 	if err := w.conn.WriteJSON(subscribeMsg); err != nil {
 		return fmt.Errorf("subscribe price stream error: %w", err)
@@ -204,14 +204,14 @@ func (w *WebSocketManager) handleOrderUpdate(message []byte) {
 	var orderUpdate struct {
 		Feed string `json:"feed"`
 		Data []struct {
-			OrderID    string  `json:"order_id"`
-			CliOrdId   string  `json:"cliOrdId"`
-			Symbol     string  `json:"instrument"`
-			Side       string  `json:"side"`
-			Quantity   int     `json:"qty"`
-			Filled     int     `json:"filled"`
-			Price      float64 `json:"price"`
-			FillTime   string  `json:"fillTime"`
+			OrderID  string  `json:"order_id"`
+			CliOrdId string  `json:"cliOrdId"`
+			Symbol   string  `json:"instrument"`
+			Side     string  `json:"side"`
+			Quantity int     `json:"qty"`
+			Filled   int     `json:"filled"`
+			Price    float64 `json:"price"`
+			FillTime string  `json:"fillTime"`
 		} `json:"fills"`
 	}
 
@@ -237,9 +237,9 @@ func (w *WebSocketManager) handlePriceUpdate(message []byte) {
 	}
 
 	var priceUpdate struct {
-		Feed   string `json:"feed"`
-		Symbol string `json:"product_id"`
-		Time   int64  `json:"time"`
+		Feed   string  `json:"feed"`
+		Symbol string  `json:"product_id"`
+		Time   int64   `json:"time"`
 		Bid    float64 `json:"bid"`
 		Ask    float64 `json:"ask"`
 		Last   float64 `json:"last"`
@@ -311,4 +311,3 @@ func (w *WebSocketManager) Stop() {
 	}
 	logger.Info("Kraken WebSocket stopped")
 }
-

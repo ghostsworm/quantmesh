@@ -296,7 +296,7 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 			clientOrderID, price, spm.anchorPrice, spm.priceDecimals)
 		logger.Warn("💡 [可能原因] 1) 此订单属于其他交易对 2) priceDecimals 参数错误 3) 历史遗留订单")
 		logger.Warn("💡 [建议] 检查是否运行了多个交易对，确保订单推送已正确过滤 Symbol")
-		
+
 		// 尝试使用不同的 priceDecimals 重新解析（用于诊断）
 		for testDecimals := 1; testDecimals <= 3; testDecimals++ {
 			if testDecimals == spm.priceDecimals {
@@ -308,7 +308,7 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 				return testPrice, side, true
 			}
 		}
-		
+
 		// 无法修复，返回无效（避免创建错误的槽位）
 		return 0, "", false
 	}
@@ -832,7 +832,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					if sellPrice <= 0 {
 						sellPrice = slot.OrderPrice
 					}
-					
+
 					// 🔥 验证价格和数量的合理性
 					if buyPrice <= 0 || sellPrice <= 0 || deltaQty <= 0 {
 						logger.Warn("⚠️ [交易记录异常] 买入价: %.2f, 卖出价: %.2f, 数量: %.4f, 跳过保存",
@@ -841,7 +841,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						// 计算盈亏：(卖出价格 - 买入价格) * 数量
 						// 注意：对于USDT本位合约（如BTCUSDT），价格是USDT，数量是BTC，盈亏单位是USDT
 						pnl := (sellPrice - buyPrice) * deltaQty
-						
+
 						// 🔥 添加合理性检查：如果盈亏异常大，记录警告
 						// 对于BTCUSDT，如果价格差是100 USDT，数量是0.01 BTC，盈亏应该是1 USDT
 						// 如果盈亏超过订单金额的50%，可能是计算错误
@@ -850,7 +850,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 							logger.Warn("⚠️ [盈亏异常] 买入价: %.2f, 卖出价: %.2f, 数量: %.4f, 盈亏: %.2f, 订单金额: %.2f, 盈亏率: %.2f%%",
 								buyPrice, sellPrice, deltaQty, pnl, orderAmount, (pnl/orderAmount)*100)
 						}
-						
+
 						// 保存交易记录（买入订单ID设为0，因为无法追溯历史订单）
 						buyOrderID := int64(0)
 						sellOrderID := update.OrderID
@@ -1055,7 +1055,7 @@ func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
 		price := key.(float64)
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
-		
+
 		slots = append(slots, DetailedSlotData{
 			Price:          price,
 			PositionStatus: slot.PositionStatus,
@@ -1069,7 +1069,7 @@ func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
 			OrderCreatedAt: slot.OrderCreatedAt,
 			SlotStatus:     slot.SlotStatus,
 		})
-		
+
 		slot.mu.RUnlock()
 		return true
 	})

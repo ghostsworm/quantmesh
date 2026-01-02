@@ -77,4 +77,3 @@ func (eb *EventBus) Subscribe() <-chan *Event {
 func (eb *EventBus) Close() {
 	close(eb.eventCh)
 }
-

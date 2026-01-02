@@ -296,4 +296,3 @@ func (td *TrendDetector) UpdateWindows(buyWindow, sellWindow int) {
 	td.cfg.Trading.SellWindowSize = sellWindow
 	logger.Info("✅ [智能仓位] 窗口大小已更新: 买单窗口=%d, 卖单窗口=%d", buyWindow, sellWindow)
 }
-

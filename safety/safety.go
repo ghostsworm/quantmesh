@@ -87,7 +87,7 @@ func CheckAccountSafety(ex exchange.IExchange, symbol string, currentPrice, orde
 	if effectiveMaxLeverage == 0 {
 		effectiveMaxLeverage = DefaultMaxLeverage
 	}
-	
+
 	if effectiveMaxLeverage > 0 && leverage > effectiveMaxLeverage {
 		return fmt.Errorf("您的账户杠杆倍率太高（%dx），风险太大，禁止开仓。最大允许杠杆倍数: %dx（可在配置文件中修改 risk_control.max_leverage）", leverage, effectiveMaxLeverage)
 	}

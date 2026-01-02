@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"quantmesh/config"
-	"quantmesh/exchange"
 	"quantmesh/event"
+	"quantmesh/exchange"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/monitor"
@@ -21,22 +21,22 @@ import (
 
 // SymbolRuntime 代表单个交易所/交易对的运行时组件集合
 type SymbolRuntime struct {
-	Config                config.SymbolConfig
-	Exchange              exchange.IExchange
-	PriceMonitor          *monitor.PriceMonitor
-	RiskMonitor           *safety.RiskMonitor
-	SuperPositionManager  *position.SuperPositionManager
-	OrderCleaner          *safety.OrderCleaner
-	Reconciler            *safety.Reconciler
-	TrendDetector         *strategy.TrendDetector
-	DynamicAdjuster       *strategy.DynamicAdjuster
-	StrategyManager       *strategy.StrategyManager
-	ExchangeExecutor      *order.ExchangeOrderExecutor
-	ExecutorAdapter       *exchangeExecutorAdapter
-	ExchangeAdapter       *positionExchangeAdapter
-	EventBus              *event.EventBus
-	StorageService        *storage.StorageService
-	Stop                  func()
+	Config               config.SymbolConfig
+	Exchange             exchange.IExchange
+	PriceMonitor         *monitor.PriceMonitor
+	RiskMonitor          *safety.RiskMonitor
+	SuperPositionManager *position.SuperPositionManager
+	OrderCleaner         *safety.OrderCleaner
+	Reconciler           *safety.Reconciler
+	TrendDetector        *strategy.TrendDetector
+	DynamicAdjuster      *strategy.DynamicAdjuster
+	StrategyManager      *strategy.StrategyManager
+	ExchangeExecutor     *order.ExchangeOrderExecutor
+	ExecutorAdapter      *exchangeExecutorAdapter
+	ExchangeAdapter      *positionExchangeAdapter
+	EventBus             *event.EventBus
+	StorageService       *storage.StorageService
+	Stop                 func()
 }
 
 // SymbolManager 管理多个 SymbolRuntime
@@ -124,7 +124,7 @@ func startSymbolRuntime(
 	logger.Info("🔐 [%s:%s] 开始检测 API 权限...", symCfg.Exchange, symCfg.Symbol)
 	permCheckCtx, permCheckCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer permCheckCancel()
-	
+
 	if checker, ok := ex.(exchange.PermissionChecker); ok {
 		permissions, err := checker.CheckAPIPermissions(permCheckCtx)
 		if err != nil {
@@ -140,9 +140,9 @@ func startSymbolRuntime(
 				// 可以选择是否继续启动，这里我们记录错误但继续
 				logger.Warn("⚠️ [%s:%s] 尽管存在安全风险，系统仍将继续启动。强烈建议修改 API 权限设置！", symCfg.Exchange, symCfg.Symbol)
 			} else {
-				logger.Info("✅ [%s:%s] API 权限检测通过 (安全评分: %d/100, 风险等级: %s)", 
+				logger.Info("✅ [%s:%s] API 权限检测通过 (安全评分: %d/100, 风险等级: %s)",
 					symCfg.Exchange, symCfg.Symbol, permissions.SecurityScore, permissions.RiskLevel)
-				
+
 				// 显示建议
 				warnings := permissions.GetWarnings()
 				if len(warnings) > 0 {
@@ -195,12 +195,12 @@ func startSymbolRuntime(
 	// 2. 否则使用币安期货默认Taker费率（0.04%）作为保守估计
 	configFeeRate := baseCfg.Exchanges[symCfg.Exchange].FeeRate
 	feeRate := configFeeRate
-	
+
 	if symCfg.Exchange == "binance" {
 		// 币安期货默认费率：Maker 0.02%, Taker 0.04%
 		// 网格策略使用限价单，通常作为Maker成交，但为保守起见使用Taker费率
 		defaultBinanceTakerFee := 0.0004 // 0.04%
-		
+
 		if configFeeRate == 0 {
 			// 配置文件中未设置或设置为0，使用默认Taker费率
 			feeRate = defaultBinanceTakerFee
@@ -578,4 +578,3 @@ func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
 		UpdateTime:    getInt64Field("UpdateTime"),
 	}
 }
-

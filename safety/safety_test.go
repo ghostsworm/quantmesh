@@ -128,4 +128,3 @@ func TestCheckAccountSafety(t *testing.T) {
 		})
 	}
 }
-

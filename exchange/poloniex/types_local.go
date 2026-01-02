@@ -98,4 +98,3 @@ func ConvertInterval(interval string) PoloniexInterval {
 		return PoloniexInterval1m
 	}
 }
-

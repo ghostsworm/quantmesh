@@ -56,4 +56,3 @@ func TestDynamicAdjuster_AdjustWindowSize(t *testing.T) {
 		t.Errorf("低利用率下窗口应增加, 得到 %d", cfg.Trading.BuyWindowSize)
 	}
 }
-

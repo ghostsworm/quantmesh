@@ -22,17 +22,17 @@ func TestNewKrakenClient(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	client := NewKrakenClient("test_key", "test_secret")
-	
+
 	path := "/0/private/Balance"
 	nonce := "1234567890"
 	postData := "nonce=1234567890"
-	
+
 	signature := client.signRequest(path, nonce, postData)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := client.signRequest(path, nonce, postData)
 	if signature != signature2 {
@@ -90,4 +90,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

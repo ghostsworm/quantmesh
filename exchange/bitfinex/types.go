@@ -71,7 +71,7 @@ type Order struct {
 // Position 持仓信息
 type Position struct {
 	Symbol        string
-	Side          string  // LONG/SHORT
+	Side          string // LONG/SHORT
 	Size          float64
 	EntryPrice    float64
 	MarkPrice     float64

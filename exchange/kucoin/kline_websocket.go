@@ -150,9 +150,9 @@ func (k *KlineWebSocketManager) handleCandleUpdate(data json.RawMessage) {
 	}
 
 	var candleUpdate struct {
-		Symbol    string  `json:"symbol"`
-		Candles   []interface{} `json:"candles"` // [timestamp, open, close, high, low, volume, turnover]
-		Time      int64   `json:"time"`
+		Symbol  string        `json:"symbol"`
+		Candles []interface{} `json:"candles"` // [timestamp, open, close, high, low, volume, turnover]
+		Time    int64         `json:"time"`
 	}
 
 	if err := json.Unmarshal(data, &candleUpdate); err != nil {
@@ -254,4 +254,3 @@ func (k *KlineWebSocketManager) Stop() {
 	}
 	logger.Info("KuCoin K线 WebSocket stopped")
 }
-

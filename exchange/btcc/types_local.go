@@ -99,4 +99,3 @@ func ConvertInterval(interval string) BTCCInterval {
 		return BTCCInterval1m
 	}
 }
-

@@ -23,10 +23,10 @@ import (
 // respondError 返回翻译后的错误响应
 func respondError(c *gin.Context, status int, messageKey string, args ...interface{}) {
 	lang := GetLanguage(c)
-	
+
 	var data map[string]interface{}
 	var errObj error
-	
+
 	// 解析参数
 	for _, arg := range args {
 		if err, ok := arg.(error); ok {
@@ -35,16 +35,16 @@ func respondError(c *gin.Context, status int, messageKey string, args ...interfa
 			data = m
 		}
 	}
-	
+
 	// 翻译错误消息
 	message := qmi18n.TWithLang(lang, messageKey, data)
-	
+
 	// 如果有实际的错误对象，添加详细信息（仅在开发模式）
 	if errObj != nil && status >= 500 {
 		// 在生产环境可能需要隐藏详细错误信息
 		message = fmt.Sprintf("%s: %v", message, errObj)
 	}
-	
+
 	c.JSON(status, gin.H{"error": message})
 }
 
@@ -64,7 +64,7 @@ var (
 	// 全局状态（需要从 main.go 注入）
 	currentStatus *SystemStatus
 	// 多交易对状态（key: exchange:symbol）
-	statusBySymbol = make(map[string]*SystemStatus)
+	statusBySymbol   = make(map[string]*SystemStatus)
 	defaultSymbolKey string
 	// 保护 statusBySymbol 的读写锁
 	statusMu sync.RWMutex
@@ -96,15 +96,15 @@ func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedPro
 		return
 	}
 	key := makeSymbolKey(exchange, symbol)
-	
-	logger.Info("[DEBUG] RegisterSymbolProviders - registering key=%s, hasPosition=%v, hasPrice=%v", 
+
+	logger.Info("[DEBUG] RegisterSymbolProviders - registering key=%s, hasPosition=%v, hasPrice=%v",
 		key, providers.Position != nil, providers.Price != nil)
-	
+
 	// 使用写锁保护并发写入
 	statusMu.Lock()
 	statusBySymbol[key] = providers.Status
 	statusMu.Unlock()
-	
+
 	providersMu.Lock()
 	if providers.Price != nil {
 		priceProviders[key] = providers.Price
@@ -135,7 +135,7 @@ func RegisterFundingProvider(exchange, symbol string, provider FundingMonitorPro
 		return
 	}
 	key := makeSymbolKey(exchange, symbol)
-	
+
 	// 使用写锁保护并发写入
 	providersMu.Lock()
 	fundingProviders[key] = provider
@@ -214,19 +214,19 @@ func pickExchangeProvider(c *gin.Context) ExchangeProvider {
 func pickPositionProvider(c *gin.Context) PositionManagerProvider {
 	key := resolveSymbolKey(c)
 	logger.Info("[DEBUG] pickPositionProvider - resolvedKey=%s", key)
-	
+
 	if key != "" {
 		providersMu.RLock()
 		p, ok := positionProviders[key]
 		providersMu.RUnlock()
-		
+
 		logger.Info("[DEBUG] pickPositionProvider - found in map: %v, provider!=nil: %v", ok, p != nil)
-		
+
 		if ok && p != nil {
 			return p
 		}
 	}
-	
+
 	logger.Info("[DEBUG] pickPositionProvider - returning default provider")
 	return positionManagerProvider
 }
@@ -291,7 +291,7 @@ func getSymbols(c *gin.Context) {
 	list := make([]SymbolItem, 0)
 	activeList := make([]SymbolItem, 0)
 	inactiveList := make([]SymbolItem, 0)
-	
+
 	// 使用读锁保护遍历操作
 	statusMu.RLock()
 	for _, st := range statusBySymbol {
@@ -311,11 +311,11 @@ func getSymbols(c *gin.Context) {
 		}
 	}
 	statusMu.RUnlock()
-	
+
 	// 活跃的交易对排在前面
 	list = append(list, activeList...)
 	list = append(list, inactiveList...)
-	
+
 	// 向后兼容：如果没有多交易对数据，使用旧的单交易对状态
 	if len(list) == 0 && currentStatus != nil {
 		list = append(list, SymbolItem{
@@ -325,14 +325,14 @@ func getSymbols(c *gin.Context) {
 			CurrentPrice: currentStatus.CurrentPrice,
 		})
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"symbols": list})
 }
 
 // getExchanges 返回所有配置的交易所列表
 func getExchanges(c *gin.Context) {
 	exchangeSet := make(map[string]bool)
-	
+
 	// 使用读锁保护遍历操作
 	statusMu.RLock()
 	for _, st := range statusBySymbol {
@@ -342,38 +342,38 @@ func getExchanges(c *gin.Context) {
 		exchangeSet[st.Exchange] = true
 	}
 	statusMu.RUnlock()
-	
+
 	// 向后兼容
 	if len(exchangeSet) == 0 && currentStatus != nil {
 		exchangeSet[currentStatus.Exchange] = true
 	}
-	
+
 	exchanges := make([]string, 0, len(exchangeSet))
 	for ex := range exchangeSet {
 		exchanges = append(exchanges, ex)
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"exchanges": exchanges})
 }
 
 // PositionSummary 持仓汇总信息
 type PositionSummary struct {
-	TotalQuantity    float64 `json:"total_quantity"`     // 总持仓数量
-	TotalValue       float64 `json:"total_value"`        // 总持仓价值（当前价格 * 数量）
-	PositionCount    int     `json:"position_count"`     // 持仓槽位数
-	AveragePrice     float64 `json:"average_price"`       // 平均持仓价格
-	CurrentPrice     float64 `json:"current_price"`       // 当前市场价格
-	UnrealizedPnL    float64 `json:"unrealized_pnl"`      // 未实现盈亏
-	PnlPercentage    float64 `json:"pnl_percentage"`      // 盈亏百分比
-	Positions        []PositionInfo `json:"positions"`     // 持仓列表
+	TotalQuantity float64        `json:"total_quantity"` // 总持仓数量
+	TotalValue    float64        `json:"total_value"`    // 总持仓价值（当前价格 * 数量）
+	PositionCount int            `json:"position_count"` // 持仓槽位数
+	AveragePrice  float64        `json:"average_price"`  // 平均持仓价格
+	CurrentPrice  float64        `json:"current_price"`  // 当前市场价格
+	UnrealizedPnL float64        `json:"unrealized_pnl"` // 未实现盈亏
+	PnlPercentage float64        `json:"pnl_percentage"` // 盈亏百分比
+	Positions     []PositionInfo `json:"positions"`      // 持仓列表
 }
 
 // PositionInfo 单个持仓信息
 type PositionInfo struct {
-	Price          float64 `json:"price"`           // 持仓价格
-	Quantity       float64 `json:"quantity"`        // 持仓数量
-	Value          float64 `json:"value"`           // 持仓价值
-	UnrealizedPnL  float64 `json:"unrealized_pnl"`  // 未实现盈亏
+	Price         float64 `json:"price"`          // 持仓价格
+	Quantity      float64 `json:"quantity"`       // 持仓数量
+	Value         float64 `json:"value"`          // 持仓价值
+	UnrealizedPnL float64 `json:"unrealized_pnl"` // 未实现盈亏
 }
 
 var (
@@ -413,7 +413,7 @@ func getPositions(c *gin.Context) {
 	symbol := c.Query("symbol")
 	resolvedKey := resolveSymbolKey(c)
 	logger.Info("[DEBUG] getPositions called - exchange=%s, symbol=%s, resolvedKey=%s", exchange, symbol, resolvedKey)
-	
+
 	pmProvider := pickPositionProvider(c)
 	priceProv := pickPriceProvider(c)
 
@@ -428,10 +428,10 @@ func getPositions(c *gin.Context) {
 	currentPrice := 0.0
 	if priceProv != nil {
 		currentPrice = priceProv.GetLastPrice()
-		logger.Info("[DEBUG] getPositions - [%s:%s] resolvedKey=%s, priceProvider!=nil, currentPrice=%.2f", 
+		logger.Info("[DEBUG] getPositions - [%s:%s] resolvedKey=%s, priceProvider!=nil, currentPrice=%.2f",
 			exchange, symbol, resolvedKey, currentPrice)
 	} else {
-		logger.Warn("⚠️ [getPositions] [%s:%s] resolvedKey=%s, priceProvider is nil!", 
+		logger.Warn("⚠️ [getPositions] [%s:%s] resolvedKey=%s, priceProvider is nil!",
 			exchange, symbol, resolvedKey)
 	}
 
@@ -445,7 +445,7 @@ func getPositions(c *gin.Context) {
 		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
 			positionCount++
 			totalQuantity += slot.PositionQty
-			
+
 			// 计算持仓价值（使用当前价格）
 			value := slot.PositionQty * currentPrice
 			if currentPrice == 0 {
@@ -459,7 +459,7 @@ func getPositions(c *gin.Context) {
 			if currentPrice > 0 && slot.Price > 0 {
 				// 🔥 添加价格合理性检查：如果当前价格相对于持仓价格偏差过大，可能是价格异常
 				priceDeviation := (currentPrice - slot.Price) / slot.Price
-				
+
 				// 检查是否是单位问题（比如当前价格是持仓价格的100倍或0.01倍）
 				priceRatio := currentPrice / slot.Price
 				adjustedCurrentPrice := currentPrice
@@ -467,7 +467,7 @@ func getPositions(c *gin.Context) {
 					// 当前价格可能是持仓价格的100倍，尝试除以100
 					adjustedPrice := currentPrice / 100
 					if math.Abs(adjustedPrice-slot.Price)/slot.Price < 0.1 {
-						logger.Warn("⚠️ [getPositions] [%s:%s] 检测到价格单位问题（当前价格可能是持仓价格的100倍），已自动修正: %.2f -> %.2f", 
+						logger.Warn("⚠️ [getPositions] [%s:%s] 检测到价格单位问题（当前价格可能是持仓价格的100倍），已自动修正: %.2f -> %.2f",
 							exchange, symbol, currentPrice, adjustedPrice)
 						adjustedCurrentPrice = adjustedPrice
 					}
@@ -475,21 +475,21 @@ func getPositions(c *gin.Context) {
 					// 当前价格可能是持仓价格的0.01倍，尝试乘以100
 					adjustedPrice := currentPrice * 100
 					if math.Abs(adjustedPrice-slot.Price)/slot.Price < 0.1 {
-						logger.Warn("⚠️ [getPositions] [%s:%s] 检测到价格单位问题（当前价格可能是持仓价格的0.01倍），已自动修正: %.2f -> %.2f", 
+						logger.Warn("⚠️ [getPositions] [%s:%s] 检测到价格单位问题（当前价格可能是持仓价格的0.01倍），已自动修正: %.2f -> %.2f",
 							exchange, symbol, currentPrice, adjustedPrice)
 						adjustedCurrentPrice = adjustedPrice
 					}
 				}
-				
+
 				// 重新计算价格偏差
 				priceDeviation = (adjustedCurrentPrice - slot.Price) / slot.Price
 				if priceDeviation > 0.5 || priceDeviation < -0.5 {
 					// 价格偏差仍然过大，使用持仓价格（未实现盈亏为0）
-					logger.Warn("⚠️ [getPositions] [%s:%s] 价格偏差过大，使用持仓价格计算（未实现盈亏设为0）: currentPrice=%.2f, slotPrice=%.2f, 偏差=%.2f%%, resolvedKey=%s", 
+					logger.Warn("⚠️ [getPositions] [%s:%s] 价格偏差过大，使用持仓价格计算（未实现盈亏设为0）: currentPrice=%.2f, slotPrice=%.2f, 偏差=%.2f%%, resolvedKey=%s",
 						exchange, symbol, adjustedCurrentPrice, slot.Price, priceDeviation*100, resolvedKey)
 					adjustedCurrentPrice = slot.Price
 				}
-				
+
 				unrealizedPnL = (adjustedCurrentPrice - slot.Price) * slot.PositionQty
 			}
 
@@ -592,7 +592,7 @@ func getPositionsSummary(c *gin.Context) {
 			positionCount++
 			totalQuantity += slot.PositionQty
 			totalCost += slot.Price * slot.PositionQty
-			
+
 			// 计算持仓价值（使用当前价格）
 			if currentPrice > 0 {
 				totalValue += slot.PositionQty * currentPrice
@@ -614,7 +614,7 @@ func getPositionsSummary(c *gin.Context) {
 	if currentPrice > 0 && totalQuantity > 0 && averagePrice > 0 {
 		// 🔥 添加价格合理性检查：如果当前价格相对于平均价格偏差过大（超过50%），可能是价格异常
 		priceDeviation := (currentPrice - averagePrice) / averagePrice
-		
+
 		// 检查是否是单位问题（比如当前价格是平均价格的100倍或0.01倍）
 		priceRatio := currentPrice / averagePrice
 		if priceRatio > 50 || priceRatio < 0.02 {
@@ -623,7 +623,7 @@ func getPositionsSummary(c *gin.Context) {
 				// 当前价格可能是平均价格的100倍，尝试除以100
 				adjustedPrice := currentPrice / 100
 				if math.Abs(adjustedPrice-averagePrice)/averagePrice < 0.1 {
-					logger.Warn("⚠️ [getPositionsSummary] 检测到价格单位问题（当前价格可能是平均价格的100倍），已自动修正: %.2f -> %.2f", 
+					logger.Warn("⚠️ [getPositionsSummary] 检测到价格单位问题（当前价格可能是平均价格的100倍），已自动修正: %.2f -> %.2f",
 						currentPrice, adjustedPrice)
 					currentPrice = adjustedPrice
 				}
@@ -631,30 +631,30 @@ func getPositionsSummary(c *gin.Context) {
 				// 当前价格可能是平均价格的0.01倍，尝试乘以100
 				adjustedPrice := currentPrice * 100
 				if math.Abs(adjustedPrice-averagePrice)/averagePrice < 0.1 {
-					logger.Warn("⚠️ [getPositionsSummary] 检测到价格单位问题（当前价格可能是平均价格的0.01倍），已自动修正: %.2f -> %.2f", 
+					logger.Warn("⚠️ [getPositionsSummary] 检测到价格单位问题（当前价格可能是平均价格的0.01倍），已自动修正: %.2f -> %.2f",
 						currentPrice, adjustedPrice)
 					currentPrice = adjustedPrice
 				}
 			}
 		}
-		
+
 		// 重新计算价格偏差
 		priceDeviation = (currentPrice - averagePrice) / averagePrice
 		if priceDeviation > 0.5 || priceDeviation < -0.5 {
 			// 价格偏差仍然过大，记录详细警告并使用平均价格
-			logger.Warn("⚠️ [getPositionsSummary] 当前价格异常: currentPrice=%.2f, averagePrice=%.2f, 偏差=%.2f%%, totalQuantity=%.4f", 
+			logger.Warn("⚠️ [getPositionsSummary] 当前价格异常: currentPrice=%.2f, averagePrice=%.2f, 偏差=%.2f%%, totalQuantity=%.4f",
 				currentPrice, averagePrice, priceDeviation*100, totalQuantity)
 			logger.Warn("⚠️ [getPositionsSummary] 价格偏差过大，使用平均价格计算（未实现盈亏设为0）")
 			currentPrice = averagePrice // 使用平均价格，使未实现盈亏为0
 		}
-		
+
 		unrealizedPnL = (currentPrice - averagePrice) * totalQuantity
-		
+
 		// 🔥 添加未实现盈亏合理性检查：如果未实现盈亏相对于持仓成本过大（超过100%），记录警告
 		if totalCost > 0 {
 			pnlRatio := unrealizedPnL / totalCost
 			if pnlRatio > 1.0 || pnlRatio < -1.0 {
-				logger.Warn("⚠️ [getPositionsSummary] 未实现盈亏异常: unrealizedPnL=%.2f, totalCost=%.2f, 比例=%.2f%%, currentPrice=%.2f, averagePrice=%.2f", 
+				logger.Warn("⚠️ [getPositionsSummary] 未实现盈亏异常: unrealizedPnL=%.2f, totalCost=%.2f, 比例=%.2f%%, currentPrice=%.2f, averagePrice=%.2f",
 					unrealizedPnL, totalCost, pnlRatio*100, currentPrice, averagePrice)
 			}
 		}
@@ -696,7 +696,7 @@ func getOrders(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "100")
 	offsetStr := c.DefaultQuery("offset", "0")
 	status := c.Query("status")
-	
+
 	limit := 100
 	offset := 0
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
@@ -721,7 +721,7 @@ func getOrders(c *gin.Context) {
 			"symbol":          order.Symbol,
 			"side":            order.Side,
 			"price":           order.Price,
-			"quantity":       order.Quantity,
+			"quantity":        order.Quantity,
 			"status":          order.Status,
 			"created_at":      utils.ToUTC8(order.CreatedAt),
 			"updated_at":      utils.ToUTC8(order.UpdatedAt),
@@ -749,7 +749,7 @@ func getOrderHistory(c *gin.Context) {
 	// 解析参数
 	limitStr := c.DefaultQuery("limit", "100")
 	offsetStr := c.DefaultQuery("offset", "0")
-	
+
 	limit := 100
 	offset := 0
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
@@ -834,10 +834,10 @@ func getStatistics(c *gin.Context) {
 	storageProv := pickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"total_trades":  0,
-			"total_volume":  0,
-			"total_pnl":     0,
-			"win_rate":      0,
+			"total_trades": 0,
+			"total_volume": 0,
+			"total_pnl":    0,
+			"win_rate":     0,
 		})
 		return
 	}
@@ -845,10 +845,10 @@ func getStatistics(c *gin.Context) {
 	storage := storageProv.GetStorage()
 	if storage == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"total_trades":  0,
-			"total_volume":  0,
-			"total_pnl":     0,
-			"win_rate":      0,
+			"total_trades": 0,
+			"total_volume": 0,
+			"total_pnl":    0,
+			"win_rate":     0,
 		})
 		return
 	}
@@ -866,7 +866,7 @@ func getStatistics(c *gin.Context) {
 		slots := pmProvider.GetAllSlots()
 		totalBuyQty := 0.0
 		totalSellQty := 0.0
-		
+
 		for _, slot := range slots {
 			if slot.OrderSide == "BUY" && slot.OrderStatus == "FILLED" {
 				totalBuyQty += slot.OrderFilledQty
@@ -874,7 +874,7 @@ func getStatistics(c *gin.Context) {
 				totalSellQty += slot.OrderFilledQty
 			}
 		}
-		
+
 		// 估算交易数（买卖配对）
 		totalTrades := int((totalBuyQty + totalSellQty) / 2)
 		if totalTrades > 0 {
@@ -1038,10 +1038,10 @@ func getTradeStatistics(c *gin.Context) {
 
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
-	
+
 	var startTime, endTime time.Time
 	var err error
-	
+
 	if startTimeStr != "" {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
 		if err != nil {
@@ -1051,7 +1051,7 @@ func getTradeStatistics(c *gin.Context) {
 	} else {
 		startTime = utils.NowConfiguredTimezone().AddDate(0, 0, -7) // 默认最近7天
 	}
-	
+
 	if endTimeStr != "" {
 		endTime, err = time.Parse(time.RFC3339, endTimeStr)
 		if err != nil {
@@ -1217,10 +1217,10 @@ func getCurrentSystemMetrics(c *gin.Context) {
 		// 返回完整的对象结构，避免前端访问 undefined 字段
 		c.JSON(http.StatusOK, &SystemMetricsResponse{
 			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:     0,
-			MemoryMB:       0,
-			MemoryPercent:  0,
-			ProcessID:      0,
+			CPUPercent:    0,
+			MemoryMB:      0,
+			MemoryPercent: 0,
+			ProcessID:     0,
 		})
 		return
 	}
@@ -1230,10 +1230,10 @@ func getCurrentSystemMetrics(c *gin.Context) {
 		// 即使出错也返回完整的对象结构
 		c.JSON(http.StatusOK, &SystemMetricsResponse{
 			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:     0,
-			MemoryMB:       0,
-			MemoryPercent:  0,
-			ProcessID:      0,
+			CPUPercent:    0,
+			MemoryMB:      0,
+			MemoryPercent: 0,
+			ProcessID:     0,
 		})
 		return
 	}
@@ -1242,10 +1242,10 @@ func getCurrentSystemMetrics(c *gin.Context) {
 	if metrics == nil {
 		metrics = &SystemMetricsResponse{
 			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:     0,
-			MemoryMB:       0,
-			MemoryPercent:  0,
-			ProcessID:      0,
+			CPUPercent:    0,
+			MemoryMB:      0,
+			MemoryPercent: 0,
+			ProcessID:     0,
 		}
 	}
 
@@ -1309,8 +1309,8 @@ type SlotInfo struct {
 	PositionQty    float64   `json:"position_qty"`
 	OrderID        int64     `json:"order_id"`
 	ClientOID      string    `json:"client_order_id"`
-	OrderSide      string    `json:"order_side"`      // BUY/SELL
-	OrderStatus    string    `json:"order_status"`    // NOT_PLACED/PLACED/CONFIRMED/PARTIALLY_FILLED/FILLED/CANCELED
+	OrderSide      string    `json:"order_side"`   // BUY/SELL
+	OrderStatus    string    `json:"order_status"` // NOT_PLACED/PLACED/CONFIRMED/PARTIALLY_FILLED/FILLED/CANCELED
 	OrderPrice     float64   `json:"order_price"`
 	OrderFilledQty float64   `json:"order_filled_qty"`
 	OrderCreatedAt time.Time `json:"order_created_at"`
@@ -1335,13 +1335,13 @@ func NewPositionManagerAdapter(manager *position.SuperPositionManager) PositionM
 // GetAllSlots 获取所有槽位信息
 func (a *positionManagerAdapter) GetAllSlots() []SlotInfo {
 	detailedSlots := a.manager.GetAllSlotsDetailed()
-	
+
 	// 🔥 调试：打印管理器的交易对信息
 	symbol := a.manager.GetSymbol()
 	anchorPrice := a.manager.GetAnchorPrice()
-	logger.Info("[DEBUG] GetAllSlots called - symbol=%s, anchorPrice=%.2f, slotsCount=%d", 
+	logger.Info("[DEBUG] GetAllSlots called - symbol=%s, anchorPrice=%.2f, slotsCount=%d",
 		symbol, anchorPrice, len(detailedSlots))
-	
+
 	slots := make([]SlotInfo, len(detailedSlots))
 	for i, ds := range detailedSlots {
 		slots[i] = SlotInfo{
@@ -1396,7 +1396,7 @@ func (a *positionManagerAdapter) GetPriceInterval() float64 {
 func getSlots(c *gin.Context) {
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
-	
+
 	pmProvider := pickPositionProvider(c)
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{"slots": []interface{}{}, "count": 0})
@@ -1435,10 +1435,10 @@ type StrategyProvider interface {
 
 // StrategyCapitalInfo 策略资金信息
 type StrategyCapitalInfo struct {
-	Allocated float64 `json:"allocated"` // 分配的资金
-	Used      float64 `json:"used"`      // 已使用的资金（保证金）
-	Available float64 `json:"available"` // 可用资金
-	Weight    float64 `json:"weight"`    // 权重
+	Allocated float64 `json:"allocated"`  // 分配的资金
+	Used      float64 `json:"used"`       // 已使用的资金（保证金）
+	Available float64 `json:"available"`  // 可用资金
+	Weight    float64 `json:"weight"`     // 权重
 	FixedPool float64 `json:"fixed_pool"` // 固定资金池（如果指定）
 }
 
@@ -1499,7 +1499,7 @@ func getPendingOrders(c *gin.Context) {
 				// 如果无法计算，使用已成交数量作为估算
 				quantity = slot.OrderFilledQty
 			}
-			
+
 			pendingOrders = append(pendingOrders, PendingOrderInfo{
 				OrderID:        slot.OrderID,
 				ClientOrderID:  slot.ClientOID,
@@ -1665,40 +1665,40 @@ func getLogs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"logs":  logs,
-		"total": total,
-		"limit": limit,
+		"logs":   logs,
+		"total":  total,
+		"limit":  limit,
 		"offset": offset,
 	})
 }
 
 // ReconciliationStatus 对账状态
 type ReconciliationStatus struct {
-	ReconcileCount      int64     `json:"reconcile_count"`       // 对账次数
-	LastReconcileTime   time.Time `json:"last_reconcile_time"`  // 最后对账时间
-	LocalPosition       float64   `json:"local_position"`      // 本地持仓
-	TotalBuyQty         float64   `json:"total_buy_qty"`        // 累计买入
-	TotalSellQty        float64   `json:"total_sell_qty"`      // 累计卖出
-	EstimatedProfit     float64   `json:"estimated_profit"`    // 预计盈利
-	ActualProfit        float64   `json:"actual_profit"`       // 实际盈利（来自 trades 表）
+	ReconcileCount    int64     `json:"reconcile_count"`     // 对账次数
+	LastReconcileTime time.Time `json:"last_reconcile_time"` // 最后对账时间
+	LocalPosition     float64   `json:"local_position"`      // 本地持仓
+	TotalBuyQty       float64   `json:"total_buy_qty"`       // 累计买入
+	TotalSellQty      float64   `json:"total_sell_qty"`      // 累计卖出
+	EstimatedProfit   float64   `json:"estimated_profit"`    // 预计盈利
+	ActualProfit      float64   `json:"actual_profit"`       // 实际盈利（来自 trades 表）
 }
 
 // ReconciliationHistoryInfo 对账历史信息
 type ReconciliationHistoryInfo struct {
-	ID                int64     `json:"id"`
-	Symbol            string    `json:"symbol"`
-	ReconcileTime     time.Time `json:"reconcile_time"`
-	LocalPosition     float64   `json:"local_position"`
-	ExchangePosition  float64   `json:"exchange_position"`
-	PositionDiff      float64   `json:"position_diff"`
-	ActiveBuyOrders   int       `json:"active_buy_orders"`
-	ActiveSellOrders  int       `json:"active_sell_orders"`
-	PendingSellQty    float64   `json:"pending_sell_qty"`
-	TotalBuyQty       float64   `json:"total_buy_qty"`
-	TotalSellQty      float64   `json:"total_sell_qty"`
-	EstimatedProfit   float64   `json:"estimated_profit"`
-	ActualProfit      float64   `json:"actual_profit"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID               int64     `json:"id"`
+	Symbol           string    `json:"symbol"`
+	ReconcileTime    time.Time `json:"reconcile_time"`
+	LocalPosition    float64   `json:"local_position"`
+	ExchangePosition float64   `json:"exchange_position"`
+	PositionDiff     float64   `json:"position_diff"`
+	ActiveBuyOrders  int       `json:"active_buy_orders"`
+	ActiveSellOrders int       `json:"active_sell_orders"`
+	PendingSellQty   float64   `json:"pending_sell_qty"`
+	TotalBuyQty      float64   `json:"total_buy_qty"`
+	TotalSellQty     float64   `json:"total_sell_qty"`
+	EstimatedProfit  float64   `json:"estimated_profit"`
+	ActualProfit     float64   `json:"actual_profit"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // getReconciliationStatus 获取对账状态
@@ -1710,10 +1710,10 @@ func getReconciliationStatus(c *gin.Context) {
 			"reconcile_count":     0,
 			"last_reconcile_time": time.Time{},
 			"local_position":      0,
-			"total_buy_qty":        0,
-			"total_sell_qty":       0,
-			"estimated_profit":     0,
-			"actual_profit":        0,
+			"total_buy_qty":       0,
+			"total_sell_qty":      0,
+			"estimated_profit":    0,
+			"actual_profit":       0,
 		})
 		return
 	}
@@ -1743,7 +1743,7 @@ func getReconciliationStatus(c *gin.Context) {
 			symbol = st.Symbol
 		}
 	}
-	
+
 	storageProv := pickStorageProvider(c)
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
 		// 查询截止到现在的累计实际盈利
@@ -1830,20 +1830,20 @@ func getReconciliationHistory(c *gin.Context) {
 	result := make([]ReconciliationHistoryInfo, len(histories))
 	for i, h := range histories {
 		result[i] = ReconciliationHistoryInfo{
-			ID:              h.ID,
-			Symbol:          h.Symbol,
-			ReconcileTime:   utils.ToUTC8(h.ReconcileTime),
-			LocalPosition:   h.LocalPosition,
+			ID:               h.ID,
+			Symbol:           h.Symbol,
+			ReconcileTime:    utils.ToUTC8(h.ReconcileTime),
+			LocalPosition:    h.LocalPosition,
 			ExchangePosition: h.ExchangePosition,
-			PositionDiff:    h.PositionDiff,
-			ActiveBuyOrders: h.ActiveBuyOrders,
+			PositionDiff:     h.PositionDiff,
+			ActiveBuyOrders:  h.ActiveBuyOrders,
 			ActiveSellOrders: h.ActiveSellOrders,
-			PendingSellQty:  h.PendingSellQty,
-			TotalBuyQty:     h.TotalBuyQty,
-			TotalSellQty:    h.TotalSellQty,
-			EstimatedProfit: h.EstimatedProfit,
-			ActualProfit:    h.ActualProfit,
-			CreatedAt:       utils.ToUTC8(h.CreatedAt),
+			PendingSellQty:   h.PendingSellQty,
+			TotalBuyQty:      h.TotalBuyQty,
+			TotalSellQty:     h.TotalSellQty,
+			EstimatedProfit:  h.EstimatedProfit,
+			ActualProfit:     h.ActualProfit,
+			CreatedAt:        utils.ToUTC8(h.CreatedAt),
 		}
 	}
 
@@ -2038,7 +2038,7 @@ func getAnomalousTrades(c *gin.Context) {
 
 		// 计算订单金额
 		orderAmount := trade.BuyPrice * trade.Quantity
-		
+
 		// 检查是否异常：盈亏超过订单金额的50%可能是错误的
 		if orderAmount > 0 && math.Abs(trade.PnL) > orderAmount*0.5 {
 			anomalousTrades = append(anomalousTrades, map[string]interface{}{
@@ -2189,10 +2189,10 @@ func getRiskMonitorData(c *gin.Context) {
 
 // RiskCheckHistoryResponse 风控检查历史响应
 type RiskCheckHistoryResponse struct {
-	CheckTime    time.Time              `json:"check_time"`
-	Symbols      []RiskCheckSymbolInfo  `json:"symbols"`
-	HealthyCount int                    `json:"healthy_count"`
-	TotalCount   int                    `json:"total_count"`
+	CheckTime    time.Time             `json:"check_time"`
+	Symbols      []RiskCheckSymbolInfo `json:"symbols"`
+	HealthyCount int                   `json:"healthy_count"`
+	TotalCount   int                   `json:"total_count"`
 }
 
 // RiskCheckSymbolInfo 风控检查币种信息
@@ -2295,7 +2295,7 @@ func getRiskCheckHistory(c *gin.Context) {
 
 // KlineData K线数据响应格式
 type KlineData struct {
-	Time   int64   `json:"time"`   // 时间戳（秒）
+	Time   int64   `json:"time"` // 时间戳（秒）
 	Open   float64 `json:"open"`
 	High   float64 `json:"high"`
 	Low    float64 `json:"low"`
@@ -2480,12 +2480,12 @@ func getFundingRateHistory(c *gin.Context) {
 	response := make([]map[string]interface{}, len(history))
 	for i, fr := range history {
 		response[i] = map[string]interface{}{
-			"id":        fr.ID,
-			"symbol":    fr.Symbol,
-			"exchange":  fr.Exchange,
-			"rate":      fr.Rate,
-			"rate_pct":  fr.Rate * 100, // 转换为百分比
-			"timestamp": fr.Timestamp,
+			"id":         fr.ID,
+			"symbol":     fr.Symbol,
+			"exchange":   fr.Exchange,
+			"rate":       fr.Rate,
+			"rate_pct":   fr.Rate * 100, // 转换为百分比
+			"timestamp":  fr.Timestamp,
 			"created_at": fr.CreatedAt,
 		}
 	}
@@ -2510,11 +2510,11 @@ type DataSourceProvider interface {
 
 // RSSFeedInfo RSS源信息
 type RSSFeedInfo struct {
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	URL         string    `json:"url"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	URL         string        `json:"url"`
 	Items       []RSSItemInfo `json:"items"`
-	LastUpdate  time.Time `json:"last_update"`
+	LastUpdate  time.Time     `json:"last_update"`
 }
 
 // RSSItemInfo RSS项信息
@@ -2528,9 +2528,9 @@ type RSSItemInfo struct {
 
 // FearGreedIndexInfo 恐慌贪婪指数信息
 type FearGreedIndexInfo struct {
-	Value         int       `json:"value"`
+	Value          int       `json:"value"`
 	Classification string    `json:"classification"`
-	Timestamp     time.Time `json:"timestamp"`
+	Timestamp      time.Time `json:"timestamp"`
 }
 
 // RedditPostInfo Reddit帖子信息
@@ -2564,9 +2564,9 @@ func SetDataSourceProvider(provider DataSourceProvider) {
 // dataSourceAdapter 数据源适配器
 // 注意：这个适配器使用反射来调用方法，避免循环依赖
 type dataSourceAdapter struct {
-	dsm interface{}
-	rssFeeds []string
-	fearGreedAPIURL string
+	dsm              interface{}
+	rssFeeds         []string
+	fearGreedAPIURL  string
 	polymarketAPIURL string
 }
 
@@ -2574,9 +2574,9 @@ type dataSourceAdapter struct {
 // dsm 应该是 *ai.DataSourceManager 类型，但使用 interface{} 避免循环依赖
 func NewDataSourceAdapter(dsm interface{}, rssFeeds []string, fearGreedAPIURL, polymarketAPIURL string) DataSourceProvider {
 	return &dataSourceAdapter{
-		dsm: dsm,
-		rssFeeds: rssFeeds,
-		fearGreedAPIURL: fearGreedAPIURL,
+		dsm:              dsm,
+		rssFeeds:         rssFeeds,
+		fearGreedAPIURL:  fearGreedAPIURL,
 		polymarketAPIURL: polymarketAPIURL,
 	}
 }
@@ -2594,7 +2594,7 @@ func (a *dataSourceAdapter) GetRSSFeeds() ([]RSSFeedInfo, error) {
 	}
 
 	feeds := make([]RSSFeedInfo, 0)
-	
+
 	// 如果没有配置RSS源，使用默认源
 	rssFeeds := a.rssFeeds
 	if len(rssFeeds) == 0 {
@@ -2709,9 +2709,9 @@ func (a *dataSourceAdapter) GetFearGreedIndex() (*FearGreedIndexInfo, error) {
 	timestamp := getFieldTime(index, "Timestamp")
 
 	return &FearGreedIndexInfo{
-		Value:         value,
+		Value:          value,
 		Classification: classification,
-		Timestamp:     timestamp,
+		Timestamp:      timestamp,
 	}, nil
 }
 
@@ -2909,10 +2909,10 @@ func extractSourceName(url string) string {
 func getMarketIntelligence(c *gin.Context) {
 	if dataSourceProvider == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"rss_feeds":      []interface{}{},
-			"fear_greed":     nil,
-			"reddit_posts":   []interface{}{},
-			"polymarket":     []interface{}{},
+			"rss_feeds":    []interface{}{},
+			"fear_greed":   nil,
+			"reddit_posts": []interface{}{},
+			"polymarket":   []interface{}{},
 		})
 		return
 	}
@@ -3036,12 +3036,12 @@ func min(a, b int) int {
 
 var (
 	// AI模块提供者（需要从main.go注入）
-	aiMarketAnalyzerProvider      AIMarketAnalyzerProvider
-	aiParameterOptimizerProvider  AIParameterOptimizerProvider
-	aiRiskAnalyzerProvider        AIRiskAnalyzerProvider
-	aiSentimentAnalyzerProvider   AISentimentAnalyzerProvider
-	aiPolymarketSignalProvider    AIPolymarketSignalProvider
-	aiPromptManagerProvider       AIPromptManagerProvider
+	aiMarketAnalyzerProvider     AIMarketAnalyzerProvider
+	aiParameterOptimizerProvider AIParameterOptimizerProvider
+	aiRiskAnalyzerProvider       AIRiskAnalyzerProvider
+	aiSentimentAnalyzerProvider  AISentimentAnalyzerProvider
+	aiPolymarketSignalProvider   AIPolymarketSignalProvider
+	aiPromptManagerProvider      AIPromptManagerProvider
 )
 
 // AI提供者接口
@@ -3112,29 +3112,29 @@ func getAIAnalysisStatus(c *gin.Context) {
 		"enabled": true,
 		"modules": map[string]interface{}{
 			"market_analysis": map[string]interface{}{
-				"enabled":      aiMarketAnalyzerProvider != nil,
-				"last_update":  nil,
-				"has_data":     false,
+				"enabled":     aiMarketAnalyzerProvider != nil,
+				"last_update": nil,
+				"has_data":    false,
 			},
 			"parameter_optimization": map[string]interface{}{
-				"enabled":      aiParameterOptimizerProvider != nil,
-				"last_update":  nil,
-				"has_data":     false,
+				"enabled":     aiParameterOptimizerProvider != nil,
+				"last_update": nil,
+				"has_data":    false,
 			},
 			"risk_analysis": map[string]interface{}{
-				"enabled":      aiRiskAnalyzerProvider != nil,
-				"last_update":  nil,
-				"has_data":     false,
+				"enabled":     aiRiskAnalyzerProvider != nil,
+				"last_update": nil,
+				"has_data":    false,
 			},
 			"sentiment_analysis": map[string]interface{}{
-				"enabled":      aiSentimentAnalyzerProvider != nil,
-				"last_update":  nil,
-				"has_data":     false,
+				"enabled":     aiSentimentAnalyzerProvider != nil,
+				"last_update": nil,
+				"has_data":    false,
 			},
 			"polymarket_signal": map[string]interface{}{
-				"enabled":      aiPolymarketSignalProvider != nil,
-				"last_update":  nil,
-				"has_data":     false,
+				"enabled":     aiPolymarketSignalProvider != nil,
+				"last_update": nil,
+				"has_data":    false,
 			},
 		},
 	}
@@ -3531,7 +3531,7 @@ func getBasisCurrent(c *gin.Context) {
 		// 如果没有指定交易对，返回所有交易对的当前价差
 		allBasis := provider.GetAllCurrentBasis()
 		c.JSON(http.StatusOK, gin.H{
-			"data": allBasis,
+			"data":  allBasis,
 			"count": len(allBasis),
 		})
 		return
@@ -3558,7 +3558,7 @@ func getBasisHistory(c *gin.Context) {
 
 	symbol := c.Query("symbol")
 	if symbol == "" {
-		respondError(c, http.StatusBadRequest, "errors.missing_parameter", 
+		respondError(c, http.StatusBadRequest, "errors.missing_parameter",
 			map[string]interface{}{"param": "symbol"})
 		return
 	}
@@ -3577,7 +3577,7 @@ func getBasisHistory(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data": history,
+		"data":  history,
 		"count": len(history),
 	})
 }
@@ -3613,4 +3613,3 @@ func getBasisStatistics(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"data": stats})
 }
-

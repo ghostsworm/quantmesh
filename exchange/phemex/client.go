@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	PhemexMainnetBaseURL = "https://api.phemex.com"           // Phemex 主网
-	PhemexTestnetBaseURL = "https://testnet-api.phemex.com"   // Phemex 测试网
+	PhemexMainnetBaseURL = "https://api.phemex.com"         // Phemex 主网
+	PhemexTestnetBaseURL = "https://testnet-api.phemex.com" // Phemex 测试网
 )
 
 // PhemexClient Phemex 客户端
@@ -86,7 +86,7 @@ func (c *PhemexClient) sendRequest(ctx context.Context, method, path string, par
 	if needSign {
 		expiry := strconv.FormatInt(time.Now().Unix()+60, 10) // 60秒过期时间
 		signature := c.signRequest(path, queryString, expiry, bodyStr)
-		
+
 		req.Header.Set("x-phemex-access-token", c.apiKey)
 		req.Header.Set("x-phemex-request-expiry", expiry)
 		req.Header.Set("x-phemex-request-signature", signature)
@@ -404,31 +404,31 @@ type ProductsResponse struct {
 }
 
 type Product struct {
-	Symbol           string  `json:"symbol"`
-	DisplaySymbol    string  `json:"displaySymbol"`
-	QuoteCurrency    string  `json:"quoteCurrency"`
-	SettleCurrency   string  `json:"settleCurrency"`
-	PriceScale       int     `json:"priceScale"`       // 价格缩放因子
-	RatioScale       int     `json:"ratioScale"`       // 比率缩放因子
-	QtyStepSize      int64   `json:"qtyStepSize"`      // 数量步长
-	MinPriceEp       int64   `json:"minPriceEp"`       // 最小价格
-	MaxPriceEp       int64   `json:"maxPriceEp"`       // 最大价格
-	MaxOrderQty      int64   `json:"maxOrderQty"`      // 最大订单数量
-	LotSize          int64   `json:"lotSize"`          // 最小订单数量
-	TickSize         int64   `json:"tickSize"`         // 价格步长
-	ContractSize     float64 `json:"contractSize"`     // 合约大小
+	Symbol         string  `json:"symbol"`
+	DisplaySymbol  string  `json:"displaySymbol"`
+	QuoteCurrency  string  `json:"quoteCurrency"`
+	SettleCurrency string  `json:"settleCurrency"`
+	PriceScale     int     `json:"priceScale"`   // 价格缩放因子
+	RatioScale     int     `json:"ratioScale"`   // 比率缩放因子
+	QtyStepSize    int64   `json:"qtyStepSize"`  // 数量步长
+	MinPriceEp     int64   `json:"minPriceEp"`   // 最小价格
+	MaxPriceEp     int64   `json:"maxPriceEp"`   // 最大价格
+	MaxOrderQty    int64   `json:"maxOrderQty"`  // 最大订单数量
+	LotSize        int64   `json:"lotSize"`      // 最小订单数量
+	TickSize       int64   `json:"tickSize"`     // 价格步长
+	ContractSize   float64 `json:"contractSize"` // 合约大小
 }
 
 type OrderRequest struct {
-	Symbol      string `json:"symbol"`
-	ClOrdID     string `json:"clOrdID,omitempty"`
-	Side        string `json:"side"`        // Buy, Sell
-	OrderQty    int64  `json:"orderQty"`    // 数量（整数）
-	PriceEp     int64  `json:"priceEp"`     // 价格（整数，需要乘以 priceScale）
-	OrdType     string `json:"ordType"`     // Limit, Market
-	TimeInForce string `json:"timeInForce,omitempty"` // GoodTillCancel, ImmediateOrCancel
-	ReduceOnly  bool   `json:"reduceOnly,omitempty"`
-	CloseOnTrigger bool `json:"closeOnTrigger,omitempty"`
+	Symbol         string `json:"symbol"`
+	ClOrdID        string `json:"clOrdID,omitempty"`
+	Side           string `json:"side"`                  // Buy, Sell
+	OrderQty       int64  `json:"orderQty"`              // 数量（整数）
+	PriceEp        int64  `json:"priceEp"`               // 价格（整数，需要乘以 priceScale）
+	OrdType        string `json:"ordType"`               // Limit, Market
+	TimeInForce    string `json:"timeInForce,omitempty"` // GoodTillCancel, ImmediateOrCancel
+	ReduceOnly     bool   `json:"reduceOnly,omitempty"`
+	CloseOnTrigger bool   `json:"closeOnTrigger,omitempty"`
 }
 
 type OrderResponse struct {
@@ -437,18 +437,18 @@ type OrderResponse struct {
 }
 
 type Order struct {
-	OrderID       string  `json:"orderID"`
-	ClOrdID       string  `json:"clOrdID"`
-	Symbol        string  `json:"symbol"`
-	Side          string  `json:"side"`
-	OrderQty      int64   `json:"orderQty"`
-	PriceEp       int64   `json:"priceEp"`
-	OrdType       string  `json:"ordType"`
-	OrdStatus     string  `json:"ordStatus"`
-	CumQty        int64   `json:"cumQty"`
-	LeavesQty     int64   `json:"leavesQty"`
-	AvgPriceEp    int64   `json:"avgPriceEp"`
-	CreateTimeNs  int64   `json:"createTimeNs"`
+	OrderID        string `json:"orderID"`
+	ClOrdID        string `json:"clOrdID"`
+	Symbol         string `json:"symbol"`
+	Side           string `json:"side"`
+	OrderQty       int64  `json:"orderQty"`
+	PriceEp        int64  `json:"priceEp"`
+	OrdType        string `json:"ordType"`
+	OrdStatus      string `json:"ordStatus"`
+	CumQty         int64  `json:"cumQty"`
+	LeavesQty      int64  `json:"leavesQty"`
+	AvgPriceEp     int64  `json:"avgPriceEp"`
+	CreateTimeNs   int64  `json:"createTimeNs"`
 	TransactTimeNs int64  `json:"transactTimeNs"`
 }
 
@@ -457,17 +457,17 @@ type OrdersResponse struct {
 }
 
 type Position struct {
-	AccountID       int64   `json:"accountID"`
-	Symbol          string  `json:"symbol"`
-	Currency        string  `json:"currency"`
-	Side            string  `json:"side"`          // Buy, Sell, None
-	Size            int64   `json:"size"`          // 持仓数量
-	AvgEntryPriceEp int64   `json:"avgEntryPriceEp"` // 平均入场价格
-	MarkPriceEp     int64   `json:"markPriceEp"`     // 标记价格
-	UnrealisedPnlEv int64   `json:"unrealisedPnlEv"` // 未实现盈亏
-	RealisedPnlEv   int64   `json:"realisedPnlEv"`   // 已实现盈亏
-	Leverage        int     `json:"leverageEr"`      // 杠杆倍数
-	LiqPriceEp      int64   `json:"liqPriceEp"`      // 强平价格
+	AccountID       int64  `json:"accountID"`
+	Symbol          string `json:"symbol"`
+	Currency        string `json:"currency"`
+	Side            string `json:"side"`            // Buy, Sell, None
+	Size            int64  `json:"size"`            // 持仓数量
+	AvgEntryPriceEp int64  `json:"avgEntryPriceEp"` // 平均入场价格
+	MarkPriceEp     int64  `json:"markPriceEp"`     // 标记价格
+	UnrealisedPnlEv int64  `json:"unrealisedPnlEv"` // 未实现盈亏
+	RealisedPnlEv   int64  `json:"realisedPnlEv"`   // 已实现盈亏
+	Leverage        int    `json:"leverageEr"`      // 杠杆倍数
+	LiqPriceEp      int64  `json:"liqPriceEp"`      // 强平价格
 }
 
 type PositionsResponse struct {
@@ -476,10 +476,10 @@ type PositionsResponse struct {
 }
 
 type Account struct {
-	AccountID       int64  `json:"accountId"`
-	Currency        string `json:"currency"`
-	AccountBalanceEv int64 `json:"accountBalanceEv"` // 账户余额
-	TotalUsedBalanceEv int64 `json:"totalUsedBalanceEv"` // 已用余额
+	AccountID          int64  `json:"accountId"`
+	Currency           string `json:"currency"`
+	AccountBalanceEv   int64  `json:"accountBalanceEv"`   // 账户余额
+	TotalUsedBalanceEv int64  `json:"totalUsedBalanceEv"` // 已用余额
 }
 
 type Trade struct {
@@ -509,4 +509,3 @@ type Kline struct {
 type KlinesResponse struct {
 	Rows []Kline `json:"rows"`
 }
-

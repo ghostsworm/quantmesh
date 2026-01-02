@@ -98,4 +98,3 @@ func ConvertInterval(interval string) CoinExPeriod {
 		return CoinExPeriod1min
 	}
 }
-

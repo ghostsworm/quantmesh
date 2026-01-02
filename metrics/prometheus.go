@@ -487,4 +487,3 @@ func GetPrometheusMetrics() *PrometheusMetrics {
 	})
 	return globalPrometheusMetrics
 }
-

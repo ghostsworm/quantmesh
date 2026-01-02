@@ -42,10 +42,10 @@ func NewFundingMonitor(storage storage.Storage, ex exchange.IExchange, symbols [
 		storage:      storage,
 		exchange:     ex,
 		exchangeName: ex.GetName(),
-		symbols:     symbols,
-		interval:    interval,
-		ctx:         ctx,
-		cancel:      cancel,
+		symbols:      symbols,
+		interval:     interval,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 }
 
@@ -143,5 +143,3 @@ func (fm *FundingMonitor) GetCurrentFundingRates() (map[string]float64, error) {
 
 	return rates, nil
 }
-
-

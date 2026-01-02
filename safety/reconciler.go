@@ -52,18 +52,17 @@ type ReconciliationStorage interface {
 		activeBuyOrders, activeSellOrders int, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit float64) error
 }
 
-
 // Reconciler 持仓对账器
 type Reconciler struct {
-	cfg          *config.Config
-	exchange     IExchange
-	pm           IPositionManager
-	pauseChecker func() bool
-	storage      ReconciliationStorage // 可选的存储服务
-	lock         lock.DistributedLock  // 分布式锁
-	lastReconcileTime time.Time        // 上次对账时间
-	reconcileMu       sync.Mutex        // 对账互斥锁
-	minReconcileInterval time.Duration  // 最小对账间隔（防止频繁调用）
+	cfg                  *config.Config
+	exchange             IExchange
+	pm                   IPositionManager
+	pauseChecker         func() bool
+	storage              ReconciliationStorage // 可选的存储服务
+	lock                 lock.DistributedLock  // 分布式锁
+	lastReconcileTime    time.Time             // 上次对账时间
+	reconcileMu          sync.Mutex            // 对账互斥锁
+	minReconcileInterval time.Duration         // 最小对账间隔（防止频繁调用）
 }
 
 // NewReconciler 创建对账器
@@ -74,12 +73,12 @@ func NewReconciler(cfg *config.Config, exchange IExchange, pm IPositionManager, 
 	if reconcileInterval > 0 && reconcileInterval < minInterval {
 		minInterval = reconcileInterval
 	}
-	
+
 	return &Reconciler{
-		cfg:                 cfg,
-		exchange:            exchange,
-		pm:                  pm,
-		lock:                distributedLock,
+		cfg:                  cfg,
+		exchange:             exchange,
+		pm:                   pm,
+		lock:                 distributedLock,
 		minReconcileInterval: minInterval,
 	}
 }
@@ -150,10 +149,10 @@ func (r *Reconciler) Reconcile() error {
 
 	// 分布式锁：防止多实例同时对账造成数据不一致
 	lockKey := fmt.Sprintf("reconcile:%s:%s", exchangeName, symbol)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	// 使用阻塞锁（Lock）而非 TryLock，确保对账一定执行
 	err := r.lock.Lock(ctx, lockKey, 30*time.Second)
 	if err != nil {
@@ -266,7 +265,7 @@ func (r *Reconciler) Reconcile() error {
 	estimatedProfit := totalSellQty * priceInterval
 	logger.Info("📊 [统计] 对账次数: %d, 累计买入: %.2f, 累计卖出: %.2f, 预计盈利: %.2f U",
 		r.pm.GetReconcileCount(), totalBuyQty, totalSellQty, estimatedProfit)
-	
+
 	// 6. 保存对账历史到数据库（如果存储服务可用）
 	if r.storage != nil {
 		reconcileTime := time.Now()
@@ -275,13 +274,13 @@ func (r *Reconciler) Reconcile() error {
 		// 这里可以根据不同交易所类型解析，暂时使用本地持仓作为参考
 		// 实际应用中需要根据具体交易所返回的数据结构解析
 		positionDiff := localTotal - exchangePosition
-		
+
 		if err := r.storage.SaveReconciliationHistory(symbol, reconcileTime, localTotal, exchangePosition, positionDiff,
 			activeBuyOrders, activeSellOrders, localPendingSellQty, totalBuyQty, totalSellQty, estimatedProfit); err != nil {
 			logger.Warn("⚠️ 保存对账历史失败: %v", err)
 		}
 	}
-	
+
 	logger.Debugln("🔍 ===== 对账完成 =====")
 	return nil
 }

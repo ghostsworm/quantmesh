@@ -43,7 +43,7 @@ func main() {
 	fmt.Println("📊 测试参数:")
 	fmt.Printf("  交易对: %s\n", symbol)
 	fmt.Printf("  周期: %s\n", interval)
-	fmt.Printf("  时间范围: %s 至 %s (%d天)\n", 
+	fmt.Printf("  时间范围: %s 至 %s (%d天)\n",
 		startTime.Format("2006-01-02"), endTime.Format("2006-01-02"), days)
 	fmt.Printf("  初始资金: $%.2f\n", initialCapital)
 	fmt.Println("")
@@ -152,25 +152,25 @@ func main() {
 		improvement := intrabarResult.Metrics.TotalReturn - normalResult.Metrics.TotalReturn
 
 		fmt.Println("📈 对比结果:")
-		fmt.Printf("   收益率改善: %.2f%% → %.2f%% (", 
+		fmt.Printf("   收益率改善: %.2f%% → %.2f%% (",
 			normalResult.Metrics.TotalReturn, intrabarResult.Metrics.TotalReturn)
 		if improvement > 0 {
 			fmt.Printf("+%.2f%% ✅)\n", improvement)
 		} else {
 			fmt.Printf("%.2f%% ❌)\n", improvement)
 		}
-		
-		fmt.Printf("   回撤变化: %.2f%% → %.2f%%\n", 
+
+		fmt.Printf("   回撤变化: %.2f%% → %.2f%%\n",
 			normalResult.Metrics.MaxDrawdown, intrabarResult.Metrics.MaxDrawdown)
-		
-		fmt.Printf("   交易次数: %d → %d 笔 (%.1fx)\n", 
-			normalResult.Metrics.TotalTrades, 
+
+		fmt.Printf("   交易次数: %d → %d 笔 (%.1fx)\n",
+			normalResult.Metrics.TotalTrades,
 			intrabarResult.Metrics.TotalTrades,
 			float64(intrabarResult.Metrics.TotalTrades)/float64(normalResult.Metrics.TotalTrades))
-		
-		fmt.Printf("   胜率变化: %.2f%% → %.2f%%\n", 
+
+		fmt.Printf("   胜率变化: %.2f%% → %.2f%%\n",
 			normalResult.Metrics.WinRate, intrabarResult.Metrics.WinRate)
-		
+
 		fmt.Println("")
 
 		// 保存结果
@@ -216,7 +216,7 @@ func main() {
 		}
 
 		tradeMultiple := float64(r.IntrabarTrades) / float64(r.NormalTrades)
-		
+
 		fmt.Printf("│ %-18s │ %7.2f%% │ %7.2f%% │ %+7.2f%% │ %7.1fx │ %-12s │\n",
 			r.Strategy,
 			r.NormalReturn,
@@ -237,7 +237,7 @@ func main() {
 
 	fmt.Println("🎯 实验结论:")
 	fmt.Println("")
-	
+
 	if improvedCount == len(results) && avgImprovement > 10 {
 		fmt.Println("✅✅✅ 假设得到验证！")
 		fmt.Println("")
@@ -285,4 +285,3 @@ func main() {
 	fmt.Println("🎉 实验完成！")
 	fmt.Println("")
 }
-

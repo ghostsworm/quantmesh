@@ -43,11 +43,11 @@ func (ca *CapitalAllocator) RegisterStrategy(name string, weight float64, fixedP
 	defer ca.mu.Unlock()
 
 	ca.strategies[name] = &StrategyCapital{
-		Weight:     weight,
-		FixedPool:  fixedPool,
-		Allocated:  0,
-		Used:       0,
-		Available:  0,
+		Weight:    weight,
+		FixedPool: fixedPool,
+		Allocated: 0,
+		Used:      0,
+		Available: 0,
 	}
 }
 
@@ -217,15 +217,15 @@ type StrategyPerformance struct {
 
 // DynamicAllocator 动态分配器
 type DynamicAllocator struct {
-	strategies      map[string]*StrategyPerformance
-	rebalanceInterval time.Duration
+	strategies            map[string]*StrategyPerformance
+	rebalanceInterval     time.Duration
 	maxChangePerRebalance float64
-	minWeight        float64
-	maxWeight        float64
-	performanceWeights map[string]float64
-	ctx              context.Context
-	cancel           context.CancelFunc
-	mu               sync.RWMutex
+	minWeight             float64
+	maxWeight             float64
+	performanceWeights    map[string]float64
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	mu                    sync.RWMutex
 }
 
 // NewDynamicAllocator 创建动态分配器
@@ -233,14 +233,14 @@ func NewDynamicAllocator(cfg *config.Config) *DynamicAllocator {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	da := &DynamicAllocator{
-		strategies:           make(map[string]*StrategyPerformance),
+		strategies:            make(map[string]*StrategyPerformance),
 		rebalanceInterval:     time.Duration(cfg.Strategies.CapitalAllocation.DynamicAllocation.RebalanceInterval) * time.Second,
 		maxChangePerRebalance: cfg.Strategies.CapitalAllocation.DynamicAllocation.MaxChangePerRebalance,
 		minWeight:             cfg.Strategies.CapitalAllocation.DynamicAllocation.MinWeight,
 		maxWeight:             cfg.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight,
-		performanceWeights:   cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights,
-		ctx:                  ctx,
-		cancel:               cancel,
+		performanceWeights:    cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights,
+		ctx:                   ctx,
+		cancel:                cancel,
 	}
 
 	if da.rebalanceInterval <= 0 {
@@ -259,9 +259,9 @@ func NewDynamicAllocator(cfg *config.Config) *DynamicAllocator {
 	// 设置默认性能权重
 	if da.performanceWeights == nil {
 		da.performanceWeights = map[string]float64{
-			"total_pnl":   0.4,
+			"total_pnl":    0.4,
 			"sharpe_ratio": 0.3,
-			"win_rate":    0.2,
+			"win_rate":     0.2,
 			"max_drawdown": 0.1,
 		}
 	}
@@ -276,12 +276,12 @@ func (da *DynamicAllocator) RegisterStrategy(name string, initialWeight float64)
 
 	da.strategies[name] = &StrategyPerformance{
 		CurrentWeight: initialWeight,
-		TargetWeight: initialWeight,
-		TotalPnL:     0,
-		WinRate:      0,
-		SharpeRatio:  0,
-		MaxDrawdown:  0,
-		TotalTrades:  0,
+		TargetWeight:  initialWeight,
+		TotalPnL:      0,
+		WinRate:       0,
+		SharpeRatio:   0,
+		MaxDrawdown:   0,
+		TotalTrades:   0,
 		WinningTrades: 0,
 		LosingTrades:  0,
 	}
@@ -533,4 +533,3 @@ func (da *DynamicAllocator) GetPerformance(strategyName string) *StrategyPerform
 		LosingTrades:  perf.LosingTrades,
 	}
 }
-

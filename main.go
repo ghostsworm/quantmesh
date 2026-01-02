@@ -268,7 +268,7 @@ func main() {
 		logger.Info("ℹ️ 配置文件不存在，创建最小化配置（仅启用 Web 服务）")
 		cfg = config.CreateMinimalConfig()
 		configComplete = false
-		
+
 		// 保存最小化配置到文件（不验证，因为配置不完整）
 		if err := config.SaveConfigWithoutValidation(cfg, configPath); err != nil {
 			logger.Warn("⚠️ 保存最小化配置失败: %v，将继续运行", err)
@@ -281,15 +281,15 @@ func main() {
 		if err != nil {
 			logger.Fatalf("❌ 加载配置失败: %v", err)
 		}
-		
+
 		// 检查配置是否完整（是否有交易所配置和交易对配置）
-		configComplete = cfg.App.CurrentExchange != "" && 
-			len(cfg.Exchanges) > 0 && 
+		configComplete = cfg.App.CurrentExchange != "" &&
+			len(cfg.Exchanges) > 0 &&
 			cfg.Exchanges[cfg.App.CurrentExchange].APIKey != "" &&
 			cfg.Exchanges[cfg.App.CurrentExchange].SecretKey != "" &&
 			len(cfg.Trading.Symbols) > 0 &&
 			cfg.Trading.Symbols[0].Symbol != ""
-		
+
 		if !configComplete {
 			logger.Info("ℹ️ 配置不完整，仅启动 Web 服务，请通过引导页面完成配置")
 		}
@@ -317,7 +317,7 @@ func main() {
 	} else {
 		logger.Info("✅ i18n 系统已初始化，日志语言: %s", logLang)
 	}
-	
+
 	// 设置 logger 的语言和翻译函数
 	logger.SetLogLanguage(logLang)
 	logger.SetTranslateFunc(i18n.T)
@@ -603,12 +603,12 @@ func main() {
 						if r.RiskMonitor != nil {
 							st.RiskTriggered = r.RiskMonitor.IsTriggered()
 						}
-						
+
 						// 更新统计信息
 						if r.SuperPositionManager != nil {
 							// 增加计数器，每 10 秒（5个周期）从数据库同步一次真实数据
 							dbQueryCounter++
-							
+
 							useEstimation := true
 							if storageService != nil && storageService.GetStorage() != nil {
 								// 每 10 秒更新一次，或者如果当前 PnL 还是 0 则更新
@@ -617,7 +617,7 @@ func main() {
 									// 获取今日 00:00:00 的时间（系统配置时区）
 									now := utils.NowConfiguredTimezone()
 									todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-									
+
 									// 转换为 UTC 时间进行数据库查询，确保时区一致
 									pnlSummary, err := storageService.GetStorage().GetPnLBySymbol(r.Config.Symbol, utils.ToUTC(todayStart), utils.ToUTC(now))
 									if err == nil {
@@ -630,16 +630,16 @@ func main() {
 									useEstimation = false
 								}
 							}
-							
+
 							// 如果无法从数据库获取（或未启用存储），回退到估算逻辑
 							if useEstimation {
 								totalBuyQty := r.SuperPositionManager.GetTotalBuyQty()
 								totalSellQty := r.SuperPositionManager.GetTotalSellQty()
 								priceInterval := r.SuperPositionManager.GetPriceInterval()
-								
+
 								// 修正盈亏估算：仅作为参考
 								st.TotalPnL = totalSellQty * priceInterval
-								
+
 								// 修正成交次数估算：数量之和 / (单笔数量 * 2)
 								if st.CurrentPrice > 0 {
 									orderQtyInBase := r.Config.OrderQuantity / st.CurrentPrice
@@ -649,7 +649,7 @@ func main() {
 								}
 							}
 						}
-						
+
 						st.Uptime = int64(time.Since(started).Seconds())
 						if r == firstRuntime {
 							// 兼容旧接口
@@ -672,32 +672,32 @@ func main() {
 				"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
 				"ADAUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "AVAXUSDT",
 			}
-		fundingMonitor := monitor.NewFundingMonitor(
-			storageService.GetStorage(),
-			firstRuntime.Exchange,
-			symbols,
-			8,
-		)
-		fundingMonitor.Start()
-		web.RegisterFundingProvider(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, fundingMonitor)
-		web.SetFundingMonitorProvider(fundingMonitor)
-
-		// 初始化价差监控
-		if cfg.BasisMonitor.Enabled {
-			logger.Info("🔍 初始化价差监控...")
-			basisMonitor := monitor.NewBasisMonitor(
+			fundingMonitor := monitor.NewFundingMonitor(
 				storageService.GetStorage(),
 				firstRuntime.Exchange,
-				cfg.BasisMonitor.Symbols,
-				cfg.BasisMonitor.IntervalMinutes,
+				symbols,
+				8,
 			)
-			basisMonitor.Start()
-			web.SetBasisMonitorProvider(basisMonitor)
-			logger.Info("✅ 价差监控已启动")
-		}
-	}
+			fundingMonitor.Start()
+			web.RegisterFundingProvider(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, fundingMonitor)
+			web.SetFundingMonitorProvider(fundingMonitor)
 
-	logger.Info("✅ 所有交易对已初始化，进入运行状态")
+			// 初始化价差监控
+			if cfg.BasisMonitor.Enabled {
+				logger.Info("🔍 初始化价差监控...")
+				basisMonitor := monitor.NewBasisMonitor(
+					storageService.GetStorage(),
+					firstRuntime.Exchange,
+					cfg.BasisMonitor.Symbols,
+					cfg.BasisMonitor.IntervalMinutes,
+				)
+				basisMonitor.Start()
+				web.SetBasisMonitorProvider(basisMonitor)
+				logger.Info("✅ 价差监控已启动")
+			}
+		}
+
+		logger.Info("✅ 所有交易对已初始化，进入运行状态")
 	} else if webServer != nil {
 		// 配置不完整，只设置存储服务提供者
 		if storageService != nil {

@@ -261,4 +261,3 @@ func (k *KlineWebSocketManager) getNextRequestID() int64 {
 	k.requestID++
 	return id
 }
-

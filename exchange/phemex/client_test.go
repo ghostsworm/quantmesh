@@ -22,18 +22,18 @@ func TestNewPhemexClient(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	client := NewPhemexClient("test_key", "test_secret", false)
-	
+
 	path := "/orders"
 	queryString := "symbol=BTCUSD&side=Buy"
 	expiry := "1234567890"
 	body := `{"symbol":"BTCUSD","side":"Buy"}`
-	
+
 	signature := client.signRequest(path, queryString, expiry, body)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := client.signRequest(path, queryString, expiry, body)
 	if signature != signature2 {
@@ -90,4 +90,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

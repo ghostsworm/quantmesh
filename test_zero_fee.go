@@ -66,12 +66,12 @@ func main() {
 	}
 
 	type Result struct {
-		Strategy         string
-		NormalReturn     float64
-		NormalTrades     int
-		IntrabarReturn   float64
-		IntrabarTrades   int
-		Improvement      float64
+		Strategy       string
+		NormalReturn   float64
+		NormalTrades   int
+		IntrabarReturn float64
+		IntrabarTrades int
+		Improvement    float64
 	}
 
 	results := make([]Result, 0)
@@ -146,15 +146,15 @@ func main() {
 		} else {
 			fmt.Printf("%.2f%% ❌)\n", improvement)
 		}
-		
-		fmt.Printf("   交易次数: %d → %d 笔 (%.1fx)\n", 
-			normalZeroResult.Metrics.TotalTrades, 
+
+		fmt.Printf("   交易次数: %d → %d 笔 (%.1fx)\n",
+			normalZeroResult.Metrics.TotalTrades,
 			intrabarResult.Metrics.TotalTrades,
 			float64(intrabarResult.Metrics.TotalTrades)/float64(normalZeroResult.Metrics.TotalTrades))
-		
-		fmt.Printf("   胜率: %.2f%% → %.2f%%\n", 
+
+		fmt.Printf("   胜率: %.2f%% → %.2f%%\n",
 			normalZeroResult.Metrics.WinRate, intrabarResult.Metrics.WinRate)
-		
+
 		fmt.Println("")
 
 		// 保存结果
@@ -201,7 +201,7 @@ func main() {
 		}
 
 		tradeMultiple := float64(r.IntrabarTrades) / float64(r.NormalTrades)
-		
+
 		fmt.Printf("│ %-18s │ %7.2f%% │ %7.2f%% │ %+7.2f%% │ %7.1fx │ %-12s │\n",
 			r.Strategy,
 			r.NormalReturn,
@@ -222,7 +222,7 @@ func main() {
 
 	fmt.Println("🎯 实验结论:")
 	fmt.Println("")
-	
+
 	if improvedCount == len(results) && avgImprovement > 10 {
 		fmt.Println("✅✅✅ 假设得到验证！（在零手续费条件下）")
 		fmt.Println("")
@@ -270,4 +270,3 @@ func main() {
 	fmt.Println("🎉 实验完成！")
 	fmt.Println("")
 }
-

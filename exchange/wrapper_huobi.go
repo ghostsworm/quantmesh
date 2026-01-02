@@ -312,4 +312,3 @@ func (w *huobiWrapper) GetFundingRate(ctx context.Context, symbol string) (float
 func (w *huobiWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return 0, ErrNotImplemented
 }
-

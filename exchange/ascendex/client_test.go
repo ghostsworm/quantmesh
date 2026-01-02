@@ -32,22 +32,22 @@ func TestNewAscendEXClient(t *testing.T) {
 
 func TestSignRequest(t *testing.T) {
 	client := NewAscendEXClient("test_key", "test_secret", false)
-	
+
 	timestamp := "1234567890"
 	path := "/api/pro/v1/0/order"
 	body := `{"symbol":"BTC/USDT","side":"buy"}`
-	
+
 	signature := client.signRequest(timestamp, path, body)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证签名长度（HMAC-SHA256 + Base64 应该产生 44 字符的字符串）
 	if len(signature) == 0 {
 		t.Error("签名长度不能为 0")
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := client.signRequest(timestamp, path, body)
 	if signature != signature2 {
@@ -128,4 +128,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

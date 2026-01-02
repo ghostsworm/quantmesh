@@ -68,17 +68,17 @@ type CandleUpdateCallbackLocal func(candle *CandleLocal)
 type DeribitResolution string
 
 const (
-	DeribitResolution1    DeribitResolution = "1"    // 1 分钟
-	DeribitResolution3    DeribitResolution = "3"    // 3 分钟
-	DeribitResolution5    DeribitResolution = "5"    // 5 分钟
-	DeribitResolution15   DeribitResolution = "15"   // 15 分钟
-	DeribitResolution30   DeribitResolution = "30"   // 30 分钟
-	DeribitResolution60   DeribitResolution = "60"   // 1 小时
-	DeribitResolution120  DeribitResolution = "120"  // 2 小时
-	DeribitResolution180  DeribitResolution = "180"  // 3 小时
-	DeribitResolution360  DeribitResolution = "360"  // 6 小时
-	DeribitResolution720  DeribitResolution = "720"  // 12 小时
-	DeribitResolution1D   DeribitResolution = "1D"   // 1 天
+	DeribitResolution1   DeribitResolution = "1"   // 1 分钟
+	DeribitResolution3   DeribitResolution = "3"   // 3 分钟
+	DeribitResolution5   DeribitResolution = "5"   // 5 分钟
+	DeribitResolution15  DeribitResolution = "15"  // 15 分钟
+	DeribitResolution30  DeribitResolution = "30"  // 30 分钟
+	DeribitResolution60  DeribitResolution = "60"  // 1 小时
+	DeribitResolution120 DeribitResolution = "120" // 2 小时
+	DeribitResolution180 DeribitResolution = "180" // 3 小时
+	DeribitResolution360 DeribitResolution = "360" // 6 小时
+	DeribitResolution720 DeribitResolution = "720" // 12 小时
+	DeribitResolution1D  DeribitResolution = "1D"  // 1 天
 )
 
 // ConvertInterval 转换 K线周期
@@ -110,4 +110,3 @@ func ConvertInterval(interval string) DeribitResolution {
 		return DeribitResolution1
 	}
 }
-

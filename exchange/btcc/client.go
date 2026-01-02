@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	BTCCMainnetBaseURL = "https://api.btcc.com"           // BTCC 主网
-	BTCCTestnetBaseURL = "https://testnet-api.btcc.com"   // BTCC 测试网
+	BTCCMainnetBaseURL = "https://api.btcc.com"         // BTCC 主网
+	BTCCTestnetBaseURL = "https://testnet-api.btcc.com" // BTCC 测试网
 )
 
 // BTCCClient BTCC 客户端
@@ -56,7 +56,7 @@ func (c *BTCCClient) signRequest(method, path, timestamp, queryString, body stri
 	if body != "" {
 		message += body
 	}
-	
+
 	h := hmac.New(sha256.New, []byte(c.secretKey))
 	h.Write([]byte(message))
 	return hex.EncodeToString(h.Sum(nil))
@@ -95,7 +95,7 @@ func (c *BTCCClient) sendRequest(ctx context.Context, method, path string, param
 	if needSign {
 		timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		signature := c.signRequest(method, path, timestamp, queryString, bodyStr)
-		
+
 		req.Header.Set("BTCC-API-KEY", c.apiKey)
 		req.Header.Set("BTCC-TIMESTAMP", timestamp)
 		req.Header.Set("BTCC-SIGNATURE", signature)
@@ -407,11 +407,11 @@ type Symbol struct {
 }
 
 type OrderRequest struct {
-	Symbol       string  `json:"symbol"`
-	Side         string  `json:"side"`         // BUY, SELL
-	Type         string  `json:"type"`         // LIMIT, MARKET
-	Quantity     float64 `json:"quantity"`
-	Price        float64 `json:"price,omitempty"`
+	Symbol        string  `json:"symbol"`
+	Side          string  `json:"side"` // BUY, SELL
+	Type          string  `json:"type"` // LIMIT, MARKET
+	Quantity      float64 `json:"quantity"`
+	Price         float64 `json:"price,omitempty"`
 	ClientOrderID string  `json:"clientOrderId,omitempty"`
 }
 
@@ -459,4 +459,3 @@ type Kline struct {
 	Close  float64 `json:"close"`
 	Volume float64 `json:"volume"`
 }
-

@@ -43,18 +43,18 @@ func TestNewSigner(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	signer := NewSigner("test_key", "test_secret", "test_pass")
-	
+
 	timestamp := "1234567890"
 	method := "POST"
 	requestPath := "/api/mix/v1/order/placeOrder"
 	body := `{"symbol":"BTCUSDT","side":"buy"}`
-	
+
 	signature := signer.Sign(timestamp, method, requestPath, body)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := signer.Sign(timestamp, method, requestPath, body)
 	if signature != signature2 {
@@ -113,4 +113,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

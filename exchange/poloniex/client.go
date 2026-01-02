@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	PoloniexMainnetBaseURL = "https://api.poloniex.com"           // Poloniex 主网
-	PoloniexTestnetBaseURL = "https://testnet-api.poloniex.com"   // Poloniex 测试网
+	PoloniexMainnetBaseURL = "https://api.poloniex.com"         // Poloniex 主网
+	PoloniexTestnetBaseURL = "https://testnet-api.poloniex.com" // Poloniex 测试网
 )
 
 // PoloniexClient Poloniex 客户端
@@ -85,7 +85,7 @@ func (c *PoloniexClient) sendRequest(ctx context.Context, method, path string, p
 		timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		signPayload := method + "\n" + path + queryString + "\n" + bodyStr + "\n" + timestamp
 		signature := c.signRequest(signPayload)
-		
+
 		req.Header.Set("key", c.apiKey)
 		req.Header.Set("signTimestamp", timestamp)
 		req.Header.Set("signature", signature)
@@ -272,27 +272,27 @@ type Symbol struct {
 }
 
 type OrderRequest struct {
-	Symbol      string `json:"symbol"`
-	Side        string `json:"side"`        // BUY, SELL
-	Type        string `json:"type"`        // LIMIT, MARKET
-	Quantity    string `json:"quantity"`
-	Price       string `json:"price,omitempty"`
-	TimeInForce string `json:"timeInForce,omitempty"`
+	Symbol        string `json:"symbol"`
+	Side          string `json:"side"` // BUY, SELL
+	Type          string `json:"type"` // LIMIT, MARKET
+	Quantity      string `json:"quantity"`
+	Price         string `json:"price,omitempty"`
+	TimeInForce   string `json:"timeInForce,omitempty"`
 	ClientOrderID string `json:"clientOrderId,omitempty"`
 }
 
 type Order struct {
-	ID            string  `json:"id"`
-	ClientOrderID string  `json:"clientOrderId"`
-	Symbol        string  `json:"symbol"`
-	Side          string  `json:"side"`
-	Type          string  `json:"type"`
-	Price         float64 `json:"price,string"`
-	Quantity      float64 `json:"quantity,string"`
+	ID             string  `json:"id"`
+	ClientOrderID  string  `json:"clientOrderId"`
+	Symbol         string  `json:"symbol"`
+	Side           string  `json:"side"`
+	Type           string  `json:"type"`
+	Price          float64 `json:"price,string"`
+	Quantity       float64 `json:"quantity,string"`
 	FilledQuantity float64 `json:"filledQuantity,string"`
-	State         string  `json:"state"`
-	CreateTime    int64   `json:"createTime"`
-	UpdateTime    int64   `json:"updateTime"`
+	State          string  `json:"state"`
+	CreateTime     int64   `json:"createTime"`
+	UpdateTime     int64   `json:"updateTime"`
 }
 
 type Balance struct {
@@ -308,19 +308,18 @@ type Ticker struct {
 }
 
 type Kline struct {
-	Low    float64 `json:"low,string"`
-	High   float64 `json:"high,string"`
-	Open   float64 `json:"open,string"`
-	Close  float64 `json:"close,string"`
-	Amount float64 `json:"amount,string"`
-	Quantity float64 `json:"quantity,string"`
-	BuyTakerAmount float64 `json:"buyTakerAmount,string"`
+	Low              float64 `json:"low,string"`
+	High             float64 `json:"high,string"`
+	Open             float64 `json:"open,string"`
+	Close            float64 `json:"close,string"`
+	Amount           float64 `json:"amount,string"`
+	Quantity         float64 `json:"quantity,string"`
+	BuyTakerAmount   float64 `json:"buyTakerAmount,string"`
 	BuyTakerQuantity float64 `json:"buyTakerQuantity,string"`
-	TradeCount int64 `json:"tradeCount"`
-	Ts int64 `json:"ts"`
-	WeightedAverage float64 `json:"weightedAverage,string"`
-	Interval string `json:"interval"`
-	StartTime int64 `json:"startTime"`
-	CloseTime int64 `json:"closeTime"`
+	TradeCount       int64   `json:"tradeCount"`
+	Ts               int64   `json:"ts"`
+	WeightedAverage  float64 `json:"weightedAverage,string"`
+	Interval         string  `json:"interval"`
+	StartTime        int64   `json:"startTime"`
+	CloseTime        int64   `json:"closeTime"`
 }
-

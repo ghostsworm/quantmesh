@@ -10,14 +10,14 @@ import (
 
 // Adapter BingX 适配器
 type Adapter struct {
-	client          *BingXClient
-	wsManager       *WebSocketManager
-	klineWSManager  *KlineWebSocketManager
-	symbol          string
-	priceDecimals   int
+	client           *BingXClient
+	wsManager        *WebSocketManager
+	klineWSManager   *KlineWebSocketManager
+	symbol           string
+	priceDecimals    int
 	quantityDecimals int
-	baseAsset       string
-	quoteAsset      string
+	baseAsset        string
+	quoteAsset       string
 }
 
 // NewAdapter 创建 BingX 适配器
@@ -91,7 +91,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 	// 转换订单方向
 	var bingxSide string
 	var positionSide string
-	
+
 	if side == SideBuy {
 		bingxSide = "BUY"
 		positionSide = "LONG"
@@ -362,4 +362,3 @@ func (a *Adapter) convertOrder(order *OrderInfo) *OrderLocal {
 		UpdateTime:    order.UpdateTime,
 	}
 }
-

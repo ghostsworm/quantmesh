@@ -112,8 +112,8 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, symbol, interval st
 // subscribe 订阅 K线
 func (k *KlineWebSocketManager) subscribe(symbol, interval string) error {
 	subMsg := map[string]interface{}{
-		"id": "kline_sub",
-		"reqType": "sub",
+		"id":       "kline_sub",
+		"reqType":  "sub",
 		"dataType": symbol + "@kline_" + interval,
 	}
 
@@ -149,7 +149,7 @@ func (k *KlineWebSocketManager) heartbeat() {
 			return
 		case <-ticker.C:
 			pingMsg := map[string]interface{}{
-				"id": "ping",
+				"id":      "ping",
 				"reqType": "ping",
 			}
 			if err := k.sendMessage(pingMsg); err != nil {
@@ -246,4 +246,3 @@ func (k *KlineWebSocketManager) parseKline(data map[string]interface{}) *Kline {
 
 	return kline
 }
-

@@ -397,6 +397,3 @@ func (t *GormTx) Ping(ctx context.Context) error {
 func (t *GormTx) Close() error {
 	return nil
 }
-
-
-

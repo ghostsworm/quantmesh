@@ -263,7 +263,7 @@ func migrateReconciliationHistory(db *sql.DB) error {
 	if err := row.Scan(&count); err != nil {
 		return err
 	}
-	
+
 	// 如果字段不存在，添加它
 	if count == 0 {
 		_, err := db.Exec(`
@@ -274,7 +274,7 @@ func migrateReconciliationHistory(db *sql.DB) error {
 			return err
 		}
 	}
-	
+
 	// 检查 created_at 字段是否存在
 	row = db.QueryRow(`
 		SELECT COUNT(*) FROM pragma_table_info('reconciliation_history') 
@@ -283,7 +283,7 @@ func migrateReconciliationHistory(db *sql.DB) error {
 	if err := row.Scan(&count); err != nil {
 		return err
 	}
-	
+
 	// 如果字段不存在，添加它
 	if count == 0 {
 		_, err := db.Exec(`
@@ -294,7 +294,7 @@ func migrateReconciliationHistory(db *sql.DB) error {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -454,21 +454,21 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 		WHERE 1=1
 	`
 	args := []interface{}{}
-	
+
 	if status != "" {
 		query += " AND status = ?"
 		args = append(args, status)
 	}
-	
+
 	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
-	
+
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查询订单失败: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var orders []*Order
 	for rows.Next() {
 		order := &Order{}
@@ -488,7 +488,7 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 		}
 		orders = append(orders, order)
 	}
-	
+
 	return orders, nil
 }
 
@@ -505,7 +505,7 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 		return nil, fmt.Errorf("查询交易失败: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var trades []*Trade
 	for rows.Next() {
 		trade := &Trade{}
@@ -524,7 +524,7 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 		}
 		trades = append(trades, trade)
 	}
-	
+
 	return trades, nil
 }
 
@@ -540,7 +540,7 @@ func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statis
 		return nil, fmt.Errorf("查询统计数据失败: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var stats []*Statistics
 	for rows.Next() {
 		stat := &Statistics{}
@@ -557,7 +557,7 @@ func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statis
 		}
 		stats = append(stats, stat)
 	}
-	
+
 	return stats, nil
 }
 
@@ -575,13 +575,13 @@ func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
 			END as win_rate
 		FROM trades
 	`)
-	
+
 	stat := &Statistics{}
 	var totalTrades sql.NullInt64
 	var totalVolume sql.NullFloat64
 	var totalPnL sql.NullFloat64
 	var winRate sql.NullFloat64
-	
+
 	err := row.Scan(&totalTrades, &totalVolume, &totalPnL, &winRate)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -589,7 +589,7 @@ func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
 		}
 		return nil, fmt.Errorf("查询统计汇总失败: %w", err)
 	}
-	
+
 	if totalTrades.Valid {
 		stat.TotalTrades = int(totalTrades.Int64)
 	}
@@ -602,7 +602,7 @@ func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
 	if winRate.Valid {
 		stat.WinRate = winRate.Float64
 	}
-	
+
 	return stat, nil
 }
 
@@ -611,7 +611,7 @@ func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(startDate, endDate time.T
 	// 转换为日期字符串（YYYY-MM-DD格式）
 	startDateStr := startDate.Format("2006-01-02")
 	endDateStr := endDate.Format("2006-01-02")
-	
+
 	rows, err := s.db.Query(`
 		SELECT 
 			date(created_at) as date,
@@ -634,7 +634,7 @@ func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(startDate, endDate time.T
 		return nil, fmt.Errorf("查询每日统计失败: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var stats []*DailyStatisticsWithTradeCount
 	for rows.Next() {
 		stat := &DailyStatisticsWithTradeCount{}
@@ -645,19 +645,19 @@ func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(startDate, endDate time.T
 		var winRate sql.NullFloat64
 		var winningTrades sql.NullInt64
 		var losingTrades sql.NullInt64
-		
+
 		err := rows.Scan(&dateStr, &totalTrades, &totalVolume, &totalPnL, &winRate, &winningTrades, &losingTrades)
 		if err != nil {
 			continue
 		}
-		
+
 		// 解析日期
 		date, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
 			continue
 		}
 		stat.Date = date
-		
+
 		if totalTrades.Valid {
 			stat.TotalTrades = int(totalTrades.Int64)
 		}
@@ -676,10 +676,10 @@ func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(startDate, endDate time.T
 		if losingTrades.Valid {
 			stat.LosingTrades = int(losingTrades.Int64)
 		}
-		
+
 		stats = append(stats, stat)
 	}
-	
+
 	return stats, nil
 }
 
@@ -710,21 +710,21 @@ func (s *SQLiteStorage) QueryReconciliationHistory(symbol string, startTime, end
 		WHERE reconcile_time >= ? AND reconcile_time <= ?
 	`
 	args := []interface{}{startTime, endTime}
-	
+
 	if symbol != "" {
 		query += " AND symbol = ?"
 		args = append(args, symbol)
 	}
-	
+
 	query += " ORDER BY reconcile_time DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
-	
+
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查询对账历史失败: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var histories []*ReconciliationHistory
 	for rows.Next() {
 		h := &ReconciliationHistory{}
@@ -749,7 +749,7 @@ func (s *SQLiteStorage) QueryReconciliationHistory(symbol string, startTime, end
 		}
 		histories = append(histories, h)
 	}
-	
+
 	return histories, nil
 }
 
@@ -764,10 +764,10 @@ func (s *SQLiteStorage) GetLatestReconciliationHistory(symbol string) (*Reconcil
 		ORDER BY reconcile_time DESC
 		LIMIT 1
 	`
-	
+
 	row := s.db.QueryRow(query, symbol)
 	h := &ReconciliationHistory{}
-	
+
 	err := row.Scan(
 		&h.ID,
 		&h.Symbol,
@@ -784,21 +784,21 @@ func (s *SQLiteStorage) GetLatestReconciliationHistory(symbol string) (*Reconcil
 		&h.ActualProfit,
 		&h.CreatedAt,
 	)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // 没有记录，返回 nil 而不是错误
 		}
 		return nil, fmt.Errorf("查询最新对账记录失败: %w", err)
 	}
-	
+
 	return h, nil
 }
 
 // GetReconciliationCount 获取指定币种的对账次数（统计历史记录数量）
 func (s *SQLiteStorage) GetReconciliationCount(symbol string) (int64, error) {
 	query := `SELECT COUNT(*) FROM reconciliation_history WHERE symbol = ?`
-	
+
 	var count int64
 	err := s.db.QueryRow(query, symbol).Scan(&count)
 	if err != nil {
@@ -807,7 +807,7 @@ func (s *SQLiteStorage) GetReconciliationCount(symbol string) (int64, error) {
 		}
 		return 0, fmt.Errorf("统计对账次数失败: %w", err)
 	}
-	
+
 	return count, nil
 }
 
@@ -823,17 +823,17 @@ func (s *SQLiteStorage) GetPnLBySymbol(symbol string, startTime, endTime time.Ti
 		FROM trades
 		WHERE symbol = ? AND created_at >= ? AND created_at <= ?
 	`, symbol, startTime, endTime)
-	
+
 	summary := &PnLSummary{
 		Symbol: symbol,
 	}
-	
+
 	var totalTrades sql.NullInt64
 	var totalPnL sql.NullFloat64
 	var totalVolume sql.NullFloat64
 	var winningTrades sql.NullInt64
 	var losingTrades sql.NullInt64
-	
+
 	err := row.Scan(&totalTrades, &totalPnL, &totalVolume, &winningTrades, &losingTrades)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -841,7 +841,7 @@ func (s *SQLiteStorage) GetPnLBySymbol(symbol string, startTime, endTime time.Ti
 		}
 		return nil, fmt.Errorf("查询盈亏数据失败: %w", err)
 	}
-	
+
 	if totalTrades.Valid {
 		summary.TotalTrades = int(totalTrades.Int64)
 	}
@@ -857,11 +857,11 @@ func (s *SQLiteStorage) GetPnLBySymbol(symbol string, startTime, endTime time.Ti
 	if losingTrades.Valid {
 		summary.LosingTrades = int(losingTrades.Int64)
 	}
-	
+
 	if summary.TotalTrades > 0 {
 		summary.WinRate = float64(summary.WinningTrades) / float64(summary.TotalTrades)
 	}
-	
+
 	return summary, nil
 }
 
@@ -883,7 +883,7 @@ func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLB
 		return nil, fmt.Errorf("查询盈亏数据失败: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var results []*PnLBySymbol
 	for rows.Next() {
 		r := &PnLBySymbol{}
@@ -891,12 +891,12 @@ func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLB
 		var totalPnL sql.NullFloat64
 		var totalVolume sql.NullFloat64
 		var winRate sql.NullFloat64
-		
+
 		err := rows.Scan(&r.Symbol, &totalTrades, &totalPnL, &totalVolume, &winRate)
 		if err != nil {
 			continue
 		}
-		
+
 		if totalTrades.Valid {
 			r.TotalTrades = int(totalTrades.Int64)
 		}
@@ -909,10 +909,10 @@ func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLB
 		if winRate.Valid {
 			r.WinRate = winRate.Float64
 		}
-		
+
 		results = append(results, r)
 	}
-	
+
 	return results, nil
 }
 
@@ -923,7 +923,7 @@ func (s *SQLiteStorage) GetActualProfitBySymbol(symbol string, beforeTime time.T
 		FROM trades
 		WHERE symbol = ? AND created_at <= ?
 	`, symbol, beforeTime)
-	
+
 	var totalPnL sql.NullFloat64
 	err := row.Scan(&totalPnL)
 	if err != nil {
@@ -932,11 +932,11 @@ func (s *SQLiteStorage) GetActualProfitBySymbol(symbol string, beforeTime time.T
 		}
 		return 0, fmt.Errorf("查询实际盈利失败: %w", err)
 	}
-	
+
 	if totalPnL.Valid {
 		return totalPnL.Float64, nil
 	}
-	
+
 	return 0, nil
 }
 
@@ -962,7 +962,7 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limi
 	if limit > 500 {
 		limit = 500
 	}
-	
+
 	// 根据时间范围决定聚合粒度
 	timeRange := endTime.Sub(startTime)
 	var truncateDuration time.Duration
@@ -979,7 +979,7 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limi
 		// 1天内，按分钟聚合
 		truncateDuration = time.Minute
 	}
-	
+
 	// 查询数据，按时间倒序，限制数量
 	rows, err := s.db.Query(`
 		SELECT check_time, symbol, is_healthy, price_deviation, volume_ratio, reason
@@ -995,7 +995,7 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limi
 
 	// 按检查时间分组
 	historyMap := make(map[time.Time]*RiskCheckHistory)
-	
+
 	for rows.Next() {
 		var checkTime time.Time
 		var symbol string
@@ -1022,8 +1022,8 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limi
 		}
 
 		symbolData := &RiskCheckSymbol{
-			Symbol:      symbol,
-			IsHealthy:   isHealthy == 1,
+			Symbol:    symbol,
+			IsHealthy: isHealthy == 1,
 		}
 		if priceDeviation.Valid {
 			symbolData.PriceDeviation = priceDeviation.Float64
@@ -1161,7 +1161,7 @@ func (s *SQLiteStorage) GetAIPromptTemplate(module string) (*AIPromptTemplate, e
 		"SELECT id, module, template, system_prompt, updated_at FROM ai_prompts WHERE module = ?",
 		module,
 	).Scan(&template.ID, &template.Module, &template.Template, &template.SystemPrompt, &template.UpdatedAt)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil // 不存在，返回nil
 	}
@@ -1230,7 +1230,7 @@ func (s *SQLiteStorage) GetLatestBasis(symbol, exchange string) (*BasisData, err
 		&data.Symbol, &data.Exchange, &data.SpotPrice, &data.FuturesPrice,
 		&data.Basis, &data.BasisPercent, &data.FundingRate, &data.Timestamp,
 	)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1245,7 +1245,7 @@ func (s *SQLiteStorage) GetBasisHistory(symbol, exchange string, limit int) ([]*
 	if limit <= 0 {
 		limit = 100
 	}
-	
+
 	rows, err := s.db.Query(`
 		SELECT symbol, exchange, spot_price, futures_price, basis, basis_percent, funding_rate, timestamp
 		FROM basis_data
@@ -1253,12 +1253,12 @@ func (s *SQLiteStorage) GetBasisHistory(symbol, exchange string, limit int) ([]*
 		ORDER BY timestamp DESC
 		LIMIT ?
 	`, symbol, exchange, limit)
-	
+
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var result []*BasisData
 	for rows.Next() {
 		var data BasisData
@@ -1271,7 +1271,7 @@ func (s *SQLiteStorage) GetBasisHistory(symbol, exchange string, limit int) ([]*
 		}
 		result = append(result, &data)
 	}
-	
+
 	return result, rows.Err()
 }
 
@@ -1280,21 +1280,21 @@ func (s *SQLiteStorage) GetBasisStatistics(symbol, exchange string, hours int) (
 	if hours <= 0 {
 		hours = 24
 	}
-	
+
 	cutoffTime := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
-	
+
 	rows, err := s.db.Query(`
 		SELECT basis_percent
 		FROM basis_data
 		WHERE symbol = ? AND exchange = ? AND timestamp >= ?
 		ORDER BY timestamp DESC
 	`, symbol, exchange, cutoffTime)
-	
+
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var values []float64
 	for rows.Next() {
 		var value float64
@@ -1303,16 +1303,16 @@ func (s *SQLiteStorage) GetBasisStatistics(symbol, exchange string, hours int) (
 		}
 		values = append(values, value)
 	}
-	
+
 	if len(values) == 0 {
 		return nil, fmt.Errorf("没有找到数据")
 	}
-	
+
 	// 计算统计数据
 	var sum, max, min float64
 	max = values[0]
 	min = values[0]
-	
+
 	for _, v := range values {
 		sum += v
 		if v > max {
@@ -1322,9 +1322,9 @@ func (s *SQLiteStorage) GetBasisStatistics(symbol, exchange string, hours int) (
 			min = v
 		}
 	}
-	
+
 	avg := sum / float64(len(values))
-	
+
 	// 计算标准差
 	var variance float64
 	for _, v := range values {
@@ -1340,7 +1340,7 @@ func (s *SQLiteStorage) GetBasisStatistics(symbol, exchange string, hours int) (
 			stdDev = (stdDev + variance/stdDev) / 2
 		}
 	}
-	
+
 	return &BasisStats{
 		Symbol:     symbol,
 		Exchange:   exchange,
@@ -1361,4 +1361,3 @@ func (s *SQLiteStorage) Close() error {
 	s.closed = true
 	return s.db.Close()
 }
-

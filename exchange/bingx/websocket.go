@@ -133,7 +133,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 // authenticate 认证
 func (w *WebSocketManager) authenticate() error {
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	
+
 	// 签名：HMAC-SHA256(apiKey + timestamp)
 	signStr := w.apiKey + timestamp
 	h := hmac.New(sha256.New, []byte(w.secretKey))
@@ -141,8 +141,8 @@ func (w *WebSocketManager) authenticate() error {
 	signature := hex.EncodeToString(h.Sum(nil))
 
 	authMsg := map[string]interface{}{
-		"id": "auth",
-		"reqType": "auth",
+		"id":       "auth",
+		"reqType":  "auth",
 		"dataType": timestamp,
 		"data": map[string]string{
 			"apiKey":    w.apiKey,
@@ -158,8 +158,8 @@ func (w *WebSocketManager) authenticate() error {
 func (w *WebSocketManager) subscribe(symbol string) error {
 	// 订阅账户更新
 	subMsg := map[string]interface{}{
-		"id": "account_sub",
-		"reqType": "sub",
+		"id":       "account_sub",
+		"reqType":  "sub",
 		"dataType": "account.update",
 	}
 
@@ -169,8 +169,8 @@ func (w *WebSocketManager) subscribe(symbol string) error {
 
 	// 订阅订单更新
 	subMsg = map[string]interface{}{
-		"id": "order_sub",
-		"reqType": "sub",
+		"id":       "order_sub",
+		"reqType":  "sub",
 		"dataType": "order.update",
 	}
 
@@ -180,8 +180,8 @@ func (w *WebSocketManager) subscribe(symbol string) error {
 
 	// 订阅 Ticker
 	subMsg = map[string]interface{}{
-		"id": "ticker_sub",
-		"reqType": "sub",
+		"id":       "ticker_sub",
+		"reqType":  "sub",
 		"dataType": symbol + "@ticker",
 	}
 
@@ -217,7 +217,7 @@ func (w *WebSocketManager) heartbeat() {
 			return
 		case <-ticker.C:
 			pingMsg := map[string]interface{}{
-				"id": "ping",
+				"id":      "ping",
 				"reqType": "ping",
 			}
 			if err := w.sendMessage(pingMsg); err != nil {
@@ -298,4 +298,3 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		}
 	}
 }
-

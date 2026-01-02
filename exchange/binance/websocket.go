@@ -17,15 +17,15 @@ import (
 
 // WebSocketManager 币安 WebSocket 订单流管理器
 type WebSocketManager struct {
-	client    *futures.Client
-	apiKey    string
-	secretKey string
-	listenKey string
-	doneC     chan struct{}
-	stopC     chan struct{}
-	mu        sync.RWMutex
-	callbacks []OrderUpdateCallback
-	isRunning bool
+	client     *futures.Client
+	apiKey     string
+	secretKey  string
+	listenKey  string
+	doneC      chan struct{}
+	stopC      chan struct{}
+	mu         sync.RWMutex
+	callbacks  []OrderUpdateCallback
+	isRunning  bool
 	useTestnet bool // 是否使用测试网
 
 	// 价格缓存

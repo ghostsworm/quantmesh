@@ -23,10 +23,10 @@ type BacktestRequest struct {
 
 // BacktestResponse 回测响应
 type BacktestResponse struct {
-	Success bool                   `json:"success"`
-	Message string                 `json:"message"`
-	Result  *backtest.BacktestResult `json:"result,omitempty"`
-	ReportPath string               `json:"report_path,omitempty"`
+	Success    bool                     `json:"success"`
+	Message    string                   `json:"message"`
+	Result     *backtest.BacktestResult `json:"result,omitempty"`
+	ReportPath string                   `json:"report_path,omitempty"`
 }
 
 // runBacktest 运行回测
@@ -238,4 +238,3 @@ func getBinanceConfig() map[string]string {
 		"testnet":    "false",
 	}
 }
-

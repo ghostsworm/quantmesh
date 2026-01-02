@@ -36,15 +36,15 @@ func NewBitfinexAdapter(config map[string]string, symbol string) (*Adapter, erro
 
 	// 转换符号格式：BTCUSDT -> BTCUSD
 	bitfinexSymbol := convertToBitfinexSymbol(symbol)
-	
+
 	// 解析基础资产和报价资产
 	baseAsset, quoteAsset := parseSymbol(bitfinexSymbol)
 
 	adapter := &Adapter{
 		client:           client,
 		symbol:           bitfinexSymbol,
-		priceDecimals:    2,    // Bitfinex 默认价格精度
-		quantityDecimals: 8,    // Bitfinex 默认数量精度
+		priceDecimals:    2, // Bitfinex 默认价格精度
+		quantityDecimals: 8, // Bitfinex 默认数量精度
 		baseAsset:        baseAsset,
 		quoteAsset:       quoteAsset,
 	}
@@ -84,7 +84,7 @@ func (a *Adapter) GetName() string {
 // PlaceOrder 下单
 func (a *Adapter) PlaceOrder(ctx context.Context, req *BitfinexOrderRequest) (*Order, error) {
 	clientOrderID := fmt.Sprintf("order_%d", time.Now().UnixMilli())
-	
+
 	orderReq := &OrderRequest{
 		Symbol:        a.symbol,
 		Side:          string(req.Side),
@@ -111,7 +111,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, req *BitfinexOrderRequest) (*O
 		CreatedAt:     time.Now(),
 	}
 
-	logger.Info("Bitfinex order placed: %s, side: %s, price: %.2f, quantity: %.8f", 
+	logger.Info("Bitfinex order placed: %s, side: %s, price: %.2f, quantity: %.8f",
 		order.OrderID, order.Side, order.Price, order.Quantity)
 	return order, nil
 }

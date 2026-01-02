@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
-	
+
 	"quantmesh/logger"
 )
 
@@ -45,17 +45,17 @@ func (s *BillingService) CreateSubscription(userID, email, plan string) (*Subscr
 	if err == nil && existing != nil {
 		return nil, fmt.Errorf("用户已有订阅")
 	}
-	
+
 	// 2. 创建 Stripe 客户 (这里简化,实际应该调用 Stripe API)
 	stripeCustomerID := fmt.Sprintf("cus_%s_%d", userID, time.Now().Unix())
-	
+
 	// 3. 创建 Stripe 订阅 (这里简化,实际应该调用 Stripe API)
 	stripeSubscriptionID := fmt.Sprintf("sub_%s_%d", userID, time.Now().Unix())
-	
+
 	// 4. 保存到数据库
 	now := time.Now()
 	periodEnd := now.AddDate(0, 1, 0) // 一个月后
-	
+
 	var subID int
 	err = s.db.QueryRow(`
 		INSERT INTO subscriptions (
@@ -69,13 +69,13 @@ func (s *BillingService) CreateSubscription(userID, email, plan string) (*Subscr
 		stripeSubscriptionID, stripeCustomerID,
 		now, periodEnd, false, now, now,
 	).Scan(&subID)
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("创建订阅失败: %v", err)
 	}
-	
+
 	logger.Info("✅ 订阅创建成功: 用户=%s, 套餐=%s", userID, plan)
-	
+
 	return &Subscription{
 		ID:                   subID,
 		UserID:               userID,
@@ -95,7 +95,7 @@ func (s *BillingService) CreateSubscription(userID, email, plan string) (*Subscr
 // GetSubscription 获取订阅
 func (s *BillingService) GetSubscription(userID string) (*Subscription, error) {
 	var sub Subscription
-	
+
 	err := s.db.QueryRow(`
 		SELECT id, user_id, email, plan, status,
 		       stripe_subscription_id, stripe_customer_id,
@@ -119,13 +119,13 @@ func (s *BillingService) GetSubscription(userID string) (*Subscription, error) {
 		&sub.CreatedAt,
 		&sub.UpdatedAt,
 	)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("未找到订阅")
 	} else if err != nil {
 		return nil, err
 	}
-	
+
 	return &sub, nil
 }
 
@@ -136,20 +136,20 @@ func (s *BillingService) UpdateSubscriptionPlan(userID, newPlan string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 2. 更新 Stripe 订阅 (这里简化,实际应该调用 Stripe API)
-	
+
 	// 3. 更新数据库
 	_, err = s.db.Exec(`
 		UPDATE subscriptions
 		SET plan = $1, updated_at = $2
 		WHERE id = $3
 	`, newPlan, time.Now(), sub.ID)
-	
+
 	if err != nil {
 		return fmt.Errorf("更新订阅失败: %v", err)
 	}
-	
+
 	logger.Info("✅ 订阅已更新: 用户=%s, 新套餐=%s", userID, newPlan)
 	return nil
 }
@@ -161,9 +161,9 @@ func (s *BillingService) CancelSubscription(userID string, immediately bool) err
 	if err != nil {
 		return err
 	}
-	
+
 	// 2. 取消 Stripe 订阅 (这里简化,实际应该调用 Stripe API)
-	
+
 	// 3. 更新数据库
 	if immediately {
 		// 立即取消
@@ -180,11 +180,11 @@ func (s *BillingService) CancelSubscription(userID string, immediately bool) err
 			WHERE id = $2
 		`, time.Now(), sub.ID)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("取消订阅失败: %v", err)
 	}
-	
+
 	logger.Info("✅ 订阅已取消: 用户=%s, 立即取消=%v", userID, immediately)
 	return nil
 }
@@ -196,13 +196,13 @@ func (s *BillingService) RenewSubscription(userID string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 2. 处理 Stripe 支付 (这里简化,实际应该调用 Stripe API)
-	
+
 	// 3. 更新周期
 	newPeriodStart := sub.CurrentPeriodEnd
 	newPeriodEnd := newPeriodStart.AddDate(0, 1, 0)
-	
+
 	_, err = s.db.Exec(`
 		UPDATE subscriptions
 		SET current_period_start = $1,
@@ -211,11 +211,11 @@ func (s *BillingService) RenewSubscription(userID string) error {
 		    updated_at = $3
 		WHERE id = $4
 	`, newPeriodStart, newPeriodEnd, time.Now(), sub.ID)
-	
+
 	if err != nil {
 		return fmt.Errorf("续订失败: %v", err)
 	}
-	
+
 	logger.Info("✅ 订阅已续订: 用户=%s, 新周期=%s", userID, newPeriodEnd.Format("2006-01-02"))
 	return nil
 }
@@ -227,11 +227,11 @@ func (s *BillingService) GetPriceID(plan string) string {
 		"professional": "price_professional_monthly",
 		"enterprise":   "price_enterprise_monthly",
 	}
-	
+
 	if priceID, exists := prices[plan]; exists {
 		return priceID
 	}
-	
+
 	return ""
 }
 
@@ -242,11 +242,11 @@ func (s *BillingService) GetPlanPrice(plan string) float64 {
 		"professional": 199.00,
 		"enterprise":   999.00,
 	}
-	
+
 	if price, exists := prices[plan]; exists {
 		return price
 	}
-	
+
 	return 0.0
 }
 
@@ -285,13 +285,12 @@ func (s *BillingService) InitDatabase() error {
 		INDEX idx_status (status)
 	);
 	`
-	
+
 	_, err := s.db.Exec(schema)
 	if err != nil {
 		return fmt.Errorf("初始化数据库失败: %v", err)
 	}
-	
+
 	logger.Info("✅ 计费数据库表初始化成功")
 	return nil
 }
-

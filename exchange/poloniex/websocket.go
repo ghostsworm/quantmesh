@@ -134,13 +134,13 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 func (w *WebSocketManager) authenticate() error {
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	message := "GET\n/ws\n" + timestamp
-	
+
 	h := hmac.New(sha256.New, []byte(w.secretKey))
 	h.Write([]byte(message))
 	signature := hex.EncodeToString(h.Sum(nil))
 
 	authMsg := map[string]interface{}{
-		"event": "subscribe",
+		"event":   "subscribe",
 		"channel": []string{"auth"},
 		"params": map[string]interface{}{
 			"key":       w.apiKey,
@@ -155,7 +155,7 @@ func (w *WebSocketManager) authenticate() error {
 // subscribe 订阅频道
 func (w *WebSocketManager) subscribe(symbol string) error {
 	subMsg := map[string]interface{}{
-		"event": "subscribe",
+		"event":   "subscribe",
 		"channel": []string{fmt.Sprintf("orders.%s", symbol)},
 	}
 
@@ -254,4 +254,3 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		}
 	}
 }
-

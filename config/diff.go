@@ -10,24 +10,24 @@ import (
 type ChangeType string
 
 const (
-	ChangeTypeAdded   ChangeType = "added"   // 新增
+	ChangeTypeAdded    ChangeType = "added"    // 新增
 	ChangeTypeModified ChangeType = "modified" // 修改
-	ChangeTypeDeleted ChangeType = "deleted"  // 删除
+	ChangeTypeDeleted  ChangeType = "deleted"  // 删除
 )
 
 // ConfigChange 配置变更
 type ConfigChange struct {
-	Path          string      `json:"path"`           // 配置路径（如 "trading.price_interval"）
-	Type          ChangeType  `json:"type"`           // 变更类型
-	OldValue      interface{} `json:"old_value"`      // 旧值
-	NewValue      interface{} `json:"new_value"`      // 新值
-	RequiresRestart bool      `json:"requires_restart"` // 是否需要重启
+	Path            string      `json:"path"`             // 配置路径（如 "trading.price_interval"）
+	Type            ChangeType  `json:"type"`             // 变更类型
+	OldValue        interface{} `json:"old_value"`        // 旧值
+	NewValue        interface{} `json:"new_value"`        // 新值
+	RequiresRestart bool        `json:"requires_restart"` // 是否需要重启
 }
 
 // ConfigDiff 配置差异
 type ConfigDiff struct {
-	Changes      []ConfigChange `json:"changes"`       // 变更列表
-	RequiresRestart bool        `json:"requires_restart"` // 是否有需要重启的变更
+	Changes         []ConfigChange `json:"changes"`          // 变更列表
+	RequiresRestart bool           `json:"requires_restart"` // 是否有需要重启的变更
 }
 
 // DiffConfig 对比两个配置，生成差异
@@ -113,10 +113,10 @@ func (d *ConfigDiff) compareConfig(old, new interface{}, path string) {
 // compareStruct 对比结构体
 func (d *ConfigDiff) compareStruct(oldVal, newVal reflect.Value, basePath string) {
 	typ := oldVal.Type()
-	
+
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		
+
 		// 获取yaml标签
 		yamlTag := field.Tag.Get("yaml")
 		if yamlTag == "" || yamlTag == "-" {
@@ -221,19 +221,19 @@ func (d *ConfigDiff) addChange(path string, changeType ChangeType, oldValue, new
 func requiresRestart(path string) bool {
 	// 需要重启的配置路径
 	restartPaths := []string{
-		"app.current_exchange",      // 交易所切换
-		"web.host",                  // Web服务地址
-		"web.port",                  // Web服务端口
-		"system.log_level",          // 日志级别（虽然可以热更新，但通常建议重启）
-		"system.timezone",           // 系统时区
-		"storage.path",              // 存储路径
-		"storage.type",              // 存储类型
-		"ai.enabled",                // AI功能开关
-		"ai.provider",               // AI服务提供商
-		"ai.api_key",                // AI API密钥
-		"ai.base_url",               // AI基础URL
-		"notifications.enabled",     // 通知总开关（可能影响初始化）
-		"risk_control.enabled",      // 风控总开关（可能影响初始化）
+		"app.current_exchange",  // 交易所切换
+		"web.host",              // Web服务地址
+		"web.port",              // Web服务端口
+		"system.log_level",      // 日志级别（虽然可以热更新，但通常建议重启）
+		"system.timezone",       // 系统时区
+		"storage.path",          // 存储路径
+		"storage.type",          // 存储类型
+		"ai.enabled",            // AI功能开关
+		"ai.provider",           // AI服务提供商
+		"ai.api_key",            // AI API密钥
+		"ai.base_url",           // AI基础URL
+		"notifications.enabled", // 通知总开关（可能影响初始化）
+		"risk_control.enabled",  // 风控总开关（可能影响初始化）
 	}
 
 	for _, restartPath := range restartPaths {
@@ -244,4 +244,3 @@ func requiresRestart(path string) bool {
 
 	return false
 }
-

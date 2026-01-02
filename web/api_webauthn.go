@@ -67,7 +67,7 @@ func normalizeWebAuthnResponse(response map[string]interface{}) map[string]inter
 	}
 
 	normalized := make(map[string]interface{})
-	
+
 	// 复制所有字段
 	for k, v := range response {
 		normalized[k] = v
@@ -97,7 +97,7 @@ func normalizeWebAuthnResponse(response map[string]interface{}) map[string]inter
 	// 转换 response 对象
 	if resp, ok := normalized["response"].(map[string]interface{}); ok {
 		normalizedResp := make(map[string]interface{})
-		
+
 		// 转换 attestationObject
 		if attObj, ok := resp["attestationObject"]; ok {
 			if attObjArray, ok := attObj.([]interface{}); ok {
@@ -305,7 +305,7 @@ func finishWebAuthnRegistration(c *gin.Context) {
 				responseKeys = append(responseKeys, k)
 			}
 			globalWebAuthnManager.log.Debugf("[WebAuthn注册] Response 包含字段: %v", responseKeys)
-			
+
 			// 检查关键字段
 			if id, ok := req.Response["id"].(string); ok {
 				globalWebAuthnManager.log.Debugf("[WebAuthn注册] Response.id: %s", id)
@@ -399,9 +399,9 @@ func finishWebAuthnRegistration(c *gin.Context) {
 	if err != nil {
 		if globalWebAuthnManager.log != nil {
 			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 完成 WebAuthn 注册失败: %v", err)
-			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 错误详情 - Username: %s, SessionKey: %s, DeviceName: %s", 
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 错误详情 - Username: %s, SessionKey: %s, DeviceName: %s",
 				session.Username, req.SessionKey, req.DeviceName)
-			globalWebAuthnManager.log.Errorf("[WebAuthn注册] Response 结构: id=%v, rawId类型=%T, response类型=%T", 
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] Response 结构: id=%v, rawId类型=%T, response类型=%T",
 				req.Response["id"], req.Response["rawId"], req.Response["response"])
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "注册失败: " + err.Error()})
@@ -411,14 +411,14 @@ func finishWebAuthnRegistration(c *gin.Context) {
 	// 保存凭证到数据库
 	if globalWebAuthnManager.log != nil {
 		credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
-		globalWebAuthnManager.log.Infof("[WebAuthn注册] 准备保存凭证 - Username: %s, DeviceName: %s, CredentialID: %s", 
+		globalWebAuthnManager.log.Infof("[WebAuthn注册] 准备保存凭证 - Username: %s, DeviceName: %s, CredentialID: %s",
 			session.Username, req.DeviceName, credentialID)
 	}
-	
+
 	if err := globalWebAuthnManager.SaveCredential(session.Username, session.Username, credential, req.DeviceName); err != nil {
 		if globalWebAuthnManager.log != nil {
 			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 保存凭证失败: %v", err)
-			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 保存失败详情 - Username: %s, DeviceName: %s", 
+			globalWebAuthnManager.log.Errorf("[WebAuthn注册] 保存失败详情 - Username: %s, DeviceName: %s",
 				session.Username, req.DeviceName)
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存凭证失败: " + err.Error()})
@@ -427,7 +427,7 @@ func finishWebAuthnRegistration(c *gin.Context) {
 
 	if globalWebAuthnManager.log != nil {
 		credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
-		globalWebAuthnManager.log.Infof("[WebAuthn注册] 凭证保存成功 - Username: %s, DeviceName: %s, CredentialID: %s", 
+		globalWebAuthnManager.log.Infof("[WebAuthn注册] 凭证保存成功 - Username: %s, DeviceName: %s, CredentialID: %s",
 			session.Username, req.DeviceName, credentialID)
 	}
 
@@ -692,4 +692,3 @@ func deleteWebAuthnCredential(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "凭证已删除"})
 }
-

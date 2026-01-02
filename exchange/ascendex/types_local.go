@@ -97,4 +97,3 @@ func ConvertInterval(interval string) AscendEXInterval {
 		return AscendEXInterval1m
 	}
 }
-

@@ -277,7 +277,7 @@ func (c *KuCoinClient) GetPositionInfo(ctx context.Context, symbol string) ([]Ku
 	}
 
 	var resp struct {
-		Code string                `json:"code"`
+		Code string               `json:"code"`
 		Data []KuCoinPositionInfo `json:"data"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
@@ -350,8 +350,8 @@ func (c *KuCoinClient) GetWebSocketToken(ctx context.Context, private bool) (*We
 	var resp struct {
 		Code string `json:"code"`
 		Data struct {
-			Token            string `json:"token"`
-			InstanceServers  []struct {
+			Token           string `json:"token"`
+			InstanceServers []struct {
 				Endpoint     string `json:"endpoint"`
 				Encrypt      bool   `json:"encrypt"`
 				Protocol     string `json:"protocol"`
@@ -387,39 +387,39 @@ type ExchangeInfo struct {
 
 // ContractInfo 合约信息
 type ContractInfo struct {
-	Symbol          string  `json:"symbol"`
-	RootSymbol      string  `json:"rootSymbol"`
-	Type            string  `json:"type"`
-	FirstOpenDate   int64   `json:"firstOpenDate"`
-	BaseCurrency    string  `json:"baseCurrency"`
-	QuoteCurrency   string  `json:"quoteCurrency"`
-	SettleCurrency  string  `json:"settleCurrency"`
-	MaxOrderQty     int     `json:"maxOrderQty"`
-	MaxPrice        float64 `json:"maxPrice"`
-	LotSize         int     `json:"lotSize"`
-	TickSize        float64 `json:"tickSize"`
+	Symbol             string  `json:"symbol"`
+	RootSymbol         string  `json:"rootSymbol"`
+	Type               string  `json:"type"`
+	FirstOpenDate      int64   `json:"firstOpenDate"`
+	BaseCurrency       string  `json:"baseCurrency"`
+	QuoteCurrency      string  `json:"quoteCurrency"`
+	SettleCurrency     string  `json:"settleCurrency"`
+	MaxOrderQty        int     `json:"maxOrderQty"`
+	MaxPrice           float64 `json:"maxPrice"`
+	LotSize            int     `json:"lotSize"`
+	TickSize           float64 `json:"tickSize"`
 	IndexPriceTickSize float64 `json:"indexPriceTickSize"`
-	Multiplier      float64 `json:"multiplier"`
-	InitialMargin   float64 `json:"initialMargin"`
-	MaintainMargin  float64 `json:"maintainMargin"`
-	MaxRiskLimit    int64   `json:"maxRiskLimit"`
-	MinRiskLimit    int64   `json:"minRiskLimit"`
-	RiskStep        int64   `json:"riskStep"`
-	MakerFeeRate    float64 `json:"makerFeeRate"`
-	TakerFeeRate    float64 `json:"takerFeeRate"`
-	TakerFixFee     float64 `json:"takerFixFee"`
-	MakerFixFee     float64 `json:"makerFixFee"`
-	IsDeleverage    bool    `json:"isDeleverage"`
-	IsQuanto        bool    `json:"isQuanto"`
-	IsInverse       bool    `json:"isInverse"`
-	MarkMethod      string  `json:"markMethod"`
-	FairMethod      string  `json:"fairMethod"`
-	FundingBaseSymbol  string `json:"fundingBaseSymbol"`
-	FundingQuoteSymbol string `json:"fundingQuoteSymbol"`
-	FundingRateSymbol  string `json:"fundingRateSymbol"`
-	IndexSymbol        string `json:"indexSymbol"`
-	SettlementSymbol   string `json:"settlementSymbol"`
-	Status             string `json:"status"`
+	Multiplier         float64 `json:"multiplier"`
+	InitialMargin      float64 `json:"initialMargin"`
+	MaintainMargin     float64 `json:"maintainMargin"`
+	MaxRiskLimit       int64   `json:"maxRiskLimit"`
+	MinRiskLimit       int64   `json:"minRiskLimit"`
+	RiskStep           int64   `json:"riskStep"`
+	MakerFeeRate       float64 `json:"makerFeeRate"`
+	TakerFeeRate       float64 `json:"takerFeeRate"`
+	TakerFixFee        float64 `json:"takerFixFee"`
+	MakerFixFee        float64 `json:"makerFixFee"`
+	IsDeleverage       bool    `json:"isDeleverage"`
+	IsQuanto           bool    `json:"isQuanto"`
+	IsInverse          bool    `json:"isInverse"`
+	MarkMethod         string  `json:"markMethod"`
+	FairMethod         string  `json:"fairMethod"`
+	FundingBaseSymbol  string  `json:"fundingBaseSymbol"`
+	FundingQuoteSymbol string  `json:"fundingQuoteSymbol"`
+	FundingRateSymbol  string  `json:"fundingRateSymbol"`
+	IndexSymbol        string  `json:"indexSymbol"`
+	SettlementSymbol   string  `json:"settlementSymbol"`
+	Status             string  `json:"status"`
 }
 
 // OrderRequest 下单请求
@@ -447,42 +447,42 @@ type CancelOrderResponse struct {
 
 // OrderInfo 订单信息
 type OrderInfo struct {
-	ID            string  `json:"id"`
-	Symbol        string  `json:"symbol"`
-	Type          string  `json:"type"`
-	Side          string  `json:"side"`
-	Price         string  `json:"price"`
-	Size          int     `json:"size"`
-	Value         string  `json:"value"`
-	DealValue     string  `json:"dealValue"`
-	DealSize      int     `json:"dealSize"`
-	Stp           string  `json:"stp"`
-	Stop          string  `json:"stop"`
-	StopPriceType string  `json:"stopPriceType"`
-	StopTriggered bool    `json:"stopTriggered"`
-	StopPrice     string  `json:"stopPrice"`
-	TimeInForce   string  `json:"timeInForce"`
-	PostOnly      bool    `json:"postOnly"`
-	Hidden        bool    `json:"hidden"`
-	Iceberg       bool    `json:"iceberg"`
-	Leverage      string  `json:"leverage"`
-	ForceHold     bool    `json:"forceHold"`
-	CloseOrder    bool    `json:"closeOrder"`
-	VisibleSize   int     `json:"visibleSize"`
-	ClientOid     string  `json:"clientOid"`
-	Remark        string  `json:"remark"`
-	Tags          string  `json:"tags"`
-	IsActive      bool    `json:"isActive"`
-	CancelExist   bool    `json:"cancelExist"`
-	CreatedAt     int64   `json:"createdAt"`
-	UpdatedAt     int64   `json:"updatedAt"`
-	EndAt         int64   `json:"endAt"`
-	OrderTime     int64   `json:"orderTime"`
+	ID             string `json:"id"`
+	Symbol         string `json:"symbol"`
+	Type           string `json:"type"`
+	Side           string `json:"side"`
+	Price          string `json:"price"`
+	Size           int    `json:"size"`
+	Value          string `json:"value"`
+	DealValue      string `json:"dealValue"`
+	DealSize       int    `json:"dealSize"`
+	Stp            string `json:"stp"`
+	Stop           string `json:"stop"`
+	StopPriceType  string `json:"stopPriceType"`
+	StopTriggered  bool   `json:"stopTriggered"`
+	StopPrice      string `json:"stopPrice"`
+	TimeInForce    string `json:"timeInForce"`
+	PostOnly       bool   `json:"postOnly"`
+	Hidden         bool   `json:"hidden"`
+	Iceberg        bool   `json:"iceberg"`
+	Leverage       string `json:"leverage"`
+	ForceHold      bool   `json:"forceHold"`
+	CloseOrder     bool   `json:"closeOrder"`
+	VisibleSize    int    `json:"visibleSize"`
+	ClientOid      string `json:"clientOid"`
+	Remark         string `json:"remark"`
+	Tags           string `json:"tags"`
+	IsActive       bool   `json:"isActive"`
+	CancelExist    bool   `json:"cancelExist"`
+	CreatedAt      int64  `json:"createdAt"`
+	UpdatedAt      int64  `json:"updatedAt"`
+	EndAt          int64  `json:"endAt"`
+	OrderTime      int64  `json:"orderTime"`
 	SettleCurrency string `json:"settleCurrency"`
-	Status        string  `json:"status"`
-	FilledValue   string  `json:"filledValue"`
-	FilledSize    int     `json:"filledSize"`
-	ReduceOnly    bool    `json:"reduceOnly"`
+	Status         string `json:"status"`
+	FilledValue    string `json:"filledValue"`
+	FilledSize     int    `json:"filledSize"`
+	ReduceOnly     bool   `json:"reduceOnly"`
 }
 
 // AccountInfo 账户信息
@@ -499,44 +499,44 @@ type AccountInfo struct {
 
 // KuCoinPositionInfo 持仓信息
 type KuCoinPositionInfo struct {
-	ID                 string  `json:"id"`
-	Symbol             string  `json:"symbol"`
-	AutoDeposit        bool    `json:"autoDeposit"`
-	MaintMarginReq     float64 `json:"maintMarginReq"`
-	RiskLimit          int64   `json:"riskLimit"`
-	RealLeverage       float64 `json:"realLeverage"`
-	CrossMode          bool    `json:"crossMode"`
-	DelevPercentage    float64 `json:"delevPercentage"`
-	OpeningTimestamp   int64   `json:"openingTimestamp"`
-	CurrentTimestamp   int64   `json:"currentTimestamp"`
-	CurrentQty         int     `json:"currentQty"`
-	CurrentCost        float64 `json:"currentCost"`
-	CurrentComm        float64 `json:"currentComm"`
-	UnrealisedCost     float64 `json:"unrealisedCost"`
-	RealisedGrossCost  float64 `json:"realisedGrossCost"`
-	RealisedCost       float64 `json:"realisedCost"`
-	IsOpen             bool    `json:"isOpen"`
-	MarkPrice          float64 `json:"markPrice"`
-	MarkValue          float64 `json:"markValue"`
-	PosCost            float64 `json:"posCost"`
-	PosCross           float64 `json:"posCross"`
-	PosInit            float64 `json:"posInit"`
-	PosComm            float64 `json:"posComm"`
-	PosLoss            float64 `json:"posLoss"`
-	PosMargin          float64 `json:"posMargin"`
-	PosMaint           float64 `json:"posMaint"`
-	MaintMargin        float64 `json:"maintMargin"`
-	RealisedGrossPnl   float64 `json:"realisedGrossPnl"`
-	RealisedPnl        float64 `json:"realisedPnl"`
-	UnrealisedPnl      float64 `json:"unrealisedPnl"`
-	UnrealisedPnlPcnt  float64 `json:"unrealisedPnlPcnt"`
-	UnrealisedRoePcnt  float64 `json:"unrealisedRoePcnt"`
-	AvgEntryPrice      float64 `json:"avgEntryPrice"`
-	LiquidationPrice   float64 `json:"liquidationPrice"`
-	BankruptPrice      float64 `json:"bankruptPrice"`
-	SettleCurrency     string  `json:"settleCurrency"`
-	MaintainMargin     float64 `json:"maintainMargin"`
-	UserId             int64   `json:"userId"`
+	ID                string  `json:"id"`
+	Symbol            string  `json:"symbol"`
+	AutoDeposit       bool    `json:"autoDeposit"`
+	MaintMarginReq    float64 `json:"maintMarginReq"`
+	RiskLimit         int64   `json:"riskLimit"`
+	RealLeverage      float64 `json:"realLeverage"`
+	CrossMode         bool    `json:"crossMode"`
+	DelevPercentage   float64 `json:"delevPercentage"`
+	OpeningTimestamp  int64   `json:"openingTimestamp"`
+	CurrentTimestamp  int64   `json:"currentTimestamp"`
+	CurrentQty        int     `json:"currentQty"`
+	CurrentCost       float64 `json:"currentCost"`
+	CurrentComm       float64 `json:"currentComm"`
+	UnrealisedCost    float64 `json:"unrealisedCost"`
+	RealisedGrossCost float64 `json:"realisedGrossCost"`
+	RealisedCost      float64 `json:"realisedCost"`
+	IsOpen            bool    `json:"isOpen"`
+	MarkPrice         float64 `json:"markPrice"`
+	MarkValue         float64 `json:"markValue"`
+	PosCost           float64 `json:"posCost"`
+	PosCross          float64 `json:"posCross"`
+	PosInit           float64 `json:"posInit"`
+	PosComm           float64 `json:"posComm"`
+	PosLoss           float64 `json:"posLoss"`
+	PosMargin         float64 `json:"posMargin"`
+	PosMaint          float64 `json:"posMaint"`
+	MaintMargin       float64 `json:"maintMargin"`
+	RealisedGrossPnl  float64 `json:"realisedGrossPnl"`
+	RealisedPnl       float64 `json:"realisedPnl"`
+	UnrealisedPnl     float64 `json:"unrealisedPnl"`
+	UnrealisedPnlPcnt float64 `json:"unrealisedPnlPcnt"`
+	UnrealisedRoePcnt float64 `json:"unrealisedRoePcnt"`
+	AvgEntryPrice     float64 `json:"avgEntryPrice"`
+	LiquidationPrice  float64 `json:"liquidationPrice"`
+	BankruptPrice     float64 `json:"bankruptPrice"`
+	SettleCurrency    string  `json:"settleCurrency"`
+	MaintainMargin    float64 `json:"maintainMargin"`
+	UserId            int64   `json:"userId"`
 }
 
 // Candle K线数据
@@ -556,4 +556,3 @@ type WebSocketToken struct {
 	PingInterval int
 	PingTimeout  int
 }
-

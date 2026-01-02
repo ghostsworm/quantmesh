@@ -14,13 +14,13 @@ import (
 
 // PermissionCheckResult API 权限检测结果
 type PermissionCheckResult struct {
-	Exchange      string                   `json:"exchange"`
-	Symbol        string                   `json:"symbol"`
-	Permissions   *exchange.APIPermissions `json:"permissions"`
-	Warnings      []string                 `json:"warnings"`
-	IsSecure      bool                     `json:"is_secure"`
-	CheckTime     time.Time                `json:"check_time"`
-	ErrorMessage  string                   `json:"error_message,omitempty"`
+	Exchange     string                   `json:"exchange"`
+	Symbol       string                   `json:"symbol"`
+	Permissions  *exchange.APIPermissions `json:"permissions"`
+	Warnings     []string                 `json:"warnings"`
+	IsSecure     bool                     `json:"is_secure"`
+	CheckTime    time.Time                `json:"check_time"`
+	ErrorMessage string                   `json:"error_message,omitempty"`
 }
 
 // CheckExchangePermissions 检查交易所 API 权限
@@ -96,10 +96,10 @@ func getAPIPermissions(c *gin.Context) {
 	// 由于 ExchangeProvider 接口可能不直接暴露底层交易所，我们需要扩展接口
 	// 暂时返回提示信息
 	c.JSON(http.StatusOK, gin.H{
-		"message": "API 权限检测功能已实现，请在系统启动时查看日志",
-		"note":    "权限检测结果会在启动时自动执行并记录到日志中",
+		"message":  "API 权限检测功能已实现，请在系统启动时查看日志",
+		"note":     "权限检测结果会在启动时自动执行并记录到日志中",
 		"exchange": exchangeName,
-		"symbol": symbol,
+		"symbol":   symbol,
 	})
 }
 
@@ -176,4 +176,3 @@ func FormatPermissionReport(results []*PermissionCheckResult) string {
 
 	return report
 }
-

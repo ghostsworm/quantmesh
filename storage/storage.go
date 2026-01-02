@@ -125,7 +125,7 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(symbol string, reconci
 	if ss.storage == nil {
 		return nil
 	}
-	
+
 	// 计算实际盈利（从 trades 表统计截止到对账时间的累计盈亏）
 	// 🔥 重要：先将 reconcileTime 转换为 UTC，因为数据库中的 created_at 是 UTC 时间
 	reconcileTimeUTC := utils.ToUTC(reconcileTime)
@@ -134,21 +134,21 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(symbol string, reconci
 		logger.Warn("⚠️ 计算实际盈利失败: %v，使用 0 作为默认值", err)
 		actualProfit = 0
 	}
-	
+
 	history := &ReconciliationHistory{
-		Symbol:            symbol,
-		ReconcileTime:     utils.ToUTC(reconcileTime),
-		LocalPosition:     localPosition,
-		ExchangePosition:  exchangePosition,
-		PositionDiff:      positionDiff,
-		ActiveBuyOrders:   activeBuyOrders,
-		ActiveSellOrders:  activeSellOrders,
-		PendingSellQty:    pendingSellQty,
-		TotalBuyQty:       totalBuyQty,
-		TotalSellQty:      totalSellQty,
-		EstimatedProfit:   estimatedProfit,
-		ActualProfit:      actualProfit,
-		CreatedAt:         utils.NowUTC(),
+		Symbol:           symbol,
+		ReconcileTime:    utils.ToUTC(reconcileTime),
+		LocalPosition:    localPosition,
+		ExchangePosition: exchangePosition,
+		PositionDiff:     positionDiff,
+		ActiveBuyOrders:  activeBuyOrders,
+		ActiveSellOrders: activeSellOrders,
+		PendingSellQty:   pendingSellQty,
+		TotalBuyQty:      totalBuyQty,
+		TotalSellQty:     totalSellQty,
+		EstimatedProfit:  estimatedProfit,
+		ActualProfit:     actualProfit,
+		CreatedAt:        utils.NowUTC(),
 	}
 	return ss.storage.SaveReconciliationHistory(history)
 }
@@ -404,4 +404,3 @@ func (ss *StorageService) fallbackToLog(events []*storageEvent) {
 		file.WriteString(line)
 	}
 }
-

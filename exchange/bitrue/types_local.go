@@ -98,4 +98,3 @@ func ConvertInterval(interval string) BitrueInterval {
 		return BitrueInterval1m
 	}
 }
-

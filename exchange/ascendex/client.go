@@ -18,17 +18,17 @@ import (
 )
 
 const (
-	AscendEXMainnetBaseURL = "https://ascendex.com"           // AscendEX 主网
-	AscendEXTestnetBaseURL = "https://testnet.ascendex.com"   // AscendEX 测试网
+	AscendEXMainnetBaseURL = "https://ascendex.com"         // AscendEX 主网
+	AscendEXTestnetBaseURL = "https://testnet.ascendex.com" // AscendEX 测试网
 )
 
 // AscendEXClient AscendEX 客户端
 type AscendEXClient struct {
-	apiKey     string
-	secretKey  string
-	baseURL    string
-	httpClient *http.Client
-	isTestnet  bool
+	apiKey       string
+	secretKey    string
+	baseURL      string
+	httpClient   *http.Client
+	isTestnet    bool
 	accountGroup string // AscendEX 需要账户组
 }
 
@@ -87,7 +87,7 @@ func (c *AscendEXClient) sendRequest(ctx context.Context, method, path string, p
 	if needSign {
 		timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		signature := c.signRequest(timestamp, path, bodyStr)
-		
+
 		req.Header.Set("x-auth-key", c.apiKey)
 		req.Header.Set("x-auth-timestamp", timestamp)
 		req.Header.Set("x-auth-signature", signature)
@@ -200,7 +200,7 @@ func (c *AscendEXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 	}
 
 	logger.Info("AscendEX order placed: %s", orderResp.OrderID)
-	
+
 	// 查询订单详情
 	return c.GetOrder(ctx, orderResp.OrderID)
 }
@@ -417,10 +417,10 @@ type Symbol struct {
 }
 
 type OrderRequest struct {
-	Symbol    string  `json:"symbol"`
-	Side      string  `json:"side"`      // buy, sell
-	OrderType string  `json:"orderType"` // limit, market
-	OrderQty  float64 `json:"orderQty"`
+	Symbol     string  `json:"symbol"`
+	Side       string  `json:"side"`      // buy, sell
+	OrderType  string  `json:"orderType"` // limit, market
+	OrderQty   float64 `json:"orderQty"`
 	OrderPrice float64 `json:"orderPrice,omitempty"`
 }
 
@@ -430,16 +430,16 @@ type OrderResponse struct {
 }
 
 type Order struct {
-	OrderID     string  `json:"orderId"`
-	Symbol      string  `json:"symbol"`
-	Side        string  `json:"side"`
-	OrderType   string  `json:"orderType"`
-	Price       float64 `json:"price,string"`
-	OrderQty    float64 `json:"orderQty,string"`
-	FilledQty   float64 `json:"cumFilledQty,string"`
-	Status      string  `json:"status"`
-	CreateTime  int64   `json:"lastExecTime"`
-	UpdateTime  int64   `json:"updateTime"`
+	OrderID    string  `json:"orderId"`
+	Symbol     string  `json:"symbol"`
+	Side       string  `json:"side"`
+	OrderType  string  `json:"orderType"`
+	Price      float64 `json:"price,string"`
+	OrderQty   float64 `json:"orderQty,string"`
+	FilledQty  float64 `json:"cumFilledQty,string"`
+	Status     string  `json:"status"`
+	CreateTime int64   `json:"lastExecTime"`
+	UpdateTime int64   `json:"updateTime"`
 }
 
 type Balance struct {
@@ -467,7 +467,6 @@ type KlineData struct {
 }
 
 type KlineResponse struct {
-	Symbol string      `json:"s"`
-	Data   []Kline     `json:"data"`
+	Symbol string  `json:"s"`
+	Data   []Kline `json:"data"`
 }
-

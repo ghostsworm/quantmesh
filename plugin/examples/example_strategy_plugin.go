@@ -118,8 +118,8 @@ func (s *ExampleStrategy) Stop() error {
 // PremiumAIStrategyPlugin 高级AI策略插件 (闭源)
 // 这个插件需要商业许可证才能使用
 type PremiumAIStrategyPlugin struct {
-	metadata *plugin.PluginMetadata
-	strategy strategy.Strategy
+	metadata  *plugin.PluginMetadata
+	strategy  strategy.Strategy
 	validator *plugin.LicenseValidator
 }
 
@@ -164,4 +164,3 @@ func (p *PremiumAIStrategyPlugin) Close() error {
 	}
 	return nil
 }
-

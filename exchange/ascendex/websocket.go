@@ -136,7 +136,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 func (w *WebSocketManager) authenticate() error {
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	message := timestamp + "+stream"
-	
+
 	h := hmac.New(sha256.New, []byte(w.secretKey))
 	h.Write([]byte(message))
 	signature := base64.StdEncoding.EncodeToString(h.Sum(nil))
@@ -255,4 +255,3 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		}
 	}
 }
-

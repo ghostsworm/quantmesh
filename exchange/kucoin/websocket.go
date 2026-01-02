@@ -217,22 +217,22 @@ func (w *WebSocketManager) handleOrderUpdate(data json.RawMessage) {
 	}
 
 	var orderUpdate struct {
-		Symbol        string `json:"symbol"`
-		OrderType     string `json:"orderType"`
-		Side          string `json:"side"`
-		OrderId       string `json:"orderId"`
-		Type          string `json:"type"`
-		Status        string `json:"status"`
-		MatchSize     string `json:"matchSize"`
-		MatchPrice    string `json:"matchPrice"`
-		OrderTime     int64  `json:"orderTime"`
-		Size          int    `json:"size"`
-		FilledSize    int    `json:"filledSize"`
-		Price         string `json:"price"`
-		ClientOid     string `json:"clientOid"`
-		RemainSize    int    `json:"remainSize"`
-		Liquidity     string `json:"liquidity"`
-		Ts            int64  `json:"ts"`
+		Symbol     string `json:"symbol"`
+		OrderType  string `json:"orderType"`
+		Side       string `json:"side"`
+		OrderId    string `json:"orderId"`
+		Type       string `json:"type"`
+		Status     string `json:"status"`
+		MatchSize  string `json:"matchSize"`
+		MatchPrice string `json:"matchPrice"`
+		OrderTime  int64  `json:"orderTime"`
+		Size       int    `json:"size"`
+		FilledSize int    `json:"filledSize"`
+		Price      string `json:"price"`
+		ClientOid  string `json:"clientOid"`
+		RemainSize int    `json:"remainSize"`
+		Liquidity  string `json:"liquidity"`
+		Ts         int64  `json:"ts"`
 	}
 
 	if err := json.Unmarshal(data, &orderUpdate); err != nil {
@@ -255,17 +255,17 @@ func (w *WebSocketManager) handlePriceUpdate(data json.RawMessage) {
 	}
 
 	var priceUpdate struct {
-		Symbol      string  `json:"symbol"`
-		Sequence    int64   `json:"sequence"`
-		Side        string  `json:"side"`
-		Price       float64 `json:"price"`
-		Size        int     `json:"size"`
-		TradeId     string  `json:"tradeId"`
-		BestBidSize int     `json:"bestBidSize"`
+		Symbol       string  `json:"symbol"`
+		Sequence     int64   `json:"sequence"`
+		Side         string  `json:"side"`
+		Price        float64 `json:"price"`
+		Size         int     `json:"size"`
+		TradeId      string  `json:"tradeId"`
+		BestBidSize  int     `json:"bestBidSize"`
 		BestBidPrice float64 `json:"bestBidPrice"`
-		BestAskSize int     `json:"bestAskSize"`
+		BestAskSize  int     `json:"bestAskSize"`
 		BestAskPrice float64 `json:"bestAskPrice"`
-		Ts          int64   `json:"ts"`
+		Ts           int64   `json:"ts"`
 	}
 
 	if err := json.Unmarshal(data, &priceUpdate); err != nil {
@@ -336,4 +336,3 @@ func (w *WebSocketManager) Stop() {
 	}
 	logger.Info("KuCoin WebSocket stopped")
 }
-

@@ -98,7 +98,7 @@ func SetupRoutes(r *gin.Engine) {
 			protected.GET("/statistics/pnl/time-range", getPnLByTimeRange)
 			protected.GET("/statistics/anomalous-trades", getAnomalousTrades)
 			protected.GET("/reconciliation/status", getReconciliationStatus)
-			
+
 			// SaaS 管理 API
 			saas := protected.Group("/saas")
 			{
@@ -113,7 +113,7 @@ func SetupRoutes(r *gin.Engine) {
 				saas.GET("/instances/:id/metrics", getInstanceMetricsHandler)
 				saas.GET("/metrics", getAllInstancesMetricsHandler)
 			}
-			
+
 			// 计费 API
 			billing := protected.Group("/billing")
 			{
@@ -123,33 +123,33 @@ func SetupRoutes(r *gin.Engine) {
 				billing.POST("/subscriptions/update-plan", updateSubscriptionPlanHandler)
 				billing.POST("/subscriptions/cancel", cancelSubscriptionHandler)
 			}
-			
-		// 回测 API
-		backtestAPI := protected.Group("/backtest")
-		{
-			backtestAPI.POST("/run", runBacktest)
-			backtestAPI.GET("/cache/stats", getCacheStats)
-			backtestAPI.GET("/cache/list", listCache)
-			backtestAPI.DELETE("/cache/:key", deleteCache)
-			backtestAPI.DELETE("/cache", clearCache)
-		}
-		
-		// 加密货币支付 API
-		cryptoPayment := protected.Group("/payment/crypto")
-		{
-			cryptoPayment.GET("/currencies", getSupportedCryptoCurrenciesHandler)
-			cryptoPayment.POST("/coinbase/create", createCoinbasePaymentHandler)
-			cryptoPayment.POST("/direct/create", createDirectPaymentHandler)
-			cryptoPayment.GET("/list", listUserPaymentsHandler)
-			cryptoPayment.GET("/:id", getPaymentStatusHandler)
-			cryptoPayment.POST("/:id/submit-tx", submitTransactionHashHandler)
-			cryptoPayment.POST("/:id/confirm", confirmDirectPaymentHandler) // 管理员
-		}
-		
-		protected.GET("/reconciliation/history", getReconciliationHistory)
-		protected.GET("/risk/status", getRiskStatus)
-		protected.GET("/risk/monitor", getRiskMonitorData)
-		protected.GET("/risk/history", getRiskCheckHistory)
+
+			// 回测 API
+			backtestAPI := protected.Group("/backtest")
+			{
+				backtestAPI.POST("/run", runBacktest)
+				backtestAPI.GET("/cache/stats", getCacheStats)
+				backtestAPI.GET("/cache/list", listCache)
+				backtestAPI.DELETE("/cache/:key", deleteCache)
+				backtestAPI.DELETE("/cache", clearCache)
+			}
+
+			// 加密货币支付 API
+			cryptoPayment := protected.Group("/payment/crypto")
+			{
+				cryptoPayment.GET("/currencies", getSupportedCryptoCurrenciesHandler)
+				cryptoPayment.POST("/coinbase/create", createCoinbasePaymentHandler)
+				cryptoPayment.POST("/direct/create", createDirectPaymentHandler)
+				cryptoPayment.GET("/list", listUserPaymentsHandler)
+				cryptoPayment.GET("/:id", getPaymentStatusHandler)
+				cryptoPayment.POST("/:id/submit-tx", submitTransactionHashHandler)
+				cryptoPayment.POST("/:id/confirm", confirmDirectPaymentHandler) // 管理员
+			}
+
+			protected.GET("/reconciliation/history", getReconciliationHistory)
+			protected.GET("/risk/status", getRiskStatus)
+			protected.GET("/risk/monitor", getRiskMonitorData)
+			protected.GET("/risk/history", getRiskCheckHistory)
 
 			// 配置管理API
 			protected.GET("/config", getConfigHandler)
@@ -210,10 +210,10 @@ func SetupRoutes(r *gin.Engine) {
 			// API 权限检测
 			protected.GET("/permissions/check", getAPIPermissions)
 
-		// 审计日志
-		protected.GET("/audit/logs", getAuditLogs)
+			// 审计日志
+			protected.GET("/audit/logs", getAuditLogs)
 		}
-		
+
 		// Webhooks (不需要认证,但需要验证签名)
 		api.POST("/billing/webhook/stripe", stripeWebhookHandler)
 		api.POST("/payment/crypto/webhook/coinbase", coinbaseWebhookHandler)

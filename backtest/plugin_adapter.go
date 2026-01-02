@@ -385,4 +385,3 @@ func (a *TrendFollowingAdapter) OnCandle(candle *exchange.Candle) Signal {
 func (a *TrendFollowingAdapter) GetName() string {
 	return a.name
 }
-

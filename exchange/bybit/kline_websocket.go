@@ -237,4 +237,3 @@ func (k *KlineWebSocketManager) Stop() {
 
 	logger.Info("🛑 [Bybit K线 WebSocket] 已停止")
 }
-

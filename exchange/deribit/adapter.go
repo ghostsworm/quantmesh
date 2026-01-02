@@ -11,15 +11,15 @@ import (
 
 // Adapter Deribit 适配器
 type Adapter struct {
-	client          *DeribitClient
-	wsManager       *WebSocketManager
-	klineWSManager  *KlineWebSocketManager
-	instrumentName  string
-	currency        string
-	priceDecimals   int
+	client           *DeribitClient
+	wsManager        *WebSocketManager
+	klineWSManager   *KlineWebSocketManager
+	instrumentName   string
+	currency         string
+	priceDecimals    int
 	quantityDecimals int
-	baseAsset       string
-	quoteAsset      string
+	baseAsset        string
+	quoteAsset       string
 }
 
 // NewAdapter 创建 Deribit 适配器
@@ -263,7 +263,7 @@ func (a *Adapter) StopKlineStream() error {
 // GetHistoricalKlines 获取历史 K线
 func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limit int) ([]*CandleLocal, error) {
 	resolution := string(ConvertInterval(interval))
-	
+
 	endTime := time.Now().UnixMilli()
 	// 根据周期计算开始时间
 	var duration time.Duration
@@ -365,4 +365,3 @@ func convertOrderState(state string) OrderStatus {
 		return OrderStatusNew
 	}
 }
-

@@ -247,4 +247,3 @@ func (k *KlineWebSocketManager) parseTradeBucket(data map[string]interface{}) *T
 
 	return bucket
 }
-

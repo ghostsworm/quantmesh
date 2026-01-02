@@ -4,4 +4,3 @@ package event
 type EventProcessor interface {
 	ProcessEvent(event *Event)
 }
-

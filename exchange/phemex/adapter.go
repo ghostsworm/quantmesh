@@ -55,7 +55,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 		adapter.priceScale = product.PriceScale
 		adapter.priceDecimals = product.PriceScale
 		adapter.quantityDecimals = 0
-		
+
 		// 解析基础资产和报价资产
 		if strings.HasSuffix(product.Symbol, "USD") {
 			adapter.baseAsset = strings.TrimSuffix(product.Symbol, "USD")
@@ -345,4 +345,3 @@ func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 		UpdateTime:    order.TransactTimeNs / 1000000, // 纳秒转毫秒
 	}
 }
-

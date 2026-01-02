@@ -101,4 +101,3 @@ func GetGoRuntimeStats() map[string]interface{} {
 		"gc_cpu_fraction": m.GCCPUFraction,
 	}
 }
-

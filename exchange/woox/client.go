@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	WOOXMainnetBaseURL = "https://api.woo.org"           // WOO X 主网
-	WOOXTestnetBaseURL = "https://api.staging.woo.org"   // WOO X 测试网
+	WOOXMainnetBaseURL = "https://api.woo.org"         // WOO X 主网
+	WOOXTestnetBaseURL = "https://api.staging.woo.org" // WOO X 测试网
 )
 
 // WOOXClient WOO X 客户端
@@ -86,7 +86,7 @@ func (c *WOOXClient) sendRequest(ctx context.Context, method, path string, param
 	if needSign {
 		timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		signature := c.signRequest(timestamp, method, path+queryString, bodyStr)
-		
+
 		req.Header.Set("x-api-key", c.apiKey)
 		req.Header.Set("x-api-signature", signature)
 		req.Header.Set("x-api-timestamp", timestamp)
@@ -389,41 +389,41 @@ type APIResponse struct {
 }
 
 type Symbol struct {
-	Symbol           string  `json:"symbol"`
-	QuoteMin         float64 `json:"quote_min"`
-	QuoteMax         float64 `json:"quote_max"`
-	QuoteTick        float64 `json:"quote_tick"`
-	BaseMin          float64 `json:"base_min"`
-	BaseMax          float64 `json:"base_max"`
-	BaseTick         float64 `json:"base_tick"`
-	MinNotional      float64 `json:"min_notional"`
-	PriceRange       float64 `json:"price_range"`
-	PrecisionPrice   int     `json:"precision_price"`
-	PrecisionQuantity int    `json:"precision_quantity"`
+	Symbol            string  `json:"symbol"`
+	QuoteMin          float64 `json:"quote_min"`
+	QuoteMax          float64 `json:"quote_max"`
+	QuoteTick         float64 `json:"quote_tick"`
+	BaseMin           float64 `json:"base_min"`
+	BaseMax           float64 `json:"base_max"`
+	BaseTick          float64 `json:"base_tick"`
+	MinNotional       float64 `json:"min_notional"`
+	PriceRange        float64 `json:"price_range"`
+	PrecisionPrice    int     `json:"precision_price"`
+	PrecisionQuantity int     `json:"precision_quantity"`
 }
 
 type OrderRequest struct {
-	Symbol       string  `json:"symbol"`
-	ClientOrderID string `json:"client_order_id,omitempty"`
-	Side         string  `json:"side"`         // BUY, SELL
-	OrderType    string  `json:"order_type"`   // LIMIT, MARKET
-	OrderPrice   float64 `json:"order_price,omitempty"`
+	Symbol        string  `json:"symbol"`
+	ClientOrderID string  `json:"client_order_id,omitempty"`
+	Side          string  `json:"side"`       // BUY, SELL
+	OrderType     string  `json:"order_type"` // LIMIT, MARKET
+	OrderPrice    float64 `json:"order_price,omitempty"`
 	OrderQuantity float64 `json:"order_quantity"`
-	ReduceOnly   bool    `json:"reduce_only,omitempty"`
+	ReduceOnly    bool    `json:"reduce_only,omitempty"`
 }
 
 type Order struct {
-	OrderID       int64   `json:"order_id"`
-	ClientOrderID string  `json:"client_order_id"`
-	Symbol        string  `json:"symbol"`
-	Side          string  `json:"side"`
-	OrderType     string  `json:"order_type"`
-	OrderPrice    float64 `json:"order_price"`
-	OrderQuantity float64 `json:"order_quantity"`
+	OrderID          int64   `json:"order_id"`
+	ClientOrderID    string  `json:"client_order_id"`
+	Symbol           string  `json:"symbol"`
+	Side             string  `json:"side"`
+	OrderType        string  `json:"order_type"`
+	OrderPrice       float64 `json:"order_price"`
+	OrderQuantity    float64 `json:"order_quantity"`
 	ExecutedQuantity float64 `json:"executed_quantity"`
-	Status        string  `json:"status"`
-	CreatedTime   int64   `json:"created_time"`
-	UpdatedTime   int64   `json:"updated_time"`
+	Status           string  `json:"status"`
+	CreatedTime      int64   `json:"created_time"`
+	UpdatedTime      int64   `json:"updated_time"`
 }
 
 type OrdersResponse struct {
@@ -431,22 +431,22 @@ type OrdersResponse struct {
 }
 
 type Position struct {
-	Symbol        string  `json:"symbol"`
-	Holding       float64 `json:"holding"`
-	PendingLong   float64 `json:"pending_long"`
-	PendingShort  float64 `json:"pending_short"`
+	Symbol           string  `json:"symbol"`
+	Holding          float64 `json:"holding"`
+	PendingLong      float64 `json:"pending_long"`
+	PendingShort     float64 `json:"pending_short"`
 	AverageOpenPrice float64 `json:"average_open_price"`
-	MarkPrice     float64 `json:"mark_price"`
-	UnrealizedPNL float64 `json:"unrealized_pnl"`
-	Leverage      int     `json:"leverage"`
+	MarkPrice        float64 `json:"mark_price"`
+	UnrealizedPNL    float64 `json:"unrealized_pnl"`
+	Leverage         int     `json:"leverage"`
 }
 
 type Account struct {
-	ApplicationID string  `json:"application_id"`
-	Account       string  `json:"account"`
-	TotalCollateral float64 `json:"total_collateral"`
+	ApplicationID     string  `json:"application_id"`
+	Account           string  `json:"account"`
+	TotalCollateral   float64 `json:"total_collateral"`
 	TotalAccountValue float64 `json:"total_account_value"`
-	TotalVaultValue float64 `json:"total_vault_value"`
+	TotalVaultValue   float64 `json:"total_vault_value"`
 	TotalStakingValue float64 `json:"total_staking_value"`
 }
 
@@ -477,4 +477,3 @@ type Kline struct {
 type KlinesResponse struct {
 	Rows []Kline `json:"rows"`
 }
-

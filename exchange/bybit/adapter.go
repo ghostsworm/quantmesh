@@ -642,12 +642,11 @@ func (b *BybitAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64
 	if err != nil {
 		return 0, fmt.Errorf("获取现货价格失败: %w", err)
 	}
-	
+
 	price, err := strconv.ParseFloat(ticker.LastPrice, 64)
 	if err != nil {
 		return 0, fmt.Errorf("解析现货价格失败: %w", err)
 	}
-	
+
 	return price, nil
 }
-

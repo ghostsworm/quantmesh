@@ -140,4 +140,3 @@ func (p *SystemMetricsProviderImpl) GetDailyMetrics(days int) ([]*DailySystemMet
 
 	return metrics, nil
 }
-

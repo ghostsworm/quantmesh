@@ -351,4 +351,3 @@ func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 		UpdateTime:    order.UpdateTime,
 	}
 }
-

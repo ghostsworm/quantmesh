@@ -30,13 +30,13 @@ func decompressGzip(data []byte) ([]byte, error) {
 
 // WebSocketManager WebSocket 管理器
 type WebSocketManager struct {
-	apiKey     string
-	secretKey  string
-	conn       *websocket.Conn
-	mu         sync.RWMutex
-	stopChan   chan struct{}
-	isRunning  atomic.Bool
-	lastPrice  atomic.Value
+	apiKey        string
+	secretKey     string
+	conn          *websocket.Conn
+	mu            sync.RWMutex
+	stopChan      chan struct{}
+	isRunning     atomic.Bool
+	lastPrice     atomic.Value
 	orderCallback func(OrderUpdate)
 	priceCallback func(float64)
 }
@@ -309,4 +309,3 @@ func (w *WebSocketManager) Stop() {
 
 	logger.Info("🛑 [Huobi WebSocket] 已停止")
 }
-

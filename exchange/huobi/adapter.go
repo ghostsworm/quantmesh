@@ -28,11 +28,11 @@ const (
 )
 
 const (
-	OrderStatusNew             OrderStatus = "3"  // 未成交
-	OrderStatusPartiallyFilled OrderStatus = "4"  // 部分成交
-	OrderStatusFilled          OrderStatus = "6"  // 完全成交
-	OrderStatusCanceled        OrderStatus = "7"  // 已撤销
-	OrderStatusRejected        OrderStatus = "5"  // 下单失败
+	OrderStatusNew             OrderStatus = "3" // 未成交
+	OrderStatusPartiallyFilled OrderStatus = "4" // 部分成交
+	OrderStatusFilled          OrderStatus = "6" // 完全成交
+	OrderStatusCanceled        OrderStatus = "7" // 已撤销
+	OrderStatusRejected        OrderStatus = "5" // 下单失败
 )
 
 const (
@@ -224,13 +224,13 @@ func (h *HuobiAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 
 	// 构造订单请求
 	orderReq := map[string]interface{}{
-		"contract_code": h.contractCode,
-		"direction":     direction,
-		"offset":        offset,
+		"contract_code":    h.contractCode,
+		"direction":        direction,
+		"offset":           offset,
 		"order_price_type": "limit",
-		"price":         req.Price,
-		"volume":        int(req.Quantity), // Huobi 使用张数
-		"lever_rate":    10,                // 默认10倍杠杆
+		"price":            req.Price,
+		"volume":           int(req.Quantity), // Huobi 使用张数
+		"lever_rate":       10,                // 默认10倍杠杆
 	}
 
 	if req.PostOnly {
@@ -600,4 +600,3 @@ func (h *HuobiAdapter) GetFundingRate(ctx context.Context, symbol string) (float
 	rate, _ := strconv.ParseFloat(fundingRate.FundingRate, 64)
 	return rate, nil
 }
-

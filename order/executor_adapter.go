@@ -98,10 +98,10 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 	// 使用价格区间锁（中粒度）：每10个价格间隔一个锁
 	priceLevel := math.Floor(req.Price/10) * 10
 	lockKey := fmt.Sprintf("order:%s:%s:%.0f", exchangeName, req.Symbol, priceLevel)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	acquired, err := oe.lock.TryLock(ctx, lockKey, 5*time.Second)
 	if err != nil {
 		logger.Warn("⚠️ [%s] 获取锁失败: %v", exchangeName, err)
@@ -238,9 +238,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 
 // BatchPlaceOrdersResult 批量下单结果
 type BatchPlaceOrdersResult struct {
-	PlacedOrders       []*Order          // 成功下单的订单列表
-	HasMarginError     bool              // 是否出现保证金不足错误
-	ReduceOnlyErrors   map[string]bool   // ReduceOnly错误的订单（key为ClientOrderID）
+	PlacedOrders     []*Order        // 成功下单的订单列表
+	HasMarginError   bool            // 是否出现保证金不足错误
+	ReduceOnlyErrors map[string]bool // ReduceOnly错误的订单（key为ClientOrderID）
 }
 
 // BatchPlaceOrders 批量下单
@@ -285,13 +285,13 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 // CancelOrder 取消订单
 func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
 	exchangeName := oe.exchange.GetName()
-	
+
 	// 分布式锁：防止多实例同时取消同一订单
 	lockKey := fmt.Sprintf("cancel:%s:%d", exchangeName, orderID)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	
+
 	acquired, err := oe.lock.TryLock(ctx, lockKey, 3*time.Second)
 	if err != nil {
 		logger.Warn("⚠️ [%s] 获取取消锁失败: %v", exchangeName, err)
@@ -307,7 +307,7 @@ func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
 			}
 		}()
 	}
-	
+
 	// 限流
 	if err := oe.rateLimiter.Wait(context.Background()); err != nil {
 		return fmt.Errorf("速率限制等待失败: %v", err)

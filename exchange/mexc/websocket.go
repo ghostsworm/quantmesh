@@ -133,7 +133,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 // login 登录认证
 func (w *WebSocketManager) login() error {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	
+
 	// 签名：HMAC-SHA256(apiKey + timestamp)
 	h := hmac.New(sha256.New, []byte(w.secretKey))
 	h.Write([]byte(w.apiKey + timestamp))
@@ -297,4 +297,3 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		}
 	}
 }
-

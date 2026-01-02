@@ -115,4 +115,3 @@ func GetSystemLanguage() string {
 	defer mu.RUnlock()
 	return systemLanguage
 }
-

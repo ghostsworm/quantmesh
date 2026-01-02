@@ -92,19 +92,19 @@ func main() {
 
 	improvement := intrabar10Result.Metrics.TotalReturn - normalResult.Metrics.TotalReturn
 
-	fmt.Printf("收益率: %.2f%% → %.2f%% (", 
+	fmt.Printf("收益率: %.2f%% → %.2f%% (",
 		normalResult.Metrics.TotalReturn, intrabar10Result.Metrics.TotalReturn)
 	if improvement > 0 {
 		fmt.Printf("+%.2f%% ✅)\n", improvement)
 	} else {
 		fmt.Printf("%.2f%% ❌)\n", improvement)
 	}
-	
-	fmt.Printf("交易次数: %d → %d 笔 (%.1fx)\n", 
-		normalResult.Metrics.TotalTrades, 
+
+	fmt.Printf("交易次数: %d → %d 笔 (%.1fx)\n",
+		normalResult.Metrics.TotalTrades,
 		intrabar10Result.Metrics.TotalTrades,
 		float64(intrabar10Result.Metrics.TotalTrades)/float64(normalResult.Metrics.TotalTrades))
-	
+
 	fmt.Println("")
 
 	if improvement > 5 {
@@ -118,4 +118,3 @@ func main() {
 	fmt.Println("")
 	fmt.Println("🎉 测试完成！")
 }
-

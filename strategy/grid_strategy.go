@@ -108,4 +108,3 @@ func (gs *GridStrategy) GetStatistics() *StrategyStatistics {
 func (gs *GridStrategy) GetManager() *position.SuperPositionManager {
 	return gs.manager
 }
-

@@ -61,4 +61,3 @@ func (mc *MetricsCollector) GetMetrics() *Metrics {
 	defer mc.metrics.mu.RUnlock()
 	return mc.metrics
 }
-

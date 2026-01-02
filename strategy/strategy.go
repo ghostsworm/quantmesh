@@ -24,21 +24,21 @@ type Strategy interface {
 
 // Position 持仓信息
 type Position struct {
-	Symbol      string
-	Size        float64
-	EntryPrice  float64
+	Symbol       string
+	Size         float64
+	EntryPrice   float64
 	CurrentPrice float64
-	PnL         float64
+	PnL          float64
 }
 
 // Order 订单信息
 type Order struct {
-	OrderID int64
-	Symbol  string
-	Side    string
-	Price   float64
+	OrderID  int64
+	Symbol   string
+	Side     string
+	Price    float64
 	Quantity float64
-	Status  string
+	Status   string
 }
 
 // StrategyStatistics 策略统计
@@ -51,13 +51,13 @@ type StrategyStatistics struct {
 
 // StrategyManager 策略管理器
 type StrategyManager struct {
-	strategies map[string]Strategy
-	allocator  *CapitalAllocator
+	strategies       map[string]Strategy
+	allocator        *CapitalAllocator
 	dynamicAllocator *DynamicAllocator
-	cfg        *config.Config
-	mu         sync.RWMutex
-	ctx        context.Context
-	cancel     context.CancelFunc
+	cfg              *config.Config
+	mu               sync.RWMutex
+	ctx              context.Context
+	cancel           context.CancelFunc
 }
 
 // NewStrategyManager 创建策略管理器
@@ -66,7 +66,7 @@ func NewStrategyManager(cfg *config.Config, totalCapital float64) *StrategyManag
 
 	sm := &StrategyManager{
 		strategies: make(map[string]Strategy),
-		allocator: NewCapitalAllocator(cfg, totalCapital),
+		allocator:  NewCapitalAllocator(cfg, totalCapital),
 		cfg:        cfg,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -216,4 +216,3 @@ func (sm *StrategyManager) GetCapitalAllocator() *CapitalAllocator {
 func (sm *StrategyManager) GetDynamicAllocator() *DynamicAllocator {
 	return sm.dynamicAllocator
 }
-

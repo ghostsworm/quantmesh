@@ -204,4 +204,3 @@ func (mp *MailgunProvider) Send(from, to, subject, body string) error {
 	logger.Warn("⚠️ Mailgun 邮件服务需要安装 mailgun-go 库，当前使用占位实现")
 	return fmt.Errorf("Mailgun 邮件服务暂未实现，请安装 github.com/mailgun/mailgun-go/v4")
 }
-

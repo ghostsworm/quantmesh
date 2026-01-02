@@ -19,11 +19,11 @@ func createValidConfig() *Config {
 	cfg.Trading.OrderQuantity = 30.0
 	cfg.Trading.BuyWindowSize = 10
 	cfg.Trading.MinOrderValue = 6.0
-	
+
 	// 初始化热更新和备份相关的默认值
 	cfg.Storage.Path = "./test_data/quantmesh.db"
 	cfg.Web.Port = 28888
-	
+
 	return cfg
 }
 
@@ -125,7 +125,7 @@ func TestHotReloader(t *testing.T) {
 func TestConfigBackup(t *testing.T) {
 	tempDir := t.TempDir()
 	backupDir := filepath.Join(tempDir, "backups")
-	
+
 	bm := &BackupManager{
 		backupDir:  backupDir,
 		maxBackups: 5,
@@ -151,7 +151,7 @@ func TestConfigBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("列出备份失败: %v", err)
 	}
-	
+
 	if len(backups) != 1 {
 		t.Errorf("备份列表数量不正确: 期望1个，实际%d个", len(backups))
 		// 列出所有文件以便调试

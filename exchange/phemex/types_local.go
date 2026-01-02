@@ -72,13 +72,13 @@ type CandleUpdateCallbackLocal func(candle *CandleLocal)
 type PhemexResolution int
 
 const (
-	PhemexResolution1m  PhemexResolution = 60      // 1分钟
-	PhemexResolution5m  PhemexResolution = 300     // 5分钟
-	PhemexResolution15m PhemexResolution = 900     // 15分钟
-	PhemexResolution30m PhemexResolution = 1800    // 30分钟
-	PhemexResolution1h  PhemexResolution = 3600    // 1小时
-	PhemexResolution4h  PhemexResolution = 14400   // 4小时
-	PhemexResolution1d  PhemexResolution = 86400   // 1天
+	PhemexResolution1m  PhemexResolution = 60    // 1分钟
+	PhemexResolution5m  PhemexResolution = 300   // 5分钟
+	PhemexResolution15m PhemexResolution = 900   // 15分钟
+	PhemexResolution30m PhemexResolution = 1800  // 30分钟
+	PhemexResolution1h  PhemexResolution = 3600  // 1小时
+	PhemexResolution4h  PhemexResolution = 14400 // 4小时
+	PhemexResolution1d  PhemexResolution = 86400 // 1天
 )
 
 // ConvertInterval 转换 K线周期
@@ -122,4 +122,3 @@ func ScaleValue(value float64) int64 {
 func UnscaleValue(valueEv int64) float64 {
 	return float64(valueEv) / 1e8
 }
-

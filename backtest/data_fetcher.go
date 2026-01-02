@@ -378,4 +378,3 @@ func updateCacheIndex(cacheKey string, candles []*exchange.Candle) error {
 
 	return os.WriteFile(indexFile, data, 0644)
 }
-

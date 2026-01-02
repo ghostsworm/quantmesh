@@ -14,11 +14,11 @@ func I18nMiddleware() gin.HandlerFunc {
 		// 从 Accept-Language 头获取语言
 		acceptLang := c.GetHeader("Accept-Language")
 		lang := parseAcceptLanguage(acceptLang)
-		
+
 		// 存储到上下文
 		c.Set("language", lang)
 		c.Set("localizer", qmi18n.GetLocalizer(lang))
-		
+
 		c.Next()
 	}
 }
@@ -38,24 +38,24 @@ func parseAcceptLanguage(acceptLang string) string {
 
 	// 取第一个语言（优先级最高）
 	firstLang := strings.TrimSpace(langs[0])
-	
+
 	// 去除权重参数 (;q=0.9)
 	if idx := strings.Index(firstLang, ";"); idx != -1 {
 		firstLang = firstLang[:idx]
 	}
-	
+
 	firstLang = strings.TrimSpace(firstLang)
-	
+
 	// 标准化语言代码
 	firstLang = normalizeLanguage(firstLang)
-	
+
 	return firstLang
 }
 
 // normalizeLanguage 标准化语言代码
 func normalizeLanguage(lang string) string {
 	lang = strings.ToLower(lang)
-	
+
 	// 映射常见的语言代码
 	switch {
 	case strings.HasPrefix(lang, "zh-tw"), strings.HasPrefix(lang, "zh_tw"), strings.HasPrefix(lang, "zh-hant"):
@@ -121,4 +121,3 @@ func T(c *gin.Context, key string, data ...interface{}) string {
 	lang := GetLanguage(c)
 	return qmi18n.TWithLang(lang, key, data...)
 }
-

@@ -180,7 +180,7 @@ func main() {
 	}
 
 	logger.Info("")
-	
+
 	// 6. 与 3m 周期对比
 	logger.Info("=" + string(make([]rune, 70)))
 	logger.Info("📊 1m vs 3m 周期对比")
@@ -208,4 +208,3 @@ func main() {
 	logger.Info("对比 3m 周期的报告:")
 	logger.Info("  diff <(grep '总收益率' backtest/reports/*1m*.md) <(grep '总收益率' backtest/reports/*3m*.md)")
 }
-

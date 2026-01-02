@@ -134,7 +134,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 func (w *WebSocketManager) authenticate() error {
 	expires := strconv.FormatInt(time.Now().Unix()+3600, 10)
 	message := "GET/realtime" + expires
-	
+
 	h := hmac.New(sha256.New, []byte(w.secretKey))
 	h.Write([]byte(message))
 	signature := hex.EncodeToString(h.Sum(nil))
@@ -262,4 +262,3 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		}
 	}
 }
-

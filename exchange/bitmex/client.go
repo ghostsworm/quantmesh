@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	BitMEXMainnetBaseURL = "https://www.bitmex.com"           // BitMEX 主网
-	BitMEXTestnetBaseURL = "https://testnet.bitmex.com"       // BitMEX 测试网
+	BitMEXMainnetBaseURL = "https://www.bitmex.com"     // BitMEX 主网
+	BitMEXTestnetBaseURL = "https://testnet.bitmex.com" // BitMEX 测试网
 )
 
 // BitMEXClient BitMEX 客户端
@@ -83,7 +83,7 @@ func (c *BitMEXClient) sendRequest(ctx context.Context, method, path string, par
 	if needSign {
 		nonce := strconv.FormatInt(time.Now().Unix()+5, 10) // 5秒过期时间
 		signature := c.signRequest(method, path+"?"+params.Encode(), nonce, string(reqBody))
-		
+
 		req.Header.Set("api-expires", nonce)
 		req.Header.Set("api-key", c.apiKey)
 		req.Header.Set("api-signature", signature)
@@ -332,48 +332,48 @@ type Instrument struct {
 
 type OrderRequest struct {
 	Symbol      string  `json:"symbol"`
-	Side        string  `json:"side"`        // Buy, Sell
+	Side        string  `json:"side"` // Buy, Sell
 	OrderQty    float64 `json:"orderQty"`
 	Price       float64 `json:"price,omitempty"`
-	OrdType     string  `json:"ordType"`     // Limit, Market
+	OrdType     string  `json:"ordType"` // Limit, Market
 	ClOrdID     string  `json:"clOrdID,omitempty"`
 	ExecInst    string  `json:"execInst,omitempty"`
 	TimeInForce string  `json:"timeInForce,omitempty"` // GoodTillCancel, ImmediateOrCancel
 }
 
 type Order struct {
-	OrderID       string    `json:"orderID"`
-	ClOrdID       string    `json:"clOrdID"`
-	Symbol        string    `json:"symbol"`
-	Side          string    `json:"side"`
-	OrderQty      float64   `json:"orderQty"`
-	Price         float64   `json:"price"`
-	OrdType       string    `json:"ordType"`
-	OrdStatus     string    `json:"ordStatus"`
-	CumQty        float64   `json:"cumQty"`
-	LeavesQty     float64   `json:"leavesQty"`
-	AvgPx         float64   `json:"avgPx"`
-	Timestamp     time.Time `json:"timestamp"`
-	TransactTime  time.Time `json:"transactTime"`
+	OrderID      string    `json:"orderID"`
+	ClOrdID      string    `json:"clOrdID"`
+	Symbol       string    `json:"symbol"`
+	Side         string    `json:"side"`
+	OrderQty     float64   `json:"orderQty"`
+	Price        float64   `json:"price"`
+	OrdType      string    `json:"ordType"`
+	OrdStatus    string    `json:"ordStatus"`
+	CumQty       float64   `json:"cumQty"`
+	LeavesQty    float64   `json:"leavesQty"`
+	AvgPx        float64   `json:"avgPx"`
+	Timestamp    time.Time `json:"timestamp"`
+	TransactTime time.Time `json:"transactTime"`
 }
 
 type Position struct {
-	Account            int64   `json:"account"`
-	Symbol             string  `json:"symbol"`
-	Currency           string  `json:"currency"`
-	CurrentQty         float64 `json:"currentQty"`
-	MarkPrice          float64 `json:"markPrice"`
-	MarkValue          float64 `json:"markValue"`
-	HomeNotional       float64 `json:"homeNotional"`
-	ForeignNotional    float64 `json:"foreignNotional"`
-	AvgCostPrice       float64 `json:"avgCostPrice"`
-	AvgEntryPrice      float64 `json:"avgEntryPrice"`
-	UnrealisedPnl      float64 `json:"unrealisedPnl"`
-	RealisedPnl        float64 `json:"realisedPnl"`
-	Leverage           float64 `json:"leverage"`
-	LiquidationPrice   float64 `json:"liquidationPrice"`
-	InitMargin         float64 `json:"initMargin"`
-	MaintMargin        float64 `json:"maintMargin"`
+	Account          int64   `json:"account"`
+	Symbol           string  `json:"symbol"`
+	Currency         string  `json:"currency"`
+	CurrentQty       float64 `json:"currentQty"`
+	MarkPrice        float64 `json:"markPrice"`
+	MarkValue        float64 `json:"markValue"`
+	HomeNotional     float64 `json:"homeNotional"`
+	ForeignNotional  float64 `json:"foreignNotional"`
+	AvgCostPrice     float64 `json:"avgCostPrice"`
+	AvgEntryPrice    float64 `json:"avgEntryPrice"`
+	UnrealisedPnl    float64 `json:"unrealisedPnl"`
+	RealisedPnl      float64 `json:"realisedPnl"`
+	Leverage         float64 `json:"leverage"`
+	LiquidationPrice float64 `json:"liquidationPrice"`
+	InitMargin       float64 `json:"initMargin"`
+	MaintMargin      float64 `json:"maintMargin"`
 }
 
 type Margin struct {
@@ -389,15 +389,15 @@ type Margin struct {
 }
 
 type Trade struct {
-	Timestamp    time.Time `json:"timestamp"`
-	Symbol       string    `json:"symbol"`
-	Side         string    `json:"side"`
-	Size         float64   `json:"size"`
-	Price        float64   `json:"price"`
-	TickDirection string   `json:"tickDirection"`
-	TrdMatchID   string    `json:"trdMatchID"`
-	GrossValue   float64   `json:"grossValue"`
-	HomeNotional float64   `json:"homeNotional"`
+	Timestamp     time.Time `json:"timestamp"`
+	Symbol        string    `json:"symbol"`
+	Side          string    `json:"side"`
+	Size          float64   `json:"size"`
+	Price         float64   `json:"price"`
+	TickDirection string    `json:"tickDirection"`
+	TrdMatchID    string    `json:"trdMatchID"`
+	GrossValue    float64   `json:"grossValue"`
+	HomeNotional  float64   `json:"homeNotional"`
 }
 
 type TradeBucket struct {
@@ -414,4 +414,3 @@ type TradeBucket struct {
 	Turnover     float64   `json:"turnover"`
 	HomeNotional float64   `json:"homeNotional"`
 }
-

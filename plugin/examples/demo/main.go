@@ -110,7 +110,7 @@ func demoLicenseSystem() {
 		"test_plugin",
 		"CUST001",
 		time.Now().AddDate(1, 0, 0), // 1年有效期
-		5,                            // 最多5个实例
+		5,                           // 最多5个实例
 		[]string{"feature1", "feature2", "feature3"},
 		"",
 		"quantmesh-secret-key-2025",
@@ -207,4 +207,3 @@ func listPlugins(loader *plugin.PluginLoader) {
 		fmt.Println()
 	}
 }
-

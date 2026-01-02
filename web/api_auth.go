@@ -35,7 +35,7 @@ func getAuthStatus(c *gin.Context) {
 	// 单用户场景，使用固定用户名
 	username := "admin"
 	hasPassword, _ := globalPasswordManager.HasPassword(username)
-	
+
 	// 检查是否有 WebAuthn 凭证
 	hasWebAuthn := false
 	if globalWebAuthnManager != nil {
@@ -51,8 +51,8 @@ func getAuthStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"has_password":    hasPassword,
-		"has_webauthn":    hasWebAuthn,
+		"has_password":     hasPassword,
+		"has_webauthn":     hasWebAuthn,
 		"is_authenticated": isAuthenticated,
 	})
 }
@@ -63,7 +63,7 @@ func setPassword(c *gin.Context) {
 	println("\n\n🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐")
 	println("🔐 收到设置密码请求")
 	println("🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐")
-	
+
 	if globalPasswordManager == nil {
 		println("✗ 密码管理器未初始化")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码管理器未初始化"})
@@ -97,26 +97,26 @@ func setPassword(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "密码设置成功"})
 		return
 	}
-	
+
 	ip := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
 	println("✓ 会话管理器已就绪，准备创建会话")
 	println("  IP:", ip)
 	println("  UserAgent:", userAgent)
-	
+
 	session, err := sm.CreateSession(username, "admin", ip, userAgent)
 	if err != nil {
 		println("✗ 创建会话失败:", err.Error())
 		c.JSON(http.StatusOK, gin.H{
-			"success": true, 
+			"success": true,
 			"message": "密码设置成功，但会话创建失败",
 			"warning": "请手动登录",
 		})
 		return
 	}
-	
+
 	println("✓ 会话已创建，SessionID:", session.SessionID)
-	
+
 	// 使用 Gin 的 SetCookie 方法设置会话Cookie
 	// MaxAge: 24小时 = 86400秒
 	println("准备设置 Cookie...")
@@ -259,4 +259,3 @@ func logout(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已退出登录"})
 }
-

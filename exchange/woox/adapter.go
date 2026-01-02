@@ -52,7 +52,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	} else {
 		adapter.priceDecimals = symbolInfo.PrecisionPrice
 		adapter.quantityDecimals = symbolInfo.PrecisionQuantity
-		
+
 		// 解析基础资产和报价资产
 		parts := strings.Split(strings.TrimPrefix(symbolInfo.Symbol, "PERP_"), "_")
 		if len(parts) >= 2 {
@@ -332,4 +332,3 @@ func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 		UpdateTime:    order.UpdatedTime,
 	}
 }
-

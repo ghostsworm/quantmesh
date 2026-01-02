@@ -11,10 +11,10 @@ import (
 
 // MomentumStrategy 动量策略
 type MomentumStrategy struct {
-	name      string
-	cfg       *config.Config
-	executor  position.OrderExecutorInterface
-	exchange  position.IExchange
+	name        string
+	cfg         *config.Config
+	executor    position.OrderExecutorInterface
+	exchange    position.IExchange
 	strategyCfg map[string]interface{}
 
 	// 价格历史
@@ -22,14 +22,14 @@ type MomentumStrategy struct {
 	mu           sync.RWMutex
 
 	// RSI 相关
-	rsiPeriod   int
-	rsiValues   []float64
-	overbought  float64
-	oversold    float64
+	rsiPeriod         int
+	rsiValues         []float64
+	overbought        float64
+	oversold          float64
 	momentumThreshold float64
 
 	// 持仓
-	position *Position
+	position   *Position
 	entryPrice float64
 
 	ctx    context.Context
@@ -47,11 +47,11 @@ func NewMomentumStrategy(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ms := &MomentumStrategy{
-		name:        name,
-		cfg:         cfg,
-		executor:    executor,
-		exchange:    exchange,
-		strategyCfg: strategyCfg,
+		name:         name,
+		cfg:          cfg,
+		executor:     executor,
+		exchange:     exchange,
+		strategyCfg:  strategyCfg,
 		priceHistory: make([]float64, 0, 100),
 		rsiValues:    make([]float64, 0, 100),
 		ctx:          ctx,
@@ -243,4 +243,3 @@ func (ms *MomentumStrategy) GetStatistics() *StrategyStatistics {
 		TotalVolume: 0,
 	}
 }
-

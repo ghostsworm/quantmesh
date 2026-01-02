@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	BitrueMainnetBaseURL = "https://openapi.bitrue.com"           // Bitrue 主网
-	BitrueTestnetBaseURL = "https://testnet-openapi.bitrue.com"   // Bitrue 测试网
+	BitrueMainnetBaseURL = "https://openapi.bitrue.com"         // Bitrue 主网
+	BitrueTestnetBaseURL = "https://testnet-openapi.bitrue.com" // Bitrue 测试网
 )
 
 // BitrueClient Bitrue 客户端
@@ -63,7 +63,7 @@ func (c *BitrueClient) sendRequest(ctx context.Context, method, path string, par
 	if needSign {
 		params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 		params.Set("recvWindow", "5000")
-		
+
 		queryString := params.Encode()
 		signature := c.signRequest(queryString)
 		params.Set("signature", signature)
@@ -71,7 +71,7 @@ func (c *BitrueClient) sendRequest(ctx context.Context, method, path string, par
 
 	reqURL := c.baseURL + path
 	queryString := params.Encode()
-	
+
 	var reqBody []byte
 	var err error
 	if body != nil {
@@ -286,12 +286,12 @@ func (c *BitrueClient) GetKlines(ctx context.Context, symbol, interval string, l
 		}
 
 		kline := Kline{
-			OpenTime:  int64(raw[0].(float64)),
-			Open:      raw[1].(string),
-			High:      raw[2].(string),
-			Low:       raw[3].(string),
-			Close:     raw[4].(string),
-			Volume:    raw[5].(string),
+			OpenTime: int64(raw[0].(float64)),
+			Open:     raw[1].(string),
+			High:     raw[2].(string),
+			Low:      raw[3].(string),
+			Close:    raw[4].(string),
+			Volume:   raw[5].(string),
 		}
 		klines = append(klines, kline)
 	}
@@ -324,8 +324,8 @@ type Symbol struct {
 
 type OrderRequest struct {
 	Symbol           string
-	Side             string  // BUY, SELL
-	Type             string  // LIMIT, MARKET
+	Side             string // BUY, SELL
+	Type             string // LIMIT, MARKET
 	Quantity         float64
 	Price            float64
 	NewClientOrderID string
@@ -371,11 +371,10 @@ type Ticker struct {
 }
 
 type Kline struct {
-	OpenTime  int64  `json:"openTime"`
-	Open      string `json:"open"`
-	High      string `json:"high"`
-	Low       string `json:"low"`
-	Close     string `json:"close"`
-	Volume    string `json:"volume"`
+	OpenTime int64  `json:"openTime"`
+	Open     string `json:"open"`
+	High     string `json:"high"`
+	Low      string `json:"low"`
+	Close    string `json:"close"`
+	Volume   string `json:"volume"`
 }
-

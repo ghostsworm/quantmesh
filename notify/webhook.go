@@ -79,4 +79,3 @@ func (wn *WebhookNotifier) Send(evt *event.Event) error {
 
 	return nil
 }
-

@@ -15,16 +15,16 @@ import (
 
 // AuditLog 审计日志记录
 type AuditLog struct {
-	ID          int64     `json:"id"`
-	Timestamp   time.Time `json:"timestamp"`
-	Username    string    `json:"username"`
-	IP          string    `json:"ip"`
-	UserAgent   string    `json:"user_agent"`
-	Action      string    `json:"action"`
-	Resource    string    `json:"resource"`
-	Details     string    `json:"details"`
-	Status      string    `json:"status"` // success, failed
-	ErrorMsg    string    `json:"error_msg,omitempty"`
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Username  string    `json:"username"`
+	IP        string    `json:"ip"`
+	UserAgent string    `json:"user_agent"`
+	Action    string    `json:"action"`
+	Resource  string    `json:"resource"`
+	Details   string    `json:"details"`
+	Status    string    `json:"status"` // success, failed
+	ErrorMsg  string    `json:"error_msg,omitempty"`
 }
 
 // AuditLogger 审计日志记录器
@@ -186,15 +186,15 @@ func LogAction(c *gin.Context, action, resource string, details interface{}, sta
 	detailsJSON, _ := json.Marshal(details)
 
 	log := &AuditLog{
-		Timestamp:  time.Now(),
-		Username:   username,
-		IP:         c.ClientIP(),
-		UserAgent:  c.GetHeader("User-Agent"),
-		Action:     action,
-		Resource:   resource,
-		Details:    string(detailsJSON),
-		Status:     status,
-		ErrorMsg:   errMsg,
+		Timestamp: time.Now(),
+		Username:  username,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+		Action:    action,
+		Resource:  resource,
+		Details:   string(detailsJSON),
+		Status:    status,
+		ErrorMsg:  errMsg,
 	}
 
 	if err := globalAuditLogger.Log(log); err != nil {
@@ -239,4 +239,3 @@ func getAuditLogs(c *gin.Context) {
 		"total": len(logs),
 	})
 }
-

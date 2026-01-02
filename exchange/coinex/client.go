@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	CoinExMainnetBaseURL = "https://api.coinex.com"           // CoinEx 主网
-	CoinExTestnetBaseURL = "https://api.coinex.com"           // CoinEx 测试网（使用相同URL）
+	CoinExMainnetBaseURL = "https://api.coinex.com" // CoinEx 主网
+	CoinExTestnetBaseURL = "https://api.coinex.com" // CoinEx 测试网（使用相同URL）
 )
 
 // CoinExClient CoinEx 客户端
@@ -397,52 +397,52 @@ type APIResponse struct {
 }
 
 type Market struct {
-	Name              string  `json:"name"`
-	MinAmount         string  `json:"min_amount"`
-	MakerFeeRate      string  `json:"maker_fee_rate"`
-	TakerFeeRate      string  `json:"taker_fee_rate"`
-	PricingName       string  `json:"pricing_name"`
-	PricingDecimal    int     `json:"pricing_decimal"`
-	TradingName       string  `json:"trading_name"`
-	TradingDecimal    int     `json:"trading_decimal"`
-	Last              string  `json:"last"`
-	Open              string  `json:"open"`
-	High              string  `json:"high"`
-	Low               string  `json:"low"`
-	Volume            string  `json:"volume"`
-	Deal              string  `json:"deal"`
+	Name           string `json:"name"`
+	MinAmount      string `json:"min_amount"`
+	MakerFeeRate   string `json:"maker_fee_rate"`
+	TakerFeeRate   string `json:"taker_fee_rate"`
+	PricingName    string `json:"pricing_name"`
+	PricingDecimal int    `json:"pricing_decimal"`
+	TradingName    string `json:"trading_name"`
+	TradingDecimal int    `json:"trading_decimal"`
+	Last           string `json:"last"`
+	Open           string `json:"open"`
+	High           string `json:"high"`
+	Low            string `json:"low"`
+	Volume         string `json:"volume"`
+	Deal           string `json:"deal"`
 }
 
 type OrderRequest struct {
 	Market   string
-	Type     string  // limit, market
-	Side     string  // buy, sell
+	Type     string // limit, market
+	Side     string // buy, sell
 	Amount   float64
 	Price    float64
 	ClientID string
 }
 
 type Order struct {
-	ID           int64   `json:"id"`
-	CreateTime   int64   `json:"create_time"`
-	FinishedTime int64   `json:"finished_time"`
-	Market       string  `json:"market"`
-	Type         string  `json:"type"`
-	Side         string  `json:"side"`
-	Amount       string  `json:"amount"`
-	Price        string  `json:"price"`
-	DealAmount   string  `json:"deal_amount"`
-	DealFee      string  `json:"deal_fee"`
-	DealMoney    string  `json:"deal_money"`
-	Status       string  `json:"status"`
-	ClientID     string  `json:"client_id"`
+	ID           int64  `json:"id"`
+	CreateTime   int64  `json:"create_time"`
+	FinishedTime int64  `json:"finished_time"`
+	Market       string `json:"market"`
+	Type         string `json:"type"`
+	Side         string `json:"side"`
+	Amount       string `json:"amount"`
+	Price        string `json:"price"`
+	DealAmount   string `json:"deal_amount"`
+	DealFee      string `json:"deal_fee"`
+	DealMoney    string `json:"deal_money"`
+	Status       string `json:"status"`
+	ClientID     string `json:"client_id"`
 }
 
 type OrdersResponse struct {
-	Count  int     `json:"count"`
-	Curr   int     `json:"curr_page"`
-	Data   []Order `json:"data"`
-	Total  int     `json:"total"`
+	Count int     `json:"count"`
+	Curr  int     `json:"curr_page"`
+	Data  []Order `json:"data"`
+	Total int     `json:"total"`
 }
 
 type Balance struct {
@@ -459,12 +459,11 @@ type Trade struct {
 }
 
 type Kline struct {
-	Timestamp int64    `json:"timestamp"`
-	Open      string   `json:"open"`
-	High      string   `json:"high"`
-	Low       string   `json:"low"`
-	Close     string   `json:"close"`
-	Volume    string   `json:"volume"`
-	Market    string   `json:"market"`
+	Timestamp int64  `json:"timestamp"`
+	Open      string `json:"open"`
+	High      string `json:"high"`
+	Low       string `json:"low"`
+	Close     string `json:"close"`
+	Volume    string `json:"volume"`
+	Market    string `json:"market"`
 }
-

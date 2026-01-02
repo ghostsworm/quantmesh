@@ -56,4 +56,3 @@ func NewDistributedLock(config *Config) (DistributedLock, error) {
 		return nil, fmt.Errorf("unsupported lock type: %s", config.Type)
 	}
 }
-

@@ -24,26 +24,26 @@ const (
 var (
 	globalLevel LogLevel = INFO
 	mu          sync.RWMutex
-	
+
 	// 文件日志相关
-	fileLogger   *log.Logger
-	logFile      *os.File
-	currentDate  string
-	fileMu       sync.Mutex
-	logDir       = "log" // 日志文件夹
-	
+	fileLogger  *log.Logger
+	logFile     *os.File
+	currentDate string
+	fileMu      sync.Mutex
+	logDir      = "log" // 日志文件夹
+
 	// 时区相关
 	globalLocation *time.Location = time.Local
 	locationMu     sync.RWMutex
-	
+
 	// SQLite 日志存储（通过函数指针避免循环依赖）
 	logStorageWriter func(level, message string)
 	logStorageMu     sync.RWMutex
-	
+
 	// 日志语言配置
 	logLanguage string = "zh-CN"
 	langMu      sync.RWMutex
-	
+
 	// i18n 翻译函数（避免循环依赖）
 	translateFunc func(key string, data ...interface{}) string
 	translateMu   sync.RWMutex
@@ -91,7 +91,7 @@ func SetLevel(level LogLevel) {
 	mu.Lock()
 	defer mu.Unlock()
 	globalLevel = level
-	
+
 	// 如果设置为DEBUG级别，启用文件日志
 	if level == DEBUG {
 		initFileLogger()
@@ -135,11 +135,11 @@ func translate(message string) string {
 	translateMu.RLock()
 	fn := translateFunc
 	translateMu.RUnlock()
-	
+
 	if fn == nil {
 		return message
 	}
-	
+
 	// 尝试翻译，如果失败则返回原始消息
 	translated := fn(message)
 	if translated == message || translated == "" {
@@ -152,30 +152,30 @@ func translate(message string) string {
 func initFileLogger() {
 	fileMu.Lock()
 	defer fileMu.Unlock()
-	
+
 	// 如果已经初始化且日期相同，不需要重新初始化
 	locationMu.RLock()
 	loc := globalLocation
 	locationMu.RUnlock()
-	
+
 	today := time.Now().In(loc).Format("2006-01-02")
 	if fileLogger != nil && currentDate == today {
 		return
 	}
-	
+
 	// 关闭旧文件
 	if logFile != nil {
 		logFile.Close()
 		logFile = nil
 	}
-	
+
 	// 创建log文件夹
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		// 如果创建失败，只输出到控制台
 		log.Printf("[WARN] 创建日志文件夹失败: %v，将只输出到控制台", err)
 		return
 	}
-	
+
 	// 创建日志文件（按日期命名）
 	logFileName := filepath.Join(logDir, fmt.Sprintf("quantmesh-%s.log", today))
 	file, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -184,12 +184,12 @@ func initFileLogger() {
 		log.Printf("[WARN] 打开日志文件失败: %v，将只输出到控制台", err)
 		return
 	}
-	
+
 	logFile = file
 	currentDate = today
 	// 创建文件日志器（不包含时间戳，因为标准log已经包含）
 	fileLogger = log.New(file, "", 0)
-	
+
 	log.Printf("[INFO] 文件日志已启用，日志文件: %s", logFileName)
 }
 
@@ -197,7 +197,7 @@ func initFileLogger() {
 func closeFileLogger() {
 	fileMu.Lock()
 	defer fileMu.Unlock()
-	
+
 	if logFile != nil {
 		logFile.Close()
 		logFile = nil
@@ -212,7 +212,7 @@ func checkAndRotateLog() {
 	locationMu.RLock()
 	loc := globalLocation
 	locationMu.RUnlock()
-	
+
 	today := time.Now().In(loc).Format("2006-01-02")
 	if currentDate != today {
 		// 日期变化，重新初始化文件日志
@@ -221,19 +221,19 @@ func checkAndRotateLog() {
 			logFile.Close()
 			logFile = nil
 		}
-		
+
 		// 创建log文件夹
 		if err := os.MkdirAll(logDir, 0755); err != nil {
 			return
 		}
-		
+
 		// 创建新的日志文件
 		logFileName := filepath.Join(logDir, fmt.Sprintf("quantmesh-%s.log", today))
 		file, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return
 		}
-		
+
 		logFile = file
 		currentDate = today
 		fileLogger = log.New(file, "", 0)
@@ -275,10 +275,10 @@ func logf(level LogLevel, format string, args ...interface{}) {
 	}
 	prefix := fmt.Sprintf("[%s] ", level.String())
 	message := fmt.Sprintf(prefix+format, args...)
-	
+
 	// 输出到控制台（标准输出）
 	log.Printf(prefix+format, args...)
-	
+
 	// 如果日志级别为DEBUG，同时写入文件
 	if globalLevel == DEBUG {
 		fileMu.Lock()
@@ -293,12 +293,12 @@ func logf(level LogLevel, format string, args ...interface{}) {
 		}
 		fileMu.Unlock()
 	}
-	
+
 	// 写入 SQLite 数据库（异步，不阻塞）
 	logStorageMu.RLock()
 	writer := logStorageWriter
 	logStorageMu.RUnlock()
-	
+
 	if writer != nil {
 		// 使用 goroutine 异步写入，避免阻塞
 		go func() {
@@ -320,10 +320,10 @@ func logln(level LogLevel, args ...interface{}) {
 	}
 	prefix := fmt.Sprintf("[%s] ", level.String())
 	message := fmt.Sprintln(append([]interface{}{prefix}, args...)...)
-	
+
 	// 输出到控制台（标准输出）
 	log.Println(append([]interface{}{prefix}, args...)...)
-	
+
 	// 如果日志级别为DEBUG，同时写入文件
 	if globalLevel == DEBUG {
 		fileMu.Lock()
@@ -338,12 +338,12 @@ func logln(level LogLevel, args ...interface{}) {
 		}
 		fileMu.Unlock()
 	}
-	
+
 	// 写入 SQLite 数据库（异步，不阻塞）
 	logStorageMu.RLock()
 	writer := logStorageWriter
 	logStorageMu.RUnlock()
-	
+
 	if writer != nil {
 		// 使用 goroutine 异步写入，避免阻塞
 		go func() {
@@ -414,4 +414,3 @@ func Fatalln(args ...interface{}) {
 func Fatalf(format string, args ...interface{}) {
 	Fatal(format, args...)
 }
-

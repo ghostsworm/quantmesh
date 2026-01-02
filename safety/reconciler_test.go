@@ -25,13 +25,13 @@ func (m *MockPositionManager) IterateSlots(fn func(price float64, slot interface
 		}
 	}
 }
-func (m *MockPositionManager) GetTotalBuyQty() float64 { return m.TotalBuyQty }
-func (m *MockPositionManager) GetTotalSellQty() float64 { return m.TotalSellQty }
-func (m *MockPositionManager) GetReconcileCount() int64 { return m.ReconcileCount }
-func (m *MockPositionManager) IncrementReconcileCount() { m.ReconcileCount++ }
+func (m *MockPositionManager) GetTotalBuyQty() float64             { return m.TotalBuyQty }
+func (m *MockPositionManager) GetTotalSellQty() float64            { return m.TotalSellQty }
+func (m *MockPositionManager) GetReconcileCount() int64            { return m.ReconcileCount }
+func (m *MockPositionManager) IncrementReconcileCount()            { m.ReconcileCount++ }
 func (m *MockPositionManager) UpdateLastReconcileTime(t time.Time) {}
-func (m *MockPositionManager) GetSymbol() string { return m.Symbol }
-func (m *MockPositionManager) GetPriceInterval() float64 { return m.PriceInterval }
+func (m *MockPositionManager) GetSymbol() string                   { return m.Symbol }
+func (m *MockPositionManager) GetPriceInterval() float64           { return m.PriceInterval }
 
 // TestSlot 用于对账反射
 type TestSlot struct {

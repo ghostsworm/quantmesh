@@ -72,4 +72,3 @@ func TestTrendDetector_AdjustWindows(t *testing.T) {
 		t.Errorf("下跌趋势调整错误: buy=%d, sell=%d", buy, sell)
 	}
 }
-

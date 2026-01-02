@@ -68,10 +68,10 @@ type CandleUpdateCallbackLocal func(candle *CandleLocal)
 type BitMEXBinSize string
 
 const (
-	BitMEXBinSize1m  BitMEXBinSize = "1m"
-	BitMEXBinSize5m  BitMEXBinSize = "5m"
-	BitMEXBinSize1h  BitMEXBinSize = "1h"
-	BitMEXBinSize1d  BitMEXBinSize = "1d"
+	BitMEXBinSize1m BitMEXBinSize = "1m"
+	BitMEXBinSize5m BitMEXBinSize = "5m"
+	BitMEXBinSize1h BitMEXBinSize = "1h"
+	BitMEXBinSize1d BitMEXBinSize = "1d"
 )
 
 // ConvertInterval 转换 K线周期
@@ -89,4 +89,3 @@ func ConvertInterval(interval string) BitMEXBinSize {
 		return BitMEXBinSize1m
 	}
 }
-

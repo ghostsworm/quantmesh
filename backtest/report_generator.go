@@ -161,7 +161,7 @@ func prepareReportData(result *BacktestResult) ReportData {
 		MaxConsecutiveWins:   fmt.Sprintf("%d", m.MaxConsecutiveWins),
 		MaxConsecutiveLosses: fmt.Sprintf("%d", m.MaxConsecutiveLosses),
 
-		TopTrades:  topTrades,
+		TopTrades: topTrades,
 
 		VaR95:  fmt.Sprintf("%.2f%%", result.RiskMetrics.VaR95),
 		VaR99:  fmt.Sprintf("%.2f%%", result.RiskMetrics.VaR99),
@@ -358,4 +358,3 @@ func SaveEquityCurveCSV(result *BacktestResult) (string, error) {
 
 	return csvPath, nil
 }
-

@@ -60,4 +60,3 @@ func main() {
 
 	fmt.Println("✅ 许可证签名验证通过")
 }
-

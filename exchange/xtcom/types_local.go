@@ -98,4 +98,3 @@ func ConvertInterval(interval string) XTInterval {
 		return XTInterval1m
 	}
 }
-

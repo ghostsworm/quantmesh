@@ -250,4 +250,3 @@ func (k *KlineWebSocketManager) parseKline(data map[string]interface{}) *Kline {
 
 	return kline
 }
-

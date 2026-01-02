@@ -188,7 +188,7 @@ func (ls *LogStorage) batchInsert(entries []*logEntry) error {
 		if err != nil {
 			return err
 		}
-		
+
 		// 获取插入的 ID
 		id, _ := result.LastInsertId()
 		insertedLogs = append(insertedLogs, &LogRecord{
@@ -370,4 +370,3 @@ func (ls *LogStorage) Close() error {
 
 	return ls.db.Close()
 }
-

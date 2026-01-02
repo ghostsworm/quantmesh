@@ -693,18 +693,17 @@ func (o *OKXAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, 
 	// BTC-USDT-SWAP -> BTC-USDT
 	spotInstId := strings.Replace(symbol, "-SWAP", "", 1)
 	spotInstId = strings.Replace(spotInstId, "-PERP", "", 1)
-	
+
 	// 调用 OKX 现货 ticker API
 	ticker, err := o.client.GetTicker(ctx, spotInstId)
 	if err != nil {
 		return 0, fmt.Errorf("获取现货价格失败: %w", err)
 	}
-	
+
 	price, err := strconv.ParseFloat(ticker.Last, 64)
 	if err != nil {
 		return 0, fmt.Errorf("解析现货价格失败: %w", err)
 	}
-	
+
 	return price, nil
 }
-

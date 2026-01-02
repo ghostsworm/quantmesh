@@ -251,4 +251,3 @@ func (k *KlineWebSocketManager) parseKline(data []interface{}) *Kline {
 
 	return kline
 }
-

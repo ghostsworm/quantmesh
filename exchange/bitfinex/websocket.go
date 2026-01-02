@@ -104,11 +104,11 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(f
 func (w *WebSocketManager) authenticate() error {
 	nonce := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	authPayload := "AUTH" + nonce
-	
+
 	h := hmac.New(sha512.New384, []byte(w.client.secretKey))
 	h.Write([]byte(authPayload))
 	signature := hex.EncodeToString(h.Sum(nil))
-	
+
 	authMsg := map[string]interface{}{
 		"event":       "auth",
 		"apiKey":      w.client.apiKey,
@@ -116,11 +116,11 @@ func (w *WebSocketManager) authenticate() error {
 		"authNonce":   nonce,
 		"authPayload": authPayload,
 	}
-	
+
 	if err := w.conn.WriteJSON(authMsg); err != nil {
 		return fmt.Errorf("send auth message error: %w", err)
 	}
-	
+
 	logger.Info("Bitfinex WebSocket authentication sent")
 	return nil
 }
@@ -132,11 +132,11 @@ func (w *WebSocketManager) subscribeTicker() error {
 		"channel": "ticker",
 		"symbol":  "t" + w.symbol,
 	}
-	
+
 	if err := w.conn.WriteJSON(subscribeMsg); err != nil {
 		return fmt.Errorf("subscribe ticker error: %w", err)
 	}
-	
+
 	logger.Info("Bitfinex subscribed to ticker: %s", w.symbol)
 	return nil
 }
@@ -173,21 +173,21 @@ func (w *WebSocketManager) processMessage(message []byte) {
 	// Bitfinex WebSocket 消息格式：
 	// 1. 事件消息：{"event": "...", ...}
 	// 2. 数据消息：[CHANNEL_ID, DATA]
-	
+
 	// 尝试解析为事件消息
 	var eventMsg map[string]interface{}
 	if err := json.Unmarshal(message, &eventMsg); err == nil {
 		w.handleEventMessage(eventMsg)
 		return
 	}
-	
+
 	// 尝试解析为数据消息
 	var dataMsg []interface{}
 	if err := json.Unmarshal(message, &dataMsg); err == nil {
 		w.handleDataMessage(dataMsg)
 		return
 	}
-	
+
 	logger.Warn("Bitfinex unknown message format: %s", string(message))
 }
 
@@ -197,7 +197,7 @@ func (w *WebSocketManager) handleEventMessage(msg map[string]interface{}) {
 	if !ok {
 		return
 	}
-	
+
 	switch event {
 	case "info":
 		logger.Info("Bitfinex WebSocket info: %v", msg)
@@ -229,22 +229,22 @@ func (w *WebSocketManager) handleDataMessage(msg []interface{}) {
 	if len(msg) < 2 {
 		return
 	}
-	
+
 	chanID, ok := msg[0].(float64)
 	if !ok {
 		return
 	}
-	
+
 	// 检查是否是心跳消息
 	if hb, ok := msg[1].(string); ok && hb == "hb" {
 		return
 	}
-	
+
 	// 获取 channel 类型
 	w.mu.RLock()
 	channelType := w.channelMap[int(chanID)]
 	w.mu.RUnlock()
-	
+
 	switch channelType {
 	case "ticker":
 		w.handleTickerData(msg[1])
@@ -259,22 +259,22 @@ func (w *WebSocketManager) handleTickerData(data interface{}) {
 	w.mu.RLock()
 	callback := w.priceCallback
 	w.mu.RUnlock()
-	
+
 	if callback == nil {
 		return
 	}
-	
+
 	// Ticker 格式：[BID, BID_SIZE, ASK, ASK_SIZE, DAILY_CHANGE, DAILY_CHANGE_RELATIVE, LAST_PRICE, ...]
 	tickerArray, ok := data.([]interface{})
 	if !ok || len(tickerArray) < 7 {
 		return
 	}
-	
+
 	lastPrice, ok := tickerArray[6].(float64)
 	if !ok {
 		return
 	}
-	
+
 	callback(lastPrice)
 }
 
@@ -283,16 +283,16 @@ func (w *WebSocketManager) handleAuthChannelData(msg []interface{}) {
 	if len(msg) < 2 {
 		return
 	}
-	
+
 	// 订单更新格式：[0, "on", [ORDER_DATA]]
 	// 订单取消格式：[0, "oc", [ORDER_DATA]]
 	// 订单执行格式：[0, "ou", [ORDER_DATA]]
-	
+
 	msgType, ok := msg[1].(string)
 	if !ok {
 		return
 	}
-	
+
 	switch msgType {
 	case "on", "ou", "oc": // order new, order update, order cancel
 		w.handleOrderUpdate(msg)
@@ -304,20 +304,20 @@ func (w *WebSocketManager) handleOrderUpdate(msg []interface{}) {
 	w.mu.RLock()
 	callback := w.orderCallback
 	w.mu.RUnlock()
-	
+
 	if callback == nil {
 		return
 	}
-	
+
 	if len(msg) < 3 {
 		return
 	}
-	
+
 	orderData, ok := msg[2].([]interface{})
 	if !ok {
 		return
 	}
-	
+
 	order := parseOrderArray(orderData)
 	logger.Info("Bitfinex order update: %s, type: %s, amount: %.8f", order.ID, msg[1], order.Amount)
 	callback(order)
@@ -354,4 +354,3 @@ func (w *WebSocketManager) Stop() {
 	}
 	logger.Info("Bitfinex WebSocket stopped")
 }
-

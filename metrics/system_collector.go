@@ -65,7 +65,7 @@ func (smc *SystemMetricsCollector) collect() {
 
 	// 内存指标
 	smc.pm.SetMemoryAlloc(m.Alloc)
-	
+
 	// 累计分配（只在增加时更新）
 	// 注意：TotalAlloc 是累计值，我们需要计算增量
 	// 这里简化处理，直接使用当前值
@@ -85,4 +85,3 @@ func (smc *SystemMetricsCollector) collect() {
 		}
 	}
 }
-

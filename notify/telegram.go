@@ -132,4 +132,3 @@ func formatTelegramMessage(evt *event.Event) string {
 
 	return message
 }
-

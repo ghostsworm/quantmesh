@@ -92,4 +92,3 @@ func TestSQLiteStorage(t *testing.T) {
 		t.Errorf("盈亏汇总计算错误: 期望 100.0, 得到 %.2f", summary.TotalPnL)
 	}
 }
-

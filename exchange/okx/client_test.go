@@ -36,18 +36,18 @@ func TestNewOKXClient(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	client := NewOKXClient("test_key", "test_secret", "test_pass", false)
-	
+
 	timestamp := "2023-01-01T00:00:00.000Z"
 	method := "POST"
 	requestPath := "/api/v5/trade/order"
 	body := `{"instId":"BTC-USDT-SWAP","side":"buy"}`
-	
+
 	signature := client.sign(timestamp, method, requestPath, body)
-	
+
 	if signature == "" {
 		t.Fatal("签名不能为空")
 	}
-	
+
 	// 验证相同输入产生相同签名
 	signature2 := client.sign(timestamp, method, requestPath, body)
 	if signature != signature2 {
@@ -107,4 +107,3 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("报价资产不能为空")
 	}
 }
-

@@ -140,7 +140,7 @@ func (w *WebSocketManager) authenticate() error {
 
 	// 签名字符串：timestamp + "\n" + nonce + "\n" + data
 	signStr := timestamp + "\n" + nonce + "\n" + data
-	
+
 	h := hmac.New(sha256.New, []byte(w.secretKey))
 	h.Write([]byte(signStr))
 	signature := hex.EncodeToString(h.Sum(nil))
@@ -291,4 +291,3 @@ func (w *WebSocketManager) getNextRequestID() int64 {
 	w.requestID++
 	return id
 }
-

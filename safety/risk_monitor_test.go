@@ -62,8 +62,8 @@ func TestRiskMonitor_IsTriggered(t *testing.T) {
 	// 场景 2: 触发风控（价格下跌且成交量放大）
 	rm.onCandleUpdate(&exchange.Candle{
 		Symbol:   "BTCUSDT",
-		Close:    90.0,    // 均价 100
-		Volume:   3000.0,  // 均量 1000, 阈值 2000
+		Close:    90.0,   // 均价 100
+		Volume:   3000.0, // 均量 1000, 阈值 2000
 		IsClosed: true,
 	})
 	if !rm.IsTriggered() {
@@ -82,4 +82,3 @@ func TestRiskMonitor_IsTriggered(t *testing.T) {
 		t.Error("行情恢复后应解除风控")
 	}
 }
-

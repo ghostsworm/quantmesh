@@ -33,4 +33,3 @@ func NewDatabase(config *Config) (Database, error) {
 		return nil, fmt.Errorf("unsupported database type: %s", config.Type)
 	}
 }
-

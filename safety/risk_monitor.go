@@ -21,16 +21,16 @@ type SymbolData struct {
 
 // RiskMonitor 主动安全风控监视器
 type RiskMonitor struct {
-	cfg            *config.Config
-	exchange       exchange.IExchange
-	storage        storage.Storage
-	symbolDataMap  map[string]*SymbolData
+	cfg              *config.Config
+	exchange         exchange.IExchange
+	storage          storage.Storage
+	symbolDataMap    map[string]*SymbolData
 	lastHealthStatus map[string]bool // 缓存每个币种的上一次健康状态
-	mu             sync.RWMutex
-	triggered      bool
-	triggeredTime  time.Time
-	recoveredTime  time.Time
-	lastMsg        string
+	mu               sync.RWMutex
+	triggered        bool
+	triggeredTime    time.Time
+	recoveredTime    time.Time
+	lastMsg          string
 }
 
 // NewRiskMonitor 创建风控监视器
@@ -43,9 +43,9 @@ func NewRiskMonitor(cfg *config.Config, ex exchange.IExchange) *RiskMonitor {
 	}
 
 	return &RiskMonitor{
-		cfg:             cfg,
-		exchange:        ex,
-		symbolDataMap:   symbolDataMap,
+		cfg:              cfg,
+		exchange:         ex,
+		symbolDataMap:    symbolDataMap,
 		lastHealthStatus: make(map[string]bool),
 	}
 }
@@ -258,7 +258,7 @@ func (r *RiskMonitor) checkMarket() {
 
 		for _, symbol := range r.cfg.RiskControl.MonitorSymbols {
 			isPanic, reason := r.checkSymbol(symbol)
-			
+
 			// 收集检查结果
 			record := &storage.RiskCheckRecord{
 				CheckTime: checkTime,
@@ -312,7 +312,7 @@ func (r *RiskMonitor) checkMarket() {
 			r.triggered = true
 			r.triggeredTime = time.Now()
 			r.lastMsg = fmt.Sprintf("触发风控: %d/%d 币种异常 (%s)", panicCount, len(r.cfg.RiskControl.MonitorSymbols), strings.Join(details, ","))
-			
+
 			// 记录风控触发指标
 			for _, symbol := range r.cfg.RiskControl.MonitorSymbols {
 				pm.SetRiskControlStatus(r.exchange.GetName(), symbol, true)
@@ -559,7 +559,7 @@ func (r *RiskMonitor) GetSymbolData(symbol string) interface{} {
 	var totalPrice, totalVolume float64
 	var count int
 	window := r.cfg.RiskControl.AverageWindow
-	
+
 	for i := len(symbolData.candles) - 1; i >= 0 && count < window; i-- {
 		if symbolData.candles[i].IsClosed {
 			totalPrice += symbolData.candles[i].Close

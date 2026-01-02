@@ -14,7 +14,7 @@ import (
 type RedisLock struct {
 	client   *redis.Client
 	prefix   string
-	lockID   string // 当前实例的唯一标识
+	lockID   string            // 当前实例的唯一标识
 	lockKeys map[string]string // 记录持有的锁和对应的 token
 }
 
@@ -152,6 +152,3 @@ func (r *RedisLock) Close() error {
 func (r *RedisLock) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }
-
-
-

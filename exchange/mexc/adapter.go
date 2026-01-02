@@ -11,14 +11,14 @@ import (
 
 // Adapter MEXC 适配器
 type Adapter struct {
-	client          *MEXCClient
-	wsManager       *WebSocketManager
-	klineWSManager  *KlineWebSocketManager
-	symbol          string
-	priceDecimals   int
+	client           *MEXCClient
+	wsManager        *WebSocketManager
+	klineWSManager   *KlineWebSocketManager
+	symbol           string
+	priceDecimals    int
 	quantityDecimals int
-	baseAsset       string
-	quoteAsset      string
+	baseAsset        string
+	quoteAsset       string
 }
 
 // NewAdapter 创建 MEXC 适配器

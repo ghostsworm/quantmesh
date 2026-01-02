@@ -20,11 +20,11 @@ type BasisMonitor struct {
 	interval     time.Duration
 	ctx          context.Context
 	cancel       context.CancelFunc
-	
+
 	// 缓存最新价差数据
-	latestData   map[string]*storage.BasisData
-	dataMutex    sync.RWMutex
-	
+	latestData map[string]*storage.BasisData
+	dataMutex  sync.RWMutex
+
 	// 事件回调
 	onBasisUpdate func(*storage.BasisData)
 }
@@ -234,4 +234,3 @@ func (bm *BasisMonitor) GetBasisHistory(symbol string, limit int) ([]*storage.Ba
 func (bm *BasisMonitor) GetBasisStatistics(symbol string, hours int) (*storage.BasisStats, error) {
 	return bm.db.GetBasisStatistics(symbol, bm.exchangeName, hours)
 }
-
