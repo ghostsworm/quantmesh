@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18n';
+import { useTranslation } from 'react-i18next';
 import { getBasisCurrent, getBasisHistory, getBasisStatistics, BasisData, BasisStats } from '../services/api';
 import { Line } from 'react-chartjs-2';
 import {
