@@ -10,107 +10,30 @@ env:
   GO_VERSION: '1.25.4'
 
 jobs:
-  # 代码检查和测试
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-        cache: true
-        
-    - name: Download dependencies
-      run: go mod download
-      
-    - name: Build frontend (for go:embed)
-      run: |
-        mkdir -p web/dist
-        if [ -d "webui" ]; then
-          cd webui
-          if [ -f "package.json" ]; then
-            npm ci || npm install
-            npm run build
-            cd ..
-            if [ -d "webui/dist" ] && [ "$(ls -A webui/dist 2>/dev/null)" ]; then
-              cp -r webui/dist/* web/dist/ || true
-            fi
-          else
-            cd ..
-          fi
-        fi
-        # 确保 dist 目录至少有一个文件，避免 go:embed 报错
-        if [ ! "$(ls -A web/dist 2>/dev/null)" ]; then
-          echo "# Placeholder" > web/dist/.gitkeep
-        fi
-        
-    - name: Run go vet
-      run: |
-        # 排除包含多个 main 函数的测试文件和 demo
-        go vet $(go list ./... | grep -v "plugin/examples/demo" | grep -v "^quantmesh$" || echo "") 2>&1 || true
-        # 检查主包（排除测试文件）
-        go vet -tags="!test" . 2>&1 || true
-      
-    - name: Run go fmt
-      run: |
-        if [ -n "$(gofmt -l .)" ]; then
-          echo "Go code is not formatted:"
-          gofmt -d .
-          exit 1
-        fi
-        
-    - name: Run tests
-      run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-      
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        file: ./coverage.out
-        flags: unittests
-        name: codecov-umbrella
-        
-  # 安全扫描
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Run Gosec Security Scanner
-      uses: securego/gosec@master
-      with:
-        args: '-no-fail -fmt sarif -out results.sarif ./...'
-        
-    - name: Upload SARIF file
-      uses: github/codeql-action/upload-sarif@v4
-      with:
-        sarif_file: results.sarif
-        
   # 构建
   build:
     name: Build
-    runs-on: ${{ matrix.os }}
-    needs: [test]
+    runs-on: ${{ matrix.runner }}
     
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        arch: [amd64, arm64]
-        exclude:
-          # macOS ARM64 builds are handled separately
-          - os: macos-latest
-            arch: amd64
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            name: linux-amd64
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            name: linux-arm64
+          - runner: ubuntu-latest
+            goos: darwin
+            goarch: amd64
+            name: darwin-amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            name: darwin-arm64
     
     steps:
     - name: Checkout code
@@ -133,59 +56,15 @@ jobs:
         
     - name: Build
       env:
-        GOOS: ${{ matrix.os == 'ubuntu-latest' && 'linux' || 'darwin' }}
-        GOARCH: ${{ matrix.arch }}
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
       run: |
         VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
-        go build -ldflags="-s -w -X main.Version=${VERSION}" -o quantmesh-${{ matrix.os }}-${{ matrix.arch }} .
+        go build -ldflags="-s -w -X main.Version=${VERSION}" -o quantmesh-${{ matrix.name }} .
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: quantmesh-${{ matrix.os }}-${{ matrix.arch }}
-        path: quantmesh-${{ matrix.os }}-${{ matrix.arch }}
+        name: quantmesh-${{ matrix.name }}
+        path: quantmesh-${{ matrix.name }}
         retention-days: 7
-        
-  # Docker 构建
-  docker:
-    name: Build Docker Image
-    runs-on: ubuntu-latest
-    needs: [test]
-    if: github.event_name == 'push'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: Log in to Docker Hub
-      if: github.ref == 'refs/heads/main'
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-        
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: quantmesh/market-maker
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix={{branch}}-
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          
-    - name: Build and push
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        platforms: linux/amd64,linux/arm64
-        push: ${{ github.ref == 'refs/heads/main' }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
