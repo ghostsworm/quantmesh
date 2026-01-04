@@ -40,9 +40,16 @@ jobs:
       
     - name: Generate changelog
       id: changelog
-      uses: metcalfc/changelog-generator@v4.3.1
-      with:
-        myToken: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        if [ -z "$PREVIOUS_TAG" ]; then
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" HEAD)
+        else
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" ${PREVIOUS_TAG}..HEAD)
+        fi
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
         
     - name: Create Release
       id: create_release
