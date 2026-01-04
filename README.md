@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="QuantMesh Logo" width="600"/>
+  <img src="logo/qm_thick_tail_white.svg" alt="QuantMesh Logo" width="200"/>
   
   # QuantMesh Market Maker
   

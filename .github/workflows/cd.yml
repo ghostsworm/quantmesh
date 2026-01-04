@@ -25,7 +25,6 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
     
     steps:
@@ -52,13 +51,10 @@ jobs:
         echo "EOF" >> $GITHUB_OUTPUT
         
     - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ steps.get_version.outputs.version }}
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ steps.get_version.outputs.version }}
         body: |
           ## What's Changed
           ${{ steps.changelog.outputs.changelog }}
@@ -67,14 +63,16 @@ jobs:
           
           ### Linux (amd64)
           ```bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-linux-amd64
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
+          tar -xzf quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
           chmod +x quantmesh-linux-amd64
           sudo mv quantmesh-linux-amd64 /usr/local/bin/quantmesh
           ```
           
           ### macOS (arm64)
           ```bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-darwin-arm64
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-${{ steps.get_version.outputs.version }}-darwin-arm64.tar.gz
+          tar -xzf quantmesh-${{ steps.get_version.outputs.version }}-darwin-arm64.tar.gz
           chmod +x quantmesh-darwin-arm64
           sudo mv quantmesh-darwin-arm64 /usr/local/bin/quantmesh
           ```
@@ -109,6 +107,7 @@ jobs:
           ```
         draft: false
         prerelease: false
+        generate_release_notes: false
         
   # 构建并上传 Release 资产
   build-release:
@@ -180,14 +179,10 @@ jobs:
           LICENSE
         
     - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
-        upload_url: ${{ needs.release.outputs.upload_url }}
-        asset_path: ./quantmesh-${{ needs.release.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
-        asset_name: quantmesh-${{ needs.release.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
-        asset_content_type: application/gzip
+        tag_name: ${{ github.ref_name }}
+        files: ./quantmesh-${{ needs.release.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
         
   # 构建并推送 Docker 镜像
   docker-build:
