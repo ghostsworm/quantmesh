@@ -1,13 +1,16 @@
 # 多阶段构建 Dockerfile
 
 # 构建阶段
-FROM golang:1.21-alpine AS builder
+FROM golang:alpine AS builder
 
 # 安装构建依赖（包括 Node.js 和 npm 用于构建前端）
 RUN apk add --no-cache git make gcc musl-dev nodejs npm
 
 # 设置工作目录
 WORKDIR /build
+
+# 设置 GOTOOLCHAIN 环境变量，让 Go 自动下载所需的工具链版本
+ENV GOTOOLCHAIN=auto
 
 # 复制 go mod 文件
 COPY go.mod go.sum ./
