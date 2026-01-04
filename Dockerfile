@@ -37,15 +37,21 @@ RUN if [ -d "webui" ] && [ -f "webui/package.json" ]; then \
     fi
 
 # 构建应用（排除工具文件，避免 main 函数冲突）
+# 临时移动工具文件
 RUN mkdir -p .tools_backup && \
     for file in analyze_market_data.go run_1m_backtest.go run_3m_backtest.go run_eth_backtest.go test_intrabar_backtest.go test_intrabar_quick.go test_license_validation.go test_plugin_detailed.go test_plugin_loading.go test_zero_fee.go; do \
       if [ -f "$$file" ]; then mv "$$file" .tools_backup/ || true; fi \
-    done && \
-    VERSION=$$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "unknown") && \
+    done
+
+# 获取版本号（通过 build-args 传递，或使用默认值）
+ARG VERSION=unknown
+RUN echo "Building version: $VERSION" && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-s -w -X main.Version=$$VERSION" \
-    -o quantmesh . && \
-    rm -rf .tools_backup
+      -ldflags="-s -w -X main.Version=$VERSION" \
+      -o quantmesh .
+
+# 清理工具文件备份
+RUN rm -rf .tools_backup
 
 # 运行阶段
 FROM alpine:latest
