@@ -3,6 +3,9 @@
 # 构建阶段
 FROM golang:alpine AS builder
 
+# 获取版本号（通过 build-args 传递，或使用默认值）
+ARG VERSION=unknown
+
 # 安装构建依赖（包括 Node.js 和 npm 用于构建前端）
 RUN apk add --no-cache git make gcc musl-dev nodejs npm
 
@@ -37,21 +40,15 @@ RUN if [ -d "webui" ] && [ -f "webui/package.json" ]; then \
     fi
 
 # 构建应用（排除工具文件，避免 main 函数冲突）
-# 临时移动工具文件
 RUN mkdir -p .tools_backup && \
     for file in analyze_market_data.go run_1m_backtest.go run_3m_backtest.go run_eth_backtest.go test_intrabar_backtest.go test_intrabar_quick.go test_license_validation.go test_plugin_detailed.go test_plugin_loading.go test_zero_fee.go; do \
       if [ -f "$$file" ]; then mv "$$file" .tools_backup/ || true; fi \
-    done
-
-# 获取版本号（通过 build-args 传递，或使用默认值）
-ARG VERSION=unknown
-RUN echo "Building version: $VERSION" && \
+    done && \
+    echo "Building version: $VERSION" && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
       -ldflags="-s -w -X main.Version=$VERSION" \
-      -o quantmesh .
-
-# 清理工具文件备份
-RUN rm -rf .tools_backup
+      -o quantmesh . && \
+    rm -rf .tools_backup
 
 # 运行阶段
 FROM alpine:latest
