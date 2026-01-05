@@ -28,7 +28,7 @@ exchanges:
     testnet: false    # 是否使用测试网（true=测试网, false=主网）
 
   gate:
-  #GATE.IO 用我链接开户每笔交易省20%手续费 邀请码【QUANTMESHC】开户链接：https://www.gatenode.xyz/share/QUANTMESHC
+  #GATE.IO 用我链接开户每笔交易省20%手续费 邀请码【VQVMVVBAVG】开户链接：https://www.gatenode.xyz/zh/referral/registry?ref=VQVMVVBAVG&ref_type=103&page=superRebate
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
