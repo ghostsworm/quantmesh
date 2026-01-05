@@ -38,6 +38,8 @@ type GateAdapter struct {
 	priceCacheMu   sync.RWMutex
 	priceCache     float64
 	priceCacheTime time.Time
+
+	testnet bool // 是否使用测试网
 }
 
 // NewGateAdapter 创建 Gate.io 适配器
@@ -45,6 +47,7 @@ func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) 
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
 	settle := cfg["settle"] // usdt 或 btc，默认 usdt
+	testnet := cfg["testnet"] == "true" || cfg["testnet"] == "1" // 是否使用测试网
 
 	if apiKey == "" || secretKey == "" {
 		return nil, fmt.Errorf("Gate.io API 配置不完整")
@@ -57,8 +60,12 @@ func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) 
 	// 转换交易对格式
 	gateSymbol := convertToGateSymbol(symbol)
 
-	client := NewClient(apiKey, secretKey)
-	wsManager := NewWebSocketManager(apiKey, secretKey, settle)
+	client := NewClient(apiKey, secretKey, testnet)
+	wsManager := NewWebSocketManager(apiKey, secretKey, settle, testnet)
+
+	if testnet {
+		logger.Info("🌐 [Gate] 使用测试网模式")
+	}
 
 	adapter := &GateAdapter{
 		client:       client,
@@ -68,6 +75,8 @@ func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) 
 		settle:       settle,
 		useWebSocket: false, // 默认使用 REST API 下单
 	}
+	// 保存 testnet 状态，用于后续创建 klineWSManager
+	adapter.testnet = testnet
 
 	// 初始化获取合约信息和持仓模式
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -670,7 +679,7 @@ func (g *GateAdapter) GetHistoricalKlines(ctx context.Context, symbol string, in
 // StartKlineStream 启动K线流
 func (g *GateAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(interface{})) error {
 	if g.klineWSManager == nil {
-		g.klineWSManager = NewKlineWebSocketManager(g.settle)
+		g.klineWSManager = NewKlineWebSocketManager(g.settle, g.testnet)
 	}
 	return g.klineWSManager.Start(ctx, symbols, interval, callback)
 }

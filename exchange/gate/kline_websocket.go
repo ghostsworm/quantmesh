@@ -25,10 +25,11 @@ type KlineWebSocketManager struct {
 	pingInterval   time.Duration
 	isRunning      bool
 	settle         string // usdt 或 btc
+	testnet        bool   // 是否使用测试网
 }
 
 // NewKlineWebSocketManager 创建K线WebSocket管理器
-func NewKlineWebSocketManager(settle string) *KlineWebSocketManager {
+func NewKlineWebSocketManager(settle string, testnet bool) *KlineWebSocketManager {
 	if settle == "" {
 		settle = "usdt" // 默认 USDT 永续合约
 	}
@@ -37,6 +38,7 @@ func NewKlineWebSocketManager(settle string) *KlineWebSocketManager {
 		reconnectDelay: 5 * time.Second,
 		pingInterval:   15 * time.Second,
 		settle:         settle,
+		testnet:        testnet,
 	}
 }
 
@@ -73,7 +75,13 @@ func (k *KlineWebSocketManager) connectLoop(ctx context.Context) {
 		}
 
 		// Gate.io WebSocket URL
-		wsURL := fmt.Sprintf("wss://fx-ws.gateio.ws/v4/ws/%s", k.settle)
+		var wsURL string
+		if k.testnet {
+			wsURL = fmt.Sprintf("wss://fx-ws-testnet.gateio.ws/v4/ws/%s", k.settle)
+			logger.Info("🌐 [Gate K线] 使用测试网 WebSocket: %s", wsURL)
+		} else {
+			wsURL = fmt.Sprintf("wss://fx-ws.gateio.ws/v4/ws/%s", k.settle)
+		}
 
 		logger.Info("🔗 [Gate K线] 正在连接 WebSocket...")
 

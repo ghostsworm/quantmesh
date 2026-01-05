@@ -42,10 +42,11 @@ type WebSocketManager struct {
 	subscribedSymbol string // 记录订阅的交易对，用于重连后重新订阅
 	settle           string // usdt 或 btc
 	isAuthenticated  bool   // 标记是否已认证
+	testnet          bool   // 是否使用测试网
 }
 
 // NewWebSocketManager 创建 WebSocket 管理器
-func NewWebSocketManager(apiKey, secretKey, settle string) *WebSocketManager {
+func NewWebSocketManager(apiKey, secretKey, settle string, testnet bool) *WebSocketManager {
 	if settle == "" {
 		settle = "usdt"
 	}
@@ -56,6 +57,7 @@ func NewWebSocketManager(apiKey, secretKey, settle string) *WebSocketManager {
 		reconnectChan:  make(chan struct{}, 1),
 		reconnectDelay: 5 * time.Second,
 		settle:         settle,
+		testnet:        testnet,
 	}
 }
 
@@ -119,7 +121,13 @@ func (w *WebSocketManager) connectLoop() {
 		logger.Info("🔗 [Gate WS] 正在连接...")
 
 		// 连接 Gate.io WebSocket
-		wsURL := fmt.Sprintf("wss://fx-ws.gateio.ws/v4/ws/%s", w.settle)
+		var wsURL string
+		if w.testnet {
+			wsURL = fmt.Sprintf("wss://fx-ws-testnet.gateio.ws/v4/ws/%s", w.settle)
+			logger.Info("🌐 [Gate WS] 使用测试网 WebSocket: %s", wsURL)
+		} else {
+			wsURL = fmt.Sprintf("wss://fx-ws.gateio.ws/v4/ws/%s", w.settle)
+		}
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
 			logger.Error("❌ [Gate WS] 连接失败: %v，%v后重试", err, w.reconnectDelay)

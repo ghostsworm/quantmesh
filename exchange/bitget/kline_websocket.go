@@ -37,14 +37,16 @@ type KlineWebSocketManager struct {
 	reconnectDelay time.Duration
 	pingInterval   time.Duration
 	isRunning      bool
+	testnet        bool // 是否使用测试网
 }
 
 // NewKlineWebSocketManager 创建K线WebSocket管理器
-func NewKlineWebSocketManager() *KlineWebSocketManager {
+func NewKlineWebSocketManager(testnet bool) *KlineWebSocketManager {
 	return &KlineWebSocketManager{
 		done:           make(chan struct{}),
 		reconnectDelay: 5 * time.Second,  // 重连延迟
 		pingInterval:   15 * time.Second, // Ping间隔（Bitget官方SDK使用15秒）
+		testnet:        testnet,
 	}
 }
 
@@ -81,7 +83,13 @@ func (k *KlineWebSocketManager) connectLoop(ctx context.Context) {
 		}
 
 		// Bitget WebSocket URL
-		wsURL := "wss://ws.bitget.com/v2/ws/public"
+		var wsURL string
+		if k.testnet {
+			wsURL = BitgetTestnetWSPublic
+			logger.Info("🌐 [Bitget K线] 使用测试网 WebSocket: %s", wsURL)
+		} else {
+			wsURL = "wss://ws.bitget.com/v2/ws/public"
+		}
 
 		logger.Info("🔗 正在连接 Bitget K线WebSocket...")
 

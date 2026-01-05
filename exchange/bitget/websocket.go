@@ -45,6 +45,10 @@ const (
 	BitgetWSPrivate = "wss://ws.bitget.com/v2/ws/private"
 	BitgetWSPublic  = "wss://ws.bitget.com/v2/ws/public"
 
+	// Bitget 测试网 WebSocket 地址
+	BitgetTestnetWSPrivate = "wss://testnetws.bitget.com/v2/ws/private"
+	BitgetTestnetWSPublic  = "wss://testnetws.bitget.com/v2/ws/public"
+
 	// API Code - 重要：不要丢失！
 	BitgetAPICode = "3xh1b"
 )
@@ -82,6 +86,7 @@ type WebSocketManager struct {
 	privateReconnectChan chan struct{}
 	reconnectDelay       time.Duration
 	subscribedSymbol     string // 记录订阅的交易对，用于重连后重新订阅
+	testnet              bool   // 是否使用测试网
 
 	// WebSocket Dialer（支持代理）
 	dialer *websocket.Dialer
@@ -205,7 +210,7 @@ type WSSubscribeArg struct {
 }
 
 // NewWebSocketManager 创建 WebSocket 管理器
-func NewWebSocketManager(apiKey, secretKey, passphrase string) *WebSocketManager {
+func NewWebSocketManager(apiKey, secretKey, passphrase string, testnet bool) *WebSocketManager {
 	return &WebSocketManager{
 		apiKey:               apiKey,
 		secretKey:            secretKey,
@@ -213,6 +218,7 @@ func NewWebSocketManager(apiKey, secretKey, passphrase string) *WebSocketManager
 		publicReconnectChan:  make(chan struct{}, 1),
 		privateReconnectChan: make(chan struct{}, 1),
 		reconnectDelay:       5 * time.Second,
+		testnet:              testnet,
 		dialer:               getProxyDialer(), // 初始化支持代理的 Dialer
 	}
 }
@@ -232,7 +238,14 @@ func (w *WebSocketManager) publicConnectLoop() {
 		logger.Info("🔗 [Bitget WS公共] 正在连接...")
 
 		// 连接公共频道（使用支持代理的 Dialer）
-		conn, _, err := w.dialer.Dial(BitgetWSPublic, nil)
+		var wsURL string
+		if w.testnet {
+			wsURL = BitgetTestnetWSPublic
+			logger.Info("🌐 [Bitget WS公共] 使用测试网 WebSocket: %s", wsURL)
+		} else {
+			wsURL = BitgetWSPublic
+		}
+		conn, _, err := w.dialer.Dial(wsURL, nil)
 		if err != nil {
 			logger.Error("❌ [Bitget WS公共] 连接失败: %v，%v后重试", err, w.reconnectDelay)
 			// 使用 select 等待，可以立即响应 context 取消
@@ -469,7 +482,14 @@ func (w *WebSocketManager) Stop() {
 
 // connectPrivate 连接私有 WebSocket
 func (w *WebSocketManager) connectPrivate() error {
-	conn, _, err := w.dialer.Dial(BitgetWSPrivate, nil)
+	var wsURL string
+	if w.testnet {
+		wsURL = BitgetTestnetWSPrivate
+		logger.Info("🌐 [Bitget WS私有] 使用测试网 WebSocket: %s", wsURL)
+	} else {
+		wsURL = BitgetWSPrivate
+	}
+	conn, _, err := w.dialer.Dial(wsURL, nil)
 	if err != nil {
 		return err
 	}
@@ -512,7 +532,14 @@ func (w *WebSocketManager) connectPrivate() error {
 
 // connectPublic 连接公共 WebSocket
 func (w *WebSocketManager) connectPublic() error {
-	conn, _, err := w.dialer.Dial(BitgetWSPublic, nil)
+	var wsURL string
+	if w.testnet {
+		wsURL = BitgetTestnetWSPublic
+		logger.Info("🌐 [Bitget WS公共] 使用测试网 WebSocket: %s", wsURL)
+	} else {
+		wsURL = BitgetWSPublic
+	}
+	conn, _, err := w.dialer.Dial(wsURL, nil)
 	if err != nil {
 		return err
 	}

@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	BitgetBaseURL = "https://api.bitget.com"
+	BitgetBaseURL       = "https://api.bitget.com"
+	BitgetTestnetBaseURL = "https://testnetapi.bitget.com"
 )
 
 // Client Bitget HTTP 客户端
@@ -22,11 +23,15 @@ type Client struct {
 }
 
 // NewClient 创建 Bitget 客户端
-func NewClient(apiKey, secretKey, passphrase string) *Client {
+func NewClient(apiKey, secretKey, passphrase string, testnet bool) *Client {
+	baseURL := BitgetBaseURL
+	if testnet {
+		baseURL = BitgetTestnetBaseURL
+	}
 	return &Client{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		signer:     NewSigner(apiKey, secretKey, passphrase),
-		baseURL:    BitgetBaseURL,
+		baseURL:    baseURL,
 	}
 }
 

@@ -48,6 +48,7 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
 			"passphrase": exchangeCfg.Passphrase,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet), // 传递测试网配置
 		}
 		adapter, err := bitget.NewBitgetAdapter(cfgMap, symbol)
 		if err != nil {
@@ -80,6 +81,7 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
 			"settle":     "usdt", // 默认 USDT 永续合约
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet), // 传递测试网配置
 		}
 		adapter, err := gate.NewGateAdapter(cfgMap, symbol)
 		if err != nil {

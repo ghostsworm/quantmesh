@@ -121,6 +121,7 @@ type BitgetAdapter struct {
 	minTradeUSDT string // 最小下单金额（USDT）
 	baseAsset    string // 基础资产（交易币种），如 BTC
 	quoteAsset   string // 计价资产（结算币种），如 USDT、USD
+	testnet      bool   // 是否使用测试网
 }
 
 // NewBitgetAdapter 创建 Bitget 适配器
@@ -128,6 +129,7 @@ func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, err
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
 	passphrase := cfg["passphrase"]
+	testnet := cfg["testnet"] == "true" || cfg["testnet"] == "1" // 是否使用测试网
 
 	if apiKey == "" || secretKey == "" || passphrase == "" {
 		return nil, fmt.Errorf("bitget API 配置不完整")
@@ -136,14 +138,19 @@ func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, err
 	// Bitget V2 合约符号格式：直接使用 ETHUSDT（不带 _UMCBL 后缀）
 	bitgetSymbol := convertToBitgetSymbol(symbol)
 
-	client := NewClient(apiKey, secretKey, passphrase)
-	wsManager := NewWebSocketManager(apiKey, secretKey, passphrase)
+	client := NewClient(apiKey, secretKey, passphrase, testnet)
+	wsManager := NewWebSocketManager(apiKey, secretKey, passphrase, testnet)
+
+	if testnet {
+		logger.Info("🌐 [Bitget] 使用测试网模式")
+	}
 
 	adapter := &BitgetAdapter{
 		client:       client,
 		wsManager:    wsManager,
 		symbol:       bitgetSymbol,
 		useWebSocket: false, // 使用 REST API 下单（混合模式）
+		testnet:      testnet,
 	}
 
 	// 初始化获取合约信息和持仓模式
@@ -952,7 +959,7 @@ func (b *BitgetAdapter) StartPriceStream(ctx context.Context, symbol string, cal
 // StartKlineStream 启动K线流（WebSocket）
 func (b *BitgetAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(candle interface{})) error {
 	if b.klineWSManager == nil {
-		b.klineWSManager = NewKlineWebSocketManager()
+		b.klineWSManager = NewKlineWebSocketManager(b.testnet)
 	}
 	return b.klineWSManager.Start(ctx, symbols, interval, callback)
 }

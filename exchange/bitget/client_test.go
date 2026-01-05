@@ -9,7 +9,8 @@ func TestNewClient(t *testing.T) {
 	secretKey := "test_secret_key"
 	passphrase := "test_passphrase"
 
-	client := NewClient(apiKey, secretKey, passphrase)
+	// 测试主网客户端
+	client := NewClient(apiKey, secretKey, passphrase, false)
 	if client == nil {
 		t.Fatal("创建客户端失败")
 	}
@@ -18,6 +19,18 @@ func TestNewClient(t *testing.T) {
 	}
 	if client.signer.GetAPIKey() != apiKey {
 		t.Errorf("API Key 设置错误")
+	}
+	if client.baseURL != BitgetBaseURL {
+		t.Errorf("主网 URL 设置错误: 期望 %s, 得到 %s", BitgetBaseURL, client.baseURL)
+	}
+
+	// 测试测试网客户端
+	testnetClient := NewClient(apiKey, secretKey, passphrase, true)
+	if testnetClient == nil {
+		t.Fatal("创建测试网客户端失败")
+	}
+	if testnetClient.baseURL != BitgetTestnetBaseURL {
+		t.Errorf("测试网 URL 设置错误: 期望 %s, 得到 %s", BitgetTestnetBaseURL, testnetClient.baseURL)
 	}
 }
 

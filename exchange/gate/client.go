@@ -19,11 +19,15 @@ type Client struct {
 }
 
 // NewClient 创建 Gate.io 客户端
-func NewClient(apiKey, secretKey string) *Client {
+func NewClient(apiKey, secretKey string, testnet bool) *Client {
+	baseURL := GateBaseURL
+	if testnet {
+		baseURL = GateTestnetBaseURL
+	}
 	return &Client{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		signer:     NewSigner(apiKey, secretKey),
-		baseURL:    GateBaseURL,
+		baseURL:    baseURL,
 	}
 }
 
