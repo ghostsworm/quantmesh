@@ -62,6 +62,9 @@ func SetupRoutes(r *gin.Engine) {
 			setup.POST("/init", initSetupHandler)
 		}
 
+		// 版本号API（不需要认证）
+		api.GET("/version", getVersion)
+
 		// 需要认证的认证路由
 		authProtected := api.Group("/auth")
 		authProtected.Use(authMiddleware())
@@ -96,6 +99,7 @@ func SetupRoutes(r *gin.Engine) {
 			protected.GET("/statistics/trades", getTradeStatistics)
 			protected.GET("/statistics/pnl/symbol", getPnLBySymbol)
 			protected.GET("/statistics/pnl/time-range", getPnLByTimeRange)
+			protected.GET("/statistics/pnl/exchange", getPnLByExchange)
 			protected.GET("/statistics/anomalous-trades", getAnomalousTrades)
 			protected.GET("/reconciliation/status", getReconciliationStatus)
 
@@ -163,6 +167,7 @@ func SetupRoutes(r *gin.Engine) {
 
 			protected.POST("/trading/start", startTrading)
 			protected.POST("/trading/stop", stopTrading)
+			protected.POST("/trading/close-positions", closeAllPositions)
 
 			// 系统监控API
 			protected.GET("/system/metrics", getSystemMetrics)

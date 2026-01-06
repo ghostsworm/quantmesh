@@ -3,7 +3,8 @@
     "logout": "退出",
     "global": "Global",
     "system": "System",
-    "trading": "Trading"
+    "trading": "Trading",
+    "version": "版本 {{version}}"
   },
   "sidebar": {
     "overview": "概览",

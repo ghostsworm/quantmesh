@@ -1,0 +1,17 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 深夜紫渐变背景 -->
+    <linearGradient id="nightGrad" x1="0" y1="0" x2="100" y2="100">
+      <stop offset="0%" stop-color="#312E81"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="15" fill="url(#nightGrad)"/>
+  <circle cx="50" cy="50" r="35" stroke="#60A5FA" stroke-width="6"/>
+  <path d="M75 75L85 85" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+  <path d="M30 60V40L50 55L70 40V60" stroke="#818CF8" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="26" y="56" width="8" height="8" rx="1" fill="white"/>
+  <rect x="46" y="51" width="8" height="8" rx="1" fill="white"/>
+  <rect x="66" y="56" width="8" height="8" rx="1" fill="white"/>
+</svg>
+

@@ -13,6 +13,8 @@ import {
   AlertIcon,
   AlertDescription,
   Text,
+  HStack,
+  Flex,
 } from '@chakra-ui/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
@@ -21,6 +23,7 @@ import {
   beginWebAuthnLogin,
   finishWebAuthnLogin,
 } from '../services/auth'
+import LanguageSelector from './LanguageSelector'
 
 const Login: React.FC = () => {
   const { t } = useTranslation()
@@ -29,9 +32,26 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [version, setVersion] = useState<string>('')
 
   const bgColor = 'gray.50'
   const cardBg = 'white'
+
+  // 获取版本号
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const response = await fetch('/api/version')
+        if (response.ok) {
+          const data = await response.json()
+          setVersion(data.version || '')
+        }
+      } catch (err) {
+        console.error('Failed to fetch version:', err)
+      }
+    }
+    fetchVersion()
+  }, [])
 
   useEffect(() => {
     // 如果已经登录，重定向到主页
@@ -152,7 +172,33 @@ const Login: React.FC = () => {
       alignItems="center"
       justifyContent="center"
       bg={bgColor}
+      position="relative"
     >
+      {/* 顶部：语言选择器 */}
+      <Box
+        position="absolute"
+        top={4}
+        right={4}
+        zIndex={10}
+      >
+        <LanguageSelector />
+      </Box>
+
+      {/* 底部：版本号 */}
+      {version && (
+        <Box
+          position="absolute"
+          bottom={4}
+          left="50%"
+          transform="translateX(-50%)"
+          zIndex={10}
+        >
+          <Text fontSize="sm" color="gray.500">
+            {t('common.version', { version })}
+          </Text>
+        </Box>
+      )}
+
       <Container maxW="md">
         <Box
           bg={cardBg}

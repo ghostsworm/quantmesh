@@ -1,0 +1,17 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 科技感斜向渐变背景 -->
+    <linearGradient id="techGrad" x1="0" y1="0" x2="100" y2="100">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#1E40AF"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="15" fill="url(#techGrad)"/>
+  <circle cx="50" cy="50" r="35" stroke="#93C5FD" stroke-width="6"/> <!-- 调浅了 Q 的颜色以适应亮色背景 -->
+  <path d="M75 75L85 85" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+  <path d="M30 60V40L50 55L70 40V60" stroke="#DDD6FE" stroke-width="8" stroke-linejoin="round"/> <!-- 调浅了 M 的颜色 -->
+  <rect x="26" y="56" width="8" height="8" rx="1" fill="white"/>
+  <rect x="46" y="51" width="8" height="8" rx="1" fill="white"/>
+  <rect x="66" y="56" width="8" height="8" rx="1" fill="white"/>
+</svg>
+

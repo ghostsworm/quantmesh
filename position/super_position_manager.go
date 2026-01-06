@@ -140,7 +140,7 @@ type IExchange interface {
 // TradeStorage 交易存储接口（避免循环导入）
 // 用于保存交易记录（买卖配对）
 type TradeStorage interface {
-	SaveTrade(buyOrderID, sellOrderID int64, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error
+	SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error
 }
 
 // ReconciliationStorage 对账存储接口（避免循环导入）
@@ -155,6 +155,7 @@ type SuperPositionManager struct {
 	config   *config.Config
 	executor OrderExecutorInterface
 	exchange IExchange
+	exchangeName string // 交易所名称（配置中的名称，如 "binance"）
 
 	// 价格锚点（初始化时的市场价格）
 	anchorPrice float64
@@ -195,10 +196,17 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		marginLockSec = 10 // 默认10秒
 	}
 
+	// 从配置中获取交易所名称
+	exchangeName := strings.ToLower(cfg.App.CurrentExchange)
+	if exchangeName == "" {
+		exchangeName = "binance" // 默认值
+	}
+
 	spm := &SuperPositionManager{
 		config:             cfg,
 		executor:           executor,
 		exchange:           exchange,
+		exchangeName:       exchangeName,
 		insufficientMargin: false,
 		marginLockDuration: time.Duration(marginLockSec) * time.Second,
 		priceDecimals:      priceDecimals,
@@ -854,7 +862,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						// 保存交易记录（买入订单ID设为0，因为无法追溯历史订单）
 						buyOrderID := int64(0)
 						sellOrderID := update.OrderID
-						if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, time.Now()); err != nil {
+						if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, time.Now()); err != nil {
 							logger.Warn("⚠️ 保存交易记录失败: %v", err)
 						} else {
 							logger.Debug("💰 [交易记录已保存] 买入价: %s, 卖出价: %s, 数量: %.4f, 盈亏: %.4f",

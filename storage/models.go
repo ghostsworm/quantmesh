@@ -31,6 +31,7 @@ type Position struct {
 type Trade struct {
 	BuyOrderID  int64
 	SellOrderID int64
+	Exchange    string
 	Symbol      string
 	BuyPrice    float64
 	SellPrice   float64
@@ -116,6 +117,7 @@ type PnLSummary struct {
 
 // PnLBySymbol 按币种对的盈亏数据
 type PnLBySymbol struct {
+	Exchange    string
 	Symbol      string
 	TotalPnL    float64
 	TotalTrades int

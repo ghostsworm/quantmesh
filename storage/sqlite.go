@@ -8,6 +8,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"quantmesh/logger"
 	"quantmesh/utils"
 )
 
@@ -33,6 +34,12 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 	if err := createTables(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("创建表失败: %w", err)
+	}
+
+	// 迁移：添加 exchange 字段（如果不存在）
+	if err := migrateTradesTable(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("迁移 trades 表失败: %w", err)
 	}
 
 	return &SQLiteStorage{db: db}, nil
@@ -75,13 +82,16 @@ func createTables(db *sql.DB) error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		buy_order_id BIGINT,
 		sell_order_id BIGINT,
+		exchange TEXT,
 		symbol TEXT,
 		buy_price DECIMAL(20,8),
 		sell_price DECIMAL(20,8),
 		quantity DECIMAL(20,8),
 		pnl DECIMAL(20,8),
 		created_at TIMESTAMP
-	);`
+	);
+	CREATE INDEX IF NOT EXISTS idx_trades_exchange_symbol ON trades(exchange, symbol);
+	CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at);`
 
 	// 事件表
 	eventsSQL := `
@@ -298,6 +308,77 @@ func migrateReconciliationHistory(db *sql.DB) error {
 	return nil
 }
 
+// migrateTradesTable 迁移 trades 表，添加 exchange 字段
+func migrateTradesTable(db *sql.DB) error {
+	// 检查 exchange 列是否存在
+	// SQLite 的 pragma_table_info 返回表信息，需要查询 name 列
+	rows, err := db.Query(`PRAGMA table_info(trades)`)
+	if err != nil {
+		return fmt.Errorf("检查表结构失败: %w", err)
+	}
+	defer rows.Close()
+
+	hasExchangeColumn := false
+	for rows.Next() {
+		var cid int
+		var name string
+		var dataType string
+		var notNull int
+		var defaultValue interface{}
+		var pk int
+
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			continue
+		}
+		if name == "exchange" {
+			hasExchangeColumn = true
+			break
+		}
+	}
+
+	if !hasExchangeColumn {
+		// exchange 列不存在，需要添加
+		logger.Info("🔄 开始迁移 trades 表：添加 exchange 字段")
+
+		// 添加 exchange 列（允许 NULL，因为现有数据没有这个字段）
+		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN exchange TEXT`)
+		if err != nil {
+			return fmt.Errorf("添加 exchange 列失败: %w", err)
+		}
+
+		// 更新现有数据：将所有现有交易的 exchange 设置为 binance（因为历史数据都是币安的）
+		result, err := db.Exec(`UPDATE trades SET exchange = 'binance' WHERE exchange IS NULL`)
+		if err != nil {
+			return fmt.Errorf("更新现有数据失败: %w", err)
+		}
+
+		rowsAffected, _ := result.RowsAffected()
+		logger.Info("✅ 迁移完成：已更新 %d 条历史交易记录的 exchange 字段为 binance", rowsAffected)
+
+		// 创建索引
+		_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_trades_exchange_symbol ON trades(exchange, symbol)`)
+		if err != nil {
+			logger.Warn("⚠️ 创建索引失败: %v", err)
+		}
+	} else {
+		// 列已存在，但检查是否有 NULL 值需要更新
+		var nullCount int64
+		err := db.QueryRow(`SELECT COUNT(*) FROM trades WHERE exchange IS NULL`).Scan(&nullCount)
+		if err == nil && nullCount > 0 {
+			logger.Info("🔄 发现 %d 条记录的 exchange 字段为 NULL，正在更新为 binance...", nullCount)
+			result, err := db.Exec(`UPDATE trades SET exchange = 'binance' WHERE exchange IS NULL`)
+			if err != nil {
+				logger.Warn("⚠️ 更新 NULL 值失败: %v", err)
+			} else {
+				rowsAffected, _ := result.RowsAffected()
+				logger.Info("✅ 已更新 %d 条记录的 exchange 字段为 binance", rowsAffected)
+			}
+		}
+	}
+
+	return nil
+}
+
 // SaveOrder 保存订单
 func (s *SQLiteStorage) SaveOrder(order *Order) error {
 	// 转换为UTC时间存储
@@ -336,11 +417,16 @@ func (s *SQLiteStorage) SavePosition(position *Position) error {
 func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
 	// 转换为UTC时间存储
 	createdAt := utils.ToUTC(trade.CreatedAt)
+	// 确保 exchange 不为空，默认为 binance（兼容旧数据）
+	exchange := trade.Exchange
+	if exchange == "" {
+		exchange = "binance"
+	}
 	_, err := s.db.Exec(`
 		INSERT INTO trades 
-		(buy_order_id, sell_order_id, symbol, buy_price, sell_price, quantity, pnl, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, trade.BuyOrderID, trade.SellOrderID, trade.Symbol,
+		(buy_order_id, sell_order_id, exchange, symbol, buy_price, sell_price, quantity, pnl, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, trade.BuyOrderID, trade.SellOrderID, exchange, trade.Symbol,
 		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, createdAt)
 	return err
 }
@@ -495,7 +581,7 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 // QueryTrades 查询交易
 func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error) {
 	rows, err := s.db.Query(`
-		SELECT buy_order_id, sell_order_id, symbol, buy_price, sell_price, quantity, pnl, created_at
+		SELECT buy_order_id, sell_order_id, exchange, symbol, buy_price, sell_price, quantity, pnl, created_at
 		FROM trades
 		WHERE created_at >= ? AND created_at <= ?
 		ORDER BY created_at DESC
@@ -512,6 +598,7 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 		err := rows.Scan(
 			&trade.BuyOrderID,
 			&trade.SellOrderID,
+			&trade.Exchange,
 			&trade.Symbol,
 			&trade.BuyPrice,
 			&trade.SellPrice,
@@ -521,6 +608,10 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 		)
 		if err != nil {
 			continue
+		}
+		// 兼容旧数据：如果 exchange 为空，默认为 binance
+		if trade.Exchange == "" {
+			trade.Exchange = "binance"
 		}
 		trades = append(trades, trade)
 	}
@@ -869,6 +960,7 @@ func (s *SQLiteStorage) GetPnLBySymbol(symbol string, startTime, endTime time.Ti
 func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLBySymbol, error) {
 	rows, err := s.db.Query(`
 		SELECT 
+			exchange,
 			symbol,
 			COUNT(*) as total_trades,
 			SUM(pnl) as total_pnl,
@@ -876,7 +968,7 @@ func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLB
 			CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as win_rate
 		FROM trades
 		WHERE created_at >= ? AND created_at <= ?
-		GROUP BY symbol
+		GROUP BY exchange, symbol
 		ORDER BY total_pnl DESC
 	`, startTime, endTime)
 	if err != nil {
@@ -892,7 +984,7 @@ func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLB
 		var totalVolume sql.NullFloat64
 		var winRate sql.NullFloat64
 
-		err := rows.Scan(&r.Symbol, &totalTrades, &totalPnL, &totalVolume, &winRate)
+		err := rows.Scan(&r.Exchange, &r.Symbol, &totalTrades, &totalPnL, &totalVolume, &winRate)
 		if err != nil {
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,6 +69,8 @@ var (
 	defaultSymbolKey string
 	// 保护 statusBySymbol 的读写锁
 	statusMu sync.RWMutex
+	// 版本号（需要从 main.go 注入）
+	appVersion string
 )
 
 // SymbolScopedProviders 组合一个交易对的所有依赖
@@ -88,6 +91,11 @@ func makeSymbolKey(exchange, symbol string) string {
 // SetStatusProvider 设置状态提供者
 func SetStatusProvider(status *SystemStatus) {
 	currentStatus = status
+}
+
+// SetVersion 设置版本号
+func SetVersion(version string) {
+	appVersion = version
 }
 
 // RegisterSymbolProviders 注册单个交易对的提供者集合
@@ -288,70 +296,168 @@ type SymbolItem struct {
 
 // getSymbols 返回可用的交易对列表
 func getSymbols(c *gin.Context) {
-	list := make([]SymbolItem, 0)
+	// 使用 map 来去重，key 为 exchange:symbol
+	symbolMap := make(map[string]*SymbolItem)
 	activeList := make([]SymbolItem, 0)
 	inactiveList := make([]SymbolItem, 0)
 
-	// 使用读锁保护遍历操作
+	// 首先从配置文件中读取所有配置的交易对
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			// 从交易对配置中读取
+			for _, sym := range cfg.Trading.Symbols {
+				if sym.Symbol == "" {
+					continue
+				}
+				exchange := sym.Exchange
+				if exchange == "" {
+					exchange = cfg.App.CurrentExchange
+				}
+				if exchange == "" {
+					continue
+				}
+				key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, sym.Symbol))
+				if _, exists := symbolMap[key]; !exists {
+					symbolMap[key] = &SymbolItem{
+						Exchange:     strings.ToLower(exchange),
+						Symbol:       sym.Symbol,
+						IsActive:     false, // 默认未运行，后面会更新
+						CurrentPrice: 0,
+					}
+				}
+			}
+			// 如果只有单交易对配置
+			if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
+				exchange := cfg.App.CurrentExchange
+				if exchange != "" {
+					key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, cfg.Trading.Symbol))
+					if _, exists := symbolMap[key]; !exists {
+						symbolMap[key] = &SymbolItem{
+							Exchange:     strings.ToLower(exchange),
+							Symbol:       cfg.Trading.Symbol,
+							IsActive:     false,
+							CurrentPrice: 0,
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 然后从运行状态中更新（确保正在运行的交易对状态正确）
 	statusMu.RLock()
 	for _, st := range statusBySymbol {
 		if st == nil {
 			continue
 		}
-		item := SymbolItem{
-			Exchange:     st.Exchange,
-			Symbol:       st.Symbol,
-			IsActive:     st.Running,
-			CurrentPrice: st.CurrentPrice,
-		}
-		if st.Running {
-			activeList = append(activeList, item)
+		key := strings.ToLower(fmt.Sprintf("%s:%s", st.Exchange, st.Symbol))
+		if item, exists := symbolMap[key]; exists {
+			// 更新已存在的交易对状态
+			item.IsActive = st.Running
+			item.CurrentPrice = st.CurrentPrice
 		} else {
-			inactiveList = append(inactiveList, item)
+			// 添加新的运行中的交易对
+			symbolMap[key] = &SymbolItem{
+				Exchange:     strings.ToLower(st.Exchange),
+				Symbol:       st.Symbol,
+				IsActive:     st.Running,
+				CurrentPrice: st.CurrentPrice,
+			}
 		}
 	}
 	statusMu.RUnlock()
 
-	// 活跃的交易对排在前面
-	list = append(list, activeList...)
-	list = append(list, inactiveList...)
-
 	// 向后兼容：如果没有多交易对数据，使用旧的单交易对状态
-	if len(list) == 0 && currentStatus != nil {
-		list = append(list, SymbolItem{
-			Exchange:     currentStatus.Exchange,
+	if len(symbolMap) == 0 && currentStatus != nil {
+		key := strings.ToLower(fmt.Sprintf("%s:%s", currentStatus.Exchange, currentStatus.Symbol))
+		symbolMap[key] = &SymbolItem{
+			Exchange:     strings.ToLower(currentStatus.Exchange),
 			Symbol:       currentStatus.Symbol,
 			IsActive:     currentStatus.Running,
 			CurrentPrice: currentStatus.CurrentPrice,
-		})
+		}
 	}
 
+	// 转换为列表并分组
+	for _, item := range symbolMap {
+		if item.IsActive {
+			activeList = append(activeList, *item)
+		} else {
+			inactiveList = append(inactiveList, *item)
+		}
+	}
+
+	// 活跃的交易对排在前面
+	list := make([]SymbolItem, 0)
+	list = append(list, activeList...)
+	list = append(list, inactiveList...)
+
 	c.JSON(http.StatusOK, gin.H{"symbols": list})
+}
+
+// getVersion 返回版本号（不需要认证）
+func getVersion(c *gin.Context) {
+	version := appVersion
+	if version == "" {
+		version = "unknown"
+	}
+	c.JSON(http.StatusOK, gin.H{"version": version})
 }
 
 // getExchanges 返回所有配置的交易所列表
 func getExchanges(c *gin.Context) {
 	exchangeSet := make(map[string]bool)
 
-	// 使用读锁保护遍历操作
+	// 首先从配置文件中读取所有配置的交易所
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			// 从配置的 exchanges 中读取
+			for ex := range cfg.Exchanges {
+				if ex != "" {
+					exchangeSet[strings.ToLower(ex)] = true
+				}
+			}
+			// 从交易对配置中读取交易所
+			for _, sym := range cfg.Trading.Symbols {
+				if sym.Exchange != "" {
+					exchangeSet[strings.ToLower(sym.Exchange)] = true
+				} else if cfg.App.CurrentExchange != "" {
+					exchangeSet[strings.ToLower(cfg.App.CurrentExchange)] = true
+				}
+			}
+			// 如果只有单交易对配置
+			if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
+				if cfg.App.CurrentExchange != "" {
+					exchangeSet[strings.ToLower(cfg.App.CurrentExchange)] = true
+				}
+			}
+		}
+	}
+
+	// 然后从运行状态中读取（确保正在运行的交易所也在列表中）
 	statusMu.RLock()
 	for _, st := range statusBySymbol {
 		if st == nil {
 			continue
 		}
-		exchangeSet[st.Exchange] = true
+		exchangeSet[strings.ToLower(st.Exchange)] = true
 	}
 	statusMu.RUnlock()
 
 	// 向后兼容
 	if len(exchangeSet) == 0 && currentStatus != nil {
-		exchangeSet[currentStatus.Exchange] = true
+		exchangeSet[strings.ToLower(currentStatus.Exchange)] = true
 	}
 
 	exchanges := make([]string, 0, len(exchangeSet))
 	for ex := range exchangeSet {
 		exchanges = append(exchanges, ex)
 	}
+
+	// 排序交易所列表（可选，但有助于一致性）
+	sort.Strings(exchanges)
 
 	c.JSON(http.StatusOK, gin.H{"exchanges": exchanges})
 }
@@ -1097,13 +1203,136 @@ func updateConfig(c *gin.Context) {
 }
 
 func startTrading(c *gin.Context) {
-	// TODO: 实现启动交易
-	c.JSON(http.StatusOK, gin.H{"message": "交易已启动"})
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+
+	if exchange == "" || symbol == "" {
+		respondError(c, http.StatusBadRequest, "error.missing_exchange_or_symbol")
+		return
+	}
+
+	if symbolManagerProvider == nil {
+		respondError(c, http.StatusInternalServerError, "error.symbol_manager_unavailable")
+		return
+	}
+
+	err := symbolManagerProvider.StartSymbol(exchange, symbol)
+	if err != nil {
+		logger.Error("❌ [%s:%s] 启动交易失败: %v", exchange, symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 更新状态
+	key := makeSymbolKey(exchange, symbol)
+	statusMu.Lock()
+	if status, ok := statusBySymbol[key]; ok {
+		status.Running = true
+	} else {
+		statusBySymbol[key] = &SystemStatus{
+			Running:  true,
+			Exchange: exchange,
+			Symbol:   symbol,
+		}
+	}
+	statusMu.Unlock()
+
+	logger.Info("✅ [%s:%s] 交易已启动", exchange, symbol)
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("交易已启动: %s:%s", exchange, symbol)})
 }
 
 func stopTrading(c *gin.Context) {
-	// TODO: 实现停止交易
-	c.JSON(http.StatusOK, gin.H{"message": "交易已停止"})
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+
+	if exchange == "" || symbol == "" {
+		respondError(c, http.StatusBadRequest, "error.missing_exchange_or_symbol")
+		return
+	}
+
+	if symbolManagerProvider == nil {
+		respondError(c, http.StatusInternalServerError, "error.symbol_manager_unavailable")
+		return
+	}
+
+	err := symbolManagerProvider.StopSymbol(exchange, symbol)
+	if err != nil {
+		logger.Error("❌ [%s:%s] 停止交易失败: %v", exchange, symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 更新状态
+	key := makeSymbolKey(exchange, symbol)
+	statusMu.Lock()
+	if status, ok := statusBySymbol[key]; ok {
+		status.Running = false
+	}
+	statusMu.Unlock()
+
+	logger.Info("⏹️ [%s:%s] 交易已停止", exchange, symbol)
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("交易已停止: %s:%s", exchange, symbol)})
+}
+
+// ClosePositionsResponse 平仓响应
+type ClosePositionsResponse struct {
+	SuccessCount int `json:"success_count"`
+	FailCount    int `json:"fail_count"`
+	Message      string `json:"message"`
+}
+
+func closeAllPositions(c *gin.Context) {
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+
+	if exchange == "" || symbol == "" {
+		respondError(c, http.StatusBadRequest, "error.missing_exchange_or_symbol")
+		return
+	}
+
+	if symbolManagerProvider == nil {
+		respondError(c, http.StatusInternalServerError, "error.symbol_manager_unavailable")
+		return
+	}
+
+	// 通过适配器调用 ClosePositions 方法
+	adapter, ok := symbolManagerProvider.(interface {
+		ClosePositions(exchange, symbol string) (*ClosePositionsResponse, error)
+	})
+	if !ok {
+		respondError(c, http.StatusInternalServerError, "error.close_positions_not_supported")
+		return
+	}
+
+	result, err := adapter.ClosePositions(exchange, symbol)
+	if err != nil {
+		logger.Error("❌ [%s:%s] 平仓失败: %v", exchange, symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	logger.Info("📊 [%s:%s] 平仓完成: 成功=%d, 失败=%d", exchange, symbol, result.SuccessCount, result.FailCount)
+	c.JSON(http.StatusOK, result)
+}
+
+// ========== 交易控制相关API ==========
+
+var (
+	// SymbolManager 提供者（需要从main.go注入）
+	symbolManagerProvider SymbolManagerProvider
+)
+
+// SymbolManagerProvider SymbolManager 提供者接口
+type SymbolManagerProvider interface {
+	Get(exchange, symbol string) (interface{}, bool) // 返回 SymbolRuntime（使用 interface{} 避免循环依赖）
+	List() []interface{}                             // 返回 SymbolRuntime 列表
+	StartSymbol(exchange, symbol string) error       // 启动指定交易所/币种的交易
+	StopSymbol(exchange, symbol string) error         // 停止指定交易所/币种的交易
+}
+
+// RegisterSymbolManager 注册 SymbolManager
+func RegisterSymbolManager(provider SymbolManagerProvider) {
+	symbolManagerProvider = provider
 }
 
 // ========== 系统监控相关API ==========
@@ -2000,6 +2229,134 @@ func getPnLByTimeRange(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"pnl_by_symbol": response})
+}
+
+// ExchangePnLResponse 按交易所分组的盈亏响应
+type ExchangePnLResponse struct {
+	Exchange    string              `json:"exchange"`
+	TotalPnL    float64             `json:"total_pnl"`
+	TotalTrades int                 `json:"total_trades"`
+	TotalVolume float64             `json:"total_volume"`
+	WinRate     float64             `json:"win_rate"`
+	Symbols     []SymbolPnLInfo     `json:"symbols"`
+}
+
+// SymbolPnLInfo 币种盈亏信息
+type SymbolPnLInfo struct {
+	Symbol      string  `json:"symbol"`
+	TotalPnL    float64 `json:"total_pnl"`
+	TotalTrades int     `json:"total_trades"`
+	TotalVolume float64 `json:"total_volume"`
+	WinRate     float64 `json:"win_rate"`
+}
+
+// getPnLByExchange 按交易所分组查询盈亏数据
+// GET /api/statistics/pnl/exchange
+func getPnLByExchange(c *gin.Context) {
+	storageProv := pickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusOK, gin.H{"exchanges": []interface{}{}})
+		return
+	}
+
+	storage := storageProv.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"exchanges": []interface{}{}})
+		return
+	}
+
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
+			return
+		}
+	} else {
+		// 默认最近30天
+		startTime = time.Now().AddDate(0, 0, -30)
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	// 查询所有币种的盈亏数据（现在包含 exchange 字段）
+	results, err := storage.GetPnLByTimeRange(startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 按交易所分组（直接使用 exchange 字段）
+	exchangeMap := make(map[string]*ExchangePnLResponse)
+	for _, r := range results {
+		exchange := strings.ToLower(r.Exchange)
+		if exchange == "" {
+			// 兼容旧数据：如果没有 exchange，默认为 binance
+			exchange = "binance"
+		}
+
+		if _, exists := exchangeMap[exchange]; !exists {
+			exchangeMap[exchange] = &ExchangePnLResponse{
+				Exchange:    exchange,
+				TotalPnL:    0,
+				TotalTrades: 0,
+				TotalVolume: 0,
+				WinRate:     0,
+				Symbols:     []SymbolPnLInfo{},
+			}
+		}
+
+		exData := exchangeMap[exchange]
+		exData.TotalPnL += r.TotalPnL
+		exData.TotalTrades += r.TotalTrades
+		exData.TotalVolume += r.TotalVolume
+
+		// 添加币种信息
+		exData.Symbols = append(exData.Symbols, SymbolPnLInfo{
+			Symbol:      r.Symbol,
+			TotalPnL:    r.TotalPnL,
+			TotalTrades: r.TotalTrades,
+			TotalVolume: r.TotalVolume,
+			WinRate:     r.WinRate,
+		})
+	}
+
+	// 计算每个交易所的胜率
+	for _, exData := range exchangeMap {
+		if exData.TotalTrades > 0 {
+			winningTrades := 0
+			for _, sym := range exData.Symbols {
+				winningTrades += int(float64(sym.TotalTrades) * sym.WinRate)
+			}
+			exData.WinRate = float64(winningTrades) / float64(exData.TotalTrades)
+		}
+	}
+
+	// 转换为列表
+	response := make([]ExchangePnLResponse, 0, len(exchangeMap))
+	for _, exData := range exchangeMap {
+		response = append(response, *exData)
+	}
+
+	// 按交易所名称排序
+	sort.Slice(response, func(i, j int) bool {
+		return response[i].Exchange < response[j].Exchange
+	})
+
+	c.JSON(http.StatusOK, gin.H{"exchanges": response})
 }
 
 // getAnomalousTrades 检查异常交易记录（用于调试盈亏计算问题）

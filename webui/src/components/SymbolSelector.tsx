@@ -46,9 +46,9 @@ const SymbolSelector: React.FC = () => {
     return () => clearInterval(interval)
   }, [])
 
-  // 根据选中的交易所过滤交易对
+  // 根据选中的交易所过滤交易对（忽略大小写）
   const filteredSymbols = selectedExchange
-    ? symbols.filter((s) => s.exchange === selectedExchange)
+    ? symbols.filter((s) => s.exchange.toLowerCase() === selectedExchange.toLowerCase())
     : symbols
 
   // 分组：活跃和非活跃

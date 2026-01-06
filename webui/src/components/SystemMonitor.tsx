@@ -168,10 +168,30 @@ const SystemMonitor: React.FC = () => {
     }
 
     const mainDataset = chartData.datasets[0]
-    const values = (mainDataset.data as number[]).filter((v) => v != null && !isNaN(v))
+    const rawValues = (mainDataset.data as number[]).filter((v) => v != null && !isNaN(v))
+    const rawLabels = chartData.labels as string[]
     
-    if (values.length === 0) {
+    if (rawValues.length === 0) {
       return <Text color="gray.500" textAlign="center" py={8}>暂无数据</Text>
+    }
+
+    // 对数据进行采样，最多显示 100 个数据点以保证图表可读性
+    const maxDataPoints = 100
+    let values: number[] = rawValues
+    let sampledLabels: string[] = rawLabels
+    
+    if (rawValues.length > maxDataPoints) {
+      const step = Math.ceil(rawValues.length / maxDataPoints)
+      values = []
+      sampledLabels = []
+      for (let i = 0; i < rawValues.length; i += step) {
+        // 取区间内的平均值
+        const end = Math.min(i + step, rawValues.length)
+        const slice = rawValues.slice(i, end)
+        const avg = slice.reduce((a, b) => a + b, 0) / slice.length
+        values.push(avg)
+        sampledLabels.push(rawLabels[i] || '')
+      }
     }
     
     const maxValue = Math.max(...values.map((v) => v || 0))
@@ -200,26 +220,25 @@ const SystemMonitor: React.FC = () => {
 
     // 计算要显示的时间标签（避免太密集）
     const getTimeLabels = () => {
-      const labels = chartData.labels
-      if (labels.length === 0) return []
+      if (sampledLabels.length === 0) return []
       
       // 根据数据点数量决定显示几个标签
-      const maxLabels = 5
-      const step = Math.max(1, Math.floor(labels.length / maxLabels))
+      const maxLabels = 6
+      const step = Math.max(1, Math.floor(sampledLabels.length / maxLabels))
       const result = []
       
-      for (let i = 0; i < labels.length; i += step) {
+      for (let i = 0; i < sampledLabels.length; i += step) {
         result.push({
           index: i,
-          label: formatTimeLabel(labels[i] as string)
+          label: formatTimeLabel(sampledLabels[i])
         })
       }
       
       // 确保显示最后一个标签
-      if (result[result.length - 1]?.index !== labels.length - 1) {
+      if (result[result.length - 1]?.index !== sampledLabels.length - 1) {
         result.push({
-          index: labels.length - 1,
-          label: formatTimeLabel(labels[labels.length - 1] as string)
+          index: sampledLabels.length - 1,
+          label: formatTimeLabel(sampledLabels[sampledLabels.length - 1])
         })
       }
       
@@ -233,21 +252,22 @@ const SystemMonitor: React.FC = () => {
         <Heading size="md" mb={4}>
           {metricType === 'cpu' ? 'CPU使用率趋势' : '内存使用趋势'}
         </Heading>
-        <Box display="flex" alignItems="flex-end" h="200px" gap={1}>
+        <Box display="flex" alignItems="flex-end" h="200px" gap="1px">
           {values.map((value: number, index: number) => {
             if (value == null || isNaN(value)) {
               return null
             }
             const height = ((value - minValue) / range) * 100
-            const label = chartData.labels[index] || ''
+            const label = sampledLabels[index] || ''
             return (
               <Box
                 key={index}
                 flex="1"
-                h={`${Math.max(height, 2)}%`}
+                minW="3px"
+                h={`${Math.max(height, 5)}%`}
                 bg="blue.500"
                 borderRadius="sm"
-                title={`${formatTimeLabel(label as string)}: ${value.toFixed(2)}${metricType === 'cpu' ? '%' : ' MB'}`}
+                title={`${formatTimeLabel(label)}: ${value.toFixed(2)}${metricType === 'cpu' ? '%' : ' MB'}`}
                 cursor="pointer"
                 _hover={{ bg: 'blue.600' }}
               />

@@ -22,35 +22,7 @@ import {
   SkeletonText,
 } from '@chakra-ui/react'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getPositions, getPositionsSummary } from '../services/api'
-
-interface PositionInfo {
-  price: number
-  quantity: number
-  value: number
-  unrealized_pnl: number
-}
-
-interface PositionSummary {
-  total_quantity: number
-  total_value: number
-  position_count: number
-  average_price: number
-  current_price: number
-  unrealized_pnl: number
-}
-
-interface PositionsResponse {
-  summary: {
-    total_quantity: number
-    total_value: number
-    position_count: number
-    average_price: number
-    current_price: number
-    unrealized_pnl: number
-    positions: PositionInfo[]
-  }
-}
+import { getPositions, getPositionsSummary, type PositionInfo, type PositionSummary, type PositionsResponse } from '../services/api'
 
 const Positions: React.FC = () => {
   const { selectedExchange, selectedSymbol } = useSymbol()
@@ -64,9 +36,14 @@ const Positions: React.FC = () => {
       try {
         setLoading(true)
         const data = await getPositions(selectedExchange || undefined, selectedSymbol || undefined)
-        setSummary(data.summary)
-        setPositions(data.summary.positions || [])
-        setError(null)
+        if (data && data.summary) {
+          setSummary(data.summary)
+          setPositions(data.summary.positions || [])
+          setError(null)
+        } else {
+          setError('Invalid response format')
+          console.error('Invalid response:', data)
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch positions')
         console.error('Failed to fetch positions:', err)

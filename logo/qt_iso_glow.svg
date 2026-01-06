@@ -1,0 +1,13 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- 发光感六边形 -->
+  <path d="M50 25L75 37.5V62.5L50 75L25 62.5V37.5L50 25Z" stroke="#3B82F6" stroke-width="3" filter="url(#glow)"/>
+  <defs>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <text x="50" y="58" font-family="Arial" font-size="20" font-weight="bold" fill="white" text-anchor="middle">QT</text>
+</svg>
+

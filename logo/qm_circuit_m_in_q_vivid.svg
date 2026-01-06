@@ -1,0 +1,27 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 背景渐变：从深邃蓝到带一点紫色调的深蓝 -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="100" y2="100">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <!-- Q 尾部的强调色渐变 -->
+    <linearGradient id="tailGrad" x1="75" y1="75" x2="90" y2="90">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#F43F5E"/> <!-- 引入玫红/珊瑚色作为动态强调 -->
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="15" fill="url(#bgGrad)"/>
+  
+  <!-- 粗线版 Q -->
+  <circle cx="50" cy="50" r="35" stroke="#3B82F6" stroke-width="6"/>
+  <!-- Q 的最后一笔：改为带渐变色的锐利动态尾部 -->
+  <path d="M72 72L90 90" stroke="url(#tailGrad)" stroke-width="10" stroke-linecap="round"/>
+  
+  <!-- 粗线版 M -->
+  <path d="M30 60V40L50 55L70 40V60" stroke="#6366F1" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="26" y="56" width="8" height="8" rx="1" fill="white"/>
+  <rect x="46" y="51" width="8" height="8" rx="1" fill="white"/>
+  <rect x="66" y="56" width="8" height="8" rx="1" fill="white"/>
+</svg>
+

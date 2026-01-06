@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -198,7 +199,7 @@ type tradeStorageAdapter struct {
 	storageService *storage.StorageService
 }
 
-func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error {
+func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error {
 	if a.storageService == nil {
 		return nil
 	}
@@ -209,6 +210,7 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, symbol st
 	return st.SaveTrade(&storage.Trade{
 		BuyOrderID:  buyOrderID,
 		SellOrderID: sellOrderID,
+		Exchange:    exchange,
 		Symbol:      symbol,
 		BuyPrice:    buyPrice,
 		SellPrice:   sellPrice,
@@ -216,6 +218,134 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, symbol st
 		PnL:         pnl,
 		CreatedAt:   createdAt,
 	})
+}
+
+// symbolManagerWebAdapter SymbolManager Web API 适配器
+type symbolManagerWebAdapter struct {
+	manager         *SymbolManager
+	ctx             context.Context
+	cfg             *config.Config
+	eventBus        *event.EventBus
+	storageService  *storage.StorageService
+	distributedLock lock.DistributedLock
+}
+
+func (a *symbolManagerWebAdapter) Get(exchange, symbol string) (interface{}, bool) {
+	rt, ok := a.manager.Get(exchange, symbol)
+	if !ok {
+		return nil, false
+	}
+	return rt, true
+}
+
+func (a *symbolManagerWebAdapter) List() []interface{} {
+	runtimes := a.manager.List()
+	result := make([]interface{}, len(runtimes))
+	for i, rt := range runtimes {
+		result[i] = rt
+	}
+	return result
+}
+
+func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
+	// 检查是否已经运行
+	if _, ok := a.manager.Get(exchange, symbol); ok {
+		return fmt.Errorf("交易对 %s:%s 已经在运行", exchange, symbol)
+	}
+
+	// 从配置中查找对应的 SymbolConfig
+	var symCfg *config.SymbolConfig
+	for i := range a.cfg.Trading.Symbols {
+		if strings.EqualFold(a.cfg.Trading.Symbols[i].Exchange, exchange) &&
+			strings.EqualFold(a.cfg.Trading.Symbols[i].Symbol, symbol) {
+			symCfg = &a.cfg.Trading.Symbols[i]
+			break
+		}
+	}
+
+	if symCfg == nil {
+		return fmt.Errorf("未找到交易对配置: %s:%s", exchange, symbol)
+	}
+
+	// 启动 SymbolRuntime
+	rt, err := startSymbolRuntime(a.ctx, a.cfg, *symCfg, a.eventBus, a.storageService, a.distributedLock)
+	if err != nil {
+		return fmt.Errorf("启动失败: %w", err)
+	}
+
+	// 添加到管理器
+	a.manager.Add(rt)
+
+	// 注册到 Web API
+	if a.storageService != nil {
+		status := &web.SystemStatus{
+			Running:       true,
+			Exchange:      exchange,
+			Symbol:        symbol,
+			CurrentPrice:  0,
+			TotalPnL:      0,
+			TotalTrades:   0,
+			RiskTriggered: false,
+			Uptime:        0,
+		}
+		web.RegisterSymbolProviders(exchange, symbol, &web.SymbolScopedProviders{
+			Status:   status,
+			Price:    rt.PriceMonitor,
+			Exchange: &exchangeProviderAdapter{exchange: rt.Exchange},
+			Position: web.NewPositionManagerAdapter(rt.SuperPositionManager),
+			Risk:     rt.RiskMonitor,
+			Storage:  web.NewStorageServiceAdapter(a.storageService),
+		})
+	}
+
+	logger.Info("✅ [%s:%s] 交易已启动", exchange, symbol)
+	return nil
+}
+
+func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
+	rt, ok := a.manager.Get(exchange, symbol)
+	if !ok {
+		return fmt.Errorf("交易对 %s:%s 未运行", exchange, symbol)
+	}
+
+	// 停止运行时
+	if rt.Stop != nil {
+		rt.Stop()
+	}
+
+	// 从管理器中移除（需要添加 Remove 方法）
+	// 暂时保留在管理器中，只是停止运行
+
+	logger.Info("⏹️ [%s:%s] 交易已停止", exchange, symbol)
+	return nil
+}
+
+func (a *symbolManagerWebAdapter) ClosePositions(exchange, symbol string) (*web.ClosePositionsResponse, error) {
+	rt, ok := a.manager.Get(exchange, symbol)
+	if !ok {
+		return nil, fmt.Errorf("交易对 %s:%s 未找到", exchange, symbol)
+	}
+
+	// 创建上下文（带超时）
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+
+	// 调用平仓函数并获取结果
+	successCount, failCount, err := closeAllPositionsWithResult(ctx, rt.Exchange, symbol, rt.PriceMonitor)
+	if err != nil {
+		return nil, err
+	}
+
+	message := fmt.Sprintf("平仓完成: 成功 %d, 失败 %d", successCount, failCount)
+	if successCount == 0 && failCount == 0 {
+		message = "当前没有持仓需要平仓"
+	}
+
+	return &web.ClosePositionsResponse{
+		SuccessCount: successCount,
+		FailCount:    failCount,
+		Message:      message,
+	}, nil
 }
 
 func main() {
@@ -503,6 +633,10 @@ func main() {
 		web.SetConfigManager(configManager)
 		logger.Info("✅ 配置管理器已初始化")
 
+		// 设置版本号
+		web.SetVersion(Version)
+		logger.Info("✅ 版本号已设置: %s", Version)
+
 		// 初始化配置备份管理器
 		backupManager := config.NewBackupManager()
 		web.SetConfigBackupManager(backupManager)
@@ -529,6 +663,17 @@ func main() {
 	}
 
 	symbolManager := NewSymbolManager(cfg)
+
+	// 创建 SymbolManager 适配器（用于 Web API）
+	symbolManagerAdapter := &symbolManagerWebAdapter{
+		manager:         symbolManager,
+		ctx:             ctx,
+		cfg:             cfg,
+		eventBus:        eventBus,
+		storageService: storageService,
+		distributedLock: distributedLock,
+	}
+	web.RegisterSymbolManager(symbolManagerAdapter)
 
 	// 只有在配置完整时才启动交易系统
 	var firstRuntime *SymbolRuntime
@@ -1106,4 +1251,110 @@ func closeAllPositions(ctx context.Context, ex exchange.IExchange, symbol string
 		logger.Info("⏳ 等待平仓单成交...")
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// closeAllPositionsWithResult 平掉所有持仓并返回结果（用于 API）
+func closeAllPositionsWithResult(ctx context.Context, ex exchange.IExchange, symbol string, priceMonitor *monitor.PriceMonitor) (successCount, failCount int, err error) {
+	// 1. 查询所有持仓
+	positions, err := ex.GetPositions(ctx, symbol)
+	if err != nil {
+		logger.Error("❌ 查询持仓失败，无法平仓: %v", err)
+		return 0, 0, err
+	}
+
+	if len(positions) == 0 {
+		logger.Info("ℹ️ 当前没有持仓，无需平仓")
+		return 0, 0, nil
+	}
+
+	// 2. 获取当前价格（用于平仓单）
+	currentPrice := 0.0
+	if priceMonitor != nil {
+		currentPrice = priceMonitor.GetLastPrice()
+	}
+
+	// 如果价格监控器没有价格，尝试从交易所获取
+	if currentPrice <= 0 {
+		var priceErr error
+		currentPrice, priceErr = ex.GetLatestPrice(ctx, symbol)
+		if priceErr != nil || currentPrice <= 0 {
+			logger.Warn("⚠️ 无法获取当前价格，将使用持仓标记价格平仓")
+		}
+	}
+
+	// 3. 统计需要平仓的持仓
+	needCloseCount := 0
+	for _, pos := range positions {
+		if pos.Size != 0 {
+			needCloseCount++
+		}
+	}
+
+	if needCloseCount == 0 {
+		logger.Info("ℹ️ 当前没有有效持仓，无需平仓")
+		return 0, 0, nil
+	}
+
+	logger.Info("🔄 发现 %d 个持仓需要平仓", needCloseCount)
+
+	// 4. 对每个持仓下平仓单
+	successCount = 0
+	failCount = 0
+
+	for _, pos := range positions {
+		if pos.Size == 0 {
+			continue
+		}
+
+		var side exchange.Side
+		quantity := pos.Size
+		if quantity > 0 {
+			side = exchange.SideSell
+		} else {
+			side = exchange.SideBuy
+			quantity = -quantity
+		}
+
+		closePrice := currentPrice
+		if closePrice <= 0 && pos.MarkPrice > 0 {
+			closePrice = pos.MarkPrice
+		}
+		if closePrice <= 0 && pos.EntryPrice > 0 {
+			closePrice = pos.EntryPrice
+		}
+
+		if closePrice <= 0 {
+			logger.Error("❌ [平仓] 无法确定价格，跳过持仓 %s (Size: %.6f)", pos.Symbol, pos.Size)
+			failCount++
+			continue
+		}
+
+		logger.Info("🔄 [平仓] %s %s %.6f @ %.2f (ReduceOnly)", side, pos.Symbol, quantity, closePrice)
+
+		orderReq := &exchange.OrderRequest{
+			Symbol:        symbol,
+			Side:          side,
+			Type:          exchange.OrderTypeLimit,
+			TimeInForce:   exchange.TimeInForceGTC,
+			Quantity:      quantity,
+			Price:         closePrice,
+			ReduceOnly:    true,
+			PostOnly:      false,
+			PriceDecimals: ex.GetPriceDecimals(),
+		}
+
+		_, err := ex.PlaceOrder(ctx, orderReq)
+		if err != nil {
+			logger.Error("❌ [平仓] 下单失败 %s %.6f @ %.2f: %v", side, quantity, closePrice, err)
+			failCount++
+		} else {
+			logger.Info("✅ [平仓] 已下单 %s %.6f @ %.2f", side, quantity, closePrice)
+			successCount++
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	logger.Info("📊 [平仓完成] 成功: %d, 失败: %d", successCount, failCount)
+	return successCount, failCount, nil
 }

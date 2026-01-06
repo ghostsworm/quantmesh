@@ -1,0 +1,21 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgRadial" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </radialGradient>
+  </defs>
+  <rect width="100" height="100" rx="15" fill="url(#bgRadial)"/>
+  
+  <!-- 粗线版 Q -->
+  <circle cx="50" cy="50" r="35" stroke="#3B82F6" stroke-width="6"/>
+  <!-- Q 的最后一笔：橙黄色强调，象征能量或突破 -->
+  <path d="M75 75L92 92" stroke="#F59E0B" stroke-width="10" stroke-linecap="round"/>
+  
+  <!-- 粗线版 M -->
+  <path d="M30 60V40L50 55L70 40V60" stroke="#6366F1" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="26" y="56" width="8" height="8" rx="1" fill="white"/>
+  <rect x="46" y="51" width="8" height="8" rx="1" fill="white"/>
+  <rect x="66" y="56" width="8" height="8" rx="1" fill="white"/>
+</svg>
+

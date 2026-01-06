@@ -3,7 +3,8 @@
     "logout": "Logout",
     "global": "Global",
     "system": "System",
-    "trading": "Trading"
+    "trading": "Trading",
+    "version": "Version {{version}}"
   },
   "sidebar": {
     "overview": "Overview",

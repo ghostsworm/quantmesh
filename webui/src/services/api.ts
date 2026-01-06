@@ -74,7 +74,8 @@ export async function getExchanges(): Promise<ExchangesResponse> {
 }
 
 // Positions
-export interface PositionInfo {
+// 旧的 PositionInfo 接口（用于其他API，保留以兼容）
+export interface ExchangePositionInfo {
   symbol: string
   size: number
   entry_price: number
@@ -83,8 +84,28 @@ export interface PositionInfo {
   leverage: number
 }
 
-export interface PositionsResponse {
+// 新的 PositionInfo 接口（用于持仓页面）
+export interface PositionInfo {
+  price: number
+  quantity: number
+  value: number
+  unrealized_pnl: number
+}
+
+// 持仓汇总接口（用于持仓页面）
+export interface PositionSummary {
+  total_quantity: number
+  total_value: number
+  position_count: number
+  average_price: number
+  current_price: number
+  unrealized_pnl: number
+  pnl_percentage: number
   positions: PositionInfo[]
+}
+
+export interface PositionsResponse {
+  summary: PositionSummary
 }
 
 export async function getPositions(exchange?: string, symbol?: string): Promise<PositionsResponse> {
@@ -95,7 +116,8 @@ export async function getPositions(exchange?: string, symbol?: string): Promise<
   return fetchWithAuth(url)
 }
 
-export interface PositionSummary {
+// 旧的 PositionSummary 接口（用于其他API，保留以兼容）
+export interface PositionSummaryLegacy {
   total_position: number
   total_unrealized_pnl: number
   total_value: number
@@ -103,7 +125,7 @@ export interface PositionSummary {
 }
 
 export interface PositionsSummaryResponse {
-  summary: PositionSummary
+  summary: PositionSummaryLegacy
 }
 
 export async function getPositionsSummary(exchange?: string, symbol?: string): Promise<PositionsSummaryResponse> {
@@ -288,6 +310,35 @@ export interface PnLBySymbolResponse {
 export async function getPnLByTimeRange(startTime: string, endTime: string): Promise<PnLBySymbolResponse> {
   const queryParams = new URLSearchParams({ start_time: startTime, end_time: endTime })
   return fetchWithAuth(`${API_BASE_URL}/statistics/pnl/time-range?${queryParams.toString()}`)
+}
+
+export interface SymbolPnLInfo {
+  symbol: string
+  total_pnl: number
+  total_trades: number
+  total_volume: number
+  win_rate: number
+}
+
+export interface ExchangePnLResponse {
+  exchange: string
+  total_pnl: number
+  total_trades: number
+  total_volume: number
+  win_rate: number
+  symbols: SymbolPnLInfo[]
+}
+
+export interface ExchangePnLResponseData {
+  exchanges: ExchangePnLResponse[]
+}
+
+export async function getPnLByExchange(startTime?: string, endTime?: string): Promise<ExchangePnLResponseData> {
+  const queryParams = new URLSearchParams()
+  if (startTime) queryParams.append('start_time', startTime)
+  if (endTime) queryParams.append('end_time', endTime)
+  const url = `${API_BASE_URL}/statistics/pnl/exchange${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 // System Metrics
@@ -630,14 +681,38 @@ export async function updateConfig(config: Partial<Config>): Promise<{ message: 
 }
 
 // Trading Control
-export async function startTrading(): Promise<{ message: string }> {
-  return fetchWithAuth(`${API_BASE_URL}/trading/start`, {
+export async function startTrading(exchange?: string, symbol?: string): Promise<{ message: string }> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/trading/start${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url, {
     method: 'POST',
   })
 }
 
-export async function stopTrading(): Promise<{ message: string }> {
-  return fetchWithAuth(`${API_BASE_URL}/trading/stop`, {
+export async function stopTrading(exchange?: string, symbol?: string): Promise<{ message: string }> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/trading/stop${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url, {
+    method: 'POST',
+  })
+}
+
+export interface ClosePositionsResponse {
+  success_count: number
+  fail_count: number
+  message: string
+}
+
+export async function closeAllPositions(exchange?: string, symbol?: string): Promise<ClosePositionsResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/trading/close-positions${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url, {
     method: 'POST',
   })
 }

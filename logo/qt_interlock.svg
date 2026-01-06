@@ -1,0 +1,14 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- 字母 Q 的圆形部分 -->
+  <circle cx="45" cy="45" r="25" stroke="#3B82F6" stroke-width="4"/>
+  <!-- 字母 T 的横梁 -->
+  <path d="M40 35H80" stroke="#6366F1" stroke-width="4" stroke-linecap="round"/>
+  <!-- 字母 T 的竖杠 -->
+  <path d="M60 35V75" stroke="#6366F1" stroke-width="4" stroke-linecap="round"/>
+  <!-- Q 的斜尾部 -->
+  <path d="M60 60L75 75" stroke="#3B82F6" stroke-width="4" stroke-linecap="round"/>
+  <!-- 网格交点装饰 -->
+  <circle cx="60" cy="35" r="3" fill="white"/>
+</svg>
+

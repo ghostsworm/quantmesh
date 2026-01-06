@@ -1,0 +1,20 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- Q 的外圈 -->
+  <circle cx="50" cy="50" r="35" stroke="#3B82F6" stroke-width="2"/>
+  <path d="M75 75L85 85" stroke="#3B82F6" stroke-width="4" stroke-linecap="round"/>
+  
+  <!-- 内部电路风格的 M -->
+  <path d="M30 60V40L50 55L70 40V60" stroke="#6366F1" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="28" y="58" width="4" height="4" fill="white"/>
+  <rect x="48" y="53" width="4" height="4" fill="white"/>
+  <rect x="68" y="58" width="4" height="4" fill="white"/>
+  <!-- 网格背景辅助 -->
+  <g opacity="0.1">
+    <line x1="0" y1="20" x2="100" y2="20" stroke="white"/>
+    <line x1="0" y1="40" x2="100" y2="40" stroke="white"/>
+    <line x1="0" y1="60" x2="100" y2="60" stroke="white"/>
+    <line x1="0" y1="80" x2="100" y2="80" stroke="white"/>
+  </g>
+</svg>
+
