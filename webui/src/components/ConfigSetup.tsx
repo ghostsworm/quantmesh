@@ -37,12 +37,19 @@ const ConfigSetup: React.FC = () => {
     }))
   }
 
+  const handleSkip = () => {
+    // 标记本次登录已跳过配置
+    sessionStorage.setItem('config_setup_skipped', 'true')
+    // 跳转到主页
+    navigate('/')
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setSuccess(false)
 
-    // 验证必填字段
+    // 验证必填字段 - 允许只配置一个交易所
     if (!formData.exchange) {
       setError(t('configSetup.selectExchange'))
       return
@@ -82,6 +89,8 @@ const ConfigSetup: React.FC = () => {
       const response = await saveInitialConfig(formData)
       if (response.success) {
         setSuccess(true)
+        // 清除跳过标记
+        sessionStorage.removeItem('config_setup_skipped')
         // 3秒后刷新页面
         setTimeout(() => {
           window.location.reload()
@@ -456,23 +465,43 @@ const ConfigSetup: React.FC = () => {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={isLoading || success}
-            style={{
-              width: '100%',
-              padding: '12px',
-              backgroundColor: success ? '#52c41a' : '#1890ff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '16px',
-              cursor: (isLoading || success) ? 'not-allowed' : 'pointer',
-              opacity: (isLoading || success) ? 0.6 : 1
-            }}
-          >
-            {isLoading ? t('configSetup.saving') : success ? t('configSetup.saved') : t('configSetup.saveConfig')}
-          </button>
+          <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+            <button
+              type="button"
+              onClick={handleSkip}
+              disabled={isLoading || success}
+              style={{
+                flex: 1,
+                padding: '12px',
+                backgroundColor: 'transparent',
+                color: '#8c8c8c',
+                border: '1px solid #d9d9d9',
+                borderRadius: '4px',
+                fontSize: '16px',
+                cursor: (isLoading || success) ? 'not-allowed' : 'pointer',
+                opacity: (isLoading || success) ? 0.6 : 1
+              }}
+            >
+              {t('configSetup.skip')}
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading || success}
+              style={{
+                flex: 2,
+                padding: '12px',
+                backgroundColor: success ? '#52c41a' : '#1890ff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                fontSize: '16px',
+                cursor: (isLoading || success) ? 'not-allowed' : 'pointer',
+                opacity: (isLoading || success) ? 0.6 : 1
+              }}
+            >
+              {isLoading ? t('configSetup.saving') : success ? t('configSetup.saved') : t('configSetup.saveConfig')}
+            </button>
+          </div>
         </form>
       </div>
     </div>

@@ -9,6 +9,7 @@
   "sidebar": {
     "overview": "Overview",
     "performanceMonitor": "Performance Monitor",
+    "eventCenter": "Event Center",
     "runLogs": "Run Logs",
     "aiPrompts": "AI Prompts",
     "tradingPanel": "Trading Panel",
@@ -21,6 +22,7 @@
     "riskMonitor": "Risk Monitor",
     "klineDepth": "K-Line Depth",
     "fundingRate": "Funding Rate",
+    "basisMonitor": "Basis Monitor",
     "configManagement": "Configuration",
     "profile": "Profile"
   },
@@ -227,7 +229,8 @@
     "priceIntervalMustBeGreaterThanZero": "Price interval must be greater than 0",
     "orderAmountMustBeGreaterThanZero": "Order amount must be greater than 0",
     "buyWindowSizeMustBeGreaterThanZero": "Buy window size must be greater than 0",
-    "saveFailed": "Failed to save configuration"
+    "saveFailed": "Failed to save configuration",
+    "skip": "Skip"
   },
   "pnlChart": {
     "noData": "No data available, waiting for trading data to be generated..."

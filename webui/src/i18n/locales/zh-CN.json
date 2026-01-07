@@ -9,6 +9,7 @@
   "sidebar": {
     "overview": "概览",
     "performanceMonitor": "性能监控",
+    "eventCenter": "事件中心",
     "runLogs": "运行日志",
     "aiPrompts": "AI 提示词",
     "tradingPanel": "交易面板",
@@ -21,6 +22,7 @@
     "riskMonitor": "风控监控",
     "klineDepth": "K线深度",
     "fundingRate": "资金费率",
+    "basisMonitor": "价差监控",
     "configManagement": "配置管理",
     "profile": "个人资料"
   },
@@ -227,7 +229,8 @@
     "priceIntervalMustBeGreaterThanZero": "价格间隔必须大于 0",
     "orderAmountMustBeGreaterThanZero": "订单金额必须大于 0",
     "buyWindowSizeMustBeGreaterThanZero": "买单窗口大小必须大于 0",
-    "saveFailed": "保存配置失败"
+    "saveFailed": "保存配置失败",
+    "skip": "跳过"
   },
   "pnlChart": {
     "noData": "暂无数据，等待交易数据生成..."

@@ -49,6 +49,7 @@ import BasisMonitor from './components/BasisMonitor'
 import MarketIntelligence from './components/MarketIntelligence'
 import AIAnalysis from './components/AIAnalysis'
 import AIPromptManager from './components/AIPromptManager'
+import EventCenter from './components/EventCenter'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
@@ -106,22 +107,31 @@ const AppContent: React.FC = () => {
   const borderColor = 'gray.100'
   const contentBg = isGlobalView ? 'gray.50' : 'white'
 
-  // 检查配置状态
+  // 检查配置状态 - 每次登录时都检查
   useEffect(() => {
     const checkConfig = async () => {
       try {
         const status = await checkSetupStatus()
-        setNeedsConfig(status.needs_setup)
+        // 如果配置不完整，且本次登录未跳过配置，则显示配置页面
+        const skipped = sessionStorage.getItem('config_setup_skipped') === 'true'
+        setNeedsConfig(status.needs_setup && !skipped)
       } catch (error) {
         console.error('检查配置状态失败:', error)
         // 如果检查失败，假设需要配置
-        setNeedsConfig(true)
+        const skipped = sessionStorage.getItem('config_setup_skipped') === 'true'
+        setNeedsConfig(!skipped)
       } finally {
         setConfigLoading(false)
       }
     }
-    checkConfig()
-  }, [])
+    
+    // 只在已认证时检查配置
+    if (isAuthenticated) {
+      checkConfig()
+    } else {
+      setConfigLoading(false)
+    }
+  }, [isAuthenticated])
 
   const handleLogout = async () => {
     try {
@@ -298,6 +308,7 @@ const AppContent: React.FC = () => {
                 <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
                 <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
                 <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
+                <Route path="/events" element={<ProtectedRoute><EventCenter /></ProtectedRoute>} />
                 <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
                 <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

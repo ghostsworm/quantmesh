@@ -26,6 +26,7 @@ import {
   QuestionIcon,
   DragHandleIcon,
   AddIcon,
+  BellIcon,
 } from '@chakra-ui/icons'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useTranslation } from 'react-i18next'
@@ -175,6 +176,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           onClick={onNavItemClick}
         >
           {t('sidebar.performanceMonitor')}
+        </NavItem>
+        <NavItem 
+          icon={BellIcon} 
+          to="/events" 
+          isActive={isRouteActive('/events')}
+          onClick={onNavItemClick}
+        >
+          {t('sidebar.eventCenter')}
         </NavItem>
         <NavItem 
           icon={EditIcon} 

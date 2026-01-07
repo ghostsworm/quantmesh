@@ -28,6 +28,13 @@ type Database interface {
 	SaveRiskCheck(ctx context.Context, check *RiskCheck) error
 	GetRiskChecks(ctx context.Context, filter *RiskCheckFilter) ([]*RiskCheck, error)
 
+	// 事件记录
+	SaveEvent(ctx context.Context, event *EventRecord) error
+	GetEvents(ctx context.Context, filter *EventFilter) ([]*EventRecord, error)
+	GetEventByID(ctx context.Context, id int64) (*EventRecord, error)
+	GetEventStats(ctx context.Context) (*EventStats, error)
+	CleanupOldEvents(ctx context.Context, severity string, keepCount int, keepDays int) error
+
 	// 事务支持
 	BeginTx(ctx context.Context) (Tx, error)
 
@@ -118,6 +125,31 @@ type RiskCheck struct {
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 }
 
+// EventRecord 事件记录
+type EventRecord struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Type      string    `gorm:"index:idx_type_severity;size:50" json:"type"`      // 事件类型
+	Severity  string    `gorm:"index:idx_type_severity;size:20" json:"severity"`  // 严重程度: critical/warning/info
+	Source    string    `gorm:"index;size:20" json:"source"`                      // 事件源: exchange/network/system/strategy/risk/api
+	Exchange  string    `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"` // 交易所（可选）
+	Symbol    string    `gorm:"index:idx_exchange_symbol;size:50" json:"symbol"`   // 交易对（可选）
+	Title     string    `gorm:"size:200" json:"title"`                            // 事件标题
+	Message   string    `gorm:"type:text" json:"message"`                         // 事件消息
+	Details   string    `gorm:"type:text" json:"details"`                         // 详细信息（JSON）
+	CreatedAt time.Time `gorm:"index" json:"created_at"`                          // 创建时间
+}
+
+// EventStats 事件统计
+type EventStats struct {
+	TotalCount       int            `json:"total_count"`
+	CriticalCount    int            `json:"critical_count"`
+	WarningCount     int            `json:"warning_count"`
+	InfoCount        int            `json:"info_count"`
+	CountByType      map[string]int `json:"count_by_type"`
+	CountBySource    map[string]int `json:"count_by_source"`
+	Last24HoursCount int            `json:"last_24_hours_count"`
+}
+
 // 过滤器
 
 // TradeFilter 交易记录过滤器
@@ -170,4 +202,17 @@ type RiskCheckFilter struct {
 	EndTime   *time.Time
 	Limit     int
 	Offset    int
+}
+
+// EventFilter 事件记录过滤器
+type EventFilter struct {
+	Type      string     // 事件类型筛选
+	Severity  string     // 严重程度筛选
+	Source    string     // 事件源筛选
+	Exchange  string     // 交易所筛选
+	Symbol    string     // 交易对筛选
+	StartTime *time.Time // 开始时间
+	EndTime   *time.Time // 结束时间
+	Limit     int        // 限制数量
+	Offset    int        // 偏移量
 }

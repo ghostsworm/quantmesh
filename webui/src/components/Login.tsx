@@ -72,7 +72,9 @@ const Login: React.FC = () => {
 
     try {
       await verifyPassword(password)
-      // 验证成功后，刷新认证状态
+      // 验证成功后，清除配置跳过标记，确保每次登录都显示配置页面
+      sessionStorage.removeItem('config_setup_skipped')
+      // 刷新认证状态
       await refreshAuth()
       navigate('/')
     } catch (err) {
@@ -152,6 +154,8 @@ const Login: React.FC = () => {
 
       await finishWebAuthnLogin('admin', beginResponse.session_key, credentialResponse, passwordForWebAuthn)
       
+      // 清除配置跳过标记，确保每次登录都显示配置页面
+      sessionStorage.removeItem('config_setup_skipped')
       // 刷新认证状态
       await refreshAuth()
       navigate('/')

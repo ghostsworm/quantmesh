@@ -206,6 +206,11 @@ func SetupRoutes(r *gin.Engine) {
 			protected.POST("/ai/analysis/trigger/:module", triggerAIAnalysis)
 			protected.GET("/ai/prompts", getAIPrompts)
 			protected.POST("/ai/prompts", updateAIPrompt)
+
+			// AI 配置助手 API
+			protected.POST("/ai/generate-config", generateAIConfig)
+			protected.POST("/ai/apply-config", applyAIConfig)
+
 			protected.GET("/funding/history", getFundingRateHistory)
 
 			// 价差监控
@@ -222,6 +227,9 @@ func SetupRoutes(r *gin.Engine) {
 			// 审计日志
 			protected.GET("/audit/logs", getAuditLogs)
 		}
+
+		// 事件中心 API
+		registerEventRoutes(api, authMiddleware())
 
 		// Webhooks (不需要认证,但需要验证签名)
 		api.POST("/billing/webhook/stripe", stripeWebhookHandler)

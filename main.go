@@ -474,7 +474,36 @@ func main() {
 	}
 	logger.Info("✅ 存储服务初始化完成")
 
-	// 事件处理器
+	// 初始化事件中心
+	logger.Info("🔧 正在初始化事件中心...")
+	eventCenterConfig := &event.EventCenterConfig{
+		Enabled:                  cfg.EventCenter.Enabled,
+		PriceVolatilityThreshold: cfg.EventCenter.PriceVolatilityThreshold,
+		MonitoredSymbols:         cfg.EventCenter.MonitoredSymbols,
+		CleanupInterval:          cfg.EventCenter.CleanupInterval,
+		Retention: event.RetentionConfig{
+			CriticalDays:     cfg.EventCenter.Retention.CriticalDays,
+			WarningDays:      cfg.EventCenter.Retention.WarningDays,
+			InfoDays:         cfg.EventCenter.Retention.InfoDays,
+			CriticalMaxCount: cfg.EventCenter.Retention.CriticalMaxCount,
+			WarningMaxCount:  cfg.EventCenter.Retention.WarningMaxCount,
+			InfoMaxCount:     cfg.EventCenter.Retention.InfoMaxCount,
+		},
+	}
+	
+	var eventCenter *event.EventCenter
+	if db != nil {
+		eventCenter = event.NewEventCenter(db, eventBus, notifier, eventCenterConfig)
+		if err := eventCenter.Start(); err != nil {
+			logger.Warn("⚠️ 启动事件中心失败: %v", err)
+		}
+		defer eventCenter.Stop()
+	} else {
+		logger.Warn("⚠️ 数据库未初始化，事件中心将不可用")
+	}
+	logger.Info("✅ 事件中心初始化完成")
+
+	// 旧的事件处理器（保留用于存储服务）
 	go func() {
 		for {
 			select {
@@ -485,9 +514,6 @@ func main() {
 					continue
 				}
 				go func(e *event.Event) {
-					if notifier != nil {
-						notifier.Send(e)
-					}
 					if storageService != nil {
 						storageService.Save(string(e.Type), e.Data)
 					}
@@ -873,6 +899,12 @@ func main() {
 			systemMetricsProvider := web.NewSystemMetricsProvider(storageService, watchdog)
 			web.SetSystemMetricsProvider(systemMetricsProvider)
 			logger.Info("✅ 系统监控数据提供者已设置")
+		}
+		
+		// 设置事件中心提供者
+		if db != nil {
+			web.SetEventProvider(db)
+			logger.Info("✅ 事件中心提供者已设置")
 		}
 
 		logger.Info("ℹ️ Web 服务已启动，等待配置完成")

@@ -7,6 +7,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// GridRiskControl 网格策略风控配置
+type GridRiskControl struct {
+	Enabled                 bool    `yaml:"enabled"`
+	MaxGridLayers           int     `yaml:"max_grid_layers"`            // 最大允许买入层数
+	StopLossRatio           float64 `yaml:"stop_loss_ratio"`            // 单币种最大浮亏比例（如 0.1 表示 10%）
+	TakeProfitTriggerRatio  float64 `yaml:"take_profit_trigger_ratio"`  // 盈利达到此比例后开启回撤止盈（如 0.08 表示 8%）
+	TrailingTakeProfitRatio float64 `yaml:"trailing_take_profit_ratio"` // 盈利回撤比例（如 0.03 表示回撤 3% 止盈）
+	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled"`       // 是否开启趋势过滤
+}
+
 // Config 做市商系统配置
 type Config struct {
 	// 应用配置
@@ -93,6 +103,8 @@ type Config struct {
 				MinSellWindow  int     `yaml:"min_sell_window"` // 最小卖单窗口
 			} `yaml:"window_adjustment"`
 		} `yaml:"smart_position"`
+
+		GridRiskControl GridRiskControl `yaml:"grid_risk_control"`
 	} `yaml:"trading"`
 
 	System struct {
@@ -256,6 +268,26 @@ type Config struct {
 		Symbols         []string `yaml:"symbols"`          // 监控的交易对列表
 	} `yaml:"basis_monitor"`
 
+	// 事件中心配置
+	EventCenter struct {
+		Enabled                  bool     `yaml:"enabled"`                     // 是否启用事件中心，默认true
+		PriceVolatilityThreshold float64  `yaml:"price_volatility_threshold"`  // 价格波动阈值（百分比），默认5.0
+		MonitoredSymbols         []string `yaml:"monitored_symbols"`           // 监控价格波动的交易对
+		
+		// 事件保留策略
+		Retention struct {
+			CriticalDays int `yaml:"critical_days"` // Critical 事件保留天数，默认365
+			WarningDays  int `yaml:"warning_days"`  // Warning 事件保留天数，默认90
+			InfoDays     int `yaml:"info_days"`     // Info 事件保留天数，默认30
+			
+			CriticalMaxCount int `yaml:"critical_max_count"` // Critical 事件最大保留数量，默认1000000
+			WarningMaxCount  int `yaml:"warning_max_count"`  // Warning 事件最大保留数量，默认500000
+			InfoMaxCount     int `yaml:"info_max_count"`     // Info 事件最大保留数量，默认300000
+		} `yaml:"retention"`
+		
+		CleanupInterval int `yaml:"cleanup_interval"` // 清理间隔（小时），默认24
+	} `yaml:"event_center"`
+
 	// 多策略配置
 	Strategies struct {
 		Enabled bool `yaml:"enabled"`
@@ -355,10 +387,11 @@ type Config struct {
 
 	// AI配置
 	AI struct {
-		Enabled  bool   `yaml:"enabled"`
-		Provider string `yaml:"provider"` // gemini, openai
-		APIKey   string `yaml:"api_key"`
-		BaseURL  string `yaml:"base_url"` // 可选，用于自定义API端点
+		Enabled      bool   `yaml:"enabled"`
+		Provider     string `yaml:"provider"` // gemini, openai
+		APIKey       string `yaml:"api_key"`
+		GeminiAPIKey string `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果为空则使用 api_key）
+		BaseURL      string `yaml:"base_url"`       // 可选，用于自定义API端点
 
 		// 各模块开关
 		Modules struct {
@@ -452,6 +485,7 @@ type SymbolConfig struct {
 	CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小
 	MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保证金锁定时间（秒）
 	PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持仓安全性检查
+	GridRiskControl       GridRiskControl `yaml:"grid_risk_control"`    // 网格策略风控
 }
 
 // StrategyConfig 策略配置
@@ -856,6 +890,25 @@ func (c *Config) Validate() error {
 			}
 		}
 
+		// 风控配置继承
+		if !sc.GridRiskControl.Enabled && c.Trading.GridRiskControl.Enabled {
+			sc.GridRiskControl = c.Trading.GridRiskControl
+		} else if sc.GridRiskControl.Enabled {
+			// 如果启用了但某些字段没填，可以考虑从全局继承，但通常启用表示要自定义
+			if sc.GridRiskControl.MaxGridLayers == 0 {
+				sc.GridRiskControl.MaxGridLayers = c.Trading.GridRiskControl.MaxGridLayers
+			}
+			if sc.GridRiskControl.StopLossRatio == 0 {
+				sc.GridRiskControl.StopLossRatio = c.Trading.GridRiskControl.StopLossRatio
+			}
+			if sc.GridRiskControl.TakeProfitTriggerRatio == 0 {
+				sc.GridRiskControl.TakeProfitTriggerRatio = c.Trading.GridRiskControl.TakeProfitTriggerRatio
+			}
+			if sc.GridRiskControl.TrailingTakeProfitRatio == 0 {
+				sc.GridRiskControl.TrailingTakeProfitRatio = c.Trading.GridRiskControl.TrailingTakeProfitRatio
+			}
+		}
+
 		return sc, nil
 	}
 
@@ -877,6 +930,7 @@ func (c *Config) Validate() error {
 			CleanupBatchSize:      c.Trading.CleanupBatchSize,
 			MarginLockDurationSec: c.Trading.MarginLockDurationSec,
 			PositionSafetyCheck:   c.Trading.PositionSafetyCheck,
+			GridRiskControl:       c.Trading.GridRiskControl,
 		}}
 	}
 
@@ -904,6 +958,7 @@ func (c *Config) Validate() error {
 		c.Trading.CleanupBatchSize = primary.CleanupBatchSize
 		c.Trading.MarginLockDurationSec = primary.MarginLockDurationSec
 		c.Trading.PositionSafetyCheck = primary.PositionSafetyCheck
+		c.Trading.GridRiskControl = primary.GridRiskControl
 	}
 
 	// 设置默认时间间隔
@@ -1084,6 +1139,33 @@ func (c *Config) Validate() error {
 			"win_rate":     0.2,
 			"max_drawdown": 0.1,
 		}
+	}
+
+	// 设置事件中心配置默认值
+	// 默认启用事件中心
+	if c.EventCenter.PriceVolatilityThreshold <= 0 {
+		c.EventCenter.PriceVolatilityThreshold = 5.0 // 默认5%波动
+	}
+	if c.EventCenter.Retention.CriticalDays <= 0 {
+		c.EventCenter.Retention.CriticalDays = 365 // Critical 事件保留1年
+	}
+	if c.EventCenter.Retention.WarningDays <= 0 {
+		c.EventCenter.Retention.WarningDays = 90 // Warning 事件保留3个月
+	}
+	if c.EventCenter.Retention.InfoDays <= 0 {
+		c.EventCenter.Retention.InfoDays = 30 // Info 事件保留1个月
+	}
+	if c.EventCenter.Retention.CriticalMaxCount <= 0 {
+		c.EventCenter.Retention.CriticalMaxCount = 1000000 // Critical 最多保留100万条
+	}
+	if c.EventCenter.Retention.WarningMaxCount <= 0 {
+		c.EventCenter.Retention.WarningMaxCount = 500000 // Warning 最多保留50万条
+	}
+	if c.EventCenter.Retention.InfoMaxCount <= 0 {
+		c.EventCenter.Retention.InfoMaxCount = 300000 // Info 最多保留30万条
+	}
+	if c.EventCenter.CleanupInterval <= 0 {
+		c.EventCenter.CleanupInterval = 24 // 默认每24小时清理一次
 	}
 
 	return nil

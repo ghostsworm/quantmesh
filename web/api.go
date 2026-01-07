@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"quantmesh/ai"
 	"quantmesh/exchange"
 	qmi18n "quantmesh/i18n"
 	"quantmesh/logger"
@@ -4116,4 +4117,154 @@ func getAllocationStatusBySymbol(c *gin.Context) {
 	}
 	
 	respondError(c, http.StatusNotFound, "error.allocation_not_found")
+}
+
+// generateAIConfig 生成 AI 配置建议
+// POST /api/ai/generate-config
+func generateAIConfig(c *gin.Context) {
+	var req struct {
+		Exchange     string   `json:"exchange"`
+		Symbols      []string `json:"symbols"`
+		TotalCapital float64  `json:"total_capital"`
+		RiskProfile  string   `json:"risk_profile"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+
+	// 获取 Gemini API Key
+	if configManager == nil {
+		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
+		return
+	}
+
+	cfg, err := configManager.GetConfig()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+		return
+	}
+
+	// 获取 Gemini API Key（优先使用 gemini_api_key，否则使用 api_key）
+	geminiAPIKey := cfg.AI.GeminiAPIKey
+	if geminiAPIKey == "" {
+		geminiAPIKey = cfg.AI.APIKey
+	}
+	if geminiAPIKey == "" {
+		respondError(c, http.StatusBadRequest, "error.gemini_api_key_not_configured")
+		return
+	}
+
+	// 获取当前价格
+	currentPrices := make(map[string]float64)
+	if symbolManagerProvider != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// 尝试从运行中的交易对获取价格
+		for _, symbol := range req.Symbols {
+			rtInterface, exists := symbolManagerProvider.Get(req.Exchange, symbol)
+			if exists {
+				// 使用反射获取 PriceMonitor
+				rtVal := reflect.ValueOf(rtInterface)
+				if rtVal.Kind() == reflect.Ptr {
+					rtVal = rtVal.Elem()
+				}
+
+				priceMonitorField := rtVal.FieldByName("PriceMonitor")
+				if priceMonitorField.IsValid() && !priceMonitorField.IsNil() {
+					priceMonitor := priceMonitorField.Interface()
+					// 尝试调用 GetLastPrice 方法
+					getPriceMethod := reflect.ValueOf(priceMonitor).MethodByName("GetLastPrice")
+					if getPriceMethod.IsValid() {
+						results := getPriceMethod.Call(nil)
+						if len(results) > 0 {
+							if price, ok := results[0].Interface().(float64); ok && price > 0 {
+								currentPrices[symbol] = price
+								continue
+							}
+						}
+					}
+				}
+
+				// 如果 PriceMonitor 不可用，尝试从 Exchange 获取
+				exchangeField := rtVal.FieldByName("Exchange")
+				if exchangeField.IsValid() && !exchangeField.IsNil() {
+					ex := exchangeField.Interface()
+					if exchange, ok := ex.(exchange.IExchange); ok {
+						if price, err := exchange.GetLatestPrice(ctx, symbol); err == nil && price > 0 {
+							currentPrices[symbol] = price
+							continue
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 如果某些币种没有获取到价格，记录警告但不阻止继续
+	if len(currentPrices) < len(req.Symbols) {
+		logger.Warn("⚠️ 部分币种未能获取到价格，将使用默认值")
+	}
+
+	// 调用 Gemini API
+	geminiClient := ai.NewGeminiClient(geminiAPIKey)
+	aiConfig, err := geminiClient.GenerateConfig(c.Request.Context(), &ai.GenerateConfigRequest{
+		Exchange:      req.Exchange,
+		Symbols:       req.Symbols,
+		TotalCapital:  req.TotalCapital,
+		RiskProfile:   req.RiskProfile,
+		CurrentPrices: currentPrices,
+	})
+
+	if err != nil {
+		logger.Error("❌ AI 配置生成失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "error.ai_generation_failed", err)
+		return
+	}
+
+	// 验证配置
+	configPath := configManager.GetConfigPath()
+	configService := ai.NewConfigService(configPath)
+	if err := configService.ValidateAIConfig(aiConfig, req.TotalCapital); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_ai_config", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, aiConfig)
+}
+
+// applyAIConfig 应用 AI 配置
+// POST /api/ai/apply-config
+func applyAIConfig(c *gin.Context) {
+	var req ai.GenerateConfigResponse
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+
+	if configManager == nil {
+		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
+		return
+	}
+
+	cfg, err := configManager.GetConfig()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+		return
+	}
+
+	configPath := configManager.GetConfigPath()
+	configService := ai.NewConfigService(configPath)
+	if err := configService.ApplyAIConfig(&req, cfg); err != nil {
+		logger.Error("❌ 应用 AI 配置失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "error.apply_config_failed", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "配置已成功应用，请重启服务使配置生效",
+	})
 }

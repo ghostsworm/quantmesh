@@ -85,6 +85,7 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		&Statistics{},
 		&Reconciliation{},
 		&RiskCheck{},
+		&EventRecord{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to auto migrate: %w", err)
 	}
@@ -328,6 +329,158 @@ func (g *GormDatabase) Close() error {
 	return sqlDB.Close()
 }
 
+// SaveEvent 保存事件记录
+func (g *GormDatabase) SaveEvent(ctx context.Context, event *EventRecord) error {
+	return g.db.WithContext(ctx).Create(event).Error
+}
+
+// GetEvents 获取事件记录
+func (g *GormDatabase) GetEvents(ctx context.Context, filter *EventFilter) ([]*EventRecord, error) {
+	query := g.db.WithContext(ctx).Model(&EventRecord{})
+
+	if filter.Type != "" {
+		query = query.Where("type = ?", filter.Type)
+	}
+	if filter.Severity != "" {
+		query = query.Where("severity = ?", filter.Severity)
+	}
+	if filter.Source != "" {
+		query = query.Where("source = ?", filter.Source)
+	}
+	if filter.Exchange != "" {
+		query = query.Where("exchange = ?", filter.Exchange)
+	}
+	if filter.Symbol != "" {
+		query = query.Where("symbol = ?", filter.Symbol)
+	}
+	if filter.StartTime != nil {
+		query = query.Where("created_at >= ?", filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		query = query.Where("created_at <= ?", filter.EndTime)
+	}
+
+	query = query.Order("created_at DESC")
+
+	if filter.Limit > 0 {
+		query = query.Limit(filter.Limit)
+	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
+	}
+
+	var events []*EventRecord
+	if err := query.Find(&events).Error; err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}
+
+// GetEventByID 根据ID获取事件
+func (g *GormDatabase) GetEventByID(ctx context.Context, id int64) (*EventRecord, error) {
+	var event EventRecord
+	if err := g.db.WithContext(ctx).First(&event, id).Error; err != nil {
+		return nil, err
+	}
+	return &event, nil
+}
+
+// GetEventStats 获取事件统计
+func (g *GormDatabase) GetEventStats(ctx context.Context) (*EventStats, error) {
+	stats := &EventStats{
+		CountByType:   make(map[string]int),
+		CountBySource: make(map[string]int),
+	}
+
+	// 总数
+	var totalCount int64
+	g.db.WithContext(ctx).Model(&EventRecord{}).Count(&totalCount)
+	stats.TotalCount = int(totalCount)
+
+	// 按严重程度统计
+	var criticalCount, warningCount, infoCount int64
+	g.db.WithContext(ctx).Model(&EventRecord{}).Where("severity = ?", "critical").Count(&criticalCount)
+	g.db.WithContext(ctx).Model(&EventRecord{}).Where("severity = ?", "warning").Count(&warningCount)
+	g.db.WithContext(ctx).Model(&EventRecord{}).Where("severity = ?", "info").Count(&infoCount)
+	stats.CriticalCount = int(criticalCount)
+	stats.WarningCount = int(warningCount)
+	stats.InfoCount = int(infoCount)
+
+	// 最近24小时
+	last24h := time.Now().Add(-24 * time.Hour)
+	var last24hCount int64
+	g.db.WithContext(ctx).Model(&EventRecord{}).Where("created_at >= ?", last24h).Count(&last24hCount)
+	stats.Last24HoursCount = int(last24hCount)
+
+	// 按类型统计（top 20）
+	var typeStats []struct {
+		Type  string
+		Count int
+	}
+	g.db.WithContext(ctx).Model(&EventRecord{}).
+		Select("type, COUNT(*) as count").
+		Group("type").
+		Order("count DESC").
+		Limit(20).
+		Scan(&typeStats)
+	for _, ts := range typeStats {
+		stats.CountByType[ts.Type] = ts.Count
+	}
+
+	// 按来源统计
+	var sourceStats []struct {
+		Source string
+		Count  int
+	}
+	g.db.WithContext(ctx).Model(&EventRecord{}).
+		Select("source, COUNT(*) as count").
+		Group("source").
+		Scan(&sourceStats)
+	for _, ss := range sourceStats {
+		stats.CountBySource[ss.Source] = ss.Count
+	}
+
+	return stats, nil
+}
+
+// CleanupOldEvents 清理旧事件
+func (g *GormDatabase) CleanupOldEvents(ctx context.Context, severity string, keepCount int, keepDays int) error {
+	// 按时间清理：删除超过指定天数的事件
+	cutoffDate := time.Now().AddDate(0, 0, -keepDays)
+	if err := g.db.WithContext(ctx).
+		Where("severity = ? AND created_at < ?", severity, cutoffDate).
+		Delete(&EventRecord{}).Error; err != nil {
+		return err
+	}
+
+	// 按数量清理：保留最新的 keepCount 条
+	var count int64
+	g.db.WithContext(ctx).Model(&EventRecord{}).Where("severity = ?", severity).Count(&count)
+	
+	if int(count) > keepCount {
+		// 获取需要保留的最老记录的ID
+		var cutoffID int64
+		g.db.WithContext(ctx).Model(&EventRecord{}).
+			Where("severity = ?", severity).
+			Order("created_at DESC").
+			Limit(1).
+			Offset(keepCount).
+			Pluck("id", &cutoffID)
+
+		// 删除ID小于cutoffID的记录
+		if cutoffID > 0 {
+			if err := g.db.WithContext(ctx).
+				Where("severity = ? AND id < ?", severity, cutoffID).
+				Delete(&EventRecord{}).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // GormTx GORM 事务实现
 type GormTx struct {
 	tx *gorm.DB
@@ -396,4 +549,24 @@ func (t *GormTx) Ping(ctx context.Context) error {
 
 func (t *GormTx) Close() error {
 	return nil
+}
+
+func (t *GormTx) SaveEvent(ctx context.Context, event *EventRecord) error {
+	return t.tx.WithContext(ctx).Create(event).Error
+}
+
+func (t *GormTx) GetEvents(ctx context.Context, filter *EventFilter) ([]*EventRecord, error) {
+	return nil, fmt.Errorf("not implemented in transaction")
+}
+
+func (t *GormTx) GetEventByID(ctx context.Context, id int64) (*EventRecord, error) {
+	return nil, fmt.Errorf("not implemented in transaction")
+}
+
+func (t *GormTx) GetEventStats(ctx context.Context) (*EventStats, error) {
+	return nil, fmt.Errorf("not implemented in transaction")
+}
+
+func (t *GormTx) CleanupOldEvents(ctx context.Context, severity string, keepCount int, keepDays int) error {
+	return fmt.Errorf("not implemented in transaction")
 }

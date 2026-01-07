@@ -226,7 +226,8 @@
     "priceIntervalMustBeGreaterThanZero": "價格間隔必須大於 0",
     "orderAmountMustBeGreaterThanZero": "訂單金額必須大於 0",
     "buyWindowSizeMustBeGreaterThanZero": "買單窗口大小必須大於 0",
-    "saveFailed": "保存配置失敗"
+    "saveFailed": "保存配置失敗",
+    "skip": "跳過"
   },
   "pnlChart": {
     "noData": "暫無數據，等待交易數據生成..."

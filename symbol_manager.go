@@ -343,9 +343,11 @@ func startSymbolRuntime(
 	}
 
 	var trendDetector *strategy.TrendDetector
-	if localCfg.Trading.SmartPosition.Enabled {
+	if localCfg.Trading.SmartPosition.Enabled || localCfg.Trading.GridRiskControl.TrendFilterEnabled {
 		trendDetector = strategy.NewTrendDetector(&localCfg, priceMonitor)
 		trendDetector.Start()
+		// 将趋势检测器注入 SuperPositionManager
+		superPositionManager.SetTrendDetector(trendDetector)
 	}
 
 	var strategyManager *strategy.StrategyManager

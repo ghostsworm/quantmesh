@@ -455,6 +455,30 @@ basis_monitor:
     - BNBUSDT
     - SOLUSDT
 
+# ========================================
+# 事件中心配置
+# ========================================
+event_center:
+  enabled: true  # 是否启用事件中心（默认true）
+  price_volatility_threshold: 5.0  # 价格波动阈值（百分比），超过此值将触发事件
+  monitored_symbols:  # 监控价格波动的交易对（为空则监控所有）
+    - BTCUSDT
+    - ETHUSDT
+  
+  # 事件保留策略
+  retention:
+    # 按时间保留
+    critical_days: 365  # Critical 事件保留天数（默认365天/1年）
+    warning_days: 90    # Warning 事件保留天数（默认90天/3个月）
+    info_days: 30       # Info 事件保留天数（默认30天/1个月）
+    
+    # 按数量保留（达到上限后删除最旧的）
+    critical_max_count: 1000000  # Critical 事件最大保留数量（默认100万）
+    warning_max_count: 500000    # Warning 事件最大保留数量（默认50万）
+    info_max_count: 300000       # Info 事件最大保留数量（默认30万）
+  
+  cleanup_interval: 24  # 清理间隔（小时），默认每24小时清理一次
+
 plugins:
   enabled: false  # 设置为 true 启用插件系统
   directory: "../quantmesh-premium/plugins"  # 插件目录（相对路径或绝对路径）

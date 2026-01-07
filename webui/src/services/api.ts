@@ -1054,3 +1054,121 @@ export async function getBasisStatistics(symbol: string, hours: number = 24): Pr
   const response = await fetchWithAuth(url)
   return response.data
 }
+
+// AI 配置助手
+export interface AIGenerateConfigRequest {
+  exchange: string
+  symbols: string[]
+  total_capital: number
+  risk_profile: 'conservative' | 'balanced' | 'aggressive'
+}
+
+export interface AIGridConfig {
+  exchange: string
+  symbol: string
+  price_interval: number
+  order_quantity: number
+  buy_window_size: number
+  sell_window_size: number
+  grid_risk_control?: {
+    enabled: boolean
+    max_grid_layers: number
+    stop_loss_ratio: number
+    take_profit_trigger_ratio: number
+    trailing_take_profit_ratio: number
+    trend_filter_enabled: boolean
+  }
+}
+
+export interface AIAllocationConfig {
+  exchange: string
+  symbol: string
+  max_amount_usdt: number
+  max_percentage: number
+}
+
+export interface AIGenerateConfigResponse {
+  explanation: string
+  grid_config: AIGridConfig[]
+  allocation: AIAllocationConfig[]
+}
+
+export async function generateAIConfig(request: AIGenerateConfigRequest): Promise<AIGenerateConfigResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/generate-config`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+export async function applyAIConfig(config: AIGenerateConfigResponse): Promise<{ message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/apply-config`, {
+    method: 'POST',
+    body: JSON.stringify(config),
+  })
+}
+
+// ==================== 事件中心 ====================
+
+export interface EventRecord {
+  id: number
+  type: string
+  severity: 'critical' | 'warning' | 'info'
+  source: 'exchange' | 'network' | 'system' | 'strategy' | 'risk' | 'api'
+  exchange?: string
+  symbol?: string
+  title: string
+  message: string
+  details: string
+  created_at: string
+}
+
+export interface EventStats {
+  total_count: number
+  critical_count: number
+  warning_count: number
+  info_count: number
+  count_by_type: Record<string, number>
+  count_by_source: Record<string, number>
+  last_24_hours_count: number
+}
+
+export interface EventFilter {
+  type?: string
+  severity?: string
+  source?: string
+  exchange?: string
+  symbol?: string
+  start_time?: string
+  end_time?: string
+  limit?: number
+  offset?: number
+}
+
+export interface EventsResponse {
+  events: EventRecord[]
+  count: number
+}
+
+export async function getEvents(filter?: EventFilter): Promise<EventsResponse> {
+  const queryParams = new URLSearchParams()
+  if (filter?.type) queryParams.append('type', filter.type)
+  if (filter?.severity) queryParams.append('severity', filter.severity)
+  if (filter?.source) queryParams.append('source', filter.source)
+  if (filter?.exchange) queryParams.append('exchange', filter.exchange)
+  if (filter?.symbol) queryParams.append('symbol', filter.symbol)
+  if (filter?.start_time) queryParams.append('start_time', filter.start_time)
+  if (filter?.end_time) queryParams.append('end_time', filter.end_time)
+  if (filter?.limit) queryParams.append('limit', filter.limit.toString())
+  if (filter?.offset) queryParams.append('offset', filter.offset.toString())
+  
+  const url = `${API_BASE_URL}/events${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
+}
+
+export async function getEventDetail(id: number): Promise<EventRecord> {
+  return fetchWithAuth(`${API_BASE_URL}/events/${id}`)
+}
+
+export async function getEventStats(): Promise<EventStats> {
+  return fetchWithAuth(`${API_BASE_URL}/events/stats`)
+}

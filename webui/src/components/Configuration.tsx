@@ -68,6 +68,7 @@ import {
   BackupInfo,
   ConfigDiff,
 } from '../services/config'
+import AIConfigWizard from './AIConfigWizard'
 
 const MotionBox = motion(Box)
 
@@ -119,6 +120,7 @@ const Configuration: React.FC = () => {
   
   const { isOpen: isPreviewOpen, onOpen: onPreviewOpen, onClose: onPreviewClose } = useDisclosure()
   const { isOpen: isBackupsOpen, onOpen: onBackupsOpen, onClose: onBackupsClose } = useDisclosure()
+  const { isOpen: isAIWizardOpen, onOpen: onAIWizardOpen, onClose: onAIWizardClose } = useDisclosure()
   const toast = useToast()
 
   const togglePasswordVisibility = (key: string) => {
@@ -375,6 +377,35 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 1 && (
                   <VStack spacing={6} align="stretch">
+                    <ConfigCard title="AI 配置助手" icon={<StarIcon />}>
+                      <VStack spacing={4} align="stretch">
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Gemini API Key</FormLabel>
+                          {renderPasswordInput('ai.gemini_api_key', '输入您的 Gemini API Key')}
+                          <Text fontSize="xs" color="gray.500" mt={1}>
+                            用于 AI 配置助手功能，帮助您自动生成最优的网格交易参数和资金分配方案
+                          </Text>
+                        </FormControl>
+                        <Button
+                          leftIcon={<StarIcon />}
+                          colorScheme="purple"
+                          variant="outline"
+                          onClick={onAIWizardOpen}
+                          isDisabled={!getNestedValue(config, 'ai.gemini_api_key')}
+                        >
+                          打开 AI 配置助手
+                        </Button>
+                        {!getNestedValue(config, 'ai.gemini_api_key') && (
+                          <Alert status="info" size="sm" borderRadius="md">
+                            <AlertIcon />
+                            <AlertDescription fontSize="xs">
+                              请先配置 Gemini API Key 以使用 AI 配置助手功能
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </VStack>
+                    </ConfigCard>
+
                     {exchanges.map((exchange) => (
                       <ConfigCard key={exchange} title={exchangeNames[exchange]} icon={<RepeatIcon />}>
                         <SimpleGrid columns={2} spacing={6}>
@@ -657,6 +688,16 @@ const Configuration: React.FC = () => {
             </ModalBody>
           </ModalContent>
         </Modal>
+
+        {/* AI Config Wizard */}
+        <AIConfigWizard
+          isOpen={isAIWizardOpen}
+          onClose={onAIWizardClose}
+          onSuccess={() => {
+            loadConfig()
+            onAIWizardClose()
+          }}
+        />
       </VStack>
     </Container>
   )

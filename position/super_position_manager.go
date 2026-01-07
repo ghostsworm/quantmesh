@@ -151,11 +151,16 @@ type ReconciliationStorage interface {
 	GetReconciliationCount(symbol string) (int64, error)
 }
 
+// ITrendDetector 趋势检测器接口（避免循环导入）
+type ITrendDetector interface {
+	GetCurrentTrend() string
+}
+
 // SuperPositionManager 超级仓位管理器
 type SuperPositionManager struct {
-	config   *config.Config
-	executor OrderExecutorInterface
-	exchange IExchange
+	config       *config.Config
+	executor     OrderExecutorInterface
+	exchange     IExchange
 	exchangeName string // 交易所名称（配置中的名称，如 "binance"）
 
 	// 价格锚点（初始化时的市场价格）
@@ -174,6 +179,10 @@ type SuperPositionManager struct {
 	insufficientMargin bool
 	marginLockTime     time.Time
 	marginLockDuration time.Duration
+
+	// 风险监控状态
+	peakPnL       float64        // 记录最高未实现盈亏（用于回撤止盈）
+	trendDetector ITrendDetector // 趋势检测器
 
 	// 资金分配管理器
 	allocationManager *AllocationManager
@@ -223,6 +232,7 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		marginLockDuration: time.Duration(marginLockSec) * time.Second,
 		priceDecimals:      priceDecimals,
 		quantityDecimals:   quantityDecimals,
+		peakPnL:            -math.MaxFloat64, // 初始化为一个极小值
 		tradeStorage:       nil,              // 默认不保存交易记录，可通过 SetTradeStorage 设置
 		allocationManager:  NewAllocationManager(cfg), // 初始化资金分配管理器
 	}
@@ -241,6 +251,13 @@ func (spm *SuperPositionManager) SetEventBus(eventBus EventBus) {
 // SetTradeStorage 设置交易存储接口（用于保存交易记录）
 func (spm *SuperPositionManager) SetTradeStorage(storage TradeStorage) {
 	spm.tradeStorage = storage
+}
+
+// SetTrendDetector 设置趋势检测器
+func (spm *SuperPositionManager) SetTrendDetector(td ITrendDetector) {
+	spm.mu.Lock()
+	defer spm.mu.Unlock()
+	spm.trendDetector = td
 }
 
 // Initialize 初始化管理器（设置价格锚点并创建初始槽位）
@@ -376,6 +393,57 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 更新最后市场价格（用于打印状态）
 	spm.lastMarketPrice.Store(currentPrice)
 
+	// === 网格风控逻辑开始 ===
+	if spm.config.Trading.GridRiskControl.Enabled {
+		// 1. 硬为止损检查
+		stopLossRatio := spm.config.Trading.GridRiskControl.StopLossRatio
+		if stopLossRatio > 0 {
+			unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
+			totalValue := spm.calculateTotalPositionValue(currentPrice)
+			if totalValue > 0 {
+				pnlRatio := unrealizedPnL / totalValue
+				if pnlRatio <= -stopLossRatio {
+					logger.Error("🚨 [网格风控] 触发硬为止损! 当前浮亏率: %.2f%%, 阈值: %.2f%%", pnlRatio*100, -stopLossRatio*100)
+					spm.LiquidateAll()
+					return nil
+				}
+			}
+		}
+
+		// 2. 动态止盈 (盈利回撤止盈) 检查
+		triggerRatio := spm.config.Trading.GridRiskControl.TakeProfitTriggerRatio
+		trailingRatio := spm.config.Trading.GridRiskControl.TrailingTakeProfitRatio
+		if triggerRatio > 0 && trailingRatio > 0 {
+			unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
+			totalValue := spm.calculateTotalPositionValue(currentPrice)
+			if totalValue > 0 {
+				currentProfitRatio := unrealizedPnL / totalValue
+				
+				// 更新最高盈利
+				if currentProfitRatio > spm.peakPnL {
+					spm.peakPnL = currentProfitRatio
+					logger.Debug("💰 [网格风控] 更新最高盈利率: %.2f%%", spm.peakPnL*100)
+				}
+
+				// 如果盈利已经超过触发阈值，且从最高点回撤超过 trailingRatio
+				if spm.peakPnL >= triggerRatio {
+					drawdown := spm.peakPnL - currentProfitRatio
+					if drawdown >= trailingRatio {
+						logger.Warn("📈 [网格风控] 触发盈利回撤止盈! 最高盈利率: %.2f%%, 当前盈利率: %.2f%%, 回撤: %.2f%%, 阈值: %.2f%%",
+							spm.peakPnL*100, currentProfitRatio*100, drawdown*100, trailingRatio*100)
+						spm.LiquidateAll()
+						spm.peakPnL = -math.MaxFloat64 // 重置最高点
+						return nil
+					}
+				}
+			} else {
+				// 无持仓时重置最高盈利点
+				spm.peakPnL = -math.MaxFloat64
+			}
+		}
+	}
+	// === 网格风控逻辑结束 ===
+
 	// 检查保证金不足状态
 	if spm.insufficientMargin {
 		if time.Since(spm.marginLockTime) >= spm.marginLockDuration {
@@ -446,7 +514,33 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 1. 处理买单
 	buyOrdersToCreate := 0
 
+	// 趋势过滤与层数限制预检查
+	skipBuying := false
+	if spm.config.Trading.GridRiskControl.Enabled {
+		// 趋势过滤
+		if spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil {
+			trend := spm.trendDetector.GetCurrentTrend()
+			if trend == "down" {
+				logger.Warn("📉 [趋势过滤] 检测到下跌趋势，暂停买入")
+				skipBuying = true
+			}
+		}
+
+		// 层数限制
+		maxLayers := spm.config.Trading.GridRiskControl.MaxGridLayers
+		if maxLayers > 0 {
+			currentLayers := spm.GetActiveLayers()
+			if currentLayers >= maxLayers {
+				logger.Warn("🚫 [层数限制] 当前持仓层数 (%d) 已达到最大值 (%d)，暂停买入", currentLayers, maxLayers)
+				skipBuying = true
+			}
+		}
+	}
+
 	for _, price := range slotPrices {
+		if skipBuying {
+			break
+		}
 		slot := spm.getOrCreateSlot(price)
 		slot.mu.Lock()
 
@@ -1386,6 +1480,83 @@ func (spm *SuperPositionManager) CancelAllBuyOrders() {
 	logger.Info("✅ [撤销买单] 清理完成")
 }
 
+// LiquidateAll 全平仓位（风控或止损触发时使用）
+func (spm *SuperPositionManager) LiquidateAll() {
+	logger.Warn("🚨 [全平仓] 正在执行全平操作，撤销所有买单并市价平仓所有持仓...")
+
+	// 1. 撤销所有买单
+	spm.CancelAllBuyOrders()
+
+	// 2. 收集所有持仓槽位并提交卖单
+	var sellOrders []*OrderRequest
+	spm.slots.Range(func(key, value interface{}) bool {
+		price := key.(float64)
+		slot := value.(*InventorySlot)
+
+		slot.mu.Lock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			// 如果已有订单，先尝试撤销
+			if slot.OrderID > 0 {
+				logger.Info("🔄 [全平仓] 撤销槽位 %s 的现有订单 %d", formatPrice(price, spm.priceDecimals), slot.OrderID)
+				spm.executor.BatchCancelOrders([]int64{slot.OrderID})
+			}
+
+			// 标记为 PENDING
+			slot.SlotStatus = SlotStatusPending
+
+			// 构建卖单（使用当前市价或略低于市价的价格以确保成交，这里简单使用当前锚点价格附近的卖出逻辑）
+			// 实际上由于是全平，最好的方式是下市价单或极优价格的限价单
+			// 这里复用 AdjustOrders 中的逻辑，使用槽位价格加一个间隔作为卖价，或者根据当前价格调整
+			
+			// 获取最后价格
+			lastPrice, _ := spm.lastMarketPrice.Load().(float64)
+			if lastPrice <= 0 {
+				lastPrice = price
+			}
+
+			sellPrice := lastPrice * 0.99 // 使用略低于市价的价格确保成交（限价平仓）
+			sellPrice = roundPrice(sellPrice, spm.priceDecimals)
+
+			clientOID := spm.generateClientOrderID(price, "SELL")
+
+			sellOrders = append(sellOrders, &OrderRequest{
+				Symbol:        spm.config.Trading.Symbol,
+				Side:          "SELL",
+				Price:         sellPrice,
+				Quantity:      slot.PositionQty,
+				PriceDecimals: spm.priceDecimals,
+				ReduceOnly:    true,
+				PostOnly:      false, // 强制平仓不使用 PostOnly
+				ClientOrderID: clientOID,
+			})
+		}
+		slot.mu.Unlock()
+		return true
+	})
+
+	if len(sellOrders) > 0 {
+		logger.Info("🔄 [全平仓] 提交 %d 个平仓卖单", len(sellOrders))
+		result := spm.executor.BatchPlaceOrdersWithDetails(sellOrders)
+		
+		// 更新槽位状态
+		for _, ord := range result.PlacedOrders {
+			price, _, valid := spm.parseClientOrderID(ord.ClientOrderID)
+			if valid {
+				slot := spm.getOrCreateSlot(price)
+				slot.mu.Lock()
+				slot.OrderID = ord.OrderID
+				slot.ClientOID = ord.ClientOrderID
+				slot.OrderSide = "SELL"
+				slot.OrderStatus = OrderStatusPlaced
+				slot.SlotStatus = SlotStatusLocked
+				slot.mu.Unlock()
+			}
+		}
+	} else {
+		logger.Info("ℹ️ [全平仓] 没有发现需要平仓的持仓")
+	}
+}
+
 // ===== 对账功能已迁移到 safety.Reconciler =====
 // StartReconciliation 和 Reconcile 方法已移至 safety/reconciler.go
 // SetPauseChecker 也已移至 Reconciler
@@ -1768,4 +1939,51 @@ func roundPrice(price float64, decimals int) float64 {
 // formatPrice 格式化价格字符串，使用指定的小数位数
 func formatPrice(price float64, decimals int) string {
 	return fmt.Sprintf("%.*f", decimals, price)
+}
+
+// calculateUnrealizedPnL 计算未实现盈亏
+func (spm *SuperPositionManager) calculateUnrealizedPnL(currentPrice float64) float64 {
+	totalPnL := 0.0
+	spm.slots.Range(func(key, value interface{}) bool {
+		slotPrice := key.(float64)
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			// 盈亏 = (当前价格 - 买入价格) * 数量
+			totalPnL += (currentPrice - slotPrice) * slot.PositionQty
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	return totalPnL
+}
+
+// calculateTotalPositionValue 计算当前持仓总价值
+func (spm *SuperPositionManager) calculateTotalPositionValue(currentPrice float64) float64 {
+	totalValue := 0.0
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			totalValue += currentPrice * slot.PositionQty
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	return totalValue
+}
+
+// GetActiveLayers 统计当前持仓层数
+func (spm *SuperPositionManager) GetActiveLayers() int {
+	layers := 0
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			layers++
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	return layers
 }
