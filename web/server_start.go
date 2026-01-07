@@ -30,7 +30,19 @@ func NewWebServer(cfg *config.Config) *WebServer {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	r := gin.Default()
+	// 初始化 Web 日志文件
+	if err := logger.InitWebLogger(); err != nil {
+		logger.Warn("⚠️ 初始化 Web 日志文件失败: %v，Web 请求日志将不会被记录", err)
+	}
+
+	// 使用 gin.New() 代替 gin.Default()，手动添加中间件
+	r := gin.New()
+	
+	// 添加 Recovery 中间件（panic 恢复）
+	r.Use(gin.Recovery())
+	
+	// 添加自定义日志中间件（只记录错误请求）
+	r.Use(GinLoggerMiddleware())
 
 	// 添加 i18n 中间件
 	r.Use(I18nMiddleware())

@@ -25,12 +25,18 @@ var (
 	globalLevel LogLevel = INFO
 	mu          sync.RWMutex
 
-	// 文件日志相关
+	// 应用日志文件相关
 	fileLogger  *log.Logger
 	logFile     *os.File
 	currentDate string
 	fileMu      sync.Mutex
-	logDir      = "log" // 日志文件夹
+	logDir      = "logs" // 日志文件夹
+
+	// Web 日志文件相关
+	webFileLogger  *log.Logger
+	webLogFile     *os.File
+	webCurrentDate string
+	webFileMu      sync.Mutex
 
 	// 时区相关
 	globalLocation *time.Location = time.Local
@@ -176,8 +182,8 @@ func initFileLogger() {
 		return
 	}
 
-	// 创建日志文件（按日期命名）
-	logFileName := filepath.Join(logDir, fmt.Sprintf("quantmesh-%s.log", today))
+	// 创建应用日志文件（按日期命名）
+	logFileName := filepath.Join(logDir, fmt.Sprintf("app-quantmesh-%s.log", today))
 	file, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		// 如果打开失败，只输出到控制台
@@ -227,8 +233,8 @@ func checkAndRotateLog() {
 			return
 		}
 
-		// 创建新的日志文件
-		logFileName := filepath.Join(logDir, fmt.Sprintf("quantmesh-%s.log", today))
+		// 创建新的应用日志文件
+		logFileName := filepath.Join(logDir, fmt.Sprintf("app-quantmesh-%s.log", today))
 		file, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return
@@ -247,9 +253,116 @@ func InitLogStorage(writer func(level, message string)) {
 	logStorageWriter = writer
 }
 
+// InitWebLogger 初始化 Web 日志文件
+func InitWebLogger() error {
+	webFileMu.Lock()
+	defer webFileMu.Unlock()
+
+	locationMu.RLock()
+	loc := globalLocation
+	locationMu.RUnlock()
+
+	today := time.Now().In(loc).Format("2006-01-02")
+	
+	// 如果已经初始化且日期相同，不需要重新初始化
+	if webFileLogger != nil && webCurrentDate == today {
+		return nil
+	}
+
+	// 关闭旧文件
+	if webLogFile != nil {
+		webLogFile.Close()
+		webLogFile = nil
+	}
+
+	// 创建logs文件夹
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return fmt.Errorf("创建日志文件夹失败: %v", err)
+	}
+
+	// 创建 Web 日志文件（按日期命名）
+	logFileName := filepath.Join(logDir, fmt.Sprintf("web-gin-%s.log", today))
+	file, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("打开 Web 日志文件失败: %v", err)
+	}
+
+	webLogFile = file
+	webCurrentDate = today
+	webFileLogger = log.New(file, "", 0)
+
+	log.Printf("[INFO] Web 日志文件已启用: %s", logFileName)
+	return nil
+}
+
+// closeWebLogger 关闭 Web 日志文件
+func closeWebLogger() {
+	webFileMu.Lock()
+	defer webFileMu.Unlock()
+
+	if webLogFile != nil {
+		webLogFile.Close()
+		webLogFile = nil
+		webFileLogger = nil
+		webCurrentDate = ""
+	}
+}
+
+// checkAndRotateWebLog 检查并轮转 Web 日志文件（如果需要）
+// 注意：调用此函数前必须已持有 webFileMu 锁
+func checkAndRotateWebLog() {
+	locationMu.RLock()
+	loc := globalLocation
+	locationMu.RUnlock()
+
+	today := time.Now().In(loc).Format("2006-01-02")
+	if webCurrentDate != today {
+		// 日期变化，重新初始化 Web 日志文件
+		if webLogFile != nil {
+			webLogFile.Close()
+			webLogFile = nil
+		}
+
+		// 创建logs文件夹
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			return
+		}
+
+		// 创建新的 Web 日志文件
+		logFileName := filepath.Join(logDir, fmt.Sprintf("web-gin-%s.log", today))
+		file, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return
+		}
+
+		webLogFile = file
+		webCurrentDate = today
+		webFileLogger = log.New(file, "", 0)
+	}
+}
+
+// WriteWebLog 写入 Web 日志（供 Gin 中间件使用）
+func WriteWebLog(message string) {
+	webFileMu.Lock()
+	defer webFileMu.Unlock()
+
+	// 检查是否需要轮转日志文件
+	checkAndRotateWebLog()
+
+	if webFileLogger != nil {
+		locationMu.RLock()
+		loc := globalLocation
+		locationMu.RUnlock()
+		
+		// 写入文件（包含时间戳）
+		webFileLogger.Printf("%s %s", time.Now().In(loc).Format("2006/01/02 15:04:05"), message)
+	}
+}
+
 // Close 关闭文件日志（程序退出时调用）
 func Close() {
 	closeFileLogger()
+	closeWebLogger()
 	// 清理日志存储写入器
 	logStorageMu.Lock()
 	defer logStorageMu.Unlock()

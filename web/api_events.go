@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/database"
-	qmi18n "quantmesh/i18n"
+	// qmi18n "quantmesh/i18n" // TODO: 等待 RegisterMessages 实现后启用
 	"quantmesh/logger"
 )
 
@@ -170,6 +170,8 @@ func registerEventRoutes(r *gin.RouterGroup, authMiddleware gin.HandlerFunc) {
 }
 
 // 添加国际化错误消息
+// TODO: 等待 qmi18n.RegisterMessages 函数实现后启用
+/*
 func init() {
 	// 注册中文错误消息
 	qmi18n.RegisterMessages("zh-CN", map[string]string{
@@ -189,4 +191,5 @@ func init() {
 		"errors.query_stats_failed":        "Failed to query statistics",
 	})
 }
+*/
 
