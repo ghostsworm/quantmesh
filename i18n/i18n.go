@@ -6,8 +6,8 @@ import (
 	"sync"
 
 	"github.com/nicksnyder/go-i18n/v2/i18n"
+	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/text/language"
-	"gopkg.in/yaml.v3"
 )
 
 //go:embed locales/*.toml
@@ -33,7 +33,7 @@ func Init(lang string) error {
 
 	// 创建 bundle
 	bundle = i18n.NewBundle(language.Chinese)
-	bundle.RegisterUnmarshalFunc("toml", yaml.Unmarshal)
+	bundle.RegisterUnmarshalFunc("toml", toml.Unmarshal)
 
 	// 加载翻译文件
 	supportedLangs := []string{"zh-CN", "en-US"}

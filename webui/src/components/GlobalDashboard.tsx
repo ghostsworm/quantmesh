@@ -327,7 +327,7 @@ const GlobalDashboard: React.FC = () => {
         {/* 交易所列表 */}
         <Box>
           <Heading size="md" mb={6} px={2}>交易所概览</Heading>
-          <Accordion allowMultiple defaultIndex={[]}>
+          <Accordion allowMultiple defaultIndex={exchangeData.map((_, index) => index)}>
             {exchangeData.map((exchange) => {
               const exchangeKey = exchange.exchange.toLowerCase()
               return (

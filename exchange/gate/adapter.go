@@ -613,8 +613,18 @@ func (g *GateAdapter) GetLatestPrice(ctx context.Context, symbol string) (float6
 		return price, nil
 	}
 
-	// 降级：使用 REST API 查询（这里需要实现 ticker 接口）
-	// 暂时返回缓存价格
+	// 降级：使用 REST API 查询期货价格
+	price, err := g.GetFuturesPrice(ctx, symbol)
+	if err == nil && price > 0 {
+		// 更新缓存
+		g.priceCacheMu.Lock()
+		g.priceCache = price
+		g.priceCacheTime = time.Now()
+		g.priceCacheMu.Unlock()
+		return price, nil
+	}
+
+	// 最后尝试返回缓存价格
 	g.priceCacheMu.RLock()
 	defer g.priceCacheMu.RUnlock()
 
@@ -755,6 +765,39 @@ func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float6
 	}
 
 	return 0, fmt.Errorf("未找到交易对 %s 的资金费率", symbol)
+}
+
+// GetFuturesPrice 获取期货市场价格
+func (g *GateAdapter) GetFuturesPrice(ctx context.Context, symbol string) (float64, error) {
+	// Gate.io 期货 API: GET /api/v4/futures/{settle}/tickers
+	path := fmt.Sprintf("/futures/%s/tickers", g.settle)
+	queryString := fmt.Sprintf("contract=%s", g.gateSymbol)
+
+	respBody, err := g.client.DoRequest(ctx, "GET", path, queryString, nil)
+	if err != nil {
+		return 0, fmt.Errorf("获取期货价格失败: %w", err)
+	}
+
+	// 解析响应
+	var results []struct {
+		Contract string `json:"contract"`
+		Last     string `json:"last"`
+	}
+
+	if err := json.Unmarshal(respBody, &results); err != nil {
+		return 0, fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	if len(results) == 0 {
+		return 0, fmt.Errorf("未找到合约 %s 的期货价格", g.gateSymbol)
+	}
+
+	price, err := strconv.ParseFloat(results[0].Last, 64)
+	if err != nil {
+		return 0, fmt.Errorf("解析价格失败: %w", err)
+	}
+
+	return price, nil
 }
 
 // GetSpotPrice 获取现货市场价格

@@ -213,11 +213,13 @@ type Config struct {
 
 		// 通知规则：哪些事件需要通知
 		Rules struct {
-			OrderPlaced   bool `yaml:"order_placed"`
-			OrderFilled   bool `yaml:"order_filled"`
-			RiskTriggered bool `yaml:"risk_triggered"`
-			StopLoss      bool `yaml:"stop_loss"`
-			Error         bool `yaml:"error"`
+			OrderPlaced        bool `yaml:"order_placed"`
+			OrderFilled        bool `yaml:"order_filled"`
+			RiskTriggered      bool `yaml:"risk_triggered"`
+			StopLoss           bool `yaml:"stop_loss"`
+			Error              bool `yaml:"error"`
+			MarginInsufficient bool `yaml:"margin_insufficient"` // 保证金不足
+			AllocationExceeded bool `yaml:"allocation_exceeded"` // 超出资金分配限制
 		} `yaml:"rules"`
 	} `yaml:"notifications"`
 
@@ -293,6 +295,12 @@ type Config struct {
 		EndTime        string  `yaml:"end_time"`        // 结束时间
 		InitialCapital float64 `yaml:"initial_capital"` // 初始资金
 	} `yaml:"backtest"`
+
+	// 仓位资金分配管理
+	PositionAllocation struct {
+		Enabled     bool                `yaml:"enabled"`
+		Allocations []SymbolAllocation  `yaml:"allocations"`
+	} `yaml:"position_allocation"`
 
 	// 监控配置
 	Metrics struct {
@@ -460,6 +468,14 @@ type ExchangeConfig struct {
 	Passphrase string  `yaml:"passphrase"` // Bitget 需要
 	FeeRate    float64 `yaml:"fee_rate"`   // 手续费率（例如 0.0002 表示 0.02%）
 	Testnet    bool    `yaml:"testnet"`    // 是否使用测试网（默认 false）
+}
+
+// SymbolAllocation 单个币种的资金分配配置
+type SymbolAllocation struct {
+	Exchange      string  `yaml:"exchange"`
+	Symbol        string  `yaml:"symbol"`
+	MaxAmountUSDT float64 `yaml:"max_amount_usdt"` // 固定金额限制
+	MaxPercentage float64 `yaml:"max_percentage"`  // 账户余额百分比限制
 }
 
 // LoadConfig 加载配置文件

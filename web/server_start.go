@@ -61,11 +61,13 @@ func (ws *WebServer) Start(ctx context.Context) error {
 	}
 
 	go func() {
-		logger.Info("🌐 Web服务器启动在 http://%s:%d", ws.cfg.Web.Host, ws.cfg.Web.Port)
+		logger.Info("🌐 Web服务器正在启动，监听地址: http://%s:%d", ws.cfg.Web.Host, ws.cfg.Web.Port)
 		if err := ws.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("❌ Web服务器启动失败: %v", err)
 		}
 	}()
+	// 给 goroutine 一点时间启动，确保日志能输出
+	time.Sleep(100 * time.Millisecond)
 
 	// 等待context取消
 	go func() {

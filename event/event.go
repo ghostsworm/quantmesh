@@ -10,18 +10,20 @@ import (
 type EventType string
 
 const (
-	EventTypeOrderPlaced    EventType = "order_placed"
-	EventTypeOrderFilled    EventType = "order_filled"
-	EventTypeOrderCanceled  EventType = "order_canceled"
-	EventTypePositionOpened EventType = "position_opened"
-	EventTypePositionClosed EventType = "position_closed"
-	EventTypeRiskTriggered  EventType = "risk_triggered"
-	EventTypeRiskRecovered  EventType = "risk_recovered"
-	EventTypeStopLoss       EventType = "stop_loss"
-	EventTypeTakeProfit     EventType = "take_profit"
-	EventTypeError          EventType = "error"
-	EventTypeSystemStart    EventType = "system_start"
-	EventTypeSystemStop     EventType = "system_stop"
+	EventTypeOrderPlaced        EventType = "order_placed"
+	EventTypeOrderFilled        EventType = "order_filled"
+	EventTypeOrderCanceled      EventType = "order_canceled"
+	EventTypePositionOpened     EventType = "position_opened"
+	EventTypePositionClosed     EventType = "position_closed"
+	EventTypeRiskTriggered      EventType = "risk_triggered"
+	EventTypeRiskRecovered      EventType = "risk_recovered"
+	EventTypeStopLoss           EventType = "stop_loss"
+	EventTypeTakeProfit         EventType = "take_profit"
+	EventTypeError              EventType = "error"
+	EventTypeSystemStart        EventType = "system_start"
+	EventTypeSystemStop         EventType = "system_stop"
+	EventTypeMarginInsufficient EventType = "margin_insufficient" // 保证金不足
+	EventTypeAllocationExceeded EventType = "allocation_exceeded" // 超出资金分配限制
 )
 
 // Event 事件结构

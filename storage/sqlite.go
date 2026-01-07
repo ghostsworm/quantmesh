@@ -310,8 +310,9 @@ func migrateReconciliationHistory(db *sql.DB) error {
 
 // migrateTradesTable 迁移 trades 表，添加 exchange 字段
 func migrateTradesTable(db *sql.DB) error {
+	logger.Info("🔧 开始检查 trades 表结构...")
+	
 	// 检查 exchange 列是否存在
-	// SQLite 的 pragma_table_info 返回表信息，需要查询 name 列
 	rows, err := db.Query(`PRAGMA table_info(trades)`)
 	if err != nil {
 		return fmt.Errorf("检查表结构失败: %w", err)
@@ -337,16 +338,18 @@ func migrateTradesTable(db *sql.DB) error {
 	}
 
 	if !hasExchangeColumn {
-		// exchange 列不存在，需要添加
 		logger.Info("🔄 开始迁移 trades 表：添加 exchange 字段")
 
-		// 添加 exchange 列（允许 NULL，因为现有数据没有这个字段）
+		// 添加 exchange 列
+		logger.Info("🔧 添加 exchange 列...")
 		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN exchange TEXT`)
 		if err != nil {
 			return fmt.Errorf("添加 exchange 列失败: %w", err)
 		}
+		logger.Info("✅ exchange 列添加成功")
 
-		// 更新现有数据：将所有现有交易的 exchange 设置为 binance（因为历史数据都是币安的）
+		// 更新现有数据
+		logger.Info("🔧 更新历史数据...")
 		result, err := db.Exec(`UPDATE trades SET exchange = 'binance' WHERE exchange IS NULL`)
 		if err != nil {
 			return fmt.Errorf("更新现有数据失败: %w", err)
@@ -356,26 +359,18 @@ func migrateTradesTable(db *sql.DB) error {
 		logger.Info("✅ 迁移完成：已更新 %d 条历史交易记录的 exchange 字段为 binance", rowsAffected)
 
 		// 创建索引
+		logger.Info("🔧 创建索引...")
 		_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_trades_exchange_symbol ON trades(exchange, symbol)`)
 		if err != nil {
 			logger.Warn("⚠️ 创建索引失败: %v", err)
+		} else {
+			logger.Info("✅ 索引创建成功")
 		}
 	} else {
-		// 列已存在，但检查是否有 NULL 值需要更新
-		var nullCount int64
-		err := db.QueryRow(`SELECT COUNT(*) FROM trades WHERE exchange IS NULL`).Scan(&nullCount)
-		if err == nil && nullCount > 0 {
-			logger.Info("🔄 发现 %d 条记录的 exchange 字段为 NULL，正在更新为 binance...", nullCount)
-			result, err := db.Exec(`UPDATE trades SET exchange = 'binance' WHERE exchange IS NULL`)
-			if err != nil {
-				logger.Warn("⚠️ 更新 NULL 值失败: %v", err)
-			} else {
-				rowsAffected, _ := result.RowsAffected()
-				logger.Info("✅ 已更新 %d 条记录的 exchange 字段为 binance", rowsAffected)
-			}
-		}
+		logger.Info("✅ exchange 列已存在，跳过迁移")
 	}
 
+	logger.Info("✅ trades 表迁移检查完成")
 	return nil
 }
 

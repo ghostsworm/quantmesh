@@ -115,6 +115,12 @@ func formatTelegramMessage(evt *event.Event) string {
 	case event.EventTypeSystemStop:
 		emoji = "🛑"
 		title = "系统停止"
+	case event.EventTypeMarginInsufficient:
+		emoji = "⚠️"
+		title = "保证金不足"
+	case event.EventTypeAllocationExceeded:
+		emoji = "🚫"
+		title = "超出资金分配限制"
 	default:
 		emoji = "ℹ️"
 		title = "系统通知"

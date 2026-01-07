@@ -80,6 +80,10 @@ func (ns *NotificationService) shouldNotify(eventType event.EventType) bool {
 		return rules.StopLoss
 	case event.EventTypeError:
 		return rules.Error
+	case event.EventTypeMarginInsufficient:
+		return rules.MarginInsufficient
+	case event.EventTypeAllocationExceeded:
+		return rules.AllocationExceeded
 	default:
 		// 其他事件默认通知
 		return true

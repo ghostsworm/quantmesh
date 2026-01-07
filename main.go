@@ -459,9 +459,12 @@ func main() {
 	defer cancel()
 
 	// 事件总线 & 通知 & 存储
+	logger.Info("🔧 正在初始化事件总线...")
 	eventBus := event.NewEventBus(1000)
+	logger.Info("🔧 正在初始化通知服务...")
 	notifier := notify.NewNotificationService(cfg)
 
+	logger.Info("🔧 正在初始化存储服务...")
 	storageService, err := storage.NewStorageService(cfg, ctx)
 	if err != nil {
 		logger.Warn("⚠️ 初始化存储服务失败: %v (将继续运行，但不保存数据)", err)
@@ -469,6 +472,7 @@ func main() {
 	} else if cfg.Storage.Enabled {
 		storageService.Start()
 	}
+	logger.Info("✅ 存储服务初始化完成")
 
 	// 事件处理器
 	go func() {
@@ -493,11 +497,13 @@ func main() {
 	}()
 
 	// 初始化 Prometheus 系统指标采集器
+	logger.Info("🔧 正在初始化 Prometheus 系统指标采集器...")
 	systemMetricsCollector := metrics.NewSystemMetricsCollector(10 * time.Second)
 	systemMetricsCollector.Start()
 	logger.Info("✅ Prometheus 系统指标采集器已启动")
 
 	// 初始化分布式锁（多实例模式）
+	logger.Info("🔧 正在初始化分布式锁...")
 	var distributedLock lock.DistributedLock
 	lockConfig := &lock.Config{
 		Enabled:    cfg.DistributedLock.Enabled,
@@ -545,6 +551,7 @@ func main() {
 	}
 
 	// 初始化 Watchdog（系统监控）
+	logger.Info("🔧 正在初始化系统监控...")
 	var watchdog *monitor.Watchdog
 	if cfg.Watchdog.Enabled {
 		watchdog = monitor.NewWatchdog(cfg, storageService, globalLogStorage, notifier)
@@ -605,6 +612,7 @@ func main() {
 	// Web 服务器
 	var webServer *web.WebServer
 	if cfg.Web.Enabled {
+		logger.Info("🌐 开始初始化 Web 服务器...")
 		// 初始化密码管理器
 		passwordManager, err := web.NewPasswordManager("./data")
 		if err != nil {
@@ -654,12 +662,22 @@ func main() {
 			logger.Info("✅ 日志存储提供者已设置")
 		}
 
+		logger.Info("🔧 正在创建 Web 服务器实例...")
 		webServer = web.NewWebServer(cfg)
-		if err := webServer.Start(ctx); err != nil {
-			logger.Error("❌ 启动Web服务器失败: %v", err)
+		if webServer == nil {
+			logger.Warn("⚠️ Web 服务器未创建（可能配置中 Web.Enabled=false）")
 		} else {
-			logger.Info("✅ Web服务器已启动，可通过 http://%s:%d 访问", cfg.Web.Host, cfg.Web.Port)
+			logger.Info("🔧 正在启动 Web 服务器...")
+			if err := webServer.Start(ctx); err != nil {
+				logger.Error("❌ 启动Web服务器失败: %v", err)
+			} else {
+				logger.Info("✅ Web服务器已启动，可通过 http://%s:%d 访问", cfg.Web.Host, cfg.Web.Port)
+				// 等待一下，确保 goroutine 中的日志也能输出
+				time.Sleep(200 * time.Millisecond)
+			}
 		}
+	} else {
+		logger.Info("ℹ️ Web 服务未启用（配置中 web.enabled=false）")
 	}
 
 	symbolManager := NewSymbolManager(cfg)
@@ -860,7 +878,11 @@ func main() {
 		logger.Info("ℹ️ Web 服务已启动，等待配置完成")
 	}
 
-	// 6. 等待从 WebSocket 获取初始价格
+	// 所有初始化完成，程序进入运行状态
+	logger.Info("✅ 系统初始化完成，程序正在运行中...")
+	logger.Info("💡 按 Ctrl+C 退出程序")
+
+	// 等待退出信号（SIGINT 或 SIGTERM）
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan

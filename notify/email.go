@@ -110,6 +110,10 @@ func formatEmailMessage(evt *event.Event) string {
 		title = "系统启动"
 	case event.EventTypeSystemStop:
 		title = "系统停止"
+	case event.EventTypeMarginInsufficient:
+		title = "保证金不足告警"
+	case event.EventTypeAllocationExceeded:
+		title = "超出资金分配限制"
 	default:
 		title = "系统通知"
 	}

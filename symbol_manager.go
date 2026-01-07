@@ -251,6 +251,10 @@ func startSymbolRuntime(
 		tradeStorageAdapter := &tradeStorageAdapter{storageService: storageService}
 		superPositionManager.SetTradeStorage(tradeStorageAdapter)
 	}
+	// 设置事件总线（用于发送告警）
+	if eventBus != nil {
+		superPositionManager.SetEventBus(eventBus)
+	}
 
 	riskMonitor := safety.NewRiskMonitor(&localCfg, ex)
 	if storageService != nil {

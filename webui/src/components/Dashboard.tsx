@@ -119,11 +119,11 @@ const Dashboard: React.FC = () => {
   const handleToggleTrading = async () => {
     try {
       if (isTrading) {
-        await stopTrading()
+        await stopTrading(selectedExchange || undefined, selectedSymbol || undefined)
         setIsTrading(false)
         toast({ title: t('dashboard.tradingStopped'), status: 'info', borderRadius: 'full' })
       } else {
-        await startTrading()
+        await startTrading(selectedExchange || undefined, selectedSymbol || undefined)
         setIsTrading(true)
         toast({ title: t('dashboard.tradingStarted'), status: 'success', borderRadius: 'full' })
       }

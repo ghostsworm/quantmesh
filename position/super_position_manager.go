@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/event"
 	"quantmesh/logger"
 	"quantmesh/utils"
 )
@@ -174,6 +175,12 @@ type SuperPositionManager struct {
 	marginLockTime     time.Time
 	marginLockDuration time.Duration
 
+	// 资金分配管理器
+	allocationManager *AllocationManager
+
+	// 事件总线（用于发送告警）
+	eventBus EventBus
+
 	// 统计（注意：以下字段被 safety.Reconciler 和 PrintPositions 使用，不可删除）
 	totalBuyQty       atomic.Value // float64 - 累计买入数量
 	totalSellQty      atomic.Value // float64 - 累计卖出数量
@@ -187,6 +194,11 @@ type SuperPositionManager struct {
 	isInitialized atomic.Bool
 
 	mu sync.RWMutex // 全局锁（用于关键操作）
+}
+
+// EventBus 事件总线接口
+type EventBus interface {
+	Publish(evt *event.Event)
 }
 
 // NewSuperPositionManager 创建超级仓位管理器
@@ -211,13 +223,19 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		marginLockDuration: time.Duration(marginLockSec) * time.Second,
 		priceDecimals:      priceDecimals,
 		quantityDecimals:   quantityDecimals,
-		tradeStorage:       nil, // 默认不保存交易记录，可通过 SetTradeStorage 设置
+		tradeStorage:       nil,              // 默认不保存交易记录，可通过 SetTradeStorage 设置
+		allocationManager:  NewAllocationManager(cfg), // 初始化资金分配管理器
 	}
 	spm.totalBuyQty.Store(0.0)
 	spm.totalSellQty.Store(0.0)
 	spm.lastReconcileTime.Store(time.Now())
 	spm.lastMarketPrice.Store(0.0)
 	return spm
+}
+
+// SetEventBus 设置事件总线
+func (spm *SuperPositionManager) SetEventBus(eventBus EventBus) {
+	spm.eventBus = eventBus
 }
 
 // SetTradeStorage 设置交易存储接口（用于保存交易记录）
@@ -615,6 +633,53 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
+	// 执行下单前，检查资金分配
+	if len(ordersToPlace) > 0 {
+		// 获取账户余额（暂时使用0，后续可以通过其他方式获取）
+		var accountBalance float64 = 0
+
+		// 过滤掉超出资金分配的订单
+		var validOrders []*OrderRequest
+		for _, req := range ordersToPlace {
+			orderAmount := req.Quantity * req.Price
+			err := spm.allocationManager.CheckAndReserve(
+				spm.exchangeName,
+				spm.config.Trading.Symbol,
+				orderAmount,
+				accountBalance,
+			)
+
+			if err != nil {
+				logger.Warn("⚠️ [资金分配] %v", err)
+				// 触发告警事件
+				if spm.eventBus != nil {
+					spm.eventBus.Publish(&event.Event{
+						Type: event.EventTypeAllocationExceeded,
+						Data: map[string]interface{}{
+							"exchange": spm.exchangeName,
+							"symbol":   spm.config.Trading.Symbol,
+							"error":    err.Error(),
+							"amount":   orderAmount,
+						},
+					})
+				}
+				// 释放槽位锁
+				if price, _, valid := spm.parseClientOrderID(req.ClientOrderID); valid {
+					slot := spm.getOrCreateSlot(price)
+					slot.mu.Lock()
+					if slot.SlotStatus == SlotStatusPending {
+						slot.SlotStatus = SlotStatusFree
+					}
+					slot.mu.Unlock()
+				}
+				continue
+			}
+			validOrders = append(validOrders, req)
+		}
+
+		ordersToPlace = validOrders
+	}
+
 	// 执行下单
 	if len(ordersToPlace) > 0 {
 		logger.Debug("🔄 [实时调整] 需要新增: %d 个订单", len(ordersToPlace))
@@ -625,6 +690,20 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			spm.insufficientMargin = true
 			spm.marginLockTime = time.Now()
 			spm.CancelAllBuyOrders()
+
+			// 发送保证金不足告警事件
+			if spm.eventBus != nil {
+				spm.eventBus.Publish(&event.Event{
+					Type: event.EventTypeMarginInsufficient,
+					Data: map[string]interface{}{
+						"exchange":      spm.exchangeName,
+						"symbol":        spm.config.Trading.Symbol,
+						"failed_orders": len(result.PlacedOrders),
+						"error_message": "保证金不足，已暂停下单",
+						"lock_duration": int(spm.marginLockDuration.Seconds()),
+					},
+				})
+			}
 		}
 
 		// 🔥 构建成功订单的ClientOrderID集合

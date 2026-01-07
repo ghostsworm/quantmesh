@@ -103,6 +103,10 @@ func SetupRoutes(r *gin.Engine) {
 			protected.GET("/statistics/anomalous-trades", getAnomalousTrades)
 			protected.GET("/reconciliation/status", getReconciliationStatus)
 
+			// 资金分配管理 API
+			protected.GET("/allocation/status", getAllocationStatus)
+			protected.GET("/allocation/status/:exchange/:symbol", getAllocationStatusBySymbol)
+
 			// SaaS 管理 API
 			saas := protected.Group("/saas")
 			{

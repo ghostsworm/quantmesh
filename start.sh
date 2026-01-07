@@ -1,7 +1,4 @@
 #!/bin/bash
-# 使用 HTTP 端口（不是 SOCKS5 端口）
-export https_proxy=http://127.0.0.1:7890
-export http_proxy=http://127.0.0.1:7890
 # QuantMesh Market Maker 启动/重启脚本
 # 功能：
 # 1. 检查并杀掉旧进程（重启模式）
@@ -340,7 +337,9 @@ check_and_build() {
         # 再构建后端
         log_info "构建后端..."
         cd "${SCRIPT_DIR}"
-        go build -o "${BINARY_NAME}" .
+        # 只编译主程序文件，排除测试和回测文件
+        go build -o "${BINARY_NAME}" -tags="!test" main.go symbol_manager.go 2>/dev/null || \
+        go build -o "${BINARY_NAME}" $(find . -maxdepth 1 -name "*.go" ! -name "*_test.go" ! -name "test_*.go" ! -name "run_*.go" ! -name "analyze_*.go" | tr '\n' ' ')
         if [ $? -ne 0 ]; then
             log_error "后端构建失败"
             exit 1
