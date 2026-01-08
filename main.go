@@ -474,6 +474,27 @@ func main() {
 	}
 	logger.Info("✅ 存储服务初始化完成")
 
+	// 初始化数据库（可选，用于未来迁移）
+	var db database.Database
+	if cfg.Database.Type != "" && cfg.Database.DSN != "" {
+		dbConfig := &database.Config{
+			Type:            cfg.Database.Type,
+			DSN:             cfg.Database.DSN,
+			MaxOpenConns:    cfg.Database.MaxOpenConns,
+			MaxIdleConns:    cfg.Database.MaxIdleConns,
+			ConnMaxLifetime: time.Duration(cfg.Database.ConnMaxLifetime) * time.Second,
+			LogLevel:        cfg.Database.LogLevel,
+		}
+		db, err = database.NewDatabase(dbConfig)
+		if err != nil {
+			logger.Warn("⚠️ 初始化数据库失败: %v (将继续使用现有存储)", err)
+			db = nil
+		} else {
+			defer db.Close()
+			logger.Info("✅ 数据库已初始化 (类型: %s)", cfg.Database.Type)
+		}
+	}
+
 	// 初始化事件中心
 	logger.Info("🔧 正在初始化事件中心...")
 	eventCenterConfig := &event.EventCenterConfig{
@@ -553,27 +574,6 @@ func main() {
 		logger.Info("✅ 分布式锁已启用 (类型: %s, 实例: %s)", cfg.DistributedLock.Type, cfg.Instance.ID)
 	} else {
 		logger.Info("ℹ️ 分布式锁未启用（单机模式）")
-	}
-
-	// 初始化数据库（可选，用于未来迁移）
-	var db database.Database
-	if cfg.Database.Type != "" && cfg.Database.DSN != "" {
-		dbConfig := &database.Config{
-			Type:            cfg.Database.Type,
-			DSN:             cfg.Database.DSN,
-			MaxOpenConns:    cfg.Database.MaxOpenConns,
-			MaxIdleConns:    cfg.Database.MaxIdleConns,
-			ConnMaxLifetime: time.Duration(cfg.Database.ConnMaxLifetime) * time.Second,
-			LogLevel:        cfg.Database.LogLevel,
-		}
-		db, err = database.NewDatabase(dbConfig)
-		if err != nil {
-			logger.Warn("⚠️ 初始化数据库失败: %v (将继续使用现有存储)", err)
-			db = nil
-		} else {
-			defer db.Close()
-			logger.Info("✅ 数据库已初始化 (类型: %s)", cfg.Database.Type)
-		}
 	}
 
 	// 初始化 Watchdog（系统监控）

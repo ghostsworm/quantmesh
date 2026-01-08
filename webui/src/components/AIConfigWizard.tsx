@@ -350,10 +350,6 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSucc
                   </Box>
                 </>
               )}
-                    </Tbody>
-                  </Table>
-                </TableContainer>
-              </Box>
 
               <Divider />
 

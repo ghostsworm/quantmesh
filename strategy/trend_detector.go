@@ -224,10 +224,10 @@ func (td *TrendDetector) detectTrendLoop() {
 }
 
 // GetCurrentTrend 获取当前趋势
-func (td *TrendDetector) GetCurrentTrend() Trend {
+func (td *TrendDetector) GetCurrentTrend() string {
 	td.mu.RLock()
 	defer td.mu.RUnlock()
-	return td.currentTrend
+	return string(td.currentTrend)
 }
 
 // AdjustWindows 根据趋势调整窗口
@@ -258,7 +258,7 @@ func (td *TrendDetector) AdjustWindows() (buyWindow, sellWindow int) {
 
 	maxAdjustmentValue := int(math.Round(float64(baseBuyWindow) * maxAdjustment))
 
-	switch trend {
+	switch Trend(trend) {
 	case TrendUp:
 		// 上涨趋势：减少买单，增加卖单
 		buyWindow = baseBuyWindow - maxAdjustmentValue
