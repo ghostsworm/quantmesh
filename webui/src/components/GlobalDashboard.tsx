@@ -36,6 +36,7 @@ import {
 } from '@chakra-ui/icons'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { 
   getSymbols, 
   getSystemStatus, 
@@ -47,7 +48,9 @@ import {
   closeAllPositions,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
+import { checkSetupStatus } from '../services/setup'
 import ConfirmDialog from './ConfirmDialog'
+import { Alert, AlertIcon, AlertTitle, AlertDescription, Box, Button } from '@chakra-ui/react'
 
 const MotionBox = motion(Box)
 
@@ -62,11 +65,13 @@ interface SymbolStatus {
 
 const GlobalDashboard: React.FC = () => {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [symbols, setSymbols] = useState<SymbolInfo[]>([])
   const [exchangePnL, setExchangePnL] = useState<ExchangePnLResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [symbolStatuses, setSymbolStatuses] = useState<Map<string, SymbolStatus>>(new Map())
   const [closingPositions, setClosingPositions] = useState<Set<string>>(new Set())
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean
     exchange: string
@@ -77,6 +82,21 @@ const GlobalDashboard: React.FC = () => {
 
   const cardBg = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.100', 'gray.700')
+
+  // 检查配置状态
+  useEffect(() => {
+    const checkConfig = async () => {
+      try {
+        const setupStatus = await checkSetupStatus()
+        setNeedsSetup(setupStatus.needs_setup)
+      } catch (error) {
+        console.error('检查配置状态失败:', error)
+        // 如果检查失败，不显示提示
+        setNeedsSetup(false)
+      }
+    }
+    checkConfig()
+  }, [])
 
   const fetchData = async () => {
     try {
@@ -248,10 +268,12 @@ const GlobalDashboard: React.FC = () => {
       })
     })
 
-    // 添加币种列表
+    // 添加币种列表（按字母顺序排序）
     symbolsByExchange.forEach((syms, exchange) => {
+      // 按 symbol 字段字母顺序排序
+      const sortedSyms = [...syms].sort((a, b) => a.symbol.localeCompare(b.symbol))
       if (exchangeMap.has(exchange)) {
-        exchangeMap.get(exchange)!.symbolList = syms
+        exchangeMap.get(exchange)!.symbolList = sortedSyms
       } else {
         exchangeMap.set(exchange, {
           exchange,
@@ -260,7 +282,7 @@ const GlobalDashboard: React.FC = () => {
           total_volume: 0,
           win_rate: 0,
           symbols: [],
-          symbolList: syms,
+          symbolList: sortedSyms,
         })
       }
     })
@@ -282,6 +304,29 @@ const GlobalDashboard: React.FC = () => {
   return (
     <Box minH="100vh" py={2}>
       <VStack align="stretch" spacing={8}>
+        {/* 配置未完成提示 */}
+        {needsSetup && (
+          <Alert status="warning" borderRadius="xl" variant="left-accent" mx={2}>
+            <AlertIcon />
+            <Box flex="1">
+              <AlertTitle>{t('dashboard.setupIncomplete')}</AlertTitle>
+              <AlertDescription>
+                {t('dashboard.setupIncompleteDescription')}
+              </AlertDescription>
+            </Box>
+            <Button
+              colorScheme="blue"
+              size="sm"
+              onClick={() => {
+                sessionStorage.setItem('wizard_step', 'pending')
+                navigate('/wizard')
+              }}
+            >
+              {t('dashboard.openSetupWizard')}
+            </Button>
+          </Alert>
+        )}
+
         <Flex justify="space-between" align="flex-end" px={2}>
           <Box>
             <Heading size="lg" fontWeight="800" mb={1}>概览</Heading>
@@ -319,7 +364,7 @@ const GlobalDashboard: React.FC = () => {
           <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
             <Stat>
               <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">总交易量</StatLabel>
-              <StatNumber fontSize="2xl" fontWeight="800">${summary.totalVolume.toLocaleString()}</StatNumber>
+              <StatNumber fontSize="2xl" fontWeight="800">{summary.totalVolume.toLocaleString()}</StatNumber>
             </Stat>
           </Box>
         </SimpleGrid>
@@ -351,7 +396,7 @@ const GlobalDashboard: React.FC = () => {
                           交易数: {exchange.total_trades}
                         </Badge>
                         <Badge colorScheme="purple" variant="subtle">
-                          交易量: ${exchange.total_volume.toLocaleString()}
+                          交易量: {exchange.total_volume.toLocaleString()}
                         </Badge>
                       </HStack>
                       <AccordionIcon />
@@ -422,7 +467,7 @@ const GlobalDashboard: React.FC = () => {
                                   </HStack>
                                   <HStack justify="space-between">
                                     <Text color="gray.400" fontSize="xs" fontWeight="bold">交易量</Text>
-                                    <Text fontWeight="700" fontSize="sm">${pnlInfo.total_volume.toLocaleString()}</Text>
+                                    <Text fontWeight="700" fontSize="sm">{pnlInfo.total_volume.toLocaleString()}</Text>
                                   </HStack>
                                   <HStack justify="space-between">
                                     <Text color="gray.400" fontSize="xs" fontWeight="bold">胜率</Text>

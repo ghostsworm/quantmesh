@@ -136,6 +136,7 @@ type IExchange interface {
 	GetOrder(ctx context.Context, symbol string, orderID int64) (interface{}, error)
 	GetBaseAsset() string                                     // 获取基础资产（交易币种）
 	CancelAllOrders(ctx context.Context, symbol string) error // 取消所有订单
+	GetAccount(ctx context.Context) (interface{}, error)      // 获取账户信息（返回 *exchange.Account 或类似结构）
 }
 
 // TradeStorage 交易存储接口（避免循环导入）
@@ -729,8 +730,30 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 执行下单前，检查资金分配
 	if len(ordersToPlace) > 0 {
-		// 获取账户余额（暂时使用0，后续可以通过其他方式获取）
+		// 获取账户余额（从交易所获取实际余额）
 		var accountBalance float64 = 0
+		if spm.exchange != nil {
+			ctx := context.Background()
+			accountResult, err := spm.exchange.GetAccount(ctx)
+			if err == nil && accountResult != nil {
+				// 使用反射获取 AvailableBalance 字段
+				// 注意：不同交易所可能返回不同的类型，使用反射统一处理
+				accountValue := reflect.ValueOf(accountResult)
+				if accountValue.Kind() == reflect.Ptr {
+					accountValue = accountValue.Elem()
+				}
+				if balanceField := accountValue.FieldByName("AvailableBalance"); balanceField.IsValid() && balanceField.CanInterface() {
+					if balance, ok := balanceField.Interface().(float64); ok {
+						accountBalance = balance
+					}
+				}
+				// 使用可用余额（AvailableBalance）进行资金分配检查
+				// 注意：对于合约账户，如果有持仓，AvailableBalance可能为0，这是正常的
+				logger.Debug("💰 [资金分配] 账户可用余额: %.2f USDT", accountBalance)
+			} else {
+				logger.Warn("⚠️ [资金分配] 无法获取账户余额: %v，使用0作为默认值", err)
+			}
+		}
 
 		// 过滤掉超出资金分配的订单
 		var validOrders []*OrderRequest
@@ -824,11 +847,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			}
 		}
 
-		// 🔥 释放未成功提交订单的槽位锁
+		// 🔥 释放未成功提交订单的槽位锁和资金
 		for _, req := range ordersToPlace {
 			if !placedClientOIDs[req.ClientOrderID] && !result.ReduceOnlyErrors[req.ClientOrderID] {
-				// 这个订单没有成功提交（且不是ReduceOnly错误，因为已经处理过了），需要释放槽位锁
-				price, _, valid := spm.parseClientOrderID(req.ClientOrderID)
+				// 这个订单没有成功提交（且不是ReduceOnly错误，因为已经处理过了），需要释放槽位锁和资金
+				price, side, valid := spm.parseClientOrderID(req.ClientOrderID)
 				if valid {
 					slot := spm.getOrCreateSlot(price)
 					slot.mu.Lock()
@@ -838,6 +861,15 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 							formatPrice(price, spm.priceDecimals), req.ClientOrderID)
 					}
 					slot.mu.Unlock()
+					
+					// 🔥 释放预留的资金（只有买单需要释放，卖单不占用资金）
+					if side == "BUY" {
+						orderAmount := req.Quantity * req.Price
+						if orderAmount > 0 {
+							spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, orderAmount)
+							logger.Debug("💰 [资金释放] 订单提交失败，释放预留资金: %.2f USDT", orderAmount)
+						}
+					}
 				}
 			}
 		}
@@ -982,6 +1014,14 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.SlotStatus = SlotStatusFree
 				// 🔥 买单成交，重置PostOnly失败计数
 				slot.PostOnlyFailCount = 0
+				
+				// 🔥 释放资金：买单成交后，资金已转换为持仓，释放预留的资金
+				orderAmount := slot.OrderPrice * update.ExecutedQty
+				if orderAmount > 0 {
+					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, orderAmount)
+					logger.Debug("💰 [资金释放] 买单成交，释放资金: %.2f USDT", orderAmount)
+				}
+				
 				logger.Info("✅ [买单成交] 价格: %s, 持仓: %.4f, 槽位状态: %s -> %s, 订单状态: %s -> %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty,
 					PositionStatusEmpty, PositionStatusFilled,
@@ -1059,6 +1099,20 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.SlotStatus = SlotStatusFree
 				// 🔥 卖单成交，重置PostOnly失败计数
 				slot.PostOnlyFailCount = 0
+				
+				// 🔥 释放资金：卖单成交后，资金已收回，释放预留的资金（卖单不需要预留资金，但为了统一处理也释放）
+				// 注意：卖单是平仓，不占用资金，但为了保持一致性，这里也处理
+				orderAmount := slot.OrderPrice * update.ExecutedQty
+				if orderAmount > 0 {
+					// 卖单成交后，持仓减少，对应的买入资金应该被释放
+					// 使用槽位价格（买入价）计算释放金额
+					releaseAmount := price * deltaQty
+					if releaseAmount > 0 {
+						spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, releaseAmount)
+						logger.Debug("💰 [资金释放] 卖单成交，释放资金: %.2f USDT (持仓减少: %.4f)", releaseAmount, deltaQty)
+					}
+				}
+				
 				logger.Info("✅ [卖单成交] 价格: %s, 剩余持仓: %.4f, 槽位状态: %s, 订单状态: %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty, slot.PositionStatus, slot.OrderStatus)
 			} else {
@@ -1069,6 +1123,30 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 	case "CANCELED", "EXPIRED", "REJECTED":
 		logger.Info("⚠️ [订单%s] 价格: %s, 方向: %s, 原因: %s, 已成交: %.4f",
 			update.Status, formatPrice(price, spm.priceDecimals), side, update.Status, slot.OrderFilledQty)
+
+		// 🔥 释放资金：订单取消后，释放未成交部分的预留资金
+		// 注意：买单取消时，如果未成交，需要释放整个订单的预留资金
+		// 由于我们不知道原始订单数量，使用订单价格和配置的订单金额来估算
+		if side == "BUY" && slot.OrderPrice > 0 {
+			// 对于买单，如果未成交或部分成交，释放未成交部分的资金
+			// 使用配置的订单金额作为参考（因为每个槽位的订单金额是固定的）
+			orderAmount := spm.config.Trading.OrderQuantity
+			if slot.OrderFilledQty > 0 {
+				// 部分成交：释放未成交部分的资金
+				filledAmount := slot.OrderPrice * slot.OrderFilledQty
+				unfilledAmount := orderAmount - filledAmount
+				if unfilledAmount > 0 {
+					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, unfilledAmount)
+					logger.Debug("💰 [资金释放] 买单部分成交后取消，释放未成交资金: %.2f USDT (已成交: %.4f, 订单金额: %.2f)", 
+						unfilledAmount, slot.OrderFilledQty, orderAmount)
+				}
+			} else {
+				// 完全未成交：释放整个订单的预留资金
+				spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, orderAmount)
+				logger.Debug("💰 [资金释放] 买单未成交取消，释放资金: %.2f USDT", orderAmount)
+			}
+		}
+		// 卖单取消不需要释放资金，因为卖单是平仓，不占用资金
 
 		// 🔥 核心修复：根据订单方向和成交情况处理槽位状态
 		if side == "BUY" {
@@ -1669,8 +1747,9 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	logger.Debug("🔍 [持仓恢复] 理论总数量: %.4f, 实际持仓: %.4f, 比例: %.4f",
 		totalTheoryQty, totalPosition, totalPosition/totalTheoryQty)
 
-	// 6. 按比例分配实际持仓到各个槽位
+	// 6. 按比例分配实际持仓到各个槽位，并累加已用资金
 	var allocatedQty float64
+	var totalUsedAmount float64 // 累加已用资金
 
 	for i, price := range sellPrices {
 		// 计算这个槽位应该分配的数量
@@ -1714,6 +1793,8 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		slot.mu.Unlock()
 
 		allocatedQty += slotQty
+		// 累加已用资金：槽位价格 * 持仓数量
+		totalUsedAmount += price * slotQty
 
 		// 日志标记：是否在窗口内（只打印前10个和最后10个）
 		if i < 10 || i >= len(sellPrices)-10 {
@@ -1732,6 +1813,12 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 
 	logger.Info("✅ [持仓恢复] 完成持仓恢复，总持仓: %.4f，已分配: %.4f，差异: %.4f",
 		totalPosition, allocatedQty, totalPosition-allocatedQty)
+
+	// 🔥 初始化已用资金：将恢复的持仓价值设置为已用资金
+	if totalUsedAmount > 0 {
+		spm.allocationManager.SetUsedAmount(spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
+		logger.Info("💰 [资金分配] 恢复持仓，初始化已用资金: %.2f USDT (持仓价值)", totalUsedAmount)
+	}
 
 	// 8. 提示用户后续会自动下卖单
 	logger.Info("💡 [持仓恢复] 前 %d 个槽位的卖单将在价格调整时自动创建", sellWindowSize)

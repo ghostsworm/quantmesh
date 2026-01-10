@@ -10,6 +10,143 @@
 
 ---
 
+## v3.4.1 - 2026年01月11日
+
+**Git Tag**: `v3.4.1`
+
+### 新增 (Added)
+
+#### 后端 - 策略多样化扩展
+- **增强型 DCA 策略** (`strategy/dca_enhanced.go`)：
+  - ATR 动态间距：根据市场波动率自动调整加仓间距
+  - 三重止盈机制：固定止盈 + 追踪止盈 + 时间止盈
+  - 50层仓位管理：支持多达50层金字塔加仓
+  - 瀑布保护：极端行情下的批量止损机制
+  - 趋势过滤：基于均线判断趋势方向，避免逆势加仓
+
+- **马丁格尔策略** (`strategy/martingale.go`)：
+  - 正向/反向马丁格尔支持
+  - 递减风控：随着层数增加降低加仓倍数
+  - 多方向支持：做多/做空/双向
+  - 最大层数限制和资金保护
+
+- **组合策略模块** (`strategy/combo_strategy.go`)：
+  - 多策略组合运行
+  - 动态权重调整
+  - 市场自适应切换
+  - 策略间资金隔离
+
+#### 后端 - 技术指标库
+- **新增完整技术指标包** (`indicators/`)：
+  - 趋势指标：MACD、ADX、Parabolic SAR、Ichimoku Cloud、Aroon、SuperTrend
+  - 波动率指标：ATR、Bollinger Bands、Keltner Channel、Donchian Channel、NATR
+  - 动量指标：RSI、Stochastic、CCI、Williams %R、MFI、ROC、TRIX、Ultimate Oscillator
+  - 成交量指标：OBV、VWAP、CMF、ADL、Force Index、Chaikin Oscillator
+
+#### 后端 - AI 风险评估
+- **AI 风险评估器** (`ai/risk_assessor.go`)：
+  - 四维评估：资金安全、风险控制、策略适配、市场环境
+  - 智能评分：0-100分综合风险评估
+  - 风险因素识别：自动识别高风险配置
+  - 优化建议：AI生成的参数优化建议
+
+#### 后端 - 经纪商返佣系统
+- **返佣服务** (`saas/broker_rebate.go`)：
+  - 多交易所支持
+  - 邀请链接生成
+  - 返佣追踪统计
+  - RESTful API 接口
+
+#### 前端 - 策略管理系统
+- **策略市场页面** (`StrategyMarket.tsx`)：
+  - 所有可用策略浏览
+  - 分类筛选（网格、DCA、马丁格尔、趋势、均值回归、组合）
+  - 策略搜索功能
+  - 免费/付费策略区分
+  - 风险等级标识
+
+- **策略组件** (`components/strategy/`)：
+  - `StrategyCard.tsx`：策略卡片展示
+  - `StrategyDetailModal.tsx`：策略详情弹窗
+  - `StrategyGrid.tsx`：策略网格布局
+  - `PremiumBadge.tsx`：付费策略标识
+
+#### 前端 - 资金管理系统
+- **资金管理页面** (`CapitalManagement.tsx`)：
+  - 账户总览统计
+  - 多策略资金分配
+  - 可视化分配图表
+  - 资金再平衡功能
+
+- **资金组件** (`components/capital/`)：
+  - `CapitalSlider.tsx`：资金分配滑块
+  - `AllocationChart.tsx`：资金分配图表
+  - `RebalanceButton.tsx`：再平衡功能
+
+#### 前端 - 盈利管理系统
+- **盈利管理页面** (`ProfitManagement.tsx`)：
+  - 盈利趋势图表
+  - 按策略盈利统计
+  - 手动提取功能
+  - 自动提取规则配置
+
+- **盈利组件** (`components/profit/`)：
+  - `ProfitChart.tsx`：盈利趋势图表
+  - `WithdrawDialog.tsx`：提取对话框
+  - `WithdrawRuleForm.tsx`：自动提取规则表单
+
+#### 前端 - API 服务和类型
+- **新增 API 服务**：
+  - `services/strategy.ts`：策略 API 服务
+  - `services/capital.ts`：资金管理 API 服务
+  - `services/profit.ts`：盈利管理 API 服务
+
+- **TypeScript 类型定义** (`types/`)：
+  - `strategy.ts`：策略相关类型
+  - `capital.ts`：资金管理类型
+  - `profit.ts`：盈利管理类型
+
+### 变更 (Changed)
+- 更新 `App.tsx`：添加策略市场、资金管理、盈利管理路由
+- 更新 `Sidebar.tsx`：添加新页面导航入口
+- 更新国际化文件：添加中英文翻译（`zh-CN.json`, `en-US.json`）
+- 修复 `positionExchangeAdapter` 缺少 `GetAccount` 方法的问题
+
+### 修复 (Fixed)
+- 修复后端编译错误：`positionExchangeAdapter` 实现 `position.IExchange` 接口
+- 添加 `test_logger.go` 构建忽略标签，避免 main 函数重复声明
+
+---
+
+## v3.3.8 - 2026年01月11日
+
+**Git Tag**: `v3.3.8`
+
+### 说明
+- 本版本为 v3.4.1 之前的稳定版本快照
+- 包含 v3.3.3 至 v3.3.8-rc8 的所有功能和修复
+
+---
+
+## v3.3.3 - 2026年01月08日
+
+**Git Tag**: `v3.3.3`
+
+### 修复 (Fixed)
+- **修复配置完整时系统监控数据提供者未设置的问题**：
+  - 问题：当配置完整时（`configComplete && firstRuntime != nil`），系统监控数据提供者（SystemMetricsProvider）未被设置，导致API返回空数据，系统监控页面一直显示"暂无数据"
+  - 解决方案：在配置完整的分支中也添加SystemMetricsProvider的设置逻辑，确保无论配置是否完整，系统监控功能都能正常工作
+  - 涉及的文件：`main.go`
+- **修复启动时满仓状态无法立即开始交易的问题**：
+  - 问题：程序启动时如果已有持仓（满仓或接近满仓），虽然会恢复持仓槽位，但不会立即挂卖单，需要等待价格变化才会触发订单调整，导致长时间没有交易
+  - 解决方案：在仓位管理器初始化完成后，立即调用一次 `AdjustOrders` 来初始化卖单，确保满仓状态下也能立即开始交易
+  - 技术细节：
+    - 在 `symbol_manager.go` 的 `startSymbolRuntime` 函数中，`Initialize` 完成后立即调用 `AdjustOrders(currentPrice)`
+    - 这样即使启动时已有持仓，也会立即在合适的价格挂卖单，无需等待价格变化
+    - 涉及的文件：`symbol_manager.go`
+
+---
+
 ## v3.3.2 - 2025年12月27日
 
 **Git Tag**: `v3.3.2`

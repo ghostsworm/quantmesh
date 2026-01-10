@@ -1770,6 +1770,9 @@ var (
 // LogStorageProvider 日志存储提供者接口
 type LogStorageProvider interface {
 	GetLogs(startTime, endTime time.Time, level, keyword string, limit, offset int) ([]*LogRecordResponse, int, error)
+	CleanOldLogsByLevel(days int, levels []string) (int64, error)
+	Vacuum() error
+	GetLogStats() (map[string]interface{}, error)
 }
 
 // logStorageAdapter 日志存储适配器
@@ -1810,6 +1813,21 @@ func (a *logStorageAdapter) GetLogs(startTime, endTime time.Time, level, keyword
 	}
 
 	return result, total, nil
+}
+
+// CleanOldLogsByLevel 实现 LogStorageProvider 接口
+func (a *logStorageAdapter) CleanOldLogsByLevel(days int, levels []string) (int64, error) {
+	return a.storage.CleanOldLogsByLevel(days, levels)
+}
+
+// Vacuum 实现 LogStorageProvider 接口
+func (a *logStorageAdapter) Vacuum() error {
+	return a.storage.Vacuum()
+}
+
+// GetLogStats 实现 LogStorageProvider 接口
+func (a *logStorageAdapter) GetLogStats() (map[string]interface{}, error) {
+	return a.storage.GetLogStats()
 }
 
 // LogRecordResponse 日志记录响应
@@ -1899,6 +1917,90 @@ func getLogs(c *gin.Context) {
 		"total":  total,
 		"limit":  limit,
 		"offset": offset,
+	})
+}
+
+// cleanLogs 清理日志
+// POST /api/logs/clean
+// 参数：
+//   - days: 保留天数（默认7天）
+//   - levels: 要清理的日志级别列表，如 ["INFO", "WARN"]（可选，默认清理所有级别）
+func cleanLogs(c *gin.Context) {
+	if logStorageProvider == nil {
+		respondError(c, http.StatusServiceUnavailable, "日志存储未初始化")
+		return
+	}
+
+	var req struct {
+		Days   int      `json:"days"`
+		Levels []string `json:"levels"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid_request")
+		return
+	}
+
+	if req.Days <= 0 {
+		req.Days = 7 // 默认7天
+	}
+
+	var rowsAffected int64
+	var err error
+
+	if len(req.Levels) > 0 {
+		// 清理指定级别的日志
+		rowsAffected, err = logStorageProvider.CleanOldLogsByLevel(req.Days, req.Levels)
+	} else {
+		// 清理所有级别的日志
+		rowsAffected, err = logStorageProvider.CleanOldLogsByLevel(req.Days, []string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"})
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"rows_affected": rowsAffected,
+		"message":       fmt.Sprintf("已清理 %d 条日志", rowsAffected),
+	})
+}
+
+// getLogStats 获取日志统计信息
+// GET /api/logs/stats
+func getLogStats(c *gin.Context) {
+	if logStorageProvider == nil {
+		respondError(c, http.StatusServiceUnavailable, "日志存储未初始化")
+		return
+	}
+
+	stats, err := logStorageProvider.GetLogStats()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// vacuumLogs 优化日志数据库
+// POST /api/logs/vacuum
+func vacuumLogs(c *gin.Context) {
+	if logStorageProvider == nil {
+		respondError(c, http.StatusServiceUnavailable, "日志存储未初始化")
+		return
+	}
+
+	if err := logStorageProvider.Vacuum(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "数据库优化完成",
 	})
 }
 

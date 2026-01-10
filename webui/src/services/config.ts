@@ -9,6 +9,22 @@ export interface ExchangeConfig {
   testnet: boolean
 }
 
+// 交易对配置
+export interface SymbolConfig {
+  exchange?: string  // 交易所，留空时使用 app.current_exchange
+  symbol: string     // 交易对名称
+  price_interval: number
+  order_quantity: number
+  min_order_value?: number
+  buy_window_size: number
+  sell_window_size: number
+  reconcile_interval?: number
+  order_cleanup_threshold?: number
+  cleanup_batch_size?: number
+  margin_lock_duration_seconds?: number
+  position_safety_check?: number
+}
+
 // AI模块配置
 export interface AIModuleConfig {
   enabled: boolean
@@ -65,6 +81,7 @@ export interface Config {
   }
   trading: {
     symbol: string
+    symbols?: SymbolConfig[]  // 多交易对配置
     price_interval: number
     order_quantity: number
     min_order_value: number

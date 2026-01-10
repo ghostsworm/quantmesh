@@ -30,7 +30,7 @@ import (
 )
 
 // Version 版本号
-var Version = "3.3.2"
+var Version = "3.3.3"
 
 // 全局日志存储实例（用于清理任务和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -379,6 +379,61 @@ func main() {
 			}
 		})
 		log.Printf("[INFO] 日志存储已初始化: %s", logStoragePath)
+
+		// 启动定期日志清理任务
+		go func() {
+			// 每天凌晨2点执行清理
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+
+			// 计算到下一个凌晨2点的时间
+			now := time.Now()
+			nextCleanup := time.Date(now.Year(), now.Month(), now.Day(), 2, 0, 0, 0, now.Location())
+			if nextCleanup.Before(now) {
+				nextCleanup = nextCleanup.Add(24 * time.Hour)
+			}
+			initialDelay := nextCleanup.Sub(now)
+
+			// 等待到第一个清理时间
+			time.Sleep(initialDelay)
+
+			// 立即执行一次清理
+			logger.Info("🧹 开始定期清理日志...")
+			rowsAffected, err := logStorage.CleanOldLogsByLevel(7, []string{"INFO", "WARN"})
+			if err != nil {
+				logger.Warn("⚠️ 清理日志失败: %v", err)
+			} else {
+				logger.Info("✅ 已清理 %d 条 INFO/WARN 级别日志（7天前）", rowsAffected)
+			}
+
+			// 执行 VACUUM 优化
+			if err := logStorage.Vacuum(); err != nil {
+				logger.Warn("⚠️ 数据库优化失败: %v", err)
+			} else {
+				logger.Info("✅ 日志数据库优化完成")
+			}
+
+			// 定期执行
+			for {
+				select {
+				case <-ticker.C:
+					logger.Info("🧹 开始定期清理日志...")
+					rowsAffected, err := logStorage.CleanOldLogsByLevel(7, []string{"INFO", "WARN"})
+					if err != nil {
+						logger.Warn("⚠️ 清理日志失败: %v", err)
+					} else {
+						logger.Info("✅ 已清理 %d 条 INFO/WARN 级别日志（7天前）", rowsAffected)
+					}
+
+					// 执行 VACUUM 优化
+					if err := logStorage.Vacuum(); err != nil {
+						logger.Warn("⚠️ 数据库优化失败: %v", err)
+					} else {
+						logger.Info("✅ 日志数据库优化完成")
+					}
+				}
+			}
+		}()
 	}
 
 	logger.Info("🚀 QuantMesh 做市商系统启动...")
@@ -886,6 +941,13 @@ func main() {
 			}
 		}
 
+		// 设置系统监控数据提供者
+		if watchdog != nil {
+			systemMetricsProvider := web.NewSystemMetricsProvider(storageService, watchdog)
+			web.SetSystemMetricsProvider(systemMetricsProvider)
+			logger.Info("✅ 系统监控数据提供者已设置")
+		}
+
 		logger.Info("✅ 所有交易对已初始化，进入运行状态")
 	} else if webServer != nil {
 		// 配置不完整，只设置存储服务提供者
@@ -1062,6 +1124,10 @@ func (a *positionExchangeAdapter) GetName() string {
 
 func (a *positionExchangeAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	return a.exchange.CancelAllOrders(ctx, symbol)
+}
+
+func (a *positionExchangeAdapter) GetAccount(ctx context.Context) (interface{}, error) {
+	return a.exchange.GetAccount(ctx)
 }
 
 // exchangeProviderAdapter 适配器，将 exchange.IExchange 转换为 web.ExchangeProvider

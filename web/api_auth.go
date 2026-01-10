@@ -1,9 +1,11 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"quantmesh/logger"
 )
 
 var (
@@ -60,12 +62,10 @@ func getAuthStatus(c *gin.Context) {
 // setPassword 设置密码
 // POST /api/auth/password/set
 func setPassword(c *gin.Context) {
-	println("\n\n🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐")
-	println("🔐 收到设置密码请求")
-	println("🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐")
+	logger.WriteWebLog("[AUTH] 收到设置密码请求")
 
 	if globalPasswordManager == nil {
-		println("✗ 密码管理器未初始化")
+		logger.WriteWebLog("[AUTH] 密码管理器未初始化")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码管理器未初始化"})
 		return
 	}
@@ -75,7 +75,7 @@ func setPassword(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		println("✗ 请求参数无效:", err.Error())
+		logger.WriteWebLog(fmt.Sprintf("[AUTH] 设置密码请求参数无效: %v", err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
 		return
 	}
@@ -83,30 +83,28 @@ func setPassword(c *gin.Context) {
 	// 单用户场景，使用固定用户名
 	username := "admin"
 	if err := globalPasswordManager.SetPassword(username, req.Password); err != nil {
-		println("✗ 设置密码失败:", err.Error())
+		logger.WriteWebLog(fmt.Sprintf("[AUTH] 设置密码失败: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置密码失败"})
 		return
 	}
-	println("✓ 密码已保存到数据库")
+	logger.WriteWebLog("[AUTH] 密码已保存到数据库")
 
 	// 首次设置密码后自动创建会话（自动登录）
 	// 必须在 c.JSON() 之前设置 Cookie
 	sm := GetSessionManager()
 	if sm == nil {
-		println("✗ 会话管理器未初始化")
+		logger.WriteWebLog("[AUTH] 会话管理器未初始化")
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "密码设置成功"})
 		return
 	}
 
 	ip := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
-	println("✓ 会话管理器已就绪，准备创建会话")
-	println("  IP:", ip)
-	println("  UserAgent:", userAgent)
+	logger.WriteWebLog(fmt.Sprintf("[AUTH] 创建会话: IP=%s, UserAgent=%s", ip, userAgent))
 
 	session, err := sm.CreateSession(username, "admin", ip, userAgent)
 	if err != nil {
-		println("✗ 创建会话失败:", err.Error())
+		logger.WriteWebLog(fmt.Sprintf("[AUTH] 创建会话失败: %v", err))
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "密码设置成功，但会话创建失败",
@@ -115,11 +113,10 @@ func setPassword(c *gin.Context) {
 		return
 	}
 
-	println("✓ 会话已创建，SessionID:", session.SessionID)
+	logger.WriteWebLog(fmt.Sprintf("[AUTH] 会话已创建，SessionID: %s...", session.SessionID[:20]))
 
 	// 使用 Gin 的 SetCookie 方法设置会话Cookie
 	// MaxAge: 24小时 = 86400秒
-	println("准备设置 Cookie...")
 	c.SetCookie(
 		"session_id",      // name
 		session.SessionID, // value
@@ -129,14 +126,7 @@ func setPassword(c *gin.Context) {
 		false,             // secure (HTTP 环境设为 false)
 		true,              // httpOnly
 	)
-	println("✓ Cookie 已通过 Gin 设置")
-	println("  Name: session_id")
-	println("  Value:", session.SessionID[:20]+"...")
-	println("  Path: /")
-	println("  MaxAge: 86400")
-	println("  HttpOnly: true")
-	println("  Secure: false")
-	println("🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐\n\n")
+	logger.WriteWebLog("[AUTH] Cookie 已通过 Gin 设置: Name=session_id, Path=/, MaxAge=86400, HttpOnly=true, Secure=false")
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "密码设置成功"})
 }

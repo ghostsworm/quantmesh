@@ -1,9 +1,11 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"quantmesh/logger"
 )
 
 // authMiddleware 认证中间件
@@ -20,17 +22,24 @@ func authMiddleware() gin.HandlerFunc {
 		// 从请求中获取会话
 		session, exists := sm.GetSessionFromRequest(c.Request)
 		if !exists || session == nil {
-			// 调试日志：打印请求中的所有 Cookie
+			// 认证失败日志：写入Web日志文件（而不是标准输出）
 			cookies := c.Request.Cookies()
-			println("✗ 认证失败，请求路径:", c.Request.URL.Path)
-			println("  Cookie 数量:", len(cookies))
-			for _, cookie := range cookies {
-				val := cookie.Value
-				if len(val) > 20 {
-					val = val[:20] + "..."
+			logMessage := fmt.Sprintf("[AUTH] 认证失败，请求路径: %s, Cookie 数量: %d", c.Request.URL.Path, len(cookies))
+			if len(cookies) > 0 {
+				cookieInfo := ""
+				for _, cookie := range cookies {
+					val := cookie.Value
+					if len(val) > 20 {
+						val = val[:20] + "..."
+					}
+					if cookieInfo != "" {
+						cookieInfo += ", "
+					}
+					cookieInfo += fmt.Sprintf("%s=%s", cookie.Name, val)
 				}
-				println("  - Cookie:", cookie.Name, "=", val)
+				logMessage += fmt.Sprintf(", Cookies: [%s]", cookieInfo)
 			}
+			logger.WriteWebLog(logMessage)
 			respondError(c, http.StatusUnauthorized, "error.not_logged_in")
 			c.Abort()
 			return

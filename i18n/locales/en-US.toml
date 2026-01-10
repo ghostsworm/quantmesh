@@ -122,3 +122,180 @@ other = "Failed to load configuration"
 [error.save_config_failed]
 other = "Failed to save configuration"
 
+# First-time setup wizard
+[wizard.title]
+other = "First-time Setup Wizard"
+
+[wizard.step.welcome.title]
+other = "Welcome"
+
+[wizard.step.welcome.description]
+other = "Welcome to QuantMesh"
+
+[wizard.step.exchange.title]
+other = "Exchange Configuration"
+
+[wizard.step.exchange.description]
+other = "Configure Exchange API"
+
+[wizard.step.ai.title]
+other = "AI Smart Configuration"
+
+[wizard.step.ai.description]
+other = "Optional: Use AI to generate configuration"
+
+[wizard.step.complete.title]
+other = "Complete"
+
+[wizard.step.complete.description]
+other = "Start Using"
+
+[wizard.welcome.title]
+other = "Welcome to QuantMesh Grid Trading System"
+
+[wizard.welcome.description]
+other = "This wizard will help you complete the initial configuration, including exchange API configuration and optional AI smart configuration."
+
+[wizard.welcome.steps]
+other = "Configuration Steps:"
+
+[wizard.welcome.step1]
+other = "Configure exchange API keys"
+
+[wizard.welcome.step2]
+other = "(Optional) Use AI smart configuration assistant to generate optimal parameters"
+
+[wizard.welcome.step3]
+other = "Complete configuration and start using"
+
+[wizard.exchange.title]
+other = "Exchange API Configuration"
+
+[wizard.exchange.exchange]
+other = "Exchange"
+
+[wizard.exchange.apiKey]
+other = "API Key"
+
+[wizard.exchange.apiKeyPlaceholder]
+other = "Please enter your API Key"
+
+[wizard.exchange.secretKey]
+other = "Secret Key"
+
+[wizard.exchange.secretKeyPlaceholder]
+other = "Please enter your Secret Key"
+
+[wizard.exchange.passphrase]
+other = "Passphrase"
+
+[wizard.exchange.passphrasePlaceholder]
+other = "Please enter your Passphrase"
+
+[wizard.exchange.symbols]
+other = "Trading Pairs"
+
+[wizard.exchange.symbolsPlaceholder]
+other = "Please select trading pairs"
+
+[wizard.exchange.symbolsRequired]
+other = "Please select at least one trading pair"
+
+[wizard.exchange.testnet]
+other = "Use Testnet"
+
+[wizard.exchange.testnetWarning]
+other = "Strongly recommended to use testnet first and observe for a period of time to ensure the system runs normally before switching to mainnet"
+
+[wizard.exchange.selectExchange]
+other = "Please select an exchange"
+
+[wizard.exchange.enterApiKey]
+other = "Please enter API Key"
+
+[wizard.exchange.enterSecretKey]
+other = "Please enter Secret Key"
+
+[wizard.exchange.enterPassphrase]
+other = "This exchange requires Passphrase"
+
+[wizard.exchange.selectSymbols]
+other = "Please select at least one trading pair"
+
+[wizard.exchange.enterCredentialsToLoadSymbols]
+other = "Please enter API Key and Secret Key to load all trading pairs supported by this exchange"
+
+[wizard.exchange.enterCredentialsFirst]
+other = "Please enter API Key and Secret Key first"
+
+[wizard.exchange.noSymbolsFound]
+other = "No trading pairs found"
+
+[wizard.exchange.fetchSymbolsFailed]
+other = "Failed to fetch trading pairs list"
+
+[wizard.exchange.invalidCredentials]
+other = "Invalid API Key or Secret Key, please check your credentials"
+
+[wizard.exchange.configSaved]
+other = "Exchange configuration saved"
+
+[wizard.exchange.saveFailed]
+other = "Failed to save configuration"
+
+[wizard.ai.title]
+other = "AI Smart Configuration (Optional)"
+
+[wizard.ai.description]
+other = "The AI configuration assistant can automatically generate optimal grid trading parameters and capital allocation plans based on your capital and risk preferences."
+
+[wizard.ai.alertTitle]
+other = "AI Configuration Assistant"
+
+[wizard.ai.alertDescription]
+other = "This feature requires Gemini API Key configuration. You can configure it in the settings page, or manually configure trading parameters later."
+
+[wizard.ai.useAI]
+other = "Use AI Smart Configuration Assistant"
+
+[wizard.ai.openAssistant]
+other = "Open AI Configuration Assistant"
+
+[wizard.ai.configApplied]
+other = "AI configuration applied"
+
+[wizard.ai.configSaved]
+other = "Configuration saved successfully"
+
+[wizard.complete.title]
+other = "Configuration Complete!"
+
+[wizard.complete.description]
+other = "Your configuration has been saved successfully. You can now start using the QuantMesh grid trading system."
+
+[wizard.complete.nextStep]
+other = "Next Steps"
+
+[wizard.complete.nextStepDescription]
+other = "Please go to the settings page to view and adjust the configuration, or start trading directly."
+
+[wizard.button.previous]
+other = "Previous"
+
+[wizard.button.next]
+other = "Next"
+
+[wizard.button.skip]
+other = "Skip"
+
+[wizard.button.complete]
+other = "Complete"
+
+[dashboard.setupIncomplete]
+other = "First-time Setup Incomplete"
+
+[dashboard.setupIncompleteDescription]
+other = "You haven't completed the first-time setup wizard. Please complete the exchange API configuration and trading pair settings to start using the system."
+
+[dashboard.openSetupWizard]
+other = "Open First-time Setup Wizard"

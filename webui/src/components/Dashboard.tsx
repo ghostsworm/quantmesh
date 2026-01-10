@@ -33,8 +33,11 @@ import {
 } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary } from '../services/api'
+import { checkSetupStatus } from '../services/setup'
+import { Alert, AlertIcon, AlertTitle, AlertDescription } from '@chakra-ui/react'
 
 const MotionBox = motion(Box)
 const MotionFlex = motion(Flex)
@@ -77,6 +80,7 @@ const GlassCard: React.FC<{ title?: string; children: React.ReactNode; p?: numbe
 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [slotsInfo, setSlotsInfo] = useState<SlotsResponse | null>(null)
@@ -85,9 +89,25 @@ const Dashboard: React.FC = () => {
   const [positionsSummary, setPositionsSummary] = useState<any>(null)
   const [isTrading, setIsTrading] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   const toast = useToast()
 
   const cardBg = 'white'
+
+  // 检查配置状态
+  useEffect(() => {
+    const checkConfig = async () => {
+      try {
+        const setupStatus = await checkSetupStatus()
+        setNeedsSetup(setupStatus.needs_setup)
+      } catch (error) {
+        console.error('检查配置状态失败:', error)
+        // 如果检查失败，不显示提示
+        setNeedsSetup(false)
+      }
+    }
+    checkConfig()
+  }, [])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -149,6 +169,29 @@ const Dashboard: React.FC = () => {
   return (
     <Container maxW="container.xl" py={4}>
       <VStack spacing={8} align="stretch">
+        {/* 配置未完成提示 */}
+        {needsSetup && (
+          <Alert status="warning" borderRadius="xl" variant="left-accent">
+            <AlertIcon />
+            <Box flex="1">
+              <AlertTitle>{t('dashboard.setupIncomplete')}</AlertTitle>
+              <AlertDescription>
+                {t('dashboard.setupIncompleteDescription')}
+              </AlertDescription>
+            </Box>
+            <Button
+              colorScheme="blue"
+              size="sm"
+              onClick={() => {
+                sessionStorage.setItem('wizard_step', 'pending')
+                navigate('/wizard')
+              }}
+            >
+              {t('dashboard.openSetupWizard')}
+            </Button>
+          </Alert>
+        )}
+
         {/* Header Area */}
         <Flex justify="space-between" align="center" direction={{ base: 'column', md: 'row' }} gap={4}>
           <HStack spacing={4} align="center">

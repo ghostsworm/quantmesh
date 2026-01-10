@@ -40,6 +40,7 @@ import RiskMonitor from './components/RiskMonitor'
 import Profile from './components/Profile'
 import Login from './components/Login'
 import FirstTimeSetup from './components/FirstTimeSetup'
+import FirstTimeWizard from './components/FirstTimeWizard'
 import ConfigSetup from './components/ConfigSetup'
 import KlineChart from './components/KlineChart'
 import { checkSetupStatus } from './services/setup'
@@ -49,7 +50,11 @@ import BasisMonitor from './components/BasisMonitor'
 import MarketIntelligence from './components/MarketIntelligence'
 import AIAnalysis from './components/AIAnalysis'
 import AIPromptManager from './components/AIPromptManager'
+import AIConfigPage from './components/AIConfigPage'
 import EventCenter from './components/EventCenter'
+import StrategyMarket from './components/StrategyMarket'
+import CapitalManagement from './components/CapitalManagement'
+import ProfitManagement from './components/ProfitManagement'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
@@ -163,6 +168,7 @@ const AppContent: React.FC = () => {
   }
 
   const isInSetupFlow = sessionStorage.getItem('setup_step') !== null
+  const isWizardPending = sessionStorage.getItem('wizard_step') === 'pending'
 
   if (!hasPassword || isInSetupFlow) {
     return (
@@ -170,6 +176,18 @@ const AppContent: React.FC = () => {
         <Routes>
           <Route path="/setup" element={<FirstTimeSetup />} />
           <Route path="*" element={<Navigate to="/setup" replace />} />
+        </Routes>
+      </Box>
+    )
+  }
+
+  // 如果密码已设置但需要配置向导，且已登录，自动跳转到向导
+  if (isAuthenticated && isWizardPending) {
+    return (
+      <Box bg="gray.50" minH="100vh">
+        <Routes>
+          <Route path="/wizard" element={<FirstTimeWizard />} />
+          <Route path="*" element={<Navigate to="/wizard" replace />} />
         </Routes>
       </Box>
     )
@@ -308,12 +326,17 @@ const AppContent: React.FC = () => {
                 <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
                 <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
                 <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
+                <Route path="/ai-config" element={<ProtectedRoute><AIConfigPage /></ProtectedRoute>} />
                 <Route path="/events" element={<ProtectedRoute><EventCenter /></ProtectedRoute>} />
+                <Route path="/strategy-market" element={<ProtectedRoute><StrategyMarket /></ProtectedRoute>} />
+                <Route path="/capital-management" element={<ProtectedRoute><CapitalManagement /></ProtectedRoute>} />
+                <Route path="/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
                 <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
                 <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/setup" element={<FirstTimeSetup />} />
+                <Route path="/wizard" element={<ProtectedRoute><FirstTimeWizard /></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AnimatePresence>

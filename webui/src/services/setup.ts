@@ -10,7 +10,8 @@ export interface SetupInitRequest {
   api_key: string
   secret_key: string
   passphrase?: string
-  symbol: string
+  symbol?: string // 保持向后兼容，但优先使用 symbols
+  symbols?: string[] // 多交易对支持
   price_interval: number
   order_quantity: number
   min_order_value?: number
@@ -25,6 +26,7 @@ export interface SetupInitResponse {
   success: boolean
   message: string
   requires_restart: boolean
+  backup_path?: string // 备份文件路径（如果存在）
 }
 
 // 检查配置状态
@@ -55,3 +57,33 @@ export async function saveInitialConfig(config: SetupInitRequest): Promise<Setup
   return await response.json()
 }
 
+// 获取交易所的所有交易对
+export interface ExchangeSymbolsRequest {
+  exchange: string
+  api_key: string
+  secret_key: string
+  passphrase?: string
+  testnet?: boolean
+}
+
+export interface ExchangeSymbolsResponse {
+  success: boolean
+  message?: string
+  symbols: string[]
+}
+
+export async function getExchangeSymbols(request: ExchangeSymbolsRequest): Promise<ExchangeSymbolsResponse> {
+  const response = await fetch(`${window.location.origin}/api/setup/exchange-symbols`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify(request),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.message || '获取交易对列表失败')
+  }
+  return await response.json()
+}

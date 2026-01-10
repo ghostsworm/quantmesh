@@ -388,8 +388,47 @@ if kill -0 "${NEW_PID}" 2>/dev/null; then
     log_info "   PID: ${NEW_PID}"
     log_info "   端口: ${WEB_PORT}"
     log_info "   Web界面: http://localhost:${WEB_PORT}"
-    log_info "   日志: ${LOG_FILE}"
     log_info "   配置文件: ${CONFIG_FILE}"
+    log_info ""
+    
+    # 查找最新的日志文件
+    find_latest_log_file() {
+        local log_pattern=$1
+        local latest_file=""
+        local latest_time=0
+        
+        if [ -d "${SCRIPT_DIR}/logs" ]; then
+            for file in "${SCRIPT_DIR}/logs"/${log_pattern}*.log; do
+                if [ -f "$file" ]; then
+                    local file_time=$(stat -f "%m" "$file" 2>/dev/null || stat -c "%Y" "$file" 2>/dev/null || echo "0")
+                    if [ "$file_time" -gt "$latest_time" ]; then
+                        latest_time=$file_time
+                        latest_file="$file"
+                    fi
+                fi
+            done
+        fi
+        
+        echo "$latest_file"
+    }
+    
+    # 查找最新的应用日志文件（app-quantmesh-YYYY-MM-DD.log）
+    APP_LOG_FILE=$(find_latest_log_file "app-quantmesh-")
+    
+    # 如果没找到应用日志文件，尝试查找旧的日志文件（quantmesh.log）
+    if [ -z "$APP_LOG_FILE" ] || [ ! -f "$APP_LOG_FILE" ]; then
+        if [ -f "${LOG_FILE}" ]; then
+            APP_LOG_FILE="${LOG_FILE}"
+        fi
+    fi
+    
+    # 查找最新的Web日志文件（web-gin-YYYY-MM-DD.log）
+    WEB_LOG_FILE=$(find_latest_log_file "web-gin-")
+    
+    log_info "   应用日志: ${APP_LOG_FILE:-未找到（日志级别可能不是DEBUG）}"
+    if [ -n "$WEB_LOG_FILE" ] && [ -f "$WEB_LOG_FILE" ]; then
+        log_info "   Web日志: ${WEB_LOG_FILE}"
+    fi
     log_info ""
     log_info "停止服务: kill ${NEW_PID} 或运行 stop.sh"
     log_info "按 Ctrl+C 停止查看日志（服务会继续运行）"
@@ -399,8 +438,19 @@ if kill -0 "${NEW_PID}" 2>/dev/null; then
     log_info "=========================================="
     sleep 1
     
-    # 自动跟踪日志
-    tail -f "${LOG_FILE}"
+    # 自动跟踪日志（优先跟踪应用日志，如果存在）
+    if [ -n "$APP_LOG_FILE" ] && [ -f "$APP_LOG_FILE" ]; then
+        tail -f "$APP_LOG_FILE"
+    elif [ -n "$WEB_LOG_FILE" ] && [ -f "$WEB_LOG_FILE" ]; then
+        log_warn "未找到应用日志文件，跟踪Web日志..."
+        tail -f "$WEB_LOG_FILE"
+    else
+        log_warn "未找到日志文件，日志可能只输出到控制台"
+        log_info "提示：如果日志级别不是DEBUG，日志不会写入文件"
+        log_info "可以通过配置文件设置 system.log_level: DEBUG 来启用文件日志"
+        # 等待一段时间让用户看到提示
+        sleep 3
+    fi
 else
     log_error "❌ 服务启动失败！"
     log_error "请查看日志: ${LOG_FILE}"

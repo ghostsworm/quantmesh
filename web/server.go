@@ -60,6 +60,7 @@ func SetupRoutes(r *gin.Engine) {
 		{
 			setup.GET("/status", getSetupStatusHandler)
 			setup.POST("/init", initSetupHandler)
+			setup.POST("/exchange-symbols", getExchangeSymbolsHandler)
 		}
 
 		// 版本号API（不需要认证）
@@ -180,6 +181,9 @@ func SetupRoutes(r *gin.Engine) {
 
 			// 日志API
 			protected.GET("/logs", getLogs)
+			protected.POST("/logs/clean", cleanLogs)
+			protected.GET("/logs/stats", getLogStats)
+			protected.POST("/logs/vacuum", vacuumLogs)
 
 			// 槽位API
 			protected.GET("/slots", getSlots)

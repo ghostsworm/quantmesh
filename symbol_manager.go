@@ -319,6 +319,14 @@ func startSymbolRuntime(
 		return nil, fmt.Errorf("初始化仓位管理器失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
 	}
 
+	// 🔥 如果启动时已有持仓（满仓或接近满仓），立即调用 AdjustOrders 初始化卖单
+	// 避免等待价格变化才触发订单调整，确保满仓状态下也能立即开始交易
+	if err := superPositionManager.AdjustOrders(currentPrice); err != nil {
+		logger.Warn("⚠️ [%s] 启动时初始化订单失败: %v", symCfg.Symbol, err)
+	} else {
+		logger.Info("✅ [%s] 启动时订单初始化完成（如有持仓已自动挂卖单）", symCfg.Symbol)
+	}
+
 	if storageService != nil {
 		if st := storageService.GetStorage(); st != nil {
 			restoreAdapter := &reconciliationRestoreAdapter{storage: st}

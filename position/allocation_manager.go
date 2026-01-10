@@ -115,6 +115,25 @@ func (am *AllocationManager) Release(exchange, symbol string, amount float64) {
 	}
 }
 
+// SetUsedAmount 直接设置已用资金（用于程序启动时恢复持仓）
+func (am *AllocationManager) SetUsedAmount(exchange, symbol string, amount float64) {
+	if !am.cfg.PositionAllocation.Enabled {
+		return
+	}
+
+	key := fmt.Sprintf("%s:%s", exchange, symbol)
+
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if alloc, exists := am.allocations[key]; exists {
+		alloc.UsedAmount = amount
+		if alloc.UsedAmount < 0 {
+			alloc.UsedAmount = 0
+		}
+	}
+}
+
 // GetStatus 获取资金使用状态
 func (am *AllocationManager) GetStatus(exchange, symbol string) *AllocationStatus {
 	key := fmt.Sprintf("%s:%s", exchange, symbol)

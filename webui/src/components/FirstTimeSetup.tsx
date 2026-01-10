@@ -6,6 +6,7 @@ import {
   beginWebAuthnRegistration,
   finishWebAuthnRegistration,
 } from '../services/auth'
+import LanguageSelector from './LanguageSelector'
 
 const FirstTimeSetup: React.FC = () => {
   const navigate = useNavigate()
@@ -164,7 +165,9 @@ const FirstTimeSetup: React.FC = () => {
       sessionStorage.removeItem('setup_step')
       // 刷新认证状态
       await refreshAuth()
-      navigate('/')
+      // 检查是否需要配置交易所（首次配置向导）
+      sessionStorage.setItem('wizard_step', 'pending')
+      navigate('/wizard')
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {
         setError('用户取消了指纹验证')
@@ -178,9 +181,11 @@ const FirstTimeSetup: React.FC = () => {
   const skipWebAuthn = () => {
     // 清除设置流程标记
     sessionStorage.removeItem('setup_step')
-    // 跳过指纹注册，直接进入系统
+    // 刷新认证状态
     refreshAuth()
-    navigate('/')
+    // 检查是否需要配置交易所（首次配置向导）
+    sessionStorage.setItem('wizard_step', 'pending')
+    navigate('/wizard')
   }
 
   return (
@@ -202,6 +207,13 @@ const FirstTimeSetup: React.FC = () => {
         <h2 style={{ textAlign: 'center', marginBottom: '10px' }}>
           {step === 'password' ? '首次设置 - 设置密码' : '首次设置 - 注册指纹'}
         </h2>
+        <div style={{ 
+          display: 'flex',
+          justifyContent: 'flex-end',
+          marginBottom: '10px'
+        }}>
+          <LanguageSelector />
+        </div>
         <div style={{ 
           textAlign: 'center', 
           marginBottom: '20px', 

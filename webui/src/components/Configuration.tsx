@@ -56,6 +56,7 @@ import {
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import {
   getConfig,
@@ -69,6 +70,7 @@ import {
   ConfigDiff,
 } from '../services/config'
 import AIConfigWizard from './AIConfigWizard'
+import SymbolManager from './SymbolManager'
 
 const MotionBox = motion(Box)
 
@@ -99,6 +101,7 @@ const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: an
 
 const Configuration: React.FC = () => {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { isGlobalView, selectedSymbol } = useSymbol()
   const [config, setConfig] = useState<Config | null>(null)
   const [loading, setLoading] = useState(true)
@@ -371,6 +374,19 @@ const Configuration: React.FC = () => {
                           />
                         </Flex>
                       </Stack>
+                    </ConfigCard>
+                    <ConfigCard title="交易对管理" icon={<RepeatIcon />}>
+                      <SymbolManager
+                        config={config}
+                        onUpdate={(symbols) => {
+                          const newConfig = { ...config }
+                          if (!newConfig.trading) {
+                            newConfig.trading = {} as any
+                          }
+                          newConfig.trading.symbols = symbols
+                          setConfig(newConfig)
+                        }}
+                      />
                     </ConfigCard>
                   </VStack>
                 )}

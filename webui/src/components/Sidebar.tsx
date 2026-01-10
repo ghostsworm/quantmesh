@@ -27,6 +27,9 @@ import {
   DragHandleIcon,
   AddIcon,
   BellIcon,
+  MoonIcon,
+  ExternalLinkIcon,
+  CheckCircleIcon,
 } from '@chakra-ui/icons'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useTranslation } from 'react-i18next'
@@ -201,6 +204,38 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
         >
           {t('sidebar.aiPrompts')}
         </NavItem>
+        <NavItem 
+          icon={MoonIcon} 
+          to="/ai-config" 
+          isActive={isRouteActive('/ai-config')}
+          onClick={onNavItemClick}
+        >
+          {t('sidebar.aiConfig')}
+        </NavItem>
+        <NavItem 
+          icon={ExternalLinkIcon} 
+          to="/strategy-market" 
+          isActive={isRouteActive('/strategy-market')}
+          onClick={onNavItemClick}
+        >
+          {t('sidebar.strategyMarket')}
+        </NavItem>
+        <NavItem 
+          icon={CheckCircleIcon} 
+          to="/capital-management" 
+          isActive={isRouteActive('/capital-management')}
+          onClick={onNavItemClick}
+        >
+          {t('sidebar.capitalManagement')}
+        </NavItem>
+        <NavItem 
+          icon={RepeatIcon} 
+          to="/profit-management" 
+          isActive={isRouteActive('/profit-management')}
+          onClick={onNavItemClick}
+        >
+          {t('sidebar.profitManagement')}
+        </NavItem>
 
         <AnimatePresence>
           {!isGlobalView && (
@@ -324,6 +359,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           onClick={onNavItemClick}
         >
           {t('sidebar.configManagement')}
+        </NavItem>
+        <NavItem 
+          icon={InfoIcon} 
+          to="/wizard" 
+          isActive={isRouteActive('/wizard')}
+          onClick={onNavItemClick}
+        >
+          {t('sidebar.firstTimeWizard')}
         </NavItem>
         <NavItem 
           icon={LockIcon} 

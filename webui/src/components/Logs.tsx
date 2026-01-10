@@ -1,6 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { getLogs, LogEntry, subscribeLogs } from '../services/api'
+import { getLogs, LogEntry, subscribeLogs, cleanLogs, getLogStats, vacuumLogs, LogStats } from '../services/api'
 import './Logs.css'
+import {
+  Button,
+  useToast,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  useDisclosure,
+  FormControl,
+  FormLabel,
+  NumberInput,
+  NumberInputField,
+  Checkbox,
+  CheckboxGroup,
+  VStack,
+  Text,
+  Alert,
+  AlertIcon,
+  AlertDescription,
+} from '@chakra-ui/react'
 
 // Alias for backward compatibility
 type LogRecord = LogEntry
@@ -148,6 +171,79 @@ const Logs: React.FC = () => {
     setTotal(0)
   }
 
+  // 日志清理相关
+  const { isOpen: isCleanOpen, onOpen: onCleanOpen, onClose: onCleanClose } = useDisclosure()
+  const { isOpen: isStatsOpen, onOpen: onStatsOpen, onClose: onStatsClose } = useDisclosure()
+  const [cleanDays, setCleanDays] = useState(7)
+  const [cleanLevels, setCleanLevels] = useState<string[]>(['INFO', 'WARN'])
+  const [isCleaning, setIsCleaning] = useState(false)
+  const [logStats, setLogStats] = useState<LogStats | null>(null)
+  const toast = useToast()
+
+  const handleCleanLogs = async () => {
+    setIsCleaning(true)
+    try {
+      const response = await cleanLogs({
+        days: cleanDays,
+        levels: cleanLevels.length > 0 ? cleanLevels : undefined,
+      })
+      toast({
+        title: '清理成功',
+        description: `已清理 ${response.rows_affected} 条日志`,
+        status: 'success',
+        duration: 3000,
+      })
+      onCleanClose()
+      loadLogs() // 重新加载日志
+    } catch (err: any) {
+      toast({
+        title: '清理失败',
+        description: err.message || '清理日志时发生错误',
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setIsCleaning(false)
+    }
+  }
+
+  const handleVacuum = async () => {
+    setIsCleaning(true)
+    try {
+      await vacuumLogs()
+      toast({
+        title: '优化成功',
+        description: '数据库优化完成',
+        status: 'success',
+        duration: 3000,
+      })
+    } catch (err: any) {
+      toast({
+        title: '优化失败',
+        description: err.message || '优化数据库时发生错误',
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setIsCleaning(false)
+    }
+  }
+
+  const loadLogStats = async () => {
+    try {
+      const stats = await getLogStats()
+      setLogStats(stats)
+      onStatsOpen()
+    } catch (err: any) {
+      toast({
+        title: '获取统计失败',
+        description: err.message || '获取日志统计时发生错误',
+        status: 'error',
+        duration: 5000,
+      })
+    }
+  }
+
   return (
     <div className="logs-container">
       <div className="logs-header">
@@ -170,6 +266,11 @@ const Logs: React.FC = () => {
             自动滚动
           </label>
           <button onClick={handleClear}>清空</button>
+          <button onClick={loadLogStats}>统计</button>
+          <button onClick={onCleanOpen}>清理</button>
+          <button onClick={handleVacuum} disabled={isCleaning}>
+            {isCleaning ? '优化中...' : '优化数据库'}
+          </button>
           <button onClick={loadLogs} disabled={loading}>
             {loading ? '加载中...' : '刷新'}
           </button>
@@ -268,6 +369,110 @@ const Logs: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* 清理日志对话框 */}
+      <Modal isOpen={isCleanOpen} onClose={onCleanClose}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>清理日志</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Alert status="warning">
+                <AlertIcon />
+                <AlertDescription>
+                  此操作将永久删除指定天数之前的日志，无法恢复！
+                </AlertDescription>
+              </Alert>
+
+              <FormControl>
+                <FormLabel>保留天数</FormLabel>
+                <NumberInput
+                  value={cleanDays}
+                  onChange={(_, value) => setCleanDays(value)}
+                  min={1}
+                  max={365}
+                >
+                  <NumberInputField />
+                </NumberInput>
+                <Text fontSize="sm" color="gray.500" mt={1}>
+                  将删除 {cleanDays} 天之前的日志
+                </Text>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>日志级别（留空则清理所有级别）</FormLabel>
+                <CheckboxGroup
+                  value={cleanLevels}
+                  onChange={(values) => setCleanLevels(values as string[])}
+                >
+                  <VStack align="start" spacing={2}>
+                    <Checkbox value="DEBUG">DEBUG</Checkbox>
+                    <Checkbox value="INFO">INFO</Checkbox>
+                    <Checkbox value="WARN">WARN</Checkbox>
+                    <Checkbox value="ERROR">ERROR</Checkbox>
+                    <Checkbox value="FATAL">FATAL</Checkbox>
+                  </VStack>
+                </CheckboxGroup>
+              </FormControl>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onCleanClose}>
+              取消
+            </Button>
+            <Button
+              colorScheme="red"
+              onClick={handleCleanLogs}
+              isLoading={isCleaning}
+            >
+              确认清理
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* 日志统计对话框 */}
+      <Modal isOpen={isStatsOpen} onClose={onStatsClose}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>日志统计</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {logStats && (
+              <VStack spacing={4} align="stretch">
+                <Text>
+                  <strong>总日志数：</strong>
+                  {logStats.total.toLocaleString()}
+                </Text>
+                <Text>
+                  <strong>按级别统计：</strong>
+                </Text>
+                {Object.entries(logStats.by_level).map(([level, count]) => (
+                  <Text key={level} pl={4}>
+                    {level}: {count.toLocaleString()}
+                  </Text>
+                ))}
+                {logStats.oldest_time && (
+                  <Text>
+                    <strong>最早日志：</strong>
+                    {new Date(logStats.oldest_time).toLocaleString('zh-CN')}
+                  </Text>
+                )}
+                {logStats.newest_time && (
+                  <Text>
+                    <strong>最新日志：</strong>
+                    {new Date(logStats.newest_time).toLocaleString('zh-CN')}
+                  </Text>
+                )}
+              </VStack>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onStatsClose}>关闭</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   )
 }

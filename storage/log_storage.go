@@ -345,6 +345,98 @@ func (ls *LogStorage) CleanOldLogs(days int) error {
 	return err
 }
 
+// CleanOldLogsByLevel 清理超过指定天数的指定级别日志
+// levels: 要清理的日志级别列表，如 []string{"INFO", "WARN"}
+func (ls *LogStorage) CleanOldLogsByLevel(days int, levels []string) (int64, error) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+
+	if len(levels) == 0 {
+		return 0, fmt.Errorf("至少需要指定一个日志级别")
+	}
+
+	cutoffTime := time.Now().AddDate(0, 0, -days)
+	
+	// 构建 IN 子句
+	placeholders := make([]string, len(levels))
+	args := make([]interface{}, len(levels)+1)
+	for i, level := range levels {
+		placeholders[i] = "?"
+		args[i] = level
+	}
+	args[len(levels)] = cutoffTime
+
+	query := fmt.Sprintf(`
+		DELETE FROM logs
+		WHERE level IN (%s) AND timestamp < ?
+	`, strings.Join(placeholders, ","))
+
+	result, err := ls.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	return rowsAffected, err
+}
+
+// Vacuum 优化 SQLite 数据库（回收空间）
+func (ls *LogStorage) Vacuum() error {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+
+	_, err := ls.db.Exec("VACUUM")
+	return err
+}
+
+// GetLogStats 获取日志统计信息
+func (ls *LogStorage) GetLogStats() (map[string]interface{}, error) {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+
+	stats := make(map[string]interface{})
+
+	// 总日志数
+	var totalCount int64
+	err := ls.db.QueryRow("SELECT COUNT(*) FROM logs").Scan(&totalCount)
+	if err != nil {
+		return nil, err
+	}
+	stats["total"] = totalCount
+
+	// 按级别统计
+	levelStats := make(map[string]int64)
+	rows, err := ls.db.Query(`
+		SELECT level, COUNT(*) as count
+		FROM logs
+		GROUP BY level
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var level string
+		var count int64
+		if err := rows.Scan(&level, &count); err != nil {
+			continue
+		}
+		levelStats[level] = count
+	}
+	stats["by_level"] = levelStats
+
+	// 最早和最晚的日志时间
+	var oldestTime, newestTime time.Time
+	err = ls.db.QueryRow("SELECT MIN(timestamp), MAX(timestamp) FROM logs").Scan(&oldestTime, &newestTime)
+	if err == nil {
+		stats["oldest_time"] = oldestTime
+		stats["newest_time"] = newestTime
+	}
+
+	return stats, nil
+}
+
 // Close 关闭日志存储
 func (ls *LogStorage) Close() error {
 	ls.mu.Lock()

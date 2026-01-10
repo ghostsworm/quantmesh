@@ -122,3 +122,180 @@ other = "加载配置失败"
 [error.save_config_failed]
 other = "保存配置失败"
 
+# 首次设置向导
+[wizard.title]
+other = "首次使用向导"
+
+[wizard.step.welcome.title]
+other = "欢迎"
+
+[wizard.step.welcome.description]
+other = "欢迎使用 QuantMesh"
+
+[wizard.step.exchange.title]
+other = "交易所配置"
+
+[wizard.step.exchange.description]
+other = "配置交易所 API"
+
+[wizard.step.ai.title]
+other = "AI 智能配置"
+
+[wizard.step.ai.description]
+other = "可选：使用 AI 生成配置"
+
+[wizard.step.complete.title]
+other = "完成"
+
+[wizard.step.complete.description]
+other = "开始使用"
+
+[wizard.welcome.title]
+other = "欢迎使用 QuantMesh 网格交易系统"
+
+[wizard.welcome.description]
+other = "本向导将帮助您完成初始配置，包括交易所 API 配置和可选的 AI 智能配置。"
+
+[wizard.welcome.steps]
+other = "配置步骤："
+
+[wizard.welcome.step1]
+other = "配置交易所 API 密钥"
+
+[wizard.welcome.step2]
+other = "（可选）使用 AI 智能配置助手生成最优参数"
+
+[wizard.welcome.step3]
+other = "完成配置，开始使用"
+
+[wizard.exchange.title]
+other = "交易所 API 配置"
+
+[wizard.exchange.exchange]
+other = "交易所"
+
+[wizard.exchange.apiKey]
+other = "API Key"
+
+[wizard.exchange.apiKeyPlaceholder]
+other = "请输入您的 API Key"
+
+[wizard.exchange.secretKey]
+other = "Secret Key"
+
+[wizard.exchange.secretKeyPlaceholder]
+other = "请输入您的 Secret Key"
+
+[wizard.exchange.passphrase]
+other = "Passphrase"
+
+[wizard.exchange.passphrasePlaceholder]
+other = "请输入您的 Passphrase"
+
+[wizard.exchange.symbols]
+other = "交易对"
+
+[wizard.exchange.symbolsPlaceholder]
+other = "请选择交易对"
+
+[wizard.exchange.symbolsRequired]
+other = "请至少选择一个交易对"
+
+[wizard.exchange.testnet]
+other = "使用测试网"
+
+[wizard.exchange.testnetWarning]
+other = "强烈建议先使用测试网观察一段时间，确认系统运行正常后再切换到主网"
+
+[wizard.exchange.selectExchange]
+other = "请选择交易所"
+
+[wizard.exchange.enterApiKey]
+other = "请输入 API Key"
+
+[wizard.exchange.enterSecretKey]
+other = "请输入 Secret Key"
+
+[wizard.exchange.enterPassphrase]
+other = "该交易所需要 Passphrase"
+
+[wizard.exchange.selectSymbols]
+other = "请至少选择一个交易对"
+
+[wizard.exchange.enterCredentialsToLoadSymbols]
+other = "请输入 API Key 和 Secret Key 以加载该交易所支持的所有交易对"
+
+[wizard.exchange.enterCredentialsFirst]
+other = "请先输入 API Key 和 Secret Key"
+
+[wizard.exchange.noSymbolsFound]
+other = "未找到交易对"
+
+[wizard.exchange.fetchSymbolsFailed]
+other = "获取交易对列表失败"
+
+[wizard.exchange.invalidCredentials]
+other = "API Key 或 Secret Key 无效，请检查您的凭证是否正确"
+
+[wizard.exchange.configSaved]
+other = "交易所配置已保存"
+
+[wizard.exchange.saveFailed]
+other = "保存配置失败"
+
+[wizard.ai.title]
+other = "AI 智能配置（可选）"
+
+[wizard.ai.description]
+other = "AI 配置助手可以根据您的资金和风险偏好，自动生成最优的网格交易参数和资金分配方案。"
+
+[wizard.ai.alertTitle]
+other = "AI 配置助手"
+
+[wizard.ai.alertDescription]
+other = "此功能需要配置 Gemini API Key。您可以在设置页面中配置，或稍后手动配置交易参数。"
+
+[wizard.ai.useAI]
+other = "使用 AI 智能配置助手"
+
+[wizard.ai.openAssistant]
+other = "打开 AI 配置助手"
+
+[wizard.ai.configApplied]
+other = "AI 配置已应用"
+
+[wizard.ai.configSaved]
+other = "配置已成功保存"
+
+[wizard.complete.title]
+other = "配置完成！"
+
+[wizard.complete.description]
+other = "您的配置已成功保存。现在可以开始使用 QuantMesh 网格交易系统了。"
+
+[wizard.complete.nextStep]
+other = "下一步"
+
+[wizard.complete.nextStepDescription]
+other = "请前往设置页面查看和调整配置，或直接开始交易。"
+
+[wizard.button.previous]
+other = "上一步"
+
+[wizard.button.next]
+other = "下一步"
+
+[wizard.button.skip]
+other = "跳过"
+
+[wizard.button.complete]
+other = "完成"
+
+[dashboard.setupIncomplete]
+other = "首次设置未完成"
+
+[dashboard.setupIncompleteDescription]
+other = "您还没有完成首次设置向导，请完成交易所 API 配置和交易对设置以开始使用系统。"
+
+[dashboard.openSetupWizard]
+other = "打开首次设置向导"

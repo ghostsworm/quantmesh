@@ -483,6 +483,44 @@ export function subscribeLogs(onLog: LogSubscribeHandler, onError?: LogSubscribe
   }
 }
 
+// 清理日志
+export interface CleanLogsRequest {
+  days: number
+  levels?: string[]
+}
+
+export interface CleanLogsResponse {
+  success: boolean
+  rows_affected: number
+  message: string
+}
+
+export async function cleanLogs(request: CleanLogsRequest): Promise<CleanLogsResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/logs/clean`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+// 获取日志统计信息
+export interface LogStats {
+  total: number
+  by_level: Record<string, number>
+  oldest_time?: string
+  newest_time?: string
+}
+
+export async function getLogStats(): Promise<LogStats> {
+  return fetchWithAuth(`${API_BASE_URL}/logs/stats`)
+}
+
+// 优化日志数据库
+export async function vacuumLogs(): Promise<{ success: boolean; message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/logs/vacuum`, {
+    method: 'POST',
+  })
+}
+
 // Slots
 export interface SlotInfo {
   price: number
