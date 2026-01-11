@@ -2,6 +2,22 @@
 export interface SetupStatus {
   needs_setup: boolean
   config_path: string
+  exchanges?: Record<string, {
+    api_key: string
+    secret_key: string
+    passphrase?: string
+    fee_rate?: number
+    testnet?: boolean
+  }>
+  symbols?: Array<{
+    exchange: string
+    symbol: string
+    price_interval: number
+    order_quantity: number
+    min_order_value: number
+    buy_window_size: number
+    sell_window_size: number
+  }>
 }
 
 // 配置初始化请求

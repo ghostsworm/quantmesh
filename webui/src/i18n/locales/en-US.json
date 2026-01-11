@@ -343,7 +343,11 @@
       "invalidCredentials": "Invalid API Key or Secret Key, please check your credentials",
       "configSaved": "Exchange configuration saved",
       "backupCreated": "Original configuration file has been backed up to: {{path}}",
-      "saveFailed": "Failed to save configuration"
+      "saveFailed": "Failed to save configuration",
+      "addAnother": "Add another exchange",
+      "saveCurrent": "Save current exchange",
+      "configuredExchanges": "Configured exchanges:",
+      "readyForNew": "Please configure the new exchange"
     },
     "ai": {
       "title": "AI Smart Configuration (Optional)",

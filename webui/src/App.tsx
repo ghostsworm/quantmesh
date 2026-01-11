@@ -100,6 +100,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 // 主应用内容
 const AppContent: React.FC = () => {
+  const location = useLocation()
   const { isAuthenticated, hasPassword, isLoading } = useAuth()
   const { isGlobalView } = useSymbol()
   const { isOpen, onOpen, onClose } = useDisclosure()
@@ -120,6 +121,11 @@ const AppContent: React.FC = () => {
         // 如果配置不完整，且本次登录未跳过配置，则显示配置页面
         const skipped = sessionStorage.getItem('config_setup_skipped') === 'true'
         setNeedsConfig(status.needs_setup && !skipped)
+        
+        // 如果配置已完成，清除 wizard_step 标记，避免反复跳转
+        if (!status.needs_setup) {
+          sessionStorage.removeItem('wizard_step')
+        }
       } catch (error) {
         console.error('检查配置状态失败:', error)
         // 如果检查失败，假设需要配置
@@ -181,8 +187,11 @@ const AppContent: React.FC = () => {
     )
   }
 
-  // 如果密码已设置但需要配置向导，且已登录，自动跳转到向导
-  if (isAuthenticated && isWizardPending) {
+  // 检查是否正在访问独立页面路径（不需要侧边栏的页面）
+  const isStandalonePage = location.pathname === '/wizard' || location.pathname === '/setup' || location.pathname === '/config-setup'
+
+  // 处理向导页面的独立显示
+  if (isAuthenticated && location.pathname === '/wizard') {
     return (
       <Box bg="gray.50" minH="100vh">
         <Routes>
@@ -191,6 +200,29 @@ const AppContent: React.FC = () => {
         </Routes>
       </Box>
     )
+  }
+
+  // 如果密码已设置但需要配置向导，且已登录，自动跳转到向导
+  // 但只有在配置确实未完成时才跳转（避免反复跳转）
+  if (isAuthenticated && isWizardPending && needsConfig !== false) {
+    // 如果配置状态未知（还在加载），等待加载完成
+    if (needsConfig === null) {
+      return (
+        <Center h="100vh">
+          <Spinner size="xl" thickness="4px" color="blue.500" />
+        </Center>
+      )
+    }
+    
+    // 如果配置需要设置，才跳转到向导
+    if (needsConfig === true) {
+      return <Navigate to="/wizard" replace />
+    }
+    
+    // 如果配置已完成但 wizard_step 还在，清除它
+    if (needsConfig === false) {
+      sessionStorage.removeItem('wizard_step')
+    }
   }
 
   if (!isAuthenticated) {
@@ -336,7 +368,6 @@ const AppContent: React.FC = () => {
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/setup" element={<FirstTimeSetup />} />
-                <Route path="/wizard" element={<ProtectedRoute><FirstTimeWizard /></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AnimatePresence>

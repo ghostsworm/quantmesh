@@ -343,7 +343,11 @@
       "invalidCredentials": "API Key 或 Secret Key 无效，请检查您的凭证是否正确",
       "configSaved": "交易所配置已保存",
       "backupCreated": "原配置文件已备份到: {{path}}",
-      "saveFailed": "保存配置失败"
+      "saveFailed": "保存配置失败",
+      "addAnother": "添加另一个交易所",
+      "saveCurrent": "保存当前交易所配置",
+      "configuredExchanges": "已配置的交易所：",
+      "readyForNew": "请开始配置新交易所"
     },
     "ai": {
       "title": "AI 智能配置（可选）",

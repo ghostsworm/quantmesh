@@ -5,7 +5,7 @@ const (
 	GateBaseURL = "https://api.gateio.ws/api/v4"
 
 	// Gate.io 测试网 API v4 基础 URL
-	GateTestnetBaseURL = "https://fx-api-testnet.gateio.ws/api/v4"
+	GateTestnetBaseURL = "https://api-testnet.gateapi.io/api/v4"
 
 	// Gate.io WebSocket URL (USDT永续合约)
 	GateWSURL = "wss://fx-ws.gateio.ws/v4/ws/usdt"

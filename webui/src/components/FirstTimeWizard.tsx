@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -25,17 +25,19 @@ import {
   FormLabel,
   Input,
   Select,
-  NumberInput,
-  NumberInputField,
   Checkbox,
   useToast,
   Spinner,
   Center,
   Divider,
+  Tag,
+  TagLabel,
+  Wrap,
+  WrapItem,
 } from '@chakra-ui/react'
-import { StarIcon } from '@chakra-ui/icons'
+import { StarIcon, AddIcon, CheckIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
-import { saveInitialConfig, SetupInitRequest } from '../services/setup'
+import { saveInitialConfig, SetupInitRequest, checkSetupStatus } from '../services/setup'
 import AIConfigWizard from './AIConfigWizard'
 import SymbolMultiSelect from './SymbolMultiSelect'
 import LanguageSelector from './LanguageSelector'
@@ -65,21 +67,67 @@ const FirstTimeWizard: React.FC = () => {
     min_order_value: 20,
     buy_window_size: 10,
     sell_window_size: 10,
-    testnet: true, // 默认使用测试网
+    testnet: true,
     fee_rate: 0.0002,
   })
 
+  const [configuredExchanges, setConfiguredExchanges] = useState<string[]>([])
   const [useAIConfig, setUseAIConfig] = useState(false)
   const [aiWizardOpen, setAIWizardOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [statusData, setStatusData] = useState<any>(null)
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const status = await checkSetupStatus()
+        setStatusData(status)
+        if (status.exchanges && Object.keys(status.exchanges).length > 0) {
+          const exchangeNames = Object.keys(status.exchanges)
+          setConfiguredExchanges(exchangeNames)
+          
+          // 默认选中第一个交易所的信息进行回填
+          const firstExchange = exchangeNames[0]
+          handleEditExchange(firstExchange, status)
+        }
+      } catch (err) {
+        console.error('获取配置状态失败:', err)
+      }
+    }
+    fetchStatus()
+  }, [])
+
+  const handleEditExchange = (exchangeName: string, status = statusData) => {
+    if (!status || !status.exchanges || !status.exchanges[exchangeName]) return
+
+    const config = status.exchanges[exchangeName]
+    const exchangeSymbols = (status.symbols || [])
+      .filter((s: any) => s.exchange === exchangeName)
+      .map((s: any) => s.symbol)
+      
+    setExchangeConfig({
+      exchange: exchangeName,
+      api_key: config.api_key,
+      secret_key: config.secret_key,
+      passphrase: config.passphrase || '',
+      testnet: config.testnet ?? true,
+      fee_rate: config.fee_rate || 0.0002,
+      symbols: exchangeSymbols,
+      price_interval: status.symbols?.find((s: any) => s.exchange === exchangeName)?.price_interval || 2,
+      order_quantity: status.symbols?.find((s: any) => s.exchange === exchangeName)?.order_quantity || 30,
+      buy_window_size: status.symbols?.find((s: any) => s.exchange === exchangeName)?.buy_window_size || 10,
+      min_order_value: status.symbols?.find((s: any) => s.exchange === exchangeName)?.min_order_value || 20,
+    })
+    setError(null)
+  }
 
   const exchangesRequiringPassphrase = ['bitget', 'okx', 'kucoin']
 
   const handleExchangeConfigChange = (field: keyof SetupInitRequest, value: any) => {
     setExchangeConfig(prev => {
       const updated = { ...prev, [field]: value }
-      // 当交易所改变时，清空已选的交易对
       if (field === 'exchange') {
         updated.symbols = []
       }
@@ -91,91 +139,89 @@ const FirstTimeWizard: React.FC = () => {
     setExchangeConfig(prev => ({ ...prev, symbols }))
   }
 
+  const handleSaveCurrentExchange = async () => {
+    if (!exchangeConfig.exchange) {
+      setError(t('wizard.exchange.selectExchange'))
+      return false
+    }
+    if (!exchangeConfig.api_key.trim()) {
+      setError(t('wizard.exchange.enterApiKey'))
+      return false
+    }
+    if (!exchangeConfig.secret_key.trim()) {
+      setError(t('wizard.exchange.enterSecretKey'))
+      return false
+    }
+    if (exchangesRequiringPassphrase.includes(exchangeConfig.exchange) && !exchangeConfig.passphrase?.trim()) {
+      setError(t('wizard.exchange.enterPassphrase'))
+      return false
+    }
+    const symbols = exchangeConfig.symbols || []
+    if (symbols.length === 0) {
+      setError(t('wizard.exchange.selectSymbols'))
+      return false
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const configToSave = {
+        ...exchangeConfig,
+        symbols: exchangeConfig.symbols || [],
+      }
+      const response = await saveInitialConfig(configToSave)
+      if (response.success) {
+        toast({
+          title: t('wizard.exchange.configSaved'),
+          status: 'success',
+          duration: 3000,
+        })
+        
+        if (!configuredExchanges.includes(exchangeConfig.exchange)) {
+          setConfiguredExchanges(prev => [...prev, exchangeConfig.exchange])
+        }
+        return true
+      } else {
+        setError(response.message || t('wizard.exchange.saveFailed'))
+        return false
+      }
+    } catch (err: any) {
+      setError(err.message || t('wizard.exchange.saveFailed'))
+      return false
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleNext = async () => {
     if (activeStep === 0) {
-      // 欢迎页面，直接下一步
       setActiveStep(1)
     } else if (activeStep === 1) {
-      // 验证交易所配置
-      if (!exchangeConfig.exchange) {
-        setError(t('wizard.exchange.selectExchange'))
-        return
+      if (configuredExchanges.length === 0) {
+        const success = await handleSaveCurrentExchange()
+        if (!success) return
       }
-      if (!exchangeConfig.api_key.trim()) {
-        setError(t('wizard.exchange.enterApiKey'))
-        return
-      }
-      if (!exchangeConfig.secret_key.trim()) {
-        setError(t('wizard.exchange.enterSecretKey'))
-        return
-      }
-      if (exchangesRequiringPassphrase.includes(exchangeConfig.exchange) && !exchangeConfig.passphrase?.trim()) {
-        setError(t('wizard.exchange.enterPassphrase'))
-        return
-      }
-      const symbols = exchangeConfig.symbols || []
-      if (symbols.length === 0) {
-        setError(t('wizard.exchange.selectSymbols'))
-        return
-      }
-
-      // 保存交易所配置
-      setIsLoading(true)
-      setError(null)
-
-      try {
-        // 确保发送 symbols 数组
-        const configToSave = {
-          ...exchangeConfig,
-          symbols: exchangeConfig.symbols || [],
-        }
-        const response = await saveInitialConfig(configToSave)
-        if (response.success) {
-          // 如果有备份路径，显示备份信息
-          if (response.backup_path) {
-            toast({
-              title: t('wizard.exchange.configSaved'),
-              description: t('wizard.exchange.backupCreated', { path: response.backup_path }) as string,
-              status: 'success',
-              duration: 10000,
-              isClosable: true,
-            })
-          } else {
-            toast({
-              title: t('wizard.exchange.configSaved'),
-              status: 'success',
-              duration: 3000,
-            })
-          }
-          setActiveStep(2)
-        } else {
-          setError(response.message || t('wizard.exchange.saveFailed'))
-        }
-      } catch (err: any) {
-        setError(err.message || t('wizard.exchange.saveFailed'))
-      } finally {
-        setIsLoading(false)
-      }
+      setActiveStep(2)
     } else if (activeStep === 2) {
-      // AI 配置步骤
       if (useAIConfig) {
         setAIWizardOpen(true)
       } else {
         setActiveStep(3)
       }
     } else if (activeStep === 3) {
-      // 完成，清除向导标记，跳转到主页
       sessionStorage.removeItem('wizard_step')
-      navigate('/')
+      sessionStorage.removeItem('config_setup_skipped')
+      setTimeout(() => {
+        navigate('/')
+      }, 100)
     }
   }
 
   const handleSkip = () => {
     if (activeStep === 2) {
-      // 跳过 AI 配置
       setActiveStep(3)
     } else {
-      // 其他步骤的跳过逻辑，清除向导标记
       sessionStorage.removeItem('wizard_step')
       navigate('/')
     }
@@ -192,8 +238,36 @@ const FirstTimeWizard: React.FC = () => {
     })
   }
 
+  const handleAddNewExchange = () => {
+    setExchangeConfig({
+      exchange: 'binance',
+      api_key: '',
+      secret_key: '',
+      passphrase: '',
+      symbols: [],
+      price_interval: 2,
+      order_quantity: 30, // 确保有默认值
+      min_order_value: 20,
+      buy_window_size: 10,
+      sell_window_size: 10,
+      testnet: true,
+      fee_rate: 0.0002,
+    })
+    setError(null)
+    toast({
+      title: t('wizard.exchange.readyForNew'),
+      status: 'info',
+      duration: 2000,
+    })
+  }
+
   return (
-    <Box minH="100vh" bg="gray.50" py={8}>
+    <Box minH="100vh" bg="gray.50" py={8} position="relative">
+      {/* 语言选择器 - 页面最右上角 */}
+      <Box position="absolute" top={4} right={8} zIndex={10}>
+        <LanguageSelector />
+      </Box>
+
       <Container maxW="4xl">
         <VStack spacing={8}>
           <Heading size="lg" textAlign="center">
@@ -220,11 +294,6 @@ const FirstTimeWizard: React.FC = () => {
           </Stepper>
 
           <Box w="100%" bg="white" p={8} borderRadius="lg" boxShadow="md" position="relative">
-            {/* 语言选择器 - 右上角 */}
-            <Box position="absolute" top={4} right={4}>
-              <LanguageSelector />
-            </Box>
-            
             {activeStep === 0 && (
               <VStack spacing={6}>
                 <Heading size="md" textAlign="center">
@@ -243,8 +312,42 @@ const FirstTimeWizard: React.FC = () => {
             )}
 
             {activeStep === 1 && (
-              <VStack spacing={4} align="stretch">
-                <Heading size="md">{t('wizard.exchange.title')}</Heading>
+              <VStack spacing={6} align="stretch">
+                <HStack justify="space-between">
+                  <Heading size="md">{t('wizard.exchange.title')}</Heading>
+                  <Button 
+                    leftIcon={<AddIcon />} 
+                    size="sm" 
+                    variant="outline" 
+                    colorScheme="blue"
+                    onClick={handleAddNewExchange}
+                  >
+                    {t('wizard.exchange.addAnother')}
+                  </Button>
+                </HStack>
+
+                {configuredExchanges.length > 0 && (
+                  <Box p={4} bg="blue.50" borderRadius="md">
+                    <Text fontSize="sm" fontWeight="bold" mb={2}>{t('wizard.exchange.configuredExchanges')}</Text>
+                    <Wrap spacing={2}>
+                      {configuredExchanges.map(ex => (
+                        <WrapItem key={ex}>
+                          <Tag 
+                            size="lg" 
+                            colorScheme="blue" 
+                            borderRadius="full" 
+                            cursor="pointer"
+                            onClick={() => handleEditExchange(ex)}
+                            _hover={{ bg: 'blue.100' }}
+                          >
+                            <TagLabel>{ex.toUpperCase()}</TagLabel>
+                          </Tag>
+                        </WrapItem>
+                      ))}
+                    </Wrap>
+                  </Box>
+                )}
+
                 {error && (
                   <Alert status="error">
                     <AlertIcon />
@@ -252,7 +355,6 @@ const FirstTimeWizard: React.FC = () => {
                   </Alert>
                 )}
 
-                {/* 1. 先选择是否使用测试网 */}
                 <FormControl>
                   <Checkbox
                     isChecked={exchangeConfig.testnet}
@@ -281,7 +383,6 @@ const FirstTimeWizard: React.FC = () => {
 
                 <Divider />
 
-                {/* 2. 选择交易所 */}
                 <FormControl isRequired>
                   <FormLabel>{t('wizard.exchange.exchange')}</FormLabel>
                   <Select
@@ -289,19 +390,18 @@ const FirstTimeWizard: React.FC = () => {
                     onChange={(e) => handleExchangeConfigChange('exchange', e.target.value)}
                     isDisabled={isLoading}
                   >
-                    <option value="binance">Binance</option>
-                    <option value="bitget">Bitget</option>
-                    <option value="bybit">Bybit</option>
-                    <option value="gate">Gate.io</option>
-                    <option value="okx">OKX</option>
-                    <option value="huobi">Huobi (HTX)</option>
-                    <option value="kucoin">KuCoin</option>
+                    <option value="binance" disabled={configuredExchanges.includes('binance')}>Binance</option>
+                    <option value="bitget" disabled={configuredExchanges.includes('bitget')}>Bitget</option>
+                    <option value="bybit" disabled={configuredExchanges.includes('bybit')}>Bybit</option>
+                    <option value="gate" disabled={configuredExchanges.includes('gate')}>Gate.io</option>
+                    <option value="okx" disabled={configuredExchanges.includes('okx')}>OKX</option>
+                    <option value="huobi" disabled={configuredExchanges.includes('huobi')}>Huobi (HTX)</option>
+                    <option value="kucoin" disabled={configuredExchanges.includes('kucoin')}>KuCoin</option>
                   </Select>
                 </FormControl>
 
                 <Divider />
 
-                {/* 3. 输入 API Key 和 Secret Key */}
                 <FormControl isRequired>
                   <FormLabel>{t('wizard.exchange.apiKey')}</FormLabel>
                   <Input
@@ -339,7 +439,6 @@ const FirstTimeWizard: React.FC = () => {
 
                 <Divider />
 
-                {/* 4. 选择交易对（只有在输入了 API Key 和 Secret Key 后才显示） */}
                 {exchangeConfig.api_key && exchangeConfig.secret_key ? (
                   <FormControl isRequired>
                     <FormLabel>{t('wizard.exchange.symbols')}</FormLabel>
@@ -365,6 +464,18 @@ const FirstTimeWizard: React.FC = () => {
                     </Alert>
                   </FormControl>
                 )}
+
+                <Button 
+                  colorScheme="blue" 
+                  leftIcon={<CheckIcon />} 
+                  onClick={handleSaveCurrentExchange}
+                  isLoading={isLoading}
+                  variant="solid"
+                  size="lg"
+                  w="100%"
+                >
+                  {t('wizard.exchange.saveCurrent')}
+                </Button>
               </VStack>
             )}
 
@@ -455,7 +566,6 @@ const FirstTimeWizard: React.FC = () => {
           </HStack>
         </VStack>
 
-        {/* AI Config Wizard Modal */}
         <AIConfigWizard
           isOpen={aiWizardOpen}
           onClose={() => setAIWizardOpen(false)}

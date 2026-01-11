@@ -18,8 +18,10 @@ import (
 
 // SetupStatusResponse 配置状态响应
 type SetupStatusResponse struct {
-	NeedsSetup bool   `json:"needs_setup"`
-	ConfigPath string `json:"config_path"`
+	NeedsSetup bool                            `json:"needs_setup"`
+	ConfigPath string                          `json:"config_path"`
+	Exchanges  map[string]config.ExchangeConfig `json:"exchanges,omitempty"`
+	Symbols    []config.SymbolConfig           `json:"symbols,omitempty"`
 }
 
 // getSetupStatusHandler 获取配置状态
@@ -61,6 +63,8 @@ func getSetupStatusHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, SetupStatusResponse{
 		NeedsSetup: needsSetup,
 		ConfigPath: configPath,
+		Exchanges:  cfg.Exchanges,
+		Symbols:    cfg.Trading.Symbols,
 	})
 }
 
@@ -117,17 +121,27 @@ func initSetupHandler(c *gin.Context) {
 		return
 	}
 
-	// 如果卖单窗口大小未设置，使用买单窗口大小
-	sellWindowSize := req.SellWindowSize
-	if sellWindowSize <= 0 {
-		sellWindowSize = req.BuyWindowSize
+	// 获取配置文件路径
+	configPath := "config.yaml"
+	if configManager != nil {
+		configPath = configManager.GetConfigPath()
 	}
 
-	// 创建最小化配置作为基础
-	cfg := config.CreateMinimalConfig()
+	// 尝试加载现有配置，如果不存在则创建最小化配置
+	var cfg *config.Config
+	if _, err := os.Stat(configPath); err == nil {
+		if existingCfg, err := config.LoadConfig(configPath); err == nil {
+			cfg = existingCfg
+		}
+	}
+	if cfg == nil {
+		cfg = config.CreateMinimalConfig()
+	}
 
 	// 设置交易所
-	cfg.App.CurrentExchange = req.Exchange
+	if cfg.App.CurrentExchange == "" {
+		cfg.App.CurrentExchange = req.Exchange
+	}
 
 	// 设置交易所配置
 	exchangeCfg := config.ExchangeConfig{
@@ -145,19 +159,32 @@ func initSetupHandler(c *gin.Context) {
 
 	cfg.Exchanges[req.Exchange] = exchangeCfg
 
+	// 如果卖单窗口大小未设置，使用买单窗口大小
+	sellWindowSize := req.SellWindowSize
+	if sellWindowSize <= 0 {
+		sellWindowSize = req.BuyWindowSize
+	}
+
 	// 设置交易配置（兼容旧版）
 	cfg.Trading.PriceInterval = req.PriceInterval
 	cfg.Trading.OrderQuantity = req.OrderQuantity
 	if req.MinOrderValue > 0 {
 		cfg.Trading.MinOrderValue = req.MinOrderValue
-	} else {
+	} else if cfg.Trading.MinOrderValue <= 0 {
 		cfg.Trading.MinOrderValue = 20
 	}
 	cfg.Trading.BuyWindowSize = req.BuyWindowSize
 	cfg.Trading.SellWindowSize = sellWindowSize
 
-	// 为每个交易对创建配置
-	cfg.Trading.Symbols = make([]config.SymbolConfig, 0, len(symbols))
+	// 保留其他交易所的交易对配置，仅更新当前交易所的
+	newSymbolConfigs := make([]config.SymbolConfig, 0)
+	for _, sc := range cfg.Trading.Symbols {
+		if strings.ToLower(sc.Exchange) != strings.ToLower(req.Exchange) {
+			newSymbolConfigs = append(newSymbolConfigs, sc)
+		}
+	}
+
+	// 为每个新交易对创建配置
 	for _, symbol := range symbols {
 		symbolCfg := config.SymbolConfig{
 			Exchange:              req.Exchange,
@@ -173,18 +200,13 @@ func initSetupHandler(c *gin.Context) {
 			MarginLockDurationSec: 10,
 			PositionSafetyCheck:   100,
 		}
-		cfg.Trading.Symbols = append(cfg.Trading.Symbols, symbolCfg)
+		newSymbolConfigs = append(newSymbolConfigs, symbolCfg)
 	}
+	cfg.Trading.Symbols = newSymbolConfigs
 
 	// 设置第一个交易对作为默认（向后兼容）
-	if len(symbols) > 0 {
-		cfg.Trading.Symbol = symbols[0]
-	}
-
-	// 获取配置文件路径
-	configPath := "config.yaml"
-	if configManager != nil {
-		configPath = configManager.GetConfigPath()
+	if len(cfg.Trading.Symbols) > 0 {
+		cfg.Trading.Symbol = cfg.Trading.Symbols[0].Symbol
 	}
 
 	// 检查配置文件是否已存在，如果存在则先备份
@@ -562,7 +584,7 @@ func getBybitSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool) ([]string, error) {
 	baseURL := "https://api.gateio.ws"
 	if testnet {
-		baseURL = "https://fx-api-testnet.gateio.ws"
+		baseURL = "https://api-testnet.gateapi.io"
 	}
 
 	path := "/api/v4/futures/usdt/contracts"
@@ -570,18 +592,32 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		logger.Error("获取 Gate.io 交易对列表失败: %v, 使用内置备选交易对", err)
+		// 如果 API 调用失败，返回常用的内置交易对作为备选（特别是在测试网环境下）
+		return []string{
+			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
+			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
+			"PEPE_USDT", "SHIB_USDT", "ARB_USDT", "OP_USDT", "SUI_USDT",
+		}, nil
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		logger.Error("请求 Gate.io 失败: %v, 使用内置备选交易对", err)
+		return []string{
+			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
+			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
+		}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		logger.Warn("Gate.io API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		return []string{
+			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
+			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
+		}, nil
 	}
 
 	var contracts []struct {
@@ -590,7 +626,11 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&contracts); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
+		logger.Error("解析 Gate.io 响应失败: %v, 使用内置备选交易对", err)
+		return []string{
+			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
+			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
+		}, nil
 	}
 
 	symbols := make([]string, 0)
@@ -598,6 +638,15 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 		if contract.Status == "active" {
 			symbols = append(symbols, contract.Name)
 		}
+	}
+
+	// 如果 API 返回为空，则返回内置备选
+	if len(symbols) == 0 {
+		logger.Warn("Gate.io API 未返回任何活跃合约，使用内置备选交易对")
+		return []string{
+			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
+			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
+		}, nil
 	}
 
 	return symbols, nil

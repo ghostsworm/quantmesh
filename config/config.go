@@ -9,12 +9,12 @@ import (
 
 // GridRiskControl 网格策略风控配置
 type GridRiskControl struct {
-	Enabled                 bool    `yaml:"enabled"`
-	MaxGridLayers           int     `yaml:"max_grid_layers"`            // 最大允许买入层数
-	StopLossRatio           float64 `yaml:"stop_loss_ratio"`            // 单币种最大浮亏比例（如 0.1 表示 10%）
-	TakeProfitTriggerRatio  float64 `yaml:"take_profit_trigger_ratio"`  // 盈利达到此比例后开启回撤止盈（如 0.08 表示 8%）
-	TrailingTakeProfitRatio float64 `yaml:"trailing_take_profit_ratio"` // 盈利回撤比例（如 0.03 表示回撤 3% 止盈）
-	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled"`       // 是否开启趋势过滤
+	Enabled                 bool    `yaml:"enabled" json:"enabled"`
+	MaxGridLayers           int     `yaml:"max_grid_layers" json:"max_grid_layers"`                       // 最大允许买入层数
+	StopLossRatio           float64 `yaml:"stop_loss_ratio" json:"stop_loss_ratio"`                       // 单币种最大浮亏比例（如 0.1 表示 10%）
+	TakeProfitTriggerRatio  float64 `yaml:"take_profit_trigger_ratio" json:"take_profit_trigger_ratio"`   // 盈利达到此比例后开启回撤止盈（如 0.08 表示 8%）
+	TrailingTakeProfitRatio float64 `yaml:"trailing_take_profit_ratio" json:"trailing_take_profit_ratio"` // 盈利回撤比例（如 0.03 表示回撤 3% 止盈）
+	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`             // 是否开启趋势过滤
 }
 
 // Config 做市商系统配置
@@ -473,19 +473,19 @@ type Config struct {
 
 // SymbolConfig 单个交易对配置（可指定所属交易所及交易参数）
 type SymbolConfig struct {
-	Exchange              string  `yaml:"exchange"`                     // 所属交易所，默认为 app.current_exchange
-	Symbol                string  `yaml:"symbol"`                       // 交易对，如 BTCUSDT
-	PriceInterval         float64 `yaml:"price_interval"`               // 价格间隔
-	OrderQuantity         float64 `yaml:"order_quantity"`               // 每单金额（USDT/USDC）
-	MinOrderValue         float64 `yaml:"min_order_value"`              // 最小订单价值
-	BuyWindowSize         int     `yaml:"buy_window_size"`              // 买单窗口
-	SellWindowSize        int     `yaml:"sell_window_size"`             // 卖单窗口
-	ReconcileInterval     int     `yaml:"reconcile_interval"`           // 对账间隔（秒）
-	OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`      // 订单清理上限
-	CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小
-	MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保证金锁定时间（秒）
-	PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持仓安全性检查
-	GridRiskControl       GridRiskControl `yaml:"grid_risk_control"`    // 网格策略风控
+	Exchange              string  `yaml:"exchange" json:"exchange"`                                 // 所属交易所，默认为 app.current_exchange
+	Symbol                string  `yaml:"symbol" json:"symbol"`                                     // 交易对，如 BTCUSDT
+	PriceInterval         float64 `yaml:"price_interval" json:"price_interval"`                     // 价格间隔
+	OrderQuantity         float64 `yaml:"order_quantity" json:"order_quantity"`                     // 每单金额（USDT/USDC）
+	MinOrderValue         float64 `yaml:"min_order_value" json:"min_order_value"`                   // 最小订单价值
+	BuyWindowSize         int     `yaml:"buy_window_size" json:"buy_window_size"`                   // 买单窗口
+	SellWindowSize        int     `yaml:"sell_window_size" json:"sell_window_size"`                 // 卖单窗口
+	ReconcileInterval     int     `yaml:"reconcile_interval" json:"reconcile_interval"`             // 对账间隔（秒）
+	OrderCleanupThreshold int     `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`   // 订单清理上限
+	CleanupBatchSize      int     `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`             // 清理批次大小
+	MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保证金锁定时间（秒）
+	PositionSafetyCheck   int     `yaml:"position_safety_check" json:"position_safety_check"`       // 持仓安全性检查
+	GridRiskControl       GridRiskControl `yaml:"grid_risk_control" json:"grid_risk_control"`       // 网格策略风控
 }
 
 // StrategyConfig 策略配置
@@ -497,11 +497,11 @@ type StrategyConfig struct {
 
 // ExchangeConfig 交易所配置
 type ExchangeConfig struct {
-	APIKey     string  `yaml:"api_key"`
-	SecretKey  string  `yaml:"secret_key"`
-	Passphrase string  `yaml:"passphrase"` // Bitget 需要
-	FeeRate    float64 `yaml:"fee_rate"`   // 手续费率（例如 0.0002 表示 0.02%）
-	Testnet    bool    `yaml:"testnet"`    // 是否使用测试网（默认 false）
+	APIKey     string  `yaml:"api_key" json:"api_key"`
+	SecretKey  string  `yaml:"secret_key" json:"secret_key"`
+	Passphrase string  `yaml:"passphrase" json:"passphrase"` // Bitget 需要
+	FeeRate    float64 `yaml:"fee_rate" json:"fee_rate"`     // 手续费率（例如 0.0002 表示 0.02%）
+	Testnet    bool    `yaml:"testnet" json:"testnet"`       // 是否使用测试网（默认 false）
 }
 
 // SymbolAllocation 单个币种的资金分配配置
