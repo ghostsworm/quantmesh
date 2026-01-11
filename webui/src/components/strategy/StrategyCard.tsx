@@ -191,7 +191,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
 
         {/* Features */}
         <HStack spacing={1} flexWrap="wrap">
-          {strategy.features.slice(0, 3).map((feature, index) => (
+          {(strategy.features || []).slice(0, 3).map((feature, index) => (
             <Badge
               key={index}
               variant="outline"
@@ -203,7 +203,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
               {feature}
             </Badge>
           ))}
-          {strategy.features.length > 3 && (
+          {strategy.features && strategy.features.length > 3 && (
             <Badge variant="outline" colorScheme="gray" fontSize="xs" borderRadius="full" px={2}>
               +{strategy.features.length - 3}
             </Badge>

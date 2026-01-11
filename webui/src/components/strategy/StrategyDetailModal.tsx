@@ -159,7 +159,7 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
                       {t('strategyMarket.detail.features')}
                     </Text>
                     <HStack spacing={2} flexWrap="wrap">
-                      {strategy.features.map((feature, index) => (
+                      {(strategy.features || []).map((feature, index) => (
                         <Badge
                           key={index}
                           colorScheme="blue"

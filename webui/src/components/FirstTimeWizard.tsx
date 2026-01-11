@@ -460,6 +460,8 @@ const FirstTimeWizard: React.FC = () => {
           isOpen={aiWizardOpen}
           onClose={() => setAIWizardOpen(false)}
           onSuccess={handleAIConfigSuccess}
+          exchange={exchangeConfig.exchange}
+          symbols={exchangeConfig.symbols || []}
         />
       </Container>
     </Box>

@@ -1,10 +1,13 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Box,
   Button,
   FormControl,
   FormLabel,
   Input,
+  InputGroup,
+  InputRightElement,
+  IconButton,
   NumberInput,
   NumberInputField,
   Select,
@@ -24,7 +27,6 @@ import {
   ModalBody,
   ModalFooter,
   ModalCloseButton,
-  useDisclosure,
   useToast,
   Table,
   Thead,
@@ -35,63 +37,106 @@ import {
   TableContainer,
   Badge,
   Divider,
-  Code,
   useColorModeValue,
-  Accordion,
-  AccordionItem,
-  AccordionButton,
-  AccordionPanel,
-  AccordionIcon,
+  RadioGroup,
+  Radio,
+  Stack,
+  Wrap,
+  WrapItem,
 } from '@chakra-ui/react'
+import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
-import { generateAIConfig, applyAIConfig, AIGenerateConfigRequest, AIGenerateConfigResponse } from '../services/api'
-import { StarIcon } from '@chakra-ui/icons'
+import { generateAIConfig, applyAIConfig, AIGenerateConfigRequest, AIGenerateConfigResponse, SymbolCapitalConfig } from '../services/api'
 
 interface AIConfigWizardProps {
   isOpen: boolean
   onClose: () => void
   onSuccess?: () => void
+  // 从父组件传入的已选交易所和币种
+  exchange?: string
+  symbols?: string[]
 }
 
-const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSuccess }) => {
+const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ 
+  isOpen, 
+  onClose, 
+  onSuccess,
+  exchange: propsExchange,
+  symbols: propsSymbols 
+}) => {
   const { t } = useTranslation()
   const toast = useToast()
   const [step, setStep] = useState<'form' | 'preview' | 'success'>('form')
   const [loading, setLoading] = useState(false)
-  const [formData, setFormData] = useState<AIGenerateConfigRequest>({
-    exchange: 'binance',
-    symbols: [],
-    total_capital: 10000,
-    risk_profile: 'balanced',
-  })
-  const [symbolInput, setSymbolInput] = useState('')
+  
+  // Gemini API Key
+  const [geminiApiKey, setGeminiApiKey] = useState('')
+  const [showApiKey, setShowApiKey] = useState(false)
+  
+  // 资金配置模式: 'total' = 总金额模式, 'per_symbol' = 按币种分配
+  const [capitalMode, setCapitalMode] = useState<'total' | 'per_symbol'>('total')
+  
+  // 总金额模式的资金
+  const [totalCapital, setTotalCapital] = useState(10000)
+  
+  // 按币种分配模式的资金
+  const [symbolCapitals, setSymbolCapitals] = useState<SymbolCapitalConfig[]>([])
+  
+  // 风险偏好
+  const [riskProfile, setRiskProfile] = useState<'conservative' | 'balanced' | 'aggressive'>('balanced')
+  
   const [aiConfig, setAiConfig] = useState<AIGenerateConfigResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const bg = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.700')
+  const infoBg = useColorModeValue('gray.50', 'gray.700')
 
-  const handleAddSymbol = () => {
-    const symbol = symbolInput.trim().toUpperCase()
-    if (symbol && !formData.symbols.includes(symbol)) {
-      setFormData(prev => ({
-        ...prev,
-        symbols: [...prev.symbols, symbol],
-      }))
-      setSymbolInput('')
+  // 使用传入的交易所和币种，如果没有传入则使用默认值
+  const exchange = propsExchange || 'binance'
+  const symbols = propsSymbols || []
+
+  // 当币种列表变化时，初始化按币种分配的资金
+  useEffect(() => {
+    if (symbols.length > 0) {
+      const defaultCapitalPerSymbol = Math.floor(10000 / symbols.length)
+      setSymbolCapitals(symbols.map(symbol => ({
+        symbol,
+        capital: defaultCapitalPerSymbol
+      })))
     }
+  }, [symbols])
+
+  // 更新单个币种的资金
+  const handleSymbolCapitalChange = (symbol: string, capital: number) => {
+    setSymbolCapitals(prev => prev.map(sc => 
+      sc.symbol === symbol ? { ...sc, capital } : sc
+    ))
   }
 
-  const handleRemoveSymbol = (symbol: string) => {
-    setFormData(prev => ({
-      ...prev,
-      symbols: prev.symbols.filter(s => s !== symbol),
-    }))
-  }
+  // 计算按币种分配的总资金
+  const totalSymbolCapitals = symbolCapitals.reduce((sum, sc) => sum + sc.capital, 0)
 
   const handleGenerate = async () => {
-    if (formData.symbols.length === 0) {
-      setError('请至少添加一个交易币种')
+    // 验证 Gemini API Key
+    if (!geminiApiKey.trim()) {
+      setError('请输入 Gemini API Key')
+      return
+    }
+
+    // 验证币种
+    if (symbols.length === 0) {
+      setError('请先在向导中选择交易币种')
+      return
+    }
+
+    // 验证资金
+    if (capitalMode === 'total' && totalCapital <= 0) {
+      setError('请输入有效的总资金金额')
+      return
+    }
+    if (capitalMode === 'per_symbol' && totalSymbolCapitals <= 0) {
+      setError('请为至少一个币种设置资金')
       return
     }
 
@@ -99,6 +144,21 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSucc
     setError(null)
 
     try {
+      // 传递 API Key 给后端（后端会临时使用，或者如果配置中有就用配置中的）
+      const formData: AIGenerateConfigRequest = {
+        exchange,
+        symbols,
+        capital_mode: capitalMode,
+        risk_profile: riskProfile,
+        gemini_api_key: geminiApiKey,  // 传递 API Key
+      }
+
+      if (capitalMode === 'total') {
+        formData.total_capital = totalCapital
+      } else {
+        formData.symbol_capitals = symbolCapitals.filter(sc => sc.capital > 0)
+      }
+
       const config = await generateAIConfig(formData)
       setAiConfig(config)
       setStep('preview')
@@ -108,7 +168,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSucc
         duration: 3000,
       })
     } catch (err: any) {
-      const errorMsg = err.message || '生成配置失败，请检查 Gemini API Key 是否已配置'
+      const errorMsg = err.message || '生成配置失败，请检查 Gemini API Key 是否正确'
       setError(errorMsg)
       toast({
         title: '生成配置失败',
@@ -164,6 +224,17 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSucc
     onClose()
   }
 
+  // 交易所显示名称映射
+  const exchangeNames: Record<string, string> = {
+    binance: 'Binance',
+    bitget: 'Bitget',
+    bybit: 'Bybit',
+    gate: 'Gate.io',
+    okx: 'OKX',
+    huobi: 'Huobi (HTX)',
+    kucoin: 'KuCoin',
+  }
+
   return (
     <Modal isOpen={isOpen} onClose={handleClose} size="xl" scrollBehavior="inside">
       <ModalOverlay />
@@ -190,66 +261,129 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSucc
                 </Alert>
               )}
 
+              {/* Gemini API Key 输入 */}
               <FormControl isRequired>
-                <FormLabel>交易所</FormLabel>
-                <Select
-                  value={formData.exchange}
-                  onChange={(e) => setFormData(prev => ({ ...prev, exchange: e.target.value }))}
-                >
-                  <option value="binance">Binance</option>
-                  <option value="gate">Gate.io</option>
-                  <option value="bitget">Bitget</option>
-                  <option value="bybit">Bybit</option>
-                </Select>
-              </FormControl>
-
-              <FormControl isRequired>
-                <FormLabel>交易币种</FormLabel>
-                <HStack>
+                <FormLabel>Gemini API Key</FormLabel>
+                <InputGroup>
                   <Input
-                    placeholder="例如: BTCUSDT"
-                    value={symbolInput}
-                    onChange={(e) => setSymbolInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAddSymbol()}
+                    type={showApiKey ? 'text' : 'password'}
+                    placeholder="输入您的 Gemini API Key"
+                    value={geminiApiKey}
+                    onChange={(e) => setGeminiApiKey(e.target.value)}
                   />
-                  <Button onClick={handleAddSymbol} size="md">添加</Button>
-                </HStack>
-                {formData.symbols.length > 0 && (
-                  <HStack mt={2} flexWrap="wrap" spacing={2}>
-                    {formData.symbols.map(symbol => (
-                      <Badge
-                        key={symbol}
-                        colorScheme="blue"
-                        px={2}
-                        py={1}
-                        borderRadius="md"
-                        cursor="pointer"
-                        onClick={() => handleRemoveSymbol(symbol)}
-                      >
-                        {symbol} ×
-                      </Badge>
-                    ))}
-                  </HStack>
-                )}
+                  <InputRightElement>
+                    <IconButton
+                      aria-label={showApiKey ? '隐藏' : '显示'}
+                      icon={showApiKey ? <ViewOffIcon /> : <ViewIcon />}
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                    />
+                  </InputRightElement>
+                </InputGroup>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  获取 API Key: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', textDecoration: 'underline' }}>Google AI Studio</a>
+                </Text>
               </FormControl>
 
+              <Divider />
+
+              {/* 显示已选择的交易所和币种（只读） */}
+              <Box p={4} bg={infoBg} borderRadius="md">
+                <Text fontWeight="bold" mb={2}>已选择的交易配置</Text>
+                <HStack mb={2}>
+                  <Text fontSize="sm" color="gray.600">交易所:</Text>
+                  <Badge colorScheme="blue">{exchangeNames[exchange] || exchange}</Badge>
+                </HStack>
+                <HStack alignItems="flex-start">
+                  <Text fontSize="sm" color="gray.600" flexShrink={0}>交易币种:</Text>
+                  <Wrap>
+                    {symbols.length > 0 ? (
+                      symbols.map(symbol => (
+                        <WrapItem key={symbol}>
+                          <Badge colorScheme="green">{symbol}</Badge>
+                        </WrapItem>
+                      ))
+                    ) : (
+                      <Text fontSize="sm" color="orange.500">未选择币种，请先在向导中选择交易币种</Text>
+                    )}
+                  </Wrap>
+                  </HStack>
+              </Box>
+
+              <Divider />
+
+              {/* 资金配置模式选择 */}
+              <FormControl>
+                <FormLabel>资金配置方式</FormLabel>
+                <RadioGroup value={capitalMode} onChange={(value) => setCapitalMode(value as 'total' | 'per_symbol')}>
+                  <Stack direction="row" spacing={4}>
+                    <Radio value="total">总金额分配</Radio>
+                    <Radio value="per_symbol">按币种分配</Radio>
+                  </Stack>
+                </RadioGroup>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {capitalMode === 'total' 
+                    ? '输入总资金，AI 将自动分配到各个币种' 
+                    : '分别设置每个币种的资金量，AI 根据资金决定网格参数'}
+                </Text>
+              </FormControl>
+
+              {/* 总金额模式 */}
+              {capitalMode === 'total' && (
               <FormControl isRequired>
                 <FormLabel>可用资金 (USDT)</FormLabel>
                 <NumberInput
-                  value={formData.total_capital}
-                  onChange={(_, value) => setFormData(prev => ({ ...prev, total_capital: value }))}
+                    value={totalCapital}
+                    onChange={(_, value) => setTotalCapital(value || 0)}
                   min={100}
                   precision={2}
                 >
                   <NumberInputField />
                 </NumberInput>
               </FormControl>
+              )}
 
+              {/* 按币种分配模式 */}
+              {capitalMode === 'per_symbol' && (
+                <FormControl isRequired>
+                  <FormLabel>各币种资金分配 (USDT)</FormLabel>
+                  <VStack spacing={2} align="stretch">
+                    {symbolCapitals.map(({ symbol, capital }) => (
+                      <HStack key={symbol}>
+                        <Badge colorScheme="green" minW="100px" textAlign="center">{symbol}</Badge>
+                        <NumberInput
+                          value={capital}
+                          onChange={(_, value) => handleSymbolCapitalChange(symbol, value || 0)}
+                          min={0}
+                          precision={2}
+                          flex={1}
+                        >
+                          <NumberInputField placeholder="输入资金量" />
+                        </NumberInput>
+                        <Text fontSize="sm" color="gray.500">USDT</Text>
+                      </HStack>
+                    ))}
+                    {symbolCapitals.length > 0 && (
+                      <HStack justify="flex-end" pt={2} borderTop="1px" borderColor={borderColor}>
+                        <Text fontSize="sm" fontWeight="bold">总计:</Text>
+                        <Text fontSize="sm" fontWeight="bold" color="blue.500">
+                          {totalSymbolCapitals.toFixed(2)} USDT
+                        </Text>
+                      </HStack>
+                    )}
+                  </VStack>
+                </FormControl>
+              )}
+
+              <Divider />
+
+              {/* 风险偏好 */}
               <FormControl isRequired>
                 <FormLabel>风险偏好</FormLabel>
                 <Select
-                  value={formData.risk_profile}
-                  onChange={(e) => setFormData(prev => ({ ...prev, risk_profile: e.target.value as any }))}
+                  value={riskProfile}
+                  onChange={(e) => setRiskProfile(e.target.value as any)}
                 >
                   <option value="conservative">保守型（低风险，稳健收益）</option>
                   <option value="balanced">平衡型（中等风险，适中收益）</option>
@@ -275,7 +409,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSucc
                 <Text fontWeight="bold" mb={2}>AI 配置说明</Text>
                 <Box
                   p={4}
-                  bg={useColorModeValue('gray.50', 'gray.700')}
+                  bg={infoBg}
                   borderRadius="md"
                   fontSize="sm"
                   whiteSpace="pre-wrap"
@@ -411,7 +545,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSucc
                   colorScheme="blue"
                   onClick={handleGenerate}
                   isLoading={loading}
-                  isDisabled={formData.symbols.length === 0}
+                  isDisabled={symbols.length === 0 || !geminiApiKey.trim()}
                 >
                   生成配置
                 </Button>
@@ -447,4 +581,3 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ isOpen, onClose, onSucc
 }
 
 export default AIConfigWizard
-

@@ -29,13 +29,21 @@ func NewGeminiClient(apiKey string) *GeminiClient {
 	}
 }
 
+// SymbolCapitalConfig 币种资金配置
+type SymbolCapitalConfig struct {
+	Symbol  string  `json:"symbol"`
+	Capital float64 `json:"capital"`
+}
+
 // GenerateConfigRequest AI 配置生成请求
 type GenerateConfigRequest struct {
-	Exchange      string             `json:"exchange"`
-	Symbols       []string           `json:"symbols"`
-	TotalCapital  float64            `json:"total_capital"`
-	RiskProfile   string             `json:"risk_profile"` // conservative/balanced/aggressive
-	CurrentPrices map[string]float64 `json:"current_prices"`
+	Exchange       string                `json:"exchange"`
+	Symbols        []string              `json:"symbols"`
+	TotalCapital   float64               `json:"total_capital,omitempty"`    // 总金额模式时使用
+	SymbolCapitals []SymbolCapitalConfig `json:"symbol_capitals,omitempty"` // 按币种分配模式时使用
+	CapitalMode    string                `json:"capital_mode"`               // total 或 per_symbol
+	RiskProfile    string                `json:"risk_profile"`               // conservative/balanced/aggressive
+	CurrentPrices  map[string]float64    `json:"current_prices"`
 }
 
 // GenerateConfigResponse AI 配置生成响应
@@ -247,18 +255,43 @@ func (c *GeminiClient) buildPrompt(req *GenerateConfigRequest) string {
 		"aggressive":   "激进型（高风险，追求高收益）",
 	}[req.RiskProfile]
 
+	var capitalInfo string
+	var totalCapital float64
+
+	if req.CapitalMode == "per_symbol" && len(req.SymbolCapitals) > 0 {
+		// 按币种分配模式
+		capitalInfo = "资金配置模式：按币种分配\n各币种资金分配：\n"
+		for _, sc := range req.SymbolCapitals {
+			capitalInfo += fmt.Sprintf("- %s: %.2f USDT\n", sc.Symbol, sc.Capital)
+			totalCapital += sc.Capital
+		}
+		capitalInfo += fmt.Sprintf("总计资金：%.2f USDT\n", totalCapital)
+	} else {
+		// 总金额模式
+		totalCapital = req.TotalCapital
+		capitalInfo = fmt.Sprintf("资金配置模式：总金额分配\n可用资金：%.2f USDT", totalCapital)
+	}
+
 	prompt := fmt.Sprintf(`你是一个加密货币网格交易专家。请根据以下信息，为用户设计一套网格交易和资金分配方案：
 
 交易所：%s
 交易币种：%v
-可用资金：%.2f USDT
+%s
 风险偏好：%s
 
 当前价格信息：
-`, req.Exchange, req.Symbols, req.TotalCapital, riskDesc)
+`, req.Exchange, req.Symbols, capitalInfo, riskDesc)
 
 	for symbol, price := range req.CurrentPrices {
 		prompt += fmt.Sprintf("- %s: $%.2f\n", symbol, price)
+	}
+
+	// 根据资金模式添加不同的说明
+	if req.CapitalMode == "per_symbol" && len(req.SymbolCapitals) > 0 {
+		prompt += `
+注意：用户已为每个币种指定了具体的资金量，请根据指定的资金量来设计网格参数。
+资金分配应完全遵循用户的设定，不需要重新分配资金比例。
+`
 	}
 
 	prompt += `

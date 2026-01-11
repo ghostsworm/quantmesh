@@ -230,6 +230,7 @@ export interface Config {
     enabled: boolean
     provider: string
     api_key: string
+    gemini_api_key?: string  // Gemini API Key，用于 AI 配置助手
     base_url: string
     modules: {
       market_analysis?: AIModuleConfig

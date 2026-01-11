@@ -90,7 +90,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
         {/* Simple Bar Chart */}
         <Box h="200px" position="relative">
           <Flex h="100%" align="flex-end" justify="space-between" gap={1}>
-            {trend.slice(-30).map((item, index) => {
+            {(trend || []).slice(-30).map((item, index) => {
               const height = maxCumulative > 0 ? (Math.abs(item.cumulativeProfit) / maxCumulative) * 100 : 0
               const isPositive = item.cumulativeProfit >= 0
               return (

@@ -278,7 +278,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 	}
 
 	// 填充策略分配
-	for _, cfg := range strategyConfigs {
+	for strategyID, cfg := range strategyConfigs {
 		if !cfg.Enabled {
 			continue
 		}
@@ -292,9 +292,9 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				alloc := asset.TotalBalance * cfg.Weight
 				
 				strategy := StrategyCapitalDetail{
-					StrategyID:      "strategy_" + nameFromConfig(cfg), // 需要一个方法从 cfg 获取 ID/Name
-					StrategyName:    nameFromConfig(cfg),
-					StrategyType:    typeFromConfig(cfg),
+					StrategyID:      strategyID,
+					StrategyName:    getStrategyName(strategyID),
+					StrategyType:    strategyID, // 简化处理
 					ExchangeID:      details[i].ExchangeID,
 					Asset:           asset.Asset,
 					Allocated:       alloc,
@@ -335,15 +335,6 @@ func getCapitalAllocationHandler(c *gin.Context) {
 		"success":   true,
 		"exchanges": details,
 	})
-}
-
-func nameFromConfig(cfg config.StrategyConfig) string {
-	// 这里只是占位，实际需要根据配置获取策略名
-	return "策略"
-}
-
-func typeFromConfig(cfg config.StrategyConfig) string {
-	return "grid"
 }
 
 func mockAllocation(c *gin.Context) {

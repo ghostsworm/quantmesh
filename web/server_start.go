@@ -41,8 +41,9 @@ func NewWebServer(cfg *config.Config) *WebServer {
 	// 添加 Recovery 中间件（panic 恢复）
 	r.Use(gin.Recovery())
 	
-	// 添加自定义日志中间件（只记录错误请求）
-	r.Use(GinLoggerMiddleware())
+	// 添加自定义日志中间件
+	// debug 模式输出全量请求日志；非 debug 仅记录异常
+	r.Use(GinLoggerMiddleware(cfg.System.LogLevel == "debug"))
 
 	// 添加 i18n 中间件
 	r.Use(I18nMiddleware())

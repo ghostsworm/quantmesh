@@ -713,6 +713,8 @@ const Configuration: React.FC = () => {
             loadConfig()
             onAIWizardClose()
           }}
+          exchange={config?.app?.current_exchange || 'binance'}
+          symbols={config?.trading?.symbols?.map((s: any) => s.symbol) || []}
         />
       </VStack>
     </Container>

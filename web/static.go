@@ -32,3 +32,12 @@ func GetAssetsFS() http.FileSystem {
 	}
 	return http.FS(assetsFS)
 }
+
+// GetIconsFS 获取 icons 目录的文件系统（用于提供 PWA 图标）
+func GetIconsFS() http.FileSystem {
+	iconsFS, err := fs.Sub(staticFiles, "dist/icons")
+	if err != nil {
+		return nil
+	}
+	return http.FS(iconsFS)
+}

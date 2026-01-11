@@ -361,7 +361,7 @@ const Dashboard: React.FC = () => {
             </GlassCard>
 
             <GlassCard title={t('dashboard.recentActivity')}>
-              {pendingOrders && pendingOrders.count > 0 ? (
+              {pendingOrders && pendingOrders.orders && pendingOrders.orders.length > 0 ? (
                 <VStack align="stretch" spacing={3}>
                   {pendingOrders.orders.slice(0, 3).map((order, i) => (
                     <Flex key={i} justify="space-between" align="center" bg="gray.50" p={3} borderRadius="xl">

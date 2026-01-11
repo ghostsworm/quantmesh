@@ -89,19 +89,34 @@ const CapitalManagement: React.FC = () => {
 
   // 获取当前选中的交易所的所有策略
   const currentStrategies = useMemo(() => {
+    if (!exchanges || exchanges.length === 0) return []
+    
     if (selectedExchangeIndex === 0) {
       // "全部" 视图：汇总所有交易所的所有策略
-      return exchanges.flatMap(ex => ex.assets.flatMap(asset => asset.strategies))
+      return exchanges
+        .filter(ex => ex && ex.assets)
+        .flatMap(ex => ex.assets
+          .filter(asset => asset && asset.strategies)
+          .flatMap(asset => asset.strategies)
+        )
+        .filter(s => s !== null && s !== undefined)
     }
     const ex = exchanges[selectedExchangeIndex - 1]
-    return ex ? ex.assets.flatMap(asset => asset.strategies) : []
+    return (ex && ex.assets)
+      ? ex.assets
+          .filter(asset => asset && asset.strategies)
+          .flatMap(asset => asset.strategies)
+          .filter(s => s !== null && s !== undefined)
+      : []
   }, [exchanges, selectedExchangeIndex])
 
   // 获取当前视图的总权益
   const currentTotalBalance = useMemo(() => {
     if (selectedExchangeIndex === 0) return overview?.totalBalance || 0
-    const exId = exchanges[selectedExchangeIndex - 1]?.exchangeId
-    const summary = overview?.exchanges?.find(e => e.exchangeId === exId)
+    const ex = exchanges[selectedExchangeIndex - 1]
+    if (!ex) return 0
+    const exId = ex.exchangeId
+    const summary = overview?.exchanges?.filter(e => e !== null && e !== undefined).find(e => e.exchangeId === exId)
     return summary?.totalBalance || 0
   }, [overview, exchanges, selectedExchangeIndex])
 
@@ -252,10 +267,10 @@ const CapitalManagement: React.FC = () => {
         >
           <TabList mb={4} overflowX="auto" pb={2}>
             <Tab px={6}>{t('capitalManagement.allExchanges') || '全局概览'}</Tab>
-            {exchanges.map((ex) => (
+            {exchanges.filter(ex => ex !== null && ex !== undefined).map((ex) => (
               <Tab key={ex.exchangeId} px={6}>
                 {ex.exchangeName}
-                {overview?.exchanges?.find(e => e.exchangeId === ex.exchangeId)?.status === 'error' && (
+                {overview?.exchanges?.filter(e => e !== null && e !== undefined).find(e => e.exchangeId === ex.exchangeId)?.status === 'error' && (
                   <Badge ml={2} colorScheme="red">ERROR</Badge>
                 )}
               </Tab>
@@ -273,7 +288,7 @@ const CapitalManagement: React.FC = () => {
             <VStack align="stretch" spacing={4}>
               <Flex justify="space-between" align="center">
                 <Heading size="md">
-                  {selectedExchangeIndex === 0 ? '全部策略分配' : `${exchanges[selectedExchangeIndex-1].exchangeName} 策略分配`}
+                  {selectedExchangeIndex === 0 ? '全部策略分配' : `${exchanges[selectedExchangeIndex-1]?.exchangeName || '未知交易所'} 策略分配`}
                 </Heading>
                 <FormControl display="flex" alignItems="center" w="auto">
                   <FormLabel mb={0} fontSize="sm">
@@ -294,10 +309,12 @@ const CapitalManagement: React.FC = () => {
               )}
 
               <VStack align="stretch" spacing={3}>
-                {currentStrategies.length > 0 ? (
-                  currentStrategies.map((strategy) => (
+                {currentStrategies && currentStrategies.length > 0 ? (
+                  currentStrategies
+                    .filter(s => s !== null && s !== undefined)
+                    .map((strategy) => (
                     <CapitalSlider
-                      key={`${strategy.exchangeId}-${strategy.strategyId}`}
+                      key={`${strategy.exchangeId || 'unknown'}-${strategy.strategyId}`}
                       strategyId={strategy.strategyId}
                       strategyName={strategy.strategyName}
                       currentValue={pendingChanges[strategy.strategyId] ?? strategy.allocated}

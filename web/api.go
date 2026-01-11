@@ -4221,14 +4221,23 @@ func getAllocationStatusBySymbol(c *gin.Context) {
 	respondError(c, http.StatusNotFound, "error.allocation_not_found")
 }
 
+// SymbolCapitalRequest 币种资金配置请求
+type SymbolCapitalRequest struct {
+	Symbol  string  `json:"symbol"`
+	Capital float64 `json:"capital"`
+}
+
 // generateAIConfig 生成 AI 配置建议
 // POST /api/ai/generate-config
 func generateAIConfig(c *gin.Context) {
 	var req struct {
-		Exchange     string   `json:"exchange"`
-		Symbols      []string `json:"symbols"`
-		TotalCapital float64  `json:"total_capital"`
-		RiskProfile  string   `json:"risk_profile"`
+		Exchange       string                 `json:"exchange"`
+		Symbols        []string               `json:"symbols"`
+		TotalCapital   float64                `json:"total_capital"`
+		SymbolCapitals []SymbolCapitalRequest `json:"symbol_capitals"`
+		CapitalMode    string                 `json:"capital_mode"` // total 或 per_symbol
+		RiskProfile    string                 `json:"risk_profile"`
+		GeminiAPIKey   string                 `json:"gemini_api_key"` // 可选，前端传入的 API Key
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -4237,6 +4246,10 @@ func generateAIConfig(c *gin.Context) {
 	}
 
 	// 获取 Gemini API Key
+	// 优先使用请求中传入的 Key，否则使用配置文件中的 Key
+	geminiAPIKey := req.GeminiAPIKey
+	
+	if geminiAPIKey == "" {
 	if configManager == nil {
 		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
 		return
@@ -4249,10 +4262,12 @@ func generateAIConfig(c *gin.Context) {
 	}
 
 	// 获取 Gemini API Key（优先使用 gemini_api_key，否则使用 api_key）
-	geminiAPIKey := cfg.AI.GeminiAPIKey
+		geminiAPIKey = cfg.AI.GeminiAPIKey
 	if geminiAPIKey == "" {
 		geminiAPIKey = cfg.AI.APIKey
 	}
+	}
+	
 	if geminiAPIKey == "" {
 		respondError(c, http.StatusBadRequest, "error.gemini_api_key_not_configured")
 		return
@@ -4310,14 +4325,31 @@ func generateAIConfig(c *gin.Context) {
 		logger.Warn("⚠️ 部分币种未能获取到价格，将使用默认值")
 	}
 
+	// 转换 SymbolCapitals 格式
+	var symbolCapitals []ai.SymbolCapitalConfig
+	for _, sc := range req.SymbolCapitals {
+		symbolCapitals = append(symbolCapitals, ai.SymbolCapitalConfig{
+			Symbol:  sc.Symbol,
+			Capital: sc.Capital,
+		})
+	}
+
+	// 确定资金模式，默认为 total
+	capitalMode := req.CapitalMode
+	if capitalMode == "" {
+		capitalMode = "total"
+	}
+
 	// 调用 Gemini API
 	geminiClient := ai.NewGeminiClient(geminiAPIKey)
 	aiConfig, err := geminiClient.GenerateConfig(c.Request.Context(), &ai.GenerateConfigRequest{
-		Exchange:      req.Exchange,
-		Symbols:       req.Symbols,
-		TotalCapital:  req.TotalCapital,
-		RiskProfile:   req.RiskProfile,
-		CurrentPrices: currentPrices,
+		Exchange:       req.Exchange,
+		Symbols:        req.Symbols,
+		TotalCapital:   req.TotalCapital,
+		SymbolCapitals: symbolCapitals,
+		CapitalMode:    capitalMode,
+		RiskProfile:    req.RiskProfile,
+		CurrentPrices:  currentPrices,
 	})
 
 	if err != nil {
@@ -4326,10 +4358,19 @@ func generateAIConfig(c *gin.Context) {
 		return
 	}
 
+	// 计算总资金用于验证
+	totalCapital := req.TotalCapital
+	if capitalMode == "per_symbol" && len(symbolCapitals) > 0 {
+		totalCapital = 0
+		for _, sc := range symbolCapitals {
+			totalCapital += sc.Capital
+		}
+	}
+
 	// 验证配置
 	configPath := configManager.GetConfigPath()
 	configService := ai.NewConfigService(configPath)
-	if err := configService.ValidateAIConfig(aiConfig, req.TotalCapital); err != nil {
+	if err := configService.ValidateAIConfig(aiConfig, totalCapital); err != nil {
 		respondError(c, http.StatusBadRequest, "error.invalid_ai_config", err)
 		return
 	}

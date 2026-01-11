@@ -371,8 +371,8 @@ kill_port_process "${WEB_PORT}"
 log_info "步骤 3/4: 启动新服务..."
 cd "${SCRIPT_DIR}"
 
-# 启动服务（后台运行）
-nohup "./${BINARY_NAME}" "${CONFIG_FILE}" >> "${LOG_FILE}" 2>&1 &
+# 启动服务（后台运行，启用 debug 以全量输出 Gin 日志）
+nohup "./${BINARY_NAME}" -debug "${CONFIG_FILE}" >> "${LOG_FILE}" 2>&1 &
 NEW_PID=$!
 
 # 保存PID

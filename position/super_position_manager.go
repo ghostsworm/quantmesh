@@ -1702,6 +1702,45 @@ func (spm *SuperPositionManager) getExistingPosition() float64 {
 	return 0
 }
 
+// ForceSyncPositions 强制同步持仓（当对账发现重大不一致时调用）
+func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
+	// 注意：这里不需要全局锁 spm.mu.Lock()，因为 slots 是 sync.Map，槽位更新有自己的锁
+	// 且我们不希望在对账时阻塞下单逻辑
+
+	logger.Warn("🚨 [强制同步] 正在同步持仓状态，期望持仓: %.4f", exchangePosition)
+
+	if exchangePosition <= 0.000001 {
+		// 交易所持仓为空，清空本地所有槽位的持仓
+		count := 0
+		spm.slots.Range(func(key, value interface{}) bool {
+			slot := value.(*InventorySlot)
+			slot.mu.Lock()
+			if slot.PositionStatus == PositionStatusFilled {
+				logger.Info("🧹 [强制同步] 清空槽位价格 %s 的持仓 (原数量: %.4f)", 
+					formatPrice(slot.Price, spm.priceDecimals), slot.PositionQty)
+				slot.PositionStatus = PositionStatusEmpty
+				slot.PositionQty = 0
+				slot.OrderID = 0
+				slot.OrderStatus = OrderStatusNotPlaced
+				slot.ClientOID = ""
+				count++
+			}
+			slot.mu.Unlock()
+			return true
+		})
+		
+		if count > 0 {
+			logger.Info("✅ [强制同步] 已成功清空 %d 个槽位的持仓数据", count)
+		} else {
+			logger.Debug("ℹ️ [强制同步] 本地本来就没有持仓，无需操作")
+		}
+	} else {
+		// 如果交易所仍有持仓，目前只支持在启动时通过 initializeSellSlotsFromPosition 恢复
+		// 在线动态同步逻辑较为复杂（涉及槽位重新分配），暂时仅提示
+		logger.Warn("⚠️ [强制同步] 交易所仍有持仓 %.4f，暂不支持在线自动同步（非零持仓），请手动检查或重启程序", exchangePosition)
+	}
+}
+
 // initializeSellSlotsFromPosition 从现有持仓初始化卖单槽位（用于程序重启后恢复状态）
 func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition float64) {
 	if totalPosition <= 0 {

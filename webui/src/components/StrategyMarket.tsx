@@ -155,7 +155,8 @@ const StrategyMarket: React.FC = () => {
   }
 
   const filteredStrategies = useMemo(() => {
-    let result = [...strategies]
+    const validStrategies = (strategies || []).filter(s => s !== null && s !== undefined)
+    let result = [...validStrategies]
 
     // Filter by tab
     if (activeTab === 1) {
@@ -174,21 +175,24 @@ const StrategyMarket: React.FC = () => {
       const query = searchQuery.toLowerCase()
       result = result.filter(
         (s) =>
-          s.name.toLowerCase().includes(query) ||
-          s.description.toLowerCase().includes(query) ||
-          s.features.some((f) => f.toLowerCase().includes(query))
+          (s.name || '').toLowerCase().includes(query) ||
+          (s.description || '').toLowerCase().includes(query) ||
+          (s.features || []).some((f) => f.toLowerCase().includes(query))
       )
     }
 
     return result
   }, [strategies, activeTab, selectedType, searchQuery])
 
-  const stats = useMemo(() => ({
-    total: strategies.length,
-    enabled: strategies.filter((s) => s.isEnabled).length,
-    premium: strategies.filter((s) => s.isPremium).length,
-    free: strategies.filter((s) => !s.isPremium).length,
-  }), [strategies])
+  const stats = useMemo(() => {
+    const validStrategies = (strategies || []).filter(s => s !== null && s !== undefined)
+    return {
+      total: validStrategies.length,
+      enabled: validStrategies.filter((s) => s.isEnabled).length,
+      premium: validStrategies.filter((s) => s.isPremium).length,
+      free: validStrategies.filter((s) => !s.isPremium).length,
+    }
+  }, [strategies])
 
   const handleEnable = async (strategyId: string) => {
     const strategy = strategies.find((s) => s.id === strategyId)

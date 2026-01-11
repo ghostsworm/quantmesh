@@ -92,16 +92,9 @@ export default defineConfig({
             }
           },
           {
+            // 所有 API 请求直接走网络，不缓存
             urlPattern: /\/api\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 5 // 5 minutes
-              },
-              networkTimeoutSeconds: 10
-            }
+            handler: 'NetworkOnly'
           }
         ]
       },

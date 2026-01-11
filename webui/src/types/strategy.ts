@@ -12,7 +12,7 @@ export interface StrategyInfo {
   riskLevel: RiskLevel
   isPremium: boolean
   isEnabled: boolean
-  features: string[]
+  features?: string[]
   minCapital: number
   recommendedCapital: number
   icon?: string

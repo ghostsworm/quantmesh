@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Box,
   Container,
@@ -11,15 +11,42 @@ import {
   AlertDescription,
   Button,
   useToast,
+  Spinner,
+  Center,
 } from '@chakra-ui/react'
 import { StarIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import AIConfigWizard from './AIConfigWizard'
+import { getConfig } from '../services/config'
 
 const AIConfigPage: React.FC = () => {
   const { t } = useTranslation()
   const toast = useToast()
   const [isWizardOpen, setIsWizardOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [exchange, setExchange] = useState('binance')
+  const [symbols, setSymbols] = useState<string[]>([])
+
+  // 加载当前配置获取交易所和币种
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const config = await getConfig()
+        if (config?.app?.current_exchange) {
+          setExchange(config.app.current_exchange)
+        }
+        if (config?.trading?.symbols) {
+          const symbolList = config.trading.symbols.map((s: any) => s.symbol).filter(Boolean)
+          setSymbols(symbolList)
+        }
+      } catch (err) {
+        console.error('Failed to load config:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadConfig()
+  }, [])
 
   const handleSuccess = () => {
     setIsWizardOpen(false)
@@ -29,6 +56,16 @@ const AIConfigPage: React.FC = () => {
       status: 'success',
       duration: 5000,
     })
+  }
+
+  if (loading) {
+    return (
+      <Container maxW="4xl" py={8}>
+        <Center py={12}>
+          <Spinner size="xl" />
+        </Center>
+      </Container>
+    )
   }
 
   return (
@@ -48,11 +85,23 @@ const AIConfigPage: React.FC = () => {
           <Box>
             <AlertTitle>使用说明</AlertTitle>
             <AlertDescription fontSize="sm">
-              此功能需要配置 Gemini API Key。您可以在设置页面中配置 Gemini API Key。
+              在打开 AI 配置助手时，您需要输入 Gemini API Key。
               AI 配置助手将根据您提供的资金、风险偏好和交易币种，自动生成最优的网格交易参数。
             </AlertDescription>
           </Box>
         </Alert>
+
+        {symbols.length === 0 && (
+          <Alert status="warning" borderRadius="md">
+            <AlertIcon />
+            <Box>
+              <AlertTitle>未配置交易币种</AlertTitle>
+              <AlertDescription fontSize="sm">
+                请先在配置管理中添加交易币种，然后再使用 AI 配置助手。
+              </AlertDescription>
+            </Box>
+          </Alert>
+        )}
 
         <Box
           p={8}
@@ -66,7 +115,7 @@ const AIConfigPage: React.FC = () => {
             <StarIcon boxSize={12} color="purple.500" />
             <Heading size="md">开始 AI 配置</Heading>
             <Text textAlign="center" color="gray.600" maxW="md">
-              点击下方按钮打开 AI 配置助手，输入您的资金、风险偏好和交易币种，
+              点击下方按钮打开 AI 配置助手，输入您的资金和风险偏好，
               AI 将为您生成最优的配置方案。
             </Text>
             <Button
@@ -74,6 +123,7 @@ const AIConfigPage: React.FC = () => {
               colorScheme="purple"
               size="lg"
               onClick={() => setIsWizardOpen(true)}
+              isDisabled={symbols.length === 0}
             >
               打开 AI 配置助手
             </Button>
@@ -99,6 +149,8 @@ const AIConfigPage: React.FC = () => {
         isOpen={isWizardOpen}
         onClose={() => setIsWizardOpen(false)}
         onSuccess={handleSuccess}
+        exchange={exchange}
+        symbols={symbols}
       />
     </Container>
   )

@@ -25,10 +25,13 @@ const AllocationChart: React.FC<AllocationChartProps> = ({ strategies, totalCapi
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
   const chartData = useMemo(() => {
-    const allocated = strategies.reduce((sum, s) => sum + s.allocated, 0)
+    if (!strategies || strategies.length === 0) return []
+    
+    const validStrategies = strategies.filter(s => s !== null && s !== undefined)
+    const allocated = validStrategies.reduce((sum, s) => sum + s.allocated, 0)
     const unallocated = Math.max(0, totalCapital - allocated)
 
-    const data = strategies.map((s, index) => ({
+    const data = validStrategies.map((s, index) => ({
       id: s.strategyId,
       name: s.strategyName,
       value: s.allocated,

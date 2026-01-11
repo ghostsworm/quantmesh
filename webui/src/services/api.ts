@@ -1094,11 +1094,21 @@ export async function getBasisStatistics(symbol: string, hours: number = 24): Pr
 }
 
 // AI 配置助手
+
+// 按币种分配的资金配置
+export interface SymbolCapitalConfig {
+  symbol: string
+  capital: number
+}
+
 export interface AIGenerateConfigRequest {
   exchange: string
   symbols: string[]
-  total_capital: number
+  total_capital?: number  // 总金额模式时使用
+  symbol_capitals?: SymbolCapitalConfig[]  // 按币种分配模式时使用
+  capital_mode: 'total' | 'per_symbol'  // 资金配置模式
   risk_profile: 'conservative' | 'balanced' | 'aggressive'
+  gemini_api_key?: string  // 可选的 Gemini API Key，如果提供则临时使用
 }
 
 export interface AIGridConfig {
