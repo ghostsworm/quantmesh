@@ -356,6 +356,22 @@ func main() {
 		os.Exit(0)
 	}
 
+	// 解析调试参数（-debug / --debug）
+	debugMode := false
+	filteredArgs := []string{os.Args[0]}
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "-debug", "--debug":
+			debugMode = true
+		default:
+			filteredArgs = append(filteredArgs, arg)
+		}
+	}
+	if debugMode {
+		log.Printf("[INFO] Debug 模式已启用：Gin 将输出全量请求日志")
+	}
+	os.Args = filteredArgs
+
 	// 注意：不再设置 time.Local，避免竞态条件
 	// 时区处理统一使用 utils.GlobalLocation（通过 init() 或 config 设置）
 	// 所有时间操作应使用 utils.ToConfiguredTimezone()、utils.ToUTC()、utils.NowConfiguredTimezone() 等工具函数
@@ -487,6 +503,10 @@ func main() {
 		logger.Info("✅ 系统时区设置为: %s", cfg.System.Timezone)
 	}
 	logger.SetLocation(utils.GlobalLocation)
+
+	if debugMode {
+		cfg.System.LogLevel = "debug"
+	}
 
 	logLevel := logger.ParseLogLevel(cfg.System.LogLevel)
 	logger.SetLevel(logLevel)
@@ -946,6 +966,12 @@ func main() {
 			systemMetricsProvider := web.NewSystemMetricsProvider(storageService, watchdog)
 			web.SetSystemMetricsProvider(systemMetricsProvider)
 			logger.Info("✅ 系统监控数据提供者已设置")
+		}
+
+		// 设置事件中心提供者
+		if db != nil {
+			web.SetEventProvider(db)
+			logger.Info("✅ 事件中心提供者已设置")
 		}
 
 		logger.Info("✅ 所有交易对已初始化，进入运行状态")
@@ -1417,6 +1443,12 @@ func closeAllPositionsWithResult(ctx context.Context, ex exchange.IExchange, sym
 
 	logger.Info("🔄 发现 %d 个持仓需要平仓", needCloseCount)
 
+	// 0. 先取消所有挂单，确保平仓单能顺利下单
+	logger.Info("🧹 [平仓] 正在取消 %s 的所有挂单...", symbol)
+	if err := ex.CancelAllOrders(ctx, symbol); err != nil {
+		logger.Warn("⚠️ [平仓] 取消挂单失败: %v (将继续尝试平仓)", err)
+	}
+
 	// 4. 对每个持仓下平仓单
 	successCount = 0
 	failCount = 0
@@ -1435,40 +1467,23 @@ func closeAllPositionsWithResult(ctx context.Context, ex exchange.IExchange, sym
 			quantity = -quantity
 		}
 
-		closePrice := currentPrice
-		if closePrice <= 0 && pos.MarkPrice > 0 {
-			closePrice = pos.MarkPrice
-		}
-		if closePrice <= 0 && pos.EntryPrice > 0 {
-			closePrice = pos.EntryPrice
-		}
-
-		if closePrice <= 0 {
-			logger.Error("❌ [平仓] 无法确定价格，跳过持仓 %s (Size: %.6f)", pos.Symbol, pos.Size)
-			failCount++
-			continue
-		}
-
-		logger.Info("🔄 [平仓] %s %s %.6f @ %.2f (ReduceOnly)", side, pos.Symbol, quantity, closePrice)
+		logger.Info("🔄 [平仓] %s %s %.6f (市价 ReduceOnly)", side, symbol, quantity)
 
 		orderReq := &exchange.OrderRequest{
 			Symbol:        symbol,
 			Side:          side,
-			Type:          exchange.OrderTypeLimit,
-			TimeInForce:   exchange.TimeInForceGTC,
+			Type:          exchange.OrderTypeMarket, // 使用市价单确保立即平仓
 			Quantity:      quantity,
-			Price:         closePrice,
 			ReduceOnly:    true,
-			PostOnly:      false,
 			PriceDecimals: ex.GetPriceDecimals(),
 		}
 
 		_, err := ex.PlaceOrder(ctx, orderReq)
 		if err != nil {
-			logger.Error("❌ [平仓] 下单失败 %s %.6f @ %.2f: %v", side, quantity, closePrice, err)
+			logger.Error("❌ [平仓] 下单失败 %s %.6f: %v", side, quantity, err)
 			failCount++
 		} else {
-			logger.Info("✅ [平仓] 已下单 %s %.6f @ %.2f", side, quantity, closePrice)
+			logger.Info("✅ [平仓] 已下单 %s %.6f", side, quantity)
 			successCount++
 		}
 

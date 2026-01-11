@@ -139,6 +139,11 @@ type EventRecord struct {
 	CreatedAt time.Time `gorm:"index" json:"created_at"`                          // 创建时间
 }
 
+// TableName 指定表名为 events（兼容旧数据）
+func (EventRecord) TableName() string {
+	return "events"
+}
+
 // EventStats 事件统计
 type EventStats struct {
 	TotalCount       int            `json:"total_count"`
