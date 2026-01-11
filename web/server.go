@@ -230,6 +230,54 @@ func SetupRoutes(r *gin.Engine) {
 
 			// 审计日志
 			protected.GET("/audit/logs", getAuditLogs)
+
+			// 策略管理 API
+			strategies := protected.Group("/strategies")
+			{
+				strategies.GET("", getStrategiesHandler)
+				strategies.GET("/types", getStrategyTypesHandler)
+				strategies.GET("/configs", getStrategyConfigsHandler)
+				strategies.GET("/enabled", getEnabledStrategiesHandler)
+				strategies.POST("/batch-update", batchUpdateStrategiesHandler)
+				strategies.GET("/:id", getStrategyDetailHandler)
+				strategies.POST("/:id/enable", enableStrategyHandler)
+				strategies.POST("/:id/disable", disableStrategyHandler)
+				strategies.GET("/:id/license", getStrategyLicenseHandler)
+				strategies.PUT("/:id/config", updateStrategyConfigHandler)
+				strategies.POST("/:id/purchase", purchaseStrategyHandler)
+			}
+
+			// 盈利管理 API
+			profit := protected.Group("/profit")
+			{
+				profit.GET("/summary", getProfitSummaryHandler)
+				profit.GET("/by-strategy", getStrategyProfitsHandler)
+				profit.GET("/by-strategy/:id", getStrategyProfitDetailHandler)
+				profit.GET("/withdraw-rules", getWithdrawRulesHandler)
+				profit.PUT("/withdraw-rules", updateWithdrawRulesHandler)
+				profit.POST("/withdraw-rules/upsert", upsertWithdrawRuleHandler)
+				profit.DELETE("/withdraw-rules/:id", deleteWithdrawRuleHandler)
+				profit.POST("/withdraw", withdrawProfitHandler)
+				profit.GET("/history", getWithdrawHistoryHandler)
+				profit.GET("/trend", getProfitTrendHandler)
+				profit.POST("/withdraw/estimate", estimateWithdrawFeeHandler)
+				profit.POST("/withdraw/:id/cancel", cancelWithdrawHandler)
+				profit.GET("/withdraw/:id", getWithdrawDetailHandler)
+			}
+
+			// 资金管理 API
+			capital := protected.Group("/capital")
+			{
+				capital.GET("/overview", getCapitalOverviewHandler)
+				capital.GET("/allocation", getCapitalAllocationHandler)
+				capital.PUT("/allocation", updateCapitalAllocationHandler)
+				capital.GET("/allocation/:id", getStrategyCapitalDetailHandler)
+				capital.PUT("/allocation/:id", updateStrategyCapitalHandler)
+				capital.POST("/allocation/:id/lock", lockStrategyCapitalHandler)
+				capital.POST("/rebalance", rebalanceCapitalHandler)
+				capital.GET("/history", getCapitalHistoryHandler)
+				capital.PUT("/reserve", setReserveCapitalHandler)
+			}
 		}
 
 		// 事件中心 API
@@ -251,6 +299,37 @@ func SetupRoutes(r *gin.Engine) {
 		r.StaticFS("/assets", assetsFS)
 	}
 
+	// 图标目录
+	iconsFS := GetIconsFS()
+	if iconsFS != nil {
+		r.StaticFS("/icons", iconsFS)
+	}
+
+	// PWA 相关静态文件（Service Worker、Manifest 等）
+	// 这些文件需要从根路径访问
+	pwaFiles := map[string]string{
+		"/registerSW.js":        "dist/registerSW.js",
+		"/sw.js":                "dist/sw.js",
+		"/manifest.webmanifest": "dist/manifest.webmanifest",
+		"/manifest.json":        "dist/manifest.json",
+	}
+	for urlPath, filePath := range pwaFiles {
+		fp := filePath // 捕获变量
+		r.GET(urlPath, func(c *gin.Context) {
+			data, err := staticFiles.ReadFile(fp)
+			if err != nil {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			// 根据文件类型设置正确的 Content-Type
+			contentType := "application/javascript"
+			if strings.HasSuffix(fp, ".json") || strings.HasSuffix(fp, ".webmanifest") {
+				contentType = "application/json"
+			}
+			c.Data(http.StatusOK, contentType, data)
+		})
+	}
+
 	// SPA 路由回退（所有未匹配的路由返回 index.html）
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
@@ -260,10 +339,23 @@ func SetupRoutes(r *gin.Engine) {
 			return
 		}
 		// 跳过静态资源路径（如果已经通过 StaticFS 处理）
-		if strings.HasPrefix(path, "/assets") {
+		if strings.HasPrefix(path, "/assets") || strings.HasPrefix(path, "/icons") {
 			c.Status(http.StatusNotFound)
 			return
 		}
+
+		// 处理 workbox 文件（如 /workbox-3ade98c4.js）
+		if strings.HasPrefix(path, "/workbox-") && strings.HasSuffix(path, ".js") {
+			filePath := "dist" + path
+			data, err := staticFiles.ReadFile(filePath)
+			if err != nil {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			c.Data(http.StatusOK, "application/javascript", data)
+			return
+		}
+
 		// 其他路径都返回 index.html（SPA 路由）
 		index, err := staticFiles.ReadFile("dist/index.html")
 		if err != nil {
