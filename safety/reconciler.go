@@ -3,6 +3,7 @@ package safety
 import (
 	"context"
 	"fmt"
+	"math"
 	"quantmesh/config"
 	"quantmesh/lock"
 	"quantmesh/logger"
@@ -44,6 +45,9 @@ type IPositionManager interface {
 	// 获取配置信息
 	GetSymbol() string
 	GetPriceInterval() float64
+
+	// 强制同步持仓
+	ForceSyncPositions(exchangePosition float64)
 }
 
 // ReconciliationStorage 对账存储接口（避免循环导入，使用函数类型）
@@ -183,6 +187,28 @@ func (r *Reconciler) Reconcile() error {
 	logger.Debug("📊 交易所持仓信息类型: %T", positionsRaw)
 	logger.Debug("📊 交易所挂单信息类型: %T", openOrdersRaw)
 
+	// 3a. 解析交易所持仓数量
+	exchangePosition := 0.0
+	vPositions := reflect.ValueOf(positionsRaw)
+	if vPositions.Kind() == reflect.Slice {
+		for i := 0; i < vPositions.Len(); i++ {
+			pos := vPositions.Index(i)
+			if pos.Kind() == reflect.Ptr {
+				pos = pos.Elem()
+			}
+			if pos.Kind() == reflect.Struct {
+				symbolField := pos.FieldByName("Symbol")
+				sizeField := pos.FieldByName("Size")
+				if symbolField.IsValid() && sizeField.IsValid() {
+					if symbolField.String() == symbol {
+						exchangePosition = sizeField.Float()
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// 4. 计算本地持仓统计
 	var localTotal float64
 	var localPendingSellQty float64
@@ -269,15 +295,30 @@ func (r *Reconciler) Reconcile() error {
 	// 6. 保存对账历史到数据库（如果存储服务可用）
 	if r.storage != nil {
 		reconcileTime := time.Now()
-		// 尝试解析交易所持仓（如果可能）
-		exchangePosition := 0.0
-		// 这里可以根据不同交易所类型解析，暂时使用本地持仓作为参考
-		// 实际应用中需要根据具体交易所返回的数据结构解析
 		positionDiff := localTotal - exchangePosition
 
 		if err := r.storage.SaveReconciliationHistory(symbol, reconcileTime, localTotal, exchangePosition, positionDiff,
 			activeBuyOrders, activeSellOrders, localPendingSellQty, totalBuyQty, totalSellQty, estimatedProfit); err != nil {
 			logger.Warn("⚠️ 保存对账历史失败: %v", err)
+		}
+	}
+
+	// 7. 检查持仓差异并执行同步
+	diff := math.Abs(localTotal - exchangePosition)
+	// 使用相对较小的阈值，但要考虑到浮点数精度
+	if diff > 0.00000001 {
+		logger.Warn("🚨 [对账预警] 持仓不一致! 本地: %.6f, 交易所: %.6f, 差异: %.6f",
+			localTotal, exchangePosition, localTotal-exchangePosition)
+
+		// 🔥 自动同步逻辑：如果交易所持仓为0，但本地认为有持仓
+		// 这种情况通常发生在手动平仓、重启程序或订单流丢失时
+		if math.Abs(exchangePosition) < 0.00000001 && math.Abs(localTotal) > 0.00000001 {
+			logger.Warn("⚠️ [对账同步] 交易所持仓已清空，正在强制同步本地状态...")
+			r.pm.ForceSyncPositions(0)
+		} else {
+			// 如果交易所仍有持仓但与本地不符，目前仅记录警告
+			// 自动同步非零持仓较为危险，需要更复杂的槽位重新分配逻辑
+			logger.Warn("💡 [对账建议] 建议检查交易所挂单或重启程序以触发完整持仓恢复")
 		}
 	}
 
