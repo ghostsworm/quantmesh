@@ -11,43 +11,42 @@ import (
 
 // CapitalOverview 资金概览
 type CapitalOverview struct {
-	TotalCapital       float64 `json:"totalCapital"`
-	AvailableCapital   float64 `json:"availableCapital"`
+	TotalBalance       float64 `json:"totalBalance"`
 	AllocatedCapital   float64 `json:"allocatedCapital"`
+	UsedCapital        float64 `json:"usedCapital"`
+	AvailableCapital   float64 `json:"availableCapital"`
 	ReservedCapital    float64 `json:"reservedCapital"`
-	UsedMargin         float64 `json:"usedMargin"`
 	UnrealizedPnL      float64 `json:"unrealizedPnL"`
-	TodayPnL           float64 `json:"todayPnL"`
-	AllocationRate     float64 `json:"allocationRate"`
-	HealthScore        int     `json:"healthScore"`
-	RiskLevel          string  `json:"riskLevel"`
+	MarginRatio        float64 `json:"marginRatio"`
 	LastUpdated        string  `json:"lastUpdated"`
 }
 
 // StrategyCapitalDetail 策略资金详情（扩展信息）
 type StrategyCapitalDetail struct {
-	StrategyID       string  `json:"strategyId"`
-	StrategyName     string  `json:"strategyName"`
-	AllocatedAmount  float64 `json:"allocatedAmount"`
-	UsedAmount       float64 `json:"usedAmount"`
-	AvailableAmount  float64 `json:"availableAmount"`
-	AllocationPct    float64 `json:"allocationPct"`
-	MaxAllocationPct float64 `json:"maxAllocationPct"`
-	Priority         int     `json:"priority"`
-	IsLocked         bool    `json:"isLocked"`
-	UnrealizedPnL    float64 `json:"unrealizedPnL"`
-	TodayPnL         float64 `json:"todayPnL"`
-	Status           string  `json:"status"`
+	StrategyID      string  `json:"strategyId"`
+	StrategyName    string  `json:"strategyName"`
+	StrategyType    string  `json:"strategyType"`
+	Allocated       float64 `json:"allocated"`
+	Used            float64 `json:"used"`
+	Available       float64 `json:"available"`
+	Weight          float64 `json:"weight"`
+	MaxCapital      float64 `json:"maxCapital"`
+	MaxPercentage   float64 `json:"maxPercentage"`
+	ReserveRatio    float64 `json:"reserveRatio"`
+	AutoRebalance   bool    `json:"autoRebalance"`
+	Priority        int     `json:"priority"`
+	UtilizationRate float64 `json:"utilizationRate"`
+	Status          string  `json:"status"`
 }
 
 // CapitalAllocationConfig 资金分配配置
 type CapitalAllocationConfig struct {
-	StrategyID       string  `json:"strategyId"`
-	MaxAllocationPct float64 `json:"maxAllocationPct"`
-	MinAllocationPct float64 `json:"minAllocationPct"`
-	Priority         int     `json:"priority"`
-	AutoRebalance    bool    `json:"autoRebalance"`
-	RebalanceThreshold float64 `json:"rebalanceThreshold"`
+	StrategyID    string  `json:"strategyId"`
+	MaxCapital    float64 `json:"maxCapital"`
+	MaxPercentage float64 `json:"maxPercentage"`
+	ReserveRatio  float64 `json:"reserveRatio"`
+	AutoRebalance bool    `json:"autoRebalance"`
+	Priority      int     `json:"priority"`
 }
 
 // RebalanceResult 再平衡结果
@@ -80,16 +79,13 @@ type CapitalHistoryPoint struct {
 // 获取资金概览
 func getCapitalOverviewHandler(c *gin.Context) {
 	overview := CapitalOverview{
-		TotalCapital:     50000.00,
-		AvailableCapital: 15000.00,
+		TotalBalance:     50000.00,
 		AllocatedCapital: 32000.00,
+		UsedCapital:      28000.00,
+		AvailableCapital: 15000.00,
 		ReservedCapital:  3000.00,
-		UsedMargin:       28000.00,
 		UnrealizedPnL:    823.45,
-		TodayPnL:         523.78,
-		AllocationRate:   64.0,
-		HealthScore:      85,
-		RiskLevel:        "medium",
+		MarginRatio:      0.56,
 		LastUpdated:      time.Now().Format(time.RFC3339),
 	}
 
@@ -101,60 +97,44 @@ func getCapitalOverviewHandler(c *gin.Context) {
 
 // 获取资金分配配置
 func getCapitalAllocationHandler(c *gin.Context) {
-	allocations := []StrategyCapitalDetail{
+	strategies := []StrategyCapitalDetail{
 		{
-			StrategyID:       "grid",
-			StrategyName:     "网格交易策略",
-			AllocatedAmount:  20000,
-			UsedAmount:       18000,
-			AvailableAmount:  2000,
-			AllocationPct:    40,
-			MaxAllocationPct: 50,
-			Priority:         1,
-			IsLocked:         false,
-			UnrealizedPnL:    523.45,
-			TodayPnL:         325.78,
-			Status:           "running",
+			StrategyID:      "grid",
+			StrategyName:    "网格交易",
+			StrategyType:    "grid",
+			Allocated:       20000,
+			Used:            18000,
+			Available:       2000,
+			Weight:          0.4,
+			MaxCapital:      25000,
+			MaxPercentage:   50,
+			ReserveRatio:    0.1,
+			AutoRebalance:   true,
+			Priority:        1,
+			UtilizationRate: 0.9,
+			Status:          "active",
 		},
 		{
-			StrategyID:       "dca",
-			StrategyName:     "DCA 定投策略",
-			AllocatedAmount:  12000,
-			UsedAmount:       10000,
-			AvailableAmount:  2000,
-			AllocationPct:    24,
-			MaxAllocationPct: 30,
-			Priority:         2,
-			IsLocked:         false,
-			UnrealizedPnL:    300.00,
-			TodayPnL:         198.00,
-			Status:           "running",
-		},
-	}
-
-	configs := []CapitalAllocationConfig{
-		{
-			StrategyID:         "grid",
-			MaxAllocationPct:   50,
-			MinAllocationPct:   10,
-			Priority:           1,
-			AutoRebalance:      true,
-			RebalanceThreshold: 5,
-		},
-		{
-			StrategyID:         "dca",
-			MaxAllocationPct:   30,
-			MinAllocationPct:   5,
-			Priority:           2,
-			AutoRebalance:      true,
-			RebalanceThreshold: 5,
+			StrategyID:      "dca",
+			StrategyName:    "DCA 定投",
+			StrategyType:    "dca",
+			Allocated:       12000,
+			Used:            10000,
+			Available:       2000,
+			Weight:          0.24,
+			MaxCapital:      15000,
+			MaxPercentage:   30,
+			ReserveRatio:    0.1,
+			AutoRebalance:   true,
+			Priority:        2,
+			UtilizationRate: 0.83,
+			Status:          "active",
 		},
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":     true,
-		"allocations": allocations,
-		"configs":     configs,
+		"success":    true,
+		"strategies": strategies,
 	})
 }
 
@@ -174,7 +154,7 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 	// 验证分配总和不超过 100%
 	totalPct := 0.0
 	for _, alloc := range req.Allocations {
-		totalPct += alloc.MaxAllocationPct
+		totalPct += alloc.MaxPercentage
 	}
 	if totalPct > 100 {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -220,18 +200,20 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
 	capital := StrategyCapitalDetail{
-		StrategyID:       strategyID,
-		StrategyName:     getStrategyName(strategyID),
-		AllocatedAmount:  20000,
-		UsedAmount:       18000,
-		AvailableAmount:  2000,
-		AllocationPct:    40,
-		MaxAllocationPct: 50,
-		Priority:         1,
-		IsLocked:         false,
-		UnrealizedPnL:    523.45,
-		TodayPnL:         325.78,
-		Status:           "running",
+		StrategyID:      strategyID,
+		StrategyName:    getStrategyName(strategyID),
+		StrategyType:    getStrategyType(strategyID),
+		Allocated:       20000,
+		Used:            18000,
+		Available:       2000,
+		Weight:          0.4,
+		MaxCapital:      25000,
+		MaxPercentage:   50,
+		ReserveRatio:    0.1,
+		AutoRebalance:   true,
+		Priority:        1,
+		UtilizationRate: 0.9,
+		Status:          "active",
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -274,15 +256,35 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		NewAllocations: []StrategyCapitalDetail{
 			{
 				StrategyID:      "grid",
-				StrategyName:    "网格交易策略",
-				AllocatedAmount: 19000,
-				AllocationPct:   38,
+				StrategyName:    "网格交易",
+				StrategyType:    "grid",
+				Allocated:       19000,
+				Used:            17000,
+				Available:       2000,
+				Weight:          0.38,
+				MaxCapital:      25000,
+				MaxPercentage:   50,
+				ReserveRatio:    0.1,
+				AutoRebalance:   true,
+				Priority:        1,
+				UtilizationRate: 0.89,
+				Status:          "active",
 			},
 			{
 				StrategyID:      "dca",
-				StrategyName:    "DCA 定投策略",
-				AllocatedAmount: 13000,
-				AllocationPct:   26,
+				StrategyName:    "DCA 定投",
+				StrategyType:    "dca",
+				Allocated:       13000,
+				Used:            11000,
+				Available:       2000,
+				Weight:          0.26,
+				MaxCapital:      15000,
+				MaxPercentage:   30,
+				ReserveRatio:    0.1,
+				AutoRebalance:   true,
+				Priority:        2,
+				UtilizationRate: 0.85,
+				Status:          "active",
 			},
 		},
 		ExecutedAt: time.Now().Format(time.RFC3339),
