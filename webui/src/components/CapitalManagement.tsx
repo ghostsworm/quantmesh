@@ -22,8 +22,14 @@ import {
   FormControl,
   FormLabel,
   useColorModeValue,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
+  Badge,
 } from '@chakra-ui/react'
-import { SettingsIcon, RepeatIcon } from '@chakra-ui/icons'
+import { SettingsIcon, RepeatIcon, InfoIcon } from '@chakra-ui/icons'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams, useNavigate } from 'react-router-dom'
@@ -33,72 +39,9 @@ import {
   getCapitalAllocation,
   updateCapitalAllocation,
 } from '../services/capital'
-import type { CapitalOverview, StrategyCapitalInfo, CapitalAllocationConfig } from '../types/capital'
+import type { CapitalOverview, StrategyCapitalInfo, CapitalAllocationConfig, ExchangeCapitalDetail, AssetAllocation } from '../types/capital'
 
 const MotionBox = motion(Box)
-
-// Mock data for development
-const MOCK_OVERVIEW: CapitalOverview = {
-  totalBalance: 10000,
-  allocatedCapital: 7500,
-  usedCapital: 4200,
-  availableCapital: 2500,
-  reservedCapital: 500,
-  unrealizedPnL: 123.45,
-  marginRatio: 0.42,
-  lastUpdated: new Date().toISOString(),
-}
-
-const MOCK_STRATEGIES: StrategyCapitalInfo[] = [
-  {
-    strategyId: 'grid',
-    strategyName: '网格交易',
-    strategyType: 'grid',
-    allocated: 3000,
-    used: 2100,
-    available: 900,
-    weight: 0.4,
-    maxCapital: 5000,
-    maxPercentage: 50,
-    reserveRatio: 0.1,
-    autoRebalance: true,
-    priority: 1,
-    utilizationRate: 0.7,
-    status: 'active',
-  },
-  {
-    strategyId: 'dca_enhanced',
-    strategyName: '增强型 DCA',
-    strategyType: 'dca',
-    allocated: 2500,
-    used: 1500,
-    available: 1000,
-    weight: 0.33,
-    maxCapital: 4000,
-    maxPercentage: 40,
-    reserveRatio: 0.1,
-    autoRebalance: true,
-    priority: 2,
-    utilizationRate: 0.6,
-    status: 'active',
-  },
-  {
-    strategyId: 'trend_following',
-    strategyName: '趋势跟踪',
-    strategyType: 'trend',
-    allocated: 2000,
-    used: 600,
-    available: 1400,
-    weight: 0.27,
-    maxCapital: 3000,
-    maxPercentage: 30,
-    reserveRatio: 0.15,
-    autoRebalance: false,
-    priority: 3,
-    utilizationRate: 0.3,
-    status: 'paused',
-  },
-]
 
 const CapitalManagement: React.FC = () => {
   const { t } = useTranslation()
@@ -108,11 +51,12 @@ const CapitalManagement: React.FC = () => {
   const highlightStrategy = searchParams.get('strategy')
 
   const [overview, setOverview] = useState<CapitalOverview | null>(null)
-  const [strategies, setStrategies] = useState<StrategyCapitalInfo[]>([])
+  const [exchanges, setExchanges] = useState<ExchangeCapitalDetail[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [isPercentageMode, setIsPercentageMode] = useState(false)
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({})
+  const [selectedExchangeIndex, setSelectedExchangeIndex] = useState(0)
 
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
@@ -128,22 +72,43 @@ const CapitalManagement: React.FC = () => {
         getCapitalOverview(),
         getCapitalAllocation(),
       ])
-      setOverview(overviewRes.overview)
-      setStrategies(allocationRes.strategies)
+      if (overviewRes.success) setOverview(overviewRes.overview)
+      if (allocationRes.success) setExchanges(allocationRes.exchanges)
     } catch (err) {
-      // Use mock data for development
-      console.warn('Using mock data:', err)
-      setOverview(MOCK_OVERVIEW)
-      setStrategies(MOCK_STRATEGIES)
+      console.error('Failed to fetch capital data:', err)
+      toast({
+        title: '获取资金数据失败',
+        description: '请检查后端服务连接',
+        status: 'error',
+        duration: 5000,
+      })
     } finally {
       setLoading(false)
     }
   }
 
+  // 获取当前选中的交易所的所有策略
+  const currentStrategies = useMemo(() => {
+    if (selectedExchangeIndex === 0) {
+      // "全部" 视图：汇总所有交易所的所有策略
+      return exchanges.flatMap(ex => ex.assets.flatMap(asset => asset.strategies))
+    }
+    const ex = exchanges[selectedExchangeIndex - 1]
+    return ex ? ex.assets.flatMap(asset => asset.strategies) : []
+  }, [exchanges, selectedExchangeIndex])
+
+  // 获取当前视图的总权益
+  const currentTotalBalance = useMemo(() => {
+    if (selectedExchangeIndex === 0) return overview?.totalBalance || 0
+    const exId = exchanges[selectedExchangeIndex - 1]?.exchangeId
+    const summary = overview?.exchanges?.find(e => e.exchangeId === exId)
+    return summary?.totalBalance || 0
+  }, [overview, exchanges, selectedExchangeIndex])
+
   const handleAllocationChange = (strategyId: string, value: number, isPercentage: boolean) => {
     let actualValue = value
-    if (isPercentage && overview) {
-      actualValue = (value / 100) * overview.totalBalance
+    if (isPercentage && currentTotalBalance > 0) {
+      actualValue = (value / 100) * currentTotalBalance
     }
     setPendingChanges((prev) => ({
       ...prev,
@@ -160,7 +125,7 @@ const CapitalManagement: React.FC = () => {
     try {
       const allocations: CapitalAllocationConfig[] = Object.entries(pendingChanges).map(
         ([strategyId, maxCapital]) => {
-          const existing = strategies.find((s) => s.strategyId === strategyId)
+          const existing = currentStrategies.find((s) => s.strategyId === strategyId)
           return {
             strategyId,
             maxCapital,
@@ -172,36 +137,20 @@ const CapitalManagement: React.FC = () => {
         }
       )
 
-      await updateCapitalAllocation({ allocations })
-      
-      // Update local state
-      setStrategies((prev) =>
-        prev.map((s) => ({
-          ...s,
-          allocated: pendingChanges[s.strategyId] ?? s.allocated,
-          maxCapital: pendingChanges[s.strategyId] ?? s.maxCapital,
-        }))
-      )
-      setPendingChanges({})
-      
-      toast({
-        title: t('capitalManagement.saveSuccess'),
-        status: 'success',
-        duration: 3000,
-      })
+      const res = await updateCapitalAllocation({ allocations })
+      if (res.success) {
+        setPendingChanges({})
+        fetchData()
+        toast({
+          title: t('capitalManagement.saveSuccess'),
+          status: 'success',
+          duration: 3000,
+        })
+      }
     } catch (err) {
-      // For development, still update local state
-      setStrategies((prev) =>
-        prev.map((s) => ({
-          ...s,
-          allocated: pendingChanges[s.strategyId] ?? s.allocated,
-          maxCapital: pendingChanges[s.strategyId] ?? s.maxCapital,
-        }))
-      )
-      setPendingChanges({})
       toast({
-        title: t('capitalManagement.saveSuccess'),
-        status: 'success',
+        title: '保存失败',
+        status: 'error',
         duration: 3000,
       })
     } finally {
@@ -256,25 +205,29 @@ const CapitalManagement: React.FC = () => {
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('capitalManagement.totalBalance')}</StatLabel>
-                <StatNumber>{overview.totalBalance.toFixed(2)}</StatNumber>
+                <StatNumber>{overview.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</StatNumber>
                 <StatHelpText>USDT</StatHelpText>
               </Stat>
             </Box>
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('capitalManagement.allocated')}</StatLabel>
-                <StatNumber color="blue.500">{overview.allocatedCapital.toFixed(2)}</StatNumber>
+                <StatNumber color="blue.500">{overview.allocatedCapital.toLocaleString(undefined, { minimumFractionDigits: 2 })}</StatNumber>
                 <StatHelpText>
-                  {((overview.allocatedCapital / overview.totalBalance) * 100).toFixed(1)}%
+                  {overview.totalBalance > 0 
+                    ? ((overview.allocatedCapital / overview.totalBalance) * 100).toFixed(1) 
+                    : 0}%
                 </StatHelpText>
               </Stat>
             </Box>
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('capitalManagement.inUse')}</StatLabel>
-                <StatNumber color="orange.500">{overview.usedCapital.toFixed(2)}</StatNumber>
+                <StatNumber color="orange.500">{overview.usedCapital.toLocaleString(undefined, { minimumFractionDigits: 2 })}</StatNumber>
                 <StatHelpText>
-                  {((overview.usedCapital / overview.totalBalance) * 100).toFixed(1)}%
+                  {overview.totalBalance > 0 
+                    ? ((overview.usedCapital / overview.totalBalance) * 100).toFixed(1) 
+                    : 0}%
                 </StatHelpText>
               </Stat>
             </Box>
@@ -282,7 +235,7 @@ const CapitalManagement: React.FC = () => {
               <Stat>
                 <StatLabel>{t('capitalManagement.unrealizedPnL')}</StatLabel>
                 <StatNumber color={overview.unrealizedPnL >= 0 ? 'green.500' : 'red.500'}>
-                  {overview.unrealizedPnL >= 0 ? '+' : ''}{overview.unrealizedPnL.toFixed(2)}
+                  {overview.unrealizedPnL >= 0 ? '+' : ''}{overview.unrealizedPnL.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </StatNumber>
                 <StatHelpText>USDT</StatHelpText>
               </Stat>
@@ -290,62 +243,89 @@ const CapitalManagement: React.FC = () => {
           </SimpleGrid>
         )}
 
-        {/* Allocation Chart */}
-        {overview && (
+        {/* Exchange Selector Tabs */}
+        <Tabs 
+          variant="soft-rounded" 
+          colorScheme="blue" 
+          onChange={(index) => setSelectedExchangeIndex(index)}
+          index={selectedExchangeIndex}
+        >
+          <TabList mb={4} overflowX="auto" pb={2}>
+            <Tab px={6}>{t('capitalManagement.allExchanges') || '全局概览'}</Tab>
+            {exchanges.map((ex) => (
+              <Tab key={ex.exchangeId} px={6}>
+                {ex.exchangeName}
+                {overview?.exchanges?.find(e => e.exchangeId === ex.exchangeId)?.status === 'error' && (
+                  <Badge ml={2} colorScheme="red">ERROR</Badge>
+                )}
+              </Tab>
+            ))}
+          </TabList>
+
+          {/* Allocation Chart */}
           <AllocationChart
-            strategies={strategies}
-            totalCapital={overview.totalBalance}
+            strategies={currentStrategies}
+            totalCapital={currentTotalBalance}
           />
-        )}
 
-        {/* Strategy Allocation Controls */}
-        <Box p={6} bg={bgColor} borderRadius="xl" borderWidth="1px" borderColor={borderColor}>
-          <VStack align="stretch" spacing={4}>
-            <Flex justify="space-between" align="center">
-              <Heading size="md">{t('capitalManagement.strategyAllocation')}</Heading>
-              <FormControl display="flex" alignItems="center" w="auto">
-                <FormLabel mb={0} fontSize="sm">
-                  {t('capitalManagement.percentageMode')}
-                </FormLabel>
-                <Switch
-                  isChecked={isPercentageMode}
-                  onChange={(e) => setIsPercentageMode(e.target.checked)}
-                />
-              </FormControl>
-            </Flex>
+          {/* Strategy Allocation Controls */}
+          <Box mt={6} p={6} bg={bgColor} borderRadius="xl" borderWidth="1px" borderColor={borderColor}>
+            <VStack align="stretch" spacing={4}>
+              <Flex justify="space-between" align="center">
+                <Heading size="md">
+                  {selectedExchangeIndex === 0 ? '全部策略分配' : `${exchanges[selectedExchangeIndex-1].exchangeName} 策略分配`}
+                </Heading>
+                <FormControl display="flex" alignItems="center" w="auto">
+                  <FormLabel mb={0} fontSize="sm">
+                    {t('capitalManagement.percentageMode')}
+                  </FormLabel>
+                  <Switch
+                    isChecked={isPercentageMode}
+                    onChange={(e) => setIsPercentageMode(e.target.checked)}
+                  />
+                </FormControl>
+              </Flex>
 
-            {hasPendingChanges && (
-              <Alert status="info" borderRadius="md">
-                <AlertIcon />
-                <Text fontSize="sm">{t('capitalManagement.unsavedChanges')}</Text>
-              </Alert>
-            )}
+              {hasPendingChanges && (
+                <Alert status="info" borderRadius="md">
+                  <AlertIcon />
+                  <Text fontSize="sm">{t('capitalManagement.unsavedChanges')}</Text>
+                </Alert>
+              )}
 
-            <VStack align="stretch" spacing={3}>
-              {strategies.map((strategy) => (
-                <CapitalSlider
-                  key={strategy.strategyId}
-                  strategyId={strategy.strategyId}
-                  strategyName={strategy.strategyName}
-                  currentValue={pendingChanges[strategy.strategyId] ?? strategy.allocated}
-                  maxValue={strategy.maxCapital}
-                  totalCapital={overview?.totalBalance || 0}
-                  percentage={
-                    overview
-                      ? ((pendingChanges[strategy.strategyId] ?? strategy.allocated) /
-                          overview.totalBalance) *
-                        100
-                      : 0
-                  }
-                  onChange={handleAllocationChange}
-                  isPercentageMode={isPercentageMode}
-                  onModeChange={setIsPercentageMode}
-                  disabled={strategy.status === 'error'}
-                />
-              ))}
+              <VStack align="stretch" spacing={3}>
+                {currentStrategies.length > 0 ? (
+                  currentStrategies.map((strategy) => (
+                    <CapitalSlider
+                      key={`${strategy.exchangeId}-${strategy.strategyId}`}
+                      strategyId={strategy.strategyId}
+                      strategyName={strategy.strategyName}
+                      currentValue={pendingChanges[strategy.strategyId] ?? strategy.allocated}
+                      maxValue={strategy.maxCapital || (currentTotalBalance * 2)}
+                      totalCapital={currentTotalBalance}
+                      percentage={
+                        currentTotalBalance > 0
+                          ? ((pendingChanges[strategy.strategyId] ?? strategy.allocated) /
+                              currentTotalBalance) *
+                            100
+                          : 0
+                      }
+                      onChange={handleAllocationChange}
+                      isPercentageMode={isPercentageMode}
+                      onModeChange={setIsPercentageMode}
+                      disabled={strategy.status === 'error'}
+                    />
+                  ))
+                ) : (
+                  <Center py={8} flexDirection="column">
+                    <InfoIcon boxSize={8} color="gray.300" mb={2} />
+                    <Text color="gray.500">该交易所暂无运行中的策略</Text>
+                  </Center>
+                )}
+              </VStack>
             </VStack>
-          </VStack>
-        </Box>
+          </Box>
+        </Tabs>
 
         {/* Quick Actions */}
         <HStack spacing={4} justify="flex-end">

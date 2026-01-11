@@ -474,7 +474,9 @@
     "rebalanceSuccess": "Capital rebalanced successfully",
     "rebalanceError": "Rebalance failed",
     "manageStrategies": "Manage Strategies",
-    "viewProfits": "View Profits"
+    "viewProfits": "View Profits",
+    "allExchanges": "All Exchanges",
+    "allStrategies": "All Strategies"
   },
   "profitManagement": {
     "title": "Profit Management",

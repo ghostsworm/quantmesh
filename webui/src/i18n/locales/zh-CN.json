@@ -474,7 +474,9 @@
     "rebalanceSuccess": "资金再平衡完成",
     "rebalanceError": "再平衡失败",
     "manageStrategies": "管理策略",
-    "viewProfits": "查看盈利"
+    "viewProfits": "查看盈利",
+    "allExchanges": "全部交易所",
+    "allStrategies": "全部策略"
   },
   "profitManagement": {
     "title": "盈利管理",

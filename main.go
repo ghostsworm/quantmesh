@@ -29,6 +29,46 @@ import (
 	"quantmesh/web"
 )
 
+// capitalDataSourceAdapter 资金数据源适配器
+type capitalDataSourceAdapter struct {
+	manager *SymbolManager
+	cfg     *config.Config
+}
+
+func (a *capitalDataSourceAdapter) GetExchanges() []exchange.IExchange {
+	runtimes := a.manager.List()
+	exchanges := make([]exchange.IExchange, 0)
+	seen := make(map[string]bool)
+	for _, rt := range runtimes {
+		if rt.Exchange == nil {
+			continue
+		}
+		name := rt.Exchange.GetName()
+		if !seen[name] {
+			exchanges = append(exchanges, rt.Exchange)
+			seen[name] = true
+		}
+	}
+	return exchanges
+}
+
+func (a *capitalDataSourceAdapter) GetStrategyConfigs() map[string]config.StrategyConfig {
+	return a.cfg.Strategies.Configs
+}
+
+func (a *capitalDataSourceAdapter) GetPositionManagers() []web.PositionManagerInfo {
+	runtimes := a.manager.List()
+	infos := make([]web.PositionManagerInfo, len(runtimes))
+	for i, rt := range runtimes {
+		infos[i] = web.PositionManagerInfo{
+			Exchange: rt.Config.Exchange,
+			Symbol:   rt.Config.Symbol,
+			Manager:  rt.SuperPositionManager,
+		}
+	}
+	return infos
+}
+
 // Version 版本号
 var Version = "3.3.3"
 
@@ -973,6 +1013,13 @@ func main() {
 			web.SetEventProvider(db)
 			logger.Info("✅ 事件中心提供者已设置")
 		}
+
+		// 设置资金数据源提供者
+		web.SetCapitalDataSource(&capitalDataSourceAdapter{
+			manager: symbolManager,
+			cfg:     cfg,
+		})
+		logger.Info("✅ 资金数据源提供者已设置")
 
 		logger.Info("✅ 所有交易对已初始化，进入运行状态")
 	} else if webServer != nil {
