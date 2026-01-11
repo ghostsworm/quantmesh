@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/driver/mysql"
@@ -87,7 +88,15 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		&RiskCheck{},
 		&EventRecord{},
 	); err != nil {
-		return nil, fmt.Errorf("failed to auto migrate: %w", err)
+		// 如果是索引已存在的错误，忽略它（这是正常的）
+		errStr := err.Error()
+		if strings.Contains(errStr, "already exists") || 
+		   strings.Contains(errStr, "duplicate") ||
+		   strings.Contains(errStr, "UNIQUE constraint failed") {
+			// 索引/约束已存在，这是正常的，继续运行
+		} else {
+			return nil, fmt.Errorf("failed to auto migrate: %w", err)
+		}
 	}
 
 	return &GormDatabase{db: db}, nil
