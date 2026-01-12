@@ -32,7 +32,9 @@ type Storage interface {
 	QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error)
 	QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error)
 	GetStatisticsSummary() (*Statistics, error)
+	GetStatisticsSummaryByExchange(exchange string) (*Statistics, error)
 	QueryDailyStatisticsFromTrades(startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
+	QueryDailyStatisticsByExchange(exchange string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	SaveReconciliationHistory(history *ReconciliationHistory) error
 	QueryReconciliationHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error)
 	GetLatestReconciliationHistory(symbol string) (*ReconciliationHistory, error)

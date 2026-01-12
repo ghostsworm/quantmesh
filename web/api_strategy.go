@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"quantmesh/config"
 )
 
 // StrategyInfo 策略信息
@@ -89,6 +90,17 @@ type StrategyConfig struct {
 
 // 获取所有可用策略
 func getStrategiesHandler(c *gin.Context) {
+	// 获取当前配置以确定策略是否启用
+	var enabledMap = make(map[string]bool)
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil {
+			for id, sc := range cfg.Strategies.Configs {
+				enabledMap[id] = sc.Enabled
+			}
+		}
+	}
+
 	// 策略列表（包含内置策略和插件策略）
 	strategies := []StrategyInfo{
 		{
@@ -98,7 +110,7 @@ func getStrategiesHandler(c *gin.Context) {
 			Type:               "grid",
 			RiskLevel:          "low",
 			IsPremium:          false,
-			IsEnabled:          true,
+			IsEnabled:          enabledMap["grid"],
 			IsLicensed:         true,
 			Features:           getStrategyFeatures("grid"),
 			MinCapital:         100,
@@ -117,7 +129,7 @@ func getStrategiesHandler(c *gin.Context) {
 			Type:               "dca",
 			RiskLevel:          "low",
 			IsPremium:          false,
-			IsEnabled:          true,
+			IsEnabled:          enabledMap["dca"],
 			IsLicensed:         true,
 			Features:           getStrategyFeatures("dca"),
 			MinCapital:         100,
@@ -135,9 +147,9 @@ func getStrategiesHandler(c *gin.Context) {
 			Description:        "基于 ATR 动态间距、三级止盈、50层仓位管理、瀑布保护和趋势过滤的增强型 DCA",
 			Type:               "dca",
 			RiskLevel:          "medium",
-			IsPremium:          true,
-			IsEnabled:          false,
-			IsLicensed:         false,
+			IsPremium:          false,
+			IsEnabled:          enabledMap["dca_enhanced"],
+			IsLicensed:         true,
 			Features:           getStrategyFeatures("dca_enhanced"),
 			MinCapital:         200,
 			RecommendedCapital: 1000,
@@ -151,12 +163,12 @@ func getStrategiesHandler(c *gin.Context) {
 		{
 			ID:                 "martingale",
 			Name:               "马丁格尔策略",
-			Description:        "亏损加倍补仓策略，支持正向/反向马丁、风险削减和多空双向",
+			Description:        "亏损加倍补仓策略，支持正向/反向马丁、风险削减 and 多空双向",
 			Type:               "martingale",
 			RiskLevel:          "high",
-			IsPremium:          true,
-			IsEnabled:          false,
-			IsLicensed:         false,
+			IsPremium:          false,
+			IsEnabled:          enabledMap["martingale"],
+			IsLicensed:         true,
 			Features:           getStrategyFeatures("martingale"),
 			MinCapital:         500,
 			RecommendedCapital: 2000,
@@ -173,9 +185,9 @@ func getStrategiesHandler(c *gin.Context) {
 			Description:        "多策略组合管理，支持动态权重调整和市场自适应切换",
 			Type:               "combo",
 			RiskLevel:          "high",
-			IsPremium:          true,
-			IsEnabled:          false,
-			IsLicensed:         false,
+			IsPremium:          false,
+			IsEnabled:          enabledMap["combo"],
+			IsLicensed:         true,
 			Features:           getStrategyFeatures("combo"),
 			MinCapital:         1000,
 			RecommendedCapital: 5000,
@@ -307,7 +319,37 @@ func getStrategyDetailHandler(c *gin.Context) {
 func enableStrategyHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
-	// TODO: 实际实现启用策略逻辑
+	if configManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
+		return
+	}
+
+	cfg, err := configManager.GetConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败: " + err.Error()})
+		return
+	}
+
+	// 确保 configs 不为 nil
+	if cfg.Strategies.Configs == nil {
+		cfg.Strategies.Configs = make(map[string]config.StrategyConfig)
+	}
+
+	// 更新或创建配置
+	sc := cfg.Strategies.Configs[strategyID]
+	sc.Enabled = true
+	if sc.Type == "" {
+		sc.Type = getStrategyType(strategyID)
+	}
+	if sc.Weight == 0 {
+		sc.Weight = 0.1 // 默认权重
+	}
+	cfg.Strategies.Configs[strategyID] = sc
+
+	if err := configManager.UpdateConfig(cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新配置失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
@@ -324,7 +366,28 @@ func enableStrategyHandler(c *gin.Context) {
 func disableStrategyHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
-	// TODO: 实际实现禁用策略逻辑
+	if configManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
+		return
+	}
+
+	cfg, err := configManager.GetConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败: " + err.Error()})
+		return
+	}
+
+	if cfg.Strategies.Configs != nil {
+		if sc, ok := cfg.Strategies.Configs[strategyID]; ok {
+			sc.Enabled = false
+			cfg.Strategies.Configs[strategyID] = sc
+
+			if err := configManager.UpdateConfig(cfg); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "更新配置失败: " + err.Error()})
+				return
+			}
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
@@ -573,9 +636,6 @@ func getStrategyType(id string) string {
 
 func isStrategyPremium(id string) bool {
 	premium := map[string]bool{
-		"dca_enhanced":    true,
-		"martingale":      true,
-		"combo":           true,
 		"trend_following": true,
 		"mean_reversion":  true,
 	}
@@ -650,10 +710,26 @@ func getStrategyParameters(id string) []StrategyParameter {
 			{Name: "amount", Type: "number", Default: 100, Description: "每次投资金额", Required: true, DisplayOrder: 2},
 		},
 		"dca_enhanced": {
-			{Name: "atrPeriod", Type: "number", Default: 14, Min: 5, Max: 50, Description: "ATR 计算周期", Required: true, DisplayOrder: 1},
-			{Name: "atrMultiplier", Type: "number", Default: 1.5, Min: 0.5, Max: 5, Description: "ATR 乘数", Required: true, DisplayOrder: 2},
-			{Name: "maxLayers", Type: "number", Default: 50, Min: 10, Max: 100, Description: "最大层数", Required: true, DisplayOrder: 3},
-			{Name: "takeProfitLevels", Type: "array", Default: []float64{1.5, 3.0, 5.0}, Description: "止盈层级 (%)", Required: true, DisplayOrder: 4},
+			{Name: "base_order_amount", Type: "number", Default: 100.0, Min: 10.0, Description: "基础订单金额 (USDT)", Required: true, DisplayOrder: 1},
+			{Name: "safety_order_amount", Type: "number", Default: 200.0, Min: 10.0, Description: "安全订单金额 (USDT)", Required: true, DisplayOrder: 2},
+			{Name: "max_safety_orders", Type: "number", Default: 50, Min: 1, Max: 50, Description: "最大安全订单数", Required: true, DisplayOrder: 3},
+			{Name: "atr_period", Type: "number", Default: 14, Min: 5, Max: 50, Description: "ATR 周期", Required: true, DisplayOrder: 4},
+			{Name: "atr_multiplier", Type: "number", Default: 1.5, Min: 0.5, Max: 5.0, Description: "ATR 乘数", Required: true, DisplayOrder: 5},
+			{Name: "total_take_profit", Type: "number", Default: 2.0, Min: 0.1, Description: "全仓止盈比例 (%)", Required: true, DisplayOrder: 6},
+			{Name: "stop_loss", Type: "number", Default: 10.0, Min: 0.1, Description: "止损比例 (%)", Required: true, DisplayOrder: 7},
+		},
+		"martingale": {
+			{Name: "initial_amount", Type: "number", Default: 100.0, Min: 10.0, Description: "初始金额 (USDT)", Required: true, DisplayOrder: 1},
+			{Name: "multiplier", Type: "number", Default: 2.0, Min: 1.1, Max: 5.0, Description: "加仓倍数", Required: true, DisplayOrder: 2},
+			{Name: "max_levels", Type: "number", Default: 6, Min: 1, Max: 20, Description: "最大层数", Required: true, DisplayOrder: 3},
+			{Name: "price_step", Type: "number", Default: 2.0, Min: 0.1, Max: 50.0, Description: "加仓间距 (%)", Required: true, DisplayOrder: 4},
+			{Name: "take_profit", Type: "number", Default: 3.0, Min: 0.1, Description: "止盈比例 (%)", Required: true, DisplayOrder: 5},
+			{Name: "direction", Type: "select", Default: "LONG", Description: "方向 (LONG/SHORT)", Required: true, DisplayOrder: 6},
+		},
+		"combo": {
+			{Name: "total_capital", Type: "number", Default: 10000.0, Min: 100.0, Description: "总资金 (USDT)", Required: true, DisplayOrder: 1},
+			{Name: "market_detection", Type: "boolean", Default: true, Description: "启用市况检测", Required: true, DisplayOrder: 2},
+			{Name: "hedge_enabled", Type: "boolean", Default: true, Description: "启用对冲", Required: true, DisplayOrder: 3},
 		},
 	}
 	if p, ok := params[id]; ok {

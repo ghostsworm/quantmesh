@@ -20,13 +20,15 @@ import type {
 const API_BASE_URL = `${window.location.origin}/api`
 
 // 获取盈利汇总
-export async function getProfitSummary(): Promise<ProfitSummaryResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/profit/summary`)
+export async function getProfitSummary(exchangeId?: string): Promise<ProfitSummaryResponse> {
+  const url = exchangeId ? `${API_BASE_URL}/profit/summary?exchange_id=${exchangeId}` : `${API_BASE_URL}/profit/summary`
+  return fetchWithAuth(url)
 }
 
 // 按策略获取盈利
-export async function getStrategyProfits(): Promise<StrategyProfitsResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/profit/by-strategy`)
+export async function getStrategyProfits(exchangeId?: string): Promise<StrategyProfitsResponse> {
+  const url = exchangeId ? `${API_BASE_URL}/profit/by-strategy?exchange_id=${exchangeId}` : `${API_BASE_URL}/profit/by-strategy`
+  return fetchWithAuth(url)
 }
 
 // 获取单个策略的盈利详情
@@ -85,6 +87,7 @@ export async function getWithdrawHistory(
   params?: WithdrawHistoryParams
 ): Promise<WithdrawHistoryResponse> {
   const queryParams = new URLSearchParams()
+  if (params?.exchangeId) queryParams.append('exchange_id', params.exchangeId)
   if (params?.strategyId) queryParams.append('strategy_id', params.strategyId)
   if (params?.status) queryParams.append('status', params.status)
   if (params?.type) queryParams.append('type', params.type)
@@ -100,9 +103,11 @@ export async function getWithdrawHistory(
 // 获取盈利趋势
 export async function getProfitTrend(
   period: '7d' | '30d' | '90d' | '1y' = '30d',
+  exchangeId?: string,
   strategyId?: string
 ): Promise<ProfitTrendResponse> {
   const queryParams = new URLSearchParams({ period })
+  if (exchangeId) queryParams.append('exchange_id', exchangeId)
   if (strategyId) queryParams.append('strategy_id', strategyId)
 
   return fetchWithAuth(`${API_BASE_URL}/profit/trend?${queryParams.toString()}`)

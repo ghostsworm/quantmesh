@@ -419,6 +419,39 @@ func startSymbolRuntime(
 			logger.Info("✅ [%s] 动量策略已注册", symCfg.Symbol)
 		}
 
+		if martinCfg, exists := localCfg.Strategies.Configs["martingale"]; exists && martinCfg.Enabled {
+			martinExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "martingale")
+			martinStrategy := strategy.NewMartingaleStrategy("martingale", &localCfg, martinExecutor, exchangeAdapter, martinCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := martinCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("martingale", martinStrategy, martinCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 马丁格尔策略已注册", symCfg.Symbol)
+		}
+
+		if dcaEnhancedCfg, exists := localCfg.Strategies.Configs["dca_enhanced"]; exists && dcaEnhancedCfg.Enabled {
+			dcaEnhancedExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca_enhanced")
+			dcaEnhancedStrategy := strategy.NewDCAEnhancedStrategy("dca_enhanced", &localCfg, dcaEnhancedExecutor, exchangeAdapter, dcaEnhancedCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := dcaEnhancedCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("dca_enhanced", dcaEnhancedStrategy, dcaEnhancedCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 增强型 DCA 策略已注册", symCfg.Symbol)
+		}
+
+		if comboCfg, exists := localCfg.Strategies.Configs["combo"]; exists && comboCfg.Enabled {
+			comboExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "combo")
+			comboStrategy := strategy.NewComboStrategy("combo", &localCfg, comboExecutor, exchangeAdapter, comboCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := comboCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("combo", comboStrategy, comboCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 组合策略已注册", symCfg.Symbol)
+		}
+
 		if err := strategyManager.StartAll(); err != nil {
 			logger.Error("❌ [%s] 启动策略管理器失败: %v", symCfg.Symbol, err)
 		} else {

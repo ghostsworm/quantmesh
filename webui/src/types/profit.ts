@@ -6,6 +6,7 @@ export type WithdrawStatus = 'pending' | 'processing' | 'completed' | 'failed' |
 export type WithdrawType = 'auto' | 'manual'
 
 export interface ProfitSummary {
+  exchangeId?: string
   totalProfit: number // 累计盈利
   todayProfit: number // 今日盈利
   weekProfit: number // 本周盈利
@@ -17,6 +18,7 @@ export interface ProfitSummary {
 }
 
 export interface StrategyProfit {
+  exchangeId: string
   strategyId: string
   strategyName: string
   strategyType: string
@@ -34,6 +36,7 @@ export interface StrategyProfit {
 
 export interface ProfitWithdrawRule {
   id: string
+  exchangeId: string
   strategyId: string
   strategyName?: string
   enabled: boolean
@@ -50,6 +53,7 @@ export interface ProfitWithdrawRule {
 
 export interface WithdrawRecord {
   id: string
+  exchangeId: string
   strategyId: string
   strategyName: string
   amount: number
@@ -102,6 +106,7 @@ export interface UpdateWithdrawRuleResponse {
 }
 
 export interface WithdrawHistoryParams {
+  exchangeId?: string
   strategyId?: string
   status?: WithdrawStatus
   type?: WithdrawType

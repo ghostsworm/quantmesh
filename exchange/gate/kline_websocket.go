@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -411,6 +412,10 @@ func (k *KlineWebSocketManager) Stop() {
 // convertToGateSymbol 转换交易对格式为 Gate.io 格式
 // 例如: BTCUSDT -> BTC_USDT
 func convertToGateSymbol(symbol string) string {
+	// 如果已经包含下划线，直接返回
+	if strings.Contains(symbol, "_") {
+		return symbol
+	}
 	// 简单实现：在倒数第4个字符前插入下划线（假设都是 XXX_USDT 格式）
 	if len(symbol) > 4 && symbol[len(symbol)-4:] == "USDT" {
 		return symbol[:len(symbol)-4] + "_" + symbol[len(symbol)-4:]

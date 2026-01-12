@@ -1,10 +1,17 @@
 {
   "common": {
     "logout": "退出",
-    "global": "Global",
-    "system": "System",
-    "trading": "Trading",
-    "version": "版本 {{version}}"
+    "global": "全局",
+    "system": "系统",
+    "trading": "交易",
+    "version": "版本 {{version}}",
+    "cancel": "取消",
+    "close": "关闭",
+    "save": "保存",
+    "confirm": "确认",
+    "loading": "加载中...",
+    "retry": "重试",
+    "allExchanges": "全部交易所"
   },
   "sidebar": {
     "overview": "概览",
@@ -372,18 +379,6 @@
       "complete": "完成"
     }
   },
-  "common": {
-    "logout": "退出",
-    "global": "全局",
-    "system": "系统",
-    "trading": "交易",
-    "version": "版本 {{version}}",
-    "cancel": "取消",
-    "close": "关闭",
-    "save": "保存",
-    "confirm": "确认",
-    "loading": "加载中..."
-  },
   "strategyMarket": {
     "title": "策略市场",
     "subtitle": "浏览和管理可用的交易策略",
@@ -560,5 +555,11 @@
     "expiringSoon": "授权即将于 {{date}} 过期",
     "validUntil": "有效期至 {{date}}",
     "licensed": "已授权"
+  },
+  "connection": {
+    "offlineTitle": "网络已断开",
+    "offlineDesc": "您当前正处于离线状态，请检查您的互联网连接。",
+    "backendDisconnectedTitle": "后端连接失败",
+    "backendDisconnectedDesc": "无法连接到后端服务，请确保后端程序已启动（localhost:28888）。"
   }
 }

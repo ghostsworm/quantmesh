@@ -166,26 +166,28 @@ const ProfitManagement: React.FC = () => {
   const [withdrawHistory, setWithdrawHistory] = useState<WithdrawRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<'7d' | '30d' | '90d' | '1y'>('30d')
+  const [activeExchange, setActiveExchange] = useState<string>('all')
 
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [activeExchange])
 
   useEffect(() => {
     fetchTrend()
-  }, [period])
+  }, [period, activeExchange])
 
   const fetchData = async () => {
     setLoading(true)
+    const exchangeId = activeExchange === 'all' ? undefined : activeExchange
     try {
       const [summaryRes, profitsRes, rulesRes, historyRes] = await Promise.all([
-        getProfitSummary(),
-        getStrategyProfits(),
+        getProfitSummary(exchangeId),
+        getStrategyProfits(exchangeId),
         getWithdrawRules(),
-        getWithdrawHistory({ limit: 10 }),
+        getWithdrawHistory({ exchangeId, limit: 10 }),
       ])
       setSummary(summaryRes.summary)
       setStrategyProfits(profitsRes.profits)
@@ -204,8 +206,9 @@ const ProfitManagement: React.FC = () => {
   }
 
   const fetchTrend = async () => {
+    const exchangeId = activeExchange === 'all' ? undefined : activeExchange
     try {
-      const res = await getProfitTrend(period)
+      const res = await getProfitTrend(period, exchangeId)
       setTrend(res.trend)
     } catch (err) {
       // Keep mock data
@@ -248,6 +251,34 @@ const ProfitManagement: React.FC = () => {
   return (
     <Box>
       <VStack align="stretch" spacing={6}>
+        {/* Exchange Switcher Tabs */}
+        <Box
+          bg={bgColor}
+          p={1}
+          borderRadius="xl"
+          borderWidth="1px"
+          borderColor={borderColor}
+          display="inline-flex"
+          alignSelf="flex-start"
+        >
+          <Tabs
+            variant="soft-rounded"
+            colorScheme="blue"
+            size="sm"
+            index={activeExchange === 'all' ? 0 : activeExchange === 'binance' ? 1 : 2}
+            onChange={(index) => {
+              const exchanges = ['all', 'binance', 'gate']
+              setActiveExchange(exchanges[index])
+            }}
+          >
+            <TabList>
+              <Tab px={6}>{t('common.allExchanges') || '全部交易所'}</Tab>
+              <Tab px={6}>Binance</Tab>
+              <Tab px={6}>Gate.io</Tab>
+            </TabList>
+          </Tabs>
+        </Box>
+
         {/* Header */}
         <MotionBox
           initial={{ opacity: 0, y: -20 }}
@@ -276,8 +307,8 @@ const ProfitManagement: React.FC = () => {
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('profitManagement.totalProfit')}</StatLabel>
-                <StatNumber color={summary.totalProfit >= 0 ? 'green.500' : 'red.500'}>
-                  {summary.totalProfit >= 0 ? '+' : ''}{summary.totalProfit.toFixed(2)}
+                <StatNumber color={(summary.totalProfit || 0) >= 0 ? 'green.500' : 'red.500'}>
+                  {(summary.totalProfit || 0) >= 0 ? '+' : ''}{(summary.totalProfit || 0).toFixed(2)}
                 </StatNumber>
                 <StatHelpText>USDT</StatHelpText>
               </Stat>
@@ -285,11 +316,11 @@ const ProfitManagement: React.FC = () => {
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('profitManagement.todayProfit')}</StatLabel>
-                <StatNumber color={summary.todayProfit >= 0 ? 'green.500' : 'red.500'}>
-                  {summary.todayProfit >= 0 ? '+' : ''}{summary.todayProfit.toFixed(2)}
+                <StatNumber color={(summary.todayProfit || 0) >= 0 ? 'green.500' : 'red.500'}>
+                  {(summary.todayProfit || 0) >= 0 ? '+' : ''}{(summary.todayProfit || 0).toFixed(2)}
                 </StatNumber>
                 <StatHelpText>
-                  <StatArrow type={summary.todayProfit >= 0 ? 'increase' : 'decrease'} />
+                  <StatArrow type={(summary.todayProfit || 0) >= 0 ? 'increase' : 'decrease'} />
                   {t('profitManagement.today')}
                 </StatHelpText>
               </Stat>
@@ -298,7 +329,7 @@ const ProfitManagement: React.FC = () => {
               <Stat>
                 <StatLabel>{t('profitManagement.unrealizedProfit')}</StatLabel>
                 <StatNumber color="orange.500">
-                  {summary.unrealizedProfit >= 0 ? '+' : ''}{summary.unrealizedProfit.toFixed(2)}
+                  {(summary.unrealizedProfit || 0) >= 0 ? '+' : ''}{(summary.unrealizedProfit || 0).toFixed(2)}
                 </StatNumber>
                 <StatHelpText>USDT</StatHelpText>
               </Stat>
@@ -306,7 +337,7 @@ const ProfitManagement: React.FC = () => {
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('profitManagement.availableToWithdraw')}</StatLabel>
-                <StatNumber color="blue.500">{summary.availableToWithdraw.toFixed(2)}</StatNumber>
+                <StatNumber color="blue.500">{(summary.availableToWithdraw || 0).toFixed(2)}</StatNumber>
                 <StatHelpText>USDT</StatHelpText>
               </Stat>
             </Box>
@@ -382,13 +413,13 @@ const ProfitManagement: React.FC = () => {
                           </Td>
                           <Td>{record.strategyName}</Td>
                           <Td isNumeric fontWeight="medium">
-                            {record.amount.toFixed(2)} USDT
+                            {(record.amount || 0).toFixed(2)} USDT
                           </Td>
                           <Td isNumeric color="orange.500">
-                            -{record.fee.toFixed(2)}
+                            -{(record.fee || 0).toFixed(2)}
                           </Td>
                           <Td isNumeric fontWeight="bold" color="green.500">
-                            {record.netAmount.toFixed(2)} USDT
+                            {(record.netAmount || 0).toFixed(2)} USDT
                           </Td>
                           <Td>
                             <Badge

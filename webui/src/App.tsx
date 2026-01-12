@@ -59,6 +59,7 @@ import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
 import LanguageSelector from './components/LanguageSelector'
+import ConnectionStatusBanner from './components/ConnectionStatusBanner'
 import { logout } from './services/auth'
 import { useTranslation } from 'react-i18next'
 import { useResponsive } from './hooks/useResponsive'
@@ -395,6 +396,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <SymbolProvider>
+          <ConnectionStatusBanner />
           <ThemedApp />
         </SymbolProvider>
       </AuthProvider>

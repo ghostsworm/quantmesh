@@ -259,6 +259,32 @@ func createTables(db *sql.DB) error {
 		return fmt.Errorf("迁移对账历史表失败: %w", err)
 	}
 
+	// 迁移：为 events 表添加 event_type 字段（如果不存在）
+	if err := migrateEventsTable(db); err != nil {
+		return fmt.Errorf("迁移事件表失败: %w", err)
+	}
+
+	return nil
+}
+
+// migrateEventsTable 迁移 events 表，添加 event_type 字段
+func migrateEventsTable(db *sql.DB) error {
+	row := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('events') 
+		WHERE name='event_type'
+	`)
+	var count int
+	if err := row.Scan(&count); err != nil {
+		return err
+	}
+
+	if count == 0 {
+		logger.Info("🔄 [数据库] 为 events 表添加 event_type 列...")
+		_, err := db.Exec(`ALTER TABLE events ADD COLUMN event_type TEXT`)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -649,7 +675,12 @@ func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statis
 
 // GetStatisticsSummary 获取统计汇总（从 trades 表实时计算）
 func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
-	row := s.db.QueryRow(`
+	return s.GetStatisticsSummaryByExchange("")
+}
+
+// GetStatisticsSummaryByExchange 获取指定交易所的统计汇总
+func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange string) (*Statistics, error) {
+	query := `
 		SELECT 
 			COUNT(*) as total_trades,
 			COALESCE(SUM(quantity), 0) as total_volume,
@@ -660,7 +691,14 @@ func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
 				ELSE 0
 			END as win_rate
 		FROM trades
-	`)
+	`
+	var row *sql.Row
+	if exchange != "" {
+		query += " WHERE exchange = ?"
+		row = s.db.QueryRow(query, exchange)
+	} else {
+		row = s.db.QueryRow(query)
+	}
 
 	stat := &Statistics{}
 	var totalTrades sql.NullInt64
@@ -692,13 +730,18 @@ func (s *SQLiteStorage) GetStatisticsSummary() (*Statistics, error) {
 	return stat, nil
 }
 
-// QueryDailyStatisticsFromTrades 从 trades 表查询每日统计（包含盈利/亏损交易数）
+// QueryDailyStatisticsFromTrades 从 trades 表查询每日统计
 func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
+	return s.QueryDailyStatisticsByExchange("", startDate, endDate)
+}
+
+// QueryDailyStatisticsByExchange 从 trades 表查询指定交易所的每日统计
+func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
 	// 转换为日期字符串（YYYY-MM-DD格式）
 	startDateStr := startDate.Format("2006-01-02")
 	endDateStr := endDate.Format("2006-01-02")
 
-	rows, err := s.db.Query(`
+	query := `
 		SELECT 
 			date(created_at) as date,
 			COUNT(*) as total_trades,
@@ -713,9 +756,15 @@ func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(startDate, endDate time.T
 			SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades
 		FROM trades
 		WHERE date(created_at) >= ? AND date(created_at) <= ?
-		GROUP BY date(created_at)
-		ORDER BY date DESC
-	`, startDateStr, endDateStr)
+	`
+	args := []interface{}{startDateStr, endDateStr}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	query += " GROUP BY date(created_at) ORDER BY date DESC"
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查询每日统计失败: %w", err)
 	}

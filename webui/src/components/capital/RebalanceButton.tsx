@@ -199,7 +199,7 @@ const RebalanceButton: React.FC<RebalanceButtonProps> = ({
                       />
                       <Text fontWeight="bold">{t('capitalManagement.previewResult')}</Text>
                     </HStack>
-                    {previewResult.changes.length > 0 ? (
+                    {previewResult.changes && previewResult.changes.length > 0 ? (
                       renderChangePreview(previewResult.changes)
                     ) : (
                       <Text fontSize="sm" color="gray.500">

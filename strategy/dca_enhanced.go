@@ -448,6 +448,15 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 	}
 
 	quantity := s.strategyCfg.BaseOrderAmount / price
+	
+	// 🔥 精度处理：根据交易所要求的精度截断数量
+	qDec := s.exchange.GetQuantityDecimals()
+	quantity = math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+
+	if quantity <= 0 {
+		logger.Warn("⚠️ [%s] 基础订单数量过小 (%.8f)，跳过", s.name, quantity)
+		return nil
+	}
 
 	layer := &DCALayer{
 		Index:    0,
@@ -503,6 +512,15 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 	// 计算安全订单金额（递增）
 	orderAmount := s.strategyCfg.SafetyOrderAmount * math.Pow(s.strategyCfg.SafetyOrderScale, float64(s.currentLayer-1))
 	quantity := orderAmount / price
+
+	// 🔥 精度处理：根据交易所要求的精度截断数量
+	qDec := s.exchange.GetQuantityDecimals()
+	quantity = math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+
+	if quantity <= 0 {
+		logger.Warn("⚠️ [%s] 安全订单 #%d 数量过小 (%.8f)，跳过", s.name, s.currentLayer, quantity)
+		return nil
+	}
 
 	layer := &DCALayer{
 		Index:    s.currentLayer,
@@ -635,11 +653,19 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 		return nil
 	}
 
+	// 🔥 精度处理：确保平仓数量符合交易所要求
+	qDec := s.exchange.GetQuantityDecimals()
+	qty := math.Floor(s.totalQty*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+
+	if qty <= 0 {
+		return nil
+	}
+
 	// 下卖单
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
 		Symbol:   s.strategyCfg.Symbol,
 		Side:     "SELL",
-		Quantity: s.totalQty,
+		Quantity: qty,
 		Price:    price,
 	})
 

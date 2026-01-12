@@ -83,9 +83,10 @@ func isReduceOnlyError(err error) bool {
 	}
 	errStr := err.Error()
 	// Binance: code=-2022, msg=ReduceOnly Order is rejected
+	// 注意：不要直接匹配 "reduce only"，因为金额不足的报错 "-4164" 里也包含这个词
 	return strings.Contains(errStr, "-2022") ||
 		strings.Contains(errStr, "ReduceOnly Order is rejected") ||
-		strings.Contains(errStr, "reduce only")
+		(strings.Contains(errStr, "reduce only") && !strings.Contains(errStr, "-4164"))
 }
 
 // PlaceOrder 下单（带重试）

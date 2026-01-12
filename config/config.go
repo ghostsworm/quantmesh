@@ -490,9 +490,10 @@ type SymbolConfig struct {
 
 // StrategyConfig 策略配置
 type StrategyConfig struct {
-	Enabled bool                   `yaml:"enabled"`
-	Weight  float64                `yaml:"weight"` // 资金权重
-	Config  map[string]interface{} `yaml:"config"`
+	Enabled bool                   `yaml:"enabled" json:"enabled"`
+	Type    string                 `yaml:"type" json:"type"`     // 策略类型 (grid, dca, martingale, dca_enhanced, combo)
+	Weight  float64                `yaml:"weight" json:"weight"` // 资金权重
+	Config  map[string]interface{} `yaml:"config" json:"config"`
 }
 
 // ExchangeConfig 交易所配置

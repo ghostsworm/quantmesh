@@ -69,6 +69,10 @@ func (a *capitalDataSourceAdapter) GetPositionManagers() []web.PositionManagerIn
 	return infos
 }
 
+func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
+	return a.cfg
+}
+
 // Version 版本号
 var Version = "3.3.3"
 
@@ -1201,6 +1205,14 @@ func (a *positionExchangeAdapter) CancelAllOrders(ctx context.Context, symbol st
 
 func (a *positionExchangeAdapter) GetAccount(ctx context.Context) (interface{}, error) {
 	return a.exchange.GetAccount(ctx)
+}
+
+func (a *positionExchangeAdapter) GetPriceDecimals() int {
+	return a.exchange.GetPriceDecimals()
+}
+
+func (a *positionExchangeAdapter) GetQuantityDecimals() int {
+	return a.exchange.GetQuantityDecimals()
 }
 
 // exchangeProviderAdapter 适配器，将 exchange.IExchange 转换为 web.ExchangeProvider

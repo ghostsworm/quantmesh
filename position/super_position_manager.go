@@ -137,6 +137,8 @@ type IExchange interface {
 	GetBaseAsset() string                                     // 获取基础资产（交易币种）
 	CancelAllOrders(ctx context.Context, symbol string) error // 取消所有订单
 	GetAccount(ctx context.Context) (interface{}, error)      // 获取账户信息（返回 *exchange.Account 或类似结构）
+	GetPriceDecimals() int                                    // 获取价格精度
+	GetQuantityDecimals() int                                 // 获取数量精度
 }
 
 // TradeStorage 交易存储接口（避免循环导入）
@@ -1382,6 +1384,11 @@ func (spm *SuperPositionManager) GetLastReconcileTime() time.Time {
 // GetSymbol 获取交易符号
 func (spm *SuperPositionManager) GetSymbol() string {
 	return spm.config.Trading.Symbol
+}
+
+// GetExchange 获取交易所名称
+func (spm *SuperPositionManager) GetExchange() string {
+	return spm.exchangeName
 }
 
 // GetPriceInterval 获取价格间隔

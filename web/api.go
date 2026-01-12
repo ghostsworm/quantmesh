@@ -193,18 +193,18 @@ func pickStatus(c *gin.Context) *SystemStatus {
 	return currentStatus
 }
 
-func pickPriceProvider(c *gin.Context) PriceProvider {
+func PickPriceProvider(c *gin.Context) PriceProvider {
 	if key := resolveSymbolKey(c); key != "" {
 		providersMu.RLock()
 		p, ok := priceProviders[key]
 		providersMu.RUnlock()
 		if ok && p != nil {
-			logger.Info("[DEBUG] pickPriceProvider - found provider for key=%s", key)
+			logger.Info("[DEBUG] PickPriceProvider - found provider for key=%s", key)
 			return p
 		}
-		logger.Warn("⚠️ [pickPriceProvider] no provider found for key=%s, falling back to default", key)
+		logger.Warn("⚠️ [PickPriceProvider] no provider found for key=%s, falling back to default", key)
 	}
-	logger.Info("[DEBUG] pickPriceProvider - using default priceProvider")
+	logger.Info("[DEBUG] PickPriceProvider - using default priceProvider")
 	return priceProvider
 }
 
@@ -220,27 +220,27 @@ func pickExchangeProvider(c *gin.Context) ExchangeProvider {
 	return exchangeProvider
 }
 
-func pickPositionProvider(c *gin.Context) PositionManagerProvider {
+func PickPositionProvider(c *gin.Context) PositionManagerProvider {
 	key := resolveSymbolKey(c)
-	logger.Info("[DEBUG] pickPositionProvider - resolvedKey=%s", key)
+	logger.Info("[DEBUG] PickPositionProvider - resolvedKey=%s", key)
 
 	if key != "" {
 		providersMu.RLock()
 		p, ok := positionProviders[key]
 		providersMu.RUnlock()
 
-		logger.Info("[DEBUG] pickPositionProvider - found in map: %v, provider!=nil: %v", ok, p != nil)
+		logger.Info("[DEBUG] PickPositionProvider - found in map: %v, provider!=nil: %v", ok, p != nil)
 
 		if ok && p != nil {
 			return p
 		}
 	}
 
-	logger.Info("[DEBUG] pickPositionProvider - returning default provider")
+	logger.Info("[DEBUG] PickPositionProvider - returning default provider")
 	return positionManagerProvider
 }
 
-func pickRiskProvider(c *gin.Context) RiskMonitorProvider {
+func PickRiskProvider(c *gin.Context) RiskMonitorProvider {
 	if key := resolveSymbolKey(c); key != "" {
 		providersMu.RLock()
 		p, ok := riskProviders[key]
@@ -252,7 +252,7 @@ func pickRiskProvider(c *gin.Context) RiskMonitorProvider {
 	return riskMonitorProvider
 }
 
-func pickStorageProvider(c *gin.Context) StorageServiceProvider {
+func PickStorageProvider(c *gin.Context) StorageServiceProvider {
 	if key := resolveSymbolKey(c); key != "" {
 		providersMu.RLock()
 		p, ok := storageProviders[key]
@@ -264,7 +264,7 @@ func pickStorageProvider(c *gin.Context) StorageServiceProvider {
 	return storageServiceProvider
 }
 
-func pickFundingProvider(c *gin.Context) FundingMonitorProvider {
+func PickFundingProvider(c *gin.Context) FundingMonitorProvider {
 	if key := resolveSymbolKey(c); key != "" {
 		providersMu.RLock()
 		p, ok := fundingProviders[key]
@@ -521,8 +521,8 @@ func getPositions(c *gin.Context) {
 	resolvedKey := resolveSymbolKey(c)
 	logger.Info("[DEBUG] getPositions called - exchange=%s, symbol=%s, resolvedKey=%s", exchange, symbol, resolvedKey)
 
-	pmProvider := pickPositionProvider(c)
-	priceProv := pickPriceProvider(c)
+	pmProvider := PickPositionProvider(c)
+	priceProv := PickPriceProvider(c)
 
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{"positions": []interface{}{}})
@@ -665,8 +665,8 @@ func getPositions(c *gin.Context) {
 // getPositionsSummary 获取持仓汇总
 // GET /api/positions/summary
 func getPositionsSummary(c *gin.Context) {
-	pmProvider := pickPositionProvider(c)
-	priceProv := pickPriceProvider(c)
+	pmProvider := PickPositionProvider(c)
+	priceProv := PickPriceProvider(c)
 
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -787,7 +787,7 @@ func getPositionsSummary(c *gin.Context) {
 // getOrders 获取订单列表（历史订单）
 // GET /api/orders
 func getOrders(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
@@ -841,7 +841,7 @@ func getOrders(c *gin.Context) {
 // getOrderHistory 获取订单历史
 // GET /api/orders/history
 func getOrderHistory(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
@@ -938,7 +938,7 @@ func (a *storageServiceAdapter) GetStorage() storage.Storage {
 // getStatistics 获取统计数据
 // GET /api/statistics
 func getStatistics(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"total_trades": 0,
@@ -968,7 +968,7 @@ func getStatistics(c *gin.Context) {
 	}
 
 	// 如果数据库没有数据，尝试从 SuperPositionManager 计算
-	pmProvider := pickPositionProvider(c)
+	pmProvider := PickPositionProvider(c)
 	if summary.TotalTrades == 0 && pmProvider != nil {
 		slots := pmProvider.GetAllSlots()
 		totalBuyQty := 0.0
@@ -1001,7 +1001,7 @@ func getStatistics(c *gin.Context) {
 // getDailyStatistics 获取每日统计（混合模式：优先使用 statistics 表，缺失的日期从 trades 表补充）
 // GET /api/statistics/daily
 func getDailyStatistics(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"statistics": []interface{}{}})
 		return
@@ -1119,7 +1119,7 @@ func getDailyStatistics(c *gin.Context) {
 // getTradeStatistics 获取交易统计
 // GET /api/statistics/trades
 func getTradeStatistics(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"trades": []interface{}{}})
 		return
@@ -1534,6 +1534,8 @@ type PositionManagerProvider interface {
 
 // SlotInfo 槽位信息
 type SlotInfo struct {
+	Exchange       string    `json:"exchange"`
+	Symbol         string    `json:"symbol"`
 	Price          float64   `json:"price"`
 	PositionStatus string    `json:"position_status"` // EMPTY/FILLED
 	PositionQty    float64   `json:"position_qty"`
@@ -1568,13 +1570,16 @@ func (a *positionManagerAdapter) GetAllSlots() []SlotInfo {
 
 	// 🔥 调试：打印管理器的交易对信息
 	symbol := a.manager.GetSymbol()
+	exchange := a.manager.GetExchange()
 	anchorPrice := a.manager.GetAnchorPrice()
-	logger.Info("[DEBUG] GetAllSlots called - symbol=%s, anchorPrice=%.2f, slotsCount=%d",
-		symbol, anchorPrice, len(detailedSlots))
+	logger.Info("[DEBUG] GetAllSlots called - exchange=%s, symbol=%s, anchorPrice=%.2f, slotsCount=%d",
+		exchange, symbol, anchorPrice, len(detailedSlots))
 
 	slots := make([]SlotInfo, len(detailedSlots))
 	for i, ds := range detailedSlots {
 		slots[i] = SlotInfo{
+			Exchange:       exchange,
+			Symbol:         symbol,
 			Price:          ds.Price,
 			PositionStatus: ds.PositionStatus,
 			PositionQty:    ds.PositionQty,
@@ -1627,7 +1632,7 @@ func getSlots(c *gin.Context) {
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
 
-	pmProvider := pickPositionProvider(c)
+	pmProvider := PickPositionProvider(c)
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{"slots": []interface{}{}, "count": 0})
 		return
@@ -1709,7 +1714,7 @@ func getStrategyAllocation(c *gin.Context) {
 // getPendingOrders 获取待成交订单列表
 // GET /api/orders/pending
 func getPendingOrders(c *gin.Context) {
-	pmProvider := pickPositionProvider(c)
+	pmProvider := PickPositionProvider(c)
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
@@ -2036,7 +2041,7 @@ type ReconciliationHistoryInfo struct {
 // getReconciliationStatus 获取对账状态
 // GET /api/reconciliation/status
 func getReconciliationStatus(c *gin.Context) {
-	pmProvider := pickPositionProvider(c)
+	pmProvider := PickPositionProvider(c)
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"reconcile_count":     0,
@@ -2076,7 +2081,7 @@ func getReconciliationStatus(c *gin.Context) {
 		}
 	}
 
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
 		// 查询截止到现在的累计实际盈利
 		actualProfit, _ = storageProv.GetStorage().GetActualProfitBySymbol(symbol, time.Now().UTC())
@@ -2098,7 +2103,7 @@ func getReconciliationStatus(c *gin.Context) {
 // getReconciliationHistory 获取对账历史
 // GET /api/reconciliation/history
 func getReconciliationHistory(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
 		return
@@ -2196,7 +2201,7 @@ type PnLSummaryResponse struct {
 // getPnLBySymbol 按币种对查询盈亏数据
 // GET /api/statistics/pnl/symbol
 func getPnLBySymbol(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		respondError(c, http.StatusOK, "error.storage_unavailable")
 		return
@@ -2273,7 +2278,7 @@ type PnLBySymbolResponse struct {
 // getPnLByTimeRange 按时间区间查询盈亏数据（按币种对分组）
 // GET /api/statistics/pnl/time-range
 func getPnLByTimeRange(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"pnl_by_symbol": []interface{}{}})
 		return
@@ -2356,7 +2361,7 @@ type SymbolPnLInfo struct {
 // getPnLByExchange 按交易所分组查询盈亏数据
 // GET /api/statistics/pnl/exchange
 func getPnLByExchange(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"exchanges": []interface{}{}})
 		return
@@ -2465,7 +2470,7 @@ func getPnLByExchange(c *gin.Context) {
 // getAnomalousTrades 检查异常交易记录（用于调试盈亏计算问题）
 // GET /api/statistics/anomalous-trades
 func getAnomalousTrades(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"anomalous_trades": []interface{}{}})
 		return
@@ -2564,7 +2569,7 @@ type SymbolMonitorData struct {
 // getRiskStatus 获取风控状态
 // GET /api/risk/status
 func getRiskStatus(c *gin.Context) {
-	riskProv := pickRiskProvider(c)
+	riskProv := PickRiskProvider(c)
 	if riskProv == nil {
 		c.JSON(http.StatusOK, RiskStatusResponse{
 			Triggered:      false,
@@ -2586,7 +2591,7 @@ func getRiskStatus(c *gin.Context) {
 // getRiskMonitorData 获取监控币种数据
 // GET /api/risk/monitor
 func getRiskMonitorData(c *gin.Context) {
-	riskProv := pickRiskProvider(c)
+	riskProv := PickRiskProvider(c)
 	if riskProv == nil {
 		c.JSON(http.StatusOK, gin.H{"symbols": []interface{}{}})
 		return
@@ -2670,7 +2675,7 @@ type RiskCheckSymbolInfo struct {
 //   - start_time: 开始时间（可选，ISO 8601格式，默认最近90天）
 //   - end_time: 结束时间（可选，ISO 8601格式，默认当前时间）
 func getRiskCheckHistory(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
 		return
@@ -2844,8 +2849,8 @@ func SetFundingMonitorProvider(provider FundingMonitorProvider) {
 // getFundingRate 获取当前资金费率
 // GET /api/funding/current
 func getFundingRate(c *gin.Context) {
-	fundingProv := pickFundingProvider(c)
-	storageProv := pickStorageProvider(c)
+	fundingProv := PickFundingProvider(c)
+	storageProv := PickStorageProvider(c)
 	status := pickStatus(c)
 	rates := make(map[string]interface{})
 
@@ -2900,7 +2905,7 @@ func getFundingRate(c *gin.Context) {
 //   - symbol: 交易对（可选）
 //   - limit: 返回数量（默认100）
 func getFundingRateHistory(c *gin.Context) {
-	storageProv := pickStorageProvider(c)
+	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"history": []interface{}{}})
 		return

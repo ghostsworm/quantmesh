@@ -145,10 +145,9 @@ const StrategyMarket: React.FC = () => {
       setStrategies(response.strategies)
       setError(null)
     } catch (err) {
-      // Fallback to mock data for development
-      console.warn('Using mock data:', err)
-      setStrategies(MOCK_STRATEGIES)
-      setError(null)
+      console.error('获取策略列表失败:', err)
+      setStrategies([])
+      setError('获取策略列表失败，请检查后端服务是否启动')
     } finally {
       setLoading(false)
     }
@@ -195,18 +194,6 @@ const StrategyMarket: React.FC = () => {
   }, [strategies])
 
   const handleEnable = async (strategyId: string) => {
-    const strategy = strategies.find((s) => s.id === strategyId)
-    if (strategy?.isPremium) {
-      // Navigate to purchase or show purchase modal
-      toast({
-        title: t('strategyMarket.premiumRequired'),
-        description: t('strategyMarket.premiumRequiredDesc'),
-        status: 'info',
-        duration: 5000,
-      })
-      return
-    }
-
     try {
       await enableStrategy(strategyId)
       setStrategies((prev) =>
@@ -217,14 +204,11 @@ const StrategyMarket: React.FC = () => {
         status: 'success',
         duration: 3000,
       })
-    } catch (err) {
-      // For development, just update local state
-      setStrategies((prev) =>
-        prev.map((s) => (s.id === strategyId ? { ...s, isEnabled: true } : s))
-      )
+    } catch (err: any) {
       toast({
-        title: t('strategyMarket.enableSuccess'),
-        status: 'success',
+        title: '启用失败',
+        description: err.message || '请检查后端连接',
+        status: 'error',
         duration: 3000,
       })
     }
@@ -241,14 +225,11 @@ const StrategyMarket: React.FC = () => {
         status: 'success',
         duration: 3000,
       })
-    } catch (err) {
-      // For development, just update local state
-      setStrategies((prev) =>
-        prev.map((s) => (s.id === strategyId ? { ...s, isEnabled: false } : s))
-      )
+    } catch (err: any) {
       toast({
-        title: t('strategyMarket.disableSuccess'),
-        status: 'success',
+        title: '禁用失败',
+        description: err.message || '请检查后端连接',
+        status: 'error',
         duration: 3000,
       })
     }
@@ -262,37 +243,13 @@ const StrategyMarket: React.FC = () => {
     try {
       const response = await getStrategyDetail(strategyId)
       setSelectedStrategy(response.strategy)
-    } catch (err) {
-      // For development, create mock detail
-      const strategy = strategies.find((s) => s.id === strategyId)
-      if (strategy) {
-        setSelectedStrategy({
-          ...strategy,
-          longDescription: strategy.description + '\n\n详细说明：此策略采用先进的算法进行交易决策...',
-          parameters: [
-            {
-              name: '价格间隔',
-              key: 'priceInterval',
-              type: 'number',
-              defaultValue: 1,
-              min: 0.1,
-              max: 100,
-              description: '网格之间的价格间隔',
-              required: true,
-            },
-            {
-              name: '订单数量',
-              key: 'orderQuantity',
-              type: 'number',
-              defaultValue: 10,
-              min: 1,
-              max: 100,
-              description: '每个网格的订单数量',
-              required: true,
-            },
-          ],
-        })
-      }
+    } catch (err: any) {
+      toast({
+        title: '获取详情失败',
+        description: err.message || '无法从服务器获取策略详情',
+        status: 'error',
+        duration: 3000,
+      })
     }
     onOpen()
   }

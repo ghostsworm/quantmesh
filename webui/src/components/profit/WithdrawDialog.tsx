@@ -176,7 +176,7 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
             <Alert status="info" borderRadius="md">
               <AlertIcon />
               <Text fontSize="sm">
-                {t('profitManagement.availableToWithdraw')}: {availableToWithdraw.toFixed(2)} USDT
+                {t('profitManagement.availableToWithdraw')}: {(availableToWithdraw || 0).toFixed(2)} USDT
               </Text>
             </Alert>
 
@@ -189,7 +189,7 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
               >
                 {strategyProfits.map((sp) => (
                   <option key={sp.strategyId} value={sp.strategyId}>
-                    {sp.strategyName} ({sp.availableToWithdraw.toFixed(2)} USDT)
+                    {sp.strategyName} ({(sp.availableToWithdraw || 0).toFixed(2)} USDT)
                   </option>
                 ))}
               </Select>
@@ -215,7 +215,7 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
                 </InputRightAddon>
               </InputGroup>
               <FormHelperText>
-                {t('profitManagement.maxWithdraw')}: {maxAmount.toFixed(2)} USDT
+                {t('profitManagement.maxWithdraw')}: {(maxAmount || 0).toFixed(2)} USDT
               </FormHelperText>
             </FormControl>
 
@@ -257,14 +257,14 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
                         {t('profitManagement.fee')}
                       </Text>
                       <Text fontWeight="medium" color="orange.500">
-                        -{estimate.fee.toFixed(2)} USDT
+                        -{(estimate.fee || 0).toFixed(2)} USDT
                       </Text>
                     </HStack>
                     <Divider />
                     <HStack justify="space-between">
                       <Text fontWeight="bold">{t('profitManagement.netAmount')}</Text>
                       <Text fontWeight="bold" color="green.500">
-                        {estimate.netAmount.toFixed(2)} USDT
+                        {(estimate.netAmount || 0).toFixed(2)} USDT
                       </Text>
                     </HStack>
                     <Text fontSize="xs" color="gray.500" textAlign="right">

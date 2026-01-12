@@ -127,7 +127,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
                   >
                     <Text>{item.date}</Text>
                     <Text fontWeight="bold">
-                      {item.profit >= 0 ? '+' : ''}{item.profit.toFixed(2)} USDT
+                      {(item.profit || 0) >= 0 ? '+' : ''}{(item.profit || 0).toFixed(2)} USDT
                     </Text>
                   </Box>
                 </Box>
@@ -151,10 +151,10 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
             <StatLabel>{t('profitManagement.totalProfit')}</StatLabel>
             <StatNumber
               fontSize="lg"
-              color={chartStats.totalProfit >= 0 ? 'green.500' : 'red.500'}
+              color={(chartStats.totalProfit || 0) >= 0 ? 'green.500' : 'red.500'}
             >
-              {chartStats.totalProfit >= 0 ? '+' : ''}
-              {chartStats.totalProfit.toFixed(2)}
+              {(chartStats.totalProfit || 0) >= 0 ? '+' : ''}
+              {(chartStats.totalProfit || 0).toFixed(2)}
             </StatNumber>
             <StatHelpText>USDT</StatHelpText>
           </Stat>
@@ -162,24 +162,24 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
             <StatLabel>{t('profitManagement.avgDaily')}</StatLabel>
             <StatNumber
               fontSize="lg"
-              color={chartStats.avgProfit >= 0 ? 'green.500' : 'red.500'}
+              color={(chartStats.avgProfit || 0) >= 0 ? 'green.500' : 'red.500'}
             >
-              {chartStats.avgProfit >= 0 ? '+' : ''}
-              {chartStats.avgProfit.toFixed(2)}
+              {(chartStats.avgProfit || 0) >= 0 ? '+' : ''}
+              {(chartStats.avgProfit || 0).toFixed(2)}
             </StatNumber>
             <StatHelpText>USDT / {t('profitManagement.day')}</StatHelpText>
           </Stat>
           <Stat>
             <StatLabel>{t('profitManagement.bestDay')}</StatLabel>
             <StatNumber fontSize="lg" color="green.500">
-              +{chartStats.maxProfit.toFixed(2)}
+              +{(chartStats.maxProfit || 0).toFixed(2)}
             </StatNumber>
             <StatHelpText>USDT</StatHelpText>
           </Stat>
           <Stat>
             <StatLabel>{t('profitManagement.worstDay')}</StatLabel>
             <StatNumber fontSize="lg" color="red.500">
-              {chartStats.minProfit.toFixed(2)}
+              {(chartStats.minProfit || 0).toFixed(2)}
             </StatNumber>
             <StatHelpText>USDT</StatHelpText>
           </Stat>
@@ -205,18 +205,18 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
                   <VStack align="start" spacing={0}>
                     <Text fontWeight="medium">{sp.strategyName}</Text>
                     <Text fontSize="xs" color="gray.500">
-                      {sp.tradeCount} {t('profitManagement.trades')} · {(sp.winRate * 100).toFixed(1)}% {t('profitManagement.winRate')}
+                      {sp.tradeCount} {t('profitManagement.trades')} · {((sp.winRate || 0) * 100).toFixed(1)}% {t('profitManagement.winRate')}
                     </Text>
                   </VStack>
                   <VStack align="end" spacing={0}>
                     <Text
                       fontWeight="bold"
-                      color={sp.totalProfit >= 0 ? 'green.500' : 'red.500'}
+                      color={(sp.totalProfit || 0) >= 0 ? 'green.500' : 'red.500'}
                     >
-                      {sp.totalProfit >= 0 ? '+' : ''}{sp.totalProfit.toFixed(2)} USDT
+                      {(sp.totalProfit || 0) >= 0 ? '+' : ''}{(sp.totalProfit || 0).toFixed(2)} USDT
                     </Text>
                     <Text fontSize="xs" color="gray.500">
-                      {t('profitManagement.today')}: {sp.todayProfit >= 0 ? '+' : ''}{sp.todayProfit.toFixed(2)}
+                      {t('profitManagement.today')}: {(sp.todayProfit || 0) >= 0 ? '+' : ''}{(sp.todayProfit || 0).toFixed(2)}
                     </Text>
                   </VStack>
                 </HStack>

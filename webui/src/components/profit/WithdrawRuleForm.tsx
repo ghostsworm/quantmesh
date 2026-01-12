@@ -231,7 +231,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
                       <InputGroup size="sm">
                         <Input
                           type="number"
-                          value={(rule.withdrawRatio * 100).toFixed(0)}
+                          value={((rule.withdrawRatio || 0) * 100).toFixed(0)}
                           onChange={(e) =>
                             handleUpdateRule(rule.id, {
                               withdrawRatio: (parseFloat(e.target.value) || 0) / 100,

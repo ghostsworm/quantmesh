@@ -48,6 +48,8 @@ func (m *MockGridExchange) GetPositions(ctx context.Context, symbol string) (int
 	return nil, nil
 }
 func (m *MockGridExchange) GetQuoteAsset() string { return "USDT" }
+func (m *MockGridExchange) GetPriceDecimals() int    { return 2 }
+func (m *MockGridExchange) GetQuantityDecimals() int { return 3 }
 
 func TestGridStrategy_Delegation(t *testing.T) {
 	cfg := &config.Config{}

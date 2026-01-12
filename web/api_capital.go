@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/logger"
 	"quantmesh/position"
 )
 
@@ -18,6 +19,7 @@ type CapitalDataSource interface {
 	GetExchanges() []exchange.IExchange
 	GetStrategyConfigs() map[string]config.StrategyConfig
 	GetPositionManagers() []PositionManagerInfo
+	GetConfig() *config.Config // 新增
 }
 
 // PositionManagerInfo 仓位管理器信息
@@ -109,10 +111,19 @@ type CapitalAllocationConfig struct {
 type RebalanceResult struct {
 	Success         bool                    `json:"success"`
 	Message         string                  `json:"message"`
+	Changes         []RebalanceChange       `json:"changes"` // 添加此字段以匹配前端
 	TotalMoved      float64                 `json:"totalMoved"`
 	MovementDetails []CapitalMovement       `json:"movementDetails"`
 	NewAllocations  []StrategyCapitalDetail `json:"newAllocations"`
 	ExecutedAt      string                  `json:"executedAt"`
+}
+
+// RebalanceChange 策略分配变化
+type RebalanceChange struct {
+	StrategyID         string  `json:"strategyId"`
+	PreviousAllocation float64 `json:"previousAllocation"`
+	NewAllocation      float64 `json:"newAllocation"`
+	Difference         float64 `json:"difference"`
 }
 
 // CapitalMovement 资金移动详情
@@ -135,8 +146,13 @@ type CapitalHistoryPoint struct {
 // 获取资金概览
 func getCapitalOverviewHandler(c *gin.Context) {
 	if capitalDataSource == nil {
-		// 返回模拟数据作为回退
-		mockOverview(c)
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "资金数据源未就绪",
+			"overview": CapitalOverview{
+				LastUpdated: time.Now().Format(time.RFC3339),
+			},
+		})
 		return
 	}
 
@@ -161,9 +177,13 @@ func getCapitalOverviewHandler(c *gin.Context) {
 
 		acc, err := ex.GetAccount(ctx)
 		if err != nil {
+			logger.Error("❌ [资金概览] 获取交易所 %s 账户信息失败: %v", name, err)
+			// 🔥 改进：报错也要加进列表，显示为 error 状态
 			overview.Exchanges = append(overview.Exchanges, ExchangeCapitalSummary{
 				ExchangeID:   name,
 				ExchangeName: name,
+				TotalBalance: 0,
+				Available:    0,
 				Status:       "error",
 			})
 			continue
@@ -172,10 +192,10 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		summary := ExchangeCapitalSummary{
 			ExchangeID:   name,
 			ExchangeName: name,
-			TotalBalance: acc.TotalMarginBalance,
-			Available:    acc.AvailableBalance,
-			Used:         acc.TotalMarginBalance - acc.AvailableBalance,
-			PnL:          acc.TotalMarginBalance - acc.TotalWalletBalance,
+			TotalBalance: math.Round(acc.TotalMarginBalance*100) / 100,
+			Available:    math.Round(acc.AvailableBalance*100) / 100,
+			Used:         math.Round((acc.TotalMarginBalance-acc.AvailableBalance)*100) / 100,
+			PnL:          math.Round((acc.TotalMarginBalance-acc.TotalWalletBalance)*100) / 100,
 			Status:       "online",
 		}
 		overview.Exchanges = append(overview.Exchanges, summary)
@@ -184,28 +204,29 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		overview.UnrealizedPnL += (acc.TotalMarginBalance - acc.TotalWalletBalance)
 	}
 
-	// 2. 汇总策略分配数据 (从配置计算)
+	// 2. 汇总策略分配数据
 	for _, cfg := range strategyConfigs {
 		if cfg.Enabled {
-			// 分配金额 = 总权益 * 权重
-			// 注意：这只是一个简化的计算，实际可能更复杂
 			alloc := overview.TotalBalance * cfg.Weight
 			overview.AllocatedCapital += alloc
 		}
 	}
 
-	// 3. 汇总实际占用资金 (从仓位管理器计算)
+	// 3. 汇总实际占用资金
 	for _, pm := range posManagers {
-		// 估算单个交易对占用的保证金
-		// 实际上 SuperPositionManager 应该提供获取已占用保证金的方法
-		// 这里暂用估算：持仓数量 * 价格 / 杠杆 (简化)
-		// 或者是 PM 内部已经算好的统计数据
-		overview.UsedCapital += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval() // 简化占位
+		overview.UsedCapital += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
 	}
 
 	if overview.TotalBalance > 0 {
 		overview.MarginRatio = overview.UsedCapital / overview.TotalBalance
 	}
+
+	// 四舍五入
+	overview.TotalBalance = math.Round(overview.TotalBalance*100) / 100
+	overview.AllocatedCapital = math.Round(overview.AllocatedCapital*100) / 100
+	overview.UsedCapital = math.Round(overview.UsedCapital*100) / 100
+	overview.AvailableCapital = math.Round(overview.AvailableCapital*100) / 100
+	overview.UnrealizedPnL = math.Round(overview.UnrealizedPnL*100) / 100
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
@@ -213,31 +234,14 @@ func getCapitalOverviewHandler(c *gin.Context) {
 	})
 }
 
-func mockOverview(c *gin.Context) {
-	exchange := c.DefaultQuery("exchange", "all")
-	overview := CapitalOverview{
-		TotalBalance:     75000.00,
-		AllocatedCapital: 45000.00,
-		UsedCapital:      32000.00,
-		AvailableCapital: 43000.00,
-		ReservedCapital:  5000.00,
-		UnrealizedPnL:    1250.45,
-		MarginRatio:      0.43,
-		LastUpdated:      time.Now().Format(time.RFC3339),
-	}
-	if exchange == "all" {
-		overview.Exchanges = []ExchangeCapitalSummary{
-			{ExchangeID: "binance", ExchangeName: "Binance", TotalBalance: 50000.00, Available: 30000.00, Used: 20000.00, PnL: 850.25, Status: "online"},
-			{ExchangeID: "okx", ExchangeName: "OKX", TotalBalance: 25000.00, Available: 13000.00, Used: 12000.00, PnL: 400.20, Status: "online"},
-		}
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "overview": overview})
-}
-
 // 获取资金分配配置
 func getCapitalAllocationHandler(c *gin.Context) {
 	if capitalDataSource == nil {
-		mockAllocation(c)
+		c.JSON(http.StatusOK, gin.H{
+			"success": false, 
+			"message": "资金数据源未就绪",
+			"exchanges": []ExchangeCapitalDetail{},
+		})
 		return
 	}
 
@@ -259,6 +263,21 @@ func getCapitalAllocationHandler(c *gin.Context) {
 
 		acc, err := ex.GetAccount(ctx)
 		if err != nil {
+			logger.Error("❌ [资金分配] 获取交易所 %s 账户信息失败: %v", name, err)
+			// 🔥 改进：获取失败也要显示，只是余额为 0
+			exDetail := &ExchangeCapitalDetail{
+				ExchangeID:   name,
+				ExchangeName: name,
+				Assets: []AssetAllocation{
+					{
+						Asset:            "USDT",
+						TotalBalance:     0,
+						AvailableBalance: 0,
+					},
+				},
+			}
+			exchangeMap[name] = exDetail
+			details = append(details, *exDetail)
 			continue
 		}
 
@@ -267,9 +286,9 @@ func getCapitalAllocationHandler(c *gin.Context) {
 			ExchangeName: name,
 			Assets: []AssetAllocation{
 				{
-					Asset:            "USDT", // 默认假设结算资产为 USDT
-					TotalBalance:     acc.TotalMarginBalance,
-					AvailableBalance: acc.AvailableBalance,
+					Asset:            "USDT",
+					TotalBalance:     math.Round(acc.TotalMarginBalance*100) / 100,
+					AvailableBalance: math.Round(acc.AvailableBalance*100) / 100,
 				},
 			},
 		}
@@ -283,21 +302,19 @@ func getCapitalAllocationHandler(c *gin.Context) {
 			continue
 		}
 
-		// 遍历所有交易所的所有资产，尝试分配（简化逻辑：默认分配到 binance USDT，如果存在）
 		for i := range details {
 			for j := range details[i].Assets {
 				asset := &details[i].Assets[j]
 				
-				// 计算分配金额
 				alloc := asset.TotalBalance * cfg.Weight
 				
 				strategy := StrategyCapitalDetail{
 					StrategyID:      strategyID,
 					StrategyName:    getStrategyName(strategyID),
-					StrategyType:    strategyID, // 简化处理
+					StrategyType:    strategyID,
 					ExchangeID:      details[i].ExchangeID,
 					Asset:           asset.Asset,
-					Allocated:       alloc,
+					Allocated:       math.Round(alloc*100) / 100,
 					Weight:          cfg.Weight,
 					Status:          "active",
 				}
@@ -306,13 +323,13 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				for _, pm := range posManagers {
 					if pm.Exchange == details[i].ExchangeID {
 						// 这里需要判断该 PM 是否属于该策略
-						// 目前暂简化为：如果 PM 的 Symbol 包含在该策略中
 						// TODO: 完善策略与交易对的关联逻辑
 						strategy.Used += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
 					}
 				}
 				
-				strategy.Available = strategy.Allocated - strategy.Used
+				strategy.Used = math.Round(strategy.Used*100) / 100
+				strategy.Available = math.Round((strategy.Allocated - strategy.Used)*100) / 100
 				if strategy.Allocated > 0 {
 					strategy.UtilizationRate = strategy.Used / strategy.Allocated
 				}
@@ -327,7 +344,8 @@ func getCapitalAllocationHandler(c *gin.Context) {
 	for i := range details {
 		for j := range details[i].Assets {
 			asset := &details[i].Assets[j]
-			asset.Unallocated = asset.TotalBalance - asset.AllocatedToStrategies
+			asset.AllocatedToStrategies = math.Round(asset.AllocatedToStrategies*100) / 100
+			asset.Unallocated = math.Round((asset.TotalBalance - asset.AllocatedToStrategies)*100) / 100
 		}
 	}
 
@@ -335,35 +353,6 @@ func getCapitalAllocationHandler(c *gin.Context) {
 		"success":   true,
 		"exchanges": details,
 	})
-}
-
-func mockAllocation(c *gin.Context) {
-	data := []ExchangeCapitalDetail{
-		{
-			ExchangeID:   "binance",
-			ExchangeName: "Binance",
-			Assets: []AssetAllocation{
-				{
-					Asset:            "USDT",
-					TotalBalance:     50000.00,
-					AvailableBalance: 30000.00,
-					AllocatedToStrategies: 32000.00,
-					Unallocated:      18000.00,
-					Strategies: []StrategyCapitalDetail{
-						{
-							StrategyID: "grid", StrategyName: "网格交易", StrategyType: "grid", ExchangeID: "binance", Asset: "USDT",
-							Allocated: 20000, Used: 18000, Available: 2000, Weight: 0.4, Status: "active",
-						},
-						{
-							StrategyID: "dca", StrategyName: "DCA 定投", StrategyType: "dca", ExchangeID: "binance", Asset: "USDT",
-							Allocated: 12000, Used: 10000, Available: 2000, Weight: 0.24, Status: "active",
-						},
-					},
-				},
-			},
-		},
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "exchanges": data})
 }
 
 // 更新资金分配
@@ -460,21 +449,57 @@ func updateStrategyCapitalHandler(c *gin.Context) {
 func getStrategyCapitalDetailHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
+	if capitalDataSource == nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "资金数据源未就绪"})
+		return
+	}
+
+	configs := capitalDataSource.GetStrategyConfigs()
+	cfg, ok := configs[strategyID]
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "未找到策略配置"})
+		return
+	}
+
+	// 汇总该策略在所有交易所的资金
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	exchanges := capitalDataSource.GetExchanges()
+	posManagers := capitalDataSource.GetPositionManagers()
+
+	var totalAllocated, totalUsed float64
+	for _, ex := range exchanges {
+		if acc, err := ex.GetAccount(ctx); err == nil {
+			totalAllocated += acc.TotalMarginBalance * cfg.Weight
+		}
+	}
+
+	for _, pm := range posManagers {
+		// 简化逻辑：这里应该判断 PM 是否属于该策略
+		totalUsed += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
+	}
+
+	maxCap := 0.0
+	if val, ok := cfg.Config["max_capital"].(float64); ok {
+		maxCap = val
+	} else if val, ok := cfg.Config["max_capital"].(int); ok {
+		maxCap = float64(val)
+	}
+
 	capital := StrategyCapitalDetail{
 		StrategyID:      strategyID,
 		StrategyName:    getStrategyName(strategyID),
-		StrategyType:    getStrategyType(strategyID),
-		Allocated:       20000,
-		Used:            18000,
-		Available:       2000,
-		Weight:          0.4,
-		MaxCapital:      25000,
-		MaxPercentage:   50,
-		ReserveRatio:    0.1,
-		AutoRebalance:   true,
-		Priority:        1,
-		UtilizationRate: 0.9,
+		StrategyType:    strategyID,
+		Allocated:       math.Round(totalAllocated*100) / 100,
+		Used:            math.Round(totalUsed*100) / 100,
+		Available:       math.Round((totalAllocated-totalUsed)*100) / 100,
+		Weight:          cfg.Weight,
+		MaxCapital:      maxCap,
 		Status:          "active",
+	}
+	if totalAllocated > 0 {
+		capital.UtilizationRate = totalUsed / totalAllocated
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -486,73 +511,139 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 // 触发资金再平衡
 func rebalanceCapitalHandler(c *gin.Context) {
 	var req struct {
-		Mode      string `json:"mode"` // auto, manual, proportional
-		Force     bool   `json:"force"`
-		DryRun    bool   `json:"dryRun"`
+		Mode   string `json:"mode"` // equal, weighted, priority
+		Force  bool   `json:"force"`
+		DryRun bool   `json:"dryRun"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// 使用默认值
-		req.Mode = "auto"
+		req.Mode = "weighted" // 默认按权重
 	}
 
-	// 模拟再平衡结果
+	if capitalDataSource == nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "资金数据源未就绪"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	// 1. 获取总资产 (实时从交易所取)
+	exchanges := capitalDataSource.GetExchanges()
+	totalBalance := 0.0
+	for _, ex := range exchanges {
+		acc, err := ex.GetAccount(ctx)
+		if err == nil {
+			totalBalance += acc.TotalMarginBalance
+		}
+	}
+
+	if totalBalance <= 0 {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "无法获取账户余额或余额为0"})
+		return
+	}
+
+	// 2. 获取策略配置
+	stratConfigs := capitalDataSource.GetStrategyConfigs()
+	enabledStrategies := make([]string, 0)
+	for id, cfg := range stratConfigs {
+		if cfg.Enabled {
+			enabledStrategies = append(enabledStrategies, id)
+		}
+	}
+
+	if len(enabledStrategies) == 0 {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "没有已启用的策略"})
+		return
+	}
+
+	// 3. 计算新分配
+	changes := make([]RebalanceChange, 0)
+	newAllocations := make([]StrategyCapitalDetail, 0)
+	
+	count := float64(len(enabledStrategies))
+	totalWeight := 0.0
+	for _, id := range enabledStrategies {
+		totalWeight += stratConfigs[id].Weight
+	}
+
+	for _, id := range enabledStrategies {
+		cfg := stratConfigs[id]
+		
+		// 计算目标分配
+		var targetAllocation float64
+		switch req.Mode {
+		case "equal":
+			targetAllocation = totalBalance / count
+		case "weighted":
+			if totalWeight > 0 {
+				targetAllocation = (cfg.Weight / totalWeight) * totalBalance
+			} else {
+				targetAllocation = totalBalance / count
+			}
+		case "priority":
+			// 简化逻辑：高权重的先分（实际生产环境会更复杂）
+			targetAllocation = (cfg.Weight / totalWeight) * totalBalance
+		default:
+			targetAllocation = (cfg.Weight / totalWeight) * totalBalance
+		}
+
+		// 获取当前分配（从配置读取）
+		prevAllocation := 0.0
+		if val, ok := cfg.Config["max_capital"].(float64); ok {
+			prevAllocation = val
+		} else if val, ok := cfg.Config["max_capital"].(int); ok {
+			prevAllocation = float64(val)
+		}
+
+		diff := targetAllocation - prevAllocation
+		
+		changes = append(changes, RebalanceChange{
+			StrategyID:         id,
+			PreviousAllocation: math.Round(prevAllocation*100) / 100,
+			NewAllocation:      math.Round(targetAllocation*100) / 100,
+			Difference:         math.Round(diff*100) / 100,
+		})
+
+		newAllocations = append(newAllocations, StrategyCapitalDetail{
+			StrategyID:   id,
+			StrategyName: getStrategyName(id),
+			Allocated:    targetAllocation,
+			Status:       "active",
+		})
+	}
+
+	// 4. 如果不是 DryRun，则应用配置（实际写入 config.yaml）
+	if !req.DryRun {
+		globalCfg := capitalDataSource.GetConfig()
+		for _, change := range changes {
+			if sc, ok := globalCfg.Strategies.Configs[change.StrategyID]; ok {
+				if sc.Config == nil {
+					sc.Config = make(map[string]interface{})
+				}
+				sc.Config["max_capital"] = change.NewAllocation
+				globalCfg.Strategies.Configs[change.StrategyID] = sc
+			}
+		}
+		// 保存到文件
+		if err := config.SaveConfig(globalCfg, "config.yaml"); err != nil {
+			logger.Error("❌ 保存再平衡配置失败: %v", err)
+		} else {
+			logger.Info("✅ 资金再平衡配置已保存")
+		}
+	}
+
 	result := RebalanceResult{
-		Success:    true,
-		Message:    "资金再平衡完成",
-		TotalMoved: 2000,
-		MovementDetails: []CapitalMovement{
-			{
-				FromStrategy: "grid",
-				ToStrategy:   "dca",
-				Amount:       1000,
-				Reason:       "平衡分配比例",
-			},
-			{
-				FromStrategy: "reserve",
-				ToStrategy:   "grid",
-				Amount:       1000,
-				Reason:       "补充保证金",
-			},
-		},
-		NewAllocations: []StrategyCapitalDetail{
-			{
-				StrategyID:      "grid",
-				StrategyName:    "网格交易",
-				StrategyType:    "grid",
-				Allocated:       19000,
-				Used:            17000,
-				Available:       2000,
-				Weight:          0.38,
-				MaxCapital:      25000,
-				MaxPercentage:   50,
-				ReserveRatio:    0.1,
-				AutoRebalance:   true,
-				Priority:        1,
-				UtilizationRate: 0.89,
-				Status:          "active",
-			},
-			{
-				StrategyID:      "dca",
-				StrategyName:    "DCA 定投",
-				StrategyType:    "dca",
-				Allocated:       13000,
-				Used:            11000,
-				Available:       2000,
-				Weight:          0.26,
-				MaxCapital:      15000,
-				MaxPercentage:   30,
-				ReserveRatio:    0.1,
-				AutoRebalance:   true,
-				Priority:        2,
-				UtilizationRate: 0.85,
-				Status:          "active",
-			},
-		},
-		ExecutedAt: time.Now().Format(time.RFC3339),
+		Success:        true,
+		Message:        "再平衡计算完成",
+		Changes:        changes,
+		NewAllocations: newAllocations,
+		ExecutedAt:     time.Now().Format(time.RFC3339),
 	}
 
 	if req.DryRun {
-		result.Message = "模拟再平衡完成（未实际执行）"
+		result.Message = "模拟再平衡预览（未应用）"
+	} else {
+		result.Message = "再平衡已成功应用到配置"
 	}
 
 	c.JSON(http.StatusOK, result)

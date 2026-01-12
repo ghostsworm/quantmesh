@@ -222,8 +222,21 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 
 // PlaceOrder 下单
 func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	priceStr := fmt.Sprintf("%.*f", req.PriceDecimals, req.Price)
-	quantityStr := fmt.Sprintf("%.4f", req.Quantity)
+	// 优先使用请求中指定的精度，如果没有则使用从交易所获取的精度
+	pDec := req.PriceDecimals
+	if pDec <= 0 {
+		pDec = b.priceDecimals
+	}
+	qDec := b.quantityDecimals
+
+	priceStr := fmt.Sprintf("%.*f", pDec, req.Price)
+	quantityStr := fmt.Sprintf("%.*f", qDec, req.Quantity)
+
+	// 特殊处理：如果数量截断后为 0，则无法下单
+	q, _ := strconv.ParseFloat(quantityStr, 64)
+	if q <= 0 {
+		return nil, fmt.Errorf("下单数量 %.8f 在精度 %d 下截断后为 0，无法下单", req.Quantity, qDec)
+	}
 
 	// 根据 PostOnly 参数选择 TimeInForce
 	timeInForce := futures.TimeInForceTypeGTC
