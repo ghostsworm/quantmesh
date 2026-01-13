@@ -61,7 +61,7 @@ func NewLogStorage(path string) (*LogStorage, error) {
 
 	ls := &LogStorage{
 		db:          db,
-		logCh:       make(chan *logEntry, 1000), // 缓冲区1000条
+		logCh:       make(chan *logEntry, 500), // 缓冲区500条（优化：减少内存占用）
 		subscribers: make([]chan *LogRecord, 0),
 	}
 

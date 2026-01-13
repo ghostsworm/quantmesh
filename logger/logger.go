@@ -62,6 +62,9 @@ var builderPool = sync.Pool{
 	},
 }
 
+// maxLogMessageLength 最大日志消息长度（防止异常情况下的内存问题）
+const maxLogMessageLength = 10000 // 10KB
+
 // String 返回日志级别的字符串表示
 func (l LogLevel) String() string {
 	switch l {
@@ -411,6 +414,11 @@ func logf(level LogLevel, format string, args ...interface{}) {
 	builder.WriteString(formatted)
 	message := builder.String()
 	
+	// 限制消息长度，防止异常情况下的内存问题
+	if len(message) > maxLogMessageLength {
+		message = message[:maxLogMessageLength] + "... [truncated]"
+	}
+	
 	// 为了兼容性，也构建 prefix（用于标准输出）
 	prefix := fmt.Sprintf("[%s] ", level.String())
 
@@ -456,8 +464,35 @@ func logln(level LogLevel, args ...interface{}) {
 	if !shouldLog(level) {
 		return
 	}
+	
+	// 使用对象池复用 Builder，减少内存分配
+	builder := builderPool.Get().(*strings.Builder)
+	defer func() {
+		builder.Reset()
+		builderPool.Put(builder)
+	}()
+	
+	// 构建前缀
+	builder.WriteString("[")
+	builder.WriteString(level.String())
+	builder.WriteString("] ")
+	
+	// 构建消息
+	for i, arg := range args {
+		if i > 0 {
+			builder.WriteString(" ")
+		}
+		builder.WriteString(fmt.Sprint(arg))
+	}
+	message := builder.String()
+	
+	// 限制消息长度，防止异常情况下的内存问题
+	if len(message) > maxLogMessageLength {
+		message = message[:maxLogMessageLength] + "... [truncated]"
+	}
+	
+	// 为了兼容性，也构建 prefix（用于标准输出）
 	prefix := fmt.Sprintf("[%s] ", level.String())
-	message := fmt.Sprintln(append([]interface{}{prefix}, args...)...)
 
 	// 输出到控制台（标准输出）
 	log.Println(append([]interface{}{prefix}, args...)...)

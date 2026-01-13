@@ -90,9 +90,24 @@ func (mm *MemoryManager) forceGC() {
 	freedMB := float64(before.Alloc-after.Alloc) / 1024 / 1024
 	allocMB := float64(after.Alloc) / 1024 / 1024
 	sysMB := float64(after.Sys) / 1024 / 1024
+	
+	// 计算 GC 停顿时间
+	var totalPause time.Duration
+	pauseCount := 0
+	for i := 0; i < 256 && i < int(after.NumGC); i++ {
+		idx := (uint64(after.NumGC) + uint64(255-i)) % 256
+		if after.PauseNs[idx] > 0 {
+			totalPause += time.Duration(after.PauseNs[idx])
+			pauseCount++
+		}
+	}
+	avgPause := time.Duration(0)
+	if pauseCount > 0 {
+		avgPause = totalPause / time.Duration(pauseCount)
+	}
 
-	logger.Debug("🧹 [内存管理] GC完成: 释放=%.2f MB, 当前分配=%.2f MB, 系统内存=%.2f MB, Goroutines=%d",
-		freedMB, allocMB, sysMB, runtime.NumGoroutine())
+	logger.Debug("🧹 [内存管理] GC完成: 释放=%.2f MB, 当前分配=%.2f MB, 系统内存=%.2f MB, Goroutines=%d, GC次数=%d, 平均停顿=%v",
+		freedMB, allocMB, sysMB, runtime.NumGoroutine(), after.NumGC, avgPause)
 
 	mm.mu.Lock()
 	mm.lastGCStats = after

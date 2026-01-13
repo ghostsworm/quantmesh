@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -390,6 +392,20 @@ func (a *symbolManagerWebAdapter) ClosePositions(exchange, symbol string) (*web.
 		FailCount:    failCount,
 		Message:      message,
 	}, nil
+}
+
+func init() {
+	// 配置 GC 参数
+	// 从环境变量读取 GOGC，如果没有则使用默认值 100
+	if goGC := os.Getenv("GOGC"); goGC != "" {
+		if val, err := strconv.Atoi(goGC); err == nil && val > 0 {
+			debug.SetGCPercent(val)
+			log.Printf("[INFO] GOGC 设置为: %d", val)
+		}
+	} else {
+		// 默认设置为 100（标准值）
+		debug.SetGCPercent(100)
+	}
 }
 
 func main() {
