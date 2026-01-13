@@ -1,12 +1,18 @@
 package notify
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/smtp"
+	"net/url"
+	"strings"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/event"
-	"quantmesh/logger"
 )
 
 // EmailNotifier 邮件通知器
@@ -179,11 +185,41 @@ func NewResendProvider(cfg *config.Config) *ResendProvider {
 
 // Send 发送邮件（使用 Resend API）
 func (rp *ResendProvider) Send(from, to, subject, body string) error {
-	// 注意：这里需要安装 resend-go 库
-	// 为了简化，这里先返回一个错误提示
-	// 实际实现需要使用 github.com/resend/resend-go/v2
-	logger.Warn("⚠️ Resend 邮件服务需要安装 resend-go 库，当前使用占位实现")
-	return fmt.Errorf("Resend 邮件服务暂未实现，请安装 github.com/resend/resend-go/v2")
+	url := "https://api.resend.com/emails"
+	
+	payload := map[string]interface{}{
+		"from":    from,
+		"to":      []string{to},
+		"subject": subject,
+		"text":    body,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+rp.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("发送请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Resend API 返回错误: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // MailgunProvider Mailgun 邮件提供者
@@ -202,9 +238,43 @@ func NewMailgunProvider(cfg *config.Config) *MailgunProvider {
 
 // Send 发送邮件（使用 Mailgun API）
 func (mp *MailgunProvider) Send(from, to, subject, body string) error {
-	// 注意：这里需要安装 mailgun-go 库
-	// 为了简化，这里先返回一个错误提示
-	// 实际实现需要使用 github.com/mailgun/mailgun-go/v4
-	logger.Warn("⚠️ Mailgun 邮件服务需要安装 mailgun-go 库，当前使用占位实现")
-	return fmt.Errorf("Mailgun 邮件服务暂未实现，请安装 github.com/mailgun/mailgun-go/v4")
+	url := fmt.Sprintf("https://api.mailgun.net/v3/%s/messages", mp.domain)
+	
+	payload := map[string]string{
+		"from":    from,
+		"to":      to,
+		"subject": subject,
+		"text":    body,
+	}
+
+	req, err := http.NewRequest("POST", url, strings.NewReader(buildFormData(payload)))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+
+	req.SetBasicAuth("api", mp.apiKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("发送请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Mailgun API 返回错误: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// buildFormData 构建表单数据
+func buildFormData(data map[string]string) string {
+	values := make(url.Values)
+	for k, v := range data {
+		values.Set(k, v)
+	}
+	return values.Encode()
 }

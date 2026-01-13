@@ -268,6 +268,23 @@ export interface Config {
       to: string
       subject: string
     }
+    feishu: {
+      enabled: boolean
+      webhook: string
+    }
+    dingtalk: {
+      enabled: boolean
+      webhook: string
+      secret: string
+    }
+    wechat_work: {
+      enabled: boolean
+      webhook: string
+    }
+    slack: {
+      enabled: boolean
+      webhook: string
+    }
     rules: {
       order_placed: boolean
       order_filled: boolean

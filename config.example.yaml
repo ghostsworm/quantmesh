@@ -324,6 +324,27 @@ notifications:
     to: "admin@yourdomain.com"
     subject: "QuantMesh 交易通知"
   
+  # 飞书（Feishu/Lark）配置
+  feishu:
+    enabled: false            # 是否启用飞书通知
+    webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_WEBHOOK_URL"
+  
+  # 钉钉（DingTalk）配置
+  dingtalk:
+    enabled: false            # 是否启用钉钉通知
+    webhook: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_ACCESS_TOKEN"
+    secret: ""                # 钉钉机器人签名密钥（可选，如果配置了签名验证）
+  
+  # 企业微信（WeChat Work）配置
+  wechat_work:
+    enabled: false            # 是否启用企业微信通知
+    webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+  
+  # Slack 配置
+  slack:
+    enabled: false            # 是否启用 Slack 通知
+    webhook: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  
   # 通知规则：哪些事件需要通知
   rules:
     order_placed: false       # 订单下单（默认关闭，避免通知过多）

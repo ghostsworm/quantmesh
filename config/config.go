@@ -223,6 +223,31 @@ type Config struct {
 			Subject string `yaml:"subject"`
 		} `yaml:"email"`
 
+		// 飞书（Feishu/Lark）配置
+		Feishu struct {
+			Enabled bool   `yaml:"enabled"`
+			Webhook string `yaml:"webhook"` // 飞书机器人 Webhook URL
+		} `yaml:"feishu"`
+
+		// 钉钉（DingTalk）配置
+		DingTalk struct {
+			Enabled bool   `yaml:"enabled"`
+			Webhook string `yaml:"webhook"` // 钉钉机器人 Webhook URL
+			Secret  string `yaml:"secret"`  // 钉钉机器人签名密钥（可选）
+		} `yaml:"dingtalk"`
+
+		// 企业微信（WeChat Work）配置
+		WeChatWork struct {
+			Enabled bool   `yaml:"enabled"`
+			Webhook string `yaml:"webhook"` // 企业微信机器人 Webhook URL
+		} `yaml:"wechat_work"`
+
+		// Slack 配置
+		Slack struct {
+			Enabled bool   `yaml:"enabled"`
+			Webhook string `yaml:"webhook"` // Slack Incoming Webhook URL
+		} `yaml:"slack"`
+
 		// 通知规则：哪些事件需要通知
 		Rules struct {
 			OrderPlaced        bool `yaml:"order_placed"`

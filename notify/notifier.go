@@ -57,6 +57,46 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 				logger.Info("✅ 邮件通知已启用 (Provider: %s)", cfg.Notifications.Email.Provider)
 			}
 		}
+
+		if cfg.Notifications.Feishu.Enabled && cfg.Notifications.Feishu.Webhook != "" {
+			feishuNotifier, err := NewFeishuNotifier(cfg)
+			if err != nil {
+				logger.Warn("⚠️ 初始化飞书通知失败: %v", err)
+			} else {
+				ns.notifiers = append(ns.notifiers, feishuNotifier)
+				logger.Info("✅ 飞书通知已启用")
+			}
+		}
+
+		if cfg.Notifications.DingTalk.Enabled && cfg.Notifications.DingTalk.Webhook != "" {
+			dingTalkNotifier, err := NewDingTalkNotifier(cfg)
+			if err != nil {
+				logger.Warn("⚠️ 初始化钉钉通知失败: %v", err)
+			} else {
+				ns.notifiers = append(ns.notifiers, dingTalkNotifier)
+				logger.Info("✅ 钉钉通知已启用")
+			}
+		}
+
+		if cfg.Notifications.WeChatWork.Enabled && cfg.Notifications.WeChatWork.Webhook != "" {
+			weChatWorkNotifier, err := NewWeChatWorkNotifier(cfg)
+			if err != nil {
+				logger.Warn("⚠️ 初始化企业微信通知失败: %v", err)
+			} else {
+				ns.notifiers = append(ns.notifiers, weChatWorkNotifier)
+				logger.Info("✅ 企业微信通知已启用")
+			}
+		}
+
+		if cfg.Notifications.Slack.Enabled && cfg.Notifications.Slack.Webhook != "" {
+			slackNotifier, err := NewSlackNotifier(cfg)
+			if err != nil {
+				logger.Warn("⚠️ 初始化 Slack 通知失败: %v", err)
+			} else {
+				ns.notifiers = append(ns.notifiers, slackNotifier)
+				logger.Info("✅ Slack 通知已启用")
+			}
+		}
 	}
 
 	return ns

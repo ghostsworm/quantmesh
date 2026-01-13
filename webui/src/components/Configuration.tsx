@@ -546,6 +546,138 @@ const Configuration: React.FC = () => {
                           />
                         </FormControl>
                       </ConfigCard>
+                      <ConfigCard title={t('configuration.email')}>
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.emailProvider')}</FormLabel>
+                          <Select
+                            value={config.notifications?.email?.provider || 'smtp'}
+                            onChange={(e) => updateConfigField('notifications.email.provider', e.target.value)}
+                            borderRadius="xl"
+                          >
+                            <option value="smtp">SMTP</option>
+                            <option value="resend">Resend</option>
+                            <option value="mailgun">Mailgun</option>
+                          </Select>
+                        </FormControl>
+                        {config.notifications?.email?.provider === 'smtp' && (
+                          <>
+                            <FormControl mb={4}>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.smtpHost')}</FormLabel>
+                              <Input
+                                value={config.notifications?.email?.smtp?.host || ''}
+                                onChange={(e) => updateConfigField('notifications.email.smtp.host', e.target.value)}
+                                borderRadius="xl"
+                              />
+                            </FormControl>
+                            <FormControl mb={4}>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.smtpPort')}</FormLabel>
+                              <NumberInput value={config.notifications?.email?.smtp?.port || 587} onChange={(_, v) => updateConfigField('notifications.email.smtp.port', v)}>
+                                <NumberInputField borderRadius="xl" />
+                              </NumberInput>
+                            </FormControl>
+                            <FormControl mb={4}>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.smtpUsername')}</FormLabel>
+                              <Input
+                                value={config.notifications?.email?.smtp?.username || ''}
+                                onChange={(e) => updateConfigField('notifications.email.smtp.username', e.target.value)}
+                                borderRadius="xl"
+                              />
+                            </FormControl>
+                            <FormControl mb={4}>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.smtpPassword')}</FormLabel>
+                              {renderPasswordInput('notifications.email.smtp.password')}
+                            </FormControl>
+                          </>
+                        )}
+                        {config.notifications?.email?.provider === 'resend' && (
+                          <FormControl mb={4}>
+                            <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.resendApiKey')}</FormLabel>
+                            {renderPasswordInput('notifications.email.resend.api_key')}
+                          </FormControl>
+                        )}
+                        {config.notifications?.email?.provider === 'mailgun' && (
+                          <>
+                            <FormControl mb={4}>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.mailgunApiKey')}</FormLabel>
+                              {renderPasswordInput('notifications.email.mailgun.api_key')}
+                            </FormControl>
+                            <FormControl mb={4}>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.mailgunDomain')}</FormLabel>
+                              <Input
+                                value={config.notifications?.email?.mailgun?.domain || ''}
+                                onChange={(e) => updateConfigField('notifications.email.mailgun.domain', e.target.value)}
+                                borderRadius="xl"
+                              />
+                            </FormControl>
+                          </>
+                        )}
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.emailFrom')}</FormLabel>
+                          <Input
+                            value={config.notifications?.email?.from || ''}
+                            onChange={(e) => updateConfigField('notifications.email.from', e.target.value)}
+                            placeholder="alerts@yourdomain.com"
+                            borderRadius="xl"
+                          />
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.emailTo')}</FormLabel>
+                          <Input
+                            value={config.notifications?.email?.to || ''}
+                            onChange={(e) => updateConfigField('notifications.email.to', e.target.value)}
+                            placeholder="admin@yourdomain.com"
+                            borderRadius="xl"
+                          />
+                        </FormControl>
+                      </ConfigCard>
+                      <ConfigCard title={t('configuration.feishu')}>
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
+                          <Input
+                            value={config.notifications?.feishu?.webhook || ''}
+                            onChange={(e) => updateConfigField('notifications.feishu.webhook', e.target.value)}
+                            placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+                            borderRadius="xl"
+                          />
+                        </FormControl>
+                      </ConfigCard>
+                      <ConfigCard title={t('configuration.dingtalk')}>
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
+                          <Input
+                            value={config.notifications?.dingtalk?.webhook || ''}
+                            onChange={(e) => updateConfigField('notifications.dingtalk.webhook', e.target.value)}
+                            placeholder="https://oapi.dingtalk.com/robot/send?access_token=..."
+                            borderRadius="xl"
+                          />
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.dingtalkSecret')}</FormLabel>
+                          {renderPasswordInput('notifications.dingtalk.secret')}
+                        </FormControl>
+                      </ConfigCard>
+                      <ConfigCard title={t('configuration.wechatWork')}>
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
+                          <Input
+                            value={config.notifications?.wechat_work?.webhook || ''}
+                            onChange={(e) => updateConfigField('notifications.wechat_work.webhook', e.target.value)}
+                            placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+                            borderRadius="xl"
+                          />
+                        </FormControl>
+                      </ConfigCard>
+                      <ConfigCard title={t('configuration.slack')}>
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
+                          <Input
+                            value={config.notifications?.slack?.webhook || ''}
+                            onChange={(e) => updateConfigField('notifications.slack.webhook', e.target.value)}
+                            placeholder="https://hooks.slack.com/services/..."
+                            borderRadius="xl"
+                          />
+                        </FormControl>
+                      </ConfigCard>
                     </SimpleGrid>
                   </VStack>
                 )}
