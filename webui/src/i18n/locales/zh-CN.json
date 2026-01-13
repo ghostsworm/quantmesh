@@ -77,7 +77,11 @@
     "noSlotsInfo": "No slots information available",
     "setupIncomplete": "首次设置未完成",
     "setupIncompleteDescription": "您还没有完成首次设置向导，请完成交易所 API 配置和交易对设置以开始使用系统。",
-    "openSetupWizard": "打开首次设置向导"
+    "openSetupWizard": "打开首次设置向导",
+    "symbolNotRunning": "币种未运行",
+    "symbolNotRunningDescription": "该币种当前未运行。要启动交易，请先设置资金限额和策略配置，然后再启动交易。",
+    "goToSettings": "前往设置",
+    "priceNotAvailable": "价格不可用"
   },
   "login": {
     "title": "登录",
@@ -121,7 +125,30 @@
     "tradeCount": "成交次数",
     "loadFailed": "加载失败",
     "fetchStatusFailed": "获取 {{exchange}}:{{symbol}} 状态失败",
-    "fetchGlobalDataFailed": "获取全局数据失败"
+    "fetchGlobalDataFailed": "获取全局数据失败",
+    "overview": "概览",
+    "overviewDescription": "所有交易所和币种的盈亏情况",
+    "totalPnL": "总盈亏",
+    "totalTrades": "总交易数",
+    "exchangeOverview": "交易所概览",
+    "unknownError": "未知错误",
+    "tradingStopped": "交易已停止",
+    "tradingStarted": "交易已启动",
+    "operationFailed": "操作失败",
+    "closePositionsComplete": "平仓完成",
+    "closePositionsFailed": "平仓失败",
+    "confirmClosePositions": "确认平仓",
+    "confirmClosePositionsMessage": "确定要平掉 {{exchange}}:{{symbol}} 的所有持仓吗？此操作不可撤销。",
+    "closeAllPositions": "一键平仓",
+    "loading": "加载中...",
+    "price": "价格",
+    "pnl": "盈亏",
+    "tradeCountLabel": "交易数",
+    "volume": "交易量",
+    "winRateLabel": "胜率",
+    "pnlLabel": "盈亏:",
+    "tradeCountBadge": "交易数:",
+    "volumeBadge": "交易量:"
   },
   "configuration": {
     "title": "设置",
@@ -455,6 +482,13 @@
     "unsavedChanges": "您有未保存的更改",
     "saveChanges": "保存更改",
     "saveSuccess": "资金配置已保存",
+    "fetchDataFailed": "获取资金数据失败",
+    "checkBackendConnection": "请检查后端服务连接",
+    "saveFailed": "保存失败",
+    "globalOverview": "全局概览",
+    "allStrategiesAllocation": "全部策略分配",
+    "strategiesAllocation": "{{exchange}} 策略分配",
+    "unknownExchange": "未知交易所",
     "rebalance": "再平衡",
     "rebalanceTitle": "资金再平衡",
     "rebalanceDescription": "根据选择的模式重新分配各策略的资金",
@@ -561,5 +595,13 @@
     "offlineDesc": "您当前正处于离线状态，请检查您的互联网连接。",
     "backendDisconnectedTitle": "后端连接失败",
     "backendDisconnectedDesc": "无法连接到后端服务，请确保后端程序已启动（localhost:28888）。"
+  },
+  "pwa": {
+    "serviceWorkerRegistered": "Service Worker 注册成功",
+    "newVersionDetected": "检测到新版本，刷新页面以更新",
+    "updateNow": "检测到新版本，是否立即更新？",
+    "serviceWorkerFailed": "Service Worker 注册失败",
+    "canInstall": "PWA 可以安装",
+    "installed": "PWA 已安装"
   }
 }

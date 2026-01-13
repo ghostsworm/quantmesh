@@ -129,8 +129,8 @@ const GlobalDashboard: React.FC = () => {
     } catch (error) {
       console.error('Failed to fetch global data', error)
       toast({
-        title: '加载失败',
-        description: error instanceof Error ? error.message : '未知错误',
+        title: t('globalDashboard.loadFailed'),
+        description: error instanceof Error ? error.message : t('globalDashboard.unknownError'),
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -175,7 +175,7 @@ const GlobalDashboard: React.FC = () => {
       if (isRunning) {
         await stopTrading(exchange, symbol)
         toast({
-          title: '交易已停止',
+          title: t('globalDashboard.tradingStopped'),
           description: `${exchange}:${symbol}`,
           status: 'info',
           duration: 3000,
@@ -183,7 +183,7 @@ const GlobalDashboard: React.FC = () => {
       } else {
         await startTrading(exchange, symbol)
         toast({
-          title: '交易已启动',
+          title: t('globalDashboard.tradingStarted'),
           description: `${exchange}:${symbol}`,
           status: 'success',
           duration: 3000,
@@ -193,8 +193,8 @@ const GlobalDashboard: React.FC = () => {
       setTimeout(fetchData, 1000)
     } catch (error) {
       toast({
-        title: '操作失败',
-        description: error instanceof Error ? error.message : '未知错误',
+        title: t('globalDashboard.operationFailed'),
+        description: error instanceof Error ? error.message : t('globalDashboard.unknownError'),
         status: 'error',
         duration: 5000,
       })
@@ -207,15 +207,15 @@ const GlobalDashboard: React.FC = () => {
     try {
       const result = await closeAllPositions(exchange, symbol)
       toast({
-        title: '平仓完成',
+        title: t('globalDashboard.closePositionsComplete'),
         description: result.message,
         status: result.success_count > 0 ? 'success' : 'warning',
         duration: 5000,
       })
     } catch (error) {
       toast({
-        title: '平仓失败',
-        description: error instanceof Error ? error.message : '未知错误',
+        title: t('globalDashboard.closePositionsFailed'),
+        description: error instanceof Error ? error.message : t('globalDashboard.unknownError'),
         status: 'error',
         duration: 5000,
       })
@@ -295,7 +295,7 @@ const GlobalDashboard: React.FC = () => {
       <Center h="calc(100vh - 100px)">
         <VStack spacing={4}>
           <Spinner size="xl" thickness="4px" color="blue.500" speed="0.8s" />
-          <Text color="gray.500" fontSize="sm" fontWeight="600">加载中...</Text>
+          <Text color="gray.500" fontSize="sm" fontWeight="600">{t('globalDashboard.loading')}</Text>
         </VStack>
       </Center>
     )
@@ -329,12 +329,12 @@ const GlobalDashboard: React.FC = () => {
 
         <Flex justify="space-between" align="flex-end" px={2}>
           <Box>
-            <Heading size="lg" fontWeight="800" mb={1}>概览</Heading>
-            <Text color="gray.500" fontSize="sm">所有交易所和币种的盈亏情况</Text>
+            <Heading size="lg" fontWeight="800" mb={1}>{t('globalDashboard.overview')}</Heading>
+            <Text color="gray.500" fontSize="sm">{t('globalDashboard.overviewDescription')}</Text>
           </Box>
           <HStack spacing={2} display={{ base: 'none', md: 'flex' }}>
             <Badge colorScheme="green" variant="subtle" px={3} py={1} borderRadius="full">
-              系统运行正常
+              {t('globalDashboard.systemRunningNormal')}
             </Badge>
           </HStack>
         </Flex>
@@ -343,7 +343,7 @@ const GlobalDashboard: React.FC = () => {
         <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
           <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
             <Stat>
-              <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">总盈亏</StatLabel>
+              <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">{t('globalDashboard.totalPnL')}</StatLabel>
               <StatNumber fontSize="2xl" color={summary.totalPnL >= 0 ? 'green.500' : 'red.500'} fontWeight="800">
                 {summary.totalPnL >= 0 ? '+' : ''}{summary.totalPnL.toFixed(2)}
               </StatNumber>
@@ -351,19 +351,19 @@ const GlobalDashboard: React.FC = () => {
           </Box>
           <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
             <Stat>
-              <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">活跃币种</StatLabel>
+              <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">{t('globalDashboard.activeSymbols')}</StatLabel>
               <StatNumber fontSize="2xl" fontWeight="800">{summary.activeCount} / {summary.totalCount}</StatNumber>
             </Stat>
           </Box>
           <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
             <Stat>
-              <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">总交易数</StatLabel>
+              <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">{t('globalDashboard.totalTrades')}</StatLabel>
               <StatNumber fontSize="2xl" fontWeight="800">{summary.totalTrades}</StatNumber>
             </Stat>
           </Box>
           <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
             <Stat>
-              <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">总交易量</StatLabel>
+              <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">{t('globalDashboard.totalVolume')}</StatLabel>
               <StatNumber fontSize="2xl" fontWeight="800">{summary.totalVolume.toLocaleString()}</StatNumber>
             </Stat>
           </Box>
@@ -371,7 +371,7 @@ const GlobalDashboard: React.FC = () => {
 
         {/* 交易所列表 */}
         <Box>
-          <Heading size="md" mb={6} px={2}>交易所概览</Heading>
+          <Heading size="md" mb={6} px={2}>{t('globalDashboard.exchangeOverview')}</Heading>
           <Accordion allowMultiple defaultIndex={exchangeData.map((_, index) => index)}>
             {exchangeData.map((exchange) => {
               const exchangeKey = exchange.exchange.toLowerCase()
@@ -390,13 +390,13 @@ const GlobalDashboard: React.FC = () => {
                       <HStack spacing={4}>
                         <Heading size="md" fontWeight="700">{exchangeKey.toUpperCase()}</Heading>
                         <Badge colorScheme={exchange.total_pnl >= 0 ? 'green' : 'red'} variant="subtle">
-                          盈亏: {exchange.total_pnl >= 0 ? '+' : ''}{exchange.total_pnl.toFixed(2)}
+                          {t('globalDashboard.pnlLabel')} {exchange.total_pnl >= 0 ? '+' : ''}{exchange.total_pnl.toFixed(2)}
                         </Badge>
                         <Badge colorScheme="blue" variant="subtle">
-                          交易数: {exchange.total_trades}
+                          {t('globalDashboard.tradeCountBadge')} {exchange.total_trades}
                         </Badge>
                         <Badge colorScheme="purple" variant="subtle">
-                          交易量: {exchange.total_volume.toLocaleString()}
+                          {t('globalDashboard.volumeBadge')} {exchange.total_volume.toLocaleString()}
                         </Badge>
                       </HStack>
                       <AccordionIcon />
@@ -438,7 +438,7 @@ const GlobalDashboard: React.FC = () => {
                                     />
                                   </HStack>
                                   <Text color="gray.500" fontSize="xs">
-                                    价格: ${status?.current_price?.toFixed(2) || sym.current_price.toFixed(2)}
+                                    {t('globalDashboard.price')}: ${status?.current_price?.toFixed(2) || sym.current_price.toFixed(2)}
                                   </Text>
                                 </VStack>
                                 <Switch
@@ -452,7 +452,7 @@ const GlobalDashboard: React.FC = () => {
                               {pnlInfo && (
                                 <VStack align="stretch" spacing={2} mb={4}>
                                   <HStack justify="space-between">
-                                    <Text color="gray.400" fontSize="xs" fontWeight="bold">盈亏</Text>
+                                    <Text color="gray.400" fontSize="xs" fontWeight="bold">{t('globalDashboard.pnl')}</Text>
                                     <Text 
                                       color={pnlInfo.total_pnl >= 0 ? 'green.500' : 'red.500'} 
                                       fontWeight="800" 
@@ -462,15 +462,15 @@ const GlobalDashboard: React.FC = () => {
                                     </Text>
                                   </HStack>
                                   <HStack justify="space-between">
-                                    <Text color="gray.400" fontSize="xs" fontWeight="bold">交易数</Text>
+                                    <Text color="gray.400" fontSize="xs" fontWeight="bold">{t('globalDashboard.tradeCountLabel')}</Text>
                                     <Text fontWeight="700" fontSize="sm">{pnlInfo.total_trades}</Text>
                                   </HStack>
                                   <HStack justify="space-between">
-                                    <Text color="gray.400" fontSize="xs" fontWeight="bold">交易量</Text>
+                                    <Text color="gray.400" fontSize="xs" fontWeight="bold">{t('globalDashboard.volume')}</Text>
                                     <Text fontWeight="700" fontSize="sm">{pnlInfo.total_volume.toLocaleString()}</Text>
                                   </HStack>
                                   <HStack justify="space-between">
-                                    <Text color="gray.400" fontSize="xs" fontWeight="bold">胜率</Text>
+                                    <Text color="gray.400" fontSize="xs" fontWeight="bold">{t('globalDashboard.winRateLabel')}</Text>
                                     <Text fontWeight="700" fontSize="sm">{(pnlInfo.win_rate * 100).toFixed(1)}%</Text>
                                   </HStack>
                                 </VStack>
@@ -486,7 +486,7 @@ const GlobalDashboard: React.FC = () => {
                                   isLoading={closingPositions.has(key)}
                                   borderRadius="lg"
                                 >
-                                  一键平仓
+                                  {t('globalDashboard.closeAllPositions')}
                                 </Button>
                               )}
                             </Box>
@@ -508,10 +508,10 @@ const GlobalDashboard: React.FC = () => {
           isOpen={confirmDialog.isOpen}
           onClose={closeConfirmDialog}
           onConfirm={confirmClosePositions}
-          title="确认平仓"
-          message={`确定要平掉 ${confirmDialog.exchange.toUpperCase()}:${confirmDialog.symbol} 的所有持仓吗？此操作不可撤销。`}
-          confirmText="确认平仓"
-          cancelText="取消"
+          title={t('globalDashboard.confirmClosePositions')}
+          message={t('globalDashboard.confirmClosePositionsMessage', { exchange: confirmDialog.exchange.toUpperCase(), symbol: confirmDialog.symbol })}
+          confirmText={t('globalDashboard.confirmClosePositions')}
+          cancelText={t('common.cancel')}
           confirmColorScheme="red"
           isLoading={closingPositions.has(`${confirmDialog.exchange}:${confirmDialog.symbol}`)}
         />

@@ -77,8 +77,8 @@ const CapitalManagement: React.FC = () => {
     } catch (err) {
       console.error('Failed to fetch capital data:', err)
       toast({
-        title: '获取资金数据失败',
-        description: '请检查后端服务连接',
+        title: t('capitalManagement.fetchDataFailed'),
+        description: t('capitalManagement.checkBackendConnection'),
         status: 'error',
         duration: 5000,
       })
@@ -164,7 +164,7 @@ const CapitalManagement: React.FC = () => {
       }
     } catch (err) {
       toast({
-        title: '保存失败',
+        title: t('capitalManagement.saveFailed'),
         status: 'error',
         duration: 3000,
       })
@@ -287,7 +287,7 @@ const CapitalManagement: React.FC = () => {
           index={selectedExchangeIndex}
         >
           <TabList mb={4} overflowX="auto" pb={2}>
-            <Tab px={6}>{t('capitalManagement.allExchanges') || '全局概览'}</Tab>
+            <Tab px={6}>{t('capitalManagement.allExchanges')}</Tab>
             {exchanges.filter(ex => ex !== null && ex !== undefined).map((ex) => {
               const exchangeSummary = overview?.exchanges?.filter(e => e !== null && e !== undefined).find(e => e.exchangeId === ex.exchangeId)
               return (
@@ -315,7 +315,10 @@ const CapitalManagement: React.FC = () => {
             <VStack align="stretch" spacing={4}>
               <Flex justify="space-between" align="center">
                 <Heading size="md">
-                  {selectedExchangeIndex === 0 ? '全部策略分配' : `${exchanges[selectedExchangeIndex-1]?.exchangeName || '未知交易所'} 策略分配`}
+                  {selectedExchangeIndex === 0 
+                    ? t('capitalManagement.allStrategiesAllocation')
+                    : t('capitalManagement.strategiesAllocation', { exchange: exchanges[selectedExchangeIndex-1]?.exchangeName || t('capitalManagement.unknownExchange') })
+                  }
                 </Heading>
                 <FormControl display="flex" alignItems="center" w="auto">
                   <FormLabel mb={0} fontSize="sm">

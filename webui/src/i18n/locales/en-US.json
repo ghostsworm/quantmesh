@@ -77,7 +77,11 @@
     "noSlotsInfo": "No slots information available",
     "setupIncomplete": "First-time Setup Incomplete",
     "setupIncompleteDescription": "You haven't completed the first-time setup wizard. Please complete the exchange API configuration and trading pair settings to start using the system.",
-    "openSetupWizard": "Open First-time Setup Wizard"
+    "openSetupWizard": "Open First-time Setup Wizard",
+    "symbolNotRunning": "Symbol Not Running",
+    "symbolNotRunningDescription": "This symbol is currently not running. To start trading, please configure capital limits and strategy settings first, then start trading.",
+    "goToSettings": "Go to Settings",
+    "priceNotAvailable": "Price Not Available"
   },
   "login": {
     "title": "Login",
@@ -121,7 +125,30 @@
     "tradeCount": "Trade count",
     "loadFailed": "Load failed",
     "fetchStatusFailed": "Failed to fetch status for {{exchange}}:{{symbol}}",
-    "fetchGlobalDataFailed": "Failed to fetch global data"
+    "fetchGlobalDataFailed": "Failed to fetch global data",
+    "overview": "Overview",
+    "overviewDescription": "P&L status of all exchanges and symbols",
+    "totalPnL": "Total P&L",
+    "totalTrades": "Total Trades",
+    "exchangeOverview": "Exchange Overview",
+    "unknownError": "Unknown Error",
+    "tradingStopped": "Trading Stopped",
+    "tradingStarted": "Trading Started",
+    "operationFailed": "Operation Failed",
+    "closePositionsComplete": "Close Positions Complete",
+    "closePositionsFailed": "Close Positions Failed",
+    "confirmClosePositions": "Confirm Close Positions",
+    "confirmClosePositionsMessage": "Are you sure you want to close all positions for {{exchange}}:{{symbol}}? This action cannot be undone.",
+    "closeAllPositions": "Close All Positions",
+    "loading": "Loading...",
+    "price": "Price",
+    "pnl": "P&L",
+    "tradeCountLabel": "Trade Count",
+    "volume": "Volume",
+    "winRateLabel": "Win Rate",
+    "pnlLabel": "P&L:",
+    "tradeCountBadge": "Trades:",
+    "volumeBadge": "Volume:"
   },
   "configuration": {
     "title": "Settings",
@@ -468,6 +495,13 @@
     "unsavedChanges": "You have unsaved changes",
     "saveChanges": "Save Changes",
     "saveSuccess": "Capital allocation saved",
+    "fetchDataFailed": "Failed to fetch capital data",
+    "checkBackendConnection": "Please check backend service connection",
+    "saveFailed": "Save failed",
+    "globalOverview": "Global Overview",
+    "allStrategiesAllocation": "All Strategies Allocation",
+    "strategiesAllocation": "{{exchange}} Strategies Allocation",
+    "unknownExchange": "Unknown Exchange",
     "rebalance": "Rebalance",
     "rebalanceTitle": "Capital Rebalance",
     "rebalanceDescription": "Redistribute capital across strategies based on selected mode",
@@ -574,5 +608,13 @@
     "offlineDesc": "You are currently offline. Please check your internet connection.",
     "backendDisconnectedTitle": "Backend Connection Failed",
     "backendDisconnectedDesc": "Unable to connect to the backend service. Please ensure the backend program is running (localhost:28888)."
+  },
+  "pwa": {
+    "serviceWorkerRegistered": "Service Worker registered successfully",
+    "newVersionDetected": "New version detected, refresh page to update",
+    "updateNow": "New version detected, update now?",
+    "serviceWorkerFailed": "Service Worker registration failed",
+    "canInstall": "PWA can be installed",
+    "installed": "PWA installed"
   }
 }

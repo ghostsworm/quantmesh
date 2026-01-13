@@ -74,9 +74,9 @@ const ConnectionStatusBanner: React.FC = () => {
             <AlertIcon boxSize="20px" />
             <HStack w="full" spacing={4}>
               <Box>
-                <AlertTitle fontSize="sm">{t('connection.offlineTitle') || '网络已断开'}</AlertTitle>
+                <AlertTitle fontSize="sm">{t('connection.offlineTitle')}</AlertTitle>
                 <AlertDescription fontSize="xs">
-                  {t('connection.offlineDesc') || '您当前正处于离线状态，请检查您的互联网连接。'}
+                  {t('connection.offlineDesc')}
                 </AlertDescription>
               </Box>
               <Spacer />
@@ -88,7 +88,7 @@ const ConnectionStatusBanner: React.FC = () => {
                 variant="outline"
                 colorScheme="whiteAlpha"
               >
-                {t('common.retry') || '重试'}
+                {t('common.retry')}
               </Button>
             </HStack>
           </Alert>
@@ -97,9 +97,9 @@ const ConnectionStatusBanner: React.FC = () => {
             <AlertIcon boxSize="20px" />
             <HStack w="full" spacing={4}>
               <Box>
-                <AlertTitle fontSize="sm">{t('connection.backendDisconnectedTitle') || '后端连接断开'}</AlertTitle>
+                <AlertTitle fontSize="sm">{t('connection.backendDisconnectedTitle')}</AlertTitle>
                 <AlertDescription fontSize="xs">
-                  {t('connection.backendDisconnectedDesc') || '无法连接到后端服务，请确保后端程序已启动并正常运行。'}
+                  {t('connection.backendDisconnectedDesc')}
                 </AlertDescription>
               </Box>
               <Spacer />
@@ -111,7 +111,7 @@ const ConnectionStatusBanner: React.FC = () => {
                 variant="outline"
                 colorScheme="whiteAlpha"
               >
-                {t('common.retry') || '重试'}
+                {t('common.retry')}
               </Button>
             </HStack>
           </Alert>
