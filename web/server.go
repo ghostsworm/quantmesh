@@ -61,7 +61,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 	// Prometheus metrics 端点（不需要认证，供 Prometheus 抓取）
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// pprof 性能分析端点（可选，通过配置控制）
+	// pprof 性能分析端点（默认关闭，需要通过配置显式启用）
 	pprofEnabled := false
 	pprofRequireAuth := true
 	var pprofAllowedIPs []string
@@ -71,10 +71,6 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		pprofRequireAuth = cfg.Web.Pprof.RequireAuth
 		pprofAllowedIPs = cfg.Web.Pprof.AllowedIPs
 		logger.Info("✅ pprof 已启用 (需要认证: %v, IP白名单: %v)", pprofRequireAuth, len(pprofAllowedIPs) > 0)
-	} else if cfg == nil {
-		// 如果没有配置，默认启用但需要认证（向后兼容）
-		pprofEnabled = true
-		logger.Info("✅ pprof 已启用（默认配置，需要认证）")
 	}
 	
 	if pprofEnabled {

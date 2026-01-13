@@ -6,6 +6,8 @@ QuantMesh 已集成 Go 原生的 pprof 性能分析工具，可以通过配置�
 
 ## 配置说明
 
+**重要**: pprof **默认关闭**，必须显式配置 `enabled: true` 才会启用。
+
 在 `config.yaml` 中添加以下配置：
 
 ```yaml
@@ -14,9 +16,9 @@ web:
   host: "0.0.0.0"
   port: 28888
   
-  # pprof 性能分析配置
+  # pprof 性能分析配置（默认关闭，需要显式启用）
   pprof:
-    enabled: false            # 是否启用 pprof，默认 false（生产环境建议禁用）
+    enabled: false            # 是否启用 pprof，默认 false（必须设置为 true 才会启用）
     require_auth: true         # 是否需要认证，默认 true（启用时建议开启认证）
     allowed_ips:               # IP 白名单（可选，为空则允许所有 IP）
       - "127.0.0.1"
@@ -28,11 +30,11 @@ web:
 
 ### `enabled`
 - **类型**: `bool`
-- **默认值**: `false`
-- **说明**: 是否启用 pprof 端点
+- **默认值**: `false`（**默认关闭**）
+- **说明**: 是否启用 pprof 端点。**必须显式设置为 `true` 才会启用**
 - **建议**: 
-  - 开发/测试环境：`true`
-  - 生产环境：`false`（安全考虑）
+  - 开发/测试环境：设置为 `true`
+  - 生产环境：保持 `false`（默认关闭，安全考虑）
 
 ### `require_auth`
 - **类型**: `bool`
@@ -69,11 +71,14 @@ web:
 
 ```yaml
 web:
-  pprof:
-    enabled: false             # 生产环境禁用
+  # 不配置 pprof 或设置为 false（默认关闭）
+  # pprof:
+  #   enabled: false
 ```
 
 或者如果必须启用（用于调试）：
+<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
+run_terminal_cmd
 
 ```yaml
 web:
