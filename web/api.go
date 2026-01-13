@@ -278,6 +278,62 @@ func PickFundingProvider(c *gin.Context) FundingMonitorProvider {
 }
 
 func getStatus(c *gin.Context) {
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+	
+	// 如果指定了 exchange 和 symbol，尝试获取对应的状态
+	if exchange != "" && symbol != "" {
+		key := makeSymbolKey(exchange, symbol)
+		statusMu.RLock()
+		st, ok := statusBySymbol[key]
+		statusMu.RUnlock()
+		
+		if ok && st != nil {
+			// 找到了运行中的状态
+			c.JSON(http.StatusOK, st)
+			return
+		}
+		
+		// 没有找到运行中的状态，检查配置中是否有这个币种
+		if configManager != nil {
+			cfg, err := configManager.GetConfig()
+			if err == nil && cfg != nil {
+				// 检查配置中是否有这个币种
+				for _, symCfg := range cfg.Trading.Symbols {
+					if strings.EqualFold(symCfg.Exchange, exchange) && 
+					   strings.EqualFold(symCfg.Symbol, symbol) {
+						// 配置中存在但未运行，返回正确的状态信息
+						c.JSON(http.StatusOK, &SystemStatus{
+							Running:      false,
+							Exchange:     exchange,
+							Symbol:       symbol,
+							CurrentPrice: 0,
+							TotalPnL:     0,
+							TotalTrades:  0,
+							RiskTriggered: false,
+							Uptime:       0,
+						})
+						return
+					}
+				}
+			}
+		}
+		
+		// 配置中也没有找到，返回未运行状态（但包含请求的 exchange 和 symbol）
+		c.JSON(http.StatusOK, &SystemStatus{
+			Running:      false,
+			Exchange:     exchange,
+			Symbol:       symbol,
+			CurrentPrice: 0,
+			TotalPnL:     0,
+			TotalTrades:  0,
+			RiskTriggered: false,
+			Uptime:       0,
+		})
+		return
+	}
+	
+	// 没有指定 exchange 和 symbol，使用原来的逻辑
 	status := pickStatus(c)
 	if status == nil {
 		c.JSON(http.StatusOK, &SystemStatus{

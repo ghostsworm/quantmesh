@@ -24,11 +24,12 @@ const (
 
 // OKXClient OKX REST API 客户端
 type OKXClient struct {
-	apiKey     string
-	secretKey  string
-	passphrase string
-	baseURL    string
-	httpClient *http.Client
+	apiKey      string
+	secretKey   string
+	passphrase  string
+	baseURL     string
+	useTestnet  bool // 是否使用模拟盘
+	httpClient  *http.Client
 }
 
 // NewOKXClient 创建 OKX 客户端
@@ -43,6 +44,7 @@ func NewOKXClient(apiKey, secretKey, passphrase string, useTestnet bool) *OKXCli
 		secretKey:  secretKey,
 		passphrase: passphrase,
 		baseURL:    baseURL,
+		useTestnet: useTestnet,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -147,7 +149,7 @@ func (c *OKXClient) GetInstruments(ctx context.Context, instType, instId string)
 		path += "&instId=" + instId
 	}
 
-	data, err := c.request(ctx, "GET", path, nil, false)
+	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +172,7 @@ type PlaceOrderResult struct {
 
 // PlaceOrder 下单
 func (c *OKXClient) PlaceOrder(ctx context.Context, order map[string]interface{}) ([]PlaceOrderResult, error) {
-	data, err := c.request(ctx, "POST", "/api/v5/trade/order", order, false)
+	data, err := c.request(ctx, "POST", "/api/v5/trade/order", order, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +198,7 @@ func (c *OKXClient) CancelOrder(ctx context.Context, instId, ordId, clOrdId stri
 		body["clOrdId"] = clOrdId
 	}
 
-	_, err := c.request(ctx, "POST", "/api/v5/trade/cancel-order", body, false)
+	_, err := c.request(ctx, "POST", "/api/v5/trade/cancel-order", body, c.useTestnet)
 	return err
 }
 
@@ -210,7 +212,7 @@ func (c *OKXClient) BatchCancelOrders(ctx context.Context, instId string, orderI
 		}
 	}
 
-	_, err := c.request(ctx, "POST", "/api/v5/trade/cancel-batch-orders", orders, false)
+	_, err := c.request(ctx, "POST", "/api/v5/trade/cancel-batch-orders", orders, c.useTestnet)
 	return err
 }
 
@@ -239,7 +241,7 @@ func (c *OKXClient) GetOrder(ctx context.Context, instId, ordId, clOrdId string)
 		path += "&clOrdId=" + clOrdId
 	}
 
-	data, err := c.request(ctx, "GET", path, nil, false)
+	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +265,7 @@ func (c *OKXClient) GetOpenOrders(ctx context.Context, instId string) ([]OKXOrde
 		path += "&instId=" + instId
 	}
 
-	data, err := c.request(ctx, "GET", path, nil, false)
+	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +326,7 @@ func (c *OKXClient) GetPositions(ctx context.Context, instId string) ([]OKXPosit
 		path += "&instId=" + instId
 	}
 
-	data, err := c.request(ctx, "GET", path, nil, false)
+	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +357,7 @@ func (c *OKXClient) GetKlines(ctx context.Context, instId, bar string, limit int
 		path += fmt.Sprintf("&limit=%d", limit)
 	}
 
-	data, err := c.request(ctx, "GET", path, nil, false)
+	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +400,7 @@ type FundingRate struct {
 func (c *OKXClient) GetFundingRate(ctx context.Context, instId string) (*FundingRate, error) {
 	path := fmt.Sprintf("/api/v5/public/funding-rate?instId=%s", instId)
 
-	data, err := c.request(ctx, "GET", path, nil, false)
+	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}
@@ -425,7 +427,7 @@ type Ticker struct {
 func (c *OKXClient) GetTicker(ctx context.Context, instId string) (*Ticker, error) {
 	path := fmt.Sprintf("/api/v5/market/ticker?instId=%s", instId)
 
-	data, err := c.request(ctx, "GET", path, nil, false)
+	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}

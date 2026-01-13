@@ -299,12 +299,20 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 		return fmt.Errorf("交易对 %s:%s 已经在运行", exchange, symbol)
 	}
 
+	// 从配置管理器获取最新配置（而不是使用启动时的配置）
+	cfg, err := web.GetLatestConfig()
+	if err != nil {
+		// 如果获取最新配置失败，回退到使用启动时的配置
+		logger.Warn("⚠️ 获取最新配置失败，使用启动时的配置: %v", err)
+		cfg = a.cfg
+	}
+
 	// 从配置中查找对应的 SymbolConfig
 	var symCfg *config.SymbolConfig
-	for i := range a.cfg.Trading.Symbols {
-		if strings.EqualFold(a.cfg.Trading.Symbols[i].Exchange, exchange) &&
-			strings.EqualFold(a.cfg.Trading.Symbols[i].Symbol, symbol) {
-			symCfg = &a.cfg.Trading.Symbols[i]
+	for i := range cfg.Trading.Symbols {
+		if strings.EqualFold(cfg.Trading.Symbols[i].Exchange, exchange) &&
+			strings.EqualFold(cfg.Trading.Symbols[i].Symbol, symbol) {
+			symCfg = &cfg.Trading.Symbols[i]
 			break
 		}
 	}
@@ -313,8 +321,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 		return fmt.Errorf("未找到交易对配置: %s:%s", exchange, symbol)
 	}
 
-	// 启动 SymbolRuntime
-	rt, err := startSymbolRuntime(a.ctx, a.cfg, *symCfg, a.eventBus, a.storageService, a.distributedLock)
+	// 启动 SymbolRuntime（使用最新配置）
+	rt, err := startSymbolRuntime(a.ctx, cfg, *symCfg, a.eventBus, a.storageService, a.distributedLock)
 	if err != nil {
 		return fmt.Errorf("启动失败: %w", err)
 	}

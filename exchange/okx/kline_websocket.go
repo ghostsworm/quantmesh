@@ -40,8 +40,12 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, instIds []string, int
 
 	k.callback = callback
 
-	// 连接公共 WebSocket
-	conn, _, err := websocket.DefaultDialer.Dial(PublicWsURL, nil)
+	// 连接公共 WebSocket（根据是否使用测试网选择不同的地址）
+	publicWsURL := MainnetPublicWsURL
+	if k.useTestnet {
+		publicWsURL = TestnetPublicWsURL
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(publicWsURL, nil)
 	if err != nil {
 		return fmt.Errorf("连接 K线 WebSocket 失败: %w", err)
 	}

@@ -124,7 +124,10 @@ const Dashboard: React.FC = () => {
         setStrategyAllocation(allocationData)
         setPendingOrders(ordersData)
         setPositionsSummary(positionsData)
-        setIsTrading(statusData?.running || false)
+        // 只有当状态匹配当前选择的币种时才更新 isTrading
+        const isMatched = statusData?.exchange?.toLowerCase() === selectedExchange?.toLowerCase() &&
+          statusData?.symbol?.toUpperCase() === selectedSymbol?.toUpperCase()
+        setIsTrading(isMatched && (statusData?.running || false))
         setLoading(false)
       } catch (error) {
         console.error('Failed to fetch data:', error)
@@ -166,6 +169,15 @@ const Dashboard: React.FC = () => {
     )
   }
 
+  // 检查当前币种是否在运行
+  const isCurrentSymbolRunning = status.running && 
+    status.exchange?.toLowerCase() === selectedExchange?.toLowerCase() &&
+    status.symbol?.toUpperCase() === selectedSymbol?.toUpperCase()
+  
+  // 检查当前币种是否匹配（即使未运行）
+  const isCurrentSymbolMatched = status.exchange?.toLowerCase() === selectedExchange?.toLowerCase() &&
+    status.symbol?.toUpperCase() === selectedSymbol?.toUpperCase()
+
   return (
     <Container maxW="container.xl" py={4}>
       <VStack spacing={8} align="stretch">
@@ -192,6 +204,26 @@ const Dashboard: React.FC = () => {
           </Alert>
         )}
 
+        {/* 币种未运行提示 */}
+        {!needsSetup && isCurrentSymbolMatched && !status.running && (
+          <Alert status="info" borderRadius="xl" variant="left-accent">
+            <AlertIcon />
+            <Box flex="1">
+              <AlertTitle>{t('dashboard.symbolNotRunning')}</AlertTitle>
+              <AlertDescription>
+                {t('dashboard.symbolNotRunningDescription')}
+              </AlertDescription>
+            </Box>
+            <Button
+              colorScheme="blue"
+              size="sm"
+              onClick={() => navigate('/strategy-slots')}
+            >
+              {t('dashboard.goToSettings')}
+            </Button>
+          </Alert>
+        )}
+
         {/* Header Area */}
         <Flex justify="space-between" align="center" direction={{ base: 'column', md: 'row' }} gap={4}>
           <HStack spacing={4} align="center">
@@ -203,7 +235,11 @@ const Dashboard: React.FC = () => {
                 <Heading size="lg" fontWeight="800">{selectedSymbol}</Heading>
                 <Badge colorScheme="blue" variant="subtle" borderRadius="full" px={3}>{selectedExchange?.toUpperCase()}</Badge>
               </HStack>
-              <Text color="gray.500" fontSize="sm">{t('dashboard.currentPrice')}: <Text as="span" fontWeight="bold" color="blue.500">${status.current_price.toFixed(2)}</Text></Text>
+              {isCurrentSymbolRunning && status.current_price > 0 ? (
+                <Text color="gray.500" fontSize="sm">{t('dashboard.currentPrice')}: <Text as="span" fontWeight="bold" color="blue.500">${status.current_price.toFixed(2)}</Text></Text>
+              ) : (
+                <Text color="gray.400" fontSize="sm">{t('dashboard.priceNotAvailable')}</Text>
+              )}
             </VStack>
           </HStack>
 
@@ -212,24 +248,24 @@ const Dashboard: React.FC = () => {
               <VStack align="start" spacing={0}>
                 <Text fontSize="10px" fontWeight="bold" color="gray.400" textTransform="uppercase">{t('dashboard.status')}</Text>
                 <HStack spacing={2}>
-                  <Box w={2} h={2} borderRadius="full" bg={isTrading ? 'green.500' : 'red.500'} boxShadow={isTrading ? '0 0 8px #48BB78' : 'none'} />
-                  <Text fontWeight="bold" fontSize="sm">{isTrading ? t('dashboard.running') : t('dashboard.stopped')}</Text>
+                  <Box w={2} h={2} borderRadius="full" bg={isCurrentSymbolRunning ? 'green.500' : 'red.500'} boxShadow={isCurrentSymbolRunning ? '0 0 8px #48BB78' : 'none'} />
+                  <Text fontWeight="bold" fontSize="sm">{isCurrentSymbolRunning ? t('dashboard.running') : t('dashboard.stopped')}</Text>
                 </HStack>
               </VStack>
               <Divider orientation="vertical" h="30px" />
               <Button
                 size="md"
-                colorScheme={isTrading ? 'red' : 'green'}
+                colorScheme={isCurrentSymbolRunning ? 'red' : 'green'}
                 onClick={handleToggleTrading}
                 borderRadius="2xl"
                 px={8}
                 fontSize="sm"
                 fontWeight="800"
-                boxShadow={isTrading ? '0 4px 12px rgba(245, 101, 101, 0.3)' : '0 4px 12px rgba(72, 187, 120, 0.3)'}
+                boxShadow={isCurrentSymbolRunning ? '0 4px 12px rgba(245, 101, 101, 0.3)' : '0 4px 12px rgba(72, 187, 120, 0.3)'}
                 _hover={{ transform: 'translateY(-2px)' }}
                 _active={{ transform: 'scale(0.95)' }}
               >
-                {isTrading ? t('dashboard.stop') : t('dashboard.start')}
+                {isCurrentSymbolRunning ? t('dashboard.stop') : t('dashboard.start')}
               </Button>
             </HStack>
           </GlassCard>

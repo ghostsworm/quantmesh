@@ -19,10 +19,10 @@ import (
 
 const (
 	// WebSocket 地址
-	MainnetWsURL = "wss://ws.okx.com:8443/ws/v5/private"
-	TestnetWsURL = "wss://wspap.okx.com:8443/ws/v5/private?brokerId=9999"
-
-	PublicWsURL = "wss://ws.okx.com:8443/ws/v5/public"
+	MainnetWsURL      = "wss://ws.okx.com:8443/ws/v5/private"
+	TestnetWsURL      = "wss://wspap.okx.com:8443/ws/v5/private"
+	MainnetPublicWsURL = "wss://ws.okx.com:8443/ws/v5/public"
+	TestnetPublicWsURL = "wss://wspap.okx.com:8443/ws/v5/public"
 )
 
 // WebSocketManager WebSocket 管理器
@@ -144,8 +144,12 @@ func (w *WebSocketManager) subscribeOrders(instId string) error {
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, instId string, callback func(float64)) error {
 	w.priceCallback = callback
 
-	// 价格流使用公共 WebSocket
-	conn, _, err := websocket.DefaultDialer.Dial(PublicWsURL, nil)
+	// 价格流使用公共 WebSocket（根据是否使用测试网选择不同的地址）
+	publicWsURL := MainnetPublicWsURL
+	if w.useTestnet {
+		publicWsURL = TestnetPublicWsURL
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(publicWsURL, nil)
 	if err != nil {
 		return fmt.Errorf("连接价格流 WebSocket 失败: %w", err)
 	}

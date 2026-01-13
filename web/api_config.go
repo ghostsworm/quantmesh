@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -43,6 +44,14 @@ func SetConfigBackupManager(bm *config.BackupManager) {
 // SetConfigHotReloader 设置热更新器
 func SetConfigHotReloader(hr *config.HotReloader) {
 	configHotReloader = hr
+}
+
+// GetLatestConfig 获取最新配置（用于外部包获取最新配置）
+func GetLatestConfig() (*config.Config, error) {
+	if configManager == nil {
+		return nil, fmt.Errorf("配置管理器未初始化")
+	}
+	return configManager.GetConfig()
 }
 
 // GetConfig 获取当前配置

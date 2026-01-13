@@ -475,7 +475,7 @@ func getBinanceSymbols(ctx context.Context, apiKey, secretKey string, testnet bo
 func getBitgetSymbols(ctx context.Context, apiKey, secretKey, passphrase string, testnet bool) ([]string, error) {
 	baseURL := "https://api.bitget.com"
 	if testnet {
-		baseURL = "https://testapi.bitget.com"
+		baseURL = "https://testnetapi.bitget.com"
 	}
 
 	path := "/api/v2/mix/market/contracts?productType=usdt-futures"
