@@ -251,6 +251,13 @@ type Config struct {
 		Host    string `yaml:"host"`    // 监听地址（默认 0.0.0.0）
 		Port    int    `yaml:"port"`    // 监听端口（默认 8080）
 		APIKey  string `yaml:"api_key"` // API 密钥（可选，用于认证）
+		
+		// pprof 性能分析配置
+		Pprof struct {
+			Enabled     bool     `yaml:"enabled"`      // 是否启用 pprof，默认 false（生产环境建议禁用）
+			RequireAuth bool     `yaml:"require_auth"` // 是否需要认证，默认 true
+			AllowedIPs  []string `yaml:"allowed_ips"` // IP 白名单（可选，为空则允许所有 IP）
+		} `yaml:"pprof"`
 	} `yaml:"web"`
 
 	// 插件配置
@@ -1149,6 +1156,14 @@ func (c *Config) Validate() error {
 	if c.Web.Port <= 0 {
 		c.Web.Port = 28888 // 默认端口（使用10000以上端口，避免常见端口冲突）
 	}
+	
+	// 设置 pprof 配置默认值
+	if len(c.Web.Pprof.AllowedIPs) == 0 {
+		// 默认允许本地访问
+		c.Web.Pprof.AllowedIPs = []string{"127.0.0.1", "::1"}
+	}
+	// pprof.Enabled 默认为 false（生产环境安全）
+	// pprof.RequireAuth 默认为 true（需要认证）
 
 	// 设置实例配置默认值
 	if c.Instance.ID == "" {

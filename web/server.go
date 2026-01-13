@@ -7,10 +7,45 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"quantmesh/config"
+	"quantmesh/logger"
 )
+
+var globalConfig *config.Config
+
+// ipWhitelistMiddleware IP 白名单中间件
+func ipWhitelistMiddleware(allowedIPs []string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clientIP := c.ClientIP()
+		
+		// 检查是否在白名单中
+		allowed := false
+		for _, ip := range allowedIPs {
+			if ip == clientIP || ip == "*" {
+				allowed = true
+				break
+			}
+		}
+		
+		if !allowed {
+			logger.Warn("⚠️ [pprof] IP %s 不在白名单中，拒绝访问", clientIP)
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			c.Abort()
+			return
+		}
+		
+		c.Next()
+	}
+}
 
 // SetupRoutes 设置路由
 func SetupRoutes(r *gin.Engine) {
+	SetupRoutesWithConfig(r, nil)
+}
+
+// SetupRoutesWithConfig 设置路由（带配置）
+func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
+	globalConfig = cfg
 	// 首先处理根路径，返回 index.html（必须在其他路由之前）
 	r.GET("/", func(c *gin.Context) {
 		index, err := staticFiles.ReadFile("dist/index.html")
@@ -26,21 +61,51 @@ func SetupRoutes(r *gin.Engine) {
 	// Prometheus metrics 端点（不需要认证，供 Prometheus 抓取）
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// pprof 性能分析端点（调试用，生产环境建议添加认证或通过防火墙限制访问）
-	pprofGroup := r.Group("/debug/pprof")
-	{
-		pprofGroup.GET("/", gin.WrapF(pprof.Index))
-		pprofGroup.GET("/cmdline", gin.WrapF(pprof.Cmdline))
-		pprofGroup.GET("/profile", gin.WrapF(pprof.Profile))
-		pprofGroup.POST("/symbol", gin.WrapF(pprof.Symbol))
-		pprofGroup.GET("/symbol", gin.WrapF(pprof.Symbol))
-		pprofGroup.GET("/trace", gin.WrapF(pprof.Trace))
-		pprofGroup.GET("/allocs", gin.WrapH(pprof.Handler("allocs")))
-		pprofGroup.GET("/block", gin.WrapH(pprof.Handler("block")))
-		pprofGroup.GET("/goroutine", gin.WrapH(pprof.Handler("goroutine")))
-		pprofGroup.GET("/heap", gin.WrapH(pprof.Handler("heap")))
-		pprofGroup.GET("/mutex", gin.WrapH(pprof.Handler("mutex")))
-		pprofGroup.GET("/threadcreate", gin.WrapH(pprof.Handler("threadcreate")))
+	// pprof 性能分析端点（可选，通过配置控制）
+	pprofEnabled := false
+	pprofRequireAuth := true
+	var pprofAllowedIPs []string
+	
+	if cfg != nil && cfg.Web.Pprof.Enabled {
+		pprofEnabled = true
+		pprofRequireAuth = cfg.Web.Pprof.RequireAuth
+		pprofAllowedIPs = cfg.Web.Pprof.AllowedIPs
+		logger.Info("✅ pprof 已启用 (需要认证: %v, IP白名单: %v)", pprofRequireAuth, len(pprofAllowedIPs) > 0)
+	} else if cfg == nil {
+		// 如果没有配置，默认启用但需要认证（向后兼容）
+		pprofEnabled = true
+		logger.Info("✅ pprof 已启用（默认配置，需要认证）")
+	}
+	
+	if pprofEnabled {
+		pprofGroup := r.Group("/debug/pprof")
+		
+		// IP 白名单中间件
+		if len(pprofAllowedIPs) > 0 {
+			pprofGroup.Use(ipWhitelistMiddleware(pprofAllowedIPs))
+		}
+		
+		// 认证中间件（如果需要）
+		if pprofRequireAuth {
+			pprofGroup.Use(authMiddleware())
+		}
+		
+		{
+			pprofGroup.GET("/", gin.WrapF(pprof.Index))
+			pprofGroup.GET("/cmdline", gin.WrapF(pprof.Cmdline))
+			pprofGroup.GET("/profile", gin.WrapF(pprof.Profile))
+			pprofGroup.POST("/symbol", gin.WrapF(pprof.Symbol))
+			pprofGroup.GET("/symbol", gin.WrapF(pprof.Symbol))
+			pprofGroup.GET("/trace", gin.WrapF(pprof.Trace))
+			pprofGroup.GET("/allocs", gin.WrapH(pprof.Handler("allocs")))
+			pprofGroup.GET("/block", gin.WrapH(pprof.Handler("block")))
+			pprofGroup.GET("/goroutine", gin.WrapH(pprof.Handler("goroutine")))
+			pprofGroup.GET("/heap", gin.WrapH(pprof.Handler("heap")))
+			pprofGroup.GET("/mutex", gin.WrapH(pprof.Handler("mutex")))
+			pprofGroup.GET("/threadcreate", gin.WrapH(pprof.Handler("threadcreate")))
+		}
+	} else {
+		logger.Info("ℹ️ pprof 已禁用（生产环境建议禁用）")
 	}
 
 	// API 路由

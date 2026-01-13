@@ -48,8 +48,8 @@ func NewWebServer(cfg *config.Config) *WebServer {
 	// 添加 i18n 中间件
 	r.Use(I18nMiddleware())
 
-	// 设置路由
-	SetupRoutes(r)
+	// 设置路由（传入配置以便 pprof 可以读取配置）
+	SetupRoutesWithConfig(r, cfg)
 
 	// 配置服务器
 	// 注意：AI 生成配置等长时间操作需要较长的超时时间
