@@ -123,7 +123,10 @@ func (mrs *MeanReversionStrategy) addPrice(price float64) {
 	// 保持历史记录
 	maxHistory := mrs.period * 2
 	if len(mrs.priceHistory) > maxHistory {
-		mrs.priceHistory = mrs.priceHistory[len(mrs.priceHistory)-maxHistory:]
+		// 使用 copy 而不是切片截取，避免内存泄漏
+		newHistory := make([]float64, maxHistory)
+		copy(newHistory, mrs.priceHistory[len(mrs.priceHistory)-maxHistory:])
+		mrs.priceHistory = newHistory
 	}
 }
 

@@ -96,8 +96,10 @@ func (da *DynamicAdjuster) addPrice(price float64) {
 	}
 
 	if len(da.priceHistory) > maxHistory*2 {
-		// 保留最近的数据
-		da.priceHistory = da.priceHistory[len(da.priceHistory)-maxHistory:]
+		// 保留最近的数据，使用 copy 而不是切片截取，避免内存泄漏
+		newHistory := make([]float64, maxHistory)
+		copy(newHistory, da.priceHistory[len(da.priceHistory)-maxHistory:])
+		da.priceHistory = newHistory
 	}
 }
 

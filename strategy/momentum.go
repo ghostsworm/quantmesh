@@ -131,7 +131,10 @@ func (ms *MomentumStrategy) addPrice(price float64) {
 	// 保持历史记录
 	maxHistory := ms.rsiPeriod * 2
 	if len(ms.priceHistory) > maxHistory {
-		ms.priceHistory = ms.priceHistory[len(ms.priceHistory)-maxHistory:]
+		// 使用 copy 而不是切片截取，避免内存泄漏
+		newHistory := make([]float64, maxHistory)
+		copy(newHistory, ms.priceHistory[len(ms.priceHistory)-maxHistory:])
+		ms.priceHistory = newHistory
 	}
 }
 

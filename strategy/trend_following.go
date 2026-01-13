@@ -150,7 +150,10 @@ func (tfs *TrendFollowingStrategy) addPrice(price float64) {
 	// 保持历史记录在合理范围内
 	maxHistory := tfs.longPeriod * 2
 	if len(tfs.priceHistory) > maxHistory {
-		tfs.priceHistory = tfs.priceHistory[len(tfs.priceHistory)-maxHistory:]
+		// 使用 copy 而不是切片截取，避免内存泄漏
+		newHistory := make([]float64, maxHistory)
+		copy(newHistory, tfs.priceHistory[len(tfs.priceHistory)-maxHistory:])
+		tfs.priceHistory = newHistory
 	}
 }
 

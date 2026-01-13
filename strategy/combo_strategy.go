@@ -440,7 +440,10 @@ func (s *ComboStrategy) OnPriceChange(price float64) error {
 	// 更新价格历史
 	s.priceHistory = append(s.priceHistory, price)
 	if len(s.priceHistory) > 200 {
-		s.priceHistory = s.priceHistory[len(s.priceHistory)-200:]
+		// 使用 copy 而不是切片截取，避免内存泄漏
+		newHistory := make([]float64, 200)
+		copy(newHistory, s.priceHistory[len(s.priceHistory)-200:])
+		s.priceHistory = newHistory
 	}
 	s.lastPrice = price
 
@@ -490,7 +493,10 @@ func (s *ComboStrategy) updateCandle(price float64) {
 			Volume: 1,
 		})
 		if len(s.candles) > 200 {
-			s.candles = s.candles[len(s.candles)-200:]
+			// 使用 copy 而不是切片截取，避免内存泄漏
+			newCandles := make([]indicators.Candle, 200)
+			copy(newCandles, s.candles[len(s.candles)-200:])
+			s.candles = newCandles
 		}
 	} else {
 		last.Close = price

@@ -55,6 +55,13 @@ var (
 	translateMu   sync.RWMutex
 )
 
+// builderPool 字符串构建器对象池，用于复用 strings.Builder，减少内存分配
+var builderPool = sync.Pool{
+	New: func() interface{} {
+		return &strings.Builder{}
+	},
+}
+
 // String 返回日志级别的字符串表示
 func (l LogLevel) String() string {
 	switch l {
@@ -386,8 +393,26 @@ func logf(level LogLevel, format string, args ...interface{}) {
 	if !shouldLog(level) {
 		return
 	}
+	
+	// 使用对象池复用 Builder，减少内存分配
+	builder := builderPool.Get().(*strings.Builder)
+	defer func() {
+		builder.Reset()
+		builderPool.Put(builder)
+	}()
+	
+	// 构建前缀
+	builder.WriteString("[")
+	builder.WriteString(level.String())
+	builder.WriteString("] ")
+	
+	// 格式化消息
+	formatted := fmt.Sprintf(format, args...)
+	builder.WriteString(formatted)
+	message := builder.String()
+	
+	// 为了兼容性，也构建 prefix（用于标准输出）
 	prefix := fmt.Sprintf("[%s] ", level.String())
-	message := fmt.Sprintf(prefix+format, args...)
 
 	// 输出到控制台（标准输出）
 	log.Printf(prefix+format, args...)

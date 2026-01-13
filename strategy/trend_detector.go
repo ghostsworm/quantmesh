@@ -95,8 +95,10 @@ func (td *TrendDetector) addPrice(price float64) {
 	}
 
 	if len(td.priceHistory) > maxHistory*2 {
-		// 保留最近的数据
-		td.priceHistory = td.priceHistory[len(td.priceHistory)-maxHistory:]
+		// 保留最近的数据，使用 copy 而不是切片截取，避免内存泄漏
+		newHistory := make([]float64, maxHistory)
+		copy(newHistory, td.priceHistory[len(td.priceHistory)-maxHistory:])
+		td.priceHistory = newHistory
 	}
 }
 
