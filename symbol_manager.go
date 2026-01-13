@@ -374,6 +374,10 @@ func startSymbolRuntime(
 		}
 
 		strategyManager = strategy.NewStrategyManager(&localCfg, totalCapital)
+		// 设置事件总线
+		if eventBus != nil {
+			strategyManager.SetEventBus(eventBus)
+		}
 		multiExecutor = strategy.NewMultiStrategyExecutor(exchangeExecutor, strategyManager.GetCapitalAllocator())
 
 		if gridCfg, exists := localCfg.Strategies.Configs["grid"]; exists && gridCfg.Enabled {

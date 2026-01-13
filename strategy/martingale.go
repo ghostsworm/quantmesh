@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/event"
 	"quantmesh/indicators"
 	"quantmesh/logger"
 	"quantmesh/position"
@@ -49,6 +50,12 @@ type MartingaleStrategy struct {
 
 	// 统计
 	stats *StrategyStatistics
+
+	// 事件总线
+	eventBus EventBus
+
+	// 暂停标志
+	isPaused bool
 }
 
 // MartingaleConfig 马丁格尔配置
@@ -247,6 +254,13 @@ func (s *MartingaleStrategy) Initialize(cfg *config.Config, executor position.Or
 	return nil
 }
 
+// SetEventBus 设置事件总线
+func (s *MartingaleStrategy) SetEventBus(bus EventBus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.eventBus = bus
+}
+
 // Start 启动策略
 func (s *MartingaleStrategy) Start(ctx context.Context) error {
 	s.mu.Lock()
@@ -283,7 +297,7 @@ func (s *MartingaleStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.isRunning {
+	if !s.isRunning || s.isPaused {
 		return nil
 	}
 
@@ -370,6 +384,36 @@ func (s *MartingaleStrategy) openInitialPosition(price float64) error {
 
 	quantity := s.strategyCfg.InitialAmount / price
 
+	// 精度检查
+	qDec := s.exchange.GetQuantityDecimals()
+	quantityRounded := math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+
+	if quantityRounded <= 0 {
+		minQty := math.Pow10(-qDec)
+		logger.Error("🚨 [%s] 初始订单数量过小 (%.8f)，低于交易所最小精度 (%.8f)，策略已自动暂停！请在配置中调大 InitialAmount", s.name, quantity, minQty)
+		s.isPaused = true
+		
+		// 发布事件
+		if s.eventBus != nil {
+			s.eventBus.Publish(&event.Event{
+				Type:      event.EventTypePrecisionAdjustment,
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"symbol":           s.strategyCfg.Symbol,
+					"strategy":         s.name,
+					"order_amount":     s.strategyCfg.InitialAmount,
+					"calculated_qty":   quantity,
+					"min_qty":          minQty,
+					"price":            price,
+					"action":           "pause",
+					"reason":           "初始订单数量低于交易所最小精度",
+				},
+			})
+		}
+		return nil
+	}
+	quantity = quantityRounded
+
 	entry := &MartingaleEntry{
 		Level:     0,
 		Price:     price,
@@ -430,6 +474,37 @@ func (s *MartingaleStrategy) checkMartingale(price float64) error {
 	multiplier := s.getMultiplier(s.currentLevel)
 	amount := lastEntry.Cost * multiplier
 	quantity := amount / price
+
+	// 精度检查
+	qDec := s.exchange.GetQuantityDecimals()
+	quantityRounded := math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+
+	if quantityRounded <= 0 {
+		minQty := math.Pow10(-qDec)
+		logger.Error("🚨 [%s] 马丁加仓 #%d 数量过小 (%.8f)，低于交易所最小精度 (%.8f)，策略已自动暂停！", s.name, s.currentLevel, quantity, minQty)
+		s.isPaused = true
+		
+		// 发布事件
+		if s.eventBus != nil {
+			s.eventBus.Publish(&event.Event{
+				Type:      event.EventTypePrecisionAdjustment,
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"symbol":           s.strategyCfg.Symbol,
+					"strategy":         s.name,
+					"level":            s.currentLevel,
+					"order_amount":     amount,
+					"calculated_qty":   quantity,
+					"min_qty":          minQty,
+					"price":            price,
+					"action":           "pause",
+					"reason":           "马丁加仓数量低于交易所最小精度",
+				},
+			})
+		}
+		return nil
+	}
+	quantity = quantityRounded
 
 	side := "BUY"
 	if s.direction == "SHORT" {

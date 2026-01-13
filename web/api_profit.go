@@ -273,7 +273,7 @@ func getStrategyProfitsHandler(c *gin.Context) {
 			WithdrawnProfit:     0,
 			AvailableToWithdraw: math.Round(p.TotalPnL*100) / 100,
 			TradeCount:          p.TotalTrades,
-			WinRate:             math.Round(p.WinRate*10000) / 100, // 转换为百分比
+			WinRate:             math.Round(p.WinRate*100) / 100, // 保持小数形式（0-1），前端会转换为百分比
 			AvgProfitPerTrade:   0,                                 // 可计算
 		})
 	}
@@ -339,7 +339,7 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		RealizedProfit:      math.Round(summary.TotalPnL*100) / 100,
 		WithdrawnProfit:     0,
 		AvailableToWithdraw: math.Round(summary.TotalPnL*100) / 100,
-		WinRate:             math.Round(summary.WinRate*10000) / 100,
+		WinRate:             math.Round(summary.WinRate*100) / 100, // 保持小数形式（0-1），前端会转换为百分比
 		TradeCount:          summary.TotalTrades,
 		AvgProfitPerTrade:   0,
 		LastTradeAt:         now.Format(time.RFC3339),

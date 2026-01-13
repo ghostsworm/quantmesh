@@ -225,12 +225,9 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 
 // PlaceOrder 下单
 func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 验证价格和数量
+	// 验证价格
 	if req.Price <= 0 {
 		return nil, fmt.Errorf("无效的下单价格: %.8f（价格必须大于0）", req.Price)
-	}
-	if req.Quantity <= 0 {
-		return nil, fmt.Errorf("无效的下单数量: %.8f（数量必须大于0）", req.Quantity)
 	}
 
 	// 优先使用请求中指定的精度，如果没有则使用从交易所获取的精度
@@ -239,6 +236,13 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		pDec = b.priceDecimals
 	}
 	qDec := b.quantityDecimals
+
+	// 特殊处理：如果下单数量原始值为 0，尝试用最小单位兜底
+	if req.Quantity <= 0 {
+		minQty := math.Pow10(-qDec)
+		req.Quantity = minQty
+		logger.Warn("⚠️ [Binance] [%s] 下单数量原始值为 0，已自动调整为最小成交单位: %.8f", req.Symbol, minQty)
+	}
 
 	priceStr := fmt.Sprintf("%.*f", pDec, req.Price)
 	quantityStr := fmt.Sprintf("%.*f", qDec, req.Quantity)
@@ -284,6 +288,12 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 			req.Symbol, strategyInfo,
 			originalQty, baseAsset, orderAmount,
 			qDec, quantityStr, baseAsset, minOrderAmount)
+	}
+
+	// 最终验证数量
+	finalQty, _ := strconv.ParseFloat(quantityStr, 64)
+	if finalQty <= 0 {
+		return nil, fmt.Errorf("无效的下单数量: %s（数量必须大于0）", quantityStr)
 	}
 
 	// 根据 PostOnly 参数选择 TimeInForce
@@ -540,6 +550,13 @@ func (b *BinanceAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 
 // GetAccount 获取账户信息（合约账户）
 func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
+	// 记录当前使用的网络模式
+	if b.useTestnet {
+		logger.Debug("🌐 [Binance] 正在从测试网获取账户信息")
+	} else {
+		logger.Debug("🌐 [Binance] 正在从主网获取账户信息")
+	}
+	
 	// 🔥 修复：使用合约账户专用的 API
 	account, err := b.client.NewGetAccountService().Do(ctx)
 	if err != nil {

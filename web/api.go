@@ -551,6 +551,17 @@ func getPositions(c *gin.Context) {
 	for _, slot := range slots {
 		// 🔥 添加价格验证：确保槽位价格有效（大于0且合理）
 		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
+			// 🔥 价格合理性检查：如果当前价格可用，检查槽位价格是否在合理范围内
+			if currentPrice > 0 {
+				priceRatio := slot.Price / currentPrice
+				// 如果槽位价格是当前价格的100倍以上或0.01倍以下，可能是单位错误
+				if priceRatio > 100 || priceRatio < 0.01 {
+					logger.Warn("⚠️ [getPositions] [%s:%s] 检测到异常槽位价格: slotPrice=%.2f, currentPrice=%.2f, 比例=%.2f, 数量=%.4f, resolvedKey=%s",
+						exchange, symbol, slot.Price, currentPrice, priceRatio, slot.PositionQty, resolvedKey)
+					// 继续处理，但记录警告
+				}
+			}
+			
 			positionCount++
 			totalQuantity += slot.PositionQty
 
@@ -1423,6 +1434,10 @@ func getSystemMetrics(c *gin.Context) {
 		days := int(endTime.Sub(startTime).Hours() / 24)
 		if days <= 0 {
 			days = 30 // 默认30天
+		}
+		// 限制查询天数，防止返回过多数据
+		if days > 365 {
+			days = 365 // 最多查询1年
 		}
 		dailyMetrics, err := systemMetricsProvider.GetDailyMetrics(days)
 		if err != nil {

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"quantmesh/config"
+	"quantmesh/event"
 	"quantmesh/logger"
 	"quantmesh/position"
 )
@@ -20,6 +21,12 @@ type Strategy interface {
 	GetStatistics() *StrategyStatistics
 	Start(ctx context.Context) error
 	Stop() error
+	SetEventBus(bus EventBus) // 新增：设置事件总线
+}
+
+// EventBus 事件总线接口
+type EventBus interface {
+	Publish(evt *event.Event)
 }
 
 // Position 持仓信息
@@ -58,6 +65,7 @@ type StrategyManager struct {
 	mu               sync.RWMutex
 	ctx              context.Context
 	cancel           context.CancelFunc
+	eventBus         EventBus // 新增
 }
 
 // NewStrategyManager 创建策略管理器
@@ -80,12 +88,29 @@ func NewStrategyManager(cfg *config.Config, totalCapital float64) *StrategyManag
 	return sm
 }
 
+// SetEventBus 设置事件总线
+func (sm *StrategyManager) SetEventBus(eb EventBus) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.eventBus = eb
+
+	// 同步给所有已注册的策略
+	for _, s := range sm.strategies {
+		s.SetEventBus(eb)
+	}
+}
+
 // RegisterStrategy 注册策略
 func (sm *StrategyManager) RegisterStrategy(name string, strategy Strategy, weight float64, fixedPool float64) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	sm.strategies[name] = strategy
+
+	// 如果已有事件总线，立即设置
+	if sm.eventBus != nil {
+		strategy.SetEventBus(sm.eventBus)
+	}
 
 	// 注册到资金分配器
 	sm.allocator.RegisterStrategy(name, weight, fixedPool)

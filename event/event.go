@@ -44,6 +44,9 @@ const (
 	EventTypePriceVolatility EventType = "price_volatility" // 价格大幅波动
 	EventTypePriceAnomaly    EventType = "price_anomaly"    // 价格异常
 	
+	// 下单校验事件
+	EventTypePrecisionAdjustment EventType = "precision_adjustment" // 精度调整告警
+	
 	// 系统资源事件
 	EventTypeSystemCPUHigh    EventType = "system_cpu_high"    // CPU 使用率过高
 	EventTypeSystemMemoryHigh EventType = "system_memory_high" // 内存使用率过高
@@ -90,6 +93,7 @@ func GetEventSeverity(eventType EventType) EventSeverity {
 		EventTypePriceAnomaly,
 		EventTypeRiskRecovered,
 		EventTypeAPIBadRequest,
+		EventTypePrecisionAdjustment,
 		EventTypeError:
 		return SeverityWarning
 		
@@ -148,7 +152,7 @@ func GetEventSource(eventType EventType) EventSource {
 	case EventTypeAPIRateLimited, EventTypeAPIServerError, EventTypeAPIAuthFailed, EventTypeAPIBadRequest:
 		return SourceAPI
 		
-	case EventTypePriceVolatility, EventTypePriceAnomaly:
+	case EventTypePriceVolatility, EventTypePriceAnomaly, EventTypePrecisionAdjustment:
 		return SourceStrategy
 		
 	case EventTypeSystemCPUHigh, EventTypeSystemMemoryHigh, EventTypeSystemDiskFull,
@@ -196,6 +200,7 @@ func GetEventTitle(eventType EventType) string {
 		// 价格波动
 		EventTypePriceVolatility: "价格大幅波动",
 		EventTypePriceAnomaly:    "价格异常",
+		EventTypePrecisionAdjustment: "下单精度异常",
 		
 		// 系统资源
 		EventTypeSystemCPUHigh:    "CPU 使用率过高",

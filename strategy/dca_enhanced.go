@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/event"
 	"quantmesh/indicators"
 	"quantmesh/logger"
 	"quantmesh/position"
@@ -58,6 +59,9 @@ type DCAEnhancedStrategy struct {
 
 	// 统计
 	stats *StrategyStatistics
+
+	// 事件总线
+	eventBus EventBus
 }
 
 // DCAEnhancedConfig 增强型 DCA 配置
@@ -267,6 +271,13 @@ func (s *DCAEnhancedStrategy) Initialize(cfg *config.Config, executor position.O
 	return nil
 }
 
+// SetEventBus 设置事件总线
+func (s *DCAEnhancedStrategy) SetEventBus(bus EventBus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.eventBus = bus
+}
+
 // Start 启动策略
 func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
 	s.mu.Lock()
@@ -309,7 +320,7 @@ func (s *DCAEnhancedStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.isRunning {
+	if !s.isRunning || s.isPaused {
 		return nil
 	}
 
@@ -454,7 +465,27 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 	quantity = math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
 
 	if quantity <= 0 {
-		logger.Warn("⚠️ [%s] 基础订单数量过小 (%.8f)，跳过", s.name, quantity)
+		minQty := math.Pow10(-qDec)
+		logger.Error("🚨 [%s] 基础订单数量过小 (%.8f)，低于交易所最小精度 (%.8f)，策略已自动暂停！请在配置中调大 BaseOrderAmount", s.name, quantity, minQty)
+		s.isPaused = true
+		
+		// 发布事件
+		if s.eventBus != nil {
+			s.eventBus.Publish(&event.Event{
+				Type:      event.EventTypePrecisionAdjustment,
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"symbol":           s.strategyCfg.Symbol,
+					"strategy":         s.name,
+					"order_amount":     s.strategyCfg.BaseOrderAmount,
+					"calculated_qty":   quantity,
+					"min_qty":          minQty,
+					"price":            orderPrice,
+					"action":           "pause",
+					"reason":           "基础订单数量低于交易所最小精度",
+				},
+			})
+		}
 		return nil
 	}
 
@@ -519,7 +550,28 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 	quantity = math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
 
 	if quantity <= 0 {
-		logger.Warn("⚠️ [%s] 安全订单 #%d 数量过小 (%.8f)，跳过", s.name, s.currentLayer, quantity)
+		minQty := math.Pow10(-qDec)
+		logger.Error("🚨 [%s] 安全订单 #%d 数量过小 (%.8f)，低于交易所最小精度 (%.8f)，策略已自动暂停！", s.name, s.currentLayer, quantity, minQty)
+		s.isPaused = true
+		
+		// 发布事件
+		if s.eventBus != nil {
+			s.eventBus.Publish(&event.Event{
+				Type:      event.EventTypePrecisionAdjustment,
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"symbol":           s.strategyCfg.Symbol,
+					"strategy":         s.name,
+					"layer":            s.currentLayer,
+					"order_amount":     orderAmount,
+					"calculated_qty":   quantity,
+					"min_qty":          minQty,
+					"price":            orderPrice,
+					"action":           "pause",
+					"reason":           "安全订单数量低于交易所最小精度",
+				},
+			})
+		}
 		return nil
 	}
 

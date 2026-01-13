@@ -233,6 +233,15 @@ func (ss *StorageService) processEvents() {
 		case event := <-ss.eventCh:
 			// 添加到缓冲区
 			ss.mu.Lock()
+			// 检查缓冲区大小，防止无限增长
+			maxBufferSize := ss.cfg.Storage.BatchSize * 10 // 最多保留10倍批量大小
+			if len(ss.buffer) >= maxBufferSize {
+				// 缓冲区过大，强制刷新
+				ss.mu.Unlock()
+				logger.Warn("⚠️ 存储缓冲区过大 (%d)，强制刷新", len(ss.buffer))
+				ss.flush()
+				ss.mu.Lock()
+			}
 			ss.buffer = append(ss.buffer, event)
 			bufferSize := len(ss.buffer)
 			ss.mu.Unlock()

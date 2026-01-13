@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -309,8 +310,22 @@ func (b *BitgetAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest
 	}
 
 	// 🔥 使用合约信息中的精度格式化数量和价格
+	// 特殊处理：如果数量过小，自动调整为最小下单量
+	if req.Quantity <= 0 && b.volumePlace >= 0 {
+		req.Quantity = math.Pow10(-b.volumePlace)
+		logger.Warn("⚠️ [Bitget] 下单数量原始值为 0，已自动调整为最小单位: %.8f", req.Quantity)
+	}
+
 	quantityStr := fmt.Sprintf("%.*f", b.volumePlace, req.Quantity)
 	priceStr := fmt.Sprintf("%.*f", b.pricePlace, req.Price)
+
+	// 如果截断后数量为 0，也需要兜底
+	q, _ := strconv.ParseFloat(quantityStr, 64)
+	if q <= 0 && b.volumePlace >= 0 {
+		minQty := math.Pow10(-b.volumePlace)
+		quantityStr = fmt.Sprintf("%.*f", b.volumePlace, minQty)
+		logger.Warn("⚠️ [Bitget] 数量截断后为 0，使用最小精度兜底: %s", quantityStr)
+	}
 
 	// 根据 PostOnly 参数选择 force 类型
 	forceType := "gtc" // 默认使用 GTC (Good Till Cancel)

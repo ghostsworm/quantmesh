@@ -41,9 +41,13 @@ type ComboStrategy struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	isRunning bool
+	isPaused  bool // 暂停标志
 
 	// 统计
 	stats *StrategyStatistics
+
+	// 事件总线
+	eventBus EventBus
 }
 
 // MarketState 市场状态
@@ -359,6 +363,18 @@ func (s *ComboStrategy) Initialize(cfg *config.Config, executor position.OrderEx
 	return nil
 }
 
+// SetEventBus 设置事件总线
+func (s *ComboStrategy) SetEventBus(bus EventBus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.eventBus = bus
+
+	// 同步给所有子策略
+	for _, strategy := range s.strategies {
+		strategy.SetEventBus(bus)
+	}
+}
+
 // Start 启动策略
 func (s *ComboStrategy) Start(ctx context.Context) error {
 	s.mu.Lock()
@@ -416,6 +432,11 @@ func (s *ComboStrategy) Stop() error {
 func (s *ComboStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()
 	
+	if s.isPaused {
+		s.mu.Unlock()
+		return nil
+	}
+
 	// 更新价格历史
 	s.priceHistory = append(s.priceHistory, price)
 	if len(s.priceHistory) > 200 {

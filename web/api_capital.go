@@ -58,6 +58,7 @@ type ExchangeCapitalSummary struct {
 	Used         float64 `json:"used"`
 	PnL          float64 `json:"pnl"`
 	Status       string  `json:"status"` // online, offline, error
+	IsTestnet    bool    `json:"isTestnet"` // 是否使用测试网
 }
 
 // ExchangeCapitalDetail 交易所资金详情（包含资产层级）
@@ -65,6 +66,7 @@ type ExchangeCapitalDetail struct {
 	ExchangeID   string            `json:"exchangeId"`
 	ExchangeName string            `json:"exchangeName"`
 	Assets       []AssetAllocation `json:"assets"`
+	IsTestnet    bool              `json:"isTestnet"` // 是否使用测试网
 }
 
 // AssetAllocation 资产分配（如 USDT 下的策略分配）
@@ -179,14 +181,30 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		if err != nil {
 			logger.Error("❌ [资金概览] 获取交易所 %s 账户信息失败: %v", name, err)
 			// 🔥 改进：报错也要加进列表，显示为 error 状态
+			// 从配置中获取测试网状态
+			isTestnet := false
+			if cfg := capitalDataSource.GetConfig(); cfg != nil {
+				if exCfg, ok := cfg.Exchanges[name]; ok {
+					isTestnet = exCfg.Testnet
+				}
+			}
 			overview.Exchanges = append(overview.Exchanges, ExchangeCapitalSummary{
 				ExchangeID:   name,
 				ExchangeName: name,
 				TotalBalance: 0,
 				Available:    0,
 				Status:       "error",
+				IsTestnet:    isTestnet,
 			})
 			continue
+		}
+
+		// 从配置中获取测试网状态
+		isTestnet := false
+		if cfg := capitalDataSource.GetConfig(); cfg != nil {
+			if exCfg, ok := cfg.Exchanges[name]; ok {
+				isTestnet = exCfg.Testnet
+			}
 		}
 
 		summary := ExchangeCapitalSummary{
@@ -197,6 +215,7 @@ func getCapitalOverviewHandler(c *gin.Context) {
 			Used:         math.Round((acc.TotalMarginBalance-acc.AvailableBalance)*100) / 100,
 			PnL:          math.Round((acc.TotalMarginBalance-acc.TotalWalletBalance)*100) / 100,
 			Status:       "online",
+			IsTestnet:    isTestnet,
 		}
 		overview.Exchanges = append(overview.Exchanges, summary)
 		overview.TotalBalance += acc.TotalMarginBalance
@@ -262,6 +281,15 @@ func getCapitalAllocationHandler(c *gin.Context) {
 		}
 
 		acc, err := ex.GetAccount(ctx)
+		
+		// 从配置中获取测试网状态
+		isTestnet := false
+		if cfg := capitalDataSource.GetConfig(); cfg != nil {
+			if exCfg, ok := cfg.Exchanges[name]; ok {
+				isTestnet = exCfg.Testnet
+			}
+		}
+		
 		if err != nil {
 			logger.Error("❌ [资金分配] 获取交易所 %s 账户信息失败: %v", name, err)
 			// 🔥 改进：获取失败也要显示，只是余额为 0
@@ -275,6 +303,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 						AvailableBalance: 0,
 					},
 				},
+				IsTestnet: isTestnet,
 			}
 			exchangeMap[name] = exDetail
 			details = append(details, *exDetail)
@@ -291,6 +320,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 					AvailableBalance: math.Round(acc.AvailableBalance*100) / 100,
 				},
 			},
+			IsTestnet: isTestnet,
 		}
 		exchangeMap[name] = exDetail
 		details = append(details, *exDetail)

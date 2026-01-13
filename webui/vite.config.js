@@ -62,6 +62,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // 添加版本号，确保 Service Worker 更新
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -92,8 +95,13 @@ export default defineConfig({
             }
           },
           {
-            // 所有 API 请求直接走网络，不缓存
+            // 所有 API 请求直接走网络，不缓存（确保数据实时性）
             urlPattern: /\/api\/.*/i,
+            handler: 'NetworkOnly'
+          },
+          {
+            // WebSocket 连接不走 Service Worker
+            urlPattern: /\/ws\/.*/i,
             handler: 'NetworkOnly'
           }
         ]

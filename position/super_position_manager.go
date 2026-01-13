@@ -207,6 +207,9 @@ type SuperPositionManager struct {
 	// 初始化标志
 	isInitialized atomic.Bool
 
+	// 暂停标志
+	isPaused atomic.Bool
+
 	mu sync.RWMutex // 全局锁（用于关键操作）
 }
 
@@ -246,6 +249,23 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 	spm.lastReconcileTime.Store(time.Now())
 	spm.lastMarketPrice.Store(0.0)
 	return spm
+}
+
+// Pause 暂停交易
+func (spm *SuperPositionManager) Pause() {
+	spm.isPaused.Store(true)
+	logger.Warn("⏸️ [%s] 仓位管理器已暂停交易", spm.config.Trading.Symbol)
+}
+
+// Resume 恢复交易
+func (spm *SuperPositionManager) Resume() {
+	spm.isPaused.Store(false)
+	logger.Info("▶️ [%s] 仓位管理器已恢复交易", spm.config.Trading.Symbol)
+}
+
+// IsPaused 是否已暂停
+func (spm *SuperPositionManager) IsPaused() bool {
+	return spm.isPaused.Load()
 }
 
 // SetEventBus 设置事件总线
@@ -385,6 +405,12 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	spm.mu.Lock()
 	defer spm.mu.Unlock()
+
+	// 检查是否暂停
+	if spm.IsPaused() {
+		logger.Debug("⏸️ [%s] 交易已暂停，跳过订单调整", spm.config.Trading.Symbol)
+		return nil
+	}
 
 	// 验证价格有效性
 	if currentPrice <= 0 {
@@ -590,6 +616,36 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			// 使用从交易所获取的数量精度
 			quantity = roundPrice(quantity, spm.quantityDecimals)
 
+			// 如果数量过小被取整为 0，发布告警并暂停
+			if quantity <= 0 && spm.quantityDecimals >= 0 {
+				minQty := math.Pow10(-spm.quantityDecimals)
+				logger.Error("🚨 [%s] 下单数量过小 (%.8f)，低于交易所最小精度 (%.8f)，交易已自动暂停！请在配置中调大 order_quantity", 
+					spm.config.Trading.Symbol, spm.config.Trading.OrderQuantity/price, minQty)
+				
+				// 发布事件
+				if spm.eventBus != nil {
+					spm.eventBus.Publish(&event.Event{
+						Type:      event.EventTypePrecisionAdjustment,
+						Timestamp: time.Now(),
+						Data: map[string]interface{}{
+							"symbol":           spm.config.Trading.Symbol,
+							"exchange":         spm.exchangeName,
+							"order_quantity":   spm.config.Trading.OrderQuantity,
+							"calculated_qty":   spm.config.Trading.OrderQuantity / price,
+							"min_qty":          minQty,
+							"price":            price,
+							"action":           "pause",
+							"reason":           "下单数量低于交易所最小精度",
+						},
+					})
+				}
+				
+				// 暂停交易
+				spm.Pause()
+				slot.mu.Unlock()
+				continue
+			}
+
 			// 生成 ClientOrderID
 			clientOID := spm.generateClientOrderID(price, "BUY")
 
@@ -718,11 +774,41 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			// 生成 ClientOrderID (注意：使用 SlotPrice 即买入价作为标识)
 			clientOID := spm.generateClientOrderID(candidate.SlotPrice, "SELL")
 
+			quantity := candidate.Quantity
+			// 兜底检查：卖单数量也必须大于0
+			if quantity <= 0 && spm.quantityDecimals >= 0 {
+				minQty := math.Pow10(-spm.quantityDecimals)
+				logger.Error("🚨 [%s] 卖单数量异常 (%.8f)，低于交易所最小精度 (%.8f)，交易已自动暂停！", 
+					spm.config.Trading.Symbol, candidate.Quantity, minQty)
+				
+				// 发布事件
+				if spm.eventBus != nil {
+					spm.eventBus.Publish(&event.Event{
+						Type:      event.EventTypePrecisionAdjustment,
+						Timestamp: time.Now(),
+						Data: map[string]interface{}{
+							"symbol":           spm.config.Trading.Symbol,
+							"exchange":         spm.exchangeName,
+							"quantity":         candidate.Quantity,
+							"min_qty":          minQty,
+							"price":            candidate.SellPrice,
+							"action":           "pause",
+							"reason":           "卖单数量低于交易所最小精度",
+						},
+					})
+				}
+				
+				// 暂停交易
+				spm.Pause()
+				slot.mu.Unlock()
+				continue
+			}
+
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol:        spm.config.Trading.Symbol,
 				Side:          "SELL",
 				Price:         candidate.SellPrice,
-				Quantity:      candidate.Quantity,
+				Quantity:      quantity,
 				PriceDecimals: spm.priceDecimals,
 				ReduceOnly:    true,
 				PostOnly:      usePostOnly,

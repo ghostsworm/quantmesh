@@ -3,6 +3,7 @@ package bybit
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -214,14 +215,39 @@ func (b *BybitAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	side := string(req.Side)
 	orderType := string(req.Type)
 
+	// 确定精度
+	qDec := b.quantityDecimals
+	if qDec < 0 {
+		qDec = 0
+	}
+	pDec := req.PriceDecimals
+	if pDec < 0 {
+		pDec = 0
+	}
+
+	// 特殊处理：如果数量过小，自动调整为最小下单量
+	if req.Quantity <= 0 {
+		req.Quantity = math.Pow10(-qDec)
+		logger.Warn("⚠️ [Bybit] 下单数量原始值为 0，已自动调整为最小单位: %.8f", req.Quantity)
+	}
+
+	qtyStr := fmt.Sprintf("%.*f", qDec, req.Quantity)
+	// 如果截断后数量为 0，也需要兜底
+	q, _ := strconv.ParseFloat(qtyStr, 64)
+	if q <= 0 {
+		minQty := math.Pow10(-qDec)
+		qtyStr = fmt.Sprintf("%.*f", qDec, minQty)
+		logger.Warn("⚠️ [Bybit] 数量截断后为 0，使用最小精度兜底: %s", qtyStr)
+	}
+
 	// 构造订单请求
 	orderReq := map[string]interface{}{
 		"category":  "linear",
 		"symbol":    req.Symbol,
 		"side":      side,
 		"orderType": orderType,
-		"qty":       fmt.Sprintf("%.*f", b.quantityDecimals, req.Quantity),
-		"price":     fmt.Sprintf("%.*f", req.PriceDecimals, req.Price),
+		"qty":       qtyStr,
+		"price":     fmt.Sprintf("%.*f", pDec, req.Price),
 	}
 
 	// 设置 TimeInForce

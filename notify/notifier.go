@@ -84,6 +84,8 @@ func (ns *NotificationService) shouldNotify(eventType event.EventType) bool {
 		return rules.MarginInsufficient
 	case event.EventTypeAllocationExceeded:
 		return rules.AllocationExceeded
+	case event.EventTypePrecisionAdjustment:
+		return true // 精度异常始终通知
 	default:
 		// 其他事件默认通知
 		return true

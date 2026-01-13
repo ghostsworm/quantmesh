@@ -16,9 +16,12 @@ type GridStrategy struct {
 	executor position.OrderExecutorInterface
 	exchange position.IExchange
 	manager  *position.SuperPositionManager
+	eventBus EventBus
 
-	mu  sync.RWMutex
-	ctx context.Context
+	mu        sync.RWMutex
+	ctx       context.Context
+	isRunning bool
+	isPaused  bool // 暂停标志
 }
 
 // NewGridStrategy 创建网格策略
@@ -42,6 +45,13 @@ func NewGridStrategy(
 // Name 返回策略名称
 func (gs *GridStrategy) Name() string {
 	return gs.name
+}
+
+// SetEventBus 设置事件总线
+func (gs *GridStrategy) SetEventBus(bus EventBus) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.eventBus = bus
 }
 
 // Initialize 初始化策略
@@ -68,6 +78,13 @@ func (gs *GridStrategy) Stop() error {
 
 // OnPriceChange 价格变化处理
 func (gs *GridStrategy) OnPriceChange(price float64) error {
+	gs.mu.Lock()
+	if gs.isPaused {
+		gs.mu.Unlock()
+		return nil
+	}
+	gs.mu.Unlock()
+
 	// 调用 SuperPositionManager 的 AdjustOrders
 	return gs.manager.AdjustOrders(price)
 }

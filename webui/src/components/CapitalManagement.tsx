@@ -214,12 +214,33 @@ const CapitalManagement: React.FC = () => {
           </Flex>
         </MotionBox>
 
+        {/* Testnet Warning */}
+        {overview?.exchanges?.some(e => e.isTestnet) && (
+          <Alert status="warning" borderRadius="lg" mb={4}>
+            <AlertIcon />
+            <Box flex="1">
+              <Text fontWeight="bold">⚠️ 测试网模式</Text>
+              <Text fontSize="sm">
+                当前正在使用测试网环境，显示的资产为虚拟测试币，不会产生真实交易。
+                {overview.exchanges.filter(e => e.isTestnet).map(e => e.exchangeName).join('、')} 正在使用测试网。
+              </Text>
+            </Box>
+          </Alert>
+        )}
+
         {/* Overview Stats */}
         {overview && (
           <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
-                <StatLabel>{t('capitalManagement.totalBalance')}</StatLabel>
+                <StatLabel>
+                  <HStack spacing={2}>
+                    <Text>{t('capitalManagement.totalBalance')}</Text>
+                    {overview.exchanges?.some(e => e.isTestnet) && (
+                      <Badge colorScheme="orange" fontSize="xs">测试网</Badge>
+                    )}
+                  </HStack>
+                </StatLabel>
                 <StatNumber>{overview.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</StatNumber>
                 <StatHelpText>USDT</StatHelpText>
               </Stat>
@@ -267,14 +288,20 @@ const CapitalManagement: React.FC = () => {
         >
           <TabList mb={4} overflowX="auto" pb={2}>
             <Tab px={6}>{t('capitalManagement.allExchanges') || '全局概览'}</Tab>
-            {exchanges.filter(ex => ex !== null && ex !== undefined).map((ex) => (
-              <Tab key={ex.exchangeId} px={6}>
-                {ex.exchangeName}
-                {overview?.exchanges?.filter(e => e !== null && e !== undefined).find(e => e.exchangeId === ex.exchangeId)?.status === 'error' && (
-                  <Badge ml={2} colorScheme="red">ERROR</Badge>
-                )}
-              </Tab>
-            ))}
+            {exchanges.filter(ex => ex !== null && ex !== undefined).map((ex) => {
+              const exchangeSummary = overview?.exchanges?.filter(e => e !== null && e !== undefined).find(e => e.exchangeId === ex.exchangeId)
+              return (
+                <Tab key={ex.exchangeId} px={6}>
+                  {ex.exchangeName}
+                  {exchangeSummary?.isTestnet && (
+                    <Badge ml={2} colorScheme="orange" fontSize="xs">测试网</Badge>
+                  )}
+                  {exchangeSummary?.status === 'error' && (
+                    <Badge ml={2} colorScheme="red">ERROR</Badge>
+                  )}
+                </Tab>
+              )
+            })}
           </TabList>
 
           {/* Allocation Chart */}

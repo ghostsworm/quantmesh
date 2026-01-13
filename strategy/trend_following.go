@@ -37,6 +37,9 @@ type TrendFollowingStrategy struct {
 	takeProfit  float64 // 止盈比例
 	maxPosition float64 // 最大仓位比例
 
+	isPaused bool
+	eventBus EventBus
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -107,6 +110,13 @@ func NewTrendFollowingStrategy(
 // Name 返回策略名称
 func (tfs *TrendFollowingStrategy) Name() string {
 	return tfs.name
+}
+
+// SetEventBus 设置事件总线
+func (tfs *TrendFollowingStrategy) SetEventBus(bus EventBus) {
+	tfs.mu.Lock()
+	defer tfs.mu.Unlock()
+	tfs.eventBus = bus
 }
 
 // Initialize 初始化策略
@@ -225,6 +235,9 @@ func (tfs *TrendFollowingStrategy) detectTrend() Trend {
 
 // OnPriceChange 价格变化处理
 func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
+	if tfs.isPaused {
+		return nil
+	}
 	tfs.addPrice(price)
 
 	trend := tfs.detectTrend()

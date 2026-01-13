@@ -169,9 +169,14 @@ func (w *Watchdog) updateHistoryCache(metrics *SystemMetrics) {
 
 	w.historyCache = append(w.historyCache, metrics)
 
-	// 保持缓存大小
+	// 保持缓存大小（使用 copy 避免底层数组容量泄漏）
 	if len(w.historyCache) > w.maxHistory {
-		w.historyCache = w.historyCache[len(w.historyCache)-w.maxHistory:]
+		// 计算需要保留的起始位置
+		start := len(w.historyCache) - w.maxHistory
+		// 创建新的切片并复制数据，释放旧数组的内存
+		newCache := make([]*SystemMetrics, w.maxHistory)
+		copy(newCache, w.historyCache[start:])
+		w.historyCache = newCache
 	}
 }
 

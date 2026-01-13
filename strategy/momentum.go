@@ -32,6 +32,9 @@ type MomentumStrategy struct {
 	position   *Position
 	entryPrice float64
 
+	isPaused bool
+	eventBus EventBus
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -89,6 +92,13 @@ func NewMomentumStrategy(
 // Name 返回策略名称
 func (ms *MomentumStrategy) Name() string {
 	return ms.name
+}
+
+// SetEventBus 设置事件总线
+func (ms *MomentumStrategy) SetEventBus(bus EventBus) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.eventBus = bus
 }
 
 // Initialize 初始化策略
@@ -176,6 +186,9 @@ func (ms *MomentumStrategy) calculateRSI() float64 {
 
 // OnPriceChange 价格变化处理
 func (ms *MomentumStrategy) OnPriceChange(price float64) error {
+	if ms.isPaused {
+		return nil
+	}
 	ms.addPrice(price)
 
 	rsi := ms.calculateRSI()

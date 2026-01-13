@@ -36,17 +36,23 @@ const Positions: React.FC = () => {
       try {
         setLoading(true)
         const data = await getPositions(selectedExchange || undefined, selectedSymbol || undefined)
+        console.log('[Positions] API Response:', data)
+        console.log('[Positions] Response keys:', Object.keys(data || {}))
+        console.log('[Positions] Summary:', data?.summary)
+        
         if (data && data.summary) {
           setSummary(data.summary)
           setPositions(data.summary.positions || [])
           setError(null)
         } else {
-          setError('Invalid response format')
-          console.error('Invalid response:', data)
+          const errorMsg = `Invalid response format. Response keys: ${Object.keys(data || {}).join(', ')}`
+          setError(errorMsg)
+          console.error('[Positions] Invalid response:', data)
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch positions')
-        console.error('Failed to fetch positions:', err)
+        const errorMsg = err instanceof Error ? err.message : 'Failed to fetch positions'
+        setError(errorMsg)
+        console.error('[Positions] Failed to fetch positions:', err)
       } finally {
         setLoading(false)
       }
@@ -166,16 +172,35 @@ const Positions: React.FC = () => {
                 </Tr>
               </Thead>
               <Tbody>
-                {positions.map((pos, index) => (
-                  <Tr key={index}>
-                    <Td>{pos.price.toFixed(2)}</Td>
-                    <Td isNumeric>{pos.quantity.toFixed(4)}</Td>
-                    <Td isNumeric>{pos.value.toFixed(2)}</Td>
-                    <Td isNumeric color={pos.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
-                      {pos.unrealized_pnl >= 0 ? '+' : ''}{pos.unrealized_pnl.toFixed(2)}
-                    </Td>
-                  </Tr>
-                ))}
+                {positions.map((pos, index) => {
+                  // 计算价格偏差（相对于当前价格）
+                  const priceDeviation = summary && summary.current_price > 0 
+                    ? ((pos.price - summary.current_price) / summary.current_price * 100)
+                    : 0
+                  const isPriceAnomaly = Math.abs(priceDeviation) > 50 // 偏差超过50%视为异常
+                  
+                  return (
+                    <Tr key={index}>
+                      <Td>
+                        <Box>
+                          <Text fontWeight={isPriceAnomaly ? 'bold' : 'normal'} color={isPriceAnomaly ? 'orange.500' : 'inherit'}>
+                            {pos.price.toFixed(2)}
+                          </Text>
+                          {summary && summary.current_price > 0 && (
+                            <Text fontSize="xs" color="gray.500">
+                              {priceDeviation >= 0 ? '+' : ''}{priceDeviation.toFixed(1)}%
+                            </Text>
+                          )}
+                        </Box>
+                      </Td>
+                      <Td isNumeric>{pos.quantity.toFixed(4)}</Td>
+                      <Td isNumeric>{pos.value.toFixed(2)}</Td>
+                      <Td isNumeric color={pos.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
+                        {pos.unrealized_pnl >= 0 ? '+' : ''}{pos.unrealized_pnl.toFixed(2)}
+                      </Td>
+                    </Tr>
+                  )
+                })}
               </Tbody>
             </Table>
           </TableContainer>

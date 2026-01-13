@@ -195,6 +195,8 @@ func (ec *EventCenter) buildMessage(event *Event) string {
 		return ec.buildPriceVolatilityMessage(event)
 	case EventTypeSystemCPUHigh, EventTypeSystemMemoryHigh:
 		return ec.buildSystemResourceMessage(event)
+	case EventTypePrecisionAdjustment:
+		return ec.buildPrecisionAdjustmentMessage(event)
 	default:
 		if msg, ok := event.Data["message"].(string); ok {
 			return msg
@@ -261,6 +263,21 @@ func (ec *EventCenter) buildSystemResourceMessage(event *Event) string {
 		resourceType, usage, threshold)
 }
 
+// buildPrecisionAdjustmentMessage 构建精度调整消息
+func (ec *EventCenter) buildPrecisionAdjustmentMessage(event *Event) string {
+	symbol := ec.extractString(event.Data, "symbol")
+	calculatedQty := event.Data["calculated_qty"]
+	minQty := event.Data["min_qty"]
+	action := ec.extractString(event.Data, "action")
+	
+	if action == "pause" {
+		return fmt.Sprintf("[%s] 下单数量 %.8f 低于最小精度 %.8f，交易已自动暂停", 
+			symbol, calculatedQty, minQty)
+	}
+	return fmt.Sprintf("[%s] 下单数量精度调整: %.8f -> %.8f", 
+		symbol, calculatedQty, minQty)
+}
+
 // shouldNotify 判断是否需要发送通知
 func (ec *EventCenter) shouldNotify(eventType EventType, severity EventSeverity) bool {
 	// Critical 级别的事件总是通知
@@ -271,7 +288,7 @@ func (ec *EventCenter) shouldNotify(eventType EventType, severity EventSeverity)
 	// Warning 级别的某些重要事件需要通知
 	if severity == SeverityWarning {
 		switch eventType {
-		case EventTypeAPIRateLimited, EventTypePriceVolatility, EventTypeAPIRequestFailed:
+		case EventTypeAPIRateLimited, EventTypePriceVolatility, EventTypeAPIRequestFailed, EventTypePrecisionAdjustment:
 			return true
 		}
 	}

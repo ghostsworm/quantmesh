@@ -31,6 +31,9 @@ type MeanReversionStrategy struct {
 	position   *Position
 	entryPrice float64
 
+	isPaused bool
+	eventBus EventBus
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -81,6 +84,13 @@ func NewMeanReversionStrategy(
 // Name 返回策略名称
 func (mrs *MeanReversionStrategy) Name() string {
 	return mrs.name
+}
+
+// SetEventBus 设置事件总线
+func (mrs *MeanReversionStrategy) SetEventBus(bus EventBus) {
+	mrs.mu.Lock()
+	defer mrs.mu.Unlock()
+	mrs.eventBus = bus
 }
 
 // Initialize 初始化策略
@@ -175,6 +185,9 @@ func (mrs *MeanReversionStrategy) calculateBollingerBands() (upper, middle, lowe
 
 // OnPriceChange 价格变化处理
 func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
+	if mrs.isPaused {
+		return nil
+	}
 	mrs.addPrice(price)
 
 	upper, middle, lower := mrs.calculateBollingerBands()

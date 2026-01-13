@@ -20,12 +20,14 @@ export interface ExchangeCapitalSummary {
   used: number
   pnl: number
   status: 'online' | 'offline' | 'error'
+  isTestnet?: boolean // 是否使用测试网
 }
 
 export interface ExchangeCapitalDetail {
   exchangeId: string
   exchangeName: string
   assets: AssetAllocation[]
+  isTestnet?: boolean // 是否使用测试网
 }
 
 export interface AssetAllocation {

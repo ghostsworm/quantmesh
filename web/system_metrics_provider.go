@@ -84,14 +84,40 @@ func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, gra
 		return []*SystemMetricsResponse{}, nil
 	}
 
-	storage := p.storageService.GetStorage()
-	if storage == nil {
+	storageImpl := p.storageService.GetStorage()
+	if storageImpl == nil {
 		return []*SystemMetricsResponse{}, nil
 	}
 
-	storageMetrics, err := storage.QuerySystemMetrics(startTime, endTime)
+	// 限制查询时间范围，防止返回过多数据导致内存问题
+	maxDuration := 7 * 24 * time.Hour // 最多查询7天
+	actualDuration := endTime.Sub(startTime)
+	if actualDuration > maxDuration {
+		startTime = endTime.Add(-maxDuration)
+	}
+
+	storageMetrics, err := storageImpl.QuerySystemMetrics(startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("查询监控数据失败: %w", err)
+	}
+
+	// 限制返回的数据量，防止内存占用过大
+	maxDataPoints := 10000 // 最多返回1万条数据
+	if len(storageMetrics) > maxDataPoints {
+		// 采样：均匀间隔选择数据点
+		step := len(storageMetrics) / maxDataPoints
+		sampledMetrics := make([]*storage.SystemMetrics, 0, maxDataPoints)
+		for i := 0; i < len(storageMetrics); i += step {
+			if i < len(storageMetrics) {
+				sampledMetrics = append(sampledMetrics, storageMetrics[i])
+			}
+		}
+		// 确保包含最后一个数据点
+		lastIdx := len(storageMetrics) - 1
+		if len(sampledMetrics) > 0 && sampledMetrics[len(sampledMetrics)-1] != storageMetrics[lastIdx] {
+			sampledMetrics = append(sampledMetrics, storageMetrics[lastIdx])
+		}
+		storageMetrics = sampledMetrics
 	}
 
 	metrics := make([]*SystemMetricsResponse, len(storageMetrics))
