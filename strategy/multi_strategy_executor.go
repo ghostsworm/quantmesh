@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"quantmesh/order"
@@ -27,6 +28,43 @@ func NewMultiStrategyExecutor(
 		strategies: make(map[string]string),
 		mu:         sync.RWMutex{},
 	}
+}
+
+// extractStrategyType 从策略名称中提取策略类型
+// 策略名称格式可能是: "Grid-BTCUSDT-1", "DCA-ETHUSDT", "Martingale-BTCUSDT", "combo" 等
+func extractStrategyType(strategyName string) string {
+	if strategyName == "" {
+		return ""
+	}
+
+	// 转换为小写以便匹配
+	nameLower := strings.ToLower(strategyName)
+
+	// 检查常见的策略类型前缀
+	if strings.HasPrefix(nameLower, "grid") {
+		return "grid"
+	}
+	if strings.HasPrefix(nameLower, "dca") {
+		return "dca"
+	}
+	if strings.HasPrefix(nameLower, "martingale") {
+		return "martingale"
+	}
+	if strings.HasPrefix(nameLower, "trend") {
+		return "trend"
+	}
+	if strings.HasPrefix(nameLower, "mean") || strings.HasPrefix(nameLower, "mean_reversion") {
+		return "mean_reversion"
+	}
+	if strings.HasPrefix(nameLower, "combo") {
+		return "combo"
+	}
+	if strings.HasPrefix(nameLower, "momentum") {
+		return "momentum"
+	}
+
+	// 如果无法识别，返回空字符串
+	return ""
 }
 
 // PlaceOrder 下单（带策略标记）
@@ -55,6 +93,8 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 		ReduceOnly:    req.ReduceOnly,
 		PostOnly:      req.PostOnly,
 		ClientOrderID: req.ClientOrderID,
+		StrategyName:  strategyName,
+		StrategyType:  extractStrategyType(strategyName),
 	}
 
 	ord, err := mse.executor.PlaceOrder(orderReq)
@@ -122,6 +162,8 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 			ReduceOnly:    req.ReduceOnly,
 			PostOnly:      req.PostOnly,
 			ClientOrderID: req.ClientOrderID,
+			StrategyName:  strategyName,
+			StrategyType:  extractStrategyType(strategyName),
 		}
 		orderReqs = append(orderReqs, orderReq)
 		orderAmounts[req.ClientOrderID] = orderAmount

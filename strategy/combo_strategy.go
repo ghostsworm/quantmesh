@@ -97,6 +97,7 @@ type StrategyConfig struct {
 // NewComboStrategy 创建组合策略
 func NewComboStrategy(
 	name string,
+	symbol string,
 	cfg *config.Config,
 	executor position.OrderExecutorInterface,
 	exchange position.IExchange,
@@ -105,6 +106,9 @@ func NewComboStrategy(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	comboCfg := parseComboConfig(strategyCfg)
+	if symbol != "" {
+		comboCfg.Symbol = symbol
+	}
 
 	combo := &ComboStrategy{
 		name:          name,
@@ -152,51 +156,55 @@ func parseComboConfig(cfg map[string]interface{}) *ComboConfig {
 		Strategies:          make([]StrategyConfig, 0),
 	}
 
+	if cfg == nil {
+		return comboCfg
+	}
+
+	// 辅助函数：安全地从 map 中获取 float64
+	getFloat := func(key string, defaultValue float64) float64 {
+		if v, ok := cfg[key]; ok {
+			switch val := v.(type) {
+			case float64:
+				return val
+			case int:
+				return float64(val)
+			case int64:
+				return float64(val)
+			}
+		}
+		return defaultValue
+	}
+
+	// 辅助函数：安全地从 map 中获取 int
+	getInt := func(key string, defaultValue int) int {
+		if v, ok := cfg[key]; ok {
+			switch val := v.(type) {
+			case int:
+				return val
+			case float64:
+				return int(val)
+			case int64:
+				return int(val)
+			}
+		}
+		return defaultValue
+	}
+
 	if v, ok := cfg["symbol"].(string); ok {
 		comboCfg.Symbol = v
 	}
-	if v, ok := cfg["market_detection"].(bool); ok {
-		comboCfg.MarketDetection = v
-	}
-	if v, ok := cfg["trend_period"].(int); ok {
-		comboCfg.TrendPeriod = v
-	}
-	if v, ok := cfg["trend_period"].(float64); ok {
-		comboCfg.TrendPeriod = int(v)
-	}
-	if v, ok := cfg["volatility_period"].(int); ok {
-		comboCfg.VolatilityPeriod = v
-	}
-	if v, ok := cfg["volatility_period"].(float64); ok {
-		comboCfg.VolatilityPeriod = int(v)
-	}
-	if v, ok := cfg["volatility_threshold"].(float64); ok {
-		comboCfg.VolatilityThreshold = v
-	}
-	if v, ok := cfg["adaptive_weights"].(bool); ok {
-		comboCfg.AdaptiveWeights = v
-	}
-	if v, ok := cfg["rebalance_interval"].(int); ok {
-		comboCfg.RebalanceInterval = v
-	}
-	if v, ok := cfg["rebalance_interval"].(float64); ok {
-		comboCfg.RebalanceInterval = int(v)
-	}
-	if v, ok := cfg["hedge_enabled"].(bool); ok {
-		comboCfg.HedgeEnabled = v
-	}
-	if v, ok := cfg["hedge_ratio"].(float64); ok {
-		comboCfg.HedgeRatio = v
-	}
-	if v, ok := cfg["max_drawdown"].(float64); ok {
-		comboCfg.MaxDrawdown = v
-	}
-	if v, ok := cfg["total_capital"].(float64); ok {
-		comboCfg.TotalCapital = v
-	}
-	if v, ok := cfg["max_exposure"].(float64); ok {
-		comboCfg.MaxExposure = v
-	}
+
+	comboCfg.MarketDetection = getBoolParam(cfg, "market_detection", comboCfg.MarketDetection)
+	comboCfg.TrendPeriod = getInt("trend_period", comboCfg.TrendPeriod)
+	comboCfg.VolatilityPeriod = getInt("volatility_period", comboCfg.VolatilityPeriod)
+	comboCfg.VolatilityThreshold = getFloat("volatility_threshold", comboCfg.VolatilityThreshold)
+	comboCfg.AdaptiveWeights = getBoolParam(cfg, "adaptive_weights", comboCfg.AdaptiveWeights)
+	comboCfg.RebalanceInterval = getInt("rebalance_interval", comboCfg.RebalanceInterval)
+	comboCfg.HedgeEnabled = getBoolParam(cfg, "hedge_enabled", comboCfg.HedgeEnabled)
+	comboCfg.HedgeRatio = getFloat("hedge_ratio", comboCfg.HedgeRatio)
+	comboCfg.MaxDrawdown = getFloat("max_drawdown", comboCfg.MaxDrawdown)
+	comboCfg.TotalCapital = getFloat("total_capital", comboCfg.TotalCapital)
+	comboCfg.MaxExposure = getFloat("max_exposure", comboCfg.MaxExposure)
 
 	// 解析子策略配置
 	if strategies, ok := cfg["strategies"].([]interface{}); ok {
@@ -264,6 +272,13 @@ func getStringParam(m map[string]interface{}, key, defaultVal string) string {
 	return defaultVal
 }
 
+func getBoolParam(m map[string]interface{}, key string, defaultVal bool) bool {
+	if v, ok := m[key].(bool); ok {
+		return v
+	}
+	return defaultVal
+}
+
 func getFloatParamCombo(m map[string]interface{}, key string, defaultVal float64) float64 {
 	if v, ok := m[key].(float64); ok {
 		return v
@@ -286,6 +301,7 @@ func (s *ComboStrategy) initializeStrategies() {
 		case "dca":
 			strategy = NewDCAEnhancedStrategy(
 				stratCfg.Name,
+				s.strategyCfg.Symbol,
 				s.cfg,
 				s.executor,
 				s.exchange,
@@ -295,6 +311,7 @@ func (s *ComboStrategy) initializeStrategies() {
 			stratCfg.Parameters["direction"] = stratCfg.Direction
 			strategy = NewMartingaleStrategy(
 				stratCfg.Name,
+				s.strategyCfg.Symbol,
 				s.cfg,
 				s.executor,
 				s.exchange,

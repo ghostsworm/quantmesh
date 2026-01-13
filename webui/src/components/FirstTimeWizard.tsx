@@ -140,58 +140,58 @@ const FirstTimeWizard: React.FC = () => {
   }
 
   const handleSaveCurrentExchange = async () => {
-    if (!exchangeConfig.exchange) {
-      setError(t('wizard.exchange.selectExchange'))
+      if (!exchangeConfig.exchange) {
+        setError(t('wizard.exchange.selectExchange'))
       return false
-    }
-    if (!exchangeConfig.api_key.trim()) {
-      setError(t('wizard.exchange.enterApiKey'))
-      return false
-    }
-    if (!exchangeConfig.secret_key.trim()) {
-      setError(t('wizard.exchange.enterSecretKey'))
-      return false
-    }
-    if (exchangesRequiringPassphrase.includes(exchangeConfig.exchange) && !exchangeConfig.passphrase?.trim()) {
-      setError(t('wizard.exchange.enterPassphrase'))
-      return false
-    }
-    const symbols = exchangeConfig.symbols || []
-    if (symbols.length === 0) {
-      setError(t('wizard.exchange.selectSymbols'))
-      return false
-    }
-
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const configToSave = {
-        ...exchangeConfig,
-        symbols: exchangeConfig.symbols || [],
       }
-      const response = await saveInitialConfig(configToSave)
-      if (response.success) {
-        toast({
-          title: t('wizard.exchange.configSaved'),
-          status: 'success',
-          duration: 3000,
-        })
+      if (!exchangeConfig.api_key.trim()) {
+        setError(t('wizard.exchange.enterApiKey'))
+      return false
+      }
+      if (!exchangeConfig.secret_key.trim()) {
+        setError(t('wizard.exchange.enterSecretKey'))
+      return false
+      }
+      if (exchangesRequiringPassphrase.includes(exchangeConfig.exchange) && !exchangeConfig.passphrase?.trim()) {
+        setError(t('wizard.exchange.enterPassphrase'))
+      return false
+      }
+      const symbols = exchangeConfig.symbols || []
+      if (symbols.length === 0) {
+        setError(t('wizard.exchange.selectSymbols'))
+      return false
+      }
+
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const configToSave = {
+          ...exchangeConfig,
+          symbols: exchangeConfig.symbols || [],
+        }
+        const response = await saveInitialConfig(configToSave)
+        if (response.success) {
+            toast({
+              title: t('wizard.exchange.configSaved'),
+              status: 'success',
+              duration: 3000,
+            })
         
         if (!configuredExchanges.includes(exchangeConfig.exchange)) {
           setConfiguredExchanges(prev => [...prev, exchangeConfig.exchange])
-        }
+          }
         return true
-      } else {
-        setError(response.message || t('wizard.exchange.saveFailed'))
+        } else {
+          setError(response.message || t('wizard.exchange.saveFailed'))
         return false
-      }
-    } catch (err: any) {
-      setError(err.message || t('wizard.exchange.saveFailed'))
+        }
+      } catch (err: any) {
+        setError(err.message || t('wizard.exchange.saveFailed'))
       return false
-    } finally {
-      setIsLoading(false)
-    }
+      } finally {
+        setIsLoading(false)
+      }
   }
 
   const handleNext = async () => {
@@ -213,7 +213,7 @@ const FirstTimeWizard: React.FC = () => {
       sessionStorage.removeItem('wizard_step')
       sessionStorage.removeItem('config_setup_skipped')
       setTimeout(() => {
-        navigate('/')
+      navigate('/')
       }, 100)
     }
   }
@@ -314,7 +314,7 @@ const FirstTimeWizard: React.FC = () => {
             {activeStep === 1 && (
               <VStack spacing={6} align="stretch">
                 <HStack justify="space-between">
-                  <Heading size="md">{t('wizard.exchange.title')}</Heading>
+                <Heading size="md">{t('wizard.exchange.title')}</Heading>
                   <Button 
                     leftIcon={<AddIcon />} 
                     size="sm" 

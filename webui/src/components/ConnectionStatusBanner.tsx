@@ -70,18 +70,18 @@ const ConnectionStatusBanner: React.FC = () => {
     <Box position="fixed" top={0} left={0} right={0} zIndex={2000}>
       <Collapse in={isOpen} animateOpacity>
         {!isOnline ? (
-          <Alert status="error" variant="solid">
-            <AlertIcon />
+          <Alert status="error" variant="solid" py={2}>
+            <AlertIcon boxSize="20px" />
             <HStack w="full" spacing={4}>
               <Box>
-                <AlertTitle>{t('connection.offlineTitle') || '网络已断开'}</AlertTitle>
-                <AlertDescription>
+                <AlertTitle fontSize="sm">{t('connection.offlineTitle') || '网络已断开'}</AlertTitle>
+                <AlertDescription fontSize="xs">
                   {t('connection.offlineDesc') || '您当前正处于离线状态，请检查您的互联网连接。'}
                 </AlertDescription>
               </Box>
               <Spacer />
               <Button
-                size="sm"
+                size="xs"
                 leftIcon={<RepeatIcon />}
                 onClick={checkBackend}
                 isLoading={isChecking}
@@ -93,18 +93,18 @@ const ConnectionStatusBanner: React.FC = () => {
             </HStack>
           </Alert>
         ) : !isBackendReachable ? (
-          <Alert status="warning" variant="solid" bg="orange.500">
-            <AlertIcon />
+          <Alert status="warning" variant="solid" bg="orange.500" py={2}>
+            <AlertIcon boxSize="20px" />
             <HStack w="full" spacing={4}>
               <Box>
-                <AlertTitle>{t('connection.backendDisconnectedTitle') || '后端连接断开'}</AlertTitle>
-                <AlertDescription>
+                <AlertTitle fontSize="sm">{t('connection.backendDisconnectedTitle') || '后端连接断开'}</AlertTitle>
+                <AlertDescription fontSize="xs">
                   {t('connection.backendDisconnectedDesc') || '无法连接到后端服务，请确保后端程序已启动并正常运行。'}
                 </AlertDescription>
               </Box>
               <Spacer />
               <Button
-                size="sm"
+                size="xs"
                 leftIcon={<RepeatIcon />}
                 onClick={checkBackend}
                 isLoading={isChecking}

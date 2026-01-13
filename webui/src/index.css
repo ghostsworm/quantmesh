@@ -18,5 +18,10 @@
   #root {
     min-height: 100vh;
   }
+
+  /* 侧边栏宽度 CSS 变量 */
+  :root {
+    --sidebar-width: 200px; /* 默认展开宽度（更窄） */
+  }
 }
 

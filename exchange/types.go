@@ -52,6 +52,8 @@ type OrderRequest struct {
 	PostOnly      bool    // 是否只做 Maker（Post Only）
 	PriceDecimals int     // 价格精度（用于格式化）
 	ClientOrderID string  // 自定义订单ID
+	StrategyName  string  // 策略名称（可选，用于日志追踪）
+	StrategyType  string  // 策略类型（可选，如 "grid", "dca", "martingale"）
 }
 
 // Order 订单信息（通用）

@@ -24,6 +24,8 @@ type OrderRequest struct {
 	ReduceOnly    bool   // 是否只减仓（平仓单）
 	PostOnly      bool   // 是否只做 Maker（Post Only）
 	ClientOrderID string // 自定义订单ID
+	StrategyName  string // 策略名称（可选，用于日志追踪）
+	StrategyType  string // 策略类型（可选，如 "grid", "dca", "martingale"）
 }
 
 // Order 订单信息
@@ -142,6 +144,8 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			ReduceOnly:    req.ReduceOnly,
 			PostOnly:      req.PostOnly && !degraded, // 如果已降级，强制为普通单
 			ClientOrderID: req.ClientOrderID,         // 传递自定义订单ID
+			StrategyName:  req.StrategyName,          // 传递策略名称
+			StrategyType:  req.StrategyType,          // 传递策略类型
 		}
 
 		// 🔥 如果PostOnly已失败3次，降级为普通限价单

@@ -100,6 +100,7 @@ type MartingaleEntry struct {
 // NewMartingaleStrategy 创建马丁格尔策略
 func NewMartingaleStrategy(
 	name string,
+	symbol string,
 	cfg *config.Config,
 	executor position.OrderExecutorInterface,
 	exchange position.IExchange,
@@ -108,6 +109,9 @@ func NewMartingaleStrategy(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	martinCfg := parseMartingaleConfig(strategyCfg)
+	if symbol != "" {
+		martinCfg.Symbol = symbol
+	}
 
 	strategy := &MartingaleStrategy{
 		name:         name,
@@ -156,6 +160,40 @@ func parseMartingaleConfig(cfg map[string]interface{}) *MartingaleConfig {
 		TrendPeriod:       20,
 	}
 
+	if cfg == nil {
+		return martinCfg
+	}
+
+	// 辅助函数：安全地从 map 中获取 float64
+	getFloat := func(key string, defaultValue float64) float64 {
+		if v, ok := cfg[key]; ok {
+			switch val := v.(type) {
+			case float64:
+				return val
+			case int:
+				return float64(val)
+			case int64:
+				return float64(val)
+			}
+		}
+		return defaultValue
+	}
+
+	// 辅助函数：安全地从 map 中获取 int
+	getInt := func(key string, defaultValue int) int {
+		if v, ok := cfg[key]; ok {
+			switch val := v.(type) {
+			case int:
+				return val
+			case float64:
+				return int(val)
+			case int64:
+				return int(val)
+			}
+		}
+		return defaultValue
+	}
+
 	// 从 map 中读取配置
 	if v, ok := cfg["symbol"].(string); ok {
 		martinCfg.Symbol = v
@@ -163,63 +201,35 @@ func parseMartingaleConfig(cfg map[string]interface{}) *MartingaleConfig {
 	if v, ok := cfg["direction"].(string); ok {
 		martinCfg.Direction = v
 	}
-	if v, ok := cfg["initial_amount"].(float64); ok {
-		martinCfg.InitialAmount = v
-	}
-	if v, ok := cfg["multiplier"].(float64); ok {
-		martinCfg.Multiplier = v
-	}
-	if v, ok := cfg["max_levels"].(int); ok {
-		martinCfg.MaxLevels = v
-	}
-	if v, ok := cfg["max_levels"].(float64); ok {
-		martinCfg.MaxLevels = int(v)
-	}
-	if v, ok := cfg["price_step"].(float64); ok {
-		martinCfg.PriceStep = v
-	}
+
+	martinCfg.InitialAmount = getFloat("initial_amount", martinCfg.InitialAmount)
+	martinCfg.Multiplier = getFloat("multiplier", martinCfg.Multiplier)
+	martinCfg.MaxLevels = getInt("max_levels", martinCfg.MaxLevels)
+	martinCfg.PriceStep = getFloat("price_step", martinCfg.PriceStep)
+
 	if v, ok := cfg["risk_decay"].(bool); ok {
 		martinCfg.RiskDecay = v
 	}
-	if v, ok := cfg["decay_factor"].(float64); ok {
-		martinCfg.DecayFactor = v
-	}
-	if v, ok := cfg["min_multiplier"].(float64); ok {
-		martinCfg.MinMultiplier = v
-	}
-	if v, ok := cfg["take_profit"].(float64); ok {
-		martinCfg.TakeProfit = v
-	}
-	if v, ok := cfg["stop_loss"].(float64); ok {
-		martinCfg.StopLoss = v
-	}
-	if v, ok := cfg["trailing_stop"].(float64); ok {
-		martinCfg.TrailingStop = v
-	}
+	martinCfg.DecayFactor = getFloat("decay_factor", martinCfg.DecayFactor)
+	martinCfg.MinMultiplier = getFloat("min_multiplier", martinCfg.MinMultiplier)
+	martinCfg.TakeProfit = getFloat("take_profit", martinCfg.TakeProfit)
+	martinCfg.StopLoss = getFloat("stop_loss", martinCfg.StopLoss)
+	martinCfg.TrailingStop = getFloat("trailing_stop", martinCfg.TrailingStop)
+
 	if v, ok := cfg["reverse_martingale"].(bool); ok {
 		martinCfg.ReverseMartingale = v
 	}
-	if v, ok := cfg["reverse_multiplier"].(float64); ok {
-		martinCfg.ReverseMultiplier = v
-	}
+	martinCfg.ReverseMultiplier = getFloat("reverse_multiplier", martinCfg.ReverseMultiplier)
+
 	if v, ok := cfg["cooldown_enabled"].(bool); ok {
 		martinCfg.CooldownEnabled = v
 	}
-	if v, ok := cfg["cooldown_seconds"].(int); ok {
-		martinCfg.CooldownSeconds = v
-	}
-	if v, ok := cfg["cooldown_seconds"].(float64); ok {
-		martinCfg.CooldownSeconds = int(v)
-	}
+	martinCfg.CooldownSeconds = getInt("cooldown_seconds", martinCfg.CooldownSeconds)
+
 	if v, ok := cfg["trend_filter"].(bool); ok {
 		martinCfg.TrendFilter = v
 	}
-	if v, ok := cfg["trend_period"].(int); ok {
-		martinCfg.TrendPeriod = v
-	}
-	if v, ok := cfg["trend_period"].(float64); ok {
-		martinCfg.TrendPeriod = int(v)
-	}
+	martinCfg.TrendPeriod = getInt("trend_period", martinCfg.TrendPeriod)
 
 	return martinCfg
 }

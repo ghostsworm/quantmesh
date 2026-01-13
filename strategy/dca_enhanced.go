@@ -114,6 +114,7 @@ type DCALayer struct {
 // NewDCAEnhancedStrategy 创建增强型 DCA 策略
 func NewDCAEnhancedStrategy(
 	name string,
+	symbol string,
 	cfg *config.Config,
 	executor position.OrderExecutorInterface,
 	exchange position.IExchange,
@@ -122,6 +123,9 @@ func NewDCAEnhancedStrategy(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	dcaCfg := parseDCAConfig(strategyCfg)
+	if symbol != "" {
+		dcaCfg.Symbol = symbol
+	}
 
 	strategy := &DCAEnhancedStrategy{
 		name:         name,
@@ -152,16 +156,16 @@ func NewDCAEnhancedStrategy(
 func parseDCAConfig(cfg map[string]interface{}) *DCAEnhancedConfig {
 	dcaCfg := &DCAEnhancedConfig{
 		// 默认值
-		Symbol:              "BTCUSDT",
-		BaseOrderAmount:     100,
-		SafetyOrderAmount:   200,
-		MaxSafetyOrders:     50,
-		ATRPeriod:           14,
-		ATRMultiplier:       1.5,
-		MinPriceStep:        1.0,
-		MaxPriceStep:        5.0,
-		SafetyOrderScale:    1.05,
-		SafetyOrderStep:     1.0,
+		Symbol:               "BTCUSDT",
+		BaseOrderAmount:      100,
+		SafetyOrderAmount:    200,
+		MaxSafetyOrders:      50,
+		ATRPeriod:            14,
+		ATRMultiplier:        1.5,
+		MinPriceStep:         1.0,
+		MaxPriceStep:         5.0,
+		SafetyOrderScale:     1.05,
+		SafetyOrderStep:      1.0,
 		FirstOrderTakeProfit: 1.0,
 		LastOrderTakeProfit:  0.5,
 		TotalTakeProfit:      2.0,
@@ -177,88 +181,75 @@ func parseDCAConfig(cfg map[string]interface{}) *DCAEnhancedConfig {
 		TrendPeriod:          20,
 	}
 
+	if cfg == nil {
+		return dcaCfg
+	}
+
+	// 辅助函数：安全地从 map 中获取 float64
+	getFloat := func(key string, defaultValue float64) float64 {
+		if v, ok := cfg[key]; ok {
+			switch val := v.(type) {
+			case float64:
+				return val
+			case int:
+				return float64(val)
+			case int64:
+				return float64(val)
+			}
+		}
+		return defaultValue
+	}
+
+	// 辅助函数：安全地从 map 中获取 int
+	getInt := func(key string, defaultValue int) int {
+		if v, ok := cfg[key]; ok {
+			switch val := v.(type) {
+			case int:
+				return val
+			case float64:
+				return int(val)
+			case int64:
+				return int(val)
+			}
+		}
+		return defaultValue
+	}
+
 	// 从 map 中读取配置
 	if v, ok := cfg["symbol"].(string); ok {
 		dcaCfg.Symbol = v
 	}
-	if v, ok := cfg["base_order_amount"].(float64); ok {
-		dcaCfg.BaseOrderAmount = v
-	}
-	if v, ok := cfg["safety_order_amount"].(float64); ok {
-		dcaCfg.SafetyOrderAmount = v
-	}
-	if v, ok := cfg["max_safety_orders"].(int); ok {
-		dcaCfg.MaxSafetyOrders = v
-	}
-	if v, ok := cfg["max_safety_orders"].(float64); ok {
-		dcaCfg.MaxSafetyOrders = int(v)
-	}
-	if v, ok := cfg["atr_period"].(int); ok {
-		dcaCfg.ATRPeriod = v
-	}
-	if v, ok := cfg["atr_period"].(float64); ok {
-		dcaCfg.ATRPeriod = int(v)
-	}
-	if v, ok := cfg["atr_multiplier"].(float64); ok {
-		dcaCfg.ATRMultiplier = v
-	}
-	if v, ok := cfg["min_price_step"].(float64); ok {
-		dcaCfg.MinPriceStep = v
-	}
-	if v, ok := cfg["max_price_step"].(float64); ok {
-		dcaCfg.MaxPriceStep = v
-	}
-	if v, ok := cfg["safety_order_scale"].(float64); ok {
-		dcaCfg.SafetyOrderScale = v
-	}
-	if v, ok := cfg["safety_order_step"].(float64); ok {
-		dcaCfg.SafetyOrderStep = v
-	}
-	if v, ok := cfg["first_order_take_profit"].(float64); ok {
-		dcaCfg.FirstOrderTakeProfit = v
-	}
-	if v, ok := cfg["last_order_take_profit"].(float64); ok {
-		dcaCfg.LastOrderTakeProfit = v
-	}
-	if v, ok := cfg["total_take_profit"].(float64); ok {
-		dcaCfg.TotalTakeProfit = v
-	}
-	if v, ok := cfg["trailing_take_profit"].(float64); ok {
-		dcaCfg.TrailingTakeProfit = v
-	}
-	if v, ok := cfg["trailing_activation"].(float64); ok {
-		dcaCfg.TrailingActivation = v
-	}
-	if v, ok := cfg["stop_loss"].(float64); ok {
-		dcaCfg.StopLoss = v
-	}
-	if v, ok := cfg["trailing_stop_loss"].(float64); ok {
-		dcaCfg.TrailingStopLoss = v
-	}
+
+	dcaCfg.BaseOrderAmount = getFloat("base_order_amount", dcaCfg.BaseOrderAmount)
+	dcaCfg.SafetyOrderAmount = getFloat("safety_order_amount", dcaCfg.SafetyOrderAmount)
+	dcaCfg.MaxSafetyOrders = getInt("max_safety_orders", dcaCfg.MaxSafetyOrders)
+	dcaCfg.ATRPeriod = getInt("atr_period", dcaCfg.ATRPeriod)
+	dcaCfg.ATRMultiplier = getFloat("atr_multiplier", dcaCfg.ATRMultiplier)
+	dcaCfg.MinPriceStep = getFloat("min_price_step", dcaCfg.MinPriceStep)
+	dcaCfg.MaxPriceStep = getFloat("max_price_step", dcaCfg.MaxPriceStep)
+	dcaCfg.SafetyOrderScale = getFloat("safety_order_scale", dcaCfg.SafetyOrderScale)
+	dcaCfg.SafetyOrderStep = getFloat("safety_order_step", dcaCfg.SafetyOrderStep)
+	dcaCfg.FirstOrderTakeProfit = getFloat("first_order_take_profit", dcaCfg.FirstOrderTakeProfit)
+	dcaCfg.LastOrderTakeProfit = getFloat("last_order_take_profit", dcaCfg.LastOrderTakeProfit)
+	dcaCfg.TotalTakeProfit = getFloat("total_take_profit", dcaCfg.TotalTakeProfit)
+	dcaCfg.TrailingTakeProfit = getFloat("trailing_take_profit", dcaCfg.TrailingTakeProfit)
+	dcaCfg.TrailingActivation = getFloat("trailing_activation", dcaCfg.TrailingActivation)
+	dcaCfg.StopLoss = getFloat("stop_loss", dcaCfg.StopLoss)
+	dcaCfg.TrailingStopLoss = getFloat("trailing_stop_loss", dcaCfg.TrailingStopLoss)
+
 	if v, ok := cfg["cascade_protection"].(bool); ok {
 		dcaCfg.CascadeProtection = v
 	}
-	if v, ok := cfg["cascade_drop_threshold"].(float64); ok {
-		dcaCfg.CascadeDropThreshold = v
-	}
-	if v, ok := cfg["cascade_pause_duration"].(int); ok {
-		dcaCfg.CascadePauseDuration = v
-	}
-	if v, ok := cfg["cascade_pause_duration"].(float64); ok {
-		dcaCfg.CascadePauseDuration = int(v)
-	}
+	dcaCfg.CascadeDropThreshold = getFloat("cascade_drop_threshold", dcaCfg.CascadeDropThreshold)
+	dcaCfg.CascadePauseDuration = getInt("cascade_pause_duration", dcaCfg.CascadePauseDuration)
+
 	if v, ok := cfg["trend_filter_enabled"].(bool); ok {
 		dcaCfg.TrendFilterEnabled = v
 	}
 	if v, ok := cfg["trend_method"].(string); ok {
 		dcaCfg.TrendMethod = v
 	}
-	if v, ok := cfg["trend_period"].(int); ok {
-		dcaCfg.TrendPeriod = v
-	}
-	if v, ok := cfg["trend_period"].(float64); ok {
-		dcaCfg.TrendPeriod = int(v)
-	}
+	dcaCfg.TrendPeriod = getInt("trend_period", dcaCfg.TrendPeriod)
 
 	return dcaCfg
 }
@@ -290,6 +281,13 @@ func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
 		s.strategyCfg.ATRPeriod)
 
 	return nil
+}
+
+// roundPrice 根据交易所精度格式化价格
+func (s *DCAEnhancedStrategy) roundPrice(price float64) float64 {
+	decimals := s.exchange.GetPriceDecimals()
+	multiplier := math.Pow(10, float64(decimals))
+	return math.Round(price*multiplier) / multiplier
 }
 
 // Stop 停止策略
@@ -447,8 +445,10 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 		return nil
 	}
 
-	quantity := s.strategyCfg.BaseOrderAmount / price
-	
+	// 格式化价格
+	orderPrice := s.roundPrice(price)
+	quantity := s.strategyCfg.BaseOrderAmount / orderPrice
+
 	// 🔥 精度处理：根据交易所要求的精度截断数量
 	qDec := s.exchange.GetQuantityDecimals()
 	quantity = math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
@@ -460,7 +460,7 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 
 	layer := &DCALayer{
 		Index:    0,
-		Price:    price,
+		Price:    orderPrice,
 		Quantity: quantity,
 		Cost:     s.strategyCfg.BaseOrderAmount,
 		Status:   "pending",
@@ -471,7 +471,7 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 		Symbol:   s.strategyCfg.Symbol,
 		Side:     "BUY",
 		Quantity: quantity,
-		Price:    price,
+		Price:    orderPrice,
 	})
 
 	if err != nil {
@@ -511,7 +511,8 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 
 	// 计算安全订单金额（递增）
 	orderAmount := s.strategyCfg.SafetyOrderAmount * math.Pow(s.strategyCfg.SafetyOrderScale, float64(s.currentLayer-1))
-	quantity := orderAmount / price
+	orderPrice := s.roundPrice(price)
+	quantity := orderAmount / orderPrice
 
 	// 🔥 精度处理：根据交易所要求的精度截断数量
 	qDec := s.exchange.GetQuantityDecimals()
@@ -524,7 +525,7 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 
 	layer := &DCALayer{
 		Index:    s.currentLayer,
-		Price:    price,
+		Price:    orderPrice,
 		Quantity: quantity,
 		Cost:     orderAmount,
 		Status:   "pending",
@@ -535,7 +536,7 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 		Symbol:   s.strategyCfg.Symbol,
 		Side:     "BUY",
 		Quantity: quantity,
-		Price:    price,
+		Price:    orderPrice,
 	})
 
 	if err != nil {
@@ -661,12 +662,14 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 		return nil
 	}
 
+	orderPrice := s.roundPrice(price)
+
 	// 下卖单
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
 		Symbol:   s.strategyCfg.Symbol,
 		Side:     "SELL",
 		Quantity: qty,
-		Price:    price,
+		Price:    orderPrice,
 	})
 
 	if err != nil {

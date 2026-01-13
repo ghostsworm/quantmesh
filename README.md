@@ -174,6 +174,10 @@ quantmesh_platform/
 
 ### Usage
 
+#### Production Mode
+
+Run the compiled binary:
+
 ```bash
 go run main.go
 ```
@@ -184,6 +188,49 @@ Or build and run:
 go build -o quantmesh
 ./quantmesh
 ```
+
+The backend will serve the frontend static files on port 28888 (default).
+
+#### Development Mode
+
+For frontend development with hot reload and source code debugging:
+
+**Option 1: Use the development script (Recommended)**
+
+```bash
+./dev.sh
+```
+
+This script will:
+- Start the Go backend server on port 28888
+- Start the Vite dev server on port 15173
+- Enable hot reload for frontend code changes
+- Provide source maps for debugging (no minified code)
+
+Then access the application at: **http://localhost:15173**
+
+**Option 2: Manual startup**
+
+Terminal 1 - Start Go backend:
+```bash
+go run main.go
+```
+
+Terminal 2 - Start Vite dev server:
+```bash
+cd webui
+pnpm dev
+```
+
+Then access the application at: **http://localhost:15173**
+
+**Development Mode Benefits:**
+- ✅ Hot reload - Frontend code changes are instantly reflected
+- ✅ Source maps - Debug with original TypeScript/React code (not minified)
+- ✅ Fast refresh - React components update without losing state
+- ✅ Better error messages - See actual file names and line numbers
+
+**Note:** In development mode, the Vite dev server proxies API requests (`/api/*`) and WebSocket connections (`/ws`) to the Go backend running on port 28888.
 
 ## 🏗️ Architecture
 

@@ -20,8 +20,12 @@ import {
   Divider,
   Badge,
   useColorModeValue,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
 } from '@chakra-ui/react'
-import { ChevronDownIcon, ChevronUpIcon, DeleteIcon, AddIcon } from '@chakra-ui/icons'
+import { ChevronDownIcon, ChevronUpIcon, DeleteIcon, AddIcon, DownloadIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import type { ProfitWithdrawRule, WithdrawFrequency, WithdrawDestination } from '../../types/profit'
 
@@ -41,6 +45,30 @@ const DEFAULT_RULE: Omit<ProfitWithdrawRule, 'id' | 'createdAt' | 'updatedAt'> =
   destination: 'account',
   minWithdrawAmount: 10,
 }
+
+// 预设规则模板
+const PRESET_RULES: Array<Omit<ProfitWithdrawRule, 'id' | 'createdAt' | 'updatedAt' | 'exchangeId'>> = [
+  {
+    // 保守型：盈利达到100 USDT时，提取50%，最小提取10 USDT
+    strategyId: '',
+    enabled: true,
+    triggerAmount: 100,
+    withdrawRatio: 0.5, // 50%
+    frequency: 'immediate',
+    destination: 'account',
+    minWithdrawAmount: 10,
+  },
+  {
+    // 激进型：盈利达到200 USDT时，提取30%，最小提取20 USDT
+    strategyId: '',
+    enabled: true,
+    triggerAmount: 200,
+    withdrawRatio: 0.3, // 30%
+    frequency: 'daily',
+    destination: 'account',
+    minWithdrawAmount: 20,
+  },
+]
 
 const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
   rules,
@@ -65,6 +93,53 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
       updatedAt: new Date().toISOString(),
     }
     setLocalRules([...localRules, newRule])
+  }
+
+  const handleImportPreset = (presetIndex: number) => {
+    const preset = PRESET_RULES[presetIndex]
+    if (!preset) return
+
+    // 从现有规则中获取 exchangeId，如果没有则使用空字符串
+    const exchangeId = localRules.length > 0 ? localRules[0].exchangeId : ''
+
+    const newRule: ProfitWithdrawRule = {
+      ...preset,
+      exchangeId,
+      id: `temp-${Date.now()}-${presetIndex}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    setLocalRules([...localRules, newRule])
+    
+    toast({
+      title: presetIndex === 0 ? '已导入保守型规则' : '已导入激进型规则',
+      description: presetIndex === 0 
+        ? '盈利达到100 USDT时提取50%，最小提取10 USDT'
+        : '盈利达到200 USDT时提取30%，最小提取20 USDT',
+      status: 'success',
+      duration: 3000,
+    })
+  }
+
+  const handleImportBothPresets = () => {
+    // 从现有规则中获取 exchangeId，如果没有则使用空字符串
+    const exchangeId = localRules.length > 0 ? localRules[0].exchangeId : ''
+
+    const newRules: ProfitWithdrawRule[] = PRESET_RULES.map((preset, index) => ({
+      ...preset,
+      exchangeId,
+      id: `temp-${Date.now()}-${index}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }))
+    setLocalRules([...localRules, ...newRules])
+    
+    toast({
+      title: '已导入两条预设规则',
+      description: '保守型：盈利100 USDT提取50% | 激进型：盈利200 USDT提取30%',
+      status: 'success',
+      duration: 3000,
+    })
   }
 
   const handleRemoveRule = (ruleId: string) => {
@@ -124,6 +199,28 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
           >
             {t('profitManagement.addRule')}
           </Button>
+          <Menu>
+            <MenuButton
+              as={Button}
+              size="sm"
+              leftIcon={<DownloadIcon />}
+              variant="outline"
+              colorScheme="blue"
+            >
+              快捷导入
+            </MenuButton>
+            <MenuList>
+              <MenuItem onClick={() => handleImportPreset(0)}>
+                保守型规则（盈利100 USDT提取50%）
+              </MenuItem>
+              <MenuItem onClick={() => handleImportPreset(1)}>
+                激进型规则（盈利200 USDT提取30%）
+              </MenuItem>
+              <MenuItem onClick={handleImportBothPresets}>
+                导入两条预设规则
+              </MenuItem>
+            </MenuList>
+          </Menu>
           <IconButton
             aria-label="Toggle rules"
             icon={isOpen ? <ChevronUpIcon /> : <ChevronDownIcon />}

@@ -232,18 +232,22 @@ build_frontend() {
         # 检查 node_modules，如果没有则安装
         if [ ! -d "node_modules" ]; then
             log_info "安装前端依赖..."
-            if command -v yarn >/dev/null 2>&1; then
+            if command -v pnpm >/dev/null 2>&1; then
+                pnpm install
+            elif command -v yarn >/dev/null 2>&1; then
                 yarn install
             elif command -v npm >/dev/null 2>&1; then
                 npm install
             else
-                log_error "未找到 yarn 或 npm，无法构建前端"
+                log_error "未找到 pnpm、yarn 或 npm，无法构建前端"
                 return 1
             fi
         fi
         
-        # 构建前端
-        if command -v yarn >/dev/null 2>&1; then
+        # 构建前端（优先使用 pnpm）
+        if command -v pnpm >/dev/null 2>&1; then
+            pnpm run build
+        elif command -v yarn >/dev/null 2>&1; then
             yarn build
         else
             npm run build

@@ -56,6 +56,8 @@ type OrderRequest struct {
 	ReduceOnly    bool   // 是否只减仓（平仓单）
 	PostOnly      bool   // 是否只做 Maker（Post Only）
 	ClientOrderID string // 自定义订单ID
+	StrategyName  string // 策略名称（可选，用于日志追踪）
+	StrategyType  string // 策略类型（可选，如 "grid", "dca", "martingale"）
 }
 
 // Order 订单信息（避免循环导入）
@@ -1247,6 +1249,14 @@ func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count in
 		}
 		// 使用检测到的价格精度进行舍入
 		price = roundPrice(price, spm.priceDecimals)
+		
+		// 验证价格有效性：跳过无效价格（负数或零）
+		if price <= 0 {
+			logger.Warn("⚠️ [%s] 跳过无效槽位价格 %.8f（方向=%s, 索引=%d, 网格价格=%.2f, 间隔=%.4f）",
+				spm.config.Trading.Symbol, price, direction, i, gridPrice, priceInterval)
+			continue
+		}
+		
 		prices = append(prices, price)
 	}
 

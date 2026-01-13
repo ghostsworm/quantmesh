@@ -317,11 +317,11 @@ const AppContent: React.FC = () => {
 
         <Box 
           flex="1" 
-          ml={{ base: 0, md: '240px' }} 
+          ml={{ base: 0, md: 'var(--sidebar-width, 200px)' }} 
           bg={contentBg}
           minH="calc(100vh - 56px)"
           position="relative"
-          transition="margin-left 0.3s"
+          transition="margin-left 0.3s ease"
           pb={isMobile ? '60px' : 0}
         >
           {/* Subtle Background Accent */}
@@ -386,6 +386,7 @@ const AppContent: React.FC = () => {
 const ThemedApp: React.FC = () => {
   return (
     <ChakraProvider theme={lightTheme}>
+      <ConnectionStatusBanner />
       <AppContent />
     </ChakraProvider>
   )
@@ -396,7 +397,6 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <SymbolProvider>
-          <ConnectionStatusBanner />
           <ThemedApp />
         </SymbolProvider>
       </AuthProvider>

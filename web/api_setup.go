@@ -140,7 +140,7 @@ func initSetupHandler(c *gin.Context) {
 
 	// 设置交易所
 	if cfg.App.CurrentExchange == "" {
-		cfg.App.CurrentExchange = req.Exchange
+	cfg.App.CurrentExchange = req.Exchange
 	}
 
 	// 设置交易所配置

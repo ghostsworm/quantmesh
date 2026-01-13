@@ -1,25 +1,22 @@
 package ai
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 )
 
 // RiskAssessor AI 风险评估器
 // 在策略启动前进行智能风险评估
 type RiskAssessor struct {
-	client *GeminiClient
+	client GeminiClient
 }
 
 // NewRiskAssessor 创建风险评估器
-func NewRiskAssessor(apiKey string) *RiskAssessor {
+func NewRiskAssessor(apiKey string, accessMode string, proxyBaseURL string, proxyUsername string, proxyPassword string) *RiskAssessor {
 	return &RiskAssessor{
-		client: NewGeminiClient(apiKey),
+		client: NewGeminiClient(apiKey, accessMode, proxyBaseURL, proxyUsername, proxyPassword),
 	}
 }
 
@@ -105,70 +102,11 @@ func (r *RiskAssessor) AssessRisk(ctx context.Context, req *RiskAssessmentReques
 	// 定义 JSON Schema
 	schema := r.buildSchema()
 
-	geminiReq := map[string]interface{}{
-		"contents": []map[string]interface{}{
-			{
-				"parts": []map[string]interface{}{
-					{"text": prompt},
-				},
-			},
-		},
-		"generationConfig": map[string]interface{}{
-			"temperature":      0.3, // 降低温度以获得更一致的评估
-			"topK":             40,
-			"topP":             0.95,
-			"responseMimeType": "application/json",
-			"responseSchema":   schema,
-		},
-	}
-
-	jsonData, err := json.Marshal(geminiReq)
+	// 使用接口方法生成内容
+	aiText, err := r.client.GenerateContent(ctx, prompt, schema)
 	if err != nil {
-		return nil, fmt.Errorf("序列化请求失败: %w", err)
+		return nil, err
 	}
-
-	url := fmt.Sprintf("%s/models/gemini-3-flash-preview:generateContent?key=%s", r.client.baseURL, r.client.apiKey)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := r.client.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API 返回错误: %d - %s", resp.StatusCode, string(body))
-	}
-
-	var geminiResp struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
-	}
-
-	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("AI 未返回有效响应")
-	}
-
-	aiText := geminiResp.Candidates[0].Content.Parts[0].Text
-	aiText = strings.TrimPrefix(aiText, "```json")
-	aiText = strings.TrimPrefix(aiText, "```")
-	aiText = strings.TrimSuffix(aiText, "```")
-	aiText = strings.TrimSpace(aiText)
 
 	var result RiskAssessmentResponse
 	if err := json.Unmarshal([]byte(aiText), &result); err != nil {

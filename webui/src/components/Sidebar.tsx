@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Box,
   VStack,
@@ -7,6 +7,8 @@ import {
   Flex,
   Divider,
   Heading,
+  IconButton,
+  Tooltip,
 } from '@chakra-ui/react'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -30,6 +32,8 @@ import {
   MoonIcon,
   ExternalLinkIcon,
   CheckCircleIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from '@chakra-ui/icons'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useTranslation } from 'react-i18next'
@@ -43,29 +47,31 @@ interface NavItemProps {
   to: string
   isActive?: boolean
   onClick?: () => void
+  collapsed?: boolean
 }
 
-const NavItem: React.FC<NavItemProps> = ({ icon, children, to, isActive, onClick }) => {
+const NavItem: React.FC<NavItemProps> = ({ icon, children, to, isActive, onClick, collapsed = false }) => {
   const activeBg = 'blue.50'
   const activeColor = 'blue.600'
   const hoverBg = 'gray.50'
   const textColor = 'gray.600'
 
-  return (
+  const navContent = (
     <MotionFlex
       as={RouterLink}
       to={to}
       align="center"
-      px="4"
+      justify={collapsed ? 'center' : 'flex-start'}
+      px={collapsed ? "2" : "4"}
       py="2.5"
-      mx="3"
+      mx={collapsed ? "2" : "3"}
       borderRadius="xl"
       role="group"
       cursor="pointer"
       bg={isActive ? activeBg : 'transparent'}
       color={isActive ? activeColor : textColor}
       onClick={onClick}
-      whileHover={{ x: 4 }}
+      whileHover={collapsed ? { scale: 1.05 } : { x: 4 }}
       whileTap={{ scale: 0.98 }}
       _hover={{
         bg: isActive ? activeBg : hoverBg,
@@ -76,7 +82,7 @@ const NavItem: React.FC<NavItemProps> = ({ icon, children, to, isActive, onClick
       position="relative"
     >
       <Icon
-        mr="3"
+        mr={collapsed ? "0" : "3"}
         fontSize="18"
         as={icon}
         color={isActive ? activeColor : 'inherit'}
@@ -84,11 +90,13 @@ const NavItem: React.FC<NavItemProps> = ({ icon, children, to, isActive, onClick
           color: isActive ? activeColor : 'blue.500',
         }}
       />
-      <Text fontSize="sm" fontWeight={isActive ? '600' : 'medium'} letterSpacing="tight">
-        {children}
-      </Text>
+      {!collapsed && (
+        <Text fontSize="sm" fontWeight={isActive ? '600' : 'medium'} letterSpacing="tight">
+          {children}
+        </Text>
+      )}
       
-      {isActive && (
+      {isActive && !collapsed && (
         <MotionBox
           layoutId="active-pill"
           position="absolute"
@@ -103,6 +111,17 @@ const NavItem: React.FC<NavItemProps> = ({ icon, children, to, isActive, onClick
       )}
     </MotionFlex>
   )
+
+  // 只在收起状态时显示 Tooltip
+  if (collapsed) {
+    return (
+      <Tooltip label={children} placement="right" hasArrow>
+        {navContent}
+      </Tooltip>
+    )
+  }
+
+  return navContent
 }
 
 interface SidebarProps {
@@ -110,13 +129,25 @@ interface SidebarProps {
   isDrawer?: boolean
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
+
 const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
   const { isGlobalView, selectedSymbol } = useSymbol()
   const location = useLocation()
   const { t } = useTranslation()
   
+  // 从 localStorage 读取收起状态，默认展开
+  const [collapsed, setCollapsed] = useState(() => {
+    if (isDrawer) return false // 移动端不收起
+    const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    return saved === 'true'
+  })
+  
   const bgColor = 'rgba(255, 255, 255, 0.8)'
   const borderColor = 'gray.100'
+  
+  // 宽度：收起时 64px，展开时 200px（比原来的 240px 更窄）
+  const sidebarWidth = collapsed ? '64px' : '200px'
 
   const isRouteActive = (path: string) => {
     if (path === '/' && location.pathname === '/') return true
@@ -128,6 +159,29 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
     stiffness: 300,
     damping: 30
   }
+
+  const toggleCollapse = () => {
+    const newCollapsed = !collapsed
+    setCollapsed(newCollapsed)
+    if (!isDrawer) {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(newCollapsed))
+    }
+  }
+
+  // 同步更新主内容区域的左边距和 CSS 变量
+  useEffect(() => {
+    if (!isDrawer) {
+      const root = document.documentElement
+      root.style.setProperty('--sidebar-width', sidebarWidth)
+    }
+    return () => {
+      // 清理时恢复默认值
+      if (!isDrawer) {
+        const root = document.documentElement
+        root.style.setProperty('--sidebar-width', '200px')
+      }
+    }
+  }, [sidebarWidth, isDrawer])
 
   return (
     <Box
@@ -143,8 +197,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
       backdropFilter={isDrawer ? 'none' : 'blur(20px)'}
       borderRight={isDrawer ? 'none' : '1px solid'}
       borderRightColor={borderColor}
-      w={isDrawer ? 'full' : '240px'}
+      w={isDrawer ? 'full' : sidebarWidth}
       zIndex="10"
+      transition="width 0.3s ease"
       css={{
         '&::-webkit-scrollbar': {
           width: '4px',
@@ -159,16 +214,34 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
       }}
     >
       <VStack align="stretch" spacing={1} mt={isDrawer ? 10 : 5}>
-        <Box px="7" mb="2">
-          <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-            {t('common.global')}
-          </Heading>
-        </Box>
+        {/* 收起/展开按钮 */}
+        {!isDrawer && (
+          <Flex justify="flex-end" px={2} py={2}>
+            <IconButton
+              aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+              icon={collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+              size="sm"
+              variant="ghost"
+              onClick={toggleCollapse}
+              borderRadius="md"
+              _hover={{ bg: 'gray.100' }}
+            />
+          </Flex>
+        )}
+        
+        {!collapsed && (
+          <Box px="7" mb="2">
+            <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
+              {t('common.global')}
+            </Heading>
+          </Box>
+        )}
         <NavItem 
           icon={InfoIcon} 
           to="/" 
           isActive={isRouteActive('/') && isGlobalView}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.overview')}
         </NavItem>
@@ -177,6 +250,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/system-monitor" 
           isActive={isRouteActive('/system-monitor')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.performanceMonitor')}
         </NavItem>
@@ -185,6 +259,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/events" 
           isActive={isRouteActive('/events')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.eventCenter')}
         </NavItem>
@@ -193,6 +268,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/logs" 
           isActive={isRouteActive('/logs')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.runLogs')}
         </NavItem>
@@ -201,6 +277,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/ai-prompts" 
           isActive={isRouteActive('/ai-prompts')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.aiPrompts')}
         </NavItem>
@@ -209,6 +286,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/ai-config" 
           isActive={isRouteActive('/ai-config')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.aiConfig')}
         </NavItem>
@@ -217,6 +295,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/strategy-market" 
           isActive={isRouteActive('/strategy-market')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.strategyMarket')}
         </NavItem>
@@ -225,6 +304,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/capital-management" 
           isActive={isRouteActive('/capital-management')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.capitalManagement')}
         </NavItem>
@@ -233,6 +313,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/profit-management" 
           isActive={isRouteActive('/profit-management')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.profitManagement')}
         </NavItem>
@@ -246,18 +327,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               transition={menuTransition}
               overflow="hidden"
             >
-              <Divider my={4} mx="6" borderColor={borderColor} />
+              <Divider my={4} mx={collapsed ? "2" : "6"} borderColor={borderColor} />
               
-              <Box px="7" mb="2">
-                <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-                  {t('common.trading')}: {selectedSymbol}
-                </Heading>
-              </Box>
+              {!collapsed && (
+                <Box px="7" mb="2">
+                  <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
+                    {t('common.trading')}: {selectedSymbol}
+                  </Heading>
+                </Box>
+              )}
               <NavItem 
                 icon={ViewIcon} 
                 to="/" 
                 isActive={isRouteActive('/') && !isGlobalView}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.tradingPanel')}
               </NavItem>
@@ -266,6 +350,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/positions" 
                 isActive={isRouteActive('/positions')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.currentPositions')}
               </NavItem>
@@ -274,6 +359,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/orders" 
                 isActive={isRouteActive('/orders')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.orderManagement')}
               </NavItem>
@@ -282,6 +368,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/slots" 
                 isActive={isRouteActive('/slots')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.strategySlots')}
               </NavItem>
@@ -290,6 +377,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/strategies" 
                 isActive={isRouteActive('/strategies')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.strategyAllocation')}
               </NavItem>
@@ -298,6 +386,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/statistics" 
                 isActive={isRouteActive('/statistics')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.profitStatistics')}
               </NavItem>
@@ -306,6 +395,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/reconciliation" 
                 isActive={isRouteActive('/reconciliation')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.reconciliation')}
               </NavItem>
@@ -314,6 +404,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/risk" 
                 isActive={isRouteActive('/risk')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.riskMonitor')}
               </NavItem>
@@ -322,6 +413,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/kline" 
                 isActive={isRouteActive('/kline')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.klineDepth')}
               </NavItem>
@@ -330,6 +422,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/funding-rate" 
                 isActive={isRouteActive('/funding-rate')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.fundingRate')}
               </NavItem>
@@ -338,6 +431,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 to="/basis-monitor" 
                 isActive={isRouteActive('/basis-monitor')}
                 onClick={onNavItemClick}
+                collapsed={collapsed}
               >
                 {t('sidebar.basisMonitor')}
               </NavItem>
@@ -345,18 +439,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           )}
         </AnimatePresence>
 
-        <Divider my={4} mx="6" borderColor={borderColor} />
+        <Divider my={4} mx={collapsed ? "2" : "6"} borderColor={borderColor} />
 
-        <Box px="7" mb="2">
-          <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-            {t('common.system')}
-          </Heading>
-        </Box>
+        {!collapsed && (
+          <Box px="7" mb="2">
+            <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
+              {t('common.system')}
+            </Heading>
+          </Box>
+        )}
         <NavItem 
           icon={SettingsIcon} 
           to="/config" 
           isActive={isRouteActive('/config')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.configManagement')}
         </NavItem>
@@ -365,6 +462,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/wizard" 
           isActive={isRouteActive('/wizard')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.firstTimeWizard')}
         </NavItem>
@@ -373,6 +471,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           to="/profile" 
           isActive={isRouteActive('/profile')}
           onClick={onNavItemClick}
+          collapsed={collapsed}
         >
           {t('sidebar.profile')}
         </NavItem>

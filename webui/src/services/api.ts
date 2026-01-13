@@ -1101,6 +1101,21 @@ export interface SymbolCapitalConfig {
   capital: number
 }
 
+// 并行策略实例 (从 config.ts 复制或引用)
+export interface StrategyInstance {
+  type: string
+  weight: number
+  config: Record<string, any>
+}
+
+// 提现策略 - 从 config.ts 导入
+export { 
+  type WithdrawalPolicy, 
+  type TieredWithdrawRule, 
+  type PrincipalProtection, 
+  type WithdrawSchedule 
+} from './config'
+
 export interface AIGenerateConfigRequest {
   exchange: string
   symbols: string[]
@@ -1109,6 +1124,15 @@ export interface AIGenerateConfigRequest {
   capital_mode: 'total' | 'per_symbol'  // 资金配置模式
   risk_profile: 'conservative' | 'balanced' | 'aggressive'
   gemini_api_key?: string  // 可选的 Gemini API Key，如果提供则临时使用
+  access_mode?: 'native' | 'proxy'  // 可选的访问模式
+  proxy_base_url?: string  // 可选的代理服务地址
+  proxy_username?: string  // 可选的 Basic Auth 用户名
+  proxy_password?: string  // 可选的 Basic Auth 密码
+  
+  // 资产优先重构新增字段
+  symbol_allocations?: Record<string, number> // 币种比例分配 symbol -> weight (0-1)
+  strategy_splits?: Record<string, StrategyInstance[]> // 每个币种的策略分配
+  withdrawal_policy?: WithdrawalPolicy // 提现策略
 }
 
 export interface AIGridConfig {
@@ -1135,10 +1159,25 @@ export interface AIAllocationConfig {
   max_percentage: number
 }
 
+// 对应后端 SymbolConfig
+export interface AISymbolConfig {
+  exchange: string
+  symbol: string
+  total_allocated_capital: number
+  strategies: StrategyInstance[]
+  withdrawal_policy: WithdrawalPolicy
+  price_interval: number
+  order_quantity: number
+  buy_window_size: number
+  sell_window_size: number
+  grid_risk_control?: any
+}
+
 export interface AIGenerateConfigResponse {
   explanation: string
   grid_config: AIGridConfig[]
   allocation: AIAllocationConfig[]
+  symbols_config?: AISymbolConfig[] // 新增：分级资产配置结果
 }
 
 export async function generateAIConfig(request: AIGenerateConfigRequest): Promise<AIGenerateConfigResponse> {

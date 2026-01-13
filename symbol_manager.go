@@ -421,7 +421,7 @@ func startSymbolRuntime(
 
 		if martinCfg, exists := localCfg.Strategies.Configs["martingale"]; exists && martinCfg.Enabled {
 			martinExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "martingale")
-			martinStrategy := strategy.NewMartingaleStrategy("martingale", &localCfg, martinExecutor, exchangeAdapter, martinCfg.Config)
+			martinStrategy := strategy.NewMartingaleStrategy("martingale", symCfg.Symbol, &localCfg, martinExecutor, exchangeAdapter, martinCfg.Config)
 			fixedPool := 0.0
 			if pool, ok := martinCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool
@@ -432,7 +432,7 @@ func startSymbolRuntime(
 
 		if dcaEnhancedCfg, exists := localCfg.Strategies.Configs["dca_enhanced"]; exists && dcaEnhancedCfg.Enabled {
 			dcaEnhancedExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca_enhanced")
-			dcaEnhancedStrategy := strategy.NewDCAEnhancedStrategy("dca_enhanced", &localCfg, dcaEnhancedExecutor, exchangeAdapter, dcaEnhancedCfg.Config)
+			dcaEnhancedStrategy := strategy.NewDCAEnhancedStrategy("dca_enhanced", symCfg.Symbol, &localCfg, dcaEnhancedExecutor, exchangeAdapter, dcaEnhancedCfg.Config)
 			fixedPool := 0.0
 			if pool, ok := dcaEnhancedCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool
@@ -443,7 +443,7 @@ func startSymbolRuntime(
 
 		if comboCfg, exists := localCfg.Strategies.Configs["combo"]; exists && comboCfg.Enabled {
 			comboExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "combo")
-			comboStrategy := strategy.NewComboStrategy("combo", &localCfg, comboExecutor, exchangeAdapter, comboCfg.Config)
+			comboStrategy := strategy.NewComboStrategy("combo", symCfg.Symbol, &localCfg, comboExecutor, exchangeAdapter, comboCfg.Config)
 			fixedPool := 0.0
 			if pool, ok := comboCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool

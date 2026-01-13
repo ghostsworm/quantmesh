@@ -392,6 +392,16 @@ type Config struct {
 		APIKey       string `yaml:"api_key"`
 		GeminiAPIKey string `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果为空则使用 api_key）
 		BaseURL      string `yaml:"base_url"`       // 可选，用于自定义API端点
+		
+		// 访问模式配置
+		AccessMode string `yaml:"access_mode"` // native: 直接访问 Google Gemini API, proxy: 通过中转服务访问
+		
+		// 代理服务配置（当 access_mode 为 proxy 时使用）
+		Proxy struct {
+			BaseURL  string `yaml:"base_url"`  // 代理服务地址，默认 https://gemini.facev.app
+			Username string `yaml:"username"`   // Basic Auth 用户名，默认 admin123
+			Password string `yaml:"password"`   // Basic Auth 密码，默认 admin123
+		} `yaml:"proxy"`
 
 		// 各模块开关
 		Modules struct {
@@ -471,21 +481,85 @@ type Config struct {
 	} `yaml:"ai"`
 }
 
+// WithdrawalPolicy 提现策略（利润保护）
+type WithdrawalPolicy struct {
+	Enabled   bool    `yaml:"enabled" json:"enabled"`
+	Threshold float64 `yaml:"threshold" json:"threshold"` // 触发提现的利润比例 (如 0.1 表示 10%)
+
+	// ===== 划转模式 =====
+	Mode string `yaml:"mode" json:"mode"` // threshold(阈值触发), fixed(固定金额), tiered(阶梯), scheduled(定时)
+
+	// ===== 固定金额模式 =====
+	FixedAmount float64 `yaml:"fixed_amount" json:"fixed_amount"` // 每次划转的固定金额 (USDT)
+
+	// ===== 阶梯划转模式 =====
+	TieredRules []TieredWithdrawRule `yaml:"tiered_rules" json:"tiered_rules"` // 阶梯划转规则
+
+	// ===== 划转比例 =====
+	WithdrawRatio float64 `yaml:"withdraw_ratio" json:"withdraw_ratio"` // 划转比例 (0-1)，如 0.5 表示划转利润的 50%
+
+	// ===== 本金保护 =====
+	PrincipalProtection PrincipalProtection `yaml:"principal_protection" json:"principal_protection"`
+
+	// ===== 定时划转 =====
+	Schedule WithdrawSchedule `yaml:"schedule" json:"schedule"`
+
+	// ===== 复利设置 =====
+	CompoundRatio float64 `yaml:"compound_ratio" json:"compound_ratio"` // 复利比例 (0-1)，剩余部分划转
+
+	// ===== 目标账户 =====
+	TargetWallet string `yaml:"target_wallet" json:"target_wallet"` // spot(现货), funding(资金账户), external(外部地址)
+}
+
+// TieredWithdrawRule 阶梯划转规则
+type TieredWithdrawRule struct {
+	ProfitThreshold float64 `yaml:"profit_threshold" json:"profit_threshold"` // 利润阈值 (如 0.1 表示 10%)
+	WithdrawRatio   float64 `yaml:"withdraw_ratio" json:"withdraw_ratio"`     // 达到该阈值时划转的比例
+}
+
+// PrincipalProtection 本金保护设置
+type PrincipalProtection struct {
+	Enabled              bool    `yaml:"enabled" json:"enabled"`
+	BreakevenProtection  bool    `yaml:"breakeven_protection" json:"breakeven_protection"`     // 回本即保护（设置保本止损）
+	WithdrawPrincipal    bool    `yaml:"withdraw_principal" json:"withdraw_principal"`         // 盈利足够时划转本金
+	PrincipalWithdrawAt  float64 `yaml:"principal_withdraw_at" json:"principal_withdraw_at"`   // 利润达到多少时划转本金 (如 1.0 表示利润=本金时)
+	MaxLossRatio         float64 `yaml:"max_loss_ratio" json:"max_loss_ratio"`                 // 最大亏损比例 (如 0.2 表示最多亏损本金的 20%)
+}
+
+// WithdrawSchedule 定时划转设置
+type WithdrawSchedule struct {
+	Enabled   bool   `yaml:"enabled" json:"enabled"`
+	Frequency string `yaml:"frequency" json:"frequency"` // daily, weekly, monthly
+	DayOfWeek int    `yaml:"day_of_week" json:"day_of_week"` // 周几 (1-7, 仅 weekly 模式)
+	DayOfMonth int   `yaml:"day_of_month" json:"day_of_month"` // 每月几号 (1-31, 仅 monthly 模式)
+	TimeOfDay  string `yaml:"time_of_day" json:"time_of_day"` // 时间 (如 "23:00")
+}
+
+// StrategyInstance 币种下的策略实例
+type StrategyInstance struct {
+	Type   string                 `yaml:"type" json:"type"`     // grid, dca, etc.
+	Weight float64                `yaml:"weight" json:"weight"` // 资金占比 (0-1)
+	Config map[string]interface{} `yaml:"config" json:"config"` // 策略专属配置
+}
+
 // SymbolConfig 单个交易对配置（可指定所属交易所及交易参数）
 type SymbolConfig struct {
-	Exchange              string  `yaml:"exchange" json:"exchange"`                                 // 所属交易所，默认为 app.current_exchange
-	Symbol                string  `yaml:"symbol" json:"symbol"`                                     // 交易对，如 BTCUSDT
-	PriceInterval         float64 `yaml:"price_interval" json:"price_interval"`                     // 价格间隔
-	OrderQuantity         float64 `yaml:"order_quantity" json:"order_quantity"`                     // 每单金额（USDT/USDC）
-	MinOrderValue         float64 `yaml:"min_order_value" json:"min_order_value"`                   // 最小订单价值
-	BuyWindowSize         int     `yaml:"buy_window_size" json:"buy_window_size"`                   // 买单窗口
-	SellWindowSize        int     `yaml:"sell_window_size" json:"sell_window_size"`                 // 卖单窗口
-	ReconcileInterval     int     `yaml:"reconcile_interval" json:"reconcile_interval"`             // 对账间隔（秒）
-	OrderCleanupThreshold int     `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`   // 订单清理上限
-	CleanupBatchSize      int     `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`             // 清理批次大小
-	MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保证金锁定时间（秒）
-	PositionSafetyCheck   int     `yaml:"position_safety_check" json:"position_safety_check"`       // 持仓安全性检查
-	GridRiskControl       GridRiskControl `yaml:"grid_risk_control" json:"grid_risk_control"`       // 网格策略风控
+	Exchange              string           `yaml:"exchange" json:"exchange"`                                 // 所属交易所，默认为 app.current_exchange
+	Symbol                string           `yaml:"symbol" json:"symbol"`                                     // 交易对，如 BTCUSDT
+	TotalAllocatedCapital float64          `yaml:"total_allocated_capital" json:"total_allocated_capital"`   // 该币种分配的总资金
+	Strategies            []StrategyInstance `yaml:"strategies" json:"strategies"`                       // 运行在该币种上的策略列表
+	WithdrawalPolicy      WithdrawalPolicy   `yaml:"withdrawal_policy" json:"withdrawal_policy"`             // 提现策略
+	PriceInterval         float64          `yaml:"price_interval" json:"price_interval"`                     // 价格间隔
+	OrderQuantity         float64          `yaml:"order_quantity" json:"order_quantity"`                     // 每单金额（USDT/USDC）
+	MinOrderValue         float64          `yaml:"min_order_value" json:"min_order_value"`                   // 最小订单价值
+	BuyWindowSize         int              `yaml:"buy_window_size" json:"buy_window_size"`                   // 买单窗口
+	SellWindowSize        int              `yaml:"sell_window_size" json:"sell_window_size"`                 // 卖单窗口
+	ReconcileInterval     int              `yaml:"reconcile_interval" json:"reconcile_interval"`             // 对账间隔（秒）
+	OrderCleanupThreshold int              `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`   // 订单清理上限
+	CleanupBatchSize      int              `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`             // 清理批次大小
+	MarginLockDurationSec int              `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保证金锁定时间（秒）
+	PositionSafetyCheck   int              `yaml:"position_safety_check" json:"position_safety_check"`       // 持仓安全性检查
+	GridRiskControl       GridRiskControl  `yaml:"grid_risk_control" json:"grid_risk_control"`               // 网格策略风控
 }
 
 // StrategyConfig 策略配置
@@ -660,6 +734,10 @@ func CreateMinimalConfig() *Config {
 
 	cfg.AI.Enabled = false
 	cfg.AI.Provider = "gemini"
+	cfg.AI.AccessMode = "native" // 默认使用原生方式
+	cfg.AI.Proxy.BaseURL = "https://gemini.facev.app"
+	cfg.AI.Proxy.Username = "admin123"
+	cfg.AI.Proxy.Password = "admin123"
 	cfg.AI.DecisionMode = "hybrid"
 	cfg.AI.ExecutionRules.HighRiskThreshold = 0.8
 	cfg.AI.ExecutionRules.LowRiskThreshold = 0.3
@@ -907,6 +985,17 @@ func (c *Config) Validate() error {
 			}
 			if sc.GridRiskControl.TrailingTakeProfitRatio == 0 {
 				sc.GridRiskControl.TrailingTakeProfitRatio = c.Trading.GridRiskControl.TrailingTakeProfitRatio
+			}
+		}
+
+		// 验证策略占比
+		if len(sc.Strategies) > 0 {
+			var totalWeight float64
+			for _, s := range sc.Strategies {
+				totalWeight += s.Weight
+			}
+			if totalWeight > 1.001 { // 允许微小误差
+				return sc, fmt.Errorf("交易对 %s 的策略权重总和 (%.2f) 不能超过 1.0", sc.Symbol, totalWeight)
 			}
 		}
 

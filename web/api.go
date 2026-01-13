@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/ai"
+	"quantmesh/config"
 	"quantmesh/exchange"
 	qmi18n "quantmesh/i18n"
 	"quantmesh/logger"
@@ -4243,6 +4244,15 @@ func generateAIConfig(c *gin.Context) {
 		CapitalMode    string                 `json:"capital_mode"` // total 或 per_symbol
 		RiskProfile    string                 `json:"risk_profile"`
 		GeminiAPIKey   string                 `json:"gemini_api_key"` // 可选，前端传入的 API Key
+		AccessMode     string                 `json:"access_mode"`    // 可选，访问模式：native 或 proxy
+		ProxyBaseURL   string                 `json:"proxy_base_url"` // 可选，代理服务地址
+		ProxyUsername  string                 `json:"proxy_username"` // 可选，Basic Auth 用户名
+		ProxyPassword  string                 `json:"proxy_password"` // 可选，Basic Auth 密码
+
+		// 资产优先重构新增字段
+		SymbolAllocations map[string]float64               `json:"symbol_allocations"`
+		StrategySplits    map[string][]config.StrategyInstance `json:"strategy_splits"`
+		WithdrawalPolicy  config.WithdrawalPolicy          `json:"withdrawal_policy"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -4250,11 +4260,7 @@ func generateAIConfig(c *gin.Context) {
 		return
 	}
 
-	// 获取 Gemini API Key
-	// 优先使用请求中传入的 Key，否则使用配置文件中的 Key
-	geminiAPIKey := req.GeminiAPIKey
-	
-	if geminiAPIKey == "" {
+	// 获取配置
 	if configManager == nil {
 		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
 		return
@@ -4266,11 +4272,15 @@ func generateAIConfig(c *gin.Context) {
 		return
 	}
 
-	// 获取 Gemini API Key（优先使用 gemini_api_key，否则使用 api_key）
-		geminiAPIKey = cfg.AI.GeminiAPIKey
+	// 获取 Gemini API Key
+	// 优先使用请求中传入的 Key，否则使用配置文件中的 Key
+	geminiAPIKey := req.GeminiAPIKey
 	if geminiAPIKey == "" {
-		geminiAPIKey = cfg.AI.APIKey
-	}
+		// 获取 Gemini API Key（优先使用 gemini_api_key，否则使用 api_key）
+		geminiAPIKey = cfg.AI.GeminiAPIKey
+		if geminiAPIKey == "" {
+			geminiAPIKey = cfg.AI.APIKey
+		}
 	}
 	
 	if geminiAPIKey == "" {
@@ -4346,15 +4356,47 @@ func generateAIConfig(c *gin.Context) {
 	}
 
 	// 调用 Gemini API
-	geminiClient := ai.NewGeminiClient(geminiAPIKey)
+	// 获取 AI 访问模式配置（优先使用请求中的参数，否则使用配置文件中的）
+	accessMode := req.AccessMode
+	if accessMode == "" {
+		accessMode = cfg.AI.AccessMode
+	}
+	if accessMode == "" {
+		accessMode = "native" // 默认使用原生方式
+	}
+	
+	// 获取代理配置（优先使用请求中的参数，否则使用配置文件中的）
+	proxyBaseURL := req.ProxyBaseURL
+	if proxyBaseURL == "" {
+		proxyBaseURL = cfg.AI.Proxy.BaseURL
+	}
+	proxyUsername := req.ProxyUsername
+	if proxyUsername == "" {
+		proxyUsername = cfg.AI.Proxy.Username
+	}
+	proxyPassword := req.ProxyPassword
+	if proxyPassword == "" {
+		proxyPassword = cfg.AI.Proxy.Password
+	}
+	
+	geminiClient := ai.NewGeminiClient(
+		geminiAPIKey,
+		accessMode,
+		proxyBaseURL,
+		proxyUsername,
+		proxyPassword,
+	)
 	aiConfig, err := geminiClient.GenerateConfig(c.Request.Context(), &ai.GenerateConfigRequest{
-		Exchange:       req.Exchange,
-		Symbols:        req.Symbols,
-		TotalCapital:   req.TotalCapital,
-		SymbolCapitals: symbolCapitals,
-		CapitalMode:    capitalMode,
-		RiskProfile:    req.RiskProfile,
-		CurrentPrices:  currentPrices,
+		Exchange:          req.Exchange,
+		Symbols:           req.Symbols,
+		TotalCapital:      req.TotalCapital,
+		SymbolCapitals:    symbolCapitals,
+		CapitalMode:       capitalMode,
+		RiskProfile:       req.RiskProfile,
+		CurrentPrices:     currentPrices,
+		SymbolAllocations: req.SymbolAllocations,
+		StrategySplits:    req.StrategySplits,
+		WithdrawalPolicy:  req.WithdrawalPolicy,
 	})
 
 	if err != nil {

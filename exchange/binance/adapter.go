@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -59,6 +60,8 @@ type OrderRequest struct {
 	PostOnly      bool // 是否只做 Maker（使用 GTX）
 	PriceDecimals int
 	ClientOrderID string // 自定义订单ID
+	StrategyName  string // 策略名称（可选，用于日志追踪）
+	StrategyType  string // 策略类型（可选，如 "grid", "dca", "martingale"）
 }
 
 type Order struct {
@@ -222,6 +225,14 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 
 // PlaceOrder 下单
 func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	// 验证价格和数量
+	if req.Price <= 0 {
+		return nil, fmt.Errorf("无效的下单价格: %.8f（价格必须大于0）", req.Price)
+	}
+	if req.Quantity <= 0 {
+		return nil, fmt.Errorf("无效的下单数量: %.8f（数量必须大于0）", req.Quantity)
+	}
+
 	// 优先使用请求中指定的精度，如果没有则使用从交易所获取的精度
 	pDec := req.PriceDecimals
 	if pDec <= 0 {
@@ -232,10 +243,47 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 	priceStr := fmt.Sprintf("%.*f", pDec, req.Price)
 	quantityStr := fmt.Sprintf("%.*f", qDec, req.Quantity)
 
-	// 特殊处理：如果数量截断后为 0，则无法下单
+	// 特殊处理：如果数量截断后为 0，则用交易所允许的最小数量兜底，避免报错
 	q, _ := strconv.ParseFloat(quantityStr, 64)
 	if q <= 0 {
-		return nil, fmt.Errorf("下单数量 %.8f 在精度 %d 下截断后为 0，无法下单", req.Quantity, qDec)
+		originalQty := req.Quantity // 保存原始数量
+		minQty := math.Pow10(-qDec) // 例如精度3，则最小下单量为 0.001
+		quantityStr = fmt.Sprintf("%.*f", qDec, minQty)
+		req.Quantity = minQty
+		
+		// 构建策略信息字符串
+		strategyInfo := ""
+		if req.StrategyName != "" || req.StrategyType != "" {
+			if req.StrategyName != "" && req.StrategyType != "" {
+				strategyInfo = fmt.Sprintf("[策略:%s/%s] ", req.StrategyName, req.StrategyType)
+			} else if req.StrategyName != "" {
+				strategyInfo = fmt.Sprintf("[策略:%s] ", req.StrategyName)
+			} else if req.StrategyType != "" {
+				strategyInfo = fmt.Sprintf("[策略类型:%s] ", req.StrategyType)
+			}
+		}
+		
+		// 获取基础资产名称（用于显示单位）
+		baseAsset := b.baseAsset
+		if baseAsset == "" {
+			// 如果无法获取，尝试从 Symbol 中提取（BTCUSDT -> BTC）
+			if len(req.Symbol) > 4 {
+				baseAsset = req.Symbol[:len(req.Symbol)-4] // 假设最后4个字符是计价币种（如USDT）
+			} else {
+				baseAsset = "币"
+			}
+		}
+		
+		// 计算订单金额（USDT）
+		orderAmount := originalQty * req.Price
+		minOrderAmount := minQty * req.Price
+		
+		logger.Warn("⚠️ [Binance] [%s] %s下单数量精度截断警告："+
+			"原始数量=%.8f %s (订单金额=%.2f USDT)，"+
+			"在精度 %d 下格式化后为 0，已自动调整为最小下单量 %s %s (订单金额=%.2f USDT)",
+			req.Symbol, strategyInfo,
+			originalQty, baseAsset, orderAmount,
+			qDec, quantityStr, baseAsset, minOrderAmount)
 	}
 
 	// 根据 PostOnly 参数选择 TimeInForce

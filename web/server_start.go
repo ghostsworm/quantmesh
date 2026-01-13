@@ -52,13 +52,14 @@ func NewWebServer(cfg *config.Config) *WebServer {
 	SetupRoutes(r)
 
 	// 配置服务器
+	// 注意：AI 生成配置等长时间操作需要较长的超时时间
 	addr := fmt.Sprintf("%s:%d", cfg.Web.Host, cfg.Web.Port)
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  120 * time.Second, // 2 分钟读取超时
+		WriteTimeout: 180 * time.Second, // 3 分钟写入超时（AI 请求可能需要较长时间）
+		IdleTimeout:  120 * time.Second,
 	}
 
 	return &WebServer{

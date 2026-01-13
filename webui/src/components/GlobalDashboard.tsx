@@ -50,7 +50,7 @@ import {
 import { useSymbol } from '../contexts/SymbolContext'
 import { checkSetupStatus } from '../services/setup'
 import ConfirmDialog from './ConfirmDialog'
-import { Alert, AlertIcon, AlertTitle, AlertDescription, Box, Button } from '@chakra-ui/react'
+import { Alert, AlertIcon, AlertTitle, AlertDescription } from '@chakra-ui/react'
 
 const MotionBox = motion(Box)
 
