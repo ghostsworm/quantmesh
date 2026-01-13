@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -206,23 +207,40 @@ func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	records, err := reader.ReadAll()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(records) < 2 {
-		return nil, fmt.Errorf("缓存文件为空或格式错误")
-	}
-
+	
 	// 跳过表头
-	candles := make([]*exchange.Candle, 0, len(records)-1)
-	for i := 1; i < len(records); i++ {
-		candle, err := parseCSVRecord(records[i])
+	_, err = reader.Read()
+	if err != nil {
+		return nil, fmt.Errorf("读取表头失败: %w", err)
+	}
+
+	// 使用流式读取，避免一次性加载整个文件到内存
+	// 限制最大读取数量，防止内存占用过大
+	maxCandles := 1000000 // 最多100万根K线
+	candles := make([]*exchange.Candle, 0, 10000) // 预分配1万容量
+	
+	lineNum := 1
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
-			return nil, fmt.Errorf("解析第 %d 行失败: %w", i, err)
+			return nil, fmt.Errorf("读取第 %d 行失败: %w", lineNum+1, err)
+		}
+		
+		// 限制最大数量
+		if len(candles) >= maxCandles {
+			logger.Warn("⚠️ CSV 文件过大，只读取前 %d 根K线", maxCandles)
+			break
+		}
+		
+		candle, err := parseCSVRecord(record)
+		if err != nil {
+			return nil, fmt.Errorf("解析第 %d 行失败: %w", lineNum+1, err)
 		}
 		candles = append(candles, candle)
+		lineNum++
 	}
 
 	return candles, nil

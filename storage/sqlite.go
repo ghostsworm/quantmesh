@@ -555,6 +555,16 @@ func (s *SQLiteStorage) SaveStatistics(stats *Statistics) error {
 
 // QueryOrders 查询订单
 func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order, error) {
+	// 限制最大返回数量，防止内存占用过大
+	maxLimit := 10000 // 最多返回1万条订单
+	if limit <= 0 {
+		limit = 100 // 默认100条
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 订单查询 limit 超过限制 (%d)，已限制为 %d", limit, maxLimit)
+	}
+	
 	query := `
 		SELECT order_id, client_order_id, symbol, side, price, quantity, status, created_at, updated_at
 		FROM orders
@@ -601,6 +611,16 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 
 // QueryTrades 查询交易
 func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error) {
+	// 限制最大返回数量，防止内存占用过大
+	maxLimit := 10000 // 最多返回1万条交易
+	if limit <= 0 {
+		limit = 100 // 默认100条
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 交易查询 limit 超过限制 (%d)，已限制为 %d", limit, maxLimit)
+	}
+	
 	rows, err := s.db.Query(`
 		SELECT buy_order_id, sell_order_id, exchange, symbol, buy_price, sell_price, quantity, pnl, created_at
 		FROM trades
@@ -642,12 +662,16 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 
 // QueryStatistics 查询统计数据
 func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error) {
+	// 限制最大返回数量，防止内存占用过大
+	maxStats := 10000 // 最多返回1万条统计数据
+	
 	rows, err := s.db.Query(`
 		SELECT date, total_trades, total_volume, total_pnl, win_rate, created_at
 		FROM statistics
 		WHERE date >= ? AND date <= ?
 		ORDER BY date DESC
-	`, startDate, endDate)
+		LIMIT ?
+	`, startDate, endDate, maxStats)
 	if err != nil {
 		return nil, fmt.Errorf("查询统计数据失败: %w", err)
 	}
@@ -737,6 +761,9 @@ func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(startDate, endDate time.T
 
 // QueryDailyStatisticsByExchange 从 trades 表查询指定交易所的每日统计
 func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
+	// 限制最大返回数量，防止内存占用过大（分组后的结果通常不会太多，但还是要限制）
+	maxLimit := 3650 // 最多返回10年的每日统计（3650天）
+	
 	// 转换为日期字符串（YYYY-MM-DD格式）
 	startDateStr := startDate.Format("2006-01-02")
 	endDateStr := endDate.Format("2006-01-02")
@@ -762,7 +789,8 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange string, startDat
 		query += " AND exchange = ?"
 		args = append(args, exchange)
 	}
-	query += " GROUP BY date(created_at) ORDER BY date DESC"
+	query += " GROUP BY date(created_at) ORDER BY date DESC LIMIT ?"
+	args = append(args, maxLimit)
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -837,6 +865,16 @@ func (s *SQLiteStorage) SaveReconciliationHistory(history *ReconciliationHistory
 
 // QueryReconciliationHistory 查询对账历史
 func (s *SQLiteStorage) QueryReconciliationHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error) {
+	// 限制最大返回数量，防止内存占用过大
+	maxLimit := 10000 // 最多返回1万条对账记录
+	if limit <= 0 {
+		limit = 100 // 默认100条
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 对账历史查询 limit 超过限制 (%d)，已限制为 %d", limit, maxLimit)
+	}
+	
 	query := `
 		SELECT id, symbol, reconcile_time, local_position, exchange_position, position_diff,
 		       active_buy_orders, active_sell_orders, pending_sell_qty,
@@ -1002,6 +1040,8 @@ func (s *SQLiteStorage) GetPnLBySymbol(symbol string, startTime, endTime time.Ti
 
 // GetPnLByTimeRange 按时间区间查询盈亏数据（按币种对分组）
 func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLBySymbol, error) {
+	// 限制最大返回数量，防止内存占用过大（分组后的结果通常不会太多，但还是要限制）
+	maxLimit := 1000 // 最多返回1000个币种对
 	rows, err := s.db.Query(`
 		SELECT 
 			exchange,
@@ -1014,7 +1054,8 @@ func (s *SQLiteStorage) GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLB
 		WHERE created_at >= ? AND created_at <= ?
 		GROUP BY exchange, symbol
 		ORDER BY total_pnl DESC
-	`, startTime, endTime)
+		LIMIT ?
+	`, startTime, endTime, maxLimit)
 	if err != nil {
 		return nil, fmt.Errorf("查询盈亏数据失败: %w", err)
 	}
@@ -1244,6 +1285,16 @@ func (s *SQLiteStorage) GetLatestFundingRate(symbol, exchange string) (float64, 
 
 // GetFundingRateHistory 获取资金费率历史
 func (s *SQLiteStorage) GetFundingRateHistory(symbol, exchange string, limit int) ([]*FundingRate, error) {
+	// 限制最大返回数量，防止内存占用过大
+	maxLimit := 10000 // 最多返回1万条资金费率记录
+	if limit <= 0 {
+		limit = 100 // 默认100条
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 资金费率历史查询 limit 超过限制 (%d)，已限制为 %d", limit, maxLimit)
+	}
+	
 	query := `
 		SELECT id, symbol, exchange, rate, timestamp, created_at
 		FROM funding_rates
@@ -1378,8 +1429,14 @@ func (s *SQLiteStorage) GetLatestBasis(symbol, exchange string) (*BasisData, err
 
 // GetBasisHistory 获取价差历史数据
 func (s *SQLiteStorage) GetBasisHistory(symbol, exchange string, limit int) ([]*BasisData, error) {
+	// 限制最大返回数量，防止内存占用过大
+	maxLimit := 10000 // 最多返回1万条价差记录
 	if limit <= 0 {
-		limit = 100
+		limit = 100 // 默认100条
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 价差历史查询 limit 超过限制 (%d)，已限制为 %d", limit, maxLimit)
 	}
 
 	rows, err := s.db.Query(`

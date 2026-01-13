@@ -1406,9 +1406,19 @@ type DetailedSlotData struct {
 }
 
 // GetAllSlotsDetailed 获取所有槽位的详细信息
+// 注意：如果槽位数量很大，建议使用分页查询或限制数量
 func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
+	// 限制最大返回数量，防止内存占用过大
+	maxSlots := 10000 // 最多返回1万个槽位
 	var slots []DetailedSlotData
+	count := 0
+	
 	spm.slots.Range(func(key, value interface{}) bool {
+		if count >= maxSlots {
+			logger.Warn("⚠️ [槽位查询] 槽位数量超过限制 (%d)，只返回前 %d 个", maxSlots, maxSlots)
+			return false // 停止遍历
+		}
+		
 		price := key.(float64)
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
@@ -1428,6 +1438,7 @@ func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
 		})
 
 		slot.mu.RUnlock()
+		count++
 		return true
 	})
 	return slots
@@ -2215,4 +2226,41 @@ func (spm *SuperPositionManager) GetActiveLayers() int {
 		return true
 	})
 	return layers
+}
+
+// CleanupEmptySlots 清理空槽位（定期调用，防止 sync.Map 内存泄漏）
+// 清理条件：空仓、无订单、无订单历史
+func (spm *SuperPositionManager) CleanupEmptySlots() int {
+	var toDelete []float64
+
+	spm.slots.Range(func(key, value interface{}) bool {
+		price := key.(float64)
+		slot := value.(*InventorySlot)
+
+		slot.mu.RLock()
+		isEmpty := slot.PositionStatus == PositionStatusEmpty &&
+			slot.PositionQty < 0.000001 &&
+			slot.OrderID == 0 &&
+			slot.OrderStatus == OrderStatusNotPlaced &&
+			slot.SlotStatus == SlotStatusFree
+		slot.mu.RUnlock()
+
+		if isEmpty {
+			toDelete = append(toDelete, price)
+		}
+		return true
+	})
+
+	// 删除空槽位
+	deletedCount := 0
+	for _, price := range toDelete {
+		spm.slots.Delete(price)
+		deletedCount++
+	}
+
+	if deletedCount > 0 {
+		logger.Debug("🧹 [槽位清理] 已清理 %d 个空槽位", deletedCount)
+	}
+
+	return deletedCount
 }

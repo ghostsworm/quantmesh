@@ -439,61 +439,6 @@ func main() {
 			}
 		})
 		log.Printf("[INFO] 日志存储已初始化: %s", logStoragePath)
-
-		// 启动定期日志清理任务
-		go func() {
-			// 每天凌晨2点执行清理
-			ticker := time.NewTicker(24 * time.Hour)
-			defer ticker.Stop()
-
-			// 计算到下一个凌晨2点的时间
-			now := time.Now()
-			nextCleanup := time.Date(now.Year(), now.Month(), now.Day(), 2, 0, 0, 0, now.Location())
-			if nextCleanup.Before(now) {
-				nextCleanup = nextCleanup.Add(24 * time.Hour)
-			}
-			initialDelay := nextCleanup.Sub(now)
-
-			// 等待到第一个清理时间
-			time.Sleep(initialDelay)
-
-			// 立即执行一次清理
-			logger.Info("🧹 开始定期清理日志...")
-			rowsAffected, err := logStorage.CleanOldLogsByLevel(7, []string{"INFO", "WARN"})
-			if err != nil {
-				logger.Warn("⚠️ 清理日志失败: %v", err)
-			} else {
-				logger.Info("✅ 已清理 %d 条 INFO/WARN 级别日志（7天前）", rowsAffected)
-			}
-
-			// 执行 VACUUM 优化
-			if err := logStorage.Vacuum(); err != nil {
-				logger.Warn("⚠️ 数据库优化失败: %v", err)
-			} else {
-				logger.Info("✅ 日志数据库优化完成")
-			}
-
-			// 定期执行
-			for {
-				select {
-				case <-ticker.C:
-					logger.Info("🧹 开始定期清理日志...")
-					rowsAffected, err := logStorage.CleanOldLogsByLevel(7, []string{"INFO", "WARN"})
-					if err != nil {
-						logger.Warn("⚠️ 清理日志失败: %v", err)
-					} else {
-						logger.Info("✅ 已清理 %d 条 INFO/WARN 级别日志（7天前）", rowsAffected)
-					}
-
-					// 执行 VACUUM 优化
-					if err := logStorage.Vacuum(); err != nil {
-						logger.Warn("⚠️ 数据库优化失败: %v", err)
-					} else {
-						logger.Info("✅ 日志数据库优化完成")
-					}
-				}
-			}
-		}()
 	}
 
 	logger.Info("🚀 QuantMesh 做市商系统启动...")
@@ -577,6 +522,71 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// 启动定期日志清理任务（在 ctx 定义之后）
+	if globalLogStorage != nil {
+		go func() {
+			// 每天凌晨2点执行清理
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+
+			// 计算到下一个凌晨2点的时间
+			now := time.Now()
+			nextCleanup := time.Date(now.Year(), now.Month(), now.Day(), 2, 0, 0, 0, now.Location())
+			if nextCleanup.Before(now) {
+				nextCleanup = nextCleanup.Add(24 * time.Hour)
+			}
+			initialDelay := nextCleanup.Sub(now)
+
+			// 使用 timer 等待到第一个清理时间，同时监听 context
+			initialTimer := time.NewTimer(initialDelay)
+			defer initialTimer.Stop()
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-initialTimer.C:
+				// 立即执行一次清理
+				logger.Info("🧹 开始定期清理日志...")
+				rowsAffected, err := globalLogStorage.CleanOldLogsByLevel(7, []string{"INFO", "WARN"})
+				if err != nil {
+					logger.Warn("⚠️ 清理日志失败: %v", err)
+				} else {
+					logger.Info("✅ 已清理 %d 条 INFO/WARN 级别日志（7天前）", rowsAffected)
+				}
+
+				// 执行 VACUUM 优化
+				if err := globalLogStorage.Vacuum(); err != nil {
+					logger.Warn("⚠️ 数据库优化失败: %v", err)
+				} else {
+					logger.Info("✅ 日志数据库优化完成")
+				}
+			}
+
+			// 定期执行
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					logger.Info("🧹 开始定期清理日志...")
+					rowsAffected, err := globalLogStorage.CleanOldLogsByLevel(7, []string{"INFO", "WARN"})
+					if err != nil {
+						logger.Warn("⚠️ 清理日志失败: %v", err)
+					} else {
+						logger.Info("✅ 已清理 %d 条 INFO/WARN 级别日志（7天前）", rowsAffected)
+					}
+
+					// 执行 VACUUM 优化
+					if err := globalLogStorage.Vacuum(); err != nil {
+						logger.Warn("⚠️ 数据库优化失败: %v", err)
+					} else {
+						logger.Info("✅ 日志数据库优化完成")
+					}
+				}
+			}
+		}()
+	}
+
 	// 事件总线 & 通知 & 存储
 	logger.Info("🔧 正在初始化事件总线...")
 	eventBus := event.NewEventBus(1000)
@@ -644,7 +654,10 @@ func main() {
 	logger.Info("✅ 事件中心初始化完成")
 
 	// 旧的事件处理器（保留用于存储服务）
+	// 使用 worker pool 模式，限制并发数量，避免 goroutine 泄漏
+	eventWorkerPool := make(chan struct{}, 10) // 最多10个并发 worker
 	go func() {
+		defer close(eventWorkerPool)
 		for {
 			select {
 			case <-ctx.Done():
@@ -653,7 +666,10 @@ func main() {
 				if evt == nil {
 					continue
 				}
+				// 使用 worker pool 限制并发
+				eventWorkerPool <- struct{}{}
 				go func(e *event.Event) {
+					defer func() { <-eventWorkerPool }()
 					if storageService != nil {
 						storageService.Save(string(e.Type), e.Data)
 					}
@@ -694,6 +710,12 @@ func main() {
 	} else {
 		logger.Info("ℹ️ 分布式锁未启用（单机模式）")
 	}
+
+	// 初始化内存管理器
+	logger.Info("🔧 正在初始化内存管理器...")
+	memoryManager := monitor.NewMemoryManager(cfg, ctx)
+	memoryManager.Start()
+	logger.Info("✅ 内存管理器已启动")
 
 	// 初始化 Watchdog（系统监控）
 	logger.Info("🔧 正在初始化系统监控...")
@@ -1106,6 +1128,11 @@ func main() {
 	// 🔥 第三优先级：停止所有协程（取消 context）
 	// 这会通知所有使用 ctx 的协程停止工作（包括事件处理协程）
 	cancel()
+
+	// 停止内存管理器
+	if memoryManager != nil {
+		memoryManager.Stop()
+	}
 
 	// 等待一小段时间，让事件处理协程完成清理（确保事件队列被处理完）
 	time.Sleep(500 * time.Millisecond)

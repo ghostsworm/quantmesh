@@ -9,6 +9,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"quantmesh/utils"
+	"quantmesh/logger"
 )
 
 // LogStorage 日志存储
@@ -216,6 +217,17 @@ func (ls *LogStorage) Subscribe() chan *LogRecord {
 
 	ch := make(chan *LogRecord, 100) // 缓冲区100条
 	ls.subscribers = append(ls.subscribers, ch)
+	
+	// 限制订阅者数量，防止内存泄漏
+	maxSubscribers := 100
+	if len(ls.subscribers) > maxSubscribers {
+		// 移除最旧的订阅者（FIFO）
+		oldest := ls.subscribers[0]
+		close(oldest)
+		ls.subscribers = ls.subscribers[1:]
+		logger.Warn("⚠️ 日志订阅者数量超过限制 (%d)，已移除最旧的订阅者", maxSubscribers)
+	}
+	
 	return ch
 }
 

@@ -465,18 +465,52 @@ func startSymbolRuntime(
 
 	// 价格变动处理
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("❌ [%s] 价格变化处理协程 panic: %v", symCfg.Symbol, r)
+			}
+		}()
+		
 		priceCh := priceMonitor.Subscribe()
 		var lastTriggered bool
-		for priceChange := range priceCh {
-			isTriggered := riskMonitor.IsTriggered()
-			if isTriggered {
-				if !lastTriggered {
-					logger.Warn("🚨 [%s][风控触发] 撤销所有买单并暂停交易...", symCfg.Symbol)
-					superPositionManager.CancelAllBuyOrders()
-					lastTriggered = true
+		
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Debug("⏹️ [%s] 价格变化处理协程已停止", symCfg.Symbol)
+				return
+			case priceChange, ok := <-priceCh:
+				if !ok {
+					// channel 已关闭
+					logger.Debug("⏹️ [%s] 价格变化 channel 已关闭", symCfg.Symbol)
+					return
+				}
+				
+				isTriggered := riskMonitor.IsTriggered()
+				if isTriggered {
+					if !lastTriggered {
+						logger.Warn("🚨 [%s][风控触发] 撤销所有买单并暂停交易...", symCfg.Symbol)
+						superPositionManager.CancelAllBuyOrders()
+						lastTriggered = true
+						if eventBus != nil {
+							eventBus.Publish(&event.Event{
+								Type: event.EventTypeRiskTriggered,
+								Data: map[string]interface{}{
+									"symbol": symCfg.Symbol,
+									"price":  priceChange.NewPrice,
+								},
+							})
+						}
+					}
+					continue
+				}
+
+				if lastTriggered {
+					logger.Info("✅ [%s][风控解除] 恢复自动交易", symCfg.Symbol)
+					lastTriggered = false
 					if eventBus != nil {
 						eventBus.Publish(&event.Event{
-							Type: event.EventTypeRiskTriggered,
+							Type: event.EventTypeRiskRecovered,
 							Data: map[string]interface{}{
 								"symbol": symCfg.Symbol,
 								"price":  priceChange.NewPrice,
@@ -484,41 +518,26 @@ func startSymbolRuntime(
 						})
 					}
 				}
-				continue
-			}
 
-			if lastTriggered {
-				logger.Info("✅ [%s][风控解除] 恢复自动交易", symCfg.Symbol)
-				lastTriggered = false
-				if eventBus != nil {
-					eventBus.Publish(&event.Event{
-						Type: event.EventTypeRiskRecovered,
-						Data: map[string]interface{}{
-							"symbol": symCfg.Symbol,
-							"price":  priceChange.NewPrice,
-						},
-					})
+				if strategyManager != nil {
+					strategyManager.OnPriceChange(priceChange.NewPrice)
 				}
-			}
 
-			if strategyManager != nil {
-				strategyManager.OnPriceChange(priceChange.NewPrice)
-			}
-
-			if trendDetector != nil && localCfg.Trading.SmartPosition.WindowAdjustment.Enabled {
-				buyWindow, sellWindow := trendDetector.AdjustWindows()
-				origBuy, origSell := localCfg.Trading.BuyWindowSize, localCfg.Trading.SellWindowSize
-				localCfg.Trading.BuyWindowSize = buyWindow
-				localCfg.Trading.SellWindowSize = sellWindow
-				if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
-					logger.Error("❌ [%s] 调整订单失败: %v", symCfg.Symbol, err)
-				}
-				localCfg.Trading.BuyWindowSize = origBuy
-				localCfg.Trading.SellWindowSize = origSell
-			} else {
-				if strategyManager == nil || !localCfg.Strategies.Enabled {
+				if trendDetector != nil && localCfg.Trading.SmartPosition.WindowAdjustment.Enabled {
+					buyWindow, sellWindow := trendDetector.AdjustWindows()
+					origBuy, origSell := localCfg.Trading.BuyWindowSize, localCfg.Trading.SellWindowSize
+					localCfg.Trading.BuyWindowSize = buyWindow
+					localCfg.Trading.SellWindowSize = sellWindow
 					if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
 						logger.Error("❌ [%s] 调整订单失败: %v", symCfg.Symbol, err)
+					}
+					localCfg.Trading.BuyWindowSize = origBuy
+					localCfg.Trading.SellWindowSize = origSell
+				} else {
+					if strategyManager == nil || !localCfg.Strategies.Enabled {
+						if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
+							logger.Error("❌ [%s] 调整订单失败: %v", symCfg.Symbol, err)
+						}
 					}
 				}
 			}

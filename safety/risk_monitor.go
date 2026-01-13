@@ -152,7 +152,11 @@ func (r *RiskMonitor) onCandleUpdate(candle *exchange.Candle) {
 					}
 				}
 			}
-			symbolData.candles = symbolData.candles[startIdx:]
+			// 使用 copy 而不是切片截取，避免内存泄漏
+			keepCount := len(symbolData.candles) - startIdx
+			newCandles := make([]*exchange.Candle, keepCount)
+			copy(newCandles, symbolData.candles[startIdx:])
+			symbolData.candles = newCandles
 		}
 	} else {
 		// 未完结的K线
