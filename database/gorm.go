@@ -87,6 +87,7 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		&Reconciliation{},
 		&RiskCheck{},
 		&EventRecord{},
+		&AsyncTask{},
 	); err != nil {
 		// 如果是索引已存在的错误，忽略它（这是正常的）
 		errStr := err.Error()
@@ -395,6 +396,44 @@ func (g *GormDatabase) GetEventByID(ctx context.Context, id int64) (*EventRecord
 	return &event, nil
 }
 
+// SaveAsyncTask 保存异步任务
+func (g *GormDatabase) SaveAsyncTask(ctx context.Context, task *AsyncTask) error {
+	return g.db.WithContext(ctx).Create(task).Error
+}
+
+// UpdateAsyncTask 更新异步任务
+func (g *GormDatabase) UpdateAsyncTask(ctx context.Context, task *AsyncTask) error {
+	return g.db.WithContext(ctx).Save(task).Error
+}
+
+// GetAsyncTask 获取异步任务
+func (g *GormDatabase) GetAsyncTask(ctx context.Context, id string) (*AsyncTask, error) {
+	var task AsyncTask
+	if err := g.db.WithContext(ctx).Where("id = ?", id).First(&task).Error; err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// GetPendingAsyncTasks 获取待处理任务
+func (g *GormDatabase) GetPendingAsyncTasks(ctx context.Context, limit int) ([]*AsyncTask, error) {
+	var tasks []*AsyncTask
+	err := g.db.WithContext(ctx).
+		Where("status = ?", "pending").
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&tasks).Error
+	return tasks, err
+}
+
+// CleanupExpiredAsyncTasks 清理过期任务
+func (g *GormDatabase) CleanupExpiredAsyncTasks(ctx context.Context, cutoff time.Time) (int64, error) {
+	result := g.db.WithContext(ctx).
+		Where("expires_at < ? OR (status IN ('completed', 'failed', 'timeout') AND completed_at < ?)", time.Now(), cutoff).
+		Delete(&AsyncTask{})
+	return result.RowsAffected, result.Error
+}
+
 // GetEventStats 获取事件统计
 func (g *GormDatabase) GetEventStats(ctx context.Context) (*EventStats, error) {
 	stats := &EventStats{
@@ -578,4 +617,37 @@ func (t *GormTx) GetEventStats(ctx context.Context) (*EventStats, error) {
 
 func (t *GormTx) CleanupOldEvents(ctx context.Context, severity string, keepCount int, keepDays int) error {
 	return fmt.Errorf("not implemented in transaction")
+}
+
+func (t *GormTx) SaveAsyncTask(ctx context.Context, task *AsyncTask) error {
+	return t.tx.WithContext(ctx).Create(task).Error
+}
+
+func (t *GormTx) UpdateAsyncTask(ctx context.Context, task *AsyncTask) error {
+	return t.tx.WithContext(ctx).Save(task).Error
+}
+
+func (t *GormTx) GetAsyncTask(ctx context.Context, id string) (*AsyncTask, error) {
+	var task AsyncTask
+	if err := t.tx.WithContext(ctx).Where("id = ?", id).First(&task).Error; err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+func (t *GormTx) GetPendingAsyncTasks(ctx context.Context, limit int) ([]*AsyncTask, error) {
+	var tasks []*AsyncTask
+	err := t.tx.WithContext(ctx).
+		Where("status = ?", "pending").
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&tasks).Error
+	return tasks, err
+}
+
+func (t *GormTx) CleanupExpiredAsyncTasks(ctx context.Context, cutoff time.Time) (int64, error) {
+	result := t.tx.WithContext(ctx).
+		Where("expires_at < ? OR (status IN ('completed', 'failed', 'timeout') AND completed_at < ?)", time.Now(), cutoff).
+		Delete(&AsyncTask{})
+	return result.RowsAffected, result.Error
 }

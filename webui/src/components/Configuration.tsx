@@ -396,58 +396,12 @@ const Configuration: React.FC = () => {
                     <ConfigCard title="AI 配置助手" icon={<StarIcon />}>
                       <VStack spacing={4} align="stretch">
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">AI 访问方式</FormLabel>
-                          <Select
-                            value={getNestedValue(config, 'ai.access_mode') || 'native'}
-                            onChange={(e) => updateConfigField('ai.access_mode', e.target.value)}
-                            fontSize="xs"
-                          >
-                            <option value="native">原生方式（直接访问 Google Gemini）</option>
-                            <option value="proxy">中转服务（通过代理访问）</option>
-                          </Select>
-                          <Text fontSize="xs" color="gray.500" mt={1}>
-                            {getNestedValue(config, 'ai.access_mode') === 'proxy' 
-                              ? '通过中转服务访问，适用于无法直接访问 Google 服务的环境'
-                              : '直接访问 Google Gemini API，需要能够访问 Google 服务'}
-                          </Text>
-                        </FormControl>
-                        
-                        <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Gemini API Key</FormLabel>
                           {renderPasswordInput('ai.gemini_api_key', '输入您的 Gemini API Key')}
                           <Text fontSize="xs" color="gray.500" mt={1}>
-                            用于 AI 配置助手功能，帮助您自动生成最优的网格交易参数和资金分配方案
+                            用于 AI 配置助手功能，帮助您自动生成最优的网格交易参数和资金分配方案。系统内置异步任务处理，无需配置额外代理。
                           </Text>
                         </FormControl>
-                        
-                        {getNestedValue(config, 'ai.access_mode') === 'proxy' && (
-                          <>
-                            <FormControl>
-                              <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">代理服务地址</FormLabel>
-                              <Input
-                                fontSize="xs"
-                                value={getNestedValue(config, 'ai.proxy.base_url') || 'https://gemini.facev.app'}
-                                onChange={(e) => updateConfigField('ai.proxy.base_url', e.target.value)}
-                                placeholder="https://gemini.facev.app"
-                              />
-                            </FormControl>
-                            
-                            <FormControl>
-                              <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Basic Auth 用户名</FormLabel>
-                              <Input
-                                fontSize="xs"
-                                value={getNestedValue(config, 'ai.proxy.username') || 'admin123'}
-                                onChange={(e) => updateConfigField('ai.proxy.username', e.target.value)}
-                                placeholder="admin123"
-                              />
-                            </FormControl>
-                            
-                            <FormControl>
-                              <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Basic Auth 密码</FormLabel>
-                              {renderPasswordInput('ai.proxy.password', 'admin123')}
-                            </FormControl>
-                          </>
-                        )}
                         
                         <Button
                           leftIcon={<StarIcon />}

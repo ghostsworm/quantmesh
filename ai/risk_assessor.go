@@ -14,9 +14,9 @@ type RiskAssessor struct {
 }
 
 // NewRiskAssessor 创建风险评估器
-func NewRiskAssessor(apiKey string, accessMode string, proxyBaseURL string, proxyUsername string, proxyPassword string) *RiskAssessor {
+func NewRiskAssessor(apiKey string) *RiskAssessor {
 	return &RiskAssessor{
-		client: NewGeminiClient(apiKey, accessMode, proxyBaseURL, proxyUsername, proxyPassword),
+		client: NewGeminiClient(apiKey),
 	}
 }
 

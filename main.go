@@ -20,6 +20,9 @@ import (
 	"quantmesh/i18n"
 	"quantmesh/lock"
 	"quantmesh/logger"
+	"quantmesh/ai"
+	"quantmesh/ai/service"
+	"quantmesh/ai/processor"
 	"quantmesh/metrics"
 	"quantmesh/monitor"
 	"quantmesh/notify"
@@ -645,6 +648,19 @@ func main() {
 		} else {
 			defer db.Close()
 			logger.Info("✅ 数据库已初始化 (类型: %s)", cfg.Database.Type)
+
+			// 初始化 AI 异步任务系统
+			logger.Info("🔧 正在初始化 AI 异步任务系统...")
+			taskService := service.NewTaskService(db)
+			aiService := service.NewAIService()
+			taskProcessor := processor.NewTaskProcessor(taskService, aiService)
+			
+			// 设置全局任务服务，供 GeminiClient 使用
+			ai.GlobalTaskService = taskService
+			
+			// 启动任务处理器
+			go taskProcessor.Start()
+			logger.Info("✅ AI 异步任务系统已启动")
 		}
 	}
 

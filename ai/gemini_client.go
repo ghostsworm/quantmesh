@@ -1,18 +1,18 @@
 package ai
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
-	"strings"
 	"time"
 
+	"quantmesh/ai/service"
 	"quantmesh/config"
+	"quantmesh/logger"
 )
+
+// 全局任务服务，在 main.go 中初始化
+var GlobalTaskService *service.TaskService
 
 // GeminiClient Gemini API 客户端接口
 type GeminiClient interface {
@@ -20,39 +20,99 @@ type GeminiClient interface {
 	GenerateContent(ctx context.Context, prompt string, schema map[string]interface{}) (string, error)
 }
 
-// NativeGeminiClient 原生 Gemini API 客户端（直接访问 Google）
-type NativeGeminiClient struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
+// AsyncGeminiClient 异步 Gemini API 客户端
+type AsyncGeminiClient struct {
+	apiKey string
 }
 
-// ProxyGeminiClient 代理 Gemini API 客户端（通过中转服务）
-type ProxyGeminiClient struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
+// NewGeminiClient 创建 Gemini 客户端（现在统一使用异步内置方式）
+func NewGeminiClient(apiKey string) GeminiClient {
+	return &AsyncGeminiClient{
+		apiKey: apiKey,
+	}
 }
 
-// NewGeminiClient 创建 Gemini 客户端（根据配置选择实现方式）
-func NewGeminiClient(apiKey string, accessMode string, proxyBaseURL string, proxyUsername string, proxyPassword string) GeminiClient {
-	if accessMode == "proxy" {
-		if proxyBaseURL == "" {
-			proxyBaseURL = "https://gemini.facev.app"
-		}
-		return &ProxyGeminiClient{
-			apiKey:     apiKey,
-			baseURL:    proxyBaseURL,
-			httpClient: &http.Client{Timeout: 120 * time.Second},
+// GenerateConfig 生成配置建议
+func (c *AsyncGeminiClient) GenerateConfig(ctx context.Context, req *GenerateConfigRequest) (*GenerateConfigResponse, error) {
+	prompt := buildPrompt(req)
+	schema := buildConfigSchema()
+
+	aiText, err := c.GenerateContent(ctx, prompt, schema)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GenerateConfigResponse
+	if err := json.Unmarshal([]byte(aiText), &result); err != nil {
+		return nil, fmt.Errorf("解析 AI 配置失败: %w (响应: %s)", err, aiText)
+	}
+
+	return &result, nil
+}
+
+// GenerateContent 生成内容（通过内置异步系统）
+func (c *AsyncGeminiClient) GenerateContent(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
+	if GlobalTaskService == nil {
+		return "", fmt.Errorf("AI 任务服务未初始化")
+	}
+
+	// 1. 创建异步任务
+	requestData := map[string]interface{}{
+		"prompt":             prompt,
+		"system_instruction": prompt,
+		"gemini_api_key":     c.apiKey,
+		"json_schema":        schema,
+		"model":              "gemini-3-flash-preview",
+	}
+
+	taskID, err := GlobalTaskService.CreateTask(ctx, "generate_content", requestData, 900, 3)
+	if err != nil {
+		return "", fmt.Errorf("创建异步任务失败: %w", err)
+	}
+
+	logger.Info("🔄 已创建 AI 异步任务: %s，开始轮询结果...", taskID)
+
+	// 2. 轮询任务结果
+	maxPolls := 300 // 约 10 分钟
+	pollInterval := 2 * time.Second
+
+	for i := 0; i < maxPolls; i++ {
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("任务被取消: %w", ctx.Err())
+		case <-time.After(pollInterval):
+			task, err := GlobalTaskService.GetTask(ctx, taskID)
+			if err != nil {
+				if i%10 == 0 {
+					logger.Warn("⚠️ 轮询任务 %s 失败 (第 %d 次): %v", taskID, i+1, err)
+				}
+				continue
+			}
+
+			if i%10 == 0 {
+				logger.Info("🔄 轮询任务 %s 状态: %s (第 %d 次)", taskID, task.Status, i+1)
+			}
+
+			if task.Status == "completed" {
+				var resultData map[string]interface{}
+				if err := json.Unmarshal([]byte(task.Result), &resultData); err != nil {
+					return "", fmt.Errorf("解析任务结果失败: %w", err)
+				}
+				if text, ok := resultData["text"].(string); ok {
+					return text, nil
+				}
+				return "", fmt.Errorf("任务结果中缺少文本内容")
+			} else if task.Status == "failed" || task.Status == "timeout" {
+				errMsg := "未知错误"
+				if task.ErrorMessage != nil {
+					errMsg = *task.ErrorMessage
+				}
+				return "", fmt.Errorf("AI 任务执行失败: %s", errMsg)
+			}
 		}
 	}
 
-	// 默认使用原生方式
-	return &NativeGeminiClient{
-		apiKey:     apiKey,
-		baseURL:    "https://generativelanguage.googleapis.com/v1beta",
-		httpClient: &http.Client{Timeout: 60 * time.Second},
-	}
+	return "", fmt.Errorf("AI 任务处理超时 (TaskID: %s)", taskID)
 }
 
 // SymbolCapitalConfig 币种资金配置
@@ -113,272 +173,6 @@ type SymbolAllocationConfig struct {
 	MaxPercentage float64 `json:"max_percentage"`
 }
 
-// GenerateConfig 生成配置建议（原生实现）
-func (c *NativeGeminiClient) GenerateConfig(ctx context.Context, req *GenerateConfigRequest) (*GenerateConfigResponse, error) {
-	prompt := buildPrompt(req)
-	schema := buildConfigSchema()
-
-	aiText, err := c.GenerateContent(ctx, prompt, schema)
-	if err != nil {
-		return nil, err
-	}
-
-	var result GenerateConfigResponse
-	if err := json.Unmarshal([]byte(aiText), &result); err != nil {
-		return nil, fmt.Errorf("解析 AI 配置失败: %w (响应: %s)", err, aiText)
-	}
-
-	return &result, nil
-}
-
-// GenerateContent 生成内容（原生实现）
-func (c *NativeGeminiClient) GenerateContent(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
-	geminiReq := map[string]interface{}{
-		"contents": []map[string]interface{}{
-			{
-				"parts": []map[string]interface{}{
-					{"text": prompt},
-				},
-			},
-		},
-		"generationConfig": map[string]interface{}{
-			"temperature":      0.7,
-			"topK":             40,
-			"topP":             0.95,
-			"responseMimeType": "application/json",
-			"responseSchema":   schema,
-		},
-	}
-
-	jsonData, err := json.Marshal(geminiReq)
-	if err != nil {
-		return "", fmt.Errorf("序列化请求失败: %w", err)
-	}
-
-	// 使用 gemini-3-flash-preview 模型（最新版本，更快、更便宜）
-	url := fmt.Sprintf("%s/models/gemini-3-flash-preview:generateContent?key=%s", c.baseURL, c.apiKey)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("创建请求失败: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API 返回错误: %d - %s", resp.StatusCode, string(body))
-	}
-
-	var geminiResp struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
-		return "", fmt.Errorf("解析响应失败: %w", err)
-	}
-
-	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("AI 未返回有效响应")
-	}
-
-	aiText := geminiResp.Candidates[0].Content.Parts[0].Text
-	aiText = strings.TrimPrefix(aiText, "```json")
-	aiText = strings.TrimPrefix(aiText, "```")
-	aiText = strings.TrimSuffix(aiText, "```")
-	aiText = strings.TrimSpace(aiText)
-
-	return aiText, nil
-}
-
-// GenerateConfig 生成配置建议（代理实现）
-func (c *ProxyGeminiClient) GenerateConfig(ctx context.Context, req *GenerateConfigRequest) (*GenerateConfigResponse, error) {
-	prompt := buildPrompt(req)
-	schema := buildConfigSchema()
-
-	aiText, err := c.GenerateContent(ctx, prompt, schema)
-	if err != nil {
-		return nil, err
-	}
-
-	var result GenerateConfigResponse
-	if err := json.Unmarshal([]byte(aiText), &result); err != nil {
-		return nil, fmt.Errorf("解析 AI 配置失败: %w (响应: %s)", err, aiText)
-	}
-
-	return &result, nil
-}
-
-// GenerateContent 生成内容（代理实现）
-func (c *ProxyGeminiClient) GenerateContent(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
-	// 将 schema 转换为 JSON 字符串
-	schemaJSON, err := json.Marshal(schema)
-	if err != nil {
-		return "", fmt.Errorf("序列化 schema 失败: %w", err)
-	}
-
-	// 构建请求体
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	// 添加 prompt
-	writer.WriteField("system_instruction", prompt)
-	writer.WriteField("prompt", prompt)
-	writer.WriteField("model", "gemini-2.5-flash")
-	writer.WriteField("gemini_api_key", c.apiKey)
-	writer.WriteField("json_schema", string(schemaJSON))
-	
-	// 开启异步模式
-	writer.WriteField("async_mode", "1")
-	writer.WriteField("timeout_seconds", "900")
-	writer.WriteField("max_retries", "3")
-
-	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("关闭 multipart writer 失败: %w", err)
-	}
-
-	// 1. 发送异步任务请求
-	url := fmt.Sprintf("%s/api/analyze-image", c.baseURL)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, body)
-	if err != nil {
-		return "", fmt.Errorf("创建请求失败: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// 读取完整响应体
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("读取响应失败: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return "", fmt.Errorf("API 返回错误: %d - %s", resp.StatusCode, string(respBody))
-	}
-
-	// 检查响应是否为 HTML（错误页面）
-	respStr := strings.TrimSpace(string(respBody))
-	if strings.HasPrefix(respStr, "<") || strings.HasPrefix(respStr, "<!") {
-		truncated := respStr
-		if len(truncated) > 200 {
-			truncated = truncated[:200]
-		}
-		return "", fmt.Errorf("代理服务返回了 HTML 错误页面，请检查代理地址和认证信息: %s", truncated)
-	}
-
-	var proxyResp struct {
-		TaskID  string `json:"task_id"`
-		Status  string `json:"status"`
-		Error   string `json:"error"`
-		Message string `json:"message"`
-		// 同步模式可能直接返回结果
-		Text   string                 `json:"text"`
-		Result map[string]interface{} `json:"result"`
-	}
-	if err := json.Unmarshal(respBody, &proxyResp); err != nil {
-		truncated := respStr
-		if len(truncated) > 500 {
-			truncated = truncated[:500]
-		}
-		return "", fmt.Errorf("解析响应失败: %w (响应: %s)", err, truncated)
-	}
-
-	// 检查是否有错误
-	if proxyResp.Error != "" {
-		return "", fmt.Errorf("代理服务错误: %s", proxyResp.Error)
-	}
-
-	// 同步模式：直接返回结果
-	if proxyResp.Text != "" {
-		resultText := proxyResp.Text
-		resultText = strings.TrimPrefix(resultText, "```json")
-		resultText = strings.TrimPrefix(resultText, "```")
-		resultText = strings.TrimSuffix(resultText, "```")
-		return strings.TrimSpace(resultText), nil
-	}
-
-	// 异步模式：需要轮询
-	if proxyResp.TaskID == "" {
-		truncated := respStr
-		if len(truncated) > 500 {
-			truncated = truncated[:500]
-		}
-		return "", fmt.Errorf("未获取到任务 ID，响应: %s", truncated)
-	}
-
-	// 2. 轮询任务结果
-	taskID := proxyResp.TaskID
-	maxPolls := 60 // 最多轮询 60 次 (约 2 分钟)
-	pollInterval := 2 * time.Second
-
-	for i := 0; i < maxPolls; i++ {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(pollInterval):
-			statusURL := fmt.Sprintf("%s/api/task/%s", c.baseURL, taskID)
-			statusReq, _ := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
-
-			statusResp, err := c.httpClient.Do(statusReq)
-			if err != nil {
-				continue // 网络错误重试
-			}
-			defer statusResp.Body.Close()
-
-			var statusData map[string]interface{}
-			if err := json.NewDecoder(statusResp.Body).Decode(&statusData); err != nil {
-				continue
-			}
-
-			status, _ := statusData["status"].(string)
-			if status == "completed" || status == "success" {
-				// 提取结果
-				var resultText string
-				if data, ok := statusData["data"].(map[string]interface{}); ok {
-					if text, ok := data["text"].(string); ok {
-						resultText = text
-					} else if result, ok := data["result"].(string); ok {
-						resultText = result
-					}
-				} else if text, ok := statusData["text"].(string); ok {
-					resultText = text
-				} else if result, ok := statusData["result"].(string); ok {
-					resultText = result
-				}
-
-				if resultText != "" {
-					resultText = strings.TrimPrefix(resultText, "```json")
-					resultText = strings.TrimPrefix(resultText, "```")
-					resultText = strings.TrimSuffix(resultText, "```")
-					return strings.TrimSpace(resultText), nil
-				}
-			} else if status == "failed" || status == "error" {
-				return "", fmt.Errorf("任务执行失败: %v", statusData["error"])
-			}
-			// 其他状态继续轮询
-		}
-	}
-
-	return "", fmt.Errorf("任务处理超时 (TaskID: %s)", taskID)
-}
-
 // buildPrompt 构建提示词
 func buildPrompt(req *GenerateConfigRequest) string {
 	riskDesc := map[string]string{
@@ -391,7 +185,6 @@ func buildPrompt(req *GenerateConfigRequest) string {
 	var totalCapital float64
 
 	if req.CapitalMode == "per_symbol" && len(req.SymbolCapitals) > 0 {
-		// 按币种分配模式
 		capitalInfo = "资金配置模式：按币种分配\n各币种资金分配：\n"
 		for _, sc := range req.SymbolCapitals {
 			capitalInfo += fmt.Sprintf("- %s: %.2f USDT\n", sc.Symbol, sc.Capital)
@@ -399,12 +192,10 @@ func buildPrompt(req *GenerateConfigRequest) string {
 		}
 		capitalInfo += fmt.Sprintf("总计资金：%.2f USDT\n", totalCapital)
 	} else {
-		// 总金额模式
 		totalCapital = req.TotalCapital
 		capitalInfo = fmt.Sprintf("资金配置模式：总金额分配\n可用资金：%.2f USDT", totalCapital)
 	}
 
-	// 添加资产优先分配信息
 	var assetAllocInfo string
 	if len(req.SymbolAllocations) > 0 {
 		assetAllocInfo = "\n用户预设资产分配比例：\n"
@@ -413,7 +204,6 @@ func buildPrompt(req *GenerateConfigRequest) string {
 		}
 	}
 
-	// 添加策略组合信息
 	var strategySplitInfo string
 	if len(req.StrategySplits) > 0 {
 		strategySplitInfo = "\n用户预设策略组合：\n"
@@ -480,7 +270,6 @@ func buildPrompt(req *GenerateConfigRequest) string {
 - 所有币种分配的总资金之和不能超过可用资金的 95%。
 - 网格参数应根据风险偏好和当前币价计算默认值。
 `
-
 	return prompt
 }
 
@@ -541,7 +330,6 @@ func buildConfigSchema() map[string]interface{} {
 									"config": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											// 网格策略常见字段
 											"grid_count": map[string]interface{}{
 												"type": "number",
 											},
@@ -553,43 +341,6 @@ func buildConfigSchema() map[string]interface{} {
 											},
 											"total_amount": map[string]interface{}{
 												"type": "number",
-											},
-											// DCA 策略常见字段
-											"interval": map[string]interface{}{
-												"type": "string",
-											},
-											"amount": map[string]interface{}{
-												"type": "number",
-											},
-											"base_order_amount": map[string]interface{}{
-												"type": "number",
-											},
-											"safety_order_amount": map[string]interface{}{
-												"type": "number",
-											},
-											"max_safety_orders": map[string]interface{}{
-												"type": "number",
-											},
-											"atr_period": map[string]interface{}{
-												"type": "number",
-											},
-											"atr_multiplier": map[string]interface{}{
-												"type": "number",
-											},
-											"total_take_profit": map[string]interface{}{
-												"type": "number",
-											},
-											"stop_loss": map[string]interface{}{
-												"type": "number",
-											},
-											// 其他可能的动态字段（使用通用类型）
-											"parameters": map[string]interface{}{
-												"type": "object",
-												"properties": map[string]interface{}{
-													"value": map[string]interface{}{
-														"type": "number",
-													},
-												},
 											},
 										},
 									},
@@ -621,77 +372,6 @@ func buildConfigSchema() map[string]interface{} {
 						},
 					},
 					"required": []string{"symbol", "total_allocated_capital", "price_interval", "order_quantity", "buy_window_size", "sell_window_size"},
-				},
-			},
-			"grid_config": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"exchange": map[string]interface{}{
-							"type": "string",
-						},
-						"symbol": map[string]interface{}{
-							"type": "string",
-						},
-						"price_interval": map[string]interface{}{
-							"type": "number",
-						},
-						"order_quantity": map[string]interface{}{
-							"type": "number",
-						},
-						"buy_window_size": map[string]interface{}{
-							"type": "integer",
-						},
-						"sell_window_size": map[string]interface{}{
-							"type": "integer",
-						},
-						"grid_risk_control": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"enabled": map[string]interface{}{
-									"type": "boolean",
-								},
-								"max_grid_layers": map[string]interface{}{
-									"type": "integer",
-								},
-								"stop_loss_ratio": map[string]interface{}{
-									"type": "number",
-								},
-								"take_profit_trigger_ratio": map[string]interface{}{
-									"type": "number",
-								},
-								"trailing_take_profit_ratio": map[string]interface{}{
-									"type": "number",
-								},
-								"trend_filter_enabled": map[string]interface{}{
-									"type": "boolean",
-								},
-							},
-						},
-					},
-					"required": []string{"exchange", "symbol", "price_interval", "order_quantity", "buy_window_size", "sell_window_size"},
-				},
-			},
-			"allocation": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"exchange": map[string]interface{}{
-							"type": "string",
-						},
-						"symbol": map[string]interface{}{
-							"type": "string",
-						},
-						"max_amount_usdt": map[string]interface{}{
-							"type": "number",
-						},
-						"max_percentage": map[string]interface{}{
-							"type": "number",
-						},
-					},
-					"required": []string{"exchange", "symbol", "max_amount_usdt", "max_percentage"},
 				},
 			},
 		},

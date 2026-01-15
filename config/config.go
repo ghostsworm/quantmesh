@@ -425,16 +425,6 @@ type Config struct {
 		GeminiAPIKey string `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果为空则使用 api_key）
 		BaseURL      string `yaml:"base_url"`       // 可选，用于自定义API端点
 		
-		// 访问模式配置
-		AccessMode string `yaml:"access_mode"` // native: 直接访问 Google Gemini API, proxy: 通过中转服务访问
-		
-		// 代理服务配置（当 access_mode 为 proxy 时使用）
-		Proxy struct {
-			BaseURL  string `yaml:"base_url"`  // 代理服务地址，默认 https://gemini.facev.app
-			Username string `yaml:"username"`   // Basic Auth 用户名，默认 admin123
-			Password string `yaml:"password"`   // Basic Auth 密码，默认 admin123
-		} `yaml:"proxy"`
-
 		// 各模块开关
 		Modules struct {
 			MarketAnalysis struct {
@@ -609,6 +599,7 @@ type ExchangeConfig struct {
 	Passphrase string  `yaml:"passphrase" json:"passphrase"` // Bitget 需要
 	FeeRate    float64 `yaml:"fee_rate" json:"fee_rate"`     // 手续费率（例如 0.0002 表示 0.02%）
 	Testnet    bool    `yaml:"testnet" json:"testnet"`       // 是否使用测试网（默认 false）
+	Leverage   int     `yaml:"leverage" json:"leverage"`     // 杠杆倍数（仅 Gate.io 支持，0 表示不设置）
 }
 
 // SymbolAllocation 单个币种的资金分配配置
@@ -766,10 +757,6 @@ func CreateMinimalConfig() *Config {
 
 	cfg.AI.Enabled = false
 	cfg.AI.Provider = "gemini"
-	cfg.AI.AccessMode = "native" // 默认使用原生方式
-	cfg.AI.Proxy.BaseURL = "https://gemini.facev.app"
-	cfg.AI.Proxy.Username = "admin123"
-	cfg.AI.Proxy.Password = "admin123"
 	cfg.AI.DecisionMode = "hybrid"
 	cfg.AI.ExecutionRules.HighRiskThreshold = 0.8
 	cfg.AI.ExecutionRules.LowRiskThreshold = 0.3

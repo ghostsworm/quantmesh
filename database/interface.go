@@ -35,6 +35,13 @@ type Database interface {
 	GetEventStats(ctx context.Context) (*EventStats, error)
 	CleanupOldEvents(ctx context.Context, severity string, keepCount int, keepDays int) error
 
+	// 异步任务记录
+	SaveAsyncTask(ctx context.Context, task *AsyncTask) error
+	UpdateAsyncTask(ctx context.Context, task *AsyncTask) error
+	GetAsyncTask(ctx context.Context, id string) (*AsyncTask, error)
+	GetPendingAsyncTasks(ctx context.Context, limit int) ([]*AsyncTask, error)
+	CleanupExpiredAsyncTasks(ctx context.Context, cutoff time.Time) (int64, error)
+
 	// 事务支持
 	BeginTx(ctx context.Context) (Tx, error)
 
@@ -142,6 +149,34 @@ type EventRecord struct {
 // TableName 指定表名为 events（兼容旧数据）
 func (EventRecord) TableName() string {
 	return "events"
+}
+
+// AsyncTask 异步 AI 任务记录
+type AsyncTask struct {
+	ID               string     `gorm:"type:varchar(36);primaryKey" json:"id"`
+	TaskType         string     `gorm:"type:varchar(50);not null" json:"task_type"`
+	Status           string     `gorm:"type:varchar(20);not null;default:'pending'" json:"status"`
+	RequestData      string     `gorm:"type:text;not null" json:"request_data"` // 使用 string 存储 JSON 以提高兼容性
+	Result           string     `gorm:"type:text" json:"result"`
+	ErrorMessage     *string    `gorm:"type:text" json:"error_message"`
+	Model            *string    `gorm:"type:varchar(50)" json:"model"`
+	AIInput          *string    `gorm:"type:text" json:"ai_input"`
+	AIOutput         *string    `gorm:"type:text" json:"ai_output"`
+	InputTokens      int64      `gorm:"type:bigint;default:0" json:"input_tokens"`
+	OutputTokens     int64      `gorm:"type:bigint;default:0" json:"output_tokens"`
+	ProcessingTimeMs int64      `gorm:"type:bigint;default:0" json:"processing_time_ms"`
+	UsedAPIKey       *string    `gorm:"type:varchar(100)" json:"used_api_key"`
+	RetryCount       int        `gorm:"type:int;default:0" json:"retry_count"`
+	MaxRetries       int        `gorm:"type:int;default:15" json:"max_retries"`
+	TimeoutSeconds   int        `gorm:"type:int;default:900" json:"timeout_seconds"`
+	CreatedAt        time.Time  `gorm:"type:timestamp;default:CURRENT_TIMESTAMP" json:"created_at"`
+	StartedAt        *time.Time `gorm:"type:datetime" json:"started_at"`
+	CompletedAt      *time.Time `gorm:"type:datetime" json:"completed_at"`
+	ExpiresAt        *time.Time `gorm:"type:datetime" json:"expires_at"`
+}
+
+func (AsyncTask) TableName() string {
+	return "async_tasks"
 }
 
 // EventStats 事件统计

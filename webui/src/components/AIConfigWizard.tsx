@@ -43,12 +43,16 @@ import {
   Stack,
   Wrap,
   WrapItem,
+  Progress,
+  Heading,
 } from '@chakra-ui/react'
 import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
-import { generateAIConfig, applyAIConfig, AIGenerateConfigRequest, AIGenerateConfigResponse, SymbolCapitalConfig } from '../services/api'
+import { generateAIConfig, applyAIConfig, createAIConfigTask, pollAITaskUntilComplete, AIGenerateConfigRequest, AIGenerateConfigResponse, SymbolCapitalConfig } from '../services/api'
 import { getConfig, StrategyInstance, WithdrawalPolicy } from '../services/config'
 import { getStrategyTypes } from '../services/strategy'
+import { getExchanges } from '../services/api'
+import { getCapitalAllocation, type ExchangeCapitalDetail } from '../services/capital'
 
 interface AIConfigWizardProps {
   isOpen: boolean
@@ -83,22 +87,23 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   // Gemini API Key
   const [geminiApiKey, setGeminiApiKey] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
+  const [isKeyFromConfig, setIsKeyFromConfig] = useState(false) // 标记 Key 是否来自配置文件
   
-  // AI 访问模式
-  const [accessMode, setAccessMode] = useState<'native' | 'proxy'>('proxy') // 默认推荐 proxy
+  // 资产分配状态 - 按交易所分组
+  // exchange -> symbol -> capital (USDT金额)
+  const [exchangeSymbolCapitals, setExchangeSymbolCapitals] = useState<Record<string, Record<string, number>>>({}) // exchange -> symbol -> capital
+  const [selectedExchanges, setSelectedExchanges] = useState<string[]>([]) // 已选择的交易所列表
+  const [exchangeBalances, setExchangeBalances] = useState<Record<string, number>>({}) // exchange -> availableBalance
+  const [exchangeTotalCapitals, setExchangeTotalCapitals] = useState<Record<string, number>>({}) // exchange -> totalCapital (用户输入的USDT总额)
+  const [exchangeDetails, setExchangeDetails] = useState<ExchangeCapitalDetail[]>([]) // 交易所详情列表
+  const [loadingBalances, setLoadingBalances] = useState(false)
   
-  // 代理服务配置
-  const [proxyBaseURL, setProxyBaseURL] = useState('https://gemini.facev.app')
-  const [proxyUsername, setProxyUsername] = useState('admin123')
-  const [proxyPassword, setProxyPassword] = useState('admin123')
-  const [showProxyPassword, setShowProxyPassword] = useState(false)
-
-  // 资产分配状态
+  // 向后兼容：保留旧的资产分配状态（用于单交易所模式）
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([])
   const [symbolAllocations, setSymbolAllocations] = useState<Record<string, number>>({}) // symbol -> weight (0-1)
 
-  // 策略分配状态
-  const [strategySplits, setStrategySplits] = useState<Record<string, StrategyInstance[]>>({}) // symbol -> strategies
+  // 策略分配状态 - 使用复合键 "exchangeId:symbol" -> strategies
+  const [strategySplits, setStrategySplits] = useState<Record<string, StrategyInstance[]>>({})
 
   // 可用的策略类型列表
   const [availableStrategyTypes, setAvailableStrategyTypes] = useState<string[]>(['grid', 'dca'])
@@ -132,6 +137,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   
   const [aiConfig, setAiConfig] = useState<AIGenerateConfigResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [taskProgress, setTaskProgress] = useState<number>(0)
+  const [taskStatus, setTaskStatus] = useState<string>('')
 
   const bg = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.700')
@@ -153,12 +160,17 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           setExchange(cfg.app.current_exchange)
         }
 
+        // 优先从配置文件读取 Gemini API Key
         const keyFromConfig =
           cfg?.ai?.gemini_api_key ||
           cfg?.ai?.api_key ||
           ''
         if (keyFromConfig) {
-          setGeminiApiKey(prev => prev || keyFromConfig)
+          // 如果配置文件中已有值，直接使用（覆盖之前的值）
+          setGeminiApiKey(keyFromConfig)
+          setIsKeyFromConfig(true) // 标记 Key 来自配置文件
+        } else {
+          setIsKeyFromConfig(false)
         }
         
         // 加载访问模式配置
@@ -198,12 +210,72 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           console.error('加载策略类型失败:', err)
           // 使用默认策略类型
         }
+
+        // 加载交易所列表和余额
+        await loadExchangesAndBalances()
       } catch (err) {
         console.error('加载配置失败:', err)
       }
     }
     loadConfigData()
   }, [isOpen, propsExchange, propsSymbols])
+
+  // 加载交易所列表和余额
+  const loadExchangesAndBalances = async () => {
+    setLoadingBalances(true)
+    try {
+      // 获取交易所列表
+      const exchangesResp = await getExchanges()
+      const exchangesList = exchangesResp.exchanges || []
+      
+      if (exchangesList.length > 0) {
+        setSelectedExchanges(exchangesList)
+        
+        // 获取每个交易所的余额
+        try {
+          const capitalResp = await getCapitalAllocation()
+          const details = capitalResp.exchanges || []
+          setExchangeDetails(details)
+          
+          // 构建余额映射
+          const balances: Record<string, number> = {}
+          const totalCapitals: Record<string, number> = {}
+          details.forEach(detail => {
+            const usdtAsset = detail.assets.find(a => a.asset === 'USDT')
+            if (usdtAsset) {
+              balances[detail.exchangeId] = usdtAsset.availableBalance
+              // 默认使用 5000 USDT 作为总资金
+              totalCapitals[detail.exchangeId] = 5000
+            } else {
+              balances[detail.exchangeId] = 0
+              totalCapitals[detail.exchangeId] = 5000
+            }
+          })
+          setExchangeBalances(balances)
+          setExchangeTotalCapitals(totalCapitals)
+          
+          // 初始化每个交易所的币种资金分配
+          const initialCapitals: Record<string, Record<string, number>> = {}
+          exchangesList.forEach(ex => {
+            initialCapitals[ex] = {}
+          })
+          setExchangeSymbolCapitals(initialCapitals)
+        } catch (err) {
+          console.error('加载交易所余额失败:', err)
+          toast({
+            title: '加载余额失败',
+            description: '将使用默认值，请稍后手动设置',
+            status: 'warning',
+            duration: 3000,
+          })
+        }
+      }
+    } catch (err) {
+      console.error('加载交易所列表失败:', err)
+    } finally {
+      setLoadingBalances(false)
+    }
+  }
 
   // 当币种列表变化时，初始化按币种分配的资金
   useEffect(() => {
@@ -224,19 +296,115 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       }
       setStep('asset-alloc')
     } else if (step === 'asset-alloc') {
-      if (selectedSymbols.length === 0) {
-        setError('请选择至少一个交易币种')
+      // 验证每个交易所的资金分配
+      let hasError = false
+      let errorMsg = ''
+      
+      for (const exchangeId of selectedExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        const totalAllocated = Object.values(exchangeSymbols).reduce((sum, cap) => sum + cap, 0)
+        const totalCapital = exchangeTotalCapitals[exchangeId] || 0
+        
+        if (totalCapital <= 0) {
+          hasError = true
+          const exchangeName = exchangeNames[exchangeId] || exchangeId
+          errorMsg = `${exchangeName} 的 USDT 资金总额未设置或为 0，请先设置资金总额`
+          break
+        }
+        
+        if (totalAllocated > totalCapital) {
+          hasError = true
+          const exchangeName = exchangeNames[exchangeId] || exchangeId
+          errorMsg = `${exchangeName} 的资金分配总和 (${Math.round(totalAllocated)} USDT) 超过了 USDT 资金总额 (${Math.round(totalCapital)} USDT)`
+          break
+        }
+        
+        // 检查是否至少有一个币种有资金分配
+        const hasAllocation = Object.values(exchangeSymbols).some(cap => cap > 0)
+        if (!hasAllocation && Object.keys(exchangeSymbols).length > 0) {
+          hasError = true
+          const exchangeName = exchangeNames[exchangeId] || exchangeId
+          errorMsg = `${exchangeName} 的币种资金分配不能全部为 0`
+          break
+        }
+      }
+      
+      if (hasError) {
+        setError(errorMsg)
+        toast({
+          title: '验证失败',
+          description: errorMsg,
+          status: 'error',
+          duration: 5000,
+        })
         return
       }
+      
+      // 检查是否至少有一个交易所配置了币种
+      const hasAnySymbol = selectedExchanges.some(ex => {
+        const symbols = exchangeSymbolCapitals[ex] || {}
+        return Object.keys(symbols).length > 0 && Object.values(symbols).some(cap => cap > 0)
+      })
+      
+      if (!hasAnySymbol) {
+        const errorMsg = '请至少为一个交易所配置币种资金分配'
+        setError(errorMsg)
+        toast({
+          title: '验证失败',
+          description: errorMsg,
+          status: 'error',
+          duration: 5000,
+        })
+        return
+      }
+      
+      // 验证通过，清除错误并进入下一步
+      setError(null)
       setStep('strategy-split')
     } else if (step === 'strategy-split') {
+      // 验证每个交易所的每个币种的策略占比总和是否为 100%
+      let hasError = false
+      let errorMsg = ''
+
+      for (const exchangeId of selectedExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
+        
+        for (const symbol of symbolsWithCapital) {
+          const taskKey = `${exchangeId}:${symbol}`
+          const strategies = strategySplits[taskKey] || []
+          const totalWeight = strategies.reduce((sum, s) => sum + s.weight, 0)
+          
+          if (Math.abs(totalWeight - 1.0) > 0.001) {
+            hasError = true
+            const exchangeName = exchangeNames[exchangeId] || exchangeId
+            errorMsg = `${exchangeName} 的 ${symbol} 策略占比总和必须为 100% (当前: ${(totalWeight * 100).toFixed(0)}%)`
+            break
+          }
+        }
+        if (hasError) break
+      }
+
+      if (hasError) {
+        setError(errorMsg)
+        toast({
+          title: '验证失败',
+          description: errorMsg,
+          status: 'error',
+          duration: 5000,
+        })
+        return
+      }
+
+      setError(null)
       setStep('param-tuning')
     } else if (step === 'param-tuning') {
+      setError(null)
       setStep('withdrawal-setup')
     } else if (step === 'withdrawal-setup') {
+      setError(null)
       handleGenerate()
     }
-    setError(null)
   }
 
   const handleBack = () => {
@@ -265,9 +433,22 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       return
     }
 
-    // 验证币种
-    if (selectedSymbols.length === 0) {
-      setError('请选择交易币种')
+    // 收集所有交易所的币种信息
+    const allSymbols = new Set<string>()
+    const exchangeSymbolMap: Record<string, string[]> = {} // exchange -> symbols
+    
+    for (const exchangeId of selectedExchanges) {
+      const symbols = Object.keys(exchangeSymbolCapitals[exchangeId] || {}).filter(
+        symbol => (exchangeSymbolCapitals[exchangeId][symbol] || 0) > 0
+      )
+      if (symbols.length > 0) {
+        exchangeSymbolMap[exchangeId] = symbols
+        symbols.forEach(s => allSymbols.add(s))
+      }
+    }
+
+    if (allSymbols.size === 0) {
+      setError('请至少为一个交易所配置币种资金分配')
       return
     }
 
@@ -275,36 +456,68 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     setError(null)
 
     try {
-      // 传递 API Key 和访问模式配置给后端
-      const formData: AIGenerateConfigRequest = {
-        exchange,
-        symbols: selectedSymbols,
-        capital_mode: capitalMode,
-        risk_profile: riskProfile,
-        gemini_api_key: geminiApiKey,  // 传递 API Key
-        access_mode: accessMode,  // 传递访问模式
-        
-        // 资产优先重构新增字段
-        symbol_allocations: symbolAllocations,
-        strategy_splits: strategySplits,
-        withdrawal_policy: withdrawalPolicy,
+      // 使用第一个有币种的交易所作为主交易所（用于向后兼容）
+      const primaryExchange = selectedExchanges.find(ex => exchangeSymbolMap[ex]?.length > 0) || exchange
+      const primarySymbols = Array.from(allSymbols)
+      
+      // 计算总资金（所有交易所的币种资金总和）
+      let totalCapitalValue = 0
+      const symbolCapitalsList: SymbolCapitalConfig[] = []
+      
+      for (const exchangeId of selectedExchanges) {
+        const symbols = exchangeSymbolCapitals[exchangeId] || {}
+        for (const [symbol, capital] of Object.entries(symbols)) {
+          if (capital > 0) {
+            totalCapitalValue += capital
+            // 如果同一个币种在多个交易所都有分配，累加金额
+            const existing = symbolCapitalsList.find(sc => sc.symbol === symbol)
+            if (existing) {
+              existing.capital += capital
+            } else {
+              symbolCapitalsList.push({ symbol, capital })
+            }
+          }
+        }
       }
       
-      // 如果使用代理模式，传递代理配置
-      if (accessMode === 'proxy') {
-        formData.proxy_base_url = proxyBaseURL
-        formData.proxy_username = proxyUsername
-        formData.proxy_password = proxyPassword
+      // 计算币种比例分配（基于总资金）
+      const symbolAllocationsMap: Record<string, number> = {}
+      symbolCapitalsList.forEach(sc => {
+        symbolAllocationsMap[sc.symbol] = sc.capital / totalCapitalValue
+      })
+
+      // 传递 API Key 给后端
+      const formData: AIGenerateConfigRequest = {
+        exchange: primaryExchange,
+        symbols: primarySymbols,
+        capital_mode: 'per_symbol', // 使用按币种分配模式
+        risk_profile: riskProfile,
+        gemini_api_key: geminiApiKey,  // 传递 API Key
+        
+        // 资产优先重构新增字段
+        symbol_allocations: symbolAllocationsMap,
+        strategy_splits: strategySplits, // 现在包含复合键 exchangeId:symbol
+        withdrawal_policy: withdrawalPolicy,
+        symbol_capitals: symbolCapitalsList, // 按币种分配的资金
       }
 
-      if (capitalMode === 'total') {
-        formData.total_capital = totalCapital
-      } else {
-        formData.symbol_capitals = symbolCapitals.filter(sc => sc.capital > 0)
-      }
-
-      const config = await generateAIConfig(formData)
+      // 创建异步任务
+      const taskResponse = await createAIConfigTask(formData)
+      setTaskProgress(0)
+      setTaskStatus('pending')
+      
+      // 轮询任务状态
+      const config = await pollAITaskUntilComplete(
+        taskResponse.task_id,
+        (progress, status) => {
+          setTaskProgress(progress)
+          setTaskStatus(status)
+        }
+      )
+      
       setAiConfig(config)
+      setTaskProgress(100)
+      setTaskStatus('completed')
       setStep('preview')
       toast({
         title: '配置生成成功',
@@ -391,10 +604,6 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         total_capital: totalCapital,
         risk_profile: riskProfile,
         gemini_api_key: geminiApiKey,
-        access_mode: accessMode,
-        proxy_base_url: accessMode === 'proxy' ? proxyBaseURL : undefined,
-        proxy_username: accessMode === 'proxy' ? proxyUsername : undefined,
-        proxy_password: accessMode === 'proxy' ? proxyPassword : undefined,
       }
 
       const result = await generateAIConfig(request)
@@ -440,28 +649,27 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
 
   // AI 推荐：单个币种的策略比例
   const [recommendingStrategy, setRecommendingStrategy] = useState<string | null>(null)
-  const handleAIRecommendStrategy = async (symbol: string) => {
+  const handleAIRecommendStrategy = async (exchangeId: string, symbol: string) => {
     if (!geminiApiKey.trim()) {
       toast({ title: '请先设置 Gemini API Key', status: 'warning', duration: 3000 })
       return
     }
 
-    setRecommendingStrategy(symbol)
-    toast({ title: `AI 正在为 ${symbol} 推荐策略比例...`, status: 'info', duration: 2000 })
+    const taskKey = `${exchangeId}:${symbol}`
+    setRecommendingStrategy(taskKey)
+    toast({ title: `AI 正在为 ${exchangeId} 的 ${symbol} 推荐策略比例...`, status: 'info', duration: 2000 })
 
     try {
-      const symbolCapital = totalCapital * (symbolAllocations[symbol] || 0)
+      const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+      const symbolCapital = exchangeSymbols[symbol] || 0
+      
       const request: AIGenerateConfigRequest = {
-        exchange,
+        exchange: exchangeId,
         symbols: [symbol],
         capital_mode: 'per_symbol',
         symbol_capitals: [{ symbol, capital: symbolCapital }],
         risk_profile: riskProfile,
         gemini_api_key: geminiApiKey,
-        access_mode: accessMode,
-        proxy_base_url: accessMode === 'proxy' ? proxyBaseURL : undefined,
-        proxy_username: accessMode === 'proxy' ? proxyUsername : undefined,
-        proxy_password: accessMode === 'proxy' ? proxyPassword : undefined,
       }
 
       const result = await generateAIConfig(request)
@@ -500,7 +708,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
 
       setStrategySplits(prev => ({
         ...prev,
-        [symbol]: newStrategies
+        [taskKey]: newStrategies
       }))
 
       // 构建描述信息
@@ -510,7 +718,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         .join(', ')
 
       toast({ 
-        title: `${symbol} 策略比例已更新`, 
+        title: `${exchangeId} ${symbol} 策略比例已更新`, 
         description: description || '已分配策略权重',
         status: 'success', 
         duration: 3000 
@@ -618,32 +826,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                 <Box>
                   <AlertTitle>第一步：AI 环境设置</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    配置您的 Gemini AI 访问权限。我们建议使用中转服务以保证连接稳定性。
+                    配置您的 Gemini AI 访问权限。系统内置异步任务处理，确保生成过程稳定且保护您的 API Key。
                   </AlertDescription>
                 </Box>
               </Alert>
-
-              <FormControl isRequired>
-                <FormLabel>AI 访问方式</FormLabel>
-                <RadioGroup value={accessMode} onChange={(value) => setAccessMode(value as 'native' | 'proxy')}>
-                  <Stack direction="column" spacing={3}>
-                    <Radio value="proxy">
-                      <VStack align="start" spacing={0}>
-                        <Text fontSize="sm" fontWeight="bold">中转服务 (推荐)</Text>
-                        <Text fontSize="xs" color="gray.500">通过 gemini.facev.app 访问，速度更快更稳定</Text>
-                      </VStack>
-                    </Radio>
-                    <Radio value="native">
-                      <VStack align="start" spacing={0}>
-                        <Text fontSize="sm" fontWeight="bold">原生直连</Text>
-                        <Text fontSize="xs" color={accessMode === 'native' ? "red.500" : "gray.500"}>
-                          直接访问 Google Gemini API (在国内环境极易超时失败)
-                        </Text>
-                      </VStack>
-                    </Radio>
-                  </Stack>
-                </RadioGroup>
-              </FormControl>
 
               <FormControl isRequired>
                 <FormLabel>Gemini API Key</FormLabel>
@@ -652,7 +838,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                     type={showApiKey ? 'text' : 'password'}
                     placeholder="输入您的 Gemini API Key"
                     value={geminiApiKey}
-                    onChange={(e) => setGeminiApiKey(e.target.value)}
+                    onChange={(e) => {
+                      setGeminiApiKey(e.target.value)
+                      setIsKeyFromConfig(false) // 用户修改后，标记为不再来自配置文件
+                    }}
                     borderRadius="xl"
                   />
                   <InputRightElement width="3rem">
@@ -666,58 +855,15 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                     />
                   </InputRightElement>
                 </InputGroup>
-                <Text fontSize="xs" color="gray.500" mt={2}>
+                {isKeyFromConfig && geminiApiKey && (
+                  <Text fontSize="xs" color="green.500" mt={1}>
+                    ✓ 已从配置文件读取
+                  </Text>
+                )}
+                <Text fontSize="xs" color="gray.500" mt={isKeyFromConfig && geminiApiKey ? 0 : 2}>
                   还没有 Key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', textDecoration: 'underline' }}>点击这里从 Google AI Studio 获取</a>
                 </Text>
               </FormControl>
-
-              {accessMode === 'proxy' && (
-                <Box p={4} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
-                  <Text fontWeight="bold" fontSize="sm" mb={4}>中转服务详情</Text>
-                  <VStack spacing={4}>
-                    <FormControl>
-                      <FormLabel fontSize="xs">服务地址</FormLabel>
-                      <Input
-                        size="sm"
-                        value={proxyBaseURL}
-                        onChange={(e) => setProxyBaseURL(e.target.value)}
-                        borderRadius="lg"
-                      />
-                    </FormControl>
-                    <HStack w="full" spacing={4}>
-                      <FormControl>
-                        <FormLabel fontSize="xs">Basic Auth 账号</FormLabel>
-                        <Input
-                          size="sm"
-                          value={proxyUsername}
-                          onChange={(e) => setProxyUsername(e.target.value)}
-                          borderRadius="lg"
-                        />
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel fontSize="xs">Basic Auth 密码</FormLabel>
-                        <InputGroup size="sm">
-                          <Input
-                            type={showProxyPassword ? 'text' : 'password'}
-                            value={proxyPassword}
-                            onChange={(e) => setProxyPassword(e.target.value)}
-                            borderRadius="lg"
-                          />
-                          <InputRightElement>
-                            <IconButton
-                              size="xs"
-                              onClick={() => setShowProxyPassword(!showProxyPassword)}
-                              icon={showProxyPassword ? <ViewOffIcon /> : <ViewIcon />}
-                              aria-label="显示/隐藏"
-                              variant="ghost"
-                            />
-                          </InputRightElement>
-                        </InputGroup>
-                      </FormControl>
-                    </HStack>
-                  </VStack>
-                </Box>
-              )}
             </VStack>
           )}
 
@@ -726,100 +872,175 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Alert status="info" borderRadius="md">
                 <AlertIcon />
                 <Box>
-                  <AlertTitle>第二步：资产比例分配</AlertTitle>
+                  <AlertTitle>第二步：按交易所分配资金</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    选择您想交易的币种，并设定每个币种占总可用资金 ({totalCapital} USDT) 的比例。
+                    为每个交易所设置不同币种的资金分配。每个交易所的资金总和不能超过该交易所的 USDT 资金总额。
                   </AlertDescription>
                 </Box>
               </Alert>
 
-              <Box p={4} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
-                <HStack justify="space-between" mb={4}>
-                  <Text fontWeight="bold">已选币种权重</Text>
-                  <Button 
-                    size="xs" 
-                    colorScheme="purple" 
-                    variant="ghost" 
-                    onClick={handleAIRecommendAllocations}
-                    isLoading={recommendingAllocations}
-                    loadingText="AI 分析中..."
-                    isDisabled={selectedSymbols.length === 0}
-                  >
-                    AI 智能推荐比例
-                  </Button>
-                </HStack>
+              {error && (
+                <Alert status="error" borderRadius="md">
+                  <AlertIcon />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
 
+              {loadingBalances ? (
+                <Center py={8}>
+                  <Spinner size="lg" />
+                  <Text ml={4}>正在加载交易所余额...</Text>
+                </Center>
+              ) : selectedExchanges.length === 0 ? (
+                <Alert status="warning" borderRadius="md">
+                  <AlertIcon />
+                  <AlertDescription>
+                    未找到已配置的交易所。请先在配置页面添加交易所。
+                  </AlertDescription>
+                </Alert>
+              ) : (
                 <VStack spacing={4} align="stretch">
-                  {selectedSymbols.length === 0 ? (
-                    <Center py={4} color="gray.500">
-                      请点击下方按钮选择要交易的币种
-                    </Center>
-                  ) : (
-                    selectedSymbols.map(symbol => (
-                      <HStack key={symbol} spacing={4}>
-                        <Badge colorScheme="green" minW="80px" textAlign="center">{symbol}</Badge>
-                        <Box flex={1}>
+                  {selectedExchanges.map(exchangeId => {
+                    const exchangeDetail = exchangeDetails.find(d => d.exchangeId === exchangeId)
+                    const usdtAsset = exchangeDetail?.assets.find(a => a.asset === 'USDT')
+                    const availableBalance = exchangeBalances[exchangeId] || 0
+                    const totalCapital = exchangeTotalCapitals[exchangeId] || 0
+                    const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+                    const totalAllocated = Object.values(exchangeSymbols).reduce((sum, cap) => sum + cap, 0)
+                    const isOverBalance = totalAllocated > totalCapital
+                    const exchangeName = exchangeNames[exchangeId] || exchangeId
+                    const isTestnet = exchangeDetail?.isTestnet || false
+
+                    return (
+                      <Box key={exchangeId} p={4} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
+                        <HStack justify="space-between" mb={4}>
                           <HStack>
-                            <NumberInput
-                              size="sm"
-                              maxW="100px"
-                              value={((symbolAllocations[symbol] || 0) * 100).toFixed(0)}
-                              onChange={(_, val) => {
-                                setSymbolAllocations(prev => ({ ...prev, [symbol]: val / 100 }))
-                              }}
-                              min={0}
-                              max={100}
-                            >
-                              <NumberInputField />
-                            </NumberInput>
-                            <Text fontSize="xs" color="gray.500">%</Text>
+                            <Text fontWeight="bold" fontSize="md">{exchangeName}</Text>
+                            {isTestnet && (
+                              <Badge colorScheme="orange" fontSize="xs">测试网</Badge>
+                            )}
                           </HStack>
+                          <HStack spacing={4}>
+                            <VStack spacing={1} align="end">
+                              <Text fontSize="xs" color="gray.500">
+                                可用余额: <Text as="span" fontWeight="bold" color="blue.500">{availableBalance.toFixed(2)} USDT</Text>
+                              </Text>
+                              <HStack spacing={2}>
+                                <Text fontSize="xs" color="gray.500">USDT 资金总额:</Text>
+                                <NumberInput
+                                  size="xs"
+                                  value={Math.round(totalCapital)}
+                                  onChange={(_, val) => {
+                                    setExchangeTotalCapitals(prev => ({
+                                      ...prev,
+                                      [exchangeId]: Math.round(val || 0)
+                                    }))
+                                  }}
+                                  min={0}
+                                  precision={0}
+                                  w="120px"
+                                >
+                                  <NumberInputField />
+                                </NumberInput>
+                                <Text fontSize="xs" color="gray.500">USDT</Text>
+                              </HStack>
+                            </VStack>
+                            <Text fontSize="xs" color={isOverBalance ? "red.500" : "gray.500"}>
+                              已分配: <Text as="span" fontWeight="bold" color={isOverBalance ? "red.500" : "green.500"}>{Math.round(totalAllocated)} USDT</Text>
+                            </Text>
+                          </HStack>
+                        </HStack>
+
+                        {isOverBalance && (
+                          <Alert status="error" borderRadius="md" mb={4} size="sm">
+                            <AlertIcon />
+                            <AlertDescription fontSize="xs">
+                              该交易所的资金分配总和 ({Math.round(totalAllocated)} USDT) 超过了 USDT 资金总额 ({Math.round(totalCapital)} USDT)
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        <VStack spacing={3} align="stretch">
+                          {Object.keys(exchangeSymbols).length === 0 ? (
+                            <Center py={4} color="gray.500" fontSize="sm">
+                              请点击下方按钮为该交易所添加币种
+                            </Center>
+                          ) : (
+                            Object.entries(exchangeSymbols).map(([symbol, capital]) => (
+                              <HStack key={symbol} spacing={4}>
+                                <Badge colorScheme="green" minW="80px" textAlign="center">{symbol}</Badge>
+                                <Box flex={1}>
+                                  <NumberInput
+                                    size="sm"
+                                    value={Math.round(capital)}
+                                    onChange={(_, val) => {
+                                      setExchangeSymbolCapitals(prev => ({
+                                        ...prev,
+                                        [exchangeId]: {
+                                          ...prev[exchangeId],
+                                          [symbol]: Math.round(val || 0)
+                                        }
+                                      }))
+                                    }}
+                                    min={0}
+                                    max={totalCapital}
+                                    precision={0}
+                                  >
+                                    <NumberInputField />
+                                  </NumberInput>
+                                </Box>
+                                <Text fontSize="xs" color="gray.500" minW="80px">
+                                  USDT
+                                </Text>
+                                <IconButton
+                                  size="xs"
+                                  icon={<Text>×</Text>}
+                                  aria-label="移除"
+                                  onClick={() => {
+                                    const newSymbols = { ...exchangeSymbols }
+                                    delete newSymbols[symbol]
+                                    setExchangeSymbolCapitals(prev => ({
+                                      ...prev,
+                                      [exchangeId]: newSymbols
+                                    }))
+                                  }}
+                                />
+                              </HStack>
+                            ))
+                          )}
+                        </VStack>
+
+                        <Divider my={3} />
+
+                        <Box>
+                          <Text fontSize="sm" fontWeight="bold" mb={2}>为该交易所添加币种:</Text>
+                          <Wrap>
+                            {symbols.filter(s => !exchangeSymbols[s]).map(s => (
+                              <WrapItem key={s}>
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setExchangeSymbolCapitals(prev => ({
+                                      ...prev,
+                                      [exchangeId]: {
+                                        ...prev[exchangeId],
+                                        [s]: 0
+                                      }
+                                    }))
+                                  }}
+                                >
+                                  + {s}
+                                </Button>
+                              </WrapItem>
+                            ))}
+                          </Wrap>
                         </Box>
-                        <Text fontSize="xs" color="gray.500">
-                          ≈ {(totalCapital * (symbolAllocations[symbol] || 0)).toFixed(2)} USDT
-                        </Text>
-                        <IconButton
-                          size="xs"
-                          icon={<Text>×</Text>}
-                          aria-label="移除"
-                          onClick={() => setSelectedSymbols(prev => prev.filter(s => s !== symbol))}
-                        />
-                      </HStack>
-                    ))
-                  )}
+                      </Box>
+                    )
+                  })}
                 </VStack>
-
-                <Divider my={4} />
-                
-                <HStack justify="space-between">
-                  <Text fontSize="sm" fontWeight="bold">总计权重:</Text>
-                  <Text fontSize="sm" fontWeight="bold" color={
-                    Object.values(symbolAllocations).reduce((a, b) => a + b, 0) > 1.0 ? "red.500" : "blue.500"
-                  }>
-                    {(Object.values(symbolAllocations).reduce((a, b) => a + b, 0) * 100).toFixed(0)}%
-                  </Text>
-                </HStack>
-              </Box>
-
-              <Box>
-                <Text fontSize="sm" fontWeight="bold" mb={2}>从交易所可用币种添加:</Text>
-                <Wrap>
-                  {symbols.filter(s => !selectedSymbols.includes(s)).map(s => (
-                    <WrapItem key={s}>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedSymbols(prev => [...prev, s])
-                          setSymbolAllocations(prev => ({ ...prev, [s]: 0 }))
-                        }}
-                      >
-                        + {s}
-                      </Button>
-                    </WrapItem>
-                  ))}
-                </Wrap>
-              </Box>
+              )}
             </VStack>
           )}
 
@@ -830,70 +1051,82 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                 <Box>
                   <AlertTitle>第三步：策略细分</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    为每个币种配置具体的交易策略组合（网格、DCA 等）及其资金权重。
+                    为每个交易所的每个币种配置具体的交易策略组合（网格、DCA 等）及其资金权重。
                   </AlertDescription>
                 </Box>
               </Alert>
 
               <VStack spacing={6} align="stretch">
-                {selectedSymbols.map(symbol => (
-                  <Box key={symbol} p={4} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
-                    <HStack justify="space-between" mb={4}>
-                      <Badge colorScheme="green" fontSize="md" px={3} py={1}>{symbol}</Badge>
-                      <HStack>
-                        <Text fontSize="xs" color="gray.500">分配资金: {(totalCapital * (symbolAllocations[symbol] || 0)).toFixed(2)} USDT</Text>
-                        <Button 
-                          size="xs" 
-                          colorScheme="purple" 
-                          variant="ghost" 
-                          onClick={() => handleAIRecommendStrategy(symbol)}
-                          isLoading={recommendingStrategy === symbol}
-                          loadingText="AI 分析中..."
-                        >
-                          AI 推荐
-                        </Button>
-                      </HStack>
-                    </HStack>
+                {selectedExchanges.map(exchangeId => {
+                  const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+                  const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
+                  const exchangeName = exchangeNames[exchangeId] || exchangeId
 
-                    <VStack spacing={3} align="stretch">
-                      {availableStrategyTypes.map(type => {
-                        const strategies = strategySplits[symbol] || []
-                        const existing = strategies.find(s => s.type === type)
-                        const weight = existing ? existing.weight : 0
-                        
-                        return (
-                          <HStack key={type} spacing={4}>
-                            <Text fontSize="sm" minW="90px" fontWeight="bold">
-                              {getStrategyDisplayName(type)}
-                            </Text>
-                            <Box flex={1}>
-                              <HStack>
-                                <NumberInput
-                                  size="sm"
-                                  maxW="100px"
-                                  value={(weight * 100).toFixed(0)}
-                                  onChange={(_, val) => {
-                                    const others = strategies.filter(s => s.type !== type)
-                                    const updated = [...others, { type, weight: val / 100, name: `${type}-${symbol}`, config: existing?.config || {} }]
-                                    setStrategySplits(prev => ({ ...prev, [symbol]: updated }))
-                                  }}
-                                  min={0}
-                                  max={100}
+                  if (symbolsWithCapital.length === 0) return null
+
+                  return (
+                    <Box key={exchangeId} p={4} bg={bg} borderRadius="2xl" border="1px" borderColor={borderColor}>
+                      <Heading size="sm" mb={4} color="blue.500">{exchangeName}</Heading>
+                      <VStack spacing={6} align="stretch">
+                        {symbolsWithCapital.map(symbol => {
+                          const taskKey = `${exchangeId}:${symbol}`
+                          return (
+                            <Box key={symbol} p={4} bg={infoBg} borderRadius="xl" border="1px" borderColor={borderColor}>
+                              <HStack justify="space-between" mb={4}>
+                                <Badge colorScheme="green" fontSize="md" px={3} py={1}>{symbol}</Badge>
+                                <Button 
+                                  size="xs" 
+                                  colorScheme="purple" 
+                                  variant="ghost" 
+                                  onClick={() => handleAIRecommendStrategy(exchangeId, symbol)}
+                                  isLoading={recommendingStrategy === taskKey}
+                                  loadingText="AI 分析中..."
                                 >
-                                  <NumberInputField />
-                                </NumberInput>
-                                <Text fontSize="xs" color="gray.500">%</Text>
+                                  AI 推荐
+                                </Button>
                               </HStack>
+
+                              <VStack spacing={3} align="stretch">
+                                {availableStrategyTypes.map(type => {
+                                  const strategies = strategySplits[taskKey] || []
+                                  const existing = strategies.find(s => s.type === type)
+                                  const weight = existing ? existing.weight : 0
+                                  
+                                  return (
+                                    <HStack key={type} spacing={4}>
+                                      <Text fontSize="sm" minW="90px" fontWeight="bold">
+                                        {getStrategyDisplayName(type)}
+                                      </Text>
+                                      <Box flex={1}>
+                                        <HStack>
+                                          <NumberInput
+                                            size="sm"
+                                            maxW="100px"
+                                            value={(weight * 100).toFixed(0)}
+                                            onChange={(_, val) => {
+                                              const others = strategies.filter(s => s.type !== type)
+                                              const updated = [...others, { type, weight: val / 100, name: `${type}-${symbol}`, config: existing?.config || {} }]
+                                              setStrategySplits(prev => ({ ...prev, [taskKey]: updated }))
+                                            }}
+                                            min={0}
+                                            max={100}
+                                          >
+                                            <NumberInputField />
+                                          </NumberInput>
+                                          <Text fontSize="xs" color="gray.500">%</Text>
+                                        </HStack>
+                                      </Box>
+                                    </HStack>
+                                  )
+                                })}
+                              </VStack>
                             </Box>
-                            <Text fontSize="xs" color="gray.500">
-                              ≈ {(totalCapital * (symbolAllocations[symbol] || 0) * weight).toFixed(2)} USDT
-                            </Text>
-                          </HStack>
-                        )
-                      })}
-                    </VStack>
-                  </Box>
-                ))}
+                          )
+                        })}
+                      </VStack>
+                    </Box>
+                  )
+                })}
               </VStack>
             </VStack>
           )}
@@ -911,57 +1144,73 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               </Alert>
 
               <VStack spacing={6} align="stretch">
-                {selectedSymbols.map(symbol => {
-                  const strategies = strategySplits[symbol] || []
-                  const gridStrategy = strategies.find(s => s.type === 'grid')
-                  
-                  if (!gridStrategy || gridStrategy.weight === 0) return null
+                {selectedExchanges.map(exchangeId => {
+                  const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+                  const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
+                  const exchangeName = exchangeNames[exchangeId] || exchangeId
 
-                  const symbolCapital = totalCapital * (symbolAllocations[symbol] || 0) * gridStrategy.weight
-                  
-                  // 简单公式：每单金额 = 资金 / 20 / 窗口大小
-                  const defaultOrderQuantity = (symbolCapital / 20 / 10).toFixed(2)
+                  if (symbolsWithCapital.length === 0) return null
 
                   return (
-                    <Box key={symbol} p={4} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
-                      <HStack justify="space-between" mb={4}>
-                        <Badge colorScheme="green" fontSize="sm">网格参数: {symbol}</Badge>
-                        <Button size="xs" colorScheme="purple" variant="ghost" onClick={() => {
-                          toast({ title: `AI 正在根据市场波动率为 ${symbol} 优化参数...`, status: 'info' })
-                        }}>
-                          AI 一键优化
-                        </Button>
-                      </HStack>
+                    <Box key={exchangeId} p={4} bg={bg} borderRadius="2xl" border="1px" borderColor={borderColor}>
+                      <Heading size="sm" mb={4} color="blue.500">{exchangeName}</Heading>
+                      <VStack spacing={6} align="stretch">
+                        {symbolsWithCapital.map(symbol => {
+                          const taskKey = `${exchangeId}:${symbol}`
+                          const strategies = strategySplits[taskKey] || []
+                          const gridStrategy = strategies.find(s => s.type === 'grid')
+                          
+                          if (!gridStrategy || gridStrategy.weight === 0) return null
 
-                      <VStack spacing={4} align="stretch">
-                        <HStack>
-                          <FormControl flex={1}>
-                            <FormLabel fontSize="xs">价格间隔 (%)</FormLabel>
-                            <NumberInput size="sm" defaultValue={0.5} step={0.1} min={0.1}>
-                              <NumberInputField borderRadius="lg" />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl flex={1}>
-                            <FormLabel fontSize="xs">买/卖单窗口</FormLabel>
-                            <NumberInput size="sm" defaultValue={10} min={1}>
-                              <NumberInputField borderRadius="lg" />
-                            </NumberInput>
-                          </FormControl>
-                        </HStack>
-                        <HStack>
-                          <FormControl flex={1}>
-                            <FormLabel fontSize="xs">每单金额 (USDT)</FormLabel>
-                            <NumberInput size="sm" defaultValue={parseFloat(defaultOrderQuantity)} min={5}>
-                              <NumberInputField borderRadius="lg" />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl flex={1}>
-                            <FormLabel fontSize="xs">最大网格层数</FormLabel>
-                            <NumberInput size="sm" defaultValue={50} min={1}>
-                              <NumberInputField borderRadius="lg" />
-                            </NumberInput>
-                          </FormControl>
-                        </HStack>
+                          const symbolCapital = exchangeSymbols[symbol] * gridStrategy.weight
+                          
+                          // 简单公式：每单金额 = 资金 / 20 / 窗口大小
+                          const defaultOrderQuantity = (symbolCapital / 20 / 10).toFixed(2)
+
+                          return (
+                            <Box key={symbol} p={4} bg={infoBg} borderRadius="xl" border="1px" borderColor={borderColor}>
+                              <HStack justify="space-between" mb={4}>
+                                <Badge colorScheme="green" fontSize="sm">网格参数: {symbol}</Badge>
+                                <Button size="xs" colorScheme="purple" variant="ghost" onClick={() => {
+                                  toast({ title: `AI 正在根据市场波动率为 ${exchangeName} 的 ${symbol} 优化参数...`, status: 'info' })
+                                }}>
+                                  AI 一键优化
+                                </Button>
+                              </HStack>
+
+                              <VStack spacing={4} align="stretch">
+                                <HStack>
+                                  <FormControl flex={1}>
+                                    <FormLabel fontSize="xs">价格间隔 (%)</FormLabel>
+                                    <NumberInput size="sm" defaultValue={0.5} step={0.1} min={0.1}>
+                                      <NumberInputField borderRadius="lg" />
+                                    </NumberInput>
+                                  </FormControl>
+                                  <FormControl flex={1}>
+                                    <FormLabel fontSize="xs">买/卖单窗口</FormLabel>
+                                    <NumberInput size="sm" defaultValue={10} min={1}>
+                                      <NumberInputField borderRadius="lg" />
+                                    </NumberInput>
+                                  </FormControl>
+                                </HStack>
+                                <HStack>
+                                  <FormControl flex={1}>
+                                    <FormLabel fontSize="xs">每单金额 (USDT)</FormLabel>
+                                    <NumberInput size="sm" value={parseFloat(defaultOrderQuantity)} min={5} readOnly>
+                                      <NumberInputField borderRadius="lg" />
+                                    </NumberInput>
+                                  </FormControl>
+                                  <FormControl flex={1}>
+                                    <FormLabel fontSize="xs">最大网格层数</FormLabel>
+                                    <NumberInput size="sm" defaultValue={50} min={1}>
+                                      <NumberInputField borderRadius="lg" />
+                                    </NumberInput>
+                                  </FormControl>
+                                </HStack>
+                              </VStack>
+                            </Box>
+                          )
+                        })}
                       </VStack>
                     </Box>
                   )
@@ -1384,9 +1633,30 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           )}
 
           {loading && (
-            <Center py={8}>
+            <VStack spacing={4} py={8}>
               <Spinner size="lg" />
-            </Center>
+              {taskStatus && (
+                <VStack spacing={2} w="full" px={4}>
+                  <Text fontSize="sm" color="gray.600">
+                    {taskStatus === 'pending' && '任务已创建，等待处理...'}
+                    {taskStatus === 'running' && 'AI 正在生成配置，请稍候...'}
+                    {taskStatus === 'completed' && '配置生成完成！'}
+                    {taskStatus === 'failed' && '配置生成失败'}
+                  </Text>
+                  <Progress 
+                    value={taskProgress} 
+                    colorScheme="blue" 
+                    size="sm" 
+                    w="full" 
+                    borderRadius="md"
+                    isAnimated={taskStatus === 'running'}
+                  />
+                  <Text fontSize="xs" color="gray.500">
+                    {taskProgress}%
+                  </Text>
+                </VStack>
+              )}
+            </VStack>
           )}
         </ModalBody>
 

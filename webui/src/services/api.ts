@@ -695,6 +695,31 @@ export async function getRiskCheckHistory(params?: RiskCheckHistoryParams): Prom
   return fetchWithAuth(url)
 }
 
+// ==================== Newbie Risk Check ====================
+
+export interface NewbieRiskCheckItem {
+  item: string
+  score: number
+  level: 'safe' | 'warning' | 'danger'
+  message: string
+  advice: string
+}
+
+export interface NewbieRiskReport {
+  overallScore: number
+  results: NewbieRiskCheckItem[]
+}
+
+export async function getNewbieRiskCheck(): Promise<NewbieRiskReport> {
+  return fetchWithAuth(`${API_BASE_URL}/risk/newbie-check`)
+}
+
+export async function applyNewbieSecurityConfig(): Promise<{ success: boolean; message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/risk/newbie-check/apply`, {
+    method: 'POST',
+  })
+}
+
 // Config
 export interface Config {
   symbol: string
@@ -1124,10 +1149,6 @@ export interface AIGenerateConfigRequest {
   capital_mode: 'total' | 'per_symbol'  // 资金配置模式
   risk_profile: 'conservative' | 'balanced' | 'aggressive'
   gemini_api_key?: string  // 可选的 Gemini API Key，如果提供则临时使用
-  access_mode?: 'native' | 'proxy'  // 可选的访问模式
-  proxy_base_url?: string  // 可选的代理服务地址
-  proxy_username?: string  // 可选的 Basic Auth 用户名
-  proxy_password?: string  // 可选的 Basic Auth 密码
   
   // 资产优先重构新增字段
   symbol_allocations?: Record<string, number> // 币种比例分配 symbol -> weight (0-1)
@@ -1180,11 +1201,86 @@ export interface AIGenerateConfigResponse {
   symbols_config?: AISymbolConfig[] // 新增：分级资产配置结果
 }
 
-export async function generateAIConfig(request: AIGenerateConfigRequest): Promise<AIGenerateConfigResponse> {
+export interface AITaskResponse {
+  task_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  message?: string
+}
+
+export interface AITaskStatusResponse {
+  task_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  created_at: string
+  updated_at: string
+  result?: AIGenerateConfigResponse
+  error?: string
+}
+
+// 创建 AI 配置生成任务（异步）
+export async function createAIConfigTask(request: AIGenerateConfigRequest): Promise<AITaskResponse> {
   return fetchWithAuth(`${API_BASE_URL}/ai/generate-config`, {
     method: 'POST',
     body: JSON.stringify(request),
   })
+}
+
+// 查询任务状态
+export async function getAITaskStatus(taskId: string): Promise<AITaskStatusResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/task/${taskId}`)
+}
+
+// 轮询任务直到完成
+export async function pollAITaskUntilComplete(
+  taskId: string,
+  onProgress?: (progress: number, status: string) => void,
+  maxAttempts: number = 600, // 最多轮询 600 次（约 10 分钟，每次 1 秒）
+  interval: number = 1000 // 1 秒轮询一次
+): Promise<AIGenerateConfigResponse> {
+  let attempts = 0
+  
+  while (attempts < maxAttempts) {
+    try {
+      const status = await getAITaskStatus(taskId)
+      
+      if (onProgress) {
+        onProgress(status.progress, status.status)
+      }
+      
+      if (status.status === 'completed' && status.result) {
+        console.log(`✅ [AI任务] ${taskId} 已完成，获取到结果`)
+        return status.result
+      }
+      
+      if (status.status === 'failed') {
+        console.error(`❌ [AI任务] ${taskId} 失败:`, status.error)
+        throw new Error(status.error || '任务执行失败')
+      }
+      
+      // 如果任务还在运行中，记录日志（每 10 次记录一次）
+      if (attempts % 10 === 0 && status.status === 'running') {
+        console.log(`🔄 [AI任务] ${taskId} 运行中，进度: ${status.progress}%, 已轮询 ${attempts}/${maxAttempts} 次`)
+      }
+    } catch (err) {
+      // 网络错误时继续重试，但记录日志
+      if (attempts % 10 === 0) {
+        console.warn(`⚠️ [AI任务] ${taskId} 轮询出错 (${attempts}/${maxAttempts}):`, err)
+      }
+    }
+    
+    // 等待后继续轮询
+    await new Promise(resolve => setTimeout(resolve, interval))
+    attempts++
+  }
+  
+  console.error(`⏱️ [AI任务] ${taskId} 轮询超时，已尝试 ${maxAttempts} 次`)
+  throw new Error(`任务超时（已轮询 ${maxAttempts} 次），请稍后重试或检查后端日志`)
+}
+
+// 兼容旧接口：同步等待（内部使用轮询）
+export async function generateAIConfig(request: AIGenerateConfigRequest): Promise<AIGenerateConfigResponse> {
+  const taskResponse = await createAIConfigTask(request)
+  return pollAITaskUntilComplete(taskResponse.task_id)
 }
 
 export async function applyAIConfig(config: AIGenerateConfigResponse): Promise<{ message: string }> {

@@ -75,6 +75,96 @@ var (
 	appVersion string
 )
 
+// AITaskStatus AI 任务状态
+type AITaskStatus string
+
+const (
+	TaskStatusPending   AITaskStatus = "pending"
+	TaskStatusRunning   AITaskStatus = "running"
+	TaskStatusCompleted AITaskStatus = "completed"
+	TaskStatusFailed    AITaskStatus = "failed"
+)
+
+// AITask AI 任务信息
+type AITask struct {
+	TaskID    string                 `json:"task_id"`
+	Status    AITaskStatus           `json:"status"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
+	Result    *ai.GenerateConfigResponse `json:"result,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+	Progress  int                    `json:"progress"` // 0-100
+}
+
+// AITaskManager AI 任务管理器
+type AITaskManager struct {
+	tasks map[string]*AITask
+	mu    sync.RWMutex
+}
+
+var aiTaskManager = &AITaskManager{
+	tasks: make(map[string]*AITask),
+}
+
+// CreateTask 创建新任务
+func (m *AITaskManager) CreateTask() *AITask {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	taskID := fmt.Sprintf("task_%d", time.Now().UnixNano())
+	task := &AITask{
+		TaskID:    taskID,
+		Status:    TaskStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Progress:  0,
+	}
+	m.tasks[taskID] = task
+	return task
+}
+
+// GetTask 获取任务
+func (m *AITaskManager) GetTask(taskID string) (*AITask, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	task, ok := m.tasks[taskID]
+	return task, ok
+}
+
+// UpdateTask 更新任务状态
+func (m *AITaskManager) UpdateTask(taskID string, status AITaskStatus, result *ai.GenerateConfigResponse, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	if task, ok := m.tasks[taskID]; ok {
+		task.Status = status
+		task.UpdatedAt = time.Now()
+		if result != nil {
+			task.Result = result
+			task.Progress = 100
+		}
+		if err != nil {
+			task.Error = err.Error()
+		}
+		if status == TaskStatusRunning {
+			task.Progress = 50 // 运行中设置为 50%
+		}
+	}
+}
+
+// CleanupOldTasks 清理旧任务（超过1小时）
+func (m *AITaskManager) CleanupOldTasks() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	now := time.Now()
+	for taskID, task := range m.tasks {
+		if now.Sub(task.CreatedAt) > time.Hour {
+			delete(m.tasks, taskID)
+		}
+	}
+}
+
 // SymbolScopedProviders 组合一个交易对的所有依赖
 type SymbolScopedProviders struct {
 	Status   *SystemStatus
@@ -4315,10 +4405,6 @@ func generateAIConfig(c *gin.Context) {
 		CapitalMode    string                 `json:"capital_mode"` // total 或 per_symbol
 		RiskProfile    string                 `json:"risk_profile"`
 		GeminiAPIKey   string                 `json:"gemini_api_key"` // 可选，前端传入的 API Key
-		AccessMode     string                 `json:"access_mode"`    // 可选，访问模式：native 或 proxy
-		ProxyBaseURL   string                 `json:"proxy_base_url"` // 可选，代理服务地址
-		ProxyUsername  string                 `json:"proxy_username"` // 可选，Basic Auth 用户名
-		ProxyPassword  string                 `json:"proxy_password"` // 可选，Basic Auth 密码
 
 		// 资产优先重构新增字段
 		SymbolAllocations map[string]float64               `json:"symbol_allocations"`
@@ -4427,73 +4513,109 @@ func generateAIConfig(c *gin.Context) {
 	}
 
 	// 调用 Gemini API
-	// 获取 AI 访问模式配置（优先使用请求中的参数，否则使用配置文件中的）
-	accessMode := req.AccessMode
-	if accessMode == "" {
-		accessMode = cfg.AI.AccessMode
-	}
-	if accessMode == "" {
-		accessMode = "native" // 默认使用原生方式
-	}
+	// 创建异步任务
+	task := aiTaskManager.CreateTask()
 	
-	// 获取代理配置（优先使用请求中的参数，否则使用配置文件中的）
-	proxyBaseURL := req.ProxyBaseURL
-	if proxyBaseURL == "" {
-		proxyBaseURL = cfg.AI.Proxy.BaseURL
-	}
-	proxyUsername := req.ProxyUsername
-	if proxyUsername == "" {
-		proxyUsername = cfg.AI.Proxy.Username
-	}
-	proxyPassword := req.ProxyPassword
-	if proxyPassword == "" {
-		proxyPassword = cfg.AI.Proxy.Password
-	}
-	
-	geminiClient := ai.NewGeminiClient(
-		geminiAPIKey,
-		accessMode,
-		proxyBaseURL,
-		proxyUsername,
-		proxyPassword,
-	)
-	aiConfig, err := geminiClient.GenerateConfig(c.Request.Context(), &ai.GenerateConfigRequest{
-		Exchange:          req.Exchange,
-		Symbols:           req.Symbols,
-		TotalCapital:      req.TotalCapital,
-		SymbolCapitals:    symbolCapitals,
-		CapitalMode:       capitalMode,
-		RiskProfile:       req.RiskProfile,
-		CurrentPrices:     currentPrices,
-		SymbolAllocations: req.SymbolAllocations,
-		StrategySplits:    req.StrategySplits,
-		WithdrawalPolicy:  req.WithdrawalPolicy,
+	// 立即返回任务 ID
+	c.JSON(http.StatusAccepted, gin.H{
+		"task_id": task.TaskID,
+		"status":  "pending",
+		"message": "任务已创建，正在处理中...",
 	})
 
-	if err != nil {
-		logger.Error("❌ AI 配置生成失败: %v", err)
-		respondError(c, http.StatusInternalServerError, "error.ai_generation_failed", err)
-		return
-	}
+	// 在后台 goroutine 中执行 AI 配置生成
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
 
-	// 计算总资金用于验证
-	totalCapital := req.TotalCapital
-	if capitalMode == "per_symbol" && len(symbolCapitals) > 0 {
-		totalCapital = 0
-		for _, sc := range symbolCapitals {
-			totalCapital += sc.Capital
+		// 更新任务状态为运行中
+		aiTaskManager.UpdateTask(task.TaskID, TaskStatusRunning, nil, nil)
+		logger.Info("🔄 [AI任务] %s 开始执行", task.TaskID)
+
+		geminiClient := ai.NewGeminiClient(geminiAPIKey)
+		
+		logger.Info("🔄 [AI任务] %s 调用 Gemini API 生成配置", task.TaskID)
+		aiConfig, err := geminiClient.GenerateConfig(ctx, &ai.GenerateConfigRequest{
+			Exchange:          req.Exchange,
+			Symbols:           req.Symbols,
+			TotalCapital:      req.TotalCapital,
+			SymbolCapitals:    symbolCapitals,
+			CapitalMode:       capitalMode,
+			RiskProfile:       req.RiskProfile,
+			CurrentPrices:     currentPrices,
+			SymbolAllocations: req.SymbolAllocations,
+			StrategySplits:    req.StrategySplits,
+			WithdrawalPolicy:  req.WithdrawalPolicy,
+		})
+
+		if err != nil {
+			logger.Error("❌ [AI任务] %s 配置生成失败: %v", task.TaskID, err)
+			aiTaskManager.UpdateTask(task.TaskID, TaskStatusFailed, nil, err)
+			return
 		}
-	}
 
-	// 验证配置
-	configPath := configManager.GetConfigPath()
-	configService := ai.NewConfigService(configPath)
-	if err := configService.ValidateAIConfig(aiConfig, totalCapital); err != nil {
-		respondError(c, http.StatusBadRequest, "error.invalid_ai_config", err)
+		logger.Info("✅ [AI任务] %s Gemini API 返回结果，开始验证配置", task.TaskID)
+
+		// 计算总资金用于验证
+		totalCapital := req.TotalCapital
+		if capitalMode == "per_symbol" && len(symbolCapitals) > 0 {
+			totalCapital = 0
+			for _, sc := range symbolCapitals {
+				totalCapital += sc.Capital
+			}
+		}
+
+		// 验证配置
+		configPath := configManager.GetConfigPath()
+		configService := ai.NewConfigService(configPath)
+		if err := configService.ValidateAIConfig(aiConfig, totalCapital); err != nil {
+			logger.Error("❌ [AI任务] %s 配置验证失败: %v", task.TaskID, err)
+			aiTaskManager.UpdateTask(task.TaskID, TaskStatusFailed, nil, err)
+			return
+		}
+
+		// 更新任务状态为完成
+		logger.Info("✅ [AI任务] %s 配置生成完成，更新任务状态为 completed", task.TaskID)
+		aiTaskManager.UpdateTask(task.TaskID, TaskStatusCompleted, aiConfig, nil)
+	}()
+}
+
+// getAITaskStatus 获取 AI 任务状态
+// GET /api/ai/task/:task_id
+func getAITaskStatus(c *gin.Context) {
+	taskID := c.Param("task_id")
+	if taskID == "" {
+		respondError(c, http.StatusBadRequest, "error.missing_task_id")
 		return
 	}
 
-	c.JSON(http.StatusOK, aiConfig)
+	task, ok := aiTaskManager.GetTask(taskID)
+	if !ok {
+		respondError(c, http.StatusNotFound, "error.task_not_found")
+		return
+	}
+
+	response := gin.H{
+		"task_id": task.TaskID,
+		"status":  string(task.Status),
+		"progress": task.Progress,
+		"created_at": task.CreatedAt.Format(time.RFC3339),
+		"updated_at": task.UpdatedAt.Format(time.RFC3339),
+	}
+
+	if task.Status == TaskStatusCompleted && task.Result != nil {
+		response["result"] = task.Result
+		logger.Debug("📊 [AI任务] %s 返回完成状态，包含结果", taskID)
+	} else {
+		logger.Debug("📊 [AI任务] %s 当前状态: %s, 进度: %d%%, 有结果: %v", 
+			taskID, task.Status, task.Progress, task.Result != nil)
+	}
+
+	if task.Status == TaskStatusFailed && task.Error != "" {
+		response["error"] = task.Error
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // applyAIConfig 应用 AI 配置
