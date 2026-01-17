@@ -8,7 +8,7 @@
 
 ```bash
 # 在项目根目录执行
-docker-compose -f docker-compose.monitoring.yml up -d
+docker-compose -f monitoring/docker-compose.monitoring.yml up -d
 ```
 
 ### 2. 访问监控界面
@@ -39,7 +39,7 @@ docker-compose -f docker-compose.monitoring.yml up -d
 
 重启 AlertManager 使配置生效：
 ```bash
-docker-compose -f docker-compose.monitoring.yml restart alertmanager
+docker-compose -f monitoring/docker-compose.monitoring.yml restart alertmanager
 ```
 
 ## 监控指标说明
@@ -145,7 +145,7 @@ quantmesh_websocket_connected
 ### 监控服务无法启动
 ```bash
 # 查看日志
-docker-compose -f docker-compose.monitoring.yml logs
+docker-compose -f monitoring/docker-compose.monitoring.yml logs
 
 # 检查端口占用
 lsof -i :9090  # Prometheus
@@ -168,10 +168,10 @@ lsof -i :9093  # AlertManager
 ## 停止监控服务
 
 ```bash
-docker-compose -f docker-compose.monitoring.yml down
+docker-compose -f monitoring/docker-compose.monitoring.yml down
 
 # 同时删除数据卷
-docker-compose -f docker-compose.monitoring.yml down -v
+docker-compose -f monitoring/docker-compose.monitoring.yml down -v
 ```
 
 ## 数据持久化

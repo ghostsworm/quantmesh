@@ -1,0 +1,21 @@
+{
+  "rules": [
+    "# OKX 交易所域名规则",
+    "DOMAIN-SUFFIX,okx.com,PROXY",
+    "DOMAIN,www.okx.com,PROXY",
+    "DOMAIN,ws.okx.com,PROXY",
+    "DOMAIN,wspap.okx.com,PROXY",
+    "DOMAIN-KEYWORD,okx,PROXY"
+  ],
+  "proxy-groups": [
+    {
+      "name": "PROXY",
+      "type": "select",
+      "proxies": [
+        "代理节点名称"
+      ]
+    }
+  ],
+  "description": "Clash 代理配置 - OKX 交易所域名走代理",
+  "version": "1.0"
+}

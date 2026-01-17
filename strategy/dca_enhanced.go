@@ -524,8 +524,8 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 
 	s.updateTotals()
 
-	logger.Info("📈 [%s] 基础订单成交: 价格=%.2f, 数量=%.6f, 成本=%.2f",
-		s.name, price, quantity, s.strategyCfg.BaseOrderAmount)
+	logger.Info("📈 [%s:%s] [%s] 基础订单成交: 价格=%.2f, 数量=%.6f, 成本=%.2f",
+		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, price, quantity, s.strategyCfg.BaseOrderAmount)
 
 	return nil
 }
@@ -610,8 +610,8 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 
 	s.updateTotals()
 
-	logger.Info("📉 [%s] 安全订单 #%d 成交: 价格=%.2f, 数量=%.6f, 成本=%.2f, 平均成本=%.2f",
-		s.name, layer.Index, price, quantity, orderAmount, s.avgEntryPrice)
+	logger.Info("📉 [%s:%s] [%s] 安全订单 #%d 成交: 价格=%.2f, 数量=%.6f, 成本=%.2f, 平均成本=%.2f",
+		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, layer.Index, price, quantity, orderAmount, s.avgEntryPrice)
 
 	return nil
 }

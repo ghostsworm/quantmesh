@@ -32,6 +32,7 @@ exchanges:
     api_key: "YOUR_API_KEY"
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0002
+    leverage: 8  # 全仓杠杆倍数（1-125），设置为 0 或不设置则不自动设置杠杆，建议 5-10 倍
 
   okx:
   #OKX 开户邀请码【QUANTMESH】开户链接：https://www.okx.com/join/QUANTMESH

@@ -30,7 +30,7 @@
 **文件位置：**
 - `metrics/prometheus.go` - Prometheus 指标定义
 - `metrics/system_collector.go` - 系统指标采集器
-- `docker-compose.monitoring.yml` - 监控栈部署
+- `monitoring/docker-compose.monitoring.yml` - 监控栈部署
 - `monitoring/prometheus/` - Prometheus 配置
 - `monitoring/grafana/` - Grafana 配置和 Dashboard
 - `monitoring/README.md` - 监控系统使用文档
@@ -143,7 +143,7 @@
 
 ```bash
 # 启动 Prometheus + Grafana + AlertManager
-docker-compose -f docker-compose.monitoring.yml up -d
+docker-compose -f monitoring/docker-compose.monitoring.yml up -d
 
 # 访问 Grafana
 open http://localhost:3000

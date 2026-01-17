@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -398,28 +399,18 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 		return
 	}
 
-	// 1. 验证分配总和不超过 100%
-	totalPct := 0.0
+	// 1. 验证每个策略的 maxPercentage 范围（这是上限，不是实际分配比例）
 	for _, alloc := range req.Allocations {
 		if alloc.MaxPercentage < 0 || alloc.MaxPercentage > 100 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"message": "策略 " + alloc.StrategyID + " 的分配比例必须在 0-100 之间",
+				"message": "策略 " + alloc.StrategyID + " 的分配比例上限必须在 0-100 之间",
 			})
 			return
 		}
-		totalPct += alloc.MaxPercentage
-	}
-	
-	if totalPct > 100 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "同一资产下的总分配比例不能超过 100%",
-		})
-		return
 	}
 
-	// 2. 验证硬限制（可选：验证是否超过真实可用余额）
+	// 2. 验证实际分配金额总和不超过总余额
 	if capitalDataSource != nil {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
@@ -432,14 +423,29 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 			}
 		}
 
-		totalFixedCapital := 0.0
-		for _, alloc := range req.Allocations {
-			totalFixedCapital += alloc.MaxCapital
-		}
+		if totalRealBalance > 0 {
+			totalFixedCapital := 0.0
+			for _, alloc := range req.Allocations {
+				if alloc.MaxCapital < 0 {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"success": false,
+						"message": "策略 " + alloc.StrategyID + " 的分配金额不能为负数",
+					})
+					return
+				}
+				totalFixedCapital += alloc.MaxCapital
+			}
 
-		if totalRealBalance > 0 && totalFixedCapital > totalRealBalance {
-			// 这里只是警告，或者也可以报错
-			// logger.Warn("⚠️ 固定资金分配总额 (%.2f) 超过了账户总权益 (%.2f)", totalFixedCapital, totalRealBalance)
+			// 计算实际分配比例
+			actualTotalPct := (totalFixedCapital / totalRealBalance) * 100
+			
+			if actualTotalPct > 100 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"message": fmt.Sprintf("同一资产下的总分配比例不能超过 100%%，当前为 %.2f%%", actualTotalPct),
+				})
+				return
+			}
 		}
 	}
 

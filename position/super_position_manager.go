@@ -408,7 +408,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 检查是否暂停
 	if spm.IsPaused() {
-		logger.Debug("⏸️ [%s] 交易已暂停，跳过订单调整", spm.config.Trading.Symbol)
+		logger.Debug("⏸️ [%s:%s] 交易已暂停，跳过订单调整", spm.exchangeName, spm.config.Trading.Symbol)
 		return nil
 	}
 
@@ -741,8 +741,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 生成卖单请求
 	sellOrdersToCreate := 0
 	// 🔥 调试日志: 显示订单配额计算详情（包含买卖单分布）
-	logger.Debug("📊 [订单配额] 阈值:%d, 当前订单:%d(买:%d/卖:%d), 剩余:%d, 新增买单:%d, 卖单候选:%d, 允许卖单:%d",
-		threshold, currentOrderCount, currentBuyOrderCount, currentSellOrderCount, remainingOrders, buyOrdersToCreate, len(sellCandidates), allowedNewSellOrders)
+	logger.Debug("📊 [%s:%s] [订单配额] 阈值:%d, 当前订单:%d(买:%d/卖:%d), 剩余:%d, 新增买单:%d, 卖单候选:%d, 允许卖单:%d",
+		spm.exchangeName, spm.config.Trading.Symbol, threshold, currentOrderCount, currentBuyOrderCount, currentSellOrderCount, remainingOrders, buyOrdersToCreate, len(sellCandidates), allowedNewSellOrders)
 	if allowedNewSellOrders > 0 {
 		for i := 0; i < len(sellCandidates) && sellOrdersToCreate < allowedNewSellOrders; i++ {
 			candidate := sellCandidates[i]
@@ -839,9 +839,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				}
 				// 使用可用余额（AvailableBalance）进行资金分配检查
 				// 注意：对于合约账户，如果有持仓，AvailableBalance可能为0，这是正常的
-				logger.Debug("💰 [资金分配] 账户可用余额: %.2f USDT", accountBalance)
+				logger.Debug("💰 [%s:%s] [资金分配] 账户可用余额: %.2f USDT", spm.exchangeName, spm.config.Trading.Symbol, accountBalance)
 			} else {
-				logger.Warn("⚠️ [资金分配] 无法获取账户余额: %v，使用0作为默认值", err)
+				logger.Warn("⚠️ [%s:%s] [资金分配] 无法获取账户余额: %v，使用0作为默认值", spm.exchangeName, spm.config.Trading.Symbol, err)
 			}
 		}
 
@@ -857,7 +857,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			)
 
 			if err != nil {
-				logger.Warn("⚠️ [资金分配] %v", err)
+				logger.Warn("⚠️ [%s:%s] [资金分配] %v", spm.exchangeName, spm.config.Trading.Symbol, err)
 				// 触发告警事件
 				if spm.eventBus != nil {
 					spm.eventBus.Publish(&event.Event{
@@ -889,7 +889,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 执行下单
 	if len(ordersToPlace) > 0 {
-		logger.Debug("🔄 [实时调整] 需要新增: %d 个订单", len(ordersToPlace))
+		logger.Debug("🔄 [%s:%s] [实时调整] 需要新增: %d 个订单", spm.exchangeName, spm.config.Trading.Symbol, len(ordersToPlace))
 		result := spm.executor.BatchPlaceOrdersWithDetails(ordersToPlace)
 
 		if result.HasMarginError {
@@ -969,7 +969,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			price, side, valid := spm.parseClientOrderID(ord.ClientOrderID)
 
 			if !valid {
-				logger.Warn("⚠️ [实时调整] 无法解析 ClientOID: %s", ord.ClientOrderID)
+				logger.Warn("⚠️ [%s:%s] [实时调整] 无法解析 ClientOID: %s", spm.exchangeName, spm.config.Trading.Symbol, ord.ClientOrderID)
 				continue
 			}
 
@@ -1338,8 +1338,8 @@ func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count in
 		
 		// 验证价格有效性：跳过无效价格（负数或零）
 		if price <= 0 {
-			logger.Warn("⚠️ [%s] 跳过无效槽位价格 %.8f（方向=%s, 索引=%d, 网格价格=%.2f, 间隔=%.4f）",
-				spm.config.Trading.Symbol, price, direction, i, gridPrice, priceInterval)
+			logger.Warn("⚠️ [%s:%s] 跳过无效槽位价格 %.8f（方向=%s, 索引=%d, 网格价格=%.2f, 间隔=%.4f）",
+				spm.exchangeName, spm.config.Trading.Symbol, price, direction, i, gridPrice, priceInterval)
 			continue
 		}
 		
@@ -1970,7 +1970,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	// 🔥 初始化已用资金：将恢复的持仓价值设置为已用资金
 	if totalUsedAmount > 0 {
 		spm.allocationManager.SetUsedAmount(spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
-		logger.Info("💰 [资金分配] 恢复持仓，初始化已用资金: %.2f USDT (持仓价值)", totalUsedAmount)
+		logger.Info("💰 [%s:%s] [资金分配] 恢复持仓，初始化已用资金: %.2f USDT (持仓价值)", spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
 	}
 
 	// 8. 提示用户后续会自动下卖单
@@ -1985,18 +1985,20 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 func (spm *SuperPositionManager) PrintPositions() {
 	// 从配置中获取交易对信息
 	symbol := spm.config.Trading.Symbol
-	logger.Info("📊 ===== 当前持仓 [%s] =====", symbol)
+	currentPositionsMsg := logger.Translate("log.position.current_positions", map[string]interface{}{"Symbol": symbol})
+	logger.Info("%s", currentPositionsMsg)
 	total := 0.0
 	count := 0
 
 	// 收集所有持仓数据
 	type positionInfo struct {
-		Price       float64
-		Qty         float64
-		OrderStatus string
-		OrderSide   string
-		OrderID     int64
-		SlotStatus  string
+		Price          float64
+		Qty            float64
+		OrderStatus    string
+		OrderSide      string
+		OrderID        int64
+		SlotStatus     string
+		OrderCreatedAt time.Time
 	}
 	var positions []positionInfo
 
@@ -2006,12 +2008,13 @@ func (spm *SuperPositionManager) PrintPositions() {
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0.001 {
 			positions = append(positions, positionInfo{
-				Price:       price,
-				Qty:         slot.PositionQty,
-				OrderStatus: slot.OrderStatus,
-				OrderSide:   slot.OrderSide,
-				OrderID:     slot.OrderID,
-				SlotStatus:  slot.SlotStatus,
+				Price:          price,
+				Qty:            slot.PositionQty,
+				OrderStatus:    slot.OrderStatus,
+				OrderSide:      slot.OrderSide,
+				OrderID:        slot.OrderID,
+				SlotStatus:     slot.SlotStatus,
+				OrderCreatedAt: slot.OrderCreatedAt,
 			})
 			total += slot.PositionQty
 			count++
@@ -2032,26 +2035,55 @@ func (spm *SuperPositionManager) PrintPositions() {
 	for _, pos := range positions {
 		statusIcon := "🟢" // 有持仓
 		priceStr := formatPrice(pos.Price, spm.priceDecimals)
-		positionDesc := fmt.Sprintf("持仓: %.4f %s", pos.Qty, baseCurrency)
+		
+		// 使用翻译函数获取持仓信息
+		positionDesc := logger.Translate("log.position.position_info", map[string]interface{}{
+			"Qty":      fmt.Sprintf("%.4f", pos.Qty),
+			"Currency": baseCurrency,
+		})
 
 		orderInfo := ""
 		if pos.OrderStatus != OrderStatusNotPlaced && pos.OrderStatus != "" {
-			orderInfo = fmt.Sprintf(", 订单: %s/%s (ID:%d)", pos.OrderSide, pos.OrderStatus, pos.OrderID)
+			orderInfo = ", " + logger.Translate("log.position.order_info", map[string]interface{}{
+				"Side":   pos.OrderSide,
+				"Status":  pos.OrderStatus,
+				"OrderID": pos.OrderID,
+			})
 		}
 
 		// 🔥 总是显示槽位状态,便于调试
 		slotStatusInfo := ""
 		if pos.SlotStatus != "" {
-			slotStatusInfo = fmt.Sprintf(" [槽位:%s]", pos.SlotStatus)
+			slotStatusInfo = " [" + logger.Translate("log.position.slot_status", map[string]interface{}{
+				"Status": pos.SlotStatus,
+			}) + "]"
 		} else {
-			slotStatusInfo = " [槽位:空]"
+			slotStatusInfo = " [" + logger.Translate("log.position.slot_empty") + "]"
 		}
 
-		logger.Info("  %s %s: %s%s%s",
-			statusIcon, priceStr, positionDesc, orderInfo, slotStatusInfo)
+		// 格式化买入时间（使用订单创建时间作为买入时间参考）
+		buyTimeStr := ""
+		if !pos.OrderCreatedAt.IsZero() {
+			buyTimeStr = ", " + logger.Translate("log.position.buy_time", map[string]interface{}{
+				"Time": pos.OrderCreatedAt.Format("2006/01/02 15:04:05"),
+			})
+		}
+
+		// 添加交易所、币种、策略信息
+		strategyName := logger.Translate("log.position.strategy_grid")
+		exchangeSymbolInfo := fmt.Sprintf("[%s:%s:%s]", spm.exchangeName, spm.config.Trading.Symbol, strategyName)
+
+		logger.Info("  %s %s %s: %s%s%s%s",
+			statusIcon, exchangeSymbolInfo, priceStr, positionDesc, buyTimeStr, orderInfo, slotStatusInfo)
 	}
 
-	logger.Info("[%s] 持仓统计: %.4f %s (%d 个槽位)", spm.config.Trading.Symbol, total, baseCurrency, count)
+	positionSummaryMsg := logger.Translate("log.position.position_summary", map[string]interface{}{
+		"Symbol":   spm.config.Trading.Symbol,
+		"Total":    fmt.Sprintf("%.4f", total),
+		"Currency": baseCurrency,
+		"Count":    count,
+	})
+	logger.Info("%s", positionSummaryMsg)
 	totalBuyQty := spm.totalBuyQty.Load().(float64)
 	totalSellQty := spm.totalSellQty.Load().(float64)
 	// 预计盈利 = 累计卖出数量 × 价格间距（每笔盈利 = 价格间距 × 数量）

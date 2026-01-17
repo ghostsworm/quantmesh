@@ -449,8 +449,8 @@ func (s *MartingaleStrategy) openInitialPosition(price float64) error {
 
 	s.updateTotals()
 
-	logger.Info("📈 [%s] 初始订单成交: 价格=%.2f, 数量=%.6f, 方向=%s",
-		s.name, price, quantity, side)
+	logger.Info("📈 [%s:%s] [%s] 初始订单成交: 价格=%.2f, 数量=%.6f, 方向=%s",
+		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, price, quantity, side)
 
 	return nil
 }

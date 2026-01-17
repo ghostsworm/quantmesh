@@ -46,7 +46,7 @@ type GateAdapter struct {
 func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) {
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
-	settle := cfg["settle"] // usdt 或 btc，默认 usdt
+	settle := cfg["settle"]                                      // usdt 或 btc，默认 usdt
 	testnet := cfg["testnet"] == "true" || cfg["testnet"] == "1" // 是否使用测试网
 
 	if apiKey == "" || secretKey == "" {
@@ -108,6 +108,18 @@ func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) 
 			posModeDesc = "单向持仓"
 		}
 		logger.Info("ℹ️ [Gate] 持仓模式: %s (%s)", posModeDesc, adapter.posMode)
+	}
+
+	// 3. 如果配置了杠杆，自动设置杠杆
+	if leverageStr := cfg["leverage"]; leverageStr != "" {
+		leverage, err := strconv.Atoi(leverageStr)
+		if err == nil && leverage > 0 {
+			logger.Info("ℹ️ [Gate] 检测到杠杆配置: %dx，正在设置...", leverage)
+			if err := adapter.SetLeverage(ctxInit, leverage); err != nil {
+				logger.Warn("⚠️ [Gate] 设置杠杆失败: %v", err)
+				// 不返回错误，允许继续运行（杠杆可能已在网站设置）
+			}
+		}
 	}
 
 	return adapter, nil
@@ -562,6 +574,37 @@ func (g *GateAdapter) GetBalance(ctx context.Context, asset string) (float64, er
 	return acc.AvailableBalance, nil
 }
 
+// SetLeverage 设置全仓杠杆倍数
+func (g *GateAdapter) SetLeverage(ctx context.Context, leverage int) error {
+	// 验证杠杆倍数范围（Gate.io 通常支持 1-125 倍）
+	if leverage < 1 || leverage > 125 {
+		return fmt.Errorf("杠杆倍数必须在 1-125 之间，当前值: %d", leverage)
+	}
+
+	// 检查当前持仓模式
+	fp, err := g.client.GetPosition(ctx, g.settle, g.gateSymbol)
+	if err != nil {
+		// 如果没有持仓，仍然可以设置杠杆（Gate.io 允许）
+		logger.Info("ℹ️ [Gate] 当前无持仓，将设置全仓杠杆为 %dx", leverage)
+	} else {
+		// 检查是否为逐仓模式
+		leverageValue, _ := strconv.Atoi(fp.Leverage)
+		if leverageValue != 0 {
+			return fmt.Errorf("当前为逐仓模式，无法设置全仓杠杆。请先在 Gate.io 网站将持仓模式改为全仓")
+		}
+		logger.Info("ℹ️ [Gate] 当前全仓杠杆: %s，将设置为 %dx", fp.CrossLeverageLimit, leverage)
+	}
+
+	// 调用 API 设置杠杆
+	err = g.client.SetLeverage(ctx, g.settle, g.gateSymbol, leverage)
+	if err != nil {
+		return fmt.Errorf("设置杠杆失败: %w", err)
+	}
+
+	logger.Info("✅ [Gate] 全仓杠杆已设置为 %dx", leverage)
+	return nil
+}
+
 // StartOrderStream 启动订单流
 func (g *GateAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	// 包装回调函数,将合约张数转换为币数量
@@ -607,29 +650,36 @@ func (g *GateAdapter) StartPriceStream(ctx context.Context, callback func(string
 
 // GetLatestPrice 获取最新价格
 func (g *GateAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 优先从 WebSocket 缓存获取
-	price := g.wsManager.GetLatestPrice()
-	if price > 0 {
-		return price, nil
+	// 只有当请求的交易对与适配器初始化的交易对匹配时，才使用 WebSocket 缓存
+	// 这样可以避免在多交易对场景下返回错误的价格
+	if symbol == g.symbol {
+		price := g.wsManager.GetLatestPrice()
+		if price > 0 {
+			return price, nil
+		}
 	}
 
-	// 降级：使用 REST API 查询期货价格
+	// 使用 REST API 查询期货价格（支持任意交易对）
 	price, err := g.GetFuturesPrice(ctx, symbol)
 	if err == nil && price > 0 {
-		// 更新缓存
-		g.priceCacheMu.Lock()
-		g.priceCache = price
-		g.priceCacheTime = time.Now()
-		g.priceCacheMu.Unlock()
+		// 更新缓存（仅当交易对匹配时）
+		if symbol == g.symbol {
+			g.priceCacheMu.Lock()
+			g.priceCache = price
+			g.priceCacheTime = time.Now()
+			g.priceCacheMu.Unlock()
+		}
 		return price, nil
 	}
 
-	// 最后尝试返回缓存价格
-	g.priceCacheMu.RLock()
-	defer g.priceCacheMu.RUnlock()
+	// 最后尝试返回缓存价格（仅当交易对匹配且缓存未过期时）
+	if symbol == g.symbol {
+		g.priceCacheMu.RLock()
+		defer g.priceCacheMu.RUnlock()
 
-	if time.Since(g.priceCacheTime) < 5*time.Second && g.priceCache > 0 {
-		return g.priceCache, nil
+		if time.Since(g.priceCacheTime) < 5*time.Second && g.priceCache > 0 {
+			return g.priceCache, nil
+		}
 	}
 
 	return 0, fmt.Errorf("价格数据不可用")
@@ -769,9 +819,12 @@ func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float6
 
 // GetFuturesPrice 获取期货市场价格
 func (g *GateAdapter) GetFuturesPrice(ctx context.Context, symbol string) (float64, error) {
+	// 转换为 Gate.io 期货格式: BTCUSDT -> BTC_USDT
+	gateSymbol := convertToGateSymbol(symbol)
+
 	// Gate.io 期货 API: GET /api/v4/futures/{settle}/tickers
 	path := fmt.Sprintf("/futures/%s/tickers", g.settle)
-	queryString := fmt.Sprintf("contract=%s", g.gateSymbol)
+	queryString := fmt.Sprintf("contract=%s", gateSymbol)
 
 	respBody, err := g.client.DoRequest(ctx, "GET", path, queryString, nil)
 	if err != nil {
@@ -789,7 +842,7 @@ func (g *GateAdapter) GetFuturesPrice(ctx context.Context, symbol string) (float
 	}
 
 	if len(results) == 0 {
-		return 0, fmt.Errorf("未找到合约 %s 的期货价格", g.gateSymbol)
+		return 0, fmt.Errorf("未找到合约 %s 的期货价格", gateSymbol)
 	}
 
 	price, err := strconv.ParseFloat(results[0].Last, 64)

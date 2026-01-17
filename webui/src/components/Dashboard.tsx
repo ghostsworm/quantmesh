@@ -37,7 +37,8 @@ import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary } from '../services/api'
 import { checkSetupStatus } from '../services/setup'
-import { Alert, AlertIcon, AlertTitle, AlertDescription } from '@chakra-ui/react'
+import { Alert, AlertIcon, AlertTitle, AlertDescription, useDisclosure } from '@chakra-ui/react'
+import { NewbieCheckModal } from './NewbieCheckModal'
 
 const MotionBox = motion(Box)
 const MotionFlex = motion(Flex)
@@ -90,6 +91,7 @@ const Dashboard: React.FC = () => {
   const [isTrading, setIsTrading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
+  const { isOpen: isNewbieCheckOpen, onOpen: onNewbieCheckOpen, onClose: onNewbieCheckClose } = useDisclosure()
   const toast = useToast()
 
   const cardBg = 'white'
@@ -245,6 +247,20 @@ const Dashboard: React.FC = () => {
 
           <GlassCard p={2}>
             <HStack spacing={6} px={4}>
+              <Button
+                size="md"
+                variant="ghost"
+                leftIcon={<span>🛡️</span>}
+                onClick={onNewbieCheckOpen}
+                borderRadius="2xl"
+                fontSize="sm"
+                fontWeight="800"
+                color="blue.500"
+                _hover={{ bg: 'blue.50', transform: 'translateY(-2px)' }}
+              >
+                新手体检
+              </Button>
+              <Divider orientation="vertical" h="30px" />
               <VStack align="start" spacing={0}>
                 <Text fontSize="10px" fontWeight="bold" color="gray.400" textTransform="uppercase">{t('dashboard.status')}</Text>
                 <HStack spacing={2}>
@@ -419,6 +435,7 @@ const Dashboard: React.FC = () => {
           </VStack>
         </SimpleGrid>
       </VStack>
+      <NewbieCheckModal isOpen={isNewbieCheckOpen} onClose={onNewbieCheckClose} />
     </Container>
   )
 }

@@ -293,7 +293,7 @@ type Balance struct {
 
 // GetBalance 获取账户余额
 func (c *OKXClient) GetBalance(ctx context.Context) ([]Balance, error) {
-	data, err := c.request(ctx, "GET", "/api/v5/account/balance", nil, false)
+	data, err := c.request(ctx, "GET", "/api/v5/account/balance", nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}

@@ -306,3 +306,20 @@ func (c *Client) GetOpenOrders(ctx context.Context, settle, contract string) ([]
 
 	return orders, nil
 }
+
+// SetLeverage 设置全仓杠杆倍数
+// PUT /futures/{settle}/positions/{contract}/leverage
+func (c *Client) SetLeverage(ctx context.Context, settle, contract string, leverage int) error {
+	path := fmt.Sprintf("/futures/%s/positions/%s/leverage", settle, contract)
+	
+	body := map[string]interface{}{
+		"leverage": strconv.Itoa(leverage),
+	}
+
+	_, err := c.DoRequest(ctx, "PUT", path, "", body)
+	if err != nil {
+		return fmt.Errorf("设置杠杆失败: %w", err)
+	}
+
+	return nil
+}

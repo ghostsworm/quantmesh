@@ -299,3 +299,28 @@ other = "You haven't completed the first-time setup wizard. Please complete the 
 
 [dashboard.openSetupWizard]
 other = "Open First-time Setup Wizard"
+
+# Position related log messages
+[log.position.current_positions]
+other = "📊 ===== Current Positions [{{.Symbol}}] ====="
+
+[log.position.position_info]
+other = "Position: {{.Qty}} {{.Currency}}"
+
+[log.position.buy_time]
+other = "Buy Time: {{.Time}}"
+
+[log.position.order_info]
+other = "Order: {{.Side}}/{{.Status}} (ID:{{.OrderID}})"
+
+[log.position.slot_status]
+other = "Slot:{{.Status}}"
+
+[log.position.slot_empty]
+other = "Slot:Empty"
+
+[log.position.position_summary]
+other = "[{{.Symbol}}] Position Summary: {{.Total}} {{.Currency}} ({{.Count}} slots)"
+
+[log.position.strategy_grid]
+other = "Grid Strategy"

@@ -326,7 +326,7 @@ QuantMesh supports cryptocurrency payments for subscriptions and licenses:
 - 📖 [User Payment Guide](docs/CRYPTO_PAYMENT_GUIDE.md)
 - 🚀 [Quick Start Guide](docs/CRYPTO_PAYMENT_QUICKSTART.md)
 - 🔧 [Setup Guide](docs/CRYPTO_PAYMENT_SETUP.md)
-- 📊 [Implementation Summary](CRYPTO_PAYMENT_SUMMARY.md)
+- 📊 [Implementation Summary](docs/reports/CRYPTO_PAYMENT_SUMMARY.md)
 
 ### Why Crypto Payments?
 ✅ No credit card or bank account required  

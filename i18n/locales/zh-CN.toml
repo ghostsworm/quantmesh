@@ -299,3 +299,28 @@ other = "您还没有完成首次设置向导，请完成交易所 API 配置和
 
 [dashboard.openSetupWizard]
 other = "打开首次设置向导"
+
+# 持仓相关日志消息
+[log.position.current_positions]
+other = "📊 ===== 当前持仓 [{{.Symbol}}] ====="
+
+[log.position.position_info]
+other = "持仓: {{.Qty}} {{.Currency}}"
+
+[log.position.buy_time]
+other = "买入时间: {{.Time}}"
+
+[log.position.order_info]
+other = "订单: {{.Side}}/{{.Status}} (ID:{{.OrderID}})"
+
+[log.position.slot_status]
+other = "槽位:{{.Status}}"
+
+[log.position.slot_empty]
+other = "槽位:空"
+
+[log.position.position_summary]
+other = "[{{.Symbol}}] 持仓统计: {{.Total}} {{.Currency}} ({{.Count}} 个槽位)"
+
+[log.position.strategy_grid]
+other = "网格策略"

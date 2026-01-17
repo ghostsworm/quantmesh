@@ -83,6 +83,10 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 			"settle":     "usdt", // 默认 USDT 永续合约
 			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet), // 传递测试网配置
 		}
+		// 如果配置了杠杆，传递杠杆配置
+		if exchangeCfg.Leverage > 0 {
+			cfgMap["leverage"] = fmt.Sprintf("%d", exchangeCfg.Leverage)
+		}
 		adapter, err := gate.NewGateAdapter(cfgMap, symbol)
 		if err != nil {
 			return nil, err

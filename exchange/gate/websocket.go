@@ -143,7 +143,37 @@ func (w *WebSocketManager) connectLoop() {
 
 		logger.Info("✅ [Gate WS] 已连接")
 
-		// Gate.io 不需要单独登录,直接在订阅时携带认证信息
+		// Gate.io 测试网可能需要先登录认证，然后再订阅私有频道
+		// 注意：根据 Gate.io 文档，测试网和主网都支持在订阅时直接携带认证信息
+		// 但如果遇到 "Invalid key provided" 错误，可能是：
+		// 1. 测试网需要使用专门的测试网 API Key（不是主网的 API Key）
+		// 2. 或者需要先调用 login() 进行认证
+		// 这里先尝试直接订阅，如果失败再尝试先登录
+		if w.testnet {
+			logger.Info("ℹ️ [Gate WS] 测试网模式：将先尝试登录认证")
+			// 测试网模式下先登录
+			if err := w.login(); err != nil {
+				logger.Warn("⚠️ [Gate WS] 测试网登录发送失败: %v，将直接尝试订阅", err)
+			} else {
+				// 等待登录响应（最多等待1.5秒）
+				loginSuccess := false
+				for i := 0; i < 30; i++ { // 最多检查30次（约1.5秒）
+					w.mu.RLock()
+					authenticated := w.isAuthenticated
+					w.mu.RUnlock()
+					if authenticated {
+						loginSuccess = true
+						logger.Info("✅ [Gate WS] 测试网登录成功")
+						break
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+				if !loginSuccess {
+					logger.Warn("⚠️ [Gate WS] 测试网登录响应超时，继续尝试订阅（可能测试网不需要先登录）")
+				}
+			}
+		}
+
 		// 订阅频道
 		if err := w.subscribeChannels(symbol); err != nil {
 			logger.Error("❌ [Gate WS] 订阅失败: %v", err)
@@ -349,9 +379,39 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 检查错误
+	// 检查错误（可能是错误对象或 code 字段）
 	if errObj, ok := msg["error"].(map[string]interface{}); ok {
 		logger.Error("❌ [Gate WS] 错误: %v", errObj)
+		return
+	}
+	// Gate.io 测试网可能使用 code 字段表示错误
+	if code, ok := msg["code"].(float64); ok && code != 0 {
+		if message, ok := msg["message"].(string); ok {
+			// 检查是否是 "Invalid key provided" 错误
+			isInvalidKey := code == 4 || (message != "" && (message == "Invalid key provided" || message == `{"message":"Invalid key provided","label":"INVALID_KEY"}`))
+			
+			if isInvalidKey {
+				if w.testnet {
+					logger.Error("❌ [Gate WS] 测试网认证失败: Invalid key provided")
+					logger.Error("💡 [Gate WS] 提示：Gate.io 测试网需要使用专门的测试网 API Key")
+					logger.Error("💡 [Gate WS] 请访问 https://api-testnet.gateapi.io/ 申请测试网 API Key")
+					logger.Error("💡 [Gate WS] 注意：测试网 API Key 与主网 API Key 是独立的，不能混用")
+				} else {
+					logger.Error("❌ [Gate WS] 认证失败: Invalid key provided (code=%v)", code)
+				}
+			} else {
+				logger.Error("❌ [Gate WS] 错误: code=%v, message=%s", code, message)
+			}
+			
+			// 如果是认证错误，标记为未认证
+			if isInvalidKey {
+				w.mu.Lock()
+				w.isAuthenticated = false
+				w.mu.Unlock()
+			}
+		} else {
+			logger.Error("❌ [Gate WS] 错误: code=%v, msg=%v", code, msg)
+		}
 		return
 	}
 

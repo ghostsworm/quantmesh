@@ -220,6 +220,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/risk/status", getRiskStatus)
 			protected.GET("/risk/monitor", getRiskMonitorData)
 			protected.GET("/risk/history", getRiskCheckHistory)
+			protected.GET("/risk/newbie-check", getNewbieRiskCheck)
+			protected.POST("/risk/newbie-check/apply", applyNewbieSecurityConfig)
 
 			// 配置管理API
 			protected.GET("/config", getConfigHandler)
@@ -274,6 +276,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 
 			// AI 配置助手 API
 			protected.POST("/ai/generate-config", generateAIConfig)
+			protected.GET("/ai/task/:task_id", getAITaskStatus)
 			protected.POST("/ai/apply-config", applyAIConfig)
 
 			protected.GET("/funding/history", getFundingRateHistory)

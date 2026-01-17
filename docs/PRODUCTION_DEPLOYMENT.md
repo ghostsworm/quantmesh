@@ -190,7 +190,7 @@ sudo crontab -e -u quantmesh
 ```bash
 # 启动监控栈
 cd /opt/quantmesh
-docker-compose -f docker-compose.monitoring.yml up -d
+docker-compose -f monitoring/docker-compose.monitoring.yml up -d
 
 # 配置 Prometheus 抓取
 # 编辑 monitoring/prometheus/prometheus.yml

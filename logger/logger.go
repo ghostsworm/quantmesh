@@ -164,6 +164,24 @@ func translate(message string) string {
 	return translated
 }
 
+// Translate 翻译消息（导出函数，供其他包使用）
+func Translate(key string, data ...interface{}) string {
+	translateMu.RLock()
+	fn := translateFunc
+	translateMu.RUnlock()
+
+	if fn == nil {
+		return key
+	}
+
+	// 调用翻译函数
+	translated := fn(key, data...)
+	if translated == key || translated == "" {
+		return key
+	}
+	return translated
+}
+
 // initFileLogger 初始化文件日志（当日志级别为DEBUG时）
 func initFileLogger() {
 	fileMu.Lock()
