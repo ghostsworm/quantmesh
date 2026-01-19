@@ -20,6 +20,10 @@ import {
   List,
   ListItem,
   Divider,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
 } from '@chakra-ui/react';
 import { WarningIcon, CheckCircleIcon, InfoIcon } from '@chakra-ui/icons';
 import {
@@ -75,10 +79,10 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
       const response = await applyNewbieSecurityConfig();
       if (response.success) {
         toast({
-          title: '应用成功',
-          description: response.message,
+          title: '配置已更新',
+          description: `${response.message} ${t('newbieRiskCheck.applySuccessNotice')}`,
           status: 'success',
-          duration: 5000,
+          duration: 8000,
           isClosable: true,
         });
         fetchReport(); // 重新获取报告
@@ -195,19 +199,32 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
             <Text>未能生成报告，请重试。</Text>
           )}
         </ModalBody>
-        <ModalFooter borderTopWidth="1px" borderColor="gray.700" bg="gray.900">
-          <Button variant="ghost" mr={3} onClick={onClose} _hover={{ bg: 'gray.700' }}>
-            关闭
-          </Button>
-          <Button 
-            colorScheme="blue" 
-            leftIcon={<CheckCircleIcon />} 
-            onClick={handleApply}
-            isLoading={applying}
-            loadingText="正在加固..."
-          >
-            一键安全加固
-          </Button>
+        <ModalFooter borderTopWidth="1px" borderColor="gray.700" bg="gray.900" flexDirection="column" alignItems="stretch">
+          <Alert status="warning" borderRadius="md" mb={4} bg="yellow.900" borderColor="yellow.700">
+            <AlertIcon color="yellow.400" />
+            <Box flex="1">
+              <AlertTitle fontSize="sm" mb={1} color="yellow.200">
+                {t('newbieRiskCheck.importantNotice')}
+              </AlertTitle>
+              <AlertDescription fontSize="sm" color="yellow.100">
+                {t('newbieRiskCheck.leverageNotice')}
+              </AlertDescription>
+            </Box>
+          </Alert>
+          <HStack justify="flex-end">
+            <Button variant="ghost" mr={3} onClick={onClose} _hover={{ bg: 'gray.700' }}>
+              关闭
+            </Button>
+            <Button 
+              colorScheme="blue" 
+              leftIcon={<CheckCircleIcon />} 
+              onClick={handleApply}
+              isLoading={applying}
+              loadingText="正在加固..."
+            >
+              一键安全加固
+            </Button>
+          </HStack>
         </ModalFooter>
       </ModalContent>
     </Modal>

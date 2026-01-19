@@ -756,6 +756,14 @@ func CreateMinimalConfig() *Config {
 	cfg.Watchdog.Aggregation.Schedule = "00:00"
 
 	cfg.AI.Enabled = false
+
+	// 设置数据库配置默认值（AI 异步任务需要数据库支持）
+	cfg.Database.Type = "sqlite"
+	cfg.Database.DSN = "./data/quantmesh.db"
+	cfg.Database.MaxOpenConns = 100
+	cfg.Database.MaxIdleConns = 10
+	cfg.Database.ConnMaxLifetime = 3600
+	cfg.Database.LogLevel = "error"
 	cfg.AI.Provider = "gemini"
 	cfg.AI.DecisionMode = "hybrid"
 	cfg.AI.ExecutionRules.HighRiskThreshold = 0.8

@@ -121,6 +121,11 @@ const CapitalManagement: React.FC = () => {
   }, [overview, exchanges, selectedExchangeIndex])
 
   const handleAllocationChange = (strategyId: string, value: number, isPercentage: boolean) => {
+    // 只有在选中具体交易所时才能调整
+    if (selectedExchangeIndex === 0) {
+      return
+    }
+    
     let actualValue = value
     if (isPercentage && currentTotalBalance > 0) {
       actualValue = (value / 100) * currentTotalBalance
@@ -134,6 +139,17 @@ const CapitalManagement: React.FC = () => {
   const hasPendingChanges = Object.keys(pendingChanges).length > 0
 
   const handleSaveChanges = async () => {
+    // 只有在选中具体交易所时才能保存
+    if (selectedExchangeIndex === 0) {
+      toast({
+        title: t('capitalManagement.selectExchangeFirst'),
+        description: t('capitalManagement.cannotAdjustAllExchanges'),
+        status: 'warning',
+        duration: 5000,
+      })
+      return
+    }
+    
     if (!hasPendingChanges) return
 
     setSaving(true)
@@ -338,6 +354,20 @@ const CapitalManagement: React.FC = () => {
                 </Alert>
               )}
 
+              {selectedExchangeIndex === 0 && (
+                <Alert status="info" borderRadius="md" mb={4}>
+                  <AlertIcon />
+                  <Box flex="1">
+                    <Text fontSize="sm" fontWeight="bold">
+                      {t('capitalManagement.viewOnlyNotice')}
+                    </Text>
+                    <Text fontSize="xs" mt={1}>
+                      {t('capitalManagement.viewOnlyDescription')}
+                    </Text>
+                  </Box>
+                </Alert>
+              )}
+
               <VStack align="stretch" spacing={3}>
                 {currentStrategies && currentStrategies.length > 0 ? (
                   currentStrategies
@@ -360,13 +390,17 @@ const CapitalManagement: React.FC = () => {
                       onChange={handleAllocationChange}
                       isPercentageMode={isPercentageMode}
                       onModeChange={setIsPercentageMode}
-                      disabled={strategy.status === 'error'}
+                      disabled={strategy.status === 'error' || selectedExchangeIndex === 0}
                     />
                   ))
                 ) : (
                   <Center py={8} flexDirection="column">
                     <InfoIcon boxSize={8} color="gray.300" mb={2} />
-                    <Text color="gray.500">该交易所暂无运行中的策略</Text>
+                    <Text color="gray.500">
+                      {selectedExchangeIndex === 0 
+                        ? t('capitalManagement.selectExchangeToAdjust')
+                        : t('capitalManagement.noStrategies')}
+                    </Text>
                   </Center>
                 )}
               </VStack>

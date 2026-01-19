@@ -220,6 +220,12 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		} else if strings.Contains(errStr, "-2019") || strings.Contains(errStr, "保证金不足") || strings.Contains(errStr, "insufficient") {
 			// 保证金不足，不重试
 			return nil, err
+		} else if strings.Contains(errStr, "-4164") || strings.Contains(errStr, "Order's notional must be no smaller than 100") {
+			// 🔥 币安合约最小订单金额不足：订单名义价值必须 >= 100 USDT（除非是reduce only订单）
+			// 这是配置问题，重试无效，直接返回错误
+			logger.Error("❌ [%s] 订单金额不足：币安合约要求订单名义价值 >= 100 USDT（除非是reduce only订单）。订单金额=%.2f × %.8f = %.2f USDT",
+				oe.exchange.GetName(), req.Price, req.Quantity, req.Price*req.Quantity)
+			return nil, fmt.Errorf("订单金额不足（币安合约最小订单金额为100 USDT）: %w", err)
 		} else if strings.Contains(errStr, "-1021") {
 			// 时间戳不同步，不重试
 			return nil, err

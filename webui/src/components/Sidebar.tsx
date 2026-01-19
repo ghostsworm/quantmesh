@@ -34,6 +34,7 @@ import {
   CheckCircleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  WarningIcon,
 } from '@chakra-ui/icons'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useTranslation } from 'react-i18next'
@@ -282,6 +283,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           {t('sidebar.aiPrompts')}
         </NavItem>
         <NavItem 
+          icon={WarningIcon} 
+          to="/newbie-risk-check" 
+          isActive={isRouteActive('/newbie-risk-check')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.newbieRiskCheck')}
+        </NavItem>
+        <NavItem 
           icon={MoonIcon} 
           to="/ai-config" 
           isActive={isRouteActive('/ai-config')}
@@ -289,6 +299,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           collapsed={collapsed}
         >
           {t('sidebar.aiConfig')}
+        </NavItem>
+        <NavItem 
+          icon={StarIcon} 
+          to="/ai/tasks" 
+          isActive={isRouteActive('/ai/tasks')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.aiTasks')}
         </NavItem>
         <NavItem 
           icon={ExternalLinkIcon} 

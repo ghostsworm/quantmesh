@@ -1355,3 +1355,83 @@ export async function getEventDetail(id: number): Promise<EventRecord> {
 export async function getEventStats(): Promise<EventStats> {
   return fetchWithAuth(`${API_BASE_URL}/events/stats`)
 }
+
+// ==================== AI 异步任务管理 ====================
+
+export interface AITask {
+  id: string
+  task_type: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout'
+  request_data: string
+  result?: string
+  error_message?: string
+  model?: string
+  ai_input?: string
+  ai_output?: string
+  input_tokens: number
+  output_tokens: number
+  processing_time_ms: number
+  used_api_key?: string
+  retry_count: number
+  max_retries: number
+  timeout_seconds: number
+  created_at: string
+  started_at?: string
+  completed_at?: string
+  expires_at?: string
+}
+
+export interface AITaskFilter {
+  status?: string
+  task_type?: string
+  start_time?: string
+  end_time?: string
+  limit?: number
+  offset?: number
+}
+
+export interface AITasksResponse {
+  tasks: AITask[]
+  count: number
+}
+
+export interface DailyTokenStat {
+  date: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  task_count: number
+}
+
+export interface AITaskStats {
+  total_tasks: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_tokens: number
+  today_input_tokens: number
+  today_output_tokens: number
+  today_tokens: number
+  daily_stats: DailyTokenStat[]
+}
+
+export async function getAITasks(filter?: AITaskFilter): Promise<AITasksResponse> {
+  const queryParams = new URLSearchParams()
+  if (filter?.status) queryParams.append('status', filter.status)
+  if (filter?.task_type) queryParams.append('task_type', filter.task_type)
+  if (filter?.start_time) queryParams.append('start_time', filter.start_time)
+  if (filter?.end_time) queryParams.append('end_time', filter.end_time)
+  if (filter?.limit) queryParams.append('limit', filter.limit.toString())
+  if (filter?.offset) queryParams.append('offset', filter.offset.toString())
+  
+  const url = `${API_BASE_URL}/ai/tasks${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
+}
+
+export async function getAITaskStats(startTime?: string, endTime?: string): Promise<AITaskStats> {
+  const queryParams = new URLSearchParams()
+  if (startTime) queryParams.append('start_time', startTime)
+  if (endTime) queryParams.append('end_time', endTime)
+  
+  const url = `${API_BASE_URL}/ai/tasks/stats${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
+}

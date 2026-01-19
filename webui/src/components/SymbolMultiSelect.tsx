@@ -51,6 +51,7 @@ const SymbolMultiSelect: React.FC<SymbolMultiSelectProps> = ({
   
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
+  const selectedBgColor = useColorModeValue('blue.50', 'blue.900')
 
   useEffect(() => {
     const fetchSymbols = async () => {
@@ -297,7 +298,7 @@ const SymbolMultiSelect: React.FC<SymbolMultiSelectProps> = ({
           p={2}
           borderTopWidth="1px"
           borderColor={borderColor}
-          bg={useColorModeValue('blue.50', 'blue.900')}
+          bg={selectedBgColor}
         >
           <Text fontSize="xs" color="blue.600" fontWeight="medium">
             已选择 {selectedSymbols.length} 个交易对

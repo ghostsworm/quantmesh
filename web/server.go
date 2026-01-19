@@ -162,6 +162,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/statistics/pnl/symbol", getPnLBySymbol)
 			protected.GET("/statistics/pnl/time-range", getPnLByTimeRange)
 			protected.GET("/statistics/pnl/exchange", getPnLByExchange)
+			protected.GET("/statistics/pnl/diagnosis", getExchangePnLDiagnosis)
 			protected.GET("/statistics/anomalous-trades", getAnomalousTrades)
 			protected.GET("/reconciliation/status", getReconciliationStatus)
 
@@ -277,6 +278,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// AI 配置助手 API
 			protected.POST("/ai/generate-config", generateAIConfig)
 			protected.GET("/ai/task/:task_id", getAITaskStatus)
+			protected.GET("/ai/tasks", getAITasks)
+			protected.GET("/ai/tasks/stats", getAITaskStats)
 			protected.POST("/ai/apply-config", applyAIConfig)
 
 			protected.GET("/funding/history", getFundingRateHistory)

@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -271,32 +272,150 @@ func getCapitalAllocationHandler(c *gin.Context) {
 	exchanges := capitalDataSource.GetExchanges()
 	strategyConfigs := capitalDataSource.GetStrategyConfigs()
 	posManagers := capitalDataSource.GetPositionManagers()
+	cfg := capitalDataSource.GetConfig()
 
 	var details []ExchangeCapitalDetail
 	exchangeMap := make(map[string]*ExchangeCapitalDetail)
+	exchangeInstanceMap := make(map[string]exchange.IExchange)
 
+	// 建立交易所实例映射（正在运行的交易所）
 	for _, ex := range exchanges {
 		name := ex.GetName()
-		if _, ok := exchangeMap[name]; ok {
+		exchangeInstanceMap[strings.ToLower(name)] = ex
+	}
+
+	// 格式化交易所显示名称
+	formatExchangeName := func(exID string) string {
+		exIDLower := strings.ToLower(exID)
+		switch exIDLower {
+		case "binance":
+			return "Binance"
+		case "gate":
+			return "Gate.io"
+		case "okx":
+			return "OKX"
+		case "bitget":
+			return "Bitget"
+		case "bybit":
+			return "Bybit"
+		case "huobi":
+			return "Huobi"
+		case "kucoin":
+			return "KuCoin"
+		default:
+			// 首字母大写
+			if len(exID) > 0 {
+				return strings.ToUpper(exID[:1]) + strings.ToLower(exID[1:])
+			}
+			return exID
+		}
+	}
+
+	// 从配置中获取所有配置的交易所（与 getExchanges API 保持一致的逻辑）
+	configuredExchanges := make(map[string]bool)
+	if cfg != nil {
+		// 从配置的 exchanges 中读取
+		for exName := range cfg.Exchanges {
+			if exName != "" {
+				configuredExchanges[strings.ToLower(exName)] = true
+			}
+		}
+		// 从交易对配置中读取交易所
+		for _, sym := range cfg.Trading.Symbols {
+			if sym.Exchange != "" {
+				configuredExchanges[strings.ToLower(sym.Exchange)] = true
+			} else if cfg.App.CurrentExchange != "" {
+				configuredExchanges[strings.ToLower(cfg.App.CurrentExchange)] = true
+			}
+		}
+		// 如果只有单交易对配置
+		if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
+			if cfg.App.CurrentExchange != "" {
+				configuredExchanges[strings.ToLower(cfg.App.CurrentExchange)] = true
+			}
+		}
+	}
+
+	// 🔥 关键修复：添加所有正在运行的交易所实例（确保它们被包含）
+	for exNameLower := range exchangeInstanceMap {
+		configuredExchanges[exNameLower] = true
+	}
+
+	// 🔥 从运行状态中读取交易所（与 getExchanges API 保持一致）
+	statusMu.RLock()
+	for _, st := range statusBySymbol {
+		if st != nil && st.Exchange != "" {
+			configuredExchanges[strings.ToLower(st.Exchange)] = true
+		}
+	}
+	statusMu.RUnlock()
+
+	// 向后兼容：如果仍然没有交易所，尝试从 currentStatus 读取
+	if len(configuredExchanges) == 0 && currentStatus != nil && currentStatus.Exchange != "" {
+		configuredExchanges[strings.ToLower(currentStatus.Exchange)] = true
+	}
+
+	logger.Debug("ℹ️ [资金分配] 找到 %d 个交易所: %v", len(configuredExchanges), configuredExchanges)
+
+	// 处理所有配置的交易所（包括正在运行的）
+	for exNameLower := range configuredExchanges {
+		if _, ok := exchangeMap[exNameLower]; ok {
 			continue
 		}
 
-		acc, err := ex.GetAccount(ctx)
-		
-		// 从配置中获取测试网状态
+		// 从配置中获取测试网状态（使用原始大小写的键查找）
 		isTestnet := false
-		if cfg := capitalDataSource.GetConfig(); cfg != nil {
-			if exCfg, ok := cfg.Exchanges[name]; ok {
-				isTestnet = exCfg.Testnet
+		if cfg != nil {
+			// 尝试查找原始键（可能大小写不同）
+			for exKey := range cfg.Exchanges {
+				if strings.ToLower(exKey) == exNameLower {
+					if exCfg, ok := cfg.Exchanges[exKey]; ok {
+						isTestnet = exCfg.Testnet
+					}
+					break
+				}
 			}
 		}
-		
-		if err != nil {
-			logger.Error("❌ [资金分配] 获取交易所 %s 账户信息失败: %v", name, err)
-			// 🔥 改进：获取失败也要显示，只是余额为 0
-			exDetail := &ExchangeCapitalDetail{
-				ExchangeID:   name,
-				ExchangeName: name,
+
+		// 如果有运行的实例，尝试获取账户信息
+		var exDetail *ExchangeCapitalDetail
+		if ex, hasInstance := exchangeInstanceMap[exNameLower]; hasInstance {
+			acc, err := ex.GetAccount(ctx)
+			if err != nil {
+				logger.Error("❌ [资金分配] 获取交易所 %s 账户信息失败: %v", exNameLower, err)
+				// 获取失败也要显示，只是余额为 0
+				exDetail = &ExchangeCapitalDetail{
+					ExchangeID:   exNameLower,
+					ExchangeName: formatExchangeName(exNameLower),
+					Assets: []AssetAllocation{
+						{
+							Asset:            "USDT",
+							TotalBalance:     0,
+							AvailableBalance: 0,
+						},
+					},
+					IsTestnet: isTestnet,
+				}
+			} else {
+				exDetail = &ExchangeCapitalDetail{
+					ExchangeID:   exNameLower,
+					ExchangeName: formatExchangeName(exNameLower),
+					Assets: []AssetAllocation{
+						{
+							Asset:            "USDT",
+							TotalBalance:     math.Round(acc.TotalMarginBalance*100) / 100,
+							AvailableBalance: math.Round(acc.AvailableBalance*100) / 100,
+						},
+					},
+					IsTestnet: isTestnet,
+				}
+			}
+		} else {
+			// 没有运行的实例，显示为未连接状态
+			logger.Debug("ℹ️ [资金分配] 交易所 %s 已配置但未运行", exNameLower)
+			exDetail = &ExchangeCapitalDetail{
+				ExchangeID:   exNameLower,
+				ExchangeName: formatExchangeName(exNameLower),
 				Assets: []AssetAllocation{
 					{
 						Asset:            "USDT",
@@ -306,24 +425,9 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				},
 				IsTestnet: isTestnet,
 			}
-			exchangeMap[name] = exDetail
-			details = append(details, *exDetail)
-			continue
 		}
 
-		exDetail := &ExchangeCapitalDetail{
-			ExchangeID:   name,
-			ExchangeName: name,
-			Assets: []AssetAllocation{
-				{
-					Asset:            "USDT",
-					TotalBalance:     math.Round(acc.TotalMarginBalance*100) / 100,
-					AvailableBalance: math.Round(acc.AvailableBalance*100) / 100,
-				},
-			},
-			IsTestnet: isTestnet,
-		}
-		exchangeMap[name] = exDetail
+		exchangeMap[exNameLower] = exDetail
 		details = append(details, *exDetail)
 	}
 

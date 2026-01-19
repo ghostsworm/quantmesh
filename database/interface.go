@@ -40,6 +40,8 @@ type Database interface {
 	UpdateAsyncTask(ctx context.Context, task *AsyncTask) error
 	GetAsyncTask(ctx context.Context, id string) (*AsyncTask, error)
 	GetPendingAsyncTasks(ctx context.Context, limit int) ([]*AsyncTask, error)
+	GetAsyncTasks(ctx context.Context, filter *AsyncTaskFilter) ([]*AsyncTask, error)
+	GetAsyncTaskStats(ctx context.Context, startTime, endTime *time.Time) (*AsyncTaskStats, error)
 	CleanupExpiredAsyncTasks(ctx context.Context, cutoff time.Time) (int64, error)
 
 	// 事务支持
@@ -255,4 +257,35 @@ type EventFilter struct {
 	EndTime   *time.Time // 结束时间
 	Limit     int        // 限制数量
 	Offset    int        // 偏移量
+}
+
+// AsyncTaskFilter 异步任务过滤器
+type AsyncTaskFilter struct {
+	Status    string     // 任务状态：pending, running, completed, failed, timeout
+	TaskType  string     // 任务类型：generate_content, generate_config 等
+	StartTime *time.Time // 开始时间
+	EndTime   *time.Time // 结束时间
+	Limit     int        // 限制数量
+	Offset    int        // 偏移量
+}
+
+// AsyncTaskStats 异步任务统计
+type AsyncTaskStats struct {
+	TotalTasks        int              `json:"total_tasks"`
+	TotalInputTokens  int64            `json:"total_input_tokens"`
+	TotalOutputTokens int64            `json:"total_output_tokens"`
+	TotalTokens       int64            `json:"total_tokens"`
+	TodayInputTokens  int64            `json:"today_input_tokens"`
+	TodayOutputTokens int64            `json:"today_output_tokens"`
+	TodayTokens       int64            `json:"today_tokens"`
+	DailyStats        []DailyTokenStat `json:"daily_stats"` // 每天的使用量
+}
+
+// DailyTokenStat 每日Token统计
+type DailyTokenStat struct {
+	Date        time.Time `json:"date"`
+	InputTokens int64     `json:"input_tokens"`
+	OutputTokens int64    `json:"output_tokens"`
+	TotalTokens int64     `json:"total_tokens"`
+	TaskCount   int       `json:"task_count"`
 }

@@ -45,6 +45,7 @@ import {
   WrapItem,
   Progress,
   Heading,
+  Switch,
 } from '@chakra-ui/react'
 import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
@@ -97,6 +98,9 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   const [exchangeTotalCapitals, setExchangeTotalCapitals] = useState<Record<string, number>>({}) // exchange -> totalCapital (用户输入的USDT总额)
   const [exchangeDetails, setExchangeDetails] = useState<ExchangeCapitalDetail[]>([]) // 交易所详情列表
   const [loadingBalances, setLoadingBalances] = useState(false)
+  
+  // 交易所启用/禁用状态 - 记录每个交易所是否启用（默认启用）
+  const [exchangeEnabled, setExchangeEnabled] = useState<Record<string, boolean>>({})
   
   // 向后兼容：保留旧的资产分配状态（用于单交易所模式）
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([])
@@ -256,10 +260,13 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           
           // 初始化每个交易所的币种资金分配
           const initialCapitals: Record<string, Record<string, number>> = {}
+          const initialEnabled: Record<string, boolean> = {}
           exchangesList.forEach(ex => {
             initialCapitals[ex] = {}
+            initialEnabled[ex] = true // 默认所有交易所都启用
           })
           setExchangeSymbolCapitals(initialCapitals)
+          setExchangeEnabled(initialEnabled)
         } catch (err) {
           console.error('加载交易所余额失败:', err)
           toast({
@@ -296,11 +303,14 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       }
       setStep('asset-alloc')
     } else if (step === 'asset-alloc') {
-      // 验证每个交易所的资金分配
+      // 验证每个已启用交易所的资金分配
       let hasError = false
       let errorMsg = ''
       
-      for (const exchangeId of selectedExchanges) {
+      // 只验证已启用的交易所
+      const enabledExchanges = selectedExchanges.filter(ex => exchangeEnabled[ex] !== false)
+      
+      for (const exchangeId of enabledExchanges) {
         const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
         const totalAllocated = Object.values(exchangeSymbols).reduce((sum, cap) => sum + cap, 0)
         const totalCapital = exchangeTotalCapitals[exchangeId] || 0
@@ -340,33 +350,36 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         return
       }
       
-      // 检查是否至少有一个交易所配置了币种
-      const hasAnySymbol = selectedExchanges.some(ex => {
-        const symbols = exchangeSymbolCapitals[ex] || {}
-        return Object.keys(symbols).length > 0 && Object.values(symbols).some(cap => cap > 0)
-      })
-      
-      if (!hasAnySymbol) {
-        const errorMsg = '请至少为一个交易所配置币种资金分配'
-        setError(errorMsg)
-        toast({
-          title: '验证失败',
-          description: errorMsg,
-          status: 'error',
-          duration: 5000,
+      // 检查是否至少有一个已启用的交易所配置了币种（如果所有交易所都被禁用，允许跳过）
+      if (enabledExchanges.length > 0) {
+        const hasAnySymbol = enabledExchanges.some(ex => {
+          const symbols = exchangeSymbolCapitals[ex] || {}
+          return Object.keys(symbols).length > 0 && Object.values(symbols).some(cap => cap > 0)
         })
-        return
+        
+        if (!hasAnySymbol) {
+          const errorMsg = '请至少为一个已启用的交易所配置币种资金分配'
+          setError(errorMsg)
+          toast({
+            title: '验证失败',
+            description: errorMsg,
+            status: 'error',
+            duration: 5000,
+          })
+          return
+        }
       }
       
       // 验证通过，清除错误并进入下一步
       setError(null)
       setStep('strategy-split')
     } else if (step === 'strategy-split') {
-      // 验证每个交易所的每个币种的策略占比总和是否为 100%
+      // 验证每个已启用交易所的每个币种的策略占比总和是否为 100%
       let hasError = false
       let errorMsg = ''
 
-      for (const exchangeId of selectedExchanges) {
+      const enabledExchanges = selectedExchanges.filter(ex => exchangeEnabled[ex] !== false)
+      for (const exchangeId of enabledExchanges) {
         const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
         const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
         
@@ -433,11 +446,12 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       return
     }
 
-    // 收集所有交易所的币种信息
+    // 收集所有已启用交易所的币种信息
+    const enabledExchanges = selectedExchanges.filter(ex => exchangeEnabled[ex] !== false)
     const allSymbols = new Set<string>()
     const exchangeSymbolMap: Record<string, string[]> = {} // exchange -> symbols
     
-    for (const exchangeId of selectedExchanges) {
+    for (const exchangeId of enabledExchanges) {
       const symbols = Object.keys(exchangeSymbolCapitals[exchangeId] || {}).filter(
         symbol => (exchangeSymbolCapitals[exchangeId][symbol] || 0) > 0
       )
@@ -448,7 +462,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     }
 
     if (allSymbols.size === 0) {
-      setError('请至少为一个交易所配置币种资金分配')
+      setError('请至少为一个已启用的交易所配置币种资金分配')
       return
     }
 
@@ -456,15 +470,15 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     setError(null)
 
     try {
-      // 使用第一个有币种的交易所作为主交易所（用于向后兼容）
-      const primaryExchange = selectedExchanges.find(ex => exchangeSymbolMap[ex]?.length > 0) || exchange
+      // 使用第一个有币种的已启用交易所作为主交易所（用于向后兼容）
+      const primaryExchange = enabledExchanges.find(ex => exchangeSymbolMap[ex]?.length > 0) || exchange
       const primarySymbols = Array.from(allSymbols)
       
-      // 计算总资金（所有交易所的币种资金总和）
+      // 计算总资金（所有已启用交易所的币种资金总和）
       let totalCapitalValue = 0
       const symbolCapitalsList: SymbolCapitalConfig[] = []
       
-      for (const exchangeId of selectedExchanges) {
+      for (const exchangeId of enabledExchanges) {
         const symbols = exchangeSymbolCapitals[exchangeId] || {}
         for (const [symbol, capital] of Object.entries(symbols)) {
           if (capital > 0) {
@@ -910,48 +924,72 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                     const isOverBalance = totalAllocated > totalCapital
                     const exchangeName = exchangeNames[exchangeId] || exchangeId
                     const isTestnet = exchangeDetail?.isTestnet || false
+                    const isEnabled = exchangeEnabled[exchangeId] !== false // 默认为 true
 
                     return (
-                      <Box key={exchangeId} p={4} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
+                      <Box 
+                        key={exchangeId} 
+                        p={4} 
+                        bg={isEnabled ? infoBg : 'gray.100'} 
+                        borderRadius="2xl" 
+                        border="1px" 
+                        borderColor={isEnabled ? borderColor : 'gray.300'}
+                        opacity={isEnabled ? 1 : 0.6}
+                      >
                         <HStack justify="space-between" mb={4}>
-                          <HStack>
+                          <HStack spacing={3}>
+                            <Switch
+                              isChecked={isEnabled}
+                              onChange={(e) => {
+                                setExchangeEnabled(prev => ({
+                                  ...prev,
+                                  [exchangeId]: e.target.checked
+                                }))
+                              }}
+                              colorScheme="blue"
+                            />
                             <Text fontWeight="bold" fontSize="md">{exchangeName}</Text>
+                            {!isEnabled && (
+                              <Badge colorScheme="gray" fontSize="xs">已禁用</Badge>
+                            )}
                             {isTestnet && (
                               <Badge colorScheme="orange" fontSize="xs">测试网</Badge>
                             )}
                           </HStack>
-                          <HStack spacing={4}>
-                            <VStack spacing={1} align="end">
-                              <Text fontSize="xs" color="gray.500">
-                                可用余额: <Text as="span" fontWeight="bold" color="blue.500">{availableBalance.toFixed(2)} USDT</Text>
+                          {isEnabled && (
+                            <HStack spacing={4}>
+                              <VStack spacing={1} align="end">
+                                <Text fontSize="xs" color="gray.500">
+                                  可用余额: <Text as="span" fontWeight="bold" color="blue.500">{availableBalance.toFixed(2)} USDT</Text>
+                                </Text>
+                                <HStack spacing={2}>
+                                  <Text fontSize="xs" color="gray.500">USDT 资金总额:</Text>
+                                  <NumberInput
+                                    size="xs"
+                                    value={Math.round(totalCapital)}
+                                    onChange={(_, val) => {
+                                      setExchangeTotalCapitals(prev => ({
+                                        ...prev,
+                                        [exchangeId]: Math.round(val || 0)
+                                      }))
+                                    }}
+                                    min={0}
+                                    precision={0}
+                                    w="120px"
+                                  >
+                                    <NumberInputField />
+                                  </NumberInput>
+                                  <Text fontSize="xs" color="gray.500">USDT</Text>
+                                </HStack>
+                              </VStack>
+                              <Text fontSize="xs" color={isOverBalance ? "red.500" : "gray.500"}>
+                                已分配: <Text as="span" fontWeight="bold" color={isOverBalance ? "red.500" : "green.500"}>{Math.round(totalAllocated)} USDT</Text>
                               </Text>
-                              <HStack spacing={2}>
-                                <Text fontSize="xs" color="gray.500">USDT 资金总额:</Text>
-                                <NumberInput
-                                  size="xs"
-                                  value={Math.round(totalCapital)}
-                                  onChange={(_, val) => {
-                                    setExchangeTotalCapitals(prev => ({
-                                      ...prev,
-                                      [exchangeId]: Math.round(val || 0)
-                                    }))
-                                  }}
-                                  min={0}
-                                  precision={0}
-                                  w="120px"
-                                >
-                                  <NumberInputField />
-                                </NumberInput>
-                                <Text fontSize="xs" color="gray.500">USDT</Text>
-                              </HStack>
-                            </VStack>
-                            <Text fontSize="xs" color={isOverBalance ? "red.500" : "gray.500"}>
-                              已分配: <Text as="span" fontWeight="bold" color={isOverBalance ? "red.500" : "green.500"}>{Math.round(totalAllocated)} USDT</Text>
-                            </Text>
-                          </HStack>
+                            </HStack>
+                          )}
                         </HStack>
 
-                        {isOverBalance && (
+                        {isEnabled && isOverBalance && (
                           <Alert status="error" borderRadius="md" mb={4} size="sm">
                             <AlertIcon />
                             <AlertDescription fontSize="xs">
@@ -960,82 +998,94 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                           </Alert>
                         )}
 
-                        <VStack spacing={3} align="stretch">
-                          {Object.keys(exchangeSymbols).length === 0 ? (
-                            <Center py={4} color="gray.500" fontSize="sm">
-                              请点击下方按钮为该交易所添加币种
-                            </Center>
-                          ) : (
-                            Object.entries(exchangeSymbols).map(([symbol, capital]) => (
-                              <HStack key={symbol} spacing={4}>
-                                <Badge colorScheme="green" minW="80px" textAlign="center">{symbol}</Badge>
-                                <Box flex={1}>
-                                  <NumberInput
-                                    size="sm"
-                                    value={Math.round(capital)}
-                                    onChange={(_, val) => {
-                                      setExchangeSymbolCapitals(prev => ({
-                                        ...prev,
-                                        [exchangeId]: {
-                                          ...prev[exchangeId],
-                                          [symbol]: Math.round(val || 0)
-                                        }
-                                      }))
-                                    }}
-                                    min={0}
-                                    max={totalCapital}
-                                    precision={0}
-                                  >
-                                    <NumberInputField />
-                                  </NumberInput>
-                                </Box>
-                                <Text fontSize="xs" color="gray.500" minW="80px">
-                                  USDT
-                                </Text>
-                                <IconButton
-                                  size="xs"
-                                  icon={<Text>×</Text>}
-                                  aria-label="移除"
-                                  onClick={() => {
-                                    const newSymbols = { ...exchangeSymbols }
-                                    delete newSymbols[symbol]
-                                    setExchangeSymbolCapitals(prev => ({
-                                      ...prev,
-                                      [exchangeId]: newSymbols
-                                    }))
-                                  }}
-                                />
-                              </HStack>
-                            ))
-                          )}
-                        </VStack>
+                        {isEnabled && (
+                          <>
+                            <VStack spacing={3} align="stretch">
+                              {Object.keys(exchangeSymbols).length === 0 ? (
+                                <Center py={4} color="gray.500" fontSize="sm">
+                                  请点击下方按钮为该交易所添加币种
+                                </Center>
+                              ) : (
+                                Object.entries(exchangeSymbols).map(([symbol, capital]) => (
+                                  <HStack key={symbol} spacing={4}>
+                                    <Badge colorScheme="green" minW="80px" textAlign="center">{symbol}</Badge>
+                                    <Box flex={1}>
+                                      <NumberInput
+                                        size="sm"
+                                        value={Math.round(capital)}
+                                        onChange={(_, val) => {
+                                          setExchangeSymbolCapitals(prev => ({
+                                            ...prev,
+                                            [exchangeId]: {
+                                              ...prev[exchangeId],
+                                              [symbol]: Math.round(val || 0)
+                                            }
+                                          }))
+                                        }}
+                                        min={0}
+                                        max={totalCapital}
+                                        precision={0}
+                                      >
+                                        <NumberInputField />
+                                      </NumberInput>
+                                    </Box>
+                                    <Text fontSize="xs" color="gray.500" minW="80px">
+                                      USDT
+                                    </Text>
+                                    <IconButton
+                                      size="xs"
+                                      icon={<Text>×</Text>}
+                                      aria-label="移除"
+                                      onClick={() => {
+                                        const newSymbols = { ...exchangeSymbols }
+                                        delete newSymbols[symbol]
+                                        setExchangeSymbolCapitals(prev => ({
+                                          ...prev,
+                                          [exchangeId]: newSymbols
+                                        }))
+                                      }}
+                                    />
+                                  </HStack>
+                                ))
+                              )}
+                            </VStack>
 
-                        <Divider my={3} />
+                            <Divider my={3} />
 
-                        <Box>
-                          <Text fontSize="sm" fontWeight="bold" mb={2}>为该交易所添加币种:</Text>
-                          <Wrap>
-                            {symbols.filter(s => !exchangeSymbols[s]).map(s => (
-                              <WrapItem key={s}>
-                                <Button
-                                  size="xs"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setExchangeSymbolCapitals(prev => ({
-                                      ...prev,
-                                      [exchangeId]: {
-                                        ...prev[exchangeId],
-                                        [s]: 0
-                                      }
-                                    }))
-                                  }}
-                                >
-                                  + {s}
-                                </Button>
-                              </WrapItem>
-                            ))}
-                          </Wrap>
-                        </Box>
+                            <Box>
+                              <Text fontSize="sm" fontWeight="bold" mb={2}>为该交易所添加币种:</Text>
+                              <Wrap>
+                                {symbols.filter(s => !exchangeSymbols[s]).map(s => (
+                                  <WrapItem key={s}>
+                                    <Button
+                                      size="xs"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setExchangeSymbolCapitals(prev => ({
+                                          ...prev,
+                                          [exchangeId]: {
+                                            ...prev[exchangeId],
+                                            [s]: 0
+                                          }
+                                        }))
+                                      }}
+                                    >
+                                      + {s}
+                                    </Button>
+                                  </WrapItem>
+                                ))}
+                              </Wrap>
+                            </Box>
+                          </>
+                        )}
+                        
+                        {!isEnabled && (
+                          <Box py={4} textAlign="center">
+                            <Text fontSize="sm" color="gray.500">
+                              该交易所已禁用，不会参与后续配置生成
+                            </Text>
+                          </Box>
+                        )}
                       </Box>
                     )
                   })}
@@ -1051,20 +1101,22 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                 <Box>
                   <AlertTitle>第三步：策略细分</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    为每个交易所的每个币种配置具体的交易策略组合（网格、DCA 等）及其资金权重。
+                    为每个已启用交易所的每个币种配置具体的交易策略组合（网格、DCA 等）及其资金权重。
                   </AlertDescription>
                 </Box>
               </Alert>
 
               <VStack spacing={6} align="stretch">
-                {selectedExchanges.map(exchangeId => {
-                  const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
-                  const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
-                  const exchangeName = exchangeNames[exchangeId] || exchangeId
+                {selectedExchanges
+                  .filter(exchangeId => exchangeEnabled[exchangeId] !== false) // 只显示已启用的交易所
+                  .map(exchangeId => {
+                    const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+                    const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
+                    const exchangeName = exchangeNames[exchangeId] || exchangeId
 
-                  if (symbolsWithCapital.length === 0) return null
+                    if (symbolsWithCapital.length === 0) return null
 
-                  return (
+                    return (
                     <Box key={exchangeId} p={4} bg={bg} borderRadius="2xl" border="1px" borderColor={borderColor}>
                       <Heading size="sm" mb={4} color="blue.500">{exchangeName}</Heading>
                       <VStack spacing={6} align="stretch">
@@ -1144,14 +1196,16 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               </Alert>
 
               <VStack spacing={6} align="stretch">
-                {selectedExchanges.map(exchangeId => {
-                  const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
-                  const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
-                  const exchangeName = exchangeNames[exchangeId] || exchangeId
+                {selectedExchanges
+                  .filter(exchangeId => exchangeEnabled[exchangeId] !== false) // 只显示已启用的交易所
+                  .map(exchangeId => {
+                    const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+                    const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
+                    const exchangeName = exchangeNames[exchangeId] || exchangeId
 
-                  if (symbolsWithCapital.length === 0) return null
+                    if (symbolsWithCapital.length === 0) return null
 
-                  return (
+                    return (
                     <Box key={exchangeId} p={4} bg={bg} borderRadius="2xl" border="1px" borderColor={borderColor}>
                       <Heading size="sm" mb={4} color="blue.500">{exchangeName}</Heading>
                       <VStack spacing={6} align="stretch">

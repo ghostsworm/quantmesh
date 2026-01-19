@@ -1077,7 +1077,9 @@ func main() {
 		// 设置事件中心提供者
 		if db != nil {
 			web.SetEventProvider(db)
+			web.SetTaskProvider(db)
 			logger.Info("✅ 事件中心提供者已设置")
+			logger.Info("✅ 任务提供者已设置")
 		}
 
 		// 设置资金数据源提供者
@@ -1105,7 +1107,9 @@ func main() {
 		// 设置事件中心提供者
 		if db != nil {
 			web.SetEventProvider(db)
+			web.SetTaskProvider(db)
 			logger.Info("✅ 事件中心提供者已设置")
+			logger.Info("✅ 任务提供者已设置")
 		}
 
 		logger.Info("ℹ️ Web 服务已启动，等待配置完成")

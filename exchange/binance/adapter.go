@@ -296,6 +296,40 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		return nil, fmt.Errorf("无效的下单数量: %s（数量必须大于0）", quantityStr)
 	}
 
+	// 🔥 币安合约最小订单金额检查：订单名义价值必须 >= 100 USDT（除非是reduce only订单）
+	finalPrice, _ := strconv.ParseFloat(priceStr, 64)
+	orderNotional := finalPrice * finalQty
+	const minNotional = 100.0 // 币安合约最小订单金额为100 USDT
+	
+	if !req.ReduceOnly && orderNotional < minNotional {
+		// 构建策略信息字符串
+		strategyInfo := ""
+		if req.StrategyName != "" || req.StrategyType != "" {
+			if req.StrategyName != "" && req.StrategyType != "" {
+				strategyInfo = fmt.Sprintf("[策略:%s/%s] ", req.StrategyName, req.StrategyType)
+			} else if req.StrategyName != "" {
+				strategyInfo = fmt.Sprintf("[策略:%s] ", req.StrategyName)
+			} else if req.StrategyType != "" {
+				strategyInfo = fmt.Sprintf("[策略类型:%s] ", req.StrategyType)
+			}
+		}
+		
+		// 获取基础资产名称（用于显示单位）
+		baseAsset := b.baseAsset
+		if baseAsset == "" {
+			if len(req.Symbol) > 4 {
+				baseAsset = req.Symbol[:len(req.Symbol)-4]
+			} else {
+				baseAsset = "币"
+			}
+		}
+		
+		logger.Error("❌ [Binance] [%s] %s订单金额不足：订单金额=%.2f USDT，币安合约要求最小订单金额为 %.2f USDT（除非是reduce only订单）。价格=%.2f，数量=%.8f %s",
+			req.Symbol, strategyInfo, orderNotional, minNotional, finalPrice, finalQty, baseAsset)
+		
+		return nil, fmt.Errorf("订单金额不足：订单金额 %.2f USDT 小于币安合约最小要求 %.2f USDT（除非是reduce only订单）。请增加订单金额或数量", orderNotional, minNotional)
+	}
+
 	// 根据 PostOnly 参数选择 TimeInForce
 	timeInForce := futures.TimeInForceTypeGTC
 	if req.PostOnly {

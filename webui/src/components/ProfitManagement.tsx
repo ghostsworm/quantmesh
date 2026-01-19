@@ -44,6 +44,7 @@ import {
   getWithdrawHistory,
   updateWithdrawRules,
 } from '../services/profit'
+import { getExchanges } from '../services/api'
 import type {
   ProfitSummary,
   StrategyProfit,
@@ -167,9 +168,38 @@ const ProfitManagement: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<'7d' | '30d' | '90d' | '1y'>('30d')
   const [activeExchange, setActiveExchange] = useState<string>('all')
+  const [exchanges, setExchanges] = useState<string[]>([])
+  const [selectedExchangeIndex, setSelectedExchangeIndex] = useState(0)
 
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
+
+  useEffect(() => {
+    // 加载交易所列表
+    const loadExchanges = async () => {
+      try {
+        const res = await getExchanges()
+        setExchanges(res.exchanges || [])
+      } catch (err) {
+        console.error('获取交易所列表失败:', err)
+        // 使用默认列表作为后备
+        setExchanges(['binance', 'gate', 'okx'])
+      }
+    }
+    loadExchanges()
+  }, [])
+
+  useEffect(() => {
+    // 更新选中的交易所索引
+    if (activeExchange === 'all') {
+      setSelectedExchangeIndex(0)
+    } else {
+      const index = exchanges.findIndex(ex => ex.toLowerCase() === activeExchange.toLowerCase())
+      if (index >= 0) {
+        setSelectedExchangeIndex(index + 1)
+      }
+    }
+  }, [activeExchange, exchanges])
 
   useEffect(() => {
     fetchData()
@@ -265,16 +295,33 @@ const ProfitManagement: React.FC = () => {
             variant="soft-rounded"
             colorScheme="blue"
             size="sm"
-            index={activeExchange === 'all' ? 0 : activeExchange === 'binance' ? 1 : 2}
+            index={selectedExchangeIndex}
             onChange={(index) => {
-              const exchanges = ['all', 'binance', 'gate']
-              setActiveExchange(exchanges[index])
+              setSelectedExchangeIndex(index)
+              if (index === 0) {
+                setActiveExchange('all')
+              } else {
+                const exchangeList = exchanges
+                if (index > 0 && index <= exchangeList.length) {
+                  setActiveExchange(exchangeList[index - 1])
+                }
+              }
             }}
           >
-            <TabList>
+            <TabList overflowX="auto" pb={2}>
               <Tab px={6}>{t('common.allExchanges') || '全部交易所'}</Tab>
-              <Tab px={6}>Binance</Tab>
-              <Tab px={6}>Gate.io</Tab>
+              {exchanges.map((ex) => {
+                // 格式化交易所名称显示
+                const displayName = ex === 'binance' ? 'Binance' 
+                  : ex === 'gate' ? 'Gate.io'
+                  : ex === 'okx' ? 'OKX'
+                  : ex.charAt(0).toUpperCase() + ex.slice(1)
+                return (
+                  <Tab key={ex} px={6}>
+                    {displayName}
+                  </Tab>
+                )
+              })}
             </TabList>
           </Tabs>
         </Box>

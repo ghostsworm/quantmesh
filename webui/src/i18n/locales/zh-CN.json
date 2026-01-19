@@ -11,6 +11,7 @@
     "confirm": "确认",
     "loading": "加载中...",
     "retry": "重试",
+    "refresh": "刷新",
     "allExchanges": "全部交易所"
   },
   "sidebar": {
@@ -19,7 +20,9 @@
     "eventCenter": "事件中心",
     "runLogs": "运行日志",
     "aiPrompts": "AI 提示词",
+    "newbieRiskCheck": "新人风控提示",
     "aiConfig": "AI 智能配置",
+    "aiTasks": "AI 任务管理",
     "strategyMarket": "策略市场",
     "capitalManagement": "资金管理",
     "profitManagement": "盈利管理",
@@ -526,7 +529,13 @@
     "manageStrategies": "管理策略",
     "viewProfits": "查看盈利",
     "allExchanges": "全部交易所",
-    "allStrategies": "全部策略"
+    "allStrategies": "全部策略",
+    "viewOnlyNotice": "仅查看模式",
+    "viewOnlyDescription": "在\"全部交易所\"视图下，您只能查看汇总数据，无法调整资金分配。请选择具体的交易所标签页进行调整。",
+    "selectExchangeToAdjust": "请选择具体的交易所标签页以调整资金分配",
+    "noStrategies": "该交易所暂无运行中的策略",
+    "selectExchangeFirst": "请先选择交易所",
+    "cannotAdjustAllExchanges": "不同交易所的资金是分开管理的，无法在\"全部交易所\"视图下统一调整。请选择具体的交易所进行配置。"
   },
   "profitManagement": {
     "title": "盈利管理",
@@ -620,5 +629,19 @@
     "serviceWorkerFailed": "Service Worker 注册失败",
     "canInstall": "PWA 可以安装",
     "installed": "PWA 已安装"
+  },
+  "newbieRiskCheck": {
+    "description": "全面检查您的交易配置，识别潜在风险，并提供安全加固建议",
+    "scanning": "正在进行全维度风险扫描...",
+    "overallScore": "综合安全分",
+    "detailedResults": "详细体检结果",
+    "score": "得分",
+    "advice": "建议",
+    "applySecurity": "一键安全加固",
+    "applying": "正在加固...",
+    "noReport": "未能生成报告，请重试。",
+    "importantNotice": "重要提示",
+    "leverageNotice": "系统仅会在配置文件中修改杠杆倍数设置。如需实际调整交易所账户的杠杆倍数，请前往各交易所网站手动修改。配置修改后，系统会使用新的杠杆限制进行风险检查，但交易所账户的实际杠杆倍数需要您手动调整。",
+    "applySuccessNotice": "请注意：系统仅修改了配置文件，您需要前往各交易所网站手动调整实际的杠杆倍数。"
   }
 }

@@ -11,6 +11,7 @@
     "confirm": "Confirm",
     "loading": "Loading...",
     "retry": "Retry",
+    "refresh": "Refresh",
     "allExchanges": "All Exchanges"
   },
   "sidebar": {
@@ -19,7 +20,9 @@
     "eventCenter": "Event Center",
     "runLogs": "Run Logs",
     "aiPrompts": "AI Prompts",
+    "newbieRiskCheck": "Newbie Risk Check",
     "aiConfig": "AI Config",
+    "aiTasks": "AI Tasks",
     "strategyMarket": "Strategy Market",
     "capitalManagement": "Capital Management",
     "profitManagement": "Profit Management",
@@ -539,7 +542,13 @@
     "manageStrategies": "Manage Strategies",
     "viewProfits": "View Profits",
     "allExchanges": "All Exchanges",
-    "allStrategies": "All Strategies"
+    "allStrategies": "All Strategies",
+    "viewOnlyNotice": "View Only Mode",
+    "viewOnlyDescription": "In the \"All Exchanges\" view, you can only view aggregated data and cannot adjust capital allocation. Please select a specific exchange tab to make adjustments.",
+    "selectExchangeToAdjust": "Please select a specific exchange tab to adjust capital allocation",
+    "noStrategies": "No active strategies for this exchange",
+    "selectExchangeFirst": "Please Select Exchange First",
+    "cannotAdjustAllExchanges": "Funds from different exchanges are managed separately and cannot be adjusted uniformly in the \"All Exchanges\" view. Please select a specific exchange to configure."
   },
   "profitManagement": {
     "title": "Profit Management",
@@ -633,5 +642,19 @@
     "serviceWorkerFailed": "Service Worker registration failed",
     "canInstall": "PWA can be installed",
     "installed": "PWA installed"
+  },
+  "newbieRiskCheck": {
+    "description": "Comprehensive check of your trading configuration, identify potential risks, and provide security hardening recommendations",
+    "scanning": "Scanning all dimensions for risks...",
+    "overallScore": "Overall Security Score",
+    "detailedResults": "Detailed Check Results",
+    "score": "Score",
+    "advice": "Advice",
+    "applySecurity": "Apply Security Hardening",
+    "applying": "Applying...",
+    "noReport": "Failed to generate report, please retry.",
+    "importantNotice": "Important Notice",
+    "leverageNotice": "The system will only modify the leverage settings in the configuration file. To actually adjust the leverage on your exchange account, please manually modify it on each exchange website. After the configuration is modified, the system will use the new leverage limit for risk checks, but you need to manually adjust the actual leverage on your exchange account.",
+    "applySuccessNotice": "Note: The system only modified the configuration file. You need to manually adjust the actual leverage on each exchange website."
   }
 }

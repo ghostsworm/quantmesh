@@ -52,9 +52,11 @@ import AIAnalysis from './components/AIAnalysis'
 import AIPromptManager from './components/AIPromptManager'
 import AIConfigPage from './components/AIConfigPage'
 import EventCenter from './components/EventCenter'
+import AITaskManager from './components/AITaskManager'
 import StrategyMarket from './components/StrategyMarket'
 import CapitalManagement from './components/CapitalManagement'
 import ProfitManagement from './components/ProfitManagement'
+import NewbieRiskCheck from './components/NewbieRiskCheck'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
@@ -359,7 +361,9 @@ const AppContent: React.FC = () => {
                 <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
                 <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
                 <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
+                <Route path="/newbie-risk-check" element={<ProtectedRoute><NewbieRiskCheck /></ProtectedRoute>} />
                 <Route path="/ai-config" element={<ProtectedRoute><AIConfigPage /></ProtectedRoute>} />
+                <Route path="/ai/tasks" element={<ProtectedRoute><AITaskManager /></ProtectedRoute>} />
                 <Route path="/events" element={<ProtectedRoute><EventCenter /></ProtectedRoute>} />
                 <Route path="/strategy-market" element={<ProtectedRoute><StrategyMarket /></ProtectedRoute>} />
                 <Route path="/capital-management" element={<ProtectedRoute><CapitalManagement /></ProtectedRoute>} />

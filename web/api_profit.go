@@ -1,12 +1,14 @@
 package web
 
 import (
+	"fmt"
 	"math"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"quantmesh/config"
 )
 
 // ProfitSummary 盈利汇总
@@ -52,10 +54,16 @@ type ProfitWithdrawRule struct {
 	Percentage      float64 `json:"percentage"`
 	TargetAddress   string  `json:"targetAddress"`
 	Currency        string  `json:"currency"`
-	IsEnabled       bool    `json:"isEnabled"`
+	IsEnabled       bool    `json:"enabled"`      // 前端使用 enabled
 	LastTriggeredAt string  `json:"lastTriggeredAt,omitempty"`
 	CreatedAt       string  `json:"createdAt"`
 	UpdatedAt       string  `json:"updatedAt"`
+	// 前端额外需要的字段
+	TriggerAmount   float64 `json:"triggerAmount,omitempty"`   // 触发金额（对应 Threshold）
+	WithdrawRatio   float64 `json:"withdrawRatio,omitempty"`   // 提取比例 0-1（对应 Percentage/100）
+	Frequency       string  `json:"frequency,omitempty"`       // immediate, daily, weekly
+	Destination     string  `json:"destination,omitempty"`     // account, wallet
+	MinWithdrawAmount float64 `json:"minWithdrawAmount,omitempty"`
 }
 
 // WithdrawRecord 提取记录
@@ -353,35 +361,127 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 
 // 获取提取规则
 func getWithdrawRulesHandler(c *gin.Context) {
-	rules := []ProfitWithdrawRule{
-		{
-			ID:              "rule_001",
-			StrategyID:      "grid",
-			Type:            "percentage",
-			TriggerType:     "auto",
-			Threshold:       1000,
-			Percentage:      50,
-			TargetAddress:   "0x1234...5678",
-			Currency:        "USDT",
-			IsEnabled:       true,
-			LastTriggeredAt: time.Now().AddDate(0, 0, -3).Format(time.RFC3339),
-			CreatedAt:       time.Now().AddDate(0, -1, 0).Format(time.RFC3339),
-			UpdatedAt:       time.Now().Format(time.RFC3339),
-		},
-		{
-			ID:              "rule_002",
-			StrategyID:      "",
-			Type:            "threshold",
-			TriggerType:     "scheduled",
-			Threshold:       5000,
-			Amount:          2000,
-			TargetAddress:   "0x1234...5678",
-			Currency:        "USDT",
-			IsEnabled:       true,
-			CreatedAt:       time.Now().AddDate(0, -2, 0).Format(time.RFC3339),
-			UpdatedAt:       time.Now().Format(time.RFC3339),
-		},
+	rules := []ProfitWithdrawRule{}
+	ruleMap := make(map[string]*ProfitWithdrawRule) // 用于去重，key 是规则的唯一标识
+
+	// 从配置中读取 WithdrawalPolicy 并转换为盈利管理规则
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			// 显式使用 config.Config 类型以确保导入被识别
+			_ = (*config.Config)(cfg)
+			now := time.Now()
+
+			// 遍历所有交易对，将启用的 WithdrawalPolicy 转换为盈利管理规则
+			for _, symbolCfg := range cfg.Trading.Symbols {
+				if symbolCfg.WithdrawalPolicy.Enabled {
+					// 确定规则类型和参数
+					ruleType := "threshold"
+					triggerType := "auto"
+					threshold := symbolCfg.WithdrawalPolicy.Threshold
+					percentage := symbolCfg.WithdrawalPolicy.WithdrawRatio * 100 // 转换为百分比
+					amount := symbolCfg.WithdrawalPolicy.FixedAmount
+
+					// 根据模式确定类型
+					if symbolCfg.WithdrawalPolicy.Mode == "fixed" {
+						ruleType = "fixed"
+						threshold = 0
+					} else if symbolCfg.WithdrawalPolicy.Mode == "threshold" || symbolCfg.WithdrawalPolicy.Mode == "" {
+						ruleType = "threshold"
+					} else if symbolCfg.WithdrawalPolicy.Mode == "scheduled" {
+						triggerType = "scheduled"
+					}
+
+					// 如果阈值未设置，使用默认值 10%
+					if threshold == 0 && ruleType == "threshold" {
+						threshold = 0.1
+					}
+
+					// 如果提取比例未设置，使用默认值 50%
+					if percentage == 0 {
+						percentage = 50
+					}
+
+					// 确定频率（从 schedule 或默认 immediate）
+					frequency := "immediate"
+					if symbolCfg.WithdrawalPolicy.Mode == "scheduled" {
+						if symbolCfg.WithdrawalPolicy.Schedule.Frequency == "daily" {
+							frequency = "daily"
+						} else if symbolCfg.WithdrawalPolicy.Schedule.Frequency == "weekly" {
+							frequency = "weekly"
+						}
+					}
+
+					// 确定目标（从 target_wallet）
+					destination := "account"
+					if symbolCfg.WithdrawalPolicy.TargetWallet == "spot" || symbolCfg.WithdrawalPolicy.TargetWallet == "funding" {
+						destination = "account"
+					} else if symbolCfg.WithdrawalPolicy.TargetWallet == "external" {
+						destination = "wallet"
+					}
+
+					// 生成规则的唯一标识（用于去重）
+					// 基于规则的关键字段生成，相同配置的规则会被合并
+					ruleKey := fmt.Sprintf("%s_%s_%s_%.2f_%.2f_%s_%s",
+						strings.ToLower(symbolCfg.Exchange),
+						ruleType,
+						triggerType,
+						threshold,
+						percentage,
+						frequency,
+						destination,
+					)
+
+					// 检查是否已存在相同的规则
+					if _, exists := ruleMap[ruleKey]; exists {
+						// 如果已存在相同的规则配置，跳过（避免重复）
+						continue
+					}
+
+					// 创建新规则
+					ruleID := "config_rule_" + fmt.Sprintf("%d", time.Now().Unix()) + "_" + ruleKey[:8]
+					rule := &ProfitWithdrawRule{
+						ID:              ruleID,
+						ExchangeID:      strings.ToLower(symbolCfg.Exchange),
+						StrategyID:      "", // 所有策略
+						Type:            ruleType,
+						TriggerType:     triggerType,
+						Threshold:       threshold * 100, // 转换为百分比显示（如 10% 显示为 10）
+						Amount:          amount,
+						Percentage:      percentage,
+						TargetAddress:   symbolCfg.WithdrawalPolicy.TargetWallet,
+						Currency:        "USDT",
+						IsEnabled:       true,
+						CreatedAt:       now.Format(time.RFC3339),
+						UpdatedAt:       now.Format(time.RFC3339),
+						// 前端需要的字段
+						TriggerAmount:   threshold * 100, // 触发金额（USDT），这里用阈值百分比 * 100 作为示例
+						WithdrawRatio:   symbolCfg.WithdrawalPolicy.WithdrawRatio, // 提取比例 0-1
+						Frequency:       frequency,
+						Destination:     destination,
+						MinWithdrawAmount: 10, // 默认最小提取金额
+					}
+
+					// 如果有本金保护，添加说明
+					if symbolCfg.WithdrawalPolicy.PrincipalProtection.Enabled {
+						if symbolCfg.WithdrawalPolicy.PrincipalProtection.BreakevenProtection {
+							rule.TargetAddress = "回本保护已启用"
+						}
+					}
+
+					ruleMap[ruleKey] = rule
+				}
+			}
+
+			// 将去重后的规则添加到结果列表
+			for _, rule := range ruleMap {
+				rules = append(rules, *rule)
+			}
+		}
 	}
+
+	// 如果没有从配置中找到规则，返回空数组（而不是模拟数据）
+	// 这样用户就能看到是否真的配置了规则
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

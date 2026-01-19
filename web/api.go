@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"quantmesh/ai"
 	"quantmesh/config"
+	"quantmesh/database"
 	"quantmesh/exchange"
 	qmi18n "quantmesh/i18n"
 	"quantmesh/logger"
@@ -2689,6 +2690,197 @@ func getAnomalousTrades(c *gin.Context) {
 	})
 }
 
+// getExchangePnLDiagnosis 诊断交易所盈亏数据
+// GET /api/statistics/pnl/diagnosis
+func getExchangePnLDiagnosis(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusOK, gin.H{"error": "存储接口未就绪"})
+		return
+	}
+
+	exchangeID := strings.ToLower(c.DefaultQuery("exchange", "binance"))
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
+			return
+		}
+	} else {
+		// 默认查询所有历史数据
+		startTime = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	// 查询该交易所的所有交易记录
+	trades, err := st.QueryTrades(startTime, endTime, 100000, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 过滤指定交易所的交易
+	var filteredTrades []*storage.Trade
+	totalPnL := 0.0
+	totalTrades := 0
+	totalVolume := 0.0
+	winningTrades := 0
+	losingTrades := 0
+	
+	// 按币种分组统计
+	symbolStats := make(map[string]map[string]interface{})
+	
+	// 按日期分组统计
+	dateStats := make(map[string]map[string]interface{})
+
+	for _, trade := range trades {
+		tradeExchange := strings.ToLower(trade.Exchange)
+		if tradeExchange == "" {
+			tradeExchange = "binance" // 兼容旧数据
+		}
+		
+		if tradeExchange != exchangeID {
+			continue
+		}
+
+		filteredTrades = append(filteredTrades, trade)
+		totalPnL += trade.PnL
+		totalTrades++
+		totalVolume += trade.Quantity
+		
+		if trade.PnL > 0 {
+			winningTrades++
+		} else if trade.PnL < 0 {
+			losingTrades++
+		}
+
+		// 按币种统计
+		if _, exists := symbolStats[trade.Symbol]; !exists {
+			symbolStats[trade.Symbol] = map[string]interface{}{
+				"total_pnl":    0.0,
+				"total_trades": 0,
+				"total_volume": 0.0,
+				"winning_trades": 0,
+				"losing_trades": 0,
+			}
+		}
+		stats := symbolStats[trade.Symbol]
+		stats["total_pnl"] = stats["total_pnl"].(float64) + trade.PnL
+		stats["total_trades"] = stats["total_trades"].(int) + 1
+		stats["total_volume"] = stats["total_volume"].(float64) + trade.Quantity
+		if trade.PnL > 0 {
+			stats["winning_trades"] = stats["winning_trades"].(int) + 1
+		} else if trade.PnL < 0 {
+			stats["losing_trades"] = stats["losing_trades"].(int) + 1
+		}
+
+		// 按日期统计
+		dateStr := trade.CreatedAt.Format("2006-01-02")
+		if _, exists := dateStats[dateStr]; !exists {
+			dateStats[dateStr] = map[string]interface{}{
+				"total_pnl":    0.0,
+				"total_trades": 0,
+			}
+		}
+		dateStat := dateStats[dateStr]
+		dateStat["total_pnl"] = dateStat["total_pnl"].(float64) + trade.PnL
+		dateStat["total_trades"] = dateStat["total_trades"].(int) + 1
+	}
+
+	// 计算平均盈亏
+	avgPnL := 0.0
+	if totalTrades > 0 {
+		avgPnL = totalPnL / float64(totalTrades)
+	}
+
+	// 计算胜率
+	winRate := 0.0
+	if totalTrades > 0 {
+		winRate = float64(winningTrades) / float64(totalTrades)
+	}
+
+	// 找出最大的单笔盈亏
+	maxProfit := 0.0
+	maxLoss := 0.0
+	for _, trade := range filteredTrades {
+		if trade.PnL > maxProfit {
+			maxProfit = trade.PnL
+		}
+		if trade.PnL < maxLoss {
+			maxLoss = trade.PnL
+		}
+	}
+
+	// 转换为列表格式
+	symbolList := make([]map[string]interface{}, 0, len(symbolStats))
+	for symbol, stats := range symbolStats {
+		symbolList = append(symbolList, map[string]interface{}{
+			"symbol":        symbol,
+			"total_pnl":    stats["total_pnl"],
+			"total_trades": stats["total_trades"],
+			"total_volume": stats["total_volume"],
+			"winning_trades": stats["winning_trades"],
+			"losing_trades": stats["losing_trades"],
+		})
+	}
+
+	// 按日期排序
+	dateList := make([]map[string]interface{}, 0, len(dateStats))
+	for date, stats := range dateStats {
+		dateList = append(dateList, map[string]interface{}{
+			"date":        date,
+			"total_pnl":   stats["total_pnl"],
+			"total_trades": stats["total_trades"],
+		})
+	}
+	sort.Slice(dateList, func(i, j int) bool {
+		return dateList[i]["date"].(string) < dateList[j]["date"].(string)
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"exchange":      exchangeID,
+		"time_range": gin.H{
+			"start": startTime.Format(time.RFC3339),
+			"end":   endTime.Format(time.RFC3339),
+		},
+		"summary": gin.H{
+			"total_pnl":      math.Round(totalPnL*100) / 100,
+			"total_trades":   totalTrades,
+			"total_volume":   math.Round(totalVolume*100) / 100,
+			"winning_trades": winningTrades,
+			"losing_trades":  losingTrades,
+			"win_rate":       math.Round(winRate*10000) / 100, // 百分比，保留2位小数
+			"avg_pnl":        math.Round(avgPnL*100) / 100,
+			"max_profit":     math.Round(maxProfit*100) / 100,
+			"max_loss":       math.Round(maxLoss*100) / 100,
+		},
+		"by_symbol": symbolList,
+		"by_date":   dateList,
+		"note":      "注意：当前盈亏计算未扣除手续费，实际亏损可能更大",
+	})
+}
+
 // RiskMonitorProvider 风控监控提供者接口
 type RiskMonitorProvider interface {
 	IsTriggered() bool
@@ -4578,6 +4770,103 @@ func generateAIConfig(c *gin.Context) {
 		logger.Info("✅ [AI任务] %s 配置生成完成，更新任务状态为 completed", task.TaskID)
 		aiTaskManager.UpdateTask(task.TaskID, TaskStatusCompleted, aiConfig, nil)
 	}()
+}
+
+// TaskProvider 任务数据提供者接口
+type TaskProvider interface {
+	GetAsyncTasks(ctx context.Context, filter *database.AsyncTaskFilter) ([]*database.AsyncTask, error)
+	GetAsyncTaskStats(ctx context.Context, startTime, endTime *time.Time) (*database.AsyncTaskStats, error)
+}
+
+var taskProvider TaskProvider
+
+// SetTaskProvider 设置任务提供者
+func SetTaskProvider(provider TaskProvider) {
+	taskProvider = provider
+}
+
+// getAITasks 获取 AI 任务列表
+// GET /api/ai/tasks
+func getAITasks(c *gin.Context) {
+	if taskProvider == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.task_service_unavailable")
+		return
+	}
+
+	// 解析查询参数
+	filter := &database.AsyncTaskFilter{
+		Status:   c.Query("status"),
+		TaskType: c.Query("task_type"),
+	}
+
+	// 解析时间范围
+	if startTimeStr := c.Query("start_time"); startTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
+			filter.StartTime = &t
+		}
+	}
+	if endTimeStr := c.Query("end_time"); endTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+			filter.EndTime = &t
+		}
+	}
+
+	// 解析分页参数
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	filter.Limit = limit
+	filter.Offset = offset
+
+	// 查询任务
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tasks, err := taskProvider.GetAsyncTasks(ctx, filter)
+	if err != nil {
+		logger.Error("❌ 查询任务失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "error.query_tasks_failed", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"tasks": tasks,
+		"count": len(tasks),
+	})
+}
+
+// getAITaskStats 获取 AI 任务统计
+// GET /api/ai/tasks/stats
+func getAITaskStats(c *gin.Context) {
+	if taskProvider == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.task_service_unavailable")
+		return
+	}
+
+	// 解析时间范围（可选）
+	var startTime, endTime *time.Time
+	if startTimeStr := c.Query("start_time"); startTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
+			startTime = &t
+		}
+	}
+	if endTimeStr := c.Query("end_time"); endTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+			endTime = &t
+		}
+	}
+
+	// 查询统计
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	stats, err := taskProvider.GetAsyncTaskStats(ctx, startTime, endTime)
+	if err != nil {
+		logger.Error("❌ 查询任务统计失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "error.query_task_stats_failed", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
 }
 
 // getAITaskStatus 获取 AI 任务状态

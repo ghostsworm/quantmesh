@@ -80,7 +80,7 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 	}
 
 	// 自动迁移
-	if err := db.AutoMigrate(
+	models := []interface{}{
 		&Trade{},
 		&Order{},
 		&Statistics{},
@@ -88,15 +88,42 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		&RiskCheck{},
 		&EventRecord{},
 		&AsyncTask{},
-	); err != nil {
-		// 如果是索引已存在的错误，忽略它（这是正常的）
-		errStr := err.Error()
-		if strings.Contains(errStr, "already exists") || 
-		   strings.Contains(errStr, "duplicate") ||
-		   strings.Contains(errStr, "UNIQUE constraint failed") {
-			// 索引/约束已存在，这是正常的，继续运行
+	}
+	
+	// 逐个迁移模型，确保每个表都被创建
+	for _, model := range models {
+		if err := db.AutoMigrate(model); err != nil {
+			// 如果是索引已存在的错误，忽略它（这是正常的）
+			errStr := err.Error()
+			if strings.Contains(errStr, "already exists") || 
+			   strings.Contains(errStr, "duplicate") ||
+			   strings.Contains(errStr, "UNIQUE constraint failed") {
+				// 索引/约束已存在，这是正常的，继续运行
+			} else {
+				// 对于其他错误（包括表创建失败），记录并返回错误
+				// 这样可以确保表被正确创建
+				return nil, fmt.Errorf("failed to auto migrate %T: %w", model, err)
+			}
+		}
+	}
+	
+	// 验证关键表是否存在（特别是 async_tasks）
+	var count int64
+	if err := db.Model(&AsyncTask{}).Count(&count).Error; err != nil {
+		// 如果查询失败，可能是表不存在，尝试强制创建
+		if strings.Contains(err.Error(), "no such table") || 
+		   strings.Contains(err.Error(), "does not exist") ||
+		   strings.Contains(err.Error(), "table") && strings.Contains(err.Error(), "not exist") {
+			// 表不存在，强制创建
+			if createErr := db.AutoMigrate(&AsyncTask{}); createErr != nil {
+				return nil, fmt.Errorf("failed to create async_tasks table: %w", createErr)
+			}
+			// 再次验证表是否创建成功
+			if verifyErr := db.Model(&AsyncTask{}).Count(&count).Error; verifyErr != nil {
+				return nil, fmt.Errorf("async_tasks table created but verification failed: %w", verifyErr)
+			}
 		} else {
-			return nil, fmt.Errorf("failed to auto migrate: %w", err)
+			return nil, fmt.Errorf("failed to verify async_tasks table: %w", err)
 		}
 	}
 
@@ -426,6 +453,114 @@ func (g *GormDatabase) GetPendingAsyncTasks(ctx context.Context, limit int) ([]*
 	return tasks, err
 }
 
+// GetAsyncTasks 获取异步任务列表（支持过滤和分页）
+func (g *GormDatabase) GetAsyncTasks(ctx context.Context, filter *AsyncTaskFilter) ([]*AsyncTask, error) {
+	query := g.db.WithContext(ctx).Model(&AsyncTask{})
+
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.TaskType != "" {
+		query = query.Where("task_type = ?", filter.TaskType)
+	}
+	if filter.StartTime != nil {
+		query = query.Where("created_at >= ?", filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		query = query.Where("created_at <= ?", filter.EndTime)
+	}
+
+	query = query.Order("created_at DESC")
+
+	if filter.Limit > 0 {
+		query = query.Limit(filter.Limit)
+	} else {
+		query = query.Limit(100) // 默认限制100条
+	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
+	}
+
+	var tasks []*AsyncTask
+	if err := query.Find(&tasks).Error; err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
+}
+
+// GetAsyncTaskStats 获取异步任务统计（Token使用量）
+func (g *GormDatabase) GetAsyncTaskStats(ctx context.Context, startTime, endTime *time.Time) (*AsyncTaskStats, error) {
+	stats := &AsyncTaskStats{
+		DailyStats: []DailyTokenStat{},
+	}
+
+	// 总计统计（所有任务）
+	var totalTasks int64
+	var totalInput, totalOutput int64
+	g.db.WithContext(ctx).Model(&AsyncTask{}).Count(&totalTasks)
+	g.db.WithContext(ctx).Model(&AsyncTask{}).Select("COALESCE(SUM(input_tokens), 0)").Scan(&totalInput)
+	g.db.WithContext(ctx).Model(&AsyncTask{}).Select("COALESCE(SUM(output_tokens), 0)").Scan(&totalOutput)
+	stats.TotalTasks = int(totalTasks)
+	stats.TotalInputTokens = totalInput
+	stats.TotalOutputTokens = totalOutput
+	stats.TotalTokens = totalInput + totalOutput
+
+	// 今日统计（今日00:00:00开始）
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	var todayTasks int64
+	var todayInput, todayOutput int64
+	todayQuery := g.db.WithContext(ctx).Model(&AsyncTask{}).Where("created_at >= ?", todayStart)
+	todayQuery.Count(&todayTasks)
+	g.db.WithContext(ctx).Model(&AsyncTask{}).Where("created_at >= ?", todayStart).Select("COALESCE(SUM(input_tokens), 0)").Scan(&todayInput)
+	g.db.WithContext(ctx).Model(&AsyncTask{}).Where("created_at >= ?", todayStart).Select("COALESCE(SUM(output_tokens), 0)").Scan(&todayOutput)
+	stats.TodayInputTokens = todayInput
+	stats.TodayOutputTokens = todayOutput
+	stats.TodayTokens = todayInput + todayOutput
+
+	// 每日统计（最近30天）
+	thirtyDaysAgo := todayStart.AddDate(0, 0, -30)
+	if startTime != nil && startTime.After(thirtyDaysAgo) {
+		thirtyDaysAgo = *startTime
+	}
+
+	var dailyStats []struct {
+		Date         time.Time
+		InputTokens  int64
+		OutputTokens int64
+		TaskCount    int64
+	}
+
+	// 每日统计（按日期分组）
+	err := g.db.WithContext(ctx).Model(&AsyncTask{}).
+		Select("DATE(created_at) as date, " +
+			"COALESCE(SUM(input_tokens), 0) as input_tokens, " +
+			"COALESCE(SUM(output_tokens), 0) as output_tokens, " +
+			"COUNT(*) as task_count").
+		Where("created_at >= ?", thirtyDaysAgo).
+		Group("DATE(created_at)").
+		Order("date DESC").
+		Scan(&dailyStats).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换每日统计
+	for _, ds := range dailyStats {
+		stats.DailyStats = append(stats.DailyStats, DailyTokenStat{
+			Date:         ds.Date,
+			InputTokens:  ds.InputTokens,
+			OutputTokens: ds.OutputTokens,
+			TotalTokens:  ds.InputTokens + ds.OutputTokens,
+			TaskCount:    int(ds.TaskCount),
+		})
+	}
+
+	return stats, nil
+}
+
 // CleanupExpiredAsyncTasks 清理过期任务
 func (g *GormDatabase) CleanupExpiredAsyncTasks(ctx context.Context, cutoff time.Time) (int64, error) {
 	result := g.db.WithContext(ctx).
@@ -643,6 +778,46 @@ func (t *GormTx) GetPendingAsyncTasks(ctx context.Context, limit int) ([]*AsyncT
 		Limit(limit).
 		Find(&tasks).Error
 	return tasks, err
+}
+
+func (t *GormTx) GetAsyncTasks(ctx context.Context, filter *AsyncTaskFilter) ([]*AsyncTask, error) {
+	query := t.tx.WithContext(ctx).Model(&AsyncTask{})
+
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.TaskType != "" {
+		query = query.Where("task_type = ?", filter.TaskType)
+	}
+	if filter.StartTime != nil {
+		query = query.Where("created_at >= ?", filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		query = query.Where("created_at <= ?", filter.EndTime)
+	}
+
+	query = query.Order("created_at DESC")
+
+	if filter.Limit > 0 {
+		query = query.Limit(filter.Limit)
+	} else {
+		query = query.Limit(100)
+	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
+	}
+
+	var tasks []*AsyncTask
+	if err := query.Find(&tasks).Error; err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
+}
+
+func (t *GormTx) GetAsyncTaskStats(ctx context.Context, startTime, endTime *time.Time) (*AsyncTaskStats, error) {
+	// 事务中暂不实现统计，返回错误
+	return nil, fmt.Errorf("GetAsyncTaskStats not implemented in transaction")
 }
 
 func (t *GormTx) CleanupExpiredAsyncTasks(ctx context.Context, cutoff time.Time) (int64, error) {
