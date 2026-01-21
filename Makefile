@@ -20,7 +20,7 @@ build-frontend:
 # 构建后端
 build-backend:
 	@echo "Building backend..."
-	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "3.3.2"); \
+	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "3.4.3"); \
 	echo "Version: $$VERSION"; \
 	go build -ldflags="-s -w -X main.Version=$$VERSION" -o quantmesh .
 

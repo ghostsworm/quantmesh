@@ -72,7 +72,7 @@ fi
 log_info "🔨 构建后端..."
 
 # 获取版本号
-VERSION="3.3.2"
+VERSION="3.4.3"
 
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
     # 尝试从 git tag 获取版本号（去掉 v 前缀）

@@ -79,7 +79,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.3.3"
+var Version = "3.4.3"
 
 // 全局日志存储实例（用于清理任务和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
