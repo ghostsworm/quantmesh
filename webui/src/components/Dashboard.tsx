@@ -35,7 +35,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary } from '../services/api'
+import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics } from '../services/api'
 import { checkSetupStatus } from '../services/setup'
 import { Alert, AlertIcon, AlertTitle, AlertDescription, useDisclosure } from '@chakra-ui/react'
 import { NewbieCheckModal } from './NewbieCheckModal'
@@ -84,6 +84,7 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [status, setStatus] = useState<SystemStatus | null>(null)
+  const [statistics, setStatistics] = useState<any>(null)
   const [slotsInfo, setSlotsInfo] = useState<SlotsResponse | null>(null)
   const [strategyAllocation, setStrategyAllocation] = useState<StrategyAllocationResponse | null>(null)
   const [pendingOrders, setPendingOrders] = useState<PendingOrdersResponse | null>(null)
@@ -114,14 +115,16 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statusData, slotsData, allocationData, ordersData, positionsData] = await Promise.all([
+        const [statusData, statsData, slotsData, allocationData, ordersData, positionsData] = await Promise.all([
           getStatus(selectedExchange || undefined, selectedSymbol || undefined),
+          getStatistics(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
           getSlots(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
           getStrategyAllocation().catch(() => null),
           getPendingOrders().catch(() => null),
           getPositionsSummary(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
         ])
         setStatus(statusData)
+        setStatistics(statsData)
         setSlotsInfo(slotsData)
         setStrategyAllocation(allocationData)
         setPendingOrders(ordersData)
@@ -180,6 +183,15 @@ const Dashboard: React.FC = () => {
   const isCurrentSymbolMatched = status.exchange?.toLowerCase() === selectedExchange?.toLowerCase() &&
     status.symbol?.toUpperCase() === selectedSymbol?.toUpperCase()
 
+  const currentPrice = (status.current_price && status.current_price > 0)
+    ? status.current_price
+    : (positionsSummary?.current_price || 0)
+
+  const totalPnL = typeof statistics?.total_pnl === 'number' ? statistics.total_pnl : (status.total_pnl || 0)
+  const totalTrades = typeof statistics?.total_trades === 'number' ? statistics.total_trades : (status.total_trades || 0)
+  const totalVolume = typeof statistics?.total_volume === 'number' ? statistics.total_volume : 0
+  const tradesPerHour = status.uptime > 0 ? (totalTrades / (status.uptime / 3600)) : 0
+
   return (
     <Container maxW="container.xl" py={4}>
       <VStack spacing={8} align="stretch">
@@ -237,8 +249,8 @@ const Dashboard: React.FC = () => {
                 <Heading size="lg" fontWeight="800">{selectedSymbol}</Heading>
                 <Badge colorScheme="blue" variant="subtle" borderRadius="full" px={3}>{selectedExchange?.toUpperCase()}</Badge>
               </HStack>
-              {isCurrentSymbolRunning && status.current_price > 0 ? (
-                <Text color="gray.500" fontSize="sm">{t('dashboard.currentPrice')}: <Text as="span" fontWeight="bold" color="blue.500">${status.current_price.toFixed(2)}</Text></Text>
+              {isCurrentSymbolRunning && currentPrice > 0 ? (
+                <Text color="gray.500" fontSize="sm">{t('dashboard.currentPrice')}: <Text as="span" fontWeight="bold" color="blue.500">${currentPrice.toFixed(2)}</Text></Text>
               ) : (
                 <Text color="gray.400" fontSize="sm">{t('dashboard.priceNotAvailable')}</Text>
               )}
@@ -291,16 +303,16 @@ const Dashboard: React.FC = () => {
         <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
           <GlassCard>
             <Stat>
-              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>TOTAL P&L</StatLabel>
-              <StatNumber fontSize="3xl" fontWeight="800" color={status.total_pnl >= 0 ? 'green.500' : 'red.500'}>
-                {status.total_pnl >= 0 ? '+' : ''}{status.total_pnl.toFixed(2)}
+              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>{t('dashboard.totalPnL')}</StatLabel>
+              <StatNumber fontSize="3xl" fontWeight="800" color={totalPnL >= 0 ? 'green.500' : 'red.500'}>
+                {totalPnL >= 0 ? '+' : ''}{totalPnL.toFixed(2)}
                 <Text as="span" fontSize="sm" ml={1} color="gray.400">USDT</Text>
               </StatNumber>
               <StatHelpText>
                 <HStack spacing={1}>
-                  <Icon as={status.total_pnl >= 0 ? TriangleUpIcon : TriangleDownIcon} />
-                  <Text fontWeight="600">{((status.total_pnl / 1000) * 100).toFixed(2)}%</Text>
-                  <Text color="gray.400">ROI</Text>
+                  <Icon as={totalPnL >= 0 ? TriangleUpIcon : TriangleDownIcon} />
+                  <Text fontWeight="600">{((totalPnL / 1000) * 100).toFixed(2)}%</Text>
+                  <Text color="gray.400">{t('dashboard.roi')}</Text>
                 </HStack>
               </StatHelpText>
             </Stat>
@@ -308,12 +320,13 @@ const Dashboard: React.FC = () => {
 
           <GlassCard>
             <Stat>
-              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>TRADING VOLUME</StatLabel>
-              <StatNumber fontSize="3xl" fontWeight="800">{status.total_trades}</StatNumber>
+              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>{t('dashboard.tradingVolume')}</StatLabel>
+              <StatNumber fontSize="3xl" fontWeight="800">{totalVolume.toFixed(4)}</StatNumber>
               <StatHelpText>
                 <HStack spacing={1}>
-                  <Text fontWeight="600" color="blue.500">{(status.total_trades / (status.uptime / 3600)).toFixed(1)}</Text>
-                  <Text color="gray.400">trades / hour</Text>
+                  <Text fontWeight="600" color="blue.500">{tradesPerHour.toFixed(1)}</Text>
+                  <Text color="gray.400">{t('dashboard.tradesPerHour')}</Text>
+                  <Text color="gray.400">({t('globalDashboard.tradeCountLabel')}: {totalTrades})</Text>
                 </HStack>
               </StatHelpText>
             </Stat>
@@ -321,13 +334,13 @@ const Dashboard: React.FC = () => {
 
           <GlassCard>
             <Stat>
-              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>SYSTEM UPTIME</StatLabel>
+              <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>{t('dashboard.systemUptime')}</StatLabel>
               <StatNumber fontSize="3xl" fontWeight="800">{formatUptime(status.uptime)}</StatNumber>
               <StatHelpText>
                 <HStack spacing={1}>
                   <Icon as={CheckCircleIcon} color="green.500" />
-                  <Text fontWeight="600" color="green.500">Normal</Text>
-                  <Text color="gray.400">Status</Text>
+                  <Text fontWeight="600" color="green.500">{t('dashboard.normal')}</Text>
+                  <Text color="gray.400">{t('dashboard.status')}</Text>
                 </HStack>
               </StatHelpText>
             </Stat>
