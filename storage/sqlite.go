@@ -852,7 +852,9 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 		args = append(args, exchange)
 	}
 	if account != "" {
-		query += " AND account = ?"
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		// 这样可以确保即使旧数据的account字段为空，也能查询到统计信息
+		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
 
@@ -924,7 +926,9 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 		args = append(args, exchange)
 	}
 	if account != "" {
-		query += " AND account = ?"
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		// 这样可以确保即使旧数据的account字段为空，也能查询到统计信息
+		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
 	query += " GROUP BY date(created_at) ORDER BY date DESC LIMIT ?"
@@ -1031,7 +1035,9 @@ func (s *SQLiteStorage) QueryReconciliationHistory(exchange, symbol, account str
 		args = append(args, symbol)
 	}
 	if account != "" {
-		query += " AND account = ?"
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		// 这样可以确保即使旧数据的account字段为空，也能查询到对账历史
+		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
 
@@ -1089,7 +1095,8 @@ func (s *SQLiteStorage) GetLatestReconciliationHistory(exchange, symbol, account
 		args = append(args, exchange)
 	}
 	if account != "" {
-		query += " AND account = ?"
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
 	query += " ORDER BY reconcile_time DESC LIMIT 1"
@@ -1135,7 +1142,8 @@ func (s *SQLiteStorage) GetReconciliationCount(exchange, symbol, account string)
 		args = append(args, exchange)
 	}
 	if account != "" {
-		query += " AND account = ?"
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
 
@@ -1165,7 +1173,8 @@ func (s *SQLiteStorage) GetPnLBySymbol(symbol, account string, startTime, endTim
 	`
 	args := []interface{}{symbol, startTime, endTime}
 	if account != "" {
-		query += " AND account = ?"
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
 
@@ -1229,7 +1238,8 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 	`
 	args := []interface{}{startTime, endTime}
 	if account != "" {
-		query += " AND account = ?"
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
 	query += " GROUP BY exchange, symbol ORDER BY total_pnl DESC LIMIT ?"
@@ -1282,7 +1292,8 @@ func (s *SQLiteStorage) GetActualProfitBySymbol(symbol, account string, beforeTi
 	`
 	args := []interface{}{symbol, beforeTime}
 	if account != "" {
-		query += " AND account = ?"
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
 
@@ -1302,6 +1313,39 @@ func (s *SQLiteStorage) GetActualProfitBySymbol(symbol, account string, beforeTi
 	}
 
 	return 0, nil
+}
+
+// GetTotalBuySellQty 获取累计买入和累计卖出数量（从trades表计算）
+func (s *SQLiteStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty, totalSellQty float64, err error) {
+	query := `
+		SELECT 
+			COALESCE(SUM(quantity), 0) as total_qty
+		FROM trades
+		WHERE symbol = ?
+	`
+	args := []interface{}{symbol}
+	if account != "" {
+		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		query += " AND (account = ? OR account IS NULL OR account = '')"
+		args = append(args, account)
+	}
+	
+	var totalQty sql.NullFloat64
+	err = s.db.QueryRow(query, args...).Scan(&totalQty)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("查询累计买卖数量失败: %w", err)
+	}
+	
+	if totalQty.Valid {
+		// trades表中的quantity是配对交易的quantity，每笔交易都有买入和卖出
+		// 所以累计买入 = 累计卖出 = SUM(quantity)
+		return totalQty.Float64, totalQty.Float64, nil
+	}
+	
+	return 0, 0, nil
 }
 
 // SaveRiskCheck 保存风控检查记录

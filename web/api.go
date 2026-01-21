@@ -2329,9 +2329,39 @@ func getReconciliationStatus(c *gin.Context) {
 	// 从 PositionManager 获取对账统计
 	reconcileCount := pmProvider.GetReconcileCount()
 	lastReconcileTime := pmProvider.GetLastReconcileTime()
-	totalBuyQty := pmProvider.GetTotalBuyQty()
-	totalSellQty := pmProvider.GetTotalSellQty()
 	priceInterval := pmProvider.GetPriceInterval()
+	
+	// 优先从数据库实时计算累计买入和累计卖出（更准确，不受重启影响）
+	totalBuyQty := 0.0
+	totalSellQty := 0.0
+	
+	storageProv := PickStorageProvider(c)
+	symbol := c.Query("symbol")
+	if symbol == "" {
+		if st := pickStatus(c); st != nil {
+			symbol = st.Symbol
+		}
+	}
+	
+	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
+		// 从数据库直接计算累计买入和累计卖出（更高效）
+		accountID := GetCurrentAccountID()
+		buyQty, sellQty, err := storageProv.GetStorage().GetTotalBuySellQty(symbol, accountID)
+		if err == nil {
+			totalBuyQty = buyQty
+			totalSellQty = sellQty
+			logger.Info("📊 [对账状态] 从数据库查询: symbol=%s, accountID=%s, 累计买入=%.4f, 累计卖出=%.4f", symbol, accountID, buyQty, sellQty)
+		} else {
+			logger.Warn("⚠️ 查询累计买卖数量失败: symbol=%s, accountID=%s, error=%v", symbol, accountID, err)
+		}
+	}
+	
+	// 如果数据库中没有数据，尝试从内存获取（作为后备）
+	if totalBuyQty == 0 && totalSellQty == 0 {
+		totalBuyQty = pmProvider.GetTotalBuyQty()
+		totalSellQty = pmProvider.GetTotalSellQty()
+	}
+	
 	estimatedProfit := totalSellQty * priceInterval
 
 	// 计算本地持仓
@@ -2345,14 +2375,6 @@ func getReconciliationStatus(c *gin.Context) {
 
 	// 获取实际盈利
 	actualProfit := 0.0
-	symbol := c.Query("symbol")
-	if symbol == "" {
-		if st := pickStatus(c); st != nil {
-			symbol = st.Symbol
-		}
-	}
-
-	storageProv := PickStorageProvider(c)
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
 		// 查询截止到现在的累计实际盈利
 		accountID := GetCurrentAccountID()
