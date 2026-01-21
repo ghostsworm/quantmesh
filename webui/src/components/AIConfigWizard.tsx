@@ -46,6 +46,7 @@ import {
   Progress,
   Heading,
   Switch,
+  Tooltip,
 } from '@chakra-ui/react'
 import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
@@ -108,6 +109,15 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
 
   // 策略分配状态 - 使用复合键 "exchangeId:symbol" -> strategies
   const [strategySplits, setStrategySplits] = useState<Record<string, StrategyInstance[]>>({})
+
+  // 网格参数状态 - 使用复合键 "exchangeId:symbol" -> params
+  interface GridParams {
+    priceInterval: number  // 价格间隔 (USDT)
+    orderWindow: number    // 买/卖单窗口
+    orderAmount: number    // 每单金额 (USDT)
+    maxGridLevels: number  // 最大网格层数
+  }
+  const [gridParams, setGridParams] = useState<Record<string, GridParams>>({})
 
   // 可用的策略类型列表
   const [availableStrategyTypes, setAvailableStrategyTypes] = useState<string[]>(['grid', 'dca'])
@@ -248,11 +258,11 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
             const usdtAsset = detail.assets.find(a => a.asset === 'USDT')
             if (usdtAsset) {
               balances[detail.exchangeId] = usdtAsset.availableBalance
-              // 默认使用 5000 USDT 作为总资金
-              totalCapitals[detail.exchangeId] = 5000
+              // 默认使用交易所可用余额作为总资金（取整）
+              totalCapitals[detail.exchangeId] = Math.floor(usdtAsset.availableBalance)
             } else {
               balances[detail.exchangeId] = 0
-              totalCapitals[detail.exchangeId] = 5000
+              totalCapitals[detail.exchangeId] = 0
             }
           })
           setExchangeBalances(balances)
@@ -386,12 +396,16 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         for (const symbol of symbolsWithCapital) {
           const taskKey = `${exchangeId}:${symbol}`
           const strategies = strategySplits[taskKey] || []
-          const totalWeight = strategies.reduce((sum, s) => sum + s.weight, 0)
+          // 计算总权重时，需要考虑所有策略类型的权重（包括为 0 的）
+          // strategies 数组只包含用户设置过的策略，权重存储为 0-1 的小数
+          const totalWeight = strategies.reduce((sum, s) => sum + (s.weight || 0), 0)
           
-          if (Math.abs(totalWeight - 1.0) > 0.001) {
+          // 使用更宽松的容差（0.01 = 1%），并四舍五入到整数百分比进行比较
+          const totalPercent = Math.round(totalWeight * 100)
+          if (totalPercent !== 100) {
             hasError = true
             const exchangeName = exchangeNames[exchangeId] || exchangeId
-            errorMsg = `${exchangeName} 的 ${symbol} 策略占比总和必须为 100% (当前: ${(totalWeight * 100).toFixed(0)}%)`
+            errorMsg = `${exchangeName} 的 ${symbol} 策略占比总和必须为 100% (当前: ${totalPercent}%)`
             break
           }
         }
@@ -434,6 +448,136 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     setSymbolCapitals(prev => prev.map(sc => 
       sc.symbol === symbol ? { ...sc, capital } : sc
     ))
+  }
+
+  // 获取网格参数的 key
+  const getGridParamsKey = (exchangeId: string, symbol: string) => `${exchangeId}:${symbol}`
+
+  // 根据交易对类型确定合理的价格间隔（USDT）
+  // BTC 价格高（~100000），间隔大；ETH（~3000）间隔中等；其他小币间隔小
+  const getDefaultPriceInterval = (sym: string): number => {
+    const upperSymbol = sym.toUpperCase()
+    if (upperSymbol.includes('BTC')) {
+      return 100 // BTC 间隔 100 USDT
+    } else if (upperSymbol.includes('ETH')) {
+      return 10 // ETH 间隔 10 USDT
+    } else if (upperSymbol.includes('SOL') || upperSymbol.includes('BNB')) {
+      return 2 // SOL/BNB 间隔 2 USDT
+    } else if (upperSymbol.includes('DOGE') || upperSymbol.includes('XRP') || upperSymbol.includes('ADA')) {
+      return 0.01 // 低价币间隔 0.01 USDT
+    } else {
+      return 1 // 默认间隔 1 USDT
+    }
+  }
+
+  // 获取网格参数，如果不存在则返回默认值
+  const getGridParams = (exchangeId: string, symbol: string, symbolCapital: number, strategyWeight: number): GridParams => {
+    const key = getGridParamsKey(exchangeId, symbol)
+    if (gridParams[key]) {
+      return gridParams[key]
+    }
+    // 计算默认值：每单金额 = 资金 / 20 / 窗口大小
+    const minOrderAmount = 100 // Binance 最小订单金额
+    const capital = symbolCapital * strategyWeight
+    // 根据资金和最小订单金额计算合理的默认窗口大小
+    const maxPossibleWindow = Math.floor(capital / (minOrderAmount * 2.5))
+    const defaultOrderWindow = Math.max(1, Math.min(5, maxPossibleWindow))
+    const defaultOrderAmount = parseFloat((capital / (defaultOrderWindow * 2.5)).toFixed(0))
+    return {
+      priceInterval: getDefaultPriceInterval(symbol),
+      orderWindow: defaultOrderWindow,
+      orderAmount: Math.max(minOrderAmount, defaultOrderAmount), // 最小 100 USDT
+      maxGridLevels: 20,
+    }
+  }
+
+  // 更新网格参数
+  const updateGridParams = (exchangeId: string, symbol: string, updates: Partial<GridParams>) => {
+    const key = getGridParamsKey(exchangeId, symbol)
+    setGridParams(prev => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        ...updates,
+      }
+    }))
+  }
+
+  // 一键优化：根据资金量和交易对自动计算合理的网格参数
+  const handleOptimizeGridParams = (exchangeId: string, symbol: string, symbolCapital: number, strategyWeight: number) => {
+    const capital = symbolCapital * strategyWeight
+    const minOrderAmount = 100 // Binance 最小订单金额要求
+    
+    // 优化逻辑:
+    // 1. 首先确保每单金额 >= 100 USDT (Binance 要求)
+    // 2. 根据资金大小计算合适的窗口大小
+    // 3. 公式: 窗口大小 = 资金 / (每单金额 × 2.5)，其中 2.5 是安全系数(买卖双向+余量)
+    // 4. 价格间隔根据交易对类型设置合理的 USDT 绝对值
+    
+    let orderWindow: number
+    let maxGridLevels: number
+    let orderAmount: number
+    
+    // 计算在保证最小订单金额的情况下，能支持的最大窗口数
+    // 窗口大小 = 资金 / (最小订单金额 × 2.5)
+    const maxPossibleWindow = Math.floor(capital / (minOrderAmount * 2.5))
+    
+    // 获取该交易对的默认价格间隔（使用外部定义的函数）
+    const priceInterval = getDefaultPriceInterval(symbol)
+    
+    if (maxPossibleWindow < 1) {
+      // 资金不足以支撑最小订单
+      toast({
+        title: '资金不足',
+        description: `资金 ${capital.toFixed(0)} USDT 不足以支撑 Binance 最小订单要求 (100 USDT)，建议至少投入 250 USDT`,
+        status: 'warning',
+        duration: 5000,
+      })
+      orderWindow = 1
+      orderAmount = minOrderAmount
+      maxGridLevels = 5
+    } else if (capital < 1000) {
+      // 小资金：尽量少的窗口，保证每单金额
+      orderWindow = Math.min(3, maxPossibleWindow)
+      orderAmount = parseFloat((capital / (orderWindow * 2.5)).toFixed(0))
+      maxGridLevels = 10
+    } else if (capital < 3000) {
+      // 中小资金
+      orderWindow = Math.min(5, maxPossibleWindow)
+      orderAmount = parseFloat((capital / (orderWindow * 2.5)).toFixed(0))
+      maxGridLevels = 20
+    } else if (capital < 8000) {
+      // 中等资金
+      orderWindow = Math.min(10, maxPossibleWindow)
+      orderAmount = parseFloat((capital / (orderWindow * 2.5)).toFixed(0))
+      maxGridLevels = 40
+    } else {
+      // 大资金
+      orderWindow = Math.min(15, maxPossibleWindow)
+      orderAmount = parseFloat((capital / (orderWindow * 2.5)).toFixed(0))
+      maxGridLevels = 100
+    }
+    
+    // 确保每单金额至少 100 USDT
+    orderAmount = Math.max(minOrderAmount, orderAmount)
+    
+    const key = getGridParamsKey(exchangeId, symbol)
+    setGridParams(prev => ({
+      ...prev,
+      [key]: {
+        priceInterval,
+        orderWindow,
+        orderAmount,
+        maxGridLevels,
+      }
+    }))
+    
+    toast({
+      title: '参数优化完成',
+      description: `已根据 ${capital.toFixed(0)} USDT 资金自动优化 ${symbol} 网格参数（窗口 ${orderWindow}，每单 ${orderAmount} USDT）`,
+      status: 'success',
+      duration: 3000,
+    })
   }
 
   // 计算按币种分配的总资金
@@ -584,6 +728,149 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     }
   }
 
+  // 直接保存配置（不依赖AI生成）
+  const handleSaveDirectly = async () => {
+    // 收集所有已启用交易所的币种信息
+    const enabledExchanges = selectedExchanges.filter(ex => exchangeEnabled[ex] !== false)
+    const allSymbols = new Set<string>()
+    const exchangeSymbolMap: Record<string, string[]> = {}
+    
+    for (const exchangeId of enabledExchanges) {
+      const symbols = Object.keys(exchangeSymbolCapitals[exchangeId] || {}).filter(
+        symbol => (exchangeSymbolCapitals[exchangeId][symbol] || 0) > 0
+      )
+      if (symbols.length > 0) {
+        exchangeSymbolMap[exchangeId] = symbols
+        symbols.forEach(s => allSymbols.add(s))
+      }
+    }
+
+    if (allSymbols.size === 0) {
+      setError('请至少为一个已启用的交易所配置币种资金分配')
+      toast({
+        title: '验证失败',
+        description: '请至少为一个已启用的交易所配置币种资金分配',
+        status: 'error',
+        duration: 5000,
+      })
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      // 构建 symbols_config（分级资产配置）
+      const symbolsConfig: any[] = []
+      const gridConfigs: any[] = []
+
+      for (const exchangeId of enabledExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        for (const [symbol, capital] of Object.entries(exchangeSymbols)) {
+          if (capital > 0) {
+            const taskKey = `${exchangeId}:${symbol}`
+            const strategies = strategySplits[taskKey] || []
+            const gridStrategy = strategies.find(s => s.type === 'grid')
+            
+            // 获取网格参数
+            const gridParams = gridStrategy 
+              ? getGridParams(exchangeId, symbol, capital, gridStrategy.weight)
+              : {
+                  priceInterval: getDefaultPriceInterval(symbol),
+                  orderWindow: 5,
+                  orderAmount: 100,
+                  maxGridLevels: 20,
+                }
+
+            // 构建币种配置
+            symbolsConfig.push({
+              exchange: exchangeId,
+              symbol,
+              total_allocated_capital: capital,
+              strategies,
+              withdrawal_policy: withdrawalPolicy,
+              price_interval: gridParams.priceInterval,
+              order_quantity: gridParams.orderAmount,
+              buy_window_size: gridParams.orderWindow,
+              sell_window_size: gridParams.orderWindow,
+              max_grid_levels: gridParams.maxGridLevels,
+            })
+
+            // 构建网格配置（向后兼容）
+            if (gridStrategy && gridStrategy.weight > 0) {
+              gridConfigs.push({
+                exchange: exchangeId,
+                symbol,
+                price_interval: gridParams.priceInterval,
+                order_quantity: gridParams.orderAmount,
+                buy_window_size: gridParams.orderWindow,
+                sell_window_size: gridParams.orderWindow,
+              })
+            }
+          }
+        }
+      }
+
+      // 构建分配配置（向后兼容）
+      const allocationConfigs: any[] = []
+      let totalCapitalValue = 0
+      for (const exchangeId of enabledExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        for (const [symbol, capital] of Object.entries(exchangeSymbols)) {
+          if (capital > 0) {
+            totalCapitalValue += capital
+          }
+        }
+      }
+
+      for (const exchangeId of enabledExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        for (const [symbol, capital] of Object.entries(exchangeSymbols)) {
+          if (capital > 0) {
+            allocationConfigs.push({
+              exchange: exchangeId,
+              symbol,
+              max_amount_usdt: capital,
+              max_percentage: totalCapitalValue > 0 ? (capital / totalCapitalValue) * 100 : 0,
+            })
+          }
+        }
+      }
+
+      // 构建配置对象
+      const config: AIGenerateConfigResponse = {
+        explanation: '用户手动配置的策略和资金分配',
+        grid_config: gridConfigs,
+        allocation: allocationConfigs,
+        symbols_config: symbolsConfig,
+      }
+
+      // 直接保存配置
+      await applyAIConfig(config)
+      setStep('success')
+      toast({
+        title: '配置保存成功',
+        description: '请重启服务使配置生效',
+        status: 'success',
+        duration: 5000,
+      })
+      if (onSuccess) {
+        onSuccess()
+      }
+    } catch (err: any) {
+      const errorMsg = err.message || '保存配置失败'
+      setError(errorMsg)
+      toast({
+        title: '保存配置失败',
+        description: errorMsg,
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleReset = () => {
     setStep('form')
     setAiConfig(null)
@@ -661,49 +948,18 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     }
   }
 
-  // AI 推荐：单个币种的策略比例
+  // 默认推荐：单个币种的策略比例（不再使用 AI）
   const [recommendingStrategy, setRecommendingStrategy] = useState<string | null>(null)
   const handleAIRecommendStrategy = async (exchangeId: string, symbol: string) => {
-    if (!geminiApiKey.trim()) {
-      toast({ title: '请先设置 Gemini API Key', status: 'warning', duration: 3000 })
-      return
-    }
-
     const taskKey = `${exchangeId}:${symbol}`
     setRecommendingStrategy(taskKey)
-    toast({ title: `AI 正在为 ${exchangeId} 的 ${symbol} 推荐策略比例...`, status: 'info', duration: 2000 })
 
     try {
-      const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
-      const symbolCapital = exchangeSymbols[symbol] || 0
+      // 获取该币种的资金量
+      const symbolCapital = exchangeSymbolCapitals[exchangeId]?.[symbol] || 0
       
-      const request: AIGenerateConfigRequest = {
-        exchange: exchangeId,
-        symbols: [symbol],
-        capital_mode: 'per_symbol',
-        symbol_capitals: [{ symbol, capital: symbolCapital }],
-        risk_profile: riskProfile,
-        gemini_api_key: geminiApiKey,
-      }
-
-      const result = await generateAIConfig(request)
-      
-      // 根据风险偏好为所有可用策略分配权重
-      const strategyWeights = getRecommendedStrategyWeights(riskProfile, availableStrategyTypes)
-
-      // 如果 AI 返回了具体配置，根据配置调整
-      if (result.grid_config && result.grid_config.length > 0) {
-        const gridConfig = result.grid_config.find(g => g.symbol === symbol)
-        if (gridConfig && strategyWeights['grid']) {
-          // 根据网格参数推断风险偏好微调
-          const gridLayers = gridConfig.grid_risk_control?.max_grid_layers || 10
-          if (gridLayers > 15) {
-            strategyWeights['grid'] = Math.min(strategyWeights['grid'] * 1.15, 0.9)
-          } else if (gridLayers < 8) {
-            strategyWeights['grid'] = strategyWeights['grid'] * 0.85
-          }
-        }
-      }
+      // 根据风险偏好和资金量为所有可用策略分配权重
+      const strategyWeights = getRecommendedStrategyWeights(riskProfile, availableStrategyTypes, symbolCapital)
 
       // 归一化权重，确保总和为 1
       const totalWeight = Object.values(strategyWeights).reduce((a, b) => a + b, 0)
@@ -712,36 +968,93 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         normalizedWeights[type] = totalWeight > 0 ? weight / totalWeight : 0
       }
 
-      const newStrategies: StrategyInstance[] = availableStrategyTypes
-        .filter(type => normalizedWeights[type] > 0)
+      // 过滤掉权重为0的策略，并确保每个策略分配的资金至少满足最小订单要求
+      const minOrderAmount = 100 // 币安最小订单金额
+      const filteredStrategies = availableStrategyTypes
+        .filter(type => {
+          const weight = normalizedWeights[type] || 0
+          if (weight <= 0) return false
+          
+          // 检查分配的资金是否满足最小订单要求
+          const allocatedCapital = symbolCapital * weight
+          return allocatedCapital >= minOrderAmount
+        })
         .map(type => ({
           type,
           weight: normalizedWeights[type],
-          name: `${type}-${symbol}`,
+          config: {},
         }))
+
+      // 如果过滤后没有策略，使用最保守的配置（只使用网格和DCA）
+      if (filteredStrategies.length === 0) {
+        const conservativeStrategies: StrategyInstance[] = []
+        if (availableStrategyTypes.includes('grid') && symbolCapital >= minOrderAmount) {
+          conservativeStrategies.push({
+            type: 'grid',
+            weight: 0.6,
+            config: {},
+          })
+        }
+        if (availableStrategyTypes.includes('dca') && symbolCapital >= minOrderAmount) {
+          conservativeStrategies.push({
+            type: 'dca',
+            weight: conservativeStrategies.length > 0 ? 0.4 : 1.0,
+            config: {},
+          })
+        }
+        
+        if (conservativeStrategies.length > 0) {
+          setStrategySplits(prev => ({
+            ...prev,
+            [taskKey]: conservativeStrategies
+          }))
+          
+          toast({ 
+            title: `${exchangeId} ${symbol} 策略比例已应用`, 
+            description: `资金量较小，已采用保守配置：${conservativeStrategies.map(s => `${getStrategyDisplayName(s.type)} ${(s.weight * 100).toFixed(0)}%`).join(', ')}`,
+            status: 'info', 
+            duration: 4000 
+          })
+          return
+        }
+      }
+
+      // 重新归一化过滤后的策略权重
+      const filteredTotalWeight = filteredStrategies.reduce((sum, s) => sum + s.weight, 0)
+      const finalStrategies = filteredStrategies.map(s => ({
+        ...s,
+        weight: filteredTotalWeight > 0 ? s.weight / filteredTotalWeight : 0
+      }))
 
       setStrategySplits(prev => ({
         ...prev,
-        [taskKey]: newStrategies
+        [taskKey]: finalStrategies
       }))
 
       // 构建描述信息
-      const description = newStrategies
+      const description = finalStrategies
         .filter(s => s.weight > 0.01)
-        .map(s => `${getStrategyDisplayName(s.type)} ${(s.weight * 100).toFixed(0)}%`)
+        .map(s => {
+          const allocatedCapital = symbolCapital * s.weight
+          return `${getStrategyDisplayName(s.type)} ${(s.weight * 100).toFixed(0)}% (${allocatedCapital.toFixed(0)} USDT)`
+        })
         .join(', ')
 
+      const warningMsg = symbolCapital < 10000 
+        ? '资金量较小，已自动排除需要大资金的策略（如马丁格尔）' 
+        : ''
+
       toast({ 
-        title: `${exchangeId} ${symbol} 策略比例已更新`, 
-        description: description || '已分配策略权重',
+        title: `${exchangeId} ${symbol} 策略比例已应用`, 
+        description: description + (warningMsg ? `\n${warningMsg}` : ''),
         status: 'success', 
-        duration: 3000 
+        duration: 4000 
       })
     } catch (err: any) {
-      console.error('AI 推荐策略失败:', err)
+      console.error('推荐策略失败:', err)
       toast({ 
-        title: 'AI 推荐失败', 
-        description: err.message || '请检查网络和 API Key', 
+        title: '推荐失败', 
+        description: err.message || '应用默认策略配比失败', 
         status: 'error', 
         duration: 5000 
       })
@@ -776,40 +1089,68 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     return names[type] || type
   }
 
-  // 根据风险偏好获取推荐的策略权重分配
+  // 策略类型说明映射
+  const getStrategyDescription = (type: string): string => {
+    const descriptions: Record<string, string> = {
+      grid: '网格策略：在价格区间内设置买卖订单网格，通过低买高卖赚取价差。适合震荡市场，风险较低。',
+      dca: 'DCA 定投：定期定额投资策略，分批买入降低平均成本。适合长期持有，平滑价格波动影响。',
+      martingale: '马丁格尔：亏损后加倍投入的策略，通过大额盈利覆盖前期亏损。风险较高，需要充足资金。',
+      trend: '趋势跟踪：跟随市场趋势进行交易，上涨时买入，下跌时卖出。适合有明显趋势的市场。',
+      mean_reversion: '均值回归：当价格偏离均值时反向交易，预期价格会回归均值。适合震荡市场。',
+      breakout: '突破策略：当价格突破关键阻力或支撑位时入场交易。适合波动较大的市场。',
+      combo: '组合策略：多种策略的组合，分散风险，平衡收益。适合稳健型投资者。',
+      momentum: '动量策略：跟随价格动量方向交易，在强势上涨或下跌时顺势而为。适合趋势明显的市场。',
+    }
+    return descriptions[type] || '该策略的详细说明'
+  }
+
+  // 根据风险偏好和资金量获取推荐的策略权重分配
   const getRecommendedStrategyWeights = (
     profile: 'conservative' | 'balanced' | 'aggressive',
-    types: string[]
+    types: string[],
+    capital: number = 0
   ): Record<string, number> => {
+    // 策略所需的最小资金量（USDT）
+    const strategyMinCapitals: Record<string, number> = {
+      grid: 250,           // 网格策略：最小 250 USDT
+      dca: 200,            // DCA 定投：最小 200 USDT
+      trend: 500,          // 趋势跟踪：最小 500 USDT
+      mean_reversion: 500, // 均值回归：最小 500 USDT
+      martingale: 2000,   // 马丁格尔：需要大资金，最小 2000 USDT
+      breakout: 1000,      // 突破策略：需要较大资金，最小 1000 USDT
+      momentum: 1000,      // 动量策略：需要较大资金，最小 1000 USDT
+      combo: 1500,         // 组合策略：需要较大资金，最小 1500 USDT
+    }
+
     // 不同风险偏好下各策略的基础权重
     const weightProfiles: Record<string, Record<string, number>> = {
       conservative: {
-        grid: 0.35,
-        dca: 0.35,
+        grid: 0.40,
+        dca: 0.40,
         mean_reversion: 0.15,
-        trend: 0.10,
-        martingale: 0.05,
+        trend: 0.05,
+        martingale: 0.00,
         breakout: 0.00,
         momentum: 0.00,
         combo: 0.00,
       },
       balanced: {
-        grid: 0.40,
-        dca: 0.25,
+        grid: 0.45,
+        dca: 0.30,
         trend: 0.15,
         mean_reversion: 0.10,
-        martingale: 0.05,
-        momentum: 0.05,
+        martingale: 0.00,
+        momentum: 0.00,
         breakout: 0.00,
         combo: 0.00,
       },
       aggressive: {
-        grid: 0.30,
-        martingale: 0.25,
-        trend: 0.20,
-        momentum: 0.10,
-        breakout: 0.10,
-        dca: 0.05,
+        grid: 0.35,
+        martingale: 0.00, // 小资金时设为0，大资金时再分配
+        trend: 0.25,
+        momentum: 0.15,
+        breakout: 0.15,
+        dca: 0.10,
         mean_reversion: 0.00,
         combo: 0.00,
       },
@@ -818,9 +1159,45 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     const profileWeights = weightProfiles[profile] || weightProfiles.balanced
     const result: Record<string, number> = {}
 
-    // 只返回可用策略类型的权重
+    // 根据资金量调整策略权重
     for (const type of types) {
-      result[type] = profileWeights[type] || 0
+      const baseWeight = profileWeights[type] || 0
+      const minCapital = strategyMinCapitals[type] || 0
+      
+      // 如果资金量小于策略所需的最小资金量，将该策略权重设为0
+      if (capital > 0 && minCapital > 0 && capital < minCapital) {
+        result[type] = 0
+        continue
+      }
+
+      // 小资金时（< 10000 USDT），更保守的配置
+      if (capital > 0 && capital < 10000) {
+        if (type === 'martingale' || type === 'breakout' || type === 'momentum') {
+          // 小资金时排除高风险策略
+          result[type] = 0
+        } else if (type === 'grid' || type === 'dca') {
+          // 小资金时优先使用稳健策略
+          result[type] = baseWeight * 1.2 // 增加网格和DCA的权重
+        } else {
+          result[type] = baseWeight
+        }
+      } else if (capital >= 10000 && capital < 50000) {
+        // 中等资金（10000-50000 USDT）
+        if (type === 'martingale') {
+          // 中等资金时，马丁格尔权重降低
+          result[type] = baseWeight * 0.5
+        } else {
+          result[type] = baseWeight
+        }
+      } else {
+        // 大资金（>= 50000 USDT），使用原始权重
+        // 对于激进模式，如果资金量足够，恢复马丁格尔权重
+        if (profile === 'aggressive' && type === 'martingale' && capital >= 20000) {
+          result[type] = 0.25 // 大资金时可以使用马丁格尔
+        } else {
+          result[type] = baseWeight
+        }
+      }
     }
 
     return result
@@ -959,9 +1336,26 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                           {isEnabled && (
                             <HStack spacing={4}>
                               <VStack spacing={1} align="end">
-                                <Text fontSize="xs" color="gray.500">
-                                  可用余额: <Text as="span" fontWeight="bold" color="blue.500">{availableBalance.toFixed(2)} USDT</Text>
-                                </Text>
+                                <HStack spacing={2}>
+                                  <Text fontSize="xs" color="gray.500">
+                                    可用余额: <Text as="span" fontWeight="bold" color="blue.500">{availableBalance.toFixed(2)} USDT</Text>
+                                  </Text>
+                                  {availableBalance > 0 && Math.round(totalCapital) !== Math.floor(availableBalance) && (
+                                    <Button
+                                      size="xs"
+                                      variant="ghost"
+                                      colorScheme="blue"
+                                      onClick={() => {
+                                        setExchangeTotalCapitals(prev => ({
+                                          ...prev,
+                                          [exchangeId]: Math.floor(availableBalance)
+                                        }))
+                                      }}
+                                    >
+                                      使用全部
+                                    </Button>
+                                  )}
+                                </HStack>
                                 <HStack spacing={2}>
                                   <Text fontSize="xs" color="gray.500">USDT 资金总额:</Text>
                                   <NumberInput
@@ -1131,10 +1525,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                   colorScheme="purple" 
                                   variant="ghost" 
                                   onClick={() => handleAIRecommendStrategy(exchangeId, symbol)}
-                                  isLoading={recommendingStrategy === taskKey}
-                                  loadingText="AI 分析中..."
                                 >
-                                  AI 推荐
+                                  推荐配置
                                 </Button>
                               </HStack>
 
@@ -1146,18 +1538,41 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                   
                                   return (
                                     <HStack key={type} spacing={4}>
-                                      <Text fontSize="sm" minW="90px" fontWeight="bold">
-                                        {getStrategyDisplayName(type)}
-                                      </Text>
+                                      <Tooltip 
+                                        label={getStrategyDescription(type)} 
+                                        placement="top"
+                                        hasArrow
+                                        fontSize="sm"
+                                        bg="gray.700"
+                                        color="white"
+                                        px={3}
+                                        py={2}
+                                        borderRadius="md"
+                                        maxW="300px"
+                                      >
+                                        <Text 
+                                          fontSize="sm" 
+                                          minW="90px" 
+                                          fontWeight="bold"
+                                          cursor="help"
+                                          borderBottom="1px dashed"
+                                          borderColor="gray.400"
+                                          _hover={{ borderColor: "blue.500" }}
+                                        >
+                                          {getStrategyDisplayName(type)}
+                                        </Text>
+                                      </Tooltip>
                                       <Box flex={1}>
                                         <HStack>
                                           <NumberInput
                                             size="sm"
                                             maxW="100px"
-                                            value={(weight * 100).toFixed(0)}
-                                            onChange={(_, val) => {
+                                            value={Math.round(weight * 100)}
+                                            onChange={(valueString, valueNumber) => {
+                                              // valueNumber 可能是 NaN，使用 valueString 解析更可靠
+                                              const numVal = parseFloat(valueString) || 0
                                               const others = strategies.filter(s => s.type !== type)
-                                              const updated = [...others, { type, weight: val / 100, name: `${type}-${symbol}`, config: existing?.config || {} }]
+                                              const updated = [...others, { type, weight: numVal / 100, name: `${type}-${symbol}`, config: existing?.config || {} }]
                                               setStrategySplits(prev => ({ ...prev, [taskKey]: updated }))
                                             }}
                                             min={0}
@@ -1216,33 +1631,42 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                           
                           if (!gridStrategy || gridStrategy.weight === 0) return null
 
-                          const symbolCapital = exchangeSymbols[symbol] * gridStrategy.weight
-                          
-                          // 简单公式：每单金额 = 资金 / 20 / 窗口大小
-                          const defaultOrderQuantity = (symbolCapital / 20 / 10).toFixed(2)
+                          const symbolCapital = exchangeSymbols[symbol]
+                          const currentParams = getGridParams(exchangeId, symbol, symbolCapital, gridStrategy.weight)
 
                           return (
                             <Box key={symbol} p={4} bg={infoBg} borderRadius="xl" border="1px" borderColor={borderColor}>
                               <HStack justify="space-between" mb={4}>
                                 <Badge colorScheme="green" fontSize="sm">网格参数: {symbol}</Badge>
-                                <Button size="xs" colorScheme="purple" variant="ghost" onClick={() => {
-                                  toast({ title: `AI 正在根据市场波动率为 ${exchangeName} 的 ${symbol} 优化参数...`, status: 'info' })
+                                <Button size="xs" colorScheme="blue" variant="outline" onClick={() => {
+                                  handleOptimizeGridParams(exchangeId, symbol, symbolCapital, gridStrategy.weight)
                                 }}>
-                                  AI 一键优化
+                                  一键优化
                                 </Button>
                               </HStack>
 
                               <VStack spacing={4} align="stretch">
                                 <HStack>
                                   <FormControl flex={1}>
-                                    <FormLabel fontSize="xs">价格间隔 (%)</FormLabel>
-                                    <NumberInput size="sm" defaultValue={0.5} step={0.1} min={0.1}>
+                                    <FormLabel fontSize="xs">价格间隔 (USDT)</FormLabel>
+                                    <NumberInput 
+                                      size="sm" 
+                                      value={currentParams.priceInterval} 
+                                      step={1} 
+                                      min={0.001}
+                                      onChange={(_, val) => updateGridParams(exchangeId, symbol, { priceInterval: val || getDefaultPriceInterval(symbol) })}
+                                    >
                                       <NumberInputField borderRadius="lg" />
                                     </NumberInput>
                                   </FormControl>
                                   <FormControl flex={1}>
                                     <FormLabel fontSize="xs">买/卖单窗口</FormLabel>
-                                    <NumberInput size="sm" defaultValue={10} min={1}>
+                                    <NumberInput 
+                                      size="sm" 
+                                      value={currentParams.orderWindow} 
+                                      min={1}
+                                      onChange={(_, val) => updateGridParams(exchangeId, symbol, { orderWindow: val || 10 })}
+                                    >
                                       <NumberInputField borderRadius="lg" />
                                     </NumberInput>
                                   </FormControl>
@@ -1250,13 +1674,23 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                 <HStack>
                                   <FormControl flex={1}>
                                     <FormLabel fontSize="xs">每单金额 (USDT)</FormLabel>
-                                    <NumberInput size="sm" value={parseFloat(defaultOrderQuantity)} min={5} readOnly>
+                                    <NumberInput 
+                                      size="sm" 
+                                      value={currentParams.orderAmount} 
+                                      min={5}
+                                      onChange={(_, val) => updateGridParams(exchangeId, symbol, { orderAmount: val || 5 })}
+                                    >
                                       <NumberInputField borderRadius="lg" />
                                     </NumberInput>
                                   </FormControl>
                                   <FormControl flex={1}>
                                     <FormLabel fontSize="xs">最大网格层数</FormLabel>
-                                    <NumberInput size="sm" defaultValue={50} min={1}>
+                                    <NumberInput 
+                                      size="sm" 
+                                      value={currentParams.maxGridLevels} 
+                                      min={1}
+                                      onChange={(_, val) => updateGridParams(exchangeId, symbol, { maxGridLevels: val || 50 })}
+                                    >
                                       <NumberInputField borderRadius="lg" />
                                     </NumberInput>
                                   </FormControl>
@@ -1739,10 +2173,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
             {step === 'withdrawal-setup' && (
               <Button
                 colorScheme="blue"
-                onClick={handleGenerate}
+                onClick={handleSaveDirectly}
                 isLoading={loading}
               >
-                生成配置建议
+                保存配置
               </Button>
             )}
             {step === 'preview' && (
