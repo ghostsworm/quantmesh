@@ -69,17 +69,22 @@ func extractStrategyType(strategyName string) string {
 
 // PlaceOrder 下单（带策略标记）
 func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.OrderRequest) (*position.Order, error) {
-	// 计算订单金额
-	orderAmount := req.Quantity * req.Price
-
-	// 检查策略资金是否充足
-	if !mse.allocator.CheckAvailable(strategyName, orderAmount) {
-		return nil, fmt.Errorf("策略 %s 资金不足: 需要 %.2f, 可用 %.2f",
-			strategyName, orderAmount, mse.allocator.GetAvailable(strategyName))
+	// 🔥 使用交易所的 EstimateFinalOrderAmount 预估最终下单金额
+	// 交易所可能因最小名义金额（如币安 100 USDT）、精度对齐等原因调整数量
+	// 必须用预估的最终金额做 Reserve，否则会出现"预留 90 实际下 180"的穿透额度问题
+	estimatedAmount := mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
+	if estimatedAmount <= 0 {
+		return nil, fmt.Errorf("策略 %s 预估订单金额为 0 (价格: %.2f, 数量: %.8f)", strategyName, req.Price, req.Quantity)
 	}
 
-	// 预留资金
-	if !mse.allocator.Reserve(strategyName, orderAmount) {
+	// 检查策略资金是否充足
+	if !mse.allocator.CheckAvailable(strategyName, estimatedAmount) {
+		return nil, fmt.Errorf("策略 %s 资金不足: 需要 %.2f, 可用 %.2f",
+			strategyName, estimatedAmount, mse.allocator.GetAvailable(strategyName))
+	}
+
+	// 预留资金（使用预估的最终金额）
+	if !mse.allocator.Reserve(strategyName, estimatedAmount) {
 		return nil, fmt.Errorf("策略 %s 资金预留失败", strategyName)
 	}
 
@@ -88,7 +93,7 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 		Symbol:        req.Symbol,
 		Side:          req.Side,
 		Price:         req.Price,
-		Quantity:      req.Quantity,
+		Quantity:      req.Quantity, // 交易所会自动调整数量
 		PriceDecimals: req.PriceDecimals,
 		ReduceOnly:    req.ReduceOnly,
 		PostOnly:      req.PostOnly,
@@ -100,7 +105,7 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 	ord, err := mse.executor.PlaceOrder(orderReq)
 	if err != nil {
 		// 下单失败，释放资金
-		mse.allocator.Release(strategyName, orderAmount)
+		mse.allocator.Release(strategyName, estimatedAmount)
 		return nil, fmt.Errorf("下单失败: %w", err)
 	}
 
@@ -138,18 +143,23 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 
 	// 转换为 order.OrderRequest
 	orderReqs := make([]*order.OrderRequest, 0, len(orders))
-	orderAmounts := make(map[string]float64) // ClientOrderID -> orderAmount
+	orderAmounts := make(map[string]float64) // ClientOrderID -> estimatedAmount
 
 	for _, req := range orders {
-		orderAmount := req.Quantity * req.Price
-
-		// 检查资金
-		if !mse.allocator.CheckAvailable(strategyName, orderAmount) {
+		// 🔥 使用交易所的 EstimateFinalOrderAmount 预估最终下单金额
+		estimatedAmount := mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
+		if estimatedAmount <= 0 {
+			// 金额为 0，跳过此订单
 			continue
 		}
 
-		// 预留资金
-		if !mse.allocator.Reserve(strategyName, orderAmount) {
+		// 检查资金
+		if !mse.allocator.CheckAvailable(strategyName, estimatedAmount) {
+			continue
+		}
+
+		// 预留资金（使用预估的最终金额）
+		if !mse.allocator.Reserve(strategyName, estimatedAmount) {
 			continue
 		}
 
@@ -157,7 +167,7 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 			Symbol:        req.Symbol,
 			Side:          req.Side,
 			Price:         req.Price,
-			Quantity:      req.Quantity,
+			Quantity:      req.Quantity, // 交易所会自动调整数量
 			PriceDecimals: req.PriceDecimals,
 			ReduceOnly:    req.ReduceOnly,
 			PostOnly:      req.PostOnly,
@@ -166,7 +176,7 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 			StrategyType:  extractStrategyType(strategyName),
 		}
 		orderReqs = append(orderReqs, orderReq)
-		orderAmounts[req.ClientOrderID] = orderAmount
+		orderAmounts[req.ClientOrderID] = estimatedAmount
 	}
 
 	// 批量下单

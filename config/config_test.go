@@ -16,6 +16,7 @@ func createValidConfig() *Config {
 		FeeRate:   0.0002,
 	}
 	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 2.0
 	cfg.Trading.OrderQuantity = 30.0
 	cfg.Trading.BuyWindowSize = 10
 	cfg.Trading.MinOrderValue = 6.0

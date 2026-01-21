@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -16,8 +18,32 @@ type AIService struct {
 }
 
 func NewAIService() *AIService {
+	// 创建支持代理的 HTTP 客户端
+	transport := &http.Transport{}
+	
+	// 从环境变量读取代理配置（优先级：HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy）
+	proxyURL := os.Getenv("HTTPS_PROXY")
+	if proxyURL == "" {
+		proxyURL = os.Getenv("https_proxy")
+	}
+	if proxyURL == "" {
+		proxyURL = os.Getenv("HTTP_PROXY")
+	}
+	if proxyURL == "" {
+		proxyURL = os.Getenv("http_proxy")
+	}
+	
+	if proxyURL != "" {
+		if proxy, err := url.Parse(proxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(proxy)
+		}
+	}
+	
 	return &AIService{
-		httpClient: &http.Client{Timeout: 120 * time.Second},
+		httpClient: &http.Client{
+			Timeout:   300 * time.Second, // 5 分钟，Gemini API 复杂请求可能需要较长时间
+			Transport: transport,
+		},
 	}
 }
 

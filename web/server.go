@@ -150,6 +150,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		protected.Use(authMiddleware())
 		{
 			protected.GET("/status", getStatus)
+			protected.GET("/statuses", getStatuses)
 			protected.GET("/symbols", getSymbols)
 			protected.GET("/exchanges", getExchanges)
 			protected.GET("/positions", getPositions)

@@ -28,7 +28,7 @@ func NewTaskProcessor(taskService *service.TaskService, aiService *service.AISer
 	return &TaskProcessor{
 		taskService:   taskService,
 		aiService:     aiService,
-		checkInterval: 30 * time.Second,
+		checkInterval: 2 * time.Second, // 每 2 秒检查一次，提升响应速度
 		workerPool:    make(chan struct{}, 10), // 默认 10 个并发
 		ctx:           ctx,
 		cancel:        cancel,

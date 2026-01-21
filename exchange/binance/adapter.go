@@ -119,11 +119,13 @@ type BinanceAdapter struct {
 	symbol           string
 	wsManager        *WebSocketManager
 	klineWSManager   *KlineWebSocketManager
-	priceDecimals    int    // 价格精度（小数位数）
-	quantityDecimals int    // 数量精度（小数位数）
-	baseAsset        string // 基础资产（交易币种），如 BTC
-	quoteAsset       string // 计价资产（结算币种），如 USDT、USD
-	useTestnet       bool   // 是否使用测试网
+	priceDecimals    int     // 价格精度（小数位数）
+	quantityDecimals int     // 数量精度（小数位数）
+	tickSize         float64 // 价格最小变动单位（如 0.10）
+	stepSize         float64 // 数量最小变动单位（如 0.001）
+	baseAsset        string  // 基础资产（交易币种），如 BTC
+	quoteAsset       string  // 计价资产（结算币种），如 USDT、USD
+	useTestnet       bool    // 是否使用测试网
 
 	// 速率限制相关
 	lastAPICallTime time.Time     // 上次API调用时间
@@ -214,8 +216,28 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 			b.baseAsset = symbol.BaseAsset
 			b.quoteAsset = symbol.QuoteAsset
 
-			logger.Info("ℹ️ [Binance 合约信息] %s - 数量精度:%d, 价格精度:%d, 基础币种:%s, 计价币种:%s",
-				b.symbol, b.quantityDecimals, b.priceDecimals, b.baseAsset, b.quoteAsset)
+			// 从 Filters 中获取 tickSize 和 stepSize
+			if priceFilter := symbol.PriceFilter(); priceFilter != nil {
+				if ts, err := strconv.ParseFloat(priceFilter.TickSize, 64); err == nil && ts > 0 {
+					b.tickSize = ts
+				}
+			}
+			if lotSizeFilter := symbol.LotSizeFilter(); lotSizeFilter != nil {
+				if ss, err := strconv.ParseFloat(lotSizeFilter.StepSize, 64); err == nil && ss > 0 {
+					b.stepSize = ss
+				}
+			}
+
+			// 如果没有获取到 tickSize/stepSize，根据精度计算默认值
+			if b.tickSize == 0 {
+				b.tickSize = math.Pow10(-b.priceDecimals)
+			}
+			if b.stepSize == 0 {
+				b.stepSize = math.Pow10(-b.quantityDecimals)
+			}
+
+			logger.Info("ℹ️ [Binance 合约信息] %s - 数量精度:%d, 价格精度:%d, tickSize:%.8f, stepSize:%.8f, 基础币种:%s, 计价币种:%s",
+				b.symbol, b.quantityDecimals, b.priceDecimals, b.tickSize, b.stepSize, b.baseAsset, b.quoteAsset)
 			return nil
 		}
 	}
@@ -223,11 +245,57 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 	return fmt.Errorf("未找到合约信息: %s", b.symbol)
 }
 
+// roundToTickSize 将价格调整到符合 tickSize 的值
+// side: BUY 时向下取整，SELL 时向上取整，确保挂单价格对交易者有利
+func (b *BinanceAdapter) roundToTickSize(price float64, side Side) float64 {
+	if b.tickSize <= 0 {
+		return price
+	}
+	// 计算价格是 tickSize 的多少倍
+	ticks := price / b.tickSize
+	var roundedTicks float64
+	if side == SideBuy {
+		// 买单向下取整（更低的价格对买家有利）
+		roundedTicks = math.Floor(ticks)
+	} else {
+		// 卖单向上取整（更高的价格对卖家有利）
+		roundedTicks = math.Ceil(ticks)
+	}
+	return roundedTicks * b.tickSize
+}
+
+// roundToStepSize 将数量调整到符合 stepSize 的值（向下取整）
+func (b *BinanceAdapter) roundToStepSize(quantity float64) float64 {
+	if b.stepSize <= 0 {
+		return quantity
+	}
+	steps := math.Floor(quantity / b.stepSize)
+	return steps * b.stepSize
+}
+
 // PlaceOrder 下单
 func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	// 验证价格
 	if req.Price <= 0 {
 		return nil, fmt.Errorf("无效的下单价格: %.8f（价格必须大于0）", req.Price)
+	}
+
+	// 使用 tickSize 调整价格，确保符合交易所要求
+	originalPrice := req.Price
+	adjustedPrice := b.roundToTickSize(req.Price, req.Side)
+	if adjustedPrice != originalPrice {
+		logger.Debug("ℹ️ [Binance] [%s] 价格已按 tickSize(%.8f) 调整: %.8f -> %.8f",
+			req.Symbol, b.tickSize, originalPrice, adjustedPrice)
+		req.Price = adjustedPrice
+	}
+
+	// 使用 stepSize 调整数量
+	originalQty := req.Quantity
+	adjustedQty := b.roundToStepSize(req.Quantity)
+	if adjustedQty != originalQty && adjustedQty > 0 {
+		logger.Debug("ℹ️ [Binance] [%s] 数量已按 stepSize(%.8f) 调整: %.8f -> %.8f",
+			req.Symbol, b.stepSize, originalQty, adjustedQty)
+		req.Quantity = adjustedQty
 	}
 
 	// 优先使用请求中指定的精度，如果没有则使用从交易所获取的精度
@@ -239,7 +307,10 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 
 	// 特殊处理：如果下单数量原始值为 0，尝试用最小单位兜底
 	if req.Quantity <= 0 {
-		minQty := math.Pow10(-qDec)
+		minQty := b.stepSize
+		if minQty <= 0 {
+			minQty = math.Pow10(-qDec)
+		}
 		req.Quantity = minQty
 		logger.Warn("⚠️ [Binance] [%s] 下单数量原始值为 0，已自动调整为最小成交单位: %.8f", req.Symbol, minQty)
 	}
@@ -323,11 +394,37 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 				baseAsset = "币"
 			}
 		}
-		
-		logger.Error("❌ [Binance] [%s] %s订单金额不足：订单金额=%.2f USDT，币安合约要求最小订单金额为 %.2f USDT（除非是reduce only订单）。价格=%.2f，数量=%.8f %s",
-			req.Symbol, strategyInfo, orderNotional, minNotional, finalPrice, finalQty, baseAsset)
-		
-		return nil, fmt.Errorf("订单金额不足：订单金额 %.2f USDT 小于币安合约最小要求 %.2f USDT（除非是reduce only订单）。请增加订单金额或数量", orderNotional, minNotional)
+
+		// 尝试自动上调数量：由于数量精度/步进对齐可能导致名义金额从 100 掉到 99.x
+		// 这里按数量精度向上取整，确保最终 notional >= minNotional
+		scale := math.Pow10(qDec)
+		needQty := minNotional / finalPrice
+		adjustedQty := math.Ceil((needQty+1e-12)*scale) / scale // +epsilon 避免浮点误差导致仍不足
+
+		// 防御：如果计算结果没有变大，就至少增加一个最小步进
+		if adjustedQty <= finalQty {
+			adjustedQty = (math.Floor(finalQty*scale) + 1) / scale
+		}
+
+		adjustedQtyStr := fmt.Sprintf("%.*f", qDec, adjustedQty)
+		adjustedQtyParsed, _ := strconv.ParseFloat(adjustedQtyStr, 64)
+		adjustedNotional := finalPrice * adjustedQtyParsed
+
+		if adjustedQtyParsed > 0 && adjustedNotional >= minNotional {
+			logger.Warn("⚠️ [Binance] [%s] %s订单金额不足(%.2f<%.2f USDT)，已自动上调数量: %.8f -> %.8f %s（价格=%.2f，名义金额=%.2f USDT）",
+				req.Symbol, strategyInfo, orderNotional, minNotional, finalQty, adjustedQtyParsed, baseAsset, finalPrice, adjustedNotional)
+
+			// 应用修正后的数量
+			req.Quantity = adjustedQtyParsed
+			quantityStr = adjustedQtyStr
+			finalQty = adjustedQtyParsed
+			orderNotional = adjustedNotional
+		} else {
+			logger.Error("❌ [Binance] [%s] %s订单金额不足：订单金额=%.2f USDT，币安合约要求最小订单金额为 %.2f USDT（除非是reduce only订单）。价格=%.2f，数量=%.8f %s",
+				req.Symbol, strategyInfo, orderNotional, minNotional, finalPrice, finalQty, baseAsset)
+
+			return nil, fmt.Errorf("订单金额不足：订单金额 %.2f USDT 小于币安合约最小要求 %.2f USDT（除非是reduce only订单）。请增加订单金额或数量", orderNotional, minNotional)
+		}
 	}
 
 	// 根据 PostOnly 参数选择 TimeInForce
@@ -1050,4 +1147,47 @@ func (b *BinanceAdapter) CheckAPIPermissions(ctx context.Context) (*APIPermissio
 		permissions.CanTrade, permissions.CanWithdraw, permissions.SecurityScore, permissions.RiskLevel)
 
 	return permissions, nil
+}
+
+// EstimateFinalOrderAmount 预估最终下单金额（USDT）
+// 币安合约有最小名义金额 100 USDT 的要求，如果原始金额不足会自动上调数量
+// 此方法用于资金分配器在下单前准确预留资金，避免预留不足导致保证金不足
+func (b *BinanceAdapter) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
+	// ReduceOnly 订单不受最小名义金额限制
+	if reduceOnly {
+		return price * quantity
+	}
+
+	// 使用 tickSize 调整价格
+	adjustedPrice := b.roundToTickSize(price, SideBuy) // 买卖方向对价格影响很小，这里用 BUY
+	if adjustedPrice <= 0 {
+		adjustedPrice = price
+	}
+
+	// 使用 stepSize 调整数量
+	adjustedQty := b.roundToStepSize(quantity)
+	if adjustedQty <= 0 {
+		// 如果数量截断后为 0，用最小步进
+		if b.stepSize > 0 {
+			adjustedQty = b.stepSize
+		} else {
+			adjustedQty = math.Pow10(-b.quantityDecimals)
+		}
+	}
+
+	// 计算名义金额
+	notional := adjustedPrice * adjustedQty
+	const minNotional = 100.0 // 币安合约最小订单金额
+
+	// 如果名义金额不足 100 USDT，计算需要上调到多少
+	if notional < minNotional {
+		// 计算满足最小名义金额所需的数量
+		needQty := minNotional / adjustedPrice
+		// 按精度向上取整
+		scale := math.Pow10(b.quantityDecimals)
+		adjustedQty = math.Ceil((needQty+1e-12)*scale) / scale
+		notional = adjustedPrice * adjustedQty
+	}
+
+	return notional
 }

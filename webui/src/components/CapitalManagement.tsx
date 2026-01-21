@@ -126,12 +126,24 @@ const CapitalManagement: React.FC = () => {
       return
     }
     
+    // 获取当前交易所和策略信息，构建复合 key
+    const currentExchange = exchanges[selectedExchangeIndex - 1]
+    const strategy = currentStrategies.find((s) => s.strategyId === strategyId)
+    // 使用 exchangeId:strategyId 作为 key，确保每个交易所的策略配置独立
+    const compositeKey = strategy?.exchangeId 
+      ? `${strategy.exchangeId}:${strategyId}` 
+      : currentExchange?.exchangeId 
+        ? `${currentExchange.exchangeId}:${strategyId}` 
+        : strategyId
+    
     let actualValue = value
     if (isPercentage && currentTotalBalance > 0) {
       actualValue = (value / 100) * currentTotalBalance
     }
     setPendingChanges((prev) => ({
       ...prev,
+      [compositeKey]: actualValue,
+      // 同时保存原始 strategyId，用于向后兼容
       [strategyId]: actualValue,
     }))
   }
@@ -154,19 +166,37 @@ const CapitalManagement: React.FC = () => {
 
     setSaving(true)
     try {
-      const allocations: CapitalAllocationConfig[] = Object.entries(pendingChanges).map(
-        ([strategyId, maxCapital]) => {
+      const currentExchange = exchanges[selectedExchangeIndex - 1]
+      const allocations: CapitalAllocationConfig[] = Object.entries(pendingChanges)
+        .filter(([key]) => {
+          // 只处理当前交易所的策略（包含 exchangeId:strategyId 格式的 key，或纯 strategyId）
+          if (key.includes(':')) {
+            const [exchangeId] = key.split(':')
+            return exchangeId === currentExchange?.exchangeId
+          }
+          // 如果是纯 strategyId，检查是否属于当前交易所
+          const strategy = currentStrategies.find((s) => s.strategyId === key)
+          return strategy?.exchangeId === currentExchange?.exchangeId
+        })
+        .map(([key, maxCapital]) => {
+          // 提取 strategyId（如果是复合 key，取第二部分）
+          const strategyId = key.includes(':') ? key.split(':')[1] : key
           const existing = currentStrategies.find((s) => s.strategyId === strategyId)
+          
+          // 计算百分比（基于当前交易所的总资金）
+          const maxPercentage = currentTotalBalance > 0 
+            ? Math.min(100, (maxCapital / currentTotalBalance) * 100)
+            : (existing?.maxPercentage || 100)
+          
           return {
-            strategyId,
-            maxCapital,
-            maxPercentage: existing?.maxPercentage || 100,
+            strategyId, // 发送纯 strategyId，后端会处理
+            maxCapital: Math.max(0, maxCapital), // 确保不为负数
+            maxPercentage: Math.min(100, Math.max(0, maxPercentage)), // 确保在 0-100 范围内
             reserveRatio: existing?.reserveRatio || 0.1,
             autoRebalance: existing?.autoRebalance || false,
             priority: existing?.priority || 1,
           }
-        }
-      )
+        })
 
       const res = await updateCapitalAllocation({ allocations })
       if (res.success) {
@@ -372,27 +402,31 @@ const CapitalManagement: React.FC = () => {
                 {currentStrategies && currentStrategies.length > 0 ? (
                   currentStrategies
                     .filter(s => s !== null && s !== undefined)
-                    .map((strategy) => (
-                    <CapitalSlider
-                      key={`${strategy.exchangeId || 'unknown'}-${strategy.strategyId}`}
-                      strategyId={strategy.strategyId}
-                      strategyName={strategy.strategyName}
-                      currentValue={pendingChanges[strategy.strategyId] ?? strategy.allocated}
-                      maxValue={strategy.maxCapital || (currentTotalBalance * 2)}
-                      totalCapital={currentTotalBalance}
-                      percentage={
-                        currentTotalBalance > 0
-                          ? ((pendingChanges[strategy.strategyId] ?? strategy.allocated) /
-                              currentTotalBalance) *
-                            100
-                          : 0
-                      }
-                      onChange={handleAllocationChange}
-                      isPercentageMode={isPercentageMode}
-                      onModeChange={setIsPercentageMode}
-                      disabled={strategy.status === 'error' || selectedExchangeIndex === 0}
-                    />
-                  ))
+                    .map((strategy, index) => {
+                      // 生成唯一 key：结合 exchangeId, strategyId, asset 和 index 确保唯一性
+                      const uniqueKey = `${strategy.exchangeId || 'unknown'}-${strategy.strategyId || 'unknown'}-${strategy.asset || 'unknown'}-${index}`
+                      return (
+                        <CapitalSlider
+                          key={uniqueKey}
+                          strategyId={strategy.strategyId}
+                          strategyName={strategy.strategyName}
+                          currentValue={pendingChanges[strategy.strategyId] ?? strategy.allocated}
+                          maxValue={strategy.maxCapital || (currentTotalBalance * 2)}
+                          totalCapital={currentTotalBalance}
+                          percentage={
+                            currentTotalBalance > 0
+                              ? ((pendingChanges[strategy.strategyId] ?? strategy.allocated) /
+                                  currentTotalBalance) *
+                                100
+                              : 0
+                          }
+                          onChange={handleAllocationChange}
+                          isPercentageMode={isPercentageMode}
+                          onModeChange={setIsPercentageMode}
+                          disabled={strategy.status === 'error' || selectedExchangeIndex === 0}
+                        />
+                      )
+                    })
                 ) : (
                   <Center py={8} flexDirection="column">
                     <InfoIcon boxSize={8} color="gray.300" mb={2} />

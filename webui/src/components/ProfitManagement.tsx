@@ -163,13 +163,20 @@ const ProfitManagement: React.FC = () => {
   const [summary, setSummary] = useState<ProfitSummary | null>(null)
   const [strategyProfits, setStrategyProfits] = useState<StrategyProfit[]>([])
   const [trend, setTrend] = useState<ProfitTrendItem[]>([])
-  const [withdrawRules, setWithdrawRules] = useState<ProfitWithdrawRule[]>([])
+  const [allWithdrawRules, setAllWithdrawRules] = useState<ProfitWithdrawRule[]>([])
   const [withdrawHistory, setWithdrawHistory] = useState<WithdrawRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<'7d' | '30d' | '90d' | '1y'>('30d')
   const [activeExchange, setActiveExchange] = useState<string>('all')
   const [exchanges, setExchanges] = useState<string[]>([])
   const [selectedExchangeIndex, setSelectedExchangeIndex] = useState(0)
+
+  const normalizeExchangeId = (id: string) => (id || '').trim().toLowerCase()
+
+  const visibleWithdrawRules =
+    activeExchange === 'all'
+      ? allWithdrawRules
+      : allWithdrawRules.filter((r) => normalizeExchangeId(r.exchangeId) === normalizeExchangeId(activeExchange))
 
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
@@ -221,7 +228,7 @@ const ProfitManagement: React.FC = () => {
       ])
       setSummary(summaryRes.summary)
       setStrategyProfits(profitsRes.profits)
-      setWithdrawRules(rulesRes.rules)
+      setAllWithdrawRules(rulesRes.rules)
       setWithdrawHistory(historyRes.records)
     } catch (err) {
       // Use mock data for development
@@ -229,6 +236,7 @@ const ProfitManagement: React.FC = () => {
       setSummary(MOCK_SUMMARY)
       setStrategyProfits(MOCK_STRATEGY_PROFITS)
       setTrend(MOCK_TREND)
+      setAllWithdrawRules([])
       setWithdrawHistory(MOCK_WITHDRAW_HISTORY)
     } finally {
       setLoading(false)
@@ -247,8 +255,21 @@ const ProfitManagement: React.FC = () => {
   }
 
   const handleSaveRules = async (rules: ProfitWithdrawRule[]) => {
-    await updateWithdrawRules({ rules })
-    setWithdrawRules(rules)
+    const mergedRules =
+      activeExchange === 'all'
+        ? rules
+        : [
+            ...allWithdrawRules.filter(
+              (r) => normalizeExchangeId(r.exchangeId) !== normalizeExchangeId(activeExchange)
+            ),
+            ...rules.map((r) => ({
+              ...r,
+              exchangeId: r.exchangeId || activeExchange,
+            })),
+          ]
+
+    await updateWithdrawRules({ rules: mergedRules })
+    setAllWithdrawRules(mergedRules)
   }
 
   const handleWithdrawComplete = () => {
@@ -410,12 +431,14 @@ const ProfitManagement: React.FC = () => {
             {/* Auto Withdraw Rules */}
             <TabPanel p={0} pt={4}>
               <WithdrawRuleForm
-                rules={withdrawRules}
+                rules={visibleWithdrawRules}
                 strategyOptions={strategyProfits.map((s) => ({
                   id: s.strategyId,
                   name: s.strategyName,
                 }))}
                 onSave={handleSaveRules}
+                activeExchange={activeExchange}
+                exchangeOptions={exchanges}
               />
             </TabPanel>
 

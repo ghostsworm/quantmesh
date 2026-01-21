@@ -116,6 +116,7 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 			// 如果币种不存在，添加新配置
 			if !found {
 				newSymCfg := config.SymbolConfig{
+					Enabled:        config.BoolPtr(true),
 					Exchange:       gridCfg.Exchange,
 					Symbol:         gridCfg.Symbol,
 					PriceInterval:  gridCfg.PriceInterval,

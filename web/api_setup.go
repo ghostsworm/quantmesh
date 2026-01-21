@@ -179,7 +179,7 @@ func initSetupHandler(c *gin.Context) {
 	// 保留其他交易所的交易对配置，仅更新当前交易所的
 	newSymbolConfigs := make([]config.SymbolConfig, 0)
 	for _, sc := range cfg.Trading.Symbols {
-		if strings.ToLower(sc.Exchange) != strings.ToLower(req.Exchange) {
+		if !strings.EqualFold(sc.Exchange, req.Exchange) {
 			newSymbolConfigs = append(newSymbolConfigs, sc)
 		}
 	}
@@ -187,6 +187,7 @@ func initSetupHandler(c *gin.Context) {
 	// 为每个新交易对创建配置
 	for _, symbol := range symbols {
 		symbolCfg := config.SymbolConfig{
+			Enabled:               config.BoolPtr(true),
 			Exchange:              req.Exchange,
 			Symbol:                symbol,
 			PriceInterval:         req.PriceInterval,
@@ -307,7 +308,7 @@ func getExchangeSymbolsHandler(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	var symbols []string
@@ -339,18 +340,37 @@ func getExchangeSymbolsHandler(c *gin.Context) {
 
 	if err != nil {
 		logger.Error("获取 %s 交易对列表失败: %v", req.Exchange, err)
-		c.JSON(http.StatusInternalServerError, ExchangeSymbolsResponse{
-			Success: false,
-			Message: "获取交易对列表失败: " + err.Error(),
-			Symbols: []string{},
-		})
-		return
+		// 如果获取失败且没有返回 fallback 交易对，则返回错误
+		if len(symbols) == 0 {
+			msg := err.Error()
+			if strings.Contains(msg, "context deadline exceeded") {
+				msg = "获取交易对列表超时，请检查网络连接或代理设置"
+			}
+			c.JSON(http.StatusInternalServerError, ExchangeSymbolsResponse{
+				Success: false,
+				Message: "获取交易对列表失败: " + msg,
+				Symbols: []string{},
+			})
+			return
+		}
+		// 如果虽然报错了但有 fallback 交易对，则继续返回成功的响应，但在 message 中提示
+		logger.Warn("⚠️ 使用内置备选交易对列表")
 	}
 
 	c.JSON(http.StatusOK, ExchangeSymbolsResponse{
 		Success: true,
 		Symbols: symbols,
 	})
+}
+
+// binancePrioritySymbols 币安常用交易对（按优先级排序）
+var binancePrioritySymbols = []string{
+	"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+	"ADAUSDT", "DOGEUSDT", "MATICUSDT", "DOTUSDT", "AVAXUSDT",
+	"LINKUSDT", "UNIUSDT", "LTCUSDT", "ATOMUSDT", "ETCUSDT",
+	"XLMUSDT", "ALGOUSDT", "VETUSDT", "ICPUSDT", "FILUSDT",
+	"TRXUSDT", "EOSUSDT", "AAVEUSDT", "APTUSDT", "ARBUSDT",
+	"OPUSDT", "SUIUSDT", "NEARUSDT", "INJUSDT", "TIAUSDT",
 }
 
 // getBinanceSymbols 获取 Binance 的所有交易对
@@ -361,41 +381,8 @@ func getBinanceSymbols(ctx context.Context, apiKey, secretKey string, testnet bo
 
 	exchangeInfo, err := client.NewExchangeInfoService().Do(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("获取交易所信息失败: %w", err)
-	}
-
-	// 重要交易对列表（按优先级排序）
-	prioritySymbols := []string{
-		"BTCUSDT",  // 比特币
-		"ETHUSDT",  // 以太坊
-		"BNBUSDT",  // 币安币
-		"SOLUSDT",  // Solana
-		"XRPUSDT",  // Ripple
-		"ADAUSDT",  // Cardano
-		"DOGEUSDT", // Dogecoin
-		"MATICUSDT", // Polygon
-		"DOTUSDT",  // Polkadot
-		"AVAXUSDT", // Avalanche
-		"LINKUSDT", // Chainlink
-		"UNIUSDT",  // Uniswap
-		"LTCUSDT",  // Litecoin
-		"ATOMUSDT", // Cosmos
-		"ETCUSDT",  // Ethereum Classic
-		"XLMUSDT",  // Stellar
-		"ALGOUSDT", // Algorand
-		"VETUSDT",  // VeChain
-		"ICPUSDT",  // Internet Computer
-		"FILUSDT",  // Filecoin
-		"TRXUSDT",  // Tron
-		"EOSUSDT",  // EOS
-		"AAVEUSDT", // Aave
-		"APTUSDT",  // Aptos
-		"ARBUSDT",  // Arbitrum
-		"OPUSDT",   // Optimism
-		"SUIUSDT",  // Sui
-		"NEARUSDT", // NEAR Protocol
-		"INJUSDT",  // Injective
-		"TIAUSDT",  // Celestia
+		logger.Error("⚠️ 获取 Binance 交易所信息失败: %v, 使用内置备选交易对", err)
+		return binancePrioritySymbols, err
 	}
 
 	// 使用 map 来去重和快速查找
@@ -405,26 +392,17 @@ func getBinanceSymbols(ctx context.Context, apiKey, secretKey string, testnet bo
 
 	for _, symbol := range exchangeInfo.Symbols {
 		// 只返回 USDT 永续合约（U本位永续合约），且状态为 TRADING
-		// 过滤条件：
-		// 1. Status == "TRADING" - 正在交易中
-		// 2. ContractType == "PERPETUAL" - 永续合约
-		// 3. QuoteAsset == "USDT" - USDT 计价（U本位）
-		// 4. BaseAsset != "" - 确保有基础资产
-		// 5. 排除币本位合约（QuoteAsset 不是 USDT 的）
 		if symbol.Status == "TRADING" &&
 			symbol.ContractType == "PERPETUAL" &&
 			symbol.QuoteAsset == "USDT" &&
 			symbol.BaseAsset != "" {
-			// 额外检查：确保不是币本位合约（如 BTCUSD_PERP）
-			// USDT 永续合约的符号格式通常是：BTCUSDT, ETHUSDT 等
-			// 币本位合约通常是：BTCUSD_PERP, ETHUSD_PERP 等
 			if !strings.Contains(symbol.Symbol, "USD_PERP") && !strings.Contains(symbol.Symbol, "USD-") {
 				symbolStr := symbol.Symbol
 				if !symbolSet[symbolStr] {
 					symbolSet[symbolStr] = true
 					// 检查是否在优先级列表中
 					isPriority := false
-					for _, ps := range prioritySymbols {
+					for _, ps := range binancePrioritySymbols {
 						if ps == symbolStr {
 							isPriority = true
 							break
@@ -442,7 +420,7 @@ func getBinanceSymbols(ctx context.Context, apiKey, secretKey string, testnet bo
 
 	// 对优先级列表按预定义顺序排序
 	priorityMap := make(map[string]int)
-	for i, ps := range prioritySymbols {
+	for i, ps := range binancePrioritySymbols {
 		priorityMap[ps] = i
 	}
 
@@ -486,15 +464,17 @@ func getBitgetSymbols(ctx context.Context, apiKey, secretKey, passphrase string,
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		logger.Error("⚠️ 请求 Bitget 失败: %v, 使用内置备选交易对", err)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		logger.Warn("Bitget API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
 	var result struct {
@@ -539,15 +519,17 @@ func getBybitSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		logger.Error("⚠️ 请求 Bybit 失败: %v, 使用内置备选交易对", err)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		logger.Warn("Bybit API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
 	var result struct {
@@ -601,7 +583,7 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 		}, nil
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.Error("请求 Gate.io 失败: %v, 使用内置备选交易对", err)
@@ -667,15 +649,17 @@ func getOKXSymbols(ctx context.Context, apiKey, secretKey, passphrase string, te
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		logger.Error("⚠️ 请求 OKX 失败: %v, 使用内置备选交易对", err)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		logger.Warn("OKX API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
 	var result struct {
@@ -723,15 +707,17 @@ func getHuobiSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		logger.Error("⚠️ 请求 Huobi 失败: %v, 使用内置备选交易对", err)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		logger.Warn("Huobi API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
 	var result struct {
@@ -775,15 +761,17 @@ func getKuCoinSymbols(ctx context.Context, apiKey, secretKey, passphrase string,
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		logger.Error("⚠️ 请求 KuCoin 失败: %v, 使用内置备选交易对", err)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		logger.Warn("KuCoin API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
 	var result struct {

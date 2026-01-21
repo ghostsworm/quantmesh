@@ -70,6 +70,7 @@ type ExampleStrategy struct {
 	cfg      *config.Config
 	executor position.OrderExecutorInterface
 	exchange position.IExchange
+	bus      strategy.EventBus
 }
 
 func (s *ExampleStrategy) Name() string {
@@ -111,6 +112,10 @@ func (s *ExampleStrategy) Start(ctx context.Context) error {
 
 func (s *ExampleStrategy) Stop() error {
 	return nil
+}
+
+func (s *ExampleStrategy) SetEventBus(bus strategy.EventBus) {
+	s.bus = bus
 }
 
 // ===== 闭源插件示例 (仅展示结构，实际代码不公开) =====

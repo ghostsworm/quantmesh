@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Box,
   VStack,
@@ -34,9 +34,12 @@ interface WithdrawRuleFormProps {
   strategyOptions: { id: string; name: string }[]
   onSave: (rules: ProfitWithdrawRule[]) => Promise<void>
   loading?: boolean
+  activeExchange?: string
+  exchangeOptions?: string[]
 }
 
 const DEFAULT_RULE: Omit<ProfitWithdrawRule, 'id' | 'createdAt' | 'updatedAt'> = {
+  exchangeId: '',
   strategyId: '',
   enabled: true,
   triggerAmount: 100,
@@ -75,32 +78,61 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
   strategyOptions,
   onSave,
   loading,
+  activeExchange,
+  exchangeOptions,
 }) => {
   const { t } = useTranslation()
   const toast = useToast()
   const { isOpen, onToggle } = useDisclosure({ defaultIsOpen: true })
   const [localRules, setLocalRules] = useState<ProfitWithdrawRule[]>(rules)
   const [saving, setSaving] = useState(false)
+  const [hasChanges, setHasChanges] = useState(false)
 
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
+  useEffect(() => {
+    setLocalRules(rules)
+    setHasChanges(false)
+  }, [rules])
+
+  const formatExchangeName = (ex: string) => {
+    const v = (ex || '').toLowerCase()
+    if (v === 'binance') return 'Binance'
+    if (v === 'gate') return 'Gate.io'
+    if (v === 'okx') return 'OKX'
+    return ex ? ex.charAt(0).toUpperCase() + ex.slice(1) : '-'
+  }
+
+  const getDefaultExchangeId = () => {
+    if (activeExchange && activeExchange !== 'all') return activeExchange
+    if (localRules.length > 0 && localRules[0].exchangeId) return localRules[0].exchangeId
+    if (rules.length > 0 && rules[0].exchangeId) return rules[0].exchangeId
+    return ''
+  }
+
+  const resolvedExchangeOptions =
+    exchangeOptions && exchangeOptions.length > 0
+      ? exchangeOptions
+      : Array.from(new Set(localRules.map((r) => r.exchangeId).filter(Boolean)))
+
   const handleAddRule = () => {
     const newRule: ProfitWithdrawRule = {
       ...DEFAULT_RULE,
+      exchangeId: getDefaultExchangeId(),
       id: `temp-${Date.now()}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
     setLocalRules([...localRules, newRule])
+    setHasChanges(true)
   }
 
   const handleImportPreset = (presetIndex: number) => {
     const preset = PRESET_RULES[presetIndex]
     if (!preset) return
 
-    // 从现有规则中获取 exchangeId，如果没有则使用空字符串
-    const exchangeId = localRules.length > 0 ? localRules[0].exchangeId : ''
+    const exchangeId = getDefaultExchangeId()
 
     const newRule: ProfitWithdrawRule = {
       ...preset,
@@ -110,6 +142,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
       updatedAt: new Date().toISOString(),
     }
     setLocalRules([...localRules, newRule])
+    setHasChanges(true)
     
     toast({
       title: presetIndex === 0 ? '已导入保守型规则' : '已导入激进型规则',
@@ -122,8 +155,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
   }
 
   const handleImportBothPresets = () => {
-    // 从现有规则中获取 exchangeId，如果没有则使用空字符串
-    const exchangeId = localRules.length > 0 ? localRules[0].exchangeId : ''
+    const exchangeId = getDefaultExchangeId()
 
     const newRules: ProfitWithdrawRule[] = PRESET_RULES.map((preset, index) => ({
       ...preset,
@@ -133,6 +165,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
       updatedAt: new Date().toISOString(),
     }))
     setLocalRules([...localRules, ...newRules])
+    setHasChanges(true)
     
     toast({
       title: '已导入两条预设规则',
@@ -144,6 +177,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
 
   const handleRemoveRule = (ruleId: string) => {
     setLocalRules(localRules.filter((r) => r.id !== ruleId))
+    setHasChanges(true)
   }
 
   const handleUpdateRule = (ruleId: string, updates: Partial<ProfitWithdrawRule>) => {
@@ -152,6 +186,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
         r.id === ruleId ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r
       )
     )
+    setHasChanges(true)
   }
 
   const handleSave = async () => {
@@ -163,6 +198,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
         status: 'success',
         duration: 3000,
       })
+      setHasChanges(false)
     } catch (error) {
       toast({
         title: t('profitManagement.saveError'),
@@ -283,9 +319,43 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
                           : t('profitManagement.ruleDisabled')}
                       </FormLabel>
                     </FormControl>
-                    <Badge colorScheme={rule.enabled ? 'green' : 'gray'}>
-                      {t('profitManagement.rule')} #{index + 1}
-                    </Badge>
+                    <HStack spacing={2} mr={10}>
+                      <Badge colorScheme="purple">
+                        {formatExchangeName(rule.exchangeId)}
+                      </Badge>
+                      <Badge colorScheme={rule.enabled ? 'green' : 'gray'}>
+                        {t('profitManagement.rule')} #{index + 1}
+                      </Badge>
+                    </HStack>
+                  </HStack>
+
+                  <HStack spacing={4} flexWrap="wrap">
+                    <FormControl flex={1} minW="200px">
+                      <FormLabel fontSize="sm">交易所</FormLabel>
+                      <Select
+                        size="sm"
+                        value={rule.exchangeId || ''}
+                        onChange={(e) => handleUpdateRule(rule.id, { exchangeId: e.target.value })}
+                        isDisabled={!!activeExchange && activeExchange !== 'all'}
+                      >
+                        {(!activeExchange || activeExchange === 'all') && (
+                          <option value="">请选择交易所</option>
+                        )}
+                        {(activeExchange && activeExchange !== 'all'
+                          ? [activeExchange]
+                          : resolvedExchangeOptions
+                        ).map((ex) => (
+                          <option key={ex} value={ex}>
+                            {formatExchangeName(ex)}
+                          </option>
+                        ))}
+                      </Select>
+                      <FormHelperText>
+                        {activeExchange === 'all'
+                          ? '当前为“全部交易所”视图：每条规则仅对其对应交易所生效'
+                          : '该规则仅对当前选择的交易所生效'}
+                      </FormHelperText>
+                    </FormControl>
                   </HStack>
 
                   <HStack spacing={4} flexWrap="wrap">
@@ -411,7 +481,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
             ))
           )}
 
-          {localRules.length > 0 && (
+          {hasChanges && (
             <>
               <Divider />
               <HStack justify="flex-end">

@@ -76,6 +76,7 @@ func TestSQLiteStorage(t *testing.T) {
 		BuyOrderID:  1,
 		SellOrderID: 2,
 		Symbol:      "BTCUSDT",
+		Account:     "test_account",
 		BuyPrice:    50000.0,
 		SellPrice:   51000.0,
 		Quantity:    0.1,
@@ -84,11 +85,17 @@ func TestSQLiteStorage(t *testing.T) {
 	}
 	storage.SaveTrade(trade)
 
-	summary, err := storage.GetPnLBySymbol("BTCUSDT", time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour))
+	summary, err := storage.GetPnLBySymbol("BTCUSDT", "test_account", time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour))
 	if err != nil {
 		t.Errorf("获取盈亏汇总失败: %v", err)
 	}
 	if summary.TotalPnL != 100.0 {
 		t.Errorf("盈亏汇总计算错误: 期望 100.0, 得到 %.2f", summary.TotalPnL)
+	}
+
+	// 测试不同账户隔离
+	summaryOther, _ := storage.GetPnLBySymbol("BTCUSDT", "other_account", time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour))
+	if summaryOther.TotalPnL != 0 {
+		t.Errorf("账户隔离失败: 期望 0, 得到 %.2f", summaryOther.TotalPnL)
 	}
 }

@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/*.png', 'assets/logo.svg'],
+      includeAssets: ['icons/*.png', 'icons/*.svg'],
       manifest: {
         name: 'QuantMesh 做市商系统',
         short_name: 'QuantMesh',
@@ -19,44 +19,16 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/icons/icon-72x72.png',
-            sizes: '72x72',
-            type: 'image/png'
+            src: './icons/icon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any'
           },
           {
-            src: '/icons/icon-96x96.png',
-            sizes: '96x96',
-            type: 'image/png'
-          },
-          {
-            src: '/icons/icon-128x128.png',
-            sizes: '128x128',
-            type: 'image/png'
-          },
-          {
-            src: '/icons/icon-144x144.png',
-            sizes: '144x144',
-            type: 'image/png'
-          },
-          {
-            src: '/icons/icon-152x152.png',
-            sizes: '152x152',
-            type: 'image/png'
-          },
-          {
-            src: '/icons/icon-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: '/icons/icon-384x384.png',
-            sizes: '384x384',
-            type: 'image/png'
-          },
-          {
-            src: '/icons/icon-512x512.png',
+            src: './icons/icon.svg',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/svg+xml',
+            purpose: 'maskable'
           }
         ]
       },
@@ -117,11 +89,21 @@ export default defineConfig({
     assetsDir: 'assets',
     // 确保资源路径是相对路径
     base: './',
+    // 开启 sourcemap 方便调试
+    sourcemap: true,
     rollupOptions: {
       output: {
         manualChunks: (id) => {
-          // React 核心库
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/react-router')) {
+          // React 核心库及其必需依赖（包括 react-is、scheduler、hoist-non-react-statics 等）
+          if (
+            id.includes('node_modules/react/') || 
+            id.includes('node_modules/react-dom/') || 
+            id.includes('node_modules/react-router') ||
+            id.includes('node_modules/react-is/') ||
+            id.includes('node_modules/scheduler/') ||
+            id.includes('node_modules/hoist-non-react-statics/') ||
+            id.includes('node_modules/prop-types/')
+          ) {
             return 'react-vendor'
           }
           
@@ -130,12 +112,12 @@ export default defineConfig({
             return 'chakra-vendor'
           }
           
-          // Chart.js 相关
-          if (id.includes('node_modules/chart.js') || id.includes('node_modules/react-chartjs-2')) {
+          // Chart.js 相关（不包括 react-chartjs-2，因为它依赖 React）
+          if (id.includes('node_modules/chart.js/')) {
             return 'chartjs-vendor'
           }
           
-          // Recharts
+          // Recharts（放入 vendor，因为它有复杂依赖）
           if (id.includes('node_modules/recharts')) {
             return 'recharts-vendor'
           }
@@ -148,11 +130,6 @@ export default defineConfig({
           // i18n 国际化
           if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next')) {
             return 'i18n-vendor'
-          }
-          
-          // 其他 node_modules 中的大型库
-          if (id.includes('node_modules')) {
-            return 'vendor'
           }
         },
         // 优化 chunk 文件名

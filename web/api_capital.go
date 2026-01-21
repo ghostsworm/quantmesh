@@ -443,6 +443,22 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				
 				alloc := asset.TotalBalance * cfg.Weight
 				
+				// 从配置中读取 maxCapital 和 maxPercentage
+				maxCapital := 0.0
+				maxPercentage := 100.0
+				if cfg.Config != nil {
+					if val, ok := cfg.Config["max_capital"].(float64); ok {
+						maxCapital = val
+					} else if val, ok := cfg.Config["max_capital"].(int); ok {
+						maxCapital = float64(val)
+					}
+					if val, ok := cfg.Config["max_percentage"].(float64); ok {
+						maxPercentage = val
+					} else if val, ok := cfg.Config["max_percentage"].(int); ok {
+						maxPercentage = float64(val)
+					}
+				}
+				
 				strategy := StrategyCapitalDetail{
 					StrategyID:      strategyID,
 					StrategyName:    getStrategyName(strategyID),
@@ -451,7 +467,32 @@ func getCapitalAllocationHandler(c *gin.Context) {
 					Asset:           asset.Asset,
 					Allocated:       math.Round(alloc*100) / 100,
 					Weight:          cfg.Weight,
+					MaxCapital:      maxCapital,
+					MaxPercentage:  maxPercentage,
 					Status:          "active",
+				}
+				
+				// 从配置中读取其他字段
+				if cfg.Config != nil {
+					if val, ok := cfg.Config["reserve_ratio"].(float64); ok {
+						strategy.ReserveRatio = val
+					} else {
+						strategy.ReserveRatio = 0.1 // 默认值
+					}
+					if val, ok := cfg.Config["auto_rebalance"].(bool); ok {
+						strategy.AutoRebalance = val
+					}
+					if val, ok := cfg.Config["priority"].(int); ok {
+						strategy.Priority = val
+					} else if val, ok := cfg.Config["priority"].(float64); ok {
+						strategy.Priority = int(val)
+					} else {
+						strategy.Priority = 1 // 默认值
+					}
+				} else {
+					strategy.ReserveRatio = 0.1
+					strategy.AutoRebalance = false
+					strategy.Priority = 1
 				}
 
 				// 计算实际占用
@@ -553,8 +594,82 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 		}
 	}
 
-	// TODO: 持久化到 config.yaml
-	// 这里需要调用 config.Service 来保存修改后的策略权重和限额
+	// 3. 持久化到 config.yaml
+	if capitalDataSource != nil {
+		globalCfg := capitalDataSource.GetConfig()
+		if globalCfg != nil {
+			updated := false
+			
+			// 计算总资金用于计算权重
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+			defer cancel()
+			
+			exchanges := capitalDataSource.GetExchanges()
+			var totalRealBalance float64
+			for _, ex := range exchanges {
+				if acc, err := ex.GetAccount(ctx); err == nil {
+					totalRealBalance += acc.TotalMarginBalance
+				}
+			}
+			
+			// 更新每个策略的配置
+			for _, alloc := range req.Allocations {
+				// strategyId 应该是策略类型（如 "grid", "martingale"）
+				// 如果包含交易所信息（如 "binance-grid"），需要解析
+				strategyType := alloc.StrategyID
+				if strings.Contains(strategyType, "-") {
+					// 如果包含 "-"，可能是 "exchange-strategy" 格式，提取策略类型
+					parts := strings.Split(strategyType, "-")
+					if len(parts) > 1 {
+						strategyType = parts[len(parts)-1] // 取最后一部分作为策略类型
+					}
+				}
+				
+				if sc, ok := globalCfg.Strategies.Configs[strategyType]; ok {
+					// 更新配置
+					if sc.Config == nil {
+						sc.Config = make(map[string]interface{})
+					}
+					sc.Config["max_capital"] = alloc.MaxCapital
+					sc.Config["max_percentage"] = alloc.MaxPercentage
+					sc.Config["reserve_ratio"] = alloc.ReserveRatio
+					sc.Config["auto_rebalance"] = alloc.AutoRebalance
+					sc.Config["priority"] = alloc.Priority
+					
+					// 优先使用 maxPercentage 计算权重（因为用户设置的是百分比）
+					if alloc.MaxPercentage > 0 {
+						// 如果使用百分比模式，直接使用百分比作为权重
+						sc.Weight = alloc.MaxPercentage / 100.0
+						logger.Info("✅ 更新策略 %s 配置: maxPercentage=%.2f%%, weight=%.4f (基于百分比)", strategyType, alloc.MaxPercentage, sc.Weight)
+					} else if totalRealBalance > 0 && alloc.MaxCapital > 0 {
+						// 如果没有百分比，使用金额计算权重
+						newWeight := alloc.MaxCapital / totalRealBalance
+						sc.Weight = newWeight
+						logger.Info("✅ 更新策略 %s 配置: maxCapital=%.2f, weight=%.4f (基于金额)", strategyType, alloc.MaxCapital, sc.Weight)
+					}
+					
+					globalCfg.Strategies.Configs[strategyType] = sc
+					updated = true
+				} else {
+					logger.Warn("⚠️ 未找到策略配置: %s (尝试的 strategyType: %s)", alloc.StrategyID, strategyType)
+				}
+			}
+			
+			// 保存到文件
+			if updated {
+				configPath := "config.yaml"
+				if err := config.SaveConfig(globalCfg, configPath); err != nil {
+					logger.Error("❌ 保存资金分配配置失败: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"success": false,
+						"message": "保存配置失败: " + err.Error(),
+					})
+					return
+				}
+				logger.Info("✅ 资金分配配置已保存到 %s", configPath)
+			}
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import {
   Box,
   Container,
@@ -22,7 +22,6 @@ import {
   AccordionButton,
   AccordionPanel,
   AccordionIcon,
-  Switch,
   Button,
   useColorModeValue,
 } from '@chakra-ui/react'
@@ -33,6 +32,7 @@ import {
   RepeatIcon,
   InfoIcon,
   ChevronDownIcon,
+  AddIcon,
 } from '@chakra-ui/icons'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
@@ -46,6 +46,7 @@ import {
   startTrading,
   stopTrading,
   closeAllPositions,
+  getSystemStatuses,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
 import { checkSetupStatus } from '../services/setup'
@@ -72,6 +73,7 @@ const GlobalDashboard: React.FC = () => {
   const [symbolStatuses, setSymbolStatuses] = useState<Map<string, SymbolStatus>>(new Map())
   const [closingPositions, setClosingPositions] = useState<Set<string>>(new Set())
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
+  const isFetchingRef = useRef(false)
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean
     exchange: string
@@ -82,6 +84,7 @@ const GlobalDashboard: React.FC = () => {
 
   const cardBg = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.100', 'gray.700')
+  const hoverBg = useColorModeValue('gray.50', 'gray.700')
 
   // 检查配置状态
   useEffect(() => {
@@ -99,31 +102,57 @@ const GlobalDashboard: React.FC = () => {
   }, [])
 
   const fetchData = async () => {
+    // 防止轮询重入：上一次请求还没完成就不要再发
+    if (isFetchingRef.current) return
+    isFetchingRef.current = true
     try {
-      const [symbolsData, pnlData] = await Promise.all([
+      const [symbolsData, pnlData, statusesData] = await Promise.all([
         getSymbols(),
-        getPnLByExchange()
+        getPnLByExchange(),
+        getSystemStatuses(),
       ])
       
       setSymbols(symbolsData.symbols)
       setExchangePnL(pnlData.exchanges || [])
       
       const statusMap = new Map<string, SymbolStatus>()
-      for (const sym of symbolsData.symbols) {
-        try {
-          const status = await getSystemStatus(sym.exchange, sym.symbol)
-          statusMap.set(`${sym.exchange}:${sym.symbol}`, {
-            running: status.running,
-            exchange: sym.exchange,
-            symbol: sym.symbol,
-            current_price: status.current_price,
-            total_pnl: status.total_pnl,
-            total_trades: status.total_trades,
+      
+      // 优先使用批量状态接口（一次返回全部交易对）
+      if (statusesData?.statuses?.length) {
+        for (const st of statusesData.statuses) {
+          const key = `${(st.exchange || '').toLowerCase()}:${st.symbol}`
+          statusMap.set(key, {
+            running: st.running,
+            exchange: (st.exchange || '').toLowerCase(),
+            symbol: st.symbol,
+            current_price: st.current_price,
+            total_pnl: st.total_pnl,
+            total_trades: st.total_trades,
           })
-        } catch (err) {
-          console.error(`Failed to fetch status for ${sym.exchange}:${sym.symbol}`, err)
         }
+      } else {
+        // 兜底：批量接口异常时，改为并发拉单个状态，避免串行卡住
+        const results = await Promise.allSettled(
+          symbolsData.symbols.map(sym => getSystemStatus(sym.exchange, sym.symbol))
+        )
+        results.forEach((res, idx) => {
+          const sym = symbolsData.symbols[idx]
+          if (res.status === 'fulfilled') {
+            const st = res.value
+            statusMap.set(`${sym.exchange}:${sym.symbol}`, {
+              running: st.running,
+              exchange: sym.exchange,
+              symbol: sym.symbol,
+              current_price: st.current_price,
+              total_pnl: st.total_pnl,
+              total_trades: st.total_trades,
+            })
+          } else {
+            console.error(`Failed to fetch status for ${sym.exchange}:${sym.symbol}`, res.reason)
+          }
+        })
       }
+
       setSymbolStatuses(statusMap)
       setLoading(false)
     } catch (error) {
@@ -136,12 +165,15 @@ const GlobalDashboard: React.FC = () => {
         isClosable: true,
       })
       setLoading(false)
+    } finally {
+      isFetchingRef.current = false
     }
   }
 
   useEffect(() => {
     fetchData()
-    const interval = setInterval(fetchData, 15000)
+    // 概览价格更敏感，缩短刷新间隔
+    const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
   }, [toast])
 
@@ -171,6 +203,19 @@ const GlobalDashboard: React.FC = () => {
   }, [symbols, symbolStatuses, exchangePnL])
 
   const handleToggleTrading = async (exchange: string, symbol: string, isRunning: boolean) => {
+    const key = `${exchange}:${symbol}`
+    const oldStatus = symbolStatuses.get(key)
+    
+    // 乐观更新：立即更新本地状态
+    if (oldStatus) {
+      setSymbolStatuses(prev => {
+        const next = new Map(prev)
+        const updated = { ...oldStatus, running: !isRunning }
+        next.set(key, updated)
+        return next
+      })
+    }
+    
     try {
       if (isRunning) {
         await stopTrading(exchange, symbol)
@@ -189,15 +234,48 @@ const GlobalDashboard: React.FC = () => {
           duration: 3000,
         })
       }
-      // 刷新数据
+      // 刷新数据以同步后端状态
       setTimeout(fetchData, 1000)
     } catch (error) {
-      toast({
-        title: t('globalDashboard.operationFailed'),
-        description: error instanceof Error ? error.message : t('globalDashboard.unknownError'),
-        status: 'error',
-        duration: 5000,
-      })
+      // 如果 API 调用失败，回滚状态
+      if (oldStatus) {
+        setSymbolStatuses(prev => {
+          const next = new Map(prev)
+          next.set(key, oldStatus)
+          return next
+        })
+      }
+      
+      const errorMessage = error instanceof Error ? error.message : t('globalDashboard.unknownError')
+      
+      // 如果后端返回"未运行"错误，说明状态确实未运行，更新本地状态
+      const lowerErrorMessage = errorMessage.toLowerCase()
+      if (lowerErrorMessage.includes('未运行') || lowerErrorMessage.includes('not running') || lowerErrorMessage.includes('is not running')) {
+        if (oldStatus) {
+          setSymbolStatuses(prev => {
+            const next = new Map(prev)
+            const updated = { ...oldStatus, running: false }
+            next.set(key, updated)
+            return next
+          })
+        }
+        toast({
+          title: t('globalDashboard.operationFailed'),
+          description: `${exchange}:${symbol} ${t('globalDashboard.tradingStopped')}`,
+          status: 'warning',
+          duration: 3000,
+        })
+      } else {
+        toast({
+          title: t('globalDashboard.operationFailed'),
+          description: errorMessage,
+          status: 'error',
+          duration: 5000,
+        })
+      }
+      
+      // 即使失败也刷新数据，确保状态同步
+      setTimeout(fetchData, 1000)
     }
   }
 
@@ -287,7 +365,9 @@ const GlobalDashboard: React.FC = () => {
       }
     })
 
-    return Array.from(exchangeMap.values())
+    return Array.from(exchangeMap.values()).sort((a, b) => 
+      a.exchange.localeCompare(b.exchange)
+    )
   }, [exchangePnL, symbolsByExchange])
 
   if (loading) {
@@ -371,8 +451,18 @@ const GlobalDashboard: React.FC = () => {
 
         {/* 交易所列表 */}
         <Box>
-          <Heading size="md" mb={6} px={2}>{t('globalDashboard.exchangeOverview')}</Heading>
-          <Accordion allowMultiple defaultIndex={exchangeData.map((_, index) => index)}>
+          <Flex justify="space-between" align="center" mb={6} px={2}>
+            <Heading size="md">{t('globalDashboard.exchangeOverview')}</Heading>
+            <Button
+              leftIcon={<AddIcon />}
+              colorScheme="blue"
+              size="sm"
+              onClick={() => navigate('/config')}
+            >
+              {t('globalDashboard.addSymbol')}
+            </Button>
+          </Flex>
+          <Accordion allowMultiple>
             {exchangeData.map((exchange) => {
               const exchangeKey = exchange.exchange.toLowerCase()
               return (
@@ -382,7 +472,7 @@ const GlobalDashboard: React.FC = () => {
                     borderRadius="xl"
                     border="1px solid"
                     borderColor={borderColor}
-                    _hover={{ bg: useColorModeValue('gray.50', 'gray.700') }}
+                    _hover={{ bg: hoverBg }}
                     px={6}
                     py={4}
                   >
@@ -441,12 +531,6 @@ const GlobalDashboard: React.FC = () => {
                                     {t('globalDashboard.price')}: ${status?.current_price?.toFixed(2) || sym.current_price.toFixed(2)}
                                   </Text>
                                 </VStack>
-                                <Switch
-                                  isChecked={isRunning}
-                                  onChange={() => handleToggleTrading(sym.exchange, sym.symbol, isRunning)}
-                                  colorScheme="blue"
-                                  size="md"
-                                />
                               </Flex>
 
                               {pnlInfo && (
@@ -476,6 +560,19 @@ const GlobalDashboard: React.FC = () => {
                                 </VStack>
                               )}
 
+                              {/* 主操作按钮：启动/停止交易 */}
+                              <Button
+                                size="sm"
+                                colorScheme={isRunning ? 'red' : 'green'}
+                                width="full"
+                                onClick={() => handleToggleTrading(sym.exchange, sym.symbol, isRunning)}
+                                borderRadius="lg"
+                                mb={2}
+                              >
+                                {isRunning ? t('globalDashboard.stopTrading') : t('globalDashboard.startTrading')}
+                              </Button>
+
+                              {/* 副操作：一键平仓（仅在交易停止时显示） */}
                               {!isRunning && (
                                 <Button
                                   size="sm"

@@ -102,7 +102,7 @@ const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: an
 const Configuration: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { isGlobalView, selectedSymbol } = useSymbol()
+  const { isGlobalView, selectedExchange, selectedSymbol } = useSymbol()
   const [config, setConfig] = useState<Config | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -176,14 +176,30 @@ const Configuration: React.FC = () => {
   const handleSave = async () => {
     if (!config) return
     setSaving(true)
+    setError(null)
+    setSuccess(null)
     try {
       const result = await updateConfig(config)
       setSuccess(result.message)
       onPreviewClose()
-      toast({ title: t('configuration.saveSuccess'), status: 'success' })
+      toast({ 
+        title: t('configuration.saveSuccess'), 
+        status: 'success',
+        duration: 3000,
+        isClosable: true
+      })
       await loadConfig()
     } catch (err) {
-      setError(t('configuration.saveFailed'))
+      const errorMessage = err instanceof Error ? err.message : t('configuration.saveFailed')
+      setError(errorMessage)
+      toast({ 
+        title: t('configuration.saveFailed'), 
+        description: errorMessage,
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      })
+      console.error('保存配置失败:', err)
     } finally {
       setSaving(false)
     }
@@ -199,6 +215,57 @@ const Configuration: React.FC = () => {
       current = current[keys[i]]
     }
     current[keys[keys.length - 1]] = value
+    setConfig(newConfig)
+  }
+
+  // ===== 交易对视图：读写 trading.symbols[*] =====
+  // 后端会在 Validate() 中用 symbols[0] 回写 trading.* 旧字段（兼容逻辑），
+  // 所以在“交易对视图”里必须直接修改 symbols 配置，否则保存后会被覆盖回旧值。
+  const getSelectedSymbolConfigIndex = (): number => {
+    if (!config) return -1
+    const symbols = config.trading?.symbols || []
+    const currentExchange = (selectedExchange || config.app?.current_exchange || '').toLowerCase()
+    const currentSymbol = (selectedSymbol || '').toLowerCase()
+    if (!currentSymbol) return -1
+
+    const getEffectiveExchange = (sc: any) => (sc?.exchange || config.app?.current_exchange || '').toLowerCase()
+    return symbols.findIndex((sc: any) => getEffectiveExchange(sc) === currentExchange && (sc?.symbol || '').toLowerCase() === currentSymbol)
+  }
+
+  const getSelectedSymbolConfig = (): any | null => {
+    if (!config) return null
+    const idx = getSelectedSymbolConfigIndex()
+    if (idx < 0) return null
+    return config.trading?.symbols?.[idx] || null
+  }
+
+  const updateSelectedSymbolField = (field: string, value: any) => {
+    if (!config) return
+    const newConfig: any = { ...config }
+    if (!newConfig.trading) newConfig.trading = {}
+    const symbols: any[] = Array.isArray(newConfig.trading.symbols) ? [...newConfig.trading.symbols] : []
+
+    const idx = getSelectedSymbolConfigIndex()
+    const fallbackSellWindow = (newConfig.trading.sell_window_size && newConfig.trading.sell_window_size > 0)
+      ? newConfig.trading.sell_window_size
+      : (newConfig.trading.buy_window_size || 0)
+
+    if (idx >= 0) {
+      symbols[idx] = { ...symbols[idx], [field]: value }
+    } else {
+      // 若没找到对应交易对配置，则创建一份（Validate 会补齐缺失字段/默认值）
+      symbols.push({
+        exchange: selectedExchange || newConfig.app?.current_exchange || '',
+        symbol: selectedSymbol,
+        price_interval: newConfig.trading.price_interval || 0,
+        order_quantity: newConfig.trading.order_quantity || 0,
+        buy_window_size: newConfig.trading.buy_window_size || 0,
+        sell_window_size: fallbackSellWindow || 0,
+        [field]: value,
+      })
+    }
+
+    newConfig.trading.symbols = symbols
     setConfig(newConfig)
   }
 
@@ -271,6 +338,22 @@ const Configuration: React.FC = () => {
             <Button size="sm" colorScheme="blue" onClick={handleSave} isLoading={saving} borderRadius="full" px={6}>{t('configuration.saveChanges')}</Button>
           </HStack>
         </Flex>
+
+        {error && (
+          <Alert status="error" borderRadius="lg">
+            <AlertIcon />
+            <AlertTitle>{t('configuration.saveFailed')}</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {success && (
+          <Alert status="success" borderRadius="lg">
+            <AlertIcon />
+            <AlertTitle>{t('configuration.saveSuccess')}</AlertTitle>
+            <AlertDescription>{success}</AlertDescription>
+          </Alert>
+        )}
 
         <Tabs 
           index={tabIndex} 
@@ -685,25 +768,46 @@ const Configuration: React.FC = () => {
                       <SimpleGrid columns={2} spacing={6}>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceInterval')}</FormLabel>
-                          <NumberInput value={config.trading?.price_interval || 0} onChange={(_, v) => updateConfigField('trading.price_interval', v)} precision={6} step={0.01}>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.price_interval ?? config.trading?.price_interval) || 0}
+                            onChange={(_, v) => updateSelectedSymbolField('price_interval', v)}
+                            precision={6}
+                            step={0.01}
+                          >
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.orderAmount')}</FormLabel>
-                          <NumberInput value={config.trading?.order_quantity || 0} onChange={(_, v) => updateConfigField('trading.order_quantity', v)} precision={2}>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.order_quantity ?? config.trading?.order_quantity) || 0}
+                            onChange={(_, v) => updateSelectedSymbolField('order_quantity', v)}
+                            precision={2}
+                            min={selectedExchange === 'binance' ? 100 : 0}
+                          >
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
+                          {selectedExchange === 'binance' && (
+                            <Text fontSize="xs" color="orange.600" mt={1}>
+                              币安合约最小下单名义金额通常要求 ≥ 100 USDT。为避免数量精度/步进导致 99.x 的临界失败，建议设置 ≥ 105。
+                            </Text>
+                          )}
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buyWindowSize')}</FormLabel>
-                          <NumberInput value={config.trading?.buy_window_size || 0} onChange={(_, v) => updateConfigField('trading.buy_window_size', v)}>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.buy_window_size ?? config.trading?.buy_window_size) || 0}
+                            onChange={(_, v) => updateSelectedSymbolField('buy_window_size', v)}
+                          >
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.sellWindowSize')}</FormLabel>
-                          <NumberInput value={config.trading?.sell_window_size || 0} onChange={(_, v) => updateConfigField('trading.sell_window_size', v)}>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.sell_window_size ?? config.trading?.sell_window_size) || 0}
+                            onChange={(_, v) => updateSelectedSymbolField('sell_window_size', v)}
+                          >
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>

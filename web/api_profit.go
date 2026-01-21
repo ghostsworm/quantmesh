@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"quantmesh/config"
+	"quantmesh/storage"
 )
 
 // ProfitSummary 盈利汇总
@@ -111,8 +111,11 @@ func getProfitSummaryHandler(c *gin.Context) {
 		return
 	}
 
+	// 获取当前账户标识
+	accountID := GetCurrentAccountID()
+
 	// 1. 获取累计盈利
-	summaryStats, err := st.GetStatisticsSummaryByExchange(exchangeID)
+	summaryStats, err := st.GetStatisticsSummaryByExchange(exchangeID, accountID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询统计汇总失败: " + err.Error()})
 		return
@@ -131,7 +134,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 	// 本月开始
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 
-	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, monthStart, now)
+	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, accountID, monthStart, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询每日统计失败: " + err.Error()})
 		return
@@ -212,12 +215,15 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		return
 	}
 
+	// 获取当前账户标识
+	accountID := GetCurrentAccountID()
+
 	// 查询所有时间的盈亏（按币种和交易所分组）
 	// 使用一个很早的时间作为起点
 	startTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Now()
 
-	pnlList, err := st.GetPnLByTimeRange(startTime, now)
+	pnlList, err := st.GetPnLByTimeRange(accountID, startTime, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询策略盈亏失败: " + err.Error()})
 		return
@@ -225,7 +231,7 @@ func getStrategyProfitsHandler(c *gin.Context) {
 
 	// 获取今日盈亏用于计算 TodayProfit
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	todayPnlList, _ := st.GetPnLByTimeRange(todayStart, now)
+	todayPnlList, _ := st.GetPnLByTimeRange(accountID, todayStart, now)
 	todayPnlMap := make(map[string]float64)
 	for _, p := range todayPnlList {
 		key := p.Exchange + ":" + p.Symbol
@@ -311,7 +317,8 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 	// 查询该币种的所有盈亏
 	startTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Now()
-	summary, err := st.GetPnLBySymbol(strategyID, startTime, now)
+	accountID := GetCurrentAccountID()
+	summary, err := st.GetPnLBySymbol(strategyID, accountID, startTime, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询策略盈亏详情失败: " + err.Error()})
 		return
@@ -359,129 +366,44 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 	})
 }
 
-// 获取提取规则
+// 获取提取规则（从数据库读取，空库时返回空数组）
 func getWithdrawRulesHandler(c *gin.Context) {
-	rules := []ProfitWithdrawRule{}
-	ruleMap := make(map[string]*ProfitWithdrawRule) // 用于去重，key 是规则的唯一标识
-
-	// 从配置中读取 WithdrawalPolicy 并转换为盈利管理规则
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
-			// 显式使用 config.Config 类型以确保导入被识别
-			_ = (*config.Config)(cfg)
-			now := time.Now()
-
-			// 遍历所有交易对，将启用的 WithdrawalPolicy 转换为盈利管理规则
-			for _, symbolCfg := range cfg.Trading.Symbols {
-				if symbolCfg.WithdrawalPolicy.Enabled {
-					// 确定规则类型和参数
-					ruleType := "threshold"
-					triggerType := "auto"
-					threshold := symbolCfg.WithdrawalPolicy.Threshold
-					percentage := symbolCfg.WithdrawalPolicy.WithdrawRatio * 100 // 转换为百分比
-					amount := symbolCfg.WithdrawalPolicy.FixedAmount
-
-					// 根据模式确定类型
-					if symbolCfg.WithdrawalPolicy.Mode == "fixed" {
-						ruleType = "fixed"
-						threshold = 0
-					} else if symbolCfg.WithdrawalPolicy.Mode == "threshold" || symbolCfg.WithdrawalPolicy.Mode == "" {
-						ruleType = "threshold"
-					} else if symbolCfg.WithdrawalPolicy.Mode == "scheduled" {
-						triggerType = "scheduled"
-					}
-
-					// 如果阈值未设置，使用默认值 10%
-					if threshold == 0 && ruleType == "threshold" {
-						threshold = 0.1
-					}
-
-					// 如果提取比例未设置，使用默认值 50%
-					if percentage == 0 {
-						percentage = 50
-					}
-
-					// 确定频率（从 schedule 或默认 immediate）
-					frequency := "immediate"
-					if symbolCfg.WithdrawalPolicy.Mode == "scheduled" {
-						if symbolCfg.WithdrawalPolicy.Schedule.Frequency == "daily" {
-							frequency = "daily"
-						} else if symbolCfg.WithdrawalPolicy.Schedule.Frequency == "weekly" {
-							frequency = "weekly"
-						}
-					}
-
-					// 确定目标（从 target_wallet）
-					destination := "account"
-					if symbolCfg.WithdrawalPolicy.TargetWallet == "spot" || symbolCfg.WithdrawalPolicy.TargetWallet == "funding" {
-						destination = "account"
-					} else if symbolCfg.WithdrawalPolicy.TargetWallet == "external" {
-						destination = "wallet"
-					}
-
-					// 生成规则的唯一标识（用于去重）
-					// 基于规则的关键字段生成，相同配置的规则会被合并
-					ruleKey := fmt.Sprintf("%s_%s_%s_%.2f_%.2f_%s_%s",
-						strings.ToLower(symbolCfg.Exchange),
-						ruleType,
-						triggerType,
-						threshold,
-						percentage,
-						frequency,
-						destination,
-					)
-
-					// 检查是否已存在相同的规则
-					if _, exists := ruleMap[ruleKey]; exists {
-						// 如果已存在相同的规则配置，跳过（避免重复）
-						continue
-					}
-
-					// 创建新规则
-					ruleID := "config_rule_" + fmt.Sprintf("%d", time.Now().Unix()) + "_" + ruleKey[:8]
-					rule := &ProfitWithdrawRule{
-						ID:              ruleID,
-						ExchangeID:      strings.ToLower(symbolCfg.Exchange),
-						StrategyID:      "", // 所有策略
-						Type:            ruleType,
-						TriggerType:     triggerType,
-						Threshold:       threshold * 100, // 转换为百分比显示（如 10% 显示为 10）
-						Amount:          amount,
-						Percentage:      percentage,
-						TargetAddress:   symbolCfg.WithdrawalPolicy.TargetWallet,
-						Currency:        "USDT",
-						IsEnabled:       true,
-						CreatedAt:       now.Format(time.RFC3339),
-						UpdatedAt:       now.Format(time.RFC3339),
-						// 前端需要的字段
-						TriggerAmount:   threshold * 100, // 触发金额（USDT），这里用阈值百分比 * 100 作为示例
-						WithdrawRatio:   symbolCfg.WithdrawalPolicy.WithdrawRatio, // 提取比例 0-1
-						Frequency:       frequency,
-						Destination:     destination,
-						MinWithdrawAmount: 10, // 默认最小提取金额
-					}
-
-					// 如果有本金保护，添加说明
-					if symbolCfg.WithdrawalPolicy.PrincipalProtection.Enabled {
-						if symbolCfg.WithdrawalPolicy.PrincipalProtection.BreakevenProtection {
-							rule.TargetAddress = "回本保护已启用"
-						}
-					}
-
-					ruleMap[ruleKey] = rule
-				}
-			}
-
-			// 将去重后的规则添加到结果列表
-			for _, rule := range ruleMap {
-				rules = append(rules, *rule)
-			}
-		}
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "rules": []ProfitWithdrawRule{}})
+		return
+	}
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "rules": []ProfitWithdrawRule{}})
+		return
 	}
 
-	// 如果没有从配置中找到规则，返回空数组（而不是模拟数据）
-	// 这样用户就能看到是否真的配置了规则
+	accountID := GetCurrentAccountID()
+	dbRules, err := st.ListProfitWithdrawRules(accountID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询提取规则失败: " + err.Error()})
+		return
+	}
+
+	// 转换为 API 响应格式
+	rules := make([]ProfitWithdrawRule, 0, len(dbRules))
+	for _, r := range dbRules {
+		rules = append(rules, ProfitWithdrawRule{
+			ID:                r.ID,
+			ExchangeID:        r.ExchangeID,
+			StrategyID:        r.StrategyID,
+			IsEnabled:         r.Enabled,
+			TriggerAmount:     r.TriggerAmount,
+			WithdrawRatio:     r.WithdrawRatio,
+			Frequency:         r.Frequency,
+			Destination:       r.Destination,
+			MinWithdrawAmount: r.MinWithdrawAmount,
+			TargetAddress:     r.WalletAddress,
+			CreatedAt:         r.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:         r.UpdatedAt.Format(time.RFC3339),
+		})
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -489,7 +411,7 @@ func getWithdrawRulesHandler(c *gin.Context) {
 	})
 }
 
-// 更新提取规则
+// 更新提取规则（全量替换：先删除账户下所有规则，再插入新规则）
 func updateWithdrawRulesHandler(c *gin.Context) {
 	var req struct {
 		Rules []ProfitWithdrawRule `json:"rules"`
@@ -502,7 +424,51 @@ func updateWithdrawRulesHandler(c *gin.Context) {
 		return
 	}
 
-	// TODO: 保存规则到数据库
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储服务未就绪（storageProv=nil）"})
+		return
+	}
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储接口未就绪（GetStorage()=nil），请检查 storage.enabled 配置和数据库初始化日志"})
+		return
+	}
+
+	accountID := GetCurrentAccountID()
+
+	// 构建新规则列表
+	now := time.Now()
+	newRules := make([]*storage.ProfitWithdrawRule, 0, len(req.Rules))
+	for _, r := range req.Rules {
+		rule := &storage.ProfitWithdrawRule{
+			ID:                r.ID,
+			AccountID:         accountID,
+			ExchangeID:        r.ExchangeID,
+			StrategyID:        r.StrategyID,
+			Enabled:           r.IsEnabled,
+			TriggerAmount:     r.TriggerAmount,
+			WithdrawRatio:     r.WithdrawRatio,
+			Frequency:         r.Frequency,
+			Destination:       r.Destination,
+			WalletAddress:     r.TargetAddress,
+			MinWithdrawAmount: r.MinWithdrawAmount,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}
+		// 如果 ID 为空或以 temp- 开头，生成新 ID
+		if rule.ID == "" || strings.HasPrefix(rule.ID, "temp-") {
+			rule.ID = fmt.Sprintf("rule_%s_%d", accountID, now.UnixNano())
+			now = now.Add(time.Nanosecond) // 确保唯一
+		}
+		newRules = append(newRules, rule)
+	}
+
+	// 全量替换规则
+	if err := st.ReplaceProfitWithdrawRules(accountID, newRules); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "保存规则失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -513,8 +479,8 @@ func updateWithdrawRulesHandler(c *gin.Context) {
 
 // 创建或更新单个提取规则
 func upsertWithdrawRuleHandler(c *gin.Context) {
-	var rule ProfitWithdrawRule
-	if err := c.ShouldBindJSON(&rule); err != nil {
+	var req ProfitWithdrawRule
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "无效的请求数据: " + err.Error(),
@@ -522,19 +488,54 @@ func upsertWithdrawRuleHandler(c *gin.Context) {
 		return
 	}
 
-	// 如果没有 ID，生成一个新的
-	if rule.ID == "" {
-		rule.ID = "rule_" + time.Now().Format("20060102150405")
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储服务未就绪"})
+		return
 	}
-	rule.CreatedAt = time.Now().Format(time.RFC3339)
-	rule.UpdatedAt = time.Now().Format(time.RFC3339)
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储接口未就绪"})
+		return
+	}
 
-	// TODO: 保存到数据库
+	accountID := GetCurrentAccountID()
+	now := time.Now()
+
+	rule := &storage.ProfitWithdrawRule{
+		ID:                req.ID,
+		AccountID:         accountID,
+		ExchangeID:        req.ExchangeID,
+		StrategyID:        req.StrategyID,
+		Enabled:           req.IsEnabled,
+		TriggerAmount:     req.TriggerAmount,
+		WithdrawRatio:     req.WithdrawRatio,
+		Frequency:         req.Frequency,
+		Destination:       req.Destination,
+		WalletAddress:     req.TargetAddress,
+		MinWithdrawAmount: req.MinWithdrawAmount,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+
+	// 如果没有 ID，生成一个新的
+	if rule.ID == "" || strings.HasPrefix(rule.ID, "temp-") {
+		rule.ID = fmt.Sprintf("rule_%s_%d", accountID, now.UnixNano())
+	}
+
+	if err := st.UpsertProfitWithdrawRule(accountID, rule); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "保存规则失败: " + err.Error()})
+		return
+	}
+
+	req.ID = rule.ID
+	req.CreatedAt = now.Format(time.RFC3339)
+	req.UpdatedAt = now.Format(time.RFC3339)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "提取规则已保存",
-		"rule":    rule,
+		"rule":    req,
 	})
 }
 
@@ -542,7 +543,22 @@ func upsertWithdrawRuleHandler(c *gin.Context) {
 func deleteWithdrawRuleHandler(c *gin.Context) {
 	ruleID := c.Param("id")
 
-	// TODO: 从数据库删除
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储服务未就绪"})
+		return
+	}
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储接口未就绪"})
+		return
+	}
+
+	accountID := GetCurrentAccountID()
+	if err := st.DeleteProfitWithdrawRule(accountID, ruleID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "删除规则失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -642,15 +658,16 @@ func getProfitTrendHandler(c *gin.Context) {
 
 	now := time.Now()
 	startDate := now.AddDate(0, 0, -days)
+	accountID := GetCurrentAccountID()
 
-	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, startDate, now)
+	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, accountID, startDate, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询每日统计失败: " + err.Error()})
 		return
 	}
 
 	// 获取起始之前的累计盈利作为 base
-	allStatsBefore, _ := st.QueryDailyStatisticsByExchange(exchangeID, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), startDate.AddDate(0, 0, -1))
+	allStatsBefore, _ := st.QueryDailyStatisticsByExchange(exchangeID, accountID, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), startDate.AddDate(0, 0, -1))
 	baseProfit := 0.0
 	for _, s := range allStatsBefore {
 		baseProfit += s.TotalPnL

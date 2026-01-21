@@ -327,3 +327,8 @@ func (w *gateWrapper) GetFundingRate(ctx context.Context, symbol string) (float6
 func (w *gateWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetSpotPrice(ctx, symbol)
 }
+
+// EstimateFinalOrderAmount 预估最终下单金额（默认实现：返回原始金额）
+func (w *gateWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
+	return price * quantity
+}

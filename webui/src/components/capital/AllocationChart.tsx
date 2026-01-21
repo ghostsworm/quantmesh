@@ -32,7 +32,7 @@ const AllocationChart: React.FC<AllocationChartProps> = ({ strategies, totalCapi
     const unallocated = Math.max(0, totalCapital - allocated)
 
     const data = validStrategies.map((s, index) => ({
-      id: s.strategyId,
+      id: `${s.exchangeId || 'unknown'}-${s.strategyId || 'unknown'}-${s.asset || 'unknown'}-${index}`, // 确保唯一性
       name: s.strategyName,
       value: s.allocated,
       percentage: totalCapital > 0 ? (s.allocated / totalCapital) * 100 : 0,

@@ -7,6 +7,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// BoolPtr 返回 bool 值的指针（用于 SymbolConfig.Enabled 等字段）
+func BoolPtr(b bool) *bool {
+	return &b
+}
+
 // GridRiskControl 网格策略风控配置
 type GridRiskControl struct {
 	Enabled                 bool    `yaml:"enabled" json:"enabled"`
@@ -566,6 +571,7 @@ type StrategyInstance struct {
 
 // SymbolConfig 单个交易对配置（可指定所属交易所及交易参数）
 type SymbolConfig struct {
+	Enabled               *bool            `yaml:"enabled" json:"enabled"`                                   // 是否启用自动交易，默认为 true（使用指针确保 false 时也会被序列化）
 	Exchange              string           `yaml:"exchange" json:"exchange"`                                 // 所属交易所，默认为 app.current_exchange
 	Symbol                string           `yaml:"symbol" json:"symbol"`                                     // 交易对，如 BTCUSDT
 	TotalAllocatedCapital float64          `yaml:"total_allocated_capital" json:"total_allocated_capital"`   // 该币种分配的总资金
@@ -582,6 +588,35 @@ type SymbolConfig struct {
 	MarginLockDurationSec int              `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保证金锁定时间（秒）
 	PositionSafetyCheck   int              `yaml:"position_safety_check" json:"position_safety_check"`       // 持仓安全性检查
 	GridRiskControl       GridRiskControl  `yaml:"grid_risk_control" json:"grid_risk_control"`               // 网格策略风控
+}
+
+// IsEnabled 返回交易对是否启用（nil 默认为 true）
+func (sc *SymbolConfig) IsEnabled() bool {
+	if sc.Enabled == nil {
+		return true
+	}
+	return *sc.Enabled
+}
+
+// SetEnabled 设置交易对启用状态
+func (sc *SymbolConfig) SetEnabled(enabled bool) {
+	sc.Enabled = &enabled
+}
+
+// UnmarshalYAML 为 SymbolConfig 提供默认值。
+//
+// 兼容历史配置：旧版 config.yaml 没有 enabled 字段时，应默认启用自动交易（enabled=true）。
+func (sc *SymbolConfig) UnmarshalYAML(value *yaml.Node) error {
+	type raw SymbolConfig
+	// 默认启用
+	defaultEnabled := true
+	r := raw{Enabled: &defaultEnabled}
+	if err := value.Decode(&r); err != nil {
+		return err
+	}
+	// 如果 YAML 中没有 enabled 字段，r.Enabled 仍然是我们设置的默认值
+	*sc = SymbolConfig(r)
+	return nil
 }
 
 // StrategyConfig 策略配置
@@ -852,6 +887,7 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 	// 创建交易对配置
 	cfg.Trading.Symbols = []SymbolConfig{
 		{
+			Enabled:               BoolPtr(true),
 			Exchange:              setup.Exchange,
 			Symbol:                setup.Symbol,
 			PriceInterval:         setup.PriceInterval,
@@ -898,6 +934,11 @@ func (c *Config) Validate() error {
 
 	// ==== 多交易对配置校验（兼容旧配置）====
 	normalizeSymbol := func(sc SymbolConfig) (SymbolConfig, error) {
+		// enabled 默认值（避免 nil 导致保存时出现 enabled: null）
+		if sc.Enabled == nil {
+			sc.SetEnabled(true)
+		}
+
 		// 交易所
 		if sc.Exchange == "" {
 			sc.Exchange = c.App.CurrentExchange
@@ -1035,6 +1076,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("交易对不能为空")
 		}
 		c.Trading.Symbols = []SymbolConfig{{
+			Enabled:               BoolPtr(true),
 			Exchange:              c.App.CurrentExchange,
 			Symbol:                c.Trading.Symbol,
 			PriceInterval:         c.Trading.PriceInterval,

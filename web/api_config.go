@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -52,6 +53,84 @@ func GetLatestConfig() (*config.Config, error) {
 		return nil, fmt.Errorf("配置管理器未初始化")
 	}
 	return configManager.GetConfig()
+}
+
+// SetSymbolEnabled 设置指定交易所/交易对的 enabled 状态，并持久化到配置文件。
+//
+// 用途：
+// - StopTrading 时写回 enabled=false，确保重启后不会自动再启动
+// - StartTrading 时写回 enabled=true，确保重启后保持启动
+func SetSymbolEnabled(exchange, symbol string, enabled bool) error {
+	if configManager == nil {
+		return fmt.Errorf("配置管理器未初始化")
+	}
+	if exchange == "" || symbol == "" {
+		return fmt.Errorf("exchange 和 symbol 不能为空")
+	}
+
+	configManager.mu.Lock()
+	defer configManager.mu.Unlock()
+
+	// 确保有最新配置
+	cfg := configManager.currentConfig
+	if cfg == nil {
+		loaded, err := config.LoadConfig(configManager.configPath)
+		if err != nil {
+			return err
+		}
+		cfg = loaded
+	}
+
+	found := false
+	for i := range cfg.Trading.Symbols {
+		if strings.EqualFold(cfg.Trading.Symbols[i].Exchange, exchange) &&
+			strings.EqualFold(cfg.Trading.Symbols[i].Symbol, symbol) {
+			cfg.Trading.Symbols[i].SetEnabled(enabled)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("未找到交易对配置: %s:%s", exchange, symbol)
+	}
+
+	// 保存到文件（含校验/normalize）
+	if err := config.SaveConfig(cfg, configManager.configPath); err != nil {
+		return err
+	}
+
+	// 更新内存中的配置
+	configManager.currentConfig = cfg
+
+	// 尝试热更新（失败不影响持久化）
+	if configHotReloader != nil {
+		_, _ = configHotReloader.UpdateConfig(cfg)
+	}
+
+	return nil
+}
+
+// GetCurrentAccountID 获取当前配置的账户标识
+func GetCurrentAccountID() string {
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
+		return ""
+	}
+
+	exchange := cfg.App.CurrentExchange
+	if exchange == "" {
+		return ""
+	}
+
+	if exCfg, ok := cfg.Exchanges[exchange]; ok {
+		apiKey := exCfg.APIKey
+		if len(apiKey) > 8 {
+			return apiKey[:8]
+		}
+		return apiKey
+	}
+
+	return ""
 }
 
 // GetConfig 获取当前配置
@@ -150,12 +229,36 @@ func getConfigJSONHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, configMap)
 }
 
+// bindConfigFromJSONMap 绑定前端 snake_case JSON 为 Config
+//
+// 前端通过 /api/config/json 获取的配置是 snake_case 字段名（来自 YAML tag）。
+// 为了让 POST /validate /preview /update 也接受同样结构，这里先把 JSON 解析为 map，
+// 再通过 yaml marshal/unmarshal 使用 yaml tag 写回到 config.Config。
+func bindConfigFromJSONMap(c *gin.Context) (*config.Config, error) {
+	var configMap map[string]interface{}
+	if err := c.ShouldBindJSON(&configMap); err != nil {
+		return nil, fmt.Errorf("无效的配置格式: %w", err)
+	}
+
+	yamlData, err := yaml.Marshal(configMap)
+	if err != nil {
+		return nil, fmt.Errorf("序列化配置失败: %w", err)
+	}
+
+	var cfg config.Config
+	if err := yaml.Unmarshal(yamlData, &cfg); err != nil {
+		return nil, fmt.Errorf("转换配置格式失败: %w", err)
+	}
+
+	return &cfg, nil
+}
+
 // validateConfigHandler 验证配置（不保存）
 // POST /api/config/validate
 func validateConfigHandler(c *gin.Context) {
-	var cfg config.Config
-	if err := c.ShouldBindJSON(&cfg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的配置格式: " + err.Error()})
+	cfg, err := bindConfigFromJSONMap(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -181,10 +284,10 @@ func previewConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// 获取新配置
-	var newConfig config.Config
-	if err := c.ShouldBindJSON(&newConfig); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的配置格式: " + err.Error()})
+	// 获取新配置（snake_case）
+	newConfig, err := bindConfigFromJSONMap(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -196,7 +299,7 @@ func previewConfigHandler(c *gin.Context) {
 	}
 
 	// 生成差异
-	diff := config.DiffConfig(oldConfig, &newConfig)
+	diff := config.DiffConfig(oldConfig, newConfig)
 
 	c.JSON(http.StatusOK, gin.H{
 		"diff":             diff,
@@ -212,10 +315,10 @@ func updateConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// 获取新配置
-	var newConfig config.Config
-	if err := c.ShouldBindJSON(&newConfig); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的配置格式: " + err.Error()})
+	// 获取新配置（snake_case）
+	newConfig, err := bindConfigFromJSONMap(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -233,7 +336,7 @@ func updateConfigHandler(c *gin.Context) {
 	}
 
 	// 生成差异
-	diff := config.DiffConfig(oldConfig, &newConfig)
+	diff := config.DiffConfig(oldConfig, newConfig)
 
 	// 创建备份
 	var backupInfo *config.BackupInfo
@@ -246,14 +349,14 @@ func updateConfigHandler(c *gin.Context) {
 	}
 
 	// 保存配置
-	if err := configManager.UpdateConfig(&newConfig); err != nil {
+	if err := configManager.UpdateConfig(newConfig); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
 		return
 	}
 
 	// 尝试热更新
 	if configHotReloader != nil {
-		_, err := configHotReloader.UpdateConfig(&newConfig)
+		_, err := configHotReloader.UpdateConfig(newConfig)
 		if err != nil {
 			// 热更新失败不影响配置保存，只记录警告
 			// 注意：这里可能需要通过日志记录

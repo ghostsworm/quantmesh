@@ -289,3 +289,8 @@ func (w *bitrueWrapper) GetFundingRate(ctx context.Context, symbol string) (floa
 func (w *bitrueWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return 0, ErrNotImplemented
 }
+
+// EstimateFinalOrderAmount 预估最终下单金额（默认实现：返回原始金额）
+func (w *bitrueWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
+	return price * quantity
+}

@@ -134,6 +134,7 @@
     "totalPnL": "Total P&L",
     "totalTrades": "Total Trades",
     "exchangeOverview": "Exchange Overview",
+    "addSymbol": "Add Symbol",
     "unknownError": "Unknown Error",
     "tradingStopped": "Trading Stopped",
     "tradingStarted": "Trading Started",
@@ -151,7 +152,9 @@
     "winRateLabel": "Win Rate",
     "pnlLabel": "P&L:",
     "tradeCountBadge": "Trades:",
-    "volumeBadge": "Volume:"
+    "volumeBadge": "Volume:",
+    "startTrading": "Start Trading",
+    "stopTrading": "Stop Trading"
   },
   "configuration": {
     "title": "Settings",

@@ -526,7 +526,7 @@ func (g *GormDatabase) GetAsyncTaskStats(ctx context.Context, startTime, endTime
 	}
 
 	var dailyStats []struct {
-		Date         time.Time
+		Date         string
 		InputTokens  int64
 		OutputTokens int64
 		TaskCount    int64
@@ -549,8 +549,13 @@ func (g *GormDatabase) GetAsyncTaskStats(ctx context.Context, startTime, endTime
 
 	// 转换每日统计
 	for _, ds := range dailyStats {
+		// 解析日期字符串为 time.Time
+		date, err := time.Parse("2006-01-02", ds.Date)
+		if err != nil {
+			return nil, fmt.Errorf("解析日期失败 %s: %w", ds.Date, err)
+		}
 		stats.DailyStats = append(stats.DailyStats, DailyTokenStat{
-			Date:         ds.Date,
+			Date:         date,
 			InputTokens:  ds.InputTokens,
 			OutputTokens: ds.OutputTokens,
 			TotalTokens:  ds.InputTokens + ds.OutputTokens,

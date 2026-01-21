@@ -31,12 +31,21 @@ import {
   useToast,
   Alert,
   AlertIcon,
+  AlertTitle,
   AlertDescription,
   Divider,
   Code,
   Tooltip,
+  Checkbox,
+  CheckboxGroup,
+  SimpleGrid,
+  Accordion,
+  AccordionItem,
+  AccordionButton,
+  AccordionPanel,
+  AccordionIcon,
 } from '@chakra-ui/react'
-import { AddIcon, DeleteIcon, EditIcon, InfoIcon } from '@chakra-ui/icons'
+import { AddIcon, DeleteIcon, EditIcon, InfoIcon, StarIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { Config, SymbolConfig } from '../services/config'
 import { getExchangeSymbols } from '../services/setup'
@@ -52,6 +61,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
   const toast = useToast()
   const { isOpen: isAddOpen, onOpen: onAddOpen, onClose: onAddClose } = useDisclosure()
   const { isOpen: isEditOpen, onOpen: onEditOpen, onClose: onEditClose } = useDisclosure()
+  const { isOpen: isQuickSetupOpen, onOpen: onQuickSetupOpen, onClose: onQuickSetupClose } = useDisclosure()
   
   const [symbols, setSymbols] = useState<SymbolConfig[]>(config.trading?.symbols || [])
   const [editingIndex, setEditingIndex] = useState<number>(-1)
@@ -59,6 +69,12 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
   const [loadingSymbols, setLoadingSymbols] = useState(false)
   const [currentPrice, setCurrentPrice] = useState<number | null>(null)
   const [allocatedCapital, setAllocatedCapital] = useState<number>(0)
+  
+  // 新手一键设置相关状态
+  const [quickSetupSelectedSymbols, setQuickSetupSelectedSymbols] = useState<string[]>([])
+  const [quickSetupTotalCapital, setQuickSetupTotalCapital] = useState<number>(1000)
+  const [quickSetupLoading, setQuickSetupLoading] = useState(false)
+  const [quickSetupSymbolPrices, setQuickSetupSymbolPrices] = useState<Record<string, number>>({})
   
   const [formData, setFormData] = useState<SymbolConfig>({
     exchange: config.app?.current_exchange || '',
@@ -84,10 +100,55 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     edgex: 'EdgeX',
     bit: 'Bit.com',
   }
+  
+  // 常用交易对列表（根据交易所格式不同）
+  const getCommonSymbols = (exchange: string): string[] => {
+    const currentExchange = exchange || config.app?.current_exchange || 'binance'
+    if (currentExchange === 'gate') {
+      return ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'XRP_USDT', 'DOGE_USDT', 'ADA_USDT', 'MATIC_USDT', 'AVAX_USDT']
+    }
+    // 其他交易所使用标准格式
+    return ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'MATICUSDT', 'AVAXUSDT']
+  }
 
   useEffect(() => {
     setSymbols(config.trading?.symbols || [])
   }, [config])
+  
+  // 加载常用交易对的价格
+  const loadQuickSetupPrices = async () => {
+    const currentExchange = config.app?.current_exchange || 'binance'
+    const commonSymbols = getCommonSymbols(currentExchange)
+    const prices: Record<string, number> = {}
+    
+    try {
+      const response = await getSymbols()
+      for (const symbol of commonSymbols) {
+        // 尝试匹配交易对（考虑不同交易所可能有不同的格式）
+        const symbolInfo = response.symbols.find(
+          s => {
+            // 标准化比较：移除下划线和大小写差异
+            const normalizeSymbol = (sym: string) => sym.replace(/_/g, '').toUpperCase()
+            return normalizeSymbol(s.symbol) === normalizeSymbol(symbol) && 
+                   s.exchange.toLowerCase() === currentExchange.toLowerCase()
+          }
+        )
+        if (symbolInfo && symbolInfo.current_price > 0) {
+          prices[symbol] = symbolInfo.current_price
+        }
+      }
+      setQuickSetupSymbolPrices(prices)
+    } catch (error) {
+      console.error('加载价格失败:', error)
+      // 即使失败也继续，用户仍可以手动设置
+    }
+  }
+  
+  useEffect(() => {
+    if (isQuickSetupOpen) {
+      loadQuickSetupPrices()
+    }
+  }, [isQuickSetupOpen])
 
   // 获取交易对当前价格
   const fetchSymbolPrice = async (symbol: string, exchange: string) => {
@@ -290,6 +351,113 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       duration: 2000,
     })
   }
+  
+  // 新手一键设置处理函数
+  const handleQuickSetup = async () => {
+    if (quickSetupSelectedSymbols.length === 0) {
+      toast({
+        title: '请至少选择一个交易对',
+        status: 'warning',
+        duration: 2000,
+      })
+      return
+    }
+    
+    if (quickSetupTotalCapital <= 0) {
+      toast({
+        title: '请输入总资金',
+        status: 'warning',
+        duration: 2000,
+      })
+      return
+    }
+    
+    setQuickSetupLoading(true)
+    const currentExchange = config.app?.current_exchange || 'binance'
+    const exchangeName = exchangeNames[currentExchange] || currentExchange.toUpperCase()
+    const capitalPerSymbol = quickSetupTotalCapital / quickSetupSelectedSymbols.length
+    
+    try {
+      const newSymbols: SymbolConfig[] = []
+      const existingSymbols: string[] = []
+      
+      for (const symbol of quickSetupSelectedSymbols) {
+        // 检查是否已存在
+        if (symbols.some(s => s.symbol === symbol && (s.exchange || currentExchange) === currentExchange)) {
+          existingSymbols.push(symbol)
+          continue // 跳过已存在的交易对
+        }
+        
+        const price = quickSetupSymbolPrices[symbol] || null
+        const rec = calculateRecommendations(symbol, price, capitalPerSymbol)
+        
+        const symbolConfig: SymbolConfig = {
+          exchange: currentExchange,
+          symbol,
+          price_interval: rec.price_interval.suggested,
+          order_quantity: rec.order_quantity.suggested,
+          min_order_value: rec.min_order_value.suggested,
+          buy_window_size: rec.buy_window_size.suggested,
+          sell_window_size: rec.sell_window_size.suggested,
+          total_allocated_capital: capitalPerSymbol,
+          reconcile_interval: 60,
+          order_cleanup_threshold: 50,
+          cleanup_batch_size: 20,
+          margin_lock_duration_seconds: 20,
+          position_safety_check: 100,
+        }
+        
+        newSymbols.push(symbolConfig)
+      }
+      
+      if (newSymbols.length === 0) {
+        // 所有交易对都已存在，提示用户删除
+        toast({
+          title: '所有选中的交易对都已存在',
+          description: `以下交易对在 ${exchangeName} 已存在：${existingSymbols.join(', ')}。请先删除现有配置后再添加。`,
+          status: 'warning',
+          duration: 5000,
+          isClosable: true,
+        })
+        setQuickSetupLoading(false)
+        return
+      }
+      
+      // 如果有部分交易对已存在，也提示
+      if (existingSymbols.length > 0) {
+        toast({
+          title: '部分交易对已存在',
+          description: `以下交易对已跳过：${existingSymbols.join(', ')}。已成功添加 ${newSymbols.length} 个新交易对。`,
+          status: 'info',
+          duration: 4000,
+          isClosable: true,
+        })
+      }
+      
+      const updatedSymbols = [...symbols, ...newSymbols]
+      setSymbols(updatedSymbols)
+      onUpdate(updatedSymbols)
+      
+      toast({
+        title: '一键设置成功',
+        description: `已添加 ${newSymbols.length} 个交易对配置`,
+        status: 'success',
+        duration: 3000,
+      })
+      
+      onQuickSetupClose()
+      setQuickSetupSelectedSymbols([])
+    } catch (error: any) {
+      toast({
+        title: '一键设置失败',
+        description: error.message || '请稍后重试',
+        status: 'error',
+        duration: 3000,
+      })
+    } finally {
+      setQuickSetupLoading(false)
+    }
+  }
 
   return (
     <Box>
@@ -298,15 +466,27 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
           <Text fontSize="sm" fontWeight="600" color="gray.600">
             当前配置了 {symbols.length} 个交易对
           </Text>
-          <Button
-            leftIcon={<AddIcon />}
-            colorScheme="blue"
-            size="sm"
-            onClick={handleAdd}
-            borderRadius="md"
-          >
-            添加交易对
-          </Button>
+          <HStack spacing={2}>
+            <Button
+              leftIcon={<StarIcon />}
+              colorScheme="purple"
+              size="sm"
+              onClick={onQuickSetupOpen}
+              borderRadius="md"
+              variant="outline"
+            >
+              新手一键设置
+            </Button>
+            <Button
+              leftIcon={<AddIcon />}
+              colorScheme="blue"
+              size="sm"
+              onClick={handleAdd}
+              borderRadius="md"
+            >
+              添加交易对
+            </Button>
+          </HStack>
         </HStack>
 
         {symbols.length === 0 ? (
@@ -453,14 +633,70 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
 
               <FormControl>
                 <FormLabel>分配资金 (USDT)</FormLabel>
-                <NumberInput
-                  value={allocatedCapital}
-                  onChange={(_, v) => setAllocatedCapital(v)}
-                  min={0}
-                  precision={2}
-                >
-                  <NumberInputField />
-                </NumberInput>
+                <HStack spacing={2}>
+                  <NumberInput
+                    flex={1}
+                    value={allocatedCapital}
+                    onChange={(_, v) => setAllocatedCapital(v)}
+                    min={0}
+                    precision={2}
+                  >
+                    <NumberInputField />
+                  </NumberInput>
+                  {currentPrice && (
+                    <Button
+                      size="sm"
+                      colorScheme="purple"
+                      variant="outline"
+                      onClick={() => {
+                        if (!formData.symbol) {
+                          toast({
+                            title: '请先选择交易对',
+                            description: '需要交易对信息才能计算建议值',
+                            status: 'warning',
+                            duration: 3000,
+                          })
+                          return
+                        }
+                        if (!currentPrice) {
+                          toast({
+                            title: '无法获取当前价格',
+                            description: '请确保已选择交易对并等待价格加载',
+                            status: 'warning',
+                            duration: 3000,
+                          })
+                          return
+                        }
+                        
+                        const rec = calculateRecommendations(formData.symbol, currentPrice, allocatedCapital || 0)
+                        const updatedFormData: SymbolConfig = {
+                          ...formData,
+                          price_interval: rec.price_interval.suggested,
+                        }
+                        
+                        // 如果有分配资金，填充其他建议值
+                        if (allocatedCapital > 0) {
+                          updatedFormData.order_quantity = rec.order_quantity.suggested
+                          updatedFormData.buy_window_size = rec.buy_window_size.suggested
+                          updatedFormData.sell_window_size = rec.sell_window_size.suggested
+                          updatedFormData.min_order_value = rec.min_order_value.suggested
+                        }
+                        
+                        setFormData(updatedFormData)
+                        toast({
+                          title: '建议值已应用',
+                          description: allocatedCapital > 0 
+                            ? '已根据当前价格和分配资金自动填充所有建议值'
+                            : '已根据当前价格填充价格间隔建议值（请设置分配资金以获取完整建议）',
+                          status: 'success',
+                          duration: 3000,
+                        })
+                      }}
+                    >
+                      一键引入建议值
+                    </Button>
+                  )}
+                </HStack>
                 <Text fontSize="xs" color="gray.500" mt={1}>
                   用于计算建议的网格参数
                 </Text>
@@ -643,6 +879,299 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
             </Button>
             <Button colorScheme="blue" onClick={handleSave}>
               保存
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      
+      {/* 新手一键设置模态框 */}
+      <Modal isOpen={isQuickSetupOpen} onClose={onQuickSetupClose} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>
+            <HStack spacing={2}>
+              <StarIcon color="purple.500" />
+              <Text>新手一键设置</Text>
+            </HStack>
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle fontSize="sm" mb={1}>
+                    快速配置常用交易对
+                  </AlertTitle>
+                  <AlertDescription fontSize="sm">
+                    系统会根据价格和资金自动计算最优参数
+                  </AlertDescription>
+                </Box>
+              </Alert>
+              
+              {/* 显示当前交易所 */}
+              <Box
+                p={3}
+                bg="purple.50"
+                borderRadius="md"
+                border="1px solid"
+                borderColor="purple.200"
+              >
+                <HStack spacing={2}>
+                  <Text fontSize="sm" fontWeight="600" color="purple.700">
+                    目标交易所：
+                  </Text>
+                  <Badge colorScheme="purple" fontSize="sm" px={2} py={1}>
+                    {exchangeNames[config.app?.current_exchange || 'binance'] || (config.app?.current_exchange || 'binance').toUpperCase()}
+                  </Badge>
+                  <Text fontSize="xs" color="gray.600" ml="auto">
+                    交易对将添加到该交易所
+                  </Text>
+                </HStack>
+              </Box>
+              
+              <FormControl>
+                <FormLabel>总资金 (USDT)</FormLabel>
+                <NumberInput
+                  value={quickSetupTotalCapital}
+                  onChange={(_, v) => setQuickSetupTotalCapital(v)}
+                  min={100}
+                  precision={2}
+                >
+                  <NumberInputField />
+                </NumberInput>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  资金将平均分配给选中的交易对
+                </Text>
+              </FormControl>
+              
+              <Divider />
+              
+              <FormControl>
+                <FormLabel>选择交易对</FormLabel>
+                <CheckboxGroup
+                  value={quickSetupSelectedSymbols}
+                  onChange={(values) => setQuickSetupSelectedSymbols(values as string[])}
+                >
+                  <SimpleGrid columns={2} spacing={3}>
+                    {getCommonSymbols(config.app?.current_exchange || '').map((symbol) => {
+                      const currentExchange = config.app?.current_exchange || 'binance'
+                      const price = quickSetupSymbolPrices[symbol]
+                      // 计算每个交易对的资金分配（基于当前选中的数量）
+                      const selectedCount = quickSetupSelectedSymbols.length || 1
+                      const capitalPerSymbol = quickSetupTotalCapital / selectedCount
+                      const rec = calculateRecommendations(symbol, price || null, capitalPerSymbol)
+                      const isSelected = quickSetupSelectedSymbols.includes(symbol)
+                      // 检查是否已存在
+                      const alreadyExists = symbols.some(
+                        s => s.symbol === symbol && (s.exchange || currentExchange) === currentExchange
+                      )
+                      
+                      return (
+                        <Box
+                          key={symbol}
+                          p={3}
+                          border="1px solid"
+                          borderColor={
+                            alreadyExists 
+                              ? 'orange.300' 
+                              : isSelected 
+                                ? 'purple.300' 
+                                : 'gray.200'
+                          }
+                          borderRadius="md"
+                          bg={
+                            alreadyExists 
+                              ? 'orange.50' 
+                              : isSelected 
+                                ? 'purple.50' 
+                                : 'white'
+                          }
+                          _hover={{ borderColor: alreadyExists ? 'orange.400' : 'purple.300', bg: alreadyExists ? 'orange.50' : 'purple.50' }}
+                          transition="all 0.2s"
+                          position="relative"
+                        >
+                          {alreadyExists && (
+                            <Badge
+                              position="absolute"
+                              top={2}
+                              right={2}
+                              colorScheme="orange"
+                              fontSize="xs"
+                            >
+                              已存在
+                            </Badge>
+                          )}
+                          <Checkbox value={symbol} size="md" isDisabled={alreadyExists}>
+                            <VStack align="start" spacing={1}>
+                              <HStack spacing={2}>
+                                <Text fontWeight="600">{symbol}</Text>
+                                {alreadyExists && (
+                                  <Tooltip label="该交易对在当前交易所已存在，请先删除后再添加">
+                                    <InfoIcon color="orange.500" boxSize={3} />
+                                  </Tooltip>
+                                )}
+                              </HStack>
+                              {price ? (
+                                <Text fontSize="xs" color="gray.500">
+                                  当前价格: {price.toFixed(2)} USDT
+                                </Text>
+                              ) : (
+                                <Text fontSize="xs" color="gray.400">
+                                  价格加载中...
+                                </Text>
+                              )}
+                              {isSelected && !alreadyExists && (
+                                <VStack align="start" spacing={0} mt={1}>
+                                  <Text fontSize="xs" color="purple.600" fontWeight="500">
+                                    分配资金: {capitalPerSymbol.toFixed(2)} USDT
+                                  </Text>
+                                  <Text fontSize="xs" color="blue.500">
+                                    建议参数: 间隔 {rec.price_interval.suggested.toFixed(2)} | 
+                                    订单 {rec.order_quantity.suggested} | 
+                                    窗口 {rec.buy_window_size.suggested}
+                                  </Text>
+                                </VStack>
+                              )}
+                              {alreadyExists && (
+                                <Text fontSize="xs" color="orange.600" fontWeight="500" mt={1}>
+                                  该交易对已存在，无法重复添加
+                                </Text>
+                              )}
+                            </VStack>
+                          </Checkbox>
+                        </Box>
+                      )
+                    })}
+                  </SimpleGrid>
+                </CheckboxGroup>
+                {quickSetupSelectedSymbols.some(symbol => {
+                  const currentExchange = config.app?.current_exchange || 'binance'
+                  return symbols.some(
+                    s => s.symbol === symbol && (s.exchange || currentExchange) === currentExchange
+                  )
+                }) && (
+                  <Alert status="warning" borderRadius="md" mt={2}>
+                    <AlertIcon />
+                    <AlertDescription fontSize="sm">
+                      选中的交易对中包含已存在的配置，这些交易对将被跳过。请先删除现有配置后再添加。
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </FormControl>
+              
+              <Divider />
+              
+              {/* 计算公式说明 */}
+              <Accordion allowToggle>
+                <AccordionItem>
+                  <AccordionButton>
+                    <Box flex="1" textAlign="left">
+                      <Text fontWeight="600">📐 基于价格的计算公式说明</Text>
+                    </Box>
+                    <AccordionIcon />
+                  </AccordionButton>
+                  <AccordionPanel pb={4}>
+                    <VStack align="start" spacing={3} fontSize="sm">
+                      <Box>
+                        <Text fontWeight="600" mb={1}>1. 价格间隔计算</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
+                          价格间隔 = 当前价格 × (0.1% ~ 1%)<br/>
+                          建议值 = 当前价格 × 0.5%
+                        </Code>
+                        <Text fontSize="xs" color="gray.600" mt={1}>
+                          价格间隔太小会导致频繁交易，太大会错过交易机会
+                        </Text>
+                      </Box>
+                      
+                      <Box>
+                        <Text fontWeight="600" mb={1}>2. 订单金额计算</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
+                          根据总资金量分级：<br/>
+                          • 资金 &lt; 500 USDT: 建议 20-30 USDT<br/>
+                          • 资金 500-2000 USDT: 建议 50-100 USDT<br/>
+                          • 资金 2000-10000 USDT: 建议 100-200 USDT<br/>
+                          • 资金 &gt; 10000 USDT: 建议 200+ USDT
+                        </Code>
+                        <Text fontSize="xs" color="gray.600" mt={1}>
+                          单笔订单建议不超过总资金的 5%
+                        </Text>
+                      </Box>
+                      
+                      <Box>
+                        <Text fontWeight="600" mb={1}>3. 网格价格计算</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
+                          买入网格价格 = 当前价格 - (网格层数 × 价格间隔)<br/>
+                          卖出网格价格 = 当前价格 + (网格层数 × 价格间隔)
+                        </Code>
+                        <Text fontSize="xs" color="gray.600" mt={1}>
+                          例如：当前价格 50000，间隔 100，买入窗口 10 层<br/>
+                          最低买入价 = 50000 - (10 × 100) = 49000
+                        </Text>
+                      </Box>
+                      
+                      <Box>
+                        <Text fontWeight="600" mb={1}>4. 窗口大小计算</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
+                          建议网格数 = 总资金 ÷ (订单金额 × 2)<br/>
+                          窗口大小 = max(5, min(20, 建议网格数 ÷ 2))
+                        </Code>
+                        <Text fontSize="xs" color="gray.600" mt={1}>
+                          确保有足够资金覆盖所有网格（买单和卖单各一半）
+                        </Text>
+                      </Box>
+                      
+                      <Box>
+                        <Text fontWeight="600" mb={1}>5. 最小订单价值计算</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
+                          最小订单价值 = 订单金额 × 50% ~ 100%<br/>
+                          建议值 = 订单金额 × 50%
+                        </Code>
+                        <Text fontSize="xs" color="gray.600" mt={1}>
+                          小于此值的订单不会挂单，避免过小的订单产生过多手续费
+                        </Text>
+                      </Box>
+                      
+                      <Box>
+                        <Text fontWeight="600" mb={1}>6. 单笔订单数量计算</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
+                          订单数量 = 订单金额 ÷ 当前价格<br/>
+                          例如：订单金额 30 USDT，价格 3000 USDT<br/>
+                          数量 = 30 ÷ 3000 = 0.01 BTC
+                        </Code>
+                        <Text fontSize="xs" color="gray.600" mt={1}>
+                          订单金额固定，价格越低买入数量越多
+                        </Text>
+                      </Box>
+                      
+                      <Box>
+                        <Text fontWeight="600" mb={1}>7. 总资金需求计算</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
+                          总资金需求 = (买单窗口 + 卖单窗口) × 订单金额<br/>
+                          例如：买单 10 层，卖单 10 层，订单 30 USDT<br/>
+                          需求 = (10 + 10) × 30 = 600 USDT
+                        </Code>
+                        <Text fontSize="xs" color="gray.600" mt={1}>
+                          确保分配的资金足够覆盖所有网格
+                        </Text>
+                      </Box>
+                    </VStack>
+                  </AccordionPanel>
+                </AccordionItem>
+              </Accordion>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onQuickSetupClose}>
+              取消
+            </Button>
+            <Button
+              colorScheme="purple"
+              onClick={handleQuickSetup}
+              isLoading={quickSetupLoading}
+              isDisabled={quickSetupSelectedSymbols.length === 0}
+            >
+              一键添加 {quickSetupSelectedSymbols.length > 0 ? `(${quickSetupSelectedSymbols.length}个)` : ''}
             </Button>
           </ModalFooter>
         </ModalContent>

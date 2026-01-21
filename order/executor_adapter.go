@@ -385,3 +385,27 @@ func (oe *ExchangeOrderExecutor) GetOpenOrders() ([]interface{}, error) {
 
 	return result, nil
 }
+
+// GetQuantityDecimals 获取数量精度（小数位数）
+func (oe *ExchangeOrderExecutor) GetQuantityDecimals() int {
+	return oe.exchange.GetQuantityDecimals()
+}
+
+// RoundQuantity 将数量按交易所精度向下取整
+func (oe *ExchangeOrderExecutor) RoundQuantity(quantity float64) float64 {
+	qDec := oe.exchange.GetQuantityDecimals()
+	multiplier := math.Pow(10, float64(qDec))
+	return math.Floor(quantity*multiplier) / multiplier
+}
+
+// EstimateFinalOrderAmount 预估最终下单金额
+// 交易所可能因最小名义金额、精度对齐等原因调整数量，导致实际金额与原始金额不同
+// 此方法用于资金分配器在下单前准确预留资金
+func (oe *ExchangeOrderExecutor) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
+	return oe.exchange.EstimateFinalOrderAmount(symbol, price, quantity, reduceOnly)
+}
+
+// GetSymbol 获取当前交易对
+func (oe *ExchangeOrderExecutor) GetSymbol() string {
+	return oe.symbol
+}

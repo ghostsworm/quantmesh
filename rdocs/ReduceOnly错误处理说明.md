@@ -68,18 +68,25 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 // 🔥 处理 ReduceOnly 错误：清空对应槽位的持仓
 for clientOID := range result.ReduceOnlyErrors {
     price, side, valid := spm.parseClientOrderID(clientOID)
-    if valid && side == "SELL" {
-        slot := spm.getOrCreateSlot(price)
-        slot.mu.Lock()
-        if slot.PositionStatus == PositionStatusFilled {
-            logger.Warn("⚠️ [ReduceOnly错误处理] 清空槽位持仓: 价格=%s, 原持仓=%.4f",
-                formatPrice(price, spm.priceDecimals), slot.PositionQty)
-            // 清空持仓状态
-            slot.PositionStatus = PositionStatusEmpty
-            slot.PositionQty = 0
-            slot.SlotStatus = SlotStatusFree
+    if valid {
+        if side == "SELL" {
+            // SELL ReduceOnly：平多仓失败，清空槽位持仓状态
+            slot := spm.getOrCreateSlot(price)
+            slot.mu.Lock()
+            if slot.PositionStatus == PositionStatusFilled {
+                logger.Warn("⚠️ [ReduceOnly错误处理] 清空槽位持仓: 价格=%s, 原持仓=%.4f",
+                    formatPrice(price, spm.priceDecimals), slot.PositionQty)
+                // 清空持仓状态
+                slot.PositionStatus = PositionStatusEmpty
+                slot.PositionQty = 0
+                slot.SlotStatus = SlotStatusFree
+            }
+            slot.mu.Unlock()
+        } else if side == "BUY" {
+            // BUY ReduceOnly：平空仓失败，账户中无空仓（系统不管理空仓状态，仅记录日志）
+            logger.Warn("⚠️ [ReduceOnly错误处理] BUY平空仓订单被拒绝: 价格=%s, 账户中无空仓",
+                formatPrice(price, spm.priceDecimals))
         }
-        slot.mu.Unlock()
     }
 }
 ```
@@ -109,6 +116,11 @@ for clientOID := range result.ReduceOnlyErrors {
 2025/12/26 23:44:10 [WARN] ⚠️ [Binance] ReduceOnly订单被拒绝（无持仓）: SELL 2927.58
 2025/12/26 23:44:10 [ERROR] ❌ [ReduceOnly错误] 订单 2927.58 SELL 无持仓，需要清空槽位
 2025/12/26 23:44:10 [WARN] ⚠️ [ReduceOnly错误处理] 清空槽位持仓: 价格=2927.58, 原持仓=0.0270
+
+// BUY 方向的 ReduceOnly 错误示例：
+2025/12/26 23:45:20 [WARN] ⚠️ [Binance] ReduceOnly订单被拒绝（无持仓）: BUY 3213.62
+2025/12/26 23:45:20 [ERROR] ❌ [ReduceOnly错误] 订单 3213.62 BUY 无持仓，需要清空槽位
+2025/12/26 23:45:20 [WARN] ⚠️ [ReduceOnly错误处理] BUY平空仓订单被拒绝: 价格=3213.62, 账户中无空仓
 ```
 
 ## 相关文件
@@ -122,9 +134,10 @@ for clientOID := range result.ReduceOnlyErrors {
 ## 注意事项
 
 1. 该修改不影响正常的 ReduceOnly 订单（有持仓时）
-2. 只处理 SELL 方向的 ReduceOnly 错误（因为系统只用 ReduceOnly 平多仓）
-3. 清空槽位后，该价格位会重新变为可用状态，可以重新下买单
-4. 建议定期运行对账功能，确保本地状态与交易所同步
+2. **SELL 方向的 ReduceOnly 错误**：平多仓失败时，自动清空槽位的持仓状态
+3. **BUY 方向的 ReduceOnly 错误**：平空仓失败时，仅记录日志（系统不管理空仓状态）
+4. 清空槽位后，该价格位会重新变为可用状态，可以重新下买单
+5. 建议定期运行对账功能，确保本地状态与交易所同步
 
 ## 测试建议
 

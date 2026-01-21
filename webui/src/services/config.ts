@@ -72,6 +72,7 @@ export interface StrategyInstance {
 
 // 交易对配置
 export interface SymbolConfig {
+  enabled?: boolean   // 是否启用自动交易（后端默认 true）
   exchange?: string  // 交易所，留空时使用 app.current_exchange
   symbol: string     // 交易对名称
   total_allocated_capital?: number // 分配的总资金

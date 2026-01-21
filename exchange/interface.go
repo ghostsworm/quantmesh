@@ -97,6 +97,15 @@ type IExchange interface {
 	// 例如: BTCUSDT -> USDT, ETHUSDT -> USDT, BTCUSD_PERP -> USD
 	GetQuoteAsset() string
 
+	// === 订单金额预估 ===
+
+	// EstimateFinalOrderAmount 预估最终下单金额（USDT）
+	// 用于资金分配器在下单前准确预留资金
+	// 交易所可能因最小名义金额、精度对齐等原因调整数量，导致实际金额与原始金额不同
+	// 参数: symbol 交易对, price 价格, quantity 数量, reduceOnly 是否只减仓
+	// 返回: 预估的最终名义金额（USDT）
+	EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64
+
 	// === 资金费率 ===
 
 	// GetFundingRate 获取资金费率

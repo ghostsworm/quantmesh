@@ -307,3 +307,8 @@ func (w *binanceWrapper) GetFundingRate(ctx context.Context, symbol string) (flo
 func (w *binanceWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetSpotPrice(ctx, symbol)
 }
+
+// EstimateFinalOrderAmount 预估最终下单金额
+func (w *binanceWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
+	return w.adapter.EstimateFinalOrderAmount(symbol, price, quantity, reduceOnly)
+}
