@@ -14,6 +14,7 @@ interface ReconciliationStatus {
 
 interface ReconciliationHistoryItem {
   id: number
+  exchange?: string
   symbol: string
   reconcile_time: string
   local_position: number

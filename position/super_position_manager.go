@@ -152,8 +152,8 @@ type TradeStorage interface {
 // ReconciliationStorage 对账存储接口（避免循环导入）
 // 用于恢复对账统计值
 type ReconciliationStorage interface {
-	GetLatestReconciliationHistory(symbol string) (interface{}, error) // 返回 *storage.ReconciliationHistory
-	GetReconciliationCount(symbol string) (int64, error)
+	GetLatestReconciliationHistory(exchange, symbol string) (interface{}, error) // 返回 *storage.ReconciliationHistory
+	GetReconciliationCount(exchange, symbol string) (int64, error)
 }
 
 // ITrendDetector 趋势检测器接口（避免循环导入）
@@ -922,18 +922,25 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		// 🔥 处理 ReduceOnly 错误：清空对应槽位的持仓
 		for clientOID := range result.ReduceOnlyErrors {
 			price, side, valid := spm.parseClientOrderID(clientOID)
-			if valid && side == "SELL" {
-				slot := spm.getOrCreateSlot(price)
-				slot.mu.Lock()
-				if slot.PositionStatus == PositionStatusFilled {
-					logger.Warn("⚠️ [ReduceOnly错误处理] 清空槽位持仓: 价格=%s, 原持仓=%.4f",
-						formatPrice(price, spm.priceDecimals), slot.PositionQty)
-					// 清空持仓状态
-					slot.PositionStatus = PositionStatusEmpty
-					slot.PositionQty = 0
-					slot.SlotStatus = SlotStatusFree
+			if valid {
+				if side == "SELL" {
+					// SELL ReduceOnly：平多仓失败，清空槽位持仓状态
+					slot := spm.getOrCreateSlot(price)
+					slot.mu.Lock()
+					if slot.PositionStatus == PositionStatusFilled {
+						logger.Warn("⚠️ [ReduceOnly错误处理] 清空槽位持仓: 价格=%s, 原持仓=%.4f",
+							formatPrice(price, spm.priceDecimals), slot.PositionQty)
+						// 清空持仓状态
+						slot.PositionStatus = PositionStatusEmpty
+						slot.PositionQty = 0
+						slot.SlotStatus = SlotStatusFree
+					}
+					slot.mu.Unlock()
+				} else if side == "BUY" {
+					// BUY ReduceOnly：平空仓失败，账户中无空仓（系统不管理空仓状态，仅记录日志）
+					logger.Warn("⚠️ [ReduceOnly错误处理] BUY平空仓订单被拒绝: 价格=%s, 账户中无空仓",
+						formatPrice(price, spm.priceDecimals))
 				}
-				slot.mu.Unlock()
 			}
 		}
 
@@ -1509,20 +1516,20 @@ func (spm *SuperPositionManager) GetAnchorPrice() float64 {
 }
 
 // RestoreReconciliationStats 从数据库恢复对账统计值
-// storage 是对账存储接口，symbol 是交易符号
-func (spm *SuperPositionManager) RestoreReconciliationStats(storage ReconciliationStorage, symbol string) error {
+// storage 是对账存储接口，exchange/symbol 用于精确定位历史记录
+func (spm *SuperPositionManager) RestoreReconciliationStats(storage ReconciliationStorage, exchange, symbol string) error {
 	if storage == nil {
 		return nil // 存储服务不可用，不报错
 	}
 
 	// 1. 获取最新对账记录
-	latestHistoryInterface, err := storage.GetLatestReconciliationHistory(symbol)
+	latestHistoryInterface, err := storage.GetLatestReconciliationHistory(exchange, symbol)
 	if err != nil {
 		return fmt.Errorf("获取最新对账记录失败: %w", err)
 	}
 
 	// 2. 获取对账次数
-	reconcileCount, err := storage.GetReconciliationCount(symbol)
+	reconcileCount, err := storage.GetReconciliationCount(exchange, symbol)
 	if err != nil {
 		return fmt.Errorf("获取对账次数失败: %w", err)
 	}
@@ -1946,8 +1953,10 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		slot.mu.Unlock()
 
 		allocatedQty += slotQty
-		// 累加已用资金：槽位价格 * 持仓数量
-		totalUsedAmount += price * slotQty
+		// 累加已用资金：使用锚点价格 * 实际数量来估算成本
+		// 锚点价格是市场当前价格，接近实际买入的平均价格
+		// 不能用卖出价格（sellPrice），因为卖出价格是目标价，会高估成本
+		totalUsedAmount += spm.anchorPrice * slotQty
 
 		// 日志标记：是否在窗口内（只打印前10个和最后10个）
 		if i < 10 || i >= len(sellPrices)-10 {

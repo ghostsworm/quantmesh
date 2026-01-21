@@ -13,6 +13,9 @@ import (
 	"time"
 
 	// "quantmesh/ai" // AI 功能已迁移到商业插件
+	"quantmesh/ai"
+	"quantmesh/ai/processor"
+	"quantmesh/ai/service"
 	"quantmesh/config"
 	"quantmesh/database"
 	"quantmesh/event"
@@ -20,9 +23,6 @@ import (
 	"quantmesh/i18n"
 	"quantmesh/lock"
 	"quantmesh/logger"
-	"quantmesh/ai"
-	"quantmesh/ai/service"
-	"quantmesh/ai/processor"
 	"quantmesh/metrics"
 	"quantmesh/monitor"
 	"quantmesh/notify"
@@ -106,11 +106,13 @@ func (w *webAuthnLoggerAdapter) Debugf(format string, args ...interface{}) {
 // reconciliationStorageAdapter 对账存储适配器
 type reconciliationStorageAdapter struct {
 	storageService *storage.StorageService
+	accountID      string
+	exchange       string
 }
 
 func (a *reconciliationStorageAdapter) SaveReconciliationHistory(symbol string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
 	activeBuyOrders, activeSellOrders int, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit float64) error {
-	return a.storageService.SaveReconciliationHistoryDirect(symbol, reconcileTime, localPosition, exchangePosition, positionDiff,
+	return a.storageService.SaveReconciliationHistoryDirect(a.exchange, symbol, a.accountID, reconcileTime, localPosition, exchangePosition, positionDiff,
 		activeBuyOrders, activeSellOrders, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit)
 }
 
@@ -229,23 +231,26 @@ type reconciliationRestoreAdapter struct {
 	storage storage.Storage
 }
 
-func (a *reconciliationRestoreAdapter) GetLatestReconciliationHistory(symbol string) (interface{}, error) {
+func (a *reconciliationRestoreAdapter) GetLatestReconciliationHistory(exchange, symbol string) (interface{}, error) {
 	if a.storage == nil {
 		return nil, nil
 	}
-	return a.storage.GetLatestReconciliationHistory(symbol)
+	accountID := web.GetCurrentAccountID()
+	return a.storage.GetLatestReconciliationHistory(exchange, symbol, accountID)
 }
 
-func (a *reconciliationRestoreAdapter) GetReconciliationCount(symbol string) (int64, error) {
+func (a *reconciliationRestoreAdapter) GetReconciliationCount(exchange, symbol string) (int64, error) {
 	if a.storage == nil {
 		return 0, nil
 	}
-	return a.storage.GetReconciliationCount(symbol)
+	accountID := web.GetCurrentAccountID()
+	return a.storage.GetReconciliationCount(exchange, symbol, accountID)
 }
 
 // tradeStorageAdapter 交易存储适配器
 type tradeStorageAdapter struct {
 	storageService *storage.StorageService
+	accountID      string // 账户标识
 }
 
 func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error {
@@ -260,6 +265,7 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange,
 		BuyOrderID:  buyOrderID,
 		SellOrderID: sellOrderID,
 		Exchange:    exchange,
+		Account:     a.accountID, // 包含账户标识
 		Symbol:      symbol,
 		BuyPrice:    buyPrice,
 		SellPrice:   sellPrice,
@@ -299,7 +305,19 @@ func (a *symbolManagerWebAdapter) List() []interface{} {
 func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 	// 检查是否已经运行
 	if _, ok := a.manager.Get(exchange, symbol); ok {
-		return fmt.Errorf("交易对 %s:%s 已经在运行", exchange, symbol)
+		err := fmt.Errorf("交易对 %s:%s 已经在运行", exchange, symbol)
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStartFailed,
+				Data: map[string]interface{}{
+					"exchange": exchange,
+					"symbol":   symbol,
+					"error":    err.Error(),
+					"message":  err.Error(),
+				},
+			})
+		}
+		return err
 	}
 
 	// 从配置管理器获取最新配置（而不是使用启动时的配置）
@@ -321,13 +339,93 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 	}
 
 	if symCfg == nil {
-		return fmt.Errorf("未找到交易对配置: %s:%s", exchange, symbol)
+		err := fmt.Errorf("未找到交易对配置: %s:%s", exchange, symbol)
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStartFailed,
+				Data: map[string]interface{}{
+					"exchange": exchange,
+					"symbol":   symbol,
+					"error":    err.Error(),
+					"message":  err.Error(),
+				},
+			})
+		}
+		return err
+	}
+
+	// 持久化启用状态：确保重启后仍保持启动
+	if err := web.SetSymbolEnabled(exchange, symbol, true); err != nil {
+		wrapped := fmt.Errorf("更新配置失败: %w", err)
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStartFailed,
+				Data: map[string]interface{}{
+					"exchange": exchange,
+					"symbol":   symbol,
+					"error":    wrapped.Error(),
+					"message":  wrapped.Error(),
+				},
+			})
+		}
+		return wrapped
+	}
+
+	// 重新获取最新配置（保存时会 normalize，确保使用落盘后的最新值启动）
+	cfg, err = web.GetLatestConfig()
+	if err != nil {
+		logger.Warn("⚠️ 获取最新配置失败，使用启动时的配置: %v", err)
+		cfg = a.cfg
+	}
+	symCfg = nil
+	for i := range cfg.Trading.Symbols {
+		if strings.EqualFold(cfg.Trading.Symbols[i].Exchange, exchange) &&
+			strings.EqualFold(cfg.Trading.Symbols[i].Symbol, symbol) {
+			symCfg = &cfg.Trading.Symbols[i]
+			break
+		}
+	}
+	if symCfg == nil {
+		err := fmt.Errorf("未找到交易对配置: %s:%s", exchange, symbol)
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStartFailed,
+				Data: map[string]interface{}{
+					"exchange": exchange,
+					"symbol":   symbol,
+					"error":    err.Error(),
+					"message":  err.Error(),
+				},
+			})
+		}
+		return err
 	}
 
 	// 启动 SymbolRuntime（使用最新配置）
 	rt, err := startSymbolRuntime(a.ctx, cfg, *symCfg, a.eventBus, a.storageService, a.distributedLock)
 	if err != nil {
-		return fmt.Errorf("启动失败: %w", err)
+		wrapped := fmt.Errorf("启动失败: %w", err)
+		hint := ""
+		// 常见的“无法启动交易”原因提示（不影响主流程）
+		if strings.Contains(wrapped.Error(), "每笔净利润为负或为零") {
+			hint = "建议：增加 price_interval（价格间隔）或在配置中设置更低且准确的 fee_rate（手续费率）"
+		}
+		if a.eventBus != nil {
+			data := map[string]interface{}{
+				"exchange": exchange,
+				"symbol":   symbol,
+				"error":    wrapped.Error(),
+				"message":  wrapped.Error(),
+			}
+			if hint != "" {
+				data["hint"] = hint
+			}
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStartFailed,
+				Data: data,
+			})
+		}
+		return wrapped
 	}
 
 	// 添加到管理器
@@ -356,13 +454,52 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 	}
 
 	logger.Info("✅ [%s:%s] 交易已启动", exchange, symbol)
+	if a.eventBus != nil {
+		a.eventBus.Publish(&event.Event{
+			Type: event.EventTypeTradingStarted,
+			Data: map[string]interface{}{
+				"exchange": exchange,
+				"symbol":   symbol,
+				"message":  fmt.Sprintf("交易已启动: %s:%s", exchange, symbol),
+			},
+		})
+	}
 	return nil
 }
 
 func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 	rt, ok := a.manager.Get(exchange, symbol)
 	if !ok {
-		return fmt.Errorf("交易对 %s:%s 未运行", exchange, symbol)
+		err := fmt.Errorf("交易对 %s:%s 未运行", exchange, symbol)
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStopFailed,
+				Data: map[string]interface{}{
+					"exchange": exchange,
+					"symbol":   symbol,
+					"error":    err.Error(),
+					"message":  err.Error(),
+				},
+			})
+		}
+		return err
+	}
+
+	// 持久化停用状态：确保重启后不会自动再启动
+	if err := web.SetSymbolEnabled(exchange, symbol, false); err != nil {
+		wrapped := fmt.Errorf("更新配置失败: %w", err)
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStopFailed,
+				Data: map[string]interface{}{
+					"exchange": exchange,
+					"symbol":   symbol,
+					"error":    wrapped.Error(),
+					"message":  wrapped.Error(),
+				},
+			})
+		}
+		return wrapped
 	}
 
 	// 停止运行时
@@ -370,10 +507,20 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 		rt.Stop()
 	}
 
-	// 从管理器中移除（需要添加 Remove 方法）
-	// 暂时保留在管理器中，只是停止运行
+	// 从管理器中移除，这样下次 StartSymbol 才不会误判为"已运行"
+	a.manager.Remove(exchange, symbol)
 
 	logger.Info("⏹️ [%s:%s] 交易已停止", exchange, symbol)
+	if a.eventBus != nil {
+		a.eventBus.Publish(&event.Event{
+			Type: event.EventTypeTradingStopped,
+			Data: map[string]interface{}{
+				"exchange": exchange,
+				"symbol":   symbol,
+				"message":  fmt.Sprintf("交易已停止: %s:%s", exchange, symbol),
+			},
+		})
+	}
 	return nil
 }
 
@@ -616,7 +763,8 @@ func main() {
 
 	// 事件总线 & 通知 & 存储
 	logger.Info("🔧 正在初始化事件总线...")
-	eventBus := event.NewEventBus(1000)
+	// 增加缓冲区大小到5000，避免事件队列满
+	eventBus := event.NewEventBus(5000)
 	logger.Info("🔧 正在初始化通知服务...")
 	notifier := notify.NewNotificationService(cfg)
 
@@ -654,10 +802,10 @@ func main() {
 			taskService := service.NewTaskService(db)
 			aiService := service.NewAIService()
 			taskProcessor := processor.NewTaskProcessor(taskService, aiService)
-			
+
 			// 设置全局任务服务，供 GeminiClient 使用
 			ai.GlobalTaskService = taskService
-			
+
 			// 启动任务处理器
 			go taskProcessor.Start()
 			logger.Info("✅ AI 异步任务系统已启动")
@@ -680,7 +828,7 @@ func main() {
 			InfoMaxCount:     cfg.EventCenter.Retention.InfoMaxCount,
 		},
 	}
-	
+
 	var eventCenter *event.EventCenter
 	if db != nil {
 		eventCenter = event.NewEventCenter(db, eventBus, notifier, eventCenterConfig)
@@ -895,7 +1043,7 @@ func main() {
 		ctx:             ctx,
 		cfg:             cfg,
 		eventBus:        eventBus,
-		storageService: storageService,
+		storageService:  storageService,
 		distributedLock: distributedLock,
 	}
 	web.RegisterSymbolManager(symbolManagerAdapter)
@@ -905,6 +1053,10 @@ func main() {
 	if configComplete {
 		// 启动所有交易对
 		for _, symCfg := range cfg.Trading.Symbols {
+			if !symCfg.IsEnabled() {
+				logger.Info("⏭️ [%s:%s] 已禁用，跳过自动启动", symCfg.Exchange, symCfg.Symbol)
+				continue
+			}
 			rt, err := startSymbolRuntime(ctx, cfg, symCfg, eventBus, storageService, distributedLock)
 			if err != nil {
 				logger.Error("❌ [%s:%s] 启动失败: %v", symCfg.Exchange, symCfg.Symbol, err)
@@ -964,11 +1116,13 @@ func main() {
 						web.SetStatusProvider(st)
 						return
 					case <-ticker.C:
+						// 如果交易对已停止，不再更新状态
+						if !st.Running {
+							continue
+						}
+
 						if r.PriceMonitor != nil {
 							st.CurrentPrice = r.PriceMonitor.GetLastPrice()
-							if st.CurrentPrice > 0 {
-								st.Running = true
-							}
 						}
 						if r.RiskMonitor != nil {
 							st.RiskTriggered = r.RiskMonitor.IsTriggered()
@@ -989,7 +1143,7 @@ func main() {
 									todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 									// 转换为 UTC 时间进行数据库查询，确保时区一致
-									pnlSummary, err := storageService.GetStorage().GetPnLBySymbol(r.Config.Symbol, utils.ToUTC(todayStart), utils.ToUTC(now))
+									pnlSummary, err := storageService.GetStorage().GetPnLBySymbol(r.Config.Symbol, r.AccountID, utils.ToUTC(todayStart), utils.ToUTC(now))
 									if err == nil {
 										st.TotalPnL = pnlSummary.TotalPnL
 										st.TotalTrades = pnlSummary.TotalTrades
@@ -1089,6 +1243,13 @@ func main() {
 		})
 		logger.Info("✅ 资金数据源提供者已设置")
 
+		// 设置全局存储服务提供者（用于不带 symbol 参数的 API，如提现规则管理）
+		if storageService != nil {
+			storageAdapter := web.NewStorageServiceAdapter(storageService)
+			web.SetStorageServiceProvider(storageAdapter)
+			logger.Info("✅ 全局存储服务提供者已设置")
+		}
+
 		logger.Info("✅ 所有交易对已初始化，进入运行状态")
 	} else if webServer != nil {
 		// 配置不完整，只设置存储服务提供者
@@ -1103,7 +1264,7 @@ func main() {
 			web.SetSystemMetricsProvider(systemMetricsProvider)
 			logger.Info("✅ 系统监控数据提供者已设置")
 		}
-		
+
 		// 设置事件中心提供者
 		if db != nil {
 			web.SetEventProvider(db)

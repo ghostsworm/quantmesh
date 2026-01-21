@@ -32,6 +32,7 @@ type Trade struct {
 	BuyOrderID  int64
 	SellOrderID int64
 	Exchange    string
+	Account     string // 账户标识（如 API Key 的哈希或前缀）
 	Symbol      string
 	BuyPrice    float64
 	SellPrice   float64
@@ -89,7 +90,9 @@ type DailySystemMetrics struct {
 // ReconciliationHistory 对账历史记录
 type ReconciliationHistory struct {
 	ID               int64
+	Exchange         string
 	Symbol           string
+	Account          string // 账户标识
 	ReconcileTime    time.Time
 	LocalPosition    float64
 	ExchangePosition float64
@@ -193,4 +196,22 @@ type BasisStats struct {
 	StdDev     float64 `json:"std_dev"`     // 标准差
 	DataPoints int     `json:"data_points"` // 数据点数量
 	Hours      int     `json:"hours"`       // 统计时间范围（小时）
+}
+
+// ProfitWithdrawRule 自动提取规则（盈利管理）
+type ProfitWithdrawRule struct {
+	ID               string
+	AccountID         string
+	ExchangeID        string
+	StrategyID        string
+	Enabled           bool
+	TriggerAmount     float64
+	WithdrawRatio     float64
+	Frequency         string
+	Destination       string
+	WalletAddress     string
+	MinWithdrawAmount float64
+	MaxWithdrawAmount *float64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }

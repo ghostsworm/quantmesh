@@ -31,17 +31,17 @@ type Storage interface {
 	QueryOrders(limit, offset int, status string) ([]*Order, error)
 	QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error)
 	QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error)
-	GetStatisticsSummary() (*Statistics, error)
-	GetStatisticsSummaryByExchange(exchange string) (*Statistics, error)
-	QueryDailyStatisticsFromTrades(startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
-	QueryDailyStatisticsByExchange(exchange string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
+	GetStatisticsSummary(account string) (*Statistics, error)
+	GetStatisticsSummaryByExchange(exchange, account string) (*Statistics, error)
+	QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
+	QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	SaveReconciliationHistory(history *ReconciliationHistory) error
-	QueryReconciliationHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error)
-	GetLatestReconciliationHistory(symbol string) (*ReconciliationHistory, error)
-	GetReconciliationCount(symbol string) (int64, error)
-	GetPnLBySymbol(symbol string, startTime, endTime time.Time) (*PnLSummary, error)
-	GetPnLByTimeRange(startTime, endTime time.Time) ([]*PnLBySymbol, error)
-	GetActualProfitBySymbol(symbol string, beforeTime time.Time) (float64, error)
+	QueryReconciliationHistory(exchange, symbol, account string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error)
+	GetLatestReconciliationHistory(exchange, symbol, account string) (*ReconciliationHistory, error)
+	GetReconciliationCount(exchange, symbol, account string) (int64, error)
+	GetPnLBySymbol(symbol, account string, startTime, endTime time.Time) (*PnLSummary, error)
+	GetPnLByTimeRange(account string, startTime, endTime time.Time) ([]*PnLBySymbol, error)
+	GetActualProfitBySymbol(symbol, account string, beforeTime time.Time) (float64, error)
 	SaveRiskCheck(record *RiskCheckRecord) error
 	QueryRiskCheckHistory(startTime, endTime time.Time, limit int) ([]*RiskCheckHistory, error)
 	CleanupRiskCheckHistory(beforeTime time.Time) error
@@ -55,6 +55,12 @@ type Storage interface {
 	GetLatestBasis(symbol, exchange string) (*BasisData, error)
 	GetBasisHistory(symbol, exchange string, limit int) ([]*BasisData, error)
 	GetBasisStatistics(symbol, exchange string, hours int) (*BasisStats, error)
+
+	// 盈利管理：自动提取规则
+	ListProfitWithdrawRules(accountID string) ([]*ProfitWithdrawRule, error)
+	ReplaceProfitWithdrawRules(accountID string, rules []*ProfitWithdrawRule) error
+	UpsertProfitWithdrawRule(accountID string, rule *ProfitWithdrawRule) error
+	DeleteProfitWithdrawRule(accountID string, ruleID string) error
 	Close() error
 }
 
@@ -122,7 +128,7 @@ func (ss *StorageService) GetStorage() Storage {
 }
 
 // SaveReconciliationHistoryDirect 直接保存对账历史（用于 Reconciler）
-func (ss *StorageService) SaveReconciliationHistoryDirect(symbol string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
+func (ss *StorageService) SaveReconciliationHistoryDirect(exchange, symbol, account string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
 	activeBuyOrders, activeSellOrders int, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit float64) error {
 	if ss.storage == nil {
 		return nil
@@ -131,14 +137,16 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(symbol string, reconci
 	// 计算实际盈利（从 trades 表统计截止到对账时间的累计盈亏）
 	// 🔥 重要：先将 reconcileTime 转换为 UTC，因为数据库中的 created_at 是 UTC 时间
 	reconcileTimeUTC := utils.ToUTC(reconcileTime)
-	actualProfit, err := ss.storage.GetActualProfitBySymbol(symbol, reconcileTimeUTC)
+	actualProfit, err := ss.storage.GetActualProfitBySymbol(symbol, account, reconcileTimeUTC)
 	if err != nil {
 		logger.Warn("⚠️ 计算实际盈利失败: %v，使用 0 作为默认值", err)
 		actualProfit = 0
 	}
 
 	history := &ReconciliationHistory{
+		Exchange:         exchange,
 		Symbol:           symbol,
+		Account:          account,
 		ReconcileTime:    utils.ToUTC(reconcileTime),
 		LocalPosition:    localPosition,
 		ExchangePosition: exchangePosition,

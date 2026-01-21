@@ -46,6 +46,15 @@ export async function getSystemStatus(exchange?: string, symbol?: string): Promi
   return fetchWithAuth(url)
 }
 
+export interface SystemStatusesResponse {
+  statuses: SystemStatus[]
+}
+
+// 批量获取所有交易对状态（用于概览页一次拉取）
+export async function getSystemStatuses(): Promise<SystemStatusesResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/statuses`)
+}
+
 // Alias for backward compatibility
 export const getStatus = getSystemStatus
 
@@ -116,19 +125,18 @@ export async function getPositions(exchange?: string, symbol?: string): Promise<
   return fetchWithAuth(url)
 }
 
-// 旧的 PositionSummary 接口（用于其他API，保留以兼容）
-export interface PositionSummaryLegacy {
-  total_position: number
-  total_unrealized_pnl: number
+// positions/summary 返回的是“扁平”结构（非 {summary: ...} 包装）
+export interface PositionsSummary {
+  total_quantity: number
   total_value: number
   position_count: number
+  average_price: number
+  current_price: number
+  unrealized_pnl: number
+  pnl_percentage: number
 }
 
-export interface PositionsSummaryResponse {
-  summary: PositionSummaryLegacy
-}
-
-export async function getPositionsSummary(exchange?: string, symbol?: string): Promise<PositionsSummaryResponse> {
+export async function getPositionsSummary(exchange?: string, symbol?: string): Promise<PositionsSummary> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
@@ -222,11 +230,8 @@ export interface StatisticsSummary {
   max_loss: number
 }
 
-export interface StatisticsSummaryResponse {
-  summary: StatisticsSummary
-}
-
-export async function getStatistics(exchange?: string, symbol?: string): Promise<StatisticsSummaryResponse> {
+// /statistics 直接返回汇总字段（非 {summary: ...} 包装）
+export async function getStatistics(exchange?: string, symbol?: string): Promise<StatisticsSummary> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
@@ -245,7 +250,7 @@ export interface DailyStatistics {
 }
 
 export interface DailyStatisticsResponse {
-  daily_statistics: DailyStatistics[]
+  statistics: DailyStatistics[]
 }
 
 export async function getDailyStatistics(exchange?: string, symbol?: string): Promise<DailyStatisticsResponse> {
@@ -585,6 +590,7 @@ export async function getReconciliationStatus(): Promise<ReconciliationStatusRes
 
 export interface ReconciliationHistory {
   id: number
+  exchange?: string
   symbol: string
   reconcile_time: string | Date
   local_position: number
@@ -596,10 +602,13 @@ export interface ReconciliationHistory {
   total_buy_qty: number
   total_sell_qty: number
   estimated_profit: number
+  actual_profit?: number
   created_at: string | Date
 }
 
 export interface ReconciliationHistoryParams {
+  exchange?: string
+  symbol?: string
   limit?: number
   offset?: number
   start_time?: string
@@ -612,6 +621,8 @@ export interface ReconciliationHistoryResponse {
 
 export async function getReconciliationHistory(params?: ReconciliationHistoryParams): Promise<ReconciliationHistoryResponse> {
   const queryParams = new URLSearchParams()
+  if (params?.exchange) queryParams.append('exchange', params.exchange)
+  if (params?.symbol) queryParams.append('symbol', params.symbol)
   if (params?.limit) queryParams.append('limit', params.limit.toString())
   if (params?.offset) queryParams.append('offset', params.offset.toString())
   if (params?.start_time) queryParams.append('start_time', params.start_time)

@@ -36,6 +36,7 @@ type SymbolRuntime struct {
 	ExchangeAdapter      *positionExchangeAdapter
 	EventBus             *event.EventBus
 	StorageService       *storage.StorageService
+	AccountID            string // 账户标识
 	Stop                 func()
 }
 
@@ -78,6 +79,12 @@ func (sm *SymbolManager) List() []*SymbolRuntime {
 		list = append(list, rt)
 	}
 	return list
+}
+
+// Remove 从管理器中移除运行时
+func (sm *SymbolManager) Remove(exchangeName, symbol string) {
+	key := runtimeKey(exchangeName, symbol)
+	delete(sm.runtimes, key)
 }
 
 // StopAll 停止所有运行时（如退出时调用）
@@ -246,9 +253,22 @@ func startSymbolRuntime(
 	}
 	exchangeAdapter := &positionExchangeAdapter{exchange: ex}
 
+	// 生成账户标识（使用 API Key 的前 8 位）
+	accountID := ""
+	if exCfg, ok := baseCfg.Exchanges[symCfg.Exchange]; ok {
+		if len(exCfg.APIKey) > 8 {
+			accountID = exCfg.APIKey[:8]
+		} else {
+			accountID = exCfg.APIKey
+		}
+	}
+
 	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
 	if storageService != nil {
-		tradeStorageAdapter := &tradeStorageAdapter{storageService: storageService}
+		tradeStorageAdapter := &tradeStorageAdapter{
+			storageService: storageService,
+			accountID:      accountID,
+		}
 		superPositionManager.SetTradeStorage(tradeStorageAdapter)
 	}
 	// 设置事件总线（用于发送告警）
@@ -266,7 +286,11 @@ func startSymbolRuntime(
 		return riskMonitor.IsTriggered()
 	})
 	if storageService != nil {
-		reconciler.SetStorage(&reconciliationStorageAdapter{storageService: storageService})
+		reconciler.SetStorage(&reconciliationStorageAdapter{
+			storageService: storageService,
+			accountID:      accountID,
+			exchange:       symCfg.Exchange,
+		})
 	}
 
 	// 订单流
@@ -330,7 +354,7 @@ func startSymbolRuntime(
 	if storageService != nil {
 		if st := storageService.GetStorage(); st != nil {
 			restoreAdapter := &reconciliationRestoreAdapter{storage: st}
-			if err := superPositionManager.RestoreReconciliationStats(restoreAdapter, symCfg.Symbol); err != nil {
+			if err := superPositionManager.RestoreReconciliationStats(restoreAdapter, symCfg.Exchange, symCfg.Symbol); err != nil {
 				logger.Warn("⚠️ [%s] 恢复对账统计失败: %v", symCfg.Symbol, err)
 			}
 		}
@@ -599,6 +623,7 @@ func startSymbolRuntime(
 		ExchangeAdapter:      exchangeAdapter,
 		EventBus:             eventBus,
 		StorageService:       storageService,
+		AccountID:            accountID,
 		Stop:                 stopFn,
 	}, nil
 }

@@ -435,6 +435,104 @@ func getStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+// StatusesResponse 批量状态响应
+type StatusesResponse struct {
+	Statuses []SystemStatus `json:"statuses"`
+}
+
+// getStatuses 批量返回所有交易对的系统状态（用于概览页一次拉取）
+// GET /api/statuses
+func getStatuses(c *gin.Context) {
+	// 使用 map 做去重，key 为 exchange:symbol（小写）
+	statusMap := make(map[string]SystemStatus)
+
+	// 1) 先从配置中构造“未运行”的默认状态，确保列表完整
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			for _, sym := range cfg.Trading.Symbols {
+				if sym.Symbol == "" {
+					continue
+				}
+				ex := sym.Exchange
+				if ex == "" {
+					ex = cfg.App.CurrentExchange
+				}
+				if ex == "" {
+					continue
+				}
+				key := strings.ToLower(fmt.Sprintf("%s:%s", ex, sym.Symbol))
+				if _, exists := statusMap[key]; !exists {
+					statusMap[key] = SystemStatus{
+						Running:       false,
+						Exchange:      strings.ToLower(ex),
+						Symbol:        sym.Symbol,
+						CurrentPrice:  0,
+						TotalPnL:      0,
+						TotalTrades:   0,
+						RiskTriggered: false,
+						Uptime:        0,
+					}
+				}
+			}
+
+			// 兼容旧的单交易对配置
+			if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" && cfg.App.CurrentExchange != "" {
+				key := strings.ToLower(fmt.Sprintf("%s:%s", cfg.App.CurrentExchange, cfg.Trading.Symbol))
+				if _, exists := statusMap[key]; !exists {
+					statusMap[key] = SystemStatus{
+						Running:       false,
+						Exchange:      strings.ToLower(cfg.App.CurrentExchange),
+						Symbol:        cfg.Trading.Symbol,
+						CurrentPrice:  0,
+						TotalPnL:      0,
+						TotalTrades:   0,
+						RiskTriggered: false,
+						Uptime:        0,
+					}
+				}
+			}
+		}
+	}
+
+	// 2) 再用运行中状态覆盖（复制一份，避免并发读写数据竞争）
+	statusMu.RLock()
+	for _, st := range statusBySymbol {
+		if st == nil {
+			continue
+		}
+		copySt := *st
+		copySt.Exchange = strings.ToLower(copySt.Exchange)
+		key := strings.ToLower(fmt.Sprintf("%s:%s", copySt.Exchange, copySt.Symbol))
+		statusMap[key] = copySt
+	}
+	statusMu.RUnlock()
+
+	// 3) 向后兼容：如果没有多交易对数据，使用旧的单交易对状态
+	if len(statusMap) == 0 && currentStatus != nil {
+		statusMu.RLock()
+		copySt := *currentStatus
+		statusMu.RUnlock()
+		copySt.Exchange = strings.ToLower(copySt.Exchange)
+		key := strings.ToLower(fmt.Sprintf("%s:%s", copySt.Exchange, copySt.Symbol))
+		statusMap[key] = copySt
+	}
+
+	// 4) 转为 slice 并排序
+	statuses := make([]SystemStatus, 0, len(statusMap))
+	for _, st := range statusMap {
+		statuses = append(statuses, st)
+	}
+	sort.Slice(statuses, func(i, j int) bool {
+		if statuses[i].Exchange == statuses[j].Exchange {
+			return strings.ToLower(statuses[i].Symbol) < strings.ToLower(statuses[j].Symbol)
+		}
+		return statuses[i].Exchange < statuses[j].Exchange
+	})
+
+	c.JSON(http.StatusOK, StatusesResponse{Statuses: statuses})
+}
+
 // SymbolItem 用于返回可用的交易所/交易对列表
 type SymbolItem struct {
 	Exchange     string  `json:"exchange"`
@@ -1089,9 +1187,14 @@ func NewStorageServiceAdapter(service *storage.StorageService) StorageServicePro
 // GetStorage 获取存储接口
 func (a *storageServiceAdapter) GetStorage() storage.Storage {
 	if a.service == nil {
+		logger.Warn("⚠️ storageServiceAdapter.GetStorage: service 为 nil")
 		return nil
 	}
-	return a.service.GetStorage()
+	st := a.service.GetStorage()
+	if st == nil {
+		logger.Warn("⚠️ storageServiceAdapter.GetStorage: service.GetStorage() 返回 nil，storage.enabled 可能为 false 或初始化失败")
+	}
+	return st
 }
 
 // getStatistics 获取统计数据
@@ -1119,8 +1222,11 @@ func getStatistics(c *gin.Context) {
 		return
 	}
 
+	// 获取当前账户标识
+	accountID := GetCurrentAccountID()
+
 	// 从数据库获取统计汇总
-	summary, err := storage.GetStatisticsSummary()
+	summary, err := storage.GetStatisticsSummary(accountID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -1198,7 +1304,8 @@ func getDailyStatistics(c *gin.Context) {
 
 	// 3. 从 trades 表查询所有日期（包含缺失的日期和盈利/亏损交易数）
 	tradesStatsMap := make(map[string]*storage.DailyStatisticsWithTradeCount)
-	tradesStats, err2 := st.QueryDailyStatisticsFromTrades(startDate, endDate)
+	accountID := GetCurrentAccountID()
+	tradesStats, err2 := st.QueryDailyStatisticsFromTrades(accountID, startDate, endDate)
 	if err2 == nil {
 		for _, tradeStat := range tradesStats {
 			dateKey := tradeStat.Date.Format("2006-01-02")
@@ -2186,6 +2293,7 @@ type ReconciliationStatus struct {
 // ReconciliationHistoryInfo 对账历史信息
 type ReconciliationHistoryInfo struct {
 	ID               int64     `json:"id"`
+	Exchange         string    `json:"exchange"`
 	Symbol           string    `json:"symbol"`
 	ReconcileTime    time.Time `json:"reconcile_time"`
 	LocalPosition    float64   `json:"local_position"`
@@ -2247,7 +2355,8 @@ func getReconciliationStatus(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
 		// 查询截止到现在的累计实际盈利
-		actualProfit, _ = storageProv.GetStorage().GetActualProfitBySymbol(symbol, time.Now().UTC())
+		accountID := GetCurrentAccountID()
+		actualProfit, _ = storageProv.GetStorage().GetActualProfitBySymbol(symbol, accountID, time.Now().UTC())
 	}
 
 	status := ReconciliationStatus{
@@ -2279,6 +2388,7 @@ func getReconciliationHistory(c *gin.Context) {
 	}
 
 	// 解析参数
+	exchangeName := c.Query("exchange")
 	symbol := c.Query("symbol")
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
@@ -2319,8 +2429,11 @@ func getReconciliationHistory(c *gin.Context) {
 		offset = o
 	}
 
+	// 获取当前账户标识
+	accountID := GetCurrentAccountID()
+
 	// 查询对账历史
-	histories, err := storage.QueryReconciliationHistory(symbol, startTime, endTime, limit, offset)
+	histories, err := storage.QueryReconciliationHistory(exchangeName, symbol, accountID, startTime, endTime, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -2331,6 +2444,7 @@ func getReconciliationHistory(c *gin.Context) {
 	for i, h := range histories {
 		result[i] = ReconciliationHistoryInfo{
 			ID:               h.ID,
+			Exchange:         h.Exchange,
 			Symbol:           h.Symbol,
 			ReconcileTime:    utils.ToUTC8(h.ReconcileTime),
 			LocalPosition:    h.LocalPosition,
@@ -2409,8 +2523,11 @@ func getPnLBySymbol(c *gin.Context) {
 		endTime = time.Now()
 	}
 
+	// 获取当前账户标识
+	accountID := GetCurrentAccountID()
+
 	// 查询盈亏数据
-	summary, err := storage.GetPnLBySymbol(symbol, startTime, endTime)
+	summary, err := storage.GetPnLBySymbol(symbol, accountID, startTime, endTime)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -2480,8 +2597,11 @@ func getPnLByTimeRange(c *gin.Context) {
 		endTime = time.Now()
 	}
 
+	// 获取当前账户标识
+	accountID := GetCurrentAccountID()
+
 	// 查询盈亏数据
-	results, err := storage.GetPnLByTimeRange(startTime, endTime)
+	results, err := storage.GetPnLByTimeRange(accountID, startTime, endTime)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -2563,8 +2683,11 @@ func getPnLByExchange(c *gin.Context) {
 		endTime = time.Now()
 	}
 
+	// 获取当前账户标识
+	accountID := GetCurrentAccountID()
+
 	// 查询所有币种的盈亏数据（现在包含 exchange 字段）
-	results, err := storage.GetPnLByTimeRange(startTime, endTime)
+	results, err := storage.GetPnLByTimeRange(accountID, startTime, endTime)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
