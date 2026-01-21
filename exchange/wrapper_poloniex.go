@@ -200,7 +200,7 @@ func (w *poloniexWrapper) StopOrderStream() error {
 
 // GetLatestPrice 获取最新价格
 func (w *poloniexWrapper) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	return w.adapter.GetLatestPrice(ctx)
+	return w.adapter.GetLatestPrice(ctx, symbol)
 }
 
 // StartPriceStream 启动价格流

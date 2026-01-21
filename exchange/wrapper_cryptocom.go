@@ -161,7 +161,7 @@ func (w *cryptocomWrapper) StopOrderStream() error {
 }
 
 func (w *cryptocomWrapper) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	return w.adapter.GetLatestPrice(ctx)
+	return w.adapter.GetLatestPrice(ctx, symbol)
 }
 
 func (w *cryptocomWrapper) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {

@@ -215,8 +215,20 @@ func (a *Adapter) StopOrderStream() error {
 }
 
 // GetLatestPrice 获取最新价格
-func (a *Adapter) GetLatestPrice(ctx context.Context) (float64, error) {
-	trades, err := a.client.GetTrades(ctx, a.symbol)
+func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	// 如果传入 symbol,转换格式并使用;否则使用默认 symbol
+	targetSymbol := a.symbol
+	priceScale := a.priceScale
+	if symbol != "" {
+		targetSymbol = convertSymbolToPhemex(symbol)
+		// 获取目标交易对的价格缩放因子
+		product, err := a.client.GetProduct(context.Background(), targetSymbol)
+		if err == nil {
+			priceScale = product.PriceScale
+		}
+	}
+
+	trades, err := a.client.GetTrades(ctx, targetSymbol)
 	if err != nil {
 		return 0, err
 	}
@@ -225,7 +237,7 @@ func (a *Adapter) GetLatestPrice(ctx context.Context) (float64, error) {
 		return 0, fmt.Errorf("no trades found")
 	}
 
-	return UnscalePrice(trades[0].PriceEp, a.priceScale), nil
+	return UnscalePrice(trades[0].PriceEp, priceScale), nil
 }
 
 // StartKlineStream 启动 K线流

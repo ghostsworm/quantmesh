@@ -219,8 +219,19 @@ func (a *Adapter) StopOrderStream() error {
 }
 
 // GetLatestPrice 获取最新价格
-func (a *Adapter) GetLatestPrice(ctx context.Context) (float64, error) {
-	ticker, err := a.client.GetTicker(ctx, a.instrumentName)
+func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	// 如果传入 symbol,转换格式并使用;否则使用默认 instrumentName
+	targetInstrument := a.instrumentName
+	if symbol != "" {
+		// 解析交易对：BTCUSDT -> BTC-PERPETUAL
+		currency := "BTC"
+		if strings.HasPrefix(symbol, "ETH") {
+			currency = "ETH"
+		}
+		targetInstrument = currency + "-PERPETUAL"
+	}
+
+	ticker, err := a.client.GetTicker(ctx, targetInstrument)
 	if err != nil {
 		return 0, err
 	}

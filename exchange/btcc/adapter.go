@@ -197,8 +197,14 @@ func (a *Adapter) StopOrderStream() error {
 }
 
 // GetLatestPrice 获取最新价格
-func (a *Adapter) GetLatestPrice(ctx context.Context) (float64, error) {
-	ticker, err := a.client.GetTicker(ctx, a.symbol)
+func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	// 如果传入 symbol,转换格式并使用;否则使用默认 symbol
+	targetSymbol := a.symbol
+	if symbol != "" {
+		targetSymbol = convertSymbolToBTCC(symbol)
+	}
+
+	ticker, err := a.client.GetTicker(ctx, targetSymbol)
 	if err != nil {
 		return 0, err
 	}
