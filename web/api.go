@@ -934,6 +934,8 @@ func getPositionsSummary(c *gin.Context) {
 			"current_price":  0,
 			"unrealized_pnl": 0,
 			"pnl_percentage": 0,
+			"actual_margin":  0,
+			"leverage":       1,
 		})
 		return
 	}
@@ -1030,14 +1032,26 @@ func getPositionsSummary(c *gin.Context) {
 		pnlPercentage = (unrealizedPnL / totalCost) * 100.0
 	}
 
+	// 计算实际资金占用（实际保证金 = 总持仓价值 / 杠杆倍数）
+	leverage := 1 // 默认1倍（无杠杆）
+	if pmProvider != nil {
+		leverage = pmProvider.GetLeverage()
+	}
+	actualMargin := 0.0
+	if leverage > 0 && totalValue > 0 {
+		actualMargin = totalValue / float64(leverage)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"total_quantity": totalQuantity,
-		"total_value":    totalValue,
-		"position_count": positionCount,
-		"average_price":  averagePrice,
-		"current_price":  currentPrice,
-		"unrealized_pnl": unrealizedPnL,
-		"pnl_percentage": pnlPercentage,
+		"total_quantity":  totalQuantity,
+		"total_value":     totalValue,
+		"position_count":  positionCount,
+		"average_price":   averagePrice,
+		"current_price":   currentPrice,
+		"unrealized_pnl":  unrealizedPnL,
+		"pnl_percentage":  pnlPercentage,
+		"actual_margin":   actualMargin, // 实际资金占用（实际保证金）
+		"leverage":        leverage,     // 杠杆倍数
 	})
 }
 
@@ -1800,6 +1814,7 @@ type PositionManagerProvider interface {
 	GetTotalBuyQty() float64
 	GetTotalSellQty() float64
 	GetPriceInterval() float64
+	GetLeverage() int // 获取杠杆倍数
 }
 
 // SlotInfo 槽位信息
@@ -1894,6 +1909,11 @@ func (a *positionManagerAdapter) GetTotalSellQty() float64 {
 // GetPriceInterval 获取价格间隔
 func (a *positionManagerAdapter) GetPriceInterval() float64 {
 	return a.manager.GetPriceInterval()
+}
+
+// GetLeverage 获取杠杆倍数
+func (a *positionManagerAdapter) GetLeverage() int {
+	return a.manager.GetLeverage()
 }
 
 // getSlots 获取所有槽位信息

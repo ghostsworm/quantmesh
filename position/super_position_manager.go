@@ -1616,6 +1616,81 @@ func (spm *SuperPositionManager) GetAnchorPrice() float64 {
 	return spm.anchorPrice
 }
 
+// GetLeverage 获取杠杆倍数（用于计算实际资金占用）
+func (spm *SuperPositionManager) GetLeverage() int {
+	leverage := 1 // 默认1倍（无杠杆）
+	ctx := context.Background()
+	
+	// 先尝试从账户信息中的持仓获取杠杆倍数
+	if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
+		accountValue := reflect.ValueOf(accountResult)
+		if accountValue.Kind() == reflect.Ptr {
+			accountValue = accountValue.Elem()
+		}
+		// 尝试从 Account.Positions 字段获取持仓信息
+		if positionsField := accountValue.FieldByName("Positions"); positionsField.IsValid() && positionsField.CanInterface() {
+			positionsValue := reflect.ValueOf(positionsField.Interface())
+			if positionsValue.Kind() == reflect.Slice {
+				for i := 0; i < positionsValue.Len(); i++ {
+					posValue := positionsValue.Index(i)
+					if posValue.Kind() == reflect.Ptr {
+						posValue = posValue.Elem()
+					} else if posValue.Kind() == reflect.Interface {
+						posValue = posValue.Elem()
+					}
+					// 检查 Symbol 是否匹配
+					if symbolField := posValue.FieldByName("Symbol"); symbolField.IsValid() && symbolField.CanInterface() {
+						if symbol, ok := symbolField.Interface().(string); ok && symbol == spm.config.Trading.Symbol {
+							// 尝试获取 Leverage 字段
+							if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+								if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+									leverage = lev
+									break
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		// 如果从持仓中获取不到，尝试从账户级别的杠杆字段获取
+		if leverage == 1 {
+			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
+				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+					leverage = lev
+				}
+			}
+		}
+	}
+	
+	// 如果从账户中获取不到，尝试从 GetPositions 获取
+	if leverage == 1 {
+		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
+			// 使用反射处理不同类型的持仓信息
+			positionsValue := reflect.ValueOf(positionsInterface)
+			if positionsValue.Kind() == reflect.Slice {
+				for i := 0; i < positionsValue.Len(); i++ {
+					posValue := positionsValue.Index(i)
+					if posValue.Kind() == reflect.Ptr {
+						posValue = posValue.Elem()
+					} else if posValue.Kind() == reflect.Interface {
+						posValue = posValue.Elem()
+					}
+					// 尝试获取 Leverage 字段
+					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+							leverage = lev
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return leverage
+}
+
 // RestoreReconciliationStats 从数据库恢复对账统计值
 // storage 是对账存储接口，exchange/symbol 用于精确定位历史记录
 func (spm *SuperPositionManager) RestoreReconciliationStats(storage ReconciliationStorage, exchange, symbol string) error {

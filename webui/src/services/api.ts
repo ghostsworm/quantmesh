@@ -110,6 +110,8 @@ export interface PositionSummary {
   current_price: number
   unrealized_pnl: number
   pnl_percentage: number
+  actual_margin: number  // 实际资金占用（实际保证金）
+  leverage: number       // 杠杆倍数
   positions: PositionInfo[]
 }
 
