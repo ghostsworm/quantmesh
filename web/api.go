@@ -718,6 +718,8 @@ type PositionSummary struct {
 	CurrentPrice  float64        `json:"current_price"`  // 当前市场价格
 	UnrealizedPnL float64        `json:"unrealized_pnl"` // 未实现盈亏
 	PnlPercentage float64        `json:"pnl_percentage"` // 盈亏百分比
+	ActualMargin  float64        `json:"actual_margin"`  // 实际资金占用（实际保证金）
+	Leverage      int            `json:"leverage"`       // 杠杆倍数
 	Positions     []PositionInfo `json:"positions"`      // 持仓列表
 }
 
@@ -896,6 +898,16 @@ func getPositions(c *gin.Context) {
 		pnlPercentage = (totalUnrealizedPnL / totalCost) * 100.0
 	}
 
+	// 计算实际资金占用（实际保证金 = 总持仓价值 / 杠杆倍数）
+	leverage := 1 // 默认1倍（无杠杆）
+	if pmProvider != nil {
+		leverage = pmProvider.GetLeverage()
+	}
+	actualMargin := 0.0
+	if leverage > 0 && totalValue > 0 {
+		actualMargin = totalValue / float64(leverage)
+	}
+
 	summary := PositionSummary{
 		TotalQuantity: totalQuantity,
 		TotalValue:    totalValue,
@@ -904,6 +916,8 @@ func getPositions(c *gin.Context) {
 		CurrentPrice:  currentPrice,
 		UnrealizedPnL: totalUnrealizedPnL,
 		PnlPercentage: pnlPercentage,
+		ActualMargin:  actualMargin,
+		Leverage:      leverage,
 		Positions:     positions,
 	}
 
