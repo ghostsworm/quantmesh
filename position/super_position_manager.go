@@ -1972,40 +1972,77 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	// 0. 获取杠杆倍数（用于计算实际使用的保证金）
 	leverage := 1 // 默认1倍（无杠杆）
 	ctx := context.Background()
-	positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol)
-	if err == nil && positionsInterface != nil {
-		// 尝试从持仓信息中获取杠杆倍数
-		switch positions := positionsInterface.(type) {
-		case []interface{}:
-			for _, pos := range positions {
-				// 尝试使用反射获取 Leverage 字段
-				posValue := reflect.ValueOf(pos)
-				if posValue.Kind() == reflect.Ptr {
-					posValue = posValue.Elem()
+	
+	// 先尝试从账户信息中的持仓获取杠杆倍数（GetAccount 返回的持仓信息通常包含杠杆）
+	if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
+		accountValue := reflect.ValueOf(accountResult)
+		if accountValue.Kind() == reflect.Ptr {
+			accountValue = accountValue.Elem()
+		}
+		// 尝试从 Account.Positions 字段获取持仓信息
+		if positionsField := accountValue.FieldByName("Positions"); positionsField.IsValid() && positionsField.CanInterface() {
+			positionsValue := reflect.ValueOf(positionsField.Interface())
+			if positionsValue.Kind() == reflect.Slice {
+				for i := 0; i < positionsValue.Len(); i++ {
+					posValue := positionsValue.Index(i)
+					if posValue.Kind() == reflect.Ptr {
+						posValue = posValue.Elem()
+					} else if posValue.Kind() == reflect.Interface {
+						posValue = posValue.Elem()
+					}
+					// 检查 Symbol 是否匹配
+					if symbolField := posValue.FieldByName("Symbol"); symbolField.IsValid() && symbolField.CanInterface() {
+						if symbol, ok := symbolField.Interface().(string); ok && symbol == spm.config.Trading.Symbol {
+							// 尝试获取 Leverage 字段
+							if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+								if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+									leverage = lev
+									logger.Debug("🔍 [持仓恢复] 从账户持仓信息中获取到杠杆倍数: %dx", leverage)
+									break
+								}
+							}
+						}
+					}
 				}
-				if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
-					if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-						leverage = lev
-						break
+			}
+		}
+		// 如果从持仓中获取不到，尝试从账户级别的杠杆字段获取
+		if leverage == 1 {
+			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
+				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+					leverage = lev
+					logger.Debug("🔍 [持仓恢复] 从账户级别获取到杠杆倍数: %dx", leverage)
+				}
+			}
+		}
+	}
+	
+	// 如果从账户中获取不到，尝试从 GetPositions 获取
+	if leverage == 1 {
+		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
+			// 使用反射处理不同类型的持仓信息
+			positionsValue := reflect.ValueOf(positionsInterface)
+			if positionsValue.Kind() == reflect.Slice {
+				for i := 0; i < positionsValue.Len(); i++ {
+					posValue := positionsValue.Index(i)
+					if posValue.Kind() == reflect.Ptr {
+						posValue = posValue.Elem()
+					} else if posValue.Kind() == reflect.Interface {
+						posValue = posValue.Elem()
+					}
+					// 尝试获取 Leverage 字段
+					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+							leverage = lev
+							logger.Debug("🔍 [持仓恢复] 从 GetPositions 获取到杠杆倍数: %dx", leverage)
+							break
+						}
 					}
 				}
 			}
 		}
 	}
-	// 如果从持仓中获取不到，尝试从账户信息中获取
-	if leverage == 1 {
-		if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
-			accountValue := reflect.ValueOf(accountResult)
-			if accountValue.Kind() == reflect.Ptr {
-				accountValue = accountValue.Elem()
-			}
-			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
-				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-					leverage = lev
-				}
-			}
-		}
-	}
+	
 	logger.Info("🔍 [持仓恢复] 检测到杠杆倍数: %dx，将使用实际保证金（仓位价值 / 杠杆）计算已用资金", leverage)
 
 	// 1. 计算每单的理论数量（基于当前价格）
