@@ -160,14 +160,14 @@ const Positions: React.FC = () => {
               <Stat>
                 <StatLabel>
                   实际资金占用
-                  {summary.leverage > 1 && (
+                  {summary.leverage && summary.leverage > 1 && (
                     <Text as="span" fontSize="xs" color="gray.500" ml={2}>
                       (杠杆 {summary.leverage}x)
                     </Text>
                   )}
                 </StatLabel>
-                <StatNumber>{summary.actual_margin.toFixed(2)}</StatNumber>
-                {summary.leverage > 1 && (
+                <StatNumber>{(summary.actual_margin || 0).toFixed(2)}</StatNumber>
+                {summary.leverage && summary.leverage > 1 && (
                   <Text fontSize="xs" color="gray.500" mt={1}>
                     仓位价值: {summary.total_value.toFixed(2)}
                   </Text>

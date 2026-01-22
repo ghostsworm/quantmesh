@@ -104,6 +104,16 @@ func formatWeChatWorkMessage(evt *event.Event) string {
 		title = "⚠️ 保证金不足告警"
 	case event.EventTypeAllocationExceeded:
 		title = "⚠️ 超出资金分配限制"
+	case event.EventTypeAllocationLimitChanged:
+		if mode, ok := evt.Data["mode"].(string); ok {
+			if mode == "emergency" {
+				title = "🚨 资金限额已提升（紧急模式）"
+			} else {
+				title = "✅ 资金限额已恢复（正常模式）"
+			}
+		} else {
+			title = "📊 资金限额变更"
+		}
 	default:
 		title = "📢 系统通知"
 	}

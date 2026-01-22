@@ -271,6 +271,10 @@ func (spm *SuperPositionManager) IsPaused() bool {
 // SetEventBus 设置事件总线
 func (spm *SuperPositionManager) SetEventBus(eventBus EventBus) {
 	spm.eventBus = eventBus
+	// 同时设置到 allocationManager
+	if spm.allocationManager != nil {
+		spm.allocationManager.SetEventBus(eventBus)
+	}
 }
 
 // SetTradeStorage 设置交易存储接口（用于保存交易记录）
@@ -873,6 +877,34 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
+	// 🔥 在下单前，先检查并调整资金限额（分级限额功能）
+	// 计算当前持仓层数和未实现盈亏
+	positionLayers := 0
+	unrealizedPnL := 0.0
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			positionLayers++
+			// 计算未实现盈亏
+			if currentPrice > 0 && slot.Price > 0 {
+				unrealizedPnL += (currentPrice - slot.Price) * slot.PositionQty
+			}
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	
+	// 调用分级限额检查（可能会自动切换到紧急限额或恢复正常限额）
+	spm.allocationManager.CheckAndAdjustLimit(
+		spm.exchangeName,
+		spm.config.Trading.Symbol,
+		currentPrice,
+		spm.anchorPrice,
+		positionLayers,
+		unrealizedPnL,
+	)
+	
 	// 执行下单前，检查资金分配
 	if len(ordersToPlace) > 0 {
 		// 获取账户余额（从交易所获取实际余额）

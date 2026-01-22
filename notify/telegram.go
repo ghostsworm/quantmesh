@@ -121,6 +121,19 @@ func formatTelegramMessage(evt *event.Event) string {
 	case event.EventTypeAllocationExceeded:
 		emoji = "🚫"
 		title = "超出资金分配限制"
+	case event.EventTypeAllocationLimitChanged:
+		if mode, ok := evt.Data["mode"].(string); ok {
+			if mode == "emergency" {
+				emoji = "🚨"
+				title = "资金限额已提升（紧急模式）"
+			} else {
+				emoji = "✅"
+				title = "资金限额已恢复（正常模式）"
+			}
+		} else {
+			emoji = "📊"
+			title = "资金限额变更"
+		}
 	default:
 		emoji = "ℹ️"
 		title = "系统通知"

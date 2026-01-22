@@ -32,8 +32,9 @@ const (
 	EventTypeRiskRecovered      EventType = "risk_recovered"
 	EventTypeStopLoss           EventType = "stop_loss"
 	EventTypeTakeProfit         EventType = "take_profit"
-	EventTypeMarginInsufficient EventType = "margin_insufficient" // 保证金不足
-	EventTypeAllocationExceeded EventType = "allocation_exceeded" // 超出资金分配限制
+	EventTypeMarginInsufficient    EventType = "margin_insufficient"      // 保证金不足
+	EventTypeAllocationExceeded    EventType = "allocation_exceeded"     // 超出资金分配限制
+	EventTypeAllocationLimitChanged EventType = "allocation_limit_changed" // 资金限额变更（正常/紧急模式切换）
 
 	// 网络相关事件
 	EventTypeWebSocketDisconnected EventType = "websocket_disconnected" // WebSocket 断连
@@ -156,7 +157,7 @@ func GetEventSource(eventType EventType) EventSource {
 		return SourceExchange
 
 	case EventTypeRiskTriggered, EventTypeRiskRecovered, EventTypeStopLoss, EventTypeTakeProfit,
-		EventTypeMarginInsufficient, EventTypeAllocationExceeded:
+		EventTypeMarginInsufficient, EventTypeAllocationExceeded, EventTypeAllocationLimitChanged:
 		return SourceRisk
 
 	case EventTypeWebSocketDisconnected, EventTypeWebSocketReconnected,
@@ -201,9 +202,10 @@ func GetEventTitle(eventType EventType) string {
 		EventTypeRiskTriggered:      "风控触发",
 		EventTypeRiskRecovered:      "风控恢复",
 		EventTypeStopLoss:           "止损触发",
-		EventTypeTakeProfit:         "止盈触发",
-		EventTypeMarginInsufficient: "保证金不足",
-		EventTypeAllocationExceeded: "资金分配超限",
+		EventTypeTakeProfit:            "止盈触发",
+		EventTypeMarginInsufficient:    "保证金不足",
+		EventTypeAllocationExceeded:    "资金分配超限",
+		EventTypeAllocationLimitChanged: "资金限额变更",
 
 		// 网络相关
 		EventTypeWebSocketDisconnected: "WebSocket 断开连接",
@@ -296,9 +298,10 @@ func (eb *EventBus) startDedupCleanup() {
 func (eb *EventBus) shouldDeduplicate(eventType EventType) bool {
 	// 需要去重的事件类型（频繁触发且重复无意义的）
 	dedupTypes := map[EventType]bool{
-		EventTypeAllocationExceeded:  true, // 资金分配超限
-		EventTypeMarginInsufficient:  true, // 保证金不足
-		EventTypeAPIRateLimited:      true, // API 限流
+		EventTypeAllocationExceeded:     true, // 资金分配超限
+		EventTypeAllocationLimitChanged: false, // 资金限额变更（不去重，每次都通知）
+		EventTypeMarginInsufficient:     true, // 保证金不足
+		EventTypeAPIRateLimited:         true, // API 限流
 		EventTypeAPIRequestFailed:    true, // API 请求失败
 		EventTypePrecisionAdjustment: true, // 精度调整
 	}

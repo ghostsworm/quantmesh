@@ -114,6 +114,19 @@ func formatSlackMessage(evt *event.Event) string {
 	case event.EventTypeAllocationExceeded:
 		title = "Allocation Exceeded"
 		emoji = ":warning:"
+	case event.EventTypeAllocationLimitChanged:
+		if mode, ok := evt.Data["mode"].(string); ok {
+			if mode == "emergency" {
+				title = "Allocation Limit Increased (Emergency Mode)"
+				emoji = ":rotating_light:"
+			} else {
+				title = "Allocation Limit Restored (Normal Mode)"
+				emoji = ":white_check_mark:"
+			}
+		} else {
+			title = "Allocation Limit Changed"
+			emoji = ":chart_with_upwards_trend:"
+		}
 	default:
 		title = "System Notification"
 		emoji = ":bell:"

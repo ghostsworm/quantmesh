@@ -641,8 +641,33 @@ type ExchangeConfig struct {
 type SymbolAllocation struct {
 	Exchange      string  `yaml:"exchange"`
 	Symbol        string  `yaml:"symbol"`
-	MaxAmountUSDT float64 `yaml:"max_amount_usdt"` // 固定金额限制
+	MaxAmountUSDT float64 `yaml:"max_amount_usdt"` // 固定金额限制（正常限额）
 	MaxPercentage float64 `yaml:"max_percentage"`  // 账户余额百分比限制
+	
+	// 分级限额配置
+	TieredLimits struct {
+		Enabled        bool    `yaml:"enabled"`         // 是否启用分级限额
+		EmergencyLimit float64 `yaml:"emergency_limit"` // 紧急限额（USDT）
+		
+		// 触发条件（满足任一条件即触发紧急限额）
+		Triggers struct {
+			PriceDropPercent  float64 `yaml:"price_drop_percent"`  // 价格下跌百分比（相对于锚点价格）
+			PositionLayers    int     `yaml:"position_layers"`     // 持仓层数达到此值
+			UnrealizedLossUSD float64 `yaml:"unrealized_loss_usd"` // 未实现亏损超过此值（USDT）
+		} `yaml:"triggers"`
+		
+		// 恢复条件（满足所有条件才恢复正常限额）
+		Recovery struct {
+			PriceRecoverPercent float64 `yaml:"price_recover_percent"` // 价格恢复到此百分比以上
+			CooldownSeconds     int     `yaml:"cooldown_seconds"`      // 冷却时间（秒）
+		} `yaml:"recovery"`
+		
+		// 通知配置
+		Notification struct {
+			OnTrigger bool `yaml:"on_trigger"` // 触发紧急限额时通知
+			OnRecovery bool `yaml:"on_recovery"` // 恢复正常限额时通知
+		} `yaml:"notification"`
+	} `yaml:"tiered_limits"`
 }
 
 // LoadConfig 加载配置文件
