@@ -305,16 +305,22 @@ func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
 	// 如果从账户中获取不到，尝试从持仓中获取
 	if leverage == 1 {
 		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
-			switch positions := positionsInterface.(type) {
-			case []interface{}:
-				for _, pos := range positions {
-					posValue := reflect.ValueOf(pos)
+			// 使用反射处理不同类型的持仓信息
+			positionsValue := reflect.ValueOf(positionsInterface)
+			if positionsValue.Kind() == reflect.Slice {
+				for i := 0; i < positionsValue.Len(); i++ {
+					posValue := positionsValue.Index(i)
 					if posValue.Kind() == reflect.Ptr {
 						posValue = posValue.Elem()
+					} else if posValue.Kind() == reflect.Interface {
+						posValue = posValue.Elem()
 					}
+					
+					// 尝试获取 Leverage 字段
 					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
 						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
 							leverage = lev
+							logger.Debug("🔍 [杠杆检测] 从持仓信息中获取到杠杆倍数: %dx", leverage)
 							break
 						}
 					}
