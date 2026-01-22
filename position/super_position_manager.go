@@ -278,6 +278,55 @@ func (spm *SuperPositionManager) SetTradeStorage(storage TradeStorage) {
 	spm.tradeStorage = storage
 }
 
+// getActualMargin 获取实际使用的保证金（考虑杠杆）
+// 对于有杠杆的交易，实际保证金 = 订单价值 / 杠杆倍数
+func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
+	if orderValue <= 0 {
+		return 0
+	}
+
+	// 获取杠杆倍数
+	leverage := 1 // 默认1倍（无杠杆）
+	ctx := context.Background()
+
+	// 先尝试从账户信息中获取
+	if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
+		accountValue := reflect.ValueOf(accountResult)
+		if accountValue.Kind() == reflect.Ptr {
+			accountValue = accountValue.Elem()
+		}
+		if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
+			if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+				leverage = lev
+			}
+		}
+	}
+
+	// 如果从账户中获取不到，尝试从持仓中获取
+	if leverage == 1 {
+		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
+			switch positions := positionsInterface.(type) {
+			case []interface{}:
+				for _, pos := range positions {
+					posValue := reflect.ValueOf(pos)
+					if posValue.Kind() == reflect.Ptr {
+						posValue = posValue.Elem()
+					}
+					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+							leverage = lev
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 计算实际保证金
+	return orderValue / float64(leverage)
+}
+
 // SetTrendDetector 设置趋势检测器
 func (spm *SuperPositionManager) SetTrendDetector(td ITrendDetector) {
 	spm.mu.Lock()
@@ -822,9 +871,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	if len(ordersToPlace) > 0 {
 		// 获取账户余额（从交易所获取实际余额）
 		var accountBalance float64 = 0
+		var accountResult interface{} = nil
+		ctx := context.Background()
 		if spm.exchange != nil {
-			ctx := context.Background()
-			accountResult, err := spm.exchange.GetAccount(ctx)
+			var err error
+			accountResult, err = spm.exchange.GetAccount(ctx)
 			if err == nil && accountResult != nil {
 				// 使用反射获取 AvailableBalance 字段
 				// 注意：不同交易所可能返回不同的类型，使用反射统一处理
@@ -845,28 +896,68 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			}
 		}
 
+		// 获取杠杆倍数（用于计算实际使用的保证金）
+		leverage := 1 // 默认1倍（无杠杆）
+		if accountResult != nil {
+			accountValue := reflect.ValueOf(accountResult)
+			if accountValue.Kind() == reflect.Ptr {
+				accountValue = accountValue.Elem()
+			}
+			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
+				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+					leverage = lev
+				}
+			}
+		}
+		// 如果从账户中获取不到，尝试从持仓中获取
+		if leverage == 1 && spm.exchange != nil {
+			if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
+				switch positions := positionsInterface.(type) {
+				case []interface{}:
+					for _, pos := range positions {
+						posValue := reflect.ValueOf(pos)
+						if posValue.Kind() == reflect.Ptr {
+							posValue = posValue.Elem()
+						}
+						if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+							if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+								leverage = lev
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
 		// 过滤掉超出资金分配的订单
 		var validOrders []*OrderRequest
 		for _, req := range ordersToPlace {
-			orderAmount := req.Quantity * req.Price
+			orderValue := req.Quantity * req.Price // 订单名义金额（仓位价值）
+			// 对于有杠杆的交易，实际使用的保证金 = 订单价值 / 杠杆倍数
+			// 资金限额限制的是实际投入的资金，而不是仓位价值
+			actualMargin := orderValue / float64(leverage)
 			err := spm.allocationManager.CheckAndReserve(
 				spm.exchangeName,
 				spm.config.Trading.Symbol,
-				orderAmount,
+				actualMargin, // 使用实际保证金而不是订单价值
 				accountBalance,
 			)
 
 			if err != nil {
-				logger.Warn("⚠️ [%s:%s] [资金分配] %v", spm.exchangeName, spm.config.Trading.Symbol, err)
+				logger.Warn("⚠️ [%s:%s] [资金分配] %v (订单价值: %.2f USDT, 实际保证金: %.2f USDT, 杠杆: %dx)", 
+					spm.exchangeName, spm.config.Trading.Symbol, err, orderValue, actualMargin, leverage)
 				// 触发告警事件
 				if spm.eventBus != nil {
 					spm.eventBus.Publish(&event.Event{
 						Type: event.EventTypeAllocationExceeded,
 						Data: map[string]interface{}{
-							"exchange": spm.exchangeName,
-							"symbol":   spm.config.Trading.Symbol,
-							"error":    err.Error(),
-							"amount":   orderAmount,
+							"exchange":      spm.exchangeName,
+							"symbol":        spm.config.Trading.Symbol,
+							"error":         err.Error(),
+							"order_value":   orderValue,
+							"actual_margin": actualMargin,
+							"leverage":      leverage,
 						},
 					})
 				}
@@ -961,10 +1052,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					
 					// 🔥 释放预留的资金（只有买单需要释放，卖单不占用资金）
 					if side == "BUY" {
-						orderAmount := req.Quantity * req.Price
-						if orderAmount > 0 {
-							spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, orderAmount)
-							logger.Debug("💰 [资金释放] 订单提交失败，释放预留资金: %.2f USDT", orderAmount)
+						orderValue := req.Quantity * req.Price
+						actualMargin := spm.getActualMargin(orderValue)
+						if actualMargin > 0 {
+							spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
+							logger.Debug("💰 [资金释放] 订单提交失败，释放预留资金: %.2f USDT (订单价值: %.2f USDT)", actualMargin, orderValue)
 						}
 					}
 				}
@@ -1113,10 +1205,11 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.PostOnlyFailCount = 0
 				
 				// 🔥 释放资金：买单成交后，资金已转换为持仓，释放预留的资金
-				orderAmount := slot.OrderPrice * update.ExecutedQty
-				if orderAmount > 0 {
-					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, orderAmount)
-					logger.Debug("💰 [资金释放] 买单成交，释放资金: %.2f USDT", orderAmount)
+				orderValue := slot.OrderPrice * update.ExecutedQty
+				actualMargin := spm.getActualMargin(orderValue)
+				if actualMargin > 0 {
+					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
+					logger.Debug("💰 [资金释放] 买单成交，释放资金: %.2f USDT (订单价值: %.2f USDT)", actualMargin, orderValue)
 				}
 				
 				logger.Info("✅ [买单成交] 价格: %s, 持仓: %.4f, 槽位状态: %s -> %s, 订单状态: %s -> %s, SlotStatus: FREE",
@@ -1199,15 +1292,13 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				
 				// 🔥 释放资金：卖单成交后，资金已收回，释放预留的资金（卖单不需要预留资金，但为了统一处理也释放）
 				// 注意：卖单是平仓，不占用资金，但为了保持一致性，这里也处理
-				orderAmount := slot.OrderPrice * update.ExecutedQty
-				if orderAmount > 0 {
-					// 卖单成交后，持仓减少，对应的买入资金应该被释放
-					// 使用槽位价格（买入价）计算释放金额
-					releaseAmount := price * deltaQty
-					if releaseAmount > 0 {
-						spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, releaseAmount)
-						logger.Debug("💰 [资金释放] 卖单成交，释放资金: %.2f USDT (持仓减少: %.4f)", releaseAmount, deltaQty)
-					}
+				// 卖单成交后，持仓减少，对应的买入资金应该被释放
+				// 使用槽位价格（买入价）计算释放金额
+				releaseValue := price * deltaQty
+				actualMargin := spm.getActualMargin(releaseValue)
+				if actualMargin > 0 {
+					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
+					logger.Debug("💰 [资金释放] 卖单成交，释放资金: %.2f USDT (持仓价值: %.2f USDT, 持仓减少: %.4f)", actualMargin, releaseValue, deltaQty)
 				}
 				
 				logger.Info("✅ [卖单成交] 价格: %s, 剩余持仓: %.4f, 槽位状态: %s, 订单状态: %s, SlotStatus: FREE",
@@ -1227,20 +1318,24 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 		if side == "BUY" && slot.OrderPrice > 0 {
 			// 对于买单，如果未成交或部分成交，释放未成交部分的资金
 			// 使用配置的订单金额作为参考（因为每个槽位的订单金额是固定的）
-			orderAmount := spm.config.Trading.OrderQuantity
+			orderValue := spm.config.Trading.OrderQuantity
 			if slot.OrderFilledQty > 0 {
 				// 部分成交：释放未成交部分的资金
-				filledAmount := slot.OrderPrice * slot.OrderFilledQty
-				unfilledAmount := orderAmount - filledAmount
-				if unfilledAmount > 0 {
-					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, unfilledAmount)
-					logger.Debug("💰 [资金释放] 买单部分成交后取消，释放未成交资金: %.2f USDT (已成交: %.4f, 订单金额: %.2f)", 
-						unfilledAmount, slot.OrderFilledQty, orderAmount)
+				filledValue := slot.OrderPrice * slot.OrderFilledQty
+				unfilledValue := orderValue - filledValue
+				actualMargin := spm.getActualMargin(unfilledValue)
+				if actualMargin > 0 {
+					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
+					logger.Debug("💰 [资金释放] 买单部分成交后取消，释放未成交资金: %.2f USDT (订单价值: %.2f USDT, 已成交: %.4f)", 
+						actualMargin, unfilledValue, slot.OrderFilledQty)
 				}
 			} else {
 				// 完全未成交：释放整个订单的预留资金
-				spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, orderAmount)
-				logger.Debug("💰 [资金释放] 买单未成交取消，释放资金: %.2f USDT", orderAmount)
+				actualMargin := spm.getActualMargin(orderValue)
+				if actualMargin > 0 {
+					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
+					logger.Debug("💰 [资金释放] 买单未成交取消，释放资金: %.2f USDT (订单价值: %.2f USDT)", actualMargin, orderValue)
+				}
 			}
 		}
 		// 卖单取消不需要释放资金，因为卖单是平仓，不占用资金
@@ -1868,6 +1963,45 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		return
 	}
 
+	// 0. 获取杠杆倍数（用于计算实际使用的保证金）
+	leverage := 1 // 默认1倍（无杠杆）
+	ctx := context.Background()
+	positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol)
+	if err == nil && positionsInterface != nil {
+		// 尝试从持仓信息中获取杠杆倍数
+		switch positions := positionsInterface.(type) {
+		case []interface{}:
+			for _, pos := range positions {
+				// 尝试使用反射获取 Leverage 字段
+				posValue := reflect.ValueOf(pos)
+				if posValue.Kind() == reflect.Ptr {
+					posValue = posValue.Elem()
+				}
+				if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+					if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+						leverage = lev
+						break
+					}
+				}
+			}
+		}
+	}
+	// 如果从持仓中获取不到，尝试从账户信息中获取
+	if leverage == 1 {
+		if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
+			accountValue := reflect.ValueOf(accountResult)
+			if accountValue.Kind() == reflect.Ptr {
+				accountValue = accountValue.Elem()
+			}
+			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
+				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+					leverage = lev
+				}
+			}
+		}
+	}
+	logger.Info("🔍 [持仓恢复] 检测到杠杆倍数: %dx，将使用实际保证金（仓位价值 / 杠杆）计算已用资金", leverage)
+
 	// 1. 计算每单的理论数量（基于当前价格）
 	// 使用锚点价格作为参考价格，使用从交易所获取的数量精度
 
@@ -1953,10 +2087,13 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		slot.mu.Unlock()
 
 		allocatedQty += slotQty
-		// 累加已用资金：使用锚点价格 * 实际数量来估算成本
+		// 累加已用资金：使用实际保证金（仓位价值 / 杠杆倍数）而不是仓位价值
 		// 锚点价格是市场当前价格，接近实际买入的平均价格
 		// 不能用卖出价格（sellPrice），因为卖出价格是目标价，会高估成本
-		totalUsedAmount += spm.anchorPrice * slotQty
+		// 对于有杠杆的交易，实际使用的保证金 = 仓位价值 / 杠杆倍数
+		positionValue := spm.anchorPrice * slotQty // 仓位价值
+		actualMargin := positionValue / float64(leverage) // 实际使用的保证金
+		totalUsedAmount += actualMargin
 
 		// 日志标记：是否在窗口内（只打印前10个和最后10个）
 		if i < 10 || i >= len(sellPrices)-10 {
@@ -1976,10 +2113,13 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	logger.Info("✅ [持仓恢复] 完成持仓恢复，总持仓: %.4f，已分配: %.4f，差异: %.4f",
 		totalPosition, allocatedQty, totalPosition-allocatedQty)
 
-	// 🔥 初始化已用资金：将恢复的持仓价值设置为已用资金
+	// 🔥 初始化已用资金：使用实际保证金（仓位价值 / 杠杆倍数）而不是仓位价值
+	// 这样资金限额限制的是实际投入的资金，而不是仓位价值
 	if totalUsedAmount > 0 {
 		spm.allocationManager.SetUsedAmount(spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
-		logger.Info("💰 [%s:%s] [资金分配] 恢复持仓，初始化已用资金: %.2f USDT (持仓价值)", spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
+		positionValue := spm.anchorPrice * totalPosition // 总仓位价值
+		logger.Info("💰 [%s:%s] [资金分配] 恢复持仓，初始化已用资金: %.2f USDT (实际保证金，杠杆 %dx，仓位价值: %.2f USDT)", 
+			spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount, leverage, positionValue)
 	}
 
 	// 8. 提示用户后续会自动下卖单
