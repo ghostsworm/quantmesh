@@ -68,7 +68,6 @@ const KlineChart: React.FC = () => {
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   
   const [interval, setInterval] = useState<Interval>('1m')
-  const [symbol, setSymbol] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
@@ -158,18 +157,6 @@ const KlineChart: React.FC = () => {
     }
   }, [])
 
-  // 获取当前交易币种
-  useEffect(() => {
-    const fetchSymbol = async () => {
-      try {
-        const response = await getStatus()
-        setSymbol(response.symbol || '')
-      } catch (err) {
-        console.error('获取交易币种失败:', err)
-      }
-    }
-    fetchSymbol()
-  }, [])
 
   // 转换K线数据格式（使用useMemo缓存）
   const transformKlineData = useCallback((klines: KlineData[]) => {
@@ -276,7 +263,12 @@ const KlineChart: React.FC = () => {
   }, [])
 
   // 加载K线数据（带取消支持和增量更新）
-  const loadKlines = useCallback(async (currentInterval: Interval, currentSymbol: string, isInitialLoad = false) => {
+  const loadKlines = useCallback(async (currentInterval: Interval, isInitialLoad = false) => {
+    // 如果没有交易对，不加载
+    if (!selectedSymbol) {
+      return
+    }
+
     // 取消之前的请求
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -323,11 +315,11 @@ const KlineChart: React.FC = () => {
         setLoading(false)
       }
     }
-  }, [transformKlineData, updateChartIncremental])
+  }, [selectedExchange, selectedSymbol, transformKlineData, updateChartIncremental])
 
   // 加载K线数据（带防抖）
   useEffect(() => {
-    if (!symbol || !candlestickSeriesRef.current || !volumeSeriesRef.current) return
+    if (!selectedSymbol || !candlestickSeriesRef.current || !volumeSeriesRef.current) return
 
     // 清除之前的防抖定时器
     if (debounceTimerRef.current) {
@@ -339,12 +331,12 @@ const KlineChart: React.FC = () => {
     cachedDataRef.current = null
 
     // 立即加载一次（初始加载）
-    loadKlines(interval, symbol, true)
+    loadKlines(interval, true)
 
     // 根据interval设置定时刷新
     const refreshInterval = getRefreshInterval(interval)
     const intervalId = setInterval(() => {
-      loadKlines(interval, symbol, false) // 后续更新不是初始加载
+      loadKlines(interval, false) // 后续更新不是初始加载
     }, refreshInterval)
 
     return () => {
@@ -357,7 +349,7 @@ const KlineChart: React.FC = () => {
         abortControllerRef.current.abort()
       }
     }
-  }, [symbol, interval, loadKlines])
+  }, [selectedSymbol, selectedExchange, interval, loadKlines])
 
   // 使用useMemo缓存按钮样式，避免重复计算
   const buttonStyle = useMemo(() => ({
@@ -391,7 +383,7 @@ const KlineChart: React.FC = () => {
   return (
     <div style={{ padding: '20px' }}>
       <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>K线图 {symbol && `- ${symbol}`}</h2>
+        <h2>K线图 {selectedSymbol && `- ${selectedSymbol}`}</h2>
         <div style={{ display: 'flex', gap: '10px' }}>
           {INTERVALS.map((iv) => (
             <IntervalButton

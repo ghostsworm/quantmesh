@@ -754,6 +754,7 @@ var (
 // ExchangeProvider 交易所提供者接口
 type ExchangeProvider interface {
 	GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*exchange.Candle, error)
+	GetFundingRate(ctx context.Context, symbol string) (float64, error)
 }
 
 // SetExchangeProvider 设置交易所提供者
@@ -2388,12 +2389,27 @@ func getReconciliationStatus(c *gin.Context) {
 		} else {
 			logger.Warn("⚠️ 查询累计买卖数量失败: symbol=%s, accountID=%s, error=%v", symbol, accountID, err)
 		}
+		
+		// 如果数据库查询返回0，尝试不限制account再查询一次（兼容旧数据）
+		if totalBuyQty == 0 && totalSellQty == 0 && accountID != "" {
+			buyQty2, sellQty2, err2 := storageProv.GetStorage().GetTotalBuySellQty(symbol, "")
+			if err2 == nil && (buyQty2 > 0 || sellQty2 > 0) {
+				totalBuyQty = buyQty2
+				totalSellQty = sellQty2
+				logger.Info("📊 [对账状态] 从数据库查询(无account限制): symbol=%s, 累计买入=%.4f, 累计卖出=%.4f", symbol, buyQty2, sellQty2)
+			}
+		}
 	}
 	
 	// 如果数据库中没有数据，尝试从内存获取（作为后备）
 	if totalBuyQty == 0 && totalSellQty == 0 {
-		totalBuyQty = pmProvider.GetTotalBuyQty()
-		totalSellQty = pmProvider.GetTotalSellQty()
+		memBuyQty := pmProvider.GetTotalBuyQty()
+		memSellQty := pmProvider.GetTotalSellQty()
+		if memBuyQty > 0 || memSellQty > 0 {
+			totalBuyQty = memBuyQty
+			totalSellQty = memSellQty
+			logger.Info("📊 [对账状态] 从内存获取: symbol=%s, 累计买入=%.4f, 累计卖出=%.4f", symbol, memBuyQty, memSellQty)
+		}
 	}
 	
 	estimatedProfit := totalSellQty * priceInterval
@@ -2461,8 +2477,8 @@ func getReconciliationHistory(c *gin.Context) {
 			return
 		}
 	} else {
-		// 默认最近7天
-		startTime = time.Now().AddDate(0, 0, -7)
+		// 默认最近30天，确保能查询到更多历史记录
+		startTime = time.Now().AddDate(0, 0, -30)
 	}
 
 	if endTimeStr != "" {
@@ -3385,6 +3401,7 @@ func getFundingRate(c *gin.Context) {
 	fundingProv := PickFundingProvider(c)
 	storageProv := PickStorageProvider(c)
 	status := pickStatus(c)
+	exchangeProv := pickExchangeProvider(c)
 	rates := make(map[string]interface{})
 
 	// 从监控服务获取当前资金费率
@@ -3402,17 +3419,16 @@ func getFundingRate(c *gin.Context) {
 	}
 
 	// 从数据库获取最新记录
+	exchangeName := ""
+	if status != nil {
+		exchangeName = status.Exchange
+	}
+
+	// 获取主流交易对的最新资金费率
+	symbols := []string{"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"}
 	if storageProv != nil {
 		storage := storageProv.GetStorage()
 		if storage != nil {
-			// 获取当前交易所名称
-			exchangeName := ""
-			if status != nil {
-				exchangeName = status.Exchange
-			}
-
-			// 获取主流交易对的最新资金费率
-			symbols := []string{"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"}
 			for _, symbol := range symbols {
 				latestRate, err := storage.GetLatestFundingRate(symbol, exchangeName)
 				if err == nil {
@@ -3427,6 +3443,38 @@ func getFundingRate(c *gin.Context) {
 				}
 			}
 		}
+	}
+
+	// 如果某些交易对没有数据，从交易所API实时获取缺失的数据
+	if exchangeProv != nil {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer cancel()
+
+		for _, symbol := range symbols {
+			// 如果该交易对已经有数据，跳过
+			if _, exists := rates[symbol]; exists {
+				continue
+			}
+
+			// 从交易所API实时获取
+			rate, err := exchangeProv.GetFundingRate(ctx, symbol)
+			if err == nil {
+				rates[symbol] = map[string]interface{}{
+					"rate":      rate,
+					"rate_pct":  rate * 100,
+					"timestamp": time.Now(),
+				}
+
+				// 同时保存到数据库（如果存储服务可用）
+				if storageProv != nil {
+					storage := storageProv.GetStorage()
+					if storage != nil {
+						_ = storage.SaveFundingRate(symbol, exchangeName, rate, time.Now().UTC())
+					}
+				}
+			}
+		}
+		cancel()
 	}
 
 	c.JSON(http.StatusOK, gin.H{"rates": rates})

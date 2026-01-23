@@ -1243,6 +1243,46 @@ func main() {
 		})
 		logger.Info("✅ 资金数据源提供者已设置")
 
+		// 设置策略资金分配提供者
+		getAllocationFunc := func() map[string]web.StrategyCapitalInfo {
+			result := make(map[string]web.StrategyCapitalInfo)
+			runtimes := symbolManager.List()
+			for _, rt := range runtimes {
+				if rt.StrategyManager == nil {
+					continue
+				}
+				allocator := rt.StrategyManager.GetCapitalAllocator()
+				if allocator == nil {
+					continue
+				}
+				strategies := allocator.GetAllStrategiesCapital()
+				for name, capital := range strategies {
+					// 如果策略名称已存在，合并数据（累加）
+					if existing, ok := result[name]; ok {
+						result[name] = web.StrategyCapitalInfo{
+							Allocated: existing.Allocated + capital.Allocated,
+							Used:      existing.Used + capital.Used,
+							Available: existing.Available + capital.Available,
+							Weight:    existing.Weight, // 权重保持不变（取第一个）
+							FixedPool: existing.FixedPool + capital.FixedPool,
+						}
+					} else {
+						result[name] = web.StrategyCapitalInfo{
+							Allocated: capital.Allocated,
+							Used:      capital.Used,
+							Available: capital.Available,
+							Weight:    capital.Weight,
+							FixedPool: capital.FixedPool,
+						}
+					}
+				}
+			}
+			return result
+		}
+		strategyProvider := web.NewStrategyProviderAdapter(getAllocationFunc)
+		web.SetStrategyProvider(strategyProvider)
+		logger.Info("✅ 策略资金分配提供者已设置")
+
 		// 设置全局存储服务提供者（用于不带 symbol 参数的 API，如提现规则管理）
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
@@ -1454,6 +1494,10 @@ type exchangeProviderAdapter struct {
 
 func (a *exchangeProviderAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*exchange.Candle, error) {
 	return a.exchange.GetHistoricalKlines(ctx, symbol, interval, limit)
+}
+
+func (a *exchangeProviderAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	return a.exchange.GetFundingRate(ctx, symbol)
 }
 
 // exchangeExecutorAdapter 适配器，将 order.ExchangeOrderExecutor 转换为 position.OrderExecutorInterface

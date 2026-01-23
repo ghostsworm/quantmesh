@@ -1326,6 +1326,7 @@ func (s *SQLiteStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty,
 	args := []interface{}{symbol}
 	if account != "" {
 		// 兼容旧数据：如果account不为空，同时匹配account字段为NULL或空字符串的记录
+		// 这样可以确保即使旧数据的account字段为空，也能查询到累计买卖数量
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
@@ -1334,6 +1335,7 @@ func (s *SQLiteStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty,
 	err = s.db.QueryRow(query, args...).Scan(&totalQty)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			// 如果没有匹配的记录，返回0而不是错误
 			return 0, 0, nil
 		}
 		return 0, 0, fmt.Errorf("查询累计买卖数量失败: %w", err)

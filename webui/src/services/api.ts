@@ -255,10 +255,16 @@ export interface DailyStatisticsResponse {
   statistics: DailyStatistics[]
 }
 
-export async function getDailyStatistics(exchange?: string, symbol?: string): Promise<DailyStatisticsResponse> {
+export async function getDailyStatistics(exchange?: string, symbol?: string, days?: number): Promise<DailyStatisticsResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  // 默认查询365天（1年）的历史数据，确保显示所有交易记录
+  if (days !== undefined) {
+    queryParams.append('days', days.toString())
+  } else {
+    queryParams.append('days', '365')
+  }
   const url = `${API_BASE_URL}/statistics/daily${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -585,15 +591,15 @@ export async function getSlots(exchange?: string, symbol?: string): Promise<Slot
 
 // Strategy Allocation
 export interface StrategyCapitalInfo {
-  strategy_name: string
-  allocated_capital: number
-  used_capital: number
-  available_capital: number
-  utilization_rate: number
+  allocated: number   // 分配的资金
+  used: number        // 已使用的资金（保证金）
+  available: number   // 可用资金
+  weight: number      // 权重
+  fixed_pool: number  // 固定资金池（如果指定）
 }
 
 export interface StrategyAllocationResponse {
-  strategies: StrategyCapitalInfo[]
+  allocation: Record<string, StrategyCapitalInfo>
 }
 
 export async function getStrategyAllocation(): Promise<StrategyAllocationResponse> {

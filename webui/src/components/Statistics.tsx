@@ -45,9 +45,10 @@ const Statistics: React.FC = () => {
     const fetchData = async () => {
       try {
         setLoading(true)
+        // 查询365天的历史数据，确保显示所有交易记录
         const [statsData, dailyData] = await Promise.all([
           getStatistics(selectedExchange || undefined, selectedSymbol || undefined),
-          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined).catch(() => ({ statistics: [] })),
+          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined, 365).catch(() => ({ statistics: [] })),
         ])
         setStats(statsData)
         setDailyStats(dailyData.statistics || [])

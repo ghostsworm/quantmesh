@@ -69,9 +69,18 @@ const Reconciliation: React.FC = () => {
       const response = await fetch(`/api/reconciliation/status?${params}`, {
         credentials: 'include',
       })
-      if (!response.ok) throw new Error('Failed to fetch reconciliation status')
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Failed to fetch reconciliation status:', response.status, errorText)
+        throw new Error(`Failed to fetch reconciliation status: ${response.status} ${errorText}`)
+      }
       const data = await response.json()
+      console.log('Reconciliation status data:', data)
       setStatus(data)
+      // 如果累计买入和累计卖出都是0，记录警告
+      if (data && data.total_buy_qty === 0 && data.total_sell_qty === 0) {
+        console.warn('Total buy/sell qty are both 0:', { selectedExchange, selectedSymbol, data })
+      }
     } catch (err) {
       console.error('Failed to fetch reconciliation status:', err)
       setError(err instanceof Error ? err.message : 'Failed to fetch reconciliation status')
@@ -86,12 +95,26 @@ const Reconciliation: React.FC = () => {
       })
       if (selectedExchange) params.append('exchange', selectedExchange)
       if (selectedSymbol) params.append('symbol', selectedSymbol)
+      // 扩大时间范围到最近30天，确保能查询到所有历史记录
+      const endTime = new Date()
+      const startTime = new Date()
+      startTime.setDate(startTime.getDate() - 30)
+      params.append('start_time', startTime.toISOString())
+      params.append('end_time', endTime.toISOString())
       const response = await fetch(`/api/reconciliation/history?${params}`, {
         credentials: 'include',
       })
-      if (!response.ok) throw new Error('Failed to fetch reconciliation history')
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Failed to fetch reconciliation history:', response.status, errorText)
+        throw new Error(`Failed to fetch reconciliation history: ${response.status} ${errorText}`)
+      }
       const data = await response.json()
+      console.log('Reconciliation history data:', data)
       setHistory(data.history || [])
+      if (data.history && data.history.length === 0) {
+        console.warn('No reconciliation history found for:', { selectedExchange, selectedSymbol, params: params.toString() })
+      }
     } catch (err) {
       console.error('Failed to fetch reconciliation history:', err)
       setError(err instanceof Error ? err.message : 'Failed to fetch reconciliation history')

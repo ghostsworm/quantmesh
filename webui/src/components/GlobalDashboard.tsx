@@ -106,9 +106,13 @@ const GlobalDashboard: React.FC = () => {
     if (isFetchingRef.current) return
     isFetchingRef.current = true
     try {
+      // 查询所有历史数据（从2020年开始，确保包含所有交易记录）
+      const startTime = new Date('2020-01-01T00:00:00Z').toISOString()
+      const endTime = new Date().toISOString()
+      
       const [symbolsData, pnlData, statusesData] = await Promise.all([
         getSymbols(),
-        getPnLByExchange(),
+        getPnLByExchange(startTime, endTime),
         getSystemStatuses(),
       ])
       

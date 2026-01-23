@@ -32,7 +32,16 @@ const BasisMonitor: React.FC = () => {
   const [statistics, setStatistics] = useState<BasisStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [serviceUnavailable, setServiceUnavailable] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // 检查是否是服务不可用错误
+  const isServiceUnavailable = (err: unknown): boolean => {
+    if (err instanceof Error) {
+      return err.message.includes('503') || err.message.includes('service_unavailable');
+    }
+    return false;
+  };
 
   // 获取所有交易对的当前价差
   const fetchCurrentBasis = async () => {
@@ -40,8 +49,15 @@ const BasisMonitor: React.FC = () => {
       const data = await getBasisCurrent();
       setCurrentBasis(data);
       setError(null);
+      setServiceUnavailable(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '获取价差数据失败');
+      if (isServiceUnavailable(err)) {
+        setServiceUnavailable(true);
+        setError('价差监控服务未启用。请在配置文件中启用价差监控功能。');
+      } else {
+        setError(err instanceof Error ? err.message : '获取价差数据失败');
+        setServiceUnavailable(false);
+      }
     }
   };
 
@@ -52,8 +68,18 @@ const BasisMonitor: React.FC = () => {
       const data = await getBasisHistory(symbol, 100);
       setHistory(data);
       setError(null);
+      setServiceUnavailable(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '获取历史数据失败');
+      if (isServiceUnavailable(err)) {
+        setServiceUnavailable(true);
+        if (!error) {
+          setError('价差监控服务未启用。请在配置文件中启用价差监控功能。');
+        }
+      } else {
+        if (!serviceUnavailable) {
+          setError(err instanceof Error ? err.message : '获取历史数据失败');
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -65,8 +91,18 @@ const BasisMonitor: React.FC = () => {
       const data = await getBasisStatistics(symbol, hours);
       setStatistics(data);
       setError(null);
+      setServiceUnavailable(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '获取统计数据失败');
+      if (isServiceUnavailable(err)) {
+        setServiceUnavailable(true);
+        if (!error) {
+          setError('价差监控服务未启用。请在配置文件中启用价差监控功能。');
+        }
+      } else {
+        if (!serviceUnavailable) {
+          setError(err instanceof Error ? err.message : '获取统计数据失败');
+        }
+      }
     }
   };
 
@@ -182,8 +218,33 @@ const BasisMonitor: React.FC = () => {
 
       {/* 错误提示 */}
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          {error}
+        <div className={`border px-4 py-3 rounded ${
+          serviceUnavailable 
+            ? 'bg-yellow-50 border-yellow-400 text-yellow-800' 
+            : 'bg-red-100 border-red-400 text-red-700'
+        }`}>
+          <div className="font-semibold mb-2">
+            {serviceUnavailable ? '⚠️ 价差监控服务未启用' : '❌ 错误'}
+          </div>
+          <div className="text-sm">{error}</div>
+          {serviceUnavailable && (
+            <div className="mt-3 text-sm">
+              <p className="font-semibold mb-1">启用方法：</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                <li>编辑配置文件 <code className="bg-yellow-100 px-1 rounded">config.yaml</code></li>
+                <li>在配置文件中添加或修改以下内容：</li>
+              </ol>
+              <pre className="mt-2 p-3 bg-yellow-100 rounded text-xs overflow-x-auto">
+{`basis_monitor:
+  enabled: true
+  interval_minutes: 1
+  symbols:
+    - BTCUSDT
+    - ETHUSDT`}
+              </pre>
+              <p className="mt-2 text-xs">修改后请重启服务以使配置生效。</p>
+            </div>
+          )}
         </div>
       )}
 
