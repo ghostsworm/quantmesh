@@ -450,6 +450,19 @@ export function subscribeLogs(onLog: LogSubscribeHandler, onError?: LogSubscribe
   const wsUrl = `${protocol}//${host}/ws?subscribe_logs=true`
   const socket = new WebSocket(wsUrl)
 
+  // 心跳计时器
+  let heartbeatInterval: NodeJS.Timeout | null = null
+
+  const handleOpen = () => {
+    console.log('WebSocket 连接已建立')
+    // 启动心跳：每 25 秒发送一次 ping（服务端 30 秒超时）
+    heartbeatInterval = setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'ping' }))
+      }
+    }, 25000)
+  }
+
   const handleMessage = (event: MessageEvent) => {
     try {
       const payload = JSON.parse(event.data)
@@ -460,6 +473,9 @@ export function subscribeLogs(onLog: LogSubscribeHandler, onError?: LogSubscribe
           level: payload.data.level,
           message: payload.data.message,
         })
+      } else if (payload?.type === 'pong') {
+        // 收到服务端的 pong 响应
+        console.debug('收到心跳响应')
       }
     } catch (err) {
       console.error('解析日志消息失败:', err)
@@ -467,22 +483,34 @@ export function subscribeLogs(onLog: LogSubscribeHandler, onError?: LogSubscribe
   }
 
   const handleError = (event: Event) => {
+    console.error('WebSocket 错误:', event)
     if (onError) {
       onError(event)
     }
   }
 
   const handleClose = (event: CloseEvent) => {
+    console.log('WebSocket 连接已关闭:', event.code, event.reason)
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval)
+      heartbeatInterval = null
+    }
     if (onError && !event.wasClean) {
       onError(event)
     }
   }
 
+  socket.addEventListener('open', handleOpen)
   socket.addEventListener('message', handleMessage)
   socket.addEventListener('error', handleError)
   socket.addEventListener('close', handleClose)
 
   return () => {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval)
+      heartbeatInterval = null
+    }
+    socket.removeEventListener('open', handleOpen)
     socket.removeEventListener('message', handleMessage)
     socket.removeEventListener('error', handleError)
     socket.removeEventListener('close', handleClose)

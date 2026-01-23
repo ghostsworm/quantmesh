@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -152,10 +153,40 @@ func handleWebSocket(c *gin.Context) {
 		}()
 	}
 
+	// 启动心跳协程
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// 发送 ping 消息
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					close(done)
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	// 设置 pong 处理器
+	conn.SetPongHandler(func(string) error {
+		// 收到 pong 响应，重置读取超时
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	// 设置初始读取超时
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
 	// 保持连接
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {
+			close(done)
 			hub.unregister <- conn
 			break
 		}
