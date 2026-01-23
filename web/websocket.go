@@ -156,7 +156,7 @@ func handleWebSocket(c *gin.Context) {
 	// 启动心跳协程
 	done := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
@@ -175,12 +175,12 @@ func handleWebSocket(c *gin.Context) {
 	// 设置 pong 处理器
 	conn.SetPongHandler(func(string) error {
 		// 收到 pong 响应，重置读取超时
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 		return nil
 	})
 
 	// 设置初始读取超时
-	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
 	// 保持连接
 	for {

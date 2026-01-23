@@ -455,12 +455,12 @@ export function subscribeLogs(onLog: LogSubscribeHandler, onError?: LogSubscribe
 
   const handleOpen = () => {
     console.log('WebSocket 连接已建立')
-    // 启动心跳：每 25 秒发送一次 ping（服务端 30 秒超时）
+    // 启动心跳：每 2 秒发送一次 ping（服务端 3 秒超时）
     heartbeatInterval = setInterval(() => {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'ping' }))
       }
-    }, 25000)
+    }, 2000)
   }
 
   const handleMessage = (event: MessageEvent) => {
