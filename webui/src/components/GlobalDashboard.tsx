@@ -462,7 +462,7 @@ const GlobalDashboard: React.FC = () => {
               {t('globalDashboard.addSymbol')}
             </Button>
           </Flex>
-          <Accordion allowMultiple>
+          <Accordion allowMultiple defaultIndex={exchangeData.map((_, index) => index)}>
             {exchangeData.map((exchange) => {
               const exchangeKey = exchange.exchange.toLowerCase()
               return (
