@@ -93,9 +93,31 @@ type SetupInitResponse struct {
 	BackupPath      string `json:"backup_path,omitempty"` // 备份文件路径（如果存在）
 }
 
-// initSetupHandler 初始化配置
+// initSetupHandler 初始化配置（仅首次设置或已认证用户可用）
 // POST /api/setup/init
 func initSetupHandler(c *gin.Context) {
+	// 🔒 安全检查：如果已经设置过密码，则需要认证
+	if globalPasswordManager != nil {
+		username := "admin"
+		hasPassword, err := globalPasswordManager.HasPassword(username)
+		if err == nil && hasPassword {
+			// 已设置密码，检查是否已认证
+			sm := GetSessionManager()
+			if sm != nil {
+				session, exists := sm.GetSessionFromRequest(c.Request)
+				if !exists || session == nil {
+					logger.Warn("⚠️ [SECURITY] 拒绝未认证的配置初始化请求，IP: %s", c.ClientIP())
+					c.JSON(http.StatusUnauthorized, SetupInitResponse{
+						Success: false,
+						Message: "系统已初始化，需要登录后才能修改配置",
+					})
+					return
+				}
+				logger.Info("✅ [SECURITY] 已认证用户 %s 正在修改配置", session.Username)
+			}
+		}
+	}
+	
 	var req SetupInitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, SetupInitResponse{

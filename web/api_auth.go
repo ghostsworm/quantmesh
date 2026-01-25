@@ -59,7 +59,7 @@ func getAuthStatus(c *gin.Context) {
 	})
 }
 
-// setPassword 设置密码
+// setPassword 设置密码（仅首次设置，已设置密码后需要认证才能修改）
 // POST /api/auth/password/set
 func setPassword(c *gin.Context) {
 	logger.WriteWebLog("[AUTH] 收到设置密码请求")
@@ -67,6 +67,26 @@ func setPassword(c *gin.Context) {
 	if globalPasswordManager == nil {
 		logger.WriteWebLog("[AUTH] 密码管理器未初始化")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码管理器未初始化"})
+		return
+	}
+
+	// 单用户场景，使用固定用户名
+	username := "admin"
+	
+	// 🔒 安全检查：如果已经设置过密码，则拒绝请求
+	hasPassword, err := globalPasswordManager.HasPassword(username)
+	if err != nil {
+		logger.WriteWebLog(fmt.Sprintf("[AUTH] 检查密码状态失败: %v", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "检查密码状态失败"})
+		return
+	}
+	
+	if hasPassword {
+		logger.WriteWebLog("[AUTH] ⚠️ 拒绝设置密码请求：密码已存在，请使用修改密码接口")
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "密码已设置，请使用修改密码功能",
+			"code": "PASSWORD_ALREADY_SET",
+		})
 		return
 	}
 
@@ -80,14 +100,12 @@ func setPassword(c *gin.Context) {
 		return
 	}
 
-	// 单用户场景，使用固定用户名
-	username := "admin"
 	if err := globalPasswordManager.SetPassword(username, req.Password); err != nil {
 		logger.WriteWebLog(fmt.Sprintf("[AUTH] 设置密码失败: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置密码失败"})
 		return
 	}
-	logger.WriteWebLog("[AUTH] 密码已保存到数据库")
+	logger.WriteWebLog("[AUTH] ✅ 首次密码已保存到数据库")
 
 	// 首次设置密码后自动创建会话（自动登录）
 	// 必须在 c.JSON() 之前设置 Cookie
