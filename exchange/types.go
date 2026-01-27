@@ -1,6 +1,9 @@
 package exchange
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Side 交易方向
 type Side string
@@ -121,6 +124,32 @@ type Candle struct {
 	Volume    float64
 	Timestamp int64
 	IsClosed  bool // K线是否完结
+}
+
+// Validate 验证K线数据的合理性
+func (c *Candle) Validate() error {
+	// 价格必须为正数
+	if c.Open <= 0 || c.High <= 0 || c.Low <= 0 || c.Close <= 0 {
+		return fmt.Errorf("价格必须为正数: Open=%.2f, High=%.2f, Low=%.2f, Close=%.2f", c.Open, c.High, c.Low, c.Close)
+	}
+
+	// OHLC 关系验证
+	if c.High < c.Low {
+		return fmt.Errorf("最高价不能低于最低价: High=%.2f, Low=%.2f", c.High, c.Low)
+	}
+	if c.High < c.Open || c.High < c.Close {
+		return fmt.Errorf("最高价必须大于等于开盘价和收盘价: High=%.2f, Open=%.2f, Close=%.2f", c.High, c.Open, c.Close)
+	}
+	if c.Low > c.Open || c.Low > c.Close {
+		return fmt.Errorf("最低价必须小于等于开盘价和收盘价: Low=%.2f, Open=%.2f, Close=%.2f", c.Low, c.Open, c.Close)
+	}
+
+	// 成交量不能为负数
+	if c.Volume < 0 {
+		return fmt.Errorf("成交量不能为负数: Volume=%.2f", c.Volume)
+	}
+
+	return nil
 }
 
 // CandleUpdateCallback K线更新回调函数

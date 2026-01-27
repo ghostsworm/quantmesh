@@ -984,13 +984,34 @@ func (b *BinanceAdapter) GetHistoricalKlines(ctx context.Context, symbol string,
 
 	candles := make([]*Candle, 0, len(klines))
 	for _, k := range klines {
-		open, _ := strconv.ParseFloat(k.Open, 64)
-		high, _ := strconv.ParseFloat(k.High, 64)
-		low, _ := strconv.ParseFloat(k.Low, 64)
-		close, _ := strconv.ParseFloat(k.Close, 64)
-		volume, _ := strconv.ParseFloat(k.Volume, 64)
+		// 正确解析价格数据，处理解析错误
+		open, err := strconv.ParseFloat(k.Open, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] K线数据解析失败 (Open): %v, 跳过该K线", err)
+			continue
+		}
+		high, err := strconv.ParseFloat(k.High, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] K线数据解析失败 (High): %v, 跳过该K线", err)
+			continue
+		}
+		low, err := strconv.ParseFloat(k.Low, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] K线数据解析失败 (Low): %v, 跳过该K线", err)
+			continue
+		}
+		close, err := strconv.ParseFloat(k.Close, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] K线数据解析失败 (Close): %v, 跳过该K线", err)
+			continue
+		}
+		volume, err := strconv.ParseFloat(k.Volume, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] K线数据解析失败 (Volume): %v, 使用0", err)
+			volume = 0
+		}
 
-		candles = append(candles, &Candle{
+		candle := &Candle{
 			Symbol:    symbol,
 			Open:      open,
 			High:      high,
@@ -999,10 +1020,92 @@ func (b *BinanceAdapter) GetHistoricalKlines(ctx context.Context, symbol string,
 			Volume:    volume,
 			Timestamp: k.OpenTime,
 			IsClosed:  true, // 历史K线都是已完结的
-		})
+		}
+
+		// 验证K线数据
+		if err := b.validateCandle(candle); err != nil {
+			logger.Warn("⚠️ [Binance] K线数据验证失败: %v, 跳过该K线", err)
+			continue
+		}
+
+		candles = append(candles, candle)
 	}
 
+	// 检测并过滤异常价格波动（插针）
+	candles = b.detectPriceSpikes(candles, 0.20) // 20% 价格变化阈值
+
 	return candles, nil
+}
+
+// validateCandle 验证K线数据的合理性
+func (b *BinanceAdapter) validateCandle(c *Candle) error {
+	// 价格必须为正数
+	if c.Open <= 0 || c.High <= 0 || c.Low <= 0 || c.Close <= 0 {
+		return fmt.Errorf("价格必须为正数: Open=%.2f, High=%.2f, Low=%.2f, Close=%.2f", c.Open, c.High, c.Low, c.Close)
+	}
+
+	// OHLC 关系验证
+	if c.High < c.Low {
+		return fmt.Errorf("最高价不能低于最低价: High=%.2f, Low=%.2f", c.High, c.Low)
+	}
+	if c.High < c.Open || c.High < c.Close {
+		return fmt.Errorf("最高价必须大于等于开盘价和收盘价: High=%.2f, Open=%.2f, Close=%.2f", c.High, c.Open, c.Close)
+	}
+	if c.Low > c.Open || c.Low > c.Close {
+		return fmt.Errorf("最低价必须小于等于开盘价和收盘价: Low=%.2f, Open=%.2f, Close=%.2f", c.Low, c.Open, c.Close)
+	}
+
+	// 成交量不能为负数
+	if c.Volume < 0 {
+		return fmt.Errorf("成交量不能为负数: Volume=%.2f", c.Volume)
+	}
+
+	return nil
+}
+
+// detectPriceSpikes 检测并过滤异常价格波动（插针）
+// threshold: 价格变化阈值（如 0.20 表示 20%）
+func (b *BinanceAdapter) detectPriceSpikes(candles []*Candle, threshold float64) []*Candle {
+	if len(candles) < 2 {
+		return candles
+	}
+
+	filtered := make([]*Candle, 0, len(candles))
+	filtered = append(filtered, candles[0]) // 保留第一根K线
+
+	for i := 1; i < len(candles); i++ {
+		prev := candles[i-1]
+		curr := candles[i]
+
+		// 计算收盘价变化百分比
+		if prev.Close > 0 {
+			priceChange := math.Abs(curr.Close - prev.Close) / prev.Close
+
+			if priceChange > threshold {
+				// 价格变化超过阈值，记录警告但仍保留数据（可能是真实的市场波动）
+				logger.Warn("⚠️ [Binance] 检测到异常价格变化: %s, 时间: %d, 变化幅度: %.2f%%, 前一根收盘价: %.2f, 当前收盘价: %.2f",
+					curr.Symbol, curr.Timestamp, priceChange*100, prev.Close, curr.Close)
+			}
+		}
+
+		// 检查 High 和 Low 是否异常（相对于前一根K线）
+		if prev.Close > 0 {
+			highChange := (curr.High - prev.Close) / prev.Close
+			lowChange := (prev.Close - curr.Low) / prev.Close
+
+			// 如果 High 或 Low 相对于前一根收盘价变化超过阈值，记录警告
+			if highChange > threshold || lowChange > threshold {
+				logger.Warn("⚠️ [Binance] 检测到异常价格波动（插针）: %s, 时间: %d, High变化: %.2f%%, Low变化: %.2f%%",
+					curr.Symbol, curr.Timestamp, highChange*100, lowChange*100)
+			}
+		}
+
+		// 保留所有数据（包括异常数据），因为可能是真实的市场波动
+		// 如果确实需要过滤，可以在这里添加过滤逻辑
+		filtered = append(filtered, curr)
+	}
+
+	return filtered
 }
 
 // GetPriceDecimals 获取价格精度（小数位数）

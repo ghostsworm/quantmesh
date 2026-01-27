@@ -832,8 +832,17 @@ func main() {
 	var eventCenter *event.EventCenter
 	if db != nil {
 		eventCenter = event.NewEventCenter(db, eventBus, notifier, eventCenterConfig)
-		if err := eventCenter.Start(); err != nil {
-			logger.Warn("⚠️ 启动事件中心失败: %v", err)
+		
+		// 设置事件中心控制器，用于 Web API 动态控制
+		web.SetEventCenterController(eventCenter)
+		
+		// 如果配置启用，则启动事件中心
+		if eventCenterConfig.Enabled {
+			if err := eventCenter.Start(); err != nil {
+				logger.Warn("⚠️ 启动事件中心失败: %v", err)
+			}
+		} else {
+			logger.Info("⏸️ 事件中心未启用（可通过 Web API 动态启用）")
 		}
 		defer eventCenter.Stop()
 	} else {
@@ -1138,12 +1147,13 @@ func main() {
 								// 每 10 秒更新一次，或者如果当前 PnL 还是 0 则更新
 								if dbQueryCounter >= 5 || st.TotalPnL == 0 {
 									dbQueryCounter = 0
-									// 获取今日 00:00:00 的时间（系统配置时区）
-									now := utils.NowConfiguredTimezone()
-									todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+									// 查询所有历史累计盈利（而非仅今日）
+									// 使用一个很早的时间作为起始时间，确保查询所有历史数据
+									now := utils.NowUTC()
+									allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 
-									// 转换为 UTC 时间进行数据库查询，确保时区一致
-									pnlSummary, err := storageService.GetStorage().GetPnLBySymbol(r.Config.Symbol, r.AccountID, utils.ToUTC(todayStart), utils.ToUTC(now))
+									// 查询所有历史累计盈亏
+									pnlSummary, err := storageService.GetStorage().GetPnLBySymbol(r.Config.Symbol, r.AccountID, allHistoryStart, now)
 									if err == nil {
 										st.TotalPnL = pnlSummary.TotalPnL
 										st.TotalTrades = pnlSummary.TotalTrades
