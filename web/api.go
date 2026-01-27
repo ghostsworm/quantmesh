@@ -1073,7 +1073,14 @@ func getPositionsSummary(c *gin.Context) {
 // getOrders 获取订单列表（历史订单）
 // GET /api/orders
 func getOrders(c *gin.Context) {
+	// 优先使用特定交易对的 storage provider
 	storageProv := PickStorageProvider(c)
+	
+	// 如果找不到特定的 provider，使用全局的 storageServiceProvider
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
@@ -1127,17 +1134,33 @@ func getOrders(c *gin.Context) {
 // getOrderHistory 获取订单历史
 // GET /api/orders/history
 func getOrderHistory(c *gin.Context) {
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+	logger.Info("[订单历史] 查询参数: exchange=%s, symbol=%s", exchange, symbol)
+	
+	// 优先使用特定交易对的 storage provider
 	storageProv := PickStorageProvider(c)
+	
+	// 如果找不到特定的 provider，使用全局的 storageServiceProvider
 	if storageProv == nil {
+		logger.Info("[订单历史] 未找到特定交易对的 provider，使用全局 storageServiceProvider")
+		storageProv = storageServiceProvider
+	}
+	
+	if storageProv == nil {
+		logger.Warn("[订单历史] storageServiceProvider 也为 nil，无法查询")
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
 	}
 
 	storage := storageProv.GetStorage()
 	if storage == nil {
+		logger.Warn("[订单历史] storage.GetStorage() 返回 nil")
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
 	}
+	
+	logger.Info("[订单历史] storage 获取成功，准备查询数据库")
 
 	// 解析参数
 	limitStr := c.DefaultQuery("limit", "100")
@@ -1229,8 +1252,17 @@ func (a *storageServiceAdapter) GetStorage() storage.Storage {
 // getStatistics 获取统计数据
 // GET /api/statistics
 func getStatistics(c *gin.Context) {
+	// 优先使用特定交易对的 storage provider
 	storageProv := PickStorageProvider(c)
+	
+	// 如果找不到特定的 provider，使用全局的 storageServiceProvider
 	if storageProv == nil {
+		logger.Info("[统计] 未找到特定交易对的 provider，使用全局 storageServiceProvider")
+		storageProv = storageServiceProvider
+	}
+	
+	if storageProv == nil {
+		logger.Warn("[统计] storageServiceProvider 也为 nil，无法查询")
 		c.JSON(http.StatusOK, gin.H{
 			"total_trades": 0,
 			"total_volume": 0,
@@ -1242,6 +1274,7 @@ func getStatistics(c *gin.Context) {
 
 	storage := storageProv.GetStorage()
 	if storage == nil {
+		logger.Warn("[统计] storage.GetStorage() 返回 nil")
 		c.JSON(http.StatusOK, gin.H{
 			"total_trades": 0,
 			"total_volume": 0,
@@ -1250,20 +1283,54 @@ func getStatistics(c *gin.Context) {
 		})
 		return
 	}
+	
+	logger.Info("[统计] storage 获取成功，准备查询数据库")
 
 	// 获取当前账户标识
 	accountID := GetCurrentAccountID()
+	logger.Info("[统计] accountID: %s", accountID)
 
+	// 获取 exchange 参数（如果有）
+	exchange := c.Query("exchange")
+	
 	// 从数据库获取统计汇总
-	summary, err := storage.GetStatisticsSummary(accountID)
+	var summary interface{}
+	var err error
+	if exchange != "" {
+		// 如果指定了交易所，查询该交易所的统计
+		summary, err = storage.GetStatisticsSummaryByExchange(exchange, accountID)
+		logger.Info("[统计] 查询交易所 %s 的统计，accountID: %s", exchange, accountID)
+	} else {
+		// 否则查询所有交易所的统计
+		summary, err = storage.GetStatisticsSummary(accountID)
+		logger.Info("[统计] 查询所有交易所的统计，accountID: %s", accountID)
+	}
+	
 	if err != nil {
+		logger.Error("[统计] 查询失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
+	
+	// 使用反射获取字段值（避免类型断言问题）
+	statValue := reflect.ValueOf(summary)
+	if statValue.Kind() != reflect.Ptr || statValue.Elem().Kind() != reflect.Struct {
+		logger.Error("[统计] 统计数据格式错误")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "统计数据格式错误"})
+		return
+	}
+	
+	elem := statValue.Elem()
+	totalTrades := int(elem.FieldByName("TotalTrades").Int())
+	totalPnL := elem.FieldByName("TotalPnL").Float()
+	totalVolume := elem.FieldByName("TotalVolume").Float()
+	winRate := elem.FieldByName("WinRate").Float()
+	
+	logger.Info("[统计] 查询结果: TotalTrades=%d, TotalPnL=%.2f, TotalVolume=%.2f", totalTrades, totalPnL, totalVolume)
+	
 	// 如果数据库没有数据，尝试从 SuperPositionManager 计算
 	pmProvider := PickPositionProvider(c)
-	if summary.TotalTrades == 0 && pmProvider != nil {
+	if totalTrades == 0 && pmProvider != nil {
 		slots := pmProvider.GetAllSlots()
 		totalBuyQty := 0.0
 		totalSellQty := 0.0
@@ -1277,18 +1344,18 @@ func getStatistics(c *gin.Context) {
 		}
 
 		// 估算交易数（买卖配对）
-		totalTrades := int((totalBuyQty + totalSellQty) / 2)
-		if totalTrades > 0 {
-			summary.TotalTrades = totalTrades
-			summary.TotalVolume = totalBuyQty + totalSellQty
+		estimatedTrades := int((totalBuyQty + totalSellQty) / 2)
+		if estimatedTrades > 0 {
+			totalTrades = estimatedTrades
+			totalVolume = totalBuyQty + totalSellQty
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total_trades": summary.TotalTrades,
-		"total_volume": summary.TotalVolume,
-		"total_pnl":    summary.TotalPnL,
-		"win_rate":     summary.WinRate,
+		"total_trades": totalTrades,
+		"total_volume": totalVolume,
+		"total_pnl":    totalPnL,
+		"win_rate":     winRate,
 	})
 }
 
@@ -2534,6 +2601,147 @@ func getReconciliationHistory(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"history": result})
+}
+
+// ReconciliationAggregatedData 聚合的对账数据
+type ReconciliationAggregatedData struct {
+	Date            string  `json:"date"`             // 日期（格式根据聚合类型：2026-01-25、2026-W04、2026-01）
+	AvgLocalPosition    float64 `json:"avg_local_position"`    // 平均本地持仓
+	AvgExchangePosition float64 `json:"avg_exchange_position"` // 平均交易所持仓
+	AvgPositionDiff     float64 `json:"avg_position_diff"`     // 平均持仓差异
+	TotalBuyQty         float64 `json:"total_buy_qty"`         // 累计买入
+	TotalSellQty        float64 `json:"total_sell_qty"`        // 累计卖出
+	EstimatedProfit     float64 `json:"estimated_profit"`      // 预计盈利
+	ActualProfit        float64 `json:"actual_profit"`         // 实际盈利
+	RecordCount         int     `json:"record_count"`          // 记录数量
+}
+
+// getReconciliationAggregated 获取聚合的对账数据
+// GET /api/reconciliation/aggregated
+// 参数: period=day|week|month, exchange, symbol, start_time, end_time
+func getReconciliationAggregated(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
+		return
+	}
+
+	storage := storageProv.GetStorage()
+	if storage == nil {
+		c.JSON(http.StatusOK, gin.H{"data": []interface{}{}})
+		return
+	}
+
+	// 解析参数
+	period := c.DefaultQuery("period", "day") // day, week, month
+	exchangeName := c.Query("exchange")
+	symbol := c.Query("symbol")
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
+			return
+		}
+	} else {
+		// 根据聚合周期设置默认时间范围
+		switch period {
+		case "month":
+			startTime = time.Now().AddDate(0, -12, 0) // 最近12个月
+		case "week":
+			startTime = time.Now().AddDate(0, 0, -90) // 最近90天
+		default: // day
+			startTime = time.Now().AddDate(0, 0, -30) // 最近30天
+		}
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	// 获取当前账户标识
+	accountID := GetCurrentAccountID()
+
+	// 查询对账历史（获取所有数据用于聚合）
+	histories, err := storage.QueryReconciliationHistory(exchangeName, symbol, accountID, startTime, endTime, 10000, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 按时间聚合数据
+	aggregatedMap := make(map[string]*ReconciliationAggregatedData)
+	
+	for _, h := range histories {
+		var dateKey string
+		t := h.ReconcileTime
+		
+		switch period {
+		case "month":
+			dateKey = t.Format("2006-01")
+		case "week":
+			year, week := t.ISOWeek()
+			dateKey = fmt.Sprintf("%d-W%02d", year, week)
+		default: // day
+			dateKey = t.Format("2006-01-02")
+		}
+		
+		if _, exists := aggregatedMap[dateKey]; !exists {
+			aggregatedMap[dateKey] = &ReconciliationAggregatedData{
+				Date: dateKey,
+			}
+		}
+		
+		agg := aggregatedMap[dateKey]
+		agg.AvgLocalPosition += h.LocalPosition
+		agg.AvgExchangePosition += h.ExchangePosition
+		agg.AvgPositionDiff += h.PositionDiff
+		
+		// 对于累计值，取该时间段内的最大值（因为是累计的）
+		if h.TotalBuyQty > agg.TotalBuyQty {
+			agg.TotalBuyQty = h.TotalBuyQty
+		}
+		if h.TotalSellQty > agg.TotalSellQty {
+			agg.TotalSellQty = h.TotalSellQty
+		}
+		if h.EstimatedProfit > agg.EstimatedProfit {
+			agg.EstimatedProfit = h.EstimatedProfit
+		}
+		if h.ActualProfit > agg.ActualProfit {
+			agg.ActualProfit = h.ActualProfit
+		}
+		
+		agg.RecordCount++
+	}
+	
+	// 计算平均值
+	result := make([]ReconciliationAggregatedData, 0, len(aggregatedMap))
+	for _, agg := range aggregatedMap {
+		if agg.RecordCount > 0 {
+			agg.AvgLocalPosition /= float64(agg.RecordCount)
+			agg.AvgExchangePosition /= float64(agg.RecordCount)
+			agg.AvgPositionDiff /= float64(agg.RecordCount)
+		}
+		result = append(result, *agg)
+	}
+	
+	// 按日期排序
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Date < result[j].Date
+	})
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
 // PnLSummaryResponse 盈亏汇总响应

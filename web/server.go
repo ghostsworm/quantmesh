@@ -218,8 +218,9 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				cryptoPayment.POST("/:id/confirm", confirmDirectPaymentHandler) // 管理员
 			}
 
-			protected.GET("/reconciliation/history", getReconciliationHistory)
-			protected.GET("/risk/status", getRiskStatus)
+		protected.GET("/reconciliation/history", getReconciliationHistory)
+		protected.GET("/reconciliation/aggregated", getReconciliationAggregated)
+		protected.GET("/risk/status", getRiskStatus)
 			protected.GET("/risk/monitor", getRiskMonitorData)
 			protected.GET("/risk/history", getRiskCheckHistory)
 			protected.GET("/risk/newbie-check", getNewbieRiskCheck)

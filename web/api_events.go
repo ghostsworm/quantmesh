@@ -19,11 +19,24 @@ type EventProvider interface {
 	GetEventStats(ctx context.Context) (*database.EventStats, error)
 }
 
+// EventCenterController 事件中心控制器接口
+type EventCenterController interface {
+	Start() error
+	Stop()
+	IsRunning() bool
+}
+
 var eventProvider EventProvider
+var globalEventCenterController EventCenterController
 
 // SetEventProvider 设置事件提供者
 func SetEventProvider(provider EventProvider) {
 	eventProvider = provider
+}
+
+// SetEventCenterController 设置事件中心控制器
+func SetEventCenterController(controller EventCenterController) {
+	globalEventCenterController = controller
 }
 
 // handleGetEvents 获取事件列表
@@ -158,6 +171,70 @@ func handleGetEventStats(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
+// handleGetEventCenterStatus 获取事件中心状态
+// @Summary 获取事件中心状态
+// @Description 获取事件中心是否启用的状态
+// @Tags Events
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /api/events/center/status [get]
+func handleGetEventCenterStatus(c *gin.Context) {
+	enabled := false
+	if globalEventCenterController != nil {
+		enabled = globalEventCenterController.IsRunning()
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"enabled": enabled,
+	})
+}
+
+// handleSetEventCenterStatus 设置事件中心状态
+// @Summary 设置事件中心状态
+// @Description 动态启用或禁用事件中心
+// @Tags Events
+// @Accept json
+// @Produce json
+// @Param request body map[string]bool true "状态"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/events/center/status [post]
+func handleSetEventCenterStatus(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "errors.invalid_request")
+		return
+	}
+	
+	// 调用事件中心控制器
+	if globalEventCenterController == nil {
+		respondError(c, http.StatusServiceUnavailable, "errors.event_center_unavailable")
+		return
+	}
+	
+	if globalEventCenterController != nil {
+		if req.Enabled {
+			if err := globalEventCenterController.Start(); err != nil {
+				logger.Error("❌ 启动事件中心失败: %v", err)
+				respondError(c, http.StatusInternalServerError, "errors.start_event_center_failed", err)
+				return
+			}
+			logger.Info("✅ 事件中心已启动")
+		} else {
+			globalEventCenterController.Stop()
+			logger.Info("⏸️ 事件中心已停止")
+		}
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"enabled": req.Enabled,
+		"message": map[bool]string{true: "事件中心已启动", false: "事件中心已停止"}[req.Enabled],
+	})
+}
+
 // registerEventRoutes 注册事件相关路由
 func registerEventRoutes(r *gin.RouterGroup, authMiddleware gin.HandlerFunc) {
 	events := r.Group("/events")
@@ -166,6 +243,8 @@ func registerEventRoutes(r *gin.RouterGroup, authMiddleware gin.HandlerFunc) {
 		events.GET("", handleGetEvents)
 		events.GET("/stats", handleGetEventStats)
 		events.GET("/:id", handleGetEventDetail)
+		events.GET("/center/status", handleGetEventCenterStatus)
+		events.POST("/center/status", handleSetEventCenterStatus)
 	}
 }
 

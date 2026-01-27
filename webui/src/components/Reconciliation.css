@@ -204,3 +204,24 @@
   text-align: right;
 }
 
+/* 视图控制面板样式 */
+.view-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.view-controls button {
+  transition: all 0.2s ease;
+}
+
+.view-controls button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.view-controls button:active {
+  transform: translateY(0);
+}
+

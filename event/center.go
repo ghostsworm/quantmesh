@@ -22,6 +22,8 @@ type EventCenter struct {
 	wg                       sync.WaitGroup
 	priceVolatilityThreshold float64
 	monitoredSymbols         map[string]bool
+	running                  bool
+	mu                       sync.Mutex
 }
 
 // EventCenterConfig 事件中心配置
@@ -74,12 +76,24 @@ func NewEventCenter(db database.Database, eventBus *EventBus, notifier Notificat
 
 // Start 启动事件中心
 func (ec *EventCenter) Start() error {
-	if !ec.config.Enabled {
-		logger.Info("⏸️ 事件中心未启用")
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	
+	// 如果已经在运行，直接返回
+	if ec.running {
+		logger.Info("⚠️ 事件中心已在运行中")
 		return nil
 	}
 	
+	if !ec.config.Enabled {
+		logger.Info("⏸️ 事件中心未启用（配置文件）")
+		// 即使配置文件中未启用，也允许通过 API 动态启动
+	}
+	
 	logger.Info("🚀 启动事件中心...")
+	
+	// 创建新的 context
+	ec.ctx, ec.cancel = context.WithCancel(context.Background())
 	
 	// 启动事件处理协程
 	ec.wg.Add(1)
@@ -89,16 +103,34 @@ func (ec *EventCenter) Start() error {
 	ec.wg.Add(1)
 	go ec.cleanupTask()
 	
+	ec.running = true
 	logger.Info("✅ 事件中心已启动")
 	return nil
 }
 
 // Stop 停止事件中心
 func (ec *EventCenter) Stop() {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	
+	// 如果未运行，直接返回
+	if !ec.running {
+		logger.Info("⚠️ 事件中心未在运行")
+		return
+	}
+	
 	logger.Info("🛑 停止事件中心...")
 	ec.cancel()
 	ec.wg.Wait()
+	ec.running = false
 	logger.Info("✅ 事件中心已停止")
+}
+
+// IsRunning 检查事件中心是否在运行
+func (ec *EventCenter) IsRunning() bool {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	return ec.running
 }
 
 // processEvents 处理事件

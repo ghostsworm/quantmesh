@@ -1403,6 +1403,23 @@ export async function getEventStats(): Promise<EventStats> {
   return fetchWithAuth(`${API_BASE_URL}/events/stats`)
 }
 
+// ==================== 事件中心状态管理 ====================
+
+export interface EventCenterStatus {
+  enabled: boolean
+}
+
+export async function getEventCenterStatus(): Promise<EventCenterStatus> {
+  return fetchWithAuth(`${API_BASE_URL}/events/center/status`)
+}
+
+export async function setEventCenterStatus(enabled: boolean): Promise<{ success: boolean; enabled: boolean; message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/events/center/status`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  })
+}
+
 // ==================== AI 异步任务管理 ====================
 
 export interface AITask {

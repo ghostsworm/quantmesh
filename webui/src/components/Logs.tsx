@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { getLogs, LogEntry, subscribeLogs, cleanLogs, getLogStats, vacuumLogs, LogStats } from '../services/api'
+import { getLogs, LogEntry, subscribeLogs, cleanLogs, getLogStats, vacuumLogs, LogStats, getEventCenterStatus, setEventCenterStatus } from '../services/api'
 import './Logs.css'
 import {
   Button,
@@ -23,6 +23,10 @@ import {
   Alert,
   AlertIcon,
   AlertDescription,
+  Switch,
+  HStack,
+  Badge,
+  Box,
 } from '@chakra-ui/react'
 
 // Alias for backward compatibility
@@ -179,6 +183,10 @@ const Logs: React.FC = () => {
   const [isCleaning, setIsCleaning] = useState(false)
   const [logStats, setLogStats] = useState<LogStats | null>(null)
   const toast = useToast()
+  
+  // 事件中心状态
+  const [eventCenterEnabled, setEventCenterEnabled] = useState(false)
+  const [eventCenterLoading, setEventCenterLoading] = useState(false)
 
   const handleCleanLogs = async () => {
     setIsCleaning(true)
@@ -244,6 +252,47 @@ const Logs: React.FC = () => {
     }
   }
 
+  // 加载事件中心状态
+  const loadEventCenterStatus = async () => {
+    try {
+      const status = await getEventCenterStatus()
+      setEventCenterEnabled(status.enabled)
+    } catch (err: any) {
+      console.error('获取事件中心状态失败:', err)
+    }
+  }
+
+  // 切换事件中心状态
+  const handleToggleEventCenter = async (enabled: boolean) => {
+    setEventCenterLoading(true)
+    try {
+      const response = await setEventCenterStatus(enabled)
+      setEventCenterEnabled(response.enabled)
+      toast({
+        title: enabled ? '事件中心已启动' : '事件中心已停止',
+        description: response.message,
+        status: 'success',
+        duration: 3000,
+      })
+    } catch (err: any) {
+      toast({
+        title: '操作失败',
+        description: err.message || '切换事件中心状态时发生错误',
+        status: 'error',
+        duration: 5000,
+      })
+      // 恢复原状态
+      setEventCenterEnabled(!enabled)
+    } finally {
+      setEventCenterLoading(false)
+    }
+  }
+
+  // 初始化加载事件中心状态
+  useEffect(() => {
+    loadEventCenterStatus()
+  }, [])
+
   return (
     <div className="logs-container">
       <div className="logs-header">
@@ -276,6 +325,49 @@ const Logs: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* 事件中心状态 */}
+      <Box 
+        bg="blue.50" 
+        p={3} 
+        borderRadius="md" 
+        mb={4}
+        borderLeft="4px solid"
+        borderColor="blue.500"
+      >
+        <HStack justify="space-between" align="center">
+          <HStack spacing={3}>
+            <Text fontWeight="bold" fontSize="md">
+              📊 事件中心状态
+            </Text>
+            <Badge 
+              colorScheme={eventCenterEnabled ? 'green' : 'gray'}
+              fontSize="sm"
+              px={2}
+              py={1}
+            >
+              {eventCenterEnabled ? '✅ 运行中' : '⏸️ 已停止'}
+            </Badge>
+            <Text fontSize="sm" color="gray.600">
+              {eventCenterEnabled 
+                ? '事件中心正在记录系统事件' 
+                : '事件中心已停止，不会记录新事件'}
+            </Text>
+          </HStack>
+          <HStack spacing={2}>
+            <Text fontSize="sm" fontWeight="medium">
+              {eventCenterEnabled ? '停用' : '启用'}
+            </Text>
+            <Switch
+              colorScheme="green"
+              size="lg"
+              isChecked={eventCenterEnabled}
+              onChange={(e) => handleToggleEventCenter(e.target.checked)}
+              isDisabled={eventCenterLoading}
+            />
+          </HStack>
+        </HStack>
+      </Box>
 
       <div className="logs-filters">
         <div className="filter-group">

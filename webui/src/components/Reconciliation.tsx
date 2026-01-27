@@ -44,22 +44,49 @@ interface PositionTooltipData {
   type: 'local' | 'exchange'
 }
 
+interface AggregatedData {
+  date: string
+  avg_local_position: number
+  avg_exchange_position: number
+  avg_position_diff: number
+  total_buy_qty: number
+  total_sell_qty: number
+  estimated_profit: number
+  actual_profit: number
+  record_count: number
+}
+
+interface AggregatedTooltipData {
+  x: number
+  y: number
+  item: AggregatedData
+  type: string
+}
+
+type TimePeriod = 'day' | 'week' | 'month'
+type ViewMode = 'raw' | 'aggregated'
+
 const Reconciliation: React.FC = () => {
   const { t } = useTranslation()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [status, setStatus] = useState<ReconciliationStatus | null>(null)
   const [history, setHistory] = useState<ReconciliationHistoryItem[]>([])
+  const [aggregatedData, setAggregatedData] = useState<AggregatedData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [historyLimit, setHistoryLimit] = useState(50)
   const [historyOffset, setHistoryOffset] = useState(0)
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [positionTooltip, setPositionTooltip] = useState<PositionTooltipData | null>(null)
+  const [aggregatedTooltip, setAggregatedTooltip] = useState<AggregatedTooltipData | null>(null)
   // 图例显示状态
   const [showEstimated, setShowEstimated] = useState(true)
   const [showActual, setShowActual] = useState(true)
   const [showLocalPosition, setShowLocalPosition] = useState(true)
   const [showExchangePosition, setShowExchangePosition] = useState(true)
+  // 新增：时间维度和视图模式
+  const [viewMode, setViewMode] = useState<ViewMode>('raw')
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>('day')
 
   const fetchStatus = async () => {
     try {
@@ -121,17 +148,62 @@ const Reconciliation: React.FC = () => {
     }
   }
 
+  const fetchAggregatedData = async () => {
+    try {
+      const params = new URLSearchParams({
+        period: timePeriod,
+      })
+      if (selectedExchange) params.append('exchange', selectedExchange)
+      if (selectedSymbol) params.append('symbol', selectedSymbol)
+      
+      // 根据时间周期设置查询范围
+      const endTime = new Date()
+      const startTime = new Date()
+      switch (timePeriod) {
+        case 'month':
+          startTime.setMonth(startTime.getMonth() - 12)
+          break
+        case 'week':
+          startTime.setDate(startTime.getDate() - 90)
+          break
+        default: // day
+          startTime.setDate(startTime.getDate() - 30)
+      }
+      params.append('start_time', startTime.toISOString())
+      params.append('end_time', endTime.toISOString())
+      
+      const response = await fetch(`/api/reconciliation/aggregated?${params}`, {
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Failed to fetch aggregated data:', response.status, errorText)
+        throw new Error(`Failed to fetch aggregated data: ${response.status} ${errorText}`)
+      }
+      const data = await response.json()
+      console.log('Aggregated data:', data)
+      setAggregatedData(data.data || [])
+    } catch (err) {
+      console.error('Failed to fetch aggregated data:', err)
+      setError(err instanceof Error ? err.message : 'Failed to fetch aggregated data')
+    }
+  }
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
-      await Promise.all([fetchStatus(), fetchHistory()])
+      if (viewMode === 'raw') {
+        await Promise.all([fetchStatus(), fetchHistory()])
+      } else {
+        await Promise.all([fetchStatus(), fetchAggregatedData()])
+      }
       setLoading(false)
     }
 
     fetchData()
     const interval = setInterval(fetchData, 10000) // 每10秒刷新一次
     return () => clearInterval(interval)
-  }, [historyLimit, historyOffset, selectedExchange, selectedSymbol])
+  }, [historyLimit, historyOffset, selectedExchange, selectedSymbol, viewMode, timePeriod])
 
   const formatTime = (timeStr: string) => {
     try {
@@ -194,8 +266,439 @@ const Reconciliation: React.FC = () => {
         </div>
       )}
 
+      {/* 数据视图控制面板 */}
+      <div className="view-controls" style={{ marginTop: '24px', padding: '16px', background: '#f9fafb', borderRadius: '8px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <label style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>数据视图:</label>
+          <button
+            onClick={() => setViewMode('raw')}
+            style={{
+              padding: '6px 16px',
+              background: viewMode === 'raw' ? '#3b82f6' : '#fff',
+              color: viewMode === 'raw' ? '#fff' : '#374151',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            原始数据
+          </button>
+          <button
+            onClick={() => setViewMode('aggregated')}
+            style={{
+              padding: '6px 16px',
+              background: viewMode === 'aggregated' ? '#3b82f6' : '#fff',
+              color: viewMode === 'aggregated' ? '#fff' : '#374151',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            聚合数据
+          </button>
+        </div>
+        
+        {viewMode === 'aggregated' && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <label style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>时间维度:</label>
+            <button
+              onClick={() => setTimePeriod('day')}
+              style={{
+                padding: '6px 16px',
+                background: timePeriod === 'day' ? '#3b82f6' : '#fff',
+                color: timePeriod === 'day' ? '#fff' : '#374151',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              按日
+            </button>
+            <button
+              onClick={() => setTimePeriod('week')}
+              style={{
+                padding: '6px 16px',
+                background: timePeriod === 'week' ? '#3b82f6' : '#fff',
+                color: timePeriod === 'week' ? '#fff' : '#374151',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              按周
+            </button>
+            <button
+              onClick={() => setTimePeriod('month')}
+              style={{
+                padding: '6px 16px',
+                background: timePeriod === 'month' ? '#3b82f6' : '#fff',
+                color: timePeriod === 'month' ? '#fff' : '#374151',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              按月
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 聚合数据多指标图表 */}
+      {viewMode === 'aggregated' && aggregatedData.length > 0 && (
+        <div style={{ marginTop: '32px' }}>
+          <h3>盈利趋势（{timePeriod === 'day' ? '按日' : timePeriod === 'week' ? '按周' : '按月'}）</h3>
+          <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+              <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setAggregatedTooltip(null)}>
+                {(() => {
+                  const data = aggregatedData
+                  const maxProfit = Math.max(...data.map(d => Math.max(d.estimated_profit, d.actual_profit)))
+                  const minProfit = Math.min(...data.map(d => Math.min(d.estimated_profit, d.actual_profit)))
+                  
+                  let yMin = minProfit
+                  let yMax = maxProfit
+                  const range = yMax - yMin || 1
+                  const padding = Math.max(range * 0.1, Math.abs(yMin) * 0.1, Math.abs(yMax) * 0.1) || 1
+                  
+                  const finalMin = yMin - padding
+                  const finalMax = yMax + padding
+                  const finalRange = finalMax - finalMin
+                  
+                  const getY = (value: number) => 290 - ((value - finalMin) / finalRange) * 240
+                  const getX = (index: number) => 60 + (index / Math.max(data.length - 1, 1)) * 720
+                  
+                  const estimatedPath = data.map((item, i) => 
+                    `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(item.estimated_profit)}`
+                  ).join(' ')
+                  
+                  const actualPath = data.map((item, i) => 
+                    `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(item.actual_profit)}`
+                  ).join(' ')
+                  
+                  const zeroY = finalMin <= 0 && finalMax >= 0 ? getY(0) : null
+                  
+                  return (
+                    <>
+                      {/* 网格线 */}
+                      {[0, 1, 2, 3, 4].map(i => (
+                        <line key={`grid-${i}`} x1="60" y1={50 + i * 60} x2="780" y2={50 + i * 60} stroke="#e8e8e8" strokeWidth="1" />
+                      ))}
+                      
+                      {/* 坐标轴 */}
+                      <line x1="60" y1="290" x2="780" y2="290" stroke="#333" strokeWidth="2" />
+                      <line x1="60" y1="50" x2="60" y2="290" stroke="#333" strokeWidth="2" />
+                      
+                      {/* 0线 */}
+                      {zeroY !== null && (
+                        <line x1="60" y1={zeroY} x2="780" y2={zeroY} stroke="#999" strokeWidth="1" strokeDasharray="4,4" opacity="0.5" />
+                      )}
+                      
+                      {/* 预计盈利曲线 */}
+                      {showEstimated && <path d={estimatedPath} fill="none" stroke="#1890ff" strokeWidth="2" />}
+                      {showEstimated && data.map((item, i) => (
+                        <circle
+                          key={`est-${i}`}
+                          cx={getX(i)}
+                          cy={getY(item.estimated_profit)}
+                          r="4"
+                          fill="#1890ff"
+                          className="profit-point"
+                          onMouseEnter={(e) => {
+                            const circle = e.currentTarget
+                            const svg = circle.ownerSVGElement as SVGSVGElement
+                            if (svg) {
+                              const svgRect = svg.getBoundingClientRect()
+                              const rect = circle.getBoundingClientRect()
+                              setAggregatedTooltip({
+                                x: rect.left - svgRect.left + rect.width / 2,
+                                y: rect.top - svgRect.top - 10,
+                                item,
+                                type: 'estimated'
+                              })
+                            }
+                          }}
+                        />
+                      ))}
+                      
+                      {/* 实际盈利曲线 */}
+                      {showActual && <path d={actualPath} fill="none" stroke="#52c41a" strokeWidth="2" />}
+                      {showActual && data.map((item, i) => (
+                        <circle
+                          key={`act-${i}`}
+                          cx={getX(i)}
+                          cy={getY(item.actual_profit)}
+                          r="4"
+                          fill="#52c41a"
+                          className="profit-point"
+                          onMouseEnter={(e) => {
+                            const circle = e.currentTarget
+                            const svg = circle.ownerSVGElement as SVGSVGElement
+                            if (svg) {
+                              const svgRect = svg.getBoundingClientRect()
+                              const rect = circle.getBoundingClientRect()
+                              setAggregatedTooltip({
+                                x: rect.left - svgRect.left + rect.width / 2,
+                                y: rect.top - svgRect.top - 10,
+                                item,
+                                type: 'actual'
+                              })
+                            }
+                          }}
+                        />
+                      ))}
+                      
+                      {/* Y轴刻度 */}
+                      {[0, 1, 2, 3, 4].map(i => {
+                        const value = finalMin + finalRange * (4 - i) / 4
+                        return (
+                          <text key={`y-${i}`} x="50" y={50 + i * 60 + 5} textAnchor="end" fontSize="12" fill="#666">
+                            {value.toFixed(2)}
+                          </text>
+                        )
+                      })}
+                      
+                      {/* X轴刻度 */}
+                      {data.map((item, i) => {
+                        if (i % Math.ceil(data.length / 8) === 0 || i === data.length - 1) {
+                          return (
+                            <text key={`x-${i}`} x={getX(i)} y="310" textAnchor="middle" fontSize="10" fill="#666">
+                              {item.date}
+                            </text>
+                          )
+                        }
+                        return null
+                      })}
+                      
+                      {/* 图例 */}
+                      <g transform="translate(650, 20)" style={{ cursor: 'pointer' }} onClick={() => setShowEstimated(!showEstimated)}>
+                        <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" opacity={showEstimated ? 1 : 0.3} />
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showEstimated ? 1 : 0.5}>预计盈利</text>
+                      </g>
+                      <g transform="translate(650, 35)" style={{ cursor: 'pointer' }} onClick={() => setShowActual(!showActual)}>
+                        <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" opacity={showActual ? 1 : 0.3} />
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showActual ? 1 : 0.5}>实际盈利</text>
+                      </g>
+                    </>
+                  )
+                })()}
+              </svg>
+              
+              {/* Tooltip */}
+              {aggregatedTooltip && (
+                <div className="profit-tooltip" style={{ position: 'absolute', left: `${aggregatedTooltip.x}px`, top: `${aggregatedTooltip.y}px`, transform: 'translate(-50%, -100%)', pointerEvents: 'none' }}>
+                  <div className="tooltip-content">
+                    <div className="tooltip-header">
+                      <strong>{aggregatedTooltip.item.date}</strong>
+                    </div>
+                    <div className="tooltip-body">
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">预计盈利:</span>
+                        <span className="tooltip-value" style={{ color: aggregatedTooltip.item.estimated_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                          {aggregatedTooltip.item.estimated_profit.toFixed(2)} USDT
+                        </span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">实际盈利:</span>
+                        <span className="tooltip-value" style={{ color: aggregatedTooltip.item.actual_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                          {aggregatedTooltip.item.actual_profit.toFixed(2)} USDT
+                        </span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">累计买入:</span>
+                        <span className="tooltip-value">{aggregatedTooltip.item.total_buy_qty.toFixed(2)}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">累计卖出:</span>
+                        <span className="tooltip-value">{aggregatedTooltip.item.total_sell_qty.toFixed(2)}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">记录数:</span>
+                        <span className="tooltip-value">{aggregatedTooltip.item.record_count}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* 持仓走势图 */}
+          <div style={{ marginTop: '32px' }}>
+            <h3>持仓走势（{timePeriod === 'day' ? '按日' : timePeriod === 'week' ? '按周' : '按月'}）</h3>
+            <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+              <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setAggregatedTooltip(null)}>
+                  {(() => {
+                    const data = aggregatedData
+                    const maxPosition = Math.max(...data.map(d => Math.max(d.avg_local_position, d.avg_exchange_position)))
+                    const minPosition = Math.min(...data.map(d => Math.min(d.avg_local_position, d.avg_exchange_position)))
+                    
+                    let yMin = minPosition
+                    let yMax = maxPosition
+                    
+                    if (yMax - yMin < 0.0001) {
+                      yMin = Math.max(0, yMin - Math.max(Math.abs(yMin) * 0.1, 0.01))
+                      yMax = yMax + Math.max(Math.abs(yMax) * 0.1, 0.01)
+                    }
+                    
+                    const range = yMax - yMin || 0.01
+                    const padding = Math.max(range * 0.1, 0.01)
+                    const finalMin = Math.max(0, yMin - padding)
+                    const finalMax = yMax + padding
+                    const finalRange = finalMax - finalMin
+                    
+                    const getY = (value: number) => 290 - ((value - finalMin) / finalRange) * 240
+                    const getX = (index: number) => 60 + (index / Math.max(data.length - 1, 1)) * 720
+                    
+                    const localPath = data.map((item, i) => 
+                      `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(item.avg_local_position)}`
+                    ).join(' ')
+                    
+                    const exchangePath = data.map((item, i) => 
+                      `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(item.avg_exchange_position)}`
+                    ).join(' ')
+                    
+                    return (
+                      <>
+                        {/* 网格线 */}
+                        {[0, 1, 2, 3, 4].map(i => (
+                          <line key={`pos-grid-${i}`} x1="60" y1={50 + i * 60} x2="780" y2={50 + i * 60} stroke="#e8e8e8" strokeWidth="1" />
+                        ))}
+                        
+                        {/* 坐标轴 */}
+                        <line x1="60" y1="290" x2="780" y2="290" stroke="#333" strokeWidth="2" />
+                        <line x1="60" y1="50" x2="60" y2="290" stroke="#333" strokeWidth="2" />
+                        
+                        {/* 本地持仓曲线 */}
+                        {showLocalPosition && <path d={localPath} fill="none" stroke="#1890ff" strokeWidth="2" />}
+                        {showLocalPosition && data.map((item, i) => (
+                          <circle
+                            key={`local-${i}`}
+                            cx={getX(i)}
+                            cy={getY(item.avg_local_position)}
+                            r="4"
+                            fill="#1890ff"
+                            className="profit-point"
+                            onMouseEnter={(e) => {
+                              const circle = e.currentTarget
+                              const svg = circle.ownerSVGElement as SVGSVGElement
+                              if (svg) {
+                                const svgRect = svg.getBoundingClientRect()
+                                const rect = circle.getBoundingClientRect()
+                                setAggregatedTooltip({
+                                  x: rect.left - svgRect.left + rect.width / 2,
+                                  y: rect.top - svgRect.top - 10,
+                                  item,
+                                  type: 'local'
+                                })
+                              }
+                            }}
+                          />
+                        ))}
+                        
+                        {/* 交易所持仓曲线 */}
+                        {showExchangePosition && <path d={exchangePath} fill="none" stroke="#52c41a" strokeWidth="2" />}
+                        {showExchangePosition && data.map((item, i) => (
+                          <circle
+                            key={`exchange-${i}`}
+                            cx={getX(i)}
+                            cy={getY(item.avg_exchange_position)}
+                            r="4"
+                            fill="#52c41a"
+                            className="profit-point"
+                            onMouseEnter={(e) => {
+                              const circle = e.currentTarget
+                              const svg = circle.ownerSVGElement as SVGSVGElement
+                              if (svg) {
+                                const svgRect = svg.getBoundingClientRect()
+                                const rect = circle.getBoundingClientRect()
+                                setAggregatedTooltip({
+                                  x: rect.left - svgRect.left + rect.width / 2,
+                                  y: rect.top - svgRect.top - 10,
+                                  item,
+                                  type: 'exchange'
+                                })
+                              }
+                            }}
+                          />
+                        ))}
+                        
+                        {/* Y轴刻度 */}
+                        {[0, 1, 2, 3, 4].map(i => {
+                          const value = finalMin + finalRange * (4 - i) / 4
+                          return (
+                            <text key={`pos-y-${i}`} x="50" y={50 + i * 60 + 5} textAnchor="end" fontSize="12" fill="#666">
+                              {value.toFixed(4)}
+                            </text>
+                          )
+                        })}
+                        
+                        {/* X轴刻度 */}
+                        {data.map((item, i) => {
+                          if (i % Math.ceil(data.length / 8) === 0 || i === data.length - 1) {
+                            return (
+                              <text key={`pos-x-${i}`} x={getX(i)} y="310" textAnchor="middle" fontSize="10" fill="#666">
+                                {item.date}
+                              </text>
+                            )
+                          }
+                          return null
+                        })}
+                        
+                        {/* 图例 */}
+                        <g transform="translate(650, 20)" style={{ cursor: 'pointer' }} onClick={() => setShowLocalPosition(!showLocalPosition)}>
+                          <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" opacity={showLocalPosition ? 1 : 0.3} />
+                          <text x="35" y="5" fontSize="12" fill="#666" opacity={showLocalPosition ? 1 : 0.5}>本地持仓</text>
+                        </g>
+                        <g transform="translate(650, 35)" style={{ cursor: 'pointer' }} onClick={() => setShowExchangePosition(!showExchangePosition)}>
+                          <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" opacity={showExchangePosition ? 1 : 0.3} />
+                          <text x="35" y="5" fontSize="12" fill="#666" opacity={showExchangePosition ? 1 : 0.5}>交易所持仓</text>
+                        </g>
+                      </>
+                    )
+                  })()}
+                </svg>
+                
+                {/* Tooltip */}
+                {aggregatedTooltip && (
+                  <div className="profit-tooltip" style={{ position: 'absolute', left: `${aggregatedTooltip.x}px`, top: `${aggregatedTooltip.y}px`, transform: 'translate(-50%, -100%)', pointerEvents: 'none' }}>
+                    <div className="tooltip-content">
+                      <div className="tooltip-header">
+                        <strong>{aggregatedTooltip.item.date}</strong>
+                      </div>
+                      <div className="tooltip-body">
+                        <div className="tooltip-row">
+                          <span className="tooltip-label">平均本地持仓:</span>
+                          <span className="tooltip-value">{aggregatedTooltip.item.avg_local_position.toFixed(4)}</span>
+                        </div>
+                        <div className="tooltip-row">
+                          <span className="tooltip-label">平均交易所持仓:</span>
+                          <span className="tooltip-value">{aggregatedTooltip.item.avg_exchange_position.toFixed(4)}</span>
+                        </div>
+                        <div className="tooltip-row">
+                          <span className="tooltip-label">平均持仓差异:</span>
+                          <span className="tooltip-value" style={{ color: Math.abs(aggregatedTooltip.item.avg_position_diff) > 0.0001 ? '#ff4d4f' : '#52c41a' }}>
+                            {aggregatedTooltip.item.avg_position_diff.toFixed(4)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 盈利曲线图表 */}
-      {history.length > 0 && (
+      {viewMode === 'raw' && history.length > 0 && (
         <div style={{ marginTop: '32px' }}>
           <h3>盈利趋势</h3>
           <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
@@ -468,7 +971,7 @@ const Reconciliation: React.FC = () => {
       )}
 
       {/* 仓位走势图 */}
-      {history.length > 0 && (
+      {viewMode === 'raw' && history.length > 0 && (
         <div style={{ marginTop: '32px' }}>
           <h3>仓位走势</h3>
           <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
@@ -708,54 +1211,100 @@ const Reconciliation: React.FC = () => {
         </div>
       )}
 
-      <div style={{ marginTop: '32px' }}>
-        <h3>{t('reconciliation.history')}</h3>
-        <div className="history-filters">
-          <label>
-            {t('reconciliation.perPage')}
-            <select value={historyLimit} onChange={(e) => setHistoryLimit(Number(e.target.value))}>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
-          </label>
-          <button onClick={() => setHistoryOffset(prev => Math.max(0, prev - historyLimit))}>{t('reconciliation.previousPage')}</button>
-          <span>{t('reconciliation.page')} {Math.floor(historyOffset / historyLimit) + 1}</span>
-          <button onClick={() => setHistoryOffset(prev => prev + historyLimit)}>{t('reconciliation.nextPage')}</button>
-        </div>
+      {viewMode === 'raw' && (
+        <div style={{ marginTop: '32px' }}>
+          <h3>{t('reconciliation.history')}</h3>
+          <div className="history-filters">
+            <label>
+              {t('reconciliation.perPage')}
+              <select value={historyLimit} onChange={(e) => setHistoryLimit(Number(e.target.value))}>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </label>
+            <button onClick={() => setHistoryOffset(prev => Math.max(0, prev - historyLimit))}>{t('reconciliation.previousPage')}</button>
+            <span>{t('reconciliation.page')} {Math.floor(historyOffset / historyLimit) + 1}</span>
+            <button onClick={() => setHistoryOffset(prev => prev + historyLimit)}>{t('reconciliation.nextPage')}</button>
+          </div>
 
-        {history.length === 0 ? (
-          <p>{t('reconciliation.noHistory')}</p>
-        ) : (
+          {history.length === 0 ? (
+            <p>{t('reconciliation.noHistory')}</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="history-table">
+                <thead>
+                  <tr>
+                    <th>{t('reconciliation.reconcileTime')}</th>
+                    <th>{t('reconciliation.localPosition')}</th>
+                    <th>{t('reconciliation.exchangePosition')}</th>
+                    <th>{t('reconciliation.difference')}</th>
+                    <th>{t('reconciliation.activeBuyOrders')}</th>
+                    <th>{t('reconciliation.activeSellOrders')}</th>
+                    <th>{t('reconciliation.pendingSellQty')}</th>
+                    <th>{t('reconciliation.totalBuyQty')}</th>
+                    <th>{t('reconciliation.totalSellQty')}</th>
+                    <th>{t('reconciliation.estimatedProfit')}</th>
+                    <th>{t('reconciliation.actualProfit')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((item) => (
+                    <tr key={item.id}>
+                      <td>{formatTime(item.reconcile_time)}</td>
+                      <td>{item.local_position.toFixed(4)}</td>
+                      <td>{item.exchange_position.toFixed(4)}</td>
+                      <td style={{ color: Math.abs(item.position_diff) > 0.0001 ? '#ff4d4f' : '#52c41a' }}>
+                        {item.position_diff.toFixed(4)}
+                      </td>
+                      <td>{item.active_buy_orders}</td>
+                      <td>{item.active_sell_orders}</td>
+                      <td>{item.pending_sell_qty.toFixed(4)}</td>
+                      <td>{item.total_buy_qty.toFixed(2)}</td>
+                      <td>{item.total_sell_qty.toFixed(2)}</td>
+                      <td style={{ color: item.estimated_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                        {item.estimated_profit.toFixed(2)}
+                      </td>
+                      <td style={{ color: item.actual_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                        {item.actual_profit.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 聚合数据表格 */}
+      {viewMode === 'aggregated' && aggregatedData.length > 0 && (
+        <div style={{ marginTop: '32px' }}>
+          <h3>聚合数据详情（{timePeriod === 'day' ? '按日' : timePeriod === 'week' ? '按周' : '按月'}）</h3>
           <div style={{ overflowX: 'auto' }}>
             <table className="history-table">
               <thead>
                 <tr>
-                  <th>{t('reconciliation.reconcileTime')}</th>
-                  <th>{t('reconciliation.localPosition')}</th>
-                  <th>{t('reconciliation.exchangePosition')}</th>
-                  <th>{t('reconciliation.difference')}</th>
-                  <th>{t('reconciliation.activeBuyOrders')}</th>
-                  <th>{t('reconciliation.activeSellOrders')}</th>
-                  <th>{t('reconciliation.pendingSellQty')}</th>
-                  <th>{t('reconciliation.totalBuyQty')}</th>
-                  <th>{t('reconciliation.totalSellQty')}</th>
-                  <th>{t('reconciliation.estimatedProfit')}</th>
-                  <th>{t('reconciliation.actualProfit')}</th>
+                  <th>日期</th>
+                  <th>平均本地持仓</th>
+                  <th>平均交易所持仓</th>
+                  <th>平均持仓差异</th>
+                  <th>累计买入</th>
+                  <th>累计卖出</th>
+                  <th>预计盈利</th>
+                  <th>实际盈利</th>
+                  <th>记录数</th>
                 </tr>
               </thead>
               <tbody>
-                {history.map((item) => (
-                  <tr key={item.id}>
-                    <td>{formatTime(item.reconcile_time)}</td>
-                    <td>{item.local_position.toFixed(4)}</td>
-                    <td>{item.exchange_position.toFixed(4)}</td>
-                    <td style={{ color: Math.abs(item.position_diff) > 0.0001 ? '#ff4d4f' : '#52c41a' }}>
-                      {item.position_diff.toFixed(4)}
+                {aggregatedData.map((item, index) => (
+                  <tr key={index}>
+                    <td>{item.date}</td>
+                    <td>{item.avg_local_position.toFixed(4)}</td>
+                    <td>{item.avg_exchange_position.toFixed(4)}</td>
+                    <td style={{ color: Math.abs(item.avg_position_diff) > 0.0001 ? '#ff4d4f' : '#52c41a' }}>
+                      {item.avg_position_diff.toFixed(4)}
                     </td>
-                    <td>{item.active_buy_orders}</td>
-                    <td>{item.active_sell_orders}</td>
-                    <td>{item.pending_sell_qty.toFixed(4)}</td>
                     <td>{item.total_buy_qty.toFixed(2)}</td>
                     <td>{item.total_sell_qty.toFixed(2)}</td>
                     <td style={{ color: item.estimated_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
@@ -764,13 +1313,14 @@ const Reconciliation: React.FC = () => {
                     <td style={{ color: item.actual_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
                       {item.actual_profit.toFixed(2)}
                     </td>
+                    <td>{item.record_count}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
