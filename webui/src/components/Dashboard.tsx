@@ -190,7 +190,8 @@ const Dashboard: React.FC = () => {
   const totalPnL = typeof statistics?.total_pnl === 'number' ? statistics.total_pnl : (status.total_pnl || 0)
   const totalTrades = typeof statistics?.total_trades === 'number' ? statistics.total_trades : (status.total_trades || 0)
   const totalVolume = typeof statistics?.total_volume === 'number' ? statistics.total_volume : 0
-  const tradesPerHour = status.uptime > 0 ? (totalTrades / (status.uptime / 3600)) : 0
+  // 移除不准确的 tradesPerHour 计算
+  // 原计算使用当前进程 uptime 除以历史总交易数，重启后会导致异常高的值
 
   return (
     <Container maxW="container.xl" py={4}>
@@ -324,9 +325,8 @@ const Dashboard: React.FC = () => {
               <StatNumber fontSize="3xl" fontWeight="800">{totalVolume.toFixed(4)}</StatNumber>
               <StatHelpText>
                 <HStack spacing={1}>
-                  <Text fontWeight="600" color="blue.500">{tradesPerHour.toFixed(1)}</Text>
-                  <Text color="gray.400">{t('dashboard.tradesPerHour')}</Text>
-                  <Text color="gray.400">({t('globalDashboard.tradeCountLabel')}: {totalTrades})</Text>
+                  <Text fontWeight="600" color="blue.500">{totalTrades}</Text>
+                  <Text color="gray.400">{t('globalDashboard.tradeCountLabel')}</Text>
                 </HStack>
               </StatHelpText>
             </Stat>
