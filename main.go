@@ -79,7 +79,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.4.5"
+var Version = "3.5.3"
 
 // 全局日志存储实例（用于清理任务和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -451,6 +451,71 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 			Risk:     rt.RiskMonitor,
 			Storage:  web.NewStorageServiceAdapter(a.storageService),
 		})
+
+		// 启动后台 goroutine 来更新状态（Uptime、CurrentPrice 等）
+		startTime := time.Now()
+		go func(r *SymbolRuntime, st *web.SystemStatus, started time.Time, storage *storage.StorageService) {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			dbQueryCounter := 0
+			for {
+				select {
+				case <-a.ctx.Done():
+					st.Running = false
+					return
+				case <-ticker.C:
+					// 如果交易对已停止，不再更新状态
+					if !st.Running {
+						return
+					}
+
+					if r.PriceMonitor != nil {
+						st.CurrentPrice = r.PriceMonitor.GetLastPrice()
+					}
+					if r.RiskMonitor != nil {
+						st.RiskTriggered = r.RiskMonitor.IsTriggered()
+					}
+
+					// 更新统计信息
+					if r.SuperPositionManager != nil {
+						dbQueryCounter++
+
+						useEstimation := true
+						if storage != nil && storage.GetStorage() != nil {
+							if dbQueryCounter >= 5 || st.TotalPnL == 0 {
+								dbQueryCounter = 0
+								now := utils.NowUTC()
+								allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+								pnlSummary, err := storage.GetStorage().GetPnLBySymbol(r.Config.Symbol, r.AccountID, allHistoryStart, now)
+								if err == nil {
+									st.TotalPnL = pnlSummary.TotalPnL
+									st.TotalTrades = pnlSummary.TotalTrades
+									useEstimation = false
+								}
+							} else {
+								useEstimation = false
+							}
+						}
+
+						if useEstimation {
+							totalBuyQty := r.SuperPositionManager.GetTotalBuyQty()
+							totalSellQty := r.SuperPositionManager.GetTotalSellQty()
+							priceInterval := r.SuperPositionManager.GetPriceInterval()
+							st.TotalPnL = totalSellQty * priceInterval
+
+							if st.CurrentPrice > 0 {
+								orderQtyInBase := r.Config.OrderQuantity / st.CurrentPrice
+								if orderQtyInBase > 0 {
+									st.TotalTrades = int((totalBuyQty + totalSellQty) / (orderQtyInBase * 2))
+								}
+							}
+						}
+					}
+
+					st.Uptime = int64(time.Since(started).Seconds())
+				}
+			}
+		}(rt, status, startTime, a.storageService)
 	}
 
 	logger.Info("✅ [%s:%s] 交易已启动", exchange, symbol)
@@ -832,10 +897,10 @@ func main() {
 	var eventCenter *event.EventCenter
 	if db != nil {
 		eventCenter = event.NewEventCenter(db, eventBus, notifier, eventCenterConfig)
-		
+
 		// 设置事件中心控制器，用于 Web API 动态控制
 		web.SetEventCenterController(eventCenter)
-		
+
 		// 如果配置启用，则启动事件中心
 		if eventCenterConfig.Enabled {
 			if err := eventCenter.Start(); err != nil {
@@ -1508,6 +1573,10 @@ func (a *exchangeProviderAdapter) GetHistoricalKlines(ctx context.Context, symbo
 
 func (a *exchangeProviderAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return a.exchange.GetFundingRate(ctx, symbol)
+}
+
+func (a *exchangeProviderAdapter) GetPositions(ctx context.Context, symbol string) ([]*exchange.Position, error) {
+	return a.exchange.GetPositions(ctx, symbol)
 }
 
 // exchangeExecutorAdapter 适配器，将 order.ExchangeOrderExecutor 转换为 position.OrderExecutorInterface

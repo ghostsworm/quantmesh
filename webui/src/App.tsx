@@ -104,7 +104,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 // 主应用内容
 const AppContent: React.FC = () => {
   const location = useLocation()
-  const { isAuthenticated, hasPassword, isLoading } = useAuth()
+  const { isAuthenticated, hasPassword, isLoading, connectionError } = useAuth()
   const { isGlobalView } = useSymbol()
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { t } = useTranslation()
@@ -160,6 +160,30 @@ const AppContent: React.FC = () => {
     return (
       <Center h="100vh">
         <Spinner size="xl" thickness="4px" color="blue.500" />
+      </Center>
+    )
+  }
+
+  // 如果是连接错误且没有缓存的密码状态，显示连接错误页面
+  // 而不是错误地显示设置密码界面
+  if (connectionError && !hasPassword) {
+    return (
+      <Center h="100vh" bg="gray.50">
+        <Box textAlign="center" p={8} maxW="400px">
+          <Text fontSize="6xl" mb={4}>🔌</Text>
+          <Heading size="lg" mb={4} color="gray.700">
+            {t('common.connectionError', '无法连接到服务器')}
+          </Heading>
+          <Text color="gray.500" mb={6}>
+            {t('common.connectionErrorDesc', '请检查网络连接或服务器是否正常运行')}
+          </Text>
+          <Button
+            colorScheme="blue"
+            onClick={() => window.location.reload()}
+          >
+            {t('common.retry', '重试')}
+          </Button>
+        </Box>
       </Center>
     )
   }
