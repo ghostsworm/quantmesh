@@ -504,6 +504,40 @@ func sortParams(params map[string]interface{}) string {
 	return result
 }
 
+// BybitOrderBookResponse Bybit 订单簿响应结构
+type BybitOrderBookResponse struct {
+	Symbol string `json:"s"` // 交易对
+	Bids   [][]string `json:"b"` // 买盘 [[价格, 数量], ...]
+	Asks   [][]string `json:"a"` // 卖盘 [[价格, 数量], ...]
+	TS     int64  `json:"ts"` // 时间戳（毫秒）
+}
+
+// GetOrderBook 获取订单簿深度
+func (c *BybitClient) GetOrderBook(ctx context.Context, category, symbol string, limit int) (*BybitOrderBookResponse, error) {
+	params := map[string]interface{}{
+		"category": category,
+		"symbol":   symbol,
+	}
+	if limit > 0 {
+		params["limit"] = limit
+	}
+
+	data, err := c.request(ctx, "GET", "/v5/market/orderbook", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Result BybitOrderBookResponse `json:"result"`
+	}
+
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("解析订单簿数据失败: %w", err)
+	}
+
+	return &result.Result, nil
+}
+
 func init() {
 	logger.Info("📦 [Bybit Client] REST API 客户端已初始化")
 }

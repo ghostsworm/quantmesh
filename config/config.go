@@ -160,8 +160,18 @@ type Config struct {
 		Interval          string   `yaml:"interval"`           // K线周期，如 "1m", "3m", "5m"
 		VolumeMultiplier  float64  `yaml:"volume_multiplier"`  // 成交量倍数阈值，默认3.0
 		AverageWindow     int      `yaml:"average_window"`     // 移动平均窗口大小，默认20
-		RecoveryThreshold int      `yaml:"recovery_threshold"` // 恢复交易所需的正常币种数量，默认3
+		RecoveryThreshold int      `yaml:"recovery_threshold"`  // 恢复交易所需的正常币种数量，默认3
 		MaxLeverage       int      `yaml:"max_leverage"`       // 最大允许杠杆倍数，默认10（设置为0表示不限制）
+
+		// 深度监控配置
+		DepthMonitor struct {
+			Enabled          bool    `yaml:"enabled"`           // 是否启用深度监控，默认false
+			CheckInterval    int     `yaml:"check_interval"`    // 检查间隔（秒），默认5
+			DepthLevels      int     `yaml:"depth_levels"`      // 监控前几档，默认10
+			DropThreshold    float64 `yaml:"drop_threshold"`     // 深度下降阈值（0-1），默认0.5（50%）
+			RecoveryThreshold float64 `yaml:"recovery_threshold"` // 恢复阈值（0-1），默认0.7（70%）
+			MinDepthUSDT     float64 `yaml:"min_depth_usdt"`     // 最小深度（USDT），低于此值触发风控，默认10000
+		} `yaml:"depth_monitor"`
 	} `yaml:"risk_control"`
 
 	// 时间间隔配置（单位：秒，除非特别说明）
@@ -1209,6 +1219,23 @@ func (c *Config) Validate() error {
 		c.RiskControl.RecoveryThreshold = 1 // 最小1个
 	} else if c.RiskControl.RecoveryThreshold > monitorCount {
 		c.RiskControl.RecoveryThreshold = monitorCount // 最大为监控币种数量
+	}
+
+	// 设置深度监控配置默认值
+	if c.RiskControl.DepthMonitor.CheckInterval <= 0 {
+		c.RiskControl.DepthMonitor.CheckInterval = 5 // 默认5秒
+	}
+	if c.RiskControl.DepthMonitor.DepthLevels <= 0 {
+		c.RiskControl.DepthMonitor.DepthLevels = 10 // 默认10档
+	}
+	if c.RiskControl.DepthMonitor.DropThreshold <= 0 {
+		c.RiskControl.DepthMonitor.DropThreshold = 0.5 // 默认50%
+	}
+	if c.RiskControl.DepthMonitor.RecoveryThreshold <= 0 {
+		c.RiskControl.DepthMonitor.RecoveryThreshold = 0.7 // 默认70%
+	}
+	if c.RiskControl.DepthMonitor.MinDepthUSDT <= 0 {
+		c.RiskControl.DepthMonitor.MinDepthUSDT = 10000 // 默认10000 USDT
 	}
 
 	// 设置通知配置默认值

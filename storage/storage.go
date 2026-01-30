@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"quantmesh/backtest"
 	"quantmesh/config"
 	"quantmesh/logger"
 	"quantmesh/utils"
@@ -62,6 +63,7 @@ type Storage interface {
 	ReplaceProfitWithdrawRules(accountID string, rules []*ProfitWithdrawRule) error
 	UpsertProfitWithdrawRule(accountID string, rule *ProfitWithdrawRule) error
 	DeleteProfitWithdrawRule(accountID string, ruleID string) error
+	GetBacktestTaskStore() backtest.TaskStore
 	Close() error
 }
 

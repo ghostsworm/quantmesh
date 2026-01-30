@@ -25,6 +25,7 @@ type SymbolRuntime struct {
 	Exchange             exchange.IExchange
 	PriceMonitor         *monitor.PriceMonitor
 	RiskMonitor          *safety.RiskMonitor
+	DepthMonitor         *safety.DepthMonitor
 	SuperPositionManager *position.SuperPositionManager
 	OrderCleaner         *safety.OrderCleaner
 	Reconciler           *safety.Reconciler
@@ -281,9 +282,13 @@ func startSymbolRuntime(
 		riskMonitor.SetStorage(storageService.GetStorage())
 	}
 
+	// 创建深度监控器
+	depthMonitor := safety.NewDepthMonitor(&localCfg, ex)
+
 	reconciler := safety.NewReconciler(&localCfg, exchangeAdapter, superPositionManager, distributedLock)
 	reconciler.SetPauseChecker(func() bool {
-		return riskMonitor.IsTriggered()
+		// 检查市场异动风控或深度风控是否触发
+		return riskMonitor.IsTriggered() || depthMonitor.IsTriggered()
 	})
 	if storageService != nil {
 		reconciler.SetStorage(&reconciliationStorageAdapter{
@@ -366,6 +371,7 @@ func startSymbolRuntime(
 	orderCleaner.Start(ctx)
 
 	go riskMonitor.Start(ctx)
+	go depthMonitor.Start(ctx)
 
 	// 可选组件
 	var dynamicAdjuster *strategy.DynamicAdjuster
@@ -510,7 +516,7 @@ func startSymbolRuntime(
 					return
 				}
 				
-				isTriggered := riskMonitor.IsTriggered()
+				isTriggered := riskMonitor.IsTriggered() || depthMonitor.IsTriggered()
 				if isTriggered {
 					if !lastTriggered {
 						logger.Warn("🚨 [%s][风控触发] 撤销所有买单并暂停交易...", symCfg.Symbol)
@@ -578,7 +584,7 @@ func startSymbolRuntime(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if !riskMonitor.IsTriggered() {
+				if !riskMonitor.IsTriggered() && !depthMonitor.IsTriggered() {
 					superPositionManager.PrintPositions()
 				}
 			}
@@ -612,6 +618,7 @@ func startSymbolRuntime(
 		Exchange:             ex,
 		PriceMonitor:         priceMonitor,
 		RiskMonitor:          riskMonitor,
+		DepthMonitor:         depthMonitor,
 		SuperPositionManager: superPositionManager,
 		OrderCleaner:         orderCleaner,
 		Reconciler:           reconciler,

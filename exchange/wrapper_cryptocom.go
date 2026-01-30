@@ -226,3 +226,8 @@ func (w *cryptocomWrapper) GetSpotPrice(ctx context.Context, symbol string) (flo
 func (w *cryptocomWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
+
+// GetOrderBook 获取订单簿深度（暂未实现）
+func (w *cryptocomWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	return nil, ErrNotImplemented
+}

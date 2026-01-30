@@ -101,6 +101,20 @@ type Candle struct {
 	IsClosed  bool // K线是否完结
 }
 
+// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+type OrderBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// OrderBook 订单簿（本地类型，避免循环导入）
+type OrderBook struct {
+	Symbol    string
+	Bids      []OrderBookLevel
+	Asks      []OrderBookLevel
+	Timestamp int64
+}
+
 // ============ Gate.io API 专用结构体 ============
 
 // GateResponse Gate.io API 通用响应结构

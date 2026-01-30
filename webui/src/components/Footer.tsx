@@ -8,6 +8,7 @@ const Footer: React.FC = () => {
         <div className="app-footer-section">
           <p className="app-footer-copyright">
             © {new Date().getFullYear()} QuantMesh Market Maker. All rights reserved.
+            <span className="app-footer-version"> v3.5.4</span>
           </p>
         </div>
         <div className="app-footer-section">

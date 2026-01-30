@@ -120,4 +120,11 @@ type IExchange interface {
 	// 返回: 现货价格
 	// 注意: 此方法用于获取现货市场价格，与 GetLatestPrice（合约价格）区分
 	GetSpotPrice(ctx context.Context, symbol string) (float64, error)
+
+	// === 订单簿深度 ===
+
+	// GetOrderBook 获取订单簿深度
+	// symbol: 交易对, limit: 档位数量 (通常支持 5/10/20/50/100)
+	// 返回: 订单簿数据，包含买卖盘深度
+	GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error)
 }

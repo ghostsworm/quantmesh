@@ -299,3 +299,36 @@ func (w *bitgetWrapper) GetSpotPrice(ctx context.Context, symbol string) (float6
 func (w *bitgetWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
+
+// GetOrderBook 获取订单簿深度
+func (w *bitgetWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	bitgetOrderBook, err := w.adapter.GetOrderBook(ctx, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换买盘数据
+	bids := make([]OrderBookLevel, len(bitgetOrderBook.Bids))
+	for i, bid := range bitgetOrderBook.Bids {
+		bids[i] = OrderBookLevel{
+			Price:    bid.Price,
+			Quantity: bid.Quantity,
+		}
+	}
+
+	// 转换卖盘数据
+	asks := make([]OrderBookLevel, len(bitgetOrderBook.Asks))
+	for i, ask := range bitgetOrderBook.Asks {
+		asks[i] = OrderBookLevel{
+			Price:    ask.Price,
+			Quantity: ask.Quantity,
+		}
+	}
+
+	return &OrderBook{
+		Symbol:    symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: bitgetOrderBook.Timestamp,
+	}, nil
+}

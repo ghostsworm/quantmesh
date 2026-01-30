@@ -294,3 +294,8 @@ func (w *bitrueWrapper) GetSpotPrice(ctx context.Context, symbol string) (float6
 func (w *bitrueWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
+
+// GetOrderBook 获取订单簿深度（暂未实现）
+func (w *bitrueWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	return nil, ErrNotImplemented
+}

@@ -16,6 +16,7 @@ import (
 	"quantmesh/ai"
 	"quantmesh/ai/processor"
 	"quantmesh/ai/service"
+	"quantmesh/backtest"
 	"quantmesh/config"
 	"quantmesh/database"
 	"quantmesh/event"
@@ -79,7 +80,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.5.3"
+var Version = "3.5.4"
 
 // 全局日志存储实例（用于清理任务和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1363,6 +1364,14 @@ func main() {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
 			logger.Info("✅ 全局存储服务提供者已设置")
+			// 回测任务管理器（需要 TaskStore，即 SQLite）
+			if st := storageService.GetStorage(); st != nil {
+				if taskStore := st.GetBacktestTaskStore(); taskStore != nil {
+					taskManager := backtest.NewTaskManager(taskStore, map[string]string{"api_key": "", "secret_key": "", "testnet": "false"})
+					web.SetBacktestTaskManager(taskManager)
+					logger.Info("✅ 回测任务管理器已设置")
+				}
+			}
 		}
 
 		logger.Info("✅ 所有交易对已初始化，进入运行状态")
@@ -1371,6 +1380,13 @@ func main() {
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
+			if st := storageService.GetStorage(); st != nil {
+				if taskStore := st.GetBacktestTaskStore(); taskStore != nil {
+					taskManager := backtest.NewTaskManager(taskStore, map[string]string{"api_key": "", "secret_key": "", "testnet": "false"})
+					web.SetBacktestTaskManager(taskManager)
+					logger.Info("✅ 回测任务管理器已设置")
+				}
+			}
 		}
 
 		// 设置系统监控数据提供者

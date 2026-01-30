@@ -297,7 +297,38 @@ func createTables(db *sql.DB) error {
 		return fmt.Errorf("迁移 profit_withdraw_rules 表失败: %w", err)
 	}
 
+	// 迁移：确保 backtest_tasks 表存在
+	if err := migrateBacktestTasksTable(db); err != nil {
+		return fmt.Errorf("迁移 backtest_tasks 表失败: %w", err)
+	}
+
 	return nil
+}
+
+// migrateBacktestTasksTable 迁移 backtest_tasks 表（回测任务）
+func migrateBacktestTasksTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS backtest_tasks (
+			id TEXT PRIMARY KEY,
+			status TEXT NOT NULL,
+			strategy TEXT NOT NULL,
+			symbol TEXT NOT NULL,
+			interval TEXT NOT NULL,
+			start_time INTEGER NOT NULL,
+			end_time INTEGER NOT NULL,
+			params TEXT NOT NULL,
+			total_capital REAL NOT NULL,
+			progress INTEGER DEFAULT 0,
+			created_at INTEGER NOT NULL,
+			started_at INTEGER,
+			completed_at INTEGER,
+			error TEXT,
+			result_path TEXT,
+			report_path TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_backtest_tasks_created_at ON backtest_tasks(created_at);
+	`)
+	return err
 }
 
 // migrateProfitWithdrawRulesTable 迁移 profit_withdraw_rules 表（确保表存在）

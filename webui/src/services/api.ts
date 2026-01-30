@@ -136,6 +136,29 @@ export interface PositionsSummary {
   current_price: number
   unrealized_pnl: number
   pnl_percentage: number
+  actual_margin?: number
+  leverage?: number
+  // 槽位计算数据
+  slot_data?: {
+    quantity: number
+    average_price: number
+    unrealized_pnl: number
+    ws_price: number
+  }
+  // 交易所数据
+  exchange_data?: {
+    has_data: boolean
+    quantity: number
+    entry_price: number
+    mark_price: number
+    unrealized_pnl: number
+    leverage: number
+  }
+  // 差异分析
+  discrepancy?: {
+    pnl_diff: number
+    reasons: string[]
+  }
 }
 
 export async function getPositionsSummary(exchange?: string, symbol?: string): Promise<PositionsSummary> {

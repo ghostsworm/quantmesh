@@ -444,6 +444,38 @@ func (c *OKXClient) GetTicker(ctx context.Context, instId string) (*Ticker, erro
 	return &tickers[0], nil
 }
 
+// OKXOrderBookResponse OKX 订单簿响应结构
+type OKXOrderBookResponse struct {
+	InstID  string     `json:"instId"`  // 交易对
+	Asks    [][]string `json:"asks"`    // 卖盘 [[价格, 数量, 0, 数量], ...]
+	Bids    [][]string `json:"bids"`    // 买盘 [[价格, 数量, 0, 数量], ...]
+	TS      string     `json:"ts"`       // 时间戳（毫秒）
+}
+
+// GetOrderBook 获取订单簿深度
+func (c *OKXClient) GetOrderBook(ctx context.Context, instId string, sz int) (*OKXOrderBookResponse, error) {
+	path := fmt.Sprintf("/api/v5/market/books?instId=%s&sz=%d", instId, sz)
+
+	data, err := c.request(ctx, "GET", path, nil, false) // 订单簿是公开接口，不需要模拟盘标识
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Data []OKXOrderBookResponse `json:"data"`
+	}
+
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("解析订单簿数据失败: %w", err)
+	}
+
+	if len(result.Data) == 0 {
+		return nil, fmt.Errorf("订单簿数据为空")
+	}
+
+	return &result.Data[0], nil
+}
+
 func init() {
 	logger.Info("📦 [OKX Client] REST API 客户端已初始化")
 }

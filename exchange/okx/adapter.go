@@ -116,6 +116,20 @@ type Candle struct {
 
 type CandleUpdateCallback = func(candle interface{})
 
+// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+type OrderBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// OrderBook 订单簿（本地类型，避免循环导入）
+type OrderBook struct {
+	Symbol    string
+	Bids      []OrderBookLevel
+	Asks      []OrderBookLevel
+	Timestamp int64
+}
+
 // OKXAdapter OKX 交易所适配器
 type OKXAdapter struct {
 	client           *OKXClient
@@ -706,4 +720,67 @@ func (o *OKXAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, 
 	}
 
 	return price, nil
+}
+
+// GetOrderBook 获取订单簿深度
+func (o *OKXAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	// OKX API: GET /api/v5/market/books
+	okxOrderBook, err := o.client.GetOrderBook(ctx, o.instId, limit)
+	if err != nil {
+		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+	}
+
+	// 转换买盘数据（价格从高到低）
+	bids := make([]OrderBookLevel, 0, len(okxOrderBook.Bids))
+	for _, bid := range okxOrderBook.Bids {
+		if len(bid) < 2 {
+			continue
+		}
+		price, err := strconv.ParseFloat(bid[0], 64)
+		if err != nil {
+			logger.Warn("⚠️ [OKX] 订单簿买盘价格解析失败: %v", err)
+			continue
+		}
+		quantity, err := strconv.ParseFloat(bid[1], 64)
+		if err != nil {
+			logger.Warn("⚠️ [OKX] 订单簿买盘数量解析失败: %v", err)
+			continue
+		}
+		bids = append(bids, OrderBookLevel{
+			Price:    price,
+			Quantity: quantity,
+		})
+	}
+
+	// 转换卖盘数据（价格从低到高）
+	asks := make([]OrderBookLevel, 0, len(okxOrderBook.Asks))
+	for _, ask := range okxOrderBook.Asks {
+		if len(ask) < 2 {
+			continue
+		}
+		price, err := strconv.ParseFloat(ask[0], 64)
+		if err != nil {
+			logger.Warn("⚠️ [OKX] 订单簿卖盘价格解析失败: %v", err)
+			continue
+		}
+		quantity, err := strconv.ParseFloat(ask[1], 64)
+		if err != nil {
+			logger.Warn("⚠️ [OKX] 订单簿卖盘数量解析失败: %v", err)
+			continue
+		}
+		asks = append(asks, OrderBookLevel{
+			Price:    price,
+			Quantity: quantity,
+		})
+	}
+
+	// 解析时间戳
+	timestamp, _ := strconv.ParseInt(okxOrderBook.TS, 10, 64)
+
+	return &OrderBook{
+		Symbol:    symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: timestamp,
+	}, nil
 }

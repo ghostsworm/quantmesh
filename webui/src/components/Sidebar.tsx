@@ -336,6 +336,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
         >
           {t('sidebar.profitManagement')}
         </NavItem>
+        <NavItem 
+          icon={TimeIcon} 
+          to="/backtest" 
+          isActive={isRouteActive('/backtest')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.backtest', '回测')}
+        </NavItem>
 
         <AnimatePresence>
           {!isGlobalView && (

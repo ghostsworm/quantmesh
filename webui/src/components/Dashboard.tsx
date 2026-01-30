@@ -219,19 +219,23 @@ const Dashboard: React.FC = () => {
           </Alert>
         )}
 
-        {/* 币种未运行提示 */}
+        {/* 币种未运行提示 - 用红色警告样式，更醒目 */}
         {!needsSetup && isCurrentSymbolMatched && !status.running && (
-          <Alert status="info" borderRadius="xl" variant="left-accent">
-            <AlertIcon />
+          <Alert status="error" borderRadius="xl" variant="solid" bg="red.500">
+            <AlertIcon color="white" />
             <Box flex="1">
-              <AlertTitle>{t('dashboard.symbolNotRunning')}</AlertTitle>
-              <AlertDescription>
+              <AlertTitle color="white" fontSize="md" fontWeight="bold">{t('dashboard.symbolNotRunning')}</AlertTitle>
+              <AlertDescription color="whiteAlpha.900">
                 {t('dashboard.symbolNotRunningDescription')}
               </AlertDescription>
             </Box>
             <Button
-              colorScheme="blue"
+              colorScheme="whiteAlpha"
+              bg="white"
+              color="red.500"
               size="sm"
+              fontWeight="bold"
+              _hover={{ bg: 'red.50' }}
               onClick={() => navigate('/strategy-slots')}
             >
               {t('dashboard.goToSettings')}
@@ -349,27 +353,84 @@ const Dashboard: React.FC = () => {
 
         {/* Details Grid */}
         <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={8}>
-          {/* Slots & Allocation */}
+          {/* Positions & Allocation */}
           <VStack align="stretch" spacing={6}>
-            <GlassCard title={t('dashboard.slotsMatrix')}>
-              {slotsInfo ? (
-                <SimpleGrid columns={4} spacing={4}>
-                  {slotsInfo.slots.map((slot, i) => (
-                    <VStack 
-                      key={i} 
-                      bg={slot.position_status === 'FILLED' ? 'green.50' : 'gray.50'} 
-                      p={3} 
-                      borderRadius="xl"
-                      border="1px solid"
-                      borderColor={slot.position_status === 'FILLED' ? 'green.100' : 'gray.100'}
-                    >
-                      <Text fontSize="10px" fontWeight="bold" color="gray.400">#{i+1}</Text>
-                      <Box w={3} h={3} borderRadius="full" bg={slot.position_status === 'FILLED' ? 'green.500' : 'gray.300'} />
+            <GlassCard title={t('dashboard.activePositions')}>
+              {positionsSummary && positionsSummary.position_count > 0 ? (
+                <VStack align="stretch" spacing={4}>
+                  {/* 主要数据展示 */}
+                  <Flex justify="space-between" align="center">
+                    <VStack align="start" spacing={0}>
+                      <Text fontSize="xs" color="gray.500">{t('dashboard.size')}</Text>
+                      <Text fontWeight="800" fontSize="xl">{positionsSummary.total_quantity?.toFixed(4)}</Text>
                     </VStack>
-                  ))}
-                </SimpleGrid>
+                    <VStack align="end" spacing={0}>
+                      <Text fontSize="xs" color="gray.500">{t('dashboard.unrealizedPnL')}</Text>
+                      <Text fontWeight="800" fontSize="xl" color={(positionsSummary.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'}>
+                        {(positionsSummary.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.unrealized_pnl?.toFixed(2)}
+                      </Text>
+                    </VStack>
+                  </Flex>
+                  <Divider />
+                  <Flex justify="space-between">
+                    <Text fontSize="xs" color="gray.500">{t('dashboard.entryPrice')}: ${positionsSummary.average_price?.toFixed(2) || '0.00'}</Text>
+                    <Text fontSize="xs" color="gray.500">{t('dashboard.value')}: ${positionsSummary.total_value?.toFixed(2)}</Text>
+                  </Flex>
+
+                  {/* 盈亏对比分析 */}
+                  {positionsSummary.exchange_data?.has_data && positionsSummary.slot_data && (
+                    <>
+                      <Divider />
+                      <Box bg="gray.50" p={3} borderRadius="lg">
+                        <Text fontSize="xs" fontWeight="bold" color="gray.600" mb={2}>盈亏对比分析</Text>
+                        <SimpleGrid columns={2} spacing={3} fontSize="xs">
+                          <VStack align="start" spacing={1}>
+                            <Text color="gray.500">交易所数据</Text>
+                            <Text fontWeight="600" color={(positionsSummary.exchange_data.unrealized_pnl || 0) >= 0 ? 'green.600' : 'red.600'}>
+                              {(positionsSummary.exchange_data.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.exchange_data.unrealized_pnl?.toFixed(2)} USDT
+                            </Text>
+                            <Text color="gray.400">入场: ${positionsSummary.exchange_data.entry_price?.toFixed(2)}</Text>
+                            <Text color="gray.400">标记价: ${positionsSummary.exchange_data.mark_price?.toFixed(2)}</Text>
+                          </VStack>
+                          <VStack align="start" spacing={1}>
+                            <Text color="gray.500">槽位计算</Text>
+                            <Text fontWeight="600" color={(positionsSummary.slot_data.unrealized_pnl || 0) >= 0 ? 'green.600' : 'red.600'}>
+                              {(positionsSummary.slot_data.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.slot_data.unrealized_pnl?.toFixed(2)} USDT
+                            </Text>
+                            <Text color="gray.400">均价: ${positionsSummary.slot_data.average_price?.toFixed(2)}</Text>
+                            <Text color="gray.400">WS价: ${positionsSummary.slot_data.ws_price?.toFixed(2)}</Text>
+                          </VStack>
+                        </SimpleGrid>
+                        
+                        {/* 差异说明 */}
+                        {positionsSummary.discrepancy && Math.abs(positionsSummary.discrepancy.pnl_diff) > 0.01 && (
+                          <Box mt={2} pt={2} borderTop="1px dashed" borderColor="gray.200">
+                            <HStack spacing={1} mb={1}>
+                              <Icon as={WarningIcon} color="orange.400" w={3} h={3} />
+                              <Text fontSize="xs" fontWeight="600" color="orange.600">
+                                差异: {positionsSummary.discrepancy.pnl_diff >= 0 ? '+' : ''}{positionsSummary.discrepancy.pnl_diff.toFixed(2)} USDT
+                              </Text>
+                            </HStack>
+                            {positionsSummary.discrepancy.reasons && positionsSummary.discrepancy.reasons.length > 0 && (
+                              <VStack align="start" spacing={0.5}>
+                                {positionsSummary.discrepancy.reasons.map((reason, idx) => (
+                                  <Text key={idx} fontSize="10px" color="gray.500">• {reason}</Text>
+                                ))}
+                              </VStack>
+                            )}
+                          </Box>
+                        )}
+                      </Box>
+                    </>
+                  )}
+                </VStack>
               ) : (
-                <Text color="gray.400" fontSize="sm">{t('dashboard.noSlotsInfo')}</Text>
+                <Center h="100px">
+                  <VStack spacing={2}>
+                    <Icon as={InfoIcon} color="gray.300" w={6} h={6} />
+                    <Text color="gray.400" fontSize="sm">{t('dashboard.noActivePositions')}</Text>
+                  </VStack>
+                </Center>
               )}
             </GlassCard>
 
@@ -392,39 +453,8 @@ const Dashboard: React.FC = () => {
             )}
           </VStack>
 
-          {/* Positions & Orders */}
+          {/* Orders */}
           <VStack align="stretch" spacing={6}>
-            <GlassCard title={t('dashboard.activePositions')}>
-              {positionsSummary && positionsSummary.position_count > 0 ? (
-                <VStack align="stretch" spacing={4}>
-                  <Flex justify="space-between" align="center">
-                    <VStack align="start" spacing={0}>
-                      <Text fontSize="xs" color="gray.500">{t('dashboard.size')}</Text>
-                      <Text fontWeight="800" fontSize="xl">{positionsSummary.total_quantity?.toFixed(4)}</Text>
-                    </VStack>
-                    <VStack align="end" spacing={0}>
-                      <Text fontSize="xs" color="gray.500">{t('dashboard.unrealizedPnL')}</Text>
-                      <Text fontWeight="800" fontSize="xl" color={(positionsSummary.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'}>
-                        {(positionsSummary.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.unrealized_pnl?.toFixed(2)}
-                      </Text>
-                    </VStack>
-                  </Flex>
-                  <Divider />
-                  <Flex justify="space-between">
-                    <Text fontSize="xs" color="gray.500">{t('dashboard.entryPrice')}: ${positionsSummary.average_price?.toFixed(2) || '0.00'}</Text>
-                    <Text fontSize="xs" color="gray.500">{t('dashboard.value')}: ${positionsSummary.total_value?.toFixed(2)}</Text>
-                  </Flex>
-                </VStack>
-              ) : (
-                <Center h="100px">
-                  <VStack spacing={2}>
-                    <Icon as={InfoIcon} color="gray.300" w={6} h={6} />
-                    <Text color="gray.400" fontSize="sm">{t('dashboard.noActivePositions')}</Text>
-                  </VStack>
-                </Center>
-              )}
-            </GlassCard>
-
             <GlassCard title={t('dashboard.recentActivity')}>
               {pendingOrders && pendingOrders.orders && pendingOrders.orders.length > 0 ? (
                 <VStack align="stretch" spacing={3}>
@@ -447,6 +477,32 @@ const Dashboard: React.FC = () => {
             </GlassCard>
           </VStack>
         </SimpleGrid>
+
+        {/* Slots Matrix - 移到底部，更紧凑的展示 */}
+        <GlassCard title={t('dashboard.slotsMatrix')}>
+          {slotsInfo ? (
+            <SimpleGrid columns={{ base: 4, md: 8 }} spacing={3}>
+              {slotsInfo.slots.map((slot, i) => (
+                <HStack 
+                  key={i} 
+                  bg={slot.position_status === 'FILLED' ? 'green.50' : 'gray.50'} 
+                  px={3}
+                  py={2}
+                  borderRadius="lg"
+                  border="1px solid"
+                  borderColor={slot.position_status === 'FILLED' ? 'green.100' : 'gray.100'}
+                  spacing={2}
+                  justify="center"
+                >
+                  <Text fontSize="10px" fontWeight="bold" color="gray.400">#{i+1}</Text>
+                  <Box w={2} h={2} borderRadius="full" bg={slot.position_status === 'FILLED' ? 'green.500' : 'gray.300'} />
+                </HStack>
+              ))}
+            </SimpleGrid>
+          ) : (
+            <Text color="gray.400" fontSize="sm">{t('dashboard.noSlotsInfo')}</Text>
+          )}
+        </GlassCard>
       </VStack>
       <NewbieCheckModal isOpen={isNewbieCheckOpen} onClose={onNewbieCheckClose} />
     </Container>

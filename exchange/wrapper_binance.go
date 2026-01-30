@@ -312,3 +312,36 @@ func (w *binanceWrapper) GetSpotPrice(ctx context.Context, symbol string) (float
 func (w *binanceWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return w.adapter.EstimateFinalOrderAmount(symbol, price, quantity, reduceOnly)
 }
+
+// GetOrderBook 获取订单簿深度
+func (w *binanceWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	binanceOrderBook, err := w.adapter.GetOrderBook(ctx, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换买盘数据
+	bids := make([]OrderBookLevel, len(binanceOrderBook.Bids))
+	for i, bid := range binanceOrderBook.Bids {
+		bids[i] = OrderBookLevel{
+			Price:    bid.Price,
+			Quantity: bid.Quantity,
+		}
+	}
+
+	// 转换卖盘数据
+	asks := make([]OrderBookLevel, len(binanceOrderBook.Asks))
+	for i, ask := range binanceOrderBook.Asks {
+		asks[i] = OrderBookLevel{
+			Price:    ask.Price,
+			Quantity: ask.Quantity,
+		}
+	}
+
+	return &OrderBook{
+		Symbol:    symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: binanceOrderBook.Timestamp,
+	}, nil
+}

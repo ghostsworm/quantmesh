@@ -294,3 +294,8 @@ func (w *deribitWrapper) GetSpotPrice(ctx context.Context, symbol string) (float
 func (w *deribitWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
+
+// GetOrderBook 获取订单簿深度（暂未实现）
+func (w *deribitWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	return nil, ErrNotImplemented
+}

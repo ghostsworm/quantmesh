@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"quantmesh/ai"
 	"quantmesh/config"
 	"quantmesh/database"
@@ -22,6 +21,8 @@ import (
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/utils"
+
+	"github.com/gin-gonic/gin"
 )
 
 // respondError 返回翻译后的错误响应
@@ -88,13 +89,13 @@ const (
 
 // AITask AI 任务信息
 type AITask struct {
-	TaskID    string                 `json:"task_id"`
-	Status    AITaskStatus           `json:"status"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	TaskID    string                     `json:"task_id"`
+	Status    AITaskStatus               `json:"status"`
+	CreatedAt time.Time                  `json:"created_at"`
+	UpdatedAt time.Time                  `json:"updated_at"`
 	Result    *ai.GenerateConfigResponse `json:"result,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	Progress  int                    `json:"progress"` // 0-100
+	Error     string                     `json:"error,omitempty"`
+	Progress  int                        `json:"progress"` // 0-100
 }
 
 // AITaskManager AI 任务管理器
@@ -111,7 +112,7 @@ var aiTaskManager = &AITaskManager{
 func (m *AITaskManager) CreateTask() *AITask {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	taskID := fmt.Sprintf("task_%d", time.Now().UnixNano())
 	task := &AITask{
 		TaskID:    taskID,
@@ -136,7 +137,7 @@ func (m *AITaskManager) GetTask(taskID string) (*AITask, bool) {
 func (m *AITaskManager) UpdateTask(taskID string, status AITaskStatus, result *ai.GenerateConfigResponse, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if task, ok := m.tasks[taskID]; ok {
 		task.Status = status
 		task.UpdatedAt = time.Now()
@@ -157,7 +158,7 @@ func (m *AITaskManager) UpdateTask(taskID string, status AITaskStatus, result *a
 func (m *AITaskManager) CleanupOldTasks() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	now := time.Now()
 	for taskID, task := range m.tasks {
 		if now.Sub(task.CreatedAt) > time.Hour {
@@ -371,59 +372,59 @@ func PickFundingProvider(c *gin.Context) FundingMonitorProvider {
 func getStatus(c *gin.Context) {
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
-	
+
 	// 如果指定了 exchange 和 symbol，尝试获取对应的状态
 	if exchange != "" && symbol != "" {
 		key := makeSymbolKey(exchange, symbol)
 		statusMu.RLock()
 		st, ok := statusBySymbol[key]
 		statusMu.RUnlock()
-		
+
 		if ok && st != nil {
 			// 找到了运行中的状态
 			c.JSON(http.StatusOK, st)
 			return
 		}
-		
+
 		// 没有找到运行中的状态，检查配置中是否有这个币种
 		if configManager != nil {
 			cfg, err := configManager.GetConfig()
 			if err == nil && cfg != nil {
 				// 检查配置中是否有这个币种
 				for _, symCfg := range cfg.Trading.Symbols {
-					if strings.EqualFold(symCfg.Exchange, exchange) && 
-					   strings.EqualFold(symCfg.Symbol, symbol) {
+					if strings.EqualFold(symCfg.Exchange, exchange) &&
+						strings.EqualFold(symCfg.Symbol, symbol) {
 						// 配置中存在但未运行，返回正确的状态信息
 						c.JSON(http.StatusOK, &SystemStatus{
-							Running:      false,
-							Exchange:     exchange,
-							Symbol:       symbol,
-							CurrentPrice: 0,
-							TotalPnL:     0,
-							TotalTrades:  0,
+							Running:       false,
+							Exchange:      exchange,
+							Symbol:        symbol,
+							CurrentPrice:  0,
+							TotalPnL:      0,
+							TotalTrades:   0,
 							RiskTriggered: false,
-							Uptime:       0,
+							Uptime:        0,
 						})
 						return
 					}
 				}
 			}
 		}
-		
+
 		// 配置中也没有找到，返回未运行状态（但包含请求的 exchange 和 symbol）
 		c.JSON(http.StatusOK, &SystemStatus{
-			Running:      false,
-			Exchange:     exchange,
-			Symbol:       symbol,
-			CurrentPrice: 0,
-			TotalPnL:     0,
-			TotalTrades:  0,
+			Running:       false,
+			Exchange:      exchange,
+			Symbol:        symbol,
+			CurrentPrice:  0,
+			TotalPnL:      0,
+			TotalTrades:   0,
 			RiskTriggered: false,
-			Uptime:       0,
+			Uptime:        0,
 		})
 		return
 	}
-	
+
 	// 没有指定 exchange 和 symbol，使用原来的逻辑
 	status := pickStatus(c)
 	if status == nil {
@@ -755,6 +756,8 @@ var (
 type ExchangeProvider interface {
 	GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*exchange.Candle, error)
 	GetFundingRate(ctx context.Context, symbol string) (float64, error)
+	// GetPositions 获取交易所真实持仓信息
+	GetPositions(ctx context.Context, symbol string) ([]*exchange.Position, error)
 }
 
 // SetExchangeProvider 设置交易所提供者
@@ -809,7 +812,7 @@ func getPositions(c *gin.Context) {
 					// 继续处理，但记录警告
 				}
 			}
-			
+
 			positionCount++
 			totalQuantity += slot.PositionQty
 
@@ -939,6 +942,10 @@ func getPositions(c *gin.Context) {
 func getPositionsSummary(c *gin.Context) {
 	pmProvider := PickPositionProvider(c)
 	priceProv := PickPriceProvider(c)
+	exchProv := pickExchangeProvider(c)
+
+	// 获取请求参数中的 symbol
+	symbol := c.Query("symbol")
 
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -956,118 +963,208 @@ func getPositionsSummary(c *gin.Context) {
 	}
 
 	slots := pmProvider.GetAllSlots()
-	currentPrice := 0.0
+	wsPrice := 0.0 // WebSocket 实时价格
 	if priceProv != nil {
-		currentPrice = priceProv.GetLastPrice()
+		wsPrice = priceProv.GetLastPrice()
 	}
 
-	totalQuantity := 0.0
-	totalValue := 0.0
-	positionCount := 0
-	totalCost := 0.0
+	// ========== 槽位计算部分 ==========
+	slotTotalQuantity := 0.0
+	slotTotalValue := 0.0
+	slotPositionCount := 0
+	slotTotalCost := 0.0
 
 	// 筛选有持仓的槽位
 	for _, slot := range slots {
-		// 🔥 添加价格验证：确保槽位价格有效（大于0且合理）
 		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
-			positionCount++
-			totalQuantity += slot.PositionQty
-			totalCost += slot.Price * slot.PositionQty
+			slotPositionCount++
+			slotTotalQuantity += slot.PositionQty
+			slotTotalCost += slot.Price * slot.PositionQty
 
-			// 计算持仓价值（使用当前价格）
-			if currentPrice > 0 {
-				totalValue += slot.PositionQty * currentPrice
+			if wsPrice > 0 {
+				slotTotalValue += slot.PositionQty * wsPrice
 			} else {
-				// 如果当前价格不可用，使用持仓价格
-				totalValue += slot.PositionQty * slot.Price
+				slotTotalValue += slot.PositionQty * slot.Price
 			}
 		}
 	}
 
-	// 计算平均持仓价格
-	averagePrice := 0.0
-	if totalQuantity > 0 {
-		averagePrice = totalCost / totalQuantity
+	// 槽位平均持仓价格
+	slotAveragePrice := 0.0
+	if slotTotalQuantity > 0 {
+		slotAveragePrice = slotTotalCost / slotTotalQuantity
 	}
 
-	// 计算总未实现盈亏
-	unrealizedPnL := 0.0
-	if currentPrice > 0 && totalQuantity > 0 && averagePrice > 0 {
-		// 🔥 添加价格合理性检查：如果当前价格相对于平均价格偏差过大（超过50%），可能是价格异常
-		priceDeviation := (currentPrice - averagePrice) / averagePrice
+	// 槽位计算的未实现盈亏
+	slotUnrealizedPnL := 0.0
+	if wsPrice > 0 && slotTotalQuantity > 0 && slotAveragePrice > 0 {
+		slotUnrealizedPnL = (wsPrice - slotAveragePrice) * slotTotalQuantity
+	}
 
-		// 检查是否是单位问题（比如当前价格是平均价格的100倍或0.01倍）
-		priceRatio := currentPrice / averagePrice
-		if priceRatio > 50 || priceRatio < 0.02 {
-			// 可能是单位问题，尝试修正
-			if priceRatio > 50 {
-				// 当前价格可能是平均价格的100倍，尝试除以100
-				adjustedPrice := currentPrice / 100
-				if math.Abs(adjustedPrice-averagePrice)/averagePrice < 0.1 {
-					logger.Warn("⚠️ [getPositionsSummary] 检测到价格单位问题（当前价格可能是平均价格的100倍），已自动修正: %.2f -> %.2f",
-						currentPrice, adjustedPrice)
-					currentPrice = adjustedPrice
+	// ========== 交易所数据部分 ==========
+	exchangeUnrealizedPnL := 0.0
+	exchangeMarkPrice := 0.0
+	exchangeEntryPrice := 0.0
+	exchangePositionSize := 0.0
+	exchangeLeverage := 0
+	hasExchangeData := false
+
+	if exchProv != nil && symbol != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		positions, err := exchProv.GetPositions(ctx, symbol)
+		cancel()
+
+		if err == nil && len(positions) > 0 {
+			for _, pos := range positions {
+				if pos.Size != 0 {
+					exchangeUnrealizedPnL += pos.UnrealizedPNL
+					exchangeMarkPrice = pos.MarkPrice
+					exchangeEntryPrice = pos.EntryPrice
+					exchangePositionSize += pos.Size // 累加（支持多仓位）
+					exchangeLeverage = pos.Leverage
+					hasExchangeData = true
 				}
-			} else if priceRatio < 0.02 {
-				// 当前价格可能是平均价格的0.01倍，尝试乘以100
-				adjustedPrice := currentPrice * 100
-				if math.Abs(adjustedPrice-averagePrice)/averagePrice < 0.1 {
-					logger.Warn("⚠️ [getPositionsSummary] 检测到价格单位问题（当前价格可能是平均价格的0.01倍），已自动修正: %.2f -> %.2f",
-						currentPrice, adjustedPrice)
-					currentPrice = adjustedPrice
-				}
+			}
+		} else if err != nil {
+			logger.Warn("⚠️ [getPositionsSummary] 从交易所获取仓位失败: %v", err)
+		}
+	}
+
+	// ========== 差异分析 ==========
+	var discrepancyReasons []string
+	pnlDiff := 0.0
+
+	if hasExchangeData && slotTotalQuantity > 0 {
+		pnlDiff = exchangeUnrealizedPnL - slotUnrealizedPnL
+
+		// 1. 数量差异分析
+		quantityDiff := exchangePositionSize - slotTotalQuantity
+		if math.Abs(quantityDiff) > 0.000001 {
+			diffPercent := (quantityDiff / slotTotalQuantity) * 100
+			if math.Abs(diffPercent) > 1 { // 超过1%的差异
+				discrepancyReasons = append(discrepancyReasons,
+					fmt.Sprintf("数量差异: 交易所=%.6f, 槽位=%.6f, 差=%.6f (%.2f%%)",
+						exchangePositionSize, slotTotalQuantity, quantityDiff, diffPercent))
 			}
 		}
 
-		// 重新计算价格偏差
-		priceDeviation = (currentPrice - averagePrice) / averagePrice
-		if priceDeviation > 0.5 || priceDeviation < -0.5 {
-			// 价格偏差仍然过大，记录详细警告并使用平均价格
-			logger.Warn("⚠️ [getPositionsSummary] 当前价格异常: currentPrice=%.2f, averagePrice=%.2f, 偏差=%.2f%%, totalQuantity=%.4f",
-				currentPrice, averagePrice, priceDeviation*100, totalQuantity)
-			logger.Warn("⚠️ [getPositionsSummary] 价格偏差过大，使用平均价格计算（未实现盈亏设为0）")
-			currentPrice = averagePrice // 使用平均价格，使未实现盈亏为0
+		// 2. 入场价格差异分析
+		priceDiff := exchangeEntryPrice - slotAveragePrice
+		if math.Abs(priceDiff) > 0.01 {
+			diffPercent := (priceDiff / slotAveragePrice) * 100
+			if math.Abs(diffPercent) > 0.1 { // 超过0.1%的差异
+				discrepancyReasons = append(discrepancyReasons,
+					fmt.Sprintf("入场价差异: 交易所=%.2f, 槽位平均=%.2f, 差=%.2f (%.4f%%)",
+						exchangeEntryPrice, slotAveragePrice, priceDiff, diffPercent))
+			}
 		}
 
-		unrealizedPnL = (currentPrice - averagePrice) * totalQuantity
-
-		// 🔥 添加未实现盈亏合理性检查：如果未实现盈亏相对于持仓成本过大（超过100%），记录警告
-		if totalCost > 0 {
-			pnlRatio := unrealizedPnL / totalCost
-			if pnlRatio > 1.0 || pnlRatio < -1.0 {
-				logger.Warn("⚠️ [getPositionsSummary] 未实现盈亏异常: unrealizedPnL=%.2f, totalCost=%.2f, 比例=%.2f%%, currentPrice=%.2f, averagePrice=%.2f",
-					unrealizedPnL, totalCost, pnlRatio*100, currentPrice, averagePrice)
+		// 3. 当前价格差异分析（标记价格 vs WebSocket价格）
+		if wsPrice > 0 && exchangeMarkPrice > 0 {
+			markPriceDiff := exchangeMarkPrice - wsPrice
+			if math.Abs(markPriceDiff) > 0.01 {
+				diffPercent := (markPriceDiff / wsPrice) * 100
+				discrepancyReasons = append(discrepancyReasons,
+					fmt.Sprintf("价格差异: 标记价=%.2f, WS价=%.2f, 差=%.2f (%.4f%%)",
+						exchangeMarkPrice, wsPrice, markPriceDiff, diffPercent))
 			}
+		}
+
+		// 4. 如果数量和价格都接近但盈亏差异大，可能是其他原因
+		if len(discrepancyReasons) == 0 && math.Abs(pnlDiff) > 1 {
+			// 可能原因：
+			// - 手续费影响（交易所盈亏可能已扣除手续费）
+			// - 资金费率影响（交易所盈亏可能包含资金费率）
+			// - 滑点导致的实际成交价与记录价的差异
+			// - 槽位记录的价格与实际成交价有偏差
+			discrepancyReasons = append(discrepancyReasons,
+				fmt.Sprintf("盈亏差异 %.2f USDT，可能原因: 手续费/资金费率/滑点/成交价偏差", pnlDiff))
+		}
+
+		// 记录详细日志
+		logger.Info("📊 [getPositionsSummary] 盈亏对比分析:")
+		logger.Info("  交易所: size=%.6f, entryPrice=%.2f, markPrice=%.2f, pnl=%.4f, leverage=%d",
+			exchangePositionSize, exchangeEntryPrice, exchangeMarkPrice, exchangeUnrealizedPnL, exchangeLeverage)
+		logger.Info("  槽位:   size=%.6f, avgPrice=%.2f, wsPrice=%.2f, pnl=%.4f",
+			slotTotalQuantity, slotAveragePrice, wsPrice, slotUnrealizedPnL)
+		logger.Info("  差异:   pnlDiff=%.4f USDT", pnlDiff)
+		if len(discrepancyReasons) > 0 {
+			for _, reason := range discrepancyReasons {
+				logger.Info("  原因:   %s", reason)
+			}
+		}
+	}
+
+	// ========== 决定使用哪个数据作为主要显示 ==========
+	// 优先使用交易所数据（因为这是真实的盈亏）
+	displayUnrealizedPnL := slotUnrealizedPnL
+	displayCurrentPrice := wsPrice
+	if hasExchangeData {
+		displayUnrealizedPnL = exchangeUnrealizedPnL
+		if exchangeMarkPrice > 0 {
+			displayCurrentPrice = exchangeMarkPrice
 		}
 	}
 
 	// 计算亏损率（相对于持仓成本的百分比）
 	pnlPercentage := 0.0
-	if totalCost > 0 {
-		pnlPercentage = (unrealizedPnL / totalCost) * 100.0
+	if slotTotalCost > 0 {
+		pnlPercentage = (displayUnrealizedPnL / slotTotalCost) * 100.0
 	}
 
-	// 计算实际资金占用（实际保证金 = 总持仓价值 / 杠杆倍数）
-	leverage := 1 // 默认1倍（无杠杆）
+	// 计算实际资金占用
+	leverage := 1
 	if pmProvider != nil {
 		leverage = pmProvider.GetLeverage()
 	}
+	// 如果交易所返回了杠杆，优先使用
+	if exchangeLeverage > 0 {
+		leverage = exchangeLeverage
+	}
 	actualMargin := 0.0
-	if leverage > 0 && totalValue > 0 {
-		actualMargin = totalValue / float64(leverage)
+	if leverage > 0 && slotTotalValue > 0 {
+		actualMargin = slotTotalValue / float64(leverage)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"total_quantity":  totalQuantity,
-		"total_value":     totalValue,
-		"position_count":  positionCount,
-		"average_price":   averagePrice,
-		"current_price":   currentPrice,
-		"unrealized_pnl":  unrealizedPnL,
-		"pnl_percentage":  pnlPercentage,
-		"actual_margin":   actualMargin, // 实际资金占用（实际保证金）
-		"leverage":        leverage,     // 杠杆倍数
-	})
+	// 构建响应
+	response := gin.H{
+		// 主要显示数据（优先使用交易所数据）
+		"total_quantity": slotTotalQuantity,
+		"total_value":    slotTotalValue,
+		"position_count": slotPositionCount,
+		"average_price":  slotAveragePrice,
+		"current_price":  displayCurrentPrice,
+		"unrealized_pnl": displayUnrealizedPnL,
+		"pnl_percentage": pnlPercentage,
+		"actual_margin":  actualMargin,
+		"leverage":       leverage,
+
+		// 槽位计算数据
+		"slot_data": gin.H{
+			"quantity":       slotTotalQuantity,
+			"average_price":  slotAveragePrice,
+			"unrealized_pnl": slotUnrealizedPnL,
+			"ws_price":       wsPrice,
+		},
+
+		// 交易所数据
+		"exchange_data": gin.H{
+			"has_data":       hasExchangeData,
+			"quantity":       exchangePositionSize,
+			"entry_price":    exchangeEntryPrice,
+			"mark_price":     exchangeMarkPrice,
+			"unrealized_pnl": exchangeUnrealizedPnL,
+			"leverage":       exchangeLeverage,
+		},
+
+		// 差异分析
+		"discrepancy": gin.H{
+			"pnl_diff": pnlDiff,
+			"reasons":  discrepancyReasons,
+		},
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // getOrders 获取订单列表（历史订单）
@@ -1075,12 +1172,12 @@ func getPositionsSummary(c *gin.Context) {
 func getOrders(c *gin.Context) {
 	// 优先使用特定交易对的 storage provider
 	storageProv := PickStorageProvider(c)
-	
+
 	// 如果找不到特定的 provider，使用全局的 storageServiceProvider
 	if storageProv == nil {
 		storageProv = storageServiceProvider
 	}
-	
+
 	if storageProv == nil {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
@@ -1137,16 +1234,16 @@ func getOrderHistory(c *gin.Context) {
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
 	logger.Info("[订单历史] 查询参数: exchange=%s, symbol=%s", exchange, symbol)
-	
+
 	// 优先使用特定交易对的 storage provider
 	storageProv := PickStorageProvider(c)
-	
+
 	// 如果找不到特定的 provider，使用全局的 storageServiceProvider
 	if storageProv == nil {
 		logger.Info("[订单历史] 未找到特定交易对的 provider，使用全局 storageServiceProvider")
 		storageProv = storageServiceProvider
 	}
-	
+
 	if storageProv == nil {
 		logger.Warn("[订单历史] storageServiceProvider 也为 nil，无法查询")
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
@@ -1159,7 +1256,7 @@ func getOrderHistory(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
 	}
-	
+
 	logger.Info("[订单历史] storage 获取成功，准备查询数据库")
 
 	// 解析参数
@@ -1254,13 +1351,13 @@ func (a *storageServiceAdapter) GetStorage() storage.Storage {
 func getStatistics(c *gin.Context) {
 	// 优先使用特定交易对的 storage provider
 	storageProv := PickStorageProvider(c)
-	
+
 	// 如果找不到特定的 provider，使用全局的 storageServiceProvider
 	if storageProv == nil {
 		logger.Info("[统计] 未找到特定交易对的 provider，使用全局 storageServiceProvider")
 		storageProv = storageServiceProvider
 	}
-	
+
 	if storageProv == nil {
 		logger.Warn("[统计] storageServiceProvider 也为 nil，无法查询")
 		c.JSON(http.StatusOK, gin.H{
@@ -1283,7 +1380,7 @@ func getStatistics(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	logger.Info("[统计] storage 获取成功，准备查询数据库")
 
 	// 获取当前账户标识
@@ -1292,7 +1389,7 @@ func getStatistics(c *gin.Context) {
 
 	// 获取 exchange 参数（如果有）
 	exchange := c.Query("exchange")
-	
+
 	// 从数据库获取统计汇总
 	var summary interface{}
 	var err error
@@ -1305,13 +1402,13 @@ func getStatistics(c *gin.Context) {
 		summary, err = storage.GetStatisticsSummary(accountID)
 		logger.Info("[统计] 查询所有交易所的统计，accountID: %s", accountID)
 	}
-	
+
 	if err != nil {
 		logger.Error("[统计] 查询失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// 使用反射获取字段值（避免类型断言问题）
 	statValue := reflect.ValueOf(summary)
 	if statValue.Kind() != reflect.Ptr || statValue.Elem().Kind() != reflect.Struct {
@@ -1319,15 +1416,15 @@ func getStatistics(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "统计数据格式错误"})
 		return
 	}
-	
+
 	elem := statValue.Elem()
 	totalTrades := int(elem.FieldByName("TotalTrades").Int())
 	totalPnL := elem.FieldByName("TotalPnL").Float()
 	totalVolume := elem.FieldByName("TotalVolume").Float()
 	winRate := elem.FieldByName("WinRate").Float()
-	
+
 	logger.Info("[统计] 查询结果: TotalTrades=%d, TotalPnL=%.2f, TotalVolume=%.2f", totalTrades, totalPnL, totalVolume)
-	
+
 	// 如果数据库没有数据，尝试从 SuperPositionManager 计算
 	pmProvider := PickPositionProvider(c)
 	if totalTrades == 0 && pmProvider != nil {
@@ -1639,8 +1736,8 @@ func stopTrading(c *gin.Context) {
 
 // ClosePositionsResponse 平仓响应
 type ClosePositionsResponse struct {
-	SuccessCount int `json:"success_count"`
-	FailCount    int `json:"fail_count"`
+	SuccessCount int    `json:"success_count"`
+	FailCount    int    `json:"fail_count"`
 	Message      string `json:"message"`
 }
 
@@ -1690,7 +1787,7 @@ type SymbolManagerProvider interface {
 	Get(exchange, symbol string) (interface{}, bool) // 返回 SymbolRuntime（使用 interface{} 避免循环依赖）
 	List() []interface{}                             // 返回 SymbolRuntime 列表
 	StartSymbol(exchange, symbol string) error       // 启动指定交易所/币种的交易
-	StopSymbol(exchange, symbol string) error         // 停止指定交易所/币种的交易
+	StopSymbol(exchange, symbol string) error        // 停止指定交易所/币种的交易
 }
 
 // RegisterSymbolManager 注册 SymbolManager
@@ -2432,11 +2529,11 @@ func getReconciliationStatus(c *gin.Context) {
 	reconcileCount := pmProvider.GetReconcileCount()
 	lastReconcileTime := pmProvider.GetLastReconcileTime()
 	priceInterval := pmProvider.GetPriceInterval()
-	
+
 	// 优先从数据库实时计算累计买入和累计卖出（更准确，不受重启影响）
 	totalBuyQty := 0.0
 	totalSellQty := 0.0
-	
+
 	storageProv := PickStorageProvider(c)
 	symbol := c.Query("symbol")
 	if symbol == "" {
@@ -2444,7 +2541,7 @@ func getReconciliationStatus(c *gin.Context) {
 			symbol = st.Symbol
 		}
 	}
-	
+
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
 		// 从数据库直接计算累计买入和累计卖出（更高效）
 		accountID := GetCurrentAccountID()
@@ -2456,7 +2553,7 @@ func getReconciliationStatus(c *gin.Context) {
 		} else {
 			logger.Warn("⚠️ 查询累计买卖数量失败: symbol=%s, accountID=%s, error=%v", symbol, accountID, err)
 		}
-		
+
 		// 如果数据库查询返回0，尝试不限制account再查询一次（兼容旧数据）
 		if totalBuyQty == 0 && totalSellQty == 0 && accountID != "" {
 			buyQty2, sellQty2, err2 := storageProv.GetStorage().GetTotalBuySellQty(symbol, "")
@@ -2467,7 +2564,7 @@ func getReconciliationStatus(c *gin.Context) {
 			}
 		}
 	}
-	
+
 	// 如果数据库中没有数据，尝试从内存获取（作为后备）
 	if totalBuyQty == 0 && totalSellQty == 0 {
 		memBuyQty := pmProvider.GetTotalBuyQty()
@@ -2478,7 +2575,7 @@ func getReconciliationStatus(c *gin.Context) {
 			logger.Info("📊 [对账状态] 从内存获取: symbol=%s, 累计买入=%.4f, 累计卖出=%.4f", symbol, memBuyQty, memSellQty)
 		}
 	}
-	
+
 	estimatedProfit := totalSellQty * priceInterval
 
 	// 计算本地持仓
@@ -2605,7 +2702,7 @@ func getReconciliationHistory(c *gin.Context) {
 
 // ReconciliationAggregatedData 聚合的对账数据
 type ReconciliationAggregatedData struct {
-	Date            string  `json:"date"`             // 日期（格式根据聚合类型：2026-01-25、2026-W04、2026-01）
+	Date                string  `json:"date"`                  // 日期（格式根据聚合类型：2026-01-25、2026-W04、2026-01）
 	AvgLocalPosition    float64 `json:"avg_local_position"`    // 平均本地持仓
 	AvgExchangePosition float64 `json:"avg_exchange_position"` // 平均交易所持仓
 	AvgPositionDiff     float64 `json:"avg_position_diff"`     // 平均持仓差异
@@ -2682,11 +2779,11 @@ func getReconciliationAggregated(c *gin.Context) {
 
 	// 按时间聚合数据
 	aggregatedMap := make(map[string]*ReconciliationAggregatedData)
-	
+
 	for _, h := range histories {
 		var dateKey string
 		t := h.ReconcileTime
-		
+
 		switch period {
 		case "month":
 			dateKey = t.Format("2006-01")
@@ -2696,18 +2793,18 @@ func getReconciliationAggregated(c *gin.Context) {
 		default: // day
 			dateKey = t.Format("2006-01-02")
 		}
-		
+
 		if _, exists := aggregatedMap[dateKey]; !exists {
 			aggregatedMap[dateKey] = &ReconciliationAggregatedData{
 				Date: dateKey,
 			}
 		}
-		
+
 		agg := aggregatedMap[dateKey]
 		agg.AvgLocalPosition += h.LocalPosition
 		agg.AvgExchangePosition += h.ExchangePosition
 		agg.AvgPositionDiff += h.PositionDiff
-		
+
 		// 对于累计值，取该时间段内的最大值（因为是累计的）
 		if h.TotalBuyQty > agg.TotalBuyQty {
 			agg.TotalBuyQty = h.TotalBuyQty
@@ -2721,10 +2818,10 @@ func getReconciliationAggregated(c *gin.Context) {
 		if h.ActualProfit > agg.ActualProfit {
 			agg.ActualProfit = h.ActualProfit
 		}
-		
+
 		agg.RecordCount++
 	}
-	
+
 	// 计算平均值
 	result := make([]ReconciliationAggregatedData, 0, len(aggregatedMap))
 	for _, agg := range aggregatedMap {
@@ -2735,7 +2832,7 @@ func getReconciliationAggregated(c *gin.Context) {
 		}
 		result = append(result, *agg)
 	}
-	
+
 	// 按日期排序
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Date < result[j].Date
@@ -2904,12 +3001,12 @@ func getPnLByTimeRange(c *gin.Context) {
 
 // ExchangePnLResponse 按交易所分组的盈亏响应
 type ExchangePnLResponse struct {
-	Exchange    string              `json:"exchange"`
-	TotalPnL    float64             `json:"total_pnl"`
-	TotalTrades int                 `json:"total_trades"`
-	TotalVolume float64             `json:"total_volume"`
-	WinRate     float64             `json:"win_rate"`
-	Symbols     []SymbolPnLInfo     `json:"symbols"`
+	Exchange    string          `json:"exchange"`
+	TotalPnL    float64         `json:"total_pnl"`
+	TotalTrades int             `json:"total_trades"`
+	TotalVolume float64         `json:"total_volume"`
+	WinRate     float64         `json:"win_rate"`
+	Symbols     []SymbolPnLInfo `json:"symbols"`
 }
 
 // SymbolPnLInfo 币种盈亏信息
@@ -3150,10 +3247,10 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	totalVolume := 0.0
 	winningTrades := 0
 	losingTrades := 0
-	
+
 	// 按币种分组统计
 	symbolStats := make(map[string]map[string]interface{})
-	
+
 	// 按日期分组统计
 	dateStats := make(map[string]map[string]interface{})
 
@@ -3162,7 +3259,7 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		if tradeExchange == "" {
 			tradeExchange = "binance" // 兼容旧数据
 		}
-		
+
 		if tradeExchange != exchangeID {
 			continue
 		}
@@ -3171,7 +3268,7 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		totalPnL += trade.PnL
 		totalTrades++
 		totalVolume += trade.Quantity
-		
+
 		if trade.PnL > 0 {
 			winningTrades++
 		} else if trade.PnL < 0 {
@@ -3181,11 +3278,11 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		// 按币种统计
 		if _, exists := symbolStats[trade.Symbol]; !exists {
 			symbolStats[trade.Symbol] = map[string]interface{}{
-				"total_pnl":    0.0,
-				"total_trades": 0,
-				"total_volume": 0.0,
+				"total_pnl":      0.0,
+				"total_trades":   0,
+				"total_volume":   0.0,
 				"winning_trades": 0,
-				"losing_trades": 0,
+				"losing_trades":  0,
 			}
 		}
 		stats := symbolStats[trade.Symbol]
@@ -3239,12 +3336,12 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	symbolList := make([]map[string]interface{}, 0, len(symbolStats))
 	for symbol, stats := range symbolStats {
 		symbolList = append(symbolList, map[string]interface{}{
-			"symbol":        symbol,
-			"total_pnl":    stats["total_pnl"],
-			"total_trades": stats["total_trades"],
-			"total_volume": stats["total_volume"],
+			"symbol":         symbol,
+			"total_pnl":      stats["total_pnl"],
+			"total_trades":   stats["total_trades"],
+			"total_volume":   stats["total_volume"],
 			"winning_trades": stats["winning_trades"],
-			"losing_trades": stats["losing_trades"],
+			"losing_trades":  stats["losing_trades"],
 		})
 	}
 
@@ -3252,8 +3349,8 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	dateList := make([]map[string]interface{}, 0, len(dateStats))
 	for date, stats := range dateStats {
 		dateList = append(dateList, map[string]interface{}{
-			"date":        date,
-			"total_pnl":   stats["total_pnl"],
+			"date":         date,
+			"total_pnl":    stats["total_pnl"],
 			"total_trades": stats["total_trades"],
 		})
 	}
@@ -3262,7 +3359,7 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, gin.H{
-		"exchange":      exchangeID,
+		"exchange": exchangeID,
 		"time_range": gin.H{
 			"start": startTime.Format(time.RFC3339),
 			"end":   endTime.Format(time.RFC3339),
@@ -4878,41 +4975,41 @@ func getAllocationStatus(c *gin.Context) {
 
 	// 获取所有运行中的交易对
 	runtimes := symbolManagerProvider.List()
-	
+
 	allStatuses := make([]map[string]interface{}, 0)
-	
+
 	for _, rt := range runtimes {
 		// 使用反射获取 AllocationManager
 		rtVal := reflect.ValueOf(rt)
 		if rtVal.Kind() == reflect.Ptr {
 			rtVal = rtVal.Elem()
 		}
-		
+
 		// 尝试获取 PositionManager
 		posManagerField := rtVal.FieldByName("PositionManager")
 		if !posManagerField.IsValid() || posManagerField.IsNil() {
 			continue
 		}
-		
+
 		posManager := posManagerField.Interface()
 		posManagerVal := reflect.ValueOf(posManager)
 		if posManagerVal.Kind() == reflect.Ptr {
 			posManagerVal = posManagerVal.Elem()
 		}
-		
+
 		// 获取 allocationManager
 		allocManagerField := posManagerVal.FieldByName("allocationManager")
 		if !allocManagerField.IsValid() || allocManagerField.IsNil() {
 			continue
 		}
-		
+
 		// 调用 GetAllStatuses 方法
 		allocManager := allocManagerField.Interface()
 		method := reflect.ValueOf(allocManager).MethodByName("GetAllStatuses")
 		if !method.IsValid() {
 			continue
 		}
-		
+
 		results := method.Call(nil)
 		if len(results) > 0 {
 			statuses := results[0].Interface()
@@ -4930,7 +5027,7 @@ func getAllocationStatus(c *gin.Context) {
 			}
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"allocations": allStatuses,
 		"count":       len(allStatuses),
@@ -4942,50 +5039,50 @@ func getAllocationStatus(c *gin.Context) {
 func getAllocationStatusBySymbol(c *gin.Context) {
 	exchange := c.Param("exchange")
 	symbol := c.Param("symbol")
-	
+
 	if exchange == "" || symbol == "" {
 		respondError(c, http.StatusBadRequest, "error.missing_exchange_or_symbol")
 		return
 	}
-	
+
 	if symbolManagerProvider == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.symbol_manager_unavailable")
 		return
 	}
-	
+
 	// 获取指定的运行时
 	rtInterface, exists := symbolManagerProvider.Get(exchange, symbol)
 	if !exists {
 		respondError(c, http.StatusNotFound, "error.symbol_not_found")
 		return
 	}
-	
+
 	// 使用反射获取 AllocationManager
 	rtVal := reflect.ValueOf(rtInterface)
 	if rtVal.Kind() == reflect.Ptr {
 		rtVal = rtVal.Elem()
 	}
-	
+
 	// 尝试获取 PositionManager
 	posManagerField := rtVal.FieldByName("PositionManager")
 	if !posManagerField.IsValid() || posManagerField.IsNil() {
 		respondError(c, http.StatusInternalServerError, "error.position_manager_unavailable")
 		return
 	}
-	
+
 	posManager := posManagerField.Interface()
 	posManagerVal := reflect.ValueOf(posManager)
 	if posManagerVal.Kind() == reflect.Ptr {
 		posManagerVal = posManagerVal.Elem()
 	}
-	
+
 	// 获取 allocationManager
 	allocManagerField := posManagerVal.FieldByName("allocationManager")
 	if !allocManagerField.IsValid() || allocManagerField.IsNil() {
 		respondError(c, http.StatusInternalServerError, "error.allocation_manager_unavailable")
 		return
 	}
-	
+
 	// 调用 GetStatus 方法
 	allocManager := allocManagerField.Interface()
 	method := reflect.ValueOf(allocManager).MethodByName("GetStatus")
@@ -4993,12 +5090,12 @@ func getAllocationStatusBySymbol(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.method_unavailable")
 		return
 	}
-	
+
 	results := method.Call([]reflect.Value{
 		reflect.ValueOf(exchange),
 		reflect.ValueOf(symbol),
 	})
-	
+
 	if len(results) > 0 && !results[0].IsNil() {
 		status := results[0].Interface().(*position.AllocationStatus)
 		c.JSON(http.StatusOK, gin.H{
@@ -5011,7 +5108,7 @@ func getAllocationStatusBySymbol(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	respondError(c, http.StatusNotFound, "error.allocation_not_found")
 }
 
@@ -5034,9 +5131,9 @@ func generateAIConfig(c *gin.Context) {
 		GeminiAPIKey   string                 `json:"gemini_api_key"` // 可选，前端传入的 API Key
 
 		// 资产优先重构新增字段
-		SymbolAllocations map[string]float64               `json:"symbol_allocations"`
+		SymbolAllocations map[string]float64                   `json:"symbol_allocations"`
 		StrategySplits    map[string][]config.StrategyInstance `json:"strategy_splits"`
-		WithdrawalPolicy  config.WithdrawalPolicy          `json:"withdrawal_policy"`
+		WithdrawalPolicy  config.WithdrawalPolicy              `json:"withdrawal_policy"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -5066,7 +5163,7 @@ func generateAIConfig(c *gin.Context) {
 			geminiAPIKey = cfg.AI.APIKey
 		}
 	}
-	
+
 	if geminiAPIKey == "" {
 		respondError(c, http.StatusBadRequest, "error.gemini_api_key_not_configured")
 		return
@@ -5142,7 +5239,7 @@ func generateAIConfig(c *gin.Context) {
 	// 调用 Gemini API
 	// 创建异步任务
 	task := aiTaskManager.CreateTask()
-	
+
 	// 立即返回任务 ID
 	c.JSON(http.StatusAccepted, gin.H{
 		"task_id": task.TaskID,
@@ -5160,7 +5257,7 @@ func generateAIConfig(c *gin.Context) {
 		logger.Info("🔄 [AI任务] %s 开始执行", task.TaskID)
 
 		geminiClient := ai.NewGeminiClient(geminiAPIKey)
-		
+
 		logger.Info("🔄 [AI任务] %s 调用 Gemini API 生成配置", task.TaskID)
 		aiConfig, err := geminiClient.GenerateConfig(ctx, &ai.GenerateConfigRequest{
 			Exchange:          req.Exchange,
@@ -5320,9 +5417,9 @@ func getAITaskStatus(c *gin.Context) {
 	}
 
 	response := gin.H{
-		"task_id": task.TaskID,
-		"status":  string(task.Status),
-		"progress": task.Progress,
+		"task_id":    task.TaskID,
+		"status":     string(task.Status),
+		"progress":   task.Progress,
 		"created_at": task.CreatedAt.Format(time.RFC3339),
 		"updated_at": task.UpdatedAt.Format(time.RFC3339),
 	}
@@ -5331,7 +5428,7 @@ func getAITaskStatus(c *gin.Context) {
 		response["result"] = task.Result
 		logger.Debug("📊 [AI任务] %s 返回完成状态，包含结果", taskID)
 	} else {
-		logger.Debug("📊 [AI任务] %s 当前状态: %s, 进度: %d%%, 有结果: %v", 
+		logger.Debug("📊 [AI任务] %s 当前状态: %s, 进度: %d%%, 有结果: %v",
 			taskID, task.Status, task.Progress, task.Result != nil)
 	}
 

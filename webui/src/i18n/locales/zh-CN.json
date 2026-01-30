@@ -26,6 +26,7 @@
     "strategyMarket": "策略市场",
     "capitalManagement": "资金管理",
     "profitManagement": "盈利管理",
+    "backtest": "回测",
     "tradingPanel": "交易面板",
     "currentPositions": "当前持仓",
     "orderManagement": "订单管理",

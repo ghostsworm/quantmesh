@@ -57,6 +57,7 @@ import StrategyMarket from './components/StrategyMarket'
 import CapitalManagement from './components/CapitalManagement'
 import ProfitManagement from './components/ProfitManagement'
 import NewbieRiskCheck from './components/NewbieRiskCheck'
+import BacktestMenu from './components/BacktestMenu'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
@@ -392,6 +393,7 @@ const AppContent: React.FC = () => {
                 <Route path="/strategy-market" element={<ProtectedRoute><StrategyMarket /></ProtectedRoute>} />
                 <Route path="/capital-management" element={<ProtectedRoute><CapitalManagement /></ProtectedRoute>} />
                 <Route path="/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
+                <Route path="/backtest" element={<ProtectedRoute><BacktestMenu /></ProtectedRoute>} />
                 <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
                 <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

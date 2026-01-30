@@ -319,3 +319,36 @@ func (w *okxWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, 
 func (w *okxWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
+
+// GetOrderBook 获取订单簿深度
+func (w *okxWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	okxOrderBook, err := w.adapter.GetOrderBook(ctx, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换买盘数据
+	bids := make([]OrderBookLevel, len(okxOrderBook.Bids))
+	for i, bid := range okxOrderBook.Bids {
+		bids[i] = OrderBookLevel{
+			Price:    bid.Price,
+			Quantity: bid.Quantity,
+		}
+	}
+
+	// 转换卖盘数据
+	asks := make([]OrderBookLevel, len(okxOrderBook.Asks))
+	for i, ask := range okxOrderBook.Asks {
+		asks[i] = OrderBookLevel{
+			Price:    ask.Price,
+			Quantity: ask.Quantity,
+		}
+	}
+
+	return &OrderBook{
+		Symbol:    symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: okxOrderBook.Timestamp,
+	}, nil
+}

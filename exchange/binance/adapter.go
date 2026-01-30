@@ -113,6 +113,20 @@ type OrderUpdate struct {
 
 type OrderUpdateCallback func(update OrderUpdate)
 
+// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+type OrderBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// OrderBook 订单簿（本地类型，避免循环导入）
+type OrderBook struct {
+	Symbol    string
+	Bids      []OrderBookLevel
+	Asks      []OrderBookLevel
+	Timestamp int64
+}
+
 // BinanceAdapter 币安交易所适配器
 type BinanceAdapter struct {
 	client           *futures.Client
@@ -1293,4 +1307,74 @@ func (b *BinanceAdapter) EstimateFinalOrderAmount(symbol string, price, quantity
 	}
 
 	return notional
+}
+
+// GetOrderBook 获取订单簿深度
+func (b *BinanceAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	// 速率限制
+	b.apiCallMu.Lock()
+	elapsed := time.Since(b.lastAPICallTime)
+	if elapsed < b.minAPIInterval {
+		waitTime := b.minAPIInterval - elapsed
+		b.apiCallMu.Unlock()
+		time.Sleep(waitTime)
+		b.apiCallMu.Lock()
+	}
+	b.lastAPICallTime = time.Now()
+	b.apiCallMu.Unlock()
+
+	// 调用 Binance Depth API
+	depth, err := b.client.NewDepthService().
+		Symbol(symbol).
+		Limit(limit).
+		Do(ctx)
+
+	if err != nil {
+		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+	}
+
+	// 转换买盘数据（价格从高到低）
+	bids := make([]OrderBookLevel, 0, len(depth.Bids))
+	for _, bid := range depth.Bids {
+		price, err := strconv.ParseFloat(bid.Price, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] 订单簿买盘价格解析失败: %v", err)
+			continue
+		}
+		quantity, err := strconv.ParseFloat(bid.Quantity, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] 订单簿买盘数量解析失败: %v", err)
+			continue
+		}
+		bids = append(bids, OrderBookLevel{
+			Price:    price,
+			Quantity: quantity,
+		})
+	}
+
+	// 转换卖盘数据（价格从低到高）
+	asks := make([]OrderBookLevel, 0, len(depth.Asks))
+	for _, ask := range depth.Asks {
+		price, err := strconv.ParseFloat(ask.Price, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] 订单簿卖盘价格解析失败: %v", err)
+			continue
+		}
+		quantity, err := strconv.ParseFloat(ask.Quantity, 64)
+		if err != nil {
+			logger.Warn("⚠️ [Binance] 订单簿卖盘数量解析失败: %v", err)
+			continue
+		}
+		asks = append(asks, OrderBookLevel{
+			Price:    price,
+			Quantity: quantity,
+		})
+	}
+
+	return &OrderBook{
+		Symbol:    symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: depth.LastUpdateID,
+	}, nil
 }

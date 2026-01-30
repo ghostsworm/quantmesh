@@ -101,6 +101,20 @@ type OrderUpdate struct {
 
 type OrderUpdateCallback func(update OrderUpdate)
 
+// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+type OrderBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// OrderBook 订单簿（本地类型，避免循环导入）
+type OrderBook struct {
+	Symbol    string
+	Bids      []OrderBookLevel
+	Asks      []OrderBookLevel
+	Timestamp int64
+}
+
 // BitgetAdapter Bitget 交易所适配器
 type BitgetAdapter struct {
 	client         *Client
@@ -1202,4 +1216,77 @@ func (b *BitgetAdapter) GetSpotPrice(ctx context.Context, symbol string) (float6
 	}
 
 	return price, nil
+}
+
+// GetOrderBook 获取订单簿深度
+func (b *BitgetAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	// Bitget API: GET /api/mix/v1/market/depth
+	path := fmt.Sprintf("/api/mix/v1/market/depth?symbol=%s&productType=%s&limit=%d", symbol, b.productType, limit)
+
+	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+	}
+
+	// 解析响应
+	var depthData struct {
+		Asks [][]string `json:"asks"` // [[价格, 数量], ...]
+		Bids [][]string `json:"bids"` // [[价格, 数量], ...]
+		TS   int64      `json:"ts"`   // 时间戳（毫秒）
+	}
+
+	if err := json.Unmarshal(resp.Data, &depthData); err != nil {
+		return nil, fmt.Errorf("解析订单簿数据失败: %w", err)
+	}
+
+	// 转换买盘数据（价格从高到低）
+	bids := make([]OrderBookLevel, 0, len(depthData.Bids))
+	for _, bid := range depthData.Bids {
+		if len(bid) < 2 {
+			continue
+		}
+		price, err := strconv.ParseFloat(bid[0], 64)
+		if err != nil {
+			logger.Warn("⚠️ [Bitget] 订单簿买盘价格解析失败: %v", err)
+			continue
+		}
+		quantity, err := strconv.ParseFloat(bid[1], 64)
+		if err != nil {
+			logger.Warn("⚠️ [Bitget] 订单簿买盘数量解析失败: %v", err)
+			continue
+		}
+		bids = append(bids, OrderBookLevel{
+			Price:    price,
+			Quantity: quantity,
+		})
+	}
+
+	// 转换卖盘数据（价格从低到高）
+	asks := make([]OrderBookLevel, 0, len(depthData.Asks))
+	for _, ask := range depthData.Asks {
+		if len(ask) < 2 {
+			continue
+		}
+		price, err := strconv.ParseFloat(ask[0], 64)
+		if err != nil {
+			logger.Warn("⚠️ [Bitget] 订单簿卖盘价格解析失败: %v", err)
+			continue
+		}
+		quantity, err := strconv.ParseFloat(ask[1], 64)
+		if err != nil {
+			logger.Warn("⚠️ [Bitget] 订单簿卖盘数量解析失败: %v", err)
+			continue
+		}
+		asks = append(asks, OrderBookLevel{
+			Price:    price,
+			Quantity: quantity,
+		})
+	}
+
+	return &OrderBook{
+		Symbol:    symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: depthData.TS,
+	}, nil
 }

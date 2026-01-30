@@ -154,3 +154,17 @@ func (c *Candle) Validate() error {
 
 // CandleUpdateCallback K线更新回调函数
 type CandleUpdateCallback func(candle *Candle)
+
+// OrderBookLevel 订单簿档位
+type OrderBookLevel struct {
+	Price    float64 // 价格
+	Quantity float64 // 数量
+}
+
+// OrderBook 订单簿
+type OrderBook struct {
+	Symbol    string           // 交易对
+	Bids      []OrderBookLevel // 买盘 (价格从高到低)
+	Asks      []OrderBookLevel // 卖盘 (价格从低到高)
+	Timestamp int64            // 时间戳
+}

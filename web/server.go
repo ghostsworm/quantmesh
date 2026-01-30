@@ -200,10 +200,20 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			backtestAPI := protected.Group("/backtest")
 			{
 				backtestAPI.POST("/run", runBacktest)
+				backtestAPI.GET("/strategies", getBacktestStrategies)
+				backtestAPI.GET("/presets/:symbol", getBacktestPreset)
+				backtestAPI.POST("/cache/generate", postCacheGenerate)
+				backtestAPI.GET("/cache/status", getCacheStatus)
 				backtestAPI.GET("/cache/stats", getCacheStats)
 				backtestAPI.GET("/cache/list", listCache)
 				backtestAPI.DELETE("/cache/:key", deleteCache)
 				backtestAPI.DELETE("/cache", clearCache)
+				backtestAPI.POST("/tasks", postBacktestTasks)
+				backtestAPI.GET("/tasks", getBacktestTasks)
+				backtestAPI.GET("/tasks/:id", getBacktestTaskByID)
+				backtestAPI.GET("/tasks/:id/result", getBacktestTaskResult)
+				backtestAPI.GET("/tasks/:id/report", getBacktestTaskReport)
+				backtestAPI.DELETE("/tasks/:id", deleteBacktestTask)
 			}
 
 			// 加密货币支付 API

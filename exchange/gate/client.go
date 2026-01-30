@@ -289,6 +289,34 @@ func (c *Client) GetCandlesticks(ctx context.Context, settle, contract, interval
 	return candlesticks, nil
 }
 
+// GateOrderBookResponse Gate.io 订单簿响应结构
+type GateOrderBookResponse struct {
+	ID    int64       `json:"id"`    // 订单簿ID
+	Asks  [][]float64 `json:"asks"`  // 卖盘 [[价格, 数量], ...]
+	Bids  [][]float64 `json:"bids"`  // 买盘 [[价格, 数量], ...]
+	Time  float64     `json:"time"`  // 时间戳（秒）
+	TimeS int64       `json:"time_s"` // 时间戳（秒，整数）
+}
+
+// GetOrderBook 获取订单簿深度
+// GET /futures/{settle}/order_book
+func (c *Client) GetOrderBook(ctx context.Context, settle, contract string, limit int) (*GateOrderBookResponse, error) {
+	path := fmt.Sprintf("/futures/%s/order_book", settle)
+	query := fmt.Sprintf("contract=%s&limit=%d", contract, limit)
+
+	resp, err := c.DoRequest(ctx, "GET", path, query, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var orderBook GateOrderBookResponse
+	if err := json.Unmarshal(resp, &orderBook); err != nil {
+		return nil, fmt.Errorf("解析订单簿数据失败: %w", err)
+	}
+
+	return &orderBook, nil
+}
+
 // GetOpenOrders 获取未完成订单
 func (c *Client) GetOpenOrders(ctx context.Context, settle, contract string) ([]*FuturesOrder, error) {
 	path := fmt.Sprintf("/futures/%s/orders", settle)

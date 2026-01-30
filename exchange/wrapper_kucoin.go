@@ -283,3 +283,8 @@ func (w *kucoinWrapper) GetSpotPrice(ctx context.Context, symbol string) (float6
 func (w *kucoinWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
+
+// GetOrderBook 获取订单簿深度（暂未实现）
+func (w *kucoinWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	return nil, ErrNotImplemented
+}

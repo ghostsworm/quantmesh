@@ -910,3 +910,52 @@ func calculateDecimalPlaces(value float64) int {
 
 	return 0
 }
+
+// GetOrderBook 获取订单簿深度
+func (g *GateAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	// 转换交易对格式
+	gateSymbol := convertToGateSymbol(symbol)
+
+	// 调用 Gate.io API 获取订单簿
+	gateOrderBook, err := g.client.GetOrderBook(ctx, g.settle, gateSymbol, limit)
+	if err != nil {
+		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+	}
+
+	// 转换买盘数据（价格从高到低，Gate.io 已经按此顺序返回）
+	bids := make([]OrderBookLevel, 0, len(gateOrderBook.Bids))
+	for _, bid := range gateOrderBook.Bids {
+		if len(bid) < 2 {
+			continue
+		}
+		bids = append(bids, OrderBookLevel{
+			Price:    bid[0],
+			Quantity: bid[1],
+		})
+	}
+
+	// 转换卖盘数据（价格从低到高，Gate.io 已经按此顺序返回）
+	asks := make([]OrderBookLevel, 0, len(gateOrderBook.Asks))
+	for _, ask := range gateOrderBook.Asks {
+		if len(ask) < 2 {
+			continue
+		}
+		asks = append(asks, OrderBookLevel{
+			Price:    ask[0],
+			Quantity: ask[1],
+		})
+	}
+
+	// 使用时间戳（优先使用 time_s，如果没有则使用 time）
+	timestamp := gateOrderBook.TimeS
+	if timestamp == 0 {
+		timestamp = int64(gateOrderBook.Time)
+	}
+
+	return &OrderBook{
+		Symbol:    symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: timestamp,
+	}, nil
+}

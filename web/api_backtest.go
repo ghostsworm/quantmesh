@@ -3,6 +3,9 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"quantmesh/backtest"
@@ -10,6 +13,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// backtestTaskManager 回测任务管理器（由 main 注入）
+var backtestTaskManager *backtest.TaskManager
+
+// SetBacktestTaskManager 设置回测任务管理器
+func SetBacktestTaskManager(m *backtest.TaskManager) {
+	backtestTaskManager = m
+}
 
 // BacktestRequest 回测请求
 type BacktestRequest struct {
@@ -237,4 +248,238 @@ func getBinanceConfig() map[string]string {
 		"secret_key": "",
 		"testnet":    "false",
 	}
+}
+
+// getBacktestStrategies 获取策略列表及参数定义 GET /api/backtest/strategies
+func getBacktestStrategies(c *gin.Context) {
+	defs := backtest.GetAllStrategyDefinitions()
+	c.JSON(http.StatusOK, gin.H{"success": true, "strategies": defs})
+}
+
+// getBacktestPreset 获取交易对推荐配置 GET /api/backtest/presets/:symbol
+func getBacktestPreset(c *gin.Context) {
+	symbol := c.Param("symbol")
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 symbol"})
+		return
+	}
+	preset := backtest.GetSymbolPreset(symbol)
+	c.JSON(http.StatusOK, gin.H{"success": true, "preset": preset})
+}
+
+// postCacheGenerate 生成 K 线缓存（异步） POST /api/backtest/cache/generate
+func postCacheGenerate(c *gin.Context) {
+	var req struct {
+		Symbol    string `json:"symbol" binding:"required"`
+		Interval  string `json:"interval" binding:"required"`
+		StartDate string `json:"start_date" binding:"required"` // 2006-01-02
+		EndDate   string `json:"end_date" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参数错误: %v", err)})
+		return
+	}
+	startTime, err := time.Parse("2006-01-02", req.StartDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "start_date 格式应为 2006-01-02"})
+		return
+	}
+	endTime, err := time.Parse("2006-01-02", req.EndDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_date 格式应为 2006-01-02"})
+		return
+	}
+	if endTime.Before(startTime) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_date 必须晚于 start_date"})
+		return
+	}
+	binanceConfig := getBinanceConfig()
+	go func() {
+		_, _ = backtest.GetHistoricalData(req.Symbol, req.Interval, startTime, endTime, binanceConfig)
+		logger.Info("✅ K线缓存生成完成: %s %s %s ~ %s", req.Symbol, req.Interval, req.StartDate, req.EndDate)
+	}()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "已在后台生成缓存",
+		"cache_key": fmt.Sprintf("%s_%s_%s_%s", req.Symbol, req.Interval, req.StartDate, req.EndDate),
+	})
+}
+
+// getCacheStatus 查询指定缓存是否存在 GET /api/backtest/cache/status?symbol=&interval=&start_date=&end_date=
+func getCacheStatus(c *gin.Context) {
+	symbol := c.Query("symbol")
+	interval := c.Query("interval")
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	if symbol == "" || interval == "" || startDate == "" || endDate == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 symbol, interval, start_date, end_date"})
+		return
+	}
+	cacheKey := fmt.Sprintf("%s_%s_%s_%s", symbol, interval, startDate, endDate)
+	filename := filepath.Join("backtest", "cache", cacheKey+".csv")
+	_, err := os.Stat(filename)
+	exists := err == nil
+	c.JSON(http.StatusOK, gin.H{"success": true, "cache_key": cacheKey, "exists": exists})
+}
+
+// postBacktestTasks 创建回测任务 POST /api/backtest/tasks
+func postBacktestTasks(c *gin.Context) {
+	if backtestTaskManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "回测服务未初始化"})
+		return
+	}
+	var req struct {
+		Strategy     string                 `json:"strategy" binding:"required"`
+		Symbol       string                 `json:"symbol" binding:"required"`
+		Interval     string                 `json:"interval" binding:"required"`
+		StartTime    time.Time              `json:"start_time" binding:"required"`
+		EndTime      time.Time              `json:"end_time" binding:"required"`
+		Params       map[string]interface{} `json:"params"`
+		TotalCapital float64                `json:"total_capital" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参数错误: %v", err)})
+		return
+	}
+	if req.EndTime.Before(req.StartTime) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_time 必须晚于 start_time"})
+		return
+	}
+	validStrategies := map[string]bool{
+		"grid": true, "momentum": true, "mean_reversion": true,
+		"trend_following": true, "dca": true, "martingale": true, "combo": true,
+	}
+	if !validStrategies[req.Strategy] {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支持的策略: %s", req.Strategy)})
+		return
+	}
+	task := &backtest.BacktestTask{
+		Strategy:     req.Strategy,
+		Symbol:       req.Symbol,
+		Interval:     req.Interval,
+		StartTime:    req.StartTime,
+		EndTime:      req.EndTime,
+		Params:       req.Params,
+		TotalCapital: req.TotalCapital,
+	}
+	if task.Params == nil {
+		task.Params = make(map[string]interface{})
+	}
+	if err := backtestTaskManager.CreateAndRun(task); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "任务已创建并开始执行", "task_id": task.ID})
+}
+
+// getBacktestTasks 获取任务列表 GET /api/backtest/tasks?limit=50&offset=0
+func getBacktestTasks(c *gin.Context) {
+	if backtestTaskManager == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "tasks": []interface{}{}})
+		return
+	}
+	store := backtestTaskManager.GetStore()
+	if store == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "tasks": []interface{}{}})
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	tasks, err := store.ListBacktestTasks(limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "tasks": tasks})
+}
+
+// getBacktestTaskByID 获取任务详情 GET /api/backtest/tasks/:id
+func getBacktestTaskByID(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		return
+	}
+	if backtestTaskManager == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		return
+	}
+	store := backtestTaskManager.GetStore()
+	if store == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		return
+	}
+	task, err := store.GetBacktestTask(id)
+	if err != nil || task == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "task": task})
+}
+
+// getBacktestTaskResult 获取结果 JSON GET /api/backtest/tasks/:id/result
+func getBacktestTaskResult(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		return
+	}
+	if backtestTaskManager == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "结果不存在"})
+		return
+	}
+	resultPath := filepath.Join("backtest", "results", id+".json")
+	data, err := os.ReadFile(resultPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "结果文件不存在或未生成"})
+		return
+	}
+	c.Data(http.StatusOK, "application/json", data)
+}
+
+// getBacktestTaskReport 获取/下载报告 Markdown GET /api/backtest/tasks/:id/report
+func getBacktestTaskReport(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		return
+	}
+	reportPath := filepath.Join("backtest", "reports", id+".md")
+	data, err := os.ReadFile(reportPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "报告文件不存在或未生成"})
+		return
+	}
+	if c.Query("download") == "1" {
+		c.Header("Content-Disposition", "attachment; filename="+id+".md")
+	}
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", data)
+}
+
+// deleteBacktestTask 删除任务 DELETE /api/backtest/tasks/:id
+func deleteBacktestTask(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		return
+	}
+	if backtestTaskManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "回测服务未初始化"})
+		return
+	}
+	store := backtestTaskManager.GetStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储不可用"})
+		return
+	}
+	if err := store.DeleteBacktestTask(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	_ = os.Remove(filepath.Join("backtest", "results", id+".json"))
+	_ = os.Remove(filepath.Join("backtest", "reports", id+".md"))
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已删除"})
 }

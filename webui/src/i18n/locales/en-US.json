@@ -26,6 +26,7 @@
     "strategyMarket": "Strategy Market",
     "capitalManagement": "Capital Management",
     "profitManagement": "Profit Management",
+    "backtest": "Backtest",
     "tradingPanel": "Trading Panel",
     "currentPositions": "Current Positions",
     "orderManagement": "Order Management",

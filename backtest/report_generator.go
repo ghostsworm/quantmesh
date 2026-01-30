@@ -43,6 +43,20 @@ func GenerateReport(result *BacktestResult) (string, error) {
 	return reportPath, nil
 }
 
+// GenerateReportToFile 生成回测报告到指定路径（供任务结果使用）
+func GenerateReportToFile(result *BacktestResult, reportPath string) error {
+	data := prepareReportData(result)
+	content, err := renderReportTemplate(data)
+	if err != nil {
+		return fmt.Errorf("渲染报告模板失败: %w", err)
+	}
+	dir := filepath.Dir(reportPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("创建报告目录失败: %w", err)
+	}
+	return os.WriteFile(reportPath, []byte(content), 0644)
+}
+
 // ReportData 报告数据
 type ReportData struct {
 	// 基本信息
