@@ -428,7 +428,7 @@ func (b *BinanceSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) 
 	return strconv.ParseFloat(ticker[0].Price, 64)
 }
 
-// StartPriceStream 啟動價格流（現貨 aggTrade WebSocket）
+// StartPriceStream 啟動價格流（現貨 miniTicker WebSocket）
 func (b *BinanceSpotAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	return b.wsManager.StartPriceStream(ctx, symbol, callback)
 }

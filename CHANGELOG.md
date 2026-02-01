@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.28.5] - 2026-02-02
+
+### Fixed
+- **Binance 現貨價格流首價超時修復**: 修復 PAXGUSDT 等低流動性交易對啟動時「等待首個價格超時（10秒）」的問題
+  - 原因：現貨價格流使用 aggTrade，僅在有成交時推送；低流動性對可能長時間無成交導致收不到首價
+  - 改動：現貨改為使用 miniTicker 流（每 1 秒推送最新價），可穩定取得首價；首價等待超時由 10 秒改為 15 秒
+  - 涉及：`exchange/binance/spot_websocket.go`、`exchange/binance/spot_adapter.go`
+
 ## [3.28.4] - 2026-02-02
 
 ### Fixed
