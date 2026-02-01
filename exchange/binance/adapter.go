@@ -952,24 +952,32 @@ func (b *BinanceAdapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 獲取最新價格（僅從 WebSocket 缓存读取）
-// 架構說明：
-// - 各组件不应直接調用此方法獲取實時價格
-// - 實時價格应該通過 PriceMonitor.GetLastPrice() 獲取（订阅模式）
-// - 此方法僅用於下單時的價格诊断（检查订單價格與市场價格的偏离）
-// - WebSocket 是唯一的價格来源，不使用 REST API
-// - 如果 WebSocket 未啟动或断开，返回錯误
+// GetLatestPrice 獲取最新價格（合約）
+// - 當請求的 symbol 與本適配器訂閱的 b.symbol 相同時，優先從 WebSocket 緩存讀取
+// - 當 symbol 不同（例如價差監控查詢多個交易對）或 WebSocket 無數據時，通過 REST premiumIndex 獲取該 symbol 的標記價格
+// - 確保價差監控等場景下每個交易對都能拿到對應的合約價格，而非單一訂閱的緩存
 func (b *BinanceAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 從 WebSocket 缓存读取價格
-	if b.wsManager != nil {
+	// 僅當請求的 symbol 與本適配器訂閱一致且 WebSocket 有數據時，使用緩存
+	if symbol == b.symbol && b.wsManager != nil {
 		price := b.wsManager.GetLatestPrice()
 		if price > 0 {
 			return price, nil
 		}
 	}
 
-	// WebSocket 未啟动或無價格數據
-	return 0, fmt.Errorf("WebSocket 價格流未就绪或無價格數據")
+	// 其他 symbol 或無緩存時：用 REST 獲取該 symbol 的合約標記價格（GET /fapi/v1/premiumIndex）
+	premiumIndexList, err := b.client.NewPremiumIndexService().Symbol(symbol).Do(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("獲取合約價格失敗: %w", err)
+	}
+	if len(premiumIndexList) == 0 {
+		return 0, fmt.Errorf("未找到交易對 %s 的合約價格", symbol)
+	}
+	markPrice, err := strconv.ParseFloat(premiumIndexList[0].MarkPrice, 64)
+	if err != nil {
+		return 0, fmt.Errorf("解析合約價格失敗: %w", err)
+	}
+	return markPrice, nil
 }
 
 // StartPriceStream 啟動價格流（WebSocket）
@@ -1175,6 +1183,61 @@ func (b *BinanceAdapter) GetFundingRate(ctx context.Context, symbol string) (flo
 	}
 
 	return fundingRate, nil
+}
+
+// FundingInfo 資金費率詳細信息（本地類型，避免循環引用）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+// GetFundingInfo 獲取資金費率詳細信息
+// 包含資金費率、下次結算時間、標記價格、指數價格等
+func (b *BinanceAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	// 使用币安期货API獲取完整的 premium index 信息
+	// API: GET /fapi/v1/premiumIndex
+	premiumIndexList, err := b.client.NewPremiumIndexService().Symbol(symbol).Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("獲取資金費率信息失敗: %w", err)
+	}
+
+	if len(premiumIndexList) == 0 {
+		return nil, fmt.Errorf("未找到交易對 %s 的資金費率信息", symbol)
+	}
+
+	pi := premiumIndexList[0]
+
+	// 解析資金費率
+	rate, err := strconv.ParseFloat(pi.LastFundingRate, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析資金費率失敗: %w", err)
+	}
+
+	// 解析標記價格
+	markPrice, err := strconv.ParseFloat(pi.MarkPrice, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析標記價格失敗: %w", err)
+	}
+
+	// 解析指數價格
+	indexPrice, err := strconv.ParseFloat(pi.IndexPrice, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析指數價格失敗: %w", err)
+	}
+
+	// 解析下次結算時間（Unix 毫秒時間戳）
+	nextFundingTime := time.UnixMilli(pi.NextFundingTime)
+
+	return &FundingInfo{
+		Symbol:          symbol,
+		Rate:            rate,
+		NextFundingTime: nextFundingTime,
+		MarkPrice:       markPrice,
+		IndexPrice:      indexPrice,
+	}, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格
