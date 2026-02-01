@@ -193,55 +193,6 @@ stop_existing_service() {
     fi
 }
 
-# 处理旧路径迁移
-migrate_from_old_path() {
-    local OLD_PATH="/root/quntmesh"
-    
-    if [ -d "$OLD_PATH" ]; then
-        log_warn "检测到旧安装路径: $OLD_PATH"
-        echo ""
-        echo -e "${YELLOW}发现旧的安装目录 $OLD_PATH${NC}"
-        echo "是否要迁移数据到新路径 $INSTALL_DIR？"
-        echo ""
-        echo "  [1] 迁移数据（推荐）- 将配置文件和数据复制到新路径"
-        echo "  [2] 跳过迁移 - 保持旧路径不变，进行全新安装"
-        echo ""
-        
-        read -p "请选择 [1/2] (默认: 1): " migrate_choice
-        migrate_choice=${migrate_choice:-1}
-        
-        if [ "$migrate_choice" = "1" ]; then
-            log_step "迁移数据从 $OLD_PATH 到 $INSTALL_DIR..."
-            
-            # 停止旧服务（如果存在）
-            if systemctl is-active --quiet quantmesh 2>/dev/null; then
-                systemctl stop quantmesh
-            fi
-            
-            # 复制配置文件
-            if [ -f "$OLD_PATH/config.yaml" ]; then
-                cp -n "$OLD_PATH/config.yaml" "$INSTALL_DIR/config.yaml" 2>/dev/null || true
-                log_info "配置文件已迁移"
-            fi
-            
-            # 复制数据目录
-            if [ -d "$OLD_PATH/data" ]; then
-                cp -rn "$OLD_PATH/data"/* "$DATA_DIR/" 2>/dev/null || true
-                log_info "数据目录已迁移"
-            fi
-            
-            # 复制备份目录
-            if [ -d "$OLD_PATH/backups" ]; then
-                cp -rn "$OLD_PATH/backups"/* "$BACKUP_DIR/" 2>/dev/null || true
-                log_info "备份目录已迁移"
-            fi
-            
-            log_info "迁移完成。旧目录 $OLD_PATH 保留，您可以稍后手动删除。"
-        else
-            log_info "跳过迁移"
-        fi
-    fi
-}
 
 # 安装二进制文件
 install_binary() {
@@ -317,7 +268,7 @@ generate_service_file() {
     cat > "${SERVICE_FILE}" << 'EOF'
 [Unit]
 Description=QuantMesh Market Maker Service
-Documentation=https://quantmesh.com
+Documentation=https://quantmesh.io
 After=network.target
 
 [Service]
@@ -343,7 +294,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/quantmesh/data /opt/quantmesh/logs /opt/quantmesh/backups
+ReadWritePaths=/opt/quantmesh/data /opt/quantmesh/logs /opt/quantmesh/backups /opt/quantmesh/config.yaml /opt/quantmesh/config_backups
 
 # 日志
 StandardOutput=journal
@@ -486,7 +437,6 @@ main() {
     
     create_user
     create_directories
-    migrate_from_old_path
     stop_existing_service
     install_binary
     handle_config

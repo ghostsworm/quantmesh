@@ -1,6 +1,6 @@
 [Unit]
 Description=QuantMesh Market Maker Service
-Documentation=https://quantmesh.com
+Documentation=https://quantmesh.io
 After=network.target
 
 [Service]
@@ -30,7 +30,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/quantmesh/data /opt/quantmesh/logs /opt/quantmesh/backups
+ReadWritePaths=/opt/quantmesh/data /opt/quantmesh/logs /opt/quantmesh/backups /opt/quantmesh/config.yaml /opt/quantmesh/config_backups
 
 # 日志
 StandardOutput=journal

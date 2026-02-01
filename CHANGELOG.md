@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [3.21.0] - 2026-02-01
+
+### Fixed
+- **DCA 策略註冊**: 修復 `dca` 策略配置無法被註冊和執行的問題，現在支持 `dca` 和 `dca_enhanced` 兩種配置鍵
+- **Systemd 配置**: 修復 `ReadWritePaths` 缺少 `config.yaml` 導致 Web UI 無法保存配置的問題
+
 ## [3.20.2] - 2026-02-01
 
 ### Fixed
