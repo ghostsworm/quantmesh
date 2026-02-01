@@ -232,7 +232,22 @@
     "time": "時間",
     "size": "大小",
     "action": "操作",
-    "restore": "恢復"
+    "restore": "恢復",
+    "dynamicAdjustment": "動態調整",
+    "enableDynamicAdjustment": "啟用動態調整",
+    "enableDynamicAdjustmentDesc": "根據市場波動率、資金利用率等自動調整網格參數",
+    "enableDynamicOrderQty": "單筆金額動態調整",
+    "enableDynamicOrderQtyDesc": "根據成交頻率自動調整單筆訂單金額，高頻時減少、低頻時增加",
+    "dynamicOrderQtyMin": "單筆金額下限 (USDT)",
+    "dynamicOrderQtyMinHint": "預設 50，需滿足交易所最小訂單要求",
+    "dynamicOrderQtyMax": "單筆金額上限 (USDT)",
+    "dynamicOrderQtyMaxHint": "預設 500",
+    "dynamicOrderQtyFreqThreshold": "頻率閾值 (次/分鐘)",
+    "dynamicOrderQtyFreqThresholdHint": "超過此值則減少單筆金額，預設 5",
+    "dynamicOrderQtyStep": "調整步長 (USDT)",
+    "dynamicOrderQtyStepHint": "每次調整的增量/減量，預設 20",
+    "dynamicOrderQtyCheckInterval": "檢查間隔 (秒)",
+    "dynamicOrderQtyCheckIntervalHint": "每隔多少秒檢查一次，預設 60"
   },
   "configSetup": {
     "title": "配置引導",

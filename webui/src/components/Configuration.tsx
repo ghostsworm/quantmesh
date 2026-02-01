@@ -1032,6 +1032,91 @@ const Configuration: React.FC = () => {
                         </FormControl>
                       </SimpleGrid>
                     </ConfigCard>
+
+                    <ConfigCard title={t('configuration.dynamicAdjustment')} icon={<SettingsIcon />}>
+                      <Flex justify="space-between" align="center" mb={4}>
+                        <Box>
+                          <Text fontWeight="600">{t('configuration.enableDynamicAdjustment')}</Text>
+                          <Text fontSize="xs" color="gray.500">{t('configuration.enableDynamicAdjustmentDesc')}</Text>
+                        </Box>
+                        <Switch
+                          isChecked={getNestedValue(config, 'trading.dynamic_adjustment.enabled') || false}
+                          onChange={(e) => updateConfigField('trading.dynamic_adjustment.enabled', e.target.checked)}
+                        />
+                      </Flex>
+                      <Flex justify="space-between" align="center" mb={4}>
+                        <Box>
+                          <Text fontWeight="600">{t('configuration.enableDynamicOrderQty')}</Text>
+                          <Text fontSize="xs" color="gray.500">{t('configuration.enableDynamicOrderQtyDesc')}</Text>
+                        </Box>
+                        <Switch
+                          isChecked={getNestedValue(config, 'trading.dynamic_adjustment.order_quantity.enabled') || false}
+                          onChange={(e) => updateConfigField('trading.dynamic_adjustment.order_quantity.enabled', e.target.checked)}
+                        />
+                      </Flex>
+                      <SimpleGrid columns={2} spacing={6}>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.dynamicOrderQtyMin')}</FormLabel>
+                          <NumberInput
+                            value={getNestedValue(config, 'trading.dynamic_adjustment.order_quantity.min') ?? 50}
+                            onChange={(_, v) => updateConfigField('trading.dynamic_adjustment.order_quantity.min', v ?? 50)}
+                            min={10}
+                            max={10000}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.dynamicOrderQtyMinHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.dynamicOrderQtyMax')}</FormLabel>
+                          <NumberInput
+                            value={getNestedValue(config, 'trading.dynamic_adjustment.order_quantity.max') ?? 500}
+                            onChange={(_, v) => updateConfigField('trading.dynamic_adjustment.order_quantity.max', v ?? 500)}
+                            min={50}
+                            max={100000}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.dynamicOrderQtyMaxHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.dynamicOrderQtyFreqThreshold')}</FormLabel>
+                          <NumberInput
+                            value={getNestedValue(config, 'trading.dynamic_adjustment.order_quantity.frequency_threshold') ?? 5}
+                            onChange={(_, v) => updateConfigField('trading.dynamic_adjustment.order_quantity.frequency_threshold', v ?? 5)}
+                            min={1}
+                            max={60}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.dynamicOrderQtyFreqThresholdHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.dynamicOrderQtyStep')}</FormLabel>
+                          <NumberInput
+                            value={getNestedValue(config, 'trading.dynamic_adjustment.order_quantity.adjustment_step') ?? 20}
+                            onChange={(_, v) => updateConfigField('trading.dynamic_adjustment.order_quantity.adjustment_step', v ?? 20)}
+                            min={1}
+                            max={500}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.dynamicOrderQtyStepHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.dynamicOrderQtyCheckInterval')}</FormLabel>
+                          <NumberInput
+                            value={getNestedValue(config, 'trading.dynamic_adjustment.order_quantity.check_interval') ?? 60}
+                            onChange={(_, v) => updateConfigField('trading.dynamic_adjustment.order_quantity.check_interval', v ?? 60)}
+                            min={30}
+                            max={600}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.dynamicOrderQtyCheckIntervalHint')}</Text>
+                        </FormControl>
+                      </SimpleGrid>
+                    </ConfigCard>
                   </VStack>
                 )}
 

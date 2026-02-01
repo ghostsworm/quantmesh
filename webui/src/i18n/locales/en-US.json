@@ -270,7 +270,22 @@
     "time": "Time",
     "size": "Size",
     "action": "Action",
-    "restore": "Restore"
+    "restore": "Restore",
+    "dynamicAdjustment": "Dynamic Adjustment",
+    "enableDynamicAdjustment": "Enable Dynamic Adjustment",
+    "enableDynamicAdjustmentDesc": "Auto-adjust grid params based on volatility, capital utilization, etc.",
+    "enableDynamicOrderQty": "Dynamic Order Quantity",
+    "enableDynamicOrderQtyDesc": "Auto-adjust order size by fill frequency: reduce when high, increase when low",
+    "dynamicOrderQtyMin": "Min Order Size (USDT)",
+    "dynamicOrderQtyMinHint": "Default 50, must meet exchange min order",
+    "dynamicOrderQtyMax": "Max Order Size (USDT)",
+    "dynamicOrderQtyMaxHint": "Default 500",
+    "dynamicOrderQtyFreqThreshold": "Frequency Threshold (trades/min)",
+    "dynamicOrderQtyFreqThresholdHint": "Above this value, reduce order size. Default 5",
+    "dynamicOrderQtyStep": "Adjustment Step (USDT)",
+    "dynamicOrderQtyStepHint": "Step per adjustment. Default 20",
+    "dynamicOrderQtyCheckInterval": "Check Interval (sec)",
+    "dynamicOrderQtyCheckIntervalHint": "How often to check. Default 60"
   },
   "configSetup": {
     "title": "Configuration Guide",

@@ -174,8 +174,8 @@ quantmesh_platform/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/dennisyang1986/quantmesh_market_maker.git
-   cd quantmesh_market_maker
+   git clone https://github.com/ghostsworm/quantmesh.git
+   cd quantmesh
    ```
 
 2. **Install dependencies**

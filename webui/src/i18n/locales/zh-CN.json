@@ -270,7 +270,22 @@
     "time": "时间",
     "size": "大小",
     "action": "操作",
-    "restore": "恢复"
+    "restore": "恢复",
+    "dynamicAdjustment": "动态调整",
+    "enableDynamicAdjustment": "启用动态调整",
+    "enableDynamicAdjustmentDesc": "根据市场波动率、资金利用率等自动调整网格参数",
+    "enableDynamicOrderQty": "单笔金额动态调整",
+    "enableDynamicOrderQtyDesc": "根据成交频率自动调整单笔订单金额，高频时减少、低频时增加",
+    "dynamicOrderQtyMin": "单笔金额下限 (USDT)",
+    "dynamicOrderQtyMinHint": "默认 50，需满足交易所最小订单要求",
+    "dynamicOrderQtyMax": "单笔金额上限 (USDT)",
+    "dynamicOrderQtyMaxHint": "默认 500",
+    "dynamicOrderQtyFreqThreshold": "频率阈值 (次/分钟)",
+    "dynamicOrderQtyFreqThresholdHint": "超过此值则减少单笔金额，默认 5",
+    "dynamicOrderQtyStep": "调整步长 (USDT)",
+    "dynamicOrderQtyStepHint": "每次调整的增量/减量，默认 20",
+    "dynamicOrderQtyCheckInterval": "检查间隔 (秒)",
+    "dynamicOrderQtyCheckIntervalHint": "每隔多少秒检查一次，默认 60"
   },
   "configSetup": {
     "title": "配置引导",
