@@ -469,7 +469,8 @@ func logf(level LogLevel, format string, args ...interface{}) {
 			defer func() {
 				// 恢複 panic，确保不影响主程序
 				if r := recover(); r != nil {
-					// 静默处理，不输出錯误（避免循环日志）
+					// 输出到標准錯误便於調試
+					log.Printf("[ERROR] 日志写入 panic: %v", r)
 				}
 			}()
 			writer(level.String(), message)
@@ -541,7 +542,8 @@ func logln(level LogLevel, args ...interface{}) {
 			defer func() {
 				// 恢複 panic，确保不影响主程序
 				if r := recover(); r != nil {
-					// 静默处理，不输出錯误（避免循环日志）
+					// 输出到標准錯误便於調試
+					log.Printf("[ERROR] 日志写入 panic: %v", r)
 				}
 			}()
 			writer(level.String(), strings.TrimSuffix(message, "\n"))

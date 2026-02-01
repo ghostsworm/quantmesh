@@ -81,7 +81,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.21.0"
+var Version = "3.22.1"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -864,9 +864,12 @@ func main() {
 		logStorage = nil
 	} else {
 		globalLogStorage = logStorage
+		log.Printf("[DEBUG] logStorage 指針: %p", logStorage)
 		logger.InitLogStorage(func(level, message string) {
 			if logStorage != nil {
 				logStorage.WriteLog(level, message)
+			} else {
+				log.Printf("[ERROR] logStorage 為 nil，無法写入日志")
 			}
 		})
 		log.Printf("[INFO] 日志存儲已初始化: %s", logStoragePath)

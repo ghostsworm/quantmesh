@@ -6,17 +6,17 @@ other = "🚀 QuantMesh 做市商系統啟動..."
 other = "📦 版本號: {{.Version}}"
 
 [log.log_storage_init_failed]
-other = "初始化日誌存儲失敗: {{.Error}}，將繼續運行但不保存日誌到數據庫"
+other = "初始化日誌儲存失敗: {{.Error}}，將繼續運行但不儲存日誌到資料庫"
 
 [log.log_storage_initialized]
-other = "日誌存儲已初始化: {{.Path}}"
+other = "日誌儲存已初始化: {{.Path}}"
 
 # HTTP 錯誤訊息
 [error.session_manager_not_initialized]
 other = "會話管理器未初始化"
 
 [error.not_logged_in]
-other = "未登錄，請先登錄"
+other = "未登入，請先登入"
 
 [error.invalid_time_format]
 other = "無效的時間格式"
@@ -31,7 +31,7 @@ other = "無效的結束時間格式"
 other = "查詢訂單失敗"
 
 [error.query_statistics_failed]
-other = "查詢統計數據失敗"
+other = "查詢統計資料失敗"
 
 [error.query_trades_failed]
 other = "查詢交易記錄失敗"
@@ -46,43 +46,43 @@ other = "獲取日誌失敗"
 other = "查詢對賬歷史失敗"
 
 [error.storage_unavailable]
-other = "存儲服務不可用"
+other = "儲存服務不可用"
 
 [error.missing_symbol_param]
 other = "缺少幣種對參數"
 
 [error.get_pnl_failed]
-other = "獲取盈虧數據失敗"
+other = "獲取盈虧資料失敗"
 
 [error.get_klines_failed]
-other = "獲取K線數據失敗"
+other = "獲取K線資料失敗"
 
 [error.get_funding_rate_failed]
 other = "獲取資金費率失敗"
 
 [error.market_analysis_not_enabled]
-other = "市場分析模塊未啟用"
+other = "市場分析模組未啟用"
 
 [error.no_analysis_data]
-other = "暫無分析數據"
+other = "暫無分析資料"
 
 [error.parameter_optimization_not_enabled]
-other = "參數優化模塊未啟用"
+other = "參數優化模組未啟用"
 
 [error.no_optimization_data]
-other = "暫無優化數據"
+other = "暫無優化資料"
 
 [error.risk_analysis_not_enabled]
-other = "風險分析模塊未啟用"
+other = "風險分析模組未啟用"
 
 [error.sentiment_analysis_not_enabled]
-other = "情緒分析模塊未啟用"
+other = "情緒分析模組未啟用"
 
 [error.polymarket_signal_not_enabled]
-other = "Polymarket信號模塊未啟用"
+other = "Polymarket 信號模組未啟用"
 
 [error.unknown_module]
-other = "未知的模塊: {{.Module}}"
+other = "未知的模組: {{.Module}}"
 
 [error.trigger_analysis_failed]
 other = "觸發分析失敗"
@@ -97,7 +97,7 @@ other = "獲取提示詞失敗"
 other = "無效的請求"
 
 [error.module_name_empty]
-other = "模塊名不能為空"
+other = "模組名稱不可為空"
 
 [error.template_empty]
 other = "提示詞模板不能為空"
@@ -105,22 +105,22 @@ other = "提示詞模板不能為空"
 [error.update_prompt_failed]
 other = "更新提示詞失敗"
 
-# 數據庫相關錯誤
+# 資料庫相關錯誤
 [error.database_error]
-other = "數據庫錯誤"
+other = "資料庫錯誤"
 
 [error.open_log_database_failed]
-other = "打開日誌數據庫失敗"
+other = "開啟日誌資料庫失敗"
 
 [error.create_log_table_failed]
-other = "創建日誌表失敗"
+other = "建立日誌表失敗"
 
-# 配置相關錯誤
+# 設定相關錯誤
 [error.load_config_failed]
-other = "加載配置失敗"
+other = "載入設定失敗"
 
 [error.save_config_failed]
-other = "保存配置失敗"
+other = "儲存設定失敗"
 
 # 首次設置嚮導
 [wizard.title]
