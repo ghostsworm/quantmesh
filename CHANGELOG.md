@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [3.18.0] - 2026-02-01
+
+### Added
+- **每日統計盈利/止損交易量區分**: 收益統計頁面「每日統計」模組新增「盈利交易量」「止損交易量」兩欄
+  - 盈利交易量：pnl>0 的交易數量總和（綠色）
+  - 止損交易量：pnl<=0 的交易數量總和（紅色）
+- **交易量說明 Tooltip**: 「交易量」表頭懸停提示：當日交易量少通常表示市場震盪較小，成交條件較少達成
+
+### Changed
+- **Storage**: `DailyStatisticsWithTradeCount` 新增 `VolumeProfit`、`VolumeStopLoss` 欄位
+- **API**: 每日統計回應新增 `volume_profit`、`volume_stop_loss` 欄位
+
 ## [3.17.0] - 2026-02-01
 
 ### Added

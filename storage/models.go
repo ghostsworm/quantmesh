@@ -53,17 +53,19 @@ type Statistics struct {
 
 // DailyStatisticsWithTradeCount 每日统计（包含盈利/亏损交易數）
 type DailyStatisticsWithTradeCount struct {
-	Date           time.Time
-	TotalTrades    int
-	TotalVolume    float64
-	TotalPnL       float64
-	WinRate        float64
-	WinningTrades  int
-	LosingTrades   int
-	OpenPrice      float64 // 當日开盘價
-	ClosePrice     float64 // 當日收盘價
-	PriceChange    float64 // 價格變化（收盘價-开盘價）
-	PriceChangePct float64 // 價格變化百分比
+	Date            time.Time
+	TotalTrades     int
+	TotalVolume     float64
+	TotalPnL        float64
+	WinRate         float64
+	WinningTrades   int
+	LosingTrades    int
+	VolumeProfit    float64 // 盈利交易量（pnl>0 的交易 quantity 之和）
+	VolumeStopLoss  float64 // 止損交易量（pnl<=0 的交易 quantity 之和）
+	OpenPrice       float64 // 當日开盘價
+	ClosePrice      float64 // 當日收盘價
+	PriceChange     float64 // 價格變化（收盘價-开盘價）
+	PriceChangePct  float64 // 價格變化百分比
 }
 
 // HourlyEquityRecord 小時級權益記錄（用於計算日內最大回撤）
