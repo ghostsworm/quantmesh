@@ -149,6 +149,7 @@ export default function OptimizerPage() {
         } else if (status.status === 'failed' || status.status === 'stopped') {
           setRunning(false)
         } else {
+          // pending, loading_data, running 都繼續輪詢
           setTimeout(poll, 2000)
         }
       } catch (e) {
@@ -402,11 +403,28 @@ export default function OptimizerPage() {
               <CardHeader fontWeight="600">任務状態</CardHeader>
               <CardBody>
                 <HStack mb={2}>
-                  <Badge colorScheme={taskStatus.status === 'completed' ? 'green' : taskStatus.status === 'running' ? 'blue' : taskStatus.status === 'failed' ? 'red' : 'gray'}>
-                    {taskStatus.status}
+                  <Badge colorScheme={
+                    taskStatus.status === 'completed' ? 'green' :
+                    taskStatus.status === 'running' ? 'blue' :
+                    taskStatus.status === 'loading_data' ? 'purple' :
+                    taskStatus.status === 'failed' ? 'red' : 'gray'
+                  }>
+                    {taskStatus.status === 'loading_data' ? '加載數據中' :
+                     taskStatus.status === 'running' ? '优化中' :
+                     taskStatus.status === 'completed' ? '已完成' :
+                     taskStatus.status === 'failed' ? '失敗' :
+                     taskStatus.status === 'pending' ? '等待中' :
+                     taskStatus.status === 'stopped' ? '已停止' :
+                     taskStatus.status}
                   </Badge>
                   <Text fontSize="sm" color="gray.500">ID: {taskStatus.task_id}</Text>
                 </HStack>
+                {taskStatus.status === 'loading_data' && (
+                  <VStack align="start" spacing={1}>
+                    <Text fontSize="sm" color="purple.600">正在從交易所下載歷史K線數據...</Text>
+                    <Progress size="sm" isIndeterminate colorScheme="purple" w="100%" />
+                  </VStack>
+                )}
                 {taskStatus.status === 'running' && (
                   <Progress size="sm" isIndeterminate colorScheme="blue" />
                 )}

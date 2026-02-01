@@ -4,6 +4,60 @@
 
 ## [Unreleased]
 
+## [3.25.0] - 2026-02-01
+
+### Added
+- **智能參數推薦服務**: 根據當前市場價格和波動率自動生成最優回測參數
+  - 新增 `backtest/smart_params.go`：智能參數推薦核心服務
+  - 根據實時價格、7/30日波動率、平均日振幅計算最優參數
+  - 支援網格(grid)、動量(momentum)、均值回歸(mean_reversion)、趨勢跟蹤(trend_following)、定投(dca)、馬丁格爾(martingale)策略
+  - 每個推薦包含置信度評分和詳細推薦理由
+- **自動回測調度器**: 後台自動運行預計算回測，用戶進入頁面即可看到結果
+  - 新增 `backtest/auto_scheduler.go`：自動回測調度核心
+  - 定時（預設6小時）對配置的交易對運行回測
+  - 預計算結果帶有市場分析報告和收益預測
+  - 支援配置啟用/禁用、調度間隔、並行任務數等
+- **前端智能推薦界面**: 回測頁面新增智能推薦區域
+  - 頁面頂部展示預計算回測結果卡片（按收益率排序）
+  - 顯示每個推薦的收益率、夏普比率、回撤、勝率、置信度
+  - 一鍵應用推薦參數到回測表單
+  - 策略選擇後可獲取基於當前市場的智能推薦
+- **新增 API 端點**:
+  - `GET /api/backtest/smart-params`：獲取智能參數推薦
+  - `POST /api/backtest/smart-params`：獲取智能參數推薦（POST版本）
+  - `GET /api/backtest/smart-params/multiple`：獲取多策略推薦
+  - `GET /api/backtest/precomputed`：獲取預計算回測結果
+  - `GET /api/backtest/precomputed/:symbol/:strategy`：獲取特定預計算結果
+  - `POST /api/backtest/precomputed/trigger`：手動觸發預計算
+  - `GET /api/backtest/scheduler/status`：獲取自動調度器狀態
+- **配置項**: 新增 `auto_backtest` 配置區塊支援自動回測
+  - `enabled`：是否啟用自動回測
+  - `schedule_interval_hours`：調度間隔（小時）
+  - `max_concurrent_tasks`：最大並行任務數
+  - `default_capital`：預設回測資金
+  - `symbols`：要自動回測的交易對和策略列表
+
+## [3.24.0-rc1] - 2026-02-01
+
+### Fixed
+- **參數優化頁面超時**: 修復「開始優化」點擊後長時間等待最終 "failed to fetch" 的問題
+  - 根本原因：獲取歷史 K 線數據是在 HTTP 請求處理過程中同步執行的，當下載時間過長時導致代理/瀏覽器超時
+  - 解決方案：將歷史數據獲取移至後台任務異步執行，API 立即返回任務 ID
+  - 新增 `loading_data` 任務狀態，前端顯示「正在從交易所下載歷史K線數據...」提示
+- **TaskManager.GetResult 缺失**: 補齊 `backtest/task_manager.go` 中缺失的 GetResult 方法
+
+## [3.24.0] - 2026-02-01
+
+### Added
+- **幣安現貨價格流**: 實現 Binance Spot WebSocket 價格流支援
+  - 新增 `exchange/binance/spot_websocket.go`：現貨 WebSocket 管理器
+  - 支援現貨交易對（如 PAXGUSDT）的實時價格推送
+  - 使用 aggTrade 流獲取最新成交價格
+  - 支援主網與測試網環境
+
+### Fixed
+- **現貨交易啟動失敗**: 修復「啟動價格流失敗（WebSocket 是唯一價格來源）：現貨價格流暫未實現」錯誤
+
 ## [3.23.0] - 2026-02-01
 
 ### Added
