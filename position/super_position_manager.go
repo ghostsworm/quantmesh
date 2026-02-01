@@ -1115,10 +1115,14 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		// 如果從账戶中獲取不到，尝試從持倉中獲取
 		if leverage == 1 && spm.exchange != nil {
 			if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
-				switch positions := positionsInterface.(type) {
-				case []interface{}:
-					for _, pos := range positions {
-						posValue := reflect.ValueOf(pos)
+				// 使用反射處理不同類型的持倉資訊
+				positionsValue := reflect.ValueOf(positionsInterface)
+				if positionsValue.Kind() == reflect.Slice {
+					for i := 0; i < positionsValue.Len(); i++ {
+						posValue := positionsValue.Index(i)
+						if posValue.Kind() == reflect.Interface {
+							posValue = posValue.Elem()
+						}
 						if posValue.Kind() == reflect.Ptr {
 							posValue = posValue.Elem()
 						}

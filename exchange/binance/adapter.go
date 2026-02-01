@@ -96,6 +96,7 @@ type Account struct {
 	TotalMarginBalance float64
 	AvailableBalance   float64
 	Positions          []*Position
+	AccountLeverage    int // 账戶级别的杠杆倍數（從持倉中提取）
 }
 
 type OrderUpdate struct {
@@ -741,25 +742,32 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}
 
 	positions := make([]*Position, 0, len(account.Positions))
+	accountLeverage := 1 // 默認 1 倍杠杆
 	for _, pos := range account.Positions {
 		posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
-		if posAmt == 0 {
-			continue
-		}
-
 		entryPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
 		unrealizedPNL, _ := strconv.ParseFloat(pos.UnrealizedProfit, 64)
 		leverage, _ := strconv.Atoi(pos.Leverage)
+
+		// 提取杠杆倍數（取第一個非 1 的杠杆值，因為帳戶級別杠杆通常一致）
+		if leverage > accountLeverage {
+			accountLeverage = leverage
+		}
+
+		// 只添加有持倉的記錄
+		if posAmt == 0 {
+			continue
+		}
 
 		positions = append(positions, &Position{
 			Symbol:         pos.Symbol,
 			Size:           posAmt,
 			EntryPrice:     entryPrice,
-			MarkPrice:      0, // 币安 AccountPosition 没有 MarkPrice
+			MarkPrice:      0, // 幣安 AccountPosition 没有 MarkPrice
 			UnrealizedPNL:  unrealizedPNL,
 			Leverage:       leverage,
-			MarginType:     "", // 币安 AccountPosition 没有 MarginType
-			IsolatedMargin: 0,  // 币安 AccountPosition 没有 IsolatedMargin
+			MarginType:     "", // 幣安 AccountPosition 没有 MarginType
+			IsolatedMargin: 0,  // 幣安 AccountPosition 没有 IsolatedMargin
 		})
 	}
 
@@ -768,6 +776,7 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		TotalMarginBalance: totalMarginBalance,
 		AvailableBalance:   availableBalance,
 		Positions:          positions,
+		AccountLeverage:    accountLeverage,
 	}, nil
 }
 

@@ -198,6 +198,7 @@ func (w *binanceWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalMarginBalance: binanceAccount.TotalMarginBalance,
 		AvailableBalance:   binanceAccount.AvailableBalance,
 		Positions:          positions,
+		AccountLeverage:    binanceAccount.AccountLeverage,
 	}, nil
 }
 
