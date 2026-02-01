@@ -53,8 +53,8 @@ if [ -f "./data/webauthn.db" ]; then
     log_info "✓ 已备份 webauthn.db"
 fi
 
-if [ -f "./logs.db" ]; then
-    cp "./logs.db" "${BACKUP_DIR}/logs.db"
+if [ -f "./data/logs.db" ]; then
+    cp "./data/logs.db" "${BACKUP_DIR}/logs.db"
     log_info "✓ 已备份 logs.db"
 fi
 

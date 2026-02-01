@@ -83,7 +83,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.28.0"
+var Version = "3.28.1"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -854,7 +854,8 @@ func main() {
 	// 所有時间操作应使用 utils.ToConfiguredTimezone()、utils.ToUTC()、utils.NowConfiguredTimezone() 等工具函數
 
 	// 1. 最早初始化日志存儲（在配置加載之前，使用默认路径）
-	logStoragePath := "./logs.db"
+	// 注意：logs.db 放在 data 目錄下，與其他數據庫文件保持一致，方便 systemd 的 ReadWritePaths 配置
+	logStoragePath := "./data/logs.db"
 	if len(os.Args) > 2 && os.Args[1] == "--log-db" {
 		logStoragePath = os.Args[2]
 		os.Args = append(os.Args[:1], os.Args[3:]...)
