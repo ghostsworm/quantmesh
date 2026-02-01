@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -73,6 +74,21 @@ func (p *TaskProcessor) Stop() {
 }
 
 func (p *TaskProcessor) processTasks() {
+	// 先標記已超時仍顯示為 running 的任務（HTTP 未響應 context 取消時會出現）
+	stale, err := p.taskService.GetStaleRunningTasks(p.ctx, 20)
+	if err != nil {
+		logger.Error("獲取超時運行中任務失败: %v", err)
+	} else {
+		for _, t := range stale {
+			msg := fmt.Sprintf("任務運行超過 %d 秒未完成，已標記為超時", t.TimeoutSeconds)
+			if err := p.taskService.UpdateTaskStatus(p.ctx, t.ID, "timeout", nil, &msg); err != nil {
+				logger.Error("標記任務 %s 超時失败: %v", t.ID, err)
+			} else {
+				logger.Info("已將超時任務 %s 標記為 timeout", t.ID)
+			}
+		}
+	}
+
 	tasks, err := p.taskService.GetPendingTasks(p.ctx, 10)
 	if err != nil {
 		logger.Error("獲取待处理 AI 任務失败: %v", err)
@@ -144,13 +160,21 @@ func (p *TaskProcessor) executeTask(task *database.AsyncTask) {
 	if err != nil {
 		errMsg := fmt.Sprintf("AI 調用异常: %v", err)
 		logger.Error("任務 %s 執行异常: %s", task.ID, errMsg)
-		
-		// 重試逻辑
+
+		// 超時時標記為 timeout，其餘為 failed
+		finalStatus := "failed"
+		if errors.Is(err, context.DeadlineExceeded) {
+			finalStatus = "timeout"
+			timeoutMsg := fmt.Sprintf("任務在 %d 秒內未完成，已超時", task.TimeoutSeconds)
+			errMsg = timeoutMsg
+		}
+
+		// 重試逻辑（超時也允許重試）
 		if task.RetryCount < task.MaxRetries {
 			p.taskService.RetryTask(p.ctx, task.ID)
 			logger.Info("任務 %s 將進行重試 (當前重試次數: %d)", task.ID, task.RetryCount+1)
 		} else {
-			p.taskService.UpdateTaskStatus(p.ctx, task.ID, "failed", nil, &errMsg)
+			p.taskService.UpdateTaskStatus(p.ctx, task.ID, finalStatus, nil, &errMsg)
 		}
 		return
 	}

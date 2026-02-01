@@ -78,7 +78,8 @@ func (c *AsyncGeminiClient) generateContentInternal(ctx context.Context, prompt 
 		requestData["use_google_search"] = true
 	}
 
-	taskID, err := GlobalTaskService.CreateTask(ctx, "generate_content", requestData, 900, 3)
+	// 任務超時 5 分鐘；超時運行中的任務會由 processor 定期標記為 timeout
+	taskID, err := GlobalTaskService.CreateTask(ctx, "generate_content", requestData, 300, 3)
 	if err != nil {
 		return "", fmt.Errorf("創建异步任務失败: %w", err)
 	}
