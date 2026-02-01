@@ -14,7 +14,7 @@ import (
 	"quantmesh/logger"
 )
 
-// Instance 用户实例
+// Instance 用戶實例
 type Instance struct {
 	ID          string    `json:"id"`
 	UserID      string    `json:"user_id"`
@@ -22,8 +22,8 @@ type Instance struct {
 	Status      string    `json:"status"` // running/stopped/error
 	ContainerID string    `json:"container_id"`
 	Port        int       `json:"port"`
-	CPU         float64   `json:"cpu"`    // CPU核心数
-	Memory      int64     `json:"memory"` // 内存MB
+	CPU         float64   `json:"cpu"`    // CPU核心數
+	Memory      int64     `json:"memory"` // 記憶體MB
 	CreatedAt   time.Time `json:"created_at"`
 	LastActive  time.Time `json:"last_active"`
 }
@@ -35,7 +35,7 @@ type Resources struct {
 	Disk   int64
 }
 
-// InstanceManager 实例管理器
+// InstanceManager 實例管理器
 type InstanceManager struct {
 	instances   map[string]*Instance
 	mu          sync.RWMutex
@@ -44,7 +44,7 @@ type InstanceManager struct {
 	portMu      sync.Mutex
 }
 
-// NewInstanceManager 创建实例管理器
+// NewInstanceManager 創建實例管理器
 func NewInstanceManager(db *sql.DB) *InstanceManager {
 	return &InstanceManager{
 		instances:   make(map[string]*Instance),
@@ -53,26 +53,26 @@ func NewInstanceManager(db *sql.DB) *InstanceManager {
 	}
 }
 
-// CreateInstance 创建新实例
+// CreateInstance 創建新實例
 func (m *InstanceManager) CreateInstance(ctx context.Context, userID, plan string) (*Instance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 1. 检查用户是否已有实例
+	// 1. 检查用戶是否已有實例
 	if existing := m.getUserInstance(userID); existing != nil {
-		return nil, fmt.Errorf("用户已有运行中的实例: %s", existing.ID)
+		return nil, fmt.Errorf("用戶已有运行中的實例: %s", existing.ID)
 	}
 
-	// 2. 生成实例ID
+	// 2. 生成實例ID
 	instanceID := generateInstanceID(userID)
 
 	// 3. 分配资源
 	resources := m.allocateResources(plan)
 
-	// 4. 创建数据目录
+	// 4. 創建數據目錄
 	dataDir := fmt.Sprintf("/data/instances/%s", instanceID)
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建数据目录失败: %v", err)
+		return nil, fmt.Errorf("創建數據目錄失败: %v", err)
 	}
 
 	// 5. 生成配置文件
@@ -81,14 +81,14 @@ func (m *InstanceManager) CreateInstance(ctx context.Context, userID, plan strin
 		return nil, fmt.Errorf("生成配置文件失败: %v", err)
 	}
 
-	// 6. 启动Docker容器
+	// 6. 啟动Docker容器
 	containerID, port, err := m.startContainer(instanceID, dataDir, resources)
 	if err != nil {
 		os.RemoveAll(dataDir)
-		return nil, fmt.Errorf("启动容器失败: %v", err)
+		return nil, fmt.Errorf("啟动容器失败: %v", err)
 	}
 
-	// 7. 创建实例记录
+	// 7. 創建實例記錄
 	instance := &Instance{
 		ID:          instanceID,
 		UserID:      userID,
@@ -104,19 +104,19 @@ func (m *InstanceManager) CreateInstance(ctx context.Context, userID, plan strin
 
 	m.instances[instanceID] = instance
 
-	// 8. 保存到数据库
+	// 8. 保存到數據库
 	if err := m.saveToDatabase(instance); err != nil {
 		m.stopContainer(containerID)
 		os.RemoveAll(dataDir)
 		delete(m.instances, instanceID)
-		return nil, fmt.Errorf("保存到数据库失败: %v", err)
+		return nil, fmt.Errorf("保存到數據库失败: %v", err)
 	}
 
-	logger.Info("✅ 实例创建成功: %s (用户: %s, 套餐: %s)", instanceID, userID, plan)
+	logger.Info("✅ 實例創建成功: %s (用戶: %s, 套餐: %s)", instanceID, userID, plan)
 	return instance, nil
 }
 
-// allocateResources 根据套餐分配资源
+// allocateResources 根據套餐分配资源
 func (m *InstanceManager) allocateResources(plan string) *Resources {
 	switch plan {
 	case "starter":
@@ -146,7 +146,7 @@ func (m *InstanceManager) allocateResources(plan string) *Resources {
 	}
 }
 
-// startContainer 启动Docker容器
+// startContainer 啟动Docker容器
 func (m *InstanceManager) startContainer(instanceID, dataDir string, resources *Resources) (string, int, error) {
 	port := m.allocatePort()
 
@@ -170,7 +170,7 @@ func (m *InstanceManager) startContainer(instanceID, dataDir string, resources *
 	}
 
 	containerID := strings.TrimSpace(string(output))
-	logger.Info("容器已启动: %s (端口: %d)", containerID[:12], port)
+	logger.Info("容器已啟动: %s (端口: %d)", containerID[:12], port)
 
 	return containerID, port, nil
 }
@@ -184,18 +184,18 @@ func (m *InstanceManager) allocatePort() int {
 	return m.portCounter
 }
 
-// StopInstance 停止实例
+// StopInstance 停止實例
 func (m *InstanceManager) StopInstance(instanceID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	instance, exists := m.instances[instanceID]
 	if !exists {
-		return fmt.Errorf("实例不存在: %s", instanceID)
+		return fmt.Errorf("實例不存在: %s", instanceID)
 	}
 
 	if instance.Status == "stopped" {
-		return fmt.Errorf("实例已停止")
+		return fmt.Errorf("實例已停止")
 	}
 
 	// 停止容器
@@ -204,7 +204,7 @@ func (m *InstanceManager) StopInstance(instanceID string) error {
 	}
 
 	instance.Status = "stopped"
-	logger.Info("✅ 实例已停止: %s", instanceID)
+	logger.Info("✅ 實例已停止: %s", instanceID)
 
 	return m.updateDatabase(instance)
 }
@@ -219,21 +219,21 @@ func (m *InstanceManager) stopContainer(containerID string) error {
 	return nil
 }
 
-// StartInstance 启动已停止的实例
+// StartInstance 啟动已停止的實例
 func (m *InstanceManager) StartInstance(instanceID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	instance, exists := m.instances[instanceID]
 	if !exists {
-		return fmt.Errorf("实例不存在: %s", instanceID)
+		return fmt.Errorf("實例不存在: %s", instanceID)
 	}
 
 	if instance.Status == "running" {
-		return fmt.Errorf("实例已在运行")
+		return fmt.Errorf("實例已在运行")
 	}
 
-	// 启动容器
+	// 啟动容器
 	cmd := exec.Command("docker", "start", instance.ContainerID)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -242,12 +242,12 @@ func (m *InstanceManager) StartInstance(instanceID string) error {
 
 	instance.Status = "running"
 	instance.LastActive = time.Now()
-	logger.Info("✅ 实例已启动: %s", instanceID)
+	logger.Info("✅ 實例已啟动: %s", instanceID)
 
 	return m.updateDatabase(instance)
 }
 
-// RestartInstance 重启实例
+// RestartInstance 重啟實例
 func (m *InstanceManager) RestartInstance(instanceID string) error {
 	if err := m.StopInstance(instanceID); err != nil {
 		return err
@@ -256,68 +256,68 @@ func (m *InstanceManager) RestartInstance(instanceID string) error {
 	return m.StartInstance(instanceID)
 }
 
-// DeleteInstance 删除实例
+// DeleteInstance 刪除實例
 func (m *InstanceManager) DeleteInstance(instanceID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	instance, exists := m.instances[instanceID]
 	if !exists {
-		return fmt.Errorf("实例不存在: %s", instanceID)
+		return fmt.Errorf("實例不存在: %s", instanceID)
 	}
 
 	// 1. 停止容器
 	m.stopContainer(instance.ContainerID)
 
-	// 2. 删除容器
+	// 2. 刪除容器
 	cmd := exec.Command("docker", "rm", instance.ContainerID)
 	cmd.Run()
 
-	// 3. 备份数据
+	// 3. 备份數據
 	dataDir := fmt.Sprintf("/data/instances/%s", instanceID)
 	backupPath := fmt.Sprintf("/data/backups/%s-%d.tar.gz", instanceID, time.Now().Unix())
 	if err := m.backupInstanceData(dataDir, backupPath); err != nil {
-		logger.Warn("⚠️ 备份实例数据失败: %v", err)
+		logger.Warn("⚠️ 备份實例數據失败: %v", err)
 	}
 
-	// 4. 删除数据目录
+	// 4. 刪除數據目錄
 	os.RemoveAll(dataDir)
 
-	// 5. 从内存删除
+	// 5. 從記憶體刪除
 	delete(m.instances, instanceID)
 
-	// 6. 从数据库删除
-	logger.Info("✅ 实例已删除: %s", instanceID)
+	// 6. 從數據库刪除
+	logger.Info("✅ 實例已刪除: %s", instanceID)
 	return m.deleteFromDatabase(instanceID)
 }
 
-// GetInstance 获取实例信息
+// GetInstance 獲取實例信息
 func (m *InstanceManager) GetInstance(instanceID string) (*Instance, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	instance, exists := m.instances[instanceID]
 	if !exists {
-		return nil, fmt.Errorf("实例不存在: %s", instanceID)
+		return nil, fmt.Errorf("實例不存在: %s", instanceID)
 	}
 
 	return instance, nil
 }
 
-// GetUserInstance 获取用户的实例
+// GetUserInstance 獲取用戶的實例
 func (m *InstanceManager) GetUserInstance(userID string) (*Instance, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	instance := m.getUserInstance(userID)
 	if instance == nil {
-		return nil, fmt.Errorf("用户没有实例")
+		return nil, fmt.Errorf("用戶没有實例")
 	}
 
 	return instance, nil
 }
 
-// getUserInstance 内部方法：获取用户实例 (不加锁)
+// getUserInstance 内部方法：獲取用戶實例 (不加鎖)
 func (m *InstanceManager) getUserInstance(userID string) *Instance {
 	for _, instance := range m.instances {
 		if instance.UserID == userID {
@@ -327,7 +327,7 @@ func (m *InstanceManager) getUserInstance(userID string) *Instance {
 	return nil
 }
 
-// ListInstances 列出所有实例
+// ListInstances 列出所有實例
 func (m *InstanceManager) ListInstances() []*Instance {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -340,17 +340,17 @@ func (m *InstanceManager) ListInstances() []*Instance {
 	return instances
 }
 
-// MonitorInstances 监控所有实例
+// MonitorInstances 監控所有實例
 func (m *InstanceManager) MonitorInstances(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	logger.Info("🔍 实例监控已启动")
+	logger.Info("🔍 實例監控已啟动")
 
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("实例监控已停止")
+			logger.Info("實例監控已停止")
 			return
 		case <-ticker.C:
 			m.checkAllInstances()
@@ -358,7 +358,7 @@ func (m *InstanceManager) MonitorInstances(ctx context.Context) {
 	}
 }
 
-// checkAllInstances 检查所有实例
+// checkAllInstances 检查所有實例
 func (m *InstanceManager) checkAllInstances() {
 	m.mu.RLock()
 	instances := make([]*Instance, 0, len(m.instances))
@@ -372,13 +372,13 @@ func (m *InstanceManager) checkAllInstances() {
 	}
 }
 
-// checkInstanceHealth 检查实例健康状态
+// checkInstanceHealth 检查實例健康状態
 func (m *InstanceManager) checkInstanceHealth(instance *Instance) {
 	// 1. 检查容器是否运行
 	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", instance.ContainerID)
 	output, err := cmd.Output()
 	if err != nil || strings.TrimSpace(string(output)) != "true" {
-		logger.Error("❌ 实例 %s 容器未运行，尝试重启", instance.ID)
+		logger.Error("❌ 實例 %s 容器未运行，尝試重啟", instance.ID)
 		m.RestartInstance(instance.ID)
 		return
 	}
@@ -387,17 +387,17 @@ func (m *InstanceManager) checkInstanceHealth(instance *Instance) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/health", instance.Port))
 	if err != nil {
-		logger.Warn("⚠️ 实例 %s 健康检查失败: %v", instance.ID, err)
+		logger.Warn("⚠️ 實例 %s 健康检查失败: %v", instance.ID, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		logger.Warn("⚠️ 实例 %s 健康检查返回非200状态码: %d", instance.ID, resp.StatusCode)
+		logger.Warn("⚠️ 實例 %s 健康检查返回非200状態碼: %d", instance.ID, resp.StatusCode)
 		return
 	}
 
-	// 3. 更新最后活跃时间
+	// 3. 更新最后活跃時间
 	m.mu.Lock()
 	instance.LastActive = time.Now()
 	m.mu.Unlock()
@@ -405,7 +405,7 @@ func (m *InstanceManager) checkInstanceHealth(instance *Instance) {
 
 // generateConfig 生成配置文件
 func (m *InstanceManager) generateConfig(userID, plan, configPath string) error {
-	// 根据套餐生成不同的配置
+	// 根據套餐生成不同的配置
 	config := fmt.Sprintf(`app:
   current_exchange: "binance"
 
@@ -433,7 +433,7 @@ plugins:
 	return os.WriteFile(configPath, []byte(config), 0644)
 }
 
-// getBuyWindowSize 根据套餐获取买单窗口大小
+// getBuyWindowSize 根據套餐獲取買單窗口大小
 func (m *InstanceManager) getBuyWindowSize(plan string) int {
 	switch plan {
 	case "starter":
@@ -447,14 +447,14 @@ func (m *InstanceManager) getBuyWindowSize(plan string) int {
 	}
 }
 
-// getSellWindowSize 根据套餐获取卖单窗口大小
+// getSellWindowSize 根據套餐獲取賣單視窗大小
 func (m *InstanceManager) getSellWindowSize(plan string) int {
 	return m.getBuyWindowSize(plan)
 }
 
-// backupInstanceData 备份实例数据
+// backupInstanceData 备份實例數據
 func (m *InstanceManager) backupInstanceData(dataDir, backupPath string) error {
-	// 确保备份目录存在
+	// 确保备份目錄存在
 	backupDir := "/data/backups"
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return err
@@ -465,7 +465,7 @@ func (m *InstanceManager) backupInstanceData(dataDir, backupPath string) error {
 	return cmd.Run()
 }
 
-// saveToDatabase 保存实例到数据库
+// saveToDatabase 保存實例到數據库
 func (m *InstanceManager) saveToDatabase(instance *Instance) error {
 	query := `
 		INSERT INTO instances (id, user_id, plan, status, container_id, port, cpu, memory, created_at, last_active)
@@ -486,7 +486,7 @@ func (m *InstanceManager) saveToDatabase(instance *Instance) error {
 	return err
 }
 
-// updateDatabase 更新数据库中的实例
+// updateDatabase 更新數據库中的實例
 func (m *InstanceManager) updateDatabase(instance *Instance) error {
 	query := `
 		UPDATE instances 
@@ -497,14 +497,14 @@ func (m *InstanceManager) updateDatabase(instance *Instance) error {
 	return err
 }
 
-// deleteFromDatabase 从数据库删除实例
+// deleteFromDatabase 從數據库刪除實例
 func (m *InstanceManager) deleteFromDatabase(instanceID string) error {
 	query := `DELETE FROM instances WHERE id = ?`
 	_, err := m.db.Exec(query, instanceID)
 	return err
 }
 
-// LoadFromDatabase 从数据库加载所有实例
+// LoadFromDatabase 從數據库加載所有實例
 func (m *InstanceManager) LoadFromDatabase() error {
 	query := `
 		SELECT id, user_id, plan, status, container_id, port, cpu, memory, created_at, last_active
@@ -534,18 +534,18 @@ func (m *InstanceManager) LoadFromDatabase() error {
 			&instance.LastActive,
 		)
 		if err != nil {
-			logger.Warn("⚠️ 加载实例失败: %v", err)
+			logger.Warn("⚠️ 加載實例失败: %v", err)
 			continue
 		}
 
 		m.instances[instance.ID] = instance
 	}
 
-	logger.Info("✅ 从数据库加载了 %d 个实例", len(m.instances))
+	logger.Info("✅ 從數據库加載了 %d 個實例", len(m.instances))
 	return nil
 }
 
-// generateInstanceID 生成实例ID
+// generateInstanceID 生成實例ID
 func generateInstanceID(userID string) string {
 	return fmt.Sprintf("qm-%s-%d", userID[:8], time.Now().Unix())
 }

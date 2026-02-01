@@ -20,7 +20,7 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
-// 为了避免循环导入，在这里定义需要的类型
+// 為了避免循環匯入，在这里定义需要的類型
 type Side string
 type OrderType string
 type OrderStatus string
@@ -47,7 +47,7 @@ const (
 
 const (
 	TimeInForceGTC TimeInForce = "GTC"
-	TimeInForceGTX TimeInForce = "GTX" // Post Only - 无法成为挂单方就撤销
+	TimeInForceGTX TimeInForce = "GTX" // Post Only - 無法成為挂單方就撤销
 )
 
 type OrderRequest struct {
@@ -60,9 +60,9 @@ type OrderRequest struct {
 	ReduceOnly    bool
 	PostOnly      bool // 是否只做 Maker（使用 GTX）
 	PriceDecimals int
-	ClientOrderID string // 自定义订单ID
-	StrategyName  string // 策略名称（可选，用于日志追踪）
-	StrategyType  string // 策略类型（可选，如 "grid", "dca", "martingale"）
+	ClientOrderID string // 自定义订單ID
+	StrategyName  string // 策略名称（可選，用於日志追踪）
+	StrategyType  string // 策略類型（可選，如 "grid", "dca", "martingale"）
 }
 
 type Order struct {
@@ -114,13 +114,13 @@ type OrderUpdate struct {
 
 type OrderUpdateCallback func(update OrderUpdate)
 
-// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+// OrderBookLevel 订單簿檔位（本地類型，避免循環匯入）
 type OrderBookLevel struct {
 	Price    float64
 	Quantity float64
 }
 
-// OrderBook 订单簿（本地类型，避免循环导入）
+// OrderBook 订單簿（本地類型，避免循環匯入）
 type OrderBook struct {
 	Symbol    string
 	Bids      []OrderBookLevel
@@ -132,25 +132,25 @@ type OrderBook struct {
 type BinanceAdapter struct {
 	client           *futures.Client
 	symbol           string
-	apiKey           string // 用于 SAPI 内部转账等
+	apiKey           string // 用於 SAPI 內部轉帳等
 	secretKey        string
 	wsManager        *WebSocketManager
 	klineWSManager   *KlineWebSocketManager
-	priceDecimals    int     // 价格精度（小数位数）
-	quantityDecimals int     // 数量精度（小数位数）
-	tickSize         float64 // 价格最小变动单位（如 0.10）
-	stepSize         float64 // 数量最小变动单位（如 0.001）
-	baseAsset        string  // 基础资产（交易币种），如 BTC
-	quoteAsset       string  // 计价资产（结算币种），如 USDT、USD
-	useTestnet       bool    // 是否使用测试网
+	priceDecimals    int     // 價格精度（小數位數）
+	quantityDecimals int     // 數量精度（小數位數）
+	tickSize         float64 // 價格最小变动單位（如 0.10）
+	stepSize         float64 // 數量最小变动單位（如 0.001）
+	baseAsset        string  // 基础资產（交易币种），如 BTC
+	quoteAsset       string  // 计價资產（結算币种），如 USDT、USD
+	useTestnet       bool    // 是否使用測試網
 
 	// 速率限制相关
-	lastAPICallTime time.Time     // 上次API调用时间
-	apiCallMu       sync.Mutex    // API调用互斥锁
-	minAPIInterval  time.Duration // 最小API调用间隔
+	lastAPICallTime time.Time     // 上次API調用時间
+	apiCallMu       sync.Mutex    // API調用互斥鎖
+	minAPIInterval  time.Duration // 最小API調用间隔
 }
 
-// APIPermissions API 权限信息（临时定义，避免循环导入）
+// APIPermissions API 权限信息（临時定义，避免循環匯入）
 type APIPermissions struct {
 	CanTrade      bool
 	CanWithdraw   bool
@@ -164,20 +164,20 @@ type APIPermissions struct {
 	RiskLevel     string
 }
 
-// NewBinanceAdapter 创建币安适配器
+// NewBinanceAdapter 創建币安适配器
 func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, error) {
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
 	testnetStr := cfg["testnet"]
 
-	// 解析测试网配置
+	// 解析測試網配置
 	useTestnet := false
 	if testnetStr == "true" {
 		useTestnet = true
-		logger.Info("🌐 [Binance] 使用测试网模式")
+		logger.Info("🌐 [Binance] 使用測試網模式")
 	}
 
-	// 设置测试网模式（必须在创建客户端之前设置）
+	// 設置測試網模式（必須在創建客戶端之前設置）
 	futures.UseTestnet = useTestnet
 
 	if apiKey == "" || secretKey == "" {
@@ -186,7 +186,7 @@ func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, e
 
 	client := futures.NewClient(apiKey, secretKey)
 
-	// 同步服务器时间
+	// 同步服務器時间
 	client.NewSetServerTimeService().Do(context.Background())
 
 	wsManager := NewWebSocketManager(apiKey, secretKey, useTestnet)
@@ -198,15 +198,15 @@ func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, e
 		secretKey:      secretKey,
 		wsManager:      wsManager,
 		useTestnet:     useTestnet,
-		minAPIInterval: 200 * time.Millisecond, // 最小API调用间隔200ms，避免触发限流
+		minAPIInterval: 200 * time.Millisecond, // 最小API調用间隔200ms，避免触发限流
 	}
 
-	// 获取合约信息（价格精度、数量精度等）
+	// 獲取合約信息（價格精度、數量精度等）
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := adapter.fetchExchangeInfo(ctxInit); err != nil {
-		logger.Warn("⚠️ [Binance] 获取合约信息失败: %v，使用默认精度", err)
+		logger.Warn("⚠️ [Binance] 獲取合約信息失败: %v，使用默认精度", err)
 		// 使用默认值
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 3
@@ -215,19 +215,24 @@ func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, e
 	return adapter, nil
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (b *BinanceAdapter) GetName() string {
 	return "Binance"
 }
 
-// fetchExchangeInfo 获取合约信息（价格精度、数量精度等）
+// GetMarketType 獲取市場類型：futures 合約
+func (b *BinanceAdapter) GetMarketType() string {
+	return "futures"
+}
+
+// fetchExchangeInfo 獲取合約信息（價格精度、數量精度等）
 func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 	exchangeInfo, err := b.client.NewExchangeInfoService().Do(ctx)
 	if err != nil {
-		return fmt.Errorf("获取交易所信息失败: %w", err)
+		return fmt.Errorf("獲取交易所信息失败: %w", err)
 	}
 
-	// 查找指定交易对的信息
+	// 查找指定交易對的信息
 	for _, symbol := range exchangeInfo.Symbols {
 		if symbol.Symbol == b.symbol {
 			b.priceDecimals = symbol.PricePrecision
@@ -235,7 +240,7 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 			b.baseAsset = symbol.BaseAsset
 			b.quoteAsset = symbol.QuoteAsset
 
-			// 从 Filters 中获取 tickSize 和 stepSize
+			// 從 Filters 中獲取 tickSize 和 stepSize
 			if priceFilter := symbol.PriceFilter(); priceFilter != nil {
 				if ts, err := strconv.ParseFloat(priceFilter.TickSize, 64); err == nil && ts > 0 {
 					b.tickSize = ts
@@ -247,7 +252,7 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 				}
 			}
 
-			// 如果没有获取到 tickSize/stepSize，根据精度计算默认值
+			// 如果没有獲取到 tickSize/stepSize，根據精度计算默认值
 			if b.tickSize == 0 {
 				b.tickSize = math.Pow10(-b.priceDecimals)
 			}
@@ -255,35 +260,35 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 				b.stepSize = math.Pow10(-b.quantityDecimals)
 			}
 
-			logger.Info("ℹ️ [Binance 合约信息] %s - 数量精度:%d, 价格精度:%d, tickSize:%.8f, stepSize:%.8f, 基础币种:%s, 计价币种:%s",
+			logger.Info("ℹ️ [Binance 合約信息] %s - 數量精度:%d, 價格精度:%d, tickSize:%.8f, stepSize:%.8f, 基础币种:%s, 计價币种:%s",
 				b.symbol, b.quantityDecimals, b.priceDecimals, b.tickSize, b.stepSize, b.baseAsset, b.quoteAsset)
 			return nil
 		}
 	}
 
-	return fmt.Errorf("未找到合约信息: %s", b.symbol)
+	return fmt.Errorf("未找到合約信息: %s", b.symbol)
 }
 
-// roundToTickSize 将价格调整到符合 tickSize 的值
-// side: BUY 时向下取整，SELL 时向上取整，确保挂单价格对交易者有利
+// roundToTickSize 將價格調整到符合 tickSize 的值
+// side: BUY 時向下取整，SELL 時向上取整，确保挂單價格對交易者有利
 func (b *BinanceAdapter) roundToTickSize(price float64, side Side) float64 {
 	if b.tickSize <= 0 {
 		return price
 	}
-	// 计算价格是 tickSize 的多少倍
+	// 计算價格是 tickSize 的多少倍
 	ticks := price / b.tickSize
 	var roundedTicks float64
 	if side == SideBuy {
-		// 买单向下取整（更低的价格对买家有利）
+		// 買單向下取整（更低的價格對買家有利）
 		roundedTicks = math.Floor(ticks)
 	} else {
-		// 卖单向上取整（更高的价格对卖家有利）
+		// 賣單向上取整（更高的價格對賣家有利）
 		roundedTicks = math.Ceil(ticks)
 	}
 	return roundedTicks * b.tickSize
 }
 
-// roundToStepSize 将数量调整到符合 stepSize 的值（向下取整）
+// roundToStepSize 將數量調整到符合 stepSize 的值（向下取整）
 func (b *BinanceAdapter) roundToStepSize(quantity float64) float64 {
 	if b.stepSize <= 0 {
 		return quantity
@@ -292,60 +297,60 @@ func (b *BinanceAdapter) roundToStepSize(quantity float64) float64 {
 	return steps * b.stepSize
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 验证价格
+	// 驗证價格
 	if req.Price <= 0 {
-		return nil, fmt.Errorf("无效的下单价格: %.8f（价格必须大于0）", req.Price)
+		return nil, fmt.Errorf("無效的下單價格: %.8f（價格必須大於0）", req.Price)
 	}
 
-	// 使用 tickSize 调整价格，确保符合交易所要求
+	// 使用 tickSize 調整價格，确保符合交易所要求
 	originalPrice := req.Price
 	adjustedPrice := b.roundToTickSize(req.Price, req.Side)
 	if adjustedPrice != originalPrice {
-		logger.Debug("ℹ️ [Binance] [%s] 价格已按 tickSize(%.8f) 调整: %.8f -> %.8f",
+		logger.Debug("ℹ️ [Binance] [%s] 價格已按 tickSize(%.8f) 調整: %.8f -> %.8f",
 			req.Symbol, b.tickSize, originalPrice, adjustedPrice)
 		req.Price = adjustedPrice
 	}
 
-	// 使用 stepSize 调整数量
+	// 使用 stepSize 調整數量
 	originalQty := req.Quantity
 	adjustedQty := b.roundToStepSize(req.Quantity)
 	if adjustedQty != originalQty && adjustedQty > 0 {
-		logger.Debug("ℹ️ [Binance] [%s] 数量已按 stepSize(%.8f) 调整: %.8f -> %.8f",
+		logger.Debug("ℹ️ [Binance] [%s] 數量已按 stepSize(%.8f) 調整: %.8f -> %.8f",
 			req.Symbol, b.stepSize, originalQty, adjustedQty)
 		req.Quantity = adjustedQty
 	}
 
-	// 优先使用请求中指定的精度，如果没有则使用从交易所获取的精度
+	// 优先使用请求中指定的精度，如果没有则使用從交易所獲取的精度
 	pDec := req.PriceDecimals
 	if pDec <= 0 {
 		pDec = b.priceDecimals
 	}
 	qDec := b.quantityDecimals
 
-	// 特殊处理：如果下单数量原始值为 0，尝试用最小单位兜底
+	// 特殊处理：如果下單數量原始值為 0，尝試用最小單位兜底
 	if req.Quantity <= 0 {
 		minQty := b.stepSize
 		if minQty <= 0 {
 			minQty = math.Pow10(-qDec)
 		}
 		req.Quantity = minQty
-		logger.Warn("⚠️ [Binance] [%s] 下单数量原始值为 0，已自动调整为最小成交单位: %.8f", req.Symbol, minQty)
+		logger.Warn("⚠️ [Binance] [%s] 下單數量原始值為 0，已自动調整為最小成交單位: %.8f", req.Symbol, minQty)
 	}
 
 	priceStr := fmt.Sprintf("%.*f", pDec, req.Price)
 	quantityStr := fmt.Sprintf("%.*f", qDec, req.Quantity)
 
-	// 特殊处理：如果数量截断后为 0，则用交易所允许的最小数量兜底，避免报错
+	// 特殊处理：如果數量截断后為 0，则用交易所允許的最小數量兜底，避免报錯
 	q, _ := strconv.ParseFloat(quantityStr, 64)
 	if q <= 0 {
-		originalQty := req.Quantity // 保存原始数量
-		minQty := math.Pow10(-qDec) // 例如精度3，则最小下单量为 0.001
+		originalQty := req.Quantity // 保存原始數量
+		minQty := math.Pow10(-qDec) // 例如精度3，则最小下單量為 0.001
 		quantityStr = fmt.Sprintf("%.*f", qDec, minQty)
 		req.Quantity = minQty
 
-		// 构建策略信息字符串
+		// 構建策略信息字符串
 		strategyInfo := ""
 		if req.StrategyName != "" || req.StrategyType != "" {
 			if req.StrategyName != "" && req.StrategyType != "" {
@@ -353,46 +358,46 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 			} else if req.StrategyName != "" {
 				strategyInfo = fmt.Sprintf("[策略:%s] ", req.StrategyName)
 			} else if req.StrategyType != "" {
-				strategyInfo = fmt.Sprintf("[策略类型:%s] ", req.StrategyType)
+				strategyInfo = fmt.Sprintf("[策略類型:%s] ", req.StrategyType)
 			}
 		}
 
-		// 获取基础资产名称（用于显示单位）
+		// 獲取基础资產名称（用於显示單位）
 		baseAsset := b.baseAsset
 		if baseAsset == "" {
-			// 如果无法获取，尝试从 Symbol 中提取（BTCUSDT -> BTC）
+			// 如果無法獲取，尝試從 Symbol 中提取（BTCUSDT -> BTC）
 			if len(req.Symbol) > 4 {
-				baseAsset = req.Symbol[:len(req.Symbol)-4] // 假设最后4个字符是计价币种（如USDT）
+				baseAsset = req.Symbol[:len(req.Symbol)-4] // 假設最后4個字符是计價币种（如USDT）
 			} else {
 				baseAsset = "币"
 			}
 		}
 
-		// 计算订单金额（USDT）
+		// 计算订單金額（USDT）
 		orderAmount := originalQty * req.Price
 		minOrderAmount := minQty * req.Price
 
-		logger.Warn("⚠️ [Binance] [%s] %s下单数量精度截断警告："+
-			"原始数量=%.8f %s (订单金额=%.2f USDT)，"+
-			"在精度 %d 下格式化后为 0，已自动调整为最小下单量 %s %s (订单金额=%.2f USDT)",
+		logger.Warn("⚠️ [Binance] [%s] %s下單數量精度截断警告："+
+			"原始數量=%.8f %s (订單金額=%.2f USDT)，"+
+			"在精度 %d 下格式化后為 0，已自动調整為最小下單量 %s %s (订單金額=%.2f USDT)",
 			req.Symbol, strategyInfo,
 			originalQty, baseAsset, orderAmount,
 			qDec, quantityStr, baseAsset, minOrderAmount)
 	}
 
-	// 最终验证数量
+	// 最终驗证數量
 	finalQty, _ := strconv.ParseFloat(quantityStr, 64)
 	if finalQty <= 0 {
-		return nil, fmt.Errorf("无效的下单数量: %s（数量必须大于0）", quantityStr)
+		return nil, fmt.Errorf("無效的下單數量: %s（數量必須大於0）", quantityStr)
 	}
 
-	// 🔥 币安合约最小订单金额检查：订单名义价值必须 >= 100 USDT（除非是reduce only订单）
+	// 🔥 币安合約最小訂單金額检查：订單名义價值必須 >= 100 USDT（除非是reduce only订單）
 	finalPrice, _ := strconv.ParseFloat(priceStr, 64)
 	orderNotional := finalPrice * finalQty
-	const minNotional = 100.0 // 币安合约最小订单金额为100 USDT
+	const minNotional = 100.0 // 币安合約最小訂單金額為100 USDT
 
 	if !req.ReduceOnly && orderNotional < minNotional {
-		// 构建策略信息字符串
+		// 構建策略信息字符串
 		strategyInfo := ""
 		if req.StrategyName != "" || req.StrategyType != "" {
 			if req.StrategyName != "" && req.StrategyType != "" {
@@ -400,11 +405,11 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 			} else if req.StrategyName != "" {
 				strategyInfo = fmt.Sprintf("[策略:%s] ", req.StrategyName)
 			} else if req.StrategyType != "" {
-				strategyInfo = fmt.Sprintf("[策略类型:%s] ", req.StrategyType)
+				strategyInfo = fmt.Sprintf("[策略類型:%s] ", req.StrategyType)
 			}
 		}
 
-		// 获取基础资产名称（用于显示单位）
+		// 獲取基础资產名称（用於显示單位）
 		baseAsset := b.baseAsset
 		if baseAsset == "" {
 			if len(req.Symbol) > 4 {
@@ -414,13 +419,13 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 			}
 		}
 
-		// 尝试自动上调数量：由于数量精度/步进对齐可能导致名义金额从 100 掉到 99.x
-		// 这里按数量精度向上取整，确保最终 notional >= minNotional
+		// 尝試自动上調數量：由於數量精度/步進對齐可能導致名义金額從 100 掉到 99.x
+		// 这里按數量精度向上取整，确保最终 notional >= minNotional
 		scale := math.Pow10(qDec)
 		needQty := minNotional / finalPrice
-		adjustedQty := math.Ceil((needQty+1e-12)*scale) / scale // +epsilon 避免浮点误差导致仍不足
+		adjustedQty := math.Ceil((needQty+1e-12)*scale) / scale // +epsilon 避免浮点误差導致仍不足
 
-		// 防御：如果计算结果没有变大，就至少增加一个最小步进
+		// 防御：如果计算結果没有变大，就至少增加一個最小步進
 		if adjustedQty <= finalQty {
 			adjustedQty = (math.Floor(finalQty*scale) + 1) / scale
 		}
@@ -430,23 +435,23 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		adjustedNotional := finalPrice * adjustedQtyParsed
 
 		if adjustedQtyParsed > 0 && adjustedNotional >= minNotional {
-			logger.Warn("⚠️ [Binance] [%s] %s订单金额不足(%.2f<%.2f USDT)，已自动上调数量: %.8f -> %.8f %s（价格=%.2f，名义金额=%.2f USDT）",
+			logger.Warn("⚠️ [Binance] [%s] %s订單金額不足(%.2f<%.2f USDT)，已自动上調數量: %.8f -> %.8f %s（價格=%.2f，名义金額=%.2f USDT）",
 				req.Symbol, strategyInfo, orderNotional, minNotional, finalQty, adjustedQtyParsed, baseAsset, finalPrice, adjustedNotional)
 
-			// 应用修正后的数量
+			// 应用修正后的數量
 			req.Quantity = adjustedQtyParsed
 			quantityStr = adjustedQtyStr
 			finalQty = adjustedQtyParsed
 			orderNotional = adjustedNotional
 		} else {
-			logger.Error("❌ [Binance] [%s] %s订单金额不足：订单金额=%.2f USDT，币安合约要求最小订单金额为 %.2f USDT（除非是reduce only订单）。价格=%.2f，数量=%.8f %s",
+			logger.Error("❌ [Binance] [%s] %s订單金額不足：订單金額=%.2f USDT，币安合約要求最小訂單金額為 %.2f USDT（除非是reduce only订單）。價格=%.2f，數量=%.8f %s",
 				req.Symbol, strategyInfo, orderNotional, minNotional, finalPrice, finalQty, baseAsset)
 
-			return nil, fmt.Errorf("订单金额不足：订单金额 %.2f USDT 小于币安合约最小要求 %.2f USDT（除非是reduce only订单）。请增加订单金额或数量", orderNotional, minNotional)
+			return nil, fmt.Errorf("订單金額不足：订單金額 %.2f USDT 小於币安合約最小要求 %.2f USDT（除非是reduce only订單）。请增加订單金額或數量", orderNotional, minNotional)
 		}
 	}
 
-	// 根据 PostOnly 参数选择 TimeInForce
+	// 根據 PostOnly 参數选擇 TimeInForce
 	timeInForce := futures.TimeInForceTypeGTC
 	if req.PostOnly {
 		timeInForce = futures.TimeInForceTypeGTX // Post Only - 只做 Maker
@@ -460,16 +465,16 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		Quantity(quantityStr).
 		Price(priceStr)
 
-	// 设置自定义订单ID（添加返佣标识）
+	// 設置自定义订單ID（添加返佣標识）
 	clientOrderID := req.ClientOrderID
 	if clientOrderID != "" {
-		// 添加币安返佣前缀 x-zdfVM8vY（合约经纪商ID）
+		// 添加币安返佣前缀 x-zdfVM8vY（合約經纪商ID）
 		clientOrderID = utils.AddBrokerPrefix("binance", clientOrderID)
 		orderService = orderService.NewClientOrderID(clientOrderID)
 	}
 
-	// 币安单向持仓模式：如果是平仓单，需要设置 ReduceOnly
-	// 注意：币安的 ReduceOnly 仅在单向持仓模式下有效
+	// 币安單向持倉模式：如果是平倉單，需要設置 ReduceOnly
+	// 注意：币安的 ReduceOnly 僅在單向持倉模式下有效
 	if req.ReduceOnly {
 		orderService = orderService.ReduceOnly(true)
 	}
@@ -494,7 +499,7 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 	}, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (b *BinanceAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	placedOrders := make([]*Order, 0, len(orders))
 	hasMarginError := false
@@ -502,7 +507,7 @@ func (b *BinanceAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRe
 	for _, orderReq := range orders {
 		order, err := b.PlaceOrder(ctx, orderReq)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] 下单失败 %.2f %s: %v",
+			logger.Warn("⚠️ [Binance] 下單失败 %.2f %s: %v",
 				orderReq.Price, orderReq.Side, err)
 
 			if strings.Contains(err.Error(), "-2019") || strings.Contains(err.Error(), "insufficient") {
@@ -516,7 +521,7 @@ func (b *BinanceAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRe
 	return placedOrders, hasMarginError
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (b *BinanceAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	_, err := b.client.NewCancelOrderService().
 		Symbol(symbol).
@@ -526,23 +531,23 @@ func (b *BinanceAdapter) CancelOrder(ctx context.Context, symbol string, orderID
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "-2011") || strings.Contains(errStr, "Unknown order") {
-			logger.Info("ℹ️ [Binance] 订单 %d 已不存在，跳过取消", orderID)
+			logger.Info("ℹ️ [Binance] 订單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
 		return err
 	}
 
-	logger.Info("✅ [Binance] 取消订单成功: %d", orderID)
+	logger.Info("✅ [Binance] 取消訂單成功: %d", orderID)
 	return nil
 }
 
-// BatchCancelOrders 批量撤单
+// BatchCancelOrders 批量撤單
 func (b *BinanceAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	if len(orderIDs) == 0 {
 		return nil
 	}
 
-	// 🔥 Binance 批量撤单限制：最多10个
+	// 🔥 Binance 批量撤單限制：最多10個
 	batchSize := 10
 	for i := 0; i < len(orderIDs); i += batchSize {
 		end := i + batchSize
@@ -552,10 +557,10 @@ func (b *BinanceAdapter) BatchCancelOrders(ctx context.Context, symbol string, o
 
 		batch := orderIDs[i:end]
 
-		// 🔥 如果只有1个订单，直接用单个撤单接口
+		// 🔥 如果只有1個订單，直接用單個撤單接口
 		if len(batch) == 1 {
 			if err := b.CancelOrder(ctx, symbol, batch[0]); err != nil {
-				logger.Warn("⚠️ [Binance] 取消订单失败 %d: %v", batch[0], err)
+				logger.Warn("⚠️ [Binance] 取消訂單失败 %d: %v", batch[0], err)
 			}
 			continue
 		}
@@ -566,15 +571,15 @@ func (b *BinanceAdapter) BatchCancelOrders(ctx context.Context, symbol string, o
 			Do(ctx)
 
 		if err != nil {
-			logger.Warn("⚠️ [Binance] 批量撤单失败 (共%d个): %v", len(batch), err)
-			// 失败时尝试单个撤单
-			logger.Info("🔄 [Binance] 改为逐个撤单...")
+			logger.Warn("⚠️ [Binance] 批量撤單失败 (共%d個): %v", len(batch), err)
+			// 失败時尝試單個撤單
+			logger.Info("🔄 [Binance] 改為逐個撤單...")
 			for _, orderID := range batch {
 				_ = b.CancelOrder(ctx, symbol, orderID)
 				time.Sleep(100 * time.Millisecond) // 避免限频
 			}
 		} else {
-			logger.Info("✅ [Binance] 批量撤单成功: %d 个订单", len(batch))
+			logger.Info("✅ [Binance] 批量撤單成功: %d 個订單", len(batch))
 		}
 
 		// 避免限频
@@ -586,7 +591,7 @@ func (b *BinanceAdapter) BatchCancelOrders(ctx context.Context, symbol string, o
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (b *BinanceAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	order, err := b.client.NewGetOrderService().
 		Symbol(symbol).
@@ -617,13 +622,13 @@ func (b *BinanceAdapter) GetOrder(ctx context.Context, symbol string, orderID in
 	}, nil
 }
 
-// GetOpenOrders 查询未完成订单（添加速率限制和重试逻辑）
+// GetOpenOrders 查詢未完成订單（添加速率限制和重試逻辑）
 func (b *BinanceAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	const maxRetries = 5
 	var lastErr error
 
 	for retry := 0; retry < maxRetries; retry++ {
-		// 速率限制：确保最小调用间隔
+		// 速率限制：确保最小調用间隔
 		b.apiCallMu.Lock()
 		elapsed := time.Since(b.lastAPICallTime)
 		if elapsed < b.minAPIInterval {
@@ -667,10 +672,10 @@ func (b *BinanceAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 		lastErr = err
 		errStr := err.Error()
 
-		// 检查是否是速率限制错误
+		// 检查是否是速率限制錯误
 		if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "Way too many requests") ||
 			strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "banned until") {
-			// 计算等待时间
+			// 计算等待時间
 			waitDuration := waitForRateLimit(err, retry)
 
 			// 检查上下文是否已取消
@@ -680,45 +685,45 @@ func (b *BinanceAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 			default:
 			}
 
-			// 等待后重试
+			// 等待后重試
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("上下文已取消: %w", ctx.Err())
 			case <-time.After(waitDuration):
-				// 继续重试
+				// 继续重試
 			}
 			continue
 		}
 
-		// 其他错误直接返回
-		return nil, fmt.Errorf("查询挂单失败: %w", err)
+		// 其他錯误直接返回
+		return nil, fmt.Errorf("查詢挂單失败: %w", err)
 	}
 
-	// 所有重试都失败
-	return nil, fmt.Errorf("查询挂单失败（重试%d次）: %w", maxRetries, lastErr)
+	// 所有重試都失败
+	return nil, fmt.Errorf("查詢挂單失败（重試%d次）: %w", maxRetries, lastErr)
 }
 
-// GetAccount 获取账户信息（合约账户）
+// GetAccount 獲取帳戶信息（合約账戶）
 func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
-	// 记录当前使用的网络模式
+	// 記錄當前使用的网络模式
 	if b.useTestnet {
-		logger.Debug("🌐 [Binance] 正在从测试网获取账户信息")
+		logger.Debug("🌐 [Binance] 正在從測試網獲取帳戶信息")
 	} else {
-		logger.Debug("🌐 [Binance] 正在从主网获取账户信息")
+		logger.Debug("🌐 [Binance] 正在從主网獲取帳戶信息")
 	}
 
-	// 🔥 修复：使用合约账户专用的 API
+	// 🔥 修複：使用合約账戶专用的 API
 	account, err := b.client.NewGetAccountService().Do(ctx)
 	if err != nil {
-		// 将常见的英文错误转换为友好的中文提示
+		// 將常见的英文錯误轉换為友好的中文提示
 		errStr := err.Error()
 		if strings.Contains(errStr, "Service unavailable from a restricted location") {
-			return nil, fmt.Errorf("你的网络连接在限制服务区域，请检查网络或使用代理")
+			return nil, fmt.Errorf("你的网络连接在限制服務区域，请检查网络或使用代理")
 		}
 		return nil, err
 	}
 
-	// 🔥 修复：从合约账户的 Assets 中获取 USDT 余额
+	// 🔥 修複：從合約账戶的 Assets 中獲取 USDT 餘額
 	availableBalance := 0.0
 	totalWalletBalance := 0.0
 	totalMarginBalance := 0.0
@@ -766,8 +771,8 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
-// parseBanTime 从错误消息中解析封禁时间（毫秒时间戳）
-// 错误格式: "IP(130.176.187.84) banned until 1767288777555"
+// parseBanTime 從錯误消息中解析封禁時间（毫秒時间戳）
+// 錯误格式: "IP(130.176.187.84) banned until 1767288777555"
 func parseBanTime(errMsg string) (time.Time, bool) {
 	re := regexp.MustCompile(`banned until (\d+)`)
 	matches := re.FindStringSubmatch(errMsg)
@@ -780,37 +785,37 @@ func parseBanTime(errMsg string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 
-	// 转换为time.Time（毫秒时间戳）
+	// 轉换為time.Time（毫秒時间戳）
 	banTime := time.Unix(banTimestamp/1000, (banTimestamp%1000)*1000000)
 	return banTime, true
 }
 
-// waitForRateLimit 等待速率限制，包括解析封禁时间
+// waitForRateLimit 等待速率限制，包括解析封禁時间
 func waitForRateLimit(err error, retryCount int) time.Duration {
 	errStr := err.Error()
 
-	// 检查是否是 -1003 错误（速率限制）
+	// 检查是否是 -1003 錯误（速率限制）
 	if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "Way too many requests") {
-		// 尝试解析封禁时间
+		// 尝試解析封禁時间
 		if banTime, ok := parseBanTime(errStr); ok {
 			now := time.Now()
 			if banTime.After(now) {
 				waitDuration := banTime.Sub(now) + time.Second // 多等1秒确保解封
-				logger.Warn("⚠️ [Binance] IP被封禁直到 %v，等待 %v 后重试", banTime, waitDuration)
+				logger.Warn("⚠️ [Binance] IP被封禁直到 %v，等待 %v 后重試", banTime, waitDuration)
 				return waitDuration
 			}
 		}
 
-		// 如果没有解析到封禁时间，使用指数退避
+		// 如果没有解析到封禁時间，使用指數退避
 		backoff := time.Duration(1<<uint(retryCount)) * time.Second
 		if backoff > 60*time.Second {
 			backoff = 60 * time.Second // 最大等待60秒
 		}
-		logger.Warn("⚠️ [Binance] 触发速率限制，等待 %v 后重试 (第%d次)", backoff, retryCount+1)
+		logger.Warn("⚠️ [Binance] 触发速率限制，等待 %v 后重試 (第%d次)", backoff, retryCount+1)
 		return backoff
 	}
 
-	// 其他错误使用指数退避
+	// 其他錯误使用指數退避
 	backoff := time.Duration(1<<uint(retryCount)) * time.Second
 	if backoff > 10*time.Second {
 		backoff = 10 * time.Second
@@ -818,14 +823,14 @@ func waitForRateLimit(err error, retryCount int) time.Duration {
 	return backoff
 }
 
-// GetPositions 获取持仓信息（使用PositionRisk API获取准确的杠杆倍数）
-// 添加速率限制和重试逻辑，避免触发 Binance API 限流
+// GetPositions 獲取持倉信息（使用PositionRisk API獲取准确的杠杆倍數）
+// 添加速率限制和重試逻辑，避免触发 Binance API 限流
 func (b *BinanceAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	const maxRetries = 5
 	var lastErr error
 
 	for retry := 0; retry < maxRetries; retry++ {
-		// 速率限制：确保最小调用间隔
+		// 速率限制：确保最小調用间隔
 		b.apiCallMu.Lock()
 		elapsed := time.Since(b.lastAPICallTime)
 		if elapsed < b.minAPIInterval {
@@ -837,7 +842,7 @@ func (b *BinanceAdapter) GetPositions(ctx context.Context, symbol string) ([]*Po
 		b.lastAPICallTime = time.Now()
 		b.apiCallMu.Unlock()
 
-		// 🔥 使用 PositionRisk API，可以获取准确的杠杆信息
+		// 🔥 使用 PositionRisk API，可以獲取准确的杠杆信息
 		positionRisks, err := b.client.NewGetPositionRiskService().Symbol(symbol).Do(ctx)
 		if err == nil {
 			result := make([]*Position, 0)
@@ -866,10 +871,10 @@ func (b *BinanceAdapter) GetPositions(ctx context.Context, symbol string) ([]*Po
 		lastErr = err
 		errStr := err.Error()
 
-		// 检查是否是速率限制错误
+		// 检查是否是速率限制錯误
 		if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "Way too many requests") ||
 			strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "banned until") {
-			// 计算等待时间
+			// 计算等待時间
 			waitDuration := waitForRateLimit(err, retry)
 
 			// 检查上下文是否已取消
@@ -879,25 +884,25 @@ func (b *BinanceAdapter) GetPositions(ctx context.Context, symbol string) ([]*Po
 			default:
 			}
 
-			// 等待后重试
+			// 等待后重試
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("上下文已取消: %w", ctx.Err())
 			case <-time.After(waitDuration):
-				// 继续重试
+				// 继续重試
 			}
 			continue
 		}
 
-		// 其他错误直接返回
-		return nil, fmt.Errorf("查询持仓失败: %w", err)
+		// 其他錯误直接返回
+		return nil, fmt.Errorf("查詢持倉失败: %w", err)
 	}
 
-	// 所有重试都失败
-	return nil, fmt.Errorf("查询持仓失败（重试%d次）: %w", maxRetries, lastErr)
+	// 所有重試都失败
+	return nil, fmt.Errorf("查詢持倉失败（重試%d次）: %w", maxRetries, lastErr)
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (b *BinanceAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
 	account, err := b.GetAccount(ctx)
 	if err != nil {
@@ -906,11 +911,11 @@ func (b *BinanceAdapter) GetBalance(ctx context.Context, asset string) (float64,
 	return account.AvailableBalance, nil
 }
 
-// StartOrderStream 启动订单流（WebSocket）
+// StartOrderStream 啟動訂單流（WebSocket）
 func (b *BinanceAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	// 转换回调函数：将 binance.OrderUpdate 转换为通用格式
+	// 轉换回呼函數：將 binance.OrderUpdate 轉换為通用格式
 	localCallback := func(update OrderUpdate) {
-		// 构造通用的 OrderUpdate 结构（避免导入 exchange 包）
+		// 構造通用的 OrderUpdate 結構（避免導入 exchange 包）
 		genericUpdate := struct {
 			OrderID       int64
 			ClientOrderID string
@@ -925,7 +930,7 @@ func (b *BinanceAdapter) StartOrderStream(ctx context.Context, callback func(int
 			UpdateTime    int64
 		}{
 			OrderID:       update.OrderID,
-			ClientOrderID: update.ClientOrderID, // 🔥 关键：传递 ClientOrderID
+			ClientOrderID: update.ClientOrderID, // 🔥 关键：傳遞 ClientOrderID
 			Symbol:        update.Symbol,
 			Side:          string(update.Side),
 			Type:          string(update.Type),
@@ -941,21 +946,21 @@ func (b *BinanceAdapter) StartOrderStream(ctx context.Context, callback func(int
 	return b.wsManager.Start(ctx, localCallback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (b *BinanceAdapter) StopOrderStream() error {
 	b.wsManager.Stop()
 	return nil
 }
 
-// GetLatestPrice 获取最新价格（仅从 WebSocket 缓存读取）
-// 架构说明：
-// - 各组件不应直接调用此方法获取实时价格
-// - 实时价格应该通过 PriceMonitor.GetLastPrice() 获取（订阅模式）
-// - 此方法仅用于下单时的价格诊断（检查订单价格与市场价格的偏离）
-// - WebSocket 是唯一的价格来源，不使用 REST API
-// - 如果 WebSocket 未启动或断开，返回错误
+// GetLatestPrice 獲取最新價格（僅從 WebSocket 缓存读取）
+// 架構說明：
+// - 各组件不应直接調用此方法獲取實時價格
+// - 實時價格应該通過 PriceMonitor.GetLastPrice() 獲取（订阅模式）
+// - 此方法僅用於下單時的價格诊断（检查订單價格與市场價格的偏离）
+// - WebSocket 是唯一的價格来源，不使用 REST API
+// - 如果 WebSocket 未啟动或断开，返回錯误
 func (b *BinanceAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 从 WebSocket 缓存读取价格
+	// 從 WebSocket 缓存读取價格
 	if b.wsManager != nil {
 		price := b.wsManager.GetLatestPrice()
 		if price > 0 {
@@ -963,17 +968,17 @@ func (b *BinanceAdapter) GetLatestPrice(ctx context.Context, symbol string) (flo
 		}
 	}
 
-	// WebSocket 未启动或无价格数据
-	return 0, fmt.Errorf("WebSocket 价格流未就绪或无价格数据")
+	// WebSocket 未啟动或無價格數據
+	return 0, fmt.Errorf("WebSocket 價格流未就绪或無價格數據")
 }
 
-// StartPriceStream 启动价格流（WebSocket）
+// StartPriceStream 啟動價格流（WebSocket）
 func (b *BinanceAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
-	// 启动价格流
+	// 啟動價格流
 	return b.wsManager.StartPriceStream(ctx, symbol, callback)
 }
 
-// StartKlineStream 启动K线流（WebSocket）
+// StartKlineStream 啟動K線流（WebSocket）
 func (b *BinanceAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(candle interface{})) error {
 	if b.klineWSManager == nil {
 		b.klineWSManager = NewKlineWebSocketManager(b.useTestnet)
@@ -981,7 +986,7 @@ func (b *BinanceAdapter) StartKlineStream(ctx context.Context, symbols []string,
 	return b.klineWSManager.Start(ctx, symbols, interval, callback)
 }
 
-// StopKlineStream 停止K线流
+// StopKlineStream 停止K線流
 func (b *BinanceAdapter) StopKlineStream() error {
 	if b.klineWSManager != nil {
 		b.klineWSManager.Stop()
@@ -989,7 +994,7 @@ func (b *BinanceAdapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (b *BinanceAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	klines, err := b.client.NewKlinesService().
 		Symbol(symbol).
@@ -998,35 +1003,35 @@ func (b *BinanceAdapter) GetHistoricalKlines(ctx context.Context, symbol string,
 		Do(ctx)
 
 	if err != nil {
-		return nil, fmt.Errorf("获取历史K线失败: %w", err)
+		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
 	}
 
 	candles := make([]*Candle, 0, len(klines))
 	for _, k := range klines {
-		// 正确解析价格数据，处理解析错误
+		// 正确解析價格數據，处理解析錯误
 		open, err := strconv.ParseFloat(k.Open, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] K线数据解析失败 (Open): %v, 跳过该K线", err)
+			logger.Warn("⚠️ [Binance] K線數據解析失败 (Open): %v, 跳過該K線", err)
 			continue
 		}
 		high, err := strconv.ParseFloat(k.High, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] K线数据解析失败 (High): %v, 跳过该K线", err)
+			logger.Warn("⚠️ [Binance] K線數據解析失败 (High): %v, 跳過該K線", err)
 			continue
 		}
 		low, err := strconv.ParseFloat(k.Low, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] K线数据解析失败 (Low): %v, 跳过该K线", err)
+			logger.Warn("⚠️ [Binance] K線數據解析失败 (Low): %v, 跳過該K線", err)
 			continue
 		}
 		close, err := strconv.ParseFloat(k.Close, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] K线数据解析失败 (Close): %v, 跳过该K线", err)
+			logger.Warn("⚠️ [Binance] K線數據解析失败 (Close): %v, 跳過該K線", err)
 			continue
 		}
 		volume, err := strconv.ParseFloat(k.Volume, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] K线数据解析失败 (Volume): %v, 使用0", err)
+			logger.Warn("⚠️ [Binance] K線數據解析失败 (Volume): %v, 使用0", err)
 			volume = 0
 		}
 
@@ -1038,132 +1043,132 @@ func (b *BinanceAdapter) GetHistoricalKlines(ctx context.Context, symbol string,
 			Close:     close,
 			Volume:    volume,
 			Timestamp: k.OpenTime,
-			IsClosed:  true, // 历史K线都是已完结的
+			IsClosed:  true, // 历史K線都是已完結的
 		}
 
-		// 验证K线数据
+		// 驗证K線數據
 		if err := b.validateCandle(candle); err != nil {
-			logger.Warn("⚠️ [Binance] K线数据验证失败: %v, 跳过该K线", err)
+			logger.Warn("⚠️ [Binance] K線數據驗证失败: %v, 跳過該K線", err)
 			continue
 		}
 
 		candles = append(candles, candle)
 	}
 
-	// 检测并过滤异常价格波动（插针）
-	candles = b.detectPriceSpikes(candles, 0.20) // 20% 价格变化阈值
+	// 检测並過滤异常價格波動（插針）
+	candles = b.detectPriceSpikes(candles, 0.20) // 20% 價格變化阈值
 
 	return candles, nil
 }
 
-// validateCandle 验证K线数据的合理性
+// validateCandle 驗证K線數據的合理性
 func (b *BinanceAdapter) validateCandle(c *Candle) error {
-	// 价格必须为正数
+	// 價格必須為正數
 	if c.Open <= 0 || c.High <= 0 || c.Low <= 0 || c.Close <= 0 {
-		return fmt.Errorf("价格必须为正数: Open=%.2f, High=%.2f, Low=%.2f, Close=%.2f", c.Open, c.High, c.Low, c.Close)
+		return fmt.Errorf("價格必須為正數: Open=%.2f, High=%.2f, Low=%.2f, Close=%.2f", c.Open, c.High, c.Low, c.Close)
 	}
 
-	// OHLC 关系验证
+	// OHLC 关系驗证
 	if c.High < c.Low {
-		return fmt.Errorf("最高价不能低于最低价: High=%.2f, Low=%.2f", c.High, c.Low)
+		return fmt.Errorf("最高價不能低於最低價: High=%.2f, Low=%.2f", c.High, c.Low)
 	}
 	if c.High < c.Open || c.High < c.Close {
-		return fmt.Errorf("最高价必须大于等于开盘价和收盘价: High=%.2f, Open=%.2f, Close=%.2f", c.High, c.Open, c.Close)
+		return fmt.Errorf("最高價必須大於等於开盘價和收盘價: High=%.2f, Open=%.2f, Close=%.2f", c.High, c.Open, c.Close)
 	}
 	if c.Low > c.Open || c.Low > c.Close {
-		return fmt.Errorf("最低价必须小于等于开盘价和收盘价: Low=%.2f, Open=%.2f, Close=%.2f", c.Low, c.Open, c.Close)
+		return fmt.Errorf("最低價必須小於等於开盘價和收盘價: Low=%.2f, Open=%.2f, Close=%.2f", c.Low, c.Open, c.Close)
 	}
 
-	// 成交量不能为负数
+	// 成交量不能為负數
 	if c.Volume < 0 {
-		return fmt.Errorf("成交量不能为负数: Volume=%.2f", c.Volume)
+		return fmt.Errorf("成交量不能為负數: Volume=%.2f", c.Volume)
 	}
 
 	return nil
 }
 
-// detectPriceSpikes 检测并过滤异常价格波动（插针）
-// threshold: 价格变化阈值（如 0.20 表示 20%）
+// detectPriceSpikes 检测並過滤异常價格波動（插針）
+// threshold: 價格變化阈值（如 0.20 表示 20%）
 func (b *BinanceAdapter) detectPriceSpikes(candles []*Candle, threshold float64) []*Candle {
 	if len(candles) < 2 {
 		return candles
 	}
 
 	filtered := make([]*Candle, 0, len(candles))
-	filtered = append(filtered, candles[0]) // 保留第一根K线
+	filtered = append(filtered, candles[0]) // 保留第一根K線
 
 	for i := 1; i < len(candles); i++ {
 		prev := candles[i-1]
 		curr := candles[i]
 
-		// 计算收盘价变化百分比
+		// 计算收盘價变化百分比
 		if prev.Close > 0 {
 			priceChange := math.Abs(curr.Close-prev.Close) / prev.Close
 
 			if priceChange > threshold {
-				// 价格变化超过阈值，记录警告但仍保留数据（可能是真实的市场波动）
-				logger.Warn("⚠️ [Binance] 检测到异常价格变化: %s, 时间: %d, 变化幅度: %.2f%%, 前一根收盘价: %.2f, 当前收盘价: %.2f",
+				// 價格變化超過阈值，記錄警告但仍保留數據（可能是真實的市場波動）
+				logger.Warn("⚠️ [Binance] 检测到异常價格變化: %s, 時间: %d, 变化幅度: %.2f%%, 前一根收盘價: %.2f, 當前收盘價: %.2f",
 					curr.Symbol, curr.Timestamp, priceChange*100, prev.Close, curr.Close)
 			}
 		}
 
-		// 检查 High 和 Low 是否异常（相对于前一根K线）
+		// 检查 High 和 Low 是否异常（相對於前一根K線）
 		if prev.Close > 0 {
 			highChange := (curr.High - prev.Close) / prev.Close
 			lowChange := (prev.Close - curr.Low) / prev.Close
 
-			// 如果 High 或 Low 相对于前一根收盘价变化超过阈值，记录警告
+			// 如果 High 或 Low 相對於前一根收盘價变化超過阈值，記錄警告
 			if highChange > threshold || lowChange > threshold {
-				logger.Warn("⚠️ [Binance] 检测到异常价格波动（插针）: %s, 时间: %d, High变化: %.2f%%, Low变化: %.2f%%",
+				logger.Warn("⚠️ [Binance] 检测到异常價格波動（插針）: %s, 時间: %d, High变化: %.2f%%, Low变化: %.2f%%",
 					curr.Symbol, curr.Timestamp, highChange*100, lowChange*100)
 			}
 		}
 
-		// 保留所有数据（包括异常数据），因为可能是真实的市场波动
-		// 如果确实需要过滤，可以在这里添加过滤逻辑
+		// 保留所有數據（包括异常數據），因為可能是真實的市場波動
+		// 如果确實需要過滤，可以在这里添加過滤逻辑
 		filtered = append(filtered, curr)
 	}
 
 	return filtered
 }
 
-// GetPriceDecimals 获取价格精度（小数位数）
+// GetPriceDecimals 獲取價格精度（小數位數）
 func (b *BinanceAdapter) GetPriceDecimals() int {
 	return b.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度（小数位数）
+// GetQuantityDecimals 獲取數量精度（小數位數）
 func (b *BinanceAdapter) GetQuantityDecimals() int {
 	return b.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产（交易币种）
+// GetBaseAsset 獲取基础资產（交易币种）
 func (b *BinanceAdapter) GetBaseAsset() string {
 	return b.baseAsset
 }
 
-// GetQuoteAsset 获取计价资产（结算币种）
+// GetQuoteAsset 獲取计價资產（結算币种）
 func (b *BinanceAdapter) GetQuoteAsset() string {
 	return b.quoteAsset
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (b *BinanceAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
-	// 使用币安期货API获取资金费率
+	// 使用币安期货API獲取资金费率
 	// API: GET /fapi/v1/premiumIndex
 	premiumIndexList, err := b.client.NewPremiumIndexService().Symbol(symbol).Do(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+		return 0, fmt.Errorf("獲取资金费率失败: %w", err)
 	}
 
-	// PremiumIndexService 返回数组，取第一个元素
+	// PremiumIndexService 返回數组，取第一個元素
 	if len(premiumIndexList) == 0 {
-		return 0, fmt.Errorf("未找到交易对 %s 的资金费率", symbol)
+		return 0, fmt.Errorf("未找到交易對 %s 的资金费率", symbol)
 	}
 
 	premiumIndex := premiumIndexList[0]
 
-	// 解析资金费率（字符串转浮点数）
+	// 解析资金费率（字符串轉浮点數）
 	fundingRate, err := strconv.ParseFloat(premiumIndex.LastFundingRate, 64)
 	if err != nil {
 		return 0, fmt.Errorf("解析资金费率失败: %w", err)
@@ -1172,29 +1177,29 @@ func (b *BinanceAdapter) GetFundingRate(ctx context.Context, symbol string) (flo
 	return fundingRate, nil
 }
 
-// GetSpotPrice 获取现货市场价格
+// GetSpotPrice 獲取現貨市场價格
 func (b *BinanceAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
-	// 使用币安现货API获取价格
+	// 使用币安現貨API獲取價格
 	// API: GET /api/v3/ticker/price
-	// 注意: 需要使用现货API客户端，这里使用HTTP直接调用
+	// 注意: 需要使用現貨API客戶端，这里使用HTTP直接調用
 
 	url := fmt.Sprintf("https://api.binance.com/api/v3/ticker/price?symbol=%s", symbol)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return 0, fmt.Errorf("创建请求失败: %w", err)
+		return 0, fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("请求现货价格失败: %w", err)
+		return 0, fmt.Errorf("请求現貨價格失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return 0, fmt.Errorf("API返回错误状态 %d: %s", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("API返回錯误状態 %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -1208,7 +1213,7 @@ func (b *BinanceAdapter) GetSpotPrice(ctx context.Context, symbol string) (float
 
 	price, err := strconv.ParseFloat(result.Price, 64)
 	if err != nil {
-		return 0, fmt.Errorf("解析价格失败: %w", err)
+		return 0, fmt.Errorf("解析價格失败: %w", err)
 	}
 
 	return price, nil
@@ -1217,33 +1222,33 @@ func (b *BinanceAdapter) GetSpotPrice(ctx context.Context, symbol string) (float
 // CheckAPIPermissions 检查 API 密钥权限
 func (b *BinanceAdapter) CheckAPIPermissions(ctx context.Context) (*APIPermissions, error) {
 	permissions := &APIPermissions{
-		CanRead:  true, // 能调用 API 就说明有读权限
+		CanRead:  true, // 能調用 API 就說明有读权限
 		CanTrade: false,
 	}
 
 	// 币安期货 API 权限判断：
-	// 尝试获取账户信息来判断是否有交易权限
+	// 尝試獲取帳戶信息来判断是否有交易权限
 	_, err := b.client.NewGetAccountService().Do(ctx)
 	if err == nil {
 		permissions.CanTrade = true
 		logger.Info("✅ [Binance] API 具有交易权限")
 	} else {
-		logger.Warn("⚠️ [Binance] API 可能没有交易权限或调用失败: %v", err)
+		logger.Warn("⚠️ [Binance] API 可能没有交易权限或調用失败: %v", err)
 		// 即使失败也继续，可能是网络问题
-		permissions.CanTrade = true // 假设有权限
+		permissions.CanTrade = true // 假設有权限
 	}
 
-	// 币安期货 API 不支持提现功能
-	// 期货账户的资金转账需要通过现货 API 或网页操作
-	// 因此期货 API Key 默认不具有提现权限
+	// 币安期货 API 不支援提現功能
+	// 期貨帳戶的资金轉账需要通過現貨 API 或网页操作
+	// 因此期货 API Key 默认不具有提現权限
 	permissions.CanWithdraw = false
 	permissions.CanTransfer = false
 
 	// 检查 IP 限制
-	// 币安 API 没有直接查询 IP 限制的接口
-	// 如果设置了 IP 白名单，从非白名单 IP 调用会返回 -2015 错误
-	// 这里我们假设能成功调用说明 IP 是允许的或没有限制
-	permissions.IPRestricted = false // 无法直接判断，需要用户在交易所后台确认
+	// 币安 API 没有直接查詢 IP 限制的接口
+	// 如果設置了 IP 白名單，從非白名單 IP 調用會回傳 -2015 錯误
+	// 这里我们假設能成功調用說明 IP 是允許的或没有限制
+	permissions.IPRestricted = false // 無法直接判断，需要用戶在交易所后台确认
 
 	// 计算安全评分
 	permissions.SecurityScore = 100
@@ -1265,31 +1270,31 @@ func (b *BinanceAdapter) CheckAPIPermissions(ctx context.Context) (*APIPermissio
 		permissions.RiskLevel = "high"
 	}
 
-	logger.Info("🔐 [Binance] API 权限检测完成: 交易=%v, 提现=%v, 安全评分=%d, 风险等级=%s",
+	logger.Info("🔐 [Binance] API 权限检测完成: 交易=%v, 提現=%v, 安全评分=%d, 风險等级=%s",
 		permissions.CanTrade, permissions.CanWithdraw, permissions.SecurityScore, permissions.RiskLevel)
 
 	return permissions, nil
 }
 
-// EstimateFinalOrderAmount 预估最终下单金额（USDT）
-// 币安合约有最小名义金额 100 USDT 的要求，如果原始金额不足会自动上调数量
-// 此方法用于资金分配器在下单前准确预留资金，避免预留不足导致保证金不足
+// EstimateFinalOrderAmount 預估最终下單金額（USDT）
+// 币安合約有最小名义金額 100 USDT 的要求，如果原始金額不足會自动上調數量
+// 此方法用於资金分配器在下單前准确預留资金，避免預留不足導致保证金不足
 func (b *BinanceAdapter) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
-	// ReduceOnly 订单不受最小名义金额限制
+	// ReduceOnly 订單不受最小名义金額限制
 	if reduceOnly {
 		return price * quantity
 	}
 
-	// 使用 tickSize 调整价格
-	adjustedPrice := b.roundToTickSize(price, SideBuy) // 买卖方向对价格影响很小，这里用 BUY
+	// 使用 tickSize 調整價格
+	adjustedPrice := b.roundToTickSize(price, SideBuy) // 買賣方向對價格影响很小，这里用 BUY
 	if adjustedPrice <= 0 {
 		adjustedPrice = price
 	}
 
-	// 使用 stepSize 调整数量
+	// 使用 stepSize 調整數量
 	adjustedQty := b.roundToStepSize(quantity)
 	if adjustedQty <= 0 {
-		// 如果数量截断后为 0，用最小步进
+		// 如果數量截断后為 0，用最小步進
 		if b.stepSize > 0 {
 			adjustedQty = b.stepSize
 		} else {
@@ -1297,13 +1302,13 @@ func (b *BinanceAdapter) EstimateFinalOrderAmount(symbol string, price, quantity
 		}
 	}
 
-	// 计算名义金额
+	// 计算名义金額
 	notional := adjustedPrice * adjustedQty
-	const minNotional = 100.0 // 币安合约最小订单金额
+	const minNotional = 100.0 // 币安合約最小訂單金額
 
-	// 如果名义金额不足 100 USDT，计算需要上调到多少
+	// 如果名义金額不足 100 USDT，计算需要上調到多少
 	if notional < minNotional {
-		// 计算满足最小名义金额所需的数量
+		// 计算满足最小名义金額所需的數量
 		needQty := minNotional / adjustedPrice
 		// 按精度向上取整
 		scale := math.Pow10(b.quantityDecimals)
@@ -1314,7 +1319,7 @@ func (b *BinanceAdapter) EstimateFinalOrderAmount(symbol string, price, quantity
 	return notional
 }
 
-// GetOrderBook 获取订单簿深度
+// GetOrderBook 獲取訂單簿深度
 func (b *BinanceAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	// 速率限制
 	b.apiCallMu.Lock()
@@ -1328,27 +1333,27 @@ func (b *BinanceAdapter) GetOrderBook(ctx context.Context, symbol string, limit 
 	b.lastAPICallTime = time.Now()
 	b.apiCallMu.Unlock()
 
-	// 调用 Binance Depth API
+	// 調用 Binance Depth API
 	depth, err := b.client.NewDepthService().
 		Symbol(symbol).
 		Limit(limit).
 		Do(ctx)
 
 	if err != nil {
-		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+		return nil, fmt.Errorf("獲取訂單簿深度失败: %w", err)
 	}
 
-	// 转换买盘数据（价格从高到低）
+	// 轉换買盘數據（價格從高到低）
 	bids := make([]OrderBookLevel, 0, len(depth.Bids))
 	for _, bid := range depth.Bids {
 		price, err := strconv.ParseFloat(bid.Price, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] 订单簿买盘价格解析失败: %v", err)
+			logger.Warn("⚠️ [Binance] 订單簿買盘價格解析失败: %v", err)
 			continue
 		}
 		quantity, err := strconv.ParseFloat(bid.Quantity, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] 订单簿买盘数量解析失败: %v", err)
+			logger.Warn("⚠️ [Binance] 订單簿買盘數量解析失败: %v", err)
 			continue
 		}
 		bids = append(bids, OrderBookLevel{
@@ -1357,17 +1362,17 @@ func (b *BinanceAdapter) GetOrderBook(ctx context.Context, symbol string, limit 
 		})
 	}
 
-	// 转换卖盘数据（价格从低到高）
+	// 轉换賣盘數據（價格從低到高）
 	asks := make([]OrderBookLevel, 0, len(depth.Asks))
 	for _, ask := range depth.Asks {
 		price, err := strconv.ParseFloat(ask.Price, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] 订单簿卖盘价格解析失败: %v", err)
+			logger.Warn("⚠️ [Binance] 订單簿賣盘價格解析失败: %v", err)
 			continue
 		}
 		quantity, err := strconv.ParseFloat(ask.Quantity, 64)
 		if err != nil {
-			logger.Warn("⚠️ [Binance] 订单簿卖盘数量解析失败: %v", err)
+			logger.Warn("⚠️ [Binance] 订單簿賣盘數量解析失败: %v", err)
 			continue
 		}
 		asks = append(asks, OrderBookLevel{
@@ -1384,16 +1389,16 @@ func (b *BinanceAdapter) GetOrderBook(ctx context.Context, symbol string, limit 
 	}, nil
 }
 
-// InternalTransfer 交易所内部转账（期货账户转现货等，调用 SAPI）
+// InternalTransfer 交易所內部轉帳（期货帳戶轉現貨等，調用 SAPI）
 func (b *BinanceAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	if b.apiKey == "" || b.secretKey == "" {
-		return "", fmt.Errorf("API 密钥未配置，无法执行内部转账")
+		return "", fmt.Errorf("API 密钥未配置，無法執行內部轉账")
 	}
 	spotClient := binancesdk.NewClient(b.apiKey, b.secretKey)
 	if b.useTestnet {
 		spotClient.SetApiEndpoint("https://testnet.binance.vision")
 	}
-	// 映射为币安 Universal Transfer 类型
+	// 映射為币安 Universal Transfer 類型
 	var transferType binancesdk.UserUniversalTransferType
 	switch {
 	case strings.EqualFold(fromAccount, "UMFUTURE") && (strings.EqualFold(toAccount, "SPOT") || strings.EqualFold(toAccount, "MAIN")):
@@ -1401,7 +1406,7 @@ func (b *BinanceAdapter) InternalTransfer(ctx context.Context, fromAccount, toAc
 	case strings.EqualFold(fromAccount, "MAIN") && strings.EqualFold(toAccount, "UMFUTURE"):
 		transferType = binancesdk.UserUniversalTransferTypeMainToUmFutures
 	default:
-		return "", fmt.Errorf("不支持的转账类型: %s -> %s", fromAccount, toAccount)
+		return "", fmt.Errorf("不支援的轉账類型: %s -> %s", fromAccount, toAccount)
 	}
 	res, err := spotClient.NewUserUniversalTransferService().
 		Type(transferType).
@@ -1409,7 +1414,7 @@ func (b *BinanceAdapter) InternalTransfer(ctx context.Context, fromAccount, toAc
 		Amount(strconv.FormatFloat(amount, 'f', -1, 64)).
 		Do(ctx)
 	if err != nil {
-		return "", fmt.Errorf("内部转账失败: %w", err)
+		return "", fmt.Errorf("內部轉帳失败: %w", err)
 	}
 	return strconv.FormatInt(res.ID, 10), nil
 }

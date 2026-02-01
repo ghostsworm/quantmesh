@@ -11,7 +11,7 @@ import (
 	"quantmesh/monitor"
 )
 
-// NewsMonitorProvider 新闻监控提供者接口
+// NewsMonitorProvider 新聞監控提供者接口
 type NewsMonitorProvider interface {
 	GetRiskAssessment() *monitor.NewsRiskAssessment
 	GetRiskAssessmentBySymbol(symbol string) *monitor.NewsRiskAssessment
@@ -23,14 +23,14 @@ type NewsMonitorProvider interface {
 
 var newsMonitorProvider NewsMonitorProvider
 
-// SetNewsMonitorProvider 设置新闻监控提供者
+// SetNewsMonitorProvider 設置新聞監控提供者
 func SetNewsMonitorProvider(provider NewsMonitorProvider) {
 	newsMonitorProvider = provider
 }
 
-// getNewsAnalysis 获取最新新闻分析结果
+// getNewsAnalysis 獲取最新新聞分析結果
 // GET /api/news/analysis
-// GET /api/news/analysis/:asset_type 按资产类型获取（crypto_btc, commodity_gold）
+// GET /api/news/analysis/:asset_type 按资產類型獲取（crypto_btc, commodity_gold）
 func getNewsAnalysis(c *gin.Context) {
 	if newsMonitorProvider == nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -65,7 +65,7 @@ func getNewsAnalysis(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// getNewsPredictions 获取价格预测概率
+// getNewsPredictions 獲取價格預测概率
 // GET /api/news/predictions
 func getNewsPredictions(c *gin.Context) {
 	if newsMonitorProvider == nil {
@@ -94,17 +94,17 @@ type triggerNewsAnalyzeRequest struct {
 	FocusEvent string `json:"focus_event"`
 }
 
-// postNewsAnalyze 手动触发新闻分析
+// postNewsAnalyze 手动触发新聞分析
 // POST /api/news/analyze
 func postNewsAnalyze(c *gin.Context) {
 	if newsMonitorProvider == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "新闻监控未初始化"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "新聞監控未初始化"})
 		return
 	}
 
 	var req triggerNewsAnalyzeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// 允许空 body
+		// 允許空 body
 		req.Symbol = "BTCUSDT"
 		req.FocusEvent = ""
 	}
@@ -128,14 +128,14 @@ func postNewsAnalyze(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
-		"message":     "分析任务已提交",
+		"message":     "分析任務已提交",
 		"symbol":      req.Symbol,
 		"asset_type":  req.AssetType,
 		"focus_event": req.FocusEvent,
 	})
 }
 
-// getNewsCollected 获取当前收集的新闻列表
+// getNewsCollected 獲取當前收集的新闻列表
 // GET /api/news/collected
 func getNewsCollected(c *gin.Context) {
 	if newsMonitorProvider == nil {
@@ -147,7 +147,7 @@ func getNewsCollected(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"news": news})
 }
 
-// getNewsKeywords 获取当前关键词列表
+// getNewsKeywords 獲取當前关键词列表
 // GET /api/news/keywords
 func getNewsKeywords(c *gin.Context) {
 	if configManager == nil {
@@ -157,7 +157,7 @@ func getNewsKeywords(c *gin.Context) {
 
 	cfg, err := configManager.GetConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败"})
 		return
 	}
 
@@ -184,18 +184,18 @@ func putNewsKeywords(c *gin.Context) {
 
 	var req putNewsKeywordsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "无效的请求体"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "無效的请求体"})
 		return
 	}
 
 	if len(req.Keywords) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "关键词列表不能为空"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "关键词列表不能為空"})
 		return
 	}
 
 	cfg, err := configManager.GetConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "获取配置失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "獲取配置失败"})
 		return
 	}
 
@@ -208,18 +208,18 @@ func putNewsKeywords(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "keywords": req.Keywords})
 }
 
-// getNewsHistory 查询新闻分析历史
+// getNewsHistory 查詢新聞分析历史
 // GET /api/news/history?symbol=&start_time=&end_time=&limit=20&offset=0
 func getNewsHistory(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -290,25 +290,25 @@ func extractRecommendation(assessment map[string]interface{}) string {
 	return ""
 }
 
-// getNewsHistoryByID 获取指定历史记录详情
+// getNewsHistoryByID 獲取指定历史記錄详情
 // GET /api/news/history/:id
 func getNewsHistoryByID(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的 ID"})
 		return
 	}
 
@@ -318,7 +318,7 @@ func getNewsHistoryByID(c *gin.Context) {
 		return
 	}
 	if h == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "记录不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "記錄不存在"})
 		return
 	}
 
@@ -340,17 +340,17 @@ func getNewsHistoryByID(c *gin.Context) {
 	})
 }
 
-// getPredictionsAccuracy 获取预测准确率统计
+// getPredictionsAccuracy 獲取預测准确率统计
 // GET /api/predictions/accuracy?asset_type=&since=7d
 func getPredictionsAccuracy(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -379,17 +379,17 @@ func getPredictionsAccuracy(c *gin.Context) {
 	})
 }
 
-// getPredictionsHistory 获取预测验证历史
+// getPredictionsHistory 獲取預测驗证历史
 // GET /api/predictions/history?asset_type=&symbol=&start_time=&end_time=&limit=20&offset=0
 func getPredictionsHistory(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 

@@ -12,7 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// KlineWebSocketManager CoinEx K线 WebSocket 管理器
+// KlineWebSocketManager CoinEx K線 WebSocket 管理器
 type KlineWebSocketManager struct {
 	wsURL     string
 	conn      *websocket.Conn
@@ -23,7 +23,7 @@ type KlineWebSocketManager struct {
 	reqID     int64
 }
 
-// NewKlineWebSocketManager 创建 K线 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
 func NewKlineWebSocketManager(isTestnet bool) *KlineWebSocketManager {
 	wsURL := CoinExMainnetWSURL
 	if isTestnet {
@@ -37,7 +37,7 @@ func NewKlineWebSocketManager(isTestnet bool) *KlineWebSocketManager {
 	}
 }
 
-// Start 启动 K线 WebSocket
+// Start 啟动 K線 WebSocket
 func (k *KlineWebSocketManager) Start(ctx context.Context, market, period string, callback func(*Kline)) error {
 	k.mu.Lock()
 	if k.isRunning {
@@ -52,7 +52,7 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, market, period string
 	return nil
 }
 
-// Stop 停止 K线 WebSocket
+// Stop 停止 K線 WebSocket
 func (k *KlineWebSocketManager) Stop() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -91,7 +91,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, market, period stri
 
 		logger.Info("CoinEx Kline WebSocket connected")
 
-		// 订阅 K线
+		// 订阅 K線
 		if err := k.subscribe(market, period); err != nil {
 			logger.Error("CoinEx Kline WebSocket subscribe error: %v", err)
 			conn.Close()
@@ -99,7 +99,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, market, period stri
 			continue
 		}
 
-		// 启动心跳
+		// 啟动心跳
 		go k.heartbeat()
 
 		// 读取消息
@@ -111,7 +111,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, market, period stri
 	}
 }
 
-// subscribe 订阅 K线
+// subscribe 订阅 K線
 func (k *KlineWebSocketManager) subscribe(market, period string) error {
 	subMsg := map[string]interface{}{
 		"method": "kline.subscribe",
@@ -206,7 +206,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理 K线数据
+	// 处理 K線數據
 	if method, ok := msg["method"].(string); ok && method == "kline.update" {
 		if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 			if klineData, ok := params[0].([]interface{}); ok && len(klineData) >= 7 {
@@ -219,7 +219,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// parseKline 解析 K线数据
+// parseKline 解析 K線數據
 func (k *KlineWebSocketManager) parseKline(data []interface{}) *Kline {
 	if len(data) < 7 {
 		return nil
@@ -252,7 +252,7 @@ func (k *KlineWebSocketManager) parseKline(data []interface{}) *Kline {
 	return kline
 }
 
-// getNextReqID 获取下一个请求 ID
+// getNextReqID 獲取下一個请求 ID
 func (k *KlineWebSocketManager) getNextReqID() int64 {
 	k.mu.Lock()
 	defer k.mu.Unlock()

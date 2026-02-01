@@ -12,7 +12,7 @@ import (
 	"quantmesh/logger"
 )
 
-// CryptoPaymentService 加密货币支付服务
+// CryptoPaymentService 加密貨幣支付服務
 type CryptoPaymentService struct {
 	db                    *sql.DB
 	coinbaseAPIKey        string
@@ -31,7 +31,7 @@ const (
 	PaymentMethodDirect   PaymentMethod = "direct"
 )
 
-// CryptoPayment 加密货币支付记录
+// CryptoPayment 加密貨幣支付記錄
 type CryptoPayment struct {
 	ID              int        `json:"id"`
 	UserID          string     `json:"user_id"`
@@ -52,7 +52,7 @@ type CryptoPayment struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
-// NewCryptoPaymentService 创建加密货币支付服务
+// NewCryptoPaymentService 創建加密貨幣支付服務
 func NewCryptoPaymentService(db *sql.DB, coinbaseAPIKey string) *CryptoPaymentService {
 	return &CryptoPaymentService{
 		db:             db,
@@ -69,9 +69,9 @@ func NewCryptoPaymentService(db *sql.DB, coinbaseAPIKey string) *CryptoPaymentSe
 	}
 }
 
-// CreateCoinbaseCharge 创建 Coinbase Commerce 支付
+// CreateCoinbaseCharge 創建 Coinbase Commerce 支付
 func (s *CryptoPaymentService) CreateCoinbaseCharge(userID, email, plan string, amount float64) (*CryptoPayment, error) {
-	// 1. 创建 Coinbase Charge
+	// 1. 創建 Coinbase Charge
 	chargeData := map[string]interface{}{
 		"name":         fmt.Sprintf("QuantMesh %s Plan", plan),
 		"description":  fmt.Sprintf("QuantMesh %s subscription for %s", plan, email),
@@ -102,13 +102,13 @@ func (s *CryptoPaymentService) CreateCoinbaseCharge(userID, email, plan string, 
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("创建 Coinbase Charge 失败: %v", err)
+		return nil, fmt.Errorf("創建 Coinbase Charge 失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 201 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Coinbase API 错误 (HTTP %d): %s", resp.StatusCode, body)
+		return nil, fmt.Errorf("Coinbase API 錯误 (HTTP %d): %s", resp.StatusCode, body)
 	}
 
 	var result struct {
@@ -125,7 +125,7 @@ func (s *CryptoPaymentService) CreateCoinbaseCharge(userID, email, plan string, 
 		return nil, err
 	}
 
-	// 2. 保存到数据库
+	// 2. 保存到數據库
 	expiresAt, _ := time.Parse(time.RFC3339, result.Data.ExpiresAt)
 
 	payment := &CryptoPayment{
@@ -155,23 +155,23 @@ func (s *CryptoPaymentService) CreateCoinbaseCharge(userID, email, plan string, 
 	).Scan(&payment.ID)
 
 	if err != nil {
-		return nil, fmt.Errorf("保存支付记录失败: %v", err)
+		return nil, fmt.Errorf("保存支付記錄失败: %v", err)
 	}
 
-	logger.Info("✅ Coinbase Charge 创建成功: %s (用户: %s)", result.Data.ID, userID)
+	logger.Info("✅ Coinbase Charge 創建成功: %s (用戶: %s)", result.Data.ID, userID)
 
 	return payment, nil
 }
 
-// CreateDirectPayment 创建直接钱包支付
+// CreateDirectPayment 創建直接钱包支付
 func (s *CryptoPaymentService) CreateDirectPayment(userID, email, plan, cryptoCurrency string, amount float64) (*CryptoPayment, error) {
-	// 获取钱包地址
+	// 獲取钱包地址
 	walletAddress, exists := s.walletAddresses[cryptoCurrency]
 	if !exists {
-		return nil, fmt.Errorf("不支持的加密货币: %s", cryptoCurrency)
+		return nil, fmt.Errorf("不支援的加密貨幣: %s", cryptoCurrency)
 	}
 
-	// 计算加密货币金额 (这里简化处理,实际应该调用汇率 API)
+	// 计算加密貨幣金額 (这里简化处理,實際应該調用彙率 API)
 	cryptoAmount := s.calculateCryptoAmount(amount, cryptoCurrency)
 
 	payment := &CryptoPayment{
@@ -202,22 +202,22 @@ func (s *CryptoPaymentService) CreateDirectPayment(userID, email, plan, cryptoCu
 	).Scan(&payment.ID)
 
 	if err != nil {
-		return nil, fmt.Errorf("保存支付记录失败: %v", err)
+		return nil, fmt.Errorf("保存支付記錄失败: %v", err)
 	}
 
-	logger.Info("✅ 直接支付创建成功: ID=%d (用户: %s, 币种: %s)", payment.ID, userID, cryptoCurrency)
+	logger.Info("✅ 直接支付創建成功: ID=%d (用戶: %s, 币种: %s)", payment.ID, userID, cryptoCurrency)
 
 	return payment, nil
 }
 
 // HandleCoinbaseWebhook 处理 Coinbase Webhook
 func (s *CryptoPaymentService) HandleCoinbaseWebhook(webhookData []byte, signature string) error {
-	// 1. 验证签名 (生产环境必须验证)
+	// 1. 驗证签名 (生產环境必須驗证)
 	// if !s.verifyCoinbaseSignature(webhookData, signature) {
-	//     return errors.New("无效的 webhook 签名")
+	//     return errors.New("無效的 webhook 签名")
 	// }
 
-	// 2. 解析 webhook 数据
+	// 2. 解析 webhook 數據
 	var webhook struct {
 		Event struct {
 			Type string `json:"type"`
@@ -237,7 +237,7 @@ func (s *CryptoPaymentService) HandleCoinbaseWebhook(webhookData []byte, signatu
 		return err
 	}
 
-	// 3. 处理不同类型的事件
+	// 3. 处理不同類型的事件
 	switch webhook.Event.Type {
 	case "charge:confirmed":
 		// 支付确认
@@ -248,7 +248,7 @@ func (s *CryptoPaymentService) HandleCoinbaseWebhook(webhookData []byte, signatu
 		return s.failPayment(webhook.Event.Data.ID)
 
 	case "charge:delayed":
-		// 支付延迟 (区块确认中)
+		// 支付延迟 (区塊确认中)
 		logger.Info("⏳ 支付延迟: %s", webhook.Event.Data.ID)
 
 	case "charge:pending":
@@ -273,7 +273,7 @@ func (s *CryptoPaymentService) completePayment(chargeID string) error {
 		return err
 	}
 
-	// 获取支付信息
+	// 獲取支付信息
 	var payment CryptoPayment
 	err = s.db.QueryRow(`
 		SELECT user_id, email, plan
@@ -285,7 +285,7 @@ func (s *CryptoPaymentService) completePayment(chargeID string) error {
 		return err
 	}
 
-	logger.Info("✅ 支付完成: ChargeID=%s, 用户=%s, 套餐=%s", chargeID, payment.UserID, payment.Plan)
+	logger.Info("✅ 支付完成: ChargeID=%s, 用戶=%s, 套餐=%s", chargeID, payment.UserID, payment.Plan)
 
 	// TODO: 激活订阅
 	// billingService.CreateSubscription(payment.UserID, payment.Email, payment.Plan)
@@ -319,7 +319,7 @@ func (s *CryptoPaymentService) ConfirmDirectPayment(paymentID int, transactionHa
 		return err
 	}
 
-	// 获取支付信息并激活订阅
+	// 獲取支付信息並激活订阅
 	var payment CryptoPayment
 	err = s.db.QueryRow(`
 		SELECT user_id, email, plan
@@ -339,7 +339,7 @@ func (s *CryptoPaymentService) ConfirmDirectPayment(paymentID int, transactionHa
 	return nil
 }
 
-// GetPayment 获取支付信息
+// GetPayment 獲取支付信息
 func (s *CryptoPaymentService) GetPayment(paymentID int) (*CryptoPayment, error) {
 	var payment CryptoPayment
 
@@ -364,7 +364,7 @@ func (s *CryptoPaymentService) GetPayment(paymentID int) (*CryptoPayment, error)
 	return &payment, nil
 }
 
-// ListUserPayments 列出用户的所有支付
+// ListUserPayments 列出用戶的所有支付
 func (s *CryptoPaymentService) ListUserPayments(userID string) ([]*CryptoPayment, error) {
 	rows, err := s.db.Query(`
 		SELECT id, user_id, email, plan, amount, currency, crypto_currency, crypto_amount,
@@ -399,10 +399,10 @@ func (s *CryptoPaymentService) ListUserPayments(userID string) ([]*CryptoPayment
 	return payments, nil
 }
 
-// calculateCryptoAmount 计算加密货币金额
+// calculateCryptoAmount 计算加密貨幣金額
 func (s *CryptoPaymentService) calculateCryptoAmount(usdAmount float64, cryptoCurrency string) float64 {
-	// 这里简化处理,实际应该调用汇率 API (如 CoinGecko, CoinMarketCap)
-	// 示例汇率 (需要实时获取)
+	// 这里简化处理,實際应該調用彙率 API (如 CoinGecko, CoinMarketCap)
+	// 示例彙率 (需要實時獲取)
 	rates := map[string]float64{
 		"BTC":  100000.0, // 1 BTC = $100,000
 		"ETH":  4000.0,   // 1 ETH = $4,000
@@ -418,7 +418,7 @@ func (s *CryptoPaymentService) calculateCryptoAmount(usdAmount float64, cryptoCu
 	return usdAmount / rate
 }
 
-// InitDatabase 初始化数据库表
+// InitDatabase 初始化數據库表
 func (s *CryptoPaymentService) InitDatabase() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS crypto_payments (
@@ -447,9 +447,9 @@ func (s *CryptoPaymentService) InitDatabase() error {
 
 	_, err := s.db.Exec(schema)
 	if err != nil {
-		return fmt.Errorf("初始化数据库失败: %v", err)
+		return fmt.Errorf("初始化數據库失败: %v", err)
 	}
 
-	logger.Info("✅ 加密货币支付数据库表初始化成功")
+	logger.Info("✅ 加密貨幣支付數據库表初始化成功")
 	return nil
 }

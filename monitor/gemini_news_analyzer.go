@@ -13,7 +13,7 @@ import (
 	"quantmesh/logger"
 )
 
-// GeminiNewsAnalyzer Gemini 新闻分析器：整合历史新闻 + 实时搜索，输出价格概率预测
+// GeminiNewsAnalyzer Gemini 新聞分析器：整合历史新闻 + 實時搜索，输出價格概率預测
 type GeminiNewsAnalyzer struct {
 	cfg           *config.Config
 	newsCollector *NewsCollector
@@ -22,7 +22,7 @@ type GeminiNewsAnalyzer struct {
 	lastAnalysis  time.Time
 }
 
-// NewGeminiNewsAnalyzer 创建 Gemini 新闻分析器
+// NewGeminiNewsAnalyzer 創建 Gemini 新聞分析器
 func NewGeminiNewsAnalyzer(cfg *config.Config, newsCollector *NewsCollector) *GeminiNewsAnalyzer {
 	return &GeminiNewsAnalyzer{
 		cfg:           cfg,
@@ -30,26 +30,26 @@ func NewGeminiNewsAnalyzer(cfg *config.Config, newsCollector *NewsCollector) *Ge
 	}
 }
 
-// AssetType 资产类型常量
+// AssetType 资產類型常量
 const (
 	AssetTypeCryptoBTC   = "crypto_btc"
 	AssetTypeCommodityGold = "commodity_gold"
 )
 
-// Analyze 执行新闻分析（默认 crypto_btc）
+// Analyze 執行新聞分析（預設 crypto_btc）
 func (g *GeminiNewsAnalyzer) Analyze(ctx context.Context, symbol string, currentPrice float64) (*NewsRiskAssessment, error) {
 	return g.AnalyzeAsset(ctx, AssetTypeCryptoBTC, symbol, currentPrice, "")
 }
 
-// AnalyzeWithFocus 执行新闻分析，可指定焦点事件（默认 crypto_btc）
+// AnalyzeWithFocus 執行新聞分析，可指定焦点事件（預設 crypto_btc）
 func (g *GeminiNewsAnalyzer) AnalyzeWithFocus(ctx context.Context, symbol string, currentPrice float64, focusEvent string) (*NewsRiskAssessment, error) {
 	return g.AnalyzeAsset(ctx, AssetTypeCryptoBTC, symbol, currentPrice, focusEvent)
 }
 
-// AnalyzeAsset 按资产类型执行新闻分析
+// AnalyzeAsset 按资產類型執行新聞分析
 func (g *GeminiNewsAnalyzer) AnalyzeAsset(ctx context.Context, assetType, symbol string, currentPrice float64, focusEvent string) (*NewsRiskAssessment, error) {
 	if !g.analyzing.CompareAndSwap(false, true) {
-		return nil, fmt.Errorf("已有分析任务在执行中")
+		return nil, fmt.Errorf("已有分析任務在執行中")
 	}
 	defer g.analyzing.Store(false)
 
@@ -63,7 +63,7 @@ func (g *GeminiNewsAnalyzer) AnalyzeAsset(ctx context.Context, assetType, symbol
 
 	if !g.cfg.NewsMonitor.UseGeminiSearch {
 		// 降级：使用规则引擎（由 NewsMonitor 处理）
-		return nil, fmt.Errorf("Gemini 搜索未启用，请使用 NewsMonitor 的规则引擎")
+		return nil, fmt.Errorf("Gemini 搜索未啟用，请使用 NewsMonitor 的规则引擎")
 	}
 
 	prompt := g.buildPrompt(assetType, symbol, currentPrice, focusEvent)
@@ -72,7 +72,7 @@ func (g *GeminiNewsAnalyzer) AnalyzeAsset(ctx context.Context, assetType, symbol
 	client := ai.NewGeminiClient(apiKey)
 	aiText, err := client.GenerateContentWithGoogleSearch(ctx, prompt, schema)
 	if err != nil {
-		logger.Warn("📰 Gemini 新闻分析失败: %v", err)
+		logger.Warn("📰 Gemini 新聞分析失败: %v", err)
 		return nil, err
 	}
 
@@ -84,7 +84,7 @@ func (g *GeminiNewsAnalyzer) AnalyzeAsset(ctx context.Context, assetType, symbol
 
 	g.lastResult = assessment
 	g.lastAnalysis = time.Now()
-	logger.Info("📰 Gemini 新闻分析完成: 建议=%s, 2h跌5%%概率=%.0f%%",
+	logger.Info("📰 Gemini 新聞分析完成: 建议=%s, 2h跌5%%概率=%.0f%%",
 		assessment.Recommendation, g.getProb2hDown5(assessment)*100)
 	return assessment, nil
 }
@@ -94,7 +94,7 @@ func (g *GeminiNewsAnalyzer) IsAnalyzing() bool {
 	return g.analyzing.Load()
 }
 
-// GetLastResult 获取最近一次分析结果
+// GetLastResult 獲取最近一次分析結果
 func (g *GeminiNewsAnalyzer) GetLastResult() *NewsRiskAssessment {
 	if g.lastResult == nil {
 		return nil
@@ -104,7 +104,7 @@ func (g *GeminiNewsAnalyzer) GetLastResult() *NewsRiskAssessment {
 	return &result
 }
 
-// GetLastAnalysisTime 获取最近一次分析时间
+// GetLastAnalysisTime 獲取最近一次分析時间
 func (g *GeminiNewsAnalyzer) GetLastAnalysisTime() time.Time {
 	return g.lastAnalysis
 }
@@ -129,7 +129,7 @@ func (g *GeminiNewsAnalyzer) buildPrompt(assetType, symbol string, currentPrice 
 		recentNews = g.newsCollector.GetNewsSummaryText(assetType)
 	}
 	if recentNews == "" {
-		recentNews = "（暂无最近2小时内的新闻）"
+		recentNews = "（暂無最近2小時内的新闻）"
 	}
 
 	timeframes := g.cfg.NewsMonitor.PredictionTimeframes
@@ -139,25 +139,25 @@ func (g *GeminiNewsAnalyzer) buildPrompt(assetType, symbol string, currentPrice 
 	tfList := strings.Join(timeframes, "、")
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("当前市场信息：\n- 交易对: %s\n- 当前价格: $%.2f\n\n", symbol, currentPrice))
+	sb.WriteString(fmt.Sprintf("當前市場信息：\n- 交易對: %s\n- 當前價格: $%.2f\n\n", symbol, currentPrice))
 
 	if assetType == AssetTypeCommodityGold {
-		sb.WriteString(`你是一位专业的黄金市场分析师。请基于实时搜索的最新新闻和历史新闻，分析黄金价格走势。
+		sb.WriteString(`你是一位专业的黃金市场分析师。请基於實時搜索的最新新闻和历史新闻，分析黃金價格走势。
 
 `)
 		sb.WriteString(`请重点关注：
-1. 美联储货币政策和利率预期
-2. 美元指数（DXY）走势
-3. 通胀数据（CPI、PCE）
-4. 地缘政治事件（战争、制裁、避险情绪）
-5. 央行黄金储备变化
-6. 市场波动率和避险需求
+1. 美聯儲货币政策和利率預期
+2. 美元指數（DXY）走势
+3. 通脹數據（CPI、PCE）
+4. 地緣政治事件（戰爭、制裁、避險情绪）
+5. 央行黃金儲备变化
+6. 市場波動率和避險需求
 
 `)
 	} else {
-		sb.WriteString(`你是一位专业的加密货币市场分析师。请基于实时搜索的最新新闻和历史新闻，分析比特币价格走势。
+		sb.WriteString(`你是一位专业的加密貨幣市场分析师。请基於實時搜索的最新新闻和历史新闻，分析比特币價格走势。
 
-请主动搜索：地缘政治、监管政策、宏观经济、交易所安全事件、市场异常等。
+请主动搜索：地緣政治、監管政策、總體經濟、交易所安全事件、市场异常等。
 
 `)
 	}
@@ -165,31 +165,31 @@ func (g *GeminiNewsAnalyzer) buildPrompt(assetType, symbol string, currentPrice 
 	if focusEvent != "" {
 		sb.WriteString(fmt.Sprintf(`## 焦点事件
 %s
-请特别关注并搜索此事件的最新进展、影响范围、市场反应。
+请特别关注並搜索此事件的最新進展、影响範圍、市场反应。
 
 `, focusEvent))
 	}
 
-	sb.WriteString(`## 最近2小时内的历史新闻（按时间顺序）
+	sb.WriteString(`## 最近2小時内的历史新闻（按時间顺序）
 `)
 	sb.WriteString(recentNews)
 	sb.WriteString(`
 
-## 请使用 Google 搜索获取最新新闻
+## 请使用 Google 搜索獲取最新新闻
 注意：你需要主动使用 Google Search 搜索最新新闻，不要只依赖上述历史新闻。
 
 ## 判断规则
-- 地缘政治重大事件 → 高概率下跌
-- 监管/政策负面消息 → 中高概率下跌
-- 宏观经济负面消息 → 中概率下跌
-- 多个负面因素叠加 → 概率叠加
+- 地緣政治重大事件 → 高概率下跌
+- 監管/政策负面消息 → 中高概率下跌
+- 總體經濟负面消息 → 中概率下跌
+- 多個负面因素叠加 → 概率叠加
 
 ## 输出要求
-请输出以下时间窗口的价格变动概率预测：` + tfList + `
+请输出以下時间窗口的價格变动概率預测：` + tfList + `
 
-每个时间窗口需包含：下跌5%%、下跌10%%、持平等场景及其概率。
+每個時间窗口需包含：下跌5%%、下跌10%%、持平等场景及其概率。
 
-同时提供：当前价位分析、未来可能的目标价位区间、主要风险因素、建议操作（normal/caution/reduce_position/stop_trading）、分析摘要。
+同時提供：當前價位分析、未来可能的目標價位区间、主要风險因素、建议操作（normal/caution/reduce_position/stop_trading）、分析摘要。
 
 请严格按照 JSON Schema 格式输出。`)
 	return sb.String()
@@ -341,7 +341,7 @@ func (g *GeminiNewsAnalyzer) parseResponse(aiText, assetType, symbol string, cur
 		assessment.RiskFactors = append(assessment.RiskFactors, r.Factor)
 	}
 
-	// 计算大跌概率（取 2h 内跌 5% 的概率，若无则取最高下跌概率）
+	// 计算大跌概率（取 2h 内跌 5% 的概率，若無则取最高下跌概率）
 	assessment.CrashProbability = g.inferCrashProbability(assessment)
 	assessment.OverallRiskScore = assessment.CrashProbability * 100
 	if assessment.OverallRiskScore > 100 {

@@ -8,7 +8,7 @@ import (
 	"quantmesh/logger"
 )
 
-// BillingService 计费服务
+// BillingService 计费服務
 type BillingService struct {
 	db           *sql.DB
 	stripeAPIKey string
@@ -30,7 +30,7 @@ type Subscription struct {
 	UpdatedAt            time.Time `json:"updated_at"`
 }
 
-// NewBillingService 创建计费服务
+// NewBillingService 創建计费服務
 func NewBillingService(db *sql.DB, stripeAPIKey string) *BillingService {
 	return &BillingService{
 		db:           db,
@@ -38,23 +38,23 @@ func NewBillingService(db *sql.DB, stripeAPIKey string) *BillingService {
 	}
 }
 
-// CreateSubscription 创建订阅
+// CreateSubscription 創建订阅
 func (s *BillingService) CreateSubscription(userID, email, plan string) (*Subscription, error) {
-	// 1. 检查用户是否已有订阅
+	// 1. 检查用戶是否已有订阅
 	existing, err := s.GetSubscription(userID)
 	if err == nil && existing != nil {
-		return nil, fmt.Errorf("用户已有订阅")
+		return nil, fmt.Errorf("用戶已有订阅")
 	}
 
-	// 2. 创建 Stripe 客户 (这里简化,实际应该调用 Stripe API)
+	// 2. 創建 Stripe 客戶 (这里简化,實際应該調用 Stripe API)
 	stripeCustomerID := fmt.Sprintf("cus_%s_%d", userID, time.Now().Unix())
 
-	// 3. 创建 Stripe 订阅 (这里简化,实际应该调用 Stripe API)
+	// 3. 創建 Stripe 订阅 (这里简化,實際应該調用 Stripe API)
 	stripeSubscriptionID := fmt.Sprintf("sub_%s_%d", userID, time.Now().Unix())
 
-	// 4. 保存到数据库
+	// 4. 保存到數據库
 	now := time.Now()
-	periodEnd := now.AddDate(0, 1, 0) // 一个月后
+	periodEnd := now.AddDate(0, 1, 0) // 一個月后
 
 	var subID int
 	err = s.db.QueryRow(`
@@ -71,10 +71,10 @@ func (s *BillingService) CreateSubscription(userID, email, plan string) (*Subscr
 	).Scan(&subID)
 
 	if err != nil {
-		return nil, fmt.Errorf("创建订阅失败: %v", err)
+		return nil, fmt.Errorf("創建订阅失败: %v", err)
 	}
 
-	logger.Info("✅ 订阅创建成功: 用户=%s, 套餐=%s", userID, plan)
+	logger.Info("✅ 订阅創建成功: 用戶=%s, 套餐=%s", userID, plan)
 
 	return &Subscription{
 		ID:                   subID,
@@ -92,7 +92,7 @@ func (s *BillingService) CreateSubscription(userID, email, plan string) (*Subscr
 	}, nil
 }
 
-// GetSubscription 获取订阅
+// GetSubscription 獲取订阅
 func (s *BillingService) GetSubscription(userID string) (*Subscription, error) {
 	var sub Subscription
 
@@ -131,15 +131,15 @@ func (s *BillingService) GetSubscription(userID string) (*Subscription, error) {
 
 // UpdateSubscriptionPlan 更新订阅套餐
 func (s *BillingService) UpdateSubscriptionPlan(userID, newPlan string) error {
-	// 1. 获取当前订阅
+	// 1. 獲取當前订阅
 	sub, err := s.GetSubscription(userID)
 	if err != nil {
 		return err
 	}
 
-	// 2. 更新 Stripe 订阅 (这里简化,实际应该调用 Stripe API)
+	// 2. 更新 Stripe 订阅 (这里简化,實際应該調用 Stripe API)
 
-	// 3. 更新数据库
+	// 3. 更新數據库
 	_, err = s.db.Exec(`
 		UPDATE subscriptions
 		SET plan = $1, updated_at = $2
@@ -150,21 +150,21 @@ func (s *BillingService) UpdateSubscriptionPlan(userID, newPlan string) error {
 		return fmt.Errorf("更新订阅失败: %v", err)
 	}
 
-	logger.Info("✅ 订阅已更新: 用户=%s, 新套餐=%s", userID, newPlan)
+	logger.Info("✅ 订阅已更新: 用戶=%s, 新套餐=%s", userID, newPlan)
 	return nil
 }
 
 // CancelSubscription 取消订阅
 func (s *BillingService) CancelSubscription(userID string, immediately bool) error {
-	// 1. 获取当前订阅
+	// 1. 獲取當前订阅
 	sub, err := s.GetSubscription(userID)
 	if err != nil {
 		return err
 	}
 
-	// 2. 取消 Stripe 订阅 (这里简化,实际应该调用 Stripe API)
+	// 2. 取消 Stripe 订阅 (这里简化,實際应該調用 Stripe API)
 
-	// 3. 更新数据库
+	// 3. 更新數據库
 	if immediately {
 		// 立即取消
 		_, err = s.db.Exec(`
@@ -173,7 +173,7 @@ func (s *BillingService) CancelSubscription(userID string, immediately bool) err
 			WHERE id = $2
 		`, time.Now(), sub.ID)
 	} else {
-		// 周期结束时取消
+		// 周期結束時取消
 		_, err = s.db.Exec(`
 			UPDATE subscriptions
 			SET cancel_at_period_end = true, updated_at = $1
@@ -185,19 +185,19 @@ func (s *BillingService) CancelSubscription(userID string, immediately bool) err
 		return fmt.Errorf("取消订阅失败: %v", err)
 	}
 
-	logger.Info("✅ 订阅已取消: 用户=%s, 立即取消=%v", userID, immediately)
+	logger.Info("✅ 订阅已取消: 用戶=%s, 立即取消=%v", userID, immediately)
 	return nil
 }
 
 // RenewSubscription 续订
 func (s *BillingService) RenewSubscription(userID string) error {
-	// 1. 获取当前订阅
+	// 1. 獲取當前订阅
 	sub, err := s.GetSubscription(userID)
 	if err != nil {
 		return err
 	}
 
-	// 2. 处理 Stripe 支付 (这里简化,实际应该调用 Stripe API)
+	// 2. 处理 Stripe 支付 (这里简化,實際应該調用 Stripe API)
 
 	// 3. 更新周期
 	newPeriodStart := sub.CurrentPeriodEnd
@@ -216,11 +216,11 @@ func (s *BillingService) RenewSubscription(userID string) error {
 		return fmt.Errorf("续订失败: %v", err)
 	}
 
-	logger.Info("✅ 订阅已续订: 用户=%s, 新周期=%s", userID, newPeriodEnd.Format("2006-01-02"))
+	logger.Info("✅ 订阅已续订: 用戶=%s, 新周期=%s", userID, newPeriodEnd.Format("2006-01-02"))
 	return nil
 }
 
-// GetPriceID 获取套餐价格ID
+// GetPriceID 獲取套餐價格ID
 func (s *BillingService) GetPriceID(plan string) string {
 	prices := map[string]string{
 		"starter":      "price_starter_monthly",
@@ -235,7 +235,7 @@ func (s *BillingService) GetPriceID(plan string) string {
 	return ""
 }
 
-// GetPlanPrice 获取套餐价格
+// GetPlanPrice 獲取套餐價格
 func (s *BillingService) GetPlanPrice(plan string) float64 {
 	prices := map[string]float64{
 		"starter":      49.00,
@@ -250,7 +250,7 @@ func (s *BillingService) GetPlanPrice(plan string) float64 {
 	return 0.0
 }
 
-// InitDatabase 初始化数据库表
+// InitDatabase 初始化數據库表
 func (s *BillingService) InitDatabase() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS subscriptions (
@@ -288,9 +288,9 @@ func (s *BillingService) InitDatabase() error {
 
 	_, err := s.db.Exec(schema)
 	if err != nil {
-		return fmt.Errorf("初始化数据库失败: %v", err)
+		return fmt.Errorf("初始化數據库失败: %v", err)
 	}
 
-	logger.Info("✅ 计费数据库表初始化成功")
+	logger.Info("✅ 计费數據库表初始化成功")
 	return nil
 }

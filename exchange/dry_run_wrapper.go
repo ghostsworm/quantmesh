@@ -10,40 +10,45 @@ import (
 )
 
 // DryRunWrapper 模拟运行包装器
-// 包装真实的交易所适配器，拦截所有会影响账户的操作（下单、撤单等）
-// 但保留所有只读操作（获取价格、持仓、余额等）
+// 包装真實的交易所适配器，拦截所有會影响账戶的操作（下單、撤單等）
+// 但保留所有只读操作（獲取價格、持倉、餘額等）
 type DryRunWrapper struct {
 	wrapped IExchange
 
-	// 模拟订单 ID 生成器
+	// 模拟订單 ID 生成器
 	orderIDCounter int64
 
-	// 模拟订单存储
+	// 模拟订單存儲
 	mu              sync.RWMutex
 	simulatedOrders map[int64]*Order
 }
 
-// NewDryRunWrapper 创建 Dry Run 包装器
+// NewDryRunWrapper 創建 Dry Run 包装器
 func NewDryRunWrapper(ex IExchange) *DryRunWrapper {
-	logger.Info("🔒 [DryRun] 已启用模拟运行模式，交易所: %s（不会实际下单）", ex.GetName())
+	logger.Info("🔒 [DryRun] 已啟用模拟运行模式，交易所: %s（不會實際下單）", ex.GetName())
 	return &DryRunWrapper{
 		wrapped:         ex,
-		orderIDCounter:  1000000, // 从一个大数字开始，避免与真实订单 ID 冲突
+		orderIDCounter:  1000000, // 從一個大數字开始，避免與真實订單 ID 冲突
 		simulatedOrders: make(map[int64]*Order),
 	}
 }
 
-// GetName 获取交易所名称（添加 DryRun 标识）
+// GetName 獲取交易所名称（添加 DryRun 標识）
 func (d *DryRunWrapper) GetName() string {
 	return d.wrapped.GetName() + " [DryRun]"
 }
 
-// PlaceOrder 模拟下单（不实际发送到交易所）
+// GetMarketType 獲取市場類型
+func (d *DryRunWrapper) GetMarketType() string {
+	return d.wrapped.GetMarketType()
+}
+
+// PlaceOrder 模拟下單（不實際发送到交易所）
 func (d *DryRunWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 生成模拟订单 ID
+	// 生成模拟订單 ID
 	orderID := atomic.AddInt64(&d.orderIDCounter, 1)
 
-	// 创建模拟订单
+	// 創建模拟订單
 	order := &Order{
 		OrderID:       orderID,
 		ClientOrderID: req.ClientOrderID,
@@ -57,35 +62,35 @@ func (d *DryRunWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Ord
 		UpdateTime:    time.Now().UnixMilli(),
 	}
 
-	// 保存到模拟订单存储
+	// 保存到模拟订單存儲
 	d.mu.Lock()
 	d.simulatedOrders[orderID] = order
 	d.mu.Unlock()
 
-	logger.Info("🔒 [DryRun] 模拟下单: %s %s %.8f @ %.4f (订单ID: %d, ClientOrderID: %s)",
+	logger.Info("🔒 [DryRun] 模拟下單: %s %s %.8f @ %.4f (订單ID: %d, ClientOrderID: %s)",
 		req.Side, req.Symbol, req.Quantity, req.Price, orderID, req.ClientOrderID)
 
 	return order, nil
 }
 
-// BatchPlaceOrders 批量模拟下单
+// BatchPlaceOrders 批量模拟下單
 func (d *DryRunWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	placedOrders := make([]*Order, 0, len(orders))
 
 	for _, req := range orders {
 		order, err := d.PlaceOrder(ctx, req)
 		if err != nil {
-			logger.Warn("🔒 [DryRun] 模拟下单失败: %v", err)
+			logger.Warn("🔒 [DryRun] 模拟下單失败: %v", err)
 			continue
 		}
 		placedOrders = append(placedOrders, order)
 	}
 
-	logger.Info("🔒 [DryRun] 批量模拟下单完成: %d/%d 成功", len(placedOrders), len(orders))
-	return placedOrders, false // 模拟模式下不会有保证金不足错误
+	logger.Info("🔒 [DryRun] 批量模拟下單完成: %d/%d 成功", len(placedOrders), len(orders))
+	return placedOrders, false // 模拟模式下不會有保证金不足錯误
 }
 
-// CancelOrder 模拟撤单
+// CancelOrder 模拟撤單
 func (d *DryRunWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	d.mu.Lock()
 	if order, exists := d.simulatedOrders[orderID]; exists {
@@ -94,11 +99,11 @@ func (d *DryRunWrapper) CancelOrder(ctx context.Context, symbol string, orderID 
 	}
 	d.mu.Unlock()
 
-	logger.Info("🔒 [DryRun] 模拟撤单: %s 订单ID: %d", symbol, orderID)
+	logger.Info("🔒 [DryRun] 模拟撤單: %s 订單ID: %d", symbol, orderID)
 	return nil
 }
 
-// BatchCancelOrders 批量模拟撤单
+// BatchCancelOrders 批量模拟撤單
 func (d *DryRunWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	d.mu.Lock()
 	for _, orderID := range orderIDs {
@@ -109,11 +114,11 @@ func (d *DryRunWrapper) BatchCancelOrders(ctx context.Context, symbol string, or
 	}
 	d.mu.Unlock()
 
-	logger.Info("🔒 [DryRun] 批量模拟撤单: %s 共 %d 个订单", symbol, len(orderIDs))
+	logger.Info("🔒 [DryRun] 批量模拟撤單: %s 共 %d 個订單", symbol, len(orderIDs))
 	return nil
 }
 
-// CancelAllOrders 模拟撤销所有订单
+// CancelAllOrders 模拟撤销所有订單
 func (d *DryRunWrapper) CancelAllOrders(ctx context.Context, symbol string) error {
 	d.mu.Lock()
 	count := 0
@@ -126,13 +131,13 @@ func (d *DryRunWrapper) CancelAllOrders(ctx context.Context, symbol string) erro
 	}
 	d.mu.Unlock()
 
-	logger.Info("🔒 [DryRun] 模拟撤销所有订单: %s 共 %d 个订单", symbol, count)
+	logger.Info("🔒 [DryRun] 模拟撤销所有订單: %s 共 %d 個订單", symbol, count)
 	return nil
 }
 
-// GetOrder 获取订单信息（优先返回模拟订单，否则查询真实交易所）
+// GetOrder 獲取訂單信息（优先返回模拟订單，否则查詢真實交易所）
 func (d *DryRunWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
-	// 先查找模拟订单
+	// 先查找模拟订單
 	d.mu.RLock()
 	if order, exists := d.simulatedOrders[orderID]; exists {
 		d.mu.RUnlock()
@@ -140,13 +145,13 @@ func (d *DryRunWrapper) GetOrder(ctx context.Context, symbol string, orderID int
 	}
 	d.mu.RUnlock()
 
-	// 如果不是模拟订单，查询真实交易所（可能是之前的历史订单）
+	// 如果不是模拟订單，查詢真實交易所（可能是之前的历史订單）
 	return d.wrapped.GetOrder(ctx, symbol, orderID)
 }
 
-// GetOpenOrders 获取未完成订单（合并模拟订单和真实订单）
+// GetOpenOrders 獲取未完成订單（合並模拟订單和真實订單）
 func (d *DryRunWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
-	// 获取模拟的未完成订单
+	// 獲取模拟的未完成订單
 	d.mu.RLock()
 	simulatedOpen := make([]*Order, 0)
 	for _, order := range d.simulatedOrders {
@@ -156,122 +161,122 @@ func (d *DryRunWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 	}
 	d.mu.RUnlock()
 
-	// 获取真实交易所的未完成订单
+	// 獲取真實交易所的未完成订單
 	realOrders, err := d.wrapped.GetOpenOrders(ctx, symbol)
 	if err != nil {
-		// 如果获取真实订单失败，只返回模拟订单
-		logger.Warn("🔒 [DryRun] 获取真实未完成订单失败: %v，仅返回模拟订单", err)
+		// 如果獲取真實订單失败，只返回模拟订單
+		logger.Warn("🔒 [DryRun] 獲取真實未完成订單失败: %v，僅返回模拟订單", err)
 		return simulatedOpen, nil
 	}
 
-	// 合并返回
+	// 合並返回
 	return append(realOrders, simulatedOpen...), nil
 }
 
-// ===== 以下方法直接透传到真实交易所（只读操作）=====
+// ===== 以下方法直接透傳到真實交易所（只读操作）=====
 
-// GetAccount 获取账户信息（透传）
+// GetAccount 獲取帳戶信息（透傳）
 func (d *DryRunWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	return d.wrapped.GetAccount(ctx)
 }
 
-// GetPositions 获取持仓信息（透传）
+// GetPositions 獲取持倉信息（透傳）
 func (d *DryRunWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	return d.wrapped.GetPositions(ctx, symbol)
 }
 
-// GetBalance 获取余额（透传）
+// GetBalance 獲取餘額（透傳）
 func (d *DryRunWrapper) GetBalance(ctx context.Context, asset string) (float64, error) {
 	return d.wrapped.GetBalance(ctx, asset)
 }
 
-// StartOrderStream 启动订单流（透传）
+// StartOrderStream 啟動訂單流（透傳）
 func (d *DryRunWrapper) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	logger.Info("🔒 [DryRun] 启动订单流监听（模拟模式下可能不会收到成交回报）")
+	logger.Info("🔒 [DryRun] 啟動訂單流監听（模拟模式下可能不會收到成交回报）")
 	return d.wrapped.StartOrderStream(ctx, callback)
 }
 
-// StopOrderStream 停止订单流（透传）
+// StopOrderStream 停止訂單流（透傳）
 func (d *DryRunWrapper) StopOrderStream() error {
 	return d.wrapped.StopOrderStream()
 }
 
-// GetLatestPrice 获取最新价格（透传）
+// GetLatestPrice 獲取最新價格（透傳）
 func (d *DryRunWrapper) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
 	return d.wrapped.GetLatestPrice(ctx, symbol)
 }
 
-// StartPriceStream 启动价格流（透传）
+// StartPriceStream 啟動價格流（透傳）
 func (d *DryRunWrapper) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	return d.wrapped.StartPriceStream(ctx, symbol, callback)
 }
 
-// StartKlineStream 启动K线流（透传）
+// StartKlineStream 啟動K線流（透傳）
 func (d *DryRunWrapper) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
 	return d.wrapped.StartKlineStream(ctx, symbols, interval, callback)
 }
 
-// StopKlineStream 停止K线流（透传）
+// StopKlineStream 停止K線流（透傳）
 func (d *DryRunWrapper) StopKlineStream() error {
 	return d.wrapped.StopKlineStream()
 }
 
-// GetHistoricalKlines 获取历史K线数据（透传）
+// GetHistoricalKlines 獲取歷史K線數據（透傳）
 func (d *DryRunWrapper) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	return d.wrapped.GetHistoricalKlines(ctx, symbol, interval, limit)
 }
 
-// GetPriceDecimals 获取价格精度（透传）
+// GetPriceDecimals 獲取價格精度（透傳）
 func (d *DryRunWrapper) GetPriceDecimals() int {
 	return d.wrapped.GetPriceDecimals()
 }
 
-// GetQuantityDecimals 获取数量精度（透传）
+// GetQuantityDecimals 獲取數量精度（透傳）
 func (d *DryRunWrapper) GetQuantityDecimals() int {
 	return d.wrapped.GetQuantityDecimals()
 }
 
-// GetBaseAsset 获取基础资产（透传）
+// GetBaseAsset 獲取基础资產（透傳）
 func (d *DryRunWrapper) GetBaseAsset() string {
 	return d.wrapped.GetBaseAsset()
 }
 
-// GetQuoteAsset 获取计价资产（透传）
+// GetQuoteAsset 獲取计價资產（透傳）
 func (d *DryRunWrapper) GetQuoteAsset() string {
 	return d.wrapped.GetQuoteAsset()
 }
 
-// EstimateFinalOrderAmount 预估最终下单金额（透传）
+// EstimateFinalOrderAmount 預估最终下單金額（透傳）
 func (d *DryRunWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return d.wrapped.EstimateFinalOrderAmount(symbol, price, quantity, reduceOnly)
 }
 
-// GetFundingRate 获取资金费率（透传）
+// GetFundingRate 獲取资金费率（透傳）
 func (d *DryRunWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return d.wrapped.GetFundingRate(ctx, symbol)
 }
 
-// GetSpotPrice 获取现货价格（透传）
+// GetSpotPrice 獲取現貨價格（透傳）
 func (d *DryRunWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return d.wrapped.GetSpotPrice(ctx, symbol)
 }
 
-// GetOrderBook 获取订单簿深度（透传）
+// GetOrderBook 獲取訂單簿深度（透傳）
 func (d *DryRunWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	return d.wrapped.GetOrderBook(ctx, symbol, limit)
 }
 
-// InternalTransfer 内部转账（DryRun 模式下不执行）
+// InternalTransfer 內部轉帳（DryRun 模式下不執行）
 func (d *DryRunWrapper) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", ErrNotImplemented
 }
 
-// GetWrappedExchange 获取被包装的真实交易所（用于需要访问原始交易所的场景）
+// GetWrappedExchange 獲取被包装的真實交易所（用於需要访问原始交易所的场景）
 func (d *DryRunWrapper) GetWrappedExchange() IExchange {
 	return d.wrapped
 }
 
-// GetSimulatedOrders 获取所有模拟订单（用于调试）
+// GetSimulatedOrders 獲取所有模拟订單（用於調試）
 func (d *DryRunWrapper) GetSimulatedOrders() map[int64]*Order {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -284,10 +289,10 @@ func (d *DryRunWrapper) GetSimulatedOrders() map[int64]*Order {
 	return result
 }
 
-// ClearSimulatedOrders 清除所有模拟订单（用于测试）
+// ClearSimulatedOrders 清除所有模拟订單（用於测試）
 func (d *DryRunWrapper) ClearSimulatedOrders() {
 	d.mu.Lock()
 	d.simulatedOrders = make(map[int64]*Order)
 	d.mu.Unlock()
-	logger.Info("🔒 [DryRun] 已清除所有模拟订单")
+	logger.Info("🔒 [DryRun] 已清除所有模拟订單")
 }

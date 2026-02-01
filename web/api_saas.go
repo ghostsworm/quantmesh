@@ -18,12 +18,12 @@ var (
 	instanceManagerV2 *saas.InstanceManagerV2
 )
 
-// SetInstanceManager 设置实例管理器
+// SetInstanceManager 設置實例管理器
 func SetInstanceManager(im *saas.InstanceManagerV2) {
 	instanceManagerV2 = im
 }
 
-// createInstanceHandler 创建实例
+// createInstanceHandler 創建實例
 // POST /api/saas/instances/create
 func createInstanceHandler(c *gin.Context) {
 	var req struct {
@@ -31,11 +31,11 @@ func createInstanceHandler(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "无效的请求参数"})
+		c.JSON(400, gin.H{"error": "無效的请求参數"})
 		return
 	}
 
-	// 验证套餐
+	// 驗证套餐
 	validPlans := map[string]bool{
 		"starter":      true,
 		"professional": true,
@@ -43,20 +43,20 @@ func createInstanceHandler(c *gin.Context) {
 	}
 
 	if !validPlans[req.Plan] {
-		c.JSON(400, gin.H{"error": "无效的套餐类型"})
+		c.JSON(400, gin.H{"error": "無效的套餐類型"})
 		return
 	}
 
-	// 从 session 或 JWT 中获取用户ID (这里简化处理)
+	// 從 session 或 JWT 中獲取用戶ID (这里简化处理)
 	userID := c.GetString("user_id")
 	if userID == "" {
 		userID = "demo_user" // 演示用
 	}
 
-	// 创建实例
+	// 創建實例
 	instance, err := instanceManagerV2.CreateInstanceWithMonitoring(c.Request.Context(), userID, req.Plan)
 	if err != nil {
-		logger.Error("创建实例失败: %v", err)
+		logger.Error("創建實例失败: %v", err)
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -71,21 +71,21 @@ func createInstanceHandler(c *gin.Context) {
 	})
 }
 
-// getInstanceHandler 获取实例信息
+// getInstanceHandler 獲取實例信息
 // GET /api/saas/instances/:id
 func getInstanceHandler(c *gin.Context) {
 	instanceID := c.Param("id")
 
 	instance, err := instanceManagerV2.GetInstance(instanceID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "实例不存在"})
+		c.JSON(404, gin.H{"error": "實例不存在"})
 		return
 	}
 
-	// 验证权限 (简化处理)
+	// 驗证权限 (简化处理)
 	userID := c.GetString("user_id")
 	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权访问"})
+		c.JSON(403, gin.H{"error": "無权访问"})
 		return
 	}
 
@@ -94,12 +94,12 @@ func getInstanceHandler(c *gin.Context) {
 	})
 }
 
-// listInstancesHandler 列出所有实例
+// listInstancesHandler 列出所有實例
 // GET /api/saas/instances
 func listInstancesHandler(c *gin.Context) {
 	instances := instanceManagerV2.ListInstances()
 
-	// 如果有用户ID,只返回该用户的实例
+	// 如果有用戶ID,只返回該用戶的實例
 	userID := c.GetString("user_id")
 	if userID != "" {
 		filtered := []*saas.Instance{}
@@ -117,133 +117,133 @@ func listInstancesHandler(c *gin.Context) {
 	})
 }
 
-// stopInstanceHandler 停止实例
+// stopInstanceHandler 停止實例
 // POST /api/saas/instances/:id/stop
 func stopInstanceHandler(c *gin.Context) {
 	instanceID := c.Param("id")
 
-	// 验证权限
+	// 驗证权限
 	instance, err := instanceManagerV2.GetInstance(instanceID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "实例不存在"})
+		c.JSON(404, gin.H{"error": "實例不存在"})
 		return
 	}
 
 	userID := c.GetString("user_id")
 	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权操作"})
+		c.JSON(403, gin.H{"error": "無权操作"})
 		return
 	}
 
-	// 停止实例
+	// 停止實例
 	if err := instanceManagerV2.StopInstance(instanceID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "实例已停止"})
+	c.JSON(200, gin.H{"message": "實例已停止"})
 }
 
-// startInstanceHandler 启动实例
+// startInstanceHandler 啟动實例
 // POST /api/saas/instances/:id/start
 func startInstanceHandler(c *gin.Context) {
 	instanceID := c.Param("id")
 
-	// 验证权限
+	// 驗证权限
 	instance, err := instanceManagerV2.GetInstance(instanceID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "实例不存在"})
+		c.JSON(404, gin.H{"error": "實例不存在"})
 		return
 	}
 
 	userID := c.GetString("user_id")
 	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权操作"})
+		c.JSON(403, gin.H{"error": "無权操作"})
 		return
 	}
 
-	// 启动实例
+	// 啟动實例
 	if err := instanceManagerV2.StartInstance(instanceID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "实例已启动"})
+	c.JSON(200, gin.H{"message": "實例已啟动"})
 }
 
-// restartInstanceHandler 重启实例
+// restartInstanceHandler 重啟實例
 // POST /api/saas/instances/:id/restart
 func restartInstanceHandler(c *gin.Context) {
 	instanceID := c.Param("id")
 
-	// 验证权限
+	// 驗证权限
 	instance, err := instanceManagerV2.GetInstance(instanceID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "实例不存在"})
+		c.JSON(404, gin.H{"error": "實例不存在"})
 		return
 	}
 
 	userID := c.GetString("user_id")
 	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权操作"})
+		c.JSON(403, gin.H{"error": "無权操作"})
 		return
 	}
 
-	// 重启实例
+	// 重啟實例
 	if err := instanceManagerV2.RestartInstance(instanceID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "实例已重启"})
+	c.JSON(200, gin.H{"message": "實例已重啟"})
 }
 
-// deleteInstanceHandler 删除实例
+// deleteInstanceHandler 刪除實例
 // DELETE /api/saas/instances/:id
 func deleteInstanceHandler(c *gin.Context) {
 	instanceID := c.Param("id")
 
-	// 验证权限
+	// 驗证权限
 	instance, err := instanceManagerV2.GetInstance(instanceID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "实例不存在"})
+		c.JSON(404, gin.H{"error": "實例不存在"})
 		return
 	}
 
 	userID := c.GetString("user_id")
 	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权操作"})
+		c.JSON(403, gin.H{"error": "無权操作"})
 		return
 	}
 
-	// 删除实例
+	// 刪除實例
 	if err := instanceManagerV2.DeleteInstance(instanceID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "实例已删除"})
+	c.JSON(200, gin.H{"message": "實例已刪除"})
 }
 
-// getInstanceLogsHandler 获取实例日志
+// getInstanceLogsHandler 獲取實例日志
 // GET /api/saas/instances/:id/logs
 func getInstanceLogsHandler(c *gin.Context) {
 	instanceID := c.Param("id")
 
-	// 验证权限
+	// 驗证权限
 	instance, err := instanceManagerV2.GetInstance(instanceID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "实例不存在"})
+		c.JSON(404, gin.H{"error": "實例不存在"})
 		return
 	}
 
 	userID := c.GetString("user_id")
 	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权访问"})
+		c.JSON(403, gin.H{"error": "無权访问"})
 		return
 	}
 
-	// 获取日志行数
+	// 獲取日志行數
 	lines := 1000
 	if linesStr := c.Query("lines"); linesStr != "" {
 		if l, err := strconv.Atoi(linesStr); err == nil {
@@ -251,7 +251,7 @@ func getInstanceLogsHandler(c *gin.Context) {
 		}
 	}
 
-	// 获取容器日志
+	// 獲取容器日志
 	logs, err := getDockerLogs(instance.ContainerID, lines)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -264,25 +264,25 @@ func getInstanceLogsHandler(c *gin.Context) {
 	})
 }
 
-// getInstanceMetricsHandler 获取实例指标
+// getInstanceMetricsHandler 獲取實例指標
 // GET /api/saas/instances/:id/metrics
 func getInstanceMetricsHandler(c *gin.Context) {
 	instanceID := c.Param("id")
 
-	// 验证权限
+	// 驗证权限
 	instance, err := instanceManagerV2.GetInstance(instanceID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "实例不存在"})
+		c.JSON(404, gin.H{"error": "實例不存在"})
 		return
 	}
 
 	userID := c.GetString("user_id")
 	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权访问"})
+		c.JSON(403, gin.H{"error": "無权访问"})
 		return
 	}
 
-	// 获取指标
+	// 獲取指標
 	metrics, err := instanceManagerV2.GetInstanceMetrics(instanceID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -292,7 +292,7 @@ func getInstanceMetricsHandler(c *gin.Context) {
 	c.JSON(200, metrics)
 }
 
-// getAllInstancesMetricsHandler 获取所有实例指标
+// getAllInstancesMetricsHandler 獲取所有實例指標
 // GET /api/saas/metrics
 func getAllInstancesMetricsHandler(c *gin.Context) {
 	metrics, err := instanceManagerV2.GetAllInstancesMetrics()
@@ -307,12 +307,12 @@ func getAllInstancesMetricsHandler(c *gin.Context) {
 	})
 }
 
-// getDockerLogs 获取 Docker 容器日志
+// getDockerLogs 獲取 Docker 容器日志
 func getDockerLogs(containerID string, lines int) ([]string, error) {
 	cmd := exec.Command("docker", "logs", "--tail", fmt.Sprintf("%d", lines), containerID)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("获取日志失败: %v", err)
+		return nil, fmt.Errorf("獲取日志失败: %v", err)
 	}
 
 	logs := strings.Split(string(output), "\n")

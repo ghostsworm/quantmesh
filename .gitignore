@@ -91,3 +91,4 @@ _mine/
 # Backup directories
 backups/
 config_backups/
+backups/

@@ -19,10 +19,10 @@ import (
 
 const (
 	PoloniexMainnetBaseURL = "https://api.poloniex.com"         // Poloniex 主网
-	PoloniexTestnetBaseURL = "https://testnet-api.poloniex.com" // Poloniex 测试网
+	PoloniexTestnetBaseURL = "https://testnet-api.poloniex.com" // Poloniex 測試網
 )
 
-// PoloniexClient Poloniex 客户端
+// PoloniexClient Poloniex 客戶端
 type PoloniexClient struct {
 	apiKey     string
 	secretKey  string
@@ -31,7 +31,7 @@ type PoloniexClient struct {
 	isTestnet  bool
 }
 
-// NewPoloniexClient 创建 Poloniex 客户端
+// NewPoloniexClient 創建 Poloniex 客戶端
 func NewPoloniexClient(apiKey, secretKey string, isTestnet bool) *PoloniexClient {
 	baseURL := PoloniexMainnetBaseURL
 	if isTestnet {
@@ -109,7 +109,7 @@ func (c *PoloniexClient) sendRequest(ctx context.Context, method, path string, p
 	return respBody, nil
 }
 
-// GetSymbol 获取交易对信息
+// GetSymbol 獲取交易對信息
 func (c *PoloniexClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, error) {
 	path := "/markets/" + symbol
 	params := url.Values{}
@@ -127,7 +127,7 @@ func (c *PoloniexClient) GetSymbol(ctx context.Context, symbol string) (*Symbol,
 	return &symbolInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *PoloniexClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := "/orders"
 	params := url.Values{}
@@ -146,7 +146,7 @@ func (c *PoloniexClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 	return &order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *PoloniexClient) CancelOrder(ctx context.Context, orderID string) error {
 	path := "/orders/" + orderID
 	params := url.Values{}
@@ -160,7 +160,7 @@ func (c *PoloniexClient) CancelOrder(ctx context.Context, orderID string) error 
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *PoloniexClient) GetOrder(ctx context.Context, orderID string) (*Order, error) {
 	path := "/orders/" + orderID
 	params := url.Values{}
@@ -178,7 +178,7 @@ func (c *PoloniexClient) GetOrder(ctx context.Context, orderID string) (*Order, 
 	return &order, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *PoloniexClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, error) {
 	path := "/orders"
 	params := url.Values{}
@@ -200,7 +200,7 @@ func (c *PoloniexClient) GetOpenOrders(ctx context.Context, symbol string) ([]Or
 	return orders, nil
 }
 
-// GetBalance 获取账户余额
+// GetBalance 獲取帳戶餘額
 func (c *PoloniexClient) GetBalance(ctx context.Context) ([]Balance, error) {
 	path := "/accounts/balances"
 	params := url.Values{}
@@ -218,7 +218,7 @@ func (c *PoloniexClient) GetBalance(ctx context.Context) ([]Balance, error) {
 	return balances, nil
 }
 
-// GetTicker 获取最新价格
+// GetTicker 獲取最新價格
 func (c *PoloniexClient) GetTicker(ctx context.Context, symbol string) (*Ticker, error) {
 	path := "/markets/" + symbol + "/price"
 	params := url.Values{}
@@ -236,7 +236,7 @@ func (c *PoloniexClient) GetTicker(ctx context.Context, symbol string) (*Ticker,
 	return &ticker, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *PoloniexClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/markets/" + symbol + "/candles"
 	params := url.Values{}
@@ -258,7 +258,7 @@ func (c *PoloniexClient) GetKlines(ctx context.Context, symbol, interval string,
 	return klines, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type Symbol struct {
 	Symbol            string  `json:"symbol"`

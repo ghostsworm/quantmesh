@@ -35,6 +35,7 @@ logs/
 # 配置文件 (不包含到镜像中)
 config.yaml
 config_backups/
+backups/
 .env
 .env.*
 

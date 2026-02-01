@@ -11,10 +11,10 @@ import (
 
 // GenerateReport 生成 Markdown 回测报告
 func GenerateReport(result *BacktestResult) (string, error) {
-	// 创建报告目录
+	// 創建报告目錄
 	reportDir := filepath.Join("backtest", "reports")
 	if err := os.MkdirAll(reportDir, 0755); err != nil {
-		return "", fmt.Errorf("创建报告目录失败: %w", err)
+		return "", fmt.Errorf("創建报告目錄失败: %w", err)
 	}
 
 	// 生成报告文件名
@@ -26,7 +26,7 @@ func GenerateReport(result *BacktestResult) (string, error) {
 	)
 	reportPath := filepath.Join(reportDir, filename)
 
-	// 准备模板数据
+	// 准备模板數據
 	data := prepareReportData(result)
 
 	// 渲染模板
@@ -43,7 +43,7 @@ func GenerateReport(result *BacktestResult) (string, error) {
 	return reportPath, nil
 }
 
-// GenerateReportToFile 生成回测报告到指定路径（供任务结果使用）
+// GenerateReportToFile 生成回测报告到指定路径（供任務結果使用）
 func GenerateReportToFile(result *BacktestResult, reportPath string) error {
 	data := prepareReportData(result)
 	content, err := renderReportTemplate(data)
@@ -52,12 +52,12 @@ func GenerateReportToFile(result *BacktestResult, reportPath string) error {
 	}
 	dir := filepath.Dir(reportPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("创建报告目录失败: %w", err)
+		return fmt.Errorf("創建报告目錄失败: %w", err)
 	}
 	return os.WriteFile(reportPath, []byte(content), 0644)
 }
 
-// ReportData 报告数据
+// ReportData 报告數據
 type ReportData struct {
 	// 基本信息
 	PluginName     string
@@ -69,21 +69,21 @@ type ReportData struct {
 	InitialCapital string
 	FinalCapital   string
 
-	// 收益指标
+	// 收益指標
 	TotalReturn      string
 	AnnualizedReturn string
 
-	// 风险指标
+	// 风險指標
 	MaxDrawdown         string
 	MaxDrawdownDuration string
 	Volatility          string
 
-	// 风险调整收益
+	// 风險調整收益
 	SharpeRatio  string
 	SortinoRatio string
 	CalmarRatio  string
 
-	// 交易指标
+	// 交易指標
 	TotalTrades          string
 	WinRate              string
 	ProfitFactor         string
@@ -97,13 +97,13 @@ type ReportData struct {
 	// 交易明细
 	TopTrades []TradeRow
 
-	// 风险指标
+	// 风險指標
 	VaR95  string
 	VaR99  string
 	CVaR95 string
 	CVaR99 string
 
-	// 结论
+	// 結論
 	Conclusion string
 }
 
@@ -116,11 +116,11 @@ type TradeRow struct {
 	PnL      string
 }
 
-// prepareReportData 准备报告数据
+// prepareReportData 准备报告數據
 func prepareReportData(result *BacktestResult) ReportData {
 	m := result.Metrics
 
-	// 计算持续时间
+	// 计算持续時间
 	duration := result.EndTime.Sub(result.StartTime)
 	durationStr := fmt.Sprintf("%d 天", int(duration.Hours()/24))
 
@@ -141,7 +141,7 @@ func prepareReportData(result *BacktestResult) ReportData {
 		}
 	}
 
-	// 生成结论
+	// 生成結論
 	conclusion := generateConclusion(result)
 
 	return ReportData{
@@ -186,47 +186,47 @@ func prepareReportData(result *BacktestResult) ReportData {
 	}
 }
 
-// generateConclusion 生成结论
+// generateConclusion 生成結論
 func generateConclusion(result *BacktestResult) string {
 	m := result.Metrics
 	var conclusions []string
 
 	// 收益评估
 	if m.TotalReturn > 50 {
-		conclusions = append(conclusions, "✅ 策略表现优秀，总收益率超过 50%")
+		conclusions = append(conclusions, "✅ 策略表現优秀，總收益率超過 50%")
 	} else if m.TotalReturn > 20 {
-		conclusions = append(conclusions, "✅ 策略表现良好，总收益率超过 20%")
+		conclusions = append(conclusions, "✅ 策略表現良好，總收益率超過 20%")
 	} else if m.TotalReturn > 0 {
 		conclusions = append(conclusions, "⚠️ 策略盈利，但收益率较低")
 	} else {
-		conclusions = append(conclusions, "❌ 策略亏损，需要优化参数或更换策略")
+		conclusions = append(conclusions, "❌ 策略亏损，需要优化参數或更换策略")
 	}
 
-	// 风险评估
+	// 风險评估
 	if m.MaxDrawdown < 10 {
-		conclusions = append(conclusions, "✅ 风险控制良好，最大回撤小于 10%")
+		conclusions = append(conclusions, "✅ 风險控制良好，最大回撤小於 10%")
 	} else if m.MaxDrawdown < 20 {
-		conclusions = append(conclusions, "⚠️ 风险适中，最大回撤在 10-20% 之间")
+		conclusions = append(conclusions, "⚠️ 风險适中，最大回撤在 10-20% 之间")
 	} else {
-		conclusions = append(conclusions, "❌ 风险较高，最大回撤超过 20%")
+		conclusions = append(conclusions, "❌ 风險较高，最大回撤超過 20%")
 	}
 
 	// 夏普比率评估
 	if m.SharpeRatio > 2 {
-		conclusions = append(conclusions, "✅ 风险调整收益优秀，夏普比率 > 2")
+		conclusions = append(conclusions, "✅ 风險調整收益优秀，夏普比率 > 2")
 	} else if m.SharpeRatio > 1 {
-		conclusions = append(conclusions, "✅ 风险调整收益良好，夏普比率 > 1")
+		conclusions = append(conclusions, "✅ 风險調整收益良好，夏普比率 > 1")
 	} else if m.SharpeRatio > 0 {
-		conclusions = append(conclusions, "⚠️ 风险调整收益一般，夏普比率 < 1")
+		conclusions = append(conclusions, "⚠️ 风險調整收益一般，夏普比率 < 1")
 	} else {
-		conclusions = append(conclusions, "❌ 风险调整收益差，夏普比率为负")
+		conclusions = append(conclusions, "❌ 风險調整收益差，夏普比率為负")
 	}
 
 	// 胜率评估
 	if m.WinRate > 60 {
-		conclusions = append(conclusions, "✅ 胜率高，超过 60%")
+		conclusions = append(conclusions, "✅ 胜率高，超過 60%")
 	} else if m.WinRate > 50 {
-		conclusions = append(conclusions, "✅ 胜率良好，超过 50%")
+		conclusions = append(conclusions, "✅ 胜率良好，超過 50%")
 	} else {
 		conclusions = append(conclusions, "⚠️ 胜率较低，需要优化策略")
 	}
@@ -239,7 +239,7 @@ func generateConclusion(result *BacktestResult) string {
 	} else if m.ProfitFactor > 1 {
 		conclusions = append(conclusions, "⚠️ 利润因子一般")
 	} else {
-		conclusions = append(conclusions, "❌ 利润因子 < 1，平均亏损大于平均盈利")
+		conclusions = append(conclusions, "❌ 利润因子 < 1，平均亏损大於平均盈利")
 	}
 
 	return strings.Join(conclusions, "\n\n")
@@ -249,77 +249,77 @@ func generateConclusion(result *BacktestResult) string {
 func renderReportTemplate(data ReportData) (string, error) {
 	tmpl := `# {{.PluginName}} 策略回测报告
 
-生成时间: {{.GeneratedAt}}
+生成時间: {{.GeneratedAt}}
 
-## 执行摘要
+## 執行摘要
 
-- **交易对**: {{.Symbol}}
+- **交易對**: {{.Symbol}}
 - **回测期间**: {{.StartDate}} 至 {{.EndDate}} ({{.Duration}})
 - **初始资金**: ${{.InitialCapital}}
 - **最终资金**: ${{.FinalCapital}}
-- **总收益率**: {{.TotalReturn}}
+- **總收益率**: {{.TotalReturn}}
 - **年化收益率**: {{.AnnualizedReturn}}
 - **最大回撤**: {{.MaxDrawdown}}
 - **夏普比率**: {{.SharpeRatio}}
 
-## 收益指标
+## 收益指標
 
-| 指标 | 数值 |
+| 指標 | 數值 |
 |------|------|
-| 总收益率 | {{.TotalReturn}} |
+| 總收益率 | {{.TotalReturn}} |
 | 年化收益率 | {{.AnnualizedReturn}} |
 
-## 风险指标
+## 风險指標
 
-| 指标 | 数值 |
+| 指標 | 數值 |
 |------|------|
 | 最大回撤 | {{.MaxDrawdown}} |
-| 最大回撤持续时间 | {{.MaxDrawdownDuration}} |
+| 最大回撤持续時间 | {{.MaxDrawdownDuration}} |
 | 波动率（年化） | {{.Volatility}} |
 
-## 风险调整收益
+## 风險調整收益
 
-| 指标 | 数值 |
+| 指標 | 數值 |
 |------|------|
 | 夏普比率 | {{.SharpeRatio}} |
 | 索提诺比率 | {{.SortinoRatio}} |
 | 卡玛比率 | {{.CalmarRatio}} |
 
-## 交易指标
+## 交易指標
 
-| 指标 | 数值 |
+| 指標 | 數值 |
 |------|------|
-| 总交易次数 | {{.TotalTrades}} |
+| 總交易次數 | {{.TotalTrades}} |
 | 胜率 | {{.WinRate}} |
 | 利润因子 | {{.ProfitFactor}} |
 | 平均盈利 | ${{.AvgWin}} |
 | 平均亏损 | ${{.AvgLoss}} |
-| 最大单笔盈利 | ${{.LargestWin}} |
-| 最大单笔亏损 | ${{.LargestLoss}} |
+| 最大單笔盈利 | ${{.LargestWin}} |
+| 最大單笔亏损 | ${{.LargestLoss}} |
 | 最大连续盈利 | {{.MaxConsecutiveWins}} 笔 |
 | 最大连续亏损 | {{.MaxConsecutiveLosses}} 笔 |
 
 ## 交易明细（前20笔）
 
-| 时间 | 类型 | 价格 | 数量 | 盈亏 |
+| 時间 | 類型 | 價格 | 數量 | 盈亏 |
 |------|------|------|------|------|
 {{range .TopTrades}}| {{.Time}} | {{.Type}} | {{.Price}} | {{.Quantity}} | {{.PnL}} |
 {{end}}
 
-## 高级风险指标
+## 高级风險指標
 
-| 指标 | 数值 | 说明 |
+| 指標 | 數值 | 說明 |
 |------|------|------|
 | VaR (95%) | {{.VaR95}} | 95% 置信度下的最大损失 |
 | VaR (99%) | {{.VaR99}} | 99% 置信度下的最大损失 |
-| CVaR (95%) | {{.CVaR95}} | 超过 VaR 的平均损失 |
-| CVaR (99%) | {{.CVaR99}} | 超过 VaR 的平均损失 |
+| CVaR (95%) | {{.CVaR95}} | 超過 VaR 的平均损失 |
+| CVaR (99%) | {{.CVaR99}} | 超過 VaR 的平均损失 |
 
-**说明**：
-- **VaR (Value at Risk)**: 在给定置信度下，投资组合在未来特定时间内可能遭受的最大损失。
-- **CVaR (Conditional Value at Risk)**: 也称为预期损失，是超过 VaR 阈值的平均损失，比 VaR 更能反映极端风险。
+**說明**：
+- **VaR (Value at Risk)**: 在给定置信度下，投资组合在未来特定時间内可能遭受的最大损失。
+- **CVaR (Conditional Value at Risk)**: 也称為預期损失，是超過 VaR 阈值的平均损失，比 VaR 更能反映极端风險。
 
-## 结论
+## 結論
 
 {{.Conclusion}}
 
@@ -341,11 +341,11 @@ func renderReportTemplate(data ReportData) (string, error) {
 	return buf.String(), nil
 }
 
-// SaveEquityCurveCSV 保存权益曲线到 CSV
+// SaveEquityCurveCSV 保存权益曲線到 CSV
 func SaveEquityCurveCSV(result *BacktestResult) (string, error) {
 	reportDir := filepath.Join("backtest", "reports")
 	if err := os.MkdirAll(reportDir, 0755); err != nil {
-		return "", fmt.Errorf("创建报告目录失败: %w", err)
+		return "", fmt.Errorf("創建报告目錄失败: %w", err)
 	}
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
@@ -358,14 +358,14 @@ func SaveEquityCurveCSV(result *BacktestResult) (string, error) {
 
 	file, err := os.Create(csvPath)
 	if err != nil {
-		return "", fmt.Errorf("创建 CSV 文件失败: %w", err)
+		return "", fmt.Errorf("創建 CSV 文件失败: %w", err)
 	}
 	defer file.Close()
 
 	// 写入表头
 	file.WriteString("timestamp,equity\n")
 
-	// 写入数据
+	// 写入數據
 	for _, point := range result.Equity {
 		file.WriteString(fmt.Sprintf("%d,%.2f\n", point.Timestamp, point.Equity))
 	}

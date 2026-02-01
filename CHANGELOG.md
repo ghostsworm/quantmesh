@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [3.17.0] - 2026-02-01
+
+### Added
+- **監控每日快照** (`monitor/daily_snapshot.go`): 新增每日快照功能，便於營運與排查
+- **繁體中文語系** (`i18n/locales/zh-TW.toml`): 新增繁體中文在地化檔
+- **文檔 i18n**: 新增 `docs/i18n/README.en.md`、`docs/i18n/README.zh-Hans.md` 多語說明
+- **交易所現貨適配器**: 補齊 Binance、Bitget、Bybit、Gate、OKX 現貨適配器與對應 wrapper（`spot_adapter.go`、`wrapper_*_spot.go`）
+- **腳本** (`scripts/s2t_comments.py`): 註釋簡繁轉換輔助腳本
+
+### Changed
+- **註釋與文檔統一**: 專案內註釋統一為繁體中文或英文，符合專案規範
+- **代碼與依賴**: 多處模組小幅調整與依賴更新，保持前後端版本號一致（3.17.0）
+
 ## [3.16.4] - 2026-02-01
 
 ### Fixed

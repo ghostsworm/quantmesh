@@ -14,7 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// KlineWebSocketManager K线 WebSocket 管理器
+// KlineWebSocketManager K線 WebSocket 管理器
 type KlineWebSocketManager struct {
 	useTestnet bool
 	conn       *websocket.Conn
@@ -24,7 +24,7 @@ type KlineWebSocketManager struct {
 	callback   CandleUpdateCallback
 }
 
-// NewKlineWebSocketManager 创建 K线 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
 func NewKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
 	return &KlineWebSocketManager{
 		useTestnet: useTestnet,
@@ -32,22 +32,22 @@ func NewKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
 	}
 }
 
-// Start 启动 K线流
+// Start 啟动 K線流
 func (k *KlineWebSocketManager) Start(ctx context.Context, instIds []string, interval string, callback CandleUpdateCallback) error {
 	if k.isRunning.Load() {
-		return fmt.Errorf("K线 WebSocket 已在运行")
+		return fmt.Errorf("K線 WebSocket 已在运行")
 	}
 
 	k.callback = callback
 
-	// 连接公共 WebSocket（根据是否使用测试网选择不同的地址）
+	// 连接公共 WebSocket（根據是否使用測試網选擇不同的地址）
 	publicWsURL := MainnetPublicWsURL
 	if k.useTestnet {
 		publicWsURL = TestnetPublicWsURL
 	}
 	conn, _, err := websocket.DefaultDialer.Dial(publicWsURL, nil)
 	if err != nil {
-		return fmt.Errorf("连接 K线 WebSocket 失败: %w", err)
+		return fmt.Errorf("连接 K線 WebSocket 失败: %w", err)
 	}
 
 	k.mu.Lock()
@@ -56,23 +56,23 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, instIds []string, int
 
 	k.isRunning.Store(true)
 
-	// 订阅 K线频道
+	// 订阅 K線频道
 	if err := k.subscribeKlines(instIds, interval); err != nil {
 		conn.Close()
-		return fmt.Errorf("订阅 K线频道失败: %w", err)
+		return fmt.Errorf("订阅 K線频道失败: %w", err)
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go k.readMessages()
 	go k.keepAlive()
 
-	logger.Info("✅ [OKX K线 WebSocket] 已启动，订阅 %d 个交易对", len(instIds))
+	logger.Info("✅ [OKX K線 WebSocket] 已啟动，订阅 %d 個交易對", len(instIds))
 	return nil
 }
 
-// subscribeKlines 订阅 K线频道
+// subscribeKlines 订阅 K線频道
 func (k *KlineWebSocketManager) subscribeKlines(instIds []string, interval string) error {
-	// 转换时间周期格式
+	// 轉换時间周期格式
 	bar := convertInterval(interval)
 
 	args := make([]map[string]string, len(instIds))
@@ -98,7 +98,7 @@ func (k *KlineWebSocketManager) subscribeKlines(instIds []string, interval strin
 	return k.conn.WriteJSON(subMsg)
 }
 
-// convertInterval 转换时间周期格式
+// convertInterval 轉换時间周期格式
 // 1m -> 1m, 5m -> 5m, 1h -> 1H, 1d -> 1D
 func convertInterval(interval string) string {
 	switch interval {
@@ -138,7 +138,7 @@ func (k *KlineWebSocketManager) readMessages() {
 	defer func() {
 		k.isRunning.Store(false)
 		if r := recover(); r != nil {
-			logger.Error("❌ [OKX K线 WebSocket] 消息处理 panic: %v", r)
+			logger.Error("❌ [OKX K線 WebSocket] 消息处理 panic: %v", r)
 		}
 	}()
 
@@ -154,7 +154,7 @@ func (k *KlineWebSocketManager) readMessages() {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if k.isRunning.Load() {
-				logger.Warn("⚠️ [OKX K线 WebSocket] 读取消息失败: %v", err)
+				logger.Warn("⚠️ [OKX K線 WebSocket] 读取消息失败: %v", err)
 			}
 			break
 		}
@@ -167,21 +167,21 @@ func (k *KlineWebSocketManager) readMessages() {
 func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	var msg map[string]interface{}
 	if err := json.Unmarshal(message, &msg); err != nil {
-		logger.Warn("⚠️ [OKX K线 WebSocket] 解析消息失败: %v", err)
+		logger.Warn("⚠️ [OKX K線 WebSocket] 解析消息失败: %v", err)
 		return
 	}
 
-	// 检查事件类型
+	// 检查事件類型
 	if event, ok := msg["event"].(string); ok {
 		if event == "subscribe" {
-			logger.Info("✅ [OKX K线 WebSocket] 订阅成功")
+			logger.Info("✅ [OKX K線 WebSocket] 订阅成功")
 		} else if event == "error" {
-			logger.Error("❌ [OKX K线 WebSocket] 错误: %v", msg["msg"])
+			logger.Error("❌ [OKX K線 WebSocket] 錯误: %v", msg["msg"])
 		}
 		return
 	}
 
-	// 处理 K线数据
+	// 处理 K線數據
 	if arg, ok := msg["arg"].(map[string]interface{}); ok {
 		if channel, ok := arg["channel"].(string); ok {
 			if len(channel) > 6 && channel[:6] == "candle" {
@@ -191,7 +191,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// handleKlineUpdate 处理 K线更新
+// handleKlineUpdate 处理 K線更新
 func (k *KlineWebSocketManager) handleKlineUpdate(msg map[string]interface{}) {
 	data, ok := msg["data"].([]interface{})
 	if !ok || len(data) == 0 {
@@ -218,7 +218,7 @@ func (k *KlineWebSocketManager) handleKlineUpdate(msg map[string]interface{}) {
 		close, _ := strconv.ParseFloat(fmt.Sprintf("%v", klineData[4]), 64)
 		volume, _ := strconv.ParseFloat(fmt.Sprintf("%v", klineData[5]), 64)
 
-		// 判断是否已完结（OKX 的 K线数据中第8个字段表示是否确认）
+		// 判断是否已完結（OKX 的 K線數據中第8個字段表示是否确认）
 		isClosed := true
 		if len(klineData) >= 9 {
 			if confirm, ok := klineData[8].(string); ok {
@@ -262,7 +262,7 @@ func (k *KlineWebSocketManager) keepAlive() {
 
 			if conn != nil {
 				if err := conn.WriteMessage(websocket.TextMessage, []byte(pingMsg)); err != nil {
-					logger.Warn("⚠️ [OKX K线 WebSocket] 发送 ping 失败: %v", err)
+					logger.Warn("⚠️ [OKX K線 WebSocket] 发送 ping 失败: %v", err)
 				}
 			}
 
@@ -272,7 +272,7 @@ func (k *KlineWebSocketManager) keepAlive() {
 	}
 }
 
-// Stop 停止 K线 WebSocket
+// Stop 停止 K線 WebSocket
 func (k *KlineWebSocketManager) Stop() {
 	if !k.isRunning.Load() {
 		return
@@ -288,5 +288,5 @@ func (k *KlineWebSocketManager) Stop() {
 	}
 	k.mu.Unlock()
 
-	logger.Info("🛑 [OKX K线 WebSocket] 已停止")
+	logger.Info("🛑 [OKX K線 WebSocket] 已停止")
 }

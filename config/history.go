@@ -11,14 +11,14 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// ConfigHistory 配置历史记录
+// ConfigHistory 配置历史記錄
 type ConfigHistory struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
 	Version     int       `gorm:"uniqueIndex" json:"version"`        // 版本号（自增）
 	Content     string    `gorm:"type:text;not null" json:"content"` // YAML 内容
 	Description string    `gorm:"size:500" json:"description"`       // 变更描述
-	CreatedAt   time.Time `gorm:"index" json:"created_at"`           // 备份时间
-	CreatedBy   string    `gorm:"size:100" json:"created_by"`        // 操作者（可选）
+	CreatedAt   time.Time `gorm:"index" json:"created_at"`           // 备份時间
+	CreatedBy   string    `gorm:"size:100" json:"created_by"`        // 操作者（可選）
 }
 
 // ConfigHistoryListItem 配置历史列表项（不含完整内容）
@@ -31,20 +31,20 @@ type ConfigHistoryListItem struct {
 	Size        int       `json:"size"` // 内容大小（字节）
 }
 
-// HistoryDiffRequest 版本对比请求
+// HistoryDiffRequest 版本對比请求
 type HistoryDiffRequest struct {
-	SourceVersion int `json:"source_version"` // 源版本（0 表示当前版本）
-	TargetVersion int `json:"target_version"` // 目标版本
+	SourceVersion int `json:"source_version"` // 源版本（0 表示當前版本）
+	TargetVersion int `json:"target_version"` // 目標版本
 }
 
-// HistoryDiffResponse 版本对比响应
+// HistoryDiffResponse 版本對比响应
 type HistoryDiffResponse struct {
 	SourceVersion int       `json:"source_version"`
 	TargetVersion int       `json:"target_version"`
 	SourceContent string    `json:"source_content"` // 源版本 YAML
-	TargetContent string    `json:"target_content"` // 目标版本 YAML
-	SourceTime    time.Time `json:"source_time"`    // 源版本时间
-	TargetTime    time.Time `json:"target_time"`    // 目标版本时间
+	TargetContent string    `json:"target_content"` // 目標版本 YAML
+	SourceTime    time.Time `json:"source_time"`    // 源版本時间
+	TargetTime    time.Time `json:"target_time"`    // 目標版本時间
 }
 
 // HistoryManager 配置历史管理器
@@ -53,22 +53,22 @@ type HistoryManager struct {
 	configPath string
 }
 
-// NewHistoryManager 创建配置历史管理器
+// NewHistoryManager 創建配置历史管理器
 func NewHistoryManager(dataDir string, configPath string) (*HistoryManager, error) {
-	// 确保数据目录存在
+	// 確保資料目錄存在
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建数据目录失败: %v", err)
+		return nil, fmt.Errorf("創建數據目錄失败: %v", err)
 	}
 
-	// 数据库文件路径
+	// 數據库文件路径
 	dbPath := filepath.Join(dataDir, "config_history.db")
 
-	// 打开数据库
+	// 打开數據库
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("打开历史数据库失败: %v", err)
+		return nil, fmt.Errorf("打开历史數據库失败: %v", err)
 	}
 
 	// 自动迁移
@@ -84,7 +84,7 @@ func NewHistoryManager(dataDir string, configPath string) (*HistoryManager, erro
 
 // SaveHistory 保存配置历史
 func (hm *HistoryManager) SaveHistory(content string, description string, createdBy string) (*ConfigHistory, error) {
-	// 获取下一个版本号
+	// 獲取下一個版本号
 	var maxVersion int
 	hm.db.Model(&ConfigHistory{}).Select("COALESCE(MAX(version), 0)").Scan(&maxVersion)
 	nextVersion := maxVersion + 1
@@ -98,13 +98,13 @@ func (hm *HistoryManager) SaveHistory(content string, description string, create
 	}
 
 	if err := hm.db.Create(history).Error; err != nil {
-		return nil, fmt.Errorf("保存历史记录失败: %v", err)
+		return nil, fmt.Errorf("保存历史記錄失败: %v", err)
 	}
 
 	return history, nil
 }
 
-// ListHistory 获取历史版本列表
+// ListHistory 獲取歷史版本列表
 func (hm *HistoryManager) ListHistory(limit int, offset int) ([]*ConfigHistoryListItem, int64, error) {
 	var total int64
 	hm.db.Model(&ConfigHistory{}).Count(&total)
@@ -119,10 +119,10 @@ func (hm *HistoryManager) ListHistory(limit int, offset int) ([]*ConfigHistoryLi
 	}
 
 	if err := query.Find(&histories).Error; err != nil {
-		return nil, 0, fmt.Errorf("获取历史列表失败: %v", err)
+		return nil, 0, fmt.Errorf("獲取歷史列表失败: %v", err)
 	}
 
-	// 转换为列表项
+	// 轉换為列表项
 	items := make([]*ConfigHistoryListItem, len(histories))
 	for i, h := range histories {
 		items[i] = &ConfigHistoryListItem{
@@ -138,43 +138,43 @@ func (hm *HistoryManager) ListHistory(limit int, offset int) ([]*ConfigHistoryLi
 	return items, total, nil
 }
 
-// GetHistory 获取指定版本的历史记录
+// GetHistory 獲取指定版本的历史記錄
 func (hm *HistoryManager) GetHistory(version int) (*ConfigHistory, error) {
 	var history ConfigHistory
 	if err := hm.db.Where("version = ?", version).First(&history).Error; err != nil {
-		return nil, fmt.Errorf("获取历史版本 %d 失败: %v", version, err)
+		return nil, fmt.Errorf("獲取歷史版本 %d 失败: %v", version, err)
 	}
 	return &history, nil
 }
 
-// GetLatestHistory 获取最新的历史记录
+// GetLatestHistory 獲取最新的历史記錄
 func (hm *HistoryManager) GetLatestHistory() (*ConfigHistory, error) {
 	var history ConfigHistory
 	if err := hm.db.Order("version DESC").First(&history).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("获取最新历史版本失败: %v", err)
+		return nil, fmt.Errorf("獲取最新历史版本失败: %v", err)
 	}
 	return &history, nil
 }
 
-// RestoreHistory 恢复到指定版本
+// RestoreHistory 恢複到指定版本
 func (hm *HistoryManager) RestoreHistory(version int) error {
-	// 获取历史版本
+	// 獲取歷史版本
 	history, err := hm.GetHistory(version)
 	if err != nil {
 		return err
 	}
 
-	// 验证配置内容
+	// 驗证配置内容
 	cfg, err := LoadConfigFromBytes([]byte(history.Content))
 	if err != nil {
-		return fmt.Errorf("历史版本配置无效: %v", err)
+		return fmt.Errorf("历史版本配置無效: %v", err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("历史版本配置验证失败: %v", err)
+		return fmt.Errorf("历史版本配置驗证失败: %v", err)
 	}
 
 	// 写入配置文件
@@ -185,19 +185,19 @@ func (hm *HistoryManager) RestoreHistory(version int) error {
 	return nil
 }
 
-// DiffVersions 对比两个版本
+// DiffVersions 對比两個版本
 func (hm *HistoryManager) DiffVersions(sourceVersion, targetVersion int) (*HistoryDiffResponse, error) {
 	response := &HistoryDiffResponse{
 		SourceVersion: sourceVersion,
 		TargetVersion: targetVersion,
 	}
 
-	// 获取源版本内容
+	// 獲取源版本内容
 	if sourceVersion == 0 {
-		// 0 表示当前配置
+		// 0 表示當前配置
 		content, err := os.ReadFile(hm.configPath)
 		if err != nil {
-			return nil, fmt.Errorf("读取当前配置失败: %v", err)
+			return nil, fmt.Errorf("读取當前配置失败: %v", err)
 		}
 		response.SourceContent = string(content)
 		response.SourceTime = time.Now()
@@ -210,12 +210,12 @@ func (hm *HistoryManager) DiffVersions(sourceVersion, targetVersion int) (*Histo
 		response.SourceTime = history.CreatedAt
 	}
 
-	// 获取目标版本内容
+	// 獲取目標版本内容
 	if targetVersion == 0 {
-		// 0 表示当前配置
+		// 0 表示當前配置
 		content, err := os.ReadFile(hm.configPath)
 		if err != nil {
-			return nil, fmt.Errorf("读取当前配置失败: %v", err)
+			return nil, fmt.Errorf("读取當前配置失败: %v", err)
 		}
 		response.TargetContent = string(content)
 		response.TargetTime = time.Now()
@@ -231,7 +231,7 @@ func (hm *HistoryManager) DiffVersions(sourceVersion, targetVersion int) (*Histo
 	return response, nil
 }
 
-// CleanupOldHistory 清理旧历史记录（保留最新的 n 条）
+// CleanupOldHistory 清理舊历史記錄（保留最新的 n 条）
 func (hm *HistoryManager) CleanupOldHistory(keepCount int) error {
 	var total int64
 	hm.db.Model(&ConfigHistory{}).Count(&total)
@@ -240,7 +240,7 @@ func (hm *HistoryManager) CleanupOldHistory(keepCount int) error {
 		return nil
 	}
 
-	// 获取需要保留的最小版本号
+	// 獲取需要保留的最小版本号
 	var minVersionToKeep int
 	hm.db.Model(&ConfigHistory{}).
 		Order("version DESC").
@@ -248,17 +248,17 @@ func (hm *HistoryManager) CleanupOldHistory(keepCount int) error {
 		Offset(keepCount).
 		Pluck("version", &minVersionToKeep)
 
-	// 删除旧版本
+	// 刪除舊版本
 	if minVersionToKeep > 0 {
 		if err := hm.db.Where("version < ?", minVersionToKeep).Delete(&ConfigHistory{}).Error; err != nil {
-			return fmt.Errorf("清理旧历史记录失败: %v", err)
+			return fmt.Errorf("清理舊历史記錄失败: %v", err)
 		}
 	}
 
 	return nil
 }
 
-// Close 关闭数据库连接
+// Close 关闭數據库连接
 func (hm *HistoryManager) Close() error {
 	sqlDB, err := hm.db.DB()
 	if err != nil {

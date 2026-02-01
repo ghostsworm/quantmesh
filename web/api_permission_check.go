@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// PermissionCheckResult API 权限检测结果
+// PermissionCheckResult API 权限检测結果
 type PermissionCheckResult struct {
 	Exchange     string                   `json:"exchange"`
 	Symbol       string                   `json:"symbol"`
@@ -31,20 +31,20 @@ func CheckExchangePermissions(ctx context.Context, ex exchange.IExchange, exchan
 		CheckTime: time.Now(),
 	}
 
-	// 检查交易所是否实现了 PermissionChecker 接口
+	// 检查交易所是否實現了 PermissionChecker 接口
 	checker, ok := ex.(exchange.PermissionChecker)
 	if !ok {
-		result.ErrorMessage = "该交易所暂不支持权限检测"
-		result.IsSecure = true // 假设安全，不阻止启动
-		logger.Warn("⚠️ [%s] 不支持 API 权限检测接口", exchangeName)
+		result.ErrorMessage = "該交易所暫不支援权限检测"
+		result.IsSecure = true // 假設安全，不阻止啟动
+		logger.Warn("⚠️ [%s] 不支援 API 权限检测接口", exchangeName)
 		return result
 	}
 
-	// 执行权限检测
+	// 執行权限检测
 	permissions, err := checker.CheckAPIPermissions(ctx)
 	if err != nil {
 		result.ErrorMessage = fmt.Sprintf("权限检测失败: %v", err)
-		result.IsSecure = true // 检测失败不阻止启动
+		result.IsSecure = true // 检测失败不阻止啟动
 		logger.Error("❌ [%s] API 权限检测失败: %v", exchangeName, err)
 		return result
 	}
@@ -53,7 +53,7 @@ func CheckExchangePermissions(ctx context.Context, ex exchange.IExchange, exchan
 	result.IsSecure = permissions.IsSecure()
 	result.Warnings = permissions.GetWarnings()
 
-	// 记录警告信息
+	// 記錄警告信息
 	if len(result.Warnings) > 0 {
 		logger.Warn("⚠️ [%s] API 权限安全警告:", exchangeName)
 		for _, warning := range result.Warnings {
@@ -61,43 +61,43 @@ func CheckExchangePermissions(ctx context.Context, ex exchange.IExchange, exchan
 		}
 	}
 
-	// 如果不安全，记录错误
+	// 如果不安全，記錄錯误
 	if !result.IsSecure {
-		logger.Error("🚨 [%s] API 密钥存在安全风险！建议修改权限设置", exchangeName)
+		logger.Error("🚨 [%s] API 密钥存在安全风險！建议修改权限設置", exchangeName)
 	} else {
-		logger.Info("✅ [%s] API 密钥权限检测通过", exchangeName)
+		logger.Info("✅ [%s] API 密钥权限检测通過", exchangeName)
 	}
 
 	return result
 }
 
-// getAPIPermissions 获取 API 权限信息（HTTP 接口）
+// getAPIPermissions 獲取 API 权限信息（HTTP 接口）
 func getAPIPermissions(c *gin.Context) {
 	exchangeName := c.Query("exchange")
 	symbol := c.Query("symbol")
 
 	if exchangeName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 exchange 参数"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 exchange 参數"})
 		return
 	}
 
-	// 从 provider 获取交易所实例
+	// 從 provider 獲取交易所實例
 	key := makeSymbolKey(exchangeName, symbol)
 	providersMu.RLock()
 	exProvider, ok := exchangeProviders[key]
 	providersMu.RUnlock()
 
 	if !ok || exProvider == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "未找到指定的交易所实例"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "未找到指定的交易所實例"})
 		return
 	}
 
-	// 注意：这里需要从 exProvider 获取实际的 exchange.IExchange 实例
-	// 由于 ExchangeProvider 接口可能不直接暴露底层交易所，我们需要扩展接口
-	// 暂时返回提示信息
+	// 注意：这里需要從 exProvider 獲取實際的 exchange.IExchange 實例
+	// 由於 ExchangeProvider 接口可能不直接暴露底层交易所，我们需要扩展接口
+	// 暂時返回提示信息
 	c.JSON(http.StatusOK, gin.H{
-		"message":  "API 权限检测功能已实现，请在系统启动时查看日志",
-		"note":     "权限检测结果会在启动时自动执行并记录到日志中",
+		"message":  "API 权限检测功能已實現，请在系统啟动時查看日志",
+		"note":     "权限检测結果會在啟动時自动執行並記錄到日志中",
 		"exchange": exchangeName,
 		"symbol":   symbol,
 	})
@@ -118,19 +118,19 @@ func FormatPermissionReport(results []*PermissionCheckResult) string {
 
 	for i, result := range results {
 		report += fmt.Sprintf("%d. 交易所: %s (%s)\n", i+1, result.Exchange, result.Symbol)
-		report += fmt.Sprintf("   检测时间: %s\n", result.CheckTime.Format("2006-01-02 15:04:05"))
+		report += fmt.Sprintf("   检测時间: %s\n", result.CheckTime.Format("2006-01-02 15:04:05"))
 
 		if result.ErrorMessage != "" {
-			report += fmt.Sprintf("   ❌ 错误: %s\n", result.ErrorMessage)
+			report += fmt.Sprintf("   ❌ 錯误: %s\n", result.ErrorMessage)
 		} else if result.Permissions != nil {
 			p := result.Permissions
 			report += fmt.Sprintf("   权限信息:\n")
 			report += fmt.Sprintf("     - 交易权限: %v\n", p.CanTrade)
-			report += fmt.Sprintf("     - 提现权限: %v\n", p.CanWithdraw)
-			report += fmt.Sprintf("     - 转账权限: %v\n", p.CanTransfer)
+			report += fmt.Sprintf("     - 提現权限: %v\n", p.CanWithdraw)
+			report += fmt.Sprintf("     - 轉账权限: %v\n", p.CanTransfer)
 			report += fmt.Sprintf("     - IP 限制: %v\n", p.IPRestricted)
 			report += fmt.Sprintf("   安全评分: %d/100\n", p.SecurityScore)
-			report += fmt.Sprintf("   风险等级: %s\n", p.RiskLevel)
+			report += fmt.Sprintf("   风險等级: %s\n", p.RiskLevel)
 
 			if p.RiskLevel == "high" {
 				hasHighRisk = true
@@ -146,9 +146,9 @@ func FormatPermissionReport(results []*PermissionCheckResult) string {
 			}
 
 			if result.IsSecure {
-				report += "   ✅ 状态: 安全\n"
+				report += "   ✅ 状態: 安全\n"
 			} else {
-				report += "   🚨 状态: 存在安全风险\n"
+				report += "   🚨 状態: 存在安全风險\n"
 			}
 		}
 		report += "\n"
@@ -157,19 +157,19 @@ func FormatPermissionReport(results []*PermissionCheckResult) string {
 	report += "═══════════════════════════════════════════════════════════════\n"
 
 	if hasHighRisk {
-		report += "🚨 警告: 检测到高风险 API 密钥！\n"
+		report += "🚨 警告: 检测到高风險 API 密钥！\n"
 		report += "   强烈建议:\n"
-		report += "   1. 立即禁用 API 密钥的提现和转账权限\n"
-		report += "   2. 启用 IP 白名单限制\n"
-		report += "   3. 使用子账户 API 密钥进行交易\n"
+		report += "   1. 立即禁用 API 密钥的提現和轉账权限\n"
+		report += "   2. 啟用 IP 白名單限制\n"
+		report += "   3. 使用子账戶 API 密钥進行交易\n"
 		report += "   4. 定期更换 API 密钥\n"
 	} else if hasMediumRisk {
-		report += "⚠️ 提示: 检测到中等风险 API 密钥\n"
+		report += "⚠️ 提示: 检测到中等风險 API 密钥\n"
 		report += "   建议:\n"
-		report += "   1. 启用 IP 白名单限制以提高安全性\n"
+		report += "   1. 啟用 IP 白名單限制以提高安全性\n"
 		report += "   2. 定期检查 API 密钥使用情况\n"
 	} else {
-		report += "✅ 所有 API 密钥安全检测通过\n"
+		report += "✅ 所有 API 密钥安全检测通過\n"
 	}
 
 	report += "═══════════════════════════════════════════════════════════════\n"

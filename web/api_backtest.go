@@ -14,10 +14,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// backtestTaskManager 回测任务管理器（由 main 注入）
+// backtestTaskManager 回测任務管理器（由 main 注入）
 var backtestTaskManager *backtest.TaskManager
 
-// SetBacktestTaskManager 设置回测任务管理器
+// SetBacktestTaskManager 設置回测任務管理器
 func SetBacktestTaskManager(m *backtest.TaskManager) {
 	backtestTaskManager = m
 }
@@ -27,8 +27,8 @@ type BacktestRequest struct {
 	Strategy       string    `json:"strategy" binding:"required"`        // "momentum", "mean_reversion", "trend_following"
 	Symbol         string    `json:"symbol" binding:"required"`          // "BTCUSDT"
 	Interval       string    `json:"interval" binding:"required"`        // "1m", "5m", "1h"
-	StartTime      time.Time `json:"start_time" binding:"required"`      // 开始时间
-	EndTime        time.Time `json:"end_time" binding:"required"`        // 结束时间
+	StartTime      time.Time `json:"start_time" binding:"required"`      // 开始時间
+	EndTime        time.Time `json:"end_time" binding:"required"`        // 結束時间
 	InitialCapital float64   `json:"initial_capital" binding:"required"` // 初始资金
 }
 
@@ -46,12 +46,12 @@ func runBacktest(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, BacktestResponse{
 			Success: false,
-			Message: fmt.Sprintf("请求参数错误: %v", err),
+			Message: fmt.Sprintf("请求参數錯误: %v", err),
 		})
 		return
 	}
 
-	// 验证策略名称
+	// 驗证策略名称
 	validStrategies := map[string]bool{
 		"momentum":        true,
 		"mean_reversion":  true,
@@ -60,27 +60,27 @@ func runBacktest(c *gin.Context) {
 	if !validStrategies[req.Strategy] {
 		c.JSON(http.StatusBadRequest, BacktestResponse{
 			Success: false,
-			Message: fmt.Sprintf("不支持的策略: %s", req.Strategy),
+			Message: fmt.Sprintf("不支援的策略: %s", req.Strategy),
 		})
 		return
 	}
 
-	// 验证时间范围
+	// 驗证時间範圍
 	if req.EndTime.Before(req.StartTime) {
 		c.JSON(http.StatusBadRequest, BacktestResponse{
 			Success: false,
-			Message: "结束时间必须晚于开始时间",
+			Message: "結束時间必須晚於开始時间",
 		})
 		return
 	}
 
-	logger.Info("📊 开始回测: 策略=%s, 交易对=%s, 周期=%s",
+	logger.Info("📊 开始回测: 策略=%s, 交易對=%s, 周期=%s",
 		req.Strategy, req.Symbol, req.Interval)
 
-	// 获取 Binance 配置
+	// 獲取 Binance 配置
 	binanceConfig := getBinanceConfig()
 
-	// 1. 获取历史数据（优先缓存）
+	// 1. 獲取歷史數據（优先缓存）
 	candles, err := backtest.GetHistoricalData(
 		req.Symbol,
 		req.Interval,
@@ -89,10 +89,10 @@ func runBacktest(c *gin.Context) {
 		binanceConfig,
 	)
 	if err != nil {
-		logger.Error("获取历史数据失败: %v", err)
+		logger.Error("獲取歷史數據失败: %v", err)
 		c.JSON(http.StatusInternalServerError, BacktestResponse{
 			Success: false,
-			Message: fmt.Sprintf("获取历史数据失败: %v", err),
+			Message: fmt.Sprintf("獲取歷史數據失败: %v", err),
 		})
 		return
 	}
@@ -100,14 +100,14 @@ func runBacktest(c *gin.Context) {
 	if len(candles) == 0 {
 		c.JSON(http.StatusBadRequest, BacktestResponse{
 			Success: false,
-			Message: "未获取到历史数据",
+			Message: "未獲取到历史數據",
 		})
 		return
 	}
 
-	logger.Info("✅ 获取历史数据成功: %d 根K线", len(candles))
+	logger.Info("✅ 獲取歷史數據成功: %d 根K線", len(candles))
 
-	// 2. 创建策略适配器
+	// 2. 創建策略适配器
 	var strategy backtest.StrategyAdapter
 	switch req.Strategy {
 	case "momentum":
@@ -118,7 +118,7 @@ func runBacktest(c *gin.Context) {
 		strategy = backtest.NewTrendFollowingAdapter()
 	}
 
-	// 3. 创建回测器
+	// 3. 創建回测器
 	backtester := backtest.NewBacktester(
 		req.Symbol,
 		candles,
@@ -145,15 +145,15 @@ func runBacktest(c *gin.Context) {
 		logger.Info("📄 报告已生成: %s", reportPath)
 	}
 
-	// 6. 保存权益曲线
+	// 6. 保存权益曲線
 	equityPath, err := backtest.SaveEquityCurveCSV(result)
 	if err != nil {
-		logger.Warn("保存权益曲线失败: %v", err)
+		logger.Warn("保存权益曲線失败: %v", err)
 	} else {
-		logger.Info("📈 权益曲线已保存: %s", equityPath)
+		logger.Info("📈 权益曲線已保存: %s", equityPath)
 	}
 
-	logger.Info("✅ 回测完成: 总收益率=%.2f%%, 夏普比率=%.2f",
+	logger.Info("✅ 回测完成: 總收益率=%.2f%%, 夏普比率=%.2f",
 		result.Metrics.TotalReturn, result.Metrics.SharpeRatio)
 
 	c.JSON(http.StatusOK, BacktestResponse{
@@ -164,13 +164,13 @@ func runBacktest(c *gin.Context) {
 	})
 }
 
-// getCacheStats 获取缓存统计
+// getCacheStats 獲取缓存统计
 func getCacheStats(c *gin.Context) {
 	stats, err := backtest.GetCacheStats()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": fmt.Sprintf("获取缓存统计失败: %v", err),
+			"message": fmt.Sprintf("獲取缓存统计失败: %v", err),
 		})
 		return
 	}
@@ -198,7 +198,7 @@ func listCache(c *gin.Context) {
 	})
 }
 
-// deleteCache 删除指定缓存
+// deleteCache 刪除指定缓存
 func deleteCache(c *gin.Context) {
 	cacheKey := c.Param("key")
 	if cacheKey == "" {
@@ -212,14 +212,14 @@ func deleteCache(c *gin.Context) {
 	if err := backtest.DeleteCache(cacheKey); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": fmt.Sprintf("删除缓存失败: %v", err),
+			"message": fmt.Sprintf("刪除缓存失败: %v", err),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "缓存已删除",
+		"message": "缓存已刪除",
 	})
 }
 
@@ -239,12 +239,12 @@ func clearCache(c *gin.Context) {
 	})
 }
 
-// getBinanceConfig 获取 Binance 配置
+// getBinanceConfig 獲取 Binance 配置
 func getBinanceConfig() map[string]string {
 	return getExchangeConfig("binance")
 }
 
-// getExchangeConfig 根据交易所名称获取配置（用于历史 K 线等公开接口）
+// getExchangeConfig 根據交易所名称獲取配置（用於历史 K 線等公开接口）
 func getExchangeConfig(exchange string) map[string]string {
 	if configManager != nil {
 		cfg, err := configManager.GetConfig()
@@ -288,13 +288,13 @@ func getExchangeConfig(exchange string) map[string]string {
 	}
 }
 
-// getBacktestStrategies 获取策略列表及参数定义 GET /api/backtest/strategies
+// getBacktestStrategies 獲取策略列表及参數定义 GET /api/backtest/strategies
 func getBacktestStrategies(c *gin.Context) {
 	defs := backtest.GetAllStrategyDefinitions()
 	c.JSON(http.StatusOK, gin.H{"success": true, "strategies": defs})
 }
 
-// getBacktestPreset 获取交易对推荐配置 GET /api/backtest/presets/:symbol
+// getBacktestPreset 獲取交易對推荐配置 GET /api/backtest/presets/:symbol
 func getBacktestPreset(c *gin.Context) {
 	symbol := c.Param("symbol")
 	if symbol == "" {
@@ -305,7 +305,7 @@ func getBacktestPreset(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "preset": preset})
 }
 
-// postCacheGenerate 生成 K 线缓存（异步） POST /api/backtest/cache/generate
+// postCacheGenerate 生成 K 線缓存（异步） POST /api/backtest/cache/generate
 func postCacheGenerate(c *gin.Context) {
 	var req struct {
 		Symbol    string `json:"symbol" binding:"required"`
@@ -314,27 +314,27 @@ func postCacheGenerate(c *gin.Context) {
 		EndDate   string `json:"end_date" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参数错误: %v", err)})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参數錯误: %v", err)})
 		return
 	}
 	startTime, err := time.Parse("2006-01-02", req.StartDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "start_date 格式应为 2006-01-02"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "start_date 格式应為 2006-01-02"})
 		return
 	}
 	endTime, err := time.Parse("2006-01-02", req.EndDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_date 格式应为 2006-01-02"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_date 格式应為 2006-01-02"})
 		return
 	}
 	if endTime.Before(startTime) {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_date 必须晚于 start_date"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_date 必須晚於 start_date"})
 		return
 	}
 	binanceConfig := getBinanceConfig()
 	go func() {
 		_, _ = backtest.GetHistoricalData(req.Symbol, req.Interval, startTime, endTime, binanceConfig)
-		logger.Info("✅ K线缓存生成完成: %s %s %s ~ %s", req.Symbol, req.Interval, req.StartDate, req.EndDate)
+		logger.Info("✅ K線缓存生成完成: %s %s %s ~ %s", req.Symbol, req.Interval, req.StartDate, req.EndDate)
 	}()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -343,7 +343,7 @@ func postCacheGenerate(c *gin.Context) {
 	})
 }
 
-// getCacheStatus 查询指定缓存是否存在 GET /api/backtest/cache/status?symbol=&interval=&start_date=&end_date=
+// getCacheStatus 查詢指定缓存是否存在 GET /api/backtest/cache/status?symbol=&interval=&start_date=&end_date=
 func getCacheStatus(c *gin.Context) {
 	symbol := c.Query("symbol")
 	interval := c.Query("interval")
@@ -360,10 +360,10 @@ func getCacheStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "cache_key": cacheKey, "exists": exists})
 }
 
-// postBacktestTasks 创建回测任务 POST /api/backtest/tasks
+// postBacktestTasks 創建回测任務 POST /api/backtest/tasks
 func postBacktestTasks(c *gin.Context) {
 	if backtestTaskManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "回测服务未初始化"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "回测服務未初始化"})
 		return
 	}
 	var req struct {
@@ -376,11 +376,11 @@ func postBacktestTasks(c *gin.Context) {
 		TotalCapital float64                `json:"total_capital" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参数错误: %v", err)})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参數錯误: %v", err)})
 		return
 	}
 	if req.EndTime.Before(req.StartTime) {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_time 必须晚于 start_time"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_time 必須晚於 start_time"})
 		return
 	}
 	validStrategies := map[string]bool{
@@ -388,7 +388,7 @@ func postBacktestTasks(c *gin.Context) {
 		"trend_following": true, "dca": true, "martingale": true, "combo": true,
 	}
 	if !validStrategies[req.Strategy] {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支持的策略: %s", req.Strategy)})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的策略: %s", req.Strategy)})
 		return
 	}
 	task := &backtest.BacktestTask{
@@ -407,10 +407,10 @@ func postBacktestTasks(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "任务已创建并开始执行", "task_id": task.ID})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "任務已創建並开始執行", "task_id": task.ID})
 }
 
-// getBacktestTasks 获取任务列表 GET /api/backtest/tasks?limit=50&offset=0
+// getBacktestTasks 獲取任務列表 GET /api/backtest/tasks?limit=50&offset=0
 func getBacktestTasks(c *gin.Context) {
 	if backtestTaskManager == nil {
 		c.JSON(http.StatusOK, gin.H{"success": true, "tasks": []interface{}{}})
@@ -434,55 +434,55 @@ func getBacktestTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "tasks": tasks})
 }
 
-// getBacktestTaskByID 获取任务详情 GET /api/backtest/tasks/:id
+// getBacktestTaskByID 獲取任務详情 GET /api/backtest/tasks/:id
 func getBacktestTaskByID(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
 	if backtestTaskManager == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
 	}
 	store := backtestTaskManager.GetStore()
 	if store == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
 	}
 	task, err := store.GetBacktestTask(id)
 	if err != nil || task == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "task": task})
 }
 
-// getBacktestTaskResult 获取结果 JSON GET /api/backtest/tasks/:id/result
+// getBacktestTaskResult 獲取結果 JSON GET /api/backtest/tasks/:id/result
 func getBacktestTaskResult(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
 	if backtestTaskManager == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "结果不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "結果不存在"})
 		return
 	}
 	resultPath := filepath.Join("backtest", "results", id+".json")
 	data, err := os.ReadFile(resultPath)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "结果文件不存在或未生成"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "結果文件不存在或未生成"})
 		return
 	}
 	c.Data(http.StatusOK, "application/json", data)
 }
 
-// getBacktestTaskReport 获取/下载报告 Markdown GET /api/backtest/tasks/:id/report
+// getBacktestTaskReport 獲取/下載报告 Markdown GET /api/backtest/tasks/:id/report
 func getBacktestTaskReport(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
 	reportPath := filepath.Join("backtest", "reports", id+".md")
@@ -497,20 +497,20 @@ func getBacktestTaskReport(c *gin.Context) {
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", data)
 }
 
-// deleteBacktestTask 删除任务 DELETE /api/backtest/tasks/:id
+// deleteBacktestTask 刪除任務 DELETE /api/backtest/tasks/:id
 func deleteBacktestTask(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
 	if backtestTaskManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "回测服务未初始化"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "回测服務未初始化"})
 		return
 	}
 	store := backtestTaskManager.GetStore()
 	if store == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储不可用"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存儲不可用"})
 		return
 	}
 	if err := store.DeleteBacktestTask(id); err != nil {
@@ -519,5 +519,5 @@ func deleteBacktestTask(c *gin.Context) {
 	}
 	_ = os.Remove(filepath.Join("backtest", "results", id+".json"))
 	_ = os.Remove(filepath.Join("backtest", "reports", id+".md"))
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已删除"})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已刪除"})
 }

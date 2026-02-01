@@ -29,7 +29,7 @@ func NewTaskProcessor(taskService *service.TaskService, aiService *service.AISer
 		taskService:   taskService,
 		aiService:     aiService,
 		checkInterval: 2 * time.Second, // 每 2 秒检查一次，提升响应速度
-		workerPool:    make(chan struct{}, 10), // 默认 10 个并发
+		workerPool:    make(chan struct{}, 10), // 預設 10 個並发
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -44,7 +44,7 @@ func (p *TaskProcessor) Start() {
 	p.isRunning = true
 	p.mu.Unlock()
 
-	logger.Info("AI 任务处理器已启动")
+	logger.Info("AI 任務处理器已啟动")
 	ticker := time.NewTicker(p.checkInterval)
 	defer ticker.Stop()
 
@@ -69,13 +69,13 @@ func (p *TaskProcessor) Stop() {
 	}
 	p.isRunning = false
 	p.cancel()
-	logger.Info("AI 任务处理器已停止")
+	logger.Info("AI 任務处理器已停止")
 }
 
 func (p *TaskProcessor) processTasks() {
 	tasks, err := p.taskService.GetPendingTasks(p.ctx, 10)
 	if err != nil {
-		logger.Error("获取待处理 AI 任务失败: %v", err)
+		logger.Error("獲取待处理 AI 任務失败: %v", err)
 		return
 	}
 
@@ -93,22 +93,22 @@ func (p *TaskProcessor) processTasks() {
 }
 
 func (p *TaskProcessor) executeTask(task *database.AsyncTask) {
-	logger.Info("开始执行 AI 任务: %s (类型: %s)", task.ID, task.TaskType)
+	logger.Info("开始執行 AI 任務: %s (類型: %s)", task.ID, task.TaskType)
 
-	// 更新状态为运行中
+	// 更新状態為运行中
 	if err := p.taskService.UpdateTaskStatus(p.ctx, task.ID, "running", nil, nil); err != nil {
-		logger.Error("更新任务状态失败: %v", err)
+		logger.Error("更新任務状態失败: %v", err)
 		return
 	}
 
 	var reqData map[string]interface{}
 	if err := json.Unmarshal([]byte(task.RequestData), &reqData); err != nil {
-		errMsg := fmt.Sprintf("解析请求数据失败: %v", err)
+		errMsg := fmt.Sprintf("解析请求數據失败: %v", err)
 		p.taskService.UpdateTaskStatus(p.ctx, task.ID, "failed", nil, &errMsg)
 		return
 	}
 
-	// 构建 AI 请求
+	// 構建 AI 请求
 	prompt, _ := reqData["prompt"].(string)
 	sysInst, _ := reqData["system_instruction"].(string)
 	apiKey, _ := reqData["gemini_api_key"].(string)
@@ -136,19 +136,19 @@ func (p *TaskProcessor) executeTask(task *database.AsyncTask) {
 		}
 	}
 
-	// 执行 AI 调用
+	// 執行 AI 調用
 	ctx, cancel := context.WithTimeout(p.ctx, time.Duration(task.TimeoutSeconds)*time.Second)
 	defer cancel()
 
 	resp, err := p.aiService.GenerateContent(ctx, aiReq)
 	if err != nil {
-		errMsg := fmt.Sprintf("AI 调用异常: %v", err)
-		logger.Error("任务 %s 执行异常: %s", task.ID, errMsg)
+		errMsg := fmt.Sprintf("AI 調用异常: %v", err)
+		logger.Error("任務 %s 執行异常: %s", task.ID, errMsg)
 		
-		// 重试逻辑
+		// 重試逻辑
 		if task.RetryCount < task.MaxRetries {
 			p.taskService.RetryTask(p.ctx, task.ID)
-			logger.Info("任务 %s 将进行重试 (当前重试次数: %d)", task.ID, task.RetryCount+1)
+			logger.Info("任務 %s 將進行重試 (當前重試次數: %d)", task.ID, task.RetryCount+1)
 		} else {
 			p.taskService.UpdateTaskStatus(p.ctx, task.ID, "failed", nil, &errMsg)
 		}
@@ -156,7 +156,7 @@ func (p *TaskProcessor) executeTask(task *database.AsyncTask) {
 	}
 
 	if !resp.Success {
-		logger.Error("任务 %s 执行失败: %s", task.ID, resp.Error)
+		logger.Error("任務 %s 執行失败: %s", task.ID, resp.Error)
 		if task.RetryCount < task.MaxRetries {
 			p.taskService.RetryTask(p.ctx, task.ID)
 		} else {
@@ -165,7 +165,7 @@ func (p *TaskProcessor) executeTask(task *database.AsyncTask) {
 		return
 	}
 
-	// 任务完成
+	// 任務完成
 	result := map[string]interface{}{
 		"text":               resp.Content,
 		"ai_input":           resp.AIInput,
@@ -177,8 +177,8 @@ func (p *TaskProcessor) executeTask(task *database.AsyncTask) {
 	}
 
 	if err := p.taskService.UpdateTaskStatus(p.ctx, task.ID, "completed", result, nil); err != nil {
-		logger.Error("更新任务完成状态失败: %v", err)
+		logger.Error("更新任務完成状態失败: %v", err)
 	} else {
-		logger.Info("任务 %s 执行成功", task.ID)
+		logger.Info("任務 %s 執行成功", task.ID)
 	}
 }

@@ -16,7 +16,7 @@ import (
 	"quantmesh/logger"
 )
 
-// NewsCollector 新闻收集器：每5分钟静默收集NewsAPI新闻，维护最近2小时缓存
+// NewsCollector 新闻收集器：每5分钟静默收集NewsAPI新闻，维护最近2小時缓存
 type NewsCollector struct {
 	cfg         *config.Config
 	httpClient  *http.Client
@@ -25,10 +25,10 @@ type NewsCollector struct {
 	lastCollect time.Time
 	ctx         context.Context
 	cancel      context.CancelFunc
-	collectDone chan struct{} // 在 Start() 中创建，goroutine 退出时关闭
+	collectDone chan struct{} // 在 Start() 中創建，goroutine 退出時关闭
 }
 
-// NewNewsCollector 创建新闻收集器
+// NewNewsCollector 創建新闻收集器
 func NewNewsCollector(cfg *config.Config) *NewsCollector {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -58,10 +58,10 @@ func NewNewsCollector(cfg *config.Config) *NewsCollector {
 	}
 }
 
-// Start 启动5分钟定时收集
+// Start 啟动5分钟定時收集
 func (nc *NewsCollector) Start() {
 	if !nc.cfg.NewsMonitor.Enabled || nc.cfg.NewsMonitor.NewsAPIKey == "" {
-		logger.Debug("📰 NewsCollector: 未启用或未配置NewsAPI Key，跳过启动")
+		logger.Debug("📰 NewsCollector: 未啟用或未配置NewsAPI Key，跳過啟动")
 		return
 	}
 
@@ -71,11 +71,11 @@ func (nc *NewsCollector) Start() {
 		interval = 5 * time.Minute
 	}
 
-	logger.Info("📰 NewsCollector 启动 (收集间隔: %s)", interval)
+	logger.Info("📰 NewsCollector 啟动 (收集间隔: %s)", interval)
 
 	nc.collectDone = make(chan struct{})
 
-	// 立即执行一次
+	// 立即執行一次
 	_ = nc.CollectNow()
 
 	go func() {
@@ -103,7 +103,7 @@ func (nc *NewsCollector) Stop() {
 	logger.Info("📰 NewsCollector 已停止")
 }
 
-// CollectNow 立即收集一次（合并所有启用资产的关键词）
+// CollectNow 立即收集一次（合並所有啟用资產的关键词）
 func (nc *NewsCollector) CollectNow() error {
 	if nc.cfg.NewsMonitor.NewsAPIKey == "" {
 		return fmt.Errorf("NewsAPI key not configured")
@@ -116,14 +116,14 @@ func (nc *NewsCollector) CollectNow() error {
 
 	items, err := nc.fetchFromNewsAPI(nc.cfg.NewsMonitor.NewsAPIKey, keywords)
 	if err != nil {
-		logger.Warn("📰 NewsCollector 获取新闻失败: %v", err)
+		logger.Warn("📰 NewsCollector 獲取新闻失败: %v", err)
 		return err
 	}
 
 	nc.cacheMutex.Lock()
 	defer nc.cacheMutex.Unlock()
 
-	// 去重合并：相同标题+来源的新闻只保留最新的
+	// 去重合並：相同標题+来源的新闻只保留最新的
 	seen := make(map[string]bool)
 	for _, item := range items {
 		key := item.Title + "|" + item.Source
@@ -134,7 +134,7 @@ func (nc *NewsCollector) CollectNow() error {
 		nc.newsCache = append(nc.newsCache, item)
 	}
 
-	// 只保留最近2小时的新闻
+	// 只保留最近2小時的新闻
 	cutoffTime := time.Now().Add(-2 * time.Hour)
 	filtered := make([]NewsItem, 0)
 	for _, item := range nc.newsCache {
@@ -144,7 +144,7 @@ func (nc *NewsCollector) CollectNow() error {
 	}
 	nc.newsCache = filtered
 
-	// 按时间倒序排列（最新的在前）
+	// 按時间倒序排列（最新的在前）
 	sort.Slice(nc.newsCache, func(i, j int) bool {
 		return nc.newsCache[i].PublishedAt.After(nc.newsCache[j].PublishedAt)
 	})
@@ -154,7 +154,7 @@ func (nc *NewsCollector) CollectNow() error {
 	return nil
 }
 
-// collectKeywords 合并所有启用资产的关键词
+// collectKeywords 合並所有啟用资產的关键词
 func (nc *NewsCollector) collectKeywords() []string {
 	seen := make(map[string]bool)
 	var result []string
@@ -196,7 +196,7 @@ func (nc *NewsCollector) collectKeywords() []string {
 	return result
 }
 
-// GetRecentNews 获取最近N小时的新闻
+// GetRecentNews 獲取最近N小時的新闻
 func (nc *NewsCollector) GetRecentNews(hours int) []NewsItem {
 	nc.cacheMutex.RLock()
 	defer nc.cacheMutex.RUnlock()
@@ -211,17 +211,17 @@ func (nc *NewsCollector) GetRecentNews(hours int) []NewsItem {
 	return result
 }
 
-// GetNewsSummaryText 生成给Gemini的新闻摘要文本（assetType 用于扩展，当前合并所有资产新闻）
+// GetNewsSummaryText 生成给Gemini的新闻摘要文本（assetType 用於扩展，當前合並所有资產新闻）
 func (nc *NewsCollector) GetNewsSummaryText(assetType string) string {
-	news := nc.GetRecentNews(2) // 最近2小时
+	news := nc.GetRecentNews(2) // 最近2小時
 	if len(news) == 0 {
-		return "（暂无最近2小时内的新闻）"
+		return "（暂無最近2小時内的新闻）"
 	}
 
 	var sb strings.Builder
 	for _, item := range news {
-		sb.WriteString(fmt.Sprintf("时间: %s\n", item.PublishedAt.Format("2006-01-02 15:04:05")))
-		sb.WriteString(fmt.Sprintf("标题: %s\n", item.Title))
+		sb.WriteString(fmt.Sprintf("時间: %s\n", item.PublishedAt.Format("2006-01-02 15:04:05")))
+		sb.WriteString(fmt.Sprintf("標题: %s\n", item.Title))
 		sb.WriteString(fmt.Sprintf("来源: %s\n", item.Source))
 		if item.Content != "" {
 			content := item.Content
@@ -235,21 +235,21 @@ func (nc *NewsCollector) GetNewsSummaryText(assetType string) string {
 	return strings.TrimSpace(sb.String())
 }
 
-// GetLastCollectTime 返回最近一次收集时间
+// GetLastCollectTime 返回最近一次收集時间
 func (nc *NewsCollector) GetLastCollectTime() time.Time {
 	nc.cacheMutex.RLock()
 	defer nc.cacheMutex.RUnlock()
 	return nc.lastCollect
 }
 
-// GetCacheCount 返回当前缓存新闻数量
+// GetCacheCount 回傳當前缓存新闻數量
 func (nc *NewsCollector) GetCacheCount() int {
 	nc.cacheMutex.RLock()
 	defer nc.cacheMutex.RUnlock()
 	return len(nc.newsCache)
 }
 
-// fetchFromNewsAPI 从NewsAPI获取新闻
+// fetchFromNewsAPI 從NewsAPI獲取新闻
 func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]NewsItem, error) {
 	baseURL := "https://newsapi.org/v2/everything"
 	params := url.Values{}

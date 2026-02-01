@@ -11,7 +11,7 @@ import (
 
 var (
 	once sync.Once
-	// 订单指标
+	// 订單指標
 	orderTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "quantmesh_order_total",
@@ -45,7 +45,7 @@ var (
 		[]string{"exchange", "symbol", "side"},
 	)
 
-	// 交易指标
+	// 交易指標
 	tradeVolume = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "quantmesh_trade_volume_total",
@@ -70,7 +70,7 @@ var (
 		[]string{"exchange", "symbol", "side"},
 	)
 
-	// 盈亏指标
+	// 盈亏指標
 	pnlTotal = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "quantmesh_pnl_total",
@@ -95,7 +95,7 @@ var (
 		[]string{"exchange", "symbol"},
 	)
 
-	// 风控指标
+	// 风控指標
 	riskControlTriggered = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "quantmesh_risk_control_triggered",
@@ -128,7 +128,7 @@ var (
 		[]string{"exchange", "symbol"},
 	)
 
-	// 持仓指标
+	// 持倉指標
 	positionSize = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "quantmesh_position_size",
@@ -153,7 +153,7 @@ var (
 		[]string{"exchange", "symbol", "side"},
 	)
 
-	// 系统指标
+	// 系统指標
 	goroutineCount = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "quantmesh_goroutine_count",
@@ -169,7 +169,7 @@ var (
 		},
 	)
 
-	// 分布式锁指标
+	// 分布式鎖指標
 	lockAcquireTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "quantmesh_lock_acquire_total",
@@ -209,7 +209,7 @@ var (
 		},
 	)
 
-	// 交易所指标
+	// 交易所指標
 	websocketConnected = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "quantmesh_websocket_connected",
@@ -251,7 +251,7 @@ var (
 		[]string{"exchange"},
 	)
 
-	// 价格指标
+	// 價格指標
 	currentPrice = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "quantmesh_current_price",
@@ -268,7 +268,7 @@ var (
 		[]string{"exchange", "symbol"},
 	)
 
-	// 对账指标
+	// 對账指標
 	reconciliationCount = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "quantmesh_reconciliation_count_total",
@@ -285,7 +285,7 @@ var (
 		[]string{"exchange", "symbol", "type"},
 	)
 
-	// 新闻监控指标
+	// 新聞監控指標
 	newsRiskScore = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "quantmesh_news_risk_score",
@@ -337,68 +337,68 @@ var (
 	)
 )
 
-// PrometheusMetrics Prometheus 指标收集器
+// PrometheusMetrics Prometheus 指標收集器
 type PrometheusMetrics struct {
 	mu sync.RWMutex
 }
 
-// NewPrometheusMetrics 创建 Prometheus 指标收集器
+// NewPrometheusMetrics 創建 Prometheus 指標收集器
 func NewPrometheusMetrics() *PrometheusMetrics {
 	return &PrometheusMetrics{}
 }
 
-// 订单相关指标记录
+// 訂單相關指標記錄
 
-// RecordOrder 记录订单
+// RecordOrder 記錄订單
 func (pm *PrometheusMetrics) RecordOrder(exchange, symbol, side, status string) {
 	orderTotal.WithLabelValues(exchange, symbol, side, status).Inc()
 }
 
-// RecordOrderSuccess 记录订单成功
+// RecordOrderSuccess 記錄订單成功
 func (pm *PrometheusMetrics) RecordOrderSuccess(exchange, symbol, side string, duration time.Duration) {
 	orderSuccessTotal.WithLabelValues(exchange, symbol, side).Inc()
 	orderDuration.WithLabelValues(exchange, symbol, side).Observe(duration.Seconds())
 }
 
-// RecordOrderFailure 记录订单失败
+// RecordOrderFailure 記錄订單失败
 func (pm *PrometheusMetrics) RecordOrderFailure(exchange, symbol, side, reason string) {
 	orderFailureTotal.WithLabelValues(exchange, symbol, side, reason).Inc()
 }
 
-// RecordOrderDuration 记录订单执行时长
+// RecordOrderDuration 記錄訂單執行時长
 func (pm *PrometheusMetrics) RecordOrderDuration(exchange, symbol, side string, duration time.Duration) {
 	orderDuration.WithLabelValues(exchange, symbol, side).Observe(duration.Seconds())
 }
 
-// 交易相关指标记录
+// 交易相关指標記錄
 
-// RecordTrade 记录交易
+// RecordTrade 記錄交易
 func (pm *PrometheusMetrics) RecordTrade(exchange, symbol, side string, volume, amount float64) {
 	tradeVolume.WithLabelValues(exchange, symbol, side).Add(volume)
 	tradeAmount.WithLabelValues(exchange, symbol, side).Add(amount)
 	tradeCount.WithLabelValues(exchange, symbol, side).Inc()
 }
 
-// 盈亏相关指标记录
+// 盈亏相关指標記錄
 
-// SetPnL 设置盈亏
+// SetPnL 設置盈亏
 func (pm *PrometheusMetrics) SetPnL(exchange, symbol string, pnl float64) {
 	pnlTotal.WithLabelValues(exchange, symbol).Set(pnl)
 }
 
-// RecordRealizedPnL 记录已实现盈亏
+// RecordRealizedPnL 記錄已實現盈亏
 func (pm *PrometheusMetrics) RecordRealizedPnL(exchange, symbol string, pnl float64) {
 	pnlRealized.WithLabelValues(exchange, symbol).Add(pnl)
 }
 
-// SetWinRate 设置胜率
+// SetWinRate 設置胜率
 func (pm *PrometheusMetrics) SetWinRate(exchange, symbol string, rate float64) {
 	winRate.WithLabelValues(exchange, symbol).Set(rate)
 }
 
-// 风控相关指标记录
+// 风控相关指標記錄
 
-// SetRiskControlStatus 设置风控状态
+// SetRiskControlStatus 設置风控状態
 func (pm *PrometheusMetrics) SetRiskControlStatus(exchange, symbol string, triggered bool) {
 	value := 0.0
 	if triggered {
@@ -407,63 +407,63 @@ func (pm *PrometheusMetrics) SetRiskControlStatus(exchange, symbol string, trigg
 	riskControlTriggered.WithLabelValues(exchange, symbol).Set(value)
 }
 
-// RecordRiskControlTrigger 记录风控触发
+// RecordRiskControlTrigger 記錄风控触发
 func (pm *PrometheusMetrics) RecordRiskControlTrigger(exchange, symbol, reason string) {
 	riskControlTriggerCount.WithLabelValues(exchange, symbol, reason).Inc()
 }
 
-// SetMarginUsageRatio 设置保证金使用率
+// SetMarginUsageRatio 設置保证金使用率
 func (pm *PrometheusMetrics) SetMarginUsageRatio(exchange, symbol string, ratio float64) {
 	marginUsageRatio.WithLabelValues(exchange, symbol).Set(ratio)
 }
 
-// SetPositionRisk 设置持仓风险
+// SetPositionRisk 設置持倉风險
 func (pm *PrometheusMetrics) SetPositionRisk(exchange, symbol string, risk float64) {
 	positionRisk.WithLabelValues(exchange, symbol).Set(risk)
 }
 
-// 持仓相关指标记录
+// 持倉相关指標記錄
 
-// SetPositionSize 设置持仓大小
+// SetPositionSize 設置持倉大小
 func (pm *PrometheusMetrics) SetPositionSize(exchange, symbol string, size float64) {
 	positionSize.WithLabelValues(exchange, symbol).Set(size)
 }
 
-// SetPositionValue 设置持仓价值
+// SetPositionValue 設置持倉價值
 func (pm *PrometheusMetrics) SetPositionValue(exchange, symbol string, value float64) {
 	positionValue.WithLabelValues(exchange, symbol).Set(value)
 }
 
-// SetActiveOrdersCount 设置活跃订单数量
+// SetActiveOrdersCount 設置活跃订單數量
 func (pm *PrometheusMetrics) SetActiveOrdersCount(exchange, symbol, side string, count int) {
 	activeOrdersCount.WithLabelValues(exchange, symbol, side).Set(float64(count))
 }
 
-// 系统相关指标记录
+// 系统相关指標記錄
 
-// SetGoroutineCount 设置 Goroutine 数量
+// SetGoroutineCount 設置 Goroutine 數量
 func (pm *PrometheusMetrics) SetGoroutineCount(count int) {
 	goroutineCount.Set(float64(count))
 }
 
-// RecordGCPause 记录 GC 停顿时间
+// RecordGCPause 記錄 GC 停顿時间
 func (pm *PrometheusMetrics) RecordGCPause(duration time.Duration) {
 	gcPauseDuration.Observe(duration.Seconds())
 }
 
-// SetMemoryAlloc 设置内存分配
+// SetMemoryAlloc 設置記憶體分配
 func (pm *PrometheusMetrics) SetMemoryAlloc(bytes uint64) {
 	memoryAllocBytes.Set(float64(bytes))
 }
 
-// AddMemoryTotalAlloc 增加累计内存分配
+// AddMemoryTotalAlloc 增加累计記憶體分配
 func (pm *PrometheusMetrics) AddMemoryTotalAlloc(bytes uint64) {
 	memoryTotalAllocBytes.Add(float64(bytes))
 }
 
-// 交易所相关指标记录
+// 交易所相关指標記錄
 
-// SetWebSocketStatus 设置 WebSocket 连接状态
+// SetWebSocketStatus 設置 WebSocket 连接状態
 func (pm *PrometheusMetrics) SetWebSocketStatus(exchange, streamType string, connected bool) {
 	value := 0.0
 	if connected {
@@ -472,87 +472,87 @@ func (pm *PrometheusMetrics) SetWebSocketStatus(exchange, streamType string, con
 	websocketConnected.WithLabelValues(exchange, streamType).Set(value)
 }
 
-// RecordWebSocketReconnect 记录 WebSocket 重连
+// RecordWebSocketReconnect 記錄 WebSocket 重连
 func (pm *PrometheusMetrics) RecordWebSocketReconnect(exchange, streamType string) {
 	websocketReconnectCount.WithLabelValues(exchange, streamType).Inc()
 }
 
-// RecordAPICall 记录 API 调用
+// RecordAPICall 記錄 API 調用
 func (pm *PrometheusMetrics) RecordAPICall(exchange, endpoint, status string, duration time.Duration) {
 	apiCallTotal.WithLabelValues(exchange, endpoint, status).Inc()
 	apiCallDuration.WithLabelValues(exchange, endpoint).Observe(duration.Seconds())
 }
 
-// RecordAPIRateLimitHit 记录 API 限流
+// RecordAPIRateLimitHit 記錄 API 限流
 func (pm *PrometheusMetrics) RecordAPIRateLimitHit(exchange string) {
 	apiRateLimitHit.WithLabelValues(exchange).Inc()
 }
 
-// 价格相关指标记录
+// 價格相关指標記錄
 
-// SetCurrentPrice 设置当前价格
+// SetCurrentPrice 設置當前價格
 func (pm *PrometheusMetrics) SetCurrentPrice(exchange, symbol string, price float64) {
 	currentPrice.WithLabelValues(exchange, symbol).Set(price)
 }
 
-// RecordPriceUpdate 记录价格更新
+// RecordPriceUpdate 記錄價格更新
 func (pm *PrometheusMetrics) RecordPriceUpdate(exchange, symbol string) {
 	priceUpdateCount.WithLabelValues(exchange, symbol).Inc()
 }
 
-// 对账相关指标记录
+// 對账相关指標記錄
 
-// RecordReconciliation 记录对账
+// RecordReconciliation 記錄對账
 func (pm *PrometheusMetrics) RecordReconciliation(exchange, symbol string) {
 	reconciliationCount.WithLabelValues(exchange, symbol).Inc()
 }
 
-// RecordReconciliationDiff 记录对账差异
+// RecordReconciliationDiff 記錄對账差异
 func (pm *PrometheusMetrics) RecordReconciliationDiff(exchange, symbol, diffType string) {
 	reconciliationDiffFound.WithLabelValues(exchange, symbol, diffType).Inc()
 }
 
-// 分布式锁相关指标记录
+// 分布式鎖相关指標記錄
 
-// RecordLockAcquire 记录锁获取
+// RecordLockAcquire 記錄鎖獲取
 func (pm *PrometheusMetrics) RecordLockAcquire(key, status string) {
 	lockAcquireTotal.WithLabelValues(key, status).Inc()
 }
 
-// RecordLockConflict 记录锁冲突
+// RecordLockConflict 記錄鎖冲突
 func (pm *PrometheusMetrics) RecordLockConflict(key string) {
 	lockConflictTotal.WithLabelValues(key).Inc()
 }
 
-// RecordLockHoldDuration 记录锁持有时长
+// RecordLockHoldDuration 記錄鎖持有時长
 func (pm *PrometheusMetrics) RecordLockHoldDuration(key string, duration time.Duration) {
 	lockHoldDuration.WithLabelValues(key).Observe(duration.Seconds())
 }
 
-// 新闻监控相关指标记录
+// 新聞監控相关指標記錄
 
-// SetNewsRiskScore 设置新闻风险评分
+// SetNewsRiskScore 設置新闻风險评分
 func (pm *PrometheusMetrics) SetNewsRiskScore(score float64) {
 	newsRiskScore.Set(score)
 }
 
-// SetBitcoinCrashProbability 设置比特币大跌概率
+// SetBitcoinCrashProbability 設置比特币大跌概率
 func (pm *PrometheusMetrics) SetBitcoinCrashProbability(probability float64) {
 	bitcoinCrashProbability.Set(probability)
 }
 
-// SetHighRiskNewsCount 设置高风险新闻数量
+// SetHighRiskNewsCount 設置高风險新闻數量
 func (pm *PrometheusMetrics) SetHighRiskNewsCount(count int) {
 	highRiskNewsCount.Set(float64(count))
 }
 
-// SetNewsPredictionProbability 设置指定场景的概率预测
+// SetNewsPredictionProbability 設置指定场景的概率預测
 func (pm *PrometheusMetrics) SetNewsPredictionProbability(timeframe, direction string, changePercent float64, probability float64) {
 	changeLabel := strconv.FormatFloat(changePercent, 'f', 0, 64)
 	newsPredictionProbability.WithLabelValues(timeframe, direction, changeLabel).Set(probability)
 }
 
-// SetNewsRecommendation 设置新闻推荐操作
+// SetNewsRecommendation 設置新闻推荐操作
 func (pm *PrometheusMetrics) SetNewsRecommendation(rec string) {
 	v := 0.0
 	switch rec {
@@ -566,20 +566,20 @@ func (pm *PrometheusMetrics) SetNewsRecommendation(rec string) {
 	newsRecommendation.Set(v)
 }
 
-// SetNewsLastAnalysisTimestamp 设置最近分析时间戳
+// SetNewsLastAnalysisTimestamp 設置最近分析時间戳
 func (pm *PrometheusMetrics) SetNewsLastAnalysisTimestamp(ts int64) {
 	newsLastAnalysisTimestamp.Set(float64(ts))
 }
 
-// SetNewsCollectedCount 设置已收集新闻数量
+// SetNewsCollectedCount 設置已收集新闻數量
 func (pm *PrometheusMetrics) SetNewsCollectedCount(count int) {
 	newsCollectedCount.Set(float64(count))
 }
 
-// 全局实例
+// 全局實例
 var globalPrometheusMetrics *PrometheusMetrics
 
-// GetPrometheusMetrics 获取全局 Prometheus 指标收集器
+// GetPrometheusMetrics 獲取全局 Prometheus 指標收集器
 func GetPrometheusMetrics() *PrometheusMetrics {
 	once.Do(func() {
 		globalPrometheusMetrics = NewPrometheusMetrics()

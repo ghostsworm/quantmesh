@@ -22,14 +22,14 @@ const (
 	KrakenBaseURL = "https://futures.kraken.com" // Kraken 期货 API
 )
 
-// KrakenClient 结构体
+// KrakenClient 結構体
 type KrakenClient struct {
 	apiKey     string
 	secretKey  string
 	httpClient *http.Client
 }
 
-// NewKrakenClient 创建 Kraken 客户端实例
+// NewKrakenClient 創建 Kraken 客戶端實例
 func NewKrakenClient(apiKey, secretKey string) *KrakenClient {
 	return &KrakenClient{
 		apiKey:    apiKey,
@@ -40,19 +40,19 @@ func NewKrakenClient(apiKey, secretKey string) *KrakenClient {
 	}
 }
 
-// signRequest 对请求进行签名
+// signRequest 對请求進行签名
 func (c *KrakenClient) signRequest(path, nonce, postData string) string {
 	// Kraken 签名算法：
 	// 1. SHA256(nonce + postData)
 	// 2. HMAC-SHA512(path + sha256Hash, base64DecodedSecret)
-	// 3. Base64 编码结果
+	// 3. Base64 编碼結果
 
 	// 步骤 1: SHA256(nonce + postData)
 	sha := sha256.New()
 	sha.Write([]byte(nonce + postData))
 	shaSum := sha.Sum(nil)
 
-	// 步骤 2: 解码 secret
+	// 步骤 2: 解碼 secret
 	secretDecoded, err := base64.StdEncoding.DecodeString(c.secretKey)
 	if err != nil {
 		logger.Error("Kraken decode secret error: %v", err)
@@ -86,13 +86,13 @@ func (c *KrakenClient) sendRequest(ctx context.Context, method, path string, par
 		return nil, fmt.Errorf("create request error: %w", err)
 	}
 
-	// 生成 nonce（毫秒时间戳）
+	// 生成 nonce（毫秒時间戳）
 	nonce := strconv.FormatInt(time.Now().UnixMilli(), 10)
 
 	// 签名
 	signature := c.signRequest(path, nonce, bodyStr)
 
-	// 设置请求头
+	// 設置请求头
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("APIKey", c.apiKey)
 	req.Header.Set("Nonce", nonce)
@@ -126,7 +126,7 @@ func (c *KrakenClient) sendRequest(ctx context.Context, method, path string, par
 	return respBody, nil
 }
 
-// GetExchangeInfo 获取合约信息
+// GetExchangeInfo 獲取合約信息
 func (c *KrakenClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error) {
 	path := "/derivatives/api/v3/instruments"
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -151,7 +151,7 @@ func (c *KrakenClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, erro
 	return exchangeInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *KrakenClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
 	path := "/derivatives/api/v3/sendorder"
 	params := map[string]interface{}{
@@ -195,7 +195,7 @@ func (c *KrakenClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	return &OrderResponse{OrderID: resp.SendStatus.OrderID}, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *KrakenClient) CancelOrder(ctx context.Context, orderID string) (*CancelOrderResponse, error) {
 	path := "/derivatives/api/v3/cancelorder"
 	params := map[string]interface{}{
@@ -224,7 +224,7 @@ func (c *KrakenClient) CancelOrder(ctx context.Context, orderID string) (*Cancel
 	return &CancelOrderResponse{OrderID: orderID}, nil
 }
 
-// GetOrderInfo 查询订单
+// GetOrderInfo 查詢訂單
 func (c *KrakenClient) GetOrderInfo(ctx context.Context, orderID string) (*OrderInfo, error) {
 	path := "/derivatives/api/v3/orders/status"
 	params := map[string]interface{}{
@@ -251,7 +251,7 @@ func (c *KrakenClient) GetOrderInfo(ctx context.Context, orderID string) (*Order
 	return &resp.Orders[0], nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (c *KrakenClient) GetOpenOrders(ctx context.Context) ([]OrderInfo, error) {
 	path := "/derivatives/api/v3/openorders"
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -274,7 +274,7 @@ func (c *KrakenClient) GetOpenOrders(ctx context.Context) ([]OrderInfo, error) {
 	return resp.OpenOrders, nil
 }
 
-// GetAccountInfo 获取账户信息
+// GetAccountInfo 獲取帳戶信息
 func (c *KrakenClient) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
 	path := "/derivatives/api/v3/accounts"
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -297,7 +297,7 @@ func (c *KrakenClient) GetAccountInfo(ctx context.Context) (*AccountInfo, error)
 	return &resp.Accounts[0], nil
 }
 
-// GetPositionInfo 获取持仓信息
+// GetPositionInfo 獲取持倉信息
 func (c *KrakenClient) GetPositionInfo(ctx context.Context) ([]KrakenPositionInfo, error) {
 	path := "/derivatives/api/v3/openpositions"
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -320,7 +320,7 @@ func (c *KrakenClient) GetPositionInfo(ctx context.Context) ([]KrakenPositionInf
 	return resp.OpenPositions, nil
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (c *KrakenClient) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	path := fmt.Sprintf("/derivatives/api/v3/tickers")
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -352,12 +352,12 @@ func (c *KrakenClient) GetFundingRate(ctx context.Context, symbol string) (float
 	return 0, fmt.Errorf("symbol %s not found", symbol)
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (c *KrakenClient) GetHistoricalKlines(ctx context.Context, symbol string, resolution string, limit int) ([]Candle, error) {
 	// Kraken 使用 resolution: 1m, 5m, 15m, 30m, 1h, 4h, 12h, 1d, 1w
 	path := fmt.Sprintf("/api/charts/v1/trade/%s/%s", symbol, resolution)
 
-	// 计算时间范围
+	// 计算時间範圍
 	to := time.Now().Unix()
 	from := to - int64(limit*getResolutionSeconds(resolution))
 
@@ -388,7 +388,7 @@ func (c *KrakenClient) GetHistoricalKlines(ctx context.Context, symbol string, r
 	return klineResp.Candles, nil
 }
 
-// getResolutionSeconds 获取时间分辨率的秒数
+// getResolutionSeconds 獲取時间分辨率的秒數
 func getResolutionSeconds(resolution string) int {
 	switch resolution {
 	case "1m":
@@ -419,7 +419,7 @@ type ExchangeInfo struct {
 	Symbols map[string]ContractInfo
 }
 
-// ContractInfo 合约信息
+// ContractInfo 合約信息
 type ContractInfo struct {
 	Symbol          string  `json:"symbol"`
 	Type            string  `json:"type"`
@@ -438,7 +438,7 @@ type ContractInfo struct {
 	FundingRateCoefficient float64 `json:"fundingRateCoefficient"`
 }
 
-// OrderRequest 下单请求
+// OrderRequest 下單请求
 type OrderRequest struct {
 	ClientOrderID    string
 	Symbol           string
@@ -450,17 +450,17 @@ type OrderRequest struct {
 	QuantityDecimals int
 }
 
-// OrderResponse 下单响应
+// OrderResponse 下單响应
 type OrderResponse struct {
 	OrderID string
 }
 
-// CancelOrderResponse 取消订单响应
+// CancelOrderResponse 取消訂單响应
 type CancelOrderResponse struct {
 	OrderID string
 }
 
-// OrderInfo 订单信息
+// OrderInfo 订單信息
 type OrderInfo struct {
 	OrderID        string  `json:"order_id"`
 	CliOrdId       string  `json:"cliOrdId"`
@@ -475,7 +475,7 @@ type OrderInfo struct {
 	ReduceOnly     bool    `json:"reduceOnly"`
 }
 
-// AccountInfo 账户信息
+// AccountInfo 帳戶資訊
 type AccountInfo struct {
 	Name              string  `json:"name"`
 	Type              string  `json:"type"`
@@ -487,7 +487,7 @@ type AccountInfo struct {
 	UnrealisedFunding float64 `json:"unrealisedFunding"`
 }
 
-// KrakenPositionInfo 持仓信息
+// KrakenPositionInfo 持倉資訊
 type KrakenPositionInfo struct {
 	Symbol   string  `json:"symbol"`
 	Side     string  `json:"side"` // "long" or "short"
@@ -497,7 +497,7 @@ type KrakenPositionInfo struct {
 	PnL      float64 `json:"pnl"`
 }
 
-// Candle K线数据
+// Candle K線數據
 type Candle struct {
 	Time   int64  `json:"time"`
 	Open   string `json:"open"`

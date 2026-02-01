@@ -5,26 +5,26 @@ import (
 	"time"
 )
 
-// DistributedLock 分布式锁接口
+// DistributedLock 分布式鎖接口
 type DistributedLock interface {
-	// Lock 获取锁，阻塞直到成功或超时
+	// Lock 獲取鎖，阻塞直到成功或超時
 	Lock(ctx context.Context, key string, ttl time.Duration) error
 
-	// TryLock 尝试获取锁，立即返回
-	// 返回 true 表示成功获取锁，false 表示锁已被占用
+	// TryLock 尝試獲取鎖，立即返回
+	// 回傳 true 表示成功獲取鎖，false 表示鎖已被占用
 	TryLock(ctx context.Context, key string, ttl time.Duration) (bool, error)
 
-	// Unlock 释放锁
+	// Unlock 释放鎖
 	Unlock(ctx context.Context, key string) error
 
-	// Extend 延长锁的过期时间
+	// Extend 延长鎖的過期時间
 	Extend(ctx context.Context, key string, ttl time.Duration) error
 
 	// Close 关闭连接
 	Close() error
 }
 
-// NopLock 空实现（单实例模式）
+// NopLock 空實現（單實例模式）
 type NopLock struct{}
 
 func NewNopLock() *NopLock {

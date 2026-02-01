@@ -10,12 +10,12 @@ var (
 	billingService *saas.BillingService
 )
 
-// SetBillingService 设置计费服务
+// SetBillingService 設置计费服務
 func SetBillingService(bs *saas.BillingService) {
 	billingService = bs
 }
 
-// createSubscriptionHandler 创建订阅
+// createSubscriptionHandler 創建订阅
 // POST /api/billing/subscriptions/create
 func createSubscriptionHandler(c *gin.Context) {
 	var req struct {
@@ -24,17 +24,17 @@ func createSubscriptionHandler(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "无效的请求参数"})
+		c.JSON(400, gin.H{"error": "無效的请求参數"})
 		return
 	}
 
-	// 获取用户ID
+	// 獲取用戶ID
 	userID := c.GetString("user_id")
 	if userID == "" {
 		userID = "demo_user"
 	}
 
-	// 创建订阅
+	// 創建订阅
 	subscription, err := billingService.CreateSubscription(userID, req.Email, req.Plan)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -43,11 +43,11 @@ func createSubscriptionHandler(c *gin.Context) {
 
 	c.JSON(200, gin.H{
 		"subscription": subscription,
-		"message":      "订阅创建成功",
+		"message":      "订阅創建成功",
 	})
 }
 
-// getSubscriptionHandler 获取订阅信息
+// getSubscriptionHandler 獲取订阅信息
 // GET /api/billing/subscriptions
 func getSubscriptionHandler(c *gin.Context) {
 	userID := c.GetString("user_id")
@@ -74,7 +74,7 @@ func updateSubscriptionPlanHandler(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "无效的请求参数"})
+		c.JSON(400, gin.H{"error": "無效的请求参數"})
 		return
 	}
 
@@ -113,13 +113,13 @@ func cancelSubscriptionHandler(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "订阅已取消"})
 }
 
-// getPlansHandler 获取所有套餐信息
+// getPlansHandler 獲取所有套餐信息
 // GET /api/billing/plans
 func getPlansHandler(c *gin.Context) {
 	plans := []map[string]interface{}{
 		{
 			"id":          "starter",
-			"name":        "个人版",
+			"name":        "個人版",
 			"price":       49.00,
 			"currency":    "USD",
 			"interval":    "month",
@@ -129,7 +129,7 @@ func getPlansHandler(c *gin.Context) {
 			"symbols":     1,
 			"strategies":  []string{"grid"},
 			"support":     "email",
-			"description": "适合个人交易者、小额资金",
+			"description": "适合個人交易者、小額资金",
 		},
 		{
 			"id":          "professional",
@@ -154,10 +154,10 @@ func getPlansHandler(c *gin.Context) {
 			"cpu":         4.0,
 			"memory":      8192,
 			"storage":     204800,
-			"symbols":     -1, // 无限
+			"symbols":     -1, // 無限
 			"strategies":  []string{"all", "custom"},
 			"support":     "24x7",
-			"description": "适合机构、大资金、团队",
+			"description": "适合机構、大资金、团队",
 		},
 	}
 
@@ -169,7 +169,7 @@ func getPlansHandler(c *gin.Context) {
 // stripeWebhookHandler Stripe Webhook 处理
 // POST /api/billing/webhook/stripe
 func stripeWebhookHandler(c *gin.Context) {
-	// 这里应该验证 Stripe 签名
+	// 这里应該驗证 Stripe 签名
 	// 然后处理各种事件:
 	// - customer.subscription.created
 	// - customer.subscription.updated

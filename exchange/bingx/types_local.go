@@ -1,8 +1,8 @@
 package bingx
 
-// 本地类型定义，避免导入 exchange 包造成循环依赖
+// 本地類型定义，避免導入 exchange 包造成循环依赖
 
-// OrderSide 订单方向
+// OrderSide 订單方向
 type OrderSide string
 
 const (
@@ -10,7 +10,7 @@ const (
 	SideSell OrderSide = "SELL"
 )
 
-// OrderStatus 订单状态
+// OrderStatus 订單状態
 type OrderStatus string
 
 const (
@@ -20,7 +20,7 @@ const (
 	OrderStatusCanceled        OrderStatus = "CANCELED"
 )
 
-// OrderLocal 订单信息
+// OrderLocal 订單信息
 type OrderLocal struct {
 	OrderID       int64
 	ClientOrderID string
@@ -33,14 +33,14 @@ type OrderLocal struct {
 	UpdateTime    int64
 }
 
-// AccountLocal 账户信息
+// AccountLocal 帳戶資訊
 type AccountLocal struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
 }
 
-// PositionLocal 持仓信息
+// PositionLocal 持倉資訊
 type PositionLocal struct {
 	Symbol        string
 	Size          float64
@@ -50,7 +50,7 @@ type PositionLocal struct {
 	Leverage      int
 }
 
-// CandleLocal K线数据
+// CandleLocal K線數據
 type CandleLocal struct {
 	Symbol    string
 	Open      float64
@@ -61,10 +61,10 @@ type CandleLocal struct {
 	Timestamp int64
 }
 
-// CandleUpdateCallbackLocal K线更新回调
+// CandleUpdateCallbackLocal K線更新回呼
 type CandleUpdateCallbackLocal func(candle *CandleLocal)
 
-// BingXInterval K线周期
+// BingXInterval K線週期
 type BingXInterval string
 
 const (
@@ -78,7 +78,7 @@ const (
 	BingXInterval1w  BingXInterval = "1w"
 )
 
-// ConvertInterval 转换 K线周期
+// ConvertInterval 轉换 K線週期
 func ConvertInterval(interval string) BingXInterval {
 	switch interval {
 	case "1m":

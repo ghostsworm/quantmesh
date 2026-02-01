@@ -5,7 +5,7 @@ import (
 	"quantmesh/exchange/bitget"
 )
 
-// bitgetWrapper 包装 Bitget 适配器以实现 IExchange 接口
+// bitgetWrapper 包装 Bitget 适配器以實現 IExchange 接口
 type bitgetWrapper struct {
 	adapter *bitget.BitgetAdapter
 }
@@ -14,8 +14,12 @@ func (w *bitgetWrapper) GetName() string {
 	return w.adapter.GetName()
 }
 
+func (w *bitgetWrapper) GetMarketType() string {
+	return w.adapter.GetMarketType()
+}
+
 func (w *bitgetWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 转换请求类型
+	// 轉换请求類型
 	bitgetReq := &bitget.OrderRequest{
 		Symbol:        req.Symbol,
 		Side:          bitget.Side(req.Side),
@@ -34,7 +38,7 @@ func (w *bitgetWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Ord
 		return nil, err
 	}
 
-	// 转换返回类型
+	// 轉换返回類型
 	return &Order{
 		OrderID:       bitgetOrder.OrderID,
 		ClientOrderID: bitgetOrder.ClientOrderID,
@@ -99,10 +103,10 @@ func (w *bitgetWrapper) BatchCancelOrders(ctx context.Context, symbol string, or
 	return w.adapter.BatchCancelOrders(ctx, symbol, orderIDs)
 }
 
-// CancelAllOrders 撤销所有订单（Bitget实现）
+// CancelAllOrders 撤销所有订單（Bitget實現）
 // 使用Bitget一键全撤API，更高效且可靠
 func (w *bitgetWrapper) CancelAllOrders(ctx context.Context, symbol string) error {
-	// Bitget特有的一键全撤API，不需要查询订单列表
+	// Bitget特有的一键全撤API，不需要查詢訂單列表
 	return w.adapter.CancelAllOrders(ctx)
 }
 
@@ -290,24 +294,24 @@ func (w *bitgetWrapper) GetFundingRate(ctx context.Context, symbol string) (floa
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
-// GetSpotPrice 获取现货市场价格
+// GetSpotPrice 獲取現貨市场價格
 func (w *bitgetWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetSpotPrice(ctx, symbol)
 }
 
-// EstimateFinalOrderAmount 预估最终下单金额（默认实现：返回原始金额）
+// EstimateFinalOrderAmount 預估最终下單金額（默认實現：返回原始金額）
 func (w *bitgetWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
 
-// GetOrderBook 获取订单簿深度
+// GetOrderBook 獲取訂單簿深度
 func (w *bitgetWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	bitgetOrderBook, err := w.adapter.GetOrderBook(ctx, symbol, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	// 转换买盘数据
+	// 轉换買盘數據
 	bids := make([]OrderBookLevel, len(bitgetOrderBook.Bids))
 	for i, bid := range bitgetOrderBook.Bids {
 		bids[i] = OrderBookLevel{
@@ -316,7 +320,7 @@ func (w *bitgetWrapper) GetOrderBook(ctx context.Context, symbol string, limit i
 		}
 	}
 
-	// 转换卖盘数据
+	// 轉换賣盘數據
 	asks := make([]OrderBookLevel, len(bitgetOrderBook.Asks))
 	for i, ask := range bitgetOrderBook.Asks {
 		asks[i] = OrderBookLevel{
@@ -333,7 +337,7 @@ func (w *bitgetWrapper) GetOrderBook(ctx context.Context, symbol string, limit i
 	}, nil
 }
 
-// InternalTransfer 交易所内部转账
+// InternalTransfer 交易所內部轉帳
 func (w *bitgetWrapper) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return w.adapter.InternalTransfer(ctx, fromAccount, toAccount, asset, amount)
 }

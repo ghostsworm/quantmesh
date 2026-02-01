@@ -7,7 +7,7 @@ import (
 
 // ========== 基础计算工具 ==========
 
-// SMA 简单移动平均
+// SMA 简單移动平均
 func SMA(values []float64, period int) []float64 {
 	if len(values) < period {
 		return nil
@@ -16,7 +16,7 @@ func SMA(values []float64, period int) []float64 {
 	result := make([]float64, len(values)-period+1)
 	sum := 0.0
 
-	// 计算第一个 SMA
+	// 计算第一個 SMA
 	for i := 0; i < period; i++ {
 		sum += values[i]
 	}
@@ -31,7 +31,7 @@ func SMA(values []float64, period int) []float64 {
 	return result
 }
 
-// EMA 指数移动平均
+// EMA 指數移动平均
 func EMA(values []float64, period int) []float64 {
 	if len(values) < period {
 		return nil
@@ -40,7 +40,7 @@ func EMA(values []float64, period int) []float64 {
 	result := make([]float64, len(values))
 	multiplier := 2.0 / (float64(period) + 1.0)
 
-	// 第一个 EMA 使用 SMA
+	// 第一個 EMA 使用 SMA
 	sum := 0.0
 	for i := 0; i < period; i++ {
 		sum += values[i]
@@ -76,7 +76,7 @@ func WMA(values []float64, period int) []float64 {
 	return result
 }
 
-// DEMA 双指数移动平均
+// DEMA 双指數移动平均
 func DEMA(values []float64, period int) []float64 {
 	ema1 := EMA(values, period)
 	if ema1 == nil {
@@ -97,7 +97,7 @@ func DEMA(values []float64, period int) []float64 {
 	return result
 }
 
-// TEMA 三重指数移动平均
+// TEMA 三重指數移动平均
 func TEMA(values []float64, period int) []float64 {
 	ema1 := EMA(values, period)
 	if ema1 == nil {
@@ -123,7 +123,7 @@ func TEMA(values []float64, period int) []float64 {
 	return result
 }
 
-// StdDev 标准差
+// StdDev 標准差
 func StdDev(values []float64, period int) []float64 {
 	if len(values) < period {
 		return nil
@@ -194,7 +194,7 @@ func Sum(values []float64) float64 {
 	return sum
 }
 
-// Median 中位数
+// Median 中位數
 func Median(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
@@ -210,7 +210,7 @@ func Median(values []float64) float64 {
 	return sorted[n/2]
 }
 
-// TrueRange 真实波幅
+// TrueRange 真實波幅
 func TrueRange(high, low, prevClose float64) float64 {
 	tr1 := high - low
 	tr2 := math.Abs(high - prevClose)
@@ -218,7 +218,7 @@ func TrueRange(high, low, prevClose float64) float64 {
 	return math.Max(tr1, math.Max(tr2, tr3))
 }
 
-// TrueRangeSeries 真实波幅序列
+// TrueRangeSeries 真實波幅序列
 func TrueRangeSeries(candles []Candle) []float64 {
 	if len(candles) < 2 {
 		return nil
@@ -232,7 +232,7 @@ func TrueRangeSeries(candles []Candle) []float64 {
 	return result
 }
 
-// HighestHigh 最高价的最高值
+// HighestHigh 最高價的最高值
 func HighestHigh(candles []Candle, period int) []float64 {
 	if len(candles) < period {
 		return nil
@@ -252,7 +252,7 @@ func HighestHigh(candles []Candle, period int) []float64 {
 	return result
 }
 
-// LowestLow 最低价的最低值
+// LowestLow 最低價的最低值
 func LowestLow(candles []Candle, period int) []float64 {
 	if len(candles) < period {
 		return nil
@@ -272,7 +272,7 @@ func LowestLow(candles []Candle, period int) []float64 {
 	return result
 }
 
-// ClosePrices 提取收盘价序列
+// ClosePrices 提取收盘價序列
 func ClosePrices(candles []Candle) []float64 {
 	result := make([]float64, len(candles))
 	for i, c := range candles {
@@ -281,7 +281,7 @@ func ClosePrices(candles []Candle) []float64 {
 	return result
 }
 
-// HighPrices 提取最高价序列
+// HighPrices 提取最高價序列
 func HighPrices(candles []Candle) []float64 {
 	result := make([]float64, len(candles))
 	for i, c := range candles {
@@ -290,7 +290,7 @@ func HighPrices(candles []Candle) []float64 {
 	return result
 }
 
-// LowPrices 提取最低价序列
+// LowPrices 提取最低價序列
 func LowPrices(candles []Candle) []float64 {
 	result := make([]float64, len(candles))
 	for i, c := range candles {
@@ -299,7 +299,7 @@ func LowPrices(candles []Candle) []float64 {
 	return result
 }
 
-// OpenPrices 提取开盘价序列
+// OpenPrices 提取开盘價序列
 func OpenPrices(candles []Candle) []float64 {
 	result := make([]float64, len(candles))
 	for i, c := range candles {
@@ -317,7 +317,7 @@ func Volumes(candles []Candle) []float64 {
 	return result
 }
 
-// TypicalPrice 典型价格 (H+L+C)/3
+// TypicalPrice 典型價格 (H+L+C)/3
 func TypicalPrice(candles []Candle) []float64 {
 	result := make([]float64, len(candles))
 	for i, c := range candles {
@@ -405,7 +405,7 @@ func Shift(values []float64, period int) []float64 {
 	return values[:len(values)-period]
 }
 
-// Percentile 百分位数
+// Percentile 百分位數
 func Percentile(values []float64, p float64) float64 {
 	if len(values) == 0 || p < 0 || p > 100 {
 		return 0

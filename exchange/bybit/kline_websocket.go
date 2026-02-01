@@ -14,7 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// KlineWebSocketManager K线 WebSocket 管理器
+// KlineWebSocketManager K線 WebSocket 管理器
 type KlineWebSocketManager struct {
 	useTestnet bool
 	conn       *websocket.Conn
@@ -24,7 +24,7 @@ type KlineWebSocketManager struct {
 	callback   CandleUpdateCallback
 }
 
-// NewKlineWebSocketManager 创建 K线 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
 func NewKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
 	return &KlineWebSocketManager{
 		useTestnet: useTestnet,
@@ -32,10 +32,10 @@ func NewKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
 	}
 }
 
-// Start 启动 K线流
+// Start 啟动 K線流
 func (k *KlineWebSocketManager) Start(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
 	if k.isRunning.Load() {
-		return fmt.Errorf("K线 WebSocket 已在运行")
+		return fmt.Errorf("K線 WebSocket 已在运行")
 	}
 
 	k.callback = callback
@@ -48,7 +48,7 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, symbols []string, int
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
-		return fmt.Errorf("连接 K线 WebSocket 失败: %w", err)
+		return fmt.Errorf("连接 K線 WebSocket 失败: %w", err)
 	}
 
 	k.mu.Lock()
@@ -57,21 +57,21 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, symbols []string, int
 
 	k.isRunning.Store(true)
 
-	// 订阅 K线频道
+	// 订阅 K線频道
 	if err := k.subscribeKlines(symbols, interval); err != nil {
 		conn.Close()
-		return fmt.Errorf("订阅 K线频道失败: %w", err)
+		return fmt.Errorf("订阅 K線频道失败: %w", err)
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go k.readMessages()
 	go k.keepAlive()
 
-	logger.Info("✅ [Bybit K线 WebSocket] 已启动，订阅 %d 个交易对", len(symbols))
+	logger.Info("✅ [Bybit K線 WebSocket] 已啟动，订阅 %d 個交易對", len(symbols))
 	return nil
 }
 
-// subscribeKlines 订阅 K线频道
+// subscribeKlines 订阅 K線频道
 func (k *KlineWebSocketManager) subscribeKlines(symbols []string, interval string) error {
 	args := make([]string, len(symbols))
 	for i, symbol := range symbols {
@@ -98,7 +98,7 @@ func (k *KlineWebSocketManager) readMessages() {
 	defer func() {
 		k.isRunning.Store(false)
 		if r := recover(); r != nil {
-			logger.Error("❌ [Bybit K线 WebSocket] 消息处理 panic: %v", r)
+			logger.Error("❌ [Bybit K線 WebSocket] 消息处理 panic: %v", r)
 		}
 	}()
 
@@ -114,7 +114,7 @@ func (k *KlineWebSocketManager) readMessages() {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if k.isRunning.Load() {
-				logger.Warn("⚠️ [Bybit K线 WebSocket] 读取消息失败: %v", err)
+				logger.Warn("⚠️ [Bybit K線 WebSocket] 读取消息失败: %v", err)
 			}
 			break
 		}
@@ -127,19 +127,19 @@ func (k *KlineWebSocketManager) readMessages() {
 func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	var msg map[string]interface{}
 	if err := json.Unmarshal(message, &msg); err != nil {
-		logger.Warn("⚠️ [Bybit K线 WebSocket] 解析消息失败: %v", err)
+		logger.Warn("⚠️ [Bybit K線 WebSocket] 解析消息失败: %v", err)
 		return
 	}
 
-	// 检查操作类型
+	// 检查操作類型
 	if op, ok := msg["op"].(string); ok {
 		if op == "subscribe" {
-			logger.Info("✅ [Bybit K线 WebSocket] 订阅成功")
+			logger.Info("✅ [Bybit K線 WebSocket] 订阅成功")
 		}
 		return
 	}
 
-	// 处理 K线数据
+	// 处理 K線數據
 	if topic, ok := msg["topic"].(string); ok {
 		if len(topic) > 5 && topic[:5] == "kline" {
 			k.handleKlineUpdate(msg)
@@ -147,7 +147,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// handleKlineUpdate 处理 K线更新
+// handleKlineUpdate 处理 K線更新
 func (k *KlineWebSocketManager) handleKlineUpdate(msg map[string]interface{}) {
 	data, ok := msg["data"].([]interface{})
 	if !ok || len(data) == 0 {
@@ -167,7 +167,7 @@ func (k *KlineWebSocketManager) handleKlineUpdate(msg map[string]interface{}) {
 		close, _ := strconv.ParseFloat(getString(klineData, "close"), 64)
 		volume, _ := strconv.ParseFloat(getString(klineData, "volume"), 64)
 
-		// 判断是否已完结
+		// 判断是否已完結
 		confirm, _ := klineData["confirm"].(bool)
 
 		candle := Candle{
@@ -209,7 +209,7 @@ func (k *KlineWebSocketManager) keepAlive() {
 
 			if conn != nil {
 				if err := conn.WriteJSON(pingMsg); err != nil {
-					logger.Warn("⚠️ [Bybit K线 WebSocket] 发送 ping 失败: %v", err)
+					logger.Warn("⚠️ [Bybit K線 WebSocket] 发送 ping 失败: %v", err)
 				}
 			}
 
@@ -219,7 +219,7 @@ func (k *KlineWebSocketManager) keepAlive() {
 	}
 }
 
-// Stop 停止 K线 WebSocket
+// Stop 停止 K線 WebSocket
 func (k *KlineWebSocketManager) Stop() {
 	if !k.isRunning.Load() {
 		return
@@ -235,5 +235,5 @@ func (k *KlineWebSocketManager) Stop() {
 	}
 	k.mu.Unlock()
 
-	logger.Info("🛑 [Bybit K线 WebSocket] 已停止")
+	logger.Info("🛑 [Bybit K線 WebSocket] 已停止")
 }

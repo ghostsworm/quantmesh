@@ -75,7 +75,7 @@
 
 **备份内容：**
 - 数据库文件（quantmesh.db, auth.db, webauthn.db, logs.db）
-- 配置文件（config.yaml, config_backups/）
+- 配置文件（config.yaml, backups/）
 - 日志文件（最近 7 天）
 
 **文件位置：**

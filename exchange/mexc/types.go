@@ -1,6 +1,6 @@
 package mexc
 
-// MEXCOrderSide MEXC 订单方向
+// MEXCOrderSide MEXC 订單方向
 type MEXCOrderSide int
 
 const (
@@ -10,23 +10,23 @@ const (
 	MEXCOrderSideCloseShort MEXCOrderSide = 4 // 平空
 )
 
-// MEXCOrderType MEXC 订单类型
+// MEXCOrderType MEXC 订單類型
 type MEXCOrderType int
 
 const (
-	MEXCOrderTypeLimit  MEXCOrderType = 1 // 限价单
-	MEXCOrderTypeMarket MEXCOrderType = 2 // 市价单
+	MEXCOrderTypeLimit  MEXCOrderType = 1 // 限價單
+	MEXCOrderTypeMarket MEXCOrderType = 2 // 市價單
 )
 
-// MEXCOpenType MEXC 仓位类型
+// MEXCOpenType MEXC 倉位類型
 type MEXCOpenType int
 
 const (
-	MEXCOpenTypeIsolated MEXCOpenType = 1 // 逐仓
-	MEXCOpenTypeCross    MEXCOpenType = 2 // 全仓
+	MEXCOpenTypeIsolated MEXCOpenType = 1 // 逐倉
+	MEXCOpenTypeCross    MEXCOpenType = 2 // 全倉
 )
 
-// MEXCOrderState MEXC 订单状态
+// MEXCOrderState MEXC 订單状態
 type MEXCOrderState int
 
 const (
@@ -37,24 +37,24 @@ const (
 	MEXCOrderStatePartialCanceled MEXCOrderState = 5 // 部分成交已撤销
 )
 
-// MEXCPositionType MEXC 持仓方向
+// MEXCPositionType MEXC 持倉方向
 type MEXCPositionType int
 
 const (
-	MEXCPositionTypeLong  MEXCPositionType = 1 // 多仓
-	MEXCPositionTypeShort MEXCPositionType = 2 // 空仓
+	MEXCPositionTypeLong  MEXCPositionType = 1 // 多倉
+	MEXCPositionTypeShort MEXCPositionType = 2 // 空倉
 )
 
-// MEXCPositionState MEXC 持仓状态
+// MEXCPositionState MEXC 持倉状態
 type MEXCPositionState int
 
 const (
-	MEXCPositionStateHolding MEXCPositionState = 1 // 持仓中
+	MEXCPositionStateHolding MEXCPositionState = 1 // 持倉中
 	MEXCPositionStateManaged MEXCPositionState = 2 // 系统托管中
-	MEXCPositionStateClosed  MEXCPositionState = 3 // 已平仓
+	MEXCPositionStateClosed  MEXCPositionState = 3 // 已平倉
 )
 
-// MEXCInterval K线周期
+// MEXCInterval K線週期
 type MEXCInterval string
 
 const (
@@ -69,7 +69,7 @@ const (
 	MEXCInterval1M  MEXCInterval = "Month1"
 )
 
-// ConvertInterval 转换 K线周期
+// ConvertInterval 轉换 K線週期
 func ConvertInterval(interval string) MEXCInterval {
 	switch interval {
 	case "1m":

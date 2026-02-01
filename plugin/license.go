@@ -17,30 +17,30 @@ import (
 	"time"
 )
 
-// LicenseInfo 许可证信息
+// LicenseInfo 許可证信息
 type LicenseInfo struct {
 	PluginName   string    `json:"plugin_name"`   // 插件名称
-	LicenseKey   string    `json:"license_key"`   // 许可证密钥
-	CustomerID   string    `json:"customer_id"`   // 客户ID
-	Email        string    `json:"email"`         // 客户邮箱
+	LicenseKey   string    `json:"license_key"`   // 許可证密钥
+	CustomerID   string    `json:"customer_id"`   // 客戶ID
+	Email        string    `json:"email"`         // 客戶邮箱
 	Plan         string    `json:"plan"`          // 套餐: starter/professional/enterprise
-	ExpiryDate   time.Time `json:"expiry_date"`   // 过期时间
-	MaxInstances int       `json:"max_instances"` // 最大实例数
+	ExpiryDate   time.Time `json:"expiry_date"`   // 過期時间
+	MaxInstances int       `json:"max_instances"` // 最大實例數
 	Features     []string  `json:"features"`      // 授权功能列表
-	IssuedAt     time.Time `json:"issued_at"`     // 签发时间
-	MachineID    string    `json:"machine_id"`    // 机器ID (可选)
-	CloudVerify  bool      `json:"cloud_verify"`  // 是否需要云端验证
+	IssuedAt     time.Time `json:"issued_at"`     // 签发時间
+	MachineID    string    `json:"machine_id"`    // 机器ID (可選)
+	CloudVerify  bool      `json:"cloud_verify"`  // 是否需要云端驗证
 	Signature    string    `json:"signature"`     // 签名
 }
 
-// LicenseStore 许可证存储
+// LicenseStore 許可证存儲
 type LicenseStore struct {
 	licenses map[string]*LicenseInfo
 	mu       sync.RWMutex
 	filePath string
 }
 
-// NewLicenseStore 创建许可证存储
+// NewLicenseStore 創建許可证存儲
 func NewLicenseStore() *LicenseStore {
 	homeDir, _ := os.UserHomeDir()
 	filePath := filepath.Join(homeDir, ".quantmesh", "licenses.enc")
@@ -50,21 +50,21 @@ func NewLicenseStore() *LicenseStore {
 		filePath: filePath,
 	}
 
-	// 尝试加载已保存的许可证
+	// 尝試加載已保存的許可证
 	_ = store.Load()
 
 	return store
 }
 
-// Store 存储许可证
+// Store 存儲許可证
 func (s *LicenseStore) Store(pluginName, licenseKey string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 解析许可证
+	// 解析許可证
 	info, err := ParseLicense(licenseKey)
 	if err != nil {
-		return fmt.Errorf("解析许可证失败: %v", err)
+		return fmt.Errorf("解析許可证失败: %v", err)
 	}
 
 	info.PluginName = pluginName
@@ -74,50 +74,50 @@ func (s *LicenseStore) Store(pluginName, licenseKey string) error {
 	return s.save()
 }
 
-// Get 获取许可证
+// Get 獲取許可证
 func (s *LicenseStore) Get(pluginName string) (*LicenseInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	info, exists := s.licenses[pluginName]
 	if !exists {
-		return nil, fmt.Errorf("插件 %s 的许可证未找到", pluginName)
+		return nil, fmt.Errorf("插件 %s 的許可证未找到", pluginName)
 	}
 
 	return info, nil
 }
 
-// Validate 验证许可证
+// Validate 驗证許可证
 func (s *LicenseStore) Validate(pluginName string) error {
 	info, err := s.Get(pluginName)
 	if err != nil {
 		return err
 	}
 
-	// 1. 检查是否过期
+	// 1. 检查是否過期
 	if time.Now().After(info.ExpiryDate) {
-		return fmt.Errorf("许可证已过期: %s", info.ExpiryDate.Format("2006-01-02"))
+		return fmt.Errorf("許可证已過期: %s", info.ExpiryDate.Format("2006-01-02"))
 	}
 
-	// 2. 验证签名
+	// 2. 驗证签名
 	if !verifySignature(info) {
-		return errors.New("许可证签名无效")
+		return errors.New("許可证签名無效")
 	}
 
 	// 3. 检查机器ID (如果指定)
 	if info.MachineID != "" {
 		currentMachineID := getMachineID()
 		if info.MachineID != currentMachineID {
-			return errors.New("许可证与当前机器不匹配")
+			return errors.New("許可证與當前机器不匹配")
 		}
 	}
 
 	return nil
 }
 
-// save 保存许可证到文件 (加密)
+// save 保存許可证到文件 (加密)
 func (s *LicenseStore) save() error {
-	// 确保目录存在
+	// 确保目錄存在
 	dir := filepath.Dir(s.filePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -139,7 +139,7 @@ func (s *LicenseStore) save() error {
 	return os.WriteFile(s.filePath, encrypted, 0600)
 }
 
-// Load 从文件加载许可证
+// Load 從文件加載許可证
 func (s *LicenseStore) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -148,7 +148,7 @@ func (s *LicenseStore) Load() error {
 	encrypted, err := os.ReadFile(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // 文件不存在，不是错误
+			return nil // 文件不存在，不是錯误
 		}
 		return err
 	}
@@ -163,23 +163,23 @@ func (s *LicenseStore) Load() error {
 	return json.Unmarshal(data, &s.licenses)
 }
 
-// ParseLicense 解析许可证字符串
+// ParseLicense 解析許可证字符串
 func ParseLicense(licenseKey string) (*LicenseInfo, error) {
-	// 许可证格式: BASE64(JSON)
+	// 許可证格式: BASE64(JSON)
 	decoded, err := base64.StdEncoding.DecodeString(licenseKey)
 	if err != nil {
-		return nil, fmt.Errorf("许可证格式错误: %v", err)
+		return nil, fmt.Errorf("許可证格式錯误: %v", err)
 	}
 
 	var info LicenseInfo
 	if err := json.Unmarshal(decoded, &info); err != nil {
-		return nil, fmt.Errorf("许可证数据错误: %v", err)
+		return nil, fmt.Errorf("許可证數據錯误: %v", err)
 	}
 
 	return &info, nil
 }
 
-// GenerateLicense 生成许可证 (用于许可证服务器)
+// GenerateLicense 生成許可证 (用於許可证服務器)
 func GenerateLicense(
 	pluginName string,
 	customerID string,
@@ -208,13 +208,13 @@ func GenerateLicense(
 		return "", err
 	}
 
-	// Base64编码
+	// Base64编碼
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
 // generateSignature 生成签名
 func generateSignature(info *LicenseInfo, secretKey string) string {
-	// 必须与 license-server 的签名算法一致
+	// 必須與 license-server 的签名算法一致
 	data := fmt.Sprintf("%s:%s:%s:%s",
 		info.PluginName,
 		info.CustomerID,
@@ -225,36 +225,36 @@ func generateSignature(info *LicenseInfo, secretKey string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// verifySignature 验证签名
+// verifySignature 驗证签名
 func verifySignature(info *LicenseInfo) bool {
-	// 这里需要使用相同的密钥验证
-	// 实际应用中，密钥应该内置在编译后的二进制中
+	// 这里需要使用相同的密钥驗证
+	// 實際应用中，密钥应該内置在編譯後的二進制中
 	secretKey := getSecretKey()
 	expectedSignature := generateSignature(info, secretKey)
 	return info.Signature == expectedSignature
 }
 
-// getSecretKey 获取密钥 (应该从安全的地方获取)
+// getSecretKey 獲取密钥 (应該從安全的地方獲取)
 func getSecretKey() string {
-	// 实际应用中，这个密钥应该:
-	// 1. 编译时内置到二进制中
-	// 2. 使用代码混淆保护
-	// 3. 或从远程服务器验证
+	// 實際应用中，這個密钥应該:
+	// 1. 编譯時内置到二進制中
+	// 2. 使用代碼混淆保护
+	// 3. 或從远程服務器驗证
 	return "quantmesh-secret-key-2025" // 示例密钥
 }
 
-// getMachineID 获取机器ID
+// getMachineID 獲取机器ID
 func getMachineID() string {
-	// 简单实现：使用MAC地址
-	// 实际应用中应该使用更可靠的方法
+	// 简單實現：使用MAC地址
+	// 實際应用中应該使用更可靠的方法
 	hostname, _ := os.Hostname()
 	hash := sha256.Sum256([]byte(hostname))
 	return hex.EncodeToString(hash[:8])
 }
 
-// getEncryptionKey 获取加密密钥
+// getEncryptionKey 獲取加密密钥
 func getEncryptionKey() []byte {
-	// 使用固定密钥 (实际应用中应该更安全)
+	// 使用固定密钥 (實際应用中应該更安全)
 	// AES-256 需要 32 字节密钥
 	key := "quantmesh-encryption-key-2025"
 	// 确保是32字节
@@ -267,7 +267,7 @@ func getEncryptionKey() []byte {
 	return keyBytes[:32]
 }
 
-// encrypt 加密数据
+// encrypt 加密數據
 func encrypt(plaintext []byte, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -288,7 +288,7 @@ func encrypt(plaintext []byte, key []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-// decrypt 解密数据
+// decrypt 解密數據
 func decrypt(ciphertext []byte, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -314,22 +314,22 @@ func decrypt(ciphertext []byte, key []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// LicenseValidator 许可证验证器
+// LicenseValidator 許可证驗证器
 type LicenseValidator struct {
 	store          *LicenseStore
 	cloudValidator *CloudValidator
 }
 
-// NewLicenseValidator 创建许可证验证器
+// NewLicenseValidator 創建許可证驗证器
 func NewLicenseValidator() *LicenseValidator {
-	// 使用本地测试服务器
+	// 使用本地测試服務器
 	return &LicenseValidator{
 		store:          NewLicenseStore(),
 		cloudValidator: NewCloudValidator("http://127.0.0.1:8000"),
 	}
 }
 
-// NewLicenseValidatorWithEndpoint 创建许可证验证器(指定云端地址)
+// NewLicenseValidatorWithEndpoint 創建許可证驗证器(指定云端地址)
 func NewLicenseValidatorWithEndpoint(cloudEndpoint string) *LicenseValidator {
 	return &LicenseValidator{
 		store:          NewLicenseStore(),
@@ -337,9 +337,9 @@ func NewLicenseValidatorWithEndpoint(cloudEndpoint string) *LicenseValidator {
 	}
 }
 
-// ValidatePlugin 验证插件许可证
+// ValidatePlugin 驗证插件許可证
 func (v *LicenseValidator) ValidatePlugin(pluginName string, licenseKey string) error {
-	// 1. 解析许可证
+	// 1. 解析許可证
 	info, err := ParseLicense(licenseKey)
 	if err != nil {
 		return err
@@ -347,35 +347,35 @@ func (v *LicenseValidator) ValidatePlugin(pluginName string, licenseKey string) 
 
 	// 2. 检查插件名称
 	if info.PluginName != pluginName {
-		return fmt.Errorf("许可证不匹配: 期望 %s, 实际 %s", pluginName, info.PluginName)
+		return fmt.Errorf("許可证不匹配: 期望 %s, 實際 %s", pluginName, info.PluginName)
 	}
 
-	// 3. 检查过期时间
+	// 3. 检查過期時间
 	if time.Now().After(info.ExpiryDate) {
-		return fmt.Errorf("许可证已过期: %s", info.ExpiryDate.Format("2006-01-02"))
+		return fmt.Errorf("許可证已過期: %s", info.ExpiryDate.Format("2006-01-02"))
 	}
 
-	// 4. 验证签名
+	// 4. 驗证签名
 	if !verifySignature(info) {
-		return errors.New("许可证签名无效")
+		return errors.New("許可证签名無效")
 	}
 
 	// 5. 检查机器ID
 	if info.MachineID != "" {
 		currentMachineID := getMachineID()
 		if info.MachineID != currentMachineID {
-			return errors.New("许可证与当前机器不匹配")
+			return errors.New("許可证與當前机器不匹配")
 		}
 	}
 
-	// 6. 云端验证 (如果需要)
+	// 6. 云端驗证 (如果需要)
 	if info.CloudVerify && v.cloudValidator != nil {
 		if err := v.cloudValidator.ValidateWithRetry(licenseKey, 3); err != nil {
-			return fmt.Errorf("云端验证失败: %v", err)
+			return fmt.Errorf("云端驗证失败: %v", err)
 		}
 	}
 
-	// 7. 存储许可证
+	// 7. 存儲許可证
 	return v.store.Store(pluginName, licenseKey)
 }
 

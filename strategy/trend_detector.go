@@ -11,7 +11,7 @@ import (
 	"quantmesh/monitor"
 )
 
-// Trend 趋势类型
+// Trend 趋势類型
 type Trend string
 
 const (
@@ -31,7 +31,7 @@ type TrendDetector struct {
 	currentTrend Trend
 }
 
-// NewTrendDetector 创建趋势检测器
+// NewTrendDetector 創建趋势检测器
 func NewTrendDetector(cfg *config.Config, priceMonitor *monitor.PriceMonitor) *TrendDetector {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TrendDetector{
@@ -44,21 +44,21 @@ func NewTrendDetector(cfg *config.Config, priceMonitor *monitor.PriceMonitor) *T
 	}
 }
 
-// Start 启动趋势检测器
+// Start 啟动趋势检测器
 func (td *TrendDetector) Start() {
 	if !td.cfg.Trading.SmartPosition.Enabled {
 		return
 	}
 
-	// 订阅价格变化
+	// 订阅價格變化
 	go td.watchPriceChanges()
 
-	// 启动趋势检测循环
+	// 啟动趋势检测循环
 	if td.cfg.Trading.SmartPosition.TrendDetection.Enabled {
 		go td.detectTrendLoop()
 	}
 
-	logger.Info("✅ 趋势检测器已启动")
+	logger.Info("✅ 趋势检测器已啟动")
 }
 
 // Stop 停止趋势检测器
@@ -68,7 +68,7 @@ func (td *TrendDetector) Stop() {
 	}
 }
 
-// watchPriceChanges 监听价格变化
+// watchPriceChanges 監听價格變化
 func (td *TrendDetector) watchPriceChanges() {
 	priceCh := td.priceMonitor.Subscribe()
 	for {
@@ -81,21 +81,21 @@ func (td *TrendDetector) watchPriceChanges() {
 	}
 }
 
-// addPrice 添加价格到历史记录
+// addPrice 新增價格到历史記錄
 func (td *TrendDetector) addPrice(price float64) {
 	td.mu.Lock()
 	defer td.mu.Unlock()
 
 	td.priceHistory = append(td.priceHistory, price)
 
-	// 保持历史记录在合理范围内
+	// 保持历史記錄在合理範圍内
 	maxHistory := td.cfg.Trading.SmartPosition.TrendDetection.LongPeriod
 	if maxHistory <= 0 {
 		maxHistory = 50
 	}
 
 	if len(td.priceHistory) > maxHistory*2 {
-		// 保留最近的数据，使用 copy 而不是切片截取，避免内存泄漏
+		// 保留最近的數據，使用 copy 而不是切片截取，避免記憶體泄漏
 		newHistory := make([]float64, maxHistory)
 		copy(newHistory, td.priceHistory[len(td.priceHistory)-maxHistory:])
 		td.priceHistory = newHistory
@@ -111,7 +111,7 @@ func (td *TrendDetector) calculateMA(period int) float64 {
 		return 0
 	}
 
-	// 使用最近的数据
+	// 使用最近的數據
 	start := len(td.priceHistory) - period
 	prices := td.priceHistory[start:]
 
@@ -123,7 +123,7 @@ func (td *TrendDetector) calculateMA(period int) float64 {
 	return sum / float64(len(prices))
 }
 
-// calculateEMA 计算指数移动平均
+// calculateEMA 计算指數移动平均
 func (td *TrendDetector) calculateEMA(period int) float64 {
 	td.mu.RLock()
 	defer td.mu.RUnlock()
@@ -132,11 +132,11 @@ func (td *TrendDetector) calculateEMA(period int) float64 {
 		return 0
 	}
 
-	// 使用最近的数据
+	// 使用最近的數據
 	start := len(td.priceHistory) - period
 	prices := td.priceHistory[start:]
 
-	// 初始值使用简单移动平均
+	// 初始值使用简單移动平均
 	var sum float64
 	for i := 0; i < period && i < len(prices); i++ {
 		sum += prices[i]
@@ -180,7 +180,7 @@ func (td *TrendDetector) DetectTrend() Trend {
 		shortMA = td.calculateEMA(shortPeriod)
 		longMA = td.calculateEMA(longPeriod)
 	} else {
-		// 默认使用MA
+		// 預設使用 MA
 		shortMA = td.calculateMA(shortPeriod)
 		longMA = td.calculateMA(longPeriod)
 	}
@@ -225,14 +225,14 @@ func (td *TrendDetector) detectTrendLoop() {
 	}
 }
 
-// GetCurrentTrend 获取当前趋势
+// GetCurrentTrend 獲取當前趋势
 func (td *TrendDetector) GetCurrentTrend() string {
 	td.mu.RLock()
 	defer td.mu.RUnlock()
 	return string(td.currentTrend)
 }
 
-// AdjustWindows 根据趋势调整窗口
+// AdjustWindows 根據趋势調整窗口
 func (td *TrendDetector) AdjustWindows() (buyWindow, sellWindow int) {
 	trend := td.GetCurrentTrend()
 	baseBuyWindow := td.cfg.Trading.BuyWindowSize
@@ -240,7 +240,7 @@ func (td *TrendDetector) AdjustWindows() (buyWindow, sellWindow int) {
 
 	maxAdjustment := td.cfg.Trading.SmartPosition.WindowAdjustment.MaxAdjustment
 	if maxAdjustment <= 0 {
-		maxAdjustment = 0.5 // 默认50%
+		maxAdjustment = 0.5 // 預設 50%
 	}
 
 	adjustmentStep := td.cfg.Trading.SmartPosition.WindowAdjustment.AdjustmentStep
@@ -262,17 +262,17 @@ func (td *TrendDetector) AdjustWindows() (buyWindow, sellWindow int) {
 
 	switch Trend(trend) {
 	case TrendUp:
-		// 上涨趋势：减少买单，增加卖单
+		// 上涨趋势：减少買單，增加賣單
 		buyWindow = baseBuyWindow - maxAdjustmentValue
 		sellWindow = baseSellWindow + maxAdjustmentValue
-		logger.Info("📈 [智能仓位] 上涨趋势，调整窗口: 买单 %d->%d, 卖单 %d->%d",
+		logger.Info("📈 [智能倉位] 上涨趋势，調整窗口: 買單 %d->%d, 賣單 %d->%d",
 			baseBuyWindow, buyWindow, baseSellWindow, sellWindow)
 
 	case TrendDown:
-		// 下跌趋势：增加买单，减少卖单
+		// 下跌趋势：增加買單，减少賣單
 		buyWindow = baseBuyWindow + maxAdjustmentValue
 		sellWindow = baseSellWindow - maxAdjustmentValue
-		logger.Info("📉 [智能仓位] 下跌趋势，调整窗口: 买单 %d->%d, 卖单 %d->%d",
+		logger.Info("📉 [智能倉位] 下跌趋势，調整窗口: 買單 %d->%d, 賣單 %d->%d",
 			baseBuyWindow, buyWindow, baseSellWindow, sellWindow)
 
 	default:
@@ -296,5 +296,5 @@ func (td *TrendDetector) AdjustWindows() (buyWindow, sellWindow int) {
 func (td *TrendDetector) UpdateWindows(buyWindow, sellWindow int) {
 	td.cfg.Trading.BuyWindowSize = buyWindow
 	td.cfg.Trading.SellWindowSize = sellWindow
-	logger.Info("✅ [智能仓位] 窗口大小已更新: 买单窗口=%d, 卖单窗口=%d", buyWindow, sellWindow)
+	logger.Info("✅ [智能倉位] 窗口大小已更新: 買單窗口=%d, 賣單視窗=%d", buyWindow, sellWindow)
 }

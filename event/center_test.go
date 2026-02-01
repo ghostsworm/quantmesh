@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// MockDatabase 模拟数据库
+// MockDatabase 模拟數據库
 type MockDatabase struct {
 	events []*mockEventRecord
 }
@@ -21,11 +21,11 @@ type mockEventRecord struct {
 }
 
 func (m *MockDatabase) SaveEvent(ctx context.Context, event interface{}) error {
-	// 简化测试，不实际保存
+	// 简化测試，不實際保存
 	return nil
 }
 
-// MockNotifier 模拟通知服务
+// MockNotifier 模拟通知服務
 type MockNotifier struct {
 	notifications []*Event
 }
@@ -35,20 +35,20 @@ func (m *MockNotifier) Send(event *Event) {
 }
 
 func TestEventCenterBasic(t *testing.T) {
-	// 创建事件总线
+	// 創建事件總線
 	eventBus := NewEventBus(100)
 	if eventBus == nil {
 		t.Fatal("Failed to create event bus")
 	}
 	
-	// 创建模拟数据库和通知服务
+	// 創建模拟數據库和通知服務
 	mockDB := &MockDatabase{}
 	mockNotifier := &MockNotifier{}
 	if mockDB == nil || mockNotifier == nil {
 		t.Fatal("Failed to create mock services")
 	}
 	
-	// 创建事件中心配置
+	// 創建事件中心配置
 	config := &EventCenterConfig{
 		Enabled:                  true,
 		PriceVolatilityThreshold: 5.0,
@@ -68,7 +68,7 @@ func TestEventCenterBasic(t *testing.T) {
 		t.Errorf("Expected threshold 5.0, got %f", config.PriceVolatilityThreshold)
 	}
 	
-	t.Log("✅ 事件中心配置创建成功")
+	t.Log("✅ 事件中心配置創建成功")
 }
 
 func TestEventSeverity(t *testing.T) {
@@ -89,7 +89,7 @@ func TestEventSeverity(t *testing.T) {
 		}
 	}
 	
-	t.Log("✅ 事件严重程度测试通过")
+	t.Log("✅ 事件严重程度测試通過")
 }
 
 func TestEventSource(t *testing.T) {
@@ -111,7 +111,7 @@ func TestEventSource(t *testing.T) {
 		}
 	}
 	
-	t.Log("✅ 事件来源测试通过")
+	t.Log("✅ 事件来源测試通過")
 }
 
 func TestEventTitle(t *testing.T) {
@@ -119,10 +119,10 @@ func TestEventTitle(t *testing.T) {
 		eventType EventType
 		contains  string
 	}{
-		{EventTypeOrderPlaced, "订单"},
+		{EventTypeOrderPlaced, "订單"},
 		{EventTypeWebSocketDisconnected, "WebSocket"},
 		{EventTypeAPIRateLimited, "限流"},
-		{EventTypePriceVolatility, "价格"},
+		{EventTypePriceVolatility, "價格"},
 	}
 	
 	for _, tt := range tests {

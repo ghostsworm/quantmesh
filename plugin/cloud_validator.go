@@ -12,7 +12,7 @@ import (
 	"quantmesh/logger"
 )
 
-// CloudValidator 云端验证器
+// CloudValidator 云端驗证器
 type CloudValidator struct {
 	apiEndpoint string
 	cache       *LicenseCache
@@ -33,14 +33,14 @@ type CacheEntry struct {
 	Valid       bool
 }
 
-// NewLicenseCache 创建 License 缓存
+// NewLicenseCache 創建 License 缓存
 func NewLicenseCache() *LicenseCache {
 	return &LicenseCache{
 		entries: make(map[string]*CacheEntry),
 	}
 }
 
-// Get 获取缓存
+// Get 獲取缓存
 func (c *LicenseCache) Get(licenseKey string) *CacheEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -53,7 +53,7 @@ func (c *LicenseCache) Get(licenseKey string) *CacheEntry {
 	return entry
 }
 
-// Set 设置缓存
+// Set 設置缓存
 func (c *LicenseCache) Set(licenseKey string, expiryDate time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -74,10 +74,10 @@ func (c *LicenseCache) Clear() {
 	c.entries = make(map[string]*CacheEntry)
 }
 
-// NewCloudValidator 创建云端验证器
+// NewCloudValidator 創建云端驗证器
 func NewCloudValidator(apiEndpoint string) *CloudValidator {
 	if apiEndpoint == "" {
-		apiEndpoint = "https://license.quantmesh.io" // 默认 License 服务器地址
+		apiEndpoint = "https://license.quantmesh.io" // 預設 License 服務器地址
 	}
 
 	return &CloudValidator{
@@ -89,18 +89,18 @@ func NewCloudValidator(apiEndpoint string) *CloudValidator {
 	}
 }
 
-// Validate 验证 License
+// Validate 驗证 License
 func (v *CloudValidator) Validate(licenseKey string) error {
-	// 1. 检查本地缓存 (24小时有效期)
+	// 1. 检查本地缓存 (24小時有效期)
 	if cached := v.cache.Get(licenseKey); cached != nil {
 		if time.Since(cached.ValidatedAt) < 24*time.Hour {
-			logger.Debug("使用缓存的 License 验证结果")
+			logger.Debug("使用缓存的 License 驗证結果")
 			return nil // 缓存有效
 		}
 	}
 
-	// 2. 云端验证
-	logger.Info("正在进行云端 License 验证...")
+	// 2. 云端驗证
+	logger.Info("正在進行云端 License 驗证...")
 
 	reqBody := map[string]interface{}{
 		"license_key": licenseKey,
@@ -120,12 +120,12 @@ func (v *CloudValidator) Validate(licenseKey string) error {
 	)
 
 	if err != nil {
-		// 网络错误,使用本地缓存 (宽容模式)
+		// 网络錯误,使用本地缓存 (宽容模式)
 		if cached := v.cache.Get(licenseKey); cached != nil {
-			logger.Warn("⚠️ 云端验证失败,使用本地缓存: %v", err)
+			logger.Warn("⚠️ 云端驗证失败,使用本地缓存: %v", err)
 			return nil
 		}
-		return fmt.Errorf("License 验证失败: %v", err)
+		return fmt.Errorf("License 驗证失败: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -141,17 +141,17 @@ func (v *CloudValidator) Validate(licenseKey string) error {
 	}
 
 	if resp.StatusCode != 200 || result.Status != "valid" {
-		return errors.New("License 无效或已过期: " + result.Message)
+		return errors.New("License 無效或已過期: " + result.Message)
 	}
 
 	// 4. 更新缓存
 	v.cache.Set(licenseKey, result.Expiry)
-	logger.Info("✅ License 验证通过,有效期至: %s", result.Expiry.Format("2006-01-02"))
+	logger.Info("✅ License 驗证通過,有效期至: %s", result.Expiry.Format("2006-01-02"))
 
 	return nil
 }
 
-// ValidateWithRetry 带重试的验证
+// ValidateWithRetry 带重試的驗证
 func (v *CloudValidator) ValidateWithRetry(licenseKey string, maxRetries int) error {
 	var lastErr error
 
@@ -162,28 +162,28 @@ func (v *CloudValidator) ValidateWithRetry(licenseKey string, maxRetries int) er
 		}
 
 		lastErr = err
-		logger.Warn("⚠️ License 验证失败 (尝试 %d/%d): %v", i+1, maxRetries, err)
+		logger.Warn("⚠️ License 驗证失败 (尝試 %d/%d): %v", i+1, maxRetries, err)
 
 		if i < maxRetries-1 {
 			time.Sleep(time.Duration(i+1) * time.Second)
 		}
 	}
 
-	return fmt.Errorf("License 验证失败 (已重试 %d 次): %v", maxRetries, lastErr)
+	return fmt.Errorf("License 驗证失败 (已重試 %d 次): %v", maxRetries, lastErr)
 }
 
-// StartHeartbeat 启动心跳检测
+// StartHeartbeat 啟动心跳检测
 func (v *CloudValidator) StartHeartbeat(licenseKey string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	logger.Info("🔄 启动 License 心跳检测,间隔: %v", interval)
+	logger.Info("🔄 啟动 License 心跳检测,间隔: %v", interval)
 
 	for range ticker.C {
 		if err := v.Validate(licenseKey); err != nil {
 			logger.Error("❌ License 心跳检测失败: %v", err)
 		} else {
-			logger.Debug("✅ License 心跳检测通过")
+			logger.Debug("✅ License 心跳检测通過")
 		}
 	}
 }

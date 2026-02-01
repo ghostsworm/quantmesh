@@ -19,10 +19,10 @@ import (
 
 const (
 	BTCCMainnetBaseURL = "https://api.btcc.com"         // BTCC 主网
-	BTCCTestnetBaseURL = "https://testnet-api.btcc.com" // BTCC 测试网
+	BTCCTestnetBaseURL = "https://testnet-api.btcc.com" // BTCC 測試網
 )
 
-// BTCCClient BTCC 客户端
+// BTCCClient BTCC 客戶端
 type BTCCClient struct {
 	apiKey     string
 	secretKey  string
@@ -31,7 +31,7 @@ type BTCCClient struct {
 	isTestnet  bool
 }
 
-// NewBTCCClient 创建 BTCC 客户端
+// NewBTCCClient 創建 BTCC 客戶端
 func NewBTCCClient(apiKey, secretKey string, isTestnet bool) *BTCCClient {
 	baseURL := BTCCMainnetBaseURL
 	if isTestnet {
@@ -119,7 +119,7 @@ func (c *BTCCClient) sendRequest(ctx context.Context, method, path string, param
 	return respBody, nil
 }
 
-// GetSymbol 获取交易对信息
+// GetSymbol 獲取交易對信息
 func (c *BTCCClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, error) {
 	path := "/api/v1/market/symbol"
 	params := url.Values{}
@@ -148,7 +148,7 @@ func (c *BTCCClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, err
 	return &symbolInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *BTCCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := "/api/v1/order/place"
 	params := url.Values{}
@@ -177,7 +177,7 @@ func (c *BTCCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order,
 	return &order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *BTCCClient) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	path := "/api/v1/order/cancel"
 	params := url.Values{}
@@ -205,7 +205,7 @@ func (c *BTCCClient) CancelOrder(ctx context.Context, symbol string, orderID int
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *BTCCClient) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	path := "/api/v1/order/query"
 	params := url.Values{}
@@ -235,7 +235,7 @@ func (c *BTCCClient) GetOrder(ctx context.Context, symbol string, orderID int64)
 	return &order, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *BTCCClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, error) {
 	path := "/api/v1/order/open"
 	params := url.Values{}
@@ -266,7 +266,7 @@ func (c *BTCCClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order,
 	return orders, nil
 }
 
-// GetBalance 获取账户余额
+// GetBalance 獲取帳戶餘額
 func (c *BTCCClient) GetBalance(ctx context.Context) (*Balance, error) {
 	path := "/api/v1/account/balance"
 	params := url.Values{}
@@ -294,7 +294,7 @@ func (c *BTCCClient) GetBalance(ctx context.Context) (*Balance, error) {
 	return &balance, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (c *BTCCClient) GetPositions(ctx context.Context, symbol string) ([]Position, error) {
 	path := "/api/v1/position/list"
 	params := url.Values{}
@@ -325,7 +325,7 @@ func (c *BTCCClient) GetPositions(ctx context.Context, symbol string) ([]Positio
 	return positions, nil
 }
 
-// GetTicker 获取最新价格
+// GetTicker 獲取最新價格
 func (c *BTCCClient) GetTicker(ctx context.Context, symbol string) (*Ticker, error) {
 	path := "/api/v1/market/ticker"
 	params := url.Values{}
@@ -354,7 +354,7 @@ func (c *BTCCClient) GetTicker(ctx context.Context, symbol string) (*Ticker, err
 	return &ticker, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *BTCCClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/api/v1/market/kline"
 	params := url.Values{}
@@ -387,7 +387,7 @@ func (c *BTCCClient) GetKlines(ctx context.Context, symbol, interval string, lim
 	return klines, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIResponse struct {
 	Code    int         `json:"code"`

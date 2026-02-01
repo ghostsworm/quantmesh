@@ -8,14 +8,14 @@ import (
 	qmi18n "quantmesh/i18n"
 )
 
-// I18nMiddleware 解析请求的 Accept-Language 头并设置到上下文
+// I18nMiddleware 解析请求的 Accept-Language 头並設置到上下文
 func I18nMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 从 Accept-Language 头获取语言
+		// 從 Accept-Language 头獲取语言
 		acceptLang := c.GetHeader("Accept-Language")
 		lang := parseAcceptLanguage(acceptLang)
 
-		// 存储到上下文
+		// 存儲到上下文
 		c.Set("language", lang)
 		c.Set("localizer", qmi18n.GetLocalizer(lang))
 
@@ -30,33 +30,33 @@ func parseAcceptLanguage(acceptLang string) string {
 		return "zh-CN" // 默认中文
 	}
 
-	// 分割多个语言选项
+	// 分割多個语言选项
 	langs := strings.Split(acceptLang, ",")
 	if len(langs) == 0 {
 		return "zh-CN"
 	}
 
-	// 取第一个语言（优先级最高）
+	// 取第一個语言（优先级最高）
 	firstLang := strings.TrimSpace(langs[0])
 
-	// 去除权重参数 (;q=0.9)
+	// 去除权重参數 (;q=0.9)
 	if idx := strings.Index(firstLang, ";"); idx != -1 {
 		firstLang = firstLang[:idx]
 	}
 
 	firstLang = strings.TrimSpace(firstLang)
 
-	// 标准化语言代码
+	// 標准化语言代碼
 	firstLang = normalizeLanguage(firstLang)
 
 	return firstLang
 }
 
-// normalizeLanguage 标准化语言代码
+// normalizeLanguage 標准化语言代碼
 func normalizeLanguage(lang string) string {
 	lang = strings.ToLower(lang)
 
-	// 映射常见的语言代码
+	// 映射常见的语言代碼
 	switch {
 	case strings.HasPrefix(lang, "zh-tw"), strings.HasPrefix(lang, "zh_tw"), strings.HasPrefix(lang, "zh-hant"):
 		return "zh-TW"
@@ -95,7 +95,7 @@ func normalizeLanguage(lang string) string {
 	}
 }
 
-// GetLocalizer 从上下文获取 Localizer
+// GetLocalizer 從上下文獲取 Localizer
 func GetLocalizer(c *gin.Context) *i18n.Localizer {
 	if localizer, exists := c.Get("localizer"); exists {
 		if l, ok := localizer.(*i18n.Localizer); ok {
@@ -106,7 +106,7 @@ func GetLocalizer(c *gin.Context) *i18n.Localizer {
 	return qmi18n.GetLocalizer("zh-CN")
 }
 
-// GetLanguage 从上下文获取语言
+// GetLanguage 從上下文獲取语言
 func GetLanguage(c *gin.Context) string {
 	if lang, exists := c.Get("language"); exists {
 		if l, ok := lang.(string); ok {
@@ -116,7 +116,7 @@ func GetLanguage(c *gin.Context) string {
 	return "zh-CN"
 }
 
-// T 翻译消息（从上下文获取语言）
+// T 翻譯消息（從上下文獲取语言）
 func T(c *gin.Context, key string, data ...interface{}) string {
 	lang := GetLanguage(c)
 	return qmi18n.TWithLang(lang, key, data...)

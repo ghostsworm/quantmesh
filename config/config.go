@@ -7,106 +7,107 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// BoolPtr 返回 bool 值的指针（用于 SymbolConfig.Enabled 等字段）
+// BoolPtr 回傳 bool 值的指標（用於 SymbolConfig.Enabled 等欄位）
 func BoolPtr(b bool) *bool {
 	return &b
 }
 
-// DefaultGoldKeywords 返回默认的黄金新闻监控关键词
+// DefaultGoldKeywords 回傳預設的黃金新聞監控關鍵詞
 func DefaultGoldKeywords() []string {
 	return []string{
-		"gold", "XAU", "黄金", "金价", "gold price",
-		"Federal Reserve", "Fed", "美联储", "interest rate", "利率",
-		"Dollar", "DXY", "美元指数", "US dollar",
-		"Inflation", "CPI", "PCE", "通胀",
-		"geopolitical", "地缘政治", "war", "战争", "sanctions", "制裁",
-		"central bank", "央行", "gold reserve", "黄金储备", "gold holdings",
-		"safe haven", "避险", "volatility", "市场波动",
+		"gold", "XAU", "黃金", "金價", "gold price",
+		"Federal Reserve", "Fed", "美聯儲", "interest rate", "利率",
+		"Dollar", "DXY", "美元指數", "US dollar",
+		"Inflation", "CPI", "PCE", "通脹",
+		"geopolitical", "地緣政治", "war", "戰爭", "sanctions", "制裁",
+		"central bank", "央行", "gold reserve", "黃金儲備", "gold holdings",
+		"safe haven", "避險", "volatility", "市場波動",
 	}
 }
 
-// DefaultNewsKeywords 返回默认的新闻监控关键词（影响比特币或类似币价格）
+// DefaultNewsKeywords 回傳預設的新聞監控關鍵詞（影響比特幣或類似幣價格）
 func DefaultNewsKeywords() []string {
 	return []string{
-		// 加密货币核心
+		// 加密貨幣核心
 		"bitcoin", "btc", "cryptocurrency", "crypto", "ethereum", "eth",
-		// 交易所和机构
+		// 交易所和機構
 		"binance", "coinbase", "ftx", "tether", "usdt", "stablecoin",
 		"grayscale", "blackrock bitcoin", "bitcoin etf",
-		// 监管和政策
+		// 監管和政策
 		"sec crypto", "crypto regulation", "crypto ban", "crypto legislation",
 		"cbdc", "federal reserve crypto",
-		// 地缘政治
+		// 地緣政治
 		"iran attack", "iran explosion", "israel attack", "middle east conflict",
 		"russia sanctions", "china crypto", "trump crypto", "biden crypto",
-		// 宏观经济
+		// 總體經濟
 		"interest rate", "fed rate", "inflation", "tariff", "trade war",
 		"economic crisis", "bank failure", "banking crisis",
 		// 安全事件
 		"crypto hack", "exchange hack", "rug pull", "crypto scam", "wallet hack",
-		// 市场动态
+		// 市場動態
 		"bitcoin crash", "crypto crash", "bitcoin rally", "whale transfer",
 		"bitcoin liquidation", "crypto liquidation",
 	}
 }
 
-// AssetConfig 新闻监控多资产配置
+// AssetConfig 新聞監控多資產配置
 type AssetConfig struct {
 	AssetType string   `yaml:"asset_type" json:"asset_type"` // crypto_btc, commodity_gold
 	Symbol    string   `yaml:"symbol" json:"symbol"`         // BTCUSDT, PAXGUSDT
-	Keywords  []string `yaml:"keywords" json:"keywords"`     // 该资产专用关键词
-	Enabled   bool     `yaml:"enabled" json:"enabled"`       // 是否启用
+	Keywords  []string `yaml:"keywords" json:"keywords"`     // 該資產專用關鍵詞
+	Enabled   bool     `yaml:"enabled" json:"enabled"`       // 是否啟用
 }
 
-// GridRiskControl 网格策略风控配置
+// GridRiskControl 網格策略風控配置
 type GridRiskControl struct {
 	Enabled                 bool    `yaml:"enabled" json:"enabled"`
-	MaxGridLayers           int     `yaml:"max_grid_layers" json:"max_grid_layers"`                       // 最大允许买入层数
-	StopLossRatio           float64 `yaml:"stop_loss_ratio" json:"stop_loss_ratio"`                       // 单币种最大浮亏比例（如 0.1 表示 10%）
-	TakeProfitTriggerRatio  float64 `yaml:"take_profit_trigger_ratio" json:"take_profit_trigger_ratio"`   // 盈利达到此比例后开启回撤止盈（如 0.08 表示 8%）
+	MaxGridLayers           int     `yaml:"max_grid_layers" json:"max_grid_layers"`                       // 最大允許買入層數
+	StopLossRatio           float64 `yaml:"stop_loss_ratio" json:"stop_loss_ratio"`                       // 單幣種最大浮虧比例（如 0.1 表示 10%）
+	TakeProfitTriggerRatio  float64 `yaml:"take_profit_trigger_ratio" json:"take_profit_trigger_ratio"`   // 盈利達到此比例後開啟回撤止盈（如 0.08 表示 8%）
 	TrailingTakeProfitRatio float64 `yaml:"trailing_take_profit_ratio" json:"trailing_take_profit_ratio"` // 盈利回撤比例（如 0.03 表示回撤 3% 止盈）
-	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`             // 是否开启趋势过滤
+	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`             // 是否開啟趨勢過濾
 }
 
-// Config 做市商系统配置
+// Config 做市商系統配置
 type Config struct {
-	// 应用配置
+	// 應用配置
 	App struct {
-		CurrentExchange string `yaml:"current_exchange"` // 当前使用的交易所
+		CurrentExchange string `yaml:"current_exchange"` // 當前使用的交易所
 	} `yaml:"app"`
 
 	// 多交易所配置
 	Exchanges map[string]ExchangeConfig `yaml:"exchanges"`
 
 	Trading struct {
-		// 兼容旧配置：单交易对字段（若启用多交易对，将自动转换为 Symbols 列表）
+		// 相容舊配置：單交易對欄位（若啟用多交易對，將自動轉換為 Symbols 列表）
 		Symbol                string  `yaml:"symbol"`
+		MarketType            string  `yaml:"market_type"` // 市場類型：spot 現貨 / futures 合約，預設 futures
 		PriceInterval         float64 `yaml:"price_interval"`
-		OrderQuantity         float64 `yaml:"order_quantity"`  // 每单购买金额（USDT/USDC）
-		MinOrderValue         float64 `yaml:"min_order_value"` // 最小订单价值（USDT），默认6U，小于此值不挂单
+		OrderQuantity         float64 `yaml:"order_quantity"`  // 每單購買金額（USDT/USDC）
+		MinOrderValue         float64 `yaml:"min_order_value"` // 最小訂單價值（USDT），預設 6U，小於此值不掛單
 		BuyWindowSize         int     `yaml:"buy_window_size"`
-		SellWindowSize        int     `yaml:"sell_window_size"` // 卖单窗口大小
+		SellWindowSize        int     `yaml:"sell_window_size"` // 賣單視窗大小
 		ReconcileInterval     int     `yaml:"reconcile_interval"`
-		OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`      // 订单清理上限（默认100）
-		CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小（默认10）
-		MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保证金锁定时间（秒，默认10）
-		PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持仓安全性检查（默认100，最少能向下持有多少仓）
-		// 多交易对配置
+		OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`      // 訂單清理上限（預設 100）
+		CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小（預設 10）
+		MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保證金鎖定時間（秒，預設 10）
+		PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持倉安全性檢查（預設 100，最少能向下持有多少倉）
+		// 多交易對配置
 		Symbols []SymbolConfig `yaml:"symbols"`
-		// 注意：price_decimals 和 quantity_decimals 已废弃，现在从交易所自动获取
+		// 注意：price_decimals 和 quantity_decimals 已廢棄，現在從交易所自动獲取
 
-		// 动态调整网格参数
+		// 動態調整网格参數
 		DynamicAdjustment struct {
 			Enabled bool `yaml:"enabled"`
 
 			PriceInterval struct {
 				Enabled             bool    `yaml:"enabled"`
-				Min                 float64 `yaml:"min"`                  // 最小价格间隔
-				Max                 float64 `yaml:"max"`                  // 最大价格间隔
-				VolatilityWindow    int     `yaml:"volatility_window"`    // 波动率计算窗口（K线数量）
+				Min                 float64 `yaml:"min"`                  // 最小價格間隔
+				Max                 float64 `yaml:"max"`                  // 最大價格間隔
+				VolatilityWindow    int     `yaml:"volatility_window"`    // 波动率计算窗口（K線數量）
 				VolatilityThreshold float64 `yaml:"volatility_threshold"` // 波动率阈值
-				AdjustmentStep      float64 `yaml:"adjustment_step"`      // 每次调整步长
-				CheckInterval       int     `yaml:"check_interval"`       // 检查间隔（秒）
+				AdjustmentStep      float64 `yaml:"adjustment_step"`      // 每次調整步长
+				CheckInterval       int     `yaml:"check_interval"`       // 檢查间隔（秒）
 			} `yaml:"price_interval"`
 
 			WindowSize struct {
@@ -120,8 +121,8 @@ type Config struct {
 					Max int `yaml:"max"`
 				} `yaml:"sell_window"`
 				UtilizationThreshold float64 `yaml:"utilization_threshold"` // 资金利用率阈值
-				AdjustmentStep       int     `yaml:"adjustment_step"`       // 每次调整步长
-				CheckInterval        int     `yaml:"check_interval"`        // 检查间隔（秒）
+				AdjustmentStep       int     `yaml:"adjustment_step"`       // 每次調整步长
+				CheckInterval        int     `yaml:"check_interval"`        // 檢查间隔（秒）
 			} `yaml:"window_size"`
 
 			OrderQuantity struct {
@@ -133,25 +134,25 @@ type Config struct {
 			} `yaml:"order_quantity"`
 		} `yaml:"dynamic_adjustment"`
 
-		// 智能仓位管理
+		// 智能倉位管理
 		SmartPosition struct {
 			Enabled bool `yaml:"enabled"`
 
 			TrendDetection struct {
 				Enabled       bool   `yaml:"enabled"`
-				Window        int    `yaml:"window"`         // 趋势判断窗口（价格数量）
+				Window        int    `yaml:"window"`         // 趋势判断窗口（價格數量）
 				Method        string `yaml:"method"`         // 方法：ma/ema
-				ShortPeriod   int    `yaml:"short_period"`   // 短期均线周期
-				LongPeriod    int    `yaml:"long_period"`    // 长期均线周期
-				CheckInterval int    `yaml:"check_interval"` // 检查间隔（秒）
+				ShortPeriod   int    `yaml:"short_period"`   // 短期均線周期
+				LongPeriod    int    `yaml:"long_period"`    // 长期均線周期
+				CheckInterval int    `yaml:"check_interval"` // 檢查间隔（秒）
 			} `yaml:"trend_detection"`
 
 			WindowAdjustment struct {
 				Enabled        bool    `yaml:"enabled"`
-				MaxAdjustment  float64 `yaml:"max_adjustment"`  // 最大调整比例
-				AdjustmentStep int     `yaml:"adjustment_step"` // 每次调整步长
-				MinBuyWindow   int     `yaml:"min_buy_window"`  // 最小买单窗口
-				MinSellWindow  int     `yaml:"min_sell_window"` // 最小卖单窗口
+				MaxAdjustment  float64 `yaml:"max_adjustment"`  // 最大調整比例
+				AdjustmentStep int     `yaml:"adjustment_step"` // 每次調整步长
+				MinBuyWindow   int     `yaml:"min_buy_window"`  // 最小買單窗口
+				MinSellWindow  int     `yaml:"min_sell_window"` // 最小賣單視窗
 			} `yaml:"window_adjustment"`
 		} `yaml:"smart_position"`
 
@@ -160,106 +161,106 @@ type Config struct {
 
 	System struct {
 		LogLevel             string `yaml:"log_level"`
-		Timezone             string `yaml:"timezone"`     // 时区，如 "Asia/Shanghai"
+		Timezone             string `yaml:"timezone"`     // 時区，如 "Asia/Shanghai"
 		LogLanguage          string `yaml:"log_language"` // 日志语言，如 "zh-CN" 或 "en-US"
 		CancelOnExit         bool   `yaml:"cancel_on_exit"`
-		ClosePositionsOnExit bool   `yaml:"close_positions_on_exit"` // 退出时是否平仓（默认false）
-		LogRetentionDays     int    `yaml:"log_retention_days"`      // 日志保留天数（默认30天，0表示不清理）
-		DryRun               bool   `yaml:"dry_run"`                 // 模拟运行模式（不实际下单，只记录日志）
+		ClosePositionsOnExit bool   `yaml:"close_positions_on_exit"` // 退出時是否平倉（預設false）
+		LogRetentionDays     int    `yaml:"log_retention_days"`      // 日志保留天數（預設30天，0表示不清理）
+		DryRun               bool   `yaml:"dry_run"`                 // 模拟运行模式（不實際下單，只記錄日志）
 	} `yaml:"system"`
 
-	// 实例配置（多实例部署）
+	// 實例配置（多實例部署）
 	Instance struct {
-		ID    string `yaml:"id"`    // 实例唯一标识，默认为空（单实例模式）
-		Index int    `yaml:"index"` // 实例索引，用于交易对分配，默认0
-		Total int    `yaml:"total"` // 总实例数，默认1
+		ID    string `yaml:"id"`    // 實例唯一標识，預設為空（單實例模式）
+		Index int    `yaml:"index"` // 實例索引，用於交易對分配，預設0
+		Total int    `yaml:"total"` // 總實例數，預設1
 	} `yaml:"instance"`
 
-	// 数据库配置（支持 SQLite、PostgreSQL、MySQL）
+	// 數據库配置（支援 SQLite、PostgreSQL、MySQL）
 	Database struct {
-		Type            string `yaml:"type"`              // 数据库类型: sqlite, postgres, mysql，默认 sqlite
-		DSN             string `yaml:"dsn"`               // 数据源名称，默认 ./data/quantmesh.db
-		MaxOpenConns    int    `yaml:"max_open_conns"`    // 最大打开连接数，默认100
-		MaxIdleConns    int    `yaml:"max_idle_conns"`    // 最大空闲连接数，默认10
-		ConnMaxLifetime int    `yaml:"conn_max_lifetime"` // 连接最大生命周期（秒），默认3600
-		LogLevel        string `yaml:"log_level"`         // 日志级别: silent, error, warn, info，默认 error
+		Type            string `yaml:"type"`              // 數據库類型: sqlite, postgres, mysql，預設 sqlite
+		DSN             string `yaml:"dsn"`               // 數據源名称，預設 ./data/quantmesh.db
+		MaxOpenConns    int    `yaml:"max_open_conns"`    // 最大打开連接數，預設 100
+		MaxIdleConns    int    `yaml:"max_idle_conns"`    // 最大空闲連接數，預設 10
+		ConnMaxLifetime int    `yaml:"conn_max_lifetime"` // 連接最大生命周期（秒），預設3600
+		LogLevel        string `yaml:"log_level"`         // 日志级别: silent, error, warn, info，預設 error
 	} `yaml:"database"`
 
-	// 分布式锁配置（多实例部署）
+	// 分布式鎖配置（多實例部署）
 	DistributedLock struct {
-		Enabled    bool   `yaml:"enabled"`     // 是否启用分布式锁，默认false（单实例模式）
-		Type       string `yaml:"type"`        // 锁类型: redis, etcd, database，默认 redis
-		Prefix     string `yaml:"prefix"`      // 锁键前缀，默认 "quantmesh:lock:"
-		DefaultTTL int    `yaml:"default_ttl"` // 默认锁过期时间（秒），默认5
+		Enabled    bool   `yaml:"enabled"`     // 是否啟用分布式鎖，預設false（單實例模式）
+		Type       string `yaml:"type"`        // 鎖類型: redis, etcd, database，預設 redis
+		Prefix     string `yaml:"prefix"`      // 鎖键前缀，預設 "quantmesh:lock:"
+		DefaultTTL int    `yaml:"default_ttl"` // 預設鎖過期時间（秒），預設5
 
 		Redis struct {
-			Addr     string `yaml:"addr"`      // Redis 地址，默认 localhost:6379
-			Password string `yaml:"password"`  // Redis 密码，默认为空
-			DB       int    `yaml:"db"`        // Redis 数据库，默认0
-			PoolSize int    `yaml:"pool_size"` // 连接池大小，默认10
+			Addr     string `yaml:"addr"`      // Redis 地址，預設 localhost:6379
+			Password string `yaml:"password"`  // Redis 密碼，預設為空
+			DB       int    `yaml:"db"`        // Redis 數據库，預設0
+			PoolSize int    `yaml:"pool_size"` // 連接池大小，預設 10
 		} `yaml:"redis"`
 	} `yaml:"distributed_lock"`
 
-	// 主动安全风控配置
+	// 主动安全風控配置
 	RiskControl struct {
-		Enabled           bool     `yaml:"enabled"`            // 是否启用风控，默认true
-		MonitorSymbols    []string `yaml:"monitor_symbols"`    // 监控币种，如 ["BTCUSDT", "ETHUSDT"]
-		Interval          string   `yaml:"interval"`           // K线周期，如 "1m", "3m", "5m"
-		VolumeMultiplier  float64  `yaml:"volume_multiplier"`  // 成交量倍数阈值，默认3.0
-		AverageWindow     int      `yaml:"average_window"`     // 移动平均窗口大小，默认20
-		RecoveryThreshold int      `yaml:"recovery_threshold"`  // 恢复交易所需的正常币种数量，默认3
-		MaxLeverage       int      `yaml:"max_leverage"`       // 最大允许杠杆倍数，默认10（设置为0表示不限制）
+		Enabled           bool     `yaml:"enabled"`            // 是否啟用风控，預設true
+		MonitorSymbols    []string `yaml:"monitor_symbols"`    // 監控币种，如 ["BTCUSDT", "ETHUSDT"]
+		Interval          string   `yaml:"interval"`           // K線週期，如 "1m", "3m", "5m"
+		VolumeMultiplier  float64  `yaml:"volume_multiplier"`  // 成交量倍數阈值，預設3.0
+		AverageWindow     int      `yaml:"average_window"`     // 移动平均窗口大小，預設20
+		RecoveryThreshold int      `yaml:"recovery_threshold"`  // 恢復交易所需的正常币种數量，預設3
+		MaxLeverage       int      `yaml:"max_leverage"`       // 最大允許杠杆倍數，預設 10（設置為0表示不限制）
 
-		// 深度监控配置
+		// 深度監控配置
 		DepthMonitor struct {
-			Enabled          bool    `yaml:"enabled"`           // 是否启用深度监控，默认false
-			CheckInterval    int     `yaml:"check_interval"`    // 检查间隔（秒），默认5
-			DepthLevels      int     `yaml:"depth_levels"`      // 监控前几档，默认10
-			DropThreshold    float64 `yaml:"drop_threshold"`     // 深度下降阈值（0-1），默认0.5（50%）
-			RecoveryThreshold float64 `yaml:"recovery_threshold"` // 恢复阈值（0-1），默认0.7（70%）
-			MinDepthUSDT     float64 `yaml:"min_depth_usdt"`     // 最小深度（USDT），低于此值触发风控，默认10000
+			Enabled          bool    `yaml:"enabled"`           // 是否啟用深度監控，預設false
+			CheckInterval    int     `yaml:"check_interval"`    // 檢查间隔（秒），預設5
+			DepthLevels      int     `yaml:"depth_levels"`      // 監控前几檔，預設 10
+			DropThreshold    float64 `yaml:"drop_threshold"`     // 深度下降阈值（0-1），預設0.5（50%）
+			RecoveryThreshold float64 `yaml:"recovery_threshold"` // 恢復阈值（0-1），預設0.7（70%）
+			MinDepthUSDT     float64 `yaml:"min_depth_usdt"`     // 最小深度（USDT），低於此值触发风控，預設 10000
 		} `yaml:"depth_monitor"`
 	} `yaml:"risk_control"`
 
-	// 新闻监控配置
+	// 新聞監控配置
 	NewsMonitor struct {
-		Enabled              bool     `yaml:"enabled"`                // 是否启用新闻监控，默认false
-		CheckInterval        string   `yaml:"check_interval"`         // 兼容旧配置，等同于 analysis_interval
-		AnalysisInterval     string   `yaml:"analysis_interval"`      // Gemini分析间隔，默认"30m"
-		NewsCollectInterval  string   `yaml:"news_collect_interval"`  // NewsAPI收集间隔，默认"5m"
-		UseGeminiSearch      bool     `yaml:"use_gemini_search"`      // 是否使用Gemini实时搜索，默认true
+		Enabled              bool     `yaml:"enabled"`                // 是否啟用新聞監控，預設false
+		CheckInterval        string   `yaml:"check_interval"`         // 相容舊配置，等同於 analysis_interval
+		AnalysisInterval     string   `yaml:"analysis_interval"`      // Gemini分析间隔，預設"30m"
+		NewsCollectInterval  string   `yaml:"news_collect_interval"`  // NewsAPI收集间隔，預設"5m"
+		UseGeminiSearch      bool     `yaml:"use_gemini_search"`      // 是否使用Gemini實時搜索，預設true
 		Sources              []string `yaml:"sources"`                // 新闻源列表，如 ["newsapi", "rss"]
-		NewsAPIKey           string   `yaml:"news_api_key"`           // NewsAPI密钥（可选）
-		RSSFeeds             []string `yaml:"rss_feeds"`              // RSS源列表（可选）
-		Keywords             []string `yaml:"keywords"`               // NewsAPI关注的关键词（可在UI修改，用于BTC）
-		RiskThreshold        float64  `yaml:"risk_threshold"`         // 兼容旧配置，风险阈值（0-100）
-		PredictionTimeframes []string `yaml:"prediction_timeframes"`  // 预测时间窗口，如["2h","4h","6h","12h","24h"]
+		NewsAPIKey           string   `yaml:"news_api_key"`           // NewsAPI密钥（可選）
+		RSSFeeds             []string `yaml:"rss_feeds"`              // RSS源列表（可選）
+		Keywords             []string `yaml:"keywords"`               // NewsAPI關注的關鍵詞（可在UI修改，用於BTC）
+		RiskThreshold        float64  `yaml:"risk_threshold"`         // 相容舊配置，风險阈值（0-100）
+		PredictionTimeframes []string `yaml:"prediction_timeframes"`  // 預测時间窗口，如["2h","4h","6h","12h","24h"]
 		RiskThresholds       struct {
-			StopTradingProbability    float64 `yaml:"stop_trading_probability"`    // 概率超过此值暂停交易，默认0.7
-			ReducePositionProbability float64 `yaml:"reduce_position_probability"` // 概率超过此值减少仓位，默认0.5
+			StopTradingProbability    float64 `yaml:"stop_trading_probability"`    // 概率超過此值暂停交易，預設0.7
+			ReducePositionProbability float64 `yaml:"reduce_position_probability"` // 概率超過此值减少倉位，預設0.5
 		} `yaml:"risk_thresholds"`
-		HistoryRetentionDays int            `yaml:"history_retention_days"` // 历史记录保留天数，默认30
-		Assets               []AssetConfig  `yaml:"assets"`                  // 多资产配置（crypto_btc, commodity_gold）
+		HistoryRetentionDays int            `yaml:"history_retention_days"` // 历史記錄保留天數，預設30
+		Assets               []AssetConfig  `yaml:"assets"`                  // 多资產配置（crypto_btc, commodity_gold）
 	} `yaml:"news_monitor"`
 
-	// 时间间隔配置（单位：秒，除非特别说明）
+	// 時间间隔配置（單位：秒，除非特别說明）
 	Timing struct {
 		// WebSocket相关
-		WebSocketReconnectDelay    int `yaml:"websocket_reconnect_delay"`     // WebSocket断线重连等待时间（秒，默认5）
-		WebSocketWriteWait         int `yaml:"websocket_write_wait"`          // WebSocket写入等待时间（秒，默认10）
-		WebSocketPongWait          int `yaml:"websocket_pong_wait"`           // WebSocket PONG等待时间（秒，默认60）
-		WebSocketPingInterval      int `yaml:"websocket_ping_interval"`       // WebSocket PING间隔（秒，默认20）
-		ListenKeyKeepAliveInterval int `yaml:"listen_key_keepalive_interval"` // listenKey保活间隔（分钟，默认30）
+		WebSocketReconnectDelay    int `yaml:"websocket_reconnect_delay"`     // WebSocket断線重连等待時间（秒，預設5）
+		WebSocketWriteWait         int `yaml:"websocket_write_wait"`          // WebSocket写入等待時间（秒，預設 10）
+		WebSocketPongWait          int `yaml:"websocket_pong_wait"`           // WebSocket PONG等待時间（秒，預設60）
+		WebSocketPingInterval      int `yaml:"websocket_ping_interval"`       // WebSocket PING间隔（秒，預設20）
+		ListenKeyKeepAliveInterval int `yaml:"listen_key_keepalive_interval"` // listenKey保活间隔（分钟，預設30）
 
-		// 价格监控相关
-		PriceSendInterval int `yaml:"price_send_interval"` // 定期发送价格的间隔（毫秒，默认50）
+		// 價格監控相关
+		PriceSendInterval int `yaml:"price_send_interval"` // 定期发送價格的间隔（毫秒，預設50）
 
-		// 订单执行相关
-		RateLimitRetryDelay  int `yaml:"rate_limit_retry_delay"` // 速率限制重试等待时间（秒，默认1）
-		OrderRetryDelay      int `yaml:"order_retry_delay"`      // 其他错误重试等待时间（毫秒，默认500）
-		PricePollInterval    int `yaml:"price_poll_interval"`    // 等待获取价格的轮询间隔（毫秒，默认500）
-		StatusPrintInterval  int `yaml:"status_print_interval"`  // 定期打印状态的间隔（分钟，默认1）
-		OrderCleanupInterval int `yaml:"order_cleanup_interval"` // 订单清理检查间隔（秒，默认60）
+		// 訂單執行相关
+		RateLimitRetryDelay  int `yaml:"rate_limit_retry_delay"` // 速率限制重試等待時间（秒，預設1）
+		OrderRetryDelay      int `yaml:"order_retry_delay"`      // 其他錯误重試等待時间（毫秒，預設500）
+		PricePollInterval    int `yaml:"price_poll_interval"`    // 等待獲取價格的輪詢间隔（毫秒，預設500）
+		StatusPrintInterval  int `yaml:"status_print_interval"`  // 定期打印狀態的间隔（分钟，預設1）
+		OrderCleanupInterval int `yaml:"order_cleanup_interval"` // 訂單清理檢查间隔（秒，預設60）
 	} `yaml:"timing"`
 
 	// 通知配置
@@ -275,7 +276,7 @@ type Config struct {
 		Webhook struct {
 			Enabled bool   `yaml:"enabled"`
 			URL     string `yaml:"url"`
-			Timeout int    `yaml:"timeout"` // 超时时间（秒，默认3）
+			Timeout int    `yaml:"timeout"` // 超時時间（秒，預設3）
 		} `yaml:"webhook"`
 
 		Email struct {
@@ -316,7 +317,7 @@ type Config struct {
 		DingTalk struct {
 			Enabled bool   `yaml:"enabled"`
 			Webhook string `yaml:"webhook"` // 钉钉机器人 Webhook URL
-			Secret  string `yaml:"secret"`  // 钉钉机器人签名密钥（可选）
+			Secret  string `yaml:"secret"`  // 钉钉机器人签名密钥（可選）
 		} `yaml:"dingtalk"`
 
 		// 企业微信（WeChat Work）配置
@@ -343,64 +344,64 @@ type Config struct {
 		} `yaml:"rules"`
 	} `yaml:"notifications"`
 
-	// 存储配置
+	// 存儲配置
 	Storage struct {
 		Enabled       bool   `yaml:"enabled"`
 		Type          string `yaml:"type"`           // sqlite
-		Path          string `yaml:"path"`           // 数据库文件路径
-		BufferSize    int    `yaml:"buffer_size"`    // 缓冲区大小（默认1000）
-		BatchSize     int    `yaml:"batch_size"`     // 批量写入大小（默认100）
-		FlushInterval int    `yaml:"flush_interval"` // 刷新间隔（秒，默认5）
+		Path          string `yaml:"path"`           // 數據库文件路径
+		BufferSize    int    `yaml:"buffer_size"`    // 缓冲区大小（預設 1000）
+		BatchSize     int    `yaml:"batch_size"`     // 批量写入大小（預設 100）
+		FlushInterval int    `yaml:"flush_interval"` // 刷新间隔（秒，預設5）
 	} `yaml:"storage"`
 
-	// Web 服务配置
+	// Web 服務配置
 	Web struct {
 		Enabled bool   `yaml:"enabled"`
-		Host    string `yaml:"host"`    // 监听地址（默认 0.0.0.0）
-		Port    int    `yaml:"port"`    // 监听端口（默认 8080）
-		APIKey  string `yaml:"api_key"` // API 密钥（可选，用于认证）
+		Host    string `yaml:"host"`    // 監听地址（預設 0.0.0.0）
+		Port    int    `yaml:"port"`    // 監听端口（預設 8080）
+		APIKey  string `yaml:"api_key"` // API 密钥（可選，用於认证）
 		
 		// pprof 性能分析配置
 		Pprof struct {
-			Enabled     bool     `yaml:"enabled"`      // 是否启用 pprof，默认 false（生产环境建议禁用）
-			RequireAuth bool     `yaml:"require_auth"` // 是否需要认证，默认 true
-			AllowedIPs  []string `yaml:"allowed_ips"` // IP 白名单（可选，为空则允许所有 IP）
+			Enabled     bool     `yaml:"enabled"`      // 是否啟用 pprof，預設 false（生產环境建议禁用）
+			RequireAuth bool     `yaml:"require_auth"` // 是否需要认证，預設 true
+			AllowedIPs  []string `yaml:"allowed_ips"` // IP 白名單（可選，為空则允許所有 IP）
 		} `yaml:"pprof"`
 	} `yaml:"web"`
 
 	// 插件配置
 	Plugins struct {
-		Enabled   bool                              `yaml:"enabled"`   // 是否启用插件系统，默认false
-		Directory string                            `yaml:"directory"` // 插件目录，默认 ./plugins
+		Enabled   bool                              `yaml:"enabled"`   // 是否啟用插件系统，預設false
+		Directory string                            `yaml:"directory"` // 插件目錄，預設 ./plugins
 		Licenses  map[string]string                 `yaml:"licenses"`  // 插件 License Keys
 		Config    map[string]map[string]interface{} `yaml:"config"`    // 插件配置
 	} `yaml:"plugins"`
 
-	// 价差监控配置
+	// 價差監控配置
 	BasisMonitor struct {
-		Enabled         bool     `yaml:"enabled"`          // 是否启用价差监控，默认false
-		IntervalMinutes int      `yaml:"interval_minutes"` // 检查间隔（分钟），默认1
-		Symbols         []string `yaml:"symbols"`          // 监控的交易对列表
+		Enabled         bool     `yaml:"enabled"`          // 是否啟用價差監控，預設false
+		IntervalMinutes int      `yaml:"interval_minutes"` // 檢查间隔（分钟），預設1
+		Symbols         []string `yaml:"symbols"`          // 監控的交易對列表
 	} `yaml:"basis_monitor"`
 
 	// 事件中心配置
 	EventCenter struct {
-		Enabled                  bool     `yaml:"enabled"`                     // 是否启用事件中心，默认true
-		PriceVolatilityThreshold float64  `yaml:"price_volatility_threshold"`  // 价格波动阈值（百分比），默认5.0
-		MonitoredSymbols         []string `yaml:"monitored_symbols"`           // 监控价格波动的交易对
+		Enabled                  bool     `yaml:"enabled"`                     // 是否啟用事件中心，預設true
+		PriceVolatilityThreshold float64  `yaml:"price_volatility_threshold"`  // 價格波動阈值（百分比），預設5.0
+		MonitoredSymbols         []string `yaml:"monitored_symbols"`           // 監控價格波動的交易對
 		
 		// 事件保留策略
 		Retention struct {
-			CriticalDays int `yaml:"critical_days"` // Critical 事件保留天数，默认365
-			WarningDays  int `yaml:"warning_days"`  // Warning 事件保留天数，默认90
-			InfoDays     int `yaml:"info_days"`     // Info 事件保留天数，默认30
+			CriticalDays int `yaml:"critical_days"` // Critical 事件保留天數，預設365
+			WarningDays  int `yaml:"warning_days"`  // Warning 事件保留天數，預設90
+			InfoDays     int `yaml:"info_days"`     // Info 事件保留天數，預設30
 			
-			CriticalMaxCount int `yaml:"critical_max_count"` // Critical 事件最大保留数量，默认1000000
-			WarningMaxCount  int `yaml:"warning_max_count"`  // Warning 事件最大保留数量，默认500000
-			InfoMaxCount     int `yaml:"info_max_count"`     // Info 事件最大保留数量，默认300000
+			CriticalMaxCount int `yaml:"critical_max_count"` // Critical 事件最大保留數量，預設 1000000
+			WarningMaxCount  int `yaml:"warning_max_count"`  // Warning 事件最大保留數量，預設500000
+			InfoMaxCount     int `yaml:"info_max_count"`     // Info 事件最大保留數量，預設300000
 		} `yaml:"retention"`
 		
-		CleanupInterval int `yaml:"cleanup_interval"` // 清理间隔（小时），默认24
+		CleanupInterval int `yaml:"cleanup_interval"` // 清理间隔（小時），預設24
 	} `yaml:"event_center"`
 
 	// 多策略配置
@@ -410,23 +411,23 @@ type Config struct {
 		// 资金分配配置
 		CapitalAllocation struct {
 			Mode         string  `yaml:"mode"`          // fixed/dynamic/both
-			TotalCapital float64 `yaml:"total_capital"` // 总资金（USDT）
+			TotalCapital float64 `yaml:"total_capital"` // 總资金（USDT）
 
 			// 固定分配
 			Fixed struct {
 				Enabled          bool `yaml:"enabled"`
-				RebalanceOnStart bool `yaml:"rebalance_on_start"` // 启动时重新分配
+				RebalanceOnStart bool `yaml:"rebalance_on_start"` // 啟动時重新分配
 			} `yaml:"fixed"`
 
-			// 动态分配
+			// 动態分配
 			DynamicAllocation struct {
 				Enabled               bool    `yaml:"enabled"`
-				RebalanceInterval     int     `yaml:"rebalance_interval"`       // 重新平衡间隔（秒，默认3600）
-				MaxChangePerRebalance float64 `yaml:"max_change_per_rebalance"` // 每次最大调整比例（默认0.05）
-				MinWeight             float64 `yaml:"min_weight"`               // 最小权重（默认0.1）
-				MaxWeight             float64 `yaml:"max_weight"`               // 最大权重（默认0.7）
+				RebalanceInterval     int     `yaml:"rebalance_interval"`       // 重新平衡间隔（秒，預設3600）
+				MaxChangePerRebalance float64 `yaml:"max_change_per_rebalance"` // 每次最大調整比例（預設0.05）
+				MinWeight             float64 `yaml:"min_weight"`               // 最小权重（預設0.1）
+				MaxWeight             float64 `yaml:"max_weight"`               // 最大权重（預設0.7）
 
-				// 评估指标权重
+				// 评估指標权重
 				PerformanceWeights map[string]float64 `yaml:"performance_weights"`
 			} `yaml:"dynamic"`
 		} `yaml:"capital_allocation"`
@@ -438,21 +439,21 @@ type Config struct {
 	// 回测配置
 	Backtest struct {
 		Enabled        bool    `yaml:"enabled"`
-		StartTime      string  `yaml:"start_time"`      // 开始时间（格式：2006-01-02 15:04:05）
-		EndTime        string  `yaml:"end_time"`        // 结束时间
+		StartTime      string  `yaml:"start_time"`      // 开始時间（格式：2006-01-02 15:04:05）
+		EndTime        string  `yaml:"end_time"`        // 結束時间
 		InitialCapital float64 `yaml:"initial_capital"` // 初始资金
 	} `yaml:"backtest"`
 
-	// 仓位资金分配管理
+	// 倉位资金分配管理
 	PositionAllocation struct {
 		Enabled     bool                `yaml:"enabled"`
 		Allocations []SymbolAllocation  `yaml:"allocations"`
 	} `yaml:"position_allocation"`
 
-	// 监控配置
+	// 監控配置
 	Metrics struct {
 		Enabled         bool `yaml:"enabled"`
-		CollectInterval int  `yaml:"collect_interval"` // 收集间隔（秒，默认60）
+		CollectInterval int  `yaml:"collect_interval"` // 收集间隔（秒，預設60）
 	} `yaml:"metrics"`
 
 	// 看门狗配置
@@ -461,13 +462,13 @@ type Config struct {
 
 		// 采样配置
 		Sampling struct {
-			Interval int `yaml:"interval"` // 采样间隔（秒，默认120秒=2分钟）
+			Interval int `yaml:"interval"` // 采样间隔（秒，預設120秒=2分钟）
 		} `yaml:"sampling"`
 
-		// 数据保留
+		// 數據保留
 		Retention struct {
-			DetailDays int `yaml:"detail_days"` // 细粒度数据保留天数（默认7天）
-			DailyDays  int `yaml:"daily_days"`  // 每日汇总保留天数（默认365天）
+			DetailDays int `yaml:"detail_days"` // 细粒度數據保留天數（預設7天）
+			DailyDays  int `yaml:"daily_days"`  // 每日彙總保留天數（預設365天）
 		} `yaml:"retention"`
 
 		// 通知配置
@@ -477,26 +478,26 @@ type Config struct {
 			// 固定阈值通知
 			FixedThreshold struct {
 				Enabled    bool    `yaml:"enabled"`
-				CPUPercent float64 `yaml:"cpu_percent"` // CPU占用超过此值时通知
-				MemoryMB   float64 `yaml:"memory_mb"`   // 内存占用超过此值时通知（可选，0表示不检查）
+				CPUPercent float64 `yaml:"cpu_percent"` // CPU占用超過此值時通知
+				MemoryMB   float64 `yaml:"memory_mb"`   // 記憶體占用超過此值時通知（可選，0表示不檢查）
 			} `yaml:"fixed_threshold"`
 
 			// 变化率阈值通知
 			RateThreshold struct {
 				Enabled          bool    `yaml:"enabled"`
-				WindowMinutes    int     `yaml:"window_minutes"`     // 时间窗口（分钟）
-				CPUIncrease      float64 `yaml:"cpu_increase"`       // CPU占用在窗口内上涨超过此值时通知
-				MemoryIncreaseMB float64 `yaml:"memory_increase_mb"` // 内存占用在窗口内上涨超过此值时通知（可选，0表示不检查）
+				WindowMinutes    int     `yaml:"window_minutes"`     // 時间窗口（分钟）
+				CPUIncrease      float64 `yaml:"cpu_increase"`       // CPU占用在窗口内上涨超過此值時通知
+				MemoryIncreaseMB float64 `yaml:"memory_increase_mb"` // 記憶體占用在窗口内上涨超過此值時通知（可選，0表示不檢查）
 			} `yaml:"rate_threshold"`
 
-			// 通知冷却时间（避免频繁通知）
-			CooldownMinutes int `yaml:"cooldown_minutes"` // 冷却时间（分钟，默认30分钟）
+			// 通知冷却時间（避免频繁通知）
+			CooldownMinutes int `yaml:"cooldown_minutes"` // 冷却時间（分钟，預設30分钟）
 		} `yaml:"notifications"`
 
-		// 每日汇总配置
+		// 每日彙總配置
 		Aggregation struct {
 			Enabled  bool   `yaml:"enabled"`
-			Schedule string `yaml:"schedule"` // 每日汇总执行时间（格式：HH:MM，默认00:00）
+			Schedule string `yaml:"schedule"` // 每日彙總執行時间（格式：HH:MM，預設00:00）
 		} `yaml:"aggregation"`
 	} `yaml:"watchdog"`
 
@@ -505,10 +506,10 @@ type Config struct {
 		Enabled      bool   `yaml:"enabled"`
 		Provider     string `yaml:"provider"` // gemini, openai
 		APIKey       string `yaml:"api_key"`
-		GeminiAPIKey string `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果为空则使用 api_key）
-		BaseURL      string `yaml:"base_url"`       // 可选，用于自定义API端点
+		GeminiAPIKey string `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果為空则使用 api_key）
+		BaseURL      string `yaml:"base_url"`       // 可選，用於自定义API端点
 		
-		// 各模块开关
+		// 各模塊开关
 		Modules struct {
 			MarketAnalysis struct {
 				Enabled        bool `yaml:"enabled"`
@@ -518,7 +519,7 @@ type Config struct {
 			ParameterOptimization struct {
 				Enabled              bool `yaml:"enabled"`
 				OptimizationInterval int  `yaml:"optimization_interval"` // 秒
-				AutoApply            bool `yaml:"auto_apply"`            // 是否自动应用优化结果
+				AutoApply            bool `yaml:"auto_apply"`            // 是否自動套用優化結果
 			} `yaml:"parameter_optimization"`
 
 			RiskAnalysis struct {
@@ -544,14 +545,14 @@ type Config struct {
 
 					SocialMedia struct {
 						Enabled    bool     `yaml:"enabled"`
-						Subreddits []string `yaml:"subreddits"` // Reddit子版块列表
-						PostLimit  int      `yaml:"post_limit"` // 每个子版块获取的帖子数量
+						Subreddits []string `yaml:"subreddits"` // Reddit子版塊列表
+						PostLimit  int      `yaml:"post_limit"` // 每個子版塊獲取的帖子數量
 					} `yaml:"social_media"`
 				} `yaml:"data_sources"`
 			} `yaml:"sentiment_analysis"`
 
 			StrategyGeneration struct {
-				Enabled bool `yaml:"enabled"` // 实验性功能
+				Enabled bool `yaml:"enabled"` // 實驗性功能
 			} `yaml:"strategy_generation"`
 
 			PolymarketSignal struct {
@@ -561,13 +562,13 @@ type Config struct {
 				Markets          struct {
 					Keywords        []string `yaml:"keywords"`           // 关注的市场关键词
 					MinLiquidity    float64  `yaml:"min_liquidity"`      // 最小流动性（USDC）
-					MinVolume24h    float64  `yaml:"min_volume_24h"`     // 最小24小时交易量（USDC）
-					MinDaysToExpiry int      `yaml:"min_days_to_expiry"` // 最小到期天数
-					MaxDaysToExpiry int      `yaml:"max_days_to_expiry"` // 最大到期天数
+					MinVolume24h    float64  `yaml:"min_volume_24h"`     // 最小24小時交易量（USDC）
+					MinDaysToExpiry int      `yaml:"min_days_to_expiry"` // 最小到期天數
+					MaxDaysToExpiry int      `yaml:"max_days_to_expiry"` // 最大到期天數
 				} `yaml:"markets"`
 				SignalGeneration struct {
-					BuyThreshold      float64 `yaml:"buy_threshold"`       // 买入信号阈值（概率>此值）
-					SellThreshold     float64 `yaml:"sell_threshold"`      // 卖出信号阈值（概率<此值）
+					BuyThreshold      float64 `yaml:"buy_threshold"`       // 買入信号阈值（概率>此值）
+					SellThreshold     float64 `yaml:"sell_threshold"`      // 賣出信号阈值（概率<此值）
 					MinSignalStrength float64 `yaml:"min_signal_strength"` // 最小信号强度
 					MinConfidence     float64 `yaml:"min_confidence"`      // 最小置信度
 				} `yaml:"signal_generation"`
@@ -577,15 +578,15 @@ type Config struct {
 		// 决策模式
 		DecisionMode string `yaml:"decision_mode"` // advisor, executor, hybrid
 
-		// 执行模式规则
+		// 執行模式规则
 		ExecutionRules struct {
-			HighRiskThreshold   float64 `yaml:"high_risk_threshold"`  // 高风险场景：仅建议
-			LowRiskThreshold    float64 `yaml:"low_risk_threshold"`   // 低风险场景：可直接执行
+			HighRiskThreshold   float64 `yaml:"high_risk_threshold"`  // 高风險场景：僅建议
+			LowRiskThreshold    float64 `yaml:"low_risk_threshold"`   // 低风險场景：可直接執行
 			RequireConfirmation bool    `yaml:"require_confirmation"` // 需要人工确认的场景
 		} `yaml:"execution_rules"`
 	} `yaml:"ai"`
 
-	// 合规配置（订单/成交审计日志 + OSS 上传）
+	// 合规配置（订單/成交审计日志 + OSS 上傳）
 	Compliance struct {
 		Enabled bool `yaml:"enabled"`
 
@@ -593,10 +594,10 @@ type Config struct {
 		AuditLog struct {
 			Enabled   bool   `yaml:"enabled"`
 			Format    string `yaml:"format"`    // csv, jsonl, both
-			Directory string `yaml:"directory"` // 存储目录，默认 ./data/audit
+			Directory string `yaml:"directory"` // 存儲目錄，預設 ./data/audit
 		} `yaml:"audit_log"`
 
-		// OSS 上传配置（阿里云）
+		// OSS 上傳配置（阿里云）
 		OSS struct {
 			Enabled         bool   `yaml:"enabled"`
 			Provider        string `yaml:"provider"`          // aliyun
@@ -605,94 +606,95 @@ type Config struct {
 			AccessKeyID     string `yaml:"access_key_id"`
 			AccessKeySecret string `yaml:"access_key_secret"`
 			Prefix          string `yaml:"prefix"`      // 文件前缀，如 audit/
-			UploadTime      string `yaml:"upload_time"` // 每日上传时间，如 "02:00"
+			UploadTime      string `yaml:"upload_time"` // 每日上傳時间，如 "02:00"
 		} `yaml:"oss"`
 	} `yaml:"compliance"`
 }
 
-// WithdrawalPolicy 提现策略（利润保护）
+// WithdrawalPolicy 提現策略（利润保护）
 type WithdrawalPolicy struct {
 	Enabled   bool    `yaml:"enabled" json:"enabled"`
-	Threshold float64 `yaml:"threshold" json:"threshold"` // 触发提现的利润比例 (如 0.1 表示 10%)
+	Threshold float64 `yaml:"threshold" json:"threshold"` // 触发提現的利润比例 (如 0.1 表示 10%)
 
-	// ===== 划转模式 =====
-	Mode string `yaml:"mode" json:"mode"` // threshold(阈值触发), fixed(固定金额), tiered(阶梯), scheduled(定时)
+	// ===== 划轉模式 =====
+	Mode string `yaml:"mode" json:"mode"` // threshold(阈值触发), fixed(固定金額), tiered(阶梯), scheduled(定時)
 
-	// ===== 固定金额模式 =====
-	FixedAmount float64 `yaml:"fixed_amount" json:"fixed_amount"` // 每次划转的固定金额 (USDT)
+	// ===== 固定金額模式 =====
+	FixedAmount float64 `yaml:"fixed_amount" json:"fixed_amount"` // 每次划轉的固定金額 (USDT)
 
-	// ===== 阶梯划转模式 =====
-	TieredRules []TieredWithdrawRule `yaml:"tiered_rules" json:"tiered_rules"` // 阶梯划转规则
+	// ===== 阶梯划轉模式 =====
+	TieredRules []TieredWithdrawRule `yaml:"tiered_rules" json:"tiered_rules"` // 阶梯划轉规则
 
-	// ===== 划转比例 =====
-	WithdrawRatio float64 `yaml:"withdraw_ratio" json:"withdraw_ratio"` // 划转比例 (0-1)，如 0.5 表示划转利润的 50%
+	// ===== 划轉比例 =====
+	WithdrawRatio float64 `yaml:"withdraw_ratio" json:"withdraw_ratio"` // 划轉比例 (0-1)，如 0.5 表示划轉利润的 50%
 
 	// ===== 本金保护 =====
 	PrincipalProtection PrincipalProtection `yaml:"principal_protection" json:"principal_protection"`
 
-	// ===== 定时划转 =====
+	// ===== 定時划轉 =====
 	Schedule WithdrawSchedule `yaml:"schedule" json:"schedule"`
 
-	// ===== 复利设置 =====
-	CompoundRatio float64 `yaml:"compound_ratio" json:"compound_ratio"` // 复利比例 (0-1)，剩余部分划转
+	// ===== 複利設置 =====
+	CompoundRatio float64 `yaml:"compound_ratio" json:"compound_ratio"` // 複利比例 (0-1)，剩餘部分划轉
 
-	// ===== 目标账户 =====
-	TargetWallet string `yaml:"target_wallet" json:"target_wallet"` // spot(现货), funding(资金账户), external(外部地址)
+	// ===== 目標账戶 =====
+	TargetWallet string `yaml:"target_wallet" json:"target_wallet"` // spot(現貨), funding(资金账戶), external(外部地址)
 }
 
-// TieredWithdrawRule 阶梯划转规则
+// TieredWithdrawRule 阶梯划轉规则
 type TieredWithdrawRule struct {
 	ProfitThreshold float64 `yaml:"profit_threshold" json:"profit_threshold"` // 利润阈值 (如 0.1 表示 10%)
-	WithdrawRatio   float64 `yaml:"withdraw_ratio" json:"withdraw_ratio"`     // 达到该阈值时划转的比例
+	WithdrawRatio   float64 `yaml:"withdraw_ratio" json:"withdraw_ratio"`     // 达到該阈值時划轉的比例
 }
 
-// PrincipalProtection 本金保护设置
+// PrincipalProtection 本金保护設置
 type PrincipalProtection struct {
 	Enabled              bool    `yaml:"enabled" json:"enabled"`
-	BreakevenProtection  bool    `yaml:"breakeven_protection" json:"breakeven_protection"`     // 回本即保护（设置保本止损）
-	WithdrawPrincipal    bool    `yaml:"withdraw_principal" json:"withdraw_principal"`         // 盈利足够时划转本金
-	PrincipalWithdrawAt  float64 `yaml:"principal_withdraw_at" json:"principal_withdraw_at"`   // 利润达到多少时划转本金 (如 1.0 表示利润=本金时)
+	BreakevenProtection  bool    `yaml:"breakeven_protection" json:"breakeven_protection"`     // 回本即保护（設置保本止损）
+	WithdrawPrincipal    bool    `yaml:"withdraw_principal" json:"withdraw_principal"`         // 盈利足够時划轉本金
+	PrincipalWithdrawAt  float64 `yaml:"principal_withdraw_at" json:"principal_withdraw_at"`   // 利润达到多少時划轉本金 (如 1.0 表示利润=本金時)
 	MaxLossRatio         float64 `yaml:"max_loss_ratio" json:"max_loss_ratio"`                 // 最大亏损比例 (如 0.2 表示最多亏损本金的 20%)
 }
 
-// WithdrawSchedule 定时划转设置
+// WithdrawSchedule 定時划轉設置
 type WithdrawSchedule struct {
 	Enabled   bool   `yaml:"enabled" json:"enabled"`
 	Frequency string `yaml:"frequency" json:"frequency"` // daily, weekly, monthly
-	DayOfWeek int    `yaml:"day_of_week" json:"day_of_week"` // 周几 (1-7, 仅 weekly 模式)
-	DayOfMonth int   `yaml:"day_of_month" json:"day_of_month"` // 每月几号 (1-31, 仅 monthly 模式)
-	TimeOfDay  string `yaml:"time_of_day" json:"time_of_day"` // 时间 (如 "23:00")
+	DayOfWeek int    `yaml:"day_of_week" json:"day_of_week"` // 周几 (1-7, 僅 weekly 模式)
+	DayOfMonth int   `yaml:"day_of_month" json:"day_of_month"` // 每月几号 (1-31, 僅 monthly 模式)
+	TimeOfDay  string `yaml:"time_of_day" json:"time_of_day"` // 時间 (如 "23:00")
 }
 
-// StrategyInstance 币种下的策略实例
+// StrategyInstance 币种下的策略實例
 type StrategyInstance struct {
 	Type   string                 `yaml:"type" json:"type"`     // grid, dca, etc.
 	Weight float64                `yaml:"weight" json:"weight"` // 资金占比 (0-1)
 	Config map[string]interface{} `yaml:"config" json:"config"` // 策略专属配置
 }
 
-// SymbolConfig 单个交易对配置（可指定所属交易所及交易参数）
+// SymbolConfig 單個交易對配置（可指定所属交易所及交易参數）
 type SymbolConfig struct {
-	Enabled               *bool            `yaml:"enabled" json:"enabled"`                                   // 是否启用自动交易，默认为 true（使用指针确保 false 时也会被序列化）
-	Exchange              string           `yaml:"exchange" json:"exchange"`                                 // 所属交易所，默认为 app.current_exchange
-	Symbol                string           `yaml:"symbol" json:"symbol"`                                     // 交易对，如 BTCUSDT
-	TotalAllocatedCapital float64          `yaml:"total_allocated_capital" json:"total_allocated_capital"`   // 该币种分配的总资金
-	Strategies            []StrategyInstance `yaml:"strategies" json:"strategies"`                       // 运行在该币种上的策略列表
-	WithdrawalPolicy      WithdrawalPolicy   `yaml:"withdrawal_policy" json:"withdrawal_policy"`             // 提现策略
-	PriceInterval         float64          `yaml:"price_interval" json:"price_interval"`                     // 价格间隔
-	OrderQuantity         float64          `yaml:"order_quantity" json:"order_quantity"`                     // 每单金额（USDT/USDC）
-	MinOrderValue         float64          `yaml:"min_order_value" json:"min_order_value"`                   // 最小订单价值
-	BuyWindowSize         int              `yaml:"buy_window_size" json:"buy_window_size"`                   // 买单窗口
-	SellWindowSize        int              `yaml:"sell_window_size" json:"sell_window_size"`                 // 卖单窗口
-	ReconcileInterval     int              `yaml:"reconcile_interval" json:"reconcile_interval"`             // 对账间隔（秒）
-	OrderCleanupThreshold int              `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`   // 订单清理上限
+	Enabled               *bool            `yaml:"enabled" json:"enabled"`                                   // 是否啟用自动交易，預設為 true（使用指針确保 false 時也會被序列化）
+	Exchange              string           `yaml:"exchange" json:"exchange"`                                 // 所属交易所，預設為 app.current_exchange
+	Symbol                string           `yaml:"symbol" json:"symbol"`                                     // 交易對，如 BTCUSDT
+	MarketType            string           `yaml:"market_type" json:"market_type"`                             // 市场類型：spot 現貨 / futures 合約，預設 futures
+	TotalAllocatedCapital float64          `yaml:"total_allocated_capital" json:"total_allocated_capital"`   // 該幣種分配的總资金
+	Strategies            []StrategyInstance `yaml:"strategies" json:"strategies"`                       // 运行在該幣種上的策略列表
+	WithdrawalPolicy      WithdrawalPolicy   `yaml:"withdrawal_policy" json:"withdrawal_policy"`             // 提現策略
+	PriceInterval         float64          `yaml:"price_interval" json:"price_interval"`                     // 價格間隔
+	OrderQuantity         float64          `yaml:"order_quantity" json:"order_quantity"`                     // 每單金額（USDT/USDC）
+	MinOrderValue         float64          `yaml:"min_order_value" json:"min_order_value"`                   // 最小訂單價值
+	BuyWindowSize         int              `yaml:"buy_window_size" json:"buy_window_size"`                   // 買單窗口
+	SellWindowSize        int              `yaml:"sell_window_size" json:"sell_window_size"`                 // 賣單視窗
+	ReconcileInterval     int              `yaml:"reconcile_interval" json:"reconcile_interval"`             // 對账间隔（秒）
+	OrderCleanupThreshold int              `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`   // 訂單清理上限
 	CleanupBatchSize      int              `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`             // 清理批次大小
-	MarginLockDurationSec int              `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保证金锁定时间（秒）
-	PositionSafetyCheck   int              `yaml:"position_safety_check" json:"position_safety_check"`       // 持仓安全性检查
-	GridRiskControl       GridRiskControl  `yaml:"grid_risk_control" json:"grid_risk_control"`               // 网格策略风控
+	MarginLockDurationSec int              `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保證金鎖定時间（秒）
+	PositionSafetyCheck   int              `yaml:"position_safety_check" json:"position_safety_check"`       // 持倉安全性檢查
+	GridRiskControl       GridRiskControl  `yaml:"grid_risk_control" json:"grid_risk_control"`               // 網格策略风控
 }
 
-// IsEnabled 返回交易对是否启用（nil 默认为 true）
+// IsEnabled 返回交易對是否啟用（nil 預設為 true）
 func (sc *SymbolConfig) IsEnabled() bool {
 	if sc.Enabled == nil {
 		return true
@@ -700,23 +702,36 @@ func (sc *SymbolConfig) IsEnabled() bool {
 	return *sc.Enabled
 }
 
-// SetEnabled 设置交易对启用状态
+// GetMarketType 返回市場類型，空時預設為 futures（向后兼容）
+func (sc *SymbolConfig) GetMarketType() string {
+	if sc.MarketType == "spot" {
+		return "spot"
+	}
+	return "futures"
+}
+
+// IsSpot 是否為現貨交易對
+func (sc *SymbolConfig) IsSpot() bool {
+	return sc.GetMarketType() == "spot"
+}
+
+// SetEnabled 設置交易對啟用狀態
 func (sc *SymbolConfig) SetEnabled(enabled bool) {
 	sc.Enabled = &enabled
 }
 
-// UnmarshalYAML 为 SymbolConfig 提供默认值。
+// UnmarshalYAML 為 SymbolConfig 提供預設值。
 //
-// 兼容历史配置：旧版 config.yaml 没有 enabled 字段时，应默认启用自动交易（enabled=true）。
+// 相容歷史配置：舊版 config.yaml 沒有 enabled 欄位時，應預設啟用自動交易（enabled=true）。
 func (sc *SymbolConfig) UnmarshalYAML(value *yaml.Node) error {
 	type raw SymbolConfig
-	// 默认启用
+	// 預設啟用
 	defaultEnabled := true
 	r := raw{Enabled: &defaultEnabled}
 	if err := value.Decode(&r); err != nil {
 		return err
 	}
-	// 如果 YAML 中没有 enabled 字段，r.Enabled 仍然是我们设置的默认值
+	// 如果 YAML 中没有 enabled 欄位，r.Enabled 仍然是我们設置的預設值
 	*sc = SymbolConfig(r)
 	return nil
 }
@@ -724,7 +739,7 @@ func (sc *SymbolConfig) UnmarshalYAML(value *yaml.Node) error {
 // StrategyConfig 策略配置
 type StrategyConfig struct {
 	Enabled bool                   `yaml:"enabled" json:"enabled"`
-	Type    string                 `yaml:"type" json:"type"`     // 策略类型 (grid, dca, martingale, dca_enhanced, combo)
+	Type    string                 `yaml:"type" json:"type"`     // 策略類型 (grid, dca, martingale, dca_enhanced, combo)
 	Weight  float64                `yaml:"weight" json:"weight"` // 资金权重
 	Config  map[string]interface{} `yaml:"config" json:"config"`
 }
@@ -735,44 +750,44 @@ type ExchangeConfig struct {
 	SecretKey  string  `yaml:"secret_key" json:"secret_key"`
 	Passphrase string  `yaml:"passphrase" json:"passphrase"` // Bitget 需要
 	FeeRate    float64 `yaml:"fee_rate" json:"fee_rate"`     // 手续费率（例如 0.0002 表示 0.02%）
-	Testnet    bool    `yaml:"testnet" json:"testnet"`       // 是否使用测试网（默认 false）
-	Leverage   int     `yaml:"leverage" json:"leverage"`     // 杠杆倍数（仅 Gate.io 支持，0 表示不设置）
+	Testnet    bool    `yaml:"testnet" json:"testnet"`       // 是否使用測試網（預設 false）
+	Leverage   int     `yaml:"leverage" json:"leverage"`     // 杠杆倍數（僅 Gate.io 支援，0 表示不設置）
 }
 
-// SymbolAllocation 单个币种的资金分配配置
+// SymbolAllocation 單個币种的资金分配配置
 type SymbolAllocation struct {
 	Exchange      string  `yaml:"exchange"`
 	Symbol        string  `yaml:"symbol"`
-	MaxAmountUSDT float64 `yaml:"max_amount_usdt"` // 固定金额限制（正常限额）
-	MaxPercentage float64 `yaml:"max_percentage"`  // 账户余额百分比限制
+	MaxAmountUSDT float64 `yaml:"max_amount_usdt"` // 固定金額限制（正常限額）
+	MaxPercentage float64 `yaml:"max_percentage"`  // 账戶餘額百分比限制
 	
-	// 分级限额配置
+	// 分级限額配置
 	TieredLimits struct {
-		Enabled        bool    `yaml:"enabled"`         // 是否启用分级限额
-		EmergencyLimit float64 `yaml:"emergency_limit"` // 紧急限额（USDT）
+		Enabled        bool    `yaml:"enabled"`         // 是否啟用分级限額
+		EmergencyLimit float64 `yaml:"emergency_limit"` // 紧急限額（USDT）
 		
-		// 触发条件（满足任一条件即触发紧急限额）
+		// 触发条件（满足任一条件即触发紧急限額）
 		Triggers struct {
-			PriceDropPercent  float64 `yaml:"price_drop_percent"`  // 价格下跌百分比（相对于锚点价格）
-			PositionLayers    int     `yaml:"position_layers"`     // 持仓层数达到此值
-			UnrealizedLossUSD float64 `yaml:"unrealized_loss_usd"` // 未实现亏损超过此值（USDT）
+			PriceDropPercent  float64 `yaml:"price_drop_percent"`  // 價格下跌百分比（相對於锚点價格）
+			PositionLayers    int     `yaml:"position_layers"`     // 持倉层數达到此值
+			UnrealizedLossUSD float64 `yaml:"unrealized_loss_usd"` // 未實現亏损超過此值（USDT）
 		} `yaml:"triggers"`
 		
-		// 恢复条件（满足所有条件才恢复正常限额）
+		// 恢復条件（满足所有条件才恢復正常限額）
 		Recovery struct {
-			PriceRecoverPercent float64 `yaml:"price_recover_percent"` // 价格恢复到此百分比以上
-			CooldownSeconds     int     `yaml:"cooldown_seconds"`      // 冷却时间（秒）
+			PriceRecoverPercent float64 `yaml:"price_recover_percent"` // 價格恢復到此百分比以上
+			CooldownSeconds     int     `yaml:"cooldown_seconds"`      // 冷却時间（秒）
 		} `yaml:"recovery"`
 		
 		// 通知配置
 		Notification struct {
-			OnTrigger bool `yaml:"on_trigger"` // 触发紧急限额时通知
-			OnRecovery bool `yaml:"on_recovery"` // 恢复正常限额时通知
+			OnTrigger bool `yaml:"on_trigger"` // 触发紧急限額時通知
+			OnRecovery bool `yaml:"on_recovery"` // 恢復正常限額時通知
 		} `yaml:"notification"`
 	} `yaml:"tiered_limits"`
 }
 
-// LoadConfig 加载配置文件
+// LoadConfig 加載配置文件
 func LoadConfig(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -785,13 +800,13 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("配置验证失败: %v", err)
+		return nil, fmt.Errorf("配置驗证失败: %v", err)
 	}
 
 	return &cfg, nil
 }
 
-// LoadConfigFromBytes 从字节数组加载配置（用于测试）
+// LoadConfigFromBytes 從字节數组加載配置（用於测試）
 func LoadConfigFromBytes(data []byte) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
@@ -799,7 +814,7 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("配置验证失败: %v", err)
+		return nil, fmt.Errorf("配置驗证失败: %v", err)
 	}
 
 	return &cfg, nil
@@ -807,12 +822,12 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 
 // SaveConfig 保存配置到文件
 func SaveConfig(cfg *Config, configPath string) error {
-	// 验证配置
+	// 驗证配置
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("配置验证失败: %v", err)
+		return fmt.Errorf("配置驗证失败: %v", err)
 	}
 
-	// 序列化为YAML
+	// 序列化為YAML
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("序列化配置失败: %v", err)
@@ -826,13 +841,13 @@ func SaveConfig(cfg *Config, configPath string) error {
 	return nil
 }
 
-// SanitizeForExport 创建脱敏后的配置副本，用于导出下载（遮盖 API Key、Secret 等敏感信息）
+// SanitizeForExport 創建脱敏后的配置副本，用於導出下載（遮盖 API Key、Secret 等敏感信息）
 func SanitizeForExport(cfg *Config) *Config {
 	if cfg == nil {
 		return nil
 	}
 	out := *cfg
-	// 深拷贝 Exchanges 并脱敏
+	// 深拷贝 Exchanges 並脱敏
 	if len(cfg.Exchanges) > 0 {
 		out.Exchanges = make(map[string]ExchangeConfig)
 		for k, v := range cfg.Exchanges {
@@ -861,9 +876,9 @@ func SanitizeForExport(cfg *Config) *Config {
 	return &out
 }
 
-// SaveConfigWithoutValidation 保存配置到文件（不验证，用于保存最小化配置）
+// SaveConfigWithoutValidation 保存配置到文件（不驗证，用於保存最小化配置）
 func SaveConfigWithoutValidation(cfg *Config, configPath string) error {
-	// 序列化为YAML
+	// 序列化為YAML
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("序列化配置失败: %v", err)
@@ -877,11 +892,11 @@ func SaveConfigWithoutValidation(cfg *Config, configPath string) error {
 	return nil
 }
 
-// CreateMinimalConfig 创建最小化配置（仅用于启动 Web 服务）
+// CreateMinimalConfig 創建最小化配置（僅用於啟动 Web 服務）
 func CreateMinimalConfig() *Config {
 	cfg := &Config{}
 
-	// 应用配置
+	// 應用配置
 	cfg.App.CurrentExchange = ""
 
 	// 交易所配置（空）
@@ -905,15 +920,15 @@ func CreateMinimalConfig() *Config {
 	cfg.System.Timezone = "Asia/Shanghai"
 	cfg.System.CancelOnExit = true
 	cfg.System.ClosePositionsOnExit = false
-	cfg.System.LogRetentionDays = 30 // 默认保留30天
+	cfg.System.LogRetentionDays = 30 // 預設保留30天
 
-	// Web 服务配置（启用）
+	// Web 服務配置（啟用）
 	cfg.Web.Enabled = true
 	cfg.Web.Host = "0.0.0.0"
 	cfg.Web.Port = 28888
 	cfg.Web.APIKey = ""
 
-	// 其他配置使用默认值
+	// 其他配置使用預設值
 	cfg.RiskControl.Enabled = true
 	cfg.RiskControl.Interval = "1m"
 	cfg.RiskControl.VolumeMultiplier = 3.0
@@ -954,7 +969,7 @@ func CreateMinimalConfig() *Config {
 
 	cfg.AI.Enabled = false
 
-	// 设置数据库配置默认值（AI 异步任务需要数据库支持）
+	// 設置數據库配置預設值（AI 异步任務需要數據库支援）
 	cfg.Database.Type = "sqlite"
 	cfg.Database.DSN = "./data/quantmesh.db"
 	cfg.Database.MaxOpenConns = 100
@@ -971,7 +986,7 @@ func CreateMinimalConfig() *Config {
 	cfg.Strategies.CapitalAllocation.Mode = "fixed"
 	cfg.Strategies.CapitalAllocation.TotalCapital = 5000
 
-	// 时间间隔配置
+	// 時间间隔配置
 	cfg.Timing.WebSocketReconnectDelay = 5
 	cfg.Timing.WebSocketWriteWait = 10
 	cfg.Timing.WebSocketPongWait = 60
@@ -984,7 +999,7 @@ func CreateMinimalConfig() *Config {
 	cfg.Timing.StatusPrintInterval = 1
 	cfg.Timing.OrderCleanupInterval = 60
 
-	// 合规配置默认值
+	// 合规配置預設值
 	cfg.Compliance.Enabled = false
 	cfg.Compliance.AuditLog.Enabled = false
 	cfg.Compliance.AuditLog.Format = "both"
@@ -997,7 +1012,7 @@ func CreateMinimalConfig() *Config {
 	return cfg
 }
 
-// SetupData 引导配置数据
+// SetupData 引導配置數據
 type SetupData struct {
 	Exchange       string  `json:"exchange"`
 	APIKey         string  `json:"api_key"`
@@ -1013,15 +1028,15 @@ type SetupData struct {
 	FeeRate        float64 `json:"fee_rate,omitempty"`
 }
 
-// CreateConfigFromSetup 从引导数据创建完整配置
+// CreateConfigFromSetup 從引導數據創建完整配置
 func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
-	// 创建最小化配置作为基础
+	// 創建最小化配置作為基础
 	cfg := CreateMinimalConfig()
 
-	// 设置交易所
+	// 設置交易所
 	cfg.App.CurrentExchange = setup.Exchange
 
-	// 设置交易所配置
+	// 設置交易所配置
 	exchangeCfg := ExchangeConfig{
 		APIKey:     setup.APIKey,
 		SecretKey:  setup.SecretKey,
@@ -1030,14 +1045,14 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 		FeeRate:    setup.FeeRate,
 	}
 
-	// 如果手续费率未设置，使用默认值
+	// 如果手续费率未設置，使用預設值
 	if exchangeCfg.FeeRate <= 0 {
 		exchangeCfg.FeeRate = 0.0002
 	}
 
 	cfg.Exchanges[setup.Exchange] = exchangeCfg
 
-	// 设置交易配置
+	// 設置交易配置
 	cfg.Trading.Symbol = setup.Symbol
 	cfg.Trading.PriceInterval = setup.PriceInterval
 	cfg.Trading.OrderQuantity = setup.OrderQuantity
@@ -1051,12 +1066,12 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 	cfg.Trading.BuyWindowSize = setup.BuyWindowSize
 	cfg.Trading.SellWindowSize = setup.SellWindowSize
 
-	// 设置默认值
+	// 設置預設值
 	if cfg.Trading.SellWindowSize <= 0 {
 		cfg.Trading.SellWindowSize = cfg.Trading.BuyWindowSize
 	}
 
-	// 创建交易对配置
+	// 創建交易對配置
 	cfg.Trading.Symbols = []SymbolConfig{
 		{
 			Enabled:               BoolPtr(true),
@@ -1078,14 +1093,14 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 	return cfg, nil
 }
 
-// Validate 验证配置
+// Validate 驗证配置
 func (c *Config) Validate() error {
-	// 验证交易所配置
+	// 驗证交易所配置
 	if c.App.CurrentExchange == "" {
-		return fmt.Errorf("必须指定当前使用的交易所 (app.current_exchange)")
+		return fmt.Errorf("必須指定當前使用的交易所 (app.current_exchange)")
 	}
 
-	// 验证多交易所配置
+	// 驗证多交易所配置
 	if len(c.Exchanges) == 0 {
 		return fmt.Errorf("未配置任何交易所，请在 exchanges 中添加配置")
 	}
@@ -1099,14 +1114,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("交易所 %s 的 API 配置不完整", c.App.CurrentExchange)
 	}
 
-	// 验证手续费率配置
+	// 驗证手续费率配置
 	if exchangeCfg.FeeRate < 0 {
-		return fmt.Errorf("交易所 %s 的手续费率不能为负数", c.App.CurrentExchange)
+		return fmt.Errorf("交易所 %s 的手续费率不能為负數", c.App.CurrentExchange)
 	}
 
-	// ==== 多交易对配置校验（兼容旧配置）====
+	// ==== 多交易對配置校驗（相容舊配置）====
 	normalizeSymbol := func(sc SymbolConfig) (SymbolConfig, error) {
-		// enabled 默认值（避免 nil 导致保存时出现 enabled: null）
+		// enabled 預設值（避免 nil 導致保存時出現 enabled: null）
 		if sc.Enabled == nil {
 			sc.SetEnabled(true)
 		}
@@ -1123,27 +1138,35 @@ func (c *Config) Validate() error {
 			return sc, fmt.Errorf("交易所 %s 的 API 配置不完整", sc.Exchange)
 		}
 		if exCfg.FeeRate < 0 {
-			return sc, fmt.Errorf("交易所 %s 的手续费率不能为负数", sc.Exchange)
+			return sc, fmt.Errorf("交易所 %s 的手续费率不能為负數", sc.Exchange)
 		}
 
-		// 交易对
+		// 交易對
 		if sc.Symbol == "" {
-			return sc, fmt.Errorf("交易对不能为空")
+			return sc, fmt.Errorf("交易對不能為空")
 		}
 
-		// 数值默认
+		// 市场類型：僅允許 spot 或 futures，空時預設為 futures
+		if sc.MarketType == "" {
+			sc.MarketType = "futures"
+		}
+		if sc.MarketType != "spot" && sc.MarketType != "futures" {
+			return sc, fmt.Errorf("交易對 %s 的 market_type 無效: %s（只支援 spot 或 futures）", sc.Symbol, sc.MarketType)
+		}
+
+		// 數值預設
 		if sc.PriceInterval <= 0 {
 			sc.PriceInterval = c.Trading.PriceInterval
 		}
 		if sc.PriceInterval <= 0 {
-			return sc, fmt.Errorf("交易对 %s 的价格间隔必须大于0", sc.Symbol)
+			return sc, fmt.Errorf("交易對 %s 的價格間隔必須大於0", sc.Symbol)
 		}
 
 		if sc.OrderQuantity <= 0 {
 			sc.OrderQuantity = c.Trading.OrderQuantity
 		}
 		if sc.OrderQuantity <= 0 {
-			return sc, fmt.Errorf("交易对 %s 的订单金额必须大于0", sc.Symbol)
+			return sc, fmt.Errorf("交易對 %s 的订單金額必須大於0", sc.Symbol)
 		}
 
 		if sc.MinOrderValue <= 0 {
@@ -1158,7 +1181,7 @@ func (c *Config) Validate() error {
 			sc.BuyWindowSize = c.Trading.BuyWindowSize
 		}
 		if sc.BuyWindowSize <= 0 {
-			return sc, fmt.Errorf("交易对 %s 的买单窗口大小必须大于0", sc.Symbol)
+			return sc, fmt.Errorf("交易對 %s 的買單窗口大小必須大於0", sc.Symbol)
 		}
 
 		if sc.SellWindowSize <= 0 {
@@ -1209,11 +1232,11 @@ func (c *Config) Validate() error {
 			}
 		}
 
-		// 风控配置继承
+		// 風控配置继承
 		if !sc.GridRiskControl.Enabled && c.Trading.GridRiskControl.Enabled {
 			sc.GridRiskControl = c.Trading.GridRiskControl
 		} else if sc.GridRiskControl.Enabled {
-			// 如果启用了但某些字段没填，可以考虑从全局继承，但通常启用表示要自定义
+			// 如果啟用了但某些欄位没填，可以考虑從全局继承，但通常啟用表示要自定义
 			if sc.GridRiskControl.MaxGridLayers == 0 {
 				sc.GridRiskControl.MaxGridLayers = c.Trading.GridRiskControl.MaxGridLayers
 			}
@@ -1228,24 +1251,24 @@ func (c *Config) Validate() error {
 			}
 		}
 
-		// 验证策略占比
+		// 驗证策略占比
 		if len(sc.Strategies) > 0 {
 			var totalWeight float64
 			for _, s := range sc.Strategies {
 				totalWeight += s.Weight
 			}
-			if totalWeight > 1.001 { // 允许微小误差
-				return sc, fmt.Errorf("交易对 %s 的策略权重总和 (%.2f) 不能超过 1.0", sc.Symbol, totalWeight)
+			if totalWeight > 1.001 { // 允許微小误差
+				return sc, fmt.Errorf("交易對 %s 的策略权重總和 (%.2f) 不能超過 1.0", sc.Symbol, totalWeight)
 			}
 		}
 
 		return sc, nil
 	}
 
-	// 若未配置 symbols，则兼容旧配置转换为单元素
+	// 若未配置 symbols，则相容舊配置轉换為單元素
 	if len(c.Trading.Symbols) == 0 {
 		if c.Trading.Symbol == "" {
-			return fmt.Errorf("交易对不能为空")
+			return fmt.Errorf("交易對不能為空")
 		}
 		c.Trading.Symbols = []SymbolConfig{{
 			Enabled:               BoolPtr(true),
@@ -1275,7 +1298,7 @@ func (c *Config) Validate() error {
 	}
 	c.Trading.Symbols = normalized
 
-	// 兼容旧字段：保持首个交易对到旧字段，供未改造代码使用
+	// 兼容舊欄位：保持首個交易對到舊欄位，供未改造代碼使用
 	if len(c.Trading.Symbols) > 0 {
 		primary := c.Trading.Symbols[0]
 		c.Trading.Symbol = primary.Symbol
@@ -1292,201 +1315,201 @@ func (c *Config) Validate() error {
 		c.Trading.GridRiskControl = primary.GridRiskControl
 	}
 
-	// 设置默认时间间隔
+	// 設置預設時间间隔
 	if c.System.Timezone == "" {
-		c.System.Timezone = "Asia/Shanghai" // 默认东8区
+		c.System.Timezone = "Asia/Shanghai" // 預設东8区
 	}
 	if c.System.LogRetentionDays <= 0 {
-		c.System.LogRetentionDays = 30 // 默认保留30天
+		c.System.LogRetentionDays = 30 // 預設保留30天
 	}
 
 	if c.Timing.WebSocketReconnectDelay <= 0 {
-		c.Timing.WebSocketReconnectDelay = 5 // 默认5秒
+		c.Timing.WebSocketReconnectDelay = 5 // 預設5秒
 	}
 	if c.Timing.WebSocketWriteWait <= 0 {
-		c.Timing.WebSocketWriteWait = 10 // 默认10秒
+		c.Timing.WebSocketWriteWait = 10 // 預設 10秒
 	}
 	if c.Timing.WebSocketPongWait <= 0 {
-		c.Timing.WebSocketPongWait = 60 // 默认60秒
+		c.Timing.WebSocketPongWait = 60 // 預設60秒
 	}
 	if c.Timing.WebSocketPingInterval <= 0 {
-		c.Timing.WebSocketPingInterval = 20 // 默认20秒
+		c.Timing.WebSocketPingInterval = 20 // 預設20秒
 	}
 	if c.Timing.ListenKeyKeepAliveInterval <= 0 {
-		c.Timing.ListenKeyKeepAliveInterval = 30 // 默认30分钟
+		c.Timing.ListenKeyKeepAliveInterval = 30 // 預設30分钟
 	}
 	if c.Timing.PriceSendInterval <= 0 {
-		c.Timing.PriceSendInterval = 50 // 默认50毫秒
+		c.Timing.PriceSendInterval = 50 // 預設50毫秒
 	}
 	if c.Timing.RateLimitRetryDelay <= 0 {
-		c.Timing.RateLimitRetryDelay = 1 // 默认1秒
+		c.Timing.RateLimitRetryDelay = 1 // 預設1秒
 	}
 	if c.Timing.OrderRetryDelay <= 0 {
-		c.Timing.OrderRetryDelay = 500 // 默认500毫秒
+		c.Timing.OrderRetryDelay = 500 // 預設500毫秒
 	}
 	if c.Timing.PricePollInterval <= 0 {
-		c.Timing.PricePollInterval = 500 // 默认500毫秒
+		c.Timing.PricePollInterval = 500 // 預設500毫秒
 	}
 	if c.Timing.StatusPrintInterval <= 0 {
-		c.Timing.StatusPrintInterval = 1 // 默认1分钟
+		c.Timing.StatusPrintInterval = 1 // 預設1分钟
 	}
 	if c.Timing.OrderCleanupInterval <= 0 {
-		c.Timing.OrderCleanupInterval = 60 // 默认60秒
+		c.Timing.OrderCleanupInterval = 60 // 預設60秒
 	}
 
-	// 验证风控配置并设置默认值
+	// 驗证風控配置並設置預設值
 	if c.RiskControl.Interval == "" {
-		c.RiskControl.Interval = "1m" // 默认1分钟
+		c.RiskControl.Interval = "1m" // 預設1分钟
 	}
 	if c.RiskControl.VolumeMultiplier <= 0 {
-		c.RiskControl.VolumeMultiplier = 3.0 // 默认3倍
+		c.RiskControl.VolumeMultiplier = 3.0 // 預設3倍
 	}
 	if c.RiskControl.AverageWindow <= 0 {
-		c.RiskControl.AverageWindow = 20 // 默认20根K线
+		c.RiskControl.AverageWindow = 20 // 預設20根K線
 	}
 	if len(c.RiskControl.MonitorSymbols) == 0 {
 		c.RiskControl.MonitorSymbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}
 	}
 
-	// 验证恢复阈值配置
+	// 驗证恢復阈值配置
 	monitorCount := len(c.RiskControl.MonitorSymbols)
 	if c.RiskControl.RecoveryThreshold <= 0 {
-		c.RiskControl.RecoveryThreshold = 3 // 默认3个币种
+		c.RiskControl.RecoveryThreshold = 3 // 預設3個币种
 	} else if c.RiskControl.RecoveryThreshold < 1 {
-		c.RiskControl.RecoveryThreshold = 1 // 最小1个
+		c.RiskControl.RecoveryThreshold = 1 // 最小1個
 	} else if c.RiskControl.RecoveryThreshold > monitorCount {
-		c.RiskControl.RecoveryThreshold = monitorCount // 最大为监控币种数量
+		c.RiskControl.RecoveryThreshold = monitorCount // 最大為監控币种數量
 	}
 
-	// 设置深度监控配置默认值
+	// 設置深度監控配置預設值
 	if c.RiskControl.DepthMonitor.CheckInterval <= 0 {
-		c.RiskControl.DepthMonitor.CheckInterval = 5 // 默认5秒
+		c.RiskControl.DepthMonitor.CheckInterval = 5 // 預設5秒
 	}
 	if c.RiskControl.DepthMonitor.DepthLevels <= 0 {
-		c.RiskControl.DepthMonitor.DepthLevels = 10 // 默认10档
+		c.RiskControl.DepthMonitor.DepthLevels = 10 // 預設 10檔
 	}
 	if c.RiskControl.DepthMonitor.DropThreshold <= 0 {
-		c.RiskControl.DepthMonitor.DropThreshold = 0.5 // 默认50%
+		c.RiskControl.DepthMonitor.DropThreshold = 0.5 // 預設50%
 	}
 	if c.RiskControl.DepthMonitor.RecoveryThreshold <= 0 {
-		c.RiskControl.DepthMonitor.RecoveryThreshold = 0.7 // 默认70%
+		c.RiskControl.DepthMonitor.RecoveryThreshold = 0.7 // 預設70%
 	}
 	if c.RiskControl.DepthMonitor.MinDepthUSDT <= 0 {
-		c.RiskControl.DepthMonitor.MinDepthUSDT = 10000 // 默认10000 USDT
+		c.RiskControl.DepthMonitor.MinDepthUSDT = 10000 // 預設 10000 USDT
 	}
 
-	// 设置通知配置默认值
+	// 設置通知配置預設值
 	if c.Notifications.Webhook.Timeout <= 0 {
-		c.Notifications.Webhook.Timeout = 3 // 默认3秒
+		c.Notifications.Webhook.Timeout = 3 // 預設3秒
 	}
 	if c.Notifications.Email.Provider == "" {
-		c.Notifications.Email.Provider = "smtp" // 默认SMTP
+		c.Notifications.Email.Provider = "smtp" // 預設SMTP
 	}
 
-	// 设置存储配置默认值
+	// 設置存儲配置預設值
 	if c.Storage.Type == "" {
-		c.Storage.Type = "sqlite" // 默认SQLite
+		c.Storage.Type = "sqlite" // 預設SQLite
 	}
 	if c.Storage.Path == "" {
-		c.Storage.Path = "./data/quantmesh.db" // 默认路径
+		c.Storage.Path = "./data/quantmesh.db" // 預設路径
 	}
 	if c.Storage.BufferSize <= 0 {
-		c.Storage.BufferSize = 1000 // 默认1000
+		c.Storage.BufferSize = 1000 // 預設 1000
 	}
 	if c.Storage.BatchSize <= 0 {
-		c.Storage.BatchSize = 100 // 默认100
+		c.Storage.BatchSize = 100 // 預設 100
 	}
 	if c.Storage.FlushInterval <= 0 {
-		c.Storage.FlushInterval = 5 // 默认5秒
+		c.Storage.FlushInterval = 5 // 預設5秒
 	}
 
-	// 设置 Web 服务配置默认值
+	// 設置 Web 服務配置預設值
 	if c.Web.Host == "" {
-		c.Web.Host = "0.0.0.0" // 默认监听所有地址
+		c.Web.Host = "0.0.0.0" // 預設監听所有地址
 	}
 	if c.Web.Port <= 0 {
-		c.Web.Port = 28888 // 默认端口（使用10000以上端口，避免常见端口冲突）
+		c.Web.Port = 28888 // 預設端口（使用10000以上端口，避免常见端口冲突）
 	}
 	
-	// 设置 pprof 配置默认值
+	// 設置 pprof 配置預設值
 	if len(c.Web.Pprof.AllowedIPs) == 0 {
-		// 默认允许本地访问
+		// 預設允許本地访问
 		c.Web.Pprof.AllowedIPs = []string{"127.0.0.1", "::1"}
 	}
-	// pprof.Enabled 默认为 false（生产环境安全）
-	// pprof.RequireAuth 默认为 true（需要认证）
+	// pprof.Enabled 預設為 false（生產环境安全）
+	// pprof.RequireAuth 預設為 true（需要认证）
 
-	// 设置实例配置默认值
+	// 設置實例配置預設值
 	if c.Instance.ID == "" {
-		c.Instance.ID = "default-instance" // 默认实例ID
+		c.Instance.ID = "default-instance" // 預設實例ID
 	}
 	if c.Instance.Total <= 0 {
-		c.Instance.Total = 1 // 默认单实例
+		c.Instance.Total = 1 // 預設單實例
 	}
 
-	// 设置数据库配置默认值
+	// 設置數據库配置預設值
 	if c.Database.Type == "" {
-		c.Database.Type = "sqlite" // 默认 SQLite（单机模式）
+		c.Database.Type = "sqlite" // 預設 SQLite（單机模式）
 	}
 	if c.Database.DSN == "" {
 		if c.Database.Type == "sqlite" {
-			c.Database.DSN = "./data/quantmesh.db" // 默认 SQLite 路径
+			c.Database.DSN = "./data/quantmesh.db" // 預設 SQLite 路径
 		}
 	}
 	if c.Database.MaxOpenConns <= 0 {
-		c.Database.MaxOpenConns = 100 // 默认100
+		c.Database.MaxOpenConns = 100 // 預設 100
 	}
 	if c.Database.MaxIdleConns <= 0 {
-		c.Database.MaxIdleConns = 10 // 默认10
+		c.Database.MaxIdleConns = 10 // 預設 10
 	}
 	if c.Database.ConnMaxLifetime <= 0 {
-		c.Database.ConnMaxLifetime = 3600 // 默认1小时
+		c.Database.ConnMaxLifetime = 3600 // 預設1小時
 	}
 	if c.Database.LogLevel == "" {
-		c.Database.LogLevel = "error" // 默认只记录错误
+		c.Database.LogLevel = "error" // 預設只記錄錯误
 	}
 
-	// 设置分布式锁配置默认值
-	// 注意：默认不启用分布式锁（单机模式）
+	// 設置分布式鎖配置預設值
+	// 注意：預設不啟用分布式鎖（單机模式）
 	if c.DistributedLock.Type == "" {
-		c.DistributedLock.Type = "redis" // 默认使用 Redis
+		c.DistributedLock.Type = "redis" // 預設使用 Redis
 	}
 	if c.DistributedLock.Prefix == "" {
-		c.DistributedLock.Prefix = "quantmesh:lock:" // 默认前缀
+		c.DistributedLock.Prefix = "quantmesh:lock:" // 預設前缀
 	}
 	if c.DistributedLock.DefaultTTL <= 0 {
-		c.DistributedLock.DefaultTTL = 5 // 默认5秒
+		c.DistributedLock.DefaultTTL = 5 // 預設5秒
 	}
 	if c.DistributedLock.Redis.Addr == "" {
-		c.DistributedLock.Redis.Addr = "localhost:6379" // 默认 Redis 地址
+		c.DistributedLock.Redis.Addr = "localhost:6379" // 預設 Redis 地址
 	}
 	if c.DistributedLock.Redis.PoolSize <= 0 {
-		c.DistributedLock.Redis.PoolSize = 10 // 默认连接池大小
+		c.DistributedLock.Redis.PoolSize = 10 // 預設連接池大小
 	}
 
-	// 设置监控配置默认值
+	// 設置監控配置預設值
 	if c.Metrics.CollectInterval <= 0 {
-		c.Metrics.CollectInterval = 60 // 默认60秒
+		c.Metrics.CollectInterval = 60 // 預設60秒
 	}
 
-	// 设置新闻监控配置默认值
+	// 設置新聞監控配置預設值
 	if c.NewsMonitor.CheckInterval == "" {
-		c.NewsMonitor.CheckInterval = "5m" // 默认5分钟
+		c.NewsMonitor.CheckInterval = "5m" // 預設5分钟
 	}
 	if c.NewsMonitor.AnalysisInterval == "" {
-		c.NewsMonitor.AnalysisInterval = "30m" // Gemini分析间隔，默认30分钟
+		c.NewsMonitor.AnalysisInterval = "30m" // Gemini分析间隔，預設30分钟
 	}
 	if c.NewsMonitor.NewsCollectInterval == "" {
-		c.NewsMonitor.NewsCollectInterval = "5m" // NewsAPI收集间隔，默认5分钟
+		c.NewsMonitor.NewsCollectInterval = "5m" // NewsAPI收集间隔，預設5分钟
 	}
 	if len(c.NewsMonitor.Sources) == 0 {
-		c.NewsMonitor.Sources = []string{"newsapi"} // 默认使用NewsAPI
+		c.NewsMonitor.Sources = []string{"newsapi"} // 預設使用NewsAPI
 	}
 	if len(c.NewsMonitor.Keywords) == 0 {
 		c.NewsMonitor.Keywords = DefaultNewsKeywords()
 	}
 	if c.NewsMonitor.RiskThreshold <= 0 {
-		c.NewsMonitor.RiskThreshold = 70 // 默认风险阈值70
+		c.NewsMonitor.RiskThreshold = 70 // 預設风險阈值70
 	}
 	if len(c.NewsMonitor.PredictionTimeframes) == 0 {
 		c.NewsMonitor.PredictionTimeframes = []string{"2h", "4h", "6h", "12h", "24h"}
@@ -1507,24 +1530,24 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// 设置策略配置默认值
+	// 設置策略配置預設值
 	if c.Strategies.CapitalAllocation.Mode == "" {
-		c.Strategies.CapitalAllocation.Mode = "fixed" // 默认固定分配
+		c.Strategies.CapitalAllocation.Mode = "fixed" // 預設固定分配
 	}
 	if c.Strategies.CapitalAllocation.TotalCapital <= 0 {
-		c.Strategies.CapitalAllocation.TotalCapital = 5000 // 默认5000 USDT
+		c.Strategies.CapitalAllocation.TotalCapital = 5000 // 預設5000 USDT
 	}
 	if c.Strategies.CapitalAllocation.DynamicAllocation.RebalanceInterval <= 0 {
-		c.Strategies.CapitalAllocation.DynamicAllocation.RebalanceInterval = 3600 // 默认1小时
+		c.Strategies.CapitalAllocation.DynamicAllocation.RebalanceInterval = 3600 // 預設1小時
 	}
 	if c.Strategies.CapitalAllocation.DynamicAllocation.MaxChangePerRebalance <= 0 {
-		c.Strategies.CapitalAllocation.DynamicAllocation.MaxChangePerRebalance = 0.05 // 默认5%
+		c.Strategies.CapitalAllocation.DynamicAllocation.MaxChangePerRebalance = 0.05 // 預設5%
 	}
 	if c.Strategies.CapitalAllocation.DynamicAllocation.MinWeight <= 0 {
-		c.Strategies.CapitalAllocation.DynamicAllocation.MinWeight = 0.1 // 默认10%
+		c.Strategies.CapitalAllocation.DynamicAllocation.MinWeight = 0.1 // 預設 10%
 	}
 	if c.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight <= 0 {
-		c.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight = 0.7 // 默认70%
+		c.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight = 0.7 // 預設70%
 	}
 	if c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights == nil {
 		c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{
@@ -1535,19 +1558,19 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// 设置事件中心配置默认值
-	// 默认启用事件中心
+	// 設置事件中心配置預設值
+	// 預設啟用事件中心
 	if c.EventCenter.PriceVolatilityThreshold <= 0 {
-		c.EventCenter.PriceVolatilityThreshold = 5.0 // 默认5%波动
+		c.EventCenter.PriceVolatilityThreshold = 5.0 // 預設5%波动
 	}
 	if c.EventCenter.Retention.CriticalDays <= 0 {
 		c.EventCenter.Retention.CriticalDays = 365 // Critical 事件保留1年
 	}
 	if c.EventCenter.Retention.WarningDays <= 0 {
-		c.EventCenter.Retention.WarningDays = 90 // Warning 事件保留3个月
+		c.EventCenter.Retention.WarningDays = 90 // Warning 事件保留3個月
 	}
 	if c.EventCenter.Retention.InfoDays <= 0 {
-		c.EventCenter.Retention.InfoDays = 30 // Info 事件保留1个月
+		c.EventCenter.Retention.InfoDays = 30 // Info 事件保留1個月
 	}
 	if c.EventCenter.Retention.CriticalMaxCount <= 0 {
 		c.EventCenter.Retention.CriticalMaxCount = 1000000 // Critical 最多保留100万条
@@ -1559,10 +1582,10 @@ func (c *Config) Validate() error {
 		c.EventCenter.Retention.InfoMaxCount = 300000 // Info 最多保留30万条
 	}
 	if c.EventCenter.CleanupInterval <= 0 {
-		c.EventCenter.CleanupInterval = 24 // 默认每24小时清理一次
+		c.EventCenter.CleanupInterval = 24 // 預設每24小時清理一次
 	}
 
-	// 合规配置默认值
+	// 合规配置預設值
 	if c.Compliance.AuditLog.Directory == "" {
 		c.Compliance.AuditLog.Directory = "./data/audit"
 	}

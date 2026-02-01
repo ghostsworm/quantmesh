@@ -20,10 +20,10 @@ import (
 
 const (
 	BingXMainnetBaseURL = "https://open-api.bingx.com"     // BingX 主网
-	BingXTestnetBaseURL = "https://open-api-vst.bingx.com" // BingX 测试网
+	BingXTestnetBaseURL = "https://open-api-vst.bingx.com" // BingX 測試網
 )
 
-// BingXClient BingX 客户端
+// BingXClient BingX 客戶端
 type BingXClient struct {
 	apiKey     string
 	secretKey  string
@@ -32,7 +32,7 @@ type BingXClient struct {
 	isTestnet  bool
 }
 
-// NewBingXClient 创建 BingX 客户端
+// NewBingXClient 創建 BingX 客戶端
 func NewBingXClient(apiKey, secretKey string, isTestnet bool) *BingXClient {
 	baseURL := BingXMainnetBaseURL
 	if isTestnet {
@@ -50,14 +50,14 @@ func NewBingXClient(apiKey, secretKey string, isTestnet bool) *BingXClient {
 
 // signRequest BingX 签名：HMAC-SHA256
 func (c *BingXClient) signRequest(params url.Values) string {
-	// 按字母序排序参数
+	// 按字母序排序参數
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	// 构造签名字符串
+	// 構造签名字符串
 	var signStr strings.Builder
 	for i, k := range keys {
 		if i > 0 {
@@ -79,7 +79,7 @@ func (c *BingXClient) sendRequest(ctx context.Context, method, path string, para
 	reqURL := c.baseURL + path
 
 	if needSign {
-		// 添加时间戳
+		// 添加時间戳
 		params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 		// 生成签名
 		signature := c.signRequest(params)
@@ -105,7 +105,7 @@ func (c *BingXClient) sendRequest(ctx context.Context, method, path string, para
 		return nil, fmt.Errorf("create request error: %w", err)
 	}
 
-	// 设置请求头
+	// 設置请求头
 	req.Header.Set("X-BX-APIKEY", c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
@@ -123,7 +123,7 @@ func (c *BingXClient) sendRequest(ctx context.Context, method, path string, para
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// 检查 API 错误
+	// 检查 API 錯误
 	var apiResp struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
@@ -137,7 +137,7 @@ func (c *BingXClient) sendRequest(ctx context.Context, method, path string, para
 	return respBody, nil
 }
 
-// GetExchangeInfo 获取交易对信息
+// GetExchangeInfo 獲取交易對信息
 func (c *BingXClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error) {
 	path := "/openApi/swap/v2/quote/contracts"
 	params := url.Values{}
@@ -169,7 +169,7 @@ func (c *BingXClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error
 	return exchangeInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *BingXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
 	path := "/openApi/swap/v2/trade/order"
 	params := url.Values{}
@@ -208,7 +208,7 @@ func (c *BingXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order
 	return &resp.Data, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *BingXClient) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	path := "/openApi/swap/v2/trade/order"
 	params := url.Values{}
@@ -235,7 +235,7 @@ func (c *BingXClient) CancelOrder(ctx context.Context, symbol string, orderID in
 	return nil
 }
 
-// GetOrderInfo 查询订单
+// GetOrderInfo 查詢訂單
 func (c *BingXClient) GetOrderInfo(ctx context.Context, symbol string, orderID int64) (*OrderInfo, error) {
 	path := "/openApi/swap/v2/trade/order"
 	params := url.Values{}
@@ -262,7 +262,7 @@ func (c *BingXClient) GetOrderInfo(ctx context.Context, symbol string, orderID i
 	return &resp.Data, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *BingXClient) GetOpenOrders(ctx context.Context, symbol string) ([]OrderInfo, error) {
 	path := "/openApi/swap/v2/trade/openOrders"
 	params := url.Values{}
@@ -288,7 +288,7 @@ func (c *BingXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order
 	return resp.Data, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (c *BingXClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
 	path := "/openApi/swap/v2/user/balance"
 	params := url.Values{}
@@ -313,7 +313,7 @@ func (c *BingXClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
 	return &resp.Data, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (c *BingXClient) GetPositions(ctx context.Context, symbol string) ([]PositionInfo, error) {
 	path := "/openApi/swap/v2/user/positions"
 	params := url.Values{}
@@ -341,7 +341,7 @@ func (c *BingXClient) GetPositions(ctx context.Context, symbol string) ([]Positi
 	return resp.Data, nil
 }
 
-// GetTicker 获取行情
+// GetTicker 獲取行情
 func (c *BingXClient) GetTicker(ctx context.Context, symbol string) (*TickerInfo, error) {
 	path := "/openApi/swap/v2/quote/ticker"
 	params := url.Values{}
@@ -367,7 +367,7 @@ func (c *BingXClient) GetTicker(ctx context.Context, symbol string) (*TickerInfo
 	return &resp.Data, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *BingXClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/openApi/swap/v3/quote/klines"
 	params := url.Values{}
@@ -397,7 +397,7 @@ func (c *BingXClient) GetKlines(ctx context.Context, symbol, interval string, li
 	return resp.Data, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type ExchangeInfo struct {
 	Symbols map[string]ContractDetail

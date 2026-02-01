@@ -71,12 +71,12 @@ func ClearCache() error {
 	return nil
 }
 
-// DeleteCache 删除指定缓存
+// DeleteCache 刪除指定缓存
 func DeleteCache(cacheKey string) error {
-	// 删除 CSV 文件
+	// 刪除 CSV 文件
 	filename := filepath.Join("backtest", "cache", cacheKey+".csv")
 	if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("删除缓存文件失败: %w", err)
+		return fmt.Errorf("刪除缓存文件失败: %w", err)
 	}
 
 	// 更新索引
@@ -102,12 +102,12 @@ func DeleteCache(cacheKey string) error {
 	return os.WriteFile(indexFile, data, 0644)
 }
 
-// GetCacheStats 获取缓存统计
+// GetCacheStats 獲取缓存统计
 func GetCacheStats() (CacheStats, error) {
 	cacheDir := filepath.Join("backtest", "cache")
 	files, err := filepath.Glob(filepath.Join(cacheDir, "*.csv"))
 	if err != nil {
-		return CacheStats{}, fmt.Errorf("读取缓存目录失败: %w", err)
+		return CacheStats{}, fmt.Errorf("读取缓存目錄失败: %w", err)
 	}
 
 	var totalSize int64
@@ -126,7 +126,7 @@ func GetCacheStats() (CacheStats, error) {
 	}, nil
 }
 
-// CleanOldCache 清理过期缓存（超过指定天数未访问）
+// CleanOldCache 清理過期缓存（超過指定天數未访问）
 func CleanOldCache(days int) error {
 	caches, err := ListCache()
 	if err != nil {
@@ -139,14 +139,14 @@ func CleanOldCache(days int) error {
 	for _, cache := range caches {
 		if cache.Created.Before(cutoffTime) {
 			if err := DeleteCache(cache.Name); err != nil {
-				return fmt.Errorf("删除过期缓存 %s 失败: %w", cache.Name, err)
+				return fmt.Errorf("刪除過期缓存 %s 失败: %w", cache.Name, err)
 			}
 			deletedCount++
 		}
 	}
 
 	if deletedCount > 0 {
-		fmt.Printf("✅ 已清理 %d 个过期缓存\n", deletedCount)
+		fmt.Printf("✅ 已清理 %d 個過期缓存\n", deletedCount)
 	}
 
 	return nil

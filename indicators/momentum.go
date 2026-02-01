@@ -4,24 +4,24 @@ import (
 	"math"
 )
 
-// ========== 动量指标 ==========
+// ========== 动量指標 ==========
 
-// RSI 相对强弱指数
+// RSI 相對强弱指數
 type RSI struct {
 	period int
 }
 
-// NewRSI 创建 RSI 指标
+// NewRSI 創建 RSI 指標
 func NewRSI(period int) *RSI {
 	return &RSI{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (r *RSI) Name() string {
 	return "RSI"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (r *RSI) Period() int {
 	return r.period + 1
 }
@@ -33,7 +33,7 @@ func (r *RSI) Calculate(candles []Candle) []float64 {
 		return nil
 	}
 
-	// 计算价格变化
+	// 计算價格變化
 	changes := make([]float64, len(closes)-1)
 	for i := 1; i < len(closes); i++ {
 		changes[i-1] = closes[i] - closes[i-1]
@@ -80,11 +80,11 @@ func (r *RSI) Signal(candles []Candle) int {
 
 	current := rsi[len(rsi)-1]
 
-	// RSI < 30: 超卖，买入
+	// RSI < 30: 超賣，買入
 	if current < 30 {
 		return 1
 	}
-	// RSI > 70: 超买，卖出
+	// RSI > 70: 超買，賣出
 	if current > 70 {
 		return -1
 	}
@@ -99,7 +99,7 @@ type StochasticOscillator struct {
 	Slowing int
 }
 
-// NewStochasticOscillator 创建随机振荡器
+// NewStochasticOscillator 創建随机振荡器
 func NewStochasticOscillator(kPeriod, dPeriod, slowing int) *StochasticOscillator {
 	return &StochasticOscillator{
 		KPeriod: kPeriod,
@@ -108,17 +108,17 @@ func NewStochasticOscillator(kPeriod, dPeriod, slowing int) *StochasticOscillato
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (so *StochasticOscillator) Name() string {
 	return "StochasticOscillator"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (so *StochasticOscillator) Period() int {
 	return so.KPeriod + so.DPeriod + so.Slowing
 }
 
-// Calculate 计算 %K 线
+// Calculate 计算 %K 線
 func (so *StochasticOscillator) Calculate(candles []Candle) []float64 {
 	result := so.CalculateMulti(candles)
 	if result == nil {
@@ -167,7 +167,7 @@ func (so *StochasticOscillator) CalculateMulti(candles []Candle) map[string][]fl
 		return nil
 	}
 
-	// 对齐长度
+	// 對齐长度
 	offset := len(k) - len(d)
 
 	return map[string][]float64{
@@ -192,11 +192,11 @@ func (so *StochasticOscillator) Signal(candles []Candle) int {
 
 	n := len(k) - 1
 
-	// %K 上穿 %D 且在超卖区
+	// %K 上穿 %D 且在超賣区
 	if CrossOver(k, d) && k[n] < 20 {
 		return 1
 	}
-	// %K 下穿 %D 且在超买区
+	// %K 下穿 %D 且在超買区
 	if CrossUnder(k, d) && k[n] > 80 {
 		return -1
 	}
@@ -204,22 +204,22 @@ func (so *StochasticOscillator) Signal(candles []Candle) int {
 	return 0
 }
 
-// CCI 商品通道指数
+// CCI 商品通道指數
 type CCI struct {
 	period int
 }
 
-// NewCCI 创建 CCI 指标
+// NewCCI 創建 CCI 指標
 func NewCCI(period int) *CCI {
 	return &CCI{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (c *CCI) Name() string {
 	return "CCI"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (c *CCI) Period() int {
 	return c.period
 }
@@ -230,7 +230,7 @@ func (c *CCI) Calculate(candles []Candle) []float64 {
 		return nil
 	}
 
-	// 典型价格
+	// 典型價格
 	tp := TypicalPrice(candles)
 
 	// SMA of TP
@@ -269,11 +269,11 @@ func (c *CCI) Signal(candles []Candle) int {
 
 	current := cci[len(cci)-1]
 
-	// CCI < -100: 超卖
+	// CCI < -100: 超賣
 	if current < -100 {
 		return 1
 	}
-	// CCI > 100: 超买
+	// CCI > 100: 超買
 	if current > 100 {
 		return -1
 	}
@@ -281,27 +281,27 @@ func (c *CCI) Signal(candles []Candle) int {
 	return 0
 }
 
-// WilliamsR 威廉指标
+// WilliamsR 威廉指標
 type WilliamsR struct {
 	period int
 }
 
-// NewWilliamsR 创建威廉指标
+// NewWilliamsR 創建威廉指標
 func NewWilliamsR(period int) *WilliamsR {
 	return &WilliamsR{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (w *WilliamsR) Name() string {
 	return "WilliamsR"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (w *WilliamsR) Period() int {
 	return w.period
 }
 
-// Calculate 计算威廉指标
+// Calculate 计算威廉指標
 func (w *WilliamsR) Calculate(candles []Candle) []float64 {
 	if len(candles) < w.period {
 		return nil
@@ -339,11 +339,11 @@ func (w *WilliamsR) Signal(candles []Candle) int {
 
 	current := wr[len(wr)-1]
 
-	// %R < -80: 超卖
+	// %R < -80: 超賣
 	if current < -80 {
 		return 1
 	}
-	// %R > -20: 超买
+	// %R > -20: 超買
 	if current > -20 {
 		return -1
 	}
@@ -351,22 +351,22 @@ func (w *WilliamsR) Signal(candles []Candle) int {
 	return 0
 }
 
-// MFI 资金流量指数
+// MFI 资金流量指數
 type MFI struct {
 	period int
 }
 
-// NewMFI 创建 MFI 指标
+// NewMFI 創建 MFI 指標
 func NewMFI(period int) *MFI {
 	return &MFI{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (m *MFI) Name() string {
 	return "MFI"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (m *MFI) Period() int {
 	return m.period + 1
 }
@@ -377,7 +377,7 @@ func (m *MFI) Calculate(candles []Candle) []float64 {
 		return nil
 	}
 
-	// 计算典型价格
+	// 计算典型價格
 	tp := TypicalPrice(candles)
 
 	// 计算资金流量
@@ -416,11 +416,11 @@ func (m *MFI) Signal(candles []Candle) int {
 
 	current := mfi[len(mfi)-1]
 
-	// MFI < 20: 超卖
+	// MFI < 20: 超賣
 	if current < 20 {
 		return 1
 	}
-	// MFI > 80: 超买
+	// MFI > 80: 超買
 	if current > 80 {
 		return -1
 	}
@@ -433,17 +433,17 @@ type ROC struct {
 	period int
 }
 
-// NewROC 创建 ROC 指标
+// NewROC 創建 ROC 指標
 func NewROC(period int) *ROC {
 	return &ROC{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (r *ROC) Name() string {
 	return "ROC"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (r *ROC) Period() int {
 	return r.period + 1
 }
@@ -454,22 +454,22 @@ func (r *ROC) Calculate(candles []Candle) []float64 {
 	return RateOfChange(closes, r.period)
 }
 
-// Momentum 动量指标
+// Momentum 动量指標
 type Momentum struct {
 	period int
 }
 
-// NewMomentum 创建动量指标
+// NewMomentum 創建动量指標
 func NewMomentum(period int) *Momentum {
 	return &Momentum{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (m *Momentum) Name() string {
 	return "Momentum"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (m *Momentum) Period() int {
 	return m.period + 1
 }
@@ -480,22 +480,22 @@ func (m *Momentum) Calculate(candles []Candle) []float64 {
 	return Diff(closes, m.period)
 }
 
-// TRIX 三重指数平滑移动平均
+// TRIX 三重指數平滑移动平均
 type TRIX struct {
 	period int
 }
 
-// NewTRIX 创建 TRIX 指标
+// NewTRIX 創建 TRIX 指標
 func NewTRIX(period int) *TRIX {
 	return &TRIX{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (t *TRIX) Name() string {
 	return "TRIX"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (t *TRIX) Period() int {
 	return t.period * 3
 }
@@ -539,7 +539,7 @@ type UltimateOscillator struct {
 	Period3 int
 }
 
-// NewUltimateOscillator 创建终极振荡器
+// NewUltimateOscillator 創建终极振荡器
 func NewUltimateOscillator(p1, p2, p3 int) *UltimateOscillator {
 	return &UltimateOscillator{
 		Period1: p1,
@@ -548,12 +548,12 @@ func NewUltimateOscillator(p1, p2, p3 int) *UltimateOscillator {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (uo *UltimateOscillator) Name() string {
 	return "UltimateOscillator"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (uo *UltimateOscillator) Period() int {
 	return uo.Period3 + 1
 }
@@ -622,11 +622,11 @@ func (uo *UltimateOscillator) Signal(candles []Candle) int {
 
 	current := values[len(values)-1]
 
-	// UO < 30: 超卖
+	// UO < 30: 超賣
 	if current < 30 {
 		return 1
 	}
-	// UO > 70: 超买
+	// UO > 70: 超買
 	if current > 70 {
 		return -1
 	}
@@ -640,7 +640,7 @@ type AwesomeOscillator struct {
 	SlowPeriod int
 }
 
-// NewAwesomeOscillator 创建动量振荡器
+// NewAwesomeOscillator 創建动量振荡器
 func NewAwesomeOscillator(fast, slow int) *AwesomeOscillator {
 	return &AwesomeOscillator{
 		FastPeriod: fast,
@@ -648,12 +648,12 @@ func NewAwesomeOscillator(fast, slow int) *AwesomeOscillator {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (ao *AwesomeOscillator) Name() string {
 	return "AwesomeOscillator"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (ao *AwesomeOscillator) Period() int {
 	return ao.SlowPeriod
 }
@@ -690,11 +690,11 @@ func (ao *AwesomeOscillator) Signal(candles []Candle) int {
 	}
 
 	n := len(values)
-	// 连续两根正值且递增
+	// 连续两根正值且遞增
 	if values[n-1] > 0 && values[n-2] > 0 && values[n-1] > values[n-2] {
 		return 1
 	}
-	// 连续两根负值且递减
+	// 连续两根负值且遞减
 	if values[n-1] < 0 && values[n-2] < 0 && values[n-1] < values[n-2] {
 		return -1
 	}
@@ -702,7 +702,7 @@ func (ao *AwesomeOscillator) Signal(candles []Candle) int {
 	return 0
 }
 
-// 注册动量指标
+// 注册动量指標
 func init() {
 	RegisterIndicator("RSI", func(params map[string]interface{}) Indicator {
 		period := getIntParam(params, "period", 14)

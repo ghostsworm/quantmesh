@@ -11,7 +11,7 @@ import (
 	"quantmesh/logger"
 )
 
-// TaskStore 回测任务存储接口（由 storage.SQLiteStorage 实现）
+// TaskStore 回测任務存儲介面（由 storage.SQLiteStorage 實現）
 type TaskStore interface {
 	CreateBacktestTask(task *BacktestTask) error
 	GetBacktestTask(id string) (*BacktestTask, error)
@@ -20,7 +20,7 @@ type TaskStore interface {
 	DeleteBacktestTask(id string) error
 }
 
-// TaskManager 异步回测任务管理器
+// TaskManager 异步回测任務管理器
 type TaskManager struct {
 	store         TaskStore
 	binanceConfig map[string]string
@@ -30,7 +30,7 @@ type TaskManager struct {
 	running       map[string]struct{}
 }
 
-// NewTaskManager 创建任务管理器
+// NewTaskManager 創建任務管理器
 func NewTaskManager(store TaskStore, binanceConfig map[string]string) *TaskManager {
 	return &TaskManager{
 		store:         store,
@@ -41,12 +41,12 @@ func NewTaskManager(store TaskStore, binanceConfig map[string]string) *TaskManag
 	}
 }
 
-// GetStore 返回任务存储（供 API 查询任务列表等）
+// GetStore 返回任務存儲（供 API 查詢任務列表等）
 func (m *TaskManager) GetStore() TaskStore {
 	return m.store
 }
 
-// CreateAndRun 创建任务并异步执行
+// CreateAndRun 創建任務並异步執行
 func (m *TaskManager) CreateAndRun(task *BacktestTask) error {
 	if task.ID == "" {
 		task.ID = fmt.Sprintf("bt_%d", time.Now().UnixMilli())
@@ -61,7 +61,7 @@ func (m *TaskManager) CreateAndRun(task *BacktestTask) error {
 	return nil
 }
 
-// RunTask 执行指定任务（阻塞，应在 goroutine 中调用）
+// RunTask 執行指定任務（阻塞，应在 goroutine 中調用）
 func (m *TaskManager) RunTask(id string) error {
 	m.mu.Lock()
 	if _, ok := m.running[id]; ok {
@@ -78,25 +78,25 @@ func (m *TaskManager) RunTask(id string) error {
 
 	task, err := m.store.GetBacktestTask(id)
 	if err != nil || task == nil {
-		m.failTask(id, "任务不存在")
+		m.failTask(id, "任務不存在")
 		return nil
 	}
 
 	now := time.Now()
 	_ = m.store.UpdateBacktestTaskStatus(id, "running", 0, &now, nil, "", "", "")
 
-	// 1. 获取 K 线（优先缓存，无则拉取）
+	// 1. 獲取 K 線（优先缓存，無则拉取）
 	candles, err := GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
 	if err != nil {
-		m.failTask(id, fmt.Sprintf("获取历史数据失败: %v", err))
+		m.failTask(id, fmt.Sprintf("獲取歷史數據失败: %v", err))
 		return nil
 	}
 	if len(candles) == 0 {
-		m.failTask(id, "未获取到历史数据")
+		m.failTask(id, "未獲取到历史數據")
 		return nil
 	}
 
-	// 2. 根据策略类型运行回测
+	// 2. 根據策略類型运行回测
 	var result *BacktestResult
 	capital := task.TotalCapital
 	switch task.Strategy {
@@ -122,31 +122,31 @@ func (m *TaskManager) RunTask(id string) error {
 		backtester := NewBacktester(task.Symbol, candles, strategy, capital)
 		result, err = backtester.Run()
 	default:
-		m.failTask(id, fmt.Sprintf("不支持的策略: %s", task.Strategy))
+		m.failTask(id, fmt.Sprintf("不支援的策略: %s", task.Strategy))
 		return nil
 	}
 
 	if err != nil {
-		m.failTask(id, fmt.Sprintf("回测执行失败: %v", err))
+		m.failTask(id, fmt.Sprintf("回测執行失败: %v", err))
 		return nil
 	}
 
-	// 3. 保存结果 JSON
+	// 3. 保存結果 JSON
 	if err := os.MkdirAll(m.resultsDir, 0755); err != nil {
-		m.failTask(id, fmt.Sprintf("创建结果目录失败: %v", err))
+		m.failTask(id, fmt.Sprintf("創建結果目錄失败: %v", err))
 		return nil
 	}
 	resultPath := filepath.Join(m.resultsDir, id+".json")
 	payload := BacktestTaskResult{TaskID: id, Task: task, Result: result}
 	body, _ := json.MarshalIndent(payload, "", "  ")
 	if err := os.WriteFile(resultPath, body, 0644); err != nil {
-		m.failTask(id, fmt.Sprintf("保存结果失败: %v", err))
+		m.failTask(id, fmt.Sprintf("保存結果失败: %v", err))
 		return nil
 	}
 
 	// 4. 生成报告 Markdown
 	if err := os.MkdirAll(m.reportsDir, 0755); err != nil {
-		logger.Warn("创建报告目录失败: %v", err)
+		logger.Warn("創建报告目錄失败: %v", err)
 	}
 	reportPath := filepath.Join(m.reportsDir, id+".md")
 	if err := GenerateReportToFile(result, reportPath); err != nil {
@@ -154,17 +154,17 @@ func (m *TaskManager) RunTask(id string) error {
 		reportPath = ""
 	}
 
-	// 5. 更新任务为完成
+	// 5. 更新任務為完成
 	completed := time.Now()
 	_ = m.store.UpdateBacktestTaskStatus(id, "completed", 100, nil, &completed, "", resultPath, reportPath)
-	logger.Info("✅ 回测任务完成: %s, 收益率=%.2f%%", id, result.Metrics.TotalReturn)
+	logger.Info("✅ 回测任務完成: %s, 收益率=%.2f%%", id, result.Metrics.TotalReturn)
 	return nil
 }
 
 func (m *TaskManager) failTask(id, errMsg string) {
 	completed := time.Now()
 	_ = m.store.UpdateBacktestTaskStatus(id, "failed", 0, nil, &completed, errMsg, "", "")
-	logger.Error("❌ 回测任务失败: %s, %s", id, errMsg)
+	logger.Error("❌ 回测任務失败: %s, %s", id, errMsg)
 }
 
 func (m *TaskManager) gridParamsFromTask(task *BacktestTask) GridBacktestParams {
@@ -238,7 +238,7 @@ func getInt(m map[string]interface{}, key string, def int) int {
 	return def
 }
 
-// LoadResult 加载任务结果（从 JSON 文件）
+// LoadResult 加載任務結果（從 JSON 文件）
 func LoadResult(resultsDir, taskID string) (*BacktestTaskResult, error) {
 	path := filepath.Join(resultsDir, taskID+".json")
 	data, err := os.ReadFile(path)

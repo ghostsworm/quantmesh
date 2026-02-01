@@ -33,7 +33,7 @@ type WebSocketManager struct {
 	isRunning bool
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketManager {
 	wsURL := PoloniexMainnetWSURL
 	if isTestnet {
@@ -48,7 +48,7 @@ func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketMan
 	}
 }
 
-// Start 启动 WebSocket
+// Start 啟动 WebSocket
 func (w *WebSocketManager) Start(ctx context.Context, symbol string, callback func(interface{})) error {
 	w.mu.Lock()
 	if w.isRunning {
@@ -118,7 +118,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 			continue
 		}
 
-		// 启动心跳
+		// 啟动心跳
 		go w.heartbeat()
 
 		// 读取消息
@@ -244,7 +244,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理订单数据
+	// 处理订單數據
 	if channel, ok := msg["channel"].(string); ok {
 		if data, ok := msg["data"].(interface{}); ok {
 			logger.Debug("Poloniex WebSocket message: channel=%s", channel)

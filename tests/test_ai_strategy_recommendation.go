@@ -18,17 +18,17 @@ import (
 
 func main() {
 	fmt.Println("====================================")
-	fmt.Println("测试 AI 策略参数推算功能")
+	fmt.Println("测試 AI 策略参數推算功能")
 	fmt.Println("====================================")
 
-	// 1. 加载配置文件
+	// 1. 加載配置文件
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		fmt.Printf("❌ 加载配置文件失败: %v\n", err)
+		fmt.Printf("❌ 加載配置文件失败: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 2. 获取 Gemini API Key
+	// 2. 獲取 Gemini API Key
 	geminiAPIKey := cfg.AI.GeminiAPIKey
 	if geminiAPIKey == "" {
 		geminiAPIKey = cfg.AI.APIKey
@@ -37,10 +37,10 @@ func main() {
 		fmt.Println("❌ 未找到 Gemini API Key，请在 config.yaml 中配置 ai.gemini_api_key")
 		os.Exit(1)
 	}
-	fmt.Printf("✅ 已从配置文件读取 Gemini API Key: %s...\n", geminiAPIKey[:10])
+	fmt.Printf("✅ 已從配置文件读取 Gemini API Key: %s...\n", geminiAPIKey[:10])
 
-	// 3. 初始化数据库（用于任务系统）
-	fmt.Println("\n初始化数据库和任务系统...")
+	// 3. 初始化數據库（用於任務系统）
+	fmt.Println("\n初始化數據库和任務系统...")
 	dbConfig := &database.Config{
 		Type:            cfg.Database.Type,
 		DSN:             cfg.Database.DSN,
@@ -52,43 +52,43 @@ func main() {
 
 	db, err := database.NewDatabase(dbConfig)
 	if err != nil {
-		fmt.Printf("❌ 初始化数据库失败: %v\n", err)
+		fmt.Printf("❌ 初始化數據库失败: %v\n", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-	fmt.Println("✅ 数据库初始化成功")
+	fmt.Println("✅ 數據库初始化成功")
 
-	// 4. 初始化 AI 任务系统
+	// 4. 初始化 AI 任務系统
 	taskService := service.NewTaskService(db)
 	aiService := service.NewAIService()
 	taskProcessor := processor.NewTaskProcessor(taskService, aiService)
 
-	// 设置全局任务服务
+	// 設置全局任務服務
 	ai.GlobalTaskService = taskService
 
-	// 启动任务处理器（后台运行）
+	// 啟动任務处理器（后台运行）
 	go taskProcessor.Start()
 	defer taskProcessor.Stop()
 
-	// 等待任务处理器启动
+	// 等待任務处理器啟动
 	time.Sleep(2 * time.Second)
-	fmt.Println("✅ AI 任务系统初始化成功")
+	fmt.Println("✅ AI 任務系统初始化成功")
 
-	// 5. 创建 Gemini 客户端
+	// 5. 創建 Gemini 客戶端
 	client := ai.NewGeminiClient(geminiAPIKey)
 
-	// 6. 准备测试数据
-	// Binance 上总共 6000 USDT，BTC 和 ETH 各 3000 USDT
-	fmt.Println("\n准备测试数据...")
+	// 6. 准备测試數據
+	// Binance 上總共 6000 USDT，BTC 和 ETH 各 3000 USDT
+	fmt.Println("\n准备测試數據...")
 	fmt.Println("  - 交易所: Binance")
-	fmt.Println("  - 总资金: 6000 USDT")
+	fmt.Println("  - 總资金: 6000 USDT")
 	fmt.Println("  - BTCUSDT: 3000 USDT")
 	fmt.Println("  - ETHUSDT: 3000 USDT")
 
-	// 模拟当前价格（实际应该从交易所获取）
+	// 模拟當前價格（實際应該從交易所獲取）
 	currentPrices := map[string]float64{
-		"BTCUSDT": 95000.0, // 假设 BTC 价格 95000 USDT
-		"ETHUSDT": 3500.0,  // 假设 ETH 价格 3500 USDT
+		"BTCUSDT": 95000.0, // 假設 BTC 價格 95000 USDT
+		"ETHUSDT": 3500.0,  // 假設 ETH 價格 3500 USDT
 	}
 
 	req := &ai.GenerateConfigRequest{
@@ -99,13 +99,13 @@ func main() {
 			{Symbol: "ETHUSDT", Capital: 3000.0},
 		},
 		CapitalMode:   "per_symbol",
-		RiskProfile:    "balanced", // 平衡型风险偏好
+		RiskProfile:    "balanced", // 平衡型风險偏好
 		CurrentPrices: currentPrices,
 	}
 
-	// 7. 调用 AI 生成配置
-	fmt.Println("\n开始调用 AI 生成策略配置...")
-	fmt.Println("这可能需要几分钟时间，请耐心等待...")
+	// 7. 調用 AI 生成配置
+	fmt.Println("\n开始調用 AI 生成策略配置...")
+	fmt.Println("这可能需要几分钟時间，请耐心等待...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -118,20 +118,20 @@ func main() {
 	}
 	duration := time.Since(startTime)
 
-	fmt.Printf("✅ AI 配置生成成功！耗时: %v\n", duration)
+	fmt.Printf("✅ AI 配置生成成功！耗時: %v\n", duration)
 
-	// 8. 调试：打印完整返回数据
-	fmt.Println("\n【调试信息：完整返回数据结构】")
-	fmt.Printf("  SymbolsConfig 数量: %d\n", len(result.SymbolsConfig))
-	fmt.Printf("  GridConfig 数量: %d\n", len(result.GridConfig))
-	fmt.Printf("  Allocation 数量: %d\n", len(result.Allocation))
+	// 8. 調試：打印完整返回數據
+	fmt.Println("\n【調試信息：完整返回數據結構】")
+	fmt.Printf("  SymbolsConfig 數量: %d\n", len(result.SymbolsConfig))
+	fmt.Printf("  GridConfig 數量: %d\n", len(result.GridConfig))
+	fmt.Printf("  Allocation 數量: %d\n", len(result.Allocation))
 
-	// 9. 显示结果
+	// 9. 显示結果
 	fmt.Println("\n====================================")
-	fmt.Println("AI 配置结果")
+	fmt.Println("AI 配置結果")
 	fmt.Println("====================================")
 
-	fmt.Println("\n【配置思路说明】")
+	fmt.Println("\n【配置思路說明】")
 	fmt.Println(result.Explanation)
 
 	// 显示策略配比
@@ -149,37 +149,37 @@ func main() {
 					totalWeight += strategy.Weight
 					fmt.Printf("    - %s: %.1f%%\n", strategy.Type, weightPercent)
 				}
-				fmt.Printf("  总配比: %.1f%%\n", totalWeight*100)
+				fmt.Printf("  總配比: %.1f%%\n", totalWeight*100)
 			} else {
 				fmt.Println("  ⚠️  未返回策略配比信息")
 			}
 
-			// 显示网格参数
+			// 显示网格参數
 			if symbolConfig.PriceInterval > 0 {
-				fmt.Println("  网格参数:")
-				fmt.Printf("    - 价格间隔: %.2f%%\n", symbolConfig.PriceInterval)
-				fmt.Printf("    - 每单金额: %.2f USDT\n", symbolConfig.OrderQuantity)
-				fmt.Printf("    - 买单窗口: %d\n", symbolConfig.BuyWindowSize)
-				fmt.Printf("    - 卖单窗口: %d\n", symbolConfig.SellWindowSize)
+				fmt.Println("  网格参數:")
+				fmt.Printf("    - 價格間隔: %.2f%%\n", symbolConfig.PriceInterval)
+				fmt.Printf("    - 每單金額: %.2f USDT\n", symbolConfig.OrderQuantity)
+				fmt.Printf("    - 買單窗口: %d\n", symbolConfig.BuyWindowSize)
+				fmt.Printf("    - 賣單視窗: %d\n", symbolConfig.SellWindowSize)
 
 				// 显示网格深度（如果有）
 				if symbolConfig.GridRiskControl.Enabled && symbolConfig.GridRiskControl.MaxGridLayers > 0 {
-					fmt.Printf("    - 最大网格层数: %d\n", symbolConfig.GridRiskControl.MaxGridLayers)
+					fmt.Printf("    - 最大网格层數: %d\n", symbolConfig.GridRiskControl.MaxGridLayers)
 				}
 			}
 		}
 	} else if len(result.GridConfig) > 0 {
-		// 兼容旧格式
+		// 兼容舊格式
 		fmt.Println("\n【网格配置详情】")
 		for _, grid := range result.GridConfig {
 			fmt.Printf("\n币种: %s\n", grid.Symbol)
-			fmt.Printf("  价格间隔: %.2f%%\n", grid.PriceInterval)
-			fmt.Printf("  每单金额: %.2f USDT\n", grid.OrderQuantity)
-			fmt.Printf("  买单窗口: %d\n", grid.BuyWindowSize)
-			fmt.Printf("  卖单窗口: %d\n", grid.SellWindowSize)
+			fmt.Printf("  價格間隔: %.2f%%\n", grid.PriceInterval)
+			fmt.Printf("  每單金額: %.2f USDT\n", grid.OrderQuantity)
+			fmt.Printf("  買單窗口: %d\n", grid.BuyWindowSize)
+			fmt.Printf("  賣單視窗: %d\n", grid.SellWindowSize)
 
 			if grid.GridRiskControl != nil && grid.GridRiskControl.MaxGridLayers > 0 {
-				fmt.Printf("  最大网格层数: %d\n", grid.GridRiskControl.MaxGridLayers)
+				fmt.Printf("  最大网格层數: %d\n", grid.GridRiskControl.MaxGridLayers)
 			}
 		}
 
@@ -191,9 +191,9 @@ func main() {
 		}
 	}
 
-	// 10. 验证结果
+	// 10. 驗证結果
 	fmt.Println("\n====================================")
-	fmt.Println("结果验证")
+	fmt.Println("結果驗证")
 	fmt.Println("====================================")
 
 	success := true
@@ -204,39 +204,39 @@ func main() {
 			totalCapital += sc.TotalAllocatedCapital
 		}
 
-		fmt.Printf("总分配资金: %.2f USDT (预期: 6000.00 USDT)\n", totalCapital)
+		fmt.Printf("總分配资金: %.2f USDT (預期: 6000.00 USDT)\n", totalCapital)
 		if totalCapital > 6000*1.05 || totalCapital < 6000*0.95 {
-			fmt.Printf("⚠️  警告: 总分配资金与预期差异较大\n")
+			fmt.Printf("⚠️  警告: 總分配资金與預期差异较大\n")
 			success = false
 		} else {
-			fmt.Println("✅ 总分配资金符合预期")
+			fmt.Println("✅ 總分配资金符合預期")
 		}
 
-		// 验证策略配比总和
+		// 驗证策略配比總和
 		for _, sc := range result.SymbolsConfig {
 			totalWeight := 0.0
 			for _, s := range sc.Strategies {
 				totalWeight += s.Weight
 			}
 			if totalWeight > 0 {
-				fmt.Printf("\n%s 策略配比总和: %.1f%%\n", sc.Symbol, totalWeight*100)
+				fmt.Printf("\n%s 策略配比總和: %.1f%%\n", sc.Symbol, totalWeight*100)
 				if totalWeight < 0.99 || totalWeight > 1.01 {
-					fmt.Printf("⚠️  警告: %s 策略配比总和不为 100%%\n", sc.Symbol)
+					fmt.Printf("⚠️  警告: %s 策略配比總和不為 100%%\n", sc.Symbol)
 					success = false
 				} else {
-					fmt.Printf("✅ %s 策略配比总和正确\n", sc.Symbol)
+					fmt.Printf("✅ %s 策略配比總和正确\n", sc.Symbol)
 				}
 			}
 		}
 	}
 
 	if success {
-		fmt.Println("\n✅ 所有验证通过！")
+		fmt.Println("\n✅ 所有驗证通過！")
 	} else {
-		fmt.Println("\n⚠️  部分验证未通过，但配置已生成")
+		fmt.Println("\n⚠️  部分驗证未通過，但配置已生成")
 	}
 
 	fmt.Println("\n====================================")
-	fmt.Println("测试完成!")
+	fmt.Println("测試完成!")
 	fmt.Println("====================================")
 }

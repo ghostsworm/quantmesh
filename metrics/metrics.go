@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Metrics 性能指标
+// Metrics 性能指標
 type Metrics struct {
 	OrderExecutionTime time.Duration
 	OrderSuccessRate   float64
@@ -17,12 +17,12 @@ type Metrics struct {
 	mu                 sync.RWMutex
 }
 
-// MetricsCollector 指标收集器
+// MetricsCollector 指標收集器
 type MetricsCollector struct {
 	metrics *Metrics
 }
 
-// NewMetricsCollector 创建指标收集器
+// NewMetricsCollector 創建指標收集器
 func NewMetricsCollector() *MetricsCollector {
 	return &MetricsCollector{
 		metrics: &Metrics{
@@ -31,7 +31,7 @@ func NewMetricsCollector() *MetricsCollector {
 	}
 }
 
-// RecordOrderExecution 记录订单执行时间
+// RecordOrderExecution 記錄訂單執行時间
 func (mc *MetricsCollector) RecordOrderExecution(duration time.Duration) {
 	mc.metrics.mu.Lock()
 	defer mc.metrics.mu.Unlock()
@@ -39,15 +39,15 @@ func (mc *MetricsCollector) RecordOrderExecution(duration time.Duration) {
 	mc.metrics.LastUpdate = time.Now()
 }
 
-// RecordOrderResult 记录订单结果
+// RecordOrderResult 記錄订單結果
 func (mc *MetricsCollector) RecordOrderResult(success bool) {
 	mc.metrics.mu.Lock()
 	defer mc.metrics.mu.Unlock()
-	// TODO: 实现成功率计算
+	// TODO: 實現成功率计算
 	mc.metrics.LastUpdate = time.Now()
 }
 
-// RecordPnL 记录盈亏
+// RecordPnL 記錄盈亏
 func (mc *MetricsCollector) RecordPnL(pnl float64) {
 	mc.metrics.mu.Lock()
 	defer mc.metrics.mu.Unlock()
@@ -55,7 +55,7 @@ func (mc *MetricsCollector) RecordPnL(pnl float64) {
 	mc.metrics.LastUpdate = time.Now()
 }
 
-// GetMetrics 获取指标
+// GetMetrics 獲取指標
 func (mc *MetricsCollector) GetMetrics() *Metrics {
 	mc.metrics.mu.RLock()
 	defer mc.metrics.mu.RUnlock()

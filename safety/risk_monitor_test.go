@@ -29,7 +29,7 @@ func TestRiskMonitor_IsTriggered(t *testing.T) {
 	cfg.RiskControl.VolumeMultiplier = 2.0
 	cfg.RiskControl.RecoveryThreshold = 1
 
-	// 构造历史 K 线数据
+	// 構造历史 K 線數據
 	historical := make([]*exchange.Candle, 0)
 	for i := 0; i < 10; i++ {
 		historical = append(historical, &exchange.Candle{
@@ -43,7 +43,7 @@ func TestRiskMonitor_IsTriggered(t *testing.T) {
 	ex := &MockRiskExchange{HistoricalKlines: historical}
 	rm := NewRiskMonitor(cfg, ex)
 
-	// 模拟初始化加载历史数据
+	// 模拟初始化加載历史數據
 	for _, symbol := range cfg.RiskControl.MonitorSymbols {
 		rm.symbolDataMap[symbol].candles = historical
 	}
@@ -59,19 +59,19 @@ func TestRiskMonitor_IsTriggered(t *testing.T) {
 		t.Error("正常行情下不应触发风控")
 	}
 
-	// 场景 2: 触发风控（价格下跌且成交量放大）
+	// 场景 2: 触发风控（價格下跌且成交量放大）
 	rm.onCandleUpdate(&exchange.Candle{
 		Symbol:   "BTCUSDT",
-		Close:    90.0,   // 均价 100
+		Close:    90.0,   // 均價 100
 		Volume:   3000.0, // 均量 1000, 阈值 2000
 		IsClosed: true,
 	})
 	if !rm.IsTriggered() {
-		t.Error("价格大跌且成交量激增时应触发风控")
+		t.Error("價格大跌且成交量激增時应触发风控")
 	}
 
-	// 场景 3: 恢复行情
-	// 需要连续的正常 K 线来将均值拉回
+	// 场景 3: 恢複行情
+	// 需要连续的正常 K 線来將均值拉回
 	rm.onCandleUpdate(&exchange.Candle{
 		Symbol:   "BTCUSDT",
 		Close:    110.0,
@@ -79,6 +79,6 @@ func TestRiskMonitor_IsTriggered(t *testing.T) {
 		IsClosed: true,
 	})
 	if rm.IsTriggered() {
-		t.Error("行情恢复后应解除风控")
+		t.Error("行情恢複后应解除风控")
 	}
 }

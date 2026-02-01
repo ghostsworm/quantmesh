@@ -2,7 +2,7 @@ package backtest
 
 import "time"
 
-// BacktestTask 回测任务
+// BacktestTask 回测任務
 type BacktestTask struct {
 	ID           string                 `json:"id"`
 	Status       string                 `json:"status"` // pending, running, completed, failed
@@ -22,7 +22,7 @@ type BacktestTask struct {
 	ReportPath  string                  `json:"report_path,omitempty"`
 }
 
-// BacktestTaskResult 回测任务结果（持久化 JSON）
+// BacktestTaskResult 回测任務結果（持久化 JSON）
 type BacktestTaskResult struct {
 	TaskID string         `json:"task_id"`
 	Task   *BacktestTask  `json:"task"`

@@ -19,10 +19,10 @@ import (
 
 const (
 	WOOXMainnetBaseURL = "https://api.woo.org"         // WOO X 主网
-	WOOXTestnetBaseURL = "https://api.staging.woo.org" // WOO X 测试网
+	WOOXTestnetBaseURL = "https://api.staging.woo.org" // WOO X 測試網
 )
 
-// WOOXClient WOO X 客户端
+// WOOXClient WOO X 客戶端
 type WOOXClient struct {
 	apiKey     string
 	secretKey  string
@@ -31,7 +31,7 @@ type WOOXClient struct {
 	isTestnet  bool
 }
 
-// NewWOOXClient 创建 WOO X 客户端
+// NewWOOXClient 創建 WOO X 客戶端
 func NewWOOXClient(apiKey, secretKey string, isTestnet bool) *WOOXClient {
 	baseURL := WOOXMainnetBaseURL
 	if isTestnet {
@@ -114,7 +114,7 @@ func (c *WOOXClient) sendRequest(ctx context.Context, method, path string, param
 	return respBody, nil
 }
 
-// GetSymbol 获取交易对信息
+// GetSymbol 獲取交易對信息
 func (c *WOOXClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, error) {
 	path := "/v3/public/info/" + symbol
 	params := url.Values{}
@@ -142,7 +142,7 @@ func (c *WOOXClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, err
 	return &symbolInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *WOOXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := "/v3/order"
 	params := url.Values{}
@@ -171,7 +171,7 @@ func (c *WOOXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order,
 	return &order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *WOOXClient) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	path := "/v3/order"
 	params := url.Values{}
@@ -199,7 +199,7 @@ func (c *WOOXClient) CancelOrder(ctx context.Context, symbol string, orderID int
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *WOOXClient) GetOrder(ctx context.Context, orderID int64) (*Order, error) {
 	path := fmt.Sprintf("/v3/order/%d", orderID)
 	params := url.Values{}
@@ -227,7 +227,7 @@ func (c *WOOXClient) GetOrder(ctx context.Context, orderID int64) (*Order, error
 	return &order, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *WOOXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, error) {
 	path := "/v3/orders"
 	params := url.Values{}
@@ -258,7 +258,7 @@ func (c *WOOXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order,
 	return ordersResp.Rows, nil
 }
 
-// GetPosition 获取持仓
+// GetPosition 獲取持倉
 func (c *WOOXClient) GetPosition(ctx context.Context, symbol string) (*Position, error) {
 	path := "/v3/position/" + symbol
 	params := url.Values{}
@@ -286,7 +286,7 @@ func (c *WOOXClient) GetPosition(ctx context.Context, symbol string) (*Position,
 	return &position, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (c *WOOXClient) GetAccount(ctx context.Context) (*Account, error) {
 	path := "/v3/accountinfo"
 	params := url.Values{}
@@ -314,7 +314,7 @@ func (c *WOOXClient) GetAccount(ctx context.Context) (*Account, error) {
 	return &account, nil
 }
 
-// GetTrades 获取最新成交
+// GetTrades 獲取最新成交
 func (c *WOOXClient) GetTrades(ctx context.Context, symbol string, limit int) ([]Trade, error) {
 	path := "/v3/public/market_trades"
 	params := url.Values{}
@@ -346,7 +346,7 @@ func (c *WOOXClient) GetTrades(ctx context.Context, symbol string, limit int) ([
 	return tradesResp.Rows, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *WOOXClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/v3/public/kline"
 	params := url.Values{}
@@ -379,7 +379,7 @@ func (c *WOOXClient) GetKlines(ctx context.Context, symbol, interval string, lim
 	return klinesResp.Rows, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIResponse struct {
 	Success bool        `json:"success"`

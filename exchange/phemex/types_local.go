@@ -4,9 +4,9 @@ import (
 	"math"
 )
 
-// 本地类型定义，避免导入 exchange 包造成循环依赖
+// 本地類型定义，避免導入 exchange 包造成循环依赖
 
-// OrderSide 订单方向
+// OrderSide 订單方向
 type OrderSide string
 
 const (
@@ -14,7 +14,7 @@ const (
 	SideSell OrderSide = "SELL"
 )
 
-// OrderStatus 订单状态
+// OrderStatus 订單状態
 type OrderStatus string
 
 const (
@@ -24,7 +24,7 @@ const (
 	OrderStatusCanceled        OrderStatus = "CANCELED"
 )
 
-// OrderLocal 订单信息
+// OrderLocal 订單信息
 type OrderLocal struct {
 	OrderID       string
 	ClientOrderID string
@@ -37,14 +37,14 @@ type OrderLocal struct {
 	UpdateTime    int64
 }
 
-// AccountLocal 账户信息
+// AccountLocal 帳戶資訊
 type AccountLocal struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
 }
 
-// PositionLocal 持仓信息
+// PositionLocal 持倉資訊
 type PositionLocal struct {
 	Symbol        string
 	Size          float64
@@ -54,7 +54,7 @@ type PositionLocal struct {
 	Leverage      int
 }
 
-// CandleLocal K线数据
+// CandleLocal K線數據
 type CandleLocal struct {
 	Symbol    string
 	Open      float64
@@ -65,10 +65,10 @@ type CandleLocal struct {
 	Timestamp int64
 }
 
-// CandleUpdateCallbackLocal K线更新回调
+// CandleUpdateCallbackLocal K線更新回呼
 type CandleUpdateCallbackLocal func(candle *CandleLocal)
 
-// PhemexResolution K线周期
+// PhemexResolution K線週期
 type PhemexResolution int
 
 const (
@@ -76,12 +76,12 @@ const (
 	PhemexResolution5m  PhemexResolution = 300   // 5分钟
 	PhemexResolution15m PhemexResolution = 900   // 15分钟
 	PhemexResolution30m PhemexResolution = 1800  // 30分钟
-	PhemexResolution1h  PhemexResolution = 3600  // 1小时
-	PhemexResolution4h  PhemexResolution = 14400 // 4小时
+	PhemexResolution1h  PhemexResolution = 3600  // 1小時
+	PhemexResolution4h  PhemexResolution = 14400 // 4小時
 	PhemexResolution1d  PhemexResolution = 86400 // 1天
 )
 
-// ConvertInterval 转换 K线周期
+// ConvertInterval 轉换 K線週期
 func ConvertInterval(interval string) PhemexResolution {
 	switch interval {
 	case "1m":
@@ -103,22 +103,22 @@ func ConvertInterval(interval string) PhemexResolution {
 	}
 }
 
-// ScalePrice 价格缩放：将浮点数转换为整数（乘以 10^priceScale）
+// ScalePrice 價格缩放：將浮点數轉换為整數（乘以 10^priceScale）
 func ScalePrice(price float64, priceScale int) int64 {
 	return int64(price * math.Pow10(priceScale))
 }
 
-// UnscalePrice 价格反缩放：将整数转换为浮点数（除以 10^priceScale）
+// UnscalePrice 價格反缩放：將整數轉换為浮点數（除以 10^priceScale）
 func UnscalePrice(priceEp int64, priceScale int) float64 {
 	return float64(priceEp) / math.Pow10(priceScale)
 }
 
-// ScaleValue 数值缩放：将浮点数转换为整数（乘以 10^8）
+// ScaleValue 數值缩放：將浮点數轉换為整數（乘以 10^8）
 func ScaleValue(value float64) int64 {
 	return int64(value * 1e8)
 }
 
-// UnscaleValue 数值反缩放：将整数转换为浮点数（除以 10^8）
+// UnscaleValue 數值反缩放：將整數轉换為浮点數（除以 10^8）
 func UnscaleValue(valueEv int64) float64 {
 	return float64(valueEv) / 1e8
 }

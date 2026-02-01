@@ -12,7 +12,7 @@ import (
 	"quantmesh/position"
 )
 
-// DynamicAdjuster 动态调整器
+// DynamicAdjuster 動態調整器
 type DynamicAdjuster struct {
 	cfg          *config.Config
 	priceMonitor *monitor.PriceMonitor
@@ -23,7 +23,7 @@ type DynamicAdjuster struct {
 	cancel       context.CancelFunc
 }
 
-// NewDynamicAdjuster 创建动态调整器
+// NewDynamicAdjuster 創建動態調整器
 func NewDynamicAdjuster(
 	cfg *config.Config,
 	priceMonitor *monitor.PriceMonitor,
@@ -40,36 +40,36 @@ func NewDynamicAdjuster(
 	}
 }
 
-// Start 启动动态调整器
+// Start 啟动動態調整器
 func (da *DynamicAdjuster) Start() {
 	if !da.cfg.Trading.DynamicAdjustment.Enabled {
 		return
 	}
 
-	// 订阅价格变化
+	// 订阅價格變化
 	go da.watchPriceChanges()
 
-	// 启动价格间隔调整
+	// 啟動價格间隔調整
 	if da.cfg.Trading.DynamicAdjustment.PriceInterval.Enabled {
 		go da.adjustPriceIntervalLoop()
 	}
 
-	// 启动窗口大小调整
+	// 啟动窗口大小調整
 	if da.cfg.Trading.DynamicAdjustment.WindowSize.Enabled {
 		go da.adjustWindowSizeLoop()
 	}
 
-	logger.Info("✅ 动态调整器已启动")
+	logger.Info("✅ 動態調整器已啟动")
 }
 
-// Stop 停止动态调整器
+// Stop 停止動態調整器
 func (da *DynamicAdjuster) Stop() {
 	if da.cancel != nil {
 		da.cancel()
 	}
 }
 
-// watchPriceChanges 监听价格变化
+// watchPriceChanges 監听價格變化
 func (da *DynamicAdjuster) watchPriceChanges() {
 	priceCh := da.priceMonitor.Subscribe()
 	for {
@@ -82,28 +82,28 @@ func (da *DynamicAdjuster) watchPriceChanges() {
 	}
 }
 
-// addPrice 添加价格到历史记录
+// addPrice 新增價格到历史記錄
 func (da *DynamicAdjuster) addPrice(price float64) {
 	da.mu.Lock()
 	defer da.mu.Unlock()
 
 	da.priceHistory = append(da.priceHistory, price)
 
-	// 保持历史记录在合理范围内
+	// 保持历史記錄在合理範圍内
 	maxHistory := da.cfg.Trading.DynamicAdjustment.PriceInterval.VolatilityWindow
 	if maxHistory <= 0 {
 		maxHistory = 50 // 默认50
 	}
 
 	if len(da.priceHistory) > maxHistory*2 {
-		// 保留最近的数据，使用 copy 而不是切片截取，避免内存泄漏
+		// 保留最近的數據，使用 copy 而不是切片截取，避免記憶體泄漏
 		newHistory := make([]float64, maxHistory)
 		copy(newHistory, da.priceHistory[len(da.priceHistory)-maxHistory:])
 		da.priceHistory = newHistory
 	}
 }
 
-// CalculateVolatility 计算波动率（使用标准差）
+// CalculateVolatility 计算波动率（使用標准差）
 func (da *DynamicAdjuster) CalculateVolatility() float64 {
 	da.mu.RLock()
 	defer da.mu.RUnlock()
@@ -117,7 +117,7 @@ func (da *DynamicAdjuster) CalculateVolatility() float64 {
 		window = 20
 	}
 
-	// 使用最近的数据
+	// 使用最近的數據
 	start := len(da.priceHistory) - window
 	if start < 0 {
 		start = 0
@@ -143,18 +143,18 @@ func (da *DynamicAdjuster) CalculateVolatility() float64 {
 	}
 	mean := sum / float64(len(returns))
 
-	// 计算标准差
+	// 计算標准差
 	var variance float64
 	for _, r := range returns {
 		variance += math.Pow(r-mean, 2)
 	}
 	stdDev := math.Sqrt(variance / float64(len(returns)))
 
-	// 波动率 = 标准差
+	// 波动率 = 標准差
 	return stdDev
 }
 
-// adjustPriceIntervalLoop 定期调整价格间隔
+// adjustPriceIntervalLoop 定期調整價格間隔
 func (da *DynamicAdjuster) adjustPriceIntervalLoop() {
 	checkInterval := time.Duration(da.cfg.Trading.DynamicAdjustment.PriceInterval.CheckInterval) * time.Second
 	if checkInterval <= 0 {
@@ -174,7 +174,7 @@ func (da *DynamicAdjuster) adjustPriceIntervalLoop() {
 	}
 }
 
-// AdjustPriceInterval 调整价格间隔
+// AdjustPriceInterval 調整價格間隔
 func (da *DynamicAdjuster) AdjustPriceInterval() {
 	volatility := da.CalculateVolatility()
 	currentInterval := da.cfg.Trading.PriceInterval
@@ -203,7 +203,7 @@ func (da *DynamicAdjuster) AdjustPriceInterval() {
 		if newInterval > maxInterval {
 			newInterval = maxInterval
 		}
-		logger.Info("📈 [动态调整] 波动率 %.4f > 阈值 %.4f，增加价格间隔: %.2f -> %.2f",
+		logger.Info("📈 [動態調整] 波动率 %.4f > 阈值 %.4f，增加價格間隔: %.2f -> %.2f",
 			volatility, threshold, currentInterval, newInterval)
 	} else {
 		// 波动小，减少间隔
@@ -211,7 +211,7 @@ func (da *DynamicAdjuster) AdjustPriceInterval() {
 		if newInterval < minInterval {
 			newInterval = minInterval
 		}
-		logger.Info("📉 [动态调整] 波动率 %.4f <= 阈值 %.4f，减少价格间隔: %.2f -> %.2f",
+		logger.Info("📉 [動態調整] 波动率 %.4f <= 阈值 %.4f，减少價格間隔: %.2f -> %.2f",
 			volatility, threshold, currentInterval, newInterval)
 	}
 
@@ -220,21 +220,21 @@ func (da *DynamicAdjuster) AdjustPriceInterval() {
 	}
 }
 
-// updatePriceInterval 更新价格间隔
+// updatePriceInterval 更新價格間隔
 func (da *DynamicAdjuster) updatePriceInterval(newInterval float64) {
 	da.cfg.Trading.PriceInterval = newInterval
-	logger.Info("✅ [动态调整] 价格间隔已更新为: %.2f", newInterval)
+	logger.Info("✅ [動態調整] 價格間隔已更新為: %.2f", newInterval)
 }
 
 // CalculateUtilization 计算资金利用率
 func (da *DynamicAdjuster) CalculateUtilization() float64 {
-	// 这里需要从交易所获取账户信息
-	// 暂时返回一个估算值，实际实现需要调用交易所API
-	// TODO: 实现实际的资金利用率计算
+	// 这里需要從交易所獲取帳戶信息
+	// 暂時返回一個估算值，實際實現需要呼叫交易所API
+	// TODO: 實現實際的资金利用率计算
 	return 0.5 // 占位符
 }
 
-// adjustWindowSizeLoop 定期调整窗口大小
+// adjustWindowSizeLoop 定期調整窗口大小
 func (da *DynamicAdjuster) adjustWindowSizeLoop() {
 	checkInterval := time.Duration(da.cfg.Trading.DynamicAdjustment.WindowSize.CheckInterval) * time.Second
 	if checkInterval <= 0 {
@@ -254,7 +254,7 @@ func (da *DynamicAdjuster) adjustWindowSizeLoop() {
 	}
 }
 
-// AdjustWindowSize 调整窗口大小
+// AdjustWindowSize 調整窗口大小
 func (da *DynamicAdjuster) AdjustWindowSize() {
 	utilization := da.CalculateUtilization()
 	threshold := da.cfg.Trading.DynamicAdjustment.WindowSize.UtilizationThreshold
@@ -300,7 +300,7 @@ func (da *DynamicAdjuster) AdjustWindowSize() {
 		if newSellWindow < minSellWindow {
 			newSellWindow = minSellWindow
 		}
-		logger.Info("📉 [动态调整] 资金利用率 %.2f%% > 阈值 %.2f%%，减少窗口: 买%d->%d, 卖%d->%d",
+		logger.Info("📉 [動態調整] 资金利用率 %.2f%% > 阈值 %.2f%%，减少窗口: 買%d->%d, 賣%d->%d",
 			utilization*100, threshold*100, currentBuyWindow, newBuyWindow, currentSellWindow, newSellWindow)
 	} else {
 		// 资金利用率低，增加窗口
@@ -312,7 +312,7 @@ func (da *DynamicAdjuster) AdjustWindowSize() {
 		if newSellWindow > maxSellWindow {
 			newSellWindow = maxSellWindow
 		}
-		logger.Info("📈 [动态调整] 资金利用率 %.2f%% <= 阈值 %.2f%%，增加窗口: 买%d->%d, 卖%d->%d",
+		logger.Info("📈 [動態調整] 资金利用率 %.2f%% <= 阈值 %.2f%%，增加窗口: 買%d->%d, 賣%d->%d",
 			utilization*100, threshold*100, currentBuyWindow, newBuyWindow, currentSellWindow, newSellWindow)
 	}
 
@@ -325,5 +325,5 @@ func (da *DynamicAdjuster) AdjustWindowSize() {
 func (da *DynamicAdjuster) updateWindowSize(buyWindow, sellWindow int) {
 	da.cfg.Trading.BuyWindowSize = buyWindow
 	da.cfg.Trading.SellWindowSize = sellWindow
-	logger.Info("✅ [动态调整] 窗口大小已更新: 买单窗口=%d, 卖单窗口=%d", buyWindow, sellWindow)
+	logger.Info("✅ [動態調整] 窗口大小已更新: 買單窗口=%d, 賣單視窗=%d", buyWindow, sellWindow)
 }

@@ -9,7 +9,7 @@ import (
 	"quantmesh/position"
 )
 
-// MultiStrategyExecutor 多策略订单执行器
+// MultiStrategyExecutor 多策略订單執行器
 type MultiStrategyExecutor struct {
 	executor   *order.ExchangeOrderExecutor
 	allocator  *CapitalAllocator
@@ -17,7 +17,7 @@ type MultiStrategyExecutor struct {
 	mu         sync.RWMutex
 }
 
-// NewMultiStrategyExecutor 创建多策略订单执行器
+// NewMultiStrategyExecutor 創建多策略订單執行器
 func NewMultiStrategyExecutor(
 	executor *order.ExchangeOrderExecutor,
 	allocator *CapitalAllocator,
@@ -30,17 +30,17 @@ func NewMultiStrategyExecutor(
 	}
 }
 
-// extractStrategyType 从策略名称中提取策略类型
+// extractStrategyType 從策略名称中提取策略類型
 // 策略名称格式可能是: "Grid-BTCUSDT-1", "DCA-ETHUSDT", "Martingale-BTCUSDT", "combo" 等
 func extractStrategyType(strategyName string) string {
 	if strategyName == "" {
 		return ""
 	}
 
-	// 转换为小写以便匹配
+	// 轉换為小写以便匹配
 	nameLower := strings.ToLower(strategyName)
 
-	// 检查常见的策略类型前缀
+	// 检查常见的策略類型前缀
 	if strings.HasPrefix(nameLower, "grid") {
 		return "grid"
 	}
@@ -63,18 +63,18 @@ func extractStrategyType(strategyName string) string {
 		return "momentum"
 	}
 
-	// 如果无法识别，返回空字符串
+	// 如果無法识别，返回空字符串
 	return ""
 }
 
-// PlaceOrder 下单（带策略标记）
+// PlaceOrder 下單（带策略標記）
 func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.OrderRequest) (*position.Order, error) {
-	// 🔥 使用交易所的 EstimateFinalOrderAmount 预估最终下单金额
-	// 交易所可能因最小名义金额（如币安 100 USDT）、精度对齐等原因调整数量
-	// 必须用预估的最终金额做 Reserve，否则会出现"预留 90 实际下 180"的穿透额度问题
+	// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
+	// 交易所可能因最小名义金額（如币安 100 USDT）、精度對齐等原因調整數量
+	// 必須用預估的最终金額做 Reserve，否则會出現"預留 90 實際下 180"的穿透額度问题
 	estimatedAmount := mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
 	if estimatedAmount <= 0 {
-		return nil, fmt.Errorf("策略 %s 预估订单金额为 0 (价格: %.2f, 数量: %.8f)", strategyName, req.Price, req.Quantity)
+		return nil, fmt.Errorf("策略 %s 預估订單金額為 0 (價格: %.2f, 數量: %.8f)", strategyName, req.Price, req.Quantity)
 	}
 
 	// 检查策略资金是否充足
@@ -83,17 +83,17 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 			strategyName, estimatedAmount, mse.allocator.GetAvailable(strategyName))
 	}
 
-	// 预留资金（使用预估的最终金额）
+	// 預留资金（使用預估的最终金額）
 	if !mse.allocator.Reserve(strategyName, estimatedAmount) {
-		return nil, fmt.Errorf("策略 %s 资金预留失败", strategyName)
+		return nil, fmt.Errorf("策略 %s 资金預留失败", strategyName)
 	}
 
-	// 执行订单
+	// 執行订單
 	orderReq := &order.OrderRequest{
 		Symbol:        req.Symbol,
 		Side:          req.Side,
 		Price:         req.Price,
-		Quantity:      req.Quantity, // 交易所会自动调整数量
+		Quantity:      req.Quantity, // 交易所會自动調整數量
 		PriceDecimals: req.PriceDecimals,
 		ReduceOnly:    req.ReduceOnly,
 		PostOnly:      req.PostOnly,
@@ -104,17 +104,17 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 
 	ord, err := mse.executor.PlaceOrder(orderReq)
 	if err != nil {
-		// 下单失败，释放资金
+		// 下單失败，释放资金
 		mse.allocator.Release(strategyName, estimatedAmount)
-		return nil, fmt.Errorf("下单失败: %w", err)
+		return nil, fmt.Errorf("下單失败: %w", err)
 	}
 
-	// 标记订单所属策略
+	// 標記订單所属策略
 	mse.mu.Lock()
 	mse.strategies[fmt.Sprintf("%d", ord.OrderID)] = strategyName
 	mse.mu.Unlock()
 
-	// 转换为 position.Order
+	// 轉换為 position.Order
 	return &position.Order{
 		OrderID:       ord.OrderID,
 		ClientOrderID: ord.ClientOrderID,
@@ -127,13 +127,13 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 	}, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (mse *MultiStrategyExecutor) BatchPlaceOrders(strategyName string, orders []*position.OrderRequest) ([]*position.Order, bool) {
 	result := mse.BatchPlaceOrdersWithDetails(strategyName, orders)
 	return result.PlacedOrders, result.HasMarginError
 }
 
-// BatchPlaceOrdersWithDetails 批量下单（返回详细结果）
+// BatchPlaceOrdersWithDetails 批量下單（回傳詳細結果）
 func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName string, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
 	result := &position.BatchPlaceOrdersResult{
 		PlacedOrders:     make([]*position.Order, 0),
@@ -141,15 +141,15 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 		ReduceOnlyErrors: make(map[string]bool),
 	}
 
-	// 转换为 order.OrderRequest
+	// 轉换為 order.OrderRequest
 	orderReqs := make([]*order.OrderRequest, 0, len(orders))
 	orderAmounts := make(map[string]float64) // ClientOrderID -> estimatedAmount
 
 	for _, req := range orders {
-		// 🔥 使用交易所的 EstimateFinalOrderAmount 预估最终下单金额
+		// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
 		estimatedAmount := mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
 		if estimatedAmount <= 0 {
-			// 金额为 0，跳过此订单
+			// 金額為 0，跳過此订單
 			continue
 		}
 
@@ -158,7 +158,7 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 			continue
 		}
 
-		// 预留资金（使用预估的最终金额）
+		// 預留资金（使用預估的最终金額）
 		if !mse.allocator.Reserve(strategyName, estimatedAmount) {
 			continue
 		}
@@ -167,7 +167,7 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 			Symbol:        req.Symbol,
 			Side:          req.Side,
 			Price:         req.Price,
-			Quantity:      req.Quantity, // 交易所会自动调整数量
+			Quantity:      req.Quantity, // 交易所會自动調整數量
 			PriceDecimals: req.PriceDecimals,
 			ReduceOnly:    req.ReduceOnly,
 			PostOnly:      req.PostOnly,
@@ -179,14 +179,14 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 		orderAmounts[req.ClientOrderID] = estimatedAmount
 	}
 
-	// 批量下单
+	// 批量下單
 	batchResult := mse.executor.BatchPlaceOrdersWithDetails(orderReqs)
 	result.HasMarginError = batchResult.HasMarginError
 	result.ReduceOnlyErrors = batchResult.ReduceOnlyErrors
 
-	// 处理成功的订单
+	// 处理成功的订單
 	for _, ord := range batchResult.PlacedOrders {
-		// 标记订单
+		// 標記订單
 		mse.mu.Lock()
 		mse.strategies[fmt.Sprintf("%d", ord.OrderID)] = strategyName
 		mse.mu.Unlock()
@@ -203,7 +203,7 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 		})
 	}
 
-	// 释放失败订单的资金
+	// 释放失败订單的资金
 	placedClientOIDs := make(map[string]bool)
 	for _, ord := range batchResult.PlacedOrders {
 		placedClientOIDs[ord.ClientOrderID] = true
@@ -217,24 +217,24 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 	return result
 }
 
-// BatchCancelOrders 批量撤单
+// BatchCancelOrders 批量撤單
 func (mse *MultiStrategyExecutor) BatchCancelOrders(orderIDs []int64) error {
-	// 获取订单ID对应的策略，释放资金
-	// TODO: 需要知道订单金额才能释放资金
-	// 实际释放应该在订单更新时处理（订单取消时）
+	// 獲取訂單ID對应的策略，释放资金
+	// TODO: 需要知道订單金額才能释放资金
+	// 實際释放应該在订單更新時处理（订單取消時）
 	mse.mu.RLock()
-	_ = mse.strategies // 暂时保留，后续实现资金释放
+	_ = mse.strategies // 暂時保留，后续實現资金释放
 	mse.mu.RUnlock()
 
 	return mse.executor.BatchCancelOrders(orderIDs)
 }
 
-// ReleaseOrderCapital 释放订单资金（订单成交或取消时调用）
+// ReleaseOrderCapital 释放订單资金（订單成交或取消時調用）
 func (mse *MultiStrategyExecutor) ReleaseOrderCapital(strategyName string, amount float64) {
 	mse.allocator.Release(strategyName, amount)
 }
 
-// GetStrategyByOrderID 根据订单ID获取策略名称
+// GetStrategyByOrderID 根據订單ID獲取策略名称
 func (mse *MultiStrategyExecutor) GetStrategyByOrderID(orderID int64) string {
 	mse.mu.RLock()
 	defer mse.mu.RUnlock()

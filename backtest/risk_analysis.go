@@ -5,15 +5,15 @@ import (
 	"sort"
 )
 
-// RiskMetrics 风险指标
+// RiskMetrics 风險指標
 type RiskMetrics struct {
-	VaR95  float64 `json:"var_95"`  // 95% 置信度的风险价值
-	VaR99  float64 `json:"var_99"`  // 99% 置信度的风险价值
-	CVaR95 float64 `json:"cvar_95"` // 95% 置信度的条件风险价值
-	CVaR99 float64 `json:"cvar_99"` // 99% 置信度的条件风险价值
+	VaR95  float64 `json:"var_95"`  // 95% 置信度的风險價值
+	VaR99  float64 `json:"var_99"`  // 99% 置信度的风險價值
+	CVaR95 float64 `json:"cvar_95"` // 95% 置信度的条件风險價值
+	CVaR99 float64 `json:"cvar_99"` // 99% 置信度的条件风險價值
 }
 
-// CalculateRiskMetrics 计算风险指标
+// CalculateRiskMetrics 计算风險指標
 func CalculateRiskMetrics(equity []EquityPoint) RiskMetrics {
 	if len(equity) < 2 {
 		return RiskMetrics{}
@@ -36,7 +36,7 @@ func CalculateRiskMetrics(equity []EquityPoint) RiskMetrics {
 	cvar99 := calculateCVaR(returns, 0.99)
 
 	return RiskMetrics{
-		VaR95:  var95 * 100, // 转换为百分比
+		VaR95:  var95 * 100, // 轉换為百分比
 		VaR99:  var99 * 100,
 		CVaR95: cvar95 * 100,
 		CVaR99: cvar99 * 100,
@@ -54,7 +54,7 @@ func calculateHistoricalVaR(returns []float64, confidence float64) float64 {
 	copy(sorted, returns)
 	sort.Float64s(sorted)
 
-	// 找到对应百分位数
+	// 找到對应百分位數
 	index := int(float64(len(sorted)) * (1 - confidence))
 	if index >= len(sorted) {
 		index = len(sorted) - 1
@@ -63,10 +63,10 @@ func calculateHistoricalVaR(returns []float64, confidence float64) float64 {
 		index = 0
 	}
 
-	return math.Abs(sorted[index]) // VaR 是正数，表示损失
+	return math.Abs(sorted[index]) // VaR 是正數，表示损失
 }
 
-// calculateCVaR 计算条件风险价值（CVaR / Expected Shortfall）
+// calculateCVaR 计算条件风險價值（CVaR / Expected Shortfall）
 func calculateCVaR(returns []float64, confidence float64) float64 {
 	if len(returns) == 0 {
 		return 0
@@ -85,7 +85,7 @@ func calculateCVaR(returns []float64, confidence float64) float64 {
 		return 0
 	}
 
-	// 计算超过 VaR 的平均损失
+	// 计算超過 VaR 的平均损失
 	sum := 0.0
 	count := 0
 	for i := 0; i <= index; i++ {

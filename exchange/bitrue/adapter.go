@@ -21,7 +21,7 @@ type Adapter struct {
 	quoteAsset       string
 }
 
-// NewAdapter 创建 Bitrue 适配器
+// NewAdapter 創建 Bitrue 适配器
 func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	apiKey := config["api_key"]
 	secretKey := config["secret_key"]
@@ -45,7 +45,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 		quoteAsset:       "USDT",
 	}
 
-	// 获取交易对信息
+	// 獲取交易對信息
 	ctx := context.Background()
 	exchangeInfo, err := client.GetExchangeInfo(ctx)
 	if err != nil {
@@ -65,17 +65,22 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	return adapter, nil
 }
 
-// convertSymbolToBitrue 转换交易对格式：BTCUSDT -> BTCUSDT
+// convertSymbolToBitrue 轉换交易對格式：BTCUSDT -> BTCUSDT
 func convertSymbolToBitrue(symbol string) string {
 	return strings.ToUpper(symbol)
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (a *Adapter) GetName() string {
 	return "Bitrue"
 }
 
-// PlaceOrder 下单
+// GetMarketType 獲取市場類型：futures 合約
+func (a *Adapter) GetMarketType() string {
+	return "futures"
+}
+
+// PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
 	var bitrueSide string
 	if side == SideBuy {
@@ -101,12 +106,12 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 	return a.convertOrder(order), nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (a *Adapter) CancelOrder(ctx context.Context, orderID int64) error {
 	return a.client.CancelOrder(ctx, a.symbol, orderID)
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (a *Adapter) GetOrder(ctx context.Context, orderID int64) (*OrderLocal, error) {
 	order, err := a.client.GetOrder(ctx, a.symbol, orderID)
 	if err != nil {
@@ -116,7 +121,7 @@ func (a *Adapter) GetOrder(ctx context.Context, orderID int64) (*OrderLocal, err
 	return a.convertOrder(order), nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	orders, err := a.client.GetOpenOrders(ctx, a.symbol)
 	if err != nil {
@@ -131,14 +136,14 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	return result, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	account, err := a.client.GetAccount(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// 计算总余额（USDT）
+	// 计算總餘額（USDT）
 	totalBalance := 0.0
 	availableBalance := 0.0
 
@@ -162,12 +167,12 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓（Bitrue 现货交易所，返回空）
+// GetPositions 獲取持倉（Bitrue 現貨交易所，返回空）
 func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 	return []*PositionLocal{}, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	account, err := a.client.GetAccount(ctx)
 	if err != nil {
@@ -185,7 +190,7 @@ func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	return 0, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if a.wsManager != nil {
 		return fmt.Errorf("order stream already started")
@@ -195,7 +200,7 @@ func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{
 	return a.wsManager.Start(ctx, a.symbol, callback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (a *Adapter) StopOrderStream() error {
 	if a.wsManager != nil {
 		a.wsManager.Stop()
@@ -204,9 +209,9 @@ func (a *Adapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 如果传入 symbol,转换格式并使用;否则使用默认 symbol
+	// 如果傳入 symbol,轉换格式並使用;否则使用預設 symbol
 	targetSymbol := a.symbol
 	if symbol != "" {
 		targetSymbol = convertSymbolToBitrue(symbol)
@@ -225,7 +230,7 @@ func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, e
 	return price, nil
 }
 
-// StartKlineStream 启动 K线流
+// StartKlineStream 啟动 K線流
 func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callback CandleUpdateCallbackLocal) error {
 	if a.klineWSManager != nil {
 		return fmt.Errorf("kline stream already started")
@@ -254,7 +259,7 @@ func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callbac
 	})
 }
 
-// StopKlineStream 停止 K线流
+// StopKlineStream 停止 K線流
 func (a *Adapter) StopKlineStream() error {
 	if a.klineWSManager != nil {
 		a.klineWSManager.Stop()
@@ -263,7 +268,7 @@ func (a *Adapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史 K线
+// GetHistoricalKlines 獲取歷史 K線
 func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limit int) ([]*CandleLocal, error) {
 	bitrueInterval := string(ConvertInterval(interval))
 	klines, err := a.client.GetKlines(ctx, a.symbol, bitrueInterval, limit)
@@ -293,32 +298,32 @@ func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limi
 	return result, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (a *Adapter) GetPriceDecimals() int {
 	return a.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (a *Adapter) GetQuantityDecimals() int {
 	return a.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (a *Adapter) GetBaseAsset() string {
 	return a.baseAsset
 }
 
-// GetQuoteAsset 获取报价资产
+// GetQuoteAsset 獲取报價资產
 func (a *Adapter) GetQuoteAsset() string {
 	return a.quoteAsset
 }
 
-// GetFundingRate 获取资金费率（Bitrue 现货交易所，返回 0）
+// GetFundingRate 獲取资金费率（Bitrue 現貨交易所，回傳 0）
 func (a *Adapter) GetFundingRate(ctx context.Context) (float64, error) {
 	return 0, nil
 }
 
-// convertOrder 转换订单
+// convertOrder 轉换订單
 func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 	var side OrderSide
 	if order.Side == "BUY" {
@@ -358,7 +363,7 @@ func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 	}
 }
 
-// InternalTransfer 交易所内部转账（Bitrue 暂未实现）
+// InternalTransfer 交易所內部轉帳（Bitrue 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Bitrue")
 }

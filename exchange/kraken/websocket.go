@@ -28,7 +28,7 @@ type WebSocketManager struct {
 	reconnectDelay time.Duration
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(client *KrakenClient, symbol string) (*WebSocketManager, error) {
 	return &WebSocketManager{
 		client:         client,
@@ -38,7 +38,7 @@ func NewWebSocketManager(client *KrakenClient, symbol string) (*WebSocketManager
 	}, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	w.mu.Lock()
 	w.orderCallback = callback
@@ -55,9 +55,9 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 
 	// 认证（如果需要私有频道）
 	// Kraken 使用 challenge-response 认证机制
-	// 这里简化处理，实际需要实现完整的认证流程
+	// 这里简化处理，實際需要實現完整的认证流程
 
-	// 订阅订单更新
+	// 订阅订單更新
 	subscribeMsg := map[string]interface{}{
 		"event": "subscribe",
 		"feed":  "fills",
@@ -68,20 +68,20 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 
 	logger.Info("Kraken subscribed to order stream")
 
-	// 启动消息处理
+	// 啟动消息处理
 	go w.handleMessages(ctx)
 	go w.ping(ctx)
 
 	return nil
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(float64)) error {
 	w.mu.Lock()
 	w.priceCallback = callback
 	w.mu.Unlock()
 
-	// 如果已经连接，直接订阅价格流
+	// 如果已經连接，直接订阅價格流
 	if w.conn != nil {
 		return w.subscribePriceStream()
 	}
@@ -95,19 +95,19 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(f
 
 	logger.Info("Kraken WebSocket connected for price stream: %s", KrakenWSURL)
 
-	// 订阅价格流
+	// 订阅價格流
 	if err := w.subscribePriceStream(); err != nil {
 		return err
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go w.handleMessages(ctx)
 	go w.ping(ctx)
 
 	return nil
 }
 
-// subscribePriceStream 订阅价格流
+// subscribePriceStream 订阅價格流
 func (w *WebSocketManager) subscribePriceStream() error {
 	subscribeMsg := map[string]interface{}{
 		"event":       "subscribe",
@@ -162,7 +162,7 @@ func (w *WebSocketManager) processMessage(message []byte) {
 		return
 	}
 
-	// 处理不同类型的消息
+	// 处理不同類型的消息
 	switch baseMsg.Event {
 	case "info":
 		logger.Info("Kraken WebSocket info message received")
@@ -171,27 +171,27 @@ func (w *WebSocketManager) processMessage(message []byte) {
 	case "heartbeat":
 		// 心跳响应
 	default:
-		// 数据消息
+		// 數據消息
 		w.handleDataMessage(baseMsg.Feed, message)
 	}
 }
 
-// handleDataMessage 处理数据消息
+// handleDataMessage 处理數據消息
 func (w *WebSocketManager) handleDataMessage(feed string, message []byte) {
-	// 订单更新
+	// 订單更新
 	if strings.Contains(feed, "fills") {
 		w.handleOrderUpdate(message)
 		return
 	}
 
-	// 价格更新
+	// 價格更新
 	if strings.Contains(feed, "ticker") {
 		w.handlePriceUpdate(message)
 		return
 	}
 }
 
-// handleOrderUpdate 处理订单更新
+// handleOrderUpdate 处理订單更新
 func (w *WebSocketManager) handleOrderUpdate(message []byte) {
 	w.mu.RLock()
 	callback := w.orderCallback
@@ -226,7 +226,7 @@ func (w *WebSocketManager) handleOrderUpdate(message []byte) {
 	}
 }
 
-// handlePriceUpdate 处理价格更新
+// handlePriceUpdate 处理價格更新
 func (w *WebSocketManager) handlePriceUpdate(message []byte) {
 	w.mu.RLock()
 	callback := w.priceCallback
@@ -251,7 +251,7 @@ func (w *WebSocketManager) handlePriceUpdate(message []byte) {
 		return
 	}
 
-	// 使用最新成交价
+	// 使用最新成交價
 	if priceUpdate.Last > 0 {
 		callback(priceUpdate.Last)
 	}

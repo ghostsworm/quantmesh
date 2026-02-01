@@ -13,12 +13,12 @@ var (
 	cryptoPaymentService *saas.CryptoPaymentService
 )
 
-// SetCryptoPaymentService 设置加密货币支付服务
+// SetCryptoPaymentService 設置加密貨幣支付服務
 func SetCryptoPaymentService(cps *saas.CryptoPaymentService) {
 	cryptoPaymentService = cps
 }
 
-// createCoinbasePaymentHandler 创建 Coinbase Commerce 支付
+// createCoinbasePaymentHandler 創建 Coinbase Commerce 支付
 // POST /api/payment/crypto/coinbase/create
 func createCoinbasePaymentHandler(c *gin.Context) {
 	var req struct {
@@ -27,7 +27,7 @@ func createCoinbasePaymentHandler(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "无效的请求参数"})
+		c.JSON(400, gin.H{"error": "無效的请求参數"})
 		return
 	}
 
@@ -36,7 +36,7 @@ func createCoinbasePaymentHandler(c *gin.Context) {
 		userID = "demo_user"
 	}
 
-	// 获取套餐价格
+	// 獲取套餐價格
 	prices := map[string]float64{
 		"starter":      49.00,
 		"professional": 199.00,
@@ -45,11 +45,11 @@ func createCoinbasePaymentHandler(c *gin.Context) {
 
 	amount, exists := prices[req.Plan]
 	if !exists {
-		c.JSON(400, gin.H{"error": "无效的套餐"})
+		c.JSON(400, gin.H{"error": "無效的套餐"})
 		return
 	}
 
-	// 创建 Coinbase Charge
+	// 創建 Coinbase Charge
 	payment, err := cryptoPaymentService.CreateCoinbaseCharge(userID, req.Email, req.Plan, amount)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -68,7 +68,7 @@ func createCoinbasePaymentHandler(c *gin.Context) {
 	})
 }
 
-// createDirectPaymentHandler 创建直接钱包支付
+// createDirectPaymentHandler 創建直接钱包支付
 // POST /api/payment/crypto/direct/create
 func createDirectPaymentHandler(c *gin.Context) {
 	var req struct {
@@ -78,7 +78,7 @@ func createDirectPaymentHandler(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "无效的请求参数"})
+		c.JSON(400, gin.H{"error": "無效的请求参數"})
 		return
 	}
 
@@ -87,7 +87,7 @@ func createDirectPaymentHandler(c *gin.Context) {
 		userID = "demo_user"
 	}
 
-	// 获取套餐价格
+	// 獲取套餐價格
 	prices := map[string]float64{
 		"starter":      49.00,
 		"professional": 199.00,
@@ -96,11 +96,11 @@ func createDirectPaymentHandler(c *gin.Context) {
 
 	amount, exists := prices[req.Plan]
 	if !exists {
-		c.JSON(400, gin.H{"error": "无效的套餐"})
+		c.JSON(400, gin.H{"error": "無效的套餐"})
 		return
 	}
 
-	// 创建直接支付
+	// 創建直接支付
 	payment, err := cryptoPaymentService.CreateDirectPayment(
 		userID, req.Email, req.Plan, req.CryptoCurrency, amount,
 	)
@@ -117,36 +117,36 @@ func createDirectPaymentHandler(c *gin.Context) {
 		"amount_usd":      payment.Amount,
 		"expires_at":      payment.ExpiresAt,
 		"status":          payment.Status,
-		"message":         "请向指定地址转账,并保存交易哈希",
+		"message":         "请向指定地址轉账,並保存交易哈希",
 		"instructions": map[string]string{
-			"step1": "复制支付地址",
-			"step2": "使用钱包转账指定金额",
+			"step1": "複制支付地址",
+			"step2": "使用钱包轉账指定金額",
 			"step3": "提交交易哈希等待确认",
 		},
 	})
 }
 
-// getPaymentStatusHandler 获取支付状态
+// getPaymentStatusHandler 獲取支付状態
 // GET /api/payment/crypto/:id
 func getPaymentStatusHandler(c *gin.Context) {
 	paymentID := c.Param("id")
 
 	var id int
 	if _, err := fmt.Sscanf(paymentID, "%d", &id); err != nil {
-		c.JSON(400, gin.H{"error": "无效的支付ID"})
+		c.JSON(400, gin.H{"error": "無效的支付ID"})
 		return
 	}
 
 	payment, err := cryptoPaymentService.GetPayment(id)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "支付记录不存在"})
+		c.JSON(404, gin.H{"error": "支付記錄不存在"})
 		return
 	}
 
-	// 验证权限
+	// 驗证权限
 	userID := c.GetString("user_id")
 	if userID != "" && payment.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权访问"})
+		c.JSON(403, gin.H{"error": "無权访问"})
 		return
 	}
 
@@ -155,7 +155,7 @@ func getPaymentStatusHandler(c *gin.Context) {
 	})
 }
 
-// listUserPaymentsHandler 列出用户的所有支付
+// listUserPaymentsHandler 列出用戶的所有支付
 // GET /api/payment/crypto/list
 func listUserPaymentsHandler(c *gin.Context) {
 	userID := c.GetString("user_id")
@@ -182,7 +182,7 @@ func submitTransactionHashHandler(c *gin.Context) {
 
 	var id int
 	if _, err := fmt.Sscanf(paymentID, "%d", &id); err != nil {
-		c.JSON(400, gin.H{"error": "无效的支付ID"})
+		c.JSON(400, gin.H{"error": "無效的支付ID"})
 		return
 	}
 
@@ -191,26 +191,26 @@ func submitTransactionHashHandler(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "无效的请求参数"})
+		c.JSON(400, gin.H{"error": "無效的请求参數"})
 		return
 	}
 
-	// 获取支付信息
+	// 獲取支付信息
 	payment, err := cryptoPaymentService.GetPayment(id)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "支付记录不存在"})
+		c.JSON(404, gin.H{"error": "支付記錄不存在"})
 		return
 	}
 
-	// 验证权限
+	// 驗证权限
 	userID := c.GetString("user_id")
 	if userID != "" && payment.UserID != userID {
-		c.JSON(403, gin.H{"error": "无权操作"})
+		c.JSON(403, gin.H{"error": "無权操作"})
 		return
 	}
 
 	// 保存交易哈希 (等待管理员确认)
-	// TODO: 实现保存交易哈希的逻辑
+	// TODO: 實現保存交易哈希的逻辑
 
 	c.JSON(200, gin.H{
 		"message":          "交易哈希已提交,等待管理员确认",
@@ -227,7 +227,7 @@ func confirmDirectPaymentHandler(c *gin.Context) {
 
 	var id int
 	if _, err := fmt.Sscanf(paymentID, "%d", &id); err != nil {
-		c.JSON(400, gin.H{"error": "无效的支付ID"})
+		c.JSON(400, gin.H{"error": "無效的支付ID"})
 		return
 	}
 
@@ -236,11 +236,11 @@ func confirmDirectPaymentHandler(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "无效的请求参数"})
+		c.JSON(400, gin.H{"error": "無效的请求参數"})
 		return
 	}
 
-	// TODO: 验证管理员权限
+	// TODO: 驗证管理员权限
 
 	// 确认支付
 	if err := cryptoPaymentService.ConfirmDirectPayment(id, req.TransactionHash); err != nil {
@@ -257,14 +257,14 @@ func confirmDirectPaymentHandler(c *gin.Context) {
 // coinbaseWebhookHandler Coinbase Commerce Webhook
 // POST /api/payment/crypto/webhook/coinbase
 func coinbaseWebhookHandler(c *gin.Context) {
-	// 读取 webhook 数据
+	// 读取 webhook 數據
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "无法读取请求体"})
+		c.JSON(400, gin.H{"error": "無法读取请求体"})
 		return
 	}
 
-	// 获取签名
+	// 獲取签名
 	signature := c.GetHeader("X-CC-Webhook-Signature")
 
 	// 处理 webhook
@@ -276,7 +276,7 @@ func coinbaseWebhookHandler(c *gin.Context) {
 	c.JSON(200, gin.H{"received": true})
 }
 
-// getSupportedCryptoCurrenciesHandler 获取支持的加密货币
+// getSupportedCryptoCurrenciesHandler 獲取支援的加密貨幣
 // GET /api/payment/crypto/currencies
 func getSupportedCryptoCurrenciesHandler(c *gin.Context) {
 	currencies := []map[string]interface{}{

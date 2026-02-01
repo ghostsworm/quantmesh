@@ -28,7 +28,7 @@ type CapitalAllocator struct {
 	mu           sync.RWMutex
 }
 
-// NewCapitalAllocator 创建资金分配器
+// NewCapitalAllocator 創建资金分配器
 func NewCapitalAllocator(cfg *config.Config, totalCapital float64) *CapitalAllocator {
 	return &CapitalAllocator{
 		totalCapital: totalCapital,
@@ -56,7 +56,7 @@ func (ca *CapitalAllocator) Allocate() {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 
-	// 计算固定资金池总额
+	// 计算固定资金池總額
 	fixedPoolTotal := 0.0
 	weightTotal := 0.0
 
@@ -68,7 +68,7 @@ func (ca *CapitalAllocator) Allocate() {
 		}
 	}
 
-	// 剩余资金用于权重分配
+	// 剩餘资金用於权重分配
 	remainingCapital := ca.totalCapital - fixedPoolTotal
 
 	// 分配资金
@@ -106,7 +106,7 @@ func (ca *CapitalAllocator) CheckAvailable(strategyName string, amount float64) 
 	return capital.Available >= amount
 }
 
-// Reserve 预留资金
+// Reserve 預留资金
 func (ca *CapitalAllocator) Reserve(strategyName string, amount float64) bool {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
@@ -149,7 +149,7 @@ func (ca *CapitalAllocator) Release(strategyName string, amount float64) {
 	capital.Available = capital.Allocated - capital.Used
 }
 
-// GetAvailable 获取可用资金
+// GetAvailable 獲取可用资金
 func (ca *CapitalAllocator) GetAvailable(strategyName string) float64 {
 	ca.mu.RLock()
 	defer ca.mu.RUnlock()
@@ -165,7 +165,7 @@ func (ca *CapitalAllocator) GetAvailable(strategyName string) float64 {
 	return capital.Available
 }
 
-// GetUsed 获取已用资金
+// GetUsed 獲取已用资金
 func (ca *CapitalAllocator) GetUsed(strategyName string) float64 {
 	ca.mu.RLock()
 	defer ca.mu.RUnlock()
@@ -181,7 +181,7 @@ func (ca *CapitalAllocator) GetUsed(strategyName string) float64 {
 	return capital.Used
 }
 
-// GetAllStrategiesCapital 获取所有策略资金信息
+// GetAllStrategiesCapital 獲取所有策略资金信息
 func (ca *CapitalAllocator) GetAllStrategiesCapital() map[string]*StrategyCapital {
 	ca.mu.RLock()
 	defer ca.mu.RUnlock()
@@ -201,7 +201,7 @@ func (ca *CapitalAllocator) GetAllStrategiesCapital() map[string]*StrategyCapita
 	return result
 }
 
-// StrategyPerformance 策略表现
+// StrategyPerformance 策略表現
 type StrategyPerformance struct {
 	TotalPnL      float64
 	WinRate       float64
@@ -215,7 +215,7 @@ type StrategyPerformance struct {
 	mu            sync.RWMutex
 }
 
-// DynamicAllocator 动态分配器
+// DynamicAllocator 动態分配器
 type DynamicAllocator struct {
 	strategies            map[string]*StrategyPerformance
 	rebalanceInterval     time.Duration
@@ -228,7 +228,7 @@ type DynamicAllocator struct {
 	mu                    sync.RWMutex
 }
 
-// NewDynamicAllocator 创建动态分配器
+// NewDynamicAllocator 創建动態分配器
 func NewDynamicAllocator(cfg *config.Config) *DynamicAllocator {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -244,19 +244,19 @@ func NewDynamicAllocator(cfg *config.Config) *DynamicAllocator {
 	}
 
 	if da.rebalanceInterval <= 0 {
-		da.rebalanceInterval = 3600 * time.Second // 默认1小时
+		da.rebalanceInterval = 3600 * time.Second // 預設 1 小時
 	}
 	if da.maxChangePerRebalance <= 0 {
 		da.maxChangePerRebalance = 0.05 // 默认5%
 	}
 	if da.minWeight <= 0 {
-		da.minWeight = 0.1 // 默认10%
+		da.minWeight = 0.1 // 預設 10%
 	}
 	if da.maxWeight <= 0 {
 		da.maxWeight = 0.7 // 默认70%
 	}
 
-	// 设置默认性能权重
+	// 設置默认性能权重
 	if da.performanceWeights == nil {
 		da.performanceWeights = map[string]float64{
 			"total_pnl":    0.4,
@@ -287,7 +287,7 @@ func (da *DynamicAllocator) RegisterStrategy(name string, initialWeight float64)
 	}
 }
 
-// UpdatePerformance 更新策略表现
+// UpdatePerformance 更新策略表現
 func (da *DynamicAllocator) UpdatePerformance(strategyName string, pnl float64, isWin bool) {
 	da.mu.Lock()
 	defer da.mu.Unlock()
@@ -316,7 +316,7 @@ func (da *DynamicAllocator) UpdatePerformance(strategyName string, pnl float64, 
 	// TODO: 计算夏普比率和最大回撤
 }
 
-// CalculateTargetWeights 计算目标权重
+// CalculateTargetWeights 计算目標权重
 func (da *DynamicAllocator) CalculateTargetWeights() map[string]float64 {
 	da.mu.RLock()
 	defer da.mu.RUnlock()
@@ -339,7 +339,7 @@ func (da *DynamicAllocator) CalculateTargetWeights() map[string]float64 {
 	}
 
 	if totalScore == 0 {
-		// 如果所有策略得分都为0，使用当前权重
+		// 如果所有策略得分都為0，使用當前权重
 		result := make(map[string]float64)
 		for name, perf := range da.strategies {
 			perf.mu.RLock()
@@ -367,7 +367,7 @@ func (da *DynamicAllocator) CalculateTargetWeights() map[string]float64 {
 		}
 	}
 
-	// 再次归一化（因为可能有最小权重限制）
+	// 再次归一化（因為可能有最小权重限制）
 	totalWeight := 0.0
 	for _, weight := range result {
 		totalWeight += weight
@@ -385,9 +385,9 @@ func (da *DynamicAllocator) CalculateTargetWeights() map[string]float64 {
 func (da *DynamicAllocator) calculateScore(perf *StrategyPerformance) float64 {
 	score := 0.0
 
-	// 总盈亏得分（越高越好）
+	// 總盈亏得分（越高越好）
 	if pnlWeight, ok := da.performanceWeights["total_pnl"]; ok && pnlWeight > 0 {
-		// 归一化到0-1范围（假设最大盈亏为总资金的10%）
+		// 归一化到0-1範圍（假設最大盈亏為總资金的10%）
 		pnlScore := math.Max(0, math.Min(1, perf.TotalPnL/1000))
 		score += pnlScore * pnlWeight
 	}
@@ -399,7 +399,7 @@ func (da *DynamicAllocator) calculateScore(perf *StrategyPerformance) float64 {
 
 	// 夏普比率得分（越高越好）
 	if sharpeWeight, ok := da.performanceWeights["sharpe_ratio"]; ok && sharpeWeight > 0 {
-		// 归一化夏普比率（假设范围0-3）
+		// 归一化夏普比率（假設範圍0-3）
 		sharpeScore := math.Max(0, math.Min(1, perf.SharpeRatio/3))
 		score += sharpeScore * sharpeWeight
 	}
@@ -414,7 +414,7 @@ func (da *DynamicAllocator) calculateScore(perf *StrategyPerformance) float64 {
 	return score
 }
 
-// Rebalance 重新平衡（平滑调整）
+// Rebalance 重新平衡（平滑調整）
 func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[string]float64 {
 	da.mu.Lock()
 	defer da.mu.Unlock()
@@ -431,7 +431,7 @@ func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[stri
 		currentWeight := perf.CurrentWeight
 		diff := targetWeight - currentWeight
 
-		// 平滑调整：每次调整不超过 maxChangePerRebalance
+		// 平滑調整：每次調整不超過 maxChangePerRebalance
 		if math.Abs(diff) > da.maxChangePerRebalance {
 			if diff > 0 {
 				currentWeight += da.maxChangePerRebalance
@@ -442,7 +442,7 @@ func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[stri
 			currentWeight = targetWeight
 		}
 
-		// 确保在合理范围内
+		// 确保在合理範圍内
 		if currentWeight < da.minWeight {
 			currentWeight = da.minWeight
 		}
@@ -456,7 +456,7 @@ func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[stri
 		perf.mu.Unlock()
 
 		if math.Abs(diff) > 0.001 {
-			logger.Info("📊 [动态分配] 策略 %s: 权重 %.2f%% -> %.2f%% (目标: %.2f%%)",
+			logger.Info("📊 [动態分配] 策略 %s: 权重 %.2f%% -> %.2f%% (目標: %.2f%%)",
 				name, perf.CurrentWeight*100, currentWeight*100, targetWeight*100)
 		}
 	}
@@ -464,7 +464,7 @@ func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[stri
 	return adjustedWeights
 }
 
-// Start 启动动态分配器
+// Start 啟动动態分配器
 func (da *DynamicAllocator) Start(allocator *CapitalAllocator) {
 	if da.rebalanceInterval <= 0 {
 		return
@@ -479,7 +479,7 @@ func (da *DynamicAllocator) Start(allocator *CapitalAllocator) {
 			case <-da.ctx.Done():
 				return
 			case <-ticker.C:
-				// 计算目标权重
+				// 计算目標权重
 				targetWeights := da.CalculateTargetWeights()
 
 				// 重新平衡
@@ -501,14 +501,14 @@ func (da *DynamicAllocator) Start(allocator *CapitalAllocator) {
 	}()
 }
 
-// Stop 停止动态分配器
+// Stop 停止动態分配器
 func (da *DynamicAllocator) Stop() {
 	if da.cancel != nil {
 		da.cancel()
 	}
 }
 
-// GetPerformance 获取策略表现
+// GetPerformance 獲取策略表現
 func (da *DynamicAllocator) GetPerformance(strategyName string) *StrategyPerformance {
 	da.mu.RLock()
 	defer da.mu.RUnlock()

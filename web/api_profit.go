@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"quantmesh/storage"
+	"quantmesh/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
-// ProfitSummary 盈利汇总
+// ProfitSummary 盈利彙總
 type ProfitSummary struct {
 	ExchangeID          string  `json:"exchangeId,omitempty"`
 	TotalProfit         float64 `json:"totalProfit"`
@@ -61,15 +62,15 @@ type ProfitWithdrawRule struct {
 	LastTriggeredAt string  `json:"lastTriggeredAt,omitempty"`
 	CreatedAt       string  `json:"createdAt"`
 	UpdatedAt       string  `json:"updatedAt"`
-	// 前端额外需要的字段
-	TriggerAmount     float64 `json:"triggerAmount,omitempty"` // 触发金额（对应 Threshold）
-	WithdrawRatio     float64 `json:"withdrawRatio,omitempty"` // 提取比例 0-1（对应 Percentage/100）
+	// 前端額外需要的字段
+	TriggerAmount     float64 `json:"triggerAmount,omitempty"` // 触发金額（對应 Threshold）
+	WithdrawRatio     float64 `json:"withdrawRatio,omitempty"` // 提取比例 0-1（對应 Percentage/100）
 	Frequency         string  `json:"frequency,omitempty"`     // immediate, daily, weekly
 	Destination       string  `json:"destination,omitempty"`   // account, wallet
 	MinWithdrawAmount float64 `json:"minWithdrawAmount,omitempty"`
 }
 
-// WithdrawRecord 提取记录
+// WithdrawRecord 提取記錄
 type WithdrawRecord struct {
 	ID            string  `json:"id"`
 	ExchangeID    string  `json:"exchangeId"`
@@ -83,7 +84,7 @@ type WithdrawRecord struct {
 	Status        string  `json:"status"`      // pending, processing, completed, failed, cancelled
 	Destination   string  `json:"destination"` // account, wallet
 	WalletAddress string  `json:"walletAddress,omitempty"`
-	TargetAddress string  `json:"targetAddress"` // 兼容旧版
+	TargetAddress string  `json:"targetAddress"` // 兼容舊版
 	TxHash        string  `json:"txHash,omitempty"`
 	CreatedAt     string  `json:"createdAt"`
 	CompletedAt   string  `json:"completedAt,omitempty"`
@@ -98,36 +99,36 @@ type ProfitTrendPoint struct {
 	CumProfit float64 `json:"cumProfit"`
 }
 
-// 获取盈利汇总
+// 獲取盈利彙總
 func getProfitSummaryHandler(c *gin.Context) {
 	exchangeID := c.Query("exchange_id")
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存储服务未就绪"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存储接口未就绪"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
-	// 获取当前账户标识
+	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
 
-	// 1. 获取累计盈利
+	// 1. 獲取累计盈利
 	summaryStats, err := st.GetStatisticsSummaryByExchange(exchangeID, accountID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询统计汇总失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢统计彙總失败: " + err.Error()})
 		return
 	}
 
-	// 2. 获取今日/本周/本月盈利
-	now := time.Now()
+	// 2. 獲取今日/本周/本月盈利（按配置時區）
+	now := utils.NowConfiguredTimezone()
 	// 今日开始
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.GlobalLocation)
 	// 本周开始（周一）
 	offset := int(now.Weekday()) - 1
 	if offset < 0 {
@@ -135,11 +136,11 @@ func getProfitSummaryHandler(c *gin.Context) {
 	}
 	weekStart := todayStart.AddDate(0, 0, -offset)
 	// 本月开始
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, utils.GlobalLocation)
 
 	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, accountID, monthStart, now)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询每日统计失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢每日统计失败: " + err.Error()})
 		return
 	}
 
@@ -157,7 +158,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 		}
 	}
 
-	// 3. 获取未实现盈利 (Unrealized Profit)
+	// 3. 獲取未實現盈利 (Unrealized Profit)
 	unrealizedProfit := 0.0
 	pmProvider := PickPositionProvider(c)
 	priceProv := PickPriceProvider(c)
@@ -170,7 +171,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 		}
 
 		for _, slot := range slots {
-			// 如果指定了交易所且槽位不属于该交易所，跳过
+			// 如果指定了交易所且槽位不属於該交易所，跳過
 			if exchangeID != "" && slot.Exchange != exchangeID {
 				continue
 			}
@@ -191,7 +192,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 		WeekProfit:          math.Round(weekProfit*100) / 100,
 		MonthProfit:         math.Round(monthProfit*100) / 100,
 		UnrealizedProfit:    math.Round(unrealizedProfit*100) / 100,
-		WithdrawnProfit:     0, // TODO: 从提现记录统计
+		WithdrawnProfit:     0, // TODO: 從提現記錄统计
 		AvailableToWithdraw: math.Round(summaryStats.TotalPnL*100) / 100,
 		LastUpdated:         time.Now().Format(time.RFC3339),
 	}
@@ -202,7 +203,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 	})
 }
 
-// 按策略获取盈利
+// 按策略獲取盈利
 func getStrategyProfitsHandler(c *gin.Context) {
 	exchangeID := c.Query("exchange_id")
 
@@ -218,22 +219,22 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		return
 	}
 
-	// 获取当前账户标识
+	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
 
-	// 查询所有时间的盈亏（按币种和交易所分组）
-	// 使用一个很早的时间作为起点
+	// 查詢所有時间的盈亏（按币种和交易所分组）
+	// 使用一個很早的時间作為起点
 	startTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	now := time.Now()
+	now := utils.NowConfiguredTimezone()
 
 	pnlList, err := st.GetPnLByTimeRange(accountID, startTime, now)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询策略盈亏失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢策略盈亏失败: " + err.Error()})
 		return
 	}
 
-	// 获取今日盈亏用于计算 TodayProfit
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	// 獲取今日盈亏用於计算 TodayProfit（按配置時區）
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.GlobalLocation)
 	todayPnlList, _ := st.GetPnLByTimeRange(accountID, todayStart, now)
 	todayPnlMap := make(map[string]float64)
 	for _, p := range todayPnlList {
@@ -241,7 +242,7 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		todayPnlMap[key] = p.TotalPnL
 	}
 
-	// 获取未实现盈亏
+	// 獲取未實現盈亏
 	unrealizedPnlMap := make(map[string]float64)
 	pmProvider := PickPositionProvider(c)
 	priceProv := PickPriceProvider(c)
@@ -265,14 +266,14 @@ func getStrategyProfitsHandler(c *gin.Context) {
 
 	profits := make([]StrategyProfit, 0)
 	for _, p := range pnlList {
-		// 如果指定了交易所且不匹配，跳过
+		// 如果指定了交易所且不匹配，跳過
 		if exchangeID != "" && p.Exchange != exchangeID {
 			continue
 		}
 
 		key := p.Exchange + ":" + p.Symbol
 
-		// 暂时将 symbol 作为 strategyId
+		// 暂時將 symbol 作為 strategyId
 		strategyID := strings.ToLower(p.Symbol)
 		if strings.Contains(strategyID, "usdt") {
 			strategyID = strings.ReplaceAll(strategyID, "usdt", "")
@@ -280,9 +281,9 @@ func getStrategyProfitsHandler(c *gin.Context) {
 
 		profits = append(profits, StrategyProfit{
 			ExchangeID:          p.Exchange,
-			StrategyID:          p.Symbol, // 使用 Symbol 作为唯一标识
+			StrategyID:          p.Symbol, // 使用 Symbol 作為唯一標识
 			StrategyName:        p.Symbol + " 策略",
-			StrategyType:        "grid", // 默认为网格，实际应从配置获取
+			StrategyType:        "grid", // 默认為网格，實際应從配置獲取
 			TotalProfit:         math.Round(p.TotalPnL*100) / 100,
 			TodayProfit:         math.Round(todayPnlMap[key]*100) / 100,
 			UnrealizedProfit:    math.Round(unrealizedPnlMap[key]*100) / 100,
@@ -290,7 +291,7 @@ func getStrategyProfitsHandler(c *gin.Context) {
 			WithdrawnProfit:     0,
 			AvailableToWithdraw: math.Round(p.TotalPnL*100) / 100,
 			TradeCount:          p.TotalTrades,
-			WinRate:             math.Round(p.WinRate*100) / 100, // 保持小数形式（0-1），前端会转换为百分比
+			WinRate:             math.Round(p.WinRate*100) / 100, // 保持小數形式（0-1），前端會轉换為百分比
 			AvgProfitPerTrade:   0,                               // 可计算
 		})
 	}
@@ -301,33 +302,33 @@ func getStrategyProfitsHandler(c *gin.Context) {
 	})
 }
 
-// 获取单个策略盈利详情
+// 獲取單個策略盈利详情
 func getStrategyProfitDetailHandler(c *gin.Context) {
-	strategyID := c.Param("id") // 实际上这里传的是 Symbol
+	strategyID := c.Param("id") // 實際上这里傳的是 Symbol
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "存储服务未就绪"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "存储接口未就绪"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
-	// 查询该币种的所有盈亏
+	// 查詢該幣種的所有盈亏
 	startTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Now()
 	accountID := GetCurrentAccountID()
 	summary, err := st.GetPnLBySymbol(strategyID, accountID, startTime, now)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询策略盈亏详情失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢策略盈亏详情失败: " + err.Error()})
 		return
 	}
 
-	// 获取未实现盈亏
+	// 獲取未實現盈亏
 	unrealizedPnL := 0.0
 	pmProvider := PickPositionProvider(c)
 	priceProv := PickPriceProvider(c)
@@ -352,12 +353,12 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		StrategyName:        strategyID + " 策略",
 		StrategyType:        "grid",
 		TotalProfit:         math.Round(summary.TotalPnL*100) / 100,
-		TodayProfit:         0, // 需要额外查询
+		TodayProfit:         0, // 需要額外查詢
 		UnrealizedProfit:    math.Round(unrealizedPnL*100) / 100,
 		RealizedProfit:      math.Round(summary.TotalPnL*100) / 100,
 		WithdrawnProfit:     0,
 		AvailableToWithdraw: math.Round(summary.TotalPnL*100) / 100,
-		WinRate:             math.Round(summary.WinRate*100) / 100, // 保持小数形式（0-1），前端会转换为百分比
+		WinRate:             math.Round(summary.WinRate*100) / 100, // 保持小數形式（0-1），前端會轉换為百分比
 		TradeCount:          summary.TotalTrades,
 		AvgProfitPerTrade:   0,
 		LastTradeAt:         now.Format(time.RFC3339),
@@ -369,7 +370,7 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 	})
 }
 
-// 获取提取规则（从数据库读取，空库时返回空数组）
+// 獲取提取规则（從數據库读取，空库時返回空數组）
 func getWithdrawRulesHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
@@ -385,11 +386,11 @@ func getWithdrawRulesHandler(c *gin.Context) {
 	accountID := GetCurrentAccountID()
 	dbRules, err := st.ListProfitWithdrawRules(accountID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询提取规则失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢提取规则失败: " + err.Error()})
 		return
 	}
 
-	// 转换为 API 响应格式
+	// 轉换為 API 响应格式
 	rules := make([]ProfitWithdrawRule, 0, len(dbRules))
 	for _, r := range dbRules {
 		rules = append(rules, ProfitWithdrawRule{
@@ -414,7 +415,7 @@ func getWithdrawRulesHandler(c *gin.Context) {
 	})
 }
 
-// 更新提取规则（全量替换：先删除账户下所有规则，再插入新规则）
+// 更新提取规则（全量替换：先刪除账戶下所有规则，再插入新规则）
 func updateWithdrawRulesHandler(c *gin.Context) {
 	var req struct {
 		Rules []ProfitWithdrawRule `json:"rules"`
@@ -422,25 +423,25 @@ func updateWithdrawRulesHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据: " + err.Error(),
+			"message": "無效的请求數據: " + err.Error(),
 		})
 		return
 	}
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储服务未就绪（storageProv=nil）"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存儲服務未就绪（storageProv=nil）"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储接口未就绪（GetStorage()=nil），请检查 storage.enabled 配置和数据库初始化日志"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存儲接口未就绪（GetStorage()=nil），请检查 storage.enabled 配置和數據库初始化日志"})
 		return
 	}
 
 	accountID := GetCurrentAccountID()
 
-	// 构建新规则列表
+	// 構建新规则列表
 	now := time.Now()
 	newRules := make([]*storage.ProfitWithdrawRule, 0, len(req.Rules))
 	for _, r := range req.Rules {
@@ -459,7 +460,7 @@ func updateWithdrawRulesHandler(c *gin.Context) {
 			CreatedAt:         now,
 			UpdatedAt:         now,
 		}
-		// 如果 ID 为空或以 temp- 开头，生成新 ID
+		// 如果 ID 為空或以 temp- 开头，生成新 ID
 		if rule.ID == "" || strings.HasPrefix(rule.ID, "temp-") {
 			rule.ID = fmt.Sprintf("rule_%s_%d", accountID, now.UnixNano())
 			now = now.Add(time.Nanosecond) // 确保唯一
@@ -480,25 +481,25 @@ func updateWithdrawRulesHandler(c *gin.Context) {
 	})
 }
 
-// 创建或更新单个提取规则
+// 創建或更新單個提取规则
 func upsertWithdrawRuleHandler(c *gin.Context) {
 	var req ProfitWithdrawRule
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据: " + err.Error(),
+			"message": "無效的请求數據: " + err.Error(),
 		})
 		return
 	}
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储服务未就绪"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储接口未就绪"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
@@ -521,7 +522,7 @@ func upsertWithdrawRuleHandler(c *gin.Context) {
 		UpdatedAt:         now,
 	}
 
-	// 如果没有 ID，生成一个新的
+	// 如果没有 ID，生成一個新的
 	if rule.ID == "" || strings.HasPrefix(rule.ID, "temp-") {
 		rule.ID = fmt.Sprintf("rule_%s_%d", accountID, now.UnixNano())
 	}
@@ -542,30 +543,30 @@ func upsertWithdrawRuleHandler(c *gin.Context) {
 	})
 }
 
-// 删除提取规则
+// 刪除提取规则
 func deleteWithdrawRuleHandler(c *gin.Context) {
 	ruleID := c.Param("id")
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储服务未就绪"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存储接口未就绪"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
 	accountID := GetCurrentAccountID()
 	if err := st.DeleteProfitWithdrawRule(accountID, ruleID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "删除规则失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "刪除规则失败: " + err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "提取规则已删除",
+		"message": "提取规则已刪除",
 		"ruleId":  ruleID,
 	})
 }
@@ -583,14 +584,14 @@ func withdrawProfitHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据: " + err.Error(),
+			"message": "無效的请求數據: " + err.Error(),
 		})
 		return
 	}
 	if req.ExchangeID == "" || req.Amount <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "请提供交易所 ID 和有效提取金额",
+			"message": "请提供交易所 ID 和有效提取金額",
 		})
 		return
 	}
@@ -601,26 +602,26 @@ func withdrawProfitHandler(c *gin.Context) {
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存储接口未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
 	if exchangeGetterFunc == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "交易所获取器未配置"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "交易所獲取器未配置"})
 		return
 	}
 	ex := exchangeGetterFunc(req.ExchangeID)
 	if ex == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "未找到该交易所实例"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "未找到該交易所實例"})
 		return
 	}
 
-	// 内部转账通常无手续费
+	// 內部轉帳通常無手续费
 	fee := 0.0
 	netAmount := req.Amount
 	recordID := "wd_" + time.Now().Format("20060102150405")
@@ -643,7 +644,7 @@ func withdrawProfitHandler(c *gin.Context) {
 		Note:        req.Note,
 	}
 	if err := st.SaveWithdrawRecord(record); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "保存提取记录失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "保存提取記錄失败: " + err.Error()})
 		return
 	}
 
@@ -654,7 +655,7 @@ func withdrawProfitHandler(c *gin.Context) {
 	transferID, err := ex.InternalTransfer(ctx, "UMFUTURE", "SPOT", currency, req.Amount)
 	if err != nil {
 		_ = st.UpdateWithdrawRecordStatus(recordID, "failed", "", err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "内部转账失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "內部轉帳失败: " + err.Error()})
 		return
 	}
 
@@ -685,7 +686,7 @@ func withdrawProfitHandler(c *gin.Context) {
 	})
 }
 
-// 获取提取历史
+// 獲取提取历史
 func getWithdrawHistoryHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
@@ -708,7 +709,7 @@ func getWithdrawHistoryHandler(c *gin.Context) {
 
 	dbRecords, err := st.GetWithdrawRecords(accountID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询提取历史失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢提取历史失败: " + err.Error()})
 		return
 	}
 
@@ -745,11 +746,11 @@ func getWithdrawHistoryHandler(c *gin.Context) {
 	})
 }
 
-// 获取盈利趋势
+// 獲取盈利趋势
 func getProfitTrendHandler(c *gin.Context) {
 	period := c.DefaultQuery("period", "30d")
 	exchangeID := c.Query("exchange_id")
-	// strategyID := c.Query("strategy_id") // 暂时不支持按策略过滤
+	// strategyID := c.Query("strategy_id") // 暂時不支援按策略過滤
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
@@ -763,7 +764,7 @@ func getProfitTrendHandler(c *gin.Context) {
 		return
 	}
 
-	// 根据周期计算天数
+	// 根據周期计算天數
 	days := 30
 	switch period {
 	case "7d":
@@ -776,24 +777,24 @@ func getProfitTrendHandler(c *gin.Context) {
 		days = 365
 	}
 
-	now := time.Now()
+	now := utils.NowConfiguredTimezone()
 	startDate := now.AddDate(0, 0, -days)
 	accountID := GetCurrentAccountID()
 
 	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, accountID, startDate, now)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询每日统计失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢每日统计失败: " + err.Error()})
 		return
 	}
 
-	// 获取起始之前的累计盈利作为 base
+	// 獲取起始之前的累计盈利作為 base
 	allStatsBefore, _ := st.QueryDailyStatisticsByExchange(exchangeID, accountID, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), startDate.AddDate(0, 0, -1))
 	baseProfit := 0.0
 	for _, s := range allStatsBefore {
 		baseProfit += s.TotalPnL
 	}
 
-	// 将结果按日期填充，缺失的日期补0
+	// 將結果按日期填充，缺失的日期补0
 	trendMap := make(map[string]float64)
 	for _, s := range dailyStats {
 		trendMap[s.Date.Format("2006-01-02")] = s.TotalPnL
@@ -825,7 +826,7 @@ func getProfitTrendHandler(c *gin.Context) {
 func cancelWithdrawHandler(c *gin.Context) {
 	withdrawID := c.Param("id")
 
-	// TODO: 实际取消逻辑
+	// TODO: 實際取消逻辑
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -834,7 +835,7 @@ func cancelWithdrawHandler(c *gin.Context) {
 	})
 }
 
-// 获取提取详情
+// 獲取提取详情
 func getWithdrawDetailHandler(c *gin.Context) {
 	withdrawID := c.Param("id")
 
@@ -871,7 +872,7 @@ func estimateWithdrawFeeHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据: " + err.Error(),
+			"message": "無效的请求數據: " + err.Error(),
 		})
 		return
 	}
@@ -891,7 +892,7 @@ func estimateWithdrawFeeHandler(c *gin.Context) {
 
 	netAmount := req.Amount - fee
 
-	// 预计到账时间
+	// 預计到账時间
 	estimatedArrival := time.Now().Add(30 * time.Minute).Format(time.RFC3339)
 
 	c.JSON(http.StatusOK, gin.H{

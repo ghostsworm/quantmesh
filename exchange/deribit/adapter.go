@@ -22,7 +22,7 @@ type Adapter struct {
 	quoteAsset       string
 }
 
-// NewAdapter 创建 Deribit 适配器
+// NewAdapter 創建 Deribit 适配器
 func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	apiKey := config["api_key"]
 	secretKey := config["secret_key"]
@@ -40,7 +40,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 		return nil, fmt.Errorf("Deribit authentication failed: %w", err)
 	}
 
-	// 解析交易对：BTCUSDT -> BTC-PERPETUAL
+	// 解析交易對：BTCUSDT -> BTC-PERPETUAL
 	currency := "BTC"
 	if strings.HasPrefix(symbol, "ETH") {
 		currency = "ETH"
@@ -57,7 +57,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 		quoteAsset:       "USD",
 	}
 
-	// 获取交易对信息
+	// 獲取交易對信息
 	instruments, err := client.GetInstruments(ctx, currency)
 	if err != nil {
 		logger.Warn("Failed to get Deribit instruments: %v", err)
@@ -74,14 +74,19 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	return adapter, nil
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (a *Adapter) GetName() string {
 	return "Deribit"
 }
 
-// PlaceOrder 下单
+// GetMarketType 獲取市場類型：futures 合約
+func (a *Adapter) GetMarketType() string {
+	return "futures"
+}
+
+// PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
-	// Deribit 使用合约数量（整数）
+	// Deribit 使用合約數量（整數）
 	amount := quantity
 
 	req := &OrderRequest{
@@ -118,12 +123,12 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 	}, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (a *Adapter) CancelOrder(ctx context.Context, orderID string) error {
 	return a.client.CancelOrder(ctx, orderID)
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (a *Adapter) GetOrder(ctx context.Context, orderID string) (*OrderLocal, error) {
 	orderInfo, err := a.client.GetOrderState(ctx, orderID)
 	if err != nil {
@@ -133,7 +138,7 @@ func (a *Adapter) GetOrder(ctx context.Context, orderID string) (*OrderLocal, er
 	return a.convertOrder(orderInfo), nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	orders, err := a.client.GetOpenOrders(ctx, a.instrumentName)
 	if err != nil {
@@ -148,7 +153,7 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	return result, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	account, err := a.client.GetAccountSummary(ctx, a.currency)
 	if err != nil {
@@ -162,7 +167,7 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 	positions, err := a.client.GetPositions(ctx, a.currency)
 	if err != nil {
@@ -175,7 +180,7 @@ func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 			continue
 		}
 
-		// Deribit 的 size 已经带方向（正数=多，负数=空）
+		// Deribit 的 size 已經带方向（正數=多，负數=空）
 		result = append(result, &PositionLocal{
 			Symbol:        pos.InstrumentName,
 			Size:          pos.Size,
@@ -189,7 +194,7 @@ func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 	return result, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	account, err := a.client.GetAccountSummary(ctx, a.currency)
 	if err != nil {
@@ -199,7 +204,7 @@ func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	return account.AvailableFunds, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if a.wsManager != nil {
 		return fmt.Errorf("order stream already started")
@@ -209,7 +214,7 @@ func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{
 	return a.wsManager.Start(ctx, a.instrumentName, callback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (a *Adapter) StopOrderStream() error {
 	if a.wsManager != nil {
 		a.wsManager.Stop()
@@ -218,12 +223,12 @@ func (a *Adapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 如果传入 symbol,转换格式并使用;否则使用默认 instrumentName
+	// 如果傳入 symbol,轉换格式並使用;否则使用預設 instrumentName
 	targetInstrument := a.instrumentName
 	if symbol != "" {
-		// 解析交易对：BTCUSDT -> BTC-PERPETUAL
+		// 解析交易對：BTCUSDT -> BTC-PERPETUAL
 		currency := "BTC"
 		if strings.HasPrefix(symbol, "ETH") {
 			currency = "ETH"
@@ -239,7 +244,7 @@ func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, e
 	return ticker.LastPrice, nil
 }
 
-// StartKlineStream 启动 K线流
+// StartKlineStream 啟动 K線流
 func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callback CandleUpdateCallbackLocal) error {
 	if a.klineWSManager != nil {
 		return fmt.Errorf("kline stream already started")
@@ -262,7 +267,7 @@ func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callbac
 	})
 }
 
-// StopKlineStream 停止 K线流
+// StopKlineStream 停止 K線流
 func (a *Adapter) StopKlineStream() error {
 	if a.klineWSManager != nil {
 		a.klineWSManager.Stop()
@@ -271,12 +276,12 @@ func (a *Adapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史 K线
+// GetHistoricalKlines 獲取歷史 K線
 func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limit int) ([]*CandleLocal, error) {
 	resolution := string(ConvertInterval(interval))
 
 	endTime := time.Now().UnixMilli()
-	// 根据周期计算开始时间
+	// 根據周期计算开始時间
 	var duration time.Duration
 	switch interval {
 	case "1m":
@@ -315,33 +320,33 @@ func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limi
 	return result, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (a *Adapter) GetPriceDecimals() int {
 	return a.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (a *Adapter) GetQuantityDecimals() int {
 	return a.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (a *Adapter) GetBaseAsset() string {
 	return a.baseAsset
 }
 
-// GetQuoteAsset 获取报价资产
+// GetQuoteAsset 獲取报價资產
 func (a *Adapter) GetQuoteAsset() string {
 	return a.quoteAsset
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (a *Adapter) GetFundingRate(ctx context.Context) (float64, error) {
 	// Deribit 没有资金费率（期权交易所）
 	return 0, nil
 }
 
-// convertOrder 转换订单
+// convertOrder 轉换订單
 func (a *Adapter) convertOrder(order *OrderInfo) *OrderLocal {
 	var side OrderSide
 	if order.Direction == "buy" {
@@ -363,7 +368,7 @@ func (a *Adapter) convertOrder(order *OrderInfo) *OrderLocal {
 	}
 }
 
-// convertOrderState 转换订单状态
+// convertOrderState 轉换订單状態
 func convertOrderState(state string) OrderStatus {
 	switch state {
 	case "open":
@@ -377,7 +382,7 @@ func convertOrderState(state string) OrderStatus {
 	}
 }
 
-// InternalTransfer 交易所内部转账（Deribit 暂未实现）
+// InternalTransfer 交易所內部轉帳（Deribit 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Deribit")
 }

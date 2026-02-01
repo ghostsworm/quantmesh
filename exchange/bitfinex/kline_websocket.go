@@ -11,7 +11,7 @@ import (
 	"quantmesh/logger"
 )
 
-// KlineWebSocketManager Bitfinex K线 WebSocket 管理器
+// KlineWebSocketManager Bitfinex K線 WebSocket 管理器
 type KlineWebSocketManager struct {
 	client         *BitfinexClient
 	conn           *websocket.Conn
@@ -24,7 +24,7 @@ type KlineWebSocketManager struct {
 	channelMap     map[int]string // chanID -> symbol
 }
 
-// NewKlineWebSocketManager 创建 K线 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
 func NewKlineWebSocketManager(client *BitfinexClient, symbols []string, interval string) (*KlineWebSocketManager, error) {
 	return &KlineWebSocketManager{
 		client:         client,
@@ -36,7 +36,7 @@ func NewKlineWebSocketManager(client *BitfinexClient, symbols []string, interval
 	}, nil
 }
 
-// Start 启动 K线流
+// Start 啟动 K線流
 func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdateCallback) error {
 	k.mu.Lock()
 	k.callback = callback
@@ -49,9 +49,9 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdate
 	}
 	k.conn = conn
 
-	logger.Info("Bitfinex K线 WebSocket connected: %s", BitfinexWSURL)
+	logger.Info("Bitfinex K線 WebSocket connected: %s", BitfinexWSURL)
 
-	// 订阅 K线流
+	// 订阅 K線流
 	timeframe := convertIntervalToTimeframe(k.interval)
 	for _, symbol := range k.symbols {
 		subscribeMsg := map[string]interface{}{
@@ -62,10 +62,10 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdate
 		if err := conn.WriteJSON(subscribeMsg); err != nil {
 			return fmt.Errorf("subscribe kline stream error: %w", err)
 		}
-		logger.Info("Bitfinex subscribed to K线 stream: %s, interval: %s", symbol, k.interval)
+		logger.Info("Bitfinex subscribed to K線 stream: %s, interval: %s", symbol, k.interval)
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go k.handleMessages(ctx)
 
 	return nil
@@ -75,7 +75,7 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdate
 func (k *KlineWebSocketManager) handleMessages(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error("Bitfinex K线 WebSocket message handler panic: %v", r)
+			logger.Error("Bitfinex K線 WebSocket message handler panic: %v", r)
 		}
 	}()
 
@@ -88,7 +88,7 @@ func (k *KlineWebSocketManager) handleMessages(ctx context.Context) {
 		default:
 			_, message, err := k.conn.ReadMessage()
 			if err != nil {
-				logger.Error("Bitfinex K线 WebSocket read error: %v", err)
+				logger.Error("Bitfinex K線 WebSocket read error: %v", err)
 				k.reconnect(ctx)
 				return
 			}
@@ -100,14 +100,14 @@ func (k *KlineWebSocketManager) handleMessages(ctx context.Context) {
 
 // processMessage 处理消息
 func (k *KlineWebSocketManager) processMessage(message []byte) {
-	// 尝试解析为事件消息
+	// 尝試解析為事件消息
 	var eventMsg map[string]interface{}
 	if err := json.Unmarshal(message, &eventMsg); err == nil {
 		k.handleEventMessage(eventMsg)
 		return
 	}
 
-	// 尝试解析为数据消息
+	// 尝試解析為數據消息
 	var dataMsg []interface{}
 	if err := json.Unmarshal(message, &dataMsg); err == nil {
 		k.handleDataMessage(dataMsg)
@@ -129,13 +129,13 @@ func (k *KlineWebSocketManager) handleEventMessage(msg map[string]interface{}) {
 		k.mu.Lock()
 		k.channelMap[int(chanID)] = key
 		k.mu.Unlock()
-		logger.Info("Bitfinex K线 subscribed, chanID: %d, key: %s", int(chanID), key)
+		logger.Info("Bitfinex K線 subscribed, chanID: %d, key: %s", int(chanID), key)
 	case "error":
-		logger.Error("Bitfinex K线 WebSocket error: %v", msg)
+		logger.Error("Bitfinex K線 WebSocket error: %v", msg)
 	}
 }
 
-// handleDataMessage 处理数据消息
+// handleDataMessage 处理數據消息
 func (k *KlineWebSocketManager) handleDataMessage(msg []interface{}) {
 	if len(msg) < 2 {
 		return
@@ -151,11 +151,11 @@ func (k *KlineWebSocketManager) handleDataMessage(msg []interface{}) {
 		return
 	}
 
-	// K线数据
+	// K線數據
 	k.handleCandleData(int(chanID), msg[1])
 }
 
-// handleCandleData 处理 K线数据
+// handleCandleData 处理 K線數據
 func (k *KlineWebSocketManager) handleCandleData(chanID int, data interface{}) {
 	k.mu.RLock()
 	callback := k.callback
@@ -166,7 +166,7 @@ func (k *KlineWebSocketManager) handleCandleData(chanID int, data interface{}) {
 		return
 	}
 
-	// K线格式：[MTS, OPEN, CLOSE, HIGH, LOW, VOLUME]
+	// K線格式：[MTS, OPEN, CLOSE, HIGH, LOW, VOLUME]
 	candleArray, ok := data.([]interface{})
 	if !ok || len(candleArray) < 6 {
 		return
@@ -186,7 +186,7 @@ func (k *KlineWebSocketManager) handleCandleData(chanID int, data interface{}) {
 		Volume:    parseFloat64(candleArray[5]),
 	}
 
-	logger.Debug("Bitfinex K线 update: key=%s, time=%d, open=%.2f, high=%.2f, low=%.2f, close=%.2f, volume=%.2f",
+	logger.Debug("Bitfinex K線 update: key=%s, time=%d, open=%.2f, high=%.2f, low=%.2f, close=%.2f, volume=%.2f",
 		key, candle.Timestamp, candle.Open, candle.High, candle.Low, candle.Close, candle.Volume)
 
 	callback(candle)
@@ -194,7 +194,7 @@ func (k *KlineWebSocketManager) handleCandleData(chanID int, data interface{}) {
 
 // reconnect 重连
 func (k *KlineWebSocketManager) reconnect(ctx context.Context) {
-	logger.Info("Bitfinex K线 WebSocket reconnecting...")
+	logger.Info("Bitfinex K線 WebSocket reconnecting...")
 	time.Sleep(k.reconnectDelay)
 
 	k.mu.RLock()
@@ -203,16 +203,16 @@ func (k *KlineWebSocketManager) reconnect(ctx context.Context) {
 
 	if callback != nil {
 		if err := k.Start(ctx, callback); err != nil {
-			logger.Error("Bitfinex K线 reconnect error: %v", err)
+			logger.Error("Bitfinex K線 reconnect error: %v", err)
 		}
 	}
 }
 
-// Stop 停止 K线流
+// Stop 停止 K線流
 func (k *KlineWebSocketManager) Stop() {
 	close(k.stopChan)
 	if k.conn != nil {
 		k.conn.Close()
 	}
-	logger.Info("Bitfinex K线 WebSocket stopped")
+	logger.Info("Bitfinex K線 WebSocket stopped")
 }

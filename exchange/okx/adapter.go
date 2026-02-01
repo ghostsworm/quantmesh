@@ -11,7 +11,7 @@ import (
 	"quantmesh/utils"
 )
 
-// 为了避免循环导入，在这里定义需要的类型
+// 為了避免循環匯入，在这里定义需要的類型
 type Side string
 type OrderType string
 type OrderStatus string
@@ -116,13 +116,13 @@ type Candle struct {
 
 type CandleUpdateCallback = func(candle interface{})
 
-// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+// OrderBookLevel 订單簿檔位（本地類型，避免循環匯入）
 type OrderBookLevel struct {
 	Price    float64
 	Quantity float64
 }
 
-// OrderBook 订单簿（本地类型，避免循环导入）
+// OrderBook 订單簿（本地類型，避免循環匯入）
 type OrderBook struct {
 	Symbol    string
 	Bids      []OrderBookLevel
@@ -134,7 +134,7 @@ type OrderBook struct {
 type OKXAdapter struct {
 	client           *OKXClient
 	symbol           string
-	instId           string // OKX 的合约标识（如 BTC-USDT-SWAP）
+	instId           string // OKX 的合約標识（如 BTC-USDT-SWAP）
 	wsManager        *WebSocketManager
 	klineWSManager   *KlineWebSocketManager
 	priceDecimals    int
@@ -144,7 +144,7 @@ type OKXAdapter struct {
 	useTestnet       bool
 }
 
-// NewOKXAdapter 创建 OKX 适配器
+// NewOKXAdapter 創建 OKX 适配器
 func NewOKXAdapter(cfg map[string]string, symbol string) (*OKXAdapter, error) {
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
@@ -163,7 +163,7 @@ func NewOKXAdapter(cfg map[string]string, symbol string) (*OKXAdapter, error) {
 
 	client := NewOKXClient(apiKey, secretKey, passphrase, useTestnet)
 
-	// 转换交易对格式：BTCUSDT -> BTC-USDT-SWAP
+	// 轉换交易對格式：BTCUSDT -> BTC-USDT-SWAP
 	instId := convertSymbolToInstId(symbol)
 
 	adapter := &OKXAdapter{
@@ -173,12 +173,12 @@ func NewOKXAdapter(cfg map[string]string, symbol string) (*OKXAdapter, error) {
 		useTestnet: useTestnet,
 	}
 
-	// 获取合约信息
+	// 獲取合約信息
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := adapter.fetchInstrumentInfo(ctxInit); err != nil {
-		logger.Warn("⚠️ [OKX] 获取合约信息失败: %v，使用默认精度", err)
+		logger.Warn("⚠️ [OKX] 獲取合約信息失败: %v，使用默认精度", err)
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 3
 	}
@@ -186,12 +186,17 @@ func NewOKXAdapter(cfg map[string]string, symbol string) (*OKXAdapter, error) {
 	return adapter, nil
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (o *OKXAdapter) GetName() string {
 	return "OKX"
 }
 
-// convertSymbolToInstId 转换交易对格式
+// GetMarketType 獲取市場類型：futures 合約
+func (o *OKXAdapter) GetMarketType() string {
+	return "futures"
+}
+
+// convertSymbolToInstId 轉换交易對格式
 // BTCUSDT -> BTC-USDT-SWAP
 // ETHUSDT -> ETH-USDT-SWAP
 func convertSymbolToInstId(symbol string) string {
@@ -200,15 +205,15 @@ func convertSymbolToInstId(symbol string) string {
 	return fmt.Sprintf("%s-USDT-SWAP", base)
 }
 
-// fetchInstrumentInfo 获取合约信息
+// fetchInstrumentInfo 獲取合約信息
 func (o *OKXAdapter) fetchInstrumentInfo(ctx context.Context) error {
 	instruments, err := o.client.GetInstruments(ctx, "SWAP", o.instId)
 	if err != nil {
-		return fmt.Errorf("获取合约信息失败: %w", err)
+		return fmt.Errorf("獲取合約信息失败: %w", err)
 	}
 
 	if len(instruments) == 0 {
-		return fmt.Errorf("未找到合约信息: %s", o.instId)
+		return fmt.Errorf("未找到合約信息: %s", o.instId)
 	}
 
 	inst := instruments[0]
@@ -220,15 +225,15 @@ func (o *OKXAdapter) fetchInstrumentInfo(ctx context.Context) error {
 	o.priceDecimals = getPrecision(tickSz)
 	o.quantityDecimals = getPrecision(lotSz)
 	o.baseAsset = inst.CtValCcy   // 基础币种
-	o.quoteAsset = inst.SettleCcy // 结算币种
+	o.quoteAsset = inst.SettleCcy // 結算币种
 
-	logger.Info("ℹ️ [OKX 合约信息] %s - 数量精度:%d, 价格精度:%d, 基础币种:%s, 计价币种:%s",
+	logger.Info("ℹ️ [OKX 合約信息] %s - 數量精度:%d, 價格精度:%d, 基础币种:%s, 计價币种:%s",
 		o.instId, o.quantityDecimals, o.priceDecimals, o.baseAsset, o.quoteAsset)
 
 	return nil
 }
 
-// getPrecision 根据最小变动单位计算精度
+// getPrecision 根據最小变动單位计算精度
 func getPrecision(value float64) int {
 	str := strconv.FormatFloat(value, 'f', -1, 64)
 	parts := strings.Split(str, ".")
@@ -238,12 +243,12 @@ func getPrecision(value float64) int {
 	return 0
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (o *OKXAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	side := string(req.Side)
 	orderType := string(req.Type)
 
-	// OKX 使用 post_only 作为 TimeInForce
+	// OKX 使用 post_only 作為 TimeInForce
 	var tdMode string
 	if req.PostOnly {
 		tdMode = "post_only"
@@ -251,28 +256,28 @@ func (o *OKXAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order,
 		tdMode = ""
 	}
 
-	// 构造订单请求
+	// 構造订單请求
 	orderReq := map[string]interface{}{
 		"instId":  o.instId,
-		"tdMode":  "cross", // 全仓模式
+		"tdMode":  "cross", // 全倉模式
 		"side":    side,
 		"ordType": orderType,
 		"sz":      fmt.Sprintf("%.*f", o.quantityDecimals, req.Quantity),
 		"px":      fmt.Sprintf("%.*f", req.PriceDecimals, req.Price),
 	}
 
-	// 设置 post_only
+	// 設置 post_only
 	if tdMode != "" {
 		orderReq["postOnly"] = true
 	}
 
-	// 设置自定义订单ID
+	// 設置自定义订單ID
 	if req.ClientOrderID != "" {
 		clientOrderID := utils.AddBrokerPrefix("okx", req.ClientOrderID)
 		orderReq["clOrdId"] = clientOrderID
 	}
 
-	// 设置 ReduceOnly
+	// 設置 ReduceOnly
 	if req.ReduceOnly {
 		orderReq["reduceOnly"] = true
 	}
@@ -283,12 +288,12 @@ func (o *OKXAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order,
 	}
 
 	if len(resp) == 0 {
-		return nil, fmt.Errorf("下单响应为空")
+		return nil, fmt.Errorf("下單响应為空")
 	}
 
 	result := resp[0]
 	if result.SCode != "0" {
-		return nil, fmt.Errorf("下单失败: %s - %s", result.SCode, result.SMsg)
+		return nil, fmt.Errorf("下單失败: %s - %s", result.SCode, result.SMsg)
 	}
 
 	orderID, _ := strconv.ParseInt(result.OrdId, 10, 64)
@@ -307,16 +312,16 @@ func (o *OKXAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order,
 	}, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (o *OKXAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	placedOrders := make([]*Order, 0, len(orders))
 	hasMarginError := false
 
-	// OKX 支持批量下单，但为了简化实现，先使用循环
+	// OKX 支援批量下單，但為了简化實現，先使用循环
 	for _, orderReq := range orders {
 		order, err := o.PlaceOrder(ctx, orderReq)
 		if err != nil {
-			logger.Warn("⚠️ [OKX] 下单失败 %.2f %s: %v",
+			logger.Warn("⚠️ [OKX] 下單失败 %.2f %s: %v",
 				orderReq.Price, orderReq.Side, err)
 
 			if strings.Contains(err.Error(), "51008") || strings.Contains(err.Error(), "insufficient") {
@@ -330,29 +335,29 @@ func (o *OKXAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderReques
 	return placedOrders, hasMarginError
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (o *OKXAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	err := o.client.CancelOrder(ctx, o.instId, strconv.FormatInt(orderID, 10), "")
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "51400") || strings.Contains(errStr, "Order does not exist") {
-			logger.Info("ℹ️ [OKX] 订单 %d 已不存在，跳过取消", orderID)
+			logger.Info("ℹ️ [OKX] 订單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
 		return err
 	}
 
-	logger.Info("✅ [OKX] 取消订单成功: %d", orderID)
+	logger.Info("✅ [OKX] 取消訂單成功: %d", orderID)
 	return nil
 }
 
-// BatchCancelOrders 批量撤单
+// BatchCancelOrders 批量撤單
 func (o *OKXAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	if len(orderIDs) == 0 {
 		return nil
 	}
 
-	// OKX 批量撤单限制：最多20个
+	// OKX 批量撤單限制：最多20個
 	batchSize := 20
 	for i := 0; i < len(orderIDs); i += batchSize {
 		end := i + batchSize
@@ -362,7 +367,7 @@ func (o *OKXAdapter) BatchCancelOrders(ctx context.Context, symbol string, order
 
 		batch := orderIDs[i:end]
 
-		// 转换为字符串数组
+		// 轉换為字符串數组
 		orderIDStrs := make([]string, len(batch))
 		for j, id := range batch {
 			orderIDStrs[j] = strconv.FormatInt(id, 10)
@@ -370,15 +375,15 @@ func (o *OKXAdapter) BatchCancelOrders(ctx context.Context, symbol string, order
 
 		err := o.client.BatchCancelOrders(ctx, o.instId, orderIDStrs)
 		if err != nil {
-			logger.Warn("⚠️ [OKX] 批量撤单失败 (共%d个): %v", len(batch), err)
-			// 失败时尝试单个撤单
-			logger.Info("🔄 [OKX] 改为逐个撤单...")
+			logger.Warn("⚠️ [OKX] 批量撤單失败 (共%d個): %v", len(batch), err)
+			// 失败時尝試單個撤單
+			logger.Info("🔄 [OKX] 改為逐個撤單...")
 			for _, orderID := range batch {
 				_ = o.CancelOrder(ctx, symbol, orderID)
 				time.Sleep(100 * time.Millisecond)
 			}
 		} else {
-			logger.Info("✅ [OKX] 批量撤单成功: %d 个订单", len(batch))
+			logger.Info("✅ [OKX] 批量撤單成功: %d 個订單", len(batch))
 		}
 
 		if i+batchSize < len(orderIDs) {
@@ -389,16 +394,16 @@ func (o *OKXAdapter) BatchCancelOrders(ctx context.Context, symbol string, order
 	return nil
 }
 
-// CancelAllOrders 取消所有订单
+// CancelAllOrders 取消所有订單
 func (o *OKXAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	// 先查询所有未完成订单
+	// 先查詢所有未完成订單
 	orders, err := o.GetOpenOrders(ctx, symbol)
 	if err != nil {
 		return err
 	}
 
 	if len(orders) == 0 {
-		logger.Info("ℹ️ [OKX] 没有未完成订单")
+		logger.Info("ℹ️ [OKX] 没有未完成订單")
 		return nil
 	}
 
@@ -410,7 +415,7 @@ func (o *OKXAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	return o.BatchCancelOrders(ctx, symbol, orderIDs)
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (o *OKXAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	order, err := o.client.GetOrder(ctx, o.instId, strconv.FormatInt(orderID, 10), "")
 	if err != nil {
@@ -420,7 +425,7 @@ func (o *OKXAdapter) GetOrder(ctx context.Context, symbol string, orderID int64)
 	return o.convertOrder(order), nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (o *OKXAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := o.client.GetOpenOrders(ctx, o.instId)
 	if err != nil {
@@ -435,7 +440,7 @@ func (o *OKXAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order
 	return result, nil
 }
 
-// convertOrder 转换订单格式
+// convertOrder 轉换订單格式
 func (o *OKXAdapter) convertOrder(order *OKXOrder) *Order {
 	orderID, _ := strconv.ParseInt(order.OrdId, 10, 64)
 	price, _ := strconv.ParseFloat(order.Px, 64)
@@ -466,7 +471,7 @@ func (o *OKXAdapter) convertOrder(order *OKXOrder) *Order {
 	}
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (o *OKXAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	balance, err := o.client.GetBalance(ctx)
 	if err != nil {
@@ -482,7 +487,7 @@ func (o *OKXAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		}, nil
 	}
 
-	// OKX 返回多币种余额，取 USDT
+	// OKX 返回多币种餘額，取 USDT
 	var totalBalance, availBalance float64
 	for _, detail := range balance[0].Details {
 		if detail.Ccy == "USDT" {
@@ -492,10 +497,10 @@ func (o *OKXAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		}
 	}
 
-	// 获取持仓
+	// 獲取持倉
 	positions, err := o.GetPositions(ctx, o.symbol)
 	if err != nil {
-		logger.Warn("⚠️ [OKX] 获取持仓失败: %v", err)
+		logger.Warn("⚠️ [OKX] 獲取持倉失败: %v", err)
 		positions = []*Position{}
 	}
 
@@ -507,7 +512,7 @@ func (o *OKXAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓信息
+// GetPositions 獲取持倉信息
 func (o *OKXAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	positions, err := o.client.GetPositions(ctx, o.instId)
 	if err != nil {
@@ -541,7 +546,7 @@ func (o *OKXAdapter) GetPositions(ctx context.Context, symbol string) ([]*Positi
 	return result, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (o *OKXAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
 	account, err := o.GetAccount(ctx)
 	if err != nil {
@@ -550,7 +555,7 @@ func (o *OKXAdapter) GetBalance(ctx context.Context, asset string) (float64, err
 	return account.AvailableBalance, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (o *OKXAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if o.wsManager == nil {
 		o.wsManager = NewWebSocketManager(o.client.apiKey, o.client.secretKey, o.client.passphrase, o.useTestnet)
@@ -588,7 +593,7 @@ func (o *OKXAdapter) StartOrderStream(ctx context.Context, callback func(interfa
 	return o.wsManager.Start(ctx, o.instId, localCallback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (o *OKXAdapter) StopOrderStream() error {
 	if o.wsManager != nil {
 		o.wsManager.Stop()
@@ -596,7 +601,7 @@ func (o *OKXAdapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (o *OKXAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
 	if o.wsManager != nil {
 		price := o.wsManager.GetLatestPrice()
@@ -605,10 +610,10 @@ func (o *OKXAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64
 		}
 	}
 
-	return 0, fmt.Errorf("WebSocket 价格流未就绪或无价格数据")
+	return 0, fmt.Errorf("WebSocket 價格流未就绪或無價格數據")
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (o *OKXAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	if o.wsManager == nil {
 		o.wsManager = NewWebSocketManager(o.client.apiKey, o.client.secretKey, o.client.passphrase, o.useTestnet)
@@ -616,13 +621,13 @@ func (o *OKXAdapter) StartPriceStream(ctx context.Context, symbol string, callba
 	return o.wsManager.StartPriceStream(ctx, o.instId, callback)
 }
 
-// StartKlineStream 启动K线流
+// StartKlineStream 啟動K線流
 func (o *OKXAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
 	if o.klineWSManager == nil {
 		o.klineWSManager = NewKlineWebSocketManager(o.useTestnet)
 	}
 
-	// 转换交易对格式
+	// 轉换交易對格式
 	instIds := make([]string, len(symbols))
 	for i, sym := range symbols {
 		instIds[i] = convertSymbolToInstId(sym)
@@ -631,7 +636,7 @@ func (o *OKXAdapter) StartKlineStream(ctx context.Context, symbols []string, int
 	return o.klineWSManager.Start(ctx, instIds, interval, callback)
 }
 
-// StopKlineStream 停止K线流
+// StopKlineStream 停止K線流
 func (o *OKXAdapter) StopKlineStream() error {
 	if o.klineWSManager != nil {
 		o.klineWSManager.Stop()
@@ -639,11 +644,11 @@ func (o *OKXAdapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (o *OKXAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	klines, err := o.client.GetKlines(ctx, o.instId, interval, limit)
 	if err != nil {
-		return nil, fmt.Errorf("获取历史K线失败: %w", err)
+		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
 	}
 
 	candles := make([]*Candle, 0, len(klines))
@@ -670,67 +675,67 @@ func (o *OKXAdapter) GetHistoricalKlines(ctx context.Context, symbol string, int
 	return candles, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (o *OKXAdapter) GetPriceDecimals() int {
 	return o.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (o *OKXAdapter) GetQuantityDecimals() int {
 	return o.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (o *OKXAdapter) GetBaseAsset() string {
 	return o.baseAsset
 }
 
-// GetQuoteAsset 获取计价资产
+// GetQuoteAsset 獲取计價资產
 func (o *OKXAdapter) GetQuoteAsset() string {
 	return o.quoteAsset
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (o *OKXAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	fundingRate, err := o.client.GetFundingRate(ctx, o.instId)
 	if err != nil {
-		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+		return 0, fmt.Errorf("獲取资金费率失败: %w", err)
 	}
 
 	rate, _ := strconv.ParseFloat(fundingRate.FundingRate, 64)
 	return rate, nil
 }
 
-// GetSpotPrice 获取现货市场价格
+// GetSpotPrice 獲取現貨市场價格
 func (o *OKXAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
-	// 将合约交易对转换为现货交易对
+	// 將合約交易對轉换為現貨交易對
 	// BTC-USDT-SWAP -> BTC-USDT
 	spotInstId := strings.Replace(symbol, "-SWAP", "", 1)
 	spotInstId = strings.Replace(spotInstId, "-PERP", "", 1)
 
-	// 调用 OKX 现货 ticker API
+	// 調用 OKX 現貨 ticker API
 	ticker, err := o.client.GetTicker(ctx, spotInstId)
 	if err != nil {
-		return 0, fmt.Errorf("获取现货价格失败: %w", err)
+		return 0, fmt.Errorf("獲取現貨價格失败: %w", err)
 	}
 
 	price, err := strconv.ParseFloat(ticker.Last, 64)
 	if err != nil {
-		return 0, fmt.Errorf("解析现货价格失败: %w", err)
+		return 0, fmt.Errorf("解析現貨價格失败: %w", err)
 	}
 
 	return price, nil
 }
 
-// GetOrderBook 获取订单簿深度
+// GetOrderBook 獲取訂單簿深度
 func (o *OKXAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	// OKX API: GET /api/v5/market/books
 	okxOrderBook, err := o.client.GetOrderBook(ctx, o.instId, limit)
 	if err != nil {
-		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+		return nil, fmt.Errorf("獲取訂單簿深度失败: %w", err)
 	}
 
-	// 转换买盘数据（价格从高到低）
+	// 轉换買盘數據（價格從高到低）
 	bids := make([]OrderBookLevel, 0, len(okxOrderBook.Bids))
 	for _, bid := range okxOrderBook.Bids {
 		if len(bid) < 2 {
@@ -738,12 +743,12 @@ func (o *OKXAdapter) GetOrderBook(ctx context.Context, symbol string, limit int)
 		}
 		price, err := strconv.ParseFloat(bid[0], 64)
 		if err != nil {
-			logger.Warn("⚠️ [OKX] 订单簿买盘价格解析失败: %v", err)
+			logger.Warn("⚠️ [OKX] 订單簿買盘價格解析失败: %v", err)
 			continue
 		}
 		quantity, err := strconv.ParseFloat(bid[1], 64)
 		if err != nil {
-			logger.Warn("⚠️ [OKX] 订单簿买盘数量解析失败: %v", err)
+			logger.Warn("⚠️ [OKX] 订單簿買盘數量解析失败: %v", err)
 			continue
 		}
 		bids = append(bids, OrderBookLevel{
@@ -752,7 +757,7 @@ func (o *OKXAdapter) GetOrderBook(ctx context.Context, symbol string, limit int)
 		})
 	}
 
-	// 转换卖盘数据（价格从低到高）
+	// 轉换賣盘數據（價格從低到高）
 	asks := make([]OrderBookLevel, 0, len(okxOrderBook.Asks))
 	for _, ask := range okxOrderBook.Asks {
 		if len(ask) < 2 {
@@ -760,12 +765,12 @@ func (o *OKXAdapter) GetOrderBook(ctx context.Context, symbol string, limit int)
 		}
 		price, err := strconv.ParseFloat(ask[0], 64)
 		if err != nil {
-			logger.Warn("⚠️ [OKX] 订单簿卖盘价格解析失败: %v", err)
+			logger.Warn("⚠️ [OKX] 订單簿賣盘價格解析失败: %v", err)
 			continue
 		}
 		quantity, err := strconv.ParseFloat(ask[1], 64)
 		if err != nil {
-			logger.Warn("⚠️ [OKX] 订单簿卖盘数量解析失败: %v", err)
+			logger.Warn("⚠️ [OKX] 订單簿賣盘數量解析失败: %v", err)
 			continue
 		}
 		asks = append(asks, OrderBookLevel{
@@ -774,7 +779,7 @@ func (o *OKXAdapter) GetOrderBook(ctx context.Context, symbol string, limit int)
 		})
 	}
 
-	// 解析时间戳
+	// 解析時间戳
 	timestamp, _ := strconv.ParseInt(okxOrderBook.TS, 10, 64)
 
 	return &OrderBook{
@@ -785,7 +790,7 @@ func (o *OKXAdapter) GetOrderBook(ctx context.Context, symbol string, limit int)
 	}, nil
 }
 
-// InternalTransfer 交易所内部转账（OKX 暂未实现）
+// InternalTransfer 交易所內部轉帳（OKX 暂未實現）
 func (o *OKXAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for OKX")
 }

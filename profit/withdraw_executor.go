@@ -8,6 +8,7 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/storage"
+	"quantmesh/utils"
 )
 
 const (
@@ -17,10 +18,10 @@ const (
 	weeklyWeekday     = time.Monday
 )
 
-// ExchangeGetter 根据交易所 ID 获取交易所实例（用于内部转账）
+// ExchangeGetter 根據交易所 ID 獲取交易所實例（用於內部轉帳）
 type ExchangeGetter func(exchangeID string) exchange.IExchange
 
-// WithdrawExecutor 利润提取定时执行器
+// WithdrawExecutor 利润提取定時執行器
 type WithdrawExecutor struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -29,7 +30,7 @@ type WithdrawExecutor struct {
 	immediateTicker *time.Ticker
 }
 
-// NewWithdrawExecutor 创建利润提取执行器
+// NewWithdrawExecutor 創建利润提取執行器
 func NewWithdrawExecutor(ctx context.Context, st storage.Storage, getExchange ExchangeGetter) *WithdrawExecutor {
 	ctx, cancel := context.WithCancel(ctx)
 	return &WithdrawExecutor{
@@ -40,15 +41,15 @@ func NewWithdrawExecutor(ctx context.Context, st storage.Storage, getExchange Ex
 	}
 }
 
-// Start 启动定时任务（immediate / daily / weekly）
+// Start 啟动定時任務（immediate / daily / weekly）
 func (e *WithdrawExecutor) Start() {
 	go e.runImmediateTask()
 	go e.runDailyTask()
 	go e.runWeeklyTask()
-	logger.Info("✅ 利润提取执行器已启动（immediate/daily/weekly）")
+	logger.Info("✅ 利润提取執行器已啟动（immediate/daily/weekly）")
 }
 
-// Stop 停止执行器
+// Stop 停止執行器
 func (e *WithdrawExecutor) Stop() {
 	e.cancel()
 	if e.immediateTicker != nil {
@@ -76,7 +77,8 @@ func (e *WithdrawExecutor) runDailyTask() {
 		select {
 		case <-e.ctx.Done():
 			return
-		case now := <-ticker.C:
+		case <-ticker.C:
+			now := utils.NowConfiguredTimezone()
 			if now.Hour() == dailyHour && now.Minute() < 15 {
 				e.processRules("daily")
 			}
@@ -91,7 +93,8 @@ func (e *WithdrawExecutor) runWeeklyTask() {
 		select {
 		case <-e.ctx.Done():
 			return
-		case now := <-ticker.C:
+		case <-ticker.C:
+			now := utils.NowConfiguredTimezone()
 			if now.Weekday() == weeklyWeekday && now.Hour() == dailyHour && now.Minute() < 15 {
 				e.processRules("weekly")
 			}
@@ -102,13 +105,13 @@ func (e *WithdrawExecutor) runWeeklyTask() {
 func (e *WithdrawExecutor) processRules(frequency string) {
 	accountIDs, err := e.st.ListAccountIDsWithProfitRules()
 	if err != nil {
-		logger.Warn("⚠️ [利润提取] 获取账户列表失败: %v", err)
+		logger.Warn("⚠️ [利润提取] 獲取帳戶列表失败: %v", err)
 		return
 	}
 	for _, accountID := range accountIDs {
 		rules, err := e.st.ListProfitWithdrawRules(accountID)
 		if err != nil {
-			logger.Warn("⚠️ [利润提取] 获取规则失败 account=%s: %v", accountID, err)
+			logger.Warn("⚠️ [利润提取] 獲取规则失败 account=%s: %v", accountID, err)
 			continue
 		}
 		for _, rule := range rules {
@@ -127,7 +130,7 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 				continue
 			}
 			if err := e.executeWithdraw(rule, withdrawAmount); err != nil {
-				logger.Warn("⚠️ [利润提取] 执行失败 rule=%s: %v", rule.ID, err)
+				logger.Warn("⚠️ [利润提取] 執行失败 rule=%s: %v", rule.ID, err)
 			}
 		}
 	}
@@ -141,7 +144,7 @@ func (e *WithdrawExecutor) shouldExecute(rule *storage.ProfitWithdrawRule, frequ
 		if rule.LastTriggeredAt == nil {
 			return true
 		}
-		now := time.Now()
+		now := utils.NowConfiguredTimezone()
 		y, m, d := rule.LastTriggeredAt.Date()
 		ny, nm, nd := now.Date()
 		return y != ny || m != nm || d != nd
@@ -149,7 +152,7 @@ func (e *WithdrawExecutor) shouldExecute(rule *storage.ProfitWithdrawRule, frequ
 		if rule.LastTriggeredAt == nil {
 			return true
 		}
-		now := time.Now()
+		now := utils.NowConfiguredTimezone()
 		_, tw := rule.LastTriggeredAt.ISOWeek()
 		_, nw := now.ISOWeek()
 		return tw != nw || rule.LastTriggeredAt.Year() != now.Year()
@@ -200,7 +203,7 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, amo
 		CreatedAt:   time.Now(),
 	}
 	if err := e.st.SaveWithdrawRecord(record); err != nil {
-		return fmt.Errorf("保存记录失败: %w", err)
+		return fmt.Errorf("保存記錄失败: %w", err)
 	}
 	transferID, err := ex.InternalTransfer(e.ctx, "UMFUTURE", "SPOT", "USDT", amount)
 	if err != nil {
@@ -208,11 +211,11 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, amo
 		return err
 	}
 	if err := e.st.UpdateWithdrawRecordStatus(record.ID, "completed", transferID, ""); err != nil {
-		logger.Warn("⚠️ [利润提取] 更新记录状态失败: %v", err)
+		logger.Warn("⚠️ [利润提取] 更新記錄状態失败: %v", err)
 	}
 	if err := e.st.UpdateRuleLastTriggeredAt(rule.ID, time.Now()); err != nil {
-		logger.Warn("⚠️ [利润提取] 更新规则执行时间失败: %v", err)
+		logger.Warn("⚠️ [利润提取] 更新规则執行時间失败: %v", err)
 	}
-	logger.Info("✅ [利润提取] 执行成功 rule=%s amount=%.2f USDT transferId=%s", rule.ID, amount, transferID)
+	logger.Info("✅ [利润提取] 執行成功 rule=%s amount=%.2f USDT transferId=%s", rule.ID, amount, transferID)
 	return nil
 }

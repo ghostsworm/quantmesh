@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// MockExecutor 模拟订单执行器
+// MockExecutor 模拟订單執行器
 type MockExecutor struct {
 	PlacedOrders []*OrderRequest
 }
@@ -71,7 +71,7 @@ func TestSuperPositionManager_Initialize(t *testing.T) {
 	executor := &MockExecutor{}
 	ex := &MockExchange{}
 
-	// 价格精度2，数量精度3
+	// 價格精度2，數量精度3
 	spm := NewSuperPositionManager(cfg, executor, ex, 2, 3)
 
 	initialPrice := 50000.0
@@ -80,24 +80,24 @@ func TestSuperPositionManager_Initialize(t *testing.T) {
 		t.Fatalf("初始化失败: %v", err)
 	}
 
-	// 验证锚点价格
+	// 驗证锚点價格
 	if spm.anchorPrice != initialPrice {
-		t.Errorf("锚点价格错误: 期望 %.2f, 得到 %.2f", initialPrice, spm.anchorPrice)
+		t.Errorf("锚点價格錯误: 期望 %.2f, 得到 %.2f", initialPrice, spm.anchorPrice)
 	}
 
-	// 验证初始化是否成功
+	// 驗证初始化是否成功
 	if !spm.isInitialized.Load() {
-		t.Error("初始化标志未设置")
+		t.Error("初始化標志未設置")
 	}
 
-	// 验证槽位数量（BuyWindowSize = 5，初始化会创建5个买单槽位）
+	// 驗证槽位數量（BuyWindowSize = 5，初始化會創建5個買單槽位）
 	count := 0
 	spm.slots.Range(func(key, value interface{}) bool {
 		count++
 		return true
 	})
 	if count != 5 {
-		t.Errorf("槽位数量错误: 期望 5, 得到 %d", count)
+		t.Errorf("槽位數量錯误: 期望 5, 得到 %d", count)
 	}
 }
 
@@ -114,10 +114,10 @@ func TestSuperPositionManager_OnOrderUpdate(t *testing.T) {
 	spm := NewSuperPositionManager(cfg, executor, ex, 2, 3)
 	spm.Initialize(50000.0, "50000.00")
 
-	// 模拟价格变化触发下单
+	// 模拟價格變化触发下單
 	spm.AdjustOrders(49950.0)
 
-	// 获取一个已下单的槽位
+	// 獲取一個已下單的槽位
 	var testSlot *InventorySlot
 	spm.slots.Range(func(key, value interface{}) bool {
 		slot := value.(*InventorySlot)
@@ -129,10 +129,10 @@ func TestSuperPositionManager_OnOrderUpdate(t *testing.T) {
 	})
 
 	if testSlot == nil {
-		t.Fatal("未找到已锁定的槽位")
+		t.Fatal("未找到已鎖定的槽位")
 	}
 
-	// 模拟订单成交
+	// 模拟订單成交
 	update := OrderUpdate{
 		OrderID:       testSlot.OrderID,
 		ClientOrderID: testSlot.ClientOID,
@@ -145,10 +145,10 @@ func TestSuperPositionManager_OnOrderUpdate(t *testing.T) {
 
 	spm.OnOrderUpdate(update)
 
-	// 验证槽位状态转为有持仓
+	// 驗证槽位状態轉為有持倉
 	testSlot.mu.RLock()
 	defer testSlot.mu.RUnlock()
 	if testSlot.PositionStatus != PositionStatusFilled {
-		t.Errorf("槽位持仓状态错误: 期望 FILLED, 得到 %s", testSlot.PositionStatus)
+		t.Errorf("槽位持倉状態錯误: 期望 FILLED, 得到 %s", testSlot.PositionStatus)
 	}
 }

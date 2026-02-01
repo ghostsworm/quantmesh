@@ -147,8 +147,8 @@ func main() {
 	// Start Hub
 	go hub.run()
 
-	// Initialize Binance Futures Client (U本位合约)
-	futures.UseTestnet = false // 设置为 true 如果使用测试网
+	// Initialize Binance Futures Client (U本位合約)
+	futures.UseTestnet = false // 設置為 true 如果使用測試網
 	client := binance.NewFuturesClient(config.Binance.APIKey, config.Binance.SecretKey)
 
 	// Function to fetch and send initial account info and open orders (Futures)

@@ -13,7 +13,7 @@ import (
 	"quantmesh/storage"
 )
 
-// timeframeToDuration 将 "2h","4h" 等转换为 Duration
+// timeframeToDuration 將 "2h","4h" 等轉换為 Duration
 func timeframeToDuration(tf string) time.Duration {
 	tf = strings.TrimSpace(strings.ToLower(tf))
 	if strings.HasSuffix(tf, "h") {
@@ -27,7 +27,7 @@ func timeframeToDuration(tf string) time.Duration {
 	return 0
 }
 
-// PredictionVerifier 预测验证器：定时检查待验证预测，对比实际价格
+// PredictionVerifier 預测驗证器：定時检查待驗证預测，對比實際價格
 type PredictionVerifier struct {
 	cfg      *config.Config
 	storage  storage.Storage
@@ -37,7 +37,7 @@ type PredictionVerifier struct {
 	mu       sync.Mutex
 }
 
-// NewPredictionVerifier 创建预测验证器
+// NewPredictionVerifier 創建預测驗证器
 func NewPredictionVerifier(cfg *config.Config, st storage.Storage) *PredictionVerifier {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &PredictionVerifier{
@@ -48,14 +48,14 @@ func NewPredictionVerifier(cfg *config.Config, st storage.Storage) *PredictionVe
 	}
 }
 
-// Start 启动定时验证（每10分钟）
+// Start 啟动定時驗證（每10分钟）
 func (p *PredictionVerifier) Start() {
 	if !p.cfg.NewsMonitor.Enabled || p.storage == nil {
 		return
 	}
 	p.done = make(chan struct{})
 	go p.verifyLoop()
-	logger.Info("📊 预测验证器已启动（每10分钟）")
+	logger.Info("📊 預测驗证器已啟动（每10分钟）")
 }
 
 // Stop 停止
@@ -83,11 +83,11 @@ func (p *PredictionVerifier) verifyLoop() {
 func (p *PredictionVerifier) verifyPending() {
 	list, err := p.storage.GetPredictionVerificationsByStatus("pending", 50)
 	if err != nil {
-		logger.Warn("📊 获取待验证预测失败: %v", err)
+		logger.Warn("📊 獲取待驗证預测失败: %v", err)
 		return
 	}
 	now := time.Now()
-	tolerance := 15 * time.Minute // 价格容差：前后15分钟内
+	tolerance := 15 * time.Minute // 價格容差：前后15分钟内
 	for _, v := range list {
 		dur := timeframeToDuration(v.Timeframe)
 		if dur <= 0 {
@@ -97,22 +97,22 @@ func (p *PredictionVerifier) verifyPending() {
 		}
 		verifyTime := v.PredictionTime.Add(dur)
 		if now.Before(verifyTime) {
-			continue // 还未到验证时间
+			continue // 还未到驗证時间
 		}
-		// 超过24h未验证的标记为过期
+		// 超過24h未驗证的標記為過期
 		if now.Sub(verifyTime) > 24*time.Hour {
 			v.Status = "expired"
 			_ = p.storage.UpdatePredictionVerification(v)
 			continue
 		}
-		// 获取验证时刻价格
+		// 獲取驗证時刻價格
 		ph, err := p.storage.GetPriceAtTime(v.AssetType, v.Symbol, verifyTime, tolerance)
 		if err != nil || ph == nil {
 			continue
 		}
 		v.ActualPriceAtVerify = ph.Price
 		v.VerifiedAt = now
-		// 计算实际方向和涨跌幅
+		// 计算實際方向和涨跌幅
 		change := (ph.Price - v.ActualPriceAtPred) / v.ActualPriceAtPred * 100
 		v.ActualChangePct = change
 		if math.Abs(change) < 1 {
@@ -126,18 +126,18 @@ func (p *PredictionVerifier) verifyPending() {
 		v.IsCorrect = (v.PredictedDirection == v.ActualDirection)
 		v.Status = "verified"
 		if err := p.storage.UpdatePredictionVerification(v); err != nil {
-			logger.Warn("📊 更新预测验证失败 id=%d: %v", v.ID, err)
+			logger.Warn("📊 更新預测驗证失败 id=%d: %v", v.ID, err)
 		}
 	}
 }
 
-// CreateVerificationRecords 根据分析结果创建预测验证记录（在保存分析历史后调用）
+// CreateVerificationRecords 根據分析結果創建預测驗证記錄（在保存分析历史后調用）
 func CreateVerificationRecords(st storage.Storage, analysisID int64, assetType, symbol string, predictionTime time.Time, currentPrice float64, predictions []PricePrediction) {
 	if st == nil || analysisID <= 0 || len(predictions) == 0 {
 		return
 	}
 	for _, pred := range predictions {
-		// 取概率最高的场景作为主预测
+		// 取概率最高的场景作為主預测
 		var best *PriceScenario
 		for i := range pred.Scenarios {
 			s := &pred.Scenarios[i]
@@ -165,7 +165,7 @@ func CreateVerificationRecords(st storage.Storage, analysisID int64, assetType, 
 			Status:                "pending",
 		}
 		if err := st.SavePredictionVerification(v); err != nil {
-			logger.Warn("📊 保存预测验证记录失败: %v", err)
+			logger.Warn("📊 保存預测驗证記錄失败: %v", err)
 		}
 	}
 }

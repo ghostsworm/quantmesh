@@ -6,7 +6,7 @@ import (
 	"quantmesh/utils"
 )
 
-// gateWrapper 包装 Gate.io 适配器以实现 IExchange 接口
+// gateWrapper 包装 Gate.io 适配器以實現 IExchange 接口
 type gateWrapper struct {
 	adapter *gate.GateAdapter
 }
@@ -15,8 +15,12 @@ func (w *gateWrapper) GetName() string {
 	return w.adapter.GetName()
 }
 
+func (w *gateWrapper) GetMarketType() string {
+	return w.adapter.GetMarketType()
+}
+
 func (w *gateWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 转换请求类型
+	// 轉换请求類型
 	gateReq := &gate.OrderRequest{
 		Symbol:        req.Symbol,
 		Side:          gate.Side(req.Side),
@@ -35,7 +39,7 @@ func (w *gateWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order
 		return nil, err
 	}
 
-	// 转换返回类型，使用统一的 utils 包去掉 Gate.io 的 t- 前缀
+	// 轉换返回類型，使用统一的 utils 包去掉 Gate.io 的 t- 前缀
 	clientOrderID := utils.RemoveBrokerPrefix("gate", gateOrder.ClientOrderID)
 
 	return &Order{
@@ -105,26 +109,26 @@ func (w *gateWrapper) BatchCancelOrders(ctx context.Context, symbol string, orde
 	return w.adapter.BatchCancelOrders(ctx, symbol, orderIDs)
 }
 
-// CancelAllOrders 撤销所有订单（Gate.io实现）
-// 查询所有未完成订单后批量撤销
+// CancelAllOrders 撤销所有订單（Gate.io實現）
+// 查詢所有未完成订單后批量撤銷
 func (w *gateWrapper) CancelAllOrders(ctx context.Context, symbol string) error {
-	// 1. 查询所有未完成订单
+	// 1. 查詢所有未完成订單
 	openOrders, err := w.adapter.GetOpenOrders(ctx, symbol)
 	if err != nil {
 		return err
 	}
 
 	if len(openOrders) == 0 {
-		return nil // 没有订单需要撤销
+		return nil // 没有订單需要撤销
 	}
 
-	// 2. 提取所有订单ID
+	// 2. 提取所有订單ID
 	orderIDs := make([]int64, len(openOrders))
 	for i, order := range openOrders {
 		orderIDs[i] = order.OrderID
 	}
 
-	// 3. 批量撤销（adapter会自动分批处理）
+	// 3. 批量撤銷（adapter會自动分批处理）
 	return w.adapter.BatchCancelOrders(ctx, symbol, orderIDs)
 }
 
@@ -285,7 +289,7 @@ func (w *gateWrapper) GetHistoricalKlines(ctx context.Context, symbol string, in
 		return nil, err
 	}
 
-	// 转换类型
+	// 轉换類型
 	candles := make([]*Candle, len(gateCandles))
 	for i, gc := range gateCandles {
 		candles[i] = &Candle{
@@ -323,24 +327,24 @@ func (w *gateWrapper) GetFundingRate(ctx context.Context, symbol string) (float6
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
-// GetSpotPrice 获取现货市场价格
+// GetSpotPrice 獲取現貨市场價格
 func (w *gateWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetSpotPrice(ctx, symbol)
 }
 
-// EstimateFinalOrderAmount 预估最终下单金额（默认实现：返回原始金额）
+// EstimateFinalOrderAmount 預估最终下單金額（默认實現：返回原始金額）
 func (w *gateWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
 
-// GetOrderBook 获取订单簿深度
+// GetOrderBook 獲取訂單簿深度
 func (w *gateWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	gateOrderBook, err := w.adapter.GetOrderBook(ctx, symbol, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	// 转换买盘数据
+	// 轉换買盘數據
 	bids := make([]OrderBookLevel, len(gateOrderBook.Bids))
 	for i, bid := range gateOrderBook.Bids {
 		bids[i] = OrderBookLevel{
@@ -349,7 +353,7 @@ func (w *gateWrapper) GetOrderBook(ctx context.Context, symbol string, limit int
 		}
 	}
 
-	// 转换卖盘数据
+	// 轉换賣盘數據
 	asks := make([]OrderBookLevel, len(gateOrderBook.Asks))
 	for i, ask := range gateOrderBook.Asks {
 		asks[i] = OrderBookLevel{
@@ -366,7 +370,7 @@ func (w *gateWrapper) GetOrderBook(ctx context.Context, symbol string, limit int
 	}, nil
 }
 
-// InternalTransfer 交易所内部转账
+// InternalTransfer 交易所內部轉帳
 func (w *gateWrapper) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return w.adapter.InternalTransfer(ctx, fromAccount, toAccount, asset, amount)
 }

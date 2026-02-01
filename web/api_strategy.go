@@ -39,7 +39,7 @@ type StrategyDetailInfo struct {
 	Performance   StrategyPerformance `json:"performance"`
 }
 
-// StrategyParameter 策略参数
+// StrategyParameter 策略参數
 type StrategyParameter struct {
 	Name         string      `json:"name"`
 	Type         string      `json:"type"`
@@ -88,9 +88,9 @@ type StrategyConfig struct {
 	Parameters    map[string]interface{} `json:"parameters"`
 }
 
-// 获取所有可用策略
+// 獲取所有可用策略
 func getStrategiesHandler(c *gin.Context) {
-	// 获取当前配置以确定策略是否启用
+	// 獲取當前配置以确定策略是否啟用
 	var enabledMap = make(map[string]bool)
 	if configManager != nil {
 		cfg, err := configManager.GetConfig()
@@ -106,7 +106,7 @@ func getStrategiesHandler(c *gin.Context) {
 		{
 			ID:                 "grid",
 			Name:               "网格交易策略",
-			Description:        "经典网格交易策略，在价格区间内自动挂单，赚取波动差价",
+			Description:        "經典网格交易策略，在價格区间内自动挂單，赚取波动差價",
 			Type:               "grid",
 			RiskLevel:          "low",
 			IsPremium:          false,
@@ -125,7 +125,7 @@ func getStrategiesHandler(c *gin.Context) {
 		{
 			ID:                 "dca",
 			Name:               "DCA 定投策略",
-			Description:        "定期定额买入策略，分散入场成本，降低投资风险",
+			Description:        "定期定額買入策略，分散入场成本，降低投资风險",
 			Type:               "dca",
 			RiskLevel:          "low",
 			IsPremium:          false,
@@ -136,7 +136,7 @@ func getStrategiesHandler(c *gin.Context) {
 			RecommendedCapital: 500,
 			Version:            "1.0.0",
 			Author:             "QuantMesh",
-			Tags:               []string{"定投", "长期", "低风险"},
+			Tags:               []string{"定投", "长期", "低风險"},
 			RequiredVersion:    "3.0.0",
 			CreatedAt:          "2024-01-15T00:00:00Z",
 			UpdatedAt:          "2024-07-01T00:00:00Z",
@@ -144,7 +144,7 @@ func getStrategiesHandler(c *gin.Context) {
 		{
 			ID:                 "dca_enhanced",
 			Name:               "增强型 DCA 策略",
-			Description:        "基于 ATR 动态间距、三级止盈、50层仓位管理、瀑布保护和趋势过滤的增强型 DCA",
+			Description:        "基於 ATR 动態间距、三级止盈、50层倉位管理、瀑布保护和趨勢過濾的增强型 DCA",
 			Type:               "dca",
 			RiskLevel:          "medium",
 			IsPremium:          false,
@@ -155,7 +155,7 @@ func getStrategiesHandler(c *gin.Context) {
 			RecommendedCapital: 1000,
 			Version:            "1.0.0",
 			Author:             "QuantMesh",
-			Tags:               []string{"DCA", "ATR", "多层止盈", "风险管理"},
+			Tags:               []string{"DCA", "ATR", "多层止盈", "风險管理"},
 			RequiredVersion:    "3.4.0",
 			CreatedAt:          "2025-12-01T00:00:00Z",
 			UpdatedAt:          "2026-01-10T00:00:00Z",
@@ -163,7 +163,7 @@ func getStrategiesHandler(c *gin.Context) {
 		{
 			ID:                 "martingale",
 			Name:               "马丁格尔策略",
-			Description:        "亏损加倍补仓策略，支持正向/反向马丁、风险削减 and 多空双向",
+			Description:        "亏损加倍补倉策略，支援正向/反向马丁、风險削减 and 多空双向",
 			Type:               "martingale",
 			RiskLevel:          "high",
 			IsPremium:          false,
@@ -174,15 +174,15 @@ func getStrategiesHandler(c *gin.Context) {
 			RecommendedCapital: 2000,
 			Version:            "1.0.0",
 			Author:             "QuantMesh",
-			Tags:               []string{"马丁格尔", "补仓", "高风险高收益"},
+			Tags:               []string{"马丁格尔", "补倉", "高风險高收益"},
 			RequiredVersion:    "3.4.0",
 			CreatedAt:          "2025-12-01T00:00:00Z",
 			UpdatedAt:          "2026-01-10T00:00:00Z",
 		},
 		{
 			ID:                 "combo",
-			Name:               "组合策略模块",
-			Description:        "多策略组合管理，支持动态权重调整和市场自适应切换",
+			Name:               "组合策略模塊",
+			Description:        "多策略组合管理，支援动態权重調整和市场自适应切换",
 			Type:               "combo",
 			RiskLevel:          "high",
 			IsPremium:          false,
@@ -201,7 +201,7 @@ func getStrategiesHandler(c *gin.Context) {
 		{
 			ID:                 "trend_following",
 			Name:               "趋势跟踪策略",
-			Description:        "基于技术指标的趋势跟踪策略，在趋势形成时入场，趋势反转时离场",
+			Description:        "基於技术指標的趋势跟踪策略，在趋势形成時入场，趋势反轉時离场",
 			Type:               "trend",
 			RiskLevel:          "medium",
 			IsPremium:          true,
@@ -212,7 +212,7 @@ func getStrategiesHandler(c *gin.Context) {
 			RecommendedCapital: 1000,
 			Version:            "1.0.0",
 			Author:             "QuantMesh",
-			Tags:               []string{"趋势", "技术指标", "顺势交易"},
+			Tags:               []string{"趋势", "技术指標", "顺势交易"},
 			RequiredVersion:    "3.4.0",
 			CreatedAt:          "2025-06-01T00:00:00Z",
 			UpdatedAt:          "2026-01-10T00:00:00Z",
@@ -220,7 +220,7 @@ func getStrategiesHandler(c *gin.Context) {
 		{
 			ID:                 "mean_reversion",
 			Name:               "均值回归策略",
-			Description:        "利用价格偏离均值后回归的特性进行交易",
+			Description:        "利用價格偏离均值后回归的特性進行交易",
 			Type:               "mean_reversion",
 			RiskLevel:          "medium",
 			IsPremium:          true,
@@ -239,7 +239,7 @@ func getStrategiesHandler(c *gin.Context) {
 		{
 			ID:                 "breakout",
 			Name:               "突破策略",
-			Description:        "价格突破关键支撑/阻力位时入场，捕捉大幅波动",
+			Description:        "價格突破关键支撑/阻力位時入场，捕捉大幅波动",
 			Type:               "breakout",
 			RiskLevel:          "medium",
 			IsPremium:          false,
@@ -264,7 +264,7 @@ func getStrategiesHandler(c *gin.Context) {
 	})
 }
 
-// 获取策略详情
+// 獲取策略详情
 func getStrategyDetailHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
@@ -290,7 +290,7 @@ func getStrategyDetailHandler(c *gin.Context) {
 			UpdatedAt:          time.Now().Format(time.RFC3339),
 		},
 		Parameters:    getStrategyParameters(strategyID),
-		Documentation: "详细文档请参考 https://docs.quantmesh.io/strategies/" + strategyID,
+		Documentation: "详细文檔请参考 https://docs.quantmesh.io/strategies/" + strategyID,
 		Changelog: []ChangelogEntry{
 			{
 				Version: "1.0.0",
@@ -315,7 +315,7 @@ func getStrategyDetailHandler(c *gin.Context) {
 	})
 }
 
-// 启用策略
+// 啟用策略
 func enableStrategyHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
@@ -326,16 +326,16 @@ func enableStrategyHandler(c *gin.Context) {
 
 	cfg, err := configManager.GetConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败: " + err.Error()})
 		return
 	}
 
-	// 确保 configs 不为 nil
+	// 确保 configs 不為 nil
 	if cfg.Strategies.Configs == nil {
 		cfg.Strategies.Configs = make(map[string]config.StrategyConfig)
 	}
 
-	// 更新或创建配置
+	// 更新或創建配置
 	sc := cfg.Strategies.Configs[strategyID]
 	sc.Enabled = true
 	if sc.Type == "" {
@@ -353,7 +353,7 @@ func enableStrategyHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
-		"message":   "策略已启用",
+		"message":   "策略已啟用",
 		"isEnabled": true,
 		"strategy": gin.H{
 			"id":        strategyID,
@@ -373,7 +373,7 @@ func disableStrategyHandler(c *gin.Context) {
 
 	cfg, err := configManager.GetConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败: " + err.Error()})
 		return
 	}
 
@@ -400,7 +400,7 @@ func disableStrategyHandler(c *gin.Context) {
 	})
 }
 
-// 获取策略授权信息
+// 獲取策略授权信息
 func getStrategyLicenseHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
@@ -421,7 +421,7 @@ func getStrategyLicenseHandler(c *gin.Context) {
 	}
 
 	// 付费策略检查授权
-	// TODO: 从数据库查询实际授权信息
+	// TODO: 從數據库查詢實際授权信息
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"license": StrategyLicense{
@@ -432,11 +432,11 @@ func getStrategyLicenseHandler(c *gin.Context) {
 			IsActive:     false,
 			MaxInstances: 0,
 		},
-		"message": "该策略需要购买授权",
+		"message": "該策略需要购買授权",
 	})
 }
 
-// 获取策略配置列表
+// 獲取策略配置列表
 func getStrategyConfigsHandler(c *gin.Context) {
 	configs := []StrategyConfig{
 		{
@@ -475,14 +475,14 @@ func updateStrategyConfigHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&config); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的配置数据: " + err.Error(),
+			"message": "無效的配置數據: " + err.Error(),
 		})
 		return
 	}
 
 	config.StrategyID = strategyID
 
-	// TODO: 保存配置到数据库
+	// TODO: 保存配置到數據库
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -490,7 +490,7 @@ func updateStrategyConfigHandler(c *gin.Context) {
 	})
 }
 
-// 获取策略类型列表
+// 獲取策略類型列表
 func getStrategyTypesHandler(c *gin.Context) {
 	types := []string{
 		"grid",
@@ -508,7 +508,7 @@ func getStrategyTypesHandler(c *gin.Context) {
 	})
 }
 
-// 购买策略
+// 购買策略
 func purchaseStrategyHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
@@ -518,16 +518,16 @@ func purchaseStrategyHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据",
+			"message": "無效的请求數據",
 		})
 		return
 	}
 
-	// TODO: 实际实现购买逻辑
+	// TODO: 實際實現购買逻辑
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "策略购买成功",
+		"message": "策略购買成功",
 		"license": StrategyLicense{
 			StrategyID:   strategyID,
 			Tier:         req.Tier,
@@ -539,13 +539,13 @@ func purchaseStrategyHandler(c *gin.Context) {
 	})
 }
 
-// 获取已启用的策略
+// 獲取已啟用的策略
 func getEnabledStrategiesHandler(c *gin.Context) {
 	strategies := []StrategyInfo{
 		{
 			ID:          "grid",
 			Name:        "网格交易策略",
-			Description: "经典网格交易策略",
+			Description: "經典网格交易策略",
 			Type:        "grid",
 			IsPremium:   false,
 			IsEnabled:   true,
@@ -573,12 +573,12 @@ func batchUpdateStrategiesHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据",
+			"message": "無效的请求數據",
 		})
 		return
 	}
 
-	// TODO: 实际实现批量更新逻辑
+	// TODO: 實際實現批量更新逻辑
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -586,14 +586,14 @@ func batchUpdateStrategiesHandler(c *gin.Context) {
 	})
 }
 
-// 辅助函数
+// 辅助函數
 func getStrategyName(id string) string {
 	names := map[string]string{
 		"grid":            "网格交易策略",
 		"dca":             "DCA 定投策略",
 		"dca_enhanced":    "增强型 DCA 策略",
 		"martingale":      "马丁格尔策略",
-		"combo":           "组合策略模块",
+		"combo":           "组合策略模塊",
 		"trend_following": "趋势跟踪策略",
 		"mean_reversion":  "均值回归策略",
 		"breakout":        "突破策略",
@@ -606,10 +606,10 @@ func getStrategyName(id string) string {
 
 func getStrategyDescription(id string) string {
 	descs := map[string]string{
-		"grid":            "经典网格交易策略，在价格区间内自动挂单",
-		"dca":             "定期定额买入策略",
-		"dca_enhanced":    "增强型 DCA 策略，支持 ATR 动态间距",
-		"martingale":      "马丁格尔加仓策略",
+		"grid":            "經典网格交易策略，在價格区间内自动挂單",
+		"dca":             "定期定額買入策略",
+		"dca_enhanced":    "增强型 DCA 策略，支援 ATR 动態间距",
+		"martingale":      "马丁格尔加倉策略",
 		"combo":           "多策略组合管理",
 		"trend_following": "趋势跟踪策略",
 		"mean_reversion":  "均值回归策略",
@@ -645,11 +645,11 @@ func isStrategyPremium(id string) bool {
 func getStrategyTags(id string) []string {
 	tags := map[string][]string{
 		"grid":            {"网格", "震荡市", "自动化"},
-		"dca":             {"定投", "长期", "低风险"},
+		"dca":             {"定投", "长期", "低风險"},
 		"dca_enhanced":    {"DCA", "ATR", "多层止盈"},
-		"martingale":      {"马丁格尔", "补仓", "高风险"},
+		"martingale":      {"马丁格尔", "补倉", "高风險"},
 		"combo":           {"组合", "多策略", "自适应"},
-		"trend_following": {"趋势", "顺势", "技术指标"},
+		"trend_following": {"趋势", "顺势", "技术指標"},
 		"mean_reversion":  {"均值回归", "统计套利"},
 		"breakout":        {"突破", "动量"},
 	}
@@ -662,33 +662,33 @@ func getStrategyTags(id string) []string {
 func getStrategyFeatures(id string) []string {
 	features := map[string][]string{
 		"grid": {
-			"自动挂单买卖",
-			"支持自定义网格数量",
-			"支持动态网格间距",
+			"自动挂單買賣",
+			"支援自定义网格數量",
+			"支援动態网格间距",
 		},
 		"dca": {
-			"定时定额买入",
+			"定時定額買入",
 			"分散入场成本",
-			"自动复投收益",
+			"自动複投收益",
 		},
 		"dca_enhanced": {
-			"ATR 动态间距调整",
+			"ATR 动態间距調整",
 			"三级阶梯止盈",
-			"50 层精细仓位管理",
+			"50 层精细倉位管理",
 			"瀑布保护机制",
-			"趋势过滤器",
+			"趨勢過濾器",
 		},
 		"martingale": {
-			"亏损加倍补仓",
-			"支持反向马丁",
-			"风险削减模式",
-			"多空双向支持",
+			"亏损加倍补倉",
+			"支援反向马丁",
+			"风險削减模式",
+			"多空双向支援",
 		},
 		"combo": {
 			"多策略组合运行",
-			"动态权重分配",
+			"动態权重分配",
 			"市场自适应切换",
-			"风险对冲能力",
+			"风險對冲能力",
 		},
 	}
 	if f, ok := features[id]; ok {
@@ -700,36 +700,36 @@ func getStrategyFeatures(id string) []string {
 func getStrategyParameters(id string) []StrategyParameter {
 	params := map[string][]StrategyParameter{
 		"grid": {
-			{Name: "gridCount", Type: "number", Default: 10, Min: 3, Max: 100, Description: "网格数量", Required: true, DisplayOrder: 1},
-			{Name: "upperPrice", Type: "number", Default: 0, Description: "网格上限价格", Required: true, DisplayOrder: 2},
-			{Name: "lowerPrice", Type: "number", Default: 0, Description: "网格下限价格", Required: true, DisplayOrder: 3},
-			{Name: "totalAmount", Type: "number", Default: 1000, Description: "总投资金额", Required: true, DisplayOrder: 4},
+			{Name: "gridCount", Type: "number", Default: 10, Min: 3, Max: 100, Description: "网格數量", Required: true, DisplayOrder: 1},
+			{Name: "upperPrice", Type: "number", Default: 0, Description: "网格上限價格", Required: true, DisplayOrder: 2},
+			{Name: "lowerPrice", Type: "number", Default: 0, Description: "网格下限價格", Required: true, DisplayOrder: 3},
+			{Name: "totalAmount", Type: "number", Default: 1000, Description: "總投资金額", Required: true, DisplayOrder: 4},
 		},
 		"dca": {
 			{Name: "interval", Type: "select", Default: "4h", Description: "定投间隔", Required: true, DisplayOrder: 1},
-			{Name: "amount", Type: "number", Default: 100, Description: "每次投资金额", Required: true, DisplayOrder: 2},
+			{Name: "amount", Type: "number", Default: 100, Description: "每次投资金額", Required: true, DisplayOrder: 2},
 		},
 		"dca_enhanced": {
-			{Name: "base_order_amount", Type: "number", Default: 100.0, Min: 10.0, Description: "基础订单金额 (USDT)", Required: true, DisplayOrder: 1},
-			{Name: "safety_order_amount", Type: "number", Default: 200.0, Min: 10.0, Description: "安全订单金额 (USDT)", Required: true, DisplayOrder: 2},
-			{Name: "max_safety_orders", Type: "number", Default: 50, Min: 1, Max: 50, Description: "最大安全订单数", Required: true, DisplayOrder: 3},
+			{Name: "base_order_amount", Type: "number", Default: 100.0, Min: 10.0, Description: "基础订單金額 (USDT)", Required: true, DisplayOrder: 1},
+			{Name: "safety_order_amount", Type: "number", Default: 200.0, Min: 10.0, Description: "安全订單金額 (USDT)", Required: true, DisplayOrder: 2},
+			{Name: "max_safety_orders", Type: "number", Default: 50, Min: 1, Max: 50, Description: "最大安全订單數", Required: true, DisplayOrder: 3},
 			{Name: "atr_period", Type: "number", Default: 14, Min: 5, Max: 50, Description: "ATR 周期", Required: true, DisplayOrder: 4},
-			{Name: "atr_multiplier", Type: "number", Default: 1.5, Min: 0.5, Max: 5.0, Description: "ATR 乘数", Required: true, DisplayOrder: 5},
-			{Name: "total_take_profit", Type: "number", Default: 2.0, Min: 0.1, Description: "全仓止盈比例 (%)", Required: true, DisplayOrder: 6},
+			{Name: "atr_multiplier", Type: "number", Default: 1.5, Min: 0.5, Max: 5.0, Description: "ATR 乘數", Required: true, DisplayOrder: 5},
+			{Name: "total_take_profit", Type: "number", Default: 2.0, Min: 0.1, Description: "全倉止盈比例 (%)", Required: true, DisplayOrder: 6},
 			{Name: "stop_loss", Type: "number", Default: 10.0, Min: 0.1, Description: "止损比例 (%)", Required: true, DisplayOrder: 7},
 		},
 		"martingale": {
-			{Name: "initial_amount", Type: "number", Default: 100.0, Min: 10.0, Description: "初始金额 (USDT)", Required: true, DisplayOrder: 1},
-			{Name: "multiplier", Type: "number", Default: 2.0, Min: 1.1, Max: 5.0, Description: "加仓倍数", Required: true, DisplayOrder: 2},
-			{Name: "max_levels", Type: "number", Default: 6, Min: 1, Max: 20, Description: "最大层数", Required: true, DisplayOrder: 3},
-			{Name: "price_step", Type: "number", Default: 2.0, Min: 0.1, Max: 50.0, Description: "加仓间距 (%)", Required: true, DisplayOrder: 4},
+			{Name: "initial_amount", Type: "number", Default: 100.0, Min: 10.0, Description: "初始金額 (USDT)", Required: true, DisplayOrder: 1},
+			{Name: "multiplier", Type: "number", Default: 2.0, Min: 1.1, Max: 5.0, Description: "加倉倍數", Required: true, DisplayOrder: 2},
+			{Name: "max_levels", Type: "number", Default: 6, Min: 1, Max: 20, Description: "最大层數", Required: true, DisplayOrder: 3},
+			{Name: "price_step", Type: "number", Default: 2.0, Min: 0.1, Max: 50.0, Description: "加倉间距 (%)", Required: true, DisplayOrder: 4},
 			{Name: "take_profit", Type: "number", Default: 3.0, Min: 0.1, Description: "止盈比例 (%)", Required: true, DisplayOrder: 5},
 			{Name: "direction", Type: "select", Default: "LONG", Description: "方向 (LONG/SHORT)", Required: true, DisplayOrder: 6},
 		},
 		"combo": {
-			{Name: "total_capital", Type: "number", Default: 10000.0, Min: 100.0, Description: "总资金 (USDT)", Required: true, DisplayOrder: 1},
-			{Name: "market_detection", Type: "boolean", Default: true, Description: "启用市况检测", Required: true, DisplayOrder: 2},
-			{Name: "hedge_enabled", Type: "boolean", Default: true, Description: "启用对冲", Required: true, DisplayOrder: 3},
+			{Name: "total_capital", Type: "number", Default: 10000.0, Min: 100.0, Description: "總资金 (USDT)", Required: true, DisplayOrder: 1},
+			{Name: "market_detection", Type: "boolean", Default: true, Description: "啟用市况检测", Required: true, DisplayOrder: 2},
+			{Name: "hedge_enabled", Type: "boolean", Default: true, Description: "啟用對冲", Required: true, DisplayOrder: 3},
 		},
 	}
 	if p, ok := params[id]; ok {

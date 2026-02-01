@@ -15,14 +15,14 @@ const (
 	BitgetTestnetBaseURL = "https://testnetapi.bitget.com"
 )
 
-// Client Bitget HTTP 客户端
+// Client Bitget HTTP 客戶端
 type Client struct {
 	httpClient *http.Client
 	signer     *Signer
 	baseURL    string
 }
 
-// NewClient 创建 Bitget 客户端
+// NewClient 創建 Bitget 客戶端
 func NewClient(apiKey, secretKey, passphrase string, testnet bool) *Client {
 	baseURL := BitgetBaseURL
 	if testnet {
@@ -35,7 +35,7 @@ func NewClient(apiKey, secretKey, passphrase string, testnet bool) *Client {
 	}
 }
 
-// BitgetResponse Bitget API 通用响应结构
+// BitgetResponse Bitget API 通用响应結構
 type BitgetResponse struct {
 	Code    string          `json:"code"`
 	Msg     string          `json:"msg"`
@@ -65,7 +65,7 @@ func (c *Client) DoRequest(ctx context.Context, method, path string, body interf
 
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewBuffer(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	// 添加 Bitget 必需的请求头
@@ -94,7 +94,7 @@ func (c *Client) DoRequest(ctx context.Context, method, path string, body interf
 	}
 
 	if bitgetResp.Code != "00000" {
-		return nil, fmt.Errorf("bitget API 错误: code=%s, msg=%s", bitgetResp.Code, bitgetResp.Msg)
+		return nil, fmt.Errorf("bitget API 錯误: code=%s, msg=%s", bitgetResp.Code, bitgetResp.Msg)
 	}
 
 	return &bitgetResp, nil

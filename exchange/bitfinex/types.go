@@ -10,7 +10,7 @@ const (
 	SideSell Side = "SELL"
 )
 
-// 订单类型
+// 订單類型
 type OrderType string
 
 const (
@@ -18,7 +18,7 @@ const (
 	OrderTypeMarket OrderType = "MARKET"
 )
 
-// 订单状态
+// 订單状態
 type OrderStatus string
 
 const (
@@ -29,7 +29,7 @@ const (
 	OrderStatusRejected        OrderStatus = "REJECTED"
 )
 
-// TimeInForce 订单有效期
+// TimeInForce 订單有效期
 type TimeInForce string
 
 const (
@@ -38,7 +38,7 @@ const (
 	TimeInForceFOK TimeInForce = "FOK" // Fill or Kill
 )
 
-// BitfinexOrderRequest 下单请求
+// BitfinexOrderRequest 下單请求
 type BitfinexOrderRequest struct {
 	Symbol        string
 	Side          Side
@@ -52,7 +52,7 @@ type BitfinexOrderRequest struct {
 	Timestamp     int64
 }
 
-// Order 订单信息
+// Order 订單信息
 type Order struct {
 	OrderID       string
 	ClientOrderID string
@@ -68,7 +68,7 @@ type Order struct {
 	UpdateTime    int64
 }
 
-// Position 持仓信息
+// Position 持倉資訊
 type Position struct {
 	Symbol        string
 	Side          string // LONG/SHORT
@@ -79,7 +79,7 @@ type Position struct {
 	Leverage      float64
 }
 
-// Account 账户信息
+// Account 帳戶資訊
 type Account struct {
 	TotalBalance     float64
 	AvailableBalance float64
@@ -87,7 +87,7 @@ type Account struct {
 	MarginBalance    float64
 }
 
-// BitfinexCandle K线数据
+// BitfinexCandle K線數據
 type BitfinexCandle struct {
 	Symbol    string
 	Open      float64
@@ -100,5 +100,5 @@ type BitfinexCandle struct {
 	IsClosed  bool
 }
 
-// CandleUpdateCallback K线更新回调
+// CandleUpdateCallback K線更新回呼
 type CandleUpdateCallback func(candle interface{})

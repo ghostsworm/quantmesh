@@ -26,7 +26,7 @@ const (
 	MainnetWsURL = "wss://api.hbdm.com/linear-swap-notification"
 )
 
-// HuobiClient Huobi REST API 客户端
+// HuobiClient Huobi REST API 客戶端
 type HuobiClient struct {
 	apiKey     string
 	secretKey  string
@@ -34,7 +34,7 @@ type HuobiClient struct {
 	httpClient *http.Client
 }
 
-// NewHuobiClient 创建 Huobi 客户端
+// NewHuobiClient 創建 Huobi 客戶端
 func NewHuobiClient(apiKey, secretKey string) *HuobiClient {
 	return &HuobiClient{
 		apiKey:    apiKey,
@@ -48,21 +48,21 @@ func NewHuobiClient(apiKey, secretKey string) *HuobiClient {
 
 // sign 生成签名
 func (c *HuobiClient) sign(method, host, path string, params map[string]string) string {
-	// 按字母序排序参数
+	// 按字母序排序参數
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	// 构建查询字符串
+	// 構建查詢字符串
 	var queryParts []string
 	for _, k := range keys {
 		queryParts = append(queryParts, fmt.Sprintf("%s=%s", k, url.QueryEscape(params[k])))
 	}
 	queryString := strings.Join(queryParts, "&")
 
-	// 构建签名字符串
+	// 構建签名字符串
 	signStr := fmt.Sprintf("%s\n%s\n%s\n%s", method, host, path, queryString)
 
 	// HMAC-SHA256
@@ -75,7 +75,7 @@ func (c *HuobiClient) sign(method, host, path string, params map[string]string) 
 
 // request 发送 HTTP 请求
 func (c *HuobiClient) request(ctx context.Context, method, path string, params map[string]string, body interface{}) ([]byte, error) {
-	// 添加公共参数
+	// 添加公共参數
 	if params == nil {
 		params = make(map[string]string)
 	}
@@ -89,14 +89,14 @@ func (c *HuobiClient) request(ctx context.Context, method, path string, params m
 	signature := c.sign(method, u.Host, path, params)
 	params["Signature"] = signature
 
-	// 构建 URL
+	// 構建 URL
 	values := url.Values{}
 	for k, v := range params {
 		values.Add(k, v)
 	}
 	fullURL := c.baseURL + path + "?" + values.Encode()
 
-	// 构建请求体
+	// 構建请求体
 	var bodyBytes []byte
 	if body != nil {
 		var err error
@@ -108,7 +108,7 @@ func (c *HuobiClient) request(ctx context.Context, method, path string, params m
 
 	req, err := http.NewRequestWithContext(ctx, method, fullURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -126,7 +126,7 @@ func (c *HuobiClient) request(ctx context.Context, method, path string, params m
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP 错误 %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("HTTP 錯误 %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	// 检查 Huobi API 响应
@@ -142,13 +142,13 @@ func (c *HuobiClient) request(ctx context.Context, method, path string, params m
 	}
 
 	if apiResp.Status != "ok" {
-		return nil, fmt.Errorf("API 错误 %d: %s", apiResp.ErrCode, apiResp.ErrMsg)
+		return nil, fmt.Errorf("API 錯误 %d: %s", apiResp.ErrCode, apiResp.ErrMsg)
 	}
 
 	return apiResp.Data, nil
 }
 
-// ContractInfo 合约信息
+// ContractInfo 合約信息
 type ContractInfo struct {
 	Symbol         string `json:"symbol"`
 	ContractCode   string `json:"contract_code"`
@@ -157,7 +157,7 @@ type ContractInfo struct {
 	SettlementDate string `json:"settlement_date"`
 }
 
-// GetContractInfo 获取合约信息
+// GetContractInfo 獲取合約信息
 func (c *HuobiClient) GetContractInfo(ctx context.Context, symbol string) ([]ContractInfo, error) {
 	params := map[string]string{}
 	if symbol != "" {
@@ -171,19 +171,19 @@ func (c *HuobiClient) GetContractInfo(ctx context.Context, symbol string) ([]Con
 
 	var contracts []ContractInfo
 	if err := json.Unmarshal(data, &contracts); err != nil {
-		return nil, fmt.Errorf("解析合约信息失败: %w", err)
+		return nil, fmt.Errorf("解析合約信息失败: %w", err)
 	}
 
 	return contracts, nil
 }
 
-// PlaceOrderResult 下单结果
+// PlaceOrderResult 下單結果
 type PlaceOrderResult struct {
 	OrderId       int64  `json:"order_id"`
 	ClientOrderId string `json:"client_order_id"`
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *HuobiClient) PlaceOrder(ctx context.Context, order map[string]interface{}) (*PlaceOrderResult, error) {
 	data, err := c.request(ctx, "POST", "/linear-swap-api/v1/swap_order", nil, order)
 	if err != nil {
@@ -192,13 +192,13 @@ func (c *HuobiClient) PlaceOrder(ctx context.Context, order map[string]interface
 
 	var result PlaceOrderResult
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("解析下单结果失败: %w", err)
+		return nil, fmt.Errorf("解析下單結果失败: %w", err)
 	}
 
 	return &result, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *HuobiClient) CancelOrder(ctx context.Context, symbol, orderId, clientOrderId string) error {
 	body := map[string]interface{}{
 		"contract_code": symbol,
@@ -215,7 +215,7 @@ func (c *HuobiClient) CancelOrder(ctx context.Context, symbol, orderId, clientOr
 	return err
 }
 
-// HuobiOrder 订单信息
+// HuobiOrder 订單信息
 type HuobiOrder struct {
 	OrderId       int64   `json:"order_id"`
 	ClientOrderId string  `json:"client_order_id"`
@@ -232,7 +232,7 @@ type HuobiOrder struct {
 	CreatedAt     int64   `json:"created_at"`
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *HuobiClient) GetOrder(ctx context.Context, symbol, orderId, clientOrderId string) (*HuobiOrder, error) {
 	body := map[string]interface{}{
 		"contract_code": symbol,
@@ -252,17 +252,17 @@ func (c *HuobiClient) GetOrder(ctx context.Context, symbol, orderId, clientOrder
 
 	var orders []HuobiOrder
 	if err := json.Unmarshal(data, &orders); err != nil {
-		return nil, fmt.Errorf("解析订单信息失败: %w", err)
+		return nil, fmt.Errorf("解析订單信息失败: %w", err)
 	}
 
 	if len(orders) == 0 {
-		return nil, fmt.Errorf("订单不存在")
+		return nil, fmt.Errorf("订單不存在")
 	}
 
 	return &orders[0], nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (c *HuobiClient) GetOpenOrders(ctx context.Context, symbol string) ([]HuobiOrder, error) {
 	body := map[string]interface{}{
 		"contract_code": symbol,
@@ -278,13 +278,13 @@ func (c *HuobiClient) GetOpenOrders(ctx context.Context, symbol string) ([]Huobi
 	}
 
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("解析订单列表失败: %w", err)
+		return nil, fmt.Errorf("解析订單列表失败: %w", err)
 	}
 
 	return result.Orders, nil
 }
 
-// AccountInfo 账户信息
+// AccountInfo 帳戶資訊
 type AccountInfo struct {
 	Symbol            string  `json:"symbol"`
 	MarginBalance     float64 `json:"margin_balance"`
@@ -293,7 +293,7 @@ type AccountInfo struct {
 	RiskRate          float64 `json:"risk_rate"`
 }
 
-// GetAccountInfo 获取账户信息
+// GetAccountInfo 獲取帳戶信息
 func (c *HuobiClient) GetAccountInfo(ctx context.Context, symbol string) ([]AccountInfo, error) {
 	body := map[string]interface{}{}
 	if symbol != "" {
@@ -307,13 +307,13 @@ func (c *HuobiClient) GetAccountInfo(ctx context.Context, symbol string) ([]Acco
 
 	var accounts []AccountInfo
 	if err := json.Unmarshal(data, &accounts); err != nil {
-		return nil, fmt.Errorf("解析账户信息失败: %w", err)
+		return nil, fmt.Errorf("解析帳戶資訊失败: %w", err)
 	}
 
 	return accounts, nil
 }
 
-// HuobiPositionInfo 持仓信息
+// HuobiPositionInfo 持倉資訊
 type HuobiPositionInfo struct {
 	Symbol       string  `json:"symbol"`
 	ContractCode string  `json:"contract_code"`
@@ -326,7 +326,7 @@ type HuobiPositionInfo struct {
 	Direction    string  `json:"direction"` // buy, sell
 }
 
-// GetPositionInfo 获取持仓信息
+// GetPositionInfo 獲取持倉信息
 func (c *HuobiClient) GetPositionInfo(ctx context.Context, symbol string) ([]HuobiPositionInfo, error) {
 	body := map[string]interface{}{}
 	if symbol != "" {
@@ -340,13 +340,13 @@ func (c *HuobiClient) GetPositionInfo(ctx context.Context, symbol string) ([]Huo
 
 	var positions []HuobiPositionInfo
 	if err := json.Unmarshal(data, &positions); err != nil {
-		return nil, fmt.Errorf("解析持仓信息失败: %w", err)
+		return nil, fmt.Errorf("解析持倉資訊失败: %w", err)
 	}
 
 	return positions, nil
 }
 
-// Kline K线数据
+// Kline K線數據
 type Kline struct {
 	Id     int64   `json:"id"`
 	Open   float64 `json:"open"`
@@ -358,7 +358,7 @@ type Kline struct {
 	Count  int     `json:"count"`
 }
 
-// GetKlines 获取K线数据
+// GetKlines 獲取K線數據
 func (c *HuobiClient) GetKlines(ctx context.Context, symbol, period string, size int) ([]Kline, error) {
 	params := map[string]string{
 		"contract_code": symbol,
@@ -375,7 +375,7 @@ func (c *HuobiClient) GetKlines(ctx context.Context, symbol, period string, size
 
 	var klines []Kline
 	if err := json.Unmarshal(data, &klines); err != nil {
-		return nil, fmt.Errorf("解析K线数据失败: %w", err)
+		return nil, fmt.Errorf("解析K線數據失败: %w", err)
 	}
 
 	return klines, nil
@@ -389,7 +389,7 @@ type FundingRate struct {
 	FundingTime  string `json:"funding_time"`
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (c *HuobiClient) GetFundingRate(ctx context.Context, symbol string) (*FundingRate, error) {
 	params := map[string]string{
 		"contract_code": symbol,
@@ -409,5 +409,5 @@ func (c *HuobiClient) GetFundingRate(ctx context.Context, symbol string) (*Fundi
 }
 
 func init() {
-	logger.Info("📦 [Huobi Client] REST API 客户端已初始化")
+	logger.Info("📦 [Huobi Client] REST API 客戶端已初始化")
 }

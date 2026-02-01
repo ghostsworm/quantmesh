@@ -25,22 +25,22 @@ func Init(lang string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// 设置默认语言
+	// 設置默认语言
 	if lang == "" {
 		lang = defaultLang
 	}
 	systemLanguage = lang
 
-	// 创建 bundle
+	// 創建 bundle
 	bundle = i18n.NewBundle(language.Chinese)
 	bundle.RegisterUnmarshalFunc("toml", toml.Unmarshal)
 
-	// 加载翻译文件
-	supportedLangs := []string{"zh-CN", "en-US"}
+	// 加載翻譯文件（zh-TW 用於日誌輸出繁體中文）
+	supportedLangs := []string{"zh-CN", "zh-TW", "en-US"}
 	for _, l := range supportedLangs {
 		filename := fmt.Sprintf("locales/%s.toml", l)
 		if _, err := bundle.LoadMessageFileFS(localeFS, filename); err != nil {
-			// 如果加载失败，记录但继续（至少保证默认语言可用）
+			// 如果加載失败，記錄但继续（至少保证默认语言可用）
 			fmt.Printf("[WARN] Failed to load translation file %s: %v\n", filename, err)
 		}
 	}
@@ -48,13 +48,13 @@ func Init(lang string) error {
 	return nil
 }
 
-// GetLocalizer 获取指定语言的 Localizer
+// GetLocalizer 獲取指定语言的 Localizer
 func GetLocalizer(lang string) *i18n.Localizer {
 	mu.RLock()
 	defer mu.RUnlock()
 
 	if bundle == nil {
-		// 如果未初始化，返回 nil（调用者应处理）
+		// 如果未初始化，回傳 nil（調用者应处理）
 		return nil
 	}
 
@@ -65,7 +65,7 @@ func GetLocalizer(lang string) *i18n.Localizer {
 	return i18n.NewLocalizer(bundle, lang)
 }
 
-// T 翻译消息（使用系统默认语言）
+// T 翻譯消息（使用系统默认语言）
 func T(key string, data ...interface{}) string {
 	mu.RLock()
 	lang := systemLanguage
@@ -74,11 +74,11 @@ func T(key string, data ...interface{}) string {
 	return TWithLang(lang, key, data...)
 }
 
-// TWithLang 翻译消息（指定语言）
+// TWithLang 翻譯消息（指定语言）
 func TWithLang(lang string, key string, data ...interface{}) string {
 	localizer := GetLocalizer(lang)
 	if localizer == nil {
-		// 未初始化，返回 key
+		// 未初始化，回傳 key
 		return key
 	}
 
@@ -95,21 +95,21 @@ func TWithLang(lang string, key string, data ...interface{}) string {
 	})
 
 	if err != nil {
-		// 翻译失败，返回 key（向后兼容）
+		// 翻譯失败，回傳 key（向后兼容）
 		return key
 	}
 
 	return msg
 }
 
-// SetSystemLanguage 设置系统默认语言
+// SetSystemLanguage 設置系统默认语言
 func SetSystemLanguage(lang string) {
 	mu.Lock()
 	defer mu.Unlock()
 	systemLanguage = lang
 }
 
-// GetSystemLanguage 获取系统默认语言
+// GetSystemLanguage 獲取系统默认语言
 func GetSystemLanguage() string {
 	mu.RLock()
 	defer mu.RUnlock()

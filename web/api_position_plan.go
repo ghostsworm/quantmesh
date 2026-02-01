@@ -10,14 +10,14 @@ import (
 	"quantmesh/position"
 )
 
-// PlanManagerProvider 仓位计划管理器提供者（由 main 注入）
+// PlanManagerProvider 倉位计划管理器提供者（由 main 注入）
 type PlanManagerProvider interface {
 	GetPlanManager() *position.PlanManager
 }
 
 var planManagerProviderVar PlanManagerProvider
 
-// SetPlanManagerProvider 设置仓位计划管理器提供者
+// SetPlanManagerProvider 設置倉位计划管理器提供者
 func SetPlanManagerProvider(p PlanManagerProvider) {
 	if p != nil {
 		planManagerProviderVar = p
@@ -31,7 +31,7 @@ func getPlanManager(c *gin.Context) *position.PlanManager {
 	return planManagerProviderVar.GetPlanManager()
 }
 
-// getCurrentPositionValueUSDT 根据 exchange:symbol 从 positionProviders 计算当前仓位价值（USDT）
+// getCurrentPositionValueUSDT 根據 exchange:symbol 從 positionProviders 计算當前倉位價值（USDT）
 func getCurrentPositionValueUSDT(exchange, symbol string) float64 {
 	key := exchange + ":" + symbol
 	providersMu.RLock()
@@ -50,12 +50,12 @@ func getCurrentPositionValueUSDT(exchange, symbol string) float64 {
 	return total
 }
 
-// getPositionPlans 获取仓位计划列表
+// getPositionPlans 獲取倉位计划列表
 // GET /api/position-plans
 func getPositionPlans(c *gin.Context) {
 	pm := getPlanManager(c)
 	if pm == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "仓位计划服务不可用"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "倉位计划服務不可用"})
 		return
 	}
 
@@ -79,7 +79,7 @@ func getPositionPlans(c *gin.Context) {
 
 	plans, err := pm.GetPlans(c.Request.Context(), filter)
 	if err != nil {
-		logger.Warn("获取仓位计划列表失败: %v", err)
+		logger.Warn("獲取倉位计划列表失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -90,19 +90,19 @@ func getPositionPlans(c *gin.Context) {
 	})
 }
 
-// getPositionPlanByID 获取单个仓位计划
+// getPositionPlanByID 獲取單個倉位计划
 // GET /api/position-plans/:id
 func getPositionPlanByID(c *gin.Context) {
 	pm := getPlanManager(c)
 	if pm == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "仓位计划服务不可用"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "倉位计划服務不可用"})
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的计划 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的计划 ID"})
 		return
 	}
 
@@ -122,7 +122,7 @@ func getPositionPlanByID(c *gin.Context) {
 	})
 }
 
-// createPositionPlanRequest 创建计划请求体
+// createPositionPlanRequest 創建计划请求体
 type createPositionPlanRequest struct {
 	Exchange         string  `json:"exchange" binding:"required"`
 	Symbol           string  `json:"symbol" binding:"required"`
@@ -132,23 +132,23 @@ type createPositionPlanRequest struct {
 	AutoAdjustLimit  bool    `json:"autoAdjustLimit"`
 }
 
-// createPositionPlan 创建仓位计划
+// createPositionPlan 創建倉位计划
 // POST /api/position-plans
 func createPositionPlan(c *gin.Context) {
 	pm := getPlanManager(c)
 	if pm == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "仓位计划服务不可用"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "倉位计划服務不可用"})
 		return
 	}
 
 	var req createPositionPlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参數錯误: " + err.Error()})
 		return
 	}
 
 	if req.TargetAmountUSDT < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "目标仓位不能为负数"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "目標倉位不能為负數"})
 		return
 	}
 
@@ -173,7 +173,7 @@ func createPositionPlan(c *gin.Context) {
 	if created == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"message": "当前仓位已是目标仓位，无需创建计划",
+			"message": "當前倉位已是目標倉位，無需創建计划",
 			"current": initialAmount,
 			"target":  req.TargetAmountUSDT,
 		})
@@ -183,35 +183,35 @@ func createPositionPlan(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"plan":    created,
-		"message": "计划已创建",
+		"message": "计划已創建",
 	})
 }
 
-// updatePositionPlanRequest 更新计划请求体（仅允许更新部分字段）
+// updatePositionPlanRequest 更新计划请求体（僅允許更新部分字段）
 type updatePositionPlanRequest struct {
 	TargetAmountUSDT *float64 `json:"targetAmountUsdt"`
 	NotifyOnComplete *bool    `json:"notifyOnComplete"`
 }
 
-// updatePositionPlan 更新仓位计划
+// updatePositionPlan 更新倉位计划
 // PUT /api/position-plans/:id
 func updatePositionPlan(c *gin.Context) {
 	pm := getPlanManager(c)
 	if pm == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "仓位计划服务不可用"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "倉位计划服務不可用"})
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的计划 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的计划 ID"})
 		return
 	}
 
 	var req updatePositionPlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参數錯误: " + err.Error()})
 		return
 	}
 
@@ -246,27 +246,27 @@ func updatePositionPlan(c *gin.Context) {
 
 // cancelPositionPlanRequest 取消计划请求体
 type cancelPositionPlanRequest struct {
-	RestoreLimit bool `json:"restoreLimit"` // 是否恢复原始资金限制
+	RestoreLimit bool `json:"restoreLimit"` // 是否恢複原始资金限制
 }
 
-// cancelPositionPlan 取消仓位计划
+// cancelPositionPlan 取消倉位计划
 // DELETE /api/position-plans/:id
 func cancelPositionPlan(c *gin.Context) {
 	pm := getPlanManager(c)
 	if pm == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "仓位计划服务不可用"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "倉位计划服務不可用"})
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的计划 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的计划 ID"})
 		return
 	}
 
 	restoreLimit := false
-	// 支持 query ?restoreLimit=true 或 body
+	// 支援 query ?restoreLimit=true 或 body
 	if c.Query("restoreLimit") == "true" {
 		restoreLimit = true
 	} else {
@@ -286,19 +286,19 @@ func cancelPositionPlan(c *gin.Context) {
 	})
 }
 
-// getPositionPlanCheck 检查当前仓位与目标差异
+// getPositionPlanCheck 检查當前倉位與目標差异
 // GET /api/position-plans/check?exchange=xxx&symbol=xxx
 func getPositionPlanCheck(c *gin.Context) {
 	pm := getPlanManager(c)
 	if pm == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "仓位计划服务不可用"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "倉位计划服務不可用"})
 		return
 	}
 
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
 	if exchange == "" || symbol == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 exchange 或 symbol 参数"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 exchange 或 symbol 参數"})
 		return
 	}
 

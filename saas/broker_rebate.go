@@ -19,39 +19,39 @@ import (
 	"quantmesh/logger"
 )
 
-// BrokerRebateManager 经纪商返佣管理器
-// 支持多交易所的经纪商返佣系统
+// BrokerRebateManager 經纪商返佣管理器
+// 支援多交易所的經纪商返佣系统
 type BrokerRebateManager struct {
 	configs     map[string]*BrokerConfig // 交易所配置
-	rebates     map[string]*RebateRecord // 返佣记录
-	users       map[string]*UserRebate   // 用户返佣信息
+	rebates     map[string]*RebateRecord // 返佣記錄
+	users       map[string]*UserRebate   // 用戶返佣信息
 	httpClient  *http.Client
 	mu          sync.RWMutex
 }
 
-// BrokerConfig 经纪商配置
+// BrokerConfig 經纪商配置
 type BrokerConfig struct {
 	Exchange      string  `json:"exchange"`       // 交易所名称
-	BrokerID      string  `json:"broker_id"`      // 经纪商ID
+	BrokerID      string  `json:"broker_id"`      // 經纪商ID
 	APIKey        string  `json:"api_key"`        // API Key
 	SecretKey     string  `json:"secret_key"`     // Secret Key
 	Passphrase    string  `json:"passphrase"`     // 部分交易所需要
 	
-	// 返佣设置
-	InviteRebateRate   float64 `json:"invite_rebate_rate"`   // 邀请链接返佣率 (%)
+	// 返佣設置
+	InviteRebateRate   float64 `json:"invite_rebate_rate"`   // 邀请連結返佣率 (%)
 	APIRebateRate      float64 `json:"api_rebate_rate"`      // API交易返佣率 (%)
-	TotalRebateRate    float64 `json:"total_rebate_rate"`    // 总返佣率 (%)
+	TotalRebateRate    float64 `json:"total_rebate_rate"`    // 總返佣率 (%)
 	
-	// 分成设置
+	// 分成設置
 	PlatformShareRate  float64 `json:"platform_share_rate"`  // 平台分成比例 (%)
-	UserShareRate      float64 `json:"user_share_rate"`      // 用户分成比例 (%)
+	UserShareRate      float64 `json:"user_share_rate"`      // 用戶分成比例 (%)
 	
-	// 状态
+	// 状態
 	Enabled     bool   `json:"enabled"`
 	VerifiedAt  int64  `json:"verified_at"`
 }
 
-// RebateRecord 返佣记录
+// RebateRecord 返佣記錄
 type RebateRecord struct {
 	ID            string  `json:"id"`
 	Exchange      string  `json:"exchange"`
@@ -61,30 +61,30 @@ type RebateRecord struct {
 	Side          string  `json:"side"`        // BUY/SELL
 	Volume        float64 `json:"volume"`      // 交易量
 	Commission    float64 `json:"commission"`  // 手续费
-	RebateAmount  float64 `json:"rebate_amount"` // 返佣金额
+	RebateAmount  float64 `json:"rebate_amount"` // 返佣金額
 	RebateType    string  `json:"rebate_type"` // invite/api
 	Status        string  `json:"status"`      // pending/paid/failed
 	CreatedAt     int64   `json:"created_at"`
 	PaidAt        int64   `json:"paid_at"`
 }
 
-// UserRebate 用户返佣信息
+// UserRebate 用戶返佣信息
 type UserRebate struct {
 	UserID           string  `json:"user_id"`
-	InviteCode       string  `json:"invite_code"`       // 邀请码
-	InviteLink       string  `json:"invite_link"`       // 邀请链接
+	InviteCode       string  `json:"invite_code"`       // 邀请碼
+	InviteLink       string  `json:"invite_link"`       // 邀请連結
 	InvitedBy        string  `json:"invited_by"`        // 邀请人
 	
 	// 统计
-	TotalVolume      float64 `json:"total_volume"`      // 总交易量
-	TotalCommission  float64 `json:"total_commission"`  // 总手续费
-	TotalRebate      float64 `json:"total_rebate"`      // 总返佣
-	PendingRebate    float64 `json:"pending_rebate"`    // 待结算返佣
-	PaidRebate       float64 `json:"paid_rebate"`       // 已结算返佣
+	TotalVolume      float64 `json:"total_volume"`      // 總交易量
+	TotalCommission  float64 `json:"total_commission"`  // 總手续费
+	TotalRebate      float64 `json:"total_rebate"`      // 總返佣
+	PendingRebate    float64 `json:"pending_rebate"`    // 待結算返佣
+	PaidRebate       float64 `json:"paid_rebate"`       // 已結算返佣
 	
 	// 邀请统计
-	InvitedCount     int     `json:"invited_count"`     // 邀请人数
-	InvitedVolume    float64 `json:"invited_volume"`    // 邀请用户交易量
+	InvitedCount     int     `json:"invited_count"`     // 邀请人數
+	InvitedVolume    float64 `json:"invited_volume"`    // 邀请用戶交易量
 	InvitedRebate    float64 `json:"invited_rebate"`    // 邀请返佣
 	
 	CreatedAt        int64   `json:"created_at"`
@@ -114,7 +114,7 @@ type ExchangeStats struct {
 	TradeCount  int     `json:"trade_count"`
 }
 
-// NewBrokerRebateManager 创建经纪商返佣管理器
+// NewBrokerRebateManager 創建經纪商返佣管理器
 func NewBrokerRebateManager() *BrokerRebateManager {
 	return &BrokerRebateManager{
 		configs:    make(map[string]*BrokerConfig),
@@ -124,44 +124,44 @@ func NewBrokerRebateManager() *BrokerRebateManager {
 	}
 }
 
-// AddBrokerConfig 添加经纪商配置
+// AddBrokerConfig 添加經纪商配置
 func (m *BrokerRebateManager) AddBrokerConfig(config *BrokerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 验证配置
+	// 驗证配置
 	if config.Exchange == "" || config.BrokerID == "" {
-		return fmt.Errorf("交易所名称和经纪商ID不能为空")
+		return fmt.Errorf("交易所名称和經纪商ID不能為空")
 	}
 
 	m.configs[config.Exchange] = config
-	logger.Info("✅ 已添加 %s 经纪商配置: ID=%s, 总返佣率=%.2f%%",
+	logger.Info("✅ 已添加 %s 經纪商配置: ID=%s, 總返佣率=%.2f%%",
 		config.Exchange, config.BrokerID, config.TotalRebateRate)
 
 	return nil
 }
 
-// GetBrokerConfig 获取经纪商配置
+// GetBrokerConfig 獲取經纪商配置
 func (m *BrokerRebateManager) GetBrokerConfig(exchange string) *BrokerConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.configs[exchange]
 }
 
-// GenerateInviteLink 生成邀请链接
+// GenerateInviteLink 生成邀请連結
 func (m *BrokerRebateManager) GenerateInviteLink(exchange, userID string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	config, ok := m.configs[exchange]
 	if !ok {
-		return "", fmt.Errorf("未找到 %s 的经纪商配置", exchange)
+		return "", fmt.Errorf("未找到 %s 的經纪商配置", exchange)
 	}
 
-	// 生成邀请码
+	// 生成邀请碼
 	inviteCode := generateInviteCode(userID, config.BrokerID)
 
-	// 生成邀请链接
+	// 生成邀请連結
 	var inviteLink string
 	switch strings.ToLower(exchange) {
 	case "binance":
@@ -180,7 +180,7 @@ func (m *BrokerRebateManager) GenerateInviteLink(exchange, userID string) (strin
 		inviteLink = fmt.Sprintf("https://%s.com/register?ref=%s", exchange, inviteCode)
 	}
 
-	// 保存用户返佣信息
+	// 保存用戶返佣信息
 	if _, exists := m.users[userID]; !exists {
 		m.users[userID] = &UserRebate{
 			UserID:     userID,
@@ -193,25 +193,25 @@ func (m *BrokerRebateManager) GenerateInviteLink(exchange, userID string) (strin
 		m.users[userID].InviteLink = inviteLink
 	}
 
-	logger.Info("📎 已为用户 %s 生成 %s 邀请链接: %s", userID, exchange, inviteLink)
+	logger.Info("📎 已為用戶 %s 生成 %s 邀请連結: %s", userID, exchange, inviteLink)
 
 	return inviteLink, nil
 }
 
-// RecordTrade 记录交易并计算返佣
+// RecordTrade 記錄交易並计算返佣
 func (m *BrokerRebateManager) RecordTrade(ctx context.Context, trade *TradeInfo) (*RebateRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	config, ok := m.configs[trade.Exchange]
 	if !ok || !config.Enabled {
-		return nil, nil // 未启用返佣
+		return nil, nil // 未啟用返佣
 	}
 
 	// 计算返佣
 	rebateAmount := trade.Commission * config.TotalRebateRate / 100
 
-	// 创建返佣记录
+	// 創建返佣記錄
 	record := &RebateRecord{
 		ID:           generateRecordID(),
 		Exchange:     trade.Exchange,
@@ -229,7 +229,7 @@ func (m *BrokerRebateManager) RecordTrade(ctx context.Context, trade *TradeInfo)
 
 	m.rebates[record.ID] = record
 
-	// 更新用户统计
+	// 更新用戶统计
 	if user, exists := m.users[trade.UserID]; exists {
 		user.TotalVolume += trade.Volume
 		user.TotalCommission += trade.Commission
@@ -238,7 +238,7 @@ func (m *BrokerRebateManager) RecordTrade(ctx context.Context, trade *TradeInfo)
 		user.UpdatedAt = time.Now().Unix()
 	}
 
-	logger.Info("💰 记录返佣: 用户=%s, 交易所=%s, 交易量=%.2f, 手续费=%.4f, 返佣=%.4f",
+	logger.Info("💰 記錄返佣: 用戶=%s, 交易所=%s, 交易量=%.2f, 手续费=%.4f, 返佣=%.4f",
 		trade.UserID, trade.Exchange, trade.Volume, trade.Commission, rebateAmount)
 
 	return record, nil
@@ -256,11 +256,11 @@ type TradeInfo struct {
 	RebateType string  `json:"rebate_type"` // invite/api
 }
 
-// FetchRebatesFromExchange 从交易所获取返佣数据
+// FetchRebatesFromExchange 從交易所獲取返佣數據
 func (m *BrokerRebateManager) FetchRebatesFromExchange(ctx context.Context, exchange string) error {
 	config := m.GetBrokerConfig(exchange)
 	if config == nil || !config.Enabled {
-		return fmt.Errorf("未启用 %s 的经纪商返佣", exchange)
+		return fmt.Errorf("未啟用 %s 的經纪商返佣", exchange)
 	}
 
 	switch strings.ToLower(exchange) {
@@ -271,11 +271,11 @@ func (m *BrokerRebateManager) FetchRebatesFromExchange(ctx context.Context, exch
 	case "bybit":
 		return m.fetchBybitRebates(ctx, config)
 	default:
-		return fmt.Errorf("暂不支持 %s 的返佣查询", exchange)
+		return fmt.Errorf("暫不支援 %s 的返佣查詢", exchange)
 	}
 }
 
-// fetchBinanceRebates 获取 Binance 返佣数据
+// fetchBinanceRebates 獲取 Binance 返佣數據
 func (m *BrokerRebateManager) fetchBinanceRebates(ctx context.Context, config *BrokerConfig) error {
 	baseURL := "https://api.binance.com"
 	endpoint := "/sapi/v1/broker/rebate/recentRecord"
@@ -304,7 +304,7 @@ func (m *BrokerRebateManager) fetchBinanceRebates(ctx context.Context, config *B
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Binance API 错误: %s", string(body))
+		return fmt.Errorf("Binance API 錯误: %s", string(body))
 	}
 
 	var result struct {
@@ -320,11 +320,11 @@ func (m *BrokerRebateManager) fetchBinanceRebates(ctx context.Context, config *B
 		return err
 	}
 
-	logger.Info("📊 获取 Binance 返佣记录: %d 条", len(result.Data))
+	logger.Info("📊 獲取 Binance 返佣記錄: %d 条", len(result.Data))
 	return nil
 }
 
-// fetchOKXRebates 获取 OKX 返佣数据
+// fetchOKXRebates 獲取 OKX 返佣數據
 func (m *BrokerRebateManager) fetchOKXRebates(ctx context.Context, config *BrokerConfig) error {
 	baseURL := "https://www.okx.com"
 	endpoint := "/api/v5/broker/nd/rebate-per-orders"
@@ -353,14 +353,14 @@ func (m *BrokerRebateManager) fetchOKXRebates(ctx context.Context, config *Broke
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("OKX API 错误: %s", string(body))
+		return fmt.Errorf("OKX API 錯误: %s", string(body))
 	}
 
-	logger.Info("📊 获取 OKX 返佣记录成功")
+	logger.Info("📊 獲取 OKX 返佣記錄成功")
 	return nil
 }
 
-// fetchBybitRebates 获取 Bybit 返佣数据
+// fetchBybitRebates 獲取 Bybit 返佣數據
 func (m *BrokerRebateManager) fetchBybitRebates(ctx context.Context, config *BrokerConfig) error {
 	baseURL := "https://api.bybit.com"
 	endpoint := "/v5/broker/earning-record"
@@ -370,7 +370,7 @@ func (m *BrokerRebateManager) fetchBybitRebates(ctx context.Context, config *Bro
 	params.Set("timestamp", timestamp)
 	params.Set("api_key", config.APIKey)
 
-	// 按字母顺序排列参数
+	// 按字母顺序排列参數
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		keys = append(keys, k)
@@ -403,21 +403,21 @@ func (m *BrokerRebateManager) fetchBybitRebates(ctx context.Context, config *Bro
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Bybit API 错误: %s", string(body))
+		return fmt.Errorf("Bybit API 錯误: %s", string(body))
 	}
 
-	logger.Info("📊 获取 Bybit 返佣记录成功")
+	logger.Info("📊 獲取 Bybit 返佣記錄成功")
 	return nil
 }
 
-// GetUserRebate 获取用户返佣信息
+// GetUserRebate 獲取用戶返佣信息
 func (m *BrokerRebateManager) GetUserRebate(userID string) *UserRebate {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.users[userID]
 }
 
-// GetRebateStats 获取返佣统计
+// GetRebateStats 獲取返佣统计
 func (m *BrokerRebateManager) GetRebateStats() *RebateStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -456,7 +456,7 @@ func (m *BrokerRebateManager) GetRebateStats() *RebateStats {
 	return stats
 }
 
-// SettleRebates 结算返佣
+// SettleRebates 結算返佣
 func (m *BrokerRebateManager) SettleRebates(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -466,13 +466,13 @@ func (m *BrokerRebateManager) SettleRebates(ctx context.Context) error {
 
 	for _, record := range m.rebates {
 		if record.Status == "pending" {
-			// TODO: 实际结算逻辑（转账到用户账户）
+			// TODO: 實際結算逻辑（轉账到用戶账戶）
 			record.Status = "paid"
 			record.PaidAt = time.Now().Unix()
 			settledCount++
 			settledAmount += record.RebateAmount
 
-			// 更新用户统计
+			// 更新用戶统计
 			if user, exists := m.users[record.UserID]; exists {
 				user.PendingRebate -= record.RebateAmount
 				user.PaidRebate += record.RebateAmount
@@ -482,13 +482,13 @@ func (m *BrokerRebateManager) SettleRebates(ctx context.Context) error {
 	}
 
 	if settledCount > 0 {
-		logger.Info("💵 返佣结算完成: %d 笔, 总金额 %.4f USDT", settledCount, settledAmount)
+		logger.Info("💵 返佣結算完成: %d 笔, 總金額 %.4f USDT", settledCount, settledAmount)
 	}
 
 	return nil
 }
 
-// GetPendingRebates 获取待结算返佣列表
+// GetPendingRebates 獲取待結算返佣列表
 func (m *BrokerRebateManager) GetPendingRebates() []*RebateRecord {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -503,7 +503,7 @@ func (m *BrokerRebateManager) GetPendingRebates() []*RebateRecord {
 	return pending
 }
 
-// GetUserRebateHistory 获取用户返佣历史
+// GetUserRebateHistory 獲取用戶返佣历史
 func (m *BrokerRebateManager) GetUserRebateHistory(userID string) []*RebateRecord {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -518,7 +518,7 @@ func (m *BrokerRebateManager) GetUserRebateHistory(userID string) []*RebateRecor
 	return history
 }
 
-// 辅助函数
+// 辅助函數
 
 func generateInviteCode(userID, brokerID string) string {
 	data := userID + brokerID + strconv.FormatInt(time.Now().Unix(), 10)
@@ -558,35 +558,35 @@ type BrokerRebateHandler struct {
 	manager *BrokerRebateManager
 }
 
-// NewBrokerRebateHandler 创建 API 处理器
+// NewBrokerRebateHandler 創建 API 处理器
 func NewBrokerRebateHandler(manager *BrokerRebateManager) *BrokerRebateHandler {
 	return &BrokerRebateHandler{manager: manager}
 }
 
-// HandleGetStats 获取返佣统计
+// HandleGetStats 獲取返佣统计
 func (h *BrokerRebateHandler) HandleGetStats(w http.ResponseWriter, r *http.Request) {
 	stats := h.manager.GetRebateStats()
 	json.NewEncoder(w).Encode(stats)
 }
 
-// HandleGetUserRebate 获取用户返佣信息
+// HandleGetUserRebate 獲取用戶返佣信息
 func (h *BrokerRebateHandler) HandleGetUserRebate(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
-		http.Error(w, "缺少 user_id 参数", http.StatusBadRequest)
+		http.Error(w, "缺少 user_id 参數", http.StatusBadRequest)
 		return
 	}
 
 	rebate := h.manager.GetUserRebate(userID)
 	if rebate == nil {
-		http.Error(w, "用户不存在", http.StatusNotFound)
+		http.Error(w, "用戶不存在", http.StatusNotFound)
 		return
 	}
 
 	json.NewEncoder(w).Encode(rebate)
 }
 
-// HandleGenerateInviteLink 生成邀请链接
+// HandleGenerateInviteLink 生成邀请連結
 func (h *BrokerRebateHandler) HandleGenerateInviteLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Exchange string `json:"exchange"`
@@ -594,7 +594,7 @@ func (h *BrokerRebateHandler) HandleGenerateInviteLink(w http.ResponseWriter, r 
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "无效的请求体", http.StatusBadRequest)
+		http.Error(w, "無效的请求体", http.StatusBadRequest)
 		return
 	}
 
@@ -609,13 +609,13 @@ func (h *BrokerRebateHandler) HandleGenerateInviteLink(w http.ResponseWriter, r 
 	})
 }
 
-// HandleGetPendingRebates 获取待结算返佣
+// HandleGetPendingRebates 獲取待結算返佣
 func (h *BrokerRebateHandler) HandleGetPendingRebates(w http.ResponseWriter, r *http.Request) {
 	pending := h.manager.GetPendingRebates()
 	json.NewEncoder(w).Encode(pending)
 }
 
-// HandleSettleRebates 结算返佣
+// HandleSettleRebates 結算返佣
 func (h *BrokerRebateHandler) HandleSettleRebates(w http.ResponseWriter, r *http.Request) {
 	if err := h.manager.SettleRebates(r.Context()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

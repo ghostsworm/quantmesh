@@ -176,7 +176,7 @@ create_directories() {
     log_step "创建安装目录..."
     
     mkdir -p ${INSTALL_DIR}
-    mkdir -p ${BACKUP_DIR}
+    mkdir -p ${BACKUP_DIR}   # config.yaml 同級備份目錄，用於配置備份
     mkdir -p ${DATA_DIR}
     mkdir -p ${LOGS_DIR}
     mkdir -p ${INSTALL_DIR}/scripts
@@ -381,7 +381,7 @@ set_permissions() {
     chown -R quantmesh:quantmesh ${INSTALL_DIR}
     chmod 755 ${INSTALL_DIR}
     chmod 700 ${DATA_DIR}
-    chmod 700 ${BACKUP_DIR}
+    chmod 0776 ${BACKUP_DIR}   # 0776 確保 quantmesh 用戶可寫入新建配置備份
     chmod 700 ${LOGS_DIR}
     
     # 配置文件权限（包含敏感信息）

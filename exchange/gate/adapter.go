@@ -20,51 +20,51 @@ type GateAdapter struct {
 	client         *Client
 	wsManager      *WebSocketManager
 	klineWSManager *KlineWebSocketManager
-	symbol         string // 交易对（如 BTCUSDT）
+	symbol         string // 交易對（如 BTCUSDT）
 	gateSymbol     string // Gate格式（如 BTC_USDT）
-	settle         string // 结算币种：usdt 或 btc
-	useWebSocket   bool   // 是否使用 WebSocket 下单
+	settle         string // 結算币种：usdt 或 btc
+	useWebSocket   bool   // 是否使用 WebSocket 下單
 
-	// 订单ID到价格的映射注册回调
+	// 订單ID到價格的映射注册回呼
 	orderMappingCallback func(orderID int64, price float64)
 
-	posMode          string  // 持仓模式：dual_long_short 或 single
-	quantoMultiplier float64 // 合约乘数
-	orderPriceRound  int     // 价格精度
-	orderSizeMin     float64 // 最小下单数量
-	volumePlace      int     // 数量小数位
-	pricePlace       int     // 价格小数位
+	posMode          string  // 持倉模式：dual_long_short 或 single
+	quantoMultiplier float64 // 合約乘數
+	orderPriceRound  int     // 價格精度
+	orderSizeMin     float64 // 最小下單數量
+	volumePlace      int     // 數量小數位
+	pricePlace       int     // 價格小數位
 
 	priceCacheMu   sync.RWMutex
 	priceCache     float64
 	priceCacheTime time.Time
 
-	testnet bool // 是否使用测试网
+	testnet bool // 是否使用測試網
 }
 
-// NewGateAdapter 创建 Gate.io 适配器
+// NewGateAdapter 創建 Gate.io 适配器
 func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) {
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
-	settle := cfg["settle"]                                      // usdt 或 btc，默认 usdt
-	testnet := cfg["testnet"] == "true" || cfg["testnet"] == "1" // 是否使用测试网
+	settle := cfg["settle"]                                      // usdt 或 btc，預設 usdt
+	testnet := cfg["testnet"] == "true" || cfg["testnet"] == "1" // 是否使用測試網
 
 	if apiKey == "" || secretKey == "" {
 		return nil, fmt.Errorf("Gate.io API 配置不完整")
 	}
 
 	if settle == "" {
-		settle = "usdt" // 默认 USDT 永续合约
+		settle = "usdt" // 預設 USDT 永续合約
 	}
 
-	// 转换交易对格式
+	// 轉换交易對格式
 	gateSymbol := convertToGateSymbol(symbol)
 
 	client := NewClient(apiKey, secretKey, testnet)
 	wsManager := NewWebSocketManager(apiKey, secretKey, settle, testnet)
 
 	if testnet {
-		logger.Info("🌐 [Gate] 使用测试网模式")
+		logger.Info("🌐 [Gate] 使用測試網模式")
 	}
 
 	adapter := &GateAdapter{
@@ -73,29 +73,29 @@ func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) 
 		symbol:       symbol,
 		gateSymbol:   gateSymbol,
 		settle:       settle,
-		useWebSocket: false, // 默认使用 REST API 下单
+		useWebSocket: false, // 默认使用 REST API 下單
 	}
-	// 保存 testnet 状态，用于后续创建 klineWSManager
+	// 保存 testnet 状態，用於后续創建 klineWSManager
 	adapter.testnet = testnet
 
-	// 初始化获取合约信息和持仓模式
+	// 初始化獲取合約信息和持倉模式
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 1. 获取合约信息
+	// 1. 獲取合約信息
 	if err := adapter.fetchContractInfo(ctxInit); err != nil {
-		logger.Warn("⚠️ [Gate] 获取合约信息失败: %v", err)
+		logger.Warn("⚠️ [Gate] 獲取合約信息失败: %v", err)
 		// 使用默认值
 		adapter.volumePlace = 0
 		adapter.pricePlace = 2
 		adapter.orderSizeMin = 1
 	}
 
-	// 2. 获取账户信息（判断持仓模式）
+	// 2. 獲取帳戶信息（判断持倉模式）
 	acc, err := adapter.GetAccount(ctxInit)
 	if err != nil {
-		logger.Warn("⚠️ [Gate] 初始化获取账户信息失败: %v", err)
-		adapter.posMode = "dual_long_short" // 默认双向持仓
+		logger.Warn("⚠️ [Gate] 初始化獲取帳戶信息失败: %v", err)
+		adapter.posMode = "dual_long_short" // 默认双向持倉
 	} else {
 		if acc.PosMode == "dual_long_short" {
 			adapter.posMode = "dual_long_short"
@@ -103,21 +103,21 @@ func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) 
 			adapter.posMode = "single"
 		}
 
-		posModeDesc := "双向持仓"
+		posModeDesc := "双向持倉"
 		if adapter.posMode == "single" {
-			posModeDesc = "单向持仓"
+			posModeDesc = "單向持倉"
 		}
-		logger.Info("ℹ️ [Gate] 持仓模式: %s (%s)", posModeDesc, adapter.posMode)
+		logger.Info("ℹ️ [Gate] 持倉模式: %s (%s)", posModeDesc, adapter.posMode)
 	}
 
-	// 3. 如果配置了杠杆，自动设置杠杆
+	// 3. 如果配置了杠杆，自动設置杠杆
 	if leverageStr := cfg["leverage"]; leverageStr != "" {
 		leverage, err := strconv.Atoi(leverageStr)
 		if err == nil && leverage > 0 {
-			logger.Info("ℹ️ [Gate] 检测到杠杆配置: %dx，正在设置...", leverage)
+			logger.Info("ℹ️ [Gate] 检测到杠杆配置: %dx，正在設置...", leverage)
 			if err := adapter.SetLeverage(ctxInit, leverage); err != nil {
-				logger.Warn("⚠️ [Gate] 设置杠杆失败: %v", err)
-				// 不返回错误，允许继续运行（杠杆可能已在网站设置）
+				logger.Warn("⚠️ [Gate] 設置杠杆失败: %v", err)
+				// 不返回錯误，允許继续运行（杠杆可能已在网站設置）
 			}
 		}
 	}
@@ -125,101 +125,106 @@ func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) 
 	return adapter, nil
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (g *GateAdapter) GetName() string {
 	return "Gate.io"
 }
 
-// GetPriceDecimals 获取价格精度
+// GetMarketType 獲取市場類型：futures 合約
+func (g *GateAdapter) GetMarketType() string {
+	return "futures"
+}
+
+// GetPriceDecimals 獲取價格精度
 func (g *GateAdapter) GetPriceDecimals() int {
 	return g.pricePlace
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (g *GateAdapter) GetQuantityDecimals() int {
 	return g.volumePlace
 }
 
-// fetchContractInfo 获取合约信息
+// fetchContractInfo 獲取合約信息
 func (g *GateAdapter) fetchContractInfo(ctx context.Context) error {
 	contract, err := g.client.GetContract(ctx, g.settle, g.gateSymbol)
 	if err != nil {
-		return fmt.Errorf("获取合约信息失败: %w", err)
+		return fmt.Errorf("獲取合約信息失败: %w", err)
 	}
 
-	// 解析合约乘数
+	// 解析合約乘數
 	if contract.QuantoMultiplier != "" {
 		g.quantoMultiplier, _ = strconv.ParseFloat(contract.QuantoMultiplier, 64)
 	}
 
-	// 解析价格精度（如 "0.1" -> 1位小数）
+	// 解析價格精度（如 "0.1" -> 1位小數）
 	if contract.OrderPriceRound != "" {
 		priceRound, _ := strconv.ParseFloat(contract.OrderPriceRound, 64)
 		g.pricePlace = calculateDecimalPlaces(priceRound)
 	}
 
-	// 解析数量精度
-	// Gate.io 的 order_size_round 字段可能为空,需要推断精度
+	// 解析數量精度
+	// Gate.io 的 order_size_round 字段可能為空,需要推断精度
 	if contract.OrderSizeRound != "" {
 		sizeRound, _ := strconv.ParseFloat(contract.OrderSizeRound, 64)
 		g.volumePlace = calculateDecimalPlaces(sizeRound)
 	} else {
-		// 如果 order_size_round 为空,根据 order_size_min 推断
-		// 对于 USDT 永续合约,通常支持小数下单
-		// ETH_USDT 等主流币种一般支持 0.01 精度(2位小数)
+		// 如果 order_size_round 為空,根據 order_size_min 推断
+		// 對於 USDT 永续合約,通常支援小數下單
+		// ETH_USDT 等主流币种一般支援 0.01 精度(2位小數)
 		minSize := contract.OrderSizeMin
 		if minSize >= 1 {
-			// 最小量 >= 1,通常是整数合约(如 BTC)
-			// 但也可能支持小数,使用 0.01 精度较安全
-			g.volumePlace = 2 // 默认2位小数
+			// 最小量 >= 1,通常是整數合約(如 BTC)
+			// 但也可能支援小數,使用 0.01 精度较安全
+			g.volumePlace = 2 // 默认2位小數
 		} else {
-			// 最小量 < 1,根据最小量计算精度
+			// 最小量 < 1,根據最小量计算精度
 			g.volumePlace = calculateDecimalPlaces(minSize)
 		}
 	}
 
-	// 最小下单数量
+	// 最小下單數量
 	g.orderSizeMin = contract.OrderSizeMin
 
-	// 计算实际最小下单量(张数 × 乘数 = 实际币数量)
+	// 计算實際最小下單量(张數 × 乘數 = 實際币數量)
 	actualMinSize := g.orderSizeMin * g.quantoMultiplier
 	if actualMinSize == 0 {
-		actualMinSize = g.orderSizeMin // 如果乘数为0,直接用张数
+		actualMinSize = g.orderSizeMin // 如果乘數為0,直接用张數
 	}
 
-	logger.Info("ℹ️ [Gate 合约信息] %s, 每张合约:%.2f, 价格精度:%d, 数量精度:%d, 最小下单量:%.2f (%.0f张)",
+	logger.Info("ℹ️ [Gate 合約信息] %s, 每张合約:%.2f, 價格精度:%d, 數量精度:%d, 最小下單量:%.2f (%.0f张)",
 		g.gateSymbol, g.quantoMultiplier, g.pricePlace, g.volumePlace, actualMinSize, g.orderSizeMin)
 
 	return nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (g *GateAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 使用 REST API 下单（更可靠）
+	// 使用 REST API 下單（更可靠）
 	return g.placeOrderViaREST(ctx, req)
 }
 
-// placeOrderViaREST 通过 REST API 下单
+// placeOrderViaREST 通過 REST API 下單
 func (g *GateAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// Gate.io 的 size 是张数,需要从实际币数量换算
-	// 如果合约乘数为 0,则直接使用数量
+	// Gate.io 的 size 是张數,需要從實際币數量换算
+	// 如果合約乘數為 0,则直接使用數量
 	var contractSize int64
 	if g.quantoMultiplier > 0 {
-		// 计算张数 = 实际数量 / 每张合约数量
+		// 计算张數 = 實際數量 / 每张合約數量
 		contracts := req.Quantity / g.quantoMultiplier
 		contractSize = int64(contracts)
-		// 如果小于1张,至少下1张
+		// 如果小於1张,至少下1张
 		if contractSize == 0 && req.Quantity > 0 {
 			contractSize = 1
 		}
 	} else {
-		// 直接使用数量(整数)
+		// 直接使用數量(整數)
 		contractSize = int64(req.Quantity)
 	}
 
-	// 转换方向和数量: Gate.io 使用正负数表示方向
-	// BUY(买入) = 正数, SELL(卖出) = 负数
-	// reduce_only参数会告诉交易所这是平仓单,不需要反转符号
+	// 轉换方向和數量: Gate.io 使用正负數表示方向
+	// BUY(買入) = 正數, SELL(賣出) = 负數
+	// reduce_only参數會告诉交易所这是平倉單,不需要反轉符号
 	var size int64
 	if req.Side == SideBuy {
 		size = contractSize
@@ -227,17 +232,17 @@ func (g *GateAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) 
 		size = -contractSize
 	}
 
-	// 格式化价格
+	// 格式化價格
 	priceStr := fmt.Sprintf("%.*f", g.pricePlace, req.Price)
 
-	// Gate.io 要求 text 字段必须以 "t-" 开头,且长度不超过30个字符
-	// 使用统一的 utils 包添加返佣前缀（会自动处理长度限制）
+	// Gate.io 要求 text 字段必須以 "t-" 开头,且长度不超過30個字符
+	// 使用统一的 utils 包添加返佣前缀（會自动处理长度限制）
 	clientOrderID := req.ClientOrderID
 	if clientOrderID != "" {
 		clientOrderID = utils.AddBrokerPrefix("gate", clientOrderID)
 	}
 
-	// 构造订单参数
+	// 構造订單参數
 	order := map[string]interface{}{
 		"contract": g.gateSymbol,
 		"size":     size,
@@ -246,7 +251,7 @@ func (g *GateAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) 
 		"text":     clientOrderID,
 	}
 
-	// 只减仓标记 (Gate.io 使用 reduce_only,不需要 close 标记)
+	// 只减倉標記 (Gate.io 使用 reduce_only,不需要 close 標記)
 	if req.ReduceOnly {
 		order["reduce_only"] = true
 	}
@@ -256,7 +261,7 @@ func (g *GateAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) 
 		order["tif"] = "poc" // Post Only
 	}
 
-	// 发送下单请求
+	// 发送下單请求
 	futuresOrder, err := g.client.PlaceOrder(ctx, g.settle, order)
 	if err != nil {
 		// 检查是否保证金不足
@@ -266,7 +271,7 @@ func (g *GateAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) 
 		return nil, err
 	}
 
-	// 转换为标准订单格式
+	// 轉换為標准订單格式
 	result := &Order{
 		OrderID:       futuresOrder.ID,
 		ClientOrderID: futuresOrder.Text,
@@ -281,7 +286,7 @@ func (g *GateAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) 
 		UpdateTime:    int64(futuresOrder.FinishTime * 1000),
 	}
 
-	// 解析成交均价
+	// 解析成交均價
 	if futuresOrder.FillPrice != "" {
 		result.AvgPrice, _ = strconv.ParseFloat(futuresOrder.FillPrice, 64)
 	}
@@ -289,7 +294,7 @@ func (g *GateAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) 
 	return result, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (g *GateAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	placedOrders := make([]*Order, 0, len(orders))
 	hasMarginError := false
@@ -297,7 +302,7 @@ func (g *GateAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderReque
 	for _, orderReq := range orders {
 		order, err := g.PlaceOrder(ctx, orderReq)
 		if err != nil {
-			logger.Warn("⚠️ [Gate] 下单失败 %.2f %s: %v",
+			logger.Warn("⚠️ [Gate] 下單失败 %.2f %s: %v",
 				orderReq.Price, orderReq.Side, err)
 
 			if strings.Contains(err.Error(), "保证金不足") {
@@ -306,13 +311,13 @@ func (g *GateAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderReque
 			continue
 		}
 
-		// 确保包含请求的价格
+		// 确保包含请求的價格
 		order.Price = orderReq.Price
 
-		// 注册订单ID到价格的映射
+		// 注册订單ID到價格的映射
 		if g.orderMappingCallback != nil && order.OrderID > 0 {
 			g.orderMappingCallback(order.OrderID, orderReq.Price)
-			logger.Debug("🔍 [Gate映射] 注册 订单ID=%d -> 价格=%.2f", order.OrderID, orderReq.Price)
+			logger.Debug("🔍 [Gate映射] 注册 订單ID=%d -> 價格=%.2f", order.OrderID, orderReq.Price)
 		}
 
 		placedOrders = append(placedOrders, order)
@@ -321,30 +326,30 @@ func (g *GateAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderReque
 	return placedOrders, hasMarginError
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (g *GateAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	orderIDStr := strconv.FormatInt(orderID, 10)
 	_, err := g.client.CancelOrder(ctx, g.settle, orderIDStr)
 	if err != nil {
-		// 订单不存在不算错误
+		// 订單不存在不算錯误
 		if strings.Contains(err.Error(), "ORDER_NOT_FOUND") || strings.Contains(err.Error(), "not found") {
-			logger.Info("ℹ️ [Gate] 订单 %d 已不存在，跳过取消", orderID)
+			logger.Info("ℹ️ [Gate] 订單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
-		return fmt.Errorf("取消订单失败: %w", err)
+		return fmt.Errorf("取消訂單失败: %w", err)
 	}
 
-	logger.Info("✅ [Gate] 取消订单成功: %d", orderID)
+	logger.Info("✅ [Gate] 取消訂單成功: %d", orderID)
 	return nil
 }
 
-// BatchCancelOrders 批量取消订单
+// BatchCancelOrders 批量取消訂單
 func (g *GateAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	if len(orderIDs) == 0 {
 		return nil
 	}
 
-	// Gate.io 批量撤单API一次最多20个
+	// Gate.io 批量撤單API一次最多20個
 	for i := 0; i < len(orderIDs); i += 20 {
 		end := i + 20
 		if end > len(orderIDs) {
@@ -359,11 +364,11 @@ func (g *GateAdapter) BatchCancelOrders(ctx context.Context, symbol string, orde
 
 		results, err := g.client.BatchCancelOrders(ctx, g.settle, orderIDStrs)
 		if err != nil {
-			logger.Warn("⚠️ [Gate] 批量撤单请求失败: %v", err)
+			logger.Warn("⚠️ [Gate] 批量撤單请求失败: %v", err)
 			continue
 		}
 
-		// 处理结果并统计
+		// 处理結果並统计
 		successCount := 0
 		notFoundCount := 0
 		failCount := 0
@@ -375,19 +380,19 @@ func (g *GateAdapter) BatchCancelOrders(ctx context.Context, symbol string, orde
 
 			if succeeded {
 				successCount++
-				logger.Info("✅ [Gate] 取消订单成功: %s", orderID)
+				logger.Info("✅ [Gate] 取消訂單成功: %s", orderID)
 			} else if strings.Contains(message, "not found") || strings.Contains(message, "ORDER_NOT_FOUND") {
 				notFoundCount++
-				logger.Debug("ℹ️ [Gate] 订单 %s 已不存在(可能已成交/已撤销)", orderID)
+				logger.Debug("ℹ️ [Gate] 订單 %s 已不存在(可能已成交/已撤销)", orderID)
 			} else {
 				failCount++
-				logger.Warn("⚠️ [Gate] 取消订单失败 %s: %s", orderID, message)
+				logger.Warn("⚠️ [Gate] 取消訂單失败 %s: %s", orderID, message)
 			}
 		}
 
-		// 批次汇总
+		// 批次彙總
 		if len(batch) > 0 {
-			logger.Info("📊 [Gate] 批次撤单: 成功%d个, 已不存在%d个, 失败%d个", successCount, notFoundCount, failCount)
+			logger.Info("📊 [Gate] 批次撤單: 成功%d個, 已不存在%d個, 失败%d個", successCount, notFoundCount, failCount)
 		}
 
 		// 批次间延迟
@@ -399,7 +404,7 @@ func (g *GateAdapter) BatchCancelOrders(ctx context.Context, symbol string, orde
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (g *GateAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	orderIDStr := strconv.FormatInt(orderID, 10)
 	futuresOrder, err := g.client.GetOrder(ctx, g.settle, orderIDStr)
@@ -407,7 +412,7 @@ func (g *GateAdapter) GetOrder(ctx context.Context, symbol string, orderID int64
 		return nil, err
 	}
 
-	// 转换为标准格式
+	// 轉换為標准格式
 	order := &Order{
 		OrderID:       futuresOrder.ID,
 		ClientOrderID: futuresOrder.Text,
@@ -421,12 +426,12 @@ func (g *GateAdapter) GetOrder(ctx context.Context, symbol string, orderID int64
 		UpdateTime:    int64(futuresOrder.FinishTime * 1000),
 	}
 
-	// 解析价格
+	// 解析價格
 	if futuresOrder.Price != "" {
 		order.Price, _ = strconv.ParseFloat(futuresOrder.Price, 64)
 	}
 
-	// 解析成交均价
+	// 解析成交均價
 	if futuresOrder.FillPrice != "" {
 		order.AvgPrice, _ = strconv.ParseFloat(futuresOrder.FillPrice, 64)
 	}
@@ -434,7 +439,7 @@ func (g *GateAdapter) GetOrder(ctx context.Context, symbol string, orderID int64
 	return order, nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (g *GateAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	futuresOrders, err := g.client.GetOpenOrders(ctx, g.settle, g.gateSymbol)
 	if err != nil {
@@ -456,12 +461,12 @@ func (g *GateAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Orde
 			UpdateTime:    int64(fo.FinishTime * 1000),
 		}
 
-		// 解析价格
+		// 解析價格
 		if fo.Price != "" {
 			order.Price, _ = strconv.ParseFloat(fo.Price, 64)
 		}
 
-		// 解析成交均价
+		// 解析成交均價
 		if fo.FillPrice != "" {
 			order.AvgPrice, _ = strconv.ParseFloat(fo.FillPrice, 64)
 		}
@@ -472,14 +477,14 @@ func (g *GateAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Orde
 	return orders, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (g *GateAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	futuresAcc, err := g.client.GetAccount(ctx, g.settle)
 	if err != nil {
 		return nil, err
 	}
 
-	// 解析余额
+	// 解析餘額
 	total, _ := strconv.ParseFloat(futuresAcc.Total, 64)
 	available, _ := strconv.ParseFloat(futuresAcc.Available, 64)
 	unrealisedPnl, _ := strconv.ParseFloat(futuresAcc.UnrealisedPnl, 64)
@@ -489,17 +494,17 @@ func (g *GateAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		posMode = "dual_long_short"
 	}
 
-	// 获取当前合约的杠杆设置
+	// 獲取當前合約的杠杆設置
 	leverage := 1 // 默认1倍
 	if fp, err := g.client.GetPosition(ctx, g.settle, g.gateSymbol); err == nil {
-		// 检查是否为逐仓模式
+		// 检查是否為逐倉模式
 		leverageValue, _ := strconv.Atoi(fp.Leverage)
 		if leverageValue != 0 {
-			// 逐仓模式
+			// 逐倉模式
 			leverage = leverageValue
-			logger.Warn("⚠️ [Gate] 当前为逐仓模式(杠杆倍数=%dx),本系统仅支持全仓模式。请在 Gate.io 网站将持仓模式改为全仓", leverage)
+			logger.Warn("⚠️ [Gate] 當前為逐倉模式(杠杆倍數=%dx),本系统僅支援全倉模式。请在 Gate.io 网站將持倉模式改為全倉", leverage)
 		} else {
-			// 全仓模式,从 CrossLeverageLimit 获取
+			// 全倉模式,從 CrossLeverageLimit 獲取
 			crossLeverage, _ := strconv.Atoi(fp.CrossLeverageLimit)
 			if crossLeverage > 0 {
 				leverage = crossLeverage
@@ -518,9 +523,9 @@ func (g *GateAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	return account, nil
 }
 
-// GetPositions 获取持仓信息
+// GetPositions 獲取持倉信息
 func (g *GateAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
-	// 使用单个持仓查询接口获取更详细的信息
+	// 使用單個持倉查詢接口獲取更详细的信息
 	fp, err := g.client.GetPosition(ctx, g.settle, g.gateSymbol)
 	if err != nil {
 		return nil, err
@@ -528,19 +533,19 @@ func (g *GateAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posit
 
 	positions := make([]*Position, 0)
 
-	// 跳过空仓
+	// 跳過空倉
 	if fp.Size == 0 {
 		return positions, nil
 	}
 
-	// 检查是否为逐仓模式
+	// 检查是否為逐倉模式
 	leverage, _ := strconv.Atoi(fp.Leverage)
 	if leverage != 0 {
-		logger.Warn("⚠️ [Gate] 当前为逐仓模式(杠杆倍数=%dx),本系统仅支持全仓模式。请在 Gate.io 网站将持仓模式改为全仓", leverage)
-		return nil, fmt.Errorf("不支持逐仓模式,请改为全仓模式")
+		logger.Warn("⚠️ [Gate] 當前為逐倉模式(杠杆倍數=%dx),本系统僅支援全倉模式。请在 Gate.io 网站將持倉模式改為全倉", leverage)
+		return nil, fmt.Errorf("不支援逐倉模式,请改為全倉模式")
 	}
 
-	// 全仓模式下,从 CrossLeverageLimit 获取杠杆倍数
+	// 全倉模式下,從 CrossLeverageLimit 獲取杠杆倍數
 	crossLeverage, _ := strconv.Atoi(fp.CrossLeverageLimit)
 	if crossLeverage == 0 {
 		crossLeverage = 1 // 默认1倍
@@ -557,7 +562,7 @@ func (g *GateAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posit
 		MarkPrice:     markPrice,
 		UnrealizedPNL: unrealisedPnl,
 		Leverage:      crossLeverage,
-		MarginType:    "crossed", // 全仓模式
+		MarginType:    "crossed", // 全倉模式
 	}
 
 	positions = append(positions, position)
@@ -565,7 +570,7 @@ func (g *GateAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posit
 	return positions, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (g *GateAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
 	acc, err := g.GetAccount(ctx)
 	if err != nil {
@@ -574,43 +579,43 @@ func (g *GateAdapter) GetBalance(ctx context.Context, asset string) (float64, er
 	return acc.AvailableBalance, nil
 }
 
-// SetLeverage 设置全仓杠杆倍数
+// SetLeverage 設置全倉杠杆倍數
 func (g *GateAdapter) SetLeverage(ctx context.Context, leverage int) error {
-	// 验证杠杆倍数范围（Gate.io 通常支持 1-125 倍）
+	// 驗证杠杆倍數範圍（Gate.io 通常支援 1-125 倍）
 	if leverage < 1 || leverage > 125 {
-		return fmt.Errorf("杠杆倍数必须在 1-125 之间，当前值: %d", leverage)
+		return fmt.Errorf("杠杆倍數必須在 1-125 之间，當前值: %d", leverage)
 	}
 
-	// 检查当前持仓模式
+	// 检查當前持倉模式
 	fp, err := g.client.GetPosition(ctx, g.settle, g.gateSymbol)
 	if err != nil {
-		// 如果没有持仓，仍然可以设置杠杆（Gate.io 允许）
-		logger.Info("ℹ️ [Gate] 当前无持仓，将设置全仓杠杆为 %dx", leverage)
+		// 如果没有持倉，仍然可以設置杠杆（Gate.io 允許）
+		logger.Info("ℹ️ [Gate] 當前無持倉，將設置全倉杠杆為 %dx", leverage)
 	} else {
-		// 检查是否为逐仓模式
+		// 检查是否為逐倉模式
 		leverageValue, _ := strconv.Atoi(fp.Leverage)
 		if leverageValue != 0 {
-			return fmt.Errorf("当前为逐仓模式，无法设置全仓杠杆。请先在 Gate.io 网站将持仓模式改为全仓")
+			return fmt.Errorf("當前為逐倉模式，無法設置全倉杠杆。请先在 Gate.io 网站將持倉模式改為全倉")
 		}
-		logger.Info("ℹ️ [Gate] 当前全仓杠杆: %s，将设置为 %dx", fp.CrossLeverageLimit, leverage)
+		logger.Info("ℹ️ [Gate] 當前全倉杠杆: %s，將設置為 %dx", fp.CrossLeverageLimit, leverage)
 	}
 
-	// 调用 API 设置杠杆
+	// 調用 API 設置杠杆
 	err = g.client.SetLeverage(ctx, g.settle, g.gateSymbol, leverage)
 	if err != nil {
-		return fmt.Errorf("设置杠杆失败: %w", err)
+		return fmt.Errorf("設置杠杆失败: %w", err)
 	}
 
-	logger.Info("✅ [Gate] 全仓杠杆已设置为 %dx", leverage)
+	logger.Info("✅ [Gate] 全倉杠杆已設置為 %dx", leverage)
 	return nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (g *GateAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	// 包装回调函数,将合约张数转换为币数量
+	// 包装回呼函數,將合約张數轉换為币數量
 	wrappedCallback := func(update interface{}) {
 		if orderUpdate, ok := update.(OrderUpdate); ok {
-			// Gate.io返回的是合约张数,需要乘以quanto_multiplier转换为币数量
+			// Gate.io返回的是合約张數,需要乘以quanto_multiplier轉换為币數量
 			if g.quantoMultiplier > 0 {
 				orderUpdate.Quantity = orderUpdate.Quantity * g.quantoMultiplier
 				orderUpdate.ExecutedQty = orderUpdate.ExecutedQty * g.quantoMultiplier
@@ -623,7 +628,7 @@ func (g *GateAdapter) StartOrderStream(ctx context.Context, callback func(interf
 
 	g.wsManager.SetOrderCallback(wrappedCallback)
 
-	// 如果 WebSocket 未运行，则启动
+	// 如果 WebSocket 未运行，则啟动
 	if !g.wsManager.IsRunning() {
 		return g.wsManager.Start(ctx, g.symbol)
 	}
@@ -631,16 +636,16 @@ func (g *GateAdapter) StartOrderStream(ctx context.Context, callback func(interf
 	return nil
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (g *GateAdapter) StopOrderStream() error {
 	return g.wsManager.Stop()
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (g *GateAdapter) StartPriceStream(ctx context.Context, callback func(string, float64)) error {
 	g.wsManager.SetPriceCallback(callback)
 
-	// 如果 WebSocket 未运行，则启动
+	// 如果 WebSocket 未运行，则啟动
 	if !g.wsManager.IsRunning() {
 		return g.wsManager.Start(ctx, g.symbol)
 	}
@@ -648,10 +653,10 @@ func (g *GateAdapter) StartPriceStream(ctx context.Context, callback func(string
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (g *GateAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 只有当请求的交易对与适配器初始化的交易对匹配时，才使用 WebSocket 缓存
-	// 这样可以避免在多交易对场景下返回错误的价格
+	// 只有當请求的交易對與适配器初始化的交易對匹配時，才使用 WebSocket 缓存
+	// 这样可以避免在多交易對场景下返回錯误的價格
 	if symbol == g.symbol {
 		price := g.wsManager.GetLatestPrice()
 		if price > 0 {
@@ -659,10 +664,10 @@ func (g *GateAdapter) GetLatestPrice(ctx context.Context, symbol string) (float6
 		}
 	}
 
-	// 使用 REST API 查询期货价格（支持任意交易对）
+	// 使用 REST API 查詢期货價格（支援任意交易對）
 	price, err := g.GetFuturesPrice(ctx, symbol)
 	if err == nil && price > 0 {
-		// 更新缓存（仅当交易对匹配时）
+		// 更新缓存（僅當交易對匹配時）
 		if symbol == g.symbol {
 			g.priceCacheMu.Lock()
 			g.priceCache = price
@@ -672,7 +677,7 @@ func (g *GateAdapter) GetLatestPrice(ctx context.Context, symbol string) (float6
 		return price, nil
 	}
 
-	// 最后尝试返回缓存价格（仅当交易对匹配且缓存未过期时）
+	// 最后尝試返回缓存價格（僅當交易對匹配且缓存未過期時）
 	if symbol == g.symbol {
 		g.priceCacheMu.RLock()
 		defer g.priceCacheMu.RUnlock()
@@ -682,20 +687,20 @@ func (g *GateAdapter) GetLatestPrice(ctx context.Context, symbol string) (float6
 		}
 	}
 
-	return 0, fmt.Errorf("价格数据不可用")
+	return 0, fmt.Errorf("價格數據不可用")
 }
 
-// SetOrderMappingCallback 设置订单映射回调
+// SetOrderMappingCallback 設置订單映射回呼
 func (g *GateAdapter) SetOrderMappingCallback(callback func(orderID int64, price float64)) {
 	g.orderMappingCallback = callback
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (g *GateAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
-	// 转换交易对格式
+	// 轉换交易對格式
 	gateSymbol := convertToGateSymbol(symbol)
 
-	// 转换K线周期格式
+	// 轉换K線週期格式
 	gateInterval := interval
 	if interval == "1m" {
 		gateInterval = "1m"
@@ -705,16 +710,16 @@ func (g *GateAdapter) GetHistoricalKlines(ctx context.Context, symbol string, in
 		gateInterval = "15m"
 	}
 
-	// 调用REST API获取K线数据
+	// 調用REST API獲取K線數據
 	candlesticks, err := g.client.GetCandlesticks(ctx, g.settle, gateSymbol, gateInterval, limit)
 	if err != nil {
-		return nil, fmt.Errorf("获取历史K线失败: %w", err)
+		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
 	}
 
-	// 转换为标准格式
+	// 轉换為標准格式
 	candles := make([]*Candle, 0, len(candlesticks))
 	for _, cs := range candlesticks {
-		// 解析价格字符串
+		// 解析價格字符串
 		open, _ := parseFloat(cs.Open)
 		high, _ := parseFloat(cs.High)
 		low, _ := parseFloat(cs.Low)
@@ -729,14 +734,14 @@ func (g *GateAdapter) GetHistoricalKlines(ctx context.Context, symbol string, in
 			Close:     close,
 			Volume:    volume,
 			Timestamp: cs.Timestamp,
-			IsClosed:  true, // 历史K线都是已完结的
+			IsClosed:  true, // 历史K線都是已完結的
 		})
 	}
 
 	return candles, nil
 }
 
-// StartKlineStream 启动K线流
+// StartKlineStream 啟動K線流
 func (g *GateAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(interface{})) error {
 	if g.klineWSManager == nil {
 		g.klineWSManager = NewKlineWebSocketManager(g.settle, g.testnet)
@@ -744,16 +749,16 @@ func (g *GateAdapter) StartKlineStream(ctx context.Context, symbols []string, in
 	return g.klineWSManager.Start(ctx, symbols, interval, callback)
 }
 
-// StopKlineStream 停止K线流
+// StopKlineStream 停止K線流
 func (g *GateAdapter) StopKlineStream() {
 	if g.klineWSManager != nil {
 		g.klineWSManager.Stop()
 	}
 }
 
-// GetBaseAsset 获取基础资产（交易币种）
+// GetBaseAsset 獲取基础资產（交易币种）
 func (g *GateAdapter) GetBaseAsset() string {
-	// 从交易对中提取基础资产（如 BTCUSDT -> BTC）
+	// 從交易對中提取基础资產（如 BTCUSDT -> BTC）
 	parts := strings.Split(g.symbol, "USDT")
 	if len(parts) > 0 {
 		return parts[0]
@@ -761,16 +766,16 @@ func (g *GateAdapter) GetBaseAsset() string {
 	return ""
 }
 
-// GetQuoteAsset 获取计价资产（结算币种）
+// GetQuoteAsset 獲取计價资產（結算币种）
 func (g *GateAdapter) GetQuoteAsset() string {
-	// Gate.io USDT永续合约使用USDT作为计价资产
+	// Gate.io USDT永续合約使用USDT作為计價资產
 	return "USDT"
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	// Gate.io API: GET /api/v4/futures/{settle}/funding_rate
-	// 需要转换交易对格式
+	// 需要轉换交易對格式
 	gateSymbol := convertToGateSymbol(symbol)
 
 	path := fmt.Sprintf("/futures/%s/funding_rate", g.settle)
@@ -778,17 +783,17 @@ func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float6
 
 	respBody, err := g.client.DoRequest(ctx, "GET", path, queryString, nil)
 	if err != nil {
-		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+		return 0, fmt.Errorf("獲取资金费率失败: %w", err)
 	}
 
-	// 解析响应（Gate.io返回数组）
+	// 解析响应（Gate.io返回數组）
 	var results []struct {
 		Contract    string `json:"contract"`
 		FundingRate string `json:"funding_rate"` // Gate.io返回字符串格式
 	}
 
 	if err := json.Unmarshal(respBody, &results); err != nil {
-		// 尝试解析单个对象格式
+		// 尝試解析單個對象格式
 		var result struct {
 			Contract    string `json:"contract"`
 			FundingRate string `json:"funding_rate"`
@@ -803,7 +808,7 @@ func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float6
 		return 0, fmt.Errorf("解析响应失败: %w, 响应: %s", err, string(respBody))
 	}
 
-	// 查找匹配的交易对
+	// 查找匹配的交易對
 	for _, result := range results {
 		if result.Contract == gateSymbol {
 			fundingRate, err := strconv.ParseFloat(result.FundingRate, 64)
@@ -814,12 +819,12 @@ func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float6
 		}
 	}
 
-	return 0, fmt.Errorf("未找到交易对 %s 的资金费率", symbol)
+	return 0, fmt.Errorf("未找到交易對 %s 的资金费率", symbol)
 }
 
-// GetFuturesPrice 获取期货市场价格
+// GetFuturesPrice 獲取期货市场價格
 func (g *GateAdapter) GetFuturesPrice(ctx context.Context, symbol string) (float64, error) {
-	// 转换为 Gate.io 期货格式: BTCUSDT -> BTC_USDT
+	// 轉换為 Gate.io 期货格式: BTCUSDT -> BTC_USDT
 	gateSymbol := convertToGateSymbol(symbol)
 
 	// Gate.io 期货 API: GET /api/v4/futures/{settle}/tickers
@@ -828,7 +833,7 @@ func (g *GateAdapter) GetFuturesPrice(ctx context.Context, symbol string) (float
 
 	respBody, err := g.client.DoRequest(ctx, "GET", path, queryString, nil)
 	if err != nil {
-		return 0, fmt.Errorf("获取期货价格失败: %w", err)
+		return 0, fmt.Errorf("獲取期货價格失败: %w", err)
 	}
 
 	// 解析响应
@@ -842,29 +847,29 @@ func (g *GateAdapter) GetFuturesPrice(ctx context.Context, symbol string) (float
 	}
 
 	if len(results) == 0 {
-		return 0, fmt.Errorf("未找到合约 %s 的期货价格", gateSymbol)
+		return 0, fmt.Errorf("未找到合約 %s 的期货價格", gateSymbol)
 	}
 
 	price, err := strconv.ParseFloat(results[0].Last, 64)
 	if err != nil {
-		return 0, fmt.Errorf("解析价格失败: %w", err)
+		return 0, fmt.Errorf("解析價格失败: %w", err)
 	}
 
 	return price, nil
 }
 
-// GetSpotPrice 获取现货市场价格
+// GetSpotPrice 獲取現貨市场價格
 func (g *GateAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
-	// 转换为 Gate.io 现货格式: BTCUSDT -> BTC_USDT
+	// 轉换為 Gate.io 現貨格式: BTCUSDT -> BTC_USDT
 	spotSymbol := convertToGateSymbol(symbol)
 
-	// Gate.io 现货 API: GET /api/v4/spot/tickers
+	// Gate.io 現貨 API: GET /api/v4/spot/tickers
 	path := "/spot/tickers"
 	queryString := fmt.Sprintf("currency_pair=%s", spotSymbol)
 
 	respBody, err := g.client.DoRequest(ctx, "GET", path, queryString, nil)
 	if err != nil {
-		return 0, fmt.Errorf("获取现货价格失败: %w", err)
+		return 0, fmt.Errorf("獲取現貨價格失败: %w", err)
 	}
 
 	// 解析响应
@@ -878,18 +883,18 @@ func (g *GateAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64,
 	}
 
 	if len(results) == 0 {
-		return 0, fmt.Errorf("未找到交易对 %s 的现货价格", symbol)
+		return 0, fmt.Errorf("未找到交易對 %s 的現貨價格", symbol)
 	}
 
 	price, err := strconv.ParseFloat(results[0].Last, 64)
 	if err != nil {
-		return 0, fmt.Errorf("解析价格失败: %w", err)
+		return 0, fmt.Errorf("解析價格失败: %w", err)
 	}
 
 	return price, nil
 }
 
-// calculateDecimalPlaces 计算小数位数
+// calculateDecimalPlaces 计算小數位數
 func calculateDecimalPlaces(value float64) int {
 	if value >= 1 {
 		return 0
@@ -901,7 +906,7 @@ func calculateDecimalPlaces(value float64) int {
 		return 0
 	}
 
-	// 计算小数点后第一个非零数字的位置
+	// 计算小數点后第一個非零數字的位置
 	for i, c := range parts[1] {
 		if c != '0' {
 			return i + 1
@@ -911,18 +916,18 @@ func calculateDecimalPlaces(value float64) int {
 	return 0
 }
 
-// GetOrderBook 获取订单簿深度
+// GetOrderBook 獲取訂單簿深度
 func (g *GateAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
-	// 转换交易对格式
+	// 轉换交易對格式
 	gateSymbol := convertToGateSymbol(symbol)
 
-	// 调用 Gate.io API 获取订单簿
+	// 調用 Gate.io API 獲取訂單簿
 	gateOrderBook, err := g.client.GetOrderBook(ctx, g.settle, gateSymbol, limit)
 	if err != nil {
-		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+		return nil, fmt.Errorf("獲取訂單簿深度失败: %w", err)
 	}
 
-	// 转换买盘数据（价格从高到低，Gate.io 已经按此顺序返回）
+	// 轉换買盘數據（價格從高到低，Gate.io 已經按此顺序返回）
 	bids := make([]OrderBookLevel, 0, len(gateOrderBook.Bids))
 	for _, bid := range gateOrderBook.Bids {
 		if len(bid) < 2 {
@@ -934,7 +939,7 @@ func (g *GateAdapter) GetOrderBook(ctx context.Context, symbol string, limit int
 		})
 	}
 
-	// 转换卖盘数据（价格从低到高，Gate.io 已经按此顺序返回）
+	// 轉换賣盘數據（價格從低到高，Gate.io 已經按此顺序返回）
 	asks := make([]OrderBookLevel, 0, len(gateOrderBook.Asks))
 	for _, ask := range gateOrderBook.Asks {
 		if len(ask) < 2 {
@@ -946,7 +951,7 @@ func (g *GateAdapter) GetOrderBook(ctx context.Context, symbol string, limit int
 		})
 	}
 
-	// 使用时间戳（优先使用 time_s，如果没有则使用 time）
+	// 使用時间戳（优先使用 time_s，如果没有则使用 time）
 	timestamp := gateOrderBook.TimeS
 	if timestamp == 0 {
 		timestamp = int64(gateOrderBook.Time)
@@ -960,7 +965,7 @@ func (g *GateAdapter) GetOrderBook(ctx context.Context, symbol string, limit int
 	}, nil
 }
 
-// InternalTransfer 交易所内部转账（Gate 暂未实现）
+// InternalTransfer 交易所內部轉帳（Gate 暂未實現）
 func (g *GateAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Gate")
 }

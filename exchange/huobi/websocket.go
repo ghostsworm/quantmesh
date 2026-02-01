@@ -17,7 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// decompressGzip 解压 gzip 数据
+// decompressGzip 解压 gzip 數據
 func decompressGzip(data []byte) ([]byte, error) {
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -41,7 +41,7 @@ type WebSocketManager struct {
 	priceCallback func(float64)
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey string) *WebSocketManager {
 	return &WebSocketManager{
 		apiKey:    apiKey,
@@ -50,7 +50,7 @@ func NewWebSocketManager(apiKey, secretKey string) *WebSocketManager {
 	}
 }
 
-// Start 启动订单流
+// Start 啟動訂單流
 func (w *WebSocketManager) Start(ctx context.Context, contractCode string, callback func(OrderUpdate)) error {
 	if w.isRunning.Load() {
 		return fmt.Errorf("WebSocket 已在运行")
@@ -69,20 +69,20 @@ func (w *WebSocketManager) Start(ctx context.Context, contractCode string, callb
 
 	w.isRunning.Store(true)
 
-	// 订阅订单频道
+	// 订阅订單频道
 	if err := w.subscribeOrders(contractCode); err != nil {
 		conn.Close()
-		return fmt.Errorf("订阅订单频道失败: %w", err)
+		return fmt.Errorf("订阅订單频道失败: %w", err)
 	}
 
 	go w.readMessages()
 	go w.keepAlive()
 
-	logger.Info("✅ [Huobi WebSocket] 订单流已启动")
+	logger.Info("✅ [Huobi WebSocket] 訂單流已啟动")
 	return nil
 }
 
-// subscribeOrders 订阅订单频道
+// subscribeOrders 订阅订單频道
 func (w *WebSocketManager) subscribeOrders(contractCode string) error {
 	subMsg := map[string]interface{}{
 		"op":    "sub",
@@ -92,7 +92,7 @@ func (w *WebSocketManager) subscribeOrders(contractCode string) error {
 	return w.sendMessage(subMsg)
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, contractCode string, callback func(float64)) error {
 	w.priceCallback = callback
 
@@ -102,10 +102,10 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, contractCode st
 	}
 
 	if err := w.sendMessage(subMsg); err != nil {
-		return fmt.Errorf("订阅价格频道失败: %w", err)
+		return fmt.Errorf("订阅價格频道失败: %w", err)
 	}
 
-	logger.Info("✅ [Huobi WebSocket] 价格流已启动")
+	logger.Info("✅ [Huobi WebSocket] 價格流已啟动")
 	return nil
 }
 
@@ -183,7 +183,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理订单数据
+	// 处理订單數據
 	if topic, ok := msg["topic"].(string); ok {
 		if len(topic) > 6 && topic[:6] == "orders" {
 			w.handleOrderUpdate(msg)
@@ -193,7 +193,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// handleOrderUpdate 处理订单更新
+// handleOrderUpdate 处理订單更新
 func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 	data, ok := msg["data"].(map[string]interface{})
 	if !ok {
@@ -234,7 +234,7 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 	}
 }
 
-// handlePriceUpdate 处理价格更新
+// handlePriceUpdate 处理價格更新
 func (w *WebSocketManager) handlePriceUpdate(msg map[string]interface{}) {
 	tick, ok := msg["tick"].(map[string]interface{})
 	if !ok {
@@ -249,7 +249,7 @@ func (w *WebSocketManager) handlePriceUpdate(msg map[string]interface{}) {
 	}
 }
 
-// getString 安全获取字符串值
+// getString 安全獲取字符串值
 func getString(m map[string]interface{}, key string) string {
 	if v, ok := m[key]; ok {
 		switch val := v.(type) {
@@ -283,7 +283,7 @@ func (w *WebSocketManager) keepAlive() {
 	}
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (w *WebSocketManager) GetLatestPrice() float64 {
 	if price := w.lastPrice.Load(); price != nil {
 		return price.(float64)

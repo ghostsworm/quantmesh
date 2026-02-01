@@ -19,10 +19,10 @@ import (
 
 const (
 	BitrueMainnetBaseURL = "https://openapi.bitrue.com"         // Bitrue 主网
-	BitrueTestnetBaseURL = "https://testnet-openapi.bitrue.com" // Bitrue 测试网
+	BitrueTestnetBaseURL = "https://testnet-openapi.bitrue.com" // Bitrue 測試網
 )
 
-// BitrueClient Bitrue 客户端
+// BitrueClient Bitrue 客戶端
 type BitrueClient struct {
 	apiKey     string
 	secretKey  string
@@ -31,7 +31,7 @@ type BitrueClient struct {
 	isTestnet  bool
 }
 
-// NewBitrueClient 创建 Bitrue 客户端
+// NewBitrueClient 創建 Bitrue 客戶端
 func NewBitrueClient(apiKey, secretKey string, isTestnet bool) *BitrueClient {
 	baseURL := BitrueMainnetBaseURL
 	if isTestnet {
@@ -115,7 +115,7 @@ func (c *BitrueClient) sendRequest(ctx context.Context, method, path string, par
 	return respBody, nil
 }
 
-// GetExchangeInfo 获取交易对信息
+// GetExchangeInfo 獲取交易對信息
 func (c *BitrueClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error) {
 	path := "/api/v1/exchangeInfo"
 	params := url.Values{}
@@ -133,7 +133,7 @@ func (c *BitrueClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, erro
 	return &exchangeInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *BitrueClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := "/api/v1/order"
 	params := url.Values{}
@@ -165,7 +165,7 @@ func (c *BitrueClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	return &order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *BitrueClient) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	path := "/api/v1/order"
 	params := url.Values{}
@@ -181,7 +181,7 @@ func (c *BitrueClient) CancelOrder(ctx context.Context, symbol string, orderID i
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *BitrueClient) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	path := "/api/v1/order"
 	params := url.Values{}
@@ -201,7 +201,7 @@ func (c *BitrueClient) GetOrder(ctx context.Context, symbol string, orderID int6
 	return &order, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *BitrueClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, error) {
 	path := "/api/v1/openOrders"
 	params := url.Values{}
@@ -222,7 +222,7 @@ func (c *BitrueClient) GetOpenOrders(ctx context.Context, symbol string) ([]Orde
 	return orders, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (c *BitrueClient) GetAccount(ctx context.Context) (*Account, error) {
 	path := "/api/v1/account"
 	params := url.Values{}
@@ -240,7 +240,7 @@ func (c *BitrueClient) GetAccount(ctx context.Context) (*Account, error) {
 	return &account, nil
 }
 
-// GetTicker 获取最新价格
+// GetTicker 獲取最新價格
 func (c *BitrueClient) GetTicker(ctx context.Context, symbol string) (*Ticker, error) {
 	path := "/api/v1/ticker/price"
 	params := url.Values{}
@@ -259,7 +259,7 @@ func (c *BitrueClient) GetTicker(ctx context.Context, symbol string) (*Ticker, e
 	return &ticker, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *BitrueClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/api/v1/klines"
 	params := url.Values{}
@@ -299,7 +299,7 @@ func (c *BitrueClient) GetKlines(ctx context.Context, symbol, interval string, l
 	return klines, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIError struct {
 	Code int    `json:"code"`

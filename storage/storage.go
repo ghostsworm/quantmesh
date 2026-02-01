@@ -15,7 +15,7 @@ import (
 	"quantmesh/utils"
 )
 
-// Storage 存储接口
+// Storage 存儲接口
 type Storage interface {
 	SaveOrder(order *Order) error
 	SavePosition(position *Position) error
@@ -67,7 +67,7 @@ type Storage interface {
 	DeleteProfitWithdrawRule(accountID string, ruleID string) error
 	UpdateRuleLastTriggeredAt(ruleID string, triggeredAt time.Time) error
 
-	// 盈利提取记录
+	// 盈利提取記錄
 	SaveWithdrawRecord(record *ProfitWithdrawRecord) error
 	UpdateWithdrawRecordStatus(id, status, transferID, failedReason string) error
 	GetWithdrawRecords(accountID string, limit int) ([]*ProfitWithdrawRecord, error)
@@ -75,33 +75,41 @@ type Storage interface {
 	GetBacktestTaskStore() backtest.TaskStore
 	Close() error
 
-	// 新闻分析历史
+	// 新聞分析历史
 	SaveNewsAnalysisHistory(history *NewsAnalysisHistory) error
 	QueryNewsAnalysisHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*NewsAnalysisHistory, int64, error)
 	GetLatestNewsAnalysisHistory(symbol string) (*NewsAnalysisHistory, error)
 	GetNewsAnalysisHistoryByID(id int64) (*NewsAnalysisHistory, error)
 	CleanupNewsAnalysisHistory(beforeTime time.Time) error
 
-	// 价格历史（用于预测验证）
+	// 價格历史（用於預测驗证）
 	SavePriceHistory(h *PriceHistory) error
 	GetPriceAtTime(assetType, symbol string, t time.Time, tolerance time.Duration) (*PriceHistory, error)
 	GetPriceHistory(assetType, symbol string, startTime, endTime time.Time, limit int) ([]*PriceHistory, error)
 
-	// 预测验证
+	// 預测驗证
 	SavePredictionVerification(v *PredictionVerification) error
 	QueryPredictionVerifications(assetType, symbol string, startTime, endTime time.Time, limit, offset int) ([]*PredictionVerification, int64, error)
 	GetPredictionVerificationsByStatus(status string, limit int) ([]*PredictionVerification, error)
 	UpdatePredictionVerification(v *PredictionVerification) error
 	GetPredictionAccuracyStats(assetType string, since time.Time) (total int, correct int, err error)
+
+	// 每日快照與小時權益（未實現盈虧、日內最大回撤）
+	SaveHourlyEquityRecord(record *HourlyEquityRecord) error
+	SaveDailySnapshot(snapshot *DailySnapshot) error
+	QueryDailySnapshots(exchange, symbol, account string, startDate, endDate time.Time) ([]*DailySnapshot, error)
+	GetDailySnapshot(exchange, symbol, account string, date time.Time) (*DailySnapshot, error)
+	QueryHourlyEquityRecords(exchange, symbol, account string, startTime, endTime time.Time) ([]*HourlyEquityRecord, error)
+	DeleteHourlyEquityRecordsBefore(cutoff time.Time) error
 }
 
-// storageEvent 存储事件
+// storageEvent 存儲事件
 type storageEvent struct {
 	eventType string
 	data      interface{}
 }
 
-// StorageService 存储服务
+// StorageService 存儲服務
 type StorageService struct {
 	storage      Storage
 	cfg          *config.Config
@@ -115,7 +123,7 @@ type StorageService struct {
 	stopMu       sync.Mutex
 }
 
-// NewStorageService 创建存储服务
+// NewStorageService 創建存儲服務
 func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService, error) {
 	if !cfg.Storage.Enabled {
 		return &StorageService{}, nil
@@ -132,45 +140,45 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 		fallbackPath: "./data/storage_fallback.log",
 	}
 
-	// 创建数据目录
+	// 創建數據目錄
 	dataDir := filepath.Dir(cfg.Storage.Path)
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建数据目录失败: %w", err)
+		return nil, fmt.Errorf("創建數據目錄失败: %w", err)
 	}
 
-	// 初始化存储实现
+	// 初始化存儲實現
 	switch cfg.Storage.Type {
 	case "sqlite":
 		sqliteStorage, err := NewSQLiteStorage(cfg.Storage.Path)
 		if err != nil {
-			return nil, fmt.Errorf("初始化 SQLite 存储失败: %w", err)
+			return nil, fmt.Errorf("初始化 SQLite 存儲失败: %w", err)
 		}
 		ss.storage = sqliteStorage
 	default:
-		return nil, fmt.Errorf("不支持的存储类型: %s", cfg.Storage.Type)
+		return nil, fmt.Errorf("不支援的存儲類型: %s", cfg.Storage.Type)
 	}
 
 	return ss, nil
 }
 
-// GetStorage 获取底层存储接口（用于直接调用存储方法）
+// GetStorage 獲取底层存儲介面（用於直接調用存儲方法）
 func (ss *StorageService) GetStorage() Storage {
 	return ss.storage
 }
 
-// SaveReconciliationHistoryDirect 直接保存对账历史（用于 Reconciler）
+// SaveReconciliationHistoryDirect 直接保存對账历史（用於 Reconciler）
 func (ss *StorageService) SaveReconciliationHistoryDirect(exchange, symbol, account string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
 	activeBuyOrders, activeSellOrders int, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit float64) error {
 	if ss.storage == nil {
 		return nil
 	}
 
-	// 计算实际盈利（从 trades 表统计截止到对账时间的累计盈亏）
-	// 🔥 重要：先将 reconcileTime 转换为 UTC，因为数据库中的 created_at 是 UTC 时间
+	// 计算實際盈利（從 trades 表统计截止到對账時间的累计盈亏）
+	// 🔥 重要：先將 reconcileTime 轉换為 UTC，因為數據库中的 created_at 是 UTC 時间
 	reconcileTimeUTC := utils.ToUTC(reconcileTime)
 	actualProfit, err := ss.storage.GetActualProfitBySymbol(symbol, account, reconcileTimeUTC)
 	if err != nil {
-		logger.Warn("⚠️ 计算实际盈利失败: %v，使用 0 作为默认值", err)
+		logger.Warn("⚠️ 计算實際盈利失败: %v，使用 0 作為默认值", err)
 		actualProfit = 0
 	}
 
@@ -194,17 +202,17 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(exchange, symbol, acco
 	return ss.storage.SaveReconciliationHistory(history)
 }
 
-// Start 启动存储服务
+// Start 啟动存儲服務
 func (ss *StorageService) Start() {
 	if ss.storage == nil {
 		return
 	}
 
 	go ss.processEvents()
-	logger.Info("✅ 存储服务已启动 (类型: %s, 路径: %s)", ss.cfg.Storage.Type, ss.cfg.Storage.Path)
+	logger.Info("✅ 存儲服務已啟动 (類型: %s, 路径: %s)", ss.cfg.Storage.Type, ss.cfg.Storage.Path)
 }
 
-// Stop 停止存储服务
+// Stop 停止存儲服務
 func (ss *StorageService) Stop() {
 	ss.stopMu.Lock()
 	if ss.stopped {
@@ -225,25 +233,25 @@ func (ss *StorageService) Stop() {
 	// 最后刷新缓冲区（确保所有事件都被处理）
 	ss.flush()
 
-	// 关闭存储（关闭数据库连接）
+	// 关闭存儲（关闭數據库连接）
 	if ss.storage != nil {
 		ss.storage.Close()
 	}
 }
 
-// Save 保存数据（完全异步，不阻塞）
+// Save 保存數據（完全异步，不阻塞）
 func (ss *StorageService) Save(eventType string, data interface{}) {
 	if ss.storage == nil {
 		return
 	}
 
-	// 检查服务是否已停止
+	// 检查服務是否已停止
 	ss.stopMu.Lock()
 	stopped := ss.stopped
 	ss.stopMu.Unlock()
 
 	if stopped {
-		// 服务已停止，不再接受新事件
+		// 服務已停止，不再接受新事件
 		return
 	}
 
@@ -251,8 +259,8 @@ func (ss *StorageService) Save(eventType string, data interface{}) {
 	case ss.eventCh <- &storageEvent{eventType: eventType, data: data}:
 		// 成功加入队列
 	default:
-		// Channel 满了，记录警告但不阻塞
-		logger.Warn("⚠️ 存储队列已满，丢弃事件: %s", eventType)
+		// Channel 满了，記錄警告但不阻塞
+		logger.Warn("⚠️ 存儲队列已满，丢弃事件: %s", eventType)
 	}
 }
 
@@ -272,12 +280,12 @@ func (ss *StorageService) processEvents() {
 		case event := <-ss.eventCh:
 			// 添加到缓冲区
 			ss.mu.Lock()
-			// 检查缓冲区大小，防止无限增长
+			// 检查缓冲区大小，防止無限增长
 			maxBufferSize := ss.cfg.Storage.BatchSize * 10 // 最多保留10倍批量大小
 			if len(ss.buffer) >= maxBufferSize {
-				// 缓冲区过大，强制刷新
+				// 缓冲区過大，强制刷新
 				ss.mu.Unlock()
-				logger.Warn("⚠️ 存储缓冲区过大 (%d)，强制刷新", len(ss.buffer))
+				logger.Warn("⚠️ 存儲缓冲区過大 (%d)，强制刷新", len(ss.buffer))
 				ss.flush()
 				ss.mu.Lock()
 			}
@@ -285,7 +293,7 @@ func (ss *StorageService) processEvents() {
 			bufferSize := len(ss.buffer)
 			ss.mu.Unlock()
 
-			// 达到批量大小时立即刷新
+			// 达到批量大小時立即刷新
 			if bufferSize >= ss.cfg.Storage.BatchSize {
 				ss.flush()
 			}
@@ -297,7 +305,7 @@ func (ss *StorageService) processEvents() {
 	}
 }
 
-// flush 刷新缓冲区到数据库
+// flush 刷新缓冲区到數據库
 func (ss *StorageService) flush() {
 	ss.mu.Lock()
 	if len(ss.buffer) == 0 {
@@ -310,9 +318,9 @@ func (ss *StorageService) flush() {
 	ss.buffer = ss.buffer[:0]
 	ss.mu.Unlock()
 
-	// 批量写入数据库（带重试和保底方案）
+	// 批量写入數據库（带重試和保底方案）
 	if err := ss.batchSave(events); err != nil {
-		logger.Error("❌ 数据库写入失败: %v", err)
+		logger.Error("❌ 數據库写入失败: %v", err)
 		// 保底方案：写入日志文件
 		ss.fallbackToLog(events)
 	}
@@ -320,12 +328,12 @@ func (ss *StorageService) flush() {
 
 // batchSave 批量保存
 func (ss *StorageService) batchSave(events []*storageEvent) error {
-	// 检查存储是否可用
+	// 检查存儲是否可用
 	if ss.storage == nil {
-		return fmt.Errorf("存储服务未初始化")
+		return fmt.Errorf("存儲服務未初始化")
 	}
 
-	// 使用事务批量写入
+	// 使用事務批量写入
 	for _, event := range events {
 		var err error
 		switch event.eventType {
@@ -338,21 +346,21 @@ func (ss *StorageService) batchSave(events []*storageEvent) error {
 				err = ss.savePositionFromMap(position)
 			}
 		case "system_metrics":
-			// 系统监控数据直接通过SaveEvent处理（已在sqlite中实现）
+			// 系统監控數據直接通過SaveEvent处理（已在sqlite中實現）
 			if data, ok := event.data.(map[string]interface{}); ok {
 				err = ss.storage.SaveEvent(event.eventType, data)
 			}
 		default:
-			// 保存为事件
+			// 保存為事件
 			if data, ok := event.data.(map[string]interface{}); ok {
 				err = ss.storage.SaveEvent(event.eventType, data)
 			}
 		}
 
 		if err != nil {
-			// 检查是否是数据库关闭错误
+			// 检查是否是數據库关闭錯误
 			if err.Error() == "sql: database is closed" {
-				return fmt.Errorf("数据库已关闭，停止保存")
+				return fmt.Errorf("數據库已关闭，停止保存")
 			}
 			return fmt.Errorf("保存 %s 失败: %w", event.eventType, err)
 		}
@@ -361,7 +369,7 @@ func (ss *StorageService) batchSave(events []*storageEvent) error {
 	return nil
 }
 
-// saveOrderFromMap 从 map 保存订单
+// saveOrderFromMap 從 map 保存订單
 func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 	order := &Order{}
 	if orderID, ok := data["order_id"].(int64); ok {
@@ -395,7 +403,7 @@ func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 	if err := ss.storage.SaveOrder(order); err != nil {
 		return err
 	}
-	// 合规审计：记录订单事件
+	// 合规审计：記錄订單事件
 	if globalAuditLogger != nil {
 		exchange, _ := data["exchange"].(string)
 		account, _ := data["account"].(string)
@@ -404,7 +412,7 @@ func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 	return nil
 }
 
-// savePositionFromMap 从 map 保存持仓
+// savePositionFromMap 從 map 保存持倉
 func (ss *StorageService) savePositionFromMap(data map[string]interface{}) error {
 	position := &Position{}
 	if slotPrice, ok := data["slot_price"].(float64); ok {
@@ -440,10 +448,10 @@ func (ss *StorageService) savePositionFromMap(data map[string]interface{}) error
 
 // fallbackToLog 保底方案：写入日志文件
 func (ss *StorageService) fallbackToLog(events []*storageEvent) {
-	// 确保目录存在
+	// 确保目錄存在
 	dataDir := filepath.Dir(ss.fallbackPath)
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		logger.Error("❌ 创建日志目录失败: %v", err)
+		logger.Error("❌ 創建日志目錄失败: %v", err)
 		return
 	}
 

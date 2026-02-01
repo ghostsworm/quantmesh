@@ -9,10 +9,10 @@ import (
 )
 
 // GinLoggerMiddleware 自定义 Gin 日志中间件
-// logAll=true 时全量输出；否则仅记录错误请求 (状态码 >= 400)
+// logAll=true 時全量输出；否则僅記錄錯误请求 (状態碼 >= 400)
 func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 记录请求开始时间
+		// 記錄请求开始時间
 		start := time.Now()
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
@@ -21,18 +21,18 @@ func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
 		c.Next()
 
 		statusCode := c.Writer.Status()
-		// 非 debug 模式只记录 4xx/5xx
+		// 非 debug 模式只記錄 4xx/5xx
 		if !logAll && statusCode < 400 {
 			return
 		}
 
-		// 计算请求处理时间
+		// 计算请求处理時间
 		latency := time.Since(start)
 		
-		// 获取客户端 IP
+		// 獲取客戶端 IP
 		clientIP := c.ClientIP()
 		
-		// 获取请求方法
+		// 獲取请求方法
 		method := c.Request.Method
 		
 		// 拼接完整路径
@@ -40,7 +40,7 @@ func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
 			path = path + "?" + raw
 		}
 
-		// 获取错误信息（如果有）
+		// 獲取錯误信息（如果有）
 		errorMessage := c.Errors.ByType(gin.ErrorTypePrivate).String()
 		
 		// 格式化日志消息

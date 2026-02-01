@@ -69,6 +69,11 @@ func (a *Adapter) GetName() string {
 	return "Crypto.com"
 }
 
+// GetMarketType 獲取市場類型：futures 合約
+func (a *Adapter) GetMarketType() string {
+	return "futures"
+}
+
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOID string) (*OrderLocal, error) {
 	var ccSide string
 	if side == SideBuy {
@@ -145,7 +150,7 @@ func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 }
 
 func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 如果传入 symbol,转换格式并使用;否则使用默认 instrumentName
+	// 如果傳入 symbol,轉换格式並使用;否则使用預設 instrumentName
 	targetInstrument := a.instrumentName
 	if symbol != "" {
 		targetInstrument = convertSymbolToCryptoCom(symbol)
@@ -223,7 +228,7 @@ func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 	}
 }
 
-// InternalTransfer 交易所内部转账（Crypto.com 暂未实现）
+// InternalTransfer 交易所內部轉帳（Crypto.com 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Crypto.com")
 }

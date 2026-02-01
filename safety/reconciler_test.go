@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// MockPositionManager 模拟仓位管理器
+// MockPositionManager 模拟倉位管理器
 type MockPositionManager struct {
 	Slots          map[float64]interface{}
 	TotalBuyQty    float64
@@ -33,7 +33,7 @@ func (m *MockPositionManager) UpdateLastReconcileTime(t time.Time) {}
 func (m *MockPositionManager) GetSymbol() string                   { return m.Symbol }
 func (m *MockPositionManager) GetPriceInterval() float64           { return m.PriceInterval }
 
-// TestSlot 用于对账反射
+// TestSlot 用於對账反射
 type TestSlot struct {
 	PositionStatus string
 	PositionQty    float64
@@ -41,7 +41,7 @@ type TestSlot struct {
 	OrderStatus    string
 }
 
-// MockReconcileExchange 专门用于对账测试的 Mock
+// MockReconcileExchange 专门用於對账测試的 Mock
 type MockReconcileExchange struct{}
 
 func (m *MockReconcileExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
@@ -64,15 +64,15 @@ func TestReconciler_Reconcile(t *testing.T) {
 		Slots:         make(map[float64]interface{}),
 	}
 
-	// 构造本地数据
-	// 槽位 1: 已成交持仓，有卖单挂单
+	// 構造本地數據
+	// 槽位 1: 已成交持倉，有賣單挂單
 	pm.Slots[50000.0] = TestSlot{
 		PositionStatus: "FILLED",
 		PositionQty:    0.1,
 		OrderSide:      "SELL",
 		OrderStatus:    "PLACED",
 	}
-	// 槽位 2: 无持仓，有买单挂单
+	// 槽位 2: 無持倉，有買單挂單
 	pm.Slots[49900.0] = TestSlot{
 		PositionStatus: "EMPTY",
 		PositionQty:    0.0,
@@ -80,18 +80,18 @@ func TestReconciler_Reconcile(t *testing.T) {
 		OrderStatus:    "PLACED",
 	}
 
-	// 创建一个 mock 分布式锁
-	mockLock := lock.NewNopLock() // 使用无操作锁用于测试
+	// 創建一個 mock 分布式鎖
+	mockLock := lock.NewNopLock() // 使用無操作鎖用於测試
 	r := NewReconciler(cfg, ex, pm, mockLock)
 
-	// 模拟执行对账
+	// 模拟執行對账
 	err := r.Reconcile()
 	if err != nil {
-		t.Fatalf("对账执行失败: %v", err)
+		t.Fatalf("對账執行失败: %v", err)
 	}
 
-	// 验证对账次数增加
+	// 驗证對账次數增加
 	if pm.ReconcileCount != 1 {
-		t.Errorf("对账次数应为 1, 得到 %d", pm.ReconcileCount)
+		t.Errorf("對账次數应為 1, 得到 %d", pm.ReconcileCount)
 	}
 }

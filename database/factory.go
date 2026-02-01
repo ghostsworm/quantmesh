@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Config 数据库配置
+// Config 數據库配置
 type Config struct {
 	Type            string
 	DSN             string
@@ -15,7 +15,7 @@ type Config struct {
 	LogLevel        string
 }
 
-// NewDatabase 根据配置创建数据库实例
+// NewDatabase 根據配置創建數據库實例
 func NewDatabase(config *Config) (Database, error) {
 	dbConfig := &DBConfig{
 		Type:            config.Type,

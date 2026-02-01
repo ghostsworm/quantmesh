@@ -19,7 +19,7 @@ type WebhookNotifier struct {
 	client  *http.Client
 }
 
-// NewWebhookNotifier 创建 Webhook 通知器
+// NewWebhookNotifier 創建 Webhook 通知器
 func NewWebhookNotifier(cfg *config.Config) (*WebhookNotifier, error) {
 	if cfg.Notifications.Webhook.URL == "" {
 		return nil, fmt.Errorf("Webhook URL 未配置")
@@ -62,7 +62,7 @@ func (wn *WebhookNotifier) Send(evt *event.Event) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", wn.url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -74,7 +74,7 @@ func (wn *WebhookNotifier) Send(evt *event.Event) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("Webhook 返回错误状态码: %d", resp.StatusCode)
+		return fmt.Errorf("Webhook 返回錯误状態碼: %d", resp.StatusCode)
 	}
 
 	return nil

@@ -9,18 +9,18 @@ import (
 	"quantmesh/exchange"
 )
 
-// GridBacktestParams 网格回测参数
+// GridBacktestParams 网格回测参數
 type GridBacktestParams struct {
 	PriceLow       float64 `json:"price_low"`
 	PriceHigh      float64 `json:"price_high"`
-	GridCount      int     `json:"grid_count"`      // 0 表示按间距推算格子数
-	OrderQuantity  float64 `json:"order_quantity"` // 单笔订单 USDT
+	GridCount      int     `json:"grid_count"`      // 0 表示按间距推算格子數
+	OrderQuantity  float64 `json:"order_quantity"` // 單笔订單 USDT
 	TotalCapital   float64 `json:"total_capital"`
 	FeeRate        float64 `json:"fee_rate"`
 	SlippageRatio  float64 `json:"slippage_ratio"`
 }
 
-// RunGridBacktest 运行网格策略回测（独立于 StrategyAdapter，多档位多笔交易）
+// RunGridBacktest 运行網格策略回测（独立於 StrategyAdapter，多檔位多笔交易）
 func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBacktestParams, initialCapital float64) (*BacktestResult, error) {
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
@@ -53,7 +53,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 
 	prevClose := candles[0].Close
 	for _, c := range candles {
-		// 权益 = 现金 + 各档位持仓市值（按当前收盘价）
+		// 权益 = 現金 + 各檔位持倉市值（按當前收盘價）
 		positionValue := 0.0
 		for _, qty := range positions {
 			positionValue += qty * c.Close
@@ -61,11 +61,11 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash + positionValue})
 
 		closePrice := c.Close
-		// 从 prevClose 到 closePrice 穿越的网格线
+		// 從 prevClose 到 closePrice 穿越的网格線
 		crossed := getCrossedLevels(prevClose, closePrice, gridLevels)
 		for _, level := range crossed {
 			if closePrice > prevClose {
-				// 价格上行：在 level 卖出（卖出的是 level 下方一档的持仓）
+				// 價格上行：在 level 賣出（賣出的是 level 下方一檔的持倉）
 				sellLevel := findLevelBelow(gridLevels, level)
 				if sellLevel >= 0 {
 					qty, ok := positions[sellLevel]
@@ -87,7 +87,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 					})
 				}
 			} else {
-				// 价格下行：在 level 买入
+				// 價格下行：在 level 買入
 				if level < 1e-12 {
 					continue
 				}
@@ -125,7 +125,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		prevClose = closePrice
 	}
 
-	// 期末权益：现金 + 持仓按最后收盘价计价
+	// 期末权益：現金 + 持倉按最后收盘價计價
 	lastClose := candles[len(candles)-1].Close
 	finalEquity := cash
 	for level, qty := range positions {
@@ -171,7 +171,7 @@ func roundPrice(p float64, decimals int) float64 {
 	return math.Round(p*f) / f
 }
 
-// getCrossedLevels 返回从 prev 到 curr 穿越的网格价格（按穿越顺序）
+// getCrossedLevels 返回從 prev 到 curr 穿越的网格價格（按穿越顺序）
 func getCrossedLevels(prev, curr float64, levels []float64) []float64 {
 	var crossed []float64
 	if prev <= curr {

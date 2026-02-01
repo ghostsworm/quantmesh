@@ -13,7 +13,7 @@ const (
 	SideSell Side = "SELL"
 )
 
-// OrderType 订单类型
+// OrderType 订單類型
 type OrderType string
 
 const (
@@ -21,7 +21,7 @@ const (
 	OrderTypeMarket OrderType = "MARKET"
 )
 
-// OrderStatus 订单状态
+// OrderStatus 订單状態
 type OrderStatus string
 
 const (
@@ -33,7 +33,7 @@ const (
 	OrderStatusExpired         OrderStatus = "EXPIRED"
 )
 
-// TimeInForce 订单有效期
+// TimeInForce 订單有效期
 type TimeInForce string
 
 const (
@@ -43,23 +43,23 @@ const (
 	TimeInForceGTX TimeInForce = "GTX" // Good Till Crossing (Post Only)
 )
 
-// OrderRequest 下单请求（通用）
+// OrderRequest 下單请求（通用）
 type OrderRequest struct {
 	Symbol        string
 	Side          Side
 	Type          OrderType
 	TimeInForce   TimeInForce
 	Quantity      float64
-	Price         float64 // 市价单可为0
-	ReduceOnly    bool    // 是否只减仓
+	Price         float64 // 市價單可為0
+	ReduceOnly    bool    // 是否只减倉
 	PostOnly      bool    // 是否只做 Maker（Post Only）
-	PriceDecimals int     // 价格精度（用于格式化）
-	ClientOrderID string  // 自定义订单ID
-	StrategyName  string  // 策略名称（可选，用于日志追踪）
-	StrategyType  string  // 策略类型（可选，如 "grid", "dca", "martingale"）
+	PriceDecimals int     // 價格精度（用於格式化）
+	ClientOrderID string  // 自定义订單ID
+	StrategyName  string  // 策略名称（可選，用於日志追踪）
+	StrategyType  string  // 策略類型（可選，如 "grid", "dca", "martingale"）
 }
 
-// Order 订单信息（通用）
+// Order 订單信息（通用）
 type Order struct {
 	OrderID       int64
 	ClientOrderID string
@@ -75,10 +75,10 @@ type Order struct {
 	UpdateTime    int64
 }
 
-// Position 持仓信息（通用）
+// Position 持倉資訊（通用）
 type Position struct {
 	Symbol         string
-	Size           float64 // 正数表示多仓，负数表示空仓
+	Size           float64 // 正數表示多倉，负數表示空倉
 	EntryPrice     float64
 	MarkPrice      float64
 	UnrealizedPNL  float64
@@ -87,16 +87,16 @@ type Position struct {
 	IsolatedMargin float64
 }
 
-// Account 账户信息（通用）
+// Account 帳戶資訊（通用）
 type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
 	Positions          []*Position
-	AccountLeverage    int // 账户级别的杠杆倍数（部分交易所支持）
+	AccountLeverage    int // 账戶级别的杠杆倍數（部分交易所支援）
 }
 
-// OrderUpdate WebSocket 订单更新事件（通用）
+// OrderUpdate WebSocket 订單更新事件（通用）
 type OrderUpdate struct {
 	OrderID       int64
 	ClientOrderID string
@@ -111,10 +111,10 @@ type OrderUpdate struct {
 	UpdateTime    int64
 }
 
-// OrderUpdateCallback 订单更新回调函数
+// OrderUpdateCallback 订單更新回呼函數
 type OrderUpdateCallback func(update OrderUpdate)
 
-// Candle K线数据
+// Candle K線數據
 type Candle struct {
 	Symbol    string
 	Open      float64
@@ -123,48 +123,48 @@ type Candle struct {
 	Close     float64
 	Volume    float64
 	Timestamp int64
-	IsClosed  bool // K线是否完结
+	IsClosed  bool // K線是否完結
 }
 
-// Validate 验证K线数据的合理性
+// Validate 驗证K線數據的合理性
 func (c *Candle) Validate() error {
-	// 价格必须为正数
+	// 價格必須為正數
 	if c.Open <= 0 || c.High <= 0 || c.Low <= 0 || c.Close <= 0 {
-		return fmt.Errorf("价格必须为正数: Open=%.2f, High=%.2f, Low=%.2f, Close=%.2f", c.Open, c.High, c.Low, c.Close)
+		return fmt.Errorf("價格必須為正數: Open=%.2f, High=%.2f, Low=%.2f, Close=%.2f", c.Open, c.High, c.Low, c.Close)
 	}
 
-	// OHLC 关系验证
+	// OHLC 关系驗证
 	if c.High < c.Low {
-		return fmt.Errorf("最高价不能低于最低价: High=%.2f, Low=%.2f", c.High, c.Low)
+		return fmt.Errorf("最高價不能低於最低價: High=%.2f, Low=%.2f", c.High, c.Low)
 	}
 	if c.High < c.Open || c.High < c.Close {
-		return fmt.Errorf("最高价必须大于等于开盘价和收盘价: High=%.2f, Open=%.2f, Close=%.2f", c.High, c.Open, c.Close)
+		return fmt.Errorf("最高價必須大於等於开盘價和收盘價: High=%.2f, Open=%.2f, Close=%.2f", c.High, c.Open, c.Close)
 	}
 	if c.Low > c.Open || c.Low > c.Close {
-		return fmt.Errorf("最低价必须小于等于开盘价和收盘价: Low=%.2f, Open=%.2f, Close=%.2f", c.Low, c.Open, c.Close)
+		return fmt.Errorf("最低價必須小於等於开盘價和收盘價: Low=%.2f, Open=%.2f, Close=%.2f", c.Low, c.Open, c.Close)
 	}
 
-	// 成交量不能为负数
+	// 成交量不能為负數
 	if c.Volume < 0 {
-		return fmt.Errorf("成交量不能为负数: Volume=%.2f", c.Volume)
+		return fmt.Errorf("成交量不能為负數: Volume=%.2f", c.Volume)
 	}
 
 	return nil
 }
 
-// CandleUpdateCallback K线更新回调函数
+// CandleUpdateCallback K線更新回呼函數
 type CandleUpdateCallback func(candle *Candle)
 
-// OrderBookLevel 订单簿档位
+// OrderBookLevel 订單簿檔位
 type OrderBookLevel struct {
-	Price    float64 // 价格
-	Quantity float64 // 数量
+	Price    float64 // 價格
+	Quantity float64 // 數量
 }
 
-// OrderBook 订单簿
+// OrderBook 订單簿
 type OrderBook struct {
-	Symbol    string           // 交易对
-	Bids      []OrderBookLevel // 买盘 (价格从高到低)
-	Asks      []OrderBookLevel // 卖盘 (价格从低到高)
-	Timestamp int64            // 时间戳
+	Symbol    string           // 交易對
+	Bids      []OrderBookLevel // 買盘 (價格從高到低)
+	Asks      []OrderBookLevel // 賣盘 (價格從低到高)
+	Timestamp int64            // 時间戳
 }

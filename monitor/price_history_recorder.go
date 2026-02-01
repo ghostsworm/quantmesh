@@ -10,7 +10,7 @@ import (
 	"quantmesh/storage"
 )
 
-// PriceHistoryRecorder 定时记录价格历史，用于预测验证
+// PriceHistoryRecorder 定時記錄價格历史，用於預测驗证
 type PriceHistoryRecorder struct {
 	cfg        *config.Config
 	storage    storage.Storage
@@ -21,7 +21,7 @@ type PriceHistoryRecorder struct {
 	mu         sync.Mutex
 }
 
-// NewPriceHistoryRecorder 创建价格历史记录器
+// NewPriceHistoryRecorder 創建價格历史記錄器
 func NewPriceHistoryRecorder(cfg *config.Config, st storage.Storage, getPrice PriceGetter) *PriceHistoryRecorder {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &PriceHistoryRecorder{
@@ -33,10 +33,10 @@ func NewPriceHistoryRecorder(cfg *config.Config, st storage.Storage, getPrice Pr
 	}
 }
 
-// Start 启动定时记录（每5分钟）
+// Start 啟动定時記錄（每5分钟）
 func (p *PriceHistoryRecorder) Start() {
 	if !p.cfg.NewsMonitor.Enabled || p.storage == nil || p.getPrice == nil {
-		logger.Debug("📊 PriceHistoryRecorder: 未启用或未配置，跳过")
+		logger.Debug("📊 PriceHistoryRecorder: 未啟用或未配置，跳過")
 		return
 	}
 	assets := p.cfg.NewsMonitor.Assets
@@ -48,7 +48,7 @@ func (p *PriceHistoryRecorder) Start() {
 	}
 	p.recordDone = make(chan struct{})
 	go p.recordLoop(assets)
-	logger.Info("📊 价格历史记录器已启动（每5分钟）")
+	logger.Info("📊 價格历史記錄器已啟动（每5分钟）")
 }
 
 // Stop 停止
@@ -68,7 +68,7 @@ func (p *PriceHistoryRecorder) recordLoop(assets []config.AssetConfig) {
 	interval := 5 * time.Minute
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	// 启动时立即记录一次
+	// 啟动時立即記錄一次
 	p.recordNow(assets)
 	for {
 		select {
@@ -99,7 +99,7 @@ func (p *PriceHistoryRecorder) recordNow(assets []config.AssetConfig) {
 			CreatedAt:  now,
 		}
 		if err := p.storage.SavePriceHistory(h); err != nil {
-			logger.Warn("📊 保存价格历史失败 %s: %v", a.Symbol, err)
+			logger.Warn("📊 保存價格历史失败 %s: %v", a.Symbol, err)
 		}
 	}
 }

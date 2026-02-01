@@ -20,7 +20,7 @@ const (
 	KuCoinBaseURL = "https://api-futures.kucoin.com" // KuCoin 期货 API
 )
 
-// KuCoinClient 结构体
+// KuCoinClient 結構体
 type KuCoinClient struct {
 	apiKey     string
 	secretKey  string
@@ -28,7 +28,7 @@ type KuCoinClient struct {
 	httpClient *http.Client
 }
 
-// NewKuCoinClient 创建 KuCoin 客户端实例
+// NewKuCoinClient 創建 KuCoin 客戶端實例
 func NewKuCoinClient(apiKey, secretKey, passphrase string) *KuCoinClient {
 	return &KuCoinClient{
 		apiKey:     apiKey,
@@ -40,9 +40,9 @@ func NewKuCoinClient(apiKey, secretKey, passphrase string) *KuCoinClient {
 	}
 }
 
-// signRequest 对请求进行签名
+// signRequest 對请求進行签名
 func (c *KuCoinClient) signRequest(timestamp, method, path, body string) (string, string) {
-	// 构造签名字符串：timestamp + method + path + body
+	// 構造签名字符串：timestamp + method + path + body
 	signStr := timestamp + method + path + body
 
 	// HMAC-SHA256 签名
@@ -79,13 +79,13 @@ func (c *KuCoinClient) sendRequest(ctx context.Context, method, path string, bod
 		return nil, fmt.Errorf("create request error: %w", err)
 	}
 
-	// 生成时间戳（毫秒）
+	// 生成時间戳（毫秒）
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 
 	// 签名
 	signature, encryptedPassphrase := c.signRequest(timestamp, method, path, bodyStr)
 
-	// 设置请求头
+	// 設置请求头
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("KC-API-KEY", c.apiKey)
 	req.Header.Set("KC-API-SIGN", signature)
@@ -121,7 +121,7 @@ func (c *KuCoinClient) sendRequest(ctx context.Context, method, path string, bod
 	return respBody, nil
 }
 
-// GetExchangeInfo 获取合约信息
+// GetExchangeInfo 獲取合約信息
 func (c *KuCoinClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error) {
 	path := "/api/v1/contracts/active"
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -146,7 +146,7 @@ func (c *KuCoinClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, erro
 	return exchangeInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *KuCoinClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
 	path := "/api/v1/orders"
 	body := map[string]interface{}{
@@ -160,7 +160,7 @@ func (c *KuCoinClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	if req.Type == "limit" {
 		body["price"] = fmt.Sprintf("%.*f", req.PriceDecimals, req.Price)
 	}
-	body["size"] = int(req.Quantity) // KuCoin 期货的 size 是整数（张数）
+	body["size"] = int(req.Quantity) // KuCoin 期货的 size 是整數（张數）
 
 	respBody, err := c.sendRequest(ctx, http.MethodPost, path, body)
 	if err != nil {
@@ -180,7 +180,7 @@ func (c *KuCoinClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	return &OrderResponse{OrderID: resp.Data.OrderID}, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *KuCoinClient) CancelOrder(ctx context.Context, orderID string) (*CancelOrderResponse, error) {
 	path := fmt.Sprintf("/api/v1/orders/%s", orderID)
 	respBody, err := c.sendRequest(ctx, http.MethodDelete, path, nil)
@@ -201,7 +201,7 @@ func (c *KuCoinClient) CancelOrder(ctx context.Context, orderID string) (*Cancel
 	return &CancelOrderResponse{OrderID: orderID}, nil
 }
 
-// GetOrderInfo 查询订单
+// GetOrderInfo 查詢訂單
 func (c *KuCoinClient) GetOrderInfo(ctx context.Context, orderID string) (*OrderInfo, error) {
 	path := fmt.Sprintf("/api/v1/orders/%s", orderID)
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -220,7 +220,7 @@ func (c *KuCoinClient) GetOrderInfo(ctx context.Context, orderID string) (*Order
 	return &resp.Data, nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (c *KuCoinClient) GetOpenOrders(ctx context.Context, symbol string) ([]OrderInfo, error) {
 	path := "/api/v1/orders?status=active"
 	if symbol != "" {
@@ -245,7 +245,7 @@ func (c *KuCoinClient) GetOpenOrders(ctx context.Context, symbol string) ([]Orde
 	return resp.Data.Items, nil
 }
 
-// GetAccountInfo 获取账户信息
+// GetAccountInfo 獲取帳戶信息
 func (c *KuCoinClient) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
 	path := "/api/v1/account-overview"
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -264,7 +264,7 @@ func (c *KuCoinClient) GetAccountInfo(ctx context.Context) (*AccountInfo, error)
 	return &resp.Data, nil
 }
 
-// GetPositionInfo 获取持仓信息
+// GetPositionInfo 獲取持倉信息
 func (c *KuCoinClient) GetPositionInfo(ctx context.Context, symbol string) ([]KuCoinPositionInfo, error) {
 	path := "/api/v1/positions"
 	if symbol != "" {
@@ -287,7 +287,7 @@ func (c *KuCoinClient) GetPositionInfo(ctx context.Context, symbol string) ([]Ku
 	return resp.Data, nil
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (c *KuCoinClient) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	path := fmt.Sprintf("/api/v1/funding-rate/%s/current", symbol)
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
@@ -308,12 +308,12 @@ func (c *KuCoinClient) GetFundingRate(ctx context.Context, symbol string) (float
 	return resp.Data.Value, nil
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (c *KuCoinClient) GetHistoricalKlines(ctx context.Context, symbol string, granularity int, limit int) ([]Candle, error) {
 	// granularity: 1, 5, 15, 30, 60, 120, 240, 480, 720, 1440, 10080（分钟）
 	path := fmt.Sprintf("/api/v1/kline/query?symbol=%s&granularity=%d", symbol, granularity)
 	if limit > 0 {
-		// KuCoin 使用时间范围而不是 limit，这里简化处理
+		// KuCoin 使用時间範圍而不是 limit，这里简化处理
 		to := time.Now().Unix()
 		from := to - int64(granularity*60*limit)
 		path += fmt.Sprintf("&from=%d&to=%d", from, to)
@@ -335,7 +335,7 @@ func (c *KuCoinClient) GetHistoricalKlines(ctx context.Context, symbol string, g
 	return resp.Data, nil
 }
 
-// GetWebSocketToken 获取 WebSocket 连接 token
+// GetWebSocketToken 獲取 WebSocket 连接 token
 func (c *KuCoinClient) GetWebSocketToken(ctx context.Context, private bool) (*WebSocketToken, error) {
 	path := "/api/v1/bullet-public"
 	if private {
@@ -385,7 +385,7 @@ type ExchangeInfo struct {
 	Symbols map[string]ContractInfo
 }
 
-// ContractInfo 合约信息
+// ContractInfo 合約信息
 type ContractInfo struct {
 	Symbol             string  `json:"symbol"`
 	RootSymbol         string  `json:"rootSymbol"`
@@ -422,7 +422,7 @@ type ContractInfo struct {
 	Status             string  `json:"status"`
 }
 
-// OrderRequest 下单请求
+// OrderRequest 下單请求
 type OrderRequest struct {
 	ClientOrderID    string
 	Symbol           string
@@ -435,17 +435,17 @@ type OrderRequest struct {
 	QuantityDecimals int
 }
 
-// OrderResponse 下单响应
+// OrderResponse 下單响应
 type OrderResponse struct {
 	OrderID string
 }
 
-// CancelOrderResponse 取消订单响应
+// CancelOrderResponse 取消訂單响应
 type CancelOrderResponse struct {
 	OrderID string
 }
 
-// OrderInfo 订单信息
+// OrderInfo 订單信息
 type OrderInfo struct {
 	ID             string `json:"id"`
 	Symbol         string `json:"symbol"`
@@ -485,7 +485,7 @@ type OrderInfo struct {
 	ReduceOnly     bool   `json:"reduceOnly"`
 }
 
-// AccountInfo 账户信息
+// AccountInfo 帳戶資訊
 type AccountInfo struct {
 	AccountEquity    float64 `json:"accountEquity"`
 	UnrealisedPNL    float64 `json:"unrealisedPNL"`
@@ -497,7 +497,7 @@ type AccountInfo struct {
 	Currency         string  `json:"currency"`
 }
 
-// KuCoinPositionInfo 持仓信息
+// KuCoinPositionInfo 持倉資訊
 type KuCoinPositionInfo struct {
 	ID                string  `json:"id"`
 	Symbol            string  `json:"symbol"`
@@ -539,7 +539,7 @@ type KuCoinPositionInfo struct {
 	UserId            int64   `json:"userId"`
 }
 
-// Candle K线数据
+// Candle K線數據
 type Candle struct {
 	Time   int64   `json:"time"`
 	Open   float64 `json:"open"`

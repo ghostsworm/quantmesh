@@ -14,7 +14,7 @@ import (
 	"quantmesh/utils"
 )
 
-// ExportFormat 导出格式
+// ExportFormat 導出格式
 type ExportFormat string
 
 const (
@@ -22,7 +22,7 @@ const (
 	ExportFormatJSON ExportFormat = "json"
 )
 
-// ExportParams 导出参数
+// ExportParams 導出参數
 type ExportParams struct {
 	Format     ExportFormat
 	StartTime  time.Time
@@ -32,31 +32,31 @@ type ExportParams struct {
 	Account    string
 	Limit      int
 	Offset     int
-	AuditDir   string // 审计日志目录
+	AuditDir   string // 审计日志目錄
 	ConfigPath string
 }
 
-// Exporter 数据导出器
+// Exporter 數據導出器
 type Exporter struct {
 	storage Storage
 }
 
-// NewExporter 创建导出器
+// NewExporter 創建導出器
 func NewExporter(s Storage) *Exporter {
 	return &Exporter{storage: s}
 }
 
-// ExportTrades 导出交易历史
+// ExportTrades 導出交易历史
 func (e *Exporter) ExportTrades(params ExportParams) ([]byte, string, error) {
 	if e.storage == nil {
-		return nil, "", fmt.Errorf("存储未初始化")
+		return nil, "", fmt.Errorf("存儲未初始化")
 	}
 	startTime, endTime := params.StartTime, params.EndTime
 	if startTime.IsZero() {
-		startTime = time.Now().AddDate(0, 0, -90) // 默认90天
+		startTime = utils.NowConfiguredTimezone().AddDate(0, 0, -90) // 默认90天（按配置時區）
 	}
 	if endTime.IsZero() {
-		endTime = time.Now()
+		endTime = utils.NowConfiguredTimezone()
 	}
 	limit := 10000
 	if params.Limit > 0 && params.Limit < limit {
@@ -68,16 +68,16 @@ func (e *Exporter) ExportTrades(params ExportParams) ([]byte, string, error) {
 		return nil, "", err
 	}
 
-	// 内存过滤
+	// 記憶體過滤
 	trades = filterTrades(trades, params.Exchange, params.Symbol, params.Account)
 
 	return e.encodeData(trades, params.Format, "trades")
 }
 
-// ExportOrders 导出订单历史
+// ExportOrders 導出訂單歷史
 func (e *Exporter) ExportOrders(params ExportParams) ([]byte, string, error) {
 	if e.storage == nil {
-		return nil, "", fmt.Errorf("存储未初始化")
+		return nil, "", fmt.Errorf("存儲未初始化")
 	}
 	limit := 10000
 	if params.Limit > 0 && params.Limit < limit {
@@ -92,10 +92,10 @@ func (e *Exporter) ExportOrders(params ExportParams) ([]byte, string, error) {
 	return e.encodeData(orders, params.Format, "orders")
 }
 
-// ExportPositions 导出持仓历史
+// ExportPositions 導出持倉歷史
 func (e *Exporter) ExportPositions(params ExportParams) ([]byte, string, error) {
 	if e.storage == nil {
-		return nil, "", fmt.Errorf("存储未初始化")
+		return nil, "", fmt.Errorf("存儲未初始化")
 	}
 	limit := 10000
 	if params.Limit > 0 && params.Limit < limit {
@@ -107,7 +107,7 @@ func (e *Exporter) ExportPositions(params ExportParams) ([]byte, string, error) 
 		return nil, "", err
 	}
 
-	// 按 symbol 过滤
+	// 按 symbol 過滤
 	if params.Symbol != "" {
 		var filtered []*Position
 		for _, p := range positions {
@@ -121,17 +121,17 @@ func (e *Exporter) ExportPositions(params ExportParams) ([]byte, string, error) 
 	return e.encodeData(positions, params.Format, "positions")
 }
 
-// ExportStatistics 导出统计数据（每日统计）
+// ExportStatistics 導出统计數據（每日统计）
 func (e *Exporter) ExportStatistics(params ExportParams) ([]byte, string, error) {
 	if e.storage == nil {
-		return nil, "", fmt.Errorf("存储未初始化")
+		return nil, "", fmt.Errorf("存儲未初始化")
 	}
 	startTime, endTime := params.StartTime, params.EndTime
 	if startTime.IsZero() {
-		startTime = time.Now().AddDate(0, 0, -365)
+		startTime = utils.NowConfiguredTimezone().AddDate(0, 0, -365)
 	}
 	if endTime.IsZero() {
-		endTime = time.Now()
+		endTime = utils.NowConfiguredTimezone()
 	}
 
 	stats, err := e.storage.QueryDailyStatisticsByExchange(params.Exchange, params.Account, startTime, endTime)
@@ -142,17 +142,17 @@ func (e *Exporter) ExportStatistics(params ExportParams) ([]byte, string, error)
 	return e.encodeData(stats, params.Format, "statistics")
 }
 
-// ExportReconciliation 导出对账历史
+// ExportReconciliation 導出對账历史
 func (e *Exporter) ExportReconciliation(params ExportParams) ([]byte, string, error) {
 	if e.storage == nil {
-		return nil, "", fmt.Errorf("存储未初始化")
+		return nil, "", fmt.Errorf("存儲未初始化")
 	}
 	startTime, endTime := params.StartTime, params.EndTime
 	if startTime.IsZero() {
-		startTime = time.Now().AddDate(0, 0, -90)
+		startTime = utils.NowConfiguredTimezone().AddDate(0, 0, -90)
 	}
 	if endTime.IsZero() {
-		endTime = time.Now()
+		endTime = utils.NowConfiguredTimezone()
 	}
 	limit := 10000
 	if params.Limit > 0 && params.Limit < limit {
@@ -167,17 +167,17 @@ func (e *Exporter) ExportReconciliation(params ExportParams) ([]byte, string, er
 	return e.encodeData(histories, params.Format, "reconciliation")
 }
 
-// ExportRiskChecks 导出风控检查历史（展平为行）
+// ExportRiskChecks 導出风控检查历史（展平為行）
 func (e *Exporter) ExportRiskChecks(params ExportParams) ([]byte, string, error) {
 	if e.storage == nil {
-		return nil, "", fmt.Errorf("存储未初始化")
+		return nil, "", fmt.Errorf("存儲未初始化")
 	}
 	startTime, endTime := params.StartTime, params.EndTime
 	if startTime.IsZero() {
-		startTime = time.Now().AddDate(0, 0, -30)
+		startTime = utils.NowConfiguredTimezone().AddDate(0, 0, -30)
 	}
 	if endTime.IsZero() {
-		endTime = time.Now()
+		endTime = utils.NowConfiguredTimezone()
 	}
 
 	histories, err := e.storage.QueryRiskCheckHistory(startTime, endTime, 500)
@@ -185,7 +185,7 @@ func (e *Exporter) ExportRiskChecks(params ExportParams) ([]byte, string, error)
 		return nil, "", err
 	}
 
-	// 展平：每个 CheckTime + Symbol 为一行
+	// 展平：每個 CheckTime + Symbol 為一行
 	var exportRows []RiskCheckExportRow
 	for _, h := range histories {
 		for _, s := range h.Symbols {
@@ -203,7 +203,7 @@ func (e *Exporter) ExportRiskChecks(params ExportParams) ([]byte, string, error)
 	return e.encodeData(exportRows, params.Format, "risk_checks")
 }
 
-// RiskCheckExportRow 风控检查导出行
+// RiskCheckExportRow 风控检查導出行
 type RiskCheckExportRow struct {
 	CheckTime      time.Time `json:"check_time"`
 	Symbol         string    `json:"symbol"`
@@ -213,17 +213,17 @@ type RiskCheckExportRow struct {
 	Reason         string    `json:"reason"`
 }
 
-// ExportSystemMetrics 导出系统监控数据
+// ExportSystemMetrics 導出系统監控數據
 func (e *Exporter) ExportSystemMetrics(params ExportParams) ([]byte, string, error) {
 	if e.storage == nil {
-		return nil, "", fmt.Errorf("存储未初始化")
+		return nil, "", fmt.Errorf("存儲未初始化")
 	}
 	startTime, endTime := params.StartTime, params.EndTime
 	if startTime.IsZero() {
-		startTime = time.Now().AddDate(0, 0, -7)
+		startTime = utils.NowConfiguredTimezone().AddDate(0, 0, -7)
 	}
 	if endTime.IsZero() {
-		endTime = time.Now()
+		endTime = utils.NowConfiguredTimezone()
 	}
 
 	metrics, err := e.storage.QuerySystemMetrics(startTime, endTime)
@@ -234,7 +234,7 @@ func (e *Exporter) ExportSystemMetrics(params ExportParams) ([]byte, string, err
 	return e.encodeData(metrics, params.Format, "system_metrics")
 }
 
-// encodeData 将数据编码为指定格式
+// encodeData 將數據编碼為指定格式
 func (e *Exporter) encodeData(data interface{}, format ExportFormat, name string) ([]byte, string, error) {
 	switch format {
 	case ExportFormatCSV:
@@ -258,7 +258,7 @@ func (e *Exporter) toCSV(data interface{}, name string) ([]byte, string, error) 
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
-	// 根据数据类型生成 CSV
+	// 根據數據類型生成 CSV
 	switch v := data.(type) {
 	case []*Trade:
 		w.Write([]string{"buy_order_id", "sell_order_id", "exchange", "account", "symbol", "buy_price", "sell_price", "quantity", "pnl", "created_at"})
@@ -397,8 +397,8 @@ func filterTrades(trades []*Trade, exchange, symbol, account string) []*Trade {
 	return out
 }
 
-// CreateExportZip 创建全量导出 ZIP
-// logRecords 可为 []*LogRecord 或 []*web.LogRecordResponse 等可 JSON 序列化的类型
+// CreateExportZip 創建全量導出 ZIP
+// logRecords 可為 []*LogRecord 或 []*web.LogRecordResponse 等可 JSON 序列化的類型
 func (e *Exporter) CreateExportZip(params ExportParams, logRecords interface{}, configContent []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)
@@ -416,11 +416,11 @@ func (e *Exporter) CreateExportZip(params ExportParams, logRecords interface{}, 
 			f, _ := zw.Create(fmt.Sprintf("export_%s/trades.json", ts))
 			f.Write(data)
 		} else if err != nil {
-			logger.Warn("导出交易失败: %v", err)
+			logger.Warn("導出交易失败: %v", err)
 		}
 	}
 
-	// 3. 订单
+	// 3. 订單
 	if e.storage != nil {
 		if data, _, err := e.ExportOrders(params); err == nil && len(data) > 0 {
 			f, _ := zw.Create(fmt.Sprintf("export_%s/orders.json", ts))
@@ -428,7 +428,7 @@ func (e *Exporter) CreateExportZip(params ExportParams, logRecords interface{}, 
 		}
 	}
 
-	// 4. 持仓
+	// 4. 持倉
 	if e.storage != nil {
 		if data, _, err := e.ExportPositions(params); err == nil && len(data) > 0 {
 			f, _ := zw.Create(fmt.Sprintf("export_%s/positions.json", ts))
@@ -444,7 +444,7 @@ func (e *Exporter) CreateExportZip(params ExportParams, logRecords interface{}, 
 		}
 	}
 
-	// 6. 对账历史
+	// 6. 對账历史
 	if e.storage != nil {
 		if data, _, err := e.ExportReconciliation(params); err == nil && len(data) > 0 {
 			f, _ := zw.Create(fmt.Sprintf("export_%s/reconciliation.json", ts))
@@ -460,7 +460,7 @@ func (e *Exporter) CreateExportZip(params ExportParams, logRecords interface{}, 
 		}
 	}
 
-	// 8. 系统监控
+	// 8. 系统監控
 	if e.storage != nil {
 		if data, _, err := e.ExportSystemMetrics(params); err == nil && len(data) > 0 {
 			f, _ := zw.Create(fmt.Sprintf("export_%s/system_metrics.json", ts))
@@ -476,7 +476,7 @@ func (e *Exporter) CreateExportZip(params ExportParams, logRecords interface{}, 
 		}
 	}
 
-	// 10. 审计日志（从目录读取）
+	// 10. 审计日志（從目錄读取）
 	if params.AuditDir != "" {
 		e.addAuditLogsToZip(zw, params.AuditDir, params.StartTime, params.EndTime, ts)
 	}
@@ -491,7 +491,7 @@ func (e *Exporter) CreateExportZip(params ExportParams, logRecords interface{}, 
 func (e *Exporter) addAuditLogsToZip(zw *zip.Writer, auditDir string, startTime, endTime time.Time, ts string) {
 	entries, err := os.ReadDir(auditDir)
 	if err != nil {
-		logger.Warn("读取审计日志目录失败: %v", err)
+		logger.Warn("读取审计日志目錄失败: %v", err)
 		return
 	}
 
