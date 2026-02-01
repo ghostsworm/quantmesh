@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.28.5-rc2] - 2026-02-02
+
+### Fixed
+- **收益統計日曆「今天」焦點修復**: 修復日曆視圖在非 UTC 時區下「今天」高亮錯位的問題
+  - 原因：使用 `toISOString().split('T')[0]` 得到的是 UTC 日期，在 UTC+8 等時區會導致焦點仍停留在昨日
+  - 改動：改為使用本地時區的年/月/日組今日期字串，與日曆格子一致
+  - 涉及：`webui/src/components/StatisticsCalendar.tsx`
+
 ## [3.28.5-rc1] - 2026-02-02
 
 ### Fixed
