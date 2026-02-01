@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  GO_VERSION: '1.25.4'
+
+jobs:
+  # 构建
+  build:
+    name: Build
+    runs-on: ${{ matrix.runner }}
+    
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            name: linux-amd64
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            name: linux-arm64
+          - runner: ubuntu-latest
+            goos: darwin
+            goarch: amd64
+            name: darwin-amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            name: darwin-arm64
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+        
+    - name: Build frontend (for go:embed)
+      run: |
+        mkdir -p web/dist
+        if [ -d "webui" ]; then
+          cd webui
+          if [ -f "package.json" ]; then
+            npm ci || npm install
+            npm run build
+            cd ..
+            if [ -d "webui/dist" ] && [ "$(ls -A webui/dist 2>/dev/null)" ]; then
+              cp -r webui/dist/* web/dist/ || true
+            fi
+          else
+            cd ..
+          fi
+        fi
+        # 确保 dist 目录至少有一个文件，避免 go:embed 报错
+        if [ ! "$(ls -A web/dist 2>/dev/null)" ]; then
+          echo "# Placeholder" > web/dist/.gitkeep
+        fi
+        
+    - name: Build
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      run: |
+        # 临时移动工具文件，避免 main 函数冲突
+        mkdir -p .tools_backup
+        for file in analyze_market_data.go run_1m_backtest.go run_3m_backtest.go run_eth_backtest.go test_intrabar_backtest.go test_intrabar_quick.go test_license_validation.go test_plugin_detailed.go test_plugin_loading.go test_zero_fee.go; do
+          if [ -f "$file" ]; then
+            mv "$file" .tools_backup/ || true
+          fi
+        done
+        
+        # 构建
+        VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
+        go build -ldflags="-s -w -X main.Version=${VERSION}" -o quantmesh-${{ matrix.name }} .
+        
+        # 恢复工具文件
+        if [ -d ".tools_backup" ]; then
+          mv .tools_backup/* . 2>/dev/null || true
+          rmdir .tools_backup 2>/dev/null || true
+        fi
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: quantmesh-${{ matrix.name }}
+        path: quantmesh-${{ matrix.name }}
+        retention-days: 7

@@ -1,0 +1,2203 @@
+import React, { useState, useEffect } from 'react'
+import {
+  Box,
+  Button,
+  FormControl,
+  FormLabel,
+  Input,
+  InputGroup,
+  InputRightElement,
+  IconButton,
+  NumberInput,
+  NumberInputField,
+  Select,
+  VStack,
+  HStack,
+  Text,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
+  Spinner,
+  Center,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  useToast,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  TableContainer,
+  Badge,
+  Divider,
+  useColorModeValue,
+  RadioGroup,
+  Radio,
+  Stack,
+  Wrap,
+  WrapItem,
+  Progress,
+  Heading,
+  Switch,
+  Tooltip,
+} from '@chakra-ui/react'
+import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
+import { useTranslation } from 'react-i18next'
+import { generateAIConfig, applyAIConfig, createAIConfigTask, pollAITaskUntilComplete, AIGenerateConfigRequest, AIGenerateConfigResponse, SymbolCapitalConfig } from '../services/api'
+import { getConfig, StrategyInstance, WithdrawalPolicy } from '../services/config'
+import { getStrategyTypes } from '../services/strategy'
+import { getExchanges } from '../services/api'
+import { getCapitalAllocation, type ExchangeCapitalDetail } from '../services/capital'
+
+interface AIConfigWizardProps {
+  isOpen: boolean
+  onClose: () => void
+  onSuccess?: () => void
+  // 從父组件傳入的已选交易所和币种
+  exchange?: string
+  symbols?: string[]
+}
+
+type WizardStep = 
+  | 'ai-setup' 
+  | 'asset-alloc' 
+  | 'strategy-split' 
+  | 'param-tuning' 
+  | 'withdrawal-setup' 
+  | 'preview' 
+  | 'success';
+
+const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ 
+  isOpen, 
+  onClose, 
+  onSuccess,
+  exchange: propsExchange,
+  symbols: propsSymbols 
+}) => {
+  const { t } = useTranslation()
+  const toast = useToast()
+  const [step, setStep] = useState<WizardStep>('ai-setup')
+  const [loading, setLoading] = useState(false)
+  
+  // Gemini API Key
+  const [geminiApiKey, setGeminiApiKey] = useState('')
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [isKeyFromConfig, setIsKeyFromConfig] = useState(false) // 標記 Key 是否来自配置文件
+  
+  // 资產分配状態 - 按交易所分组
+  // exchange -> symbol -> capital (USDT金額)
+  const [exchangeSymbolCapitals, setExchangeSymbolCapitals] = useState<Record<string, Record<string, number>>>({}) // exchange -> symbol -> capital
+  const [selectedExchanges, setSelectedExchanges] = useState<string[]>([]) // 已选擇的交易所列表
+  const [exchangeBalances, setExchangeBalances] = useState<Record<string, number>>({}) // exchange -> availableBalance
+  const [exchangeTotalCapitals, setExchangeTotalCapitals] = useState<Record<string, number>>({}) // exchange -> totalCapital (用戶输入的USDT總額)
+  const [exchangeDetails, setExchangeDetails] = useState<ExchangeCapitalDetail[]>([]) // 交易所详情列表
+  const [loadingBalances, setLoadingBalances] = useState(false)
+  
+  // 交易所啟用/禁用状態 - 記錄每個交易所是否啟用（默认啟用）
+  const [exchangeEnabled, setExchangeEnabled] = useState<Record<string, boolean>>({})
+  
+  // 向后兼容：保留舊的资產分配状態（用於單交易所模式）
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([])
+  const [symbolAllocations, setSymbolAllocations] = useState<Record<string, number>>({}) // symbol -> weight (0-1)
+
+  // 策略分配状態 - 使用複合键 "exchangeId:symbol" -> strategies
+  const [strategySplits, setStrategySplits] = useState<Record<string, StrategyInstance[]>>({})
+
+  // 网格参數状態 - 使用複合键 "exchangeId:symbol" -> params
+  interface GridParams {
+    priceInterval: number  // 價格間隔 (USDT)
+    orderWindow: number    // 買/賣單視窗
+    orderAmount: number    // 每單金額 (USDT)
+    maxGridLevels: number  // 最大网格层數
+  }
+  const [gridParams, setGridParams] = useState<Record<string, GridParams>>({})
+
+  // 可用的策略類型列表
+  const [availableStrategyTypes, setAvailableStrategyTypes] = useState<string[]>(['grid', 'dca'])
+
+  // 提現策略状態
+  const [withdrawalPolicy, setWithdrawalPolicy] = useState<WithdrawalPolicy>({
+    enabled: true,
+    threshold: 0.1, // 預設 10%
+    mode: 'threshold',
+    withdraw_ratio: 1, // 默认划轉全部利润
+    principal_protection: {
+      enabled: true,
+      breakeven_protection: true,
+      withdraw_principal: false,
+      principal_withdraw_at: 1.0,
+      max_loss_ratio: 0.2,
+    },
+  })
+  
+  // 资金配置模式: 'total' = 總金額模式, 'per_symbol' = 按币种分配
+  const [capitalMode, setCapitalMode] = useState<'total' | 'per_symbol'>('total')
+  
+  // 總金額模式的资金
+  const [totalCapital, setTotalCapital] = useState(10000)
+  
+  // 按币种分配模式的资金
+  const [symbolCapitals, setSymbolCapitals] = useState<SymbolCapitalConfig[]>([])
+  
+  // 风險偏好
+  const [riskProfile, setRiskProfile] = useState<'conservative' | 'balanced' | 'aggressive'>('balanced')
+  
+  const [aiConfig, setAiConfig] = useState<AIGenerateConfigResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [taskProgress, setTaskProgress] = useState<number>(0)
+  const [taskStatus, setTaskStatus] = useState<string>('')
+
+  const bg = useColorModeValue('white', 'gray.800')
+  const borderColor = useColorModeValue('gray.200', 'gray.700')
+  const infoBg = useColorModeValue('gray.50', 'gray.700')
+
+  // 使用傳入的交易所，如果没有傳入则從配置獲取或默认
+  const [exchange, setExchange] = useState(propsExchange || 'binance')
+  const symbols = propsSymbols || [] // 可選的所有币种列表
+
+  // 弹窗打开時，預填配置中的 Gemini Key 和访问模式（若存在）
+  useEffect(() => {
+    if (!isOpen) return
+    const loadConfigData = async () => {
+      try {
+        const cfg = await getConfig()
+        
+        // 預填交易所
+        if (!propsExchange && cfg?.app?.current_exchange) {
+          setExchange(cfg.app.current_exchange)
+        }
+
+        // 优先從配置文件读取 Gemini API Key
+        const keyFromConfig =
+          cfg?.ai?.gemini_api_key ||
+          cfg?.ai?.api_key ||
+          ''
+        if (keyFromConfig) {
+          // 如果配置文件中已有值，直接使用（覆盖之前的值）
+          setGeminiApiKey(keyFromConfig)
+          setIsKeyFromConfig(true) // 標記 Key 来自配置文件
+        } else {
+          setIsKeyFromConfig(false)
+        }
+        
+        // 加載访问模式配置
+        if (cfg?.ai?.access_mode) {
+          setAccessMode(cfg.ai.access_mode as 'native' | 'proxy')
+        }
+        
+        // 加載代理配置
+        if (cfg?.ai?.proxy) {
+          if (cfg.ai.proxy.base_url) {
+            setProxyBaseURL(cfg.ai.proxy.base_url)
+          }
+          if (cfg.ai.proxy.username) {
+            setProxyUsername(cfg.ai.proxy.username)
+          }
+          if (cfg.ai.proxy.password) {
+            setProxyPassword(cfg.ai.proxy.password)
+          }
+        }
+
+        // 初始化已选币种
+        if (propsSymbols && propsSymbols.length > 0) {
+          setSelectedSymbols(propsSymbols)
+          const equalWeight = 1 / propsSymbols.length
+          const initialAlloc: Record<string, number> = {}
+          propsSymbols.forEach(s => initialAlloc[s] = equalWeight)
+          setSymbolAllocations(initialAlloc)
+        }
+
+        // 加載可用的策略類型
+        try {
+          const typesResp = await getStrategyTypes()
+          if (typesResp.types && typesResp.types.length > 0) {
+            setAvailableStrategyTypes(typesResp.types)
+          }
+        } catch (err) {
+          console.error('加載策略類型失败:', err)
+          // 使用默认策略類型
+        }
+
+        // 加載交易所列表和餘額
+        await loadExchangesAndBalances()
+      } catch (err) {
+        console.error('加載配置失败:', err)
+      }
+    }
+    loadConfigData()
+  }, [isOpen, propsExchange, propsSymbols])
+
+  // 加載交易所列表和餘額
+  const loadExchangesAndBalances = async () => {
+    setLoadingBalances(true)
+    try {
+      // 獲取交易所列表
+      const exchangesResp = await getExchanges()
+      const exchangesList = exchangesResp.exchanges || []
+      
+      if (exchangesList.length > 0) {
+        setSelectedExchanges(exchangesList)
+        
+        // 獲取每個交易所的餘額
+        try {
+          const capitalResp = await getCapitalAllocation()
+          const details = capitalResp.exchanges || []
+          setExchangeDetails(details)
+          
+          // 構建餘額映射
+          const balances: Record<string, number> = {}
+          const totalCapitals: Record<string, number> = {}
+          details.forEach(detail => {
+            const usdtAsset = detail.assets.find(a => a.asset === 'USDT')
+            if (usdtAsset) {
+              balances[detail.exchangeId] = usdtAsset.availableBalance
+              // 默认使用交易所可用餘額作為總资金（取整）
+              totalCapitals[detail.exchangeId] = Math.floor(usdtAsset.availableBalance)
+            } else {
+              balances[detail.exchangeId] = 0
+              totalCapitals[detail.exchangeId] = 0
+            }
+          })
+          setExchangeBalances(balances)
+          setExchangeTotalCapitals(totalCapitals)
+          
+          // 初始化每個交易所的币种资金分配
+          const initialCapitals: Record<string, Record<string, number>> = {}
+          const initialEnabled: Record<string, boolean> = {}
+          exchangesList.forEach(ex => {
+            initialCapitals[ex] = {}
+            initialEnabled[ex] = true // 默认所有交易所都啟用
+          })
+          setExchangeSymbolCapitals(initialCapitals)
+          setExchangeEnabled(initialEnabled)
+        } catch (err) {
+          console.error('加載交易所餘額失败:', err)
+          toast({
+            title: '加載餘額失败',
+            description: '將使用默认值，请稍后手动設置',
+            status: 'warning',
+            duration: 3000,
+          })
+        }
+      }
+    } catch (err) {
+      console.error('加載交易所列表失败:', err)
+    } finally {
+      setLoadingBalances(false)
+    }
+  }
+
+  // 當币种列表变化時，初始化按币种分配的资金
+  useEffect(() => {
+    if (selectedSymbols.length > 0) {
+      const defaultCapitalPerSymbol = Math.floor(totalCapital / selectedSymbols.length)
+      setSymbolCapitals(selectedSymbols.map(symbol => ({
+        symbol,
+        capital: defaultCapitalPerSymbol
+      })))
+    }
+  }, [selectedSymbols, totalCapital])
+
+  const handleNext = () => {
+    if (step === 'ai-setup') {
+      if (!geminiApiKey.trim()) {
+        setError('请输入 Gemini API Key')
+        return
+      }
+      setStep('asset-alloc')
+    } else if (step === 'asset-alloc') {
+      // 驗证每個已啟用交易所的资金分配
+      let hasError = false
+      let errorMsg = ''
+      
+      // 只驗证已啟用的交易所
+      const enabledExchanges = selectedExchanges.filter(ex => exchangeEnabled[ex] !== false)
+      
+      for (const exchangeId of enabledExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        const totalAllocated = Object.values(exchangeSymbols).reduce((sum, cap) => sum + cap, 0)
+        const totalCapital = exchangeTotalCapitals[exchangeId] || 0
+        
+        if (totalCapital <= 0) {
+          hasError = true
+          const exchangeName = exchangeNames[exchangeId] || exchangeId
+          errorMsg = `${exchangeName} 的 USDT 资金總額未設置或為 0，请先設置资金總額`
+          break
+        }
+        
+        if (totalAllocated > totalCapital) {
+          hasError = true
+          const exchangeName = exchangeNames[exchangeId] || exchangeId
+          errorMsg = `${exchangeName} 的资金分配總和 (${Math.round(totalAllocated)} USDT) 超過了 USDT 资金總額 (${Math.round(totalCapital)} USDT)`
+          break
+        }
+        
+        // 检查是否至少有一個币种有资金分配
+        const hasAllocation = Object.values(exchangeSymbols).some(cap => cap > 0)
+        if (!hasAllocation && Object.keys(exchangeSymbols).length > 0) {
+          hasError = true
+          const exchangeName = exchangeNames[exchangeId] || exchangeId
+          errorMsg = `${exchangeName} 的币种资金分配不能全部為 0`
+          break
+        }
+      }
+      
+      if (hasError) {
+        setError(errorMsg)
+        toast({
+          title: '驗证失败',
+          description: errorMsg,
+          status: 'error',
+          duration: 5000,
+        })
+        return
+      }
+      
+      // 检查是否至少有一個已啟用的交易所配置了币种（如果所有交易所都被禁用，允許跳過）
+      if (enabledExchanges.length > 0) {
+        const hasAnySymbol = enabledExchanges.some(ex => {
+          const symbols = exchangeSymbolCapitals[ex] || {}
+          return Object.keys(symbols).length > 0 && Object.values(symbols).some(cap => cap > 0)
+        })
+        
+        if (!hasAnySymbol) {
+          const errorMsg = '请至少為一個已啟用的交易所配置币种资金分配'
+          setError(errorMsg)
+          toast({
+            title: '驗证失败',
+            description: errorMsg,
+            status: 'error',
+            duration: 5000,
+          })
+          return
+        }
+      }
+      
+      // 驗证通過，清除錯误並進入下一步
+      setError(null)
+      setStep('strategy-split')
+    } else if (step === 'strategy-split') {
+      // 驗证每個已啟用交易所的每個币种的策略占比總和是否為 100%
+      let hasError = false
+      let errorMsg = ''
+
+      const enabledExchanges = selectedExchanges.filter(ex => exchangeEnabled[ex] !== false)
+      for (const exchangeId of enabledExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
+        
+        for (const symbol of symbolsWithCapital) {
+          const taskKey = `${exchangeId}:${symbol}`
+          const strategies = strategySplits[taskKey] || []
+          // 计算總权重時，需要考虑所有策略類型的权重（包括為 0 的）
+          // strategies 數组只包含用戶設置過的策略，权重存儲為 0-1 的小數
+          const totalWeight = strategies.reduce((sum, s) => sum + (s.weight || 0), 0)
+          
+          // 使用更宽松的容差（0.01 = 1%），並四舍五入到整數百分比進行比较
+          const totalPercent = Math.round(totalWeight * 100)
+          if (totalPercent !== 100) {
+            hasError = true
+            const exchangeName = exchangeNames[exchangeId] || exchangeId
+            errorMsg = `${exchangeName} 的 ${symbol} 策略占比總和必須為 100% (當前: ${totalPercent}%)`
+            break
+          }
+        }
+        if (hasError) break
+      }
+
+      if (hasError) {
+        setError(errorMsg)
+        toast({
+          title: '驗证失败',
+          description: errorMsg,
+          status: 'error',
+          duration: 5000,
+        })
+        return
+      }
+
+      setError(null)
+      setStep('param-tuning')
+    } else if (step === 'param-tuning') {
+      setError(null)
+      setStep('withdrawal-setup')
+    } else if (step === 'withdrawal-setup') {
+      setError(null)
+      handleGenerate()
+    }
+  }
+
+  const handleBack = () => {
+    if (step === 'asset-alloc') setStep('ai-setup')
+    else if (step === 'strategy-split') setStep('asset-alloc')
+    else if (step === 'param-tuning') setStep('strategy-split')
+    else if (step === 'withdrawal-setup') setStep('param-tuning')
+    else if (step === 'preview') setStep('withdrawal-setup')
+    setError(null)
+  }
+
+  // 更新單個币种的资金
+  const handleSymbolCapitalChange = (symbol: string, capital: number) => {
+    setSymbolCapitals(prev => prev.map(sc => 
+      sc.symbol === symbol ? { ...sc, capital } : sc
+    ))
+  }
+
+  // 獲取网格参數的 key
+  const getGridParamsKey = (exchangeId: string, symbol: string) => `${exchangeId}:${symbol}`
+
+  // 根據交易對類型确定合理的價格間隔（USDT）
+  // BTC 價格高（~100000），间隔大；ETH（~3000）间隔中等；其他小币间隔小
+  const getDefaultPriceInterval = (sym: string): number => {
+    const upperSymbol = sym.toUpperCase()
+    if (upperSymbol.includes('BTC')) {
+      return 100 // BTC 间隔 100 USDT
+    } else if (upperSymbol.includes('ETH')) {
+      return 10 // ETH 间隔 10 USDT
+    } else if (upperSymbol.includes('SOL') || upperSymbol.includes('BNB')) {
+      return 2 // SOL/BNB 间隔 2 USDT
+    } else if (upperSymbol.includes('DOGE') || upperSymbol.includes('XRP') || upperSymbol.includes('ADA')) {
+      return 0.01 // 低價币间隔 0.01 USDT
+    } else {
+      return 1 // 默认间隔 1 USDT
+    }
+  }
+
+  // 獲取网格参數，如果不存在则返回默认值
+  const getGridParams = (exchangeId: string, symbol: string, symbolCapital: number, strategyWeight: number): GridParams => {
+    const key = getGridParamsKey(exchangeId, symbol)
+    if (gridParams[key]) {
+      return gridParams[key]
+    }
+    // 计算默认值：每單金額 = 资金 / 20 / 窗口大小
+    const minOrderAmount = 100 // Binance 最小訂單金額
+    const capital = symbolCapital * strategyWeight
+    // 根據资金和最小訂單金額计算合理的默认窗口大小
+    const maxPossibleWindow = Math.floor(capital / (minOrderAmount * 2.5))
+    const defaultOrderWindow = Math.max(1, Math.min(5, maxPossibleWindow))
+    const defaultOrderAmount = parseFloat((capital / (defaultOrderWindow * 2.5)).toFixed(0))
+    return {
+      priceInterval: getDefaultPriceInterval(symbol),
+      orderWindow: defaultOrderWindow,
+      orderAmount: Math.max(minOrderAmount, defaultOrderAmount), // 最小 100 USDT
+      maxGridLevels: 20,
+    }
+  }
+
+  // 更新网格参數
+  const updateGridParams = (exchangeId: string, symbol: string, updates: Partial<GridParams>) => {
+    const key = getGridParamsKey(exchangeId, symbol)
+    setGridParams(prev => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        ...updates,
+      }
+    }))
+  }
+
+  // 一键优化：根據资金量和交易對自动计算合理的网格参數
+  const handleOptimizeGridParams = (exchangeId: string, symbol: string, symbolCapital: number, strategyWeight: number) => {
+    const capital = symbolCapital * strategyWeight
+    const minOrderAmount = 100 // Binance 最小訂單金額要求
+    
+    // 优化逻辑:
+    // 1. 首先确保每單金額 >= 100 USDT (Binance 要求)
+    // 2. 根據资金大小计算合适的窗口大小
+    // 3. 公式: 窗口大小 = 资金 / (每單金額 × 2.5)，其中 2.5 是安全系數(買賣双向+餘量)
+    // 4. 價格間隔根據交易對類型設置合理的 USDT 绝對值
+    
+    let orderWindow: number
+    let maxGridLevels: number
+    let orderAmount: number
+    
+    // 计算在保证最小訂單金額的情况下，能支援的最大窗口數
+    // 窗口大小 = 资金 / (最小訂單金額 × 2.5)
+    const maxPossibleWindow = Math.floor(capital / (minOrderAmount * 2.5))
+    
+    // 獲取該交易對的默认價格間隔（使用外部定义的函數）
+    const priceInterval = getDefaultPriceInterval(symbol)
+    
+    if (maxPossibleWindow < 1) {
+      // 资金不足以支撑最小訂單
+      toast({
+        title: '资金不足',
+        description: `资金 ${capital.toFixed(0)} USDT 不足以支撑 Binance 最小訂單要求 (100 USDT)，建议至少投入 250 USDT`,
+        status: 'warning',
+        duration: 5000,
+      })
+      orderWindow = 1
+      orderAmount = minOrderAmount
+      maxGridLevels = 5
+    } else if (capital < 1000) {
+      // 小资金：尽量少的窗口，保证每單金額
+      orderWindow = Math.min(3, maxPossibleWindow)
+      orderAmount = parseFloat((capital / (orderWindow * 2.5)).toFixed(0))
+      maxGridLevels = 10
+    } else if (capital < 3000) {
+      // 中小资金
+      orderWindow = Math.min(5, maxPossibleWindow)
+      orderAmount = parseFloat((capital / (orderWindow * 2.5)).toFixed(0))
+      maxGridLevels = 20
+    } else if (capital < 8000) {
+      // 中等资金
+      orderWindow = Math.min(10, maxPossibleWindow)
+      orderAmount = parseFloat((capital / (orderWindow * 2.5)).toFixed(0))
+      maxGridLevels = 40
+    } else {
+      // 大资金
+      orderWindow = Math.min(15, maxPossibleWindow)
+      orderAmount = parseFloat((capital / (orderWindow * 2.5)).toFixed(0))
+      maxGridLevels = 100
+    }
+    
+    // 确保每單金額至少 100 USDT
+    orderAmount = Math.max(minOrderAmount, orderAmount)
+    
+    const key = getGridParamsKey(exchangeId, symbol)
+    setGridParams(prev => ({
+      ...prev,
+      [key]: {
+        priceInterval,
+        orderWindow,
+        orderAmount,
+        maxGridLevels,
+      }
+    }))
+    
+    toast({
+      title: '参數优化完成',
+      description: `已根據 ${capital.toFixed(0)} USDT 资金自动优化 ${symbol} 网格参數（窗口 ${orderWindow}，每單 ${orderAmount} USDT）`,
+      status: 'success',
+      duration: 3000,
+    })
+  }
+
+  // 计算按币种分配的總资金
+  const totalSymbolCapitals = symbolCapitals.reduce((sum, sc) => sum + sc.capital, 0)
+
+  const handleGenerate = async () => {
+    // 驗证 Gemini API Key
+    if (!geminiApiKey.trim()) {
+      setError('请输入 Gemini API Key')
+      return
+    }
+
+    // 收集所有已啟用交易所的币种信息
+    const enabledExchanges = selectedExchanges.filter(ex => exchangeEnabled[ex] !== false)
+    const allSymbols = new Set<string>()
+    const exchangeSymbolMap: Record<string, string[]> = {} // exchange -> symbols
+    
+    for (const exchangeId of enabledExchanges) {
+      const symbols = Object.keys(exchangeSymbolCapitals[exchangeId] || {}).filter(
+        symbol => (exchangeSymbolCapitals[exchangeId][symbol] || 0) > 0
+      )
+      if (symbols.length > 0) {
+        exchangeSymbolMap[exchangeId] = symbols
+        symbols.forEach(s => allSymbols.add(s))
+      }
+    }
+
+    if (allSymbols.size === 0) {
+      setError('请至少為一個已啟用的交易所配置币种资金分配')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      // 使用第一個有币种的已啟用交易所作為主交易所（用於向后兼容）
+      const primaryExchange = enabledExchanges.find(ex => exchangeSymbolMap[ex]?.length > 0) || exchange
+      const primarySymbols = Array.from(allSymbols)
+      
+      // 计算總资金（所有已啟用交易所的币种资金總和）
+      let totalCapitalValue = 0
+      const symbolCapitalsList: SymbolCapitalConfig[] = []
+      
+      for (const exchangeId of enabledExchanges) {
+        const symbols = exchangeSymbolCapitals[exchangeId] || {}
+        for (const [symbol, capital] of Object.entries(symbols)) {
+          if (capital > 0) {
+            totalCapitalValue += capital
+            // 如果同一個币种在多個交易所都有分配，累加金額
+            const existing = symbolCapitalsList.find(sc => sc.symbol === symbol)
+            if (existing) {
+              existing.capital += capital
+            } else {
+              symbolCapitalsList.push({ symbol, capital })
+            }
+          }
+        }
+      }
+      
+      // 计算币种比例分配（基於總资金）
+      const symbolAllocationsMap: Record<string, number> = {}
+      symbolCapitalsList.forEach(sc => {
+        symbolAllocationsMap[sc.symbol] = sc.capital / totalCapitalValue
+      })
+
+      // 傳遞 API Key 给后端
+      const formData: AIGenerateConfigRequest = {
+        exchange: primaryExchange,
+        symbols: primarySymbols,
+        capital_mode: 'per_symbol', // 使用按币种分配模式
+        risk_profile: riskProfile,
+        gemini_api_key: geminiApiKey,  // 傳遞 API Key
+        
+        // 资產优先重構新增字段
+        symbol_allocations: symbolAllocationsMap,
+        strategy_splits: strategySplits, // 現在包含複合键 exchangeId:symbol
+        withdrawal_policy: withdrawalPolicy,
+        symbol_capitals: symbolCapitalsList, // 按币种分配的资金
+      }
+
+      // 創建异步任務
+      const taskResponse = await createAIConfigTask(formData)
+      setTaskProgress(0)
+      setTaskStatus('pending')
+      
+      // 輪詢任務状態
+      const config = await pollAITaskUntilComplete(
+        taskResponse.task_id,
+        (progress, status) => {
+          setTaskProgress(progress)
+          setTaskStatus(status)
+        }
+      )
+      
+      setAiConfig(config)
+      setTaskProgress(100)
+      setTaskStatus('completed')
+      setStep('preview')
+      toast({
+        title: '配置生成成功',
+        status: 'success',
+        duration: 3000,
+      })
+    } catch (err: any) {
+      const errorMsg = err.message || '生成配置失败，请检查 Gemini API Key 是否正确'
+      setError(errorMsg)
+      toast({
+        title: '生成配置失败',
+        description: errorMsg,
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleApply = async () => {
+    if (!aiConfig) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      await applyAIConfig(aiConfig)
+      setStep('success')
+      toast({
+        title: '配置应用成功',
+        description: '请重啟服務使配置生效',
+        status: 'success',
+        duration: 5000,
+      })
+      if (onSuccess) {
+        onSuccess()
+      }
+    } catch (err: any) {
+      const errorMsg = err.message || '應用配置失败'
+      setError(errorMsg)
+      toast({
+        title: '應用配置失败',
+        description: errorMsg,
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 直接保存配置（不依赖AI生成）
+  const handleSaveDirectly = async () => {
+    // 收集所有已啟用交易所的币种信息
+    const enabledExchanges = selectedExchanges.filter(ex => exchangeEnabled[ex] !== false)
+    const allSymbols = new Set<string>()
+    const exchangeSymbolMap: Record<string, string[]> = {}
+    
+    for (const exchangeId of enabledExchanges) {
+      const symbols = Object.keys(exchangeSymbolCapitals[exchangeId] || {}).filter(
+        symbol => (exchangeSymbolCapitals[exchangeId][symbol] || 0) > 0
+      )
+      if (symbols.length > 0) {
+        exchangeSymbolMap[exchangeId] = symbols
+        symbols.forEach(s => allSymbols.add(s))
+      }
+    }
+
+    if (allSymbols.size === 0) {
+      setError('请至少為一個已啟用的交易所配置币种资金分配')
+      toast({
+        title: '驗证失败',
+        description: '请至少為一個已啟用的交易所配置币种资金分配',
+        status: 'error',
+        duration: 5000,
+      })
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      // 構建 symbols_config（分级资產配置）
+      const symbolsConfig: any[] = []
+      const gridConfigs: any[] = []
+
+      for (const exchangeId of enabledExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        for (const [symbol, capital] of Object.entries(exchangeSymbols)) {
+          if (capital > 0) {
+            const taskKey = `${exchangeId}:${symbol}`
+            const strategies = strategySplits[taskKey] || []
+            const gridStrategy = strategies.find(s => s.type === 'grid')
+            
+            // 獲取网格参數
+            const gridParams = gridStrategy 
+              ? getGridParams(exchangeId, symbol, capital, gridStrategy.weight)
+              : {
+                  priceInterval: getDefaultPriceInterval(symbol),
+                  orderWindow: 5,
+                  orderAmount: 100,
+                  maxGridLevels: 20,
+                }
+
+            // 構建币种配置
+            symbolsConfig.push({
+              exchange: exchangeId,
+              symbol,
+              total_allocated_capital: capital,
+              strategies,
+              withdrawal_policy: withdrawalPolicy,
+              price_interval: gridParams.priceInterval,
+              order_quantity: gridParams.orderAmount,
+              buy_window_size: gridParams.orderWindow,
+              sell_window_size: gridParams.orderWindow,
+              max_grid_levels: gridParams.maxGridLevels,
+            })
+
+            // 構建网格配置（向后兼容）
+            if (gridStrategy && gridStrategy.weight > 0) {
+              gridConfigs.push({
+                exchange: exchangeId,
+                symbol,
+                price_interval: gridParams.priceInterval,
+                order_quantity: gridParams.orderAmount,
+                buy_window_size: gridParams.orderWindow,
+                sell_window_size: gridParams.orderWindow,
+              })
+            }
+          }
+        }
+      }
+
+      // 構建分配配置（向后兼容）
+      const allocationConfigs: any[] = []
+      let totalCapitalValue = 0
+      for (const exchangeId of enabledExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        for (const [symbol, capital] of Object.entries(exchangeSymbols)) {
+          if (capital > 0) {
+            totalCapitalValue += capital
+          }
+        }
+      }
+
+      for (const exchangeId of enabledExchanges) {
+        const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+        for (const [symbol, capital] of Object.entries(exchangeSymbols)) {
+          if (capital > 0) {
+            allocationConfigs.push({
+              exchange: exchangeId,
+              symbol,
+              max_amount_usdt: capital,
+              max_percentage: totalCapitalValue > 0 ? (capital / totalCapitalValue) * 100 : 0,
+            })
+          }
+        }
+      }
+
+      // 構建配置對象
+      const config: AIGenerateConfigResponse = {
+        explanation: '用戶手动配置的策略和资金分配',
+        grid_config: gridConfigs,
+        allocation: allocationConfigs,
+        symbols_config: symbolsConfig,
+      }
+
+      // 直接保存配置
+      await applyAIConfig(config)
+      setStep('success')
+      toast({
+        title: '配置保存成功',
+        description: '请重啟服務使配置生效',
+        status: 'success',
+        duration: 5000,
+      })
+      if (onSuccess) {
+        onSuccess()
+      }
+    } catch (err: any) {
+      const errorMsg = err.message || '保存配置失败'
+      setError(errorMsg)
+      toast({
+        title: '保存配置失败',
+        description: errorMsg,
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleReset = () => {
+    setStep('form')
+    setAiConfig(null)
+    setError(null)
+  }
+
+  const handleClose = () => {
+    handleReset()
+    onClose()
+  }
+
+  // AI 推荐：资產比例分配
+  const [recommendingAllocations, setRecommendingAllocations] = useState(false)
+  const handleAIRecommendAllocations = async () => {
+    if (!geminiApiKey.trim()) {
+      toast({ title: '请先設置 Gemini API Key', status: 'warning', duration: 3000 })
+      return
+    }
+    if (selectedSymbols.length === 0) {
+      toast({ title: '请先选擇交易币种', status: 'warning', duration: 3000 })
+      return
+    }
+
+    setRecommendingAllocations(true)
+    toast({ title: 'AI 正在分析行情推荐比例...', status: 'info', duration: 2000 })
+
+    try {
+      const request: AIGenerateConfigRequest = {
+        exchange,
+        symbols: selectedSymbols,
+        capital_mode: 'total',
+        total_capital: totalCapital,
+        risk_profile: riskProfile,
+        gemini_api_key: geminiApiKey,
+      }
+
+      const result = await generateAIConfig(request)
+      
+      // 從 AI 結果中提取资產分配比例
+      if (result.allocation && result.allocation.length > 0) {
+        const totalAlloc = result.allocation.reduce((sum, a) => sum + (a.max_percentage || 0), 0)
+        const newAllocations: Record<string, number> = {}
+        result.allocation.forEach(a => {
+          if (selectedSymbols.includes(a.symbol)) {
+            // 將百分比轉换為 0-1 的权重
+            newAllocations[a.symbol] = totalAlloc > 0 ? (a.max_percentage || 0) / totalAlloc : 1 / selectedSymbols.length
+          }
+        })
+        // 补充未分配的币种
+        selectedSymbols.forEach(s => {
+          if (!(s in newAllocations)) {
+            newAllocations[s] = 1 / selectedSymbols.length
+          }
+        })
+        setSymbolAllocations(newAllocations)
+        toast({ title: 'AI 推荐比例已应用', status: 'success', duration: 3000 })
+      } else {
+        // 如果没有返回分配結果，使用均等分配
+        const equalWeight = 1 / selectedSymbols.length
+        const newAllocations: Record<string, number> = {}
+        selectedSymbols.forEach(s => newAllocations[s] = equalWeight)
+        setSymbolAllocations(newAllocations)
+        toast({ title: 'AI 建议均等分配', status: 'info', duration: 3000 })
+      }
+    } catch (err: any) {
+      console.error('AI 推荐失败:', err)
+      toast({ 
+        title: 'AI 推荐失败', 
+        description: err.message || '请检查网络和 API Key', 
+        status: 'error', 
+        duration: 5000 
+      })
+    } finally {
+      setRecommendingAllocations(false)
+    }
+  }
+
+  // 默认推荐：單個币种的策略比例（不再使用 AI）
+  const [recommendingStrategy, setRecommendingStrategy] = useState<string | null>(null)
+  const handleAIRecommendStrategy = async (exchangeId: string, symbol: string) => {
+    const taskKey = `${exchangeId}:${symbol}`
+    setRecommendingStrategy(taskKey)
+
+    try {
+      // 獲取該幣種的资金量
+      const symbolCapital = exchangeSymbolCapitals[exchangeId]?.[symbol] || 0
+      
+      // 根據风險偏好和资金量為所有可用策略分配权重
+      const strategyWeights = getRecommendedStrategyWeights(riskProfile, availableStrategyTypes, symbolCapital)
+
+      // 归一化权重，确保總和為 1
+      const totalWeight = Object.values(strategyWeights).reduce((a, b) => a + b, 0)
+      const normalizedWeights: Record<string, number> = {}
+      for (const [type, weight] of Object.entries(strategyWeights)) {
+        normalizedWeights[type] = totalWeight > 0 ? weight / totalWeight : 0
+      }
+
+      // 過滤掉权重為0的策略，並确保每個策略分配的资金至少满足最小訂單要求
+      const minOrderAmount = 100 // 币安最小訂單金額
+      const filteredStrategies = availableStrategyTypes
+        .filter(type => {
+          const weight = normalizedWeights[type] || 0
+          if (weight <= 0) return false
+          
+          // 检查分配的资金是否满足最小訂單要求
+          const allocatedCapital = symbolCapital * weight
+          return allocatedCapital >= minOrderAmount
+        })
+        .map(type => ({
+          type,
+          weight: normalizedWeights[type],
+          config: {},
+        }))
+
+      // 如果過滤后没有策略，使用最保守的配置（只使用网格和DCA）
+      if (filteredStrategies.length === 0) {
+        const conservativeStrategies: StrategyInstance[] = []
+        if (availableStrategyTypes.includes('grid') && symbolCapital >= minOrderAmount) {
+          conservativeStrategies.push({
+            type: 'grid',
+            weight: 0.6,
+            config: {},
+          })
+        }
+        if (availableStrategyTypes.includes('dca') && symbolCapital >= minOrderAmount) {
+          conservativeStrategies.push({
+            type: 'dca',
+            weight: conservativeStrategies.length > 0 ? 0.4 : 1.0,
+            config: {},
+          })
+        }
+        
+        if (conservativeStrategies.length > 0) {
+          setStrategySplits(prev => ({
+            ...prev,
+            [taskKey]: conservativeStrategies
+          }))
+          
+          toast({ 
+            title: `${exchangeId} ${symbol} 策略比例已应用`, 
+            description: `资金量较小，已采用保守配置：${conservativeStrategies.map(s => `${getStrategyDisplayName(s.type)} ${(s.weight * 100).toFixed(0)}%`).join(', ')}`,
+            status: 'info', 
+            duration: 4000 
+          })
+          return
+        }
+      }
+
+      // 重新归一化過滤后的策略权重
+      const filteredTotalWeight = filteredStrategies.reduce((sum, s) => sum + s.weight, 0)
+      const finalStrategies = filteredStrategies.map(s => ({
+        ...s,
+        weight: filteredTotalWeight > 0 ? s.weight / filteredTotalWeight : 0
+      }))
+
+      setStrategySplits(prev => ({
+        ...prev,
+        [taskKey]: finalStrategies
+      }))
+
+      // 構建描述信息
+      const description = finalStrategies
+        .filter(s => s.weight > 0.01)
+        .map(s => {
+          const allocatedCapital = symbolCapital * s.weight
+          return `${getStrategyDisplayName(s.type)} ${(s.weight * 100).toFixed(0)}% (${allocatedCapital.toFixed(0)} USDT)`
+        })
+        .join(', ')
+
+      const warningMsg = symbolCapital < 10000 
+        ? '资金量较小，已自动排除需要大资金的策略（如马丁格尔）' 
+        : ''
+
+      toast({ 
+        title: `${exchangeId} ${symbol} 策略比例已应用`, 
+        description: description + (warningMsg ? `\n${warningMsg}` : ''),
+        status: 'success', 
+        duration: 4000 
+      })
+    } catch (err: any) {
+      console.error('推荐策略失败:', err)
+      toast({ 
+        title: '推荐失败', 
+        description: err.message || '应用默认策略配比失败', 
+        status: 'error', 
+        duration: 5000 
+      })
+    } finally {
+      setRecommendingStrategy(null)
+    }
+  }
+
+  // 交易所显示名称映射
+  const exchangeNames: Record<string, string> = {
+    binance: 'Binance',
+    bitget: 'Bitget',
+    bybit: 'Bybit',
+    gate: 'Gate.io',
+    okx: 'OKX',
+    huobi: 'Huobi (HTX)',
+    kucoin: 'KuCoin',
+  }
+
+  // 策略類型显示名称映射
+  const getStrategyDisplayName = (type: string): string => {
+    const names: Record<string, string> = {
+      grid: '網格策略',
+      dca: 'DCA 定投',
+      martingale: '马丁格尔',
+      trend: '趋势跟踪',
+      mean_reversion: '均值回归',
+      breakout: '突破策略',
+      combo: '组合策略',
+      momentum: '动量策略',
+    }
+    return names[type] || type
+  }
+
+  // 策略類型說明映射
+  const getStrategyDescription = (type: string): string => {
+    const descriptions: Record<string, string> = {
+      grid: '網格策略：在價格区间内設置買賣订單网格，通過低買高賣赚取價差。适合震荡市场，风險较低。',
+      dca: 'DCA 定投：定期定額投资策略，分批買入降低平均成本。适合长期持有，平滑價格波動影响。',
+      martingale: '马丁格尔：亏损后加倍投入的策略，通過大額盈利覆盖前期亏损。风險较高，需要充足资金。',
+      trend: '趋势跟踪：跟随市场趋势進行交易，上涨時買入，下跌時賣出。适合有明显趋势的市场。',
+      mean_reversion: '均值回归：當價格偏离均值時反向交易，預期價格會回归均值。适合震荡市场。',
+      breakout: '突破策略：當價格突破关键阻力或支撑位時入场交易。适合波动较大的市场。',
+      combo: '组合策略：多种策略的组合，分散风險，平衡收益。适合稳健型投资者。',
+      momentum: '动量策略：跟随價格动量方向交易，在强势上涨或下跌時顺势而為。适合趋势明显的市场。',
+    }
+    return descriptions[type] || '該策略的详细說明'
+  }
+
+  // 根據风險偏好和资金量獲取推荐的策略权重分配
+  const getRecommendedStrategyWeights = (
+    profile: 'conservative' | 'balanced' | 'aggressive',
+    types: string[],
+    capital: number = 0
+  ): Record<string, number> => {
+    // 策略所需的最小资金量（USDT）
+    const strategyMinCapitals: Record<string, number> = {
+      grid: 250,           // 網格策略：最小 250 USDT
+      dca: 200,            // DCA 定投：最小 200 USDT
+      trend: 500,          // 趋势跟踪：最小 500 USDT
+      mean_reversion: 500, // 均值回归：最小 500 USDT
+      martingale: 2000,   // 马丁格尔：需要大资金，最小 2000 USDT
+      breakout: 1000,      // 突破策略：需要较大资金，最小 1000 USDT
+      momentum: 1000,      // 动量策略：需要较大资金，最小 1000 USDT
+      combo: 1500,         // 组合策略：需要较大资金，最小 1500 USDT
+    }
+
+    // 不同风險偏好下各策略的基础权重
+    const weightProfiles: Record<string, Record<string, number>> = {
+      conservative: {
+        grid: 0.40,
+        dca: 0.40,
+        mean_reversion: 0.15,
+        trend: 0.05,
+        martingale: 0.00,
+        breakout: 0.00,
+        momentum: 0.00,
+        combo: 0.00,
+      },
+      balanced: {
+        grid: 0.45,
+        dca: 0.30,
+        trend: 0.15,
+        mean_reversion: 0.10,
+        martingale: 0.00,
+        momentum: 0.00,
+        breakout: 0.00,
+        combo: 0.00,
+      },
+      aggressive: {
+        grid: 0.35,
+        martingale: 0.00, // 小资金時設為0，大资金時再分配
+        trend: 0.25,
+        momentum: 0.15,
+        breakout: 0.15,
+        dca: 0.10,
+        mean_reversion: 0.00,
+        combo: 0.00,
+      },
+    }
+
+    const profileWeights = weightProfiles[profile] || weightProfiles.balanced
+    const result: Record<string, number> = {}
+
+    // 根據资金量調整策略权重
+    for (const type of types) {
+      const baseWeight = profileWeights[type] || 0
+      const minCapital = strategyMinCapitals[type] || 0
+      
+      // 如果资金量小於策略所需的最小资金量，將該策略权重設為0
+      if (capital > 0 && minCapital > 0 && capital < minCapital) {
+        result[type] = 0
+        continue
+      }
+
+      // 小资金時（< 10000 USDT），更保守的配置
+      if (capital > 0 && capital < 10000) {
+        if (type === 'martingale' || type === 'breakout' || type === 'momentum') {
+          // 小资金時排除高风險策略
+          result[type] = 0
+        } else if (type === 'grid' || type === 'dca') {
+          // 小资金時优先使用稳健策略
+          result[type] = baseWeight * 1.2 // 增加网格和DCA的权重
+        } else {
+          result[type] = baseWeight
+        }
+      } else if (capital >= 10000 && capital < 50000) {
+        // 中等资金（10000-50000 USDT）
+        if (type === 'martingale') {
+          // 中等资金時，马丁格尔权重降低
+          result[type] = baseWeight * 0.5
+        } else {
+          result[type] = baseWeight
+        }
+      } else {
+        // 大资金（>= 50000 USDT），使用原始权重
+        // 對於激進模式，如果资金量足够，恢複马丁格尔权重
+        if (profile === 'aggressive' && type === 'martingale' && capital >= 20000) {
+          result[type] = 0.25 // 大资金時可以使用马丁格尔
+        } else {
+          result[type] = baseWeight
+        }
+      }
+    }
+
+    return result
+  }
+
+  return (
+    <Modal isOpen={isOpen} onClose={handleClose} size="xl" scrollBehavior="inside">
+      <ModalOverlay />
+      <ModalContent bg={bg}>
+        <ModalHeader>AI 智能配置助手</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody>
+          {step === 'ai-setup' && (
+            <VStack spacing={6} align="stretch">
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>第一步：AI 环境設置</AlertTitle>
+                  <AlertDescription fontSize="sm">
+                    配置您的 Gemini AI 访问权限。系统内置异步任務处理，确保生成過程稳定且保护您的 API Key。
+                  </AlertDescription>
+                </Box>
+              </Alert>
+
+              <FormControl isRequired>
+                <FormLabel>Gemini API Key</FormLabel>
+                <InputGroup size="md">
+                  <Input
+                    type={showApiKey ? 'text' : 'password'}
+                    placeholder="输入您的 Gemini API Key"
+                    value={geminiApiKey}
+                    onChange={(e) => {
+                      setGeminiApiKey(e.target.value)
+                      setIsKeyFromConfig(false) // 用戶修改后，標記為不再来自配置文件
+                    }}
+                    borderRadius="xl"
+                  />
+                  <InputRightElement width="3rem">
+                    <IconButton
+                      h="1.75rem"
+                      size="sm"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      icon={showApiKey ? <ViewOffIcon /> : <ViewIcon />}
+                      aria-label={showApiKey ? '隐藏' : '显示'}
+                      variant="ghost"
+                    />
+                  </InputRightElement>
+                </InputGroup>
+                {isKeyFromConfig && geminiApiKey && (
+                  <Text fontSize="xs" color="green.500" mt={1}>
+                    ✓ 已從配置文件读取
+                  </Text>
+                )}
+                <Text fontSize="xs" color="gray.500" mt={isKeyFromConfig && geminiApiKey ? 0 : 2}>
+                  还没有 Key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', textDecoration: 'underline' }}>点击这里從 Google AI Studio 獲取</a>
+                </Text>
+              </FormControl>
+            </VStack>
+          )}
+
+          {step === 'asset-alloc' && (
+            <VStack spacing={6} align="stretch">
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>第二步：按交易所分配资金</AlertTitle>
+                  <AlertDescription fontSize="sm">
+                    為每個交易所設置不同币种的资金分配。每個交易所的资金總和不能超過該交易所的 USDT 资金總額。
+                  </AlertDescription>
+                </Box>
+              </Alert>
+
+              {error && (
+                <Alert status="error" borderRadius="md">
+                  <AlertIcon />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {loadingBalances ? (
+                <Center py={8}>
+                  <Spinner size="lg" />
+                  <Text ml={4}>正在加載交易所餘額...</Text>
+                </Center>
+              ) : selectedExchanges.length === 0 ? (
+                <Alert status="warning" borderRadius="md">
+                  <AlertIcon />
+                  <AlertDescription>
+                    未找到已配置的交易所。请先在配置页面添加交易所。
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <VStack spacing={4} align="stretch">
+                  {selectedExchanges.map(exchangeId => {
+                    const exchangeDetail = exchangeDetails.find(d => d.exchangeId === exchangeId)
+                    const usdtAsset = exchangeDetail?.assets.find(a => a.asset === 'USDT')
+                    const availableBalance = exchangeBalances[exchangeId] || 0
+                    const totalCapital = exchangeTotalCapitals[exchangeId] || 0
+                    const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+                    const totalAllocated = Object.values(exchangeSymbols).reduce((sum, cap) => sum + cap, 0)
+                    const isOverBalance = totalAllocated > totalCapital
+                    const exchangeName = exchangeNames[exchangeId] || exchangeId
+                    const isTestnet = exchangeDetail?.isTestnet || false
+                    const isEnabled = exchangeEnabled[exchangeId] !== false // 默认為 true
+
+                    return (
+                      <Box 
+                        key={exchangeId} 
+                        p={4} 
+                        bg={isEnabled ? infoBg : 'gray.100'} 
+                        borderRadius="2xl" 
+                        border="1px" 
+                        borderColor={isEnabled ? borderColor : 'gray.300'}
+                        opacity={isEnabled ? 1 : 0.6}
+                      >
+                        <HStack justify="space-between" mb={4}>
+                          <HStack spacing={3}>
+                            <Switch
+                              isChecked={isEnabled}
+                              onChange={(e) => {
+                                setExchangeEnabled(prev => ({
+                                  ...prev,
+                                  [exchangeId]: e.target.checked
+                                }))
+                              }}
+                              colorScheme="blue"
+                            />
+                            <Text fontWeight="bold" fontSize="md">{exchangeName}</Text>
+                            {!isEnabled && (
+                              <Badge colorScheme="gray" fontSize="xs">已禁用</Badge>
+                            )}
+                            {isTestnet && (
+                              <Badge colorScheme="orange" fontSize="xs">測試網</Badge>
+                            )}
+                          </HStack>
+                          {isEnabled && (
+                            <HStack spacing={4}>
+                              <VStack spacing={1} align="end">
+                                <HStack spacing={2}>
+                                  <Text fontSize="xs" color="gray.500">
+                                    可用餘額: <Text as="span" fontWeight="bold" color="blue.500">{availableBalance.toFixed(2)} USDT</Text>
+                                  </Text>
+                                  {availableBalance > 0 && Math.round(totalCapital) !== Math.floor(availableBalance) && (
+                                    <Button
+                                      size="xs"
+                                      variant="ghost"
+                                      colorScheme="blue"
+                                      onClick={() => {
+                                        setExchangeTotalCapitals(prev => ({
+                                          ...prev,
+                                          [exchangeId]: Math.floor(availableBalance)
+                                        }))
+                                      }}
+                                    >
+                                      使用全部
+                                    </Button>
+                                  )}
+                                </HStack>
+                                <HStack spacing={2}>
+                                  <Text fontSize="xs" color="gray.500">USDT 资金總額:</Text>
+                                  <NumberInput
+                                    size="xs"
+                                    value={Math.round(totalCapital)}
+                                    onChange={(_, val) => {
+                                      setExchangeTotalCapitals(prev => ({
+                                        ...prev,
+                                        [exchangeId]: Math.round(val || 0)
+                                      }))
+                                    }}
+                                    min={0}
+                                    precision={0}
+                                    w="120px"
+                                  >
+                                    <NumberInputField />
+                                  </NumberInput>
+                                  <Text fontSize="xs" color="gray.500">USDT</Text>
+                                </HStack>
+                              </VStack>
+                              <Text fontSize="xs" color={isOverBalance ? "red.500" : "gray.500"}>
+                                已分配: <Text as="span" fontWeight="bold" color={isOverBalance ? "red.500" : "green.500"}>{Math.round(totalAllocated)} USDT</Text>
+                              </Text>
+                            </HStack>
+                          )}
+                        </HStack>
+
+                        {isEnabled && isOverBalance && (
+                          <Alert status="error" borderRadius="md" mb={4} size="sm">
+                            <AlertIcon />
+                            <AlertDescription fontSize="xs">
+                              該交易所的资金分配總和 ({Math.round(totalAllocated)} USDT) 超過了 USDT 资金總額 ({Math.round(totalCapital)} USDT)
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {isEnabled && (
+                          <>
+                            <VStack spacing={3} align="stretch">
+                              {Object.keys(exchangeSymbols).length === 0 ? (
+                                <Center py={4} color="gray.500" fontSize="sm">
+                                  请点击下方按钮為該交易所添加币种
+                                </Center>
+                              ) : (
+                                Object.entries(exchangeSymbols).map(([symbol, capital]) => (
+                                  <HStack key={symbol} spacing={4}>
+                                    <Badge colorScheme="green" minW="80px" textAlign="center">{symbol}</Badge>
+                                    <Box flex={1}>
+                                      <NumberInput
+                                        size="sm"
+                                        value={Math.round(capital)}
+                                        onChange={(_, val) => {
+                                          setExchangeSymbolCapitals(prev => ({
+                                            ...prev,
+                                            [exchangeId]: {
+                                              ...prev[exchangeId],
+                                              [symbol]: Math.round(val || 0)
+                                            }
+                                          }))
+                                        }}
+                                        min={0}
+                                        max={totalCapital}
+                                        precision={0}
+                                      >
+                                        <NumberInputField />
+                                      </NumberInput>
+                                    </Box>
+                                    <Text fontSize="xs" color="gray.500" minW="80px">
+                                      USDT
+                                    </Text>
+                                    <IconButton
+                                      size="xs"
+                                      icon={<Text>×</Text>}
+                                      aria-label="移除"
+                                      onClick={() => {
+                                        const newSymbols = { ...exchangeSymbols }
+                                        delete newSymbols[symbol]
+                                        setExchangeSymbolCapitals(prev => ({
+                                          ...prev,
+                                          [exchangeId]: newSymbols
+                                        }))
+                                      }}
+                                    />
+                                  </HStack>
+                                ))
+                              )}
+                            </VStack>
+
+                            <Divider my={3} />
+
+                            <Box>
+                              <Text fontSize="sm" fontWeight="bold" mb={2}>為該交易所添加币种:</Text>
+                              <Wrap>
+                                {symbols.filter(s => !exchangeSymbols[s]).map(s => (
+                                  <WrapItem key={s}>
+                                    <Button
+                                      size="xs"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setExchangeSymbolCapitals(prev => ({
+                                          ...prev,
+                                          [exchangeId]: {
+                                            ...prev[exchangeId],
+                                            [s]: 0
+                                          }
+                                        }))
+                                      }}
+                                    >
+                                      + {s}
+                                    </Button>
+                                  </WrapItem>
+                                ))}
+                              </Wrap>
+                            </Box>
+                          </>
+                        )}
+                        
+                        {!isEnabled && (
+                          <Box py={4} textAlign="center">
+                            <Text fontSize="sm" color="gray.500">
+                              該交易所已禁用，不會参與后续配置生成
+                            </Text>
+                          </Box>
+                        )}
+                      </Box>
+                    )
+                  })}
+                </VStack>
+              )}
+            </VStack>
+          )}
+
+          {step === 'strategy-split' && (
+            <VStack spacing={6} align="stretch">
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>第三步：策略细分</AlertTitle>
+                  <AlertDescription fontSize="sm">
+                    為每個已啟用交易所的每個币种配置具体的交易策略组合（网格、DCA 等）及其资金权重。
+                  </AlertDescription>
+                </Box>
+              </Alert>
+
+              <VStack spacing={6} align="stretch">
+                {selectedExchanges
+                  .filter(exchangeId => exchangeEnabled[exchangeId] !== false) // 只显示已啟用的交易所
+                  .map(exchangeId => {
+                    const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+                    const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
+                    const exchangeName = exchangeNames[exchangeId] || exchangeId
+
+                    if (symbolsWithCapital.length === 0) return null
+
+                    return (
+                    <Box key={exchangeId} p={4} bg={bg} borderRadius="2xl" border="1px" borderColor={borderColor}>
+                      <Heading size="sm" mb={4} color="blue.500">{exchangeName}</Heading>
+                      <VStack spacing={6} align="stretch">
+                        {symbolsWithCapital.map(symbol => {
+                          const taskKey = `${exchangeId}:${symbol}`
+                          return (
+                            <Box key={symbol} p={4} bg={infoBg} borderRadius="xl" border="1px" borderColor={borderColor}>
+                              <HStack justify="space-between" mb={4}>
+                                <Badge colorScheme="green" fontSize="md" px={3} py={1}>{symbol}</Badge>
+                                <Button 
+                                  size="xs" 
+                                  colorScheme="purple" 
+                                  variant="ghost" 
+                                  onClick={() => handleAIRecommendStrategy(exchangeId, symbol)}
+                                >
+                                  推荐配置
+                                </Button>
+                              </HStack>
+
+                              <VStack spacing={3} align="stretch">
+                                {availableStrategyTypes.map(type => {
+                                  const strategies = strategySplits[taskKey] || []
+                                  const existing = strategies.find(s => s.type === type)
+                                  const weight = existing ? existing.weight : 0
+                                  
+                                  return (
+                                    <HStack key={type} spacing={4}>
+                                      <Tooltip 
+                                        label={getStrategyDescription(type)} 
+                                        placement="top"
+                                        hasArrow
+                                        fontSize="sm"
+                                        bg="gray.700"
+                                        color="white"
+                                        px={3}
+                                        py={2}
+                                        borderRadius="md"
+                                        maxW="300px"
+                                      >
+                                        <Text 
+                                          fontSize="sm" 
+                                          minW="90px" 
+                                          fontWeight="bold"
+                                          cursor="help"
+                                          borderBottom="1px dashed"
+                                          borderColor="gray.400"
+                                          _hover={{ borderColor: "blue.500" }}
+                                        >
+                                          {getStrategyDisplayName(type)}
+                                        </Text>
+                                      </Tooltip>
+                                      <Box flex={1}>
+                                        <HStack>
+                                          <NumberInput
+                                            size="sm"
+                                            maxW="100px"
+                                            value={Math.round(weight * 100)}
+                                            onChange={(valueString, valueNumber) => {
+                                              // valueNumber 可能是 NaN，使用 valueString 解析更可靠
+                                              const numVal = parseFloat(valueString) || 0
+                                              const others = strategies.filter(s => s.type !== type)
+                                              const updated = [...others, { type, weight: numVal / 100, name: `${type}-${symbol}`, config: existing?.config || {} }]
+                                              setStrategySplits(prev => ({ ...prev, [taskKey]: updated }))
+                                            }}
+                                            min={0}
+                                            max={100}
+                                          >
+                                            <NumberInputField />
+                                          </NumberInput>
+                                          <Text fontSize="xs" color="gray.500">%</Text>
+                                        </HStack>
+                                      </Box>
+                                    </HStack>
+                                  )
+                                })}
+                              </VStack>
+                            </Box>
+                          )
+                        })}
+                      </VStack>
+                    </Box>
+                  )
+                })}
+              </VStack>
+            </VStack>
+          )}
+
+          {step === 'param-tuning' && (
+            <VStack spacing={6} align="stretch">
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>第四步：参數調优</AlertTitle>
+                  <AlertDescription fontSize="sm">
+                    根據选定的策略和资金，微調交易参數。内置公式已自动生成默认值。
+                  </AlertDescription>
+                </Box>
+              </Alert>
+
+              <VStack spacing={6} align="stretch">
+                {selectedExchanges
+                  .filter(exchangeId => exchangeEnabled[exchangeId] !== false) // 只显示已啟用的交易所
+                  .map(exchangeId => {
+                    const exchangeSymbols = exchangeSymbolCapitals[exchangeId] || {}
+                    const symbolsWithCapital = Object.keys(exchangeSymbols).filter(s => exchangeSymbols[s] > 0)
+                    const exchangeName = exchangeNames[exchangeId] || exchangeId
+
+                    if (symbolsWithCapital.length === 0) return null
+
+                    return (
+                    <Box key={exchangeId} p={4} bg={bg} borderRadius="2xl" border="1px" borderColor={borderColor}>
+                      <Heading size="sm" mb={4} color="blue.500">{exchangeName}</Heading>
+                      <VStack spacing={6} align="stretch">
+                        {symbolsWithCapital.map(symbol => {
+                          const taskKey = `${exchangeId}:${symbol}`
+                          const strategies = strategySplits[taskKey] || []
+                          const gridStrategy = strategies.find(s => s.type === 'grid')
+                          
+                          if (!gridStrategy || gridStrategy.weight === 0) return null
+
+                          const symbolCapital = exchangeSymbols[symbol]
+                          const currentParams = getGridParams(exchangeId, symbol, symbolCapital, gridStrategy.weight)
+
+                          return (
+                            <Box key={symbol} p={4} bg={infoBg} borderRadius="xl" border="1px" borderColor={borderColor}>
+                              <HStack justify="space-between" mb={4}>
+                                <Badge colorScheme="green" fontSize="sm">网格参數: {symbol}</Badge>
+                                <Button size="xs" colorScheme="blue" variant="outline" onClick={() => {
+                                  handleOptimizeGridParams(exchangeId, symbol, symbolCapital, gridStrategy.weight)
+                                }}>
+                                  一键优化
+                                </Button>
+                              </HStack>
+
+                              <VStack spacing={4} align="stretch">
+                                <HStack>
+                                  <FormControl flex={1}>
+                                    <FormLabel fontSize="xs">價格間隔 (USDT)</FormLabel>
+                                    <NumberInput 
+                                      size="sm" 
+                                      value={currentParams.priceInterval} 
+                                      step={1} 
+                                      min={0.001}
+                                      onChange={(_, val) => updateGridParams(exchangeId, symbol, { priceInterval: val || getDefaultPriceInterval(symbol) })}
+                                    >
+                                      <NumberInputField borderRadius="lg" />
+                                    </NumberInput>
+                                  </FormControl>
+                                  <FormControl flex={1}>
+                                    <FormLabel fontSize="xs">買/賣單視窗</FormLabel>
+                                    <NumberInput 
+                                      size="sm" 
+                                      value={currentParams.orderWindow} 
+                                      min={1}
+                                      onChange={(_, val) => updateGridParams(exchangeId, symbol, { orderWindow: val || 10 })}
+                                    >
+                                      <NumberInputField borderRadius="lg" />
+                                    </NumberInput>
+                                  </FormControl>
+                                </HStack>
+                                <HStack>
+                                  <FormControl flex={1}>
+                                    <FormLabel fontSize="xs">每單金額 (USDT)</FormLabel>
+                                    <NumberInput 
+                                      size="sm" 
+                                      value={currentParams.orderAmount} 
+                                      min={5}
+                                      onChange={(_, val) => updateGridParams(exchangeId, symbol, { orderAmount: val || 5 })}
+                                    >
+                                      <NumberInputField borderRadius="lg" />
+                                    </NumberInput>
+                                  </FormControl>
+                                  <FormControl flex={1}>
+                                    <FormLabel fontSize="xs">最大网格层數</FormLabel>
+                                    <NumberInput 
+                                      size="sm" 
+                                      value={currentParams.maxGridLevels} 
+                                      min={1}
+                                      onChange={(_, val) => updateGridParams(exchangeId, symbol, { maxGridLevels: val || 50 })}
+                                    >
+                                      <NumberInputField borderRadius="lg" />
+                                    </NumberInput>
+                                  </FormControl>
+                                </HStack>
+                              </VStack>
+                            </Box>
+                          )
+                        })}
+                      </VStack>
+                    </Box>
+                  )
+                })}
+              </VStack>
+            </VStack>
+          )}
+
+          {step === 'withdrawal-setup' && (
+            <VStack spacing={6} align="stretch">
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>第五步：盈利保护設置</AlertTitle>
+                  <AlertDescription fontSize="sm">
+                    配置盈利划轉和本金保护规则，确保您的利润得到妥善管理。
+                  </AlertDescription>
+                </Box>
+              </Alert>
+
+              {/* 基础划轉設置 */}
+              <Box p={5} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
+                <VStack spacing={5} align="stretch">
+                  <FormControl display="flex" alignItems="center" justifyContent="space-between">
+                    <Box>
+                      <FormLabel mb="0" fontWeight="bold">啟用利润自动划轉</FormLabel>
+                      <Text fontSize="xs" color="gray.500">盈利達到阈值后自动划轉到現貨钱包</Text>
+                    </Box>
+                    <RadioGroup 
+                      value={withdrawalPolicy.enabled ? 'true' : 'false'} 
+                      onChange={(v) => setWithdrawalPolicy(prev => ({ ...prev, enabled: v === 'true' }))}
+                    >
+                      <Stack direction="row">
+                        <Radio value="true">开啟</Radio>
+                        <Radio value="false">关闭</Radio>
+                      </Stack>
+                    </RadioGroup>
+                  </FormControl>
+
+                  {withdrawalPolicy.enabled && (
+                    <>
+                      <Divider />
+                      
+                      {/* 划轉模式选擇 */}
+                      <FormControl>
+                        <FormLabel fontWeight="bold">划轉模式</FormLabel>
+                        <Select 
+                          value={withdrawalPolicy.mode || 'threshold'}
+                          onChange={(e) => setWithdrawalPolicy(prev => ({ ...prev, mode: e.target.value as any }))}
+                          borderRadius="xl"
+                        >
+                          <option value="threshold">阈值触发 - 盈利達到比例后划轉</option>
+                          <option value="fixed">固定金額 - 每赚固定金額就划轉</option>
+                          <option value="tiered">阶梯划轉 - 不同盈利水平不同划轉比例</option>
+                          <option value="scheduled">定時划轉 - 按時间周期划轉</option>
+                        </Select>
+                      </FormControl>
+
+                      {/* 阈值模式設置 */}
+                      {(withdrawalPolicy.mode === 'threshold' || !withdrawalPolicy.mode) && (
+                        <FormControl>
+                          <FormLabel fontWeight="bold">提現触发阈值 (%)</FormLabel>
+                          <HStack>
+                            <NumberInput 
+                              flex={1}
+                              value={(withdrawalPolicy.threshold || 0.1) * 100}
+                              onChange={(_, val) => setWithdrawalPolicy(prev => ({ ...prev, threshold: val / 100 }))}
+                              min={1}
+                              max={100}
+                            >
+                              <NumberInputField borderRadius="xl" />
+                            </NumberInput>
+                            <Text fontWeight="bold">%</Text>
+                          </HStack>
+                          <Text fontSize="xs" color="gray.500" mt={1}>
+                            盈利達到本金的此比例時触发划轉
+                          </Text>
+                        </FormControl>
+                      )}
+
+                      {/* 固定金額模式設置 */}
+                      {withdrawalPolicy.mode === 'fixed' && (
+                        <FormControl>
+                          <FormLabel fontWeight="bold">固定划轉金額 (USDT)</FormLabel>
+                          <NumberInput 
+                            value={withdrawalPolicy.fixed_amount || 100}
+                            onChange={(_, val) => setWithdrawalPolicy(prev => ({ ...prev, fixed_amount: val }))}
+                            min={10}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>
+                            每次盈利達到此金額時自动划轉
+                          </Text>
+                        </FormControl>
+                      )}
+
+                      {/* 阶梯模式設置 */}
+                      {withdrawalPolicy.mode === 'tiered' && (
+                        <Box>
+                          <FormLabel fontWeight="bold">阶梯划轉规则</FormLabel>
+                          <VStack spacing={2} align="stretch">
+                            {(withdrawalPolicy.tiered_rules || [
+                              { profit_threshold: 0.1, withdraw_ratio: 0.3 },
+                              { profit_threshold: 0.2, withdraw_ratio: 0.5 },
+                              { profit_threshold: 0.3, withdraw_ratio: 0.7 },
+                            ]).map((rule, idx) => (
+                              <HStack key={idx} spacing={2}>
+                                <Text fontSize="sm" minW="80px">盈利 ≥</Text>
+                                <NumberInput 
+                                  size="sm" 
+                                  maxW="70px"
+                                  value={rule.profit_threshold * 100}
+                                  onChange={(_, val) => {
+                                    const rules = [...(withdrawalPolicy.tiered_rules || [])]
+                                    rules[idx] = { ...rules[idx], profit_threshold: val / 100 }
+                                    setWithdrawalPolicy(prev => ({ ...prev, tiered_rules: rules }))
+                                  }}
+                                >
+                                  <NumberInputField />
+                                </NumberInput>
+                                <Text fontSize="sm">% 時划轉</Text>
+                                <NumberInput 
+                                  size="sm" 
+                                  maxW="70px"
+                                  value={rule.withdraw_ratio * 100}
+                                  onChange={(_, val) => {
+                                    const rules = [...(withdrawalPolicy.tiered_rules || [])]
+                                    rules[idx] = { ...rules[idx], withdraw_ratio: val / 100 }
+                                    setWithdrawalPolicy(prev => ({ ...prev, tiered_rules: rules }))
+                                  }}
+                                >
+                                  <NumberInputField />
+                                </NumberInput>
+                                <Text fontSize="sm">%</Text>
+                              </HStack>
+                            ))}
+                          </VStack>
+                          <Text fontSize="xs" color="gray.500" mt={1}>
+                            例如：盈利 10% 時划轉 30%，盈利 20% 時划轉 50%
+                          </Text>
+                        </Box>
+                      )}
+
+                      {/* 定時模式設置 */}
+                      {withdrawalPolicy.mode === 'scheduled' && (
+                        <HStack spacing={4}>
+                          <FormControl flex={1}>
+                            <FormLabel fontWeight="bold">划轉周期</FormLabel>
+                            <Select 
+                              value={withdrawalPolicy.schedule?.frequency || 'daily'}
+                              onChange={(e) => setWithdrawalPolicy(prev => ({ 
+                                ...prev, 
+                                schedule: { ...prev.schedule, enabled: true, frequency: e.target.value as any } 
+                              }))}
+                              borderRadius="xl"
+                            >
+                              <option value="daily">每日</option>
+                              <option value="weekly">每周</option>
+                              <option value="monthly">每月</option>
+                            </Select>
+                          </FormControl>
+                          <FormControl flex={1}>
+                            <FormLabel fontWeight="bold">划轉時间</FormLabel>
+                            <Input 
+                              type="time" 
+                              value={withdrawalPolicy.schedule?.time_of_day || '23:00'}
+                              onChange={(e) => setWithdrawalPolicy(prev => ({ 
+                                ...prev, 
+                                schedule: { ...prev.schedule, time_of_day: e.target.value } 
+                              }))}
+                              borderRadius="xl"
+                            />
+                          </FormControl>
+                        </HStack>
+                      )}
+
+                      {/* 划轉比例 */}
+                      <FormControl>
+                        <FormLabel fontWeight="bold">划轉比例 (%)</FormLabel>
+                        <HStack>
+                          <NumberInput 
+                            flex={1}
+                            value={(withdrawalPolicy.withdraw_ratio || 1) * 100}
+                            onChange={(_, val) => setWithdrawalPolicy(prev => ({ ...prev, withdraw_ratio: val / 100 }))}
+                            min={10}
+                            max={100}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontWeight="bold">%</Text>
+                        </HStack>
+                        <Text fontSize="xs" color="gray.500" mt={1}>
+                          触发条件满足時，划轉利润的百分比（剩餘部分继续複利）
+                        </Text>
+                      </FormControl>
+                    </>
+                  )}
+                </VStack>
+              </Box>
+
+              {/* 本金保护設置 */}
+              <Box p={5} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
+                <VStack spacing={4} align="stretch">
+                  <Text fontWeight="bold" fontSize="md">🛡️ 本金保护</Text>
+                  
+                  <FormControl display="flex" alignItems="center" justifyContent="space-between">
+                    <Box>
+                      <FormLabel mb="0" fontSize="sm">回本即保护</FormLabel>
+                      <Text fontSize="xs" color="gray.500">盈利回本后自动設置保本止损</Text>
+                    </Box>
+                    <RadioGroup 
+                      value={withdrawalPolicy.principal_protection?.breakeven_protection ? 'true' : 'false'} 
+                      onChange={(v) => setWithdrawalPolicy(prev => ({ 
+                        ...prev, 
+                        principal_protection: { 
+                          ...prev.principal_protection, 
+                          enabled: true,
+                          breakeven_protection: v === 'true' 
+                        } 
+                      }))}
+                    >
+                      <Stack direction="row">
+                        <Radio value="true" size="sm">开啟</Radio>
+                        <Radio value="false" size="sm">关闭</Radio>
+                      </Stack>
+                    </RadioGroup>
+                  </FormControl>
+
+                  <FormControl display="flex" alignItems="center" justifyContent="space-between">
+                    <Box>
+                      <FormLabel mb="0" fontSize="sm">盈利后划轉本金</FormLabel>
+                      <Text fontSize="xs" color="gray.500">利润足够時优先保护本金</Text>
+                    </Box>
+                    <RadioGroup 
+                      value={withdrawalPolicy.principal_protection?.withdraw_principal ? 'true' : 'false'} 
+                      onChange={(v) => setWithdrawalPolicy(prev => ({ 
+                        ...prev, 
+                        principal_protection: { 
+                          ...prev.principal_protection, 
+                          enabled: true,
+                          withdraw_principal: v === 'true' 
+                        } 
+                      }))}
+                    >
+                      <Stack direction="row">
+                        <Radio value="true" size="sm">开啟</Radio>
+                        <Radio value="false" size="sm">关闭</Radio>
+                      </Stack>
+                    </RadioGroup>
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel fontSize="sm">最大亏损限制 (%)</FormLabel>
+                    <HStack>
+                      <NumberInput 
+                        size="sm"
+                        flex={1}
+                        value={(withdrawalPolicy.principal_protection?.max_loss_ratio || 0.2) * 100}
+                        onChange={(_, val) => setWithdrawalPolicy(prev => ({ 
+                          ...prev, 
+                          principal_protection: { 
+                            ...prev.principal_protection, 
+                            enabled: true,
+                            max_loss_ratio: val / 100 
+                          } 
+                        }))}
+                        min={5}
+                        max={50}
+                      >
+                        <NumberInputField borderRadius="xl" />
+                      </NumberInput>
+                      <Text fontSize="sm">%</Text>
+                    </HStack>
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      最大允許亏损本金的比例，超過后停止交易
+                    </Text>
+                  </FormControl>
+                </VStack>
+              </Box>
+
+              <Alert status="warning" borderRadius="xl" fontSize="xs">
+                <AlertIcon />
+                注意：提現操作涉及合約账戶向現貨账戶的资金划轉，请确保您的 API 拥有划轉权限。
+              </Alert>
+            </VStack>
+          )}
+
+          {step === 'preview' && aiConfig && (
+            <VStack spacing={4} align="stretch">
+              <Alert status="success" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>配置生成成功</AlertTitle>
+                  <AlertDescription fontSize="sm">
+                    请仔细查看 AI 生成的多级资產配置方案，确认無误后点击"應用配置"
+                  </AlertDescription>
+                </Box>
+              </Alert>
+
+              <Box>
+                <Text fontWeight="bold" mb={2}>AI 配置思路</Text>
+                <Box
+                  p={4}
+                  bg={infoBg}
+                  borderRadius="md"
+                  fontSize="sm"
+                  whiteSpace="pre-wrap"
+                >
+                  {aiConfig.explanation}
+                </Box>
+              </Box>
+
+              <Divider />
+
+              {aiConfig.symbols_config && aiConfig.symbols_config.length > 0 ? (
+                <Box>
+                  <Text fontWeight="bold" mb={2}>分级配置详情</Text>
+                  <VStack spacing={4} align="stretch">
+                    {aiConfig.symbols_config.map((sc, idx) => (
+                      <Box key={idx} p={3} border="1px" borderColor={borderColor} borderRadius="lg">
+                        <HStack justify="space-between" mb={2}>
+                          <Badge colorScheme="green">{sc.symbol}</Badge>
+                          <Text fontSize="xs" fontWeight="bold">分配资金: {sc.total_allocated_capital} USDT</Text>
+                        </HStack>
+                        <VStack align="stretch" spacing={1} pl={2}>
+                          <HStack justify="space-between">
+                            <Text fontSize="xs" color="gray.500">策略组合:</Text>
+                            <HStack>
+                              {sc.strategies.map((s, si) => (
+                                <Badge key={si} variant="outline" size="xs">{s.type}({(s.weight*100).toFixed(0)}%)</Badge>
+                              ))}
+                            </HStack>
+                          </HStack>
+                          <HStack justify="space-between">
+                            <Text fontSize="xs" color="gray.500">网格参數:</Text>
+                            <Text fontSize="xs">间隔 {sc.price_interval}% | 窗口 {sc.buy_window_size} | 每單 {sc.order_quantity}U</Text>
+                          </HStack>
+                          <HStack justify="space-between">
+                            <Text fontSize="xs" color="gray.500">提現策略:</Text>
+                            <Text fontSize="xs">{sc.withdrawal_policy?.enabled ? `开啟 (${(sc.withdrawal_policy.threshold*100).toFixed(0)}% 触发)` : '关闭'}</Text>
+                          </HStack>
+                        </VStack>
+                      </Box>
+                    ))}
+                  </VStack>
+                </Box>
+              ) : (
+                <>
+                  <Box>
+                    <Text fontWeight="bold" mb={2}>网格参數配置</Text>
+                    <TableContainer>
+                      <Table size="sm" variant="simple">
+                        <Thead>
+                          <Tr>
+                            <Th>币种</Th>
+                            <Th>價格間隔</Th>
+                            <Th>每單金額</Th>
+                            <Th>買單窗口</Th>
+                            <Th>賣單視窗</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {aiConfig.grid_config.map((grid, idx) => (
+                            <Tr key={idx}>
+                              <Td><Badge>{grid.symbol}</Badge></Td>
+                              <Td>{grid.price_interval.toFixed(2)}</Td>
+                              <Td>{grid.order_quantity.toFixed(2)} USDT</Td>
+                              <Td>{grid.buy_window_size}</Td>
+                              <Td>{grid.sell_window_size}</Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+
+                  <Divider />
+
+                  <Box>
+                    <Text fontWeight="bold" mb={2}>资金分配配置</Text>
+                    <TableContainer>
+                      <Table size="sm" variant="simple">
+                        <Thead>
+                          <Tr>
+                            <Th>币种</Th>
+                            <Th>最大金額 (USDT)</Th>
+                            <Th>最大百分比 (%)</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {aiConfig.allocation.map((alloc, idx) => (
+                            <Tr key={idx}>
+                              <Td><Badge>{alloc.symbol}</Badge></Td>
+                              <Td>{alloc.max_amount_usdt.toFixed(2)}</Td>
+                              <Td>{alloc.max_percentage.toFixed(1)}%</Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                </>
+              )}
+            </VStack>
+          )}
+
+          {step === 'success' && (
+            <VStack spacing={4} align="stretch">
+              <Alert status="success" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>配置应用成功！</AlertTitle>
+                  <AlertDescription fontSize="sm">
+                    配置已成功保存到配置文件。请重啟服務使配置生效。
+                  </AlertDescription>
+                </Box>
+              </Alert>
+            </VStack>
+          )}
+
+          {loading && (
+            <VStack spacing={4} py={8}>
+              <Spinner size="lg" />
+              {taskStatus && (
+                <VStack spacing={2} w="full" px={4}>
+                  <Text fontSize="sm" color="gray.600">
+                    {taskStatus === 'pending' && '任務已創建，等待处理...'}
+                    {taskStatus === 'running' && 'AI 正在生成配置，请稍候...'}
+                    {taskStatus === 'completed' && '配置生成完成！'}
+                    {taskStatus === 'failed' && '配置生成失败'}
+                  </Text>
+                  <Progress 
+                    value={taskProgress} 
+                    colorScheme="blue" 
+                    size="sm" 
+                    w="full" 
+                    borderRadius="md"
+                    isAnimated={taskStatus === 'running'}
+                  />
+                  <Text fontSize="xs" color="gray.500">
+                    {taskProgress}%
+                  </Text>
+                </VStack>
+              )}
+            </VStack>
+          )}
+        </ModalBody>
+
+        <ModalFooter>
+          <HStack spacing={3} w="full">
+            {step !== 'success' && (
+              <Button variant="ghost" onClick={handleClose}>
+                取消
+              </Button>
+            )}
+            <Box flex={1} />
+            {['asset-alloc', 'strategy-split', 'param-tuning', 'withdrawal-setup', 'preview'].includes(step) && (
+              <Button variant="outline" onClick={handleBack}>
+                上一步
+              </Button>
+            )}
+            {['ai-setup', 'asset-alloc', 'strategy-split', 'param-tuning'].includes(step) && (
+              <Button
+                colorScheme="blue"
+                onClick={handleNext}
+                isDisabled={step === 'ai-setup' && !geminiApiKey.trim()}
+              >
+                下一步
+              </Button>
+            )}
+            {step === 'withdrawal-setup' && (
+              <Button
+                colorScheme="blue"
+                onClick={handleSaveDirectly}
+                isLoading={loading}
+              >
+                保存配置
+              </Button>
+            )}
+            {step === 'preview' && (
+              <Button
+                colorScheme="green"
+                onClick={handleApply}
+                isLoading={loading}
+              >
+                應用配置
+              </Button>
+            )}
+            {step === 'success' && (
+              <Button colorScheme="blue" onClick={handleClose}>
+                完成
+              </Button>
+            )}
+          </HStack>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  )
+}
+
+export default AIConfigWizard

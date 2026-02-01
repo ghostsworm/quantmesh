@@ -1,0 +1,73 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 构建产物
+quantmesh
+opensqt_market_maker
+demo
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 测试
+*.test
+*.out
+coverage.out
+
+# 数据和日志
+data/
+logs/
+*.log
+*.db
+*.db-shm
+*.db-wal
+
+# 配置文件 (不包含到镜像中)
+config.yaml
+config_backups/
+.env
+.env.*
+
+# 文档
+*.md
+docs/
+rdocs/
+_mine/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 依赖
+vendor/
+
+# Node.js (如果有前端构建)
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# 监控
+monitoring/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# 其他
+*.zip
+*.tar.gz
+*.rar

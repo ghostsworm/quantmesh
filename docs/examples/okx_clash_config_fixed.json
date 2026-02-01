@@ -1,0 +1,58 @@
+{
+  "dns": {
+    "enable": true,
+    "listen": "0.0.0.0:53",
+    "enhanced-mode": "fake-ip",
+    "fake-ip-range": "198.18.0.1/16",
+    "fake-ip-filter": [
+      "*.okx.com",
+      "*.okpool.top",
+      "*.local",
+      "localhost.ptlogin2.qq.com"
+    ],
+    "nameserver": [
+      "1.1.1.1",
+      "8.8.8.8",
+      "223.5.5.5"
+    ],
+    "fallback": [
+      "https://1.1.1.1/dns-query",
+      "https://dns.google/dns-query",
+      "tls://223.5.5.5:853"
+    ],
+    "fallback-filter": {
+      "geoip": true,
+      "ipcidr": [
+        "240.0.0.0/4"
+      ]
+    }
+  },
+  "rules": [
+    "# OKX 交易所域名规则 - 走代理",
+    "DOMAIN-SUFFIX,okx.com,PROXY",
+    "DOMAIN,www.okx.com,PROXY",
+    "DOMAIN,ws.okx.com,PROXY",
+    "DOMAIN,wspap.okx.com,PROXY",
+    "DOMAIN-KEYWORD,okx,PROXY",
+    "# 防止 DNS 污染",
+    "DOMAIN-SUFFIX,okpool.top,PROXY"
+  ],
+  "proxy-groups": [
+    {
+      "name": "PROXY",
+      "type": "select",
+      "proxies": [
+        "代理节点名称"
+      ]
+    }
+  ],
+  "description": "Clash 代理配置 - OKX 交易所域名走代理，修复 DNS 解析问题",
+  "version": "1.1",
+  "notes": [
+    "DNS 配置说明：",
+    "1. 使用 fake-ip 模式提高性能",
+    "2. 将 okx.com 和 okpool.top 加入 fake-ip-filter，避免 DNS 劫持",
+    "3. 使用多个 DNS 服务器确保解析正确",
+    "4. 如果仍有问题，可以将 enhanced-mode 改为 redir-host"
+  ]
+}

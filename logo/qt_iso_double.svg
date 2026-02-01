@@ -1,0 +1,8 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- 双重嵌套六边形 -->
+  <path d="M50 20L80 35V65L50 80L20 65V35L50 20Z" stroke="#3B82F6" stroke-width="1" opacity="0.4"/>
+  <path d="M50 30L70 40V60L50 70L30 60V40L50 30Z" stroke="#3B82F6" stroke-width="2"/>
+  <text x="50" y="58" font-family="Arial" font-size="20" font-weight="bold" fill="white" text-anchor="middle">QT</text>
+</svg>
+

@@ -1,0 +1,706 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"reflect"
+	"time"
+
+	"quantmesh/config"
+	"quantmesh/event"
+	"quantmesh/exchange"
+	"quantmesh/lock"
+	"quantmesh/logger"
+	"quantmesh/monitor"
+	"quantmesh/order"
+	"quantmesh/position"
+	"quantmesh/safety"
+	"quantmesh/storage"
+	"quantmesh/strategy"
+)
+
+// SymbolRuntime 代表單個交易所/交易對的运行時组件集合
+type SymbolRuntime struct {
+	Config               config.SymbolConfig
+	Exchange             exchange.IExchange
+	PriceMonitor         *monitor.PriceMonitor
+	RiskMonitor          *safety.RiskMonitor
+	DepthMonitor         *safety.DepthMonitor
+	SuperPositionManager *position.SuperPositionManager
+	OrderCleaner         *safety.OrderCleaner
+	Reconciler           *safety.Reconciler
+	TrendDetector        *strategy.TrendDetector
+	DynamicAdjuster      *strategy.DynamicAdjuster
+	StrategyManager      *strategy.StrategyManager
+	ExchangeExecutor     *order.ExchangeOrderExecutor
+	ExecutorAdapter      *exchangeExecutorAdapter
+	ExchangeAdapter      *positionExchangeAdapter
+	EventBus             *event.EventBus
+	StorageService       *storage.StorageService
+	AccountID            string // 账戶標识
+	Stop                 func()
+}
+
+// SymbolManager 管理多個 SymbolRuntime
+type SymbolManager struct {
+	cfg      *config.Config
+	runtimes map[string]*SymbolRuntime
+}
+
+// NewSymbolManager 創建管理器
+func NewSymbolManager(cfg *config.Config) *SymbolManager {
+	return &SymbolManager{
+		cfg:      cfg,
+		runtimes: make(map[string]*SymbolRuntime),
+	}
+}
+
+// runtimeKey 生成唯一键（exchange:symbol）
+func runtimeKey(exchangeName, symbol string) string {
+	return fmt.Sprintf("%s:%s", exchangeName, symbol)
+}
+
+// Add 注册运行時
+func (sm *SymbolManager) Add(rt *SymbolRuntime) {
+	key := runtimeKey(rt.Config.Exchange, rt.Config.Symbol)
+	sm.runtimes[key] = rt
+}
+
+// Get 獲取运行時
+func (sm *SymbolManager) Get(exchangeName, symbol string) (*SymbolRuntime, bool) {
+	key := runtimeKey(exchangeName, symbol)
+	rt, ok := sm.runtimes[key]
+	return rt, ok
+}
+
+// List 列出所有运行時
+func (sm *SymbolManager) List() []*SymbolRuntime {
+	list := make([]*SymbolRuntime, 0, len(sm.runtimes))
+	for _, rt := range sm.runtimes {
+		list = append(list, rt)
+	}
+	return list
+}
+
+// Remove 從管理器中移除运行時
+func (sm *SymbolManager) Remove(exchangeName, symbol string) {
+	key := runtimeKey(exchangeName, symbol)
+	delete(sm.runtimes, key)
+}
+
+// StopAll 停止所有运行時（如退出時調用）
+func (sm *SymbolManager) StopAll() {
+	for _, rt := range sm.runtimes {
+		if rt != nil && rt.Stop != nil {
+			rt.Stop()
+		}
+	}
+}
+
+// startSymbolRuntime 啟动單個交易對的核心组件
+func startSymbolRuntime(
+	ctx context.Context,
+	baseCfg *config.Config,
+	symCfg config.SymbolConfig,
+	eventBus *event.EventBus,
+	storageService *storage.StorageService,
+	distributedLock lock.DistributedLock,
+) (*SymbolRuntime, error) {
+	// 為該交易對構造局部配置（避免修改全局 cfg）
+	localCfg := *baseCfg
+	localCfg.App.CurrentExchange = symCfg.Exchange
+	localCfg.Trading.Symbol = symCfg.Symbol
+	localCfg.Trading.MarketType = symCfg.GetMarketType()
+	localCfg.Trading.PriceInterval = symCfg.PriceInterval
+	localCfg.Trading.OrderQuantity = symCfg.OrderQuantity
+	localCfg.Trading.MinOrderValue = symCfg.MinOrderValue
+	localCfg.Trading.BuyWindowSize = symCfg.BuyWindowSize
+	localCfg.Trading.SellWindowSize = symCfg.SellWindowSize
+	localCfg.Trading.ReconcileInterval = symCfg.ReconcileInterval
+	localCfg.Trading.OrderCleanupThreshold = symCfg.OrderCleanupThreshold
+	localCfg.Trading.CleanupBatchSize = symCfg.CleanupBatchSize
+	localCfg.Trading.MarginLockDurationSec = symCfg.MarginLockDurationSec
+	localCfg.Trading.PositionSafetyCheck = symCfg.PositionSafetyCheck
+
+	// 創建交易所實例（根據交易對配置的市场類型：spot / futures）
+	ex, err := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
+	if err != nil {
+		return nil, fmt.Errorf("創建交易所實例失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	}
+	logger.Info("✅ [%s] 交易所實例已創建 (symbol=%s)", ex.GetName(), symCfg.Symbol)
+
+	// API 权限安全检测
+	logger.Info("🔐 [%s:%s] 开始检测 API 权限...", symCfg.Exchange, symCfg.Symbol)
+	permCheckCtx, permCheckCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer permCheckCancel()
+
+	if checker, ok := ex.(exchange.PermissionChecker); ok {
+		permissions, err := checker.CheckAPIPermissions(permCheckCtx)
+		if err != nil {
+			logger.Warn("⚠️ [%s:%s] API 权限检测失败: %v (將继续啟动)", symCfg.Exchange, symCfg.Symbol, err)
+		} else {
+			// 检查是否安全
+			if !permissions.IsSecure() {
+				logger.Error("🚨 [%s:%s] API 密钥存在安全风險！", symCfg.Exchange, symCfg.Symbol)
+				warnings := permissions.GetWarnings()
+				for _, warning := range warnings {
+					logger.Error("   %s", warning)
+				}
+				// 可以选擇是否继续啟动，这里我们記錄錯误但继续
+				logger.Warn("⚠️ [%s:%s] 尽管存在安全风險，系统仍將继续啟动。强烈建议修改 API 权限設置！", symCfg.Exchange, symCfg.Symbol)
+			} else {
+				logger.Info("✅ [%s:%s] API 权限检测通過 (安全评分: %d/100, 风險等级: %s)",
+					symCfg.Exchange, symCfg.Symbol, permissions.SecurityScore, permissions.RiskLevel)
+
+				// 显示建议
+				warnings := permissions.GetWarnings()
+				if len(warnings) > 0 {
+					for _, warning := range warnings {
+						logger.Info("   %s", warning)
+					}
+				}
+			}
+		}
+	} else {
+		logger.Info("ℹ️ [%s:%s] 該交易所暫不支援自动权限检测，请手动确认 API 权限設置", symCfg.Exchange, symCfg.Symbol)
+	}
+
+	// 價格監控
+	priceMonitor := monitor.NewPriceMonitor(
+		ex,
+		symCfg.Symbol,
+		localCfg.Timing.PriceSendInterval,
+	)
+
+	logger.Info("🔗 [%s] 啟动 WebSocket 價格流...", symCfg.Symbol)
+	if err := priceMonitor.Start(); err != nil {
+		return nil, fmt.Errorf("啟動價格流失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	}
+
+	// 等待初始價格
+	pollInterval := time.Duration(localCfg.Timing.PricePollInterval) * time.Millisecond
+	currentPrice := 0.0
+	currentPriceStr := ""
+	for i := 0; i < 10; i++ {
+		currentPrice = priceMonitor.GetLastPrice()
+		currentPriceStr = priceMonitor.GetLastPriceString()
+		if currentPrice > 0 {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+	if currentPrice <= 0 {
+		return nil, fmt.Errorf("無法獲取初始價格(%s:%s)", symCfg.Exchange, symCfg.Symbol)
+	}
+
+	// 精度
+	priceDecimals := ex.GetPriceDecimals()
+	quantityDecimals := ex.GetQuantityDecimals()
+	logger.Info("ℹ️ [%s] 精度 - 價格:%d 數量:%d", symCfg.Symbol, priceDecimals, quantityDecimals)
+
+	// 獲取交易手续费率
+	// 币安期货API不提供獲取手续费率的接口，因此使用以下策略：
+	// 1. 如果配置文件中設置了费率且不為0，使用配置值
+	// 2. 否则使用币安期货默认Taker费率（0.04%）作為保守估计
+	configFeeRate := baseCfg.Exchanges[symCfg.Exchange].FeeRate
+	feeRate := configFeeRate
+
+	if symCfg.Exchange == "binance" {
+		// 币安期货默认费率：Maker 0.02%, Taker 0.04%
+		// 網格策略使用限價單，通常作為Maker成交，但為保守起见使用Taker费率
+		defaultBinanceTakerFee := 0.0004 // 0.04%
+
+		if configFeeRate == 0 {
+			// 配置文件中未設置或設置為0，使用默认Taker费率
+			feeRate = defaultBinanceTakerFee
+			logger.Info("💳 [%s] 配置文件未設置手续费率，使用币安期货默认Taker费率: %.4f%%", symCfg.Symbol, feeRate*100)
+		} else {
+			// 使用配置文件中的费率
+			logger.Info("💳 [%s] 使用配置文件中的手续费率: %.4f%%", symCfg.Symbol, feeRate*100)
+		}
+		logger.Info("ℹ️ [%s] 提示：币安期货實際费率取决於您的VIP等级，请在配置文件中設置准确的费率", symCfg.Symbol)
+	} else {
+		logger.Info("💳 [%s] 使用配置文件中的手续费率: %.4f%%", symCfg.Symbol, feeRate*100)
+	}
+
+	// 持倉安全性检查
+	maxLeverage := baseCfg.RiskControl.MaxLeverage
+	if err := safety.CheckAccountSafety(
+		ex,
+		symCfg.Symbol,
+		currentPrice,
+		symCfg.OrderQuantity,
+		symCfg.PriceInterval,
+		feeRate,
+		symCfg.PositionSafetyCheck,
+		priceDecimals,
+		maxLeverage,
+	); err != nil {
+		return nil, fmt.Errorf("持倉安全性检查失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	}
+	logger.Info("✅ [%s] 持倉安全性检查通過", symCfg.Symbol)
+
+	// 核心组件
+	exchangeExecutor := order.NewExchangeOrderExecutor(
+		ex,
+		symCfg.Symbol,
+		localCfg.Timing.RateLimitRetryDelay,
+		localCfg.Timing.OrderRetryDelay,
+		distributedLock,
+	)
+	executorAdapter := &exchangeExecutorAdapter{
+		executor: exchangeExecutor,
+		eventBus: eventBus,
+		symbol:   symCfg.Symbol,
+	}
+	exchangeAdapter := &positionExchangeAdapter{exchange: ex}
+
+	// 生成账戶標识（使用 API Key 的前 8 位）
+	accountID := ""
+	if exCfg, ok := baseCfg.Exchanges[symCfg.Exchange]; ok {
+		if len(exCfg.APIKey) > 8 {
+			accountID = exCfg.APIKey[:8]
+		} else {
+			accountID = exCfg.APIKey
+		}
+	}
+
+	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
+	if storageService != nil {
+		tradeStorageAdapter := &tradeStorageAdapter{
+			storageService: storageService,
+			accountID:      accountID,
+		}
+		superPositionManager.SetTradeStorage(tradeStorageAdapter)
+	}
+	// 設置事件總線（用於发送告警）
+	if eventBus != nil {
+		superPositionManager.SetEventBus(eventBus)
+	}
+
+	riskMonitor := safety.NewRiskMonitor(&localCfg, ex)
+	if storageService != nil {
+		riskMonitor.SetStorage(storageService.GetStorage())
+	}
+
+	// 創建深度監控器
+	depthMonitor := safety.NewDepthMonitor(&localCfg, ex)
+
+	reconciler := safety.NewReconciler(&localCfg, exchangeAdapter, superPositionManager, distributedLock)
+	reconciler.SetPauseChecker(func() bool {
+		// 检查市场异动风控或深度风控是否触发
+		return riskMonitor.IsTriggered() || depthMonitor.IsTriggered()
+	})
+	if storageService != nil {
+		reconciler.SetStorage(&reconciliationStorageAdapter{
+			storageService: storageService,
+			accountID:      accountID,
+			exchange:       symCfg.Exchange,
+		})
+	}
+
+	// 訂單流
+	if err := ex.StartOrderStream(ctx, func(updateInterface interface{}) {
+		posUpdate := toPositionOrderUpdate(updateInterface)
+		if posUpdate == nil {
+			return
+		}
+
+		// 🔥 关键修複：過滤掉不属於當前交易對的订單更新
+		// 币安的 WebSocket 訂單流是全局的，會推送所有交易對的订單
+		// 必須检查 Symbol 是否匹配，避免不同交易對的订單互相干扰
+		if posUpdate.Symbol != symCfg.Symbol {
+			logger.Debug("⏭️ [订單過滤] 跳過其他交易對的订單: Symbol=%s (當前交易對: %s), ClientOID=%s",
+				posUpdate.Symbol, symCfg.Symbol, posUpdate.ClientOrderID)
+			return
+		}
+
+		// 发布订單事件
+		if eventBus != nil && posUpdate.Symbol != "" {
+			var eventType event.EventType
+			switch posUpdate.Status {
+			case "FILLED":
+				eventType = event.EventTypeOrderFilled
+			case "CANCELED":
+				eventType = event.EventTypeOrderCanceled
+			}
+			if eventType != "" {
+				eventBus.Publish(&event.Event{
+					Type: eventType,
+					Data: map[string]interface{}{
+						"order_id":        posUpdate.OrderID,
+						"client_order_id": posUpdate.ClientOrderID,
+						"symbol":          posUpdate.Symbol,
+						"side":            posUpdate.Side,
+						"price":           posUpdate.Price,
+						"executed_qty":    posUpdate.ExecutedQty,
+						"status":          posUpdate.Status,
+					},
+				})
+			}
+		}
+
+		superPositionManager.OnOrderUpdate(*posUpdate)
+	}); err != nil {
+		logger.Warn("⚠️ [%s] 啟動訂單流失败: %v", symCfg.Symbol, err)
+	}
+
+	if err := superPositionManager.Initialize(currentPrice, currentPriceStr); err != nil {
+		return nil, fmt.Errorf("初始化倉位管理器失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	}
+
+	// 🔥 如果啟动時已有持倉（满倉或接近满倉），立即調用 AdjustOrders 初始化賣單
+	// 避免等待價格變化才触发订單調整，确保满倉状態下也能立即开始交易
+	if err := superPositionManager.AdjustOrders(currentPrice); err != nil {
+		logger.Warn("⚠️ [%s] 啟动時初始化订單失败: %v", symCfg.Symbol, err)
+	} else {
+		logger.Info("✅ [%s] 啟动時订單初始化完成（如有持倉已自动挂賣單）", symCfg.Symbol)
+	}
+
+	if storageService != nil {
+		if st := storageService.GetStorage(); st != nil {
+			restoreAdapter := &reconciliationRestoreAdapter{storage: st}
+			if err := superPositionManager.RestoreReconciliationStats(restoreAdapter, symCfg.Exchange, symCfg.Symbol); err != nil {
+				logger.Warn("⚠️ [%s] 恢複對账统计失败: %v", symCfg.Symbol, err)
+			}
+		}
+	}
+
+	reconciler.Start(ctx)
+
+	orderCleaner := safety.NewOrderCleaner(&localCfg, exchangeExecutor, superPositionManager)
+	orderCleaner.Start(ctx)
+
+	go riskMonitor.Start(ctx)
+	go depthMonitor.Start(ctx)
+
+	// 可選组件
+	var dynamicAdjuster *strategy.DynamicAdjuster
+	if localCfg.Trading.DynamicAdjustment.Enabled {
+		dynamicAdjuster = strategy.NewDynamicAdjuster(&localCfg, priceMonitor, superPositionManager)
+		dynamicAdjuster.Start()
+	}
+
+	var trendDetector *strategy.TrendDetector
+	if localCfg.Trading.SmartPosition.Enabled || localCfg.Trading.GridRiskControl.TrendFilterEnabled {
+		trendDetector = strategy.NewTrendDetector(&localCfg, priceMonitor)
+		trendDetector.Start()
+		// 將趋势检测器注入 SuperPositionManager
+		superPositionManager.SetTrendDetector(trendDetector)
+	}
+
+	var strategyManager *strategy.StrategyManager
+	var multiExecutor *strategy.MultiStrategyExecutor
+	if localCfg.Strategies.Enabled {
+		totalCapital := localCfg.Strategies.CapitalAllocation.TotalCapital
+		if totalCapital <= 0 {
+			balance, err := ex.GetBalance(ctx, "USDT")
+			if err == nil && balance > 0 {
+				totalCapital = balance
+				logger.Info("💰 [%s] 從账戶獲取總资金: %.2f USDT", symCfg.Symbol, totalCapital)
+			} else {
+				totalCapital = 5000
+				logger.Warn("⚠️ [%s] 無法獲取帳戶餘額，使用默认總资金: %.2f USDT", symCfg.Symbol, totalCapital)
+			}
+		}
+
+		strategyManager = strategy.NewStrategyManager(&localCfg, totalCapital)
+		// 設置事件總線
+		if eventBus != nil {
+			strategyManager.SetEventBus(eventBus)
+		}
+		multiExecutor = strategy.NewMultiStrategyExecutor(exchangeExecutor, strategyManager.GetCapitalAllocator())
+
+		if gridCfg, exists := localCfg.Strategies.Configs["grid"]; exists && gridCfg.Enabled {
+			gridStrategy := strategy.NewGridStrategy("grid", &localCfg, executorAdapter, exchangeAdapter, superPositionManager)
+			fixedPool := 0.0
+			if pool, ok := gridCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("grid", gridStrategy, gridCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 網格策略已注册", symCfg.Symbol)
+		}
+
+		if trendCfg, exists := localCfg.Strategies.Configs["trend"]; exists && trendCfg.Enabled {
+			trendExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "trend")
+			trendStrategy := strategy.NewTrendFollowingStrategy("trend", &localCfg, trendExecutor, exchangeAdapter, trendCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := trendCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("trend", trendStrategy, trendCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 趋势策略已注册", symCfg.Symbol)
+		}
+
+		if meanCfg, exists := localCfg.Strategies.Configs["mean_reversion"]; exists && meanCfg.Enabled {
+			meanExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "mean_reversion")
+			meanStrategy := strategy.NewMeanReversionStrategy("mean_reversion", &localCfg, meanExecutor, exchangeAdapter, meanCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := meanCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("mean_reversion", meanStrategy, meanCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 均值回归策略已注册", symCfg.Symbol)
+		}
+
+		if momentumCfg, exists := localCfg.Strategies.Configs["momentum"]; exists && momentumCfg.Enabled {
+			momentumExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "momentum")
+			momentumStrategy := strategy.NewMomentumStrategy("momentum", &localCfg, momentumExecutor, exchangeAdapter, momentumCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := momentumCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("momentum", momentumStrategy, momentumCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 动量策略已注册", symCfg.Symbol)
+		}
+
+		if martinCfg, exists := localCfg.Strategies.Configs["martingale"]; exists && martinCfg.Enabled {
+			martinExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "martingale")
+			martinStrategy := strategy.NewMartingaleStrategy("martingale", symCfg.Symbol, &localCfg, martinExecutor, exchangeAdapter, martinCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := martinCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("martingale", martinStrategy, martinCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 马丁格尔策略已注册", symCfg.Symbol)
+		}
+
+		if dcaEnhancedCfg, exists := localCfg.Strategies.Configs["dca_enhanced"]; exists && dcaEnhancedCfg.Enabled {
+			dcaEnhancedExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca_enhanced")
+			dcaEnhancedStrategy := strategy.NewDCAEnhancedStrategy("dca_enhanced", symCfg.Symbol, &localCfg, dcaEnhancedExecutor, exchangeAdapter, dcaEnhancedCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := dcaEnhancedCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("dca_enhanced", dcaEnhancedStrategy, dcaEnhancedCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 增强型 DCA 策略已注册", symCfg.Symbol)
+		}
+
+		if comboCfg, exists := localCfg.Strategies.Configs["combo"]; exists && comboCfg.Enabled {
+			comboExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "combo")
+			comboStrategy := strategy.NewComboStrategy("combo", symCfg.Symbol, &localCfg, comboExecutor, exchangeAdapter, comboCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := comboCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("combo", comboStrategy, comboCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] 组合策略已注册", symCfg.Symbol)
+		}
+
+		if err := strategyManager.StartAll(); err != nil {
+			logger.Error("❌ [%s] 啟动策略管理器失败: %v", symCfg.Symbol, err)
+		} else {
+			logger.Info("✅ [%s] 多策略系统已啟动", symCfg.Symbol)
+		}
+	}
+
+	// 價格变动处理
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("❌ [%s] 價格變化处理协程 panic: %v", symCfg.Symbol, r)
+			}
+		}()
+		
+		priceCh := priceMonitor.Subscribe()
+		var lastTriggered bool
+		
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Debug("⏹️ [%s] 價格變化处理协程已停止", symCfg.Symbol)
+				return
+			case priceChange, ok := <-priceCh:
+				if !ok {
+					// channel 已关闭
+					logger.Debug("⏹️ [%s] 價格變化 channel 已关闭", symCfg.Symbol)
+					return
+				}
+				
+				isTriggered := riskMonitor.IsTriggered() || depthMonitor.IsTriggered()
+				if isTriggered {
+					if !lastTriggered {
+						logger.Warn("🚨 [%s][风控触发] 撤销所有買單並暂停交易...", symCfg.Symbol)
+						superPositionManager.CancelAllBuyOrders()
+						lastTriggered = true
+						if eventBus != nil {
+							// 匯集觸發原因，便於事件中心展示
+							var reasons []string
+							if riskMonitor.IsTriggered() {
+								if msg := riskMonitor.GetLastMsg(); msg != "" {
+									reasons = append(reasons, msg)
+								}
+							}
+							if depthMonitor.IsTriggered() {
+								if msg := depthMonitor.GetLastMsg(); msg != "" {
+									reasons = append(reasons, msg)
+								}
+							}
+							reason := ""
+							if len(reasons) > 0 {
+								reason = reasons[0]
+								for i := 1; i < len(reasons); i++ {
+									reason += "; " + reasons[i]
+								}
+							}
+							eventData := map[string]interface{}{
+								"symbol": symCfg.Symbol,
+								"price":  priceChange.NewPrice,
+							}
+							if reason != "" {
+								eventData["reason"] = reason
+							}
+							eventBus.Publish(&event.Event{
+								Type: event.EventTypeRiskTriggered,
+								Data: eventData,
+							})
+						}
+					}
+					continue
+				}
+
+				if lastTriggered {
+					logger.Info("✅ [%s][风控解除] 恢複自动交易", symCfg.Symbol)
+					lastTriggered = false
+					if eventBus != nil {
+						eventBus.Publish(&event.Event{
+							Type: event.EventTypeRiskRecovered,
+							Data: map[string]interface{}{
+								"symbol": symCfg.Symbol,
+								"price":  priceChange.NewPrice,
+							},
+						})
+					}
+				}
+
+				if strategyManager != nil {
+					strategyManager.OnPriceChange(priceChange.NewPrice)
+				}
+
+				if trendDetector != nil && localCfg.Trading.SmartPosition.WindowAdjustment.Enabled {
+					buyWindow, sellWindow := trendDetector.AdjustWindows()
+					origBuy, origSell := localCfg.Trading.BuyWindowSize, localCfg.Trading.SellWindowSize
+					localCfg.Trading.BuyWindowSize = buyWindow
+					localCfg.Trading.SellWindowSize = sellWindow
+					if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
+						logger.Error("❌ [%s] 調整订單失败: %v", symCfg.Symbol, err)
+					}
+					localCfg.Trading.BuyWindowSize = origBuy
+					localCfg.Trading.SellWindowSize = origSell
+				} else {
+					if strategyManager == nil || !localCfg.Strategies.Enabled {
+						if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
+							logger.Error("❌ [%s] 調整订單失败: %v", symCfg.Symbol, err)
+						}
+					}
+				}
+			}
+		}
+	}()
+
+	// 定期打印持倉
+	go func() {
+		statusInterval := time.Duration(localCfg.Timing.StatusPrintInterval) * time.Minute
+		ticker := time.NewTicker(statusInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !riskMonitor.IsTriggered() && !depthMonitor.IsTriggered() {
+					superPositionManager.PrintPositions()
+				}
+			}
+		}
+	}()
+
+	stopFn := func() {
+		logger.Info("⏹️ [%s] 停止價格監控...", symCfg.Symbol)
+		if priceMonitor != nil {
+			priceMonitor.Stop()
+		}
+		logger.Info("⏹️ [%s] 停止訂單流...", symCfg.Symbol)
+		ex.StopOrderStream()
+		logger.Info("⏹️ [%s] 停止风控監視器...", symCfg.Symbol)
+		if riskMonitor != nil {
+			riskMonitor.Stop()
+		}
+		if dynamicAdjuster != nil {
+			dynamicAdjuster.Stop()
+		}
+		if trendDetector != nil {
+			trendDetector.Stop()
+		}
+		if strategyManager != nil {
+			strategyManager.StopAll()
+		}
+	}
+
+	return &SymbolRuntime{
+		Config:               symCfg,
+		Exchange:             ex,
+		PriceMonitor:         priceMonitor,
+		RiskMonitor:          riskMonitor,
+		DepthMonitor:         depthMonitor,
+		SuperPositionManager: superPositionManager,
+		OrderCleaner:         orderCleaner,
+		Reconciler:           reconciler,
+		TrendDetector:        trendDetector,
+		DynamicAdjuster:      dynamicAdjuster,
+		StrategyManager:      strategyManager,
+		ExchangeExecutor:     exchangeExecutor,
+		ExecutorAdapter:      executorAdapter,
+		ExchangeAdapter:      exchangeAdapter,
+		EventBus:             eventBus,
+		StorageService:       storageService,
+		AccountID:            accountID,
+		Stop:                 stopFn,
+	}, nil
+}
+
+// toPositionOrderUpdate 提取订單更新為 position.OrderUpdate
+func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
+	v := reflect.ValueOf(updateInterface)
+	if !v.IsValid() || v.Kind() != reflect.Struct {
+		logger.Warn("⚠️ [symbol_manager] 订單更新不是結構体類型: %T", updateInterface)
+		return nil
+	}
+
+	getInt64Field := func(name string) int64 {
+		field := v.FieldByName(name)
+		if field.IsValid() && field.CanInt() {
+			return field.Int()
+		}
+		return 0
+	}
+
+	getStringField := func(name string) string {
+		field := v.FieldByName(name)
+		if field.IsValid() && field.Kind() == reflect.String {
+			return field.String()
+		}
+		return ""
+	}
+
+	getFloat64Field := func(name string) float64 {
+		field := v.FieldByName(name)
+		if field.IsValid() && field.CanFloat() {
+			return field.Float()
+		}
+		return 0.0
+	}
+
+	return &position.OrderUpdate{
+		OrderID:       getInt64Field("OrderID"),
+		ClientOrderID: getStringField("ClientOrderID"),
+		Symbol:        getStringField("Symbol"),
+		Status:        getStringField("Status"),
+		ExecutedQty:   getFloat64Field("ExecutedQty"),
+		Price:         getFloat64Field("Price"),
+		AvgPrice:      getFloat64Field("AvgPrice"),
+		Side:          getStringField("Side"),
+		Type:          getStringField("Type"),
+		UpdateTime:    getInt64Field("UpdateTime"),
+	}
+}

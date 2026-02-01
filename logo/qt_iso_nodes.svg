@@ -1,0 +1,13 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- 顶点带节点的六边形 -->
+  <path d="M50 25L75 37.5V62.5L50 75L25 62.5V37.5L50 25Z" stroke="#3B82F6" stroke-width="1"/>
+  <circle cx="50" cy="25" r="2.5" fill="#6366F1"/>
+  <circle cx="75" cy="37.5" r="2.5" fill="#6366F1"/>
+  <circle cx="75" cy="62.5" r="2.5" fill="#6366F1"/>
+  <circle cx="50" cy="75" r="2.5" fill="#6366F1"/>
+  <circle cx="25" cy="62.5" r="2.5" fill="#6366F1"/>
+  <circle cx="25" cy="37.5" r="2.5" fill="#6366F1"/>
+  <text x="50" y="58" font-family="Arial" font-size="20" font-weight="bold" fill="white" text-anchor="middle">QT</text>
+</svg>
+

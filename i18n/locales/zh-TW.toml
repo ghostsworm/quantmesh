@@ -1,0 +1,326 @@
+# 系統日誌訊息（繁體中文）
+[log.system_starting]
+other = "🚀 QuantMesh 做市商系統啟動..."
+
+[log.version]
+other = "📦 版本號: {{.Version}}"
+
+[log.log_storage_init_failed]
+other = "初始化日誌存儲失敗: {{.Error}}，將繼續運行但不保存日誌到數據庫"
+
+[log.log_storage_initialized]
+other = "日誌存儲已初始化: {{.Path}}"
+
+# HTTP 錯誤訊息
+[error.session_manager_not_initialized]
+other = "會話管理器未初始化"
+
+[error.not_logged_in]
+other = "未登錄，請先登錄"
+
+[error.invalid_time_format]
+other = "無效的時間格式"
+
+[error.invalid_start_time]
+other = "無效的開始時間格式"
+
+[error.invalid_end_time]
+other = "無效的結束時間格式"
+
+[error.query_orders_failed]
+other = "查詢訂單失敗"
+
+[error.query_statistics_failed]
+other = "查詢統計數據失敗"
+
+[error.query_trades_failed]
+other = "查詢交易記錄失敗"
+
+[error.get_metrics_failed]
+other = "獲取指標失敗"
+
+[error.get_logs_failed]
+other = "獲取日誌失敗"
+
+[error.query_reconciliation_failed]
+other = "查詢對賬歷史失敗"
+
+[error.storage_unavailable]
+other = "存儲服務不可用"
+
+[error.missing_symbol_param]
+other = "缺少幣種對參數"
+
+[error.get_pnl_failed]
+other = "獲取盈虧數據失敗"
+
+[error.get_klines_failed]
+other = "獲取K線數據失敗"
+
+[error.get_funding_rate_failed]
+other = "獲取資金費率失敗"
+
+[error.market_analysis_not_enabled]
+other = "市場分析模塊未啟用"
+
+[error.no_analysis_data]
+other = "暫無分析數據"
+
+[error.parameter_optimization_not_enabled]
+other = "參數優化模塊未啟用"
+
+[error.no_optimization_data]
+other = "暫無優化數據"
+
+[error.risk_analysis_not_enabled]
+other = "風險分析模塊未啟用"
+
+[error.sentiment_analysis_not_enabled]
+other = "情緒分析模塊未啟用"
+
+[error.polymarket_signal_not_enabled]
+other = "Polymarket信號模塊未啟用"
+
+[error.unknown_module]
+other = "未知的模塊: {{.Module}}"
+
+[error.trigger_analysis_failed]
+other = "觸發分析失敗"
+
+[error.prompt_manager_not_enabled]
+other = "提示詞管理器未啟用"
+
+[error.get_prompts_failed]
+other = "獲取提示詞失敗"
+
+[error.invalid_request]
+other = "無效的請求"
+
+[error.module_name_empty]
+other = "模塊名不能為空"
+
+[error.template_empty]
+other = "提示詞模板不能為空"
+
+[error.update_prompt_failed]
+other = "更新提示詞失敗"
+
+# 數據庫相關錯誤
+[error.database_error]
+other = "數據庫錯誤"
+
+[error.open_log_database_failed]
+other = "打開日誌數據庫失敗"
+
+[error.create_log_table_failed]
+other = "創建日誌表失敗"
+
+# 配置相關錯誤
+[error.load_config_failed]
+other = "加載配置失敗"
+
+[error.save_config_failed]
+other = "保存配置失敗"
+
+# 首次設置嚮導
+[wizard.title]
+other = "首次使用嚮導"
+
+[wizard.step.welcome.title]
+other = "歡迎"
+
+[wizard.step.welcome.description]
+other = "歡迎使用 QuantMesh"
+
+[wizard.step.exchange.title]
+other = "交易所配置"
+
+[wizard.step.exchange.description]
+other = "配置交易所 API"
+
+[wizard.step.ai.title]
+other = "AI 智能配置"
+
+[wizard.step.ai.description]
+other = "可選：使用 AI 生成配置"
+
+[wizard.step.complete.title]
+other = "完成"
+
+[wizard.step.complete.description]
+other = "開始使用"
+
+[wizard.welcome.title]
+other = "歡迎使用 QuantMesh 網格交易系統"
+
+[wizard.welcome.description]
+other = "本嚮導將幫助您完成初始配置，包括交易所 API 配置和可選的 AI 智能配置。"
+
+[wizard.welcome.steps]
+other = "配置步驟："
+
+[wizard.welcome.step1]
+other = "配置交易所 API 密鑰"
+
+[wizard.welcome.step2]
+other = "（可選）使用 AI 智能配置助手生成最優參數"
+
+[wizard.welcome.step3]
+other = "完成配置，開始使用"
+
+[wizard.exchange.title]
+other = "交易所 API 配置"
+
+[wizard.exchange.exchange]
+other = "交易所"
+
+[wizard.exchange.apiKey]
+other = "API Key"
+
+[wizard.exchange.apiKeyPlaceholder]
+other = "請輸入您的 API Key"
+
+[wizard.exchange.secretKey]
+other = "Secret Key"
+
+[wizard.exchange.secretKeyPlaceholder]
+other = "請輸入您的 Secret Key"
+
+[wizard.exchange.passphrase]
+other = "Passphrase"
+
+[wizard.exchange.passphrasePlaceholder]
+other = "請輸入您的 Passphrase"
+
+[wizard.exchange.symbols]
+other = "交易對"
+
+[wizard.exchange.symbolsPlaceholder]
+other = "請選擇交易對"
+
+[wizard.exchange.symbolsRequired]
+other = "請至少選擇一個交易對"
+
+[wizard.exchange.testnet]
+other = "使用測試網"
+
+[wizard.exchange.testnetWarning]
+other = "強烈建議先使用測試網觀察一段時間，確認系統運行正常後再切換到主網"
+
+[wizard.exchange.selectExchange]
+other = "請選擇交易所"
+
+[wizard.exchange.enterApiKey]
+other = "請輸入 API Key"
+
+[wizard.exchange.enterSecretKey]
+other = "請輸入 Secret Key"
+
+[wizard.exchange.enterPassphrase]
+other = "該交易所需要 Passphrase"
+
+[wizard.exchange.selectSymbols]
+other = "請至少選擇一個交易對"
+
+[wizard.exchange.enterCredentialsToLoadSymbols]
+other = "請輸入 API Key 和 Secret Key 以加載該交易所支持的所有交易對"
+
+[wizard.exchange.enterCredentialsFirst]
+other = "請先輸入 API Key 和 Secret Key"
+
+[wizard.exchange.noSymbolsFound]
+other = "未找到交易對"
+
+[wizard.exchange.fetchSymbolsFailed]
+other = "獲取交易對列表失敗"
+
+[wizard.exchange.invalidCredentials]
+other = "API Key 或 Secret Key 無效，請檢查您的憑證是否正確"
+
+[wizard.exchange.configSaved]
+other = "交易所配置已保存"
+
+[wizard.exchange.saveFailed]
+other = "保存配置失敗"
+
+[wizard.ai.title]
+other = "AI 智能配置（可選）"
+
+[wizard.ai.description]
+other = "AI 配置助手可以根據您的資金和風險偏好，自動生成最優的網格交易參數和資金分配方案。"
+
+[wizard.ai.alertTitle]
+other = "AI 配置助手"
+
+[wizard.ai.alertDescription]
+other = "此功能需要配置 Gemini API Key。您可以在設置頁面中配置，或稍後手動配置交易參數。"
+
+[wizard.ai.useAI]
+other = "使用 AI 智能配置助手"
+
+[wizard.ai.openAssistant]
+other = "打開 AI 配置助手"
+
+[wizard.ai.configApplied]
+other = "AI 配置已應用"
+
+[wizard.ai.configSaved]
+other = "配置已成功保存"
+
+[wizard.complete.title]
+other = "配置完成！"
+
+[wizard.complete.description]
+other = "您的配置已成功保存。現在可以開始使用 QuantMesh 網格交易系統了。"
+
+[wizard.complete.nextStep]
+other = "下一步"
+
+[wizard.complete.nextStepDescription]
+other = "請前往設置頁面查看和調整配置，或直接開始交易。"
+
+[wizard.button.previous]
+other = "上一步"
+
+[wizard.button.next]
+other = "下一步"
+
+[wizard.button.skip]
+other = "跳過"
+
+[wizard.button.complete]
+other = "完成"
+
+[dashboard.setupIncomplete]
+other = "首次設置未完成"
+
+[dashboard.setupIncompleteDescription]
+other = "您還沒有完成首次設置嚮導，請完成交易所 API 配置和交易對設置以開始使用系統。"
+
+[dashboard.openSetupWizard]
+other = "打開首次設置嚮導"
+
+# 持倉相關日誌訊息
+[log.position.current_positions]
+other = "📊 ===== 當前持倉 [{{.Symbol}}] ====="
+
+[log.position.position_info]
+other = "持倉: {{.Qty}} {{.Currency}}"
+
+[log.position.buy_time]
+other = "買入時間: {{.Time}}"
+
+[log.position.order_info]
+other = "訂單: {{.Side}}/{{.Status}} (ID:{{.OrderID}})"
+
+[log.position.slot_status]
+other = "槽位:{{.Status}}"
+
+[log.position.slot_empty]
+other = "槽位:空"
+
+[log.position.position_summary]
+other = "[{{.Symbol}}] 持倉統計: {{.Total}} {{.Currency}} ({{.Count}} 個槽位)"
+
+[log.position.strategy_grid]
+other = "網格策略"

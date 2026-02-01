@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantMesh Logo 预览</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+        }
+        h1 { text-align: center; color: #333; }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+        .section {
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .light-bg {
+            background-color: #ffffff;
+            color: #333;
+        }
+        .dark-bg {
+            background-color: #0F172A;
+            color: #ffffff;
+        }
+        .logo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .logo-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px;
+            border: 1px solid rgba(128,128,128,0.2);
+            border-radius: 8px;
+            transition: transform 0.2s;
+        }
+        .logo-item:hover {
+            transform: translateY(-5px);
+        }
+        .logo-item img {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 10px;
+        }
+        .logo-name {
+            font-size: 12px;
+            text-align: center;
+            word-break: break-all;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <h1>QuantMesh Logo 设计预览</h1>
+    
+    <div class="container">
+        <!-- 白色背景预览 -->
+        <div class="section light-bg">
+            <h2>白色背景效果</h2>
+            <div class="logo-grid" id="light-grid"></div>
+        </div>
+
+        <!-- 黑色背景预览 -->
+        <div class="section dark-bg">
+            <h2>黑色背景效果 (深邃蓝 #0F172A)</h2>
+            <div class="logo-grid" id="dark-grid"></div>
+        </div>
+    </div>
+
+    <script>
+        const logos = [
+            'mesh_orbit.svg', 'hex_digital.svg', 'data_flow.svg',
+            'isometric_q.svg', 'neural_quant.svg', 'chart_grid.svg',
+            'geometric_mesh.svg', 'circuit_q.svg', 'minimal_nodes.svg',
+            'cyber_pulse.svg', 'matrix_core.svg', 'matrix_core_rotated.svg', 
+            'matrix_core_rounded.svg', 'matrix_core_rounded_offset.svg', 'matrix_core_spherical.svg',
+            'quantum_link.svg', 'grid_shards.svg', 'neon_mesh.svg', 
+            'binary_shield.svg', 'abstract_node.svg', 'velocity_line.svg', 
+            'sync_orbit.svg', 'qt_interlock.svg', 'qt_digital_nodes.svg', 
+            'qt_isometric.svg', 'qt_iso_glow.svg', 'qt_iso_dashed.svg', 
+            'qt_iso_filled.svg', 'qt_iso_nodes.svg', 'qt_iso_double.svg',
+            'qt_circuit_path.svg', 'qt_minimal_modern.svg',
+            'qm_mesh_q.svg', 'qm_grid_hidden_m.svg', 'qm_overlay_interact.svg',
+            'qm_geometric_q_m.svg', 'qm_circuit_m_in_q.svg',
+            'qm_circuit_m_in_q_thin.svg', 'qm_circuit_m_in_q_thick.svg',
+            'qm_circuit_m_in_q_contrast.svg', 'qm_circuit_m_in_q_gradient.svg',
+            'qm_circuit_m_in_q_vivid.svg', 'qm_circuit_m_in_q_accent.svg',
+            'qm_circuit_m_in_q_curved.svg', 'qm_thick_tail_cyan.svg',
+            'qm_thick_tail_purple.svg', 'qm_thick_tail_red.svg',
+            'qm_thick_tail_green.svg', 'qm_thick_tail_gold.svg',
+            'qm_thick_tail_white.svg', 'qm_white_bg_deepblue.svg', 
+            'qm_white_bg_charcoal.svg', 'qm_white_bg_gradient_tech.svg', 
+            'qm_white_bg_gradient_night.svg'
+        ];
+
+        function populateGrid(gridId) {
+            const grid = document.getElementById(gridId);
+            logos.forEach(logo => {
+                const item = document.createElement('div');
+                item.className = 'logo-item';
+                item.innerHTML = `
+                    <img src="${logo}" alt="${logo}">
+                    <div class="logo-name">${logo}</div>
+                `;
+                grid.appendChild(item);
+            });
+        }
+
+        populateGrid('light-grid');
+        populateGrid('dark-grid');
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,8 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- 填充色块六边形 (带层次感) -->
+  <path d="M50 25L75 37.5V62.5L50 75L25 62.5V37.5L50 25Z" fill="#1E293B" stroke="#3B82F6" stroke-width="1"/>
+  <path d="M50 25L75 37.5L50 50L25 37.5L50 25Z" fill="#3B82F6" fill-opacity="0.2"/>
+  <text x="50" y="58" font-family="Arial" font-size="20" font-weight="bold" fill="white" text-anchor="middle">QT</text>
+</svg>
+

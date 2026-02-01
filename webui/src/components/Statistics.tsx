@@ -1,0 +1,356 @@
+import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useSymbol } from '../contexts/SymbolContext'
+import { getStatistics, getDailyStatistics } from '../services/api'
+import StatisticsCalendar from './StatisticsCalendar'
+
+interface StatisticsData {
+  total_trades: number
+  total_volume: number
+  total_pnl: number
+  win_rate: number
+}
+
+interface DailyStatistics {
+  date: string
+  total_trades: number
+  total_volume: number
+  total_pnl: number
+  win_rate: number
+  winning_trades?: number
+  losing_trades?: number
+  open_price?: number      // 當日开盘價
+  close_price?: number     // 當日收盘價
+  price_change?: number    // 價格變化（收盘價-开盘價）
+  price_change_pct?: number // 價格變化百分比
+  cumulative_pnl?: number  // 累计盈亏
+  unrealized_pnl?: number  // 當日收盤未實現盈虧
+  intraday_max_drawdown?: number
+  intraday_max_drawdown_pct?: number
+}
+
+interface PnLBySymbol {
+  symbol: string
+  total_pnl: number
+  total_trades: number
+  total_volume: number
+  win_rate: number
+  unrealized_pnl?: number
+}
+
+const Statistics: React.FC = () => {
+  const { t } = useTranslation()
+  const { selectedExchange, selectedSymbol } = useSymbol()
+  const [stats, setStats] = useState<StatisticsData | null>(null)
+  const [dailyStats, setDailyStats] = useState<DailyStatistics[]>([])
+  const [maxDrawdown, setMaxDrawdown] = useState<number>(0)
+  const [maxDrawdownPct, setMaxDrawdownPct] = useState<number>(0)
+  const [pnlByTimeRange, setPnlByTimeRange] = useState<PnLBySymbol[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [days, setDays] = useState(30)
+  const [startDate, setStartDate] = useState<string>(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1)
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true)
+        // 查詢365天的历史數據，确保显示所有交易記錄
+        const [statsData, dailyData] = await Promise.all([
+          getStatistics(selectedExchange || undefined, selectedSymbol || undefined),
+          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined, 365).catch(() => ({ statistics: [], max_drawdown: 0, max_drawdown_pct: 0 })),
+        ])
+        setStats(statsData)
+        setDailyStats(dailyData.statistics || [])
+        setMaxDrawdown(dailyData.max_drawdown || 0)
+        setMaxDrawdownPct(dailyData.max_drawdown_pct || 0)
+        setError(null)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch statistics')
+        console.error('Failed to fetch statistics:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+    // 每30秒刷新一次
+    const interval = setInterval(fetchData, 30000)
+
+    return () => clearInterval(interval)
+  }, [days, selectedExchange, selectedSymbol])
+
+  // 獲取按時间区间的盈亏數據
+  useEffect(() => {
+    const fetchPnLByTimeRange = async () => {
+      try {
+        const params = new URLSearchParams({
+          start_time: new Date(startDate).toISOString(),
+          end_time: new Date(endDate + 'T23:59:59').toISOString(),
+        })
+        const response = await fetch(`/api/statistics/pnl/time-range?${params}`, {
+          credentials: 'include',
+        })
+        if (!response.ok) throw new Error(t('statistics.fetchPnLFailed'))
+        const data = await response.json()
+        setPnlByTimeRange(data.pnl_by_symbol || [])
+      } catch (err) {
+        console.error('Failed to fetch PnL by time range:', err)
+      }
+    }
+
+    fetchPnLByTimeRange()
+  }, [startDate, endDate])
+
+  if (loading && !stats) {
+    return (
+      <div className="statistics">
+        <h2>{t('statistics.title')}</h2>
+        <p>{t('statistics.loading')}</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="statistics">
+        <h2>{t('statistics.title')}</h2>
+        <p style={{ color: 'red' }}>{t('statistics.error')}: {error}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="statistics">
+      <h2>{t('statistics.title')}</h2>
+
+      {stats && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginTop: '16px' }}>
+          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
+            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalTrades')}</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{stats.total_trades}</div>
+          </div>
+          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
+            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalVolume')}</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{stats.total_volume.toFixed(4)}</div>
+          </div>
+          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
+            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalPnL')}</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
+              {stats.total_pnl >= 0 ? '+' : ''}{stats.total_pnl.toFixed(2)}
+            </div>
+          </div>
+          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
+            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.winRate')}</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{(stats.win_rate * 100).toFixed(2)}%</div>
+          </div>
+          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px', background: maxDrawdownPct > 10 ? '#fff2f0' : '#f6ffed' }}>
+            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.maxDrawdown')}</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: maxDrawdownPct > 10 ? '#ff4d4f' : '#52c41a' }}>
+              {maxDrawdownPct.toFixed(2)}%
+            </div>
+            <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '4px' }}>
+              -{maxDrawdown.toFixed(2)} USDT
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: '32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3>{t('statistics.calendarView')}</h3>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <button
+              onClick={() => {
+                if (currentMonth === 1) {
+                  setCurrentMonth(12)
+                  setCurrentYear(currentYear - 1)
+                } else {
+                  setCurrentMonth(currentMonth - 1)
+                }
+              }}
+              style={{ padding: '6px 12px', border: '1px solid #d9d9d9', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              {t('statistics.prevMonth')}
+            </button>
+            <span style={{ minWidth: '120px', textAlign: 'center' }}>
+              {t('statistics.yearMonth', { year: currentYear, month: currentMonth })}
+            </span>
+            <button
+              onClick={() => {
+                if (currentMonth === 12) {
+                  setCurrentMonth(1)
+                  setCurrentYear(currentYear + 1)
+                } else {
+                  setCurrentMonth(currentMonth + 1)
+                }
+              }}
+              style={{ padding: '6px 12px', border: '1px solid #d9d9d9', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              {t('statistics.nextMonth')}
+            </button>
+          </div>
+        </div>
+        
+        {/* 日历组件 */}
+        <StatisticsCalendar 
+          year={currentYear}
+          month={currentMonth}
+          dailyStats={dailyStats.filter(stat => {
+            const statDate = new Date(stat.date)
+            return statDate.getFullYear() === currentYear && statDate.getMonth() + 1 === currentMonth
+          })}
+        />
+      </div>
+
+      <div style={{ marginTop: '32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3>{t('statistics.dailyStats')}</h3>
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} style={{ padding: '8px' }}>
+            <option value={7}>{t('statistics.last7d')}</option>
+            <option value={30}>{t('statistics.last30d')}</option>
+            <option value={90}>{t('statistics.last90d')}</option>
+          </select>
+        </div>
+        {dailyStats.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e8e8e8' }}>
+                  <th style={{ padding: '12px', textAlign: 'left' }}>{t('statistics.date')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.trades')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volume')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.pnl')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.unrealizedPnL')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.cumulativePnL')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.winRate')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.intradayDrawdown')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.winLoss')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.openClose')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.priceChange')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyStats.map((stat, index) => (
+                  <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                    <td style={{ padding: '12px' }}>{new Date(stat.date).toLocaleDateString('zh-CN')}</td>
+                    <td style={{ padding: '12px', textAlign: 'right' }}>{stat.total_trades}</td>
+                    <td style={{ padding: '12px', textAlign: 'right' }}>{stat.total_volume.toFixed(4)}</td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: stat.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                      {stat.total_pnl >= 0 ? '+' : ''}{stat.total_pnl.toFixed(2)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: (stat.unrealized_pnl ?? 0) >= 0 ? '#95de64' : '#ff7875', fontStyle: 'italic' }}>
+                      {stat.unrealized_pnl !== undefined && stat.unrealized_pnl !== 0
+                        ? (stat.unrealized_pnl >= 0 ? '+' : '') + stat.unrealized_pnl.toFixed(2)
+                        : '-'}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: (stat.cumulative_pnl || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                      {(stat.cumulative_pnl || 0) >= 0 ? '+' : ''}{(stat.cumulative_pnl || 0).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right' }}>{(stat.win_rate * 100).toFixed(2)}%</td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#8c8c8c' }}>
+                      {stat.intraday_max_drawdown_pct !== undefined && stat.intraday_max_drawdown_pct > 0
+                        ? `-${stat.intraday_max_drawdown_pct.toFixed(1)}%`
+                        : '-'}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#8c8c8c' }}>
+                      {stat.winning_trades !== undefined && stat.losing_trades !== undefined ? (
+                        <>
+                          <span style={{ color: '#52c41a' }}>{stat.winning_trades}</span>
+                          {' / '}
+                          <span style={{ color: '#ff4d4f' }}>{stat.losing_trades}</span>
+                        </>
+                      ) : '-'}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px' }}>
+                      {stat.open_price !== undefined && stat.close_price !== undefined ? (
+                        <span title={t('statistics.openCloseTooltip', { open: stat.open_price.toFixed(2), close: stat.close_price.toFixed(2) })}>
+                          {stat.open_price.toFixed(0)} / {stat.close_price.toFixed(0)}
+                        </span>
+                      ) : '-'}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: (stat.price_change_pct || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                      {stat.price_change_pct !== undefined ? (
+                        <>
+                          {(stat.price_change_pct >= 0 ? '+' : '')}{stat.price_change_pct.toFixed(2)}%
+                        </>
+                      ) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#8c8c8c' }}>{t('statistics.noStats')}</div>
+        )}
+      </div>
+
+      <div style={{ marginTop: '32px' }}>
+        <h3>{t('statistics.pnlByTimeRange')}</h3>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px' }}>
+          <label>
+            {t('statistics.startDate')}:
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{ marginLeft: '8px', padding: '6px' }}
+            />
+          </label>
+          <label>
+            {t('statistics.endDate')}:
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{ marginLeft: '8px', padding: '6px' }}
+            />
+          </label>
+        </div>
+
+        {pnlByTimeRange.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e8e8e8' }}>
+                  <th style={{ padding: '12px', textAlign: 'left' }}>{t('statistics.symbolPair')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.trades')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volume')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.pnl')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.unrealizedPnL')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.winRate')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pnlByTimeRange.map((item, index) => (
+                  <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                    <td style={{ padding: '12px' }}>{item.symbol}</td>
+                    <td style={{ padding: '12px', textAlign: 'right' }}>{item.total_trades}</td>
+                    <td style={{ padding: '12px', textAlign: 'right' }}>{item.total_volume.toFixed(4)}</td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: item.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                      {item.total_pnl >= 0 ? '+' : ''}{item.total_pnl.toFixed(2)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: (item.unrealized_pnl ?? 0) >= 0 ? '#95de64' : '#ff7875', fontStyle: 'italic' }}>
+                      {item.unrealized_pnl !== undefined && item.unrealized_pnl !== 0
+                        ? (item.unrealized_pnl >= 0 ? '+' : '') + item.unrealized_pnl.toFixed(2)
+                        : '-'}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right' }}>{(item.win_rate * 100).toFixed(2)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#8c8c8c' }}>{t('statistics.noDataInRange')}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default Statistics

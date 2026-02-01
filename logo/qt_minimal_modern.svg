@@ -1,0 +1,10 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- 极简 Q -->
+  <circle cx="40" cy="50" r="25" stroke="#3B82F6" stroke-width="1.5"/>
+  <path d="M58 68L75 85" stroke="#3B82F6" stroke-width="3" stroke-linecap="round"/>
+  <!-- 极简 T -->
+  <path d="M50 25H90" stroke="#6366F1" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M70 25V75" stroke="#6366F1" stroke-width="3" stroke-linecap="round"/>
+</svg>
+
