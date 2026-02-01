@@ -385,15 +385,7 @@ const StrategyAllocation: React.FC = () => {
     setPendingChanges({})
   }
 
-  if (loading) {
-    return (
-      <Center py={12}>
-        <Spinner size="xl" thickness="4px" color="blue.500" />
-      </Center>
-    )
-  }
-
-  // 獲取當前選中交易所的信息
+  // 獲取當前選中交易所的信息（必須在條件 return 之前調用，遵守 Hooks 規則）
   const currentExchangeInfo = useMemo(() => {
     if (selectedExchangeIndex === 0 || !exchanges || exchanges.length === 0) {
       return { exchange: '', symbol: '' }
@@ -402,6 +394,14 @@ const StrategyAllocation: React.FC = () => {
     const symbol = ex?.assets?.[0]?.asset || ''
     return { exchange: ex?.exchangeId || '', symbol }
   }, [exchanges, selectedExchangeIndex])
+
+  if (loading) {
+    return (
+      <Center py={12}>
+        <Spinner size="xl" thickness="4px" color="blue.500" />
+      </Center>
+    )
+  }
 
   return (
     <Box>
