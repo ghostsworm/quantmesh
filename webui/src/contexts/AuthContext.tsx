@@ -7,6 +7,8 @@ interface AuthContextType {
   hasWebAuthn: boolean
   isLoading: boolean
   connectionError: boolean  // 新增：標识是否為网络连接錯误
+  securityCompromised: boolean  // 🔒 新增：標識是否存在安全隱患（數據丟失）
+  passwordManagerError: boolean  // 🔒 新增：標識密碼管理器初始化失敗
   refreshAuth: () => Promise<void>
 }
 
@@ -30,6 +32,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [hasWebAuthn, setHasWebAuthn] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [connectionError, setConnectionError] = useState(false)
+  const [securityCompromised, setSecurityCompromised] = useState(false)
+  const [passwordManagerError, setPasswordManagerError] = useState(false)
 
   // 從 localStorage 读取上次已知的 hasPassword 状態，防止网络錯误時误判
   const getLastKnownPasswordState = (): boolean => {
@@ -45,6 +49,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setIsAuthenticated(status.is_authenticated)
       setHasPassword(status.has_password)
       setHasWebAuthn(status.has_webauthn)
+      // 🔒 檢測安全隱患
+      setSecurityCompromised(status.security_compromised || false)
+      // 🔒 檢測密碼管理器錯誤
+      setPasswordManagerError(status.password_manager_error || false)
       // 缓存 hasPassword 状態，用於网络錯误時的回退
       localStorage.setItem('auth_hasPassword', String(status.has_password))
     } catch (error) {
@@ -57,6 +65,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const lastKnownState = getLastKnownPasswordState()
       setHasPassword(lastKnownState)
       setHasWebAuthn(false)
+      setSecurityCompromised(false)
+      setPasswordManagerError(false)
     } finally {
       setIsLoading(false)
     }
@@ -74,6 +84,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         hasWebAuthn,
         isLoading,
         connectionError,
+        securityCompromised,
+        passwordManagerError,
         refreshAuth,
       }}
     >

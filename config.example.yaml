@@ -371,7 +371,14 @@ web:
   enabled: true               # 是否启用Web服务（默认开启true,关闭用false）
   host: "0.0.0.0"             # 监听地址（默认0.0.0.0，监听所有地址）
   port: 28888                 # 监听端口（默认28888，使用10000以上端口避免常见端口冲突）
+  domain: "qt.facev.app"      # 外部访问域名（用於 WebAuthn 指紋登錄，必须与实际访问域名一致）
   api_key: ""                 # API密钥（可选，用于认证）
+  
+  # TLS/HTTPS 配置（用於生產环境，WebAuthn 需要 HTTPS）
+  tls:
+    enabled: true             # 是否启用 HTTPS（生产环境建议开启，WebAuthn 需要）
+    cert_file: ""             # SSL証書文件路径（例如：/etc/ssl/certs/your-cert.pem）
+    key_file: ""              # SSL私钥文件路径（例如：/etc/ssl/private/your-key.pem）
   
   # pprof 性能分析配置（生产环境建议禁用）
   pprof:

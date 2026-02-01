@@ -59,10 +59,13 @@ const EventCenter: React.FC = () => {
         }
       }
       
+      console.log('加載事件，使用筛选:', filterParams) // 調試日志
       const data = await getEvents(filterParams)
+      console.log('獲取到事件數據:', data) // 調試日志
       setEvents(data.events || [])
     } catch (error) {
       console.error('加載事件失败:', error)
+      setEvents([]) // 出错时清空事件列表
     } finally {
       setLoading(false)
     }
@@ -72,9 +75,11 @@ const EventCenter: React.FC = () => {
   const loadStats = async () => {
     try {
       const data = await getEventStats()
+      console.log('獲取到统计數據:', data) // 調試日志
       setStats(data)
     } catch (error) {
       console.error('加載统计失败:', error)
+      setStats(null) // 出错时清空统计
     }
   }
 
@@ -228,7 +233,17 @@ const EventCenter: React.FC = () => {
               </Center>
             ) : events.length === 0 ? (
               <Center py={10}>
-                <Text color="gray.500">{t('eventCenter.noEvents')}</Text>
+                <VStack spacing={2}>
+                  <Text color="gray.500">{t('eventCenter.noEvents')}</Text>
+                  <Text fontSize="sm" color="gray.400">
+                    目前筛选條件: {activeFilter === 'all' ? '全部' : activeFilter}
+                  </Text>
+                  {activeFilter !== 'all' && (
+                    <Button size="sm" variant="link" onClick={() => setActiveFilter('all')}>
+                      查看所有事件
+                    </Button>
+                  )}
+                </VStack>
               </Center>
             ) : (
               <Box overflowX="auto">

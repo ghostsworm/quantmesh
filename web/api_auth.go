@@ -27,9 +27,12 @@ func SetSessionManager(sm *SessionManager) {
 // GET /api/auth/status
 func getAuthStatus(c *gin.Context) {
 	if globalPasswordManager == nil {
+		// 密碼管理器未初始化時，返回特殊標記
+		// 前端應該顯示錯誤提示而不是設置密碼頁面
 		c.JSON(http.StatusOK, gin.H{
-			"has_password": false,
-			"has_webauthn": false,
+			"has_password":         false,
+			"has_webauthn":         false,
+			"password_manager_error": true, // 🔒 新增：標識密碼管理器初始化失敗
 		})
 		return
 	}
@@ -52,10 +55,18 @@ func getAuthStatus(c *gin.Context) {
 		isAuthenticated = exists && session != nil
 	}
 
+	// 🔒 安全检查：檢測是否存在數據丟失的安全隱患
+	securityCompromised := false
+	if globalPasswordManager != nil {
+		compromised, _ := globalPasswordManager.IsSecurityCompromised()
+		securityCompromised = compromised
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"has_password":     hasPassword,
-		"has_webauthn":     hasWebAuthn,
-		"is_authenticated": isAuthenticated,
+		"has_password":         hasPassword,
+		"has_webauthn":         hasWebAuthn,
+		"is_authenticated":     isAuthenticated,
+		"security_compromised": securityCompromised, // 🔒 新增：標識是否存在安全隱患
 	})
 }
 
@@ -65,13 +76,30 @@ func setPassword(c *gin.Context) {
 	logger.WriteWebLog("[AUTH] 收到設置密碼请求")
 
 	if globalPasswordManager == nil {
-		logger.WriteWebLog("[AUTH] 密碼管理器未初始化")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "密碼管理器未初始化"})
+		logger.WriteWebLog("[AUTH] 密碼管理器未初始化 - 這通常表示服務器啟動時無法創建或訪問 data 目錄")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "密碼管理器未初始化",
+			"code":    "PASSWORD_MANAGER_NOT_INITIALIZED",
+			"details": "服務器無法初始化認證系統。請檢查：1) data 目錄是否存在且可寫 2) Docker 是否正確掛載了 data 卷 3) 查看服務器日誌中的 '初始化密碼管理器失败' 錯誤",
+		})
 		return
 	}
 
 	// 單用戶场景，使用固定用戶名
 	username := "admin"
+
+	// 🔒 安全检查：檢測是否存在數據丟失的安全隱患
+	// 如果 .installed 標記存在但數據庫中沒有密碼記錄，則拒絕設置並返回安全警告
+	compromised, _ := globalPasswordManager.IsSecurityCompromised()
+	if compromised {
+		logger.WriteWebLog("[AUTH] ⚠️ 安全警告：檢測到 .installed 標記但數據庫無密碼記錄，可能存在數據丟失")
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "系統檢測到安全隱患：認證數據可能已丟失。請聯繫管理員檢查 data 目錄。",
+			"code":    "SECURITY_COMPROMISED",
+			"details": "系統之前已完成初始化，但認證數據庫（auth.db）中的密碼記錄已丟失。這可能是由於數據目錄未正確掛載、數據庫文件被刪除或損壞導致。",
+		})
+		return
+	}
 	
 	// 🔒 安全检查：如果已經設置過密碼，则拒绝请求
 	hasPassword, err := globalPasswordManager.HasPassword(username)

@@ -39,23 +39,35 @@ node scripts/zh-cn-to-zh-tw.js
 
 ### 3. 使用 Gemini 批量翻譯其他語系（可選）
 
-若已配置 `GEMINI_API_KEY`（環境變數或專案根目錄 / webui 目錄下的 `.env`），可對除 en-US、zh-CN 外的語系做整份翻譯覆寫：
+若已配置 `GEMINI_API_KEY`（環境變數或專案根目錄 / webui 目錄下的 `.env`），可對除 en-US、zh-CN 外的語系做翻譯覆寫。建議使用**分段翻譯腳本**，避免單次請求過大導致 JSON 被截斷：
 
 ```bash
 cd webui
-node scripts/translate-locales.js
+node scripts/translate-locales-chunked.js
 ```
 
 僅翻譯部分語系：
 
 ```bash
-node scripts/translate-locales.js fr-FR de-DE ja-JP
+node scripts/translate-locales-chunked.js fr-FR de-DE
+```
+
+**分段策略**（`translate-locales-chunked.js`）：
+
+- 以 `en-US.json` 為來源，依頂層 key 切分；單一 key 的 JSON 若超過約 7000 字元，再依巢狀 key 分組。
+- 每段單獨呼叫 Gemini 翻譯，再合併回完整 JSON，減少單次輸出過長造成的截斷或無效 JSON。
+- 內建重試（每段最多 2 次）與請求間隔，降低 API 限流風險。
+
+另有依頂層 key 一段一段翻譯的 `translate-locales.js`（大 key 可能仍超長，易觸發截斷）：
+
+```bash
+node scripts/translate-locales.js
 ```
 
 注意：
 
-- 此腳本會用 Gemini 將 `en-US.json` 整份翻譯後寫入對應語系檔案，會覆蓋該檔案現有內容，建議先備份或提交後再執行。
-- 若出現 `User location is not supported for the API use`，表示目前網路地區不在 Gemini 支援範圍，請在本機以 VPN 連到支援地區（例如美國）後再執行上述指令。
+- 上述腳本會覆寫對應語系檔案，建議先備份或提交後再執行。
+- 若出現 `User location is not supported for the API use`，請在本機以 VPN 連到支援地區（例如美國）後再執行。
 
 ## 建議流程
 

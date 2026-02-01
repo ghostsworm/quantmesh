@@ -5,6 +5,8 @@ export interface AuthStatus {
   has_password: boolean
   has_webauthn: boolean
   is_authenticated: boolean
+  security_compromised?: boolean  // 🔒 新增：標識是否存在安全隱患（數據丟失）
+  password_manager_error?: boolean  // 🔒 新增：標識密碼管理器初始化失敗
 }
 
 export interface WebAuthnCredential {

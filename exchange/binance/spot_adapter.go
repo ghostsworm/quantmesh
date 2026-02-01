@@ -15,7 +15,7 @@ import (
 	binancesdk "github.com/adshao/go-binance/v2"
 )
 
-// BinanceSpotAdapter 币安現貨交易所适配器
+// BinanceSpotAdapter 幣安現貨交易所適配器
 type BinanceSpotAdapter struct {
 	client           *binancesdk.Client
 	symbol           string
@@ -32,6 +32,9 @@ type BinanceSpotAdapter struct {
 	lastAPICallTime time.Time
 	apiCallMu       sync.Mutex
 	minAPIInterval  time.Duration
+
+	// WebSocket 管理器
+	wsManager *SpotWebSocketManager
 }
 
 // NewBinanceSpotAdapter 創建币安現貨适配器
@@ -58,12 +61,13 @@ func NewBinanceSpotAdapter(cfg map[string]string, symbol string) (*BinanceSpotAd
 	client.NewSetServerTimeService().Do(context.Background())
 
 	adapter := &BinanceSpotAdapter{
-		client:          client,
-		symbol:          symbol,
-		apiKey:          apiKey,
-		secretKey:       secretKey,
-		useTestnet:      useTestnet,
-		minAPIInterval:  200 * time.Millisecond,
+		client:         client,
+		symbol:         symbol,
+		apiKey:         apiKey,
+		secretKey:      secretKey,
+		useTestnet:     useTestnet,
+		minAPIInterval: 200 * time.Millisecond,
+		wsManager:      NewSpotWebSocketManager(useTestnet),
 	}
 
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -424,9 +428,9 @@ func (b *BinanceSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) 
 	return strconv.ParseFloat(ticker[0].Price, 64)
 }
 
-// StartPriceStream 啟動價格流（現貨可接 BookTicker WS，此处暂不實現）
+// StartPriceStream 啟動價格流（現貨 aggTrade WebSocket）
 func (b *BinanceSpotAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
-	return fmt.Errorf("現貨價格流暂未實現")
+	return b.wsManager.StartPriceStream(ctx, symbol, callback)
 }
 
 // StartKlineStream 啟動K線流
