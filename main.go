@@ -83,7 +83,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.28.5-rc2"
+var Version = "3.28.5-rc3"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage

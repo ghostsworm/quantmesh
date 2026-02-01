@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [3.28.5-rc3] - 2026-02-02
+
+### Fixed
+- **策略配比頁面 Hooks 規則修復**: 將 `useMemo` 置於條件 return 之前，遵守 React Hooks 調用順序
+  - 涉及：`webui/src/components/StrategyAllocation.tsx`
+
 ## [3.28.5-rc2] - 2026-02-02
 
 ### Fixed
