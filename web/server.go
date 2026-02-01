@@ -211,6 +211,9 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				backtestAPI.POST("/run", runBacktest)
 				backtestAPI.GET("/strategies", getBacktestStrategies)
 				backtestAPI.GET("/presets/:symbol", getBacktestPreset)
+				backtestAPI.GET("/exchanges", getBacktestExchanges)       // 獲取交易所列表
+				backtestAPI.GET("/symbols", getBacktestSymbols)           // 獲取交易對列表（按交易所+市場類型）
+				backtestAPI.GET("/config-params", getBacktestConfigParams) // 獲取已配置的策略参數
 				backtestAPI.POST("/cache/generate", postCacheGenerate)
 				backtestAPI.GET("/cache/status", getCacheStatus)
 				backtestAPI.GET("/cache/stats", getCacheStats)
@@ -369,6 +372,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				strategies.GET("/types", getStrategyTypesHandler)
 				strategies.GET("/configs", getStrategyConfigsHandler)
 				strategies.GET("/enabled", getEnabledStrategiesHandler)
+				strategies.GET("/runtime", getStrategyRuntimeStatusHandler)       // 獲取所有策略運行狀態
+				strategies.GET("/runtime/:id", getStrategyRuntimeStatusByIDHandler) // 獲取單個策略運行狀態
 				strategies.POST("/batch-update", batchUpdateStrategiesHandler)
 				strategies.GET("/:id", getStrategyDetailHandler)
 				strategies.POST("/:id/enable", enableStrategyHandler)

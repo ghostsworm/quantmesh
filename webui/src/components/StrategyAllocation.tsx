@@ -24,6 +24,8 @@ import {
   useColorModeValue,
   Tabs,
   TabList,
+  TabPanels,
+  TabPanel,
   Tab,
   Badge,
   Slider,
@@ -37,7 +39,7 @@ import {
   Divider,
   Icon,
 } from '@chakra-ui/react'
-import { InfoIcon, RepeatIcon, CheckIcon } from '@chakra-ui/icons'
+import { InfoIcon, RepeatIcon, CheckIcon, ViewIcon, SettingsIcon } from '@chakra-ui/icons'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import {
@@ -52,6 +54,7 @@ import type {
   CapitalAllocationConfig,
   ExchangeCapitalDetail,
 } from '../types/capital'
+import StrategyRuntimeStatusPanel from './StrategyRuntimeStatus'
 
 const MotionBox = motion(Box)
 
@@ -208,6 +211,7 @@ const StrategyAllocation: React.FC = () => {
   const [isPercentageMode, setIsPercentageMode] = useState(true)
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({})
   const [selectedExchangeIndex, setSelectedExchangeIndex] = useState(0)
+  const [mainTabIndex, setMainTabIndex] = useState(0) // 0: 策略配比, 1: 運行狀態
 
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
@@ -389,6 +393,16 @@ const StrategyAllocation: React.FC = () => {
     )
   }
 
+  // 獲取當前選中交易所的信息
+  const currentExchangeInfo = useMemo(() => {
+    if (selectedExchangeIndex === 0 || !exchanges || exchanges.length === 0) {
+      return { exchange: '', symbol: '' }
+    }
+    const ex = exchanges[selectedExchangeIndex - 1]
+    const symbol = ex?.assets?.[0]?.asset || ''
+    return { exchange: ex?.exchangeId || '', symbol }
+  }, [exchanges, selectedExchangeIndex])
+
   return (
     <Box>
       <VStack align="stretch" spacing={6}>
@@ -404,36 +418,66 @@ const StrategyAllocation: React.FC = () => {
               <Text color="gray.500">{t('capitalManagement.strategyAllocationDesc')}</Text>
             </VStack>
             <HStack spacing={3}>
-              <Button
-                variant="outline"
-                leftIcon={<RepeatIcon />}
-                onClick={handleRebalance}
-                isLoading={rebalancing}
-                loadingText={t('capitalManagement.rebalancing')}
-              >
-                {t('capitalManagement.rebalance')}
-              </Button>
-              {hasPendingChanges && (
+              {mainTabIndex === 0 && (
                 <>
-                  <Button variant="ghost" onClick={handleCancelChanges}>
-                    {t('common.cancel')}
-                  </Button>
                   <Button
-                    colorScheme="blue"
-                    leftIcon={<CheckIcon />}
-                    onClick={handleSaveChanges}
-                    isLoading={saving}
+                    variant="outline"
+                    leftIcon={<RepeatIcon />}
+                    onClick={handleRebalance}
+                    isLoading={rebalancing}
+                    loadingText={t('capitalManagement.rebalancing')}
                   >
-                    保存更改
+                    {t('capitalManagement.rebalance')}
                   </Button>
+                  {hasPendingChanges && (
+                    <>
+                      <Button variant="ghost" onClick={handleCancelChanges}>
+                        {t('common.cancel')}
+                      </Button>
+                      <Button
+                        colorScheme="blue"
+                        leftIcon={<CheckIcon />}
+                        onClick={handleSaveChanges}
+                        isLoading={saving}
+                      >
+                        保存更改
+                      </Button>
+                    </>
+                  )}
                 </>
               )}
             </HStack>
           </Flex>
         </MotionBox>
 
-        {/* 重要提示：不同交易所/币种使用不同策略比例 */}
-        <Alert status="info" borderRadius="lg" bg={infoBgColor}>
+        {/* 主標籤頁：策略配比 / 運行狀態 */}
+        <Tabs
+          variant="enclosed"
+          colorScheme="blue"
+          index={mainTabIndex}
+          onChange={setMainTabIndex}
+        >
+          <TabList>
+            <Tab>
+              <HStack spacing={2}>
+                <Icon as={SettingsIcon} />
+                <Text>策略配比</Text>
+              </HStack>
+            </Tab>
+            <Tab>
+              <HStack spacing={2}>
+                <Icon as={ViewIcon} />
+                <Text>運行狀態</Text>
+              </HStack>
+            </Tab>
+          </TabList>
+
+          <TabPanels>
+            {/* 策略配比面板 */}
+            <TabPanel px={0}>
+              <VStack align="stretch" spacing={6}>
+                {/* 重要提示：不同交易所/币种使用不同策略比例 */}
+                <Alert status="info" borderRadius="lg" bg={infoBgColor}>
           <AlertIcon />
           <Box flex="1">
             <Text fontWeight="bold" fontSize="sm">
@@ -682,6 +726,19 @@ const StrategyAllocation: React.FC = () => {
             </Flex>
           </Box>
         )}
+              </VStack>
+            </TabPanel>
+
+            {/* 運行狀態面板 */}
+            <TabPanel px={0}>
+              <StrategyRuntimeStatusPanel
+                exchange={currentExchangeInfo.exchange}
+                symbol={currentExchangeInfo.symbol}
+                refreshInterval={10000}
+              />
+            </TabPanel>
+          </TabPanels>
+        </Tabs>
       </VStack>
     </Box>
   )

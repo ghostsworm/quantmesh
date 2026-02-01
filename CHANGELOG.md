@@ -19,6 +19,17 @@
 
 ## [3.21.0] - 2026-02-01
 
+### Added
+- **策略運行狀態面板**: 新增策略運行狀態實時展示功能
+  - 可查看每個策略的運行狀態（運行中/已啟用/未啟用）
+  - 顯示策略資金分配：已分配、已使用、可用資金
+  - 顯示策略統計：交易次數、勝率、總盈虧、交易量
+  - 顯示策略持倉和訂單列表
+  - 自動每 10 秒刷新數據
+- **API**: 新增 `/api/strategies/runtime` 獲取所有策略運行狀態
+- **API**: 新增 `/api/strategies/runtime/:id` 獲取單個策略運行狀態
+- **CapitalAllocator**: 新增 `GetAllocated()` 方法獲取已分配資金
+
 ### Fixed
 - **DCA 策略註冊**: 修復 `dca` 策略配置無法被註冊和執行的問題，現在支持 `dca` 和 `dca_enhanced` 兩種配置鍵
 - **Systemd 配置**: 修復 `ReadWritePaths` 缺少 `config.yaml` 導致 Web UI 無法保存配置的問題

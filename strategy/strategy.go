@@ -241,3 +241,131 @@ func (sm *StrategyManager) GetCapitalAllocator() *CapitalAllocator {
 func (sm *StrategyManager) GetDynamicAllocator() *DynamicAllocator {
 	return sm.dynamicAllocator
 }
+
+// StrategyRuntimeStatus 策略運行時狀態
+type StrategyRuntimeStatus struct {
+	Name           string              `json:"name"`
+	Type           string              `json:"type"`
+	IsEnabled      bool                `json:"isEnabled"`
+	IsRunning      bool                `json:"isRunning"`
+	Weight         float64             `json:"weight"`
+	AllocatedFunds float64             `json:"allocatedFunds"`
+	UsedFunds      float64             `json:"usedFunds"`
+	AvailableFunds float64             `json:"availableFunds"`
+	Positions      []*Position         `json:"positions"`
+	Orders         []*Order            `json:"orders"`
+	Statistics     *StrategyStatistics `json:"statistics"`
+	PositionCount  int                 `json:"positionCount"`
+	OrderCount     int                 `json:"orderCount"`
+}
+
+// GetAllStrategyStatus 獲取所有策略的運行狀態
+func (sm *StrategyManager) GetAllStrategyStatus() []StrategyRuntimeStatus {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	statuses := make([]StrategyRuntimeStatus, 0, len(sm.strategies))
+
+	for name, strategy := range sm.strategies {
+		// 獲取策略配置
+		strategyCfg, exists := sm.cfg.Strategies.Configs[name]
+		isEnabled := exists && strategyCfg.Enabled
+		weight := 0.0
+		strategyType := name
+		if exists {
+			weight = strategyCfg.Weight
+			if strategyCfg.Type != "" {
+				strategyType = strategyCfg.Type
+			}
+		}
+
+		// 獲取資金分配信息
+		allocatedFunds := 0.0
+		usedFunds := 0.0
+		availableFunds := 0.0
+		if sm.allocator != nil {
+			allocatedFunds = sm.allocator.GetAllocated(name)
+			usedFunds = sm.allocator.GetUsed(name)
+			availableFunds = sm.allocator.GetAvailable(name)
+		}
+
+		// 獲取策略數據
+		positions := strategy.GetPositions()
+		orders := strategy.GetOrders()
+		stats := strategy.GetStatistics()
+
+		status := StrategyRuntimeStatus{
+			Name:           name,
+			Type:           strategyType,
+			IsEnabled:      isEnabled,
+			IsRunning:      isEnabled, // 如果啟用就是運行中
+			Weight:         weight,
+			AllocatedFunds: allocatedFunds,
+			UsedFunds:      usedFunds,
+			AvailableFunds: availableFunds,
+			Positions:      positions,
+			Orders:         orders,
+			Statistics:     stats,
+			PositionCount:  len(positions),
+			OrderCount:     len(orders),
+		}
+
+		statuses = append(statuses, status)
+	}
+
+	return statuses
+}
+
+// GetStrategyStatus 獲取單個策略的運行狀態
+func (sm *StrategyManager) GetStrategyStatus(name string) *StrategyRuntimeStatus {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	strategy, exists := sm.strategies[name]
+	if !exists {
+		return nil
+	}
+
+	// 獲取策略配置
+	strategyCfg, cfgExists := sm.cfg.Strategies.Configs[name]
+	isEnabled := cfgExists && strategyCfg.Enabled
+	weight := 0.0
+	strategyType := name
+	if cfgExists {
+		weight = strategyCfg.Weight
+		if strategyCfg.Type != "" {
+			strategyType = strategyCfg.Type
+		}
+	}
+
+	// 獲取資金分配信息
+	allocatedFunds := 0.0
+	usedFunds := 0.0
+	availableFunds := 0.0
+	if sm.allocator != nil {
+		allocatedFunds = sm.allocator.GetAllocated(name)
+		usedFunds = sm.allocator.GetUsed(name)
+		availableFunds = sm.allocator.GetAvailable(name)
+	}
+
+	// 獲取策略數據
+	positions := strategy.GetPositions()
+	orders := strategy.GetOrders()
+	stats := strategy.GetStatistics()
+
+	return &StrategyRuntimeStatus{
+		Name:           name,
+		Type:           strategyType,
+		IsEnabled:      isEnabled,
+		IsRunning:      isEnabled,
+		Weight:         weight,
+		AllocatedFunds: allocatedFunds,
+		UsedFunds:      usedFunds,
+		AvailableFunds: availableFunds,
+		Positions:      positions,
+		Orders:         orders,
+		Statistics:     stats,
+		PositionCount:  len(positions),
+		OrderCount:     len(orders),
+	}
+}
