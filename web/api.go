@@ -1624,16 +1624,20 @@ func getDailyStatistics(c *gin.Context) {
 			item["win_rate"] = tradeStat.WinRate
 			item["winning_trades"] = tradeStat.WinningTrades
 			item["losing_trades"] = tradeStat.LosingTrades
+			item["volume_profit"] = tradeStat.VolumeProfit
+			item["volume_stop_loss"] = tradeStat.VolumeStopLoss
 			dailyPnL = tradeStat.TotalPnL
 		} else {
 			continue
 		}
 
-		// 如果 statistics 表的數據存在，但從 trades 表可以獲取盈利/亏损交易數，也添加進去
+		// 如果 statistics 表的數據存在，但從 trades 表可以獲取盈利/亏损交易數和交易量細分，也添加進去
 		if _, exists := statsMap[dateKey]; exists {
 			if tradeStat, exists := tradesStatsMap[dateKey]; exists {
 				item["winning_trades"] = tradeStat.WinningTrades
 				item["losing_trades"] = tradeStat.LosingTrades
+				item["volume_profit"] = tradeStat.VolumeProfit
+				item["volume_stop_loss"] = tradeStat.VolumeStopLoss
 			}
 		}
 

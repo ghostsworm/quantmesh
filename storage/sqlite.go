@@ -1202,7 +1202,9 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 				ELSE 0
 			END as win_rate,
 			SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
-			SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades
+			SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades,
+			COALESCE(SUM(CASE WHEN pnl > 0 THEN quantity ELSE 0 END), 0) as volume_profit,
+			COALESCE(SUM(CASE WHEN pnl <= 0 THEN quantity ELSE 0 END), 0) as volume_stop_loss
 		FROM trades
 		WHERE date(created_at) >= ? AND date(created_at) <= ?
 	`
@@ -1236,8 +1238,10 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 		var winRate sql.NullFloat64
 		var winningTrades sql.NullInt64
 		var losingTrades sql.NullInt64
+		var volumeProfit sql.NullFloat64
+		var volumeStopLoss sql.NullFloat64
 
-		err := rows.Scan(&dateStr, &totalTrades, &totalVolume, &totalPnL, &winRate, &winningTrades, &losingTrades)
+		err := rows.Scan(&dateStr, &totalTrades, &totalVolume, &totalPnL, &winRate, &winningTrades, &losingTrades, &volumeProfit, &volumeStopLoss)
 		if err != nil {
 			continue
 		}
@@ -1266,6 +1270,12 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 		}
 		if losingTrades.Valid {
 			stat.LosingTrades = int(losingTrades.Int64)
+		}
+		if volumeProfit.Valid {
+			stat.VolumeProfit = volumeProfit.Float64
+		}
+		if volumeStopLoss.Valid {
+			stat.VolumeStopLoss = volumeStopLoss.Float64
 		}
 
 		stats = append(stats, stat)

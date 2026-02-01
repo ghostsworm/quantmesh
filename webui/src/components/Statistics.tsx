@@ -19,6 +19,8 @@ interface DailyStatistics {
   win_rate: number
   winning_trades?: number
   losing_trades?: number
+  volume_profit?: number   // 盈利交易量（pnl>0 的交易）
+  volume_stop_loss?: number // 止損交易量（pnl<=0 的交易）
   open_price?: number      // 當日开盘價
   close_price?: number     // 當日收盘價
   price_change?: number    // 價格變化（收盘價-开盘價）
@@ -222,7 +224,9 @@ const Statistics: React.FC = () => {
                 <tr style={{ borderBottom: '2px solid #e8e8e8' }}>
                   <th style={{ padding: '12px', textAlign: 'left' }}>{t('statistics.date')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.trades')}</th>
-                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volume')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }} title={t('statistics.volumeTooltip')}>{t('statistics.volume')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volumeProfit')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volumeStopLoss')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.pnl')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.unrealizedPnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.cumulativePnL')}</th>
@@ -238,7 +242,13 @@ const Statistics: React.FC = () => {
                   <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
                     <td style={{ padding: '12px' }}>{new Date(stat.date).toLocaleDateString('zh-CN')}</td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{stat.total_trades}</td>
-                    <td style={{ padding: '12px', textAlign: 'right' }}>{stat.total_volume.toFixed(4)}</td>
+                    <td style={{ padding: '12px', textAlign: 'right' }} title={t('statistics.volumeTooltip')}>{stat.total_volume.toFixed(4)}</td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: '#52c41a' }}>
+                      {stat.volume_profit !== undefined ? stat.volume_profit.toFixed(4) : '-'}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: '#ff4d4f' }}>
+                      {stat.volume_stop_loss !== undefined ? stat.volume_stop_loss.toFixed(4) : '-'}
+                    </td>
                     <td style={{ padding: '12px', textAlign: 'right', color: stat.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
                       {stat.total_pnl >= 0 ? '+' : ''}{stat.total_pnl.toFixed(2)}
                     </td>
