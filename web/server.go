@@ -226,6 +226,15 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				backtestAPI.GET("/tasks/:id/result", getBacktestTaskResult)
 				backtestAPI.GET("/tasks/:id/report", getBacktestTaskReport)
 				backtestAPI.DELETE("/tasks/:id", deleteBacktestTask)
+				// 智能參數推薦 API
+				backtestAPI.GET("/smart-params", getSmartParamsRecommendation)
+				backtestAPI.POST("/smart-params", postSmartParamsRecommendation)
+				backtestAPI.GET("/smart-params/multiple", getMultipleSmartParams)
+				// 預計算回測 API
+				backtestAPI.GET("/precomputed", getPrecomputedResults)
+				backtestAPI.GET("/precomputed/:symbol/:strategy", getPrecomputedResult)
+				backtestAPI.POST("/precomputed/trigger", triggerPrecompute)
+				backtestAPI.GET("/scheduler/status", getAutoSchedulerStatus)
 			}
 
 			// 网格参數优化 API
