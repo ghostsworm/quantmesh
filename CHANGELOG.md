@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.28.2] - 2026-02-02
+
+### Fixed
+- **DCA 策略平倉資金檢查修復**: 修復 DCA 策略觸發止損/止盈時因資金檢查導致平倉失敗的問題
+  - 問題原因：`MultiStrategyExecutor.PlaceOrder()` 對所有訂單都進行資金充足檢查，但平倉（賣出）操作是釋放資金而非消耗資金
+  - 修復方案：當 `ReduceOnly=true` 或 `Side=SELL` 時跳過資金檢查和預留
+  - 影響範圍：`PlaceOrder()` 和 `BatchPlaceOrdersWithDetails()` 兩個方法
+
 ## [3.28.0] - 2026-02-02
 
 ### Added

@@ -69,23 +69,31 @@ func extractStrategyType(strategyName string) string {
 
 // PlaceOrder 下單（带策略標記）
 func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.OrderRequest) (*position.Order, error) {
-	// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
-	// 交易所可能因最小名义金額（如币安 100 USDT）、精度對齐等原因調整數量
-	// 必須用預估的最终金額做 Reserve，否则會出現"預留 90 實際下 180"的穿透額度问题
-	estimatedAmount := mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
-	if estimatedAmount <= 0 {
-		return nil, fmt.Errorf("策略 %s 預估订單金額為 0 (價格: %.2f, 數量: %.8f)", strategyName, req.Price, req.Quantity)
-	}
+	// 🔥 判斷是否為平倉/減倉操作
+	// ReduceOnly=true 或 賣出操作（平多倉）不需要檢查和預留資金
+	isReducePosition := req.ReduceOnly || strings.ToUpper(req.Side) == "SELL"
 
-	// 检查策略资金是否充足
-	if !mse.allocator.CheckAvailable(strategyName, estimatedAmount) {
-		return nil, fmt.Errorf("策略 %s 资金不足: 需要 %.2f, 可用 %.2f",
-			strategyName, estimatedAmount, mse.allocator.GetAvailable(strategyName))
-	}
+	var estimatedAmount float64
 
-	// 預留资金（使用預估的最终金額）
-	if !mse.allocator.Reserve(strategyName, estimatedAmount) {
-		return nil, fmt.Errorf("策略 %s 资金預留失败", strategyName)
+	if !isReducePosition {
+		// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
+		// 交易所可能因最小名义金額（如币安 100 USDT）、精度對齐等原因調整數量
+		// 必須用預估的最终金額做 Reserve，否则會出現"預留 90 實際下 180"的穿透額度问题
+		estimatedAmount = mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
+		if estimatedAmount <= 0 {
+			return nil, fmt.Errorf("策略 %s 預估订單金額為 0 (價格: %.2f, 數量: %.8f)", strategyName, req.Price, req.Quantity)
+		}
+
+		// 检查策略资金是否充足
+		if !mse.allocator.CheckAvailable(strategyName, estimatedAmount) {
+			return nil, fmt.Errorf("策略 %s 资金不足: 需要 %.2f, 可用 %.2f",
+				strategyName, estimatedAmount, mse.allocator.GetAvailable(strategyName))
+		}
+
+		// 預留资金（使用預估的最终金額）
+		if !mse.allocator.Reserve(strategyName, estimatedAmount) {
+			return nil, fmt.Errorf("策略 %s 资金預留失败", strategyName)
+		}
 	}
 
 	// 執行订單
@@ -104,8 +112,10 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 
 	ord, err := mse.executor.PlaceOrder(orderReq)
 	if err != nil {
-		// 下單失败，释放资金
-		mse.allocator.Release(strategyName, estimatedAmount)
+		// 下單失败，释放资金（僅對開倉操作）
+		if !isReducePosition && estimatedAmount > 0 {
+			mse.allocator.Release(strategyName, estimatedAmount)
+		}
 		return nil, fmt.Errorf("下單失败: %w", err)
 	}
 
@@ -146,21 +156,29 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 	orderAmounts := make(map[string]float64) // ClientOrderID -> estimatedAmount
 
 	for _, req := range orders {
-		// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
-		estimatedAmount := mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
-		if estimatedAmount <= 0 {
-			// 金額為 0，跳過此订單
-			continue
-		}
+		// 🔥 判斷是否為平倉/減倉操作
+		// ReduceOnly=true 或 賣出操作（平多倉）不需要檢查和預留資金
+		isReducePosition := req.ReduceOnly || strings.ToUpper(req.Side) == "SELL"
 
-		// 检查资金
-		if !mse.allocator.CheckAvailable(strategyName, estimatedAmount) {
-			continue
-		}
+		var estimatedAmount float64
 
-		// 預留资金（使用預估的最终金額）
-		if !mse.allocator.Reserve(strategyName, estimatedAmount) {
-			continue
+		if !isReducePosition {
+			// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
+			estimatedAmount = mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
+			if estimatedAmount <= 0 {
+				// 金額為 0，跳過此订單
+				continue
+			}
+
+			// 检查资金
+			if !mse.allocator.CheckAvailable(strategyName, estimatedAmount) {
+				continue
+			}
+
+			// 預留资金（使用預估的最终金額）
+			if !mse.allocator.Reserve(strategyName, estimatedAmount) {
+				continue
+			}
 		}
 
 		orderReq := &order.OrderRequest{
@@ -176,7 +194,11 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 			StrategyType:  extractStrategyType(strategyName),
 		}
 		orderReqs = append(orderReqs, orderReq)
-		orderAmounts[req.ClientOrderID] = estimatedAmount
+
+		// 僅記錄開倉操作的資金預留
+		if !isReducePosition && estimatedAmount > 0 {
+			orderAmounts[req.ClientOrderID] = estimatedAmount
+		}
 	}
 
 	// 批量下單
