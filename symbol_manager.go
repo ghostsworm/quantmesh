@@ -507,6 +507,19 @@ func startSymbolRuntime(
 			logger.Info("✅ [%s] 马丁格尔策略已注册", symCfg.Symbol)
 		}
 
+		// DCA 策略（普通 DCA，使用 DCAEnhancedStrategy 實現）
+		if dcaCfg, exists := localCfg.Strategies.Configs["dca"]; exists && dcaCfg.Enabled {
+			dcaExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca")
+			dcaStrategy := strategy.NewDCAEnhancedStrategy("dca", symCfg.Symbol, &localCfg, dcaExecutor, exchangeAdapter, dcaCfg.Config)
+			fixedPool := 0.0
+			if pool, ok := dcaCfg.Config["capital_pool"].(float64); ok {
+				fixedPool = pool
+			}
+			strategyManager.RegisterStrategy("dca", dcaStrategy, dcaCfg.Weight, fixedPool)
+			logger.Info("✅ [%s] DCA 定投策略已注册", symCfg.Symbol)
+		}
+
+		// DCA Enhanced 策略（增強型 DCA）
 		if dcaEnhancedCfg, exists := localCfg.Strategies.Configs["dca_enhanced"]; exists && dcaEnhancedCfg.Enabled {
 			dcaEnhancedExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca_enhanced")
 			dcaEnhancedStrategy := strategy.NewDCAEnhancedStrategy("dca_enhanced", symCfg.Symbol, &localCfg, dcaEnhancedExecutor, exchangeAdapter, dcaEnhancedCfg.Config)
