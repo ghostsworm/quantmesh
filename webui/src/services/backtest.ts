@@ -166,3 +166,196 @@ export async function getBacktestTaskReport(id: string, download = false): Promi
 export async function deleteBacktestTask(id: string): Promise<{ success: boolean; message: string }> {
   return fetchWithAuth(`${API_BASE_URL}/backtest/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
+
+// 回测交易所信息
+export interface BacktestExchangeInfo {
+  exchange: string
+  market_types: string[] // 支援的市場類型：spot, futures
+  is_configured: boolean // 是否已在 config 中配置
+}
+
+// 回测交易對信息
+export interface BacktestSymbolInfo {
+  symbol: string
+  exchange: string
+  market_type: string // spot 或 futures
+  is_configured: boolean // 是否已在 config 中配置
+}
+
+// 獲取可用於回测的交易所列表
+export async function getBacktestExchanges(): Promise<{ success: boolean; exchanges: BacktestExchangeInfo[] }> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/exchanges`)
+}
+
+// 獲取可用於回测的交易對列表（按交易所+市場類型過濾）
+export async function getBacktestSymbols(exchange: string, marketType: string = 'futures'): Promise<{ success: boolean; symbols: BacktestSymbolInfo[] }> {
+  const params = new URLSearchParams({ exchange, market_type: marketType })
+  return fetchWithAuth(`${API_BASE_URL}/backtest/symbols?${params}`)
+}
+
+// 獲取已配置交易對的策略参數（用於預填）
+export async function getBacktestConfigParams(params: {
+  exchange?: string
+  symbol: string
+  strategy: string
+}): Promise<{ success: boolean; found: boolean; params: Record<string, unknown> }> {
+  const q = new URLSearchParams()
+  if (params.exchange) q.set('exchange', params.exchange)
+  q.set('symbol', params.symbol)
+  q.set('strategy', params.strategy)
+  return fetchWithAuth(`${API_BASE_URL}/backtest/config-params?${q}`)
+}
+
+// ========== 智能參數推薦 API ==========
+
+// 波動率信息
+export interface VolatilityInfo {
+  symbol: string
+  volatility_7d: number
+  volatility_30d: number
+  average_range: number
+  trend_direction: 'up' | 'down' | 'sideways'
+  updated_at: string
+}
+
+// 智能參數推薦結果
+export interface SmartParamsRecommendation {
+  symbol: string
+  exchange: string
+  market_type: string
+  strategy: string
+  current_price: number
+  volatility: VolatilityInfo
+  params: Record<string, unknown>
+  reasoning: string
+  confidence: number
+  generated_at: string
+}
+
+// 獲取智能參數推薦
+export async function getSmartParamsRecommendation(params: {
+  exchange?: string
+  market_type?: string
+  symbol: string
+  strategy: string
+  total_capital?: number
+}): Promise<{ success: boolean; recommendation: SmartParamsRecommendation }> {
+  const q = new URLSearchParams()
+  if (params.exchange) q.set('exchange', params.exchange)
+  if (params.market_type) q.set('market_type', params.market_type)
+  q.set('symbol', params.symbol)
+  q.set('strategy', params.strategy)
+  if (params.total_capital) q.set('total_capital', String(params.total_capital))
+  return fetchWithAuth(`${API_BASE_URL}/backtest/smart-params?${q}`)
+}
+
+// 獲取多個策略的智能推薦
+export async function getMultipleSmartParams(params: {
+  exchange?: string
+  market_type?: string
+  symbol: string
+  total_capital?: number
+}): Promise<{ success: boolean; recommendations: SmartParamsRecommendation[] }> {
+  const q = new URLSearchParams()
+  if (params.exchange) q.set('exchange', params.exchange)
+  if (params.market_type) q.set('market_type', params.market_type)
+  q.set('symbol', params.symbol)
+  if (params.total_capital) q.set('total_capital', String(params.total_capital))
+  return fetchWithAuth(`${API_BASE_URL}/backtest/smart-params/multiple?${q}`)
+}
+
+// ========== 預計算回測 API ==========
+
+// 回測指標
+export interface BacktestMetrics {
+  total_return: number
+  max_drawdown: number
+  sharpe_ratio: number
+  total_trades: number
+  win_rate: number
+  profit_factor?: number
+  avg_trade_return?: number
+}
+
+// 回測結果
+export interface BacktestResult {
+  metrics: BacktestMetrics
+  trades?: unknown[]
+  equity_curve?: unknown[]
+}
+
+// 預計算結果
+export interface PrecomputedResult {
+  symbol: string
+  exchange: string
+  market_type: string
+  strategy: string
+  recommendation: SmartParamsRecommendation
+  task_id: string
+  task_status: string
+  result?: BacktestResult
+  generated_at: string
+  completed_at?: string
+  is_ready: boolean
+  reasoning_report?: string
+}
+
+// 獲取預計算結果列表
+export async function getPrecomputedResults(params?: {
+  symbol?: string
+  only_ready?: boolean
+}): Promise<{ success: boolean; results: PrecomputedResult[]; count: number }> {
+  const q = new URLSearchParams()
+  if (params?.symbol) q.set('symbol', params.symbol)
+  if (params?.only_ready) q.set('only_ready', '1')
+  const query = q.toString()
+  return fetchWithAuth(`${API_BASE_URL}/backtest/precomputed${query ? '?' + query : ''}`)
+}
+
+// 獲取特定預計算結果
+export async function getPrecomputedResult(
+  symbol: string,
+  strategy: string,
+  exchange?: string
+): Promise<{ success: boolean; result: PrecomputedResult }> {
+  const q = new URLSearchParams()
+  if (exchange) q.set('exchange', exchange)
+  return fetchWithAuth(`${API_BASE_URL}/backtest/precomputed/${encodeURIComponent(symbol)}/${encodeURIComponent(strategy)}?${q}`)
+}
+
+// 觸發預計算
+export async function triggerPrecompute(params: {
+  symbol: string
+  exchange?: string
+  market_type?: string
+  strategy: string
+}): Promise<{ success: boolean; message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/precomputed/trigger`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+// 自動調度器配置
+export interface SchedulerSymbolConfig {
+  symbol: string
+  exchange: string
+  market_type: string
+  strategies: string[]
+}
+
+// 調度器狀態
+export interface AutoSchedulerStatus {
+  enabled: boolean
+  running: boolean
+  schedule_interval: string
+  total_tasks: number
+  ready_count: number
+  running_count: number
+  symbols: SchedulerSymbolConfig[]
+}
+
+// 獲取自動調度器狀態
+export async function getAutoSchedulerStatus(): Promise<{ success: boolean } & AutoSchedulerStatus> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/scheduler/status`)
+}

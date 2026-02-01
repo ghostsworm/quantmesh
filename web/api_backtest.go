@@ -17,9 +17,25 @@ import (
 // backtestTaskManager 回测任務管理器（由 main 注入）
 var backtestTaskManager *backtest.TaskManager
 
+// smartParamsService 智能參數推薦服務（由 main 注入）
+var smartParamsService *backtest.SmartParamsService
+
+// autoBacktestScheduler 自動回測調度器（由 main 注入）
+var autoBacktestScheduler *backtest.AutoBacktestScheduler
+
 // SetBacktestTaskManager 設置回测任務管理器
 func SetBacktestTaskManager(m *backtest.TaskManager) {
 	backtestTaskManager = m
+}
+
+// SetSmartParamsService 設置智能參數推薦服務
+func SetSmartParamsService(s *backtest.SmartParamsService) {
+	smartParamsService = s
+}
+
+// SetAutoBacktestScheduler 設置自動回測調度器
+func SetAutoBacktestScheduler(s *backtest.AutoBacktestScheduler) {
+	autoBacktestScheduler = s
 }
 
 // BacktestRequest 回测请求
@@ -520,4 +536,558 @@ func deleteBacktestTask(c *gin.Context) {
 	_ = os.Remove(filepath.Join("backtest", "results", id+".json"))
 	_ = os.Remove(filepath.Join("backtest", "reports", id+".md"))
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已刪除"})
+}
+
+// BacktestExchangeInfo 回测交易所信息
+type BacktestExchangeInfo struct {
+	Exchange     string   `json:"exchange"`
+	MarketTypes  []string `json:"market_types"` // 支援的市場類型：spot, futures
+	IsConfigured bool     `json:"is_configured"` // 是否已在 config 中配置
+}
+
+// getBacktestExchanges 獲取可用於回测的交易所列表 GET /api/backtest/exchanges
+func getBacktestExchanges(c *gin.Context) {
+	exchanges := make([]BacktestExchangeInfo, 0)
+	configuredExchanges := make(map[string]bool)
+
+	// 從配置中讀取已配置的交易所
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			for ex := range cfg.Exchanges {
+				if ex != "" {
+					configuredExchanges[ex] = true
+				}
+			}
+		}
+	}
+
+	// 定義支援的交易所及其市場類型
+	supportedExchanges := map[string][]string{
+		"binance": {"spot", "futures"},
+		"bitget":  {"spot", "futures"},
+		"okx":     {"spot", "futures"},
+		"bybit":   {"spot", "futures"},
+		"gate":    {"spot", "futures"},
+	}
+
+	for ex, marketTypes := range supportedExchanges {
+		exchanges = append(exchanges, BacktestExchangeInfo{
+			Exchange:     ex,
+			MarketTypes:  marketTypes,
+			IsConfigured: configuredExchanges[ex],
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "exchanges": exchanges})
+}
+
+// BacktestSymbolInfo 回测交易對信息
+type BacktestSymbolInfo struct {
+	Symbol       string `json:"symbol"`
+	Exchange     string `json:"exchange"`
+	MarketType   string `json:"market_type"` // spot 或 futures
+	IsConfigured bool   `json:"is_configured"` // 是否已在 config 中配置
+}
+
+// getBacktestSymbols 獲取可用於回测的交易對列表 GET /api/backtest/symbols?exchange=binance&market_type=futures
+func getBacktestSymbols(c *gin.Context) {
+	exchange := c.Query("exchange")
+	marketType := c.Query("market_type")
+
+	if exchange == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 exchange 参數"})
+		return
+	}
+	if marketType == "" {
+		marketType = "futures" // 預設合約
+	}
+
+	symbols := make([]BacktestSymbolInfo, 0)
+	configuredSymbols := make(map[string]bool)
+
+	// 從配置中讀取已配置的交易對
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			for _, sym := range cfg.Trading.Symbols {
+				symExchange := sym.Exchange
+				if symExchange == "" {
+					symExchange = cfg.App.CurrentExchange
+				}
+				symMarketType := sym.MarketType
+				if symMarketType == "" {
+					symMarketType = "futures"
+				}
+				if symExchange == exchange && symMarketType == marketType {
+					configuredSymbols[sym.Symbol] = true
+				}
+			}
+		}
+	}
+
+	// 常用交易對列表（按市場類型分類）
+	commonFuturesSymbols := []string{
+		"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+		"DOGEUSDT", "ADAUSDT", "LTCUSDT", "LINKUSDT", "DOTUSDT",
+		"MATICUSDT", "AVAXUSDT", "UNIUSDT", "ATOMUSDT", "APTUSDT",
+		"ARBUSDT", "OPUSDT", "SUIUSDT", "PEPEUSDT", "SHIBUSDT",
+	}
+	commonSpotSymbols := []string{
+		"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+		"DOGEUSDT", "ADAUSDT", "LTCUSDT", "LINKUSDT", "DOTUSDT",
+		"PAXGUSDT", "XAUUSDT", // 黃金相關
+	}
+
+	var symbolList []string
+	if marketType == "spot" {
+		symbolList = commonSpotSymbols
+	} else {
+		symbolList = commonFuturesSymbols
+	}
+
+	// 首先添加已配置的交易對（排在前面）
+	for sym := range configuredSymbols {
+		symbols = append(symbols, BacktestSymbolInfo{
+			Symbol:       sym,
+			Exchange:     exchange,
+			MarketType:   marketType,
+			IsConfigured: true,
+		})
+	}
+
+	// 然後添加常用交易對（未配置的）
+	for _, sym := range symbolList {
+		if !configuredSymbols[sym] {
+			symbols = append(symbols, BacktestSymbolInfo{
+				Symbol:       sym,
+				Exchange:     exchange,
+				MarketType:   marketType,
+				IsConfigured: false,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "symbols": symbols})
+}
+
+// getBacktestConfigParams 獲取已配置交易對的策略参數 GET /api/backtest/config-params?exchange=binance&symbol=BTCUSDT&strategy=grid
+func getBacktestConfigParams(c *gin.Context) {
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+	strategy := c.Query("strategy")
+
+	if symbol == "" || strategy == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 symbol 或 strategy 参數"})
+		return
+	}
+
+	params := make(map[string]interface{})
+	found := false
+
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			// 查找匹配的交易對配置
+			for _, sym := range cfg.Trading.Symbols {
+				symExchange := sym.Exchange
+				if symExchange == "" {
+					symExchange = cfg.App.CurrentExchange
+				}
+				// 匹配交易對（如果指定了 exchange 則也要匹配）
+				if sym.Symbol == symbol && (exchange == "" || symExchange == exchange) {
+					found = true
+
+					// 根據策略類型提取相關参數
+					switch strategy {
+					case "grid":
+						// 網格策略参數
+						params["order_quantity"] = sym.OrderQuantity
+						params["price_interval"] = sym.PriceInterval
+						params["buy_window_size"] = sym.BuyWindowSize
+						params["sell_window_size"] = sym.SellWindowSize
+						// 從策略實例中讀取更多参數
+						for _, s := range sym.Strategies {
+							if s.Type == "grid" {
+								for k, v := range s.Config {
+									params[k] = v
+								}
+								if sym.TotalAllocatedCapital > 0 {
+									params["total_capital"] = sym.TotalAllocatedCapital * s.Weight
+								}
+								break
+							}
+						}
+						// 風控参數
+						if sym.GridRiskControl.Enabled {
+							params["max_grid_layers"] = sym.GridRiskControl.MaxGridLayers
+							params["stop_loss_ratio"] = sym.GridRiskControl.StopLossRatio
+						}
+					case "dca":
+						for _, s := range sym.Strategies {
+							if s.Type == "dca" || s.Type == "dca_enhanced" {
+								for k, v := range s.Config {
+									params[k] = v
+								}
+								if sym.TotalAllocatedCapital > 0 {
+									params["total_capital"] = sym.TotalAllocatedCapital * s.Weight
+								}
+								break
+							}
+						}
+					case "martingale":
+						for _, s := range sym.Strategies {
+							if s.Type == "martingale" {
+								for k, v := range s.Config {
+									params[k] = v
+								}
+								if sym.TotalAllocatedCapital > 0 {
+									params["total_capital"] = sym.TotalAllocatedCapital * s.Weight
+								}
+								break
+							}
+						}
+					default:
+						// 其他策略：嘗試從策略實例中讀取
+						for _, s := range sym.Strategies {
+							if s.Type == strategy {
+								for k, v := range s.Config {
+									params[k] = v
+								}
+								if sym.TotalAllocatedCapital > 0 {
+									params["total_capital"] = sym.TotalAllocatedCapital * s.Weight
+								}
+								break
+							}
+						}
+					}
+
+					// 如果沒有找到策略實例但有總资金，設置預設
+					if params["total_capital"] == nil && sym.TotalAllocatedCapital > 0 {
+						params["total_capital"] = sym.TotalAllocatedCapital
+					}
+
+					break
+				}
+			}
+
+			// 如果沒有找到特定配置，嘗試從全局策略配置中讀取
+			if !found && cfg.Strategies.Enabled {
+				if stratCfg, ok := cfg.Strategies.Configs[strategy]; ok && stratCfg.Enabled {
+					for k, v := range stratCfg.Config {
+						params[k] = v
+					}
+					found = true
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"found":   found,
+		"params":  params,
+	})
+}
+
+// ========== 智能參數推薦和自動回測 API ==========
+
+// SmartParamsRequest 智能參數推薦請求
+type SmartParamsRequest struct {
+	Exchange     string  `json:"exchange" binding:"required"`
+	MarketType   string  `json:"market_type" binding:"required"`
+	Symbol       string  `json:"symbol" binding:"required"`
+	Strategy     string  `json:"strategy" binding:"required"`
+	TotalCapital float64 `json:"total_capital" binding:"required"`
+}
+
+// getSmartParamsRecommendation 獲取智能參數推薦 GET /api/backtest/smart-params
+func getSmartParamsRecommendation(c *gin.Context) {
+	if smartParamsService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "智能參數服務未初始化",
+		})
+		return
+	}
+
+	exchange := c.Query("exchange")
+	marketType := c.Query("market_type")
+	symbol := c.Query("symbol")
+	strategy := c.Query("strategy")
+	totalCapitalStr := c.Query("total_capital")
+
+	if exchange == "" {
+		exchange = "binance"
+	}
+	if marketType == "" {
+		marketType = "futures"
+	}
+	if symbol == "" || strategy == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "缺少必要參數: symbol, strategy",
+		})
+		return
+	}
+
+	totalCapital := 10000.0
+	if totalCapitalStr != "" {
+		if v, err := strconv.ParseFloat(totalCapitalStr, 64); err == nil && v > 0 {
+			totalCapital = v
+		}
+	}
+
+	ctx := c.Request.Context()
+	recommendation, err := smartParamsService.GetRecommendation(
+		ctx, exchange, marketType, symbol, strategy, totalCapital,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("獲取智能推薦失敗: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":        true,
+		"recommendation": recommendation,
+	})
+}
+
+// postSmartParamsRecommendation 獲取智能參數推薦 POST /api/backtest/smart-params
+func postSmartParamsRecommendation(c *gin.Context) {
+	if smartParamsService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "智能參數服務未初始化",
+		})
+		return
+	}
+
+	var req SmartParamsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("參數錯誤: %v", err),
+		})
+		return
+	}
+
+	ctx := c.Request.Context()
+	recommendation, err := smartParamsService.GetRecommendation(
+		ctx, req.Exchange, req.MarketType, req.Symbol, req.Strategy, req.TotalCapital,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("獲取智能推薦失敗: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":        true,
+		"recommendation": recommendation,
+	})
+}
+
+// getMultipleSmartParams 獲取多個策略的智能推薦 GET /api/backtest/smart-params/multiple
+func getMultipleSmartParams(c *gin.Context) {
+	if smartParamsService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "智能參數服務未初始化",
+		})
+		return
+	}
+
+	exchange := c.DefaultQuery("exchange", "binance")
+	marketType := c.DefaultQuery("market_type", "futures")
+	symbol := c.Query("symbol")
+
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "缺少必要參數: symbol",
+		})
+		return
+	}
+
+	totalCapital := 10000.0
+	if v, err := strconv.ParseFloat(c.DefaultQuery("total_capital", "10000"), 64); err == nil && v > 0 {
+		totalCapital = v
+	}
+
+	// 獲取所有策略推薦
+	strategies := []string{"grid", "momentum", "mean_reversion", "trend_following", "dca", "martingale"}
+
+	ctx := c.Request.Context()
+	recommendations, err := smartParamsService.GetMultipleRecommendations(
+		ctx, exchange, marketType, symbol, strategies, totalCapital,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("獲取智能推薦失敗: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":         true,
+		"recommendations": recommendations,
+	})
+}
+
+// getPrecomputedResults 獲取預計算回測結果 GET /api/backtest/precomputed
+func getPrecomputedResults(c *gin.Context) {
+	if autoBacktestScheduler == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"results": []interface{}{},
+			"message": "自動回測服務未啟用",
+		})
+		return
+	}
+
+	symbol := c.Query("symbol")
+	onlyReady := c.Query("only_ready") == "1" || c.Query("only_ready") == "true"
+
+	var results []*backtest.PrecomputedResult
+
+	if symbol != "" {
+		results = autoBacktestScheduler.GetResultsBySymbol(symbol)
+	} else if onlyReady {
+		results = autoBacktestScheduler.GetReadyResults()
+	} else {
+		results = autoBacktestScheduler.GetPrecomputedResults()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"results": results,
+		"count":   len(results),
+	})
+}
+
+// getPrecomputedResult 獲取特定預計算結果 GET /api/backtest/precomputed/:symbol/:strategy
+func getPrecomputedResult(c *gin.Context) {
+	if autoBacktestScheduler == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "自動回測服務未啟用",
+		})
+		return
+	}
+
+	symbol := c.Param("symbol")
+	strategy := c.Param("strategy")
+	exchange := c.DefaultQuery("exchange", "binance")
+
+	if symbol == "" || strategy == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "缺少必要參數",
+		})
+		return
+	}
+
+	result := autoBacktestScheduler.GetPrecomputedResult(symbol, exchange, strategy)
+	if result == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "未找到預計算結果",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"result":  result,
+	})
+}
+
+// triggerPrecompute 觸發預計算 POST /api/backtest/precomputed/trigger
+func triggerPrecompute(c *gin.Context) {
+	if autoBacktestScheduler == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "自動回測服務未啟用",
+		})
+		return
+	}
+
+	var req struct {
+		Symbol     string `json:"symbol" binding:"required"`
+		Exchange   string `json:"exchange"`
+		MarketType string `json:"market_type"`
+		Strategy   string `json:"strategy" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("參數錯誤: %v", err),
+		})
+		return
+	}
+
+	if req.Exchange == "" {
+		req.Exchange = "binance"
+	}
+	if req.MarketType == "" {
+		req.MarketType = "futures"
+	}
+
+	if err := autoBacktestScheduler.TriggerPrecompute(req.Symbol, req.Exchange, req.MarketType, req.Strategy); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("觸發預計算失敗: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "已觸發預計算任務",
+	})
+}
+
+// getAutoSchedulerStatus 獲取自動調度器狀態 GET /api/backtest/scheduler/status
+func getAutoSchedulerStatus(c *gin.Context) {
+	if autoBacktestScheduler == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"enabled": false,
+			"running": false,
+		})
+		return
+	}
+
+	config := autoBacktestScheduler.GetConfig()
+	results := autoBacktestScheduler.GetPrecomputedResults()
+
+	readyCount := 0
+	runningCount := 0
+	for _, r := range results {
+		if r.IsReady {
+			readyCount++
+		}
+		if r.TaskStatus == "running" || r.TaskStatus == "pending" {
+			runningCount++
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":          true,
+		"enabled":          config.Enabled,
+		"running":          autoBacktestScheduler.IsRunning(),
+		"schedule_interval": config.ScheduleInterval.String(),
+		"total_tasks":       len(results),
+		"ready_count":       readyCount,
+		"running_count":     runningCount,
+		"symbols":           config.Symbols,
+	})
 }

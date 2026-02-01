@@ -392,7 +392,15 @@ type Config struct {
 		Enabled bool   `yaml:"enabled"`
 		Host    string `yaml:"host"`    // 監听地址（預設 0.0.0.0）
 		Port    int    `yaml:"port"`    // 監听端口（預設 8080）
+		Domain  string `yaml:"domain"`  // 外部访问域名（用於 WebAuthn RPID 配置）
 		APIKey  string `yaml:"api_key"` // API 密钥（可選，用於认证）
+		
+		// TLS/HTTPS 配置
+		TLS *struct {
+			Enabled  bool   `yaml:"enabled"`   // 是否启用 HTTPS
+			CertFile string `yaml:"cert_file"` // 証書文件路徑
+			KeyFile  string `yaml:"key_file"`  // 私钥文件路徑
+		} `yaml:"tls"`
 		
 		// pprof 性能分析配置
 		Pprof struct {
@@ -642,6 +650,23 @@ type Config struct {
 			UploadTime      string `yaml:"upload_time"` // 每日上傳時间，如 "02:00"
 		} `yaml:"oss"`
 	} `yaml:"compliance"`
+
+	// 自動回測配置
+	AutoBacktest struct {
+		Enabled               bool                     `yaml:"enabled"`                 // 是否啟用自動回測，預設 false
+		ScheduleIntervalHours int                      `yaml:"schedule_interval_hours"` // 調度間隔（小時），預設 6
+		MaxConcurrentTasks    int                      `yaml:"max_concurrent_tasks"`    // 最大並行任務數，預設 3
+		DefaultCapital        float64                  `yaml:"default_capital"`         // 預設回測資金，預設 10000
+		Symbols               []AutoBacktestSymbol     `yaml:"symbols"`                 // 要自動回測的交易對和策略
+	} `yaml:"auto_backtest"`
+}
+
+// AutoBacktestSymbol 自動回測交易對配置
+type AutoBacktestSymbol struct {
+	Symbol     string   `yaml:"symbol" json:"symbol"`           // 交易對，如 BTCUSDT
+	Exchange   string   `yaml:"exchange" json:"exchange"`       // 交易所，如 binance
+	MarketType string   `yaml:"market_type" json:"market_type"` // 市場類型，spot 或 futures
+	Strategies []string `yaml:"strategies" json:"strategies"`   // 要回測的策略列表，如 ["grid", "dca"]
 }
 
 // WithdrawalPolicy 提現策略（利润保护）
