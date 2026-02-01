@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,14 +189,18 @@ func (ls *LogStorage) WriteLog(level, message string) {
 		// 成功加入队列
 	default:
 		// Channel 满了，丢弃消息（避免阻塞）
+		// 注意：這裡不能調用 logger.Warn，會導致循環調用
+		log.Printf("[WARN] 日志 channel 已满，丢弃消息: %s", message[:min(50, len(message))])
 	}
 }
 
 // processLogs 处理日志写入（在独立 goroutine 中运行）
 func (ls *LogStorage) processLogs() {
+	log.Println("[DEBUG] 日志處理協程已啟動")
 	buffer := make([]*logEntry, 0, 100)
 	ticker := time.NewTicker(1 * time.Second) // 每秒刷新一次
 	defer ticker.Stop()
+	defer log.Println("[DEBUG] 日志處理協程已退出")
 
 	flush := func() {
 		if len(buffer) == 0 {
@@ -208,8 +213,8 @@ func (ls *LogStorage) processLogs() {
 		ls.mu.Unlock()
 
 		if err != nil {
-			// 写入失败，静默处理（不影响主程序）
-			// 可以选擇输出到標准錯误，但这里选擇静默
+			// 写入失败，输出到標准錯误便於調試
+			log.Printf("[ERROR] 批量写入日志失败: %v", err)
 		}
 
 		// 清空缓冲区

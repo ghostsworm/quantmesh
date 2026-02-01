@@ -1,6 +1,6 @@
 {
   "name": "quantmesh-webui",
-  "version": "3.22.0",
+  "version": "3.23.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -40,6 +40,7 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.0.0",
+    "opencc-js": "^1.0.5",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.0.0",

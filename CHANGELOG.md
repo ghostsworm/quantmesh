@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [3.23.0] - 2026-02-01
+
+### Added
+- **多語言翻譯優化**: 補齊並優化各語系 i18n
+  - WebUI：以 en-US 為基準合併缺失鍵至所有語系，缺譯處暫以英文顯示，避免介面出現裸 key
+  - 新增 `webui/scripts/merge-locales.js` 用於補齊鍵
+  - 新增 `webui/scripts/zh-cn-to-zh-tw.js`：以 OpenCC 由 zh-CN 生成完整 zh-TW（無需 API）
+  - 新增 `webui/scripts/translate-locales.js`：以 Gemini API 批量翻譯各語系（需 GEMINI_API_KEY，可選）
+- **文檔**: 新增 `docs/I18N_LOCALES.md` 說明後端 TOML / 前端 JSON 維護流程與腳本用法
+
+### Changed
+- **後端 zh-TW.toml**: 統一繁體用詞（儲存/資料/模組/載入/登入等）
+- **依賴**: webui 新增 devDependency `opencc-js` 用於簡繁轉換
+
 ## [3.22.0] - 2026-02-01
 
 ### Added
