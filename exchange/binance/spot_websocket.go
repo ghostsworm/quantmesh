@@ -35,20 +35,22 @@ func NewSpotWebSocketManager(useTestnet bool) *SpotWebSocketManager {
 	}
 }
 
-// StartPriceStream 啟動現貨價格流（aggTrade）
+// StartPriceStream 啟動現貨價格流（miniTicker）
+// 使用 miniTicker 而非 aggTrade，因低流動性交易對（如 PAXGUSDT）可能長時間無成交，
+// aggTrade 不會推送導致「等待首個價格超時」；miniTicker 每 1 秒推送最新價，可穩定取得首價。
 func (w *SpotWebSocketManager) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	// 現貨 WebSocket 端點：
-	// 主網: wss://stream.binance.com:9443/ws/<symbol>@aggTrade
-	// 測試網: wss://stream.testnet.binance.vision/ws/<symbol>@aggTrade
+	// 主網: wss://stream.binance.com:9443/ws/<symbol>@miniTicker
+	// 測試網: wss://stream.testnet.binance.vision/ws/<symbol>@miniTicker
 	// 注意：測試網需要使用 stream.testnet.binance.vision，而非 testnet.binance.vision
 
 	symbolLower := strings.ToLower(symbol)
 	var url string
 	if w.useTestnet {
-		url = fmt.Sprintf("wss://stream.testnet.binance.vision/ws/%s@aggTrade", symbolLower)
+		url = fmt.Sprintf("wss://stream.testnet.binance.vision/ws/%s@miniTicker", symbolLower)
 		logger.Info("🌐 [Binance Spot WS] 使用測試網 WebSocket: %s", url)
 	} else {
-		url = fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@aggTrade", symbolLower)
+		url = fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@miniTicker", symbolLower)
 	}
 
 	// 使用通道等待首個價格
@@ -107,12 +109,12 @@ func (w *SpotWebSocketManager) StartPriceStream(ctx context.Context, symbol stri
 					break // 跳出內層循環，重新連接
 				}
 
-				// 解析消息
-				// aggTrade 消息格式：
-				// {"e":"aggTrade","E":1234567890,"s":"PAXGUSDT","a":12345,"p":"2950.00","q":"0.5","f":100,"l":105,"T":1234567890,"m":false,"M":true}
+				// 解析消息：24hrMiniTicker 每 1 秒推送，含最新收盤價 "c"
+				// {"e":"24hrMiniTicker","E":1672515782136,"s":"PAXGUSDT","c":"2950.00","o":"2948.00","h":"2951.00","l":"2947.00","v":"10000","q":"18"}
 				var event struct {
-					Symbol string `json:"s"` // 交易對
-					Price  string `json:"p"` // 價格
+					EventType string `json:"e"` // "24hrMiniTicker"
+					Symbol    string `json:"s"`
+					Close     string `json:"c"` // 最新價（收盤價）
 				}
 
 				if err := json.Unmarshal(message, &event); err != nil {
@@ -120,7 +122,7 @@ func (w *SpotWebSocketManager) StartPriceStream(ctx context.Context, symbol stri
 					continue
 				}
 
-				price, err := strconv.ParseFloat(event.Price, 64)
+				price, err := strconv.ParseFloat(event.Close, 64)
 				if err != nil {
 					logger.Debug("[Binance Spot] 解析價格失敗: %v", err)
 					continue
@@ -144,15 +146,15 @@ func (w *SpotWebSocketManager) StartPriceStream(ctx context.Context, symbol stri
 		}
 	}()
 
-	// 等待接收首個價格（最多10秒）
+	// 等待接收首個價格（最多15秒，miniTicker 約 1 秒一推）
 	select {
 	case <-firstPriceCh:
-		logger.Debug("✅ [Binance Spot] 價格流已啟動: %s@aggTrade", symbolLower)
+		logger.Debug("✅ [Binance Spot] 價格流已啟動: %s@miniTicker", symbolLower)
 		return nil
 	case err := <-errCh:
 		return err
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("等待首個價格超時（10秒）")
+	case <-time.After(15 * time.Second):
+		return fmt.Errorf("等待首個價格超時（15秒）")
 	case <-ctx.Done():
 		return fmt.Errorf("上下文已取消")
 	}
