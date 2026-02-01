@@ -1,14 +1,14 @@
 <div align="center">
-  <img src="../assets/logo.svg" alt="QuantMesh Logo" width="600"/>
+  <img src="../../assets/logo.svg" alt="QuantMesh Logo" width="600"/>
   
   # QuantMesh Market Maker
   
   **Creador de Mercado de Criptomonedas de Alta Frecuencia**
 
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
-  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../LICENSE)
+  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../../LICENSE)
   
-  [繁體中文](../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
+  [繁體中文](../../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
 </div>
 
 ---
@@ -36,7 +36,7 @@ Basado en el proyecto original, hemos realizado las siguientes mejoras y extensi
 - 📱 **Soporte de Internacionalización**: Interfaz multiidioma (Chino/Inglés), soporte i18n
 - 🧪 **Soporte de Testnet**: Soporte para entornos de testnet de múltiples intercambios para desarrollo y pruebas
 
-Para descripciones detalladas de mejoras e información de software de terceros, consulte el archivo [NOTICE](../NOTICE).
+Para descripciones detalladas de mejoras e información de software de terceros, consulte el archivo [NOTICE](../../NOTICE).
 
 **Nota Importante**: Este proyecto ahora se distribuye bajo la **GNU Affero General Public License v3.0 (AGPL-3.0)**. De acuerdo con los requisitos de la Licencia MIT del proyecto original, hemos conservado el reconocimiento del proyecto original.
 
@@ -194,7 +194,7 @@ El sistema adopta un diseño modular con componentes principales que incluyen:
 - **Administrador de Posición Super**: Administrador de posiciones principal, gestionando el ciclo de vida de órdenes basado en el mecanismo Slot.
 - **Seguridad y Control de Riesgo**: Control de riesgo multicapa, incluyendo verificaciones de inicio, monitoreo en tiempo de ejecución y corte de circuito de anomalías.
 
-Para documentación de arquitectura más detallada, consulte [ARCHITECTURE.md](../ARCHITECTURE.md).
+Para documentación de arquitectura más detallada, consulte [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ## ⚠️ Descargo de Responsabilidad
 
@@ -255,7 +255,7 @@ Para consultas de licencias comerciales, contacte:
 
 ## 🙏 Agradecimientos
 
-Gracias al proyecto original [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) por [dennisyang1986](https://github.com/dennisyang1986) por su contribución de código abierto, que proporcionó una base sólida para este proyecto. Para más información, consulte el archivo [NOTICE](../NOTICE).
+Gracias al proyecto original [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) por [dennisyang1986](https://github.com/dennisyang1986) por su contribución de código abierto, que proporcionó una base sólida para este proyecto. Para más información, consulte el archivo [NOTICE](../../NOTICE).
 
 ---
 Copyright © 2025 QuantMesh Team. All Rights Reserved.

@@ -1,19 +1,19 @@
 <div align="center">
-  <img src="../logo/qm_thick_tail_white.svg" alt="QuantMesh Logo" width="200"/>
+  <img src="../../logo/qm_thick_tail_white.svg" alt="QuantMesh Logo" width="200"/>
   
   # QuantMesh Market Maker
   
   **High-Frequency Crypto Market Maker**
 
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
-  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../LICENSE)
+  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../../LICENSE)
   [![GitHub Stars](https://img.shields.io/github/stars/ghostsworm/quantmesh.svg?style=social&label=Stars)](https://github.com/ghostsworm/quantmesh)
   [![GitHub Forks](https://img.shields.io/github/forks/ghostsworm/quantmesh.svg?style=social&label=Forks)](https://github.com/ghostsworm/quantmesh)
   [![GitHub Issues](https://img.shields.io/github/issues/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/issues)
   [![GitHub Release](https://img.shields.io/github/release/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/releases)
   [![Website](https://img.shields.io/badge/Website-quantmesh.io-green.svg)](https://quantmesh.io)
   
-  [繁體中文](../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
+  [繁體中文](../../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
 </div>
 
 ---
@@ -74,7 +74,7 @@ Based on the original project, we have made the following major improvements and
 - 📱 **Internationalization Support**: Multi-language interface (Chinese/English), i18n support
 - 🧪 **Testnet Support**: Support for testnet environments of multiple exchanges for development and testing
 
-For detailed improvement descriptions and third-party software information, please refer to the [NOTICE](../NOTICE) file.
+For detailed improvement descriptions and third-party software information, please refer to the [NOTICE](../../NOTICE) file.
 
 **Important Note**: This project is now distributed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. In accordance with the MIT License requirements of the original project, we have retained acknowledgment of the original project.
 
@@ -279,7 +279,7 @@ The system adopts a modular design with core components including:
 - **Super Position Manager**: Core position manager, managing order lifecycle based on Slot mechanism.
 - **Safety & Risk Control**: Multi-layer risk control, including startup checks, runtime monitoring, and anomaly circuit breaking.
 
-For more detailed architecture documentation, please refer to [ARCHITECTURE.md](../ARCHITECTURE.md).
+For more detailed architecture documentation, please refer to [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ## ⚠️ Disclaimer
 
@@ -323,10 +323,10 @@ QuantMesh supports cryptocurrency payments for subscriptions and licenses:
 ```
 
 ### Documentation
-- 📖 [User Payment Guide](../docs/CRYPTO_PAYMENT_GUIDE.md)
-- 🚀 [Quick Start Guide](../docs/CRYPTO_PAYMENT_QUICKSTART.md)
-- 🔧 [Setup Guide](../docs/CRYPTO_PAYMENT_SETUP.md)
-- 📊 [Implementation Summary](../docs/reports/CRYPTO_PAYMENT_SUMMARY.md)
+- 📖 [User Payment Guide](../CRYPTO_PAYMENT_GUIDE.md)
+- 🚀 [Quick Start Guide](../CRYPTO_PAYMENT_QUICKSTART.md)
+- 🔧 [Setup Guide](../CRYPTO_PAYMENT_SETUP.md)
+- 📊 [Implementation Summary](../reports/CRYPTO_PAYMENT_SUMMARY.md)
 
 ### Why Crypto Payments?
 ✅ No credit card or bank account required  
@@ -393,11 +393,11 @@ We welcome contributions! Here's how you can help:
 
 **Note:** According to the AGPL-3.0 license, all contributions to this project will be released under the same AGPL-3.0 license.
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for detailed guidelines.
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for detailed guidelines.
 
 ## 🙏 Acknowledgments
 
-Thanks to the original project [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) by [dennisyang1986](https://github.com/dennisyang1986) for their open-source contribution, which provided a solid foundation for this project. For more information, please refer to the [NOTICE](../NOTICE) file.
+Thanks to the original project [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) by [dennisyang1986](https://github.com/dennisyang1986) for their open-source contribution, which provided a solid foundation for this project. For more information, please refer to the [NOTICE](../../NOTICE) file.
 
 ---
 
@@ -408,7 +408,7 @@ Thanks to the original project [OpenSQT Market Maker](https://github.com/dennisy
 - 💬 **Discord**: [Join our community](https://discord.gg/YOUR_INVITE_LINK)
 - 🐛 **Issues**: [GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)
 - 💬 **Discussions**: [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)
-- 📖 **Documentation**: [Full Documentation](../docs/)
+- 📖 **Documentation**: [Full Documentation](../)
 
 ---
 

@@ -1,14 +1,14 @@
 <div align="center">
-  <img src="../assets/logo.svg" alt="QuantMesh Logo" width="600"/>
+  <img src="../../assets/logo.svg" alt="QuantMesh Logo" width="600"/>
   
   # QuantMesh Market Maker
   
   **毫秒级高频加密货币做市商系统**
 
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
-  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../LICENSE)
+  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../../LICENSE)
   
-  [繁體中文](../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
+  [繁體中文](../../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
 </div>
 
 ---
@@ -36,7 +36,7 @@ QuantMesh Market Maker 是一个高性能、低延迟的加密货币做市商系
 - 📱 **国际化支持**：多语言界面（中英文），i18n 支持
 - 🧪 **测试网支持**：支持多个交易所的测试网环境，便于开发和测试
 
-详细的改进说明和第三方软件信息请参阅 [NOTICE](../NOTICE) 文件。
+详细的改进说明和第三方软件信息请参阅 [NOTICE](../../NOTICE) 文件。
 
 **重要说明**：本项目现采用 **GNU Affero General Public License v3.0 (AGPL-3.0)** 进行分发。根据原始项目的 MIT 许可证要求，我们保留了对原始项目的致谢声明。
 
@@ -194,7 +194,7 @@ go build -o quantmesh
 - **Super Position Manager**: 核心仓位管理器，基于槽位 (Slot) 机制管理订单生命周期。
 - **Safety & Risk Control**: 多层级风控，包含启动检查、运行时监控和异常熔断。
 
-更多详细架构说明请参阅 [ARCHITECTURE.md](../ARCHITECTURE.md)。
+更多详细架构说明请参阅 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
 ## ⚠️ 免责声明
 
@@ -255,7 +255,7 @@ go build -o quantmesh
 
 ## 🙏 致谢
 
-感谢原始项目 [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) 的作者 [dennisyang1986](https://github.com/dennisyang1986) 的开源贡献，为本项目提供了坚实的基础。更多信息请参阅 [NOTICE](../NOTICE) 文件。
+感谢原始项目 [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) 的作者 [dennisyang1986](https://github.com/dennisyang1986) 的开源贡献，为本项目提供了坚实的基础。更多信息请参阅 [NOTICE](../../NOTICE) 文件。
 
 ---
 Copyright © 2025 QuantMesh Team. All Rights Reserved.

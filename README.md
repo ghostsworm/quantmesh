@@ -80,15 +80,20 @@ QuantMesh 是高效能、低延遲的加密貨幣做市商系統，專注於永�
 
 ## ✨ 核心特性
 
-- **多交易所支援**：適配 Binance、Bitget、Gate.io、Bybit、EdgeX 等主流平台
+- **多交易所支援**：適配 Binance、Bitget、Gate.io、Bybit、EdgeX 等主流平台；支援現貨與合約
 - **毫秒級回應**：全 WebSocket 驅動（行情與訂單流），無輪詢延遲
-- **智慧網格策略**：
-  - **固定金額模式**：資金利用率更可控
-  - **超級槽位系統 (Super Slot)**：智慧管理掛單與持倉狀態，避免並行衝突
+- **多策略支援**：
+  - **網格策略**：固定金額模式、超級槽位系統；進階 P1 資金費率趨勢聯動、P2 訂單簿優化掛單
+  - **DCA / 馬丁格爾 / 均值回歸 / 動量 / 趨勢跟蹤 / 組合策略**：可並行、可分配資金
+- **技術指標庫**：50+ 專業指標（趨勢、動量、波動率、成交量），供策略與回測使用
+- **AI 功能**：市場分析、參數優化、風險評估、情緒分析（新聞 / Polymarket 等）
+- **回測系統**：歷史 K 線回測、多策略回測、20+ 風險指標與報告
 - **強大風控系統**：
   - **主動風控**：即時監控 K 線成交量異常，自動暫停交易
   - **資金安全**：啟動前自動檢查餘額、槓桿與最大持倉風險
   - **自動對帳**：定期同步本地與交易所狀態，確保資料一致
+- **完整監控體系**：Prometheus 指標、Grafana 儀表板、多層告警、Watchdog 健康檢查
+- **事件中心與新聞監控**：價格波動與交易事件記錄、AI 新聞分析與預測驗證
 - **高並行架構**：基於 Goroutine + Channel + Sync.Map 的高效並行模型
 
 ## 🏦 支援的交易所
@@ -118,6 +123,21 @@ QuantMesh 是高效能、低延遲的加密貨幣做市商系統，專注於永�
 | **Poloniex** | ✅ Stable | $300M+ | 老牌交易所（2014），幣種豐富，支援測試網 |
 | **Crypto.com** | ✅ Stable | $500M+ | 知名品牌，全球數千萬用戶，支援測試網 |
 
+## 功能模組概覽
+
+| 模組 | 說明 |
+|------|------|
+| **交易策略** | 網格、DCA、馬丁格爾、均值回歸、動量、趨勢跟蹤、組合策略；支援多交易對與現貨/合約 |
+| **技術分析** | 50+ 技術指標（趨勢、動量、波動率、成交量）；策略信號與回測 |
+| **AI** | 市場分析、參數優化、風險評估、情緒分析、Polymarket 信號 |
+| **回測** | 歷史 K 線回測、多策略、風險指標與 Markdown 報告 |
+| **風控與對帳** | 主動 K 線風控、深度監控、持倉對帳、訂單清理、啟動前安全檢查 |
+| **監控與告警** | Prometheus、Grafana、多層告警、Watchdog、資金費率與價差監控 |
+| **事件與新聞** | 事件中心（價格波動/交易事件）、新聞收集與 AI 分析、預測驗證 |
+| **外掛與擴展** | 外掛載入、授權驗證、自訂策略與交易所適配 |
+
+詳細說明見 [ARCHITECTURE.md](ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](docs/API_REFERENCE.md)。
+
 ## 模組架構
 
 ```
@@ -125,37 +145,58 @@ quantmesh_platform/
 ├── main.go                    # 主程式入口，元件編排
 │
 ├── config/                    # 配置管理
-│   └── config.go              # YAML 配置載入與驗證
+│   ├── config.go              # YAML 配置載入與驗證
+│   ├── backup.go              # 配置備份
+│   ├── history.go             # 配置歷史
+│   └── hot_reload.go          # 配置熱更新
 │
 ├── exchange/                  # 交易所抽象層（核心）
 │   ├── interface.go           # IExchange 統一介面
-│   ├── factory.go             # 工廠模式建立交易所實例
-│   ├── types.go               # 通用資料結構
-│   ├── wrapper_*.go           # 適配器（包裝各交易所）
-│   ├── binance/               # 幣安實作
+│   ├── binance/               # 幣安（現貨/合約）
 │   ├── bitget/                # Bitget 實作
-│   └── gate/                  # Gate.io 實作
+│   ├── gate/                  # Gate.io 實作
+│   └── [20+ 交易所實作]
 │
-├── logger/                    # 日誌系統
-│   └── logger.go              # 檔案日誌 + 控制台日誌
+├── strategy/                  # 策略模組
+│   ├── grid_strategy.go       # 網格策略
+│   ├── dca_enhanced.go        # DCA 策略
+│   ├── martingale.go          # 馬丁格爾
+│   ├── mean_reversion.go      # 均值回歸
+│   ├── momentum.go            # 動量策略
+│   ├── trend_following.go     # 趨勢跟蹤
+│   └── combo_strategy.go      # 組合策略
 │
-├── monitor/                   # 價格監控
-│   └── price_monitor.go       # 全域唯一價格流
+├── indicators/                # 技術指標庫
+│   ├── trend.go               # 趨勢指標（MACD、ADX 等）
+│   ├── momentum.go            # 動量指標（RSI、Stochastic 等）
+│   ├── volatility.go          # 波動率指標（ATR、Bollinger 等）
+│   └── volume.go              # 成交量指標
 │
-├── order/                     # 訂單執行層
-│   └── executor_adapter.go    # 訂單執行器（限流+重試）
+├── ai/                        # AI 功能
+│   ├── service/               # 市場分析、參數優化、風險與情緒分析
+│   └── risk_assessor.go       # AI 風險評估
+│
+├── backtest/                  # 回測系統
+│   ├── data_fetcher.go        # 歷史 K 線獲取與快取
+│   ├── backtester.go          # 回測引擎
+│   └── metrics.go             # 風險指標
 │
 ├── position/                  # 倉位管理（核心）
-│   └── super_position_manager.go  # 超級槽位管理器
+│   └── super_position_manager.go  # 超級槽位管理器（P1/P2 整合）
 │
 ├── safety/                    # 安全與風控
 │   ├── safety.go              # 啟動前安全檢查
 │   ├── risk_monitor.go        # 主動風控（K 線監控）
 │   ├── reconciler.go          # 持倉對帳
-│   └── order_cleaner.go       # 訂單清理
+│   ├── order_cleaner.go       # 訂單清理
+│   └── funding_monitor.go     # 資金費率監控
 │
-└── utils/                     # 工具函式
-    └── orderid.go             # 自訂訂單 ID 產生
+├── monitor/                   # 監控（價格、新聞、價差、Watchdog）
+├── event/                     # 事件中心
+├── metrics/                   # Prometheus 指標
+├── plugin/                    # 外掛載入與授權
+├── web/                       # Web API 與前端靜態資源
+└── webui/                     # React 前端原始碼
 ```
 
 ## 最佳實踐
@@ -336,7 +377,8 @@ QuantMesh 支援以加密貨幣支付訂閱與授權：
 
 <div align="center">
   <strong>Made with ❤️ by QuantMesh Team</strong><br/>
-  <sub>若本專案對您有幫助，歡迎給予 ⭐</sub>
+  <sub>若本專案對您有幫助，歡迎給予 ⭐</sub><br/>
+  <sub>Version 3.20.1</sub>
 </div>
 
 Copyright © 2025 QuantMesh Team. All Rights Reserved.

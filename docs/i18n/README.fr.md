@@ -1,14 +1,14 @@
 <div align="center">
-  <img src="../assets/logo.svg" alt="QuantMesh Logo" width="600"/>
+  <img src="../../assets/logo.svg" alt="QuantMesh Logo" width="600"/>
   
   # QuantMesh Market Maker
   
   **Créateur de Marché Crypto à Haute Fréquence**
 
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
-  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../LICENSE)
+  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../../LICENSE)
   
-  [繁體中文](../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
+  [繁體中文](../../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
 </div>
 
 ---
@@ -36,7 +36,7 @@ Basé sur le projet original, nous avons apporté les améliorations et extensio
 - 📱 **Support d'Internationalisation** : Interface multilingue (Chinois/Anglais), support i18n
 - 🧪 **Support Testnet** : Support pour les environnements testnet de plusieurs bourses pour le développement et les tests
 
-Pour des descriptions détaillées des améliorations et des informations sur les logiciels tiers, veuillez consulter le fichier [NOTICE](../NOTICE).
+Pour des descriptions détaillées des améliorations et des informations sur les logiciels tiers, veuillez consulter le fichier [NOTICE](../../NOTICE).
 
 **Note Importante** : Ce projet est maintenant distribué sous la **GNU Affero General Public License v3.0 (AGPL-3.0)**. Conformément aux exigences de la licence MIT du projet original, nous avons conservé la reconnaissance du projet original.
 
@@ -194,7 +194,7 @@ Le système adopte une conception modulaire avec des composants principaux inclu
 - **Gestionnaire de Position Super** : Gestionnaire de positions principal, gérant le cycle de vie des ordres basé sur le mécanisme Slot.
 - **Sécurité et Contrôle des Risques** : Contrôle des risques multicouches, incluant les vérifications de démarrage, la surveillance en temps d'exécution et le disjoncteur d'anomalies.
 
-Pour une documentation d'architecture plus détaillée, veuillez consulter [ARCHITECTURE.md](../ARCHITECTURE.md).
+Pour une documentation d'architecture plus détaillée, veuillez consulter [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ## ⚠️ Avertissement
 
@@ -255,7 +255,7 @@ Bienvenue pour soumettre des Issues et des Pull Requests !
 
 ## 🙏 Remerciements
 
-Merci au projet original [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) par [dennisyang1986](https://github.com/dennisyang1986) pour leur contribution open source, qui a fourni une base solide pour ce projet. Pour plus d'informations, veuillez consulter le fichier [NOTICE](../NOTICE).
+Merci au projet original [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) par [dennisyang1986](https://github.com/dennisyang1986) pour leur contribution open source, qui a fourni une base solide pour ce projet. Pour plus d'informations, veuillez consulter le fichier [NOTICE](../../NOTICE).
 
 ---
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
