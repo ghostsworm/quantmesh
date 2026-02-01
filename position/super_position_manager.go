@@ -128,6 +128,20 @@ type PositionInfo struct {
 	Size   float64
 }
 
+// OrderBookLevel 订單簿檔位（避免循環匯入）
+type OrderBookLevel struct {
+	Price    float64 // 價格
+	Quantity float64 // 數量
+}
+
+// OrderBook 订單簿（避免循環匯入）
+type OrderBook struct {
+	Symbol    string           // 交易對
+	Bids      []OrderBookLevel // 買盘 (價格從高到低)
+	Asks      []OrderBookLevel // 賣盘 (價格從低到高)
+	Timestamp int64            // 時间戳
+}
+
 // IExchange 交易所介面（避免循環匯入）
 // 注意：这里不能直接使用 exchange.IExchange，否则會循環匯入
 // 所以定义一個子集接口，只包含對账需要的方法
@@ -141,6 +155,7 @@ type IExchange interface {
 	GetAccount(ctx context.Context) (interface{}, error)      // 獲取帳戶信息（回傳 *exchange.Account 或類似結構）
 	GetPriceDecimals() int                                    // 獲取價格精度
 	GetQuantityDecimals() int                                 // 獲取數量精度
+	GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) // 獲取订單簿深度
 }
 
 // TradeStorage 交易存儲介面（避免循環匯入）
@@ -212,8 +227,9 @@ type SuperPositionManager struct {
 	// 统计（注意：以下字段被 safety.Reconciler 和 PrintPositions 使用，不可刪除）
 	totalBuyQty       atomic.Value // float64 - 累计買入數量
 	totalSellQty      atomic.Value // float64 - 累计賣出數量
-	reconcileCount    atomic.Int64 // 對账次數
-	lastReconcileTime atomic.Value // time.Time - 最后對账時间
+	reconcileCount        atomic.Int64 // 對账次數
+	lastReconcileTime     atomic.Value // time.Time - 最后對账時间
+	lastOptimizationTime  atomic.Value // time.Time - 最后訂單簿優化時间
 
 	// 交易存儲（可選，用於保存交易記錄）
 	tradeStorage TradeStorage
@@ -646,6 +662,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 计算當前网格價格下方buy_window_size個價格
 	slotPrices := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, "down")
+	
+	// 🔥 P2 新增：根據訂單簿深度優化槽位價格
+	slotPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, slotPrices)
 
 	var ordersToPlace []*OrderRequest
 	var activeBuyOrdersInWindow int
@@ -744,6 +763,32 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			rate := spm.fundingMonitor.GetCurrentRate()
 			logger.Info("💰 [資金費率] 負費率 %.4f%%，買單數量從 %d 增加到 %d (偏向係數: %.2f)",
 				rate*100, originalOrders, allowedNewBuyOrders, buyBias)
+		}
+	}
+
+	// 🔥 P1 新增：資金費率與趨勢聯動邏輯
+	if spm.config.FundingRate.TrendSyncEnabled && 
+	   spm.fundingMonitor != nil && spm.trendDetector != nil &&
+	   spm.config.FundingRate.BiasEnabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled {
+		
+		buyBias := spm.fundingMonitor.GetBuyBias()
+		trend := spm.trendDetector.GetCurrentTrend()
+		
+		if buyBias > 1 && trend == "up" {
+			// 負費率 + 上漲趨勢：只放寬趨勢過濾限制，不再重複乘係數（之前已乘過 buyBias）
+			if skipBuying {
+				skipBuying = false
+				if allowedNewBuyOrders == 0 {
+					allowedNewBuyOrders = 1
+				}
+				logger.Info("🔥 [費率趨勢聯動] 負費率(%.2f) + 上漲趨勢：放寬趨勢過濾限制", buyBias)
+			}
+		} else if buyBias < 1 && trend == "down" {
+			// 高正費率 + 下跌趨勢：強化賣出偏向
+			skipBuying = true
+			allowedNewBuyOrders = 0
+			rate := spm.fundingMonitor.GetCurrentRate()
+			logger.Warn("🔥 [費率趨勢聯動] 高費率(%.4f%%) + 下跌趨勢：強制暫停買入", rate*100)
 		}
 	}
 
@@ -2334,6 +2379,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	// 賣單最低價 = 锚点價格 + 價格間隔（避免與買單最高價冲突）
 	sellStartPrice := spm.anchorPrice + spm.config.Trading.PriceInterval
 	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
+	sellPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, sellPrices)
 
 	logger.Info("🔄 [持倉恢複] 從價格 %s 向上創建 %d 個槽位（前 %d 個將挂賣單）",
 		formatPrice(sellStartPrice, spm.priceDecimals), totalSlotsNeeded, sellWindowSize)
@@ -2764,4 +2810,159 @@ func (spm *SuperPositionManager) CleanupEmptySlots() int {
 	}
 
 	return deletedCount
+}
+
+// optimizeSlotPricesWithOrderBook 根據訂單簿深度優化槽位價格
+// 🔥 P2 新增：订單簿優化掛單功能
+func (spm *SuperPositionManager) optimizeSlotPricesWithOrderBook(ctx context.Context, symbol string, slotPrices []float64) []float64 {
+	// 检查是否启用訂單簿優化
+	if !spm.config.Trading.OrderbookOptimization.Enabled {
+		return slotPrices
+	}
+
+	// 检查優化間隔
+	now := time.Now()
+	if spm.config.Trading.OrderbookOptimization.OptimizationInterval > 0 {
+		lastOptTime, ok := spm.lastOptimizationTime.Load().(time.Time)
+		if ok && now.Sub(lastOptTime).Seconds() < float64(spm.config.Trading.OrderbookOptimization.OptimizationInterval) {
+			// 還未到優化時間
+			return slotPrices
+		}
+	}
+
+	// 獲取訂單簿數據
+	orderbook, err := spm.exchange.GetOrderBook(ctx, symbol, spm.config.Trading.OrderbookOptimization.DepthLevels)
+	if err != nil {
+		logger.Warn("🔥 [訂單簿優化] 獲取訂單簿失敗: %v，使用原始價格", err)
+		return slotPrices
+	}
+
+	// 更新最后優化時間
+	spm.lastOptimizationTime.Store(now)
+
+	optimizedPrices := make([]float64, 0, len(slotPrices))
+	priceInterval := spm.config.Trading.PriceInterval
+
+	for _, candidatePrice := range slotPrices {
+		optimizedPrice := spm.optimizeSinglePrice(candidatePrice, orderbook, priceInterval)
+		optimizedPrices = append(optimizedPrices, optimizedPrice)
+	}
+
+	return optimizedPrices
+}
+
+// optimizeSinglePrice 優化單個價格點
+func (spm *SuperPositionManager) optimizeSinglePrice(candidatePrice float64, orderbook *OrderBook, priceInterval float64) float64 {
+	cfg := &spm.config.Trading.OrderbookOptimization
+	lookbackLevels := cfg.LookbackLevels
+	minDepthUSDT := float64(cfg.MinDepthUSDT)
+
+	// 判斷這是買單還是賣單（基於價格相對於當前市場的位置）
+	// 這裡簡化處理：假設低於市場價的是買單，高於市場價的是賣單
+	// 使用訂單簿中間價作為參考
+	if len(orderbook.Bids) == 0 || len(orderbook.Asks) == 0 {
+		// 訂單簿數據不完整，返回原價格
+		return candidatePrice
+	}
+
+	midPrice := (orderbook.Bids[0].Price + orderbook.Asks[0].Price) / 2
+	isBuyOrder := candidatePrice < midPrice
+
+	if isBuyOrder {
+		// 買單：檢查附近ask檔位深度，向下微調到有量的位置
+		return spm.optimizeBuyPrice(candidatePrice, orderbook.Asks, lookbackLevels, minDepthUSDT, priceInterval)
+	} else {
+		// 賣單：檢查附近bid檔位深度，向上微調到有量的位置
+		return spm.optimizeSellPrice(candidatePrice, orderbook.Bids, lookbackLevels, minDepthUSDT, priceInterval)
+	}
+}
+
+// optimizeBuyPrice 優化買單價格（檢查ask檔位）
+func (spm *SuperPositionManager) optimizeBuyPrice(candidatePrice float64, asks []OrderBookLevel, lookbackLevels int, minDepthUSDT, priceInterval float64) float64 {
+	// 取前 N 檔 ask 的累計深度
+	nearbyDepth := spm.calculateNearbyDepth(asks, lookbackLevels)
+	
+	if nearbyDepth >= minDepthUSDT {
+		// 深度足夠，不需要調整
+		return candidatePrice
+	}
+
+	// 深度不足，向下微調到下一個有量的ask檔位
+	targetPrice := spm.findNextLiquidLevel(candidatePrice, asks, minDepthUSDT, -1, priceInterval)
+	
+	// 確保微調後價格不偏離太多
+	maxAdjustment := priceInterval * 0.1 // 最大調整幅度為price_interval的10%
+	if math.Abs(targetPrice-candidatePrice) > maxAdjustment {
+		if targetPrice < candidatePrice {
+			targetPrice = candidatePrice - maxAdjustment
+		} else {
+			targetPrice = candidatePrice + maxAdjustment
+		}
+	}
+
+	if targetPrice != candidatePrice {
+		logger.Debug("🔥 [訂單簿優化] 買單價格從 %.4f 調整到 %.4f (深度不足: %.0f < %.0f USDT)", 
+			candidatePrice, targetPrice, nearbyDepth, minDepthUSDT)
+	}
+
+	return targetPrice
+}
+
+// optimizeSellPrice 優化賣單價格（檢查bid檔位）
+func (spm *SuperPositionManager) optimizeSellPrice(candidatePrice float64, bids []OrderBookLevel, lookbackLevels int, minDepthUSDT, priceInterval float64) float64 {
+	// 取前 N 檔 bid 的累計深度
+	nearbyDepth := spm.calculateNearbyDepth(bids, lookbackLevels)
+	
+	if nearbyDepth >= minDepthUSDT {
+		// 深度足夠，不需要調整
+		return candidatePrice
+	}
+
+	// 深度不足，向上微調到下一個有量的bid檔位
+	targetPrice := spm.findNextLiquidLevel(candidatePrice, bids, minDepthUSDT, 1, priceInterval)
+	
+	// 確保微調後價格不偏離太多
+	maxAdjustment := priceInterval * 0.1 // 最大調整幅度為price_interval的10%
+	if math.Abs(targetPrice-candidatePrice) > maxAdjustment {
+		if targetPrice < candidatePrice {
+			targetPrice = candidatePrice - maxAdjustment
+		} else {
+			targetPrice = candidatePrice + maxAdjustment
+		}
+	}
+
+	if targetPrice != candidatePrice {
+		logger.Debug("🔥 [訂單簿優化] 賣單價格從 %.4f 調整到 %.4f (深度不足: %.0f < %.0f USDT)", 
+			candidatePrice, targetPrice, nearbyDepth, minDepthUSDT)
+	}
+
+	return targetPrice
+}
+
+// calculateNearbyDepth 計算前 N 檔的累計深度（depth_usdt = price * quantity）
+func (spm *SuperPositionManager) calculateNearbyDepth(levels []OrderBookLevel, lookbackLevels int) float64 {
+	totalDepth := 0.0
+	for i := 0; i < len(levels) && i < lookbackLevels; i++ {
+		totalDepth += levels[i].Price * levels[i].Quantity
+	}
+	return totalDepth
+}
+
+// findNextLiquidLevel 找到第一個有足夠流動性的價格檔位並微調
+// 買單：在 asks 中從低到高找第一個深度足夠的檔位，返回略低於該價格（下移）
+// 賣單：在 bids 中從高到低找第一個深度足夠的檔位，返回略高於該價格（上移）
+func (spm *SuperPositionManager) findNextLiquidLevel(candidatePrice float64, levels []OrderBookLevel, minDepthUSDT float64, direction int, priceInterval float64) float64 {
+	epsilon := priceInterval * 0.01
+	for _, level := range levels {
+		depth := level.Price * level.Quantity
+		if depth >= minDepthUSDT {
+			if direction < 0 {
+				// 買單：略低於該檔位
+				return level.Price - epsilon
+			}
+			// 賣單：略高於該檔位
+			return level.Price + epsilon
+		}
+	}
+	return candidatePrice
 }
