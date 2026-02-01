@@ -353,8 +353,31 @@ func createTables(db *sql.DB) error {
 	if err := migrateHourlyEquityAndDailySnapshotTables(db); err != nil {
 		return fmt.Errorf("迁移 hourly_equity / daily_snapshot 表失败: %w", err)
 	}
+	if err := migrateInspectionReportsTable(db); err != nil {
+		return fmt.Errorf("迁移 inspection_reports 表失败: %w", err)
+	}
 
 	return nil
+}
+
+// migrateInspectionReportsTable 遷移智子巡檢報告表
+func migrateInspectionReportsTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS inspection_reports (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			report_type TEXT NOT NULL,
+			title TEXT NOT NULL,
+			body TEXT NOT NULL,
+			snapshot_json TEXT,
+			analysis_json TEXT,
+			event_type TEXT,
+			event_data_json TEXT,
+			generated_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_inspection_reports_generated_at ON inspection_reports(generated_at);
+	`)
+	return err
 }
 
 // migrateHourlyEquityAndDailySnapshotTables 遷移小時權益與每日快照表
@@ -2087,6 +2110,28 @@ func (s *SQLiteStorage) SaveNewsAnalysisHistory(history *NewsAnalysisHistory) er
 	id, err := result.LastInsertId()
 	if err == nil {
 		history.ID = id
+	}
+	return nil
+}
+
+// SaveInspectionReport 保存智子巡檢報告
+func (s *SQLiteStorage) SaveInspectionReport(report *InspectionReport) error {
+	if report == nil {
+		return nil
+	}
+	if report.GeneratedAt.IsZero() {
+		report.GeneratedAt = time.Now()
+	}
+	result, err := s.db.Exec(`
+		INSERT INTO inspection_reports (report_type, title, body, snapshot_json, analysis_json, event_type, event_data_json, generated_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, report.ReportType, report.Title, report.Body, report.SnapshotJSON, report.AnalysisJSON, report.EventType, report.EventDataJSON, report.GeneratedAt, report.CreatedAt)
+	if err != nil {
+		return err
+	}
+	id, err := result.LastInsertId()
+	if err == nil {
+		report.ID = id
 	}
 	return nil
 }

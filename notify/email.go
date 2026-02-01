@@ -130,6 +130,12 @@ func formatEmailMessage(evt *event.Event) string {
 		} else {
 			title = "资金限額变更"
 		}
+	case event.EventTypeInspectorReport:
+		if t, ok := evt.Data["title"].(string); ok && t != "" {
+			title = t
+		} else {
+			title = "智子巡檢報告"
+		}
 	default:
 		title = "系统通知"
 	}
@@ -137,6 +143,13 @@ func formatEmailMessage(evt *event.Event) string {
 	message := fmt.Sprintf("%s\n\n", title)
 	message += fmt.Sprintf("時间: %s\n\n", evt.Timestamp.Format("2006-01-02 15:04:05"))
 
+	// 智子巡檢報告：直接使用 body 作為正文
+	if evt.Type == event.EventTypeInspectorReport && evt.Data != nil {
+		if body, ok := evt.Data["body"].(string); ok && body != "" {
+			message += body + "\n"
+			return message
+		}
+	}
 	// 添加事件數據
 	if evt.Data != nil {
 		message += "详细信息:\n"

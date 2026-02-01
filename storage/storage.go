@@ -101,6 +101,9 @@ type Storage interface {
 	GetDailySnapshot(exchange, symbol, account string, date time.Time) (*DailySnapshot, error)
 	QueryHourlyEquityRecords(exchange, symbol, account string, startTime, endTime time.Time) ([]*HourlyEquityRecord, error)
 	DeleteHourlyEquityRecordsBefore(cutoff time.Time) error
+
+	// 智子巡檢報告歷史
+	SaveInspectionReport(report *InspectionReport) error
 }
 
 // storageEvent 存儲事件

@@ -297,6 +297,20 @@ type NewsAnalysisHistory struct {
 	CreatedAt         time.Time
 }
 
+// InspectionReport 智子巡檢報告歷史記錄
+type InspectionReport struct {
+	ID           int64
+	ReportType   string    // scheduled, urgent
+	Title        string
+	Body         string
+	SnapshotJSON string    // JSON 序列化的快照（可選）
+	AnalysisJSON string    // JSON 序列化的 AI 分析（可選）
+	EventType    string
+	EventDataJSON string   // JSON（可選）
+	GeneratedAt  time.Time
+	CreatedAt    time.Time
+}
+
 // ProfitWithdrawRecord 盈利提取記錄
 type ProfitWithdrawRecord struct {
 	ID           string
