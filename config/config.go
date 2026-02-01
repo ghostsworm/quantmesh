@@ -1491,6 +1491,11 @@ func (c *Config) Validate() error {
 		c.Storage.FlushInterval = 5 // 預設5秒
 	}
 
+	// 統一 SQLite 路徑：Database 與 Storage 同時使用 sqlite 時，以 database.dsn 為準，避免冗餘配置導致雙文件
+	if c.Database.Type == "sqlite" && c.Database.DSN != "" && c.Storage.Enabled && c.Storage.Type == "sqlite" {
+		c.Storage.Path = c.Database.DSN
+	}
+
 	// 設置 Web 服務配置預設值
 	if c.Web.Host == "" {
 		c.Web.Host = "0.0.0.0" // 預設監听所有地址

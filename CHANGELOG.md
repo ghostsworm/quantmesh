@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [3.20.1] - 2026-02-01
+
+### Added
+- **文檔**: 新增 P1/P2 進階功能指南 `docs/GRID_STRATEGY_ADVANCED_FEATURES.md`
+- **文檔**: 新增現貨交易指南 `docs/SPOT_TRADING_GUIDE.md`
+- **文檔**: 新增風控系統使用指南 `docs/RISK_CONTROL_GUIDE.md`
+- **文檔**: 新增 API 參考 `docs/API_REFERENCE.md`
+- **文檔**: 新增配置冗餘與遷移說明 `docs/CONFIGURATION_REDUNDANCY_AND_MIGRATION.md`
+
+### Changed
+- **配置**: SQLite 路徑統一：當 `database` 與 `storage` 均為 sqlite 時，以 `database.dsn` 為準，自動同步 `storage.path`，避免雙文件冗餘
+- **README**: 更新核心特性與功能模組（多策略、技術指標、AI、回測、監控、事件與新聞）
+- **README**: 更新模組架構圖，加入 strategy、indicators、ai、backtest、monitor、event、metrics、plugin、webui 等模組說明
+- **README**: 新增功能模組概覽表與相關文檔連結
+
 ## [3.20.0] - 2026-02-01
 
 ### Added
