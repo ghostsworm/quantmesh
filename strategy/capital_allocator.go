@@ -181,6 +181,22 @@ func (ca *CapitalAllocator) GetUsed(strategyName string) float64 {
 	return capital.Used
 }
 
+// GetAllocated 獲取已分配资金
+func (ca *CapitalAllocator) GetAllocated(strategyName string) float64 {
+	ca.mu.RLock()
+	defer ca.mu.RUnlock()
+
+	capital, exists := ca.strategies[strategyName]
+	if !exists {
+		return 0
+	}
+
+	capital.mu.RLock()
+	defer capital.mu.RUnlock()
+
+	return capital.Allocated
+}
+
 // GetAllStrategiesCapital 獲取所有策略资金信息
 func (ca *CapitalAllocator) GetAllStrategiesCapital() map[string]*StrategyCapital {
 	ca.mu.RLock()

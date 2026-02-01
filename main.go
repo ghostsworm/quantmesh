@@ -81,7 +81,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.20.2"
+var Version = "3.21.0"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -661,6 +661,154 @@ func (a *symbolManagerWebAdapter) ClosePositions(exchange, symbol string) (*web.
 	}, nil
 }
 
+// GetAllStrategyStatus 獲取所有策略的運行狀態
+func (a *symbolManagerWebAdapter) GetAllStrategyStatus(exchange, symbol string) ([]web.StrategyRuntimeStatusResponse, error) {
+	rt, ok := a.manager.Get(exchange, symbol)
+	if !ok {
+		return nil, fmt.Errorf("交易對 %s:%s 未找到", exchange, symbol)
+	}
+
+	if rt.StrategyManager == nil {
+		return []web.StrategyRuntimeStatusResponse{}, nil
+	}
+
+	// 從 StrategyManager 獲取所有策略狀態
+	statuses := rt.StrategyManager.GetAllStrategyStatus()
+
+	// 轉換為 web 響應格式
+	result := make([]web.StrategyRuntimeStatusResponse, 0, len(statuses))
+	for _, s := range statuses {
+		resp := web.StrategyRuntimeStatusResponse{
+			Name:           s.Name,
+			Type:           s.Type,
+			IsEnabled:      s.IsEnabled,
+			IsRunning:      s.IsRunning,
+			Weight:         s.Weight,
+			AllocatedFunds: s.AllocatedFunds,
+			UsedFunds:      s.UsedFunds,
+			AvailableFunds: s.AvailableFunds,
+			PositionCount:  s.PositionCount,
+			OrderCount:     s.OrderCount,
+		}
+
+		// 轉換統計數據
+		if s.Statistics != nil {
+			resp.Statistics = &web.StrategyStatsResponse{
+				TotalTrades: s.Statistics.TotalTrades,
+				WinRate:     s.Statistics.WinRate,
+				TotalPnL:    s.Statistics.TotalPnL,
+				TotalVolume: s.Statistics.TotalVolume,
+			}
+		}
+
+		// 轉換持倉數據
+		if s.Positions != nil {
+			resp.Positions = make([]web.StrategyPositionResp, 0, len(s.Positions))
+			for _, p := range s.Positions {
+				resp.Positions = append(resp.Positions, web.StrategyPositionResp{
+					Symbol:       p.Symbol,
+					Size:         p.Size,
+					EntryPrice:   p.EntryPrice,
+					CurrentPrice: p.CurrentPrice,
+					PnL:          p.PnL,
+				})
+			}
+		}
+
+		// 轉換訂單數據
+		if s.Orders != nil {
+			resp.Orders = make([]web.StrategyOrderResp, 0, len(s.Orders))
+			for _, o := range s.Orders {
+				resp.Orders = append(resp.Orders, web.StrategyOrderResp{
+					OrderID:  o.OrderID,
+					Symbol:   o.Symbol,
+					Side:     o.Side,
+					Price:    o.Price,
+					Quantity: o.Quantity,
+					Status:   o.Status,
+				})
+			}
+		}
+
+		result = append(result, resp)
+	}
+
+	return result, nil
+}
+
+// GetStrategyStatus 獲取單個策略的運行狀態
+func (a *symbolManagerWebAdapter) GetStrategyStatus(exchange, symbol, strategyName string) (*web.StrategyRuntimeStatusResponse, error) {
+	rt, ok := a.manager.Get(exchange, symbol)
+	if !ok {
+		return nil, fmt.Errorf("交易對 %s:%s 未找到", exchange, symbol)
+	}
+
+	if rt.StrategyManager == nil {
+		return nil, nil
+	}
+
+	// 從 StrategyManager 獲取策略狀態
+	s := rt.StrategyManager.GetStrategyStatus(strategyName)
+	if s == nil {
+		return nil, nil
+	}
+
+	// 轉換為 web 響應格式
+	resp := &web.StrategyRuntimeStatusResponse{
+		Name:           s.Name,
+		Type:           s.Type,
+		IsEnabled:      s.IsEnabled,
+		IsRunning:      s.IsRunning,
+		Weight:         s.Weight,
+		AllocatedFunds: s.AllocatedFunds,
+		UsedFunds:      s.UsedFunds,
+		AvailableFunds: s.AvailableFunds,
+		PositionCount:  s.PositionCount,
+		OrderCount:     s.OrderCount,
+	}
+
+	// 轉換統計數據
+	if s.Statistics != nil {
+		resp.Statistics = &web.StrategyStatsResponse{
+			TotalTrades: s.Statistics.TotalTrades,
+			WinRate:     s.Statistics.WinRate,
+			TotalPnL:    s.Statistics.TotalPnL,
+			TotalVolume: s.Statistics.TotalVolume,
+		}
+	}
+
+	// 轉換持倉數據
+	if s.Positions != nil {
+		resp.Positions = make([]web.StrategyPositionResp, 0, len(s.Positions))
+		for _, p := range s.Positions {
+			resp.Positions = append(resp.Positions, web.StrategyPositionResp{
+				Symbol:       p.Symbol,
+				Size:         p.Size,
+				EntryPrice:   p.EntryPrice,
+				CurrentPrice: p.CurrentPrice,
+				PnL:          p.PnL,
+			})
+		}
+	}
+
+	// 轉換訂單數據
+	if s.Orders != nil {
+		resp.Orders = make([]web.StrategyOrderResp, 0, len(s.Orders))
+		for _, o := range s.Orders {
+			resp.Orders = append(resp.Orders, web.StrategyOrderResp{
+				OrderID:  o.OrderID,
+				Symbol:   o.Symbol,
+				Side:     o.Side,
+				Price:    o.Price,
+				Quantity: o.Quantity,
+				Status:   o.Status,
+			})
+		}
+	}
+
+	return resp, nil
+}
+
 func init() {
 	// 配置 GC 参數
 	// 從环境变量读取 GOGC，如果没有则使用默认值 100
@@ -1131,10 +1279,46 @@ func main() {
 		}
 
 		// 初始化 WebAuthn 管理器
-		rpID := "localhost"
-		rpOrigin := fmt.Sprintf("http://%s:%d", cfg.Web.Host, cfg.Web.Port)
-		if cfg.Web.Host == "0.0.0.0" {
-			rpOrigin = fmt.Sprintf("http://localhost:%d", cfg.Web.Port)
+		// 根據實際配置決定 RPID 和 RPOrigin
+		var rpID string
+		var rpOrigin string
+		
+		// 優先使用環境變數或配置檔案中的域名
+		if domain := os.Getenv("DOMAIN"); domain != "" {
+			rpID = domain
+			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
+				rpOrigin = fmt.Sprintf("https://%s", domain)
+			} else {
+				rpOrigin = fmt.Sprintf("http://%s", domain)
+			}
+		} else if cfg.Web.Domain != "" {
+			rpID = cfg.Web.Domain  
+			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
+				rpOrigin = fmt.Sprintf("https://%s", cfg.Web.Domain)
+			} else {
+				rpOrigin = fmt.Sprintf("http://%s", cfg.Web.Domain)
+			}
+		} else {
+			// 後備方案：使用配置的 host
+			host := cfg.Web.Host
+			if host == "" || host == "0.0.0.0" {
+				host = "localhost"
+			}
+			rpID = host
+			
+			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
+				if cfg.Web.Port == 443 {
+					rpOrigin = fmt.Sprintf("https://%s", host)
+				} else {
+					rpOrigin = fmt.Sprintf("https://%s:%d", host, cfg.Web.Port)
+				}
+			} else {
+				if cfg.Web.Port == 80 {
+					rpOrigin = fmt.Sprintf("http://%s", host)
+				} else {
+					rpOrigin = fmt.Sprintf("http://%s:%d", host, cfg.Web.Port)
+				}
+			}
 		}
 		webauthnManager, err := web.NewWebAuthnManager(&webAuthnLoggerAdapter{}, "./data", rpID, rpOrigin)
 		if err != nil {
@@ -1209,6 +1393,7 @@ func main() {
 		distributedLock: distributedLock,
 	}
 	web.RegisterSymbolManager(symbolManagerAdapter)
+	web.RegisterStrategyRuntimeProvider(symbolManagerAdapter) // 注册策略運行時提供者
 
 	// 只有在配置完整時才啟动交易系统
 	var firstRuntime *SymbolRuntime

@@ -89,3 +89,81 @@ export async function batchUpdateStrategies(
     body: JSON.stringify({ updates }),
   })
 }
+
+// ========== 策略運行狀態 API ==========
+
+// 策略運行狀態類型
+export interface StrategyRuntimeStatus {
+  name: string
+  type: string
+  isEnabled: boolean
+  isRunning: boolean
+  weight: number
+  allocatedFunds: number
+  usedFunds: number
+  availableFunds: number
+  positionCount: number
+  orderCount: number
+  statistics: {
+    totalTrades: number
+    winRate: number
+    totalPnL: number
+    totalVolume: number
+  } | null
+  positions?: Array<{
+    symbol: string
+    size: number
+    entryPrice: number
+    currentPrice: number
+    pnl: number
+  }>
+  orders?: Array<{
+    orderId: number
+    symbol: string
+    side: string
+    price: number
+    quantity: number
+    status: string
+  }>
+}
+
+export interface StrategyRuntimeResponse {
+  success: boolean
+  strategies: StrategyRuntimeStatus[]
+  exchange?: string
+  symbol?: string
+  message?: string
+}
+
+export interface SingleStrategyRuntimeResponse {
+  success: boolean
+  strategy: StrategyRuntimeStatus | null
+  message?: string
+}
+
+// 獲取所有策略的運行狀態
+export async function getStrategyRuntimeStatus(
+  exchange?: string,
+  symbol?: string
+): Promise<StrategyRuntimeResponse> {
+  const params = new URLSearchParams()
+  if (exchange) params.append('exchange', exchange)
+  if (symbol) params.append('symbol', symbol)
+  const queryString = params.toString()
+  const url = `${API_BASE_URL}/strategies/runtime${queryString ? `?${queryString}` : ''}`
+  return fetchWithAuth(url)
+}
+
+// 獲取單個策略的運行狀態
+export async function getStrategyRuntimeStatusById(
+  strategyId: string,
+  exchange?: string,
+  symbol?: string
+): Promise<SingleStrategyRuntimeResponse> {
+  const params = new URLSearchParams()
+  if (exchange) params.append('exchange', exchange)
+  if (symbol) params.append('symbol', symbol)
+  const queryString = params.toString()
+  const url = `${API_BASE_URL}/strategies/runtime/${strategyId}${queryString ? `?${queryString}` : ''}`
+  return fetchWithAuth(url)
+}

@@ -750,3 +750,152 @@ func getTierInstances(tier string) int {
 		return 1
 	}
 }
+
+// ========== 策略運行狀態 API ==========
+
+// StrategyRuntimeStatusResponse 策略運行狀態響應
+type StrategyRuntimeStatusResponse struct {
+	Name           string                   `json:"name"`
+	Type           string                   `json:"type"`
+	IsEnabled      bool                     `json:"isEnabled"`
+	IsRunning      bool                     `json:"isRunning"`
+	Weight         float64                  `json:"weight"`
+	AllocatedFunds float64                  `json:"allocatedFunds"`
+	UsedFunds      float64                  `json:"usedFunds"`
+	AvailableFunds float64                  `json:"availableFunds"`
+	PositionCount  int                      `json:"positionCount"`
+	OrderCount     int                      `json:"orderCount"`
+	Statistics     *StrategyStatsResponse   `json:"statistics"`
+	Positions      []StrategyPositionResp   `json:"positions,omitempty"`
+	Orders         []StrategyOrderResp      `json:"orders,omitempty"`
+}
+
+// StrategyStatsResponse 策略統計響應
+type StrategyStatsResponse struct {
+	TotalTrades int     `json:"totalTrades"`
+	WinRate     float64 `json:"winRate"`
+	TotalPnL    float64 `json:"totalPnL"`
+	TotalVolume float64 `json:"totalVolume"`
+}
+
+// StrategyPositionResp 策略持倉響應
+type StrategyPositionResp struct {
+	Symbol       string  `json:"symbol"`
+	Size         float64 `json:"size"`
+	EntryPrice   float64 `json:"entryPrice"`
+	CurrentPrice float64 `json:"currentPrice"`
+	PnL          float64 `json:"pnl"`
+}
+
+// StrategyOrderResp 策略訂單響應
+type StrategyOrderResp struct {
+	OrderID  int64   `json:"orderId"`
+	Symbol   string  `json:"symbol"`
+	Side     string  `json:"side"`
+	Price    float64 `json:"price"`
+	Quantity float64 `json:"quantity"`
+	Status   string  `json:"status"`
+}
+
+// StrategyRuntimeProvider 策略運行時提供者接口
+type StrategyRuntimeProvider interface {
+	GetAllStrategyStatus(exchange, symbol string) ([]StrategyRuntimeStatusResponse, error)
+	GetStrategyStatus(exchange, symbol, strategyName string) (*StrategyRuntimeStatusResponse, error)
+}
+
+var strategyRuntimeProvider StrategyRuntimeProvider
+
+// RegisterStrategyRuntimeProvider 注册策略運行時提供者
+func RegisterStrategyRuntimeProvider(provider StrategyRuntimeProvider) {
+	strategyRuntimeProvider = provider
+}
+
+// getStrategyRuntimeStatusHandler 獲取所有策略的運行狀態
+func getStrategyRuntimeStatusHandler(c *gin.Context) {
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+
+	if exchange == "" || symbol == "" {
+		// 嘗試從配置獲取默認值
+		if configManager != nil {
+			cfg, err := configManager.GetConfig()
+			if err == nil && len(cfg.Trading.Symbols) > 0 {
+				exchange = cfg.Trading.Symbols[0].Exchange
+				symbol = cfg.Trading.Symbols[0].Symbol
+			}
+		}
+	}
+
+	if strategyRuntimeProvider == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"strategies": []StrategyRuntimeStatusResponse{},
+			"message":    "策略運行時提供者未初始化",
+		})
+		return
+	}
+
+	statuses, err := strategyRuntimeProvider.GetAllStrategyStatus(exchange, symbol)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "獲取策略狀態失敗: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"strategies": statuses,
+		"exchange":   exchange,
+		"symbol":     symbol,
+	})
+}
+
+// getStrategyRuntimeStatusByIDHandler 獲取單個策略的運行狀態
+func getStrategyRuntimeStatusByIDHandler(c *gin.Context) {
+	strategyID := c.Param("id")
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+
+	if exchange == "" || symbol == "" {
+		// 嘗試從配置獲取默認值
+		if configManager != nil {
+			cfg, err := configManager.GetConfig()
+			if err == nil && len(cfg.Trading.Symbols) > 0 {
+				exchange = cfg.Trading.Symbols[0].Exchange
+				symbol = cfg.Trading.Symbols[0].Symbol
+			}
+		}
+	}
+
+	if strategyRuntimeProvider == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "策略運行時提供者未初始化",
+		})
+		return
+	}
+
+	status, err := strategyRuntimeProvider.GetStrategyStatus(exchange, symbol, strategyID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "獲取策略狀態失敗: " + err.Error(),
+		})
+		return
+	}
+
+	if status == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "策略未找到",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"strategy": status,
+	})
+}
