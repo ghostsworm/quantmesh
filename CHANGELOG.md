@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [3.28.3] - 2026-02-02
+
+### Fixed
+- **AI 任務超時處理**: 修復 AI 任務長時間顯示「運行中」不超時的問題
+  - 問題：HTTP 未響應 context 取消時，任務可運行 99 分鐘仍顯示運行中
+  - 新增 `GetStaleRunningTasks`：定期查出已超過 `TimeoutSeconds` 仍為 running 的任務並標記為 timeout
+  - 處理器每輪詢（2 秒）先標記超時任務，再處理 pending
+  - `context.DeadlineExceeded` 時將狀態設為 timeout 而非 failed
+  - 預設任務超時由 15 分鐘改為 5 分鐘（`gemini_client` 與 DB 預設）
+
 ## [3.28.2] - 2026-02-02
 
 ### Fixed

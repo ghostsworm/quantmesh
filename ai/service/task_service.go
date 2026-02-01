@@ -111,6 +111,26 @@ func (s *TaskService) GetPendingTasks(ctx context.Context, limit int) ([]*databa
 	return s.db.GetPendingAsyncTasks(ctx, limit)
 }
 
+// GetStaleRunningTasks 獲取已超過 TimeoutSeconds 仍為 running 的任務（用於超時標記）
+func (s *TaskService) GetStaleRunningTasks(ctx context.Context, limit int) ([]*database.AsyncTask, error) {
+	tasks, err := s.db.GetAsyncTasks(ctx, &database.AsyncTaskFilter{Status: "running", Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	var stale []*database.AsyncTask
+	for _, t := range tasks {
+		if t.StartedAt == nil {
+			continue
+		}
+		deadline := t.StartedAt.Add(time.Duration(t.TimeoutSeconds) * time.Second)
+		if now.After(deadline) {
+			stale = append(stale, t)
+		}
+	}
+	return stale, nil
+}
+
 func (s *TaskService) RetryTask(ctx context.Context, taskID string) error {
 	task, err := s.db.GetAsyncTask(ctx, taskID)
 	if err != nil {

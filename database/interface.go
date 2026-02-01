@@ -176,7 +176,7 @@ type AsyncTask struct {
 	UsedAPIKey       *string    `gorm:"type:varchar(100)" json:"used_api_key"`
 	RetryCount       int        `gorm:"type:int;default:0" json:"retry_count"`
 	MaxRetries       int        `gorm:"type:int;default:15" json:"max_retries"`
-	TimeoutSeconds   int        `gorm:"type:int;default:900" json:"timeout_seconds"`
+	TimeoutSeconds   int        `gorm:"type:int;default:300" json:"timeout_seconds"` // 5 分鐘，超時由 processor 定期標記
 	CreatedAt        time.Time  `gorm:"type:timestamp;default:CURRENT_TIMESTAMP" json:"created_at"`
 	StartedAt        *time.Time `gorm:"type:datetime" json:"started_at"`
 	CompletedAt      *time.Time `gorm:"type:datetime" json:"completed_at"`
