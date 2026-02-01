@@ -67,6 +67,12 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
     return statsMap.get(dateStr) || null
   }
 
+  // 今日日期字串（使用本地時區，與日曆格子一致，避免 UTC 導致焦點錯位）
+  const todayStr = (() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  })()
+
   return (
     <div style={{ marginTop: '24px' }}>
       <div style={{ 
@@ -97,7 +103,7 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
         {/* 日期格子 */}
         {calendarDays.map((date, index) => {
           const stats = getDayStats(date)
-          const isToday = date && formatDate(date) === new Date().toISOString().split('T')[0]
+          const isToday = date ? formatDate(date) === todayStr : false
           
           return (
             <div
