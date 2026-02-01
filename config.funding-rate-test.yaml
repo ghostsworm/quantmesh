@@ -1,0 +1,67 @@
+# QuantMesh 資金費率整合測試配置
+
+app:
+  current_exchange: "binance"
+
+# 交易所配置（需要你自己的API密鑰進行測試）
+exchanges:
+  binance:
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_SECRET_KEY" 
+    fee_rate: 0.0002
+    testnet: true  # 使用測試網
+
+# 交易配置
+trading:
+  symbol: "BTCUSDT"
+  market_type: "futures"  # 合約市場
+  price_interval: 100     # 100 USDT 間距
+  order_quantity: 30      # 每單 30 USDT
+  buy_window_size: 5      # 買單窗口
+  sell_window_size: 5     # 賣單窗口
+  
+  # 網格風控
+  grid_risk_control:
+    enabled: true
+    max_grid_layers: 10
+    stop_loss_ratio: 0.1
+    take_profit_trigger_ratio: 0.08
+    trailing_take_profit_ratio: 0.03
+    trend_filter_enabled: false
+
+# 資金費率監控與套利配置
+funding_rate:
+  enabled: true                    # 啟用資金費率監控
+  monitor_interval: 30             # 30秒監控一次（測試用，正常建議60秒）
+  alert_threshold: 0.001           # 0.1% 告警閾值
+  
+  # 偏向策略
+  bias_enabled: true               # 啟用費率偏向策略
+  high_rate_threshold: 0.001       # 0.1% 高費率閾值
+  pause_buy_threshold: 0.0015      # 0.15% 暫停買入閾值
+  
+  # 期現套利（可選）
+  arbitrage_enabled: false         # 先關閉套利功能進行基礎測試
+  hedge_min_position: 50           # 最小對沖倉位
+  hedge_rate_threshold: 0.001      # 0.1% 開啟對沖閾值
+  max_spread_percent: 0.5          # 0.5% 最大價差
+
+# 風控配置
+risk_control:
+  enabled: false  # 先關閉其他風控，專注測試費率功能
+
+# Web 服務
+web:
+  enabled: true
+  port: 28888
+  cors_allowed_origins: ["http://localhost:15173", "http://localhost:28888"]
+
+# 日誌配置
+logger:
+  level: "info"
+  file_enabled: true
+  file_path: "./logs/funding-rate-test.log"
+
+# 系統配置
+system:
+  dry_run: false  # 設為 true 可進行模擬測試
