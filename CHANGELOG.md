@@ -4,6 +4,41 @@
 
 ## [Unreleased]
 
+## [3.28.0] - 2026-02-02
+
+### Added
+- **智子巡檢 (Sophon Inspector)**: 智能中控/巡檢系統，彙總交易、風控、市場與新聞數據，並支援定時與緊急通知
+  - 新增 `inspector/` 模塊：數據收集器、AI 分析引擎、事件監測器、報告生成器、調度器、黃金專項分析
+  - 定時彙總報告：可配置常規間隔（預設 1h）、靜默時段（如 23:00–07:00 改為 4h 間隔）
+  - 緊急事件立即通知：風控觸發/恢復、新聞風險評分突變、資金費率異常、賬戶餘額變動、黃金與 BTC 相關性突變
+  - 報告內容：資金概覽、持倉狀態、盈虧統計、風控狀態、新聞風險、黃金專項（價格、與 BTC 相關性、避險情緒）
+  - 可選 Gemini AI 分析：一句話總結、重要發現、操作建議、需關注幣種、黃金洞察
+  - 配置節 `inspector`：啟用、名稱、調度、閾值、關注交易對、AI、報告格式
+  - 通知：新增事件類型 `EventTypeInspectorReport`，支援 Telegram/Email 等渠道發送報告正文
+  - 存儲：新增 `inspection_reports` 表與 `SaveInspectionReport` 接口，歷史報告可查
+- **新聞監控擴展**: `news_monitor.custom_rss_feeds` 支援用戶自定義 RSS 源，與現有 `rss_feeds` 合併使用
+
+### Changed
+- 配置預設：`notifications.rules.inspector_report` 預設為 true（智子巡檢報告可通過現有通知渠道發送）
+
+## [3.27.0] - 2026-02-02
+
+### Security
+- **認證數據丟失保護**: 新增 `.installed` 標記文件機制，防止數據庫被刪除後繞過認證
+  - 首次設置密碼時自動創建 `data/.installed` 標記文件
+  - 系統啟動時檢查：如果 `.installed` 存在但 `auth.db` 中無密碼記錄，阻止重新設置密碼
+  - 前端顯示安全警告頁面，提示管理員檢查數據目錄
+  - 新增 `IsSecurityCompromised()` 方法檢測安全隱患
+  - 新增 `security_compromised` 字段在認證狀態 API 中返回
+- **防止 Docker 部署數據丟失**: 當容器重新部署時未掛載 `data` 目錄，不再允許繞過認證重新設置密碼
+
+### Added
+- `PasswordManager.IsInstalled()`: 檢查系統是否已完成首次設置
+- `PasswordManager.IsSecurityCompromised()`: 檢查認證數據是否丟失
+- `PasswordManager.createInstalledMarker()`: 創建安裝標記文件
+- 前端 `securityCompromised` 狀態：在 AuthContext 中追蹤安全隱患
+- 前端安全警告頁面：當檢測到數據丟失時顯示詳細說明和處理建議
+
 ## [3.26.0] - 2026-02-02
 
 ### Added

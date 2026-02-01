@@ -621,8 +621,11 @@ func (nm *NewsMonitor) fetchFromSource(source string) []NewsItem {
 			logger.Debug("📰 NewsAPI密钥未配置，跳過NewsAPI源")
 		}
 	case "rss":
-		// RSS源处理
-		for _, feedURL := range nm.cfg.NewsMonitor.RSSFeeds {
+		// RSS 源處理：rss_feeds + custom_rss_feeds
+		allFeeds := make([]string, 0, len(nm.cfg.NewsMonitor.RSSFeeds)+len(nm.cfg.NewsMonitor.CustomRSSFeeds))
+		allFeeds = append(allFeeds, nm.cfg.NewsMonitor.RSSFeeds...)
+		allFeeds = append(allFeeds, nm.cfg.NewsMonitor.CustomRSSFeeds...)
+		for _, feedURL := range allFeeds {
 			items, err := nm.fetchFromRSS(feedURL)
 			if err != nil {
 				logger.Warn("⚠️ 從RSS獲取新闻失败 (%s): %v", feedURL, err)

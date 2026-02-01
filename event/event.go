@@ -65,6 +65,9 @@ const (
 	EventTypeError       EventType = "error"
 	EventTypeSystemStart EventType = "system_start"
 	EventTypeSystemStop  EventType = "system_stop"
+
+	// 智子巡檢報告（定時彙總或緊急事件）
+	EventTypeInspectorReport EventType = "inspector_report"
 )
 
 // EventSeverity 事件严重程度
@@ -119,7 +122,8 @@ func GetEventSeverity(eventType EventType) EventSeverity {
 		EventTypeWebSocketReconnected,
 		EventTypeSystemStart,
 		EventTypeTradingStarted,
-		EventTypeTradingStopped:
+		EventTypeTradingStopped,
+		EventTypeInspectorReport:
 		return SeverityInfo
 
 	default:
@@ -174,7 +178,8 @@ func GetEventSource(eventType EventType) EventSource {
 		return SourceStrategy
 
 	case EventTypeSystemCPUHigh, EventTypeSystemMemoryHigh, EventTypeSystemDiskFull,
-		EventTypeSystemStart, EventTypeSystemStop, EventTypeError:
+		EventTypeSystemStart, EventTypeSystemStop, EventTypeError,
+		EventTypeInspectorReport:
 		return SourceSystem
 
 	default:
@@ -237,6 +242,9 @@ func GetEventTitle(eventType EventType) string {
 		EventTypeError:       "系统錯误",
 		EventTypeSystemStart: "系统啟动",
 		EventTypeSystemStop:  "系统停止",
+
+		// 智子巡檢
+		EventTypeInspectorReport: "智子巡檢報告",
 	}
 
 	if title, ok := titles[eventType]; ok {

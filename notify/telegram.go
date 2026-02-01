@@ -134,6 +134,13 @@ func formatTelegramMessage(evt *event.Event) string {
 			emoji = "📊"
 			title = "资金限額变更"
 		}
+	case event.EventTypeInspectorReport:
+		emoji = "📊"
+		if t, ok := evt.Data["title"].(string); ok && t != "" {
+			title = t
+		} else {
+			title = "智子巡檢報告"
+		}
 	default:
 		emoji = "ℹ️"
 		title = "系统通知"
@@ -142,6 +149,13 @@ func formatTelegramMessage(evt *event.Event) string {
 	message := fmt.Sprintf("%s *%s*\n", emoji, title)
 	message += fmt.Sprintf("時间: %s\n", evt.Timestamp.Format("2006-01-02 15:04:05"))
 
+	// 智子巡檢報告：直接使用 body 作為正文
+	if evt.Type == event.EventTypeInspectorReport && evt.Data != nil {
+		if body, ok := evt.Data["body"].(string); ok && body != "" {
+			message += "\n" + body
+			return message
+		}
+	}
 	// 添加事件數據
 	if evt.Data != nil {
 		for key, value := range evt.Data {

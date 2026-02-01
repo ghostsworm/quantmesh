@@ -58,6 +58,13 @@ type AssetConfig struct {
 	Enabled   bool     `yaml:"enabled" json:"enabled"`       // 是否啟用
 }
 
+// InspectorFocusSymbol 智子巡檢關注的交易對
+type InspectorFocusSymbol struct {
+	Symbol       string `yaml:"symbol"`
+	Exchange     string `yaml:"exchange"`
+	AnalysisType string `yaml:"analysis_type"` // full, standard
+}
+
 // GridRiskControl 網格策略風控配置
 type GridRiskControl struct {
 	Enabled                 bool    `yaml:"enabled" json:"enabled"`
@@ -265,6 +272,7 @@ type Config struct {
 		Sources              []string `yaml:"sources"`                // 新闻源列表，如 ["newsapi", "rss"]
 		NewsAPIKey           string   `yaml:"news_api_key"`           // NewsAPI密钥（可選）
 		RSSFeeds             []string `yaml:"rss_feeds"`              // RSS源列表（可選）
+		CustomRSSFeeds       []string `yaml:"custom_rss_feeds"`       // 用戶自定義 RSS 源（與 rss_feeds 合併使用）
 		Keywords             []string `yaml:"keywords"`               // NewsAPI關注的關鍵詞（可在UI修改，用於BTC）
 		RiskThreshold        float64  `yaml:"risk_threshold"`         // 相容舊配置，风險阈值（0-100）
 		PredictionTimeframes []string `yaml:"prediction_timeframes"`  // 預测時间窗口，如["2h","4h","6h","12h","24h"]
@@ -374,6 +382,7 @@ type Config struct {
 			Error              bool `yaml:"error"`
 			MarginInsufficient bool `yaml:"margin_insufficient"` // 保证金不足
 			AllocationExceeded bool `yaml:"allocation_exceeded"` // 超出资金分配限制
+			InspectorReport    bool `yaml:"inspector_report"`    // 智子巡檢報告（定時/緊急）
 		} `yaml:"rules"`
 	} `yaml:"notifications"`
 
@@ -541,6 +550,37 @@ type Config struct {
 			Schedule string `yaml:"schedule"` // 每日彙總執行時间（格式：HH:MM，預設00:00）
 		} `yaml:"aggregation"`
 	} `yaml:"watchdog"`
+
+	// 智子巡檢配置
+	Inspector struct {
+		Enabled bool   `yaml:"enabled"`
+		Name    string `yaml:"name"` // 顯示名稱，預設「智子巡檢」
+		Schedule struct {
+			RegularInterval   string `yaml:"regular_interval"`   // 常規間隔，如 "1h"
+			QuietHoursStart   int    `yaml:"quiet_hours_start"` // 靜默時段開始（0-23）
+			QuietHoursEnd     int    `yaml:"quiet_hours_end"`   // 靜默時段結束（0-23）
+			QuietInterval     string `yaml:"quiet_interval"`    // 靜默時段內發送間隔，如 "4h"
+		} `yaml:"schedule"`
+		Thresholds struct {
+			PnLAlert          float64 `yaml:"pnl_change_alert"`      // 單筆盈虧超過此值立即通知（USDT）
+			RiskScoreChange   float64 `yaml:"risk_score_change"`     // 新聞風險評分變化閾值
+			FundingRateAlert  float64 `yaml:"funding_rate_alert"`    // 資金費率異常閾值
+			CorrelationChange float64 `yaml:"correlation_change"`   // 黃金與 BTC 相關性變化閾值
+			BalanceChangePct float64 `yaml:"balance_change_pct"`    // 賬戶餘額變化百分比閾值
+		} `yaml:"thresholds"`
+		FocusSymbols []InspectorFocusSymbol `yaml:"focus_symbols"`
+		AI struct {
+			Provider       string `yaml:"provider"`        // gemini
+			Model          string `yaml:"model"`
+			AnalysisDepth  string `yaml:"analysis_depth"`  // brief, standard, detailed
+		} `yaml:"ai"`
+		Report struct {
+			Format               string `yaml:"format"`                 // markdown
+			IncludeAIInsights     bool   `yaml:"include_ai_insights"`
+			IncludeTechnicalAnalysis bool `yaml:"include_technical_analysis"`
+			MaxNewsItems          int    `yaml:"max_news_items"`
+		} `yaml:"report"`
+	} `yaml:"inspector"`
 
 	// AI配置
 	AI struct {
@@ -1017,6 +1057,7 @@ func CreateMinimalConfig() *Config {
 	cfg.Notifications.Enabled = false
 	cfg.Notifications.Webhook.Timeout = 3
 	cfg.Notifications.Email.Provider = "smtp"
+	cfg.Notifications.Rules.InspectorReport = true
 
 	cfg.Metrics.Enabled = true
 	cfg.Metrics.CollectInterval = 60
@@ -1036,6 +1077,23 @@ func CreateMinimalConfig() *Config {
 	cfg.Watchdog.Notifications.CooldownMinutes = 30
 	cfg.Watchdog.Aggregation.Enabled = true
 	cfg.Watchdog.Aggregation.Schedule = "00:00"
+
+	cfg.Inspector.Enabled = false
+	cfg.Inspector.Name = "智子巡檢"
+	cfg.Inspector.Schedule.RegularInterval = "1h"
+	cfg.Inspector.Schedule.QuietHoursStart = 23
+	cfg.Inspector.Schedule.QuietHoursEnd = 7
+	cfg.Inspector.Schedule.QuietInterval = "4h"
+	cfg.Inspector.Thresholds.PnLAlert = 100
+	cfg.Inspector.Thresholds.RiskScoreChange = 20
+	cfg.Inspector.Thresholds.FundingRateAlert = 0.001
+	cfg.Inspector.Thresholds.CorrelationChange = 0.2
+	cfg.Inspector.Thresholds.BalanceChangePct = 5
+	cfg.Inspector.AI.Provider = "gemini"
+	cfg.Inspector.AI.AnalysisDepth = "detailed"
+	cfg.Inspector.Report.Format = "markdown"
+	cfg.Inspector.Report.IncludeAIInsights = true
+	cfg.Inspector.Report.MaxNewsItems = 5
 
 	cfg.AI.Enabled = false
 
@@ -1626,6 +1684,45 @@ func (c *Config) Validate() error {
 			{AssetType: "crypto_btc", Symbol: "BTCUSDT", Keywords: DefaultNewsKeywords(), Enabled: true},
 			{AssetType: "commodity_gold", Symbol: "PAXGUSDT", Keywords: DefaultGoldKeywords(), Enabled: true},
 		}
+	}
+
+	// 設置智子巡檢配置預設值
+	if c.Inspector.Name == "" {
+		c.Inspector.Name = "智子巡檢"
+	}
+	if c.Inspector.Schedule.RegularInterval == "" {
+		c.Inspector.Schedule.RegularInterval = "1h"
+	}
+	if c.Inspector.Schedule.QuietHoursStart == 0 && c.Inspector.Schedule.QuietHoursEnd == 0 {
+		c.Inspector.Schedule.QuietHoursStart = 23
+		c.Inspector.Schedule.QuietHoursEnd = 7
+	}
+	if c.Inspector.Schedule.QuietInterval == "" {
+		c.Inspector.Schedule.QuietInterval = "4h"
+	}
+	if c.Inspector.Thresholds.PnLAlert <= 0 {
+		c.Inspector.Thresholds.PnLAlert = 100
+	}
+	if c.Inspector.Thresholds.RiskScoreChange <= 0 {
+		c.Inspector.Thresholds.RiskScoreChange = 20
+	}
+	if c.Inspector.Thresholds.FundingRateAlert <= 0 {
+		c.Inspector.Thresholds.FundingRateAlert = 0.001
+	}
+	if c.Inspector.Thresholds.CorrelationChange <= 0 {
+		c.Inspector.Thresholds.CorrelationChange = 0.2
+	}
+	if c.Inspector.Thresholds.BalanceChangePct <= 0 {
+		c.Inspector.Thresholds.BalanceChangePct = 5
+	}
+	if c.Inspector.AI.Provider == "" {
+		c.Inspector.AI.Provider = "gemini"
+	}
+	if c.Inspector.Report.Format == "" {
+		c.Inspector.Report.Format = "markdown"
+	}
+	if c.Inspector.Report.MaxNewsItems <= 0 {
+		c.Inspector.Report.MaxNewsItems = 5
 	}
 
 	// 設置策略配置預設值

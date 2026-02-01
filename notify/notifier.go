@@ -128,6 +128,8 @@ func (ns *NotificationService) shouldNotify(eventType event.EventType) bool {
 		return rules.AllocationExceeded // 使用相同的通知规则
 	case event.EventTypePrecisionAdjustment:
 		return true // 精度异常始终通知
+	case event.EventTypeInspectorReport:
+		return rules.InspectorReport
 	default:
 		// 其他事件默认通知
 		return true

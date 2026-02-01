@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -34,6 +35,7 @@ import (
 	"quantmesh/storage"
 	"quantmesh/utils"
 	"quantmesh/web"
+	"quantmesh/inspector"
 )
 
 // capitalDataSourceAdapter 资金數據源适配器
@@ -81,7 +83,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.26.0"
+var Version = "3.28.0"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1472,6 +1474,7 @@ func main() {
 	}
 
 	// Web 绑定數據提供者（兼容舊前端：使用第一個运行時，同時注册多交易對）
+	var newsMonitor *monitor.NewsMonitor
 	if webServer != nil && configComplete && firstRuntime != nil {
 		statusMap := make(map[string]*web.SystemStatus)
 		for _, rt := range symbolManager.List() {
@@ -1633,7 +1636,7 @@ func main() {
 					}
 					return 0
 				}
-				newsMonitor := monitor.NewNewsMonitor(cfg, storageService.GetStorage())
+				newsMonitor = monitor.NewNewsMonitor(cfg, storageService.GetStorage())
 				newsMonitor.SetPriceGetter(getPrice)
 				if err := newsMonitor.Start(); err != nil {
 					logger.Warn("⚠️ 新聞監控啟动失败: %v", err)
@@ -1717,6 +1720,188 @@ func main() {
 		strategyProvider := web.NewStrategyProviderAdapter(getAllocationFunc)
 		web.SetStrategyProvider(strategyProvider)
 		logger.Info("✅ 策略资金分配提供者已設置")
+
+		// 智子巡檢（定時彙總 + 緊急事件通知）
+		var sophonInspector *inspector.SophonInspector
+		if cfg.Inspector.Enabled && storageService != nil && storageService.GetStorage() != nil {
+			getPriceForInspector := func(symbol string) float64 {
+				for _, rt := range symbolManager.List() {
+					if rt != nil && rt.Config.Symbol == symbol && rt.PriceMonitor != nil {
+						return rt.PriceMonitor.GetLastPrice()
+					}
+				}
+				return 0
+			}
+			getRuntimesForInspector := func() []inspector.SnapshotSource {
+				list := symbolManager.List()
+				out := make([]inspector.SnapshotSource, 0, len(list))
+				for _, rt := range list {
+					if rt != nil {
+						out = append(out, &snapshotRuntimeAdapter{rt: rt})
+					}
+				}
+				return out
+			}
+			var getNewsRisk inspector.NewsRiskProvider
+			if newsMonitor != nil {
+				getNewsRisk = newsMonitor.GetRiskAssessmentBySymbol
+			}
+			isRiskTriggered := func() (bool, string) {
+				for _, rt := range symbolManager.List() {
+					if rt == nil {
+						continue
+					}
+					if rt.RiskMonitor != nil && rt.RiskMonitor.IsTriggered() {
+						if msg := rt.RiskMonitor.GetLastMsg(); msg != "" {
+							return true, msg
+						}
+						return true, "風控已觸發"
+					}
+					if rt.DepthMonitor != nil && rt.DepthMonitor.IsTriggered() {
+						if msg := rt.DepthMonitor.GetLastMsg(); msg != "" {
+							return true, msg
+						}
+						return true, "深度風控已觸發"
+					}
+				}
+				return false, ""
+			}
+			getExchangeForInspector := func(exchangeName string) exchange.IExchange {
+				for _, rt := range symbolManager.List() {
+					if rt != nil && rt.Config.Exchange == exchangeName {
+						return rt.Exchange
+					}
+				}
+				return nil
+			}
+			getAccountSummaryForInspector := func(ctx context.Context, exchangeName, accountID string) (inspector.AccountSummary, error) {
+				ex := getExchangeForInspector(exchangeName)
+				if ex == nil {
+					return inspector.AccountSummary{}, fmt.Errorf("exchange not found: %s", exchangeName)
+				}
+				acc, err := ex.GetAccount(ctx)
+				if err != nil || acc == nil {
+					return inspector.AccountSummary{}, err
+				}
+				total := acc.TotalMarginBalance
+				if total == 0 {
+					total = acc.TotalWalletBalance
+				}
+				used := total - acc.AvailableBalance
+				return inspector.AccountSummary{
+					Exchange:         exchangeName,
+					Account:          accountID,
+					TotalBalance:     total,
+					AvailableBalance: acc.AvailableBalance,
+					UsedMargin:       used,
+					Currency:         "USDT",
+				}, nil
+			}
+			collector := &inspector.Collector{
+				GetSnapshotSources: getRuntimesForInspector,
+				Storage:            storageService.GetStorage(),
+				GetNewsRisk:        getNewsRisk,
+				IsRiskTriggered:    isRiskTriggered,
+				GetPrice:           getPriceForInspector,
+				GetAccountSummary:  getAccountSummaryForInspector,
+			}
+			goldAnalyzer := &inspector.GoldAnalyzer{
+				GoldSymbol:  "PAXGUSDT",
+				BTCSymbol:   "BTCUSDT",
+				GetPrice:    getPriceForInspector,
+				Storage:     storageService.GetStorage(),
+				GetNewsRisk: getNewsRisk,
+			}
+			regularInterval, _ := time.ParseDuration(cfg.Inspector.Schedule.RegularInterval)
+			if regularInterval <= 0 {
+				regularInterval = time.Hour
+			}
+			quietInterval, _ := time.ParseDuration(cfg.Inspector.Schedule.QuietInterval)
+			if quietInterval <= 0 {
+				quietInterval = 4 * time.Hour
+			}
+			scheduler := inspector.NewScheduler(inspector.SchedulerConfig{
+				RegularInterval: regularInterval,
+				QuietHoursStart: cfg.Inspector.Schedule.QuietHoursStart,
+				QuietHoursEnd:   cfg.Inspector.Schedule.QuietHoursEnd,
+				QuietInterval:   quietInterval,
+			})
+			eventMonitor := inspector.NewEventMonitor(inspector.EventThresholds{
+				PnLAlert:          cfg.Inspector.Thresholds.PnLAlert,
+				RiskScoreChange:   cfg.Inspector.Thresholds.RiskScoreChange,
+				FundingRateAlert:  cfg.Inspector.Thresholds.FundingRateAlert,
+				CorrelationChange: cfg.Inspector.Thresholds.CorrelationChange,
+				BalanceChangePct:  cfg.Inspector.Thresholds.BalanceChangePct,
+			})
+			var geminiClient inspector.GeminiContentGenerator
+			if cfg.AI.Enabled && (cfg.AI.GeminiAPIKey != "" || cfg.AI.APIKey != "") {
+				apiKey := cfg.AI.GeminiAPIKey
+				if apiKey == "" {
+					apiKey = cfg.AI.APIKey
+				}
+				geminiClient = ai.NewGeminiClient(apiKey)
+			}
+			reportCfg := inspector.DefaultReportConfig()
+			reportCfg.Name = cfg.Inspector.Name
+			reportCfg.IncludeAIInsights = cfg.Inspector.Report.IncludeAIInsights
+			reportCfg.MaxNewsItems = cfg.Inspector.Report.MaxNewsItems
+			sophonInspector = inspector.NewSophonInspector(&inspector.SophonInspectorOptions{
+				Collector:    collector,
+				Analyzer:     &inspector.Analyzer{Client: geminiClient},
+				EventMonitor: eventMonitor,
+				ReportGen:    &inspector.ReportGenerator{Config: reportCfg},
+				Scheduler:    scheduler,
+				GoldAnalyzer: goldAnalyzer,
+				NotifyReport: func(report *inspector.InspectorReport) {
+					if report == nil || notifier == nil {
+						return
+					}
+					evt := &event.Event{
+						Type:      event.EventTypeInspectorReport,
+						Timestamp: report.GeneratedAt,
+						Data:      map[string]interface{}{"title": report.Title, "body": report.Body},
+					}
+					eventBus.Publish(evt)
+					notifier.Send(evt)
+				},
+				SaveReport: func(report *inspector.InspectorReport) error {
+					if report == nil || storageService == nil {
+						return nil
+					}
+					st := storageService.GetStorage()
+					if st == nil {
+						return nil
+					}
+					rec := &storage.InspectionReport{
+						ReportType:   report.ReportType,
+						Title:        report.Title,
+						Body:         report.Body,
+						EventType:    report.EventType,
+						GeneratedAt:  report.GeneratedAt,
+						CreatedAt:    time.Now(),
+					}
+					if report.Snapshot != nil {
+						if b, err := json.Marshal(report.Snapshot); err == nil {
+							rec.SnapshotJSON = string(b)
+						}
+					}
+					if report.Analysis != nil {
+						if b, err := json.Marshal(report.Analysis); err == nil {
+							rec.AnalysisJSON = string(b)
+						}
+					}
+					if len(report.EventData) > 0 {
+						if b, err := json.Marshal(report.EventData); err == nil {
+							rec.EventDataJSON = string(b)
+						}
+					}
+					return st.SaveInspectionReport(rec)
+				},
+			})
+			sophonInspector.Start()
+			defer sophonInspector.Stop()
+			logger.Info("✅ 智子巡檢已啟動")
+		}
 
 		// 設置全局存儲服務提供者（用於不带 symbol 参數的 API，如提現规则管理）
 		if storageService != nil {
