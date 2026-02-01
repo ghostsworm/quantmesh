@@ -141,7 +141,7 @@ if [ -f "${BACKUP_DIR}/webauthn.db" ]; then
 fi
 
 if [ -f "${BACKUP_DIR}/logs.db" ]; then
-    cp "${BACKUP_DIR}/logs.db" "./logs.db"
+    cp "${BACKUP_DIR}/logs.db" "./data/logs.db"
     log_info "✓ 已恢复 logs.db"
 fi
 

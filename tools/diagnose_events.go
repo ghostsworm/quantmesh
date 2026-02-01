@@ -32,8 +32,8 @@ func main() {
 
 // checkLogsDB 檢查運行日志數據庫
 func checkLogsDB() {
-	// 檢查 logs.db 文件是否存在
-	logsDBPath := "./logs.db"
+	// 檢查 logs.db 文件是否存在（放在 data 目錄下，與其他數據庫保持一致）
+	logsDBPath := "./data/logs.db"
 	if _, err := os.Stat(logsDBPath); os.IsNotExist(err) {
 		fmt.Printf("❌ 日志數據庫文件不存在: %s\n", logsDBPath)
 		fmt.Println("   這是運行日志為空的根本原因！")

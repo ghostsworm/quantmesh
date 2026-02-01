@@ -39,12 +39,13 @@ func NewSpotWebSocketManager(useTestnet bool) *SpotWebSocketManager {
 func (w *SpotWebSocketManager) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	// 現貨 WebSocket 端點：
 	// 主網: wss://stream.binance.com:9443/ws/<symbol>@aggTrade
-	// 測試網: wss://testnet.binance.vision/ws/<symbol>@aggTrade
+	// 測試網: wss://stream.testnet.binance.vision/ws/<symbol>@aggTrade
+	// 注意：測試網需要使用 stream.testnet.binance.vision，而非 testnet.binance.vision
 
 	symbolLower := strings.ToLower(symbol)
 	var url string
 	if w.useTestnet {
-		url = fmt.Sprintf("wss://testnet.binance.vision/ws/%s@aggTrade", symbolLower)
+		url = fmt.Sprintf("wss://stream.testnet.binance.vision/ws/%s@aggTrade", symbolLower)
 		logger.Info("🌐 [Binance Spot WS] 使用測試網 WebSocket: %s", url)
 	} else {
 		url = fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@aggTrade", symbolLower)

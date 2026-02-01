@@ -12,7 +12,7 @@
    - `data/quantmesh.db` - 主数据库（交易记录、统计数据等）
    - `data/auth.db` - 认证数据库（用户密码等）
    - `data/webauthn.db` - WebAuthn 凭证数据库
-   - `logs.db` - 日志数据库
+   - `data/logs.db` - 日志数据库
 
 2. **配置文件**
    - `config.yaml` - 主配置文件

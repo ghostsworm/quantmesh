@@ -71,8 +71,8 @@ backup_database() {
     fi
     
     # 备份日志数据库
-    if [ -f "${SCRIPT_DIR}/logs.db" ]; then
-        cp "${SCRIPT_DIR}/logs.db" "${backup_path}/logs.db"
+    if [ -f "${DATA_DIR}/logs.db" ]; then
+        cp "${DATA_DIR}/logs.db" "${backup_path}/logs.db"
         log_info "已备份: logs.db"
     fi
     

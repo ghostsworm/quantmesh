@@ -10,6 +10,34 @@
 
 ---
 
+## v3.28.1 - 2026年02月02日
+
+**Git Tag**: `v3.28.1`
+
+### 修復 (Fixed)
+
+#### logs.db 路徑調整
+
+- **問題描述**: systemd 配置 `ProtectSystem=strict` + `ReadWritePaths` 時，`logs.db` 位於根目錄導致無法寫入，報錯 "attempt to write a readonly database"
+- **解決方案**: 將 `logs.db` 移至 `./data/logs.db`，與其他數據庫文件（quantmesh.db, auth.db, webauthn.db）保持一致
+- **影響範圍**:
+  - `main.go`: 預設路徑改為 `./data/logs.db`
+  - `tools/diagnose_events.go`: 診斷工具路徑更新
+  - `scripts/backup.sh`, `scripts/restore.sh`, `scripts/reset_data.sh`, `scripts/deploy.sh`: 備份恢復腳本路徑更新
+  - 文檔更新：`docs/BACKUP_RECOVERY.md`, `rdocs/部署指南.md`
+
+#### Binance 現貨測試網 WebSocket 端點修正
+
+- **問題描述**: 現貨測試網 WebSocket 連接失敗，報錯 "websocket: bad handshake"
+- **根本原因**: 測試網 WebSocket 端點使用了錯誤的域名 `testnet.binance.vision`
+- **解決方案**: 修正為正確的測試網 WebSocket 端點 `stream.testnet.binance.vision`
+
+**升級注意事項**:
+- 升級後若舊版 `./logs.db` 存在，需手動遷移：`mv ./logs.db ./data/logs.db`
+- systemd 服務的 `ReadWritePaths` 不再需要單獨指定 `logs.db`，只需包含 `/opt/quantmesh/data` 即可
+
+---
+
 ## v3.24.0-rc1 - 2026年02月01日
 
 **Git Tag**: `v3.24.0-rc1`

@@ -26,10 +26,10 @@ log_error() {
 
 # 确认操作
 log_warn "⚠️  警告：此操作将删除所有数据库文件，包括："
-log_warn "   - 认证数据 (auth.db)"
-log_warn "   - WebAuthn 数据 (webauthn.db)"
-log_warn "   - 主数据库 (quantmesh.db)"
-log_warn "   - 日志数据库 (logs.db)"
+log_warn "   - 认证数据 (data/auth.db)"
+log_warn "   - WebAuthn 数据 (data/webauthn.db)"
+log_warn "   - 主数据库 (data/quantmesh.db)"
+log_warn "   - 日志数据库 (data/logs.db)"
 log_warn "   - 其他数据库文件"
 echo ""
 read -p "确认要继续吗？(yes/no): " confirm
@@ -78,21 +78,21 @@ if [ -d "./data" ]; then
     done
 fi
 
-# 清理根目录下的日志数据库
-if [ -f "./logs.db" ]; then
-    rm -f "./logs.db"
-    log_info "✓ 已删除 logs.db"
+# 清理 data 目录下的日志数据库
+if [ -f "./data/logs.db" ]; then
+    rm -f "./data/logs.db"
+    log_info "✓ 已删除 data/logs.db"
 fi
 
 # 清理日志数据库临时文件
-if [ -f "./logs.db-shm" ]; then
-    rm -f "./logs.db-shm"
-    log_info "✓ 已删除 logs.db-shm"
+if [ -f "./data/logs.db-shm" ]; then
+    rm -f "./data/logs.db-shm"
+    log_info "✓ 已删除 data/logs.db-shm"
 fi
 
-if [ -f "./logs.db-wal" ]; then
-    rm -f "./logs.db-wal"
-    log_info "✓ 已删除 logs.db-wal"
+if [ -f "./data/logs.db-wal" ]; then
+    rm -f "./data/logs.db-wal"
+    log_info "✓ 已删除 data/logs.db-wal"
 fi
 
 log_info "========================================="
