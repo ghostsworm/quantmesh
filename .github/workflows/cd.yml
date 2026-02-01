@@ -3,9 +3,9 @@ name: CD
 on:
   push:
     tags:
-      # v 开头的标签：只发 release，不构建 docker（如 v3.11.3）
+      # v 開頭的標籤：只發 release，不構建 docker（如 v3.11.3）
       - 'v*'
-      # 纯数字版本号：发 release + 构建 docker（如 3.12）
+      # 純數字版本號：發 release + 構建 docker（如 3.12）
       - '[0-9]+.[0-9]+'
 
 env:
@@ -14,23 +14,15 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # 构建所有平台的 Release 资产
+  # 僅構建 Linux amd64 Release 資產
   build:
-    name: Build (${{ matrix.goos }}-${{ matrix.goarch }})
-    runs-on: ${{ matrix.os }}
-    
+    name: Build (linux-amd64)
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            goos: linux
+          - goos: linux
             goarch: amd64
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm64
-          - os: macos-latest
-            goos: darwin
-            goarch: arm64
     
     steps:
     - name: Checkout code
@@ -72,13 +64,9 @@ jobs:
         fi
         
     - name: Install C compiler and SQLite dependencies
-      if: matrix.goos == 'linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libsqlite3-dev
-        if [ "${{ matrix.goarch }}" = "arm64" ]; then
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-        fi
         
     - name: Build
       env:
@@ -86,12 +74,7 @@ jobs:
         GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: 1
       run: |
-        # 设置交叉编译器（Linux ARM64）
-        if [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "arm64" ]; then
-          export CC=aarch64-linux-gnu-gcc
-        fi
-        
-        # 验证 CGO 状态
+        # 驗證 CGO 狀態
         echo "CGO_ENABLED=${CGO_ENABLED}"
         go env CGO_ENABLED
         
@@ -240,7 +223,7 @@ jobs:
           
           ## Installation
           
-          ### Linux (amd64) - 自动安装
+          ### Linux (amd64) - 自動安裝
           ```bash
           wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
           tar -xzf quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
@@ -248,20 +231,12 @@ jobs:
           sudo ./install.sh
           ```
           
-          ### Linux (amd64) - 手动安装
+          ### Linux (amd64) - 手動安裝
           ```bash
           wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
           tar -xzf quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
           chmod +x quantmesh-linux-amd64
           sudo mv quantmesh-linux-amd64 /usr/local/bin/quantmesh
-          ```
-          
-          ### macOS (arm64)
-          ```bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-${{ steps.get_version.outputs.version }}-darwin-arm64.tar.gz
-          tar -xzf quantmesh-${{ steps.get_version.outputs.version }}-darwin-arm64.tar.gz
-          chmod +x quantmesh-darwin-arm64
-          sudo mv quantmesh-darwin-arm64 /usr/local/bin/quantmesh
           ```
           
           ### Docker (GitHub Container Registry)
