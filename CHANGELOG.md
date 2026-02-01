@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.28.5-rc1] - 2026-02-02
+
+### Fixed
+- **DCA/多策略資金釋放修復**: 修復 DCA 等策略配置固定資金池後仍報「資金不足」的問題
+  - 原因：下單時會預留資金（Reserve），但訂單成交或取消後未釋放（Release），導致「可用」只減不增
+  - 改動：MultiStrategyExecutor 記錄每筆訂單的預留金額，訂單 FILLED/CANCELED 時按 orderID 釋放；訂單流回調中通知策略層並調用釋放
+  - 涉及：`strategy/multi_strategy_executor.go`、`symbol_manager.go`
+
 ## [3.28.5] - 2026-02-02
 
 ### Fixed
