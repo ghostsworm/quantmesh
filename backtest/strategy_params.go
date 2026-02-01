@@ -25,92 +25,92 @@ type ParamField struct {
 // Option 下拉选项
 type Option struct {
 	Value interface{} `json:"value"`
-	Label string     `json:"label"`
+	Label string      `json:"label"`
 }
 
 // SymbolBacktestPreset 交易對回测預設（基於 docs/K線选擇要求.md）
 type SymbolBacktestPreset struct {
-	Symbol               string   `json:"symbol"`
-	VolatilityType       string   `json:"volatility_type"`        // high, medium_high, medium, low
-	RecommendedDays      []int    `json:"recommended_days"`       // 推荐回测天數
-	RecommendedInterval string   `json:"recommended_interval"`   // 推荐 K 線周期
-	GridGapRange         string   `json:"grid_gap_range"`         // 网格间距建议
-	IntervalOptions      []string `json:"interval_options"`      // 可選 K 線周期
+	Symbol              string   `json:"symbol"`
+	VolatilityType      string   `json:"volatility_type"`      // high, medium_high, medium, low
+	RecommendedDays     []int    `json:"recommended_days"`     // 推荐回测天數
+	RecommendedInterval string   `json:"recommended_interval"` // 推荐 K 線周期
+	GridGapRange        string   `json:"grid_gap_range"`       // 网格间距建议
+	IntervalOptions     []string `json:"interval_options"`     // 可選 K 線周期
 }
 
 // 内置交易對預設（基於 K線选擇要求.md 推荐矩阵）
 var defaultSymbolPresets = map[string]SymbolBacktestPreset{
 	"BTCUSDT": {
-		Symbol:               "BTCUSDT",
-		VolatilityType:       "high",
-		RecommendedDays:      []int{7, 14, 30},
+		Symbol:              "BTCUSDT",
+		VolatilityType:      "high",
+		RecommendedDays:     []int{7, 14, 30},
 		RecommendedInterval: "1m",
-		GridGapRange:         "0.1%~0.3%",
-		IntervalOptions:      []string{"1m", "3m", "5m"},
+		GridGapRange:        "0.1%~0.3%",
+		IntervalOptions:     []string{"1m", "3m", "5m"},
 	},
 	"ETHUSDT": {
-		Symbol:               "ETHUSDT",
-		VolatilityType:       "medium_high",
-		RecommendedDays:      []int{30, 60},
+		Symbol:              "ETHUSDT",
+		VolatilityType:      "medium_high",
+		RecommendedDays:     []int{30, 60},
 		RecommendedInterval: "5m",
-		GridGapRange:         "0.3%~0.6%",
-		IntervalOptions:      []string{"5m", "15m", "1h"},
+		GridGapRange:        "0.3%~0.6%",
+		IntervalOptions:     []string{"5m", "15m", "1h"},
 	},
 	"SOLUSDT": {
-		Symbol:               "SOLUSDT",
-		VolatilityType:       "high",
-		RecommendedDays:      []int{7, 14, 30},
+		Symbol:              "SOLUSDT",
+		VolatilityType:      "high",
+		RecommendedDays:     []int{7, 14, 30},
 		RecommendedInterval: "1m",
-		GridGapRange:         "0.1%~0.3%",
-		IntervalOptions:      []string{"1m", "5m", "15m"},
+		GridGapRange:        "0.1%~0.3%",
+		IntervalOptions:     []string{"1m", "5m", "15m"},
 	},
 	"DOGEUSDT": {
-		Symbol:               "DOGEUSDT",
-		VolatilityType:       "high",
-		RecommendedDays:      []int{7, 14, 30},
+		Symbol:              "DOGEUSDT",
+		VolatilityType:      "high",
+		RecommendedDays:     []int{7, 14, 30},
 		RecommendedInterval: "1m",
-		GridGapRange:         "0.1%~0.3%",
-		IntervalOptions:      []string{"1m", "5m", "15m"},
+		GridGapRange:        "0.1%~0.3%",
+		IntervalOptions:     []string{"1m", "5m", "15m"},
 	},
 	"BNBUSDT": {
-		Symbol:               "BNBUSDT",
-		VolatilityType:       "medium_high",
-		RecommendedDays:      []int{30, 60},
+		Symbol:              "BNBUSDT",
+		VolatilityType:      "medium_high",
+		RecommendedDays:     []int{30, 60},
 		RecommendedInterval: "5m",
-		GridGapRange:         "0.3%~0.6%",
-		IntervalOptions:      []string{"5m", "15m", "1h"},
+		GridGapRange:        "0.3%~0.6%",
+		IntervalOptions:     []string{"5m", "15m", "1h"},
 	},
 	"ADAUSDT": {
-		Symbol:               "ADAUSDT",
-		VolatilityType:       "medium",
-		RecommendedDays:      []int{60, 120},
+		Symbol:              "ADAUSDT",
+		VolatilityType:      "medium",
+		RecommendedDays:     []int{60, 120},
 		RecommendedInterval: "15m",
-		GridGapRange:         "0.5%~1.0%",
-		IntervalOptions:      []string{"15m", "30m", "1h"},
+		GridGapRange:        "0.5%~1.0%",
+		IntervalOptions:     []string{"15m", "30m", "1h"},
 	},
 	"LTCUSDT": {
-		Symbol:               "LTCUSDT",
-		VolatilityType:       "medium",
-		RecommendedDays:      []int{60, 120},
+		Symbol:              "LTCUSDT",
+		VolatilityType:      "medium",
+		RecommendedDays:     []int{60, 120},
 		RecommendedInterval: "15m",
-		GridGapRange:         "0.5%~1.0%",
-		IntervalOptions:      []string{"15m", "30m", "1h"},
+		GridGapRange:        "0.5%~1.0%",
+		IntervalOptions:     []string{"15m", "30m", "1h"},
 	},
 	"PAXGUSDT": {
-		Symbol:               "PAXGUSDT",
-		VolatilityType:       "low",
-		RecommendedDays:      []int{90, 180},
+		Symbol:              "PAXGUSDT",
+		VolatilityType:      "low",
+		RecommendedDays:     []int{90, 180},
 		RecommendedInterval: "1h",
-		GridGapRange:         "1%~2%",
-		IntervalOptions:      []string{"1h", "4h"},
+		GridGapRange:        "1%~2%",
+		IntervalOptions:     []string{"1h", "4h"},
 	},
 	"XAUUSDT": {
-		Symbol:               "XAUUSDT",
-		VolatilityType:       "low",
-		RecommendedDays:      []int{90, 180},
+		Symbol:              "XAUUSDT",
+		VolatilityType:      "low",
+		RecommendedDays:     []int{90, 180},
 		RecommendedInterval: "1h",
-		GridGapRange:         "1%~2%",
-		IntervalOptions:      []string{"1h", "4h"},
+		GridGapRange:        "1%~2%",
+		IntervalOptions:     []string{"1h", "4h"},
 	},
 }
 
@@ -120,12 +120,12 @@ func GetSymbolPreset(symbol string) SymbolBacktestPreset {
 		return p
 	}
 	return SymbolBacktestPreset{
-		Symbol:               symbol,
-		VolatilityType:       "medium",
-		RecommendedDays:      []int{30, 60, 90},
+		Symbol:              symbol,
+		VolatilityType:      "medium",
+		RecommendedDays:     []int{30, 60, 90},
 		RecommendedInterval: "15m",
-		GridGapRange:         "0.5%~1.0%",
-		IntervalOptions:      []string{"5m", "15m", "30m", "1h"},
+		GridGapRange:        "0.5%~1.0%",
+		IntervalOptions:     []string{"5m", "15m", "30m", "1h"},
 	}
 }
 

@@ -113,7 +113,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 // 主应用内容
 const AppContent: React.FC = () => {
   const location = useLocation()
-  const { isAuthenticated, hasPassword, isLoading, connectionError } = useAuth()
+  const { isAuthenticated, hasPassword, isLoading, connectionError, securityCompromised, passwordManagerError } = useAuth()
   const { isGlobalView } = useSymbol()
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { t } = useTranslation()
@@ -192,6 +192,72 @@ const AppContent: React.FC = () => {
           >
             {t('common.retry', '重試')}
           </Button>
+        </Box>
+      </Center>
+    )
+  }
+
+  // 🔒 密碼管理器初始化失敗：通常是 data 目錄問題
+  if (passwordManagerError) {
+    return (
+      <Center h="100vh" bg="orange.50">
+        <Box textAlign="center" p={8} maxW="500px" bg="white" borderRadius="lg" boxShadow="lg">
+          <Text fontSize="6xl" mb={4}>⚠️</Text>
+          <Heading size="lg" mb={4} color="orange.600">
+            {t('security.passwordManagerError', '認證系統初始化失敗')}
+          </Heading>
+          <Text color="gray.700" mb={4} fontWeight="bold">
+            {t('security.passwordManagerErrorMessage', '服務器無法初始化密碼管理器')}
+          </Text>
+          <Box textAlign="left" bg="gray.50" p={4} borderRadius="md" mb={6}>
+            <Text fontSize="sm" color="gray.600" mb={2} fontWeight="bold">請檢查以下問題：</Text>
+            <Text fontSize="sm" color="gray.600">1. data 目錄是否存在且可寫</Text>
+            <Text fontSize="sm" color="gray.600">2. Docker 是否正確掛載了 data 卷</Text>
+            <Text fontSize="sm" color="gray.600">3. 查看服務器日誌中的詳細錯誤信息</Text>
+          </Box>
+          <Box textAlign="left" bg="blue.50" p={4} borderRadius="md" mb={6}>
+            <Text fontSize="sm" color="blue.700" fontWeight="bold" mb={1}>Docker 部署提示：</Text>
+            <Text fontSize="xs" color="blue.600" fontFamily="mono">
+              docker run -v $(pwd)/data:/app/data ...
+            </Text>
+          </Box>
+          <Button
+            colorScheme="orange"
+            onClick={() => window.location.reload()}
+          >
+            {t('common.retry', '重試')}
+          </Button>
+        </Box>
+      </Center>
+    )
+  }
+
+  // 🔒 安全隱患檢測：認證數據可能已丟失
+  if (securityCompromised) {
+    return (
+      <Center h="100vh" bg="red.50">
+        <Box textAlign="center" p={8} maxW="500px" bg="white" borderRadius="lg" boxShadow="lg">
+          <Text fontSize="6xl" mb={4}>🔐</Text>
+          <Heading size="lg" mb={4} color="red.600">
+            {t('security.compromisedTitle', '安全警告')}
+          </Heading>
+          <Text color="gray.700" mb={4} fontWeight="bold">
+            {t('security.compromisedMessage', '系統檢測到認證數據可能已丟失')}
+          </Text>
+          <Text color="gray.600" mb={6} fontSize="sm">
+            {t('security.compromisedDetails', '系統之前已完成初始化，但認證數據庫中的密碼記錄已丟失。這可能是由於：')}
+          </Text>
+          <Box textAlign="left" bg="gray.50" p={4} borderRadius="md" mb={6}>
+            <Text fontSize="sm" color="gray.600">• Docker 容器重新部署時未掛載 data 目錄</Text>
+            <Text fontSize="sm" color="gray.600">• auth.db 數據庫文件被刪除或損壞</Text>
+            <Text fontSize="sm" color="gray.600">• 數據目錄權限問題</Text>
+          </Box>
+          <Text color="red.500" fontWeight="bold" mb={4} fontSize="sm">
+            {t('security.compromisedAction', '請聯繫管理員檢查服務器的 data 目錄，確保 auth.db 文件完整。')}
+          </Text>
+          <Text color="gray.500" fontSize="xs">
+            {t('security.compromisedNote', '為防止未授權訪問，系統已阻止重新設置密碼。')}
+          </Text>
         </Box>
       </Center>
     )

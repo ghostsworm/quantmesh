@@ -30,9 +30,13 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
   // 解析详细信息
   const parseDetails = () => {
     try {
+      if (!event.details || event.details.trim() === '' || event.details === 'null') {
+        return {}
+      }
       return JSON.parse(event.details)
-    } catch {
-      return {}
+    } catch (err) {
+      console.error('解析事件详情JSON失败:', err, 'Raw details:', event.details)
+      return { error: '详情解析失败', raw: event.details }
     }
   }
 
@@ -160,16 +164,16 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
             <Box>
               <Text fontSize="sm" color="gray.500" mb={2}>事件消息</Text>
               <Box p={4} bg="gray.50" borderRadius="md">
-                <Text>{event.message}</Text>
+                <Text>{event.message || '暂无消息内容'}</Text>
               </Box>
             </Box>
 
             <Divider />
 
             {/* 详细信息 */}
-            {Object.keys(details).length > 0 && (
-              <Box>
-                <Text fontSize="sm" color="gray.500" mb={2}>详细信息</Text>
+            <Box>
+              <Text fontSize="sm" color="gray.500" mb={2}>详细信息</Text>
+              {Object.keys(details).length > 0 ? (
                 <Box
                   p={4}
                   bg="gray.900"
@@ -200,8 +204,14 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
                     {formatJSON(details)}
                   </Code>
                 </Box>
-              </Box>
-            )}
+              ) : (
+                <Box p={4} bg="gray.50" borderRadius="md" textAlign="center">
+                  <Text color="gray.500" fontSize="sm">
+                    暂无详细信息
+                  </Text>
+                </Box>
+              )}
+            </Box>
           </VStack>
         </ModalBody>
 

@@ -1,0 +1,35 @@
+# WebAuthn RPID 修復 - 針對 qt.facev.app 的配置示例
+# 使用方法：複製相關配置到您的 config.yaml 文件中
+
+web:
+  enabled: true
+  host: "0.0.0.0"               # 監聽所有地址
+  port: 28888                   # 您的端口
+  domain: "qt.facev.app"        # ⭐ 重要：設置為實際訪問的域名
+  api_key: ""
+  
+  # HTTPS 配置（WebAuthn 在生產環境需要）
+  tls:
+    enabled: true               # 啟用 HTTPS
+    cert_file: ""               # SSL 證書文件路径
+    key_file: ""                # SSL 私鑰文件路径
+  
+  pprof:
+    enabled: false
+    require_auth: true
+    allowed_ips:
+      - "127.0.0.1"
+      - "::1"
+
+# 或者使用環境變數的方法：
+# export DOMAIN=qt.facev.app
+# 然後啟動應用
+
+# 驗證修復是否成功：
+# 1. 重啟應用後查看日誌，應該顯示：
+#    ✅ WebAuthn 管理器已初始化 (rpID=qt.facev.app, rpOrigin=https://qt.facev.app)
+#
+# 2. 使用診斷工具：
+#    go run tools/webauthn_diagnose.go https://qt.facev.app
+#
+# 3. 嘗試注册指紋設備，應該不再出現 RPID 錯誤

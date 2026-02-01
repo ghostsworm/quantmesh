@@ -163,17 +163,39 @@ func (ec *EventCenter) handleEvent(event *Event) {
 	source := GetEventSource(event.Type)
 	title := GetEventTitle(event.Type)
 	
+	// 验证必要字段
+	if string(severity) == "" {
+		logger.Warn("⚠️ 事件严重程度为空，使用默认值: %s", event.Type)
+		severity = SeverityInfo
+	}
+	if string(source) == "" {
+		logger.Warn("⚠️ 事件来源为空，使用默认值: %s", event.Type)
+		source = SourceSystem
+	}
+	if title == "" {
+		logger.Warn("⚠️ 事件标题为空，使用事件类型: %s", event.Type)
+		title = string(event.Type)
+	}
+	
 	// 提取交易所和交易對信息
 	exchange := ec.extractString(event.Data, "exchange")
 	symbol := ec.extractString(event.Data, "symbol")
 	
 	// 構建消息
 	message := ec.buildMessage(event)
+	if message == "" {
+		message = fmt.Sprintf("事件类型: %s", event.Type)
+	}
 	
 	// 序列化详细信息
 	detailsJSON, err := json.Marshal(event.Data)
 	if err != nil {
 		logger.Warn("⚠️ 序列化事件详情失败: %v", err)
+		detailsJSON = []byte("{}")
+	}
+	
+	// 确保事件数据不为空
+	if len(detailsJSON) == 0 || string(detailsJSON) == "null" {
 		detailsJSON = []byte("{}")
 	}
 	
