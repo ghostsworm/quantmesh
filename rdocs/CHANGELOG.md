@@ -10,6 +10,48 @@
 
 ---
 
+## v3.24.0-rc1 - 2026年02月01日
+
+**Git Tag**: `v3.24.0-rc1`
+
+### 修復 (Fixed)
+
+#### 參數優化頁面超時問題
+
+- **問題描述**: 點擊「開始優化」後長時間等待，最終提示 "failed to fetch"
+- **根本原因**: 獲取歷史 K 線數據在 HTTP 請求處理過程中同步執行，當下載時間過長時導致代理/瀏覽器超時
+- **解決方案**:
+  - 將歷史數據獲取移至後台任務異步執行
+  - API 立即返回任務 ID，不再阻塞等待數據下載
+  - 新增 `loading_data` 任務狀態
+  - 前端顯示「正在從交易所下載歷史K線數據...」提示
+
+#### TaskManager.GetResult 方法缺失
+
+- 補齊 `backtest/task_manager.go` 中缺失的 `GetResult` 方法，修復編譯錯誤
+
+---
+
+## v3.24.0 - 2026年02月01日
+
+**Git Tag**: `v3.24.0`
+
+### 新增 (Added)
+
+#### 幣安現貨 WebSocket 價格流支援
+
+- **現貨價格流實現**: 為 Binance Spot 適配器實現 WebSocket 價格流
+  - 新增 `exchange/binance/spot_websocket.go`：現貨 WebSocket 管理器
+  - 使用 aggTrade 流獲取實時成交價格
+  - 支援主網（stream.binance.com）與測試網（testnet.binance.vision）
+  - 現貨交易對（如 PAXGUSDT）現可正常啟動交易
+
+### 修復 (Fixed)
+
+- **現貨交易啟動失敗**: 修復「啟動價格流失敗（WebSocket 是唯一價格來源）：現貨價格流暫未實現」錯誤
+
+---
+
 ## v3.22.1 - 2026年02月01日
 
 **Git Tag**: `v3.22.1`

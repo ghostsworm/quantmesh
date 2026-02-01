@@ -81,7 +81,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.23.0"
+var Version = "3.25.0"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1729,6 +1729,43 @@ func main() {
 					taskManager := backtest.NewTaskManager(taskStore, map[string]string{"api_key": "", "secret_key": "", "testnet": "false"})
 					web.SetBacktestTaskManager(taskManager)
 					logger.Info("✅ 回测任務管理器已設置")
+
+					// 初始化智能參數推薦服務
+					exchangeFactory := func(exchangeName, marketType string) (exchange.IExchange, error) {
+						// 使用 exchange.NewExchange 創建適配器
+						// 使用 BTCUSDT 作為默認交易對（僅用於獲取價格，不實際交易）
+						return exchange.NewExchange(cfg, exchangeName, "BTCUSDT", marketType)
+					}
+					smartParamsService := backtest.NewSmartParamsService(exchangeFactory, backtest.SmartParamsConfig{})
+					web.SetSmartParamsService(smartParamsService)
+					logger.Info("✅ 智能參數推薦服務已設置")
+
+					// 初始化自動回測調度器
+					autoSchedulerConfig := backtest.AutoSchedulerConfig{
+						Enabled:            cfg.AutoBacktest.Enabled,
+						ScheduleInterval:   time.Duration(cfg.AutoBacktest.ScheduleIntervalHours) * time.Hour,
+						ResultTTL:          24 * time.Hour,
+						MaxConcurrentTasks: cfg.AutoBacktest.MaxConcurrentTasks,
+						DefaultCapital:     cfg.AutoBacktest.DefaultCapital,
+						DefaultExchange:    cfg.App.CurrentExchange,
+						DefaultMarketType:  "futures",
+					}
+					// 解析配置中的交易對
+					if len(cfg.AutoBacktest.Symbols) > 0 {
+						autoSchedulerConfig.Symbols = make([]backtest.SymbolConfig, 0, len(cfg.AutoBacktest.Symbols))
+						for _, symCfg := range cfg.AutoBacktest.Symbols {
+							autoSchedulerConfig.Symbols = append(autoSchedulerConfig.Symbols, backtest.SymbolConfig{
+								Symbol:     symCfg.Symbol,
+								Exchange:   symCfg.Exchange,
+								MarketType: symCfg.MarketType,
+								Strategies: symCfg.Strategies,
+							})
+						}
+					}
+					autoScheduler := backtest.NewAutoBacktestScheduler(taskManager, smartParamsService, autoSchedulerConfig)
+					web.SetAutoBacktestScheduler(autoScheduler)
+					autoScheduler.Start()
+					logger.Info("✅ 自動回測調度器已設置（啟用: %v）", cfg.AutoBacktest.Enabled)
 				}
 			}
 		}
@@ -1744,6 +1781,19 @@ func main() {
 					taskManager := backtest.NewTaskManager(taskStore, map[string]string{"api_key": "", "secret_key": "", "testnet": "false"})
 					web.SetBacktestTaskManager(taskManager)
 					logger.Info("✅ 回测任務管理器已設置")
+
+					// 初始化智能參數推薦服務（使用空的交易所工廠，將使用默認波動率）
+					smartParamsService := backtest.NewSmartParamsService(nil, backtest.SmartParamsConfig{})
+					web.SetSmartParamsService(smartParamsService)
+					logger.Info("✅ 智能參數推薦服務已設置（簡化模式）")
+
+					// 初始化自動回測調度器（默認禁用，等待配置完成）
+					autoSchedulerConfig := backtest.AutoSchedulerConfig{
+						Enabled: false,
+					}
+					autoScheduler := backtest.NewAutoBacktestScheduler(taskManager, smartParamsService, autoSchedulerConfig)
+					web.SetAutoBacktestScheduler(autoScheduler)
+					logger.Info("✅ 自動回測調度器已設置（待配置）")
 				}
 			}
 		}

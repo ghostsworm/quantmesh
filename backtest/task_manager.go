@@ -251,3 +251,12 @@ func LoadResult(resultsDir, taskID string) (*BacktestTaskResult, error) {
 	}
 	return &out, nil
 }
+
+// GetResult 獲取任務回测結果
+func (m *TaskManager) GetResult(taskID string) (*BacktestResult, error) {
+	result, err := LoadResult(m.resultsDir, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return result.Result, nil
+}

@@ -71,28 +71,17 @@ func postOptimizerRun(c *gin.Context) {
 		return
 	}
 
-	exchange := req.Exchange
-	if exchange == "" {
-		exchange = "binance"
+	exchangeName := req.Exchange
+	if exchangeName == "" {
+		exchangeName = "binance"
 	}
 	validExchanges := map[string]bool{"binance": true, "bitget": true}
-	if !validExchanges[exchange] {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的交易所: %s", exchange)})
+	if !validExchanges[exchangeName] {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的交易所: %s", exchangeName)})
 		return
 	}
 
-	exConfig := getExchangeConfig(exchange)
-	candles, err := backtest.GetHistoricalDataEx(exchange, req.Symbol, req.Interval, req.StartTime, req.EndTime, exConfig)
-	if err != nil {
-		logger.Error("优化器獲取歷史數據失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("獲取歷史數據失败: %v", err)})
-		return
-	}
-	if len(candles) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "未獲取到历史 K 線數據"})
-		return
-	}
-
+	// 立即創建任務並返回，數據獲取移到後台執行（避免 HTTP 請求超時）
 	taskID := fmt.Sprintf("opt_%d", time.Now().UnixMilli())
 	ctx, cancel := context.WithCancel(context.Background())
 	task := &optimizerTask{
@@ -107,8 +96,67 @@ func postOptimizerRun(c *gin.Context) {
 	optimizerTasks[taskID] = task
 	optimizerTasksMu.Unlock()
 
-	go runOptimizerTask(ctx, taskID, req.Symbol, candles, req.SearchSpace, req.Config, req.InitialCapital)
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "优化任務已創建", "task_id": taskID})
+	// 異步執行數據獲取和优化任務
+	go runOptimizerTaskWithDataFetch(ctx, taskID, exchangeName, req.Symbol, req.Interval, req.StartTime, req.EndTime, req.SearchSpace, req.Config, req.InitialCapital)
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "优化任務已創建，正在獲取歷史數據...", "task_id": taskID})
+}
+
+// runOptimizerTaskWithDataFetch 包含數據獲取的完整任務流程
+func runOptimizerTaskWithDataFetch(ctx context.Context, taskID, exchangeName, symbol, interval string, startTime, endTime time.Time, space optimizer.OptimSearchSpace, config optimizer.OptimConfig, initialCapital float64) {
+	// 更新任務状態為 "loading_data"
+	optimizerTasksMu.Lock()
+	task, ok := optimizerTasks[taskID]
+	if !ok {
+		optimizerTasksMu.Unlock()
+		return
+	}
+	task.Status = "loading_data"
+	task.UpdatedAt = time.Now()
+	optimizerTasksMu.Unlock()
+
+	// 獲取历史數據
+	exConfig := getExchangeConfig(exchangeName)
+	candles, err := backtest.GetHistoricalDataEx(exchangeName, symbol, interval, startTime, endTime, exConfig)
+
+	// 检查是否被取消
+	if ctx.Err() != nil {
+		optimizerTasksMu.Lock()
+		if t, ok := optimizerTasks[taskID]; ok {
+			t.Status = "stopped"
+			t.UpdatedAt = time.Now()
+		}
+		optimizerTasksMu.Unlock()
+		return
+	}
+
+	if err != nil {
+		logger.Error("优化器獲取歷史數據失败: %v", err)
+		optimizerTasksMu.Lock()
+		if t, ok := optimizerTasks[taskID]; ok {
+			t.Status = "failed"
+			t.Error = fmt.Sprintf("獲取歷史數據失败: %v", err)
+			t.UpdatedAt = time.Now()
+		}
+		optimizerTasksMu.Unlock()
+		return
+	}
+
+	if len(candles) == 0 {
+		optimizerTasksMu.Lock()
+		if t, ok := optimizerTasks[taskID]; ok {
+			t.Status = "failed"
+			t.Error = "未獲取到历史 K 線數據"
+			t.UpdatedAt = time.Now()
+		}
+		optimizerTasksMu.Unlock()
+		return
+	}
+
+	logger.Info("优化任務 %s: 已獲取 %d 根K線數據，開始执行优化...", taskID, len(candles))
+
+	// 執行优化任務
+	runOptimizerTask(ctx, taskID, symbol, candles, space, config, initialCapital)
 }
 
 func runOptimizerTask(ctx context.Context, taskID, symbol string, candles []*exchange.Candle, space optimizer.OptimSearchSpace, config optimizer.OptimConfig, initialCapital float64) {
