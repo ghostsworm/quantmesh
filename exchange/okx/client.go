@@ -22,7 +22,7 @@ const (
 	TestnetRestURL = "https://www.okx.com"
 )
 
-// OKXClient OKX REST API 客户端
+// OKXClient OKX REST API 客戶端
 type OKXClient struct {
 	apiKey      string
 	secretKey   string
@@ -32,7 +32,7 @@ type OKXClient struct {
 	httpClient  *http.Client
 }
 
-// NewOKXClient 创建 OKX 客户端
+// NewOKXClient 創建 OKX 客戶端
 func NewOKXClient(apiKey, secretKey, passphrase string, useTestnet bool) *OKXClient {
 	baseURL := MainnetRestURL
 	if useTestnet {
@@ -74,10 +74,10 @@ func (c *OKXClient) request(ctx context.Context, method, path string, body inter
 	url := c.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("創建请求失败: %w", err)
 	}
 
-	// 生成时间戳（ISO 8601 格式）
+	// 生成時间戳（ISO 8601 格式）
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 
 	// 生成签名
@@ -87,14 +87,14 @@ func (c *OKXClient) request(ctx context.Context, method, path string, body inter
 	}
 	signature := c.sign(timestamp, method, path, bodyStr)
 
-	// 设置请求头
+	// 設置请求头
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
 	req.Header.Set("OK-ACCESS-SIGN", signature)
 	req.Header.Set("OK-ACCESS-TIMESTAMP", timestamp)
 	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passphrase)
 
-	// 模拟盘标识
+	// 模拟盘標识
 	if isSimulated {
 		req.Header.Set("x-simulated-trading", "1")
 	}
@@ -111,7 +111,7 @@ func (c *OKXClient) request(ctx context.Context, method, path string, body inter
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP 错误 %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("HTTP 錯误 %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	// 检查 OKX API 响应
@@ -126,23 +126,23 @@ func (c *OKXClient) request(ctx context.Context, method, path string, body inter
 	}
 
 	if apiResp.Code != "0" {
-		return nil, fmt.Errorf("API 错误 %s: %s", apiResp.Code, apiResp.Msg)
+		return nil, fmt.Errorf("API 錯误 %s: %s", apiResp.Code, apiResp.Msg)
 	}
 
 	return apiResp.Data, nil
 }
 
-// Instrument 合约信息
+// Instrument 合約信息
 type Instrument struct {
 	InstId    string `json:"instId"`
 	InstType  string `json:"instType"`
-	CtValCcy  string `json:"ctValCcy"`  // 合约面值计价币种
-	SettleCcy string `json:"settleCcy"` // 结算币种
-	TickSz    string `json:"tickSz"`    // 价格最小变动单位
-	LotSz     string `json:"lotSz"`     // 数量最小变动单位
+	CtValCcy  string `json:"ctValCcy"`  // 合約面值计價币种
+	SettleCcy string `json:"settleCcy"` // 結算币种
+	TickSz    string `json:"tickSz"`    // 價格最小变动單位
+	LotSz     string `json:"lotSz"`     // 數量最小变动單位
 }
 
-// GetInstruments 获取合约信息
+// GetInstruments 獲取合約信息
 func (c *OKXClient) GetInstruments(ctx context.Context, instType, instId string) ([]Instrument, error) {
 	path := fmt.Sprintf("/api/v5/public/instruments?instType=%s", instType)
 	if instId != "" {
@@ -156,13 +156,13 @@ func (c *OKXClient) GetInstruments(ctx context.Context, instType, instId string)
 
 	var instruments []Instrument
 	if err := json.Unmarshal(data, &instruments); err != nil {
-		return nil, fmt.Errorf("解析合约信息失败: %w", err)
+		return nil, fmt.Errorf("解析合約信息失败: %w", err)
 	}
 
 	return instruments, nil
 }
 
-// PlaceOrderResult 下单结果
+// PlaceOrderResult 下單結果
 type PlaceOrderResult struct {
 	OrdId   string `json:"ordId"`
 	ClOrdId string `json:"clOrdId"`
@@ -170,7 +170,7 @@ type PlaceOrderResult struct {
 	SMsg    string `json:"sMsg"`
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *OKXClient) PlaceOrder(ctx context.Context, order map[string]interface{}) ([]PlaceOrderResult, error) {
 	data, err := c.request(ctx, "POST", "/api/v5/trade/order", order, c.useTestnet)
 	if err != nil {
@@ -179,13 +179,13 @@ func (c *OKXClient) PlaceOrder(ctx context.Context, order map[string]interface{}
 
 	var results []PlaceOrderResult
 	if err := json.Unmarshal(data, &results); err != nil {
-		return nil, fmt.Errorf("解析下单结果失败: %w", err)
+		return nil, fmt.Errorf("解析下單結果失败: %w", err)
 	}
 
 	return results, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *OKXClient) CancelOrder(ctx context.Context, instId, ordId, clOrdId string) error {
 	body := map[string]interface{}{
 		"instId": instId,
@@ -202,7 +202,7 @@ func (c *OKXClient) CancelOrder(ctx context.Context, instId, ordId, clOrdId stri
 	return err
 }
 
-// BatchCancelOrders 批量取消订单
+// BatchCancelOrders 批量取消訂單
 func (c *OKXClient) BatchCancelOrders(ctx context.Context, instId string, orderIds []string) error {
 	orders := make([]map[string]interface{}, len(orderIds))
 	for i, ordId := range orderIds {
@@ -216,7 +216,7 @@ func (c *OKXClient) BatchCancelOrders(ctx context.Context, instId string, orderI
 	return err
 }
 
-// OKXOrder 订单信息
+// OKXOrder 订單信息
 type OKXOrder struct {
 	OrdId     string `json:"ordId"`
 	ClOrdId   string `json:"clOrdId"`
@@ -225,13 +225,13 @@ type OKXOrder struct {
 	OrdType   string `json:"ordType"`
 	Px        string `json:"px"`
 	Sz        string `json:"sz"`
-	AccFillSz string `json:"accFillSz"` // 累计成交数量
-	AvgPx     string `json:"avgPx"`     // 成交均价
-	State     string `json:"state"`     // 订单状态
-	UTime     string `json:"uTime"`     // 更新时间
+	AccFillSz string `json:"accFillSz"` // 累计成交數量
+	AvgPx     string `json:"avgPx"`     // 成交均價
+	State     string `json:"state"`     // 订單状態
+	UTime     string `json:"uTime"`     // 更新時间
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *OKXClient) GetOrder(ctx context.Context, instId, ordId, clOrdId string) (*OKXOrder, error) {
 	path := fmt.Sprintf("/api/v5/trade/order?instId=%s", instId)
 	if ordId != "" {
@@ -248,50 +248,52 @@ func (c *OKXClient) GetOrder(ctx context.Context, instId, ordId, clOrdId string)
 
 	var orders []OKXOrder
 	if err := json.Unmarshal(data, &orders); err != nil {
-		return nil, fmt.Errorf("解析订单信息失败: %w", err)
+		return nil, fmt.Errorf("解析订單信息失败: %w", err)
 	}
 
 	if len(orders) == 0 {
-		return nil, fmt.Errorf("订单不存在")
+		return nil, fmt.Errorf("订單不存在")
 	}
 
 	return &orders[0], nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單（合約 SWAP）
 func (c *OKXClient) GetOpenOrders(ctx context.Context, instId string) ([]OKXOrder, error) {
-	path := fmt.Sprintf("/api/v5/trade/orders-pending?instType=SWAP")
+	return c.GetOpenOrdersByInstType(ctx, "SWAP", instId)
+}
+
+// GetOpenOrdersByInstType 按 instType 查詢未完成订單（SWAP/SPOT）
+func (c *OKXClient) GetOpenOrdersByInstType(ctx context.Context, instType, instId string) ([]OKXOrder, error) {
+	path := fmt.Sprintf("/api/v5/trade/orders-pending?instType=%s", instType)
 	if instId != "" {
 		path += "&instId=" + instId
 	}
-
 	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
 	if err != nil {
 		return nil, err
 	}
-
 	var orders []OKXOrder
 	if err := json.Unmarshal(data, &orders); err != nil {
-		return nil, fmt.Errorf("解析订单列表失败: %w", err)
+		return nil, fmt.Errorf("解析订單列表失败: %w", err)
 	}
-
 	return orders, nil
 }
 
-// BalanceDetail 余额详情
+// BalanceDetail 餘額详情
 type BalanceDetail struct {
 	Ccy      string `json:"ccy"`      // 币种
-	Eq       string `json:"eq"`       // 币种总权益
-	AvailBal string `json:"availBal"` // 可用余额
+	Eq       string `json:"eq"`       // 币种總权益
+	AvailBal string `json:"availBal"` // 可用餘額
 }
 
-// Balance 账户余额
+// Balance 账戶餘額
 type Balance struct {
-	TotalEq string          `json:"totalEq"` // 总权益
+	TotalEq string          `json:"totalEq"` // 總权益
 	Details []BalanceDetail `json:"details"` // 币种详情
 }
 
-// GetBalance 获取账户余额
+// GetBalance 獲取帳戶餘額
 func (c *OKXClient) GetBalance(ctx context.Context) ([]Balance, error) {
 	data, err := c.request(ctx, "GET", "/api/v5/account/balance", nil, c.useTestnet)
 	if err != nil {
@@ -300,26 +302,26 @@ func (c *OKXClient) GetBalance(ctx context.Context) ([]Balance, error) {
 
 	var balances []Balance
 	if err := json.Unmarshal(data, &balances); err != nil {
-		return nil, fmt.Errorf("解析余额信息失败: %w", err)
+		return nil, fmt.Errorf("解析餘額信息失败: %w", err)
 	}
 
 	return balances, nil
 }
 
-// OKXPosition 持仓信息
+// OKXPosition 持倉資訊
 type OKXPosition struct {
 	InstId   string `json:"instId"`
-	Pos      string `json:"pos"`      // 持仓数量
-	AvgPx    string `json:"avgPx"`    // 开仓均价
-	MarkPx   string `json:"markPx"`   // 标记价格
-	Upl      string `json:"upl"`      // 未实现收益
-	Lever    string `json:"lever"`    // 杠杆倍数
+	Pos      string `json:"pos"`      // 持倉數量
+	AvgPx    string `json:"avgPx"`    // 开倉均價
+	MarkPx   string `json:"markPx"`   // 標記價格
+	Upl      string `json:"upl"`      // 未實現收益
+	Lever    string `json:"lever"`    // 杠杆倍數
 	MgnMode  string `json:"mgnMode"`  // 保证金模式
-	PosSide  string `json:"posSide"`  // 持仓方向
-	UplRatio string `json:"uplRatio"` // 未实现收益率
+	PosSide  string `json:"posSide"`  // 持倉方向
+	UplRatio string `json:"uplRatio"` // 未實現收益率
 }
 
-// GetPositions 获取持仓信息
+// GetPositions 獲取持倉信息
 func (c *OKXClient) GetPositions(ctx context.Context, instId string) ([]OKXPosition, error) {
 	path := "/api/v5/account/positions?instType=SWAP"
 	if instId != "" {
@@ -333,24 +335,24 @@ func (c *OKXClient) GetPositions(ctx context.Context, instId string) ([]OKXPosit
 
 	var positions []OKXPosition
 	if err := json.Unmarshal(data, &positions); err != nil {
-		return nil, fmt.Errorf("解析持仓信息失败: %w", err)
+		return nil, fmt.Errorf("解析持倉資訊失败: %w", err)
 	}
 
 	return positions, nil
 }
 
-// Kline K线数据
+// Kline K線數據
 type Kline struct {
-	Ts     string `json:"ts"`     // 时间戳
-	O      string `json:"o"`      // 开盘价
-	H      string `json:"h"`      // 最高价
-	L      string `json:"l"`      // 最低价
-	C      string `json:"c"`      // 收盘价
+	Ts     string `json:"ts"`     // 時间戳
+	O      string `json:"o"`      // 开盘價
+	H      string `json:"h"`      // 最高價
+	L      string `json:"l"`      // 最低價
+	C      string `json:"c"`      // 收盘價
 	Vol    string `json:"vol"`    // 成交量
-	VolCcy string `json:"volCcy"` // 成交额
+	VolCcy string `json:"volCcy"` // 成交額
 }
 
-// GetKlines 获取K线数据
+// GetKlines 獲取K線數據
 func (c *OKXClient) GetKlines(ctx context.Context, instId, bar string, limit int) ([]Kline, error) {
 	path := fmt.Sprintf("/api/v5/market/candles?instId=%s&bar=%s", instId, bar)
 	if limit > 0 {
@@ -362,10 +364,10 @@ func (c *OKXClient) GetKlines(ctx context.Context, instId, bar string, limit int
 		return nil, err
 	}
 
-	// OKX 返回的是二维数组
+	// OKX 返回的是二维數组
 	var rawKlines [][]interface{}
 	if err := json.Unmarshal(data, &rawKlines); err != nil {
-		return nil, fmt.Errorf("解析K线数据失败: %w", err)
+		return nil, fmt.Errorf("解析K線數據失败: %w", err)
 	}
 
 	klines := make([]Kline, 0, len(rawKlines))
@@ -392,11 +394,11 @@ func (c *OKXClient) GetKlines(ctx context.Context, instId, bar string, limit int
 // FundingRate 资金费率
 type FundingRate struct {
 	InstId      string `json:"instId"`
-	FundingRate string `json:"fundingRate"` // 当前资金费率
-	NextTime    string `json:"fundingTime"` // 下次结算时间
+	FundingRate string `json:"fundingRate"` // 當前资金费率
+	NextTime    string `json:"fundingTime"` // 下次結算時间
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (c *OKXClient) GetFundingRate(ctx context.Context, instId string) (*FundingRate, error) {
 	path := fmt.Sprintf("/api/v5/public/funding-rate?instId=%s", instId)
 
@@ -417,13 +419,13 @@ func (c *OKXClient) GetFundingRate(ctx context.Context, instId string) (*Funding
 	return &rates[0], nil
 }
 
-// Ticker 行情数据
+// Ticker 行情數據
 type Ticker struct {
 	InstId string `json:"instId"`
-	Last   string `json:"last"` // 最新价格
+	Last   string `json:"last"` // 最新價格
 }
 
-// GetTicker 获取行情
+// GetTicker 獲取行情
 func (c *OKXClient) GetTicker(ctx context.Context, instId string) (*Ticker, error) {
 	path := fmt.Sprintf("/api/v5/market/ticker?instId=%s", instId)
 
@@ -434,29 +436,29 @@ func (c *OKXClient) GetTicker(ctx context.Context, instId string) (*Ticker, erro
 
 	var tickers []Ticker
 	if err := json.Unmarshal(data, &tickers); err != nil {
-		return nil, fmt.Errorf("解析行情数据失败: %w", err)
+		return nil, fmt.Errorf("解析行情數據失败: %w", err)
 	}
 
 	if len(tickers) == 0 {
-		return nil, fmt.Errorf("未找到行情数据")
+		return nil, fmt.Errorf("未找到行情數據")
 	}
 
 	return &tickers[0], nil
 }
 
-// OKXOrderBookResponse OKX 订单簿响应结构
+// OKXOrderBookResponse OKX 订單簿响应結構
 type OKXOrderBookResponse struct {
-	InstID  string     `json:"instId"`  // 交易对
-	Asks    [][]string `json:"asks"`    // 卖盘 [[价格, 数量, 0, 数量], ...]
-	Bids    [][]string `json:"bids"`    // 买盘 [[价格, 数量, 0, 数量], ...]
-	TS      string     `json:"ts"`       // 时间戳（毫秒）
+	InstID  string     `json:"instId"`  // 交易對
+	Asks    [][]string `json:"asks"`    // 賣盘 [[價格, 數量, 0, 數量], ...]
+	Bids    [][]string `json:"bids"`    // 買盘 [[價格, 數量, 0, 數量], ...]
+	TS      string     `json:"ts"`       // 時间戳（毫秒）
 }
 
-// GetOrderBook 获取订单簿深度
+// GetOrderBook 獲取訂單簿深度
 func (c *OKXClient) GetOrderBook(ctx context.Context, instId string, sz int) (*OKXOrderBookResponse, error) {
 	path := fmt.Sprintf("/api/v5/market/books?instId=%s&sz=%d", instId, sz)
 
-	data, err := c.request(ctx, "GET", path, nil, false) // 订单簿是公开接口，不需要模拟盘标识
+	data, err := c.request(ctx, "GET", path, nil, false) // 订單簿是公开接口，不需要模拟盘標识
 	if err != nil {
 		return nil, err
 	}
@@ -466,16 +468,16 @@ func (c *OKXClient) GetOrderBook(ctx context.Context, instId string, sz int) (*O
 	}
 
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("解析订单簿数据失败: %w", err)
+		return nil, fmt.Errorf("解析订單簿數據失败: %w", err)
 	}
 
 	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("订单簿数据为空")
+		return nil, fmt.Errorf("订單簿數據為空")
 	}
 
 	return &result.Data[0], nil
 }
 
 func init() {
-	logger.Info("📦 [OKX Client] REST API 客户端已初始化")
+	logger.Info("📦 [OKX Client] REST API 客戶端已初始化")
 }

@@ -17,7 +17,7 @@ import (
 	"quantmesh/utils"
 )
 
-// OrderUpdate 订单更新事件（避免依赖 websocket 包）
+// OrderUpdate 订單更新事件（避免依赖 websocket 包）
 type OrderUpdate struct {
 	OrderID       int64
 	ClientOrderID string
@@ -31,14 +31,14 @@ type OrderUpdate struct {
 	UpdateTime    int64
 }
 
-// BatchPlaceOrdersResult 批量下单结果
+// BatchPlaceOrdersResult 批量下單結果
 type BatchPlaceOrdersResult struct {
-	PlacedOrders     []*Order        // 成功下单的订单列表
-	HasMarginError   bool            // 是否出现保证金不足错误
-	ReduceOnlyErrors map[string]bool // ReduceOnly错误的订单（key为ClientOrderID）
+	PlacedOrders     []*Order        // 成功下單的订單列表
+	HasMarginError   bool            // 是否出現保证金不足錯误
+	ReduceOnlyErrors map[string]bool // ReduceOnly錯误的订單（key為ClientOrderID）
 }
 
-// OrderExecutorInterface 订单执行器接口（避免循环导入）
+// OrderExecutorInterface 订單執行器介面（避免循環匯入）
 type OrderExecutorInterface interface {
 	PlaceOrder(req *OrderRequest) (*Order, error)
 	BatchPlaceOrders(orders []*OrderRequest) ([]*Order, bool)
@@ -46,21 +46,21 @@ type OrderExecutorInterface interface {
 	BatchCancelOrders(orderIDs []int64) error
 }
 
-// OrderRequest 订单请求（避免循环导入）
+// OrderRequest 订單请求（避免循環匯入）
 type OrderRequest struct {
 	Symbol        string
 	Side          string
 	Price         float64
 	Quantity      float64
-	PriceDecimals int    // 价格小数位数（用于格式化价格字符串）
-	ReduceOnly    bool   // 是否只减仓（平仓单）
+	PriceDecimals int    // 價格小數位數（用於格式化價格字符串）
+	ReduceOnly    bool   // 是否只减倉（平倉單）
 	PostOnly      bool   // 是否只做 Maker（Post Only）
-	ClientOrderID string // 自定义订单ID
-	StrategyName  string // 策略名称（可选，用于日志追踪）
-	StrategyType  string // 策略类型（可选，如 "grid", "dca", "martingale"）
+	ClientOrderID string // 自定义订單ID
+	StrategyName  string // 策略名称（可選，用於日志追踪）
+	StrategyType  string // 策略類型（可選，如 "grid", "dca", "martingale"）
 }
 
-// Order 订单信息（避免循环导入）
+// Order 订單信息（避免循環匯入）
 type Order struct {
 	OrderID       int64
 	ClientOrderID string
@@ -72,112 +72,112 @@ type Order struct {
 	CreatedAt     time.Time
 }
 
-// 订单状态常量
+// 订單状態常量
 const (
-	OrderStatusNotPlaced       = "NOT_PLACED"       // 未下单
-	OrderStatusPlaced          = "PLACED"           // 已下单
+	OrderStatusNotPlaced       = "NOT_PLACED"       // 未下單
+	OrderStatusPlaced          = "PLACED"           // 已下單
 	OrderStatusConfirmed       = "CONFIRMED"        // 已确认（WebSocket确认）
 	OrderStatusPartiallyFilled = "PARTIALLY_FILLED" // 部分成交
 	OrderStatusFilled          = "FILLED"           // 全部成交
-	OrderStatusCancelRequested = "CANCEL_REQUESTED" // 已申请撤单
-	OrderStatusCanceled        = "CANCELED"         // 已撤单
+	OrderStatusCancelRequested = "CANCEL_REQUESTED" // 已申请撤單
+	OrderStatusCanceled        = "CANCELED"         // 已撤單
 )
 
-// 持仓状态常量
+// 持倉状態常量
 const (
-	PositionStatusEmpty  = "EMPTY"  // 空仓
-	PositionStatusFilled = "FILLED" // 有仓
+	PositionStatusEmpty  = "EMPTY"  // 空倉
+	PositionStatusFilled = "FILLED" // 有倉
 )
 
-// 槽位锁定状态
+// 槽位鎖定状態
 const (
 	SlotStatusFree    = "FREE"    // 空闲，可操作
-	SlotStatusPending = "PENDING" // 等待下单确认
-	SlotStatusLocked  = "LOCKED"  // 已锁定，有活跃订单
+	SlotStatusPending = "PENDING" // 等待下單确认
+	SlotStatusLocked  = "LOCKED"  // 已鎖定，有活跃订單
 )
 
-// InventorySlot 库存槽位（每个价格点一个）
+// InventorySlot 库存槽位（每個價格点一個）
 type InventorySlot struct {
-	Price float64 // 价格（作为key，支持高精度）
+	Price float64 // 價格（作為key，支援高精度）
 
-	// 持仓信息
-	PositionStatus string  // 持仓状态：空仓/有仓
-	PositionQty    float64 // 持仓数量（支持小数点后3位）
+	// 持倉資訊
+	PositionStatus string  // 持倉状態：空倉/有倉
+	PositionQty    float64 // 持倉數量（支援小數点后3位）
 
-	// 订单信息 (买卖互斥)
-	OrderID        int64     // 订单ID
-	ClientOID      string    // 自定义订单ID
-	OrderSide      string    // 订单方向 (BUY/SELL)
-	OrderStatus    string    // 订单状态
-	OrderPrice     float64   // 订单价格
-	OrderFilledQty float64   // 成交数量
-	OrderCreatedAt time.Time // 创建时间
+	// 订單信息 (買賣互斥)
+	OrderID        int64     // 订單ID
+	ClientOID      string    // 自定义订單ID
+	OrderSide      string    // 订單方向 (BUY/SELL)
+	OrderStatus    string    // 订單状態
+	OrderPrice     float64   // 订單價格
+	OrderFilledQty float64   // 成交數量
+	OrderCreatedAt time.Time // 創建時间
 
-	// 🔥 新增：槽位锁定状态，防止并发重复操作
+	// 🔥 新增：槽位鎖定状態，防止並发重複操作
 	SlotStatus string // FREE/PENDING/LOCKED
 
-	// PostOnly失败计数（连续失败3次后降级为普通单）
+	// PostOnly失败计數（连续失败3次后降级為普通單）
 	PostOnlyFailCount int
 
-	mu sync.RWMutex // 槽位级别的锁（细粒度锁）
+	mu sync.RWMutex // 槽位级别的鎖（细粒度鎖）
 }
 
-// PositionInfo 持仓信息（简化版，避免循环导入）
+// PositionInfo 持倉資訊（简化版，避免循環匯入）
 type PositionInfo struct {
 	Symbol string
 	Size   float64
 }
 
-// IExchange 交易所接口（避免循环导入）
-// 注意：这里不能直接使用 exchange.IExchange，否则会循环导入
-// 所以定义一个子集接口，只包含对账需要的方法
+// IExchange 交易所介面（避免循環匯入）
+// 注意：这里不能直接使用 exchange.IExchange，否则會循環匯入
+// 所以定义一個子集接口，只包含對账需要的方法
 type IExchange interface {
-	GetName() string // 获取交易所名称
+	GetName() string // 獲取交易所名称
 	GetPositions(ctx context.Context, symbol string) (interface{}, error)
 	GetOpenOrders(ctx context.Context, symbol string) (interface{}, error)
 	GetOrder(ctx context.Context, symbol string, orderID int64) (interface{}, error)
-	GetBaseAsset() string                                     // 获取基础资产（交易币种）
-	CancelAllOrders(ctx context.Context, symbol string) error // 取消所有订单
-	GetAccount(ctx context.Context) (interface{}, error)      // 获取账户信息（返回 *exchange.Account 或类似结构）
-	GetPriceDecimals() int                                    // 获取价格精度
-	GetQuantityDecimals() int                                 // 获取数量精度
+	GetBaseAsset() string                                     // 獲取基础资產（交易币种）
+	CancelAllOrders(ctx context.Context, symbol string) error // 取消所有订單
+	GetAccount(ctx context.Context) (interface{}, error)      // 獲取帳戶信息（回傳 *exchange.Account 或類似結構）
+	GetPriceDecimals() int                                    // 獲取價格精度
+	GetQuantityDecimals() int                                 // 獲取數量精度
 }
 
-// TradeStorage 交易存储接口（避免循环导入）
-// 用于保存交易记录（买卖配对）
+// TradeStorage 交易存儲介面（避免循環匯入）
+// 用於保存交易記錄（買賣配對）
 type TradeStorage interface {
 	SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error
 }
 
-// ReconciliationStorage 对账存储接口（避免循环导入）
-// 用于恢复对账统计值
+// ReconciliationStorage 對账存儲介面（避免循環匯入）
+// 用於恢複對账统计值
 type ReconciliationStorage interface {
-	GetLatestReconciliationHistory(exchange, symbol string) (interface{}, error) // 返回 *storage.ReconciliationHistory
+	GetLatestReconciliationHistory(exchange, symbol string) (interface{}, error) // 回傳 *storage.ReconciliationHistory
 	GetReconciliationCount(exchange, symbol string) (int64, error)
 }
 
-// ITrendDetector 趋势检测器接口（避免循环导入）
+// ITrendDetector 趋势检测器介面（避免循環匯入）
 type ITrendDetector interface {
 	GetCurrentTrend() string
 }
 
-// SuperPositionManager 超级仓位管理器
+// SuperPositionManager 超级倉位管理器
 type SuperPositionManager struct {
 	config       *config.Config
 	executor     OrderExecutorInterface
 	exchange     IExchange
 	exchangeName string // 交易所名称（配置中的名称，如 "binance"）
 
-	// 价格锚点（初始化时的市场价格）
+	// 價格锚点（初始化時的市场價格）
 	anchorPrice float64
-	// 最后市场价格（用于打印状态）
+	// 最后市场價格（用於打印状態）
 	lastMarketPrice atomic.Value // float64
-	// 价格精度（根据锚点价格检测得出的小数位数）
+	// 價格精度（根據锚点價格检测得出的小數位數）
 	priceDecimals int
-	// 数量精度（从交易所获取）
+	// 數量精度（從交易所獲取）
 	quantityDecimals int
 
-	// 库存槽位：价格 -> 槽位
+	// 库存槽位：價格 -> 槽位
 	slots sync.Map // map[float64]*InventorySlot
 
 	// 保证金管理
@@ -185,47 +185,47 @@ type SuperPositionManager struct {
 	marginLockTime     time.Time
 	marginLockDuration time.Duration
 
-	// 风险监控状态
-	peakPnL       float64        // 记录最高未实现盈亏（用于回撤止盈）
+	// 风險監控状態
+	peakPnL       float64        // 記錄最高未實現盈亏（用於回撤止盈）
 	trendDetector ITrendDetector // 趋势检测器
 
 	// 资金分配管理器
 	allocationManager *AllocationManager
 
-	// 事件总线（用于发送告警）
+	// 事件總線（用於发送告警）
 	eventBus EventBus
 
-	// 统计（注意：以下字段被 safety.Reconciler 和 PrintPositions 使用，不可删除）
-	totalBuyQty       atomic.Value // float64 - 累计买入数量
-	totalSellQty      atomic.Value // float64 - 累计卖出数量
-	reconcileCount    atomic.Int64 // 对账次数
-	lastReconcileTime atomic.Value // time.Time - 最后对账时间
+	// 统计（注意：以下字段被 safety.Reconciler 和 PrintPositions 使用，不可刪除）
+	totalBuyQty       atomic.Value // float64 - 累计買入數量
+	totalSellQty      atomic.Value // float64 - 累计賣出數量
+	reconcileCount    atomic.Int64 // 對账次數
+	lastReconcileTime atomic.Value // time.Time - 最后對账時间
 
-	// 交易存储（可选，用于保存交易记录）
+	// 交易存儲（可選，用於保存交易記錄）
 	tradeStorage TradeStorage
 
-	// 初始化标志
+	// 初始化標志
 	isInitialized atomic.Bool
 
-	// 暂停标志
+	// 暂停標志
 	isPaused atomic.Bool
 
-	mu sync.RWMutex // 全局锁（用于关键操作）
+	mu sync.RWMutex // 全局鎖（用於关键操作）
 }
 
-// EventBus 事件总线接口
+// EventBus 事件總線接口
 type EventBus interface {
 	Publish(evt *event.Event)
 }
 
-// NewSuperPositionManager 创建超级仓位管理器
+// NewSuperPositionManager 創建超级倉位管理器
 func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface, exchange IExchange, priceDecimals, quantityDecimals int) *SuperPositionManager {
 	marginLockSec := cfg.Trading.MarginLockDurationSec
 	if marginLockSec <= 0 {
-		marginLockSec = 10 // 默认10秒
+		marginLockSec = 10 // 預設 10秒
 	}
 
-	// 从配置中获取交易所名称
+	// 從配置中獲取交易所名称
 	exchangeName := strings.ToLower(cfg.App.CurrentExchange)
 	if exchangeName == "" {
 		exchangeName = "binance" // 默认值
@@ -240,8 +240,8 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		marginLockDuration: time.Duration(marginLockSec) * time.Second,
 		priceDecimals:      priceDecimals,
 		quantityDecimals:   quantityDecimals,
-		peakPnL:            -math.MaxFloat64, // 初始化为一个极小值
-		tradeStorage:       nil,              // 默认不保存交易记录，可通过 SetTradeStorage 设置
+		peakPnL:            -math.MaxFloat64, // 初始化為一個极小值
+		tradeStorage:       nil,              // 默认不保存交易記錄，可通過 SetTradeStorage 設置
 		allocationManager:  NewAllocationManager(cfg), // 初始化资金分配管理器
 	}
 	spm.totalBuyQty.Store(0.0)
@@ -254,13 +254,13 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 // Pause 暂停交易
 func (spm *SuperPositionManager) Pause() {
 	spm.isPaused.Store(true)
-	logger.Warn("⏸️ [%s] 仓位管理器已暂停交易", spm.config.Trading.Symbol)
+	logger.Warn("⏸️ [%s] 倉位管理器已暂停交易", spm.config.Trading.Symbol)
 }
 
-// Resume 恢复交易
+// Resume 恢複交易
 func (spm *SuperPositionManager) Resume() {
 	spm.isPaused.Store(false)
-	logger.Info("▶️ [%s] 仓位管理器已恢复交易", spm.config.Trading.Symbol)
+	logger.Info("▶️ [%s] 倉位管理器已恢複交易", spm.config.Trading.Symbol)
 }
 
 // IsPaused 是否已暂停
@@ -268,32 +268,40 @@ func (spm *SuperPositionManager) IsPaused() bool {
 	return spm.isPaused.Load()
 }
 
-// SetEventBus 设置事件总线
+// SetEventBus 設置事件總線
 func (spm *SuperPositionManager) SetEventBus(eventBus EventBus) {
 	spm.eventBus = eventBus
-	// 同时设置到 allocationManager
+	// 同時設置到 allocationManager
 	if spm.allocationManager != nil {
 		spm.allocationManager.SetEventBus(eventBus)
 	}
 }
 
-// SetTradeStorage 设置交易存储接口（用于保存交易记录）
+// SetTradeStorage 設置交易存儲介面（用於保存交易記錄）
 func (spm *SuperPositionManager) SetTradeStorage(storage TradeStorage) {
 	spm.tradeStorage = storage
 }
 
-// getActualMargin 获取实际使用的保证金（考虑杠杆）
-// 对于有杠杆的交易，实际保证金 = 订单价值 / 杠杆倍数
+// isSpot 是否為現貨交易（現貨不使用 ReduceOnly、杠杆固定為 1）
+func (spm *SuperPositionManager) isSpot() bool {
+	return spm.config.Trading.MarketType == "spot"
+}
+
+// getActualMargin 獲取實際使用的保证金（考虑杠杆）
+// 現貨：實際占用 = 訂單價值（杠杆 1）；合約：實際保证金 = 訂單價值 / 杠杆倍數
 func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
 	if orderValue <= 0 {
 		return 0
 	}
+	if spm.isSpot() {
+		return orderValue
+	}
 
-	// 获取杠杆倍数
-	leverage := 1 // 默认1倍（无杠杆）
+	// 獲取杠杆倍數
+	leverage := 1 // 默认1倍（無杠杆）
 	ctx := context.Background()
 
-	// 先尝试从账户信息中获取
+	// 先尝試從帳戶資訊中獲取
 	if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
 		accountValue := reflect.ValueOf(accountResult)
 		if accountValue.Kind() == reflect.Ptr {
@@ -306,10 +314,10 @@ func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
 		}
 	}
 
-	// 如果从账户中获取不到，尝试从持仓中获取
+	// 如果從账戶中獲取不到，尝試從持倉中獲取
 	if leverage == 1 {
 		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
-			// 使用反射处理不同类型的持仓信息
+			// 使用反射处理不同類型的持倉資訊
 			positionsValue := reflect.ValueOf(positionsInterface)
 			if positionsValue.Kind() == reflect.Slice {
 				for i := 0; i < positionsValue.Len(); i++ {
@@ -320,11 +328,11 @@ func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
 						posValue = posValue.Elem()
 					}
 					
-					// 尝试获取 Leverage 字段
+					// 尝試獲取 Leverage 字段
 					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
 						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
 							leverage = lev
-							logger.Debug("🔍 [杠杆检测] 从持仓信息中获取到杠杆倍数: %dx", leverage)
+							logger.Debug("🔍 [杠杆检测] 從持倉資訊中獲取到杠杆倍數: %dx", leverage)
 							break
 						}
 					}
@@ -333,62 +341,62 @@ func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
 		}
 	}
 
-	// 计算实际保证金
+	// 计算實際保证金
 	return orderValue / float64(leverage)
 }
 
-// SetTrendDetector 设置趋势检测器
+// SetTrendDetector 設置趋势检测器
 func (spm *SuperPositionManager) SetTrendDetector(td ITrendDetector) {
 	spm.mu.Lock()
 	defer spm.mu.Unlock()
 	spm.trendDetector = td
 }
 
-// Initialize 初始化管理器（设置价格锚点并创建初始槽位）
+// Initialize 初始化管理器（設置價格锚点並創建初始槽位）
 func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceStr string) error {
 	spm.mu.Lock()
 	defer spm.mu.Unlock()
 
 	if initialPrice <= 0 {
-		return fmt.Errorf("初始价格无效: %.2f", initialPrice)
+		return fmt.Errorf("初始價格無效: %.2f", initialPrice)
 	}
 
-	// 1. 设置价格锚点（精度信息已经在构造函数中设置，从交易所获取）
+	// 1. 設置價格锚点（精度信息已經在構造函數中設置，從交易所獲取）
 	spm.anchorPrice = initialPrice
-	spm.lastMarketPrice.Store(initialPrice) // 初始化最后市场价格
-	logger.Info("✅ 价格锚点已设置: %s, 价格精度:%d, 数量精度:%d",
+	spm.lastMarketPrice.Store(initialPrice) // 初始化最后市场價格
+	logger.Info("✅ 價格锚点已設置: %s, 價格精度:%d, 數量精度:%d",
 		formatPrice(initialPrice, spm.priceDecimals), spm.priceDecimals, spm.quantityDecimals)
 
-	// 2. 直接使用锚点价格作为网格价格（不再对齐到整数）
+	// 2. 直接使用锚点價格作為网格價格（不再對齐到整數）
 	initialGridPrice := spm.anchorPrice
-	logger.Info("✅ 初始网格价格: %s (使用锚点价格)", formatPrice(initialGridPrice, spm.priceDecimals))
+	logger.Info("✅ 初始网格價格: %s (使用锚点價格)", formatPrice(initialGridPrice, spm.priceDecimals))
 
-	// 4. 使用统一的槽位价格计算方法创建初始槽位
+	// 4. 使用统一的槽位價格计算方法創建初始槽位
 	slotPrices := spm.calculateSlotPrices(initialGridPrice, spm.config.Trading.BuyWindowSize, "down")
 	for _, price := range slotPrices {
 		spm.getOrCreateSlot(price)
 	}
-	// 格式化槽位价格用于日志输出
+	// 格式化槽位價格用於日志输出
 	slotPricesStr := make([]string, len(slotPrices))
 	for i, p := range slotPrices {
 		slotPricesStr[i] = formatPrice(p, spm.priceDecimals)
 	}
-	logger.Info("✅ [初始化] 计算出的槽位价格: %v", slotPricesStr)
+	logger.Info("✅ [初始化] 计算出的槽位價格: %v", slotPricesStr)
 
-	// 5. 为初始槽位下买单
+	// 5. 為初始槽位下買單
 	err := spm.placeInitialBuyOrders()
 	if err == nil {
-		// 标记为已初始化
+		// 標記為已初始化
 		spm.isInitialized.Store(true)
-		logger.Info("✅ 初始化完成，网格价格: %s", formatPrice(initialGridPrice, spm.priceDecimals))
+		logger.Info("✅ 初始化完成，网格價格: %s", formatPrice(initialGridPrice, spm.priceDecimals))
 	}
 	return err
 }
 
-// generateClientOrderID 生成自定义订单ID
-// 使用新的紧凑格式，最大长度不超过18字符
+// generateClientOrderID 生成自定义订單ID
+// 使用新的紧凑格式，最大长度不超過18字符
 // 格式: {price_int}_{side}_{timestamp}{seq}
-// price_int: price * 10^decimals (转为整数)
+// price_int: price * 10^decimals (轉為整數)
 // side: B=Buy, S=Sell
 func (spm *SuperPositionManager) generateClientOrderID(price float64, side string) string {
 	// 使用统一的 utils 包生成紧凑ID
@@ -408,84 +416,84 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 		return 0, "", false
 	}
 
-	// 🔥 关键修复：不要对从ClientOrderID解析出的价格进行四舍五入！
-	// 因为价格本身就是从整数还原的，已经是精确的值
-	// 如果再次四舍五入，可能因为浮点数精度问题导致多个不同价格被映射到同一个槽位
-	// 例如: 3116.85 和 3114.85 可能都被四舍五入成同一个值
+	// 🔥 关键修複：不要對從ClientOrderID解析出的價格進行四舍五入！
+	// 因為價格本身就是從整數还原的，已經是精确的值
+	// 如果再次四舍五入，可能因為浮点數精度问题導致多個不同價格被映射到同一個槽位
+	// 例如: 3116.85 和 3114.85 可能都被四舍五入成同一個值
 
-	// 🔥 添加价格合理性检查：如果解析出的价格明显异常，记录警告
+	// 🔥 新增價格合理性检查：如果解析出的價格明显异常，記錄警告
 	// 可能原因：
-	// 1. priceDecimals 参数错误
-	// 2. 多交易对场景下，订单属于其他交易对（应该在上层过滤，但这里作为兜底检查）
-	// 3. 历史遗留订单（切换交易对后的旧订单）
+	// 1. priceDecimals 参數錯误
+	// 2. 多交易對场景下，订單属於其他交易對（应該在上层過滤，但这里作為兜底检查）
+	// 3. 历史遗留订單（切换交易對后的舊订單）
 	if spm.anchorPrice > 1000 && price < 1000 && price > 0 {
-		logger.Warn("⚠️ [价格解析异常] ClientOrderID=%s, 解析价格=%.2f, 锚点价格=%.2f, priceDecimals=%d",
+		logger.Warn("⚠️ [價格解析异常] ClientOrderID=%s, 解析價格=%.2f, 锚点價格=%.2f, priceDecimals=%d",
 			clientOrderID, price, spm.anchorPrice, spm.priceDecimals)
-		logger.Warn("💡 [可能原因] 1) 此订单属于其他交易对 2) priceDecimals 参数错误 3) 历史遗留订单")
-		logger.Warn("💡 [建议] 检查是否运行了多个交易对，确保订单推送已正确过滤 Symbol")
+		logger.Warn("💡 [可能原因] 1) 此订單属於其他交易對 2) priceDecimals 参數錯误 3) 历史遗留订單")
+		logger.Warn("💡 [建议] 检查是否运行了多個交易對，确保订單推送已正确過滤 Symbol")
 
-		// 尝试使用不同的 priceDecimals 重新解析（用于诊断）
+		// 尝試使用不同的 priceDecimals 重新解析（用於诊断）
 		for testDecimals := 1; testDecimals <= 3; testDecimals++ {
 			if testDecimals == spm.priceDecimals {
 				continue
 			}
 			testPrice, _, _, testValid := utils.ParseOrderID(cleanID, testDecimals)
 			if testValid && testPrice > 1000 && math.Abs(testPrice-spm.anchorPrice) < spm.anchorPrice*0.5 {
-				logger.Warn("⚠️ [价格解析修复] 使用 priceDecimals=%d 重新解析得到价格=%.2f", testDecimals, testPrice)
+				logger.Warn("⚠️ [價格解析修複] 使用 priceDecimals=%d 重新解析得到價格=%.2f", testDecimals, testPrice)
 				return testPrice, side, true
 			}
 		}
 
-		// 无法修复，返回无效（避免创建错误的槽位）
+		// 無法修複，返回無效（避免創建錯误的槽位）
 		return 0, "", false
 	}
 
 	return price, side, true
 }
 
-// placeInitialBuyOrders 设定初始槽位（并恢复持仓槽位）
+// placeInitialBuyOrders 設定初始槽位（並恢複持倉槽位）
 func (spm *SuperPositionManager) placeInitialBuyOrders() error {
-	// 🔥 修改：只恢复持仓槽位，不再主动下单
-	// 所有下单操作由 AdjustOrders 统一处理，避免时序问题
+	// 🔥 修改：只恢複持倉槽位，不再主动下單
+	// 所有下單操作由 AdjustOrders 统一处理，避免時序问题
 	existingPosition := spm.getExistingPosition()
 	if existingPosition > 0 {
-		logger.Info("🔄 [持仓恢复] 检测到现有持仓: %.4f，开始初始化卖单槽位", existingPosition)
+		logger.Info("🔄 [持倉恢複] 检测到現有持倉: %.4f，开始初始化賣單槽位", existingPosition)
 		spm.initializeSellSlotsFromPosition(existingPosition)
 	}
 
-	logger.Info("✅ [初始化] 槽位已创建，订单下达将由 AdjustOrders 统一处理")
+	logger.Info("✅ [初始化] 槽位已創建，订單下达將由 AdjustOrders 统一处理")
 	return nil
 }
 
-// AdjustOrders 调整订单（交易入口）
+// AdjustOrders 調整订單（交易入口）
 func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
-	// 🔥 移除初始化检查：现在完全由 AdjustOrders 控制所有下单
-	// 初始化只负责恢复持仓状态，不再下单
+	// 🔥 移除初始化检查：現在完全由 AdjustOrders 控制所有下單
+	// 初始化只负责恢複持倉状態，不再下單
 
 	spm.mu.Lock()
 	defer spm.mu.Unlock()
 
 	// 检查是否暂停
 	if spm.IsPaused() {
-		logger.Debug("⏸️ [%s:%s] 交易已暂停，跳过订单调整", spm.exchangeName, spm.config.Trading.Symbol)
+		logger.Debug("⏸️ [%s:%s] 交易已暂停，跳過订單調整", spm.exchangeName, spm.config.Trading.Symbol)
 		return nil
 	}
 
-	// 验证价格有效性
+	// 驗证價格有效性
 	if currentPrice <= 0 {
-		logger.Warn("⚠️ 收到无效价格: %.2f，跳过订单调整", currentPrice)
+		logger.Warn("⚠️ 收到無效價格: %.2f，跳過订單調整", currentPrice)
 		return nil
 	}
 
-	// 对当前价格进行精度处理
+	// 對當前價格進行精度处理
 	currentPrice = roundPrice(currentPrice, spm.priceDecimals)
 
-	// 更新最后市场价格（用于打印状态）
+	// 更新最后市场價格（用於打印状態）
 	spm.lastMarketPrice.Store(currentPrice)
 
 	// === 网格风控逻辑开始 ===
 	if spm.config.Trading.GridRiskControl.Enabled {
-		// 1. 硬为止损检查
+		// 1. 硬為止损检查
 		stopLossRatio := spm.config.Trading.GridRiskControl.StopLossRatio
 		if stopLossRatio > 0 {
 			unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
@@ -493,14 +501,14 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			if totalValue > 0 {
 				pnlRatio := unrealizedPnL / totalValue
 				if pnlRatio <= -stopLossRatio {
-					logger.Error("🚨 [网格风控] 触发硬为止损! 当前浮亏率: %.2f%%, 阈值: %.2f%%", pnlRatio*100, -stopLossRatio*100)
+					logger.Error("🚨 [网格风控] 触发硬為止损! 當前浮亏率: %.2f%%, 阈值: %.2f%%", pnlRatio*100, -stopLossRatio*100)
 					spm.LiquidateAll()
 					return nil
 				}
 			}
 		}
 
-		// 2. 动态止盈 (盈利回撤止盈) 检查
+		// 2. 动態止盈 (盈利回撤止盈) 检查
 		triggerRatio := spm.config.Trading.GridRiskControl.TakeProfitTriggerRatio
 		trailingRatio := spm.config.Trading.GridRiskControl.TrailingTakeProfitRatio
 		if triggerRatio > 0 && trailingRatio > 0 {
@@ -515,11 +523,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					logger.Debug("💰 [网格风控] 更新最高盈利率: %.2f%%", spm.peakPnL*100)
 				}
 
-				// 如果盈利已经超过触发阈值，且从最高点回撤超过 trailingRatio
+				// 如果盈利已經超過触发阈值，且從最高点回撤超過 trailingRatio
 				if spm.peakPnL >= triggerRatio {
 					drawdown := spm.peakPnL - currentProfitRatio
 					if drawdown >= trailingRatio {
-						logger.Warn("📈 [网格风控] 触发盈利回撤止盈! 最高盈利率: %.2f%%, 当前盈利率: %.2f%%, 回撤: %.2f%%, 阈值: %.2f%%",
+						logger.Warn("📈 [网格风控] 触发盈利回撤止盈! 最高盈利率: %.2f%%, 當前盈利率: %.2f%%, 回撤: %.2f%%, 阈值: %.2f%%",
 							spm.peakPnL*100, currentProfitRatio*100, drawdown*100, trailingRatio*100)
 						spm.LiquidateAll()
 						spm.peakPnL = -math.MaxFloat64 // 重置最高点
@@ -527,42 +535,42 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					}
 				}
 			} else {
-				// 无持仓时重置最高盈利点
+				// 無持倉時重置最高盈利点
 				spm.peakPnL = -math.MaxFloat64
 			}
 		}
 	}
-	// === 网格风控逻辑结束 ===
+	// === 网格风控逻辑結束 ===
 
-	// 检查保证金不足状态
+	// 检查保证金不足状態
 	if spm.insufficientMargin {
 		if time.Since(spm.marginLockTime) >= spm.marginLockDuration {
-			logger.Info("✅ [保证金恢复] 锁定时间已过，恢复下单功能")
+			logger.Info("✅ [保证金恢複] 鎖定時间已過，恢複下單功能")
 			spm.insufficientMargin = false
 		} else {
 			remainingTime := spm.marginLockDuration - time.Since(spm.marginLockTime)
-			logger.Warn("⏸️ [暂停下单] 保证金不足，暂停下单中... (剩余时间: %.0f秒)", remainingTime.Seconds())
+			logger.Warn("⏸️ [暂停下單] 保证金不足，暂停下單中... (剩餘時间: %.0f秒)", remainingTime.Seconds())
 			return nil
 		}
 	}
 
-	// 计算需要监控的价格范围
+	// 计算需要監控的價格範圍
 	buyWindowSize := spm.config.Trading.BuyWindowSize
 	sellWindowSize := spm.config.Trading.SellWindowSize
 	priceInterval := spm.config.Trading.PriceInterval
 
-	// 动态计算网格价格
+	// 动態计算网格價格
 	currentGridPrice := spm.findNearestGridPrice(currentPrice)
-	// logger.Debug("🔄 [实时调整] 当前价格: %s, 网格价格: %s, 买单窗口: %d, 卖单窗口: %d",
+	// logger.Debug("🔄 [實時調整] 當前價格: %s, 网格價格: %s, 買單窗口: %d, 賣單視窗: %d",
 	// 	formatPrice(currentPrice, spm.priceDecimals), formatPrice(currentGridPrice, spm.priceDecimals), buyWindowSize, sellWindowSize)
 
-	// 计算当前网格价格下方buy_window_size个价格
+	// 计算當前网格價格下方buy_window_size個價格
 	slotPrices := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, "down")
 
 	var ordersToPlace []*OrderRequest
 	var activeBuyOrdersInWindow int
 
-	// 统计当前所有订单数量（分别统计买单和卖单）
+	// 统计當前所有订單數量（分别统计買單和賣單）
 	var currentOrderCount int
 	var currentBuyOrderCount int
 	var currentSellOrderCount int
@@ -582,46 +590,46 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		return true
 	})
 
-	// 计算允许创建的订单数量上限
+	// 计算允許創建的订單數量上限
 	threshold := spm.config.Trading.OrderCleanupThreshold
 	if threshold <= 0 {
 		threshold = 100
 	}
 
-	// 🔥 核心改进：不预留空间，允许订单数达到threshold上限
-	// 剩余可用订单数 = 阈值 - 当前订单数
+	// 🔥 核心改進：不預留空间，允許订單數达到threshold上限
+	// 剩餘可用订單數 = 阈值 - 當前订單數
 	remainingOrders := threshold - currentOrderCount
 	if remainingOrders < 0 {
 		remainingOrders = 0
 	}
 
-	// 买单允许的新增数量
+	// 買單允許的新增數量
 	allowedNewBuyOrders := buyWindowSize
 	if allowedNewBuyOrders > remainingOrders {
 		allowedNewBuyOrders = remainingOrders
 	}
 
-	// 1. 处理买单
+	// 1. 处理買單
 	buyOrdersToCreate := 0
 
-	// 趋势过滤与层数限制预检查
+	// 趨勢過濾與层數限制預检查
 	skipBuying := false
 	if spm.config.Trading.GridRiskControl.Enabled {
-		// 趋势过滤
+		// 趨勢過濾
 		if spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil {
 			trend := spm.trendDetector.GetCurrentTrend()
 			if trend == "down" {
-				logger.Warn("📉 [趋势过滤] 检测到下跌趋势，暂停买入")
+				logger.Warn("📉 [趨勢過濾] 检测到下跌趋势，暂停買入")
 				skipBuying = true
 			}
 		}
 
-		// 层数限制
+		// 层數限制
 		maxLayers := spm.config.Trading.GridRiskControl.MaxGridLayers
 		if maxLayers > 0 {
 			currentLayers := spm.GetActiveLayers()
 			if currentLayers >= maxLayers {
-				logger.Warn("🚫 [层数限制] 当前持仓层数 (%d) 已达到最大值 (%d)，暂停买入", currentLayers, maxLayers)
+				logger.Warn("🚫 [层數限制] 當前持倉层數 (%d) 已达到最大值 (%d)，暂停買入", currentLayers, maxLayers)
 				skipBuying = true
 			}
 		}
@@ -634,13 +642,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		slot := spm.getOrCreateSlot(price)
 		slot.mu.Lock()
 
-		// 🔥 槽位锁定检查：如果槽位正在被操作，跳过
+		// 🔥 槽位鎖定检查：如果槽位正在被操作，跳過
 		if slot.SlotStatus != SlotStatusFree {
 			slot.mu.Unlock()
 			continue
 		}
 
-		// 检查是否已有有效订单
+		// 检查是否已有有效订單
 		hasActiveOrder := false
 		if slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed ||
 			slot.OrderStatus == OrderStatusPartiallyFilled {
@@ -650,13 +658,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			}
 		}
 
-		// 🔥 买单条件：持仓状态=EMPTY + 槽位锁=FREE + 无订单ID + 无ClientOID
+		// 🔥 買單条件：持倉状態=EMPTY + 槽位鎖=FREE + 無订單ID + 無ClientOID
 		if slot.PositionStatus != PositionStatusEmpty {
 			slot.mu.Unlock()
 			continue
 		}
 
-		// 🔥 新逻辑：只检查槽位锁状态、OrderID和ClientOID，不检查OrderSide
+		// 🔥 新逻辑：只检查槽位鎖状態、OrderID和ClientOID，不检查OrderSide
 		shouldCreateBuyOrder := !hasActiveOrder &&
 			slot.SlotStatus == SlotStatusFree &&
 			slot.OrderID == 0 &&
@@ -664,7 +672,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			buyOrdersToCreate < allowedNewBuyOrders
 
 		if shouldCreateBuyOrder {
-			// 安全检查：买单价格不应高于当前价格
+			// 安全检查：買單價格不应高於當前價格
 			safetyBuffer := spm.config.Trading.PriceInterval * 0.1
 			if price >= currentPrice-safetyBuffer {
 				slot.mu.Unlock()
@@ -672,13 +680,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			}
 
 			quantity := spm.config.Trading.OrderQuantity / price
-			// 使用从交易所获取的数量精度
+			// 使用從交易所獲取的數量精度
 			quantity = roundPrice(quantity, spm.quantityDecimals)
 
-			// 如果数量过小被取整为 0，发布告警并暂停
+			// 如果數量過小被取整為 0，发布告警並暂停
 			if quantity <= 0 && spm.quantityDecimals >= 0 {
 				minQty := math.Pow10(-spm.quantityDecimals)
-				logger.Error("🚨 [%s] 下单数量过小 (%.8f)，低于交易所最小精度 (%.8f)，交易已自动暂停！请在配置中调大 order_quantity", 
+				logger.Error("🚨 [%s] 下單數量過小 (%.8f)，低於交易所最小精度 (%.8f)，交易已自动暂停！请在配置中調大 order_quantity", 
 					spm.config.Trading.Symbol, spm.config.Trading.OrderQuantity/price, minQty)
 				
 				// 发布事件
@@ -694,7 +702,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 							"min_qty":          minQty,
 							"price":            price,
 							"action":           "pause",
-							"reason":           "下单数量低于交易所最小精度",
+							"reason":           "下單數量低於交易所最小精度",
 						},
 					})
 				}
@@ -708,10 +716,10 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			// 生成 ClientOrderID
 			clientOID := spm.generateClientOrderID(price, "BUY")
 
-			// 🔥 锁定槽位：标记为PENDING状态，防止并发操作
+			// 🔥 鎖定槽位：標記為PENDING状態，防止並发操作
 			slot.SlotStatus = SlotStatusPending
 
-			// 检查PostOnly失败计数，失败3次后不再使用PostOnly
+			// 检查PostOnly失败计數，失败3次后不再使用PostOnly
 			usePostOnly := slot.PostOnlyFailCount < 3
 
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
@@ -729,25 +737,25 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		slot.mu.Unlock()
 	}
 
-	// 2. 处理卖单
+	// 2. 处理賣單
 	sellWindowMaxPrice := currentPrice + float64(sellWindowSize)*priceInterval
 	sellWindowMaxPrice = roundPrice(sellWindowMaxPrice, spm.priceDecimals)
 
 	type sellCandidate struct {
-		SlotPrice     float64 // 槽位价格 (买入价)
-		SellPrice     float64 // 目标卖出价
+		SlotPrice     float64 // 槽位價格 (買入價)
+		SellPrice     float64 // 目標賣出價
 		Quantity      float64
 		DistanceToMid float64
 	}
 	var sellCandidates []sellCandidate
 
 	spm.slots.Range(func(key, value interface{}) bool {
-		slotPrice := key.(float64) // 槽位Key = 买入价
+		slotPrice := key.(float64) // 槽位Key = 買入價
 		slot := value.(*InventorySlot)
 		slot.mu.Lock()
 		defer slot.mu.Unlock()
 
-		// 🔥 卖单条件：持仓状态=FILLED + 槽位锁=FREE + 无订单ID + 无ClientOID
+		// 🔥 賣單条件：持倉状態=FILLED + 槽位鎖=FREE + 無订單ID + 無ClientOID
 		if slot.PositionStatus == PositionStatusFilled &&
 			slot.SlotStatus == SlotStatusFree &&
 			slot.OrderID == 0 &&
@@ -761,7 +769,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				return true
 			}
 
-			// 最小名义价值检查
+			// 最小名义價值检查
 			orderValue := sellPrice * slot.PositionQty
 			minValue := spm.config.Trading.MinOrderValue
 			if minValue <= 0 {
@@ -786,7 +794,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		return sellCandidates[i].DistanceToMid < sellCandidates[j].DistanceToMid
 	})
 
-	// 🔥 重新计算卖单的剩余配额（扣除新增买单后的剩余空间）
+	// 🔥 重新计算賣單的剩餘配額（扣除新增買單后的剩餘空间）
 	remainingOrdersForSell := threshold - currentOrderCount - buyOrdersToCreate
 	if remainingOrdersForSell < 0 {
 		remainingOrdersForSell = 0
@@ -797,20 +805,20 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		allowedNewSellOrders = remainingOrdersForSell
 	}
 
-	// 生成卖单请求
+	// 生成賣單请求
 	sellOrdersToCreate := 0
-	// 🔥 调试日志: 显示订单配额计算详情（包含买卖单分布）
-	logger.Debug("📊 [%s:%s] [订单配额] 阈值:%d, 当前订单:%d(买:%d/卖:%d), 剩余:%d, 新增买单:%d, 卖单候选:%d, 允许卖单:%d",
+	// 🔥 調試日志: 显示订單配額计算详情（包含買賣單分布）
+	logger.Debug("📊 [%s:%s] [订單配額] 阈值:%d, 當前订單:%d(買:%d/賣:%d), 剩餘:%d, 新增買單:%d, 賣單候选:%d, 允許賣單:%d",
 		spm.exchangeName, spm.config.Trading.Symbol, threshold, currentOrderCount, currentBuyOrderCount, currentSellOrderCount, remainingOrders, buyOrdersToCreate, len(sellCandidates), allowedNewSellOrders)
 	if allowedNewSellOrders > 0 {
 		for i := 0; i < len(sellCandidates) && sellOrdersToCreate < allowedNewSellOrders; i++ {
 			candidate := sellCandidates[i]
 
-			// 🔥 关键修复：最终验证PositionStatus必须为FILLED且有持仓，并且SlotStatus为FREE
+			// 🔥 关键修複：最终驗证PositionStatus必須為FILLED且有持倉，並且SlotStatus為FREE
 			slot := spm.getOrCreateSlot(candidate.SlotPrice)
 			slot.mu.Lock()
 
-			// 🔥 双重检查：确保槽位仍然是FREE状态
+			// 🔥 双重检查：确保槽位仍然是FREE状態
 			if slot.SlotStatus != SlotStatusFree {
 				slot.mu.Unlock()
 				continue
@@ -824,20 +832,20 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				continue
 			}
 
-			// 🔥 立即锁定槽位：标记为PENDING状态，防止并发操作
+			// 🔥 立即鎖定槽位：標記為PENDING状態，防止並发操作
 			slot.SlotStatus = SlotStatusPending
-			// 检查PostOnly失败计数，失败3次后不再使用PostOnly
+			// 检查PostOnly失败计數，失败3次后不再使用PostOnly
 			usePostOnly := slot.PostOnlyFailCount < 3
 			slot.mu.Unlock()
 
-			// 生成 ClientOrderID (注意：使用 SlotPrice 即买入价作为标识)
+			// 生成 ClientOrderID (注意：使用 SlotPrice 即買入價作為標识)
 			clientOID := spm.generateClientOrderID(candidate.SlotPrice, "SELL")
 
 			quantity := candidate.Quantity
-			// 兜底检查：卖单数量也必须大于0
+			// 兜底检查：賣單數量也必須大於0
 			if quantity <= 0 && spm.quantityDecimals >= 0 {
 				minQty := math.Pow10(-spm.quantityDecimals)
-				logger.Error("🚨 [%s] 卖单数量异常 (%.8f)，低于交易所最小精度 (%.8f)，交易已自动暂停！", 
+				logger.Error("🚨 [%s] 賣單數量异常 (%.8f)，低於交易所最小精度 (%.8f)，交易已自动暂停！", 
 					spm.config.Trading.Symbol, candidate.Quantity, minQty)
 				
 				// 发布事件
@@ -852,7 +860,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 							"min_qty":          minQty,
 							"price":            candidate.SellPrice,
 							"action":           "pause",
-							"reason":           "卖单数量低于交易所最小精度",
+							"reason":           "賣單數量低於交易所最小精度",
 						},
 					})
 				}
@@ -869,7 +877,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				Price:         candidate.SellPrice,
 				Quantity:      quantity,
 				PriceDecimals: spm.priceDecimals,
-				ReduceOnly:    true,
+				ReduceOnly:    !spm.isSpot(), // 現貨不支援 ReduceOnly
 				PostOnly:      usePostOnly,
 				ClientOrderID: clientOID, // 🔥
 			})
@@ -877,8 +885,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
-	// 🔥 在下单前，先检查并调整资金限额（分级限额功能）
-	// 计算当前持仓层数和未实现盈亏
+	// 🔥 在下單前，先检查並調整资金限額（分级限額功能）
+	// 计算當前持倉层數和未實現盈亏
 	positionLayers := 0
 	unrealizedPnL := 0.0
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -886,7 +894,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
 			positionLayers++
-			// 计算未实现盈亏
+			// 计算未實現盈亏
 			if currentPrice > 0 && slot.Price > 0 {
 				unrealizedPnL += (currentPrice - slot.Price) * slot.PositionQty
 			}
@@ -895,7 +903,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		return true
 	})
 	
-	// 调用分级限额检查（可能会自动切换到紧急限额或恢复正常限额）
+	// 調用分级限額检查（可能會自动切换到紧急限額或恢複正常限額）
 	spm.allocationManager.CheckAndAdjustLimit(
 		spm.exchangeName,
 		spm.config.Trading.Symbol,
@@ -905,9 +913,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		unrealizedPnL,
 	)
 	
-	// 执行下单前，检查资金分配
+	// 執行下單前，检查资金分配
 	if len(ordersToPlace) > 0 {
-		// 获取账户余额（从交易所获取实际余额）
+		// 獲取帳戶餘額（從交易所獲取實際餘額）
 		var accountBalance float64 = 0
 		var accountResult interface{} = nil
 		ctx := context.Background()
@@ -915,8 +923,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			var err error
 			accountResult, err = spm.exchange.GetAccount(ctx)
 			if err == nil && accountResult != nil {
-				// 使用反射获取 AvailableBalance 字段
-				// 注意：不同交易所可能返回不同的类型，使用反射统一处理
+				// 使用反射獲取 AvailableBalance 字段
+				// 注意：不同交易所可能返回不同的類型，使用反射统一处理
 				accountValue := reflect.ValueOf(accountResult)
 				if accountValue.Kind() == reflect.Ptr {
 					accountValue = accountValue.Elem()
@@ -926,16 +934,16 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 						accountBalance = balance
 					}
 				}
-				// 使用可用余额（AvailableBalance）进行资金分配检查
-				// 注意：对于合约账户，如果有持仓，AvailableBalance可能为0，这是正常的
-				logger.Debug("💰 [%s:%s] [资金分配] 账户可用余额: %.2f USDT", spm.exchangeName, spm.config.Trading.Symbol, accountBalance)
+				// 使用可用餘額（AvailableBalance）進行资金分配检查
+				// 注意：對於合約账戶，如果有持倉，AvailableBalance可能為0，这是正常的
+				logger.Debug("💰 [%s:%s] [资金分配] 账戶可用餘額: %.2f USDT", spm.exchangeName, spm.config.Trading.Symbol, accountBalance)
 			} else {
-				logger.Warn("⚠️ [%s:%s] [资金分配] 无法获取账户余额: %v，使用0作为默认值", spm.exchangeName, spm.config.Trading.Symbol, err)
+				logger.Warn("⚠️ [%s:%s] [资金分配] 無法獲取帳戶餘額: %v，使用0作為默认值", spm.exchangeName, spm.config.Trading.Symbol, err)
 			}
 		}
 
-		// 获取杠杆倍数（用于计算实际使用的保证金）
-		leverage := 1 // 默认1倍（无杠杆）
+		// 獲取杠杆倍數（用於计算實際使用的保证金）
+		leverage := 1 // 默认1倍（無杠杆）
 		if accountResult != nil {
 			accountValue := reflect.ValueOf(accountResult)
 			if accountValue.Kind() == reflect.Ptr {
@@ -947,7 +955,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				}
 			}
 		}
-		// 如果从账户中获取不到，尝试从持仓中获取
+		// 如果從账戶中獲取不到，尝試從持倉中獲取
 		if leverage == 1 && spm.exchange != nil {
 			if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
 				switch positions := positionsInterface.(type) {
@@ -968,22 +976,22 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			}
 		}
 
-		// 过滤掉超出资金分配的订单
+		// 過滤掉超出资金分配的订單
 		var validOrders []*OrderRequest
 		for _, req := range ordersToPlace {
-			orderValue := req.Quantity * req.Price // 订单名义金额（仓位价值）
-			// 对于有杠杆的交易，实际使用的保证金 = 订单价值 / 杠杆倍数
-			// 资金限额限制的是实际投入的资金，而不是仓位价值
+			orderValue := req.Quantity * req.Price // 订單名义金額（倉位價值）
+			// 對於有杠杆的交易，實際使用的保证金 = 訂單價值 / 杠杆倍數
+			// 资金限額限制的是實際投入的资金，而不是倉位價值
 			actualMargin := orderValue / float64(leverage)
 			err := spm.allocationManager.CheckAndReserve(
 				spm.exchangeName,
 				spm.config.Trading.Symbol,
-				actualMargin, // 使用实际保证金而不是订单价值
+				actualMargin, // 使用實際保证金而不是訂單價值
 				accountBalance,
 			)
 
 			if err != nil {
-				logger.Warn("⚠️ [%s:%s] [资金分配] %v (订单价值: %.2f USDT, 实际保证金: %.2f USDT, 杠杆: %dx)", 
+				logger.Warn("⚠️ [%s:%s] [资金分配] %v (訂單價值: %.2f USDT, 實際保证金: %.2f USDT, 杠杆: %dx)", 
 					spm.exchangeName, spm.config.Trading.Symbol, err, orderValue, actualMargin, leverage)
 				// 触发告警事件
 				if spm.eventBus != nil {
@@ -999,7 +1007,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 						},
 					})
 				}
-				// 释放槽位锁
+				// 释放槽位鎖
 				if price, _, valid := spm.parseClientOrderID(req.ClientOrderID); valid {
 					slot := spm.getOrCreateSlot(price)
 					slot.mu.Lock()
@@ -1016,18 +1024,22 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		ordersToPlace = validOrders
 	}
 
-	// 执行下单
+	// 執行下單
 	if len(ordersToPlace) > 0 {
-		logger.Debug("🔄 [%s:%s] [实时调整] 需要新增: %d 个订单", spm.exchangeName, spm.config.Trading.Symbol, len(ordersToPlace))
+		logger.Debug("🔄 [%s:%s] [實時調整] 需要新增: %d 個订單", spm.exchangeName, spm.config.Trading.Symbol, len(ordersToPlace))
 		result := spm.executor.BatchPlaceOrdersWithDetails(ordersToPlace)
 
 		if result.HasMarginError {
-			logger.Warn("⚠️ [保证金不足] 检测到保证金不足错误，暂停下单 %d 秒", int(spm.marginLockDuration.Seconds()))
+			errLabel := "保证金不足"
+			if spm.isSpot() {
+				errLabel = "餘額不足"
+			}
+			logger.Warn("⚠️ [%s] 检测到錯误，暂停下單 %d 秒", errLabel, int(spm.marginLockDuration.Seconds()))
 			spm.insufficientMargin = true
 			spm.marginLockTime = time.Now()
 			spm.CancelAllBuyOrders()
 
-			// 发送保证金不足告警事件
+			// 发送保证金/餘額不足告警事件
 			if spm.eventBus != nil {
 				spm.eventBus.Publish(&event.Event{
 					Type: event.EventTypeMarginInsufficient,
@@ -1035,66 +1047,66 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 						"exchange":      spm.exchangeName,
 						"symbol":        spm.config.Trading.Symbol,
 						"failed_orders": len(result.PlacedOrders),
-						"error_message": "保证金不足，已暂停下单",
+						"error_message": errLabel + "，已暂停下單",
 						"lock_duration": int(spm.marginLockDuration.Seconds()),
 					},
 				})
 			}
 		}
 
-		// 🔥 构建成功订单的ClientOrderID集合
+		// 🔥 構建成功订單的ClientOrderID集合
 		placedClientOIDs := make(map[string]bool)
 		for _, ord := range result.PlacedOrders {
 			placedClientOIDs[ord.ClientOrderID] = true
 		}
 
-		// 🔥 处理 ReduceOnly 错误：清空对应槽位的持仓
+		// 🔥 处理 ReduceOnly 錯误：清空對应槽位的持倉
 		for clientOID := range result.ReduceOnlyErrors {
 			price, side, valid := spm.parseClientOrderID(clientOID)
 			if valid {
 				if side == "SELL" {
-					// SELL ReduceOnly：平多仓失败，清空槽位持仓状态
+					// SELL ReduceOnly：平多倉失败，清空槽位持倉状態
 					slot := spm.getOrCreateSlot(price)
 					slot.mu.Lock()
 					if slot.PositionStatus == PositionStatusFilled {
-						logger.Warn("⚠️ [ReduceOnly错误处理] 清空槽位持仓: 价格=%s, 原持仓=%.4f",
+						logger.Warn("⚠️ [ReduceOnly錯誤處理] 清空槽位持倉: 價格=%s, 原持倉=%.4f",
 							formatPrice(price, spm.priceDecimals), slot.PositionQty)
-						// 清空持仓状态
+						// 清空持倉状態
 						slot.PositionStatus = PositionStatusEmpty
 						slot.PositionQty = 0
 						slot.SlotStatus = SlotStatusFree
 					}
 					slot.mu.Unlock()
 				} else if side == "BUY" {
-					// BUY ReduceOnly：平空仓失败，账户中无空仓（系统不管理空仓状态，仅记录日志）
-					logger.Warn("⚠️ [ReduceOnly错误处理] BUY平空仓订单被拒绝: 价格=%s, 账户中无空仓",
+					// BUY ReduceOnly：平空倉失败，账戶中無空倉（系统不管理空倉状態，僅記錄日志）
+					logger.Warn("⚠️ [ReduceOnly錯誤處理] BUY平空倉订單被拒绝: 價格=%s, 账戶中無空倉",
 						formatPrice(price, spm.priceDecimals))
 				}
 			}
 		}
 
-		// 🔥 释放未成功提交订单的槽位锁和资金
+		// 🔥 释放未成功提交订單的槽位鎖和资金
 		for _, req := range ordersToPlace {
 			if !placedClientOIDs[req.ClientOrderID] && !result.ReduceOnlyErrors[req.ClientOrderID] {
-				// 这个订单没有成功提交（且不是ReduceOnly错误，因为已经处理过了），需要释放槽位锁和资金
+				// 這個订單没有成功提交（且不是ReduceOnly錯误，因為已經处理過了），需要释放槽位鎖和资金
 				price, side, valid := spm.parseClientOrderID(req.ClientOrderID)
 				if valid {
 					slot := spm.getOrCreateSlot(price)
 					slot.mu.Lock()
 					if slot.SlotStatus == SlotStatusPending {
 						slot.SlotStatus = SlotStatusFree
-						logger.Debug("🔓 [释放槽位] 订单提交失败，释放槽位 %s 的锁 (ClientOID: %s)",
+						logger.Debug("🔓 [释放槽位] 订單提交失败，释放槽位 %s 的鎖 (ClientOID: %s)",
 							formatPrice(price, spm.priceDecimals), req.ClientOrderID)
 					}
 					slot.mu.Unlock()
 					
-					// 🔥 释放预留的资金（只有买单需要释放，卖单不占用资金）
+					// 🔥 释放預留的资金（只有買單需要释放，賣單不占用资金）
 					if side == "BUY" {
 						orderValue := req.Quantity * req.Price
 						actualMargin := spm.getActualMargin(orderValue)
 						if actualMargin > 0 {
 							spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-							logger.Debug("💰 [资金释放] 订单提交失败，释放预留资金: %.2f USDT (订单价值: %.2f USDT)", actualMargin, orderValue)
+							logger.Debug("💰 [资金释放] 订單提交失败，释放預留资金: %.2f USDT (訂單價值: %.2f USDT)", actualMargin, orderValue)
 						}
 					}
 				}
@@ -1106,39 +1118,39 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			price, side, valid := spm.parseClientOrderID(ord.ClientOrderID)
 
 			if !valid {
-				logger.Warn("⚠️ [%s:%s] [实时调整] 无法解析 ClientOID: %s", spm.exchangeName, spm.config.Trading.Symbol, ord.ClientOrderID)
+				logger.Warn("⚠️ [%s:%s] [實時調整] 無法解析 ClientOID: %s", spm.exchangeName, spm.config.Trading.Symbol, ord.ClientOrderID)
 				continue
 			}
 
-			// 获取槽位 (注意：无论是买单还是卖单，ID中编码的都是 SlotPrice)
+			// 獲取槽位 (注意：無論是買單还是賣單，ID中编碼的都是 SlotPrice)
 			slot := spm.getOrCreateSlot(price)
 			slot.mu.Lock()
 
-			// 🔥 关键修复：检查是否是秒成交场景（买单或卖单都可能）
+			// 🔥 关键修複：检查是否是秒成交场景（買單或賣單都可能）
 			// 秒成交的特征:
-			// 1. 买单秒成交: PositionStatus=FILLED (刚成交) 且 OrderID=0 (已被WebSocket清空) 且 OrderSide=""
-			// 2. 卖单秒成交: PositionStatus=EMPTY (已清空) 且 OrderID=0 (已被WebSocket清空) 且 OrderSide=""
+			// 1. 買單秒成交: PositionStatus=FILLED (刚成交) 且 OrderID=0 (已被WebSocket清空) 且 OrderSide=""
+			// 2. 賣單秒成交: PositionStatus=EMPTY (已清空) 且 OrderID=0 (已被WebSocket清空) 且 OrderSide=""
 			isInstantFill := false
 			if side == "BUY" {
-				// 买单秒成交: 有持仓但订单ID为0且OrderSide已清空
+				// 買單秒成交: 有持倉但订單ID為0且OrderSide已清空
 				isInstantFill = (slot.PositionStatus == PositionStatusFilled && slot.OrderID == 0 && slot.OrderSide == "")
 			} else if side == "SELL" {
-				// 🔥 卖单秒成交: 持仓已清空且订单ID为0且OrderSide已清空
+				// 🔥 賣單秒成交: 持倉已清空且订單ID為0且OrderSide已清空
 				isInstantFill = (slot.PositionStatus == PositionStatusEmpty && slot.OrderID == 0 && slot.OrderSide == "" && slot.SlotStatus == SlotStatusFree)
 			}
 
 			if !isInstantFill {
-				// 正常情况: 更新订单状态
-				// 🔥 检查OrderID冲突：只有当ClientOID已设置且不匹配时才是真正的冲突
-				// 如果ClientOID为空或匹配，说明是正常的WebSocket先到或批量处理顺序问题
+				// 正常情况: 更新订單状態
+				// 🔥 检查OrderID冲突：只有當ClientOID已設置且不匹配時才是真正的冲突
+				// 如果ClientOID為空或匹配，說明是正常的WebSocket先到或批量处理顺序问题
 				if slot.OrderID != 0 && slot.OrderID != ord.OrderID {
 					if slot.ClientOID != "" && slot.ClientOID != ord.ClientOrderID {
-						// 真正的冲突：槽位已被其他订单占用
-						logger.Warn("⚠️ [OrderID冲突] 槽位 %.2f: 下单返回OrderID=%d (ClientOID=%s)，但槽位已被OrderID=%d (ClientOID=%s)占用",
+						// 真正的冲突：槽位已被其他订單占用
+						logger.Warn("⚠️ [OrderID冲突] 槽位 %.2f: 下單返回OrderID=%d (ClientOID=%s)，但槽位已被OrderID=%d (ClientOID=%s)占用",
 							price, ord.OrderID, ord.ClientOrderID, slot.OrderID, slot.ClientOID)
 					} else {
-						// WebSocket推送先到达，这是正常现象
-						logger.Debug("📝 [覆盖OrderID] 槽位 %.2f: WebSocket已设置OrderID=%d，现用下单返回的OrderID=%d (ClientOID: %s)",
+						// WebSocket推送先到达，这是正常現象
+						logger.Debug("📝 [覆盖OrderID] 槽位 %.2f: WebSocket已設置OrderID=%d，現用下單返回的OrderID=%d (ClientOID: %s)",
 							price, slot.OrderID, ord.OrderID, ord.ClientOrderID)
 					}
 				}
@@ -1149,16 +1161,16 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				slot.OrderStatus = OrderStatusPlaced
 				slot.OrderPrice = ord.Price
 				slot.OrderCreatedAt = time.Now()
-				// 🔥 订单提交成功，设置为LOCKED状态
+				// 🔥 订單提交成功，設置為LOCKED状態
 				slot.SlotStatus = SlotStatusLocked
-				// 注意：不在这里重置PostOnlyFailCount，因为订单可能立即被撤销
-				// PostOnly计数只在订单真正成交时重置
+				// 注意：不在这里重置PostOnlyFailCount，因為订單可能立即被撤销
+				// PostOnly计數只在订單真正成交時重置
 
-				logger.Debug("✅ [实时新增] 槽位价格: %s, %s订单, 订单价格: %s, 订单ID: %d, ClientOID: %s",
+				logger.Debug("✅ [實時新增] 槽位價格: %s, %s订單, 订單價格: %s, 订單ID: %d, ClientOID: %s",
 					formatPrice(price, spm.priceDecimals), side, formatPrice(ord.Price, spm.priceDecimals), ord.OrderID, ord.ClientOrderID)
 			} else {
-				// 🔍 秒成交场景：WebSocket已经处理了FILLED,跳过状态更新
-				logger.Debug("🔍 [%s单秒成交] 槽位 %s 的订单已被WebSocket处理，跳过状态更新 (持仓: %.4f, SlotStatus: %s)",
+				// 🔍 秒成交场景：WebSocket已經处理了FILLED,跳過状態更新
+				logger.Debug("🔍 [%s單秒成交] 槽位 %s 的订單已被WebSocket处理，跳過状態更新 (持倉: %.4f, SlotStatus: %s)",
 					side, formatPrice(price, spm.priceDecimals), slot.PositionQty, slot.SlotStatus)
 			}
 
@@ -1169,13 +1181,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	return nil
 }
 
-// OnOrderUpdate 订单更新回调（异步订单同步流）
+// OnOrderUpdate 订單更新回呼（异步订單同步流）
 func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
-	// 🔥 重构：完全依赖 ClientOrderID 解析
+	// 🔥 重構：完全依赖 ClientOrderID 解析
 	price, side, valid := spm.parseClientOrderID(update.ClientOrderID)
 
 	if !valid {
-		logger.Debug("⏳ [忽略] 无法识别的订单更新: ID=%d, ClientOID=%s", update.OrderID, update.ClientOrderID)
+		logger.Debug("⏳ [忽略] 無法识别的订單更新: ID=%d, ClientOID=%s", update.OrderID, update.ClientOrderID)
 		return
 	}
 
@@ -1183,28 +1195,28 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
 
-	// 校验：确保这个更新属于当前的订单 (防止旧订单的延迟推送干扰新订单)
+	// 校驗：确保這個更新属於當前的订單 (防止舊订單的延迟推送干扰新订單)
 	// 优先使用 ClientOrderID 匹配 (某些交易所如 Gate.io 的 OrderID 可能略有差异)
 	if slot.ClientOID != "" && slot.ClientOID != update.ClientOrderID {
 		// ClientOrderID 不匹配，忽略此更新
-		logger.Info("⚠️ [订单更新被忽略] 槽位 %.2f: ClientOID不匹配 (槽位: %s, 推送: %s, OrderID: %d)",
+		logger.Info("⚠️ [订單更新被忽略] 槽位 %.2f: ClientOID不匹配 (槽位: %s, 推送: %s, OrderID: %d)",
 			price, slot.ClientOID, update.ClientOrderID, update.OrderID)
 		return
 	}
 
-	// 更新订单ID (如果是首个推送)
+	// 更新订單ID (如果是首個推送)
 	if slot.OrderID == 0 {
-		logger.Debug("📝 [首次设置OrderID] 槽位 %.2f: OrderID=%d, ClientOID=%s", price, update.OrderID, update.ClientOrderID)
+		logger.Debug("📝 [首次設置OrderID] 槽位 %.2f: OrderID=%d, ClientOID=%s", price, update.OrderID, update.ClientOrderID)
 		slot.OrderID = update.OrderID
 		slot.ClientOID = update.ClientOrderID
 		slot.OrderSide = side
 	} else if slot.OrderID != update.OrderID {
-		// OrderID 不一致但 ClientOrderID 匹配，更新 OrderID (Gate.io 批量下单可能出现此情况)
+		// OrderID 不一致但 ClientOrderID 匹配，更新 OrderID (Gate.io 批量下單可能出現此情况)
 		logger.Debug("📝 [更新OrderID] 槽位 %.2f: %d -> %d (ClientOID: %s)", price, slot.OrderID, update.OrderID, update.ClientOrderID)
 		slot.OrderID = update.OrderID
 	}
 
-	// 处理状态转换
+	// 处理状態轉换
 	switch update.Status {
 	case "NEW":
 		if slot.OrderStatus == OrderStatusPlaced {
@@ -1220,7 +1232,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 		slot.OrderFilledQty = update.ExecutedQty
 
-		// 根据方向更新持仓
+		// 根據方向更新持倉
 		if side == "BUY" {
 			if deltaQty > 0 {
 				slot.PositionQty += deltaQty
@@ -1230,31 +1242,31 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 			}
 
 			if update.Status == "FILLED" {
-				slot.OrderStatus = OrderStatusNotPlaced // 重置订单状态
+				slot.OrderStatus = OrderStatusNotPlaced // 重置订單状態
 				slot.OrderID = 0
 				slot.ClientOID = ""
-				slot.OrderSide = "" // 🔥 清除订单方向，避免误判
+				slot.OrderSide = "" // 🔥 清除订單方向，避免误判
 				slot.OrderFilledQty = 0
 
-				slot.PositionStatus = PositionStatusFilled // 标记为有仓
-				// 🔥 释放槽位锁：买单成交，允许后续挂卖单
+				slot.PositionStatus = PositionStatusFilled // 標記為有倉
+				// 🔥 释放槽位鎖：買單成交，允許后续挂賣單
 				slot.SlotStatus = SlotStatusFree
-				// 🔥 买单成交，重置PostOnly失败计数
+				// 🔥 買單成交，重置PostOnly失败计數
 				slot.PostOnlyFailCount = 0
 				
-				// 🔥 释放资金：买单成交后，资金已转换为持仓，释放预留的资金
+				// 🔥 释放资金：買單成交后，资金已轉换為持倉，释放預留的资金
 				orderValue := slot.OrderPrice * update.ExecutedQty
 				actualMargin := spm.getActualMargin(orderValue)
 				if actualMargin > 0 {
 					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 买单成交，释放资金: %.2f USDT (订单价值: %.2f USDT)", actualMargin, orderValue)
+					logger.Debug("💰 [资金释放] 買單成交，释放资金: %.2f USDT (訂單價值: %.2f USDT)", actualMargin, orderValue)
 				}
 				
-				logger.Info("✅ [买单成交] 价格: %s, 持仓: %.4f, 槽位状态: %s -> %s, 订单状态: %s -> %s, SlotStatus: FREE",
+				logger.Info("✅ [買單成交] 價格: %s, 持倉: %.4f, 槽位状態: %s -> %s, 订單状態: %s -> %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty,
 					PositionStatusEmpty, PositionStatusFilled,
 					"FILLED", OrderStatusNotPlaced)
-				logger.Debug("🔍 [买单成交后] 等待下次AdjustOrders调用时挂出卖单...")
+				logger.Debug("🔍 [買單成交后] 等待下次AdjustOrders調用時挂出賣單...")
 			} else {
 				slot.OrderStatus = OrderStatusPartiallyFilled
 			}
@@ -1269,11 +1281,11 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				oldTotal := spm.totalSellQty.Load().(float64)
 				spm.totalSellQty.Store(oldTotal + deltaQty)
 
-				// 🔥 保存交易记录（买卖配对完成）
+				// 🔥 保存交易記錄（買賣配對完成）
 				if spm.tradeStorage != nil {
-					// 买入价格就是槽位的价格（每个槽位对应一个买入价格点）
+					// 買入價格就是槽位的價格（每個槽位對应一個買入價格点）
 					buyPrice := slot.Price
-					// 卖出价格使用成交均价，如果没有则使用订单价格
+					// 賣出價格使用成交均價，如果没有则使用订單價格
 					sellPrice := update.AvgPrice
 					if sellPrice <= 0 {
 						sellPrice = update.Price
@@ -1282,31 +1294,31 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						sellPrice = slot.OrderPrice
 					}
 
-					// 🔥 验证价格和数量的合理性
+					// 🔥 驗证價格和數量的合理性
 					if buyPrice <= 0 || sellPrice <= 0 || deltaQty <= 0 {
-						logger.Warn("⚠️ [交易记录异常] 买入价: %.2f, 卖出价: %.2f, 数量: %.4f, 跳过保存",
+						logger.Warn("⚠️ [交易記錄异常] 買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 跳過保存",
 							buyPrice, sellPrice, deltaQty)
 					} else {
-						// 计算盈亏：(卖出价格 - 买入价格) * 数量
-						// 注意：对于USDT本位合约（如BTCUSDT），价格是USDT，数量是BTC，盈亏单位是USDT
+						// 计算盈亏：(賣出價格 - 買入價格) * 數量
+						// 注意：對於USDT本位合約（如BTCUSDT），價格是USDT，數量是BTC，盈亏單位是USDT
 						pnl := (sellPrice - buyPrice) * deltaQty
 
-						// 🔥 添加合理性检查：如果盈亏异常大，记录警告
-						// 对于BTCUSDT，如果价格差是100 USDT，数量是0.01 BTC，盈亏应该是1 USDT
-						// 如果盈亏超过订单金额的50%，可能是计算错误
+						// 🔥 添加合理性检查：如果盈亏异常大，記錄警告
+						// 對於BTCUSDT，如果價格差是100 USDT，數量是0.01 BTC，盈亏应該是1 USDT
+						// 如果盈亏超過订單金額的50%，可能是计算錯误
 						orderAmount := buyPrice * deltaQty
 						if orderAmount > 0 && math.Abs(pnl) > orderAmount*0.5 {
-							logger.Warn("⚠️ [盈亏异常] 买入价: %.2f, 卖出价: %.2f, 数量: %.4f, 盈亏: %.2f, 订单金额: %.2f, 盈亏率: %.2f%%",
+							logger.Warn("⚠️ [盈亏异常] 買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.2f, 订單金額: %.2f, 盈亏率: %.2f%%",
 								buyPrice, sellPrice, deltaQty, pnl, orderAmount, (pnl/orderAmount)*100)
 						}
 
-						// 保存交易记录（买入订单ID设为0，因为无法追溯历史订单）
+						// 保存交易記錄（買入订單ID設為0，因為無法追溯历史订單）
 						buyOrderID := int64(0)
 						sellOrderID := update.OrderID
 						if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, time.Now()); err != nil {
-							logger.Warn("⚠️ 保存交易记录失败: %v", err)
+							logger.Warn("⚠️ 保存交易記錄失败: %v", err)
 						} else {
-							logger.Debug("💰 [交易记录已保存] 买入价: %s, 卖出价: %s, 数量: %.4f, 盈亏: %.4f",
+							logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f",
 								formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl)
 						}
 					}
@@ -1314,32 +1326,32 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 			}
 
 			if update.Status == "FILLED" {
-				slot.OrderStatus = OrderStatusNotPlaced // 重置订单状态
+				slot.OrderStatus = OrderStatusNotPlaced // 重置订單状態
 				slot.OrderID = 0
 				slot.ClientOID = ""
-				slot.OrderSide = "" // 🔥 清除订单方向，避免误判
+				slot.OrderSide = "" // 🔥 清除订單方向，避免误判
 				slot.OrderFilledQty = 0
 
 				if slot.PositionQty < 0.000001 {
-					slot.PositionStatus = PositionStatusEmpty // 标记为空仓
+					slot.PositionStatus = PositionStatusEmpty // 標記為空倉
 				}
-				// 🔥 释放槽位锁：卖单成交，允许后续挂买单
+				// 🔥 释放槽位鎖：賣單成交，允許后续挂買單
 				slot.SlotStatus = SlotStatusFree
-				// 🔥 卖单成交，重置PostOnly失败计数
+				// 🔥 賣單成交，重置PostOnly失败计數
 				slot.PostOnlyFailCount = 0
 				
-				// 🔥 释放资金：卖单成交后，资金已收回，释放预留的资金（卖单不需要预留资金，但为了统一处理也释放）
-				// 注意：卖单是平仓，不占用资金，但为了保持一致性，这里也处理
-				// 卖单成交后，持仓减少，对应的买入资金应该被释放
-				// 使用槽位价格（买入价）计算释放金额
+				// 🔥 释放资金：賣單成交后，资金已收回，释放預留的资金（賣單不需要預留资金，但為了统一处理也释放）
+				// 注意：賣單是平倉，不占用资金，但為了保持一致性，这里也处理
+				// 賣單成交后，持倉减少，對应的買入资金应該被释放
+				// 使用槽位價格（買入價）计算释放金額
 				releaseValue := price * deltaQty
 				actualMargin := spm.getActualMargin(releaseValue)
 				if actualMargin > 0 {
 					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 卖单成交，释放资金: %.2f USDT (持仓价值: %.2f USDT, 持仓减少: %.4f)", actualMargin, releaseValue, deltaQty)
+					logger.Debug("💰 [资金释放] 賣單成交，释放资金: %.2f USDT (持倉價值: %.2f USDT, 持倉减少: %.4f)", actualMargin, releaseValue, deltaQty)
 				}
 				
-				logger.Info("✅ [卖单成交] 价格: %s, 剩余持仓: %.4f, 槽位状态: %s, 订单状态: %s, SlotStatus: FREE",
+				logger.Info("✅ [賣單成交] 價格: %s, 剩餘持倉: %.4f, 槽位状態: %s, 订單状態: %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty, slot.PositionStatus, slot.OrderStatus)
 			} else {
 				slot.OrderStatus = OrderStatusPartiallyFilled
@@ -1347,15 +1359,15 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 		}
 
 	case "CANCELED", "EXPIRED", "REJECTED":
-		logger.Info("⚠️ [订单%s] 价格: %s, 方向: %s, 原因: %s, 已成交: %.4f",
+		logger.Info("⚠️ [订單%s] 價格: %s, 方向: %s, 原因: %s, 已成交: %.4f",
 			update.Status, formatPrice(price, spm.priceDecimals), side, update.Status, slot.OrderFilledQty)
 
-		// 🔥 释放资金：订单取消后，释放未成交部分的预留资金
-		// 注意：买单取消时，如果未成交，需要释放整个订单的预留资金
-		// 由于我们不知道原始订单数量，使用订单价格和配置的订单金额来估算
+		// 🔥 释放资金：订單取消后，释放未成交部分的預留资金
+		// 注意：買單取消時，如果未成交，需要释放整個订單的預留资金
+		// 由於我们不知道原始订單數量，使用订單價格和配置的订單金額来估算
 		if side == "BUY" && slot.OrderPrice > 0 {
-			// 对于买单，如果未成交或部分成交，释放未成交部分的资金
-			// 使用配置的订单金额作为参考（因为每个槽位的订单金额是固定的）
+			// 對於買單，如果未成交或部分成交，释放未成交部分的资金
+			// 使用配置的订單金額作為参考（因為每個槽位的订單金額是固定的）
 			orderValue := spm.config.Trading.OrderQuantity
 			if slot.OrderFilledQty > 0 {
 				// 部分成交：释放未成交部分的资金
@@ -1364,102 +1376,102 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				actualMargin := spm.getActualMargin(unfilledValue)
 				if actualMargin > 0 {
 					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 买单部分成交后取消，释放未成交资金: %.2f USDT (订单价值: %.2f USDT, 已成交: %.4f)", 
+					logger.Debug("💰 [资金释放] 買單部分成交后取消，释放未成交资金: %.2f USDT (訂單價值: %.2f USDT, 已成交: %.4f)", 
 						actualMargin, unfilledValue, slot.OrderFilledQty)
 				}
 			} else {
-				// 完全未成交：释放整个订单的预留资金
+				// 完全未成交：释放整個订單的預留资金
 				actualMargin := spm.getActualMargin(orderValue)
 				if actualMargin > 0 {
 					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 买单未成交取消，释放资金: %.2f USDT (订单价值: %.2f USDT)", actualMargin, orderValue)
+					logger.Debug("💰 [资金释放] 買單未成交取消，释放资金: %.2f USDT (訂單價值: %.2f USDT)", actualMargin, orderValue)
 				}
 			}
 		}
-		// 卖单取消不需要释放资金，因为卖单是平仓，不占用资金
+		// 賣單取消不需要释放资金，因為賣單是平倉，不占用资金
 
-		// 🔥 核心修复：根据订单方向和成交情况处理槽位状态
+		// 🔥 核心修複：根據订單方向和成交情况处理槽位状態
 		if side == "BUY" {
-			// 买单被取消/拒绝
+			// 買單被取消/拒绝
 			if slot.PositionQty > 0 || slot.OrderFilledQty > 0 {
-				// 部分成交后被取消：保留持仓，允许后续挂卖单
-				logger.Info("💡 [买单部分成交后取消] 价格: %s, 持仓: %.4f, 转为有仓状态",
+				// 部分成交后被取消：保留持倉，允許后续挂賣單
+				logger.Info("💡 [買單部分成交后取消] 價格: %s, 持倉: %.4f, 轉為有倉状態",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty)
 				slot.PositionStatus = PositionStatusFilled
-				slot.SlotStatus = SlotStatusFree // 允许挂卖单
+				slot.SlotStatus = SlotStatusFree // 允許挂賣單
 			} else {
-				// 完全未成交被取消：重置为空槽位
-				logger.Info("🔄 [买单未成交取消] 价格: %s, 重置槽位为空闲",
+				// 完全未成交被取消：重置為空槽位
+				logger.Info("🔄 [買單未成交取消] 價格: %s, 重置槽位為空闲",
 					formatPrice(price, spm.priceDecimals))
 				slot.PositionStatus = PositionStatusEmpty
-				slot.SlotStatus = SlotStatusFree // 允许重新挂买单
+				slot.SlotStatus = SlotStatusFree // 允許重新挂買單
 			}
 		} else if side == "SELL" {
-			// 卖单被取消/拒绝：应该还持有币，保持持仓状态
+			// 賣單被取消/拒绝：应該还持有币，保持持倉状態
 			if slot.PositionQty > 0 {
-				// 增加PostOnly失败计数（订单被交易所撤销通常是PostOnly失败）
+				// 增加PostOnly失败计數（订單被交易所撤销通常是PostOnly失败）
 				slot.PostOnlyFailCount++
-				logger.Info("🔄 [卖单取消] 价格: %s, 保持持仓状态: %.4f, 等待重挂, PostOnly失败计数: %d",
+				logger.Info("🔄 [賣單取消] 價格: %s, 保持持倉状態: %.4f, 等待重挂, PostOnly失败计數: %d",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty, slot.PostOnlyFailCount)
 				slot.PositionStatus = PositionStatusFilled
-				slot.SlotStatus = SlotStatusFree // 允许重新挂卖单
+				slot.SlotStatus = SlotStatusFree // 允許重新挂賣單
 			} else {
-				// 异常情况：卖单取消但没有持仓，重置为空
-				logger.Warn("⚠️ [异常] 卖单取消但无持仓，价格: %s, 重置为空",
+				// 异常情况：賣單取消但没有持倉，重置為空
+				logger.Warn("⚠️ [异常] 賣單取消但無持倉，價格: %s, 重置為空",
 					formatPrice(price, spm.priceDecimals))
 				slot.PositionStatus = PositionStatusEmpty
 				slot.SlotStatus = SlotStatusFree
 			}
 		}
 
-		// 清空订单信息
+		// 清空订單信息
 		slot.OrderStatus = OrderStatusCanceled
 		slot.OrderID = 0
 		slot.ClientOID = ""
 		slot.OrderFilledQty = 0
-		// 保留 OrderSide 用于日志调试
+		// 保留 OrderSide 用於日志調試
 	}
 }
 
-// getOrCreateSlot 获取或创建槽位
+// getOrCreateSlot 獲取或創建槽位
 func (spm *SuperPositionManager) getOrCreateSlot(price float64) *InventorySlot {
 	if slot, exists := spm.slots.Load(price); exists {
 		return slot.(*InventorySlot)
 	}
 
-	// 创建新槽位
+	// 創建新槽位
 	slot := &InventorySlot{
 		Price:          price,
 		PositionStatus: PositionStatusEmpty,
 		PositionQty:    0,
 		OrderStatus:    OrderStatusNotPlaced,
-		SlotStatus:     SlotStatusFree, // 🔥 初始化为FREE状态
+		SlotStatus:     SlotStatusFree, // 🔥 初始化為FREE状態
 	}
 	spm.slots.Store(price, slot)
 	return slot
 }
 
-// findNearestGridPrice 找到最近的网格价格
-// 根据当前价格动态计算最近的网格对齐价格
+// findNearestGridPrice 找到最近的网格價格
+// 根據當前價格动態计算最近的网格對齐價格
 func (spm *SuperPositionManager) findNearestGridPrice(currentPrice float64) float64 {
-	// 计算当前价格相对于锚点的偏移量
+	// 计算當前價格相對於锚点的偏移量
 	offset := currentPrice - spm.anchorPrice
-	// 计算离当前价格最近的网格间隔数（四舍五入）
+	// 计算离當前價格最近的网格间隔數（四舍五入）
 	intervals := math.Round(offset / spm.config.Trading.PriceInterval)
-	// 计算最近的网格价格
+	// 计算最近的网格價格
 	gridPrice := spm.anchorPrice + intervals*spm.config.Trading.PriceInterval
-	// 使用检测到的价格精度进行舍入
+	// 使用检测到的價格精度進行舍入
 	return roundPrice(gridPrice, spm.priceDecimals)
 }
 
-// calculateSlotPrices 计算槽位价格列表（统一的网格计算方法）
-// 这个方法确保初始化和实时调整计算出完全相同的槽位价格
-// 参数：
-//   - gridPrice: 网格价格（使用锚点价格）
-//   - count: 需要计算的槽位数量
-//   - direction: 方向，"down"表示向下（买单），"up"表示向上（卖单）
+// calculateSlotPrices 计算槽位價格列表（统一的网格计算方法）
+// 這個方法确保初始化和實時調整计算出完全相同的槽位價格
+// 参數：
+//   - gridPrice: 网格價格（使用锚点價格）
+//   - count: 需要计算的槽位數量
+//   - direction: 方向，"down"表示向下（買單），"up"表示向上（賣單）
 //
-// 返回：槽位价格列表，从网格价格开始，按价格间隔递减或递增，使用检测到的价格精度
+// 回傳：槽位價格列表，從网格價格开始，按價格間隔遞减或遞增，使用检测到的價格精度
 func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count int, direction string) []float64 {
 	var prices []float64
 	priceInterval := spm.config.Trading.PriceInterval
@@ -1467,18 +1479,18 @@ func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count in
 	for i := 0; i < count; i++ {
 		var price float64
 		if direction == "down" {
-			// 向下：网格价格 - i * 间隔
+			// 向下：网格價格 - i * 间隔
 			price = gridPrice - float64(i)*priceInterval
 		} else {
-			// 向上：网格价格 + i * 间隔
+			// 向上：网格價格 + i * 间隔
 			price = gridPrice + float64(i)*priceInterval
 		}
-		// 使用检测到的价格精度进行舍入
+		// 使用检测到的價格精度進行舍入
 		price = roundPrice(price, spm.priceDecimals)
 		
-		// 验证价格有效性：跳过无效价格（负数或零）
+		// 驗证價格有效性：跳過無效價格（负數或零）
 		if price <= 0 {
-			logger.Warn("⚠️ [%s:%s] 跳过无效槽位价格 %.8f（方向=%s, 索引=%d, 网格价格=%.2f, 间隔=%.4f）",
+			logger.Warn("⚠️ [%s:%s] 跳過無效槽位價格 %.8f（方向=%s, 索引=%d, 网格價格=%.2f, 间隔=%.4f）",
 				spm.exchangeName, spm.config.Trading.Symbol, price, direction, i, gridPrice, priceInterval)
 			continue
 		}
@@ -1489,11 +1501,11 @@ func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count in
 	return prices
 }
 
-// ===== IPositionManager 接口实现（供 safety.Reconciler 使用）=====
-// 注意：以下方法是 safety/reconciler.go 中 IPositionManager 接口的实现，
-// 被 Reconciler 对账器调用，不可删除或修改签名
+// ===== IPositionManager 接口實現（供 safety.Reconciler 使用）=====
+// 注意：以下方法是 safety/reconciler.go 中 IPositionManager 接口的實現，
+// 被 Reconciler 對账器調用，不可刪除或修改签名
 
-// SlotData 槽位数据结构（用于传递给外部）
+// SlotData 槽位數據結構（用於傳遞给外部）
 type SlotData struct {
 	Price          float64
 	PositionStatus string
@@ -1505,8 +1517,8 @@ type SlotData struct {
 }
 
 // IterateSlots 遍历所有槽位（封装 sync.Map.Range）
-// 注意：为了避免类型冲突，这里使用 interface{} 返回槽位数据
-// 调用者需要将其转换为具体的槽位信息
+// 注意：為了避免類型冲突，这里使用 interface{} 返回槽位數據
+// 調用者需要將其轉换為具体的槽位信息
 func (spm *SuperPositionManager) IterateSlots(fn func(price float64, slot interface{}) bool) {
 	spm.slots.Range(func(key, value interface{}) bool {
 		price := key.(float64)
@@ -1514,7 +1526,7 @@ func (spm *SuperPositionManager) IterateSlots(fn func(price float64, slot interf
 		slot.mu.RLock()
 		defer slot.mu.RUnlock()
 
-		// 构造槽位数据
+		// 構造槽位數據
 		data := SlotData{
 			Price:          price,
 			PositionStatus: slot.PositionStatus,
@@ -1525,12 +1537,12 @@ func (spm *SuperPositionManager) IterateSlots(fn func(price float64, slot interf
 			OrderCreatedAt: slot.OrderCreatedAt,
 		}
 
-		// 返回槽位数据
+		// 返回槽位數據
 		return fn(price, data)
 	})
 }
 
-// DetailedSlotData 详细槽位数据结构（包含所有字段）
+// DetailedSlotData 详细槽位數據結構（包含所有字段）
 type DetailedSlotData struct {
 	Price          float64
 	PositionStatus string
@@ -1545,17 +1557,17 @@ type DetailedSlotData struct {
 	SlotStatus     string
 }
 
-// GetAllSlotsDetailed 获取所有槽位的详细信息
-// 注意：如果槽位数量很大，建议使用分页查询或限制数量
+// GetAllSlotsDetailed 獲取所有槽位的详细信息
+// 注意：如果槽位數量很大，建议使用分页查詢或限制數量
 func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
-	// 限制最大返回数量，防止内存占用过大
-	maxSlots := 10000 // 最多返回1万个槽位
+	// 限制最大返回數量，防止記憶體占用過大
+	maxSlots := 10000 // 最多返回1万個槽位
 	var slots []DetailedSlotData
 	count := 0
 	
 	spm.slots.Range(func(key, value interface{}) bool {
 		if count >= maxSlots {
-			logger.Warn("⚠️ [槽位查询] 槽位数量超过限制 (%d)，只返回前 %d 个", maxSlots, maxSlots)
+			logger.Warn("⚠️ [槽位查詢] 槽位數量超過限制 (%d)，只返回前 %d 個", maxSlots, maxSlots)
 			return false // 停止遍历
 		}
 		
@@ -1584,7 +1596,7 @@ func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
 	return slots
 }
 
-// GetSlotCount 获取槽位总数
+// GetSlotCount 獲取槽位總數
 func (spm *SuperPositionManager) GetSlotCount() int {
 	count := 0
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -1594,32 +1606,32 @@ func (spm *SuperPositionManager) GetSlotCount() int {
 	return count
 }
 
-// GetTotalBuyQty 获取累计买入数量（IPositionManager 接口方法，供 Reconciler 使用）
+// GetTotalBuyQty 獲取累计買入數量（IPositionManager 接口方法，供 Reconciler 使用）
 func (spm *SuperPositionManager) GetTotalBuyQty() float64 {
 	return spm.totalBuyQty.Load().(float64)
 }
 
-// GetTotalSellQty 获取累计卖出数量（IPositionManager 接口方法，供 Reconciler 使用）
+// GetTotalSellQty 獲取累计賣出數量（IPositionManager 接口方法，供 Reconciler 使用）
 func (spm *SuperPositionManager) GetTotalSellQty() float64 {
 	return spm.totalSellQty.Load().(float64)
 }
 
-// GetReconcileCount 获取对账次数（IPositionManager 接口方法，供 Reconciler 使用）
+// GetReconcileCount 獲取對账次數（IPositionManager 接口方法，供 Reconciler 使用）
 func (spm *SuperPositionManager) GetReconcileCount() int64 {
 	return spm.reconcileCount.Load()
 }
 
-// IncrementReconcileCount 增加对账次数（IPositionManager 接口方法，供 Reconciler 使用）
+// IncrementReconcileCount 增加對账次數（IPositionManager 接口方法，供 Reconciler 使用）
 func (spm *SuperPositionManager) IncrementReconcileCount() {
 	spm.reconcileCount.Add(1)
 }
 
-// UpdateLastReconcileTime 更新最后对账时间（IPositionManager 接口方法，供 Reconciler 使用）
+// UpdateLastReconcileTime 更新最后對账時间（IPositionManager 接口方法，供 Reconciler 使用）
 func (spm *SuperPositionManager) UpdateLastReconcileTime(t time.Time) {
 	spm.lastReconcileTime.Store(t)
 }
 
-// GetLastReconcileTime 获取最后对账时间
+// GetLastReconcileTime 獲取最后對账時间
 func (spm *SuperPositionManager) GetLastReconcileTime() time.Time {
 	v := spm.lastReconcileTime.Load()
 	if v == nil {
@@ -1628,22 +1640,22 @@ func (spm *SuperPositionManager) GetLastReconcileTime() time.Time {
 	return v.(time.Time)
 }
 
-// GetSymbol 获取交易符号
+// GetSymbol 獲取交易符号
 func (spm *SuperPositionManager) GetSymbol() string {
 	return spm.config.Trading.Symbol
 }
 
-// GetExchange 获取交易所名称
+// GetExchange 獲取交易所名称
 func (spm *SuperPositionManager) GetExchange() string {
 	return spm.exchangeName
 }
 
-// GetAllocationManager 获取资金分配管理器（供仓位计划等模块按交易对设置限额）
+// GetAllocationManager 獲取资金分配管理器（供倉位计划等模塊按交易對設置限額）
 func (spm *SuperPositionManager) GetAllocationManager() *AllocationManager {
 	return spm.allocationManager
 }
 
-// GetTotalPositionValueUSDT 获取当前持仓总价值（USDT），用于仓位计划进度检查
+// GetTotalPositionValueUSDT 獲取當前持倉總價值（USDT），用於倉位计划進度检查
 func (spm *SuperPositionManager) GetTotalPositionValueUSDT() float64 {
 	var total float64
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -1658,28 +1670,30 @@ func (spm *SuperPositionManager) GetTotalPositionValueUSDT() float64 {
 	return total
 }
 
-// GetPriceInterval 获取价格间隔
+// GetPriceInterval 獲取價格间隔
 func (spm *SuperPositionManager) GetPriceInterval() float64 {
 	return spm.config.Trading.PriceInterval
 }
 
-// GetAnchorPrice 获取价格锚点
+// GetAnchorPrice 獲取價格锚点
 func (spm *SuperPositionManager) GetAnchorPrice() float64 {
 	return spm.anchorPrice
 }
 
-// GetLeverage 获取杠杆倍数（用于计算实际资金占用）
+// GetLeverage 獲取杠杆倍數（用於计算實際资金占用）
 func (spm *SuperPositionManager) GetLeverage() int {
-	leverage := 1 // 默认1倍（无杠杆）
+	if spm.isSpot() {
+		return 1
+	}
+	leverage := 1 // 默认1倍（無杠杆）
 	ctx := context.Background()
-	
-	// 先尝试从账户信息中的持仓获取杠杆倍数
+	// 先尝試從帳戶資訊中的持倉獲取杠杆倍數
 	if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
 		accountValue := reflect.ValueOf(accountResult)
 		if accountValue.Kind() == reflect.Ptr {
 			accountValue = accountValue.Elem()
 		}
-		// 尝试从 Account.Positions 字段获取持仓信息
+		// 尝試從 Account.Positions 字段獲取持倉信息
 		if positionsField := accountValue.FieldByName("Positions"); positionsField.IsValid() && positionsField.CanInterface() {
 			positionsValue := reflect.ValueOf(positionsField.Interface())
 			if positionsValue.Kind() == reflect.Slice {
@@ -1693,7 +1707,7 @@ func (spm *SuperPositionManager) GetLeverage() int {
 					// 检查 Symbol 是否匹配
 					if symbolField := posValue.FieldByName("Symbol"); symbolField.IsValid() && symbolField.CanInterface() {
 						if symbol, ok := symbolField.Interface().(string); ok && symbol == spm.config.Trading.Symbol {
-							// 尝试获取 Leverage 字段
+							// 尝試獲取 Leverage 字段
 							if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
 								if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
 									leverage = lev
@@ -1705,7 +1719,7 @@ func (spm *SuperPositionManager) GetLeverage() int {
 				}
 			}
 		}
-		// 如果从持仓中获取不到，尝试从账户级别的杠杆字段获取
+		// 如果從持倉中獲取不到，尝試從账戶级别的杠杆字段獲取
 		if leverage == 1 {
 			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
 				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
@@ -1715,10 +1729,10 @@ func (spm *SuperPositionManager) GetLeverage() int {
 		}
 	}
 	
-	// 如果从账户中获取不到，尝试从 GetPositions 获取
+	// 如果從账戶中獲取不到，尝試從 GetPositions 獲取
 	if leverage == 1 {
 		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
-			// 使用反射处理不同类型的持仓信息
+			// 使用反射处理不同類型的持倉資訊
 			positionsValue := reflect.ValueOf(positionsInterface)
 			if positionsValue.Kind() == reflect.Slice {
 				for i := 0; i < positionsValue.Len(); i++ {
@@ -1728,7 +1742,7 @@ func (spm *SuperPositionManager) GetLeverage() int {
 					} else if posValue.Kind() == reflect.Interface {
 						posValue = posValue.Elem()
 					}
-					// 尝试获取 Leverage 字段
+					// 尝試獲取 Leverage 字段
 					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
 						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
 							leverage = lev
@@ -1743,41 +1757,41 @@ func (spm *SuperPositionManager) GetLeverage() int {
 	return leverage
 }
 
-// RestoreReconciliationStats 从数据库恢复对账统计值
-// storage 是对账存储接口，exchange/symbol 用于精确定位历史记录
+// RestoreReconciliationStats 從數據库恢複對账统计值
+// storage 是對账存儲接口，exchange/symbol 用於精确定位历史記錄
 func (spm *SuperPositionManager) RestoreReconciliationStats(storage ReconciliationStorage, exchange, symbol string) error {
 	if storage == nil {
-		return nil // 存储服务不可用，不报错
+		return nil // 存儲服務不可用，不报錯
 	}
 
-	// 1. 获取最新对账记录
+	// 1. 獲取最新對账記錄
 	latestHistoryInterface, err := storage.GetLatestReconciliationHistory(exchange, symbol)
 	if err != nil {
-		return fmt.Errorf("获取最新对账记录失败: %w", err)
+		return fmt.Errorf("獲取最新對账記錄失败: %w", err)
 	}
 
-	// 2. 获取对账次数
+	// 2. 獲取對账次數
 	reconcileCount, err := storage.GetReconciliationCount(exchange, symbol)
 	if err != nil {
-		return fmt.Errorf("获取对账次数失败: %w", err)
+		return fmt.Errorf("獲取對账次數失败: %w", err)
 	}
 
-	// 3. 如果没有历史记录，不恢复（保持默认值）
+	// 3. 如果没有历史記錄，不恢複（保持默认值）
 	if latestHistoryInterface == nil {
-		logger.Info("📊 [对账恢复] 未找到历史对账记录，使用默认值")
+		logger.Info("📊 [對账恢複] 未找到历史對账記錄，使用默认值")
 		return nil
 	}
 
-	// 4. 使用反射提取对账记录字段
+	// 4. 使用反射提取對账記錄字段
 	v := reflect.ValueOf(latestHistoryInterface)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
-		return fmt.Errorf("对账记录类型错误: %T", latestHistoryInterface)
+		return fmt.Errorf("對账記錄類型錯误: %T", latestHistoryInterface)
 	}
 
-	// 提取字段的辅助函数
+	// 提取字段的辅助函數
 	getFloat64Field := func(name string) float64 {
 		field := v.FieldByName(name)
 		if field.IsValid() && field.CanFloat() {
@@ -1800,7 +1814,7 @@ func (spm *SuperPositionManager) RestoreReconciliationStats(storage Reconciliati
 		return time.Time{}
 	}
 
-	// 5. 恢复统计值
+	// 5. 恢複统计值
 	totalBuyQty := getFloat64Field("TotalBuyQty")
 	totalSellQty := getFloat64Field("TotalSellQty")
 	lastReconcileTime := getTimeField("ReconcileTime")
@@ -1810,16 +1824,16 @@ func (spm *SuperPositionManager) RestoreReconciliationStats(storage Reconciliati
 	spm.reconcileCount.Store(reconcileCount)
 	spm.lastReconcileTime.Store(lastReconcileTime)
 
-	logger.Info("✅ [对账恢复] 已恢复对账统计: 次数=%d, 累计买入=%.4f, 累计卖出=%.4f, 最后对账时间=%s",
+	logger.Info("✅ [對账恢複] 已恢複對账统计: 次數=%d, 累计買入=%.4f, 累计賣出=%.4f, 最后對账時间=%s",
 		reconcileCount, totalBuyQty, totalSellQty, lastReconcileTime.Format("2006-01-02 15:04:05"))
 
 	return nil
 }
 
-// ===== 订单清理功能已迁移到 safety.OrderCleaner =====
+// ===== 訂單清理功能已迁移到 safety.OrderCleaner =====
 // StartOrderCleanup 和 cleanupOrders 方法已移至 safety/order_cleaner.go
 
-// UpdateSlotOrderStatus 更新槽位订单状态（供 OrderCleaner 使用）
+// UpdateSlotOrderStatus 更新槽位订單状態（供 OrderCleaner 使用）
 func (spm *SuperPositionManager) UpdateSlotOrderStatus(price float64, status string) {
 	slot := spm.getOrCreateSlot(price)
 	slot.mu.Lock()
@@ -1827,12 +1841,12 @@ func (spm *SuperPositionManager) UpdateSlotOrderStatus(price float64, status str
 	slot.mu.Unlock()
 }
 
-// CancelAllBuyOrders 撤销所有买单（风控触发时使用）
+// CancelAllBuyOrders 撤销所有買單（风控触发時使用）
 func (spm *SuperPositionManager) CancelAllBuyOrders() {
 	var buyOrderIDs []int64
 	var buyPrices []float64
 
-	// 🔥 修复：收集所有OrderID>0且OrderSide=BUY的订单，不管OrderStatus
+	// 🔥 修複：收集所有OrderID>0且OrderSide=BUY的订單，不管OrderStatus
 	spm.slots.Range(func(key, value interface{}) bool {
 		price := key.(float64)
 		slot := value.(*InventorySlot)
@@ -1850,21 +1864,21 @@ func (spm *SuperPositionManager) CancelAllBuyOrders() {
 		return
 	}
 
-	logger.Info("🔄 [撤销买单] 准备撤销 %d 个买单以释放保证金", len(buyOrderIDs))
+	logger.Info("🔄 [撤销買單] 准备撤销 %d 個買單以释放保证金", len(buyOrderIDs))
 
-	// 🔥 重复尝试3次，确保撤单干净
+	// 🔥 重複尝試3次，确保撤單干净
 	for attempt := 1; attempt <= 3; attempt++ {
 		if len(buyOrderIDs) == 0 {
 			break
 		}
 
-		logger.Info("🔄 [撤销买单] 第 %d 次尝试，剩余 %d 个订单", attempt, len(buyOrderIDs))
+		logger.Info("🔄 [撤销買單] 第 %d 次尝試，剩餘 %d 個订單", attempt, len(buyOrderIDs))
 
 		if err := spm.executor.BatchCancelOrders(buyOrderIDs); err != nil {
-			logger.Error("❌ [撤销买单] 批量撤单失败: %v", err)
+			logger.Error("❌ [撤销買單] 批量撤單失败: %v", err)
 		}
 
-		// 更新槽位状态
+		// 更新槽位状態
 		for _, price := range buyPrices {
 			slot := spm.getOrCreateSlot(price)
 			slot.mu.Lock()
@@ -1872,10 +1886,10 @@ func (spm *SuperPositionManager) CancelAllBuyOrders() {
 			slot.mu.Unlock()
 		}
 
-		// 等待2秒让撤单生效（WebSocket推送通知）
+		// 等待2秒让撤單生效（WebSocket推送通知）
 		time.Sleep(2 * time.Second)
 
-		// 🔥 二次检查：重新扫描本地槽位状态
+		// 🔥 二次检查：重新扫描本地槽位状態
 		if attempt < 3 {
 			buyOrderIDs = nil
 			buyPrices = nil
@@ -1885,7 +1899,7 @@ func (spm *SuperPositionManager) CancelAllBuyOrders() {
 				slot := value.(*InventorySlot)
 
 				slot.mu.RLock()
-				// 如果OrderStatus不是CANCELED且OrderID>0，说明可能还有残留
+				// 如果OrderStatus不是CANCELED且OrderID>0，說明可能还有残留
 				if slot.OrderSide == "BUY" && slot.OrderID > 0 &&
 					slot.OrderStatus != OrderStatusCanceled {
 					buyOrderIDs = append(buyOrderIDs, slot.OrderID)
@@ -1896,25 +1910,25 @@ func (spm *SuperPositionManager) CancelAllBuyOrders() {
 			})
 
 			if len(buyOrderIDs) > 0 {
-				logger.Warn("⚠️ [撤销买单] 检测到 %d 个残留买单，继续清理", len(buyOrderIDs))
+				logger.Warn("⚠️ [撤销買單] 检测到 %d 個残留買單，继续清理", len(buyOrderIDs))
 			} else {
-				logger.Info("✅ [撤销买单] 所有买单已清理完成")
+				logger.Info("✅ [撤销買單] 所有買單已清理完成")
 				break
 			}
 		}
 	}
 
-	logger.Info("✅ [撤销买单] 清理完成")
+	logger.Info("✅ [撤销買單] 清理完成")
 }
 
-// LiquidateAll 全平仓位（风控或止损触发时使用）
+// LiquidateAll 全平倉位（风控或止损触发時使用）
 func (spm *SuperPositionManager) LiquidateAll() {
-	logger.Warn("🚨 [全平仓] 正在执行全平操作，撤销所有买单并市价平仓所有持仓...")
+	logger.Warn("🚨 [全平倉] 正在執行全平操作，撤销所有買單並市價平倉所有持倉...")
 
-	// 1. 撤销所有买单
+	// 1. 撤销所有買單
 	spm.CancelAllBuyOrders()
 
-	// 2. 收集所有持仓槽位并提交卖单
+	// 2. 收集所有持倉槽位並提交賣單
 	var sellOrders []*OrderRequest
 	spm.slots.Range(func(key, value interface{}) bool {
 		price := key.(float64)
@@ -1922,26 +1936,26 @@ func (spm *SuperPositionManager) LiquidateAll() {
 
 		slot.mu.Lock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			// 如果已有订单，先尝试撤销
+			// 如果已有订單，先尝試撤销
 			if slot.OrderID > 0 {
-				logger.Info("🔄 [全平仓] 撤销槽位 %s 的现有订单 %d", formatPrice(price, spm.priceDecimals), slot.OrderID)
+				logger.Info("🔄 [全平倉] 撤销槽位 %s 的現有订單 %d", formatPrice(price, spm.priceDecimals), slot.OrderID)
 				spm.executor.BatchCancelOrders([]int64{slot.OrderID})
 			}
 
-			// 标记为 PENDING
+			// 標記為 PENDING
 			slot.SlotStatus = SlotStatusPending
 
-			// 构建卖单（使用当前市价或略低于市价的价格以确保成交，这里简单使用当前锚点价格附近的卖出逻辑）
-			// 实际上由于是全平，最好的方式是下市价单或极优价格的限价单
-			// 这里复用 AdjustOrders 中的逻辑，使用槽位价格加一个间隔作为卖价，或者根据当前价格调整
+			// 構建賣單（使用當前市價或略低於市價的價格以确保成交，这里简單使用當前锚点價格附近的賣出逻辑）
+			// 實際上由於是全平，最好的方式是下市價單或极优價格的限價單
+			// 这里複用 AdjustOrders 中的逻辑，使用槽位價格加一個间隔作為賣價，或者根據當前價格調整
 			
-			// 获取最后价格
+			// 獲取最后價格
 			lastPrice, _ := spm.lastMarketPrice.Load().(float64)
 			if lastPrice <= 0 {
 				lastPrice = price
 			}
 
-			sellPrice := lastPrice * 0.99 // 使用略低于市价的价格确保成交（限价平仓）
+			sellPrice := lastPrice * 0.99 // 使用略低於市價的價格确保成交（限價平倉）
 			sellPrice = roundPrice(sellPrice, spm.priceDecimals)
 
 			clientOID := spm.generateClientOrderID(price, "SELL")
@@ -1952,8 +1966,8 @@ func (spm *SuperPositionManager) LiquidateAll() {
 				Price:         sellPrice,
 				Quantity:      slot.PositionQty,
 				PriceDecimals: spm.priceDecimals,
-				ReduceOnly:    true,
-				PostOnly:      false, // 强制平仓不使用 PostOnly
+				ReduceOnly:    !spm.isSpot(), // 現貨不支援 ReduceOnly
+				PostOnly:      false,         // 强制平倉不使用 PostOnly
 				ClientOrderID: clientOID,
 			})
 		}
@@ -1962,10 +1976,10 @@ func (spm *SuperPositionManager) LiquidateAll() {
 	})
 
 	if len(sellOrders) > 0 {
-		logger.Info("🔄 [全平仓] 提交 %d 个平仓卖单", len(sellOrders))
+		logger.Info("🔄 [全平倉] 提交 %d 個平倉賣單", len(sellOrders))
 		result := spm.executor.BatchPlaceOrdersWithDetails(sellOrders)
 		
-		// 更新槽位状态
+		// 更新槽位状態
 		for _, ord := range result.PlacedOrders {
 			price, _, valid := spm.parseClientOrderID(ord.ClientOrderID)
 			if valid {
@@ -1980,92 +1994,92 @@ func (spm *SuperPositionManager) LiquidateAll() {
 			}
 		}
 	} else {
-		logger.Info("ℹ️ [全平仓] 没有发现需要平仓的持仓")
+		logger.Info("ℹ️ [全平倉] 没有发現需要平倉的持倉")
 	}
 }
 
-// ===== 对账功能已迁移到 safety.Reconciler =====
+// ===== 對账功能已迁移到 safety.Reconciler =====
 // StartReconciliation 和 Reconcile 方法已移至 safety/reconciler.go
 // SetPauseChecker 也已移至 Reconciler
 
-// CancelAllOrders 撤销所有订单（退出时使用）
-// 委托给交易所适配器实现具体逻辑
+// CancelAllOrders 撤销所有订單（退出時使用）
+// 委托给交易所适配器實現具体逻辑
 func (spm *SuperPositionManager) CancelAllOrders() {
 	ctx := context.Background()
 	if err := spm.exchange.CancelAllOrders(ctx, spm.config.Trading.Symbol); err != nil {
-		logger.Error("❌ [%s] 撤销所有订单失败: %v", spm.exchange.GetName(), err)
+		logger.Error("❌ [%s] 撤销所有订單失败: %v", spm.exchange.GetName(), err)
 	} else {
-		logger.Info("✅ [%s] 撤销所有订单完成", spm.exchange.GetName())
+		logger.Info("✅ [%s] 撤销所有订單完成", spm.exchange.GetName())
 	}
 }
 
-// getExistingPosition 获取当前持仓数量（容错处理）
+// getExistingPosition 獲取當前持倉數量（容錯处理）
 func (spm *SuperPositionManager) getExistingPosition() float64 {
 	ctx := context.Background()
 	positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol)
 	if err != nil || positionsInterface == nil {
-		logger.Debug("🔍 [持仓恢复] 无法获取持仓信息: %v", err)
+		logger.Debug("🔍 [持倉恢複] 無法獲取持倉信息: %v", err)
 		return 0
 	}
 
-	// 尝试类型断言 - 假设返回的是包含 Size 字段的结构体切片
-	// 我们使用反射来安全地提取持仓数量
+	// 尝試類型断言 - 假設返回的是包含 Size 字段的結構体切片
+	// 我们使用反射来安全地提取持倉數量
 	switch positions := positionsInterface.(type) {
 	case []*PositionInfo:
 		// PositionInfo 切片（简化版）
 		for _, pos := range positions {
 			if pos != nil && pos.Symbol == spm.config.Trading.Symbol {
-				logger.Debug("🔍 [持仓恢复] 找到持仓 (PositionInfo): %.4f", pos.Size)
+				logger.Debug("🔍 [持倉恢複] 找到持倉 (PositionInfo): %.4f", pos.Size)
 				return pos.Size
 			}
 		}
 	case []interface{}:
-		// 通用接口数组 - 尝试解析为持仓结构
+		// 通用接口數组 - 尝試解析為持倉結構
 		for _, pos := range positions {
-			// 尝试直接类型断言为 PositionInfo
+			// 尝試直接類型断言為 PositionInfo
 			if posInfo, ok := pos.(*PositionInfo); ok {
 				if posInfo.Symbol == spm.config.Trading.Symbol {
-					logger.Debug("🔍 [持仓恢复] 找到持仓 (interface->PositionInfo): %.4f", posInfo.Size)
+					logger.Debug("🔍 [持倉恢複] 找到持倉 (interface->PositionInfo): %.4f", posInfo.Size)
 					return posInfo.Size
 				}
 			}
-			// 尝试解析为 map
+			// 尝試解析為 map
 			if posMap, ok := pos.(map[string]interface{}); ok {
 				if symbol, ok := posMap["Symbol"].(string); ok && symbol == spm.config.Trading.Symbol {
 					if size, ok := posMap["Size"].(float64); ok {
-						logger.Debug("🔍 [持仓恢复] 找到持仓 (map): %.4f", size)
+						logger.Debug("🔍 [持倉恢複] 找到持倉 (map): %.4f", size)
 						return size
 					}
 				}
 			}
 		}
 	default:
-		// 其他情况：使用反射尝试提取 Size 字段
-		logger.Debug("🔍 [持仓恢复] 持仓类型: %T，尝试使用反射提取", positionsInterface)
-		// 尝试使用反射处理未知类型
-		// 注意：实际上 exchange 返回的是 []*exchange.Position，但因为接口返回 interface{}，所以需要特殊处理
+		// 其他情况：使用反射尝試提取 Size 字段
+		logger.Debug("🔍 [持倉恢複] 持倉類型: %T，尝試使用反射提取", positionsInterface)
+		// 尝試使用反射处理未知類型
+		// 注意：實際上 exchange 返回的是 []*exchange.Position，但因為接口回傳 interface{}，所以需要特殊处理
 		return 0
 	}
 
-	logger.Debug("🔍 [持仓恢复] 未找到匹配的持仓")
+	logger.Debug("🔍 [持倉恢複] 未找到匹配的持倉")
 	return 0
 }
 
-// ForceSyncPositions 强制同步持仓（当对账发现重大不一致时调用）
+// ForceSyncPositions 强制同步持倉（當對账发現重大不一致時調用）
 func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
-	// 注意：这里不需要全局锁 spm.mu.Lock()，因为 slots 是 sync.Map，槽位更新有自己的锁
-	// 且我们不希望在对账时阻塞下单逻辑
+	// 注意：这里不需要全局鎖 spm.mu.Lock()，因為 slots 是 sync.Map，槽位更新有自己的鎖
+	// 且我们不希望在對账時阻塞下單逻辑
 
-	logger.Warn("🚨 [强制同步] 正在同步持仓状态，期望持仓: %.4f", exchangePosition)
+	logger.Warn("🚨 [强制同步] 正在同步持倉状態，期望持倉: %.4f", exchangePosition)
 
 	if exchangePosition <= 0.000001 {
-		// 交易所持仓为空，清空本地所有槽位的持仓
+		// 交易所持倉為空，清空本地所有槽位的持倉
 		count := 0
 		spm.slots.Range(func(key, value interface{}) bool {
 			slot := value.(*InventorySlot)
 			slot.mu.Lock()
 			if slot.PositionStatus == PositionStatusFilled {
-				logger.Info("🧹 [强制同步] 清空槽位价格 %s 的持仓 (原数量: %.4f)", 
+				logger.Info("🧹 [强制同步] 清空槽位價格 %s 的持倉 (原數量: %.4f)", 
 					formatPrice(slot.Price, spm.priceDecimals), slot.PositionQty)
 				slot.PositionStatus = PositionStatusEmpty
 				slot.PositionQty = 0
@@ -2079,34 +2093,36 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
 		})
 		
 		if count > 0 {
-			logger.Info("✅ [强制同步] 已成功清空 %d 个槽位的持仓数据", count)
+			logger.Info("✅ [强制同步] 已成功清空 %d 個槽位的持倉數據", count)
 		} else {
-			logger.Debug("ℹ️ [强制同步] 本地本来就没有持仓，无需操作")
+			logger.Debug("ℹ️ [强制同步] 本地本来就没有持倉，無需操作")
 		}
 	} else {
-		// 如果交易所仍有持仓，目前只支持在启动时通过 initializeSellSlotsFromPosition 恢复
-		// 在线动态同步逻辑较为复杂（涉及槽位重新分配），暂时仅提示
-		logger.Warn("⚠️ [强制同步] 交易所仍有持仓 %.4f，暂不支持在线自动同步（非零持仓），请手动检查或重启程序", exchangePosition)
+		// 如果交易所仍有持倉，目前只支援在啟动時通過 initializeSellSlotsFromPosition 恢複
+		// 在線动態同步逻辑较為複杂（涉及槽位重新分配），暂時僅提示
+		logger.Warn("⚠️ [强制同步] 交易所仍有持倉 %.4f，暫不支援在線自动同步（非零持倉），请手动检查或重啟程序", exchangePosition)
 	}
 }
 
-// initializeSellSlotsFromPosition 从现有持仓初始化卖单槽位（用于程序重启后恢复状态）
+// initializeSellSlotsFromPosition 從現有持倉初始化賣單槽位（用於程序重啟后恢複状態）
 func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition float64) {
 	if totalPosition <= 0 {
 		return
 	}
 
-	// 0. 获取杠杆倍数（用于计算实际使用的保证金）
-	leverage := 1 // 默认1倍（无杠杆）
-	ctx := context.Background()
-	
-	// 先尝试从账户信息中的持仓获取杠杆倍数（GetAccount 返回的持仓信息通常包含杠杆）
-	if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
+	// 0. 獲取杠杆倍數（用於计算實際使用的保证金）
+	leverage := 1
+	if spm.isSpot() {
+		leverage = 1
+	} else {
+		ctx := context.Background()
+		// 先尝試從帳戶資訊中的持倉獲取杠杆倍數（GetAccount 返回的持倉資訊通常包含杠杆）
+		if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
 		accountValue := reflect.ValueOf(accountResult)
 		if accountValue.Kind() == reflect.Ptr {
 			accountValue = accountValue.Elem()
 		}
-		// 尝试从 Account.Positions 字段获取持仓信息
+		// 尝試從 Account.Positions 字段獲取持倉信息
 		if positionsField := accountValue.FieldByName("Positions"); positionsField.IsValid() && positionsField.CanInterface() {
 			positionsValue := reflect.ValueOf(positionsField.Interface())
 			if positionsValue.Kind() == reflect.Slice {
@@ -2120,11 +2136,11 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 					// 检查 Symbol 是否匹配
 					if symbolField := posValue.FieldByName("Symbol"); symbolField.IsValid() && symbolField.CanInterface() {
 						if symbol, ok := symbolField.Interface().(string); ok && symbol == spm.config.Trading.Symbol {
-							// 尝试获取 Leverage 字段
+							// 尝試獲取 Leverage 字段
 							if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
 								if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
 									leverage = lev
-									logger.Debug("🔍 [持仓恢复] 从账户持仓信息中获取到杠杆倍数: %dx", leverage)
+									logger.Debug("🔍 [持倉恢複] 從账戶持倉資訊中獲取到杠杆倍數: %dx", leverage)
 									break
 								}
 							}
@@ -2133,72 +2149,70 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 				}
 			}
 		}
-		// 如果从持仓中获取不到，尝试从账户级别的杠杆字段获取
+		// 如果從持倉中獲取不到，尝試從账戶级别的杠杆字段獲取
 		if leverage == 1 {
 			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
 				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
 					leverage = lev
-					logger.Debug("🔍 [持仓恢复] 从账户级别获取到杠杆倍数: %dx", leverage)
+					logger.Debug("🔍 [持倉恢複] 從账戶级别獲取到杠杆倍數: %dx", leverage)
 				}
 			}
 		}
 	}
-	
-	// 如果从账户中获取不到，尝试从 GetPositions 获取
-	if leverage == 1 {
-		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
-			// 使用反射处理不同类型的持仓信息
-			positionsValue := reflect.ValueOf(positionsInterface)
-			if positionsValue.Kind() == reflect.Slice {
-				for i := 0; i < positionsValue.Len(); i++ {
-					posValue := positionsValue.Index(i)
-					if posValue.Kind() == reflect.Ptr {
-						posValue = posValue.Elem()
-					} else if posValue.Kind() == reflect.Interface {
-						posValue = posValue.Elem()
-					}
-					// 尝试获取 Leverage 字段
-					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
-						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-							leverage = lev
-							logger.Debug("🔍 [持仓恢复] 从 GetPositions 获取到杠杆倍数: %dx", leverage)
-							break
+		// 如果從账戶中獲取不到，尝試從 GetPositions 獲取
+		if leverage == 1 {
+			if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
+				positionsValue := reflect.ValueOf(positionsInterface)
+				if positionsValue.Kind() == reflect.Slice {
+					for i := 0; i < positionsValue.Len(); i++ {
+						posValue := positionsValue.Index(i)
+						if posValue.Kind() == reflect.Ptr {
+							posValue = posValue.Elem()
+						} else if posValue.Kind() == reflect.Interface {
+							posValue = posValue.Elem()
+						}
+						if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+							if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+								leverage = lev
+								logger.Debug("🔍 [持倉恢複] 從 GetPositions 獲取到杠杆倍數: %dx", leverage)
+								break
+							}
 						}
 					}
 				}
 			}
 		}
 	}
-	
-	logger.Info("🔍 [持仓恢复] 检测到杠杆倍数: %dx，将使用实际保证金（仓位价值 / 杠杆）计算已用资金", leverage)
 
-	// 1. 计算每单的理论数量（基于当前价格）
-	// 使用锚点价格作为参考价格，使用从交易所获取的数量精度
+	logger.Info("🔍 [持倉恢複] 检测到杠杆倍數: %dx，將使用實際保证金（倉位價值 / 杠杆）计算已用资金", leverage)
 
-	// 每单的理论数量 = 目标金额 / 锚点价格
+	// 1. 计算每單的理論數量（基於當前價格）
+	// 使用锚点價格作為参考價格，使用從交易所獲取的數量精度
+
+	// 每單的理論數量 = 目標金額 / 锚点價格
 	theoryQtyPerSlot := spm.config.Trading.OrderQuantity / spm.anchorPrice
 	theoryQtyPerSlot = roundPrice(theoryQtyPerSlot, spm.quantityDecimals)
 
-	// 2. 计算需要创建的总槽位数
+	// 2. 计算需要創建的總槽位數
 	totalSlotsNeeded := int(math.Ceil(totalPosition / theoryQtyPerSlot))
-	logger.Info("🔄 [持仓恢复] 总持仓: %.4f，每单理论数量: %.4f，需要创建 %d 个槽位",
+	logger.Info("🔄 [持倉恢複] 總持倉: %.4f，每單理論數量: %.4f，需要創建 %d 個槽位",
 		totalPosition, theoryQtyPerSlot, totalSlotsNeeded)
 
-	// 3. 确定窗口大小（前N个槽位可以立即挂卖单）
+	// 3. 确定窗口大小（前N個槽位可以立即挂賣單）
 	sellWindowSize := spm.config.Trading.SellWindowSize
 	if sellWindowSize <= 0 {
-		sellWindowSize = spm.config.Trading.BuyWindowSize // 默认与买单窗口相同
+		sellWindowSize = spm.config.Trading.BuyWindowSize // 默认與買單窗口相同
 	}
 
-	// 4. 计算卖单槽位价格（从锚点价格 + 价格间隔开始）
-	// 卖单最低价 = 锚点价格 + 价格间隔（避免与买单最高价冲突）
+	// 4. 计算賣單槽位價格（從锚点價格 + 價格間隔开始）
+	// 賣單最低價 = 锚点價格 + 價格間隔（避免與買單最高價冲突）
 	sellStartPrice := spm.anchorPrice + spm.config.Trading.PriceInterval
 	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
 
-	logger.Info("🔄 [持仓恢复] 从价格 %s 向上创建 %d 个槽位（前 %d 个将挂卖单）",
+	logger.Info("🔄 [持倉恢複] 從價格 %s 向上創建 %d 個槽位（前 %d 個將挂賣單）",
 		formatPrice(sellStartPrice, spm.priceDecimals), totalSlotsNeeded, sellWindowSize)
 
-	// 5. 先计算所有槽位的理论数量总和（固定金额模式）
+	// 5. 先计算所有槽位的理論數量總和（固定金額模式）
 	var totalTheoryQty float64
 	theoryQtys := make([]float64, len(sellPrices))
 	for i, price := range sellPrices {
@@ -2208,25 +2222,25 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		totalTheoryQty += theoryQty
 	}
 
-	logger.Debug("🔍 [持仓恢复] 理论总数量: %.4f, 实际持仓: %.4f, 比例: %.4f",
+	logger.Debug("🔍 [持倉恢複] 理論總數量: %.4f, 實際持倉: %.4f, 比例: %.4f",
 		totalTheoryQty, totalPosition, totalPosition/totalTheoryQty)
 
-	// 6. 按比例分配实际持仓到各个槽位，并累加已用资金
+	// 6. 按比例分配實際持倉到各個槽位，並累加已用资金
 	var allocatedQty float64
 	var totalUsedAmount float64 // 累加已用资金
 
 	for i, price := range sellPrices {
-		// 计算这个槽位应该分配的数量
+		// 计算這個槽位应該分配的數量
 		var slotQty float64
 		if i == len(sellPrices)-1 {
-			// 最后一个槽位：分配剩余的所有持仓（避免舍入误差）
+			// 最后一個槽位：分配剩餘的所有持倉（避免舍入误差）
 			slotQty = totalPosition - allocatedQty
 		} else {
-			// 按比例分配：实际数量 = 理论数量 × (总持仓 / 理论总数量)
+			// 按比例分配：實際數量 = 理論數量 × (總持倉 / 理論總數量)
 			slotQty = theoryQtys[i] * (totalPosition / totalTheoryQty)
 			slotQty = roundPrice(slotQty, spm.quantityDecimals)
 
-			// 确保不超过剩余持仓
+			// 确保不超過剩餘持倉
 			remaining := totalPosition - allocatedQty
 			if slotQty > remaining {
 				slotQty = remaining
@@ -2234,82 +2248,82 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		}
 
 		if slotQty <= 0 {
-			logger.Warn("⚠️ [持仓恢复] 槽位 %s 分配数量过小 %.4f，跳过（已分配: %.4f / 总计: %.4f）",
+			logger.Warn("⚠️ [持倉恢複] 槽位 %s 分配數量過小 %.4f，跳過（已分配: %.4f / 總计: %.4f）",
 				formatPrice(price, spm.priceDecimals), slotQty, allocatedQty, totalPosition)
 			continue
 		}
 
-		// 7. 创建或更新槽位
+		// 7. 創建或更新槽位
 		slot := spm.getOrCreateSlot(price)
 		slot.mu.Lock()
 
-		// 设置为有仓状态
+		// 設置為有倉状態
 		slot.PositionStatus = PositionStatusFilled
 		slot.PositionQty = slotQty
 
-		// 清空订单信息，但设置方向为SELL（因为这是恢复的持仓，将来要挂卖单）
+		// 清空订單信息，但設置方向為SELL（因為这是恢複的持倉，將来要挂賣單）
 		slot.OrderID = 0
 		slot.OrderStatus = OrderStatusNotPlaced
-		slot.OrderSide = "SELL" // 恢复持仓时标记为卖单方向
+		slot.OrderSide = "SELL" // 恢複持倉時標記為賣單方向
 		slot.ClientOID = ""
 		slot.OrderFilledQty = 0
 
 		slot.mu.Unlock()
 
 		allocatedQty += slotQty
-		// 累加已用资金：使用实际保证金（仓位价值 / 杠杆倍数）而不是仓位价值
-		// 锚点价格是市场当前价格，接近实际买入的平均价格
-		// 不能用卖出价格（sellPrice），因为卖出价格是目标价，会高估成本
-		// 对于有杠杆的交易，实际使用的保证金 = 仓位价值 / 杠杆倍数
-		positionValue := spm.anchorPrice * slotQty // 仓位价值
-		actualMargin := positionValue / float64(leverage) // 实际使用的保证金
+		// 累加已用资金：使用實際保证金（倉位價值 / 杠杆倍數）而不是倉位價值
+		// 锚点價格是市场當前價格，接近實際買入的平均價格
+		// 不能用賣出價格（sellPrice），因為賣出價格是目標價，會高估成本
+		// 對於有杠杆的交易，實際使用的保证金 = 倉位價值 / 杠杆倍數
+		positionValue := spm.anchorPrice * slotQty // 倉位價值
+		actualMargin := positionValue / float64(leverage) // 實際使用的保证金
 		totalUsedAmount += actualMargin
 
-		// 日志标记：是否在窗口内（只打印前10个和最后10个）
+		// 日志標記：是否在窗口内（只打印前10個和最后10個）
 		if i < 10 || i >= len(sellPrices)-10 {
 			inWindow := ""
 			if i < sellWindowSize {
-				inWindow = " [可挂单]"
+				inWindow = " [可挂單]"
 			} else {
-				inWindow = " [暂不挂单]"
+				inWindow = " [暂不挂單]"
 			}
-			logger.Info("✅ [持仓恢复] 槽位 %s: 分配持仓 %.4f (理论: %.4f)%s",
+			logger.Info("✅ [持倉恢複] 槽位 %s: 分配持倉 %.4f (理論: %.4f)%s",
 				formatPrice(price, spm.priceDecimals), slotQty, theoryQtys[i], inWindow)
 		} else if i == 10 {
-			logger.Info("... （省略中间 %d 个槽位）", len(sellPrices)-20)
+			logger.Info("... （省略中间 %d 個槽位）", len(sellPrices)-20)
 		}
 	}
 
-	logger.Info("✅ [持仓恢复] 完成持仓恢复，总持仓: %.4f，已分配: %.4f，差异: %.4f",
+	logger.Info("✅ [持倉恢複] 完成持倉恢複，總持倉: %.4f，已分配: %.4f，差异: %.4f",
 		totalPosition, allocatedQty, totalPosition-allocatedQty)
 
-	// 🔥 初始化已用资金：使用实际保证金（仓位价值 / 杠杆倍数）而不是仓位价值
-	// 这样资金限额限制的是实际投入的资金，而不是仓位价值
+	// 🔥 初始化已用资金：使用實際保证金（倉位價值 / 杠杆倍數）而不是倉位價值
+	// 这样资金限額限制的是實際投入的资金，而不是倉位價值
 	if totalUsedAmount > 0 {
 		spm.allocationManager.SetUsedAmount(spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
-		positionValue := spm.anchorPrice * totalPosition // 总仓位价值
-		logger.Info("💰 [%s:%s] [资金分配] 恢复持仓，初始化已用资金: %.2f USDT (实际保证金，杠杆 %dx，仓位价值: %.2f USDT)", 
+		positionValue := spm.anchorPrice * totalPosition // 總倉位價值
+		logger.Info("💰 [%s:%s] [资金分配] 恢複持倉，初始化已用资金: %.2f USDT (實際保证金，杠杆 %dx，倉位價值: %.2f USDT)", 
 			spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount, leverage, positionValue)
 	}
 
-	// 8. 提示用户后续会自动下卖单
-	logger.Info("💡 [持仓恢复] 前 %d 个槽位的卖单将在价格调整时自动创建", sellWindowSize)
-	logger.Info("💡 [持仓恢复] 其余 %d 个槽位保持有仓状态，价格接近时自动挂单", totalSlotsNeeded-sellWindowSize)
+	// 8. 提示用戶后续會自动下賣單
+	logger.Info("💡 [持倉恢複] 前 %d 個槽位的賣單將在價格調整時自动創建", sellWindowSize)
+	logger.Info("💡 [持倉恢複] 其餘 %d 個槽位保持有倉状態，價格接近時自动挂單", totalSlotsNeeded-sellWindowSize)
 }
 
-// ===== 状态打印功能 =====
+// ===== 状態打印功能 =====
 
-// PrintPositions 打印持仓状态（由 main.go 定期调用和退出时调用）
-// 注意：该方法内部使用 totalBuyQty 和 totalSellQty 统计数据
+// PrintPositions 打印持倉状態（由 main.go 定期調用和退出時調用）
+// 注意：該方法内部使用 totalBuyQty 和 totalSellQty 统计數據
 func (spm *SuperPositionManager) PrintPositions() {
-	// 从配置中获取交易对信息
+	// 從配置中獲取交易對信息
 	symbol := spm.config.Trading.Symbol
 	currentPositionsMsg := logger.Translate("log.position.current_positions", map[string]interface{}{"Symbol": symbol})
 	logger.Info("%s", currentPositionsMsg)
 	total := 0.0
 	count := 0
 
-	// 收集所有持仓数据
+	// 收集所有持倉數據
 	type positionInfo struct {
 		Price          float64
 		Qty            float64
@@ -2342,20 +2356,20 @@ func (spm *SuperPositionManager) PrintPositions() {
 		return true
 	})
 
-	// 按价格从高到低排序
+	// 按價格從高到低排序
 	sort.Slice(positions, func(i, j int) bool {
 		return positions[i].Price > positions[j].Price
 	})
 
-	// 从交易所接口获取基础币种（支持U本位和币本位合约）
+	// 從交易所接口獲取基础币种（支援U本位和币本位合約）
 	baseCurrency := spm.exchange.GetBaseAsset()
 
-	// 打印持仓（从高到低）
+	// 打印持倉（從高到低）
 	for _, pos := range positions {
-		statusIcon := "🟢" // 有持仓
+		statusIcon := "🟢" // 有持倉
 		priceStr := formatPrice(pos.Price, spm.priceDecimals)
 		
-		// 使用翻译函数获取持仓信息
+		// 使用翻譯函數獲取持倉信息
 		positionDesc := logger.Translate("log.position.position_info", map[string]interface{}{
 			"Qty":      fmt.Sprintf("%.4f", pos.Qty),
 			"Currency": baseCurrency,
@@ -2370,7 +2384,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 			})
 		}
 
-		// 🔥 总是显示槽位状态,便于调试
+		// 🔥 總是显示槽位状態,便於調試
 		slotStatusInfo := ""
 		if pos.SlotStatus != "" {
 			slotStatusInfo = " [" + logger.Translate("log.position.slot_status", map[string]interface{}{
@@ -2380,7 +2394,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 			slotStatusInfo = " [" + logger.Translate("log.position.slot_empty") + "]"
 		}
 
-		// 格式化买入时间（使用订单创建时间作为买入时间参考）
+		// 格式化買入時间（使用订單創建時间作為買入時间参考）
 		buyTimeStr := ""
 		if !pos.OrderCreatedAt.IsZero() {
 			buyTimeStr = ", " + logger.Translate("log.position.buy_time", map[string]interface{}{
@@ -2405,22 +2419,22 @@ func (spm *SuperPositionManager) PrintPositions() {
 	logger.Info("%s", positionSummaryMsg)
 	totalBuyQty := spm.totalBuyQty.Load().(float64)
 	totalSellQty := spm.totalSellQty.Load().(float64)
-	// 预计盈利 = 累计卖出数量 × 价格间距（每笔盈利 = 价格间距 × 数量）
+	// 預计盈利 = 累计賣出數量 × 價格间距（每笔盈利 = 價格间距 × 數量）
 	estimatedProfit := totalSellQty * spm.config.Trading.PriceInterval
-	logger.Info("[%s] 累计买入: %.2f, 累计卖出: %.2f, 预计盈利: %.2f U",
+	logger.Info("[%s] 累计買入: %.2f, 累计賣出: %.2f, 預计盈利: %.2f U",
 		spm.config.Trading.Symbol, totalBuyQty, totalSellQty, estimatedProfit)
 
-	// === 新增：打印买单窗口详细信息 ===
-	logger.Info("🔍 ===== 买单窗口状态 [%s] =====", spm.config.Trading.Symbol)
+	// === 新增：打印買單窗口详细信息 ===
+	logger.Info("🔍 ===== 買單窗口状態 [%s] =====", spm.config.Trading.Symbol)
 
-	// 获取最后的市场价格
+	// 獲取最后的市场價格
 	lastPrice, ok := spm.lastMarketPrice.Load().(float64)
 	if !ok || lastPrice <= 0 {
-		lastPrice = spm.anchorPrice // 如果没有更新过，使用锚点价格
+		lastPrice = spm.anchorPrice // 如果没有更新過，使用锚点價格
 	}
-	logger.Info("[%s] 当前市场价格: %s", spm.config.Trading.Symbol, formatPrice(lastPrice, spm.priceDecimals))
+	logger.Info("[%s] 當前市場價格: %s", spm.config.Trading.Symbol, formatPrice(lastPrice, spm.priceDecimals))
 
-	// 收集所有槽位信息（包括买单和空槽位）
+	// 收集所有槽位信息（包括買單和空槽位）
 	type slotInfo struct {
 		Price          float64
 		PositionStatus string
@@ -2451,50 +2465,50 @@ func (spm *SuperPositionManager) PrintPositions() {
 		return true
 	})
 
-	// 按价格从高到低排序
+	// 按價格從高到低排序
 	sort.Slice(allSlots, func(i, j int) bool {
 		return allSlots[i].Price > allSlots[j].Price
 	})
 
-	// 找到最接近当前价格的网格价格
+	// 找到最接近當前價格的网格價格
 	currentGridPrice := spm.findNearestGridPrice(lastPrice)
-	logger.Info("[%s] 当前网格价格: %s", spm.config.Trading.Symbol, formatPrice(currentGridPrice, spm.priceDecimals))
+	logger.Info("[%s] 當前网格價格: %s", spm.config.Trading.Symbol, formatPrice(currentGridPrice, spm.priceDecimals))
 
-	// 计算买单窗口范围（当前网格价格下方的买单窗口）
+	// 计算買單窗口範圍（當前网格價格下方的買單窗口）
 	buyWindowSize := spm.config.Trading.BuyWindowSize
 	buyWindowPrices := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, "down")
 
-	// 创建价格查找表
+	// 創建價格查找表
 	buyWindowPriceMap := make(map[string]bool)
 	for _, p := range buyWindowPrices {
 		buyWindowPriceMap[formatPrice(p, spm.priceDecimals)] = true
 	}
 
-	// 打印买单窗口内的所有槽位
-	logger.Info("[%s] 买单窗口大小: %d 个槽位 (当前网格价格下方)", spm.config.Trading.Symbol, buyWindowSize)
+	// 打印買單窗口内的所有槽位
+	logger.Info("[%s] 買單窗口大小: %d 個槽位 (當前网格價格下方)", spm.config.Trading.Symbol, buyWindowSize)
 	buyOrderCount := 0
 	emptySlotCount := 0
 	filledSlotCount := 0
 
 	for _, slot := range allSlots {
 		priceStr := formatPrice(slot.Price, spm.priceDecimals)
-		// 只打印买单窗口内的槽位
+		// 只打印買單窗口内的槽位
 		if buyWindowPriceMap[priceStr] {
 			statusIcon := "⚪" // 空槽位
 			statusDesc := ""
 
 			if slot.PositionStatus == PositionStatusFilled {
-				statusIcon = "🟢" // 有持仓
-				statusDesc = fmt.Sprintf("持仓: %.4f %s", slot.PositionQty, baseCurrency)
+				statusIcon = "🟢" // 有持倉
+				statusDesc = fmt.Sprintf("持倉: %.4f %s", slot.PositionQty, baseCurrency)
 				filledSlotCount++
 			} else {
-				statusDesc = "无持仓"
+				statusDesc = "無持倉"
 				emptySlotCount++
 			}
 
 			orderInfo := ""
 			if slot.OrderStatus != OrderStatusNotPlaced && slot.OrderStatus != "" {
-				orderInfo = fmt.Sprintf(", 订单: %s/%s (ID:%d)", slot.OrderSide, slot.OrderStatus, slot.OrderID)
+				orderInfo = fmt.Sprintf(", 订單: %s/%s (ID:%d)", slot.OrderSide, slot.OrderStatus, slot.OrderID)
 				if slot.OrderSide == "BUY" && (slot.OrderStatus == OrderStatusPlaced ||
 					slot.OrderStatus == OrderStatusConfirmed ||
 					slot.OrderStatus == OrderStatusPartiallyFilled) {
@@ -2502,7 +2516,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 				}
 			}
 
-			// 🔥 总是显示槽位状态,便于调试
+			// 🔥 總是显示槽位状態,便於調試
 			slotStatusInfo := ""
 			if slot.SlotStatus != "" {
 				slotStatusInfo = fmt.Sprintf(" [槽位:%s]", slot.SlotStatus)
@@ -2515,24 +2529,34 @@ func (spm *SuperPositionManager) PrintPositions() {
 		}
 	}
 
-	logger.Info("[%s] 窗口统计: %d 个买单活跃, %d 个已持仓, %d 个空槽位",
+	logger.Info("[%s] 窗口统计: %d 個買單活跃, %d 個已持倉, %d 個空槽位",
 		spm.config.Trading.Symbol, buyOrderCount, filledSlotCount, emptySlotCount)
 	logger.Info("==========================")
 }
 
-// 辅助函数
-// roundPrice 价格四舍五入
+// 辅助函數
+// roundPrice 價格四舍五入
 func roundPrice(price float64, decimals int) float64 {
 	multiplier := math.Pow(10, float64(decimals))
 	return math.Round(price*multiplier) / multiplier
 }
 
-// formatPrice 格式化价格字符串，使用指定的小数位数
+// formatPrice 格式化價格字符串，使用指定的小數位數
 func formatPrice(price float64, decimals int) string {
 	return fmt.Sprintf("%.*f", decimals, price)
 }
 
-// calculateUnrealizedPnL 计算未实现盈亏
+// GetUnrealizedPnL 獲取未實現盈虧（供快照、API 等使用）
+func (spm *SuperPositionManager) GetUnrealizedPnL(currentPrice float64) float64 {
+	return spm.calculateUnrealizedPnL(currentPrice)
+}
+
+// GetTotalPositionValueAtPrice 獲取在給定價格下的持倉總價值（供快照、API 等使用）
+func (spm *SuperPositionManager) GetTotalPositionValueAtPrice(currentPrice float64) float64 {
+	return spm.calculateTotalPositionValue(currentPrice)
+}
+
+// calculateUnrealizedPnL 计算未實現盈亏
 func (spm *SuperPositionManager) calculateUnrealizedPnL(currentPrice float64) float64 {
 	totalPnL := 0.0
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -2540,7 +2564,7 @@ func (spm *SuperPositionManager) calculateUnrealizedPnL(currentPrice float64) fl
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			// 盈亏 = (当前价格 - 买入价格) * 数量
+			// 盈亏 = (當前價格 - 買入價格) * 數量
 			totalPnL += (currentPrice - slotPrice) * slot.PositionQty
 		}
 		slot.mu.RUnlock()
@@ -2549,7 +2573,7 @@ func (spm *SuperPositionManager) calculateUnrealizedPnL(currentPrice float64) fl
 	return totalPnL
 }
 
-// calculateTotalPositionValue 计算当前持仓总价值
+// calculateTotalPositionValue 计算當前持倉總價值
 func (spm *SuperPositionManager) calculateTotalPositionValue(currentPrice float64) float64 {
 	totalValue := 0.0
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -2564,7 +2588,7 @@ func (spm *SuperPositionManager) calculateTotalPositionValue(currentPrice float6
 	return totalValue
 }
 
-// GetActiveLayers 统计当前持仓层数
+// GetActiveLayers 统计當前持倉层數
 func (spm *SuperPositionManager) GetActiveLayers() int {
 	layers := 0
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -2579,8 +2603,8 @@ func (spm *SuperPositionManager) GetActiveLayers() int {
 	return layers
 }
 
-// CleanupEmptySlots 清理空槽位（定期调用，防止 sync.Map 内存泄漏）
-// 清理条件：空仓、无订单、无订单历史
+// CleanupEmptySlots 清理空槽位（定期調用，防止 sync.Map 記憶體泄漏）
+// 清理条件：空倉、無订單、無訂單歷史
 func (spm *SuperPositionManager) CleanupEmptySlots() int {
 	var toDelete []float64
 
@@ -2602,7 +2626,7 @@ func (spm *SuperPositionManager) CleanupEmptySlots() int {
 		return true
 	})
 
-	// 删除空槽位
+	// 刪除空槽位
 	deletedCount := 0
 	for _, price := range toDelete {
 		spm.slots.Delete(price)
@@ -2610,7 +2634,7 @@ func (spm *SuperPositionManager) CleanupEmptySlots() int {
 	}
 
 	if deletedCount > 0 {
-		logger.Debug("🧹 [槽位清理] 已清理 %d 个空槽位", deletedCount)
+		logger.Debug("🧹 [槽位清理] 已清理 %d 個空槽位", deletedCount)
 	}
 
 	return deletedCount

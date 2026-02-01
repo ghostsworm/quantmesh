@@ -19,7 +19,7 @@ type TelegramNotifier struct {
 	client   *http.Client
 }
 
-// NewTelegramNotifier 创建 Telegram 通知器
+// NewTelegramNotifier 創建 Telegram 通知器
 func NewTelegramNotifier(cfg *config.Config) (*TelegramNotifier, error) {
 	if cfg.Notifications.Telegram.BotToken == "" || cfg.Notifications.Telegram.ChatID == "" {
 		return nil, fmt.Errorf("Telegram BotToken 或 ChatID 未配置")
@@ -55,13 +55,13 @@ func (tn *TelegramNotifier) Send(evt *event.Event) error {
 		return fmt.Errorf("序列化消息失败: %w", err)
 	}
 
-	// 设置超时（3秒）
+	// 設置超時（3秒）
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -73,7 +73,7 @@ func (tn *TelegramNotifier) Send(evt *event.Event) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Telegram API 返回错误: %d", resp.StatusCode)
+		return fmt.Errorf("Telegram API 返回錯误: %d", resp.StatusCode)
 	}
 
 	return nil
@@ -87,13 +87,13 @@ func formatTelegramMessage(evt *event.Event) string {
 	switch evt.Type {
 	case event.EventTypeOrderPlaced:
 		emoji = "📝"
-		title = "订单已下单"
+		title = "订單已下單"
 	case event.EventTypeOrderFilled:
 		emoji = "✅"
-		title = "订单已成交"
+		title = "订單已成交"
 	case event.EventTypeOrderCanceled:
 		emoji = "❌"
-		title = "订单已取消"
+		title = "订單已取消"
 	case event.EventTypeRiskTriggered:
 		emoji = "🚨"
 		title = "风控触发"
@@ -108,10 +108,10 @@ func formatTelegramMessage(evt *event.Event) string {
 		title = "止盈触发"
 	case event.EventTypeError:
 		emoji = "❌"
-		title = "系统错误"
+		title = "系统錯误"
 	case event.EventTypeSystemStart:
 		emoji = "🚀"
-		title = "系统启动"
+		title = "系统啟动"
 	case event.EventTypeSystemStop:
 		emoji = "🛑"
 		title = "系统停止"
@@ -125,14 +125,14 @@ func formatTelegramMessage(evt *event.Event) string {
 		if mode, ok := evt.Data["mode"].(string); ok {
 			if mode == "emergency" {
 				emoji = "🚨"
-				title = "资金限额已提升（紧急模式）"
+				title = "资金限額已提升（紧急模式）"
 			} else {
 				emoji = "✅"
-				title = "资金限额已恢复（正常模式）"
+				title = "资金限額已恢複（正常模式）"
 			}
 		} else {
 			emoji = "📊"
-			title = "资金限额变更"
+			title = "资金限額变更"
 		}
 	default:
 		emoji = "ℹ️"
@@ -140,9 +140,9 @@ func formatTelegramMessage(evt *event.Event) string {
 	}
 
 	message := fmt.Sprintf("%s *%s*\n", emoji, title)
-	message += fmt.Sprintf("时间: %s\n", evt.Timestamp.Format("2006-01-02 15:04:05"))
+	message += fmt.Sprintf("時间: %s\n", evt.Timestamp.Format("2006-01-02 15:04:05"))
 
-	// 添加事件数据
+	// 添加事件數據
 	if evt.Data != nil {
 		for key, value := range evt.Data {
 			message += fmt.Sprintf("%s: `%v`\n", key, value)

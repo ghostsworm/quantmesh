@@ -5,12 +5,12 @@ import (
 	"quantmesh/config"
 )
 
-// ConfigService AI 配置服务
+// ConfigService AI 配置服務
 type ConfigService struct {
 	configPath string
 }
 
-// NewConfigService 创建配置服务
+// NewConfigService 創建配置服務
 func NewConfigService(configPath string) *ConfigService {
 	return &ConfigService{
 		configPath: configPath,
@@ -19,24 +19,24 @@ func NewConfigService(configPath string) *ConfigService {
 
 // ApplyAIConfig 应用 AI 生成的配置
 func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *config.Config) error {
-	// 1. 优先处理分级的 SymbolsConfig (资产优先重构)
+	// 1. 优先处理分级的 SymbolsConfig (资產优先重構)
 	if len(aiConfig.SymbolsConfig) > 0 {
 		for _, newSymCfg := range aiConfig.SymbolsConfig {
-			// 确保交易所已设置
+			// 确保交易所已設置
 			if newSymCfg.Exchange == "" {
 				newSymCfg.Exchange = cfg.App.CurrentExchange
 			}
 
 			found := false
 			for i, oldSymCfg := range cfg.Trading.Symbols {
-				// 注意：这里需要考虑 Exchange 为空的情况（默认使用 app.current_exchange）
+				// 注意：这里需要考虑 Exchange 為空的情况（默认使用 app.current_exchange）
 				oldExchange := oldSymCfg.Exchange
 				if oldExchange == "" {
 					oldExchange = cfg.App.CurrentExchange
 				}
 
 				if oldExchange == newSymCfg.Exchange && oldSymCfg.Symbol == newSymCfg.Symbol {
-					// 保留一些基础字段，防止 AI 覆盖掉（如订单清理等，除非 AI 显式指定）
+					// 保留一些基础欄位，防止 AI 覆盖掉（如訂單清理等，除非 AI 显式指定）
 					if newSymCfg.MinOrderValue == 0 {
 						newSymCfg.MinOrderValue = oldSymCfg.MinOrderValue
 					}
@@ -96,7 +96,7 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 					cfg.Trading.Symbols[i].BuyWindowSize = gridCfg.BuyWindowSize
 					cfg.Trading.Symbols[i].SellWindowSize = gridCfg.SellWindowSize
 
-					// 应用网格风控配置
+					// 应用网格風控配置
 					if gridCfg.GridRiskControl != nil {
 						cfg.Trading.Symbols[i].GridRiskControl.Enabled = gridCfg.GridRiskControl.Enabled
 						if gridCfg.GridRiskControl.Enabled {
@@ -132,7 +132,7 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 					PositionSafetyCheck:   50,
 				}
 
-				// 应用网格风控配置
+				// 应用网格風控配置
 				if gridCfg.GridRiskControl != nil {
 					newSymCfg.GridRiskControl.Enabled = gridCfg.GridRiskControl.Enabled
 					if gridCfg.GridRiskControl.Enabled {
@@ -159,7 +159,7 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 				Exchange:      sc.Exchange,
 				Symbol:        sc.Symbol,
 				MaxAmountUSDT: sc.TotalAllocatedCapital,
-				MaxPercentage: 0, // 优先使用金额
+				MaxPercentage: 0, // 优先使用金額
 			})
 		}
 	} else if len(aiConfig.Allocation) > 0 {
@@ -182,43 +182,43 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 	return nil
 }
 
-// ValidateAIConfig 验证 AI 配置
+// ValidateAIConfig 驗证 AI 配置
 func (cs *ConfigService) ValidateAIConfig(aiConfig *GenerateConfigResponse, totalCapital float64) error {
-	// 验证资金分配总和不超过可用资金
+	// 驗证资金分配總和不超過可用资金
 	var totalAllocated float64
 	for _, alloc := range aiConfig.Allocation {
 		totalAllocated += alloc.MaxAmountUSDT
 	}
 
 	if totalAllocated > totalCapital {
-		return fmt.Errorf("资金分配总和 (%.2f USDT) 超过可用资金 (%.2f USDT)", totalAllocated, totalCapital)
+		return fmt.Errorf("资金分配總和 (%.2f USDT) 超過可用资金 (%.2f USDT)", totalAllocated, totalCapital)
 	}
 
-	// 验证网格参数合理性
+	// 驗证网格参數合理性
 	for _, grid := range aiConfig.GridConfig {
 		if grid.PriceInterval <= 0 {
-			return fmt.Errorf("%s 价格间隔必须大于0", grid.Symbol)
+			return fmt.Errorf("%s 價格間隔必須大於0", grid.Symbol)
 		}
 		if grid.OrderQuantity <= 0 {
-			return fmt.Errorf("%s 每单金额必须大于0", grid.Symbol)
+			return fmt.Errorf("%s 每單金額必須大於0", grid.Symbol)
 		}
 		if grid.BuyWindowSize <= 0 || grid.SellWindowSize <= 0 {
-			return fmt.Errorf("%s 窗口大小必须大于0", grid.Symbol)
+			return fmt.Errorf("%s 窗口大小必須大於0", grid.Symbol)
 		}
 		
-		// 验证风控参数
+		// 驗证风控参數
 		if grid.GridRiskControl != nil && grid.GridRiskControl.Enabled {
 			if grid.GridRiskControl.StopLossRatio < 0 || grid.GridRiskControl.StopLossRatio > 1 {
-				return fmt.Errorf("%s 止损比例必须在0-1之间", grid.Symbol)
+				return fmt.Errorf("%s 止损比例必須在0-1之间", grid.Symbol)
 			}
 			if grid.GridRiskControl.TakeProfitTriggerRatio < 0 || grid.GridRiskControl.TakeProfitTriggerRatio > 1 {
-				return fmt.Errorf("%s 盈利触发比例必须在0-1之间", grid.Symbol)
+				return fmt.Errorf("%s 盈利触发比例必須在0-1之间", grid.Symbol)
 			}
 			if grid.GridRiskControl.TrailingTakeProfitRatio < 0 || grid.GridRiskControl.TrailingTakeProfitRatio > 1 {
-				return fmt.Errorf("%s 回撤止盈比例必须在0-1之间", grid.Symbol)
+				return fmt.Errorf("%s 回撤止盈比例必須在0-1之间", grid.Symbol)
 			}
 			if grid.GridRiskControl.MaxGridLayers < 0 {
-				return fmt.Errorf("%s 最大层数不能为负数", grid.Symbol)
+				return fmt.Errorf("%s 最大层數不能為负數", grid.Symbol)
 			}
 		}
 	}

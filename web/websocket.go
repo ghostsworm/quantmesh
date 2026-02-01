@@ -13,7 +13,7 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // 允许所有来源（生产环境应该限制）
+		return true // 允許所有来源（生產环境应該限制）
 	},
 }
 
@@ -42,7 +42,7 @@ func init() {
 	go hub.Run()
 }
 
-// SetLogStorage 设置日志存储（用于实时推送）
+// SetLogStorage 設置日志存儲（用於實時推送）
 func SetLogStorage(ls *storage.LogStorage) {
 	logStorageMu.Lock()
 	defer logStorageMu.Unlock()
@@ -83,7 +83,7 @@ func (h *WebSocketHub) Run() {
 	}
 }
 
-// BroadcastStatus 广播状态
+// BroadcastStatus 广播状態
 func BroadcastStatus(status *SystemStatus) {
 	if hub == nil {
 		return
@@ -122,7 +122,7 @@ func handleWebSocket(c *gin.Context) {
 		}
 	}
 
-	// 启动日志推送协程
+	// 啟动日志推送协程
 	if logCh != nil {
 		go func() {
 			for {
@@ -153,7 +153,7 @@ func handleWebSocket(c *gin.Context) {
 		}()
 	}
 
-	// 启动心跳协程
+	// 啟动心跳协程
 	done := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(3 * time.Second)
@@ -172,14 +172,14 @@ func handleWebSocket(c *gin.Context) {
 		}
 	}()
 
-	// 设置 pong 处理器
+	// 設置 pong 处理器
 	conn.SetPongHandler(func(string) error {
-		// 收到 pong 响应，重置读取超时
+		// 收到 pong 响应，重置读取超時
 		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 		return nil
 	})
 
-	// 设置初始读取超时
+	// 設置初始读取超時
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
 	// 保持连接

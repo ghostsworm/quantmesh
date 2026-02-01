@@ -25,7 +25,7 @@ type WebSocketManager struct {
 	reconnectDelay time.Duration
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(client *KuCoinClient, symbol string) (*WebSocketManager, error) {
 	return &WebSocketManager{
 		client:         client,
@@ -35,13 +35,13 @@ func NewWebSocketManager(client *KuCoinClient, symbol string) (*WebSocketManager
 	}, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	w.mu.Lock()
 	w.orderCallback = callback
 	w.mu.Unlock()
 
-	// 获取 WebSocket token（私有频道）
+	// 獲取 WebSocket token（私有频道）
 	token, err := w.client.GetWebSocketToken(ctx, true)
 	if err != nil {
 		return fmt.Errorf("get websocket token error: %w", err)
@@ -58,7 +58,7 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 
 	logger.Info("KuCoin WebSocket connected: %s", wsURL)
 
-	// 订阅订单更新
+	// 订阅订單更新
 	subscribeMsg := map[string]interface{}{
 		"id":             time.Now().UnixMilli(),
 		"type":           "subscribe",
@@ -72,25 +72,25 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 
 	logger.Info("KuCoin subscribed to order stream: %s", w.symbol)
 
-	// 启动消息处理
+	// 啟动消息处理
 	go w.handleMessages(ctx)
 	go w.ping(ctx)
 
 	return nil
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(float64)) error {
 	w.mu.Lock()
 	w.priceCallback = callback
 	w.mu.Unlock()
 
-	// 如果已经连接，直接订阅价格流
+	// 如果已經连接，直接订阅價格流
 	if w.conn != nil {
 		return w.subscribePriceStream()
 	}
 
-	// 获取 WebSocket token（公共频道）
+	// 獲取 WebSocket token（公共频道）
 	token, err := w.client.GetWebSocketToken(ctx, false)
 	if err != nil {
 		return fmt.Errorf("get websocket token error: %w", err)
@@ -107,19 +107,19 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(f
 
 	logger.Info("KuCoin WebSocket connected for price stream: %s", wsURL)
 
-	// 订阅价格流
+	// 订阅價格流
 	if err := w.subscribePriceStream(); err != nil {
 		return err
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go w.handleMessages(ctx)
 	go w.ping(ctx)
 
 	return nil
 }
 
-// subscribePriceStream 订阅价格流
+// subscribePriceStream 订阅價格流
 func (w *WebSocketManager) subscribePriceStream() error {
 	subscribeMsg := map[string]interface{}{
 		"id":       time.Now().UnixMilli(),
@@ -176,7 +176,7 @@ func (w *WebSocketManager) processMessage(message []byte) {
 		return
 	}
 
-	// 处理不同类型的消息
+	// 处理不同類型的消息
 	switch baseMsg.Type {
 	case "welcome":
 		logger.Info("KuCoin WebSocket welcome message received")
@@ -191,22 +191,22 @@ func (w *WebSocketManager) processMessage(message []byte) {
 	}
 }
 
-// handleDataMessage 处理数据消息
+// handleDataMessage 处理數據消息
 func (w *WebSocketManager) handleDataMessage(topic, subject string, data json.RawMessage) {
-	// 订单更新
+	// 订單更新
 	if strings.Contains(topic, "/contractMarket/tradeOrders") {
 		w.handleOrderUpdate(data)
 		return
 	}
 
-	// 价格更新
+	// 價格更新
 	if strings.Contains(topic, "/contractMarket/ticker") {
 		w.handlePriceUpdate(data)
 		return
 	}
 }
 
-// handleOrderUpdate 处理订单更新
+// handleOrderUpdate 处理订單更新
 func (w *WebSocketManager) handleOrderUpdate(data json.RawMessage) {
 	w.mu.RLock()
 	callback := w.orderCallback
@@ -244,7 +244,7 @@ func (w *WebSocketManager) handleOrderUpdate(data json.RawMessage) {
 	callback(orderUpdate)
 }
 
-// handlePriceUpdate 处理价格更新
+// handlePriceUpdate 处理價格更新
 func (w *WebSocketManager) handlePriceUpdate(data json.RawMessage) {
 	w.mu.RLock()
 	callback := w.priceCallback
@@ -273,7 +273,7 @@ func (w *WebSocketManager) handlePriceUpdate(data json.RawMessage) {
 		return
 	}
 
-	// 使用最新成交价
+	// 使用最新成交價
 	callback(priceUpdate.Price)
 }
 

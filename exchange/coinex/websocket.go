@@ -32,7 +32,7 @@ type WebSocketManager struct {
 	reqID     int64
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketManager {
 	wsURL := CoinExMainnetWSURL
 	if isTestnet {
@@ -48,7 +48,7 @@ func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketMan
 	}
 }
 
-// Start 启动 WebSocket
+// Start 啟动 WebSocket
 func (w *WebSocketManager) Start(ctx context.Context, market string, callback func(interface{})) error {
 	w.mu.Lock()
 	if w.isRunning {
@@ -118,7 +118,7 @@ func (w *WebSocketManager) connect(ctx context.Context, market string) {
 			continue
 		}
 
-		// 启动心跳
+		// 啟动心跳
 		go w.heartbeat()
 
 		// 读取消息
@@ -251,7 +251,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理订单更新
+	// 处理订單更新
 	if method, ok := msg["method"].(string); ok && method == "order.update" {
 		if params, ok := msg["params"].([]interface{}); ok && len(params) > 0 {
 			logger.Debug("CoinEx WebSocket order update")
@@ -262,7 +262,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// getNextReqID 获取下一个请求 ID
+// getNextReqID 獲取下一個请求 ID
 func (w *WebSocketManager) getNextReqID() int64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()

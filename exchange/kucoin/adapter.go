@@ -21,7 +21,7 @@ type Adapter struct {
 	quoteAsset       string
 }
 
-// NewKuCoinAdapter 创建 KuCoin 适配器
+// NewKuCoinAdapter 創建 KuCoin 适配器
 func NewKuCoinAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	apiKey := config["api_key"]
 	secretKey := config["secret_key"]
@@ -33,16 +33,16 @@ func NewKuCoinAdapter(config map[string]string, symbol string) (*Adapter, error)
 
 	client := NewKuCoinClient(apiKey, secretKey, passphrase)
 
-	// 解析交易对：KuCoin 使用 BTCUSDT 格式，需要转换为 BTC-USDT
+	// 解析交易對：KuCoin 使用 BTCUSDT 格式，需要轉换為 BTC-USDT
 	var parts []string
 	if strings.Contains(symbol, "-") {
 		parts = strings.Split(symbol, "-")
 	} else {
-		// 尝试解析 BTCUSDT 格式
+		// 尝試解析 BTCUSDT 格式
 		if strings.HasSuffix(symbol, "USDT") {
 			base := strings.TrimSuffix(symbol, "USDT")
 			parts = []string{base, "USDT"}
-			symbol = base + "-USDT" // 转换为 KuCoin 格式
+			symbol = base + "-USDT" // 轉换為 KuCoin 格式
 		} else {
 			return nil, fmt.Errorf("invalid symbol format: %s, expected format: BTC-USDT or BTCUSDT", symbol)
 		}
@@ -56,19 +56,19 @@ func NewKuCoinAdapter(config map[string]string, symbol string) (*Adapter, error)
 		client:           client,
 		symbol:           symbol,
 		priceDecimals:    2,
-		quantityDecimals: 0, // KuCoin 期货使用整数张数
+		quantityDecimals: 0, // KuCoin 期货使用整數张數
 		baseAsset:        parts[0],
 		quoteAsset:       parts[1],
 	}
 
-	// 获取交易对精度信息
+	// 獲取交易對精度信息
 	ctx := context.Background()
 	exchangeInfo, err := client.GetExchangeInfo(ctx)
 	if err != nil {
 		logger.Warn("Failed to get KuCoin exchange info: %v", err)
 	} else {
 		if info, exists := exchangeInfo.Symbols[symbol]; exists {
-			// 根据 tickSize 计算价格精度
+			// 根據 tickSize 计算價格精度
 			tickSize := info.TickSize
 			if tickSize > 0 {
 				adapter.priceDecimals = getPrecision(tickSize)
@@ -80,7 +80,7 @@ func NewKuCoinAdapter(config map[string]string, symbol string) (*Adapter, error)
 	return adapter, nil
 }
 
-// getPrecision 根据 tickSize 计算精度
+// getPrecision 根據 tickSize 计算精度
 func getPrecision(tickSize float64) int {
 	str := fmt.Sprintf("%.10f", tickSize)
 	str = strings.TrimRight(str, "0")
@@ -91,12 +91,17 @@ func getPrecision(tickSize float64) int {
 	return 0
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (a *Adapter) GetName() string {
 	return "kucoin"
 }
 
-// PlaceOrder 下单
+// GetMarketType 獲取市場類型：futures 合約
+func (a *Adapter) GetMarketType() string {
+	return "futures"
+}
+
+// PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, req *KuCoinOrderRequest) (*Order, error) {
 	clientOrderID := fmt.Sprintf("order_%d", req.Timestamp)
 
@@ -133,7 +138,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, req *KuCoinOrderRequest) (*Ord
 	return order, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (a *Adapter) BatchPlaceOrders(ctx context.Context, orders []*KuCoinOrderRequest) ([]*Order, bool) {
 	results := make([]*Order, 0, len(orders))
 	allSuccess := true
@@ -151,7 +156,7 @@ func (a *Adapter) BatchPlaceOrders(ctx context.Context, orders []*KuCoinOrderReq
 	return results, allSuccess
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (a *Adapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	orderIDStr := strconv.FormatInt(orderID, 10)
 	_, err := a.client.CancelOrder(ctx, orderIDStr)
@@ -163,7 +168,7 @@ func (a *Adapter) CancelOrder(ctx context.Context, symbol string, orderID int64)
 	return nil
 }
 
-// BatchCancelOrders 批量取消订单
+// BatchCancelOrders 批量取消訂單
 func (a *Adapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	for _, orderID := range orderIDs {
 		if err := a.CancelOrder(ctx, symbol, orderID); err != nil {
@@ -173,7 +178,7 @@ func (a *Adapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs
 	return nil
 }
 
-// CancelAllOrders 取消所有订单
+// CancelAllOrders 取消所有订單
 func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	orders, err := a.client.GetOpenOrders(ctx, symbol)
 	if err != nil {
@@ -190,7 +195,7 @@ func (a *Adapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (a *Adapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	orderIDStr := strconv.FormatInt(orderID, 10)
 	orderInfo, err := a.client.GetOrderInfo(ctx, orderIDStr)
@@ -201,7 +206,7 @@ func (a *Adapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*
 	return a.convertToOrder(orderInfo), nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (a *Adapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := a.client.GetOpenOrders(ctx, symbol)
 	if err != nil {
@@ -216,7 +221,7 @@ func (a *Adapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, e
 	return result, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*Account, error) {
 	accountInfo, err := a.client.GetAccountInfo(ctx)
 	if err != nil {
@@ -233,7 +238,7 @@ func (a *Adapter) GetAccount(ctx context.Context) (*Account, error) {
 	return account, nil
 }
 
-// GetPositions 获取持仓信息
+// GetPositions 獲取持倉信息
 func (a *Adapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	positions, err := a.client.GetPositionInfo(ctx, symbol)
 	if err != nil {
@@ -267,7 +272,7 @@ func (a *Adapter) GetPositions(ctx context.Context, symbol string) ([]*Position,
 	return result, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (a *Adapter) GetBalance(ctx context.Context, asset string) (float64, error) {
 	accountInfo, err := a.client.GetAccountInfo(ctx)
 	if err != nil {
@@ -277,7 +282,7 @@ func (a *Adapter) GetBalance(ctx context.Context, asset string) (float64, error)
 	return accountInfo.AvailableBalance, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if a.wsManager != nil {
 		return fmt.Errorf("order stream already started")
@@ -292,7 +297,7 @@ func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{
 	return wsManager.StartOrderStream(ctx, callback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (a *Adapter) StopOrderStream() error {
 	if a.wsManager != nil {
 		a.wsManager.Stop()
@@ -301,9 +306,9 @@ func (a *Adapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// KuCoin 没有单独的获取最新价格的 API，这里通过持仓信息获取标记价格
+	// KuCoin 没有單独的獲取最新價格的 API，这里通過持倉資訊獲取標記價格
 	positions, err := a.client.GetPositionInfo(ctx, symbol)
 	if err != nil {
 		return 0, fmt.Errorf("get latest price error: %w", err)
@@ -316,7 +321,7 @@ func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, e
 	return 0, fmt.Errorf("no position found for symbol: %s", symbol)
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (a *Adapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	if a.wsManager == nil {
 		wsManager, err := NewWebSocketManager(a.client, symbol)
@@ -329,7 +334,7 @@ func (a *Adapter) StartPriceStream(ctx context.Context, symbol string, callback 
 	return a.wsManager.StartPriceStream(ctx, callback)
 }
 
-// StartKlineStream 启动K线流
+// StartKlineStream 啟動K線流
 func (a *Adapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
 	if a.klineWSManager != nil {
 		return fmt.Errorf("kline stream already started")
@@ -344,7 +349,7 @@ func (a *Adapter) StartKlineStream(ctx context.Context, symbols []string, interv
 	return klineWSManager.Start(ctx, callback)
 }
 
-// StopKlineStream 停止K线流
+// StopKlineStream 停止K線流
 func (a *Adapter) StopKlineStream() error {
 	if a.klineWSManager != nil {
 		a.klineWSManager.Stop()
@@ -353,7 +358,7 @@ func (a *Adapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (a *Adapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*KuCoinCandle, error) {
 	granularity := convertIntervalToGranularity(interval)
 	candles, err := a.client.GetHistoricalKlines(ctx, symbol, granularity, limit)
@@ -377,32 +382,32 @@ func (a *Adapter) GetHistoricalKlines(ctx context.Context, symbol string, interv
 	return result, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (a *Adapter) GetPriceDecimals() int {
 	return a.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (a *Adapter) GetQuantityDecimals() int {
 	return a.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (a *Adapter) GetBaseAsset() string {
 	return a.baseAsset
 }
 
-// GetQuoteAsset 获取报价资产
+// GetQuoteAsset 獲取报價资產
 func (a *Adapter) GetQuoteAsset() string {
 	return a.quoteAsset
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (a *Adapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return a.client.GetFundingRate(ctx, symbol)
 }
 
-// convertToOrder 将 KuCoin 订单转换为通用订单
+// convertToOrder 將 KuCoin 订單轉换為通用订單
 func (a *Adapter) convertToOrder(orderInfo *OrderInfo) *Order {
 	price, _ := strconv.ParseFloat(orderInfo.Price, 64)
 
@@ -431,7 +436,7 @@ func (a *Adapter) convertToOrder(orderInfo *OrderInfo) *Order {
 	}
 }
 
-// convertIntervalToGranularity 将时间间隔转换为 KuCoin 的 granularity
+// convertIntervalToGranularity 將時间间隔轉换為 KuCoin 的 granularity
 func convertIntervalToGranularity(interval string) int {
 	switch interval {
 	case "1m":
@@ -457,11 +462,11 @@ func convertIntervalToGranularity(interval string) int {
 	case "1w":
 		return 10080
 	default:
-		return 60 // 默认 1 小时
+		return 60 // 預設 1 小時
 	}
 }
 
-// abs 返回绝对值
+// abs 返回绝對值
 func abs(x int) int {
 	if x < 0 {
 		return -x
@@ -469,7 +474,7 @@ func abs(x int) int {
 	return x
 }
 
-// InternalTransfer 交易所内部转账（KuCoin 暂未实现）
+// InternalTransfer 交易所內部轉帳（KuCoin 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for KuCoin")
 }

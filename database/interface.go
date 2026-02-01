@@ -5,37 +5,37 @@ import (
 	"time"
 )
 
-// Database 数据库接口
+// Database 數據库接口
 type Database interface {
-	// 交易记录
+	// 交易記錄
 	SaveTrade(ctx context.Context, trade *Trade) error
 	GetTrades(ctx context.Context, filter *TradeFilter) ([]*Trade, error)
 	BatchSaveTrades(ctx context.Context, trades []*Trade) error
 
-	// 订单记录
+	// 订單記錄
 	SaveOrder(ctx context.Context, order *Order) error
 	GetOrders(ctx context.Context, filter *OrderFilter) ([]*Order, error)
 
-	// 统计数据
+	// 统计數據
 	SaveStatistics(ctx context.Context, stats *Statistics) error
 	GetStatistics(ctx context.Context, filter *StatFilter) ([]*Statistics, error)
 
-	// 对账记录
+	// 對账記錄
 	SaveReconciliation(ctx context.Context, recon *Reconciliation) error
 	GetReconciliations(ctx context.Context, filter *ReconciliationFilter) ([]*Reconciliation, error)
 
-	// 风控记录
+	// 风控記錄
 	SaveRiskCheck(ctx context.Context, check *RiskCheck) error
 	GetRiskChecks(ctx context.Context, filter *RiskCheckFilter) ([]*RiskCheck, error)
 
-	// 事件记录
+	// 事件記錄
 	SaveEvent(ctx context.Context, event *EventRecord) error
 	GetEvents(ctx context.Context, filter *EventFilter) ([]*EventRecord, error)
 	GetEventByID(ctx context.Context, id int64) (*EventRecord, error)
 	GetEventStats(ctx context.Context) (*EventStats, error)
 	CleanupOldEvents(ctx context.Context, severity string, keepCount int, keepDays int) error
 
-	// 异步任务记录
+	// 异步任務記錄
 	SaveAsyncTask(ctx context.Context, task *AsyncTask) error
 	UpdateAsyncTask(ctx context.Context, task *AsyncTask) error
 	GetAsyncTask(ctx context.Context, id string) (*AsyncTask, error)
@@ -44,13 +44,13 @@ type Database interface {
 	GetAsyncTaskStats(ctx context.Context, startTime, endTime *time.Time) (*AsyncTaskStats, error)
 	CleanupExpiredAsyncTasks(ctx context.Context, cutoff time.Time) (int64, error)
 
-	// 仓位计划记录
+	// 倉位计划記錄
 	SavePositionPlan(ctx context.Context, plan *PositionPlan) error
 	UpdatePositionPlan(ctx context.Context, plan *PositionPlan) error
 	GetPositionPlan(ctx context.Context, id int64) (*PositionPlan, error)
 	GetPositionPlans(ctx context.Context, filter *PositionPlanFilter) ([]*PositionPlan, error)
 
-	// 事务支持
+	// 事務支援
 	BeginTx(ctx context.Context) (Tx, error)
 
 	// 健康检查
@@ -60,16 +60,16 @@ type Database interface {
 	Close() error
 }
 
-// Tx 事务接口
+// Tx 事務接口
 type Tx interface {
 	Commit() error
 	Rollback() error
-	Database // 继承所有数据库操作
+	Database // 继承所有數據库操作
 }
 
-// 数据模型
+// 數據模型
 
-// Trade 交易记录
+// Trade 交易記錄
 type Trade struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	Exchange  string    `gorm:"index:idx_exchange_symbol_time;size:50" json:"exchange"`
@@ -85,7 +85,7 @@ type Trade struct {
 	CreatedAt time.Time `gorm:"index:idx_exchange_symbol_time" json:"created_at"`
 }
 
-// Order 订单记录
+// Order 订單記錄
 type Order struct {
 	ID            int64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	Exchange      string    `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"`
@@ -102,7 +102,7 @@ type Order struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-// Statistics 统计数据
+// Statistics 统计數據
 type Statistics struct {
 	ID         int64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	Exchange   string    `gorm:"index:idx_exchange_symbol_date;size:50" json:"exchange"`
@@ -115,7 +115,7 @@ type Statistics struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// Reconciliation 对账记录
+// Reconciliation 對账記錄
 type Reconciliation struct {
 	ID          int64      `gorm:"primaryKey;autoIncrement" json:"id"`
 	Exchange    string     `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"`
@@ -129,7 +129,7 @@ type Reconciliation struct {
 	CreatedAt   time.Time  `gorm:"index" json:"created_at"`
 }
 
-// RiskCheck 风控检查记录
+// RiskCheck 风控检查記錄
 type RiskCheck struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	Exchange  string    `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"`
@@ -140,31 +140,31 @@ type RiskCheck struct {
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 }
 
-// EventRecord 事件记录
+// EventRecord 事件記錄
 type EventRecord struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Type      string    `gorm:"index:idx_type_severity;size:50" json:"type"`      // 事件类型
+	Type      string    `gorm:"index:idx_type_severity;size:50" json:"type"`      // 事件類型
 	Severity  string    `gorm:"index:idx_type_severity;size:20" json:"severity"`  // 严重程度: critical/warning/info
 	Source    string    `gorm:"index;size:20" json:"source"`                      // 事件源: exchange/network/system/strategy/risk/api
-	Exchange  string    `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"` // 交易所（可选）
-	Symbol    string    `gorm:"index:idx_exchange_symbol;size:50" json:"symbol"`   // 交易对（可选）
-	Title     string    `gorm:"size:200" json:"title"`                            // 事件标题
+	Exchange  string    `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"` // 交易所（可選）
+	Symbol    string    `gorm:"index:idx_exchange_symbol;size:50" json:"symbol"`   // 交易對（可選）
+	Title     string    `gorm:"size:200" json:"title"`                            // 事件標题
 	Message   string    `gorm:"type:text" json:"message"`                         // 事件消息
 	Details   string    `gorm:"type:text" json:"details"`                         // 详细信息（JSON）
-	CreatedAt time.Time `gorm:"index" json:"created_at"`                          // 创建时间
+	CreatedAt time.Time `gorm:"index" json:"created_at"`                          // 創建時间
 }
 
-// TableName 指定表名为 events（兼容旧数据）
+// TableName 指定表名為 events（兼容舊數據）
 func (EventRecord) TableName() string {
 	return "events"
 }
 
-// AsyncTask 异步 AI 任务记录
+// AsyncTask 异步 AI 任務記錄
 type AsyncTask struct {
 	ID               string     `gorm:"type:varchar(36);primaryKey" json:"id"`
 	TaskType         string     `gorm:"type:varchar(50);not null" json:"task_type"`
 	Status           string     `gorm:"type:varchar(20);not null;default:'pending'" json:"status"`
-	RequestData      string     `gorm:"type:text;not null" json:"request_data"` // 使用 string 存储 JSON 以提高兼容性
+	RequestData      string     `gorm:"type:text;not null" json:"request_data"` // 使用 string 存儲 JSON 以提高兼容性
 	Result           string     `gorm:"type:text" json:"result"`
 	ErrorMessage     *string    `gorm:"type:text" json:"error_message"`
 	Model            *string    `gorm:"type:varchar(50)" json:"model"`
@@ -187,12 +187,12 @@ func (AsyncTask) TableName() string {
 	return "async_tasks"
 }
 
-// PositionPlan 仓位目标计划
+// PositionPlan 倉位目標计划
 type PositionPlan struct {
 	ID               int64      `gorm:"primaryKey;autoIncrement" json:"id"`
 	Exchange         string     `gorm:"index:idx_plan_exchange_symbol;size:50" json:"exchange"`
 	Symbol           string     `gorm:"index:idx_plan_exchange_symbol;size:50" json:"symbol"`
-	StrategyID       string     `gorm:"size:100" json:"strategy_id"` // 可选，空表示所有策略
+	StrategyID       string     `gorm:"size:100" json:"strategy_id"` // 可選，空表示所有策略
 	TargetAmountUSDT float64    `gorm:"type:decimal(20,8)" json:"target_amount_usdt"`
 	Direction        string     `gorm:"size:20" json:"direction"` // reduce / increase
 	Status           string     `gorm:"index;size:20" json:"status"` // pending / in_progress / completed / cancelled
@@ -221,9 +221,9 @@ type EventStats struct {
 	Last24HoursCount int            `json:"last_24_hours_count"`
 }
 
-// 过滤器
+// 過滤器
 
-// TradeFilter 交易记录过滤器
+// TradeFilter 交易記錄過滤器
 type TradeFilter struct {
 	Exchange  string
 	Symbol    string
@@ -233,7 +233,7 @@ type TradeFilter struct {
 	Offset    int
 }
 
-// OrderFilter 订单记录过滤器
+// OrderFilter 订單記錄過滤器
 type OrderFilter struct {
 	Exchange string
 	Symbol   string
@@ -242,7 +242,7 @@ type OrderFilter struct {
 	Offset   int
 }
 
-// StatFilter 统计数据过滤器
+// StatFilter 统计數據過滤器
 type StatFilter struct {
 	Exchange  string
 	Symbol    string
@@ -252,7 +252,7 @@ type StatFilter struct {
 	Offset    int
 }
 
-// ReconciliationFilter 对账记录过滤器
+// ReconciliationFilter 對账記錄過滤器
 type ReconciliationFilter struct {
 	Exchange  string
 	Symbol    string
@@ -264,7 +264,7 @@ type ReconciliationFilter struct {
 	Offset    int
 }
 
-// RiskCheckFilter 风控记录过滤器
+// RiskCheckFilter 风控記錄過滤器
 type RiskCheckFilter struct {
 	Exchange  string
 	Symbol    string
@@ -275,39 +275,39 @@ type RiskCheckFilter struct {
 	Offset    int
 }
 
-// EventFilter 事件记录过滤器
+// EventFilter 事件記錄過滤器
 type EventFilter struct {
-	Type      string     // 事件类型筛选
+	Type      string     // 事件類型筛选
 	Severity  string     // 严重程度筛选
 	Source    string     // 事件源筛选
 	Exchange  string     // 交易所筛选
-	Symbol    string     // 交易对筛选
-	StartTime *time.Time // 开始时间
-	EndTime   *time.Time // 结束时间
-	Limit     int        // 限制数量
+	Symbol    string     // 交易對筛选
+	StartTime *time.Time // 开始時间
+	EndTime   *time.Time // 結束時间
+	Limit     int        // 限制數量
 	Offset    int        // 偏移量
 }
 
-// AsyncTaskFilter 异步任务过滤器
+// AsyncTaskFilter 异步任務過滤器
 type AsyncTaskFilter struct {
-	Status    string     // 任务状态：pending, running, completed, failed, timeout
-	TaskType  string     // 任务类型：generate_content, generate_config 等
-	StartTime *time.Time // 开始时间
-	EndTime   *time.Time // 结束时间
-	Limit     int        // 限制数量
+	Status    string     // 任務状態：pending, running, completed, failed, timeout
+	TaskType  string     // 任務類型：generate_content, generate_config 等
+	StartTime *time.Time // 开始時间
+	EndTime   *time.Time // 結束時间
+	Limit     int        // 限制數量
 	Offset    int        // 偏移量
 }
 
-// PositionPlanFilter 仓位计划过滤器
+// PositionPlanFilter 倉位计划過滤器
 type PositionPlanFilter struct {
 	Exchange string // 交易所
-	Symbol   string // 交易对
+	Symbol   string // 交易對
 	Status   string // pending / in_progress / completed / cancelled
 	Limit    int
 	Offset   int
 }
 
-// AsyncTaskStats 异步任务统计
+// AsyncTaskStats 异步任務统计
 type AsyncTaskStats struct {
 	TotalTasks        int              `json:"total_tasks"`
 	TotalInputTokens  int64            `json:"total_input_tokens"`

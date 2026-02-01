@@ -14,7 +14,7 @@ func TestTrendDetector_DetectTrend(t *testing.T) {
 
 	td := NewTrendDetector(cfg, nil)
 
-	// 场景 1: 上涨趋势 (MA3 > MA5 且 价格 > MA3)
+	// 场景 1: 上涨趋势 (MA3 > MA5 且 價格 > MA3)
 	// MA5: (100+101+102+103+104)/5 = 102
 	// MA3: (102+103+104)/3 = 103
 	// Current: 105
@@ -22,10 +22,10 @@ func TestTrendDetector_DetectTrend(t *testing.T) {
 	td.priceHistory = pricesUp
 	trend := td.DetectTrend()
 	if trend != TrendUp {
-		t.Errorf("应检测为上涨趋势, 得到 %s", trend)
+		t.Errorf("应检测為上涨趋势, 得到 %s", trend)
 	}
 
-	// 场景 2: 下跌趋势 (MA3 < MA5 且 价格 < MA3)
+	// 场景 2: 下跌趋势 (MA3 < MA5 且 價格 < MA3)
 	// MA5: (100+99+98+97+96)/5 = 98
 	// MA3: (98+97+96)/3 = 97
 	// Current: 95
@@ -33,7 +33,7 @@ func TestTrendDetector_DetectTrend(t *testing.T) {
 	td.priceHistory = pricesDown
 	trend = td.DetectTrend()
 	if trend != TrendDown {
-		t.Errorf("应检测为下跌趋势, 得到 %s", trend)
+		t.Errorf("应检测為下跌趋势, 得到 %s", trend)
 	}
 
 	// 场景 3: 震荡 (不满足上涨或下跌条件)
@@ -44,7 +44,7 @@ func TestTrendDetector_DetectTrend(t *testing.T) {
 	td.priceHistory = pricesSide
 	trend = td.DetectTrend()
 	if trend != TrendSide {
-		t.Errorf("应检测为震荡趋势, 得到 %s", trend)
+		t.Errorf("应检测為震荡趋势, 得到 %s", trend)
 	}
 }
 
@@ -58,17 +58,17 @@ func TestTrendDetector_AdjustWindows(t *testing.T) {
 
 	td := NewTrendDetector(cfg, nil)
 
-	// 上涨趋势：减少买单，增加卖单
+	// 上涨趋势：减少買單，增加賣單
 	td.currentTrend = TrendUp
 	buy, sell := td.AdjustWindows()
 	if buy >= 10 || sell <= 10 {
-		t.Errorf("上涨趋势调整错误: buy=%d, sell=%d", buy, sell)
+		t.Errorf("上涨趋势調整錯误: buy=%d, sell=%d", buy, sell)
 	}
 
-	// 下跌趋势：增加买单，减少卖单
+	// 下跌趋势：增加買單，减少賣單
 	td.currentTrend = TrendDown
 	buy, sell = td.AdjustWindows()
 	if buy <= 10 || sell >= 10 {
-		t.Errorf("下跌趋势调整错误: buy=%d, sell=%d", buy, sell)
+		t.Errorf("下跌趋势調整錯误: buy=%d, sell=%d", buy, sell)
 	}
 }

@@ -16,7 +16,7 @@ import (
 	"quantmesh/logger"
 )
 
-// SetupStatusResponse 配置状态响应
+// SetupStatusResponse 配置状態响应
 type SetupStatusResponse struct {
 	NeedsSetup bool                            `json:"needs_setup"`
 	ConfigPath string                          `json:"config_path"`
@@ -24,7 +24,7 @@ type SetupStatusResponse struct {
 	Symbols    []config.SymbolConfig           `json:"symbols,omitempty"`
 }
 
-// getSetupStatusHandler 获取配置状态
+// getSetupStatusHandler 獲取配置状態
 // GET /api/setup/status
 func getSetupStatusHandler(c *gin.Context) {
 	configPath := "config.yaml"
@@ -75,7 +75,7 @@ type SetupInitRequest struct {
 	SecretKey      string   `json:"secret_key" binding:"required"`
 	Passphrase     string   `json:"passphrase,omitempty"`
 	Symbol         string   `json:"symbol,omitempty"`        // 向后兼容，但优先使用 Symbols
-	Symbols        []string `json:"symbols,omitempty"`       // 多交易对支持
+	Symbols        []string `json:"symbols,omitempty"`       // 多交易對支援
 	PriceInterval  float64  `json:"price_interval" binding:"required,gt=0"`
 	OrderQuantity  float64  `json:"order_quantity" binding:"required,gt=0"`
 	MinOrderValue  float64  `json:"min_order_value,omitempty"`
@@ -93,15 +93,15 @@ type SetupInitResponse struct {
 	BackupPath      string `json:"backup_path,omitempty"` // 备份文件路径（如果存在）
 }
 
-// initSetupHandler 初始化配置（仅首次设置或已认证用户可用）
+// initSetupHandler 初始化配置（僅首次設置或已认证用戶可用）
 // POST /api/setup/init
 func initSetupHandler(c *gin.Context) {
-	// 🔒 安全检查：如果已经设置过密码，则需要认证
+	// 🔒 安全检查：如果已經設置過密碼，则需要认证
 	if globalPasswordManager != nil {
 		username := "admin"
 		hasPassword, err := globalPasswordManager.HasPassword(username)
 		if err == nil && hasPassword {
-			// 已设置密码，检查是否已认证
+			// 已設置密碼，检查是否已认证
 			sm := GetSessionManager()
 			if sm != nil {
 				session, exists := sm.GetSessionFromRequest(c.Request)
@@ -109,11 +109,11 @@ func initSetupHandler(c *gin.Context) {
 					logger.Warn("⚠️ [SECURITY] 拒绝未认证的配置初始化请求，IP: %s", c.ClientIP())
 					c.JSON(http.StatusUnauthorized, SetupInitResponse{
 						Success: false,
-						Message: "系统已初始化，需要登录后才能修改配置",
+						Message: "系统已初始化，需要登錄后才能修改配置",
 					})
 					return
 				}
-				logger.Info("✅ [SECURITY] 已认证用户 %s 正在修改配置", session.Username)
+				logger.Info("✅ [SECURITY] 已认证用戶 %s 正在修改配置", session.Username)
 			}
 		}
 	}
@@ -122,34 +122,34 @@ func initSetupHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, SetupInitResponse{
 			Success: false,
-			Message: "请求参数错误: " + err.Error(),
+			Message: "请求参數錯误: " + err.Error(),
 		})
 		return
 	}
 
-	// 确定要使用的交易对列表
+	// 确定要使用的交易對列表
 	var symbols []string
 	if len(req.Symbols) > 0 {
-		// 优先使用 Symbols 数组
+		// 优先使用 Symbols 數组
 		symbols = req.Symbols
 	} else if req.Symbol != "" {
-		// 向后兼容：使用单个 Symbol
+		// 向后兼容：使用單個 Symbol
 		symbols = []string{req.Symbol}
 	} else {
 		c.JSON(http.StatusBadRequest, SetupInitResponse{
 			Success: false,
-			Message: "请至少指定一个交易对（使用 symbol 或 symbols 字段）",
+			Message: "请至少指定一個交易對（使用 symbol 或 symbols 字段）",
 		})
 		return
 	}
 
-	// 获取配置文件路径
+	// 獲取配置文件路径
 	configPath := "config.yaml"
 	if configManager != nil {
 		configPath = configManager.GetConfigPath()
 	}
 
-	// 尝试加载现有配置，如果不存在则创建最小化配置
+	// 尝試加載現有配置，如果不存在则創建最小化配置
 	var cfg *config.Config
 	if _, err := os.Stat(configPath); err == nil {
 		if existingCfg, err := config.LoadConfig(configPath); err == nil {
@@ -160,12 +160,12 @@ func initSetupHandler(c *gin.Context) {
 		cfg = config.CreateMinimalConfig()
 	}
 
-	// 设置交易所
+	// 設置交易所
 	if cfg.App.CurrentExchange == "" {
 	cfg.App.CurrentExchange = req.Exchange
 	}
 
-	// 设置交易所配置
+	// 設置交易所配置
 	exchangeCfg := config.ExchangeConfig{
 		APIKey:     req.APIKey,
 		SecretKey:  req.SecretKey,
@@ -174,20 +174,20 @@ func initSetupHandler(c *gin.Context) {
 		FeeRate:    req.FeeRate,
 	}
 
-	// 如果手续费率未设置，使用默认值
+	// 如果手续费率未設置，使用默认值
 	if exchangeCfg.FeeRate <= 0 {
 		exchangeCfg.FeeRate = 0.0002
 	}
 
 	cfg.Exchanges[req.Exchange] = exchangeCfg
 
-	// 如果卖单窗口大小未设置，使用买单窗口大小
+	// 如果賣單視窗大小未設置，使用買單窗口大小
 	sellWindowSize := req.SellWindowSize
 	if sellWindowSize <= 0 {
 		sellWindowSize = req.BuyWindowSize
 	}
 
-	// 设置交易配置（兼容旧版）
+	// 設置交易配置（兼容舊版）
 	cfg.Trading.PriceInterval = req.PriceInterval
 	cfg.Trading.OrderQuantity = req.OrderQuantity
 	if req.MinOrderValue > 0 {
@@ -198,7 +198,7 @@ func initSetupHandler(c *gin.Context) {
 	cfg.Trading.BuyWindowSize = req.BuyWindowSize
 	cfg.Trading.SellWindowSize = sellWindowSize
 
-	// 保留其他交易所的交易对配置，仅更新当前交易所的
+	// 保留其他交易所的交易對配置，僅更新當前交易所的
 	newSymbolConfigs := make([]config.SymbolConfig, 0)
 	for _, sc := range cfg.Trading.Symbols {
 		if !strings.EqualFold(sc.Exchange, req.Exchange) {
@@ -206,7 +206,7 @@ func initSetupHandler(c *gin.Context) {
 		}
 	}
 
-	// 为每个新交易对创建配置
+	// 為每個新交易對創建配置
 	for _, symbol := range symbols {
 		symbolCfg := config.SymbolConfig{
 			Enabled:               config.BoolPtr(true),
@@ -227,7 +227,7 @@ func initSetupHandler(c *gin.Context) {
 	}
 	cfg.Trading.Symbols = newSymbolConfigs
 
-	// 设置第一个交易对作为默认（向后兼容）
+	// 設置第一個交易對作為默认（向后兼容）
 	if len(cfg.Trading.Symbols) > 0 {
 		cfg.Trading.Symbol = cfg.Trading.Symbols[0].Symbol
 	}
@@ -236,17 +236,17 @@ func initSetupHandler(c *gin.Context) {
 	var backupPath string
 	_, err := os.Stat(configPath)
 	if err == nil {
-		// 配置文件存在，先创建备份
-		backupManager := config.NewBackupManager()
-		backupInfo, backupErr := backupManager.CreateBackup(configPath, "首次设置向导覆盖前自动备份")
+		// 配置文件存在，先創建备份
+		backupManager := config.NewBackupManager(configPath)
+		backupInfo, backupErr := backupManager.CreateBackup(configPath, "首次設置向導覆盖前自动备份")
 		if backupErr != nil {
-			logger.Warn("⚠️ 创建配置备份失败: %v，但继续保存配置", backupErr)
+			logger.Warn("⚠️ 創建配置备份失败: %v，但继续保存配置", backupErr)
 		} else {
 			backupPath = backupInfo.FilePath
-			logger.Info("✅ 已创建配置备份: %s", backupPath)
+			logger.Info("✅ 已創建配置备份: %s", backupPath)
 		}
 
-		// 检查配置是否完整（用于日志记录，但不阻止覆盖）
+		// 检查配置是否完整（用於日志記錄，但不阻止覆盖）
 		existingCfg, loadErr := config.LoadConfig(configPath)
 		if loadErr == nil {
 			isComplete := existingCfg.App.CurrentExchange != "" &&
@@ -283,14 +283,14 @@ func initSetupHandler(c *gin.Context) {
 	if len(symbols) > 0 {
 		symbolsStr = symbols[0]
 		if len(symbols) > 1 {
-			symbolsStr += fmt.Sprintf(" 等 %d 个", len(symbols))
+			symbolsStr += fmt.Sprintf(" 等 %d 個", len(symbols))
 		}
 	}
-	logger.Info("✅ 配置初始化成功: 交易所=%s, 交易对=%s", req.Exchange, symbolsStr)
+	logger.Info("✅ 配置初始化成功: 交易所=%s, 交易對=%s", req.Exchange, symbolsStr)
 
-	message := "配置已保存，请重启系统以应用配置"
+	message := "配置已保存，请重啟系统以應用配置"
 	if backupPath != "" {
-		message = fmt.Sprintf("配置已保存（原配置已备份到: %s），请重启系统以应用配置", backupPath)
+		message = fmt.Sprintf("配置已保存（原配置已备份到: %s），请重啟系统以應用配置", backupPath)
 	}
 
 	c.JSON(http.StatusOK, SetupInitResponse{
@@ -301,30 +301,31 @@ func initSetupHandler(c *gin.Context) {
 	})
 }
 
-// ExchangeSymbolsRequest 获取交易所交易对请求
+// ExchangeSymbolsRequest 獲取交易所交易對请求
 type ExchangeSymbolsRequest struct {
 	Exchange   string `json:"exchange" binding:"required"`
+	MarketType string `json:"market_type,omitempty"` // spot 現貨 / futures 合約，預設 futures
 	APIKey     string `json:"api_key" binding:"required"`
 	SecretKey  string `json:"secret_key" binding:"required"`
 	Passphrase string `json:"passphrase,omitempty"`
 	Testnet    bool   `json:"testnet,omitempty"`
 }
 
-// ExchangeSymbolsResponse 交易所交易对响应
+// ExchangeSymbolsResponse 交易所交易對响应
 type ExchangeSymbolsResponse struct {
 	Success bool     `json:"success"`
 	Message string   `json:"message,omitempty"`
 	Symbols []string `json:"symbols"`
 }
 
-// getExchangeSymbolsHandler 获取交易所的所有交易对
+// getExchangeSymbolsHandler 獲取交易所的所有交易對
 // POST /api/setup/exchange-symbols
 func getExchangeSymbolsHandler(c *gin.Context) {
 	var req ExchangeSymbolsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, ExchangeSymbolsResponse{
 			Success: false,
-			Message: "请求参数错误: " + err.Error(),
+			Message: "请求参數錯误: " + err.Error(),
 			Symbols: []string{},
 		})
 		return
@@ -333,50 +334,94 @@ func getExchangeSymbolsHandler(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	marketType := strings.ToLower(strings.TrimSpace(req.MarketType))
+	if marketType == "" {
+		marketType = "futures"
+	}
+	if marketType != "spot" && marketType != "futures" {
+		marketType = "futures"
+	}
+
 	var symbols []string
 	var err error
 
 	switch strings.ToLower(req.Exchange) {
 	case "binance":
-		symbols, err = getBinanceSymbols(ctx, req.APIKey, req.SecretKey, req.Testnet)
+		if marketType == "spot" {
+			symbols, err = getBinanceSpotSymbols(ctx, req.Testnet)
+		} else {
+			symbols, err = getBinanceSymbols(ctx, req.APIKey, req.SecretKey, req.Testnet)
+		}
 	case "bitget":
-		symbols, err = getBitgetSymbols(ctx, req.APIKey, req.SecretKey, req.Passphrase, req.Testnet)
+		if marketType == "spot" {
+			symbols, err = getBitgetSpotSymbols(ctx, req.Testnet)
+		} else {
+			symbols, err = getBitgetSymbols(ctx, req.APIKey, req.SecretKey, req.Passphrase, req.Testnet)
+		}
 	case "bybit":
-		symbols, err = getBybitSymbols(ctx, req.APIKey, req.SecretKey, req.Testnet)
+		if marketType == "spot" {
+			symbols, err = getBybitSpotSymbols(ctx, req.Testnet)
+		} else {
+			symbols, err = getBybitSymbols(ctx, req.APIKey, req.SecretKey, req.Testnet)
+		}
 	case "gate":
-		symbols, err = getGateSymbols(ctx, req.APIKey, req.SecretKey, req.Testnet)
+		if marketType == "spot" {
+			symbols, err = getGateSpotSymbols(ctx, req.Testnet)
+		} else {
+			symbols, err = getGateSymbols(ctx, req.APIKey, req.SecretKey, req.Testnet)
+		}
 	case "okx":
-		symbols, err = getOKXSymbols(ctx, req.APIKey, req.SecretKey, req.Passphrase, req.Testnet)
+		if marketType == "spot" {
+			symbols, err = getOkxSpotSymbols(ctx, req.Testnet)
+		} else {
+			symbols, err = getOKXSymbols(ctx, req.APIKey, req.SecretKey, req.Passphrase, req.Testnet)
+		}
 	case "huobi", "htx":
+		if marketType == "spot" {
+			c.JSON(http.StatusBadRequest, ExchangeSymbolsResponse{
+				Success: false,
+				Message: "Huobi 現貨交易對列表暂未支援",
+				Symbols: []string{},
+			})
+			return
+		}
 		symbols, err = getHuobiSymbols(ctx, req.APIKey, req.SecretKey, req.Testnet)
 	case "kucoin":
+		if marketType == "spot" {
+			c.JSON(http.StatusBadRequest, ExchangeSymbolsResponse{
+				Success: false,
+				Message: "KuCoin 現貨交易對列表暂未支援",
+				Symbols: []string{},
+			})
+			return
+		}
 		symbols, err = getKuCoinSymbols(ctx, req.APIKey, req.SecretKey, req.Passphrase, req.Testnet)
 	default:
 		c.JSON(http.StatusBadRequest, ExchangeSymbolsResponse{
 			Success: false,
-			Message: fmt.Sprintf("暂不支持从 %s 获取交易对列表", req.Exchange),
+			Message: fmt.Sprintf("暫不支援從 %s 獲取交易對列表", req.Exchange),
 			Symbols: []string{},
 		})
 		return
 	}
 
 	if err != nil {
-		logger.Error("获取 %s 交易对列表失败: %v", req.Exchange, err)
-		// 如果获取失败且没有返回 fallback 交易对，则返回错误
+		logger.Error("獲取 %s 交易對列表失败: %v", req.Exchange, err)
+		// 如果獲取失败且没有回傳 fallback 交易對，则返回錯误
 		if len(symbols) == 0 {
 			msg := err.Error()
 			if strings.Contains(msg, "context deadline exceeded") {
-				msg = "获取交易对列表超时，请检查网络连接或代理设置"
+				msg = "獲取交易對列表超時，请检查网络连接或代理設置"
 			}
 			c.JSON(http.StatusInternalServerError, ExchangeSymbolsResponse{
 				Success: false,
-				Message: "获取交易对列表失败: " + msg,
+				Message: "獲取交易對列表失败: " + msg,
 				Symbols: []string{},
 			})
 			return
 		}
-		// 如果虽然报错了但有 fallback 交易对，则继续返回成功的响应，但在 message 中提示
-		logger.Warn("⚠️ 使用内置备选交易对列表")
+		// 如果雖然报錯了但有 fallback 交易對，则继续返回成功的响应，但在 message 中提示
+		logger.Warn("⚠️ 使用内置备选交易對列表")
 	}
 
 	c.JSON(http.StatusOK, ExchangeSymbolsResponse{
@@ -385,7 +430,7 @@ func getExchangeSymbolsHandler(c *gin.Context) {
 	})
 }
 
-// binancePrioritySymbols 币安常用交易对（按优先级排序）
+// binancePrioritySymbols 币安常用交易對（按优先级排序）
 var binancePrioritySymbols = []string{
 	"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
 	"ADAUSDT", "DOGEUSDT", "MATICUSDT", "DOTUSDT", "AVAXUSDT",
@@ -395,15 +440,15 @@ var binancePrioritySymbols = []string{
 	"OPUSDT", "SUIUSDT", "NEARUSDT", "INJUSDT", "TIAUSDT",
 }
 
-// getBinanceSymbols 获取 Binance 的所有交易对
+// getBinanceSymbols 獲取 Binance 的所有交易對
 func getBinanceSymbols(ctx context.Context, apiKey, secretKey string, testnet bool) ([]string, error) {
-	// 设置测试网模式
+	// 設置測試網模式
 	futures.UseTestnet = testnet
 	client := futures.NewClient(apiKey, secretKey)
 
 	exchangeInfo, err := client.NewExchangeInfoService().Do(ctx)
 	if err != nil {
-		logger.Error("⚠️ 获取 Binance 交易所信息失败: %v, 使用内置备选交易对", err)
+		logger.Error("⚠️ 獲取 Binance 交易所信息失败: %v, 使用内置备选交易對", err)
 		return binancePrioritySymbols, err
 	}
 
@@ -413,7 +458,7 @@ func getBinanceSymbols(ctx context.Context, apiKey, secretKey string, testnet bo
 	otherList := make([]string, 0)
 
 	for _, symbol := range exchangeInfo.Symbols {
-		// 只返回 USDT 永续合约（U本位永续合约），且状态为 TRADING
+		// 只回傳 USDT 永续合約（U本位永续合約），且状態為 TRADING
 		if symbol.Status == "TRADING" &&
 			symbol.ContractType == "PERPETUAL" &&
 			symbol.QuoteAsset == "USDT" &&
@@ -440,13 +485,13 @@ func getBinanceSymbols(ctx context.Context, apiKey, secretKey string, testnet bo
 		}
 	}
 
-	// 对优先级列表按预定义顺序排序
+	// 對优先级列表按預定义顺序排序
 	priorityMap := make(map[string]int)
 	for i, ps := range binancePrioritySymbols {
 		priorityMap[ps] = i
 	}
 
-	// 使用 sort.Slice 对优先级列表按预定义顺序排序
+	// 使用 sort.Slice 對优先级列表按預定义顺序排序
 	sort.Slice(priorityList, func(i, j int) bool {
 		idxI, existsI := priorityMap[priorityList[i]]
 		idxJ, existsJ := priorityMap[priorityList[j]]
@@ -459,19 +504,91 @@ func getBinanceSymbols(ctx context.Context, apiKey, secretKey string, testnet bo
 		return idxI < idxJ
 	})
 
-	// 对其他列表按字母顺序排序
+	// 對其他列表按字母顺序排序
 	sort.Strings(otherList)
 
-	// 合并结果：优先级列表在前，其他列表在后
+	// 合並結果：优先级列表在前，其他列表在后
 	result := make([]string, 0, len(priorityList)+len(otherList))
 	result = append(result, priorityList...)
 	result = append(result, otherList...)
 
-	logger.Info("📊 [Binance] 获取到 %d 个 USDT 永续合约交易对（其中 %d 个优先级交易对）", len(result), len(priorityList))
+	logger.Info("📊 [Binance] 獲取到 %d 個 USDT 永续合約交易對（其中 %d 個优先级交易對）", len(result), len(priorityList))
 	return result, nil
 }
 
-// getBitgetSymbols 获取 Bitget 的所有交易对
+// getBinanceSpotSymbols 獲取 Binance 現貨交易對（公开 API，無需鉴权）
+func getBinanceSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
+	baseURL := "https://api.binance.com/api/v3/exchangeInfo"
+	if testnet {
+		baseURL = "https://testnet.binance.vision/api/v3/exchangeInfo"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API 回傳 %d", resp.StatusCode)
+	}
+	var info struct {
+		Symbols []struct {
+			Symbol      string `json:"symbol"`
+			Status      string `json:"status"`
+			QuoteAsset  string `json:"quoteAsset"`
+			BaseAsset   string `json:"baseAsset"`
+		} `json:"symbols"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, err
+	}
+	symbolSet := make(map[string]bool)
+	priorityList := make([]string, 0)
+	otherList := make([]string, 0)
+	for _, s := range info.Symbols {
+		if s.Status == "TRADING" && s.QuoteAsset == "USDT" && s.BaseAsset != "" {
+			if !symbolSet[s.Symbol] {
+				symbolSet[s.Symbol] = true
+				isPriority := false
+				for _, ps := range binancePrioritySymbols {
+					if ps == s.Symbol {
+						isPriority = true
+						break
+					}
+				}
+				if isPriority {
+					priorityList = append(priorityList, s.Symbol)
+				} else {
+					otherList = append(otherList, s.Symbol)
+				}
+			}
+		}
+	}
+	priorityMap := make(map[string]int)
+	for i, ps := range binancePrioritySymbols {
+		priorityMap[ps] = i
+	}
+	sort.Slice(priorityList, func(i, j int) bool {
+		idxI, okI := priorityMap[priorityList[i]]
+		idxJ, okJ := priorityMap[priorityList[j]]
+		if !okI || !okJ {
+			return priorityList[i] < priorityList[j]
+		}
+		return idxI < idxJ
+	})
+	sort.Strings(otherList)
+	result := make([]string, 0, len(priorityList)+len(otherList))
+	result = append(result, priorityList...)
+	result = append(result, otherList...)
+	logger.Info("📊 [Binance Spot] 獲取到 %d 個現貨交易對", len(result))
+	return result, nil
+}
+
+// getBitgetSymbols 獲取 Bitget 的所有交易對
 func getBitgetSymbols(ctx context.Context, apiKey, secretKey, passphrase string, testnet bool) ([]string, error) {
 	baseURL := "https://api.bitget.com"
 	if testnet {
@@ -483,19 +600,19 @@ func getBitgetSymbols(ctx context.Context, apiKey, secretKey, passphrase string,
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Error("⚠️ 请求 Bitget 失败: %v, 使用内置备选交易对", err)
+		logger.Error("⚠️ 请求 Bitget 失败: %v, 使用内置备选交易對", err)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warn("Bitget API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		logger.Warn("Bitget API 回傳 HTTP %d, 使用内置备选交易對", resp.StatusCode)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
@@ -504,7 +621,7 @@ func getBitgetSymbols(ctx context.Context, apiKey, secretKey, passphrase string,
 		Msg  string `json:"msg"`
 		Data []struct {
 			Symbol string `json:"symbol"`
-			State  string `json:"state"` // "online" 表示在线
+			State  string `json:"state"` // "online" 表示在線
 		} `json:"data"`
 	}
 
@@ -513,7 +630,7 @@ func getBitgetSymbols(ctx context.Context, apiKey, secretKey, passphrase string,
 	}
 
 	if result.Code != "00000" {
-		return nil, fmt.Errorf("API 错误: %s", result.Msg)
+		return nil, fmt.Errorf("API 錯误: %s", result.Msg)
 	}
 
 	symbols := make([]string, 0)
@@ -526,7 +643,51 @@ func getBitgetSymbols(ctx context.Context, apiKey, secretKey, passphrase string,
 	return symbols, nil
 }
 
-// getBybitSymbols 获取 Bybit 的所有交易对
+// getBitgetSpotSymbols 獲取 Bitget 現貨交易對（公开 API）
+func getBitgetSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
+	baseURL := "https://api.bitget.com"
+	if testnet {
+		baseURL = "https://testnetapi.bitget.com"
+	}
+	path := "/api/v2/spot/public/symbols"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API 回傳 %d", resp.StatusCode)
+	}
+	var result struct {
+		Code string `json:"code"`
+		Data []struct {
+			Symbol      string `json:"symbol"`
+			QuoteCoin   string `json:"quoteCoin"`
+			Status      string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	if result.Code != "00000" {
+		return nil, fmt.Errorf("API 錯误: %s", result.Code)
+	}
+	symbols := make([]string, 0)
+	for _, s := range result.Data {
+		if s.QuoteCoin == "USDT" && (s.Status == "online" || s.Status == "gray") {
+			symbols = append(symbols, s.Symbol)
+		}
+	}
+	sort.Strings(symbols)
+	return symbols, nil
+}
+
+// getBybitSymbols 獲取 Bybit 的所有交易對
 func getBybitSymbols(ctx context.Context, apiKey, secretKey string, testnet bool) ([]string, error) {
 	baseURL := "https://api.bybit.com"
 	if testnet {
@@ -538,19 +699,19 @@ func getBybitSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Error("⚠️ 请求 Bybit 失败: %v, 使用内置备选交易对", err)
+		logger.Error("⚠️ 请求 Bybit 失败: %v, 使用内置备选交易對", err)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warn("Bybit API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		logger.Warn("Bybit API 回傳 HTTP %d, 使用内置备选交易對", resp.StatusCode)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
@@ -571,7 +732,7 @@ func getBybitSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 	}
 
 	if result.RetCode != 0 {
-		return nil, fmt.Errorf("API 错误: %s", result.RetMsg)
+		return nil, fmt.Errorf("API 錯误: %s", result.RetMsg)
 	}
 
 	symbols := make([]string, 0)
@@ -584,7 +745,53 @@ func getBybitSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 	return symbols, nil
 }
 
-// getGateSymbols 获取 Gate.io 的所有交易对
+// getBybitSpotSymbols 獲取 Bybit 現貨交易對（公开 API）
+func getBybitSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
+	baseURL := "https://api.bybit.com"
+	if testnet {
+		baseURL = "https://api-testnet.bybit.com"
+	}
+	path := "/v5/market/instruments-info?category=spot&limit=1000"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API 回傳 %d", resp.StatusCode)
+	}
+	var result struct {
+		RetCode int    `json:"retCode"`
+		Result  struct {
+			List []struct {
+				Symbol    string `json:"symbol"`
+				Status    string `json:"status"`
+				QuoteCoin string `json:"quoteCoin"`
+			} `json:"list"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	if result.RetCode != 0 {
+		return nil, fmt.Errorf("API retCode %d", result.RetCode)
+	}
+	symbols := make([]string, 0)
+	for _, item := range result.Result.List {
+		if item.Status == "Trading" && item.QuoteCoin == "USDT" {
+			symbols = append(symbols, item.Symbol)
+		}
+	}
+	sort.Strings(symbols)
+	return symbols, nil
+}
+
+// getGateSymbols 獲取 Gate.io 的所有交易對
 func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool) ([]string, error) {
 	baseURL := "https://api.gateio.ws"
 	if testnet {
@@ -596,8 +803,8 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		logger.Error("获取 Gate.io 交易对列表失败: %v, 使用内置备选交易对", err)
-		// 如果 API 调用失败，返回常用的内置交易对作为备选（特别是在测试网环境下）
+		logger.Error("獲取 Gate.io 交易對列表失败: %v, 使用内置备选交易對", err)
+		// 如果 API 調用失败，返回常用的内置交易對作為备选（特别是在測試網环境下）
 		return []string{
 			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
 			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
@@ -608,7 +815,7 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Error("请求 Gate.io 失败: %v, 使用内置备选交易对", err)
+		logger.Error("请求 Gate.io 失败: %v, 使用内置备选交易對", err)
 		return []string{
 			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
 			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
@@ -617,7 +824,7 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warn("Gate.io API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		logger.Warn("Gate.io API 回傳 HTTP %d, 使用内置备选交易對", resp.StatusCode)
 		return []string{
 			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
 			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
@@ -630,7 +837,7 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&contracts); err != nil {
-		logger.Error("解析 Gate.io 响应失败: %v, 使用内置备选交易对", err)
+		logger.Error("解析 Gate.io 响应失败: %v, 使用内置备选交易對", err)
 		return []string{
 			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
 			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
@@ -644,9 +851,9 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 		}
 	}
 
-	// 如果 API 返回为空，则返回内置备选
+	// 如果 API 返回為空，则返回内置备选
 	if len(symbols) == 0 {
-		logger.Warn("Gate.io API 未返回任何活跃合约，使用内置备选交易对")
+		logger.Warn("Gate.io API 未返回任何活跃合約，使用内置备选交易對")
 		return []string{
 			"BTC_USDT", "ETH_USDT", "SOL_USDT", "DOGE_USDT", "XRP_USDT",
 			"ADA_USDT", "DOT_USDT", "LTC_USDT", "LINK_USDT", "TRX_USDT",
@@ -656,7 +863,46 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 	return symbols, nil
 }
 
-// getOKXSymbols 获取 OKX 的所有交易对
+// getGateSpotSymbols 獲取 Gate.io 現貨交易對（公开 API）
+func getGateSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
+	baseURL := "https://api.gateio.ws"
+	if testnet {
+		baseURL = "https://api-testnet.gateapi.io"
+	}
+	path := "/api/v4/spot/currency_pairs"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API 回傳 %d", resp.StatusCode)
+	}
+	var pairs []struct {
+		ID        string `json:"id"`
+		Quote     string `json:"quote"`
+		Tradeable bool   `json:"tradeable"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pairs); err != nil {
+		return nil, err
+	}
+	symbols := make([]string, 0)
+	for _, p := range pairs {
+		if p.Quote == "usdt" && p.Tradeable {
+			// Gate 現貨 id 格式如 "btc_usdt"，轉為 BTCUSDT
+			symbols = append(symbols, strings.ToUpper(strings.ReplaceAll(p.ID, "_", "")))
+		}
+	}
+	sort.Strings(symbols)
+	return symbols, nil
+}
+
+// getOKXSymbols 獲取 OKX 的所有交易對
 func getOKXSymbols(ctx context.Context, apiKey, secretKey, passphrase string, testnet bool) ([]string, error) {
 	baseURL := "https://www.okx.com"
 	if testnet {
@@ -668,19 +914,19 @@ func getOKXSymbols(ctx context.Context, apiKey, secretKey, passphrase string, te
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Error("⚠️ 请求 OKX 失败: %v, 使用内置备选交易对", err)
+		logger.Error("⚠️ 请求 OKX 失败: %v, 使用内置备选交易對", err)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warn("OKX API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		logger.Warn("OKX API 回傳 HTTP %d, 使用内置备选交易對", resp.StatusCode)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
@@ -689,8 +935,8 @@ func getOKXSymbols(ctx context.Context, apiKey, secretKey, passphrase string, te
 		Msg  string `json:"msg"`
 		Data []struct {
 			InstID string `json:"instId"`
-			State  string `json:"state"` // "live" 表示在线
-			CtType string `json:"ctType"` // "linear" 表示线性合约
+			State  string `json:"state"` // "live" 表示在線
+			CtType string `json:"ctType"` // "linear" 表示線性合約
 		} `json:"data"`
 	}
 
@@ -699,13 +945,13 @@ func getOKXSymbols(ctx context.Context, apiKey, secretKey, passphrase string, te
 	}
 
 	if result.Code != "0" {
-		return nil, fmt.Errorf("API 错误: %s", result.Msg)
+		return nil, fmt.Errorf("API 錯误: %s", result.Msg)
 	}
 
 	symbols := make([]string, 0)
 	for _, item := range result.Data {
 		if item.State == "live" && item.CtType == "linear" && strings.HasSuffix(item.InstID, "-USDT-SWAP") {
-			// 转换格式：BTC-USDT-SWAP -> BTCUSDT
+			// 轉换格式：BTC-USDT-SWAP -> BTCUSDT
 			symbol := strings.ReplaceAll(item.InstID, "-USDT-SWAP", "USDT")
 			symbols = append(symbols, symbol)
 		}
@@ -714,7 +960,51 @@ func getOKXSymbols(ctx context.Context, apiKey, secretKey, passphrase string, te
 	return symbols, nil
 }
 
-// getHuobiSymbols 获取 Huobi 的所有交易对
+// getOkxSpotSymbols 獲取 OKX 現貨交易對（公开 API）
+func getOkxSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
+	baseURL := "https://www.okx.com"
+	if testnet {
+		baseURL = "https://www.okx.com"
+	}
+	path := "/api/v5/public/instruments?instType=SPOT"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API 回傳 %d", resp.StatusCode)
+	}
+	var result struct {
+		Code string `json:"code"`
+		Data []struct {
+			InstID string `json:"instId"`
+			State  string `json:"state"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	if result.Code != "0" {
+		return nil, fmt.Errorf("API 錯误: %s", result.Code)
+	}
+	symbols := make([]string, 0)
+	for _, item := range result.Data {
+		if item.State == "live" && strings.HasSuffix(item.InstID, "-USDT") {
+			symbol := strings.ReplaceAll(item.InstID, "-USDT", "USDT")
+			symbols = append(symbols, symbol)
+		}
+	}
+	sort.Strings(symbols)
+	return symbols, nil
+}
+
+// getHuobiSymbols 獲取 Huobi 的所有交易對
 func getHuobiSymbols(ctx context.Context, apiKey, secretKey string, testnet bool) ([]string, error) {
 	baseURL := "https://api.hbdm.com"
 	if testnet {
@@ -726,19 +1016,19 @@ func getHuobiSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Error("⚠️ 请求 Huobi 失败: %v, 使用内置备选交易对", err)
+		logger.Error("⚠️ 请求 Huobi 失败: %v, 使用内置备选交易對", err)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warn("Huobi API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		logger.Warn("Huobi API 回傳 HTTP %d, 使用内置备选交易對", resp.StatusCode)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
@@ -755,7 +1045,7 @@ func getHuobiSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 	}
 
 	if result.Status != "ok" {
-		return nil, fmt.Errorf("API 错误: %s", result.Status)
+		return nil, fmt.Errorf("API 錯误: %s", result.Status)
 	}
 
 	symbols := make([]string, 0)
@@ -768,7 +1058,7 @@ func getHuobiSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 	return symbols, nil
 }
 
-// getKuCoinSymbols 获取 KuCoin 的所有交易对
+// getKuCoinSymbols 獲取 KuCoin 的所有交易對
 func getKuCoinSymbols(ctx context.Context, apiKey, secretKey, passphrase string, testnet bool) ([]string, error) {
 	baseURL := "https://api-futures.kucoin.com"
 	if testnet {
@@ -780,19 +1070,19 @@ func getKuCoinSymbols(ctx context.Context, apiKey, secretKey, passphrase string,
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Error("⚠️ 请求 KuCoin 失败: %v, 使用内置备选交易对", err)
+		logger.Error("⚠️ 请求 KuCoin 失败: %v, 使用内置备选交易對", err)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warn("KuCoin API 返回 HTTP %d, 使用内置备选交易对", resp.StatusCode)
+		logger.Warn("KuCoin API 回傳 HTTP %d, 使用内置备选交易對", resp.StatusCode)
 		return []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}, nil
 	}
 
@@ -808,7 +1098,7 @@ func getKuCoinSymbols(ctx context.Context, apiKey, secretKey, passphrase string,
 	}
 
 	if result.Code != "200000" {
-		return nil, fmt.Errorf("API 错误: %s", result.Code)
+		return nil, fmt.Errorf("API 錯误: %s", result.Code)
 	}
 
 	symbols := make([]string, 0)

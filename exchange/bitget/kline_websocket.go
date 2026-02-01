@@ -14,7 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Candle K线数据
+// Candle K線數據
 type Candle struct {
 	Symbol    string
 	Open      float64
@@ -23,10 +23,10 @@ type Candle struct {
 	Close     float64
 	Volume    float64
 	Timestamp int64
-	IsClosed  bool // K线是否完结
+	IsClosed  bool // K線是否完結
 }
 
-// KlineWebSocketManager Bitget K线WebSocket管理器
+// KlineWebSocketManager Bitget K線WebSocket管理器
 type KlineWebSocketManager struct {
 	conn           *websocket.Conn
 	mu             sync.RWMutex
@@ -37,10 +37,10 @@ type KlineWebSocketManager struct {
 	reconnectDelay time.Duration
 	pingInterval   time.Duration
 	isRunning      bool
-	testnet        bool // 是否使用测试网
+	testnet        bool // 是否使用測試網
 }
 
-// NewKlineWebSocketManager 创建K线WebSocket管理器
+// NewKlineWebSocketManager 創建K線WebSocket管理器
 func NewKlineWebSocketManager(testnet bool) *KlineWebSocketManager {
 	return &KlineWebSocketManager{
 		done:           make(chan struct{}),
@@ -50,12 +50,12 @@ func NewKlineWebSocketManager(testnet bool) *KlineWebSocketManager {
 	}
 }
 
-// Start 启动K线流（带自动重连）
+// Start 啟動K線流（带自动重连）
 func (k *KlineWebSocketManager) Start(ctx context.Context, symbols []string, interval string, callback func(candle interface{})) error {
 	k.mu.Lock()
 	if k.isRunning {
 		k.mu.Unlock()
-		return fmt.Errorf("K线流已在运行")
+		return fmt.Errorf("K線流已在运行")
 	}
 	k.callback = callback
 	k.symbols = symbols
@@ -63,7 +63,7 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, symbols []string, int
 	k.isRunning = true
 	k.mu.Unlock()
 
-	// 启动连接和重连协程
+	// 啟动连接和重连协程
 	go k.connectLoop(ctx)
 
 	return nil
@@ -74,10 +74,10 @@ func (k *KlineWebSocketManager) connectLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("✅ Bitget K线WebSocket已停止（上下文取消）")
+			logger.Info("✅ Bitget K線WebSocket已停止（上下文取消）")
 			return
 		case <-k.done:
-			logger.Info("✅ Bitget K线WebSocket已停止")
+			logger.Info("✅ Bitget K線WebSocket已停止")
 			return
 		default:
 		}
@@ -86,25 +86,25 @@ func (k *KlineWebSocketManager) connectLoop(ctx context.Context) {
 		var wsURL string
 		if k.testnet {
 			wsURL = BitgetTestnetWSPublic
-			logger.Info("🌐 [Bitget K线] 使用测试网 WebSocket: %s", wsURL)
+			logger.Info("🌐 [Bitget K線] 使用測試網 WebSocket: %s", wsURL)
 		} else {
 			wsURL = "wss://ws.bitget.com/v2/ws/public"
 		}
 
-		logger.Info("🔗 正在连接 Bitget K线WebSocket...")
+		logger.Info("🔗 正在连接 Bitget K線WebSocket...")
 
-		// 使用支持代理的 Dialer
+		// 使用支援代理的 Dialer
 		dialer := getProxyDialer()
 		conn, _, err := dialer.Dial(wsURL, nil)
 		if err != nil {
-			logger.Error("❌ Bitget K线WebSocket连接失败: %v，%v后重试", err, k.reconnectDelay)
+			logger.Error("❌ Bitget K線WebSocket连接失败: %v，%v后重試", err, k.reconnectDelay)
 			// 使用 select 等待，可以立即响应 context 取消
 			select {
 			case <-ctx.Done():
-				logger.Info("✅ Bitget K线WebSocket已停止（上下文取消）")
+				logger.Info("✅ Bitget K線WebSocket已停止（上下文取消）")
 				return
 			case <-k.done:
-				logger.Info("✅ Bitget K线WebSocket已停止")
+				logger.Info("✅ Bitget K線WebSocket已停止")
 				return
 			case <-time.After(k.reconnectDelay):
 			}
@@ -115,74 +115,74 @@ func (k *KlineWebSocketManager) connectLoop(ctx context.Context) {
 		k.conn = conn
 		k.mu.Unlock()
 
-		logger.Info("✅ Bitget K线WebSocket已连接")
+		logger.Info("✅ Bitget K線WebSocket已连接")
 
-		// 订阅K线
+		// 订阅K線
 		if err := k.subscribe(k.symbols, k.interval); err != nil {
-			logger.Error("❌ Bitget K线订阅失败: %v", err)
+			logger.Error("❌ Bitget K線订阅失败: %v", err)
 			conn.Close()
 			// 使用 select 等待，可以立即响应 context 取消
 			select {
 			case <-ctx.Done():
-				logger.Info("✅ Bitget K线WebSocket已停止（上下文取消）")
+				logger.Info("✅ Bitget K線WebSocket已停止（上下文取消）")
 				return
 			case <-k.done:
-				logger.Info("✅ Bitget K线WebSocket已停止")
+				logger.Info("✅ Bitget K線WebSocket已停止")
 				return
 			case <-time.After(k.reconnectDelay):
 			}
 			continue
 		}
 
-		// 启动ping协程
+		// 啟动ping协程
 		go k.pingLoop(ctx, conn)
 
-		// 启动读取循环（阻塞直到连接断开）
+		// 啟动读取循环（阻塞直到连接断开）
 		k.readLoop(ctx, conn)
 
-		// 连接断开，清理并准备重连
+		// 连接断开，清理並准备重连
 		k.mu.Lock()
 		if k.conn == conn {
 			k.conn = nil
 		}
 		k.mu.Unlock()
 
-		// 检查是否因为 context 取消而断开，如果是则直接退出
+		// 检查是否因為 context 取消而断开，如果是则直接退出
 		select {
 		case <-ctx.Done():
-			logger.Info("✅ Bitget K线WebSocket已停止（上下文取消）")
+			logger.Info("✅ Bitget K線WebSocket已停止（上下文取消）")
 			return
 		case <-k.done:
-			logger.Info("✅ Bitget K线WebSocket已停止")
+			logger.Info("✅ Bitget K線WebSocket已停止")
 			return
 		default:
 		}
 
-		logger.Warn("⚠️ Bitget K线WebSocket连接断开，%v后重连...", k.reconnectDelay)
+		logger.Warn("⚠️ Bitget K線WebSocket连接断开，%v后重连...", k.reconnectDelay)
 		// 使用 select 等待，可以立即响应 context 取消
 		select {
 		case <-ctx.Done():
-			logger.Info("✅ Bitget K线WebSocket已停止（上下文取消）")
+			logger.Info("✅ Bitget K線WebSocket已停止（上下文取消）")
 			return
 		case <-k.done:
-			logger.Info("✅ Bitget K线WebSocket已停止")
+			logger.Info("✅ Bitget K線WebSocket已停止")
 			return
 		case <-time.After(k.reconnectDelay):
 		}
 	}
 }
 
-// subscribe 订阅K线
+// subscribe 订阅K線
 func (k *KlineWebSocketManager) subscribe(symbols []string, interval string) error {
 	// Bitget V2 订阅格式
 	// {"op": "subscribe", "args": [{"instType": "USDT-FUTURES", "channel": "candle1m", "instId": "BTCUSDT"}]}
 
-	// 转换interval格式：1m -> candle1m
+	// 轉换interval格式：1m -> candle1m
 	channel := fmt.Sprintf("candle%s", interval)
 
 	args := make([]map[string]string, len(symbols))
 	for i, symbol := range symbols {
-		// 转换为Bitget格式
+		// 轉换為Bitget格式
 		bitgetSymbol := convertToBitgetSymbol(symbol)
 		args[i] = map[string]string{
 			"instType": "USDT-FUTURES",
@@ -209,11 +209,11 @@ func (k *KlineWebSocketManager) subscribe(symbols []string, interval string) err
 		return fmt.Errorf("发送订阅消息失败: %w", err)
 	}
 
-	logger.Debug("已发送K线订阅请求: %d个币种", len(symbols))
+	logger.Debug("已发送K線订阅请求: %d個币种", len(symbols))
 	return nil
 }
 
-// Stop 停止K线流
+// Stop 停止K線流
 func (k *KlineWebSocketManager) Stop() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -230,7 +230,7 @@ func (k *KlineWebSocketManager) Stop() {
 		k.conn = nil
 	}
 
-	logger.Info("✅ Bitget K线WebSocket已停止")
+	logger.Info("✅ Bitget K線WebSocket已停止")
 }
 
 // pingLoop ping循环
@@ -249,20 +249,20 @@ func (k *KlineWebSocketManager) pingLoop(ctx context.Context, conn *websocket.Co
 			currentConn := k.conn
 			k.mu.RUnlock()
 
-			// 检查连接是否还是当前连接
+			// 检查连接是否还是當前连接
 			if currentConn != conn {
 				return
 			}
 
-			// Bitget 使用纯文本 "ping"，服务器返回纯文本 "pong"
+			// Bitget 使用纯文本 "ping"，服務器返回纯文本 "pong"
 			// 参考官方SDK: https://github.com/BitgetLimited/v3-bitget-api-sdk/blob/master/bitget-golang-sdk-api/internal/common/bitgetwsclient.go
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(websocket.TextMessage, []byte("ping")); err != nil {
-				logger.Warn("⚠️ Bitget K线WebSocket发送Ping失败: %v", err)
+				logger.Warn("⚠️ Bitget K線WebSocket发送Ping失败: %v", err)
 				conn.Close()
 				return
 			}
-			logger.Debug("💓 Bitget K线WebSocket Ping已发送")
+			logger.Debug("💓 Bitget K線WebSocket Ping已发送")
 		}
 	}
 }
@@ -271,19 +271,19 @@ func (k *KlineWebSocketManager) pingLoop(ctx context.Context, conn *websocket.Co
 func (k *KlineWebSocketManager) readLoop(ctx context.Context, conn *websocket.Conn) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error("❌ Bitget K线WebSocket读取协程panic: %v", r)
+			logger.Error("❌ Bitget K線WebSocket读取协程panic: %v", r)
 		}
 		conn.Close()
 	}()
 
-	// 🔥 设置 pong handler，收到 pong 时更新读取超时
+	// 🔥 設置 pong handler，收到 pong 時更新读取超時
 	conn.SetPongHandler(func(string) error {
-		logger.Debug("💓 收到 K线WebSocket pong，更新读取超时")
+		logger.Debug("💓 收到 K線WebSocket pong，更新读取超時")
 		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 		return nil
 	})
 
-	// 🔥 初始读取超时：设置为90秒（大于ping间隔的3倍）
+	// 🔥 初始读取超時：設置為90秒（大於ping间隔的3倍）
 	conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 
 	for {
@@ -298,19 +298,19 @@ func (k *KlineWebSocketManager) readLoop(ctx context.Context, conn *websocket.Co
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				logger.Warn("⚠️ Bitget K线WebSocket异常关闭: %v", err)
+				logger.Warn("⚠️ Bitget K線WebSocket异常关闭: %v", err)
 			} else {
-				logger.Debug("Bitget K线WebSocket读取错误: %v", err)
+				logger.Debug("Bitget K線WebSocket读取錯误: %v", err)
 			}
 			return
 		}
 
-		// 🔥 收到任何消息都更新读取超时（延长到90秒）
+		// 🔥 收到任何消息都更新读取超時（延长到90秒）
 		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 
-		// 检查是否为纯文本 "pong" 响应
+		// 检查是否為纯文本 "pong" 响应
 		if string(message) == "pong" {
-			logger.Debug("💓 收到 K线WebSocket pong")
+			logger.Debug("💓 收到 K線WebSocket pong")
 			continue
 		}
 
@@ -327,17 +327,17 @@ func (k *KlineWebSocketManager) readLoop(ctx context.Context, conn *websocket.Co
 		}
 
 		if err := json.Unmarshal(message, &msg); err != nil {
-			logger.Debug("解析K线消息失败: %v", err)
+			logger.Debug("解析K線消息失败: %v", err)
 			continue
 		}
 
-		// 跳过订阅确认消息
+		// 跳過订阅确认消息
 		if msg.Event == "subscribe" {
-			logger.Debug("✅ K线订阅成功: %s %s", msg.Arg.InstId, msg.Arg.Channel)
+			logger.Debug("✅ K線订阅成功: %s %s", msg.Arg.InstId, msg.Arg.Channel)
 			continue
 		}
 
-		// 处理K线数据
+		// 处理K線數據
 		if len(msg.Data) > 0 && msg.Arg.Channel != "" && strings.HasPrefix(msg.Arg.Channel, "candle") {
 			for _, kline := range msg.Data {
 				if len(kline) < 6 {
@@ -352,17 +352,17 @@ func (k *KlineWebSocketManager) readLoop(ctx context.Context, conn *websocket.Co
 				close, _ := strconv.ParseFloat(kline[4], 64)
 				volume, _ := strconv.ParseFloat(kline[5], 64)
 
-				// V2 API 直接使用原始符号，不需要转换
+				// V2 API 直接使用原始符号，不需要轉换
 				symbol := msg.Arg.InstId
 
-				// 判断K线是否完结：根据时间戳和K线间隔判断
-				// timestamp 是K线的开始时间（毫秒级）
-				klineStartTime := timestamp / 1000 // 转为秒
+				// 判断K線是否完結：根據時间戳和K線间隔判断
+				// timestamp 是K線的开始時间（毫秒级）
+				klineStartTime := timestamp / 1000 // 轉為秒
 
-				// 从 channel 中提取K线间隔（如 candle1m -> 1m）
+				// 從 channel 中提取K線间隔（如 candle1m -> 1m）
 				intervalStr := strings.TrimPrefix(msg.Arg.Channel, "candle")
 
-				// 计算K线间隔（秒）
+				// 计算K線间隔（秒）
 				var intervalSeconds int64
 				switch intervalStr {
 				case "1m":
@@ -377,11 +377,11 @@ func (k *KlineWebSocketManager) readLoop(ctx context.Context, conn *websocket.Co
 					intervalSeconds = 60 // 默认1分钟
 				}
 
-				// K线结束时间 = 开始时间 + 间隔
+				// K線結束時间 = 开始時间 + 间隔
 				klineEndTime := klineStartTime + intervalSeconds
 				currentTime := time.Now().Unix()
 
-				// 如果当前时间已过K线结束时间，则认为已完结
+				// 如果當前時间已過K線結束時间，则认為已完結
 				isClosed := currentTime >= klineEndTime
 
 				candle := &Candle{
@@ -395,7 +395,7 @@ func (k *KlineWebSocketManager) readLoop(ctx context.Context, conn *websocket.Co
 					IsClosed:  isClosed,
 				}
 
-				// 调用回调
+				// 調用回呼
 				if k.callback != nil {
 					k.callback(candle)
 				}

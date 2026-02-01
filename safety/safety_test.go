@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// MockExchange 模拟交易所实现
+// MockExchange 模拟交易所實現
 type MockExchange struct {
 	exchange.IExchange
 	Name             string
@@ -56,7 +56,7 @@ func TestCheckAccountSafety(t *testing.T) {
 			expectErr: false,
 		},
 		{
-			name: "余额不足",
+			name: "餘額不足",
 			mockEx: &MockExchange{
 				Name: "Binance",
 				Account: &exchange.Account{
@@ -69,7 +69,7 @@ func TestCheckAccountSafety(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name: "杠杆过高",
+			name: "杠杆過高",
 			mockEx: &MockExchange{
 				Name: "Binance",
 				Account: &exchange.Account{
@@ -82,7 +82,7 @@ func TestCheckAccountSafety(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name: "已有持仓跳过检查",
+			name: "已有持倉跳過检查",
 			mockEx: &MockExchange{
 				Name: "Binance",
 				Account: &exchange.Account{
@@ -97,7 +97,7 @@ func TestCheckAccountSafety(t *testing.T) {
 			expectErr: false,
 		},
 		{
-			name: "利润无法覆盖手续费",
+			name: "利润無法覆盖手续费",
 			mockEx: &MockExchange{
 				Name: "Binance",
 				Account: &exchange.Account{
@@ -107,7 +107,7 @@ func TestCheckAccountSafety(t *testing.T) {
 				Positions:  []*exchange.Position{},
 				QuoteAsset: "USDT",
 			},
-			// 修改参数使得利润过低
+			// 修改参數使得利润過低
 			expectErr: true,
 		},
 	}
@@ -116,7 +116,7 @@ func TestCheckAccountSafety(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pInterval := priceInterval
 			fRate := feeRate
-			if tt.name == "利润无法覆盖手续费" {
+			if tt.name == "利润無法覆盖手续费" {
 				pInterval = 0.01 // 极小的利润
 				fRate = 0.1      // 极高的手续费
 			}

@@ -7,15 +7,15 @@ import (
 	"quantmesh/exchange"
 )
 
-// DCABacktestParams DCA 回测参数
+// DCABacktestParams DCA 回测参數
 type DCABacktestParams struct {
 	IntervalDays   int     // 定投间隔（天）
-	AmountPerTrade float64 // 每次投入金额 USDT
+	AmountPerTrade float64 // 每次投入金額 USDT
 	TotalCapital   float64
 	FeeRate        float64
 }
 
-// candlesPerDay 按 K 线周期返回每天根数（近似）
+// candlesPerDay 按 K 線周期返回每天根數（近似）
 func candlesPerDay(interval string) int {
 	switch interval {
 	case "1m":
@@ -39,7 +39,7 @@ func candlesPerDay(interval string) int {
 	}
 }
 
-// RunDCABacktest 运行 DCA 定投策略回测：每隔 N 天买入固定金额，持有至结束
+// RunDCABacktest 运行 DCA 定投策略回测：每隔 N 天買入固定金額，持有至結束
 func RunDCABacktest(symbol, interval string, candles []*exchange.Candle, params DCABacktestParams, initialCapital float64) (*BacktestResult, error) {
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")

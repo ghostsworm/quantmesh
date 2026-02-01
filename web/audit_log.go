@@ -13,7 +13,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// AuditLog 审计日志记录
+// AuditLog 审计日志記錄
 type AuditLog struct {
 	ID        int64     `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
@@ -27,7 +27,7 @@ type AuditLog struct {
 	ErrorMsg  string    `json:"error_msg,omitempty"`
 }
 
-// AuditLogger 审计日志记录器
+// AuditLogger 审计日志記錄器
 type AuditLogger struct {
 	db *sql.DB
 }
@@ -38,10 +38,10 @@ var globalAuditLogger *AuditLogger
 func InitAuditLogger(dbPath string) error {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		return fmt.Errorf("打开审计日志数据库失败: %w", err)
+		return fmt.Errorf("打开审计日志數據库失败: %w", err)
 	}
 
-	// 创建审计日志表
+	// 創建审计日志表
 	createTableSQL := `
 	CREATE TABLE IF NOT EXISTS audit_logs (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +62,7 @@ func InitAuditLogger(dbPath string) error {
 	`
 
 	if _, err := db.Exec(createTableSQL); err != nil {
-		return fmt.Errorf("创建审计日志表失败: %w", err)
+		return fmt.Errorf("創建审计日志表失败: %w", err)
 	}
 
 	globalAuditLogger = &AuditLogger{db: db}
@@ -70,7 +70,7 @@ func InitAuditLogger(dbPath string) error {
 	return nil
 }
 
-// Log 记录审计日志
+// Log 記錄审计日志
 func (al *AuditLogger) Log(log *AuditLog) error {
 	if al == nil || al.db == nil {
 		return fmt.Errorf("审计日志系统未初始化")
@@ -94,14 +94,14 @@ func (al *AuditLogger) Log(log *AuditLog) error {
 	)
 
 	if err != nil {
-		logger.Error("❌ 记录审计日志失败: %v", err)
+		logger.Error("❌ 記錄审计日志失败: %v", err)
 		return err
 	}
 
 	return nil
 }
 
-// Query 查询审计日志
+// Query 查詢审计日志
 func (al *AuditLogger) Query(username string, action string, startTime, endTime time.Time, limit int) ([]*AuditLog, error) {
 	if al == nil || al.db == nil {
 		return nil, fmt.Errorf("审计日志系统未初始化")
@@ -172,13 +172,13 @@ func (al *AuditLogger) Query(username string, action string, startTime, endTime 
 	return logs, nil
 }
 
-// LogAction 记录操作（便捷方法）
+// LogAction 記錄操作（便捷方法）
 func LogAction(c *gin.Context, action, resource string, details interface{}, status string, errMsg string) {
 	if globalAuditLogger == nil {
 		return
 	}
 
-	username := "admin" // 从上下文获取用户名
+	username := "admin" // 從上下文獲取用戶名
 	if user, exists := c.Get("username"); exists {
 		username = user.(string)
 	}
@@ -198,14 +198,14 @@ func LogAction(c *gin.Context, action, resource string, details interface{}, sta
 	}
 
 	if err := globalAuditLogger.Log(log); err != nil {
-		logger.Error("❌ 记录审计日志失败: %v", err)
+		logger.Error("❌ 記錄审计日志失败: %v", err)
 	}
 }
 
-// getAuditLogs 获取审计日志（HTTP 接口）
+// getAuditLogs 獲取审计日志（HTTP 接口）
 func getAuditLogs(c *gin.Context) {
 	if globalAuditLogger == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "审计日志系统未启用"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "审计日志系统未啟用"})
 		return
 	}
 
@@ -219,7 +219,7 @@ func getAuditLogs(c *gin.Context) {
 		limit = 1000
 	}
 
-	// 时间范围（可选）
+	// 時间範圍（可選）
 	var startTime, endTime time.Time
 	if startStr := c.Query("start_time"); startStr != "" {
 		startTime, _ = time.Parse(time.RFC3339, startStr)
@@ -230,7 +230,7 @@ func getAuditLogs(c *gin.Context) {
 
 	logs, err := globalAuditLogger.Query(username, action, startTime, endTime, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询审计日志失败: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查詢审计日志失败: %v", err)})
 		return
 	}
 

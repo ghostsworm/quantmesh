@@ -13,7 +13,7 @@ import (
 	"quantmesh/storage"
 )
 
-// parseExportParams 解析导出通用参数
+// parseExportParams 解析導出通用参數
 func parseExportParams(c *gin.Context) storage.ExportParams {
 	format := storage.ExportFormat(strings.ToLower(c.DefaultQuery("format", "json")))
 	if format != storage.ExportFormatCSV && format != storage.ExportFormatJSON {
@@ -48,13 +48,13 @@ func parseExportParams(c *gin.Context) storage.ExportParams {
 	}
 }
 
-// serveExport 设置下载响应头并返回数据
+// serveExport 設置下載响应头並返回數據
 func serveExport(c *gin.Context, data []byte, contentType, filename string) {
 	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
 	c.Data(http.StatusOK, contentType, data)
 }
 
-// exportConfigHandler 下载当前配置（脱敏）
+// exportConfigHandler 下載當前配置（脱敏）
 // GET /api/export/config
 func exportConfigHandler(c *gin.Context) {
 	if configManager == nil {
@@ -79,7 +79,7 @@ func exportConfigHandler(c *gin.Context) {
 	serveExport(c, data, "application/x-yaml", filename)
 }
 
-// exportConfigHistoryHandler 下载历史配置（脱敏）
+// exportConfigHistoryHandler 下載历史配置（脱敏）
 // GET /api/export/config/history/:version
 func exportConfigHistoryHandler(c *gin.Context) {
 	if configHistoryMgr == nil {
@@ -89,7 +89,7 @@ func exportConfigHistoryHandler(c *gin.Context) {
 
 	version, err := strconv.Atoi(c.Param("version"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的版本号"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的版本号"})
 		return
 	}
 
@@ -99,7 +99,7 @@ func exportConfigHistoryHandler(c *gin.Context) {
 		return
 	}
 
-	// 解析并脱敏
+	// 解析並脱敏
 	cfg, err := config.LoadConfigFromBytes([]byte(history.Content))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析历史配置失败"})
@@ -116,12 +116,12 @@ func exportConfigHistoryHandler(c *gin.Context) {
 	serveExport(c, data, "application/x-yaml", filename)
 }
 
-// exportTradesHandler 导出交易历史
+// exportTradesHandler 導出交易历史
 // GET /api/export/trades
 func exportTradesHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil || storageProv.GetStorage() == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -142,12 +142,12 @@ func exportTradesHandler(c *gin.Context) {
 	serveExport(c, data, contentType, filename)
 }
 
-// exportOrdersHandler 导出订单历史
+// exportOrdersHandler 導出訂單歷史
 // GET /api/export/orders
 func exportOrdersHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil || storageProv.GetStorage() == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -168,12 +168,12 @@ func exportOrdersHandler(c *gin.Context) {
 	serveExport(c, data, contentType, filename)
 }
 
-// exportPositionsHandler 导出持仓历史
+// exportPositionsHandler 導出持倉歷史
 // GET /api/export/positions
 func exportPositionsHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil || storageProv.GetStorage() == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -194,12 +194,12 @@ func exportPositionsHandler(c *gin.Context) {
 	serveExport(c, data, contentType, filename)
 }
 
-// exportStatisticsHandler 导出统计数据
+// exportStatisticsHandler 導出统计數據
 // GET /api/export/statistics
 func exportStatisticsHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil || storageProv.GetStorage() == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -220,12 +220,12 @@ func exportStatisticsHandler(c *gin.Context) {
 	serveExport(c, data, contentType, filename)
 }
 
-// exportReconciliationHandler 导出对账历史
+// exportReconciliationHandler 導出對账历史
 // GET /api/export/reconciliation
 func exportReconciliationHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil || storageProv.GetStorage() == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -246,12 +246,12 @@ func exportReconciliationHandler(c *gin.Context) {
 	serveExport(c, data, contentType, filename)
 }
 
-// exportRiskChecksHandler 导出风控检查历史
+// exportRiskChecksHandler 導出风控检查历史
 // GET /api/export/risk-checks
 func exportRiskChecksHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil || storageProv.GetStorage() == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -272,12 +272,12 @@ func exportRiskChecksHandler(c *gin.Context) {
 	serveExport(c, data, contentType, filename)
 }
 
-// exportSystemMetricsHandler 导出系统监控数据
+// exportSystemMetricsHandler 導出系统監控數據
 // GET /api/export/system-metrics
 func exportSystemMetricsHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil || storageProv.GetStorage() == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -298,11 +298,11 @@ func exportSystemMetricsHandler(c *gin.Context) {
 	serveExport(c, data, contentType, filename)
 }
 
-// exportLogsHandler 导出应用日志
+// exportLogsHandler 導出应用日志
 // GET /api/export/logs
 func exportLogsHandler(c *gin.Context) {
 	if logStorageProvider == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "日志存储未初始化"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "日志存儲未初始化"})
 		return
 	}
 
@@ -328,7 +328,7 @@ func exportLogsHandler(c *gin.Context) {
 	}
 
 	if format == "csv" {
-		// 简单 CSV 格式
+		// 简單 CSV 格式
 		var sb strings.Builder
 		sb.WriteString("id,timestamp,level,message\n")
 		for _, log := range logs {
@@ -347,9 +347,9 @@ func exportLogsHandler(c *gin.Context) {
 	}
 }
 
-// exportAuditLogsHandler 导出审计日志（合规交易审计 CSV/JSONL 文件）
+// exportAuditLogsHandler 導出审计日志（合规交易审计 CSV/JSONL 文件）
 // GET /api/export/audit-logs
-// 从 data/audit 目录读取并按日期范围打包
+// 從 data/audit 目錄读取並按日期範圍打包
 func exportAuditLogsHandler(c *gin.Context) {
 	params := parseExportParams(c)
 	auditDir := "./data/audit"
@@ -361,7 +361,7 @@ func exportAuditLogsHandler(c *gin.Context) {
 	}
 
 	params.AuditDir = auditDir
-	exporter := storage.NewExporter(nil) // 仅用于打包审计文件，不需要 storage
+	exporter := storage.NewExporter(nil) // 僅用於打包审计文件，不需要 storage
 
 	zipData, err := exporter.CreateExportZip(params, nil, nil)
 	if err != nil {
@@ -373,12 +373,12 @@ func exportAuditLogsHandler(c *gin.Context) {
 	serveExport(c, zipData, "application/zip", filename)
 }
 
-// exportAllHandler 导出全部数据（ZIP 打包）
+// exportAllHandler 導出全部數據（ZIP 打包）
 // GET /api/export/all
 func exportAllHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil || storageProv.GetStorage() == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲服務未就绪"})
 		return
 	}
 
@@ -426,7 +426,7 @@ func exportAllHandler(c *gin.Context) {
 	serveExport(c, zipData, "application/zip", filename)
 }
 
-// jsonMarshalIndent 序列化为 JSON
+// jsonMarshalIndent 序列化為 JSON
 func jsonMarshalIndent(v interface{}) ([]byte, error) {
 	return json.MarshalIndent(v, "", "  ")
 }

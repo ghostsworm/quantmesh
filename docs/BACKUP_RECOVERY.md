@@ -16,7 +16,7 @@
 
 2. **配置文件**
    - `config.yaml` - 主配置文件
-   - `config_backups/` - 配置历史版本
+   - `backups/` - 配置備份目錄（config.yaml 同級，存儲 config.yaml.backup.*.yaml）
 
 3. **日志文件**（可选）
    - `logs/` 目录下的最近 7 天日志

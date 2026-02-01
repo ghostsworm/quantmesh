@@ -19,10 +19,10 @@ import (
 
 const (
 	BitMEXMainnetBaseURL = "https://www.bitmex.com"     // BitMEX 主网
-	BitMEXTestnetBaseURL = "https://testnet.bitmex.com" // BitMEX 测试网
+	BitMEXTestnetBaseURL = "https://testnet.bitmex.com" // BitMEX 測試網
 )
 
-// BitMEXClient BitMEX 客户端
+// BitMEXClient BitMEX 客戶端
 type BitMEXClient struct {
 	apiKey     string
 	secretKey  string
@@ -31,7 +31,7 @@ type BitMEXClient struct {
 	isTestnet  bool
 }
 
-// NewBitMEXClient 创建 BitMEX 客户端
+// NewBitMEXClient 創建 BitMEX 客戶端
 func NewBitMEXClient(apiKey, secretKey string, isTestnet bool) *BitMEXClient {
 	baseURL := BitMEXMainnetBaseURL
 	if isTestnet {
@@ -81,7 +81,7 @@ func (c *BitMEXClient) sendRequest(ctx context.Context, method, path string, par
 	req.Header.Set("Accept", "application/json")
 
 	if needSign {
-		nonce := strconv.FormatInt(time.Now().Unix()+5, 10) // 5秒过期时间
+		nonce := strconv.FormatInt(time.Now().Unix()+5, 10) // 5秒過期時间
 		signature := c.signRequest(method, path+"?"+params.Encode(), nonce, string(reqBody))
 
 		req.Header.Set("api-expires", nonce)
@@ -111,7 +111,7 @@ func (c *BitMEXClient) sendRequest(ctx context.Context, method, path string, par
 	return respBody, nil
 }
 
-// GetInstrument 获取交易对信息
+// GetInstrument 獲取交易對信息
 func (c *BitMEXClient) GetInstrument(ctx context.Context, symbol string) (*Instrument, error) {
 	path := "/api/v1/instrument"
 	params := url.Values{}
@@ -134,7 +134,7 @@ func (c *BitMEXClient) GetInstrument(ctx context.Context, symbol string) (*Instr
 	return &instruments[0], nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *BitMEXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := "/api/v1/order"
 	params := url.Values{}
@@ -153,7 +153,7 @@ func (c *BitMEXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	return &order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *BitMEXClient) CancelOrder(ctx context.Context, orderID string) error {
 	path := "/api/v1/order"
 	params := url.Values{}
@@ -171,7 +171,7 @@ func (c *BitMEXClient) CancelOrder(ctx context.Context, orderID string) error {
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *BitMEXClient) GetOrder(ctx context.Context, orderID string) (*Order, error) {
 	path := "/api/v1/order"
 	params := url.Values{}
@@ -194,7 +194,7 @@ func (c *BitMEXClient) GetOrder(ctx context.Context, orderID string) (*Order, er
 	return &orders[0], nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *BitMEXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, error) {
 	path := "/api/v1/order"
 	params := url.Values{}
@@ -213,7 +213,7 @@ func (c *BitMEXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Orde
 	return orders, nil
 }
 
-// GetPosition 获取持仓
+// GetPosition 獲取持倉
 func (c *BitMEXClient) GetPosition(ctx context.Context, symbol string) (*Position, error) {
 	path := "/api/v1/position"
 	params := url.Values{}
@@ -236,7 +236,7 @@ func (c *BitMEXClient) GetPosition(ctx context.Context, symbol string) (*Positio
 	return &positions[0], nil
 }
 
-// GetMargin 获取账户信息
+// GetMargin 獲取帳戶信息
 func (c *BitMEXClient) GetMargin(ctx context.Context) (*Margin, error) {
 	path := "/api/v1/user/margin"
 	params := url.Values{}
@@ -254,7 +254,7 @@ func (c *BitMEXClient) GetMargin(ctx context.Context) (*Margin, error) {
 	return &margin, nil
 }
 
-// GetTrade 获取最新成交
+// GetTrade 獲取最新成交
 func (c *BitMEXClient) GetTrade(ctx context.Context, symbol string, count int) ([]Trade, error) {
 	path := "/api/v1/trade"
 	params := url.Values{}
@@ -275,7 +275,7 @@ func (c *BitMEXClient) GetTrade(ctx context.Context, symbol string, count int) (
 	return trades, nil
 }
 
-// GetTradeBucketed 获取 K线数据
+// GetTradeBucketed 獲取 K線數據
 func (c *BitMEXClient) GetTradeBucketed(ctx context.Context, symbol, binSize string, count int) ([]TradeBucket, error) {
 	path := "/api/v1/trade/bucketed"
 	params := url.Values{}
@@ -297,7 +297,7 @@ func (c *BitMEXClient) GetTradeBucketed(ctx context.Context, symbol, binSize str
 	return buckets, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIError struct {
 	Error struct {

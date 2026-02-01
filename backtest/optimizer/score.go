@@ -6,9 +6,9 @@ import (
 	"quantmesh/backtest"
 )
 
-// CalculateScore 计算目标函数得分
+// CalculateScore 计算目標函數得分
 // Score = AnnualizedReturn(%) - λ×MaxDrawdown(%) + 0.2×SharpeRatio
-// 目标：最大化 Score
+// 目標：最大化 Score
 func CalculateScore(metrics backtest.Metrics, lambda float64) float64 {
 	cagr := metrics.AnnualizedReturn
 	mdd := metrics.MaxDrawdown

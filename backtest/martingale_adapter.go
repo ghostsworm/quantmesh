@@ -8,17 +8,17 @@ import (
 	"quantmesh/exchange"
 )
 
-// MartingaleBacktestParams 马丁格尔回测参数
+// MartingaleBacktestParams 马丁格尔回测参數
 type MartingaleBacktestParams struct {
-	BaseAmount    float64 // 基础下单金额 USDT
-	Multiplier    float64 // 亏损后加倍倍数
+	BaseAmount    float64 // 基础下單金額 USDT
+	Multiplier    float64 // 亏损后加倍倍數
 	TotalCapital  float64
 	FeeRate       float64
 	TakeProfitPct float64 // 止盈百分比，如 1 表示 1%
 	StopLossPct   float64 // 止损百分比，如 2 表示 2%
 }
 
-// RunMartingaleBacktest 运行马丁格尔回测（简化版：定期“下注”，亏损加倍，总资金限制）
+// RunMartingaleBacktest 运行马丁格尔回测（简化版：定期“下注”，亏损加倍，總资金限制）
 func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, params MartingaleBacktestParams, initialCapital float64) (*BacktestResult, error) {
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
@@ -57,7 +57,7 @@ func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, 
 			Equity:   cash + position*c.Close,
 		})
 
-		// 有持仓：检查止盈止损
+		// 有持倉：检查止盈止损
 		if position > 0 && entryPrice > 0 {
 			ret := (c.Close - entryPrice) / entryPrice
 			if ret >= tp {
@@ -107,7 +107,7 @@ func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, 
 			}
 		}
 
-		// 无持仓：每隔一定 K 线数买入（简化：每 24 根 1h 买一次，即每天一次）
+		// 無持倉：每隔一定 K 線數買入（简化：每 24 根 1h 買一次，即每天一次）
 		cpd := candlesPerDay(interval)
 		if cpd <= 0 {
 			cpd = 24
@@ -151,7 +151,7 @@ func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, 
 		})
 	}
 
-	// 期末若仍有持仓，按最后价平仓
+	// 期末若仍有持倉，按最后價平倉
 	if position > 0 && len(candles) > 0 {
 		last := candles[len(candles)-1]
 		fee := position * last.Close * feeRate

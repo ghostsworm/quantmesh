@@ -13,6 +13,10 @@ func (w *cryptocomWrapper) GetName() string {
 	return w.adapter.GetName()
 }
 
+func (w *cryptocomWrapper) GetMarketType() string {
+	return w.adapter.GetMarketType()
+}
+
 func (w *cryptocomWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	var side cryptocom.OrderSide
 	if req.Side == SideBuy {
@@ -217,22 +221,22 @@ func (w *cryptocomWrapper) GetFundingRate(ctx context.Context, symbol string) (f
 	return w.adapter.GetFundingRate(ctx)
 }
 
-// GetSpotPrice 获取现货市场价格（未实现）
+// GetSpotPrice 獲取現貨市场價格（未實現）
 func (w *cryptocomWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return 0, ErrNotImplemented
 }
 
-// EstimateFinalOrderAmount 预估最终下单金额（默认实现：返回原始金额）
+// EstimateFinalOrderAmount 預估最终下單金額（默认實現：返回原始金額）
 func (w *cryptocomWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
 
-// GetOrderBook 获取订单簿深度（暂未实现）
+// GetOrderBook 獲取訂單簿深度（暂未實現）
 func (w *cryptocomWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	return nil, ErrNotImplemented
 }
 
-// InternalTransfer 交易所内部转账
+// InternalTransfer 交易所內部轉帳
 func (w *cryptocomWrapper) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return w.adapter.InternalTransfer(ctx, fromAccount, toAccount, asset, amount)
 }

@@ -34,7 +34,7 @@ type WebSocketManager struct {
 	requestID int64
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketManager {
 	wsURL := DeribitMainnetWSURL
 	if isTestnet {
@@ -50,7 +50,7 @@ func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketMan
 	}
 }
 
-// Start 启动 WebSocket
+// Start 啟动 WebSocket
 func (w *WebSocketManager) Start(ctx context.Context, instrumentName string, callback func(interface{})) error {
 	w.mu.Lock()
 	if w.isRunning {
@@ -120,7 +120,7 @@ func (w *WebSocketManager) connect(ctx context.Context, instrumentName string) {
 			continue
 		}
 
-		// 启动心跳
+		// 啟动心跳
 		go w.heartbeat()
 
 		// 读取消息
@@ -164,7 +164,7 @@ func (w *WebSocketManager) authenticate() error {
 
 // subscribe 订阅频道
 func (w *WebSocketManager) subscribe(instrumentName string) error {
-	// 订阅用户订单
+	// 订阅用戶订單
 	subMsg := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      w.getNextRequestID(),
@@ -283,7 +283,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// getNextRequestID 获取下一个请求 ID
+// getNextRequestID 獲取下一個请求 ID
 func (w *WebSocketManager) getNextRequestID() int64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()

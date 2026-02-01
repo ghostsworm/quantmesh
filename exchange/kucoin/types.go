@@ -10,7 +10,7 @@ const (
 	SideSell Side = "SELL"
 )
 
-// OrderType 订单类型
+// OrderType 订單類型
 type OrderType string
 
 const (
@@ -18,7 +18,7 @@ const (
 	OrderTypeMarket OrderType = "MARKET"
 )
 
-// OrderStatus 订单状态
+// OrderStatus 订單状態
 type OrderStatus string
 
 const (
@@ -30,7 +30,7 @@ const (
 	OrderStatusExpired         OrderStatus = "EXPIRED"
 )
 
-// TimeInForce 订单有效期
+// TimeInForce 订單有效期
 type TimeInForce string
 
 const (
@@ -40,23 +40,23 @@ const (
 	TimeInForceGTX TimeInForce = "GTX" // Good Till Crossing (Post Only)
 )
 
-// KuCoinOrderRequest 下单请求（通用）
+// KuCoinOrderRequest 下單请求（通用）
 type KuCoinOrderRequest struct {
 	Symbol        string
 	Side          Side
 	Type          OrderType
 	TimeInForce   TimeInForce
 	Quantity      float64
-	Price         float64 // 市价单可为0
-	ReduceOnly    bool    // 是否只减仓
+	Price         float64 // 市價單可為0
+	ReduceOnly    bool    // 是否只减倉
 	PostOnly      bool    // 是否只做 Maker（Post Only)
-	PriceDecimals int     // 价格精度（用于格式化）
-	ClientOrderID string  // 自定义订单ID
-	Leverage      float64 // 杠杆倍数
-	Timestamp     int64   // 时间戳
+	PriceDecimals int     // 價格精度（用於格式化）
+	ClientOrderID string  // 自定义订單ID
+	Leverage      float64 // 杠杆倍數
+	Timestamp     int64   // 時间戳
 }
 
-// Order 订单信息（通用）
+// Order 订單信息（通用）
 type Order struct {
 	OrderID       string
 	ClientOrderID string
@@ -73,11 +73,11 @@ type Order struct {
 	Timestamp     int64
 }
 
-// Position 持仓信息（通用）
+// Position 持倉資訊（通用）
 type Position struct {
 	Symbol           string
 	Side             string  // "LONG" or "SHORT"
-	Size             float64 // 持仓数量（正数）
+	Size             float64 // 持倉數量（正數）
 	EntryPrice       float64
 	MarkPrice        float64
 	UnrealizedPnL    float64
@@ -87,17 +87,17 @@ type Position struct {
 	IsolatedMargin   float64
 }
 
-// Account 账户信息（通用）
+// Account 帳戶資訊（通用）
 type Account struct {
 	TotalBalance     float64
 	AvailableBalance float64
 	UnrealizedPnL    float64
 	MarginBalance    float64
 	Positions        []*Position
-	AccountLeverage  int // 账户级别的杠杆倍数（部分交易所支持）
+	AccountLeverage  int // 账戶级别的杠杆倍數（部分交易所支援）
 }
 
-// OrderUpdate WebSocket 订单更新事件（通用）
+// OrderUpdate WebSocket 订單更新事件（通用）
 type OrderUpdate struct {
 	OrderID       string
 	ClientOrderID string
@@ -112,10 +112,10 @@ type OrderUpdate struct {
 	UpdateTime    int64
 }
 
-// OrderUpdateCallback 订单更新回调函数
+// OrderUpdateCallback 订單更新回呼函數
 type OrderUpdateCallback func(update OrderUpdate)
 
-// KuCoinCandle K线数据
+// KuCoinCandle K線數據
 type KuCoinCandle struct {
 	Symbol    string
 	Open      float64
@@ -125,8 +125,8 @@ type KuCoinCandle struct {
 	Volume    float64
 	OpenTime  int64
 	CloseTime int64
-	IsClosed  bool // K线是否完结
+	IsClosed  bool // K線是否完結
 }
 
-// CandleUpdateCallback K线更新回调函数
+// CandleUpdateCallback K線更新回呼函數
 type CandleUpdateCallback func(candle interface{})

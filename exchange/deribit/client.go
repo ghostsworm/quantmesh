@@ -18,10 +18,10 @@ import (
 
 const (
 	DeribitMainnetBaseURL = "https://www.deribit.com"  // Deribit 主网
-	DeribitTestnetBaseURL = "https://test.deribit.com" // Deribit 测试网
+	DeribitTestnetBaseURL = "https://test.deribit.com" // Deribit 測試網
 )
 
-// DeribitClient Deribit 客户端
+// DeribitClient Deribit 客戶端
 type DeribitClient struct {
 	apiKey       string
 	secretKey    string
@@ -32,7 +32,7 @@ type DeribitClient struct {
 	refreshToken string
 }
 
-// NewDeribitClient 创建 Deribit 客户端
+// NewDeribitClient 創建 Deribit 客戶端
 func NewDeribitClient(apiKey, secretKey string, isTestnet bool) *DeribitClient {
 	baseURL := DeribitMainnetBaseURL
 	if isTestnet {
@@ -64,7 +64,7 @@ type JSONRPCResponse struct {
 	Error   *RPCError       `json:"error,omitempty"`
 }
 
-// RPCError RPC 错误
+// RPCError RPC 錯误
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -166,7 +166,7 @@ func (c *DeribitClient) Authenticate(ctx context.Context) error {
 	return nil
 }
 
-// GetInstruments 获取交易对信息
+// GetInstruments 獲取交易對信息
 func (c *DeribitClient) GetInstruments(ctx context.Context, currency string) ([]Instrument, error) {
 	params := map[string]interface{}{
 		"currency": currency,
@@ -186,7 +186,7 @@ func (c *DeribitClient) GetInstruments(ctx context.Context, currency string) ([]
 	return instruments, nil
 }
 
-// Buy 买入
+// Buy 買入
 func (c *DeribitClient) Buy(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
 	params := map[string]interface{}{
 		"instrument_name": req.InstrumentName,
@@ -217,7 +217,7 @@ func (c *DeribitClient) Buy(ctx context.Context, req *OrderRequest) (*OrderRespo
 	return &orderResp.Order, nil
 }
 
-// Sell 卖出
+// Sell 賣出
 func (c *DeribitClient) Sell(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
 	params := map[string]interface{}{
 		"instrument_name": req.InstrumentName,
@@ -248,7 +248,7 @@ func (c *DeribitClient) Sell(ctx context.Context, req *OrderRequest) (*OrderResp
 	return &orderResp.Order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *DeribitClient) CancelOrder(ctx context.Context, orderID string) error {
 	params := map[string]interface{}{
 		"order_id": orderID,
@@ -263,7 +263,7 @@ func (c *DeribitClient) CancelOrder(ctx context.Context, orderID string) error {
 	return nil
 }
 
-// GetOrderState 查询订单
+// GetOrderState 查詢訂單
 func (c *DeribitClient) GetOrderState(ctx context.Context, orderID string) (*OrderInfo, error) {
 	params := map[string]interface{}{
 		"order_id": orderID,
@@ -282,7 +282,7 @@ func (c *DeribitClient) GetOrderState(ctx context.Context, orderID string) (*Ord
 	return &orderInfo, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *DeribitClient) GetOpenOrders(ctx context.Context, instrumentName string) ([]OrderInfo, error) {
 	params := map[string]interface{}{}
 
@@ -303,7 +303,7 @@ func (c *DeribitClient) GetOpenOrders(ctx context.Context, instrumentName string
 	return orders, nil
 }
 
-// GetAccountSummary 获取账户信息
+// GetAccountSummary 獲取帳戶信息
 func (c *DeribitClient) GetAccountSummary(ctx context.Context, currency string) (*AccountSummary, error) {
 	params := map[string]interface{}{
 		"currency": currency,
@@ -322,7 +322,7 @@ func (c *DeribitClient) GetAccountSummary(ctx context.Context, currency string) 
 	return &account, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (c *DeribitClient) GetPositions(ctx context.Context, currency string) ([]PositionInfo, error) {
 	params := map[string]interface{}{
 		"currency": currency,
@@ -341,7 +341,7 @@ func (c *DeribitClient) GetPositions(ctx context.Context, currency string) ([]Po
 	return positions, nil
 }
 
-// GetTicker 获取行情
+// GetTicker 獲取行情
 func (c *DeribitClient) GetTicker(ctx context.Context, instrumentName string) (*TickerInfo, error) {
 	params := map[string]interface{}{
 		"instrument_name": instrumentName,
@@ -360,7 +360,7 @@ func (c *DeribitClient) GetTicker(ctx context.Context, instrumentName string) (*
 	return &ticker, nil
 }
 
-// GetTradingViewChartData 获取 K线数据
+// GetTradingViewChartData 獲取 K線數據
 func (c *DeribitClient) GetTradingViewChartData(ctx context.Context, instrumentName, resolution string, startTime, endTime int64) (*ChartData, error) {
 	params := map[string]interface{}{
 		"instrument_name": instrumentName,
@@ -382,7 +382,7 @@ func (c *DeribitClient) GetTradingViewChartData(ctx context.Context, instrumentN
 	return &chartData, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type Instrument struct {
 	InstrumentName      string  `json:"instrument_name"`

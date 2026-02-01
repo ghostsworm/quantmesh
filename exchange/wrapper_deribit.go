@@ -12,14 +12,18 @@ type deribitWrapper struct {
 	adapter *deribit.Adapter
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (w *deribitWrapper) GetName() string {
 	return w.adapter.GetName()
 }
 
-// PlaceOrder 下单
+func (w *deribitWrapper) GetMarketType() string {
+	return w.adapter.GetMarketType()
+}
+
+// PlaceOrder 下單
 func (w *deribitWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 转换类型
+	// 轉换類型
 	var side deribit.OrderSide
 	if req.Side == SideBuy {
 		side = deribit.SideBuy
@@ -32,7 +36,7 @@ func (w *deribitWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		return nil, err
 	}
 
-	// 转换回通用类型
+	// 轉换回通用類型
 	return &Order{
 		OrderID:       0, // Deribit 使用字符串 ID
 		ClientOrderID: order.ClientOrderID,
@@ -46,7 +50,7 @@ func (w *deribitWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 	}, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (w *deribitWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	result := make([]*Order, 0, len(orders))
 	allSuccess := true
@@ -63,13 +67,13 @@ func (w *deribitWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRe
 	return result, allSuccess
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (w *deribitWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	// Deribit 使用字符串 ID
 	return w.adapter.CancelOrder(ctx, strconv.FormatInt(orderID, 10))
 }
 
-// BatchCancelOrders 批量取消订单
+// BatchCancelOrders 批量取消訂單
 func (w *deribitWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	for _, orderID := range orderIDs {
 		_ = w.adapter.CancelOrder(ctx, strconv.FormatInt(orderID, 10))
@@ -77,7 +81,7 @@ func (w *deribitWrapper) BatchCancelOrders(ctx context.Context, symbol string, o
 	return nil
 }
 
-// CancelAllOrders 取消所有订单
+// CancelAllOrders 取消所有订單
 func (w *deribitWrapper) CancelAllOrders(ctx context.Context, symbol string) error {
 	orders, err := w.adapter.GetOpenOrders(ctx)
 	if err != nil {
@@ -91,7 +95,7 @@ func (w *deribitWrapper) CancelAllOrders(ctx context.Context, symbol string) err
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (w *deribitWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	order, err := w.adapter.GetOrder(ctx, strconv.FormatInt(orderID, 10))
 	if err != nil {
@@ -118,7 +122,7 @@ func (w *deribitWrapper) GetOrder(ctx context.Context, symbol string, orderID in
 	}, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (w *deribitWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := w.adapter.GetOpenOrders(ctx)
 	if err != nil {
@@ -150,7 +154,7 @@ func (w *deribitWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 	return result, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (w *deribitWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	account, err := w.adapter.GetAccount(ctx)
 	if err != nil {
@@ -164,7 +168,7 @@ func (w *deribitWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (w *deribitWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	positions, err := w.adapter.GetPositions(ctx)
 	if err != nil {
@@ -186,27 +190,27 @@ func (w *deribitWrapper) GetPositions(ctx context.Context, symbol string) ([]*Po
 	return result, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (w *deribitWrapper) GetBalance(ctx context.Context, asset string) (float64, error) {
 	return w.adapter.GetBalance(ctx)
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (w *deribitWrapper) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	return w.adapter.StartOrderStream(ctx, callback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (w *deribitWrapper) StopOrderStream() error {
 	return w.adapter.StopOrderStream()
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (w *deribitWrapper) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetLatestPrice(ctx, symbol)
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *deribitWrapper) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	return w.adapter.StartOrderStream(ctx, func(data interface{}) {
 		if ticker, ok := data.(map[string]interface{}); ok {
@@ -217,7 +221,7 @@ func (w *deribitWrapper) StartPriceStream(ctx context.Context, symbol string, ca
 	})
 }
 
-// StartKlineStream 启动 K线流
+// StartKlineStream 啟动 K線流
 func (w *deribitWrapper) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
 	return w.adapter.StartKlineStream(ctx, interval, func(candle *deribit.CandleLocal) {
 		callback(&Candle{
@@ -232,12 +236,12 @@ func (w *deribitWrapper) StartKlineStream(ctx context.Context, symbols []string,
 	})
 }
 
-// StopKlineStream 停止 K线流
+// StopKlineStream 停止 K線流
 func (w *deribitWrapper) StopKlineStream() error {
 	return w.adapter.StopKlineStream()
 }
 
-// GetHistoricalKlines 获取历史 K线
+// GetHistoricalKlines 獲取歷史 K線
 func (w *deribitWrapper) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	klines, err := w.adapter.GetHistoricalKlines(ctx, interval, limit)
 	if err != nil {
@@ -260,47 +264,47 @@ func (w *deribitWrapper) GetHistoricalKlines(ctx context.Context, symbol string,
 	return result, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (w *deribitWrapper) GetPriceDecimals() int {
 	return w.adapter.GetPriceDecimals()
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (w *deribitWrapper) GetQuantityDecimals() int {
 	return w.adapter.GetQuantityDecimals()
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (w *deribitWrapper) GetBaseAsset() string {
 	return w.adapter.GetBaseAsset()
 }
 
-// GetQuoteAsset 获取报价资产
+// GetQuoteAsset 獲取报價资產
 func (w *deribitWrapper) GetQuoteAsset() string {
 	return w.adapter.GetQuoteAsset()
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (w *deribitWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx)
 }
 
-// GetSpotPrice 获取现货市场价格（未实现）
+// GetSpotPrice 獲取現貨市场價格（未實現）
 func (w *deribitWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return 0, ErrNotImplemented
 }
 
-// EstimateFinalOrderAmount 预估最终下单金额（默认实现：返回原始金额）
+// EstimateFinalOrderAmount 預估最终下單金額（默认實現：返回原始金額）
 func (w *deribitWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
 
-// GetOrderBook 获取订单簿深度（暂未实现）
+// GetOrderBook 獲取訂單簿深度（暂未實現）
 func (w *deribitWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	return nil, ErrNotImplemented
 }
 
-// InternalTransfer 交易所内部转账
+// InternalTransfer 交易所內部轉帳
 func (w *deribitWrapper) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return w.adapter.InternalTransfer(ctx, fromAccount, toAccount, asset, amount)
 }

@@ -10,15 +10,15 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisLock Redis 分布式锁实现
+// RedisLock Redis 分布式鎖實現
 type RedisLock struct {
 	client   *redis.Client
 	prefix   string
-	lockID   string            // 当前实例的唯一标识
-	lockKeys map[string]string // 记录持有的锁和对应的 token
+	lockID   string            // 當前實例的唯一標识
+	lockKeys map[string]string // 記錄持有的鎖和對应的 token
 }
 
-// NewRedisLock 创建 Redis 分布式锁
+// NewRedisLock 創建 Redis 分布式鎖
 func NewRedisLock(client *redis.Client, prefix string) *RedisLock {
 	return &RedisLock{
 		client:   client,
@@ -28,21 +28,21 @@ func NewRedisLock(client *redis.Client, prefix string) *RedisLock {
 	}
 }
 
-// generateLockID 生成唯一的锁 ID
+// generateLockID 生成唯一的鎖 ID
 func generateLockID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// generateToken 为每个锁生成唯一的 token
+// generateToken 為每個鎖生成唯一的 token
 func generateToken() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// Lock 获取锁，阻塞直到成功或超时
+// Lock 獲取鎖，阻塞直到成功或超時
 func (r *RedisLock) Lock(ctx context.Context, key string, ttl time.Duration) error {
 	lockKey := r.prefix + key
 	token := generateToken()
@@ -67,7 +67,7 @@ func (r *RedisLock) Lock(ctx context.Context, key string, ttl time.Duration) err
 	}
 }
 
-// TryLock 尝试获取锁，立即返回
+// TryLock 尝試獲取鎖，立即返回
 func (r *RedisLock) TryLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	lockKey := r.prefix + key
 	token := generateToken()
@@ -84,7 +84,7 @@ func (r *RedisLock) TryLock(ctx context.Context, key string, ttl time.Duration) 
 	return ok, nil
 }
 
-// Unlock 释放锁
+// Unlock 释放鎖
 func (r *RedisLock) Unlock(ctx context.Context, key string) error {
 	lockKey := r.prefix + key
 	token, exists := r.lockKeys[key]
@@ -92,7 +92,7 @@ func (r *RedisLock) Unlock(ctx context.Context, key string) error {
 		return fmt.Errorf("lock not held: %s", key)
 	}
 
-	// Lua 脚本确保原子性：只有持有锁的实例才能释放
+	// Lua 脚本确保原子性：只有持有鎖的實例才能释放
 	script := `
 		if redis.call("get", KEYS[1]) == ARGV[1] then
 			return redis.call("del", KEYS[1])
@@ -114,7 +114,7 @@ func (r *RedisLock) Unlock(ctx context.Context, key string) error {
 	return nil
 }
 
-// Extend 延长锁的过期时间
+// Extend 延长鎖的過期時间
 func (r *RedisLock) Extend(ctx context.Context, key string, ttl time.Duration) error {
 	lockKey := r.prefix + key
 	token, exists := r.lockKeys[key]
@@ -122,7 +122,7 @@ func (r *RedisLock) Extend(ctx context.Context, key string, ttl time.Duration) e
 		return fmt.Errorf("lock not held: %s", key)
 	}
 
-	// Lua 脚本确保原子性：只有持有锁的实例才能延期
+	// Lua 脚本确保原子性：只有持有鎖的實例才能延期
 	script := `
 		if redis.call("get", KEYS[1]) == ARGV[1] then
 			return redis.call("expire", KEYS[1], ARGV[2])

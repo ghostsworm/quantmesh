@@ -14,19 +14,19 @@ type Notifier interface {
 	Name() string
 }
 
-// NotificationService 通知服务
+// NotificationService 通知服務
 type NotificationService struct {
 	notifiers []Notifier
 	cfg       *config.Config
 }
 
-// NewNotificationService 创建通知服务
+// NewNotificationService 創建通知服務
 func NewNotificationService(cfg *config.Config) *NotificationService {
 	ns := &NotificationService{
 		cfg: cfg,
 	}
 
-	// 初始化启用的通知渠道
+	// 初始化啟用的通知渠道
 	if cfg.Notifications.Enabled {
 		if cfg.Notifications.Telegram.Enabled && cfg.Notifications.Telegram.BotToken != "" {
 			telegramNotifier, err := NewTelegramNotifier(cfg)
@@ -34,7 +34,7 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 				logger.Warn("⚠️ 初始化 Telegram 通知失败: %v", err)
 			} else {
 				ns.notifiers = append(ns.notifiers, telegramNotifier)
-				logger.Info("✅ Telegram 通知已启用")
+				logger.Info("✅ Telegram 通知已啟用")
 			}
 		}
 
@@ -44,7 +44,7 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 				logger.Warn("⚠️ 初始化 Webhook 通知失败: %v", err)
 			} else {
 				ns.notifiers = append(ns.notifiers, webhookNotifier)
-				logger.Info("✅ Webhook 通知已启用")
+				logger.Info("✅ Webhook 通知已啟用")
 			}
 		}
 
@@ -54,7 +54,7 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 				logger.Warn("⚠️ 初始化邮件通知失败: %v", err)
 			} else {
 				ns.notifiers = append(ns.notifiers, emailNotifier)
-				logger.Info("✅ 邮件通知已启用 (Provider: %s)", cfg.Notifications.Email.Provider)
+				logger.Info("✅ 邮件通知已啟用 (Provider: %s)", cfg.Notifications.Email.Provider)
 			}
 		}
 
@@ -64,7 +64,7 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 				logger.Warn("⚠️ 初始化飞书通知失败: %v", err)
 			} else {
 				ns.notifiers = append(ns.notifiers, feishuNotifier)
-				logger.Info("✅ 飞书通知已启用")
+				logger.Info("✅ 飞书通知已啟用")
 			}
 		}
 
@@ -74,7 +74,7 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 				logger.Warn("⚠️ 初始化钉钉通知失败: %v", err)
 			} else {
 				ns.notifiers = append(ns.notifiers, dingTalkNotifier)
-				logger.Info("✅ 钉钉通知已启用")
+				logger.Info("✅ 钉钉通知已啟用")
 			}
 		}
 
@@ -84,7 +84,7 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 				logger.Warn("⚠️ 初始化企业微信通知失败: %v", err)
 			} else {
 				ns.notifiers = append(ns.notifiers, weChatWorkNotifier)
-				logger.Info("✅ 企业微信通知已启用")
+				logger.Info("✅ 企业微信通知已啟用")
 			}
 		}
 
@@ -94,7 +94,7 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 				logger.Warn("⚠️ 初始化 Slack 通知失败: %v", err)
 			} else {
 				ns.notifiers = append(ns.notifiers, slackNotifier)
-				logger.Info("✅ Slack 通知已启用")
+				logger.Info("✅ Slack 通知已啟用")
 			}
 		}
 	}
@@ -147,7 +147,7 @@ func (ns *NotificationService) Send(evt *event.Event) {
 
 	// 异步发送，不阻塞
 	go func() {
-		// 并发发送到所有启用的通知渠道
+		// 並发发送到所有啟用的通知渠道
 		var wg sync.WaitGroup
 		for _, notifier := range ns.notifiers {
 			wg.Add(1)

@@ -11,7 +11,7 @@ import (
 // authMiddleware 认证中间件
 func authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 获取会话管理器
+		// 獲取會话管理器
 		sm := GetSessionManager()
 		if sm == nil {
 			respondError(c, http.StatusInternalServerError, "error.session_manager_not_initialized")
@@ -19,12 +19,12 @@ func authMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 从请求中获取会话
+		// 從请求中獲取會话
 		session, exists := sm.GetSessionFromRequest(c.Request)
 		if !exists || session == nil {
-			// 认证失败日志：写入Web日志文件（而不是标准输出）
+			// 认证失败日志：写入Web日志文件（而不是標准输出）
 			cookies := c.Request.Cookies()
-			logMessage := fmt.Sprintf("[AUTH] 认证失败，请求路径: %s, Cookie 数量: %d", c.Request.URL.Path, len(cookies))
+			logMessage := fmt.Sprintf("[AUTH] 认证失败，请求路径: %s, Cookie 數量: %d", c.Request.URL.Path, len(cookies))
 			if len(cookies) > 0 {
 				cookieInfo := ""
 				for _, cookie := range cookies {
@@ -45,7 +45,7 @@ func authMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 将会话信息存储到上下文中，供后续处理使用
+		// 將會话信息存儲到上下文中，供后续处理使用
 		c.Set("session", session)
 		c.Set("username", session.Username)
 
@@ -53,7 +53,7 @@ func authMiddleware() gin.HandlerFunc {
 	}
 }
 
-// optionalAuthMiddleware 可选认证中间件（如果已登录则设置上下文，但不强制）
+// optionalAuthMiddleware 可選认证中间件（如果已登錄则設置上下文，但不强制）
 func optionalAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sm := GetSessionManager()

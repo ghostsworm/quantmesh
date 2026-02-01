@@ -14,7 +14,7 @@ import (
 // GridSearchOptimizer 网格搜索优化器
 type GridSearchOptimizer struct{}
 
-// Run 执行网格搜索，枚举搜索空间并并行回测
+// Run 執行网格搜索，枚举搜索空间並並行回测
 func (g *GridSearchOptimizer) Run(ctx context.Context, symbol string, candles []*exchange.Candle, space OptimSearchSpace, config OptimConfig, initialCapital float64) (*OptimResult, error) {
 	if err := ValidateSearchSpace(space); err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func (g *GridSearchOptimizer) Run(ctx context.Context, symbol string, candles []
 		return nil, errInvalidRange
 	}
 
-	// 生成所有参数组合
+	// 生成所有参數组合
 	paramSets := g.enumerateParams(space, initialCapital)
 	if len(paramSets) == 0 {
 		return nil, errInvalidRange
@@ -64,19 +64,19 @@ func (g *GridSearchOptimizer) Run(ctx context.Context, symbol string, candles []
 	}, nil
 }
 
-// enumerateParams 枚举搜索空间内的参数组合
+// enumerateParams 枚举搜索空间内的参數组合
 func (g *GridSearchOptimizer) enumerateParams(space OptimSearchSpace, totalCapital float64) []backtest.GridBacktestParams {
 	var out []backtest.GridBacktestParams
 	feeRate := 0.0004
 	slippage := 0.0003
 
-	// 价格下限步进
+	// 價格下限步進
 	lowSteps := steps(space.PriceLowRange.Min, space.PriceLowRange.Max, space.PriceLowRange.Step)
-	// 价格上限步进
+	// 價格上限步進
 	highSteps := steps(space.PriceHighRange.Min, space.PriceHighRange.Max, space.PriceHighRange.Step)
-	// 网格数步进
+	// 网格數步進
 	gridSteps := intSteps(space.GridCountRange.Min, space.GridCountRange.Max, space.GridCountRange.Step)
-	// 单笔订单金额步进
+	// 單笔订單金額步進
 	qtySteps := steps(space.OrderQtyRange.Min, space.OrderQtyRange.Max, space.OrderQtyRange.Step)
 
 	for _, low := range lowSteps {
@@ -123,7 +123,7 @@ func intSteps(min, max, step int) []int {
 	return s
 }
 
-// runParallel 使用 worker pool 并行回测
+// runParallel 使用 worker pool 並行回测
 func (g *GridSearchOptimizer) runParallel(ctx context.Context, symbol string, candles []*exchange.Candle, paramSets []backtest.GridBacktestParams, lambda float64, initialCapital float64, workers int) []ParamResult {
 	type job struct {
 		index int
@@ -137,7 +137,7 @@ func (g *GridSearchOptimizer) runParallel(ctx context.Context, symbol string, ca
 	jobCh := make(chan job, len(paramSets))
 	resultCh := make(chan result, len(paramSets))
 
-	// 投递任务
+	// 投遞任務
 	go func() {
 		for i, p := range paramSets {
 			select {
@@ -185,7 +185,7 @@ func (g *GridSearchOptimizer) runParallel(ctx context.Context, symbol string, ca
 		close(resultCh)
 	}()
 
-	// 收集结果（保持顺序可选，这里按 index 存）
+	// 收集結果（保持顺序可選，这里按 index 存）
 	results := make([]ParamResult, len(paramSets))
 	for i := range results {
 		results[i] = ParamResult{Score: math.Inf(-1)}
@@ -195,7 +195,7 @@ func (g *GridSearchOptimizer) runParallel(ctx context.Context, symbol string, ca
 			results[r.index] = r.pr
 		}
 	}
-	// 过滤掉未完成的（Score 为 -Inf）
+	// 過滤掉未完成的（Score 為 -Inf）
 	var out []ParamResult
 	for _, r := range results {
 		if !math.IsInf(r.Score, -1) {

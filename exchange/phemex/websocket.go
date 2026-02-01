@@ -33,7 +33,7 @@ type WebSocketManager struct {
 	isRunning bool
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketManager {
 	wsURL := PhemexMainnetWSURL
 	if isTestnet {
@@ -48,7 +48,7 @@ func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketMan
 	}
 }
 
-// Start 启动 WebSocket
+// Start 啟动 WebSocket
 func (w *WebSocketManager) Start(ctx context.Context, symbol string, callback func(interface{})) error {
 	w.mu.Lock()
 	if w.isRunning {
@@ -118,7 +118,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 			continue
 		}
 
-		// 启动心跳
+		// 啟动心跳
 		go w.heartbeat()
 
 		// 读取消息
@@ -252,7 +252,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理订单更新
+	// 处理订單更新
 	if method, ok := msg["method"].(string); ok && method == "aop.subscribe" {
 		if orders, ok := msg["orders"].([]interface{}); ok {
 			logger.Debug("Phemex WebSocket orders update: %d orders", len(orders))

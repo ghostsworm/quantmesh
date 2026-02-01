@@ -21,15 +21,15 @@ type Strategy interface {
 	GetStatistics() *StrategyStatistics
 	Start(ctx context.Context) error
 	Stop() error
-	SetEventBus(bus EventBus) // 新增：设置事件总线
+	SetEventBus(bus EventBus) // 新增：設置事件總線
 }
 
-// EventBus 事件总线接口
+// EventBus 事件總線接口
 type EventBus interface {
 	Publish(evt *event.Event)
 }
 
-// Position 持仓信息
+// Position 持倉資訊
 type Position struct {
 	Symbol       string
 	Size         float64
@@ -38,7 +38,7 @@ type Position struct {
 	PnL          float64
 }
 
-// Order 订单信息
+// Order 订單信息
 type Order struct {
 	OrderID  int64
 	Symbol   string
@@ -68,7 +68,7 @@ type StrategyManager struct {
 	eventBus         EventBus // 新增
 }
 
-// NewStrategyManager 创建策略管理器
+// NewStrategyManager 創建策略管理器
 func NewStrategyManager(cfg *config.Config, totalCapital float64) *StrategyManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -80,7 +80,7 @@ func NewStrategyManager(cfg *config.Config, totalCapital float64) *StrategyManag
 		cancel:     cancel,
 	}
 
-	// 如果启用动态分配，创建动态分配器
+	// 如果啟用动態分配，創建动態分配器
 	if cfg.Strategies.CapitalAllocation.DynamicAllocation.Enabled {
 		sm.dynamicAllocator = NewDynamicAllocator(cfg)
 	}
@@ -88,7 +88,7 @@ func NewStrategyManager(cfg *config.Config, totalCapital float64) *StrategyManag
 	return sm
 }
 
-// SetEventBus 设置事件总线
+// SetEventBus 設置事件總線
 func (sm *StrategyManager) SetEventBus(eb EventBus) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -107,7 +107,7 @@ func (sm *StrategyManager) RegisterStrategy(name string, strategy Strategy, weig
 
 	sm.strategies[name] = strategy
 
-	// 如果已有事件总线，立即设置
+	// 如果已有事件總線，立即設置
 	if sm.eventBus != nil {
 		strategy.SetEventBus(sm.eventBus)
 	}
@@ -115,20 +115,20 @@ func (sm *StrategyManager) RegisterStrategy(name string, strategy Strategy, weig
 	// 注册到资金分配器
 	sm.allocator.RegisterStrategy(name, weight, fixedPool)
 
-	// 注册到动态分配器
+	// 注册到动態分配器
 	if sm.dynamicAllocator != nil {
 		sm.dynamicAllocator.RegisterStrategy(name, weight)
 	}
 }
 
-// GetStrategy 获取策略
+// GetStrategy 獲取策略
 func (sm *StrategyManager) GetStrategy(name string) Strategy {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.strategies[name]
 }
 
-// GetAllStrategies 获取所有策略
+// GetAllStrategies 獲取所有策略
 func (sm *StrategyManager) GetAllStrategies() map[string]Strategy {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -140,7 +140,7 @@ func (sm *StrategyManager) GetAllStrategies() map[string]Strategy {
 	return result
 }
 
-// IsStrategyEnabled 检查策略是否启用
+// IsStrategyEnabled 检查策略是否啟用
 func (sm *StrategyManager) IsStrategyEnabled(name string) bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -152,30 +152,30 @@ func (sm *StrategyManager) IsStrategyEnabled(name string) bool {
 	return strategyCfg.Enabled
 }
 
-// StartAll 启动所有策略
+// StartAll 啟动所有策略
 func (sm *StrategyManager) StartAll() error {
 	// 1. 分配资金
 	sm.allocator.Allocate()
 
-	// 2. 启动每个策略
+	// 2. 啟动每個策略
 	sm.mu.RLock()
 	for name, strategy := range sm.strategies {
 		if sm.IsStrategyEnabled(name) {
 			go func(n string, s Strategy) {
 				if err := s.Start(sm.ctx); err != nil {
-					logger.Error("❌ 策略 %s 启动失败: %v", n, err)
+					logger.Error("❌ 策略 %s 啟动失败: %v", n, err)
 				} else {
-					logger.Info("✅ 策略 %s 已启动", n)
+					logger.Info("✅ 策略 %s 已啟动", n)
 				}
 			}(name, strategy)
 		}
 	}
 	sm.mu.RUnlock()
 
-	// 3. 启动动态分配（如果启用）
+	// 3. 啟动动態分配（如果啟用）
 	if sm.dynamicAllocator != nil && sm.cfg.Strategies.CapitalAllocation.DynamicAllocation.Enabled {
 		sm.dynamicAllocator.Start(sm.allocator)
-		logger.Info("✅ 动态资金分配已启动")
+		logger.Info("✅ 动態资金分配已啟动")
 	}
 
 	return nil
@@ -200,7 +200,7 @@ func (sm *StrategyManager) StopAll() {
 	}
 }
 
-// OnPriceChange 价格变化时通知所有策略
+// OnPriceChange 價格變化時通知所有策略
 func (sm *StrategyManager) OnPriceChange(price float64) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -209,14 +209,14 @@ func (sm *StrategyManager) OnPriceChange(price float64) {
 		if sm.IsStrategyEnabled(name) {
 			go func(n string, s Strategy) {
 				if err := s.OnPriceChange(price); err != nil {
-					logger.Warn("⚠️ 策略 %s 处理价格变化失败: %v", n, err)
+					logger.Warn("⚠️ 策略 %s 处理價格變化失败: %v", n, err)
 				}
 			}(name, strategy)
 		}
 	}
 }
 
-// OnOrderUpdate 订单更新时通知所有策略
+// OnOrderUpdate 订單更新時通知所有策略
 func (sm *StrategyManager) OnOrderUpdate(update *position.OrderUpdate) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -225,19 +225,19 @@ func (sm *StrategyManager) OnOrderUpdate(update *position.OrderUpdate) {
 		if sm.IsStrategyEnabled(name) {
 			go func(n string, s Strategy) {
 				if err := s.OnOrderUpdate(update); err != nil {
-					logger.Warn("⚠️ 策略 %s 处理订单更新失败: %v", n, err)
+					logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
 				}
 			}(name, strategy)
 		}
 	}
 }
 
-// GetCapitalAllocator 获取资金分配器
+// GetCapitalAllocator 獲取资金分配器
 func (sm *StrategyManager) GetCapitalAllocator() *CapitalAllocator {
 	return sm.allocator
 }
 
-// GetDynamicAllocator 获取动态分配器
+// GetDynamicAllocator 獲取动態分配器
 func (sm *StrategyManager) GetDynamicAllocator() *DynamicAllocator {
 	return sm.dynamicAllocator
 }

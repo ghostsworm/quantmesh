@@ -9,13 +9,13 @@ import (
 	"quantmesh/utils"
 )
 
-// SystemMetricsProviderImpl 系统监控数据提供者实现
+// SystemMetricsProviderImpl 系统監控數據提供者實現
 type SystemMetricsProviderImpl struct {
 	storageService *storage.StorageService
 	watchdog       *monitor.Watchdog
 }
 
-// NewSystemMetricsProvider 创建系统监控数据提供者
+// NewSystemMetricsProvider 創建系统監控數據提供者
 func NewSystemMetricsProvider(storageService *storage.StorageService, watchdog *monitor.Watchdog) *SystemMetricsProviderImpl {
 	return &SystemMetricsProviderImpl{
 		storageService: storageService,
@@ -23,9 +23,9 @@ func NewSystemMetricsProvider(storageService *storage.StorageService, watchdog *
 	}
 }
 
-// GetCurrentMetrics 获取当前系统状态
+// GetCurrentMetrics 獲取當前系统状態
 func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse, error) {
-	// 优先从watchdog获取最新数据（从缓存中）
+	// 优先從watchdog獲取最新數據（從缓存中）
 	if p.watchdog != nil {
 		latest := p.watchdog.GetLatestMetrics()
 		if latest != nil {
@@ -39,7 +39,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 		}
 	}
 
-	// 如果watchdog没有数据，实时采集一次
+	// 如果watchdog没有數據，實時采集一次
 	metrics, err := monitor.CollectSystemMetrics()
 	if err == nil && metrics != nil {
 		return &SystemMetricsResponse{
@@ -51,7 +51,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 		}, nil
 	}
 
-	// 如果实时采集失败，尝试从数据库获取最新数据
+	// 如果實時采集失败，尝試從數據库獲取最新數據
 	if p.storageService != nil {
 		storage := p.storageService.GetStorage()
 		if storage != nil {
@@ -68,7 +68,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 		}
 	}
 
-	// 所有方法都失败，返回默认值（但这种情况应该很少发生）
+	// 所有方法都失败，返回默认值（但这种情况应該很少发生）
 	return &SystemMetricsResponse{
 		Timestamp:     utils.ToUTC8(time.Now()),
 		CPUPercent:    0,
@@ -78,7 +78,7 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 	}, nil
 }
 
-// GetMetrics 获取系统监控数据
+// GetMetrics 獲取系统監控數據
 func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, granularity string) ([]*SystemMetricsResponse, error) {
 	if p.storageService == nil {
 		return []*SystemMetricsResponse{}, nil
@@ -89,8 +89,8 @@ func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, gra
 		return []*SystemMetricsResponse{}, nil
 	}
 
-	// 限制查询时间范围，防止返回过多数据导致内存问题
-	maxDuration := 7 * 24 * time.Hour // 最多查询7天
+	// 限制查詢時间範圍，防止返回過多數據導致記憶體问题
+	maxDuration := 7 * 24 * time.Hour // 最多查詢7天
 	actualDuration := endTime.Sub(startTime)
 	if actualDuration > maxDuration {
 		startTime = endTime.Add(-maxDuration)
@@ -98,13 +98,13 @@ func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, gra
 
 	storageMetrics, err := storageImpl.QuerySystemMetrics(startTime, endTime)
 	if err != nil {
-		return nil, fmt.Errorf("查询监控数据失败: %w", err)
+		return nil, fmt.Errorf("查詢監控數據失败: %w", err)
 	}
 
-	// 限制返回的数据量，防止内存占用过大
-	maxDataPoints := 10000 // 最多返回1万条数据
+	// 限制返回的數據量，防止記憶體占用過大
+	maxDataPoints := 10000 // 最多返回1万条數據
 	if len(storageMetrics) > maxDataPoints {
-		// 采样：均匀间隔选择数据点
+		// 采样：均匀间隔选擇數據点
 		step := len(storageMetrics) / maxDataPoints
 		sampledMetrics := make([]*storage.SystemMetrics, 0, maxDataPoints)
 		for i := 0; i < len(storageMetrics); i += step {
@@ -112,7 +112,7 @@ func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, gra
 				sampledMetrics = append(sampledMetrics, storageMetrics[i])
 			}
 		}
-		// 确保包含最后一个数据点
+		// 确保包含最后一個數據点
 		lastIdx := len(storageMetrics) - 1
 		if len(sampledMetrics) > 0 && sampledMetrics[len(sampledMetrics)-1] != storageMetrics[lastIdx] {
 			sampledMetrics = append(sampledMetrics, storageMetrics[lastIdx])
@@ -134,7 +134,7 @@ func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, gra
 	return metrics, nil
 }
 
-// GetDailyMetrics 获取每日汇总数据
+// GetDailyMetrics 獲取每日彙總數據
 func (p *SystemMetricsProviderImpl) GetDailyMetrics(days int) ([]*DailySystemMetricsResponse, error) {
 	if p.storageService == nil {
 		return []*DailySystemMetricsResponse{}, nil
@@ -147,7 +147,7 @@ func (p *SystemMetricsProviderImpl) GetDailyMetrics(days int) ([]*DailySystemMet
 
 	dailyMetrics, err := storage.QueryDailySystemMetrics(days)
 	if err != nil {
-		return nil, fmt.Errorf("查询每日汇总数据失败: %w", err)
+		return nil, fmt.Errorf("查詢每日彙總數據失败: %w", err)
 	}
 
 	metrics := make([]*DailySystemMetricsResponse, len(dailyMetrics))

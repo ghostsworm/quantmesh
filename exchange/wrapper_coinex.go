@@ -11,12 +11,16 @@ type coinexWrapper struct {
 	adapter *coinex.Adapter
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (w *coinexWrapper) GetName() string {
 	return w.adapter.GetName()
 }
 
-// PlaceOrder 下单
+func (w *coinexWrapper) GetMarketType() string {
+	return w.adapter.GetMarketType()
+}
+
+// PlaceOrder 下單
 func (w *coinexWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	var side coinex.OrderSide
 	if req.Side == SideBuy {
@@ -43,7 +47,7 @@ func (w *coinexWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Ord
 	}, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (w *coinexWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	result := make([]*Order, 0, len(orders))
 	allSuccess := true
@@ -60,12 +64,12 @@ func (w *coinexWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderReq
 	return result, allSuccess
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (w *coinexWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	return w.adapter.CancelOrder(ctx, orderID)
 }
 
-// BatchCancelOrders 批量取消订单
+// BatchCancelOrders 批量取消訂單
 func (w *coinexWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	for _, orderID := range orderIDs {
 		_ = w.adapter.CancelOrder(ctx, orderID)
@@ -73,7 +77,7 @@ func (w *coinexWrapper) BatchCancelOrders(ctx context.Context, symbol string, or
 	return nil
 }
 
-// CancelAllOrders 取消所有订单
+// CancelAllOrders 取消所有订單
 func (w *coinexWrapper) CancelAllOrders(ctx context.Context, symbol string) error {
 	orders, err := w.adapter.GetOpenOrders(ctx)
 	if err != nil {
@@ -87,7 +91,7 @@ func (w *coinexWrapper) CancelAllOrders(ctx context.Context, symbol string) erro
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (w *coinexWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	order, err := w.adapter.GetOrder(ctx, orderID)
 	if err != nil {
@@ -114,7 +118,7 @@ func (w *coinexWrapper) GetOrder(ctx context.Context, symbol string, orderID int
 	}, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (w *coinexWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := w.adapter.GetOpenOrders(ctx)
 	if err != nil {
@@ -146,7 +150,7 @@ func (w *coinexWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 	return result, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (w *coinexWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	account, err := w.adapter.GetAccount(ctx)
 	if err != nil {
@@ -160,7 +164,7 @@ func (w *coinexWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (w *coinexWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	positions, err := w.adapter.GetPositions(ctx)
 	if err != nil {
@@ -182,30 +186,30 @@ func (w *coinexWrapper) GetPositions(ctx context.Context, symbol string) ([]*Pos
 	return result, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (w *coinexWrapper) GetBalance(ctx context.Context, asset string) (float64, error) {
 	return w.adapter.GetBalance(ctx)
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (w *coinexWrapper) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	return w.adapter.StartOrderStream(ctx, callback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (w *coinexWrapper) StopOrderStream() error {
 	return w.adapter.StopOrderStream()
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (w *coinexWrapper) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetLatestPrice(ctx, symbol)
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *coinexWrapper) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	return w.adapter.StartOrderStream(ctx, func(data interface{}) {
-		// CoinEx 价格流处理
+		// CoinEx 價格流处理
 		if trades, ok := data.([]interface{}); ok && len(trades) > 0 {
 			if trade, ok := trades[0].(map[string]interface{}); ok {
 				if price, ok := trade["price"].(float64); ok {
@@ -216,7 +220,7 @@ func (w *coinexWrapper) StartPriceStream(ctx context.Context, symbol string, cal
 	})
 }
 
-// StartKlineStream 启动 K线流
+// StartKlineStream 啟动 K線流
 func (w *coinexWrapper) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
 	return w.adapter.StartKlineStream(ctx, interval, func(candle *coinex.CandleLocal) {
 		callback(&Candle{
@@ -231,12 +235,12 @@ func (w *coinexWrapper) StartKlineStream(ctx context.Context, symbols []string, 
 	})
 }
 
-// StopKlineStream 停止 K线流
+// StopKlineStream 停止 K線流
 func (w *coinexWrapper) StopKlineStream() error {
 	return w.adapter.StopKlineStream()
 }
 
-// GetHistoricalKlines 获取历史 K线
+// GetHistoricalKlines 獲取歷史 K線
 func (w *coinexWrapper) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	klines, err := w.adapter.GetHistoricalKlines(ctx, interval, limit)
 	if err != nil {
@@ -259,47 +263,47 @@ func (w *coinexWrapper) GetHistoricalKlines(ctx context.Context, symbol string, 
 	return result, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (w *coinexWrapper) GetPriceDecimals() int {
 	return w.adapter.GetPriceDecimals()
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (w *coinexWrapper) GetQuantityDecimals() int {
 	return w.adapter.GetQuantityDecimals()
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (w *coinexWrapper) GetBaseAsset() string {
 	return w.adapter.GetBaseAsset()
 }
 
-// GetQuoteAsset 获取报价资产
+// GetQuoteAsset 獲取报價资產
 func (w *coinexWrapper) GetQuoteAsset() string {
 	return w.adapter.GetQuoteAsset()
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (w *coinexWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx)
 }
 
-// GetSpotPrice 获取现货市场价格（未实现）
+// GetSpotPrice 獲取現貨市场價格（未實現）
 func (w *coinexWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return 0, ErrNotImplemented
 }
 
-// EstimateFinalOrderAmount 预估最终下单金额（默认实现：返回原始金额）
+// EstimateFinalOrderAmount 預估最终下單金額（默认實現：返回原始金額）
 func (w *coinexWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
 
-// GetOrderBook 获取订单簿深度（暂未实现）
+// GetOrderBook 獲取訂單簿深度（暂未實現）
 func (w *coinexWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	return nil, ErrNotImplemented
 }
 
-// InternalTransfer 交易所内部转账
+// InternalTransfer 交易所內部轉帳
 func (w *coinexWrapper) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return w.adapter.InternalTransfer(ctx, fromAccount, toAccount, asset, amount)
 }

@@ -79,7 +79,7 @@ func (s *TaskService) UpdateTaskStatus(ctx context.Context, taskID, status strin
 			resultJSON, _ := json.Marshal(result)
 			task.Result = string(resultJSON)
 			
-			// 从结果中提取统计信息
+			// 從結果中提取统计信息
 			if aiInput, ok := result["ai_input"].(string); ok {
 				task.AIInput = &aiInput
 			}
@@ -127,6 +127,6 @@ func (s *TaskService) RetryTask(ctx context.Context, taskID string) error {
 }
 
 func (s *TaskService) CleanupExpiredTasks(ctx context.Context) (int64, error) {
-	cutoff := time.Now().AddDate(0, 0, -7) // 清理 7 天前的已完成/失败任务
+	cutoff := time.Now().AddDate(0, 0, -7) // 清理 7 天前的已完成/失败任務
 	return s.db.CleanupExpiredAsyncTasks(ctx, cutoff)
 }

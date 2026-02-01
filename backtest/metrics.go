@@ -4,37 +4,37 @@ import (
 	"math"
 )
 
-// Metrics 回测指标
+// Metrics 回测指標
 type Metrics struct {
-	// 收益指标
-	TotalReturn      float64 `json:"total_return"`      // 总收益率 (%)
+	// 收益指標
+	TotalReturn      float64 `json:"total_return"`      // 總收益率 (%)
 	AnnualizedReturn float64 `json:"annualized_return"` // 年化收益率 (%)
 
-	// 风险指标
+	// 风險指標
 	MaxDrawdown         float64 `json:"max_drawdown"`          // 最大回撤 (%)
-	MaxDrawdownDuration int     `json:"max_drawdown_duration"` // 最大回撤持续时间（天）
+	MaxDrawdownDuration int     `json:"max_drawdown_duration"` // 最大回撤持续時间（天）
 	Volatility          float64 `json:"volatility"`            // 波动率 (%)
 
-	// 风险调整收益
+	// 风險調整收益
 	SharpeRatio  float64 `json:"sharpe_ratio"`  // 夏普比率
 	SortinoRatio float64 `json:"sortino_ratio"` // 索提诺比率
 	CalmarRatio  float64 `json:"calmar_ratio"`  // 卡玛比率
 
-	// 交易指标
-	TotalTrades  int     `json:"total_trades"`  // 总交易次数
+	// 交易指標
+	TotalTrades  int     `json:"total_trades"`  // 總交易次數
 	WinRate      float64 `json:"win_rate"`      // 胜率 (%)
 	ProfitFactor float64 `json:"profit_factor"` // 利润因子
 	AvgWin       float64 `json:"avg_win"`       // 平均盈利
 	AvgLoss      float64 `json:"avg_loss"`      // 平均亏损
-	LargestWin   float64 `json:"largest_win"`   // 最大单笔盈利
-	LargestLoss  float64 `json:"largest_loss"`  // 最大单笔亏损
+	LargestWin   float64 `json:"largest_win"`   // 最大單笔盈利
+	LargestLoss  float64 `json:"largest_loss"`  // 最大單笔亏损
 
-	// 连续性指标
-	MaxConsecutiveWins   int `json:"max_consecutive_wins"`   // 最大连续盈利次数
-	MaxConsecutiveLosses int `json:"max_consecutive_losses"` // 最大连续亏损次数
+	// 连续性指標
+	MaxConsecutiveWins   int `json:"max_consecutive_wins"`   // 最大连续盈利次數
+	MaxConsecutiveLosses int `json:"max_consecutive_losses"` // 最大连续亏损次數
 }
 
-// CalculateMetrics 计算所有指标
+// CalculateMetrics 计算所有指標
 func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float64) Metrics {
 	if len(equity) == 0 || len(trades) == 0 {
 		return Metrics{}
@@ -43,22 +43,22 @@ func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float
 	returns := calculateReturns(equity)
 
 	metrics := Metrics{
-		// 收益指标
+		// 收益指標
 		TotalReturn:      calculateTotalReturn(equity, initialCapital),
 		AnnualizedReturn: calculateAnnualizedReturn(equity, initialCapital),
 
-		// 风险指标
+		// 风險指標
 		MaxDrawdown:         calculateMaxDrawdown(equity),
 		MaxDrawdownDuration: calculateMaxDrawdownDuration(equity),
 		Volatility:          calculateVolatility(returns),
 
-		// 风险调整收益
+		// 风險調整收益
 		SharpeRatio:  calculateSharpeRatio(returns),
 		SortinoRatio: calculateSortinoRatio(returns),
 		CalmarRatio:  calculateCalmarRatio(equity, initialCapital),
 
-		// 交易指标
-		TotalTrades:  len(trades) / 2, // 买入+卖出算一笔完整交易
+		// 交易指標
+		TotalTrades:  len(trades) / 2, // 買入+賣出算一笔完整交易
 		WinRate:      calculateWinRate(trades),
 		ProfitFactor: calculateProfitFactor(trades),
 		AvgWin:       calculateAvgWin(trades),
@@ -66,7 +66,7 @@ func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float
 		LargestWin:   calculateLargestWin(trades),
 		LargestLoss:  calculateLargestLoss(trades),
 
-		// 连续性指标
+		// 连续性指標
 		MaxConsecutiveWins:   calculateMaxConsecutiveWins(trades),
 		MaxConsecutiveLosses: calculateMaxConsecutiveLosses(trades),
 	}
@@ -90,7 +90,7 @@ func calculateReturns(equity []EquityPoint) []float64 {
 	return returns
 }
 
-// calculateTotalReturn 计算总收益率
+// calculateTotalReturn 计算總收益率
 func calculateTotalReturn(equity []EquityPoint, initialCapital float64) float64 {
 	if len(equity) == 0 || initialCapital == 0 {
 		return 0
@@ -143,7 +143,7 @@ func calculateMaxDrawdown(equity []EquityPoint) float64 {
 	return maxDrawdown
 }
 
-// calculateMaxDrawdownDuration 计算最大回撤持续时间（天）
+// calculateMaxDrawdownDuration 计算最大回撤持续時间（天）
 func calculateMaxDrawdownDuration(equity []EquityPoint) int {
 	if len(equity) == 0 {
 		return 0
@@ -196,7 +196,7 @@ func calculateVolatility(returns []float64) float64 {
 	}
 	variance /= float64(len(returns))
 
-	// 年化波动率（假设每天一个数据点）
+	// 年化波动率（假設每天一個數據点）
 	return math.Sqrt(variance) * math.Sqrt(252) * 100
 }
 
@@ -224,7 +224,7 @@ func calculateSharpeRatio(returns []float64) float64 {
 		return 0
 	}
 
-	riskFreeRate := 0.02 / 252 // 日化无风险利率（假设年化2%）
+	riskFreeRate := 0.02 / 252 // 日化無风險利率（假設年化2%）
 	return (mean - riskFreeRate) / stdDev * math.Sqrt(252)
 }
 
@@ -302,7 +302,7 @@ func calculateWinRate(trades []Trade) float64 {
 	return float64(winCount) / float64(totalTrades) * 100
 }
 
-// calculateProfitFactor 计算利润因子（总盈利 / 总亏损）
+// calculateProfitFactor 计算利润因子（總盈利 / 總亏损）
 func calculateProfitFactor(trades []Trade) float64 {
 	totalProfit := 0.0
 	totalLoss := 0.0
@@ -362,7 +362,7 @@ func calculateAvgLoss(trades []Trade) float64 {
 	return totalLoss / float64(lossCount)
 }
 
-// calculateLargestWin 计算最大单笔盈利
+// calculateLargestWin 计算最大單笔盈利
 func calculateLargestWin(trades []Trade) float64 {
 	largestWin := 0.0
 
@@ -375,7 +375,7 @@ func calculateLargestWin(trades []Trade) float64 {
 	return largestWin
 }
 
-// calculateLargestLoss 计算最大单笔亏损
+// calculateLargestLoss 计算最大單笔亏损
 func calculateLargestLoss(trades []Trade) float64 {
 	largestLoss := 0.0
 
@@ -391,7 +391,7 @@ func calculateLargestLoss(trades []Trade) float64 {
 	return largestLoss
 }
 
-// calculateMaxConsecutiveWins 计算最大连续盈利次数
+// calculateMaxConsecutiveWins 计算最大连续盈利次數
 func calculateMaxConsecutiveWins(trades []Trade) int {
 	maxWins := 0
 	currentWins := 0
@@ -412,7 +412,7 @@ func calculateMaxConsecutiveWins(trades []Trade) int {
 	return maxWins
 }
 
-// calculateMaxConsecutiveLosses 计算最大连续亏损次数
+// calculateMaxConsecutiveLosses 计算最大连续亏损次數
 func calculateMaxConsecutiveLosses(trades []Trade) int {
 	maxLosses := 0
 	currentLosses := 0

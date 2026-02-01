@@ -22,7 +22,7 @@ type DingTalkNotifier struct {
 	client  *http.Client
 }
 
-// NewDingTalkNotifier 创建钉钉通知器
+// NewDingTalkNotifier 創建钉钉通知器
 func NewDingTalkNotifier(cfg *config.Config) (*DingTalkNotifier, error) {
 	if cfg.Notifications.DingTalk.Webhook == "" {
 		return nil, fmt.Errorf("钉钉 Webhook URL 未配置")
@@ -46,10 +46,10 @@ func (dn *DingTalkNotifier) Name() string {
 func (dn *DingTalkNotifier) Send(evt *event.Event) error {
 	message := formatDingTalkMessage(evt)
 	
-	// 构建请求 URL（如果配置了签名密钥，需要添加签名参数）
+	// 構建请求 URL（如果配置了签名密钥，需要添加签名参數）
 	requestURL := dn.webhook
 	if dn.secret != "" {
-		timestamp := time.Now().UnixNano() / 1e6 // 毫秒时间戳
+		timestamp := time.Now().UnixNano() / 1e6 // 毫秒時间戳
 		sign := dn.generateSign(timestamp)
 		requestURL = fmt.Sprintf("%s&timestamp=%d&sign=%s", dn.webhook, timestamp, sign)
 	}
@@ -71,7 +71,7 @@ func (dn *DingTalkNotifier) Send(evt *event.Event) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", requestURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -83,7 +83,7 @@ func (dn *DingTalkNotifier) Send(evt *event.Event) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("钉钉 API 返回错误: %d", resp.StatusCode)
+		return fmt.Errorf("钉钉 API 返回錯误: %d", resp.StatusCode)
 	}
 
 	return nil
@@ -102,11 +102,11 @@ func formatDingTalkMessage(evt *event.Event) string {
 	var title string
 	switch evt.Type {
 	case event.EventTypeOrderPlaced:
-		title = "📝 订单已下单"
+		title = "📝 订單已下單"
 	case event.EventTypeOrderFilled:
-		title = "✅ 订单已成交"
+		title = "✅ 订單已成交"
 	case event.EventTypeOrderCanceled:
-		title = "❌ 订单已取消"
+		title = "❌ 订單已取消"
 	case event.EventTypeRiskTriggered:
 		title = "⚠️ 风控触发"
 	case event.EventTypeRiskRecovered:
@@ -116,9 +116,9 @@ func formatDingTalkMessage(evt *event.Event) string {
 	case event.EventTypeTakeProfit:
 		title = "💰 止盈触发"
 	case event.EventTypeError:
-		title = "❌ 系统错误"
+		title = "❌ 系统錯误"
 	case event.EventTypeSystemStart:
-		title = "🚀 系统启动"
+		title = "🚀 系统啟动"
 	case event.EventTypeSystemStop:
 		title = "🛑 系统停止"
 	case event.EventTypeMarginInsufficient:
@@ -126,21 +126,21 @@ func formatDingTalkMessage(evt *event.Event) string {
 	case event.EventTypeAllocationExceeded:
 		title = "⚠️ 超出资金分配限制"
 	case event.EventTypeAllocationLimitChanged:
-		// 根据模式选择不同的标题
+		// 根據模式选擇不同的標题
 		if mode, ok := evt.Data["mode"].(string); ok {
 			if mode == "emergency" {
-				title = "🚨 资金限额已提升（紧急模式）"
+				title = "🚨 资金限額已提升（紧急模式）"
 			} else {
-				title = "✅ 资金限额已恢复（正常模式）"
+				title = "✅ 资金限額已恢複（正常模式）"
 			}
 		} else {
-			title = "📊 资金限额变更"
+			title = "📊 资金限額变更"
 		}
 	default:
 		title = "📢 系统通知"
 	}
 
-	message := fmt.Sprintf("%s\n\n时间: %s\n\n", title, evt.Timestamp.Format("2006-01-02 15:04:05"))
+	message := fmt.Sprintf("%s\n\n時间: %s\n\n", title, evt.Timestamp.Format("2006-01-02 15:04:05"))
 
 	if evt.Data != nil {
 		message += "详细信息:\n"

@@ -5,136 +5,139 @@ import (
 	"errors"
 )
 
-// 错误定义
+// 錯誤定義
 var (
-	ErrNotImplemented = errors.New("功能未实现")
+	ErrNotImplemented = errors.New("功能未實現")
 )
 
-// IExchange 交易所接口（所有交易所必须实现）
+// IExchange 交易所介面（所有交易所必須實現）
 type IExchange interface {
-	// GetName 获取交易所名称
+	// GetName 獲取交易所名称
 	GetName() string
 
-	// === 订单相关 ===
+	// GetMarketType 獲取市場類型：spot 現貨 / futures 合約
+	GetMarketType() string
 
-	// PlaceOrder 下单
+	// === 訂單相關 ===
+
+	// PlaceOrder 下單
 	PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error)
 
-	// BatchPlaceOrders 批量下单
-	// 返回：成功的订单列表，是否有保证金不足错误
+	// BatchPlaceOrders 批量下單
+	// 回傳：成功的订單列表，是否有保证金不足錯误
 	BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool)
 
-	// CancelOrder 取消订单
+	// CancelOrder 取消訂單
 	CancelOrder(ctx context.Context, symbol string, orderID int64) error
 
-	// BatchCancelOrders 批量取消订单
+	// BatchCancelOrders 批量取消訂單
 	BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error
 
-	// CancelAllOrders 取消所有订单（退出时使用）
-	// 各交易所根据自己的能力实现：
-	// - Bitget: 使用一键全撤API
-	// - Gate.io/Binance: 查询所有未完成订单后批量撤销
+	// CancelAllOrders 取消所有订單（退出時使用）
+	// 各交易所根據自己的能力實現：
+	// - Bitget: 使用一鍵全撤API
+	// - Gate.io/Binance: 查詢所有未完成订單后批量撤銷
 	CancelAllOrders(ctx context.Context, symbol string) error
 
-	// GetOrder 查询订单
+	// GetOrder 查詢訂單
 	GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error)
 
-	// GetOpenOrders 查询未完成订单
+	// GetOpenOrders 查詢未完成订單
 	GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error)
 
-	// === 账户与持仓 ===
+	// === 帳戶與持倉 ===
 
-	// GetAccount 获取账户信息
+	// GetAccount 獲取帳戶信息
 	GetAccount(ctx context.Context) (*Account, error)
 
-	// GetPositions 获取持仓信息
+	// GetPositions 獲取持倉信息
 	GetPositions(ctx context.Context, symbol string) ([]*Position, error)
 
-	// GetBalance 获取余额
+	// GetBalance 獲取餘額
 	GetBalance(ctx context.Context, asset string) (float64, error)
 
 	// === WebSocket ===
 
-	// StartOrderStream 启动订单流（WebSocket）
-	// 使用 func(interface{}) 避免子包的循环导入问题
-	// 实际传递的是 OrderUpdate 类型
+	// StartOrderStream 啟動訂單流（WebSocket）
+	// 使用 func(interface{}) 避免子包的循環匯入问题
+	// 實際傳遞的是 OrderUpdate 類型
 	StartOrderStream(ctx context.Context, callback func(interface{})) error
 
-	// StopOrderStream 停止订单流
+	// StopOrderStream 停止訂單流
 	StopOrderStream() error
 
-	// === 市场数据（如果需要） ===
+	// === 市场數據（如果需要） ===
 
-	// GetLatestPrice 获取最新价格
+	// GetLatestPrice 獲取最新價格
 	GetLatestPrice(ctx context.Context, symbol string) (float64, error)
 
-	// StartPriceStream 启动价格流（WebSocket）
+	// StartPriceStream 啟動價格流（WebSocket）
 	StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error
 
-	// StartKlineStream 启动K线流（WebSocket）
-	// symbols: 交易对列表，interval: K线周期（如 "1m"），callback: K线更新回调
+	// StartKlineStream 啟動K線流（WebSocket）
+	// symbols: 交易對列表，interval: K線週期（如 "1m"），callback: K線更新回呼
 	StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error
 
-	// StopKlineStream 停止K线流
+	// StopKlineStream 停止K線流
 	StopKlineStream() error
 
-	// GetHistoricalKlines 获取历史K线数据
+	// GetHistoricalKlines 獲取歷史K線數據
 	GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error)
 
-	// === 合约信息 ===
+	// === 合約信息 ===
 
-	// GetPriceDecimals 获取价格精度（小数位数）
+	// GetPriceDecimals 獲取價格精度（小數位數）
 	GetPriceDecimals() int
 
-	// GetQuantityDecimals 获取数量精度（小数位数）
+	// GetQuantityDecimals 獲取數量精度（小數位數）
 	GetQuantityDecimals() int
 
-	// GetBaseAsset 获取基础资产（交易币种）
+	// GetBaseAsset 獲取基础资產（交易币种）
 	// 例如: BTCUSDT -> BTC, ETHUSDT -> ETH, BTCUSD_PERP -> BTC
 	GetBaseAsset() string
 
-	// GetQuoteAsset 获取计价资产（结算币种）
+	// GetQuoteAsset 獲取计價资產（結算币种）
 	// 例如: BTCUSDT -> USDT, ETHUSDT -> USDT, BTCUSD_PERP -> USD
 	GetQuoteAsset() string
 
-	// === 订单金额预估 ===
+	// === 订單金額預估 ===
 
-	// EstimateFinalOrderAmount 预估最终下单金额（USDT）
-	// 用于资金分配器在下单前准确预留资金
-	// 交易所可能因最小名义金额、精度对齐等原因调整数量，导致实际金额与原始金额不同
-	// 参数: symbol 交易对, price 价格, quantity 数量, reduceOnly 是否只减仓
-	// 返回: 预估的最终名义金额（USDT）
+	// EstimateFinalOrderAmount 預估最终下單金額（USDT）
+	// 用於资金分配器在下單前准确預留资金
+	// 交易所可能因最小名义金額、精度對齐等原因調整數量，導致實際金額與原始金額不同
+	// 参數: symbol 交易對, price 價格, quantity 數量, reduceOnly 是否只减倉
+	// 返回: 預估的最终名义金額（USDT）
 	EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64
 
 	// === 资金费率 ===
 
-	// GetFundingRate 获取资金费率
-	// symbol: 交易对（如 BTCUSDT）
+	// GetFundingRate 獲取资金费率
+	// symbol: 交易對（如 BTCUSDT）
 	// 返回: 资金费率（如 0.0001 表示 0.01%）
 	GetFundingRate(ctx context.Context, symbol string) (float64, error)
 
-	// === 现货价格 ===
+	// === 現貨價格 ===
 
-	// GetSpotPrice 获取现货市场价格
-	// symbol: 交易对（如 BTCUSDT）
-	// 返回: 现货价格
-	// 注意: 此方法用于获取现货市场价格，与 GetLatestPrice（合约价格）区分
+	// GetSpotPrice 獲取現貨市场價格
+	// symbol: 交易對（如 BTCUSDT）
+	// 返回: 現貨價格
+	// 注意: 此方法用於獲取現貨市场價格，與 GetLatestPrice（合約價格）区分
 	GetSpotPrice(ctx context.Context, symbol string) (float64, error)
 
-	// === 订单簿深度 ===
+	// === 订單簿深度 ===
 
-	// GetOrderBook 获取订单簿深度
-	// symbol: 交易对, limit: 档位数量 (通常支持 5/10/20/50/100)
-	// 返回: 订单簿数据，包含买卖盘深度
+	// GetOrderBook 獲取訂單簿深度
+	// symbol: 交易對, limit: 檔位數量 (通常支援 5/10/20/50/100)
+	// 返回: 订單簿數據，包含買賣盘深度
 	GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error)
 
-	// === 内部转账（盈利提取） ===
+	// === 內部轉帳（盈利提取） ===
 
-	// InternalTransfer 交易所内部转账
-	// fromAccount: 源账户类型 (如 "UMFUTURE" 期货账户)
-	// toAccount: 目标账户类型 (如 "SPOT" 现货账户)
-	// asset: 资产类型 (如 "USDT")
-	// amount: 转账金额
-	// 返回: 转账ID, error
+	// InternalTransfer 交易所內部轉帳
+	// fromAccount: 源账戶類型 (如 "UMFUTURE" 期貨帳戶)
+	// toAccount: 目標账戶類型 (如 "SPOT" 現貨账戶)
+	// asset: 资產類型 (如 "USDT")
+	// amount: 轉账金額
+	// 返回: 轉账ID, error
 	InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error)
 }

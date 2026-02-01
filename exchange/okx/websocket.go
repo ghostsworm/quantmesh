@@ -41,7 +41,7 @@ type WebSocketManager struct {
 	priceCallback func(float64)
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey, passphrase string, useTestnet bool) *WebSocketManager {
 	return &WebSocketManager{
 		apiKey:     apiKey,
@@ -60,7 +60,7 @@ func (w *WebSocketManager) sign(timestamp string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-// Start 启动订单流
+// Start 啟動訂單流
 func (w *WebSocketManager) Start(ctx context.Context, instId string, callback func(OrderUpdate)) error {
 	if w.isRunning.Load() {
 		return fmt.Errorf("WebSocket 已在运行")
@@ -84,27 +84,27 @@ func (w *WebSocketManager) Start(ctx context.Context, instId string, callback fu
 
 	w.isRunning.Store(true)
 
-	// 登录认证
+	// 登錄认证
 	if err := w.login(); err != nil {
 		conn.Close()
-		return fmt.Errorf("WebSocket 登录失败: %w", err)
+		return fmt.Errorf("WebSocket 登錄失败: %w", err)
 	}
 
-	// 订阅订单频道
+	// 订阅订單频道
 	if err := w.subscribeOrders(instId); err != nil {
 		conn.Close()
-		return fmt.Errorf("订阅订单频道失败: %w", err)
+		return fmt.Errorf("订阅订單频道失败: %w", err)
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go w.readMessages()
 	go w.keepAlive()
 
-	logger.Info("✅ [OKX WebSocket] 订单流已启动")
+	logger.Info("✅ [OKX WebSocket] 訂單流已啟动")
 	return nil
 }
 
-// login 登录认证
+// login 登錄认证
 func (w *WebSocketManager) login() error {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	sign := w.sign(timestamp)
@@ -124,7 +124,7 @@ func (w *WebSocketManager) login() error {
 	return w.sendMessage(loginMsg)
 }
 
-// subscribeOrders 订阅订单频道
+// subscribeOrders 订阅订單频道
 func (w *WebSocketManager) subscribeOrders(instId string) error {
 	subMsg := map[string]interface{}{
 		"op": "subscribe",
@@ -140,18 +140,18 @@ func (w *WebSocketManager) subscribeOrders(instId string) error {
 	return w.sendMessage(subMsg)
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, instId string, callback func(float64)) error {
 	w.priceCallback = callback
 
-	// 价格流使用公共 WebSocket（根据是否使用测试网选择不同的地址）
+	// 價格流使用公共 WebSocket（根據是否使用測試網选擇不同的地址）
 	publicWsURL := MainnetPublicWsURL
 	if w.useTestnet {
 		publicWsURL = TestnetPublicWsURL
 	}
 	conn, _, err := websocket.DefaultDialer.Dial(publicWsURL, nil)
 	if err != nil {
-		return fmt.Errorf("连接价格流 WebSocket 失败: %w", err)
+		return fmt.Errorf("连接價格流 WebSocket 失败: %w", err)
 	}
 
 	// 订阅行情频道
@@ -167,13 +167,13 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, instId string, 
 
 	if err := conn.WriteJSON(subMsg); err != nil {
 		conn.Close()
-		return fmt.Errorf("订阅价格频道失败: %w", err)
+		return fmt.Errorf("订阅價格频道失败: %w", err)
 	}
 
-	// 启动价格消息处理
+	// 啟動價格消息处理
 	go w.readPriceMessages(conn)
 
-	logger.Info("✅ [OKX WebSocket] 价格流已启动")
+	logger.Info("✅ [OKX WebSocket] 價格流已啟动")
 	return nil
 }
 
@@ -219,14 +219,14 @@ func (w *WebSocketManager) readMessages() {
 	}
 }
 
-// readPriceMessages 读取价格消息
+// readPriceMessages 读取價格消息
 func (w *WebSocketManager) readPriceMessages(conn *websocket.Conn) {
 	defer conn.Close()
 
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			logger.Warn("⚠️ [OKX WebSocket] 读取价格消息失败: %v", err)
+			logger.Warn("⚠️ [OKX WebSocket] 读取價格消息失败: %v", err)
 			break
 		}
 
@@ -242,23 +242,23 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 检查事件类型
+	// 检查事件類型
 	if event, ok := msg["event"].(string); ok {
 		if event == "login" {
 			if code, ok := msg["code"].(string); ok && code == "0" {
-				logger.Info("✅ [OKX WebSocket] 登录成功")
+				logger.Info("✅ [OKX WebSocket] 登錄成功")
 			} else {
-				logger.Error("❌ [OKX WebSocket] 登录失败: %v", msg["msg"])
+				logger.Error("❌ [OKX WebSocket] 登錄失败: %v", msg["msg"])
 			}
 		} else if event == "subscribe" {
 			logger.Info("✅ [OKX WebSocket] 订阅成功")
 		} else if event == "error" {
-			logger.Error("❌ [OKX WebSocket] 错误: %v", msg["msg"])
+			logger.Error("❌ [OKX WebSocket] 錯误: %v", msg["msg"])
 		}
 		return
 	}
 
-	// 处理订单数据
+	// 处理订單數據
 	if arg, ok := msg["arg"].(map[string]interface{}); ok {
 		if channel, ok := arg["channel"].(string); ok && channel == "orders" {
 			w.handleOrderUpdate(msg)
@@ -266,7 +266,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// handleOrderUpdate 处理订单更新
+// handleOrderUpdate 处理订單更新
 func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 	data, ok := msg["data"].([]interface{})
 	if !ok || len(data) == 0 {
@@ -314,14 +314,14 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 	}
 }
 
-// handlePriceMessage 处理价格消息
+// handlePriceMessage 处理價格消息
 func (w *WebSocketManager) handlePriceMessage(message []byte) {
 	var msg map[string]interface{}
 	if err := json.Unmarshal(message, &msg); err != nil {
 		return
 	}
 
-	// 检查是否是行情数据
+	// 检查是否是行情數據
 	if arg, ok := msg["arg"].(map[string]interface{}); ok {
 		if channel, ok := arg["channel"].(string); ok && channel == "tickers" {
 			if data, ok := msg["data"].([]interface{}); ok && len(data) > 0 {
@@ -340,7 +340,7 @@ func (w *WebSocketManager) handlePriceMessage(message []byte) {
 	}
 }
 
-// getString 安全获取字符串值
+// getString 安全獲取字符串值
 func getString(m map[string]interface{}, key string) string {
 	if v, ok := m[key]; ok {
 		if s, ok := v.(string); ok {
@@ -379,7 +379,7 @@ func (w *WebSocketManager) keepAlive() {
 	}
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (w *WebSocketManager) GetLatestPrice() float64 {
 	if price := w.lastPrice.Load(); price != nil {
 		return price.(float64)

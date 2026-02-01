@@ -15,7 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// WebSocketManager 币安 WebSocket 订单流管理器
+// WebSocketManager 币安 WebSocket 訂單流管理器
 type WebSocketManager struct {
 	client     *futures.Client
 	apiKey     string
@@ -26,19 +26,19 @@ type WebSocketManager struct {
 	mu         sync.RWMutex
 	callbacks  []OrderUpdateCallback
 	isRunning  bool
-	useTestnet bool // 是否使用测试网
+	useTestnet bool // 是否使用測試網
 
-	// 价格缓存
+	// 價格缓存
 	latestPrice float64
 	priceMu     sync.RWMutex
 
-	// 时间配置
+	// 時间配置
 	reconnectDelay    time.Duration
 	keepAliveInterval time.Duration
 	closeTimeout      time.Duration
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey string, useTestnet bool) *WebSocketManager {
 	return &WebSocketManager{
 		client:            futures.NewClient(apiKey, secretKey),
@@ -54,50 +54,50 @@ func NewWebSocketManager(apiKey, secretKey string, useTestnet bool) *WebSocketMa
 	}
 }
 
-// Start 启动WebSocket连接
+// Start 啟动WebSocket连接
 func (w *WebSocketManager) Start(ctx context.Context, callback OrderUpdateCallback) error {
 	w.mu.Lock()
 	if w.isRunning {
 		w.mu.Unlock()
-		return fmt.Errorf("订单流已在运行")
+		return fmt.Errorf("訂單流已在运行")
 	}
 	w.isRunning = true
 	w.callbacks = append(w.callbacks, callback)
 	w.mu.Unlock()
 
-	// 获取listenKey
+	// 獲取listenKey
 	listenKey, err := w.client.NewStartUserStreamService().Do(ctx)
 	if err != nil {
-		return fmt.Errorf("获取listenKey失败: %v", err)
+		return fmt.Errorf("獲取listenKey失败: %v", err)
 	}
 	w.listenKey = listenKey
-	logger.Debug("✅ [Binance] 已获取订单流listenKey: %s", listenKey)
+	logger.Debug("✅ [Binance] 已獲取訂單流listenKey: %s", listenKey)
 
-	// 启动listenKey保活协程
+	// 啟动listenKey保活协程
 	go w.keepAliveListenKey(ctx)
 
-	// 启动WebSocket监听
+	// 啟动WebSocket監听
 	go w.listenUserDataStream(ctx)
 
 	return nil
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	// 使用原生 WebSocket 连接（go-binance 的 WsAggTradeServe 有 Bug）
 	// 格式: wss://fstream.binance.com/ws/<symbol>@aggTrade (主网)
-	//       wss://stream.binancefuture.com/ws/<symbol>@aggTrade (测试网)
+	//       wss://stream.binancefuture.com/ws/<symbol>@aggTrade (測試網)
 
 	symbolLower := strings.ToLower(symbol)
 	var url string
 	if w.useTestnet {
 		url = fmt.Sprintf("wss://stream.binancefuture.com/ws/%s@aggTrade", symbolLower)
-		logger.Info("🌐 [Binance WS] 使用测试网 WebSocket: %s", url)
+		logger.Info("🌐 [Binance WS] 使用測試網 WebSocket: %s", url)
 	} else {
 		url = fmt.Sprintf("wss://fstream.binance.com/ws/%s@aggTrade", symbolLower)
 	}
 
-	// 使用通道等待首个价格
+	// 使用通道等待首個價格
 	firstPriceCh := make(chan struct{})
 	firstPriceReceived := false
 
@@ -105,17 +105,17 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, symbol string, 
 		for {
 			select {
 			case <-ctx.Done():
-				logger.Info("✅ [Binance] 价格流已停止")
+				logger.Info("✅ [Binance] 價格流已停止")
 				return
 			default:
 			}
 
 			logger.Debug("🔗 [Binance] 正在连接 WebSocket: %s", url)
 
-			// 导入 gorilla/websocket
+			// 導入 gorilla/websocket
 			conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 			if err != nil {
-				logger.Error("❌ [Binance] WebSocket 连接失败: %v，5秒后重试", err)
+				logger.Error("❌ [Binance] WebSocket 连接失败: %v，5秒后重試", err)
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -125,14 +125,14 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, symbol string, 
 				select {
 				case <-ctx.Done():
 					conn.Close()
-					logger.Info("✅ [Binance] 价格流已停止")
+					logger.Info("✅ [Binance] 價格流已停止")
 					return
 				default:
 				}
 
 				_, message, err := conn.ReadMessage()
 				if err != nil {
-					logger.Warn("⚠️ [Binance] WebSocket 读取错误: %v，正在重连", err)
+					logger.Warn("⚠️ [Binance] WebSocket 读取錯误: %v，正在重连", err)
 					conn.Close()
 					time.Sleep(2 * time.Second)
 					break // 跳出内层循环，重新连接
@@ -151,33 +151,33 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, symbol string, 
 
 				price, err := strconv.ParseFloat(event.Price, 64)
 				if err != nil {
-					logger.Debug("解析价格失败: %v", err)
+					logger.Debug("解析價格失败: %v", err)
 					continue
-				} // 更新价格缓存
+				} // 更新價格缓存
 				w.priceMu.Lock()
 				w.latestPrice = price
 				w.priceMu.Unlock()
 
-				// 通知首个价格已接收
+				// 通知首個價格已接收
 				if !firstPriceReceived {
 					firstPriceReceived = true
-					logger.Debug("✅ [Binance] 收到首个价格: %.2f", price)
+					logger.Debug("✅ [Binance] 收到首個價格: %.2f", price)
 					close(firstPriceCh)
 				}
 
-				// 调用回调
+				// 調用回呼
 				callback(price)
 			}
 		}
 	}()
 
-	// 等待接收首个价格（最多10秒）
+	// 等待接收首個價格（最多10秒）
 	select {
 	case <-firstPriceCh:
-		logger.Debug("✅ [Binance] 价格流已启动: %s@aggTrade", symbolLower)
+		logger.Debug("✅ [Binance] 價格流已啟动: %s@aggTrade", symbolLower)
 		return nil
 	case <-time.After(10 * time.Second):
-		return fmt.Errorf("等待首个价格超时（10秒）")
+		return fmt.Errorf("等待首個價格超時（10秒）")
 	case <-ctx.Done():
 		return fmt.Errorf("上下文已取消")
 	}
@@ -192,12 +192,12 @@ func (w *WebSocketManager) Stop() {
 
 	close(w.stopC)
 
-	// 等待关闭完成或超时
+	// 等待关闭完成或超時
 	select {
 	case <-w.doneC:
-		logger.Info("✅ [Binance] 订单流已停止")
+		logger.Info("✅ [Binance] 訂單流已停止")
 	case <-time.After(w.closeTimeout):
-		logger.Warn("⚠️ [Binance] 订单流停止超时")
+		logger.Warn("⚠️ [Binance] 訂單流停止超時")
 	}
 
 	w.isRunning = false
@@ -224,7 +224,7 @@ func (w *WebSocketManager) keepAliveListenKey(ctx context.Context) {
 	}
 }
 
-// listenUserDataStream 监听用户数据流
+// listenUserDataStream 監听用戶數據流
 func (w *WebSocketManager) listenUserDataStream(ctx context.Context) {
 	defer close(w.doneC)
 
@@ -237,7 +237,7 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context) {
 		default:
 		}
 
-		logger.Info("🔗 [Binance] 连接WebSocket订单流...")
+		logger.Info("🔗 [Binance] 连接WebSocket訂單流...")
 
 		doneC, stopC, err := futures.WsUserDataServe(w.listenKey, w.handleUserDataEvent, w.handleError)
 		if err != nil {
@@ -246,7 +246,7 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context) {
 			continue
 		}
 
-		logger.Info("✅ [Binance] WebSocket订单流已连接")
+		logger.Info("✅ [Binance] WebSocket訂單流已连接")
 
 		// 等待断开或停止信号
 		select {
@@ -263,7 +263,7 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context) {
 	}
 }
 
-// handleUserDataEvent 处理用户数据事件
+// handleUserDataEvent 处理用戶數據事件
 func (w *WebSocketManager) handleUserDataEvent(event *futures.WsUserDataEvent) {
 	if event.Event != futures.UserDataEventTypeOrderTradeUpdate {
 		return
@@ -288,11 +288,11 @@ func (w *WebSocketManager) handleUserDataEvent(event *futures.WsUserDataEvent) {
 		UpdateTime:    order.TradeTime,
 	}
 
-	// 🔍 调试日志：记录收到的订单更新
-	logger.Debug("🔍 [WebSocket回调] 收到订单更新: ID=%d, ClientOID=%s, Side=%s, Status=%s, ExecutedQty=%.4f, Price=%.2f",
+	// 🔍 調試日志：記錄收到的订單更新
+	logger.Debug("🔍 [WebSocket回呼] 收到订單更新: ID=%d, ClientOID=%s, Side=%s, Status=%s, ExecutedQty=%.4f, Price=%.2f",
 		update.OrderID, update.ClientOrderID, update.Side, update.Status, update.ExecutedQty, update.Price)
 
-	// 调用所有注册的回调
+	// 調用所有注册的回呼
 	w.mu.RLock()
 	callbacks := w.callbacks
 	w.mu.RUnlock()
@@ -302,12 +302,12 @@ func (w *WebSocketManager) handleUserDataEvent(event *futures.WsUserDataEvent) {
 	}
 }
 
-// handleError 处理错误
+// handleError 处理錯误
 func (w *WebSocketManager) handleError(err error) {
-	logger.Error("❌ [Binance] WebSocket错误: %v", err)
+	logger.Error("❌ [Binance] WebSocket錯误: %v", err)
 }
 
-// GetLatestPrice 获取最新价格（从缓存读取）
+// GetLatestPrice 獲取最新價格（從缓存读取）
 func (w *WebSocketManager) GetLatestPrice() float64 {
 	w.priceMu.RLock()
 	defer w.priceMu.RUnlock()

@@ -269,7 +269,7 @@
     - 前端：`webui/src/components/Configuration.tsx`, `webui/src/services/config.ts`
     - 集成：`main.go`, `web/server.go`, `webui/src/App.tsx`
   - 技术细节：
-    - 配置备份存储在 `./config_backups/` 目录，文件名格式：`config.yaml.backup.{timestamp}.yaml`
+    - 配置備份存儲在 `config.yaml` 同級的 `backups/` 目錄，文件名格式：`config.yaml.backup.{timestamp}.yaml`
     - 热更新判断规则：交易所切换、Web端口、存储路径等需要重启；交易参数、风控参数等可热更新
     - 使用 `fsnotify` 监控配置文件变化，支持外部编辑自动生效
     - API端点：`GET /api/config`, `GET /api/config/json`, `POST /api/config/preview`, `POST /api/config/update`, `GET /api/config/backups`, `POST /api/config/restore/:backup_id`, `DELETE /api/config/backup/:backup_id`

@@ -9,14 +9,14 @@ import (
 	"quantmesh/backtest"
 )
 
-// ParamResult 单组参数的回测结果与得分
+// ParamResult 單组参數的回测結果與得分
 type ParamResult struct {
 	Params  backtest.GridBacktestParams `json:"params"`
 	Score   float64                    `json:"score"`
 	Metrics backtest.Metrics           `json:"metrics"`
 }
 
-// OptimResult 优化结果
+// OptimResult 优化結果
 type OptimResult struct {
 	BestParams  backtest.GridBacktestParams `json:"best_params"`
 	BestScore   float64                    `json:"best_score"`
@@ -28,20 +28,20 @@ type OptimResult struct {
 	Method      string                    `json:"method"`
 }
 
-// HeatmapData 热力图数据，供前端 ECharts 使用
+// HeatmapData 热力图數據，供前端 ECharts 使用
 type HeatmapData struct {
 	XAxis []interface{} `json:"x_axis"` // 如 GridCount 列表
 	YAxis []interface{} `json:"y_axis"`  // 如 "P_low–P_high" 或区间描述
 	Data  [][]float64   `json:"data"`   // [y_idx][x_idx] = score
 }
 
-// BuildHeatmapFromResults 从 AllResults 构建热力图数据
+// BuildHeatmapFromResults 從 AllResults 構建热力图數據
 // xKey: "grid_count", yKey: "price_range" 等
 func BuildHeatmapFromResults(results []ParamResult, xKey, yKey string) *HeatmapData {
 	if len(results) == 0 {
 		return nil
 	}
-	// 收集唯一的 x、y 并排序
+	// 收集唯一的 x、y 並排序
 	xSet := make(map[interface{}]bool)
 	ySet := make(map[interface{}]bool)
 	for _, r := range results {

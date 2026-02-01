@@ -13,12 +13,16 @@ type krakenWrapper struct {
 	adapter *kraken.Adapter
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (w *krakenWrapper) GetName() string {
 	return w.adapter.GetName()
 }
 
-// PlaceOrder 下单
+func (w *krakenWrapper) GetMarketType() string {
+	return w.adapter.GetMarketType()
+}
+
+// PlaceOrder 下單
 func (w *krakenWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	krakenReq := &kraken.KrakenOrderRequest{
 		Symbol:        req.Symbol,
@@ -42,7 +46,7 @@ func (w *krakenWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Ord
 	return convertKrakenOrderToExchangeOrder(krakenOrder), nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (w *krakenWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	krakenOrders := make([]*kraken.KrakenOrderRequest, 0, len(orders))
 	for _, order := range orders {
@@ -71,22 +75,22 @@ func (w *krakenWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderReq
 	return results, allSuccess
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (w *krakenWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	return w.adapter.CancelOrder(ctx, symbol, orderID)
 }
 
-// BatchCancelOrders 批量取消订单
+// BatchCancelOrders 批量取消訂單
 func (w *krakenWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	return w.adapter.BatchCancelOrders(ctx, symbol, orderIDs)
 }
 
-// CancelAllOrders 取消所有订单
+// CancelAllOrders 取消所有订單
 func (w *krakenWrapper) CancelAllOrders(ctx context.Context, symbol string) error {
 	return w.adapter.CancelAllOrders(ctx, symbol)
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (w *krakenWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	krakenOrder, err := w.adapter.GetOrder(ctx, symbol, orderID)
 	if err != nil {
@@ -95,7 +99,7 @@ func (w *krakenWrapper) GetOrder(ctx context.Context, symbol string, orderID int
 	return convertKrakenOrderToExchangeOrder(krakenOrder), nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (w *krakenWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	krakenOrders, err := w.adapter.GetOpenOrders(ctx, symbol)
 	if err != nil {
@@ -109,7 +113,7 @@ func (w *krakenWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 	return orders, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (w *krakenWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	krakenAccount, err := w.adapter.GetAccount(ctx)
 	if err != nil {
@@ -123,7 +127,7 @@ func (w *krakenWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓信息
+// GetPositions 獲取持倉信息
 func (w *krakenWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	krakenPositions, err := w.adapter.GetPositions(ctx, symbol)
 	if err != nil {
@@ -151,34 +155,34 @@ func (w *krakenWrapper) GetPositions(ctx context.Context, symbol string) ([]*Pos
 	return positions, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (w *krakenWrapper) GetBalance(ctx context.Context, asset string) (float64, error) {
 	return w.adapter.GetBalance(ctx, asset)
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (w *krakenWrapper) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	return w.adapter.StartOrderStream(ctx, callback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (w *krakenWrapper) StopOrderStream() error {
 	return w.adapter.StopOrderStream()
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (w *krakenWrapper) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetLatestPrice(ctx, symbol)
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *krakenWrapper) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	return w.adapter.StartPriceStream(ctx, symbol, callback)
 }
 
-// StartKlineStream 启动K线流
+// StartKlineStream 啟動K線流
 func (w *krakenWrapper) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
-	// 类型转换：将 exchange.CandleUpdateCallback 转换为 kraken.CandleUpdateCallback
+	// 類型轉换：將 exchange.CandleUpdateCallback 轉换為 kraken.CandleUpdateCallback
 	krakenCallback := func(candle interface{}) {
 		if krakenCandle, ok := candle.(*kraken.Candle); ok {
 			open, _ := strconv.ParseFloat(krakenCandle.Open, 64)
@@ -203,12 +207,12 @@ func (w *krakenWrapper) StartKlineStream(ctx context.Context, symbols []string, 
 	return w.adapter.StartKlineStream(ctx, symbols, interval, krakenCallback)
 }
 
-// StopKlineStream 停止K线流
+// StopKlineStream 停止K線流
 func (w *krakenWrapper) StopKlineStream() error {
 	return w.adapter.StopKlineStream()
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (w *krakenWrapper) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	krakenCandles, err := w.adapter.GetHistoricalKlines(ctx, symbol, interval, limit)
 	if err != nil {
@@ -231,32 +235,32 @@ func (w *krakenWrapper) GetHistoricalKlines(ctx context.Context, symbol string, 
 	return candles, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (w *krakenWrapper) GetPriceDecimals() int {
 	return w.adapter.GetPriceDecimals()
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (w *krakenWrapper) GetQuantityDecimals() int {
 	return w.adapter.GetQuantityDecimals()
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (w *krakenWrapper) GetBaseAsset() string {
 	return w.adapter.GetBaseAsset()
 }
 
-// GetQuoteAsset 获取报价资产
+// GetQuoteAsset 獲取报價资產
 func (w *krakenWrapper) GetQuoteAsset() string {
 	return w.adapter.GetQuoteAsset()
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (w *krakenWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
-// convertKrakenOrderToExchangeOrder 将 Kraken 订单转换为 Exchange 订单
+// convertKrakenOrderToExchangeOrder 將 Kraken 订單轉换為 Exchange 订單
 func convertKrakenOrderToExchangeOrder(krakenOrder *kraken.Order) *Order {
 	return &Order{
 		OrderID:       parseKrakenOrderID(krakenOrder.OrderID),
@@ -274,30 +278,30 @@ func convertKrakenOrderToExchangeOrder(krakenOrder *kraken.Order) *Order {
 	}
 }
 
-// parseKrakenOrderID 解析订单 ID（Kraken 使用字符串 ID，需要转换）
+// parseKrakenOrderID 解析订單 ID（Kraken 使用字符串 ID，需要轉换）
 func parseKrakenOrderID(orderID string) int64 {
-	// Kraken 使用字符串 ID，这里简化处理，返回 0
-	// 实际使用时，可以使用 hash 或其他方式转换
+	// Kraken 使用字符串 ID，这里简化处理，回傳 0
+	// 實際使用時，可以使用 hash 或其他方式轉换
 	id, _ := strconv.ParseInt(orderID, 10, 64)
 	return id
 }
 
-// GetSpotPrice 获取现货市场价格（未实现）
+// GetSpotPrice 獲取現貨市场價格（未實現）
 func (w *krakenWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	return 0, ErrNotImplemented
 }
 
-// EstimateFinalOrderAmount 预估最终下单金额（默认实现：返回原始金额）
+// EstimateFinalOrderAmount 預估最终下單金額（默认實現：返回原始金額）
 func (w *krakenWrapper) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	return price * quantity
 }
 
-// GetOrderBook 获取订单簿深度（暂未实现）
+// GetOrderBook 獲取訂單簿深度（暂未實現）
 func (w *krakenWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	return nil, ErrNotImplemented
 }
 
-// InternalTransfer 交易所内部转账
+// InternalTransfer 交易所內部轉帳
 func (w *krakenWrapper) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return w.adapter.InternalTransfer(ctx, fromAccount, toAccount, asset, amount)
 }

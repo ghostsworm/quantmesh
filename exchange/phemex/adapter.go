@@ -21,7 +21,7 @@ type Adapter struct {
 	quoteAsset       string
 }
 
-// NewAdapter 创建 Phemex 适配器
+// NewAdapter 創建 Phemex 适配器
 func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	apiKey := config["api_key"]
 	secretKey := config["secret_key"]
@@ -39,14 +39,14 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	adapter := &Adapter{
 		client:           client,
 		symbol:           phemexSymbol,
-		priceScale:       4, // 默认价格缩放因子
+		priceScale:       4, // 默认價格缩放因子
 		priceDecimals:    2,
 		quantityDecimals: 0,
 		baseAsset:        "BTC",
 		quoteAsset:       "USD",
 	}
 
-	// 获取交易对信息
+	// 獲取交易對信息
 	ctx := context.Background()
 	product, err := client.GetProduct(ctx, phemexSymbol)
 	if err != nil {
@@ -56,7 +56,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 		adapter.priceDecimals = product.PriceScale
 		adapter.quantityDecimals = 0
 
-		// 解析基础资产和报价资产
+		// 解析基础资產和报價资產
 		if strings.HasSuffix(product.Symbol, "USD") {
 			adapter.baseAsset = strings.TrimSuffix(product.Symbol, "USD")
 			adapter.quoteAsset = "USD"
@@ -66,9 +66,9 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	return adapter, nil
 }
 
-// convertSymbolToPhemex 转换交易对格式：BTCUSDT -> BTCUSD
+// convertSymbolToPhemex 轉换交易對格式：BTCUSDT -> BTCUSD
 func convertSymbolToPhemex(symbol string) string {
-	// Phemex 永续合约格式：BTCUSD, ETHUSD
+	// Phemex 永续合約格式：BTCUSD, ETHUSD
 	symbol = strings.ToUpper(symbol)
 	if strings.HasSuffix(symbol, "USDT") {
 		return strings.TrimSuffix(symbol, "T") // BTCUSDT -> BTCUSD
@@ -76,12 +76,17 @@ func convertSymbolToPhemex(symbol string) string {
 	return symbol
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (a *Adapter) GetName() string {
 	return "Phemex"
 }
 
-// PlaceOrder 下单
+// GetMarketType 獲取市場類型：futures 合約
+func (a *Adapter) GetMarketType() string {
+	return "futures"
+}
+
+// PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
 	var phemexSide string
 	if side == SideBuy {
@@ -90,7 +95,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 		phemexSide = "Sell"
 	}
 
-	// 价格和数量需要缩放
+	// 價格和數量需要缩放
 	priceEp := ScalePrice(price, a.priceScale)
 	orderQty := int64(quantity)
 
@@ -111,12 +116,12 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 	return a.convertOrder(order), nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (a *Adapter) CancelOrder(ctx context.Context, orderID string) error {
 	return a.client.CancelOrder(ctx, a.symbol, orderID)
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (a *Adapter) GetOrder(ctx context.Context, orderID string) (*OrderLocal, error) {
 	order, err := a.client.GetOrder(ctx, a.symbol, orderID)
 	if err != nil {
@@ -126,7 +131,7 @@ func (a *Adapter) GetOrder(ctx context.Context, orderID string) (*OrderLocal, er
 	return a.convertOrder(order), nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	orders, err := a.client.GetOpenOrders(ctx, a.symbol)
 	if err != nil {
@@ -141,14 +146,14 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	return result, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	account, err := a.client.GetAccount(ctx, "BTC")
 	if err != nil {
 		return nil, err
 	}
 
-	// Phemex 金额单位是 Ev (1 BTC = 1e8 Ev)
+	// Phemex 金額單位是 Ev (1 BTC = 1e8 Ev)
 	return &AccountLocal{
 		TotalWalletBalance: UnscaleValue(account.AccountBalanceEv),
 		TotalMarginBalance: UnscaleValue(account.AccountBalanceEv),
@@ -156,7 +161,7 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 	position, err := a.client.GetPosition(ctx, a.symbol)
 	if err != nil {
@@ -167,7 +172,7 @@ func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 		return []*PositionLocal{}, nil
 	}
 
-	// 计算持仓方向和大小
+	// 计算持倉方向和大小
 	size := float64(position.Size)
 	if position.Side == "Sell" {
 		size = -size
@@ -185,7 +190,7 @@ func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 	}, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	account, err := a.client.GetAccount(ctx, "BTC")
 	if err != nil {
@@ -195,7 +200,7 @@ func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	return UnscaleValue(account.AccountBalanceEv - account.TotalUsedBalanceEv), nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if a.wsManager != nil {
 		return fmt.Errorf("order stream already started")
@@ -205,7 +210,7 @@ func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{
 	return a.wsManager.Start(ctx, a.symbol, callback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (a *Adapter) StopOrderStream() error {
 	if a.wsManager != nil {
 		a.wsManager.Stop()
@@ -214,14 +219,14 @@ func (a *Adapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 如果传入 symbol,转换格式并使用;否则使用默认 symbol
+	// 如果傳入 symbol,轉换格式並使用;否则使用預設 symbol
 	targetSymbol := a.symbol
 	priceScale := a.priceScale
 	if symbol != "" {
 		targetSymbol = convertSymbolToPhemex(symbol)
-		// 获取目标交易对的价格缩放因子
+		// 獲取目標交易對的價格缩放因子
 		product, err := a.client.GetProduct(context.Background(), targetSymbol)
 		if err == nil {
 			priceScale = product.PriceScale
@@ -240,7 +245,7 @@ func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, e
 	return UnscalePrice(trades[0].PriceEp, priceScale), nil
 }
 
-// StartKlineStream 启动 K线流
+// StartKlineStream 啟动 K線流
 func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callback CandleUpdateCallbackLocal) error {
 	if a.klineWSManager != nil {
 		return fmt.Errorf("kline stream already started")
@@ -252,7 +257,7 @@ func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callbac
 	return a.klineWSManager.Start(ctx, a.symbol, resolution, func(kline *Kline) {
 		candle := &CandleLocal{
 			Symbol:    a.symbol,
-			Timestamp: kline.Timestamp * 1000, // 转换为毫秒
+			Timestamp: kline.Timestamp * 1000, // 轉换為毫秒
 			Open:      UnscalePrice(kline.OpenEp, a.priceScale),
 			High:      UnscalePrice(kline.HighEp, a.priceScale),
 			Low:       UnscalePrice(kline.LowEp, a.priceScale),
@@ -263,7 +268,7 @@ func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callbac
 	})
 }
 
-// StopKlineStream 停止 K线流
+// StopKlineStream 停止 K線流
 func (a *Adapter) StopKlineStream() error {
 	if a.klineWSManager != nil {
 		a.klineWSManager.Stop()
@@ -272,7 +277,7 @@ func (a *Adapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史 K线
+// GetHistoricalKlines 獲取歷史 K線
 func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limit int) ([]*CandleLocal, error) {
 	resolution := int(ConvertInterval(interval))
 	klines, err := a.client.GetKlines(ctx, a.symbol, resolution, limit)
@@ -296,33 +301,33 @@ func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limi
 	return result, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (a *Adapter) GetPriceDecimals() int {
 	return a.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (a *Adapter) GetQuantityDecimals() int {
 	return a.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (a *Adapter) GetBaseAsset() string {
 	return a.baseAsset
 }
 
-// GetQuoteAsset 获取报价资产
+// GetQuoteAsset 獲取报價资產
 func (a *Adapter) GetQuoteAsset() string {
 	return a.quoteAsset
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (a *Adapter) GetFundingRate(ctx context.Context) (float64, error) {
-	// Phemex 资金费率需要单独查询，这里返回 0
+	// Phemex 资金费率需要單独查詢，这里回傳 0
 	return 0, nil
 }
 
-// convertOrder 转换订单
+// convertOrder 轉换订單
 func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 	var side OrderSide
 	if order.Side == "Buy" {
@@ -354,11 +359,11 @@ func (a *Adapter) convertOrder(order *Order) *OrderLocal {
 		Quantity:      float64(order.OrderQty),
 		ExecutedQty:   float64(order.CumQty),
 		Status:        status,
-		UpdateTime:    order.TransactTimeNs / 1000000, // 纳秒转毫秒
+		UpdateTime:    order.TransactTimeNs / 1000000, // 纳秒轉毫秒
 	}
 }
 
-// InternalTransfer 交易所内部转账（Phemex 暂未实现）
+// InternalTransfer 交易所內部轉帳（Phemex 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Phemex")
 }

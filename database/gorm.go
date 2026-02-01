@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"quantmesh/utils"
+
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -13,22 +15,22 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// GormDatabase GORM 数据库实现
+// GormDatabase GORM 數據库實現
 type GormDatabase struct {
 	db *gorm.DB
 }
 
-// DBConfig 数据库配置
+// DBConfig 數據库配置
 type DBConfig struct {
 	Type            string        // sqlite, postgres, mysql
-	DSN             string        // 数据源名称
-	MaxOpenConns    int           // 最大打开连接数
-	MaxIdleConns    int           // 最大空闲连接数
+	DSN             string        // 數據源名称
+	MaxOpenConns    int           // 最大打开连接數
+	MaxIdleConns    int           // 最大空闲连接數
 	ConnMaxLifetime time.Duration // 连接最大生命周期
 	LogLevel        string        // 日志级别: silent, error, warn, info
 }
 
-// NewGormDatabase 创建 GORM 数据库实例
+// NewGormDatabase 創建 GORM 數據库實例
 func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 	var dialector gorm.Dialector
 
@@ -54,7 +56,7 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		logLevel = logger.Info
 	}
 
-	// 打开数据库
+	// 打开數據库
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger: logger.Default.LogMode(logLevel),
 	})
@@ -62,7 +64,7 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// 获取底层 sql.DB
+	// 獲取底层 sql.DB
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
@@ -91,35 +93,35 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		&PositionPlan{},
 	}
 	
-	// 逐个迁移模型，确保每个表都被创建
+	// 逐個迁移模型，确保每個表都被創建
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {
-			// 如果是索引已存在的错误，忽略它（这是正常的）
+			// 如果是索引已存在的錯误，忽略它（这是正常的）
 			errStr := err.Error()
 			if strings.Contains(errStr, "already exists") || 
 			   strings.Contains(errStr, "duplicate") ||
 			   strings.Contains(errStr, "UNIQUE constraint failed") {
 				// 索引/约束已存在，这是正常的，继续运行
 			} else {
-				// 对于其他错误（包括表创建失败），记录并返回错误
-				// 这样可以确保表被正确创建
+				// 對於其他錯误（包括表創建失败），記錄並返回錯误
+				// 这样可以确保表被正确創建
 				return nil, fmt.Errorf("failed to auto migrate %T: %w", model, err)
 			}
 		}
 	}
 	
-	// 验证关键表是否存在（特别是 async_tasks）
+	// 驗证关键表是否存在（特别是 async_tasks）
 	var count int64
 	if err := db.Model(&AsyncTask{}).Count(&count).Error; err != nil {
-		// 如果查询失败，可能是表不存在，尝试强制创建
+		// 如果查詢失败，可能是表不存在，尝試强制創建
 		if strings.Contains(err.Error(), "no such table") || 
 		   strings.Contains(err.Error(), "does not exist") ||
 		   strings.Contains(err.Error(), "table") && strings.Contains(err.Error(), "not exist") {
-			// 表不存在，强制创建
+			// 表不存在，强制創建
 			if createErr := db.AutoMigrate(&AsyncTask{}); createErr != nil {
 				return nil, fmt.Errorf("failed to create async_tasks table: %w", createErr)
 			}
-			// 再次验证表是否创建成功
+			// 再次驗证表是否創建成功
 			if verifyErr := db.Model(&AsyncTask{}).Count(&count).Error; verifyErr != nil {
 				return nil, fmt.Errorf("async_tasks table created but verification failed: %w", verifyErr)
 			}
@@ -131,12 +133,12 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 	return &GormDatabase{db: db}, nil
 }
 
-// SaveTrade 保存交易记录
+// SaveTrade 保存交易記錄
 func (g *GormDatabase) SaveTrade(ctx context.Context, trade *Trade) error {
 	return g.db.WithContext(ctx).Create(trade).Error
 }
 
-// GetTrades 获取交易记录
+// GetTrades 獲取交易記錄
 func (g *GormDatabase) GetTrades(ctx context.Context, filter *TradeFilter) ([]*Trade, error) {
 	query := g.db.WithContext(ctx).Model(&Trade{})
 
@@ -170,7 +172,7 @@ func (g *GormDatabase) GetTrades(ctx context.Context, filter *TradeFilter) ([]*T
 	return trades, nil
 }
 
-// BatchSaveTrades 批量保存交易记录
+// BatchSaveTrades 批量保存交易記錄
 func (g *GormDatabase) BatchSaveTrades(ctx context.Context, trades []*Trade) error {
 	if len(trades) == 0 {
 		return nil
@@ -178,12 +180,12 @@ func (g *GormDatabase) BatchSaveTrades(ctx context.Context, trades []*Trade) err
 	return g.db.WithContext(ctx).CreateInBatches(trades, 100).Error
 }
 
-// SaveOrder 保存订单记录
+// SaveOrder 保存订單記錄
 func (g *GormDatabase) SaveOrder(ctx context.Context, order *Order) error {
 	return g.db.WithContext(ctx).Create(order).Error
 }
 
-// GetOrders 获取订单记录
+// GetOrders 獲取訂單記錄
 func (g *GormDatabase) GetOrders(ctx context.Context, filter *OrderFilter) ([]*Order, error) {
 	query := g.db.WithContext(ctx).Model(&Order{})
 
@@ -214,12 +216,12 @@ func (g *GormDatabase) GetOrders(ctx context.Context, filter *OrderFilter) ([]*O
 	return orders, nil
 }
 
-// SaveStatistics 保存统计数据
+// SaveStatistics 保存统计數據
 func (g *GormDatabase) SaveStatistics(ctx context.Context, stats *Statistics) error {
 	return g.db.WithContext(ctx).Create(stats).Error
 }
 
-// GetStatistics 获取统计数据
+// GetStatistics 獲取统计數據
 func (g *GormDatabase) GetStatistics(ctx context.Context, filter *StatFilter) ([]*Statistics, error) {
 	query := g.db.WithContext(ctx).Model(&Statistics{})
 
@@ -253,12 +255,12 @@ func (g *GormDatabase) GetStatistics(ctx context.Context, filter *StatFilter) ([
 	return stats, nil
 }
 
-// SaveReconciliation 保存对账记录
+// SaveReconciliation 保存對账記錄
 func (g *GormDatabase) SaveReconciliation(ctx context.Context, recon *Reconciliation) error {
 	return g.db.WithContext(ctx).Create(recon).Error
 }
 
-// GetReconciliations 获取对账记录
+// GetReconciliations 獲取對账記錄
 func (g *GormDatabase) GetReconciliations(ctx context.Context, filter *ReconciliationFilter) ([]*Reconciliation, error) {
 	query := g.db.WithContext(ctx).Model(&Reconciliation{})
 
@@ -298,12 +300,12 @@ func (g *GormDatabase) GetReconciliations(ctx context.Context, filter *Reconcili
 	return recons, nil
 }
 
-// SaveRiskCheck 保存风控记录
+// SaveRiskCheck 保存风控記錄
 func (g *GormDatabase) SaveRiskCheck(ctx context.Context, check *RiskCheck) error {
 	return g.db.WithContext(ctx).Create(check).Error
 }
 
-// GetRiskChecks 获取风控记录
+// GetRiskChecks 獲取风控記錄
 func (g *GormDatabase) GetRiskChecks(ctx context.Context, filter *RiskCheckFilter) ([]*RiskCheck, error) {
 	query := g.db.WithContext(ctx).Model(&RiskCheck{})
 
@@ -340,7 +342,7 @@ func (g *GormDatabase) GetRiskChecks(ctx context.Context, filter *RiskCheckFilte
 	return checks, nil
 }
 
-// BeginTx 开始事务
+// BeginTx 开始事務
 func (g *GormDatabase) BeginTx(ctx context.Context) (Tx, error) {
 	tx := g.db.WithContext(ctx).Begin()
 	if tx.Error != nil {
@@ -367,12 +369,12 @@ func (g *GormDatabase) Close() error {
 	return sqlDB.Close()
 }
 
-// SaveEvent 保存事件记录
+// SaveEvent 保存事件記錄
 func (g *GormDatabase) SaveEvent(ctx context.Context, event *EventRecord) error {
 	return g.db.WithContext(ctx).Create(event).Error
 }
 
-// GetEvents 获取事件记录
+// GetEvents 獲取事件記錄
 func (g *GormDatabase) GetEvents(ctx context.Context, filter *EventFilter) ([]*EventRecord, error) {
 	query := g.db.WithContext(ctx).Model(&EventRecord{})
 
@@ -415,7 +417,7 @@ func (g *GormDatabase) GetEvents(ctx context.Context, filter *EventFilter) ([]*E
 	return events, nil
 }
 
-// GetEventByID 根据ID获取事件
+// GetEventByID 根據ID獲取事件
 func (g *GormDatabase) GetEventByID(ctx context.Context, id int64) (*EventRecord, error) {
 	var event EventRecord
 	if err := g.db.WithContext(ctx).First(&event, id).Error; err != nil {
@@ -424,17 +426,17 @@ func (g *GormDatabase) GetEventByID(ctx context.Context, id int64) (*EventRecord
 	return &event, nil
 }
 
-// SaveAsyncTask 保存异步任务
+// SaveAsyncTask 保存异步任務
 func (g *GormDatabase) SaveAsyncTask(ctx context.Context, task *AsyncTask) error {
 	return g.db.WithContext(ctx).Create(task).Error
 }
 
-// UpdateAsyncTask 更新异步任务
+// UpdateAsyncTask 更新异步任務
 func (g *GormDatabase) UpdateAsyncTask(ctx context.Context, task *AsyncTask) error {
 	return g.db.WithContext(ctx).Save(task).Error
 }
 
-// GetAsyncTask 获取异步任务
+// GetAsyncTask 獲取异步任務
 func (g *GormDatabase) GetAsyncTask(ctx context.Context, id string) (*AsyncTask, error) {
 	var task AsyncTask
 	if err := g.db.WithContext(ctx).Where("id = ?", id).First(&task).Error; err != nil {
@@ -443,7 +445,7 @@ func (g *GormDatabase) GetAsyncTask(ctx context.Context, id string) (*AsyncTask,
 	return &task, nil
 }
 
-// GetPendingAsyncTasks 获取待处理任务
+// GetPendingAsyncTasks 獲取待处理任務
 func (g *GormDatabase) GetPendingAsyncTasks(ctx context.Context, limit int) ([]*AsyncTask, error) {
 	var tasks []*AsyncTask
 	err := g.db.WithContext(ctx).
@@ -454,7 +456,7 @@ func (g *GormDatabase) GetPendingAsyncTasks(ctx context.Context, limit int) ([]*
 	return tasks, err
 }
 
-// GetAsyncTasks 获取异步任务列表（支持过滤和分页）
+// GetAsyncTasks 獲取异步任務列表（支援過滤和分页）
 func (g *GormDatabase) GetAsyncTasks(ctx context.Context, filter *AsyncTaskFilter) ([]*AsyncTask, error) {
 	query := g.db.WithContext(ctx).Model(&AsyncTask{})
 
@@ -490,13 +492,13 @@ func (g *GormDatabase) GetAsyncTasks(ctx context.Context, filter *AsyncTaskFilte
 	return tasks, nil
 }
 
-// GetAsyncTaskStats 获取异步任务统计（Token使用量）
+// GetAsyncTaskStats 獲取异步任務统计（Token使用量）
 func (g *GormDatabase) GetAsyncTaskStats(ctx context.Context, startTime, endTime *time.Time) (*AsyncTaskStats, error) {
 	stats := &AsyncTaskStats{
 		DailyStats: []DailyTokenStat{},
 	}
 
-	// 总计统计（所有任务）
+	// 總计统计（所有任務）
 	var totalTasks int64
 	var totalInput, totalOutput int64
 	g.db.WithContext(ctx).Model(&AsyncTask{}).Count(&totalTasks)
@@ -507,9 +509,9 @@ func (g *GormDatabase) GetAsyncTaskStats(ctx context.Context, startTime, endTime
 	stats.TotalOutputTokens = totalOutput
 	stats.TotalTokens = totalInput + totalOutput
 
-	// 今日统计（今日00:00:00开始）
-	now := time.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// 今日统计（按配置時區 00:00:00 开始）
+	now := utils.NowConfiguredTimezone()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.GlobalLocation)
 	var todayTasks int64
 	var todayInput, todayOutput int64
 	todayQuery := g.db.WithContext(ctx).Model(&AsyncTask{}).Where("created_at >= ?", todayStart)
@@ -548,9 +550,9 @@ func (g *GormDatabase) GetAsyncTaskStats(ctx context.Context, startTime, endTime
 		return nil, err
 	}
 
-	// 转换每日统计
+	// 轉换每日统计
 	for _, ds := range dailyStats {
-		// 解析日期字符串为 time.Time
+		// 解析日期字符串為 time.Time
 		date, err := time.Parse("2006-01-02", ds.Date)
 		if err != nil {
 			return nil, fmt.Errorf("解析日期失败 %s: %w", ds.Date, err)
@@ -567,7 +569,7 @@ func (g *GormDatabase) GetAsyncTaskStats(ctx context.Context, startTime, endTime
 	return stats, nil
 }
 
-// CleanupExpiredAsyncTasks 清理过期任务
+// CleanupExpiredAsyncTasks 清理過期任務
 func (g *GormDatabase) CleanupExpiredAsyncTasks(ctx context.Context, cutoff time.Time) (int64, error) {
 	result := g.db.WithContext(ctx).
 		Where("expires_at < ? OR (status IN ('completed', 'failed', 'timeout') AND completed_at < ?)", time.Now(), cutoff).
@@ -575,17 +577,17 @@ func (g *GormDatabase) CleanupExpiredAsyncTasks(ctx context.Context, cutoff time
 	return result.RowsAffected, result.Error
 }
 
-// SavePositionPlan 保存仓位计划
+// SavePositionPlan 保存倉位计划
 func (g *GormDatabase) SavePositionPlan(ctx context.Context, plan *PositionPlan) error {
 	return g.db.WithContext(ctx).Create(plan).Error
 }
 
-// UpdatePositionPlan 更新仓位计划
+// UpdatePositionPlan 更新倉位计划
 func (g *GormDatabase) UpdatePositionPlan(ctx context.Context, plan *PositionPlan) error {
 	return g.db.WithContext(ctx).Save(plan).Error
 }
 
-// GetPositionPlan 获取单个仓位计划
+// GetPositionPlan 獲取單個倉位计划
 func (g *GormDatabase) GetPositionPlan(ctx context.Context, id int64) (*PositionPlan, error) {
 	var plan PositionPlan
 	if err := g.db.WithContext(ctx).Where("id = ?", id).First(&plan).Error; err != nil {
@@ -594,7 +596,7 @@ func (g *GormDatabase) GetPositionPlan(ctx context.Context, id int64) (*Position
 	return &plan, nil
 }
 
-// GetPositionPlans 获取仓位计划列表
+// GetPositionPlans 獲取倉位计划列表
 func (g *GormDatabase) GetPositionPlans(ctx context.Context, filter *PositionPlanFilter) ([]*PositionPlan, error) {
 	query := g.db.WithContext(ctx).Model(&PositionPlan{})
 
@@ -626,14 +628,14 @@ func (g *GormDatabase) GetPositionPlans(ctx context.Context, filter *PositionPla
 	return plans, nil
 }
 
-// GetEventStats 获取事件统计
+// GetEventStats 獲取事件统计
 func (g *GormDatabase) GetEventStats(ctx context.Context) (*EventStats, error) {
 	stats := &EventStats{
 		CountByType:   make(map[string]int),
 		CountBySource: make(map[string]int),
 	}
 
-	// 总数
+	// 總數
 	var totalCount int64
 	g.db.WithContext(ctx).Model(&EventRecord{}).Count(&totalCount)
 	stats.TotalCount = int(totalCount)
@@ -647,13 +649,13 @@ func (g *GormDatabase) GetEventStats(ctx context.Context) (*EventStats, error) {
 	stats.WarningCount = int(warningCount)
 	stats.InfoCount = int(infoCount)
 
-	// 最近24小时
-	last24h := time.Now().Add(-24 * time.Hour)
+	// 最近24小時（按配置時區）
+	last24h := utils.NowConfiguredTimezone().Add(-24 * time.Hour)
 	var last24hCount int64
 	g.db.WithContext(ctx).Model(&EventRecord{}).Where("created_at >= ?", last24h).Count(&last24hCount)
 	stats.Last24HoursCount = int(last24hCount)
 
-	// 按类型统计（top 20）
+	// 按類型统计（top 20）
 	var typeStats []struct {
 		Type  string
 		Count int
@@ -684,9 +686,9 @@ func (g *GormDatabase) GetEventStats(ctx context.Context) (*EventStats, error) {
 	return stats, nil
 }
 
-// CleanupOldEvents 清理旧事件
+// CleanupOldEvents 清理舊事件
 func (g *GormDatabase) CleanupOldEvents(ctx context.Context, severity string, keepCount int, keepDays int) error {
-	// 按时间清理：删除超过指定天数的事件
+	// 按時间清理：刪除超過指定天數的事件
 	cutoffDate := time.Now().AddDate(0, 0, -keepDays)
 	if err := g.db.WithContext(ctx).
 		Where("severity = ? AND created_at < ?", severity, cutoffDate).
@@ -694,12 +696,12 @@ func (g *GormDatabase) CleanupOldEvents(ctx context.Context, severity string, ke
 		return err
 	}
 
-	// 按数量清理：保留最新的 keepCount 条
+	// 按數量清理：保留最新的 keepCount 条
 	var count int64
 	g.db.WithContext(ctx).Model(&EventRecord{}).Where("severity = ?", severity).Count(&count)
 	
 	if int(count) > keepCount {
-		// 获取需要保留的最老记录的ID
+		// 獲取需要保留的最老記錄的ID
 		var cutoffID int64
 		g.db.WithContext(ctx).Model(&EventRecord{}).
 			Where("severity = ?", severity).
@@ -708,7 +710,7 @@ func (g *GormDatabase) CleanupOldEvents(ctx context.Context, severity string, ke
 			Offset(keepCount).
 			Pluck("id", &cutoffID)
 
-		// 删除ID小于cutoffID的记录
+		// 刪除ID小於cutoffID的記錄
 		if cutoffID > 0 {
 			if err := g.db.WithContext(ctx).
 				Where("severity = ? AND id < ?", severity, cutoffID).
@@ -721,7 +723,7 @@ func (g *GormDatabase) CleanupOldEvents(ctx context.Context, severity string, ke
 	return nil
 }
 
-// GormTx GORM 事务实现
+// GormTx GORM 事務實現
 type GormTx struct {
 	tx *gorm.DB
 }
@@ -739,7 +741,7 @@ func (t *GormTx) SaveTrade(ctx context.Context, trade *Trade) error {
 }
 
 func (t *GormTx) GetTrades(ctx context.Context, filter *TradeFilter) ([]*Trade, error) {
-	// 实现与 GormDatabase 相同
+	// 實現與 GormDatabase 相同
 	return nil, fmt.Errorf("not implemented in transaction")
 }
 
@@ -873,7 +875,7 @@ func (t *GormTx) GetAsyncTasks(ctx context.Context, filter *AsyncTaskFilter) ([]
 }
 
 func (t *GormTx) GetAsyncTaskStats(ctx context.Context, startTime, endTime *time.Time) (*AsyncTaskStats, error) {
-	// 事务中暂不实现统计，返回错误
+	// 事務中暂不實現统计，返回錯误
 	return nil, fmt.Errorf("GetAsyncTaskStats not implemented in transaction")
 }
 

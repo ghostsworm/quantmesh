@@ -67,10 +67,17 @@ else
     log_warn "config.yaml 不存在，跳过"
 fi
 
-# 备份配置备份目录
-if [ -d "./config_backups" ]; then
-    cp -r "./config_backups" "${BACKUP_DIR}/config_backups"
-    log_info "✓ 已备份 config_backups 目录"
+# 备份配置備份目錄（backups 為 config.yaml 同級目錄，存儲 config.yaml.backup.*.yaml）
+if [ -d "./backups" ] && ls ./backups/config.yaml.backup.*.yaml 1>/dev/null 2>&1; then
+    mkdir -p "${BACKUP_DIR}/config_backups"
+    cp ./backups/config.yaml.backup.*.yaml "${BACKUP_DIR}/config_backups/"
+    log_info "✓ 已备份配置版本至 config_backups"
+fi
+# 兼容舊版 config_backups 目錄
+if [ -d "./config_backups" ] && ls ./config_backups/*.yaml 1>/dev/null 2>&1; then
+    mkdir -p "${BACKUP_DIR}/config_backups"
+    cp -n ./config_backups/*.yaml "${BACKUP_DIR}/config_backups/" 2>/dev/null || true
+    log_info "✓ 已备份 config_backups 目錄（舊版）"
 fi
 
 # 3. 备份日志文件（可选，日志文件可能很大）

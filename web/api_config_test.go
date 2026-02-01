@@ -17,11 +17,11 @@ func setupTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
-	// 创建临时配置管理器
+	// 創建临時配置管理器
 	tempDir, _ := os.MkdirTemp("", "config_test_*")
 	testConfigPath := filepath.Join(tempDir, "test_config.yaml")
 
-	// 创建测试配置（使用YAML内容）
+	// 創建测試配置（使用YAML内容）
 	testConfigContent := `
 app:
   current_exchange: "binance"
@@ -38,13 +38,13 @@ exchanges:
     fee_rate: 0.0002
 `
 
-	// 保存测试配置
+	// 保存测試配置
 	os.WriteFile(testConfigPath, []byte(testConfigContent), 0644)
 
-	// 加载配置以确保格式正确
+	// 加載配置以确保格式正确
 	testConfig, err := config.LoadConfig(testConfigPath)
 	if err != nil {
-		// 如果加载失败，创建一个最小配置
+		// 如果加載失败，創建一個最小配置
 		testConfig = &config.Config{}
 		testConfig.App.CurrentExchange = "binance"
 		testConfig.Exchanges = make(map[string]config.ExchangeConfig)
@@ -68,14 +68,14 @@ exchanges:
 	SetConfigManager(configManager)
 
 	// 初始化备份管理器
-	backupMgr := config.NewBackupManager()
+	backupMgr := config.NewBackupManager(testConfigPath)
 	SetConfigBackupManager(backupMgr)
 
 	// 初始化热更新器
 	hotReloader := config.NewHotReloader(testConfig)
 	SetConfigHotReloader(hotReloader)
 
-	// 设置路由
+	// 設置路由
 	api := r.Group("/api")
 	{
 		api.GET("/config", getConfigHandler)
@@ -91,7 +91,7 @@ exchanges:
 	return r
 }
 
-// TestGetConfigJSON 测试获取配置JSON
+// TestGetConfigJSON 测試獲取配置JSON
 func TestGetConfigJSON(t *testing.T) {
 	router := setupTestRouter()
 
@@ -100,7 +100,7 @@ func TestGetConfigJSON(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("期望状态码 %d，实际 %d", http.StatusOK, w.Code)
+		t.Errorf("期望状態碼 %d，實際 %d", http.StatusOK, w.Code)
 	}
 
 	var response map[string]interface{}
@@ -109,7 +109,7 @@ func TestGetConfigJSON(t *testing.T) {
 		t.Fatalf("解析响应失败: %v", err)
 	}
 
-	// 验证响应包含配置字段
+	// 驗证响应包含配置字段
 	if _, exists := response["app"]; !exists {
 		t.Error("响应中缺少 app 字段")
 	}
@@ -118,7 +118,7 @@ func TestGetConfigJSON(t *testing.T) {
 	}
 }
 
-// TestValidateConfig 测试配置验证
+// TestValidateConfig 测試配置驗证
 func TestValidateConfig(t *testing.T) {
 	router := setupTestRouter()
 
@@ -149,7 +149,7 @@ func TestValidateConfig(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("期望状态码 %d，实际 %d", http.StatusOK, w.Code)
+		t.Errorf("期望状態碼 %d，實際 %d", http.StatusOK, w.Code)
 	}
 
 	var response map[string]interface{}
@@ -159,11 +159,11 @@ func TestValidateConfig(t *testing.T) {
 	}
 
 	if valid, exists := response["valid"]; !exists || !valid.(bool) {
-		t.Error("配置验证应该通过")
+		t.Error("配置驗证应該通過")
 	}
 }
 
-// TestPreviewConfig 测试配置预览
+// TestPreviewConfig 测試配置預览
 func TestPreviewConfig(t *testing.T) {
 	router := setupTestRouter()
 
@@ -194,7 +194,7 @@ func TestPreviewConfig(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("期望状态码 %d，实际 %d", http.StatusOK, w.Code)
+		t.Errorf("期望状態碼 %d，實際 %d", http.StatusOK, w.Code)
 	}
 
 	var response map[string]interface{}
@@ -216,22 +216,22 @@ func TestPreviewConfig(t *testing.T) {
 
 	changesArray := changes.([]interface{})
 	if len(changesArray) == 0 {
-		t.Error("应该检测到配置变更")
+		t.Error("应該检测到配置变更")
 	}
 }
 
-// TestGetBackups 测试获取备份列表
+// TestGetBackups 测試獲取备份列表
 func TestGetBackups(t *testing.T) {
 	router := setupTestRouter()
 
-	// 先创建一个备份
+	// 先創建一個备份
 	configManager := configManager
 	if configManager != nil {
 		cfg, _ := configManager.GetConfig()
 		if cfg != nil {
 			backupMgr := configBackupMgr
 			if backupMgr != nil {
-				backupMgr.CreateBackup(configManager.GetConfigPath(), "测试备份")
+				backupMgr.CreateBackup(configManager.GetConfigPath(), "测試备份")
 			}
 		}
 	}
@@ -241,7 +241,7 @@ func TestGetBackups(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("期望状态码 %d，实际 %d", http.StatusOK, w.Code)
+		t.Errorf("期望状態碼 %d，實際 %d", http.StatusOK, w.Code)
 	}
 
 	var response map[string]interface{}
@@ -255,10 +255,10 @@ func TestGetBackups(t *testing.T) {
 		t.Fatal("响应中缺少 backups 字段")
 	}
 
-	_ = backups.([]interface{}) // 验证是数组类型
+	_ = backups.([]interface{}) // 驗证是數组類型
 }
 
-// TestUpdateConfig 测试更新配置
+// TestUpdateConfig 测試更新配置
 func TestUpdateConfig(t *testing.T) {
 	router := setupTestRouter()
 
@@ -289,7 +289,7 @@ func TestUpdateConfig(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("期望状态码 %d，实际 %d。响应: %s", http.StatusOK, w.Code, w.Body.String())
+		t.Errorf("期望状態碼 %d，實際 %d。响应: %s", http.StatusOK, w.Code, w.Body.String())
 	}
 
 	var response map[string]interface{}
@@ -304,11 +304,11 @@ func TestUpdateConfig(t *testing.T) {
 	}
 
 	if message.(string) != "配置更新成功" {
-		t.Errorf("期望消息 '配置更新成功'，实际 '%s'", message)
+		t.Errorf("期望消息 '配置更新成功'，實際 '%s'", message)
 	}
 
-	// 验证备份ID存在
+	// 驗证备份ID存在
 	if _, exists := response["backup_id"]; !exists {
-		t.Error("响应中应该包含 backup_id")
+		t.Error("响应中应該包含 backup_id")
 	}
 }

@@ -20,10 +20,10 @@ import (
 
 const (
 	CryptoComMainnetBaseURL = "https://api.crypto.com/v2"     // Crypto.com 主网
-	CryptoComTestnetBaseURL = "https://uat-api.crypto.com/v2" // Crypto.com 测试网
+	CryptoComTestnetBaseURL = "https://uat-api.crypto.com/v2" // Crypto.com 測試網
 )
 
-// CryptoComClient Crypto.com 客户端
+// CryptoComClient Crypto.com 客戶端
 type CryptoComClient struct {
 	apiKey     string
 	secretKey  string
@@ -32,7 +32,7 @@ type CryptoComClient struct {
 	isTestnet  bool
 }
 
-// NewCryptoComClient 创建 Crypto.com 客户端
+// NewCryptoComClient 創建 Crypto.com 客戶端
 func NewCryptoComClient(apiKey, secretKey string, isTestnet bool) *CryptoComClient {
 	baseURL := CryptoComMainnetBaseURL
 	if isTestnet {
@@ -50,14 +50,14 @@ func NewCryptoComClient(apiKey, secretKey string, isTestnet bool) *CryptoComClie
 
 // signRequest Crypto.com 签名：HMAC-SHA256
 func (c *CryptoComClient) signRequest(method string, params map[string]interface{}, nonce int64) string {
-	// 参数排序
+	// 参數排序
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	// 构建签名字符串
+	// 構建签名字符串
 	var paramStr strings.Builder
 	for _, k := range keys {
 		paramStr.WriteString(k)
@@ -75,7 +75,7 @@ func (c *CryptoComClient) signRequest(method string, params map[string]interface
 func (c *CryptoComClient) sendRequest(ctx context.Context, method string, params map[string]interface{}) ([]byte, error) {
 	nonce := time.Now().UnixMilli()
 
-	// 构建请求体
+	// 構建请求体
 	requestBody := map[string]interface{}{
 		"id":      nonce,
 		"method":  method,
@@ -118,7 +118,7 @@ func (c *CryptoComClient) sendRequest(ctx context.Context, method string, params
 	return respBody, nil
 }
 
-// GetInstruments 获取交易对信息
+// GetInstruments 獲取交易對信息
 func (c *CryptoComClient) GetInstruments(ctx context.Context) ([]Instrument, error) {
 	method := "public/get-instruments"
 	params := map[string]interface{}{}
@@ -146,7 +146,7 @@ func (c *CryptoComClient) GetInstruments(ctx context.Context) ([]Instrument, err
 	return result.Instruments, nil
 }
 
-// CreateOrder 下单
+// CreateOrder 下單
 func (c *CryptoComClient) CreateOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	method := "private/create-order"
 	params := map[string]interface{}{
@@ -188,7 +188,7 @@ func (c *CryptoComClient) CreateOrder(ctx context.Context, req *OrderRequest) (*
 	return &order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *CryptoComClient) CancelOrder(ctx context.Context, instrumentName string, orderID int64) error {
 	method := "private/cancel-order"
 	params := map[string]interface{}{
@@ -214,7 +214,7 @@ func (c *CryptoComClient) CancelOrder(ctx context.Context, instrumentName string
 	return nil
 }
 
-// GetOrderDetail 查询订单
+// GetOrderDetail 查詢訂單
 func (c *CryptoComClient) GetOrderDetail(ctx context.Context, orderID int64) (*Order, error) {
 	method := "private/get-order-detail"
 	params := map[string]interface{}{
@@ -244,7 +244,7 @@ func (c *CryptoComClient) GetOrderDetail(ctx context.Context, orderID int64) (*O
 	return &result.OrderInfo, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *CryptoComClient) GetOpenOrders(ctx context.Context, instrumentName string) ([]Order, error) {
 	method := "private/get-open-orders"
 	params := map[string]interface{}{}
@@ -275,7 +275,7 @@ func (c *CryptoComClient) GetOpenOrders(ctx context.Context, instrumentName stri
 	return result.OrderList, nil
 }
 
-// GetAccountSummary 获取账户信息
+// GetAccountSummary 獲取帳戶信息
 func (c *CryptoComClient) GetAccountSummary(ctx context.Context) (*AccountSummary, error) {
 	method := "private/get-account-summary"
 	params := map[string]interface{}{}
@@ -303,7 +303,7 @@ func (c *CryptoComClient) GetAccountSummary(ctx context.Context) (*AccountSummar
 	return &result.Accounts[0], nil
 }
 
-// GetTicker 获取最新价格
+// GetTicker 獲取最新價格
 func (c *CryptoComClient) GetTicker(ctx context.Context, instrumentName string) (*Ticker, error) {
 	method := "public/get-ticker"
 	params := map[string]interface{}{
@@ -333,7 +333,7 @@ func (c *CryptoComClient) GetTicker(ctx context.Context, instrumentName string) 
 	return &result.Data, nil
 }
 
-// GetCandlestick 获取 K线数据
+// GetCandlestick 獲取 K線數據
 func (c *CryptoComClient) GetCandlestick(ctx context.Context, instrumentName, timeframe string) ([]Candlestick, error) {
 	method := "public/get-candlestick"
 	params := map[string]interface{}{
@@ -364,7 +364,7 @@ func (c *CryptoComClient) GetCandlestick(ctx context.Context, instrumentName, ti
 	return result.Data, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIResponse struct {
 	ID     int64       `json:"id"`

@@ -17,13 +17,13 @@ type NewbieRiskCheckItem struct {
 	Advice  string `json:"advice"`
 }
 
-// NewbieRiskReport 新手风险报告
+// NewbieRiskReport 新手风險报告
 type NewbieRiskReport struct {
 	OverallScore int                   `json:"overallScore"`
 	Results      []NewbieRiskCheckItem `json:"results"`
 }
 
-// getNewbieRiskCheck 获取新手体检报告
+// getNewbieRiskCheck 獲取新手体检报告
 // GET /api/risk/newbie-check
 func getNewbieRiskCheck(c *gin.Context) {
 	if configManager == nil {
@@ -33,7 +33,7 @@ func getNewbieRiskCheck(c *gin.Context) {
 
 	cfg, err := configManager.GetConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败: " + err.Error()})
 		return
 	}
 
@@ -59,7 +59,7 @@ func getNewbieRiskCheck(c *gin.Context) {
 	environmentItem := checkEnvironment(cfg)
 	results = append(results, environmentItem)
 
-	// 计算总分
+	// 计算總分
 	totalScore := 0
 	for _, item := range results {
 		totalScore += item.Score
@@ -74,36 +74,36 @@ func getNewbieRiskCheck(c *gin.Context) {
 
 func checkLeverage(cfg *config.Config) NewbieRiskCheckItem {
 	maxLev := cfg.RiskControl.MaxLeverage
-	item := NewbieRiskCheckItem{Item: "杠杆倍数"}
+	item := NewbieRiskCheckItem{Item: "杠杆倍數"}
 
 	if maxLev <= 3 {
 		item.Score = 100
 		item.Level = "safe"
-		item.Message = "杠杆设置非常安全"
-		item.Advice = "当前杠杆倍数（3倍及以下）非常稳健，即便市场剧烈波动也有足够的缓冲空间。"
+		item.Message = "杠杆設置非常安全"
+		item.Advice = "當前杠杆倍數（3倍及以下）非常稳健，即便市场剧烈波动也有足够的缓冲空间。"
 	} else if maxLev <= 5 {
 		item.Score = 70
 		item.Level = "warning"
-		item.Message = "杠杆倍数适中"
-		item.Advice = "5倍杠杆属于中等风险，新手建议保持在3倍以内以应对突发极端行情。"
+		item.Message = "杠杆倍數适中"
+		item.Advice = "5倍杠杆属於中等风險，新手建议保持在3倍以内以应對突发极端行情。"
 	} else if maxLev <= 10 {
 		item.Score = 30
 		item.Level = "warning"
-		item.Message = "杠杆倍数偏高"
-		item.Advice = "10倍杠杆对新手来说风险较大，任何4%以上的反向波动都可能导致严重亏损甚至爆仓。"
+		item.Message = "杠杆倍數偏高"
+		item.Advice = "10倍杠杆對新手来說风險较大，任何4%以上的反向波动都可能導致严重亏损甚至爆倉。"
 	} else {
 		item.Score = 0
 		item.Level = "danger"
-		item.Message = "杠杆倍数极高"
-		item.Advice = "超过10倍的杠杆极度危险。强烈建议将其下调至3-5倍，以保护您的本金安全。"
+		item.Message = "杠杆倍數极高"
+		item.Advice = "超過10倍的杠杆极度危險。强烈建议將其下調至3-5倍，以保护您的本金安全。"
 	}
 	return item
 }
 
 func checkStopLoss(cfg *config.Config) NewbieRiskCheckItem {
-	item := NewbieRiskCheckItem{Item: "止损设置"}
+	item := NewbieRiskCheckItem{Item: "止损設置"}
 	
-	// 检查全局和各交易对
+	// 检查全局和各交易對
 	globalStopLoss := cfg.Trading.GridRiskControl.Enabled && cfg.Trading.GridRiskControl.StopLossRatio > 0
 	
 	allSymbolsHaveStopLoss := true
@@ -122,17 +122,17 @@ func checkStopLoss(cfg *config.Config) NewbieRiskCheckItem {
 		item.Score = 100
 		item.Level = "safe"
 		item.Message = "止损逻辑已全面覆盖"
-		item.Advice = "所有交易对均已设置自动止损，这是量化交易最坚实的防线。"
+		item.Advice = "所有交易對均已設置自动止损，这是量化交易最坚實的防線。"
 	} else if globalStopLoss {
 		item.Score = 60
 		item.Level = "warning"
-		item.Message = "部分交易对缺少止损"
-		item.Advice = "虽然全局开启了止损，但部分特定交易对可能未正确配置。建议为每个币种都设置明确的止损线。"
+		item.Message = "部分交易對缺少止损"
+		item.Advice = "雖然全局开啟了止损，但部分特定交易對可能未正确配置。建议為每個币种都設置明确的止损線。"
 	} else {
 		item.Score = 0
 		item.Level = "danger"
-		item.Message = "未开启自动止损"
-		item.Advice = "量化交易的核心是控制风险。未开启止损就像在没有刹车的赛车上行驶，强烈建议开启 10%-15% 的硬性止损。"
+		item.Message = "未开啟自动止损"
+		item.Advice = "量化交易的核心是控制风險。未开啟止损就像在没有刹车的赛车上行驶，强烈建议开啟 10%-15% 的硬性止损。"
 	}
 	return item
 }
@@ -144,18 +144,18 @@ func checkMarginBuffer(cfg *config.Config) NewbieRiskCheckItem {
 	if safetyCheck >= 100 {
 		item.Score = 100
 		item.Level = "safe"
-		item.Message = "资金储备充足"
-		item.Advice = "您的配置能支持向下补仓100层以上，具有极强的抗风险能力。"
+		item.Message = "资金儲备充足"
+		item.Advice = "您的配置能支援向下补倉100层以上，具有极强的抗风險能力。"
 	} else if safetyCheck >= 50 {
 		item.Score = 60
 		item.Level = "warning"
-		item.Message = "资金储备一般"
-		item.Advice = "当前设置仅能支撑约50层补仓，在遇到30%以上的单边下跌时可能面临资金耗尽的风险。"
+		item.Message = "资金儲备一般"
+		item.Advice = "當前設置僅能支撑约50层补倉，在遇到30%以上的單边下跌時可能面临资金耗尽的风險。"
 	} else {
 		item.Score = 0
 		item.Level = "danger"
 		item.Message = "资金严重不足"
-		item.Advice = "补仓层数设置过低。建议调低每单交易金额或增加账户保证金，确保能支撑至少80-100层补仓。"
+		item.Advice = "补倉层數設置過低。建议調低每單交易金額或增加账戶保证金，确保能支撑至少80-100层补倉。"
 	}
 	return item
 }
@@ -163,7 +163,7 @@ func checkMarginBuffer(cfg *config.Config) NewbieRiskCheckItem {
 func checkProfitProtection(cfg *config.Config) NewbieRiskCheckItem {
 	item := NewbieRiskCheckItem{Item: "利润保护"}
 	
-	// 只要有一个币种开启了提现策略或者全局开启了
+	// 只要有一個币种开啟了提現策略或者全局开啟了
 	anyWithdrawalEnabled := false
 	for _, s := range cfg.Trading.Symbols {
 		if s.WithdrawalPolicy.Enabled {
@@ -175,13 +175,13 @@ func checkProfitProtection(cfg *config.Config) NewbieRiskCheckItem {
 	if anyWithdrawalEnabled {
 		item.Score = 100
 		item.Level = "safe"
-		item.Message = "已开启利润自动保护"
-		item.Advice = "开启提现策略能让您在盈利时自动将部分资金转出，有效锁定胜果。"
+		item.Message = "已开啟利润自动保护"
+		item.Advice = "开啟提現策略能让您在盈利時自动將部分资金轉出，有效鎖定胜果。"
 	} else {
 		item.Score = 0
 		item.Level = "warning"
-		item.Message = "未开启利润保护"
-		item.Advice = "建议开启‘利润自动提现’或‘回本保护’，这能帮助新手养成良好的复利和避险习惯。"
+		item.Message = "未开啟利润保护"
+		item.Advice = "建议开啟‘利润自动提現’或‘回本保护’，这能帮助新手养成良好的複利和避險习惯。"
 	}
 	return item
 }
@@ -200,13 +200,13 @@ func checkEnvironment(cfg *config.Config) NewbieRiskCheckItem {
 	if isTestnet {
 		item.Score = 100
 		item.Level = "safe"
-		item.Message = "当前处于测试网环境"
-		item.Advice = "在测试网磨炼策略是非常明智的选择，建议在测试网连续盈利30天后再转入实盘。"
+		item.Message = "當前处於測試網环境"
+		item.Advice = "在測試網磨炼策略是非常明智的选擇，建议在測試網连续盈利30天后再轉入實盘。"
 	} else {
 		item.Score = 50
 		item.Level = "warning"
-		item.Message = "当前处于实盘环境"
-		item.Advice = "实盘环境每一分钱都是真实的，请务必确保您的参数已经过充分的回测和测试网验证。"
+		item.Message = "當前处於實盘环境"
+		item.Advice = "實盘环境每一分钱都是真實的，请務必确保您的参數已經過充分的回测和測試網驗证。"
 	}
 	return item
 }
@@ -221,18 +221,18 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 
 	cfg, err := configManager.GetConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取当前配置失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取當前配置失败: " + err.Error()})
 		return
 	}
 
-	// 复制一份配置进行修改
+	// 複制一份配置進行修改
 	newConfig := *cfg
 
-	// 1. 强制下调最高杠杆
+	// 1. 强制下調最高杠杆
 	if newConfig.RiskControl.MaxLeverage > 3 {
 		newConfig.RiskControl.MaxLeverage = 3
 	}
-	// 同时也修改交易所配置中的杠杆
+	// 同時也修改交易所配置中的杠杆
 	for exName, exCfg := range newConfig.Exchanges {
 		if exCfg.Leverage > 3 {
 			exCfg.Leverage = 3
@@ -240,13 +240,13 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 		}
 	}
 
-	// 2. 开启全局止损 (10%)
+	// 2. 开啟全局止损 (10%)
 	if !newConfig.Trading.GridRiskControl.Enabled || newConfig.Trading.GridRiskControl.StopLossRatio == 0 {
 		newConfig.Trading.GridRiskControl.Enabled = true
 		newConfig.Trading.GridRiskControl.StopLossRatio = 0.1
 	}
 
-	// 3. 为所有交易对开启止损 (10%)
+	// 3. 為所有交易對开啟止损 (10%)
 	for i := range newConfig.Trading.Symbols {
 		if !newConfig.Trading.Symbols[i].GridRiskControl.Enabled || newConfig.Trading.Symbols[i].GridRiskControl.StopLossRatio == 0 {
 			newConfig.Trading.Symbols[i].GridRiskControl.Enabled = true
@@ -264,7 +264,7 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 		}
 	}
 
-	// 5. 开启默认利润保护 (可选，这里设为回本保护)
+	// 5. 开啟默认利润保护 (可選，这里設為回本保护)
 	for i := range newConfig.Trading.Symbols {
 		if !newConfig.Trading.Symbols[i].WithdrawalPolicy.Enabled {
 			newConfig.Trading.Symbols[i].WithdrawalPolicy.Enabled = true
@@ -273,9 +273,9 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 		}
 	}
 
-	// 验证配置
+	// 驗证配置
 	if err := newConfig.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "生成的加固配置无效: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "生成的加固配置無效: " + err.Error()})
 		return
 	}
 
@@ -292,6 +292,6 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "安全配置已一键应用，杠杆已下调至3倍，已开启10%止损和保本保护。",
+		"message": "安全配置已一键应用，杠杆已下調至3倍，已开啟10%止损和保本保护。",
 	})
 }

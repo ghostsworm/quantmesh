@@ -4,22 +4,22 @@ import (
 	"math"
 )
 
-// ========== 成交量指标 ==========
+// ========== 成交量指標 ==========
 
 // OBV 能量潮
 type OBV struct{}
 
-// NewOBV 创建 OBV 指标
+// NewOBV 創建 OBV 指標
 func NewOBV() *OBV {
 	return &OBV{}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (o *OBV) Name() string {
 	return "OBV"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (o *OBV) Period() int {
 	return 2
 }
@@ -46,7 +46,7 @@ func (o *OBV) Calculate(candles []Candle) []float64 {
 	return result
 }
 
-// Signal 交易信号（基于 OBV 和价格的背离）
+// Signal 交易信号（基於 OBV 和價格的背离）
 func (o *OBV) Signal(candles []Candle) int {
 	obv := o.Calculate(candles)
 	if obv == nil || len(obv) < 10 {
@@ -56,15 +56,15 @@ func (o *OBV) Signal(candles []Candle) int {
 	n := len(obv) - 1
 	closes := ClosePrices(candles)
 
-	// 简单的趋势判断
+	// 简單的趋势判断
 	obvTrend := obv[n] - obv[n-5]
 	priceTrend := closes[n] - closes[n-5]
 
-	// 看涨背离：价格下跌但 OBV 上涨
+	// 看涨背离：價格下跌但 OBV 上涨
 	if priceTrend < 0 && obvTrend > 0 {
 		return 1
 	}
-	// 看跌背离：价格上涨但 OBV 下跌
+	// 看跌背离：價格上涨但 OBV 下跌
 	if priceTrend > 0 && obvTrend < 0 {
 		return -1
 	}
@@ -72,25 +72,25 @@ func (o *OBV) Signal(candles []Candle) int {
 	return 0
 }
 
-// VWAP 成交量加权平均价格
+// VWAP 成交量加权平均價格
 type VWAP struct{}
 
-// NewVWAP 创建 VWAP 指标
+// NewVWAP 創建 VWAP 指標
 func NewVWAP() *VWAP {
 	return &VWAP{}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (v *VWAP) Name() string {
 	return "VWAP"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (v *VWAP) Period() int {
 	return 1
 }
 
-// Calculate 计算 VWAP（从当日开始累积）
+// Calculate 计算 VWAP（從當日开始累积）
 func (v *VWAP) Calculate(candles []Candle) []float64 {
 	if len(candles) == 0 {
 		return nil
@@ -123,11 +123,11 @@ func (v *VWAP) Signal(candles []Candle) int {
 	n := len(vwap) - 1
 	close := candles[n].Close
 
-	// 价格在 VWAP 上方：看涨
+	// 價格在 VWAP 上方：看涨
 	if close > vwap[n] {
 		return 1
 	}
-	// 价格在 VWAP 下方：看跌
+	// 價格在 VWAP 下方：看跌
 	if close < vwap[n] {
 		return -1
 	}
@@ -138,10 +138,10 @@ func (v *VWAP) Signal(candles []Candle) int {
 // VolumeProfile 成交量分布
 type VolumeProfile struct {
 	period int
-	bins   int // 价格区间数量
+	bins   int // 價格区间數量
 }
 
-// NewVolumeProfile 创建成交量分布指标
+// NewVolumeProfile 創建成交量分布指標
 func NewVolumeProfile(period, bins int) *VolumeProfile {
 	return &VolumeProfile{
 		period: period,
@@ -149,17 +149,17 @@ func NewVolumeProfile(period, bins int) *VolumeProfile {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (vp *VolumeProfile) Name() string {
 	return "VolumeProfile"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (vp *VolumeProfile) Period() int {
 	return vp.period
 }
 
-// Calculate 计算成交量分布（返回 POC - Point of Control）
+// Calculate 计算成交量分布（回傳 POC - Point of Control）
 func (vp *VolumeProfile) Calculate(candles []Candle) []float64 {
 	if len(candles) < vp.period {
 		return nil
@@ -168,7 +168,7 @@ func (vp *VolumeProfile) Calculate(candles []Candle) []float64 {
 	result := make([]float64, len(candles)-vp.period+1)
 
 	for i := vp.period - 1; i < len(candles); i++ {
-		// 获取周期内的价格范围
+		// 獲取周期内的價格範圍
 		periodCandles := candles[i-vp.period+1 : i+1]
 		high := periodCandles[0].High
 		low := periodCandles[0].Low
@@ -190,7 +190,7 @@ func (vp *VolumeProfile) Calculate(candles []Candle) []float64 {
 		binSize := priceRange / float64(vp.bins)
 		volumes := make([]float64, vp.bins)
 
-		// 分配成交量到各个价格区间
+		// 分配成交量到各個價格区间
 		for _, c := range periodCandles {
 			tp := (c.High + c.Low + c.Close) / 3
 			binIdx := int((tp - low) / binSize)
@@ -213,7 +213,7 @@ func (vp *VolumeProfile) Calculate(candles []Candle) []float64 {
 			}
 		}
 
-		// POC 价格
+		// POC 價格
 		result[i-vp.period+1] = low + float64(maxIdx)*binSize + binSize/2
 	}
 
@@ -225,17 +225,17 @@ type CMF struct {
 	period int
 }
 
-// NewCMF 创建 CMF 指标
+// NewCMF 創建 CMF 指標
 func NewCMF(period int) *CMF {
 	return &CMF{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (c *CMF) Name() string {
 	return "CMF"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (c *CMF) Period() int {
 	return c.period
 }
@@ -246,7 +246,7 @@ func (c *CMF) Calculate(candles []Candle) []float64 {
 		return nil
 	}
 
-	// 计算资金流量乘数和资金流量
+	// 计算资金流量乘數和资金流量
 	mfv := make([]float64, len(candles))
 	volume := make([]float64, len(candles))
 
@@ -297,20 +297,20 @@ func (c *CMF) Signal(candles []Candle) int {
 	return 0
 }
 
-// ADL 累积派发线
+// ADL 累积派发線
 type ADL struct{}
 
-// NewADL 创建 ADL 指标
+// NewADL 創建 ADL 指標
 func NewADL() *ADL {
 	return &ADL{}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (a *ADL) Name() string {
 	return "ADL"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (a *ADL) Period() int {
 	return 1
 }
@@ -342,7 +342,7 @@ type ChaikinOscillator struct {
 	SlowPeriod int
 }
 
-// NewChaikinOscillator 创建 Chaikin 振荡器
+// NewChaikinOscillator 創建 Chaikin 振荡器
 func NewChaikinOscillator(fast, slow int) *ChaikinOscillator {
 	return &ChaikinOscillator{
 		FastPeriod: fast,
@@ -350,12 +350,12 @@ func NewChaikinOscillator(fast, slow int) *ChaikinOscillator {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (co *ChaikinOscillator) Name() string {
 	return "ChaikinOscillator"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (co *ChaikinOscillator) Period() int {
 	return co.SlowPeriod
 }
@@ -392,11 +392,11 @@ func (co *ChaikinOscillator) Signal(candles []Candle) int {
 	}
 
 	n := len(values) - 1
-	// 从负转正
+	// 從负轉正
 	if values[n-1] < 0 && values[n] > 0 {
 		return 1
 	}
-	// 从正转负
+	// 從正轉负
 	if values[n-1] > 0 && values[n] < 0 {
 		return -1
 	}
@@ -404,33 +404,33 @@ func (co *ChaikinOscillator) Signal(candles []Candle) int {
 	return 0
 }
 
-// ForceIndex 力度指数
+// ForceIndex 力度指數
 type ForceIndex struct {
 	period int
 }
 
-// NewForceIndex 创建力度指数
+// NewForceIndex 創建力度指數
 func NewForceIndex(period int) *ForceIndex {
 	return &ForceIndex{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (fi *ForceIndex) Name() string {
 	return "ForceIndex"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (fi *ForceIndex) Period() int {
 	return fi.period + 1
 }
 
-// Calculate 计算力度指数
+// Calculate 计算力度指數
 func (fi *ForceIndex) Calculate(candles []Candle) []float64 {
 	if len(candles) < 2 {
 		return nil
 	}
 
-	// 计算原始力度指数
+	// 计算原始力度指數
 	raw := make([]float64, len(candles)-1)
 	for i := 1; i < len(candles); i++ {
 		raw[i-1] = (candles[i].Close - candles[i-1].Close) * candles[i].Volume
@@ -448,11 +448,11 @@ func (fi *ForceIndex) Signal(candles []Candle) int {
 	}
 
 	n := len(values) - 1
-	// 从负转正
+	// 從负轉正
 	if values[n-1] < 0 && values[n] > 0 {
 		return 1
 	}
-	// 从正转负
+	// 從正轉负
 	if values[n-1] > 0 && values[n] < 0 {
 		return -1
 	}
@@ -460,20 +460,20 @@ func (fi *ForceIndex) Signal(candles []Candle) int {
 	return 0
 }
 
-// NVI 负成交量指数
+// NVI 负成交量指數
 type NVI struct{}
 
-// NewNVI 创建负成交量指数
+// NewNVI 創建负成交量指數
 func NewNVI() *NVI {
 	return &NVI{}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (n *NVI) Name() string {
 	return "NVI"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (n *NVI) Period() int {
 	return 2
 }
@@ -489,7 +489,7 @@ func (n *NVI) Calculate(candles []Candle) []float64 {
 
 	for i := 1; i < len(candles); i++ {
 		if candles[i].Volume < candles[i-1].Volume {
-			// 成交量减少时更新
+			// 成交量减少時更新
 			priceChange := (candles[i].Close - candles[i-1].Close) / candles[i-1].Close
 			result[i] = result[i-1] * (1 + priceChange)
 		} else {
@@ -500,20 +500,20 @@ func (n *NVI) Calculate(candles []Candle) []float64 {
 	return result
 }
 
-// PVI 正成交量指数
+// PVI 正成交量指數
 type PVI struct{}
 
-// NewPVI 创建正成交量指数
+// NewPVI 創建正成交量指數
 func NewPVI() *PVI {
 	return &PVI{}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (p *PVI) Name() string {
 	return "PVI"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (p *PVI) Period() int {
 	return 2
 }
@@ -529,7 +529,7 @@ func (p *PVI) Calculate(candles []Candle) []float64 {
 
 	for i := 1; i < len(candles); i++ {
 		if candles[i].Volume > candles[i-1].Volume {
-			// 成交量增加时更新
+			// 成交量增加時更新
 			priceChange := (candles[i].Close - candles[i-1].Close) / candles[i-1].Close
 			result[i] = result[i-1] * (1 + priceChange)
 		} else {
@@ -540,22 +540,22 @@ func (p *PVI) Calculate(candles []Candle) []float64 {
 	return result
 }
 
-// EaseOfMovement 简易波动指标
+// EaseOfMovement 简易波动指標
 type EaseOfMovement struct {
 	period int
 }
 
-// NewEaseOfMovement 创建简易波动指标
+// NewEaseOfMovement 創建简易波动指標
 func NewEaseOfMovement(period int) *EaseOfMovement {
 	return &EaseOfMovement{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (eom *EaseOfMovement) Name() string {
 	return "EaseOfMovement"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (eom *EaseOfMovement) Period() int {
 	return eom.period + 1
 }
@@ -604,17 +604,17 @@ type VolumeRateOfChange struct {
 	period int
 }
 
-// NewVolumeRateOfChange 创建成交量变化率指标
+// NewVolumeRateOfChange 創建成交量变化率指標
 func NewVolumeRateOfChange(period int) *VolumeRateOfChange {
 	return &VolumeRateOfChange{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (vroc *VolumeRateOfChange) Name() string {
 	return "VolumeROC"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (vroc *VolumeRateOfChange) Period() int {
 	return vroc.period + 1
 }
@@ -625,7 +625,7 @@ func (vroc *VolumeRateOfChange) Calculate(candles []Candle) []float64 {
 	return RateOfChange(volumes, vroc.period)
 }
 
-// 注册成交量指标
+// 注册成交量指標
 func init() {
 	RegisterIndicator("OBV", func(params map[string]interface{}) Indicator {
 		return NewOBV()

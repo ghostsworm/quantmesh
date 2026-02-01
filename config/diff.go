@@ -6,40 +6,40 @@ import (
 	"strings"
 )
 
-// ChangeType 变更类型
+// ChangeType 变更類型
 type ChangeType string
 
 const (
 	ChangeTypeAdded    ChangeType = "added"    // 新增
 	ChangeTypeModified ChangeType = "modified" // 修改
-	ChangeTypeDeleted  ChangeType = "deleted"  // 删除
+	ChangeTypeDeleted  ChangeType = "deleted"  // 刪除
 )
 
 // ConfigChange 配置变更
 type ConfigChange struct {
 	Path            string      `json:"path"`             // 配置路径（如 "trading.price_interval"）
-	Type            ChangeType  `json:"type"`             // 变更类型
-	OldValue        interface{} `json:"old_value"`        // 旧值
+	Type            ChangeType  `json:"type"`             // 变更類型
+	OldValue        interface{} `json:"old_value"`        // 舊值
 	NewValue        interface{} `json:"new_value"`        // 新值
-	RequiresRestart bool        `json:"requires_restart"` // 是否需要重启
+	RequiresRestart bool        `json:"requires_restart"` // 是否需要重啟
 }
 
 // ConfigDiff 配置差异
 type ConfigDiff struct {
 	Changes         []ConfigChange `json:"changes"`          // 变更列表
-	RequiresRestart bool           `json:"requires_restart"` // 是否有需要重启的变更
+	RequiresRestart bool           `json:"requires_restart"` // 是否有需要重啟的变更
 }
 
-// DiffConfig 对比两个配置，生成差异
+// DiffConfig 對比两個配置，生成差异
 func DiffConfig(oldConfig, newConfig *Config) *ConfigDiff {
 	diff := &ConfigDiff{
 		Changes: []ConfigChange{},
 	}
 
-	// 对比各个配置段
+	// 對比各個配置段
 	diff.compareConfig(oldConfig, newConfig, "")
 
-	// 检查是否有需要重启的变更
+	// 检查是否有需要重啟的变更
 	for _, change := range diff.Changes {
 		if change.RequiresRestart {
 			diff.RequiresRestart = true
@@ -50,12 +50,12 @@ func DiffConfig(oldConfig, newConfig *Config) *ConfigDiff {
 	return diff
 }
 
-// compareConfig 递归对比配置
+// compareConfig 遞归對比配置
 func (d *ConfigDiff) compareConfig(old, new interface{}, path string) {
 	oldVal := reflect.ValueOf(old)
 	newVal := reflect.ValueOf(new)
 
-	// 处理指针
+	// 处理指針
 	if oldVal.Kind() == reflect.Ptr {
 		if oldVal.IsNil() {
 			oldVal = reflect.ValueOf(nil)
@@ -76,25 +76,25 @@ func (d *ConfigDiff) compareConfig(old, new interface{}, path string) {
 		return
 	}
 
-	// 旧值存在，新值不存在：删除
+	// 舊值存在，新值不存在：刪除
 	if oldVal.IsValid() && !newVal.IsValid() {
 		d.addChange(path, ChangeTypeDeleted, oldVal.Interface(), nil, path)
 		return
 	}
 
-	// 旧值不存在，新值存在：新增
+	// 舊值不存在，新值存在：新增
 	if !oldVal.IsValid() && newVal.IsValid() {
 		d.addChange(path, ChangeTypeAdded, nil, newVal.Interface(), path)
 		return
 	}
 
-	// 类型不同，视为修改
+	// 類型不同，視為修改
 	if oldVal.Type() != newVal.Type() {
 		d.addChange(path, ChangeTypeModified, oldVal.Interface(), newVal.Interface(), path)
 		return
 	}
 
-	// 根据类型处理
+	// 根據類型处理
 	switch oldVal.Kind() {
 	case reflect.Struct:
 		d.compareStruct(oldVal, newVal, path)
@@ -103,27 +103,27 @@ func (d *ConfigDiff) compareConfig(old, new interface{}, path string) {
 	case reflect.Slice, reflect.Array:
 		d.compareSlice(oldVal, newVal, path)
 	default:
-		// 基本类型，直接比较
+		// 基本類型，直接比较
 		if !reflect.DeepEqual(oldVal.Interface(), newVal.Interface()) {
 			d.addChange(path, ChangeTypeModified, oldVal.Interface(), newVal.Interface(), path)
 		}
 	}
 }
 
-// compareStruct 对比结构体
+// compareStruct 對比結構体
 func (d *ConfigDiff) compareStruct(oldVal, newVal reflect.Value, basePath string) {
 	typ := oldVal.Type()
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 
-		// 获取yaml标签
+		// 獲取yaml標签
 		yamlTag := field.Tag.Get("yaml")
 		if yamlTag == "" || yamlTag == "-" {
 			continue
 		}
 
-		// 解析yaml标签（可能有选项如 "omitempty"）
+		// 解析yaml標签（可能有选项如 "omitempty"）
 		yamlName := strings.Split(yamlTag, ",")[0]
 		if yamlName == "" {
 			yamlName = strings.ToLower(field.Name)
@@ -143,9 +143,9 @@ func (d *ConfigDiff) compareStruct(oldVal, newVal reflect.Value, basePath string
 	}
 }
 
-// compareMap 对比Map
+// compareMap 對比Map
 func (d *ConfigDiff) compareMap(oldVal, newVal reflect.Value, basePath string) {
-	// 检查旧Map中的所有键
+	// 检查舊Map中的所有键
 	for _, key := range oldVal.MapKeys() {
 		keyStr := fmt.Sprintf("%v", key.Interface())
 		path := basePath
@@ -159,10 +159,10 @@ func (d *ConfigDiff) compareMap(oldVal, newVal reflect.Value, basePath string) {
 		newValue := newVal.MapIndex(key)
 
 		if !newValue.IsValid() {
-			// 键被删除
+			// 键被刪除
 			d.addChange(path, ChangeTypeDeleted, oldValue.Interface(), nil, path)
 		} else {
-			// 对比值
+			// 對比值
 			d.compareConfig(oldValue.Interface(), newValue.Interface(), path)
 		}
 	}
@@ -186,25 +186,25 @@ func (d *ConfigDiff) compareMap(oldVal, newVal reflect.Value, basePath string) {
 	}
 }
 
-// compareSlice 对比切片
+// compareSlice 對比切片
 func (d *ConfigDiff) compareSlice(oldVal, newVal reflect.Value, basePath string) {
 	oldLen := oldVal.Len()
 	newLen := newVal.Len()
 
-	// 简单比较：如果长度不同，视为整体修改
+	// 简單比较：如果长度不同，視為整体修改
 	if oldLen != newLen {
 		d.addChange(basePath, ChangeTypeModified, oldVal.Interface(), newVal.Interface(), basePath)
 		return
 	}
 
-	// 逐个元素对比
+	// 逐個元素對比
 	for i := 0; i < oldLen; i++ {
 		path := fmt.Sprintf("%s[%d]", basePath, i)
 		d.compareConfig(oldVal.Index(i).Interface(), newVal.Index(i).Interface(), path)
 	}
 }
 
-// addChange 添加变更记录
+// addChange 添加变更記錄
 func (d *ConfigDiff) addChange(path string, changeType ChangeType, oldValue, newValue interface{}, fullPath string) {
 	change := ConfigChange{
 		Path:            path,
@@ -217,23 +217,23 @@ func (d *ConfigDiff) addChange(path string, changeType ChangeType, oldValue, new
 	d.Changes = append(d.Changes, change)
 }
 
-// requiresRestart 判断配置路径是否需要重启
+// requiresRestart 判断配置路径是否需要重啟
 func requiresRestart(path string) bool {
-	// 需要重启的配置路径
+	// 需要重啟的配置路径
 	restartPaths := []string{
 		"app.current_exchange",  // 交易所切换
-		"web.host",              // Web服务地址
-		"web.port",              // Web服务端口
-		"system.log_level",      // 日志级别（虽然可以热更新，但通常建议重启）
-		"system.timezone",       // 系统时区
-		"storage.path",          // 存储路径
-		"storage.type",          // 存储类型
+		"web.host",              // Web服務地址
+		"web.port",              // Web服務端口
+		"system.log_level",      // 日志级别（雖然可以热更新，但通常建议重啟）
+		"system.timezone",       // 系统時区
+		"storage.path",          // 存儲路径
+		"storage.type",          // 存儲類型
 		"ai.enabled",            // AI功能开关
-		"ai.provider",           // AI服务提供商
+		"ai.provider",           // AI服務提供商
 		"ai.api_key",            // AI API密钥
 		"ai.base_url",           // AI基础URL
-		"notifications.enabled", // 通知总开关（可能影响初始化）
-		"risk_control.enabled",  // 风控总开关（可能影响初始化）
+		"notifications.enabled", // 通知總开关（可能影响初始化）
+		"risk_control.enabled",  // 风控總开关（可能影响初始化）
 	}
 
 	for _, restartPath := range restartPaths {

@@ -19,20 +19,20 @@ import (
 
 const (
 	AscendEXMainnetBaseURL = "https://ascendex.com"         // AscendEX 主网
-	AscendEXTestnetBaseURL = "https://testnet.ascendex.com" // AscendEX 测试网
+	AscendEXTestnetBaseURL = "https://testnet.ascendex.com" // AscendEX 測試網
 )
 
-// AscendEXClient AscendEX 客户端
+// AscendEXClient AscendEX 客戶端
 type AscendEXClient struct {
 	apiKey       string
 	secretKey    string
 	baseURL      string
 	httpClient   *http.Client
 	isTestnet    bool
-	accountGroup string // AscendEX 需要账户组
+	accountGroup string // AscendEX 需要账戶组
 }
 
-// NewAscendEXClient 创建 AscendEX 客户端
+// NewAscendEXClient 創建 AscendEX 客戶端
 func NewAscendEXClient(apiKey, secretKey string, isTestnet bool) *AscendEXClient {
 	baseURL := AscendEXMainnetBaseURL
 	if isTestnet {
@@ -45,7 +45,7 @@ func NewAscendEXClient(apiKey, secretKey string, isTestnet bool) *AscendEXClient
 		baseURL:      baseURL,
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 		isTestnet:    isTestnet,
-		accountGroup: "0", // 默认账户组
+		accountGroup: "0", // 默认账戶组
 	}
 }
 
@@ -111,7 +111,7 @@ func (c *AscendEXClient) sendRequest(ctx context.Context, method, path string, p
 	return respBody, nil
 }
 
-// GetAccountGroup 获取账户组信息
+// GetAccountGroup 獲取帳戶组信息
 func (c *AscendEXClient) GetAccountGroup(ctx context.Context) error {
 	path := "/api/pro/v1/info"
 	params := url.Values{}
@@ -139,7 +139,7 @@ func (c *AscendEXClient) GetAccountGroup(ctx context.Context) error {
 	return nil
 }
 
-// GetSymbol 获取交易对信息
+// GetSymbol 獲取交易對信息
 func (c *AscendEXClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, error) {
 	path := "/api/pro/v1/products"
 	params := url.Values{}
@@ -164,7 +164,7 @@ func (c *AscendEXClient) GetSymbol(ctx context.Context, symbol string) (*Symbol,
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
 
-	// 查找指定交易对
+	// 查找指定交易對
 	for _, s := range symbols {
 		if s.Symbol == symbol {
 			return &s, nil
@@ -174,7 +174,7 @@ func (c *AscendEXClient) GetSymbol(ctx context.Context, symbol string) (*Symbol,
 	return nil, fmt.Errorf("symbol not found: %s", symbol)
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *AscendEXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := fmt.Sprintf("/api/pro/v1/%s/order", c.accountGroup)
 	params := url.Values{}
@@ -201,11 +201,11 @@ func (c *AscendEXClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 
 	logger.Info("AscendEX order placed: %s", orderResp.OrderID)
 
-	// 查询订单详情
+	// 查詢訂單详情
 	return c.GetOrder(ctx, orderResp.OrderID)
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *AscendEXClient) CancelOrder(ctx context.Context, orderID string) error {
 	path := fmt.Sprintf("/api/pro/v1/%s/order", c.accountGroup)
 	params := url.Values{}
@@ -232,7 +232,7 @@ func (c *AscendEXClient) CancelOrder(ctx context.Context, orderID string) error 
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *AscendEXClient) GetOrder(ctx context.Context, orderID string) (*Order, error) {
 	path := fmt.Sprintf("/api/pro/v1/%s/order/status", c.accountGroup)
 	params := url.Values{}
@@ -261,7 +261,7 @@ func (c *AscendEXClient) GetOrder(ctx context.Context, orderID string) (*Order, 
 	return &order, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *AscendEXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, error) {
 	path := fmt.Sprintf("/api/pro/v1/%s/order/open", c.accountGroup)
 	params := url.Values{}
@@ -286,7 +286,7 @@ func (c *AscendEXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Or
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
 
-	// 过滤指定交易对
+	// 過滤指定交易對
 	if symbol != "" {
 		filtered := make([]Order, 0)
 		for _, order := range orders {
@@ -300,7 +300,7 @@ func (c *AscendEXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Or
 	return orders, nil
 }
 
-// GetBalance 获取账户余额
+// GetBalance 獲取帳戶餘額
 func (c *AscendEXClient) GetBalance(ctx context.Context) (*Balance, error) {
 	path := fmt.Sprintf("/api/pro/v1/%s/balance", c.accountGroup)
 	params := url.Values{}
@@ -325,7 +325,7 @@ func (c *AscendEXClient) GetBalance(ctx context.Context) (*Balance, error) {
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
 
-	// 返回 USDT 余额
+	// 回傳 USDT 餘額
 	for _, balance := range balances {
 		if balance.Asset == "USDT" {
 			return &balance, nil
@@ -335,7 +335,7 @@ func (c *AscendEXClient) GetBalance(ctx context.Context) (*Balance, error) {
 	return &Balance{Asset: "USDT", TotalBalance: 0, AvailableBalance: 0}, nil
 }
 
-// GetTicker 获取最新价格
+// GetTicker 獲取最新價格
 func (c *AscendEXClient) GetTicker(ctx context.Context, symbol string) (*Ticker, error) {
 	path := "/api/pro/v1/ticker"
 	params := url.Values{}
@@ -364,7 +364,7 @@ func (c *AscendEXClient) GetTicker(ctx context.Context, symbol string) (*Ticker,
 	return &ticker, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *AscendEXClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/api/pro/v1/barhist"
 	params := url.Values{}
@@ -397,7 +397,7 @@ func (c *AscendEXClient) GetKlines(ctx context.Context, symbol, interval string,
 	return klineResp.Data, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIResponse struct {
 	Code    int         `json:"code"`

@@ -11,7 +11,7 @@ import (
 	"quantmesh/utils"
 )
 
-// 为了避免循环导入，在这里定义需要的类型
+// 為了避免循環匯入，在这里定义需要的類型
 type Side string
 type OrderType string
 type OrderStatus string
@@ -32,7 +32,7 @@ const (
 	OrderStatusPartiallyFilled OrderStatus = "4" // 部分成交
 	OrderStatusFilled          OrderStatus = "6" // 完全成交
 	OrderStatusCanceled        OrderStatus = "7" // 已撤销
-	OrderStatusRejected        OrderStatus = "5" // 下单失败
+	OrderStatusRejected        OrderStatus = "5" // 下單失败
 )
 
 const (
@@ -119,7 +119,7 @@ type CandleUpdateCallback = func(candle interface{})
 type HuobiAdapter struct {
 	client           *HuobiClient
 	symbol           string
-	contractCode     string // Huobi 的合约代码（如 BTC-USDT）
+	contractCode     string // Huobi 的合約代碼（如 BTC-USDT）
 	wsManager        *WebSocketManager
 	klineWSManager   *KlineWebSocketManager
 	priceDecimals    int
@@ -128,7 +128,7 @@ type HuobiAdapter struct {
 	quoteAsset       string
 }
 
-// NewHuobiAdapter 创建 Huobi 适配器
+// NewHuobiAdapter 創建 Huobi 适配器
 func NewHuobiAdapter(cfg map[string]string, symbol string) (*HuobiAdapter, error) {
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
@@ -139,7 +139,7 @@ func NewHuobiAdapter(cfg map[string]string, symbol string) (*HuobiAdapter, error
 
 	client := NewHuobiClient(apiKey, secretKey)
 
-	// 转换交易对格式：BTCUSDT -> BTC-USDT
+	// 轉换交易對格式：BTCUSDT -> BTC-USDT
 	contractCode := convertSymbolToContractCode(symbol)
 
 	adapter := &HuobiAdapter{
@@ -148,12 +148,12 @@ func NewHuobiAdapter(cfg map[string]string, symbol string) (*HuobiAdapter, error
 		contractCode: contractCode,
 	}
 
-	// 获取合约信息
+	// 獲取合約信息
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := adapter.fetchContractInfo(ctxInit); err != nil {
-		logger.Warn("⚠️ [Huobi] 获取合约信息失败: %v，使用默认精度", err)
+		logger.Warn("⚠️ [Huobi] 獲取合約信息失败: %v，使用默认精度", err)
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 0
 	}
@@ -161,27 +161,32 @@ func NewHuobiAdapter(cfg map[string]string, symbol string) (*HuobiAdapter, error
 	return adapter, nil
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (h *HuobiAdapter) GetName() string {
 	return "Huobi"
 }
 
-// convertSymbolToContractCode 转换交易对格式
+// GetMarketType 獲取市場類型：futures 合約
+func (h *HuobiAdapter) GetMarketType() string {
+	return "futures"
+}
+
+// convertSymbolToContractCode 轉换交易對格式
 // BTCUSDT -> BTC-USDT
 func convertSymbolToContractCode(symbol string) string {
 	base := strings.TrimSuffix(symbol, "USDT")
 	return fmt.Sprintf("%s-USDT", base)
 }
 
-// fetchContractInfo 获取合约信息
+// fetchContractInfo 獲取合約信息
 func (h *HuobiAdapter) fetchContractInfo(ctx context.Context) error {
 	contracts, err := h.client.GetContractInfo(ctx, h.contractCode)
 	if err != nil {
-		return fmt.Errorf("获取合约信息失败: %w", err)
+		return fmt.Errorf("獲取合約信息失败: %w", err)
 	}
 
 	if len(contracts) == 0 {
-		return fmt.Errorf("未找到合约信息: %s", h.contractCode)
+		return fmt.Errorf("未找到合約信息: %s", h.contractCode)
 	}
 
 	contract := contracts[0]
@@ -189,7 +194,7 @@ func (h *HuobiAdapter) fetchContractInfo(ctx context.Context) error {
 	// 解析精度
 	priceTick, _ := strconv.ParseFloat(contract.PriceTick, 64)
 	h.priceDecimals = getPrecision(priceTick)
-	h.quantityDecimals = 0 // Huobi 使用张数，通常为整数
+	h.quantityDecimals = 0 // Huobi 使用张數，通常為整數
 
 	// 解析币种
 	parts := strings.Split(h.contractCode, "-")
@@ -198,13 +203,13 @@ func (h *HuobiAdapter) fetchContractInfo(ctx context.Context) error {
 		h.quoteAsset = parts[1]
 	}
 
-	logger.Info("ℹ️ [Huobi 合约信息] %s - 价格精度:%d, 基础币种:%s, 计价币种:%s",
+	logger.Info("ℹ️ [Huobi 合約信息] %s - 價格精度:%d, 基础币种:%s, 计價币种:%s",
 		h.contractCode, h.priceDecimals, h.baseAsset, h.quoteAsset)
 
 	return nil
 }
 
-// getPrecision 根据最小变动单位计算精度
+// getPrecision 根據最小变动單位计算精度
 func getPrecision(value float64) int {
 	str := strconv.FormatFloat(value, 'f', -1, 64)
 	parts := strings.Split(str, ".")
@@ -214,7 +219,7 @@ func getPrecision(value float64) int {
 	return 0
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (h *HuobiAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	direction := string(req.Side)
 	offset := "open"
@@ -222,15 +227,15 @@ func (h *HuobiAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 		offset = "close"
 	}
 
-	// 构造订单请求
+	// 構造订單请求
 	orderReq := map[string]interface{}{
 		"contract_code":    h.contractCode,
 		"direction":        direction,
 		"offset":           offset,
 		"order_price_type": "limit",
 		"price":            req.Price,
-		"volume":           int(req.Quantity), // Huobi 使用张数
-		"lever_rate":       10,                // 默认10倍杠杆
+		"volume":           int(req.Quantity), // Huobi 使用张數
+		"lever_rate":       10,                // 預設 10倍杠杆
 	}
 
 	if req.PostOnly {
@@ -261,7 +266,7 @@ func (h *HuobiAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	}, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (h *HuobiAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	placedOrders := make([]*Order, 0, len(orders))
 	hasMarginError := false
@@ -269,7 +274,7 @@ func (h *HuobiAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequ
 	for _, orderReq := range orders {
 		order, err := h.PlaceOrder(ctx, orderReq)
 		if err != nil {
-			logger.Warn("⚠️ [Huobi] 下单失败 %.2f %s: %v",
+			logger.Warn("⚠️ [Huobi] 下單失败 %.2f %s: %v",
 				orderReq.Price, orderReq.Side, err)
 
 			if strings.Contains(err.Error(), "1030") || strings.Contains(err.Error(), "insufficient") {
@@ -283,23 +288,23 @@ func (h *HuobiAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequ
 	return placedOrders, hasMarginError
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (h *HuobiAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	err := h.client.CancelOrder(ctx, h.contractCode, strconv.FormatInt(orderID, 10), "")
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "1061") || strings.Contains(errStr, "Order does not exist") {
-			logger.Info("ℹ️ [Huobi] 订单 %d 已不存在，跳过取消", orderID)
+			logger.Info("ℹ️ [Huobi] 订單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
 		return err
 	}
 
-	logger.Info("✅ [Huobi] 取消订单成功: %d", orderID)
+	logger.Info("✅ [Huobi] 取消訂單成功: %d", orderID)
 	return nil
 }
 
-// BatchCancelOrders 批量撤单
+// BatchCancelOrders 批量撤單
 func (h *HuobiAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	if len(orderIDs) == 0 {
 		return nil
@@ -307,7 +312,7 @@ func (h *HuobiAdapter) BatchCancelOrders(ctx context.Context, symbol string, ord
 
 	for _, orderID := range orderIDs {
 		if err := h.CancelOrder(ctx, symbol, orderID); err != nil {
-			logger.Warn("⚠️ [Huobi] 取消订单失败 %d: %v", orderID, err)
+			logger.Warn("⚠️ [Huobi] 取消訂單失败 %d: %v", orderID, err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -315,7 +320,7 @@ func (h *HuobiAdapter) BatchCancelOrders(ctx context.Context, symbol string, ord
 	return nil
 }
 
-// CancelAllOrders 取消所有订单
+// CancelAllOrders 取消所有订單
 func (h *HuobiAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	orders, err := h.GetOpenOrders(ctx, symbol)
 	if err != nil {
@@ -323,7 +328,7 @@ func (h *HuobiAdapter) CancelAllOrders(ctx context.Context, symbol string) error
 	}
 
 	if len(orders) == 0 {
-		logger.Info("ℹ️ [Huobi] 没有未完成订单")
+		logger.Info("ℹ️ [Huobi] 没有未完成订單")
 		return nil
 	}
 
@@ -335,7 +340,7 @@ func (h *HuobiAdapter) CancelAllOrders(ctx context.Context, symbol string) error
 	return h.BatchCancelOrders(ctx, symbol, orderIDs)
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (h *HuobiAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	order, err := h.client.GetOrder(ctx, h.contractCode, strconv.FormatInt(orderID, 10), "")
 	if err != nil {
@@ -345,7 +350,7 @@ func (h *HuobiAdapter) GetOrder(ctx context.Context, symbol string, orderID int6
 	return h.convertOrder(order), nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (h *HuobiAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := h.client.GetOpenOrders(ctx, h.contractCode)
 	if err != nil {
@@ -360,7 +365,7 @@ func (h *HuobiAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Ord
 	return result, nil
 }
 
-// convertOrder 转换订单格式
+// convertOrder 轉换订單格式
 func (h *HuobiAdapter) convertOrder(order *HuobiOrder) *Order {
 	var side Side
 	if order.Direction == "buy" {
@@ -384,7 +389,7 @@ func (h *HuobiAdapter) convertOrder(order *HuobiOrder) *Order {
 	}
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (h *HuobiAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	accounts, err := h.client.GetAccountInfo(ctx, h.contractCode)
 	if err != nil {
@@ -404,7 +409,7 @@ func (h *HuobiAdapter) GetAccount(ctx context.Context) (*Account, error) {
 
 	positions, err := h.GetPositions(ctx, h.symbol)
 	if err != nil {
-		logger.Warn("⚠️ [Huobi] 获取持仓失败: %v", err)
+		logger.Warn("⚠️ [Huobi] 獲取持倉失败: %v", err)
 		positions = []*Position{}
 	}
 
@@ -416,7 +421,7 @@ func (h *HuobiAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓信息
+// GetPositions 獲取持倉信息
 func (h *HuobiAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	positions, err := h.client.GetPositionInfo(ctx, h.contractCode)
 	if err != nil {
@@ -449,7 +454,7 @@ func (h *HuobiAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posi
 	return result, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (h *HuobiAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
 	account, err := h.GetAccount(ctx)
 	if err != nil {
@@ -458,7 +463,7 @@ func (h *HuobiAdapter) GetBalance(ctx context.Context, asset string) (float64, e
 	return account.AvailableBalance, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (h *HuobiAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if h.wsManager == nil {
 		h.wsManager = NewWebSocketManager(h.client.apiKey, h.client.secretKey)
@@ -496,7 +501,7 @@ func (h *HuobiAdapter) StartOrderStream(ctx context.Context, callback func(inter
 	return h.wsManager.Start(ctx, h.contractCode, localCallback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (h *HuobiAdapter) StopOrderStream() error {
 	if h.wsManager != nil {
 		h.wsManager.Stop()
@@ -504,7 +509,7 @@ func (h *HuobiAdapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (h *HuobiAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
 	if h.wsManager != nil {
 		price := h.wsManager.GetLatestPrice()
@@ -513,10 +518,10 @@ func (h *HuobiAdapter) GetLatestPrice(ctx context.Context, symbol string) (float
 		}
 	}
 
-	return 0, fmt.Errorf("WebSocket 价格流未就绪或无价格数据")
+	return 0, fmt.Errorf("WebSocket 價格流未就绪或無價格數據")
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (h *HuobiAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	if h.wsManager == nil {
 		h.wsManager = NewWebSocketManager(h.client.apiKey, h.client.secretKey)
@@ -524,7 +529,7 @@ func (h *HuobiAdapter) StartPriceStream(ctx context.Context, symbol string, call
 	return h.wsManager.StartPriceStream(ctx, h.contractCode, callback)
 }
 
-// StartKlineStream 启动K线流
+// StartKlineStream 啟動K線流
 func (h *HuobiAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
 	if h.klineWSManager == nil {
 		h.klineWSManager = NewKlineWebSocketManager()
@@ -538,7 +543,7 @@ func (h *HuobiAdapter) StartKlineStream(ctx context.Context, symbols []string, i
 	return h.klineWSManager.Start(ctx, contractCodes, interval, callback)
 }
 
-// StopKlineStream 停止K线流
+// StopKlineStream 停止K線流
 func (h *HuobiAdapter) StopKlineStream() error {
 	if h.klineWSManager != nil {
 		h.klineWSManager.Stop()
@@ -546,11 +551,11 @@ func (h *HuobiAdapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (h *HuobiAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	klines, err := h.client.GetKlines(ctx, h.contractCode, interval, limit)
 	if err != nil {
-		return nil, fmt.Errorf("获取历史K线失败: %w", err)
+		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
 	}
 
 	candles := make([]*Candle, 0, len(klines))
@@ -570,38 +575,38 @@ func (h *HuobiAdapter) GetHistoricalKlines(ctx context.Context, symbol string, i
 	return candles, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (h *HuobiAdapter) GetPriceDecimals() int {
 	return h.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (h *HuobiAdapter) GetQuantityDecimals() int {
 	return h.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (h *HuobiAdapter) GetBaseAsset() string {
 	return h.baseAsset
 }
 
-// GetQuoteAsset 获取计价资产
+// GetQuoteAsset 獲取计價资產
 func (h *HuobiAdapter) GetQuoteAsset() string {
 	return h.quoteAsset
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (h *HuobiAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	fundingRate, err := h.client.GetFundingRate(ctx, h.contractCode)
 	if err != nil {
-		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+		return 0, fmt.Errorf("獲取资金费率失败: %w", err)
 	}
 
 	rate, _ := strconv.ParseFloat(fundingRate.FundingRate, 64)
 	return rate, nil
 }
 
-// InternalTransfer 交易所内部转账（Huobi 暂未实现）
+// InternalTransfer 交易所內部轉帳（Huobi 暂未實現）
 func (h *HuobiAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Huobi")
 }

@@ -7,17 +7,17 @@ import (
 	"quantmesh/exchange"
 )
 
-// TestMomentumStrategy 测试动量策略
+// TestMomentumStrategy 测試动量策略
 func TestMomentumStrategy(t *testing.T) {
-	t.Log("测试动量策略回测...")
+	t.Log("测試动量策略回测...")
 
-	// 生成模拟数据（震荡行情）
+	// 生成模拟數據（震荡行情）
 	candles := generateMockCandles("BTCUSDT", 1000, 30000, 0.02)
 
-	// 创建策略
+	// 創建策略
 	strategy := NewMomentumAdapter()
 
-	// 创建回测器
+	// 創建回测器
 	backtester := NewBacktester("BTCUSDT", candles, strategy, 10000)
 
 	// 运行回测
@@ -26,38 +26,38 @@ func TestMomentumStrategy(t *testing.T) {
 		t.Fatalf("回测失败: %v", err)
 	}
 
-	// 验证结果
+	// 驗证結果
 	if result == nil {
-		t.Fatal("回测结果为空")
+		t.Fatal("回测結果為空")
 	}
 
 	t.Logf("✅ 动量策略回测完成")
-	t.Logf("   总交易次数: %d", result.Metrics.TotalTrades)
-	t.Logf("   总收益率: %.2f%%", result.Metrics.TotalReturn)
+	t.Logf("   總交易次數: %d", result.Metrics.TotalTrades)
+	t.Logf("   總收益率: %.2f%%", result.Metrics.TotalReturn)
 	t.Logf("   最大回撤: %.2f%%", result.Metrics.MaxDrawdown)
 	t.Logf("   夏普比率: %.2f", result.Metrics.SharpeRatio)
 	t.Logf("   胜率: %.2f%%", result.Metrics.WinRate)
 
-	// 基本验证
+	// 基本驗证
 	if result.Metrics.TotalTrades < 0 {
-		t.Error("交易次数不能为负")
+		t.Error("交易次數不能為负")
 	}
 	if result.FinalCapital < 0 {
-		t.Error("最终资金不能为负")
+		t.Error("最终资金不能為负")
 	}
 }
 
-// TestMeanReversionStrategy 测试均值回归策略
+// TestMeanReversionStrategy 测試均值回归策略
 func TestMeanReversionStrategy(t *testing.T) {
-	t.Log("测试均值回归策略回测...")
+	t.Log("测試均值回归策略回测...")
 
-	// 生成模拟数据（震荡行情）
+	// 生成模拟數據（震荡行情）
 	candles := generateMockCandles("BTCUSDT", 1000, 30000, 0.03)
 
-	// 创建策略
+	// 創建策略
 	strategy := NewMeanReversionAdapter()
 
-	// 创建回测器
+	// 創建回测器
 	backtester := NewBacktester("BTCUSDT", candles, strategy, 10000)
 
 	// 运行回测
@@ -66,38 +66,38 @@ func TestMeanReversionStrategy(t *testing.T) {
 		t.Fatalf("回测失败: %v", err)
 	}
 
-	// 验证结果
+	// 驗证結果
 	if result == nil {
-		t.Fatal("回测结果为空")
+		t.Fatal("回测結果為空")
 	}
 
 	t.Logf("✅ 均值回归策略回测完成")
-	t.Logf("   总交易次数: %d", result.Metrics.TotalTrades)
-	t.Logf("   总收益率: %.2f%%", result.Metrics.TotalReturn)
+	t.Logf("   總交易次數: %d", result.Metrics.TotalTrades)
+	t.Logf("   總收益率: %.2f%%", result.Metrics.TotalReturn)
 	t.Logf("   最大回撤: %.2f%%", result.Metrics.MaxDrawdown)
 	t.Logf("   夏普比率: %.2f", result.Metrics.SharpeRatio)
 	t.Logf("   胜率: %.2f%%", result.Metrics.WinRate)
 
-	// 基本验证
+	// 基本驗证
 	if result.Metrics.TotalTrades < 0 {
-		t.Error("交易次数不能为负")
+		t.Error("交易次數不能為负")
 	}
 	if result.FinalCapital < 0 {
-		t.Error("最终资金不能为负")
+		t.Error("最终资金不能為负")
 	}
 }
 
-// TestTrendFollowingStrategy 测试趋势跟踪策略
+// TestTrendFollowingStrategy 测試趋势跟踪策略
 func TestTrendFollowingStrategy(t *testing.T) {
-	t.Log("测试趋势跟踪策略回测...")
+	t.Log("测試趋势跟踪策略回测...")
 
-	// 生成模拟数据（趋势行情）
+	// 生成模拟數據（趋势行情）
 	candles := generateTrendingCandles("BTCUSDT", 1000, 30000, 0.001)
 
-	// 创建策略
+	// 創建策略
 	strategy := NewTrendFollowingAdapter()
 
-	// 创建回测器
+	// 創建回测器
 	backtester := NewBacktester("BTCUSDT", candles, strategy, 10000)
 
 	// 运行回测
@@ -106,38 +106,38 @@ func TestTrendFollowingStrategy(t *testing.T) {
 		t.Fatalf("回测失败: %v", err)
 	}
 
-	// 验证结果
+	// 驗证結果
 	if result == nil {
-		t.Fatal("回测结果为空")
+		t.Fatal("回测結果為空")
 	}
 
 	t.Logf("✅ 趋势跟踪策略回测完成")
-	t.Logf("   总交易次数: %d", result.Metrics.TotalTrades)
-	t.Logf("   总收益率: %.2f%%", result.Metrics.TotalReturn)
+	t.Logf("   總交易次數: %d", result.Metrics.TotalTrades)
+	t.Logf("   總收益率: %.2f%%", result.Metrics.TotalReturn)
 	t.Logf("   最大回撤: %.2f%%", result.Metrics.MaxDrawdown)
 	t.Logf("   夏普比率: %.2f", result.Metrics.SharpeRatio)
 	t.Logf("   胜率: %.2f%%", result.Metrics.WinRate)
 
-	// 基本验证
+	// 基本驗证
 	if result.Metrics.TotalTrades < 0 {
-		t.Error("交易次数不能为负")
+		t.Error("交易次數不能為负")
 	}
 	if result.FinalCapital < 0 {
-		t.Error("最终资金不能为负")
+		t.Error("最终资金不能為负")
 	}
 }
 
-// TestReportGeneration 测试报告生成
+// TestReportGeneration 测試报告生成
 func TestReportGeneration(t *testing.T) {
-	t.Log("测试报告生成...")
+	t.Log("测試报告生成...")
 
-	// 生成模拟数据
+	// 生成模拟數據
 	candles := generateMockCandles("BTCUSDT", 500, 30000, 0.02)
 
-	// 创建策略
+	// 創建策略
 	strategy := NewMomentumAdapter()
 
-	// 创建回测器
+	// 創建回测器
 	backtester := NewBacktester("BTCUSDT", candles, strategy, 10000)
 
 	// 运行回测
@@ -154,16 +154,16 @@ func TestReportGeneration(t *testing.T) {
 
 	t.Logf("✅ 报告已生成: %s", reportPath)
 
-	// 保存权益曲线
+	// 保存权益曲線
 	equityPath, err := SaveEquityCurveCSV(result)
 	if err != nil {
-		t.Fatalf("保存权益曲线失败: %v", err)
+		t.Fatalf("保存权益曲線失败: %v", err)
 	}
 
-	t.Logf("✅ 权益曲线已保存: %s", equityPath)
+	t.Logf("✅ 权益曲線已保存: %s", equityPath)
 }
 
-// generateMockCandles 生成模拟K线数据（震荡行情）
+// generateMockCandles 生成模拟K線數據（震荡行情）
 func generateMockCandles(symbol string, count int, basePrice float64, volatility float64) []*exchange.Candle {
 	candles := make([]*exchange.Candle, count)
 	currentPrice := basePrice
@@ -174,7 +174,7 @@ func generateMockCandles(symbol string, count int, basePrice float64, volatility
 		change := (float64(i%10) - 5) * volatility * basePrice
 		currentPrice += change
 
-		// 确保价格在合理范围内
+		// 确保價格在合理範圍内
 		if currentPrice < basePrice*0.8 {
 			currentPrice = basePrice * 0.8
 		}
@@ -189,7 +189,7 @@ func generateMockCandles(symbol string, count int, basePrice float64, volatility
 
 		candles[i] = &exchange.Candle{
 			Symbol:    symbol,
-			Timestamp: timestamp + int64(i)*3600000, // 每小时一根K线
+			Timestamp: timestamp + int64(i)*3600000, // 每小時一根K線
 			Open:      open,
 			High:      high,
 			Low:       low,
@@ -202,7 +202,7 @@ func generateMockCandles(symbol string, count int, basePrice float64, volatility
 	return candles
 }
 
-// generateTrendingCandles 生成趋势行情数据
+// generateTrendingCandles 生成趋势行情數據
 func generateTrendingCandles(symbol string, count int, basePrice float64, trendRate float64) []*exchange.Candle {
 	candles := make([]*exchange.Candle, count)
 	currentPrice := basePrice

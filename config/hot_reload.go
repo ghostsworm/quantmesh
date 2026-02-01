@@ -13,10 +13,10 @@ type HotReloader struct {
 	updateCallbacks []ConfigUpdateCallback
 }
 
-// ConfigUpdateCallback 配置更新回调函数类型
+// ConfigUpdateCallback 配置更新回呼函數類型
 type ConfigUpdateCallback func(oldConfig, newConfig *Config, changes []ConfigChange) error
 
-// NewHotReloader 创建热更新器
+// NewHotReloader 創建热更新器
 func NewHotReloader(initialConfig *Config) *HotReloader {
 	return &HotReloader{
 		currentConfig:   initialConfig,
@@ -24,7 +24,7 @@ func NewHotReloader(initialConfig *Config) *HotReloader {
 	}
 }
 
-// RegisterCallback 注册配置更新回调
+// RegisterCallback 注册配置更新回呼
 func (hr *HotReloader) RegisterCallback(callback ConfigUpdateCallback) {
 	hr.mu.Lock()
 	defer hr.mu.Unlock()
@@ -36,10 +36,10 @@ func (hr *HotReloader) UpdateConfig(newConfig *Config) (*ConfigDiff, error) {
 	hr.mu.Lock()
 	defer hr.mu.Unlock()
 
-	// 对比配置变更
+	// 對比配置变更
 	diff := DiffConfig(hr.currentConfig, newConfig)
 
-	// 分离需要重启的变更和可以热更新的变更
+	// 分离需要重啟的变更和可以热更新的变更
 	hotReloadableChanges := []ConfigChange{}
 	restartRequiredChanges := []ConfigChange{}
 
@@ -51,9 +51,9 @@ func (hr *HotReloader) UpdateConfig(newConfig *Config) (*ConfigDiff, error) {
 		}
 	}
 
-	// 如果有需要重启的变更，只更新可以热更新的部分
+	// 如果有需要重啟的变更，只更新可以热更新的部分
 	if len(restartRequiredChanges) > 0 {
-		// 创建只包含可热更新变更的配置
+		// 創建只包含可热更新变更的配置
 		partialConfig := hr.applyHotReloadableChanges(hr.currentConfig, newConfig, hotReloadableChanges)
 
 		// 应用可热更新的变更
@@ -61,27 +61,27 @@ func (hr *HotReloader) UpdateConfig(newConfig *Config) (*ConfigDiff, error) {
 			return nil, fmt.Errorf("应用热更新失败: %v", err)
 		}
 
-		// 更新当前配置
+		// 更新當前配置
 		hr.currentConfig = partialConfig
 
-		// 返回包含重启提示的差异
+		// 返回包含重啟提示的差异
 		return diff, nil
 	}
 
 	// 全部可以热更新，直接应用
 	if err := hr.applyConfigUpdate(hr.currentConfig, newConfig, diff.Changes); err != nil {
-		return nil, fmt.Errorf("应用配置更新失败: %v", err)
+		return nil, fmt.Errorf("應用配置更新失败: %v", err)
 	}
 
-	// 更新当前配置
+	// 更新當前配置
 	hr.currentConfig = newConfig
 
 	return diff, nil
 }
 
-// applyHotReloadableChanges 应用可热更新的变更，创建部分更新的配置
+// applyHotReloadableChanges 应用可热更新的变更，創建部分更新的配置
 func (hr *HotReloader) applyHotReloadableChanges(oldConfig, newConfig *Config, hotReloadableChanges []ConfigChange) *Config {
-	// 深度复制旧配置
+	// 深度複制舊配置
 	result := hr.cloneConfig(oldConfig)
 
 	// 应用可热更新的变更
@@ -92,17 +92,17 @@ func (hr *HotReloader) applyHotReloadableChanges(oldConfig, newConfig *Config, h
 	return result
 }
 
-// applyChangeToConfig 将单个变更应用到配置
+// applyChangeToConfig 將單個变更应用到配置
 func (hr *HotReloader) applyChangeToConfig(config *Config, sourceConfig *Config, path string, value interface{}) {
-	// 简化实现：对于复杂路径，直接从源配置复制整个结构
-	// 这里使用反射来实现深度复制特定字段
+	// 简化實現：對於複杂路径，直接從源配置複制整個結構
+	// 这里使用反射来實現深度複制特定字段
 	hr.copyConfigField(config, sourceConfig, path)
 }
 
-// copyConfigField 复制配置字段（简化实现）
+// copyConfigField 複制配置字段（简化實現）
 func (hr *HotReloader) copyConfigField(dest, src *Config, path string) {
-	// 根据路径复制对应的字段
-	// 这是一个简化实现，实际应该使用反射进行深度复制
+	// 根據路径複制對应的字段
+	// 这是一個简化實現，實際应該使用反射進行深度複制
 	switch {
 	case path == "trading.symbol" || strings.HasPrefix(path, "trading."):
 		dest.Trading = src.Trading
@@ -118,29 +118,29 @@ func (hr *HotReloader) copyConfigField(dest, src *Config, path string) {
 	}
 }
 
-// applyConfigUpdate 应用配置更新并触发回调
+// applyConfigUpdate 應用配置更新並触发回呼
 func (hr *HotReloader) applyConfigUpdate(oldConfig, newConfig *Config, changes []ConfigChange) error {
-	// 触发所有注册的回调
+	// 触发所有注册的回呼
 	for _, callback := range hr.updateCallbacks {
 		if err := callback(oldConfig, newConfig, changes); err != nil {
-			return fmt.Errorf("配置更新回调执行失败: %v", err)
+			return fmt.Errorf("配置更新回呼執行失败: %v", err)
 		}
 	}
 
 	return nil
 }
 
-// GetCurrentConfig 获取当前配置
+// GetCurrentConfig 獲取當前配置
 func (hr *HotReloader) GetCurrentConfig() *Config {
 	hr.mu.RLock()
 	defer hr.mu.RUnlock()
 	return hr.currentConfig
 }
 
-// cloneConfig 深度复制配置（简化实现，实际应该使用更完善的深度复制）
+// cloneConfig 深度複制配置（简化實現，實際应該使用更完善的深度複制）
 func (hr *HotReloader) cloneConfig(config *Config) *Config {
-	// 使用序列化/反序列化实现深度复制
-	// 这里返回配置的引用，实际使用时应该真正实现深度复制
-	// 为了简化，这里暂时返回原配置（实际应该使用gob或json序列化）
+	// 使用序列化/反序列化實現深度複制
+	// 这里返回配置的引用，實際使用時应該真正實現深度複制
+	// 為了简化，这里暂時返回原配置（實際应該使用gob或json序列化）
 	return config
 }

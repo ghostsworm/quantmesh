@@ -10,14 +10,14 @@ import (
 	"quantmesh/exchange"
 )
 
-// BayesianOptimizer 贝叶斯优化器（高斯过程 + EI 采集）
+// BayesianOptimizer 贝叶斯优化器（高斯過程 + EI 采集）
 type BayesianOptimizer struct {
 	lengthScale float64 // RBF 核长度尺度
 	noiseVar    float64 // 观测噪声方差
 	randSrc     *rand.Rand
 }
 
-// NewBayesianOptimizer 创建贝叶斯优化器
+// NewBayesianOptimizer 創建贝叶斯优化器
 func NewBayesianOptimizer() *BayesianOptimizer {
 	return &BayesianOptimizer{
 		lengthScale: 0.5,
@@ -26,7 +26,7 @@ func NewBayesianOptimizer() *BayesianOptimizer {
 	}
 }
 
-// Run 执行贝叶斯优化
+// Run 執行贝叶斯优化
 func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*exchange.Candle, space OptimSearchSpace, config OptimConfig, initialCapital float64) (*OptimResult, error) {
 	if err := ValidateSearchSpace(space); err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 		lambda = 0.5
 	}
 
-	// 将空间归一化到 [0,1]^4 用于核计算
+	// 將空间归一化到 [0,1]^4 用於核计算
 	bounds := b.spaceBounds(space)
 	// 初始随机点
 	nInit := 5
@@ -74,7 +74,7 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 		allParamResults = append(allParamResults, ParamResult{Params: p, Score: score, Metrics: metrics})
 	}
 
-	// 迭代：用 GP 预测 EI，取最大 EI 点评估
+	// 迭代：用 GP 預测 EI，取最大 EI 点评估
 	for iter := nInit; iter < nCalls; iter++ {
 		select {
 		case <-ctx.Done():
@@ -188,7 +188,7 @@ func (b *BayesianOptimizer) rbfKernel(a, bVec []float64) float64 {
 	return math.Exp(-d2 / (2 * b.lengthScale * b.lengthScale))
 }
 
-// gpPredict 高斯过程预测：返回均值 mu 和标准差 sigma
+// gpPredict 高斯過程預测：返回均值 mu 和標准差 sigma
 func (b *BayesianOptimizer) gpPredict(X [][]float64, y []float64, xStar []float64) (mu, sigma float64) {
 	n := len(X)
 	if n == 0 {
@@ -236,7 +236,7 @@ func (b *BayesianOptimizer) gpPredict(X [][]float64, y []float64, xStar []float6
 	return mu, sigma
 }
 
-// solveSym 解对称正定线性方程组 Kx = rhs（Cholesky 分解）
+// solveSym 解對称正定線性方程组 Kx = rhs（Cholesky 分解）
 func solveSym(K [][]float64, rhs []float64) ([]float64, error) {
 	n := len(rhs)
 	L := make([][]float64, n)

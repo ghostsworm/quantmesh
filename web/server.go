@@ -13,12 +13,12 @@ import (
 
 var globalConfig *config.Config
 
-// ipWhitelistMiddleware IP 白名单中间件
+// ipWhitelistMiddleware IP 白名單中间件
 func ipWhitelistMiddleware(allowedIPs []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
 		
-		// 检查是否在白名单中
+		// 检查是否在白名單中
 		allowed := false
 		for _, ip := range allowedIPs {
 			if ip == clientIP || ip == "*" {
@@ -28,7 +28,7 @@ func ipWhitelistMiddleware(allowedIPs []string) gin.HandlerFunc {
 		}
 		
 		if !allowed {
-			logger.Warn("⚠️ [pprof] IP %s 不在白名单中，拒绝访问", clientIP)
+			logger.Warn("⚠️ [pprof] IP %s 不在白名單中，拒绝访问", clientIP)
 			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 			c.Abort()
 			return
@@ -38,15 +38,15 @@ func ipWhitelistMiddleware(allowedIPs []string) gin.HandlerFunc {
 	}
 }
 
-// SetupRoutes 设置路由
+// SetupRoutes 設置路由
 func SetupRoutes(r *gin.Engine) {
 	SetupRoutesWithConfig(r, nil)
 }
 
-// SetupRoutesWithConfig 设置路由（带配置）
+// SetupRoutesWithConfig 設置路由（带配置）
 func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 	globalConfig = cfg
-	// 首先处理根路径，返回 index.html（必须在其他路由之前）
+	// 首先处理根路径，回傳 index.html（必須在其他路由之前）
 	r.GET("/", func(c *gin.Context) {
 		index, err := staticFiles.ReadFile("dist/index.html")
 		if err != nil {
@@ -61,7 +61,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 	// Prometheus metrics 端点（不需要认证，供 Prometheus 抓取）
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// pprof 性能分析端点（默认关闭，需要通过配置显式启用）
+	// pprof 性能分析端点（默认关闭，需要通過配置显式啟用）
 	pprofEnabled := false
 	pprofRequireAuth := true
 	var pprofAllowedIPs []string
@@ -70,13 +70,13 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		pprofEnabled = true
 		pprofRequireAuth = cfg.Web.Pprof.RequireAuth
 		pprofAllowedIPs = cfg.Web.Pprof.AllowedIPs
-		logger.Info("✅ pprof 已启用 (需要认证: %v, IP白名单: %v)", pprofRequireAuth, len(pprofAllowedIPs) > 0)
+		logger.Info("✅ pprof 已啟用 (需要认证: %v, IP白名單: %v)", pprofRequireAuth, len(pprofAllowedIPs) > 0)
 	}
 	
 	if pprofEnabled {
 		pprofGroup := r.Group("/debug/pprof")
 		
-		// IP 白名单中间件
+		// IP 白名單中间件
 		if len(pprofAllowedIPs) > 0 {
 			pprofGroup.Use(ipWhitelistMiddleware(pprofAllowedIPs))
 		}
@@ -101,10 +101,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			pprofGroup.GET("/threadcreate", gin.WrapH(pprof.Handler("threadcreate")))
 		}
 	} else {
-		logger.Info("ℹ️ pprof 已禁用（生产环境建议禁用）")
+		logger.Info("ℹ️ pprof 已禁用（生產环境建议禁用）")
 	}
 
-	// API 路由（所有 API 响应带 X-App-Version 头便于排查）
+	// API 路由（所有 API 响应带 X-App-Version 头便於排查）
 	api := r.Group("/api")
 	api.Use(versionHeaderMiddleware())
 	{
@@ -117,7 +117,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			auth.POST("/logout", logout)
 		}
 
-		// 配置引导路由（不需要认证，在配置完成前使用）
+		// 配置引導路由（不需要认证，在配置完成前使用）
 		setup := api.Group("/setup")
 		{
 			setup.GET("/status", getSetupStatusHandler)
@@ -140,13 +140,13 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		{
 			webauthn.POST("/register/begin", authMiddleware(), beginWebAuthnRegistration)
 			webauthn.POST("/register/finish", authMiddleware(), finishWebAuthnRegistration)
-			webauthn.POST("/login/begin", beginWebAuthnLogin)   // 登录开始不需要认证
-			webauthn.POST("/login/finish", finishWebAuthnLogin) // 登录完成不需要认证（但需要密码验证）
+			webauthn.POST("/login/begin", beginWebAuthnLogin)   // 登錄开始不需要认证
+			webauthn.POST("/login/finish", finishWebAuthnLogin) // 登錄完成不需要认证（但需要密碼驗证）
 			webauthn.GET("/credentials", authMiddleware(), listWebAuthnCredentials)
 			webauthn.POST("/credentials/delete", authMiddleware(), deleteWebAuthnCredential)
 		}
 
-		// 需要认证的业务API
+		// 需要认证的业務API
 		protected := api.Group("")
 		protected.Use(authMiddleware())
 		{
@@ -172,7 +172,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/allocation/status", getAllocationStatus)
 			protected.GET("/allocation/status/:exchange/:symbol", getAllocationStatusBySymbol)
 
-			// 仓位目标计划 API（check 须在 :id 前注册）
+			// 倉位目標计划 API（check 須在 :id 前注册）
 			protected.GET("/position-plans/check", getPositionPlanCheck)
 			protected.GET("/position-plans", getPositionPlans)
 			protected.GET("/position-plans/:id", getPositionPlanByID)
@@ -225,7 +225,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				backtestAPI.DELETE("/tasks/:id", deleteBacktestTask)
 			}
 
-			// 网格参数优化 API
+			// 网格参數优化 API
 			optimizerAPI := protected.Group("/optimizer")
 			{
 				optimizerAPI.GET("/price", getOptimizerPrice)
@@ -235,7 +235,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				optimizerAPI.POST("/stop/:id", postOptimizerStop)
 			}
 
-			// 加密货币支付 API
+			// 加密貨幣支付 API
 			cryptoPayment := protected.Group("/payment/crypto")
 			{
 				cryptoPayment.GET("/currencies", getSupportedCryptoCurrenciesHandler)
@@ -251,7 +251,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		protected.GET("/reconciliation/aggregated", getReconciliationAggregated)
 			protected.GET("/risk/status", getRiskStatus)
 			protected.GET("/risk/monitor", getRiskMonitorData)
-			// 新闻分析 API
+			// 新聞分析 API
 			protected.GET("/news/analysis", getNewsAnalysis)
 			protected.GET("/news/predictions", getNewsPredictions)
 			protected.POST("/news/analyze", postNewsAnalyze)
@@ -284,7 +284,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.POST("/config/history/:version/restore", restoreConfigHistoryHandler)
 			protected.POST("/config/history/diff", diffConfigHistoryHandler)
 
-			// 数据导出 API
+			// 數據導出 API
 			protected.GET("/export/config", exportConfigHandler)
 			protected.GET("/export/config/history/:version", exportConfigHistoryHandler)
 			protected.GET("/export/trades", exportTradesHandler)
@@ -302,7 +302,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.POST("/trading/stop", stopTrading)
 			protected.POST("/trading/close-positions", closeAllPositions)
 
-			// 系统监控API
+			// 系统監控API
 			protected.GET("/system/metrics", getSystemMetrics)
 			protected.GET("/system/metrics/current", getCurrentSystemMetrics)
 			protected.GET("/system/metrics/daily", getDailySystemMetrics)
@@ -319,10 +319,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 策略资金分配API
 			protected.GET("/strategies/allocation", getStrategyAllocation)
 
-			// 待成交订单API
+			// 待成交订單API
 			protected.GET("/orders/pending", getPendingOrders)
 
-			// K线数据API
+			// K線數據API
 			protected.GET("/klines", getKlines)
 
 			// 资金费率API
@@ -348,7 +348,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 
 			protected.GET("/funding/history", getFundingRateHistory)
 
-			// 价差监控
+			// 價差監控
 			protected.GET("/basis/current", getBasisCurrent)
 			protected.GET("/basis/history", getBasisHistory)
 			protected.GET("/basis/statistics", getBasisStatistics)
@@ -414,7 +414,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		// 事件中心 API
 		registerEventRoutes(api, authMiddleware())
 
-		// Webhooks (不需要认证,但需要验证签名)
+		// Webhooks (不需要认证,但需要驗证签名)
 		api.POST("/billing/webhook/stripe", stripeWebhookHandler)
 		api.POST("/payment/crypto/webhook/coinbase", coinbaseWebhookHandler)
 	}
@@ -422,22 +422,22 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 	// WebSocket 路由
 	r.GET("/ws", handleWebSocket)
 
-	// 静态资源文件（CSS、JS、图片等）
-	// 注意：Vite 构建后的资源在 dist/assets 目录下
+	// 静態资源文件（CSS、JS、图片等）
+	// 注意：Vite 構建后的资源在 dist/assets 目錄下
 	assetsFS := GetAssetsFS()
 	if assetsFS != nil {
 		// 使用文件系统提供 /assets 路径下的文件
 		r.StaticFS("/assets", assetsFS)
 	}
 
-	// 图标目录
+	// 图標目錄
 	iconsFS := GetIconsFS()
 	if iconsFS != nil {
 		r.StaticFS("/icons", iconsFS)
 	}
 
-	// PWA 相关静态文件（Service Worker、Manifest 等）
-	// 这些文件需要从根路径访问
+	// PWA 相关静態文件（Service Worker、Manifest 等）
+	// 这些文件需要從根路径访问
 	pwaFiles := map[string]string{
 		"/registerSW.js":        "dist/registerSW.js",
 		"/sw.js":                "dist/sw.js",
@@ -445,14 +445,14 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		"/manifest.json":        "dist/manifest.json",
 	}
 	for urlPath, filePath := range pwaFiles {
-		fp := filePath // 捕获变量
+		fp := filePath // 捕獲变量
 		r.GET(urlPath, func(c *gin.Context) {
 			data, err := staticFiles.ReadFile(fp)
 			if err != nil {
 				c.Status(http.StatusNotFound)
 				return
 			}
-			// 根据文件类型设置正确的 Content-Type
+			// 根據文件類型設置正确的 Content-Type
 			contentType := "application/javascript"
 			if strings.HasSuffix(fp, ".json") || strings.HasSuffix(fp, ".webmanifest") {
 				contentType = "application/json"
@@ -461,15 +461,15 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		})
 	}
 
-	// SPA 路由回退（所有未匹配的路由返回 index.html）
+	// SPA 路由回退（所有未匹配的路由回傳 index.html）
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
-		// 跳过 API 和 WebSocket 路径
+		// 跳過 API 和 WebSocket 路径
 		if strings.HasPrefix(path, "/api") || strings.HasPrefix(path, "/ws") {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		// 跳过静态资源路径（如果已经通过 StaticFS 处理）
+		// 跳過静態资源路径（如果已經通過 StaticFS 处理）
 		if strings.HasPrefix(path, "/assets") || strings.HasPrefix(path, "/icons") {
 			c.Status(http.StatusNotFound)
 			return
@@ -487,7 +487,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			return
 		}
 
-		// 其他路径都返回 index.html（SPA 路由）
+		// 其他路径都回傳 index.html（SPA 路由）
 		index, err := staticFiles.ReadFile("dist/index.html")
 		if err != nil {
 			c.Status(http.StatusNotFound)

@@ -26,32 +26,32 @@ type NewsItem struct {
 	URL         string    `json:"url"`
 	PublishedAt time.Time `json:"published_at"`
 	Keywords    []string  `json:"keywords"`
-	RiskScore   float64   `json:"risk_score"`   // 0-100，风险评分
-	Category    string    `json:"category"`      // 地缘政治、监管、技术、宏观经济等
+	RiskScore   float64   `json:"risk_score"`   // 0-100，风險评分
+	Category    string    `json:"category"`      // 地緣政治、監管、技术、總體經濟等
 	ImpactLevel string    `json:"impact_level"` // low, medium, high, critical
 }
 
-// PriceScenario 价格场景预测
+// PriceScenario 價格场景預测
 type PriceScenario struct {
 	Direction     string  `json:"direction"`      // "up", "down", "neutral"
 	ChangePercent float64 `json:"change_percent"`
 	Probability   float64 `json:"probability"` // 0-1
 }
 
-// PriceRange 价格区间
+// PriceRange 價格区间
 type PriceRange struct {
 	Min float64 `json:"min"`
 	Max float64 `json:"max"`
 }
 
-// PricePrediction 价格预测（单个时间窗口）
+// PricePrediction 價格預测（單個時间窗口）
 type PricePrediction struct {
 	Timeframe        string          `json:"timeframe"` // "2h", "4h", etc.
 	Scenarios        []PriceScenario `json:"scenarios"`
 	TargetPriceRange PriceRange      `json:"target_price_range"`
 }
 
-// CurrentPriceAnalysis 当前价格分析
+// CurrentPriceAnalysis 當前價格分析
 type CurrentPriceAnalysis struct {
 	CurrentPrice     float64 `json:"current_price"`
 	PriceTrend       string  `json:"price_trend"` // "up", "down", "neutral"
@@ -60,20 +60,20 @@ type CurrentPriceAnalysis struct {
 	Change24hPercent float64 `json:"change_24h_percent"`
 }
 
-// RiskFactor 风险因素
+// RiskFactor 风險因素
 type RiskFactor struct {
 	Factor   string `json:"factor"`
 	Severity string `json:"severity"` // "low", "medium", "high", "critical"
 	Impact   string `json:"impact"`
 }
 
-// NewsRiskAssessment 新闻风险评估结果
+// NewsRiskAssessment 新闻风險评估結果
 type NewsRiskAssessment struct {
 	AssetType            string               `json:"asset_type"`            // crypto_btc, commodity_gold
-	OverallRiskScore     float64              `json:"overall_risk_score"`    // 综合风险评分 0-100
+	OverallRiskScore     float64              `json:"overall_risk_score"`    // 综合风險评分 0-100
 	CrashProbability     float64              `json:"crash_probability"`     // 大跌概率 0-1
-	RecentHighRiskNews   []NewsItem           `json:"recent_high_risk_news"` // 最近的高风险新闻
-	RiskFactors          []string             `json:"risk_factors"`          // 风险因素列表（兼容旧字段）
+	RecentHighRiskNews   []NewsItem           `json:"recent_high_risk_news"` // 最近的高风險新闻
+	RiskFactors          []string             `json:"risk_factors"`          // 风險因素列表（兼容舊字段）
 	LastUpdated          time.Time            `json:"last_updated"`
 	Recommendation       string               `json:"recommendation"`        // 建议：normal, caution, reduce_position, stop_trading
 	AnalysisID           string               `json:"analysis_id"`           // 唯一ID
@@ -84,38 +84,38 @@ type NewsRiskAssessment struct {
 	AnalysisSummary      string               `json:"analysis_summary"`
 }
 
-// PriceGetter 获取指定交易对当前价格的函数，用于 Gemini 分析
+// PriceGetter 獲取指定交易對當前價格的函數，用於 Gemini 分析
 type PriceGetter func(symbol string) float64
 
-// NewsMonitor 新闻监控器
+// NewsMonitor 新聞監控器
 type NewsMonitor struct {
 	cfg              *config.Config
 	storage          storage.Storage
 	httpClient       *http.Client
 	newsCache             []NewsItem
-	lastAssessment        *NewsRiskAssessment       // 兼容：最后一次分析（任意资产）
-	lastAssessmentByAsset map[string]*NewsRiskAssessment // 按资产类型缓存
+	lastAssessment        *NewsRiskAssessment       // 兼容：最后一次分析（任意资產）
+	lastAssessmentByAsset map[string]*NewsRiskAssessment // 按资產類型缓存
 	mu                    sync.RWMutex
 	ctx              context.Context
 	cancel           context.CancelFunc
 	isRunning        bool
 	analysisLoopDone chan struct{}
 
-	// Gemini 新闻分析
+	// Gemini 新聞分析
 	newsCollector   *NewsCollector
 	geminiAnalyzer  *GeminiNewsAnalyzer
 	getPrice        PriceGetter
 
-	// 风险关键词库
+	// 风險关键词库
 	highRiskKeywords map[string]float64 // 关键词 -> 权重
-	categories       map[string]float64 // 类别 -> 权重
+	categories       map[string]float64 // 類别 -> 权重
 }
 
-// NewNewsMonitor 创建新闻监控器
+// NewNewsMonitor 創建新聞監控器
 func NewNewsMonitor(cfg *config.Config, storage storage.Storage) *NewsMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 创建支持代理的 HTTP 客户端
+	// 創建支援代理的 HTTP 客戶端
 	transport := &http.Transport{}
 	proxyURL := os.Getenv("HTTPS_PROXY")
 	if proxyURL == "" {
@@ -143,70 +143,70 @@ func NewNewsMonitor(cfg *config.Config, storage storage.Storage) *NewsMonitor {
 		cancel:                cancel,
 	}
 
-	// 初始化风险关键词库
+	// 初始化风險关键词库
 	nm.initRiskKeywords()
 
 	return nm
 }
 
-// SetPriceGetter 设置价格获取函数（用于 Gemini 分析）
+// SetPriceGetter 設置價格獲取函數（用於 Gemini 分析）
 func (nm *NewsMonitor) SetPriceGetter(getPrice PriceGetter) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 	nm.getPrice = getPrice
 }
 
-// initRiskKeywords 初始化风险关键词库
+// initRiskKeywords 初始化风險关键词库
 func (nm *NewsMonitor) initRiskKeywords() {
-	// 高风险关键词及其权重（0-1）
+	// 高风險关键词及其权重（0-1）
 	nm.highRiskKeywords = map[string]float64{
-		// 地缘政治
-		"战争": 0.9, "冲突": 0.85, "袭击": 0.9, "爆炸": 0.85, "军事": 0.7,
+		// 地緣政治
+		"戰爭": 0.9, "冲突": 0.85, "袭击": 0.9, "爆炸": 0.85, "军事": 0.7,
 		"伊朗": 0.8, "以色列": 0.75, "俄罗斯": 0.7, "乌克兰": 0.7,
-		"制裁": 0.75, "禁运": 0.8, "封锁": 0.85,
-		// 监管政策
-		"禁令": 0.9, "禁止": 0.85, "监管": 0.7, "SEC": 0.75, "证监会": 0.75,
+		"制裁": 0.75, "禁运": 0.8, "封鎖": 0.85,
+		// 監管政策
+		"禁令": 0.9, "禁止": 0.85, "監管": 0.7, "SEC": 0.75, "证監會": 0.75,
 		"立法": 0.65, "法案": 0.7, "法规": 0.65,
-		// 宏观经济
-		"关税": 0.8, "加息": 0.7, "降息": 0.5, "通胀": 0.6, "衰退": 0.85,
-		"政府关门": 0.75, "债务危机": 0.8, "违约": 0.9,
+		// 總體經濟
+		"关税": 0.8, "加息": 0.7, "降息": 0.5, "通脹": 0.6, "衰退": 0.85,
+		"政府关门": 0.75, "债務危机": 0.8, "违约": 0.9,
 		// 交易所/技术
 		"黑客": 0.9, "攻击": 0.85, "被盗": 0.9, "交易所": 0.7, "暂停": 0.8,
 		"故障": 0.7, "宕机": 0.75,
 		// 市场情绪
 		"暴跌": 0.85, "崩盘": 0.9, "恐慌": 0.8, "抛售": 0.75,
-		"流动性危机": 0.85, "强制平仓": 0.8,
+		"流动性危机": 0.85, "强制平倉": 0.8,
 	}
 
-	// 类别权重
+	// 類别权重
 	nm.categories = map[string]float64{
-		"地缘政治": 0.9,
-		"监管政策": 0.85,
+		"地緣政治": 0.9,
+		"監管政策": 0.85,
 		"交易所安全": 0.9,
-		"宏观经济": 0.7,
+		"總體經濟": 0.7,
 		"市场异常": 0.8,
 		"其他": 0.3,
 	}
 }
 
-// Start 启动新闻监控
+// Start 啟动新聞監控
 func (nm *NewsMonitor) Start() error {
 	if !nm.cfg.NewsMonitor.Enabled {
-		logger.Info("📰 新闻监控未启用")
+		logger.Info("📰 新聞監控未啟用")
 		return nil
 	}
 
 	if nm.isRunning {
-		return fmt.Errorf("新闻监控已在运行")
+		return fmt.Errorf("新聞監控已在运行")
 	}
 
 	nm.isRunning = true
 
-	// 创建并启动 NewsCollector（每5分钟收集新闻）
+	// 創建並啟动 NewsCollector（每5分钟收集新闻）
 	nm.newsCollector = NewNewsCollector(nm.cfg)
 	nm.newsCollector.Start()
 
-	// 创建 Gemini 分析器
+	// 創建 Gemini 分析器
 	nm.geminiAnalyzer = NewGeminiNewsAnalyzer(nm.cfg, nm.newsCollector)
 
 	nm.analysisLoopDone = make(chan struct{})
@@ -217,7 +217,7 @@ func (nm *NewsMonitor) Start() error {
 			logger.Warn("⚠️ 解析分析间隔失败，使用默认30分钟: %v", err)
 			analysisInterval = 30 * time.Minute
 		}
-		logger.Info("📰 启动新闻监控 (Gemini 分析间隔: %s)", analysisInterval)
+		logger.Info("📰 啟动新聞監控 (Gemini 分析间隔: %s)", analysisInterval)
 		go nm.geminiAnalysisLoop(analysisInterval)
 	} else {
 		// 规则引擎模式：每5分钟检查
@@ -226,28 +226,28 @@ func (nm *NewsMonitor) Start() error {
 			logger.Warn("⚠️ 解析检查间隔失败，使用默认5分钟: %v", err)
 			checkInterval = 5 * time.Minute
 		}
-		logger.Info("📰 启动新闻监控 (规则引擎间隔: %s)", checkInterval)
+		logger.Info("📰 啟动新聞監控 (规则引擎间隔: %s)", checkInterval)
 		go nm.monitoringLoop(checkInterval)
 	}
 
 	return nil
 }
 
-// Stop 停止新闻监控
+// Stop 停止新聞監控
 func (nm *NewsMonitor) Stop() {
 	nm.cancel()
 	if nm.newsCollector != nil {
 		nm.newsCollector.Stop()
 	}
-	// 仅当已启动过监控循环时才等待
+	// 僅當已啟动過監控循环時才等待
 	if nm.analysisLoopDone != nil {
 		<-nm.analysisLoopDone
 	}
 	nm.isRunning = false
-	logger.Info("📰 新闻监控已停止")
+	logger.Info("📰 新聞監控已停止")
 }
 
-// monitoringLoop 监控循环（规则引擎模式）
+// monitoringLoop 監控循环（规则引擎模式）
 func (nm *NewsMonitor) monitoringLoop(interval time.Duration) {
 	defer func() {
 		if nm.analysisLoopDone != nil {
@@ -257,7 +257,7 @@ func (nm *NewsMonitor) monitoringLoop(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// 立即执行一次
+	// 立即執行一次
 	nm.checkNews()
 
 	for {
@@ -270,7 +270,7 @@ func (nm *NewsMonitor) monitoringLoop(interval time.Duration) {
 	}
 }
 
-// geminiAnalysisLoop Gemini 分析循环（每30分钟，多资产）
+// geminiAnalysisLoop Gemini 分析循环（每30分钟，多资產）
 func (nm *NewsMonitor) geminiAnalysisLoop(interval time.Duration) {
 	defer func() {
 		if nm.analysisLoopDone != nil {
@@ -281,7 +281,7 @@ func (nm *NewsMonitor) geminiAnalysisLoop(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// 立即执行一次
+	// 立即執行一次
 	nm.runGeminiAnalysisForAllAssets("")
 
 	for {
@@ -294,7 +294,7 @@ func (nm *NewsMonitor) geminiAnalysisLoop(interval time.Duration) {
 	}
 }
 
-// runGeminiAnalysisForAllAssets 对所有启用资产执行分析
+// runGeminiAnalysisForAllAssets 對所有啟用资產執行分析
 func (nm *NewsMonitor) runGeminiAnalysisForAllAssets(focusEvent string) {
 	assets := nm.cfg.NewsMonitor.Assets
 	if len(assets) == 0 {
@@ -311,13 +311,13 @@ func (nm *NewsMonitor) runGeminiAnalysisForAllAssets(focusEvent string) {
 	}
 }
 
-// runGeminiAnalysis 执行一次 Gemini 分析（单资产）
+// runGeminiAnalysis 執行一次 Gemini 分析（單资產）
 func (nm *NewsMonitor) runGeminiAnalysis(assetType, symbol, focusEvent string) {
 	if nm.geminiAnalyzer == nil {
 		return
 	}
 	if nm.geminiAnalyzer.IsAnalyzing() {
-		logger.Debug("📰 跳过本次 Gemini 分析：上次分析尚未完成")
+		logger.Debug("📰 跳過本次 Gemini 分析：上次分析尚未完成")
 		return
 	}
 
@@ -326,7 +326,7 @@ func (nm *NewsMonitor) runGeminiAnalysis(assetType, symbol, focusEvent string) {
 		currentPrice = nm.getPrice(symbol)
 	}
 	if currentPrice <= 0 {
-		logger.Warn("📰 无法获取 %s 价格，跳过 Gemini 分析", symbol)
+		logger.Warn("📰 無法獲取 %s 價格，跳過 Gemini 分析", symbol)
 		if assetType == AssetTypeCryptoBTC {
 			nm.checkNews()
 		}
@@ -353,7 +353,7 @@ func (nm *NewsMonitor) runGeminiAnalysis(assetType, symbol, focusEvent string) {
 	nm.lastAssessmentByAsset[assetType] = assessment
 	nm.mu.Unlock()
 
-	// 更新指标
+	// 更新指標
 	pm := metrics.GetPrometheusMetrics()
 	pm.SetNewsRiskScore(assessment.OverallRiskScore)
 	pm.SetBitcoinCrashProbability(assessment.CrashProbability)
@@ -372,22 +372,22 @@ func (nm *NewsMonitor) runGeminiAnalysis(assetType, symbol, focusEvent string) {
 	// 保存分析历史
 	nm.saveAnalysisHistory(symbol, currentPrice, assessment, focusEvent)
 
-	// 定期清理过期历史
+	// 定期清理過期历史
 	nm.cleanupOldAnalysisHistory()
 
 	if assessment.OverallRiskScore >= 70 {
-		logger.Warn("⚠️ 新闻风险评分较高: %.2f, 大跌概率: %.2f%%, 建议: %s",
+		logger.Warn("⚠️ 新闻风險评分较高: %.2f, 大跌概率: %.2f%%, 建议: %s",
 			assessment.OverallRiskScore, assessment.CrashProbability*100, assessment.Recommendation)
 	}
 }
 
-// SymbolToAssetType 交易对到资产类型映射
+// SymbolToAssetType 交易對到资產類型映射
 var SymbolToAssetType = map[string]string{
 	"BTCUSDT":  AssetTypeCryptoBTC,
 	"PAXGUSDT": AssetTypeCommodityGold,
 }
 
-// TriggerAnalysis 手动触发分析（支持指定焦点事件和 assetType）
+// TriggerAnalysis 手动触发分析（支援指定焦点事件和 assetType）
 func (nm *NewsMonitor) TriggerAnalysis(symbol string, focusEvent string) error {
 	return nm.TriggerAnalysisWithAsset(symbol, "", focusEvent)
 }
@@ -395,16 +395,16 @@ func (nm *NewsMonitor) TriggerAnalysis(symbol string, focusEvent string) error {
 // TriggerAnalysisWithAsset 手动触发分析，可指定 assetType
 func (nm *NewsMonitor) TriggerAnalysisWithAsset(symbol, assetType, focusEvent string) error {
 	if !nm.cfg.NewsMonitor.Enabled {
-		return fmt.Errorf("新闻监控未启用")
+		return fmt.Errorf("新聞監控未啟用")
 	}
 	if !nm.cfg.NewsMonitor.UseGeminiSearch {
-		return fmt.Errorf("Gemini 搜索未启用，无法触发分析")
+		return fmt.Errorf("Gemini 搜索未啟用，無法触发分析")
 	}
 	if nm.geminiAnalyzer == nil {
 		return fmt.Errorf("Gemini 分析器未初始化")
 	}
 	if nm.geminiAnalyzer.IsAnalyzing() {
-		return fmt.Errorf("已有分析任务在执行中")
+		return fmt.Errorf("已有分析任務在執行中")
 	}
 
 	if symbol == "" {
@@ -421,7 +421,7 @@ func (nm *NewsMonitor) TriggerAnalysisWithAsset(symbol, assetType, focusEvent st
 		currentPrice = nm.getPrice(symbol)
 	}
 	if currentPrice <= 0 {
-		return fmt.Errorf("无法获取 %s 当前价格", symbol)
+		return fmt.Errorf("無法獲取 %s 當前價格", symbol)
 	}
 
 	sym, at := symbol, assetType
@@ -455,14 +455,14 @@ func (nm *NewsMonitor) TriggerAnalysisWithAsset(symbol, assetType, focusEvent st
 	return nil
 }
 
-// saveAnalysisHistory 保存分析历史到存储
+// saveAnalysisHistory 保存分析历史到存儲
 func (nm *NewsMonitor) saveAnalysisHistory(symbol string, currentPrice float64, assessment *NewsRiskAssessment, focusEvent string) {
 	if nm.storage == nil {
 		return
 	}
 	assessmentJSON, err := json.Marshal(assessment)
 	if err != nil {
-		logger.Warn("📰 序列化分析结果失败: %v", err)
+		logger.Warn("📰 序列化分析結果失败: %v", err)
 		return
 	}
 	recentSummary := ""
@@ -479,7 +479,7 @@ func (nm *NewsMonitor) saveAnalysisHistory(symbol string, currentPrice float64, 
 		CurrentPrice:      currentPrice,
 		Assessment:        string(assessmentJSON),
 		RecentNewsSummary: recentSummary,
-		GeminiPrompt:      "", // 可选：可从 GeminiAnalyzer 扩展获取
+		GeminiPrompt:      "", // 可選：可從 GeminiAnalyzer 扩展獲取
 		GeminiResponse:    "",
 		CreatedAt:         time.Now(),
 	}
@@ -490,7 +490,7 @@ func (nm *NewsMonitor) saveAnalysisHistory(symbol string, currentPrice float64, 
 		logger.Warn("📰 保存分析历史失败: %v", err)
 		return
 	}
-	// 创建预测验证记录
+	// 創建預测驗证記錄
 	if h.ID > 0 && assessment != nil && len(assessment.PricePredictions) > 0 {
 		assetType := assessment.AssetType
 		if assetType == "" {
@@ -500,7 +500,7 @@ func (nm *NewsMonitor) saveAnalysisHistory(symbol string, currentPrice float64, 
 	}
 }
 
-// cleanupOldAnalysisHistory 清理过期的分析历史
+// cleanupOldAnalysisHistory 清理過期的分析历史
 func (nm *NewsMonitor) cleanupOldAnalysisHistory() {
 	if nm.storage == nil {
 		return
@@ -515,7 +515,7 @@ func (nm *NewsMonitor) cleanupOldAnalysisHistory() {
 	}
 }
 
-// GetCollectedNews 获取当前收集的新闻列表
+// GetCollectedNews 獲取當前收集的新闻列表
 func (nm *NewsMonitor) GetCollectedNews() []NewsItem {
 	if nm.newsCollector == nil {
 		return nil
@@ -523,7 +523,7 @@ func (nm *NewsMonitor) GetCollectedNews() []NewsItem {
 	return nm.newsCollector.GetRecentNews(2)
 }
 
-// IsAnalyzing 是否正在执行 Gemini 分析
+// IsAnalyzing 是否正在執行 Gemini 分析
 func (nm *NewsMonitor) IsAnalyzing() bool {
 	if nm.geminiAnalyzer == nil {
 		return false
@@ -533,14 +533,14 @@ func (nm *NewsMonitor) IsAnalyzing() bool {
 
 // checkNews 检查新闻
 func (nm *NewsMonitor) checkNews() {
-	// 从配置的新闻源获取新闻
+	// 從配置的新闻源獲取新闻
 	newsItems := nm.fetchNewsFromSources()
 
 	if len(newsItems) == 0 {
 		return
 	}
 
-	// 分析新闻风险
+	// 分析新闻风險
 	for i := range newsItems {
 		newsItems[i].RiskScore = nm.calculateRiskScore(newsItems[i])
 		newsItems[i].Category = nm.categorizeNews(newsItems[i])
@@ -550,7 +550,7 @@ func (nm *NewsMonitor) checkNews() {
 	// 更新缓存
 	nm.mu.Lock()
 	nm.newsCache = append(nm.newsCache, newsItems...)
-	// 只保留最近24小时的新闻
+	// 只保留最近24小時的新闻
 	cutoffTime := time.Now().Add(-24 * time.Hour)
 	filtered := make([]NewsItem, 0)
 	for _, item := range nm.newsCache {
@@ -561,28 +561,28 @@ func (nm *NewsMonitor) checkNews() {
 	nm.newsCache = filtered
 	nm.mu.Unlock()
 
-	// 计算综合风险评估
+	// 计算综合风險评估
 	assessment := nm.assessRisk()
 
-	// 更新评估结果
+	// 更新评估結果
 	nm.mu.Lock()
 	nm.lastAssessment = assessment
 	nm.mu.Unlock()
 
-	// 记录指标
+	// 記錄指標
 	pm := metrics.GetPrometheusMetrics()
 	pm.SetNewsRiskScore(assessment.OverallRiskScore)
 	pm.SetBitcoinCrashProbability(assessment.CrashProbability)
 	pm.SetHighRiskNewsCount(len(assessment.RecentHighRiskNews))
 
-	// 如果风险较高，记录日志
+	// 如果风險较高，記錄日志
 	if assessment.OverallRiskScore >= 70 {
-		logger.Warn("⚠️ 新闻风险评分较高: %.2f, 大跌概率: %.2f%%, 建议: %s",
+		logger.Warn("⚠️ 新闻风險评分较高: %.2f, 大跌概率: %.2f%%, 建议: %s",
 			assessment.OverallRiskScore, assessment.CrashProbability*100, assessment.Recommendation)
-		logger.Warn("风险因素: %s", strings.Join(assessment.RiskFactors, ", "))
+		logger.Warn("风險因素: %s", strings.Join(assessment.RiskFactors, ", "))
 	}
 
-	// 保存高风险新闻到存储
+	// 保存高风險新闻到存儲
 	if nm.storage != nil {
 		for _, item := range newsItems {
 			if item.RiskScore >= 70 {
@@ -592,7 +592,7 @@ func (nm *NewsMonitor) checkNews() {
 	}
 }
 
-// fetchNewsFromSources 从新闻源获取新闻
+// fetchNewsFromSources 從新闻源獲取新闻
 func (nm *NewsMonitor) fetchNewsFromSources() []NewsItem {
 	var allNews []NewsItem
 
@@ -605,7 +605,7 @@ func (nm *NewsMonitor) fetchNewsFromSources() []NewsItem {
 	return allNews
 }
 
-// fetchFromSource 从单个新闻源获取新闻
+// fetchFromSource 從單個新闻源獲取新闻
 func (nm *NewsMonitor) fetchFromSource(source string) []NewsItem {
 	var newsItems []NewsItem
 	var err error
@@ -615,17 +615,17 @@ func (nm *NewsMonitor) fetchFromSource(source string) []NewsItem {
 		if nm.cfg.NewsMonitor.NewsAPIKey != "" {
 			newsItems, err = nm.fetchFromNewsAPI(nm.cfg.NewsMonitor.NewsAPIKey, nm.cfg.NewsMonitor.Keywords)
 			if err != nil {
-				logger.Warn("⚠️ 从NewsAPI获取新闻失败: %v", err)
+				logger.Warn("⚠️ 從NewsAPI獲取新闻失败: %v", err)
 			}
 		} else {
-			logger.Debug("📰 NewsAPI密钥未配置，跳过NewsAPI源")
+			logger.Debug("📰 NewsAPI密钥未配置，跳過NewsAPI源")
 		}
 	case "rss":
 		// RSS源处理
 		for _, feedURL := range nm.cfg.NewsMonitor.RSSFeeds {
 			items, err := nm.fetchFromRSS(feedURL)
 			if err != nil {
-				logger.Warn("⚠️ 从RSS获取新闻失败 (%s): %v", feedURL, err)
+				logger.Warn("⚠️ 從RSS獲取新闻失败 (%s): %v", feedURL, err)
 				continue
 			}
 			newsItems = append(newsItems, items...)
@@ -637,7 +637,7 @@ func (nm *NewsMonitor) fetchFromSource(source string) []NewsItem {
 	return newsItems
 }
 
-// calculateRiskScore 计算新闻风险评分
+// calculateRiskScore 计算新闻风險评分
 func (nm *NewsMonitor) calculateRiskScore(news NewsItem) float64 {
 	score := 0.0
 	text := strings.ToLower(news.Title + " " + news.Content)
@@ -646,19 +646,19 @@ func (nm *NewsMonitor) calculateRiskScore(news NewsItem) float64 {
 	matchedKeywords := []string{}
 	for keyword, weight := range nm.highRiskKeywords {
 		if strings.Contains(text, strings.ToLower(keyword)) {
-			score += weight * 20 // 每个关键词贡献最多20分
+			score += weight * 20 // 每個关键词贡献最多20分
 			matchedKeywords = append(matchedKeywords, keyword)
 		}
 	}
 
-	// 关键词密度（匹配的关键词数量）
+	// 关键词密度（匹配的关键词數量）
 	keywordDensity := float64(len(matchedKeywords)) / 10.0
 	if keywordDensity > 1.0 {
 		keywordDensity = 1.0
 	}
 	score += keywordDensity * 30 // 最多30分
 
-	// 时间衰减（越新的新闻权重越高）
+	// 時间衰减（越新的新闻权重越高）
 	ageHours := time.Since(news.PublishedAt).Hours()
 	timeDecay := 1.0
 	if ageHours > 24 {
@@ -689,18 +689,18 @@ func (nm *NewsMonitor) calculateRiskScore(news NewsItem) float64 {
 	return score
 }
 
-// categorizeNews 分类新闻
+// categorizeNews 分類新闻
 func (nm *NewsMonitor) categorizeNews(news NewsItem) string {
 	text := strings.ToLower(news.Title + " " + news.Content)
 
-	// 地缘政治
-	if containsAny(text, []string{"战争", "冲突", "袭击", "爆炸", "伊朗", "以色列", "俄罗斯", "乌克兰", "制裁", "禁运"}) {
-		return "地缘政治"
+	// 地緣政治
+	if containsAny(text, []string{"戰爭", "冲突", "袭击", "爆炸", "伊朗", "以色列", "俄罗斯", "乌克兰", "制裁", "禁运"}) {
+		return "地緣政治"
 	}
 
-	// 监管政策
-	if containsAny(text, []string{"监管", "sec", "证监会", "禁令", "禁止", "立法", "法案", "法规"}) {
-		return "监管政策"
+	// 監管政策
+	if containsAny(text, []string{"監管", "sec", "证監會", "禁令", "禁止", "立法", "法案", "法规"}) {
+		return "監管政策"
 	}
 
 	// 交易所安全
@@ -708,13 +708,13 @@ func (nm *NewsMonitor) categorizeNews(news NewsItem) string {
 		return "交易所安全"
 	}
 
-	// 宏观经济
-	if containsAny(text, []string{"关税", "加息", "降息", "通胀", "衰退", "政府关门", "债务危机"}) {
-		return "宏观经济"
+	// 總體經濟
+	if containsAny(text, []string{"关税", "加息", "降息", "通脹", "衰退", "政府关门", "债務危机"}) {
+		return "總體經濟"
 	}
 
 	// 市场异常
-	if containsAny(text, []string{"暴跌", "崩盘", "恐慌", "抛售", "流动性危机", "强制平仓"}) {
+	if containsAny(text, []string{"暴跌", "崩盘", "恐慌", "抛售", "流动性危机", "强制平倉"}) {
 		return "市场异常"
 	}
 
@@ -733,14 +733,14 @@ func (nm *NewsMonitor) determineImpactLevel(riskScore float64) string {
 	return "low"
 }
 
-// assessRisk 综合风险评估
+// assessRisk 综合风險评估
 func (nm *NewsMonitor) assessRisk() *NewsRiskAssessment {
 	nm.mu.RLock()
 	recentNews := make([]NewsItem, len(nm.newsCache))
 	copy(recentNews, nm.newsCache)
 	nm.mu.RUnlock()
 
-	// 只考虑最近24小时的新闻
+	// 只考虑最近24小時的新闻
 	cutoffTime := time.Now().Add(-24 * time.Hour)
 	var relevantNews []NewsItem
 	for _, item := range recentNews {
@@ -760,7 +760,7 @@ func (nm *NewsMonitor) assessRisk() *NewsRiskAssessment {
 		}
 	}
 
-	// 计算综合风险评分
+	// 计算综合风險评分
 	overallScore := 0.0
 	var highRiskNews []NewsItem
 	riskFactors := make(map[string]bool)
@@ -773,15 +773,15 @@ func (nm *NewsMonitor) assessRisk() *NewsRiskAssessment {
 		}
 	}
 
-	// 平均风险评分
+	// 平均风險评分
 	if len(relevantNews) > 0 {
 		overallScore = overallScore / float64(len(relevantNews))
 	}
 
-	// 高风险新闻数量加成
+	// 高风險新闻數量加成
 	highRiskCount := len(highRiskNews)
 	if highRiskCount > 0 {
-		overallScore += float64(highRiskCount) * 5 // 每条高风险新闻额外加5分
+		overallScore += float64(highRiskCount) * 5 // 每条高风險新闻額外加5分
 	}
 
 	// 限制在0-100
@@ -789,13 +789,13 @@ func (nm *NewsMonitor) assessRisk() *NewsRiskAssessment {
 		overallScore = 100
 	}
 
-	// 计算大跌概率（基于历史数据和风险评分）
+	// 计算大跌概率（基於历史數據和风險评分）
 	crashProbability := nm.calculateCrashProbability(overallScore, highRiskCount)
 
 	// 生成建议
 	recommendation := nm.generateRecommendation(overallScore, crashProbability)
 
-	// 构建风险因素列表
+	// 構建风險因素列表
 	var factors []string
 	for factor := range riskFactors {
 		factors = append(factors, factor)
@@ -813,10 +813,10 @@ func (nm *NewsMonitor) assessRisk() *NewsRiskAssessment {
 
 // calculateCrashProbability 计算大跌概率
 func (nm *NewsMonitor) calculateCrashProbability(riskScore float64, highRiskCount int) float64 {
-	// 基于风险评分的基础概率
+	// 基於风險评分的基础概率
 	baseProbability := riskScore / 100.0
 
-	// 高风险新闻数量加成
+	// 高风險新闻數量加成
 	countMultiplier := 1.0 + float64(highRiskCount)*0.1
 	if countMultiplier > 2.0 {
 		countMultiplier = 2.0
@@ -847,12 +847,12 @@ func (nm *NewsMonitor) generateRecommendation(riskScore float64, crashProbabilit
 	return "normal"
 }
 
-// GetRiskAssessment 获取最新风险评估（兼容：返回最后一次任意资产的分析）
+// GetRiskAssessment 獲取最新风險评估（兼容：返回最后一次任意资產的分析）
 func (nm *NewsMonitor) GetRiskAssessment() *NewsRiskAssessment {
 	return nm.GetRiskAssessmentBySymbol("")
 }
 
-// GetRiskAssessmentBySymbol 按交易对获取风险评估（PAXGUSDT→黄金，BTCUSDT→BTC）
+// GetRiskAssessmentBySymbol 按交易對獲取风險评估（PAXGUSDT→黃金，BTCUSDT→BTC）
 func (nm *NewsMonitor) GetRiskAssessmentBySymbol(symbol string) *NewsRiskAssessment {
 	nm.mu.RLock()
 	defer nm.mu.RUnlock()
@@ -880,17 +880,17 @@ func (nm *NewsMonitor) GetRiskAssessmentBySymbol(symbol string) *NewsRiskAssessm
 	return &assessment
 }
 
-// IsHighRisk 判断当前是否处于高风险状态
+// IsHighRisk 判断當前是否处於高风險状態
 func (nm *NewsMonitor) IsHighRisk() bool {
 	assessment := nm.GetRiskAssessment()
 	return assessment.OverallRiskScore >= 70 || assessment.CrashProbability >= 0.5
 }
 
-// saveNewsItem 保存新闻条目到存储
+// saveNewsItem 保存新闻条目到存儲
 func (nm *NewsMonitor) saveNewsItem(item NewsItem) {
-	// 这里可以保存到数据库
-	// 目前先记录日志
-	logger.Info("📰 保存高风险新闻: %s (风险评分: %.2f)", item.Title, item.RiskScore)
+	// 这里可以保存到數據库
+	// 目前先記錄日志
+	logger.Info("📰 保存高风險新闻: %s (风險评分: %.2f)", item.Title, item.RiskScore)
 }
 
 // containsAny 检查文本是否包含任意关键词
@@ -903,7 +903,7 @@ func containsAny(text string, keywords []string) bool {
 	return false
 }
 
-// 辅助函数：从RSS获取新闻（示例实现）
+// 辅助函數：從RSS獲取新闻（示例實現）
 func (nm *NewsMonitor) fetchFromRSS(rssURL string) ([]NewsItem, error) {
 	req, err := http.NewRequestWithContext(nm.ctx, "GET", rssURL, nil)
 	if err != nil {
@@ -925,20 +925,20 @@ func (nm *NewsMonitor) fetchFromRSS(rssURL string) ([]NewsItem, error) {
 		return nil, err
 	}
 
-	// 解析RSS XML（需要实现RSS解析器）
-	// 这里简化处理，实际需要使用XML解析库
+	// 解析RSS XML（需要實現RSS解析器）
+	// 这里简化处理，實際需要使用XML解析库
 	_ = body
 
 	return []NewsItem{}, nil
 }
 
-// 辅助函数：从NewsAPI获取新闻（示例实现）
+// 辅助函數：從NewsAPI獲取新闻（示例實現）
 func (nm *NewsMonitor) fetchFromNewsAPI(apiKey string, keywords []string) ([]NewsItem, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("NewsAPI key not configured")
 	}
 
-	// 构建请求URL
+	// 構建请求URL
 	baseURL := "https://newsapi.org/v2/everything"
 	params := url.Values{}
 	params.Set("apiKey", apiKey)

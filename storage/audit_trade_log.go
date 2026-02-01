@@ -18,7 +18,7 @@ const (
 	AuditEventTrade = "trade"
 )
 
-// AuditTradeRecord 合规审计记录（订单或成交）
+// AuditTradeRecord 合规审计記錄（订單或成交）
 type AuditTradeRecord struct {
 	EventType     string    `json:"event_type"`      // order | trade
 	Timestamp     time.Time `json:"timestamp"`
@@ -42,7 +42,7 @@ type AuditTradeRecord struct {
 	Account       string   `json:"account,omitempty"`
 }
 
-// AuditTradeLogger 交易审计日志记录器，按天分文件写入 CSV/JSONL
+// AuditTradeLogger 交易审计日志記錄器，按天分文件写入 CSV/JSONL
 type AuditTradeLogger struct {
 	dir       string
 	format   string // csv, jsonl, both
@@ -53,7 +53,7 @@ type AuditTradeLogger struct {
 	closed   bool
 }
 
-// NewAuditTradeLogger 创建审计日志记录器
+// NewAuditTradeLogger 創建审计日志記錄器
 // format: csv, jsonl, both
 func NewAuditTradeLogger(dir, format string) (*AuditTradeLogger, error) {
 	if dir == "" {
@@ -63,7 +63,7 @@ func NewAuditTradeLogger(dir, format string) (*AuditTradeLogger, error) {
 		format = "both"
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("创建审计日志目录失败: %w", err)
+		return nil, fmt.Errorf("創建审计日志目錄失败: %w", err)
 	}
 	return &AuditTradeLogger{
 		dir:        dir,
@@ -142,7 +142,7 @@ func (a *AuditTradeLogger) writeJSONL(f *os.File, r *AuditTradeRecord) error {
 	return enc.Encode(r)
 }
 
-// Log 写入一条审计记录
+// Log 写入一条审计記錄
 func (a *AuditTradeLogger) Log(r *AuditTradeRecord) error {
 	if a == nil || a.closed {
 		return nil
@@ -180,7 +180,7 @@ func (a *AuditTradeLogger) Log(r *AuditTradeRecord) error {
 	return nil
 }
 
-// LogOrder 记录订单事件
+// LogOrder 記錄订單事件
 func (a *AuditTradeLogger) LogOrder(exchange, symbol, account string, order *Order) {
 	if a == nil || a.closed || order == nil {
 		return
@@ -207,7 +207,7 @@ func (a *AuditTradeLogger) LogOrder(exchange, symbol, account string, order *Ord
 	_ = a.Log(r)
 }
 
-// LogTrade 记录成交事件
+// LogTrade 記錄成交事件
 func (a *AuditTradeLogger) LogTrade(trade *Trade) {
 	if a == nil || a.closed || trade == nil {
 		return
@@ -228,15 +228,15 @@ func (a *AuditTradeLogger) LogTrade(trade *Trade) {
 	_ = a.Log(r)
 }
 
-// globalAuditLogger 全局审计日志记录器（由 main 在启用合规时设置）
+// globalAuditLogger 全局审计日志記錄器（由 main 在啟用合规時設置）
 var globalAuditLogger *AuditTradeLogger
 
-// SetGlobalAuditLogger 设置全局审计日志记录器
+// SetGlobalAuditLogger 設置全局审计日志記錄器
 func SetGlobalAuditLogger(l *AuditTradeLogger) {
 	globalAuditLogger = l
 }
 
-// GetGlobalAuditLogger 获取全局审计日志记录器
+// GetGlobalAuditLogger 獲取全局审计日志記錄器
 func GetGlobalAuditLogger() *AuditTradeLogger {
 	return globalAuditLogger
 }

@@ -2,8 +2,8 @@ package gate
 
 import "time"
 
-// 为了避免循环导入，在这里定义需要的接口和类型
-// 这些类型应该与 exchange/types.go 中的定义保持一致
+// 為了避免循環匯入，在这里定义需要的接口和類型
+// 这些類型应該與 exchange/types.go 中的定义保持一致
 
 type Side string
 type OrderType string
@@ -37,7 +37,7 @@ type OrderRequest struct {
 	ReduceOnly    bool
 	PostOnly      bool // 是否只做 Maker（Post Only）
 	PriceDecimals int
-	ClientOrderID string // 自定义订单ID
+	ClientOrderID string // 自定义订單ID
 }
 
 type Order struct {
@@ -72,7 +72,7 @@ type Account struct {
 	AvailableBalance   float64
 	Positions          []*Position
 	PosMode            string // "dual_long_short" or "single"
-	AccountLeverage    int    // 账户级别的杠杆倍数
+	AccountLeverage    int    // 账戶级别的杠杆倍數
 }
 
 type OrderUpdate struct {
@@ -89,7 +89,7 @@ type OrderUpdate struct {
 	UpdateTime    int64
 }
 
-// Candle K线数据
+// Candle K線數據
 type Candle struct {
 	Symbol    string
 	Open      float64
@@ -98,16 +98,16 @@ type Candle struct {
 	Close     float64
 	Volume    float64
 	Timestamp int64
-	IsClosed  bool // K线是否完结
+	IsClosed  bool // K線是否完結
 }
 
-// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+// OrderBookLevel 订單簿檔位（本地類型，避免循環匯入）
 type OrderBookLevel struct {
 	Price    float64
 	Quantity float64
 }
 
-// OrderBook 订单簿（本地类型，避免循环导入）
+// OrderBook 订單簿（本地類型，避免循環匯入）
 type OrderBook struct {
 	Symbol    string
 	Bids      []OrderBookLevel
@@ -115,108 +115,108 @@ type OrderBook struct {
 	Timestamp int64
 }
 
-// ============ Gate.io API 专用结构体 ============
+// ============ Gate.io API 专用結構体 ============
 
-// GateResponse Gate.io API 通用响应结构
+// GateResponse Gate.io API 通用响应結構
 type GateResponse struct {
-	// Gate.io API 在错误时返回 label 和 message
+	// Gate.io API 在錯误時回傳 label 和 message
 	Label   string `json:"label,omitempty"`
 	Message string `json:"message,omitempty"`
 }
 
-// ContractInfo 合约信息
+// ContractInfo 合約信息
 type ContractInfo struct {
-	Name              string  `json:"name"`                // 合约名称，如 BTC_USDT
-	Type              string  `json:"type"`                // 合约类型 inverse/direct
-	QuantoMultiplier  string  `json:"quanto_multiplier"`   // 合约乘数
-	OrderPriceRound   string  `json:"order_price_round"`   // 价格精度
-	OrderSizeMin      float64 `json:"order_size_min"`      // 最小下单数量
-	OrderSizeMax      float64 `json:"order_size_max"`      // 最大下单数量
-	OrderSizeRound    string  `json:"order_size_round"`    // 数量精度
-	OrderPriceDeviate string  `json:"order_price_deviate"` // 价格偏离百分比
+	Name              string  `json:"name"`                // 合約名称，如 BTC_USDT
+	Type              string  `json:"type"`                // 合約類型 inverse/direct
+	QuantoMultiplier  string  `json:"quanto_multiplier"`   // 合約乘數
+	OrderPriceRound   string  `json:"order_price_round"`   // 價格精度
+	OrderSizeMin      float64 `json:"order_size_min"`      // 最小下單數量
+	OrderSizeMax      float64 `json:"order_size_max"`      // 最大下單數量
+	OrderSizeRound    string  `json:"order_size_round"`    // 數量精度
+	OrderPriceDeviate string  `json:"order_price_deviate"` // 價格偏离百分比
 	RefDiscountRate   string  `json:"ref_discount_rate"`   // 推荐返佣率
-	OrderbookID       int64   `json:"orderbook_id"`        // 订单簿ID
-	TradeSize         float64 `json:"trade_size"`          // 最小交易张数
-	MarkPriceRound    string  `json:"mark_price_round"`    // 标记价格精度
+	OrderbookID       int64   `json:"orderbook_id"`        // 订單簿ID
+	TradeSize         float64 `json:"trade_size"`          // 最小交易张數
+	MarkPriceRound    string  `json:"mark_price_round"`    // 標記價格精度
 }
 
-// FuturesAccount Gate.io 合约账户信息
+// FuturesAccount Gate.io 合約帳戶資訊
 type FuturesAccount struct {
-	User                  int64  `json:"user"`                    // 用户ID
+	User                  int64  `json:"user"`                    // 用戶ID
 	Currency              string `json:"currency"`                // 币种
-	Total                 string `json:"total"`                   // 总资产
-	UnrealisedPnl         string `json:"unrealised_pnl"`          // 未实现盈亏
-	PositionMargin        string `json:"position_margin"`         // 持仓保证金
-	OrderMargin           string `json:"order_margin"`            // 挂单保证金
-	Available             string `json:"available"`               // 可用余额
-	Point                 string `json:"point"`                   // 点卡余额
-	Bonus                 string `json:"bonus"`                   // 体验金
-	InDualMode            bool   `json:"in_dual_mode"`            // 是否双向持仓模式
-	EnableCredit          bool   `json:"enable_credit"`           // 是否启用统一账户
-	PositionInitialMargin string `json:"position_initial_margin"` // 持仓初始保证金
+	Total                 string `json:"total"`                   // 總资產
+	UnrealisedPnl         string `json:"unrealised_pnl"`          // 未實現盈亏
+	PositionMargin        string `json:"position_margin"`         // 持倉保证金
+	OrderMargin           string `json:"order_margin"`            // 挂單保证金
+	Available             string `json:"available"`               // 可用餘額
+	Point                 string `json:"point"`                   // 点卡餘額
+	Bonus                 string `json:"bonus"`                   // 体驗金
+	InDualMode            bool   `json:"in_dual_mode"`            // 是否双向持倉模式
+	EnableCredit          bool   `json:"enable_credit"`           // 是否啟用统一账戶
+	PositionInitialMargin string `json:"position_initial_margin"` // 持倉初始保证金
 	MaintenanceMargin     string `json:"maintenance_margin"`      // 维持保证金
 }
 
-// FuturesPosition Gate.io 合约持仓
+// FuturesPosition Gate.io 合約持倉
 type FuturesPosition struct {
-	User            int64  `json:"user"`             // 用户ID
-	Contract        string `json:"contract"`         // 合约名称
-	Size            int64  `json:"size"`             // 持仓数量（正数做多，负数做空）
-	Leverage        string `json:"leverage"`         // 杠杆倍数
-	RiskLimit       string `json:"risk_limit"`       // 风险限额
+	User            int64  `json:"user"`             // 用戶ID
+	Contract        string `json:"contract"`         // 合約名称
+	Size            int64  `json:"size"`             // 持倉數量（正數做多，负數做空）
+	Leverage        string `json:"leverage"`         // 杠杆倍數
+	RiskLimit       string `json:"risk_limit"`       // 风險限額
 	LeverageMax     string `json:"leverage_max"`     // 最大杠杆
 	MaintenanceRate string `json:"maintenance_rate"` // 维持保证金比例
-	Value           string `json:"value"`            // 持仓价值
+	Value           string `json:"value"`            // 持倉價值
 	Margin          string `json:"margin"`           // 保证金
-	EntryPrice      string `json:"entry_price"`      // 开仓均价
-	LiqPrice        string `json:"liq_price"`        // 强平价格
-	MarkPrice       string `json:"mark_price"`       // 标记价格
-	UnrealisedPnl   string `json:"unrealised_pnl"`   // 未实现盈亏
-	RealisedPnl     string `json:"realised_pnl"`     // 已实现盈亏
-	HistoryPnl      string `json:"history_pnl"`      // 历史总盈亏
-	LastClosePnl    string `json:"last_close_pnl"`   // 上次平仓盈亏
-	RealisedPoint   string `json:"realised_point"`   // 已实现点卡收益
-	HistoryPoint    string `json:"history_point"`    // 历史总点卡收益
+	EntryPrice      string `json:"entry_price"`      // 开倉均價
+	LiqPrice        string `json:"liq_price"`        // 强平價格
+	MarkPrice       string `json:"mark_price"`       // 標記價格
+	UnrealisedPnl   string `json:"unrealised_pnl"`   // 未實現盈亏
+	RealisedPnl     string `json:"realised_pnl"`     // 已實現盈亏
+	HistoryPnl      string `json:"history_pnl"`      // 历史總盈亏
+	LastClosePnl    string `json:"last_close_pnl"`   // 上次平倉盈亏
+	RealisedPoint   string `json:"realised_point"`   // 已實現点卡收益
+	HistoryPoint    string `json:"history_point"`    // 历史總点卡收益
 	AdlRanking      int    `json:"adl_ranking"`      // ADL排名
-	PendingOrders   int    `json:"pending_orders"`   // 挂单数量
+	PendingOrders   int    `json:"pending_orders"`   // 挂單數量
 	CloseOrder      *struct {
 		ID    int64  `json:"id"`
 		Price string `json:"price"`
 		IsLiq bool   `json:"is_liq"`
-	} `json:"close_order"` // 平仓单
+	} `json:"close_order"` // 平倉單
 	Mode               string `json:"mode"`                 // dual_long, dual_short, single
-	CrossLeverageLimit string `json:"cross_leverage_limit"` // 全仓杠杆上限
+	CrossLeverageLimit string `json:"cross_leverage_limit"` // 全倉杠杆上限
 }
 
-// FuturesOrder Gate.io 合约订单
+// FuturesOrder Gate.io 合約订單
 type FuturesOrder struct {
-	ID            int64   `json:"id"`             // 订单ID
-	User          int64   `json:"user"`           // 用户ID
-	Contract      string  `json:"contract"`       // 合约名称
-	CreateTime    float64 `json:"create_time"`    // 创建时间（秒级时间戳）
-	FinishTime    float64 `json:"finish_time"`    // 完成时间
-	FinishAs      string  `json:"finish_as"`      // 完成类型 filled/cancelled/liquidated/ioc/auto_deleveraged/reduce_only/position_closed
-	Status        string  `json:"status"`         // 订单状态 open/finished
-	Size          int64   `json:"size"`           // 订单数量（正数买入，负数卖出）
-	Price         string  `json:"price"`          // 委托价格（0表示市价）
-	FillPrice     string  `json:"fill_price"`     // 成交均价
-	Left          int64   `json:"left"`           // 未成交数量
-	Text          string  `json:"text"`           // 用户自定义信息
+	ID            int64   `json:"id"`             // 订單ID
+	User          int64   `json:"user"`           // 用戶ID
+	Contract      string  `json:"contract"`       // 合約名称
+	CreateTime    float64 `json:"create_time"`    // 創建時间（秒级時间戳）
+	FinishTime    float64 `json:"finish_time"`    // 完成時间
+	FinishAs      string  `json:"finish_as"`      // 完成類型 filled/cancelled/liquidated/ioc/auto_deleveraged/reduce_only/position_closed
+	Status        string  `json:"status"`         // 订單状態 open/finished
+	Size          int64   `json:"size"`           // 订單數量（正數買入，负數賣出）
+	Price         string  `json:"price"`          // 委托價格（0表示市價）
+	FillPrice     string  `json:"fill_price"`     // 成交均價
+	Left          int64   `json:"left"`           // 未成交數量
+	Text          string  `json:"text"`           // 用戶自定义信息
 	Tif           string  `json:"tif"`            // Time in force: gtc/ioc/poc
-	IsLiq         bool    `json:"is_liq"`         // 是否强平单
-	IsClose       bool    `json:"is_close"`       // 是否平仓单
-	IsReduceOnly  bool    `json:"is_reduce_only"` // 是否只减仓
+	IsLiq         bool    `json:"is_liq"`         // 是否强平單
+	IsClose       bool    `json:"is_close"`       // 是否平倉單
+	IsReduceOnly  bool    `json:"is_reduce_only"` // 是否只减倉
 	IsPostOnly    bool    `json:"is_post_only"`   // 是否只做maker
-	Iceberg       int64   `json:"iceberg"`        // 冰山委托显示数量
-	AutoSize      string  `json:"auto_size"`      // 自动减仓策略
+	Iceberg       int64   `json:"iceberg"`        // 冰山委托显示數量
+	AutoSize      string  `json:"auto_size"`      // 自动减倉策略
 	RefundedFee   string  `json:"refunded_fee"`   // 返还手续费
 	Fee           string  `json:"fee"`            // 手续费
-	FillSize      int64   `json:"fill_size"`      // 已成交数量
-	RealisedPnl   string  `json:"realised_pnl"`   // 已实现盈亏
-	RealisedPoint string  `json:"realised_point"` // 已实现点卡收益
+	FillSize      int64   `json:"fill_size"`      // 已成交數量
+	RealisedPnl   string  `json:"realised_pnl"`   // 已實現盈亏
+	RealisedPoint string  `json:"realised_point"` // 已實現点卡收益
 }
 
-// WSRequest WebSocket 请求结构
+// WSRequest WebSocket 请求結構
 type WSRequest struct {
 	Time    int64                  `json:"time"`
 	Channel string                 `json:"channel"`
@@ -224,14 +224,14 @@ type WSRequest struct {
 	Payload map[string]interface{} `json:"payload,omitempty"`
 }
 
-// WSOrderPayload WebSocket 下单 Payload
+// WSOrderPayload WebSocket 下單 Payload
 type WSOrderPayload struct {
-	ReqHeader map[string]string      `json:"req_header"` // 必须包含 X-Gate-Channel-Id
+	ReqHeader map[string]string      `json:"req_header"` // 必須包含 X-Gate-Channel-Id
 	ReqID     string                 `json:"req_id"`
 	ReqParam  map[string]interface{} `json:"req_param"`
 }
 
-// WSResponse WebSocket 响应结构
+// WSResponse WebSocket 响应結構
 type WSResponse struct {
 	Time    int64                  `json:"time"`
 	Channel string                 `json:"channel"`
@@ -240,7 +240,7 @@ type WSResponse struct {
 	Result  map[string]interface{} `json:"result,omitempty"`
 }
 
-// WSError WebSocket 错误
+// WSError WebSocket 錯误
 type WSError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`

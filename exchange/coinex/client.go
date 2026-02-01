@@ -21,10 +21,10 @@ import (
 
 const (
 	CoinExMainnetBaseURL = "https://api.coinex.com" // CoinEx 主网
-	CoinExTestnetBaseURL = "https://api.coinex.com" // CoinEx 测试网（使用相同URL）
+	CoinExTestnetBaseURL = "https://api.coinex.com" // CoinEx 測試網（使用相同URL）
 )
 
-// CoinExClient CoinEx 客户端
+// CoinExClient CoinEx 客戶端
 type CoinExClient struct {
 	apiKey     string
 	secretKey  string
@@ -33,7 +33,7 @@ type CoinExClient struct {
 	isTestnet  bool
 }
 
-// NewCoinExClient 创建 CoinEx 客户端
+// NewCoinExClient 創建 CoinEx 客戶端
 func NewCoinExClient(apiKey, secretKey string, isTestnet bool) *CoinExClient {
 	baseURL := CoinExMainnetBaseURL
 	if isTestnet {
@@ -50,16 +50,16 @@ func NewCoinExClient(apiKey, secretKey string, isTestnet bool) *CoinExClient {
 }
 
 // signRequest CoinEx 签名：HMAC-SHA256
-// 签名字符串：按字母顺序排列的参数字符串
+// 签名字符串：按字母顺序排列的参數字符串
 func (c *CoinExClient) signRequest(params map[string]string) string {
-	// 按字母顺序排序参数
+	// 按字母顺序排序参數
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	// 构建签名字符串
+	// 構建签名字符串
 	var parts []string
 	for _, k := range keys {
 		parts = append(parts, fmt.Sprintf("%s=%s", k, params[k]))
@@ -131,7 +131,7 @@ func (c *CoinExClient) sendRequest(ctx context.Context, method, path string, par
 	return respBody, nil
 }
 
-// GetMarket 获取交易对信息
+// GetMarket 獲取交易對信息
 func (c *CoinExClient) GetMarket(ctx context.Context, marketSymbol string) (*Market, error) {
 	path := "/v1/market/detail"
 	params := map[string]string{
@@ -161,7 +161,7 @@ func (c *CoinExClient) GetMarket(ctx context.Context, marketSymbol string) (*Mar
 	return &marketInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *CoinExClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := "/v1/order/limit"
 	if req.Type == "market" {
@@ -206,7 +206,7 @@ func (c *CoinExClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	return &order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *CoinExClient) CancelOrder(ctx context.Context, market string, orderID int64) error {
 	path := "/v1/order/pending"
 	params := map[string]string{
@@ -232,7 +232,7 @@ func (c *CoinExClient) CancelOrder(ctx context.Context, market string, orderID i
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *CoinExClient) GetOrder(ctx context.Context, market string, orderID int64) (*Order, error) {
 	path := "/v1/order/status"
 	params := map[string]string{
@@ -263,7 +263,7 @@ func (c *CoinExClient) GetOrder(ctx context.Context, market string, orderID int6
 	return &order, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *CoinExClient) GetOpenOrders(ctx context.Context, market string, page, limit int) ([]Order, error) {
 	path := "/v1/order/pending"
 	params := map[string]string{
@@ -295,7 +295,7 @@ func (c *CoinExClient) GetOpenOrders(ctx context.Context, market string, page, l
 	return ordersResp.Data, nil
 }
 
-// GetBalance 获取账户余额
+// GetBalance 獲取帳戶餘額
 func (c *CoinExClient) GetBalance(ctx context.Context) (*Balance, error) {
 	path := "/v1/balance/info"
 	params := map[string]string{}
@@ -323,7 +323,7 @@ func (c *CoinExClient) GetBalance(ctx context.Context) (*Balance, error) {
 	return &balance, nil
 }
 
-// GetTrades 获取最新成交
+// GetTrades 獲取最新成交
 func (c *CoinExClient) GetTrades(ctx context.Context, market string, limit int) ([]Trade, error) {
 	path := "/v1/market/deals"
 	params := map[string]string{
@@ -354,7 +354,7 @@ func (c *CoinExClient) GetTrades(ctx context.Context, market string, limit int) 
 	return trades, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *CoinExClient) GetKlines(ctx context.Context, market, period string, limit int) ([]Kline, error) {
 	path := "/v1/market/kline"
 	params := map[string]string{
@@ -388,7 +388,7 @@ func (c *CoinExClient) GetKlines(ctx context.Context, market, period string, lim
 	return klines, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIResponse struct {
 	Code    int         `json:"code"`

@@ -12,7 +12,7 @@ import (
 	"quantmesh/utils"
 )
 
-// 为了避免循环导入，在这里定义需要的类型
+// 為了避免循環匯入，在这里定义需要的類型
 type Side string
 type OrderType string
 type OrderStatus string
@@ -117,13 +117,13 @@ type Candle struct {
 
 type CandleUpdateCallback = func(candle interface{})
 
-// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+// OrderBookLevel 订單簿檔位（本地類型，避免循環匯入）
 type OrderBookLevel struct {
 	Price    float64
 	Quantity float64
 }
 
-// OrderBook 订单簿（本地类型，避免循环导入）
+// OrderBook 订單簿（本地類型，避免循環匯入）
 type OrderBook struct {
 	Symbol    string
 	Bids      []OrderBookLevel
@@ -144,7 +144,7 @@ type BybitAdapter struct {
 	useTestnet       bool
 }
 
-// NewBybitAdapter 创建 Bybit 适配器
+// NewBybitAdapter 創建 Bybit 适配器
 func NewBybitAdapter(cfg map[string]string, symbol string) (*BybitAdapter, error) {
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
@@ -157,7 +157,7 @@ func NewBybitAdapter(cfg map[string]string, symbol string) (*BybitAdapter, error
 	useTestnet := false
 	if testnetStr == "true" {
 		useTestnet = true
-		logger.Info("🌐 [Bybit] 使用测试网模式")
+		logger.Info("🌐 [Bybit] 使用測試網模式")
 	}
 
 	client := NewBybitClient(apiKey, secretKey, useTestnet)
@@ -168,12 +168,12 @@ func NewBybitAdapter(cfg map[string]string, symbol string) (*BybitAdapter, error
 		useTestnet: useTestnet,
 	}
 
-	// 获取合约信息
+	// 獲取合約信息
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := adapter.fetchInstrumentInfo(ctxInit); err != nil {
-		logger.Warn("⚠️ [Bybit] 获取合约信息失败: %v，使用默认精度", err)
+		logger.Warn("⚠️ [Bybit] 獲取合約信息失败: %v，使用默认精度", err)
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 3
 	}
@@ -181,20 +181,25 @@ func NewBybitAdapter(cfg map[string]string, symbol string) (*BybitAdapter, error
 	return adapter, nil
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (b *BybitAdapter) GetName() string {
 	return "Bybit"
 }
 
-// fetchInstrumentInfo 获取合约信息
+// GetMarketType 獲取市場類型：futures 合約
+func (b *BybitAdapter) GetMarketType() string {
+	return "futures"
+}
+
+// fetchInstrumentInfo 獲取合約信息
 func (b *BybitAdapter) fetchInstrumentInfo(ctx context.Context) error {
 	instruments, err := b.client.GetInstruments(ctx, "linear", b.symbol)
 	if err != nil {
-		return fmt.Errorf("获取合约信息失败: %w", err)
+		return fmt.Errorf("獲取合約信息失败: %w", err)
 	}
 
 	if len(instruments) == 0 {
-		return fmt.Errorf("未找到合约信息: %s", b.symbol)
+		return fmt.Errorf("未找到合約信息: %s", b.symbol)
 	}
 
 	inst := instruments[0]
@@ -208,13 +213,13 @@ func (b *BybitAdapter) fetchInstrumentInfo(ctx context.Context) error {
 	b.baseAsset = inst.BaseCoin
 	b.quoteAsset = inst.QuoteCoin
 
-	logger.Info("ℹ️ [Bybit 合约信息] %s - 数量精度:%d, 价格精度:%d, 基础币种:%s, 计价币种:%s",
+	logger.Info("ℹ️ [Bybit 合約信息] %s - 數量精度:%d, 價格精度:%d, 基础币种:%s, 计價币种:%s",
 		b.symbol, b.quantityDecimals, b.priceDecimals, b.baseAsset, b.quoteAsset)
 
 	return nil
 }
 
-// getPrecision 根据最小变动单位计算精度
+// getPrecision 根據最小变动單位计算精度
 func getPrecision(value float64) int {
 	str := strconv.FormatFloat(value, 'f', -1, 64)
 	parts := strings.Split(str, ".")
@@ -224,7 +229,7 @@ func getPrecision(value float64) int {
 	return 0
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (b *BybitAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	side := string(req.Side)
 	orderType := string(req.Type)
@@ -239,22 +244,22 @@ func (b *BybitAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 		pDec = 0
 	}
 
-	// 特殊处理：如果数量过小，自动调整为最小下单量
+	// 特殊处理：如果數量過小，自动調整為最小下單量
 	if req.Quantity <= 0 {
 		req.Quantity = math.Pow10(-qDec)
-		logger.Warn("⚠️ [Bybit] 下单数量原始值为 0，已自动调整为最小单位: %.8f", req.Quantity)
+		logger.Warn("⚠️ [Bybit] 下單數量原始值為 0，已自动調整為最小單位: %.8f", req.Quantity)
 	}
 
 	qtyStr := fmt.Sprintf("%.*f", qDec, req.Quantity)
-	// 如果截断后数量为 0，也需要兜底
+	// 如果截断后數量為 0，也需要兜底
 	q, _ := strconv.ParseFloat(qtyStr, 64)
 	if q <= 0 {
 		minQty := math.Pow10(-qDec)
 		qtyStr = fmt.Sprintf("%.*f", qDec, minQty)
-		logger.Warn("⚠️ [Bybit] 数量截断后为 0，使用最小精度兜底: %s", qtyStr)
+		logger.Warn("⚠️ [Bybit] 數量截断后為 0，使用最小精度兜底: %s", qtyStr)
 	}
 
-	// 构造订单请求
+	// 構造订單请求
 	orderReq := map[string]interface{}{
 		"category":  "linear",
 		"symbol":    req.Symbol,
@@ -264,20 +269,20 @@ func (b *BybitAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 		"price":     fmt.Sprintf("%.*f", pDec, req.Price),
 	}
 
-	// 设置 TimeInForce
+	// 設置 TimeInForce
 	if req.PostOnly {
 		orderReq["timeInForce"] = "PostOnly"
 	} else {
 		orderReq["timeInForce"] = "GTC"
 	}
 
-	// 设置自定义订单ID
+	// 設置自定义订單ID
 	if req.ClientOrderID != "" {
 		clientOrderID := utils.AddBrokerPrefix("bybit", req.ClientOrderID)
 		orderReq["orderLinkId"] = clientOrderID
 	}
 
-	// 设置 ReduceOnly
+	// 設置 ReduceOnly
 	if req.ReduceOnly {
 		orderReq["reduceOnly"] = true
 	}
@@ -303,16 +308,16 @@ func (b *BybitAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	}, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (b *BybitAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	placedOrders := make([]*Order, 0, len(orders))
 	hasMarginError := false
 
-	// Bybit 支持批量下单，但为了简化实现，先使用循环
+	// Bybit 支援批量下單，但為了简化實現，先使用循环
 	for _, orderReq := range orders {
 		order, err := b.PlaceOrder(ctx, orderReq)
 		if err != nil {
-			logger.Warn("⚠️ [Bybit] 下单失败 %.2f %s: %v",
+			logger.Warn("⚠️ [Bybit] 下單失败 %.2f %s: %v",
 				orderReq.Price, orderReq.Side, err)
 
 			if strings.Contains(err.Error(), "110007") || strings.Contains(err.Error(), "insufficient") {
@@ -326,29 +331,29 @@ func (b *BybitAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequ
 	return placedOrders, hasMarginError
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (b *BybitAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	err := b.client.CancelOrder(ctx, "linear", symbol, strconv.FormatInt(orderID, 10), "")
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "110001") || strings.Contains(errStr, "Order does not exist") {
-			logger.Info("ℹ️ [Bybit] 订单 %d 已不存在，跳过取消", orderID)
+			logger.Info("ℹ️ [Bybit] 订單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
 		return err
 	}
 
-	logger.Info("✅ [Bybit] 取消订单成功: %d", orderID)
+	logger.Info("✅ [Bybit] 取消訂單成功: %d", orderID)
 	return nil
 }
 
-// BatchCancelOrders 批量撤单
+// BatchCancelOrders 批量撤單
 func (b *BybitAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	if len(orderIDs) == 0 {
 		return nil
 	}
 
-	// Bybit 批量撤单限制：最多10个
+	// Bybit 批量撤單限制：最多10個
 	batchSize := 10
 	for i := 0; i < len(orderIDs); i += batchSize {
 		end := i + batchSize
@@ -358,10 +363,10 @@ func (b *BybitAdapter) BatchCancelOrders(ctx context.Context, symbol string, ord
 
 		batch := orderIDs[i:end]
 
-		// 逐个撤单（Bybit V5 API 批量撤单接口较复杂）
+		// 逐個撤單（Bybit V5 API 批量撤單接口较複杂）
 		for _, orderID := range batch {
 			if err := b.CancelOrder(ctx, symbol, orderID); err != nil {
-				logger.Warn("⚠️ [Bybit] 取消订单失败 %d: %v", orderID, err)
+				logger.Warn("⚠️ [Bybit] 取消訂單失败 %d: %v", orderID, err)
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
@@ -374,16 +379,16 @@ func (b *BybitAdapter) BatchCancelOrders(ctx context.Context, symbol string, ord
 	return nil
 }
 
-// CancelAllOrders 取消所有订单
+// CancelAllOrders 取消所有订單
 func (b *BybitAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	// 先查询所有未完成订单
+	// 先查詢所有未完成订單
 	orders, err := b.GetOpenOrders(ctx, symbol)
 	if err != nil {
 		return err
 	}
 
 	if len(orders) == 0 {
-		logger.Info("ℹ️ [Bybit] 没有未完成订单")
+		logger.Info("ℹ️ [Bybit] 没有未完成订單")
 		return nil
 	}
 
@@ -395,7 +400,7 @@ func (b *BybitAdapter) CancelAllOrders(ctx context.Context, symbol string) error
 	return b.BatchCancelOrders(ctx, symbol, orderIDs)
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (b *BybitAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	order, err := b.client.GetOrder(ctx, "linear", symbol, strconv.FormatInt(orderID, 10), "")
 	if err != nil {
@@ -405,7 +410,7 @@ func (b *BybitAdapter) GetOrder(ctx context.Context, symbol string, orderID int6
 	return b.convertOrder(order), nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (b *BybitAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := b.client.GetOpenOrders(ctx, "linear", symbol)
 	if err != nil {
@@ -420,7 +425,7 @@ func (b *BybitAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Ord
 	return result, nil
 }
 
-// convertOrder 转换订单格式
+// convertOrder 轉换订單格式
 func (b *BybitAdapter) convertOrder(order *BybitOrder) *Order {
 	orderID, _ := strconv.ParseInt(order.OrderId, 10, 64)
 	price, _ := strconv.ParseFloat(order.Price, 64)
@@ -451,7 +456,7 @@ func (b *BybitAdapter) convertOrder(order *BybitOrder) *Order {
 	}
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (b *BybitAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	balance, err := b.client.GetBalance(ctx, "UNIFIED")
 	if err != nil {
@@ -467,15 +472,15 @@ func (b *BybitAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		}, nil
 	}
 
-	// Bybit 返回账户余额
+	// Bybit 返回账戶餘額
 	totalBalance, _ := strconv.ParseFloat(balance[0].TotalEquity, 64)
 	availBalance, _ := strconv.ParseFloat(balance[0].TotalAvailableBalance, 64)
 	marginBalance, _ := strconv.ParseFloat(balance[0].TotalMarginBalance, 64)
 
-	// 获取持仓
+	// 獲取持倉
 	positions, err := b.GetPositions(ctx, b.symbol)
 	if err != nil {
-		logger.Warn("⚠️ [Bybit] 获取持仓失败: %v", err)
+		logger.Warn("⚠️ [Bybit] 獲取持倉失败: %v", err)
 		positions = []*Position{}
 	}
 
@@ -487,7 +492,7 @@ func (b *BybitAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓信息
+// GetPositions 獲取持倉信息
 func (b *BybitAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	positions, err := b.client.GetPositions(ctx, "linear", symbol)
 	if err != nil {
@@ -521,7 +526,7 @@ func (b *BybitAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posi
 	return result, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (b *BybitAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
 	account, err := b.GetAccount(ctx)
 	if err != nil {
@@ -530,7 +535,7 @@ func (b *BybitAdapter) GetBalance(ctx context.Context, asset string) (float64, e
 	return account.AvailableBalance, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (b *BybitAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if b.wsManager == nil {
 		b.wsManager = NewWebSocketManager(b.client.apiKey, b.client.secretKey, b.useTestnet)
@@ -568,7 +573,7 @@ func (b *BybitAdapter) StartOrderStream(ctx context.Context, callback func(inter
 	return b.wsManager.Start(ctx, b.symbol, localCallback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (b *BybitAdapter) StopOrderStream() error {
 	if b.wsManager != nil {
 		b.wsManager.Stop()
@@ -576,7 +581,7 @@ func (b *BybitAdapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (b *BybitAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
 	if b.wsManager != nil {
 		price := b.wsManager.GetLatestPrice()
@@ -585,10 +590,10 @@ func (b *BybitAdapter) GetLatestPrice(ctx context.Context, symbol string) (float
 		}
 	}
 
-	return 0, fmt.Errorf("WebSocket 价格流未就绪或无价格数据")
+	return 0, fmt.Errorf("WebSocket 價格流未就绪或無價格數據")
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (b *BybitAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
 	if b.wsManager == nil {
 		b.wsManager = NewWebSocketManager(b.client.apiKey, b.client.secretKey, b.useTestnet)
@@ -596,7 +601,7 @@ func (b *BybitAdapter) StartPriceStream(ctx context.Context, symbol string, call
 	return b.wsManager.StartPriceStream(ctx, symbol, callback)
 }
 
-// StartKlineStream 启动K线流
+// StartKlineStream 啟動K線流
 func (b *BybitAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
 	if b.klineWSManager == nil {
 		b.klineWSManager = NewKlineWebSocketManager(b.useTestnet)
@@ -605,7 +610,7 @@ func (b *BybitAdapter) StartKlineStream(ctx context.Context, symbols []string, i
 	return b.klineWSManager.Start(ctx, symbols, interval, callback)
 }
 
-// StopKlineStream 停止K线流
+// StopKlineStream 停止K線流
 func (b *BybitAdapter) StopKlineStream() error {
 	if b.klineWSManager != nil {
 		b.klineWSManager.Stop()
@@ -613,11 +618,11 @@ func (b *BybitAdapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (b *BybitAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	klines, err := b.client.GetKlines(ctx, "linear", symbol, interval, limit)
 	if err != nil {
-		return nil, fmt.Errorf("获取历史K线失败: %w", err)
+		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
 	}
 
 	candles := make([]*Candle, 0, len(klines))
@@ -644,35 +649,35 @@ func (b *BybitAdapter) GetHistoricalKlines(ctx context.Context, symbol string, i
 	return candles, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (b *BybitAdapter) GetPriceDecimals() int {
 	return b.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (b *BybitAdapter) GetQuantityDecimals() int {
 	return b.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (b *BybitAdapter) GetBaseAsset() string {
 	return b.baseAsset
 }
 
-// GetQuoteAsset 获取计价资产
+// GetQuoteAsset 獲取计價资產
 func (b *BybitAdapter) GetQuoteAsset() string {
 	return b.quoteAsset
 }
 
-// GetOrderBook 获取订单簿深度
+// GetOrderBook 獲取訂單簿深度
 func (b *BybitAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
-	// 调用 Bybit API 获取订单簿
+	// 調用 Bybit API 獲取訂單簿
 	bybitOrderBook, err := b.client.GetOrderBook(ctx, "linear", symbol, limit)
 	if err != nil {
-		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+		return nil, fmt.Errorf("獲取訂單簿深度失败: %w", err)
 	}
 
-	// 转换买盘数据（价格从高到低）
+	// 轉换買盘數據（價格從高到低）
 	bids := make([]OrderBookLevel, 0, len(bybitOrderBook.Bids))
 	for _, bid := range bybitOrderBook.Bids {
 		if len(bid) < 2 {
@@ -680,12 +685,12 @@ func (b *BybitAdapter) GetOrderBook(ctx context.Context, symbol string, limit in
 		}
 		price, err := strconv.ParseFloat(bid[0], 64)
 		if err != nil {
-			logger.Warn("⚠️ [Bybit] 订单簿买盘价格解析失败: %v", err)
+			logger.Warn("⚠️ [Bybit] 订單簿買盘價格解析失败: %v", err)
 			continue
 		}
 		quantity, err := strconv.ParseFloat(bid[1], 64)
 		if err != nil {
-			logger.Warn("⚠️ [Bybit] 订单簿买盘数量解析失败: %v", err)
+			logger.Warn("⚠️ [Bybit] 订單簿買盘數量解析失败: %v", err)
 			continue
 		}
 		bids = append(bids, OrderBookLevel{
@@ -694,7 +699,7 @@ func (b *BybitAdapter) GetOrderBook(ctx context.Context, symbol string, limit in
 		})
 	}
 
-	// 转换卖盘数据（价格从低到高）
+	// 轉换賣盘數據（價格從低到高）
 	asks := make([]OrderBookLevel, 0, len(bybitOrderBook.Asks))
 	for _, ask := range bybitOrderBook.Asks {
 		if len(ask) < 2 {
@@ -702,12 +707,12 @@ func (b *BybitAdapter) GetOrderBook(ctx context.Context, symbol string, limit in
 		}
 		price, err := strconv.ParseFloat(ask[0], 64)
 		if err != nil {
-			logger.Warn("⚠️ [Bybit] 订单簿卖盘价格解析失败: %v", err)
+			logger.Warn("⚠️ [Bybit] 订單簿賣盘價格解析失败: %v", err)
 			continue
 		}
 		quantity, err := strconv.ParseFloat(ask[1], 64)
 		if err != nil {
-			logger.Warn("⚠️ [Bybit] 订单簿卖盘数量解析失败: %v", err)
+			logger.Warn("⚠️ [Bybit] 订單簿賣盘數量解析失败: %v", err)
 			continue
 		}
 		asks = append(asks, OrderBookLevel{
@@ -724,34 +729,34 @@ func (b *BybitAdapter) GetOrderBook(ctx context.Context, symbol string, limit in
 	}, nil
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (b *BybitAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	fundingRate, err := b.client.GetFundingRate(ctx, "linear", symbol)
 	if err != nil {
-		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+		return 0, fmt.Errorf("獲取资金费率失败: %w", err)
 	}
 
 	rate, _ := strconv.ParseFloat(fundingRate.FundingRate, 64)
 	return rate, nil
 }
 
-// GetSpotPrice 获取现货市场价格
+// GetSpotPrice 獲取現貨市场價格
 func (b *BybitAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
-	// Bybit 现货使用 category=spot
+	// Bybit 現貨使用 category=spot
 	ticker, err := b.client.GetTicker(ctx, "spot", symbol)
 	if err != nil {
-		return 0, fmt.Errorf("获取现货价格失败: %w", err)
+		return 0, fmt.Errorf("獲取現貨價格失败: %w", err)
 	}
 
 	price, err := strconv.ParseFloat(ticker.LastPrice, 64)
 	if err != nil {
-		return 0, fmt.Errorf("解析现货价格失败: %w", err)
+		return 0, fmt.Errorf("解析現貨價格失败: %w", err)
 	}
 
 	return price, nil
 }
 
-// InternalTransfer 交易所内部转账（Bybit 暂未实现）
+// InternalTransfer 交易所內部轉帳（Bybit 暂未實現）
 func (b *BybitAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Bybit")
 }

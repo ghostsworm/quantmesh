@@ -27,17 +27,21 @@ import (
 	"quantmesh/exchange/xtcom"
 )
 
-// NewExchange 创建交易所实例
-// exchangeName/symbol 允许覆盖配置中的当前交易所和交易对，便于多交易对场景
-// 如果配置了 system.dry_run = true，会自动包装为 DryRunWrapper
-func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, error) {
-	// 创建真实的交易所实例
-	ex, err := newExchangeInternal(cfg, exchangeName, symbol)
+// NewExchange 創建交易所實例
+// exchangeName/symbol 允許覆盖配置中的當前交易所和交易對，便於多交易對场景
+// marketType: "spot" 現貨 / "futures" 合約，空時默认為 "futures"
+// 如果配置了 system.dry_run = true，會自动包装為 DryRunWrapper
+func NewExchange(cfg *config.Config, exchangeName, symbol, marketType string) (IExchange, error) {
+	if marketType == "" {
+		marketType = "futures"
+	}
+	// 創建真實的交易所實例
+	ex, err := newExchangeInternal(cfg, exchangeName, symbol, marketType)
 	if err != nil {
 		return nil, err
 	}
 
-	// 如果启用了 DryRun 模式，包装交易所
+	// 如果啟用了 DryRun 模式，包装交易所
 	if cfg.System.DryRun {
 		return NewDryRunWrapper(ex), nil
 	}
@@ -45,13 +49,22 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 	return ex, nil
 }
 
-// newExchangeInternal 内部函数：创建真实的交易所实例
-func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExchange, error) {
+// newExchangeInternal 内部函數：創建真實的交易所實例
+func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType string) (IExchange, error) {
 	if exchangeName == "" {
 		exchangeName = cfg.App.CurrentExchange
 	}
 	if symbol == "" {
 		symbol = cfg.Trading.Symbol
+	}
+	if marketType == "" {
+		marketType = "futures"
+	}
+	supportedSpotExchanges := map[string]bool{
+		"binance": true, "bitget": true, "gate": true, "okx": true, "bybit": true,
+	}
+	if marketType == "spot" && !supportedSpotExchanges[exchangeName] {
+		return nil, fmt.Errorf("交易所 %s 不支援現貨交易，请使用 market_type: futures 或选擇已支援現貨的交易所（Binance/OKX/Bybit/Bitget/Gate）", exchangeName)
 	}
 
 	switch exchangeName {
@@ -60,12 +73,18 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		if !exists {
 			return nil, fmt.Errorf("bitget 配置不存在")
 		}
-		// 将 ExchangeConfig 转换为 map[string]string
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
 			"passphrase": exchangeCfg.Passphrase,
-			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet), // 传递测试网配置
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		if marketType == "spot" {
+			adapter, err := bitget.NewBitgetSpotAdapter(cfgMap, symbol)
+			if err != nil {
+				return nil, err
+			}
+			return &bitgetSpotWrapper{adapter: adapter}, nil
 		}
 		adapter, err := bitget.NewBitgetAdapter(cfgMap, symbol)
 		if err != nil {
@@ -81,7 +100,14 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
-			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet), // 传递测试网配置
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet), // 傳遞測試網配置
+		}
+		if marketType == "spot" {
+			adapter, err := binance.NewBinanceSpotAdapter(cfgMap, symbol)
+			if err != nil {
+				return nil, err
+			}
+			return &binanceSpotWrapper{adapter: adapter}, nil
 		}
 		adapter, err := binance.NewBinanceAdapter(cfgMap, symbol)
 		if err != nil {
@@ -97,12 +123,18 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
-			"settle":     "usdt", // 默认 USDT 永续合约
-			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet), // 传递测试网配置
+			"settle":     "usdt",
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
 		}
-		// 如果配置了杠杆，传递杠杆配置
 		if exchangeCfg.Leverage > 0 {
 			cfgMap["leverage"] = fmt.Sprintf("%d", exchangeCfg.Leverage)
+		}
+		if marketType == "spot" {
+			adapter, err := gate.NewGateSpotAdapter(cfgMap, symbol)
+			if err != nil {
+				return nil, err
+			}
+			return &gateSpotWrapper{adapter: adapter}, nil
 		}
 		adapter, err := gate.NewGateAdapter(cfgMap, symbol)
 		if err != nil {
@@ -121,6 +153,13 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 			"passphrase": exchangeCfg.Passphrase,
 			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
 		}
+		if marketType == "spot" {
+			adapter, err := okx.NewOKXSpotAdapter(cfgMap, symbol)
+			if err != nil {
+				return nil, err
+			}
+			return &okxSpotWrapper{adapter: adapter}, nil
+		}
 		adapter, err := okx.NewOKXAdapter(cfgMap, symbol)
 		if err != nil {
 			return nil, err
@@ -136,6 +175,13 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
 			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		if marketType == "spot" {
+			adapter, err := bybit.NewBybitSpotAdapter(cfgMap, symbol)
+			if err != nil {
+				return nil, err
+			}
+			return &bybitSpotWrapper{adapter: adapter}, nil
 		}
 		adapter, err := bybit.NewBybitAdapter(cfgMap, symbol)
 		if err != nil {
@@ -273,6 +319,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		if !exists {
 			return nil, fmt.Errorf("phemex 配置不存在")
 		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("Phemex 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
+		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
@@ -288,6 +337,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		exchangeCfg, exists := cfg.Exchanges["woox"]
 		if !exists {
 			return nil, fmt.Errorf("woox 配置不存在")
+		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("WOO X 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
 		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
@@ -305,6 +357,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		if !exists {
 			return nil, fmt.Errorf("coinex 配置不存在")
 		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("CoinEx 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
+		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
@@ -320,6 +375,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		exchangeCfg, exists := cfg.Exchanges["bitrue"]
 		if !exists {
 			return nil, fmt.Errorf("bitrue 配置不存在")
+		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("Bitrue 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
 		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
@@ -353,6 +411,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		if !exists {
 			return nil, fmt.Errorf("btcc 配置不存在")
 		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("BTCC 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
+		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
@@ -368,6 +429,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		exchangeCfg, exists := cfg.Exchanges["ascendex"]
 		if !exists {
 			return nil, fmt.Errorf("ascendex 配置不存在")
+		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("AscendEX 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
 		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
@@ -385,6 +449,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		if !exists {
 			return nil, fmt.Errorf("poloniex 配置不存在")
 		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("Poloniex 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
+		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
@@ -401,6 +468,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		if !exists {
 			return nil, fmt.Errorf("cryptocom 配置不存在")
 		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("Crypto.com 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
+		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
 			"secret_key": exchangeCfg.SecretKey,
@@ -413,9 +483,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol string) (IExch
 		return &cryptocomWrapper{adapter: adapter}, nil
 
 	case "edgex":
-		return nil, fmt.Errorf("edgeX 尚未实现")
+		return nil, fmt.Errorf("edgeX 尚未實現")
 
 	default:
-		return nil, fmt.Errorf("不支持的交易所: %s", exchangeName)
+		return nil, fmt.Errorf("不支援的交易所: %s", exchangeName)
 	}
 }

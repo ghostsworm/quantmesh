@@ -12,8 +12,8 @@ import (
 	"quantmesh/logger"
 )
 
-// 为了避免循环导入，在这里定义需要的接口和类型
-// 这些类型应该与 exchange/types.go 中的定义保持一致
+// 為了避免循環匯入，在这里定义需要的接口和類型
+// 这些類型应該與 exchange/types.go 中的定义保持一致
 
 type Side string
 type OrderType string
@@ -47,7 +47,7 @@ type OrderRequest struct {
 	ReduceOnly    bool
 	PostOnly      bool // 是否只做 Maker（Post Only）
 	PriceDecimals int
-	ClientOrderID string // 自定义订单ID
+	ClientOrderID string // 自定义订單ID
 }
 
 type Order struct {
@@ -82,7 +82,7 @@ type Account struct {
 	AvailableBalance   float64
 	Positions          []*Position
 	PosMode            string // "hedge_mode" or "one_way_mode"
-	AccountLeverage    int    // 账户级别的杠杆倍数
+	AccountLeverage    int    // 账戶级别的杠杆倍數
 }
 
 type OrderUpdate struct {
@@ -101,13 +101,13 @@ type OrderUpdate struct {
 
 type OrderUpdateCallback func(update OrderUpdate)
 
-// OrderBookLevel 订单簿档位（本地类型，避免循环导入）
+// OrderBookLevel 订單簿檔位（本地類型，避免循環匯入）
 type OrderBookLevel struct {
 	Price    float64
 	Quantity float64
 }
 
-// OrderBook 订单簿（本地类型，避免循环导入）
+// OrderBook 订單簿（本地類型，避免循環匯入）
 type OrderBook struct {
 	Symbol    string
 	Bids      []OrderBookLevel
@@ -120,61 +120,61 @@ type BitgetAdapter struct {
 	client         *Client
 	wsManager      *WebSocketManager
 	klineWSManager *KlineWebSocketManager
-	symbol         string // 交易对（如 ETHUSDT，V2 API 不带 _UMCBL 后缀）
-	useWebSocket   bool   // 是否使用 WebSocket 下单
+	symbol         string // 交易對（如 ETHUSDT，V2 API 不带 _UMCBL 后缀）
+	useWebSocket   bool   // 是否使用 WebSocket 下單
 
-	// 🔥 新增：订单ID到价格的映射注册回调
-	// 用于在下单成功后立即建立映射，避免 WebSocket 更新先到导致找不到槽位
+	// 🔥 新增：订單ID到價格的映射注册回呼
+	// 用於在下單成功后立即建立映射，避免 WebSocket 更新先到導致找不到槽位
 	orderMappingCallback func(orderID int64, price float64)
 
-	posMode      string // 持仓模式：hedge_mode 或 one_way_mode
-	productType  string // 合约类型：usdt-futures（U本位）或 coin-futures（币本位）
-	marginCoin   string // 保证金币种：自动从合约信息获取
-	volumePlace  int    // 数量小数位（从合约信息获取）
-	pricePlace   int    // 价格小数位（从合约信息获取）
-	minTradeNum  string // 最小下单数量
-	minTradeUSDT string // 最小下单金额（USDT）
-	baseAsset    string // 基础资产（交易币种），如 BTC
-	quoteAsset   string // 计价资产（结算币种），如 USDT、USD
-	testnet      bool   // 是否使用测试网
+	posMode      string // 持倉模式：hedge_mode 或 one_way_mode
+	productType  string // 合約類型：usdt-futures（U本位）或 coin-futures（币本位）
+	marginCoin   string // 保证金币种：自动從合約信息獲取
+	volumePlace  int    // 數量小數位（從合約信息獲取）
+	pricePlace   int    // 價格小數位（從合約信息獲取）
+	minTradeNum  string // 最小下單數量
+	minTradeUSDT string // 最小下單金額（USDT）
+	baseAsset    string // 基础资產（交易币种），如 BTC
+	quoteAsset   string // 计價资產（結算币种），如 USDT、USD
+	testnet      bool   // 是否使用測試網
 }
 
-// NewBitgetAdapter 创建 Bitget 适配器
+// NewBitgetAdapter 創建 Bitget 适配器
 func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, error) {
 	apiKey := cfg["api_key"]
 	secretKey := cfg["secret_key"]
 	passphrase := cfg["passphrase"]
-	testnet := cfg["testnet"] == "true" || cfg["testnet"] == "1" // 是否使用测试网
+	testnet := cfg["testnet"] == "true" || cfg["testnet"] == "1" // 是否使用測試網
 
 	if apiKey == "" || secretKey == "" || passphrase == "" {
 		return nil, fmt.Errorf("bitget API 配置不完整")
 	}
 
-	// Bitget V2 合约符号格式：直接使用 ETHUSDT（不带 _UMCBL 后缀）
+	// Bitget V2 合約符号格式：直接使用 ETHUSDT（不带 _UMCBL 后缀）
 	bitgetSymbol := convertToBitgetSymbol(symbol)
 
 	client := NewClient(apiKey, secretKey, passphrase, testnet)
 	wsManager := NewWebSocketManager(apiKey, secretKey, passphrase, testnet)
 
 	if testnet {
-		logger.Info("🌐 [Bitget] 使用测试网模式")
+		logger.Info("🌐 [Bitget] 使用測試網模式")
 	}
 
 	adapter := &BitgetAdapter{
 		client:       client,
 		wsManager:    wsManager,
 		symbol:       bitgetSymbol,
-		useWebSocket: false, // 使用 REST API 下单（混合模式）
+		useWebSocket: false, // 使用 REST API 下單（混合模式）
 		testnet:      testnet,
 	}
 
-	// 初始化获取合约信息和持仓模式
+	// 初始化獲取合約信息和持倉模式
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 1. 先获取合约信息（必须先获取，因为需要设置productType和marginCoin）
+	// 1. 先獲取合約信息（必須先獲取，因為需要設置productType和marginCoin）
 	if err := adapter.fetchContractInfo(ctxInit); err != nil {
-		logger.Warn("⚠️ [Bitget] 获取合约信息失败: %v", err)
+		logger.Warn("⚠️ [Bitget] 獲取合約信息失败: %v", err)
 		// 使用默认值
 		adapter.volumePlace = 4
 		adapter.pricePlace = 2
@@ -182,23 +182,23 @@ func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, err
 		adapter.marginCoin = "USDT"
 	}
 
-	// 2. 获取持仓模式和账户信息
+	// 2. 獲取持倉模式和帳戶資訊
 	acc, err := adapter.GetAccount(ctxInit)
 	if err != nil {
-		logger.Warn("⚠️ [Bitget] 初始化获取账户信息失败: %v", err)
-		adapter.posMode = "hedge_mode" // 默认双向持仓
+		logger.Warn("⚠️ [Bitget] 初始化獲取帳戶信息失败: %v", err)
+		adapter.posMode = "hedge_mode" // 默认双向持倉
 	} else {
 		adapter.posMode = acc.PosMode
-		// 显示持仓模式（双向/单向）
-		posModeDesc := "双向持仓"
+		// 显示持倉模式（双向/單向）
+		posModeDesc := "双向持倉"
 		if acc.PosMode == "one_way_mode" {
-			posModeDesc = "单向持仓"
+			posModeDesc = "單向持倉"
 		}
-		logger.Info("ℹ️ [Bitget] 持仓模式: %s (%s)", posModeDesc, acc.PosMode)
+		logger.Info("ℹ️ [Bitget] 持倉模式: %s (%s)", posModeDesc, acc.PosMode)
 	}
 
 	// 移除这里的自动连接，统一由 StartPriceStream 或 StartOrderStream 触发
-	// 这样可以避免重复连接和日志重复
+	// 这样可以避免重複连接和日志重複
 	/*
 		ctx := context.Background()
 		go func() {
@@ -206,7 +206,7 @@ func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, err
 			if err := wsManager.ConnectAndLogin(ctx, bitgetSymbol); err != nil {
 				logger.Warn("⚠️ [Bitget] WebSocket 连接失败: %v（不影响交易）", err)
 			} else {
-				logger.Info("✅ [Bitget] WebSocket 已连接并登录")
+				logger.Info("✅ [Bitget] WebSocket 已连接並登錄")
 			}
 		}()
 	*/
@@ -214,14 +214,19 @@ func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, err
 	return adapter, nil
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (b *BitgetAdapter) GetName() string {
 	return "Bitget"
 }
 
-// fetchContractInfo 获取合约信息（数量精度、价格精度等）
+// GetMarketType 獲取市場類型：futures 合約
+func (b *BitgetAdapter) GetMarketType() string {
+	return "futures"
+}
+
+// fetchContractInfo 獲取合約信息（數量精度、價格精度等）
 func (b *BitgetAdapter) fetchContractInfo(ctx context.Context) error {
-	// 尝试从多个合约类型中查找（先U本位，再币本位）
+	// 尝試從多個合約類型中查找（先U本位，再币本位）
 	productTypes := []string{"usdt-futures", "coin-futures", "usdc-futures"}
 	var lastErr error
 
@@ -233,28 +238,28 @@ func (b *BitgetAdapter) fetchContractInfo(ctx context.Context) error {
 			continue
 		}
 
-		// 解析合约信息
+		// 解析合約信息
 		var dataList []struct {
 			Symbol             string   `json:"symbol"`
-			VolumePlace        string   `json:"volumePlace"`        // 数量小数位
-			PricePlace         string   `json:"pricePlace"`         // 价格小数位
-			MinTradeNum        string   `json:"minTradeNum"`        // 最小下单数量
-			MinTradeUSDT       string   `json:"minTradeUSDT"`       // 最小下单金额
+			VolumePlace        string   `json:"volumePlace"`        // 數量小數位
+			PricePlace         string   `json:"pricePlace"`         // 價格小數位
+			MinTradeNum        string   `json:"minTradeNum"`        // 最小下單數量
+			MinTradeUSDT       string   `json:"minTradeUSDT"`       // 最小下單金額
 			BaseCoin           string   `json:"baseCoin"`           // 基础币种
-			QuoteCoin          string   `json:"quoteCoin"`          // 计价币种
-			SupportMarginCoins []string `json:"supportMarginCoins"` // 支持的保证金币种
+			QuoteCoin          string   `json:"quoteCoin"`          // 计價币种
+			SupportMarginCoins []string `json:"supportMarginCoins"` // 支援的保证金币种
 		}
 
 		if err := json.Unmarshal(resp.Data, &dataList); err != nil {
-			lastErr = fmt.Errorf("解析合约信息失败: %w", err)
+			lastErr = fmt.Errorf("解析合約信息失败: %w", err)
 			continue
 		}
 
 		if len(dataList) == 0 {
-			continue // 尝试下一个productType
+			continue // 尝試下一個productType
 		}
 
-		// 找到合约信息
+		// 找到合約信息
 		contract := dataList[0]
 		b.productType = pt
 		b.volumePlace, _ = strconv.Atoi(contract.VolumePlace)
@@ -264,58 +269,58 @@ func (b *BitgetAdapter) fetchContractInfo(ctx context.Context) error {
 		b.baseAsset = contract.BaseCoin
 		b.quoteAsset = contract.QuoteCoin
 
-		// 设置保证金币种（优先使用supportMarginCoins的第一个，否则使用quoteCoin）
+		// 設置保证金币种（优先使用supportMarginCoins的第一個，否则使用quoteCoin）
 		if len(contract.SupportMarginCoins) > 0 {
 			b.marginCoin = contract.SupportMarginCoins[0]
 		} else {
 			b.marginCoin = contract.QuoteCoin
 		}
 
-		// 判断合约类型描述
-		contractTypeDesc := "U本位合约"
+		// 判断合約類型描述
+		contractTypeDesc := "U本位合約"
 		if pt == "coin-futures" {
-			contractTypeDesc = "币本位合约"
+			contractTypeDesc = "币本位合約"
 		} else if pt == "usdc-futures" {
-			contractTypeDesc = "USDC合约"
+			contractTypeDesc = "USDC合約"
 		}
 
-		logger.Info("ℹ️ [Bitget 合约信息] %s - %s, 数量精度:%d, 价格精度:%d, 基础币种:%s, 计价币种:%s, 保证金:%s",
+		logger.Info("ℹ️ [Bitget 合約信息] %s - %s, 數量精度:%d, 價格精度:%d, 基础币种:%s, 计價币种:%s, 保证金:%s",
 			b.symbol, contractTypeDesc, b.volumePlace, b.pricePlace, b.baseAsset, b.quoteAsset, b.marginCoin)
 
 		return nil
 	}
 
 	if lastErr != nil {
-		return fmt.Errorf("未找到合约信息 %s: %w", b.symbol, lastErr)
+		return fmt.Errorf("未找到合約信息 %s: %w", b.symbol, lastErr)
 	}
-	return fmt.Errorf("未找到合约信息: %s", b.symbol)
+	return fmt.Errorf("未找到合約信息: %s", b.symbol)
 }
 
-// PlaceOrder 下单（使用 REST API）
+// PlaceOrder 下單（使用 REST API）
 func (b *BitgetAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 混合模式：使用 REST API 下单，更稳定可靠
+	// 混合模式：使用 REST API 下單，更稳定可靠
 	return b.placeOrderViaREST(ctx, req)
 }
 
-// placeOrderViaREST 通过 REST API 下单
+// placeOrderViaREST 通過 REST API 下單
 func (b *BitgetAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) (*Order, error) {
 	// 确定 side 和 tradeSide
 	side := strings.ToLower(string(req.Side))
 	var tradeSide string
 
-	// 🔥 Bitget 双向持仓的特殊逻辑：
+	// 🔥 Bitget 双向持倉的特殊逻辑：
 	// 开多：side=buy, tradeSide=open
 	// 平多：side=buy, tradeSide=close （注意！平多也是 buy）
 	// 开空：side=sell, tradeSide=open
 	// 平空：side=sell, tradeSide=close
 	if b.posMode == "hedge_mode" {
 		if req.ReduceOnly {
-			// 平仓：保持 side 方向不变，只改 tradeSide
-			// 如果是 SELL（卖出），实际上是要平多仓，需要改为 buy
+			// 平倉：保持 side 方向不变，只改 tradeSide
+			// 如果是 SELL（賣出），實際上是要平多倉，需要改為 buy
 			if req.Side == SideSell {
-				side = "buy" // 平多仓必须用 buy
+				side = "buy" // 平多倉必須用 buy
 			} else {
-				side = "sell" // 平空仓必须用 sell
+				side = "sell" // 平空倉必須用 sell
 			}
 			tradeSide = "close"
 		} else {
@@ -323,31 +328,31 @@ func (b *BitgetAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest
 		}
 	}
 
-	// 🔥 使用合约信息中的精度格式化数量和价格
-	// 特殊处理：如果数量过小，自动调整为最小下单量
+	// 🔥 使用合約信息中的精度格式化數量和價格
+	// 特殊处理：如果數量過小，自动調整為最小下單量
 	if req.Quantity <= 0 && b.volumePlace >= 0 {
 		req.Quantity = math.Pow10(-b.volumePlace)
-		logger.Warn("⚠️ [Bitget] 下单数量原始值为 0，已自动调整为最小单位: %.8f", req.Quantity)
+		logger.Warn("⚠️ [Bitget] 下單數量原始值為 0，已自动調整為最小單位: %.8f", req.Quantity)
 	}
 
 	quantityStr := fmt.Sprintf("%.*f", b.volumePlace, req.Quantity)
 	priceStr := fmt.Sprintf("%.*f", b.pricePlace, req.Price)
 
-	// 如果截断后数量为 0，也需要兜底
+	// 如果截断后數量為 0，也需要兜底
 	q, _ := strconv.ParseFloat(quantityStr, 64)
 	if q <= 0 && b.volumePlace >= 0 {
 		minQty := math.Pow10(-b.volumePlace)
 		quantityStr = fmt.Sprintf("%.*f", b.volumePlace, minQty)
-		logger.Warn("⚠️ [Bitget] 数量截断后为 0，使用最小精度兜底: %s", quantityStr)
+		logger.Warn("⚠️ [Bitget] 數量截断后為 0，使用最小精度兜底: %s", quantityStr)
 	}
 
-	// 根据 PostOnly 参数选择 force 类型
+	// 根據 PostOnly 参數选擇 force 類型
 	forceType := "gtc" // 默认使用 GTC (Good Till Cancel)
 	if req.PostOnly {
 		forceType = "post_only" // Post Only - 只做 Maker
 	}
 
-	// Bitget V2 下单参数
+	// Bitget V2 下單参數
 	body := map[string]interface{}{
 		"symbol":      req.Symbol,
 		"productType": b.productType,
@@ -360,27 +365,27 @@ func (b *BitgetAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest
 		"force":       forceType,
 	}
 
-	// 设置自定义订单ID
+	// 設置自定义订單ID
 	if req.ClientOrderID != "" {
 		body["clientOid"] = req.ClientOrderID
 	}
 
-	// 双向持仓模式下添加 tradeSide（必须）
-	// 🔥 关键：双向持仓模式下，不能使用 reduceOnly 参数，只能用 tradeSide=close
+	// 双向持倉模式下添加 tradeSide（必須）
+	// 🔥 关键：双向持倉模式下，不能使用 reduceOnly 参數，只能用 tradeSide=close
 	if tradeSide != "" {
 		body["tradeSide"] = tradeSide
 	}
 
-	// 🔥 单向持仓模式下，如果是只减仓，必须使用 reduceOnly 参数
-	// 注意：单向持仓时 tradeSide 参数必须省略，否则会报错
+	// 🔥 單向持倉模式下，如果是只减倉，必須使用 reduceOnly 参數
+	// 注意：單向持倉時 tradeSide 参數必須省略，否则會报錯
 	if b.posMode != "hedge_mode" && req.ReduceOnly {
 		body["reduceOnly"] = "YES"
 	}
 
-	// 只请求1次，不重试
+	// 只请求1次，不重試
 	resp, err := b.client.DoRequest(ctx, "POST", "/api/v2/mix/order/place-order", body)
 	if err != nil {
-		// 检查错误类型
+		// 检查錯误類型
 		if strings.Contains(err.Error(), "insufficient balance") || strings.Contains(err.Error(), "40007") {
 			return nil, fmt.Errorf("保证金不足: %w", err)
 		}
@@ -393,15 +398,15 @@ func (b *BitgetAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest
 		ClientOrderID string `json:"clientOid"`
 	}
 	if err := json.Unmarshal(resp.Data, &data); err != nil {
-		return nil, fmt.Errorf("解析下单响应失败: %w", err)
+		return nil, fmt.Errorf("解析下單响应失败: %w", err)
 	}
 
-	// 🔍 添加调试：打印完整响应
-	logger.Debug("🔍 [Bitget REST] 下单响应: %s", string(resp.Data))
+	// 🔍 添加調試：打印完整响应
+	logger.Debug("🔍 [Bitget REST] 下單响应: %s", string(resp.Data))
 
 	orderID, _ := strconv.ParseInt(data.OrderID, 10, 64)
 	if orderID == 0 {
-		return nil, fmt.Errorf("下单响应中orderId为空或无效: %s", string(resp.Data))
+		return nil, fmt.Errorf("下單响应中orderId為空或無效: %s", string(resp.Data))
 	}
 
 	order := &Order{
@@ -416,22 +421,22 @@ func (b *BitgetAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest
 		CreatedAt:     time.Now(),
 	}
 
-	// 🔥 诊断：获取当前市场价格，检查订单价格是否合理
+	// 🔥 诊断：獲取當前市场價格，检查订單價格是否合理
 	ctxPrice, cancelPrice := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelPrice()
 	currentPrice, err := b.GetLatestPrice(ctxPrice, b.symbol)
 	if err == nil {
 		priceDiff := req.Price - currentPrice
 		priceDiffPercent := (priceDiff / currentPrice) * 100
-		logger.Debug("🔍 [Bitget下单诊断] 订单价格: %.2f, 当前价格: %.2f, 价差: %.2f (%.3f%%)",
+		logger.Debug("🔍 [Bitget下單诊断] 订單價格: %.2f, 當前價格: %.2f, 價差: %.2f (%.3f%%)",
 			req.Price, currentPrice, priceDiff, priceDiffPercent)
 	}
 
-	// 注意：不在这里打印日志，由executor统一打印避免重复
+	// 注意：不在这里打印日志，由executor统一打印避免重複
 	return order, nil
 }
 
-// BatchPlaceOrders 批量下单
+// BatchPlaceOrders 批量下單
 func (b *BitgetAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
 	placedOrders := make([]*Order, 0, len(orders))
 	hasMarginError := false
@@ -439,7 +444,7 @@ func (b *BitgetAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderReq
 	for _, orderReq := range orders {
 		order, err := b.PlaceOrder(ctx, orderReq)
 		if err != nil {
-			logger.Warn("⚠️ [Bitget] 下单失败 %.2f %s: %v",
+			logger.Warn("⚠️ [Bitget] 下單失败 %.2f %s: %v",
 				orderReq.Price, orderReq.Side, err)
 
 			if strings.Contains(err.Error(), "保证金不足") {
@@ -448,15 +453,15 @@ func (b *BitgetAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderReq
 			continue
 		}
 
-		// 🔥 关键：确保 order.Price 包含请求的价格
-		// 这样调用者就能正确建立 orderID -> price 的映射
+		// 🔥 关键：确保 order.Price 包含请求的價格
+		// 这样調用者就能正确建立 orderID -> price 的映射
 		order.Price = orderReq.Price
 
-		// 🔥 新增：立即注册订单ID到价格的映射
-		// 这样可以防止 WebSocket 更新先到导致找不到槽位
+		// 🔥 新增：立即注册订單ID到價格的映射
+		// 这样可以防止 WebSocket 更新先到導致找不到槽位
 		if b.orderMappingCallback != nil && order.OrderID > 0 {
 			b.orderMappingCallback(order.OrderID, orderReq.Price)
-			logger.Debug("🔍 [Bitget映射] 注册 订单ID=%d -> 价格=%.2f", order.OrderID, orderReq.Price)
+			logger.Debug("🔍 [Bitget映射] 注册 订單ID=%d -> 價格=%.2f", order.OrderID, orderReq.Price)
 		}
 
 		placedOrders = append(placedOrders, order)
@@ -465,7 +470,7 @@ func (b *BitgetAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderReq
 	return placedOrders, hasMarginError
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (b *BitgetAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	body := map[string]interface{}{
 		"symbol":      b.symbol,
@@ -476,25 +481,25 @@ func (b *BitgetAdapter) CancelOrder(ctx context.Context, symbol string, orderID 
 
 	_, err := b.client.DoRequest(ctx, "POST", "/api/v2/mix/order/cancel-order", body)
 	if err != nil {
-		// 订单不存在不算错误
+		// 订單不存在不算錯误
 		if strings.Contains(err.Error(), "order does not exist") || strings.Contains(err.Error(), "40029") {
-			logger.Info("ℹ️ [Bitget] 订单 %d 已不存在，跳过取消", orderID)
+			logger.Info("ℹ️ [Bitget] 订單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
-		return fmt.Errorf("取消订单失败: %w", err)
+		return fmt.Errorf("取消訂單失败: %w", err)
 	}
 
-	logger.Info("✅ [Bitget] 取消订单成功: %d", orderID)
+	logger.Info("✅ [Bitget] 取消訂單成功: %d", orderID)
 	return nil
 }
 
-// BatchCancelOrders 批量取消订单
+// BatchCancelOrders 批量取消訂單
 func (b *BitgetAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	if len(orderIDs) == 0 {
 		return nil
 	}
 
-	// 🔥 Bitget 批量撤单限制：最多20个，必须传symbol、productType、marginCoin
+	// 🔥 Bitget 批量撤單限制：最多20個，必須傳symbol、productType、marginCoin
 	batchSize := 20
 	for i := 0; i < len(orderIDs); i += batchSize {
 		end := i + batchSize
@@ -504,39 +509,39 @@ func (b *BitgetAdapter) BatchCancelOrders(ctx context.Context, symbol string, or
 
 		batch := orderIDs[i:end]
 
-		// 🔥 如果只有1个订单，直接用单个撤单接口
+		// 🔥 如果只有1個订單，直接用單個撤單接口
 		if len(batch) == 1 {
 			if err := b.CancelOrder(ctx, symbol, batch[0]); err != nil {
-				logger.Warn("⚠️ [Bitget] 取消订单失败 %d: %v", batch[0], err)
+				logger.Warn("⚠️ [Bitget] 取消訂單失败 %d: %v", batch[0], err)
 			}
 			continue
 		}
 
-		// 构造订单ID字符串列表
+		// 構造订單ID字符串列表
 		orderIDStrs := make([]string, len(batch))
 		for j, id := range batch {
 			orderIDStrs[j] = fmt.Sprintf("%d", id)
 		}
 
-		// 🔥 确保所有必需参数都存在
+		// 🔥 确保所有必需参數都存在
 		body := map[string]interface{}{
 			"symbol":      b.symbol,      // 必需
 			"productType": b.productType, // 必需：USDT-FUTURES
 			"marginCoin":  b.marginCoin,  // 必需：USDT
-			"orderIdList": orderIDStrs,   // 必需：订单ID列表
+			"orderIdList": orderIDStrs,   // 必需：订單ID列表
 		}
 
 		_, err := b.client.DoRequest(ctx, "POST", "/api/v2/mix/order/batch-cancel-orders", body)
 		if err != nil {
-			logger.Warn("⚠️ [Bitget] 批量撤单失败 (共%d个): %v", len(batch), err)
-			// 失败时尝试单个撤单
-			logger.Info("🔄 [Bitget] 改为逐个撤单...")
+			logger.Warn("⚠️ [Bitget] 批量撤單失败 (共%d個): %v", len(batch), err)
+			// 失败時尝試單個撤單
+			logger.Info("🔄 [Bitget] 改為逐個撤單...")
 			for _, orderID := range batch {
 				_ = b.CancelOrder(ctx, symbol, orderID)
 				time.Sleep(100 * time.Millisecond) // 避免限频
 			}
 		} else {
-			logger.Info("✅ [Bitget] 批量撤单成功: %d 个订单", len(batch))
+			logger.Info("✅ [Bitget] 批量撤單成功: %d 個订單", len(batch))
 		}
 
 		// 避免限频
@@ -548,7 +553,7 @@ func (b *BitgetAdapter) BatchCancelOrders(ctx context.Context, symbol string, or
 	return nil
 }
 
-// CancelAllOrders 一键全撤所有订单（Bitget特有功能）
+// CancelAllOrders 一键全撤所有订單（Bitget特有功能）
 func (b *BitgetAdapter) CancelAllOrders(ctx context.Context) error {
 	body := map[string]interface{}{
 		"productType": b.productType, // 必需：USDT-FUTURES
@@ -577,19 +582,19 @@ func (b *BitgetAdapter) CancelAllOrders(ctx context.Context) error {
 		return fmt.Errorf("解析一键全撤响应失败: %w", err)
 	}
 
-	logger.Info("✅ [Bitget 一键全撤] 成功: %d 个, 失败: %d 个",
+	logger.Info("✅ [Bitget 一键全撤] 成功: %d 個, 失败: %d 個",
 		len(data.SuccessList), len(data.FailureList))
 
 	if len(data.FailureList) > 0 {
 		for _, fail := range data.FailureList {
-			logger.Warn("⚠️ [Bitget 一键全撤失败] 订单ID: %s, 原因: %s", fail.OrderID, fail.ErrorMsg)
+			logger.Warn("⚠️ [Bitget 一键全撤失败] 订單ID: %s, 原因: %s", fail.OrderID, fail.ErrorMsg)
 		}
 	}
 
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (b *BitgetAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	path := fmt.Sprintf("/api/v2/mix/order/detail?symbol=%s&productType=%s&orderId=%d", b.symbol, b.productType, orderID)
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
@@ -597,7 +602,7 @@ func (b *BitgetAdapter) GetOrder(ctx context.Context, symbol string, orderID int
 		return nil, err
 	}
 
-	// 解析订单详情
+	// 解析订單详情
 	var data struct {
 		Symbol    string `json:"symbol"`
 		Size      string `json:"size"`
@@ -613,10 +618,10 @@ func (b *BitgetAdapter) GetOrder(ctx context.Context, symbol string, orderID int
 	}
 
 	if err := json.Unmarshal(resp.Data, &data); err != nil {
-		return nil, fmt.Errorf("解析订单详情失败: %w", err)
+		return nil, fmt.Errorf("解析订單详情失败: %w", err)
 	}
 
-	// 转换为通用格式
+	// 轉换為通用格式
 	ordID, _ := strconv.ParseInt(data.OrderId, 10, 64)
 	price, _ := strconv.ParseFloat(data.Price, 64)
 	quantity, _ := strconv.ParseFloat(data.Size, 64)
@@ -656,7 +661,7 @@ func (b *BitgetAdapter) GetOrder(ctx context.Context, symbol string, orderID int
 	}, nil
 }
 
-// GetOpenOrders 查询未完成订单
+// GetOpenOrders 查詢未完成订單
 func (b *BitgetAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	path := fmt.Sprintf("/api/v2/mix/order/orders-pending?symbol=%s&productType=%s", b.symbol, b.productType)
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
@@ -664,7 +669,7 @@ func (b *BitgetAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 		return nil, err
 	}
 
-	// 解析订单列表（V2 API 返回对象格式）
+	// 解析订單列表（V2 API 返回對象格式）
 	var wrapper struct {
 		EntrustedList []struct {
 			Symbol        string `json:"symbol"`
@@ -687,7 +692,7 @@ func (b *BitgetAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 	}
 
 	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
-		return nil, fmt.Errorf("解析订单列表失败: %w", err)
+		return nil, fmt.Errorf("解析订單列表失败: %w", err)
 	}
 
 	dataList := wrapper.EntrustedList
@@ -701,13 +706,13 @@ func (b *BitgetAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 		avgPrice, _ := strconv.ParseFloat(item.PriceAvg, 64)
 		updateTime, _ := strconv.ParseInt(item.UTime, 10, 64)
 
-		// 转换方向
+		// 轉换方向
 		side := SideBuy
 		if item.Side == "sell" {
 			side = SideSell
 		}
 
-		// 转换状态
+		// 轉换状態
 		var status OrderStatus = "NEW"
 		switch item.Status {
 		case "new":
@@ -738,7 +743,7 @@ func (b *BitgetAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 	return orders, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (b *BitgetAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	path := fmt.Sprintf("/api/v2/mix/account/account?symbol=%s&productType=%s&marginCoin=%s", b.symbol, b.productType, b.marginCoin)
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
@@ -746,64 +751,64 @@ func (b *BitgetAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		return nil, err
 	}
 
-	// 解析账户信息
+	// 解析帳戶資訊
 	var data struct {
 		MarginCoin            string `json:"marginCoin"`
 		Locked                string `json:"locked"`
 		Available             string `json:"available"`
-		CrossMaxAvailable     string `json:"crossedMaxAvailable"`  // 注意：API文档是crossedMaxAvailable
-		FixedMaxAvailable     string `json:"isolatedMaxAvailable"` // 注意：API文档是isolatedMaxAvailable
+		CrossMaxAvailable     string `json:"crossedMaxAvailable"`  // 注意：API文檔是crossedMaxAvailable
+		FixedMaxAvailable     string `json:"isolatedMaxAvailable"` // 注意：API文檔是isolatedMaxAvailable
 		MaxTransferOut        string `json:"maxTransferOut"`
-		Equity                string `json:"accountEquity"` // 注意：API文档是accountEquity
+		Equity                string `json:"accountEquity"` // 注意：API文檔是accountEquity
 		USDTEquity            string `json:"usdtEquity"`
 		BTCEquity             string `json:"btcEquity"`
 		PosMode               string `json:"posMode"`
-		MarginMode            string `json:"marginMode"`            // 保证金模式：crossed全仓/isolated逐仓
-		CrossedMarginLeverage int    `json:"crossedMarginLeverage"` // 全仓杠杆倍数（数字类型）
-		IsolatedLongLever     int    `json:"isolatedLongLever"`     // 逐仓多头杠杆（数字类型）
-		IsolatedShortLever    int    `json:"isolatedShortLever"`    // 逐仓空头杠杆（数字类型）
+		MarginMode            string `json:"marginMode"`            // 保证金模式：crossed全倉/isolated逐倉
+		CrossedMarginLeverage int    `json:"crossedMarginLeverage"` // 全倉杠杆倍數（數字類型）
+		IsolatedLongLever     int    `json:"isolatedLongLever"`     // 逐倉多头杠杆（數字類型）
+		IsolatedShortLever    int    `json:"isolatedShortLever"`    // 逐倉空头杠杆（數字類型）
 	}
 	if err := json.Unmarshal(resp.Data, &data); err != nil {
-		return nil, fmt.Errorf("解析账户信息失败: %w", err)
+		return nil, fmt.Errorf("解析帳戶資訊失败: %w", err)
 	}
 
-	// 转换为通用格式
+	// 轉换為通用格式
 	available, _ := strconv.ParseFloat(data.Available, 64)
 	equity, _ := strconv.ParseFloat(data.Equity, 64)
 
-	// 🔥 强制检查保证金模式：必须是全仓模式
+	// 🔥 强制检查保证金模式：必須是全倉模式
 	if data.MarginMode != "crossed" {
-		return nil, fmt.Errorf("⚠️ 当前保证金模式为【%s】，本程序仅支持全仓模式(crossed)。\n"+
-			"请登录 Bitget 交易所，将保证金模式切换为【全仓】后再运行程序。\n"+
-			"切换路径：合约交易 -> 持仓设置 -> 保证金模式 -> 选择全仓模式", data.MarginMode)
+		return nil, fmt.Errorf("⚠️ 當前保证金模式為【%s】，本程序僅支援全倉模式(crossed)。\n"+
+			"请登錄 Bitget 交易所，將保证金模式切换為【全倉】后再运行程序。\n"+
+			"切换路径：合約交易 -> 持倉設置 -> 保证金模式 -> 选擇全倉模式", data.MarginMode)
 	}
 
-	// 解析杠杆倍数（全仓模式）
+	// 解析杠杆倍數（全倉模式）
 	accountLeverage := data.CrossedMarginLeverage
 	if accountLeverage <= 0 {
 		accountLeverage = 1 // 默认1倍
 	}
 
-	// 显示持仓模式（双向/单向）
-	posModeDesc := "双向持仓"
+	// 显示持倉模式（双向/單向）
+	posModeDesc := "双向持倉"
 	if data.PosMode == "one_way_mode" {
-		posModeDesc = "单向持仓"
+		posModeDesc = "單向持倉"
 	}
 
-	logger.Info("ℹ️ [Bitget 账户] 保证金模式: crossed(全仓), 持仓模式: %s, 杠杆倍数: %dx, 可用余额: %.2f %s",
+	logger.Info("ℹ️ [Bitget 账戶] 保证金模式: crossed(全倉), 持倉模式: %s, 杠杆倍數: %dx, 可用餘額: %.2f %s",
 		posModeDesc, accountLeverage, available, data.MarginCoin)
 
 	return &Account{
 		TotalWalletBalance: equity,
 		TotalMarginBalance: equity,
 		AvailableBalance:   available,
-		Positions:          []*Position{}, // 持仓信息需要单独查询
+		Positions:          []*Position{}, // 持倉資訊需要單独查詢
 		PosMode:            data.PosMode,
-		AccountLeverage:    accountLeverage, // 添加账户级别的杠杆倍数
+		AccountLeverage:    accountLeverage, // 添加账戶级别的杠杆倍數
 	}, nil
 }
 
-// GetPositions 获取持仓信息
+// GetPositions 獲取持倉信息
 func (b *BitgetAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	path := fmt.Sprintf("/api/v2/mix/position/single-position?symbol=%s&productType=%s&marginCoin=%s", b.symbol, b.productType, b.marginCoin)
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
@@ -811,7 +816,7 @@ func (b *BitgetAdapter) GetPositions(ctx context.Context, symbol string) ([]*Pos
 		return nil, err
 	}
 
-	// 解析持仓信息（Bitget 返回数组）
+	// 解析持倉資訊（Bitget 返回數组）
 	var dataList []struct {
 		MarginCoin        string `json:"marginCoin"`
 		Symbol            string `json:"symbol"`
@@ -833,15 +838,15 @@ func (b *BitgetAdapter) GetPositions(ctx context.Context, symbol string) ([]*Pos
 	}
 
 	if err := json.Unmarshal(resp.Data, &dataList); err != nil {
-		return nil, fmt.Errorf("解析持仓信息失败: %w", err)
+		return nil, fmt.Errorf("解析持倉資訊失败: %w", err)
 	}
 
-	// 转换为通用格式
+	// 轉换為通用格式
 	positions := make([]*Position, 0, len(dataList))
 	for _, item := range dataList {
 		total, _ := strconv.ParseFloat(item.Total, 64)
 		if total == 0 {
-			continue // 跳过空持仓
+			continue // 跳過空持倉
 		}
 
 		entryPrice, _ := strconv.ParseFloat(item.AverageOpenPrice, 64)
@@ -850,7 +855,7 @@ func (b *BitgetAdapter) GetPositions(ctx context.Context, symbol string) ([]*Pos
 		leverage, _ := strconv.Atoi(item.Leverage)
 		margin, _ := strconv.ParseFloat(item.Margin, 64)
 
-		// Bitget 使用 holdSide 表示方向，需要转换为正负数
+		// Bitget 使用 holdSide 表示方向，需要轉换為正负數
 		size := total
 		if item.HoldSide == "short" {
 			size = -total
@@ -871,7 +876,7 @@ func (b *BitgetAdapter) GetPositions(ctx context.Context, symbol string) ([]*Pos
 	return positions, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (b *BitgetAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
 	account, err := b.GetAccount(ctx)
 	if err != nil {
@@ -880,25 +885,25 @@ func (b *BitgetAdapter) GetBalance(ctx context.Context, asset string) (float64, 
 	return account.AvailableBalance, nil
 }
 
-// SetOrderMappingCallback 设置订单映射回调
-// 用于在下单成功后立即建立 orderID -> price 的映射
+// SetOrderMappingCallback 設置订單映射回呼
+// 用於在下單成功后立即建立 orderID -> price 的映射
 func (b *BitgetAdapter) SetOrderMappingCallback(callback func(orderID int64, price float64)) {
 	b.orderMappingCallback = callback
 }
 
-// StartOrderStream 启动订单流（WebSocket）
-// 架构说明：
-// - 订单流通过 main.go 中的 ex.StartOrderStream() 启动
-// - 如果价格流已经启动，这里会复用同一个 WebSocket 连接
-// - 订单流需要订阅私有频道（orders），需要登录认证
+// StartOrderStream 啟動訂單流（WebSocket）
+// 架構說明：
+// - 訂單流通過 main.go 中的 ex.StartOrderStream() 啟动
+// - 如果價格流已經啟动，这里會複用同一個 WebSocket 连接
+// - 訂單流需要订阅私有频道（orders），需要登錄认证
 func (b *BitgetAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	logger.Debug("🔗 [Bitget] 启动订单流 WebSocket（私有频道）")
+	logger.Debug("🔗 [Bitget] 啟動訂單流 WebSocket（私有频道）")
 
-	// 转换回调函数
+	// 轉换回呼函數
 	wrappedCallback := func(update interface{}) {
-		// 如果是 *OrderUpdate 指针类型，转换为通用结构体
+		// 如果是 *OrderUpdate 指針類型，轉换為通用結構体
 		if localUpdate, ok := update.(*OrderUpdate); ok {
-			logger.Debug("🔍 [Bitget Adapter] 订单更新回调触发: ID=%d, ClientOID=%s, Status=%s",
+			logger.Debug("🔍 [Bitget Adapter] 订單更新回呼触发: ID=%d, ClientOID=%s, Status=%s",
 				localUpdate.OrderID, localUpdate.ClientOrderID, string(localUpdate.Status))
 			genericUpdate := struct {
 				OrderID       int64
@@ -914,7 +919,7 @@ func (b *BitgetAdapter) StartOrderStream(ctx context.Context, callback func(inte
 				UpdateTime    int64
 			}{
 				OrderID:       localUpdate.OrderID,
-				ClientOrderID: localUpdate.ClientOrderID, // 🔥 关键：传递 ClientOrderID
+				ClientOrderID: localUpdate.ClientOrderID, // 🔥 关键：傳遞 ClientOrderID
 				Symbol:        localUpdate.Symbol,
 				Side:          string(localUpdate.Side),
 				Type:          string(localUpdate.Type),
@@ -927,28 +932,28 @@ func (b *BitgetAdapter) StartOrderStream(ctx context.Context, callback func(inte
 			}
 			callback(genericUpdate)
 		} else {
-			logger.Warn("⚠️ [Bitget Adapter] 订单更新类型断言失败: %T", update)
+			logger.Warn("⚠️ [Bitget Adapter] 订單更新類型断言失败: %T", update)
 		}
 	}
 
 	return b.wsManager.Start(ctx, b.symbol, wrappedCallback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (b *BitgetAdapter) StopOrderStream() error {
 	b.wsManager.Stop()
 	return nil
 }
 
-// GetLatestPrice 获取最新价格（仅从 WebSocket 缓存读取）
-// 架构说明：
-// - 各组件不应直接调用此方法获取实时价格
-// - 实时价格应该通过 PriceMonitor.GetLastPrice() 获取（订阅模式）
-// - 此方法仅用于下单时的价格诊断（检查订单价格与市场价格的偏离）
-// - WebSocket 是唯一的价格来源，不使用 REST API
-// - 如果 WebSocket 未启动或断开，返回错误
+// GetLatestPrice 獲取最新價格（僅從 WebSocket 缓存读取）
+// 架構說明：
+// - 各组件不应直接調用此方法獲取實時價格
+// - 實時價格应該通過 PriceMonitor.GetLastPrice() 獲取（订阅模式）
+// - 此方法僅用於下單時的價格诊断（检查订單價格與市场價格的偏离）
+// - WebSocket 是唯一的價格来源，不使用 REST API
+// - 如果 WebSocket 未啟动或断开，返回錯误
 func (b *BitgetAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 从 WebSocket 缓存读取价格
+	// 從 WebSocket 缓存读取價格
 	if b.wsManager != nil {
 		price := b.wsManager.GetLatestPrice()
 		if price > 0 {
@@ -956,36 +961,36 @@ func (b *BitgetAdapter) GetLatestPrice(ctx context.Context, symbol string) (floa
 		}
 	}
 
-	// WebSocket 未启动或无价格数据
-	return 0, fmt.Errorf("WebSocket 价格流未就绪或无价格数据")
+	// WebSocket 未啟动或無價格數據
+	return 0, fmt.Errorf("WebSocket 價格流未就绪或無價格數據")
 }
 
-// StartPriceStream 启动价格流（WebSocket）
-// 架构说明：
-// - 价格流通过 PriceMonitor 在 main.go 中启动（唯一入口）
-// - 价格流和订单流共用同一个 WebSocketManager
-// - 如果只需要价格流，传入 callback=nil 给 wsManager.Start()
+// StartPriceStream 啟動價格流（WebSocket）
+// 架構說明：
+// - 價格流通過 PriceMonitor 在 main.go 中啟动（唯一入口）
+// - 價格流和訂單流共用同一個 WebSocketManager
+// - 如果只需要價格流，傳入 callback=nil 给 wsManager.Start()
 func (b *BitgetAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
-	// 注册价格回调
+	// 注册價格回呼
 	b.wsManager.SetPriceCallback(func(s string, p float64) {
-		// 过滤交易对
+		// 過滤交易對
 		if s == b.symbol {
 			callback(p)
 		}
 	})
 
-	// 如果 WebSocket 还没启动，启动公共频道（ticker）
-	// 注意：传入 nil 作为订单回调，表示只订阅价格，不订阅订单
+	// 如果 WebSocket 还没啟动，啟动公共频道（ticker）
+	// 注意：傳入 nil 作為订單回呼，表示只订阅價格，不订阅订單
 	if !b.wsManager.IsRunning() {
-		logger.Debug("🔗 [Bitget] 启动价格流 WebSocket（公共频道）")
+		logger.Debug("🔗 [Bitget] 啟動價格流 WebSocket（公共频道）")
 		return b.wsManager.Start(ctx, b.symbol, nil)
 	}
 
-	logger.Debug("✅ [Bitget] 价格流回调已注册（WebSocket已在运行）")
+	logger.Debug("✅ [Bitget] 價格流回呼已注册（WebSocket已在运行）")
 	return nil
 }
 
-// StartKlineStream 启动K线流（WebSocket）
+// StartKlineStream 啟動K線流（WebSocket）
 func (b *BitgetAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(candle interface{})) error {
 	if b.klineWSManager == nil {
 		b.klineWSManager = NewKlineWebSocketManager(b.testnet)
@@ -993,7 +998,7 @@ func (b *BitgetAdapter) StartKlineStream(ctx context.Context, symbols []string, 
 	return b.klineWSManager.Start(ctx, symbols, interval, callback)
 }
 
-// StopKlineStream 停止K线流
+// StopKlineStream 停止K線流
 func (b *BitgetAdapter) StopKlineStream() error {
 	if b.klineWSManager != nil {
 		b.klineWSManager.Stop()
@@ -1001,19 +1006,19 @@ func (b *BitgetAdapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史K线数据
+// GetHistoricalKlines 獲取歷史K線數據
 func (b *BitgetAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
-	// Bitget 支持的K线周期映射
+	// Bitget 支援的K線週期映射
 	// 1m, 3m, 5m, 15m, 30m, 1H, 4H, 6H, 12H, 1D, 3D, 1W, 1M
 	bitgetInterval := convertToBitgetInterval(interval)
 
-	// 构建请求路径
-	// limit: Bitget 最多支持 1000 根K线
+	// 構建请求路径
+	// limit: Bitget 最多支援 1000 根K線
 	if limit > 1000 {
 		limit = 1000
 	}
 
-	// 计算结束时间（当前时间）和开始时间
+	// 计算結束時间（當前時间）和开始時间
 	endTime := time.Now().UnixMilli()
 
 	path := fmt.Sprintf("/api/v2/mix/market/candles?symbol=%s&productType=%s&granularity=%s&limit=%d&endTime=%d",
@@ -1021,20 +1026,20 @@ func (b *BitgetAdapter) GetHistoricalKlines(ctx context.Context, symbol string, 
 
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("获取历史K线失败: %w", err)
+		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
 	}
 
-	// 解析K线数据
+	// 解析K線數據
 	// Bitget 返回格式: [[timestamp, open, high, low, close, volume, ...], ...]
 	var dataList [][]string
 	if err := json.Unmarshal(resp.Data, &dataList); err != nil {
-		return nil, fmt.Errorf("解析K线数据失败: %w", err)
+		return nil, fmt.Errorf("解析K線數據失败: %w", err)
 	}
 
 	candles := make([]*Candle, 0, len(dataList))
 	for _, item := range dataList {
 		if len(item) < 6 {
-			continue // 跳过无效数据
+			continue // 跳過無效數據
 		}
 
 		timestamp, _ := strconv.ParseInt(item[0], 10, 64)
@@ -1052,11 +1057,11 @@ func (b *BitgetAdapter) GetHistoricalKlines(ctx context.Context, symbol string, 
 			Close:     close,
 			Volume:    volume,
 			Timestamp: timestamp,
-			IsClosed:  true, // 历史K线都是已完结的
+			IsClosed:  true, // 历史K線都是已完結的
 		})
 	}
 
-	// Bitget 返回的K线是倒序的（最新的在前），需要反转
+	// Bitget 返回的K線是倒序的（最新的在前），需要反轉
 	for i, j := 0, len(candles)-1; i < j; i, j = i+1, j-1 {
 		candles[i], candles[j] = candles[j], candles[i]
 	}
@@ -1064,7 +1069,7 @@ func (b *BitgetAdapter) GetHistoricalKlines(ctx context.Context, symbol string, 
 	return candles, nil
 }
 
-// convertToBitgetInterval 将标准K线周期转换为 Bitget 格式
+// convertToBitgetInterval 將標准K線週期轉换為 Bitget 格式
 // 输入: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 6h, 12h, 1d, 3d, 1w, 1M
 // 输出: 1m, 3m, 5m, 15m, 30m, 1H, 4H, 6H, 12H, 1D, 3D, 1W, 1M
 func convertToBitgetInterval(interval string) string {
@@ -1096,14 +1101,14 @@ func convertToBitgetInterval(interval string) string {
 	case "1M":
 		return "1M"
 	default:
-		return interval // 如果已经是 Bitget 格式，直接返回
+		return interval // 如果已經是 Bitget 格式，直接返回
 	}
 }
 
-// convertToBitgetSymbol 将标准符号转换为 Bitget 合约符号
+// convertToBitgetSymbol 將標准符号轉换為 Bitget 合約符号
 // Bitget V2 API 使用不带后缀的符号格式（如 ETHUSDT）
 func convertToBitgetSymbol(symbol string) string {
-	// 去掉可能存在的 _UMCBL 后缀（兼容旧配置）
+	// 去掉可能存在的 _UMCBL 后缀（相容舊配置）
 	if strings.Contains(symbol, "_UMCBL") {
 		return strings.TrimSuffix(symbol, "_UMCBL")
 	}
@@ -1111,7 +1116,7 @@ func convertToBitgetSymbol(symbol string) string {
 	return symbol
 }
 
-// getHoldSide 根据持仓数量判断持仓方向
+// getHoldSide 根據持倉數量判断持倉方向
 func getHoldSide(size float64) string {
 	if size > 0 {
 		return "long"
@@ -1121,37 +1126,37 @@ func getHoldSide(size float64) string {
 	return "none"
 }
 
-// GetPriceDecimals 获取价格精度（小数位数）
+// GetPriceDecimals 獲取價格精度（小數位數）
 func (b *BitgetAdapter) GetPriceDecimals() int {
 	return b.pricePlace
 }
 
-// GetQuantityDecimals 获取数量精度（小数位数）
+// GetQuantityDecimals 獲取數量精度（小數位數）
 func (b *BitgetAdapter) GetQuantityDecimals() int {
 	return b.volumePlace
 }
 
-// GetBaseAsset 获取基础资产（交易币种）
+// GetBaseAsset 獲取基础资產（交易币种）
 func (b *BitgetAdapter) GetBaseAsset() string {
 	return b.baseAsset
 }
 
-// GetQuoteAsset 获取计价资产（结算币种）
+// GetQuoteAsset 獲取计價资產（結算币种）
 func (b *BitgetAdapter) GetQuoteAsset() string {
 	return b.quoteAsset
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (b *BitgetAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	// Bitget API: GET /api/v2/mix/market/current-fundRate
-	// 需要转换交易对格式
+	// 需要轉换交易對格式
 	bitgetSymbol := convertToBitgetSymbol(symbol)
 
 	path := fmt.Sprintf("/api/v2/mix/market/current-fundRate?symbol=%s&productType=USDT-FUTURES", bitgetSymbol)
 
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
 	if err != nil {
-		return 0, fmt.Errorf("获取资金费率失败: %w", err)
+		return 0, fmt.Errorf("獲取资金费率失败: %w", err)
 	}
 
 	// 解析响应
@@ -1160,7 +1165,7 @@ func (b *BitgetAdapter) GetFundingRate(ctx context.Context, symbol string) (floa
 	}
 
 	if err := json.Unmarshal(resp.Data, &result); err != nil {
-		// 尝试解析数组格式（Bitget可能返回数组）
+		// 尝試解析數组格式（Bitget可能返回數组）
 		var results []struct {
 			Symbol      string `json:"symbol"`
 			FundingRate string `json:"fundingRate"`
@@ -1183,17 +1188,17 @@ func (b *BitgetAdapter) GetFundingRate(ctx context.Context, symbol string) (floa
 	return fundingRate, nil
 }
 
-// GetSpotPrice 获取现货市场价格
+// GetSpotPrice 獲取現貨市场價格
 func (b *BitgetAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
-	// 转换为 Bitget 现货格式: BTCUSDT -> BTCUSDT
+	// 轉换為 Bitget 現貨格式: BTCUSDT -> BTCUSDT
 	bitgetSymbol := convertToBitgetSymbol(symbol)
 
-	// Bitget 现货 API: GET /api/v2/spot/market/tickers
+	// Bitget 現貨 API: GET /api/v2/spot/market/tickers
 	path := fmt.Sprintf("/api/v2/spot/market/tickers?symbol=%s", bitgetSymbol)
 
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
 	if err != nil {
-		return 0, fmt.Errorf("获取现货价格失败: %w", err)
+		return 0, fmt.Errorf("獲取現貨價格失败: %w", err)
 	}
 
 	// 解析响应
@@ -1207,39 +1212,39 @@ func (b *BitgetAdapter) GetSpotPrice(ctx context.Context, symbol string) (float6
 	}
 
 	if len(results) == 0 {
-		return 0, fmt.Errorf("未找到交易对 %s 的现货价格", symbol)
+		return 0, fmt.Errorf("未找到交易對 %s 的現貨價格", symbol)
 	}
 
 	price, err := strconv.ParseFloat(results[0].LastPr, 64)
 	if err != nil {
-		return 0, fmt.Errorf("解析价格失败: %w", err)
+		return 0, fmt.Errorf("解析價格失败: %w", err)
 	}
 
 	return price, nil
 }
 
-// GetOrderBook 获取订单簿深度
+// GetOrderBook 獲取訂單簿深度
 func (b *BitgetAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	// Bitget API: GET /api/mix/v1/market/depth
 	path := fmt.Sprintf("/api/mix/v1/market/depth?symbol=%s&productType=%s&limit=%d", symbol, b.productType, limit)
 
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("获取订单簿深度失败: %w", err)
+		return nil, fmt.Errorf("獲取訂單簿深度失败: %w", err)
 	}
 
 	// 解析响应
 	var depthData struct {
-		Asks [][]string `json:"asks"` // [[价格, 数量], ...]
-		Bids [][]string `json:"bids"` // [[价格, 数量], ...]
-		TS   int64      `json:"ts"`   // 时间戳（毫秒）
+		Asks [][]string `json:"asks"` // [[價格, 數量], ...]
+		Bids [][]string `json:"bids"` // [[價格, 數量], ...]
+		TS   int64      `json:"ts"`   // 時间戳（毫秒）
 	}
 
 	if err := json.Unmarshal(resp.Data, &depthData); err != nil {
-		return nil, fmt.Errorf("解析订单簿数据失败: %w", err)
+		return nil, fmt.Errorf("解析订單簿數據失败: %w", err)
 	}
 
-	// 转换买盘数据（价格从高到低）
+	// 轉换買盘數據（價格從高到低）
 	bids := make([]OrderBookLevel, 0, len(depthData.Bids))
 	for _, bid := range depthData.Bids {
 		if len(bid) < 2 {
@@ -1247,12 +1252,12 @@ func (b *BitgetAdapter) GetOrderBook(ctx context.Context, symbol string, limit i
 		}
 		price, err := strconv.ParseFloat(bid[0], 64)
 		if err != nil {
-			logger.Warn("⚠️ [Bitget] 订单簿买盘价格解析失败: %v", err)
+			logger.Warn("⚠️ [Bitget] 订單簿買盘價格解析失败: %v", err)
 			continue
 		}
 		quantity, err := strconv.ParseFloat(bid[1], 64)
 		if err != nil {
-			logger.Warn("⚠️ [Bitget] 订单簿买盘数量解析失败: %v", err)
+			logger.Warn("⚠️ [Bitget] 订單簿買盘數量解析失败: %v", err)
 			continue
 		}
 		bids = append(bids, OrderBookLevel{
@@ -1261,7 +1266,7 @@ func (b *BitgetAdapter) GetOrderBook(ctx context.Context, symbol string, limit i
 		})
 	}
 
-	// 转换卖盘数据（价格从低到高）
+	// 轉换賣盘數據（價格從低到高）
 	asks := make([]OrderBookLevel, 0, len(depthData.Asks))
 	for _, ask := range depthData.Asks {
 		if len(ask) < 2 {
@@ -1269,12 +1274,12 @@ func (b *BitgetAdapter) GetOrderBook(ctx context.Context, symbol string, limit i
 		}
 		price, err := strconv.ParseFloat(ask[0], 64)
 		if err != nil {
-			logger.Warn("⚠️ [Bitget] 订单簿卖盘价格解析失败: %v", err)
+			logger.Warn("⚠️ [Bitget] 订單簿賣盘價格解析失败: %v", err)
 			continue
 		}
 		quantity, err := strconv.ParseFloat(ask[1], 64)
 		if err != nil {
-			logger.Warn("⚠️ [Bitget] 订单簿卖盘数量解析失败: %v", err)
+			logger.Warn("⚠️ [Bitget] 订單簿賣盘數量解析失败: %v", err)
 			continue
 		}
 		asks = append(asks, OrderBookLevel{
@@ -1291,7 +1296,7 @@ func (b *BitgetAdapter) GetOrderBook(ctx context.Context, symbol string, limit i
 	}, nil
 }
 
-// InternalTransfer 交易所内部转账（Bitget 暂未实现）
+// InternalTransfer 交易所內部轉帳（Bitget 暂未實現）
 func (b *BitgetAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Bitget")
 }

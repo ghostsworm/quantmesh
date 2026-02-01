@@ -16,7 +16,7 @@ import (
 	"quantmesh/position"
 )
 
-// CapitalDataSource 资金数据源接口（由 main.go 实现）
+// CapitalDataSource 资金數據源介面（由 main.go 實現）
 type CapitalDataSource interface {
 	GetExchanges() []exchange.IExchange
 	GetStrategyConfigs() map[string]config.StrategyConfig
@@ -24,7 +24,7 @@ type CapitalDataSource interface {
 	GetConfig() *config.Config // 新增
 }
 
-// PositionManagerInfo 仓位管理器信息
+// PositionManagerInfo 倉位管理器信息
 type PositionManagerInfo struct {
 	Exchange string
 	Symbol   string
@@ -33,19 +33,19 @@ type PositionManagerInfo struct {
 
 var capitalDataSource CapitalDataSource
 
-// SetCapitalDataSource 设置资金数据源
+// SetCapitalDataSource 設置资金數據源
 func SetCapitalDataSource(ds CapitalDataSource) {
 	capitalDataSource = ds
 }
 
-// CapitalOverview 资金概览（汇总或分交易所）
+// CapitalOverview 资金概览（彙總或分交易所）
 type CapitalOverview struct {
-	TotalBalance     float64                  `json:"totalBalance"`     // 总权益
+	TotalBalance     float64                  `json:"totalBalance"`     // 總权益
 	AllocatedCapital float64                  `json:"allocatedCapital"` // 已分配给策略的资金
-	UsedCapital      float64                  `json:"usedCapital"`      // 实际已占用保证金
-	AvailableCapital float64                  `json:"availableCapital"` // 交易所可用余额
-	ReservedCapital  float64                  `json:"reservedCapital"`  // 用户预留资金（不可用于策略）
-	UnrealizedPnL    float64                  `json:"unrealizedPnL"`    // 未实现盈亏
+	UsedCapital      float64                  `json:"usedCapital"`      // 實際已占用保证金
+	AvailableCapital float64                  `json:"availableCapital"` // 交易所可用餘額
+	ReservedCapital  float64                  `json:"reservedCapital"`  // 用戶預留资金（不可用於策略）
+	UnrealizedPnL    float64                  `json:"unrealizedPnL"`    // 未實現盈亏
 	MarginRatio      float64                  `json:"marginRatio"`      // 保证金占用率
 	Exchanges        []ExchangeCapitalSummary `json:"exchanges,omitempty"`
 	LastUpdated      string                   `json:"lastUpdated"`
@@ -60,18 +60,18 @@ type ExchangeCapitalSummary struct {
 	Used         float64 `json:"used"`
 	PnL          float64 `json:"pnl"`
 	Status       string  `json:"status"` // online, offline, error
-	IsTestnet    bool    `json:"isTestnet"` // 是否使用测试网
+	IsTestnet    bool    `json:"isTestnet"` // 是否使用測試網
 }
 
-// ExchangeCapitalDetail 交易所资金详情（包含资产层级）
+// ExchangeCapitalDetail 交易所资金详情（包含资產层级）
 type ExchangeCapitalDetail struct {
 	ExchangeID   string            `json:"exchangeId"`
 	ExchangeName string            `json:"exchangeName"`
 	Assets       []AssetAllocation `json:"assets"`
-	IsTestnet    bool              `json:"isTestnet"` // 是否使用测试网
+	IsTestnet    bool              `json:"isTestnet"` // 是否使用測試網
 }
 
-// AssetAllocation 资产分配（如 USDT 下的策略分配）
+// AssetAllocation 资產分配（如 USDT 下的策略分配）
 type AssetAllocation struct {
 	Asset            string                  `json:"asset"`
 	TotalBalance     float64                 `json:"totalBalance"`
@@ -87,12 +87,12 @@ type StrategyCapitalDetail struct {
 	StrategyName    string  `json:"strategyName"`
 	StrategyType    string  `json:"strategyType"`
 	ExchangeID      string  `json:"exchangeId"` // 所属交易所
-	Asset           string  `json:"asset"`      // 结算资产 (如 USDT)
-	Allocated       float64 `json:"allocated"`  // 分配金额
+	Asset           string  `json:"asset"`      // 結算资產 (如 USDT)
+	Allocated       float64 `json:"allocated"`  // 分配金額
 	Used            float64 `json:"used"`       // 已占用
-	Available       float64 `json:"available"`  // 可用配额
+	Available       float64 `json:"available"`  // 可用配額
 	Weight          float64 `json:"weight"`     // 权重 (0-1)
-	MaxCapital      float64 `json:"maxCapital"` // 最大固定限额
+	MaxCapital      float64 `json:"maxCapital"` // 最大固定限額
 	MaxPercentage   float64 `json:"maxPercentage"`
 	ReserveRatio    float64 `json:"reserveRatio"`
 	AutoRebalance   bool    `json:"autoRebalance"`
@@ -111,7 +111,7 @@ type CapitalAllocationConfig struct {
 	Priority      int     `json:"priority"`
 }
 
-// RebalanceResult 再平衡结果
+// RebalanceResult 再平衡結果
 type RebalanceResult struct {
 	Success         bool                    `json:"success"`
 	Message         string                  `json:"message"`
@@ -147,12 +147,12 @@ type CapitalHistoryPoint struct {
 	PnL       float64 `json:"pnl"`
 }
 
-// 获取资金概览
+// 獲取资金概览
 func getCapitalOverviewHandler(c *gin.Context) {
 	if capitalDataSource == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "资金数据源未就绪",
+			"message": "资金數據源未就绪",
 			"overview": CapitalOverview{
 				LastUpdated: time.Now().Format(time.RFC3339),
 			},
@@ -170,7 +170,7 @@ func getCapitalOverviewHandler(c *gin.Context) {
 	var overview CapitalOverview
 	overview.LastUpdated = time.Now().Format(time.RFC3339)
 
-	// 1. 汇总交易所实时数据
+	// 1. 彙總交易所實時數據
 	exchangeMap := make(map[string]bool)
 	for _, ex := range exchanges {
 		name := ex.GetName()
@@ -181,9 +181,9 @@ func getCapitalOverviewHandler(c *gin.Context) {
 
 		acc, err := ex.GetAccount(ctx)
 		if err != nil {
-			logger.Error("❌ [资金概览] 获取交易所 %s 账户信息失败: %v", name, err)
-			// 🔥 改进：报错也要加进列表，显示为 error 状态
-			// 从配置中获取测试网状态
+			logger.Error("❌ [资金概览] 獲取交易所 %s 帳戶資訊失败: %v", name, err)
+			// 🔥 改進：报錯也要加進列表，显示為 error 状態
+			// 從配置中獲取測試網状態
 			isTestnet := false
 			if cfg := capitalDataSource.GetConfig(); cfg != nil {
 				if exCfg, ok := cfg.Exchanges[name]; ok {
@@ -201,7 +201,7 @@ func getCapitalOverviewHandler(c *gin.Context) {
 			continue
 		}
 
-		// 从配置中获取测试网状态
+		// 從配置中獲取測試網状態
 		isTestnet := false
 		if cfg := capitalDataSource.GetConfig(); cfg != nil {
 			if exCfg, ok := cfg.Exchanges[name]; ok {
@@ -225,7 +225,7 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		overview.UnrealizedPnL += (acc.TotalMarginBalance - acc.TotalWalletBalance)
 	}
 
-	// 2. 汇总策略分配数据
+	// 2. 彙總策略分配數據
 	for _, cfg := range strategyConfigs {
 		if cfg.Enabled {
 			alloc := overview.TotalBalance * cfg.Weight
@@ -233,7 +233,7 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		}
 	}
 
-	// 3. 汇总实际占用资金
+	// 3. 彙總實際占用资金
 	for _, pm := range posManagers {
 		overview.UsedCapital += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
 	}
@@ -255,12 +255,12 @@ func getCapitalOverviewHandler(c *gin.Context) {
 	})
 }
 
-// 获取资金分配配置
+// 獲取资金分配配置
 func getCapitalAllocationHandler(c *gin.Context) {
 	if capitalDataSource == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false, 
-			"message": "资金数据源未就绪",
+			"message": "资金數據源未就绪",
 			"exchanges": []ExchangeCapitalDetail{},
 		})
 		return
@@ -278,7 +278,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 	exchangeMap := make(map[string]*ExchangeCapitalDetail)
 	exchangeInstanceMap := make(map[string]exchange.IExchange)
 
-	// 建立交易所实例映射（正在运行的交易所）
+	// 建立交易所實例映射（正在运行的交易所）
 	for _, ex := range exchanges {
 		name := ex.GetName()
 		exchangeInstanceMap[strings.ToLower(name)] = ex
@@ -311,16 +311,16 @@ func getCapitalAllocationHandler(c *gin.Context) {
 		}
 	}
 
-	// 从配置中获取所有配置的交易所（与 getExchanges API 保持一致的逻辑）
+	// 從配置中獲取所有配置的交易所（與 getExchanges API 保持一致的逻辑）
 	configuredExchanges := make(map[string]bool)
 	if cfg != nil {
-		// 从配置的 exchanges 中读取
+		// 從配置的 exchanges 中读取
 		for exName := range cfg.Exchanges {
 			if exName != "" {
 				configuredExchanges[strings.ToLower(exName)] = true
 			}
 		}
-		// 从交易对配置中读取交易所
+		// 從交易對配置中读取交易所
 		for _, sym := range cfg.Trading.Symbols {
 			if sym.Exchange != "" {
 				configuredExchanges[strings.ToLower(sym.Exchange)] = true
@@ -328,7 +328,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				configuredExchanges[strings.ToLower(cfg.App.CurrentExchange)] = true
 			}
 		}
-		// 如果只有单交易对配置
+		// 如果只有單交易對配置
 		if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
 			if cfg.App.CurrentExchange != "" {
 				configuredExchanges[strings.ToLower(cfg.App.CurrentExchange)] = true
@@ -336,12 +336,12 @@ func getCapitalAllocationHandler(c *gin.Context) {
 		}
 	}
 
-	// 🔥 关键修复：添加所有正在运行的交易所实例（确保它们被包含）
+	// 🔥 关键修複：添加所有正在运行的交易所實例（确保它们被包含）
 	for exNameLower := range exchangeInstanceMap {
 		configuredExchanges[exNameLower] = true
 	}
 
-	// 🔥 从运行状态中读取交易所（与 getExchanges API 保持一致）
+	// 🔥 從运行状態中读取交易所（與 getExchanges API 保持一致）
 	statusMu.RLock()
 	for _, st := range statusBySymbol {
 		if st != nil && st.Exchange != "" {
@@ -350,12 +350,12 @@ func getCapitalAllocationHandler(c *gin.Context) {
 	}
 	statusMu.RUnlock()
 
-	// 向后兼容：如果仍然没有交易所，尝试从 currentStatus 读取
+	// 向后兼容：如果仍然没有交易所，尝試從 currentStatus 读取
 	if len(configuredExchanges) == 0 && currentStatus != nil && currentStatus.Exchange != "" {
 		configuredExchanges[strings.ToLower(currentStatus.Exchange)] = true
 	}
 
-	logger.Debug("ℹ️ [资金分配] 找到 %d 个交易所: %v", len(configuredExchanges), configuredExchanges)
+	logger.Debug("ℹ️ [资金分配] 找到 %d 個交易所: %v", len(configuredExchanges), configuredExchanges)
 
 	// 处理所有配置的交易所（包括正在运行的）
 	for exNameLower := range configuredExchanges {
@@ -363,10 +363,10 @@ func getCapitalAllocationHandler(c *gin.Context) {
 			continue
 		}
 
-		// 从配置中获取测试网状态（使用原始大小写的键查找）
+		// 從配置中獲取測試網状態（使用原始大小写的键查找）
 		isTestnet := false
 		if cfg != nil {
-			// 尝试查找原始键（可能大小写不同）
+			// 尝試查找原始键（可能大小写不同）
 			for exKey := range cfg.Exchanges {
 				if strings.ToLower(exKey) == exNameLower {
 					if exCfg, ok := cfg.Exchanges[exKey]; ok {
@@ -377,13 +377,13 @@ func getCapitalAllocationHandler(c *gin.Context) {
 			}
 		}
 
-		// 如果有运行的实例，尝试获取账户信息
+		// 如果有运行的實例，尝試獲取帳戶信息
 		var exDetail *ExchangeCapitalDetail
 		if ex, hasInstance := exchangeInstanceMap[exNameLower]; hasInstance {
 			acc, err := ex.GetAccount(ctx)
 			if err != nil {
-				logger.Error("❌ [资金分配] 获取交易所 %s 账户信息失败: %v", exNameLower, err)
-				// 获取失败也要显示，只是余额为 0
+				logger.Error("❌ [资金分配] 獲取交易所 %s 帳戶資訊失败: %v", exNameLower, err)
+				// 獲取失败也要显示，只是餘額為 0
 				exDetail = &ExchangeCapitalDetail{
 					ExchangeID:   exNameLower,
 					ExchangeName: formatExchangeName(exNameLower),
@@ -411,7 +411,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				}
 			}
 		} else {
-			// 没有运行的实例，显示为未连接状态
+			// 没有运行的實例，显示為未连接状態
 			logger.Debug("ℹ️ [资金分配] 交易所 %s 已配置但未运行", exNameLower)
 			exDetail = &ExchangeCapitalDetail{
 				ExchangeID:   exNameLower,
@@ -443,7 +443,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				
 				alloc := asset.TotalBalance * cfg.Weight
 				
-				// 从配置中读取 maxCapital 和 maxPercentage
+				// 從配置中读取 maxCapital 和 maxPercentage
 				maxCapital := 0.0
 				maxPercentage := 100.0
 				if cfg.Config != nil {
@@ -472,7 +472,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 					Status:          "active",
 				}
 				
-				// 从配置中读取其他字段
+				// 從配置中读取其他字段
 				if cfg.Config != nil {
 					if val, ok := cfg.Config["reserve_ratio"].(float64); ok {
 						strategy.ReserveRatio = val
@@ -495,11 +495,11 @@ func getCapitalAllocationHandler(c *gin.Context) {
 					strategy.Priority = 1
 				}
 
-				// 计算实际占用
+				// 计算實際占用
 				for _, pm := range posManagers {
 					if pm.Exchange == details[i].ExchangeID {
-						// 这里需要判断该 PM 是否属于该策略
-						// TODO: 完善策略与交易对的关联逻辑
+						// 这里需要判断該 PM 是否属於該策略
+						// TODO: 完善策略與交易對的关联逻辑
 						strategy.Used += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
 					}
 				}
@@ -539,23 +539,23 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据: " + err.Error(),
+			"message": "無效的请求數據: " + err.Error(),
 		})
 		return
 	}
 
-	// 1. 验证每个策略的 maxPercentage 范围（这是上限，不是实际分配比例）
+	// 1. 驗证每個策略的 maxPercentage 範圍（这是上限，不是實際分配比例）
 	for _, alloc := range req.Allocations {
 		if alloc.MaxPercentage < 0 || alloc.MaxPercentage > 100 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"message": "策略 " + alloc.StrategyID + " 的分配比例上限必须在 0-100 之间",
+				"message": "策略 " + alloc.StrategyID + " 的分配比例上限必須在 0-100 之间",
 			})
 			return
 		}
 	}
 
-	// 2. 验证实际分配金额总和不超过总余额
+	// 2. 驗证實際分配金額總和不超過總餘額
 	if capitalDataSource != nil {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
@@ -574,20 +574,20 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 				if alloc.MaxCapital < 0 {
 					c.JSON(http.StatusBadRequest, gin.H{
 						"success": false,
-						"message": "策略 " + alloc.StrategyID + " 的分配金额不能为负数",
+						"message": "策略 " + alloc.StrategyID + " 的分配金額不能為负數",
 					})
 					return
 				}
 				totalFixedCapital += alloc.MaxCapital
 			}
 
-			// 计算实际分配比例
+			// 计算實際分配比例
 			actualTotalPct := (totalFixedCapital / totalRealBalance) * 100
 			
 			if actualTotalPct > 100 {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
-					"message": fmt.Sprintf("同一资产下的总分配比例不能超过 100%%，当前为 %.2f%%", actualTotalPct),
+					"message": fmt.Sprintf("同一资產下的總分配比例不能超過 100%%，當前為 %.2f%%", actualTotalPct),
 				})
 				return
 			}
@@ -600,7 +600,7 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 		if globalCfg != nil {
 			updated := false
 			
-			// 计算总资金用于计算权重
+			// 计算總资金用於计算权重
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 			defer cancel()
 			
@@ -612,16 +612,16 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 				}
 			}
 			
-			// 更新每个策略的配置
+			// 更新每個策略的配置
 			for _, alloc := range req.Allocations {
-				// strategyId 应该是策略类型（如 "grid", "martingale"）
+				// strategyId 应該是策略類型（如 "grid", "martingale"）
 				// 如果包含交易所信息（如 "binance-grid"），需要解析
 				strategyType := alloc.StrategyID
 				if strings.Contains(strategyType, "-") {
-					// 如果包含 "-"，可能是 "exchange-strategy" 格式，提取策略类型
+					// 如果包含 "-"，可能是 "exchange-strategy" 格式，提取策略類型
 					parts := strings.Split(strategyType, "-")
 					if len(parts) > 1 {
-						strategyType = parts[len(parts)-1] // 取最后一部分作为策略类型
+						strategyType = parts[len(parts)-1] // 取最后一部分作為策略類型
 					}
 				}
 				
@@ -636,22 +636,22 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 					sc.Config["auto_rebalance"] = alloc.AutoRebalance
 					sc.Config["priority"] = alloc.Priority
 					
-					// 优先使用 maxPercentage 计算权重（因为用户设置的是百分比）
+					// 优先使用 maxPercentage 计算权重（因為用戶設置的是百分比）
 					if alloc.MaxPercentage > 0 {
-						// 如果使用百分比模式，直接使用百分比作为权重
+						// 如果使用百分比模式，直接使用百分比作為权重
 						sc.Weight = alloc.MaxPercentage / 100.0
-						logger.Info("✅ 更新策略 %s 配置: maxPercentage=%.2f%%, weight=%.4f (基于百分比)", strategyType, alloc.MaxPercentage, sc.Weight)
+						logger.Info("✅ 更新策略 %s 配置: maxPercentage=%.2f%%, weight=%.4f (基於百分比)", strategyType, alloc.MaxPercentage, sc.Weight)
 					} else if totalRealBalance > 0 && alloc.MaxCapital > 0 {
-						// 如果没有百分比，使用金额计算权重
+						// 如果没有百分比，使用金額计算权重
 						newWeight := alloc.MaxCapital / totalRealBalance
 						sc.Weight = newWeight
-						logger.Info("✅ 更新策略 %s 配置: maxCapital=%.2f, weight=%.4f (基于金额)", strategyType, alloc.MaxCapital, sc.Weight)
+						logger.Info("✅ 更新策略 %s 配置: maxCapital=%.2f, weight=%.4f (基於金額)", strategyType, alloc.MaxCapital, sc.Weight)
 					}
 					
 					globalCfg.Strategies.Configs[strategyType] = sc
 					updated = true
 				} else {
-					logger.Warn("⚠️ 未找到策略配置: %s (尝试的 strategyType: %s)", alloc.StrategyID, strategyType)
+					logger.Warn("⚠️ 未找到策略配置: %s (尝試的 strategyType: %s)", alloc.StrategyID, strategyType)
 				}
 			}
 			
@@ -673,11 +673,11 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "资金分配配置已更新并校验通过",
+		"message": "资金分配配置已更新並校驗通過",
 	})
 }
 
-// 更新单个策略的资金配置
+// 更新單個策略的资金配置
 func updateStrategyCapitalHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
@@ -685,7 +685,7 @@ func updateStrategyCapitalHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&config); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据: " + err.Error(),
+			"message": "無效的请求數據: " + err.Error(),
 		})
 		return
 	}
@@ -700,12 +700,12 @@ func updateStrategyCapitalHandler(c *gin.Context) {
 	})
 }
 
-// 获取单个策略的资金详情
+// 獲取單個策略的资金详情
 func getStrategyCapitalDetailHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
 	if capitalDataSource == nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "资金数据源未就绪"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "资金數據源未就绪"})
 		return
 	}
 
@@ -716,7 +716,7 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 		return
 	}
 
-	// 汇总该策略在所有交易所的资金
+	// 彙總該策略在所有交易所的资金
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
@@ -731,7 +731,7 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 	}
 
 	for _, pm := range posManagers {
-		// 简化逻辑：这里应该判断 PM 是否属于该策略
+		// 简化逻辑：这里应該判断 PM 是否属於該策略
 		totalUsed += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
 	}
 
@@ -775,14 +775,14 @@ func rebalanceCapitalHandler(c *gin.Context) {
 	}
 
 	if capitalDataSource == nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "资金数据源未就绪"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "资金數據源未就绪"})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	// 1. 获取总资产 (实时从交易所取)
+	// 1. 獲取總资產 (實時從交易所取)
 	exchanges := capitalDataSource.GetExchanges()
 	totalBalance := 0.0
 	for _, ex := range exchanges {
@@ -793,11 +793,11 @@ func rebalanceCapitalHandler(c *gin.Context) {
 	}
 
 	if totalBalance <= 0 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "无法获取账户余额或余额为0"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "無法獲取帳戶餘額或餘額為0"})
 		return
 	}
 
-	// 2. 获取策略配置
+	// 2. 獲取策略配置
 	stratConfigs := capitalDataSource.GetStrategyConfigs()
 	enabledStrategies := make([]string, 0)
 	for id, cfg := range stratConfigs {
@@ -807,7 +807,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 	}
 
 	if len(enabledStrategies) == 0 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "没有已启用的策略"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "没有已啟用的策略"})
 		return
 	}
 
@@ -824,7 +824,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 	for _, id := range enabledStrategies {
 		cfg := stratConfigs[id]
 		
-		// 计算目标分配
+		// 计算目標分配
 		var targetAllocation float64
 		switch req.Mode {
 		case "equal":
@@ -836,13 +836,13 @@ func rebalanceCapitalHandler(c *gin.Context) {
 				targetAllocation = totalBalance / count
 			}
 		case "priority":
-			// 简化逻辑：高权重的先分（实际生产环境会更复杂）
+			// 简化逻辑：高权重的先分（實際生產环境會更複杂）
 			targetAllocation = (cfg.Weight / totalWeight) * totalBalance
 		default:
 			targetAllocation = (cfg.Weight / totalWeight) * totalBalance
 		}
 
-		// 获取当前分配（从配置读取）
+		// 獲取當前分配（從配置读取）
 		prevAllocation := 0.0
 		if val, ok := cfg.Config["max_capital"].(float64); ok {
 			prevAllocation = val
@@ -867,7 +867,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		})
 	}
 
-	// 4. 如果不是 DryRun，则应用配置（实际写入 config.yaml）
+	// 4. 如果不是 DryRun，则應用配置（實際写入 config.yaml）
 	if !req.DryRun {
 		globalCfg := capitalDataSource.GetConfig()
 		for _, change := range changes {
@@ -896,7 +896,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 	}
 
 	if req.DryRun {
-		result.Message = "模拟再平衡预览（未应用）"
+		result.Message = "模拟再平衡預览（未应用）"
 	} else {
 		result.Message = "再平衡已成功应用到配置"
 	}
@@ -904,7 +904,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// 获取资金历史记录
+// 獲取资金历史記錄
 func getCapitalHistoryHandler(c *gin.Context) {
 	daysStr := c.DefaultQuery("days", "30")
 	days, _ := strconv.Atoi(daysStr)
@@ -915,7 +915,7 @@ func getCapitalHistoryHandler(c *gin.Context) {
 		days = 365
 	}
 
-	// 生成模拟历史数据
+	// 生成模拟历史數據
 	history := make([]CapitalHistoryPoint, days)
 	baseTotal := 45000.0
 
@@ -945,7 +945,7 @@ func getCapitalHistoryHandler(c *gin.Context) {
 	})
 }
 
-// 设置预留保证金
+// 設置預留保证金
 func setReserveCapitalHandler(c *gin.Context) {
 	var req struct {
 		Amount float64 `json:"amount"`
@@ -953,7 +953,7 @@ func setReserveCapitalHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据: " + err.Error(),
+			"message": "無效的请求數據: " + err.Error(),
 		})
 		return
 	}
@@ -961,7 +961,7 @@ func setReserveCapitalHandler(c *gin.Context) {
 	if req.Amount < 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "预留保证金不能为负数",
+			"message": "預留保证金不能為负數",
 		})
 		return
 	}
@@ -970,11 +970,11 @@ func setReserveCapitalHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "预留保证金已设置为 " + strconv.FormatFloat(req.Amount, 'f', 2, 64),
+		"message": "預留保证金已設置為 " + strconv.FormatFloat(req.Amount, 'f', 2, 64),
 	})
 }
 
-// 锁定/解锁策略资金
+// 鎖定/解鎖策略资金
 func lockStrategyCapitalHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
@@ -984,14 +984,14 @@ func lockStrategyCapitalHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "无效的请求数据: " + err.Error(),
+			"message": "無效的请求數據: " + err.Error(),
 		})
 		return
 	}
 
-	action := "已锁定"
+	action := "已鎖定"
 	if !req.Locked {
-		action = "已解锁"
+		action = "已解鎖"
 	}
 
 	// TODO: 保存到配置

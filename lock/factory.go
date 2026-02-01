@@ -7,7 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Config 分布式锁配置
+// Config 分布式鎖配置
 type Config struct {
 	Enabled    bool
 	Type       string
@@ -24,17 +24,17 @@ type RedisConfig struct {
 	PoolSize int
 }
 
-// NewDistributedLock 根据配置创建分布式锁实例
-// 如果未启用分布式锁，返回 NopLock（零开销）
+// NewDistributedLock 根據配置創建分布式鎖實例
+// 如果未啟用分布式鎖，回傳 NopLock（零开销）
 func NewDistributedLock(config *Config) (DistributedLock, error) {
-	// 如果未启用，返回空实现（单实例模式）
+	// 如果未啟用，返回空實現（單實例模式）
 	if !config.Enabled {
 		return NewNopLock(), nil
 	}
 
 	switch config.Type {
 	case "redis":
-		// 创建 Redis 客户端
+		// 創建 Redis 客戶端
 		client := redis.NewClient(&redis.Options{
 			Addr:     config.Redis.Addr,
 			Password: config.Redis.Password,
@@ -45,11 +45,11 @@ func NewDistributedLock(config *Config) (DistributedLock, error) {
 		return NewRedisLock(client, config.Prefix), nil
 
 	case "etcd":
-		// TODO: 实现 etcd 分布式锁
+		// TODO: 實現 etcd 分布式鎖
 		return nil, fmt.Errorf("etcd lock not implemented yet")
 
 	case "database":
-		// TODO: 实现数据库分布式锁
+		// TODO: 實現數據库分布式鎖
 		return nil, fmt.Errorf("database lock not implemented yet")
 
 	default:

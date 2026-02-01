@@ -14,10 +14,10 @@ import (
 
 // ComboStrategy 组合策略
 // 特点：
-// 1. 多空对冲：同时运行多头和空头策略
-// 2. 市况自适应：根据市场状态自动切换策略权重
-// 3. 策略组合：支持任意策略组合（如马丁+DCA）
-// 4. 全时况覆盖：上涨、下跌、震荡行情均可盈利
+// 1. 多空對冲：同時运行多头和空头策略
+// 2. 市况自适应：根據市场状態自动切换策略权重
+// 3. 策略组合：支援任意策略组合（如马丁+DCA）
+// 4. 全時况覆盖：上涨、下跌、震荡行情均可盈利
 type ComboStrategy struct {
 	name        string
 	cfg         *config.Config
@@ -30,27 +30,27 @@ type ComboStrategy struct {
 	strategyNames []string
 	weights       []float64 // 各策略权重
 
-	// 市场状态检测
+	// 市场状態检测
 	marketState   MarketState
 	priceHistory  []float64
 	candles       []indicators.Candle
 	lastPrice     float64
 	
-	// 状态
+	// 状態
 	mu        sync.RWMutex
 	ctx       context.Context
 	cancel    context.CancelFunc
 	isRunning bool
-	isPaused  bool // 暂停标志
+	isPaused  bool // 暂停標志
 
 	// 统计
 	stats *StrategyStatistics
 
-	// 事件总线
+	// 事件總線
 	eventBus EventBus
 }
 
-// MarketState 市场状态
+// MarketState 市场状態
 type MarketState string
 
 const (
@@ -67,22 +67,22 @@ type ComboConfig struct {
 	Strategies  []StrategyConfig  `yaml:"strategies"`  // 子策略配置
 	
 	// 市况检测
-	MarketDetection    bool    `yaml:"market_detection"`     // 启用市况检测
+	MarketDetection    bool    `yaml:"market_detection"`     // 啟用市况检测
 	TrendPeriod        int     `yaml:"trend_period"`         // 趋势周期
 	VolatilityPeriod   int     `yaml:"volatility_period"`    // 波动率周期
 	VolatilityThreshold float64 `yaml:"volatility_threshold"` // 高波动阈值
 	
-	// 权重调整
+	// 权重調整
 	AdaptiveWeights    bool    `yaml:"adaptive_weights"`     // 自适应权重
 	RebalanceInterval  int     `yaml:"rebalance_interval"`   // 再平衡间隔（秒）
 	
-	// 对冲设置
-	HedgeEnabled       bool    `yaml:"hedge_enabled"`        // 启用对冲
-	HedgeRatio         float64 `yaml:"hedge_ratio"`          // 对冲比例 (0.0-1.0)
-	MaxDrawdown        float64 `yaml:"max_drawdown"`         // 最大回撤触发对冲
+	// 對冲設置
+	HedgeEnabled       bool    `yaml:"hedge_enabled"`        // 啟用對冲
+	HedgeRatio         float64 `yaml:"hedge_ratio"`          // 對冲比例 (0.0-1.0)
+	MaxDrawdown        float64 `yaml:"max_drawdown"`         // 最大回撤触发對冲
 	
 	// 风控
-	TotalCapital       float64 `yaml:"total_capital"`        // 总资金
+	TotalCapital       float64 `yaml:"total_capital"`        // 總资金
 	MaxExposure        float64 `yaml:"max_exposure"`         // 最大敞口比例
 }
 
@@ -98,7 +98,7 @@ type StrategyConfig struct {
 	PreferredMarket []MarketState `yaml:"preferred_market"` // 适合的市况
 }
 
-// NewComboStrategy 创建组合策略
+// NewComboStrategy 創建组合策略
 func NewComboStrategy(
 	name string,
 	symbol string,
@@ -136,7 +136,7 @@ func NewComboStrategy(
 		},
 	}
 
-	// 创建子策略
+	// 創建子策略
 	combo.initializeStrategies()
 
 	return combo
@@ -164,7 +164,7 @@ func parseComboConfig(cfg map[string]interface{}) *ComboConfig {
 		return comboCfg
 	}
 
-	// 辅助函数：安全地从 map 中获取 float64
+	// 辅助函數：安全地從 map 中獲取 float64
 	getFloat := func(key string, defaultValue float64) float64 {
 		if v, ok := cfg[key]; ok {
 			switch val := v.(type) {
@@ -179,7 +179,7 @@ func parseComboConfig(cfg map[string]interface{}) *ComboConfig {
 		return defaultValue
 	}
 
-	// 辅助函数：安全地从 map 中获取 int
+	// 辅助函數：安全地從 map 中獲取 int
 	getInt := func(key string, defaultValue int) int {
 		if v, ok := cfg[key]; ok {
 			switch val := v.(type) {
@@ -236,7 +236,7 @@ func parseComboConfig(cfg map[string]interface{}) *ComboConfig {
 		}
 	}
 
-	// 如果没有配置策略，添加默认组合
+	// 如果沒有配置策略，新增預設組合
 	if len(comboCfg.Strategies) == 0 {
 		comboCfg.Strategies = []StrategyConfig{
 			{
@@ -298,7 +298,7 @@ func (s *ComboStrategy) initializeStrategies() {
 	for _, stratCfg := range s.strategyCfg.Strategies {
 		var strategy Strategy
 
-		// 添加符号到参数
+		// 添加符号到参數
 		stratCfg.Parameters["symbol"] = s.strategyCfg.Symbol
 
 		switch stratCfg.Type {
@@ -338,7 +338,7 @@ func (s *ComboStrategy) initializeStrategies() {
 				stratCfg.Parameters,
 			)
 		default:
-			logger.Warn("⚠️ [%s] 未知策略类型: %s", s.name, stratCfg.Type)
+			logger.Warn("⚠️ [%s] 未知策略類型: %s", s.name, stratCfg.Type)
 			continue
 		}
 
@@ -350,7 +350,7 @@ func (s *ComboStrategy) initializeStrategies() {
 	}
 }
 
-// Name 返回策略名称
+// Name 回傳策略名稱
 func (s *ComboStrategy) Name() string {
 	return s.name
 }
@@ -363,7 +363,7 @@ func (s *ComboStrategy) Initialize(cfg *config.Config, executor position.OrderEx
 	return nil
 }
 
-// SetEventBus 设置事件总线
+// SetEventBus 設置事件總線
 func (s *ComboStrategy) SetEventBus(bus EventBus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -375,31 +375,31 @@ func (s *ComboStrategy) SetEventBus(bus EventBus) {
 	}
 }
 
-// Start 启动策略
+// Start 啟动策略
 func (s *ComboStrategy) Start(ctx context.Context) error {
 	s.mu.Lock()
 	s.ctx = ctx
 	s.isRunning = true
 	s.mu.Unlock()
 
-	// 启动所有子策略
+	// 啟动所有子策略
 	for i, strategy := range s.strategies {
 		if err := strategy.Start(ctx); err != nil {
-			logger.Error("❌ [%s] 子策略 %s 启动失败: %v", s.name, s.strategyNames[i], err)
+			logger.Error("❌ [%s] 子策略 %s 啟动失败: %v", s.name, s.strategyNames[i], err)
 		}
 	}
 
-	// 启动市况检测循环
+	// 啟动市况检测循环
 	if s.strategyCfg.MarketDetection {
 		go s.marketDetectionLoop()
 	}
 
-	// 启动权重再平衡循环
+	// 啟动权重再平衡循环
 	if s.strategyCfg.AdaptiveWeights {
 		go s.rebalanceLoop()
 	}
 
-	logger.Info("✅ [%s] 组合策略已启动，子策略数量: %d", s.name, len(s.strategies))
+	logger.Info("✅ [%s] 组合策略已啟动，子策略數量: %d", s.name, len(s.strategies))
 	for i, name := range s.strategyNames {
 		logger.Info("   - %s (权重: %.2f)", name, s.weights[i])
 	}
@@ -428,7 +428,7 @@ func (s *ComboStrategy) Stop() error {
 	return nil
 }
 
-// OnPriceChange 价格变化处理
+// OnPriceChange 價格變化处理
 func (s *ComboStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()
 	
@@ -437,27 +437,27 @@ func (s *ComboStrategy) OnPriceChange(price float64) error {
 		return nil
 	}
 
-	// 更新价格历史
+	// 更新價格历史
 	s.priceHistory = append(s.priceHistory, price)
 	if len(s.priceHistory) > 200 {
-		// 使用 copy 而不是切片截取，避免内存泄漏
+		// 使用 copy 而不是切片截取，避免記憶體泄漏
 		newHistory := make([]float64, 200)
 		copy(newHistory, s.priceHistory[len(s.priceHistory)-200:])
 		s.priceHistory = newHistory
 	}
 	s.lastPrice = price
 
-	// 更新 K线
+	// 更新 K線
 	s.updateCandle(price)
 	
 	s.mu.Unlock()
 
-	// 传递给所有子策略
+	// 傳遞给所有子策略
 	for i, strategy := range s.strategies {
-		// 根据权重和市况决定是否执行
+		// 根據权重和市况决定是否執行
 		if s.shouldExecuteStrategy(i) {
 			if err := strategy.OnPriceChange(price); err != nil {
-				logger.Warn("⚠️ [%s] 子策略 %s 处理价格变化失败: %v",
+				logger.Warn("⚠️ [%s] 子策略 %s 处理價格變化失败: %v",
 					s.name, s.strategyNames[i], err)
 			}
 		}
@@ -466,7 +466,7 @@ func (s *ComboStrategy) OnPriceChange(price float64) error {
 	return nil
 }
 
-// updateCandle 更新 K线
+// updateCandle 更新 K線
 func (s *ComboStrategy) updateCandle(price float64) {
 	now := time.Now().Unix()
 
@@ -493,7 +493,7 @@ func (s *ComboStrategy) updateCandle(price float64) {
 			Volume: 1,
 		})
 		if len(s.candles) > 200 {
-			// 使用 copy 而不是切片截取，避免内存泄漏
+			// 使用 copy 而不是切片截取，避免記憶體泄漏
 			newCandles := make([]indicators.Candle, 200)
 			copy(newCandles, s.candles[len(s.candles)-200:])
 			s.candles = newCandles
@@ -510,7 +510,7 @@ func (s *ComboStrategy) updateCandle(price float64) {
 	}
 }
 
-// shouldExecuteStrategy 判断是否应该执行策略
+// shouldExecuteStrategy 判断是否应該執行策略
 func (s *ComboStrategy) shouldExecuteStrategy(index int) bool {
 	if index >= len(s.strategyCfg.Strategies) {
 		return true
@@ -518,12 +518,12 @@ func (s *ComboStrategy) shouldExecuteStrategy(index int) bool {
 
 	stratCfg := s.strategyCfg.Strategies[index]
 	
-	// 如果没有指定首选市况，总是执行
+	// 如果没有指定首选市况，總是執行
 	if len(stratCfg.PreferredMarket) == 0 {
 		return true
 	}
 
-	// 检查当前市况是否匹配
+	// 检查當前市况是否匹配
 	s.mu.RLock()
 	currentMarket := s.marketState
 	s.mu.RUnlock()
@@ -552,7 +552,7 @@ func (s *ComboStrategy) marketDetectionLoop() {
 	}
 }
 
-// detectMarketState 检测市场状态
+// detectMarketState 检测市场状態
 func (s *ComboStrategy) detectMarketState() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -587,7 +587,7 @@ func (s *ComboStrategy) detectMarketState() {
 		}
 	}
 
-	// 判断市场状态
+	// 判断市场状態
 	previousState := s.marketState
 
 	if volatility > s.strategyCfg.VolatilityThreshold {
@@ -601,7 +601,7 @@ func (s *ComboStrategy) detectMarketState() {
 	}
 
 	if s.marketState != previousState {
-		logger.Info("📊 [%s] 市场状态变化: %s -> %s (波动率: %.2f%%)",
+		logger.Info("📊 [%s] 市场状態变化: %s -> %s (波动率: %.2f%%)",
 			s.name, previousState, s.marketState, volatility)
 	}
 }
@@ -622,7 +622,7 @@ func (s *ComboStrategy) rebalanceLoop() {
 	}
 }
 
-// rebalanceWeights 根据市况调整权重
+// rebalanceWeights 根據市况調整权重
 func (s *ComboStrategy) rebalanceWeights() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -631,7 +631,7 @@ func (s *ComboStrategy) rebalanceWeights() {
 		return
 	}
 
-	// 根据当前市况调整权重
+	// 根據當前市况調整权重
 	for i, stratCfg := range s.strategyCfg.Strategies {
 		if i >= len(s.weights) {
 			break
@@ -640,7 +640,7 @@ func (s *ComboStrategy) rebalanceWeights() {
 		baseWeight := stratCfg.Weight
 		adjustedWeight := baseWeight
 
-		// 检查策略是否适合当前市况
+		// 检查策略是否适合當前市况
 		isPreferred := false
 		for _, preferred := range stratCfg.PreferredMarket {
 			if preferred == s.marketState {
@@ -655,7 +655,7 @@ func (s *ComboStrategy) rebalanceWeights() {
 			adjustedWeight = baseWeight * 0.5 // 减少权重
 		}
 
-		// 限制权重范围
+		// 限制权重範圍
 		if adjustedWeight > 1.0 {
 			adjustedWeight = 1.0
 		}
@@ -664,25 +664,25 @@ func (s *ComboStrategy) rebalanceWeights() {
 		}
 
 		if s.weights[i] != adjustedWeight {
-			logger.Info("⚖️ [%s] 调整策略 %s 权重: %.2f -> %.2f (市况: %s)",
+			logger.Info("⚖️ [%s] 調整策略 %s 权重: %.2f -> %.2f (市况: %s)",
 				s.name, s.strategyNames[i], s.weights[i], adjustedWeight, s.marketState)
 			s.weights[i] = adjustedWeight
 		}
 	}
 }
 
-// OnOrderUpdate 订单更新处理
+// OnOrderUpdate 订單更新处理
 func (s *ComboStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
-	// 传递给所有子策略
+	// 傳遞给所有子策略
 	for _, strategy := range s.strategies {
 		if err := strategy.OnOrderUpdate(update); err != nil {
-			logger.Warn("⚠️ [%s] 子策略处理订单更新失败: %v", s.name, err)
+			logger.Warn("⚠️ [%s] 子策略处理订單更新失败: %v", s.name, err)
 		}
 	}
 	return nil
 }
 
-// GetPositions 获取所有持仓
+// GetPositions 獲取所有持倉
 func (s *ComboStrategy) GetPositions() []*Position {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -694,7 +694,7 @@ func (s *ComboStrategy) GetPositions() []*Position {
 	return positions
 }
 
-// GetOrders 获取所有订单
+// GetOrders 獲取所有订單
 func (s *ComboStrategy) GetOrders() []*Order {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -706,12 +706,12 @@ func (s *ComboStrategy) GetOrders() []*Order {
 	return orders
 }
 
-// GetStatistics 获取统计
+// GetStatistics 獲取统计
 func (s *ComboStrategy) GetStatistics() *StrategyStatistics {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 汇总所有子策略统计
+	// 彙總所有子策略统计
 	totalStats := &StrategyStatistics{}
 	for _, strategy := range s.strategies {
 		subStats := strategy.GetStatistics()
@@ -721,7 +721,7 @@ func (s *ComboStrategy) GetStatistics() *StrategyStatistics {
 	}
 
 	if totalStats.TotalTrades > 0 {
-		// 计算总胜率（加权平均）
+		// 计算總胜率（加权平均）
 		totalWins := 0.0
 		for _, strategy := range s.strategies {
 			subStats := strategy.GetStatistics()
@@ -733,14 +733,14 @@ func (s *ComboStrategy) GetStatistics() *StrategyStatistics {
 	return totalStats
 }
 
-// GetMarketState 获取当前市场状态
+// GetMarketState 獲取當前市场状態
 func (s *ComboStrategy) GetMarketState() MarketState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.marketState
 }
 
-// GetStrategyWeights 获取策略权重
+// GetStrategyWeights 獲取策略权重
 func (s *ComboStrategy) GetStrategyWeights() map[string]float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -754,11 +754,11 @@ func (s *ComboStrategy) GetStrategyWeights() map[string]float64 {
 	return weights
 }
 
-// GetInfo 获取组合策略信息
+// GetInfo 獲取组合策略信息
 func (s *ComboStrategy) GetInfo() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return fmt.Sprintf("市场状态: %s, 子策略数: %d, 总持仓: %d",
+	return fmt.Sprintf("市场状態: %s, 子策略數: %d, 總持倉: %d",
 		s.marketState, len(s.strategies), len(s.GetPositions()))
 }

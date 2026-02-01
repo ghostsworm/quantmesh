@@ -4,16 +4,16 @@ import (
 	"math"
 )
 
-// ========== 趋势指标 ==========
+// ========== 趋势指標 ==========
 
-// MACD 指数平滑异同移动平均线
+// MACD 指數平滑异同移动平均線
 type MACD struct {
 	FastPeriod   int
 	SlowPeriod   int
 	SignalPeriod int
 }
 
-// NewMACD 创建 MACD 指标
+// NewMACD 創建 MACD 指標
 func NewMACD(fast, slow, signal int) *MACD {
 	return &MACD{
 		FastPeriod:   fast,
@@ -22,17 +22,17 @@ func NewMACD(fast, slow, signal int) *MACD {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (m *MACD) Name() string {
 	return "MACD"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (m *MACD) Period() int {
 	return m.SlowPeriod + m.SignalPeriod
 }
 
-// Calculate 计算 MACD 线
+// Calculate 计算 MACD 線
 func (m *MACD) Calculate(candles []Candle) []float64 {
 	result := m.CalculateMulti(candles)
 	if result == nil {
@@ -55,14 +55,14 @@ func (m *MACD) CalculateMulti(candles []Candle) map[string][]float64 {
 		return nil
 	}
 
-	// 对齐长度
+	// 對齐长度
 	offset := len(fastEMA) - len(slowEMA)
 	macdLine := make([]float64, len(slowEMA))
 	for i := range macdLine {
 		macdLine[i] = fastEMA[i+offset] - slowEMA[i]
 	}
 
-	// 计算信号线
+	// 计算信号線
 	signalLine := EMA(macdLine, m.SignalPeriod)
 	if signalLine == nil {
 		return nil
@@ -93,31 +93,31 @@ func (m *MACD) Signal(candles []Candle) int {
 	signal := result["signal"]
 
 	if CrossOver(macd, signal) {
-		return 1 // 买入信号
+		return 1 // 買入信号
 	}
 	if CrossUnder(macd, signal) {
-		return -1 // 卖出信号
+		return -1 // 賣出信号
 	}
 
 	return 0
 }
 
-// ADX 平均趋向指数
+// ADX 平均趋向指數
 type ADX struct {
 	period int
 }
 
-// NewADX 创建 ADX 指标
+// NewADX 創建 ADX 指標
 func NewADX(period int) *ADX {
 	return &ADX{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (a *ADX) Name() string {
 	return "ADX"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (a *ADX) Period() int {
 	return a.period*2 + 1
 }
@@ -218,17 +218,17 @@ func (a *ADX) Signal(candles []Candle) int {
 		return -1 // 下跌趋势
 	}
 
-	return 0 // 无明显趋势
+	return 0 // 無明显趋势
 }
 
-// ParabolicSAR 抛物线转向指标
+// ParabolicSAR 抛物線轉向指標
 type ParabolicSAR struct {
 	AFStart float64 // 加速因子起始值
 	AFStep  float64 // 加速因子增量
 	AFMax   float64 // 加速因子最大值
 }
 
-// NewParabolicSAR 创建 Parabolic SAR 指标
+// NewParabolicSAR 創建 Parabolic SAR 指標
 func NewParabolicSAR(afStart, afStep, afMax float64) *ParabolicSAR {
 	return &ParabolicSAR{
 		AFStart: afStart,
@@ -237,12 +237,12 @@ func NewParabolicSAR(afStart, afStep, afMax float64) *ParabolicSAR {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (p *ParabolicSAR) Name() string {
 	return "Parabolic SAR"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (p *ParabolicSAR) Period() int {
 	return 2
 }
@@ -274,7 +274,7 @@ func (p *ParabolicSAR) Calculate(candles []Candle) []float64 {
 			}
 
 			if candles[i].Low < sar[i] {
-				// 转为下跌趋势
+				// 轉為下跌趋势
 				isUpTrend = false
 				sar[i] = ep
 				ep = candles[i].Low
@@ -293,7 +293,7 @@ func (p *ParabolicSAR) Calculate(candles []Candle) []float64 {
 			}
 
 			if candles[i].High > sar[i] {
-				// 转为上涨趋势
+				// 轉為上涨趋势
 				isUpTrend = true
 				sar[i] = ep
 				ep = candles[i].High
@@ -322,11 +322,11 @@ func (p *ParabolicSAR) Signal(candles []Candle) int {
 	}
 
 	n := len(candles) - 1
-	// 价格从下方突破 SAR
+	// 價格從下方突破 SAR
 	if candles[n-1].Close < sar[n-1] && candles[n].Close > sar[n] {
 		return 1
 	}
-	// 价格从上方跌破 SAR
+	// 價格從上方跌破 SAR
 	if candles[n-1].Close > sar[n-1] && candles[n].Close < sar[n] {
 		return -1
 	}
@@ -336,13 +336,13 @@ func (p *ParabolicSAR) Signal(candles []Candle) int {
 
 // Ichimoku 一目均衡表
 type Ichimoku struct {
-	TenkanPeriod  int // 转换线周期
-	KijunPeriod   int // 基准线周期
+	TenkanPeriod  int // 轉换線周期
+	KijunPeriod   int // 基准線周期
 	SenkouBPeriod int // 先行带 B 周期
 	Displacement  int // 位移
 }
 
-// NewIchimoku 创建一目均衡表指标
+// NewIchimoku 創建一目均衡表指標
 func NewIchimoku(tenkan, kijun, senkouB, displacement int) *Ichimoku {
 	return &Ichimoku{
 		TenkanPeriod:  tenkan,
@@ -352,17 +352,17 @@ func NewIchimoku(tenkan, kijun, senkouB, displacement int) *Ichimoku {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (ich *Ichimoku) Name() string {
 	return "Ichimoku"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (ich *Ichimoku) Period() int {
 	return ich.SenkouBPeriod + ich.Displacement
 }
 
-// Calculate 计算转换线
+// Calculate 计算轉换線
 func (ich *Ichimoku) Calculate(candles []Candle) []float64 {
 	result := ich.CalculateMulti(candles)
 	if result == nil {
@@ -377,23 +377,23 @@ func (ich *Ichimoku) CalculateMulti(candles []Candle) map[string][]float64 {
 		return nil
 	}
 
-	// 转换线：(最高价 + 最低价) / 2，周期 9
+	// 轉换線：(最高價 + 最低價) / 2，周期 9
 	tenkan := ich.calculateMiddleLine(candles, ich.TenkanPeriod)
 
-	// 基准线：(最高价 + 最低价) / 2，周期 26
+	// 基准線：(最高價 + 最低價) / 2，周期 26
 	kijun := ich.calculateMiddleLine(candles, ich.KijunPeriod)
 
-	// 先行带 A：(转换线 + 基准线) / 2
+	// 先行带 A：(轉换線 + 基准線) / 2
 	offset := len(tenkan) - len(kijun)
 	senkouA := make([]float64, len(kijun))
 	for i := range senkouA {
 		senkouA[i] = (tenkan[i+offset] + kijun[i]) / 2
 	}
 
-	// 先行带 B：(最高价 + 最低价) / 2，周期 52
+	// 先行带 B：(最高價 + 最低價) / 2，周期 52
 	senkouB := ich.calculateMiddleLine(candles, ich.SenkouBPeriod)
 
-	// 迟行带：收盘价
+	// 迟行带：收盘價
 	chikou := ClosePrices(candles)
 
 	return map[string][]float64{
@@ -405,7 +405,7 @@ func (ich *Ichimoku) CalculateMulti(candles []Candle) map[string][]float64 {
 	}
 }
 
-// calculateMiddleLine 计算中线 (最高 + 最低) / 2
+// calculateMiddleLine 计算中線 (最高 + 最低) / 2
 func (ich *Ichimoku) calculateMiddleLine(candles []Candle, period int) []float64 {
 	if len(candles) < period {
 		return nil
@@ -443,7 +443,7 @@ func (ich *Ichimoku) Signal(candles []Candle) int {
 		return 0
 	}
 
-	// 转换线上穿基准线
+	// 轉换線上穿基准線
 	offset := len(tenkan) - len(kijun)
 	tenkanAligned := tenkan[offset:]
 
@@ -457,22 +457,22 @@ func (ich *Ichimoku) Signal(candles []Candle) int {
 	return 0
 }
 
-// Aroon 阿隆指标
+// Aroon 阿隆指標
 type Aroon struct {
 	period int
 }
 
-// NewAroon 创建阿隆指标
+// NewAroon 創建阿隆指標
 func NewAroon(period int) *Aroon {
 	return &Aroon{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (a *Aroon) Name() string {
 	return "Aroon"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (a *Aroon) Period() int {
 	return a.period + 1
 }
@@ -553,13 +553,13 @@ func (a *Aroon) Signal(candles []Candle) int {
 	return 0
 }
 
-// SuperTrend 超级趋势指标
+// SuperTrend 超级趋势指標
 type SuperTrend struct {
 	period     int
 	multiplier float64
 }
 
-// NewSuperTrend 创建超级趋势指标
+// NewSuperTrend 創建超级趋势指標
 func NewSuperTrend(period int, multiplier float64) *SuperTrend {
 	return &SuperTrend{
 		period:     period,
@@ -567,12 +567,12 @@ func NewSuperTrend(period int, multiplier float64) *SuperTrend {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (st *SuperTrend) Name() string {
 	return "SuperTrend"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (st *SuperTrend) Period() int {
 	return st.period + 1
 }
@@ -676,16 +676,16 @@ func (st *SuperTrend) Signal(candles []Candle) int {
 
 	n := len(direction) - 1
 	if direction[n-1] == -1 && direction[n] == 1 {
-		return 1 // 转为上涨
+		return 1 // 轉為上涨
 	}
 	if direction[n-1] == 1 && direction[n] == -1 {
-		return -1 // 转为下跌
+		return -1 // 轉為下跌
 	}
 
 	return 0
 }
 
-// 注册趋势指标
+// 注册趋势指標
 func init() {
 	RegisterIndicator("MACD", func(params map[string]interface{}) Indicator {
 		fast := getIntParam(params, "fast", 12)
@@ -726,7 +726,7 @@ func init() {
 	})
 }
 
-// 辅助函数
+// 辅助函數
 func getIntParam(params map[string]interface{}, key string, defaultVal int) int {
 	if v, ok := params[key]; ok {
 		switch val := v.(type) {

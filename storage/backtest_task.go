@@ -8,7 +8,7 @@ import (
 	"quantmesh/backtest"
 )
 
-// CreateBacktestTask 创建回测任务（仅 SQLiteStorage 实现，Storage 接口不包含此方法，由调用方断言）
+// CreateBacktestTask 創建回测任務（僅 SQLiteStorage 實現，Storage 接口不包含此方法，由調用方断言）
 func (s *SQLiteStorage) CreateBacktestTask(task *backtest.BacktestTask) error {
 	paramsJSON, err := json.Marshal(task.Params)
 	if err != nil {
@@ -37,7 +37,7 @@ func (s *SQLiteStorage) CreateBacktestTask(task *backtest.BacktestTask) error {
 	return err
 }
 
-// GetBacktestTask 获取回测任务
+// GetBacktestTask 獲取回测任務
 func (s *SQLiteStorage) GetBacktestTask(id string) (*backtest.BacktestTask, error) {
 	var (
 		startTime, endTime, createdAt int64
@@ -90,7 +90,7 @@ func (s *SQLiteStorage) GetBacktestTask(id string) (*backtest.BacktestTask, erro
 	return task, nil
 }
 
-// ListBacktestTasks 列出回测任务（按创建时间倒序）
+// ListBacktestTasks 列出回测任務（按創建時间倒序）
 func (s *SQLiteStorage) ListBacktestTasks(limit, offset int) ([]*backtest.BacktestTask, error) {
 	rows, err := s.db.Query(`
 		SELECT id, status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path
@@ -132,7 +132,7 @@ func (s *SQLiteStorage) ListBacktestTasks(limit, offset int) ([]*backtest.Backte
 	return list, rows.Err()
 }
 
-// UpdateBacktestTask 更新回测任务（仅更新状态与结果路径等）
+// UpdateBacktestTask 更新回测任務（僅更新状態與結果路径等）
 func (s *SQLiteStorage) UpdateBacktestTask(task *backtest.BacktestTask) error {
 	_, err := s.db.Exec(`
 		UPDATE backtest_tasks SET status=?, progress=?, started_at=?, completed_at=?, error=?, result_path=?, report_path=?
@@ -149,7 +149,7 @@ func (s *SQLiteStorage) UpdateBacktestTask(task *backtest.BacktestTask) error {
 	return err
 }
 
-// UpdateBacktestTaskParams 仅更新任务状态相关字段（供 task_manager 使用）
+// UpdateBacktestTaskParams 僅更新任務状態相关字段（供 task_manager 使用）
 func (s *SQLiteStorage) UpdateBacktestTaskStatus(id, status string, progress int, startedAt, completedAt *time.Time, errMsg, resultPath, reportPath string) error {
 	_, err := s.db.Exec(`
 		UPDATE backtest_tasks SET status=?, progress=?, started_at=?, completed_at=?, error=?, result_path=?, report_path=?
@@ -166,7 +166,7 @@ func (s *SQLiteStorage) UpdateBacktestTaskStatus(id, status string, progress int
 	return err
 }
 
-// DeleteBacktestTask 删除回测任务
+// DeleteBacktestTask 刪除回测任務
 func (s *SQLiteStorage) DeleteBacktestTask(id string) error {
 	_, err := s.db.Exec(`DELETE FROM backtest_tasks WHERE id=?`, id)
 	return err
@@ -179,7 +179,7 @@ func nilInt64(t *time.Time) interface{} {
 	return t.UnixMilli()
 }
 
-// GetBacktestTaskStore 返回自身作为 backtest.TaskStore 实现
+// GetBacktestTaskStore 返回自身作為 backtest.TaskStore 實現
 func (s *SQLiteStorage) GetBacktestTaskStore() backtest.TaskStore {
 	return s
 }

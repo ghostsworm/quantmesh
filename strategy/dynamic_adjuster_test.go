@@ -17,22 +17,22 @@ func TestDynamicAdjuster_AdjustPriceInterval(t *testing.T) {
 
 	da := NewDynamicAdjuster(cfg, nil, nil)
 
-	// 场景 1: 高波动率 (增加价格间隔)
+	// 场景 1: 高波动率 (增加價格間隔)
 	// 制造 2% 的波动
 	pricesHighVol := []float64{100, 102, 100, 102, 100, 102}
 	da.priceHistory = pricesHighVol
 	da.AdjustPriceInterval()
 	if cfg.Trading.PriceInterval <= 2.0 {
-		t.Errorf("高波动下价格间隔应增加, 得到 %.2f", cfg.Trading.PriceInterval)
+		t.Errorf("高波动下價格間隔应增加, 得到 %.2f", cfg.Trading.PriceInterval)
 	}
 
-	// 场景 2: 低波动率 (减少价格间隔)
+	// 场景 2: 低波动率 (减少價格間隔)
 	cfg.Trading.PriceInterval = 2.0
 	pricesLowVol := []float64{100, 100.1, 100, 100.1, 100, 100.1}
 	da.priceHistory = pricesLowVol
 	da.AdjustPriceInterval()
 	if cfg.Trading.PriceInterval >= 2.0 {
-		t.Errorf("低波动下价格间隔应减少, 得到 %.2f", cfg.Trading.PriceInterval)
+		t.Errorf("低波动下價格間隔应减少, 得到 %.2f", cfg.Trading.PriceInterval)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestDynamicAdjuster_AdjustWindowSize(t *testing.T) {
 
 	da := NewDynamicAdjuster(cfg, nil, nil)
 
-	// 场景 1: 资金利用率低 (增加窗口) - 目前 CalculateUtilization 返回 0.5 < 0.8
+	// 场景 1: 资金利用率低 (增加窗口) - 目前 CalculateUtilization 回傳 0.5 < 0.8
 	da.AdjustWindowSize()
 	if cfg.Trading.BuyWindowSize <= 10 {
 		t.Errorf("低利用率下窗口应增加, 得到 %d", cfg.Trading.BuyWindowSize)

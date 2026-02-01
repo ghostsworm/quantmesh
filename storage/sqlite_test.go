@@ -14,11 +14,11 @@ func TestSQLiteStorage(t *testing.T) {
 
 	storage, err := NewSQLiteStorage(dbPath)
 	if err != nil {
-		t.Fatalf("创建存储失败: %v", err)
+		t.Fatalf("創建存儲失败: %v", err)
 	}
 	defer storage.Close()
 
-	// 1. 测试保存和查询订单
+	// 1. 测試保存和查詢訂單
 	order := &Order{
 		OrderID:       123456789,
 		ClientOrderID: "test_oid_1",
@@ -32,46 +32,46 @@ func TestSQLiteStorage(t *testing.T) {
 	}
 
 	if err := storage.SaveOrder(order); err != nil {
-		t.Errorf("保存订单失败: %v", err)
+		t.Errorf("保存订單失败: %v", err)
 	}
 
 	orders, err := storage.QueryOrders(10, 0, "FILLED")
 	if err != nil {
-		t.Errorf("查询订单失败: %v", err)
+		t.Errorf("查詢訂單失败: %v", err)
 	}
 	if len(orders) != 1 || orders[0].OrderID != order.OrderID {
-		t.Errorf("查询订单结果不正确: 期望 123456789, 得到 %v", orders)
+		t.Errorf("查詢訂單結果不正确: 期望 123456789, 得到 %v", orders)
 	}
 
-	// 2. 测试资金费率保存逻辑（变动存储）
+	// 2. 测試资金费率保存逻辑（变动存儲）
 	timestamp := time.Now()
 	if err := storage.SaveFundingRate("BTCUSDT", "binance", 0.0001, timestamp); err != nil {
 		t.Errorf("第一次保存资金费率失败: %v", err)
 	}
 
-	// 再次保存相同的费率，不应该新增记录
+	// 再次保存相同的费率，不应該新增記錄
 	if err := storage.SaveFundingRate("BTCUSDT", "binance", 0.0001, timestamp.Add(time.Hour)); err != nil {
 		t.Errorf("第二次保存相同资金费率失败: %v", err)
 	}
 
 	history, err := storage.GetFundingRateHistory("BTCUSDT", "binance", 10)
 	if err != nil {
-		t.Errorf("获取资金费率历史失败: %v", err)
+		t.Errorf("獲取资金费率历史失败: %v", err)
 	}
 	if len(history) != 1 {
-		t.Errorf("相同费率不应重复存储，当前记录数: %d", len(history))
+		t.Errorf("相同费率不应重複存儲，當前記錄數: %d", len(history))
 	}
 
-	// 保存不同的费率，应该新增
+	// 保存不同的费率，应該新增
 	if err := storage.SaveFundingRate("BTCUSDT", "binance", 0.0002, timestamp.Add(2*time.Hour)); err != nil {
 		t.Errorf("保存不同资金费率失败: %v", err)
 	}
 	history, _ = storage.GetFundingRateHistory("BTCUSDT", "binance", 10)
 	if len(history) != 2 {
-		t.Errorf("不同费率应新增记录，当前记录数: %d", len(history))
+		t.Errorf("不同费率应新增記錄，當前記錄數: %d", len(history))
 	}
 
-	// 3. 测试统计数据查询
+	// 3. 测試统计數據查詢
 	trade := &Trade{
 		BuyOrderID:  1,
 		SellOrderID: 2,
@@ -87,15 +87,15 @@ func TestSQLiteStorage(t *testing.T) {
 
 	summary, err := storage.GetPnLBySymbol("BTCUSDT", "test_account", time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour))
 	if err != nil {
-		t.Errorf("获取盈亏汇总失败: %v", err)
+		t.Errorf("獲取盈亏彙總失败: %v", err)
 	}
 	if summary.TotalPnL != 100.0 {
-		t.Errorf("盈亏汇总计算错误: 期望 100.0, 得到 %.2f", summary.TotalPnL)
+		t.Errorf("盈亏彙總计算錯误: 期望 100.0, 得到 %.2f", summary.TotalPnL)
 	}
 
-	// 测试不同账户隔离
+	// 测試不同账戶隔离
 	summaryOther, _ := storage.GetPnLBySymbol("BTCUSDT", "other_account", time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour))
 	if summaryOther.TotalPnL != 0 {
-		t.Errorf("账户隔离失败: 期望 0, 得到 %.2f", summaryOther.TotalPnL)
+		t.Errorf("账戶隔离失败: 期望 0, 得到 %.2f", summaryOther.TotalPnL)
 	}
 }

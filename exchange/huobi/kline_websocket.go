@@ -18,7 +18,7 @@ const (
 	PublicWsURL = "wss://api.hbdm.com/linear-swap-ws"
 )
 
-// KlineWebSocketManager K线 WebSocket 管理器
+// KlineWebSocketManager K線 WebSocket 管理器
 type KlineWebSocketManager struct {
 	conn      *websocket.Conn
 	mu        sync.RWMutex
@@ -27,24 +27,24 @@ type KlineWebSocketManager struct {
 	callback  CandleUpdateCallback
 }
 
-// NewKlineWebSocketManager 创建 K线 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
 func NewKlineWebSocketManager() *KlineWebSocketManager {
 	return &KlineWebSocketManager{
 		stopChan: make(chan struct{}),
 	}
 }
 
-// Start 启动 K线流
+// Start 啟动 K線流
 func (k *KlineWebSocketManager) Start(ctx context.Context, contractCodes []string, interval string, callback CandleUpdateCallback) error {
 	if k.isRunning.Load() {
-		return fmt.Errorf("K线 WebSocket 已在运行")
+		return fmt.Errorf("K線 WebSocket 已在运行")
 	}
 
 	k.callback = callback
 
 	conn, _, err := websocket.DefaultDialer.Dial(PublicWsURL, nil)
 	if err != nil {
-		return fmt.Errorf("连接 K线 WebSocket 失败: %w", err)
+		return fmt.Errorf("连接 K線 WebSocket 失败: %w", err)
 	}
 
 	k.mu.Lock()
@@ -53,20 +53,20 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, contractCodes []strin
 
 	k.isRunning.Store(true)
 
-	// 订阅 K线频道
+	// 订阅 K線频道
 	if err := k.subscribeKlines(contractCodes, interval); err != nil {
 		conn.Close()
-		return fmt.Errorf("订阅 K线频道失败: %w", err)
+		return fmt.Errorf("订阅 K線频道失败: %w", err)
 	}
 
 	go k.readMessages()
 	go k.keepAlive()
 
-	logger.Info("✅ [Huobi K线 WebSocket] 已启动，订阅 %d 个交易对", len(contractCodes))
+	logger.Info("✅ [Huobi K線 WebSocket] 已啟动，订阅 %d 個交易對", len(contractCodes))
 	return nil
 }
 
-// subscribeKlines 订阅 K线频道
+// subscribeKlines 订阅 K線频道
 func (k *KlineWebSocketManager) subscribeKlines(contractCodes []string, interval string) error {
 	for _, contractCode := range contractCodes {
 		subMsg := map[string]interface{}{
@@ -93,7 +93,7 @@ func (k *KlineWebSocketManager) readMessages() {
 	defer func() {
 		k.isRunning.Store(false)
 		if r := recover(); r != nil {
-			logger.Error("❌ [Huobi K线 WebSocket] 消息处理 panic: %v", r)
+			logger.Error("❌ [Huobi K線 WebSocket] 消息处理 panic: %v", r)
 		}
 	}()
 
@@ -109,7 +109,7 @@ func (k *KlineWebSocketManager) readMessages() {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if k.isRunning.Load() {
-				logger.Warn("⚠️ [Huobi K线 WebSocket] 读取消息失败: %v", err)
+				logger.Warn("⚠️ [Huobi K線 WebSocket] 读取消息失败: %v", err)
 			}
 			break
 		}
@@ -117,7 +117,7 @@ func (k *KlineWebSocketManager) readMessages() {
 		// 解压 gzip
 		decompressed, err := decompressGzip(message)
 		if err != nil {
-			logger.Warn("⚠️ [Huobi K线 WebSocket] 解压消息失败: %v", err)
+			logger.Warn("⚠️ [Huobi K線 WebSocket] 解压消息失败: %v", err)
 			continue
 		}
 
@@ -129,7 +129,7 @@ func (k *KlineWebSocketManager) readMessages() {
 func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	var msg map[string]interface{}
 	if err := json.Unmarshal(message, &msg); err != nil {
-		logger.Warn("⚠️ [Huobi K线 WebSocket] 解析消息失败: %v", err)
+		logger.Warn("⚠️ [Huobi K線 WebSocket] 解析消息失败: %v", err)
 		return
 	}
 
@@ -146,11 +146,11 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 
 	// 处理订阅响应
 	if _, ok := msg["subbed"]; ok {
-		logger.Info("✅ [Huobi K线 WebSocket] 订阅成功")
+		logger.Info("✅ [Huobi K線 WebSocket] 订阅成功")
 		return
 	}
 
-	// 处理 K线数据
+	// 处理 K線數據
 	if ch, ok := msg["ch"].(string); ok {
 		if len(ch) > 6 && ch[:6] == "market" {
 			k.handleKlineUpdate(msg)
@@ -158,7 +158,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// handleKlineUpdate 处理 K线更新
+// handleKlineUpdate 处理 K線更新
 func (k *KlineWebSocketManager) handleKlineUpdate(msg map[string]interface{}) {
 	tick, ok := msg["tick"].(map[string]interface{})
 	if !ok {
@@ -209,7 +209,7 @@ func (k *KlineWebSocketManager) keepAlive() {
 	}
 }
 
-// Stop 停止 K线 WebSocket
+// Stop 停止 K線 WebSocket
 func (k *KlineWebSocketManager) Stop() {
 	if !k.isRunning.Load() {
 		return
@@ -225,5 +225,5 @@ func (k *KlineWebSocketManager) Stop() {
 	}
 	k.mu.Unlock()
 
-	logger.Info("🛑 [Huobi K线 WebSocket] 已停止")
+	logger.Info("🛑 [Huobi K線 WebSocket] 已停止")
 }

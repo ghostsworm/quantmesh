@@ -19,10 +19,10 @@ import (
 
 const (
 	XTMainnetBaseURL = "https://sapi.xt.com"    // XT.COM 主网
-	XTTestnetBaseURL = "https://testnet.xt.com" // XT.COM 测试网
+	XTTestnetBaseURL = "https://testnet.xt.com" // XT.COM 測試網
 )
 
-// XTClient XT.COM 客户端
+// XTClient XT.COM 客戶端
 type XTClient struct {
 	apiKey     string
 	secretKey  string
@@ -31,7 +31,7 @@ type XTClient struct {
 	isTestnet  bool
 }
 
-// NewXTClient 创建 XT.COM 客户端
+// NewXTClient 創建 XT.COM 客戶端
 func NewXTClient(apiKey, secretKey string, isTestnet bool) *XTClient {
 	baseURL := XTMainnetBaseURL
 	if isTestnet {
@@ -109,7 +109,7 @@ func (c *XTClient) sendRequest(ctx context.Context, method, path string, params 
 	return respBody, nil
 }
 
-// GetSymbol 获取交易对信息
+// GetSymbol 獲取交易對信息
 func (c *XTClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, error) {
 	path := "/v4/public/symbol"
 	params := url.Values{}
@@ -138,7 +138,7 @@ func (c *XTClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, error
 	return &symbolInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *XTClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := "/v4/order"
 	params := url.Values{}
@@ -167,7 +167,7 @@ func (c *XTClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, e
 	return &order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *XTClient) CancelOrder(ctx context.Context, symbol, orderID string) error {
 	path := "/v4/order"
 	params := url.Values{}
@@ -195,7 +195,7 @@ func (c *XTClient) CancelOrder(ctx context.Context, symbol, orderID string) erro
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *XTClient) GetOrder(ctx context.Context, symbol, orderID string) (*Order, error) {
 	path := "/v4/order"
 	params := url.Values{}
@@ -225,7 +225,7 @@ func (c *XTClient) GetOrder(ctx context.Context, symbol, orderID string) (*Order
 	return &order, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *XTClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, error) {
 	path := "/v4/open-order"
 	params := url.Values{}
@@ -256,7 +256,7 @@ func (c *XTClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, e
 	return orders, nil
 }
 
-// GetBalance 获取账户余额
+// GetBalance 獲取帳戶餘額
 func (c *XTClient) GetBalance(ctx context.Context) (*Balance, error) {
 	path := "/v4/balances"
 	params := url.Values{}
@@ -281,7 +281,7 @@ func (c *XTClient) GetBalance(ctx context.Context) (*Balance, error) {
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
 
-	// 返回 USDT 余额
+	// 回傳 USDT 餘額
 	for _, balance := range balances {
 		if balance.Currency == "usdt" {
 			return &balance, nil
@@ -291,7 +291,7 @@ func (c *XTClient) GetBalance(ctx context.Context) (*Balance, error) {
 	return &Balance{Currency: "usdt", Available: "0", Frozen: "0"}, nil
 }
 
-// GetTicker 获取最新价格
+// GetTicker 獲取最新價格
 func (c *XTClient) GetTicker(ctx context.Context, symbol string) (*Ticker, error) {
 	path := "/v4/public/ticker/price"
 	params := url.Values{}
@@ -320,7 +320,7 @@ func (c *XTClient) GetTicker(ctx context.Context, symbol string) (*Ticker, error
 	return &ticker, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *XTClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/v4/public/kline"
 	params := url.Values{}
@@ -353,7 +353,7 @@ func (c *XTClient) GetKlines(ctx context.Context, symbol, interval string, limit
 	return klines, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIResponse struct {
 	Rc     int         `json:"rc"`

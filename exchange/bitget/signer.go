@@ -15,7 +15,7 @@ type Signer struct {
 	passphrase string
 }
 
-// NewSigner 创建签名器
+// NewSigner 創建签名器
 func NewSigner(apiKey, secretKey, passphrase string) *Signer {
 	return &Signer{
 		apiKey:     apiKey,
@@ -33,17 +33,17 @@ func (s *Signer) Sign(timestamp, method, requestPath, body string) string {
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// GetTimestamp 获取当前时间戳（毫秒）
+// GetTimestamp 獲取當前時间戳（毫秒）
 func (s *Signer) GetTimestamp() string {
 	return fmt.Sprintf("%d", time.Now().UnixMilli())
 }
 
-// GetAPIKey 获取 API Key
+// GetAPIKey 獲取 API Key
 func (s *Signer) GetAPIKey() string {
 	return s.apiKey
 }
 
-// GetPassphrase 获取 Passphrase
+// GetPassphrase 獲取 Passphrase
 func (s *Signer) GetPassphrase() string {
 	return s.passphrase
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// KlineWebSocketManager BTCC K线 WebSocket 管理器
+// KlineWebSocketManager BTCC K線 WebSocket 管理器
 type KlineWebSocketManager struct {
 	wsURL     string
 	conn      *websocket.Conn
@@ -22,7 +22,7 @@ type KlineWebSocketManager struct {
 	isRunning bool
 }
 
-// NewKlineWebSocketManager 创建 K线 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
 func NewKlineWebSocketManager(isTestnet bool) *KlineWebSocketManager {
 	wsURL := BTCCMainnetWSURL
 	if isTestnet {
@@ -35,7 +35,7 @@ func NewKlineWebSocketManager(isTestnet bool) *KlineWebSocketManager {
 	}
 }
 
-// Start 启动 K线 WebSocket
+// Start 啟动 K線 WebSocket
 func (k *KlineWebSocketManager) Start(ctx context.Context, symbol, interval string, callback func(*Kline)) error {
 	k.mu.Lock()
 	if k.isRunning {
@@ -50,7 +50,7 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, symbol, interval stri
 	return nil
 }
 
-// Stop 停止 K线 WebSocket
+// Stop 停止 K線 WebSocket
 func (k *KlineWebSocketManager) Stop() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -89,7 +89,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, symbol, interval st
 
 		logger.Info("BTCC Kline WebSocket connected")
 
-		// 订阅 K线
+		// 订阅 K線
 		if err := k.subscribe(symbol, interval); err != nil {
 			logger.Error("BTCC Kline WebSocket subscribe error: %v", err)
 			conn.Close()
@@ -97,7 +97,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, symbol, interval st
 			continue
 		}
 
-		// 启动心跳
+		// 啟动心跳
 		go k.heartbeat()
 
 		// 读取消息
@@ -109,7 +109,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, symbol, interval st
 	}
 }
 
-// subscribe 订阅 K线
+// subscribe 订阅 K線
 func (k *KlineWebSocketManager) subscribe(symbol, interval string) error {
 	subMsg := map[string]interface{}{
 		"op": "subscribe",
@@ -203,7 +203,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理 K线数据
+	// 处理 K線數據
 	if data, ok := msg["data"].(map[string]interface{}); ok {
 		kline := k.parseKline(data)
 		if kline != nil && k.callback != nil {
@@ -212,7 +212,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// parseKline 解析 K线数据
+// parseKline 解析 K線數據
 func (k *KlineWebSocketManager) parseKline(data map[string]interface{}) *Kline {
 	kline := &Kline{}
 

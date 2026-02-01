@@ -17,7 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// optimizerTask 优化任务（内存存储）
+// optimizerTask 优化任務（記憶體存儲）
 type optimizerTask struct {
 	ID        string
 	Status    string // pending, running, completed, failed, stopped
@@ -36,7 +36,7 @@ var (
 
 // OptimizerRunRequest 优化运行请求
 type OptimizerRunRequest struct {
-	Exchange       string                     `json:"exchange"`        // binance, bitget，默认 binance
+	Exchange       string                     `json:"exchange"`        // binance, bitget，預設 binance
 	Symbol         string                     `json:"symbol" binding:"required"`
 	Interval       string                     `json:"interval" binding:"required"`
 	StartTime      time.Time                  `json:"start_time" binding:"required"`
@@ -46,19 +46,19 @@ type OptimizerRunRequest struct {
 	Config         optimizer.OptimConfig      `json:"config" binding:"required"`
 }
 
-// postOptimizerRun 启动优化任务 POST /api/optimizer/run
+// postOptimizerRun 啟动优化任務 POST /api/optimizer/run
 func postOptimizerRun(c *gin.Context) {
 	var req OptimizerRunRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参数错误: %v", err)})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参數錯误: %v", err)})
 		return
 	}
 	if req.EndTime.Before(req.StartTime) {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_time 必须晚于 start_time"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_time 必須晚於 start_time"})
 		return
 	}
 	if req.InitialCapital <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "initial_capital 必须大于 0"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "initial_capital 必須大於 0"})
 		return
 	}
 	if err := optimizer.ValidateSearchSpace(req.SearchSpace); err != nil {
@@ -67,7 +67,7 @@ func postOptimizerRun(c *gin.Context) {
 	}
 	validMethods := map[string]bool{"grid": true, "bayesian": true, "genetic": true}
 	if !validMethods[req.Config.Method] {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支持的优化方法: %s", req.Config.Method)})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的优化方法: %s", req.Config.Method)})
 		return
 	}
 
@@ -77,19 +77,19 @@ func postOptimizerRun(c *gin.Context) {
 	}
 	validExchanges := map[string]bool{"binance": true, "bitget": true}
 	if !validExchanges[exchange] {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支持的交易所: %s", exchange)})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的交易所: %s", exchange)})
 		return
 	}
 
 	exConfig := getExchangeConfig(exchange)
 	candles, err := backtest.GetHistoricalDataEx(exchange, req.Symbol, req.Interval, req.StartTime, req.EndTime, exConfig)
 	if err != nil {
-		logger.Error("优化器获取历史数据失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("获取历史数据失败: %v", err)})
+		logger.Error("优化器獲取歷史數據失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("獲取歷史數據失败: %v", err)})
 		return
 	}
 	if len(candles) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "未获取到历史 K 线数据"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "未獲取到历史 K 線數據"})
 		return
 	}
 
@@ -108,7 +108,7 @@ func postOptimizerRun(c *gin.Context) {
 	optimizerTasksMu.Unlock()
 
 	go runOptimizerTask(ctx, taskID, req.Symbol, candles, req.SearchSpace, req.Config, req.InitialCapital)
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "优化任务已创建", "task_id": taskID})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "优化任務已創建", "task_id": taskID})
 }
 
 func runOptimizerTask(ctx context.Context, taskID, symbol string, candles []*exchange.Candle, space optimizer.OptimSearchSpace, config optimizer.OptimConfig, initialCapital float64) {
@@ -157,18 +157,18 @@ func runOptimizerTask(ctx context.Context, taskID, symbol string, candles []*exc
 	task.Result = result
 }
 
-// getOptimizerStatus 查询优化任务状态 GET /api/optimizer/status/:id
+// getOptimizerStatus 查詢优化任務状態 GET /api/optimizer/status/:id
 func getOptimizerStatus(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
 	optimizerTasksMu.RLock()
 	task, ok := optimizerTasks[id]
 	optimizerTasksMu.RUnlock()
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -182,18 +182,18 @@ func getOptimizerStatus(c *gin.Context) {
 	})
 }
 
-// getOptimizerResult 获取优化结果 GET /api/optimizer/result/:id
+// getOptimizerResult 獲取优化結果 GET /api/optimizer/result/:id
 func getOptimizerResult(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
 	optimizerTasksMu.RLock()
 	task, ok := optimizerTasks[id]
 	optimizerTasksMu.RUnlock()
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
 	}
 	if task.Status != "completed" {
@@ -211,7 +211,7 @@ func getOptimizerResult(c *gin.Context) {
 	})
 }
 
-// getOptimizerPrice 获取交易对当前价格 GET /api/optimizer/price?exchange=&symbol=
+// getOptimizerPrice 獲取交易對當前價格 GET /api/optimizer/price?exchange=&symbol=
 func getOptimizerPrice(c *gin.Context) {
 	exchangeName := c.DefaultQuery("exchange", "binance")
 	symbol := c.Query("symbol")
@@ -219,7 +219,7 @@ func getOptimizerPrice(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 symbol"})
 		return
 	}
-	// Binance 公开 API 无需鉴权
+	// Binance 公开 API 無需鉴权
 	url := fmt.Sprintf("https://api.binance.com/api/v3/ticker/price?symbol=%s", symbol)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -233,29 +233,29 @@ func getOptimizerPrice(c *gin.Context) {
 		Price  string `json:"price"`
 	}
 	if err := json.Unmarshal(body, &data); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析价格失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析價格失败"})
 		return
 	}
 	var price float64
 	if _, err := fmt.Sscanf(data.Price, "%f", &price); err != nil || price <= 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法获取有效价格"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "無法獲取有效價格"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"price": price, "symbol": symbol, "exchange": exchangeName})
 }
 
-// postOptimizerStop 停止优化任务 POST /api/optimizer/stop/:id
+// postOptimizerStop 停止优化任務 POST /api/optimizer/stop/:id
 func postOptimizerStop(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任务 id"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
 	optimizerTasksMu.Lock()
 	task, ok := optimizerTasks[id]
 	optimizerTasksMu.Unlock()
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任务不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
 	}
 	if task.cancel != nil {

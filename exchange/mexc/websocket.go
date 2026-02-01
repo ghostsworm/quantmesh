@@ -33,7 +33,7 @@ type WebSocketManager struct {
 	isRunning bool
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketManager {
 	wsURL := MEXCMainnetWSURL
 	if isTestnet {
@@ -48,7 +48,7 @@ func NewWebSocketManager(apiKey, secretKey string, isTestnet bool) *WebSocketMan
 	}
 }
 
-// Start 启动 WebSocket
+// Start 啟动 WebSocket
 func (w *WebSocketManager) Start(ctx context.Context, symbol string, callback func(interface{})) error {
 	w.mu.Lock()
 	if w.isRunning {
@@ -102,7 +102,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 
 		logger.Info("MEXC WebSocket connected")
 
-		// 登录认证
+		// 登錄认证
 		if err := w.login(); err != nil {
 			logger.Error("MEXC WebSocket login error: %v", err)
 			conn.Close()
@@ -118,7 +118,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 			continue
 		}
 
-		// 启动心跳
+		// 啟动心跳
 		go w.heartbeat()
 
 		// 读取消息
@@ -130,7 +130,7 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 	}
 }
 
-// login 登录认证
+// login 登錄认证
 func (w *WebSocketManager) login() error {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -153,7 +153,7 @@ func (w *WebSocketManager) login() error {
 
 // subscribe 订阅频道
 func (w *WebSocketManager) subscribe(symbol string) error {
-	// 订阅订单更新
+	// 订阅订單更新
 	subMsg := map[string]interface{}{
 		"method": "sub.personal.order",
 		"param": map[string]string{
@@ -165,7 +165,7 @@ func (w *WebSocketManager) subscribe(symbol string) error {
 		return err
 	}
 
-	// 订阅持仓更新
+	// 订阅持倉更新
 	subMsg = map[string]interface{}{
 		"method": "sub.personal.position",
 		"param": map[string]string{
@@ -267,7 +267,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理登录响应
+	// 处理登錄响应
 	if method, ok := msg["method"].(string); ok && method == "login" {
 		if code, ok := msg["code"].(float64); ok && code == 0 {
 			logger.Info("MEXC WebSocket login success")
@@ -287,7 +287,7 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理数据推送
+	// 处理數據推送
 	if channel, ok := msg["channel"].(string); ok {
 		if data, ok := msg["data"].(interface{}); ok {
 			logger.Debug("MEXC WebSocket message: channel=%s, data=%v", channel, data)

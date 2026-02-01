@@ -12,7 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// KlineWebSocketManager Deribit K线 WebSocket 管理器
+// KlineWebSocketManager Deribit K線 WebSocket 管理器
 type KlineWebSocketManager struct {
 	wsURL     string
 	conn      *websocket.Conn
@@ -23,7 +23,7 @@ type KlineWebSocketManager struct {
 	requestID int64
 }
 
-// NewKlineWebSocketManager 创建 K线 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
 func NewKlineWebSocketManager(isTestnet bool) *KlineWebSocketManager {
 	wsURL := DeribitMainnetWSURL
 	if isTestnet {
@@ -37,7 +37,7 @@ func NewKlineWebSocketManager(isTestnet bool) *KlineWebSocketManager {
 	}
 }
 
-// Start 启动 K线 WebSocket
+// Start 啟动 K線 WebSocket
 func (k *KlineWebSocketManager) Start(ctx context.Context, instrumentName, resolution string, callback func(tick int64, open, high, low, close, volume float64)) error {
 	k.mu.Lock()
 	if k.isRunning {
@@ -52,7 +52,7 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, instrumentName, resol
 	return nil
 }
 
-// Stop 停止 K线 WebSocket
+// Stop 停止 K線 WebSocket
 func (k *KlineWebSocketManager) Stop() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -91,7 +91,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, instrumentName, res
 
 		logger.Info("Deribit Kline WebSocket connected")
 
-		// 订阅 K线
+		// 订阅 K線
 		if err := k.subscribe(instrumentName, resolution); err != nil {
 			logger.Error("Deribit Kline WebSocket subscribe error: %v", err)
 			conn.Close()
@@ -99,7 +99,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, instrumentName, res
 			continue
 		}
 
-		// 启动心跳
+		// 啟动心跳
 		go k.heartbeat()
 
 		// 读取消息
@@ -111,7 +111,7 @@ func (k *KlineWebSocketManager) connect(ctx context.Context, instrumentName, res
 	}
 }
 
-// subscribe 订阅 K线
+// subscribe 订阅 K線
 func (k *KlineWebSocketManager) subscribe(instrumentName, resolution string) error {
 	subMsg := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -214,7 +214,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 		return
 	}
 
-	// 处理 K线数据
+	// 处理 K線數據
 	if method, ok := msg["method"].(string); ok && method == "subscription" {
 		if params, ok := msg["params"].(map[string]interface{}); ok {
 			if data, ok := params["data"].(map[string]interface{}); ok {
@@ -224,7 +224,7 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// parseKline 解析 K线数据
+// parseKline 解析 K線數據
 func (k *KlineWebSocketManager) parseKline(data map[string]interface{}) {
 	var tick int64
 	var open, high, low, close, volume float64
@@ -253,7 +253,7 @@ func (k *KlineWebSocketManager) parseKline(data map[string]interface{}) {
 	}
 }
 
-// getNextRequestID 获取下一个请求 ID
+// getNextRequestID 獲取下一個请求 ID
 func (k *KlineWebSocketManager) getNextRequestID() int64 {
 	k.mu.Lock()
 	defer k.mu.Unlock()

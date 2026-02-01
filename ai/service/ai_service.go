@@ -18,10 +18,10 @@ type AIService struct {
 }
 
 func NewAIService() *AIService {
-	// 创建支持代理的 HTTP 客户端
+	// 創建支援代理的 HTTP 客戶端
 	transport := &http.Transport{}
 	
-	// 从环境变量读取代理配置（优先级：HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy）
+	// 從环境变量读取代理配置（优先级：HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy）
 	proxyURL := os.Getenv("HTTPS_PROXY")
 	if proxyURL == "" {
 		proxyURL = os.Getenv("https_proxy")
@@ -41,7 +41,7 @@ func NewAIService() *AIService {
 	
 	return &AIService{
 		httpClient: &http.Client{
-			Timeout:   300 * time.Second, // 5 分钟，Gemini API 复杂请求可能需要较长时间
+			Timeout:   300 * time.Second, // 5 分钟，Gemini API 複杂请求可能需要较长時间
 			Transport: transport,
 		},
 	}
@@ -53,7 +53,7 @@ type AIRequest struct {
 	Model             string                 `json:"model"`
 	GeminiAPIKey      string                 `json:"gemini_api_key"`
 	JSONSchema        map[string]interface{} `json:"json_schema"`
-	UseGoogleSearch   bool                   `json:"use_google_search"` // 是否启用 Google Search 实时搜索
+	UseGoogleSearch   bool                   `json:"use_google_search"` // 是否啟用 Google Search 實時搜索
 }
 
 type AIResponse struct {
@@ -99,7 +99,7 @@ func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResp
 		geminiReq["generationConfig"].(map[string]interface{})["responseSchema"] = req.JSONSchema
 	}
 
-	// 启用 Google Search 实时搜索（用于新闻分析等场景）
+	// 啟用 Google Search 實時搜索（用於新聞分析等场景）
 	if req.UseGoogleSearch {
 		geminiReq["tools"] = []map[string]interface{}{
 			{"google_search": map[string]interface{}{}},
@@ -177,7 +177,7 @@ func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResp
 	aiText = strings.TrimSuffix(aiText, "```")
 	aiText = strings.TrimSpace(aiText)
 
-	// 获取 token 使用情况
+	// 獲取 token 使用情况
 	inputTokens := geminiResp.UsageMetadata.PromptTokenCount
 	outputTokens := geminiResp.UsageMetadata.CandidatesTokenCount
 	if inputTokens == 0 && len(geminiResp.Candidates) > 0 {

@@ -21,7 +21,7 @@ type Adapter struct {
 	quoteAsset       string
 }
 
-// NewAdapter 创建 MEXC 适配器
+// NewAdapter 創建 MEXC 适配器
 func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	apiKey := config["api_key"]
 	secretKey := config["secret_key"]
@@ -33,7 +33,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 
 	client := NewMEXCClient(apiKey, secretKey, isTestnet)
 
-	// 解析交易对
+	// 解析交易對
 	parts := strings.Split(symbol, "USDT")
 	baseAsset := "BTC"
 	if len(parts) > 0 && parts[0] != "" {
@@ -49,7 +49,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 		quoteAsset:       "USDT",
 	}
 
-	// 获取交易对信息
+	// 獲取交易對信息
 	ctx := context.Background()
 	exchangeInfo, err := client.GetExchangeInfo(ctx)
 	if err != nil {
@@ -64,7 +64,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	return adapter, nil
 }
 
-// convertSymbolToMEXC 转换交易对格式：BTCUSDT -> BTC_USDT
+// convertSymbolToMEXC 轉换交易對格式：BTCUSDT -> BTC_USDT
 func convertSymbolToMEXC(symbol string) string {
 	if strings.Contains(symbol, "_") {
 		return symbol
@@ -77,19 +77,24 @@ func convertSymbolToMEXC(symbol string) string {
 	return symbol
 }
 
-// convertSymbolFromMEXC 转换交易对格式：BTC_USDT -> BTCUSDT
+// convertSymbolFromMEXC 轉换交易對格式：BTC_USDT -> BTCUSDT
 func convertSymbolFromMEXC(symbol string) string {
 	return strings.ReplaceAll(symbol, "_", "")
 }
 
-// GetName 获取交易所名称
+// GetName 獲取交易所名称
 func (a *Adapter) GetName() string {
 	return "MEXC"
 }
 
-// PlaceOrder 下单
+// GetMarketType 獲取市場類型：futures 合約
+func (a *Adapter) GetMarketType() string {
+	return "futures"
+}
+
+// PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
-	// 转换订单方向
+	// 轉换订單方向
 	var mexcSide int
 	if side == SideBuy {
 		mexcSide = int(MEXCOrderSideOpenLong)
@@ -97,14 +102,14 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 		mexcSide = int(MEXCOrderSideOpenShort)
 	}
 
-	// 构造 MEXC 订单请求
+	// 構造 MEXC 订單请求
 	mexcReq := &OrderRequest{
 		Symbol:        a.symbol,
 		Price:         price,
 		Volume:        quantity,
 		Side:          mexcSide,
 		Type:          int(MEXCOrderTypeLimit),
-		OpenType:      int(MEXCOpenTypeCross), // 默认全仓
+		OpenType:      int(MEXCOpenTypeCross), // 默认全倉
 		Leverage:      20,                     // 默认杠杆
 		ClientOrderID: clientOrderID,
 	}
@@ -127,12 +132,12 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 	}, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (a *Adapter) CancelOrder(ctx context.Context, orderID int64) error {
 	return a.client.CancelOrder(ctx, a.symbol, strconv.FormatInt(orderID, 10))
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (a *Adapter) GetOrder(ctx context.Context, orderID int64) (*OrderLocal, error) {
 	orderInfo, err := a.client.GetOrderInfo(ctx, a.symbol, strconv.FormatInt(orderID, 10))
 	if err != nil {
@@ -142,7 +147,7 @@ func (a *Adapter) GetOrder(ctx context.Context, orderID int64) (*OrderLocal, err
 	return a.convertOrder(orderInfo), nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	orders, err := a.client.GetOpenOrders(ctx, a.symbol)
 	if err != nil {
@@ -157,7 +162,7 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	return result, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	accountInfo, err := a.client.GetAccount(ctx)
 	if err != nil {
@@ -171,7 +176,7 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	}, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 	positions, err := a.client.GetPositions(ctx, a.symbol)
 	if err != nil {
@@ -186,7 +191,7 @@ func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 
 		size := pos.HoldVol
 		if pos.PositionType == int(MEXCPositionTypeShort) {
-			size = -size // 空仓用负数表示
+			size = -size // 空倉用负數表示
 		}
 
 		result = append(result, &PositionLocal{
@@ -202,7 +207,7 @@ func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 	return result, nil
 }
 
-// GetBalance 获取余额
+// GetBalance 獲取餘額
 func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	accountInfo, err := a.client.GetAccount(ctx)
 	if err != nil {
@@ -212,7 +217,7 @@ func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	return accountInfo.AvailableBalance, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if a.wsManager != nil {
 		return fmt.Errorf("order stream already started")
@@ -222,7 +227,7 @@ func (a *Adapter) StartOrderStream(ctx context.Context, callback func(interface{
 	return a.wsManager.Start(ctx, a.symbol, callback)
 }
 
-// StopOrderStream 停止订单流
+// StopOrderStream 停止訂單流
 func (a *Adapter) StopOrderStream() error {
 	if a.wsManager != nil {
 		a.wsManager.Stop()
@@ -231,9 +236,9 @@ func (a *Adapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 获取最新价格
+// GetLatestPrice 獲取最新價格
 func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 如果传入 symbol,转换格式并使用;否则使用默认 symbol
+	// 如果傳入 symbol,轉换格式並使用;否则使用預設 symbol
 	targetSymbol := a.symbol
 	if symbol != "" {
 		targetSymbol = convertSymbolToMEXC(symbol)
@@ -247,7 +252,7 @@ func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, e
 	return ticker.LastPrice, nil
 }
 
-// StartKlineStream 启动 K线流
+// StartKlineStream 啟动 K線流
 func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callback CandleUpdateCallbackLocal) error {
 	if a.klineWSManager != nil {
 		return fmt.Errorf("kline stream already started")
@@ -270,7 +275,7 @@ func (a *Adapter) StartKlineStream(ctx context.Context, interval string, callbac
 	})
 }
 
-// StopKlineStream 停止 K线流
+// StopKlineStream 停止 K線流
 func (a *Adapter) StopKlineStream() error {
 	if a.klineWSManager != nil {
 		a.klineWSManager.Stop()
@@ -279,7 +284,7 @@ func (a *Adapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 获取历史 K线
+// GetHistoricalKlines 獲取歷史 K線
 func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limit int) ([]*CandleLocal, error) {
 	mexcInterval := string(ConvertInterval(interval))
 	klines, err := a.client.GetKlines(ctx, a.symbol, mexcInterval, limit)
@@ -303,27 +308,27 @@ func (a *Adapter) GetHistoricalKlines(ctx context.Context, interval string, limi
 	return result, nil
 }
 
-// GetPriceDecimals 获取价格精度
+// GetPriceDecimals 獲取價格精度
 func (a *Adapter) GetPriceDecimals() int {
 	return a.priceDecimals
 }
 
-// GetQuantityDecimals 获取数量精度
+// GetQuantityDecimals 獲取數量精度
 func (a *Adapter) GetQuantityDecimals() int {
 	return a.quantityDecimals
 }
 
-// GetBaseAsset 获取基础资产
+// GetBaseAsset 獲取基础资產
 func (a *Adapter) GetBaseAsset() string {
 	return a.baseAsset
 }
 
-// GetQuoteAsset 获取报价资产
+// GetQuoteAsset 獲取报價资產
 func (a *Adapter) GetQuoteAsset() string {
 	return a.quoteAsset
 }
 
-// GetFundingRate 获取资金费率
+// GetFundingRate 獲取资金费率
 func (a *Adapter) GetFundingRate(ctx context.Context) (float64, error) {
 	ticker, err := a.client.GetTicker(ctx, a.symbol)
 	if err != nil {
@@ -333,7 +338,7 @@ func (a *Adapter) GetFundingRate(ctx context.Context) (float64, error) {
 	return ticker.FundingRate, nil
 }
 
-// convertOrder 转换订单
+// convertOrder 轉换订單
 func (a *Adapter) convertOrder(order *OrderInfo) *OrderLocal {
 	var side OrderSide
 	if order.Side == int(MEXCOrderSideOpenLong) || order.Side == int(MEXCOrderSideCloseLong) {
@@ -371,7 +376,7 @@ func (a *Adapter) convertOrder(order *OrderInfo) *OrderLocal {
 	}
 }
 
-// InternalTransfer 交易所内部转账（MEXC 暂未实现）
+// InternalTransfer 交易所內部轉帳（MEXC 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for MEXC")
 }

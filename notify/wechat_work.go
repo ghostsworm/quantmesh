@@ -18,7 +18,7 @@ type WeChatWorkNotifier struct {
 	client  *http.Client
 }
 
-// NewWeChatWorkNotifier 创建企业微信通知器
+// NewWeChatWorkNotifier 創建企业微信通知器
 func NewWeChatWorkNotifier(cfg *config.Config) (*WeChatWorkNotifier, error) {
 	if cfg.Notifications.WeChatWork.Webhook == "" {
 		return nil, fmt.Errorf("企业微信 Webhook URL 未配置")
@@ -58,7 +58,7 @@ func (wn *WeChatWorkNotifier) Send(evt *event.Event) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", wn.webhook, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -70,7 +70,7 @@ func (wn *WeChatWorkNotifier) Send(evt *event.Event) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("企业微信 API 返回错误: %d", resp.StatusCode)
+		return fmt.Errorf("企业微信 API 返回錯误: %d", resp.StatusCode)
 	}
 
 	return nil
@@ -81,11 +81,11 @@ func formatWeChatWorkMessage(evt *event.Event) string {
 	var title string
 	switch evt.Type {
 	case event.EventTypeOrderPlaced:
-		title = "📝 订单已下单"
+		title = "📝 订單已下單"
 	case event.EventTypeOrderFilled:
-		title = "✅ 订单已成交"
+		title = "✅ 订單已成交"
 	case event.EventTypeOrderCanceled:
-		title = "❌ 订单已取消"
+		title = "❌ 订單已取消"
 	case event.EventTypeRiskTriggered:
 		title = "⚠️ 风控触发"
 	case event.EventTypeRiskRecovered:
@@ -95,9 +95,9 @@ func formatWeChatWorkMessage(evt *event.Event) string {
 	case event.EventTypeTakeProfit:
 		title = "💰 止盈触发"
 	case event.EventTypeError:
-		title = "❌ 系统错误"
+		title = "❌ 系统錯误"
 	case event.EventTypeSystemStart:
-		title = "🚀 系统启动"
+		title = "🚀 系统啟动"
 	case event.EventTypeSystemStop:
 		title = "🛑 系统停止"
 	case event.EventTypeMarginInsufficient:
@@ -107,18 +107,18 @@ func formatWeChatWorkMessage(evt *event.Event) string {
 	case event.EventTypeAllocationLimitChanged:
 		if mode, ok := evt.Data["mode"].(string); ok {
 			if mode == "emergency" {
-				title = "🚨 资金限额已提升（紧急模式）"
+				title = "🚨 资金限額已提升（紧急模式）"
 			} else {
-				title = "✅ 资金限额已恢复（正常模式）"
+				title = "✅ 资金限額已恢複（正常模式）"
 			}
 		} else {
-			title = "📊 资金限额变更"
+			title = "📊 资金限額变更"
 		}
 	default:
 		title = "📢 系统通知"
 	}
 
-	message := fmt.Sprintf("%s\n\n时间: %s\n\n", title, evt.Timestamp.Format("2006-01-02 15:04:05"))
+	message := fmt.Sprintf("%s\n\n時间: %s\n\n", title, evt.Timestamp.Format("2006-01-02 15:04:05"))
 
 	if evt.Data != nil {
 		message += "详细信息:\n"

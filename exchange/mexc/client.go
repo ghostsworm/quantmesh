@@ -20,10 +20,10 @@ import (
 
 const (
 	MEXCMainnetBaseURL = "https://contract.mexc.com"         // MEXC 主网
-	MEXCTestnetBaseURL = "https://contract-testnet.mexc.com" // MEXC 测试网
+	MEXCTestnetBaseURL = "https://contract-testnet.mexc.com" // MEXC 測試網
 )
 
-// MEXCClient MEXC 客户端
+// MEXCClient MEXC 客戶端
 type MEXCClient struct {
 	apiKey     string
 	secretKey  string
@@ -32,7 +32,7 @@ type MEXCClient struct {
 	isTestnet  bool
 }
 
-// NewMEXCClient 创建 MEXC 客户端
+// NewMEXCClient 創建 MEXC 客戶端
 func NewMEXCClient(apiKey, secretKey string, isTestnet bool) *MEXCClient {
 	baseURL := MEXCMainnetBaseURL
 	if isTestnet {
@@ -50,14 +50,14 @@ func NewMEXCClient(apiKey, secretKey string, isTestnet bool) *MEXCClient {
 
 // signRequest MEXC 签名：HMAC-SHA256
 func (c *MEXCClient) signRequest(params url.Values) string {
-	// 按字母序排序参数
+	// 按字母序排序参數
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	// 构造签名字符串
+	// 構造签名字符串
 	var signStr strings.Builder
 	for i, k := range keys {
 		if i > 0 {
@@ -79,7 +79,7 @@ func (c *MEXCClient) sendRequest(ctx context.Context, method, path string, param
 	reqURL := c.baseURL + path
 
 	if needSign {
-		// 添加时间戳
+		// 添加時间戳
 		params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 		// 生成签名
 		signature := c.signRequest(params)
@@ -105,7 +105,7 @@ func (c *MEXCClient) sendRequest(ctx context.Context, method, path string, param
 		return nil, fmt.Errorf("create request error: %w", err)
 	}
 
-	// 设置请求头
+	// 設置请求头
 	req.Header.Set("X-MEXC-APIKEY", c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
@@ -123,7 +123,7 @@ func (c *MEXCClient) sendRequest(ctx context.Context, method, path string, param
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// 检查 API 错误
+	// 检查 API 錯误
 	var apiResp struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
@@ -137,7 +137,7 @@ func (c *MEXCClient) sendRequest(ctx context.Context, method, path string, param
 	return respBody, nil
 }
 
-// GetExchangeInfo 获取交易对信息
+// GetExchangeInfo 獲取交易對信息
 func (c *MEXCClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error) {
 	path := "/api/v1/contract/detail"
 	params := url.Values{}
@@ -170,7 +170,7 @@ func (c *MEXCClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error)
 	return exchangeInfo, nil
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *MEXCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
 	path := "/api/v1/private/order/submit"
 	params := url.Values{}
@@ -178,8 +178,8 @@ func (c *MEXCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderR
 	params.Set("price", fmt.Sprintf("%.8f", req.Price))
 	params.Set("vol", fmt.Sprintf("%.0f", req.Volume))
 	params.Set("side", strconv.Itoa(req.Side))         // 1=开多, 2=平多, 3=开空, 4=平空
-	params.Set("type", strconv.Itoa(req.Type))         // 1=限价, 2=市价
-	params.Set("openType", strconv.Itoa(req.OpenType)) // 1=逐仓, 2=全仓
+	params.Set("type", strconv.Itoa(req.Type))         // 1=限價, 2=市價
+	params.Set("openType", strconv.Itoa(req.OpenType)) // 1=逐倉, 2=全倉
 	params.Set("leverage", strconv.Itoa(req.Leverage))
 
 	if req.ClientOrderID != "" {
@@ -193,7 +193,7 @@ func (c *MEXCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderR
 
 	var resp struct {
 		Code    int    `json:"code"`
-		Data    string `json:"data"` // 订单 ID
+		Data    string `json:"data"` // 订單 ID
 		Success bool   `json:"success"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
@@ -208,7 +208,7 @@ func (c *MEXCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderR
 	return &OrderResponse{OrderID: resp.Data}, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *MEXCClient) CancelOrder(ctx context.Context, symbol, orderID string) error {
 	path := "/api/v1/private/order/cancel"
 	params := url.Values{}
@@ -236,7 +236,7 @@ func (c *MEXCClient) CancelOrder(ctx context.Context, symbol, orderID string) er
 	return nil
 }
 
-// GetOrderInfo 查询订单
+// GetOrderInfo 查詢訂單
 func (c *MEXCClient) GetOrderInfo(ctx context.Context, symbol, orderID string) (*OrderInfo, error) {
 	path := "/api/v1/private/order/get"
 	params := url.Values{}
@@ -264,7 +264,7 @@ func (c *MEXCClient) GetOrderInfo(ctx context.Context, symbol, orderID string) (
 	return &resp.Data, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *MEXCClient) GetOpenOrders(ctx context.Context, symbol string) ([]OrderInfo, error) {
 	path := "/api/v1/private/order/list/open_orders/" + symbol
 	params := url.Values{}
@@ -293,7 +293,7 @@ func (c *MEXCClient) GetOpenOrders(ctx context.Context, symbol string) ([]OrderI
 	return resp.Data, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (c *MEXCClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
 	path := "/api/v1/private/account/assets"
 	params := url.Values{}
@@ -319,7 +319,7 @@ func (c *MEXCClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
 	return &resp.Data, nil
 }
 
-// GetPositions 获取持仓
+// GetPositions 獲取持倉
 func (c *MEXCClient) GetPositions(ctx context.Context, symbol string) ([]PositionInfo, error) {
 	path := "/api/v1/private/position/open_positions"
 	params := url.Values{}
@@ -348,7 +348,7 @@ func (c *MEXCClient) GetPositions(ctx context.Context, symbol string) ([]Positio
 	return resp.Data, nil
 }
 
-// GetTicker 获取行情
+// GetTicker 獲取行情
 func (c *MEXCClient) GetTicker(ctx context.Context, symbol string) (*TickerInfo, error) {
 	path := "/api/v1/contract/ticker"
 	params := url.Values{}
@@ -375,7 +375,7 @@ func (c *MEXCClient) GetTicker(ctx context.Context, symbol string) (*TickerInfo,
 	return &resp.Data, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *MEXCClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/api/v1/contract/kline/" + symbol
 	params := url.Values{}
@@ -406,7 +406,7 @@ func (c *MEXCClient) GetKlines(ctx context.Context, symbol, interval string, lim
 	return resp.Data, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type ExchangeInfo struct {
 	Symbols map[string]ContractDetail
@@ -416,7 +416,7 @@ type ContractDetail struct {
 	Symbol           string  `json:"symbol"`
 	DisplayName      string  `json:"displayName"`
 	DisplayNameEn    string  `json:"displayNameEn"`
-	PositionOpenType int     `json:"positionOpenType"` // 1=单向持仓, 2=双向持仓
+	PositionOpenType int     `json:"positionOpenType"` // 1=單向持倉, 2=双向持倉
 	BaseCoin         string  `json:"baseCoin"`
 	QuoteCoin        string  `json:"quoteCoin"`
 	SettleCoin       string  `json:"settleCoin"`
@@ -430,7 +430,7 @@ type ContractDetail struct {
 	VolUnit          int     `json:"volUnit"`
 	MinVol           int     `json:"minVol"`
 	MaxVol           int     `json:"maxVol"`
-	State            int     `json:"state"` // 0=已下线, 1=已上线
+	State            int     `json:"state"` // 0=已下線, 1=已上線
 }
 
 type OrderRequest struct {
@@ -438,8 +438,8 @@ type OrderRequest struct {
 	Price         float64
 	Volume        float64
 	Side          int // 1=开多, 2=平多, 3=开空, 4=平空
-	Type          int // 1=限价, 2=市价
-	OpenType      int // 1=逐仓, 2=全仓
+	Type          int // 1=限價, 2=市價
+	OpenType      int // 1=逐倉, 2=全倉
 	Leverage      int
 	ClientOrderID string
 }
@@ -488,9 +488,9 @@ type AccountInfo struct {
 type PositionInfo struct {
 	PositionID     int64   `json:"positionId"`
 	Symbol         string  `json:"symbol"`
-	PositionType   int     `json:"positionType"` // 1=多仓, 2=空仓
-	OpenType       int     `json:"openType"`     // 1=逐仓, 2=全仓
-	State          int     `json:"state"`        // 1=持仓中, 2=系统托管中, 3=已平仓
+	PositionType   int     `json:"positionType"` // 1=多倉, 2=空倉
+	OpenType       int     `json:"openType"`     // 1=逐倉, 2=全倉
+	State          int     `json:"state"`        // 1=持倉中, 2=系统托管中, 3=已平倉
 	HoldVol        float64 `json:"holdVol"`
 	FrozenVol      float64 `json:"frozenVol"`
 	CloseVol       float64 `json:"closeVol"`

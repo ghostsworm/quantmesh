@@ -14,14 +14,14 @@ import (
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
-	fmt.Println("🚀 ETH/USDT 回测 - 多周期多时长对比")
+	fmt.Println("🚀 ETH/USDT 回测 - 多周期多時长對比")
 	fmt.Println("=" + string(make([]rune, 80)))
 	fmt.Println("")
 
-	// 加载配置
+	// 加載配置
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		log.Fatalf("❌ 加载配置失败: %v", err)
+		log.Fatalf("❌ 加載配置失败: %v", err)
 	}
 
 	binanceConfig, ok := cfg.Exchanges["binance"]
@@ -32,7 +32,7 @@ func main() {
 	symbol := "ETHUSDT"
 	initialCapital := 10000.0
 
-	// 测试配置
+	// 测試配置
 	testConfigs := []struct {
 		interval string
 		days     int
@@ -44,7 +44,7 @@ func main() {
 		{"5m", 15, "5分钟-15天"},
 	}
 
-	// 存储所有结果
+	// 存儲所有結果
 	type TestResult struct {
 		Config       string
 		Strategy     string
@@ -61,23 +61,23 @@ func main() {
 
 	allResults := make([]TestResult, 0)
 
-	// 对每个配置运行测试
+	// 對每個配置运行测試
 	for _, tc := range testConfigs {
 		fmt.Println("")
 		fmt.Println("=" + string(make([]rune, 80)))
-		fmt.Printf("📊 测试配置: %s (%s 周期, %d 天数据)\n", tc.name, tc.interval, tc.days)
+		fmt.Printf("📊 测試配置: %s (%s 周期, %d 天數據)\n", tc.name, tc.interval, tc.days)
 		fmt.Println("=" + string(make([]rune, 80)))
 		fmt.Println("")
 
 		endTime := time.Now()
 		startTime := endTime.AddDate(0, 0, -tc.days)
 
-		fmt.Printf("⏰ 时间范围: %s 至 %s\n", startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
+		fmt.Printf("⏰ 時间範圍: %s 至 %s\n", startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
 		fmt.Printf("💰 初始资金: $%.2f\n", initialCapital)
 		fmt.Println("")
 
-		// 获取历史数据
-		fmt.Println("📥 获取历史数据...")
+		// 獲取歷史數據
+		fmt.Println("📥 獲取歷史數據...")
 		fetchStart := time.Now()
 		candles, err := backtest.GetHistoricalData(symbol, tc.interval, startTime, endTime, map[string]string{
 			"api_key":    binanceConfig.APIKey,
@@ -85,11 +85,11 @@ func main() {
 			"testnet":    fmt.Sprintf("%t", binanceConfig.Testnet),
 		})
 		if err != nil {
-			log.Printf("❌ 获取历史数据失败: %v", err)
+			log.Printf("❌ 獲取歷史數據失败: %v", err)
 			continue
 		}
 		fetchDuration := time.Since(fetchStart).Seconds()
-		fmt.Printf("✅ 获取到 %d 根 K 线 (耗时: %.2f 秒)\n", len(candles), fetchDuration)
+		fmt.Printf("✅ 獲取到 %d 根 K 線 (耗時: %.2f 秒)\n", len(candles), fetchDuration)
 		fmt.Println("")
 
 		// 定义策略
@@ -103,15 +103,15 @@ func main() {
 			{"trend_following", "trend_following"},
 		}
 
-		// 运行每个策略
+		// 运行每個策略
 		for _, s := range strategies {
 			fmt.Printf("▶️  运行 %s 策略...\n", s.Name)
 			backtestStart := time.Now()
 
-			// 创建策略适配器
+			// 創建策略适配器
 			adapter, err := backtest.NewPluginStrategyAdapter(pluginPath, s.StrategyName, map[string]interface{}{})
 			if err != nil {
-				fmt.Printf("❌ 加载策略失败: %v\n", err)
+				fmt.Printf("❌ 加載策略失败: %v\n", err)
 				continue
 			}
 
@@ -130,7 +130,7 @@ func main() {
 				fmt.Printf("⚠️  生成报告失败: %v\n", err)
 			}
 
-			// 保存结果
+			// 保存結果
 			allResults = append(allResults, TestResult{
 				Config:       tc.name,
 				Strategy:     s.Name,
@@ -146,16 +146,16 @@ func main() {
 			})
 
 			fmt.Printf("✅ %s 策略完成 (%.3f 秒)\n", s.Name, backtestDuration)
-			fmt.Printf("   总收益率: %.2f%%, 最大回撤: %.2f%%, 夏普: %.2f, 胜率: %.2f%%, 交易: %d 笔\n",
+			fmt.Printf("   總收益率: %.2f%%, 最大回撤: %.2f%%, 夏普: %.2f, 胜率: %.2f%%, 交易: %d 笔\n",
 				result.Metrics.TotalReturn, result.Metrics.MaxDrawdown, result.Metrics.SharpeRatio, result.Metrics.WinRate, result.Metrics.TotalTrades)
 			fmt.Println("")
 		}
 	}
 
-	// 生成对比报告
+	// 生成對比报告
 	fmt.Println("")
 	fmt.Println("=" + string(make([]rune, 80)))
-	fmt.Println("📊 ETH/USDT 回测结果总览")
+	fmt.Println("📊 ETH/USDT 回测結果總览")
 	fmt.Println("=" + string(make([]rune, 80)))
 	fmt.Println("")
 
@@ -163,7 +163,7 @@ func main() {
 	for _, tc := range testConfigs {
 		fmt.Printf("\n### %s\n\n", tc.name)
 		fmt.Println("┌────────────────────┬──────────┬──────────┬──────────┬──────────┬──────────┐")
-		fmt.Println("│ 策略               │ 总收益率 │ 最大回撤 │ 夏普比率 │ 胜率     │ 交易次数 │")
+		fmt.Println("│ 策略               │ 總收益率 │ 最大回撤 │ 夏普比率 │ 胜率     │ 交易次數 │")
 		fmt.Println("├────────────────────┼──────────┼──────────┼──────────┼──────────┼──────────┤")
 
 		for _, result := range allResults {
@@ -188,7 +188,7 @@ func main() {
 	// 找出最佳配置
 	fmt.Println("")
 	fmt.Println("=" + string(make([]rune, 80)))
-	fmt.Println("🏆 最佳表现")
+	fmt.Println("🏆 最佳表現")
 	fmt.Println("=" + string(make([]rune, 80)))
 	fmt.Println("")
 
@@ -207,24 +207,24 @@ func main() {
 
 	if bestResult != nil {
 		fmt.Printf("🥇 最佳配置: %s - %s 策略\n", bestResult.Config, bestResult.Strategy)
-		fmt.Printf("   总收益率: %.2f%%\n", bestResult.TotalReturn)
+		fmt.Printf("   總收益率: %.2f%%\n", bestResult.TotalReturn)
 		fmt.Printf("   最大回撤: %.2f%%\n", bestResult.MaxDrawdown)
 		fmt.Printf("   夏普比率: %.2f\n", bestResult.SharpeRatio)
 		fmt.Printf("   胜率: %.2f%%\n", bestResult.WinRate)
-		fmt.Printf("   交易次数: %d 笔\n", bestResult.TotalTrades)
+		fmt.Printf("   交易次數: %d 笔\n", bestResult.TotalTrades)
 		fmt.Printf("   综合评分: %.2f\n", bestScore)
 		fmt.Println("")
 		fmt.Printf("📄 详细报告: %s\n", bestResult.ReportPath)
 	}
 
-	// 周期对比
+	// 周期對比
 	fmt.Println("")
 	fmt.Println("=" + string(make([]rune, 80)))
-	fmt.Println("📈 周期对比分析")
+	fmt.Println("📈 周期對比分析")
 	fmt.Println("=" + string(make([]rune, 80)))
 	fmt.Println("")
 
-	// 计算每个周期的平均表现
+	// 计算每個周期的平均表現
 	periodStats := make(map[string]struct {
 		avgReturn   float64
 		avgDrawdown float64
@@ -263,7 +263,7 @@ func main() {
 
 	fmt.Println("")
 	fmt.Println("=" + string(make([]rune, 80)))
-	fmt.Println("🎉 所有测试完成！")
+	fmt.Println("🎉 所有测試完成！")
 	fmt.Println("")
 	fmt.Println("查看所有报告:")
 	fmt.Println("  cd backtest/reports")

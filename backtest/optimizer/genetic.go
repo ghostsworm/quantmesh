@@ -11,7 +11,7 @@ import (
 	"quantmesh/exchange"
 )
 
-// GeneticOptimizer 遗传算法优化器
+// GeneticOptimizer 遗傳算法优化器
 type GeneticOptimizer struct {
 	PopulationSize int
 	Generations    int
@@ -20,7 +20,7 @@ type GeneticOptimizer struct {
 	randSrc        *rand.Rand
 }
 
-// NewGeneticOptimizer 创建遗传算法优化器
+// NewGeneticOptimizer 創建遗傳算法优化器
 func NewGeneticOptimizer() *GeneticOptimizer {
 	return &GeneticOptimizer{
 		PopulationSize: 20,
@@ -31,7 +31,7 @@ func NewGeneticOptimizer() *GeneticOptimizer {
 	}
 }
 
-// individual 个体：一组参数编码（归一化 [0,1] 便于交叉变异）
+// individual 個体：一组参數编碼（归一化 [0,1] 便於交叉变异）
 type individual struct {
 	genes []float64 // [priceLowNorm, priceHighNorm, gridCountNorm, orderQtyNorm]
 	score float64
@@ -39,7 +39,7 @@ type individual struct {
 	metrics backtest.Metrics
 }
 
-// Run 执行遗传算法优化
+// Run 執行遗傳算法优化
 func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*exchange.Candle, space OptimSearchSpace, config OptimConfig, initialCapital float64) (*OptimResult, error) {
 	if err := ValidateSearchSpace(space); err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 			newPop[i] = pop[i]
 		}
 
-		// 锦标赛选择 + 交叉 + 变异 填充剩余
+		// 锦標赛选擇 + 交叉 + 变异 填充剩餘
 		for i := eliteCount; i < popSize; i++ {
 			parent1 := g.tournamentSelect(pop, 3)
 			parent2 := g.tournamentSelect(pop, 3)

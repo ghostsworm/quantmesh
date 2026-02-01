@@ -19,10 +19,10 @@ import (
 
 const (
 	PhemexMainnetBaseURL = "https://api.phemex.com"         // Phemex 主网
-	PhemexTestnetBaseURL = "https://testnet-api.phemex.com" // Phemex 测试网
+	PhemexTestnetBaseURL = "https://testnet-api.phemex.com" // Phemex 測試網
 )
 
-// PhemexClient Phemex 客户端
+// PhemexClient Phemex 客戶端
 type PhemexClient struct {
 	apiKey     string
 	secretKey  string
@@ -31,7 +31,7 @@ type PhemexClient struct {
 	isTestnet  bool
 }
 
-// NewPhemexClient 创建 Phemex 客户端
+// NewPhemexClient 創建 Phemex 客戶端
 func NewPhemexClient(apiKey, secretKey string, isTestnet bool) *PhemexClient {
 	baseURL := PhemexMainnetBaseURL
 	if isTestnet {
@@ -84,7 +84,7 @@ func (c *PhemexClient) sendRequest(ctx context.Context, method, path string, par
 	req.Header.Set("Content-Type", "application/json")
 
 	if needSign {
-		expiry := strconv.FormatInt(time.Now().Unix()+60, 10) // 60秒过期时间
+		expiry := strconv.FormatInt(time.Now().Unix()+60, 10) // 60秒過期時间
 		signature := c.signRequest(path, queryString, expiry, bodyStr)
 
 		req.Header.Set("x-phemex-access-token", c.apiKey)
@@ -114,7 +114,7 @@ func (c *PhemexClient) sendRequest(ctx context.Context, method, path string, par
 	return respBody, nil
 }
 
-// GetProduct 获取交易对信息
+// GetProduct 獲取交易對信息
 func (c *PhemexClient) GetProduct(ctx context.Context, symbol string) (*Product, error) {
 	path := "/public/products"
 	params := url.Values{}
@@ -139,7 +139,7 @@ func (c *PhemexClient) GetProduct(ctx context.Context, symbol string) (*Product,
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
 
-	// 查找指定交易对
+	// 查找指定交易對
 	for _, product := range productsResp.Perpetual {
 		if product.Symbol == symbol {
 			return &product, nil
@@ -149,7 +149,7 @@ func (c *PhemexClient) GetProduct(ctx context.Context, symbol string) (*Product,
 	return nil, fmt.Errorf("product not found: %s", symbol)
 }
 
-// PlaceOrder 下单
+// PlaceOrder 下單
 func (c *PhemexClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	path := "/g-orders"
 	params := url.Values{}
@@ -178,7 +178,7 @@ func (c *PhemexClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	return &orderResp.Order, nil
 }
 
-// CancelOrder 取消订单
+// CancelOrder 取消訂單
 func (c *PhemexClient) CancelOrder(ctx context.Context, symbol, orderID string) error {
 	path := "/g-orders/cancel"
 	params := url.Values{}
@@ -206,7 +206,7 @@ func (c *PhemexClient) CancelOrder(ctx context.Context, symbol, orderID string) 
 	return nil
 }
 
-// GetOrder 查询订单
+// GetOrder 查詢訂單
 func (c *PhemexClient) GetOrder(ctx context.Context, symbol, orderID string) (*Order, error) {
 	path := "/exchange/order"
 	params := url.Values{}
@@ -236,7 +236,7 @@ func (c *PhemexClient) GetOrder(ctx context.Context, symbol, orderID string) (*O
 	return &order, nil
 }
 
-// GetOpenOrders 获取活跃订单
+// GetOpenOrders 獲取活跃订單
 func (c *PhemexClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order, error) {
 	path := "/g-orders/activeList"
 	params := url.Values{}
@@ -265,11 +265,11 @@ func (c *PhemexClient) GetOpenOrders(ctx context.Context, symbol string) ([]Orde
 	return ordersResp.Rows, nil
 }
 
-// GetPosition 获取持仓
+// GetPosition 獲取持倉
 func (c *PhemexClient) GetPosition(ctx context.Context, symbol string) (*Position, error) {
 	path := "/g-accounts/accountPositions"
 	params := url.Values{}
-	params.Set("currency", "BTC") // Phemex 按币种查询
+	params.Set("currency", "BTC") // Phemex 按币种查詢
 
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, params, nil, true)
 	if err != nil {
@@ -291,18 +291,18 @@ func (c *PhemexClient) GetPosition(ctx context.Context, symbol string) (*Positio
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
 
-	// 查找指定交易对的持仓
+	// 查找指定交易對的持倉
 	for _, pos := range positionsResp.Positions {
 		if pos.Symbol == symbol {
 			return &pos, nil
 		}
 	}
 
-	// 没有持仓返回空持仓
+	// 没有持倉返回空持倉
 	return &Position{Symbol: symbol, Size: 0}, nil
 }
 
-// GetAccount 获取账户信息
+// GetAccount 獲取帳戶信息
 func (c *PhemexClient) GetAccount(ctx context.Context, currency string) (*Account, error) {
 	path := "/g-accounts/accountPositions"
 	params := url.Values{}
@@ -331,7 +331,7 @@ func (c *PhemexClient) GetAccount(ctx context.Context, currency string) (*Accoun
 	return &positionsResp.Account, nil
 }
 
-// GetTrades 获取最新成交
+// GetTrades 獲取最新成交
 func (c *PhemexClient) GetTrades(ctx context.Context, symbol string) ([]Trade, error) {
 	path := "/md/trade"
 	params := url.Values{}
@@ -360,7 +360,7 @@ func (c *PhemexClient) GetTrades(ctx context.Context, symbol string) ([]Trade, e
 	return tradesResp.Trades, nil
 }
 
-// GetKlines 获取 K线数据
+// GetKlines 獲取 K線數據
 func (c *PhemexClient) GetKlines(ctx context.Context, symbol string, resolution int, limit int) ([]Kline, error) {
 	path := "/exchange/public/md/v2/kline/list"
 	params := url.Values{}
@@ -391,7 +391,7 @@ func (c *PhemexClient) GetKlines(ctx context.Context, symbol string, resolution 
 	return klinesResp.Rows, nil
 }
 
-// 数据结构定义
+// 數據結構定义
 
 type APIResponse struct {
 	Code int         `json:"code"`
@@ -408,23 +408,23 @@ type Product struct {
 	DisplaySymbol  string  `json:"displaySymbol"`
 	QuoteCurrency  string  `json:"quoteCurrency"`
 	SettleCurrency string  `json:"settleCurrency"`
-	PriceScale     int     `json:"priceScale"`   // 价格缩放因子
+	PriceScale     int     `json:"priceScale"`   // 價格缩放因子
 	RatioScale     int     `json:"ratioScale"`   // 比率缩放因子
-	QtyStepSize    int64   `json:"qtyStepSize"`  // 数量步长
-	MinPriceEp     int64   `json:"minPriceEp"`   // 最小价格
-	MaxPriceEp     int64   `json:"maxPriceEp"`   // 最大价格
-	MaxOrderQty    int64   `json:"maxOrderQty"`  // 最大订单数量
-	LotSize        int64   `json:"lotSize"`      // 最小订单数量
-	TickSize       int64   `json:"tickSize"`     // 价格步长
-	ContractSize   float64 `json:"contractSize"` // 合约大小
+	QtyStepSize    int64   `json:"qtyStepSize"`  // 數量步长
+	MinPriceEp     int64   `json:"minPriceEp"`   // 最小價格
+	MaxPriceEp     int64   `json:"maxPriceEp"`   // 最大價格
+	MaxOrderQty    int64   `json:"maxOrderQty"`  // 最大订單數量
+	LotSize        int64   `json:"lotSize"`      // 最小訂單數量
+	TickSize       int64   `json:"tickSize"`     // 價格步长
+	ContractSize   float64 `json:"contractSize"` // 合約大小
 }
 
 type OrderRequest struct {
 	Symbol         string `json:"symbol"`
 	ClOrdID        string `json:"clOrdID,omitempty"`
 	Side           string `json:"side"`                  // Buy, Sell
-	OrderQty       int64  `json:"orderQty"`              // 数量（整数）
-	PriceEp        int64  `json:"priceEp"`               // 价格（整数，需要乘以 priceScale）
+	OrderQty       int64  `json:"orderQty"`              // 數量（整數）
+	PriceEp        int64  `json:"priceEp"`               // 價格（整數，需要乘以 priceScale）
 	OrdType        string `json:"ordType"`               // Limit, Market
 	TimeInForce    string `json:"timeInForce,omitempty"` // GoodTillCancel, ImmediateOrCancel
 	ReduceOnly     bool   `json:"reduceOnly,omitempty"`
@@ -461,13 +461,13 @@ type Position struct {
 	Symbol          string `json:"symbol"`
 	Currency        string `json:"currency"`
 	Side            string `json:"side"`            // Buy, Sell, None
-	Size            int64  `json:"size"`            // 持仓数量
-	AvgEntryPriceEp int64  `json:"avgEntryPriceEp"` // 平均入场价格
-	MarkPriceEp     int64  `json:"markPriceEp"`     // 标记价格
-	UnrealisedPnlEv int64  `json:"unrealisedPnlEv"` // 未实现盈亏
-	RealisedPnlEv   int64  `json:"realisedPnlEv"`   // 已实现盈亏
-	Leverage        int    `json:"leverageEr"`      // 杠杆倍数
-	LiqPriceEp      int64  `json:"liqPriceEp"`      // 强平价格
+	Size            int64  `json:"size"`            // 持倉數量
+	AvgEntryPriceEp int64  `json:"avgEntryPriceEp"` // 平均入场價格
+	MarkPriceEp     int64  `json:"markPriceEp"`     // 標記價格
+	UnrealisedPnlEv int64  `json:"unrealisedPnlEv"` // 未實現盈亏
+	RealisedPnlEv   int64  `json:"realisedPnlEv"`   // 已實現盈亏
+	Leverage        int    `json:"leverageEr"`      // 杠杆倍數
+	LiqPriceEp      int64  `json:"liqPriceEp"`      // 强平價格
 }
 
 type PositionsResponse struct {
@@ -478,8 +478,8 @@ type PositionsResponse struct {
 type Account struct {
 	AccountID          int64  `json:"accountId"`
 	Currency           string `json:"currency"`
-	AccountBalanceEv   int64  `json:"accountBalanceEv"`   // 账户余额
-	TotalUsedBalanceEv int64  `json:"totalUsedBalanceEv"` // 已用余额
+	AccountBalanceEv   int64  `json:"accountBalanceEv"`   // 账戶餘額
+	TotalUsedBalanceEv int64  `json:"totalUsedBalanceEv"` // 已用餘額
 }
 
 type Trade struct {

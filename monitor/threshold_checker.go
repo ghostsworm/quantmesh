@@ -11,7 +11,7 @@ type ThresholdChecker struct {
 	cfg *config.Config
 }
 
-// NewThresholdChecker 创建阈值检查器
+// NewThresholdChecker 創建阈值检查器
 func NewThresholdChecker(cfg *config.Config) *ThresholdChecker {
 	return &ThresholdChecker{
 		cfg: cfg,
@@ -29,7 +29,7 @@ func (tc *ThresholdChecker) CheckFixedThreshold(metrics *SystemMetrics) bool {
 		return true
 	}
 
-	// 检查内存阈值（如果配置）
+	// 检查記憶體阈值（如果配置）
 	if tc.cfg.Watchdog.Notifications.FixedThreshold.MemoryMB > 0 {
 		if metrics.MemoryMB >= tc.cfg.Watchdog.Notifications.FixedThreshold.MemoryMB {
 			return true
@@ -54,7 +54,7 @@ func (tc *ThresholdChecker) CheckRateThreshold(
 		return false
 	}
 
-	// 找到时间窗口内的最旧数据点
+	// 找到時间窗口内的最舊數據点
 	windowStart := current.Timestamp.Add(-time.Duration(windowMinutes) * time.Minute)
 	var oldest *SystemMetrics
 
@@ -75,7 +75,7 @@ func (tc *ThresholdChecker) CheckRateThreshold(
 	return change >= thresholdPercent
 }
 
-// CheckMemoryRateThreshold 检查内存变化率阈值
+// CheckMemoryRateThreshold 检查記憶體变化率阈值
 func (tc *ThresholdChecker) CheckMemoryRateThreshold(
 	current *SystemMetrics,
 	history []*SystemMetrics,
@@ -90,7 +90,7 @@ func (tc *ThresholdChecker) CheckMemoryRateThreshold(
 		return false
 	}
 
-	// 找到时间窗口内的最旧数据点
+	// 找到時间窗口内的最舊數據点
 	windowStart := current.Timestamp.Add(-time.Duration(windowMinutes) * time.Minute)
 	var oldest *SystemMetrics
 

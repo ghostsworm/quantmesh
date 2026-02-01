@@ -26,10 +26,10 @@ type EmailNotifier struct {
 	subject  string
 }
 
-// NewEmailNotifier 创建邮件通知器
+// NewEmailNotifier 創建邮件通知器
 func NewEmailNotifier(cfg *config.Config) (*EmailNotifier, error) {
 	if !cfg.Notifications.Email.Enabled {
-		return nil, fmt.Errorf("邮件通知未启用")
+		return nil, fmt.Errorf("邮件通知未啟用")
 	}
 
 	if cfg.Notifications.Email.From == "" || cfg.Notifications.Email.To == "" {
@@ -43,7 +43,7 @@ func NewEmailNotifier(cfg *config.Config) (*EmailNotifier, error) {
 		subject:  cfg.Notifications.Email.Subject,
 	}
 
-	// 根据 provider 初始化对应的邮件服务
+	// 根據 provider 初始化對应的邮件服務
 	switch cfg.Notifications.Email.Provider {
 	case "smtp":
 		if cfg.Notifications.Email.SMTP.Host == "" {
@@ -61,7 +61,7 @@ func NewEmailNotifier(cfg *config.Config) (*EmailNotifier, error) {
 		}
 		en.mailgun = NewMailgunProvider(cfg)
 	default:
-		return nil, fmt.Errorf("不支持的邮件服务商: %s", cfg.Notifications.Email.Provider)
+		return nil, fmt.Errorf("不支援的邮件服務商: %s", cfg.Notifications.Email.Provider)
 	}
 
 	return en, nil
@@ -88,7 +88,7 @@ func (en *EmailNotifier) Send(evt *event.Event) error {
 	case "mailgun":
 		return en.mailgun.Send(en.from, en.to, subject, message)
 	default:
-		return fmt.Errorf("不支持的邮件服务商: %s", en.provider)
+		return fmt.Errorf("不支援的邮件服務商: %s", en.provider)
 	}
 }
 
@@ -97,11 +97,11 @@ func formatEmailMessage(evt *event.Event) string {
 	var title string
 	switch evt.Type {
 	case event.EventTypeOrderPlaced:
-		title = "订单已下单"
+		title = "订單已下單"
 	case event.EventTypeOrderFilled:
-		title = "订单已成交"
+		title = "订單已成交"
 	case event.EventTypeOrderCanceled:
-		title = "订单已取消"
+		title = "订單已取消"
 	case event.EventTypeRiskTriggered:
 		title = "风控触发"
 	case event.EventTypeRiskRecovered:
@@ -111,9 +111,9 @@ func formatEmailMessage(evt *event.Event) string {
 	case event.EventTypeTakeProfit:
 		title = "止盈触发"
 	case event.EventTypeError:
-		title = "系统错误"
+		title = "系统錯误"
 	case event.EventTypeSystemStart:
-		title = "系统启动"
+		title = "系统啟动"
 	case event.EventTypeSystemStop:
 		title = "系统停止"
 	case event.EventTypeMarginInsufficient:
@@ -123,21 +123,21 @@ func formatEmailMessage(evt *event.Event) string {
 	case event.EventTypeAllocationLimitChanged:
 		if mode, ok := evt.Data["mode"].(string); ok {
 			if mode == "emergency" {
-				title = "资金限额已提升（紧急模式）"
+				title = "资金限額已提升（紧急模式）"
 			} else {
-				title = "资金限额已恢复（正常模式）"
+				title = "资金限額已恢複（正常模式）"
 			}
 		} else {
-			title = "资金限额变更"
+			title = "资金限額变更"
 		}
 	default:
 		title = "系统通知"
 	}
 
 	message := fmt.Sprintf("%s\n\n", title)
-	message += fmt.Sprintf("时间: %s\n\n", evt.Timestamp.Format("2006-01-02 15:04:05"))
+	message += fmt.Sprintf("時间: %s\n\n", evt.Timestamp.Format("2006-01-02 15:04:05"))
 
-	// 添加事件数据
+	// 添加事件數據
 	if evt.Data != nil {
 		message += "详细信息:\n"
 		for key, value := range evt.Data {
@@ -156,7 +156,7 @@ type SMTPProvider struct {
 	password string
 }
 
-// NewSMTPProvider 创建 SMTP 提供者
+// NewSMTPProvider 創建 SMTP 提供者
 func NewSMTPProvider(cfg *config.Config) *SMTPProvider {
 	return &SMTPProvider{
 		host:     cfg.Notifications.Email.SMTP.Host,
@@ -186,7 +186,7 @@ type ResendProvider struct {
 	apiKey string
 }
 
-// NewResendProvider 创建 Resend 提供者
+// NewResendProvider 創建 Resend 提供者
 func NewResendProvider(cfg *config.Config) *ResendProvider {
 	return &ResendProvider{
 		apiKey: cfg.Notifications.Email.Resend.APIKey,
@@ -211,7 +211,7 @@ func (rp *ResendProvider) Send(from, to, subject, body string) error {
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+rp.apiKey)
@@ -226,7 +226,7 @@ func (rp *ResendProvider) Send(from, to, subject, body string) error {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Resend API 返回错误: %d, %s", resp.StatusCode, string(bodyBytes))
+		return fmt.Errorf("Resend API 返回錯误: %d, %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	return nil
@@ -238,7 +238,7 @@ type MailgunProvider struct {
 	domain string
 }
 
-// NewMailgunProvider 创建 Mailgun 提供者
+// NewMailgunProvider 創建 Mailgun 提供者
 func NewMailgunProvider(cfg *config.Config) *MailgunProvider {
 	return &MailgunProvider{
 		apiKey: cfg.Notifications.Email.Mailgun.APIKey,
@@ -259,7 +259,7 @@ func (mp *MailgunProvider) Send(from, to, subject, body string) error {
 
 	req, err := http.NewRequest("POST", url, strings.NewReader(buildFormData(payload)))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	req.SetBasicAuth("api", mp.apiKey)
@@ -274,13 +274,13 @@ func (mp *MailgunProvider) Send(from, to, subject, body string) error {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Mailgun API 返回错误: %d, %s", resp.StatusCode, string(bodyBytes))
+		return fmt.Errorf("Mailgun API 返回錯误: %d, %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	return nil
 }
 
-// buildFormData 构建表单数据
+// buildFormData 構建表單數據
 func buildFormData(data map[string]string) string {
 	values := make(url.Values)
 	for k, v := range data {

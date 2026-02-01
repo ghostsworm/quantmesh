@@ -13,7 +13,7 @@ import (
 	"quantmesh/logger"
 )
 
-// KlineWebSocketManager Kraken K线 WebSocket 管理器
+// KlineWebSocketManager Kraken K線 WebSocket 管理器
 type KlineWebSocketManager struct {
 	client         *KrakenClient
 	conn           *websocket.Conn
@@ -25,7 +25,7 @@ type KlineWebSocketManager struct {
 	reconnectDelay time.Duration
 }
 
-// NewKlineWebSocketManager 创建 K线 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
 func NewKlineWebSocketManager(client *KrakenClient, symbols []string, interval string) (*KlineWebSocketManager, error) {
 	return &KlineWebSocketManager{
 		client:         client,
@@ -36,7 +36,7 @@ func NewKlineWebSocketManager(client *KrakenClient, symbols []string, interval s
 	}, nil
 }
 
-// Start 启动 K线流
+// Start 啟动 K線流
 func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdateCallback) error {
 	k.mu.Lock()
 	k.callback = callback
@@ -49,10 +49,10 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdate
 	}
 	k.conn = conn
 
-	logger.Info("Kraken K线 WebSocket connected: %s", KrakenWSURL)
+	logger.Info("Kraken K線 WebSocket connected: %s", KrakenWSURL)
 
-	// 订阅 K线流
-	// Kraken 使用 "trade" feed 来获取实时交易数据，然后自己聚合成 K线
+	// 订阅 K線流
+	// Kraken 使用 "trade" feed 来獲取實時交易數據，然后自己聚合成 K線
 	// 这里简化处理，订阅 ticker feed
 	for _, symbol := range k.symbols {
 		subscribeMsg := map[string]interface{}{
@@ -63,10 +63,10 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdate
 		if err := conn.WriteJSON(subscribeMsg); err != nil {
 			return fmt.Errorf("subscribe kline stream error: %w", err)
 		}
-		logger.Info("Kraken subscribed to K线 stream: %s, interval: %s", symbol, k.interval)
+		logger.Info("Kraken subscribed to K線 stream: %s, interval: %s", symbol, k.interval)
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go k.handleMessages(ctx)
 	go k.ping(ctx)
 
@@ -77,7 +77,7 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdate
 func (k *KlineWebSocketManager) handleMessages(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error("Kraken K线 WebSocket message handler panic: %v", r)
+			logger.Error("Kraken K線 WebSocket message handler panic: %v", r)
 		}
 	}()
 
@@ -90,7 +90,7 @@ func (k *KlineWebSocketManager) handleMessages(ctx context.Context) {
 		default:
 			_, message, err := k.conn.ReadMessage()
 			if err != nil {
-				logger.Error("Kraken K线 WebSocket read error: %v", err)
+				logger.Error("Kraken K線 WebSocket read error: %v", err)
 				k.reconnect(ctx)
 				return
 			}
@@ -109,27 +109,27 @@ func (k *KlineWebSocketManager) processMessage(message []byte) {
 	}
 
 	if err := json.Unmarshal(message, &baseMsg); err != nil {
-		logger.Error("Kraken K线 unmarshal message error: %v, message: %s", err, string(message))
+		logger.Error("Kraken K線 unmarshal message error: %v, message: %s", err, string(message))
 		return
 	}
 
-	// 处理不同类型的消息
+	// 处理不同類型的消息
 	switch baseMsg.Event {
 	case "info":
-		logger.Info("Kraken K线 WebSocket info message received")
+		logger.Info("Kraken K線 WebSocket info message received")
 	case "subscribed":
-		logger.Info("Kraken K线 WebSocket subscription confirmed: %s", baseMsg.Feed)
+		logger.Info("Kraken K線 WebSocket subscription confirmed: %s", baseMsg.Feed)
 	case "heartbeat":
 		// 心跳响应
 	default:
-		// 数据消息
+		// 數據消息
 		if strings.Contains(baseMsg.Feed, "trade") {
 			k.handleTradeUpdate(message)
 		}
 	}
 }
 
-// handleTradeUpdate 处理交易更新（用于构建 K线）
+// handleTradeUpdate 处理交易更新（用於構建 K線）
 func (k *KlineWebSocketManager) handleTradeUpdate(message []byte) {
 	k.mu.RLock()
 	callback := k.callback
@@ -156,8 +156,8 @@ func (k *KlineWebSocketManager) handleTradeUpdate(message []byte) {
 		return
 	}
 
-	// 将交易数据转换为 K线数据（简化处理）
-	// 实际应该聚合多个交易到一个 K线周期
+	// 將交易數據轉换為 K線數據（简化处理）
+	// 實際应該聚合多個交易到一個 K線週期
 	for _, trade := range tradeUpdate.Trades {
 		price, _ := strconv.ParseFloat(trade.Price, 64)
 
@@ -170,7 +170,7 @@ func (k *KlineWebSocketManager) handleTradeUpdate(message []byte) {
 			Volume: strconv.Itoa(trade.Qty),
 		}
 
-		logger.Debug("Kraken K线 update: %s, time: %d, price: %.2f, qty: %d",
+		logger.Debug("Kraken K線 update: %s, time: %d, price: %.2f, qty: %d",
 			tradeUpdate.Symbol, trade.Time, price, trade.Qty)
 
 		callback(candle)
@@ -193,7 +193,7 @@ func (k *KlineWebSocketManager) ping(ctx context.Context) {
 				"event": "ping",
 			}
 			if err := k.conn.WriteJSON(pingMsg); err != nil {
-				logger.Error("Kraken K线 send ping error: %v", err)
+				logger.Error("Kraken K線 send ping error: %v", err)
 				return
 			}
 		}
@@ -202,7 +202,7 @@ func (k *KlineWebSocketManager) ping(ctx context.Context) {
 
 // reconnect 重连
 func (k *KlineWebSocketManager) reconnect(ctx context.Context) {
-	logger.Info("Kraken K线 WebSocket reconnecting...")
+	logger.Info("Kraken K線 WebSocket reconnecting...")
 	time.Sleep(k.reconnectDelay)
 
 	k.mu.RLock()
@@ -211,16 +211,16 @@ func (k *KlineWebSocketManager) reconnect(ctx context.Context) {
 
 	if callback != nil {
 		if err := k.Start(ctx, callback); err != nil {
-			logger.Error("Kraken K线 reconnect error: %v", err)
+			logger.Error("Kraken K線 reconnect error: %v", err)
 		}
 	}
 }
 
-// Stop 停止 K线流
+// Stop 停止 K線流
 func (k *KlineWebSocketManager) Stop() {
 	close(k.stopChan)
 	if k.conn != nil {
 		k.conn.Close()
 	}
-	logger.Info("Kraken K线 WebSocket stopped")
+	logger.Info("Kraken K線 WebSocket stopped")
 }

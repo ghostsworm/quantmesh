@@ -16,8 +16,8 @@ import (
 	"quantmesh/logger"
 )
 
-// GetHistoricalData 智能获取历史数据（优先缓存）
-// 兼容旧调用：仅支持 Binance
+// GetHistoricalData 智能獲取歷史數據（优先缓存）
+// 兼容舊調用：僅支援 Binance
 func GetHistoricalData(
 	symbol string, // "BTCUSDT"
 	interval string, // "1m", "5m", "1h"
@@ -28,7 +28,7 @@ func GetHistoricalData(
 	return GetHistoricalDataEx("binance", symbol, interval, startTime, endTime, binanceConfig)
 }
 
-// GetHistoricalDataEx 支持多交易所的历史数据获取
+// GetHistoricalDataEx 支援多交易所的历史數據獲取
 func GetHistoricalDataEx(
 	exchangeName string, // "binance", "bitget"
 	symbol string,
@@ -37,12 +37,12 @@ func GetHistoricalDataEx(
 	endTime time.Time,
 	config map[string]string,
 ) ([]*exchange.Candle, error) {
-	// 历史数据当前主要从 Binance 获取（流动性最好）
-	// Bitget 等交易所的 USDT 现货对与 Binance 数据通常一致
+	// 历史數據當前主要從 Binance 獲取（流动性最好）
+	// Bitget 等交易所的 USDT 現貨對與 Binance 數據通常一致
 	if exchangeName != "binance" && exchangeName != "bitget" {
 		exchangeName = "binance"
 	}
-	// Bitget 暂用 Binance 数据源，缓存键用 binance 以共享缓存
+	// Bitget 暂用 Binance 數據源，缓存键用 binance 以共享缓存
 	cacheExchange := exchangeName
 	if exchangeName == "bitget" {
 		cacheExchange = "binance"
@@ -61,12 +61,12 @@ func GetHistoricalDataEx(
 
 	// 2. 检查缓存
 	if candles, err := LoadFromCache(cacheKey); err == nil {
-		logger.Info("✅ 从缓存加载: %s (%d 根K线)", cacheKey, len(candles))
+		logger.Info("✅ 從缓存加載: %s (%d 根K線)", cacheKey, len(candles))
 		return candles, nil
 	}
 
-	// 3. 从交易所获取（Binance/Bitget 均使用 Binance 数据源，USDT 现货对通用）
-	logger.Info("⬇️ 从 Binance 下载: %s %s (%s 至 %s)",
+	// 3. 從交易所獲取（Binance/Bitget 均使用 Binance 數據源，USDT 現貨對通用）
+	logger.Info("⬇️ 從 Binance 下載: %s %s (%s 至 %s)",
 		symbol, interval,
 		startTime.Format("2006-01-02"),
 		endTime.Format("2006-01-02"))
@@ -87,7 +87,7 @@ func GetHistoricalDataEx(
 	return candles, nil
 }
 
-// fetchFromBinance 从 Binance 分批获取数据
+// fetchFromBinance 從 Binance 分批獲取數據
 func fetchFromBinance(
 	symbol string,
 	interval string,
@@ -96,16 +96,16 @@ func fetchFromBinance(
 	binanceConfig map[string]string,
 ) ([]*exchange.Candle, error) {
 
-	// 创建 Binance adapter
+	// 創建 Binance adapter
 	adapter, err := binance.NewBinanceAdapter(binanceConfig, symbol)
 	if err != nil {
-		return nil, fmt.Errorf("创建 Binance adapter 失败: %w", err)
+		return nil, fmt.Errorf("創建 Binance adapter 失败: %w", err)
 	}
 
 	allCandles := make([]*exchange.Candle, 0)
 	currentStart := startTime
 
-	// 计算每批的时间跨度（根据 interval）
+	// 计算每批的時间跨度（根據 interval）
 	batchDuration := calculateBatchDuration(interval, 1000)
 
 	totalBatches := int(endTime.Sub(startTime) / batchDuration)
@@ -114,7 +114,7 @@ func fetchFromBinance(
 	}
 	batchNum := 0
 
-	// Binance 单次最多 1000 根，需要分批
+	// Binance 單次最多 1000 根，需要分批
 	for currentStart.Before(endTime) {
 		batchNum++
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -123,14 +123,14 @@ func fetchFromBinance(
 		cancel()
 
 		if err != nil {
-			return nil, fmt.Errorf("获取第 %d 批数据失败: %w", batchNum, err)
+			return nil, fmt.Errorf("獲取第 %d 批數據失败: %w", batchNum, err)
 		}
 
 		if len(candles) == 0 {
 			break
 		}
 
-		// 过滤时间范围内的数据
+		// 過滤時间範圍内的數據
 		for _, candle := range candles {
 			candleTime := time.Unix(candle.Timestamp/1000, 0)
 			if candleTime.After(endTime) {
@@ -139,7 +139,7 @@ func fetchFromBinance(
 			if candleTime.Before(startTime) {
 				continue
 			}
-			// 转换为 exchange.Candle
+			// 轉换為 exchange.Candle
 			allCandles = append(allCandles, &exchange.Candle{
 				Symbol:    candle.Symbol,
 				Open:      candle.Open,
@@ -152,12 +152,12 @@ func fetchFromBinance(
 			})
 		}
 
-		// 计算下一批的起始时间
+		// 计算下一批的起始時间
 		if len(candles) > 0 {
 			lastTimestamp := candles[len(candles)-1].Timestamp
 			currentStart = time.Unix(lastTimestamp/1000, 0).Add(time.Second)
 
-			// 如果已经超过结束时间，退出
+			// 如果已經超過結束時间，退出
 			if currentStart.After(endTime) {
 				break
 			}
@@ -165,22 +165,22 @@ func fetchFromBinance(
 			break
 		}
 
-		// 显示进度
+		// 显示進度
 		progress := float64(batchNum) / float64(totalBatches) * 100
 		if progress > 100 {
 			progress = 100
 		}
-		logger.Info("📊 下载进度: %.1f%% (已获取 %d 根K线)", progress, len(allCandles))
+		logger.Info("📊 下載進度: %.1f%% (已獲取 %d 根K線)", progress, len(allCandles))
 
 		// 避免触发限流
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	logger.Info("✅ 下载完成: 共 %d 根K线", len(allCandles))
+	logger.Info("✅ 下載完成: 共 %d 根K線", len(allCandles))
 	return allCandles, nil
 }
 
-// calculateBatchDuration 计算每批的时间跨度
+// calculateBatchDuration 计算每批的時间跨度
 func calculateBatchDuration(interval string, limit int) time.Duration {
 	var duration time.Duration
 
@@ -222,7 +222,7 @@ func calculateBatchDuration(interval string, limit int) time.Duration {
 	return duration * time.Duration(limit)
 }
 
-// LoadFromCache 从 CSV 加载
+// LoadFromCache 從 CSV 加載
 func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 	filename := filepath.Join("backtest", "cache", cacheKey+".csv")
 
@@ -234,16 +234,16 @@ func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 
 	reader := csv.NewReader(file)
 	
-	// 跳过表头
+	// 跳過表头
 	_, err = reader.Read()
 	if err != nil {
 		return nil, fmt.Errorf("读取表头失败: %w", err)
 	}
 
-	// 使用流式读取，避免一次性加载整个文件到内存
-	// 限制最大读取数量，防止内存占用过大
-	maxCandles := 1000000 // 最多100万根K线
-	candles := make([]*exchange.Candle, 0, 10000) // 预分配1万容量
+	// 使用流式读取，避免一次性加載整個文件到記憶體
+	// 限制最大读取數量，防止記憶體占用過大
+	maxCandles := 1000000 // 最多100万根K線
+	candles := make([]*exchange.Candle, 0, 10000) // 預分配1万容量
 	
 	lineNum := 1
 	for {
@@ -255,9 +255,9 @@ func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 			return nil, fmt.Errorf("读取第 %d 行失败: %w", lineNum+1, err)
 		}
 		
-		// 限制最大数量
+		// 限制最大數量
 		if len(candles) >= maxCandles {
-			logger.Warn("⚠️ CSV 文件过大，只读取前 %d 根K线", maxCandles)
+			logger.Warn("⚠️ CSV 文件過大，只读取前 %d 根K線", maxCandles)
 			break
 		}
 		
@@ -272,10 +272,10 @@ func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 	return candles, nil
 }
 
-// parseCSVRecord 解析 CSV 记录
+// parseCSVRecord 解析 CSV 記錄
 func parseCSVRecord(record []string) (*exchange.Candle, error) {
 	if len(record) != 7 {
-		return nil, fmt.Errorf("记录字段数量错误: 期望7个，实际%d个", len(record))
+		return nil, fmt.Errorf("記錄字段數量錯误: 期望7個，實際%d個", len(record))
 	}
 
 	timestamp, err := strconv.ParseInt(record[0], 10, 64)
@@ -324,16 +324,16 @@ func parseCSVRecord(record []string) (*exchange.Candle, error) {
 
 // SaveToCache 保存到 CSV
 func SaveToCache(cacheKey string, candles []*exchange.Candle) error {
-	// 确保目录存在
+	// 确保目錄存在
 	cacheDir := filepath.Join("backtest", "cache")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return fmt.Errorf("创建缓存目录失败: %w", err)
+		return fmt.Errorf("創建缓存目錄失败: %w", err)
 	}
 
 	filename := filepath.Join(cacheDir, cacheKey+".csv")
 	file, err := os.Create(filename)
 	if err != nil {
-		return fmt.Errorf("创建缓存文件失败: %w", err)
+		return fmt.Errorf("創建缓存文件失败: %w", err)
 	}
 	defer file.Close()
 
@@ -345,7 +345,7 @@ func SaveToCache(cacheKey string, candles []*exchange.Candle) error {
 		return fmt.Errorf("写入表头失败: %w", err)
 	}
 
-	// 写入数据
+	// 写入數據
 	for _, c := range candles {
 		record := []string{
 			fmt.Sprintf("%d", c.Timestamp),
@@ -357,7 +357,7 @@ func SaveToCache(cacheKey string, candles []*exchange.Candle) error {
 			c.Symbol,
 		}
 		if err := writer.Write(record); err != nil {
-			return fmt.Errorf("写入数据失败: %w", err)
+			return fmt.Errorf("写入數據失败: %w", err)
 		}
 	}
 
@@ -384,7 +384,7 @@ type CacheIndexEntry struct {
 func updateCacheIndex(cacheKey string, candles []*exchange.Candle) error {
 	indexFile := filepath.Join("backtest", "cache", "cache_index.json")
 
-	// 读取现有索引
+	// 读取現有索引
 	index := make(map[string]CacheIndexEntry)
 	if data, err := os.ReadFile(indexFile); err == nil {
 		json.Unmarshal(data, &index)

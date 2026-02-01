@@ -153,8 +153,9 @@ if [ -f "${BACKUP_DIR}/config.yaml" ]; then
 fi
 
 if [ -d "${BACKUP_DIR}/config_backups" ]; then
-    cp -r "${BACKUP_DIR}/config_backups" "./config_backups"
-    log_info "✓ 已恢复 config_backups 目录"
+    mkdir -p "./backups"
+    cp -r "${BACKUP_DIR}/config_backups/." "./backups/" 2>/dev/null || true
+    log_info "✓ 已恢复配置備份至 backups 目錄"
 fi
 
 # 恢复日志文件（可选）

@@ -32,7 +32,7 @@ type WebSocketManager struct {
 	channelMap     map[int]string // chanID -> channel type
 }
 
-// NewWebSocketManager 创建 WebSocket 管理器
+// NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(client *BitfinexClient, symbol string) (*WebSocketManager, error) {
 	return &WebSocketManager{
 		client:         client,
@@ -43,7 +43,7 @@ func NewWebSocketManager(client *BitfinexClient, symbol string) (*WebSocketManag
 	}, nil
 }
 
-// StartOrderStream 启动订单流
+// StartOrderStream 啟動訂單流
 func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	w.mu.Lock()
 	w.orderCallback = callback
@@ -63,19 +63,19 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 		return fmt.Errorf("authenticate error: %w", err)
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go w.handleMessages(ctx)
 
 	return nil
 }
 
-// StartPriceStream 启动价格流
+// StartPriceStream 啟動價格流
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(float64)) error {
 	w.mu.Lock()
 	w.priceCallback = callback
 	w.mu.Unlock()
 
-	// 如果已经连接，订阅 ticker
+	// 如果已經连接，订阅 ticker
 	if w.conn != nil {
 		return w.subscribeTicker()
 	}
@@ -94,7 +94,7 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(f
 		return err
 	}
 
-	// 启动消息处理
+	// 啟动消息处理
 	go w.handleMessages(ctx)
 
 	return nil
@@ -172,16 +172,16 @@ func (w *WebSocketManager) handleMessages(ctx context.Context) {
 func (w *WebSocketManager) processMessage(message []byte) {
 	// Bitfinex WebSocket 消息格式：
 	// 1. 事件消息：{"event": "...", ...}
-	// 2. 数据消息：[CHANNEL_ID, DATA]
+	// 2. 數據消息：[CHANNEL_ID, DATA]
 
-	// 尝试解析为事件消息
+	// 尝試解析為事件消息
 	var eventMsg map[string]interface{}
 	if err := json.Unmarshal(message, &eventMsg); err == nil {
 		w.handleEventMessage(eventMsg)
 		return
 	}
 
-	// 尝试解析为数据消息
+	// 尝試解析為數據消息
 	var dataMsg []interface{}
 	if err := json.Unmarshal(message, &dataMsg); err == nil {
 		w.handleDataMessage(dataMsg)
@@ -209,7 +209,7 @@ func (w *WebSocketManager) handleEventMessage(msg map[string]interface{}) {
 			logger.Error("Bitfinex WebSocket authentication failed: %v", msg)
 		}
 	case "subscribed":
-		// 订阅成功，记录 channel ID
+		// 订阅成功，記錄 channel ID
 		chanID, _ := msg["chanId"].(float64)
 		channel, _ := msg["channel"].(string)
 		w.mu.Lock()
@@ -224,7 +224,7 @@ func (w *WebSocketManager) handleEventMessage(msg map[string]interface{}) {
 	}
 }
 
-// handleDataMessage 处理数据消息
+// handleDataMessage 处理數據消息
 func (w *WebSocketManager) handleDataMessage(msg []interface{}) {
 	if len(msg) < 2 {
 		return
@@ -240,7 +240,7 @@ func (w *WebSocketManager) handleDataMessage(msg []interface{}) {
 		return
 	}
 
-	// 获取 channel 类型
+	// 獲取 channel 類型
 	w.mu.RLock()
 	channelType := w.channelMap[int(chanID)]
 	w.mu.RUnlock()
@@ -254,7 +254,7 @@ func (w *WebSocketManager) handleDataMessage(msg []interface{}) {
 	}
 }
 
-// handleTickerData 处理 ticker 数据
+// handleTickerData 处理 ticker 數據
 func (w *WebSocketManager) handleTickerData(data interface{}) {
 	w.mu.RLock()
 	callback := w.priceCallback
@@ -278,15 +278,15 @@ func (w *WebSocketManager) handleTickerData(data interface{}) {
 	callback(lastPrice)
 }
 
-// handleAuthChannelData 处理认证频道数据
+// handleAuthChannelData 处理认证频道數據
 func (w *WebSocketManager) handleAuthChannelData(msg []interface{}) {
 	if len(msg) < 2 {
 		return
 	}
 
-	// 订单更新格式：[0, "on", [ORDER_DATA]]
-	// 订单取消格式：[0, "oc", [ORDER_DATA]]
-	// 订单执行格式：[0, "ou", [ORDER_DATA]]
+	// 订單更新格式：[0, "on", [ORDER_DATA]]
+	// 订單取消格式：[0, "oc", [ORDER_DATA]]
+	// 訂單執行格式：[0, "ou", [ORDER_DATA]]
 
 	msgType, ok := msg[1].(string)
 	if !ok {
@@ -299,7 +299,7 @@ func (w *WebSocketManager) handleAuthChannelData(msg []interface{}) {
 	}
 }
 
-// handleOrderUpdate 处理订单更新
+// handleOrderUpdate 处理订單更新
 func (w *WebSocketManager) handleOrderUpdate(msg []interface{}) {
 	w.mu.RLock()
 	callback := w.orderCallback

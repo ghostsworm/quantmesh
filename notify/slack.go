@@ -18,7 +18,7 @@ type SlackNotifier struct {
 	client  *http.Client
 }
 
-// NewSlackNotifier 创建 Slack 通知器
+// NewSlackNotifier 創建 Slack 通知器
 func NewSlackNotifier(cfg *config.Config) (*SlackNotifier, error) {
 	if cfg.Notifications.Slack.Webhook == "" {
 		return nil, fmt.Errorf("Slack Webhook URL 未配置")
@@ -55,7 +55,7 @@ func (sn *SlackNotifier) Send(evt *event.Event) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", sn.webhook, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return fmt.Errorf("創建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -67,7 +67,7 @@ func (sn *SlackNotifier) Send(evt *event.Event) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Slack API 返回错误: %d", resp.StatusCode)
+		return fmt.Errorf("Slack API 返回錯误: %d", resp.StatusCode)
 	}
 
 	return nil

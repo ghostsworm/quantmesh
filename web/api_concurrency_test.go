@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// TestConcurrentProviderAccess 测试并发访问 provider maps
+// TestConcurrentProviderAccess 测試並发访问 provider maps
 func TestConcurrentProviderAccess(t *testing.T) {
-	// 重置全局状态
+	// 重置全局状態
 	statusBySymbol = make(map[string]*SystemStatus)
 	priceProviders = make(map[string]PriceProvider)
 	exchangeProviders = make(map[string]ExchangeProvider)
@@ -21,7 +21,7 @@ func TestConcurrentProviderAccess(t *testing.T) {
 	numGoroutines := 10
 	numOperations := 100
 
-	// 模拟并发写入（注册 providers）
+	// 模拟並发写入（注册 providers）
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -43,13 +43,13 @@ func TestConcurrentProviderAccess(t *testing.T) {
 
 				RegisterSymbolProviders(exchange, symbol, providers)
 
-				// 短暂休眠以增加并发冲突的可能性
+				// 短暂休眠以增加並行衝突的可能性
 				time.Sleep(time.Microsecond)
 			}
 		}(i)
 	}
 
-	// 模拟并发读取（访问 providers）
+	// 模拟並发读取（访问 providers）
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -77,7 +77,7 @@ func TestConcurrentProviderAccess(t *testing.T) {
 		}(i)
 	}
 
-	// 模拟并发遍历
+	// 模拟並发遍历
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -97,23 +97,23 @@ func TestConcurrentProviderAccess(t *testing.T) {
 	// 等待所有 goroutine 完成
 	wg.Wait()
 
-	t.Log("并发测试完成，没有发生数据竞争")
+	t.Log("並发测試完成，没有发生數據竞争")
 }
 
-// TestConcurrentFundingProviderRegistration 测试并发注册资金费率提供者
+// TestConcurrentFundingProviderRegistration 测試並发注册资金费率提供者
 func TestConcurrentFundingProviderRegistration(t *testing.T) {
 	fundingProviders = make(map[string]FundingMonitorProvider)
 
 	var wg sync.WaitGroup
 	numGoroutines := 5
 
-	// 模拟多个 goroutine 同时注册不同的 funding providers
+	// 模拟多個 goroutine 同時注册不同的 funding providers
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			// 每个 goroutine 注册多个 providers
+			// 每個 goroutine 注册多個 providers
 			for j := 0; j < 10; j++ {
 				RegisterFundingProvider("binance", "BTCUSDT", nil)
 				time.Sleep(time.Microsecond)
@@ -121,7 +121,7 @@ func TestConcurrentFundingProviderRegistration(t *testing.T) {
 		}(i)
 	}
 
-	// 同时读取
+	// 同時读取
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -138,12 +138,12 @@ func TestConcurrentFundingProviderRegistration(t *testing.T) {
 	}
 
 	wg.Wait()
-	t.Log("资金费率提供者并发注册测试完成")
+	t.Log("资金费率提供者並发注册测試完成")
 }
 
-// TestConcurrentSymbolIteration 测试并发遍历交易对列表
+// TestConcurrentSymbolIteration 测試並发遍历交易對列表
 func TestConcurrentSymbolIteration(t *testing.T) {
-	// 初始化一些测试数据
+	// 初始化一些测試數據
 	statusBySymbol = make(map[string]*SystemStatus)
 
 	symbols := []string{"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"}
@@ -160,7 +160,7 @@ func TestConcurrentSymbolIteration(t *testing.T) {
 	var wg sync.WaitGroup
 	numGoroutines := 10
 
-	// 并发遍历
+	// 並发遍历
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func() {
@@ -175,16 +175,16 @@ func TestConcurrentSymbolIteration(t *testing.T) {
 				}
 				statusMu.RUnlock()
 
-				// 由于并发写入,数量可能会增加(XRPUSDT被添加)
+				// 由於並发写入,數量可能會增加(XRPUSDT被添加)
 				if count < len(symbols) {
-					t.Errorf("期望至少 %d 个交易对，实际 %d 个", len(symbols), count)
+					t.Errorf("期望至少 %d 個交易對，實際 %d 個", len(symbols), count)
 				}
 				time.Sleep(time.Microsecond)
 			}
 		}()
 	}
 
-	// 同时进行写入操作
+	// 同時進行写入操作
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -205,5 +205,5 @@ func TestConcurrentSymbolIteration(t *testing.T) {
 	}
 
 	wg.Wait()
-	t.Log("并发遍历测试完成")
+	t.Log("並发遍历测試完成")
 }

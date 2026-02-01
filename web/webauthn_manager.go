@@ -29,20 +29,20 @@ type WebAuthnManager struct {
 	log      WebAuthnLogger
 }
 
-// NewWebAuthnManager 创建 WebAuthn 管理器
+// NewWebAuthnManager 創建 WebAuthn 管理器
 func NewWebAuthnManager(log WebAuthnLogger, dataDir string, rpID string, rpOrigin string) (*WebAuthnManager, error) {
 	dbPath := filepath.Join(dataDir, "webauthn.db")
 
-	// 确保数据目录存在
+	// 確保資料目錄存在
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建数据目录失败: %v", err)
+		return nil, fmt.Errorf("創建數據目錄失败: %v", err)
 	}
 
 	// 配置SQLite连接
 	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=10000&_timeout=30000&_busy_timeout=30000", dbPath)
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("打开数据库失败: %v", err)
+		return nil, fmt.Errorf("打开數據库失败: %v", err)
 	}
 
 	// 配置连接池
@@ -56,10 +56,10 @@ func NewWebAuthnManager(log WebAuthnLogger, dataDir string, rpID string, rpOrigi
 		log:    log,
 	}
 
-	// 初始化数据库表
+	// 初始化數據库表
 	if err := manager.initDatabase(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("初始化数据库失败: %v", err)
+		return nil, fmt.Errorf("初始化數據库失败: %v", err)
 	}
 
 	// 初始化 WebAuthn
@@ -77,7 +77,7 @@ func NewWebAuthnManager(log WebAuthnLogger, dataDir string, rpID string, rpOrigi
 	return manager, nil
 }
 
-// initDatabase 初始化数据库表
+// initDatabase 初始化數據库表
 func (wm *WebAuthnManager) initDatabase() error {
 	createTableSQL := `
 	CREATE TABLE IF NOT EXISTS webauthn_credentials (
@@ -95,10 +95,10 @@ func (wm *WebAuthnManager) initDatabase() error {
 	`
 
 	if _, err := wm.db.Exec(createTableSQL); err != nil {
-		return fmt.Errorf("创建 WebAuthn 凭证表失败: %v", err)
+		return fmt.Errorf("創建 WebAuthn 凭证表失败: %v", err)
 	}
 
-	// 创建索引
+	// 創建索引
 	indexes := []string{
 		"CREATE INDEX IF NOT EXISTS idx_webauthn_user_id ON webauthn_credentials(user_id);",
 		"CREATE INDEX IF NOT EXISTS idx_webauthn_username ON webauthn_credentials(username);",
@@ -108,7 +108,7 @@ func (wm *WebAuthnManager) initDatabase() error {
 	for _, indexSQL := range indexes {
 		if _, err := wm.db.Exec(indexSQL); err != nil {
 			if wm.log != nil {
-				wm.log.Warnf("创建索引失败: %v", err)
+				wm.log.Warnf("創建索引失败: %v", err)
 			}
 		}
 	}
@@ -116,7 +116,7 @@ func (wm *WebAuthnManager) initDatabase() error {
 	return nil
 }
 
-// WebAuthnUser WebAuthn 用户接口实现
+// WebAuthnUser WebAuthn 用戶接口實現
 type WebAuthnUser struct {
 	ID          []byte
 	Name        string
@@ -124,41 +124,41 @@ type WebAuthnUser struct {
 	Credentials []webauthn.Credential
 }
 
-// WebAuthnID 返回用户的 WebAuthn ID
+// WebAuthnID 返回用戶的 WebAuthn ID
 func (u *WebAuthnUser) WebAuthnID() []byte {
 	return u.ID
 }
 
-// WebAuthnName 返回用户的 WebAuthn 名称
+// WebAuthnName 返回用戶的 WebAuthn 名称
 func (u *WebAuthnUser) WebAuthnName() string {
 	return u.Name
 }
 
-// WebAuthnDisplayName 返回用户的显示名称
+// WebAuthnDisplayName 返回用戶的显示名称
 func (u *WebAuthnUser) WebAuthnDisplayName() string {
 	return u.DisplayName
 }
 
-// WebAuthnCredentials 返回用户的所有凭证
+// WebAuthnCredentials 返回用戶的所有凭证
 func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential {
 	return u.Credentials
 }
 
-// WebAuthnIcon 返回用户的图标 URL（可选）
+// WebAuthnIcon 返回用戶的图標 URL（可選）
 func (u *WebAuthnUser) WebAuthnIcon() string {
 	return ""
 }
 
-// GetUser 获取用户（实现 webauthn.User 接口）
+// GetUser 獲取用戶（實現 webauthn.User 接口）
 func (wm *WebAuthnManager) GetUser(username string) (*WebAuthnUser, error) {
-	// 查询用户的所有凭证
+	// 查詢用戶的所有凭证
 	rows, err := wm.db.Query(`
 		SELECT credential_id, public_key, counter, device_name, created_at, last_used_at
 		FROM webauthn_credentials
 		WHERE username = ? AND is_active = 1
 	`, username)
 	if err != nil {
-		return nil, fmt.Errorf("查询用户凭证失败: %v", err)
+		return nil, fmt.Errorf("查詢用戶凭证失败: %v", err)
 	}
 	defer rows.Close()
 
@@ -174,27 +174,27 @@ func (wm *WebAuthnManager) GetUser(username string) (*WebAuthnUser, error) {
 			continue
 		}
 
-		// 解码 credential_id
+		// 解碼 credential_id
 		credentialIDBytes, err := base64.RawURLEncoding.DecodeString(credentialID)
 		if err != nil {
 			continue
 		}
 
-		// 解析 public_key (JSON) 为 webauthn.Credential
+		// 解析 public_key (JSON) 為 webauthn.Credential
 		var credentialData map[string]interface{}
 		if err := json.Unmarshal([]byte(publicKeyJSON), &credentialData); err != nil {
 			continue
 		}
 
-		// 构造 webauthn.Credential
+		// 構造 webauthn.Credential
 		credential := webauthn.Credential{
 			ID:        credentialIDBytes,
-			PublicKey: []byte(publicKeyJSON), // 存储 JSON 格式的公钥
+			PublicKey: []byte(publicKeyJSON), // 存儲 JSON 格式的公钥
 		}
 		credentials = append(credentials, credential)
 	}
 
-	// 创建用户（使用用户名作为 ID）
+	// 創建用戶（使用用戶名作為 ID）
 	userID := []byte(username)
 	return &WebAuthnUser{
 		ID:          userID,
@@ -225,7 +225,7 @@ func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *w
 	counter := credential.Authenticator.SignCount
 
 	if wm.log != nil {
-		wm.log.Debugf("[WebAuthn] 执行数据库插入 - CredentialID: %s, Counter: %d, PublicKey长度: %d",
+		wm.log.Debugf("[WebAuthn] 執行數據库插入 - CredentialID: %s, Counter: %d, PublicKey长度: %d",
 			credentialID, counter, len(publicKeyJSON))
 	}
 
@@ -236,21 +236,21 @@ func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *w
 
 	if err != nil {
 		if wm.log != nil {
-			wm.log.Errorf("[WebAuthn] 数据库插入失败: %v", err)
+			wm.log.Errorf("[WebAuthn] 數據库插入失败: %v", err)
 		}
 		return err
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if wm.log != nil {
-		wm.log.Infof("[WebAuthn] 凭证保存成功 - Username: %s, DeviceName: %s, CredentialID: %s, 影响行数: %d",
+		wm.log.Infof("[WebAuthn] 凭证保存成功 - Username: %s, DeviceName: %s, CredentialID: %s, 影响行數: %d",
 			username, deviceName, credentialID, rowsAffected)
 	}
 
 	return nil
 }
 
-// UpdateCredentialCounter 更新凭证计数器
+// UpdateCredentialCounter 更新凭证计數器
 func (wm *WebAuthnManager) UpdateCredentialCounter(credentialID string, counter uint32) error {
 	updateSQL := `
 	UPDATE webauthn_credentials
@@ -260,16 +260,16 @@ func (wm *WebAuthnManager) UpdateCredentialCounter(credentialID string, counter 
 
 	_, err := wm.db.Exec(updateSQL, counter, time.Now(), credentialID)
 	if err != nil {
-		return fmt.Errorf("更新凭证计数器失败: %v", err)
+		return fmt.Errorf("更新凭证计數器失败: %v", err)
 	}
 
 	return nil
 }
 
-// ListCredentials 列出用户的所有凭证
+// ListCredentials 列出用戶的所有凭证
 func (wm *WebAuthnManager) ListCredentials(username string) ([]CredentialInfo, error) {
 	if wm.log != nil {
-		wm.log.Debugf("[WebAuthn] 查询凭证列表 - Username: %s", username)
+		wm.log.Debugf("[WebAuthn] 查詢凭证列表 - Username: %s", username)
 	}
 
 	rows, err := wm.db.Query(`
@@ -280,9 +280,9 @@ func (wm *WebAuthnManager) ListCredentials(username string) ([]CredentialInfo, e
 	`, username)
 	if err != nil {
 		if wm.log != nil {
-			wm.log.Errorf("[WebAuthn] 查询凭证失败: %v", err)
+			wm.log.Errorf("[WebAuthn] 查詢凭证失败: %v", err)
 		}
-		return nil, fmt.Errorf("查询凭证失败: %v", err)
+		return nil, fmt.Errorf("查詢凭证失败: %v", err)
 	}
 	defer rows.Close()
 
@@ -295,19 +295,19 @@ func (wm *WebAuthnManager) ListCredentials(username string) ([]CredentialInfo, e
 
 		if err := rows.Scan(&cred.ID, &cred.CredentialID, &deviceName, &cred.CreatedAt, &lastUsedAt, &cred.IsActive); err != nil {
 			if wm.log != nil {
-				wm.log.Warnf("[WebAuthn] 扫描凭证数据失败: %v", err)
+				wm.log.Warnf("[WebAuthn] 扫描凭证數據失败: %v", err)
 			}
 			continue
 		}
 
-		// 处理 device_name 可能为 NULL 的情况
+		// 处理 device_name 可能為 NULL 的情况
 		if deviceName.Valid {
 			cred.DeviceName = deviceName.String
 		} else {
-			cred.DeviceName = "未命名设备"
+			cred.DeviceName = "未命名設备"
 		}
 
-		// 处理 last_used_at 可能为 NULL 的情况
+		// 处理 last_used_at 可能為 NULL 的情况
 		if lastUsedAt.Valid {
 			cred.LastUsedAt = &lastUsedAt.Time
 		}
@@ -322,7 +322,7 @@ func (wm *WebAuthnManager) ListCredentials(username string) ([]CredentialInfo, e
 	}
 
 	if wm.log != nil {
-		wm.log.Infof("[WebAuthn] 查询完成 - Username: %s, 找到 %d 条凭证记录", username, count)
+		wm.log.Infof("[WebAuthn] 查詢完成 - Username: %s, 找到 %d 条凭证記錄", username, count)
 	}
 
 	return credentials, nil
@@ -338,7 +338,7 @@ type CredentialInfo struct {
 	IsActive     bool
 }
 
-// DeleteCredential 删除凭证
+// DeleteCredential 刪除凭证
 func (wm *WebAuthnManager) DeleteCredential(credentialID string) error {
 	_, err := wm.db.Exec(`
 		UPDATE webauthn_credentials
@@ -346,22 +346,22 @@ func (wm *WebAuthnManager) DeleteCredential(credentialID string) error {
 		WHERE credential_id = ?
 	`, credentialID)
 	if err != nil {
-		return fmt.Errorf("删除凭证失败: %v", err)
+		return fmt.Errorf("刪除凭证失败: %v", err)
 	}
 	return nil
 }
 
-// HasCredentials 检查用户是否已注册凭证
+// HasCredentials 检查用戶是否已注册凭证
 func (wm *WebAuthnManager) HasCredentials(username string) (bool, error) {
 	var count int
 	err := wm.db.QueryRow("SELECT COUNT(*) FROM webauthn_credentials WHERE username = ? AND is_active = 1", username).Scan(&count)
 	if err != nil {
-		return false, fmt.Errorf("查询凭证失败: %v", err)
+		return false, fmt.Errorf("查詢凭证失败: %v", err)
 	}
 	return count > 0, nil
 }
 
-// Close 关闭数据库连接
+// Close 关闭數據库连接
 func (wm *WebAuthnManager) Close() error {
 	return wm.db.Close()
 }

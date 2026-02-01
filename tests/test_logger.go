@@ -17,14 +17,14 @@ import (
 
 func main() {
 	fmt.Println("====================================")
-	fmt.Println("测试日志分离功能")
+	fmt.Println("测試日志分离功能")
 	fmt.Println("====================================")
 
-	// 清理旧日志
+	// 清理舊日志
 	os.RemoveAll("logs")
 	os.MkdirAll("logs", 0755)
 
-	// 设置日志级别为 DEBUG (这样应用日志才会写入文件)
+	// 設置日志级别為 DEBUG (这样应用日志才會写入文件)
 	logger.SetLevel(logger.DEBUG)
 
 	// 初始化 Web 日志
@@ -34,19 +34,19 @@ func main() {
 	}
 
 	// 写入一些应用日志
-	logger.Info("应用启动")
+	logger.Info("应用啟动")
 	logger.Info("应用初始化完成")
-	logger.Warn("这是一个警告")
+	logger.Warn("这是一個警告")
 
-	// 设置 Gin 为 Release 模式
+	// 設置 Gin 為 Release 模式
 	gin.SetMode(gin.ReleaseMode)
 
-	// 创建 Gin 实例
+	// 創建 Gin 實例
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(web.GinLoggerMiddleware())
 
-	// 添加测试路由
+	// 添加测試路由
 	r.GET("/ok", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
@@ -57,20 +57,20 @@ func main() {
 		c.JSON(500, gin.H{"error": "internal server error"})
 	})
 
-	// 启动服务器（后台）
+	// 啟动服務器（后台）
 	go func() {
 		if err := r.Run(":19999"); err != nil {
-			fmt.Printf("启动服务器失败: %v\n", err)
+			fmt.Printf("啟动服務器失败: %v\n", err)
 		}
 	}()
 
-	// 等待服务器启动
+	// 等待服務器啟动
 	time.Sleep(2 * time.Second)
 
-	// 发送测试请求
-	fmt.Println("\n发送测试请求...")
+	// 发送测試请求
+	fmt.Println("\n发送测試请求...")
 
-	// 成功请求（不应记录到 Web 日志）
+	// 成功请求（不应記錄到 Web 日志）
 	fmt.Println("1. 发送成功请求 (200)...")
 	resp, _ := http.Get("http://localhost:19999/ok")
 	if resp != nil {
@@ -78,7 +78,7 @@ func main() {
 		resp.Body.Close()
 	}
 
-	// 404 请求（应该记录到 Web 日志）
+	// 404 请求（应該記錄到 Web 日志）
 	fmt.Println("2. 发送 404 请求...")
 	resp, _ = http.Get("http://localhost:19999/notfound")
 	if resp != nil {
@@ -86,7 +86,7 @@ func main() {
 		resp.Body.Close()
 	}
 
-	// 500 请求（应该记录到 Web 日志）
+	// 500 请求（应該記錄到 Web 日志）
 	fmt.Println("3. 发送 500 请求...")
 	resp, _ = http.Get("http://localhost:19999/error")
 	if resp != nil {
@@ -96,7 +96,7 @@ func main() {
 
 	// 写入更多应用日志
 	logger.Info("请求处理完成")
-	logger.Error("模拟一个错误日志")
+	logger.Error("模拟一個錯误日志")
 
 	// 等待日志写入
 	time.Sleep(1 * time.Second)
@@ -118,15 +118,15 @@ func main() {
 	if len(content) > 0 {
 		fmt.Println(string(content))
 	} else {
-		fmt.Println("(无内容 - 可能是因为只记录错误请求)")
+		fmt.Println("(無内容 - 可能是因為只記錄錯误请求)")
 	}
 
 	fmt.Println("\n====================================")
-	fmt.Println("测试完成!")
+	fmt.Println("测試完成!")
 	fmt.Println("====================================")
-	fmt.Println("预期结果:")
-	fmt.Println("  1. 应用日志包含: 应用启动、警告、错误等应用层日志")
-	fmt.Println("  2. Web 日志只包含: 404 和 500 错误请求")
-	fmt.Println("  3. 200 成功请求不应出现在 Web 日志中")
+	fmt.Println("預期結果:")
+	fmt.Println("  1. 应用日志包含: 应用啟动、警告、錯误等应用层日志")
+	fmt.Println("  2. Web 日志只包含: 404 和 500 錯误请求")
+	fmt.Println("  3. 200 成功请求不应出現在 Web 日志中")
 }
 

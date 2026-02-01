@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"quantmesh/utils"
 )
 
-// QuerySystemMetrics 查询系统监控细粒度数据
+// QuerySystemMetrics 查詢系统監控细粒度數據
 func (s *SQLiteStorage) QuerySystemMetrics(startTime, endTime time.Time) ([]*SystemMetrics, error) {
 	rows, err := s.db.Query(`
 		SELECT id, timestamp, cpu_percent, memory_mb, memory_percent, process_id, created_at
@@ -15,7 +17,7 @@ func (s *SQLiteStorage) QuerySystemMetrics(startTime, endTime time.Time) ([]*Sys
 		ORDER BY timestamp ASC
 	`, startTime, endTime)
 	if err != nil {
-		return nil, fmt.Errorf("查询系统监控数据失败: %w", err)
+		return nil, fmt.Errorf("查詢系统監控數據失败: %w", err)
 	}
 	defer rows.Close()
 
@@ -44,10 +46,10 @@ func (s *SQLiteStorage) QuerySystemMetrics(startTime, endTime time.Time) ([]*Sys
 	return metrics, nil
 }
 
-// QueryDailySystemMetrics 查询每日汇总数据
+// QueryDailySystemMetrics 查詢每日彙總數據（按配置時區）
 func (s *SQLiteStorage) QueryDailySystemMetrics(days int) ([]*DailySystemMetrics, error) {
-	startDate := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-	startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
+	startDate := utils.NowConfiguredTimezone().Add(-time.Duration(days) * 24 * time.Hour)
+	startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, utils.GlobalLocation)
 
 	rows, err := s.db.Query(`
 		SELECT id, date, avg_cpu_percent, max_cpu_percent, min_cpu_percent,
@@ -57,7 +59,7 @@ func (s *SQLiteStorage) QueryDailySystemMetrics(days int) ([]*DailySystemMetrics
 		ORDER BY date ASC
 	`, startDate)
 	if err != nil {
-		return nil, fmt.Errorf("查询每日汇总数据失败: %w", err)
+		return nil, fmt.Errorf("查詢每日彙總數據失败: %w", err)
 	}
 	defer rows.Close()
 
@@ -85,7 +87,7 @@ func (s *SQLiteStorage) QueryDailySystemMetrics(days int) ([]*DailySystemMetrics
 	return metrics, nil
 }
 
-// GetLatestSystemMetrics 获取最新的系统监控数据
+// GetLatestSystemMetrics 獲取最新的系统監控數據
 func (s *SQLiteStorage) GetLatestSystemMetrics() (*SystemMetrics, error) {
 	row := s.db.QueryRow(`
 		SELECT id, timestamp, cpu_percent, memory_mb, memory_percent, process_id, created_at
@@ -109,7 +111,7 @@ func (s *SQLiteStorage) GetLatestSystemMetrics() (*SystemMetrics, error) {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("查询最新监控数据失败: %w", err)
+		return nil, fmt.Errorf("查詢最新監控數據失败: %w", err)
 	}
 
 	if memoryPercent.Valid {
@@ -119,7 +121,7 @@ func (s *SQLiteStorage) GetLatestSystemMetrics() (*SystemMetrics, error) {
 	return m, nil
 }
 
-// CleanupSystemMetrics 清理过期的细粒度数据
+// CleanupSystemMetrics 清理過期的细粒度數據
 func (s *SQLiteStorage) CleanupSystemMetrics(beforeTime time.Time) error {
 	_, err := s.db.Exec(`
 		DELETE FROM system_metrics
@@ -128,7 +130,7 @@ func (s *SQLiteStorage) CleanupSystemMetrics(beforeTime time.Time) error {
 	return err
 }
 
-// CleanupDailySystemMetrics 清理过期的每日汇总数据
+// CleanupDailySystemMetrics 清理過期的每日彙總數據
 func (s *SQLiteStorage) CleanupDailySystemMetrics(beforeDate time.Time) error {
 	_, err := s.db.Exec(`
 		DELETE FROM daily_system_metrics

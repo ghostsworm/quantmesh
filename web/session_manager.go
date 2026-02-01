@@ -15,7 +15,7 @@ import (
 	"quantmesh/logger"
 )
 
-// Session 会话信息
+// Session 會话信息
 type Session struct {
 	SessionID string
 	Username  string
@@ -26,22 +26,22 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
-// SessionManager 会话管理器
+// SessionManager 會话管理器
 type SessionManager struct {
 	sessions map[string]*Session
 	mu       sync.RWMutex
-	// 会话过期时间（默认24小时）
+	// 會话過期時间（默认24小時）
 	sessionTimeout time.Duration
-	// 数据库连接（用于持久化会话）
+	// 數據库连接（用於持久化會话）
 	db *sql.DB
 }
 
-// NewSessionManager 创建会话管理器
+// NewSessionManager 創建會话管理器
 func NewSessionManager() *SessionManager {
 	dataDir := "./data"
-	// 确保数据目录存在
+	// 確保資料目錄存在
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		logger.Warn("⚠️ 创建数据目录失败: %v，会话将不会持久化", err)
+		logger.Warn("⚠️ 創建數據目錄失败: %v，會话將不會持久化", err)
 		return &SessionManager{
 			sessions:       make(map[string]*Session),
 			sessionTimeout: 24 * time.Hour,
@@ -49,12 +49,12 @@ func NewSessionManager() *SessionManager {
 		}
 	}
 
-	// 使用与 PasswordManager 相同的数据库文件
+	// 使用與 PasswordManager 相同的數據库文件
 	dbPath := filepath.Join(dataDir, "auth.db")
 	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=10000&_timeout=30000&_busy_timeout=30000", dbPath)
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
-		logger.Warn("⚠️ 打开会话数据库失败: %v，会话将不会持久化", err)
+		logger.Warn("⚠️ 打开會话數據库失败: %v，會话將不會持久化", err)
 		return &SessionManager{
 			sessions:       make(map[string]*Session),
 			sessionTimeout: 24 * time.Hour,
@@ -72,30 +72,30 @@ func NewSessionManager() *SessionManager {
 		db:             db,
 	}
 
-	// 初始化数据库表
+	// 初始化數據库表
 	if err := sm.initDatabase(); err != nil {
-		logger.Warn("⚠️ 初始化会话数据库表失败: %v，会话将不会持久化", err)
+		logger.Warn("⚠️ 初始化會话數據库表失败: %v，會话將不會持久化", err)
 		db.Close()
 		sm.db = nil
 	} else {
-		// 从数据库加载有效的会话
+		// 從數據库加載有效的會话
 		if err := sm.loadSessionsFromDB(); err != nil {
-			logger.Warn("⚠️ 从数据库加载会话失败: %v", err)
+			logger.Warn("⚠️ 從數據库加載會话失败: %v", err)
 		} else {
-			logger.Info("✅ 会话管理器已初始化，已从数据库加载有效会话")
+			logger.Info("✅ 會话管理器已初始化，已從數據库加載有效會话")
 		}
 	}
 
-	// 启动清理过期会话的协程
+	// 啟动清理過期會话的协程
 	go sm.cleanupExpiredSessions()
 
 	return sm
 }
 
-// initDatabase 初始化数据库表
+// initDatabase 初始化數據库表
 func (sm *SessionManager) initDatabase() error {
 	if sm.db == nil {
-		return fmt.Errorf("数据库连接未初始化")
+		return fmt.Errorf("數據库连接未初始化")
 	}
 
 	createTableSQL := `
@@ -111,25 +111,25 @@ func (sm *SessionManager) initDatabase() error {
 	`
 
 	if _, err := sm.db.Exec(createTableSQL); err != nil {
-		return fmt.Errorf("创建会话表失败: %v", err)
+		return fmt.Errorf("創建會话表失败: %v", err)
 	}
 
-	// 创建索引
+	// 創建索引
 	indexSQL := `
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 	CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);
 	`
 	if _, err := sm.db.Exec(indexSQL); err != nil {
-		return fmt.Errorf("创建索引失败: %v", err)
+		return fmt.Errorf("創建索引失败: %v", err)
 	}
 
 	return nil
 }
 
-// loadSessionsFromDB 从数据库加载有效的会话
+// loadSessionsFromDB 從數據库加載有效的會话
 func (sm *SessionManager) loadSessionsFromDB() error {
 	if sm.db == nil {
-		return nil // 数据库未初始化，跳过加载
+		return nil // 數據库未初始化，跳過加載
 	}
 
 	now := time.Now()
@@ -139,7 +139,7 @@ func (sm *SessionManager) loadSessionsFromDB() error {
 		WHERE expires_at > ?
 	`, now)
 	if err != nil {
-		return fmt.Errorf("查询会话失败: %v", err)
+		return fmt.Errorf("查詢會话失败: %v", err)
 	}
 	defer rows.Close()
 
@@ -159,11 +159,11 @@ func (sm *SessionManager) loadSessionsFromDB() error {
 			&session.ExpiresAt,
 		)
 		if err != nil {
-			logger.Warn("⚠️ 加载会话失败: %v", err)
+			logger.Warn("⚠️ 加載會话失败: %v", err)
 			continue
 		}
 
-		// 再次检查是否过期（防止时间差问题）
+		// 再次检查是否過期（防止時间差问题）
 		if now.Before(session.ExpiresAt) {
 			sm.sessions[session.SessionID] = &session
 			loadedCount++
@@ -171,13 +171,13 @@ func (sm *SessionManager) loadSessionsFromDB() error {
 	}
 
 	if loadedCount > 0 {
-		logger.Info("✅ 从数据库加载了 %d 个有效会话", loadedCount)
+		logger.Info("✅ 從數據库加載了 %d 個有效會话", loadedCount)
 	}
 
 	return rows.Err()
 }
 
-// cleanupExpiredSessions 清理过期会话
+// cleanupExpiredSessions 清理過期會话
 func (sm *SessionManager) cleanupExpiredSessions() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
@@ -194,36 +194,36 @@ func (sm *SessionManager) cleanupExpiredSessions() {
 		}
 		sm.mu.Unlock()
 
-		// 从数据库删除过期会话
+		// 從數據库刪除過期會话
 		if sm.db != nil && len(expiredSessionIDs) > 0 {
 			sm.deleteSessionsFromDB(expiredSessionIDs)
 		}
 
-		// 同时清理数据库中所有过期的会话（防止遗漏）
+		// 同時清理數據库中所有過期的會话（防止遗漏）
 		if sm.db != nil {
 			_, err := sm.db.Exec("DELETE FROM sessions WHERE expires_at <= ?", now)
 			if err != nil {
-				logger.Warn("⚠️ 清理数据库过期会话失败: %v", err)
+				logger.Warn("⚠️ 清理數據库過期會话失败: %v", err)
 			}
 		}
 	}
 }
 
-// generateSessionID 生成会话ID
+// generateSessionID 生成會话ID
 func (sm *SessionManager) generateSessionID() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	// 使用无填充的 URL 安全编码，避免 Cookie 中的 '=' 被转义导致会话查找失败
+	// 使用無填充的 URL 安全编碼，避免 Cookie 中的 '=' 被轉义導致會话查找失败
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// CreateSession 创建会话
+// CreateSession 創建會话
 func (sm *SessionManager) CreateSession(username, role, ip, userAgent string) (*Session, error) {
 	sessionID, err := sm.generateSessionID()
 	if err != nil {
-		return nil, fmt.Errorf("生成会话ID失败: %v", err)
+		return nil, fmt.Errorf("生成會话ID失败: %v", err)
 	}
 
 	now := time.Now()
@@ -241,21 +241,21 @@ func (sm *SessionManager) CreateSession(username, role, ip, userAgent string) (*
 	sm.sessions[sessionID] = session
 	sm.mu.Unlock()
 
-	// 保存到数据库
+	// 保存到數據库
 	if sm.db != nil {
 		if err := sm.saveSessionToDB(session); err != nil {
-			logger.Warn("⚠️ 保存会话到数据库失败: %v", err)
-			// 不返回错误，因为内存中已经创建了会话
+			logger.Warn("⚠️ 保存會话到數據库失败: %v", err)
+			// 不返回錯误，因為記憶體中已經創建了會话
 		}
 	}
 
 	return session, nil
 }
 
-// saveSessionToDB 保存会话到数据库
+// saveSessionToDB 保存會话到數據库
 func (sm *SessionManager) saveSessionToDB(session *Session) error {
 	if sm.db == nil {
-		return nil // 数据库未初始化，跳过保存
+		return nil // 數據库未初始化，跳過保存
 	}
 
 	_, err := sm.db.Exec(`
@@ -274,32 +274,32 @@ func (sm *SessionManager) saveSessionToDB(session *Session) error {
 	return err
 }
 
-// GetSession 获取会话
+// GetSession 獲取會话
 func (sm *SessionManager) GetSession(sessionID string) (*Session, bool) {
 	sm.mu.RLock()
 	session, exists := sm.sessions[sessionID]
 	sm.mu.RUnlock()
 
-	// 如果内存中存在，检查是否过期
+	// 如果記憶體中存在，检查是否過期
 	if exists {
 		if time.Now().After(session.ExpiresAt) {
-			// 过期了，从内存和数据库删除
+			// 過期了，從記憶體和數據库刪除
 			sm.DeleteSession(sessionID)
 			return nil, false
 		}
 		return session, true
 	}
 
-	// 内存中不存在，尝试从数据库加载（防止启动时遗漏）
+	// 記憶體中不存在，尝試從數據库加載（防止啟动時遗漏）
 	if sm.db != nil {
 		session = sm.loadSessionFromDB(sessionID)
 		if session != nil {
-			// 检查是否过期
+			// 检查是否過期
 			if time.Now().After(session.ExpiresAt) {
 				sm.DeleteSession(sessionID)
 				return nil, false
 			}
-			// 加载到内存中
+			// 加載到記憶體中
 			sm.mu.Lock()
 			sm.sessions[sessionID] = session
 			sm.mu.Unlock()
@@ -310,7 +310,7 @@ func (sm *SessionManager) GetSession(sessionID string) (*Session, bool) {
 	return nil, false
 }
 
-// loadSessionFromDB 从数据库加载单个会话
+// loadSessionFromDB 從數據库加載單個會话
 func (sm *SessionManager) loadSessionFromDB(sessionID string) *Session {
 	if sm.db == nil {
 		return nil
@@ -337,25 +337,25 @@ func (sm *SessionManager) loadSessionFromDB(sessionID string) *Session {
 	return &session
 }
 
-// DeleteSession 删除会话
+// DeleteSession 刪除會话
 func (sm *SessionManager) DeleteSession(sessionID string) {
 	sm.mu.Lock()
 	delete(sm.sessions, sessionID)
 	sm.mu.Unlock()
 
-	// 从数据库删除
+	// 從數據库刪除
 	if sm.db != nil {
 		sm.deleteSessionsFromDB([]string{sessionID})
 	}
 }
 
-// deleteSessionsFromDB 从数据库删除会话
+// deleteSessionsFromDB 從數據库刪除會话
 func (sm *SessionManager) deleteSessionsFromDB(sessionIDs []string) error {
 	if sm.db == nil || len(sessionIDs) == 0 {
 		return nil
 	}
 
-	// 构建 IN 查询
+	// 構建 IN 查詢
 	query := "DELETE FROM sessions WHERE session_id IN ("
 	args := make([]interface{}, len(sessionIDs))
 	for i, id := range sessionIDs {
@@ -371,7 +371,7 @@ func (sm *SessionManager) deleteSessionsFromDB(sessionIDs []string) error {
 	return err
 }
 
-// GetSessionFromRequest 从请求中获取会话
+// GetSessionFromRequest 從请求中獲取會话
 func (sm *SessionManager) GetSessionFromRequest(r *http.Request) (*Session, bool) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {
@@ -380,27 +380,27 @@ func (sm *SessionManager) GetSessionFromRequest(r *http.Request) (*Session, bool
 	return sm.GetSession(cookie.Value)
 }
 
-// SetSessionCookie 设置会话Cookie
+// SetSessionCookie 設置會话Cookie
 func (sm *SessionManager) SetSessionCookie(w http.ResponseWriter, sessionID string, secure bool) {
 	// 在本地开发环境（localhost）中，强制 secure=false
-	// 因为 localhost 通常使用 HTTP 而不是 HTTPS
+	// 因為 localhost 通常使用 HTTP 而不是 HTTPS
 	cookie := &http.Cookie{
 		Name:     "session_id",
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false,                // 本地开发环境使用 HTTP，不需要 Secure 标志
+		Secure:   false,                // 本地开发环境使用 HTTP，不需要 Secure 標志
 		SameSite: http.SameSiteLaxMode, // 使用 Lax 模式，确保同站请求能正常携带 Cookie
 		MaxAge:   int(sm.sessionTimeout.Seconds()),
 	}
 	http.SetCookie(w, cookie)
 
-	// 调试日志：写入Web日志文件（而不是标准输出）
-	logger.WriteWebLog(fmt.Sprintf("[SESSION] Cookie 已设置: Name=%s, Value=%s..., Path=%s, MaxAge=%d, HttpOnly=%v, Secure=%v, SameSite=%v",
+	// 調試日志：写入Web日志文件（而不是標准输出）
+	logger.WriteWebLog(fmt.Sprintf("[SESSION] Cookie 已設置: Name=%s, Value=%s..., Path=%s, MaxAge=%d, HttpOnly=%v, Secure=%v, SameSite=%v",
 		cookie.Name, sessionID[:20], cookie.Path, cookie.MaxAge, cookie.HttpOnly, cookie.Secure, cookie.SameSite))
 }
 
-// ClearSessionCookie 清除会话Cookie
+// ClearSessionCookie 清除會话Cookie
 func (sm *SessionManager) ClearSessionCookie(w http.ResponseWriter) {
 	cookie := &http.Cookie{
 		Name:     "session_id",
@@ -412,13 +412,13 @@ func (sm *SessionManager) ClearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, cookie)
 }
 
-// 全局会话管理器
+// 全局會话管理器
 var (
 	globalSessionManager *SessionManager
 	sessionManagerOnce   sync.Once
 )
 
-// GetSessionManager 获取全局会话管理器
+// GetSessionManager 獲取全局會话管理器
 func GetSessionManager() *SessionManager {
 	sessionManagerOnce.Do(func() {
 		globalSessionManager = NewSessionManager()

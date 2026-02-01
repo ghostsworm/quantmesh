@@ -1,8 +1,8 @@
 package mexc
 
-// 本地类型定义，避免导入 exchange 包造成循环依赖
+// 本地類型定义，避免導入 exchange 包造成循环依赖
 
-// OrderSide 订单方向
+// OrderSide 订單方向
 type OrderSide string
 
 const (
@@ -10,7 +10,7 @@ const (
 	SideSell OrderSide = "SELL"
 )
 
-// OrderStatus 订单状态
+// OrderStatus 订單状態
 type OrderStatus string
 
 const (
@@ -20,7 +20,7 @@ const (
 	OrderStatusCanceled        OrderStatus = "CANCELED"
 )
 
-// OrderRequest 下单请求
+// OrderRequest 下單请求
 type OrderRequestLocal struct {
 	Symbol        string
 	Side          OrderSide
@@ -29,7 +29,7 @@ type OrderRequestLocal struct {
 	ClientOrderID string
 }
 
-// Order 订单信息
+// Order 订單信息
 type OrderLocal struct {
 	OrderID       int64
 	ClientOrderID string
@@ -42,14 +42,14 @@ type OrderLocal struct {
 	UpdateTime    int64
 }
 
-// Account 账户信息
+// Account 帳戶資訊
 type AccountLocal struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
 }
 
-// Position 持仓信息
+// Position 持倉資訊
 type PositionLocal struct {
 	Symbol        string
 	Size          float64
@@ -59,7 +59,7 @@ type PositionLocal struct {
 	Leverage      int
 }
 
-// Candle K线数据
+// Candle K線數據
 type CandleLocal struct {
 	Symbol    string
 	Open      float64
@@ -70,5 +70,5 @@ type CandleLocal struct {
 	Timestamp int64
 }
 
-// CandleUpdateCallback K线更新回调
+// CandleUpdateCallback K線更新回呼
 type CandleUpdateCallbackLocal func(candle *CandleLocal)

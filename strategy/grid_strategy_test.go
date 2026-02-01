@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// MockGridExecutor 模拟订单执行器
+// MockGridExecutor 模拟订單執行器
 type MockGridExecutor struct {
 	position.OrderExecutorInterface
 }
@@ -61,20 +61,20 @@ func TestGridStrategy_Delegation(t *testing.T) {
 	executor := &MockGridExecutor{}
 	ex := &MockGridExchange{}
 
-	// 创建 SuperPositionManager
+	// 創建 SuperPositionManager
 	spm := position.NewSuperPositionManager(cfg, executor, ex, 2, 3)
 	spm.Initialize(50000.0, "50000.00")
 
-	// 创建 GridStrategy
+	// 創建 GridStrategy
 	gs := NewGridStrategy("test_grid", cfg, executor, ex, spm)
 
-	// 测试价格变化触发下单
+	// 测試價格變化触发下單
 	err := gs.OnPriceChange(49950.0)
 	if err != nil {
 		t.Fatalf("OnPriceChange failed: %v", err)
 	}
 
-	// 测试订单更新回调
+	// 测試订單更新回呼
 	update := &position.OrderUpdate{
 		OrderID: 12345,
 		Status:  position.OrderStatusFilled,

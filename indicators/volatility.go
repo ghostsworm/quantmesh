@@ -4,24 +4,24 @@ import (
 	"math"
 )
 
-// ========== 波动率指标 ==========
+// ========== 波动率指標 ==========
 
-// ATR 平均真实波幅
+// ATR 平均真實波幅
 type ATR struct {
 	period int
 }
 
-// NewATR 创建 ATR 指标
+// NewATR 創建 ATR 指標
 func NewATR(period int) *ATR {
 	return &ATR{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (a *ATR) Name() string {
 	return "ATR"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (a *ATR) Period() int {
 	return a.period + 1
 }
@@ -32,7 +32,7 @@ func (a *ATR) Calculate(candles []Candle) []float64 {
 		return nil
 	}
 
-	// 计算真实波幅序列
+	// 计算真實波幅序列
 	tr := TrueRangeSeries(candles)
 	if tr == nil {
 		return nil
@@ -42,7 +42,7 @@ func (a *ATR) Calculate(candles []Candle) []float64 {
 	return EMA(tr, a.period)
 }
 
-// CurrentATR 获取当前 ATR 值
+// CurrentATR 獲取當前 ATR 值
 func (a *ATR) CurrentATR(candles []Candle) float64 {
 	atr := a.Calculate(candles)
 	if atr == nil || len(atr) == 0 {
@@ -57,7 +57,7 @@ type BollingerBands struct {
 	multiplier float64
 }
 
-// NewBollingerBands 创建布林带指标
+// NewBollingerBands 創建布林带指標
 func NewBollingerBands(period int, multiplier float64) *BollingerBands {
 	return &BollingerBands{
 		period:     period,
@@ -65,12 +65,12 @@ func NewBollingerBands(period int, multiplier float64) *BollingerBands {
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (bb *BollingerBands) Name() string {
 	return "BollingerBands"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (bb *BollingerBands) Period() int {
 	return bb.period
 }
@@ -111,7 +111,7 @@ func (bb *BollingerBands) CalculateMulti(candles []Candle) map[string][]float64 
 			width[i] = (upper[i] - lower[i]) / middle[i] * 100
 		}
 		if upper[i] != lower[i] {
-			// %B 计算，需要对应的收盘价
+			// %B 计算，需要對应的收盘價
 			closeIdx := i + bb.period - 1
 			if closeIdx < len(closes) {
 				percentB[i] = (closes[closeIdx] - lower[i]) / (upper[i] - lower[i])
@@ -146,11 +146,11 @@ func (bb *BollingerBands) Signal(candles []Candle) int {
 	n := len(upper) - 1
 	closeIdx := n + bb.period - 1
 
-	// 价格触及下轨：超卖，买入信号
+	// 價格触及下轨：超賣，買入信号
 	if closes[closeIdx] <= lower[n] {
 		return 1
 	}
-	// 价格触及上轨：超买，卖出信号
+	// 價格触及上轨：超買，賣出信号
 	if closes[closeIdx] >= upper[n] {
 		return -1
 	}
@@ -165,7 +165,7 @@ type KeltnerChannel struct {
 	Multiplier float64
 }
 
-// NewKeltnerChannel 创建肯特纳通道指标
+// NewKeltnerChannel 創建肯特纳通道指標
 func NewKeltnerChannel(emaPeriod, atrPeriod int, multiplier float64) *KeltnerChannel {
 	return &KeltnerChannel{
 		EMAPeriod:  emaPeriod,
@@ -174,12 +174,12 @@ func NewKeltnerChannel(emaPeriod, atrPeriod int, multiplier float64) *KeltnerCha
 	}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (kc *KeltnerChannel) Name() string {
 	return "KeltnerChannel"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (kc *KeltnerChannel) Period() int {
 	if kc.EMAPeriod > kc.ATRPeriod {
 		return kc.EMAPeriod
@@ -214,7 +214,7 @@ func (kc *KeltnerChannel) CalculateMulti(candles []Candle) map[string][]float64 
 		return nil
 	}
 
-	// 对齐长度
+	// 對齐长度
 	length := len(middle)
 	if len(atrValues) < length {
 		length = len(atrValues)
@@ -244,17 +244,17 @@ type DonchianChannel struct {
 	period int
 }
 
-// NewDonchianChannel 创建唐奇安通道指标
+// NewDonchianChannel 創建唐奇安通道指標
 func NewDonchianChannel(period int) *DonchianChannel {
 	return &DonchianChannel{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (dc *DonchianChannel) Name() string {
 	return "DonchianChannel"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (dc *DonchianChannel) Period() int {
 	return dc.period
 }
@@ -293,7 +293,7 @@ func (dc *DonchianChannel) CalculateMulti(candles []Candle) map[string][]float64
 	}
 }
 
-// Signal 交易信号（突破买入/卖出）
+// Signal 交易信号（突破買入/賣出）
 func (dc *DonchianChannel) Signal(candles []Candle) int {
 	result := dc.CalculateMulti(candles)
 	if result == nil || len(candles) < dc.period+1 {
@@ -316,27 +316,27 @@ func (dc *DonchianChannel) Signal(candles []Candle) int {
 	return 0
 }
 
-// StandardDeviation 标准差
+// StandardDeviation 標准差
 type StandardDeviation struct {
 	period int
 }
 
-// NewStandardDeviation 创建标准差指标
+// NewStandardDeviation 創建標准差指標
 func NewStandardDeviation(period int) *StandardDeviation {
 	return &StandardDeviation{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (sd *StandardDeviation) Name() string {
 	return "StandardDeviation"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (sd *StandardDeviation) Period() int {
 	return sd.period
 }
 
-// Calculate 计算标准差
+// Calculate 计算標准差
 func (sd *StandardDeviation) Calculate(candles []Candle) []float64 {
 	closes := ClosePrices(candles)
 	return StdDev(closes, sd.period)
@@ -347,17 +347,17 @@ type HistoricalVolatility struct {
 	period int
 }
 
-// NewHistoricalVolatility 创建历史波动率指标
+// NewHistoricalVolatility 創建历史波动率指標
 func NewHistoricalVolatility(period int) *HistoricalVolatility {
 	return &HistoricalVolatility{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (hv *HistoricalVolatility) Name() string {
 	return "HistoricalVolatility"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (hv *HistoricalVolatility) Period() int {
 	return hv.period + 1
 }
@@ -368,7 +368,7 @@ func (hv *HistoricalVolatility) Calculate(candles []Candle) []float64 {
 		return nil
 	}
 
-	// 计算对数收益率
+	// 计算對數收益率
 	closes := ClosePrices(candles)
 	logReturns := make([]float64, len(closes)-1)
 	for i := 1; i < len(closes); i++ {
@@ -377,38 +377,38 @@ func (hv *HistoricalVolatility) Calculate(candles []Candle) []float64 {
 		}
 	}
 
-	// 计算标准差
+	// 计算標准差
 	stdDevs := StdDev(logReturns, hv.period)
 	if stdDevs == nil {
 		return nil
 	}
 
-	// 年化（假设 365 天）
+	// 年化（假設 365 天）
 	annualizeFactor := math.Sqrt(365)
 	result := make([]float64, len(stdDevs))
 	for i, sd := range stdDevs {
-		result[i] = sd * annualizeFactor * 100 // 转为百分比
+		result[i] = sd * annualizeFactor * 100 // 轉為百分比
 	}
 
 	return result
 }
 
-// NATR 标准化 ATR（百分比形式）
+// NATR 標准化 ATR（百分比形式）
 type NATR struct {
 	period int
 }
 
-// NewNATR 创建 NATR 指标
+// NewNATR 創建 NATR 指標
 func NewNATR(period int) *NATR {
 	return &NATR{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (n *NATR) Name() string {
 	return "NATR"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (n *NATR) Period() int {
 	return n.period + 1
 }
@@ -435,27 +435,27 @@ func (n *NATR) Calculate(candles []Candle) []float64 {
 	return result
 }
 
-// UlcerIndex 溃疡指数（下行波动率）
+// UlcerIndex 溃疡指數（下行波动率）
 type UlcerIndex struct {
 	period int
 }
 
-// NewUlcerIndex 创建溃疡指数指标
+// NewUlcerIndex 創建溃疡指數指標
 func NewUlcerIndex(period int) *UlcerIndex {
 	return &UlcerIndex{period: period}
 }
 
-// Name 指标名称
+// Name 指標名称
 func (ui *UlcerIndex) Name() string {
 	return "UlcerIndex"
 }
 
-// Period 所需周期数
+// Period 所需周期數
 func (ui *UlcerIndex) Period() int {
 	return ui.period
 }
 
-// Calculate 计算溃疡指数
+// Calculate 计算溃疡指數
 func (ui *UlcerIndex) Calculate(candles []Candle) []float64 {
 	closes := ClosePrices(candles)
 	if len(closes) < ui.period {
@@ -465,7 +465,7 @@ func (ui *UlcerIndex) Calculate(candles []Candle) []float64 {
 	result := make([]float64, len(closes)-ui.period+1)
 
 	for i := ui.period - 1; i < len(closes); i++ {
-		// 找到周期内的最高收盘价
+		// 找到周期内的最高收盘價
 		maxClose := closes[i-ui.period+1]
 		for j := i - ui.period + 2; j <= i; j++ {
 			if closes[j] > maxClose {
@@ -486,7 +486,7 @@ func (ui *UlcerIndex) Calculate(candles []Candle) []float64 {
 	return result
 }
 
-// 注册波动率指标
+// 注册波动率指標
 func init() {
 	RegisterIndicator("ATR", func(params map[string]interface{}) Indicator {
 		period := getIntParam(params, "period", 14)
