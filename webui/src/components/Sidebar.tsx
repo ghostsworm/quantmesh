@@ -363,6 +363,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
         >
           {t('sidebar.optimizer')}
         </NavItem>
+        <NavItem 
+          icon={ExternalLinkIcon} 
+          to="/data-export" 
+          isActive={isRouteActive('/data-export')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.dataExport')}
+        </NavItem>
 
         <AnimatePresence>
           {!isGlobalView && (
