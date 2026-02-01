@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -255,7 +256,8 @@ func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]N
 	params := url.Values{}
 	params.Set("apiKey", apiKey)
 	params.Set("q", strings.Join(keywords, " OR "))
-	params.Set("language", "zh,en")
+	// NewsAPI 只支援單一語言參數，不支援逗號分隔；這裡優先使用英文以獲取更多結果
+	params.Set("language", "en")
 	params.Set("sortBy", "publishedAt")
 	params.Set("pageSize", "50")
 
@@ -272,7 +274,9 @@ func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]N
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("NewsAPI error: HTTP %d", resp.StatusCode)
+		// 讀取錯誤響應體以便調試
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("NewsAPI error: HTTP %d - %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {

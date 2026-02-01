@@ -638,6 +638,84 @@ const Configuration: React.FC = () => {
                       </VStack>
                     </ConfigCard>
 
+                    <ConfigCard title="新聞監控配置" icon={<InfoIcon />}>
+                      <VStack spacing={4} align="stretch">
+                        <Flex justify="space-between" align="center">
+                          <Box>
+                            <Text fontWeight="600">啟用新聞監控</Text>
+                            <Text fontSize="xs" color="gray.500">使用 Gemini 分析新闻，預测價格波動风險</Text>
+                          </Box>
+                          <Switch
+                            colorScheme="blue"
+                            isChecked={config.news_monitor?.enabled || false}
+                            onChange={(e) => updateConfigField('news_monitor.enabled', e.target.checked)}
+                          />
+                        </Flex>
+                        
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">NewsAPI Key</FormLabel>
+                          {renderPasswordInput('news_monitor.news_api_key', '從 newsapi.org 獲取')}
+                          <Text fontSize="xs" color="gray.500" mt={1}>
+                            用於收集新聞數據。免费版每天 100 次請求，付费版無限制。
+                            <a href="https://newsapi.org" target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', marginLeft: '4px' }}>
+                              獲取 API Key →
+                            </a>
+                          </Text>
+                        </FormControl>
+
+                        <Flex justify="space-between" align="center">
+                          <Box>
+                            <Text fontWeight="600">Gemini 實時搜索</Text>
+                            <Text fontSize="xs" color="gray.500">啟用 Gemini 實時搜索获取更多新闻</Text>
+                          </Box>
+                          <Switch
+                            colorScheme="green"
+                            isChecked={config.news_monitor?.use_gemini_search !== false}
+                            onChange={(e) => updateConfigField('news_monitor.use_gemini_search', e.target.checked)}
+                          />
+                        </Flex>
+
+                        <SimpleGrid columns={2} spacing={4}>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">新聞收集间隔</FormLabel>
+                            <Select
+                              value={config.news_monitor?.news_collect_interval || '5m'}
+                              onChange={(e) => updateConfigField('news_monitor.news_collect_interval', e.target.value)}
+                              borderRadius="xl"
+                              size="sm"
+                            >
+                              <option value="5m">5 分钟</option>
+                              <option value="10m">10 分钟</option>
+                              <option value="15m">15 分钟</option>
+                              <option value="30m">30 分钟</option>
+                            </Select>
+                          </FormControl>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">AI 分析间隔</FormLabel>
+                            <Select
+                              value={config.news_monitor?.analysis_interval || '30m'}
+                              onChange={(e) => updateConfigField('news_monitor.analysis_interval', e.target.value)}
+                              borderRadius="xl"
+                              size="sm"
+                            >
+                              <option value="15m">15 分钟</option>
+                              <option value="30m">30 分钟</option>
+                              <option value="60m">60 分钟</option>
+                            </Select>
+                          </FormControl>
+                        </SimpleGrid>
+
+                        {!getNestedValue(config, 'news_monitor.news_api_key') && (
+                          <Alert status="warning" size="sm" borderRadius="md">
+                            <AlertIcon />
+                            <AlertDescription fontSize="xs">
+                              未配置 NewsAPI Key，新聞監控功能将無法收集新闻
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </VStack>
+                    </ConfigCard>
+
                     {exchanges.map((exchange) => (
                       <ConfigCard key={exchange} title={exchangeNames[exchange]} icon={<RepeatIcon />}>
                         <SimpleGrid columns={2} spacing={6}>
