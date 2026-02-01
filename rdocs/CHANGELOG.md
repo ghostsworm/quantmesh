@@ -10,6 +10,19 @@
 
 ---
 
+## v3.18.1 - 2026年02月01日
+
+**Git Tag**: `v3.18.1`
+
+### 修復 (Fixed)
+- **價差監控現貨-合約價差模塊非 BTCUSDT 合約價錯誤**：
+  - 問題：價差監控頁面中，僅 BTCUSDT 的現貨/合約價格正確，ETHUSDT、BNBUSDT、SOLUSDT 等交易對的合約價格均顯示為 BTC 的合約價（約 $78,802），導致價差百分比異常
+  - 原因：Binance 適配器 `GetLatestPrice(ctx, symbol)` 未使用參數 `symbol`，僅從單一 WebSocket 訂閱（firstRuntime 的 BTCUSDT）緩存讀取，導致所有交易對的合約價都返回同一值
+  - 修復：當請求的 symbol 與適配器訂閱的 b.symbol 不同或 WebSocket 無數據時，改為通過 REST `GET /fapi/v1/premiumIndex` 獲取該 symbol 的標記價格，確保每個交易對顯示對應的合約價格
+  - 涉及文件：`exchange/binance/adapter.go`
+
+---
+
 ## v3.8.1 - 2026年01月31日
 
 **Git Tag**: `v3.8.1`
