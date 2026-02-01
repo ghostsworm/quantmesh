@@ -46,6 +46,7 @@
     "profile": "Profile",
     "optimizer": "Parameter Optimizer",
     "newsAnalysis": "News Analysis",
+    "dataExport": "Data Export",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar"
   },
@@ -1148,6 +1149,70 @@
         "content": "To the maximum extent permitted by law, QuantMesh and its contributors shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to loss of profits, data, or trading capital. Your use of the System is at your sole risk."
       }
     ]
+  },
+  "dataExport": {
+    "title": "Data Export",
+    "description": "Export trading data, configurations, and logs for backup or data analysis",
+    "settings": "Export Settings",
+    "format": "Export Format",
+    "startTime": "Start Time",
+    "endTime": "End Time",
+    "download": "Download",
+    "downloadAll": "Export All",
+    "exporting": "Exporting...",
+    "exportSuccess": "Export Successful",
+    "exportError": "Export Failed",
+    "allDataExported": "All data has been packaged for export",
+    "exportAll": {
+      "title": "Full Data Export",
+      "desc": "Package all trading data, configurations, and logs into a ZIP file for download"
+    },
+    "items": {
+      "config": {
+        "title": "Current Configuration",
+        "desc": "Export current system configuration (sanitized, no API keys)"
+      },
+      "trades": {
+        "title": "Trade History",
+        "desc": "Export all completed trade records"
+      },
+      "orders": {
+        "title": "Order History",
+        "desc": "Export historical order data, including completed and cancelled orders"
+      },
+      "positions": {
+        "title": "Position History",
+        "desc": "Export historical position data records"
+      },
+      "statistics": {
+        "title": "Statistics Data",
+        "desc": "Export trading statistics including P&L, win rate, etc."
+      },
+      "reconciliation": {
+        "title": "Reconciliation History",
+        "desc": "Export reconciliation verification history records"
+      },
+      "riskChecks": {
+        "title": "Risk Checks",
+        "desc": "Export risk check history records"
+      },
+      "systemMetrics": {
+        "title": "System Metrics",
+        "desc": "Export system performance monitoring data (CPU, memory, etc.)"
+      },
+      "logs": {
+        "title": "Application Logs",
+        "desc": "Export system operation logs"
+      },
+      "auditLogs": {
+        "title": "Audit Logs",
+        "desc": "Export compliance trading audit logs (ZIP format)"
+      }
+    },
+    "tips": {
+      "title": "Export Tips",
+      "content": "Exported configuration files are automatically sanitized and do not contain API keys or other sensitive information. For complete backup, please use the backup function in the configuration management page. Large data exports may take some time, please be patient."
+    }
   },
   "privacy": {
     "title": "Privacy Policy",

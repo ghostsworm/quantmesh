@@ -10,6 +10,91 @@
 
 ---
 
+## v3.22.0 - 2026年02月01日
+
+**Git Tag**: `v3.22.0`
+
+### 新增 (Added)
+
+#### 資料匯出功能
+
+- **資料匯出頁面**: 新增 `/data-export` 頁面，支援匯出各類交易資料
+- **匯出類型**:
+  - 當前配置（已脫敏，不含 API 金鑰）
+  - 交易歷史、訂單歷史、持倉歷史
+  - 統計資料、對賬歷史、風控檢查歷史
+  - 系統監控資料、應用日誌、審計日誌
+  - 全量資料匯出（ZIP 打包）
+- **匯出選項**: 支援 JSON/CSV 格式選擇和時間範圍篩選
+- **側邊欄入口**: 在主導航欄新增「資料匯出」菜單項
+- **多語言支援**: 新增資料匯出相關的中文簡體、中文繁體、英文翻譯
+
+---
+
+## v3.21.0 - 2026年02月01日
+
+**Git Tag**: `v3.21.0`
+
+### 新增 (Added)
+
+#### 回測介面優化 - 三級聯動選擇與參數預填
+
+- **交易所選擇**: 回測頁面新增交易所選擇器，支持 Binance、Bitget、OKX、Bybit、Gate 等交易所
+- **市場類型選擇**: 根據交易所動態顯示支援的市場類型（現貨/合約）
+- **交易對選擇**: 根據交易所和市場類型過濾並顯示可用交易對
+  - 已配置的交易對會優先顯示並標記「(已配置)」
+  - 預置常用交易對列表（BTCUSDT、ETHUSDT、SOLUSDT 等）
+- **策略參數預填**: 選擇策略後自動從 config 中讀取已配置的參數進行預填
+  - 支持網格策略的價格間隔、單筆金額、窗口大小等參數
+  - 支持 DCA、馬丁格爾等策略的相關參數
+  - 自動設置總資金為配置中的分配資金
+
+#### 後端 API 新增
+
+- `GET /api/backtest/exchanges` - 獲取支援回測的交易所列表及市場類型
+- `GET /api/backtest/symbols` - 根據交易所和市場類型獲取交易對列表
+- `GET /api/backtest/config-params` - 獲取已配置交易對的策略參數（用於預填）
+
+---
+
+## v3.20.3-rc3 - 2026年02月01日
+
+**Git Tag**: `v3.20.3-rc3`
+
+### 修復 (Fixed)
+
+#### 安裝配置錯誤修復
+- 修復 systemd 服務文件中官網 URL 錯誤：將 `quantmesh.com` 更正為 `quantmesh.io`
+- 確認安裝腳本正確創建 quantmesh 用戶並設置 `/opt/quantmesh` 目錄權限
+
+---
+
+## v3.20.3 - 2026年02月01日
+
+**Git Tag**: `v3.20.3`
+
+### 修复 (Fixed)
+
+#### WebAuthn 指紋登錄 - RPID 配置錯誤修复
+
+- **問題**: WebAuthn 指紋注册時出現 "The relying party ID is not a registrable domain suffix" 錯誤
+- **原因**: RPID 硬編碼為 `localhost`，與實際訪問域名不匹配
+- **修复**: 
+  - 重構 RPID 配置邏輯，支持動態配置
+  - 優先級：環境變數 `DOMAIN` → 配置文件 `web.domain` → `web.host` → `localhost`
+  - 自動检测 HTTPS 並生成正确的 Origin
+  - 新增 TLS 配置支持（`web.tls.enabled/cert_file/key_file`）
+- **相關文件**: `main.go`、`config/config.go`、`config.example.yaml`
+
+#### 工具與文档
+
+- **新增**: WebAuthn 診斷工具 (`tools/webauthn_diagnose.go`)
+- **新增**: 快速修复脚本 (`scripts/fix_webauthn_rpid.sh`)  
+- **新增**: 修复指南文档 (`docs/WEBAUTHN_RPID_FIX.md`)
+- **新增**: 針對性配置示例 (`config.webauthn-fix.yaml`)
+
+---
+
 ## v3.19.1 - 2026年02月01日
 
 **Git Tag**: `v3.19.1`

@@ -46,6 +46,7 @@
     "profile": "个人资料",
     "optimizer": "参数优化",
     "newsAnalysis": "新闻分析",
+    "dataExport": "数据导出",
     "expandSidebar": "展开侧边栏",
     "collapseSidebar": "收起侧边栏"
   },
@@ -1135,6 +1136,70 @@
         "content": "在法律允许的最大范围内，QuantMesh 及其贡献者不对任何间接、附带、特殊、后果性或惩罚性损害承担责任，包括但不限于利润、数据或交易资金的损失。您使用本系统的风险由您自行承担。"
       }
     ]
+  },
+  "dataExport": {
+    "title": "数据导出",
+    "description": "导出交易数据、配置和日志，用于备份或数据分析",
+    "settings": "导出设置",
+    "format": "导出格式",
+    "startTime": "开始时间",
+    "endTime": "结束时间",
+    "download": "下载",
+    "downloadAll": "全量导出",
+    "exporting": "导出中...",
+    "exportSuccess": "导出成功",
+    "exportError": "导出失败",
+    "allDataExported": "全部数据已打包导出",
+    "exportAll": {
+      "title": "全量数据导出",
+      "desc": "将所有交易数据、配置、日志打包为 ZIP 文件下载"
+    },
+    "items": {
+      "config": {
+        "title": "当前配置",
+        "desc": "导出当前系统配置（已脱敏，不含 API 密钥）"
+      },
+      "trades": {
+        "title": "交易历史",
+        "desc": "导出所有已完成的交易记录"
+      },
+      "orders": {
+        "title": "订单历史",
+        "desc": "导出历史订单数据，包括已完成和已取消的订单"
+      },
+      "positions": {
+        "title": "持仓历史",
+        "desc": "导出历史持仓数据记录"
+      },
+      "statistics": {
+        "title": "统计数据",
+        "desc": "导出交易统计数据，包括盈亏、胜率等"
+      },
+      "reconciliation": {
+        "title": "对账历史",
+        "desc": "导出对账校验历史记录"
+      },
+      "riskChecks": {
+        "title": "风控检查",
+        "desc": "导出风控检查历史记录"
+      },
+      "systemMetrics": {
+        "title": "系统监控",
+        "desc": "导出系统性能监控数据（CPU、内存等）"
+      },
+      "logs": {
+        "title": "应用日志",
+        "desc": "导出系统运行日志"
+      },
+      "auditLogs": {
+        "title": "审计日志",
+        "desc": "导出合规交易审计日志（ZIP 格式）"
+      }
+    },
+    "tips": {
+      "title": "导出提示",
+      "content": "导出的配置文件已自动脱敏，不包含 API 密钥等敏感信息。如需完整备份，请使用配置管理页面的备份功能。大量数据导出可能需要一些时间，请耐心等待。"
+    }
   },
   "privacy": {
     "title": "隐私政策",

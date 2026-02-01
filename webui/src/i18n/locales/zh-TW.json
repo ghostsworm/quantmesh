@@ -34,6 +34,7 @@
     "klineDepth": "K線深度",
     "fundingRate": "資金費率",
     "basisMonitor": "價差監控",
+    "dataExport": "資料匯出",
     "configManagement": "配置管理",
     "firstTimeWizard": "首次設置嚮導",
     "profile": "個人資料"
@@ -661,6 +662,70 @@
         "content": "在法律允許的最大範圍內，QuantMesh 及其貢獻者不對任何間接、附帶、特殊、後果性或懲罰性損害承擔責任，包括但不限於利潤、資料或交易資金的損失。您使用本系統的風險由您自行承擔。"
       }
     ]
+  },
+  "dataExport": {
+    "title": "資料匯出",
+    "description": "匯出交易資料、配置和日誌，用於備份或資料分析",
+    "settings": "匯出設定",
+    "format": "匯出格式",
+    "startTime": "開始時間",
+    "endTime": "結束時間",
+    "download": "下載",
+    "downloadAll": "全量匯出",
+    "exporting": "匯出中...",
+    "exportSuccess": "匯出成功",
+    "exportError": "匯出失敗",
+    "allDataExported": "全部資料已打包匯出",
+    "exportAll": {
+      "title": "全量資料匯出",
+      "desc": "將所有交易資料、配置、日誌打包為 ZIP 檔案下載"
+    },
+    "items": {
+      "config": {
+        "title": "當前配置",
+        "desc": "匯出當前系統配置（已脫敏，不含 API 金鑰）"
+      },
+      "trades": {
+        "title": "交易歷史",
+        "desc": "匯出所有已完成的交易記錄"
+      },
+      "orders": {
+        "title": "訂單歷史",
+        "desc": "匯出歷史訂單資料，包括已完成和已取消的訂單"
+      },
+      "positions": {
+        "title": "持倉歷史",
+        "desc": "匯出歷史持倉資料記錄"
+      },
+      "statistics": {
+        "title": "統計資料",
+        "desc": "匯出交易統計資料，包括盈虧、勝率等"
+      },
+      "reconciliation": {
+        "title": "對賬歷史",
+        "desc": "匯出對賬校驗歷史記錄"
+      },
+      "riskChecks": {
+        "title": "風控檢查",
+        "desc": "匯出風控檢查歷史記錄"
+      },
+      "systemMetrics": {
+        "title": "系統監控",
+        "desc": "匯出系統效能監控資料（CPU、記憶體等）"
+      },
+      "logs": {
+        "title": "應用日誌",
+        "desc": "匯出系統運行日誌"
+      },
+      "auditLogs": {
+        "title": "審計日誌",
+        "desc": "匯出合規交易審計日誌（ZIP 格式）"
+      }
+    },
+    "tips": {
+      "title": "匯出提示",
+      "content": "匯出的配置檔案已自動脫敏，不包含 API 金鑰等敏感資訊。如需完整備份，請使用配置管理頁面的備份功能。大量資料匯出可能需要一些時間，請耐心等待。"
+    }
   },
   "privacy": {
     "title": "隱私政策",

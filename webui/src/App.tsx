@@ -65,6 +65,7 @@ import PositionPlan from './components/PositionPlan'
 import NewbieRiskCheck from './components/NewbieRiskCheck'
 import BacktestMenu from './components/BacktestMenu'
 import OptimizerPage from './components/OptimizerPage'
+import DataExport from './components/DataExport'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
@@ -408,6 +409,7 @@ const AppContent: React.FC = () => {
                 <Route path="/position-plan" element={<ProtectedRoute><PositionPlan /></ProtectedRoute>} />
                 <Route path="/backtest" element={<ProtectedRoute><BacktestMenu /></ProtectedRoute>} />
                 <Route path="/optimizer" element={<ProtectedRoute><OptimizerPage /></ProtectedRoute>} />
+                <Route path="/data-export" element={<ProtectedRoute><DataExport /></ProtectedRoute>} />
                 <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
                 <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
