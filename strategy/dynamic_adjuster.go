@@ -59,6 +59,11 @@ func (da *DynamicAdjuster) Start() {
 		go da.adjustWindowSizeLoop()
 	}
 
+	// 啟动單筆金額動態調整
+	if da.cfg.Trading.DynamicAdjustment.OrderQuantity.Enabled {
+		go da.adjustOrderQuantityLoop()
+	}
+
 	logger.Info("✅ 動態調整器已啟动")
 }
 
@@ -326,4 +331,84 @@ func (da *DynamicAdjuster) updateWindowSize(buyWindow, sellWindow int) {
 	da.cfg.Trading.BuyWindowSize = buyWindow
 	da.cfg.Trading.SellWindowSize = sellWindow
 	logger.Info("✅ [動態調整] 窗口大小已更新: 買單窗口=%d, 賣單視窗=%d", buyWindow, sellWindow)
+}
+
+// adjustOrderQuantityLoop 定期調整單筆金額
+func (da *DynamicAdjuster) adjustOrderQuantityLoop() {
+	checkInterval := da.cfg.Trading.DynamicAdjustment.OrderQuantity.CheckInterval
+	if checkInterval <= 0 {
+		checkInterval = 60 // 預設 60 秒
+	}
+	interval := time.Duration(checkInterval) * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-da.ctx.Done():
+			return
+		case <-ticker.C:
+			da.AdjustOrderQuantity()
+		}
+	}
+}
+
+// AdjustOrderQuantity 根據交易頻率動態調整單筆金額
+func (da *DynamicAdjuster) AdjustOrderQuantity() {
+	if da.manager == nil {
+		return
+	}
+	oq := da.cfg.Trading.DynamicAdjustment.OrderQuantity
+	minQty := oq.Min
+	maxQty := oq.Max
+	threshold := oq.FrequencyThreshold
+	step := oq.AdjustmentStep
+
+	if minQty <= 0 {
+		minQty = 50 // 保守預設，需滿足交易所最小訂單金額
+	}
+	if maxQty <= 0 {
+		maxQty = 500
+	}
+	if threshold <= 0 {
+		threshold = 5
+	}
+	if step <= 0 {
+		step = 20
+	}
+
+	fillCount := da.manager.GetFillCountInLastMinute()
+	currentQty := da.cfg.Trading.OrderQuantity
+	if currentQty <= 0 {
+		currentQty = minQty
+	}
+
+	var newQty float64
+	if fillCount > threshold {
+		// 交易過於頻繁，降低單筆金額
+		newQty = currentQty - step
+		if newQty < minQty {
+			newQty = minQty
+		}
+		logger.Info("📉 [動態調整] 交易頻率 %d/分鐘 > 閾值 %d，減少單筆金額: %.2f -> %.2f",
+			fillCount, threshold, currentQty, newQty)
+	} else {
+		// 交易過少，適當提高單筆金額
+		newQty = currentQty + step
+		if newQty > maxQty {
+			newQty = maxQty
+		}
+		logger.Info("📈 [動態調整] 交易頻率 %d/分鐘 <= 閾值 %d，增加單筆金額: %.2f -> %.2f",
+			fillCount, threshold, currentQty, newQty)
+	}
+
+	if math.Abs(newQty-currentQty) > 0.01 {
+		da.updateOrderQuantity(newQty)
+	}
+}
+
+// updateOrderQuantity 更新單筆金額
+func (da *DynamicAdjuster) updateOrderQuantity(newQty float64) {
+	da.cfg.Trading.OrderQuantity = newQty
+	logger.Info("✅ [動態調整] 單筆金額已更新為: %.2f", newQty)
 }

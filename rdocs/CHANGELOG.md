@@ -10,6 +10,46 @@
 
 ---
 
+## v3.19.1 - 2026年02月01日
+
+**Git Tag**: `v3.19.1`
+
+### 新增 (Added)
+
+#### 配置管理 - 動態調整 UI
+
+- **單筆金額動態調整配置**：在配置管理 → 交易參數頁籤新增「動態調整」區塊，可透過 UI 管理：
+  - 啟用動態調整總開關
+  - 啟用單筆金額動態調整
+  - 單筆金額上下限 (min/max)
+  - 頻率閾值 (次/分鐘)
+  - 調整步長
+  - 檢查間隔 (秒)
+  - 涉及文件：`webui/src/components/Configuration.tsx`、`webui/src/i18n/locales/*.json`、`webui/src/services/config.ts`
+
+---
+
+## v3.19.0 - 2026年02月01日
+
+**Git Tag**: `v3.19.0`
+
+### 新增 (Added)
+
+#### 網格策略 - 單筆金額動態調整 (P0)
+
+- **OrderQuantity 動態調整**：
+  - 根據過去 1 分鐘內的成交頻率，自動調整每筆訂單金額
+  - 交易過於頻繁時降低單筆金額，減少手續費摩擦
+  - 交易過少時適當提高單筆金額，提高資金利用
+  - 配置項：`trading.dynamic_adjustment.order_quantity`（enabled, min, max, frequency_threshold, adjustment_step, check_interval）
+  - 涉及文件：`strategy/dynamic_adjuster.go`、`position/super_position_manager.go`、`config/config.go`
+
+#### 文檔
+
+- **P1/P2 規格詳情**：新增 `docs/GRID_ALPHA_P1_P2_SPEC.md`，定義資金費率與趨勢聯動（P1）、訂單簿優化掛單（P2）的實現規格
+
+---
+
 ## v3.18.1 - 2026年02月01日
 
 **Git Tag**: `v3.18.1`

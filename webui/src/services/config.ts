@@ -189,6 +189,7 @@ export interface Config {
         max: number
         frequency_threshold: number
         adjustment_step: number
+        check_interval?: number
       }
     }
     smart_position?: {
