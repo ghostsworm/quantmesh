@@ -68,6 +68,24 @@ type GridRiskControl struct {
 	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`             // 是否開啟趨勢過濾
 }
 
+// FundingRateConfig 資金費率監控與套利配置
+type FundingRateConfig struct {
+	Enabled         bool `yaml:"enabled" json:"enabled"`                   // 是否啟用資金費率監控
+	MonitorInterval int  `yaml:"monitor_interval" json:"monitor_interval"` // 監控間隔（秒），預設 60
+	AlertThreshold  float64 `yaml:"alert_threshold" json:"alert_threshold"` // 告警閾值，預設 0.001 (0.1%)
+
+	// 偏向策略配置
+	BiasEnabled       bool    `yaml:"bias_enabled" json:"bias_enabled"`             // 是否啟用費率偏向策略
+	HighRateThreshold float64 `yaml:"high_rate_threshold" json:"high_rate_threshold"` // 高費率閾值，預設 0.001 (0.1%)
+	PauseBuyThreshold float64 `yaml:"pause_buy_threshold" json:"pause_buy_threshold"` // 暫停買入閾值，預設 0.0015 (0.15%)
+
+	// 期現套利配置
+	ArbitrageEnabled   bool    `yaml:"arbitrage_enabled" json:"arbitrage_enabled"`       // 是否啟用期現套利
+	HedgeMinPosition   float64 `yaml:"hedge_min_position" json:"hedge_min_position"`     // 最小對沖倉位（USDT），預設 100
+	HedgeRateThreshold float64 `yaml:"hedge_rate_threshold" json:"hedge_rate_threshold"` // 開啟對沖的費率閾值，預設 0.001
+	MaxSpreadPercent   float64 `yaml:"max_spread_percent" json:"max_spread_percent"`     // 最大價差百分比，超過則暫停對沖，預設 0.5%
+}
+
 // Config 做市商系統配置
 type Config struct {
 	// 應用配置
@@ -131,6 +149,7 @@ type Config struct {
 				Max                float64 `yaml:"max"`
 				FrequencyThreshold int     `yaml:"frequency_threshold"` // 交易频率阈值（次/分钟）
 				AdjustmentStep     float64 `yaml:"adjustment_step"`
+				CheckInterval      int     `yaml:"check_interval"`      // 檢查间隔（秒），預設 60
 			} `yaml:"order_quantity"`
 		} `yaml:"dynamic_adjustment"`
 
@@ -221,6 +240,9 @@ type Config struct {
 			MinDepthUSDT     float64 `yaml:"min_depth_usdt"`     // 最小深度（USDT），低於此值触发风控，預設 10000
 		} `yaml:"depth_monitor"`
 	} `yaml:"risk_control"`
+
+	// 資金費率監控與套利配置
+	FundingRate FundingRateConfig `yaml:"funding_rate" json:"funding_rate"`
 
 	// 新聞監控配置
 	NewsMonitor struct {
@@ -937,6 +959,18 @@ func CreateMinimalConfig() *Config {
 	cfg.RiskControl.MaxLeverage = 10
 	cfg.RiskControl.MonitorSymbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"}
 
+	// 資金費率監控預設值
+	cfg.FundingRate.Enabled = false // 預設關閉，需要手動啟用
+	cfg.FundingRate.MonitorInterval = 60
+	cfg.FundingRate.AlertThreshold = 0.001       // 0.1%
+	cfg.FundingRate.BiasEnabled = false
+	cfg.FundingRate.HighRateThreshold = 0.001    // 0.1%
+	cfg.FundingRate.PauseBuyThreshold = 0.0015   // 0.15%
+	cfg.FundingRate.ArbitrageEnabled = false
+	cfg.FundingRate.HedgeMinPosition = 100       // 100 USDT
+	cfg.FundingRate.HedgeRateThreshold = 0.001   // 0.1%
+	cfg.FundingRate.MaxSpreadPercent = 0.5       // 0.5%
+
 	cfg.Storage.Enabled = true
 	cfg.Storage.Type = "sqlite"
 	cfg.Storage.Path = "./data/quantmesh.db"
@@ -1396,6 +1430,29 @@ func (c *Config) Validate() error {
 	}
 	if c.RiskControl.DepthMonitor.MinDepthUSDT <= 0 {
 		c.RiskControl.DepthMonitor.MinDepthUSDT = 10000 // 預設 10000 USDT
+	}
+
+	// 設置資金費率監控預設值
+	if c.FundingRate.MonitorInterval <= 0 {
+		c.FundingRate.MonitorInterval = 60 // 預設 60 秒
+	}
+	if c.FundingRate.AlertThreshold <= 0 {
+		c.FundingRate.AlertThreshold = 0.001 // 預設 0.1%
+	}
+	if c.FundingRate.HighRateThreshold <= 0 {
+		c.FundingRate.HighRateThreshold = 0.001 // 預設 0.1%
+	}
+	if c.FundingRate.PauseBuyThreshold <= 0 {
+		c.FundingRate.PauseBuyThreshold = 0.0015 // 預設 0.15%
+	}
+	if c.FundingRate.HedgeMinPosition <= 0 {
+		c.FundingRate.HedgeMinPosition = 100 // 預設 100 USDT
+	}
+	if c.FundingRate.HedgeRateThreshold <= 0 {
+		c.FundingRate.HedgeRateThreshold = 0.001 // 預設 0.1%
+	}
+	if c.FundingRate.MaxSpreadPercent <= 0 {
+		c.FundingRate.MaxSpreadPercent = 0.5 // 預設 0.5%
 	}
 
 	// 設置通知配置預設值

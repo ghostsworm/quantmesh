@@ -161,6 +161,20 @@ type ITrendDetector interface {
 	GetCurrentTrend() string
 }
 
+// FundingMonitor 資金費率監控介面（避免循環匯入）
+// 用於獲取資金費率偏向策略
+type FundingMonitor interface {
+	// GetBuyBias 獲取買入偏向係數
+	// 返回 0-1.2 的值：1.0 為正常，<1.0 為減少買入，0 為暫停買入，>1.0 為增加買入
+	GetBuyBias() float64
+	// IsHighRate 判斷是否為高費率
+	IsHighRate() bool
+	// GetCurrentRate 獲取當前資金費率
+	GetCurrentRate() float64
+	// ShouldPauseBuying 判斷是否應該暫停買入
+	ShouldPauseBuying() bool
+}
+
 // SuperPositionManager 超级倉位管理器
 type SuperPositionManager struct {
 	config       *config.Config
@@ -209,6 +223,16 @@ type SuperPositionManager struct {
 
 	// 暂停標志
 	isPaused atomic.Bool
+
+	// 資金費率監控器（可選，用於費率偏向策略）
+	fundingMonitor FundingMonitor
+
+	// 套利管理器（可選，用於期現套利）
+	arbitrageManager ArbitrageManager
+
+	// 成交時間戳記錄（用於動態調整單筆金額的頻率統計）
+	fillTimestamps []time.Time
+	fillMu         sync.RWMutex
 
 	mu sync.RWMutex // 全局鎖（用於关键操作）
 }
@@ -350,6 +374,62 @@ func (spm *SuperPositionManager) SetTrendDetector(td ITrendDetector) {
 	spm.mu.Lock()
 	defer spm.mu.Unlock()
 	spm.trendDetector = td
+}
+
+// SetFundingMonitor 設置資金費率監控器（用於費率偏向策略）
+func (spm *SuperPositionManager) SetFundingMonitor(fm FundingMonitor) {
+	spm.mu.Lock()
+	defer spm.mu.Unlock()
+	spm.fundingMonitor = fm
+}
+
+// GetFundingMonitor 獲取資金費率監控器
+func (spm *SuperPositionManager) GetFundingMonitor() FundingMonitor {
+	spm.mu.RLock()
+	defer spm.mu.RUnlock()
+	return spm.fundingMonitor
+}
+
+// ArbitrageManager 套利管理器介面
+type ArbitrageManager interface {
+	OnGridPositionChange(delta float64, price float64)
+}
+
+// SetArbitrageManager 設置套利管理器
+func (spm *SuperPositionManager) SetArbitrageManager(am ArbitrageManager) {
+	spm.mu.Lock()
+	defer spm.mu.Unlock()
+	spm.arbitrageManager = am
+}
+
+// GetArbitrageManager 獲取套利管理器
+func (spm *SuperPositionManager) GetArbitrageManager() ArbitrageManager {
+	spm.mu.RLock()
+	defer spm.mu.RUnlock()
+	return spm.arbitrageManager
+}
+
+// recordFill 記錄成交時間戳（用於動態調整單筆金額的頻率統計）
+func (spm *SuperPositionManager) recordFill() {
+	spm.fillMu.Lock()
+	defer spm.fillMu.Unlock()
+	spm.fillTimestamps = append(spm.fillTimestamps, time.Now())
+	// 保留最近 2 分鐘的記錄，避免無限增長
+	cutoff := time.Now().Add(-2 * time.Minute)
+	for len(spm.fillTimestamps) > 0 && spm.fillTimestamps[0].Before(cutoff) {
+		spm.fillTimestamps = spm.fillTimestamps[1:]
+	}
+}
+
+// GetFillCountInLastMinute 獲取過去 1 分鐘內的成交次數（會 prune 超過 1 分鐘的紀錄）
+func (spm *SuperPositionManager) GetFillCountInLastMinute() int {
+	spm.fillMu.Lock()
+	defer spm.fillMu.Unlock()
+	cutoff := time.Now().Add(-1 * time.Minute)
+	for len(spm.fillTimestamps) > 0 && spm.fillTimestamps[0].Before(cutoff) {
+		spm.fillTimestamps = spm.fillTimestamps[1:]
+	}
+	return len(spm.fillTimestamps)
 }
 
 // Initialize 初始化管理器（設置價格锚点並創建初始槽位）
@@ -632,6 +712,38 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				logger.Warn("🚫 [层數限制] 當前持倉层數 (%d) 已达到最大值 (%d)，暂停買入", currentLayers, maxLayers)
 				skipBuying = true
 			}
+		}
+	}
+
+	// 資金費率偏向策略檢查
+	if spm.fundingMonitor != nil && spm.config.FundingRate.BiasEnabled {
+		buyBias := spm.fundingMonitor.GetBuyBias()
+		
+		if buyBias == 0 {
+			// 極高費率：完全暫停買入
+			rate := spm.fundingMonitor.GetCurrentRate()
+			logger.Warn("💰 [資金費率] 費率過高 (%.4f%%)，暫停買入", rate*100)
+			skipBuying = true
+		} else if buyBias < 1.0 {
+			// 高費率：減少買單數量
+			originalOrders := allowedNewBuyOrders
+			allowedNewBuyOrders = int(float64(allowedNewBuyOrders) * buyBias)
+			if allowedNewBuyOrders < 1 && originalOrders > 0 {
+				allowedNewBuyOrders = 1 // 至少保留一個買單
+			}
+			rate := spm.fundingMonitor.GetCurrentRate()
+			logger.Info("💰 [資金費率] 費率 %.4f%%，買單數量從 %d 減少到 %d (偏向係數: %.2f)",
+				rate*100, originalOrders, allowedNewBuyOrders, buyBias)
+		} else if buyBias > 1.0 {
+			// 負費率：可略微增加買入（但不超過剩餘訂單數）
+			originalOrders := allowedNewBuyOrders
+			allowedNewBuyOrders = int(float64(allowedNewBuyOrders) * buyBias)
+			if allowedNewBuyOrders > remainingOrders {
+				allowedNewBuyOrders = remainingOrders
+			}
+			rate := spm.fundingMonitor.GetCurrentRate()
+			logger.Info("💰 [資金費率] 負費率 %.4f%%，買單數量從 %d 增加到 %d (偏向係數: %.2f)",
+				rate*100, originalOrders, allowedNewBuyOrders, buyBias)
 		}
 	}
 
@@ -1267,6 +1379,13 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					PositionStatusEmpty, PositionStatusFilled,
 					"FILLED", OrderStatusNotPlaced)
 				logger.Debug("🔍 [買單成交后] 等待下次AdjustOrders調用時挂出賣單...")
+
+				spm.recordFill()
+
+				// 通知套利管理器：買入成交（正數表示買入）
+				if spm.arbitrageManager != nil && update.ExecutedQty > 0 {
+					spm.arbitrageManager.OnGridPositionChange(update.ExecutedQty, update.Price)
+				}
 			} else {
 				slot.OrderStatus = OrderStatusPartiallyFilled
 			}
@@ -1353,6 +1472,13 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				
 				logger.Info("✅ [賣單成交] 價格: %s, 剩餘持倉: %.4f, 槽位状態: %s, 订單状態: %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty, slot.PositionStatus, slot.OrderStatus)
+
+				spm.recordFill()
+
+				// 通知套利管理器：賣出成交（負數表示賣出）
+				if spm.arbitrageManager != nil && update.ExecutedQty > 0 {
+					spm.arbitrageManager.OnGridPositionChange(-update.ExecutedQty, update.Price)
+				}
 			} else {
 				slot.OrderStatus = OrderStatusPartiallyFilled
 			}

@@ -15,6 +15,7 @@ import (
 	"quantmesh/order"
 	"quantmesh/position"
 	"quantmesh/safety"
+	"quantmesh/arbitrage"
 	"quantmesh/storage"
 	"quantmesh/strategy"
 )
@@ -26,6 +27,8 @@ type SymbolRuntime struct {
 	PriceMonitor         *monitor.PriceMonitor
 	RiskMonitor          *safety.RiskMonitor
 	DepthMonitor         *safety.DepthMonitor
+	FundingMonitor       *safety.FundingRateMonitor
+	ArbitrageManager     *arbitrage.FundingArbitrageManager
 	SuperPositionManager *position.SuperPositionManager
 	OrderCleaner         *safety.OrderCleaner
 	Reconciler           *safety.Reconciler
@@ -286,6 +289,37 @@ func startSymbolRuntime(
 	// 創建深度監控器
 	depthMonitor := safety.NewDepthMonitor(&localCfg, ex)
 
+	// 創建資金費率監控器（僅對合約啟用）
+	var fundingMonitor *safety.FundingRateMonitor
+	var arbitrageManager *arbitrage.FundingArbitrageManager
+	if ex.GetMarketType() == "futures" && localCfg.FundingRate.Enabled {
+		fundingMonitor = safety.NewFundingRateMonitor(&localCfg, ex, symCfg.Symbol)
+		
+		// 設置資金費率監控器到網格管理器
+		superPositionManager.SetFundingMonitor(fundingMonitor)
+		
+		// 如果啟用了期現套利，創建套利管理器
+		if localCfg.FundingRate.ArbitrageEnabled {
+			// 創建現貨交易所實例
+			spotEx, err := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "spot")
+			if err != nil {
+				logger.Warn("⚠️ 創建現貨交易所失敗，跳過期現套利: %v", err)
+			} else {
+				// 創建交易所適配器
+				futuresAdapter := &arbitrageExchangeAdapter{exchange: ex}
+				spotAdapter := &arbitrageExchangeAdapter{exchange: spotEx}
+				
+				arbitrageManager = arbitrage.NewFundingArbitrageManager(&localCfg, futuresAdapter, spotAdapter, fundingMonitor, symCfg.Symbol)
+				
+				// 連接套利管理器到網格管理器
+				superPositionManager.SetArbitrageManager(arbitrageManager)
+				logger.Info("💱 期現套利管理器已創建並連接到網格管理器")
+			}
+		}
+		
+		logger.Info("💰 資金費率監控器已創建")
+	}
+
 	reconciler := safety.NewReconciler(&localCfg, exchangeAdapter, superPositionManager, distributedLock)
 	reconciler.SetPauseChecker(func() bool {
 		// 检查市场异动风控或深度风控是否触发
@@ -373,6 +407,14 @@ func startSymbolRuntime(
 
 	go riskMonitor.Start(ctx)
 	go depthMonitor.Start(ctx)
+
+	// 啟動資金費率監控器和套利管理器
+	if fundingMonitor != nil {
+		go fundingMonitor.Start(ctx)
+	}
+	if arbitrageManager != nil {
+		go arbitrageManager.Start(ctx)
+	}
 
 	// 可選组件
 	var dynamicAdjuster *strategy.DynamicAdjuster
@@ -626,6 +668,12 @@ func startSymbolRuntime(
 		if riskMonitor != nil {
 			riskMonitor.Stop()
 		}
+		if fundingMonitor != nil {
+			fundingMonitor.Stop()
+		}
+		if arbitrageManager != nil {
+			arbitrageManager.Stop()
+		}
 		if dynamicAdjuster != nil {
 			dynamicAdjuster.Stop()
 		}
@@ -643,6 +691,8 @@ func startSymbolRuntime(
 		PriceMonitor:         priceMonitor,
 		RiskMonitor:          riskMonitor,
 		DepthMonitor:         depthMonitor,
+		FundingMonitor:       fundingMonitor,
+		ArbitrageManager:     arbitrageManager,
 		SuperPositionManager: superPositionManager,
 		OrderCleaner:         orderCleaner,
 		Reconciler:           reconciler,
@@ -703,4 +753,48 @@ func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
 		Type:          getStringField("Type"),
 		UpdateTime:    getInt64Field("UpdateTime"),
 	}
+}
+
+// arbitrageExchangeAdapter 適配器，將 exchange.IExchange 適配為 arbitrage.IExchange
+type arbitrageExchangeAdapter struct {
+	exchange exchange.IExchange
+}
+
+func (a *arbitrageExchangeAdapter) GetName() string {
+	return a.exchange.GetName()
+}
+
+func (a *arbitrageExchangeAdapter) GetMarketType() string {
+	return a.exchange.GetMarketType()
+}
+
+func (a *arbitrageExchangeAdapter) PlaceOrder(ctx context.Context, req interface{}) (interface{}, error) {
+	// 這裡需要將 interface{} 轉換為 exchange.OrderRequest
+	// 簡化處理，暫時返回錯誤
+	return nil, fmt.Errorf("PlaceOrder not implemented in adapter")
+}
+
+func (a *arbitrageExchangeAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
+	return a.exchange.CancelOrder(ctx, symbol, orderID)
+}
+
+func (a *arbitrageExchangeAdapter) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
+	positions, err := a.exchange.GetPositions(ctx, symbol)
+	return positions, err
+}
+
+func (a *arbitrageExchangeAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	return a.exchange.GetLatestPrice(ctx, symbol)
+}
+
+func (a *arbitrageExchangeAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
+	return a.exchange.GetBalance(ctx, asset)
+}
+
+func (a *arbitrageExchangeAdapter) GetBaseAsset() string {
+	return a.exchange.GetBaseAsset()
+}
+
+func (a *arbitrageExchangeAdapter) GetQuoteAsset() string {
+	return a.exchange.GetQuoteAsset()
 }
