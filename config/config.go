@@ -78,12 +78,22 @@ type FundingRateConfig struct {
 	BiasEnabled       bool    `yaml:"bias_enabled" json:"bias_enabled"`             // 是否啟用費率偏向策略
 	HighRateThreshold float64 `yaml:"high_rate_threshold" json:"high_rate_threshold"` // 高費率閾值，預設 0.001 (0.1%)
 	PauseBuyThreshold float64 `yaml:"pause_buy_threshold" json:"pause_buy_threshold"` // 暫停買入閾值，預設 0.0015 (0.15%)
+	TrendSyncEnabled  bool    `yaml:"trend_sync_enabled" json:"trend_sync_enabled"`   // 是否啟用費率與趨勢聯動，預設 true
 
 	// 期現套利配置
 	ArbitrageEnabled   bool    `yaml:"arbitrage_enabled" json:"arbitrage_enabled"`       // 是否啟用期現套利
 	HedgeMinPosition   float64 `yaml:"hedge_min_position" json:"hedge_min_position"`     // 最小對沖倉位（USDT），預設 100
 	HedgeRateThreshold float64 `yaml:"hedge_rate_threshold" json:"hedge_rate_threshold"` // 開啟對沖的費率閾值，預設 0.001
 	MaxSpreadPercent   float64 `yaml:"max_spread_percent" json:"max_spread_percent"`     // 最大價差百分比，超過則暫停對沖，預設 0.5%
+}
+
+// OrderbookOptimization 訂單簿優化掛單配置
+type OrderbookOptimization struct {
+	Enabled              bool `yaml:"enabled" json:"enabled"`                               // 是否啟用訂單簿優化掛單，預設 false
+	DepthLevels          int  `yaml:"depth_levels" json:"depth_levels"`                     // 取得訂單簿檔位數，預設 20
+	MinDepthUSDT         int  `yaml:"min_depth_usdt" json:"min_depth_usdt"`                 // 低於此視為空洞（USDT），需微調，預設 5000
+	LookbackLevels       int  `yaml:"lookback_levels" json:"lookback_levels"`               // 檢查候選價前後 N 檔，預設 3
+	OptimizationInterval int  `yaml:"optimization_interval" json:"optimization_interval"`   // 優化間隔（秒），0 表示每次 AdjustOrders 都優化，預設 30
 }
 
 // Config 做市商系統配置
@@ -175,7 +185,8 @@ type Config struct {
 			} `yaml:"window_adjustment"`
 		} `yaml:"smart_position"`
 
-		GridRiskControl GridRiskControl `yaml:"grid_risk_control"`
+		GridRiskControl       GridRiskControl       `yaml:"grid_risk_control"`
+		OrderbookOptimization OrderbookOptimization `yaml:"orderbook_optimization"`
 	} `yaml:"trading"`
 
 	System struct {
