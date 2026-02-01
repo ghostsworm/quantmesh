@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.20.2] - 2026-02-01
+
+### Fixed
+- **CI 編譯**: `positionExchangeAdapter` 補齊 `GetOrderBook` 實作，滿足 `position.IExchange` 介面，修復 GitHub Actions Build (darwin-arm64) 失敗
+
 ## [3.20.1] - 2026-02-01
 
 ### Added

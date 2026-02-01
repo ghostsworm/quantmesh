@@ -81,7 +81,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本号
-var Version = "3.20.1"
+var Version = "3.20.2"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1756,6 +1756,31 @@ func (a *positionExchangeAdapter) GetPriceDecimals() int {
 
 func (a *positionExchangeAdapter) GetQuantityDecimals() int {
 	return a.exchange.GetQuantityDecimals()
+}
+
+// GetOrderBook 獲取訂單簿深度，轉換為 position.OrderBook
+func (a *positionExchangeAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*position.OrderBook, error) {
+	ob, err := a.exchange.GetOrderBook(ctx, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+	if ob == nil {
+		return nil, nil
+	}
+	bids := make([]position.OrderBookLevel, len(ob.Bids))
+	for i, b := range ob.Bids {
+		bids[i] = position.OrderBookLevel{Price: b.Price, Quantity: b.Quantity}
+	}
+	asks := make([]position.OrderBookLevel, len(ob.Asks))
+	for i, ask := range ob.Asks {
+		asks[i] = position.OrderBookLevel{Price: ask.Price, Quantity: ask.Quantity}
+	}
+	return &position.OrderBook{
+		Symbol:    ob.Symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: ob.Timestamp,
+	}, nil
 }
 
 // exchangeProviderAdapter 适配器，將 exchange.IExchange 轉换為 web.ExchangeProvider
