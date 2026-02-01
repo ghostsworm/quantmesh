@@ -337,6 +337,30 @@ export interface Config {
       require_confirmation: boolean
     }
   }
+  news_monitor?: {
+    enabled: boolean
+    check_interval?: string
+    analysis_interval?: string
+    news_collect_interval?: string
+    use_gemini_search?: boolean
+    sources?: string[]
+    news_api_key?: string
+    rss_feeds?: string[]
+    keywords?: string[]
+    risk_threshold?: number
+    prediction_timeframes?: string[]
+    risk_thresholds?: {
+      stop_trading_probability?: number
+      reduce_position_probability?: number
+    }
+    history_retention_days?: number
+    assets?: Array<{
+      asset_type: string
+      symbol: string
+      keywords?: string[]
+      enabled?: boolean
+    }>
+  }
   strategies?: {
     enabled: boolean
     capital_allocation?: {
