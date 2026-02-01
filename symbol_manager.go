@@ -333,6 +333,10 @@ func startSymbolRuntime(
 		})
 	}
 
+	// 提前宣告，供訂單流回調在成交/取消時通知策略並釋放預留資金（閉包可引用）
+	var strategyManager *strategy.StrategyManager
+	var multiExecutor *strategy.MultiStrategyExecutor
+
 	// 訂單流
 	if err := ex.StartOrderStream(ctx, func(updateInterface interface{}) {
 		posUpdate := toPositionOrderUpdate(updateInterface)
@@ -375,6 +379,13 @@ func startSymbolRuntime(
 		}
 
 		superPositionManager.OnOrderUpdate(*posUpdate)
+		// 通知策略層訂單更新（DCA/馬丁等），並在成交或取消時釋放當時預留的資金，避免「可用」只減不增
+		if strategyManager != nil {
+			strategyManager.OnOrderUpdate(posUpdate)
+		}
+		if multiExecutor != nil && (posUpdate.Status == "FILLED" || posUpdate.Status == "CANCELED") {
+			multiExecutor.ReleaseOrderCapitalByOrderID(posUpdate.OrderID)
+		}
 	}); err != nil {
 		logger.Warn("⚠️ [%s] 啟動訂單流失败: %v", symCfg.Symbol, err)
 	}
@@ -431,8 +442,6 @@ func startSymbolRuntime(
 		superPositionManager.SetTrendDetector(trendDetector)
 	}
 
-	var strategyManager *strategy.StrategyManager
-	var multiExecutor *strategy.MultiStrategyExecutor
 	if localCfg.Strategies.Enabled {
 		totalCapital := localCfg.Strategies.CapitalAllocation.TotalCapital
 		if totalCapital <= 0 {

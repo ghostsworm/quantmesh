@@ -11,10 +11,11 @@ import (
 
 // MultiStrategyExecutor 多策略订單執行器
 type MultiStrategyExecutor struct {
-	executor   *order.ExchangeOrderExecutor
-	allocator  *CapitalAllocator
-	strategies map[string]string // orderID -> strategyName
-	mu         sync.RWMutex
+	executor            *order.ExchangeOrderExecutor
+	allocator           *CapitalAllocator
+	strategies          map[string]string  // orderID -> strategyName
+	orderReservedAmount map[int64]float64   // orderID -> 下單時預留的金額（僅開倉買單）
+	mu                  sync.RWMutex
 }
 
 // NewMultiStrategyExecutor 創建多策略订單執行器
@@ -23,10 +24,11 @@ func NewMultiStrategyExecutor(
 	allocator *CapitalAllocator,
 ) *MultiStrategyExecutor {
 	return &MultiStrategyExecutor{
-		executor:   executor,
-		allocator:  allocator,
-		strategies: make(map[string]string),
-		mu:         sync.RWMutex{},
+		executor:            executor,
+		allocator:           allocator,
+		strategies:          make(map[string]string),
+		orderReservedAmount: make(map[int64]float64),
+		mu:                  sync.RWMutex{},
 	}
 }
 
@@ -119,9 +121,12 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 		return nil, fmt.Errorf("下單失败: %w", err)
 	}
 
-	// 標記订單所属策略
+	// 標記订單所属策略，並記錄預留金額（訂單成交/取消時用於釋放資金）
 	mse.mu.Lock()
 	mse.strategies[fmt.Sprintf("%d", ord.OrderID)] = strategyName
+	if !isReducePosition && estimatedAmount > 0 {
+		mse.orderReservedAmount[ord.OrderID] = estimatedAmount
+	}
 	mse.mu.Unlock()
 
 	// 轉换為 position.Order
@@ -254,6 +259,21 @@ func (mse *MultiStrategyExecutor) BatchCancelOrders(orderIDs []int64) error {
 // ReleaseOrderCapital 释放订單资金（订單成交或取消時調用）
 func (mse *MultiStrategyExecutor) ReleaseOrderCapital(strategyName string, amount float64) {
 	mse.allocator.Release(strategyName, amount)
+}
+
+// ReleaseOrderCapitalByOrderID 根據訂單 ID 釋放當時預留的資金（訂單成交或取消時調用，避免 DCA 等策略「可用」只減不增）
+func (mse *MultiStrategyExecutor) ReleaseOrderCapitalByOrderID(orderID int64) {
+	mse.mu.Lock()
+	strategyName, hasStrategy := mse.strategies[fmt.Sprintf("%d", orderID)]
+	amount, hasAmount := mse.orderReservedAmount[orderID]
+	if hasStrategy && hasAmount {
+		delete(mse.strategies, fmt.Sprintf("%d", orderID))
+		delete(mse.orderReservedAmount, orderID)
+		mse.mu.Unlock()
+		mse.allocator.Release(strategyName, amount)
+		return
+	}
+	mse.mu.Unlock()
 }
 
 // GetStrategyByOrderID 根據订單ID獲取策略名称
