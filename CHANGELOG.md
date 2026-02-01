@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [3.28.4] - 2026-02-02
+
+### Fixed
+- **Binance 杠杆倍數獲取修復**: 修復資金分配檢查時杠杆顯示錯誤為 1x 的問題
+  - 問題原因：Binance adapter 的 `Account` 結構體缺少 `AccountLeverage` 欄位，導致資金分配計算時使用錯誤的杠杆值
+  - 修復內容：
+    - `binance/adapter.go`：新增 `AccountLeverage` 欄位，從持倉資訊中提取杠杆倍數
+    - `wrapper_binance.go`：傳遞 `AccountLeverage` 值到通用 Account 結構
+    - `super_position_manager.go`：修復從 `GetPositions` 獲取杠杆的反射邏輯，正確處理 `[]*Position` 類型
+  - 影響：資金分配檢查現在會使用正確的杠杆計算實際保證金（訂單價值 / 杠杆）
+
 ## [3.28.3] - 2026-02-02
 
 ### Fixed
