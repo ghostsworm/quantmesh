@@ -1,0 +1,93 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build output
+opensqt_market_maker
+/opensqt_market_maker
+quantmesh
+quantmesh-*
+opensqt
+*.test
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Data and runtime files
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+
+# Process ID files
+*.pid
+.quantmesh.pid
+
+# Config files with sensitive data (keep example configs)
+config.yaml
+config.json
+!config.example.yaml
+!config.example.json
+.env
+.env.local
+.env.*.local
+
+# Audio files
+*.mp3
+*.wav
+*.ogg
+*.m4a
+
+# Frontend build output and dependencies
+webui/node_modules/
+webui/dist/
+webui/.vite/
+webui/.cache/
+webui/.yarn/
+webui/package-lock.json
+webui/yarn.lock
+webui/pnpm-lock.yaml
+web/dist/
+!web/dist/.gitkeep
+
+# Test coverage
+*.cover
+coverage.txt
+coverage.html
+
+# Temporary files
+*.tmp
+*.temp
+*.orig
+tmp/
+temp/
+
+# OS specific
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Personal private directory (not tracked by git)
+_mine/
+
+# Backup directories
+backups/
+config_backups/

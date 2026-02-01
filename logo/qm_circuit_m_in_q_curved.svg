@@ -1,0 +1,15 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  
+  <!-- 粗线版 Q -->
+  <circle cx="50" cy="50" r="35" stroke="#3B82F6" stroke-width="6"/>
+  <!-- Q 的最后一笔：弯曲的动感弧线，类似 K 线趋势或波浪 -->
+  <path d="M72 72C80 80 95 70 90 95" stroke="#10B981" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- 粗线版 M -->
+  <path d="M30 60V40L50 55L70 40V60" stroke="#6366F1" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="26" y="56" width="8" height="8" rx="1" fill="white"/>
+  <rect x="46" y="51" width="8" height="8" rx="1" fill="white"/>
+  <rect x="66" y="56" width="8" height="8" rx="1" fill="white"/>
+</svg>
+

@@ -1,0 +1,21 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- Q 节点 -->
+  <g opacity="0.8">
+    <circle cx="35" cy="50" r="20" stroke="#3B82F6" stroke-width="1" stroke-dasharray="3 3"/>
+    <circle cx="15" cy="50" r="3" fill="#3B82F6"/>
+    <circle cx="35" cy="30" r="3" fill="#3B82F6"/>
+    <circle cx="55" cy="50" r="3" fill="#3B82F6"/>
+    <circle cx="35" cy="70" r="3" fill="#3B82F6"/>
+    <path d="M50 65L65 80" stroke="#3B82F6" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <!-- T 节点 -->
+  <g>
+    <path d="M55 25H85" stroke="#6366F1" stroke-width="3" stroke-linecap="round"/>
+    <path d="M70 25V75" stroke="#6366F1" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="55" cy="25" r="2" fill="white"/>
+    <circle cx="85" cy="25" r="2" fill="white"/>
+    <circle cx="70" cy="75" r="2" fill="white"/>
+  </g>
+</svg>
+

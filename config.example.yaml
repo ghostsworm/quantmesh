@@ -1,0 +1,577 @@
+# 应用配置
+app:
+  current_exchange: "bitget"  # 当前使用的交易所: binance, bitget, bybit, gate, okx, huobi, kucoin, kraken, bitfinex, mexc, bingx, deribit, edgex
+
+# 多交易所配置
+exchanges:
+  binance:
+  #币安 开户邀请码【QUANTMESH】开户链接：https://accounts.bmwweb.link/register?ref=QUANTMESH
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0004  # 交易手续费率（0.0004 = 0.04% Taker费率，0.0002 = 0.02% Maker费率）
+                      # 设置为0时自动使用币安期货默认Taker费率0.04%
+                      # 实际费率取决于您的VIP等级，请查看币安官网费率表
+    testnet: false    # 是否使用测试网（true=测试网, false=主网）
+  
+  bitget:
+  #BITGET 用我链接开户每笔交易省20%手续费 邀请码【quantmesh】开户链接：https://partner.hdmune.cn/bg/mtm6553a
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    passphrase: "YOUR_PASSPHRASE"
+    fee_rate: 0.0002
+
+  bybit:
+  #BYBIT 开户邀请码【QUANTMESH】开户链接：https://partner.bybit.com/b/QUANTMESH
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+    testnet: false    # 是否使用测试网（true=测试网, false=主网）
+
+  gate:
+  #GATE.IO 用我链接开户每笔交易省20%手续费 邀请码【VQVMVVBAVG】开户链接：https://www.gatenode.xyz/zh/referral/registry?ref=VQVMVVBAVG&ref_type=103&page=superRebate
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+    leverage: 8  # 全仓杠杆倍数（1-125），设置为 0 或不设置则不自动设置杠杆，建议 5-10 倍
+
+  okx:
+  #OKX 开户邀请码【QUANTMESH】开户链接：https://www.okx.com/join/QUANTMESH
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    passphrase: "YOUR_PASSPHRASE"
+    fee_rate: 0.0002
+    testnet: false    # 是否使用模拟盘（true=模拟盘, false=实盘）
+
+  edgex:
+  #EDGEX 用我链接开户直升vip1,每笔交易省20%手续费 邀请码【QUANTMESH】开户链接：https://pro.edgex.exchange/referral/QUANTMESH
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+    
+  huobi:
+  #Huobi (HTX) 开户邀请码【QUANTMESH】开户链接：https://www.huobi.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+
+  kucoin:
+  #KuCoin 开户邀请码【QUANTMESH】开户链接：https://www.kucoin.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    passphrase: "YOUR_PASSPHRASE"
+    fee_rate: 0.0002
+
+  kraken:
+  #Kraken 开户邀请码【QUANTMESH】开户链接：https://www.kraken.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0003
+
+  bitfinex:
+  #Bitfinex 开户邀请码【QUANTMESH】开户链接：https://www.bitfinex.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+
+  mexc:
+  #MEXC（抹茶）开户邀请码【QUANTMESH】开户链接：https://www.mexc.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+    testnet: false    # 是否使用测试网（true=测试网, false=主网）
+
+  bingx:
+  #BingX 开户邀请码【QUANTMESH】开户链接：https://www.bingx.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+    testnet: false    # 是否使用测试网（true=测试网, false=主网）
+
+  deribit:
+  #Deribit 开户邀请码【QUANTMESH】开户链接：https://www.deribit.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0003
+    testnet: false
+
+  bitmex:
+  #BitMEX 开户邀请码【QUANTMESH】开户链接：https://www.bitmex.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.00075
+    testnet: false
+
+  phemex:
+  #Phemex 开户邀请码【QUANTMESH】开户链接：https://phemex.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0000
+    testnet: false
+
+  woox:
+  #WOO X 开户邀请码【QUANTMESH】开户链接：https://x.woo.org/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+    testnet: false
+
+  coinex:
+  #CoinEx 开户邀请码【QUANTMESH】开户链接：https://www.coinex.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+    testnet: false
+
+  bitrue:
+  #Bitrue 开户邀请码【QUANTMESH】开户链接：https://www.bitrue.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.001
+    testnet: false
+
+  xtcom:
+  #XT.COM 开户邀请码【QUANTMESH】开户链接：https://www.xt.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.002
+    testnet: false
+
+  btcc:
+  #BTCC 开户邀请码【QUANTMESH】开户链接：https://www.btcc.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0005
+    testnet: false
+
+  ascendex:
+  #AscendEX 开户邀请码【QUANTMESH】开户链接：https://ascendex.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.001
+    testnet: false
+
+  poloniex:
+  #Poloniex 开户邀请码【QUANTMESH】开户链接：https://poloniex.com/
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.002
+    testnet: false
+
+  cryptocom:
+  #Crypto.com 开户邀请码【QUANTMESH】开户链接：https://crypto.com/exchange
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.001
+    testnet: false    # 是否使用测试网（true=测试网, false=主网）
+
+  bit:
+  #bit.com 用我链接开户,每笔交易省50%手续费 邀请码【QUANTMESH】开户链接：https://bitweb.bitexch.io/zh-CN/signup?code=QUANTMESH
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0002
+####################################
+
+trading:
+  # 多交易对配置（推荐）。exchange 留空时默认使用 app.current_exchange
+  symbols:
+    - exchange: "bitget"
+      symbol: "ETHUSDT"
+      price_interval: 2
+      order_quantity: 30
+      min_order_value: 20
+      buy_window_size: 10
+      sell_window_size: 10
+      reconcile_interval: 60
+      order_cleanup_threshold: 50
+      cleanup_batch_size: 20
+      margin_lock_duration_seconds: 20
+      position_safety_check: 100
+    - exchange: "binance"
+      symbol: "BTCUSDT"
+      price_interval: 10
+      order_quantity: 50
+      min_order_value: 20
+      buy_window_size: 8
+      sell_window_size: 8
+      reconcile_interval: 60
+      order_cleanup_threshold: 50
+      cleanup_batch_size: 20
+      margin_lock_duration_seconds: 20
+      position_safety_check: 100
+
+  # 兼容旧版：单交易对配置（如配置了 symbols 会自动忽略此项）
+  symbol: "ETHUSDT"
+  price_interval: 2         # 价格间隔（1美元）
+  order_quantity: 30        # 每单购买金额（USDT/USDC）如 30 表示每单投入30U
+  min_order_value: 20       # 最小订单价值（USDT），小于此值不挂单（默认20U）
+  # 注意：price_decimals 和 quantity_decimals 已移除，现在从交易所自动获取
+  
+  #ETH配置建议(每单赚1美分):
+  #价格间隔：1 美元
+  #订单金额：30 USDT（每单投入30U，价格3000时买0.01 ETH，价格1500时买0.02 ETH）
+  #价格小数位数：2
+  #数量小数位数：3
+
+  #ETH配置建议(每单赚10美分):
+  #价格间隔：10 美元
+  #订单金额：300 USDT (每单投入300U，需要大量保证金)
+  #价格小数位数：2
+
+  #DOGE建议（每单赚2美分）：
+  #价格间隔：0.0001 美元
+  #订单金额：20 USDT（价格0.1时买200 DOGE，价格0.2时买100 DOGE）
+  #价格小数位数：6
+
+#####################################
+
+  # 滑动窗口配置
+  buy_window_size: 10          # 下方买单数量
+  sell_window_size: 10         # 上方卖单数量
+
+  # 对账配置
+  reconcile_interval: 60      # 对账间隔（秒）
+
+  # 订单管理配置
+  order_cleanup_threshold: 50      # 订单清理上限（超过此数量时触发清理）
+  cleanup_batch_size: 20           # 清理批次大小（每次清理的买单和卖单数量）
+  margin_lock_duration_seconds: 20  # 保证金不足时锁定时间（秒，默认10秒）
+  
+  # 持仓安全性配置
+  position_safety_check: 100        # 持仓安全性检查（默认100，最少能向下持有多少仓）
+
+
+# 时间间隔配置
+timing:
+  # WebSocket相关
+  websocket_reconnect_delay: 5      # WebSocket断线重连等待时间（秒，默认5）
+  websocket_write_wait: 10          # WebSocket写入等待时间（秒，默认10）
+  websocket_pong_wait: 60           # WebSocket PONG等待时间（秒，默认60）
+  websocket_ping_interval: 20       # WebSocket PING间隔（秒，默认20）
+  listen_key_keepalive_interval: 30 # listenKey保活间隔（分钟，默认30）
+
+  # 价格监控相关
+  price_send_interval: 50           # 定期发送价格的间隔（毫秒，默认50）
+
+  # 订单执行相关
+  rate_limit_retry_delay: 1         # 速率限制重试等待时间（秒，默认1）
+  order_retry_delay: 500            # 其他错误重试等待时间（毫秒，默认500）
+  price_poll_interval: 500          # 等待获取价格的轮询间隔（毫秒，默认500）
+  status_print_interval: 1          # 定期打印状态的间隔（分钟，默认1）
+  order_cleanup_interval: 10        # 订单清理检查间隔（秒，默认10）
+
+system:
+  # 日志级别: DEBUG(调试) / INFO(信息) / WARN(警告) / ERROR(错误) / FATAL(致命)
+  log_level: "INFO"
+  timezone: "Asia/Shanghai"   # 系统时区，如 "Asia/Shanghai", "UTC", "America/New_York"
+  cancel_on_exit: true        # 退出时撤销所有订单（默认开启true,关闭用false）
+  close_positions_on_exit: false  # 退出时是否平仓（默认关闭false，开启后会在退出时自动平掉所有持仓）
+  dry_run: false              # 模拟运行模式（默认关闭false，开启后不会实际下单，仅记录日志）
+                              # 适用场景：本地调试、策略验证、学习系统运行逻辑
+                              # 开启后：所有下单、撤单操作都只会在日志中模拟执行，不会发送到交易所
+
+# 主动安全风控配置（基于移动平均线）
+risk_control:
+  enabled: true               # 是否启用风控（默认开启true,关闭用false）
+  
+  # 监控的主流币种（用于判断市场整体情绪）
+  monitor_symbols:
+    - "BTCUSDT"
+    - "ETHUSDT"
+    - "SOLUSDT"
+    - "XRPUSDT"
+    - "DOGEUSDT"
+  
+  interval: "1m"              # K线周期：1m / 3m / 5m
+  volume_multiplier: 3.0      # 成交量倍数：当前量 > 均值×3倍视为异常
+  average_window: 20          # 移动平均窗口：50根K线
+  recovery_threshold: 3       # 恢复交易所需的正常币种数量（默认3个币种恢复正常即可恢复交易）
+  max_leverage: 10            # 最大允许杠杆倍数（默认10，设置为0表示不限制）
+  
+  # 触发条件：当前价格 < 移动均价 且 成交量 > 均值×倍数
+  # 解除条件：至少 recovery_threshold 个币种满足（当前价格 > 移动均价 且 成交量 < 均值×倍数）
+
+# 通知配置
+notifications:
+  enabled: true               # 是否启用通知（默认开启true,关闭用false）
+  
+  telegram:
+    enabled: false            # 是否启用 Telegram 通知
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+  
+  webhook:
+    enabled: false            # 是否启用 Webhook 通知
+    url: "https://your-webhook-url.com/api/notify"
+    timeout: 3                # 超时时间（秒，默认3）
+  
+  email:
+    enabled: false            # 是否启用邮件通知
+    provider: "smtp"          # 邮件服务商：smtp/resend/mailgun
+    
+    # SMTP 配置
+    smtp:
+      host: "smtp.example.com"
+      port: 587
+      username: "your_username"
+      password: "your_password"
+    
+    # Resend 配置（需要安装 resend-go 库）
+    resend:
+      api_key: "YOUR_RESEND_API_KEY"
+    
+    # Mailgun 配置（需要安装 mailgun-go 库）
+    mailgun:
+      api_key: "YOUR_MAILGUN_API_KEY"
+      domain: "your_domain.com"
+    
+    from: "alerts@yourdomain.com"
+    to: "admin@yourdomain.com"
+    subject: "QuantMesh 交易通知"
+  
+  # 飞书（Feishu/Lark）配置
+  feishu:
+    enabled: false            # 是否启用飞书通知
+    webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_WEBHOOK_URL"
+  
+  # 钉钉（DingTalk）配置
+  dingtalk:
+    enabled: false            # 是否启用钉钉通知
+    webhook: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_ACCESS_TOKEN"
+    secret: ""                # 钉钉机器人签名密钥（可选，如果配置了签名验证）
+  
+  # 企业微信（WeChat Work）配置
+  wechat_work:
+    enabled: false            # 是否启用企业微信通知
+    webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+  
+  # Slack 配置
+  slack:
+    enabled: false            # 是否启用 Slack 通知
+    webhook: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  
+  # 通知规则：哪些事件需要通知
+  rules:
+    order_placed: false       # 订单下单（默认关闭，避免通知过多）
+    order_filled: true        # 订单成交（默认开启）
+    risk_triggered: true      # 风控触发（默认开启）
+    stop_loss: true          # 止损触发（默认开启）
+    error: true              # 系统错误（默认开启）
+
+# 存储配置
+storage:
+  enabled: true               # 是否启用数据存储（默认开启true,关闭用false）
+  type: "sqlite"              # 存储类型：sqlite
+  path: "./data/quantmesh.db"   # 数据库文件路径
+  buffer_size: 1000           # 缓冲区大小（默认1000）
+  batch_size: 100             # 批量写入大小（默认100）
+  flush_interval: 5           # 刷新间隔（秒，默认5）
+
+# Web服务配置
+web:
+  enabled: true               # 是否启用Web服务（默认开启true,关闭用false）
+  host: "0.0.0.0"             # 监听地址（默认0.0.0.0，监听所有地址）
+  port: 28888                 # 监听端口（默认28888，使用10000以上端口避免常见端口冲突）
+  api_key: ""                 # API密钥（可选，用于认证）
+  
+  # pprof 性能分析配置（生产环境建议禁用）
+  pprof:
+    enabled: false            # 是否启用 pprof，默认 false（生产环境建议禁用）
+    require_auth: true         # 是否需要认证，默认 true（启用时建议开启认证）
+    allowed_ips:               # IP 白名单（可选，为空则允许所有 IP，启用时建议配置）
+      - "127.0.0.1"
+      - "::1"
+      # - "192.168.1.100"      # 示例：允许特定内网 IP
+
+# 系统监控配置（Watchdog）
+watchdog:
+  enabled: true               # 是否启用系统监控（建议开启）
+  sampling:
+    interval: 60              # 采样间隔（秒，默认60秒）
+  retention:
+    detail_days: 7            # 细粒度数据保留天数（默认7天）
+    daily_days: 90            # 每日汇总数据保留天数（默认90天）
+  notifications:
+    enabled: true             # 是否启用告警通知
+    fixed_threshold:
+      enabled: true           # 是否启用固定阈值告警
+      cpu_percent: 80         # CPU使用率告警阈值（百分比）
+      memory_mb: 1024         # 内存使用告警阈值（MB）
+    rate_threshold:
+      enabled: true           # 是否启用变化率告警
+      window_minutes: 5       # 监控时间窗口（分钟）
+      cpu_increase: 30        # CPU增长率告警阈值（百分比）
+      memory_increase_mb: 200 # 内存增长告警阈值（MB）
+    cooldown_minutes: 30      # 告警冷却时间（分钟）
+  aggregation:
+    enabled: true             # 是否启用每日汇总
+    schedule: "00:00"         # 汇总时间（HH:MM格式）
+
+# AI配置
+ai:
+  enabled: false              # 是否启用AI功能（默认关闭）
+  provider: "gemini"          # AI服务提供商：gemini, openai
+  api_key: "YOUR_AI_API_KEY"  # AI服务API密钥
+  base_url: ""                # 可选，自定义API端点
+  
+  # 各模块开关
+  modules:
+    market_analysis:
+      enabled: false          # 是否启用市场分析
+      update_interval: 60     # 更新间隔（秒）
+    
+    parameter_optimization:
+      enabled: false          # 是否启用参数优化
+      optimization_interval: 3600  # 优化间隔（秒）
+      auto_apply: false       # 是否自动应用优化结果
+    
+    risk_analysis:
+      enabled: false          # 是否启用风险分析
+      analysis_interval: 300  # 分析间隔（秒）
+    
+    sentiment_analysis:
+      enabled: false          # 是否启用情绪分析
+      analysis_interval: 600  # 分析间隔（秒）
+      data_sources:
+        news:
+          enabled: true       # 是否启用新闻源
+          rss_feeds: []       # RSS源列表（空则使用默认源）
+          fetch_interval: 300 # 获取间隔（秒）
+        fear_greed_index:
+          enabled: true       # 是否启用恐慌贪婪指数
+          api_url: ""        # API地址（空则使用默认）
+          fetch_interval: 3600 # 获取间隔（秒）
+        social_media:
+          enabled: false      # 是否启用社交媒体（暂未实现）
+    
+    polymarket_signal:
+      enabled: false          # 是否启用Polymarket预测市场信号
+      analysis_interval: 300 # 分析间隔（秒）
+      api_url: "https://api.polymarket.com/graphql"  # Polymarket API地址
+      markets:
+        keywords:             # 关注的市场关键词（用于筛选相关市场）
+          - "bitcoin"
+          - "btc"
+          - "ethereum"
+          - "eth"
+          - "crypto"
+          - "regulation"
+        min_liquidity: 10000  # 最小流动性要求（USDC）
+        min_volume_24h: 5000   # 最小24小时交易量（USDC）
+        min_days_to_expiry: 1  # 最小到期天数
+        max_days_to_expiry: 90 # 最大到期天数
+      signal_generation:
+        buy_threshold: 0.65    # 买入信号阈值（概率>此值生成买入信号）
+        sell_threshold: 0.35   # 卖出信号阈值（概率<此值生成卖出信号）
+        min_signal_strength: 0.3  # 最小信号强度
+        min_confidence: 0.5       # 最小置信度
+    
+    strategy_generation:
+      enabled: false          # 是否启用策略生成（实验性功能）
+  
+  # 决策模式：advisor（建议模式）, executor（执行模式）, hybrid（混合模式）
+  decision_mode: "hybrid"
+  
+  # 执行模式规则
+  execution_rules:
+    high_risk_threshold: 0.8   # 高风险阈值（超过此值仅建议）
+    low_risk_threshold: 0.3   # 低风险阈值（低于此值可直接执行）
+    require_confirmation: true  # 是否需要人工确认
+
+# 插件配置（可选）
+# 插件系统配置
+# 价差监控配置
+basis_monitor:
+  enabled: true  # 设置为 true 启用价差监控
+  interval_minutes: 1  # 检查间隔（分钟）
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+    - BNBUSDT
+    - SOLUSDT
+
+# ========================================
+# 事件中心配置
+# ========================================
+event_center:
+  enabled: true  # 是否启用事件中心（默认true）
+  price_volatility_threshold: 5.0  # 价格波动阈值（百分比），超过此值将触发事件
+  monitored_symbols:  # 监控价格波动的交易对（为空则监控所有）
+    - BTCUSDT
+    - ETHUSDT
+  
+  # 事件保留策略
+  retention:
+    # 按时间保留
+    critical_days: 365  # Critical 事件保留天数（默认365天/1年）
+    warning_days: 90    # Warning 事件保留天数（默认90天/3个月）
+    info_days: 30       # Info 事件保留天数（默认30天/1个月）
+    
+    # 按数量保留（达到上限后删除最旧的）
+    critical_max_count: 1000000  # Critical 事件最大保留数量（默认100万）
+    warning_max_count: 500000    # Warning 事件最大保留数量（默认50万）
+    info_max_count: 300000       # Info 事件最大保留数量（默认30万）
+  
+  cleanup_interval: 24  # 清理间隔（小时），默认每24小时清理一次
+
+plugins:
+  enabled: false  # 设置为 true 启用插件系统
+  directory: "../quantmesh-premium/plugins"  # 插件目录（相对路径或绝对路径）
+  
+  # 插件 License Keys（商业插件需要有效的 License）
+  # 如需购买 License，请访问：https://quantmesh.io/commercial
+  licenses:
+    ai_strategy: ""       # AI 策略插件 License Key
+    multi_strategy: ""    # 多策略插件 License Key
+    advanced_risk: ""     # 高级风控插件 License Key
+    basis_alert: ""       # 价差预警插件 License Key
+  
+  # 插件配置参数
+  config:
+    # AI 策略插件配置
+    ai_strategy:
+      gemini_api_key: ""           # Google Gemini API Key
+      openai_api_key: ""           # OpenAI API Key
+      analysis_interval: 300       # 分析间隔（秒）
+      enable_market_analysis: true # 启用市场分析
+      enable_param_optimization: true  # 启用参数优化
+      enable_risk_analysis: true   # 启用风险分析
+    
+    # 多策略插件配置
+    multi_strategy:
+      default_strategy: "grid"     # 默认策略：grid/momentum/mean_reversion/trend_following
+      enable_momentum: false       # 启用动量策略
+      enable_mean_reversion: false # 启用均值回归策略
+      enable_trend_following: false # 启用趋势跟踪策略
+      capital_allocation: "equal"  # 资金分配方式：equal/weighted/dynamic
+    
+    # 高级风控插件配置
+    advanced_risk:
+      enable_ml_risk_model: true   # 启用机器学习风险模型
+      enable_portfolio_optimizer: true  # 启用投资组合优化
+      risk_threshold: 0.7          # 风险阈值（0-1）
+      rebalance_interval: 3600     # 再平衡间隔（秒）
+    
+    # 价差预警插件配置
+    basis_alert:
+      enabled: true
+      check_interval_seconds: 60   # 检查间隔（秒）
+      
+      # 预警阈值
+      thresholds:
+        BTCUSDT:
+          basis_percent_high: 0.5   # 价差过高阈值（0.5%）
+          basis_percent_low: -0.5   # 价差过低阈值（-0.5%）
+          zscore_threshold: 2.0     # Z-score 阈值
+        ETHUSDT:
+          basis_percent_high: 0.8
+          basis_percent_low: -0.8
+          zscore_threshold: 2.0
+      
+      # 通知设置
+      notifications:
+        cooldown_minutes: 30  # 同一交易对预警冷却时间（分钟）
+        telegram_enabled: false
+        telegram_bot_token: ""
+        telegram_chat_id: ""
+        webhook_enabled: false
+        webhook_url: ""

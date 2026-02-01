@@ -1,0 +1,49 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'quantmesh'
+    environment: 'production'
+
+# Alertmanager 配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# 告警规则文件
+rule_files:
+  - 'alerts.yml'
+
+# 抓取配置
+scrape_configs:
+  # QuantMesh 应用指标
+  - job_name: 'quantmesh'
+    static_configs:
+      - targets: ['host.docker.internal:28888']
+        labels:
+          instance: 'quantmesh-main'
+          service: 'market-maker'
+    # 如果有多个实例，可以添加更多 targets
+    # - targets: ['host.docker.internal:28889']
+    #   labels:
+    #     instance: 'quantmesh-instance-2'
+
+  # Prometheus 自身指标
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Node Exporter（主机指标）
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          instance: 'quantmesh-host'
+
+  # AlertManager 指标
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+

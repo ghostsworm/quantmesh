@@ -1,0 +1,432 @@
+package web
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
+	"quantmesh/config"
+	"quantmesh/storage"
+)
+
+// parseExportParams 解析导出通用参数
+func parseExportParams(c *gin.Context) storage.ExportParams {
+	format := storage.ExportFormat(strings.ToLower(c.DefaultQuery("format", "json")))
+	if format != storage.ExportFormatCSV && format != storage.ExportFormatJSON {
+		format = storage.ExportFormatJSON
+	}
+
+	var startTime, endTime time.Time
+	if s := c.Query("start_time"); s != "" {
+		startTime, _ = time.Parse(time.RFC3339, s)
+	}
+	if s := c.Query("end_time"); s != "" {
+		endTime, _ = time.Parse(time.RFC3339, s)
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10000"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
+	account := GetCurrentAccountID()
+	if a := c.Query("account"); a != "" {
+		account = a
+	}
+
+	return storage.ExportParams{
+		Format:    format,
+		StartTime: startTime,
+		EndTime:   endTime,
+		Exchange:  c.Query("exchange"),
+		Symbol:    c.Query("symbol"),
+		Account:   account,
+		Limit:     limit,
+		Offset:    offset,
+	}
+}
+
+// serveExport 设置下载响应头并返回数据
+func serveExport(c *gin.Context, data []byte, contentType, filename string) {
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Data(http.StatusOK, contentType, data)
+}
+
+// exportConfigHandler 下载当前配置（脱敏）
+// GET /api/export/config
+func exportConfigHandler(c *gin.Context) {
+	if configManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
+		return
+	}
+
+	cfg, err := configManager.GetConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	sanitized := config.SanitizeForExport(cfg)
+	data, err := yaml.Marshal(sanitized)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "序列化配置失败"})
+		return
+	}
+
+	filename := "config_" + time.Now().Format("20060102_150405") + ".yaml"
+	serveExport(c, data, "application/x-yaml", filename)
+}
+
+// exportConfigHistoryHandler 下载历史配置（脱敏）
+// GET /api/export/config/history/:version
+func exportConfigHistoryHandler(c *gin.Context) {
+	if configHistoryMgr == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置历史管理器未初始化"})
+		return
+	}
+
+	version, err := strconv.Atoi(c.Param("version"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的版本号"})
+		return
+	}
+
+	history, err := configHistoryMgr.GetHistory(version)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 解析并脱敏
+	cfg, err := config.LoadConfigFromBytes([]byte(history.Content))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析历史配置失败"})
+		return
+	}
+	sanitized := config.SanitizeForExport(cfg)
+	data, err := yaml.Marshal(sanitized)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "序列化配置失败"})
+		return
+	}
+
+	filename := "config_v" + strconv.Itoa(version) + "_" + time.Now().Format("20060102") + ".yaml"
+	serveExport(c, data, "application/x-yaml", filename)
+}
+
+// exportTradesHandler 导出交易历史
+// GET /api/export/trades
+func exportTradesHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	params := parseExportParams(c)
+	exporter := storage.NewExporter(storageProv.GetStorage())
+
+	data, contentType, err := exporter.ExportTrades(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ext := ".json"
+	if params.Format == storage.ExportFormatCSV {
+		ext = ".csv"
+	}
+	filename := "trades_" + time.Now().Format("20060102_150405") + ext
+	serveExport(c, data, contentType, filename)
+}
+
+// exportOrdersHandler 导出订单历史
+// GET /api/export/orders
+func exportOrdersHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	params := parseExportParams(c)
+	exporter := storage.NewExporter(storageProv.GetStorage())
+
+	data, contentType, err := exporter.ExportOrders(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ext := ".json"
+	if params.Format == storage.ExportFormatCSV {
+		ext = ".csv"
+	}
+	filename := "orders_" + time.Now().Format("20060102_150405") + ext
+	serveExport(c, data, contentType, filename)
+}
+
+// exportPositionsHandler 导出持仓历史
+// GET /api/export/positions
+func exportPositionsHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	params := parseExportParams(c)
+	exporter := storage.NewExporter(storageProv.GetStorage())
+
+	data, contentType, err := exporter.ExportPositions(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ext := ".json"
+	if params.Format == storage.ExportFormatCSV {
+		ext = ".csv"
+	}
+	filename := "positions_" + time.Now().Format("20060102_150405") + ext
+	serveExport(c, data, contentType, filename)
+}
+
+// exportStatisticsHandler 导出统计数据
+// GET /api/export/statistics
+func exportStatisticsHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	params := parseExportParams(c)
+	exporter := storage.NewExporter(storageProv.GetStorage())
+
+	data, contentType, err := exporter.ExportStatistics(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ext := ".json"
+	if params.Format == storage.ExportFormatCSV {
+		ext = ".csv"
+	}
+	filename := "statistics_" + time.Now().Format("20060102_150405") + ext
+	serveExport(c, data, contentType, filename)
+}
+
+// exportReconciliationHandler 导出对账历史
+// GET /api/export/reconciliation
+func exportReconciliationHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	params := parseExportParams(c)
+	exporter := storage.NewExporter(storageProv.GetStorage())
+
+	data, contentType, err := exporter.ExportReconciliation(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ext := ".json"
+	if params.Format == storage.ExportFormatCSV {
+		ext = ".csv"
+	}
+	filename := "reconciliation_" + time.Now().Format("20060102_150405") + ext
+	serveExport(c, data, contentType, filename)
+}
+
+// exportRiskChecksHandler 导出风控检查历史
+// GET /api/export/risk-checks
+func exportRiskChecksHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	params := parseExportParams(c)
+	exporter := storage.NewExporter(storageProv.GetStorage())
+
+	data, contentType, err := exporter.ExportRiskChecks(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ext := ".json"
+	if params.Format == storage.ExportFormatCSV {
+		ext = ".csv"
+	}
+	filename := "risk_checks_" + time.Now().Format("20060102_150405") + ext
+	serveExport(c, data, contentType, filename)
+}
+
+// exportSystemMetricsHandler 导出系统监控数据
+// GET /api/export/system-metrics
+func exportSystemMetricsHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	params := parseExportParams(c)
+	exporter := storage.NewExporter(storageProv.GetStorage())
+
+	data, contentType, err := exporter.ExportSystemMetrics(params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ext := ".json"
+	if params.Format == storage.ExportFormatCSV {
+		ext = ".csv"
+	}
+	filename := "system_metrics_" + time.Now().Format("20060102_150405") + ext
+	serveExport(c, data, contentType, filename)
+}
+
+// exportLogsHandler 导出应用日志
+// GET /api/export/logs
+func exportLogsHandler(c *gin.Context) {
+	if logStorageProvider == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "日志存储未初始化"})
+		return
+	}
+
+	params := parseExportParams(c)
+	format := strings.ToLower(c.DefaultQuery("format", "json"))
+
+	var startTime, endTime time.Time
+	if !params.StartTime.IsZero() {
+		startTime = params.StartTime
+	} else {
+		startTime = time.Now().AddDate(0, 0, -7)
+	}
+	if !params.EndTime.IsZero() {
+		endTime = params.EndTime
+	} else {
+		endTime = time.Now()
+	}
+
+	logs, _, err := logStorageProvider.GetLogs(startTime, endTime, "", "", params.Limit, params.Offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if format == "csv" {
+		// 简单 CSV 格式
+		var sb strings.Builder
+		sb.WriteString("id,timestamp,level,message\n")
+		for _, log := range logs {
+			sb.WriteString(strconv.FormatInt(log.ID, 10) + ",")
+			sb.WriteString(log.Timestamp.Format(time.RFC3339) + ",")
+			sb.WriteString(log.Level + ",")
+			sb.WriteString(`"` + strings.ReplaceAll(log.Message, `"`, `""`) + `"` + "\n")
+		}
+		filename := "logs_" + time.Now().Format("20060102_150405") + ".csv"
+		serveExport(c, []byte(sb.String()), "text/csv", filename)
+	} else {
+		// JSON
+		data, _ := jsonMarshalIndent(logs)
+		filename := "logs_" + time.Now().Format("20060102_150405") + ".json"
+		serveExport(c, data, "application/json", filename)
+	}
+}
+
+// exportAuditLogsHandler 导出审计日志（合规交易审计 CSV/JSONL 文件）
+// GET /api/export/audit-logs
+// 从 data/audit 目录读取并按日期范围打包
+func exportAuditLogsHandler(c *gin.Context) {
+	params := parseExportParams(c)
+	auditDir := "./data/audit"
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil && cfg.Compliance.AuditLog.Directory != "" {
+			auditDir = cfg.Compliance.AuditLog.Directory
+		}
+	}
+
+	params.AuditDir = auditDir
+	exporter := storage.NewExporter(nil) // 仅用于打包审计文件，不需要 storage
+
+	zipData, err := exporter.CreateExportZip(params, nil, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	filename := "audit_logs_" + time.Now().Format("20060102_150405") + ".zip"
+	serveExport(c, zipData, "application/zip", filename)
+}
+
+// exportAllHandler 导出全部数据（ZIP 打包）
+// GET /api/export/all
+func exportAllHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储服务未就绪"})
+		return
+	}
+
+	params := parseExportParams(c)
+	auditDir := "./data/audit"
+	configContent := []byte{}
+
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			sanitized := config.SanitizeForExport(cfg)
+			configContent, _ = yaml.Marshal(sanitized)
+		}
+		if err == nil && cfg != nil && cfg.Compliance.AuditLog.Directory != "" {
+			auditDir = cfg.Compliance.AuditLog.Directory
+		}
+	}
+	params.AuditDir = auditDir
+
+	// 应用日志
+	var logRecords interface{}
+	if logStorageProvider != nil {
+		startTime := params.StartTime
+		endTime := params.EndTime
+		if startTime.IsZero() {
+			startTime = time.Now().AddDate(0, 0, -30)
+		}
+		if endTime.IsZero() {
+			endTime = time.Now()
+		}
+		logs, _, _ := logStorageProvider.GetLogs(startTime, endTime, "", "", 5000, 0)
+		if len(logs) > 0 {
+			logRecords = logs
+		}
+	}
+
+	exporter := storage.NewExporter(storageProv.GetStorage())
+	zipData, err := exporter.CreateExportZip(params, logRecords, configContent)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	filename := "quantmesh_export_" + time.Now().Format("20060102_150405") + ".zip"
+	serveExport(c, zipData, "application/zip", filename)
+}
+
+// jsonMarshalIndent 序列化为 JSON
+func jsonMarshalIndent(v interface{}) ([]byte, error) {
+	return json.MarshalIndent(v, "", "  ")
+}

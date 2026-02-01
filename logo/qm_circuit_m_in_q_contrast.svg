@@ -1,0 +1,13 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- 对比版：粗 Q 细 M -->
+  <circle cx="50" cy="50" r="35" stroke="#3B82F6" stroke-width="5" opacity="0.3"/>
+  <path d="M75 75L85 85" stroke="#3B82F6" stroke-width="8" stroke-linecap="round" opacity="0.3"/>
+  
+  <!-- 精细 M 作为焦点 -->
+  <path d="M30 60V35L50 55L70 35V60" stroke="#6366F1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="30" cy="60" r="4" fill="white"/>
+  <circle cx="50" cy="55" r="4" fill="white"/>
+  <circle cx="70" cy="60" r="4" fill="white"/>
+</svg>
+

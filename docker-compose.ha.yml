@@ -1,0 +1,171 @@
+version: '3.8'
+
+services:
+  # Redis - 分布式锁
+  redis:
+    image: redis:7-alpine
+    container_name: quantmesh_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - quantmesh
+
+  # PostgreSQL - 共享数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: quantmesh_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: quantmesh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: quantmesh
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantmesh"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - quantmesh
+
+  # QuantMesh 实例 1
+  quantmesh-1:
+    image: quantmesh/market-maker:latest
+    container_name: quantmesh_instance_1
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      - INSTANCE_ID=instance-1
+      - INSTANCE_INDEX=0
+      - DATABASE_TYPE=postgres
+      - DATABASE_DSN=host=postgres user=quantmesh password=${POSTGRES_PASSWORD:-changeme} dbname=quantmesh port=5432 sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+    volumes:
+      - ./config-instance1.yaml:/app/config.yaml:ro
+      - instance1_data:/app/data
+      - instance1_logs:/app/logs
+    ports:
+      - "28881:28888"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:28888/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - quantmesh
+
+  # QuantMesh 实例 2
+  quantmesh-2:
+    image: quantmesh/market-maker:latest
+    container_name: quantmesh_instance_2
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      - INSTANCE_ID=instance-2
+      - INSTANCE_INDEX=1
+      - DATABASE_TYPE=postgres
+      - DATABASE_DSN=host=postgres user=quantmesh password=${POSTGRES_PASSWORD:-changeme} dbname=quantmesh port=5432 sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+    volumes:
+      - ./config-instance2.yaml:/app/config.yaml:ro
+      - instance2_data:/app/data
+      - instance2_logs:/app/logs
+    ports:
+      - "28882:28888"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:28888/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - quantmesh
+
+  # QuantMesh 实例 3 (热备)
+  quantmesh-3:
+    image: quantmesh/market-maker:latest
+    container_name: quantmesh_instance_3
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      - INSTANCE_ID=instance-3
+      - INSTANCE_INDEX=2
+      - DATABASE_TYPE=postgres
+      - DATABASE_DSN=host=postgres user=quantmesh password=${POSTGRES_PASSWORD:-changeme} dbname=quantmesh port=5432 sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - STANDBY_MODE=true
+    volumes:
+      - ./config-instance3.yaml:/app/config.yaml:ro
+      - instance3_data:/app/data
+      - instance3_logs:/app/logs
+    ports:
+      - "28883:28888"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:28888/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - quantmesh
+
+  # Nginx 负载均衡
+  nginx:
+    image: nginx:alpine
+    container_name: quantmesh_nginx
+    restart: unless-stopped
+    depends_on:
+      - quantmesh-1
+      - quantmesh-2
+      - quantmesh-3
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - quantmesh
+
+volumes:
+  redis_data:
+  postgres_data:
+  instance1_data:
+  instance1_logs:
+  instance2_data:
+  instance2_logs:
+  instance3_data:
+  instance3_logs:
+
+networks:
+  quantmesh:
+    driver: bridge
+
+
+

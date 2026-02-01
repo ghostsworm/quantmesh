@@ -1,0 +1,9 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="15" fill="#0F172A"/>
+  <!-- 几何切割 Q -->
+  <path d="M50 10C27.9086 10 10 27.9086 10 50C10 72.0914 27.9086 90 50 90C55 90 60 89 65 87L85 95" stroke="#3B82F6" stroke-width="4" stroke-linecap="round"/>
+  
+  <!-- 内部利用负空间和线条勾勒 M -->
+  <path d="M30 65V35L50 55L70 35V65" stroke="#6366F1" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+</svg>
+
