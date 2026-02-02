@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"quantmesh/exchange/bingx"
+	"quantmesh/exchange/income"
 )
 
 // bingxWrapper BingX 包装器
@@ -285,6 +286,15 @@ func (w *bingxWrapper) GetQuoteAsset() string {
 // GetFundingRate 獲取资金费率
 func (w *bingxWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx)
+}
+
+func (w *bingxWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *bingxWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格（未實現）

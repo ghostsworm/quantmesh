@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"quantmesh/arbitrage"
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
@@ -15,7 +16,6 @@ import (
 	"quantmesh/order"
 	"quantmesh/position"
 	"quantmesh/safety"
-	"quantmesh/arbitrage"
 	"quantmesh/storage"
 	"quantmesh/strategy"
 )
@@ -294,10 +294,10 @@ func startSymbolRuntime(
 	var arbitrageManager *arbitrage.FundingArbitrageManager
 	if ex.GetMarketType() == "futures" && localCfg.FundingRate.Enabled {
 		fundingMonitor = safety.NewFundingRateMonitor(&localCfg, ex, symCfg.Symbol)
-		
+
 		// 設置資金費率監控器到網格管理器
 		superPositionManager.SetFundingMonitor(fundingMonitor)
-		
+
 		// 如果啟用了期現套利，創建套利管理器
 		if localCfg.FundingRate.ArbitrageEnabled {
 			// 創建現貨交易所實例
@@ -308,15 +308,15 @@ func startSymbolRuntime(
 				// 創建交易所適配器
 				futuresAdapter := &arbitrageExchangeAdapter{exchange: ex}
 				spotAdapter := &arbitrageExchangeAdapter{exchange: spotEx}
-				
+
 				arbitrageManager = arbitrage.NewFundingArbitrageManager(&localCfg, futuresAdapter, spotAdapter, fundingMonitor, symCfg.Symbol)
-				
+
 				// 連接套利管理器到網格管理器
 				superPositionManager.SetArbitrageManager(arbitrageManager)
 				logger.Info("💱 期現套利管理器已創建並連接到網格管理器")
 			}
 		}
-		
+
 		logger.Info("💰 資金費率監控器已創建")
 	}
 
@@ -565,10 +565,10 @@ func startSymbolRuntime(
 				logger.Error("❌ [%s] 價格變化处理协程 panic: %v", symCfg.Symbol, r)
 			}
 		}()
-		
+
 		priceCh := priceMonitor.Subscribe()
 		var lastTriggered bool
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -580,7 +580,7 @@ func startSymbolRuntime(
 					logger.Debug("⏹️ [%s] 價格變化 channel 已关闭", symCfg.Symbol)
 					return
 				}
-				
+
 				isTriggered := riskMonitor.IsTriggered() || depthMonitor.IsTriggered()
 				if isTriggered {
 					if !lastTriggered {
@@ -764,16 +764,19 @@ func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
 	}
 
 	return &position.OrderUpdate{
-		OrderID:       getInt64Field("OrderID"),
-		ClientOrderID: getStringField("ClientOrderID"),
-		Symbol:        getStringField("Symbol"),
-		Status:        getStringField("Status"),
-		ExecutedQty:   getFloat64Field("ExecutedQty"),
-		Price:         getFloat64Field("Price"),
-		AvgPrice:      getFloat64Field("AvgPrice"),
-		Side:          getStringField("Side"),
-		Type:          getStringField("Type"),
-		UpdateTime:    getInt64Field("UpdateTime"),
+		OrderID:         getInt64Field("OrderID"),
+		ClientOrderID:   getStringField("ClientOrderID"),
+		Symbol:          getStringField("Symbol"),
+		Status:          getStringField("Status"),
+		ExecutedQty:     getFloat64Field("ExecutedQty"),
+		Price:           getFloat64Field("Price"),
+		AvgPrice:        getFloat64Field("AvgPrice"),
+		Side:            getStringField("Side"),
+		Type:            getStringField("Type"),
+		UpdateTime:      getInt64Field("UpdateTime"),
+		Commission:      getFloat64Field("Commission"),
+		CommissionAsset: getStringField("CommissionAsset"),
+		RealizedPnL:     getFloat64Field("RealizedPnL"),
 	}
 }
 

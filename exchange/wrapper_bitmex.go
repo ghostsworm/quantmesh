@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"quantmesh/exchange/bitmex"
+	"quantmesh/exchange/income"
 )
 
 // bitmexWrapper BitMEX 包装器
@@ -287,6 +288,15 @@ func (w *bitmexWrapper) GetQuoteAsset() string {
 // GetFundingRate 獲取资金费率
 func (w *bitmexWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx)
+}
+
+func (w *bitmexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *bitmexWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格（未實現）

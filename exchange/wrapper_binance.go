@@ -2,7 +2,9 @@ package exchange
 
 import (
 	"context"
+
 	"quantmesh/exchange/binance"
+	"quantmesh/exchange/income"
 )
 
 // binanceWrapper 包装 Binance 适配器以實現 IExchange 接口
@@ -306,6 +308,16 @@ func (w *binanceWrapper) GetQuoteAsset() string {
 
 func (w *binanceWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *binanceWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return w.adapter.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)
+}
+
+// GetOrderFills 查詢訂單成交記錄（Binance WebSocket 已提供手續費，此方法可選實現）
+func (w *binanceWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	// Binance WebSocket 已提供手續費，此處可返回 nil 或實現查詢邏輯
+	return nil, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

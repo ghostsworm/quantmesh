@@ -356,6 +356,9 @@ func createTables(db *sql.DB) error {
 	if err := migrateInspectionReportsTable(db); err != nil {
 		return fmt.Errorf("迁移 inspection_reports 表失败: %w", err)
 	}
+	if err := migrateFundingPaymentsTable(db); err != nil {
+		return fmt.Errorf("迁移 funding_payments 表失败: %w", err)
+	}
 
 	return nil
 }
@@ -376,6 +379,29 @@ func migrateInspectionReportsTable(db *sql.DB) error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_inspection_reports_generated_at ON inspection_reports(generated_at);
+	`)
+	return err
+}
+
+// migrateFundingPaymentsTable 遷移資金費用記錄表
+func migrateFundingPaymentsTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS funding_payments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			exchange TEXT NOT NULL,
+			symbol TEXT NOT NULL,
+			account TEXT,
+			income_type TEXT NOT NULL,
+			income DECIMAL(20,8) NOT NULL,
+			asset TEXT,
+			info TEXT,
+			transaction_id BIGINT,
+			trade_time TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_funding_payments_exchange_symbol ON funding_payments(exchange, symbol);
+		CREATE INDEX IF NOT EXISTS idx_funding_payments_trade_time ON funding_payments(trade_time);
+		CREATE INDEX IF NOT EXISTS idx_funding_payments_account ON funding_payments(account);
 	`)
 	return err
 }
@@ -721,6 +747,8 @@ func migrateTradesTable(db *sql.DB) error {
 
 	hasExchangeColumn := false
 	hasAccountColumn := false
+	hasFeeColumn := false
+	hasFeeAssetColumn := false
 	for rows.Next() {
 		var cid int
 		var name string
@@ -737,6 +765,12 @@ func migrateTradesTable(db *sql.DB) error {
 		}
 		if name == "account" {
 			hasAccountColumn = true
+		}
+		if name == "fee" {
+			hasFeeColumn = true
+		}
+		if name == "fee_asset" {
+			hasFeeAssetColumn = true
 		}
 	}
 
@@ -768,6 +802,24 @@ func migrateTradesTable(db *sql.DB) error {
 		if err != nil {
 			logger.Warn("⚠️ 創建 account 索引失败: %v", err)
 		}
+	}
+
+	// 检查 fee 列是否存在（手續費支持）
+	if !hasFeeColumn {
+		logger.Info("🔄 开始迁移 trades 表：添加 fee 字段")
+		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN fee DECIMAL(20,8) DEFAULT 0`)
+		if err != nil {
+			return fmt.Errorf("添加 fee 列失败: %w", err)
+		}
+		logger.Info("✅ fee 列添加成功")
+	}
+	if !hasFeeAssetColumn {
+		logger.Info("🔄 开始迁移 trades 表：添加 fee_asset 字段")
+		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN fee_asset TEXT DEFAULT ''`)
+		if err != nil {
+			return fmt.Errorf("添加 fee_asset 列失败: %w", err)
+		}
+		logger.Info("✅ fee_asset 列添加成功")
 	}
 
 	// 無論是否是新增列，都确保索引存在（老库可能已有列但缺索引）
@@ -825,10 +877,10 @@ func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO trades 
-		(buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, fee, fee_asset, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, trade.BuyOrderID, trade.SellOrderID, exchange, trade.Account, trade.Symbol,
-		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, createdAt)
+		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.Fee, trade.FeeAsset, createdAt)
 	if err != nil {
 		return err
 	}
@@ -1146,7 +1198,9 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 		SELECT 
 			COUNT(*) as total_trades,
 			COALESCE(SUM(quantity), 0) as total_volume,
-			COALESCE(SUM(pnl), 0) as total_pnl,
+			COALESCE(SUM(pnl), 0) as gross_pnl,
+			COALESCE(SUM(COALESCE(fee, 0)), 0) as total_fee,
+			COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as net_pnl,
 			CASE 
 				WHEN COUNT(*) > 0 THEN 
 					CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)
@@ -1172,10 +1226,12 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 	stat := &Statistics{}
 	var totalTrades sql.NullInt64
 	var totalVolume sql.NullFloat64
-	var totalPnL sql.NullFloat64
+	var grossPnL sql.NullFloat64
+	var totalFee sql.NullFloat64
+	var netPnL sql.NullFloat64
 	var winRate sql.NullFloat64
 
-	err := row.Scan(&totalTrades, &totalVolume, &totalPnL, &winRate)
+	err := row.Scan(&totalTrades, &totalVolume, &grossPnL, &totalFee, &netPnL, &winRate)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return &Statistics{}, nil
@@ -1189,8 +1245,14 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 	if totalVolume.Valid {
 		stat.TotalVolume = totalVolume.Float64
 	}
-	if totalPnL.Valid {
-		stat.TotalPnL = totalPnL.Float64
+	if grossPnL.Valid {
+		stat.GrossPnL = grossPnL.Float64
+	}
+	if totalFee.Valid {
+		stat.TotalFee = totalFee.Float64
+	}
+	if netPnL.Valid {
+		stat.TotalPnL = netPnL.Float64
 	}
 	if winRate.Valid {
 		stat.WinRate = winRate.Float64
@@ -1218,7 +1280,9 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 			date(created_at) as date,
 			COUNT(*) as total_trades,
 			COALESCE(SUM(quantity), 0) as total_volume,
-			COALESCE(SUM(pnl), 0) as total_pnl,
+			COALESCE(SUM(pnl), 0) as gross_pnl,
+			COALESCE(SUM(COALESCE(fee, 0)), 0) as total_fee,
+			COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as net_pnl,
 			CASE 
 				WHEN COUNT(*) > 0 THEN 
 					CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)
@@ -1257,14 +1321,16 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 		var dateStr string
 		var totalTrades sql.NullInt64
 		var totalVolume sql.NullFloat64
-		var totalPnL sql.NullFloat64
+		var grossPnL sql.NullFloat64
+		var totalFee sql.NullFloat64
+		var netPnL sql.NullFloat64
 		var winRate sql.NullFloat64
 		var winningTrades sql.NullInt64
 		var losingTrades sql.NullInt64
 		var volumeProfit sql.NullFloat64
 		var volumeStopLoss sql.NullFloat64
 
-		err := rows.Scan(&dateStr, &totalTrades, &totalVolume, &totalPnL, &winRate, &winningTrades, &losingTrades, &volumeProfit, &volumeStopLoss)
+		err := rows.Scan(&dateStr, &totalTrades, &totalVolume, &grossPnL, &totalFee, &netPnL, &winRate, &winningTrades, &losingTrades, &volumeProfit, &volumeStopLoss)
 		if err != nil {
 			continue
 		}
@@ -1282,8 +1348,14 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 		if totalVolume.Valid {
 			stat.TotalVolume = totalVolume.Float64
 		}
-		if totalPnL.Valid {
-			stat.TotalPnL = totalPnL.Float64
+		if grossPnL.Valid {
+			stat.GrossPnL = grossPnL.Float64
+		}
+		if totalFee.Valid {
+			stat.TotalFee = totalFee.Float64
+		}
+		if netPnL.Valid {
+			stat.TotalPnL = netPnL.Float64
 		}
 		if winRate.Valid {
 			stat.WinRate = winRate.Float64
@@ -1478,18 +1550,18 @@ func (s *SQLiteStorage) GetReconciliationCount(exchange, symbol, account string)
 	return count, nil
 }
 
-// GetPnLBySymbol 按币种對查詢盈亏數據
+// GetPnLBySymbol 按币种對查詢盈亏數據（TotalPnL 為淨利潤，已扣手續費）
 func (s *SQLiteStorage) GetPnLBySymbol(symbol, account string, startTime, endTime time.Time) (*PnLSummary, error) {
 	query := `
 		SELECT 
 			COUNT(*) as total_trades,
-			SUM(pnl) as total_pnl,
+			COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as total_pnl,
 			SUM(quantity) as total_volume,
 			SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
 			SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades
 		FROM trades
 		WHERE symbol = ? AND created_at >= ? AND created_at <= ?
-	`
+		`
 	args := []interface{}{symbol, startTime, endTime}
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
@@ -1549,12 +1621,12 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 			exchange,
 			symbol,
 			COUNT(*) as total_trades,
-			SUM(pnl) as total_pnl,
+			COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as total_pnl,
 			SUM(quantity) as total_volume,
 			CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as win_rate
 		FROM trades
 		WHERE created_at >= ? AND created_at <= ?
-	`
+		`
 	args := []interface{}{startTime, endTime}
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
@@ -1602,13 +1674,13 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 	return results, nil
 }
 
-// GetActualProfitBySymbol 计算指定币种在指定時间之前的累计實際盈利
+// GetActualProfitBySymbol 计算指定币种在指定時间之前的累计實際盈利（淨利潤，已扣手續費）
 func (s *SQLiteStorage) GetActualProfitBySymbol(symbol, account string, beforeTime time.Time) (float64, error) {
 	query := `
-		SELECT COALESCE(SUM(pnl), 0) as total_pnl
+		SELECT COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as total_pnl
 		FROM trades
 		WHERE symbol = ? AND created_at <= ?
-	`
+		`
 	args := []interface{}{symbol, beforeTime}
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
@@ -1883,6 +1955,86 @@ func (s *SQLiteStorage) GetFundingRateHistory(symbol, exchange string, limit int
 	}
 
 	return rates, rows.Err()
+}
+
+// SaveFundingPayment 保存資金費用記錄
+func (s *SQLiteStorage) SaveFundingPayment(payment *FundingPayment) error {
+	tradeTime := utils.ToUTC(payment.TradeTime)
+	_, err := s.db.Exec(`
+		INSERT INTO funding_payments (exchange, symbol, account, income_type, income, asset, info, transaction_id, trade_time, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, payment.Exchange, payment.Symbol, payment.Account, payment.IncomeType, payment.Income, payment.Asset, payment.Info, payment.TransactionID, tradeTime, time.Now().UTC())
+	return err
+}
+
+// GetFundingPayments 獲取資金費用記錄（按時間區間）
+func (s *SQLiteStorage) GetFundingPayments(account, exchange string, startTime, endTime time.Time) ([]*FundingPayment, error) {
+	startUTC := utils.ToUTC(startTime)
+	endUTC := utils.ToUTC(endTime)
+	query := `
+		SELECT id, exchange, symbol, account, income_type, income, asset, info, transaction_id, trade_time, created_at
+		FROM funding_payments
+		WHERE trade_time >= ? AND trade_time <= ?
+	`
+	args := []interface{}{startUTC, endUTC}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	if account != "" {
+		query += " AND (account = ? OR account IS NULL OR account = '')"
+		args = append(args, account)
+	}
+	query += " ORDER BY trade_time DESC LIMIT 10000"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*FundingPayment
+	for rows.Next() {
+		var p FundingPayment
+		var tradeTime, createdAt time.Time
+		err := rows.Scan(&p.ID, &p.Exchange, &p.Symbol, &p.Account, &p.IncomeType, &p.Income, &p.Asset, &p.Info, &p.TransactionID, &tradeTime, &createdAt)
+		if err != nil {
+			return nil, err
+		}
+		p.TradeTime = tradeTime
+		p.CreatedAt = createdAt
+		list = append(list, &p)
+	}
+	return list, rows.Err()
+}
+
+// GetFundingPaymentsSum 獲取資金費用淨額（收入 - 支出，正數表示淨收入）
+func (s *SQLiteStorage) GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error) {
+	startUTC := utils.ToUTC(startTime)
+	endUTC := utils.ToUTC(endTime)
+	query := `
+		SELECT COALESCE(SUM(income), 0) FROM funding_payments
+		WHERE trade_time >= ? AND trade_time <= ?
+	`
+	args := []interface{}{startUTC, endUTC}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	if account != "" {
+		query += " AND (account = ? OR account IS NULL OR account = '')"
+		args = append(args, account)
+	}
+
+	var sum sql.NullFloat64
+	err := s.db.QueryRow(query, args...).Scan(&sum)
+	if err != nil {
+		return 0, err
+	}
+	if sum.Valid {
+		return sum.Float64, nil
+	}
+	return 0, nil
 }
 
 // abs 计算绝對值（用於浮点數比较）

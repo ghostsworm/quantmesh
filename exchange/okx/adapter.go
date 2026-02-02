@@ -90,17 +90,19 @@ type Account struct {
 }
 
 type OrderUpdate struct {
-	OrderID       int64
-	ClientOrderID string
-	Symbol        string
-	Side          Side
-	Type          OrderType
-	Status        OrderStatus
-	Price         float64
-	Quantity      float64
-	ExecutedQty   float64
-	AvgPrice      float64
-	UpdateTime    int64
+	OrderID         int64
+	ClientOrderID   string
+	Symbol          string
+	Side            Side
+	Type            OrderType
+	Status          OrderStatus
+	Price           float64
+	Quantity        float64
+	ExecutedQty     float64
+	AvgPrice        float64
+	UpdateTime      int64
+	Commission      float64 // 本次成交手續費
+	CommissionAsset string  // 手續費幣種
 }
 
 type Candle struct {

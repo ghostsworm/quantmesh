@@ -2,7 +2,9 @@ package exchange
 
 import (
 	"context"
+
 	"quantmesh/exchange/gate"
+	"quantmesh/exchange/income"
 )
 
 // gateSpotWrapper 包装 Gate 現貨适配器以實現 IExchange 接口
@@ -260,6 +262,15 @@ func (w *gateSpotWrapper) GetQuoteAsset() string {
 
 func (w *gateSpotWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *gateSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *gate_spotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 func (w *gateSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

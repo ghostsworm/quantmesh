@@ -7,7 +7,9 @@ import StatisticsCalendar from './StatisticsCalendar'
 interface StatisticsData {
   total_trades: number
   total_volume: number
-  total_pnl: number
+  total_pnl: number // 淨利潤（已扣手續費）
+  gross_pnl?: number // 毛利（未扣手續費）
+  total_fee?: number // 手續費合計
   win_rate: number
 }
 
@@ -15,7 +17,9 @@ interface DailyStatistics {
   date: string
   total_trades: number
   total_volume: number
-  total_pnl: number
+  total_pnl: number // 當日淨利潤（已扣手續費）
+  gross_pnl?: number // 當日毛利
+  total_fee?: number // 當日手續費
   win_rate: number
   winning_trades?: number
   losing_trades?: number
@@ -140,11 +144,27 @@ const Statistics: React.FC = () => {
             <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{stats.total_volume.toFixed(4)}</div>
           </div>
           <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalPnL')}</div>
+            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.netPnL') || '淨利潤'}</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold', color: stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
               {stats.total_pnl >= 0 ? '+' : ''}{stats.total_pnl.toFixed(2)}
             </div>
           </div>
+          {(stats.gross_pnl !== undefined || stats.total_fee !== undefined) && (
+            <>
+              <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
+                <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.grossPnL') || '毛利'}</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: (stats.gross_pnl ?? 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                  {(stats.gross_pnl ?? 0) >= 0 ? '+' : ''}{(stats.gross_pnl ?? 0).toFixed(2)}
+                </div>
+              </div>
+              <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
+                <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalFee') || '手續費'}</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fa8c16' }}>
+                  -{(stats.total_fee ?? 0).toFixed(2)}
+                </div>
+              </div>
+            </>
+          )}
           <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
             <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.winRate')}</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{(stats.win_rate * 100).toFixed(2)}%</div>
@@ -228,6 +248,12 @@ const Statistics: React.FC = () => {
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volumeProfit')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volumeStopLoss')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.pnl')}</th>
+                  {(dailyStats.some(s => s.gross_pnl !== undefined) || dailyStats.some(s => s.total_fee !== undefined)) && (
+                    <>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.grossPnL') || '毛利'}</th>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.totalFee') || '手續費'}</th>
+                    </>
+                  )}
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.unrealizedPnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.cumulativePnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.winRate')}</th>
@@ -252,6 +278,16 @@ const Statistics: React.FC = () => {
                     <td style={{ padding: '12px', textAlign: 'right', color: stat.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
                       {stat.total_pnl >= 0 ? '+' : ''}{stat.total_pnl.toFixed(2)}
                     </td>
+                    {(stat.gross_pnl !== undefined || stat.total_fee !== undefined) && (
+                      <>
+                        <td style={{ padding: '12px', textAlign: 'right', color: (stat.gross_pnl ?? 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                          {(stat.gross_pnl ?? 0) >= 0 ? '+' : ''}{(stat.gross_pnl ?? 0).toFixed(2)}
+                        </td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#fa8c16' }}>
+                          -{(stat.total_fee ?? 0).toFixed(2)}
+                        </td>
+                      </>
+                    )}
                     <td style={{ padding: '12px', textAlign: 'right', color: (stat.unrealized_pnl ?? 0) >= 0 ? '#95de64' : '#ff7875', fontStyle: 'italic' }}>
                       {stat.unrealized_pnl !== undefined && stat.unrealized_pnl !== 0
                         ? (stat.unrealized_pnl >= 0 ? '+' : '') + stat.unrealized_pnl.toFixed(2)

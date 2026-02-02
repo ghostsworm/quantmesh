@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [3.28.6] - 2026-02-02
+
+### Fixed
+- **PWA / Service Worker 與 API 延遲**: 正式版包含 rc4/rc5 相關修復
+  - 不再為 `/api`、`/ws` 註冊 Service Worker 的 runtimeCaching，請求直接走瀏覽器網絡，避免 SW 攔截導致冷啟動與延遲（如 `/api/version` 需 3 秒）
+  - 移除 main.tsx 中重複的 Service Worker 註冊，僅保留 vite-plugin-pwa 自動註冊，避免雙重註冊導致 Chrome 載入卡住
+  - 在 `vite.config.js` 中補充註釋說明為何不讓 SW 攔截 API
+  - 涉及：`webui/vite.config.js`、`webui/src/main.tsx`
+- **新聞分析價格預測格式**、**新聞收集顯示**、**登入頁重複請求**、**策略配比 Hooks**、**收益日曆今天焦點**、**DCA 資金釋放**等修復已包含於 3.28.5-rc1～rc5，本版統一發佈為 3.28.6。
+
 ## [3.28.5-rc5] - 2026-02-02
 
 ### Fixed

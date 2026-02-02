@@ -301,10 +301,10 @@ func (c *BybitClient) GetOpenOrders(ctx context.Context, category, symbol string
 
 // Balance 账戶餘額
 type Balance struct {
-	TotalEquity           string       `json:"totalEquity"`
-	TotalAvailableBalance string       `json:"totalAvailableBalance"`
-	TotalMarginBalance    string       `json:"totalMarginBalance"`
-	Coin                 []BalanceCoin `json:"coin"` // SPOT 账戶時有值
+	TotalEquity           string        `json:"totalEquity"`
+	TotalAvailableBalance string        `json:"totalAvailableBalance"`
+	TotalMarginBalance    string        `json:"totalMarginBalance"`
+	Coin                  []BalanceCoin `json:"coin"` // SPOT 账戶時有值
 }
 
 // BalanceCoin 單幣種餘額（SPOT 账戶）
@@ -367,6 +367,51 @@ func (c *BybitClient) GetPositions(ctx context.Context, category, symbol string)
 
 	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("解析持倉資訊失败: %w", err)
+	}
+
+	return result.List, nil
+}
+
+// BybitExecution 訂單執行記錄
+type BybitExecution struct {
+	OrderId     string `json:"orderId"`
+	OrderLinkId string `json:"orderLinkId"`
+	Symbol      string `json:"symbol"`
+	Side        string `json:"side"`
+	ExecPrice   string `json:"execPrice"`
+	ExecQty     string `json:"execQty"`
+	ExecValue   string `json:"execValue"`
+	ExecFee     string `json:"execFee"`     // 手續費
+	FeeRate     string `json:"feeRate"`     // 費率
+	FeeCurrency string `json:"feeCurrency"` // 手續費幣種
+	IsMaker     bool   `json:"isMaker"`     // 是否為 Maker
+	ExecTime    string `json:"execTime"`    // 執行時間（毫秒）
+	TradeId     string `json:"tradeId"`     // 成交ID
+}
+
+// GetOrderFills 查詢訂單成交記錄
+func (c *BybitClient) GetOrderFills(ctx context.Context, category, symbol string, orderId string) ([]BybitExecution, error) {
+	params := map[string]interface{}{
+		"category": category,
+	}
+	if symbol != "" {
+		params["symbol"] = symbol
+	}
+	if orderId != "" {
+		params["orderId"] = orderId
+	}
+
+	data, err := c.request(ctx, "GET", "/v5/execution/list", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		List []BybitExecution `json:"list"`
+	}
+
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("解析執行記錄失败: %w", err)
 	}
 
 	return result.List, nil
@@ -514,10 +559,10 @@ func sortParams(params map[string]interface{}) string {
 
 // BybitOrderBookResponse Bybit 订單簿响应結構
 type BybitOrderBookResponse struct {
-	Symbol string `json:"s"` // 交易對
-	Bids   [][]string `json:"b"` // 買盘 [[價格, 數量], ...]
-	Asks   [][]string `json:"a"` // 賣盘 [[價格, 數量], ...]
-	TS     int64  `json:"ts"` // 時间戳（毫秒）
+	Symbol string     `json:"s"`  // 交易對
+	Bids   [][]string `json:"b"`  // 買盘 [[價格, 數量], ...]
+	Asks   [][]string `json:"a"`  // 賣盘 [[價格, 數量], ...]
+	TS     int64      `json:"ts"` // 時间戳（毫秒）
 }
 
 // GetOrderBook 獲取訂單簿深度

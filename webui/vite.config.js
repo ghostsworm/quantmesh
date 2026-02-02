@@ -18,6 +18,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png', 'icons/*.svg'],
+      // 添加錯誤處理，避免 Service Worker 註冊失敗導致頁面卡住
+      injectRegister: 'auto',
       manifest: {
         name: 'QuantMesh 做市商系統',
         short_name: 'QuantMesh',
@@ -47,6 +49,15 @@ export default defineConfig({
         // 添加版本号，确保 Service Worker 更新
         skipWaiting: true,
         clientsClaim: true,
+        // 添加導航回退策略，確保頁面能正常加載
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/ws/],
+        // 重要：絕不為 /api、/ws 註冊 runtimeCaching。
+        // 原因：一經 SW 攔截，請求會先進入 SW → 再轉發網絡，多一跳 + JS 執行；
+        // 若 SW 處於冷啟動（未運行），還需先載入 sw.js 和 workbox（體積大），
+        // 可能需 1～3 秒甚至更久，用戶就會看到「請求要 3 秒」。
+        // 插件自帶的 cachePreset 含 /api（NetworkFirst + 10s 超時），我們不引用它，
+        // 只保留下面字體規則，讓 /api、/ws 完全不經 SW，直接走瀏覽器網絡。
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -75,16 +86,6 @@ export default defineConfig({
                 statuses: [0, 200]
               }
             }
-          },
-          {
-            // 所有 API 请求直接走网络，不缓存（確保資料實時性）
-            urlPattern: /\/api\/.*/i,
-            handler: 'NetworkOnly'
-          },
-          {
-            // WebSocket 连接不走 Service Worker
-            urlPattern: /\/ws\/.*/i,
-            handler: 'NetworkOnly'
           }
         ]
       },

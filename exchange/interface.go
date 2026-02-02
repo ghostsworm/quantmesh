@@ -3,6 +3,8 @@ package exchange
 import (
 	"context"
 	"errors"
+
+	"quantmesh/exchange/income"
 )
 
 // 錯誤定義
@@ -44,6 +46,12 @@ type IExchange interface {
 
 	// GetOpenOrders 查詢未完成订單
 	GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error)
+
+	// GetOrderFills 查詢訂單成交記錄（用於獲取手續費）
+	// orderID: 訂單ID，如果為0則查詢 symbol 的所有最近成交記錄
+	// 返回: 成交記錄列表，每條記錄包含手續費信息
+	// 不支援的交易所可返回 nil, nil
+	GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error)
 
 	// === 帳戶與持倉 ===
 
@@ -115,6 +123,13 @@ type IExchange interface {
 	// symbol: 交易對（如 BTCUSDT）
 	// 返回: 资金费率（如 0.0001 表示 0.01%）
 	GetFundingRate(ctx context.Context, symbol string) (float64, error)
+
+	// GetIncomeHistory 獲取收入歷史（資金費用等）
+	// symbol: 交易對（可選，空則查全部）
+	// incomeType: FUNDING_FEE 等（可選，空則查全部類型）
+	// startTime, endTime: 毫秒時間戳
+	// 返回: 收入記錄列表；不支援的交易所可返回 nil, nil
+	GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error)
 
 	// === 現貨價格 ===
 

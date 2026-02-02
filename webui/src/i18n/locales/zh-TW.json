@@ -672,7 +672,12 @@
     "statusPending": "待處理",
     "statusProcessing": "處理中",
     "statusCompleted": "已完成",
-    "statusFailed": "失敗"
+    "statusFailed": "失敗",
+    "grossProfit": "毛利",
+    "totalFee": "手續費",
+    "fundingNet": "資金費淨額",
+    "fundingDetail": "資金費明細",
+    "noFundingHistory": "暫無資金費記錄"
   },
   "positionPlan": {
     "title": "倉位計劃",

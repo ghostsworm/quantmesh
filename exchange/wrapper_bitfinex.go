@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"quantmesh/exchange/bitfinex"
+	"quantmesh/exchange/income"
 )
 
 // bitfinexWrapper Bitfinex 包装器
@@ -248,6 +249,15 @@ func (w *bitfinexWrapper) GetQuoteAsset() string {
 // GetFundingRate 獲取资金费率
 func (w *bitfinexWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *bitfinexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *bitfinexWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 // convertBitfinexOrderToExchangeOrder 將 Bitfinex 订單轉换為 Exchange 订單

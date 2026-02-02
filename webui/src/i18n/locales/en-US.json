@@ -689,7 +689,12 @@
     "statusPending": "Pending",
     "statusProcessing": "Processing",
     "statusCompleted": "Completed",
-    "statusFailed": "Failed"
+    "statusFailed": "Failed",
+    "grossProfit": "Gross Profit",
+    "totalFee": "Total Fee",
+    "fundingNet": "Funding Net",
+    "fundingDetail": "Funding History",
+    "noFundingHistory": "No funding payment records"
   },
   "positionPlan": {
     "title": "Position Plan",

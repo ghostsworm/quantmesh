@@ -497,6 +497,7 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 		fillPrice, _ := parseFloat(orderData["fill_price"])
 		text, _ := orderData["text"].(string)
 		finishTime, _ := orderData["finish_time"].(float64)
+		feeStr, _ := orderData["fee"].(string) // 手續費（字符串格式）
 
 		// 使用统一的 utils 包去掉 Gate.io 的 t- 前缀
 		clientOrderID := utils.RemoveBrokerPrefix("gate", text)
@@ -507,18 +508,25 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 			executedQty = 0
 		}
 
+		// 解析手續費
+		commission, _ := parseFloat(feeStr)
+		// Gate.io 合約手續費通常以 USDT 計價
+		commissionAsset := "USDT"
+
 		// 轉换為標准格式
 		update := OrderUpdate{
-			OrderID:       int64(orderID),
-			ClientOrderID: clientOrderID,
-			Symbol:        convertFromGateSymbol(contract),
-			Side:          convertSide(size),
-			Status:        convertStatus(status),
-			Price:         price,
-			Quantity:      abs(size),
-			ExecutedQty:   executedQty, // 成交數量 = size - left
-			AvgPrice:      fillPrice,
-			UpdateTime:    int64(finishTime * 1000), // 轉换為毫秒
+			OrderID:         int64(orderID),
+			ClientOrderID:   clientOrderID,
+			Symbol:          convertFromGateSymbol(contract),
+			Side:            convertSide(size),
+			Status:          convertStatus(status),
+			Price:           price,
+			Quantity:        abs(size),
+			ExecutedQty:      executedQty, // 成交數量 = size - left
+			AvgPrice:         fillPrice,
+			UpdateTime:       int64(finishTime * 1000), // 轉换為毫秒
+			Commission:       commission,
+			CommissionAsset:  commissionAsset,
 		}
 
 		w.mu.RLock()

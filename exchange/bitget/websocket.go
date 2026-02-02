@@ -844,8 +844,22 @@ func (w *WebSocketManager) parseOrderUpdate(data map[string]interface{}) *OrderU
 	avgPrice, _ := strconv.ParseFloat(avgPriceStr, 64)
 	updateTime, _ := strconv.ParseInt(updateTimeStr, 10, 64)
 
+	// 解析手續費：feeDetail 格式為 [{"fee":"0.00000000","feeCoin":"USDT"}]
+	commission := 0.0
+	commissionAsset := "USDT"
+	if feeDetailRaw, ok := data["feeDetail"].([]interface{}); ok && len(feeDetailRaw) > 0 {
+		if feeItem, ok := feeDetailRaw[0].(map[string]interface{}); ok {
+			if feeStr, ok := feeItem["fee"].(string); ok {
+				commission, _ = strconv.ParseFloat(feeStr, 64)
+			}
+			if feeCoin, ok := feeItem["feeCoin"].(string); ok && feeCoin != "" {
+				commissionAsset = feeCoin
+			}
+		}
+	}
+
 	// 🔍 調試：打印解析后的值
-	logger.Debug("🔍 [parseOrderUpdate] 解析結果: executedQty=%.4f, avgPrice=%.2f, Price=%.2f", executedQty, avgPrice, price)
+	logger.Debug("🔍 [parseOrderUpdate] 解析結果: executedQty=%.4f, avgPrice=%.2f, Price=%.2f, Commission=%.8f %s", executedQty, avgPrice, price, commission, commissionAsset)
 
 	side := SideBuy
 	lowerSide := strings.ToLower(strings.TrimSpace(sideStr))
@@ -884,17 +898,19 @@ func (w *WebSocketManager) parseOrderUpdate(data map[string]interface{}) *OrderU
 	}
 
 	return &OrderUpdate{
-		OrderID:       orderID,
-		ClientOrderID: clientOrderID, // 🔥 包含 ClientOrderID
-		Symbol:        symbol,
-		Side:          side,
-		Type:          OrderTypeLimit,
-		Status:        status,
-		Price:         price,
-		Quantity:      quantity,
-		ExecutedQty:   executedQty,
-		AvgPrice:      avgPrice,
-		UpdateTime:    updateTime,
+		OrderID:         orderID,
+		ClientOrderID:   clientOrderID, // 🔥 包含 ClientOrderID
+		Symbol:          symbol,
+		Side:            side,
+		Type:            OrderTypeLimit,
+		Status:          status,
+		Price:           price,
+		Quantity:        quantity,
+		ExecutedQty:     executedQty,
+		AvgPrice:        avgPrice,
+		UpdateTime:      updateTime,
+		Commission:      commission,
+		CommissionAsset: commissionAsset,
 	}
 }
 

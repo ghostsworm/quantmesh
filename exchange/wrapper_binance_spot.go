@@ -2,7 +2,9 @@ package exchange
 
 import (
 	"context"
+
 	"quantmesh/exchange/binance"
+	"quantmesh/exchange/income"
 )
 
 // binanceSpotWrapper 包装 Binance 現貨适配器以實現 IExchange 接口
@@ -273,6 +275,15 @@ func (w *binanceSpotWrapper) GetQuoteAsset() string {
 
 func (w *binanceSpotWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *binanceSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *binanceSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 func (w *binanceSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

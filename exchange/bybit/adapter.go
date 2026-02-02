@@ -91,17 +91,19 @@ type Account struct {
 }
 
 type OrderUpdate struct {
-	OrderID       int64
-	ClientOrderID string
-	Symbol        string
-	Side          Side
-	Type          OrderType
-	Status        OrderStatus
-	Price         float64
-	Quantity      float64
-	ExecutedQty   float64
-	AvgPrice      float64
-	UpdateTime    int64
+	OrderID         int64
+	ClientOrderID   string
+	Symbol          string
+	Side            Side
+	Type            OrderType
+	Status          OrderStatus
+	Price           float64
+	Quantity        float64
+	ExecutedQty     float64
+	AvgPrice        float64
+	UpdateTime      int64
+	Commission      float64 // 本次成交手續費
+	CommissionAsset string  // 手續費幣種
 }
 
 type Candle struct {
@@ -741,6 +743,51 @@ func (b *BybitAdapter) GetFundingRate(ctx context.Context, symbol string) (float
 }
 
 // GetSpotPrice 獲取現貨市场價格
+// BybitOrderFill 訂單成交記錄（本地類型，避免循環導入）
+type BybitOrderFill struct {
+	OrderID         int64
+	TradeID         string
+	Symbol          string
+	Side            string
+	Price           float64
+	Quantity        float64
+	Commission      float64
+	CommissionAsset string
+	TradeTime       int64
+	IsMaker         bool
+}
+
+// GetOrderFills 查詢訂單成交記錄（用於獲取手續費）
+func (b *BybitAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*BybitOrderFill, error) {
+	executions, err := b.client.GetOrderFills(ctx, "linear", symbol, strconv.FormatInt(orderID, 10))
+	if err != nil {
+		return nil, err
+	}
+
+	fills := make([]*BybitOrderFill, 0, len(executions))
+	for _, exec := range executions {
+		price, _ := strconv.ParseFloat(exec.ExecPrice, 64)
+		qty, _ := strconv.ParseFloat(exec.ExecQty, 64)
+		commission, _ := strconv.ParseFloat(exec.ExecFee, 64)
+		tradeTime, _ := strconv.ParseInt(exec.ExecTime, 10, 64)
+
+		fills = append(fills, &BybitOrderFill{
+			OrderID:         orderID,
+			TradeID:         exec.TradeId,
+			Symbol:          exec.Symbol,
+			Side:            exec.Side,
+			Price:           price,
+			Quantity:        qty,
+			Commission:      commission,
+			CommissionAsset: exec.FeeCurrency,
+			TradeTime:       tradeTime,
+			IsMaker:         exec.IsMaker,
+		})
+	}
+
+	return fills, nil
+}
+
 func (b *BybitAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	// Bybit 現貨使用 category=spot
 	ticker, err := b.client.GetTicker(ctx, "spot", symbol)

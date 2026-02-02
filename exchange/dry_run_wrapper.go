@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"quantmesh/exchange/income"
 	"quantmesh/logger"
 )
 
@@ -254,6 +255,16 @@ func (d *DryRunWrapper) EstimateFinalOrderAmount(symbol string, price, quantity 
 // GetFundingRate 獲取资金费率（透傳）
 func (d *DryRunWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return d.wrapped.GetFundingRate(ctx, symbol)
+}
+
+// GetIncomeHistory 獲取收入歷史（透傳）
+func (d *DryRunWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return d.wrapped.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)
+}
+
+// GetOrderFills 查詢訂單成交記錄（透傳）
+func (d *DryRunWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return d.wrapped.GetOrderFills(ctx, symbol, orderID)
 }
 
 // GetSpotPrice 獲取現貨價格（透傳）

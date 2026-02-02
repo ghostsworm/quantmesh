@@ -5,6 +5,7 @@ import type {
   StrategyProfit,
   ProfitWithdrawRule,
   WithdrawRecord,
+  FundingPaymentItem,
   ManualWithdrawRequest,
   WithdrawResponse,
   ProfitSummaryResponse,
@@ -108,6 +109,20 @@ export async function getDailyKlines(
   signal?: AbortSignal
 ): Promise<KlinesResponse> {
   return getKlines('1d', limit, exchange, symbol, signal)
+}
+
+// 獲取資金費用明細
+export async function getFundingHistory(
+  exchangeId?: string,
+  startTime?: string,
+  endTime?: string
+): Promise<{ success: boolean; records: FundingPaymentItem[]; message?: string }> {
+  const queryParams = new URLSearchParams()
+  if (exchangeId) queryParams.append('exchange_id', exchangeId)
+  if (startTime) queryParams.append('start_time', startTime)
+  if (endTime) queryParams.append('end_time', endTime)
+  const url = `${API_BASE_URL}/profit/funding${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
 }
 
 // 獲取盈利趋势

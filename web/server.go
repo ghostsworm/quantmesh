@@ -5,10 +5,11 @@ import (
 	"net/http/pprof"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"quantmesh/config"
 	"quantmesh/logger"
+
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var globalConfig *config.Config
@@ -17,7 +18,7 @@ var globalConfig *config.Config
 func ipWhitelistMiddleware(allowedIPs []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
-		
+
 		// 检查是否在白名單中
 		allowed := false
 		for _, ip := range allowedIPs {
@@ -26,14 +27,14 @@ func ipWhitelistMiddleware(allowedIPs []string) gin.HandlerFunc {
 				break
 			}
 		}
-		
+
 		if !allowed {
 			logger.Warn("⚠️ [pprof] IP %s 不在白名單中，拒绝访问", clientIP)
 			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 			c.Abort()
 			return
 		}
-		
+
 		c.Next()
 	}
 }
@@ -65,27 +66,27 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 	pprofEnabled := false
 	pprofRequireAuth := true
 	var pprofAllowedIPs []string
-	
+
 	if cfg != nil && cfg.Web.Pprof.Enabled {
 		pprofEnabled = true
 		pprofRequireAuth = cfg.Web.Pprof.RequireAuth
 		pprofAllowedIPs = cfg.Web.Pprof.AllowedIPs
 		logger.Info("✅ pprof 已啟用 (需要认证: %v, IP白名單: %v)", pprofRequireAuth, len(pprofAllowedIPs) > 0)
 	}
-	
+
 	if pprofEnabled {
 		pprofGroup := r.Group("/debug/pprof")
-		
+
 		// IP 白名單中间件
 		if len(pprofAllowedIPs) > 0 {
 			pprofGroup.Use(ipWhitelistMiddleware(pprofAllowedIPs))
 		}
-		
+
 		// 认证中间件（如果需要）
 		if pprofRequireAuth {
 			pprofGroup.Use(authMiddleware())
 		}
-		
+
 		{
 			pprofGroup.GET("/", gin.WrapF(pprof.Index))
 			pprofGroup.GET("/cmdline", gin.WrapF(pprof.Cmdline))
@@ -211,8 +212,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				backtestAPI.POST("/run", runBacktest)
 				backtestAPI.GET("/strategies", getBacktestStrategies)
 				backtestAPI.GET("/presets/:symbol", getBacktestPreset)
-				backtestAPI.GET("/exchanges", getBacktestExchanges)       // 獲取交易所列表
-				backtestAPI.GET("/symbols", getBacktestSymbols)           // 獲取交易對列表（按交易所+市場類型）
+				backtestAPI.GET("/exchanges", getBacktestExchanges)        // 獲取交易所列表
+				backtestAPI.GET("/symbols", getBacktestSymbols)            // 獲取交易對列表（按交易所+市場類型）
 				backtestAPI.GET("/config-params", getBacktestConfigParams) // 獲取已配置的策略参數
 				backtestAPI.POST("/cache/generate", postCacheGenerate)
 				backtestAPI.GET("/cache/status", getCacheStatus)
@@ -259,8 +260,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				cryptoPayment.POST("/:id/confirm", confirmDirectPaymentHandler) // 管理员
 			}
 
-		protected.GET("/reconciliation/history", getReconciliationHistory)
-		protected.GET("/reconciliation/aggregated", getReconciliationAggregated)
+			protected.GET("/reconciliation/history", getReconciliationHistory)
+			protected.GET("/reconciliation/aggregated", getReconciliationAggregated)
 			protected.GET("/risk/status", getRiskStatus)
 			protected.GET("/risk/monitor", getRiskMonitorData)
 			// 新聞分析 API
@@ -381,7 +382,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				strategies.GET("/types", getStrategyTypesHandler)
 				strategies.GET("/configs", getStrategyConfigsHandler)
 				strategies.GET("/enabled", getEnabledStrategiesHandler)
-				strategies.GET("/runtime", getStrategyRuntimeStatusHandler)       // 獲取所有策略運行狀態
+				strategies.GET("/runtime", getStrategyRuntimeStatusHandler)         // 獲取所有策略運行狀態
 				strategies.GET("/runtime/:id", getStrategyRuntimeStatusByIDHandler) // 獲取單個策略運行狀態
 				strategies.POST("/batch-update", batchUpdateStrategiesHandler)
 				strategies.GET("/:id", getStrategyDetailHandler)
@@ -396,6 +397,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			profit := protected.Group("/profit")
 			{
 				profit.GET("/summary", getProfitSummaryHandler)
+				profit.GET("/funding", getFundingHistoryHandler)
 				profit.GET("/by-strategy", getStrategyProfitsHandler)
 				profit.GET("/by-strategy/:id", getStrategyProfitDetailHandler)
 				profit.GET("/withdraw-rules", getWithdrawRulesHandler)

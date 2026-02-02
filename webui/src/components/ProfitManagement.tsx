@@ -44,6 +44,7 @@ import {
   getWithdrawHistory,
   updateWithdrawRules,
   getDailyKlines,
+  getFundingHistory,
 } from '../services/profit'
 import { getExchanges, getSymbols } from '../services/api'
 import type {
@@ -52,6 +53,7 @@ import type {
   ProfitTrendItem,
   ProfitWithdrawRule,
   WithdrawRecord,
+  FundingPaymentItem,
   PriceChangeItem,
 } from '../types/profit'
 
@@ -60,6 +62,8 @@ const MotionBox = motion(Box)
 // Mock data for development
 const MOCK_SUMMARY: ProfitSummary = {
   totalProfit: 1234.56,
+  grossProfit: 1280.00,
+  totalFee: 45.44,
   todayProfit: 45.67,
   weekProfit: 234.56,
   monthProfit: 890.12,
@@ -176,6 +180,9 @@ const ProfitManagement: React.FC = () => {
   const [symbols, setSymbols] = useState<Array<{ symbol: string; exchange: string }>>([])
   const [priceData, setPriceData] = useState<PriceChangeItem[]>([])
   const [isLoadingPriceData, setIsLoadingPriceData] = useState(false)
+  const [fundingRecords, setFundingRecords] = useState<FundingPaymentItem[]>([])
+  const [loadingFunding, setLoadingFunding] = useState(false)
+  const [fundingTabIndex, setFundingTabIndex] = useState(0)
 
   const normalizeExchangeId = (id: string) => (id || '').trim().toLowerCase()
 
@@ -235,6 +242,20 @@ const ProfitManagement: React.FC = () => {
   useEffect(() => {
     fetchTrend()
   }, [period, activeExchange])
+
+  // 切換到資金費明細 Tab 時加載
+  useEffect(() => {
+    if (fundingTabIndex !== 2) return
+    const exchangeId = activeExchange === 'all' ? undefined : activeExchange
+    setLoadingFunding(true)
+    getFundingHistory(exchangeId)
+      .then((res) => {
+        if (res.success && res.records) setFundingRecords(res.records)
+        else setFundingRecords([])
+      })
+      .catch(() => setFundingRecords([]))
+      .finally(() => setLoadingFunding(false))
+  }, [fundingTabIndex, activeExchange])
 
   useEffect(() => {
     const loadSymbols = async () => {
@@ -441,13 +462,44 @@ const ProfitManagement: React.FC = () => {
           <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
-                <StatLabel>{t('profitManagement.totalProfit')}</StatLabel>
+                <StatLabel>{t('profitManagement.netProfit') || '淨利潤'}</StatLabel>
                 <StatNumber color={(summary.totalProfit || 0) >= 0 ? 'green.500' : 'red.500'}>
                   {(summary.totalProfit || 0) >= 0 ? '+' : ''}{(summary.totalProfit || 0).toFixed(2)}
                 </StatNumber>
                 <StatHelpText>USDT</StatHelpText>
               </Stat>
             </Box>
+            {(summary.grossProfit !== undefined || summary.totalFee !== undefined) && (
+              <>
+                <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
+                  <Stat>
+                    <StatLabel>{t('profitManagement.grossProfit') || '毛利'}</StatLabel>
+                    <StatNumber color={(summary.grossProfit ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                      {(summary.grossProfit ?? 0) >= 0 ? '+' : ''}{(summary.grossProfit ?? 0).toFixed(2)}
+                    </StatNumber>
+                    <StatHelpText>USDT</StatHelpText>
+                  </Stat>
+                </Box>
+                <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
+                  <Stat>
+                    <StatLabel>{t('profitManagement.totalFee') || '手續費'}</StatLabel>
+                    <StatNumber color="orange.500">-{(summary.totalFee ?? 0).toFixed(2)}</StatNumber>
+                    <StatHelpText>USDT</StatHelpText>
+                  </Stat>
+                </Box>
+              </>
+            )}
+            {summary.fundingNet !== undefined && (
+              <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
+                <Stat>
+                  <StatLabel>{t('profitManagement.fundingNet') || '資金費淨額'}</StatLabel>
+                  <StatNumber color={(summary.fundingNet ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                    {(summary.fundingNet ?? 0) >= 0 ? '+' : ''}{(summary.fundingNet ?? 0).toFixed(2)}
+                  </StatNumber>
+                  <StatHelpText>USDT</StatHelpText>
+                </Stat>
+              </Box>
+            )}
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('profitManagement.todayProfit')}</StatLabel>
@@ -496,11 +548,17 @@ const ProfitManagement: React.FC = () => {
           isLoadingPriceData={isLoadingPriceData}
         />
 
-        {/* Tabs for Rules and History */}
-        <Tabs variant="enclosed" colorScheme="blue">
+        {/* Tabs for Rules, History, Funding */}
+        <Tabs
+          variant="enclosed"
+          colorScheme="blue"
+          index={fundingTabIndex}
+          onChange={setFundingTabIndex}
+        >
           <TabList>
             <Tab>{t('profitManagement.autoWithdrawRules')}</Tab>
             <Tab>{t('profitManagement.withdrawHistory')}</Tab>
+            <Tab>{t('profitManagement.fundingDetail') || '資金費明細'}</Tab>
           </TabList>
 
           <TabPanels>
@@ -583,6 +641,64 @@ const ProfitManagement: React.FC = () => {
                     )}
                   </Tbody>
                 </Table>
+              </Box>
+            </TabPanel>
+
+            {/* 資金費明細 */}
+            <TabPanel p={0} pt={4}>
+              <Box
+                p={6}
+                bg={bgColor}
+                borderRadius="xl"
+                borderWidth="1px"
+                borderColor={borderColor}
+              >
+                {loadingFunding ? (
+                  <Center py={8}>
+                    <Spinner size="lg" />
+                  </Center>
+                ) : (
+                  <Table variant="simple" size="sm">
+                    <Thead>
+                      <Tr>
+                        <Th>{t('profitManagement.date') || '時間'}</Th>
+                        <Th>Exchange</Th>
+                        <Th>Symbol</Th>
+                        <Th>Type</Th>
+                        <Th isNumeric>{t('profitManagement.amount') || '金額'}</Th>
+                        <Th>Asset</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {fundingRecords.length === 0 ? (
+                        <Tr>
+                          <Td colSpan={6} textAlign="center" py={8} color="gray.500">
+                            {t('profitManagement.noFundingHistory') || '暫無資金費記錄'}
+                          </Td>
+                        </Tr>
+                      ) : (
+                        fundingRecords.map((record) => (
+                          <Tr key={record.id}>
+                            <Td fontSize="sm">
+                              {new Date(record.tradeTime).toLocaleString()}
+                            </Td>
+                            <Td>{record.exchange}</Td>
+                            <Td>{record.symbol}</Td>
+                            <Td>{record.incomeType}</Td>
+                            <Td
+                              isNumeric
+                              fontWeight="medium"
+                              color={record.income >= 0 ? 'green.500' : 'red.500'}
+                            >
+                              {record.income >= 0 ? '+' : ''}{record.income.toFixed(4)} {record.asset}
+                            </Td>
+                            <Td>{record.asset}</Td>
+                          </Tr>
+                        ))
+                      )}
+                    </Tbody>
+                  </Table>
+                )}
               </Box>
             </TabPanel>
           </TabPanels>

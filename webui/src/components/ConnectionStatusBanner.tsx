@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Alert,
   AlertIcon,
@@ -16,13 +17,14 @@ import { RepeatIcon } from '@chakra-ui/icons'
 
 const ConnectionStatusBanner: React.FC = () => {
   const { t } = useTranslation()
+  const location = useLocation()
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [isBackendReachable, setIsBackendReachable] = useState(true)
   const [isChecking, setIsChecking] = useState(false)
   const { isOpen, onOpen, onClose } = useDisclosure()
 
-  // 检查后端连接
-  const checkBackend = async () => {
+  // 檢查後端連線
+  const checkBackend = useCallback(async () => {
     setIsChecking(true)
     try {
       const controller = new AbortController()
@@ -39,7 +41,7 @@ const ConnectionStatusBanner: React.FC = () => {
     } finally {
       setIsChecking(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true)
@@ -48,15 +50,19 @@ const ConnectionStatusBanner: React.FC = () => {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
 
-    const interval = setInterval(checkBackend, 10000) // 自动检查间隔拉长到10秒
-    checkBackend()
+    const isLoginPage = location.pathname === '/login'
+    // 登入頁已有 /api/version 請求，延遲首檢避免並發多個請求導致排隊變慢
+    const initialDelay = isLoginPage ? 3000 : 0
+    const initialTimer = setTimeout(() => checkBackend(), initialDelay)
+    const interval = setInterval(checkBackend, 10000)
 
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      clearTimeout(initialTimer)
       clearInterval(interval)
     }
-  }, [])
+  }, [location.pathname, checkBackend])
 
   useEffect(() => {
     if (!isOnline || !isBackendReachable) {
