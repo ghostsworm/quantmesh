@@ -107,6 +107,7 @@ func (nc *NewsCollector) Stop() {
 // CollectNow 立即收集一次（合並所有啟用资產的关键词）
 func (nc *NewsCollector) CollectNow() error {
 	if nc.cfg.NewsMonitor.NewsAPIKey == "" {
+		logger.Warn("📰 NewsCollector: NewsAPI key 未配置")
 		return fmt.Errorf("NewsAPI key not configured")
 	}
 
@@ -114,18 +115,27 @@ func (nc *NewsCollector) CollectNow() error {
 	if len(keywords) == 0 {
 		keywords = config.DefaultNewsKeywords()
 	}
+	logger.Debug("📰 NewsCollector 使用关键词: %v", keywords)
 
 	items, err := nc.fetchFromNewsAPI(nc.cfg.NewsMonitor.NewsAPIKey, keywords)
 	if err != nil {
 		logger.Warn("📰 NewsCollector 獲取新闻失败: %v", err)
 		return err
 	}
+	logger.Info("📰 NewsCollector 從 NewsAPI 獲取到 %d 条新闻", len(items))
 
 	nc.cacheMutex.Lock()
 	defer nc.cacheMutex.Unlock()
 
 	// 去重合並：相同標题+来源的新闻只保留最新的
 	seen := make(map[string]bool)
+	// 先标记已有的新闻
+	for _, item := range nc.newsCache {
+		key := item.Title + "|" + item.Source
+		seen[key] = true
+	}
+	// 添加新的新闻
+	newCount := 0
 	for _, item := range items {
 		key := item.Title + "|" + item.Source
 		if seen[key] {
@@ -133,15 +143,25 @@ func (nc *NewsCollector) CollectNow() error {
 		}
 		seen[key] = true
 		nc.newsCache = append(nc.newsCache, item)
+		newCount++
+	}
+	if newCount > 0 {
+		logger.Info("📰 NewsCollector 新增 %d 条新闻", newCount)
 	}
 
-	// 只保留最近2小時的新闻
-	cutoffTime := time.Now().Add(-2 * time.Hour)
+	// 保留最近 24 小時的新闻用於缓存（實際顯示時會按需過濾）
+	cutoffTime := time.Now().Add(-24 * time.Hour)
 	filtered := make([]NewsItem, 0)
+	expiredCount := 0
 	for _, item := range nc.newsCache {
 		if item.PublishedAt.After(cutoffTime) {
 			filtered = append(filtered, item)
+		} else {
+			expiredCount++
 		}
+	}
+	if expiredCount > 0 {
+		logger.Debug("📰 NewsCollector 過期 %d 条新闻（超過 24 小時）", expiredCount)
 	}
 	nc.newsCache = filtered
 
@@ -151,7 +171,7 @@ func (nc *NewsCollector) CollectNow() error {
 	})
 
 	nc.lastCollect = time.Now()
-	logger.Debug("📰 NewsCollector 收集完成，缓存 %d 条新闻", len(nc.newsCache))
+	logger.Info("📰 NewsCollector 收集完成，當前缓存 %d 条新闻", len(nc.newsCache))
 	return nil
 }
 
@@ -209,6 +229,16 @@ func (nc *NewsCollector) GetRecentNews(hours int) []NewsItem {
 			result = append(result, item)
 		}
 	}
+	return result
+}
+
+// GetAllCachedNews 獲取所有缓存的新闻（最近 24 小時）
+func (nc *NewsCollector) GetAllCachedNews() []NewsItem {
+	nc.cacheMutex.RLock()
+	defer nc.cacheMutex.RUnlock()
+
+	result := make([]NewsItem, len(nc.newsCache))
+	copy(result, nc.newsCache)
 	return result
 }
 

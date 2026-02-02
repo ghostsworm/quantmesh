@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [3.28.5-rc5] - 2026-02-02
+
+### Fixed
+- **新聞分析價格預測格式修復**: 修復 Gemini 返回的價格預測格式不正確的問題（如返回 `2hcount_down_5_percent_...` 而非結構化 JSON）
+  - 在 prompt 中添加明確的 JSON 示例，指導 AI 輸出正確格式
+  - 強化 JSON Schema 的 enum 和 description 約束
+  - 添加 `normalizeTimeframe` 函數，自動修正異常的時間窗口格式
+  - 添加 probability 自動校正（如百分比轉小數）
+  - 涉及：`monitor/gemini_news_analyzer.go`
+
+- **新聞收集顯示修復**: 修復「已收集新聞」一直顯示「暫無」的問題
+  - 原因：NewsAPI 返回的新聞通常超過 2 小時，被過濾後緩存為空
+  - 改動：緩存保留 24 小時內的新聞，前端顯示所有緩存新聞；AI 分析仍使用最近 2 小時的新聞
+  - 添加更多日誌幫助排查收集問題
+  - 涉及：`monitor/news_collector.go`、`monitor/news_monitor.go`、`webui/src/components/NewsAnalysis.tsx`
+
+## [3.28.5-rc4] - 2026-02-02
+
+### Fixed
+- **登入頁刷新變慢 / 請求長時間 Pending**: 讓 API 與 WebSocket 請求不再經由 Service Worker，直接走瀏覽器網絡，避免 SW 攔截導致請求排隊、刷新變慢
+  - 涉及：`webui/vite.config.js`（移除 `/api`、`/ws` 的 runtimeCaching）
+- **登入頁減少重複請求**: ConnectionStatusBanner 在登入頁延遲 3 秒再執行首次後端檢查，避免與登入頁的 `/api/version` 同時發送
+  - 涉及：`webui/src/components/ConnectionStatusBanner.tsx`
+
 ## [3.28.5-rc3] - 2026-02-02
 
 ### Fixed

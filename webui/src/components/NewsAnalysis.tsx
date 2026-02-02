@@ -277,11 +277,11 @@ const NewsAnalysis: React.FC = () => {
 
         <Card>
           <CardHeader py={3}>
-            <Text fontSize="sm" fontWeight="600">已收集新闻（最近 2 小時）</Text>
+            <Text fontSize="sm" fontWeight="600">已收集新闻（最近 24 小時）</Text>
           </CardHeader>
           <CardBody pt={0}>
             {news.length === 0 ? (
-              <Text color="gray.500" fontSize="sm">暂無</Text>
+              <Text color="gray.500" fontSize="sm">暂無（请检查 NewsAPI Key 配置或网络连接）</Text>
             ) : (
               <Table size="sm">
                 <Thead>

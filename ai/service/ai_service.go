@@ -20,7 +20,7 @@ type AIService struct {
 func NewAIService() *AIService {
 	// 創建支援代理的 HTTP 客戶端
 	transport := &http.Transport{}
-	
+
 	// 從环境变量读取代理配置（优先级：HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy）
 	proxyURL := os.Getenv("HTTPS_PROXY")
 	if proxyURL == "" {
@@ -32,16 +32,16 @@ func NewAIService() *AIService {
 	if proxyURL == "" {
 		proxyURL = os.Getenv("http_proxy")
 	}
-	
+
 	if proxyURL != "" {
 		if proxy, err := url.Parse(proxyURL); err == nil {
 			transport.Proxy = http.ProxyURL(proxy)
 		}
 	}
-	
+
 	return &AIService{
 		httpClient: &http.Client{
-			Timeout:   300 * time.Second, // 5 分钟，Gemini API 複杂请求可能需要较长時间
+			Timeout:   600 * time.Second, // 10 分钟，Gemini API 複杂请求可能需要较长時间
 			Transport: transport,
 		},
 	}
@@ -57,20 +57,20 @@ type AIRequest struct {
 }
 
 type AIResponse struct {
-	Success          bool    `json:"success"`
-	Content          string  `json:"content"`
-	Error            string  `json:"error"`
-	InputTokens      int64   `json:"input_tokens"`
-	OutputTokens     int64   `json:"output_tokens"`
-	ProcessingTimeMs int64   `json:"processing_time_ms"`
-	UsedAPIKey       string  `json:"used_api_key"`
-	AIInput          string  `json:"ai_input"`
-	AIOutput         string  `json:"ai_output"`
+	Success          bool   `json:"success"`
+	Content          string `json:"content"`
+	Error            string `json:"error"`
+	InputTokens      int64  `json:"input_tokens"`
+	OutputTokens     int64  `json:"output_tokens"`
+	ProcessingTimeMs int64  `json:"processing_time_ms"`
+	UsedAPIKey       string `json:"used_api_key"`
+	AIInput          string `json:"ai_input"`
+	AIOutput         string `json:"ai_output"`
 }
 
 func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResponse, error) {
 	startTime := time.Now()
-	
+
 	geminiReq := map[string]interface{}{
 		"contents": []map[string]interface{}{
 			{
@@ -95,8 +95,14 @@ func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResp
 		}
 	}
 
+	// 注意：當啟用 Google Search tool 時，Gemini API 可能無法同時強制 responseSchema
+	// 因此我們需要在 prompt 中明確要求 JSON 格式輸出
 	if req.JSONSchema != nil {
-		geminiReq["generationConfig"].(map[string]interface{})["responseSchema"] = req.JSONSchema
+		// 僅在不使用 Google Search 時設置 responseSchema（因為 tools 和 responseSchema 可能衝突）
+		if !req.UseGoogleSearch {
+			geminiReq["generationConfig"].(map[string]interface{})["responseSchema"] = req.JSONSchema
+		}
+		// 無論是否使用 Google Search，都保持 responseMimeType 為 application/json
 	}
 
 	// 啟用 Google Search 實時搜索（用於新聞分析等场景）
@@ -118,7 +124,7 @@ func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResp
 
 	baseURL := "https://generativelanguage.googleapis.com/v1beta"
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", baseURL, model, req.GeminiAPIKey)
-	
+
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %w", err)

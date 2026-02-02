@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -32,7 +33,7 @@ func NewGeminiNewsAnalyzer(cfg *config.Config, newsCollector *NewsCollector) *Ge
 
 // AssetType 资產類型常量
 const (
-	AssetTypeCryptoBTC   = "crypto_btc"
+	AssetTypeCryptoBTC     = "crypto_btc"
 	AssetTypeCommodityGold = "commodity_gold"
 )
 
@@ -187,11 +188,82 @@ func (g *GeminiNewsAnalyzer) buildPrompt(assetType, symbol string, currentPrice 
 ## 输出要求
 请输出以下時间窗口的價格变动概率預测：` + tfList + `
 
-每個時间窗口需包含：下跌5%%、下跌10%%、持平等场景及其概率。
+**重要格式说明**：
+- timeframe 字段必须是简单的時间标识，如 "2h"、"4h"、"6h"、"12h"、"24h"
+- 每個時间窗口的 scenarios 数组必须包含多個场景對象
+- 每個场景對象必须包含：direction（"down"/"up"/"neutral"）、change_percent（數字，如 -5、-10、0）、probability（0-1 之间的小數）
+- target_price_range 必须包含 min 和 max 两個數字
 
-同時提供：當前價位分析、未来可能的目標價位区间、主要风險因素、建议操作（normal/caution/reduce_position/stop_trading）、分析摘要。
+**正确的 price_predictions 示例**：
+` + "```json" + `
+{
+  "price_predictions": [
+    {
+      "timeframe": "2h",
+      "scenarios": [
+        {"direction": "down", "change_percent": -5, "probability": 0.15},
+        {"direction": "down", "change_percent": -10, "probability": 0.05},
+        {"direction": "neutral", "change_percent": 0, "probability": 0.60},
+        {"direction": "up", "change_percent": 5, "probability": 0.20}
+      ],
+      "target_price_range": {"min": 95000, "max": 98000}
+    },
+    {
+      "timeframe": "4h",
+      "scenarios": [
+        {"direction": "down", "change_percent": -5, "probability": 0.20},
+        {"direction": "neutral", "change_percent": 0, "probability": 0.50},
+        {"direction": "up", "change_percent": 5, "probability": 0.30}
+      ],
+      "target_price_range": {"min": 94000, "max": 99000}
+    }
+  ]
+}
+` + "```" + `
 
-请严格按照 JSON Schema 格式输出。`)
+同時提供：當前價位分析（current_price_analysis）、主要风險因素（risk_factors 数组）、建议操作 recommendation（必须是 normal/caution/reduce_position/stop_trading 之一）、分析摘要（analysis_summary）。
+
+## 非常重要：JSON 输出格式要求
+
+你必须严格按照以下完整 JSON 结构输出，不要添加任何额外的文字说明：
+
+` + "```json" + `
+{
+  "current_price_analysis": {
+    "current_price": 96500.00,
+    "price_trend": "down",
+    "support_level": 95000,
+    "resistance_level": 98000,
+    "change_24h_percent": -2.5
+  },
+  "price_predictions": [
+    {
+      "timeframe": "2h",
+      "scenarios": [
+        {"direction": "down", "change_percent": -5, "probability": 0.15},
+        {"direction": "down", "change_percent": -10, "probability": 0.05},
+        {"direction": "neutral", "change_percent": 0, "probability": 0.60},
+        {"direction": "up", "change_percent": 5, "probability": 0.20}
+      ],
+      "target_price_range": {"min": 95000, "max": 98000}
+    }
+  ],
+  "risk_factors": [
+    {"factor": "美聯儲鷹派政策", "severity": "high", "impact": "可能導致風險資產拋售"},
+    {"factor": "地緣政治緊張", "severity": "medium", "impact": "避險情緒上升"}
+  ],
+  "recommendation": "caution",
+  "analysis_summary": "當前市場受到宏觀經濟不確定性影響..."
+}
+` + "```" + `
+
+**禁止**：
+- 不要在 timeframe 中写入除 "2h"、"4h"、"6h"、"12h"、"24h" 之外的内容
+- 不要将多个字段合并成一个字符串
+- 不要在 JSON 外添加任何解释文字
+- 确保 probability 是 0-1 之间的小数（如 0.15），不是百分比（如 15）
+
+只输出上述格式的纯 JSON，不要有其他内容。`)
 	return sb.String()
 }
 
@@ -203,37 +275,58 @@ func (g *GeminiNewsAnalyzer) buildOutputSchema() map[string]interface{} {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"current_price":      map[string]interface{}{"type": "number"},
-					"price_trend":        map[string]interface{}{"type": "string"},
+					"price_trend":        map[string]interface{}{"type": "string", "enum": []interface{}{"up", "down", "neutral"}},
 					"support_level":      map[string]interface{}{"type": "number"},
 					"resistance_level":   map[string]interface{}{"type": "number"},
 					"change_24h_percent": map[string]interface{}{"type": "number"},
 				},
+				"required": []interface{}{"current_price", "price_trend", "support_level", "resistance_level"},
 			},
 			"price_predictions": map[string]interface{}{
 				"type": "array",
 				"items": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"timeframe": map[string]interface{}{"type": "string"},
+						"timeframe": map[string]interface{}{
+							"type":        "string",
+							"description": "時间窗口标识，必须是简单格式如 2h、4h、6h、12h、24h",
+							"pattern":     "^\\d+h$",
+						},
 						"scenarios": map[string]interface{}{
-							"type": "array",
+							"type":        "array",
+							"description": "不同價格变动场景及其概率",
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
-									"direction":      map[string]interface{}{"type": "string"},
-									"change_percent": map[string]interface{}{"type": "number"},
-									"probability":    map[string]interface{}{"type": "number"},
+									"direction": map[string]interface{}{
+										"type":        "string",
+										"enum":        []interface{}{"up", "down", "neutral"},
+										"description": "價格变动方向",
+									},
+									"change_percent": map[string]interface{}{
+										"type":        "number",
+										"description": "變化百分比，下跌用负數如 -5、-10，上涨用正數如 5、10，持平为 0",
+									},
+									"probability": map[string]interface{}{
+										"type":        "number",
+										"minimum":     0,
+										"maximum":     1,
+										"description": "发生概率，0-1 之间的小數，如 0.15 表示 15%%",
+									},
 								},
+								"required": []interface{}{"direction", "change_percent", "probability"},
 							},
 						},
 						"target_price_range": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"min": map[string]interface{}{"type": "number"},
-								"max": map[string]interface{}{"type": "number"},
+								"min": map[string]interface{}{"type": "number", "description": "預测價格区间下限"},
+								"max": map[string]interface{}{"type": "number", "description": "預测價格区间上限"},
 							},
+							"required": []interface{}{"min", "max"},
 						},
 					},
+					"required": []interface{}{"timeframe", "scenarios", "target_price_range"},
 				},
 			},
 			"risk_factors": map[string]interface{}{
@@ -241,16 +334,24 @@ func (g *GeminiNewsAnalyzer) buildOutputSchema() map[string]interface{} {
 				"items": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"factor":   map[string]interface{}{"type": "string"},
-						"severity": map[string]interface{}{"type": "string"},
-						"impact":   map[string]interface{}{"type": "string"},
+						"factor":   map[string]interface{}{"type": "string", "description": "风險因素名稱"},
+						"severity": map[string]interface{}{"type": "string", "enum": []interface{}{"low", "medium", "high", "critical"}},
+						"impact":   map[string]interface{}{"type": "string", "description": "對價格的潛在影响"},
 					},
+					"required": []interface{}{"factor", "severity"},
 				},
 			},
-			"recommendation":    map[string]interface{}{"type": "string"},
-			"analysis_summary":  map[string]interface{}{"type": "string"},
+			"recommendation": map[string]interface{}{
+				"type":        "string",
+				"enum":        []interface{}{"normal", "caution", "reduce_position", "stop_trading"},
+				"description": "操作建议",
+			},
+			"analysis_summary": map[string]interface{}{
+				"type":        "string",
+				"description": "分析摘要，简要说明当前市场状况和主要影响因素",
+			},
 		},
-		"required": []interface{}{"current_price_analysis", "price_predictions", "risk_factors", "recommendation"},
+		"required": []interface{}{"current_price_analysis", "price_predictions", "risk_factors", "recommendation", "analysis_summary"},
 	}
 }
 
@@ -270,8 +371,8 @@ func (g *GeminiNewsAnalyzer) parseResponse(aiText, assetType, symbol string, cur
 			Change24hPercent float64 `json:"change_24h_percent"`
 		} `json:"current_price_analysis"`
 		PricePredictions []struct {
-			Timeframe        string `json:"timeframe"`
-			Scenarios        []struct {
+			Timeframe string `json:"timeframe"`
+			Scenarios []struct {
 				Direction     string  `json:"direction"`
 				ChangePercent float64 `json:"change_percent"`
 				Probability   float64 `json:"probability"`
@@ -286,8 +387,8 @@ func (g *GeminiNewsAnalyzer) parseResponse(aiText, assetType, symbol string, cur
 			Severity string `json:"severity"`
 			Impact   string `json:"impact"`
 		} `json:"risk_factors"`
-		Recommendation   string `json:"recommendation"`
-		AnalysisSummary  string `json:"analysis_summary"`
+		Recommendation  string `json:"recommendation"`
+		AnalysisSummary string `json:"analysis_summary"`
 	}
 
 	if err := json.Unmarshal([]byte(aiText), &raw); err != nil {
@@ -318,18 +419,53 @@ func (g *GeminiNewsAnalyzer) parseResponse(aiText, assetType, symbol string, cur
 	}
 
 	for _, p := range raw.PricePredictions {
+		// 规范化 timeframe：提取純時间标识（如 "2h"）
+		timeframe := normalizeTimeframe(p.Timeframe)
+		if timeframe == "" {
+			logger.Warn("📰 跳過無效的 timeframe: %s", p.Timeframe)
+			continue
+		}
+
 		pred := PricePrediction{
-			Timeframe:        p.Timeframe,
+			Timeframe:        timeframe,
 			TargetPriceRange: PriceRange{Min: p.TargetPriceRange.Min, Max: p.TargetPriceRange.Max},
 		}
 		for _, s := range p.Scenarios {
+			// 规范化 probability：确保在 0-1 之间
+			prob := s.Probability
+			if prob > 1 {
+				prob = prob / 100.0 // 如果是百分比格式（如 15），轉換為小數（0.15）
+			}
+			if prob < 0 {
+				prob = 0
+			}
+			if prob > 1 {
+				prob = 1
+			}
+
+			// 规范化 direction
+			direction := strings.ToLower(strings.TrimSpace(s.Direction))
+			if direction != "up" && direction != "down" && direction != "neutral" {
+				if s.ChangePercent < 0 {
+					direction = "down"
+				} else if s.ChangePercent > 0 {
+					direction = "up"
+				} else {
+					direction = "neutral"
+				}
+			}
+
 			pred.Scenarios = append(pred.Scenarios, PriceScenario{
-				Direction:     s.Direction,
+				Direction:     direction,
 				ChangePercent: s.ChangePercent,
-				Probability:   s.Probability,
+				Probability:   prob,
 			})
 		}
-		assessment.PricePredictions = append(assessment.PricePredictions, pred)
+
+		// 只添加有效的预测（至少有一个场景）
+		if len(pred.Scenarios) > 0 {
+			assessment.PricePredictions = append(assessment.PricePredictions, pred)
+		}
 	}
 
 	for _, r := range raw.RiskFactors {
@@ -349,6 +485,31 @@ func (g *GeminiNewsAnalyzer) parseResponse(aiText, assetType, symbol string, cur
 	}
 
 	return assessment, nil
+}
+
+// normalizeTimeframe 规范化時间窗口标识，提取純格式如 "2h"
+func normalizeTimeframe(tf string) string {
+	tf = strings.TrimSpace(tf)
+	// 已经是正确格式
+	if matched, _ := regexp.MatchString(`^\d+h$`, tf); matched {
+		return tf
+	}
+
+	// 尝试提取 "2h"、"4h" 等模式
+	re := regexp.MustCompile(`(\d+)\s*h`)
+	matches := re.FindStringSubmatch(strings.ToLower(tf))
+	if len(matches) >= 2 {
+		return matches[1] + "h"
+	}
+
+	// 尝试提取小時數
+	re = regexp.MustCompile(`(\d+)\s*(小時|hours?|hour)`)
+	matches = re.FindStringSubmatch(strings.ToLower(tf))
+	if len(matches) >= 2 {
+		return matches[1] + "h"
+	}
+
+	return ""
 }
 
 func normalizeRecommendation(r string) string {
