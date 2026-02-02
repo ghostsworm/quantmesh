@@ -27,13 +27,13 @@ type NewsItem struct {
 	PublishedAt time.Time `json:"published_at"`
 	Keywords    []string  `json:"keywords"`
 	RiskScore   float64   `json:"risk_score"`   // 0-100，风險评分
-	Category    string    `json:"category"`      // 地緣政治、監管、技术、總體經濟等
+	Category    string    `json:"category"`     // 地緣政治、監管、技术、總體經濟等
 	ImpactLevel string    `json:"impact_level"` // low, medium, high, critical
 }
 
 // PriceScenario 價格场景預测
 type PriceScenario struct {
-	Direction     string  `json:"direction"`      // "up", "down", "neutral"
+	Direction     string  `json:"direction"` // "up", "down", "neutral"
 	ChangePercent float64 `json:"change_percent"`
 	Probability   float64 `json:"probability"` // 0-1
 }
@@ -75,8 +75,8 @@ type NewsRiskAssessment struct {
 	RecentHighRiskNews   []NewsItem           `json:"recent_high_risk_news"` // 最近的高风險新闻
 	RiskFactors          []string             `json:"risk_factors"`          // 风險因素列表（兼容舊字段）
 	LastUpdated          time.Time            `json:"last_updated"`
-	Recommendation       string               `json:"recommendation"`        // 建议：normal, caution, reduce_position, stop_trading
-	AnalysisID           string               `json:"analysis_id"`           // 唯一ID
+	Recommendation       string               `json:"recommendation"` // 建议：normal, caution, reduce_position, stop_trading
+	AnalysisID           string               `json:"analysis_id"`    // 唯一ID
 	PricePredictions     []PricePrediction    `json:"price_predictions"`
 	CurrentPriceAnalysis CurrentPriceAnalysis `json:"current_price_analysis"`
 	RelatedNews          []NewsItem           `json:"related_news"`
@@ -89,22 +89,22 @@ type PriceGetter func(symbol string) float64
 
 // NewsMonitor 新聞監控器
 type NewsMonitor struct {
-	cfg              *config.Config
-	storage          storage.Storage
-	httpClient       *http.Client
+	cfg                   *config.Config
+	storage               storage.Storage
+	httpClient            *http.Client
 	newsCache             []NewsItem
-	lastAssessment        *NewsRiskAssessment       // 兼容：最后一次分析（任意资產）
+	lastAssessment        *NewsRiskAssessment            // 兼容：最后一次分析（任意资產）
 	lastAssessmentByAsset map[string]*NewsRiskAssessment // 按资產類型缓存
 	mu                    sync.RWMutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	isRunning        bool
-	analysisLoopDone chan struct{}
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	isRunning             bool
+	analysisLoopDone      chan struct{}
 
 	// Gemini 新聞分析
-	newsCollector   *NewsCollector
-	geminiAnalyzer  *GeminiNewsAnalyzer
-	getPrice        PriceGetter
+	newsCollector  *NewsCollector
+	geminiAnalyzer *GeminiNewsAnalyzer
+	getPrice       PriceGetter
 
 	// 风險关键词库
 	highRiskKeywords map[string]float64 // 关键词 -> 权重
@@ -180,12 +180,12 @@ func (nm *NewsMonitor) initRiskKeywords() {
 
 	// 類别权重
 	nm.categories = map[string]float64{
-		"地緣政治": 0.9,
-		"監管政策": 0.85,
+		"地緣政治":  0.9,
+		"監管政策":  0.85,
 		"交易所安全": 0.9,
-		"總體經濟": 0.7,
-		"市场异常": 0.8,
-		"其他": 0.3,
+		"總體經濟":  0.7,
+		"市场异常":  0.8,
+		"其他":    0.3,
 	}
 }
 
@@ -515,12 +515,14 @@ func (nm *NewsMonitor) cleanupOldAnalysisHistory() {
 	}
 }
 
-// GetCollectedNews 獲取當前收集的新闻列表
+// GetCollectedNews 獲取當前收集的新闻列表（返回所有缓存的新闻，最多 24 小時）
 func (nm *NewsMonitor) GetCollectedNews() []NewsItem {
 	if nm.newsCollector == nil {
 		return nil
 	}
-	return nm.newsCollector.GetRecentNews(2)
+	// 返回所有缓存的新闻（最多 24 小時内），而不是只返回 2 小時内的
+	// 這樣前端可以看到更多的新闻，但 AI 分析仍然使用 2 小時内的新闻
+	return nm.newsCollector.GetAllCachedNews()
 }
 
 // IsAnalyzing 是否正在執行 Gemini 分析
@@ -809,7 +811,7 @@ func (nm *NewsMonitor) assessRisk() *NewsRiskAssessment {
 		CrashProbability:   crashProbability,
 		RecentHighRiskNews: highRiskNews,
 		RiskFactors:        factors,
-		LastUpdated:         time.Now(),
+		LastUpdated:        time.Now(),
 		Recommendation:     recommendation,
 	}
 }

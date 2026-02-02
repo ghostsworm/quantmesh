@@ -23,6 +23,7 @@ import (
 	"quantmesh/event"
 	"quantmesh/exchange"
 	"quantmesh/i18n"
+	"quantmesh/inspector"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/metrics"
@@ -35,7 +36,6 @@ import (
 	"quantmesh/storage"
 	"quantmesh/utils"
 	"quantmesh/web"
-	"quantmesh/inspector"
 )
 
 // capitalDataSourceAdapter 资金數據源适配器
@@ -83,7 +83,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.28.5-rc3"
+var Version = "3.28.5-rc5"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -311,7 +311,7 @@ type snapshotRuntimeAdapter struct {
 
 func (a *snapshotRuntimeAdapter) Exchange() string { return a.rt.Config.Exchange }
 func (a *snapshotRuntimeAdapter) Symbol() string   { return a.rt.Config.Symbol }
-func (a *snapshotRuntimeAdapter) Account() string   { return a.rt.AccountID }
+func (a *snapshotRuntimeAdapter) Account() string  { return a.rt.AccountID }
 func (a *snapshotRuntimeAdapter) CurrentSnapshot() (currentPrice, unrealizedPnL, totalPositionValue float64) {
 	if a.rt.PriceMonitor == nil || a.rt.SuperPositionManager == nil {
 		return 0, 0, 0
@@ -1288,7 +1288,7 @@ func main() {
 		// 根據實際配置決定 RPID 和 RPOrigin
 		var rpID string
 		var rpOrigin string
-		
+
 		// 優先使用環境變數或配置檔案中的域名
 		if domain := os.Getenv("DOMAIN"); domain != "" {
 			rpID = domain
@@ -1298,7 +1298,7 @@ func main() {
 				rpOrigin = fmt.Sprintf("http://%s", domain)
 			}
 		} else if cfg.Web.Domain != "" {
-			rpID = cfg.Web.Domain  
+			rpID = cfg.Web.Domain
 			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
 				rpOrigin = fmt.Sprintf("https://%s", cfg.Web.Domain)
 			} else {
@@ -1311,7 +1311,7 @@ func main() {
 				host = "localhost"
 			}
 			rpID = host
-			
+
 			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
 				if cfg.Web.Port == 443 {
 					rpOrigin = fmt.Sprintf("https://%s", host)
@@ -1874,12 +1874,12 @@ func main() {
 						return nil
 					}
 					rec := &storage.InspectionReport{
-						ReportType:   report.ReportType,
-						Title:        report.Title,
-						Body:         report.Body,
-						EventType:    report.EventType,
-						GeneratedAt:  report.GeneratedAt,
-						CreatedAt:    time.Now(),
+						ReportType:  report.ReportType,
+						Title:       report.Title,
+						Body:        report.Body,
+						EventType:   report.EventType,
+						GeneratedAt: report.GeneratedAt,
+						CreatedAt:   time.Now(),
 					}
 					if report.Snapshot != nil {
 						if b, err := json.Marshal(report.Snapshot); err == nil {
