@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [3.29.1] - 2026-02-03
+
+### Added
+- **回測報告顯示配置與參數**：回測報告新增「回测配置」區塊，包含 K 線周期、回測時間範圍、所有回測參數（含策略參數與風控參數）以表格形式呈現
+  - 涉及：`backtest/report_generator.go`（新增 `ReportMeta`、`ReportParamRow`）、`backtest/task_manager.go`
+
+### Fixed
+- **回測報告保存為圖片優化**：修復保存為圖片時使用克隆元素避免修改原始 DOM，改善截圖完整性
+
 ## [3.29.0] - 2026-02-03
 
 ### Added

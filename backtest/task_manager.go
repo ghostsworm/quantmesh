@@ -159,17 +159,21 @@ func (m *TaskManager) RunTask(id string) error {
 		return nil
 	}
 
-	// 4. 生成报告 Markdown
+	// 4. 生成报告 Markdown（帶 meta 以輸出 K 線周期與回測參數）
 	if err := os.MkdirAll(m.reportsDir, 0755); err != nil {
 		logger.Warn("創建报告目錄失败: %v", err)
 	}
 	reportPath := filepath.Join(m.reportsDir, id+".md")
+	reportMeta := &ReportMeta{
+		Interval: task.Interval,
+		Params:   task.Params,
+	}
 	if comparison != nil {
-		if err := GenerateComparisonReportToFile(comparison, reportPath); err != nil {
+		if err := GenerateComparisonReportToFile(comparison, reportPath, reportMeta); err != nil {
 			logger.Warn("生成对比报告失败: %v", err)
 			reportPath = ""
 		}
-	} else if err := GenerateReportToFile(result, reportPath); err != nil {
+	} else if err := GenerateReportToFile(result, reportPath, reportMeta); err != nil {
 		logger.Warn("生成报告失败: %v", err)
 		reportPath = ""
 	}

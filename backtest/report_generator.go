@@ -4,10 +4,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
 )
+
+// ReportMeta 報告用元數據（K 線周期、回測參數等，由任務調用方傳入）
+type ReportMeta struct {
+	Interval string                 // K 線周期，如 1m, 5m, 1h
+	Params   map[string]interface{} // 回測參數（含策略參數與風控參數）
+}
 
 // GenerateReport 生成 Markdown 回测报告
 func GenerateReport(result *BacktestResult) (string, error) {
@@ -26,8 +33,8 @@ func GenerateReport(result *BacktestResult) (string, error) {
 	)
 	reportPath := filepath.Join(reportDir, filename)
 
-	// 准备模板數據
-	data := prepareReportData(result)
+	// 准备模板數據（無 meta 時不輸出 K 線周期與參數表）
+	data := prepareReportData(result, nil)
 
 	// 渲染模板
 	content, err := renderReportTemplate(data)
@@ -43,9 +50,9 @@ func GenerateReport(result *BacktestResult) (string, error) {
 	return reportPath, nil
 }
 
-// GenerateReportToFile 生成回测报告到指定路径（供任務結果使用）
-func GenerateReportToFile(result *BacktestResult, reportPath string) error {
-	data := prepareReportData(result)
+// GenerateReportToFile 生成回测报告到指定路径（供任務結果使用）。meta 可為 nil，為 nil 時不輸出 K 線周期與參數表。
+func GenerateReportToFile(result *BacktestResult, reportPath string, meta *ReportMeta) error {
+	data := prepareReportData(result, meta)
 	content, err := renderReportTemplate(data)
 	if err != nil {
 		return fmt.Errorf("渲染报告模板失败: %w", err)
@@ -94,9 +101,9 @@ type RiskInterventionRow struct {
 	SkippedBuys string
 }
 
-// GenerateComparisonReportToFile 生成對比報告到指定路徑
-func GenerateComparisonReportToFile(comparison *ComparisonResult, reportPath string) error {
-	data := prepareComparisonReportData(comparison)
+// GenerateComparisonReportToFile 生成對比報告到指定路徑。meta 可為 nil，為 nil 時不輸出 K 線周期與參數表。
+func GenerateComparisonReportToFile(comparison *ComparisonResult, reportPath string, meta *ReportMeta) error {
+	data := prepareComparisonReportData(comparison, meta)
 	content, err := renderComparisonReportTemplate(data)
 	if err != nil {
 		return fmt.Errorf("渲染對比報告模板失败: %w", err)
@@ -109,7 +116,7 @@ func GenerateComparisonReportToFile(comparison *ComparisonResult, reportPath str
 }
 
 // prepareComparisonReportData 準備對比報告數據
-func prepareComparisonReportData(comp *ComparisonResult) ComparisonReportData {
+func prepareComparisonReportData(comp *ComparisonResult, meta *ReportMeta) ComparisonReportData {
 	noRisk := comp.NoRiskResult
 	withRisk := comp.WithRiskResult
 	cm := comp.Comparison
@@ -117,8 +124,8 @@ func prepareComparisonReportData(comp *ComparisonResult) ComparisonReportData {
 		cm = &ComparisonMetrics{}
 	}
 
-	// 使用無風控結果作為基礎 ReportData
-	base := prepareReportData(noRisk)
+	// 使用無風控結果作為基礎 ReportData（帶 meta 以輸出 K 線周期與參數）
+	base := prepareReportData(noRisk, meta)
 
 	// 風控介入表格
 	intervRows := make([]RiskInterventionRow, 0, len(withRisk.RiskInterventions))
@@ -220,6 +227,17 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 - **回测期间**: {{.StartDate}} 至 {{.EndDate}} ({{.Duration}})
 - **初始资金**: ${{.InitialCapital}}
 
+{{if .Interval}}
+## 回测配置
+
+| 項目 | 值 |
+|------|------|
+| K 線周期 | {{.Interval}} |
+| 回測時間 | {{.StartDate}} 至 {{.EndDate}} |
+{{range .ParamsTable}}| {{.Key}} | {{.Value}} |
+{{end}}
+{{end}}
+
 ## 風控對比
 
 | 指標 | 無風控 | 有風控 | 差異 |
@@ -313,6 +331,12 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 	return buf.String(), nil
 }
 
+// ReportParamRow 報告參數行（用於參數表）
+type ReportParamRow struct {
+	Key   string
+	Value string
+}
+
 // ReportData 报告數據
 type ReportData struct {
 	// 基本信息
@@ -324,6 +348,10 @@ type ReportData struct {
 	Duration       string
 	InitialCapital string
 	FinalCapital   string
+
+	// 數據與參數（由 ReportMeta 填充，meta 為 nil 時為空）
+	Interval    string           // K 線周期，如 1m, 5m, 1h
+	ParamsTable []ReportParamRow // 回測參數表（含策略與風控參數）
 
 	// 收益指標
 	TotalReturn      string
@@ -486,13 +514,56 @@ func baseAssetFromSymbol(symbol string) string {
 	return symbol
 }
 
-// prepareReportData 准备报告數據
-func prepareReportData(result *BacktestResult) ReportData {
+// formatParamValue 格式化參數值為字符串（用於報告參數表）
+func formatParamValue(v interface{}) string {
+	switch val := v.(type) {
+	case float64:
+		// 根據數值大小決定格式
+		if val == float64(int(val)) {
+			return fmt.Sprintf("%.0f", val)
+		}
+		return fmt.Sprintf("%g", val)
+	case int:
+		return fmt.Sprintf("%d", val)
+	case int64:
+		return fmt.Sprintf("%d", val)
+	case string:
+		return val
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// prepareReportData 准备报告數據。meta 可為 nil，為 nil 時 Interval 與 ParamsTable 為空。
+func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 	m := result.Metrics
 
 	// 计算持续時间
 	duration := result.EndTime.Sub(result.StartTime)
 	durationStr := fmt.Sprintf("%d 天", int(duration.Hours()/24))
+
+	// K 線周期與回測參數表（由 meta 填充）
+	var interval string
+	var paramsTable []ReportParamRow
+	if meta != nil {
+		interval = meta.Interval
+		if len(meta.Params) > 0 {
+			keys := make([]string, 0, len(meta.Params))
+			for k := range meta.Params {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				v := meta.Params[k]
+				paramsTable = append(paramsTable, ReportParamRow{Key: k, Value: formatParamValue(v)})
+			}
+		}
+	}
 
 	// 准备交易明细（前20笔）：包含买/卖所有成交，避免仅统计 sell 时策略多为买入导致明细为空
 	topTrades := make([]TradeRow, 0)
@@ -569,6 +640,8 @@ func prepareReportData(result *BacktestResult) ReportData {
 		Duration:       durationStr,
 		InitialCapital: fmt.Sprintf("%.4f", result.InitialCapital),
 		FinalCapital:   fmt.Sprintf("%.4f", result.FinalCapital),
+		Interval:       interval,
+		ParamsTable:    paramsTable,
 
 		TotalReturn:      fmt.Sprintf("%.4f%%", m.TotalReturn),
 		AnnualizedReturn: fmt.Sprintf("%.4f%%", m.AnnualizedReturn),
@@ -695,6 +768,17 @@ func renderReportTemplate(data ReportData) (string, error) {
 - **年化收益率**: {{.AnnualizedReturn}}
 - **最大回撤**: {{.MaxDrawdown}}
 - **夏普比率**: {{.SharpeRatio}}
+
+{{if .Interval}}
+## 回测配置
+
+| 項目 | 值 |
+|------|------|
+| K 線周期 | {{.Interval}} |
+| 回測時間 | {{.StartDate}} 至 {{.EndDate}} |
+{{range .ParamsTable}}| {{.Key}} | {{.Value}} |
+{{end}}
+{{end}}
 
 {{if .HasPriceCurve}}
 ## 價格曲線概況
