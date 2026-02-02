@@ -598,38 +598,54 @@ export default function BacktestMenu() {
     
     setSavingImage(true)
     try {
-      // 獲取原始滾動位置和高度
       const element = reportContentRef.current
-      const originalOverflow = element.style.overflow
-      const originalMaxHeight = element.style.maxHeight
-      const originalHeight = element.style.height
       
-      // 臨時移除滾動限制，展開全部內容
-      element.style.overflow = 'visible'
-      element.style.maxHeight = 'none'
-      element.style.height = 'auto'
+      // 克隆元素以避免修改原始 DOM
+      const clone = element.cloneNode(true) as HTMLElement
+      clone.style.position = 'absolute'
+      clone.style.left = '-9999px'
+      clone.style.top = '0'
+      clone.style.width = `${element.scrollWidth}px`
+      clone.style.overflow = 'visible'
+      clone.style.maxHeight = 'none'
+      clone.style.height = 'auto'
+      clone.style.backgroundColor = '#ffffff'
+      document.body.appendChild(clone)
       
-      // 等待重排完成
-      await new Promise(resolve => setTimeout(resolve, 100))
+      // 等待克隆元素渲染完成
+      await new Promise(resolve => setTimeout(resolve, 200))
       
-      const canvas = await html2canvas(element, {
+      const contentHeight = clone.scrollHeight
+      const contentWidth = clone.scrollWidth
+      console.log(`html2canvas: content=${contentWidth}x${contentHeight}`)
+      
+      const canvas = await html2canvas(clone, {
         backgroundColor: '#ffffff',
-        scale: 2, // 高清輸出
+        scale: 1,
         useCORS: true,
         logging: false,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
+        allowTaint: true,
+        foreignObjectRendering: false,
+        removeContainer: false,
       })
       
-      // 恢復原始樣式
-      element.style.overflow = originalOverflow
-      element.style.maxHeight = originalMaxHeight
-      element.style.height = originalHeight
+      // 移除克隆元素
+      document.body.removeChild(clone)
+      
+      // 檢查 canvas 是否有效
+      if (canvas.width === 0 || canvas.height === 0) {
+        throw new Error('Canvas 生成失敗，尺寸為 0')
+      }
       
       // 下載圖片
+      const dataUrl = canvas.toDataURL('image/png')
+      if (!dataUrl || dataUrl === 'data:,') {
+        throw new Error('圖片數據生成失敗，可能是內容太大')
+      }
+      
       const link = document.createElement('a')
       link.download = `backtest_${selectedTaskId}.png`
-      link.href = canvas.toDataURL('image/png')
+      link.href = dataUrl
       link.click()
       
       toast({
@@ -643,9 +659,9 @@ export default function BacktestMenu() {
       console.error('保存圖片失敗:', error)
       toast({
         title: '圖片保存失敗',
-        description: '請稍後重試',
+        description: String(error),
         status: 'error',
-        duration: 3000,
+        duration: 5000,
         isClosable: true,
       })
     } finally {
@@ -1141,37 +1157,43 @@ export default function BacktestMenu() {
                                 {metricBox(noRisk.metrics, noRisk.trades ?? [], noRisk.price_curve?.end_price ?? 0, noRisk.final_capital ?? 0, '無風控')}
                                 {metricBox(withRisk.metrics, withRisk.trades ?? [], withRisk.price_curve?.end_price ?? 0, withRisk.final_capital ?? 0, '有風控')}
                               </SimpleGrid>
-                              {(cm?.risk_intervention_count ?? 0) > 0 && (
-                                <Box mb={4}>
-                                  <Text fontSize="sm" fontWeight="600" mb={2}>
-                                    風控介入記錄（共 {cm?.risk_intervention_count ?? 0} 次，跳過 {cm?.skipped_signals ?? 0} 個買入信號）
-                                  </Text>
-                                  <Box overflowX="auto" maxH="200px" overflowY="auto">
-                                    <Table size="sm">
-                                      <Thead>
-                                        <Tr>
-                                          <Th>時間</Th>
-                                          <Th>原因</Th>
-                                          <Th>類型</Th>
-                                          <Th>持續K線</Th>
-                                          <Th>跳過買入</Th>
-                                        </Tr>
-                                      </Thead>
-                                      <Tbody>
-                                        {interventions.map((inv, idx) => (
-                                          <Tr key={idx}>
-                                            <Td fontSize="xs">{inv.time_str ?? '-'}</Td>
-                                            <Td fontSize="xs">{inv.reason ?? '-'}</Td>
-                                            <Td fontSize="xs">{inv.risk_type ?? '-'}</Td>
-                                            <Td fontSize="xs">{inv.duration ?? '-'}</Td>
-                                            <Td fontSize="xs">{inv.skipped_buys ?? '-'}</Td>
+                              {(cm?.risk_intervention_count ?? 0) > 0 && (() => {
+                                const maxDisplay = 50
+                                const displayList = interventions.slice(0, maxDisplay)
+                                const hasMore = interventions.length > maxDisplay
+                                return (
+                                  <Box mb={4}>
+                                    <Text fontSize="sm" fontWeight="600" mb={2}>
+                                      風控介入記錄（共 {cm?.risk_intervention_count ?? 0} 次，跳過 {cm?.skipped_signals ?? 0} 個買入信號）
+                                      {hasMore && <Text as="span" color="gray.500" fontWeight="normal">（僅顯示前 {maxDisplay} 條）</Text>}
+                                    </Text>
+                                    <Box overflowX="auto" maxH="200px" overflowY="auto">
+                                      <Table size="sm">
+                                        <Thead>
+                                          <Tr>
+                                            <Th>時間</Th>
+                                            <Th>原因</Th>
+                                            <Th>類型</Th>
+                                            <Th>持續K線</Th>
+                                            <Th>跳過買入</Th>
                                           </Tr>
-                                        ))}
-                                      </Tbody>
-                                    </Table>
+                                        </Thead>
+                                        <Tbody>
+                                          {displayList.map((inv, idx) => (
+                                            <Tr key={idx}>
+                                              <Td fontSize="xs">{inv.time_str ?? '-'}</Td>
+                                              <Td fontSize="xs">{inv.reason ?? '-'}</Td>
+                                              <Td fontSize="xs">{inv.risk_type ?? '-'}</Td>
+                                              <Td fontSize="xs">{inv.duration ?? '-'}</Td>
+                                              <Td fontSize="xs">{inv.skipped_buys ?? '-'}</Td>
+                                            </Tr>
+                                          ))}
+                                        </Tbody>
+                                      </Table>
+                                    </Box>
                                   </Box>
-                                </Box>
-                              )}
+                                )
+                              })()}
                             </>
                           )
                         }
