@@ -51,6 +51,9 @@ type Storage interface {
 	SaveFundingRate(symbol, exchange string, rate float64, timestamp time.Time) error
 	GetLatestFundingRate(symbol, exchange string) (float64, error)
 	GetFundingRateHistory(symbol, exchange string, limit int) ([]*FundingRate, error)
+	SaveFundingPayment(payment *FundingPayment) error
+	GetFundingPayments(account, exchange string, startTime, endTime time.Time) ([]*FundingPayment, error)
+	GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error)
 	GetAIPromptTemplate(module string) (*AIPromptTemplate, error)
 	SetAIPromptTemplate(template *AIPromptTemplate) error
 	GetAllAIPromptTemplates() ([]*AIPromptTemplate, error)

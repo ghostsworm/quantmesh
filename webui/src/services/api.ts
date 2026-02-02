@@ -249,7 +249,9 @@ export async function getPendingOrders(exchange?: string, symbol?: string): Prom
 export interface StatisticsSummary {
   total_trades: number
   total_volume: number
-  total_pnl: number
+  total_pnl: number // 淨利潤（已扣手續費）
+  gross_pnl?: number // 毛利（未扣手續費）
+  total_fee?: number // 手續費合計
   win_rate: number
   average_pnl: number
   max_profit: number

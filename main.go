@@ -83,7 +83,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.28.5-rc5"
+var Version = "3.28.6"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -281,7 +281,7 @@ type tradeStorageAdapter struct {
 	accountID      string // 账戶標识
 }
 
-func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error {
+func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time) error {
 	if a.storageService == nil {
 		return nil
 	}
@@ -299,6 +299,8 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange,
 		SellPrice:   sellPrice,
 		Quantity:    quantity,
 		PnL:         pnl,
+		Fee:         fee,
+		FeeAsset:    feeAsset,
 		CreatedAt:   createdAt,
 	})
 }
@@ -1612,6 +1614,10 @@ func main() {
 			web.RegisterFundingProvider(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, fundingMonitor)
 			web.SetFundingMonitorProvider(fundingMonitor)
 
+			// 資金費用同步：定時從交易所拉取 FUNDING_FEE 並寫入 funding_payments
+			go startFundingIncomeSync(ctx, storageService.GetStorage(), firstRuntime.Exchange,
+				firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, firstRuntime.AccountID)
+
 			// 初始化價差監控
 			if cfg.BasisMonitor.Enabled {
 				logger.Info("🔍 初始化價差監控...")
@@ -2205,6 +2211,49 @@ func (a *positionExchangeAdapter) GetOrderBook(ctx context.Context, symbol strin
 		Asks:      asks,
 		Timestamp: ob.Timestamp,
 	}, nil
+}
+
+// startFundingIncomeSync 定時從交易所拉取資金費用（FUNDING_FEE）並寫入 funding_payments
+func startFundingIncomeSync(ctx context.Context, st storage.Storage, ex exchange.IExchange, exchangeName, symbol, accountID string) {
+	if st == nil || ex == nil {
+		return
+	}
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	// 首次延遲 1 分鐘後執行，避免啟動時阻塞
+	time.Sleep(1 * time.Minute)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			endTime := time.Now()
+			startTime := endTime.AddDate(0, 0, -7)
+			startMs := startTime.UnixMilli()
+			endMs := endTime.UnixMilli()
+			list, err := ex.GetIncomeHistory(ctx, symbol, "FUNDING_FEE", startMs, endMs)
+			if err != nil {
+				logger.Warn("⚠️ 拉取資金費用失敗: %v", err)
+				continue
+			}
+			for _, inc := range list {
+				_ = st.SaveFundingPayment(&storage.FundingPayment{
+					Exchange:      exchangeName,
+					Symbol:        inc.Symbol,
+					Account:       accountID,
+					IncomeType:    inc.IncomeType,
+					Income:        inc.Income,
+					Asset:         inc.Asset,
+					Info:          inc.Info,
+					TransactionID: inc.TransactionID,
+					TradeTime:     inc.TradeTime,
+				})
+			}
+			if len(list) > 0 {
+				logger.Info("💰 資金費用同步: %s %s 寫入 %d 筆", exchangeName, symbol, len(list))
+			}
+		}
+	}
 }
 
 // exchangeProviderAdapter 适配器，將 exchange.IExchange 轉换為 web.ExchangeProvider

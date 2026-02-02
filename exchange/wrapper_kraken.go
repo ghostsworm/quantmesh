@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"quantmesh/exchange/income"
 	"quantmesh/exchange/kraken"
 )
 
@@ -258,6 +259,15 @@ func (w *krakenWrapper) GetQuoteAsset() string {
 // GetFundingRate 獲取资金费率
 func (w *krakenWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *krakenWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *krakenWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 // convertKrakenOrderToExchangeOrder 將 Kraken 订單轉换為 Exchange 订單

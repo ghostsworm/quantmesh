@@ -587,13 +587,13 @@ func getSymbols(c *gin.Context) {
 				if exchange != "" {
 					key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, cfg.Trading.Symbol))
 					if _, exists := symbolMap[key]; !exists {
-					symbolMap[key] = &SymbolItem{
-						Exchange:     strings.ToLower(exchange),
-						Symbol:       cfg.Trading.Symbol,
-						IsActive:     false,
-						CurrentPrice: 0,
-						MarketType:   "futures", // 舊版單交易對配置默認為合約
-					}
+						symbolMap[key] = &SymbolItem{
+							Exchange:     strings.ToLower(exchange),
+							Symbol:       cfg.Trading.Symbol,
+							IsActive:     false,
+							CurrentPrice: 0,
+							MarketType:   "futures", // 舊版單交易對配置默認為合約
+						}
 					}
 				}
 			}
@@ -1449,8 +1449,10 @@ func getStatistics(c *gin.Context) {
 	totalPnL := elem.FieldByName("TotalPnL").Float()
 	totalVolume := elem.FieldByName("TotalVolume").Float()
 	winRate := elem.FieldByName("WinRate").Float()
+	grossPnL := elem.FieldByName("GrossPnL").Float()
+	totalFee := elem.FieldByName("TotalFee").Float()
 
-	logger.Info("[统计] 查詢結果: TotalTrades=%d, TotalPnL=%.2f, TotalVolume=%.2f", totalTrades, totalPnL, totalVolume)
+	logger.Info("[统计] 查詢結果: TotalTrades=%d, TotalPnL=%.2f, GrossPnL=%.2f, TotalFee=%.2f, TotalVolume=%.2f", totalTrades, totalPnL, grossPnL, totalFee, totalVolume)
 
 	// 如果數據库没有數據，尝試從 SuperPositionManager 计算
 	pmProvider := PickPositionProvider(c)
@@ -1479,6 +1481,8 @@ func getStatistics(c *gin.Context) {
 		"total_trades": totalTrades,
 		"total_volume": totalVolume,
 		"total_pnl":    totalPnL,
+		"gross_pnl":    grossPnL,
+		"total_fee":    totalFee,
 		"win_rate":     winRate,
 	})
 }
@@ -1621,6 +1625,8 @@ func getDailyStatistics(c *gin.Context) {
 			item["total_trades"] = tradeStat.TotalTrades
 			item["total_volume"] = tradeStat.TotalVolume
 			item["total_pnl"] = tradeStat.TotalPnL
+			item["gross_pnl"] = tradeStat.GrossPnL
+			item["total_fee"] = tradeStat.TotalFee
 			item["win_rate"] = tradeStat.WinRate
 			item["winning_trades"] = tradeStat.WinningTrades
 			item["losing_trades"] = tradeStat.LosingTrades
@@ -3082,12 +3088,12 @@ func getPnLBySymbol(c *gin.Context) {
 
 // PnLBySymbolResponse 按币种對的盈亏數據
 type PnLBySymbolResponse struct {
-	Symbol         string  `json:"symbol"`
-	TotalPnL       float64 `json:"total_pnl"`
-	TotalTrades    int     `json:"total_trades"`
-	TotalVolume    float64 `json:"total_volume"`
-	WinRate        float64 `json:"win_rate"`
-	UnrealizedPnL  float64 `json:"unrealized_pnl,omitempty"` // 時段內最後一天的收盤未實現盈虧（來自每日快照）
+	Symbol        string  `json:"symbol"`
+	TotalPnL      float64 `json:"total_pnl"`
+	TotalTrades   int     `json:"total_trades"`
+	TotalVolume   float64 `json:"total_volume"`
+	WinRate       float64 `json:"win_rate"`
+	UnrealizedPnL float64 `json:"unrealized_pnl,omitempty"` // 時段內最後一天的收盤未實現盈虧（來自每日快照）
 }
 
 // getPnLByTimeRange 按時间区间查詢盈亏數據（按币种對分组）

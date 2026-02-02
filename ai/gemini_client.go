@@ -78,8 +78,8 @@ func (c *AsyncGeminiClient) generateContentInternal(ctx context.Context, prompt 
 		requestData["use_google_search"] = true
 	}
 
-	// 任務超時 5 分鐘；超時運行中的任務會由 processor 定期標記為 timeout
-	taskID, err := GlobalTaskService.CreateTask(ctx, "generate_content", requestData, 300, 3)
+	// 任務超時 10 分鐘；超時運行中的任務會由 processor 定期標記為 timeout
+	taskID, err := GlobalTaskService.CreateTask(ctx, "generate_content", requestData, 600, 3)
 	if err != nil {
 		return "", fmt.Errorf("創建异步任務失败: %w", err)
 	}
@@ -87,7 +87,7 @@ func (c *AsyncGeminiClient) generateContentInternal(ctx context.Context, prompt 
 	logger.Info("🔄 已創建 AI 异步任務: %s，开始輪詢結果...", taskID)
 
 	// 2. 輪詢任務結果
-	maxPolls := 300 // 约 10 分钟
+	maxPolls := 600 // 约 20 分钟（與任務超時 10 分鐘對齊後仍有餘量）
 	pollInterval := 2 * time.Second
 
 	for i := 0; i < maxPolls; i++ {
@@ -137,23 +137,23 @@ type SymbolCapitalConfig struct {
 
 // GenerateConfigRequest AI 配置生成请求
 type GenerateConfigRequest struct {
-	Exchange          string                             `json:"exchange"`
-	Symbols           []string                           `json:"symbols"`
-	TotalCapital      float64                            `json:"total_capital,omitempty"`      // 總金額模式時使用
-	SymbolCapitals    []SymbolCapitalConfig              `json:"symbol_capitals,omitempty"`   // 按币种分配模式時使用
-	CapitalMode       string                             `json:"capital_mode"`                 // total 或 per_symbol
-	RiskProfile       string                             `json:"risk_profile"`                 // conservative/balanced/aggressive
-	CurrentPrices     map[string]float64                 `json:"current_prices"`
-	SymbolAllocations map[string]float64                 `json:"symbol_allocations,omitempty"` // 币种比例分配
+	Exchange          string                               `json:"exchange"`
+	Symbols           []string                             `json:"symbols"`
+	TotalCapital      float64                              `json:"total_capital,omitempty"`   // 總金額模式時使用
+	SymbolCapitals    []SymbolCapitalConfig                `json:"symbol_capitals,omitempty"` // 按币种分配模式時使用
+	CapitalMode       string                               `json:"capital_mode"`              // total 或 per_symbol
+	RiskProfile       string                               `json:"risk_profile"`              // conservative/balanced/aggressive
+	CurrentPrices     map[string]float64                   `json:"current_prices"`
+	SymbolAllocations map[string]float64                   `json:"symbol_allocations,omitempty"` // 币种比例分配
 	StrategySplits    map[string][]config.StrategyInstance `json:"strategy_splits,omitempty"`    // 策略分配
-	WithdrawalPolicy  config.WithdrawalPolicy            `json:"withdrawal_policy,omitempty"`  // 提現策略
+	WithdrawalPolicy  config.WithdrawalPolicy              `json:"withdrawal_policy,omitempty"`  // 提現策略
 }
 
 // GenerateConfigResponse AI 配置生成响应
 type GenerateConfigResponse struct {
 	Explanation   string                   `json:"explanation"`
 	GridConfig    []SymbolGridConfig       `json:"grid_config"`
-	Allocation    []SymbolAllocationConfig  `json:"allocation"`
+	Allocation    []SymbolAllocationConfig `json:"allocation"`
 	SymbolsConfig []config.SymbolConfig    `json:"symbols_config"` // 包含分级资產配置后的完整币种配置
 }
 

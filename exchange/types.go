@@ -98,17 +98,33 @@ type Account struct {
 
 // OrderUpdate WebSocket 订單更新事件（通用）
 type OrderUpdate struct {
-	OrderID       int64
-	ClientOrderID string
-	Symbol        string
-	Side          Side
-	Type          OrderType
-	Status        OrderStatus
-	Price         float64
-	Quantity      float64
-	ExecutedQty   float64
-	AvgPrice      float64
-	UpdateTime    int64
+	OrderID         int64
+	ClientOrderID   string
+	Symbol          string
+	Side            Side
+	Type            OrderType
+	Status          OrderStatus
+	Price           float64
+	Quantity        float64
+	ExecutedQty     float64
+	AvgPrice        float64
+	UpdateTime      int64
+	Commission      float64 // 本次成交手續費
+	CommissionAsset string  // 手續費幣種
+}
+
+// OrderFill 訂單成交記錄（用於查詢手續費）
+type OrderFill struct {
+	OrderID         int64   // 訂單ID
+	TradeID         string  // 成交ID（交易所內部）
+	Symbol          string  // 交易對
+	Side            Side    // 買賣方向
+	Price           float64 // 成交價格
+	Quantity        float64 // 成交數量
+	Commission      float64 // 手續費
+	CommissionAsset string  // 手續費幣種
+	TradeTime       int64   // 成交時間（毫秒）
+	IsMaker         bool    // 是否為 Maker 訂單
 }
 
 // OrderUpdateCallback 订單更新回呼函數

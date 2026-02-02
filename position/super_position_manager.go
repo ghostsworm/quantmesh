@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,16 +20,19 @@ import (
 
 // OrderUpdate 订單更新事件（避免依赖 websocket 包）
 type OrderUpdate struct {
-	OrderID       int64
-	ClientOrderID string
-	Symbol        string
-	Status        string
-	ExecutedQty   float64
-	Price         float64
-	AvgPrice      float64
-	Side          string
-	Type          string
-	UpdateTime    int64
+	OrderID         int64
+	ClientOrderID   string
+	Symbol          string
+	Status          string
+	ExecutedQty     float64
+	Price           float64
+	AvgPrice        float64
+	Side            string
+	Type            string
+	UpdateTime      int64
+	Commission      float64 // 本次成交手續費
+	CommissionAsset string  // 手續費幣種
+	RealizedPnL     float64 // 已實現盈虧（交易所計算）
 }
 
 // BatchPlaceOrdersResult 批量下單結果
@@ -119,6 +123,10 @@ type InventorySlot struct {
 	// PostOnly失败计數（连续失败3次后降级為普通單）
 	PostOnlyFailCount int
 
+	// 買入手續費累計（該槽位持倉對應的買單手續費，賣出時按比例攤銷）
+	BuyFee   float64
+	FeeAsset string
+
 	mu sync.RWMutex // 槽位级别的鎖（细粒度鎖）
 }
 
@@ -150,18 +158,21 @@ type IExchange interface {
 	GetPositions(ctx context.Context, symbol string) (interface{}, error)
 	GetOpenOrders(ctx context.Context, symbol string) (interface{}, error)
 	GetOrder(ctx context.Context, symbol string, orderID int64) (interface{}, error)
-	GetBaseAsset() string                                     // 獲取基础资產（交易币种）
-	CancelAllOrders(ctx context.Context, symbol string) error // 取消所有订單
-	GetAccount(ctx context.Context) (interface{}, error)      // 獲取帳戶信息（回傳 *exchange.Account 或類似結構）
-	GetPriceDecimals() int                                    // 獲取價格精度
-	GetQuantityDecimals() int                                 // 獲取數量精度
+	GetBaseAsset() string                                                           // 獲取基础资產（交易币种）
+	CancelAllOrders(ctx context.Context, symbol string) error                       // 取消所有订單
+	GetAccount(ctx context.Context) (interface{}, error)                            // 獲取帳戶信息（回傳 *exchange.Account 或類似結構）
+	GetPriceDecimals() int                                                          // 獲取價格精度
+	GetQuantityDecimals() int                                                       // 獲取數量精度
 	GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) // 獲取订單簿深度
+	// GetOrderFills 查詢訂單成交記錄（用於獲取手續費）
+	// 返回 nil, nil 表示不支援或查詢失敗
+	GetOrderFills(ctx context.Context, symbol string, orderID int64) (interface{}, error)
 }
 
 // TradeStorage 交易存儲介面（避免循環匯入）
 // 用於保存交易記錄（買賣配對）
 type TradeStorage interface {
-	SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl float64, createdAt time.Time) error
+	SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time) error
 }
 
 // ReconciliationStorage 對账存儲介面（避免循環匯入）
@@ -225,11 +236,11 @@ type SuperPositionManager struct {
 	eventBus EventBus
 
 	// 统计（注意：以下字段被 safety.Reconciler 和 PrintPositions 使用，不可刪除）
-	totalBuyQty       atomic.Value // float64 - 累计買入數量
-	totalSellQty      atomic.Value // float64 - 累计賣出數量
-	reconcileCount        atomic.Int64 // 對账次數
-	lastReconcileTime     atomic.Value // time.Time - 最后對账時间
-	lastOptimizationTime  atomic.Value // time.Time - 最后訂單簿優化時间
+	totalBuyQty          atomic.Value // float64 - 累计買入數量
+	totalSellQty         atomic.Value // float64 - 累计賣出數量
+	reconcileCount       atomic.Int64 // 對账次數
+	lastReconcileTime    atomic.Value // time.Time - 最后對账時间
+	lastOptimizationTime atomic.Value // time.Time - 最后訂單簿優化時间
 
 	// 交易存儲（可選，用於保存交易記錄）
 	tradeStorage TradeStorage
@@ -280,8 +291,8 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		marginLockDuration: time.Duration(marginLockSec) * time.Second,
 		priceDecimals:      priceDecimals,
 		quantityDecimals:   quantityDecimals,
-		peakPnL:            -math.MaxFloat64, // 初始化為一個极小值
-		tradeStorage:       nil,              // 默认不保存交易記錄，可通過 SetTradeStorage 設置
+		peakPnL:            -math.MaxFloat64,          // 初始化為一個极小值
+		tradeStorage:       nil,                       // 默认不保存交易記錄，可通過 SetTradeStorage 設置
 		allocationManager:  NewAllocationManager(cfg), // 初始化资金分配管理器
 	}
 	spm.totalBuyQty.Store(0.0)
@@ -367,7 +378,7 @@ func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
 					} else if posValue.Kind() == reflect.Interface {
 						posValue = posValue.Elem()
 					}
-					
+
 					// 尝試獲取 Leverage 字段
 					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
 						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
@@ -612,7 +623,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			totalValue := spm.calculateTotalPositionValue(currentPrice)
 			if totalValue > 0 {
 				currentProfitRatio := unrealizedPnL / totalValue
-				
+
 				// 更新最高盈利
 				if currentProfitRatio > spm.peakPnL {
 					spm.peakPnL = currentProfitRatio
@@ -662,7 +673,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 计算當前网格價格下方buy_window_size個價格
 	slotPrices := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, "down")
-	
+
 	// 🔥 P2 新增：根據訂單簿深度優化槽位價格
 	slotPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, slotPrices)
 
@@ -737,7 +748,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 資金費率偏向策略檢查
 	if spm.fundingMonitor != nil && spm.config.FundingRate.BiasEnabled {
 		buyBias := spm.fundingMonitor.GetBuyBias()
-		
+
 		if buyBias == 0 {
 			// 極高費率：完全暫停買入
 			rate := spm.fundingMonitor.GetCurrentRate()
@@ -767,13 +778,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	}
 
 	// 🔥 P1 新增：資金費率與趨勢聯動邏輯
-	if spm.config.FundingRate.TrendSyncEnabled && 
-	   spm.fundingMonitor != nil && spm.trendDetector != nil &&
-	   spm.config.FundingRate.BiasEnabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled {
-		
+	if spm.config.FundingRate.TrendSyncEnabled &&
+		spm.fundingMonitor != nil && spm.trendDetector != nil &&
+		spm.config.FundingRate.BiasEnabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled {
+
 		buyBias := spm.fundingMonitor.GetBuyBias()
 		trend := spm.trendDetector.GetCurrentTrend()
-		
+
 		if buyBias > 1 && trend == "up" {
 			// 負費率 + 上漲趨勢：只放寬趨勢過濾限制，不再重複乘係數（之前已乘過 buyBias）
 			if skipBuying {
@@ -843,27 +854,27 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			// 如果數量過小被取整為 0，发布告警並暂停
 			if quantity <= 0 && spm.quantityDecimals >= 0 {
 				minQty := math.Pow10(-spm.quantityDecimals)
-				logger.Error("🚨 [%s] 下單數量過小 (%.8f)，低於交易所最小精度 (%.8f)，交易已自动暂停！请在配置中調大 order_quantity", 
+				logger.Error("🚨 [%s] 下單數量過小 (%.8f)，低於交易所最小精度 (%.8f)，交易已自动暂停！请在配置中調大 order_quantity",
 					spm.config.Trading.Symbol, spm.config.Trading.OrderQuantity/price, minQty)
-				
+
 				// 发布事件
 				if spm.eventBus != nil {
 					spm.eventBus.Publish(&event.Event{
 						Type:      event.EventTypePrecisionAdjustment,
 						Timestamp: time.Now(),
 						Data: map[string]interface{}{
-							"symbol":           spm.config.Trading.Symbol,
-							"exchange":         spm.exchangeName,
-							"order_quantity":   spm.config.Trading.OrderQuantity,
-							"calculated_qty":   spm.config.Trading.OrderQuantity / price,
-							"min_qty":          minQty,
-							"price":            price,
-							"action":           "pause",
-							"reason":           "下單數量低於交易所最小精度",
+							"symbol":         spm.config.Trading.Symbol,
+							"exchange":       spm.exchangeName,
+							"order_quantity": spm.config.Trading.OrderQuantity,
+							"calculated_qty": spm.config.Trading.OrderQuantity / price,
+							"min_qty":        minQty,
+							"price":          price,
+							"action":         "pause",
+							"reason":         "下單數量低於交易所最小精度",
 						},
 					})
 				}
-				
+
 				// 暂停交易
 				spm.Pause()
 				slot.mu.Unlock()
@@ -1002,26 +1013,26 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			// 兜底检查：賣單數量也必須大於0
 			if quantity <= 0 && spm.quantityDecimals >= 0 {
 				minQty := math.Pow10(-spm.quantityDecimals)
-				logger.Error("🚨 [%s] 賣單數量异常 (%.8f)，低於交易所最小精度 (%.8f)，交易已自动暂停！", 
+				logger.Error("🚨 [%s] 賣單數量异常 (%.8f)，低於交易所最小精度 (%.8f)，交易已自动暂停！",
 					spm.config.Trading.Symbol, candidate.Quantity, minQty)
-				
+
 				// 发布事件
 				if spm.eventBus != nil {
 					spm.eventBus.Publish(&event.Event{
 						Type:      event.EventTypePrecisionAdjustment,
 						Timestamp: time.Now(),
 						Data: map[string]interface{}{
-							"symbol":           spm.config.Trading.Symbol,
-							"exchange":         spm.exchangeName,
-							"quantity":         candidate.Quantity,
-							"min_qty":          minQty,
-							"price":            candidate.SellPrice,
-							"action":           "pause",
-							"reason":           "賣單數量低於交易所最小精度",
+							"symbol":   spm.config.Trading.Symbol,
+							"exchange": spm.exchangeName,
+							"quantity": candidate.Quantity,
+							"min_qty":  minQty,
+							"price":    candidate.SellPrice,
+							"action":   "pause",
+							"reason":   "賣單數量低於交易所最小精度",
 						},
 					})
 				}
-				
+
 				// 暂停交易
 				spm.Pause()
 				slot.mu.Unlock()
@@ -1059,7 +1070,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		slot.mu.RUnlock()
 		return true
 	})
-	
+
 	// 調用分级限額检查（可能會自动切换到紧急限額或恢複正常限額）
 	spm.allocationManager.CheckAndAdjustLimit(
 		spm.exchangeName,
@@ -1069,7 +1080,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		positionLayers,
 		unrealizedPnL,
 	)
-	
+
 	// 執行下單前，检查资金分配
 	if len(ordersToPlace) > 0 {
 		// 獲取帳戶餘額（從交易所獲取實際餘額）
@@ -1152,7 +1163,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			)
 
 			if err != nil {
-				logger.Warn("⚠️ [%s:%s] [资金分配] %v (訂單價值: %.2f USDT, 實際保证金: %.2f USDT, 杠杆: %dx)", 
+				logger.Warn("⚠️ [%s:%s] [资金分配] %v (訂單價值: %.2f USDT, 實際保证金: %.2f USDT, 杠杆: %dx)",
 					spm.exchangeName, spm.config.Trading.Symbol, err, orderValue, actualMargin, leverage)
 				// 触发告警事件
 				if spm.eventBus != nil {
@@ -1260,7 +1271,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 							formatPrice(price, spm.priceDecimals), req.ClientOrderID)
 					}
 					slot.mu.Unlock()
-					
+
 					// 🔥 释放預留的资金（只有買單需要释放，賣單不占用资金）
 					if side == "BUY" {
 						orderValue := req.Quantity * req.Price
@@ -1410,11 +1421,20 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.OrderFilledQty = 0
 
 				slot.PositionStatus = PositionStatusFilled // 標記為有倉
+				// 🔥 累計買入手續費（賣出時按比例攤銷）
+				slot.BuyFee += update.Commission
+				if update.CommissionAsset != "" {
+					slot.FeeAsset = update.CommissionAsset
+				}
+				// 🔥 如果 WebSocket 未提供手續費，異步查詢補充
+				if update.Commission == 0 && update.OrderID > 0 {
+					go spm.supplementCommission(context.Background(), update.OrderID, update.Symbol, "BUY", slot)
+				}
 				// 🔥 释放槽位鎖：買單成交，允許后续挂賣單
 				slot.SlotStatus = SlotStatusFree
 				// 🔥 買單成交，重置PostOnly失败计數
 				slot.PostOnlyFailCount = 0
-				
+
 				// 🔥 释放资金：買單成交后，资金已轉换為持倉，释放預留的资金
 				orderValue := slot.OrderPrice * update.ExecutedQty
 				actualMargin := spm.getActualMargin(orderValue)
@@ -1422,7 +1442,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
 					logger.Debug("💰 [资金释放] 買單成交，释放资金: %.2f USDT (訂單價值: %.2f USDT)", actualMargin, orderValue)
 				}
-				
+
 				logger.Info("✅ [買單成交] 價格: %s, 持倉: %.4f, 槽位状態: %s -> %s, 订單状態: %s -> %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty,
 					PositionStatusEmpty, PositionStatusFilled,
@@ -1467,9 +1487,24 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						logger.Warn("⚠️ [交易記錄异常] 買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 跳過保存",
 							buyPrice, sellPrice, deltaQty)
 					} else {
-						// 计算盈亏：(賣出價格 - 買入價格) * 數量
+						// 计算盈亏：(賣出價格 - 買入價格) * 數量（毛利，未扣手續費）
 						// 注意：對於USDT本位合約（如BTCUSDT），價格是USDT，數量是BTC，盈亏單位是USDT
 						pnl := (sellPrice - buyPrice) * deltaQty
+
+						// 🔥 手續費：買入攤銷 + 賣出本次手續費
+						var feeFromBuy float64
+						if slot.PositionQty > 0 {
+							feeFromBuy = slot.BuyFee * (deltaQty / slot.PositionQty)
+						}
+						totalFee := feeFromBuy + update.Commission
+						feeAsset := update.CommissionAsset
+						if feeAsset == "" {
+							feeAsset = slot.FeeAsset
+						}
+						// 🔥 如果 WebSocket 未提供賣出手續費，異步查詢補充
+						if update.Commission == 0 && update.OrderID > 0 {
+							go spm.supplementCommission(context.Background(), update.OrderID, update.Symbol, "SELL", slot)
+						}
 
 						// 🔥 添加合理性检查：如果盈亏异常大，記錄警告
 						// 對於BTCUSDT，如果價格差是100 USDT，數量是0.01 BTC，盈亏应該是1 USDT
@@ -1483,12 +1518,13 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						// 保存交易記錄（買入订單ID設為0，因為無法追溯历史订單）
 						buyOrderID := int64(0)
 						sellOrderID := update.OrderID
-						if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, time.Now()); err != nil {
+						if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, time.Now()); err != nil {
 							logger.Warn("⚠️ 保存交易記錄失败: %v", err)
 						} else {
-							logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f",
-								formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl)
+							logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s",
+								formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl, totalFee, feeAsset)
 						}
+						slot.BuyFee -= feeFromBuy
 					}
 				}
 			}
@@ -1507,7 +1543,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.SlotStatus = SlotStatusFree
 				// 🔥 賣單成交，重置PostOnly失败计數
 				slot.PostOnlyFailCount = 0
-				
+
 				// 🔥 释放资金：賣單成交后，资金已收回，释放預留的资金（賣單不需要預留资金，但為了统一处理也释放）
 				// 注意：賣單是平倉，不占用资金，但為了保持一致性，这里也处理
 				// 賣單成交后，持倉减少，對应的買入资金应該被释放
@@ -1518,7 +1554,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
 					logger.Debug("💰 [资金释放] 賣單成交，释放资金: %.2f USDT (持倉價值: %.2f USDT, 持倉减少: %.4f)", actualMargin, releaseValue, deltaQty)
 				}
-				
+
 				logger.Info("✅ [賣單成交] 價格: %s, 剩餘持倉: %.4f, 槽位状態: %s, 订單状態: %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty, slot.PositionStatus, slot.OrderStatus)
 
@@ -1551,7 +1587,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				actualMargin := spm.getActualMargin(unfilledValue)
 				if actualMargin > 0 {
 					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 買單部分成交后取消，释放未成交资金: %.2f USDT (訂單價值: %.2f USDT, 已成交: %.4f)", 
+					logger.Debug("💰 [资金释放] 買單部分成交后取消，释放未成交资金: %.2f USDT (訂單價值: %.2f USDT, 已成交: %.4f)",
 						actualMargin, unfilledValue, slot.OrderFilledQty)
 				}
 			} else {
@@ -1662,14 +1698,14 @@ func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count in
 		}
 		// 使用检测到的價格精度進行舍入
 		price = roundPrice(price, spm.priceDecimals)
-		
+
 		// 驗证價格有效性：跳過無效價格（负數或零）
 		if price <= 0 {
 			logger.Warn("⚠️ [%s:%s] 跳過無效槽位價格 %.8f（方向=%s, 索引=%d, 网格價格=%.2f, 间隔=%.4f）",
 				spm.exchangeName, spm.config.Trading.Symbol, price, direction, i, gridPrice, priceInterval)
 			continue
 		}
-		
+
 		prices = append(prices, price)
 	}
 
@@ -1739,13 +1775,13 @@ func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
 	maxSlots := 10000 // 最多返回1万個槽位
 	var slots []DetailedSlotData
 	count := 0
-	
+
 	spm.slots.Range(func(key, value interface{}) bool {
 		if count >= maxSlots {
 			logger.Warn("⚠️ [槽位查詢] 槽位數量超過限制 (%d)，只返回前 %d 個", maxSlots, maxSlots)
 			return false // 停止遍历
 		}
-		
+
 		price := key.(float64)
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
@@ -1903,7 +1939,7 @@ func (spm *SuperPositionManager) GetLeverage() int {
 			}
 		}
 	}
-	
+
 	// 如果從账戶中獲取不到，尝試從 GetPositions 獲取
 	if leverage == 1 {
 		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
@@ -1928,7 +1964,7 @@ func (spm *SuperPositionManager) GetLeverage() int {
 			}
 		}
 	}
-	
+
 	return leverage
 }
 
@@ -2123,7 +2159,7 @@ func (spm *SuperPositionManager) LiquidateAll() {
 			// 構建賣單（使用當前市價或略低於市價的價格以确保成交，这里简單使用當前锚点價格附近的賣出逻辑）
 			// 實際上由於是全平，最好的方式是下市價單或极优價格的限價單
 			// 这里複用 AdjustOrders 中的逻辑，使用槽位價格加一個间隔作為賣價，或者根據當前價格調整
-			
+
 			// 獲取最后價格
 			lastPrice, _ := spm.lastMarketPrice.Load().(float64)
 			if lastPrice <= 0 {
@@ -2153,7 +2189,7 @@ func (spm *SuperPositionManager) LiquidateAll() {
 	if len(sellOrders) > 0 {
 		logger.Info("🔄 [全平倉] 提交 %d 個平倉賣單", len(sellOrders))
 		result := spm.executor.BatchPlaceOrdersWithDetails(sellOrders)
-		
+
 		// 更新槽位状態
 		for _, ord := range result.PlacedOrders {
 			price, _, valid := spm.parseClientOrderID(ord.ClientOrderID)
@@ -2254,7 +2290,7 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
 			slot := value.(*InventorySlot)
 			slot.mu.Lock()
 			if slot.PositionStatus == PositionStatusFilled {
-				logger.Info("🧹 [强制同步] 清空槽位價格 %s 的持倉 (原數量: %.4f)", 
+				logger.Info("🧹 [强制同步] 清空槽位價格 %s 的持倉 (原數量: %.4f)",
 					formatPrice(slot.Price, spm.priceDecimals), slot.PositionQty)
 				slot.PositionStatus = PositionStatusEmpty
 				slot.PositionQty = 0
@@ -2266,7 +2302,7 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
 			slot.mu.Unlock()
 			return true
 		})
-		
+
 		if count > 0 {
 			logger.Info("✅ [强制同步] 已成功清空 %d 個槽位的持倉數據", count)
 		} else {
@@ -2293,47 +2329,47 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		ctx := context.Background()
 		// 先尝試從帳戶資訊中的持倉獲取杠杆倍數（GetAccount 返回的持倉資訊通常包含杠杆）
 		if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
-		accountValue := reflect.ValueOf(accountResult)
-		if accountValue.Kind() == reflect.Ptr {
-			accountValue = accountValue.Elem()
-		}
-		// 尝試從 Account.Positions 字段獲取持倉信息
-		if positionsField := accountValue.FieldByName("Positions"); positionsField.IsValid() && positionsField.CanInterface() {
-			positionsValue := reflect.ValueOf(positionsField.Interface())
-			if positionsValue.Kind() == reflect.Slice {
-				for i := 0; i < positionsValue.Len(); i++ {
-					posValue := positionsValue.Index(i)
-					if posValue.Kind() == reflect.Ptr {
-						posValue = posValue.Elem()
-					} else if posValue.Kind() == reflect.Interface {
-						posValue = posValue.Elem()
-					}
-					// 检查 Symbol 是否匹配
-					if symbolField := posValue.FieldByName("Symbol"); symbolField.IsValid() && symbolField.CanInterface() {
-						if symbol, ok := symbolField.Interface().(string); ok && symbol == spm.config.Trading.Symbol {
-							// 尝試獲取 Leverage 字段
-							if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
-								if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-									leverage = lev
-									logger.Debug("🔍 [持倉恢複] 從账戶持倉資訊中獲取到杠杆倍數: %dx", leverage)
-									break
+			accountValue := reflect.ValueOf(accountResult)
+			if accountValue.Kind() == reflect.Ptr {
+				accountValue = accountValue.Elem()
+			}
+			// 尝試從 Account.Positions 字段獲取持倉信息
+			if positionsField := accountValue.FieldByName("Positions"); positionsField.IsValid() && positionsField.CanInterface() {
+				positionsValue := reflect.ValueOf(positionsField.Interface())
+				if positionsValue.Kind() == reflect.Slice {
+					for i := 0; i < positionsValue.Len(); i++ {
+						posValue := positionsValue.Index(i)
+						if posValue.Kind() == reflect.Ptr {
+							posValue = posValue.Elem()
+						} else if posValue.Kind() == reflect.Interface {
+							posValue = posValue.Elem()
+						}
+						// 检查 Symbol 是否匹配
+						if symbolField := posValue.FieldByName("Symbol"); symbolField.IsValid() && symbolField.CanInterface() {
+							if symbol, ok := symbolField.Interface().(string); ok && symbol == spm.config.Trading.Symbol {
+								// 尝試獲取 Leverage 字段
+								if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
+									if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+										leverage = lev
+										logger.Debug("🔍 [持倉恢複] 從账戶持倉資訊中獲取到杠杆倍數: %dx", leverage)
+										break
+									}
 								}
 							}
 						}
 					}
 				}
 			}
-		}
-		// 如果從持倉中獲取不到，尝試從账戶级别的杠杆字段獲取
-		if leverage == 1 {
-			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
-				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-					leverage = lev
-					logger.Debug("🔍 [持倉恢複] 從账戶级别獲取到杠杆倍數: %dx", leverage)
+			// 如果從持倉中獲取不到，尝試從账戶级别的杠杆字段獲取
+			if leverage == 1 {
+				if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
+					if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+						leverage = lev
+						logger.Debug("🔍 [持倉恢複] 從账戶级别獲取到杠杆倍數: %dx", leverage)
+					}
 				}
 			}
 		}
-	}
 		// 如果從账戶中獲取不到，尝試從 GetPositions 獲取
 		if leverage == 1 {
 			if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
@@ -2451,7 +2487,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		// 锚点價格是市场當前價格，接近實際買入的平均價格
 		// 不能用賣出價格（sellPrice），因為賣出價格是目標價，會高估成本
 		// 對於有杠杆的交易，實際使用的保证金 = 倉位價值 / 杠杆倍數
-		positionValue := spm.anchorPrice * slotQty // 倉位價值
+		positionValue := spm.anchorPrice * slotQty        // 倉位價值
 		actualMargin := positionValue / float64(leverage) // 實際使用的保证金
 		totalUsedAmount += actualMargin
 
@@ -2478,7 +2514,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	if totalUsedAmount > 0 {
 		spm.allocationManager.SetUsedAmount(spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
 		positionValue := spm.anchorPrice * totalPosition // 總倉位價值
-		logger.Info("💰 [%s:%s] [资金分配] 恢複持倉，初始化已用资金: %.2f USDT (實際保证金，杠杆 %dx，倉位價值: %.2f USDT)", 
+		logger.Info("💰 [%s:%s] [资金分配] 恢複持倉，初始化已用资金: %.2f USDT (實際保证金，杠杆 %dx，倉位價值: %.2f USDT)",
 			spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount, leverage, positionValue)
 	}
 
@@ -2544,7 +2580,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 	for _, pos := range positions {
 		statusIcon := "🟢" // 有持倉
 		priceStr := formatPrice(pos.Price, spm.priceDecimals)
-		
+
 		// 使用翻譯函數獲取持倉信息
 		positionDesc := logger.Translate("log.position.position_info", map[string]interface{}{
 			"Qty":      fmt.Sprintf("%.4f", pos.Qty),
@@ -2554,7 +2590,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 		orderInfo := ""
 		if pos.OrderStatus != OrderStatusNotPlaced && pos.OrderStatus != "" {
 			orderInfo = ", " + logger.Translate("log.position.order_info", map[string]interface{}{
-				"Side":   pos.OrderSide,
+				"Side":    pos.OrderSide,
 				"Status":  pos.OrderStatus,
 				"OrderID": pos.OrderID,
 			})
@@ -2885,7 +2921,7 @@ func (spm *SuperPositionManager) optimizeSinglePrice(candidatePrice float64, ord
 func (spm *SuperPositionManager) optimizeBuyPrice(candidatePrice float64, asks []OrderBookLevel, lookbackLevels int, minDepthUSDT, priceInterval float64) float64 {
 	// 取前 N 檔 ask 的累計深度
 	nearbyDepth := spm.calculateNearbyDepth(asks, lookbackLevels)
-	
+
 	if nearbyDepth >= minDepthUSDT {
 		// 深度足夠，不需要調整
 		return candidatePrice
@@ -2893,7 +2929,7 @@ func (spm *SuperPositionManager) optimizeBuyPrice(candidatePrice float64, asks [
 
 	// 深度不足，向下微調到下一個有量的ask檔位
 	targetPrice := spm.findNextLiquidLevel(candidatePrice, asks, minDepthUSDT, -1, priceInterval)
-	
+
 	// 確保微調後價格不偏離太多
 	maxAdjustment := priceInterval * 0.1 // 最大調整幅度為price_interval的10%
 	if math.Abs(targetPrice-candidatePrice) > maxAdjustment {
@@ -2905,7 +2941,7 @@ func (spm *SuperPositionManager) optimizeBuyPrice(candidatePrice float64, asks [
 	}
 
 	if targetPrice != candidatePrice {
-		logger.Debug("🔥 [訂單簿優化] 買單價格從 %.4f 調整到 %.4f (深度不足: %.0f < %.0f USDT)", 
+		logger.Debug("🔥 [訂單簿優化] 買單價格從 %.4f 調整到 %.4f (深度不足: %.0f < %.0f USDT)",
 			candidatePrice, targetPrice, nearbyDepth, minDepthUSDT)
 	}
 
@@ -2916,7 +2952,7 @@ func (spm *SuperPositionManager) optimizeBuyPrice(candidatePrice float64, asks [
 func (spm *SuperPositionManager) optimizeSellPrice(candidatePrice float64, bids []OrderBookLevel, lookbackLevels int, minDepthUSDT, priceInterval float64) float64 {
 	// 取前 N 檔 bid 的累計深度
 	nearbyDepth := spm.calculateNearbyDepth(bids, lookbackLevels)
-	
+
 	if nearbyDepth >= minDepthUSDT {
 		// 深度足夠，不需要調整
 		return candidatePrice
@@ -2924,7 +2960,7 @@ func (spm *SuperPositionManager) optimizeSellPrice(candidatePrice float64, bids 
 
 	// 深度不足，向上微調到下一個有量的bid檔位
 	targetPrice := spm.findNextLiquidLevel(candidatePrice, bids, minDepthUSDT, 1, priceInterval)
-	
+
 	// 確保微調後價格不偏離太多
 	maxAdjustment := priceInterval * 0.1 // 最大調整幅度為price_interval的10%
 	if math.Abs(targetPrice-candidatePrice) > maxAdjustment {
@@ -2936,7 +2972,7 @@ func (spm *SuperPositionManager) optimizeSellPrice(candidatePrice float64, bids 
 	}
 
 	if targetPrice != candidatePrice {
-		logger.Debug("🔥 [訂單簿優化] 賣單價格從 %.4f 調整到 %.4f (深度不足: %.0f < %.0f USDT)", 
+		logger.Debug("🔥 [訂單簿優化] 賣單價格從 %.4f 調整到 %.4f (深度不足: %.0f < %.0f USDT)",
 			candidatePrice, targetPrice, nearbyDepth, minDepthUSDT)
 	}
 
@@ -2969,4 +3005,87 @@ func (spm *SuperPositionManager) findNextLiquidLevel(candidatePrice float64, lev
 		}
 	}
 	return candidatePrice
+}
+
+// supplementCommission 補充手續費（當 WebSocket 未提供時）
+func (spm *SuperPositionManager) supplementCommission(ctx context.Context, orderID int64, symbol, side string, slot *InventorySlot) {
+	if spm.exchange == nil {
+		return
+	}
+
+	// 查詢訂單成交記錄
+	fillsRaw, err := spm.exchange.GetOrderFills(ctx, symbol, orderID)
+	if err != nil || fillsRaw == nil {
+		logger.Debug("🔍 [手續費補充] 訂單 %d 查詢成交記錄失敗或不支援: %v", orderID, err)
+		return
+	}
+
+	// 嘗試解析為 []*exchange.OrderFill
+	fills, ok := fillsRaw.([]interface{})
+	if !ok || len(fills) == 0 {
+		logger.Debug("🔍 [手續費補充] 訂單 %d 無成交記錄", orderID)
+		return
+	}
+
+	// 計算總手續費
+	totalCommission := 0.0
+	commissionAsset := "USDT"
+	for _, fillRaw := range fills {
+		// 使用反射或類型斷言解析結構
+		fillMap, ok := fillRaw.(map[string]interface{})
+		if !ok {
+			// 嘗試反射獲取字段
+			rv := reflect.ValueOf(fillRaw)
+			if rv.Kind() == reflect.Ptr {
+				rv = rv.Elem()
+			}
+			if rv.Kind() != reflect.Struct {
+				continue
+			}
+			// 查找 Commission 字段
+			commField := rv.FieldByName("Commission")
+			assetField := rv.FieldByName("CommissionAsset")
+			if commField.IsValid() && commField.Kind() == reflect.Float64 {
+				totalCommission += commField.Float()
+			}
+			if assetField.IsValid() && assetField.Kind() == reflect.String && assetField.String() != "" {
+				commissionAsset = assetField.String()
+			}
+			continue
+		}
+
+		// 從 map 中提取手續費
+		if comm, ok := fillMap["Commission"].(float64); ok {
+			totalCommission += comm
+		} else if commStr, ok := fillMap["Commission"].(string); ok {
+			if comm, err := strconv.ParseFloat(commStr, 64); err == nil {
+				totalCommission += comm
+			}
+		}
+		if asset, ok := fillMap["CommissionAsset"].(string); ok && asset != "" {
+			commissionAsset = asset
+		}
+	}
+
+	if totalCommission == 0 {
+		logger.Debug("🔍 [手續費補充] 訂單 %d 手續費為 0", orderID)
+		return
+	}
+
+	logger.Info("💰 [手續費補充] 訂單 %d (%s) 補充手續費: %.8f %s", orderID, side, totalCommission, commissionAsset)
+
+	// 更新 slot 中的手續費
+	spm.mu.Lock()
+	if side == "BUY" {
+		slot.BuyFee += totalCommission
+		if commissionAsset != "" {
+			slot.FeeAsset = commissionAsset
+		}
+	} else {
+		// 賣單：需要更新已保存的交易記錄
+		// 注意：這裡只能更新 slot，無法回溯更新已保存的 trades 記錄
+		// 如果需要更新 trades 記錄，需要額外的機制（如定期同步）
+		logger.Debug("💰 [手續費補充] 賣單 %d 手續費已補充，但無法回溯更新已保存的交易記錄", orderID)
+	}
+	spm.mu.Unlock()
 }

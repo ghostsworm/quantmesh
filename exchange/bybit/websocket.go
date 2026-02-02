@@ -280,18 +280,22 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 			orderSide = SideSell
 		}
 
+		// Bybit WebSocket 訂單更新消息中通常不包含手續費，需要從交易歷史獲取
+		// 這裡先設為 0，後續可通過查詢交易歷史補充
 		update := OrderUpdate{
-			OrderID:       orderId,
-			ClientOrderID: getString(orderData, "orderLinkId"),
-			Symbol:        getString(orderData, "symbol"),
-			Side:          orderSide,
-			Type:          OrderType(getString(orderData, "orderType")),
-			Status:        OrderStatus(getString(orderData, "orderStatus")),
-			Price:         price,
-			Quantity:      quantity,
-			ExecutedQty:   executedQty,
-			AvgPrice:      avgPrice,
-			UpdateTime:    updateTime,
+			OrderID:         orderId,
+			ClientOrderID:   getString(orderData, "orderLinkId"),
+			Symbol:          getString(orderData, "symbol"),
+			Side:            orderSide,
+			Type:            OrderType(getString(orderData, "orderType")),
+			Status:          OrderStatus(getString(orderData, "orderStatus")),
+			Price:           price,
+			Quantity:        quantity,
+			ExecutedQty:     executedQty,
+			AvgPrice:        avgPrice,
+			UpdateTime:      updateTime,
+			Commission:      0, // Bybit WebSocket 不提供手續費，需從交易歷史查詢
+			CommissionAsset: "USDT",
 		}
 
 		if w.orderCallback != nil {

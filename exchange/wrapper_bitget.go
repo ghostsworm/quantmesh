@@ -2,7 +2,9 @@ package exchange
 
 import (
 	"context"
+
 	"quantmesh/exchange/bitget"
+	"quantmesh/exchange/income"
 )
 
 // bitgetWrapper 包装 Bitget 适配器以實現 IExchange 接口
@@ -292,6 +294,15 @@ func (w *bitgetWrapper) GetQuoteAsset() string {
 
 func (w *bitgetWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *bitgetWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（Bitget WebSocket 已提供手續費，此方法可選實現）
+func (w *bitgetWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

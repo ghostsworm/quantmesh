@@ -2,7 +2,9 @@ package exchange
 
 import (
 	"context"
+
 	"quantmesh/exchange/bybit"
+	"quantmesh/exchange/income"
 )
 
 // bybitSpotWrapper 包装 Bybit 現貨适配器以實現 IExchange 接口
@@ -157,7 +159,7 @@ func (w *bybitSpotWrapper) GetAccount(ctx context.Context) (*Account, error) {
 				Size:           pos.Size,
 				EntryPrice:     pos.EntryPrice,
 				MarkPrice:      pos.MarkPrice,
-				UnrealizedPNL: pos.UnrealizedPNL,
+				UnrealizedPNL:  pos.UnrealizedPNL,
 				Leverage:       pos.Leverage,
 				MarginType:     pos.MarginType,
 				IsolatedMargin: pos.IsolatedMargin,
@@ -185,7 +187,7 @@ func (w *bybitSpotWrapper) GetPositions(ctx context.Context, symbol string) ([]*
 				Size:           pos.Size,
 				EntryPrice:     pos.EntryPrice,
 				MarkPrice:      pos.MarkPrice,
-				UnrealizedPNL: pos.UnrealizedPNL,
+				UnrealizedPNL:  pos.UnrealizedPNL,
 				Leverage:       pos.Leverage,
 				MarginType:     pos.MarginType,
 				IsolatedMargin: pos.IsolatedMargin,
@@ -276,6 +278,15 @@ func (w *bybitSpotWrapper) GetQuoteAsset() string {
 
 func (w *bybitSpotWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *bybitSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *bybit_spotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 func (w *bybitSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

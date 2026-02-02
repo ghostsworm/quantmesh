@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"quantmesh/exchange/bitrue"
+	"quantmesh/exchange/income"
 )
 
 // bitrueWrapper Bitrue 包装器
@@ -287,6 +288,15 @@ func (w *bitrueWrapper) GetQuoteAsset() string {
 // GetFundingRate 獲取资金费率
 func (w *bitrueWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx)
+}
+
+func (w *bitrueWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *bitrueWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格（未實現）

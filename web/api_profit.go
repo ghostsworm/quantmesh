@@ -18,7 +18,10 @@ import (
 // ProfitSummary 盈利彙總
 type ProfitSummary struct {
 	ExchangeID          string  `json:"exchangeId,omitempty"`
-	TotalProfit         float64 `json:"totalProfit"`
+	TotalProfit         float64 `json:"totalProfit"` // 淨利潤（毛利 - 手續費 + 資金費淨額）
+	GrossProfit         float64 `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
+	TotalFee            float64 `json:"totalFee"`    // 手續費合計
+	FundingNet          float64 `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
 	TodayProfit         float64 `json:"todayProfit"`
 	WeekProfit          float64 `json:"weekProfit"`
 	MonthProfit         float64 `json:"monthProfit"`
@@ -97,6 +100,19 @@ type ProfitTrendPoint struct {
 	Timestamp string  `json:"timestamp"`
 	Profit    float64 `json:"profit"`
 	CumProfit float64 `json:"cumProfit"`
+}
+
+// FundingPaymentItem 資金費用記錄（API 返回）
+type FundingPaymentItem struct {
+	ID            int64   `json:"id"`
+	Exchange      string  `json:"exchange"`
+	Symbol        string  `json:"symbol"`
+	IncomeType    string  `json:"incomeType"`
+	Income        float64 `json:"income"` // 正=收入，負=支出
+	Asset         string  `json:"asset"`
+	TransactionID int64   `json:"transactionId"`
+	TradeTime     string  `json:"tradeTime"`
+	CreatedAt     string  `json:"createdAt"`
 }
 
 // 獲取盈利彙總
@@ -185,15 +201,37 @@ func getProfitSummaryHandler(c *gin.Context) {
 		}
 	}
 
+	// 資金費用淨額（正=淨收入，負=淨支出）
+	fundingSum := 0.0
+	todayFunding := 0.0
+	weekFunding := 0.0
+	monthFunding := 0.0
+	if stWithFunding, ok := st.(interface {
+		GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error)
+	}); ok {
+		startAll := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		fundingSum, _ = stWithFunding.GetFundingPaymentsSum(accountID, exchangeID, startAll, now)
+		todayFunding, _ = stWithFunding.GetFundingPaymentsSum(accountID, exchangeID, todayStart, now)
+		weekFunding, _ = stWithFunding.GetFundingPaymentsSum(accountID, exchangeID, weekStart, now)
+		monthFunding, _ = stWithFunding.GetFundingPaymentsSum(accountID, exchangeID, monthStart, now)
+	}
+	netWithFunding := summaryStats.TotalPnL + fundingSum
+	todayProfitWithFunding := todayProfit + todayFunding
+	weekProfitWithFunding := weekProfit + weekFunding
+	monthProfitWithFunding := monthProfit + monthFunding
+
 	summary := ProfitSummary{
 		ExchangeID:          exchangeID,
-		TotalProfit:         math.Round(summaryStats.TotalPnL*100) / 100,
-		TodayProfit:         math.Round(todayProfit*100) / 100,
-		WeekProfit:          math.Round(weekProfit*100) / 100,
-		MonthProfit:         math.Round(monthProfit*100) / 100,
+		TotalProfit:         math.Round(netWithFunding*100) / 100,
+		GrossProfit:         math.Round(summaryStats.GrossPnL*100) / 100,
+		TotalFee:            math.Round(summaryStats.TotalFee*100) / 100,
+		FundingNet:          math.Round(fundingSum*100) / 100,
+		TodayProfit:         math.Round(todayProfitWithFunding*100) / 100,
+		WeekProfit:          math.Round(weekProfitWithFunding*100) / 100,
+		MonthProfit:         math.Round(monthProfitWithFunding*100) / 100,
 		UnrealizedProfit:    math.Round(unrealizedProfit*100) / 100,
 		WithdrawnProfit:     0, // TODO: 從提現記錄统计
-		AvailableToWithdraw: math.Round(summaryStats.TotalPnL*100) / 100,
+		AvailableToWithdraw: math.Round(netWithFunding*100) / 100,
 		LastUpdated:         time.Now().Format(time.RFC3339),
 	}
 
@@ -201,6 +239,73 @@ func getProfitSummaryHandler(c *gin.Context) {
 		"success": true,
 		"summary": summary,
 	})
+}
+
+// 獲取資金費用明細
+func getFundingHistoryHandler(c *gin.Context) {
+	exchangeID := c.Query("exchange_id")
+	startStr := c.Query("start_time")
+	endStr := c.Query("end_time")
+
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存儲服務未就绪", "records": []FundingPaymentItem{}})
+		return
+	}
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存儲接口未就绪", "records": []FundingPaymentItem{}})
+		return
+	}
+
+	stWithFunding, ok := st.(interface {
+		GetFundingPayments(account, exchange string, startTime, endTime time.Time) ([]*storage.FundingPayment, error)
+	})
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{"success": true, "records": []FundingPaymentItem{}})
+		return
+	}
+
+	accountID := GetCurrentAccountID()
+	now := utils.NowConfiguredTimezone()
+	// 默認最近 30 天
+	endTime := now
+	startTime := now.AddDate(0, 0, -30)
+	if endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			endTime = t
+		}
+	}
+	if startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			startTime = t
+		}
+	}
+	if startTime.After(endTime) {
+		startTime, endTime = endTime, startTime
+	}
+
+	list, err := stWithFunding.GetFundingPayments(accountID, exchangeID, startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢資金費用失敗: " + err.Error(), "records": []FundingPaymentItem{}})
+		return
+	}
+
+	records := make([]FundingPaymentItem, 0, len(list))
+	for _, p := range list {
+		records = append(records, FundingPaymentItem{
+			ID:            p.ID,
+			Exchange:      p.Exchange,
+			Symbol:        p.Symbol,
+			IncomeType:    p.IncomeType,
+			Income:        math.Round(p.Income*1e8) / 1e8,
+			Asset:         p.Asset,
+			TransactionID: p.TransactionID,
+			TradeTime:     p.TradeTime.Format(time.RFC3339),
+			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "records": records})
 }
 
 // 按策略獲取盈利

@@ -2,7 +2,9 @@ package exchange
 
 import (
 	"context"
+
 	"quantmesh/exchange/bybit"
+	"quantmesh/exchange/income"
 )
 
 // bybitWrapper Bybit 包装器
@@ -311,6 +313,41 @@ func (w *bybitWrapper) GetQuoteAsset() string {
 // GetFundingRate 獲取资金费率
 func (w *bybitWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *bybitWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（用於獲取手續費）
+func (w *bybitWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	bybitFills, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+
+	fills := make([]*OrderFill, 0, len(bybitFills))
+	for _, bf := range bybitFills {
+		side := SideBuy
+		if bf.Side == "Sell" {
+			side = SideSell
+		}
+
+		fills = append(fills, &OrderFill{
+			OrderID:         bf.OrderID,
+			TradeID:         bf.TradeID,
+			Symbol:          bf.Symbol,
+			Side:            side,
+			Price:           bf.Price,
+			Quantity:        bf.Quantity,
+			Commission:      bf.Commission,
+			CommissionAsset: bf.CommissionAsset,
+			TradeTime:       bf.TradeTime,
+			IsMaker:         bf.IsMaker,
+		})
+	}
+
+	return fills, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

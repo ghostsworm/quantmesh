@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"quantmesh/exchange/income"
 	"quantmesh/logger"
 	"quantmesh/utils"
 
@@ -100,17 +101,20 @@ type Account struct {
 }
 
 type OrderUpdate struct {
-	OrderID       int64
-	ClientOrderID string
-	Symbol        string
-	Side          Side
-	Type          OrderType
-	Status        OrderStatus
-	Price         float64
-	Quantity      float64
-	ExecutedQty   float64
-	AvgPrice      float64
-	UpdateTime    int64
+	OrderID         int64
+	ClientOrderID   string
+	Symbol          string
+	Side            Side
+	Type            OrderType
+	Status          OrderStatus
+	Price           float64
+	Quantity        float64
+	ExecutedQty     float64
+	AvgPrice        float64
+	UpdateTime      int64
+	Commission      float64 // 本次成交手續費
+	CommissionAsset string  // 手續費幣種
+	RealizedPnL     float64 // 已實現盈虧（交易所計算）
 }
 
 type OrderUpdateCallback func(update OrderUpdate)
@@ -926,29 +930,35 @@ func (b *BinanceAdapter) StartOrderStream(ctx context.Context, callback func(int
 	localCallback := func(update OrderUpdate) {
 		// 構造通用的 OrderUpdate 結構（避免導入 exchange 包）
 		genericUpdate := struct {
-			OrderID       int64
-			ClientOrderID string
-			Symbol        string
-			Side          string
-			Type          string
-			Status        string
-			Price         float64
-			Quantity      float64
-			ExecutedQty   float64
-			AvgPrice      float64
-			UpdateTime    int64
+			OrderID         int64
+			ClientOrderID   string
+			Symbol          string
+			Side            string
+			Type            string
+			Status          string
+			Price           float64
+			Quantity        float64
+			ExecutedQty     float64
+			AvgPrice        float64
+			UpdateTime      int64
+			Commission      float64
+			CommissionAsset string
+			RealizedPnL     float64
 		}{
-			OrderID:       update.OrderID,
-			ClientOrderID: update.ClientOrderID, // 🔥 关键：傳遞 ClientOrderID
-			Symbol:        update.Symbol,
-			Side:          string(update.Side),
-			Type:          string(update.Type),
-			Status:        string(update.Status),
-			Price:         update.Price,
-			Quantity:      update.Quantity,
-			ExecutedQty:   update.ExecutedQty,
-			AvgPrice:      update.AvgPrice,
-			UpdateTime:    update.UpdateTime,
+			OrderID:         update.OrderID,
+			ClientOrderID:   update.ClientOrderID,
+			Symbol:          update.Symbol,
+			Side:            string(update.Side),
+			Type:            string(update.Type),
+			Status:          string(update.Status),
+			Price:           update.Price,
+			Quantity:        update.Quantity,
+			ExecutedQty:     update.ExecutedQty,
+			AvgPrice:        update.AvgPrice,
+			UpdateTime:      update.UpdateTime,
+			Commission:      update.Commission,
+			CommissionAsset: update.CommissionAsset,
+			RealizedPnL:     update.RealizedPnL,
 		}
 		callback(genericUpdate)
 	}
@@ -1192,6 +1202,44 @@ func (b *BinanceAdapter) GetFundingRate(ctx context.Context, symbol string) (flo
 	}
 
 	return fundingRate, nil
+}
+
+// GetIncomeHistory 獲取收入歷史（資金費用等）
+func (b *BinanceAdapter) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	svc := b.client.NewGetIncomeHistoryService()
+	if symbol != "" {
+		svc = svc.Symbol(symbol)
+	}
+	if incomeType != "" {
+		svc = svc.IncomeType(incomeType)
+	}
+	if startTime > 0 {
+		svc = svc.StartTime(startTime)
+	}
+	if endTime > 0 {
+		svc = svc.EndTime(endTime)
+	}
+	svc = svc.Limit(1000)
+
+	list, err := svc.Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("獲取收入歷史失败: %w", err)
+	}
+
+	out := make([]*income.Income, 0, len(list))
+	for _, h := range list {
+		incomeVal, _ := strconv.ParseFloat(h.Income, 64)
+		out = append(out, &income.Income{
+			Symbol:        h.Symbol,
+			IncomeType:    h.IncomeType,
+			Income:        incomeVal,
+			Asset:         h.Asset,
+			Info:          h.Info,
+			TransactionID: h.TranID,
+			TradeTime:     time.UnixMilli(h.Time),
+		})
+	}
+	return out, nil
 }
 
 // FundingInfo 資金費率詳細信息（本地類型，避免循環引用）

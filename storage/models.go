@@ -38,6 +38,8 @@ type Trade struct {
 	SellPrice   float64
 	Quantity    float64
 	PnL         float64
+	Fee         float64 // 手續費（買+賣合計）
+	FeeAsset    string  // 手續費幣種
 	CreatedAt   time.Time
 }
 
@@ -46,26 +48,30 @@ type Statistics struct {
 	Date        time.Time
 	TotalTrades int
 	TotalVolume float64
-	TotalPnL    float64
+	TotalPnL    float64 // 淨利潤（毛利 - 手續費）
+	GrossPnL    float64 // 毛利（價差盈虧，未扣手續費）
+	TotalFee    float64 // 手續費合計
 	WinRate     float64
 	CreatedAt   time.Time
 }
 
 // DailyStatisticsWithTradeCount 每日统计（包含盈利/亏损交易數）
 type DailyStatisticsWithTradeCount struct {
-	Date            time.Time
-	TotalTrades     int
-	TotalVolume     float64
-	TotalPnL        float64
-	WinRate         float64
-	WinningTrades   int
-	LosingTrades    int
-	VolumeProfit    float64 // 盈利交易量（pnl>0 的交易 quantity 之和）
-	VolumeStopLoss  float64 // 止損交易量（pnl<=0 的交易 quantity 之和）
-	OpenPrice       float64 // 當日开盘價
-	ClosePrice      float64 // 當日收盘價
-	PriceChange     float64 // 價格變化（收盘價-开盘價）
-	PriceChangePct  float64 // 價格變化百分比
+	Date           time.Time
+	TotalTrades    int
+	TotalVolume    float64
+	TotalPnL       float64 // 當日淨利潤（毛利 - 手續費）
+	GrossPnL       float64 // 當日毛利
+	TotalFee       float64 // 當日手續費
+	WinRate        float64
+	WinningTrades  int
+	LosingTrades   int
+	VolumeProfit   float64 // 盈利交易量（pnl>0 的交易 quantity 之和）
+	VolumeStopLoss float64 // 止損交易量（pnl<=0 的交易 quantity 之和）
+	OpenPrice      float64 // 當日开盘價
+	ClosePrice     float64 // 當日收盘價
+	PriceChange    float64 // 價格變化（收盘價-开盘價）
+	PriceChangePct float64 // 價格變化百分比
 }
 
 // HourlyEquityRecord 小時級權益記錄（用於計算日內最大回撤）
@@ -83,19 +89,19 @@ type HourlyEquityRecord struct {
 
 // DailySnapshot 每日收盤快照（未實現盈虧、日內最大回撤）
 type DailySnapshot struct {
-	ID                    int64
-	Exchange              string
-	Symbol                string
-	Account               string
-	Date                  time.Time
-	UnrealizedPnL         float64 // 收盤時的未實現盈虧
-	TotalPositionValue    float64
-	IntradayMaxDrawdown   float64 // 日內最大回撤金額
+	ID                     int64
+	Exchange               string
+	Symbol                 string
+	Account                string
+	Date                   time.Time
+	UnrealizedPnL          float64 // 收盤時的未實現盈虧
+	TotalPositionValue     float64
+	IntradayMaxDrawdown    float64 // 日內最大回撤金額
 	IntradayMaxDrawdownPct float64 // 日內最大回撤百分比
-	IntradayPeakEquity    float64
-	ClosingPrice          float64
-	SnapshotTime          time.Time
-	CreatedAt             time.Time
+	IntradayPeakEquity     float64
+	ClosingPrice           float64
+	SnapshotTime           time.Time
+	CreatedAt              time.Time
 }
 
 // SystemMetrics 系统監控细粒度數據模型
@@ -201,6 +207,21 @@ type FundingRate struct {
 	CreatedAt time.Time
 }
 
+// FundingPayment 资金費用記錄（實際支付/收取的資金費）
+type FundingPayment struct {
+	ID            int64
+	Exchange      string
+	Symbol        string
+	Account       string
+	IncomeType    string  // FUNDING_FEE 等
+	Income        float64 // 正=收入，負=支出
+	Asset         string
+	Info          string
+	TransactionID int64
+	TradeTime     time.Time
+	CreatedAt     time.Time
+}
+
 // AIPromptTemplate AI提示词模板模型
 type AIPromptTemplate struct {
 	ID           int64
@@ -255,33 +276,33 @@ type ProfitWithdrawRule struct {
 
 // PriceHistory 價格历史記錄（用於預测驗证）
 type PriceHistory struct {
-	ID          int64
-	AssetType   string
-	Symbol      string
-	Price       float64
-	Source      string // exchange, gemini, external
-	RecordedAt  time.Time
-	CreatedAt   time.Time
+	ID         int64
+	AssetType  string
+	Symbol     string
+	Price      float64
+	Source     string // exchange, gemini, external
+	RecordedAt time.Time
+	CreatedAt  time.Time
 }
 
 // PredictionVerification 預测驗证記錄（方向是否正确）
 type PredictionVerification struct {
-	ID                    int64
-	AnalysisID            int64
-	AssetType             string
-	Symbol                string
-	PredictionTime        time.Time
-	Timeframe             string
-	PredictedDirection    string   // up, down, stable
-	PredictedChangePct    float64
-	PredictedProbability  float64
-	ActualPriceAtPred     float64
-	ActualPriceAtVerify   float64
-	ActualDirection       string
-	ActualChangePct       float64
-	IsCorrect             bool
-	VerifiedAt            time.Time
-	Status                string   // pending, verified, expired
+	ID                   int64
+	AnalysisID           int64
+	AssetType            string
+	Symbol               string
+	PredictionTime       time.Time
+	Timeframe            string
+	PredictedDirection   string // up, down, stable
+	PredictedChangePct   float64
+	PredictedProbability float64
+	ActualPriceAtPred    float64
+	ActualPriceAtVerify  float64
+	ActualDirection      string
+	ActualChangePct      float64
+	IsCorrect            bool
+	VerifiedAt           time.Time
+	Status               string // pending, verified, expired
 }
 
 // NewsAnalysisHistory 新聞分析历史記錄
@@ -299,16 +320,16 @@ type NewsAnalysisHistory struct {
 
 // InspectionReport 智子巡檢報告歷史記錄
 type InspectionReport struct {
-	ID           int64
-	ReportType   string    // scheduled, urgent
-	Title        string
-	Body         string
-	SnapshotJSON string    // JSON 序列化的快照（可選）
-	AnalysisJSON string    // JSON 序列化的 AI 分析（可選）
-	EventType    string
-	EventDataJSON string   // JSON（可選）
-	GeneratedAt  time.Time
-	CreatedAt    time.Time
+	ID            int64
+	ReportType    string // scheduled, urgent
+	Title         string
+	Body          string
+	SnapshotJSON  string // JSON 序列化的快照（可選）
+	AnalysisJSON  string // JSON 序列化的 AI 分析（可選）
+	EventType     string
+	EventDataJSON string // JSON（可選）
+	GeneratedAt   time.Time
+	CreatedAt     time.Time
 }
 
 // ProfitWithdrawRecord 盈利提取記錄

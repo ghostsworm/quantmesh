@@ -98,17 +98,19 @@ type Account struct {
 
 // OrderUpdate WebSocket 订單更新事件（通用）
 type OrderUpdate struct {
-	OrderID       string
-	ClientOrderID string
-	Symbol        string
-	Side          string
-	Type          string
-	Status        string
-	Price         float64
-	Quantity      float64
-	ExecutedQty   float64
-	AvgPrice      float64
-	UpdateTime    int64
+	OrderID         string
+	ClientOrderID   string
+	Symbol          string
+	Side            string
+	Type            string
+	Status          string
+	Price           float64
+	Quantity        float64
+	ExecutedQty     float64
+	AvgPrice        float64
+	UpdateTime      int64
+	Commission      float64 // 本次成交手續費
+	CommissionAsset string  // 手續費幣種
 }
 
 // OrderUpdateCallback 订單更新回呼函數

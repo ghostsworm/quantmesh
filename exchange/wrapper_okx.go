@@ -2,6 +2,8 @@ package exchange
 
 import (
 	"context"
+
+	"quantmesh/exchange/income"
 	"quantmesh/exchange/okx"
 )
 
@@ -312,6 +314,15 @@ func (w *okxWrapper) GetQuoteAsset() string {
 // GetFundingRate 獲取资金费率
 func (w *okxWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx, symbol)
+}
+
+func (w *okxWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（OKX 暂未實現）
+func (w *okxWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

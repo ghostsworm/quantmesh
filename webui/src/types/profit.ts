@@ -7,7 +7,10 @@ export type WithdrawType = 'auto' | 'manual'
 
 export interface ProfitSummary {
   exchangeId?: string
-  totalProfit: number // 累计盈利
+  totalProfit: number // 淨利潤（毛利 - 手續費 + 資金費淨額）
+  grossProfit?: number // 毛利（價差盈虧，未扣手續費）
+  totalFee?: number // 手續費合計
+  fundingNet?: number // 資金費淨額（正=淨收入，負=淨支出）
   todayProfit: number // 今日盈利
   weekProfit: number // 本周盈利
   monthProfit: number // 本月盈利
@@ -119,6 +122,18 @@ export interface WithdrawHistoryParams {
 export interface WithdrawHistoryResponse {
   records: WithdrawRecord[]
   total: number
+}
+
+export interface FundingPaymentItem {
+  id: number
+  exchange: string
+  symbol: string
+  incomeType: string
+  income: number // 正=收入，負=支出
+  asset: string
+  transactionId: number
+  tradeTime: string
+  createdAt: string
 }
 
 export interface ProfitTrendItem {

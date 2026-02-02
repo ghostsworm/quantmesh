@@ -215,18 +215,22 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 		side = SideSell
 	}
 
+	// Huobi WebSocket 訂單更新消息中通常不包含手續費，需要從交易歷史獲取
+	// 這裡先設為 0，後續可通過查詢交易歷史補充
 	update := OrderUpdate{
-		OrderID:       orderId,
-		ClientOrderID: getString(data, "client_order_id"),
-		Symbol:        getString(data, "contract_code"),
-		Side:          side,
-		Type:          OrderTypeLimit,
-		Status:        OrderStatus(getString(data, "status")),
-		Price:         price,
-		Quantity:      volume,
-		ExecutedQty:   tradeVolume,
-		AvgPrice:      tradeAvgPrice,
-		UpdateTime:    createdAt,
+		OrderID:         orderId,
+		ClientOrderID:   getString(data, "client_order_id"),
+		Symbol:          getString(data, "contract_code"),
+		Side:            side,
+		Type:            OrderTypeLimit,
+		Status:          OrderStatus(getString(data, "status")),
+		Price:           price,
+		Quantity:        volume,
+		ExecutedQty:     tradeVolume,
+		AvgPrice:        tradeAvgPrice,
+		UpdateTime:      createdAt,
+		Commission:      0, // Huobi WebSocket 不提供手續費，需從交易歷史查詢
+		CommissionAsset: "USDT",
 	}
 
 	if w.orderCallback != nil {

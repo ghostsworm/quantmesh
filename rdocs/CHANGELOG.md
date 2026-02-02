@@ -10,6 +10,26 @@
 
 ---
 
+## v3.28.6 - 2026年02月02日
+
+**Git Tag**: `v3.28.6`
+
+### 修復 (Fixed)
+
+#### PWA / Service Worker 與 API 延遲
+
+- **問題描述**: 登入頁或首屏載入時 `/api/version` 等請求經 Service Worker 攔截後變慢（約 3 秒），Chrome 有時一直載入；內嵌瀏覽器可正常打開。
+- **根本原因**: SW 攔截請求會多一跳與 JS 執行；SW 冷啟動時需載入 sw.js 與 workbox，耗時可達數秒；另存在雙重註冊導致衝突。
+- **解決方案**:
+  - 不再為 `/api`、`/ws` 註冊 runtimeCaching，請求直接走瀏覽器網絡
+  - 移除 main.tsx 中手動 Service Worker 註冊，僅保留 vite-plugin-pwa 自動註冊
+  - 在 vite.config.js 中補充註釋說明不讓 SW 攔截 API 的原因
+- **影響範圍**: `webui/vite.config.js`、`webui/src/main.tsx`
+
+本版亦包含 3.28.5-rc1～rc5 的修復（新聞分析格式、新聞收集顯示、登入頁重複請求、策略配比 Hooks、收益日曆今天焦點、DCA 資金釋放等）。
+
+---
+
 ## v3.28.1 - 2026年02月02日
 
 **Git Tag**: `v3.28.1`

@@ -2,7 +2,9 @@ package exchange
 
 import (
 	"context"
+
 	"quantmesh/exchange/cryptocom"
+	"quantmesh/exchange/income"
 )
 
 type cryptocomWrapper struct {
@@ -219,6 +221,15 @@ func (w *cryptocomWrapper) GetQuoteAsset() string {
 
 func (w *cryptocomWrapper) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.adapter.GetFundingRate(ctx)
+}
+
+func (w *cryptocomWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
+	return nil, nil
+}
+
+// GetOrderFills 查詢訂單成交記錄（暂未實現）
+func (w *cryptocomWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return nil, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格（未實現）
