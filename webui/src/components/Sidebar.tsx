@@ -230,10 +230,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           </Flex>
         )}
         
+        {/* 全局 - 监控与概览 */}
         {!collapsed && (
           <Box px="7" mb="2">
             <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-              {t('common.global')}
+              {t('common.global')} · {t('sidebar.groupMonitor')}
             </Heading>
           </Box>
         )}
@@ -273,6 +274,51 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
         >
           {t('sidebar.runLogs')}
         </NavItem>
+
+        {/* 全局 - 回测与数据 */}
+        {!collapsed && (
+          <Box px="7" mb="2" mt={2}>
+            <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
+              {t('common.global')} · {t('sidebar.groupBacktestData')}
+            </Heading>
+          </Box>
+        )}
+        <NavItem 
+          icon={TimeIcon} 
+          to="/backtest" 
+          isActive={isRouteActive('/backtest')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.backtest')}
+        </NavItem>
+        <NavItem 
+          icon={SearchIcon} 
+          to="/optimizer" 
+          isActive={isRouteActive('/optimizer')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.optimizer')}
+        </NavItem>
+        <NavItem 
+          icon={ExternalLinkIcon} 
+          to="/data-export" 
+          isActive={isRouteActive('/data-export')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.dataExport')}
+        </NavItem>
+
+        {/* 全局 - AI */}
+        {!collapsed && (
+          <Box px="7" mb="2" mt={2}>
+            <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
+              {t('common.global')} · {t('sidebar.groupAI')}
+            </Heading>
+          </Box>
+        )}
         <NavItem 
           icon={QuestionIcon} 
           to="/ai-prompts" 
@@ -309,6 +355,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
         >
           {t('sidebar.aiTasks')}
         </NavItem>
+
+        {/* 全局 - 策略与资金 */}
+        {!collapsed && (
+          <Box px="7" mb="2" mt={2}>
+            <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
+              {t('common.global')} · {t('sidebar.groupStrategyCapital')}
+            </Heading>
+          </Box>
+        )}
         <NavItem 
           icon={ExternalLinkIcon} 
           to="/strategy-market" 
@@ -344,33 +399,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           collapsed={collapsed}
         >
           {t('sidebar.positionPlan')}
-        </NavItem>
-        <NavItem 
-          icon={TimeIcon} 
-          to="/backtest" 
-          isActive={isRouteActive('/backtest')}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.backtest')}
-        </NavItem>
-        <NavItem 
-          icon={SearchIcon} 
-          to="/optimizer" 
-          isActive={isRouteActive('/optimizer')}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.optimizer')}
-        </NavItem>
-        <NavItem 
-          icon={ExternalLinkIcon} 
-          to="/data-export" 
-          isActive={isRouteActive('/data-export')}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.dataExport')}
         </NavItem>
 
         <AnimatePresence>
@@ -512,6 +540,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
             </Heading>
           </Box>
         )}
+        <NavItem 
+          icon={CheckCircleIcon} 
+          to="/services/status" 
+          isActive={isRouteActive('/services/status')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.servicesStatus', '服務狀態')}
+        </NavItem>
         <NavItem 
           icon={SettingsIcon} 
           to="/config" 

@@ -35,6 +35,7 @@ type Storage interface {
 	QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error)
 	GetStatisticsSummary(account string) (*Statistics, error)
 	GetStatisticsSummaryByExchange(exchange, account string) (*Statistics, error)
+	GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error)
 	QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	SaveReconciliationHistory(history *ReconciliationHistory) error

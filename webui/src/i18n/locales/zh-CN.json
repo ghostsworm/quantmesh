@@ -41,6 +41,7 @@
     "klineDepth": "K线深度",
     "fundingRate": "资金费率",
     "basisMonitor": "价差监控",
+    "servicesStatus": "服务状态",
     "configManagement": "配置管理",
     "firstTimeWizard": "首次设置向导",
     "profile": "个人资料",
@@ -48,7 +49,19 @@
     "newsAnalysis": "新闻分析",
     "dataExport": "数据导出",
     "expandSidebar": "展开侧边栏",
-    "collapseSidebar": "收起侧边栏"
+    "collapseSidebar": "收起侧边栏",
+    "groupMonitor": "监控与概览",
+    "groupBacktestData": "回测与数据",
+    "groupAI": "AI",
+    "groupStrategyCapital": "策略与资金"
+  },
+  "servicesStatus": {
+    "title": "服务状态",
+    "hint": "查看存储、回测等后台服务是否正常；若某项不可用，请按提示检查配置并重启服务。",
+    "ok": "正常",
+    "unavailable": "不可用",
+    "normal": "正常",
+    "checkHint": "请检查配置并重启"
   },
   "statusBar": {
     "globalView": "全局概览",
@@ -69,6 +82,9 @@
     "stopped": "已停止",
     "stop": "停止",
     "start": "启动",
+    "starting": "启动中…",
+    "stopping": "停止中…",
+    "startStopTimeout": "请求超时，请稍后重试",
     "totalPnL": "总盈亏",
     "tradingVolume": "总成交量",
     "systemUptime": "运行时长",
@@ -178,7 +194,10 @@
     "tradeCountBadge": "交易数:",
     "volumeBadge": "交易量:",
     "startTrading": "启动交易",
-    "stopTrading": "停止交易"
+    "stopTrading": "停止交易",
+    "positionExchange": "交易所",
+    "positionSymbol": "币种",
+    "positionStrategy": "策略"
   },
   "configuration": {
     "title": "设置",
@@ -240,6 +259,8 @@
     "webhookUrl": "Webhook URL",
     "dingtalkSecret": "钉钉签名密钥",
     "dataStorage": "数据存储",
+    "storageEnabled": "启用数据存储",
+    "storageEnabledHint": "关闭后回测、事件历史等将不持久化；仅填路径不勾选也会导致回测不可用。",
     "databasePath": "数据库路径",
     "buffer": "缓冲区",
     "flushInterval": "刷新 (秒)",
@@ -676,7 +697,12 @@
     "statusPending": "待处理",
     "statusProcessing": "处理中",
     "statusCompleted": "已完成",
-    "statusFailed": "失败"
+    "statusFailed": "失败",
+    "grossProfit": "毛利润",
+    "totalFee": "手续费",
+    "fundingNet": "资金费净额",
+    "fundingDetail": "资金费明细",
+    "noFundingHistory": "暂无资金费记录"
   },
   "positionPlan": {
     "title": "仓位计划",
@@ -982,7 +1008,10 @@
     "weekday6": "六",
     "drawdown": "回撤",
     "noData": "无数据",
-    "fetchPnLFailed": "获取盈亏数据失败"
+    "fetchPnLFailed": "获取盈亏数据失败",
+    "netPnL": "净利润",
+    "grossPnL": "毛利润",
+    "totalFee": "手续费"
   },
   "riskMonitor": {
     "title": "风控监控",

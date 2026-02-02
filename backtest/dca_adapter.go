@@ -67,7 +67,7 @@ func RunDCABacktest(symbol, interval string, candles []*exchange.Candle, params 
 	for i, c := range candles {
 		equity = append(equity, EquityPoint{
 			Timestamp: c.Timestamp,
-			Equity:   cash + position*c.Close,
+			Equity:    cash + position*c.Close,
 		})
 
 		if spent >= params.TotalCapital {
@@ -128,5 +128,6 @@ func RunDCABacktest(symbol, interval string, candles []*exchange.Candle, params 
 		Trades:         trades,
 		Metrics:        metrics,
 		RiskMetrics:    riskMetrics,
+		PriceCurve:     ComputePriceCurveSummary(candles),
 	}, nil
 }

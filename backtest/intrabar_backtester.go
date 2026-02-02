@@ -208,6 +208,7 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 		Trades:         ibt.trades,
 		Metrics:        metrics,
 		RiskMetrics:    riskMetrics,
+		PriceCurve:     ComputePriceCurveSummary(ibt.candles),
 	}, nil
 }
 

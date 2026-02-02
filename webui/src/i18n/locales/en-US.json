@@ -41,6 +41,7 @@
     "klineDepth": "K-Line Depth",
     "fundingRate": "Funding Rate",
     "basisMonitor": "Basis Monitor",
+    "servicesStatus": "Service Status",
     "configManagement": "Configuration",
     "firstTimeWizard": "First-time Setup Wizard",
     "profile": "Profile",
@@ -48,7 +49,19 @@
     "newsAnalysis": "News Analysis",
     "dataExport": "Data Export",
     "expandSidebar": "Expand sidebar",
-    "collapseSidebar": "Collapse sidebar"
+    "collapseSidebar": "Collapse sidebar",
+    "groupMonitor": "Monitor & Overview",
+    "groupBacktestData": "Backtest & Data",
+    "groupAI": "AI",
+    "groupStrategyCapital": "Strategy & Capital"
+  },
+  "servicesStatus": {
+    "title": "Service Status",
+    "hint": "Check whether storage, backtest, and other backend services are available. If a service is unavailable, follow the hint and restart after config changes.",
+    "ok": "OK",
+    "unavailable": "Unavailable",
+    "normal": "Normal",
+    "checkHint": "Check config and restart"
   },
   "statusBar": {
     "globalView": "Global Overview",
@@ -69,6 +82,9 @@
     "stopped": "Stopped",
     "stop": "STOP",
     "start": "START",
+    "starting": "Starting…",
+    "stopping": "Stopping…",
+    "startStopTimeout": "Request timed out, please try again",
     "totalPnL": "TOTAL P&L",
     "tradingVolume": "TRADING VOLUME",
     "systemUptime": "SYSTEM UPTIME",
@@ -178,7 +194,10 @@
     "tradeCountBadge": "Trades:",
     "volumeBadge": "Volume:",
     "startTrading": "Start Trading",
-    "stopTrading": "Stop Trading"
+    "stopTrading": "Stop Trading",
+    "positionExchange": "Exchange",
+    "positionSymbol": "Symbol",
+    "positionStrategy": "Strategy"
   },
   "configuration": {
     "title": "Settings",
@@ -240,6 +259,8 @@
     "webhookUrl": "Webhook URL",
     "dingtalkSecret": "DingTalk Secret",
     "dataStorage": "Data Storage",
+    "storageEnabled": "Enable data storage",
+    "storageEnabledHint": "When off, backtest and event history will not be persisted; leaving this off can make backtest unavailable.",
     "databasePath": "Database Path",
     "buffer": "Buffer",
     "flushInterval": "Flush Interval (seconds)",
@@ -1014,7 +1035,10 @@
     "weekday6": "Sat",
     "drawdown": "Drawdown",
     "noData": "No data",
-    "fetchPnLFailed": "Failed to fetch PnL data"
+    "fetchPnLFailed": "Failed to fetch PnL data",
+    "netPnL": "Net P&L",
+    "grossPnL": "Gross P&L",
+    "totalFee": "Total Fee"
   },
   "riskMonitor": {
     "title": "Risk Monitor",

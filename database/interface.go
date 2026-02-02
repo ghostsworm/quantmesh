@@ -143,15 +143,19 @@ type RiskCheck struct {
 // EventRecord 事件記錄
 type EventRecord struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Type      string    `gorm:"index:idx_type_severity;size:50" json:"type"`      // 事件類型
-	Severity  string    `gorm:"index:idx_type_severity;size:20" json:"severity"`  // 严重程度: critical/warning/info
-	Source    string    `gorm:"index;size:20" json:"source"`                      // 事件源: exchange/network/system/strategy/risk/api
+	Type      string    `gorm:"index:idx_type_severity;size:50" json:"type"`       // 事件類型
+	Severity  string    `gorm:"index:idx_type_severity;size:20" json:"severity"`   // 严重程度: critical/warning/info
+	Source    string    `gorm:"index;size:20" json:"source"`                       // 事件源: exchange/network/system/strategy/risk/api
 	Exchange  string    `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"` // 交易所（可選）
 	Symbol    string    `gorm:"index:idx_exchange_symbol;size:50" json:"symbol"`   // 交易對（可選）
-	Title     string    `gorm:"size:200" json:"title"`                            // 事件標题
-	Message   string    `gorm:"type:text" json:"message"`                         // 事件消息
-	Details   string    `gorm:"type:text" json:"details"`                         // 详细信息（JSON）
-	CreatedAt time.Time `gorm:"index" json:"created_at"`                          // 創建時间
+	Title     string    `gorm:"size:200" json:"title"`                             // 事件標题
+	Message   string    `gorm:"type:text" json:"message"`                          // 事件消息
+	Details   string    `gorm:"type:text" json:"details"`                          // 详细信息（JSON）
+	CreatedAt time.Time `gorm:"index" json:"created_at"`                           // 創建時间
+
+	// 兼容 Storage 寫入的舊數據（僅 event_type、data 有值時用於讀取時補齊）
+	EventTypeRaw string `gorm:"column:event_type" json:"-"`
+	DataRaw      string `gorm:"column:data;type:text" json:"-"`
 }
 
 // TableName 指定表名為 events（兼容舊數據）
@@ -194,7 +198,7 @@ type PositionPlan struct {
 	Symbol           string     `gorm:"index:idx_plan_exchange_symbol;size:50" json:"symbol"`
 	StrategyID       string     `gorm:"size:100" json:"strategy_id"` // 可選，空表示所有策略
 	TargetAmountUSDT float64    `gorm:"type:decimal(20,8)" json:"target_amount_usdt"`
-	Direction        string     `gorm:"size:20" json:"direction"` // reduce / increase
+	Direction        string     `gorm:"size:20" json:"direction"`    // reduce / increase
 	Status           string     `gorm:"index;size:20" json:"status"` // pending / in_progress / completed / cancelled
 	InitialAmount    float64    `gorm:"type:decimal(20,8)" json:"initial_amount"`
 	CurrentAmount    float64    `gorm:"type:decimal(20,8)" json:"current_amount"`
@@ -321,9 +325,9 @@ type AsyncTaskStats struct {
 
 // DailyTokenStat 每日Token统计
 type DailyTokenStat struct {
-	Date        time.Time `json:"date"`
-	InputTokens int64     `json:"input_tokens"`
-	OutputTokens int64    `json:"output_tokens"`
-	TotalTokens int64     `json:"total_tokens"`
-	TaskCount   int       `json:"task_count"`
+	Date         time.Time `json:"date"`
+	InputTokens  int64     `json:"input_tokens"`
+	OutputTokens int64     `json:"output_tokens"`
+	TotalTokens  int64     `json:"total_tokens"`
+	TaskCount    int       `json:"task_count"`
 }

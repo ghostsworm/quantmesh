@@ -98,11 +98,26 @@ func (m *TaskManager) RunTask(id string) error {
 
 	// 2. 根據策略類型运行回测
 	var result *BacktestResult
+	var comparison *ComparisonResult
 	capital := task.TotalCapital
 	switch task.Strategy {
 	case "grid":
 		params := m.gridParamsFromTask(task)
-		result, err = RunGridBacktest(task.Symbol, candles, params, capital)
+		// 執行兩次：無風控 + 帶風控
+		resultNoRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, nil)
+		if err != nil {
+			m.failTask(id, fmt.Sprintf("回测執行失败: %v", err))
+			return nil
+		}
+		riskCfg := m.riskConfigFromTask(task)
+		riskSim := NewRiskSimulator(riskCfg)
+		resultWithRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, riskSim)
+		if err != nil {
+			m.failTask(id, fmt.Sprintf("回测執行失败: %v", err))
+			return nil
+		}
+		comparison = BuildComparisonResult(resultNoRisk, resultWithRisk, riskSim.GetInterventions())
+		result = resultNoRisk // 用於日誌，報告使用 comparison
 	case "dca":
 		params := m.dcaParamsFromTask(task)
 		result, err = RunDCABacktest(task.Symbol, task.Interval, candles, params, capital)
@@ -137,7 +152,7 @@ func (m *TaskManager) RunTask(id string) error {
 		return nil
 	}
 	resultPath := filepath.Join(m.resultsDir, id+".json")
-	payload := BacktestTaskResult{TaskID: id, Task: task, Result: result}
+	payload := BacktestTaskResult{TaskID: id, Task: task, Result: result, Comparison: comparison}
 	body, _ := json.MarshalIndent(payload, "", "  ")
 	if err := os.WriteFile(resultPath, body, 0644); err != nil {
 		m.failTask(id, fmt.Sprintf("保存結果失败: %v", err))
@@ -149,7 +164,12 @@ func (m *TaskManager) RunTask(id string) error {
 		logger.Warn("創建报告目錄失败: %v", err)
 	}
 	reportPath := filepath.Join(m.reportsDir, id+".md")
-	if err := GenerateReportToFile(result, reportPath); err != nil {
+	if comparison != nil {
+		if err := GenerateComparisonReportToFile(comparison, reportPath); err != nil {
+			logger.Warn("生成对比报告失败: %v", err)
+			reportPath = ""
+		}
+	} else if err := GenerateReportToFile(result, reportPath); err != nil {
 		logger.Warn("生成报告失败: %v", err)
 		reportPath = ""
 	}
@@ -157,7 +177,12 @@ func (m *TaskManager) RunTask(id string) error {
 	// 5. 更新任務為完成
 	completed := time.Now()
 	_ = m.store.UpdateBacktestTaskStatus(id, "completed", 100, nil, &completed, "", resultPath, reportPath)
-	logger.Info("✅ 回测任務完成: %s, 收益率=%.2f%%", id, result.Metrics.TotalReturn)
+	if comparison != nil {
+		logger.Info("✅ 回测任務完成: %s, 無風控收益率=%.2f%%, 有風控收益率=%.2f%%, 風控介入%d次",
+			id, result.Metrics.TotalReturn, comparison.WithRiskResult.Metrics.TotalReturn, comparison.Comparison.RiskInterventionCount)
+	} else {
+		logger.Info("✅ 回测任務完成: %s, 收益率=%.2f%%", id, result.Metrics.TotalReturn)
+	}
 	return nil
 }
 
@@ -167,15 +192,31 @@ func (m *TaskManager) failTask(id, errMsg string) {
 	logger.Error("❌ 回测任務失败: %s, %s", id, errMsg)
 }
 
+func (m *TaskManager) riskConfigFromTask(task *BacktestTask) *RiskSimulatorConfig {
+	vm := getFloat(task.Params, "risk_volume_multiplier", 3.0)
+	aw := getInt(task.Params, "risk_average_window", 20)
+	if vm <= 0 {
+		vm = 3.0
+	}
+	if aw <= 0 {
+		aw = 20
+	}
+	return &RiskSimulatorConfig{
+		VolumeMultiplier: vm,
+		AverageWindow:    aw,
+	}
+}
+
 func (m *TaskManager) gridParamsFromTask(task *BacktestTask) GridBacktestParams {
 	p := GridBacktestParams{
-		PriceLow:        getFloat(task.Params, "price_low", 0),
-		PriceHigh:       getFloat(task.Params, "price_high", 0),
-		GridCount:       getInt(task.Params, "grid_count", 20),
-		OrderQuantity:   getFloat(task.Params, "order_quantity", 100),
-		TotalCapital:    task.TotalCapital,
-		FeeRate:         getFloat(task.Params, "fee_rate", 0.0004),
-		SlippageRatio:   0.0003,
+		PriceLow:      getFloat(task.Params, "price_low", 0),
+		PriceHigh:     getFloat(task.Params, "price_high", 0),
+		GridCount:     getInt(task.Params, "grid_count", 20),
+		GridSpacing:   getFloat(task.Params, "grid_spacing", 0),
+		OrderQuantity: getFloat(task.Params, "order_quantity", 100),
+		TotalCapital:  task.TotalCapital,
+		FeeRate:       getFloat(task.Params, "fee_rate", 0.0004),
+		SlippageRatio: 0.0003,
 	}
 	return p
 }
@@ -185,18 +226,18 @@ func (m *TaskManager) dcaParamsFromTask(task *BacktestTask) DCABacktestParams {
 		IntervalDays:   getInt(task.Params, "interval_days", 7),
 		AmountPerTrade: getFloat(task.Params, "amount_per_trade", 100),
 		TotalCapital:   task.TotalCapital,
-		FeeRate:         getFloat(task.Params, "fee_rate", 0.0004),
+		FeeRate:        getFloat(task.Params, "fee_rate", 0.0004),
 	}
 }
 
 func (m *TaskManager) martingaleParamsFromTask(task *BacktestTask) MartingaleBacktestParams {
 	return MartingaleBacktestParams{
 		BaseAmount:    getFloat(task.Params, "base_amount", 100),
-		Multiplier:     getFloat(task.Params, "multiplier", 2),
-		TotalCapital:   task.TotalCapital,
-		FeeRate:        getFloat(task.Params, "fee_rate", 0.0004),
+		Multiplier:    getFloat(task.Params, "multiplier", 2),
+		TotalCapital:  task.TotalCapital,
+		FeeRate:       getFloat(task.Params, "fee_rate", 0.0004),
 		TakeProfitPct: 1,
-		StopLossPct:    2,
+		StopLossPct:   2,
 	}
 }
 

@@ -44,7 +44,11 @@
     "newsAnalysis": "Analisis Berita",
     "dataExport": "Ekspor Data",
     "expandSidebar": "Perluas bilah sisi",
-    "collapseSidebar": "Ciutkan bilah sisi"
+    "collapseSidebar": "Ciutkan bilah sisi",
+    "groupMonitor": "Monitor & Overview",
+    "groupBacktestData": "Backtest & Data",
+    "groupAI": "AI",
+    "groupStrategyCapital": "Strategy & Capital"
   },
   "statusBar": {
     "globalView": "Tinjauan Global",
@@ -668,7 +672,12 @@
     "statusPending": "Tertunda",
     "statusProcessing": "Diproses",
     "statusCompleted": "Selesai",
-    "statusFailed": "Gagal"
+    "statusFailed": "Gagal",
+    "grossProfit": "Laba kotor",
+    "totalFee": "Total biaya",
+    "fundingNet": "Funding bersih",
+    "fundingDetail": "Detail funding",
+    "noFundingHistory": "Tidak ada riwayat funding"
   },
   "positionPlan": {
     "title": "Rencana Posisi",
@@ -985,7 +994,10 @@
     "weekday6": "Sab",
     "drawdown": "Penurunan",
     "noData": "Tidak ada data",
-    "fetchPnLFailed": "Gagal mengambil data P&L"
+    "fetchPnLFailed": "Gagal mengambil data P&L",
+    "netPnL": "P&L bersih",
+    "grossPnL": "P&L kotor",
+    "totalFee": "Total biaya"
   },
   "riskMonitor": {
     "title": "Monitor Risiko",

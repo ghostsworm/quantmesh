@@ -2,8 +2,12 @@ package backtest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"net/url"
 	"sort"
 	"sync"
 	"time"
@@ -170,7 +174,22 @@ func (s *SmartParamsService) getCurrentPrice(
 
 	// 獲取新價格
 	if s.exchangeFactory == nil {
-		return nil, fmt.Errorf("交易所適配器工廠未配置")
+		// 簡化模式：使用 Binance 公開 API 獲取價格（無需配置交易所）
+		price, err := fetchPriceFromBinancePublic(ctx, symbol)
+		if err != nil {
+			return nil, fmt.Errorf("無法從 Binance 公開 API 獲取價格，請在設置中配置交易所後重試: %w", err)
+		}
+		priceInfo := &PriceInfo{
+			Symbol:       symbol,
+			CurrentPrice: price,
+			High24h:      price * 1.02,
+			Low24h:       price * 0.98,
+			UpdatedAt:    time.Now(),
+		}
+		s.mu.Lock()
+		s.priceCache[cacheKey] = priceInfo
+		s.mu.Unlock()
+		return priceInfo, nil
 	}
 
 	ex, err := s.exchangeFactory(exchangeName, marketType)
@@ -212,6 +231,40 @@ func (s *SmartParamsService) getCurrentPrice(
 	s.mu.Unlock()
 
 	return priceInfo, nil
+}
+
+// fetchPriceFromBinancePublic 從 Binance 公開 API 獲取現貨價格（無需 API Key）
+func fetchPriceFromBinancePublic(ctx context.Context, symbol string) (float64, error) {
+	u := "https://api.binance.com/api/v3/ticker/price?symbol=" + url.QueryEscape(symbol)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return 0, err
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("Binance API 返回 %d", resp.StatusCode)
+	}
+	var data struct {
+		Symbol string `json:"symbol"`
+		Price  string `json:"price"`
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return 0, fmt.Errorf("解析價格失敗: %w", err)
+	}
+	var price float64
+	if _, err := fmt.Sscanf(data.Price, "%f", &price); err != nil || price <= 0 {
+		return 0, fmt.Errorf("無效價格: %s", data.Price)
+	}
+	return price, nil
 }
 
 // getVolatilityInfo 獲取波動率信息（帶緩存）

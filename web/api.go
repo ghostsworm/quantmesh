@@ -971,8 +971,17 @@ func getPositionsSummary(c *gin.Context) {
 	priceProv := PickPriceProvider(c)
 	exchProv := pickExchangeProvider(c)
 
-	// 獲取请求参數中的 symbol
+	// 獲取请求参數
+	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
+	if exchange == "" || symbol == "" {
+		if k := resolveSymbolKey(c); k != "" {
+			parts := strings.SplitN(k, ":", 2)
+			if len(parts) == 2 {
+				exchange, symbol = parts[0], parts[1]
+			}
+		}
+	}
 
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -1155,6 +1164,10 @@ func getPositionsSummary(c *gin.Context) {
 
 	// 構建响应
 	response := gin.H{
+		// 維度標識（按交易所、币种、策略）
+		"exchange": exchange,
+		"symbol":   symbol,
+		"strategy": "grid",
 		// 主要显示數據（优先使用交易所數據）
 		"total_quantity": slotTotalQuantity,
 		"total_value":    slotTotalValue,
@@ -1192,6 +1205,157 @@ func getPositionsSummary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// getPositionsSummaryAll 獲取所有交易對的持倉彙總（按交易所、币种、策略列出）
+// GET /api/positions/summary/all
+func getPositionsSummaryAll(c *gin.Context) {
+	providersMu.RLock()
+	keys := make([]string, 0, len(positionProviders))
+	for k := range positionProviders {
+		keys = append(keys, k)
+	}
+	providersMu.RUnlock()
+
+	var result []gin.H
+	for _, key := range keys {
+		parts := strings.SplitN(key, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		exchangeName, symbol := parts[0], parts[1]
+
+		providersMu.RLock()
+		pmProvider := positionProviders[key]
+		priceProv := priceProviders[key]
+		exchProv := exchangeProviders[key]
+		providersMu.RUnlock()
+
+		if pmProvider == nil {
+			continue
+		}
+
+		slots := pmProvider.GetAllSlots()
+		wsPrice := 0.0
+		if priceProv != nil {
+			wsPrice = priceProv.GetLastPrice()
+		}
+
+		// 槽位计算
+		slotTotalQuantity := 0.0
+		slotTotalValue := 0.0
+		slotPositionCount := 0
+		slotTotalCost := 0.0
+		for _, slot := range slots {
+			if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
+				slotPositionCount++
+				slotTotalQuantity += slot.PositionQty
+				slotTotalCost += slot.Price * slot.PositionQty
+				if wsPrice > 0 {
+					slotTotalValue += slot.PositionQty * wsPrice
+				} else {
+					slotTotalValue += slot.PositionQty * slot.Price
+				}
+			}
+		}
+		// 仅返回有持倉的
+		if slotPositionCount == 0 {
+			continue
+		}
+
+		slotAveragePrice := 0.0
+		if slotTotalQuantity > 0 {
+			slotAveragePrice = slotTotalCost / slotTotalQuantity
+		}
+		slotUnrealizedPnL := 0.0
+		if wsPrice > 0 && slotTotalQuantity > 0 && slotAveragePrice > 0 {
+			slotUnrealizedPnL = (wsPrice - slotAveragePrice) * slotTotalQuantity
+		}
+
+		// 交易所數據
+		exchangeUnrealizedPnL := 0.0
+		exchangeMarkPrice := 0.0
+		exchangeEntryPrice := 0.0
+		exchangePositionSize := 0.0
+		exchangeLeverage := 0
+		hasExchangeData := false
+		if exchProv != nil && symbol != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			positions, err := exchProv.GetPositions(ctx, symbol)
+			cancel()
+			if err == nil && len(positions) > 0 {
+				for _, pos := range positions {
+					if pos.Size != 0 {
+						exchangeUnrealizedPnL += pos.UnrealizedPNL
+						exchangeMarkPrice = pos.MarkPrice
+						exchangeEntryPrice = pos.EntryPrice
+						exchangePositionSize += pos.Size
+						exchangeLeverage = pos.Leverage
+						hasExchangeData = true
+					}
+				}
+			}
+		}
+
+		displayUnrealizedPnL := slotUnrealizedPnL
+		displayCurrentPrice := wsPrice
+		if hasExchangeData {
+			displayUnrealizedPnL = exchangeUnrealizedPnL
+			if exchangeMarkPrice > 0 {
+				displayCurrentPrice = exchangeMarkPrice
+			}
+		}
+
+		leverage := pmProvider.GetLeverage()
+		if exchangeLeverage > 0 {
+			leverage = exchangeLeverage
+		}
+		actualMargin := 0.0
+		if leverage > 0 && slotTotalValue > 0 {
+			actualMargin = slotTotalValue / float64(leverage)
+		}
+		pnlPercentage := 0.0
+		if slotTotalCost > 0 {
+			pnlPercentage = (displayUnrealizedPnL / slotTotalCost) * 100.0
+		}
+
+		result = append(result, gin.H{
+			"exchange":       exchangeName,
+			"symbol":         symbol,
+			"strategy":       "grid", // 當前架構每個交易對為網格策略
+			"total_quantity": slotTotalQuantity,
+			"total_value":    slotTotalValue,
+			"position_count": slotPositionCount,
+			"average_price":  slotAveragePrice,
+			"current_price":  displayCurrentPrice,
+			"unrealized_pnl": displayUnrealizedPnL,
+			"pnl_percentage": pnlPercentage,
+			"actual_margin":  actualMargin,
+			"leverage":       leverage,
+			"exchange_data": gin.H{
+				"has_data":       hasExchangeData,
+				"quantity":       exchangePositionSize,
+				"entry_price":    exchangeEntryPrice,
+				"mark_price":     exchangeMarkPrice,
+				"unrealized_pnl": exchangeUnrealizedPnL,
+				"leverage":       exchangeLeverage,
+			},
+		})
+	}
+
+	// 按交易所、币种排序
+	sort.Slice(result, func(i, j int) bool {
+		ei, _ := result[i]["exchange"].(string)
+		ej, _ := result[j]["exchange"].(string)
+		if ei != ej {
+			return ei < ej
+		}
+		si, _ := result[i]["symbol"].(string)
+		sj, _ := result[j]["symbol"].(string)
+		return strings.ToLower(si) < strings.ToLower(sj)
+	})
+
+	c.JSON(http.StatusOK, gin.H{"positions": result})
 }
 
 // getOrders 獲取訂單列表（历史订單）
@@ -1414,14 +1578,19 @@ func getStatistics(c *gin.Context) {
 	accountID := GetCurrentAccountID()
 	logger.Info("[统计] accountID: %s", accountID)
 
-	// 獲取 exchange 参數（如果有）
+	// 獲取 exchange、symbol 参數（如果有）
 	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
 
 	// 從數據库獲取统计彙總
 	var summary interface{}
 	var err error
-	if exchange != "" {
-		// 如果指定了交易所，查詢該交易所的统计
+	if exchange != "" && symbol != "" {
+		// 指定了交易所和交易對時，查詢該交易對的统计（概覽頁顯示當前交易對的總盈虧）
+		summary, err = storage.GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, accountID)
+		logger.Info("[统计] 查詢交易所 %s 交易對 %s 的统计，accountID: %s", exchange, symbol, accountID)
+	} else if exchange != "" {
+		// 只指定了交易所，查詢該交易所的统计
 		summary, err = storage.GetStatisticsSummaryByExchange(exchange, accountID)
 		logger.Info("[统计] 查詢交易所 %s 的统计，accountID: %s", exchange, accountID)
 	} else {
@@ -1558,6 +1727,7 @@ func getDailyStatistics(c *gin.Context) {
 		// 獲取日K線數據（1d 周期），限制天數+1以确保覆盖範圍
 		candles, err := exchProv.GetHistoricalKlines(ctx, status.Symbol, "1d", days+1)
 		if err == nil && len(candles) > 0 {
+			candles = exchange.ClipKlineSpikes(candles, 0.03)
 			for _, candle := range candles {
 				// 將時间戳轉换為日期字符串
 				candleTime := time.Unix(candle.Timestamp/1000, 0).UTC()
@@ -3834,6 +4004,8 @@ func getKlines(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// 統一裁剪插針（所有交易所）：將 High/Low 限制在鄰近價格 ±3% 內，避免壞 tick 導致圖表異常
+	candles = exchange.ClipKlineSpikes(candles, 0.03)
 
 	// 轉换為API响应格式
 	klines := make([]KlineData, len(candles))

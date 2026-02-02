@@ -44,7 +44,11 @@
     "newsAnalysis": "Анализ новостей",
     "dataExport": "Экспорт данных",
     "expandSidebar": "Развернуть боковую панель",
-    "collapseSidebar": "Свернуть боковую панель"
+    "collapseSidebar": "Свернуть боковую панель",
+    "groupMonitor": "Монитор и обзор",
+    "groupBacktestData": "Бэктест и данные",
+    "groupAI": "ИИ",
+    "groupStrategyCapital": "Стратегия и капитал"
   },
   "statusBar": {
     "globalView": "Глобальный Обзор",
@@ -668,7 +672,12 @@
     "statusPending": "В ожидании",
     "statusProcessing": "В обработке",
     "statusCompleted": "Завершено",
-    "statusFailed": "Не удалось"
+    "statusFailed": "Не удалось",
+    "grossProfit": "Валовая прибыль",
+    "totalFee": "Общая комиссия",
+    "fundingNet": "Чистый фандинг",
+    "fundingDetail": "Детали фандинга",
+    "noFundingHistory": "Нет записей о фандинге"
   },
   "positionPlan": {
     "title": "План позиции",
@@ -985,7 +994,10 @@
     "weekday6": "Сб",
     "drawdown": "Просадка",
     "noData": "Нет данных",
-    "fetchPnLFailed": "Не удалось получить данные P&L"
+    "fetchPnLFailed": "Не удалось получить данные P&L",
+    "netPnL": "Чистая прибыль/убыток",
+    "grossPnL": "Валовая прибыль/убыток",
+    "totalFee": "Общая комиссия"
   },
   "riskMonitor": {
     "title": "Монитор рисков",

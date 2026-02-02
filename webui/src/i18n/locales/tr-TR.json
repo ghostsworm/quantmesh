@@ -44,7 +44,11 @@
     "newsAnalysis": "Haber Analizi",
     "dataExport": "Veri Dışa Aktarımı",
     "expandSidebar": "Kenar çubuğunu genişlet",
-    "collapseSidebar": "Kenar çubuğunu daralt"
+    "collapseSidebar": "Kenar çubuğunu daralt",
+    "groupMonitor": "İzleme ve genel bakış",
+    "groupBacktestData": "Backtest ve veri",
+    "groupAI": "AI",
+    "groupStrategyCapital": "Strateji ve sermaye"
   },
   "statusBar": {
     "globalView": "Genel Bakış",
@@ -670,7 +674,12 @@
     "statusCompleted": "Tamamlandı",
     "statusFailed": "Başarısız",
     "module": "modül",
-    "statusHealthy": "Sağlıklı"
+    "statusHealthy": "Sağlıklı",
+    "grossProfit": "Brüt Kâr",
+    "totalFee": "Toplam Ücret",
+    "fundingNet": "Net Funding",
+    "fundingDetail": "Funding Detayı",
+    "noFundingHistory": "Funding kaydı yok"
   },
   "positionPlan": {
     "title": "Pozisyon Planı",
@@ -987,7 +996,10 @@
     "weekday6": "Cmt",
     "drawdown": "Kayıp",
     "noData": "Veri yok",
-    "fetchPnLFailed": "K&Z verisi alınamadı"
+    "fetchPnLFailed": "K&Z verisi alınamadı",
+    "netPnL": "Net K&Z",
+    "grossPnL": "Brüt K&Z",
+    "totalFee": "Toplam Ücret"
   },
   "riskMonitor": {
     "title": "Risk İzleme",

@@ -45,15 +45,16 @@ import {
   type OptimResult,
   type OptimizerTaskStatus,
 } from '../services/optimizer'
-import { getSymbols, type SymbolInfo } from '../services/api'
+import { getBacktestExchanges, getBacktestSymbols, type BacktestExchangeInfo, type BacktestSymbolInfo } from '../services/backtest'
 
 const KLINE_INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'] as const
-const COMMON_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'PAXGUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT']
+const MARKET_TYPE = 'futures' // 网格优化默认合约
 
 export default function OptimizerPage() {
   const toast = useToast()
+  const [exchanges, setExchanges] = useState<BacktestExchangeInfo[]>([])
   const [exchange, setExchange] = useState('binance')
-  const [symbols, setSymbols] = useState<SymbolInfo[]>([])
+  const [symbolList, setSymbolList] = useState<BacktestSymbolInfo[]>([])
   const [symbol, setSymbol] = useState('BTCUSDT')
   const [interval, setInterval] = useState('1h')
   const [days, setDays] = useState(90)
@@ -98,11 +99,36 @@ export default function OptimizerPage() {
     return 0.1
   }
 
+  // 从 API 拉取交易所列表
   useEffect(() => {
-    getSymbols()
-      .then((r) => setSymbols(r.symbols || []))
-      .catch(() => setSymbols([]))
+    getBacktestExchanges()
+      .then((r) => {
+        if (r.success && r.exchanges?.length) {
+          setExchanges(r.exchanges)
+          const configured = r.exchanges.find((e) => e.is_configured)
+          const first = r.exchanges[0]
+          if (configured) setExchange(configured.exchange)
+          else if (first) setExchange(first.exchange)
+        }
+      })
+      .catch(() => setExchanges([]))
   }, [])
+
+  // 切换交易所时从 API 拉取该交易所的交易对列表
+  useEffect(() => {
+    if (!exchange) return
+    getBacktestSymbols(exchange, MARKET_TYPE)
+      .then((r) => {
+        if (r.success && r.symbols?.length) {
+          setSymbolList(r.symbols)
+          const hasCurrent = r.symbols.some((s) => s.symbol === symbol)
+          if (!hasCurrent && r.symbols[0]) setSymbol(r.symbols[0].symbol)
+        } else {
+          setSymbolList([])
+        }
+      })
+      .catch(() => setSymbolList([]))
+  }, [exchange])
 
   // 切换交易對時，根據當前價格自动初始化搜索空间
   useEffect(() => {
@@ -282,23 +308,24 @@ export default function OptimizerPage() {
               <SimpleGrid columns={2} spacing={3}>
                 <FormControl>
                   <FormLabel fontSize="sm">交易所</FormLabel>
-                  <Select size="sm" value={exchange} onChange={(e) => setExchange(e.target.value)}>
-                    <option value="binance">Binance</option>
-                    <option value="bitget">Bitget</option>
+                  <Select size="sm" value={exchange} onChange={(e) => setExchange(e.target.value)} placeholder="選擇交易所">
+                    {exchanges.map((ex) => (
+                      <option key={ex.exchange} value={ex.exchange}>
+                        {ex.exchange.toUpperCase()}
+                        {ex.is_configured ? ' (已配置)' : ''}
+                      </option>
+                    ))}
                   </Select>
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">交易對</FormLabel>
-                  <Select size="sm" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-                    {(() => {
-                      const fromApi = symbols
-                        .filter((s) => s.exchange?.toLowerCase() === exchange)
-                        .map((s) => s.symbol)
-                      const merged = [...new Set([...COMMON_SYMBOLS, ...fromApi])]
-                      return merged.map((sym) => (
-                        <option key={sym} value={sym}>{sym}</option>
-                      ))
-                    })()}
+                  <Select size="sm" value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="選擇交易對">
+                    {symbolList.map((s) => (
+                      <option key={s.symbol} value={s.symbol}>
+                        {s.symbol}
+                        {s.is_configured ? ' (已配置)' : ''}
+                      </option>
+                    ))}
                   </Select>
                 </FormControl>
                 <FormControl>
@@ -460,19 +487,19 @@ export default function OptimizerPage() {
                   <SimpleGrid columns={4} spacing={2}>
                     <Stat size="sm">
                       <StatLabel>最优得分</StatLabel>
-                      <StatNumber fontSize="md" color="blue.600">{result.best_score?.toFixed(2) || '-'}</StatNumber>
+                      <StatNumber fontSize="md" color="blue.600">{result.best_score?.toFixed(4) || '-'}</StatNumber>
                     </Stat>
                     <Stat size="sm">
                       <StatLabel>年化收益</StatLabel>
-                      <StatNumber fontSize="md">{result.best_metrics?.annualized_return?.toFixed(2) || '-'}%</StatNumber>
+                      <StatNumber fontSize="md">{result.best_metrics?.annualized_return?.toFixed(4) || '-'}%</StatNumber>
                     </Stat>
                     <Stat size="sm">
                       <StatLabel>最大回撤</StatLabel>
-                      <StatNumber fontSize="md">{result.best_metrics?.max_drawdown?.toFixed(2) || '-'}%</StatNumber>
+                      <StatNumber fontSize="md">{result.best_metrics?.max_drawdown?.toFixed(4) || '-'}%</StatNumber>
                     </Stat>
                     <Stat size="sm">
                       <StatLabel>夏普比率</StatLabel>
-                      <StatNumber fontSize="md">{result.best_metrics?.sharpe_ratio?.toFixed(2) || '-'}</StatNumber>
+                      <StatNumber fontSize="md">{result.best_metrics?.sharpe_ratio?.toFixed(4) || '-'}</StatNumber>
                     </Stat>
                   </SimpleGrid>
                   <Text fontSize="xs" color="gray.500" mt={2}>
@@ -517,9 +544,9 @@ export default function OptimizerPage() {
                                 <Td>{r.params.price_high?.toFixed(0)}</Td>
                                 <Td>{r.params.grid_count}</Td>
                                 <Td>{r.params.order_quantity?.toFixed(0)}</Td>
-                                <Td fontWeight="600">{r.score?.toFixed(2)}</Td>
-                                <Td>{r.metrics?.annualized_return?.toFixed(2)}%</Td>
-                                <Td>{r.metrics?.max_drawdown?.toFixed(2)}%</Td>
+                                <Td fontWeight="600">{r.score?.toFixed(4)}</Td>
+                                <Td>{r.metrics?.annualized_return?.toFixed(4)}%</Td>
+                                <Td>{r.metrics?.max_drawdown?.toFixed(4)}%</Td>
                               </Tr>
                             ))}
                         </Tbody>

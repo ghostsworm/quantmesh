@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -46,20 +47,56 @@ func ListCache() ([]CacheInfo, error) {
 	}
 
 	caches := make([]CacheInfo, 0, len(index))
+	cacheDir := filepath.Join("backtest", "cache")
 	for name, entry := range index {
+		candles := entry.Candles
+		sizeMB := entry.SizeMB
+		// 索引中 K 線數為 0 時，嘗試從 CSV 重新統計（自愈舊數據或錯誤寫入）
+		if entry.Candles == 0 {
+			if n, sz := countCsvLinesAndSize(filepath.Join(cacheDir, name+".csv")); n >= 0 {
+				candles = n
+				sizeMB = float64(sz) / 1024 / 1024
+			}
+		}
 		caches = append(caches, CacheInfo{
 			Name:     name,
 			Symbol:   entry.Symbol,
 			Interval: entry.Interval,
 			Start:    entry.Start,
 			End:      entry.End,
-			Candles:  entry.Candles,
-			SizeMB:   entry.SizeMB,
+			Candles:  candles,
+			SizeMB:   sizeMB,
 			Created:  entry.Created,
 		})
 	}
 
 	return caches, nil
+}
+
+// countCsvLinesAndSize 統計 CSV 數據行數（不含表頭）與文件字節數。無文件或錯誤時返回 -1, 0。
+func countCsvLinesAndSize(csvPath string) (dataLines int, fileSize int64) {
+	fi, err := os.Stat(csvPath)
+	if err != nil {
+		return -1, 0
+	}
+	fileSize = fi.Size()
+	f, err := os.Open(csvPath)
+	if err != nil {
+		return -1, fileSize
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	lines := 0
+	for sc.Scan() {
+		lines++
+	}
+	if err := sc.Err(); err != nil {
+		return -1, fileSize
+	}
+	if lines <= 1 {
+		return 0, fileSize
+	}
+	return lines - 1, fileSize
 }
 
 // ClearCache 清理所有缓存

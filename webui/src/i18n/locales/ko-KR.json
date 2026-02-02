@@ -44,7 +44,11 @@
     "newsAnalysis": "뉴스 분석",
     "dataExport": "데이터 내보내기",
     "expandSidebar": "사이드바 확장",
-    "collapseSidebar": "사이드바 축소"
+    "collapseSidebar": "사이드바 축소",
+    "groupMonitor": "모니터 및 개요",
+    "groupBacktestData": "백테스트 및 데이터",
+    "groupAI": "AI",
+    "groupStrategyCapital": "전략 및 자본"
   },
   "statusBar": {
     "globalView": "글로벌 개요",
@@ -668,7 +672,12 @@
     "statusPending": "보류 중",
     "statusProcessing": "처리 중",
     "statusCompleted": "완료됨",
-    "statusFailed": "실패"
+    "statusFailed": "실패",
+    "grossProfit": "총손익",
+    "totalFee": "총 수수료",
+    "fundingNet": "펀딩비 순액",
+    "fundingDetail": "펀딩비 내역",
+    "noFundingHistory": "펀딩비 기록 없음"
   },
   "positionPlan": {
     "title": "포지션 계획",
@@ -985,7 +994,10 @@
     "weekday6": "토",
     "drawdown": "낙폭",
     "noData": "데이터 없음",
-    "fetchPnLFailed": "손익 데이터를 가져오지 못했습니다"
+    "fetchPnLFailed": "손익 데이터를 가져오지 못했습니다",
+    "netPnL": "순손익",
+    "grossPnL": "총손익",
+    "totalFee": "총 수수료"
   },
   "riskMonitor": {
     "title": "위험 감시",

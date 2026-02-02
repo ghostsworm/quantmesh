@@ -932,6 +932,19 @@ const Configuration: React.FC = () => {
                 {tabIndex === 3 && (
                   <SimpleGrid columns={2} spacing={6}>
                     <ConfigCard title={t('configuration.dataStorage')} icon={<SettingsIcon />}>
+                      <FormControl mb={4} display="flex" alignItems="center">
+                        <FormLabel fontSize="xs" fontWeight="bold" mb={0} flex="1">
+                          {t('configuration.storageEnabled', '启用数据存储')}
+                        </FormLabel>
+                        <Switch
+                          isChecked={config.storage?.enabled !== false}
+                          onChange={(e) => updateConfigField('storage.enabled', e.target.checked)}
+                          colorScheme="blue"
+                        />
+                      </FormControl>
+                      <Text fontSize="xs" color="gray.500" mb={3}>
+                        {t('configuration.storageEnabledHint')}
+                      </Text>
                       <FormControl mb={4}>
                         <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.databasePath')}</FormLabel>
                         <Input

@@ -76,12 +76,18 @@ func GetHistoricalDataEx(
 		return nil, err
 	}
 
+	if len(candles) == 0 {
+		logger.Warn("⚠️ 該時間範圍無 K 線數據，不寫入緩存: %s (%s 至 %s)", cacheKey,
+			startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
+		return candles, nil
+	}
+
 	// 4. 保存缓存
 	if err := SaveToCache(cacheKey, candles); err != nil {
 		logger.Warn("⚠️ 缓存保存失败: %v", err)
 	} else {
 		sizeMB := float64(len(candles)*80) / 1024 / 1024
-		logger.Info("💾 已缓存: %s (%.2f MB)", cacheKey, sizeMB)
+		logger.Info("💾 已缓存: %s (%d 根 K 線, %.2f MB)", cacheKey, len(candles), sizeMB)
 	}
 
 	return candles, nil
@@ -96,10 +102,20 @@ func fetchFromBinance(
 	binanceConfig map[string]string,
 ) ([]*exchange.Candle, error) {
 
-	// 創建 Binance adapter
-	adapter, err := binance.NewBinanceAdapter(binanceConfig, symbol)
-	if err != nil {
-		return nil, fmt.Errorf("創建 Binance adapter 失败: %w", err)
+	// 創建 Binance adapter（API 為空時使用公開數據適配器，K 線為公開接口無需認證）
+	var adapter *binance.BinanceAdapter
+	if binanceConfig["api_key"] != "" && binanceConfig["secret_key"] != "" {
+		var err error
+		adapter, err = binance.NewBinanceAdapter(binanceConfig, symbol)
+		if err != nil {
+			return nil, fmt.Errorf("創建 Binance adapter 失败: %w", err)
+		}
+	} else {
+		var err error
+		adapter, err = binance.NewBinanceAdapterForPublicData(binanceConfig, symbol)
+		if err != nil {
+			return nil, fmt.Errorf("創建 Binance adapter 失败: %w", err)
+		}
 	}
 
 	allCandles := make([]*exchange.Candle, 0)
@@ -114,12 +130,12 @@ func fetchFromBinance(
 	}
 	batchNum := 0
 
-	// Binance 單次最多 1000 根，需要分批
+	// Binance 單次最多 1000 根，按起始時間分批請求（傳入 startTime 才能拉取指定區間，否則只會拿到「最近 1000 根」）
 	for currentStart.Before(endTime) {
 		batchNum++
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-
-		candles, err := adapter.GetHistoricalKlines(ctx, symbol, interval, 1000)
+		startMs := currentStart.UnixMilli()
+		candles, err := adapter.GetHistoricalKlinesFrom(ctx, symbol, interval, startMs, 1000)
 		cancel()
 
 		if err != nil {
@@ -233,7 +249,7 @@ func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	
+
 	// 跳過表头
 	_, err = reader.Read()
 	if err != nil {
@@ -242,9 +258,9 @@ func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 
 	// 使用流式读取，避免一次性加載整個文件到記憶體
 	// 限制最大读取數量，防止記憶體占用過大
-	maxCandles := 1000000 // 最多100万根K線
+	maxCandles := 1000000                         // 最多100万根K線
 	candles := make([]*exchange.Candle, 0, 10000) // 預分配1万容量
-	
+
 	lineNum := 1
 	for {
 		record, err := reader.Read()
@@ -254,13 +270,13 @@ func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 		if err != nil {
 			return nil, fmt.Errorf("读取第 %d 行失败: %w", lineNum+1, err)
 		}
-		
+
 		// 限制最大數量
 		if len(candles) >= maxCandles {
 			logger.Warn("⚠️ CSV 文件過大，只读取前 %d 根K線", maxCandles)
 			break
 		}
-		
+
 		candle, err := parseCSVRecord(record)
 		if err != nil {
 			return nil, fmt.Errorf("解析第 %d 行失败: %w", lineNum+1, err)
@@ -322,8 +338,11 @@ func parseCSVRecord(record []string) (*exchange.Candle, error) {
 	}, nil
 }
 
-// SaveToCache 保存到 CSV
+// SaveToCache 保存到 CSV（無數據時不寫入，避免產生 K 線數為 0 的緩存條目）
 func SaveToCache(cacheKey string, candles []*exchange.Candle) error {
+	if len(candles) == 0 {
+		return nil
+	}
 	// 确保目錄存在
 	cacheDir := filepath.Join("backtest", "cache")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {

@@ -44,7 +44,11 @@
     "newsAnalysis": "تحليل الأخبار",
     "dataExport": "تصدير البيانات",
     "expandSidebar": "توسيع الشريط الجانبي",
-    "collapseSidebar": "طي الشريط الجانبي"
+    "collapseSidebar": "طي الشريط الجانبي",
+    "groupMonitor": "Monitor & Overview",
+    "groupBacktestData": "Backtest & Data",
+    "groupAI": "AI",
+    "groupStrategyCapital": "Strategy & Capital"
   },
   "statusBar": {
     "globalView": "نظرة عامة عالمية",
@@ -668,7 +672,12 @@
     "statusPending": "قيد الانتظار",
     "statusProcessing": "قيد المعالجة",
     "statusCompleted": "مكتمل",
-    "statusFailed": "فشل"
+    "statusFailed": "فشل",
+    "grossProfit": "إجمالي الربح",
+    "totalFee": "إجمالي الرسوم",
+    "fundingNet": "صافي التمويل",
+    "fundingDetail": "تفاصيل التمويل",
+    "noFundingHistory": "لا توجد سجلات تمويل"
   },
   "positionPlan": {
     "title": "خطة المراكز",
@@ -985,7 +994,10 @@
     "weekday6": "السبت",
     "drawdown": "تراجع",
     "noData": "لا توجد بيانات",
-    "fetchPnLFailed": "فشل جلب بيانات الأرباح والخسائر"
+    "fetchPnLFailed": "فشل جلب بيانات الأرباح والخسائر",
+    "netPnL": "صافي الأرباح/الخسائر",
+    "grossPnL": "إجمالي الأرباح/الخسائر",
+    "totalFee": "إجمالي الرسوم"
   },
   "riskMonitor": {
     "title": "مراقب المخاطر",

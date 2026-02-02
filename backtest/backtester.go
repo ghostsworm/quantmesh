@@ -84,6 +84,29 @@ type BacktestResult struct {
 
 	// 风險指標
 	RiskMetrics RiskMetrics `json:"risk_metrics"`
+
+	// 價格曲線摘要（拐点、起止价、最大连续涨跌价差，由 K 線計算）
+	PriceCurve *PriceCurveSummary `json:"price_curve,omitempty"`
+
+	// 风控相关
+	RiskEnabled       bool               `json:"risk_enabled"`       // 是否启用风控
+	RiskInterventions []RiskIntervention `json:"risk_interventions"` // 风控介入记录
+}
+
+// ComparisonResult 无风控 vs 有风控对比结果
+type ComparisonResult struct {
+	NoRiskResult   *BacktestResult    `json:"no_risk_result"`
+	WithRiskResult *BacktestResult    `json:"with_risk_result"`
+	Comparison     *ComparisonMetrics `json:"comparison"`
+}
+
+// ComparisonMetrics 对比指标
+type ComparisonMetrics struct {
+	ReturnDiff            float64 `json:"return_diff"`             // 收益率差异（有风控 - 无风控）
+	DrawdownDiff          float64 `json:"drawdown_diff"`           // 最大回撤差异
+	TradeCountDiff        int     `json:"trade_count_diff"`        // 交易次数差异
+	RiskInterventionCount int     `json:"risk_intervention_count"` // 风控介入总次数
+	SkippedSignals        int     `json:"skipped_signals"`         // 因风控跳过的信号数
 }
 
 // NewBacktester 創建回测器
@@ -183,6 +206,7 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 		Trades:         bt.trades,
 		Metrics:        metrics,
 		RiskMetrics:    riskMetrics,
+		PriceCurve:     ComputePriceCurveSummary(bt.candles),
 	}, nil
 }
 
@@ -240,4 +264,25 @@ func (bt *Backtester) executeSell(candle *exchange.Candle) {
 	})
 
 	logger.Info("📉 賣出: 價格=%.2f, 數量=%.4f, 手续费=%.2f, 盈亏=%.2f", price, quantity, fee, pnl)
+}
+
+// BuildComparisonResult 构建无风控 vs 有风控的对比结果
+func BuildComparisonResult(noRisk, withRisk *BacktestResult, interventions []RiskIntervention) *ComparisonResult {
+	if noRisk == nil || withRisk == nil {
+		return nil
+	}
+	comp := &ComparisonMetrics{
+		RiskInterventionCount: len(interventions),
+	}
+	comp.ReturnDiff = withRisk.Metrics.TotalReturn - noRisk.Metrics.TotalReturn
+	comp.DrawdownDiff = withRisk.Metrics.MaxDrawdown - noRisk.Metrics.MaxDrawdown
+	comp.TradeCountDiff = withRisk.Metrics.TotalTrades - noRisk.Metrics.TotalTrades
+	for _, inv := range interventions {
+		comp.SkippedSignals += inv.SkippedBuys
+	}
+	return &ComparisonResult{
+		NoRiskResult:   noRisk,
+		WithRiskResult: withRisk,
+		Comparison:     comp,
+	}
 }

@@ -44,7 +44,11 @@
     "newsAnalysis": "Nieuwsanalyse",
     "dataExport": "Data Export",
     "expandSidebar": "Zijbalk uitvouwen",
-    "collapseSidebar": "Zijbalk inklappen"
+    "collapseSidebar": "Zijbalk inklappen",
+    "groupMonitor": "Monitor & overzicht",
+    "groupBacktestData": "Backtest & data",
+    "groupAI": "AI",
+    "groupStrategyCapital": "Strategie & kapitaal"
   },
   "statusBar": {
     "globalView": "Globaal Overzicht",
@@ -668,7 +672,12 @@
     "statusPending": "In behandeling",
     "statusProcessing": "Verwerken",
     "statusCompleted": "Voltooid",
-    "statusFailed": "Mislukt"
+    "statusFailed": "Mislukt",
+    "grossProfit": "Brutowinst",
+    "totalFee": "Totale vergoeding",
+    "fundingNet": "Netto funding",
+    "fundingDetail": "Fundingdetails",
+    "noFundingHistory": "Geen fundinggegevens"
   },
   "positionPlan": {
     "title": "Positieplan",
@@ -985,7 +994,10 @@
     "weekday6": "Za",
     "drawdown": "Drawdown",
     "noData": "Geen gegevens",
-    "fetchPnLFailed": "Ophalen van winst- en verliesgegevens mislukt"
+    "fetchPnLFailed": "Ophalen van winst- en verliesgegevens mislukt",
+    "netPnL": "Netto W&V",
+    "grossPnL": "Bruto W&V",
+    "totalFee": "Totale vergoeding"
   },
   "riskMonitor": {
     "title": "Risicomonitor",

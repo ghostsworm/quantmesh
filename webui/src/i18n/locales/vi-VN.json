@@ -44,7 +44,11 @@
     "newsAnalysis": "Phân tích tin tức",
     "dataExport": "Xuất dữ liệu",
     "expandSidebar": "Mở rộng thanh bên",
-    "collapseSidebar": "Thu gọn thanh bên"
+    "collapseSidebar": "Thu gọn thanh bên",
+    "groupMonitor": "Giám sát & Tổng quan",
+    "groupBacktestData": "Backtest & Dữ liệu",
+    "groupAI": "AI",
+    "groupStrategyCapital": "Chiến lược & Vốn"
   },
   "statusBar": {
     "globalView": "Tổng quan toàn cầu",
@@ -668,7 +672,12 @@
     "statusPending": "Đang chờ xử lý",
     "statusProcessing": "Đang xử lý",
     "statusCompleted": "Đã hoàn thành",
-    "statusFailed": "Thất bại"
+    "statusFailed": "Thất bại",
+    "grossProfit": "Lợi nhuận gộp",
+    "totalFee": "Tổng phí",
+    "fundingNet": "Phí funding ròng",
+    "fundingDetail": "Chi tiết phí funding",
+    "noFundingHistory": "Chưa có lịch sử phí funding"
   },
   "positionPlan": {
     "title": "Kế hoạch vị thế",
@@ -985,7 +994,10 @@
     "weekday6": "T7",
     "drawdown": "Mức giảm",
     "noData": "Không có dữ liệu",
-    "fetchPnLFailed": "Không thể tải dữ liệu P&L"
+    "fetchPnLFailed": "Không thể tải dữ liệu P&L",
+    "netPnL": "Lợi nhuận ròng",
+    "grossPnL": "Lợi nhuận gộp",
+    "totalFee": "Tổng phí"
   },
   "riskMonitor": {
     "title": "Giám sát rủi ro",

@@ -25,6 +25,13 @@ import {
   AccordionIcon,
   Button,
   useColorModeValue,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  TableContainer,
 } from '@chakra-ui/react'
 import { 
   CheckCircleIcon, 
@@ -44,6 +51,8 @@ import {
   SymbolInfo, 
   getPnLByExchange,
   ExchangePnLResponse,
+  getPositionsSummaryAll,
+  type PositionSummaryItem,
   startTrading,
   stopTrading,
   closeAllPositions,
@@ -71,6 +80,7 @@ const GlobalDashboard: React.FC = () => {
   const navigate = useNavigate()
   const [symbols, setSymbols] = useState<SymbolInfo[]>([])
   const [exchangePnL, setExchangePnL] = useState<ExchangePnLResponse[]>([])
+  const [positionsAll, setPositionsAll] = useState<PositionSummaryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [symbolStatuses, setSymbolStatuses] = useState<Map<string, SymbolStatus>>(new Map())
   const [closingPositions, setClosingPositions] = useState<Set<string>>(new Set())
@@ -112,14 +122,16 @@ const GlobalDashboard: React.FC = () => {
       const startTime = new Date('2020-01-01T00:00:00Z').toISOString()
       const endTime = new Date().toISOString()
       
-      const [symbolsData, pnlData, statusesData] = await Promise.all([
+      const [symbolsData, pnlData, statusesData, positionsAllData] = await Promise.all([
         getSymbols(),
         getPnLByExchange(startTime, endTime),
         getSystemStatuses(),
+        getPositionsSummaryAll().catch(() => ({ positions: [] })),
       ])
       
       setSymbols(symbolsData.symbols)
       setExchangePnL(pnlData.exchanges || [])
+      setPositionsAll(positionsAllData?.positions || [])
       
       const statusMap = new Map<string, SymbolStatus>()
       
@@ -501,6 +513,55 @@ const GlobalDashboard: React.FC = () => {
             </Stat>
           </Box>
         </SimpleGrid>
+
+        {/* 當前持倉（按交易所、币种、策略） */}
+        {positionsAll.length > 0 && (
+          <Box px={2}>
+            <Heading size="md" mb={4}>{t('dashboard.activePositions')}</Heading>
+            <Box bg={cardBg} borderRadius="2xl" border="1px solid" borderColor={borderColor} overflow="hidden" boxShadow="sm">
+              <TableContainer>
+                <Table size="sm" variant="simple">
+                  <Thead bg="gray.50">
+                    <Tr>
+                      <Th>{t('globalDashboard.positionExchange')}</Th>
+                      <Th>{t('globalDashboard.positionSymbol')}</Th>
+                      <Th>{t('globalDashboard.positionStrategy')}</Th>
+                      <Th isNumeric>{t('dashboard.size')}</Th>
+                      <Th isNumeric>{t('dashboard.unrealizedPnL')}</Th>
+                      <Th isNumeric>{t('dashboard.value')}</Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {positionsAll.map((pos, i) => (
+                      <Tr
+                        key={`${pos.exchange}:${pos.symbol}:${i}`}
+                        _hover={{ bg: hoverBg }}
+                        cursor="pointer"
+                        onClick={() => {
+                          setSymbolPair(pos.exchange, pos.symbol)
+                          navigate('/')
+                        }}
+                      >
+                        <Td fontWeight="600">{pos.exchange.toUpperCase()}</Td>
+                        <Td>{pos.symbol}</Td>
+                        <Td>
+                          <Badge size="sm" colorScheme="blue" variant="subtle">
+                            {t('strategyNames.' + pos.strategy, { defaultValue: pos.strategy })}
+                          </Badge>
+                        </Td>
+                        <Td isNumeric>{pos.total_quantity?.toFixed(4)}</Td>
+                        <Td isNumeric color={(pos.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'} fontWeight="600">
+                          {(pos.unrealized_pnl || 0) >= 0 ? '+' : ''}{(pos.unrealized_pnl || 0).toFixed(2)}
+                        </Td>
+                        <Td isNumeric>${pos.total_value?.toFixed(2)}</Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+              </TableContainer>
+            </Box>
+          </Box>
+        )}
 
         {/* 交易所列表 */}
         <Box>

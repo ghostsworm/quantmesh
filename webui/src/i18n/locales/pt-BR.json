@@ -44,7 +44,11 @@
     "newsAnalysis": "Análise de Notícias",
     "dataExport": "Exportação de Dados",
     "expandSidebar": "Expandir barra lateral",
-    "collapseSidebar": "Recolher barra lateral"
+    "collapseSidebar": "Recolher barra lateral",
+    "groupMonitor": "Monitor e visão geral",
+    "groupBacktestData": "Backtest e dados",
+    "groupAI": "IA",
+    "groupStrategyCapital": "Estratégia e capital"
   },
   "statusBar": {
     "globalView": "Visão Geral Global",
@@ -668,7 +672,12 @@
     "statusPending": "Pendente",
     "statusProcessing": "Processando",
     "statusCompleted": "Concluído",
-    "statusFailed": "Falhou"
+    "statusFailed": "Falhou",
+    "grossProfit": "Lucro bruto",
+    "totalFee": "Taxa total",
+    "fundingNet": "Funding líquido",
+    "fundingDetail": "Detalhes do funding",
+    "noFundingHistory": "Sem registros de funding"
   },
   "positionPlan": {
     "title": "Plano de Posição",
@@ -985,7 +994,10 @@
     "weekday6": "Sáb",
     "drawdown": "Drawdown",
     "noData": "Sem dados",
-    "fetchPnLFailed": "Falha ao buscar dados de P&L"
+    "fetchPnLFailed": "Falha ao buscar dados de P&L",
+    "netPnL": "P&L líquido",
+    "grossPnL": "P&L bruto",
+    "totalFee": "Taxa total"
   },
   "riskMonitor": {
     "title": "Monitor de Risco",
