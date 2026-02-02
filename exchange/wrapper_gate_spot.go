@@ -269,7 +269,7 @@ func (w *gateSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeTy
 }
 
 // GetOrderFills 查詢訂單成交記錄（暂未實現）
-func (w *gate_spotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+func (w *gateSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
 	return nil, nil
 }
 

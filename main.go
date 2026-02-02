@@ -83,7 +83,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.28.6"
+var Version = "3.28.6-rc1"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -2186,6 +2186,11 @@ func (a *positionExchangeAdapter) GetPriceDecimals() int {
 
 func (a *positionExchangeAdapter) GetQuantityDecimals() int {
 	return a.exchange.GetQuantityDecimals()
+}
+
+// GetOrderFills 查詢訂單成交記錄（透傳至 exchange）
+func (a *positionExchangeAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
+	return a.exchange.GetOrderFills(ctx, symbol, orderID)
 }
 
 // GetOrderBook 獲取訂單簿深度，轉換為 position.OrderBook
