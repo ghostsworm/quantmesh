@@ -269,7 +269,7 @@ func (w *bitgetSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, income
 }
 
 // GetOrderFills 查詢訂單成交記錄（暂未實現）
-func (w *bitget_spotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+func (w *bitgetSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
 	return nil, nil
 }
 

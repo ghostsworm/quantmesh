@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.28.6-rc1] - 2026-02-02
+
+### Fixed
+- **編譯錯誤修復**: 修復 CI 編譯失敗
+  - Spot wrapper 的 `GetOrderFills` receiver 寫錯：`*okx_spotWrapper` 等改為正確的 `*okxSpotWrapper`（okx/gate/bybit/bitget 四個 spot wrapper）
+  - `positionExchangeAdapter` 補上 `GetOrderFills` 方法以實現 `position.IExchange`
+  - 涉及：`exchange/wrapper_okx_spot.go`、`exchange/wrapper_gate_spot.go`、`exchange/wrapper_bybit_spot.go`、`exchange/wrapper_bitget_spot.go`、`main.go`
+
 ## [3.28.6] - 2026-02-02
 
 ### Fixed

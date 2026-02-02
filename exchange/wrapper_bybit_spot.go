@@ -285,7 +285,7 @@ func (w *bybitSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeT
 }
 
 // GetOrderFills 查詢訂單成交記錄（暂未實現）
-func (w *bybit_spotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+func (w *bybitSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
 	return nil, nil
 }
 
