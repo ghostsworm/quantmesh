@@ -48,7 +48,11 @@
     "newsAnalysis": "新聞分析",
     "dataExport": "數據導出",
     "expandSidebar": "展開側邊欄",
-    "collapseSidebar": "收起側邊欄"
+    "collapseSidebar": "收起側邊欄",
+    "groupMonitor": "監控與概覽",
+    "groupBacktestData": "回測與數據",
+    "groupAI": "AI",
+    "groupStrategyCapital": "策略與資金"
   },
   "statusBar": {
     "globalView": "全局概覽",
@@ -69,6 +73,9 @@
     "stopped": "已停止",
     "stop": "停止",
     "start": "啟動",
+    "starting": "啟動中…",
+    "stopping": "停止中…",
+    "startStopTimeout": "請求超時，請稍後重試",
     "totalPnL": "總盈虧",
     "tradingVolume": "總成交量",
     "systemUptime": "運行時長",
@@ -980,7 +987,10 @@
     "weekday6": "六",
     "drawdown": "回撤",
     "noData": "無數據",
-    "fetchPnLFailed": "獲取盈虧數據失敗"
+    "fetchPnLFailed": "獲取盈虧數據失敗",
+    "netPnL": "淨利潤",
+    "grossPnL": "毛利",
+    "totalFee": "手續費"
   },
   "riskMonitor": {
     "title": "風控監控",

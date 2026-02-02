@@ -15,16 +15,17 @@ type BacktestTask struct {
 	TotalCapital float64                `json:"total_capital"`
 	Progress     int                    `json:"progress"` // 0-100
 	CreatedAt    time.Time              `json:"created_at"`
-	StartedAt   *time.Time             `json:"started_at,omitempty"`
-	CompletedAt *time.Time             `json:"completed_at,omitempty"`
-	Error       string                  `json:"error,omitempty"`
-	ResultPath  string                  `json:"result_path,omitempty"`
-	ReportPath  string                  `json:"report_path,omitempty"`
+	StartedAt    *time.Time             `json:"started_at,omitempty"`
+	CompletedAt  *time.Time             `json:"completed_at,omitempty"`
+	Error        string                 `json:"error,omitempty"`
+	ResultPath   string                 `json:"result_path,omitempty"`
+	ReportPath   string                 `json:"report_path,omitempty"`
 }
 
 // BacktestTaskResult 回测任務結果（持久化 JSON）
 type BacktestTaskResult struct {
-	TaskID string         `json:"task_id"`
-	Task   *BacktestTask  `json:"task"`
-	Result *BacktestResult `json:"result"`
+	TaskID     string            `json:"task_id"`
+	Task       *BacktestTask     `json:"task"`
+	Result     *BacktestResult   `json:"result"`     // 单次回测结果（非对比模式）
+	Comparison *ComparisonResult `json:"comparison"` // 对比结果（网格策略带风控对比时使用）
 }

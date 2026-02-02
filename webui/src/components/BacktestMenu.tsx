@@ -1,4 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
+import html2canvas from 'html2canvas'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+} from 'recharts'
 import {
   Box,
   Button,
@@ -41,6 +53,13 @@ import {
   Divider,
   Collapse,
   useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
 } from '@chakra-ui/react'
 import { RepeatIcon, DownloadIcon, DeleteIcon, CheckIcon, StarIcon, ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons'
 import {
@@ -51,11 +70,14 @@ import {
   getBacktestConfigParams,
   postCacheGenerate,
   getCacheStatus,
+  listCache,
+  deleteCache,
   postBacktestTask,
   getBacktestTasks,
   getBacktestTask,
   getBacktestTaskResult,
   getBacktestTaskReport,
+  getBacktestTaskKlines,
   deleteBacktestTask,
   getSmartParamsRecommendation,
   getPrecomputedResults,
@@ -68,7 +90,34 @@ import {
   type BacktestSymbolInfo,
   type SmartParamsRecommendation,
   type PrecomputedResult,
+  type CacheInfo,
 } from '../services/backtest'
+
+/** 回测结果数据结构（含风控对比） */
+interface BacktestResultData {
+  result?: {
+    metrics?: Record<string, unknown>
+    trades?: Array<{ type?: string; quantity?: number }>
+    price_curve?: { end_price?: number }
+    final_capital?: number
+  }
+  comparison?: {
+    no_risk_result?: {
+      metrics?: Record<string, unknown>
+      trades?: Array<{ type?: string; quantity?: number }>
+      price_curve?: { end_price?: number }
+      final_capital?: number
+    }
+    with_risk_result?: {
+      metrics?: Record<string, unknown>
+      trades?: Array<{ type?: string; quantity?: number }>
+      price_curve?: { end_price?: number }
+      final_capital?: number
+      risk_interventions?: Array<{ time_str?: string; reason?: string; risk_type?: string; duration?: number; skipped_buys?: number }>
+    }
+    comparison?: { risk_intervention_count?: number; skipped_signals?: number }
+  }
+}
 
 const formatDate = (s: string) => {
   try {
@@ -78,6 +127,8 @@ const formatDate = (s: string) => {
     return s
   }
 }
+
+// 網格策略回测時價格區間從 K 線自動推導，不再需要預設價格上下限
 
 export default function BacktestMenu() {
   const [strategies, setStrategies] = useState<StrategyParamDefinition[]>([])
@@ -105,8 +156,12 @@ export default function BacktestMenu() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [resultData, setResultData] = useState<unknown>(null)
   const [reportMd, setReportMd] = useState('')
+  const [klinesData, setKlinesData] = useState<{ klines: { ts: number; time: string; close: number }[]; symbol: string } | null>(null)
   const [running, setRunning] = useState(false)
+  const reportModal = useDisclosure()
   const [configParamsLoading, setConfigParamsLoading] = useState(false)
+  const [savingImage, setSavingImage] = useState(false)
+  const reportContentRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
 
   // 智能推薦相關狀態
@@ -116,28 +171,11 @@ export default function BacktestMenu() {
   const [precomputedLoading, setPrecomputedLoading] = useState(true)
   const { isOpen: showPrecomputed, onToggle: togglePrecomputed } = useDisclosure({ defaultIsOpen: true })
 
-  // 初始化：載入策略列表、交易所列表和預計算結果
-  useEffect(() => {
-    getBacktestStrategies().then((r) => r.success && setStrategies(r.strategies || []))
-    getBacktestExchanges().then((r) => {
-      if (r.success && r.exchanges) {
-        setExchanges(r.exchanges)
-        // 自動選擇已配置的交易所，或預設第一個
-        const configured = r.exchanges.find(e => e.is_configured)
-        if (configured) {
-          setSelectedExchange(configured.exchange)
-          setAvailableMarketTypes(configured.market_types || ['futures', 'spot'])
-        } else if (r.exchanges.length > 0) {
-          setSelectedExchange(r.exchanges[0].exchange)
-          setAvailableMarketTypes(r.exchanges[0].market_types || ['futures', 'spot'])
-        }
-      }
-    })
-    // 載入預計算結果
-    loadPrecomputedResults()
-  }, [])
+  // K 线缓存列表
+  const [cachedKlines, setCachedKlines] = useState<CacheInfo[]>([])
+  const [cachedKlinesLoading, setCachedKlinesLoading] = useState(false)
 
-  // 載入預計算結果
+  // 載入預計算結果（需在下方 useEffect 之前定義）
   const loadPrecomputedResults = useCallback(async () => {
     setPrecomputedLoading(true)
     try {
@@ -151,6 +189,46 @@ export default function BacktestMenu() {
       setPrecomputedLoading(false)
     }
   }, [])
+
+  // 載入已緩存的 K 線列表（需在下方 useEffect 之前定義）
+  const loadCachedKlines = useCallback(async () => {
+    setCachedKlinesLoading(true)
+    try {
+      const r = await listCache()
+      if (r.success && r.caches) {
+        setCachedKlines(r.caches)
+      }
+    } catch (err) {
+      console.error('載入 K 線緩存列表失敗:', err)
+      toast({ title: '載入緩存列表失敗', status: 'error' })
+    } finally {
+      setCachedKlinesLoading(false)
+    }
+  }, [toast])
+
+  // 初始化：載入策略列表、交易所列表、預計算結果和 K 線緩存列表
+  useEffect(() => {
+    getBacktestStrategies().then((r) => r.success && setStrategies(r.strategies || []))
+    getBacktestExchanges().then((r) => {
+      if (r.success && r.exchanges) {
+        const sorted = [...r.exchanges].sort((a, b) =>
+          a.exchange.localeCompare(b.exchange, undefined, { sensitivity: 'base' })
+        )
+        setExchanges(sorted)
+        // 自動選擇已配置的交易所，或預設第一個
+        const configured = sorted.find(e => e.is_configured)
+        if (configured) {
+          setSelectedExchange(configured.exchange)
+          setAvailableMarketTypes(configured.market_types || ['futures', 'spot'])
+        } else if (sorted.length > 0) {
+          setSelectedExchange(sorted[0].exchange)
+          setAvailableMarketTypes(sorted[0].market_types || ['futures', 'spot'])
+        }
+      }
+    })
+    loadPrecomputedResults()
+    loadCachedKlines()
+  }, [loadPrecomputedResults, loadCachedKlines])
 
   // 獲取智能參數推薦
   const handleGetSmartRecommendation = useCallback(async () => {
@@ -179,7 +257,20 @@ export default function BacktestMenu() {
       }
     } catch (err) {
       console.error('獲取智能推薦失敗:', err)
-      toast({ title: '獲取智能推薦失敗', status: 'error' })
+      let description: string | undefined
+      const msg = err instanceof Error ? err.message : String(err)
+      const jsonMatch = msg.match(/^HTTP \d+: (.+)$/)
+      if (jsonMatch) {
+        try {
+          const body = JSON.parse(jsonMatch[1]) as { message?: string }
+          if (body?.message) description = body.message
+        } catch {
+          description = msg
+        }
+      } else {
+        description = msg
+      }
+      toast({ title: '獲取智能推薦失敗', status: 'error', description })
     } finally {
       setSmartLoading(false)
     }
@@ -302,7 +393,7 @@ export default function BacktestMenu() {
         const newParams: Record<string, unknown> = {}
         const configParams = r.params as Record<string, unknown>
         
-        // 根據策略定義過濾並設置参數
+        // 根據策略定義過濾並設置参數（不覆蓋總投入資金，保留用戶已填寫的值）
         const strategyDef = strategies.find(s => s.strategy_type === strategyType)
         if (strategyDef?.params) {
           for (const p of strategyDef.params) {
@@ -310,11 +401,6 @@ export default function BacktestMenu() {
               newParams[p.name] = configParams[p.name]
             }
           }
-        }
-        
-        // 設置總资金
-        if (configParams.total_capital && typeof configParams.total_capital === 'number') {
-          setTotalCapital(configParams.total_capital)
         }
         
         if (Object.keys(newParams).length > 0) {
@@ -339,6 +425,8 @@ export default function BacktestMenu() {
       loadConfigParams()
     }
   }, [strategyType, symbol, loadConfigParams])
+
+  // 網格策略回测時價格區間從 K 線自動推導，不再預填 price_low / price_high
 
   const updateDateRange = () => {
     const end = new Date()
@@ -422,7 +510,29 @@ export default function BacktestMenu() {
           setSelectedTaskId(r.task_id)
         }
       })
-      .catch((e) => toast({ title: e.message || '創建失敗', status: 'error' }))
+      .catch((e) => {
+        const msg = e?.message || ''
+        const is503 = msg.includes('503') || msg.includes('回测服務未初始化') || msg.includes('回测服务未初始化')
+        let description: string | undefined
+        if (is503) {
+          try {
+            const jsonMatch = msg.match(/\{[\s\S]*\}/)
+            if (jsonMatch) {
+              const body = JSON.parse(jsonMatch[0])
+              if (body?.message) description = body.message
+            }
+          } catch (_) {}
+          toast({
+            title: '回测服务不可用',
+            description: description || '请确保已启用存储（SQLite），并在「设置」中保存过配置后重启服务。',
+            status: 'error',
+            duration: 8000,
+            isClosable: true,
+          })
+        } else {
+          toast({ title: msg || '創建失敗', status: 'error' })
+        }
+      })
       .finally(() => setRunning(false))
   }
 
@@ -430,18 +540,118 @@ export default function BacktestMenu() {
     if (!selectedTaskId) {
       setResultData(null)
       setReportMd('')
+      setKlinesData(null)
       return
     }
-    getBacktestTask(selectedTaskId).then((r) => {
-      if (r.success && r.task?.status === 'completed') {
-        getBacktestTaskResult(selectedTaskId).then((data) => setResultData(data))
-        getBacktestTaskReport(selectedTaskId).then(setReportMd).catch(() => setReportMd(''))
-      } else {
-        setResultData(null)
-        setReportMd('')
-      }
-    })
-  }, [selectedTaskId])
+    
+    // 先檢查 tasks 列表中的狀態，避免額外的 API 調用
+    const taskFromList = tasks.find((t) => t.id === selectedTaskId)
+    const isCompleted = taskFromList?.status === 'completed'
+    
+    const loadResultData = (retryCount = 0) => {
+      getBacktestTaskResult(selectedTaskId)
+        .then((data) => setResultData(data))
+        .catch(() => {
+          // 結果文件可能還沒生成完成，重試最多 3 次，每次間隔 1 秒
+          if (retryCount < 3) {
+            setTimeout(() => loadResultData(retryCount + 1), 1000)
+          }
+        })
+      getBacktestTaskReport(selectedTaskId).then(setReportMd).catch(() => setReportMd(''))
+      getBacktestTaskKlines(selectedTaskId).then((res) => {
+        const kls = res.klines || []
+        const data = kls.map((k) => {
+          const d = new Date(k.time * 1000)
+          return { ts: k.time, time: d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: kls.length < 200 ? '2-digit' : undefined }), close: k.close }
+        })
+        setKlinesData({ klines: data, symbol: res.symbol })
+      }).catch(() => setKlinesData(null))
+    }
+    
+    if (isCompleted) {
+      // 任務已完成，直接加載結果
+      loadResultData()
+    } else {
+      // 任務未完成或不在列表中，查詢最新狀態
+      getBacktestTask(selectedTaskId)
+        .then((r) => {
+          if (r.success && r.task?.status === 'completed') {
+            loadResultData()
+          } else {
+            setResultData(null)
+            setReportMd('')
+            setKlinesData(null)
+          }
+        })
+        .catch(() => {
+          // API 調用失敗時，如果列表中顯示已完成，仍嘗試加載
+          if (isCompleted) {
+            loadResultData()
+          }
+        })
+    }
+  }, [selectedTaskId, tasks])
+
+  // 保存報告為圖片並下載
+  const handleSaveAsImage = async () => {
+    if (!reportContentRef.current || !selectedTaskId) return
+    
+    setSavingImage(true)
+    try {
+      // 獲取原始滾動位置和高度
+      const element = reportContentRef.current
+      const originalOverflow = element.style.overflow
+      const originalMaxHeight = element.style.maxHeight
+      const originalHeight = element.style.height
+      
+      // 臨時移除滾動限制，展開全部內容
+      element.style.overflow = 'visible'
+      element.style.maxHeight = 'none'
+      element.style.height = 'auto'
+      
+      // 等待重排完成
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      const canvas = await html2canvas(element, {
+        backgroundColor: '#ffffff',
+        scale: 2, // 高清輸出
+        useCORS: true,
+        logging: false,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      })
+      
+      // 恢復原始樣式
+      element.style.overflow = originalOverflow
+      element.style.maxHeight = originalMaxHeight
+      element.style.height = originalHeight
+      
+      // 下載圖片
+      const link = document.createElement('a')
+      link.download = `backtest_${selectedTaskId}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+      
+      toast({
+        title: '圖片保存成功',
+        description: `已保存為 backtest_${selectedTaskId}.png`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      })
+    } catch (error) {
+      console.error('保存圖片失敗:', error)
+      toast({
+        title: '圖片保存失敗',
+        description: '請稍後重試',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      })
+    } finally {
+      setSavingImage(false)
+    }
+  }
 
   const currentStrategyDef = strategies.find((s) => s.strategy_type === strategyType)
 
@@ -494,16 +704,16 @@ export default function BacktestMenu() {
                     <HStack justify="space-between" mb={2}>
                       <Text fontWeight="600">{result.symbol}</Text>
                       <Badge colorScheme={result.result?.metrics?.total_return && result.result.metrics.total_return > 0 ? 'green' : 'red'}>
-                        {result.result?.metrics?.total_return?.toFixed(2) ?? '-'}%
+                        {result.result?.metrics?.total_return?.toFixed(4) ?? '-'}%
                       </Badge>
                     </HStack>
                     <Text fontSize="sm" color="gray.600" mb={1}>
                       策略: {result.strategy} | {result.market_type === 'spot' ? '現貨' : '合約'}
                     </Text>
                     <HStack spacing={2} fontSize="xs" color="gray.500">
-                      <Text>夏普: {result.result?.metrics?.sharpe_ratio?.toFixed(2) ?? '-'}</Text>
-                      <Text>回撤: {result.result?.metrics?.max_drawdown?.toFixed(2) ?? '-'}%</Text>
-                      <Text>勝率: {result.result?.metrics?.win_rate?.toFixed(1) ?? '-'}%</Text>
+                      <Text>夏普: {result.result?.metrics?.sharpe_ratio?.toFixed(4) ?? '-'}</Text>
+                      <Text>回撤: {result.result?.metrics?.max_drawdown?.toFixed(4) ?? '-'}%</Text>
+                      <Text>勝率: {result.result?.metrics?.win_rate?.toFixed(4) ?? '-'}%</Text>
                     </HStack>
                     {result.recommendation && (
                       <Progress
@@ -540,6 +750,7 @@ export default function BacktestMenu() {
         <TabList>
           <Tab>新建回測</Tab>
           <Tab>任務列表</Tab>
+          <Tab>K 線緩存</Tab>
         </TabList>
         <TabPanels>
           <TabPanel>
@@ -643,6 +854,13 @@ export default function BacktestMenu() {
               <Card>
                 <CardHeader fontWeight="600">2. 策略與參數</CardHeader>
                 <CardBody>
+                  <FormControl mb={4}>
+                    <FormLabel>總投入資金 (USDT) *</FormLabel>
+                    <NumberInput value={totalCapital} min={1} onChange={(_: string, v: number) => setTotalCapital(v)}>
+                      <NumberInputField />
+                    </NumberInput>
+                    <Text fontSize="xs" color="gray.500" mt={1}>默認 10000，選策略後不會被覆蓋</Text>
+                  </FormControl>
                   <FormControl mb={3}>
                     <FormLabel>策略</FormLabel>
                     <Select
@@ -712,7 +930,9 @@ export default function BacktestMenu() {
                       <Text fontSize="sm" color="gray.500">正在載入配置參數...</Text>
                     </HStack>
                   )}
-                  {currentStrategyDef?.params?.map((p) => (
+                  {currentStrategyDef?.params
+                    ?.filter((p) => p.name !== 'total_capital')
+                    ?.map((p) => (
                     <FormControl key={p.name} mb={2}>
                       <FormLabel fontSize="sm">{p.label}{p.required ? ' *' : ''}</FormLabel>
                       {p.type === 'number' && (
@@ -725,15 +945,14 @@ export default function BacktestMenu() {
                           <NumberInputField />
                         </NumberInput>
                       )}
+                      {p.hint && (
+                        <Text fontSize="xs" color="gray.500" mt={1}>
+                          {p.hint}
+                        </Text>
+                      )}
                       {p.unit && <Text as="span" fontSize="xs" color="gray.500" ml={2}>{p.unit}</Text>}
                     </FormControl>
                   ))}
-                  <FormControl mb={4}>
-                    <FormLabel>總投入資金 (USDT) *</FormLabel>
-                    <NumberInput value={totalCapital} min={1} onChange={(_: string, v: number) => setTotalCapital(v)}>
-                      <NumberInputField />
-                    </NumberInput>
-                  </FormControl>
                   <Button
                     colorScheme="blue"
                     onClick={handleRunBacktest}
@@ -765,15 +984,26 @@ export default function BacktestMenu() {
                   </Thead>
                   <Tbody>
                     {tasks.map((t) => (
-                      <Tr key={t.id}>
+                      <Tr
+                        key={t.id}
+                        bg={t.id === selectedTaskId ? 'blue.50' : undefined}
+                        _dark={{ bg: t.id === selectedTaskId ? 'blue.900' : undefined }}
+                      >
                         <Td>
-                          <Badge
-                            colorScheme={
-                              t.status === 'completed' ? 'green' : t.status === 'failed' ? 'red' : t.status === 'running' ? 'blue' : 'gray'
-                            }
+                          <Tooltip
+                            label={t.status === 'failed' && t.error ? t.error : undefined}
+                            isDisabled={t.status !== 'failed' || !t.error}
+                            placement="top"
+                            maxW="320px"
                           >
-                            {t.status}
-                          </Badge>
+                            <Badge
+                              colorScheme={
+                                t.status === 'completed' ? 'green' : t.status === 'failed' ? 'red' : t.status === 'running' ? 'blue' : 'gray'
+                              }
+                            >
+                              {t.status}
+                            </Badge>
+                          </Tooltip>
                         </Td>
                         <Td>{t.strategy}</Td>
                         <Td>{t.symbol}</Td>
@@ -782,7 +1012,15 @@ export default function BacktestMenu() {
                         <Td>{formatDate(t.created_at)}</Td>
                         <Td>
                           <HStack>
-                            <Button size="xs" onClick={() => setSelectedTaskId(t.id)}>查看</Button>
+                            <Button
+                              size="xs"
+                              onClick={() => {
+                                setSelectedTaskId(t.id)
+                                reportModal.onOpen()
+                              }}
+                            >
+                              查看
+                            </Button>
                             {t.status === 'completed' && (
                               <Tooltip label="下載報告">
                                 <IconButton
@@ -807,7 +1045,10 @@ export default function BacktestMenu() {
                               icon={<DeleteIcon />}
                               onClick={() => {
                                 deleteBacktestTask(t.id).then(() => loadTasks())
-                                if (selectedTaskId === t.id) setSelectedTaskId(null)
+                                if (selectedTaskId === t.id) {
+                                  setSelectedTaskId(null)
+                                  reportModal.onClose()
+                                }
                               }}
                             />
                           </HStack>
@@ -818,40 +1059,307 @@ export default function BacktestMenu() {
                 </Table>
               </Box>
             )}
-            {selectedTaskId && (
-              <Card mt={4}>
-                <CardHeader fontWeight="600">回測結果: {selectedTaskId}</CardHeader>
-                <CardBody>
-                  {resultData && typeof resultData === 'object' && 'result' in resultData && (
+            <Modal
+              isOpen={reportModal.isOpen}
+              onClose={() => {
+                reportModal.onClose()
+                setSelectedTaskId(null)
+              }}
+              size="4xl"
+              scrollBehavior="inside"
+            >
+              <ModalOverlay />
+              <ModalContent maxH="90vh">
+                <ModalHeader>回測結果: {selectedTaskId ?? '-'}</ModalHeader>
+                <ModalCloseButton />
+                <ModalBody pb={6} overflowY="auto">
+                  <Box ref={reportContentRef} bg="white" _dark={{ bg: 'gray.900' }}>
+                  {selectedTaskId && (() => {
+                    const sel = tasks.find((t) => t.id === selectedTaskId)
+                    if (sel?.status === 'failed' && sel?.error) {
+                      return (
+                        <Alert status="error" borderRadius="md" mb={4}>
+                          <AlertIcon />
+                          <Box>
+                            <AlertTitle>任務執行失敗</AlertTitle>
+                            <AlertDescription>{sel.error}</AlertDescription>
+                          </Box>
+                        </Alert>
+                      )
+                    }
+                    return null
+                  })()}
+                  {resultData && typeof resultData === 'object' && ('result' in resultData || 'comparison' in resultData) && (
                     <Box mb={4}>
-                      <SimpleGrid columns={4} spacing={2} mb={3}>
-                        {(() => {
-                          const res = (resultData as { result?: { metrics?: Record<string, unknown> } }).result
-                          const m = res?.metrics
+                      {(() => {
+                        const data = resultData as BacktestResultData
+                        const comp = data.comparison
+                        const hasComparison = comp != null
+
+                        const metricBox = (
+                          m: Record<string, unknown> | undefined,
+                          trades: Array<{ type?: string; quantity?: number }>,
+                          endPrice: number,
+                          finalCapital: number,
+                          label?: string
+                        ) => {
                           if (!m) return null
+                          let endPosQty = 0
+                          for (const t of trades) {
+                            if (t.type === 'buy') endPosQty += t.quantity ?? 0
+                            else if (t.type === 'sell') endPosQty -= t.quantity ?? 0
+                          }
+                          if (endPosQty < 0) endPosQty = 0
+                          const endPosValue = endPosQty * endPrice
+                          const endCashUSDT = Math.max(0, finalCapital - endPosValue)
+                          return (
+                            <Box key={label || 'single'}>
+                              {label && <Text fontSize="xs" fontWeight="600" mb={2} color="gray.600" _dark={{ color: 'gray.400' }}>{label}</Text>}
+                              <SimpleGrid columns={[2, 3, 5]} spacing={2}>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">總收益率</Text><Text fontWeight="600">{String(m.total_return ?? '-')}%</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">最大回撤</Text><Text fontWeight="600">{String(m.max_drawdown ?? '-')}%</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">夏普比率</Text><Text fontWeight="600">{String(m.sharpe_ratio ?? '-')}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">交易次數</Text><Text fontWeight="600">{String(m.total_trades ?? '-')}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">買/賣</Text><Text fontWeight="600">{String(m.buy_count ?? '-')} / {String(m.sell_count ?? '-')}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">期末持倉</Text><Text fontWeight="600">{endPosQty.toFixed(6)}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">期末持倉市值</Text><Text fontWeight="600">{endPosValue.toFixed(4)} USDT</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">期末 USDT</Text><Text fontWeight="600">{endCashUSDT.toFixed(4)}</Text></Box>
+                              </SimpleGrid>
+                            </Box>
+                          )
+                        }
+
+                        if (hasComparison && comp?.no_risk_result && comp?.with_risk_result) {
+                          const noRisk = comp.no_risk_result
+                          const withRisk = comp.with_risk_result
+                          const cm = comp.comparison
+                          const interventions = comp.with_risk_result?.risk_interventions ?? []
                           return (
                             <>
-                              <Box p={2} bg="gray.50" borderRadius="md"><Text fontSize="xs">總收益率</Text><Text fontWeight="600">{String(m.total_return ?? '-')}%</Text></Box>
-                              <Box p={2} bg="gray.50" borderRadius="md"><Text fontSize="xs">最大回撤</Text><Text fontWeight="600">{String(m.max_drawdown ?? '-')}%</Text></Box>
-                              <Box p={2} bg="gray.50" borderRadius="md"><Text fontSize="xs">夏普比率</Text><Text fontWeight="600">{String(m.sharpe_ratio ?? '-')}</Text></Box>
-                              <Box p={2} bg="gray.50" borderRadius="md"><Text fontSize="xs">交易次數</Text><Text fontWeight="600">{String(m.total_trades ?? '-')}</Text></Box>
+                              <Text fontSize="sm" fontWeight="600" mb={3}>風控對比（無風控 vs 有風控）</Text>
+                              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4} mb={4}>
+                                {metricBox(noRisk.metrics, noRisk.trades ?? [], noRisk.price_curve?.end_price ?? 0, noRisk.final_capital ?? 0, '無風控')}
+                                {metricBox(withRisk.metrics, withRisk.trades ?? [], withRisk.price_curve?.end_price ?? 0, withRisk.final_capital ?? 0, '有風控')}
+                              </SimpleGrid>
+                              {(cm?.risk_intervention_count ?? 0) > 0 && (
+                                <Box mb={4}>
+                                  <Text fontSize="sm" fontWeight="600" mb={2}>
+                                    風控介入記錄（共 {cm?.risk_intervention_count ?? 0} 次，跳過 {cm?.skipped_signals ?? 0} 個買入信號）
+                                  </Text>
+                                  <Box overflowX="auto" maxH="200px" overflowY="auto">
+                                    <Table size="sm">
+                                      <Thead>
+                                        <Tr>
+                                          <Th>時間</Th>
+                                          <Th>原因</Th>
+                                          <Th>類型</Th>
+                                          <Th>持續K線</Th>
+                                          <Th>跳過買入</Th>
+                                        </Tr>
+                                      </Thead>
+                                      <Tbody>
+                                        {interventions.map((inv, idx) => (
+                                          <Tr key={idx}>
+                                            <Td fontSize="xs">{inv.time_str ?? '-'}</Td>
+                                            <Td fontSize="xs">{inv.reason ?? '-'}</Td>
+                                            <Td fontSize="xs">{inv.risk_type ?? '-'}</Td>
+                                            <Td fontSize="xs">{inv.duration ?? '-'}</Td>
+                                            <Td fontSize="xs">{inv.skipped_buys ?? '-'}</Td>
+                                          </Tr>
+                                        ))}
+                                      </Tbody>
+                                    </Table>
+                                  </Box>
+                                </Box>
+                              )}
                             </>
                           )
+                        }
+
+                        const res = data.result
+                        const m = res?.metrics
+                        const trades = res?.trades ?? []
+                        const endPrice = res?.price_curve?.end_price ?? 0
+                        const finalCapital = res?.final_capital ?? 0
+                        return metricBox(m, trades, endPrice, finalCapital)
+                      })()}
+                    </Box>
+                  )}
+                  {klinesData && klinesData.klines.length > 0 && (
+                    <Box mb={4}>
+                      <Text fontSize="sm" fontWeight="600" mb={2}>期間 K 線走勢（收盤價，拆為 4 段）</Text>
+                      <SimpleGrid columns={2} spacing={3}>
+                        {(() => {
+                          const kls = klinesData.klines
+                          const n = kls.length
+                          const seg = Math.max(1, Math.ceil(n / 4))
+                          return [0, 1, 2, 3].map((i) => {
+                            const start = i * seg
+                            const end = Math.min((i + 1) * seg, n)
+                            const segData = kls.slice(start, end)
+                            if (segData.length === 0) return null
+                            return (
+                              <Box key={i} h="160px" bg="gray.50" borderRadius="md" p={2} _dark={{ bg: 'gray.800' }}>
+                                <Text fontSize="xs" color="gray.500" mb={1}>第{i + 1}段</Text>
+                                <ResponsiveContainer width="100%" height={130}>
+                                  <LineChart data={segData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="2 2" stroke="rgba(0,0,0,0.05)" />
+                                    <XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+                                    <YAxis domain={['auto', 'auto']} tick={{ fontSize: 9 }} width={45} />
+                                    <RechartsTooltip formatter={(v: number) => [v.toFixed(2), '收盤']} />
+                                    <Line type="monotone" dataKey="close" stroke="#3182ce" dot={false} strokeWidth={1.5} />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </Box>
+                            )
+                          })
                         })()}
                       </SimpleGrid>
                     </Box>
                   )}
                   {reportMd && (
-                    <Box as="pre" fontSize="sm" whiteSpace="pre-wrap" p={3} bg="gray.50" borderRadius="md" overflowX="auto">
-                      {reportMd}
+                    <Box
+                      p={4}
+                      bg="gray.50"
+                      borderRadius="md"
+                      overflowX="auto"
+                      fontSize="sm"
+                      _dark={{ bg: 'gray.800' }}
+                      sx={{
+                        '& h1': { fontSize: 'xl', fontWeight: 'bold', mt: 2, mb: 2 },
+                        '& h2': { fontSize: 'lg', fontWeight: 'semibold', mt: 3, mb: 2 },
+                        '& h3': { fontSize: 'md', fontWeight: 'semibold', mt: 2, mb: 1 },
+                        '& p': { mb: 2 },
+                        '& ul, & ol': { pl: 6, mb: 2 },
+                        '& table': { borderCollapse: 'collapse', width: '100%', mb: 3 },
+                        '& th, & td': { border: '1px solid', borderColor: 'gray.300', px: 3, py: 2, textAlign: 'left' },
+                        '& th': { bg: 'gray.200', fontWeight: 'semibold' },
+                        '& code': { bg: 'gray.200', px: 1, py: 0.5, borderRadius: 'sm' },
+                        '& pre': { bg: 'gray.200', p: 3, borderRadius: 'md', overflowX: 'auto', whiteSpace: 'pre-wrap' },
+                      }}
+                    >
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{reportMd}</ReactMarkdown>
                     </Box>
                   )}
-                  {selectedTaskId && !resultData && !reportMd && (
-                    <Text color="gray.500">任務未完成或結果未生成，請稍後刷新。</Text>
+                  {selectedTaskId && !resultData && !reportMd && !tasks.find((t) => t.id === selectedTaskId)?.error && (
+                    <Flex justify="center" py={8}>
+                      <Spinner />
+                      <Text ml={3} color="gray.500">載入中...</Text>
+                    </Flex>
                   )}
-                </CardBody>
-              </Card>
-            )}
+                  </Box>
+                </ModalBody>
+                {selectedTaskId && (
+                  <ModalFooter gap={2}>
+                    {tasks.find((t) => t.id === selectedTaskId)?.status === 'completed' && (
+                      <>
+                        <Button
+                          size="sm"
+                          leftIcon={<DownloadIcon />}
+                          variant="outline"
+                          onClick={handleSaveAsImage}
+                          isLoading={savingImage}
+                          loadingText="生成中..."
+                        >
+                          保存為圖片
+                        </Button>
+                        <Button
+                          size="sm"
+                          leftIcon={<DownloadIcon />}
+                          variant="outline"
+                          onClick={() => {
+                            getBacktestTaskReport(selectedTaskId, true).then((md) => {
+                              const blob = new Blob([md], { type: 'text/markdown' })
+                              const a = document.createElement('a')
+                              a.href = URL.createObjectURL(blob)
+                              a.download = `backtest_${selectedTaskId}.md`
+                              a.click()
+                            })
+                          }}
+                        >
+                          下載報告
+                        </Button>
+                      </>
+                    )}
+                  </ModalFooter>
+                )}
+              </ModalContent>
+            </Modal>
+          </TabPanel>
+          <TabPanel>
+            <Card>
+              <CardHeader>
+                <Flex justify="space-between" align="center">
+                  <Text fontWeight="600">已緩存的 K 線</Text>
+                  <Button
+                    size="sm"
+                    leftIcon={<RepeatIcon />}
+                    onClick={loadCachedKlines}
+                    isLoading={cachedKlinesLoading}
+                  >
+                    刷新
+                  </Button>
+                </Flex>
+              </CardHeader>
+              <CardBody>
+                {cachedKlinesLoading && cachedKlines.length === 0 ? (
+                  <Flex justify="center" py={6}><Spinner /></Flex>
+                ) : cachedKlines.length === 0 ? (
+                  <Text color="gray.500">暫無 K 線緩存。在「新建回測」中選擇交易對、周期與日期後點擊「生成 K 線緩存」即可生成。</Text>
+                ) : (
+                  <Box overflowX="auto">
+                    <Table size="sm">
+                      <Thead>
+                        <Tr>
+                          <Th>緩存名稱</Th>
+                          <Th>交易對</Th>
+                          <Th>周期</Th>
+                          <Th>K 線數</Th>
+                          <Th>大小 (MB)</Th>
+                          <Th>創建時間</Th>
+                          <Th>操作</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {cachedKlines.map((c) => (
+                          <Tr key={c.name}>
+                            <Td>
+                              <Tooltip label={c.name}>
+                                <Text fontSize="sm" noOfLines={1} maxW="200px">{c.name}</Text>
+                              </Tooltip>
+                            </Td>
+                            <Td>{c.symbol || '-'}</Td>
+                            <Td>{c.interval || '-'}</Td>
+                            <Td>{c.candles.toLocaleString()}</Td>
+                            <Td>{(c.size_mb ?? 0).toFixed(2)}</Td>
+                            <Td>{formatDate(c.created)}</Td>
+                            <Td>
+                              <Tooltip label="刪除此緩存">
+                                <IconButton
+                                  aria-label="刪除緩存"
+                                  size="xs"
+                                  icon={<DeleteIcon />}
+                                  colorScheme="red"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    deleteCache(c.name).then((r) => {
+                                      if (r.success) {
+                                        toast({ title: '緩存已刪除', status: 'success' })
+                                        loadCachedKlines()
+                                      }
+                                    }).catch(() => toast({ title: '刪除失敗', status: 'error' }))
+                                  }}
+                                />
+                              </Tooltip>
+                            </Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </Box>
+                )}
+              </CardBody>
+            </Card>
           </TabPanel>
         </TabPanels>
       </Tabs>

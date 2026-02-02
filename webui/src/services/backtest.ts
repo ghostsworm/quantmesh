@@ -126,6 +126,10 @@ export async function listCache(): Promise<{ success: boolean; caches: CacheInfo
   return fetchWithAuth(`${API_BASE_URL}/backtest/cache/list`)
 }
 
+export async function deleteCache(cacheKey: string): Promise<{ success: boolean; message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/cache/${encodeURIComponent(cacheKey)}`, { method: 'DELETE' })
+}
+
 export async function postBacktestTask(params: {
   strategy: string
   symbol: string
@@ -161,6 +165,19 @@ export async function getBacktestTaskResult(id: string): Promise<unknown> {
 export async function getBacktestTaskReport(id: string, download = false): Promise<string> {
   const url = `${API_BASE_URL}/backtest/tasks/${encodeURIComponent(id)}/report${download ? '?download=1' : ''}`
   return fetchText(url)
+}
+
+export interface KlinePoint {
+  time: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export async function getBacktestTaskKlines(id: string): Promise<{ klines: KlinePoint[]; symbol: string; interval: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/tasks/${encodeURIComponent(id)}/klines`)
 }
 
 export async function deleteBacktestTask(id: string): Promise<{ success: boolean; message: string }> {

@@ -44,7 +44,11 @@
     "newsAnalysis": "Nachrichtenanalyse",
     "dataExport": "Datenexport",
     "expandSidebar": "Seitenleiste erweitern",
-    "collapseSidebar": "Seitenleiste einklappen"
+    "collapseSidebar": "Seitenleiste einklappen",
+    "groupMonitor": "Monitor & Übersicht",
+    "groupBacktestData": "Backtest & Daten",
+    "groupAI": "KI",
+    "groupStrategyCapital": "Strategie & Kapital"
   },
   "statusBar": {
     "globalView": "Globale Übersicht",
@@ -668,7 +672,12 @@
     "statusPending": "Ausstehend",
     "statusProcessing": "In Bearbeitung",
     "statusCompleted": "Abgeschlossen",
-    "statusFailed": "Fehlgeschlagen"
+    "statusFailed": "Fehlgeschlagen",
+    "grossProfit": "Bruttogewinn",
+    "totalFee": "Gesamtgebühr",
+    "fundingNet": "Netto-Funding",
+    "fundingDetail": "Funding-Details",
+    "noFundingHistory": "Keine Funding-Aufzeichnungen"
   },
   "positionPlan": {
     "title": "Positionsplan",
@@ -985,7 +994,10 @@
     "weekday6": "Sa",
     "drawdown": "Drawdown",
     "noData": "Keine Daten",
-    "fetchPnLFailed": "Fehler beim Abrufen der G&V-Daten"
+    "fetchPnLFailed": "Fehler beim Abrufen der G&V-Daten",
+    "netPnL": "Netto-G&V",
+    "grossPnL": "Brutto-G&V",
+    "totalFee": "Gesamtgebühr"
   },
   "riskMonitor": {
     "title": "Risikoüberwachung",

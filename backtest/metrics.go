@@ -21,7 +21,9 @@ type Metrics struct {
 	CalmarRatio  float64 `json:"calmar_ratio"`  // 卡玛比率
 
 	// 交易指標
-	TotalTrades  int     `json:"total_trades"`  // 總交易次數
+	TotalTrades  int     `json:"total_trades"`  // 總交易次數（成對筆數）
+	BuyCount     int     `json:"buy_count"`     // 買入次數
+	SellCount    int     `json:"sell_count"`    // 賣出次數
 	WinRate      float64 `json:"win_rate"`      // 胜率 (%)
 	ProfitFactor float64 `json:"profit_factor"` // 利润因子
 	AvgWin       float64 `json:"avg_win"`       // 平均盈利
@@ -32,6 +34,9 @@ type Metrics struct {
 	// 连续性指標
 	MaxConsecutiveWins   int `json:"max_consecutive_wins"`   // 最大连续盈利次數
 	MaxConsecutiveLosses int `json:"max_consecutive_losses"` // 最大连续亏损次數
+
+	// 持倉（基幣數量，如 BTCUSDT 即最大持倉 BTC 數量）
+	MaxPosition float64 `json:"max_position"` // 最大持倉（基幣）
 }
 
 // CalculateMetrics 计算所有指標
@@ -58,7 +63,9 @@ func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float
 		CalmarRatio:  calculateCalmarRatio(equity, initialCapital),
 
 		// 交易指標
-		TotalTrades:  len(trades) / 2, // 買入+賣出算一笔完整交易
+		TotalTrades:  calculateTotalTrades(trades),
+		BuyCount:     calculateBuyCount(trades),
+		SellCount:    calculateSellCount(trades),
 		WinRate:      calculateWinRate(trades),
 		ProfitFactor: calculateProfitFactor(trades),
 		AvgWin:       calculateAvgWin(trades),
@@ -100,7 +107,8 @@ func calculateTotalReturn(equity []EquityPoint, initialCapital float64) float64 
 	return (finalEquity - initialCapital) / initialCapital * 100
 }
 
-// calculateAnnualizedReturn 计算年化收益率
+// calculateAnnualizedReturn 计算年化收益率（複利換算，返回值為百分比，與 TotalReturn 一致）
+// 公式：(1 + 總收益率/100)^(365/天數) - 1，再乘 100 得到百分比
 func calculateAnnualizedReturn(equity []EquityPoint, initialCapital float64) float64 {
 	if len(equity) < 2 || initialCapital == 0 {
 		return 0
@@ -110,12 +118,13 @@ func calculateAnnualizedReturn(equity []EquityPoint, initialCapital float64) flo
 	endTime := equity[len(equity)-1].Timestamp
 	days := float64(endTime-startTime) / (1000 * 86400)
 
-	if days == 0 {
+	if days <= 0 {
 		return 0
 	}
 
 	totalReturn := calculateTotalReturn(equity, initialCapital)
-	return math.Pow(1+totalReturn/100, 365/days) - 1
+	// 複利年化後轉為百分比，便於報表與 TotalReturn 同為「%」顯示
+	return (math.Pow(1+totalReturn/100, 365/days) - 1) * 100
 }
 
 // calculateMaxDrawdown 计算最大回撤
@@ -144,13 +153,15 @@ func calculateMaxDrawdown(equity []EquityPoint) float64 {
 }
 
 // calculateMaxDrawdownDuration 计算最大回撤持续時间（天）
+// 使用實際時間差（毫秒 -> 天），避免按「數據點個數」統計導致 1m 回測顯示成千上萬天
 func calculateMaxDrawdownDuration(equity []EquityPoint) int {
 	if len(equity) == 0 {
 		return 0
 	}
 
-	maxDuration := 0
-	currentDuration := 0
+	const msPerDay = 86400 * 1000
+	maxDurationDays := 0
+	drawdownStartMs := int64(0)
 	peak := equity[0].Equity
 	inDrawdown := false
 
@@ -158,23 +169,28 @@ func calculateMaxDrawdownDuration(equity []EquityPoint) int {
 		if point.Equity > peak {
 			peak = point.Equity
 			if inDrawdown {
-				if currentDuration > maxDuration {
-					maxDuration = currentDuration
+				days := int((point.Timestamp - drawdownStartMs) / msPerDay)
+				if days > maxDurationDays {
+					maxDurationDays = days
 				}
-				currentDuration = 0
 				inDrawdown = false
 			}
 		} else if point.Equity < peak {
-			inDrawdown = true
-			currentDuration++
+			if !inDrawdown {
+				drawdownStartMs = point.Timestamp
+				inDrawdown = true
+			}
 		}
 	}
 
-	if currentDuration > maxDuration {
-		maxDuration = currentDuration
+	if inDrawdown && len(equity) > 0 {
+		days := int((equity[len(equity)-1].Timestamp - drawdownStartMs) / msPerDay)
+		if days > maxDurationDays {
+			maxDurationDays = days
+		}
 	}
 
-	return maxDuration
+	return maxDurationDays
 }
 
 // calculateVolatility 计算波动率（年化）
@@ -275,6 +291,38 @@ func calculateCalmarRatio(equity []EquityPoint, initialCapital float64) float64 
 	}
 
 	return annualizedReturn / maxDrawdown
+}
+
+// calculateBuyCount 計算買入次數
+func calculateBuyCount(trades []Trade) int {
+	n := 0
+	for _, t := range trades {
+		if t.Type == "buy" {
+			n++
+		}
+	}
+	return n
+}
+
+// calculateSellCount 計算賣出次數
+func calculateSellCount(trades []Trade) int {
+	n := 0
+	for _, t := range trades {
+		if t.Type == "sell" {
+			n++
+		}
+	}
+	return n
+}
+
+// calculateTotalTrades 計算成對交易筆數（買入+賣出算一筆）
+func calculateTotalTrades(trades []Trade) int {
+	buyCount := calculateBuyCount(trades)
+	sellCount := calculateSellCount(trades)
+	if buyCount < sellCount {
+		return buyCount
+	}
+	return sellCount
 }
 
 // calculateWinRate 计算胜率

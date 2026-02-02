@@ -83,7 +83,21 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.28.6-rc1"
+var Version = "3.29.0"
+
+// buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
+func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
+	out := map[string]string{"api_key": "", "secret_key": "", "testnet": "false"}
+	if cfg == nil || cfg.Exchanges == nil {
+		return out
+	}
+	if exCfg, ok := cfg.Exchanges["binance"]; ok {
+		out["api_key"] = exCfg.APIKey
+		out["secret_key"] = exCfg.SecretKey
+		out["testnet"] = fmt.Sprintf("%v", exCfg.Testnet)
+	}
+	return out
+}
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1040,6 +1054,10 @@ func main() {
 	notifier := notify.NewNotificationService(cfg)
 
 	logger.Info("🔧 正在初始化存儲服務...")
+	// 若已配置路徑與類型則強制視為啟用（與 config.Validate 一致，避免設置頁開關已開但進程未重啟或配置未寫入導致回測不可用）
+	if cfg.Storage.Path != "" && cfg.Storage.Type != "" {
+		cfg.Storage.Enabled = true
+	}
 	storageService, err := storage.NewStorageService(cfg, ctx)
 	if err != nil {
 		logger.Warn("⚠️ 初始化存儲服務失败: %v (將继续运行，但不保存數據)", err)
@@ -1047,7 +1065,10 @@ func main() {
 	} else if cfg.Storage.Enabled {
 		storageService.Start()
 	}
-	logger.Info("✅ 存儲服務初始化完成")
+	if storageService != nil && storageService.GetStorage() == nil {
+		logger.Warn("⚠️ 存儲服務已創建但 GetStorage() 為空（storage.enabled 可能為 false），回測等依賴存儲的功能將不可用")
+	}
+	logger.Info("✅ 存儲服務初始化完成 (enabled=%v, storage!=nil=%v)", cfg.Storage.Enabled, storageService != nil && storageService.GetStorage() != nil)
 
 	// 合规：审计日志與 OSS 上傳
 	var auditLogger *storage.AuditTradeLogger
@@ -1918,7 +1939,8 @@ func main() {
 			// 回测任務管理器（需要 TaskStore，即 SQLite）
 			if st := storageService.GetStorage(); st != nil {
 				if taskStore := st.GetBacktestTaskStore(); taskStore != nil {
-					taskManager := backtest.NewTaskManager(taskStore, map[string]string{"api_key": "", "secret_key": "", "testnet": "false"})
+					binanceConfig := buildBinanceConfigForBacktest(cfg)
+					taskManager := backtest.NewTaskManager(taskStore, binanceConfig)
 					web.SetBacktestTaskManager(taskManager)
 					logger.Info("✅ 回测任務管理器已設置")
 
@@ -1958,7 +1980,17 @@ func main() {
 					web.SetAutoBacktestScheduler(autoScheduler)
 					autoScheduler.Start()
 					logger.Info("✅ 自動回測調度器已設置（啟用: %v）", cfg.AutoBacktest.Enabled)
+				} else {
+					// 無任務存儲時仍提供智能參數推薦（使用 Binance 公開 API 獲取價格）
+					smartParamsService := backtest.NewSmartParamsService(nil, backtest.SmartParamsConfig{})
+					web.SetSmartParamsService(smartParamsService)
+					logger.Info("✅ 智能參數推薦服務已設置（僅推薦，無任務存儲）")
 				}
+			} else {
+				// 有存儲服務但 GetStorage() 為空時，仍提供智能參數推薦
+				smartParamsService := backtest.NewSmartParamsService(nil, backtest.SmartParamsConfig{})
+				web.SetSmartParamsService(smartParamsService)
+				logger.Info("✅ 智能參數推薦服務已設置（僅推薦）")
 			}
 		}
 
@@ -1970,11 +2002,12 @@ func main() {
 			web.SetStorageServiceProvider(storageAdapter)
 			if st := storageService.GetStorage(); st != nil {
 				if taskStore := st.GetBacktestTaskStore(); taskStore != nil {
-					taskManager := backtest.NewTaskManager(taskStore, map[string]string{"api_key": "", "secret_key": "", "testnet": "false"})
+					binanceConfig := buildBinanceConfigForBacktest(cfg)
+					taskManager := backtest.NewTaskManager(taskStore, binanceConfig)
 					web.SetBacktestTaskManager(taskManager)
 					logger.Info("✅ 回测任務管理器已設置")
 
-					// 初始化智能參數推薦服務（使用空的交易所工廠，將使用默認波動率）
+					// 初始化智能參數推薦服務（使用空的交易所工廠，將使用 Binance 公開 API）
 					smartParamsService := backtest.NewSmartParamsService(nil, backtest.SmartParamsConfig{})
 					web.SetSmartParamsService(smartParamsService)
 					logger.Info("✅ 智能參數推薦服務已設置（簡化模式）")
@@ -1986,7 +2019,16 @@ func main() {
 					autoScheduler := backtest.NewAutoBacktestScheduler(taskManager, smartParamsService, autoSchedulerConfig)
 					web.SetAutoBacktestScheduler(autoScheduler)
 					logger.Info("✅ 自動回測調度器已設置（待配置）")
+				} else {
+					smartParamsService := backtest.NewSmartParamsService(nil, backtest.SmartParamsConfig{})
+					web.SetSmartParamsService(smartParamsService)
+					logger.Info("✅ 智能參數推薦服務已設置（僅推薦，無任務存儲）")
 				}
+			} else {
+				// 配置不完整且無 GetStorage 時仍提供智能參數推薦
+				smartParamsService := backtest.NewSmartParamsService(nil, backtest.SmartParamsConfig{})
+				web.SetSmartParamsService(smartParamsService)
+				logger.Info("✅ 智能參數推薦服務已設置（僅推薦）")
 			}
 		}
 

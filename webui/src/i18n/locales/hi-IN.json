@@ -44,7 +44,11 @@
     "newsAnalysis": "समाचार विश्लेषण",
     "dataExport": "डेटा निर्यात",
     "expandSidebar": "साइडबार का विस्तार करें",
-    "collapseSidebar": "साइडबार को संक्षिप्त करें"
+    "collapseSidebar": "साइडबार को संक्षिप्त करें",
+    "groupMonitor": "Monitor & Overview",
+    "groupBacktestData": "Backtest & Data",
+    "groupAI": "AI",
+    "groupStrategyCapital": "Strategy & Capital"
   },
   "statusBar": {
     "globalView": "वैश्विक अवलोकन",
@@ -668,7 +672,12 @@
     "statusPending": "लंबित",
     "statusProcessing": "प्रसंस्करण",
     "statusCompleted": "पूर्ण",
-    "statusFailed": "विफल"
+    "statusFailed": "विफल",
+    "grossProfit": "सकल लाभ",
+    "totalFee": "कुल शुल्क",
+    "fundingNet": "निवल फंडिंग",
+    "fundingDetail": "फंडिंग विवरण",
+    "noFundingHistory": "कोई फंडिंग रिकॉर्ड नहीं"
   },
   "positionPlan": {
     "title": "स्थिति योजना",
@@ -985,7 +994,10 @@
     "weekday6": "शनि",
     "drawdown": "ड्राडाउन",
     "noData": "कोई डेटा नहीं",
-    "fetchPnLFailed": "लाभ और हानि डेटा प्राप्त करने में विफल"
+    "fetchPnLFailed": "लाभ और हानि डेटा प्राप्त करने में विफल",
+    "netPnL": "शुद्ध लाभ/हानि",
+    "grossPnL": "सकल लाभ/हानि",
+    "totalFee": "कुल शुल्क"
   },
   "riskMonitor": {
     "title": "जोखिम मॉनिटर",

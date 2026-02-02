@@ -189,6 +189,37 @@ func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, e
 		return nil, fmt.Errorf("Binance API 配置不完整")
 	}
 
+	return newBinanceAdapterWithKeys(apiKey, secretKey, symbol, useTestnet)
+}
+
+// NewBinanceAdapterForPublicData 創建僅用於獲取公開數據（K 線、交易所信息）的適配器。
+// 當 apiKey/secretKey 為空時使用占位符，適用於回測等無需交易權限的場景。Binance K 線為公開 API，無需認證。
+func NewBinanceAdapterForPublicData(cfg map[string]string, symbol string) (*BinanceAdapter, error) {
+	apiKey := cfg["api_key"]
+	secretKey := cfg["secret_key"]
+	testnetStr := cfg["testnet"]
+
+	useTestnet := false
+	if testnetStr == "true" {
+		useTestnet = true
+		logger.Info("🌐 [Binance] 使用測試網模式（公開數據）")
+	}
+
+	futures.UseTestnet = useTestnet
+
+	// 公開 API 無需認證，使用占位符通過客戶端構造
+	if apiKey == "" {
+		apiKey = "backtest_public"
+	}
+	if secretKey == "" {
+		secretKey = "backtest_public"
+	}
+
+	return newBinanceAdapterWithKeys(apiKey, secretKey, symbol, useTestnet)
+}
+
+// newBinanceAdapterWithKeys 內部實現，支持占位密鑰（用於僅拉取公開數據如 K 線）
+func newBinanceAdapterWithKeys(apiKey, secretKey, symbol string, useTestnet bool) (*BinanceAdapter, error) {
 	client := futures.NewClient(apiKey, secretKey)
 
 	// 同步服務器時间
@@ -1021,18 +1052,37 @@ func (b *BinanceAdapter) StopKlineStream() error {
 	return nil
 }
 
-// GetHistoricalKlines 獲取歷史K線數據
+// GetHistoricalKlines 獲取歷史K線數據（不帶時間範圍，返回最近 limit 根）
 func (b *BinanceAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	klines, err := b.client.NewKlinesService().
 		Symbol(symbol).
 		Interval(interval).
 		Limit(limit).
 		Do(ctx)
-
 	if err != nil {
 		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
 	}
+	return b.klinesToCandles(klines, symbol)
+}
 
+// GetHistoricalKlinesFrom 按起始時間獲取歷史K線（用於回測按時間範圍分批拉取）
+// startTimeMs 為毫秒時間戳，0 表示不限制（等同 GetHistoricalKlines）
+func (b *BinanceAdapter) GetHistoricalKlinesFrom(ctx context.Context, symbol string, interval string, startTimeMs int64, limit int) ([]*Candle, error) {
+	svc := b.client.NewKlinesService().
+		Symbol(symbol).
+		Interval(interval).
+		Limit(limit)
+	if startTimeMs > 0 {
+		svc = svc.StartTime(startTimeMs)
+	}
+	klines, err := svc.Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
+	}
+	return b.klinesToCandles(klines, symbol)
+}
+
+func (b *BinanceAdapter) klinesToCandles(klines []*futures.Kline, symbol string) ([]*Candle, error) {
 	candles := make([]*Candle, 0, len(klines))
 	for _, k := range klines {
 		// 正确解析價格數據，处理解析錯误
@@ -1082,8 +1132,9 @@ func (b *BinanceAdapter) GetHistoricalKlines(ctx context.Context, symbol string,
 		candles = append(candles, candle)
 	}
 
-	// 检测並過滤异常價格波動（插針）
+	// 检测並記錄异常價格波動（插針）
 	candles = b.detectPriceSpikes(candles, 0.20) // 20% 價格變化阈值
+	// 插針裁剪已統一在 web/api getKlines 中對所有交易所調用 exchange.ClipKlineSpikes
 
 	return candles, nil
 }
@@ -1114,49 +1165,79 @@ func (b *BinanceAdapter) validateCandle(c *Candle) error {
 	return nil
 }
 
-// detectPriceSpikes 检测並過滤异常價格波動（插針）
+// detectPriceSpikes 检测並記錄异常價格波動（插針），供日志排查
 // threshold: 價格變化阈值（如 0.20 表示 20%）
 func (b *BinanceAdapter) detectPriceSpikes(candles []*Candle, threshold float64) []*Candle {
 	if len(candles) < 2 {
 		return candles
 	}
-
-	filtered := make([]*Candle, 0, len(candles))
-	filtered = append(filtered, candles[0]) // 保留第一根K線
-
 	for i := 1; i < len(candles); i++ {
 		prev := candles[i-1]
 		curr := candles[i]
-
-		// 计算收盘價变化百分比
-		if prev.Close > 0 {
-			priceChange := math.Abs(curr.Close-prev.Close) / prev.Close
-
-			if priceChange > threshold {
-				// 價格變化超過阈值，記錄警告但仍保留數據（可能是真實的市場波動）
-				logger.Warn("⚠️ [Binance] 检测到异常價格變化: %s, 時间: %d, 变化幅度: %.2f%%, 前一根收盘價: %.2f, 當前收盘價: %.2f",
-					curr.Symbol, curr.Timestamp, priceChange*100, prev.Close, curr.Close)
-			}
+		if prev.Close <= 0 {
+			continue
 		}
-
-		// 检查 High 和 Low 是否异常（相對於前一根K線）
-		if prev.Close > 0 {
-			highChange := (curr.High - prev.Close) / prev.Close
-			lowChange := (prev.Close - curr.Low) / prev.Close
-
-			// 如果 High 或 Low 相對於前一根收盘價变化超過阈值，記錄警告
-			if highChange > threshold || lowChange > threshold {
-				logger.Warn("⚠️ [Binance] 检测到异常價格波動（插針）: %s, 時间: %d, High变化: %.2f%%, Low变化: %.2f%%",
-					curr.Symbol, curr.Timestamp, highChange*100, lowChange*100)
-			}
+		priceChange := math.Abs(curr.Close-prev.Close) / prev.Close
+		if priceChange > threshold {
+			logger.Warn("⚠️ [Binance] 检测到异常價格變化: %s, 時间: %d, 变化幅度: %.2f%%, 前一根收盘價: %.2f, 當前收盘價: %.2f",
+				curr.Symbol, curr.Timestamp, priceChange*100, prev.Close, curr.Close)
 		}
-
-		// 保留所有數據（包括异常數據），因為可能是真實的市場波動
-		// 如果确實需要過滤，可以在这里添加過滤逻辑
-		filtered = append(filtered, curr)
+		highChange := (curr.High - prev.Close) / prev.Close
+		lowChange := (prev.Close - curr.Low) / prev.Close
+		if highChange > threshold || lowChange > threshold {
+			logger.Warn("⚠️ [Binance] 检测到异常價格波動（插針）: %s, 時间: %d, High变化: %.2f%%, Low变化: %.2f%%",
+				curr.Symbol, curr.Timestamp, highChange*100, lowChange*100)
+		}
 	}
+	return candles
+}
 
-	return filtered
+// clipPriceSpikes 裁剪 K 線插針：將單根 K 線的 High/Low 限制在「鄰近收盤價與本根開收」的合理區間內，
+// 避免交易所壞 tick 或異常數據導致圖表出現不合理的長影線。
+// bandPct: 允許的影線幅度，如 0.03 表示相對參考價上下 3%。
+func (b *BinanceAdapter) clipPriceSpikes(candles []*Candle, bandPct float64) []*Candle {
+	if len(candles) == 0 || bandPct <= 0 {
+		return candles
+	}
+	for i := range candles {
+		curr := candles[i]
+		refHigh := math.Max(curr.Open, curr.Close)
+		refLow := math.Min(curr.Open, curr.Close)
+		if i > 0 && candles[i-1].Close > 0 {
+			refHigh = math.Max(refHigh, candles[i-1].Close)
+			refLow = math.Min(refLow, candles[i-1].Close)
+		}
+		if i+1 < len(candles) && candles[i+1].Close > 0 {
+			refHigh = math.Max(refHigh, candles[i+1].Close)
+			refLow = math.Min(refLow, candles[i+1].Close)
+		}
+		allowedHigh := refHigh * (1 + bandPct)
+		allowedLow := refLow * (1 - bandPct)
+		if allowedLow <= 0 {
+			allowedLow = refLow * 0.99
+		}
+		clipped := false
+		if curr.High > allowedHigh {
+			logger.Warn("⚠️ [Binance] K線插針已裁剪: %s, 時间: %d, High %.2f -> %.2f (上限 %.2f)",
+				curr.Symbol, curr.Timestamp, curr.High, allowedHigh, allowedHigh)
+			curr.High = allowedHigh
+			clipped = true
+		}
+		if curr.Low < allowedLow {
+			logger.Warn("⚠️ [Binance] K線插針已裁剪: %s, 時间: %d, Low %.2f -> %.2f (下限 %.2f)",
+				curr.Symbol, curr.Timestamp, curr.Low, allowedLow, allowedLow)
+			curr.Low = allowedLow
+			clipped = true
+		}
+		if clipped {
+			// 裁剪後需保證 OHLC 關係：High >= Open,Close >= Low
+			if curr.High < curr.Low {
+				curr.High = math.Max(curr.Open, curr.Close)
+				curr.Low = math.Min(curr.Open, curr.Close)
+			}
+		}
+	}
+	return candles
 }
 
 // GetPriceDecimals 獲取價格精度（小數位數）

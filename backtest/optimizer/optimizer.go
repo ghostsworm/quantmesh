@@ -23,10 +23,10 @@ type IntRange struct {
 
 // OptimSearchSpace 参數搜索空间
 type OptimSearchSpace struct {
-	PriceLowRange   Range   `json:"price_low_range"`
-	PriceHighRange  Range   `json:"price_high_range"`
-	GridCountRange  IntRange `json:"grid_count_range"`
-	OrderQtyRange   Range   `json:"order_qty_range"`
+	PriceLowRange  Range    `json:"price_low_range"`
+	PriceHighRange Range    `json:"price_high_range"`
+	GridCountRange IntRange `json:"grid_count_range"`
+	OrderQtyRange  Range    `json:"order_qty_range"`
 }
 
 // OptimConfig 优化配置
@@ -34,8 +34,8 @@ type OptimConfig struct {
 	Method        string  `json:"method"`         // "grid", "bayesian", "genetic"
 	Lambda        float64 `json:"lambda"`         // 风險权重 0.3-0.7
 	MaxIterations int     `json:"max_iterations"` // 最大迭代次數
-	Tolerance     float64 `json:"tolerance"`     // 收敛容差
-	Parallelism   int     `json:"parallelism"`   // 並行度，0 表示 NumCPU
+	Tolerance     float64 `json:"tolerance"`      // 收敛容差
+	Parallelism   int     `json:"parallelism"`    // 並行度，0 表示 NumCPU
 }
 
 // Optimizer 优化器接口
@@ -46,7 +46,7 @@ type Optimizer interface {
 
 // BacktestRunner 單次回测執行器，供各优化器調用
 func BacktestRunner(symbol string, candles []*exchange.Candle, params backtest.GridBacktestParams, initialCapital float64) (*backtest.BacktestResult, error) {
-	return backtest.RunGridBacktest(symbol, candles, params, initialCapital)
+	return backtest.RunGridBacktest(symbol, candles, params, initialCapital, nil)
 }
 
 // ParamsFromSpace 從搜索空间生成單组回测参數（用於固定 FeeRate 等）
@@ -58,13 +58,13 @@ func ParamsFromSpace(priceLow, priceHigh float64, gridCount int, orderQty, total
 		slippage = 0.0003
 	}
 	return backtest.GridBacktestParams{
-		PriceLow:       priceLow,
-		PriceHigh:      priceHigh,
-		GridCount:      gridCount,
-		OrderQuantity:  orderQty,
-		TotalCapital:   totalCapital,
-		FeeRate:        feeRate,
-		SlippageRatio:  slippage,
+		PriceLow:      priceLow,
+		PriceHigh:     priceHigh,
+		GridCount:     gridCount,
+		OrderQuantity: orderQty,
+		TotalCapital:  totalCapital,
+		FeeRate:       feeRate,
+		SlippageRatio: slippage,
 	}
 }
 

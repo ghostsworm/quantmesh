@@ -78,7 +78,7 @@ func createTables(db *sql.DB) error {
 	);`
 
 	// 交易表（買賣配對）
-	// 注意：account 列在舊版本中可能不存在，索引創建移到迁移后執行
+	// 注意：舊庫可能已有 trades 表但無 exchange/account 列，idx_trades_exchange_symbol 改在 migrateTradesTable 中創建
 	tradesSQL := `
 	CREATE TABLE IF NOT EXISTS trades (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +93,6 @@ func createTables(db *sql.DB) error {
 		pnl DECIMAL(20,8),
 		created_at TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_trades_exchange_symbol ON trades(exchange, symbol);
 	CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at);`
 
 	// 事件表
@@ -146,7 +145,7 @@ func createTables(db *sql.DB) error {
 		created_at TIMESTAMP
 	);`
 
-	// 對账历史表
+	// 對账历史表（不含 account+exchange+symbol 索引：舊庫可能尚無 exchange 列，該索引在 migrateReconciliationHistory 中創建）
 	reconciliationHistorySQL := `
 	CREATE TABLE IF NOT EXISTS reconciliation_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,7 +166,6 @@ func createTables(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_symbol ON reconciliation_history(symbol);
-	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_account_exchange_symbol ON reconciliation_history(account, exchange, symbol);
 	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_time ON reconciliation_history(reconcile_time);`
 
 	// 风控检查历史表
@@ -827,6 +825,10 @@ func migrateTradesTable(db *sql.DB) error {
 	if err != nil {
 		logger.Warn("⚠️ 确保 trades account 索引失败: %v", err)
 	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_trades_exchange_symbol ON trades(exchange, symbol)`)
+	if err != nil {
+		logger.Warn("⚠️ 确保 trades exchange 索引失败: %v", err)
+	}
 
 	logger.Info("✅ trades 表迁移检查完成")
 	return nil
@@ -1217,6 +1219,77 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
 		// 这样可以确保即使舊數據的account字段為空，也能查詢到统计信息
+		query += " AND (account = ? OR account IS NULL OR account = '')"
+		args = append(args, account)
+	}
+
+	row := s.db.QueryRow(query, args...)
+
+	stat := &Statistics{}
+	var totalTrades sql.NullInt64
+	var totalVolume sql.NullFloat64
+	var grossPnL sql.NullFloat64
+	var totalFee sql.NullFloat64
+	var netPnL sql.NullFloat64
+	var winRate sql.NullFloat64
+
+	err := row.Scan(&totalTrades, &totalVolume, &grossPnL, &totalFee, &netPnL, &winRate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &Statistics{}, nil
+		}
+		return nil, fmt.Errorf("查詢统计彙總失败: %w", err)
+	}
+
+	if totalTrades.Valid {
+		stat.TotalTrades = int(totalTrades.Int64)
+	}
+	if totalVolume.Valid {
+		stat.TotalVolume = totalVolume.Float64
+	}
+	if grossPnL.Valid {
+		stat.GrossPnL = grossPnL.Float64
+	}
+	if totalFee.Valid {
+		stat.TotalFee = totalFee.Float64
+	}
+	if netPnL.Valid {
+		stat.TotalPnL = netPnL.Float64
+	}
+	if winRate.Valid {
+		stat.WinRate = winRate.Float64
+	}
+
+	return stat, nil
+}
+
+// GetStatisticsSummaryByExchangeAndSymbol 獲取指定交易所、指定交易對的统计彙總
+func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_trades,
+			COALESCE(SUM(quantity), 0) as total_volume,
+			COALESCE(SUM(pnl), 0) as gross_pnl,
+			COALESCE(SUM(COALESCE(fee, 0)), 0) as total_fee,
+			COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as net_pnl,
+			CASE 
+				WHEN COUNT(*) > 0 THEN 
+					CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)
+				ELSE 0
+			END as win_rate
+		FROM trades
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	if account != "" {
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}

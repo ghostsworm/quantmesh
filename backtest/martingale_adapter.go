@@ -54,7 +54,7 @@ func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, 
 	for i, c := range candles {
 		equity = append(equity, EquityPoint{
 			Timestamp: c.Timestamp,
-			Equity:   cash + position*c.Close,
+			Equity:    cash + position*c.Close,
 		})
 
 		// 有持倉：检查止盈止损
@@ -183,5 +183,6 @@ func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, 
 		Trades:         trades,
 		Metrics:        metrics,
 		RiskMetrics:    riskMetrics,
+		PriceCurve:     ComputePriceCurveSummary(candles),
 	}, nil
 }

@@ -54,7 +54,7 @@ interface SystemStatus {
   uptime: number
 }
 
-const GlassCard: React.FC<{ title?: string; children: React.ReactNode; p?: number | string }> = ({ title, children, p = 6 }) => {
+const GlassCard: React.FC<{ title?: React.ReactNode; children: React.ReactNode; p?: number | string }> = ({ title, children, p = 6 }) => {
   const bg = 'white'
   const borderColor = 'gray.100'
   
@@ -70,9 +70,13 @@ const GlassCard: React.FC<{ title?: string; children: React.ReactNode; p?: numbe
       overflow="hidden"
     >
       {title && (
-        <Heading size="xs" color="gray.500" textTransform="uppercase" letterSpacing="widest" mb={5}>
-          {title}
-        </Heading>
+        <Box mb={5}>
+          {typeof title === 'string' ? (
+            <Heading size="xs" color="gray.500" textTransform="uppercase" letterSpacing="widest">{title}</Heading>
+          ) : (
+            title
+          )}
+        </Box>
       )}
       {children}
     </Box>
@@ -91,6 +95,7 @@ const Dashboard: React.FC = () => {
   const [positionsSummary, setPositionsSummary] = useState<any>(null)
   const [isTrading, setIsTrading] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [togglePending, setTogglePending] = useState(false) // 启动/停止请求进行中，防重复点击
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   const { isOpen: isNewbieCheckOpen, onOpen: onNewbieCheckOpen, onClose: onNewbieCheckClose } = useDisclosure()
   const toast = useToast()
@@ -144,19 +149,43 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(interval)
   }, [selectedExchange, selectedSymbol])
 
+  const TOGGLE_TIMEOUT_MS = 10_000
+
   const handleToggleTrading = async () => {
+    if (togglePending) return
+    setTogglePending(true)
+    const isStop = isTrading
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('TIMEOUT')), TOGGLE_TIMEOUT_MS)
+    })
+    const actionPromise = isStop
+      ? stopTrading(selectedExchange || undefined, selectedSymbol || undefined)
+      : startTrading(selectedExchange || undefined, selectedSymbol || undefined)
     try {
-      if (isTrading) {
-        await stopTrading(selectedExchange || undefined, selectedSymbol || undefined)
-        setIsTrading(false)
-        toast({ title: t('dashboard.tradingStopped'), status: 'info', borderRadius: 'full' })
+      await Promise.race([actionPromise, timeoutPromise])
+      setIsTrading(!isStop)
+      toast({
+        title: isStop ? t('dashboard.tradingStopped') : t('dashboard.tradingStarted'),
+        status: isStop ? 'info' : 'success',
+        borderRadius: 'full',
+      })
+    } catch (err) {
+      if (err instanceof Error && err.message === 'TIMEOUT') {
+        toast({
+          title: t('dashboard.startStopTimeout'),
+          status: 'warning',
+          duration: 5000,
+          borderRadius: 'full',
+        })
       } else {
-        await startTrading(selectedExchange || undefined, selectedSymbol || undefined)
-        setIsTrading(true)
-        toast({ title: t('dashboard.tradingStarted'), status: 'success', borderRadius: 'full' })
+        toast({
+          title: t('dashboard.operationFailed'),
+          description: err instanceof Error ? err.message : t('dashboard.unknownError'),
+          status: 'error',
+        })
       }
-    } catch (error) {
-      toast({ title: t('dashboard.operationFailed'), description: error instanceof Error ? error.message : t('dashboard.unknownError'), status: 'error' })
+    } finally {
+      setTogglePending(false)
     }
   }
 
@@ -190,8 +219,13 @@ const Dashboard: React.FC = () => {
   const totalPnL = typeof statistics?.total_pnl === 'number' ? statistics.total_pnl : (status.total_pnl || 0)
   const totalTrades = typeof statistics?.total_trades === 'number' ? statistics.total_trades : (status.total_trades || 0)
   const totalVolume = typeof statistics?.total_volume === 'number' ? statistics.total_volume : 0
-  // 移除不准确的 tradesPerHour 计算
-  // 原计算使用當前進程 uptime 除以历史總交易數，重啟后會導致异常高的值
+  // 收益率：用分配资金作为分母，无分配资金时不显示百分比
+  const totalAllocated = strategyAllocation?.allocation
+    ? Object.values(strategyAllocation.allocation).reduce((sum, cap) => sum + (cap.allocated || 0), 0)
+    : 0
+  const roiPct = totalAllocated > 0 && isFinite(totalPnL)
+    ? (totalPnL / totalAllocated) * 100
+    : null
 
   return (
     <Container maxW="container.xl" py={4}>
@@ -290,6 +324,9 @@ const Dashboard: React.FC = () => {
                 size="md"
                 colorScheme={isCurrentSymbolRunning ? 'red' : 'green'}
                 onClick={handleToggleTrading}
+                isDisabled={togglePending}
+                isLoading={togglePending}
+                loadingText={isCurrentSymbolRunning ? t('dashboard.stopping') : t('dashboard.starting')}
                 borderRadius="2xl"
                 px={8}
                 fontSize="sm"
@@ -316,7 +353,9 @@ const Dashboard: React.FC = () => {
               <StatHelpText>
                 <HStack spacing={1}>
                   <Icon as={totalPnL >= 0 ? TriangleUpIcon : TriangleDownIcon} />
-                  <Text fontWeight="600">{((totalPnL / 1000) * 100).toFixed(2)}%</Text>
+                  <Text fontWeight="600">
+                    {roiPct !== null ? `${roiPct.toFixed(2)}%` : '—'}
+                  </Text>
                   <Text color="gray.400">{t('dashboard.roi')}</Text>
                 </HStack>
               </StatHelpText>
@@ -375,7 +414,18 @@ const Dashboard: React.FC = () => {
         <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={8}>
           {/* Positions & Allocation */}
           <VStack align="stretch" spacing={6}>
-            <GlassCard title={t('dashboard.activePositions')}>
+            <GlassCard title={
+                <Flex justify="space-between" align="center" flexWrap="wrap" gap={2}>
+                  <Heading size="xs" color="gray.500" textTransform="uppercase" letterSpacing="widest">{t('dashboard.activePositions')}</Heading>
+                  {positionsSummary?.exchange && positionsSummary?.symbol && (
+                    <HStack spacing={2} fontSize="xs" color="gray.500" fontWeight="normal">
+                      <Badge variant="subtle" colorScheme="gray">{positionsSummary.exchange.toUpperCase()}</Badge>
+                      <Text>{positionsSummary.symbol}</Text>
+                      <Badge variant="subtle" colorScheme="blue">{t('strategyNames.' + (positionsSummary.strategy || 'grid'), { defaultValue: positionsSummary.strategy || 'grid' })}</Badge>
+                    </HStack>
+                  )}
+                </Flex>
+              }>
               {positionsSummary && positionsSummary.position_count > 0 ? (
                 <VStack align="stretch" spacing={4}>
                   {/* 主要數據展示 */}

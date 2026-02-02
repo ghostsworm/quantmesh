@@ -10,6 +10,169 @@
 
 ---
 
+## v3.29.0 - 2026年02月03日
+
+**Git Tag**: `v3.29.0`
+
+### 新增 (Added)
+
+- **回測報告保存為圖片**：回測結果彈窗新增「保存為圖片」按鈕，可將完整報告（含 K 線走勢圖表）導出為 PNG 高清圖片下載
+- **回測風控參數可配置**：網格策略回測時支持在開始回測前指定風控模擬器參數（帶默認值，可微調）
+- **帶風控回測對比**：網格策略回測時自動執行兩次（無風控 + 有風控），在同一份報告中呈現對比數據
+- **期末持倉**：報告與彈窗新增「期末持倉（幣的數量）」「期末持倉市值」顯示
+- **交易指標**：新增「買入次數」「賣出次數」顯示
+- **回測報告**：新增成對交易（前50筆）、未成對交易（前50筆）明細表
+- **K 線走勢圖**：回測報告彈窗內新增期間 K 線收盤價走勢圖，拆為 4 段折線圖便於查看
+- **當前持倉按交易所、币种、策略列出**：概覽頁「當前持倉」現支持按交易所、币种、策略維度展示
+- **服務狀態頁**：新增服務狀態監控頁面
+
+### 變更 (Changed)
+
+- **回測報告彈窗展示**：點擊「查看」時改為以 Dialog（Modal）形式展示回測結果，便於專注閱讀；支持下載報告
+- **回測報告小數格式統一**：統計值和專用指標改為小數點後 4 位
+
+### 修復 (Fixed)
+
+- **K 線走勢圖不顯示**：修復回測報告彈窗中「期間 K 線走勢」四段圖表框架存在但折線不渲染的問題
+- **回測報告首次加載卡住**：修復第一次點擊新產生的回測報告時一直顯示「載入中」的問題
+- **回測報告 Markdown 渲染**：報告內容現正確渲染 Markdown
+- **回測任務列表高亮**：任務列表中當前查看的任務行增加背景高亮
+- **回測無需 Binance API 配置**：回測獲取歷史 K 線時，若未配置 Binance API，自動使用公開數據適配器
+- **K 線圖異常插針**：新增通用 `exchange.ClipKlineSpikes`，在所有交易所的 K 線出口統一裁剪插針
+
+---
+
+## v3.28.11-rc5 - 2026年02月03日
+
+**Git Tag**: `v3.28.11-rc5`
+
+### 新增 (Added)
+
+- **期末持倉**：報告與彈窗新增「期末持倉（幣的數量）」「期末持倉市值」顯示
+
+---
+
+## v3.28.11-rc4 - 2026年02月03日
+
+**Git Tag**: `v3.28.11-rc4`
+
+### 新增 (Added)
+
+- **交易指標**：新增「買入次數」「賣出次數」顯示
+- **回測報告**：新增成對交易（前50筆）、未成對交易（前50筆）明細表
+- **K 線走勢圖**：回測報告彈窗內新增期間 K 線收盤價走勢圖，拆為 4 段折線圖
+
+---
+
+## v3.28.11-rc3 - 2026年02月03日
+
+**Git Tag**: `v3.28.11-rc3`
+
+### 变更 (Changed)
+
+#### 回测报告弹窗展示
+
+- **功能描述**: 点击「查看」时改为以 Dialog（Modal）形式展示回测结果，便于专注阅读。
+- **影响范围**: `webui/src/components/BacktestMenu.tsx`
+
+---
+
+## v3.28.11-rc2 - 2026年02月03日
+
+**Git Tag**: `v3.28.11-rc2`
+
+### 修复 (Fixed)
+
+#### 回测报告 Markdown 渲染
+
+- **问题描述**: 回测任务列表点击「查看」时，报告以原始 Markdown 文本显示，标题、表格等未渲染。
+- **解决方案**: 使用 react-markdown、remark-gfm 对报告内容进行渲染。
+- **影响范围**: `webui/src/components/BacktestMenu.tsx`
+
+---
+
+## v3.28.11-rc1 - 2026年02月03日
+
+**Git Tag**: `v3.28.11-rc1`
+
+### 修复 (Fixed)
+
+#### 回测任务列表高亮
+
+- **问题描述**: 任务列表中无法直观看出当前查看的是哪条任务的详情。
+- **解决方案**: 为当前选中的任务行增加背景高亮（浅蓝/深色模式适配）。
+- **影响范围**: `webui/src/components/BacktestMenu.tsx`
+
+#### 回测无需 Binance API 配置
+
+- **问题描述**: 未配置 Binance API 时回测失败，报错「获取历史数据失败: 创建 Binance adapter 失败: Binance API 配置不完整」。
+- **解决方案**: 新增 `NewBinanceAdapterForPublicData`，在 API 为空时使用占位密钥；Binance K 线为公开接口，无需认证即可拉取历史数据。
+- **影响范围**: `exchange/binance/adapter.go`、`backtest/data_fetcher.go`
+
+#### 回测使用已配置的 Binance API
+
+- **问题描述**: 已配置 demo/正式 Binance API，但回测仍报「Binance API 配置不完整」，因 TaskManager 创建时使用了硬编码的空配置。
+- **解决方案**: 新增 `buildBinanceConfigForBacktest`，从 cfg 中读取 Binance 配置并传入 TaskManager；两处 TaskManager 创建均改用实际配置。
+- **影响范围**: `main.go`
+
+---
+
+## v3.28.11 - 2026年02月03日
+
+**Git Tag**: `v3.28.11`
+
+### 新增 (Added)
+
+#### 當前持倉按交易所、币种、策略列出
+
+- **功能描述**: 概覽頁「當前持倉」現支持按交易所、币种、策略維度展示。
+- **單幣種概覽**: 持倉卡片標題顯示 交易所 · 币种 · 策略（如 BINANCE · BTCUSDT · 网格）。
+- **全局概覽**: 新增「當前持倉」表格，列出所有有持倉的交易對，按交易所、币种、策略分列，可點擊行切換到該幣種詳情。
+- **新增 API**: `GET /api/positions/summary/all` 獲取所有交易對持倉彙總。
+- **影響範圍**: `web/api.go`、`web/server.go`、`webui/src/components/Dashboard.tsx`、`webui/src/components/GlobalDashboard.tsx`、`webui/src/services/api.ts`、i18n
+
+---
+
+## v3.28.10-rc2 - 2026年02月03日
+
+**Git Tag**: `v3.28.10-rc2`
+
+### 修复 (Fixed)
+
+#### 回测参数重复
+
+- **问题描述**: 回测页策略参数中包含 `total_capital`，同时又有固定的「总投入资金」输入框，导致重复显示。
+- **解决方案**: 回测页渲染策略参数时过滤 `total_capital`，只保留底部的总投入资金输入。
+- **影响范围**: `webui/src/components/BacktestMenu.tsx`
+
+#### 回测参数提示
+
+- **问题描述**: 用户不清楚网格策略的「价格上限/下限」应如何填写。
+- **解决方案**: 为「价格上限/下限」新增填写提示，解释参考区间和压力/支撑位。
+- **影响范围**: `backtest/strategy_params.go`、`webui/src/components/BacktestMenu.tsx`
+
+#### 回测参数校验提示
+
+- **问题描述**: 用户误以为价格上/下限填 0 可表示不设限，实际会导致回测失败。
+- **解决方案**: 在提示中明确上/下限必须大于 0，且上限需大于下限。
+- **影响范围**: `backtest/strategy_params.go`
+
+---
+
+## v3.28.8 - 2026年02月02日
+
+**Git Tag**: `v3.28.8`
+
+### 功能 (Added)
+
+#### 事件中心：補齊 Storage 寫入的舊事件顯示
+
+- **問題描述**: 由 Storage 寫入的事件（僅 `event_type`、`data`）在 Web 事件詳情中顯示為空（事件來源、事件類型、事件標題、事件消息均為空）。
+- **解決方案**: 讀取事件時，若 `type`/`source`/`title`/`message` 為空但 `event_type`、`data` 有值，則從 `event_type` 推導 severity/source/title，並從 `data` JSON 構建 message 再返回前端。
+- **影響範圍**: `database/interface.go`（EventRecord 新增 EventTypeRaw/DataRaw）、`event/enrich.go`（BuildMessageFromData）、`web/api_events.go`（enrichEventRecord）
+
+---
+
 ## v3.28.6 - 2026年02月02日
 
 **Git Tag**: `v3.28.6`

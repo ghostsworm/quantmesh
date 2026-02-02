@@ -153,10 +153,12 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		{
 			protected.GET("/status", getStatus)
 			protected.GET("/statuses", getStatuses)
+			protected.GET("/services/status", getServicesStatus)
 			protected.GET("/symbols", getSymbols)
 			protected.GET("/exchanges", getExchanges)
 			protected.GET("/positions", getPositions)
 			protected.GET("/positions/summary", getPositionsSummary)
+			protected.GET("/positions/summary/all", getPositionsSummaryAll)
 			protected.GET("/orders", getOrders)
 			protected.GET("/orders/history", getOrderHistory)
 			protected.GET("/statistics", getStatistics)
@@ -225,6 +227,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				backtestAPI.GET("/tasks", getBacktestTasks)
 				backtestAPI.GET("/tasks/:id", getBacktestTaskByID)
 				backtestAPI.GET("/tasks/:id/result", getBacktestTaskResult)
+				backtestAPI.GET("/tasks/:id/klines", getBacktestTaskKlines)
 				backtestAPI.GET("/tasks/:id/report", getBacktestTaskReport)
 				backtestAPI.DELETE("/tasks/:id", deleteBacktestTask)
 				// 智能參數推薦 API

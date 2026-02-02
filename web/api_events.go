@@ -2,12 +2,16 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"quantmesh/database"
+	"quantmesh/event"
+
+	"github.com/gin-gonic/gin"
+
 	// qmi18n "quantmesh/i18n" // TODO: 等待 RegisterMessages 實現后啟用
 	"quantmesh/logger"
 )
@@ -100,6 +104,10 @@ func handleGetEvents(c *gin.Context) {
 		return
 	}
 
+	for _, ev := range events {
+		enrichEventRecord(ev)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"events": events,
 		"count":  len(events),
@@ -133,14 +141,15 @@ func handleGetEventDetail(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	event, err := eventProvider.GetEventByID(ctx, id)
+	ev, err := eventProvider.GetEventByID(ctx, id)
 	if err != nil {
 		logger.Error("❌ 查詢事件详情失败: %v", err)
 		respondError(c, http.StatusNotFound, "errors.event_not_found")
 		return
 	}
 
-	c.JSON(http.StatusOK, event)
+	enrichEventRecord(ev)
+	c.JSON(http.StatusOK, ev)
 }
 
 // handleGetEventStats 獲取事件统计
@@ -202,18 +211,18 @@ func handleSetEventCenterStatus(c *gin.Context) {
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "errors.invalid_request")
 		return
 	}
-	
+
 	// 調用事件中心控制器
 	if globalEventCenterController == nil {
 		respondError(c, http.StatusServiceUnavailable, "errors.event_center_unavailable")
 		return
 	}
-	
+
 	if globalEventCenterController != nil {
 		if req.Enabled {
 			if err := globalEventCenterController.Start(); err != nil {
@@ -227,12 +236,42 @@ func handleSetEventCenterStatus(c *gin.Context) {
 			logger.Info("⏸️ 事件中心已停止")
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"enabled": req.Enabled,
 		"message": map[bool]string{true: "事件中心已啟动", false: "事件中心已停止"}[req.Enabled],
 	})
+}
+
+// enrichEventRecord 補齊 Storage 寫入的舊事件（type/source/title/message 為空但 event_type/data 有值時）
+func enrichEventRecord(record *database.EventRecord) {
+	if record == nil {
+		return
+	}
+	if record.Type != "" {
+		return
+	}
+	if record.EventTypeRaw == "" {
+		return
+	}
+	record.Type = record.EventTypeRaw
+	et := event.EventType(record.EventTypeRaw)
+	record.Severity = string(event.GetEventSeverity(et))
+	record.Source = string(event.GetEventSource(et))
+	record.Title = event.GetEventTitle(et)
+
+	var data map[string]interface{}
+	if record.DataRaw != "" {
+		_ = json.Unmarshal([]byte(record.DataRaw), &data)
+	}
+	record.Message = event.BuildMessageFromData(et, data)
+	if record.Message == "" {
+		record.Message = "事件類型: " + record.Type
+	}
+	if record.Details == "" && record.DataRaw != "" {
+		record.Details = record.DataRaw
+	}
 }
 
 // registerEventRoutes 注册事件相关路由
@@ -271,4 +310,3 @@ func init() {
 	})
 }
 */
-

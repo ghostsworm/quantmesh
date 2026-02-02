@@ -353,8 +353,8 @@ func postCacheGenerate(c *gin.Context) {
 		logger.Info("✅ K線缓存生成完成: %s %s %s ~ %s", req.Symbol, req.Interval, req.StartDate, req.EndDate)
 	}()
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "已在后台生成缓存",
+		"success":   true,
+		"message":   "已在后台生成缓存",
 		"cache_key": fmt.Sprintf("%s_%s_%s_%s", req.Symbol, req.Interval, req.StartDate, req.EndDate),
 	})
 }
@@ -379,7 +379,10 @@ func getCacheStatus(c *gin.Context) {
 // postBacktestTasks 創建回测任務 POST /api/backtest/tasks
 func postBacktestTasks(c *gin.Context) {
 	if backtestTaskManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "回测服務未初始化"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "回测服務未初始化。請確保已啟用存儲（SQLite），並在「設置」中保存過配置後重啟服務；若為首次使用請先完成配置並保存。",
+		})
 		return
 	}
 	var req struct {
@@ -494,6 +497,47 @@ func getBacktestTaskResult(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", data)
 }
 
+// getBacktestTaskKlines 獲取任務對應時段的 K 線（供報告內走勢圖使用）GET /api/backtest/tasks/:id/klines
+func getBacktestTaskKlines(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少任務 id"})
+		return
+	}
+	if backtestTaskManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "回測服務未初始化"})
+		return
+	}
+	store := backtestTaskManager.GetStore()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存儲不可用"})
+		return
+	}
+	task, err := store.GetBacktestTask(id)
+	if err != nil || task == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "任務不存在"})
+		return
+	}
+	binanceConfig := getBinanceConfig()
+	candles, err := backtest.GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, binanceConfig)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	klines := make([]gin.H, len(candles))
+	for i, candle := range candles {
+		klines[i] = gin.H{
+			"time":   candle.Timestamp / 1000,
+			"open":   candle.Open,
+			"high":   candle.High,
+			"low":    candle.Low,
+			"close":  candle.Close,
+			"volume": candle.Volume,
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"klines": klines, "symbol": task.Symbol, "interval": task.Interval})
+}
+
 // getBacktestTaskReport 獲取/下載报告 Markdown GET /api/backtest/tasks/:id/report
 func getBacktestTaskReport(c *gin.Context) {
 	id := c.Param("id")
@@ -521,7 +565,10 @@ func deleteBacktestTask(c *gin.Context) {
 		return
 	}
 	if backtestTaskManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "回测服務未初始化"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "回测服務未初始化。請確保已啟用存儲（SQLite），並在「設置」中保存過配置後重啟服務。",
+		})
 		return
 	}
 	store := backtestTaskManager.GetStore()
@@ -541,7 +588,7 @@ func deleteBacktestTask(c *gin.Context) {
 // BacktestExchangeInfo 回测交易所信息
 type BacktestExchangeInfo struct {
 	Exchange     string   `json:"exchange"`
-	MarketTypes  []string `json:"market_types"` // 支援的市場類型：spot, futures
+	MarketTypes  []string `json:"market_types"`  // 支援的市場類型：spot, futures
 	IsConfigured bool     `json:"is_configured"` // 是否已在 config 中配置
 }
 
@@ -586,7 +633,7 @@ func getBacktestExchanges(c *gin.Context) {
 type BacktestSymbolInfo struct {
 	Symbol       string `json:"symbol"`
 	Exchange     string `json:"exchange"`
-	MarketType   string `json:"market_type"` // spot 或 futures
+	MarketType   string `json:"market_type"`   // spot 或 futures
 	IsConfigured bool   `json:"is_configured"` // 是否已在 config 中配置
 }
 
@@ -1081,9 +1128,9 @@ func getAutoSchedulerStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":          true,
-		"enabled":          config.Enabled,
-		"running":          autoBacktestScheduler.IsRunning(),
+		"success":           true,
+		"enabled":           config.Enabled,
+		"running":           autoBacktestScheduler.IsRunning(),
 		"schedule_interval": config.ScheduleInterval.String(),
 		"total_tasks":       len(results),
 		"ready_count":       readyCount,

@@ -55,6 +55,22 @@ export async function getSystemStatuses(): Promise<SystemStatusesResponse> {
   return fetchWithAuth(`${API_BASE_URL}/statuses`)
 }
 
+// 後台服務狀態（存儲、回測等）
+export interface ServiceStatusItem {
+  id: string
+  name: string
+  ok: boolean
+  message?: string
+}
+
+export interface ServicesStatusResponse {
+  services: ServiceStatusItem[]
+}
+
+export async function getServicesStatus(): Promise<ServicesStatusResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/services/status`)
+}
+
 // Alias for backward compatibility
 export const getStatus = getSystemStatus
 
@@ -130,6 +146,9 @@ export async function getPositions(exchange?: string, symbol?: string): Promise<
 
 // positions/summary 返回的是“扁平”結構（非 {summary: ...} 包装）
 export interface PositionsSummary {
+  exchange?: string
+  symbol?: string
+  strategy?: string
   total_quantity: number
   total_value: number
   position_count: number
@@ -168,6 +187,38 @@ export async function getPositionsSummary(exchange?: string, symbol?: string): P
   if (symbol) queryParams.append('symbol', symbol)
   const url = `${API_BASE_URL}/positions/summary${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
+}
+
+// 按交易所、币种、策略列出的所有持倉彙總
+export interface PositionSummaryItem {
+  exchange: string
+  symbol: string
+  strategy: string
+  total_quantity: number
+  total_value: number
+  position_count: number
+  average_price: number
+  current_price: number
+  unrealized_pnl: number
+  pnl_percentage: number
+  actual_margin: number
+  leverage: number
+  exchange_data?: {
+    has_data: boolean
+    quantity: number
+    entry_price: number
+    mark_price: number
+    unrealized_pnl: number
+    leverage: number
+  }
+}
+
+export interface PositionsSummaryAllResponse {
+  positions: PositionSummaryItem[]
+}
+
+export async function getPositionsSummaryAll(): Promise<PositionsSummaryAllResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/positions/summary/all`)
 }
 
 // Orders
