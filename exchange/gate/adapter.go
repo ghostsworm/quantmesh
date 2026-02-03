@@ -930,31 +930,33 @@ func (g *GateAdapter) GetOrderBook(ctx context.Context, symbol string, limit int
 	// 轉换買盘數據（價格從高到低，Gate.io 已經按此顺序返回）
 	bids := make([]OrderBookLevel, 0, len(gateOrderBook.Bids))
 	for _, bid := range gateOrderBook.Bids {
-		if len(bid) < 2 {
+		price, err := strconv.ParseFloat(bid.P, 64)
+		if err != nil {
 			continue
 		}
 		bids = append(bids, OrderBookLevel{
-			Price:    bid[0],
-			Quantity: bid[1],
+			Price:    price,
+			Quantity: float64(bid.S),
 		})
 	}
 
 	// 轉换賣盘數據（價格從低到高，Gate.io 已經按此顺序返回）
 	asks := make([]OrderBookLevel, 0, len(gateOrderBook.Asks))
 	for _, ask := range gateOrderBook.Asks {
-		if len(ask) < 2 {
+		price, err := strconv.ParseFloat(ask.P, 64)
+		if err != nil {
 			continue
 		}
 		asks = append(asks, OrderBookLevel{
-			Price:    ask[0],
-			Quantity: ask[1],
+			Price:    price,
+			Quantity: float64(ask.S),
 		})
 	}
 
-	// 使用時间戳（优先使用 time_s，如果没有则使用 time）
-	timestamp := gateOrderBook.TimeS
+	// 使用更新時间戳
+	timestamp := int64(gateOrderBook.Update)
 	if timestamp == 0 {
-		timestamp = int64(gateOrderBook.Time)
+		timestamp = int64(gateOrderBook.Current)
 	}
 
 	return &OrderBook{

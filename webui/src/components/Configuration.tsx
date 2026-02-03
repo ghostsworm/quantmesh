@@ -1234,7 +1234,7 @@ const Configuration: React.FC = () => {
                       </FormControl>
                       <FormControl>
                         <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.volumeMultiplier')}</FormLabel>
-                        <NumberInput value={config.risk_control?.volume_multiplier || 0} onChange={(_, v) => updateConfigField('risk_control.volume_multiplier', v)} precision={1}>
+                        <NumberInput value={config.risk_control?.volume_multiplier || 0} onChange={(_, v) => updateConfigField('risk_control.volume_multiplier', v)} precision={2} step={0.1}>
                           <NumberInputField borderRadius="xl" />
                         </NumberInput>
                       </FormControl>

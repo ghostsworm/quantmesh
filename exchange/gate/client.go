@@ -289,13 +289,19 @@ func (c *Client) GetCandlesticks(ctx context.Context, settle, contract, interval
 	return candlesticks, nil
 }
 
+// GateOrderBookItem Gate.io 订單簿條目結構
+type GateOrderBookItem struct {
+	P string `json:"p"` // 價格 (字符串)
+	S int64  `json:"s"` // 數量
+}
+
 // GateOrderBookResponse Gate.io 订單簿响应結構
 type GateOrderBookResponse struct {
-	ID    int64       `json:"id"`    // 订單簿ID
-	Asks  [][]float64 `json:"asks"`  // 賣盘 [[價格, 數量], ...]
-	Bids  [][]float64 `json:"bids"`  // 買盘 [[價格, 數量], ...]
-	Time  float64     `json:"time"`  // 時间戳（秒）
-	TimeS int64       `json:"time_s"` // 時间戳（秒，整數）
+	ID      int64               `json:"id"`      // 订單簿ID
+	Current float64             `json:"current"` // 當前時间
+	Update  float64             `json:"update"`  // 更新時间
+	Asks    []GateOrderBookItem `json:"asks"`    // 賣盘 [{p: 價格, s: 數量}, ...]
+	Bids    []GateOrderBookItem `json:"bids"`    // 買盘 [{p: 價格, s: 數量}, ...]
 }
 
 // GetOrderBook 獲取訂單簿深度
