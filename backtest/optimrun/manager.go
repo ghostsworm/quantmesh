@@ -116,6 +116,22 @@ func (m *OptimTaskManager) RunTask(id string) error {
 		return nil
 	}
 
+	// 写入任务上下文，供前端结果弹窗标题等展示
+	result.Symbol = task.Symbol
+	result.Interval = task.Interval
+	result.StartTime = task.StartTime
+	result.EndTime = task.EndTime
+	result.UseOrderDepth = false // 当前参数优化未接入订单深度
+	result.RiskInfo = "无"
+	if space.Ranges != nil {
+		if _, ok := space.Ranges["risk_volume_multiplier"]; ok {
+			result.RiskInfo = "成交量风控"
+		}
+		if _, ok := space.Ranges["risk_average_window"]; ok {
+			result.RiskInfo = "成交量风控"
+		}
+	}
+
 	// 保存结果
 	if err := os.MkdirAll(m.resultsDir, 0755); err != nil {
 		m.failTask(id, fmt.Sprintf("创建结果目录失败: %v", err))

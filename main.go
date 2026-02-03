@@ -84,7 +84,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.34.0-rc7"
+var Version = "3.34.0-rc12"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {

@@ -424,6 +424,18 @@ export interface OptimParamResult {
 export interface OptimResult {
   task_id: string
   strategy: string
+  /** 交易对（结果文件含任务上下文时存在） */
+  symbol?: string
+  /** K 线类型：tick、1m、5m 等 */
+  interval?: string
+  /** K 线起始时间（ISO 字符串） */
+  start_time?: string
+  /** K 线结束时间（ISO 字符串） */
+  end_time?: string
+  /** 是否使用订单深度风控 */
+  use_order_depth?: boolean
+  /** 风控参与说明：如 成交量风控、无 */
+  risk_info?: string
   all_results: OptimParamResult[]
   best_by_return?: OptimParamResult
   best_by_sharpe?: OptimParamResult

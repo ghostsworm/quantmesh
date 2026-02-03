@@ -138,11 +138,45 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading }:
   const isBestBySharpe = (r: OptimParamResult) =>
     bestBySharpe && r.sharpe_ratio === bestBySharpe.sharpe_ratio && JSON.stringify(r.params) === JSON.stringify(bestBySharpe.params)
 
+  // 标题：交易对 · 策略 · K线类型 · 风控(含订单深度?) · K线起始时间（无任务上下文时仅显示「参数优化结果」）
+  const resultTitle = useMemo(() => {
+    if (!result) return '参数优化结果'
+    const hasContext = result.symbol ?? result.interval ?? result.start_time
+    if (!hasContext) return '参数优化结果'
+    const parts: string[] = []
+    parts.push(result.symbol ?? '–')
+    parts.push(result.strategy ?? '–')
+    const intervalLabel = result.interval
+      ? result.interval.toLowerCase() === 'tick'
+        ? 'tick 线'
+        : `${result.interval} 线`
+      : '–'
+    parts.push(intervalLabel)
+    const riskLabel = [result.risk_info ?? '无']
+    if (result.use_order_depth) riskLabel.push('订单深度')
+    parts.push(riskLabel.join(' + '))
+    if (result.start_time && result.end_time) {
+      try {
+        const s = new Date(result.start_time)
+        const e = new Date(result.end_time)
+        const fmt = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ')
+        parts.push(`${fmt(s)} ~ ${fmt(e)}`)
+      } catch {
+        parts.push('–')
+      }
+    } else {
+      parts.push('–')
+    }
+    return parts.join(' · ')
+  }, [result])
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent maxH="90vh">
-        <ModalHeader>参数优化结果</ModalHeader>
+        <ModalHeader title={resultTitle} fontSize="md" noOfLines={2} whiteSpace="normal">
+          {resultTitle}
+        </ModalHeader>
         <ModalCloseButton />
         <ModalBody overflowY="auto">
           {isLoading && (
