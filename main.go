@@ -84,7 +84,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.32.0"
+var Version = "3.33.0"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
@@ -749,6 +749,11 @@ func (a *symbolManagerWebAdapter) GetAllStrategyStatus(exchange, symbol string) 
 			}
 		}
 
+		// 轉換可视化數據
+		if s.VisualizationData != nil {
+			resp.VisualizationData = s.VisualizationData
+		}
+
 		result = append(result, resp)
 	}
 
@@ -823,6 +828,11 @@ func (a *symbolManagerWebAdapter) GetStrategyStatus(exchange, symbol, strategyNa
 				Status:   o.Status,
 			})
 		}
+	}
+
+	// 轉換可视化數據
+	if s.VisualizationData != nil {
+		resp.VisualizationData = s.VisualizationData
 	}
 
 	return resp, nil

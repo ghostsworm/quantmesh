@@ -125,3 +125,77 @@ func (gs *GridStrategy) GetStatistics() *StrategyStatistics {
 func (gs *GridStrategy) GetManager() *position.SuperPositionManager {
 	return gs.manager
 }
+
+// GetVisualizationData 獲取策略可视化數據
+func (gs *GridStrategy) GetVisualizationData() map[string]interface{} {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+
+	data := make(map[string]interface{})
+
+	if gs.manager == nil {
+		return data
+	}
+
+	// 獲取所有槽位信息
+	slots := gs.manager.GetAllSlotsDetailed()
+	slotData := make([]map[string]interface{}, 0, len(slots))
+
+	var minPrice, maxPrice float64
+	filledCount := 0
+	emptyCount := 0
+
+	for i, slot := range slots {
+		if i == 0 {
+			minPrice = slot.Price
+			maxPrice = slot.Price
+		} else {
+			if slot.Price < minPrice {
+				minPrice = slot.Price
+			}
+			if slot.Price > maxPrice {
+				maxPrice = slot.Price
+			}
+		}
+
+		if slot.PositionStatus == "FILLED" {
+			filledCount++
+		} else {
+			emptyCount++
+		}
+
+		slotData = append(slotData, map[string]interface{}{
+			"price":          slot.Price,
+			"positionStatus": slot.PositionStatus,
+			"positionQty":    slot.PositionQty,
+			"orderID":        slot.OrderID,
+			"orderSide":      slot.OrderSide,
+			"orderStatus":    slot.OrderStatus,
+			"orderPrice":     slot.OrderPrice,
+			"slotStatus":     slot.SlotStatus,
+		})
+	}
+
+	data["slots"] = slotData
+	data["slotCount"] = len(slots)
+	data["filledCount"] = filledCount
+	data["emptyCount"] = emptyCount
+
+	// 网格价格区间
+	if minPrice > 0 && maxPrice > 0 {
+		data["minPrice"] = minPrice
+		data["maxPrice"] = maxPrice
+		data["priceRange"] = maxPrice - minPrice
+	}
+
+	// 价格间隔
+	if gs.cfg != nil && gs.cfg.Trading.PriceInterval > 0 {
+		data["priceInterval"] = gs.cfg.Trading.PriceInterval
+	}
+
+	// 当前价格（如果有的话）
+	// 注意：SuperPositionManager可能没有直接暴露当前价格的方法
+	// 这里可以从槽位中推断或从其他地方获取
+
+	return data
+}

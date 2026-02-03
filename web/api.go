@@ -2567,9 +2567,9 @@ func getStrategyAllocation(c *gin.Context) {
 }
 
 // releaseStrategyCapital 释放策略的锁定资金
-// POST /api/strategies/:name/release-capital
+// POST /api/strategies/:id/release-capital
 func releaseStrategyCapital(c *gin.Context) {
-	strategyName := c.Param("name")
+	strategyName := c.Param("id")
 	if strategyName == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少策略名称"})
 		return

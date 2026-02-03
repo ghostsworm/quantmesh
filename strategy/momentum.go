@@ -259,3 +259,9 @@ func (ms *MomentumStrategy) GetStatistics() *StrategyStatistics {
 		TotalVolume: 0,
 	}
 }
+
+// GetVisualizationData 獲取策略可视化數據
+func (ms *MomentumStrategy) GetVisualizationData() map[string]interface{} {
+	// TODO: 实现Momentum策略的可视化数据
+	return make(map[string]interface{})
+}

@@ -4,6 +4,28 @@
 
 ## [Unreleased]
 
+## [3.33.0] - 2026-02-03
+
+### Added
+- **策略可视化功能**：为DCA、趋势跟踪、均值回归、网格等主要策略添加可视化展示
+  - 在Dashboard首页为每个有资金分配的策略显示可视化卡片
+  - DCA策略可视化：显示分层持仓、ATR动态间距、止盈止损线、决策依据
+  - 趋势跟踪策略可视化：显示快慢均线、金叉/死叉信号、趋势方向、持仓状态
+  - 均值回归策略可视化：显示布林带上下中轨、价格在布林带中的位置、买入/卖出信号
+  - 网格策略可视化：显示网格价格区间、槽位状态、填充率
+  - 后端：扩展 `StrategyRuntimeStatusResponse` 添加 `visualizationData` 字段，为各策略实现 `GetVisualizationData()` 方法
+  - 前端：新增 `strategy-visualization` 组件库，包含 `PriceChart` 共享组件和各策略专用可视化组件
+  - API：`/api/strategies/runtime` 接口现在返回策略可视化数据
+  - 实时更新：可视化数据随策略状态每5秒自动刷新
+
+## [3.32.1] - 2026-02-03
+
+### Fixed
+- **修复"释放"按钮404错误**：修复概览页面点击策略资金"释放"按钮时返回404的问题
+  - 原因：`/api/strategies/:name/release-capital` 与 `/api/strategies/:id` 路由冲突
+  - 解决：将 release-capital 路由移入 strategies 路由组，统一使用 `:id` 参数
+  - 影响文件：`web/server.go`、`web/api.go`
+
 ## [3.32.0] - 2026-02-03
 
 ### Added

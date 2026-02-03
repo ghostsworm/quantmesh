@@ -21,7 +21,8 @@ type Strategy interface {
 	GetStatistics() *StrategyStatistics
 	Start(ctx context.Context) error
 	Stop() error
-	SetEventBus(bus EventBus) // 新增：設置事件總線
+	SetEventBus(bus EventBus)                     // 新增：設置事件總線
+	GetVisualizationData() map[string]interface{} // 新增：獲取策略可视化數據
 }
 
 // EventBus 事件總線接口
@@ -244,19 +245,20 @@ func (sm *StrategyManager) GetDynamicAllocator() *DynamicAllocator {
 
 // StrategyRuntimeStatus 策略運行時狀態
 type StrategyRuntimeStatus struct {
-	Name           string              `json:"name"`
-	Type           string              `json:"type"`
-	IsEnabled      bool                `json:"isEnabled"`
-	IsRunning      bool                `json:"isRunning"`
-	Weight         float64             `json:"weight"`
-	AllocatedFunds float64             `json:"allocatedFunds"`
-	UsedFunds      float64             `json:"usedFunds"`
-	AvailableFunds float64             `json:"availableFunds"`
-	Positions      []*Position         `json:"positions"`
-	Orders         []*Order            `json:"orders"`
-	Statistics     *StrategyStatistics `json:"statistics"`
-	PositionCount  int                 `json:"positionCount"`
-	OrderCount     int                 `json:"orderCount"`
+	Name              string                 `json:"name"`
+	Type              string                 `json:"type"`
+	IsEnabled         bool                   `json:"isEnabled"`
+	IsRunning         bool                   `json:"isRunning"`
+	Weight            float64                `json:"weight"`
+	AllocatedFunds    float64                `json:"allocatedFunds"`
+	UsedFunds         float64                `json:"usedFunds"`
+	AvailableFunds    float64                `json:"availableFunds"`
+	Positions         []*Position            `json:"positions"`
+	Orders            []*Order               `json:"orders"`
+	Statistics        *StrategyStatistics    `json:"statistics"`
+	PositionCount     int                    `json:"positionCount"`
+	OrderCount        int                    `json:"orderCount"`
+	VisualizationData map[string]interface{} `json:"visualizationData,omitempty"` // 新增：策略可视化數據
 }
 
 // GetAllStrategyStatus 獲取所有策略的運行狀態
@@ -293,21 +295,23 @@ func (sm *StrategyManager) GetAllStrategyStatus() []StrategyRuntimeStatus {
 		positions := strategy.GetPositions()
 		orders := strategy.GetOrders()
 		stats := strategy.GetStatistics()
+		visualizationData := strategy.GetVisualizationData()
 
 		status := StrategyRuntimeStatus{
-			Name:           name,
-			Type:           strategyType,
-			IsEnabled:      isEnabled,
-			IsRunning:      isEnabled, // 如果啟用就是運行中
-			Weight:         weight,
-			AllocatedFunds: allocatedFunds,
-			UsedFunds:      usedFunds,
-			AvailableFunds: availableFunds,
-			Positions:      positions,
-			Orders:         orders,
-			Statistics:     stats,
-			PositionCount:  len(positions),
-			OrderCount:     len(orders),
+			Name:              name,
+			Type:              strategyType,
+			IsEnabled:         isEnabled,
+			IsRunning:         isEnabled, // 如果啟用就是運行中
+			Weight:            weight,
+			AllocatedFunds:    allocatedFunds,
+			UsedFunds:         usedFunds,
+			AvailableFunds:    availableFunds,
+			Positions:         positions,
+			Orders:            orders,
+			Statistics:        stats,
+			PositionCount:     len(positions),
+			OrderCount:        len(orders),
+			VisualizationData: visualizationData,
 		}
 
 		statuses = append(statuses, status)
@@ -352,20 +356,22 @@ func (sm *StrategyManager) GetStrategyStatus(name string) *StrategyRuntimeStatus
 	positions := strategy.GetPositions()
 	orders := strategy.GetOrders()
 	stats := strategy.GetStatistics()
+	visualizationData := strategy.GetVisualizationData()
 
 	return &StrategyRuntimeStatus{
-		Name:           name,
-		Type:           strategyType,
-		IsEnabled:      isEnabled,
-		IsRunning:      isEnabled,
-		Weight:         weight,
-		AllocatedFunds: allocatedFunds,
-		UsedFunds:      usedFunds,
-		AvailableFunds: availableFunds,
-		Positions:      positions,
-		Orders:         orders,
-		Statistics:     stats,
-		PositionCount:  len(positions),
-		OrderCount:     len(orders),
+		Name:              name,
+		Type:              strategyType,
+		IsEnabled:         isEnabled,
+		IsRunning:         isEnabled,
+		Weight:            weight,
+		AllocatedFunds:    allocatedFunds,
+		UsedFunds:         usedFunds,
+		AvailableFunds:    availableFunds,
+		Positions:         positions,
+		Orders:            orders,
+		Statistics:        stats,
+		PositionCount:     len(positions),
+		OrderCount:        len(orders),
+		VisualizationData: visualizationData,
 	}
 }

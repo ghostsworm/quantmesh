@@ -34,28 +34,28 @@ type DCAEnhancedStrategy struct {
 	mu           sync.RWMutex
 
 	// 倉位管理
-	layers       []*DCALayer // 分层倉位
-	totalCost    float64     // 總成本
-	totalQty     float64     // 總持倉量
-	avgEntryPrice float64    // 平均入场價
-	maxLayers    int         // 最大层數
-	currentLayer int         // 當前层數
+	layers        []*DCALayer // 分层倉位
+	totalCost     float64     // 總成本
+	totalQty      float64     // 總持倉量
+	avgEntryPrice float64     // 平均入场價
+	maxLayers     int         // 最大层數
+	currentLayer  int         // 當前层數
 
 	// ATR 动態间距
-	atr           *indicators.ATR
-	baseInterval  float64 // 基础间距
+	atr             *indicators.ATR
+	baseInterval    float64 // 基础间距
 	dynamicInterval float64 // 动態间距
 
 	// 止盈追踪
-	highestProfit float64 // 最高盈利点
-	takeProfitTriggered bool // 是否触发止盈追踪
+	highestProfit       float64 // 最高盈利点
+	takeProfitTriggered bool    // 是否触发止盈追踪
 
 	// 状態
-	ctx           context.Context
-	cancel        context.CancelFunc
-	isRunning     bool
-	isPaused      bool // 暂停加倉（瀑布下跌保护）
-	pauseUntil    time.Time
+	ctx        context.Context
+	cancel     context.CancelFunc
+	isRunning  bool
+	isPaused   bool // 暂停加倉（瀑布下跌保护）
+	pauseUntil time.Time
 
 	// 统计
 	stats *StrategyStatistics
@@ -67,37 +67,37 @@ type DCAEnhancedStrategy struct {
 // DCAEnhancedConfig 增强型 DCA 配置
 type DCAEnhancedConfig struct {
 	// 基础配置
-	Symbol          string  `yaml:"symbol"`
-	BaseOrderAmount float64 `yaml:"base_order_amount"` // 基础订單金額 (USDT)
+	Symbol            string  `yaml:"symbol"`
+	BaseOrderAmount   float64 `yaml:"base_order_amount"`   // 基础订單金額 (USDT)
 	SafetyOrderAmount float64 `yaml:"safety_order_amount"` // 安全订單金額 (USDT)
-	MaxSafetyOrders int     `yaml:"max_safety_orders"` // 最大安全订單數 (最多50层)
-	
+	MaxSafetyOrders   int     `yaml:"max_safety_orders"`   // 最大安全订單數 (最多50层)
+
 	// ATR 动態间距
-	ATRPeriod       int     `yaml:"atr_period"`        // ATR 周期
-	ATRMultiplier   float64 `yaml:"atr_multiplier"`    // ATR 乘數
-	MinPriceStep    float64 `yaml:"min_price_step"`    // 最小價格间距 (%)
-	MaxPriceStep    float64 `yaml:"max_price_step"`    // 最大價格间距 (%)
-	
+	ATRPeriod     int     `yaml:"atr_period"`     // ATR 周期
+	ATRMultiplier float64 `yaml:"atr_multiplier"` // ATR 乘數
+	MinPriceStep  float64 `yaml:"min_price_step"` // 最小價格间距 (%)
+	MaxPriceStep  float64 `yaml:"max_price_step"` // 最大價格间距 (%)
+
 	// 倉位遞增
 	SafetyOrderScale float64 `yaml:"safety_order_scale"` // 安全订單遞增倍數 (1.0-2.0)
 	SafetyOrderStep  float64 `yaml:"safety_order_step"`  // 安全订單间距遞增 (1.0-2.0)
-	
+
 	// 三重止盈
 	FirstOrderTakeProfit float64 `yaml:"first_order_take_profit"` // 首單止盈比例 (%)
 	LastOrderTakeProfit  float64 `yaml:"last_order_take_profit"`  // 尾單止盈比例 (%)
 	TotalTakeProfit      float64 `yaml:"total_take_profit"`       // 全倉止盈比例 (%)
 	TrailingTakeProfit   float64 `yaml:"trailing_take_profit"`    // 追踪止盈回撤比例 (%)
 	TrailingActivation   float64 `yaml:"trailing_activation"`     // 追踪止盈激活阈值 (%)
-	
+
 	// 止损
 	StopLoss         float64 `yaml:"stop_loss"`          // 止损比例 (%)
 	TrailingStopLoss float64 `yaml:"trailing_stop_loss"` // 追踪止损比例 (%)
-	
+
 	// 防瀑布保护
-	CascadeProtection     bool    `yaml:"cascade_protection"`      // 啟用瀑布保护
-	CascadeDropThreshold  float64 `yaml:"cascade_drop_threshold"`  // 瀑布下跌阈值 (%)
-	CascadePauseDuration  int     `yaml:"cascade_pause_duration"`  // 暂停時长 (秒)
-	
+	CascadeProtection    bool    `yaml:"cascade_protection"`     // 啟用瀑布保护
+	CascadeDropThreshold float64 `yaml:"cascade_drop_threshold"` // 瀑布下跌阈值 (%)
+	CascadePauseDuration int     `yaml:"cascade_pause_duration"` // 暂停時长 (秒)
+
 	// 趨勢過濾
 	TrendFilterEnabled bool   `yaml:"trend_filter_enabled"` // 啟用趨勢過濾
 	TrendMethod        string `yaml:"trend_method"`         // 趋势判断方法 (ma/ema/macd)
@@ -106,13 +106,13 @@ type DCAEnhancedConfig struct {
 
 // DCALayer 分层倉位
 type DCALayer struct {
-	Index       int       // 层级索引
-	Price       float64   // 入场價格
-	Quantity    float64   // 持倉數量
-	Cost        float64   // 成本
-	OrderID     int64     // 订單ID
-	Status      string    // 状態: pending/filled/closed
-	FilledAt    time.Time // 成交時间
+	Index    int       // 层级索引
+	Price    float64   // 入场價格
+	Quantity float64   // 持倉數量
+	Cost     float64   // 成本
+	OrderID  int64     // 订單ID
+	Status   string    // 状態: pending/filled/closed
+	FilledAt time.Time // 成交時间
 }
 
 // NewDCAEnhancedStrategy 創建增强型 DCA 策略
@@ -372,7 +372,7 @@ func (s *DCAEnhancedStrategy) OnPriceChange(price float64) error {
 // updateCandle 更新 K線數據
 func (s *DCAEnhancedStrategy) updateCandle(price float64) {
 	now := time.Now().Unix()
-	
+
 	if len(s.candles) == 0 {
 		s.candles = append(s.candles, indicators.Candle{
 			Time:   now,
@@ -474,21 +474,21 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 		minQty := math.Pow10(-qDec)
 		logger.Error("🚨 [%s] 基础订單數量過小 (%.8f)，低於交易所最小精度 (%.8f)，策略已自动暂停！请在配置中調大 BaseOrderAmount", s.name, quantity, minQty)
 		s.isPaused = true
-		
+
 		// 发布事件
 		if s.eventBus != nil {
 			s.eventBus.Publish(&event.Event{
 				Type:      event.EventTypePrecisionAdjustment,
 				Timestamp: time.Now(),
 				Data: map[string]interface{}{
-					"symbol":           s.strategyCfg.Symbol,
-					"strategy":         s.name,
-					"order_amount":     s.strategyCfg.BaseOrderAmount,
-					"calculated_qty":   quantity,
-					"min_qty":          minQty,
-					"price":            orderPrice,
-					"action":           "pause",
-					"reason":           "基础订單數量低於交易所最小精度",
+					"symbol":         s.strategyCfg.Symbol,
+					"strategy":       s.name,
+					"order_amount":   s.strategyCfg.BaseOrderAmount,
+					"calculated_qty": quantity,
+					"min_qty":        minQty,
+					"price":          orderPrice,
+					"action":         "pause",
+					"reason":         "基础订單數量低於交易所最小精度",
 				},
 			})
 		}
@@ -559,22 +559,22 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 		minQty := math.Pow10(-qDec)
 		logger.Error("🚨 [%s] 安全订單 #%d 數量過小 (%.8f)，低於交易所最小精度 (%.8f)，策略已自动暂停！", s.name, s.currentLayer, quantity, minQty)
 		s.isPaused = true
-		
+
 		// 发布事件
 		if s.eventBus != nil {
 			s.eventBus.Publish(&event.Event{
 				Type:      event.EventTypePrecisionAdjustment,
 				Timestamp: time.Now(),
 				Data: map[string]interface{}{
-					"symbol":           s.strategyCfg.Symbol,
-					"strategy":         s.name,
-					"layer":            s.currentLayer,
-					"order_amount":     orderAmount,
-					"calculated_qty":   quantity,
-					"min_qty":          minQty,
-					"price":            orderPrice,
-					"action":           "pause",
-					"reason":           "安全订單數量低於交易所最小精度",
+					"symbol":         s.strategyCfg.Symbol,
+					"strategy":       s.name,
+					"layer":          s.currentLayer,
+					"order_amount":   orderAmount,
+					"calculated_qty": quantity,
+					"min_qty":        minQty,
+					"price":          orderPrice,
+					"action":         "pause",
+					"reason":         "安全订單數量低於交易所最小精度",
 				},
 			})
 		}
@@ -900,4 +900,98 @@ func (s *DCAEnhancedStrategy) IsPaused() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.isPaused
+}
+
+// GetVisualizationData 獲取策略可视化數據
+func (s *DCAEnhancedStrategy) GetVisualizationData() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	data := make(map[string]interface{})
+
+	// 分层持仓数据
+	layers := make([]map[string]interface{}, 0, len(s.layers))
+	for i, layer := range s.layers {
+		currentPnL := 0.0
+		if s.lastPrice > 0 {
+			currentPnL = layer.Quantity*s.lastPrice - layer.Cost
+		}
+		pnlPercent := 0.0
+		if layer.Cost > 0 {
+			pnlPercent = (currentPnL / layer.Cost) * 100
+		}
+
+		layers = append(layers, map[string]interface{}{
+			"index":      i + 1,
+			"price":      layer.Price,
+			"quantity":   layer.Quantity,
+			"cost":       layer.Cost,
+			"pnl":        currentPnL,
+			"pnlPercent": pnlPercent,
+			"status":     layer.Status,
+			"filledAt":   layer.FilledAt.Unix(),
+		})
+	}
+	data["layers"] = layers
+
+	// ATR和动态间距
+	atrValue := 0.0
+	if s.atr != nil && len(s.candles) >= s.strategyCfg.ATRPeriod+1 {
+		atrValue = s.atr.CurrentATR(s.candles)
+	}
+	data["atr"] = atrValue
+	data["dynamicInterval"] = s.dynamicInterval
+	data["baseInterval"] = s.baseInterval
+	data["minPriceStep"] = s.strategyCfg.MinPriceStep
+	data["maxPriceStep"] = s.strategyCfg.MaxPriceStep
+
+	// 当前价格和平均成本
+	data["currentPrice"] = s.lastPrice
+	data["avgEntryPrice"] = s.avgEntryPrice
+	data["totalCost"] = s.totalCost
+	data["totalQty"] = s.totalQty
+
+	// 止盈止损线
+	if s.avgEntryPrice > 0 {
+		data["firstOrderTakeProfit"] = s.avgEntryPrice * (1 + s.strategyCfg.FirstOrderTakeProfit/100)
+		data["lastOrderTakeProfit"] = s.avgEntryPrice * (1 + s.strategyCfg.LastOrderTakeProfit/100)
+		data["totalTakeProfit"] = s.avgEntryPrice * (1 + s.strategyCfg.TotalTakeProfit/100)
+		data["stopLoss"] = s.avgEntryPrice * (1 - s.strategyCfg.StopLoss/100)
+	}
+
+	// 下一买入点
+	if len(s.layers) > 0 && s.currentLayer < s.maxLayers {
+		lastLayer := s.layers[len(s.layers)-1]
+		requiredDrop := s.getRequiredDrop(s.currentLayer)
+		nextBuyPrice := lastLayer.Price * (1 - requiredDrop/100)
+		data["nextBuyPrice"] = nextBuyPrice
+		data["requiredDrop"] = requiredDrop
+		if s.lastPrice > 0 {
+			distanceToNextBuy := ((s.lastPrice - nextBuyPrice) / s.lastPrice) * 100
+			data["distanceToNextBuy"] = distanceToNextBuy
+		}
+	}
+
+	// 瀑布保护状态
+	data["isPaused"] = s.isPaused
+	data["pauseUntil"] = s.pauseUntil.Unix()
+	data["cascadeProtection"] = s.strategyCfg.CascadeProtection
+
+	// 趋势过滤状态
+	if s.strategyCfg.TrendFilterEnabled {
+		data["trendFilterEnabled"] = true
+		data["isTrendUp"] = s.isTrendUp()
+	} else {
+		data["trendFilterEnabled"] = false
+	}
+
+	// 追踪止盈状态
+	data["takeProfitTriggered"] = s.takeProfitTriggered
+	data["highestProfit"] = s.highestProfit
+
+	// 层级信息
+	data["currentLayer"] = len(s.layers)
+	data["maxLayers"] = s.maxLayers
+
+	return data
 }

@@ -36,6 +36,9 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital } from '../services/api'
+import { getStrategyRuntimeStatus } from '../services/strategy'
+import StrategyVisualization from './strategy-visualization/StrategyVisualization'
+import type { StrategyRuntimeStatus } from '../services/strategy'
 import { checkSetupStatus } from '../services/setup'
 import { Alert, AlertIcon, AlertTitle, AlertDescription, useDisclosure } from '@chakra-ui/react'
 import { NewbieCheckModal } from './NewbieCheckModal'
@@ -93,6 +96,7 @@ const Dashboard: React.FC = () => {
   const [strategyAllocation, setStrategyAllocation] = useState<StrategyAllocationResponse | null>(null)
   const [pendingOrders, setPendingOrders] = useState<PendingOrdersResponse | null>(null)
   const [positionsSummary, setPositionsSummary] = useState<any>(null)
+  const [strategyRuntimeStatuses, setStrategyRuntimeStatuses] = useState<StrategyRuntimeStatus[]>([])
   const [isTrading, setIsTrading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [togglePending, setTogglePending] = useState(false) // 启动/停止请求进行中，防重复点击
@@ -121,13 +125,14 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statusData, statsData, slotsData, allocationData, ordersData, positionsData] = await Promise.all([
+        const [statusData, statsData, slotsData, allocationData, ordersData, positionsData, runtimeStatuses] = await Promise.all([
           getStatus(selectedExchange || undefined, selectedSymbol || undefined),
           getStatistics(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
           getSlots(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
           getStrategyAllocation().catch(() => null),
           getPendingOrders().catch(() => null),
           getPositionsSummary(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
+          getStrategyRuntimeStatus(selectedExchange || undefined, selectedSymbol || undefined).catch(() => ({ success: true, strategies: [] })),
         ])
         setStatus(statusData)
         setStatistics(statsData)
@@ -135,6 +140,9 @@ const Dashboard: React.FC = () => {
         setStrategyAllocation(allocationData)
         setPendingOrders(ordersData)
         setPositionsSummary(positionsData)
+        if (runtimeStatuses && runtimeStatuses.success) {
+          setStrategyRuntimeStatuses(runtimeStatuses.strategies || [])
+        }
         // 只有當状態匹配當前选擇的币种時才更新 isTrading
         const isMatched = statusData?.exchange?.toLowerCase() === selectedExchange?.toLowerCase() &&
           statusData?.symbol?.toUpperCase() === selectedSymbol?.toUpperCase()
@@ -696,6 +704,31 @@ const Dashboard: React.FC = () => {
             <Text color="gray.400" fontSize="sm">{t('dashboard.noSlotsInfo')}</Text>
           )}
         </GlassCard>
+
+        {/* 策略可视化 */}
+        {strategyAllocation && strategyRuntimeStatuses.length > 0 && (
+          <>
+            {Object.entries(strategyAllocation.allocation)
+              .filter(([name, cap]) => cap.allocated > 0)
+              .map(([name, cap]) => {
+                const strategyStatus = strategyRuntimeStatuses.find(s => s.name === name)
+                if (!strategyStatus || !strategyStatus.visualizationData) return null
+                
+                return (
+                  <GlassCard 
+                    key={name} 
+                    title={`${t(`strategyNames.${name}`, { defaultValue: name })} - 策略可视化`}
+                  >
+                    <StrategyVisualization
+                      strategy={strategyStatus}
+                      exchange={selectedExchange}
+                      symbol={selectedSymbol}
+                    />
+                  </GlassCard>
+                )
+              })}
+          </>
+        )}
       </VStack>
       <NewbieCheckModal isOpen={isNewbieCheckOpen} onClose={onNewbieCheckClose} />
     </Container>

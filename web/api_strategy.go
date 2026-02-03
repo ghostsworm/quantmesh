@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"quantmesh/config"
+
+	"github.com/gin-gonic/gin"
 )
 
 // StrategyInfo 策略信息
@@ -60,13 +61,13 @@ type ChangelogEntry struct {
 
 // StrategyPerformance 策略性能
 type StrategyPerformance struct {
-	WinRate         float64 `json:"winRate"`
-	AvgProfit       float64 `json:"avgProfit"`
-	MaxDrawdown     float64 `json:"maxDrawdown"`
-	SharpeRatio     float64 `json:"sharpeRatio"`
-	TotalTrades     int     `json:"totalTrades"`
-	BacktestPeriod  string  `json:"backtestPeriod"`
-	LastUpdated     string  `json:"lastUpdated"`
+	WinRate        float64 `json:"winRate"`
+	AvgProfit      float64 `json:"avgProfit"`
+	MaxDrawdown    float64 `json:"maxDrawdown"`
+	SharpeRatio    float64 `json:"sharpeRatio"`
+	TotalTrades    int     `json:"totalTrades"`
+	BacktestPeriod string  `json:"backtestPeriod"`
+	LastUpdated    string  `json:"lastUpdated"`
 }
 
 // StrategyLicense 策略授权
@@ -755,19 +756,20 @@ func getTierInstances(tier string) int {
 
 // StrategyRuntimeStatusResponse 策略運行狀態響應
 type StrategyRuntimeStatusResponse struct {
-	Name           string                   `json:"name"`
-	Type           string                   `json:"type"`
-	IsEnabled      bool                     `json:"isEnabled"`
-	IsRunning      bool                     `json:"isRunning"`
-	Weight         float64                  `json:"weight"`
-	AllocatedFunds float64                  `json:"allocatedFunds"`
-	UsedFunds      float64                  `json:"usedFunds"`
-	AvailableFunds float64                  `json:"availableFunds"`
-	PositionCount  int                      `json:"positionCount"`
-	OrderCount     int                      `json:"orderCount"`
-	Statistics     *StrategyStatsResponse   `json:"statistics"`
-	Positions      []StrategyPositionResp   `json:"positions,omitempty"`
-	Orders         []StrategyOrderResp      `json:"orders,omitempty"`
+	Name              string                 `json:"name"`
+	Type              string                 `json:"type"`
+	IsEnabled         bool                   `json:"isEnabled"`
+	IsRunning         bool                   `json:"isRunning"`
+	Weight            float64                `json:"weight"`
+	AllocatedFunds    float64                `json:"allocatedFunds"`
+	UsedFunds         float64                `json:"usedFunds"`
+	AvailableFunds    float64                `json:"availableFunds"`
+	PositionCount     int                    `json:"positionCount"`
+	OrderCount        int                    `json:"orderCount"`
+	Statistics        *StrategyStatsResponse `json:"statistics"`
+	Positions         []StrategyPositionResp `json:"positions,omitempty"`
+	Orders            []StrategyOrderResp    `json:"orders,omitempty"`
+	VisualizationData map[string]interface{} `json:"visualizationData,omitempty"` // 新增：策略可视化數據
 }
 
 // StrategyStatsResponse 策略統計響應
