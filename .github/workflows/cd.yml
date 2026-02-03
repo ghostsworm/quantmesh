@@ -7,6 +7,12 @@ on:
       - 'v*'
       # 純數字版本號：發 release + 構建 docker（如 3.12）
       - '[0-9]+.[0-9]+'
+  workflow_dispatch:  # 手工运行：在 Actions 页选该 workflow，点 "Run workflow"，选分支并填版本号（如 3.34.0）
+    inputs:
+      version:
+        description: '版本号（仅手工运行时用，如 3.34.0）'
+        required: true
+        default: ''
 
 env:
   GO_VERSION: '1.25.4'
@@ -31,9 +37,13 @@ jobs:
     - name: Get version
       id: get_version
       run: |
-        # 移除 v 前缀（如果有）
-        VERSION="${GITHUB_REF#refs/tags/}"
-        VERSION="${VERSION#v}"
+        # 手工运行时用输入的版本号，否则从 tag 解析
+        if [ -n "${{ github.event.inputs.version }}" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+        fi
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
       
     - name: Set up Go
@@ -170,15 +180,27 @@ jobs:
     - name: Get version
       id: get_version
       run: |
-        # 移除 v 前缀（如果有）
-        VERSION="${GITHUB_REF#refs/tags/}"
-        VERSION="${VERSION#v}"
+        if [ -n "${{ github.event.inputs.version }}" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+        fi
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        
+    - name: Set release tag name
+      id: release_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+          echo "tag=v${{ steps.get_version.outputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+        fi
         
     - name: Check tag type
       id: check_tag
       run: |
-        TAG="${GITHUB_REF#refs/tags/}"
+        TAG="${{ steps.release_tag.outputs.tag }}"
         # 检查是否是纯数字版本（如 3.12），不以 v 开头
         if [[ "$TAG" =~ ^[0-9]+\.[0-9]+$ ]]; then
           echo "is_stable=true" >> $GITHUB_OUTPUT
@@ -215,7 +237,7 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.ref_name }}
+        tag_name: ${{ steps.release_tag.outputs.tag }}
         name: Release ${{ steps.get_version.outputs.version }}
         body: |
           ## What's Changed
@@ -225,7 +247,7 @@ jobs:
           
           ### Linux (amd64) - 自動安裝
           ```bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.release_tag.outputs.tag }}/quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
           tar -xzf quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
           cd quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64
           sudo ./install.sh
@@ -233,7 +255,7 @@ jobs:
           
           ### Linux (amd64) - 手動安裝
           ```bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.release_tag.outputs.tag }}/quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
           tar -xzf quantmesh-${{ steps.get_version.outputs.version }}-linux-amd64.tar.gz
           chmod +x quantmesh-linux-amd64
           sudo mv quantmesh-linux-amd64 /usr/local/bin/quantmesh
