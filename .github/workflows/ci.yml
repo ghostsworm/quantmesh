@@ -1,8 +1,11 @@
 name: CI
 
 on:
+  push:
+    branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+  workflow_dispatch:  # 在 Actions 页点击 "Run workflow" 可手工运行
 
 env:
   GO_VERSION: '1.25.4'
