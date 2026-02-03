@@ -42,9 +42,11 @@ import {
   exportSystemMetrics,
   exportLogs,
   exportAuditLogs,
+  exportBacktestReports,
   exportAll,
   ExportParams,
 } from '../services/export'
+import KlineFilesManager from './KlineFilesManager'
 
 interface ExportItem {
   id: string
@@ -170,6 +172,16 @@ const DataExport: React.FC = () => {
       exportFn: exportAuditLogs,
       supportsFormat: false,
       supportsTimeRange: true,
+    },
+    {
+      id: 'backtestReports',
+      titleKey: 'dataExport.items.backtestReports.title',
+      descKey: 'dataExport.items.backtestReports.desc',
+      icon: AttachmentIcon,
+      color: 'orange',
+      exportFn: async () => exportBacktestReports(),
+      supportsFormat: false,
+      supportsTimeRange: false,
     },
   ]
 
@@ -330,6 +342,20 @@ const DataExport: React.FC = () => {
                 {t('dataExport.downloadAll')}
               </Button>
             </Flex>
+          </CardBody>
+        </Card>
+
+        <Divider />
+
+        {/* K线数据文件管理 */}
+        <Card variant="outline" bg="purple.50" borderColor="purple.200">
+          <CardHeader>
+            <Heading size="sm" color="purple.700">
+              K线数据文件管理
+            </Heading>
+          </CardHeader>
+          <CardBody>
+            <KlineFilesManager />
           </CardBody>
         </Card>
 

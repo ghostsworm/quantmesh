@@ -110,6 +110,12 @@ type Storage interface {
 
 	// 智子巡檢報告歷史
 	SaveInspectionReport(report *InspectionReport) error
+
+	// K線文件保護
+	ProtectKlineFile(filename string) error
+	UnprotectKlineFile(filename string) error
+	GetProtectedKlineFiles() ([]string, error)
+	IsKlineFileProtected(filename string) (bool, error)
 }
 
 // storageEvent 存儲事件

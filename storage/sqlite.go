@@ -362,6 +362,9 @@ func createTables(db *sql.DB) error {
 	if err := migrateFundingPaymentsTable(db); err != nil {
 		return fmt.Errorf("迁移 funding_payments 表失败: %w", err)
 	}
+	if err := migrateProtectedKlineFilesTable(db); err != nil {
+		return fmt.Errorf("迁移 protected_kline_files 表失败: %w", err)
+	}
 
 	return nil
 }
@@ -405,6 +408,18 @@ func migrateFundingPaymentsTable(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_exchange_symbol ON funding_payments(exchange, symbol);
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_trade_time ON funding_payments(trade_time);
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_account ON funding_payments(account);
+	`)
+	return err
+}
+
+// migrateProtectedKlineFilesTable 遷移K線文件保護表
+func migrateProtectedKlineFilesTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS protected_kline_files (
+			filename TEXT PRIMARY KEY,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_protected_kline_files_filename ON protected_kline_files(filename);
 	`)
 	return err
 }
@@ -3244,4 +3259,53 @@ func (s *SQLiteStorage) DeleteHourlyEquityRecordsBefore(cutoff time.Time) error 
 		logger.Info("🧹 已清理 %d 条過期小時級數據", affected)
 	}
 	return nil
+}
+
+// ProtectKlineFile 保護K線文件
+func (s *SQLiteStorage) ProtectKlineFile(filename string) error {
+	_, err := s.db.Exec(`
+		INSERT OR IGNORE INTO protected_kline_files (filename) VALUES (?)`,
+		filename)
+	if err != nil {
+		return fmt.Errorf("保護文件失败: %w", err)
+	}
+	return nil
+}
+
+// UnprotectKlineFile 取消保護K線文件
+func (s *SQLiteStorage) UnprotectKlineFile(filename string) error {
+	_, err := s.db.Exec(`DELETE FROM protected_kline_files WHERE filename = ?`, filename)
+	if err != nil {
+		return fmt.Errorf("取消保護文件失败: %w", err)
+	}
+	return nil
+}
+
+// GetProtectedKlineFiles 獲取所有保護的文件列表
+func (s *SQLiteStorage) GetProtectedKlineFiles() ([]string, error) {
+	rows, err := s.db.Query(`SELECT filename FROM protected_kline_files`)
+	if err != nil {
+		return nil, fmt.Errorf("查詢保護文件列表失败: %w", err)
+	}
+	defer rows.Close()
+
+	var files []string
+	for rows.Next() {
+		var filename string
+		if err := rows.Scan(&filename); err != nil {
+			continue
+		}
+		files = append(files, filename)
+	}
+	return files, rows.Err()
+}
+
+// IsKlineFileProtected 檢查文件是否被保護
+func (s *SQLiteStorage) IsKlineFileProtected(filename string) (bool, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM protected_kline_files WHERE filename = ?`, filename).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("查詢文件保護狀態失败: %w", err)
+	}
+	return count > 0, nil
 }
