@@ -340,10 +340,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 槽位API
 			protected.GET("/slots", getSlots)
 
-			// 策略资金分配API
+			// 策略资金分配API（注意：release-capital 路由移到 strategies 组中以避免路由冲突）
 			protected.GET("/strategies/allocation", getStrategyAllocation)
-			protected.POST("/strategies/:name/release-capital", releaseStrategyCapital)
-			protected.POST("/strategies/release-all-capital", releaseAllStrategiesCapital)
 
 			// 待成交订單API
 			protected.GET("/orders/pending", getPendingOrders)
@@ -400,12 +398,14 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				strategies.GET("/runtime", getStrategyRuntimeStatusHandler)         // 獲取所有策略運行狀態
 				strategies.GET("/runtime/:id", getStrategyRuntimeStatusByIDHandler) // 獲取單個策略運行狀態
 				strategies.POST("/batch-update", batchUpdateStrategiesHandler)
+				strategies.POST("/release-all-capital", releaseAllStrategiesCapital) // 释放所有策略锁定资金
 				strategies.GET("/:id", getStrategyDetailHandler)
 				strategies.POST("/:id/enable", enableStrategyHandler)
 				strategies.POST("/:id/disable", disableStrategyHandler)
 				strategies.GET("/:id/license", getStrategyLicenseHandler)
 				strategies.PUT("/:id/config", updateStrategyConfigHandler)
 				strategies.POST("/:id/purchase", purchaseStrategyHandler)
+				strategies.POST("/:id/release-capital", releaseStrategyCapital) // 释放单个策略锁定资金
 			}
 
 			// 盈利管理 API

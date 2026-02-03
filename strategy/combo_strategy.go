@@ -31,11 +31,11 @@ type ComboStrategy struct {
 	weights       []float64 // 各策略权重
 
 	// 市场状態检测
-	marketState   MarketState
-	priceHistory  []float64
-	candles       []indicators.Candle
-	lastPrice     float64
-	
+	marketState  MarketState
+	priceHistory []float64
+	candles      []indicators.Candle
+	lastPrice    float64
+
 	// 状態
 	mu        sync.RWMutex
 	ctx       context.Context
@@ -54,46 +54,46 @@ type ComboStrategy struct {
 type MarketState string
 
 const (
-	MarketBullish   MarketState = "bullish"   // 牛市（上涨趋势）
-	MarketBearish   MarketState = "bearish"   // 熊市（下跌趋势）
-	MarketSideways  MarketState = "sideways"  // 震荡市
-	MarketVolatile  MarketState = "volatile"  // 高波动
+	MarketBullish  MarketState = "bullish"  // 牛市（上涨趋势）
+	MarketBearish  MarketState = "bearish"  // 熊市（下跌趋势）
+	MarketSideways MarketState = "sideways" // 震荡市
+	MarketVolatile MarketState = "volatile" // 高波动
 )
 
 // ComboConfig 组合策略配置
 type ComboConfig struct {
 	// 基础配置
-	Symbol      string            `yaml:"symbol"`
-	Strategies  []StrategyConfig  `yaml:"strategies"`  // 子策略配置
-	
+	Symbol     string           `yaml:"symbol"`
+	Strategies []StrategyConfig `yaml:"strategies"` // 子策略配置
+
 	// 市况检测
-	MarketDetection    bool    `yaml:"market_detection"`     // 啟用市况检测
-	TrendPeriod        int     `yaml:"trend_period"`         // 趋势周期
-	VolatilityPeriod   int     `yaml:"volatility_period"`    // 波动率周期
+	MarketDetection     bool    `yaml:"market_detection"`     // 啟用市况检测
+	TrendPeriod         int     `yaml:"trend_period"`         // 趋势周期
+	VolatilityPeriod    int     `yaml:"volatility_period"`    // 波动率周期
 	VolatilityThreshold float64 `yaml:"volatility_threshold"` // 高波动阈值
-	
+
 	// 权重調整
-	AdaptiveWeights    bool    `yaml:"adaptive_weights"`     // 自适应权重
-	RebalanceInterval  int     `yaml:"rebalance_interval"`   // 再平衡间隔（秒）
-	
+	AdaptiveWeights   bool `yaml:"adaptive_weights"`   // 自适应权重
+	RebalanceInterval int  `yaml:"rebalance_interval"` // 再平衡间隔（秒）
+
 	// 對冲設置
-	HedgeEnabled       bool    `yaml:"hedge_enabled"`        // 啟用對冲
-	HedgeRatio         float64 `yaml:"hedge_ratio"`          // 對冲比例 (0.0-1.0)
-	MaxDrawdown        float64 `yaml:"max_drawdown"`         // 最大回撤触发對冲
-	
+	HedgeEnabled bool    `yaml:"hedge_enabled"` // 啟用對冲
+	HedgeRatio   float64 `yaml:"hedge_ratio"`   // 對冲比例 (0.0-1.0)
+	MaxDrawdown  float64 `yaml:"max_drawdown"`  // 最大回撤触发對冲
+
 	// 风控
-	TotalCapital       float64 `yaml:"total_capital"`        // 總资金
-	MaxExposure        float64 `yaml:"max_exposure"`         // 最大敞口比例
+	TotalCapital float64 `yaml:"total_capital"` // 總资金
+	MaxExposure  float64 `yaml:"max_exposure"`  // 最大敞口比例
 }
 
 // StrategyConfig 子策略配置
 type StrategyConfig struct {
 	Name       string                 `yaml:"name"`
-	Type       string                 `yaml:"type"`       // dca/martingale/grid/trend
-	Weight     float64                `yaml:"weight"`     // 权重
-	Direction  string                 `yaml:"direction"`  // LONG/SHORT/BOTH
+	Type       string                 `yaml:"type"`      // dca/martingale/grid/trend
+	Weight     float64                `yaml:"weight"`    // 权重
+	Direction  string                 `yaml:"direction"` // LONG/SHORT/BOTH
 	Parameters map[string]interface{} `yaml:"parameters"`
-	
+
 	// 市况适配
 	PreferredMarket []MarketState `yaml:"preferred_market"` // 适合的市况
 }
@@ -240,27 +240,27 @@ func parseComboConfig(cfg map[string]interface{}) *ComboConfig {
 	if len(comboCfg.Strategies) == 0 {
 		comboCfg.Strategies = []StrategyConfig{
 			{
-				Name:       "long_dca",
-				Type:       "dca",
-				Weight:     0.5,
-				Direction:  "LONG",
-				Parameters: map[string]interface{}{"base_order_amount": 100.0},
+				Name:            "long_dca",
+				Type:            "dca",
+				Weight:          0.5,
+				Direction:       "LONG",
+				Parameters:      map[string]interface{}{"base_order_amount": 100.0},
 				PreferredMarket: []MarketState{MarketBullish, MarketSideways},
 			},
 			{
-				Name:       "short_martingale",
-				Type:       "martingale",
-				Weight:     0.3,
-				Direction:  "SHORT",
-				Parameters: map[string]interface{}{"initial_amount": 50.0, "direction": "SHORT"},
+				Name:            "short_martingale",
+				Type:            "martingale",
+				Weight:          0.3,
+				Direction:       "SHORT",
+				Parameters:      map[string]interface{}{"initial_amount": 50.0, "direction": "SHORT"},
 				PreferredMarket: []MarketState{MarketBearish},
 			},
 			{
-				Name:       "hedge_martingale",
-				Type:       "martingale",
-				Weight:     0.2,
-				Direction:  "LONG",
-				Parameters: map[string]interface{}{"initial_amount": 30.0, "reverse_martingale": true},
+				Name:            "hedge_martingale",
+				Type:            "martingale",
+				Weight:          0.2,
+				Direction:       "LONG",
+				Parameters:      map[string]interface{}{"initial_amount": 30.0, "reverse_martingale": true},
 				PreferredMarket: []MarketState{MarketBullish, MarketVolatile},
 			},
 		}
@@ -431,7 +431,7 @@ func (s *ComboStrategy) Stop() error {
 // OnPriceChange 價格變化处理
 func (s *ComboStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()
-	
+
 	if s.isPaused {
 		s.mu.Unlock()
 		return nil
@@ -449,7 +449,7 @@ func (s *ComboStrategy) OnPriceChange(price float64) error {
 
 	// 更新 K線
 	s.updateCandle(price)
-	
+
 	s.mu.Unlock()
 
 	// 傳遞给所有子策略
@@ -517,7 +517,7 @@ func (s *ComboStrategy) shouldExecuteStrategy(index int) bool {
 	}
 
 	stratCfg := s.strategyCfg.Strategies[index]
-	
+
 	// 如果没有指定首选市况，總是執行
 	if len(stratCfg.PreferredMarket) == 0 {
 		return true
@@ -761,4 +761,27 @@ func (s *ComboStrategy) GetInfo() string {
 
 	return fmt.Sprintf("市场状態: %s, 子策略數: %d, 總持倉: %d",
 		s.marketState, len(s.strategies), len(s.GetPositions()))
+}
+
+// GetVisualizationData 獲取策略可视化數據
+func (s *ComboStrategy) GetVisualizationData() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// 组合策略的可视化数据包含所有子策略的可视化数据
+	data := make(map[string]interface{})
+	subStrategiesData := make(map[string]interface{})
+
+	for i, strategy := range s.strategies {
+		if i < len(s.strategyNames) {
+			name := s.strategyNames[i]
+			subStrategiesData[name] = strategy.GetVisualizationData()
+		}
+	}
+
+	data["subStrategies"] = subStrategiesData
+	data["marketState"] = string(s.marketState)
+	data["strategyCount"] = len(s.strategies)
+
+	return data
 }

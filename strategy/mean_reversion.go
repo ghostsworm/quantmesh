@@ -270,3 +270,80 @@ func (mrs *MeanReversionStrategy) GetStatistics() *StrategyStatistics {
 		TotalVolume: 0,
 	}
 }
+
+// GetVisualizationData 獲取策略可视化數據
+func (mrs *MeanReversionStrategy) GetVisualizationData() map[string]interface{} {
+	mrs.mu.RLock()
+	defer mrs.mu.RUnlock()
+
+	data := make(map[string]interface{})
+
+	// 计算布林带
+	upper, middle, lower := mrs.calculateBollingerBands()
+	data["upperBand"] = upper
+	data["middleBand"] = middle
+	data["lowerBand"] = lower
+
+	// 当前价格
+	currentPrice := 0.0
+	if len(mrs.priceHistory) > 0 {
+		currentPrice = mrs.priceHistory[len(mrs.priceHistory)-1]
+	}
+	data["currentPrice"] = currentPrice
+
+	// 价格在布林带中的位置（百分比）
+	if upper > lower && currentPrice > 0 {
+		positionPercent := ((currentPrice - lower) / (upper - lower)) * 100
+		data["positionInBand"] = positionPercent
+
+		// 判断是否触及上下轨
+		data["touchesUpperBand"] = currentPrice >= upper*0.99 // 允许1%误差
+		data["touchesLowerBand"] = currentPrice <= lower*1.01
+	} else {
+		data["positionInBand"] = 50.0 // 默认中间位置
+		data["touchesUpperBand"] = false
+		data["touchesLowerBand"] = false
+	}
+
+	// 持仓状态
+	if mrs.position != nil {
+		data["hasPosition"] = true
+		data["entryPrice"] = mrs.entryPrice
+		if currentPrice > 0 && mrs.entryPrice > 0 {
+			pnlPercent := ((currentPrice - mrs.entryPrice) / mrs.entryPrice) * 100
+			data["pnlPercent"] = pnlPercent
+		}
+	} else {
+		data["hasPosition"] = false
+		data["entryPrice"] = 0
+	}
+
+	// 策略参数
+	data["period"] = mrs.period
+	data["stdMultiplier"] = mrs.stdMultiplier
+	data["reversionThreshold"] = mrs.reversionThreshold
+
+	// 买入/卖出信号判断
+	if upper > 0 && lower > 0 && currentPrice > 0 {
+		hasPos := mrs.position != nil
+		// 买入信号：价格触及下轨
+		buySignal := currentPrice <= lower*1.01 && !hasPos
+		data["buySignal"] = buySignal
+
+		// 卖出信号：价格触及上轨或回归均值
+		sellSignal := (currentPrice >= upper*0.99 || currentPrice >= middle) && hasPos
+		data["sellSignal"] = sellSignal
+
+		// 距离买入/卖出信号的距离
+		if !hasPos {
+			distanceToBuy := ((currentPrice - lower) / currentPrice) * 100
+			data["distanceToBuy"] = distanceToBuy
+		} else {
+			distanceToSell := ((upper - currentPrice) / currentPrice) * 100
+			distanceToMean := ((middle - currentPrice) / currentPrice) * 100
+			data["distanceToSell"] = math.Min(distanceToSell, distanceToMean)
+		}
+	}
+
+	return data
+}

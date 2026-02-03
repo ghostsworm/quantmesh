@@ -34,11 +34,11 @@ type MartingaleStrategy struct {
 	mu           sync.RWMutex
 
 	// 倉位管理
-	entries      []*MartingaleEntry // 入场記錄
-	totalCost    float64            // 總成本
-	totalQty     float64            // 總持倉量
-	avgEntryPrice float64           // 平均入场價
-	
+	entries       []*MartingaleEntry // 入场記錄
+	totalCost     float64            // 總成本
+	totalQty      float64            // 總持倉量
+	avgEntryPrice float64            // 平均入场價
+
 	// 方向
 	direction    string // LONG/SHORT
 	currentLevel int    // 當前马丁层级
@@ -61,36 +61,36 @@ type MartingaleStrategy struct {
 // MartingaleConfig 马丁格尔配置
 type MartingaleConfig struct {
 	// 基础配置
-	Symbol           string  `yaml:"symbol"`
-	Direction        string  `yaml:"direction"`          // LONG/SHORT/BOTH
-	InitialAmount    float64 `yaml:"initial_amount"`     // 初始金額 (USDT)
-	
+	Symbol        string  `yaml:"symbol"`
+	Direction     string  `yaml:"direction"`      // LONG/SHORT/BOTH
+	InitialAmount float64 `yaml:"initial_amount"` // 初始金額 (USDT)
+
 	// 马丁参數
-	Multiplier       float64 `yaml:"multiplier"`         // 加倉倍數（預設 2.0）
-	MaxLevels        int     `yaml:"max_levels"`         // 最大層數（預設 6）
-	PriceStep        float64 `yaml:"price_step"`         // 加倉间距 (%)
-	
+	Multiplier float64 `yaml:"multiplier"` // 加倉倍數（預設 2.0）
+	MaxLevels  int     `yaml:"max_levels"` // 最大層數（預設 6）
+	PriceStep  float64 `yaml:"price_step"` // 加倉间距 (%)
+
 	// 风險遞减
-	RiskDecay        bool    `yaml:"risk_decay"`         // 啟用风險遞减
-	DecayFactor      float64 `yaml:"decay_factor"`       // 遞减因子 (0.8-0.95)
-	MinMultiplier    float64 `yaml:"min_multiplier"`     // 最小倍數 (1.0)
-	
+	RiskDecay     bool    `yaml:"risk_decay"`     // 啟用风險遞减
+	DecayFactor   float64 `yaml:"decay_factor"`   // 遞减因子 (0.8-0.95)
+	MinMultiplier float64 `yaml:"min_multiplier"` // 最小倍數 (1.0)
+
 	// 止盈止损
-	TakeProfit       float64 `yaml:"take_profit"`        // 止盈比例 (%)
-	StopLoss         float64 `yaml:"stop_loss"`          // 止损比例 (%)
-	TrailingStop     float64 `yaml:"trailing_stop"`      // 追踪止损 (%)
-	
+	TakeProfit   float64 `yaml:"take_profit"`   // 止盈比例 (%)
+	StopLoss     float64 `yaml:"stop_loss"`     // 止损比例 (%)
+	TrailingStop float64 `yaml:"trailing_stop"` // 追踪止损 (%)
+
 	// 反向马丁
-	ReverseMartingale bool   `yaml:"reverse_martingale"` // 反向马丁（盈利時加倉）
+	ReverseMartingale bool    `yaml:"reverse_martingale"` // 反向马丁（盈利時加倉）
 	ReverseMultiplier float64 `yaml:"reverse_multiplier"` // 反向倍數
-	
+
 	// 冷却期
-	CooldownEnabled  bool    `yaml:"cooldown_enabled"`   // 啟用冷却期
-	CooldownSeconds  int     `yaml:"cooldown_seconds"`   // 冷却時间（秒）
-	
+	CooldownEnabled bool `yaml:"cooldown_enabled"` // 啟用冷却期
+	CooldownSeconds int  `yaml:"cooldown_seconds"` // 冷却時间（秒）
+
 	// 趨勢過濾
-	TrendFilter      bool    `yaml:"trend_filter"`       // 啟用趨勢過濾
-	TrendPeriod      int     `yaml:"trend_period"`       // 趋势周期
+	TrendFilter bool `yaml:"trend_filter"` // 啟用趨勢過濾
+	TrendPeriod int  `yaml:"trend_period"` // 趋势周期
 }
 
 // MartingaleEntry 马丁入场記錄
@@ -398,21 +398,21 @@ func (s *MartingaleStrategy) openInitialPosition(price float64) error {
 		minQty := math.Pow10(-qDec)
 		logger.Error("🚨 [%s] 初始订單數量過小 (%.8f)，低於交易所最小精度 (%.8f)，策略已自动暂停！请在配置中調大 InitialAmount", s.name, quantity, minQty)
 		s.isPaused = true
-		
+
 		// 发布事件
 		if s.eventBus != nil {
 			s.eventBus.Publish(&event.Event{
 				Type:      event.EventTypePrecisionAdjustment,
 				Timestamp: time.Now(),
 				Data: map[string]interface{}{
-					"symbol":           s.strategyCfg.Symbol,
-					"strategy":         s.name,
-					"order_amount":     s.strategyCfg.InitialAmount,
-					"calculated_qty":   quantity,
-					"min_qty":          minQty,
-					"price":            price,
-					"action":           "pause",
-					"reason":           "初始订單數量低於交易所最小精度",
+					"symbol":         s.strategyCfg.Symbol,
+					"strategy":       s.name,
+					"order_amount":   s.strategyCfg.InitialAmount,
+					"calculated_qty": quantity,
+					"min_qty":        minQty,
+					"price":          price,
+					"action":         "pause",
+					"reason":         "初始订單數量低於交易所最小精度",
 				},
 			})
 		}
@@ -462,7 +462,7 @@ func (s *MartingaleStrategy) checkMartingale(price float64) error {
 	}
 
 	lastEntry := s.entries[len(s.entries)-1]
-	
+
 	// 计算價格變化
 	var priceChange float64
 	if s.direction == "LONG" {
@@ -489,22 +489,22 @@ func (s *MartingaleStrategy) checkMartingale(price float64) error {
 		minQty := math.Pow10(-qDec)
 		logger.Error("🚨 [%s] 马丁加倉 #%d 數量過小 (%.8f)，低於交易所最小精度 (%.8f)，策略已自动暂停！", s.name, s.currentLevel, quantity, minQty)
 		s.isPaused = true
-		
+
 		// 发布事件
 		if s.eventBus != nil {
 			s.eventBus.Publish(&event.Event{
 				Type:      event.EventTypePrecisionAdjustment,
 				Timestamp: time.Now(),
 				Data: map[string]interface{}{
-					"symbol":           s.strategyCfg.Symbol,
-					"strategy":         s.name,
-					"level":            s.currentLevel,
-					"order_amount":     amount,
-					"calculated_qty":   quantity,
-					"min_qty":          minQty,
-					"price":            price,
-					"action":           "pause",
-					"reason":           "马丁加倉數量低於交易所最小精度",
+					"symbol":         s.strategyCfg.Symbol,
+					"strategy":       s.name,
+					"level":          s.currentLevel,
+					"order_amount":   amount,
+					"calculated_qty": quantity,
+					"min_qty":        minQty,
+					"price":          price,
+					"action":         "pause",
+					"reason":         "马丁加倉數量低於交易所最小精度",
 				},
 			})
 		}
@@ -852,4 +852,10 @@ func (s *MartingaleStrategy) GetLevelInfo() string {
 
 	return fmt.Sprintf("當前层级: %d/%d, 總成本: %.2f, 總持倉: %.6f, 平均成本: %.2f",
 		len(s.entries), s.strategyCfg.MaxLevels, s.totalCost, s.totalQty, s.avgEntryPrice)
+}
+
+// GetVisualizationData 獲取策略可视化數據
+func (s *MartingaleStrategy) GetVisualizationData() map[string]interface{} {
+	// TODO: 实现Martingale策略的可视化数据
+	return make(map[string]interface{})
 }

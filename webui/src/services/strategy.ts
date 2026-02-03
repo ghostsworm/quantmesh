@@ -92,6 +92,115 @@ export async function batchUpdateStrategies(
 
 // ========== 策略運行狀態 API ==========
 
+// DCA策略可视化数据
+export interface DCAVisualizationData {
+  layers?: Array<{
+    index: number
+    price: number
+    quantity: number
+    cost: number
+    pnl: number
+    pnlPercent: number
+    status: string
+    filledAt: number
+  }>
+  atr?: number
+  dynamicInterval?: number
+  baseInterval?: number
+  minPriceStep?: number
+  maxPriceStep?: number
+  currentPrice?: number
+  avgEntryPrice?: number
+  totalCost?: number
+  totalQty?: number
+  firstOrderTakeProfit?: number
+  lastOrderTakeProfit?: number
+  totalTakeProfit?: number
+  stopLoss?: number
+  nextBuyPrice?: number
+  requiredDrop?: number
+  distanceToNextBuy?: number
+  isPaused?: boolean
+  pauseUntil?: number
+  cascadeProtection?: boolean
+  trendFilterEnabled?: boolean
+  isTrendUp?: boolean
+  takeProfitTriggered?: boolean
+  highestProfit?: number
+  currentLayer?: number
+  maxLayers?: number
+}
+
+// 趋势跟踪策略可视化数据
+export interface TrendFollowingVisualizationData {
+  fastMA?: number
+  slowMA?: number
+  method?: string
+  shortPeriod?: number
+  longPeriod?: number
+  currentPrice?: number
+  trend?: 'up' | 'down' | 'side'
+  maDiff?: number
+  maDiffAbs?: number
+  hasPosition?: boolean
+  entryPrice?: number
+  pnlPercent?: number
+  stopLoss?: number
+  takeProfit?: number
+  isGoldenCross?: boolean
+  isDeathCross?: boolean
+}
+
+// 均值回归策略可视化数据
+export interface MeanReversionVisualizationData {
+  upperBand?: number
+  middleBand?: number
+  lowerBand?: number
+  currentPrice?: number
+  positionInBand?: number
+  touchesUpperBand?: boolean
+  touchesLowerBand?: boolean
+  hasPosition?: boolean
+  entryPrice?: number
+  pnlPercent?: number
+  period?: number
+  stdMultiplier?: number
+  reversionThreshold?: number
+  buySignal?: boolean
+  sellSignal?: boolean
+  distanceToBuy?: number
+  distanceToSell?: number
+}
+
+// 网格策略可视化数据
+export interface GridVisualizationData {
+  slots?: Array<{
+    price: number
+    positionStatus: string
+    positionQty: number
+    orderID: number
+    orderSide: string
+    orderStatus: string
+    orderPrice: number
+    slotStatus: string
+  }>
+  slotCount?: number
+  filledCount?: number
+  emptyCount?: number
+  minPrice?: number
+  maxPrice?: number
+  priceRange?: number
+  priceInterval?: number
+}
+
+// 策略可视化数据联合类型
+export type StrategyVisualizationData = 
+  | DCAVisualizationData 
+  | TrendFollowingVisualizationData 
+  | MeanReversionVisualizationData 
+  | GridVisualizationData
+  | Record<string, any>
+
 // 策略運行狀態類型
 export interface StrategyRuntimeStatus {
   name: string
@@ -125,6 +234,7 @@ export interface StrategyRuntimeStatus {
     quantity: number
     status: string
   }>
+  visualizationData?: StrategyVisualizationData // 新增：策略可视化數據
 }
 
 export interface StrategyRuntimeResponse {

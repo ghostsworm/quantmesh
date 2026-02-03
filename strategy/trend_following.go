@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"math"
 	"sync"
 
 	"quantmesh/config"
@@ -331,4 +332,78 @@ func (tfs *TrendFollowingStrategy) GetStatistics() *StrategyStatistics {
 		TotalPnL:    0,
 		TotalVolume: 0,
 	}
+}
+
+// GetVisualizationData 獲取策略可视化數據
+func (tfs *TrendFollowingStrategy) GetVisualizationData() map[string]interface{} {
+	tfs.mu.RLock()
+	defer tfs.mu.RUnlock()
+
+	data := make(map[string]interface{})
+
+	// 计算快慢均线
+	var fastMA, slowMA float64
+	if tfs.method == "ema" {
+		fastMA = tfs.calculateEMA(tfs.shortPeriod)
+		slowMA = tfs.calculateEMA(tfs.longPeriod)
+	} else {
+		fastMA = tfs.calculateMA(tfs.shortPeriod)
+		slowMA = tfs.calculateMA(tfs.longPeriod)
+	}
+
+	data["fastMA"] = fastMA
+	data["slowMA"] = slowMA
+	data["method"] = tfs.method
+	data["shortPeriod"] = tfs.shortPeriod
+	data["longPeriod"] = tfs.longPeriod
+
+	// 当前价格
+	currentPrice := 0.0
+	if len(tfs.priceHistory) > 0 {
+		currentPrice = tfs.priceHistory[len(tfs.priceHistory)-1]
+	}
+	data["currentPrice"] = currentPrice
+
+	// 趋势方向
+	trend := tfs.detectTrend()
+	trendStr := "side"
+	if trend == TrendUp {
+		trendStr = "up"
+	} else if trend == TrendDown {
+		trendStr = "down"
+	}
+	data["trend"] = trendStr
+
+	// 均线差值
+	if fastMA > 0 && slowMA > 0 {
+		maDiff := ((fastMA - slowMA) / slowMA) * 100
+		data["maDiff"] = maDiff
+		data["maDiffAbs"] = math.Abs(maDiff)
+	}
+
+	// 持仓状态
+	if tfs.position != nil {
+		data["hasPosition"] = true
+		data["entryPrice"] = tfs.entryPrice
+		if currentPrice > 0 && tfs.entryPrice > 0 {
+			pnlPercent := ((currentPrice - tfs.entryPrice) / tfs.entryPrice) * 100
+			data["pnlPercent"] = pnlPercent
+		}
+	} else {
+		data["hasPosition"] = false
+		data["entryPrice"] = 0
+	}
+
+	// 止损止盈
+	data["stopLoss"] = tfs.stopLoss * 100 // 转换为百分比
+	data["takeProfit"] = tfs.takeProfit * 100
+
+	// 金叉/死叉判断
+	if fastMA > 0 && slowMA > 0 {
+		isGoldenCross := fastMA > slowMA
+		data["isGoldenCross"] = isGoldenCross
+		data["isDeathCross"] = !isGoldenCross
+	}
+
+	return data
 }
