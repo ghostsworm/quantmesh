@@ -26,6 +26,10 @@ import {
   NumberInputField,
   Select,
   SimpleGrid,
+  Slider,
+  SliderTrack,
+  SliderFilledTrack,
+  SliderThumb,
   Spinner,
   Tab,
   TabList,
@@ -60,6 +64,9 @@ import {
   ModalBody,
   ModalFooter,
   ModalCloseButton,
+  RadioGroup,
+  Radio,
+  Stack,
 } from '@chakra-ui/react'
 import { RepeatIcon, DownloadIcon, DeleteIcon, CheckIcon, StarIcon, ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons'
 import {
@@ -100,6 +107,7 @@ import {
   type OptimSearchSpace,
   type OptimResult,
 } from '../services/backtest'
+import { listKlineFiles, listAvailableKlineFiles, type KlineFileInfo, type AvailableKlineFile } from '../services/klineFiles'
 import OptimResultModal from './OptimResultModal'
 
 /** 回测结果数据结构（含风控对比） */
@@ -152,7 +160,7 @@ export default function BacktestMenu() {
   
   const [preset, setPreset] = useState<SymbolBacktestPreset | null>(null)
   const [interval, setInterval] = useState('')
-  const [days, setDays] = useState(30)
+  const [days, setDays] = useState(7)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [cacheExists, setCacheExists] = useState(false)
@@ -160,6 +168,14 @@ export default function BacktestMenu() {
   const [strategyType, setStrategyType] = useState('')
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [totalCapital, setTotalCapital] = useState(10000)
+  
+  // 数据来源相关状态
+  const [dataSource, setDataSource] = useState<'time_range' | 'kline_file' | 'cache'>('time_range')
+  const [selectedKlineFile, setSelectedKlineFile] = useState<string>('')
+  const [selectedCacheName, setSelectedCacheName] = useState<string>('')
+  const [klineFiles, setKlineFiles] = useState<KlineFileInfo[]>([])
+  const [availableKlineFiles, setAvailableKlineFiles] = useState<AvailableKlineFile[]>([])
+  const [klineFilesLoading, setKlineFilesLoading] = useState(false)
   const [tasks, setTasks] = useState<BacktestTask[]>([])
   const [tasksLoading, setTasksLoading] = useState(true)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
@@ -286,6 +302,22 @@ export default function BacktestMenu() {
     }
   }, [toast])
 
+  const loadKlineFiles = useCallback(async () => {
+    setKlineFilesLoading(true)
+    try {
+      const files = await listKlineFiles()
+      setKlineFiles(files)
+      // 同时加载可用文件列表（用于回测）
+      const availableFiles = await listAvailableKlineFiles()
+      setAvailableKlineFiles(availableFiles)
+    } catch (err) {
+      console.error('载入 K 线文件列表失败:', err)
+      toast({ title: '载入 K 线文件列表失败', status: 'error' })
+    } finally {
+      setKlineFilesLoading(false)
+    }
+  }, [toast])
+
   // 初始化：载入策略列表、交易所列表、预计算结果和 K 线缓存列表
   useEffect(() => {
     getBacktestStrategies().then((r) => r.success && setStrategies(r.strategies || []))
@@ -308,7 +340,8 @@ export default function BacktestMenu() {
     })
     loadPrecomputedResults()
     loadCachedKlines()
-  }, [loadPrecomputedResults, loadCachedKlines])
+    loadKlineFiles()
+  }, [loadPrecomputedResults, loadCachedKlines, loadKlineFiles])
 
   // 获取智能参数推荐
   const handleGetSmartRecommendation = useCallback(async () => {
@@ -566,10 +599,6 @@ export default function BacktestMenu() {
   }
 
   const handleRunBacktest = () => {
-    if (!symbol || !interval || !startDate || !endDate) {
-      toast({ title: '请选择交易对、周期和日期范围', status: 'warning' })
-      return
-    }
     if (!strategyType) {
       toast({ title: '请选择策略', status: 'warning' })
       return
@@ -578,19 +607,59 @@ export default function BacktestMenu() {
       toast({ title: '总资金需大于 0', status: 'warning' })
       return
     }
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-    end.setHours(23, 59, 59, 999)
+
+    // 按数据来源校验
+    if (dataSource === 'kline_file') {
+      if (!selectedKlineFile) {
+        toast({ title: '请选择 K 线文件', status: 'warning' })
+        return
+      }
+    } else if (dataSource === 'cache') {
+      if (!selectedCacheName) {
+        toast({ title: '请选择回测缓存', status: 'warning' })
+        return
+      }
+    } else {
+      // 时间范围
+      if (!symbol || !interval || !startDate || !endDate) {
+        toast({ title: '请选择交易对、周期和日期范围', status: 'warning' })
+        return
+      }
+    }
+
     setRunning(true)
-    postBacktestTask({
-      strategy: strategyType,
-      symbol,
-      interval,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      params: Object.keys(params).length ? params : undefined,
-      total_capital: totalCapital,
-    })
+    
+    const payload = dataSource === 'kline_file'
+      ? { 
+          strategy: strategyType, 
+          data_source: 'kline_file' as const, 
+          kline_file: selectedKlineFile, 
+          total_capital: totalCapital, 
+          params: Object.keys(params).length ? params : undefined 
+        }
+      : dataSource === 'cache'
+      ? { 
+          strategy: strategyType, 
+          data_source: 'cache' as const, 
+          cache_name: selectedCacheName, 
+          total_capital: totalCapital, 
+          params: Object.keys(params).length ? params : undefined 
+        }
+      : { 
+          strategy: strategyType, 
+          symbol, 
+          interval, 
+          start_time: new Date(startDate).toISOString(), 
+          end_time: (() => {
+            const end = new Date(endDate)
+            end.setHours(23, 59, 59, 999)
+            return end.toISOString()
+          })(),
+          total_capital: totalCapital, 
+          params: Object.keys(params).length ? params : undefined 
+        }
+
+    postBacktestTask(payload)
       .then((r) => {
         if (r.success) {
           toast({ title: '回测任务已创建', status: 'success' })
@@ -863,7 +932,21 @@ export default function BacktestMenu() {
               <Card>
                 <CardHeader fontWeight="600">1. 交易对与数据</CardHeader>
                 <CardBody>
-                  {/* 交易所选择 */}
+                  {/* 数据来源选择 */}
+                  <FormControl mb={4}>
+                    <FormLabel>数据来源</FormLabel>
+                    <RadioGroup value={dataSource} onChange={(value) => setDataSource(value as 'time_range' | 'kline_file' | 'cache')}>
+                      <Stack direction="row" spacing={4}>
+                        <Radio value="time_range">时间范围</Radio>
+                        <Radio value="kline_file">K线文件</Radio>
+                        <Radio value="cache">回测缓存</Radio>
+                      </Stack>
+                    </RadioGroup>
+                  </FormControl>
+
+                  {dataSource === 'time_range' && (
+                    <>
+                      {/* 交易所选择 */}
                   <FormControl mb={3}>
                     <FormLabel>交易所</FormLabel>
                     <Select
@@ -921,9 +1004,39 @@ export default function BacktestMenu() {
                   )}
                   <FormControl mb={3}>
                     <FormLabel>回测天数</FormLabel>
-                    <NumberInput value={days} min={1} max={365} onChange={(_: string, v: number) => setDays(v)}>
-                      <NumberInputField />
-                    </NumberInput>
+                    <HStack mb={2} flexWrap="wrap" gap={2}>
+                      {[3, 7, 14, 30, 90, 180, 365].map((d) => (
+                        <Button
+                          key={d}
+                          size="sm"
+                          variant={days === d ? 'solid' : 'outline'}
+                          colorScheme={days === d ? 'blue' : 'gray'}
+                          onClick={() => setDays(d)}
+                        >
+                          {d} 天
+                        </Button>
+                      ))}
+                    </HStack>
+                    <Box px={1}>
+                      <Slider
+                        aria-label="回测天数"
+                        value={days}
+                        min={1}
+                        max={365}
+                        step={1}
+                        onChange={(v) => setDays(v)}
+                      >
+                        <SliderTrack>
+                          <SliderFilledTrack />
+                        </SliderTrack>
+                        <SliderThumb boxSize={4} />
+                      </Slider>
+                      <HStack justify="space-between" mt={1} px={0} fontSize="xs" color="gray.500">
+                        <Text>1</Text>
+                        <Text fontWeight="600" color="blue.600">{days} 天</Text>
+                        <Text>365</Text>
+                      </HStack>
+                    </Box>
                   </FormControl>
                   <FormControl mb={3}>
                     <FormLabel>K 线周期</FormLabel>
@@ -954,6 +1067,138 @@ export default function BacktestMenu() {
                     </Button>
                     {cacheExists && <Badge colorScheme="green"><CheckIcon mr={1} /> 缓存就绪</Badge>}
                   </HStack>
+                  <Text fontSize="xs" color="gray.500" mt={2}>
+                    可直接运行回测，无缓存时将自动从交易所拉取并缓存数据；预先生成缓存可缩短首次回测等待时间。
+                  </Text>
+                    </>
+                  )}
+
+                  {dataSource === 'kline_file' && (
+                    <>
+                      <FormControl mb={3}>
+                        <FormLabel>K线文件</FormLabel>
+                        <Button
+                          size="sm"
+                          leftIcon={<RepeatIcon />}
+                          onClick={loadKlineFiles}
+                          isLoading={klineFilesLoading}
+                          mb={2}
+                        >
+                          刷新文件列表
+                        </Button>
+                        {klineFilesLoading ? (
+                          <Flex justify="center" py={4}><Spinner /></Flex>
+                        ) : availableKlineFiles.length === 0 ? (
+                          <Text color="gray.500" fontSize="sm">暂无可用的 K 线文件（已完成采集且状态正常）</Text>
+                        ) : (
+                          <Box maxH="350px" overflowY="auto" border="1px" borderColor="gray.200" borderRadius="md">
+                            <Table size="sm">
+                              <Thead>
+                                <Tr>
+                                  <Th>选择</Th>
+                                  <Th>交易对</Th>
+                                  <Th>周期</Th>
+                                  <Th>时间范围</Th>
+                                  <Th>深度</Th>
+                                  <Th>K线数</Th>
+                                  <Th>来源</Th>
+                                </Tr>
+                              </Thead>
+                              <Tbody>
+                                {availableKlineFiles.map((file) => (
+                                  <Tr key={file.filename}>
+                                    <Td>
+                                      <Radio
+                                        isChecked={selectedKlineFile === file.filename}
+                                        onChange={() => setSelectedKlineFile(file.filename)}
+                                      />
+                                    </Td>
+                                    <Td>{file.symbol}</Td>
+                                    <Td>{file.interval}</Td>
+                                    <Td>
+                                      <Tooltip label={file.filename}>
+                                        <Text fontSize="xs" noOfLines={2} maxW="120px">{file.time_range}</Text>
+                                      </Tooltip>
+                                    </Td>
+                                    <Td>
+                                      {file.has_depth ? (
+                                        <Badge colorScheme="green">有</Badge>
+                                      ) : (
+                                        <Badge variant="outline">无</Badge>
+                                      )}
+                                    </Td>
+                                    <Td>{file.candle_count.toLocaleString()}</Td>
+                                    <Td>
+                                      <Badge variant="outline" fontSize="xs">
+                                        {file.source === 'collector' ? '采集' : 
+                                         file.source === 'backtest_cache' ? '缓存' : '手动'}
+                                      </Badge>
+                                    </Td>
+                                  </Tr>
+                                ))}
+                              </Tbody>
+                            </Table>
+                          </Box>
+                        )}
+                      </FormControl>
+                    </>
+                  )}
+
+                  {dataSource === 'cache' && (
+                    <>
+                      <FormControl mb={3}>
+                        <FormLabel>回测缓存</FormLabel>
+                        <Button
+                          size="sm"
+                          leftIcon={<RepeatIcon />}
+                          onClick={loadCachedKlines}
+                          isLoading={cachedKlinesLoading}
+                          mb={2}
+                        >
+                          刷新缓存列表
+                        </Button>
+                        {cachedKlinesLoading ? (
+                          <Flex justify="center" py={4}><Spinner /></Flex>
+                        ) : cachedKlines.length === 0 ? (
+                          <Text color="gray.500" fontSize="sm">暂无回测缓存</Text>
+                        ) : (
+                          <Box maxH="300px" overflowY="auto" border="1px" borderColor="gray.200" borderRadius="md">
+                            <Table size="sm">
+                              <Thead>
+                                <Tr>
+                                  <Th>选择</Th>
+                                  <Th>缓存名称</Th>
+                                  <Th>交易对</Th>
+                                  <Th>周期</Th>
+                                  <Th>K线数</Th>
+                                </Tr>
+                              </Thead>
+                              <Tbody>
+                                {cachedKlines.map((cache) => (
+                                  <Tr key={cache.name}>
+                                    <Td>
+                                      <Radio
+                                        isChecked={selectedCacheName === cache.name}
+                                        onChange={() => setSelectedCacheName(cache.name)}
+                                      />
+                                    </Td>
+                                    <Td>
+                                      <Tooltip label={cache.name}>
+                                        <Text fontSize="xs" noOfLines={1} maxW="120px">{cache.name}</Text>
+                                      </Tooltip>
+                                    </Td>
+                                    <Td>{cache.symbol || '-'}</Td>
+                                    <Td>{cache.interval || '-'}</Td>
+                                    <Td>{cache.candles.toLocaleString()}</Td>
+                                  </Tr>
+                                ))}
+                              </Tbody>
+                            </Table>
+                          </Box>
+                        )}
+                      </FormControl>
+                    </>
+                  )}
                 </CardBody>
               </Card>
               <Card>

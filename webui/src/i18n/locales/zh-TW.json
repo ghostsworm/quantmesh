@@ -47,6 +47,7 @@
     "optimizer": "參數優化",
     "newsAnalysis": "新聞分析",
     "dataExport": "數據導出",
+    "klineFiles": "K線文件",
     "expandSidebar": "展開側邊欄",
     "collapseSidebar": "收起側邊欄",
     "groupMonitor": "監控與概覽",
@@ -61,6 +62,18 @@
   },
   "app": {
     "logoutError": "退出登錄失敗"
+  },
+  "backtest": {
+    "dataSource": "資料來源",
+    "dataSourceTimeRange": "時間範圍",
+    "dataSourceKlineFile": "K線文件",
+    "dataSourceCache": "回測緩存",
+    "selectKlineFile": "選擇K線文件",
+    "selectCache": "選擇緩存",
+    "hasDepth": "含深度",
+    "depthRiskEnabled": "已啟用深度風控",
+    "refreshFileList": "刷新文件列表",
+    "refreshCacheList": "刷新緩存列表"
   },
   "dashboard": {
     "tradingStopped": "交易已停止",
@@ -1244,7 +1257,8 @@
     },
     "tips": {
       "title": "導出提示",
-      "content": "導出的配置文件已自動脫敏，不包含 API 密鑰等敏感信息。如需完整備份，請使用配置管理頁面的備份功能。大量數據導出可能需要一些時間，請耐心等待。"
+      "content": "導出的配置文件已自動脫敏，不包含 API 密鑰等敏感信息。如需完整備份，請使用配置管理頁面的備份功能。大量數據導出可能需要一些時間，請耐心等待。",
+      "klineFilesLink": "K線數據文件列表與下載請前往側欄"
     }
   },
   "privacy": {

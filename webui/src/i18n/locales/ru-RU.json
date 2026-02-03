@@ -43,6 +43,7 @@
     "optimizer": "Оптимизатор параметров",
     "newsAnalysis": "Анализ новостей",
     "dataExport": "Экспорт данных",
+    "klineFiles": "Файлы K-линий",
     "expandSidebar": "Развернуть боковую панель",
     "collapseSidebar": "Свернуть боковую панель",
     "groupMonitor": "Монитор и обзор",

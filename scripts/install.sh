@@ -180,6 +180,11 @@ create_directories() {
     mkdir -p ${DATA_DIR}
     mkdir -p ${LOGS_DIR}
     mkdir -p ${INSTALL_DIR}/scripts
+    # 回测结果、报告、缓存、优化结果目录（服务需可写）
+    mkdir -p ${INSTALL_DIR}/backtest/results
+    mkdir -p ${INSTALL_DIR}/backtest/reports
+    mkdir -p ${INSTALL_DIR}/backtest/cache
+    mkdir -p ${INSTALL_DIR}/backtest/optim_results
     
     log_info "目录已创建: ${INSTALL_DIR}"
 }
@@ -294,7 +299,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/quantmesh/data /opt/quantmesh/logs /opt/quantmesh/backups /opt/quantmesh/config.yaml /opt/quantmesh/config_backups
+ReadWritePaths=/opt/quantmesh/data /opt/quantmesh/logs /opt/quantmesh/backups /opt/quantmesh/config.yaml /opt/quantmesh/config_backups /opt/quantmesh/backtest
 
 # 日志
 StandardOutput=journal
@@ -334,6 +339,8 @@ set_permissions() {
     chmod 700 ${DATA_DIR}
     chmod 0776 ${BACKUP_DIR}   # 0776 確保 quantmesh 用戶可寫入新建配置備份
     chmod 700 ${LOGS_DIR}
+    # 回测目录：quantmesh 需可写 results/reports/cache/optim_results
+    chmod -R 775 ${INSTALL_DIR}/backtest
     
     # 配置文件权限（包含敏感信息）
     if [ -f "$CONFIG_FILE" ]; then

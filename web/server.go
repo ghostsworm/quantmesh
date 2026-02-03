@@ -445,6 +445,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			klineFiles := protected.Group("/kline-files")
 			{
 				klineFiles.GET("", listKlineFilesHandler)
+				klineFiles.GET("/available", listAvailableKlineFilesHandler)
 				klineFiles.POST("/:filename/protect", protectKlineFileHandler)
 				klineFiles.DELETE("/:filename/protect", unprotectKlineFileHandler)
 				klineFiles.GET("/:filename/download", downloadKlineFileHandler)

@@ -34,6 +34,53 @@ export async function listKlineFiles(): Promise<KlineFileInfo[]> {
   return data.files || []
 }
 
+// 可用文件信息接口（含时间范围、状态等信息）
+export interface AvailableKlineFile {
+  id: number
+  filename: string
+  exchange: string
+  symbol: string
+  interval: string
+  time_range: string
+  start_time: string
+  end_time: string
+  status: string
+  has_depth: boolean
+  candle_count: number
+  file_size: number
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+// 列出可用于回测的K线文件（仅返回 status=completed）
+export async function listAvailableKlineFiles(params?: {
+  exchange?: string
+  symbol?: string
+  interval?: string
+}): Promise<AvailableKlineFile[]> {
+  const searchParams = new URLSearchParams()
+  if (params?.exchange) searchParams.set('exchange', params.exchange)
+  if (params?.symbol) searchParams.set('symbol', params.symbol)
+  if (params?.interval) searchParams.set('interval', params.interval)
+  
+  const response = await fetch(`${API_BASE_URL}/kline-files/available?${searchParams}`, {
+    credentials: 'include',
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`HTTP ${response.status}: ${errorText}`)
+  }
+
+  const data = await response.json()
+  if (!data.success) {
+    throw new Error(data.error || '获取可用文件列表失败')
+  }
+
+  return data.files || []
+}
+
 // 保护文件
 export async function protectKlineFile(filename: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/kline-files/${encodeURIComponent(filename)}/protect`, {

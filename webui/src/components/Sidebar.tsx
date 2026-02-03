@@ -31,6 +31,7 @@ import {
   BellIcon,
   MoonIcon,
   ExternalLinkIcon,
+  AttachmentIcon,
   CheckCircleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -300,6 +301,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           collapsed={collapsed}
         >
           {t('sidebar.dataExport')}
+        </NavItem>
+        <NavItem 
+          icon={AttachmentIcon} 
+          to="/kline-files" 
+          isActive={isRouteActive('/kline-files')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.klineFiles')}
         </NavItem>
 
         {/* 全局 - AI */}

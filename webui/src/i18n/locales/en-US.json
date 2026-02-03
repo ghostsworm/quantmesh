@@ -48,6 +48,7 @@
     "optimizer": "Parameter Optimizer",
     "newsAnalysis": "News Analysis",
     "dataExport": "Data Export",
+    "klineFiles": "K-Line Files",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
     "groupMonitor": "Monitor & Overview",
@@ -65,6 +66,19 @@
     "minTradesFilter": "Trades ≥",
     "sortBy": "Sort by",
     "exportCsv": "Export CSV"
+  },
+  "backtest": {
+    "dataSource": "Data Source",
+    "dataSourceTimeRange": "Time Range",
+    "dataSourceKlineFile": "K-Line File",
+    "dataSourceCache": "Backtest Cache",
+    "selectKlineFile": "Select K-Line File",
+    "selectCache": "Select Cache",
+    "hasDepth": "Has Depth",
+    "depthRiskEnabled": "Depth risk control enabled",
+    "refreshFileList": "Refresh File List",
+    "refreshCacheList": "Refresh Cache List",
+    "cacheOptionalHint": "You can run backtest directly; if no cache exists, data will be fetched from the exchange and cached automatically. Pre-generating cache shortens the first run."
   },
   "servicesStatus": {
     "title": "Service Status",
@@ -1311,7 +1325,8 @@
     },
     "tips": {
       "title": "Export Tips",
-      "content": "Exported configuration files are automatically sanitized and do not contain API keys or other sensitive information. For complete backup, please use the backup function in the configuration management page. Large data exports may take some time, please be patient."
+      "content": "Exported configuration files are automatically sanitized and do not contain API keys or other sensitive information. For complete backup, please use the backup function in the configuration management page. Large data exports may take some time, please be patient.",
+      "klineFilesLink": "For K-line data file list and download, go to sidebar"
     }
   },
   "privacy": {

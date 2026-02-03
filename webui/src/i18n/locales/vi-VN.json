@@ -43,6 +43,7 @@
     "optimizer": "Tối ưu hóa tham số",
     "newsAnalysis": "Phân tích tin tức",
     "dataExport": "Xuất dữ liệu",
+    "klineFiles": "Tệp K-Line",
     "expandSidebar": "Mở rộng thanh bên",
     "collapseSidebar": "Thu gọn thanh bên",
     "groupMonitor": "Giám sát & Tổng quan",

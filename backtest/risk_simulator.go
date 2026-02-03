@@ -9,8 +9,12 @@ import (
 
 // RiskSimulatorConfig 风控模拟器配置（与实盘 RiskMonitor 对齐）
 type RiskSimulatorConfig struct {
-	VolumeMultiplier float64 `json:"volume_multiplier"` // 成交量异常倍数（默认3.0）
-	AverageWindow    int     `json:"average_window"`    // 移动平均窗口（默认20）
+	VolumeMultiplier   float64 `json:"volume_multiplier"`    // 成交量异常倍数（默认3.0）
+	AverageWindow      int     `json:"average_window"`       // 移动平均窗口（默认20）
+	// 深度风控参数
+	MinDepthUSDT       float64 `json:"min_depth_usdt"`       // 最小深度阈值(USDT)，默认 10000
+	DepthDropThreshold float64 `json:"depth_drop_threshold"` // 深度下降阈值，默认 0.5
+	DepthWindow        int     `json:"depth_window"`         // 深度移动平均窗口，默认 10
 }
 
 // RiskIntervention 风控介入记录
@@ -25,23 +29,39 @@ type RiskIntervention struct {
 
 // RiskSimulator 回测风控模拟器
 type RiskSimulator struct {
-	cfg           RiskSimulatorConfig
-	triggered     bool
-	interventions []RiskIntervention
-	currentInterv *RiskIntervention // 当前未结束的介入
-	skippedBuys   int               // 当前介入期间跳过的买入数
-	barCount      int               // 当前介入持续的K线数
+	cfg            RiskSimulatorConfig
+	triggered      bool
+	interventions  []RiskIntervention
+	currentInterv  *RiskIntervention               // 当前未结束的介入
+	skippedBuys    int                             // 当前介入期间跳过的买入数
+	barCount       int                             // 当前介入持续的K线数
+	depthSnapshots []*DepthSnapshotForBacktest     // 深度快照数据（与 candles 一一对应）
 }
 
 // NewRiskSimulator 创建风控模拟器
 func NewRiskSimulator(cfg *RiskSimulatorConfig) *RiskSimulator {
-	c := RiskSimulatorConfig{VolumeMultiplier: 3.0, AverageWindow: 20}
+	c := RiskSimulatorConfig{
+		VolumeMultiplier:   3.0,
+		AverageWindow:      20,
+		MinDepthUSDT:       10000.0,
+		DepthDropThreshold: 0.5,
+		DepthWindow:        10,
+	}
 	if cfg != nil {
 		if cfg.VolumeMultiplier > 0 {
 			c.VolumeMultiplier = cfg.VolumeMultiplier
 		}
 		if cfg.AverageWindow > 0 {
 			c.AverageWindow = cfg.AverageWindow
+		}
+		if cfg.MinDepthUSDT > 0 {
+			c.MinDepthUSDT = cfg.MinDepthUSDT
+		}
+		if cfg.DepthDropThreshold > 0 {
+			c.DepthDropThreshold = cfg.DepthDropThreshold
+		}
+		if cfg.DepthWindow > 0 {
+			c.DepthWindow = cfg.DepthWindow
 		}
 	}
 	return &RiskSimulator{
@@ -50,11 +70,21 @@ func NewRiskSimulator(cfg *RiskSimulatorConfig) *RiskSimulator {
 	}
 }
 
+// NewRiskSimulatorWithDepth 创建带深度数据的风控模拟器
+func NewRiskSimulatorWithDepth(cfg *RiskSimulatorConfig, depthSnapshots []*DepthSnapshotForBacktest) *RiskSimulator {
+	rs := NewRiskSimulator(cfg)
+	rs.depthSnapshots = depthSnapshots
+	return rs
+}
+
 // DefaultRiskSimulatorConfig 返回默认风控配置
 func DefaultRiskSimulatorConfig() RiskSimulatorConfig {
 	return RiskSimulatorConfig{
-		VolumeMultiplier: 3.0,
-		AverageWindow:    20,
+		VolumeMultiplier:   3.0,
+		AverageWindow:      20,
+		MinDepthUSDT:       10000.0,
+		DepthDropThreshold: 0.5,
+		DepthWindow:        10,
 	}
 }
 
@@ -86,11 +116,74 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 	priceBelowMA := currentCandle.Close < avgPrice
 	volSpike := currentCandle.Volume > avgVol*r.cfg.VolumeMultiplier
 
-	// 触发条件：价格低于均价 且 成交量放大
-	shouldTrigger := priceBelowMA && volSpike
+	// 传统风控：价格低于均价 且 成交量放大
+	tradPriceVolRisk := priceBelowMA && volSpike
+	tradPriceVolRecover := currentCandle.Close > avgPrice && currentCandle.Volume < avgVol*r.cfg.VolumeMultiplier
 
-	// 恢复条件：价格高于均价 且 成交量正常
-	shouldRecover := currentCandle.Close > avgPrice && currentCandle.Volume < avgVol*r.cfg.VolumeMultiplier
+	// 深度风控检查
+	depthRisk := false
+	depthRecover := true
+	var depthReason string
+	
+	if r.depthSnapshots != nil && candleIndex < len(r.depthSnapshots) && r.cfg.MinDepthUSDT > 0 {
+		currentDepth := r.depthSnapshots[candleIndex]
+		
+		// 检查绝对深度不足
+		if currentDepth.TotalDepth < r.cfg.MinDepthUSDT {
+			depthRisk = true
+			depthReason = fmt.Sprintf("深度不足: %.0f USDT < %.0f", currentDepth.TotalDepth, r.cfg.MinDepthUSDT)
+		} else {
+			// 检查深度相对下降
+			if candleIndex >= r.cfg.DepthWindow {
+				var avgDepth float64
+				validDepthCount := 0
+				for i := candleIndex - 1; i >= 0 && validDepthCount < r.cfg.DepthWindow; i-- {
+					if i < len(r.depthSnapshots) {
+						avgDepth += r.depthSnapshots[i].TotalDepth
+						validDepthCount++
+					}
+				}
+				
+				if validDepthCount > 0 {
+					avgDepth /= float64(validDepthCount)
+					if avgDepth > 0 {
+						depthDropRatio := (avgDepth - currentDepth.TotalDepth) / avgDepth
+						if depthDropRatio >= r.cfg.DepthDropThreshold {
+							depthRisk = true
+							depthReason = fmt.Sprintf("深度骤降: %.1f%% (当前: %.0f, 平均: %.0f)", 
+								depthDropRatio*100, currentDepth.TotalDepth, avgDepth)
+						}
+					}
+				}
+			}
+		}
+		
+		// 深度恢复条件：深度回到阈值以上
+		depthRecover = currentDepth.TotalDepth >= r.cfg.MinDepthUSDT
+		if depthRecover && candleIndex >= r.cfg.DepthWindow {
+			var avgDepth float64
+			validDepthCount := 0
+			for i := candleIndex - 1; i >= 0 && validDepthCount < r.cfg.DepthWindow; i-- {
+				if i < len(r.depthSnapshots) {
+					avgDepth += r.depthSnapshots[i].TotalDepth
+					validDepthCount++
+				}
+			}
+			if validDepthCount > 0 {
+				avgDepth /= float64(validDepthCount)
+				if avgDepth > 0 {
+					recoveryRatio := currentDepth.TotalDepth / avgDepth
+					depthRecover = recoveryRatio >= 0.7 // 70% 恢复阈值
+				}
+			}
+		}
+	}
+
+	// 综合触发条件：传统风控 或 深度风控
+	shouldTrigger := tradPriceVolRisk || depthRisk
+	
+	// 综合恢复条件：传统恢复 且 深度恢复
+	shouldRecover := tradPriceVolRecover && depthRecover
 
 	if r.triggered {
 		if shouldRecover {
@@ -120,13 +213,23 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 		r.triggered = true
 		r.barCount = 1
 		r.skippedBuys = 0
-		priceDeviation := (currentCandle.Close - avgPrice) / avgPrice * 100
-		volRatio := currentCandle.Volume / avgVol
-		reason = fmt.Sprintf("價格%.2f%%低於均線/量×%.1f", priceDeviation, volRatio)
+		
+		// 确定触发原因和类型
+		var riskType string
+		if depthRisk {
+			reason = depthReason
+			riskType = "depth_risk"
+		} else {
+			priceDeviation := (currentCandle.Close - avgPrice) / avgPrice * 100
+			volRatio := currentCandle.Volume / avgVol
+			reason = fmt.Sprintf("價格%.2f%%低於均線/量×%.1f", priceDeviation, volRatio)
+			riskType = "volume_spike"
+		}
+		
 		r.currentInterv = &RiskIntervention{
 			Timestamp: currentCandle.Timestamp,
 			Reason:    reason,
-			RiskType:  "volume_spike",
+			RiskType:  riskType,
 		}
 		return true, reason
 	}

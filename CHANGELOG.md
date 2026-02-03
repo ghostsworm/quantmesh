@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [3.34.0] - 2026-02-03
+
+### Added
+- **回测支持 K 线文件与深度风控**：回测可选择数据来源（交易所拉取 / K 线文件 / 缓存），支持从本地 K 线文件或回测缓存加载数据；深度风控支持配置档位与比例，在有深度数据时自动启用
+  - 后端：`BacktestTask` 新增 `DataSource`、`KlineFile`、`CacheName` 字段；`backtest/data_source.go` 支持从 K 线文件和缓存加载；`backtest/risk_simulator.go` 支持深度风控参数与判断
+  - 前端：回测菜单增加数据来源选择，可选「交易所」「K 线文件」「缓存」，并展示文件时间范围、K 线数量、是否带深度等信息
+- **K 线文件统一管理**：K 线文件元信息统一入库管理，便于回测与收集器协同
+  - 新增 `storage/kline_files` 表及 CRUD；迁移脚本扫描 `./data/kline` 与回测缓存目录导入 `kline_files`
+  - `monitor/kline_collector.go` 写入 K 线时同步更新 `kline_files`，并定期更新文件状态
+  - 新增 `GET /api/kline-files/available` 返回 `status=completed` 的可用文件列表；创建回测任务时校验所选文件为 completed
+  - 回测菜单中 K 线文件选项仅展示已完成文件，并显示时间范围、深度、数据来源等
+
 ## [3.33.0] - 2026-02-03
 
 ### Added

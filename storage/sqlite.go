@@ -365,6 +365,9 @@ func createTables(db *sql.DB) error {
 	if err := migrateProtectedKlineFilesTable(db); err != nil {
 		return fmt.Errorf("迁移 protected_kline_files 表失败: %w", err)
 	}
+	if err := migrateKlineFilesTable(db); err != nil {
+		return fmt.Errorf("迁移 kline_files 表失败: %w", err)
+	}
 
 	return nil
 }
@@ -420,6 +423,32 @@ func migrateProtectedKlineFilesTable(db *sql.DB) error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_protected_kline_files_filename ON protected_kline_files(filename);
+	`)
+	return err
+}
+
+// migrateKlineFilesTable 迁移 K 线文件统一管理表
+func migrateKlineFilesTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS kline_files (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			filename TEXT UNIQUE NOT NULL,           -- 文件名（不含路径）
+			exchange TEXT NOT NULL,                  -- 交易所 (binance, bitget)
+			symbol TEXT NOT NULL,                    -- 交易对 (BTCUSDT)
+			interval TEXT NOT NULL,                  -- K线周期 (tick, 1m, 1h, 1d)
+			start_time TIMESTAMP NOT NULL,           -- 数据开始时间
+			end_time TIMESTAMP,                      -- 数据结束时间（采集中为 NULL）
+			status TEXT NOT NULL DEFAULT 'collecting', -- collecting | completed | error
+			has_depth INTEGER NOT NULL DEFAULT 0,    -- 是否带深度数据 (0/1)
+			candle_count INTEGER DEFAULT 0,          -- K线条数
+			file_size INTEGER DEFAULT 0,             -- 文件大小（字节）
+			source TEXT NOT NULL,                    -- 数据来源: collector | backtest_cache | manual
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_kline_files_symbol ON kline_files(symbol);
+		CREATE INDEX IF NOT EXISTS idx_kline_files_status ON kline_files(status);
+		CREATE INDEX IF NOT EXISTS idx_kline_files_exchange_symbol_interval ON kline_files(exchange, symbol, interval);
 	`)
 	return err
 }
@@ -481,11 +510,51 @@ func migrateBacktestTasksTable(db *sql.DB) error {
 			completed_at INTEGER,
 			error TEXT,
 			result_path TEXT,
-			report_path TEXT
+			report_path TEXT,
+			data_source TEXT,
+			kline_file TEXT,
+			cache_name TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_backtest_tasks_created_at ON backtest_tasks(created_at);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// 检查并添加新字段（为现有表添加列）
+	return migrateBacktestTasksColumns(db)
+}
+
+// migrateBacktestTasksColumns 为 backtest_tasks 表添加新列（数据源相关字段）
+func migrateBacktestTasksColumns(db *sql.DB) error {
+	// 检查表是否存在新字段，不存在则添加
+	columns := []struct {
+		name string
+		def  string
+	}{
+		{"data_source", "ALTER TABLE backtest_tasks ADD COLUMN data_source TEXT;"},
+		{"kline_file", "ALTER TABLE backtest_tasks ADD COLUMN kline_file TEXT;"},
+		{"cache_name", "ALTER TABLE backtest_tasks ADD COLUMN cache_name TEXT;"},
+	}
+
+	for _, col := range columns {
+		// 先检查列是否存在
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('backtest_tasks') WHERE name = ?", col.name).Scan(&count)
+		if err != nil {
+			continue // 忽略错误，尝试下一列
+		}
+
+		// 列不存在则添加
+		if count == 0 {
+			if _, err := db.Exec(col.def); err != nil {
+				// ALTER TABLE 失败不应该阻止程序启动，仅记录日志
+				// logger.Warn("添加列 %s 失败: %v", col.name, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // migrateOptimTasksTable 迁移 optim_tasks 表（参数优化任务）

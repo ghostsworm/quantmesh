@@ -110,6 +110,17 @@ func (kc *KlineCollector) Start() error {
 	kc.wg.Add(1)
 	go kc.cleanupOldFiles()
 
+	// 启动文件状态更新任务（每小时检查一次，更新已完成的文件状态）
+	kc.wg.Add(1)
+	go kc.updateFileStatusPeriodically()
+
+	// 启动时立即运行一次文件状态更新
+	go func() {
+		if err := kc.updateCompletedKlineFiles(); err != nil {
+			logger.Warn("⚠️ 启动时更新文件状态失败: %v", err)
+		}
+	}()
+
 	logger.Info("✅ K线数据收集器已启动")
 	return nil
 }
@@ -186,6 +197,11 @@ func (kc *KlineCollector) collectTickDataOnce() {
 			filepath := filepath.Join(kc.dataDir, filename)
 			if err := kc.saveKlinesToCSV(filepath, recentKlines, false); err != nil {
 				logger.Warn("保存tick数据失败 %s: %v", filepath, err)
+			} else {
+				// 同步到数据库（新文件）
+				if err := kc.syncKlineFileToDatabase(filename, false, true); err != nil {
+					logger.Warn("⚠️ 同步文件到数据库失败: %s, 错误: %v", filename, err)
+				}
 			}
 		}
 	}
@@ -242,6 +258,11 @@ func (kc *KlineCollector) collectMinuteDataOnce() {
 			filepath := filepath.Join(kc.dataDir, filename)
 			if err := kc.saveKlineWithDepthToCSV(filepath, kline, orderbook); err != nil {
 				logger.Warn("保存分钟级数据失败 %s: %v", filepath, err)
+			} else {
+				// 同步到数据库（新文件）
+				if err := kc.syncKlineFileToDatabase(filename, true, true); err != nil {
+					logger.Warn("⚠️ 同步文件到数据库失败: %s, 错误: %v", filename, err)
+				}
 			}
 		}
 	}
@@ -297,6 +318,11 @@ func (kc *KlineCollector) collectHourlyDataOnce() {
 			filepath := filepath.Join(kc.dataDir, filename)
 			if err := kc.saveKlineWithDepthToCSV(filepath, kline, orderbook); err != nil {
 				logger.Warn("保存小时级数据失败 %s: %v", filepath, err)
+			} else {
+				// 同步到数据库（新文件）
+				if err := kc.syncKlineFileToDatabase(filename, true, true); err != nil {
+					logger.Warn("⚠️ 同步文件到数据库失败: %s, 错误: %v", filename, err)
+				}
 			}
 		}
 	}
@@ -604,4 +630,192 @@ func splitFilename(filename string) []string {
 	}
 
 	return parts
+}
+
+// syncKlineFileToDatabase 同步 K 线文件信息到数据库
+func (kc *KlineCollector) syncKlineFileToDatabase(filename string, hasDepth bool, isNewFile bool) error {
+	if kc.storage == nil {
+		return nil // 无存储服务，跳过同步
+	}
+
+	// 解析文件名获取元信息
+	parts := splitFilename(filename)
+	if len(parts) < 4 {
+		return fmt.Errorf("文件名格式不正确: %s", filename)
+	}
+
+	interval := parts[0]
+	exchange := parts[1]
+	symbol := parts[2]
+	dateStr := parts[3]
+
+	// 解析日期
+	startTime, err := time.Parse("20060102", dateStr)
+	if err != nil {
+		return fmt.Errorf("解析日期失败: %s", dateStr)
+	}
+
+	// 判断状态：当天文件为 collecting，其他为 completed
+	today := time.Now().Format("20060102")
+	status := "completed"
+	var endTime *time.Time
+	if dateStr == today {
+		status = "collecting"
+	} else {
+		// 昨天或更早的文件，设置结束时间
+		endOfDay := startTime.Add(24*time.Hour - time.Second)
+		endTime = &endOfDay
+	}
+
+	// 获取文件信息
+	filePath := filepath.Join(kc.dataDir, filename)
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("获取文件信息失败: %w", err)
+	}
+
+	// 如果是新文件，创建数据库记录
+	if isNewFile {
+		// 检查是否已存在记录
+		sqliteStorage, ok := kc.storage.(*storage.SQLiteStorage)
+		if !ok {
+			return nil // 非 SQLite 存储，跳过
+		}
+
+		existing, err := sqliteStorage.GetKlineFileByFilename(filename)
+		if err != nil {
+			return fmt.Errorf("查询现有记录失败: %w", err)
+		}
+		if existing != nil {
+			return nil // 已存在，跳过
+		}
+
+		kf := &storage.KlineFile{
+			Filename:    filename,
+			Exchange:    exchange,
+			Symbol:      symbol,
+			Interval:    interval,
+			StartTime:   startTime,
+			EndTime:     endTime,
+			Status:      status,
+			HasDepth:    hasDepth,
+			CandleCount: 0, // 初始为0，后续更新
+			FileSize:    stat.Size(),
+			Source:      "collector",
+		}
+
+		if err := sqliteStorage.CreateKlineFile(kf); err != nil {
+			return fmt.Errorf("创建K线文件记录失败: %w", err)
+		}
+
+		logger.Debug("📝 K线文件已记录到数据库: %s", filename)
+	}
+
+	return nil
+}
+
+// updateCompletedKlineFiles 更新已完成的 K 线文件状态
+// 每日结束时或服务启动时调用，将昨天的文件状态更新为 completed
+func (kc *KlineCollector) updateCompletedKlineFiles() error {
+	if kc.storage == nil {
+		return nil
+	}
+
+	sqliteStorage, ok := kc.storage.(*storage.SQLiteStorage)
+	if !ok {
+		return nil
+	}
+
+	// 获取 collecting 状态的文件
+	files, err := sqliteStorage.ListKlineFiles(&storage.KlineFileFilter{
+		Status: "collecting",
+		Source: "collector",
+	})
+	if err != nil {
+		return fmt.Errorf("查询采集中文件失败: %w", err)
+	}
+
+	today := time.Now().Format("20060102")
+	updated := 0
+
+	for _, kf := range files {
+		// 解析文件名中的日期
+		parts := splitFilename(kf.Filename)
+		if len(parts) < 4 {
+			continue
+		}
+		dateStr := parts[3]
+
+		// 如果不是今天的文件，更新为已完成
+		if dateStr != today {
+			// 设置结束时间为当天结束
+			endTime := kf.StartTime.Add(24*time.Hour - time.Second)
+
+			// 获取文件的实际统计信息
+			filePath := filepath.Join(kc.dataDir, kf.Filename)
+			stat, err := os.Stat(filePath)
+			if err != nil {
+				logger.Warn("⚠️ 文件 %s 不存在，跳过状态更新", kf.Filename)
+				continue
+			}
+
+			// 计算 K 线数量（简单估算：文件大小/平均行长度）
+			candleCount := estimateCandleCount(stat.Size(), kf.HasDepth)
+
+			if err := sqliteStorage.UpdateKlineFileStatus(kf.Filename, "completed", &endTime, candleCount, stat.Size()); err != nil {
+				logger.Warn("⚠️ 更新文件状态失败: %s, 错误: %v", kf.Filename, err)
+				continue
+			}
+
+			logger.Info("✅ 更新文件状态为已完成: %s", kf.Filename)
+			updated++
+		}
+	}
+
+	if updated > 0 {
+		logger.Info("📊 更新了 %d 个文件状态为已完成", updated)
+	}
+
+	return nil
+}
+
+// estimateCandleCount 估算 K 线数量
+func estimateCandleCount(fileSize int64, hasDepth bool) int {
+	if fileSize <= 0 {
+		return 0
+	}
+
+	// 估算每行平均字节数
+	avgBytesPerLine := 80 // 基础估算
+	if hasDepth {
+		avgBytesPerLine = 200 // 带深度数据行更长
+	}
+
+	// 减去表头行
+	estimatedLines := int(fileSize) / avgBytesPerLine
+	if estimatedLines > 0 {
+		estimatedLines-- // 减去表头
+	}
+
+	return estimatedLines
+}
+
+// updateFileStatusPeriodically 定期更新文件状态
+func (kc *KlineCollector) updateFileStatusPeriodically() {
+	defer kc.wg.Done()
+
+	ticker := time.NewTicker(1 * time.Hour) // 每小时检查一次
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := kc.updateCompletedKlineFiles(); err != nil {
+				logger.Warn("⚠️ 定期更新文件状态失败: %v", err)
+			}
+		case <-kc.stopCh:
+			logger.Info("📊 文件状态更新任务已停止")
+			return
+		}
+	}
 }
