@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -114,8 +115,12 @@ func (kc *KlineCollector) Start() error {
 	kc.wg.Add(1)
 	go kc.updateFileStatusPeriodically()
 
-	// 启动时立即运行一次文件状态更新
+	// 启动时同步所有现有文件到数据库
 	go func() {
+		if err := kc.syncAllExistingFiles(); err != nil {
+			logger.Warn("⚠️ 启动时同步现有文件失败: %v", err)
+		}
+		// 然后更新已完成文件的状态
 		if err := kc.updateCompletedKlineFiles(); err != nil {
 			logger.Warn("⚠️ 启动时更新文件状态失败: %v", err)
 		}
@@ -818,4 +823,127 @@ func (kc *KlineCollector) updateFileStatusPeriodically() {
 			return
 		}
 	}
+}
+
+// syncAllExistingFiles 启动时同步所有现有文件到数据库
+// 扫描 dataDir 中的所有 .csv 文件，将不在数据库中的文件添加进去
+func (kc *KlineCollector) syncAllExistingFiles() error {
+	if kc.storage == nil {
+		return nil
+	}
+
+	sqliteStorage, ok := kc.storage.(*storage.SQLiteStorage)
+	if !ok {
+		return nil
+	}
+
+	// 扫描数据目录
+	entries, err := os.ReadDir(kc.dataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // 目录不存在，跳过
+		}
+		return fmt.Errorf("读取数据目录失败: %w", err)
+	}
+
+	synced := 0
+	skipped := 0
+	errors := 0
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		filename := entry.Name()
+		if !strings.HasSuffix(filename, ".csv") {
+			continue
+		}
+
+		// 检查是否已存在记录
+		existing, err := sqliteStorage.GetKlineFileByFilename(filename)
+		if err != nil {
+			logger.Warn("⚠️ 查询文件 %s 失败: %v", filename, err)
+			errors++
+			continue
+		}
+		if existing != nil {
+			skipped++
+			continue // 已存在，跳过
+		}
+
+		// 解析文件名
+		parts := splitFilename(filename)
+		if len(parts) < 4 {
+			logger.Debug("⚠️ 文件名格式不正确，跳过: %s", filename)
+			continue
+		}
+
+		interval := parts[0]
+		exchange := parts[1]
+		symbol := parts[2]
+		dateStr := parts[3]
+
+		// 解析日期
+		startTime, err := time.Parse("20060102", dateStr)
+		if err != nil {
+			logger.Debug("⚠️ 解析日期失败，跳过: %s", filename)
+			continue
+		}
+
+		// 获取文件信息
+		filePath := filepath.Join(kc.dataDir, filename)
+		stat, err := os.Stat(filePath)
+		if err != nil {
+			logger.Warn("⚠️ 获取文件信息失败: %s, 错误: %v", filename, err)
+			errors++
+			continue
+		}
+
+		// 判断状态
+		today := time.Now().Format("20060102")
+		status := "completed"
+		var endTime *time.Time
+		if dateStr == today {
+			status = "collecting"
+		} else {
+			endOfDay := startTime.Add(24*time.Hour - time.Second)
+			endTime = &endOfDay
+		}
+
+		// 判断是否有深度数据
+		hasDepth := interval == "1m" || interval == "1h"
+
+		// 估算 K 线数量
+		candleCount := estimateCandleCount(stat.Size(), hasDepth)
+
+		// 创建记录
+		kf := &storage.KlineFile{
+			Filename:    filename,
+			Exchange:    exchange,
+			Symbol:      symbol,
+			Interval:    interval,
+			StartTime:   startTime,
+			EndTime:     endTime,
+			Status:      status,
+			HasDepth:    hasDepth,
+			CandleCount: candleCount,
+			FileSize:    stat.Size(),
+			Source:      "collector", // 假设是 collector 来源
+		}
+
+		if err := sqliteStorage.CreateKlineFile(kf); err != nil {
+			logger.Warn("⚠️ 创建文件记录失败: %s, 错误: %v", filename, err)
+			errors++
+			continue
+		}
+
+		synced++
+	}
+
+	if synced > 0 || errors > 0 {
+		logger.Info("📊 同步现有文件完成: 新增 %d 个, 跳过 %d 个, 失败 %d 个", synced, skipped, errors)
+	}
+
+	return nil
 }

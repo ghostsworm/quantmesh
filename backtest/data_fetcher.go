@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"quantmesh/exchange"
@@ -433,9 +434,23 @@ func updateCacheIndex(cacheKey string, candles []*exchange.Candle) error {
 	}
 
 	// 解析缓存键
-	// 格式: BTCUSDT_1h_2023-01-01_2023-06-30
+	// 格式1: BTCUSDT_1m_2023-01-01_2023-06-30 (4段)
+	// 格式2: binance_BTCUSDT_1m_2023-01-01_2023-06-30 (5段，带交易所前缀)
+	parts := strings.Split(cacheKey, "_")
 	var symbol, interval, startStr, endStr string
-	fmt.Sscanf(cacheKey, "%[^_]_%[^_]_%[^_]_%s", &symbol, &interval, &startStr, &endStr)
+	if len(parts) >= 5 {
+		// 5段格式: exchange_symbol_interval_start_end
+		symbol = parts[1]
+		interval = parts[2]
+		startStr = parts[3]
+		endStr = parts[4]
+	} else if len(parts) >= 4 {
+		// 4段格式: symbol_interval_start_end
+		symbol = parts[0]
+		interval = parts[1]
+		startStr = parts[2]
+		endStr = parts[3]
+	}
 
 	start, _ := time.Parse("2006-01-02", startStr)
 	end, _ := time.Parse("2006-01-02", endStr)

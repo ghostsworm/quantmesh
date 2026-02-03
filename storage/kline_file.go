@@ -6,6 +6,35 @@ import (
 	"time"
 )
 
+// parseTimeField 解析时间字段，支持 Unix 时间戳和字符串格式
+func parseTimeField(v interface{}) time.Time {
+	if v == nil {
+		return time.Time{}
+	}
+	switch t := v.(type) {
+	case int64:
+		return time.Unix(t, 0)
+	case float64:
+		return time.Unix(int64(t), 0)
+	case time.Time:
+		return t
+	case string:
+		// 尝试解析常见的时间格式
+		formats := []string{
+			"2006-01-02 15:04:05",
+			"2006-01-02T15:04:05Z",
+			"2006-01-02T15:04:05-07:00",
+			time.RFC3339,
+		}
+		for _, format := range formats {
+			if parsed, err := time.Parse(format, t); err == nil {
+				return parsed
+			}
+		}
+	}
+	return time.Time{}
+}
+
 // KlineFile K线文件元信息
 type KlineFile struct {
 	ID          int        `json:"id"`
@@ -67,8 +96,10 @@ func (s *SQLiteStorage) GetKlineFile(id int) (*KlineFile, error) {
 	`
 
 	kf := &KlineFile{}
-	var startTime, createdAt, updatedAt int64
-	var endTime sql.NullInt64
+	var startTime interface{}
+	var endTime interface{}
+	var createdAt interface{}
+	var updatedAt interface{}
 	var hasDepthInt int
 
 	err := s.db.QueryRow(query, id).Scan(
@@ -83,14 +114,16 @@ func (s *SQLiteStorage) GetKlineFile(id int) (*KlineFile, error) {
 		return nil, fmt.Errorf("查询K线文件记录失败: %w", err)
 	}
 
-	kf.StartTime = time.Unix(startTime, 0)
-	if endTime.Valid {
-		endTimeVal := time.Unix(endTime.Int64, 0)
-		kf.EndTime = &endTimeVal
+	kf.StartTime = parseTimeField(startTime)
+	if endTime != nil {
+		endTimeVal := parseTimeField(endTime)
+		if !endTimeVal.IsZero() {
+			kf.EndTime = &endTimeVal
+		}
 	}
 	kf.HasDepth = hasDepthInt == 1
-	kf.CreatedAt = time.Unix(createdAt, 0)
-	kf.UpdatedAt = time.Unix(updatedAt, 0)
+	kf.CreatedAt = parseTimeField(createdAt)
+	kf.UpdatedAt = parseTimeField(updatedAt)
 
 	return kf, nil
 }
@@ -103,8 +136,10 @@ func (s *SQLiteStorage) GetKlineFileByFilename(filename string) (*KlineFile, err
 	`
 
 	kf := &KlineFile{}
-	var startTime, createdAt, updatedAt int64
-	var endTime sql.NullInt64
+	var startTime interface{}
+	var endTime interface{}
+	var createdAt interface{}
+	var updatedAt interface{}
 	var hasDepthInt int
 
 	err := s.db.QueryRow(query, filename).Scan(
@@ -119,14 +154,16 @@ func (s *SQLiteStorage) GetKlineFileByFilename(filename string) (*KlineFile, err
 		return nil, fmt.Errorf("查询K线文件记录失败: %w", err)
 	}
 
-	kf.StartTime = time.Unix(startTime, 0)
-	if endTime.Valid {
-		endTimeVal := time.Unix(endTime.Int64, 0)
-		kf.EndTime = &endTimeVal
+	kf.StartTime = parseTimeField(startTime)
+	if endTime != nil {
+		endTimeVal := parseTimeField(endTime)
+		if !endTimeVal.IsZero() {
+			kf.EndTime = &endTimeVal
+		}
 	}
 	kf.HasDepth = hasDepthInt == 1
-	kf.CreatedAt = time.Unix(createdAt, 0)
-	kf.UpdatedAt = time.Unix(updatedAt, 0)
+	kf.CreatedAt = parseTimeField(createdAt)
+	kf.UpdatedAt = parseTimeField(updatedAt)
 
 	return kf, nil
 }
@@ -193,8 +230,10 @@ func (s *SQLiteStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, e
 	var files []*KlineFile
 	for rows.Next() {
 		kf := &KlineFile{}
-		var startTime, createdAt, updatedAt int64
-		var endTime sql.NullInt64
+		var startTime interface{}
+		var endTime interface{}
+		var createdAt interface{}
+		var updatedAt interface{}
 		var hasDepthInt int
 
 		err := rows.Scan(
@@ -206,14 +245,16 @@ func (s *SQLiteStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, e
 			return nil, fmt.Errorf("扫描K线文件记录失败: %w", err)
 		}
 
-		kf.StartTime = time.Unix(startTime, 0)
-		if endTime.Valid {
-			endTimeVal := time.Unix(endTime.Int64, 0)
-			kf.EndTime = &endTimeVal
+		kf.StartTime = parseTimeField(startTime)
+		if endTime != nil {
+			endTimeVal := parseTimeField(endTime)
+			if !endTimeVal.IsZero() {
+				kf.EndTime = &endTimeVal
+			}
 		}
 		kf.HasDepth = hasDepthInt == 1
-		kf.CreatedAt = time.Unix(createdAt, 0)
-		kf.UpdatedAt = time.Unix(updatedAt, 0)
+		kf.CreatedAt = parseTimeField(createdAt)
+		kf.UpdatedAt = parseTimeField(updatedAt)
 
 		files = append(files, kf)
 	}
@@ -308,7 +349,7 @@ func (s *SQLiteStorage) GetCompletedKlineFiles(exchange, symbol, interval string
 }
 
 // GetKlineFilesInTimeRange 获取时间范围内的 K 线文件列表
-func (s *SQLiteStorage) GetKlineFilesInTimeRange(exchange, symbol, interval string, startTime, endTime time.Time) ([]*KlineFile, error) {
+func (s *SQLiteStorage) GetKlineFilesInTimeRange(exchange, symbol, interval string, startTimeParam, endTimeParam time.Time) ([]*KlineFile, error) {
 	query := `
 		SELECT id, filename, exchange, symbol, interval, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at
 		FROM kline_files 
@@ -317,7 +358,7 @@ func (s *SQLiteStorage) GetKlineFilesInTimeRange(exchange, symbol, interval stri
 		ORDER BY start_time ASC
 	`
 
-	rows, err := s.db.Query(query, exchange, symbol, interval, endTime.Unix(), startTime.Unix())
+	rows, err := s.db.Query(query, exchange, symbol, interval, endTimeParam.Unix(), startTimeParam.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("查询时间范围内K线文件失败: %w", err)
 	}
@@ -326,27 +367,31 @@ func (s *SQLiteStorage) GetKlineFilesInTimeRange(exchange, symbol, interval stri
 	var files []*KlineFile
 	for rows.Next() {
 		kf := &KlineFile{}
-		var startTimeUnix, createdAt, updatedAt int64
-		var endTimeUnix sql.NullInt64
+		var startTime interface{}
+		var endTime interface{}
+		var createdAt interface{}
+		var updatedAt interface{}
 		var hasDepthInt int
 
 		err := rows.Scan(
 			&kf.ID, &kf.Filename, &kf.Exchange, &kf.Symbol, &kf.Interval,
-			&startTimeUnix, &endTimeUnix, &kf.Status, &hasDepthInt, &kf.CandleCount,
+			&startTime, &endTime, &kf.Status, &hasDepthInt, &kf.CandleCount,
 			&kf.FileSize, &kf.Source, &createdAt, &updatedAt)
 
 		if err != nil {
 			return nil, fmt.Errorf("扫描K线文件记录失败: %w", err)
 		}
 
-		kf.StartTime = time.Unix(startTimeUnix, 0)
-		if endTimeUnix.Valid {
-			endTimeVal := time.Unix(endTimeUnix.Int64, 0)
-			kf.EndTime = &endTimeVal
+		kf.StartTime = parseTimeField(startTime)
+		if endTime != nil {
+			endTimeVal := parseTimeField(endTime)
+			if !endTimeVal.IsZero() {
+				kf.EndTime = &endTimeVal
+			}
 		}
 		kf.HasDepth = hasDepthInt == 1
-		kf.CreatedAt = time.Unix(createdAt, 0)
-		kf.UpdatedAt = time.Unix(updatedAt, 0)
+		kf.CreatedAt = parseTimeField(createdAt)
+		kf.UpdatedAt = parseTimeField(updatedAt)
 
 		files = append(files, kf)
 	}
