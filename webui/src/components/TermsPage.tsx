@@ -13,7 +13,6 @@ import {
 import { ArrowBackIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
-import LanguageSelector from './LanguageSelector'
 
 const TermsPage: React.FC = () => {
   const { t } = useTranslation()
@@ -33,7 +32,7 @@ const TermsPage: React.FC = () => {
       bg="gray.50"
       position="relative"
     >
-      {/* Top bar: Logo, language selector, back button */}
+      {/* Top bar: Back button, Logo */}
       <Box
         position="sticky"
         top={0}
@@ -58,7 +57,6 @@ const TermsPage: React.FC = () => {
                 QuantMesh
               </Heading>
             </HStack>
-            <LanguageSelector />
           </Flex>
         </Container>
       </Box>

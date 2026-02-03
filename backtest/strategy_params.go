@@ -17,6 +17,7 @@ type ParamField struct {
 	Default  interface{} `json:"default,omitempty"`
 	Min      *float64    `json:"min,omitempty"`
 	Max      *float64    `json:"max,omitempty"`
+	Step     *float64    `json:"step,omitempty"` // 步長，如 0.1 表示允許小數
 	Options  []Option    `json:"options,omitempty"`
 	Unit     string      `json:"unit,omitempty"`
 	Hint     string      `json:"hint,omitempty"`
@@ -160,6 +161,8 @@ func GetGridStrategyDefinition() StrategyParamDefinition {
 	maxGap := 10.0
 	maxTen := 10.0
 	max200 := 200.0
+	stepPoint1 := 0.1
+	stepPoint0001 := 0.0001
 	return StrategyParamDefinition{
 		StrategyType: "grid",
 		Name:         "網格策略",
@@ -170,8 +173,8 @@ func GetGridStrategyDefinition() StrategyParamDefinition {
 			{Name: "grid_count", Label: "格子數量", Type: "number", Required: false, Default: 20, Min: &minZero, Hint: "最多幾檔。填了間距時表示最多 N 檔；未填間距時表示將區間均分為 N 檔"},
 			{Name: "order_quantity", Label: "單笔订單大小", Type: "number", Required: true, Default: 100, Min: &minGap, Unit: "USDT"},
 			{Name: "total_capital", Label: "總投入资金", Type: "number", Required: true, Default: 10000, Min: &minGap, Unit: "USDT"},
-			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004, Min: &minZero, Max: &maxGap, Hint: "如 0.0004 表示 0.04%"},
-			{Name: "risk_volume_multiplier", Label: "風控-成交量倍數", Type: "number", Required: false, Default: 3.0, Min: &minOne, Max: &maxTen, Hint: "成交量超過均量的倍數觸發風控（越小越敏感）"},
+			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004, Min: &minZero, Max: &maxGap, Step: &stepPoint0001, Hint: "如 0.0004 表示 0.04%"},
+			{Name: "risk_volume_multiplier", Label: "風控-成交量倍數", Type: "number", Required: false, Default: 3.0, Min: &minOne, Max: &maxTen, Step: &stepPoint1, Hint: "成交量超過均量的倍數觸發風控（越小越敏感）"},
 			{Name: "risk_average_window", Label: "風控-均線窗口", Type: "number", Required: false, Default: 20, Min: &minOne, Max: &max200, Hint: "計算均價/均量的K線數量"},
 		},
 	}

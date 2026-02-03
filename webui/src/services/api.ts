@@ -282,6 +282,8 @@ export interface PendingOrderInfo {
   status: string
   created_at: string
   slot_price: number
+  strategy_name: string  // 策略名称
+  strategy_type: string  // 策略類型
 }
 
 export interface PendingOrdersResponse {
@@ -294,6 +296,32 @@ export async function getPendingOrders(exchange?: string, symbol?: string): Prom
   if (symbol) queryParams.append('symbol', symbol)
   const url = `${API_BASE_URL}/orders/pending${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
+}
+
+// Cancel Order
+export interface CancelOrderResponse {
+  success: boolean
+  message: string
+  order_id?: number
+}
+
+export async function cancelOrder(orderId: number, exchange: string, symbol: string): Promise<CancelOrderResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/orders/${orderId}/cancel?exchange=${exchange}&symbol=${symbol}`, {
+    method: 'POST',
+  })
+}
+
+export interface BatchCancelOrdersResponse {
+  success: boolean
+  message: string
+  count?: number
+}
+
+export async function batchCancelOrders(orderIds: number[], exchange: string, symbol: string): Promise<BatchCancelOrdersResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/orders/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ order_ids: orderIds, exchange, symbol }),
+  })
 }
 
 // Statistics
@@ -692,6 +720,33 @@ export interface StrategyAllocationResponse {
 
 export async function getStrategyAllocation(): Promise<StrategyAllocationResponse> {
   return fetchWithAuth(`${API_BASE_URL}/strategies/allocation`)
+}
+
+// Release Locked Capital
+export interface ReleaseCapitalResponse {
+  success: boolean
+  message: string
+  released: number
+  strategy?: string
+}
+
+export interface ReleaseAllCapitalResponse {
+  success: boolean
+  message: string
+  released: Record<string, number>
+  total_released: number
+}
+
+export async function releaseStrategyCapital(strategyName: string): Promise<ReleaseCapitalResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/strategies/${encodeURIComponent(strategyName)}/release-capital`, {
+    method: 'POST',
+  })
+}
+
+export async function releaseAllStrategiesCapital(): Promise<ReleaseAllCapitalResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/strategies/release-all-capital`, {
+    method: 'POST',
+  })
 }
 
 // Reconciliation

@@ -18,6 +18,7 @@ import (
 	"quantmesh/ai/processor"
 	"quantmesh/ai/service"
 	"quantmesh/backtest"
+	"quantmesh/backtest/optimrun"
 	"quantmesh/config"
 	"quantmesh/database"
 	"quantmesh/event"
@@ -83,7 +84,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.29.1"
+var Version = "3.31.0"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
@@ -1745,7 +1746,45 @@ func main() {
 			}
 			return result
 		}
-		strategyProvider := web.NewStrategyProviderAdapter(getAllocationFunc)
+
+		// 释放单个策略锁定资金
+		releaseCapitalFunc := func(strategyName string) float64 {
+			totalReleased := 0.0
+			runtimes := symbolManager.List()
+			for _, rt := range runtimes {
+				if rt.StrategyManager == nil {
+					continue
+				}
+				allocator := rt.StrategyManager.GetCapitalAllocator()
+				if allocator == nil {
+					continue
+				}
+				totalReleased += allocator.ReleaseAll(strategyName)
+			}
+			return totalReleased
+		}
+
+		// 释放所有策略锁定资金
+		releaseAllCapitalFunc := func() map[string]float64 {
+			result := make(map[string]float64)
+			runtimes := symbolManager.List()
+			for _, rt := range runtimes {
+				if rt.StrategyManager == nil {
+					continue
+				}
+				allocator := rt.StrategyManager.GetCapitalAllocator()
+				if allocator == nil {
+					continue
+				}
+				released := allocator.ReleaseAllStrategies()
+				for name, amount := range released {
+					result[name] += amount
+				}
+			}
+			return result
+		}
+
+		strategyProvider := web.NewStrategyProviderAdapter(getAllocationFunc, releaseCapitalFunc, releaseAllCapitalFunc)
 		web.SetStrategyProvider(strategyProvider)
 		logger.Info("✅ 策略资金分配提供者已設置")
 
@@ -1944,6 +1983,12 @@ func main() {
 					web.SetBacktestTaskManager(taskManager)
 					logger.Info("✅ 回测任務管理器已設置")
 
+					if optimStore := st.GetOptimTaskStore(); optimStore != nil {
+						optimTaskManager := optimrun.NewOptimTaskManager(optimStore, binanceConfig)
+						web.SetOptimTaskManager(optimTaskManager)
+						logger.Info("✅ 參數優化任務管理器已設置")
+					}
+
 					// 初始化智能參數推薦服務
 					exchangeFactory := func(exchangeName, marketType string) (exchange.IExchange, error) {
 						// 使用 exchange.NewExchange 創建適配器
@@ -2006,6 +2051,12 @@ func main() {
 					taskManager := backtest.NewTaskManager(taskStore, binanceConfig)
 					web.SetBacktestTaskManager(taskManager)
 					logger.Info("✅ 回测任務管理器已設置")
+
+					if optimStore := st.GetOptimTaskStore(); optimStore != nil {
+						optimTaskManager := optimrun.NewOptimTaskManager(optimStore, binanceConfig)
+						web.SetOptimTaskManager(optimTaskManager)
+						logger.Info("✅ 參數優化任務管理器已設置")
+					}
 
 					// 初始化智能參數推薦服務（使用空的交易所工廠，將使用 Binance 公開 API）
 					smartParamsService := backtest.NewSmartParamsService(nil, backtest.SmartParamsConfig{})

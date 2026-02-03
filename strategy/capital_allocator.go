@@ -149,6 +149,41 @@ func (ca *CapitalAllocator) Release(strategyName string, amount float64) {
 	capital.Available = capital.Allocated - capital.Used
 }
 
+// ReleaseAll 释放策略全部锁定资金（用於手动修正错误锁定）
+func (ca *CapitalAllocator) ReleaseAll(strategyName string) float64 {
+	ca.mu.Lock()
+	defer ca.mu.Unlock()
+
+	capital, exists := ca.strategies[strategyName]
+	if !exists {
+		return 0
+	}
+
+	capital.mu.Lock()
+	defer capital.mu.Unlock()
+
+	released := capital.Used
+	capital.Used = 0
+	capital.Available = capital.Allocated
+	return released
+}
+
+// ReleaseAllStrategies 释放所有策略的锁定资金（用於手动修正错误锁定）
+func (ca *CapitalAllocator) ReleaseAllStrategies() map[string]float64 {
+	ca.mu.Lock()
+	defer ca.mu.Unlock()
+
+	released := make(map[string]float64)
+	for name, capital := range ca.strategies {
+		capital.mu.Lock()
+		released[name] = capital.Used
+		capital.Used = 0
+		capital.Available = capital.Allocated
+		capital.mu.Unlock()
+	}
+	return released
+}
+
 // GetAvailable 獲取可用资金
 func (ca *CapitalAllocator) GetAvailable(strategyName string) float64 {
 	ca.mu.RLock()

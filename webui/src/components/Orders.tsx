@@ -26,8 +26,14 @@ import {
   Text,
   Spinner,
   Center,
+  Button,
+  IconButton,
+  useToast,
+  Tooltip,
+  HStack,
 } from '@chakra-ui/react'
-import { getPendingOrders, getOrderHistory, PendingOrderInfo } from '../services/api'
+import { CloseIcon } from '@chakra-ui/icons'
+import { getPendingOrders, getOrderHistory, cancelOrder, batchCancelOrders, PendingOrderInfo } from '../services/api'
 
 interface OrderInfo {
   order_id: number
@@ -48,6 +54,9 @@ const Orders: React.FC = () => {
   const [historyOrders, setHistoryOrders] = useState<OrderInfo[]>([])
   const [tabIndex, setTabIndex] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [cancellingOrderId, setCancellingOrderId] = useState<number | null>(null)
+  const [cancellingAll, setCancellingAll] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     const fetchPendingOrders = async () => {
@@ -91,6 +100,114 @@ const Orders: React.FC = () => {
 
     return () => clearInterval(interval)
   }, [tabIndex, selectedExchange, selectedSymbol])
+
+  // 刷新待成交订單
+  const refreshPendingOrders = async () => {
+    try {
+      const data = await getPendingOrders(selectedExchange, selectedSymbol)
+      setPendingOrders(data.orders || [])
+    } catch (err) {
+      console.error('Failed to refresh pending orders:', err)
+    }
+  }
+
+  // 取消單個订單
+  const handleCancelOrder = async (orderId: number) => {
+    if (!selectedExchange || !selectedSymbol) {
+      toast({
+        title: t('orders.cancelFailed'),
+        description: t('orders.missingExchangeOrSymbol'),
+        status: 'error',
+        duration: 3000,
+      })
+      return
+    }
+
+    setCancellingOrderId(orderId)
+    try {
+      const result = await cancelOrder(orderId, selectedExchange, selectedSymbol)
+      if (result.success) {
+        toast({
+          title: t('orders.cancelSuccess'),
+          description: t('orders.orderCancelled', { orderId }),
+          status: 'success',
+          duration: 3000,
+        })
+        // 刷新订單列表
+        await refreshPendingOrders()
+      } else {
+        toast({
+          title: t('orders.cancelFailed'),
+          description: result.message,
+          status: 'error',
+          duration: 5000,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: t('orders.cancelFailed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setCancellingOrderId(null)
+    }
+  }
+
+  // 取消所有待成交订單
+  const handleCancelAllOrders = async () => {
+    if (!selectedExchange || !selectedSymbol) {
+      toast({
+        title: t('orders.cancelFailed'),
+        description: t('orders.missingExchangeOrSymbol'),
+        status: 'error',
+        duration: 3000,
+      })
+      return
+    }
+
+    const orderIds = pendingOrders.map(o => o.order_id)
+    if (orderIds.length === 0) {
+      toast({
+        title: t('orders.noOrdersToCancel'),
+        status: 'info',
+        duration: 3000,
+      })
+      return
+    }
+
+    setCancellingAll(true)
+    try {
+      const result = await batchCancelOrders(orderIds, selectedExchange, selectedSymbol)
+      if (result.success) {
+        toast({
+          title: t('orders.cancelAllSuccess'),
+          description: t('orders.ordersCancelled', { count: result.count || orderIds.length }),
+          status: 'success',
+          duration: 3000,
+        })
+        // 刷新订單列表
+        await refreshPendingOrders()
+      } else {
+        toast({
+          title: t('orders.cancelFailed'),
+          description: result.message,
+          status: 'error',
+          duration: 5000,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: t('orders.cancelFailed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setCancellingAll(false)
+    }
+  }
 
   const formatTime = (timeStr: string) => {
     try {
@@ -171,11 +288,26 @@ const Orders: React.FC = () => {
             {pendingOrders.length === 0 ? (
               <Text color="gray.500" textAlign="center" py={8}>{t('orders.noPendingOrders')}</Text>
             ) : (
-              <TableContainer>
+              <>
+                {/* 批量操作按钮 */}
+                <HStack mb={4} justify="flex-end">
+                  <Button
+                    colorScheme="red"
+                    size="sm"
+                    onClick={handleCancelAllOrders}
+                    isLoading={cancellingAll}
+                    loadingText={t('orders.cancelling')}
+                    isDisabled={pendingOrders.length === 0}
+                  >
+                    {t('orders.cancelAll')} ({pendingOrders.length})
+                  </Button>
+                </HStack>
+                <TableContainer>
                 <Table variant="simple">
                   <Thead>
                     <Tr>
                       <Th>{t('orders.orderId')}</Th>
+                      <Th>{t('orders.strategy')}</Th>
                       <Th>{t('orders.symbol')}</Th>
                       <Th>{t('orders.side')}</Th>
                       <Th isNumeric>{t('orders.price')}</Th>
@@ -184,12 +316,18 @@ const Orders: React.FC = () => {
                       <Th>{t('orders.status')}</Th>
                       <Th isNumeric>{t('orders.slotPrice')}</Th>
                       <Th>{t('orders.createdAt')}</Th>
+                      <Th>{t('common.actions')}</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
                     {pendingOrders.map((order) => (
                       <Tr key={order.order_id}>
                         <Td>{order.order_id}</Td>
+                        <Td>
+                          <Badge colorScheme={order.strategy_type === 'grid' ? 'blue' : order.strategy_type === 'dca' ? 'purple' : 'gray'} variant="subtle">
+                            {order.strategy_name || order.strategy_type || '-'}
+                          </Badge>
+                        </Td>
                         <Td>
                           <Badge colorScheme="purple" variant="subtle">
                             {order.symbol}
@@ -210,11 +348,25 @@ const Orders: React.FC = () => {
                         </Td>
                         <Td isNumeric>{order.slot_price != null ? order.slot_price.toFixed(2) : '-'}</Td>
                         <Td>{formatTime(order.created_at)}</Td>
+                        <Td>
+                          <Tooltip label={t('orders.cancelOrder')} hasArrow>
+                            <IconButton
+                              aria-label={t('orders.cancelOrder')}
+                              icon={<CloseIcon />}
+                              size="sm"
+                              colorScheme="red"
+                              variant="ghost"
+                              isLoading={cancellingOrderId === order.order_id}
+                              onClick={() => handleCancelOrder(order.order_id)}
+                            />
+                          </Tooltip>
+                        </Td>
                       </Tr>
                     ))}
                   </Tbody>
                 </Table>
               </TableContainer>
+              </>
             )}
           </TabPanel>
 

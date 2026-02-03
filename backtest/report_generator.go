@@ -88,8 +88,12 @@ type ComparisonReportData struct {
 	// 風控介入
 	InterventionCount int
 	SkippedSignals    int
-	Interventions     []RiskInterventionRow
-	RiskAnalysis      string
+	// 分類介入記錄：有跳過買入（介入）和無跳過買入（未介入）
+	InterventionsSkipped    []RiskInterventionRow // 有跳過買入的介入（前30條）
+	InterventionsNotSkipped []RiskInterventionRow // 無跳過買入的介入（前30條）
+	TotalSkippedCount       int                   // 有跳過買入的總數
+	TotalNotSkippedCount    int                   // 無跳過買入的總數
+	RiskAnalysis            string
 }
 
 // RiskInterventionRow 風控介入行（用於報告表格）
@@ -100,6 +104,9 @@ type RiskInterventionRow struct {
 	Duration    string
 	SkippedBuys string
 }
+
+// 風控介入記錄顯示上限
+const maxInterventionDisplay = 30
 
 // GenerateComparisonReportToFile 生成對比報告到指定路徑。meta 可為 nil，為 nil 時不輸出 K 線周期與參數表。
 func GenerateComparisonReportToFile(comparison *ComparisonResult, reportPath string, meta *ReportMeta) error {
@@ -127,46 +134,61 @@ func prepareComparisonReportData(comp *ComparisonResult, meta *ReportMeta) Compa
 	// 使用無風控結果作為基礎 ReportData（帶 meta 以輸出 K 線周期與參數）
 	base := prepareReportData(noRisk, meta)
 
-	// 風控介入表格
-	intervRows := make([]RiskInterventionRow, 0, len(withRisk.RiskInterventions))
+	// 風控介入表格：分為有跳過買入（介入）和無跳過買入（未介入）
+	var intervSkipped, intervNotSkipped []RiskInterventionRow
+	totalSkippedCount, totalNotSkippedCount := 0, 0
 	for _, inv := range withRisk.RiskInterventions {
 		timeStr := inv.TimeStr
 		if timeStr == "" {
 			timeStr = formatRiskTimestamp(inv.Timestamp)
 		}
-		intervRows = append(intervRows, RiskInterventionRow{
+		row := RiskInterventionRow{
 			TimeStr:     timeStr,
 			Reason:      inv.Reason,
 			RiskType:    inv.RiskType,
 			Duration:    fmt.Sprintf("%d", inv.Duration),
 			SkippedBuys: fmt.Sprintf("%d", inv.SkippedBuys),
-		})
+		}
+		if inv.SkippedBuys > 0 {
+			totalSkippedCount++
+			if len(intervSkipped) < maxInterventionDisplay {
+				intervSkipped = append(intervSkipped, row)
+			}
+		} else {
+			totalNotSkippedCount++
+			if len(intervNotSkipped) < maxInterventionDisplay {
+				intervNotSkipped = append(intervNotSkipped, row)
+			}
+		}
 	}
 
 	// 風控效果分析
 	riskAnalysis := generateRiskAnalysis(comp)
 
 	return ComparisonReportData{
-		ReportData:           base,
-		NoRiskTotalReturn:    fmt.Sprintf("%.4f%%", noRisk.Metrics.TotalReturn),
-		NoRiskMaxDrawdown:    fmt.Sprintf("%.4f%%", noRisk.Metrics.MaxDrawdown),
-		NoRiskTotalTrades:    fmt.Sprintf("%d", noRisk.Metrics.TotalTrades),
-		NoRiskBuyCount:       fmt.Sprintf("%d", noRisk.Metrics.BuyCount),
-		NoRiskSellCount:      fmt.Sprintf("%d", noRisk.Metrics.SellCount),
-		NoRiskFinalCapital:   fmt.Sprintf("%.4f", noRisk.FinalCapital),
-		WithRiskTotalReturn:  fmt.Sprintf("%.4f%%", withRisk.Metrics.TotalReturn),
-		WithRiskMaxDrawdown:  fmt.Sprintf("%.4f%%", withRisk.Metrics.MaxDrawdown),
-		WithRiskTotalTrades:  fmt.Sprintf("%d", withRisk.Metrics.TotalTrades),
-		WithRiskBuyCount:     fmt.Sprintf("%d", withRisk.Metrics.BuyCount),
-		WithRiskSellCount:    fmt.Sprintf("%d", withRisk.Metrics.SellCount),
-		WithRiskFinalCapital: fmt.Sprintf("%.4f", withRisk.FinalCapital),
-		ReturnDiff:           fmt.Sprintf("%+.4f%%", cm.ReturnDiff),
-		DrawdownDiff:         fmt.Sprintf("%+.4f%%", cm.DrawdownDiff),
-		TradeCountDiff:       fmt.Sprintf("%+d", cm.TradeCountDiff),
-		InterventionCount:    cm.RiskInterventionCount,
-		SkippedSignals:       cm.SkippedSignals,
-		Interventions:        intervRows,
-		RiskAnalysis:         riskAnalysis,
+		ReportData:              base,
+		NoRiskTotalReturn:       fmt.Sprintf("%.4f%%", noRisk.Metrics.TotalReturn),
+		NoRiskMaxDrawdown:       fmt.Sprintf("%.4f%%", noRisk.Metrics.MaxDrawdown),
+		NoRiskTotalTrades:       fmt.Sprintf("%d", noRisk.Metrics.TotalTrades),
+		NoRiskBuyCount:          fmt.Sprintf("%d", noRisk.Metrics.BuyCount),
+		NoRiskSellCount:         fmt.Sprintf("%d", noRisk.Metrics.SellCount),
+		NoRiskFinalCapital:      fmt.Sprintf("%.4f", noRisk.FinalCapital),
+		WithRiskTotalReturn:     fmt.Sprintf("%.4f%%", withRisk.Metrics.TotalReturn),
+		WithRiskMaxDrawdown:     fmt.Sprintf("%.4f%%", withRisk.Metrics.MaxDrawdown),
+		WithRiskTotalTrades:     fmt.Sprintf("%d", withRisk.Metrics.TotalTrades),
+		WithRiskBuyCount:        fmt.Sprintf("%d", withRisk.Metrics.BuyCount),
+		WithRiskSellCount:       fmt.Sprintf("%d", withRisk.Metrics.SellCount),
+		WithRiskFinalCapital:    fmt.Sprintf("%.4f", withRisk.FinalCapital),
+		ReturnDiff:              fmt.Sprintf("%+.4f%%", cm.ReturnDiff),
+		DrawdownDiff:            fmt.Sprintf("%+.4f%%", cm.DrawdownDiff),
+		TradeCountDiff:          fmt.Sprintf("%+d", cm.TradeCountDiff),
+		InterventionCount:       cm.RiskInterventionCount,
+		SkippedSignals:          cm.SkippedSignals,
+		InterventionsSkipped:    intervSkipped,
+		InterventionsNotSkipped: intervNotSkipped,
+		TotalSkippedCount:       totalSkippedCount,
+		TotalNotSkippedCount:    totalNotSkippedCount,
+		RiskAnalysis:            riskAnalysis,
 	}
 }
 
@@ -251,15 +273,28 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 
 ## 風控介入記錄
 
-共介入 **{{.InterventionCount}}** 次，跳過 **{{.SkippedSignals}}** 個買入信號。
+共觸發 **{{.InterventionCount}}** 次，跳過 **{{.SkippedSignals}}** 個買入信號。
 
-{{if .Interventions}}
+### 有跳過買入的介入（共 {{.TotalSkippedCount}} 次，顯示前 30 條）
+
+{{if .InterventionsSkipped}}
 | 時間 | 原因 | 類型 | 持續K線數 | 跳過買入數 |
 |------|------|------|----------|-----------|
-{{range .Interventions}}| {{.TimeStr}} | {{.Reason}} | {{.RiskType}} | {{.Duration}} | {{.SkippedBuys}} |
+{{range .InterventionsSkipped}}| {{.TimeStr}} | {{.Reason}} | {{.RiskType}} | {{.Duration}} | {{.SkippedBuys}} |
 {{end}}
 {{else}}
-本次回測期間風控未觸發。
+本次回測期間無跳過買入的風控介入。
+{{end}}
+
+### 無跳過買入的介入（共 {{.TotalNotSkippedCount}} 次，顯示前 30 條）
+
+{{if .InterventionsNotSkipped}}
+| 時間 | 原因 | 類型 | 持續K線數 | 跳過買入數 |
+|------|------|------|----------|-----------|
+{{range .InterventionsNotSkipped}}| {{.TimeStr}} | {{.Reason}} | {{.RiskType}} | {{.Duration}} | {{.SkippedBuys}} |
+{{end}}
+{{else}}
+本次回測期間無未跳過買入的風控觸發。
 {{end}}
 
 ## 風控效果分析

@@ -6,6 +6,7 @@ interface DailyStatistics {
   total_trades: number
   total_volume: number
   total_pnl: number
+  funding_fee?: number // 資金費用（正=收入，負=支出）
   win_rate: number
   winning_trades?: number
   losing_trades?: number
@@ -146,6 +147,15 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                       }}>
                         {stats.total_pnl >= 0 ? '+' : ''}{stats.total_pnl.toFixed(2)}
                       </div>
+                      {stats.funding_fee !== undefined && stats.funding_fee !== 0 && (
+                        <div style={{
+                          color: stats.funding_fee >= 0 ? '#52c41a' : '#fa8c16',
+                          fontSize: '10px',
+                          marginBottom: '2px'
+                        }} title={t('statistics.fundingFee')}>
+                          {t('statistics.fundingFeeShort')}: {stats.funding_fee >= 0 ? '+' : ''}{stats.funding_fee.toFixed(2)}
+                        </div>
+                      )}
                       {stats.unrealized_pnl !== undefined && stats.unrealized_pnl !== 0 && (
                         <div style={{
                           color: stats.unrealized_pnl >= 0 ? '#95de64' : '#ff7875',

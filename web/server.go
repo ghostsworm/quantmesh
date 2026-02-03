@@ -239,6 +239,13 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				backtestAPI.GET("/precomputed/:symbol/:strategy", getPrecomputedResult)
 				backtestAPI.POST("/precomputed/trigger", triggerPrecompute)
 				backtestAPI.GET("/scheduler/status", getAutoSchedulerStatus)
+				// 參數優化 API
+				backtestAPI.POST("/optim/tasks", postOptimTasks)
+				backtestAPI.GET("/optim/tasks", getOptimTasks)
+				backtestAPI.GET("/optim/tasks/:id", getOptimTaskByID)
+				backtestAPI.GET("/optim/tasks/:id/result", getOptimTaskResult)
+				backtestAPI.DELETE("/optim/tasks/:id", deleteOptimTask)
+				backtestAPI.GET("/optim/space/:strategy", getOptimSearchSpace)
 			}
 
 			// 网格参數优化 API
@@ -334,9 +341,13 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 
 			// 策略资金分配API
 			protected.GET("/strategies/allocation", getStrategyAllocation)
+			protected.POST("/strategies/:name/release-capital", releaseStrategyCapital)
+			protected.POST("/strategies/release-all-capital", releaseAllStrategiesCapital)
 
 			// 待成交订單API
 			protected.GET("/orders/pending", getPendingOrders)
+			protected.POST("/orders/:id/cancel", cancelOrder)
+			protected.POST("/orders/cancel", batchCancelOrders)
 
 			// K線數據API
 			protected.GET("/klines", getKlines)

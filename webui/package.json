@@ -1,6 +1,6 @@
 {
   "name": "quantmesh-webui",
-  "version": "3.29.1",
+  "version": "3.31.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

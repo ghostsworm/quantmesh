@@ -55,6 +55,7 @@ type Storage interface {
 	SaveFundingPayment(payment *FundingPayment) error
 	GetFundingPayments(account, exchange string, startTime, endTime time.Time) ([]*FundingPayment, error)
 	GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error)
+	GetDailyFundingPayments(account, exchange string, startTime, endTime time.Time) (map[string]float64, error)
 	GetAIPromptTemplate(module string) (*AIPromptTemplate, error)
 	SetAIPromptTemplate(template *AIPromptTemplate) error
 	GetAllAIPromptTemplates() ([]*AIPromptTemplate, error)
@@ -77,6 +78,7 @@ type Storage interface {
 	GetWithdrawRecords(accountID string, limit int) ([]*ProfitWithdrawRecord, error)
 
 	GetBacktestTaskStore() backtest.TaskStore
+	GetOptimTaskStore() backtest.OptimTaskStore
 	Close() error
 
 	// 新聞分析历史

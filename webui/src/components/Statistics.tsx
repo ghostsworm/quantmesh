@@ -20,6 +20,7 @@ interface DailyStatistics {
   total_pnl: number // 當日淨利潤（已扣手續費）
   gross_pnl?: number // 當日毛利
   total_fee?: number // 當日手續費
+  funding_fee?: number // 當日資金費用（正=收入，負=支出）
   win_rate: number
   winning_trades?: number
   losing_trades?: number
@@ -254,6 +255,7 @@ const Statistics: React.FC = () => {
                       <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.totalFee') || '手續費'}</th>
                     </>
                   )}
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.fundingFee') || '資金費'}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.unrealizedPnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.cumulativePnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.winRate')}</th>
@@ -288,6 +290,11 @@ const Statistics: React.FC = () => {
                         </td>
                       </>
                     )}
+                    <td style={{ padding: '12px', textAlign: 'right', color: (stat.funding_fee ?? 0) >= 0 ? '#52c41a' : '#fa8c16' }}>
+                      {stat.funding_fee !== undefined && stat.funding_fee !== 0
+                        ? (stat.funding_fee >= 0 ? '+' : '') + stat.funding_fee.toFixed(2)
+                        : '-'}
+                    </td>
                     <td style={{ padding: '12px', textAlign: 'right', color: (stat.unrealized_pnl ?? 0) >= 0 ? '#95de64' : '#ff7875', fontStyle: 'italic' }}>
                       {stat.unrealized_pnl !== undefined && stat.unrealized_pnl !== 0
                         ? (stat.unrealized_pnl >= 0 ? '+' : '') + stat.unrealized_pnl.toFixed(2)

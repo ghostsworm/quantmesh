@@ -64,7 +64,6 @@ import ProfitManagement from './components/ProfitManagement'
 import PositionPlan from './components/PositionPlan'
 import NewbieRiskCheck from './components/NewbieRiskCheck'
 import BacktestMenu from './components/BacktestMenu'
-import OptimizerPage from './components/OptimizerPage'
 import ServiceStatusPage from './components/ServiceStatusPage'
 import DataExport from './components/DataExport'
 import Footer from './components/Footer'
@@ -475,7 +474,6 @@ const AppContent: React.FC = () => {
                 <Route path="/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
                 <Route path="/position-plan" element={<ProtectedRoute><PositionPlan /></ProtectedRoute>} />
                 <Route path="/backtest" element={<ProtectedRoute><BacktestMenu /></ProtectedRoute>} />
-                <Route path="/optimizer" element={<ProtectedRoute><OptimizerPage /></ProtectedRoute>} />
                 <Route path="/data-export" element={<ProtectedRoute><DataExport /></ProtectedRoute>} />
                 <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
                 <Route path="/services/status" element={<ProtectedRoute><ServiceStatusPage /></ProtectedRoute>} />

@@ -293,15 +293,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           {t('sidebar.backtest')}
         </NavItem>
         <NavItem 
-          icon={SearchIcon} 
-          to="/optimizer" 
-          isActive={isRouteActive('/optimizer')}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.optimizer')}
-        </NavItem>
-        <NavItem 
           icon={ExternalLinkIcon} 
           to="/data-export" 
           isActive={isRouteActive('/data-export')}

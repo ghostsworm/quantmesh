@@ -1737,6 +1737,22 @@ func getDailyStatistics(c *gin.Context) {
 		}
 	}
 
+	// 4b. 獲取每日資金費用
+	fundingMap := make(map[string]float64)
+	type dailyFundingGetter interface {
+		GetDailyFundingPayments(account, exchange string, startTime, endTime time.Time) (map[string]float64, error)
+	}
+	if stWithFunding, ok := st.(dailyFundingGetter); ok {
+		exchangeID := ""
+		if status != nil {
+			exchangeID = status.Exchange
+		}
+		dailyFunding, err := stWithFunding.GetDailyFundingPayments(accountID, exchangeID, startDate, endDate)
+		if err == nil {
+			fundingMap = dailyFunding
+		}
+	}
+
 	// 5. 合並數據：优先使用 statistics 表的數據，缺失的日期使用 trades 表的數據
 	// 構建最终結果
 	var result []map[string]interface{}
@@ -1840,6 +1856,13 @@ func getDailyStatistics(c *gin.Context) {
 			item["unrealized_pnl"] = snap.UnrealizedPnL
 			item["intraday_max_drawdown"] = snap.IntradayMaxDrawdown
 			item["intraday_max_drawdown_pct"] = snap.IntradayMaxDrawdownPct
+		}
+
+		// 合併每日資金費用
+		if funding, ok := fundingMap[dateKey]; ok {
+			item["funding_fee"] = funding
+		} else {
+			item["funding_fee"] = 0.0
 		}
 
 		tempResult = append(tempResult, item)
@@ -2343,7 +2366,9 @@ type SlotInfo struct {
 	OrderPrice     float64   `json:"order_price"`
 	OrderFilledQty float64   `json:"order_filled_qty"`
 	OrderCreatedAt time.Time `json:"order_created_at"`
-	SlotStatus     string    `json:"slot_status"` // FREE/PENDING/LOCKED
+	SlotStatus     string    `json:"slot_status"`   // FREE/PENDING/LOCKED
+	StrategyName   string    `json:"strategy_name"` // 策略名称
+	StrategyType   string    `json:"strategy_type"` // 策略類型
 }
 
 // SetPositionManagerProvider 設置槽位數據提供者
@@ -2388,6 +2413,8 @@ func (a *positionManagerAdapter) GetAllSlots() []SlotInfo {
 			OrderFilledQty: ds.OrderFilledQty,
 			OrderCreatedAt: utils.ToUTC8(ds.OrderCreatedAt),
 			SlotStatus:     ds.SlotStatus,
+			StrategyName:   ds.StrategyName,
+			StrategyType:   ds.StrategyType,
 		}
 	}
 	return slots
@@ -2468,6 +2495,8 @@ var (
 // StrategyProvider 策略资金分配提供者接口
 type StrategyProvider interface {
 	GetCapitalAllocation() map[string]StrategyCapitalInfo
+	ReleaseLockedCapital(strategyName string) float64
+	ReleaseAllLockedCapital() map[string]float64
 }
 
 // StrategyCapitalInfo 策略资金信息
@@ -2486,17 +2515,43 @@ func SetStrategyProvider(provider StrategyProvider) {
 
 // strategyProviderAdapter 策略提供者适配器
 type strategyProviderAdapter struct {
-	getAllocationFunc func() map[string]StrategyCapitalInfo
+	getAllocationFunc     func() map[string]StrategyCapitalInfo
+	releaseCapitalFunc    func(strategyName string) float64
+	releaseAllCapitalFunc func() map[string]float64
 }
 
 // NewStrategyProviderAdapter 創建策略提供者适配器
-func NewStrategyProviderAdapter(getAllocationFunc func() map[string]StrategyCapitalInfo) StrategyProvider {
-	return &strategyProviderAdapter{getAllocationFunc: getAllocationFunc}
+func NewStrategyProviderAdapter(
+	getAllocationFunc func() map[string]StrategyCapitalInfo,
+	releaseCapitalFunc func(strategyName string) float64,
+	releaseAllCapitalFunc func() map[string]float64,
+) StrategyProvider {
+	return &strategyProviderAdapter{
+		getAllocationFunc:     getAllocationFunc,
+		releaseCapitalFunc:    releaseCapitalFunc,
+		releaseAllCapitalFunc: releaseAllCapitalFunc,
+	}
 }
 
 // GetCapitalAllocation 獲取策略资金分配信息
 func (a *strategyProviderAdapter) GetCapitalAllocation() map[string]StrategyCapitalInfo {
 	return a.getAllocationFunc()
+}
+
+// ReleaseLockedCapital 释放指定策略的锁定资金
+func (a *strategyProviderAdapter) ReleaseLockedCapital(strategyName string) float64 {
+	if a.releaseCapitalFunc != nil {
+		return a.releaseCapitalFunc(strategyName)
+	}
+	return 0
+}
+
+// ReleaseAllLockedCapital 释放所有策略的锁定资金
+func (a *strategyProviderAdapter) ReleaseAllLockedCapital() map[string]float64 {
+	if a.releaseAllCapitalFunc != nil {
+		return a.releaseAllCapitalFunc()
+	}
+	return map[string]float64{}
 }
 
 // getStrategyAllocation 獲取策略资金分配信息
@@ -2509,6 +2564,55 @@ func getStrategyAllocation(c *gin.Context) {
 
 	allocation := strategyProvider.GetCapitalAllocation()
 	c.JSON(http.StatusOK, gin.H{"allocation": allocation})
+}
+
+// releaseStrategyCapital 释放策略的锁定资金
+// POST /api/strategies/:name/release-capital
+func releaseStrategyCapital(c *gin.Context) {
+	strategyName := c.Param("name")
+	if strategyName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少策略名称"})
+		return
+	}
+
+	if strategyProvider == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "策略服務未初始化"})
+		return
+	}
+
+	released := strategyProvider.ReleaseLockedCapital(strategyName)
+	logger.Info("💰 [手动释放资金] 策略 %s 已释放锁定资金: %.2f USDT", strategyName, released)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"message":  fmt.Sprintf("已释放 %.2f USDT 锁定资金", released),
+		"released": released,
+		"strategy": strategyName,
+	})
+}
+
+// releaseAllStrategiesCapital 释放所有策略的锁定资金
+// POST /api/strategies/release-all-capital
+func releaseAllStrategiesCapital(c *gin.Context) {
+	if strategyProvider == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "策略服務未初始化"})
+		return
+	}
+
+	released := strategyProvider.ReleaseAllLockedCapital()
+
+	totalReleased := 0.0
+	for name, amount := range released {
+		totalReleased += amount
+		logger.Info("💰 [手动释放资金] 策略 %s 已释放锁定资金: %.2f USDT", name, amount)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":        true,
+		"message":        fmt.Sprintf("已释放所有策略的锁定资金，總計 %.2f USDT", totalReleased),
+		"released":       released,
+		"total_released": totalReleased,
+	})
 }
 
 // ========== 待成交訂單相關API ==========
@@ -2547,6 +2651,8 @@ func getPendingOrders(c *gin.Context) {
 				FilledQuantity: slot.OrderFilledQty,
 				CreatedAt:      utils.ToUTC8(slot.OrderCreatedAt),
 				SlotPrice:      slot.Price,
+				StrategyName:   slot.StrategyName,
+				StrategyType:   slot.StrategyType,
 			})
 		}
 	}
@@ -2564,7 +2670,102 @@ type PendingOrderInfo struct {
 	Status         string    `json:"status"`
 	FilledQuantity float64   `json:"filled_quantity"`
 	CreatedAt      time.Time `json:"created_at"`
-	SlotPrice      float64   `json:"slot_price"` // 槽位價格
+	SlotPrice      float64   `json:"slot_price"`    // 槽位價格
+	StrategyName   string    `json:"strategy_name"` // 策略名称
+	StrategyType   string    `json:"strategy_type"` // 策略類型
+}
+
+// cancelOrder 取消订單
+// POST /api/orders/:id/cancel
+func cancelOrder(c *gin.Context) {
+	orderIDStr := c.Param("id")
+	orderID, err := strconv.ParseInt(orderIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "無效的订單ID"})
+		return
+	}
+
+	// 獲取交易所和交易對
+	exchangeName := c.Query("exchange")
+	symbol := c.Query("symbol")
+	if exchangeName == "" || symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 exchange 或 symbol 参數"})
+		return
+	}
+
+	// 獲取交易所實例
+	if exchangeGetterFunc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "交易所服務未初始化"})
+		return
+	}
+
+	ex := exchangeGetterFunc(exchangeName)
+	if ex == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "交易所不存在: " + exchangeName})
+		return
+	}
+
+	// 調用交易所取消订單
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := ex.CancelOrder(ctx, symbol, orderID); err != nil {
+		logger.Error("❌ [取消订單] 失败: orderID=%d, exchange=%s, symbol=%s, error=%v", orderID, exchangeName, symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "取消订單失败: " + err.Error()})
+		return
+	}
+
+	logger.Info("✅ [取消订單] 成功: orderID=%d, exchange=%s, symbol=%s", orderID, exchangeName, symbol)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "订單已取消", "order_id": orderID})
+}
+
+// batchCancelOrders 批量取消订單
+// POST /api/orders/cancel
+func batchCancelOrders(c *gin.Context) {
+	var req struct {
+		OrderIDs []int64 `json:"order_ids"`
+		Exchange string  `json:"exchange"`
+		Symbol   string  `json:"symbol"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "無效的请求數據"})
+		return
+	}
+
+	if len(req.OrderIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "订單ID列表為空"})
+		return
+	}
+
+	if req.Exchange == "" || req.Symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 exchange 或 symbol 参數"})
+		return
+	}
+
+	// 獲取交易所實例
+	if exchangeGetterFunc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "交易所服務未初始化"})
+		return
+	}
+
+	ex := exchangeGetterFunc(req.Exchange)
+	if ex == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "交易所不存在: " + req.Exchange})
+		return
+	}
+
+	// 調用交易所批量取消订單
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := ex.BatchCancelOrders(ctx, req.Symbol, req.OrderIDs); err != nil {
+		logger.Error("❌ [批量取消订單] 失败: orderIDs=%v, exchange=%s, symbol=%s, error=%v", req.OrderIDs, req.Exchange, req.Symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "批量取消订單失败: " + err.Error()})
+		return
+	}
+
+	logger.Info("✅ [批量取消订單] 成功: count=%d, exchange=%s, symbol=%s", len(req.OrderIDs), req.Exchange, req.Symbol)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("已取消 %d 個订單", len(req.OrderIDs)), "count": len(req.OrderIDs)})
 }
 
 // ========== 日志相关API ==========

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"quantmesh/backtest"
+	"quantmesh/backtest/optimizer"
+	"quantmesh/backtest/optimrun"
 	"quantmesh/logger"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +25,9 @@ var smartParamsService *backtest.SmartParamsService
 // autoBacktestScheduler 自動回測調度器（由 main 注入）
 var autoBacktestScheduler *backtest.AutoBacktestScheduler
 
+// optimTaskManager 參數優化任務管理器（由 main 注入）
+var optimTaskManager *optimrun.OptimTaskManager
+
 // SetBacktestTaskManager 設置回测任務管理器
 func SetBacktestTaskManager(m *backtest.TaskManager) {
 	backtestTaskManager = m
@@ -36,6 +41,11 @@ func SetSmartParamsService(s *backtest.SmartParamsService) {
 // SetAutoBacktestScheduler 設置自動回測調度器
 func SetAutoBacktestScheduler(s *backtest.AutoBacktestScheduler) {
 	autoBacktestScheduler = s
+}
+
+// SetOptimTaskManager 設置參數優化任務管理器
+func SetOptimTaskManager(m *optimrun.OptimTaskManager) {
+	optimTaskManager = m
 }
 
 // BacktestRequest 回测请求
@@ -1137,4 +1147,181 @@ func getAutoSchedulerStatus(c *gin.Context) {
 		"running_count":     runningCount,
 		"symbols":           config.Symbols,
 	})
+}
+
+// ---- 參數優化 API ----
+
+// postOptimTasks 創建參數優化任務 POST /api/backtest/optim/tasks
+func postOptimTasks(c *gin.Context) {
+	if optimTaskManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "回測服務未初始化，請確保已啟用存儲並保存過配置。",
+		})
+		return
+	}
+	var req struct {
+		Strategy     string    `json:"strategy" binding:"required"`
+		Symbol       string    `json:"symbol" binding:"required"`
+		Interval     string    `json:"interval" binding:"required"`
+		StartTime    time.Time `json:"start_time" binding:"required"`
+		EndTime      time.Time `json:"end_time" binding:"required"`
+		TotalCapital float64   `json:"total_capital" binding:"required"`
+		SearchSpace  struct {
+			Strategy string `json:"strategy"`
+			Ranges   map[string]struct {
+				Min  float64 `json:"min"`
+				Max  float64 `json:"max"`
+				Step float64 `json:"step"`
+			} `json:"ranges"`
+		} `json:"search_space"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("參數錯誤: %v", err)})
+		return
+	}
+	if req.EndTime.Before(req.StartTime) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_time 必須晚於 start_time"})
+		return
+	}
+	validStrategies := map[string]bool{
+		"grid": true, "momentum": true, "mean_reversion": true,
+		"trend_following": true, "dca": true, "martingale": true,
+	}
+	if !validStrategies[req.Strategy] {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的策略: %s", req.Strategy)})
+		return
+	}
+	space := backtest.OptimSearchSpace{Strategy: req.Strategy, Ranges: make(map[string]backtest.OptimParamRange)}
+	if req.SearchSpace.Ranges != nil && len(req.SearchSpace.Ranges) > 0 {
+		for k, v := range req.SearchSpace.Ranges {
+			space.Ranges[k] = backtest.OptimParamRange{Min: v.Min, Max: v.Max, Step: v.Step}
+		}
+	} else {
+		// 使用默认搜索空间
+		defaultSpace := optimizer.GetDefaultSearchSpace(req.Strategy)
+		for k, v := range defaultSpace.Ranges {
+			space.Ranges[k] = backtest.OptimParamRange{Min: v.Min, Max: v.Max, Step: v.Step}
+		}
+	}
+	space.Strategy = req.Strategy
+
+	task := &backtest.OptimTask{
+		Strategy:     req.Strategy,
+		Symbol:       req.Symbol,
+		Interval:     req.Interval,
+		StartTime:    req.StartTime,
+		EndTime:      req.EndTime,
+		TotalCapital: req.TotalCapital,
+		SearchSpace:  space,
+	}
+	if err := optimTaskManager.CreateAndRun(task); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "優化任務已創建", "task_id": task.ID})
+}
+
+// getOptimTasks 獲取參數優化任務列表 GET /api/backtest/optim/tasks
+func getOptimTasks(c *gin.Context) {
+	if optimTaskManager == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "tasks": []interface{}{}})
+		return
+	}
+	store := optimTaskManager.GetStore()
+	if store == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "tasks": []interface{}{}})
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	tasks, err := store.ListOptimTasks(limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "tasks": tasks})
+}
+
+// getOptimTaskByID 獲取參數優化任務詳情 GET /api/backtest/optim/tasks/:id
+func getOptimTaskByID(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
+		return
+	}
+	if optimTaskManager == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
+		return
+	}
+	store := optimTaskManager.GetStore()
+	if store == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
+		return
+	}
+	task, err := store.GetOptimTask(id)
+	if err != nil || task == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "task": task})
+}
+
+// getOptimTaskResult 獲取參數優化結果 GET /api/backtest/optim/tasks/:id/result
+func getOptimTaskResult(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
+		return
+	}
+	if optimTaskManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "服務未初始化"})
+		return
+	}
+	resultPath := filepath.Join("backtest", "optim_results", id+".json")
+	data, err := os.ReadFile(resultPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "結果文件不存在或未生成"})
+		return
+	}
+	c.Data(http.StatusOK, "application/json", data)
+}
+
+// deleteOptimTask 刪除參數優化任務 DELETE /api/backtest/optim/tasks/:id
+func deleteOptimTask(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
+		return
+	}
+	if optimTaskManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "服務未初始化"})
+		return
+	}
+	store := optimTaskManager.GetStore()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲不可用"})
+		return
+	}
+	if err := store.DeleteOptimTask(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	// 可選：刪除結果文件
+	_ = os.Remove(filepath.Join("backtest", "optim_results", id+".json"))
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已刪除"})
+}
+
+// getOptimSearchSpace 獲取策略默認搜索空間 GET /api/backtest/optim/space/:strategy
+func getOptimSearchSpace(c *gin.Context) {
+	strategy := c.Param("strategy")
+	if strategy == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 strategy"})
+		return
+	}
+	space := optimizer.GetDefaultSearchSpace(strategy)
+	c.JSON(http.StatusOK, gin.H{"success": true, "search_space": space})
 }
