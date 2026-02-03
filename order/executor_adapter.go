@@ -191,8 +191,8 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		// 判断錯误類型
 		errStr := err.Error()
 		if strings.Contains(errStr, "-4061") {
-			// 持倉模式不匹配：双向持倉 vs 單向持倉
-			logger.Fatalf("❌ 下單失败，请在交易所將双向持倉改為單向持倉。錯误碼: -4061")
+			// 持倉模式不匹配：双向持倉 vs 單向持倉。不退出進程，僅記錄錯誤並返回，由上層決定是否重試或告警
+			logger.Error("❌ 下單失败，请在交易所將双向持倉改為單向持倉。錯误碼: -4061（進程繼續運行，請手動修改後重試）")
 			return nil, fmt.Errorf("持倉模式不匹配: %w", err)
 		} else if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "rate limit") {
 			// 速率限制，等待后重試
@@ -214,9 +214,6 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			// 达到3次后，下一輪循环會触发降级
 			time.Sleep(500 * time.Millisecond)
 			continue
-		} else if strings.Contains(errStr, "-4061") {
-			// 持倉模式不匹配（已在前面处理，这里保留以防万一）
-			return nil, err
 		} else if strings.Contains(errStr, "-2019") || strings.Contains(errStr, "保证金不足") || strings.Contains(errStr, "insufficient") {
 			// 保证金不足，不重試
 			return nil, err
