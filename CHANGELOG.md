@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+## [3.32.0] - 2026-02-03
+
+### Added
+- **K线数据自动收集与管理**：新增K线数据自动收集、存储和管理功能
+  - 自动收集tick级K线数据（最新24小时，每分钟更新）
+  - 自动收集分钟级K线数据（带订单深度，每分钟更新）
+  - 自动收集小时级K线数据（带订单深度，每小时更新）
+  - 支持前5大交易所（binance, okx, bybit, bitget, gate）和主要币种
+  - CSV文件存储到 `./data/kline` 目录
+  - 7天自动清理未保护的文件
+  - 文件保护机制：用户可保护重要文件不被自动删除
+  - 后端：`monitor/kline_collector.go`、`web/api_kline_files.go`、`storage/sqlite.go`（新增 `protected_kline_files` 表）
+  - 前端：`webui/src/components/KlineFilesManager.tsx`、`webui/src/services/klineFiles.ts`
+  - API：`GET /api/kline-files`、`POST /api/kline-files/:filename/protect`、`DELETE /api/kline-files/:filename/protect`、`GET /api/kline-files/:filename/download`
+
+- **回测报告导出功能**：在数据导出页面新增回测报告导出功能
+  - 后端：`GET /api/export/backtest-reports` 接口，打包所有回测报告（.md和.csv文件）为ZIP
+  - 前端：导出页面新增回测报告导出选项
+  - 支持导出所有回测报告文件（Markdown报告和CSV权益曲线）
+
 ## [3.31.0] - 2026-02-03
 
 ### Added

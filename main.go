@@ -84,7 +84,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.31.0"
+var Version = "3.32.0"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
@@ -1246,6 +1246,44 @@ func main() {
 		} else {
 			logger.Info("✅ Watchdog 系统監控已啟动")
 		}
+	}
+
+	// 初始化K线数据收集器
+	logger.Info("🔧 正在初始化K线数据收集器...")
+	var klineCollector *monitor.KlineCollector
+	if storageService != nil {
+		// 创建交易所实例映射（用于K线收集器）
+		// 只创建主要交易所的实例（前5大）
+		majorExchanges := []string{"binance", "okx", "bybit", "bitget", "gate"}
+		exchanges := make(map[string]exchange.IExchange)
+		for _, exchangeName := range majorExchanges {
+			if _, exists := cfg.Exchanges[exchangeName]; !exists {
+				continue
+			}
+			// 使用NewExchange创建交易所实例
+			ex, err := exchange.NewExchange(cfg, exchangeName, "BTCUSDT", "futures")
+			if err != nil {
+				logger.Warn("⚠️ 创建交易所实例失败 %s: %v", exchangeName, err)
+				continue
+			}
+			exchanges[exchangeName] = ex
+		}
+
+		if len(exchanges) > 0 {
+			klineCollector = monitor.NewKlineCollector(cfg, storageService, exchanges)
+			if err := klineCollector.Start(); err != nil {
+				logger.Error("❌ 啟动K线数据收集器失败: %v", err)
+			} else {
+				logger.Info("✅ K线数据收集器已啟动")
+				// 注入到Web层
+				web.SetKlineCollector(klineCollector)
+				defer klineCollector.Stop()
+			}
+		} else {
+			logger.Warn("⚠️ 没有可用的交易所实例，K线数据收集器将不可用")
+		}
+	} else {
+		logger.Warn("⚠️ 存储服务未初始化，K线数据收集器将不可用")
 	}
 
 	// 初始化插件系统

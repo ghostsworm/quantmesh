@@ -144,6 +144,12 @@ export async function exportAuditLogs(params: ExportParams = {}): Promise<void> 
   await downloadFile(url, 'audit_logs.zip')
 }
 
+// 導出回測報告（ZIP）
+export async function exportBacktestReports(): Promise<void> {
+  const url = `${API_BASE_URL}/export/backtest-reports`
+  await downloadFile(url, 'backtest_reports.zip')
+}
+
 // 導出全部數據（ZIP）
 export async function exportAll(params: ExportParams = {}): Promise<void> {
   const query = buildQueryString(params)
@@ -163,4 +169,5 @@ export type ExportType =
   | 'system-metrics'
   | 'logs'
   | 'audit-logs'
+  | 'backtest-reports'
   | 'all'

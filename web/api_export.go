@@ -1,16 +1,20 @@
 package web
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"gopkg.in/yaml.v3"
 	"quantmesh/config"
 	"quantmesh/storage"
+
+	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
 )
 
 // parseExportParams 解析導出通用参數
@@ -423,6 +427,85 @@ func exportAllHandler(c *gin.Context) {
 	}
 
 	filename := "quantmesh_export_" + time.Now().Format("20060102_150405") + ".zip"
+	serveExport(c, zipData, "application/zip", filename)
+}
+
+// exportBacktestReportsHandler 導出回測報告（ZIP 打包）
+// GET /api/export/backtest-reports
+func exportBacktestReportsHandler(c *gin.Context) {
+	reportsDir := "./backtest/reports"
+
+	// 檢查目錄是否存在
+	if _, err := os.Stat(reportsDir); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "回測報告目錄不存在"})
+		return
+	}
+
+	// 創建臨時ZIP文件
+	tempFile, err := os.CreateTemp("", "backtest_reports_*.zip")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "創建臨時文件失败"})
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	// 打包所有報告文件
+	zipWriter := zip.NewWriter(tempFile)
+	defer zipWriter.Close()
+
+	files, err := os.ReadDir(reportsDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "讀取報告目錄失败"})
+		return
+	}
+
+	fileCount := 0
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		// 只打包 .md 和 .csv 文件
+		filename := file.Name()
+		if !strings.HasSuffix(filename, ".md") && !strings.HasSuffix(filename, ".csv") {
+			continue
+		}
+
+		filePath := filepath.Join(reportsDir, filename)
+		fileData, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+
+		zipFile, err := zipWriter.Create(filename)
+		if err != nil {
+			continue
+		}
+
+		if _, err := zipFile.Write(fileData); err != nil {
+			continue
+		}
+
+		fileCount++
+	}
+
+	if fileCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "沒有找到回測報告文件"})
+		return
+	}
+
+	zipWriter.Close()
+	tempFile.Close()
+
+	// 讀取ZIP文件內容
+	zipData, err := os.ReadFile(tempFile.Name())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "讀取ZIP文件失败"})
+		return
+	}
+
+	filename := "backtest_reports_" + time.Now().Format("20060102_150405") + ".zip"
 	serveExport(c, zipData, "application/zip", filename)
 }
 

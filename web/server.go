@@ -319,6 +319,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/export/system-metrics", exportSystemMetricsHandler)
 			protected.GET("/export/logs", exportLogsHandler)
 			protected.GET("/export/audit-logs", exportAuditLogsHandler)
+			protected.GET("/export/backtest-reports", exportBacktestReportsHandler)
 			protected.GET("/export/all", exportAllHandler)
 
 			protected.POST("/trading/start", startTrading)
@@ -438,6 +439,15 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				capital.POST("/rebalance", rebalanceCapitalHandler)
 				capital.GET("/history", getCapitalHistoryHandler)
 				capital.PUT("/reserve", setReserveCapitalHandler)
+			}
+
+			// K线数据文件管理 API
+			klineFiles := protected.Group("/kline-files")
+			{
+				klineFiles.GET("", listKlineFilesHandler)
+				klineFiles.POST("/:filename/protect", protectKlineFileHandler)
+				klineFiles.DELETE("/:filename/protect", unprotectKlineFileHandler)
+				klineFiles.GET("/:filename/download", downloadKlineFileHandler)
 			}
 		}
 
