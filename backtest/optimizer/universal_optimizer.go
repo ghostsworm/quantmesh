@@ -38,16 +38,22 @@ type UniversalParamResult struct {
 	TotalTrades int                    `json:"total_trades"`
 }
 
-// UniversalOptimResult 通用优化结果
+// UniversalOptimResult 通用优化结果（含任务上下文，供前端结果弹窗标题等展示）
 type UniversalOptimResult struct {
-	TaskID       string                 `json:"task_id"`
-	Strategy     string                 `json:"strategy"`
-	AllResults   []UniversalParamResult `json:"all_results"`
-	BestByReturn *UniversalParamResult  `json:"best_by_return,omitempty"`
-	BestBySharpe *UniversalParamResult  `json:"best_by_sharpe,omitempty"`
-	Elapsed      time.Duration          `json:"elapsed"`
-	TotalCombos  int                    `json:"total_combos"`
-	Completed    int                    `json:"completed"`
+	TaskID        string                 `json:"task_id"`
+	Strategy      string                 `json:"strategy"`
+	Symbol        string                 `json:"symbol,omitempty"`
+	Interval      string                 `json:"interval,omitempty"`        // K 线类型：tick、1m、5m 等
+	StartTime     time.Time              `json:"start_time,omitempty"`      // K 线起始时间
+	EndTime       time.Time              `json:"end_time,omitempty"`        // K 线结束时间
+	UseOrderDepth bool                   `json:"use_order_depth,omitempty"` // 是否使用订单深度风控
+	RiskInfo      string                 `json:"risk_info,omitempty"`       // 风控参与说明：如 "成交量风控"、"成交量+订单深度"、"无"
+	AllResults    []UniversalParamResult `json:"all_results"`
+	BestByReturn  *UniversalParamResult  `json:"best_by_return,omitempty"`
+	BestBySharpe  *UniversalParamResult  `json:"best_by_sharpe,omitempty"`
+	Elapsed       time.Duration          `json:"elapsed"`
+	TotalCombos   int                    `json:"total_combos"`
+	Completed     int                    `json:"completed"`
 }
 
 // UniversalOptimizer 通用多策略优化器
