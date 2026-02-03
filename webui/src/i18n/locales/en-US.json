@@ -55,6 +55,17 @@
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital"
   },
+  "backtestOptim": {
+    "tabName": "Parameter Optimization",
+    "startOptim": "Start Parameter Optimization",
+    "optimTasks": "Optimization Tasks",
+    "viewResult": "View",
+    "maxDrawdownFilter": "Max Drawdown ≤ %",
+    "minReturnFilter": "Return ≥ %",
+    "minTradesFilter": "Trades ≥",
+    "sortBy": "Sort by",
+    "exportCsv": "Export CSV"
+  },
   "servicesStatus": {
     "title": "Service Status",
     "hint": "Check whether storage, backtest, and other backend services are available. If a service is unavailable, follow the hint and restart after config changes.",
@@ -120,7 +131,18 @@
     "markPrice": "Mark Price",
     "avgPrice": "Avg Price",
     "wsPrice": "WS Price",
-    "difference": "Difference"
+    "difference": "Difference",
+    "allocated": "Allocated",
+    "reserved": "Reserved",
+    "available": "Available",
+    "used": "Used",
+    "releaseCapital": "Release",
+    "releaseAllCapital": "Release All Locked Capital",
+    "releaseCapitalSuccess": "Released Successfully",
+    "releaseAllCapitalSuccess": "All Released Successfully",
+    "releaseCapitalFailed": "Release Failed",
+    "releasedAmount": "Released ${{amount}} USDT",
+    "releasedTotalAmount": "Total released ${{amount}} USDT"
   },
   "login": {
     "title": "Login",
@@ -386,6 +408,7 @@
     "historyTab": "History",
     "noPendingOrders": "No pending orders",
     "orderId": "Order ID",
+    "strategy": "Strategy",
     "symbol": "Trading Pair",
     "side": "Side",
     "price": "Price",
@@ -406,7 +429,17 @@
     "successRate": "Success Rate",
     "completedOrders": "Completed Orders",
     "noHistoryOrders": "No history orders",
-    "updatedAt": "Updated At"
+    "updatedAt": "Updated At",
+    "cancelOrder": "Cancel Order",
+    "cancelAll": "Cancel All",
+    "cancelling": "Cancelling...",
+    "cancelSuccess": "Cancelled Successfully",
+    "cancelFailed": "Cancel Failed",
+    "cancelAllSuccess": "Batch Cancel Successful",
+    "orderCancelled": "Order {{orderId}} has been cancelled",
+    "ordersCancelled": "{{count}} orders have been cancelled",
+    "noOrdersToCancel": "No orders to cancel",
+    "missingExchangeOrSymbol": "Missing exchange or symbol information"
   },
   "wizard": {
     "title": "First-time Setup Wizard",
@@ -1038,7 +1071,9 @@
     "fetchPnLFailed": "Failed to fetch PnL data",
     "netPnL": "Net P&L",
     "grossPnL": "Gross P&L",
-    "totalFee": "Total Fee"
+    "totalFee": "Total Fee",
+    "fundingFee": "Funding Fee",
+    "fundingFeeShort": "Fund"
   },
   "riskMonitor": {
     "title": "Risk Monitor",
@@ -1158,24 +1193,60 @@
     "backToApp": "Back to App",
     "sections": [
       {
-        "title": "1. Acceptance of Terms",
-        "content": "By accessing and using QuantMesh Market Maker (\"the System\"), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the System. The System is provided for quantitative trading research and learning purposes only."
+        "title": "1. Acceptance and Scope of Terms",
+        "content": "Welcome to QuantMesh Market Maker (\"the System\"). By accessing, downloading, installing, or using the System and its related documentation, interfaces, and functionality, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service (\"Terms\"). If you use the System on behalf of a legal entity or organization, you represent that you are authorized to bind that entity to these Terms. If you do not agree to any part of these Terms, you must cease using the System immediately. The System is provided solely for quantitative trading research, backtesting, and educational purposes and does not constitute investment advice or financial services of any kind."
       },
       {
-        "title": "2. Description of Service",
-        "content": "QuantMesh is a quantitative trading system that supports grid trading, DCA, and other algorithmic strategies. The System connects to supported cryptocurrency exchanges via API. You are responsible for configuring, monitoring, and managing your trading activities."
+        "title": "2. Definitions",
+        "content": "\"The System\" means the QuantMesh Market Maker software and all its components (including but not limited to backend services, web interface, strategy engine, and API integrations). \"User\" or \"You\" means any natural person, legal entity, or unincorporated organization that accesses or uses the System. \"Exchange\" means any third-party cryptocurrency trading platform that you connect to via the System. \"Trading\" means any order placement, closing of positions, leverage adjustment, or other digital-asset-related operations you conduct through the System or an exchange."
       },
       {
-        "title": "3. Risk Disclaimer",
-        "content": "Cryptocurrency trading involves significant risk and may result in loss of principal. Past performance does not guarantee future results. The System is provided \"as is\" without warranties of any kind. You use the System at your own risk and are solely responsible for any trading decisions and outcomes."
+        "title": "3. Description and Nature of Service",
+        "content": "QuantMesh is a quantitative trading system that supports grid trading, dollar-cost averaging (DCA), martingale, and combined strategies, among others. The System communicates with exchanges via API keys that you configure and executes strategies and risk controls that you define. The System may be deployed and run on your local machine or your own infrastructure. We provide software tools only; we do not custody user funds, execute trading decisions on your behalf, or guarantee the availability, compliance, or stability of any exchange. You are solely responsible for strategy configuration, parameter tuning, monitoring of positions and system status, and day-to-day operations."
       },
       {
-        "title": "4. User Responsibilities",
-        "content": "You are responsible for: (a) maintaining the confidentiality of your credentials; (b) ensuring your use complies with applicable laws; (c) understanding the risks of cryptocurrency and leveraged trading; (d) monitoring your positions and system status. The System assumes no liability for losses arising from misuse, configuration errors, or market conditions."
+        "title": "4. Eligibility and Compliance",
+        "content": "You represent and warrant that: (a) you have reached the age of majority and have full legal capacity in your jurisdiction; (b) your use of the System and any related trading activity complies with the laws, regulations, and supervisory requirements of your country or region, including but not limited to securities, derivatives, anti-money laundering, and foreign exchange controls; (c) you are not a sanctioned party or otherwise prohibited from engaging in financial activities. If the System is prohibited or restricted in your jurisdiction, you must not use it. You are solely responsible for any liability or consequences arising from a breach of the foregoing."
       },
       {
-        "title": "5. Limitation of Liability",
-        "content": "To the maximum extent permitted by law, QuantMesh and its contributors shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to loss of profits, data, or trading capital. Your use of the System is at your sole risk."
+        "title": "5. Risk Disclosure and Financial Disclaimer",
+        "content": "Cryptocurrency and derivative trading involves significant risk and may result in partial or total loss of principal, including in excess of initial margin. Price volatility, illiquidity, exchange failures, leverage effects, and liquidation mechanisms may all lead to substantial losses. Past backtest or live performance does not guarantee future results; historical data and simulation results are for reference only. The System is provided \"as is\" and \"as available\" without any express or implied warranties (including but not limited to merchantability, fitness for a particular purpose, or non-infringement). Any live or simulated trading you conduct using the System is your own decision; you should fully understand the relevant risks and ensure you have the corresponding risk tolerance. Investment involves risk; trade with caution."
+      },
+      {
+        "title": "6. No Investment Advice",
+        "content": "The System, its documentation, interfaces, example strategies, and backtest results do not constitute investment advice, financial advice, an offer, or a solicitation of any kind. We do not endorse or evaluate the suitability, profitability, or legality of any asset, exchange, or strategy. All trading decisions are made by you independently; you may seek independent advice from licensed financial institutions or professionals at your discretion."
+      },
+      {
+        "title": "7. User Responsibilities",
+        "content": "You agree to: (a) keep your login credentials, API keys, and any account-related information confidential and not disclose them to others; (b) grant the System only the minimum API permissions necessary to execute your strategies and to review and rotate keys periodically; (c) understand the risk characteristics of cryptocurrencies, leverage, derivatives, and the strategies involved; (d) continuously monitor positions, margin, liquidation levels, and system operation; (e) bear full responsibility for any losses arising from misuse, configuration errors, network outages, exchange rule changes, or market anomalies by you or those you authorize. The System and QuantMesh-related parties assume no liability for the foregoing."
+      },
+      {
+        "title": "8. Prohibited Uses",
+        "content": "You must not use the System for: violating applicable laws or regulatory requirements; money laundering, terrorist financing, or any illegal activity; market manipulation, fraud, or infringement of others' rights; unauthorized access to third-party systems or data; distributing malicious code or disrupting the normal operation of the System or third-party services. We reserve the right to refuse service, terminate access, or cooperate with regulatory or law enforcement investigations where we reasonably suspect such conduct."
+      },
+      {
+        "title": "9. Intellectual Property",
+        "content": "The software code, documentation, interface design, trademarks, and related intellectual property of the System are owned by QuantMesh or its rights holders. Subject to these Terms and applicable open-source licenses, you may obtain and use the System. You must not remove or alter copyright notices, disclaimers, or attribution. "
+      },
+      {
+        "title": "10. Limitation of Liability",
+        "content": "To the maximum extent permitted by law, QuantMesh, its contributors, affiliates, and licensors shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to loss of profits, data loss, loss of trading capital or margin, business interruption, or reputational harm. This limitation applies even if we have been advised of the possibility of such damages. In no event shall our aggregate liability under these Terms or arising from use of the System exceed the amount you have directly paid to use the System (or zero if none). Your use of the System is at your sole risk."
+      },
+      {
+        "title": "11. Indemnification",
+        "content": "You agree to indemnify, defend, and hold harmless QuantMesh and its affiliates, contributors, and employees from and against any claims, suits, losses, liabilities, and expenses (including reasonable attorneys' fees) arising from your use of the System, your breach of these Terms, or your infringement of third-party rights."
+      },
+      {
+        "title": "12. Termination",
+        "content": "You may cease using the System and delete local data at any time. We may suspend or terminate your access to the service or features without prior notice if you breach these Terms, if required by law, or based on reasonable business judgment. Upon termination, provisions that by their nature should survive (such as definitions, limitation of liability, indemnification, and governing law) shall continue in effect."
+      },
+      {
+        "title": "13. Governing Law and Dispute Resolution",
+        "content": "The formation, interpretation, and performance of these Terms shall be governed by the laws of your jurisdiction (to the extent not inconsistent with mandatory provisions). Disputes arising from these Terms or use of the System shall first be resolved through good-faith negotiation; if negotiation fails, either party may submit the dispute to a court of competent jurisdiction."
+      },
+      {
+        "title": "14. Contact Us",
+        "content": "For questions, complaints, or notices regarding these Terms of Service, please contact us at: contact@quantmesh.io. We will endeavor to respond within a reasonable time but do not guarantee a substantive reply to every message."
       }
     ]
   },
@@ -1250,24 +1321,48 @@
     "backToApp": "Back to App",
     "sections": [
       {
-        "title": "1. Information We Collect",
-        "content": "QuantMesh Market Maker is designed to run locally or on your own infrastructure. The System primarily stores configuration data, trading logs, and analytics locally. No personal data is transmitted to third parties by default. API keys and credentials are stored in your local configuration and used only to communicate with exchanges you authorize."
+        "title": "1. Introduction and Scope",
+        "content": "QuantMesh Market Maker (\"the System\") respects your privacy. This Privacy Policy describes how we treat information related to your use of the System. The System is designed to run on your local machine or your own infrastructure; therefore, most data remains under your control and is stored in environments you control. We will not use your personal or trading data for purposes other than those described in this policy without your consent or where required by law. Please read this policy carefully before using the System; if you do not agree, do not use the System."
       },
       {
-        "title": "2. Data Storage",
-        "content": "All data is stored on the machine where you deploy QuantMesh. This includes strategy configurations, position data, order history, and system metrics. We do not collect or store your data on external servers unless you explicitly configure such integrations (e.g., cloud backup, external monitoring)."
+        "title": "2. Information We May Process",
+        "content": "When you use the System, it may process the following types of data on the machine where you deploy it: configuration data (e.g., exchange selection, strategy parameters, risk limits; API keys and credentials are stored only in your local configuration); operational and trading data (e.g., order records, positions, fills, funding rates, system and audit logs); usage and performance data (e.g., interface access, error logs, performance metrics). By default, such data is stored in the environment where you run the System; we do not actively collect or upload it to servers we control unless you explicitly configure integrations such as cloud backup or remote monitoring. If you contact us via our website, email, or support channels, we may process the contact details and content you provide."
       },
       {
-        "title": "3. Exchange APIs",
-        "content": "When you connect to cryptocurrency exchanges, the System sends necessary requests (orders, positions, market data) to those exchanges. Your API keys and trading activity are governed by each exchange's own privacy policy. We recommend using API keys with minimal required permissions."
+        "title": "3. Purposes of Use",
+        "content": "We use relevant information only for: providing, maintaining, and improving the System's functionality; executing your configured strategies and communicating with exchanges in your local environment; troubleshooting, security auditing, and compliance needs; disclosure where required by law or with your consent. We do not use your personal or trading data for marketing, resale, or sharing with unrelated third parties."
       },
       {
-        "title": "4. Cookies and Sessions",
-        "content": "The web interface uses session cookies for authentication. These are stored locally in your browser and are not shared with external parties. Session data is used solely to maintain your login state."
+        "title": "4. Data Storage and Security",
+        "content": "Data is primarily stored on the machine where you deploy QuantMesh (including strategy configurations, positions, order history, system metrics, and logs). You are responsible for implementing appropriate security measures for that environment (e.g., access control, encryption, firewalls). We recommend: granting the System only the minimum API permissions necessary to execute your strategies; rotating API keys periodically; not exposing the management interface on untrusted networks. If you enable cloud backup or external monitoring, data will be processed according to the policies of the third-party services you choose; please review their privacy and security terms separately."
       },
       {
-        "title": "5. Changes to This Policy",
-        "content": "We may update this Privacy Policy from time to time. The \"Last updated\" date at the top indicates when the policy was last revised. Continued use of the System after changes constitutes acceptance of the updated policy."
+        "title": "5. Third Parties and Exchange APIs",
+        "content": "When you connect to cryptocurrency exchanges through the System, the System sends requests on your behalf (e.g., placing orders, querying positions and market data). Exchanges process your API keys, IP address, and trading activity according to their own privacy policies and terms. We do not control how exchanges handle data. We strongly recommend using API keys with minimal permissions and connecting only to exchanges you trust. If you use other third-party services integrated with the System (e.g., notifications, data feeds), their data practices are governed by those third parties' policies."
+      },
+      {
+        "title": "6. Cookies and Sessions",
+        "content": "The System's web interface uses session cookies and similar technologies to maintain login state and security verification. These are typically stored in your browser or local environment and are not used for cross-site tracking or sharing with advertisers. You may manage or disable cookies in your browser settings, but this may affect login or some functionality."
+      },
+      {
+        "title": "7. Data Retention",
+        "content": "Retention of data generated by the System on your local machine is under your control (including backup and deletion policies). We do not retain your personal or trading data on our own servers for extended periods unless required by law or necessary to fulfill the purposes described in this policy. When you uninstall or stop using the System, please delete local data or handle it according to your data policies."
+      },
+      {
+        "title": "8. Your Rights",
+        "content": "To the extent permitted by applicable law, you may have rights to access, rectify, delete, or restrict processing of your personal data, as well as to object to processing and data portability. Because data is primarily stored locally, you may access, modify, or delete it directly. If you believe we process your personal data and wish to exercise your rights, please contact us using the details in this policy; we will respond within the timeframes required by law. You may also have the right to lodge a complaint with a supervisory authority in your region."
+      },
+      {
+        "title": "9. International and Local Deployment",
+        "content": "The System may be deployed in different regions worldwide. If you use it in the EU, UK, or other regions with specific requirements for cross-border data transfers, please note: when data is kept only on your local machine, cross-border transfer is largely determined by you and any cloud or third-party services you choose. We do not actively transfer your data to servers we control outside your region unless required to comply with legal obligations or with your consent."
+      },
+      {
+        "title": "10. Changes to This Policy",
+        "content": "We may revise this Privacy Policy from time to time to reflect product changes, legal requirements, or best practices. The revised policy will be marked with an updated \"Last updated\" date and will be available in the System or through channels we provide. For material changes, we may notify you via in-app notice, email, or announcement. Continued use of the System after changes take effect constitutes your acceptance of the revised policy; if you do not agree, please stop using the System and delete local data."
+      },
+      {
+        "title": "11. Contact Us",
+        "content": "For any questions, requests, or complaints regarding this Privacy Policy, please contact us at: contact@quantmesh.io. We will endeavor to respond within a reasonable time. If your jurisdiction requires a designated data protection officer or representative, please indicate this in your message so we may comply with local requirements."
       }
     ]
   }

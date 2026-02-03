@@ -120,12 +120,51 @@ type MomentumAdapter struct {
 
 // NewMomentumAdapter 創建动量策略适配器
 func NewMomentumAdapter() *MomentumAdapter {
+	return NewMomentumAdapterWithParams(nil)
+}
+
+// NewMomentumAdapterWithParams 創建帶參數的动量策略适配器
+func NewMomentumAdapterWithParams(params map[string]interface{}) *MomentumAdapter {
+	rsiPeriod := 14
+	overbought := 70.0
+	oversold := 30.0
+	if params != nil {
+		if v, ok := params["rsi_period"]; ok {
+			switch t := v.(type) {
+			case float64:
+				rsiPeriod = int(t)
+			case int:
+				rsiPeriod = t
+			case int64:
+				rsiPeriod = int(t)
+			}
+		}
+		if v, ok := params["overbought"]; ok {
+			switch t := v.(type) {
+			case float64:
+				overbought = t
+			case int:
+				overbought = float64(t)
+			}
+		}
+		if v, ok := params["oversold"]; ok {
+			switch t := v.(type) {
+			case float64:
+				oversold = t
+			case int:
+				oversold = float64(t)
+			}
+		}
+	}
+	if rsiPeriod < 1 {
+		rsiPeriod = 14
+	}
 	return &MomentumAdapter{
 		name:         "momentum",
 		priceHistory: make([]float64, 0, 100),
-		rsiPeriod:    14,
-		overbought:   70,
-		oversold:     30,
+		rsiPeriod:    rsiPeriod,
+		overbought:   overbought,
+		oversold:     oversold,
 	}
 }
 
@@ -218,11 +257,41 @@ type MeanReversionAdapter struct {
 
 // NewMeanReversionAdapter 創建均值回归策略适配器
 func NewMeanReversionAdapter() *MeanReversionAdapter {
+	return NewMeanReversionAdapterWithParams(nil)
+}
+
+// NewMeanReversionAdapterWithParams 創建帶參數的均值回归策略适配器
+func NewMeanReversionAdapterWithParams(params map[string]interface{}) *MeanReversionAdapter {
+	period := 20
+	threshold := 2.0
+	if params != nil {
+		if v, ok := params["period"]; ok {
+			switch t := v.(type) {
+			case float64:
+				period = int(t)
+			case int:
+				period = t
+			case int64:
+				period = int(t)
+			}
+		}
+		if v, ok := params["std_multiplier"]; ok {
+			switch t := v.(type) {
+			case float64:
+				threshold = t
+			case int:
+				threshold = float64(t)
+			}
+		}
+	}
+	if period < 1 {
+		period = 20
+	}
 	return &MeanReversionAdapter{
 		name:         "mean_reversion",
 		priceHistory: make([]float64, 0, 100),
-		period:       20,
-		threshold:    2.0, // 2 倍標准差
+		period:       period,
+		threshold:    threshold,
 	}
 }
 
@@ -320,11 +389,46 @@ type TrendFollowingAdapter struct {
 
 // NewTrendFollowingAdapter 創建趋势跟踪策略适配器
 func NewTrendFollowingAdapter() *TrendFollowingAdapter {
+	return NewTrendFollowingAdapterWithParams(nil)
+}
+
+// NewTrendFollowingAdapterWithParams 創建帶參數的趋势跟踪策略适配器
+func NewTrendFollowingAdapterWithParams(params map[string]interface{}) *TrendFollowingAdapter {
+	fastPeriod := 10
+	slowPeriod := 30
+	if params != nil {
+		if v, ok := params["fast_period"]; ok {
+			switch t := v.(type) {
+			case float64:
+				fastPeriod = int(t)
+			case int:
+				fastPeriod = t
+			case int64:
+				fastPeriod = int(t)
+			}
+		}
+		if v, ok := params["slow_period"]; ok {
+			switch t := v.(type) {
+			case float64:
+				slowPeriod = int(t)
+			case int:
+				slowPeriod = t
+			case int64:
+				slowPeriod = int(t)
+			}
+		}
+	}
+	if fastPeriod < 1 {
+		fastPeriod = 10
+	}
+	if slowPeriod < fastPeriod {
+		slowPeriod = fastPeriod + 10
+	}
 	return &TrendFollowingAdapter{
 		name:         "trend_following",
 		priceHistory: make([]float64, 0, 100),
-		fastPeriod:   10,
-		slowPeriod:   30,
+		fastPeriod:   fastPeriod,
+		slowPeriod:   slowPeriod,
 	}
 }
 

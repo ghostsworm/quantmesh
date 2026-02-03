@@ -127,6 +127,10 @@ type InventorySlot struct {
 	BuyFee   float64
 	FeeAsset string
 
+	// 策略信息（用於追踪订單来源）
+	StrategyName string // 策略名称（如 "Grid-BTCUSDT-1", "DCA-ETHUSDT"）
+	StrategyType string // 策略類型（如 "grid", "dca", "martingale"）
+
 	mu sync.RWMutex // 槽位级别的鎖（细粒度鎖）
 }
 
@@ -208,6 +212,10 @@ type SuperPositionManager struct {
 	exchange     IExchange
 	exchangeName string // 交易所名称（配置中的名称，如 "binance"）
 
+	// 策略信息（用於追踪订單来源）
+	strategyName string // 策略名称（如 "Grid-BTCUSDT-1"）
+	strategyType string // 策略類型（固定為 "grid"）
+
 	// 價格锚点（初始化時的市场價格）
 	anchorPrice float64
 	// 最后市场價格（用於打印状態）
@@ -282,11 +290,17 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		exchangeName = "binance" // 默认值
 	}
 
+	// 生成策略名称
+	symbol := cfg.Trading.Symbol
+	strategyName := fmt.Sprintf("Grid-%s", symbol)
+
 	spm := &SuperPositionManager{
 		config:             cfg,
 		executor:           executor,
 		exchange:           exchange,
 		exchangeName:       exchangeName,
+		strategyName:       strategyName,  // 策略名称
+		strategyType:       "grid",        // 策略類型固定為 grid
 		insufficientMargin: false,
 		marginLockDuration: time.Duration(marginLockSec) * time.Second,
 		priceDecimals:      priceDecimals,
@@ -1335,6 +1349,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				slot.OrderCreatedAt = time.Now()
 				// 🔥 订單提交成功，設置為LOCKED状態
 				slot.SlotStatus = SlotStatusLocked
+				// 保存策略信息
+				slot.StrategyName = spm.strategyName
+				slot.StrategyType = spm.strategyType
 				// 注意：不在这里重置PostOnlyFailCount，因為订單可能立即被撤销
 				// PostOnly计數只在订單真正成交時重置
 
@@ -1766,6 +1783,8 @@ type DetailedSlotData struct {
 	OrderFilledQty float64
 	OrderCreatedAt time.Time
 	SlotStatus     string
+	StrategyName   string // 策略名称
+	StrategyType   string // 策略類型
 }
 
 // GetAllSlotsDetailed 獲取所有槽位的详细信息
@@ -1798,6 +1817,8 @@ func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
 			OrderFilledQty: slot.OrderFilledQty,
 			OrderCreatedAt: slot.OrderCreatedAt,
 			SlotStatus:     slot.SlotStatus,
+			StrategyName:   slot.StrategyName,
+			StrategyType:   slot.StrategyType,
 		})
 
 		slot.mu.RUnlock()

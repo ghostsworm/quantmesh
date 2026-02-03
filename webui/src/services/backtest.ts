@@ -34,6 +34,7 @@ export interface ParamField {
   default?: unknown
   min?: number
   max?: number
+  step?: number // 步長，如 0.1 表示允許小數
   options?: { value: unknown; label: string }[]
   unit?: string
   hint?: string
@@ -375,4 +376,94 @@ export interface AutoSchedulerStatus {
 // 獲取自動調度器狀態
 export async function getAutoSchedulerStatus(): Promise<{ success: boolean } & AutoSchedulerStatus> {
   return fetchWithAuth(`${API_BASE_URL}/backtest/scheduler/status`)
+}
+
+// ========== 參數優化 API ==========
+
+export interface ParamRange {
+  min: number
+  max: number
+  step: number
+}
+
+export interface OptimSearchSpace {
+  strategy: string
+  ranges: Record<string, ParamRange>
+}
+
+export interface OptimTask {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  strategy: string
+  symbol: string
+  interval: string
+  start_time: string
+  end_time: string
+  total_capital: number
+  search_space: OptimSearchSpace
+  progress: number
+  total_combos: number
+  completed_combos: number
+  created_at: string
+  completed_at?: string
+  error?: string
+}
+
+export interface OptimParamResult {
+  params: Record<string, number>
+  total_return: number
+  max_drawdown: number
+  sharpe_ratio: number
+  win_rate: number
+  total_trades: number
+}
+
+export interface OptimResult {
+  task_id: string
+  strategy: string
+  all_results: OptimParamResult[]
+  best_by_return?: OptimParamResult
+  best_by_sharpe?: OptimParamResult
+  elapsed: number
+  total_combos: number
+  completed: number
+}
+
+export async function postOptimTask(params: {
+  strategy: string
+  symbol: string
+  interval: string
+  start_time: string
+  end_time: string
+  total_capital: number
+  search_space?: OptimSearchSpace
+}): Promise<{ success: boolean; message: string; task_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/optim/tasks`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export async function getOptimTasks(limit?: number, offset?: number): Promise<{ success: boolean; tasks: OptimTask[] }> {
+  const q = new URLSearchParams()
+  if (limit != null) q.set('limit', String(limit))
+  if (offset != null) q.set('offset', String(offset))
+  const query = q.toString()
+  return fetchWithAuth(`${API_BASE_URL}/backtest/optim/tasks${query ? '?' + query : ''}`)
+}
+
+export async function getOptimTask(id: string): Promise<{ success: boolean; task: OptimTask }> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/optim/tasks/${encodeURIComponent(id)}`)
+}
+
+export async function getOptimTaskResult(id: string): Promise<OptimResult> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/optim/tasks/${encodeURIComponent(id)}/result`)
+}
+
+export async function deleteOptimTask(id: string): Promise<{ success: boolean; message: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/optim/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function getOptimSearchSpace(strategy: string): Promise<{ success: boolean; search_space: OptimSearchSpace }> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/optim/space/${encodeURIComponent(strategy)}`)
 }

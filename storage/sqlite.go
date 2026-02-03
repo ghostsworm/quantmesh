@@ -337,6 +337,11 @@ func createTables(db *sql.DB) error {
 		return fmt.Errorf("迁移 backtest_tasks 表失败: %w", err)
 	}
 
+	// 迁移：确保 optim_tasks 表存在
+	if err := migrateOptimTasksTable(db); err != nil {
+		return fmt.Errorf("迁移 optim_tasks 表失败: %w", err)
+	}
+
 	// 迁移：确保 news_analysis_history 表存在
 	if err := migrateNewsAnalysisHistoryTable(db); err != nil {
 		return fmt.Errorf("迁移 news_analysis_history 表失败: %w", err)
@@ -464,6 +469,33 @@ func migrateBacktestTasksTable(db *sql.DB) error {
 			report_path TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_backtest_tasks_created_at ON backtest_tasks(created_at);
+	`)
+	return err
+}
+
+// migrateOptimTasksTable 迁移 optim_tasks 表（参数优化任务）
+func migrateOptimTasksTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS optim_tasks (
+			id TEXT PRIMARY KEY,
+			status TEXT NOT NULL,
+			strategy TEXT NOT NULL,
+			symbol TEXT NOT NULL,
+			interval TEXT NOT NULL,
+			start_time INTEGER NOT NULL,
+			end_time INTEGER NOT NULL,
+			total_capital REAL NOT NULL,
+			search_space TEXT NOT NULL,
+			progress INTEGER DEFAULT 0,
+			total_combos INTEGER DEFAULT 0,
+			completed_combos INTEGER DEFAULT 0,
+			created_at INTEGER NOT NULL,
+			started_at INTEGER,
+			completed_at INTEGER,
+			result_path TEXT,
+			error TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_optim_tasks_created_at ON optim_tasks(created_at);
 	`)
 	return err
 }
@@ -1348,9 +1380,15 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 	startDateStr := startDate.Format("2006-01-02")
 	endDateStr := endDate.Format("2006-01-02")
 
-	query := `
+	// 獲取配置時区的偏移秒數（用於將 UTC 時間轉換為本地時間後再按日期分組）
+	// 例如：Asia/Shanghai 為 +28800 秒（8小時）
+	// SQLite 的 datetime(created_at, '+N seconds') 可將 UTC 時間轉換為本地時間
+	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
+	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+
+	query := fmt.Sprintf(`
 		SELECT 
-			date(created_at) as date,
+			date(datetime(created_at, '%s')) as date,
 			COUNT(*) as total_trades,
 			COALESCE(SUM(quantity), 0) as total_volume,
 			COALESCE(SUM(pnl), 0) as gross_pnl,
@@ -1366,8 +1404,8 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 			COALESCE(SUM(CASE WHEN pnl > 0 THEN quantity ELSE 0 END), 0) as volume_profit,
 			COALESCE(SUM(CASE WHEN pnl <= 0 THEN quantity ELSE 0 END), 0) as volume_stop_loss
 		FROM trades
-		WHERE date(created_at) >= ? AND date(created_at) <= ?
-	`
+		WHERE date(datetime(created_at, '%s')) >= ? AND date(datetime(created_at, '%s')) <= ?
+	`, tzModifier, tzModifier, tzModifier)
 	args := []interface{}{startDateStr, endDateStr}
 	if exchange != "" {
 		query += " AND exchange = ?"
@@ -1379,7 +1417,7 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
-	query += " GROUP BY date(created_at) ORDER BY date DESC LIMIT ?"
+	query += fmt.Sprintf(" GROUP BY date(datetime(created_at, '%s')) ORDER BY date DESC LIMIT ?", tzModifier)
 	args = append(args, maxLimit)
 
 	rows, err := s.db.Query(query, args...)
@@ -2108,6 +2146,49 @@ func (s *SQLiteStorage) GetFundingPaymentsSum(account, exchange string, startTim
 		return sum.Float64, nil
 	}
 	return 0, nil
+}
+
+// GetDailyFundingPayments 獲取每日資金費用（按日期分組）
+func (s *SQLiteStorage) GetDailyFundingPayments(account, exchange string, startTime, endTime time.Time) (map[string]float64, error) {
+	startUTC := utils.ToUTC(startTime)
+	endUTC := utils.ToUTC(endTime)
+
+	// 獲取配置時區的偏移秒數
+	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
+	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+
+	query := fmt.Sprintf(`
+		SELECT date(datetime(trade_time, '%s')) as date, COALESCE(SUM(income), 0) as daily_funding
+		FROM funding_payments
+		WHERE trade_time >= ? AND trade_time <= ?
+	`, tzModifier)
+	args := []interface{}{startUTC, endUTC}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	if account != "" {
+		query += " AND (account = ? OR account IS NULL OR account = '')"
+		args = append(args, account)
+	}
+	query += fmt.Sprintf(" GROUP BY date(datetime(trade_time, '%s'))", tzModifier)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]float64)
+	for rows.Next() {
+		var dateStr string
+		var dailyFunding float64
+		if err := rows.Scan(&dateStr, &dailyFunding); err != nil {
+			continue
+		}
+		result[dateStr] = dailyFunding
+	}
+	return result, rows.Err()
 }
 
 // abs 计算绝對值（用於浮点數比较）

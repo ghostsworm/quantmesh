@@ -91,6 +91,7 @@ const GlobalDashboard: React.FC = () => {
     exchange: string
     symbol: string
   } | null>(null)
+  const [expandedIndices, setExpandedIndices] = useState<number[]>([])
   const toast = useToast()
   const { setSymbolPair } = useSymbol()
 
@@ -400,6 +401,13 @@ const GlobalDashboard: React.FC = () => {
     )
   }, [exchangePnL, symbolsByExchange])
 
+  // 默认展开所有交易所
+  useEffect(() => {
+    if (exchangeData.length > 0 && expandedIndices.length === 0) {
+      setExpandedIndices(exchangeData.map((_, index) => index))
+    }
+  }, [exchangeData, expandedIndices.length])
+
   if (loading) {
     return (
       <Center h="calc(100vh - 100px)">
@@ -576,7 +584,7 @@ const GlobalDashboard: React.FC = () => {
               {t('globalDashboard.addSymbol')}
             </Button>
           </Flex>
-          <Accordion allowMultiple defaultIndex={exchangeData.map((_, index) => index)}>
+          <Accordion allowMultiple index={expandedIndices} onChange={(indices) => setExpandedIndices(indices as number[])}>
             {exchangeData.map((exchange) => {
               const exchangeKey = exchange.exchange.toLowerCase()
               return (

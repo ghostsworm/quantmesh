@@ -35,7 +35,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics } from '../services/api'
+import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital } from '../services/api'
 import { checkSetupStatus } from '../services/setup'
 import { Alert, AlertIcon, AlertTitle, AlertDescription, useDisclosure } from '@chakra-ui/react'
 import { NewbieCheckModal } from './NewbieCheckModal'
@@ -97,6 +97,7 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [togglePending, setTogglePending] = useState(false) // 启动/停止请求进行中，防重复点击
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
+  const [releasingCapital, setReleasingCapital] = useState<string | null>(null)
   const { isOpen: isNewbieCheckOpen, onOpen: onNewbieCheckOpen, onClose: onNewbieCheckClose } = useDisclosure()
   const toast = useToast()
 
@@ -150,6 +151,82 @@ const Dashboard: React.FC = () => {
   }, [selectedExchange, selectedSymbol])
 
   const TOGGLE_TIMEOUT_MS = 10_000
+
+  // 刷新策略资金分配
+  const refreshStrategyAllocation = async () => {
+    try {
+      const data = await getStrategyAllocation()
+      setStrategyAllocation(data)
+    } catch (error) {
+      console.error('刷新策略资金分配失败:', error)
+    }
+  }
+
+  // 释放单个策略的锁定资金
+  const handleReleaseCapital = async (strategyName: string) => {
+    setReleasingCapital(strategyName)
+    try {
+      const result = await releaseStrategyCapital(strategyName)
+      if (result.success) {
+        toast({
+          title: t('dashboard.releaseCapitalSuccess'),
+          description: t('dashboard.releasedAmount', { amount: result.released.toFixed(2) }),
+          status: 'success',
+          duration: 3000,
+        })
+        await refreshStrategyAllocation()
+      } else {
+        toast({
+          title: t('dashboard.releaseCapitalFailed'),
+          description: result.message,
+          status: 'error',
+          duration: 5000,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: t('dashboard.releaseCapitalFailed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setReleasingCapital(null)
+    }
+  }
+
+  // 释放所有策略的锁定资金
+  const handleReleaseAllCapital = async () => {
+    setReleasingCapital('all')
+    try {
+      const result = await releaseAllStrategiesCapital()
+      if (result.success) {
+        toast({
+          title: t('dashboard.releaseAllCapitalSuccess'),
+          description: t('dashboard.releasedTotalAmount', { amount: result.total_released.toFixed(2) }),
+          status: 'success',
+          duration: 3000,
+        })
+        await refreshStrategyAllocation()
+      } else {
+        toast({
+          title: t('dashboard.releaseCapitalFailed'),
+          description: result.message,
+          status: 'error',
+          duration: 5000,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: t('dashboard.releaseCapitalFailed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setReleasingCapital(null)
+    }
+  }
 
   const handleToggleTrading = async () => {
     if (togglePending) return
@@ -504,20 +581,66 @@ const Dashboard: React.FC = () => {
               )}
             </GlassCard>
 
-            {strategyAllocation && (
+            {strategyAllocation && Object.keys(strategyAllocation.allocation).length > 0 && (
               <GlassCard title={t('dashboard.capitalAllocation')}>
                 <VStack spacing={4} align="stretch">
-                  {Object.entries(strategyAllocation.allocation).map(([name, cap]) => (
-                    <Box key={name}>
-                      <Flex justify="space-between" mb={2}>
-                        <Text fontSize="sm" fontWeight="bold">{name}</Text>
-                        <Text fontSize="sm" fontWeight="bold">${cap.allocated.toFixed(1)}</Text>
-                      </Flex>
-                      <Box w="100%" h="6px" bg="gray.100" borderRadius="full" overflow="hidden">
-                        <Box w={`${(cap.allocated / 500) * 100}%`} h="100%" bg="blue.500" borderRadius="full" />
+                  {Object.entries(strategyAllocation.allocation).map(([name, cap]) => {
+                    const usedPct = cap.allocated > 0 ? (cap.used / cap.allocated) * 100 : 0
+                    return (
+                      <Box key={name} p={3} bg="gray.50" borderRadius="lg">
+                        <Flex justify="space-between" mb={2} align="center">
+                          <Text fontSize="sm" fontWeight="bold">{t(`strategyNames.${name}`, { defaultValue: name })}</Text>
+                          <HStack spacing={2}>
+                            <Badge colorScheme={usedPct > 80 ? 'red' : usedPct > 50 ? 'orange' : 'green'}>
+                              {usedPct.toFixed(0)}% {t('dashboard.used')}
+                            </Badge>
+                            {cap.used > 0 && (
+                              <Button
+                                size="xs"
+                                colorScheme="orange"
+                                variant="ghost"
+                                isLoading={releasingCapital === name}
+                                onClick={() => handleReleaseCapital(name)}
+                              >
+                                {t('dashboard.releaseCapital')}
+                              </Button>
+                            )}
+                          </HStack>
+                        </Flex>
+                        {/* 进度条显示已用/可用 */}
+                        <Box w="100%" h="8px" bg="gray.200" borderRadius="full" overflow="hidden" mb={2}>
+                          <Box w={`${Math.min(usedPct, 100)}%`} h="100%" bg={usedPct > 80 ? 'red.500' : usedPct > 50 ? 'orange.500' : 'green.500'} borderRadius="full" />
+                        </Box>
+                        {/* 详细数字 */}
+                        <SimpleGrid columns={3} spacing={2} fontSize="xs">
+                          <Box>
+                            <Text color="gray.500">{t('dashboard.allocated')}</Text>
+                            <Text fontWeight="bold">${cap.allocated.toFixed(2)}</Text>
+                          </Box>
+                          <Box>
+                            <Text color="gray.500">{t('dashboard.reserved')}</Text>
+                            <Text fontWeight="bold" color="orange.600">${cap.used.toFixed(2)}</Text>
+                          </Box>
+                          <Box>
+                            <Text color="gray.500">{t('dashboard.available')}</Text>
+                            <Text fontWeight="bold" color="green.600">${cap.available.toFixed(2)}</Text>
+                          </Box>
+                        </SimpleGrid>
                       </Box>
-                    </Box>
-                  ))}
+                    )
+                  })}
+                  {/* 释放所有策略资金按钮 */}
+                  {Object.values(strategyAllocation.allocation).some(cap => cap.used > 0) && (
+                    <Button
+                      size="sm"
+                      colorScheme="orange"
+                      variant="outline"
+                      isLoading={releasingCapital === 'all'}
+                      onClick={handleReleaseAllCapital}
+                    >
+                      {t('dashboard.releaseAllCapital')}
+                    </Button>
+                  )}
                 </VStack>
               </GlassCard>
             )}

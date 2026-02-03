@@ -69,3 +69,14 @@ func NowConfiguredTimezone() time.Time {
 func NowUTC8() time.Time {
 	return NowConfiguredTimezone()
 }
+
+// GetTimezoneOffsetSeconds 獲取當前配置時区相對於 UTC 的偏移秒數
+// 例如：Asia/Shanghai 返回 28800（8小時 = 8*60*60）
+func GetTimezoneOffsetSeconds() int {
+	if GlobalLocation == nil {
+		return 0
+	}
+	// 使用當前時间計算偏移（考慮夏令時）
+	_, offset := time.Now().In(GlobalLocation).Zone()
+	return offset
+}
