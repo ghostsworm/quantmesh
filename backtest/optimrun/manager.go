@@ -1,6 +1,7 @@
 package optimrun
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -108,7 +109,8 @@ func (m *OptimTaskManager) RunTask(id string) error {
 		_ = m.store.UpdateOptimTaskProgress(id, completed, progress)
 	}
 
-	result, err := opt.Run(nil, id, task.Symbol, task.Interval, candles, space, task.TotalCapital, onProgress)
+	ctx := context.Background()
+	result, err := opt.Run(ctx, id, task.Symbol, task.Interval, candles, space, task.TotalCapital, onProgress)
 	if err != nil {
 		m.failTask(id, fmt.Sprintf("优化执行失败: %v", err))
 		return nil
@@ -120,7 +122,11 @@ func (m *OptimTaskManager) RunTask(id string) error {
 		return nil
 	}
 	resultPath := filepath.Join(m.resultsDir, id+".json")
-	body, _ := json.MarshalIndent(result, "", "  ")
+	body, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		m.failTask(id, fmt.Sprintf("编码结果失败: %v", err))
+		return nil
+	}
 	if err := os.WriteFile(resultPath, body, 0644); err != nil {
 		m.failTask(id, fmt.Sprintf("保存结果失败: %v", err))
 		return nil

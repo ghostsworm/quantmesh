@@ -272,7 +272,7 @@ func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval s
 				}
 				res, err := u.RunOne(ctx, symbol, interval, candles, space.Strategy, j.param, totalCapital)
 				pr := UniversalParamResult{Params: j.param}
-				if err != nil {
+				if err != nil || res == nil {
 					pr.TotalReturn = math.Inf(-1)
 					pr.MaxDrawdown = 100
 					pr.SharpeRatio = math.Inf(-1)

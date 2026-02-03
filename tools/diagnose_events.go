@@ -10,8 +10,9 @@ import (
 	"sort"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"quantmesh/database"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
@@ -45,7 +46,11 @@ func checkLogsDB() {
 	}
 
 	// 獲取文件信息
-	fileInfo, _ := os.Stat(logsDBPath)
+	fileInfo, err := os.Stat(logsDBPath)
+	if err != nil {
+		fmt.Printf("❌ 獲取日志數據庫文件信息失敗: %v\n", err)
+		return
+	}
 	fmt.Printf("✅ 日志數據庫文件存在: %s\n", logsDBPath)
 	fmt.Printf("   文件大小: %d bytes (%.2f KB)\n", fileInfo.Size(), float64(fileInfo.Size())/1024)
 	fmt.Printf("   修改時間: %s\n", fileInfo.ModTime().Format("2006-01-02 15:04:05"))
@@ -174,7 +179,7 @@ func checkEventsDB() {
 
 			// 统计來源
 			sourceCount[event.Source]++
-			
+
 			// 统计類型
 			typeCount[event.Type]++
 
@@ -191,7 +196,7 @@ func checkEventsDB() {
 		for severity, count := range severityCount {
 			fmt.Printf("   %s: %d\n", severity, count)
 		}
-		
+
 		if invalidSeverity > 0 {
 			fmt.Printf("   ⚠️  發現 %d 個無效嚴重程度值\n", invalidSeverity)
 		}
@@ -225,7 +230,7 @@ func checkEventsDB() {
 		sort.Slice(typeCounts, func(i, j int) bool {
 			return typeCounts[i].Count > typeCounts[j].Count
 		})
-		
+
 		for i, tc := range typeCounts {
 			if i >= 10 {
 				break
@@ -251,7 +256,7 @@ func checkEventsDB() {
 			fmt.Printf("     消息: %s\n", event.Message)
 			fmt.Printf("     詳情长度: %d 字符\n", len(event.Details))
 			fmt.Printf("     時间: %s\n", event.CreatedAt.Format("2006-01-02 15:04:05"))
-			
+
 			// 嘗試解析詳情JSON
 			if event.Details != "" && event.Details != "{}" {
 				var details map[string]interface{}
@@ -270,7 +275,7 @@ func checkEventsDB() {
 	fmt.Printf("   2. 為空詳情字段填充默认JSON: {}\n")
 	fmt.Printf("   3. 為空消息字段填充默认消息\n")
 	fmt.Printf("   4. 增强事件記錄的數據驗證邏輯\n")
-	
+
 	if len(os.Args) > 1 && os.Args[1] == "--fix" {
 		fmt.Printf("\n🔨 開始執行修復...\n")
 		performFixes(ctx, db)
@@ -285,16 +290,16 @@ func checkEventsDB() {
 func performFixes(ctx context.Context, db database.Database) {
 	fmt.Printf("修復功能尚未實現。請手动執行相應的SQL修復語句。\n")
 	fmt.Printf("\n修復SQL參考:\n")
-	
+
 	fmt.Printf("-- 修復空的嚴重程度\n")
 	fmt.Printf("UPDATE events SET severity = 'info' WHERE severity = '' OR severity IS NULL;\n\n")
-	
+
 	fmt.Printf("-- 修復空的詳情字段\n")
 	fmt.Printf("UPDATE events SET details = '{}' WHERE details = '' OR details IS NULL;\n\n")
-	
+
 	fmt.Printf("-- 修復空的消息字段\n")
 	fmt.Printf("UPDATE events SET message = title WHERE message = '' OR message IS NULL;\n\n")
-	
+
 	fmt.Printf("-- 修復非標準嚴重程度值\n")
 	fmt.Printf("UPDATE events SET severity = 'info' WHERE severity NOT IN ('critical', 'warning', 'info');\n\n")
 }

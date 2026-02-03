@@ -27,14 +27,6 @@ jobs:
             goos: linux
             goarch: arm64
             name: linux-arm64
-          - runner: ubuntu-latest
-            goos: darwin
-            goarch: amd64
-            name: darwin-amd64
-          - runner: macos-latest
-            goos: darwin
-            goarch: arm64
-            name: darwin-arm64
     
     steps:
     - name: Checkout code
@@ -67,10 +59,16 @@ jobs:
           echo "# Placeholder" > web/dist/.gitkeep
         fi
         
+    - name: Install C compiler and SQLite dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libsqlite3-dev
+        
     - name: Build
       env:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 1
       run: |
         # 临时移动工具文件，避免 main 函数冲突
         mkdir -p .tools_backup

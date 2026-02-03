@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [3.34.0-rc8] - 2026-02-04
+
+### Fixed
+- **关键空指针崩溃修复**：修复参数优化功能中导致服务崩溃的多个空指针问题
+  - 修复 `backtest/data_fetcher.go:460` 中 `os.Stat` 错误未检查导致的空指针访问
+  - 修复 `backtest/optimizer/universal_optimizer.go:269` 中 `res` 为 nil 时仍然访问 `res.Metrics` 的问题
+  - 修复 `backtest/optimrun/manager.go:111` 中传入 nil context 导致的空指针问题
+  - 修复 `tools/diagnose_events.go:48` 中类似的 `os.Stat` 空指针问题
+  - 增强了参数优化器的错误处理和空值检查机制
+
 ## [3.34.0-rc7] - 2026-02-04
 
 ### Fixed
