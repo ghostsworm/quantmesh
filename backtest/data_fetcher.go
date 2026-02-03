@@ -457,8 +457,11 @@ func updateCacheIndex(cacheKey string, candles []*exchange.Candle) error {
 
 	// 计算文件大小
 	filename := filepath.Join("backtest", "cache", cacheKey+".csv")
-	fileInfo, _ := os.Stat(filename)
-	sizeMB := float64(fileInfo.Size()) / 1024 / 1024
+	fileInfo, err := os.Stat(filename)
+	var sizeMB float64
+	if err == nil && fileInfo != nil {
+		sizeMB = float64(fileInfo.Size()) / 1024 / 1024
+	}
 
 	// 更新索引
 	index[cacheKey] = CacheIndexEntry{
