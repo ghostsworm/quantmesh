@@ -89,8 +89,8 @@ type ComparisonReportData struct {
 	InterventionCount int
 	SkippedSignals    int
 	// 分類介入記錄：有跳過買入（介入）和無跳過買入（未介入）
-	InterventionsSkipped    []RiskInterventionRow // 有跳過買入的介入（前30條）
-	InterventionsNotSkipped []RiskInterventionRow // 無跳過買入的介入（前30條）
+	InterventionsSkipped    []RiskInterventionRow // 有跳過買入的介入（前10條）
+	InterventionsNotSkipped []RiskInterventionRow // 無跳過買入的介入（前10條）
 	TotalSkippedCount       int                   // 有跳過買入的總數
 	TotalNotSkippedCount    int                   // 無跳過買入的總數
 	RiskAnalysis            string
@@ -106,7 +106,7 @@ type RiskInterventionRow struct {
 }
 
 // 風控介入記錄顯示上限
-const maxInterventionDisplay = 30
+const maxInterventionDisplay = 10
 
 // GenerateComparisonReportToFile 生成對比報告到指定路徑。meta 可為 nil，為 nil 時不輸出 K 線周期與參數表。
 func GenerateComparisonReportToFile(comparison *ComparisonResult, reportPath string, meta *ReportMeta) error {
@@ -275,7 +275,7 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 
 共觸發 **{{.InterventionCount}}** 次，跳過 **{{.SkippedSignals}}** 個買入信號。
 
-### 有跳過買入的介入（共 {{.TotalSkippedCount}} 次，顯示前 30 條）
+### 有跳過買入的介入（共 {{.TotalSkippedCount}} 次，顯示前 10 條）
 
 {{if .InterventionsSkipped}}
 | 時間 | 原因 | 類型 | 持續K線數 | 跳過買入數 |
@@ -286,7 +286,7 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 本次回測期間無跳過買入的風控介入。
 {{end}}
 
-### 無跳過買入的介入（共 {{.TotalNotSkippedCount}} 次，顯示前 30 條）
+### 無跳過買入的介入（共 {{.TotalNotSkippedCount}} 次，顯示前 10 條）
 
 {{if .InterventionsNotSkipped}}
 | 時間 | 原因 | 類型 | 持續K線數 | 跳過買入數 |
@@ -335,7 +335,7 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 （無價格曲線數據）
 {{end}}
 
-## 成對交易（無風控，前50笔）
+## 成對交易（無風控，前10笔）
 
 {{if .TopPairedTrades}}
 | 買入時間 | 買入價 | 賣出時間 | 賣出價 | 數量 | 盈虧 |
@@ -421,8 +421,8 @@ type ReportData struct {
 
 	// 交易明细
 	TopTrades         []TradeRow  // 前20筆原始成交
-	TopPairedTrades   []PairedRow // 成對交易前50
-	TopUnpairedTrades []TradeRow  // 未成對交易前50
+	TopPairedTrades   []PairedRow // 成對交易前10
+	TopUnpairedTrades []TradeRow  // 未成對交易前10
 
 	// 风險指標
 	VaR95  string
@@ -616,8 +616,8 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		})
 	}
 
-	// 成對交易（前50）、未成對交易（前50）
-	topPaired, topUnpaired := extractPairedAndUnpairedTrades(result.Trades, 50)
+	// 成對交易（前10）、未成對交易（前10）
+	topPaired, topUnpaired := extractPairedAndUnpairedTrades(result.Trades, 10)
 
 	// 價格曲線概況（若有）
 	hasPriceCurve := result.PriceCurve != nil
@@ -886,7 +886,7 @@ func renderReportTemplate(data ReportData) (string, error) {
 {{end}}
 
 {{if .TopPairedTrades}}
-## 成對交易（前50笔）
+## 成對交易（前10笔）
 
 | 買入時間 | 買入價 | 賣出時間 | 賣出價 | 數量 | 盈虧 |
 |----------|--------|----------|--------|------|------|
@@ -895,7 +895,7 @@ func renderReportTemplate(data ReportData) (string, error) {
 {{end}}
 
 {{if .TopUnpairedTrades}}
-## 未成對交易（前50笔）
+## 未成對交易（前10笔）
 
 | 時间 | 類型 | 價格 | 數量 | 盈亏 |
 |------|------|------|------|------|

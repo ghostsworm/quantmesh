@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -51,6 +52,11 @@ func ListCache() ([]CacheInfo, error) {
 	for name, entry := range index {
 		candles := entry.Candles
 		sizeMB := entry.SizeMB
+		symbol := entry.Symbol
+		interval := entry.Interval
+		start := entry.Start
+		end := entry.End
+
 		// 索引中 K 線數為 0 時，嘗試從 CSV 重新統計（自愈舊數據或錯誤寫入）
 		if entry.Candles == 0 {
 			if n, sz := countCsvLinesAndSize(filepath.Join(cacheDir, name+".csv")); n >= 0 {
@@ -58,12 +64,33 @@ func ListCache() ([]CacheInfo, error) {
 				sizeMB = float64(sz) / 1024 / 1024
 			}
 		}
+
+		// 索引中 symbol/interval/start/end 為空時，從缓存名解析（自愈舊數據）
+		// 格式1: BTCUSDT_1m_2023-01-01_2023-06-30 (4段)
+		// 格式2: binance_BTCUSDT_1m_2023-01-01_2023-06-30 (5段，带交易所前缀)
+		if symbol == "" || interval == "" || start.IsZero() || end.IsZero() {
+			parts := strings.Split(name, "_")
+			if len(parts) >= 5 {
+				// 5段格式: exchange_symbol_interval_start_end
+				symbol = parts[1]
+				interval = parts[2]
+				start, _ = time.Parse("2006-01-02", parts[3])
+				end, _ = time.Parse("2006-01-02", parts[4])
+			} else if len(parts) >= 4 {
+				// 4段格式: symbol_interval_start_end
+				symbol = parts[0]
+				interval = parts[1]
+				start, _ = time.Parse("2006-01-02", parts[2])
+				end, _ = time.Parse("2006-01-02", parts[3])
+			}
+		}
+
 		caches = append(caches, CacheInfo{
 			Name:     name,
-			Symbol:   entry.Symbol,
-			Interval: entry.Interval,
-			Start:    entry.Start,
-			End:      entry.End,
+			Symbol:   symbol,
+			Interval: interval,
+			Start:    start,
+			End:      end,
 			Candles:  candles,
 			SizeMB:   sizeMB,
 			Created:  entry.Created,

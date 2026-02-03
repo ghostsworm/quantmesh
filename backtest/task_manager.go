@@ -97,7 +97,7 @@ func (m *TaskManager) RunTask(id string) error {
 	// 1. 按数据源获取 K 线数据
 	var candles []*exchange.Candle
 	var depthSnapshots []*DepthSnapshotForBacktest
-	
+
 	switch task.DataSource {
 	case "kline_file":
 		if task.KlineFile == "" {
@@ -110,7 +110,7 @@ func (m *TaskManager) RunTask(id string) error {
 			m.failTask(id, fmt.Sprintf("加载 K 线文件失败: %v", err))
 			return nil
 		}
-		
+
 		// 从文件名解析元信息并更新任务
 		meta := ParseKlineFileMeta(task.KlineFile)
 		if meta.Symbol != "" {
@@ -124,7 +124,7 @@ func (m *TaskManager) RunTask(id string) error {
 			task.StartTime = time.Unix(candles[0].Timestamp/1000, 0)
 			task.EndTime = time.Unix(candles[len(candles)-1].Timestamp/1000, 0)
 		}
-		
+
 	case "cache":
 		if task.CacheName == "" {
 			m.failTask(id, "未指定回测缓存")
@@ -136,7 +136,7 @@ func (m *TaskManager) RunTask(id string) error {
 			m.failTask(id, fmt.Sprintf("加载缓存失败: %v", err))
 			return nil
 		}
-		
+
 		// 从缓存元数据获取信息（通过缓存名解析）
 		// 缓存名格式: binance_BTCUSDT_1m_2025-01-01_2025-01-31
 		cacheParts := strings.Split(task.CacheName, "_")
@@ -150,12 +150,12 @@ func (m *TaskManager) RunTask(id string) error {
 				task.EndTime = endDate
 			}
 		}
-		
+
 	default:
 		// 默认或 "time_range": 使用原有逻辑
-		logger.Info("⬇️ 从交易所获取历史数据: %s %s (%s - %s)", 
-			task.Symbol, task.Interval, 
-			task.StartTime.Format("2006-01-02"), 
+		logger.Info("⬇️ 从交易所获取历史数据: %s %s (%s - %s)",
+			task.Symbol, task.Interval,
+			task.StartTime.Format("2006-01-02"),
 			task.EndTime.Format("2006-01-02"))
 		candles, err = GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
 		if err != nil {
@@ -163,7 +163,7 @@ func (m *TaskManager) RunTask(id string) error {
 			return nil
 		}
 	}
-	
+
 	if len(candles) == 0 {
 		m.failTask(id, "未獲取到历史數據")
 		return nil
@@ -243,9 +243,20 @@ func (m *TaskManager) RunTask(id string) error {
 		logger.Warn("創建报告目錄失败: %v", err)
 	}
 	reportPath := filepath.Join(m.reportsDir, id+".md")
+	// 複製 params，過濾掉 total_capital（使用任務級別的 TotalCapital）
+	reportParams := make(map[string]interface{})
+	for k, v := range task.Params {
+		if k == "total_capital" {
+			continue // 跳過 params 中的 total_capital，使用任務級別的值
+		}
+		reportParams[k] = v
+	}
+	if task.TotalCapital > 0 {
+		reportParams["total_capital"] = task.TotalCapital
+	}
 	reportMeta := &ReportMeta{
 		Interval: task.Interval,
-		Params:   task.Params,
+		Params:   reportParams,
 	}
 	if comparison != nil {
 		if err := GenerateComparisonReportToFile(comparison, reportPath, reportMeta); err != nil {

@@ -302,7 +302,7 @@ export default function BacktestMenu() {
     }
   }, [toast])
 
-  const loadKlineFiles = useCallback(async () => {
+  const loadKlineFiles = useCallback(async (showError = false) => {
     setKlineFilesLoading(true)
     try {
       const files = await listKlineFiles()
@@ -311,8 +311,12 @@ export default function BacktestMenu() {
       const availableFiles = await listAvailableKlineFiles()
       setAvailableKlineFiles(availableFiles)
     } catch (err) {
-      console.error('载入 K 线文件列表失败:', err)
-      toast({ title: '载入 K 线文件列表失败', status: 'error' })
+      // 服务不可用时（如 K 线收集器未初始化）静默处理
+      // 只有在用户手动刷新时才显示错误
+      console.warn('载入 K 线文件列表失败:', err)
+      if (showError) {
+        toast({ title: '载入 K 线文件列表失败', description: 'K 线收集器可能未初始化', status: 'warning' })
+      }
     } finally {
       setKlineFilesLoading(false)
     }
@@ -638,13 +642,21 @@ export default function BacktestMenu() {
           params: Object.keys(params).length ? params : undefined 
         }
       : dataSource === 'cache'
-      ? { 
-          strategy: strategyType, 
-          data_source: 'cache' as const, 
-          cache_name: selectedCacheName, 
-          total_capital: totalCapital, 
-          params: Object.keys(params).length ? params : undefined 
-        }
+      ? (() => {
+          // 从缓存列表中获取选中缓存的元信息，以便在任务列表中显示币种等信息
+          const selectedCache = cachedKlines.find(c => c.name === selectedCacheName)
+          return { 
+            strategy: strategyType, 
+            data_source: 'cache' as const, 
+            cache_name: selectedCacheName,
+            symbol: selectedCache?.symbol,
+            interval: selectedCache?.interval,
+            start_time: selectedCache?.start ? new Date(selectedCache.start).toISOString() : undefined,
+            end_time: selectedCache?.end ? new Date(selectedCache.end).toISOString() : undefined,
+            total_capital: totalCapital, 
+            params: Object.keys(params).length ? params : undefined 
+          }
+        })()
       : { 
           strategy: strategyType, 
           symbol, 
@@ -778,7 +790,7 @@ export default function BacktestMenu() {
       
       const canvas = await html2canvas(clone, {
         backgroundColor: '#ffffff',
-        scale: 1,
+        scale: 2, // 2倍分辨率，生成高清图片
         useCORS: true,
         logging: false,
         allowTaint: true,
@@ -1080,7 +1092,7 @@ export default function BacktestMenu() {
                         <Button
                           size="sm"
                           leftIcon={<RepeatIcon />}
-                          onClick={loadKlineFiles}
+                          onClick={() => loadKlineFiles(true)}
                           isLoading={klineFilesLoading}
                           mb={2}
                         >
@@ -1290,8 +1302,8 @@ export default function BacktestMenu() {
                           value={(params[p.name] as number) ?? (p.default as number)}
                           min={p.min}
                           max={p.max}
-                          step={p.step}
-                          precision={p.step ? Math.max(0, -Math.floor(Math.log10(p.step))) : undefined}
+                          step={p.step ?? 0.1}
+                          precision={p.step ? Math.max(0, -Math.floor(Math.log10(p.step))) : 1}
                           onChange={(_: string, v: number) => setParams((prev) => ({ ...prev, [p.name]: v }))}
                         >
                           <NumberInputField />
@@ -1486,13 +1498,57 @@ export default function BacktestMenu() {
                           const withRisk = comp.with_risk_result
                           const cm = comp.comparison
                           const interventions = comp.with_risk_result?.risk_interventions ?? []
+                          
+                          // 计算期末持仓相关数据
+                          const calcEndPos = (trades: typeof noRisk.trades, endPrice: number, finalCapital: number) => {
+                            let endPosQty = 0
+                            for (const t of (trades ?? [])) {
+                              if (t.type === 'buy') endPosQty += t.quantity ?? 0
+                              else if (t.type === 'sell') endPosQty -= t.quantity ?? 0
+                            }
+                            if (endPosQty < 0) endPosQty = 0
+                            const endPosValue = endPosQty * endPrice
+                            const endCashUSDT = Math.max(0, finalCapital - endPosValue)
+                            return { endPosQty, endPosValue, endCashUSDT }
+                          }
+                          const noRiskPos = calcEndPos(noRisk.trades, noRisk.price_curve?.end_price ?? 0, noRisk.final_capital ?? 0)
+                          const withRiskPos = calcEndPos(withRisk.trades, withRisk.price_curve?.end_price ?? 0, withRisk.final_capital ?? 0)
+                          const noRiskM = noRisk.metrics
+                          const withRiskM = withRisk.metrics
+                          
+                          // 对比行组件
+                          const compareRow = (label: string, noVal: string | number, withVal: string | number, unit?: string) => (
+                            <Tr>
+                              <Td fontWeight="500">{label}</Td>
+                              <Td isNumeric>{noVal}{unit}</Td>
+                              <Td isNumeric>{withVal}{unit}</Td>
+                            </Tr>
+                          )
+                          
                           return (
                             <>
-                              <Text fontSize="sm" fontWeight="600" mb={3}>风控对比（无风控 vs 有风控）</Text>
-                              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4} mb={4}>
-                                {metricBox(noRisk.metrics, noRisk.trades ?? [], noRisk.price_curve?.end_price ?? 0, noRisk.final_capital ?? 0, '无风控')}
-                                {metricBox(withRisk.metrics, withRisk.trades ?? [], withRisk.price_curve?.end_price ?? 0, withRisk.final_capital ?? 0, '有风控')}
-                              </SimpleGrid>
+                              <Text fontSize="sm" fontWeight="600" mb={3}>风控对比</Text>
+                              <Box overflowX="auto" mb={4}>
+                                <Table size="sm" variant="simple">
+                                  <Thead>
+                                    <Tr>
+                                      <Th>指标</Th>
+                                      <Th isNumeric>无风控</Th>
+                                      <Th isNumeric>有风控</Th>
+                                    </Tr>
+                                  </Thead>
+                                  <Tbody>
+                                    {compareRow('总收益率', String((noRiskM as Record<string, unknown>)?.total_return ?? '-'), String((withRiskM as Record<string, unknown>)?.total_return ?? '-'), '%')}
+                                    {compareRow('最大回撤', String((noRiskM as Record<string, unknown>)?.max_drawdown ?? '-'), String((withRiskM as Record<string, unknown>)?.max_drawdown ?? '-'), '%')}
+                                    {compareRow('夏普比率', String((noRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'), String((withRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'))}
+                                    {compareRow('交易次数', String((noRiskM as Record<string, unknown>)?.total_trades ?? '-'), String((withRiskM as Record<string, unknown>)?.total_trades ?? '-'))}
+                                    {compareRow('买/卖', `${(noRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(noRiskM as Record<string, unknown>)?.sell_count ?? '-'}`, `${(withRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(withRiskM as Record<string, unknown>)?.sell_count ?? '-'}`)}
+                                    {compareRow('期末持仓', noRiskPos.endPosQty.toFixed(6), withRiskPos.endPosQty.toFixed(6))}
+                                    {compareRow('期末持仓市值', noRiskPos.endPosValue.toFixed(4), withRiskPos.endPosValue.toFixed(4), ' USDT')}
+                                    {compareRow('期末 USDT', noRiskPos.endCashUSDT.toFixed(4), withRiskPos.endCashUSDT.toFixed(4))}
+                                  </Tbody>
+                                </Table>
+                              </Box>
                               {(cm?.risk_intervention_count ?? 0) > 0 && (() => {
                                 const maxDisplay = 50
                                 const displayList = interventions.slice(0, maxDisplay)
