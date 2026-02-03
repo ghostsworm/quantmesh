@@ -84,7 +84,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.34.0-rc12"
+var Version = "3.35.0-rc4"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
@@ -1774,6 +1774,7 @@ func main() {
 		logger.Info("✅ 资金數據源提供者已設置")
 
 		// 設置策略资金分配提供者
+		// 概覽頁「已用」以倉位層 AllocationManager 為準，與槽位矩陣一致（恢復持倉後策略層 CapitalAllocator 可能未同步）
 		getAllocationFunc := func() map[string]web.StrategyCapitalInfo {
 			result := make(map[string]web.StrategyCapitalInfo)
 			runtimes := symbolManager.List()
@@ -1785,22 +1786,41 @@ func main() {
 				if allocator == nil {
 					continue
 				}
+				// 該 runtime 的已用資金以倉位層為準，與槽位 FILLED 狀態一致
+				usedFromPosition := 0.0
+				if rt.SuperPositionManager != nil {
+					am := rt.SuperPositionManager.GetAllocationManager()
+					if am != nil {
+						st := am.GetStatus(rt.Config.Exchange, rt.Config.Symbol)
+						if st != nil {
+							usedFromPosition = st.UsedAmount
+						}
+					}
+				}
 				strategies := allocator.GetAllStrategiesCapital()
 				for name, capital := range strategies {
+					used := capital.Used
+					if usedFromPosition > 0 {
+						used = usedFromPosition
+					}
+					available := capital.Allocated - used
+					if available < 0 {
+						available = 0
+					}
 					// 如果策略名称已存在，合並數據（累加）
 					if existing, ok := result[name]; ok {
 						result[name] = web.StrategyCapitalInfo{
 							Allocated: existing.Allocated + capital.Allocated,
-							Used:      existing.Used + capital.Used,
-							Available: existing.Available + capital.Available,
+							Used:      existing.Used + used,
+							Available: existing.Available + available,
 							Weight:    existing.Weight, // 权重保持不变（取第一個）
 							FixedPool: existing.FixedPool + capital.FixedPool,
 						}
 					} else {
 						result[name] = web.StrategyCapitalInfo{
 							Allocated: capital.Allocated,
-							Used:      capital.Used,
-							Available: capital.Available,
+							Used:      used,
+							Available: available,
 							Weight:    capital.Weight,
 							FixedPool: capital.FixedPool,
 						}
