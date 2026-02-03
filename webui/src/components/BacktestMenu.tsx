@@ -1303,7 +1303,7 @@ export default function BacktestMenu() {
                           min={p.min}
                           max={p.max}
                           step={p.step ?? 0.1}
-                          precision={p.step ? Math.max(0, -Math.floor(Math.log10(p.step))) : 1}
+                          precision={p.step ? Math.max(0, Math.round(-Math.log10(p.step))) : 1}
                           onChange={(_: string, v: number) => setParams((prev) => ({ ...prev, [p.name]: v }))}
                         >
                           <NumberInputField />

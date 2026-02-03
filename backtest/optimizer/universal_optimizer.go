@@ -340,8 +340,9 @@ func GetDefaultSearchSpace(strategy string) UniversalSearchSpace {
 			Strategy: "grid",
 			Ranges: map[string]ParamRange{
 				"grid_spacing":           {Min: 100, Max: 500, Step: 50},
-				"order_quantity":         {Min: 50, Max: 200, Step: 25},
+				"order_quantity":         {Min: 100, Max: 500, Step: 50},
 				"risk_volume_multiplier": {Min: 2, Max: 5, Step: 0.5},
+				"risk_average_window":    {Min: 10, Max: 50, Step: 5},
 			},
 		}
 	case "momentum":
@@ -378,7 +379,7 @@ func GetDefaultSearchSpace(strategy string) UniversalSearchSpace {
 		return UniversalSearchSpace{
 			Strategy: "martingale",
 			Ranges: map[string]ParamRange{
-				"base_amount": {Min: 50, Max: 200, Step: 25},
+				"base_amount": {Min: 50, Max: 500, Step: 25},
 				"multiplier":  {Min: 1.5, Max: 3, Step: 0.5},
 			},
 		}
