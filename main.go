@@ -84,7 +84,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.33.0"
+var Version = "3.34.0"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
@@ -1081,6 +1081,21 @@ func main() {
 	}
 	logger.Info("✅ 存儲服務初始化完成 (enabled=%v, storage!=nil=%v)", cfg.Storage.Enabled, storageService != nil && storageService.GetStorage() != nil)
 
+	// 运行 K 线文件迁移（一次性迁移现有文件到统一管理系统）
+	if storageService != nil {
+		if st := storageService.GetStorage(); st != nil {
+			if sqliteStorage, ok := st.(*storage.SQLiteStorage); ok {
+				go func() {
+					if err := storage.RunKlineFilesMigration(sqliteStorage); err != nil {
+						logger.Warn("⚠️ K线文件迁移失败: %v", err)
+					} else {
+						logger.Info("✅ K线文件迁移完成")
+					}
+				}()
+			}
+		}
+	}
+
 	// 合规：审计日志與 OSS 上傳
 	var auditLogger *storage.AuditTradeLogger
 	var ossUploader *storage.OSSUploader
@@ -2027,7 +2042,12 @@ func main() {
 			if st := storageService.GetStorage(); st != nil {
 				if taskStore := st.GetBacktestTaskStore(); taskStore != nil {
 					binanceConfig := buildBinanceConfigForBacktest(cfg)
-					taskManager := backtest.NewTaskManager(taskStore, binanceConfig)
+					// 获取 K 线数据目录
+					klineDataDir := "./data/kline" // 默认路径
+					if klineCollector != nil {
+						klineDataDir = klineCollector.GetDataDir()
+					}
+					taskManager := backtest.NewTaskManager(taskStore, binanceConfig, klineDataDir)
 					web.SetBacktestTaskManager(taskManager)
 					logger.Info("✅ 回测任務管理器已設置")
 
@@ -2096,7 +2116,12 @@ func main() {
 			if st := storageService.GetStorage(); st != nil {
 				if taskStore := st.GetBacktestTaskStore(); taskStore != nil {
 					binanceConfig := buildBinanceConfigForBacktest(cfg)
-					taskManager := backtest.NewTaskManager(taskStore, binanceConfig)
+					// 获取 K 线数据目录
+					klineDataDir := "./data/kline" // 默认路径
+					if klineCollector != nil {
+						klineDataDir = klineCollector.GetDataDir()
+					}
+					taskManager := backtest.NewTaskManager(taskStore, binanceConfig, klineDataDir)
 					web.SetBacktestTaskManager(taskManager)
 					logger.Info("✅ 回测任務管理器已設置")
 

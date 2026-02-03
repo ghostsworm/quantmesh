@@ -11,7 +11,9 @@ import (
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimizer"
 	"quantmesh/backtest/optimrun"
+	"quantmesh/exchange"
 	"quantmesh/logger"
+	"quantmesh/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -362,24 +364,35 @@ func postCacheGenerate(c *gin.Context) {
 		_, _ = backtest.GetHistoricalData(req.Symbol, req.Interval, startTime, endTime, binanceConfig)
 		logger.Info("✅ K線缓存生成完成: %s %s %s ~ %s", req.Symbol, req.Interval, req.StartDate, req.EndDate)
 	}()
+	cacheKey := backtestCacheKeyFormat("binance", req.Symbol, req.Interval, req.StartDate, req.EndDate)
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
 		"message":   "已在后台生成缓存",
-		"cache_key": fmt.Sprintf("%s_%s_%s_%s", req.Symbol, req.Interval, req.StartDate, req.EndDate),
+		"cache_key": cacheKey,
 	})
 }
 
+// backtestCacheKeyFormat 与 backtest.GetHistoricalData 使用的缓存键一致（交易所_symbol_interval_start_end）
+func backtestCacheKeyFormat(exchangeName, symbol, interval, startDate, endDate string) string {
+	if exchangeName == "" {
+		exchangeName = "binance"
+	}
+	return fmt.Sprintf("%s_%s_%s_%s_%s", exchangeName, symbol, interval, startDate, endDate)
+}
+
 // getCacheStatus 查詢指定缓存是否存在 GET /api/backtest/cache/status?symbol=&interval=&start_date=&end_date=
+// 缓存键与回测拉取数据时一致，无缓存时直接运行回测也会自动从交易所拉取并写入缓存
 func getCacheStatus(c *gin.Context) {
 	symbol := c.Query("symbol")
 	interval := c.Query("interval")
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
+	exchangeName := c.Query("exchange") // 可选，默认 binance
 	if symbol == "" || interval == "" || startDate == "" || endDate == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 symbol, interval, start_date, end_date"})
 		return
 	}
-	cacheKey := fmt.Sprintf("%s_%s_%s_%s", symbol, interval, startDate, endDate)
+	cacheKey := backtestCacheKeyFormat(exchangeName, symbol, interval, startDate, endDate)
 	filename := filepath.Join("backtest", "cache", cacheKey+".csv")
 	_, err := os.Stat(filename)
 	exists := err == nil
@@ -397,20 +410,53 @@ func postBacktestTasks(c *gin.Context) {
 	}
 	var req struct {
 		Strategy     string                 `json:"strategy" binding:"required"`
-		Symbol       string                 `json:"symbol" binding:"required"`
-		Interval     string                 `json:"interval" binding:"required"`
-		StartTime    time.Time              `json:"start_time" binding:"required"`
-		EndTime      time.Time              `json:"end_time" binding:"required"`
+		Symbol       string                 `json:"symbol"`
+		Interval     string                 `json:"interval"`
+		StartTime    time.Time              `json:"start_time"`
+		EndTime      time.Time              `json:"end_time"`
 		Params       map[string]interface{} `json:"params"`
 		TotalCapital float64                `json:"total_capital" binding:"required"`
+		// 数据来源相关字段
+		DataSource string `json:"data_source"`
+		KlineFile  string `json:"kline_file"`
+		CacheName  string `json:"cache_name"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参數錯误: %v", err)})
 		return
 	}
-	if req.EndTime.Before(req.StartTime) {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_time 必須晚於 start_time"})
-		return
+
+	// 按数据来源校验
+	switch req.DataSource {
+	case "kline_file":
+		if req.KlineFile == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "使用K线文件时必须提供 kline_file"})
+			return
+		}
+		// 校验文件状态
+		if err := validateKlineFileForBacktest(req.KlineFile, c); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+	case "cache":
+		if req.CacheName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "使用回测缓存时必须提供 cache_name"})
+			return
+		}
+	default:
+		// 默认或 "time_range": 使用原有校验
+		if req.Symbol == "" || req.Interval == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "symbol 和 interval 必填"})
+			return
+		}
+		if req.StartTime.IsZero() || req.EndTime.IsZero() {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "start_time 和 end_time 必填"})
+			return
+		}
+		if req.EndTime.Before(req.StartTime) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "end_time 必須晚於 start_time"})
+			return
+		}
 	}
 	validStrategies := map[string]bool{
 		"grid": true, "momentum": true, "mean_reversion": true,
@@ -428,6 +474,9 @@ func postBacktestTasks(c *gin.Context) {
 		EndTime:      req.EndTime,
 		Params:       req.Params,
 		TotalCapital: req.TotalCapital,
+		DataSource:   req.DataSource,
+		KlineFile:    req.KlineFile,
+		CacheName:    req.CacheName,
 	}
 	if task.Params == nil {
 		task.Params = make(map[string]interface{})
@@ -528,8 +577,29 @@ func getBacktestTaskKlines(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "任務不存在"})
 		return
 	}
-	binanceConfig := getBinanceConfig()
-	candles, err := backtest.GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, binanceConfig)
+	var candles []*exchange.Candle
+
+	// 根据任务的数据来源加载 K 线数据
+	switch task.DataSource {
+	case "kline_file":
+		if task.KlineFile != "" {
+			klineDataDir := backtestTaskManager.GetKlineDataDir()
+			candles, _, err = backtest.LoadCandlesFromKlineFile(klineDataDir, task.KlineFile)
+		} else {
+			err = fmt.Errorf("任务未指定 K 线文件")
+		}
+	case "cache":
+		if task.CacheName != "" {
+			candles, err = backtest.LoadCandlesFromCache(task.CacheName)
+		} else {
+			err = fmt.Errorf("任务未指定缓存名称")
+		}
+	default:
+		// 默认：从交易所获取历史数据
+		binanceConfig := getBinanceConfig()
+		candles, err = backtest.GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, binanceConfig)
+	}
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -1324,4 +1394,36 @@ func getOptimSearchSpace(c *gin.Context) {
 	}
 	space := optimizer.GetDefaultSearchSpace(strategy)
 	c.JSON(http.StatusOK, gin.H{"success": true, "search_space": space})
+}
+
+// validateKlineFileForBacktest 校验 K 线文件是否可用于回测
+func validateKlineFileForBacktest(filename string, c *gin.Context) error {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		return nil // 无存储服务时跳过校验
+	}
+
+	sqliteStorage, ok := storageProv.GetStorage().(*storage.SQLiteStorage)
+	if !ok {
+		return nil // 非 SQLite 存储时跳过校验
+	}
+
+	kf, err := sqliteStorage.GetKlineFileByFilename(filename)
+	if err != nil {
+		return fmt.Errorf("查询文件记录失败: %v", err)
+	}
+	if kf == nil {
+		return fmt.Errorf("文件 %s 未在数据库中记录，请检查文件是否存在", filename)
+	}
+
+	switch kf.Status {
+	case "collecting":
+		return fmt.Errorf("文件 %s 正在采集中，暂不可用于回测，请等待采集完成", filename)
+	case "error":
+		return fmt.Errorf("文件 %s 采集出错，不可用于回测", filename)
+	case "completed":
+		return nil // 正常情况
+	default:
+		return fmt.Errorf("文件 %s 状态异常: %s", filename, kf.Status)
+	}
 }

@@ -43,6 +43,7 @@
     "optimizer": "Optimizador de parámetros",
     "newsAnalysis": "Análisis de noticias",
     "dataExport": "Exportación de datos",
+    "klineFiles": "Archivos K-Line",
     "expandSidebar": "Expandir la barra lateral",
     "collapseSidebar": "Contraer la barra lateral",
     "groupMonitor": "Monitor y resumen",
@@ -57,6 +58,18 @@
   },
   "app": {
     "logoutError": "Error al cerrar sesión"
+  },
+  "backtest": {
+    "dataSource": "Fuente de datos",
+    "dataSourceTimeRange": "Rango de tiempo",
+    "dataSourceKlineFile": "Archivo K-Line",
+    "dataSourceCache": "Caché de backtest",
+    "selectKlineFile": "Seleccionar archivo K-Line",
+    "selectCache": "Seleccionar caché",
+    "hasDepth": "Tiene profundidad",
+    "depthRiskEnabled": "Control de riesgo de profundidad habilitado",
+    "refreshFileList": "Actualizar lista de archivos",
+    "refreshCacheList": "Actualizar lista de caché"
   },
   "dashboard": {
     "tradingStopped": "Trading detenido",

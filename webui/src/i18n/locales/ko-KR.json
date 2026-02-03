@@ -43,6 +43,7 @@
     "optimizer": "파라미터 최적화",
     "newsAnalysis": "뉴스 분석",
     "dataExport": "데이터 내보내기",
+    "klineFiles": "K선 파일",
     "expandSidebar": "사이드바 확장",
     "collapseSidebar": "사이드바 축소",
     "groupMonitor": "모니터 및 개요",
@@ -57,6 +58,18 @@
   },
   "app": {
     "logoutError": "로그아웃 실패"
+  },
+  "backtest": {
+    "dataSource": "데이터 소스",
+    "dataSourceTimeRange": "시간 범위",
+    "dataSourceKlineFile": "K-Line 파일",
+    "dataSourceCache": "백테스트 캐시",
+    "selectKlineFile": "K-Line 파일 선택",
+    "selectCache": "캐시 선택",
+    "hasDepth": "깊이 있음",
+    "depthRiskEnabled": "깊이 리스크 컨트롤 활성화",
+    "refreshFileList": "파일 목록 새로 고침",
+    "refreshCacheList": "캐시 목록 새로 고침"
   },
   "dashboard": {
     "tradingStopped": "거래 중단됨",

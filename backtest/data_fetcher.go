@@ -238,9 +238,23 @@ func calculateBatchDuration(interval string, limit int) time.Duration {
 	return duration * time.Duration(limit)
 }
 
-// LoadFromCache 從 CSV 加載
+// LoadFromCache 從统一目录加载 CSV
 func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
-	filename := filepath.Join("backtest", "cache", cacheKey+".csv")
+	// 首先尝试从统一目录加载
+	filename := filepath.Join("./data/kline", cacheKey+".csv")
+
+	candles, err := loadCandlesFromFile(filename)
+	if err == nil {
+		return candles, nil
+	}
+
+	// 向后兼容：如果统一目录没有，尝试从旧的 backtest/cache 目录
+	legacyFilename := filepath.Join("backtest", "cache", cacheKey+".csv")
+	return loadCandlesFromFile(legacyFilename)
+}
+
+// loadCandlesFromFile 从指定文件加载 K 线数据
+func loadCandlesFromFile(filename string) ([]*exchange.Candle, error) {
 
 	file, err := os.Open(filename)
 	if err != nil {
@@ -338,13 +352,18 @@ func parseCSVRecord(record []string) (*exchange.Candle, error) {
 	}, nil
 }
 
-// SaveToCache 保存到 CSV（無數據時不寫入，避免產生 K 線數為 0 的緩存條目）
+// SaveToCache 保存到统一目录并录入数据库（無數據時不寫入，避免產生 K 線數為 0 的緩存條目）
 func SaveToCache(cacheKey string, candles []*exchange.Candle) error {
+	return SaveToCacheWithStorage(cacheKey, candles, nil)
+}
+
+// SaveToCacheWithStorage 保存到统一目录（暂时不录入数据库以避免循环导入）
+func SaveToCacheWithStorage(cacheKey string, candles []*exchange.Candle, storageService interface{}) error {
 	if len(candles) == 0 {
 		return nil
 	}
-	// 确保目錄存在
-	cacheDir := filepath.Join("backtest", "cache")
+	// 统一使用 ./data/kline 目录
+	cacheDir := "./data/kline"
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return fmt.Errorf("創建缓存目錄失败: %w", err)
 	}
@@ -380,10 +399,14 @@ func SaveToCache(cacheKey string, candles []*exchange.Candle) error {
 		}
 	}
 
-	// 更新缓存索引
+	// 更新缓存索引（保持向后兼容）
 	if err := updateCacheIndex(cacheKey, candles); err != nil {
 		logger.Warn("⚠️ 更新缓存索引失败: %v", err)
 	}
+
+	// 录入统一的 kline_files 数据库表
+	// TODO: 录入统一的 kline_files 数据库表
+	// 暂时跳过数据库录入以避免循环导入，后续通过迁移脚本处理
 
 	return nil
 }

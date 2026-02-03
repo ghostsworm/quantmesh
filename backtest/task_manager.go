@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"quantmesh/exchange"
 	"quantmesh/logger"
 )
 
@@ -26,17 +28,19 @@ type TaskManager struct {
 	binanceConfig map[string]string
 	resultsDir    string
 	reportsDir    string
+	klineDataDir  string // K线文件目录 (./data/kline)
 	mu            sync.Mutex
 	running       map[string]struct{}
 }
 
 // NewTaskManager 創建任務管理器
-func NewTaskManager(store TaskStore, binanceConfig map[string]string) *TaskManager {
+func NewTaskManager(store TaskStore, binanceConfig map[string]string, klineDataDir string) *TaskManager {
 	return &TaskManager{
 		store:         store,
 		binanceConfig: binanceConfig,
 		resultsDir:    filepath.Join("backtest", "results"),
 		reportsDir:    filepath.Join("backtest", "reports"),
+		klineDataDir:  klineDataDir,
 		running:       make(map[string]struct{}),
 	}
 }
@@ -44,6 +48,11 @@ func NewTaskManager(store TaskStore, binanceConfig map[string]string) *TaskManag
 // GetStore 返回任務存儲（供 API 查詢任務列表等）
 func (m *TaskManager) GetStore() TaskStore {
 	return m.store
+}
+
+// GetKlineDataDir 返回 K 线数据目录
+func (m *TaskManager) GetKlineDataDir() string {
+	return m.klineDataDir
 }
 
 // CreateAndRun 創建任務並异步執行
@@ -85,12 +94,76 @@ func (m *TaskManager) RunTask(id string) error {
 	now := time.Now()
 	_ = m.store.UpdateBacktestTaskStatus(id, "running", 0, &now, nil, "", "", "")
 
-	// 1. 獲取 K 線（优先缓存，無则拉取）
-	candles, err := GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
-	if err != nil {
-		m.failTask(id, fmt.Sprintf("獲取歷史數據失败: %v", err))
-		return nil
+	// 1. 按数据源获取 K 线数据
+	var candles []*exchange.Candle
+	var depthSnapshots []*DepthSnapshotForBacktest
+	
+	switch task.DataSource {
+	case "kline_file":
+		if task.KlineFile == "" {
+			m.failTask(id, "未指定 K 线文件")
+			return nil
+		}
+		logger.Info("📁 从 K 线文件加载数据: %s", task.KlineFile)
+		candles, depthSnapshots, err = LoadCandlesFromKlineFile(m.klineDataDir, task.KlineFile)
+		if err != nil {
+			m.failTask(id, fmt.Sprintf("加载 K 线文件失败: %v", err))
+			return nil
+		}
+		
+		// 从文件名解析元信息并更新任务
+		meta := ParseKlineFileMeta(task.KlineFile)
+		if meta.Symbol != "" {
+			task.Symbol = meta.Symbol
+		}
+		if meta.Interval != "" {
+			task.Interval = meta.Interval
+		}
+		// 从 K 线数据推导时间范围
+		if len(candles) > 0 {
+			task.StartTime = time.Unix(candles[0].Timestamp/1000, 0)
+			task.EndTime = time.Unix(candles[len(candles)-1].Timestamp/1000, 0)
+		}
+		
+	case "cache":
+		if task.CacheName == "" {
+			m.failTask(id, "未指定回测缓存")
+			return nil
+		}
+		logger.Info("💾 从回测缓存加载数据: %s", task.CacheName)
+		candles, err = LoadCandlesFromCache(task.CacheName)
+		if err != nil {
+			m.failTask(id, fmt.Sprintf("加载缓存失败: %v", err))
+			return nil
+		}
+		
+		// 从缓存元数据获取信息（通过缓存名解析）
+		// 缓存名格式: binance_BTCUSDT_1m_2025-01-01_2025-01-31
+		cacheParts := strings.Split(task.CacheName, "_")
+		if len(cacheParts) >= 5 {
+			task.Symbol = cacheParts[1]
+			task.Interval = cacheParts[2]
+			if startDate, err := time.Parse("2006-01-02", cacheParts[3]); err == nil {
+				task.StartTime = startDate
+			}
+			if endDate, err := time.Parse("2006-01-02", cacheParts[4]); err == nil {
+				task.EndTime = endDate
+			}
+		}
+		
+	default:
+		// 默认或 "time_range": 使用原有逻辑
+		logger.Info("⬇️ 从交易所获取历史数据: %s %s (%s - %s)", 
+			task.Symbol, task.Interval, 
+			task.StartTime.Format("2006-01-02"), 
+			task.EndTime.Format("2006-01-02"))
+		candles, err = GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
+		if err != nil {
+			m.failTask(id, fmt.Sprintf("獲取歷史數據失败: %v", err))
+			return nil
+		}
 	}
+	
 	if len(candles) == 0 {
 		m.failTask(id, "未獲取到历史數據")
 		return nil
@@ -110,7 +183,13 @@ func (m *TaskManager) RunTask(id string) error {
 			return nil
 		}
 		riskCfg := m.riskConfigFromTask(task)
-		riskSim := NewRiskSimulator(riskCfg)
+		var riskSim *RiskSimulator
+		if depthSnapshots != nil && len(depthSnapshots) > 0 {
+			logger.Info("🛡️ 启用深度风控: %d 个深度快照", len(depthSnapshots))
+			riskSim = NewRiskSimulatorWithDepth(riskCfg, depthSnapshots)
+		} else {
+			riskSim = NewRiskSimulator(riskCfg)
+		}
 		resultWithRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, riskSim)
 		if err != nil {
 			m.failTask(id, fmt.Sprintf("回测執行失败: %v", err))

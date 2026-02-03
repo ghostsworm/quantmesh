@@ -48,6 +48,7 @@
     "optimizer": "参数优化",
     "newsAnalysis": "新闻分析",
     "dataExport": "数据导出",
+    "klineFiles": "K线文件",
     "expandSidebar": "展开侧边栏",
     "collapseSidebar": "收起侧边栏",
     "groupMonitor": "监控与概览",
@@ -65,6 +66,19 @@
     "minTradesFilter": "交易次数 ≥",
     "sortBy": "排序",
     "exportCsv": "导出 CSV"
+  },
+  "backtest": {
+    "dataSource": "数据来源",
+    "dataSourceTimeRange": "时间范围",
+    "dataSourceKlineFile": "K线文件",
+    "dataSourceCache": "回测缓存",
+    "selectKlineFile": "选择K线文件",
+    "selectCache": "选择缓存",
+    "hasDepth": "含深度",
+    "depthRiskEnabled": "已启用深度风控",
+    "refreshFileList": "刷新文件列表",
+    "refreshCacheList": "刷新缓存列表",
+    "cacheOptionalHint": "可直接运行回测，无缓存时将自动从交易所拉取并缓存数据；预先生成缓存可缩短首次回测等待时间。"
   },
   "servicesStatus": {
     "title": "服务状态",
@@ -1298,7 +1312,8 @@
     },
     "tips": {
       "title": "导出提示",
-      "content": "导出的配置文件已自动脱敏，不包含 API 密钥等敏感信息。如需完整备份，请使用配置管理页面的备份功能。大量数据导出可能需要一些时间，请耐心等待。"
+      "content": "导出的配置文件已自动脱敏，不包含 API 密钥等敏感信息。如需完整备份，请使用配置管理页面的备份功能。大量数据导出可能需要一些时间，请耐心等待。",
+      "klineFilesLink": "K线数据文件列表与下载请前往侧栏"
     }
   },
   "privacy": {

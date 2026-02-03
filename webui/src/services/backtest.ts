@@ -133,12 +133,15 @@ export async function deleteCache(cacheKey: string): Promise<{ success: boolean;
 
 export async function postBacktestTask(params: {
   strategy: string
-  symbol: string
-  interval: string
-  start_time: string
-  end_time: string
+  symbol?: string
+  interval?: string
+  start_time?: string
+  end_time?: string
   params?: Record<string, unknown>
   total_capital: number
+  data_source?: 'time_range' | 'kline_file' | 'cache'
+  kline_file?: string
+  cache_name?: string
 }): Promise<{ success: boolean; message: string; task_id: string }> {
   return fetchWithAuth(`${API_BASE_URL}/backtest/tasks`, {
     method: 'POST',

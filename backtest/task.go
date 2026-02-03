@@ -20,6 +20,10 @@ type BacktestTask struct {
 	Error        string                 `json:"error,omitempty"`
 	ResultPath   string                 `json:"result_path,omitempty"`
 	ReportPath   string                 `json:"report_path,omitempty"`
+	// 数据来源扩展字段
+	DataSource   string                 `json:"data_source,omitempty"` // "time_range" | "kline_file" | "cache"
+	KlineFile    string                 `json:"kline_file,omitempty"`  // K线文件名 (如 1m_binance_BTCUSDT_20260102.csv)
+	CacheName    string                 `json:"cache_name,omitempty"`  // 回测缓存名称
 }
 
 // BacktestTaskResult 回测任務結果（持久化 JSON）

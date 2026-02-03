@@ -20,6 +20,7 @@ import {
   Icon,
   Flex,
   Spinner,
+  Link as ChakraLink,
 } from '@chakra-ui/react'
 import {
   DownloadIcon,
@@ -31,6 +32,7 @@ import {
   AttachmentIcon,
 } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
+import { Link as RouterLink } from 'react-router-dom'
 import {
   exportConfig,
   exportTrades,
@@ -46,8 +48,6 @@ import {
   exportAll,
   ExportParams,
 } from '../services/export'
-import KlineFilesManager from './KlineFilesManager'
-
 interface ExportItem {
   id: string
   titleKey: string
@@ -345,22 +345,6 @@ const DataExport: React.FC = () => {
           </CardBody>
         </Card>
 
-        <Divider />
-
-        {/* K线数据文件管理 */}
-        <Card variant="outline" bg="purple.50" borderColor="purple.200">
-          <CardHeader>
-            <Heading size="sm" color="purple.700">
-              K线数据文件管理
-            </Heading>
-          </CardHeader>
-          <CardBody>
-            <KlineFilesManager />
-          </CardBody>
-        </Card>
-
-        <Divider />
-
         {/* 單項導出列表 */}
         <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
           {exportItems.map((item) => (
@@ -416,6 +400,12 @@ const DataExport: React.FC = () => {
                 </Text>
                 <Text fontSize="sm" color="gray.600" mt={1}>
                   {t('dataExport.tips.content')}
+                </Text>
+                <Text fontSize="sm" color="gray.600" mt={2}>
+                  {t('dataExport.tips.klineFilesLink')}{' '}
+                  <ChakraLink as={RouterLink} to="/kline-files" color="blue.500">
+                    {t('sidebar.klineFiles')}
+                  </ChakraLink>
                 </Text>
               </Box>
             </HStack>

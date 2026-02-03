@@ -15,8 +15,8 @@ func (s *SQLiteStorage) CreateBacktestTask(task *backtest.BacktestTask) error {
 		return err
 	}
 	_, err = s.db.Exec(`
-		INSERT INTO backtest_tasks (id, status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO backtest_tasks (id, status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, data_source, kline_file, cache_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID,
 		task.Status,
 		task.Strategy,
@@ -33,6 +33,9 @@ func (s *SQLiteStorage) CreateBacktestTask(task *backtest.BacktestTask) error {
 		task.Error,
 		task.ResultPath,
 		task.ReportPath,
+		task.DataSource,
+		task.KlineFile,
+		task.CacheName,
 	)
 	return err
 }
@@ -46,7 +49,8 @@ func (s *SQLiteStorage) GetBacktestTask(id string) (*backtest.BacktestTask, erro
 	)
 	task := &backtest.BacktestTask{ID: id}
 	err := s.db.QueryRow(`
-		SELECT status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path
+		SELECT status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, 
+		       COALESCE(data_source, '') as data_source, COALESCE(kline_file, '') as kline_file, COALESCE(cache_name, '') as cache_name
 		FROM backtest_tasks WHERE id = ?`, id).Scan(
 		&task.Status,
 		&task.Strategy,
@@ -63,6 +67,9 @@ func (s *SQLiteStorage) GetBacktestTask(id string) (*backtest.BacktestTask, erro
 		&task.Error,
 		&task.ResultPath,
 		&task.ReportPath,
+		&task.DataSource,
+		&task.KlineFile,
+		&task.CacheName,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -93,7 +100,8 @@ func (s *SQLiteStorage) GetBacktestTask(id string) (*backtest.BacktestTask, erro
 // ListBacktestTasks 列出回测任務（按創建時间倒序）
 func (s *SQLiteStorage) ListBacktestTasks(limit, offset int) ([]*backtest.BacktestTask, error) {
 	rows, err := s.db.Query(`
-		SELECT id, status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path
+		SELECT id, status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path,
+		       COALESCE(data_source, '') as data_source, COALESCE(kline_file, '') as kline_file, COALESCE(cache_name, '') as cache_name
 		FROM backtest_tasks ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, err
@@ -107,7 +115,7 @@ func (s *SQLiteStorage) ListBacktestTasks(limit, offset int) ([]*backtest.Backte
 			paramsJSON                    string
 		)
 		task := &backtest.BacktestTask{}
-		if err := rows.Scan(&task.ID, &task.Status, &task.Strategy, &task.Symbol, &task.Interval, &startTime, &endTime, &paramsJSON, &task.TotalCapital, &task.Progress, &createdAt, &startedAt, &completedAt, &task.Error, &task.ResultPath, &task.ReportPath); err != nil {
+		if err := rows.Scan(&task.ID, &task.Status, &task.Strategy, &task.Symbol, &task.Interval, &startTime, &endTime, &paramsJSON, &task.TotalCapital, &task.Progress, &createdAt, &startedAt, &completedAt, &task.Error, &task.ResultPath, &task.ReportPath, &task.DataSource, &task.KlineFile, &task.CacheName); err != nil {
 			return nil, err
 		}
 		task.StartTime = time.UnixMilli(startTime)

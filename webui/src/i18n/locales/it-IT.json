@@ -43,6 +43,7 @@
     "optimizer": "Ottimizzatore di parametri",
     "newsAnalysis": "Analisi delle notizie",
     "dataExport": "Esportazione dati",
+    "klineFiles": "File K-Line",
     "expandSidebar": "Espandi barra laterale",
     "collapseSidebar": "Comprimi barra laterale",
     "groupMonitor": "Monitor e panoramica",

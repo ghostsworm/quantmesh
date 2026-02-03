@@ -43,6 +43,7 @@
     "optimizer": "पैरामीटर ऑप्टिमाइज़र",
     "newsAnalysis": "समाचार विश्लेषण",
     "dataExport": "डेटा निर्यात",
+    "klineFiles": "K-Line फ़ाइलें",
     "expandSidebar": "साइडबार का विस्तार करें",
     "collapseSidebar": "साइडबार को संक्षिप्त करें",
     "groupMonitor": "Monitor & Overview",
