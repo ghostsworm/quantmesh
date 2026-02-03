@@ -22,8 +22,8 @@ type RuntimeSnapshotSource interface {
 type DailySnapshotRunner struct {
 	storage              storage.Storage
 	getRuntimes          func() []RuntimeSnapshotSource
-	dailySchedule        string   // "23:59"
-	cleanupRetentionDays int      // 90
+	dailySchedule        string // "23:59"
+	cleanupRetentionDays int    // 90
 	ctx                  context.Context
 	cancel               context.CancelFunc
 }
@@ -97,10 +97,11 @@ func (r *DailySnapshotRunner) hourlyLoop() {
 		case t := <-ticker.C:
 			runAt := t.In(loc)
 			r.recordHourlyForAll(runAt)
-			// 每天 00:00 執行昨日日終彙總與清理
+			// 每天 00:00 執行昨日日終彙總、今日 0 點未實現快照、與清理
 			if runAt.Hour() == 0 && runAt.Minute() < 5 {
 				yesterday := runAt.AddDate(0, 0, -1)
 				r.aggregateDaily(yesterday)
+				r.recordMidnightSnapshot(runAt) // 0 點當下的未實現盈虧快照
 				r.cleanupOldHourlyData()
 			}
 		}
@@ -176,20 +177,50 @@ func (r *DailySnapshotRunner) aggregateDaily(date time.Time) {
 		// 收盤時刻的未實現盈虧與持倉價值取當日最后一條小時記錄
 		last := records[len(records)-1]
 		snap := &storage.DailySnapshot{
-			Exchange:              exchange,
-			Symbol:                symbol,
-			Account:               account,
-			Date:                  startOfDay,
-			UnrealizedPnL:         last.UnrealizedPnL,
-			TotalPositionValue:    last.TotalPositionValue,
-			IntradayMaxDrawdown:   maxDrawdown,
+			Exchange:               exchange,
+			Symbol:                 symbol,
+			Account:                account,
+			Date:                   startOfDay,
+			UnrealizedPnL:          last.UnrealizedPnL,
+			TotalPositionValue:     last.TotalPositionValue,
+			IntradayMaxDrawdown:    maxDrawdown,
 			IntradayMaxDrawdownPct: maxDrawdownPct,
-			IntradayPeakEquity:   peakEquity,
-			ClosingPrice:          0, // 可從 K 線或 API 補齊
-			SnapshotTime:         last.Timestamp,
+			IntradayPeakEquity:     peakEquity,
+			ClosingPrice:           0, // 可從 K 線或 API 補齊
+			SnapshotTime:           last.Timestamp,
 		}
 		if err := r.storage.SaveDailySnapshot(snap); err != nil {
 			logger.Warn("⚠️ 保存每日快照失敗 %s:%s %s: %v", exchange, symbol, date.Format("2006-01-02"), err)
+		}
+	}
+}
+
+// recordMidnightSnapshot 在 0 點記錄當日的未實現盈虧快照（供收益統計日曆/每日統計使用）
+func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
+	loc := utils.GlobalLocation
+	if loc == nil {
+		loc = time.Local
+	}
+	today := time.Date(ts.Year(), ts.Month(), ts.Day(), 0, 0, 0, 0, loc)
+	runtimes := r.getRuntimes()
+	for _, rt := range runtimes {
+		exchange, symbol, account := rt.Exchange(), rt.Symbol(), rt.Account()
+		_, unrealized, totalVal := rt.CurrentSnapshot()
+		snap := &storage.DailySnapshot{
+			Exchange:               exchange,
+			Symbol:                 symbol,
+			Account:                account,
+			Date:                   today,
+			UnrealizedPnL:          unrealized,
+			TotalPositionValue:     totalVal,
+			IntradayMaxDrawdown:    0,
+			IntradayMaxDrawdownPct: 0,
+			IntradayPeakEquity:     totalVal,
+			ClosingPrice:           0,
+			SnapshotTime:           ts,
+		}
+		if err := r.storage.SaveDailySnapshot(snap); err != nil {
+			logger.Warn("⚠️ 保存 0 點未實現快照失敗 %s:%s %s: %v", exchange, symbol, today.Format("2006-01-02"), err)
 		}
 	}
 }

@@ -360,6 +360,7 @@ export interface DailyStatistics {
   price_change_pct?: number // 價格變化百分比
   cumulative_pnl?: number  // 累计盈亏
   unrealized_pnl?: number  // 當日收盤未實現盈虧（來自每日快照）
+  book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
   intraday_max_drawdown?: number    // 日內最大回撤金額
   intraday_max_drawdown_pct?: number // 日內最大回撤百分比
 }

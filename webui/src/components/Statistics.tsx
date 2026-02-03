@@ -32,6 +32,7 @@ interface DailyStatistics {
   price_change_pct?: number // 價格變化百分比
   cumulative_pnl?: number  // 累计盈亏
   unrealized_pnl?: number  // 當日收盤未實現盈虧
+  book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
   intraday_max_drawdown?: number
   intraday_max_drawdown_pct?: number
 }
@@ -257,6 +258,7 @@ const Statistics: React.FC = () => {
                   )}
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.fundingFee') || '資金費'}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.unrealizedPnL')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }} title={t('statistics.bookValuePnL')}>{t('statistics.bookValuePnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.cumulativePnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.winRate')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.intradayDrawdown')}</th>
@@ -299,6 +301,9 @@ const Statistics: React.FC = () => {
                       {stat.unrealized_pnl !== undefined && stat.unrealized_pnl !== 0
                         ? (stat.unrealized_pnl >= 0 ? '+' : '') + stat.unrealized_pnl.toFixed(2)
                         : '-'}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: ((stat.book_value_pnl ?? stat.total_pnl) >= 0 ? '#389e0d' : '#cf1322'), fontWeight: 600 }}>
+                      {(stat.book_value_pnl ?? stat.total_pnl) >= 0 ? '+' : ''}{(stat.book_value_pnl ?? stat.total_pnl).toFixed(2)}
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right', color: (stat.cumulative_pnl || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
                       {(stat.cumulative_pnl || 0) >= 0 ? '+' : ''}{(stat.cumulative_pnl || 0).toFixed(2)}

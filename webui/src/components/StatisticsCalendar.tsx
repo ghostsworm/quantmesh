@@ -10,7 +10,8 @@ interface DailyStatistics {
   win_rate: number
   winning_trades?: number
   losing_trades?: number
-  unrealized_pnl?: number
+  unrealized_pnl?: number  // 當日收盤未實現盈虧
+  book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
   intraday_max_drawdown?: number
   intraday_max_drawdown_pct?: number
 }
@@ -144,9 +145,29 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                         color: stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f',
                         fontWeight: 'bold',
                         marginBottom: '2px'
-                      }}>
+                      }} title={t('statistics.pnl')}>
                         {stats.total_pnl >= 0 ? '+' : ''}{stats.total_pnl.toFixed(2)}
                       </div>
+                      {stats.unrealized_pnl !== undefined && stats.unrealized_pnl !== 0 && (
+                        <div style={{
+                          color: stats.unrealized_pnl >= 0 ? '#95de64' : '#ff7875',
+                          fontSize: '10px',
+                          marginBottom: '2px',
+                          fontStyle: 'italic'
+                        }} title={t('statistics.unrealizedPnL')}>
+                          {t('statistics.unrealizedShort')}: {(stats.unrealized_pnl >= 0 ? '+' : '') + stats.unrealized_pnl.toFixed(2)}
+                        </div>
+                      )}
+                      {stats.unrealized_pnl !== undefined && Math.abs(stats.unrealized_pnl) > 0.001 && stats.book_value_pnl !== undefined && (
+                        <div style={{
+                          color: stats.book_value_pnl >= 0 ? '#389e0d' : '#cf1322',
+                          fontSize: '10px',
+                          fontWeight: '600',
+                          marginBottom: '2px'
+                        }} title={t('statistics.bookValuePnL')}>
+                          {t('statistics.bookValueShort')}: {(stats.book_value_pnl >= 0 ? '+' : '') + stats.book_value_pnl.toFixed(2)}
+                        </div>
+                      )}
                       {stats.funding_fee !== undefined && stats.funding_fee !== 0 && (
                         <div style={{
                           color: stats.funding_fee >= 0 ? '#52c41a' : '#fa8c16',
@@ -154,16 +175,6 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                           marginBottom: '2px'
                         }} title={t('statistics.fundingFee')}>
                           {t('statistics.fundingFeeShort')}: {stats.funding_fee >= 0 ? '+' : ''}{stats.funding_fee.toFixed(2)}
-                        </div>
-                      )}
-                      {stats.unrealized_pnl !== undefined && stats.unrealized_pnl !== 0 && (
-                        <div style={{
-                          color: stats.unrealized_pnl >= 0 ? '#95de64' : '#ff7875',
-                          fontSize: '10px',
-                          marginBottom: '2px',
-                          fontStyle: 'italic'
-                        }}>
-                          ({stats.unrealized_pnl >= 0 ? '+' : ''}{stats.unrealized_pnl.toFixed(2)})
                         </div>
                       )}
                       <div style={{ color: '#8c8c8c', marginBottom: '2px' }}>

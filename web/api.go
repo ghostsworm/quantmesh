@@ -1865,6 +1865,13 @@ func getDailyStatistics(c *gin.Context) {
 			item["funding_fee"] = 0.0
 		}
 
+		// 賬面盈虧 = 已平倉盈虧 + 未實現盈虧（真正帳面值）
+		unrealized := 0.0
+		if snap, ok := snapshotMap[dateKey]; ok {
+			unrealized = snap.UnrealizedPnL
+		}
+		item["book_value_pnl"] = dailyPnL + unrealized
+
 		tempResult = append(tempResult, item)
 	}
 
