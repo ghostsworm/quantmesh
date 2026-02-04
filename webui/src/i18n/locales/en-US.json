@@ -430,6 +430,7 @@
     "filled": "Filled",
     "status": "Status",
     "slotPrice": "Slot Price",
+    "pnl": "Profit",
     "createdAt": "Created At",
     "buy": "Buy",
     "sell": "Sell",
@@ -453,7 +454,19 @@
     "orderCancelled": "Order {{orderId}} has been cancelled",
     "ordersCancelled": "{{count}} orders have been cancelled",
     "noOrdersToCancel": "No orders to cancel",
-    "missingExchangeOrSymbol": "Missing exchange or symbol information"
+    "missingExchangeOrSymbol": "Missing exchange or symbol information",
+    "orderType": "Order Type",
+    "limitOrder": "Limit Order",
+    "marketOrder": "Market Order",
+    "stopLoss": "Stop Loss",
+    "stopLossLimit": "Stop Loss Limit",
+    "takeProfit": "Take Profit",
+    "takeProfitLimit": "Take Profit Limit",
+    "allStrategies": "All Strategies",
+    "allTypes": "All Types",
+    "allStatuses": "All Statuses",
+    "allSides": "All Sides",
+    "noMatchingOrders": "No matching orders"
   },
   "wizard": {
     "title": "First-time Setup Wizard",

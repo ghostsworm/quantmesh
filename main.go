@@ -84,7 +84,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.35.0-rc4"
+var Version = "3.37.0"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
@@ -297,6 +297,11 @@ type tradeStorageAdapter struct {
 }
 
 func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time) error {
+	// 兼容旧接口：价格偏差设为0
+	return a.SaveTradeWithDeviation(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, fee, feeAsset, 0, 0, createdAt)
+}
+
+func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
 	if a.storageService == nil {
 		return nil
 	}
@@ -304,19 +309,28 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange,
 	if st == nil {
 		return nil
 	}
+	// 使用SQLiteStorage的SaveTradeWithDeviation方法
+	if sqliteSt, ok := st.(interface {
+		SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
+	}); ok {
+		return sqliteSt.SaveTradeWithDeviation(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt)
+	}
+	// 降级：使用旧接口
 	return st.SaveTrade(&storage.Trade{
-		BuyOrderID:  buyOrderID,
-		SellOrderID: sellOrderID,
-		Exchange:    exchange,
-		Account:     a.accountID, // 包含账戶標识
-		Symbol:      symbol,
-		BuyPrice:    buyPrice,
-		SellPrice:   sellPrice,
-		Quantity:    quantity,
-		PnL:         pnl,
-		Fee:         fee,
-		FeeAsset:    feeAsset,
-		CreatedAt:   createdAt,
+		BuyOrderID:        buyOrderID,
+		SellOrderID:       sellOrderID,
+		Exchange:          exchange,
+		Account:           a.accountID,
+		Symbol:            symbol,
+		BuyPrice:          buyPrice,
+		SellPrice:         sellPrice,
+		Quantity:          quantity,
+		PnL:               pnl,
+		Fee:               fee,
+		FeeAsset:          feeAsset,
+		BuyPriceDeviation: buyPriceDeviation,
+		SellPriceDeviation: sellPriceDeviation,
+		CreatedAt:         createdAt,
 	})
 }
 
@@ -1787,7 +1801,8 @@ func main() {
 					continue
 				}
 				// 該 runtime 的已用資金以倉位層為準，與槽位 FILLED 狀態一致
-				usedFromPosition := 0.0
+				// 始終使用 AllocationManager 的值（即使為 0），確保與槽位矩陣一致
+				usedFromPosition := -1.0 // 使用 -1 作為標記，表示未獲取到 AllocationManager 的值
 				if rt.SuperPositionManager != nil {
 					am := rt.SuperPositionManager.GetAllocationManager()
 					if am != nil {
@@ -1800,7 +1815,8 @@ func main() {
 				strategies := allocator.GetAllStrategiesCapital()
 				for name, capital := range strategies {
 					used := capital.Used
-					if usedFromPosition > 0 {
+					// 如果獲取到了 AllocationManager 的值（包括 0），優先使用它
+					if usedFromPosition >= 0 {
 						used = usedFromPosition
 					}
 					available := capital.Allocated - used

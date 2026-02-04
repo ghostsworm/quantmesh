@@ -79,6 +79,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 	var trades []Trade
 	var equity []EquityPoint
 	maxPositionQty := 0.0 // 最大持倉（基幣數量）
+	totalSlippageLoss := 0.0 // 🔥 累计slippage损失
 
 	feeRate := params.FeeRate
 	if feeRate <= 0 {
@@ -127,6 +128,9 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 				execPrice := level * (1 - slippage)
 				fee := qty * execPrice * feeRate
 				pnl := (execPrice - sellLevel) * qty
+				// 🔥 计算卖出slippage损失：理想价格（level）- 实际价格
+				sellSlippageLoss := (level - execPrice) * qty // 等于 level * slippage * qty
+				totalSlippageLoss += sellSlippageLoss
 				cash += qty*execPrice - fee
 				delete(positions, sellLevel)
 				trades = append(trades, Trade{
@@ -168,6 +172,9 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 					buyFee = buyQty * execPrice * feeRate
 					totalCost = buyQty*execPrice + buyFee
 				}
+				// 🔥 计算买入slippage损失：实际价格 - 理想价格（level）
+				buySlippageLoss := (execPrice - level) * buyQty // 等于 level * slippage * buyQty
+				totalSlippageLoss += buySlippageLoss
 				cash -= totalCost
 				positions[level] = positions[level] + buyQty
 				totalQtyAfter := 0.0
@@ -198,7 +205,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		_ = level
 	}
 
-	metrics := CalculateMetrics(equity, trades, initialCapital)
+	metrics := CalculateMetrics(equity, trades, initialCapital, totalSlippageLoss)
 	metrics.MaxPosition = maxPositionQty
 	riskMetrics := CalculateRiskMetrics(equity)
 

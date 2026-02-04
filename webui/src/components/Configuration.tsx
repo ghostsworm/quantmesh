@@ -116,6 +116,7 @@ const Configuration: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null)
   const [previewDiff, setPreviewDiff] = useState<ConfigDiff | null>(null)
   const [requiresRestart, setRequiresRestart] = useState(false)
+  const [feeRateInputs, setFeeRateInputs] = useState<Record<string, string>>({})
   
   // Tab control
   const [tabIndex, setTabIndex] = useState(0)
@@ -150,6 +151,12 @@ const Configuration: React.FC = () => {
       setLoading(true)
       const cfg = await getConfig()
       setConfig(cfg)
+      const nextFeeRateInputs: Record<string, string> = {}
+      Object.keys(cfg.exchanges || {}).forEach((exchange) => {
+        const value = (cfg.exchanges as any)?.[exchange]?.fee_rate
+        nextFeeRateInputs[exchange] = value === undefined || value === null ? '' : String(value)
+      })
+      setFeeRateInputs(nextFeeRateInputs)
     } catch (err) {
       setError(err instanceof Error ? err.message : t('configuration.loadFailed'))
     } finally {
@@ -742,12 +749,27 @@ const Configuration: React.FC = () => {
                             <NumberInput
                               size="sm"
                               w="100px"
-                              value={getNestedValue(config, `exchanges.${exchange}.fee_rate`) || 0}
-                              onChange={(_, value) => updateConfigField(`exchanges.${exchange}.fee_rate`, value)}
+                              value={feeRateInputs[exchange] ?? ''}
+                              onChange={(value) => {
+                                setFeeRateInputs((prev) => ({ ...prev, [exchange]: value }))
+                              }}
+                              onBlur={() => {
+                                const rawValue = feeRateInputs[exchange] ?? ''
+                                const trimmed = rawValue.trim()
+                                const parsed = trimmed === '' ? 0 : Number(trimmed)
+                                if (Number.isNaN(parsed)) {
+                                  const currentValue = getNestedValue(config, `exchanges.${exchange}.fee_rate`)
+                                  const fallback = currentValue === undefined || currentValue === null ? '' : String(currentValue)
+                                  setFeeRateInputs((prev) => ({ ...prev, [exchange]: fallback }))
+                                  return
+                                }
+                                updateConfigField(`exchanges.${exchange}.fee_rate`, parsed)
+                                setFeeRateInputs((prev) => ({ ...prev, [exchange]: trimmed === '' ? '0' : trimmed }))
+                              }}
                               precision={6}
                               step={0.0001}
                             >
-                              <NumberInputField borderRadius="md" />
+                              <NumberInputField borderRadius="md" inputMode="decimal" />
                             </NumberInput>
                           </HStack>
                         </Flex>

@@ -193,8 +193,8 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 
 	logger.Info("✅ K線内模拟回测完成: %d 笔交易, %d 次tick", len(ibt.trades), totalTicks)
 
-	// 计算指標
-	metrics := CalculateMetrics(ibt.equity, ibt.trades, ibt.initialCapital)
+	// 计算指標（intrabar_backtester继承自Backtester，已有totalSlippageLoss）
+	metrics := CalculateMetrics(ibt.equity, ibt.trades, ibt.initialCapital, ibt.totalSlippageLoss)
 	riskMetrics := CalculateRiskMetrics(ibt.equity)
 
 	return &BacktestResult{

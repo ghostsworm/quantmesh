@@ -335,6 +335,8 @@ export interface StatisticsSummary {
   average_pnl: number
   max_profit: number
   max_loss: number
+  total_buy_deviation?: number // 🔥 買入價格偏差總和（USDT）
+  total_sell_deviation?: number // 🔥 賣出價格偏差總和（USDT）
 }
 
 // /statistics 直接返回彙總字段（非 {summary: ...} 包装）

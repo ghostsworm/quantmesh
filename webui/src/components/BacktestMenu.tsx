@@ -839,6 +839,7 @@ export default function BacktestMenu() {
   }
 
   const currentStrategyDef = strategies.find((s) => s.strategy_type === strategyType)
+  const selectedOptimTask = selectedOptimTaskId ? optimTasks.find((t) => t.id === selectedOptimTaskId) : null
 
   // 市场类型显示名称
   const marketTypeLabels: Record<string, string> = {
@@ -1831,6 +1832,7 @@ export default function BacktestMenu() {
                 setSelectedOptimTaskId(null)
               }}
               result={optimResultData}
+              task={selectedOptimTask}
               isLoading={optimResultModal.isOpen && selectedOptimTaskId && !optimResultData}
             />
           </TabPanel>

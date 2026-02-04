@@ -384,6 +384,7 @@
     "filled": "체결됨",
     "status": "상태",
     "slotPrice": "슬롯 가격",
+    "pnl": "수익",
     "createdAt": "생성일",
     "buy": "매수",
     "sell": "매도",

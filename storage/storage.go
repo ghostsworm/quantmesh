@@ -32,6 +32,8 @@ type Storage interface {
 	QueryOrders(limit, offset int, status string) ([]*Order, error)
 	QueryPositions(limit, offset int) ([]*Position, error)
 	QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error)
+	// GetTradesBySellOrderIDs 根據賣單 ID 查詢對應的成交盈虧，返回 sell_order_id -> pnl 的映射
+	GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64]float64, error)
 	QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error)
 	GetStatisticsSummary(account string) (*Statistics, error)
 	GetStatisticsSummaryByExchange(exchange, account string) (*Statistics, error)

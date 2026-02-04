@@ -863,6 +863,8 @@ func migrateTradesTable(db *sql.DB) error {
 	hasAccountColumn := false
 	hasFeeColumn := false
 	hasFeeAssetColumn := false
+	hasBuyPriceDeviationColumn := false
+	hasSellPriceDeviationColumn := false
 	for rows.Next() {
 		var cid int
 		var name string
@@ -885,6 +887,12 @@ func migrateTradesTable(db *sql.DB) error {
 		}
 		if name == "fee_asset" {
 			hasFeeAssetColumn = true
+		}
+		if name == "buy_price_deviation" {
+			hasBuyPriceDeviationColumn = true
+		}
+		if name == "sell_price_deviation" {
+			hasSellPriceDeviationColumn = true
 		}
 	}
 
@@ -934,6 +942,42 @@ func migrateTradesTable(db *sql.DB) error {
 			return fmt.Errorf("添加 fee_asset 列失败: %w", err)
 		}
 		logger.Info("✅ fee_asset 列添加成功")
+	}
+
+	// 🔥 检查并添加价格偏差字段
+	if !hasBuyPriceDeviationColumn {
+		logger.Info("🔄 开始迁移 trades 表：添加 buy_price_deviation 字段")
+		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN buy_price_deviation DECIMAL(20,8) DEFAULT 0`)
+		if err != nil {
+			return fmt.Errorf("添加 buy_price_deviation 列失败: %w", err)
+		}
+		logger.Info("✅ buy_price_deviation 列添加成功")
+	}
+	if !hasSellPriceDeviationColumn {
+		logger.Info("🔄 开始迁移 trades 表：添加 sell_price_deviation 字段")
+		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN sell_price_deviation DECIMAL(20,8) DEFAULT 0`)
+		if err != nil {
+			return fmt.Errorf("添加 sell_price_deviation 列失败: %w", err)
+		}
+		logger.Info("✅ sell_price_deviation 列添加成功")
+	}
+
+	// 🔥 检查并添加价格偏差字段
+	if !hasBuyPriceDeviationColumn {
+		logger.Info("🔄 开始迁移 trades 表：添加 buy_price_deviation 字段")
+		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN buy_price_deviation DECIMAL(20,8) DEFAULT 0`)
+		if err != nil {
+			return fmt.Errorf("添加 buy_price_deviation 列失败: %w", err)
+		}
+		logger.Info("✅ buy_price_deviation 列添加成功")
+	}
+	if !hasSellPriceDeviationColumn {
+		logger.Info("🔄 开始迁移 trades 表：添加 sell_price_deviation 字段")
+		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN sell_price_deviation DECIMAL(20,8) DEFAULT 0`)
+		if err != nil {
+			return fmt.Errorf("添加 sell_price_deviation 列失败: %w", err)
+		}
+		logger.Info("✅ sell_price_deviation 列添加成功")
 	}
 
 	// 無論是否是新增列，都确保索引存在（老库可能已有列但缺索引）
@@ -995,10 +1039,11 @@ func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO trades 
-		(buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, fee, fee_asset, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, trade.BuyOrderID, trade.SellOrderID, exchange, trade.Account, trade.Symbol,
-		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.Fee, trade.FeeAsset, createdAt)
+		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.Fee, trade.FeeAsset, 
+		trade.BuyPriceDeviation, trade.SellPriceDeviation, createdAt)
 	if err != nil {
 		return err
 	}
@@ -1007,6 +1052,26 @@ func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
 		globalAuditLogger.LogTrade(trade)
 	}
 	return nil
+}
+
+// SaveTradeWithDeviation 保存交易記錄（包含價格偏差）
+func (s *SQLiteStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
+	trade := &Trade{
+		BuyOrderID:        buyOrderID,
+		SellOrderID:       sellOrderID,
+		Exchange:          exchange,
+		Symbol:            symbol,
+		BuyPrice:          buyPrice,
+		SellPrice:         sellPrice,
+		Quantity:          quantity,
+		PnL:               pnl,
+		Fee:               fee,
+		FeeAsset:          feeAsset,
+		BuyPriceDeviation: buyPriceDeviation,
+		SellPriceDeviation: sellPriceDeviation,
+		CreatedAt:         createdAt,
+	}
+	return s.SaveTrade(trade)
 }
 
 // SaveSystemMetrics 保存系统監控细粒度數據
@@ -1268,6 +1333,41 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 	return trades, nil
 }
 
+// GetTradesBySellOrderIDs 根據賣單 ID 查詢對應的成交盈虧，返回 sell_order_id -> pnl 的映射
+func (s *SQLiteStorage) GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64]float64, error) {
+	result := make(map[int64]float64)
+	if len(sellOrderIDs) == 0 {
+		return result, nil
+	}
+	// 構建 IN 子句的佔位符
+	placeholders := ""
+	args := make([]interface{}, 0, len(sellOrderIDs))
+	for i, id := range sellOrderIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args = append(args, id)
+	}
+	query := fmt.Sprintf(`
+		SELECT sell_order_id, pnl FROM trades WHERE sell_order_id IN (%s)
+	`, placeholders)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查詢賣單盈虧失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sellOrderID int64
+		var pnl float64
+		if err := rows.Scan(&sellOrderID, &pnl); err != nil {
+			continue
+		}
+		result[sellOrderID] = pnl
+	}
+	return result, rows.Err()
+}
+
 // QueryStatistics 查詢统计數據
 func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error) {
 	// 限制最大返回數量，防止記憶體占用過大
@@ -1323,7 +1423,9 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 				WHEN COUNT(*) > 0 THEN 
 					CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)
 				ELSE 0
-			END as win_rate
+			END as win_rate,
+			COALESCE(SUM(COALESCE(buy_price_deviation, 0)), 0) as total_buy_deviation,
+			COALESCE(SUM(COALESCE(sell_price_deviation, 0)), 0) as total_sell_deviation
 		FROM trades
 		WHERE 1=1
 	`
@@ -1348,8 +1450,10 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 	var totalFee sql.NullFloat64
 	var netPnL sql.NullFloat64
 	var winRate sql.NullFloat64
+	var totalBuyDeviation sql.NullFloat64
+	var totalSellDeviation sql.NullFloat64
 
-	err := row.Scan(&totalTrades, &totalVolume, &grossPnL, &totalFee, &netPnL, &winRate)
+	err := row.Scan(&totalTrades, &totalVolume, &grossPnL, &totalFee, &netPnL, &winRate, &totalBuyDeviation, &totalSellDeviation)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return &Statistics{}, nil
@@ -1375,6 +1479,12 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 	if winRate.Valid {
 		stat.WinRate = winRate.Float64
 	}
+	if totalBuyDeviation.Valid {
+		stat.TotalBuyDeviation = totalBuyDeviation.Float64
+	}
+	if totalSellDeviation.Valid {
+		stat.TotalSellDeviation = totalSellDeviation.Float64
+	}
 
 	return stat, nil
 }
@@ -1392,7 +1502,9 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol
 				WHEN COUNT(*) > 0 THEN 
 					CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)
 				ELSE 0
-			END as win_rate
+			END as win_rate,
+			COALESCE(SUM(COALESCE(buy_price_deviation, 0)), 0) as total_buy_deviation,
+			COALESCE(SUM(COALESCE(sell_price_deviation, 0)), 0) as total_sell_deviation
 		FROM trades
 		WHERE 1=1
 	`
@@ -1419,8 +1531,10 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol
 	var totalFee sql.NullFloat64
 	var netPnL sql.NullFloat64
 	var winRate sql.NullFloat64
+	var totalBuyDeviation sql.NullFloat64
+	var totalSellDeviation sql.NullFloat64
 
-	err := row.Scan(&totalTrades, &totalVolume, &grossPnL, &totalFee, &netPnL, &winRate)
+	err := row.Scan(&totalTrades, &totalVolume, &grossPnL, &totalFee, &netPnL, &winRate, &totalBuyDeviation, &totalSellDeviation)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return &Statistics{}, nil
@@ -1445,6 +1559,12 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol
 	}
 	if winRate.Valid {
 		stat.WinRate = winRate.Float64
+	}
+	if totalBuyDeviation.Valid {
+		stat.TotalBuyDeviation = totalBuyDeviation.Float64
+	}
+	if totalSellDeviation.Valid {
+		stat.TotalSellDeviation = totalSellDeviation.Float64
 	}
 
 	return stat, nil

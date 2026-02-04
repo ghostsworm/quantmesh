@@ -430,6 +430,7 @@
     "filled": "已成交",
     "status": "状态",
     "slotPrice": "槽位价格",
+    "pnl": "盈利",
     "createdAt": "创建时间",
     "buy": "买入",
     "sell": "卖出",
@@ -453,7 +454,19 @@
     "orderCancelled": "订单 {{orderId}} 已取消",
     "ordersCancelled": "已取消 {{count}} 个订单",
     "noOrdersToCancel": "没有可取消的订单",
-    "missingExchangeOrSymbol": "缺少交易所或交易对信息"
+    "missingExchangeOrSymbol": "缺少交易所或交易对信息",
+    "orderType": "订单类型",
+    "limitOrder": "限价单",
+    "marketOrder": "市价单",
+    "stopLoss": "止损单",
+    "stopLossLimit": "止损限价单",
+    "takeProfit": "止盈单",
+    "takeProfitLimit": "止盈限价单",
+    "allStrategies": "全部策略",
+    "allTypes": "全部类型",
+    "allStatuses": "全部状态",
+    "allSides": "全部方向",
+    "noMatchingOrders": "没有匹配的订单"
   },
   "wizard": {
     "title": "首次使用向导",

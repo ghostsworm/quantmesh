@@ -17,6 +17,9 @@ export interface ProfitSummary {
   unrealizedProfit: number // 未實現盈利
   withdrawnProfit: number // 已提取盈利
   availableToWithdraw: number // 可提取盈利
+  priceDeviationLoss?: number // 🔥 價格偏差導致的總損失（USDT）
+  buyPriceDeviation?: number // 🔥 買入價格偏差總和（USDT）
+  sellPriceDeviation?: number // 🔥 賣出價格偏差總和（USDT）
   lastUpdated: string
 }
 

@@ -804,7 +804,21 @@ func getPositions(c *gin.Context) {
 	priceProv := PickPriceProvider(c)
 
 	if pmProvider == nil {
-		c.JSON(http.StatusOK, gin.H{"positions": []interface{}{}})
+		// 與有 provider 時保持同一響應結構，避免前端報 "Invalid response format"
+		c.JSON(http.StatusOK, gin.H{
+			"summary": PositionSummary{
+				TotalQuantity: 0,
+				TotalValue:    0,
+				PositionCount: 0,
+				AveragePrice:  0,
+				CurrentPrice:  0,
+				UnrealizedPnL: 0,
+				PnlPercentage: 0,
+				ActualMargin:  0,
+				Leverage:      1,
+				Positions:     []PositionInfo{},
+			},
+		})
 		return
 	}
 
@@ -1480,10 +1494,24 @@ func getOrderHistory(c *gin.Context) {
 		orders = append(orders, canceledOrders...)
 	}
 
-	// 轉换時间為UTC+8並格式化返回數據
+	// 收集已成交的賣單 ID，查詢對應盈虧
+	sellOrderIDs := make([]int64, 0)
+	for _, o := range orders {
+		if o.Status == "FILLED" && o.Side == "SELL" {
+			sellOrderIDs = append(sellOrderIDs, o.OrderID)
+		}
+	}
+	pnlMap := make(map[int64]float64)
+	if len(sellOrderIDs) > 0 {
+		if m, err := storage.GetTradesBySellOrderIDs(sellOrderIDs); err == nil {
+			pnlMap = m
+		}
+	}
+
+	// 轉换時间為UTC+8並格式化返回數據，附加盈虧字段
 	ordersResponse := make([]map[string]interface{}, len(orders))
 	for i, order := range orders {
-		ordersResponse[i] = map[string]interface{}{
+		resp := map[string]interface{}{
 			"order_id":        order.OrderID,
 			"client_order_id": order.ClientOrderID,
 			"symbol":          order.Symbol,
@@ -1494,6 +1522,12 @@ func getOrderHistory(c *gin.Context) {
 			"created_at":      utils.ToUTC8(order.CreatedAt),
 			"updated_at":      utils.ToUTC8(order.UpdatedAt),
 		}
+		if pnl, ok := pnlMap[order.OrderID]; ok {
+			resp["pnl"] = pnl
+		} else {
+			resp["pnl"] = nil
+		}
+		ordersResponse[i] = resp
 	}
 
 	c.JSON(http.StatusOK, gin.H{"orders": ordersResponse})
@@ -1620,8 +1654,10 @@ func getStatistics(c *gin.Context) {
 	winRate := elem.FieldByName("WinRate").Float()
 	grossPnL := elem.FieldByName("GrossPnL").Float()
 	totalFee := elem.FieldByName("TotalFee").Float()
+	totalBuyDeviation := elem.FieldByName("TotalBuyDeviation").Float()
+	totalSellDeviation := elem.FieldByName("TotalSellDeviation").Float()
 
-	logger.Info("[统计] 查詢結果: TotalTrades=%d, TotalPnL=%.2f, GrossPnL=%.2f, TotalFee=%.2f, TotalVolume=%.2f", totalTrades, totalPnL, grossPnL, totalFee, totalVolume)
+	logger.Info("[统计] 查詢結果: TotalTrades=%d, TotalPnL=%.2f, GrossPnL=%.2f, TotalFee=%.2f, TotalVolume=%.2f, BuyDeviation=%.2f, SellDeviation=%.2f", totalTrades, totalPnL, grossPnL, totalFee, totalVolume, totalBuyDeviation, totalSellDeviation)
 
 	// 如果數據库没有數據，尝試從 SuperPositionManager 计算
 	pmProvider := PickPositionProvider(c)
@@ -1647,12 +1683,14 @@ func getStatistics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total_trades": totalTrades,
-		"total_volume": totalVolume,
-		"total_pnl":    totalPnL,
-		"gross_pnl":    grossPnL,
-		"total_fee":    totalFee,
-		"win_rate":     winRate,
+		"total_trades":        totalTrades,
+		"total_volume":        totalVolume,
+		"total_pnl":           totalPnL,
+		"gross_pnl":           grossPnL,
+		"total_fee":           totalFee,
+		"win_rate":            winRate,
+		"total_buy_deviation": totalBuyDeviation,  // 🔥 買入價格偏差總和
+		"total_sell_deviation": totalSellDeviation, // 🔥 賣出價格偏差總和
 	})
 }
 

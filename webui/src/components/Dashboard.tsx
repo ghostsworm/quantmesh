@@ -304,6 +304,10 @@ const Dashboard: React.FC = () => {
   const totalPnL = typeof statistics?.total_pnl === 'number' ? statistics.total_pnl : (status.total_pnl || 0)
   const totalTrades = typeof statistics?.total_trades === 'number' ? statistics.total_trades : (status.total_trades || 0)
   const totalVolume = typeof statistics?.total_volume === 'number' ? statistics.total_volume : 0
+  // 🔥 价格偏差统计
+  const buyPriceDeviation = typeof statistics?.total_buy_deviation === 'number' ? statistics.total_buy_deviation : 0
+  const sellPriceDeviation = typeof statistics?.total_sell_deviation === 'number' ? statistics.total_sell_deviation : 0
+  const priceDeviationLoss = buyPriceDeviation + sellPriceDeviation // 总偏差损失（通常为负值）
   // 收益率：用分配资金作为分母，无分配资金时不显示百分比
   const totalAllocated = strategyAllocation?.allocation
     ? Object.values(strategyAllocation.allocation).reduce((sum, cap) => sum + (cap.allocated || 0), 0)
@@ -495,6 +499,42 @@ const Dashboard: React.FC = () => {
           </GlassCard>
         </SimpleGrid>
 
+        {/* 🔥 价格偏差统计 */}
+        {(priceDeviationLoss !== 0 || buyPriceDeviation !== 0 || sellPriceDeviation !== 0) && (
+          <GlassCard>
+            <Heading size="sm" mb={4} color="gray.700">{t('dashboard.priceDeviation') || '價格偏差統計'}</Heading>
+            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+              <Box>
+                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.buyPriceDeviation') || '買入價格偏差'}</Text>
+                <Text fontSize="lg" fontWeight="bold" color={buyPriceDeviation >= 0 ? 'green.500' : 'red.500'}>
+                  {buyPriceDeviation >= 0 ? '+' : ''}{buyPriceDeviation.toFixed(2)} USDT
+                </Text>
+                <Text fontSize="xs" color="gray.400" mt={1}>
+                  {buyPriceDeviation < 0 ? '實際買入價高於委託價' : buyPriceDeviation > 0 ? '實際買入價低於委託價（有利）' : '無偏差'}
+                </Text>
+              </Box>
+              <Box>
+                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.sellPriceDeviation') || '賣出價格偏差'}</Text>
+                <Text fontSize="lg" fontWeight="bold" color={sellPriceDeviation >= 0 ? 'green.500' : 'red.500'}>
+                  {sellPriceDeviation >= 0 ? '+' : ''}{sellPriceDeviation.toFixed(2)} USDT
+                </Text>
+                <Text fontSize="xs" color="gray.400" mt={1}>
+                  {sellPriceDeviation < 0 ? '實際賣出價低於委託價' : sellPriceDeviation > 0 ? '實際賣出價高於委託價（有利）' : '無偏差'}
+                </Text>
+              </Box>
+              <Box>
+                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.totalDeviationLoss') || '價格偏差總損失'}</Text>
+                <Text fontSize="lg" fontWeight="bold" color={priceDeviationLoss >= 0 ? 'green.500' : 'red.500'}>
+                  {priceDeviationLoss >= 0 ? '+' : ''}{priceDeviationLoss.toFixed(2)} USDT
+                </Text>
+                <Text fontSize="xs" color="gray.400" mt={1}>
+                  {priceDeviationLoss < 0 ? '因價格偏差導致的總損失' : priceDeviationLoss > 0 ? '因價格偏差獲得的總收益' : '無偏差'}
+                </Text>
+              </Box>
+            </SimpleGrid>
+          </GlassCard>
+        )}
+
         {/* Details Grid */}
         <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={8}>
           {/* Positions & Allocation */}
@@ -669,7 +709,17 @@ const Dashboard: React.FC = () => {
                     </Flex>
                   ))}
                   {pendingOrders.count > 3 && (
-                    <Text fontSize="xs" color="blue.500" textAlign="center" cursor="pointer">{t('dashboard.viewAllOrders', { count: pendingOrders.count })}</Text>
+                    <Text 
+                      fontSize="xs" 
+                      color="blue.500" 
+                      textAlign="center" 
+                      cursor="pointer"
+                      onClick={() => navigate('/orders')}
+                      _hover={{ color: 'blue.600', textDecoration: 'underline' }}
+                      transition="all 0.2s"
+                    >
+                      {t('dashboard.viewAllOrders', { count: pendingOrders.count })}
+                    </Text>
                   )}
                 </VStack>
               ) : (

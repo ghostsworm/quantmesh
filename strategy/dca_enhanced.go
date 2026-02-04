@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,6 +63,9 @@ type DCAEnhancedStrategy struct {
 
 	// 事件總線
 	eventBus EventBus
+
+	// 交易存儲（用於保存交易記錄）
+	tradeStorage TradeStorage
 }
 
 // DCAEnhancedConfig 增强型 DCA 配置
@@ -276,6 +280,18 @@ func (s *DCAEnhancedStrategy) SetEventBus(bus EventBus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.eventBus = bus
+}
+
+// TradeStorage 交易存儲介面（避免循環匯入）
+type TradeStorage interface {
+	SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time) error
+}
+
+// SetTradeStorage 設置交易存儲介面（用於保存交易記錄）
+func (s *DCAEnhancedStrategy) SetTradeStorage(storage TradeStorage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tradeStorage = storage
 }
 
 // Start 啟动策略
@@ -737,6 +753,39 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 
 	// 计算盈亏
 	pnl := s.totalQty*price - s.totalCost
+
+	// 🔥 保存交易記錄到數據库（止损单和止盈单都需要保存）
+	if s.tradeStorage != nil && len(s.layers) > 0 {
+		// 计算平均买入价格
+		avgBuyPrice := s.avgEntryPrice
+		if avgBuyPrice <= 0 && s.totalCost > 0 && s.totalQty > 0 {
+			avgBuyPrice = s.totalCost / s.totalQty
+		}
+		
+		// 计算手续费（简化处理：使用总成本的0.1%作为买入手续费，卖出手续费为0，实际手续费会在订单更新时补充）
+		estimatedFee := s.totalCost * 0.001 // 估算手续费
+		
+		// 保存交易記錄
+		buyOrderID := int64(0) // DCA策略无法追溯历史买入订单ID
+		sellOrderID := order.OrderID
+		exchangeName := strings.ToLower(s.exchange.GetName())
+		if exchangeName == "" {
+			exchangeName = "binance"
+		}
+		
+		if err := s.tradeStorage.SaveTrade(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, estimatedFee, "USDT", time.Now()); err != nil {
+			logger.Warn("⚠️ [%s] 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.2f)", 
+				s.name, err, avgBuyPrice, orderPrice, qty, pnl)
+		} else {
+			if pnl < 0 {
+				logger.Warn("🛑 [%s] [止损/亏损交易已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.4f, OrderID: %d",
+					s.name, avgBuyPrice, orderPrice, qty, pnl, sellOrderID)
+			} else {
+				logger.Debug("💰 [%s] [交易記錄已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.4f",
+					s.name, avgBuyPrice, orderPrice, qty, pnl)
+			}
+		}
+	}
 
 	// 更新统计
 	s.stats.TotalTrades++

@@ -114,7 +114,8 @@ func RunDCABacktest(symbol, interval string, candles []*exchange.Candle, params 
 	}
 
 	finalEquity := cash + position*candles[len(candles)-1].Close
-	metrics := CalculateMetrics(equity, trades, initialCapital)
+	// DCA策略未使用slippage，设为0
+	metrics := CalculateMetrics(equity, trades, initialCapital, 0)
 	riskMetrics := CalculateRiskMetrics(equity)
 
 	return &BacktestResult{
