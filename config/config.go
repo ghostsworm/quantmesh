@@ -265,6 +265,7 @@ type Config struct {
 	// 新聞監控配置
 	NewsMonitor struct {
 		Enabled              bool     `yaml:"enabled"`               // 是否啟用新聞監控，預設false
+		EnableAnalysis       *bool    `yaml:"enable_analysis"`       // 是否啟用新聞分析功能（Gemini分析），nil表示未設置（默認true），false表示明確關閉
 		CheckInterval        string   `yaml:"check_interval"`        // 相容舊配置，等同於 analysis_interval
 		AnalysisInterval     string   `yaml:"analysis_interval"`     // Gemini分析间隔，預設"30m"
 		NewsCollectInterval  string   `yaml:"news_collect_interval"` // NewsAPI收集间隔，預設"5m"
@@ -1657,6 +1658,11 @@ func (c *Config) Validate() error {
 	}
 
 	// 設置新聞監控配置預設值
+	// 如果啟用了新聞監控且未明確設置 enable_analysis，默認啟用分析功能
+	if c.NewsMonitor.Enabled && c.NewsMonitor.EnableAnalysis == nil {
+		enableAnalysis := true
+		c.NewsMonitor.EnableAnalysis = &enableAnalysis
+	}
 	if c.NewsMonitor.CheckInterval == "" {
 		c.NewsMonitor.CheckInterval = "5m" // 預設5分钟
 	}

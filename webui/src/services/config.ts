@@ -339,6 +339,7 @@ export interface Config {
   }
   news_monitor?: {
     enabled: boolean
+    enable_analysis?: boolean  // 是否启用新闻分析功能（Gemini分析），默认true
     check_interval?: string
     analysis_interval?: string
     news_collect_interval?: string
