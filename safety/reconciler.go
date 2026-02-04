@@ -312,9 +312,18 @@ func (r *Reconciler) Reconcile() error {
 
 		// 🔥 自动同步逻辑：如果交易所持倉為0，但本地认為有持倉
 		// 这种情况通常发生在手动平倉、重啟程序或訂單流丢失時
+		// ⚠️ 重要：如果有挂單（特别是賣單），不应该清空持仓，因為挂單意味着持仓正在被卖出
 		if math.Abs(exchangePosition) < 0.00000001 && math.Abs(localTotal) > 0.00000001 {
-			logger.Warn("⚠️ [對账同步] 交易所持倉已清空，正在强制同步本地状態...")
-			r.pm.ForceSyncPositions(0)
+			// 检查是否有挂單：如果有挂單，说明持仓正在交易中，不应该强制清空
+			if activeBuyOrders > 0 || activeSellOrders > 0 {
+				logger.Warn("⚠️ [對账同步] 检测到挂單（買單: %d, 賣單: %d），跳過强制同步以避免誤清空持仓",
+					activeBuyOrders, activeSellOrders)
+				logger.Warn("💡 [對账说明] 本地持仓: %.6f, 交易所持仓: %.6f, 待卖数量: %.6f",
+					localTotal, exchangePosition, localPendingSellQty)
+			} else {
+				logger.Warn("⚠️ [對账同步] 交易所持倉已清空且無挂單，正在强制同步本地状態...")
+				r.pm.ForceSyncPositions(0)
+			}
 		} else {
 			// 如果交易所仍有持倉但與本地不符，目前僅記錄警告
 			// 自动同步非零持倉较為危險，需要更複杂的槽位重新分配逻辑

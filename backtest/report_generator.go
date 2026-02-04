@@ -418,6 +418,7 @@ type ReportData struct {
 	EndPositionQty       string // 期末持倉（基幣數量）
 	EndPositionValue     string // 期末持倉市值（USDT）
 	EndCashUSDT          string // 期末持有 USDT（現金）
+	TotalSlippageLoss    string // 🔥 累计价格偏差（slippage）损失（USDT）
 
 	// 交易明细
 	TopTrades         []TradeRow  // 前20筆原始成交
@@ -704,6 +705,7 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		EndPositionQty:       fmt.Sprintf("%.6f %s", endPosQty, base),
 		EndPositionValue:     fmt.Sprintf("%.4f USDT", endPosValue),
 		EndCashUSDT:          fmt.Sprintf("%.4f USDT", endCashUSDT),
+		TotalSlippageLoss:    fmt.Sprintf("%.4f USDT", m.TotalSlippageLoss), // 🔥 价格偏差损失
 
 		TopTrades:         topTrades,
 		TopPairedTrades:   topPaired,
@@ -877,6 +879,7 @@ func renderReportTemplate(data ReportData) (string, error) {
 | 期末持倉（基幣） | {{.EndPositionQty}} |
 | 期末持倉市值 | {{.EndPositionValue}} |
 | 期末持有 USDT | {{.EndCashUSDT}} |
+| 🔥 價格偏差（slippage）累計損失 | {{.TotalSlippageLoss}} |
 
 ## 交易明细（前20笔）
 

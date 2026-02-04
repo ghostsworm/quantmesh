@@ -31,6 +31,9 @@ import {
   useToast,
   Tooltip,
   HStack,
+  Select,
+  VStack,
+  Flex,
 } from '@chakra-ui/react'
 import { CloseIcon } from '@chakra-ui/icons'
 import { getPendingOrders, getOrderHistory, cancelOrder, batchCancelOrders, PendingOrderInfo } from '../services/api'
@@ -40,11 +43,15 @@ interface OrderInfo {
   client_order_id: string
   symbol: string
   side: string
+  type?: string
   price: number
   quantity: number
   status: string
   created_at: string
   updated_at: string
+  pnl?: number | null
+  strategy_name?: string
+  strategy_type?: string
 }
 
 const Orders: React.FC = () => {
@@ -57,6 +64,16 @@ const Orders: React.FC = () => {
   const [cancellingOrderId, setCancellingOrderId] = useState<number | null>(null)
   const [cancellingAll, setCancellingAll] = useState(false)
   const toast = useToast()
+  
+  // 筛选状态
+  const [pendingFilterStrategy, setPendingFilterStrategy] = useState<string>('all')
+  const [pendingFilterType, setPendingFilterType] = useState<string>('all')
+  const [pendingFilterStatus, setPendingFilterStatus] = useState<string>('all')
+  const [pendingFilterSide, setPendingFilterSide] = useState<string>('all')
+  const [historyFilterStrategy, setHistoryFilterStrategy] = useState<string>('all')
+  const [historyFilterType, setHistoryFilterType] = useState<string>('all')
+  const [historyFilterStatus, setHistoryFilterStatus] = useState<string>('all')
+  const [historyFilterSide, setHistoryFilterSide] = useState<string>('all')
 
   useEffect(() => {
     const fetchPendingOrders = async () => {
@@ -84,7 +101,8 @@ const Orders: React.FC = () => {
 
     const fetchData = async () => {
       setLoading(true)
-      await Promise.all([fetchPendingOrders(), tabIndex === 1 && fetchHistoryOrders()])
+      // 初始加载时同时获取待成交订单和历史订单，以便在标签上显示正确的数量
+      await Promise.all([fetchPendingOrders(), fetchHistoryOrders()])
       setLoading(false)
     }
 
@@ -251,15 +269,71 @@ const Orders: React.FC = () => {
     }
   }
 
-  // 计算订單统计
-  const todayOrders = historyOrders.filter(order => {
+  const getOrderTypeText = (type?: string) => {
+    if (!type) return '-'
+    switch (type.toUpperCase()) {
+      case 'LIMIT':
+        return t('orders.limitOrder')
+      case 'MARKET':
+        return t('orders.marketOrder')
+      case 'STOP_LOSS':
+        return t('orders.stopLoss')
+      case 'STOP_LOSS_LIMIT':
+        return t('orders.stopLossLimit')
+      case 'TAKE_PROFIT':
+        return t('orders.takeProfit')
+      case 'TAKE_PROFIT_LIMIT':
+        return t('orders.takeProfitLimit')
+      default:
+        return type
+    }
+  }
+
+  // 获取所有唯一的策略名称
+  const getUniqueStrategies = (orders: (PendingOrderInfo | OrderInfo)[]) => {
+    const strategies = new Set<string>()
+    orders.forEach(order => {
+      const strategyName = 'strategy_name' in order ? order.strategy_name : (order as OrderInfo).strategy_name
+      if (strategyName) {
+        strategies.add(strategyName)
+      }
+    })
+    return Array.from(strategies).sort()
+  }
+
+  // 筛选待成交订单
+  const filteredPendingOrders = pendingOrders.filter(order => {
+    if (pendingFilterStrategy !== 'all' && order.strategy_name !== pendingFilterStrategy) return false
+    if (pendingFilterType !== 'all') {
+      const orderType = (order as any).type || 'LIMIT' // 默认限价单
+      if (orderType !== pendingFilterType) return false
+    }
+    if (pendingFilterStatus !== 'all' && order.status !== pendingFilterStatus) return false
+    if (pendingFilterSide !== 'all' && order.side !== pendingFilterSide) return false
+    return true
+  })
+
+  // 筛选历史订单
+  const filteredHistoryOrders = historyOrders.filter(order => {
+    if (historyFilterStrategy !== 'all' && order.strategy_name !== historyFilterStrategy) return false
+    if (historyFilterType !== 'all') {
+      const orderType = order.type || 'LIMIT' // 默认限价单
+      if (orderType !== historyFilterType) return false
+    }
+    if (historyFilterStatus !== 'all' && order.status !== historyFilterStatus) return false
+    if (historyFilterSide !== 'all' && order.side !== historyFilterSide) return false
+    return true
+  })
+
+  // 计算订單统计（基于筛选后的订单）
+  const todayOrders = filteredHistoryOrders.filter(order => {
     const orderDate = new Date(order.created_at)
     const today = new Date()
     return orderDate.toDateString() === today.toDateString()
   })
 
-  const successOrders = historyOrders.filter(order => order.status === 'FILLED').length
-  const successRate = historyOrders.length > 0 ? (successOrders / historyOrders.length) * 100 : 0
+  const successOrders = filteredHistoryOrders.filter(order => order.status === 'FILLED').length
+  const successRate = filteredHistoryOrders.length > 0 ? (successOrders / filteredHistoryOrders.length) * 100 : 0
 
   if (loading && pendingOrders.length === 0 && historyOrders.length === 0) {
     return (
@@ -289,25 +363,69 @@ const Orders: React.FC = () => {
               <Text color="gray.500" textAlign="center" py={8}>{t('orders.noPendingOrders')}</Text>
             ) : (
               <>
-                {/* 批量操作按钮 */}
-                <HStack mb={4} justify="flex-end">
+                {/* 筛选器 */}
+                <Flex mb={4} gap={2} wrap="wrap" align="center">
+                  <Select
+                    size="sm"
+                    width="150px"
+                    value={pendingFilterStrategy}
+                    onChange={(e) => setPendingFilterStrategy(e.target.value)}
+                  >
+                    <option value="all">{t('orders.allStrategies')}</option>
+                    {getUniqueStrategies(pendingOrders).map(strategy => (
+                      <option key={strategy} value={strategy}>{strategy}</option>
+                    ))}
+                  </Select>
+                  <Select
+                    size="sm"
+                    width="120px"
+                    value={pendingFilterType}
+                    onChange={(e) => setPendingFilterType(e.target.value)}
+                  >
+                    <option value="all">{t('orders.allTypes')}</option>
+                    <option value="LIMIT">{t('orders.limitOrder')}</option>
+                    <option value="MARKET">{t('orders.marketOrder')}</option>
+                  </Select>
+                  <Select
+                    size="sm"
+                    width="120px"
+                    value={pendingFilterStatus}
+                    onChange={(e) => setPendingFilterStatus(e.target.value)}
+                  >
+                    <option value="all">{t('orders.allStatuses')}</option>
+                    <option value="PLACED">{t('orders.placed')}</option>
+                    <option value="CONFIRMED">{t('orders.confirmed')}</option>
+                    <option value="PARTIALLY_FILLED">{t('orders.partiallyFilled')}</option>
+                  </Select>
+                  <Select
+                    size="sm"
+                    width="100px"
+                    value={pendingFilterSide}
+                    onChange={(e) => setPendingFilterSide(e.target.value)}
+                  >
+                    <option value="all">{t('orders.allSides')}</option>
+                    <option value="BUY">{t('orders.buy')}</option>
+                    <option value="SELL">{t('orders.sell')}</option>
+                  </Select>
+                  <Box flex="1" />
                   <Button
                     colorScheme="red"
                     size="sm"
                     onClick={handleCancelAllOrders}
                     isLoading={cancellingAll}
                     loadingText={t('orders.cancelling')}
-                    isDisabled={pendingOrders.length === 0}
+                    isDisabled={filteredPendingOrders.length === 0}
                   >
-                    {t('orders.cancelAll')} ({pendingOrders.length})
+                    {t('orders.cancelAll')} ({filteredPendingOrders.length})
                   </Button>
-                </HStack>
+                </Flex>
                 <TableContainer>
                 <Table variant="simple">
                   <Thead>
                     <Tr>
                       <Th>{t('orders.orderId')}</Th>
                       <Th>{t('orders.strategy')}</Th>
+                      <Th>{t('orders.orderType')}</Th>
                       <Th>{t('orders.symbol')}</Th>
                       <Th>{t('orders.side')}</Th>
                       <Th isNumeric>{t('orders.price')}</Th>
@@ -320,49 +438,62 @@ const Orders: React.FC = () => {
                     </Tr>
                   </Thead>
                   <Tbody>
-                    {pendingOrders.map((order) => (
-                      <Tr key={order.order_id}>
-                        <Td>{order.order_id}</Td>
-                        <Td>
-                          <Badge colorScheme={order.strategy_type === 'grid' ? 'blue' : order.strategy_type === 'dca' ? 'purple' : 'gray'} variant="subtle">
-                            {order.strategy_name || order.strategy_type || '-'}
-                          </Badge>
-                        </Td>
-                        <Td>
-                          <Badge colorScheme="purple" variant="subtle">
-                            {order.symbol}
-                          </Badge>
-                        </Td>
-                        <Td>
-                          <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
-                            {order.side === 'BUY' ? t('orders.buy') : t('orders.sell')}
-                          </Badge>
-                        </Td>
-                        <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
-                        <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
-                        <Td isNumeric>{order.filled_quantity != null ? order.filled_quantity.toFixed(4) : '-'}</Td>
-                        <Td>
-                          <Badge colorScheme={getStatusColorScheme(order.status)}>
-                            {getStatusText(order.status)}
-                          </Badge>
-                        </Td>
-                        <Td isNumeric>{order.slot_price != null ? order.slot_price.toFixed(2) : '-'}</Td>
-                        <Td>{formatTime(order.created_at)}</Td>
-                        <Td>
-                          <Tooltip label={t('orders.cancelOrder')} hasArrow>
-                            <IconButton
-                              aria-label={t('orders.cancelOrder')}
-                              icon={<CloseIcon />}
-                              size="sm"
-                              colorScheme="red"
-                              variant="ghost"
-                              isLoading={cancellingOrderId === order.order_id}
-                              onClick={() => handleCancelOrder(order.order_id)}
-                            />
-                          </Tooltip>
+                    {filteredPendingOrders.length === 0 ? (
+                      <Tr>
+                        <Td colSpan={11} textAlign="center" color="gray.500" py={8}>
+                          {t('orders.noMatchingOrders')}
                         </Td>
                       </Tr>
-                    ))}
+                    ) : (
+                      filteredPendingOrders.map((order) => (
+                        <Tr key={order.order_id}>
+                          <Td>{order.order_id}</Td>
+                          <Td>
+                            <Badge colorScheme={order.strategy_type === 'grid' ? 'blue' : order.strategy_type === 'dca' ? 'purple' : 'gray'} variant="subtle">
+                              {order.strategy_name || order.strategy_type || '-'}
+                            </Badge>
+                          </Td>
+                          <Td>
+                            <Badge colorScheme="cyan" variant="outline">
+                              {getOrderTypeText((order as any).type || 'LIMIT')}
+                            </Badge>
+                          </Td>
+                          <Td>
+                            <Badge colorScheme="purple" variant="subtle">
+                              {order.symbol}
+                            </Badge>
+                          </Td>
+                          <Td>
+                            <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
+                              {order.side === 'BUY' ? t('orders.buy') : t('orders.sell')}
+                            </Badge>
+                          </Td>
+                          <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
+                          <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
+                          <Td isNumeric>{order.filled_quantity != null ? order.filled_quantity.toFixed(4) : '-'}</Td>
+                          <Td>
+                            <Badge colorScheme={getStatusColorScheme(order.status)}>
+                              {getStatusText(order.status)}
+                            </Badge>
+                          </Td>
+                          <Td isNumeric>{order.slot_price != null ? order.slot_price.toFixed(2) : '-'}</Td>
+                          <Td>{formatTime(order.created_at)}</Td>
+                          <Td>
+                            <Tooltip label={t('orders.cancelOrder')} hasArrow>
+                              <IconButton
+                                aria-label={t('orders.cancelOrder')}
+                                icon={<CloseIcon />}
+                                size="sm"
+                                colorScheme="red"
+                                variant="ghost"
+                                isLoading={cancellingOrderId === order.order_id}
+                                onClick={() => handleCancelOrder(order.order_id)}
+                              />
+                            </Tooltip>
+                          </Td>
+                        </Tr>
+                      ))
+                    )}
                   </Tbody>
                 </Table>
               </TableContainer>
@@ -387,7 +518,7 @@ const Orders: React.FC = () => {
                 <CardBody>
                   <Stat>
                     <StatLabel>{t('orders.totalOrders')}</StatLabel>
-                    <StatNumber>{historyOrders.length}</StatNumber>
+                    <StatNumber>{filteredHistoryOrders.length}</StatNumber>
                   </Stat>
                 </CardBody>
               </Card>
@@ -411,48 +542,120 @@ const Orders: React.FC = () => {
               </Card>
             </SimpleGrid>
 
+            {/* 筛选器 */}
+            {historyOrders.length > 0 && (
+              <Flex mb={4} gap={2} wrap="wrap" align="center">
+                <Select
+                  size="sm"
+                  width="150px"
+                  value={historyFilterStrategy}
+                  onChange={(e) => setHistoryFilterStrategy(e.target.value)}
+                >
+                  <option value="all">{t('orders.allStrategies')}</option>
+                  {getUniqueStrategies(historyOrders).map(strategy => (
+                    <option key={strategy} value={strategy}>{strategy}</option>
+                  ))}
+                </Select>
+                <Select
+                  size="sm"
+                  width="120px"
+                  value={historyFilterType}
+                  onChange={(e) => setHistoryFilterType(e.target.value)}
+                >
+                  <option value="all">{t('orders.allTypes')}</option>
+                  <option value="LIMIT">{t('orders.limitOrder')}</option>
+                  <option value="MARKET">{t('orders.marketOrder')}</option>
+                </Select>
+                <Select
+                  size="sm"
+                  width="120px"
+                  value={historyFilterStatus}
+                  onChange={(e) => setHistoryFilterStatus(e.target.value)}
+                >
+                  <option value="all">{t('orders.allStatuses')}</option>
+                  <option value="FILLED">{t('orders.filled')}</option>
+                  <option value="CANCELED">{t('orders.canceled')}</option>
+                  <option value="PARTIALLY_FILLED">{t('orders.partiallyFilled')}</option>
+                </Select>
+                <Select
+                  size="sm"
+                  width="100px"
+                  value={historyFilterSide}
+                  onChange={(e) => setHistoryFilterSide(e.target.value)}
+                >
+                  <option value="all">{t('orders.allSides')}</option>
+                  <option value="BUY">{t('orders.buy')}</option>
+                  <option value="SELL">{t('orders.sell')}</option>
+                </Select>
+              </Flex>
+            )}
+
             {historyOrders.length === 0 ? (
               <Text color="gray.500" textAlign="center" py={8}>{t('orders.noHistoryOrders')}</Text>
+            ) : filteredHistoryOrders.length === 0 ? (
+              <Text color="gray.500" textAlign="center" py={8}>{t('orders.noMatchingOrders')}</Text>
             ) : (
               <TableContainer>
                 <Table variant="simple">
                   <Thead>
                     <Tr>
                       <Th>{t('orders.orderId')}</Th>
+                      <Th>{t('orders.strategy')}</Th>
+                      <Th>{t('orders.orderType')}</Th>
                       <Th>{t('orders.symbol')}</Th>
                       <Th>{t('orders.side')}</Th>
                       <Th isNumeric>{t('orders.price')}</Th>
                       <Th isNumeric>{t('orders.quantity')}</Th>
                       <Th>{t('orders.status')}</Th>
+                      <Th isNumeric>{t('orders.pnl')}</Th>
                       <Th>{t('orders.createdAt')}</Th>
                       <Th>{t('orders.updatedAt')}</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
-                    {historyOrders.map((order) => (
-                      <Tr key={order.order_id}>
-                        <Td>{order.order_id}</Td>
-                        <Td>
-                          <Badge colorScheme="purple" variant="subtle">
-                            {order.symbol}
-                          </Badge>
-                        </Td>
-                        <Td>
-                          <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
-                            {order.side === 'BUY' ? t('orders.buy') : t('orders.sell')}
-                          </Badge>
-                        </Td>
-                        <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
-                        <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
-                        <Td>
-                          <Badge colorScheme={getStatusColorScheme(order.status)}>
-                            {getStatusText(order.status)}
-                          </Badge>
-                        </Td>
-                        <Td>{formatTime(order.created_at)}</Td>
-                        <Td>{formatTime(order.updated_at)}</Td>
-                      </Tr>
-                    ))}
+                    {filteredHistoryOrders.map((order) => (
+                        <Tr key={order.order_id}>
+                          <Td>{order.order_id}</Td>
+                          <Td>
+                            <Badge colorScheme={order.strategy_type === 'grid' ? 'blue' : order.strategy_type === 'dca' ? 'purple' : 'gray'} variant="subtle">
+                              {order.strategy_name || order.strategy_type || '-'}
+                            </Badge>
+                          </Td>
+                          <Td>
+                            <Badge colorScheme="cyan" variant="outline">
+                              {getOrderTypeText(order.type || 'LIMIT')}
+                            </Badge>
+                          </Td>
+                          <Td>
+                            <Badge colorScheme="purple" variant="subtle">
+                              {order.symbol}
+                            </Badge>
+                          </Td>
+                          <Td>
+                            <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
+                              {order.side === 'BUY' ? t('orders.buy') : t('orders.sell')}
+                            </Badge>
+                          </Td>
+                          <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
+                          <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
+                          <Td>
+                            <Badge colorScheme={getStatusColorScheme(order.status)}>
+                              {getStatusText(order.status)}
+                            </Badge>
+                          </Td>
+                          <Td isNumeric>
+                            {order.pnl != null && order.pnl !== undefined ? (
+                              <Text color={order.pnl >= 0 ? 'green.500' : 'red.500'} fontWeight="medium">
+                                {order.pnl >= 0 ? '+' : ''}{order.pnl.toFixed(4)}
+                              </Text>
+                            ) : (
+                              '-'
+                            )}
+                          </Td>
+                          <Td>{formatTime(order.created_at)}</Td>
+                          <Td>{formatTime(order.updated_at)}</Td>
+                        </Tr>
+                      ))}
                   </Tbody>
                 </Table>
               </TableContainer>

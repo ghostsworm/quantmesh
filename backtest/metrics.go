@@ -37,12 +37,17 @@ type Metrics struct {
 
 	// 持倉（基幣數量，如 BTCUSDT 即最大持倉 BTC 數量）
 	MaxPosition float64 `json:"max_position"` // 最大持倉（基幣）
+
+	// 🔥 价格偏差（slippage）损失
+	TotalSlippageLoss float64 `json:"total_slippage_loss"` // 累计slippage损失（USDT）
 }
 
 // CalculateMetrics 计算所有指標
-func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float64) Metrics {
+func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float64, totalSlippageLoss float64) Metrics {
 	if len(equity) == 0 || len(trades) == 0 {
-		return Metrics{}
+		return Metrics{
+			TotalSlippageLoss: totalSlippageLoss,
+		}
 	}
 
 	returns := calculateReturns(equity)
@@ -76,6 +81,9 @@ func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float
 		// 连续性指標
 		MaxConsecutiveWins:   calculateMaxConsecutiveWins(trades),
 		MaxConsecutiveLosses: calculateMaxConsecutiveLosses(trades),
+
+		// 🔥 价格偏差损失
+		TotalSlippageLoss: totalSlippageLoss,
 	}
 
 	return metrics

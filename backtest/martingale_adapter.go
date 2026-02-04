@@ -169,7 +169,8 @@ func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, 
 	}
 
 	finalEquity := cash
-	metrics := CalculateMetrics(equity, trades, initialCapital)
+	// martingale策略未使用slippage，设为0
+	metrics := CalculateMetrics(equity, trades, initialCapital, 0)
 	riskMetrics := CalculateRiskMetrics(equity)
 
 	return &BacktestResult{

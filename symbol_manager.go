@@ -520,6 +520,14 @@ func startSymbolRuntime(
 		if dcaCfg, exists := localCfg.Strategies.Configs["dca"]; exists && dcaCfg.Enabled {
 			dcaExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca")
 			dcaStrategy := strategy.NewDCAEnhancedStrategy("dca", symCfg.Symbol, &localCfg, dcaExecutor, exchangeAdapter, dcaCfg.Config)
+			// 🔥 設置交易存儲，用於保存止损单的交易記錄
+			if storageService != nil {
+				tradeStorageAdapter := &tradeStorageAdapter{
+					storageService: storageService,
+					accountID:      accountID,
+				}
+				dcaStrategy.SetTradeStorage(tradeStorageAdapter)
+			}
 			fixedPool := 0.0
 			if pool, ok := dcaCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool
@@ -532,6 +540,14 @@ func startSymbolRuntime(
 		if dcaEnhancedCfg, exists := localCfg.Strategies.Configs["dca_enhanced"]; exists && dcaEnhancedCfg.Enabled {
 			dcaEnhancedExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca_enhanced")
 			dcaEnhancedStrategy := strategy.NewDCAEnhancedStrategy("dca_enhanced", symCfg.Symbol, &localCfg, dcaEnhancedExecutor, exchangeAdapter, dcaEnhancedCfg.Config)
+			// 🔥 設置交易存儲，用於保存止损单的交易記錄
+			if storageService != nil {
+				tradeStorageAdapter := &tradeStorageAdapter{
+					storageService: storageService,
+					accountID:      accountID,
+				}
+				dcaEnhancedStrategy.SetTradeStorage(tradeStorageAdapter)
+			}
 			fixedPool := 0.0
 			if pool, ok := dcaEnhancedCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool

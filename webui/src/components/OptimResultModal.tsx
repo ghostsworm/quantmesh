@@ -25,7 +25,7 @@ import {
   Badge,
 } from '@chakra-ui/react'
 import { DownloadIcon } from '@chakra-ui/icons'
-import type { OptimParamResult, OptimResult } from '../services/backtest'
+import type { OptimParamResult, OptimResult, OptimTask } from '../services/backtest'
 
 type SortKey = 'total_return' | 'sharpe_ratio' | 'max_drawdown' | 'win_rate' | 'total_trades'
 type SortOrder = 'asc' | 'desc'
@@ -35,9 +35,10 @@ interface OptimResultModalProps {
   onClose: () => void
   result: OptimResult | null
   isLoading?: boolean
+  task?: OptimTask | null
 }
 
-export default function OptimResultModal({ isOpen, onClose, result, isLoading }: OptimResultModalProps) {
+export default function OptimResultModal({ isOpen, onClose, result, isLoading, task }: OptimResultModalProps) {
   const toast = useToast()
   const [maxDrawdown, setMaxDrawdown] = useState<string>('')
   const [minReturn, setMinReturn] = useState<string>('')
@@ -138,37 +139,52 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading }:
   const isBestBySharpe = (r: OptimParamResult) =>
     bestBySharpe && r.sharpe_ratio === bestBySharpe.sharpe_ratio && JSON.stringify(r.params) === JSON.stringify(bestBySharpe.params)
 
-  // 标题：交易对 · 策略 · K线类型 · 风控(含订单深度?) · K线起始时间（无任务上下文时仅显示「参数优化结果」）
+  // 标题：交易对 · 策略 · K线类型 · 风控(含订单深度?) · K线起止时间（无任务上下文时仅显示「参数优化结果」）
   const resultTitle = useMemo(() => {
-    if (!result) return '参数优化结果'
-    const hasContext = result.symbol ?? result.interval ?? result.start_time
+    const symbol = result?.symbol || task?.symbol
+    const strategy = result?.strategy || task?.strategy
+    const interval = result?.interval || task?.interval
+    const startTime = result?.start_time || task?.start_time
+    const endTime = result?.end_time || task?.end_time
+    const taskRiskInfo = (() => {
+      const ranges = task?.search_space?.ranges
+      if (!ranges) return undefined
+      if ('risk_volume_multiplier' in ranges || 'risk_average_window' in ranges) return '成交量风控'
+      return '无'
+    })()
+    const riskInfo = result?.risk_info ?? taskRiskInfo
+    const useOrderDepth = result?.use_order_depth ?? (task ? false : undefined)
+    const hasContext = symbol || strategy || interval || startTime || endTime || riskInfo || useOrderDepth !== undefined
     if (!hasContext) return '参数优化结果'
+
     const parts: string[] = []
-    parts.push(result.symbol ?? '–')
-    parts.push(result.strategy ?? '–')
-    const intervalLabel = result.interval
-      ? result.interval.toLowerCase() === 'tick'
-        ? 'tick 线'
-        : `${result.interval} 线`
-      : '–'
-    parts.push(intervalLabel)
-    const riskLabel = [result.risk_info ?? '无']
-    if (result.use_order_depth) riskLabel.push('订单深度')
-    parts.push(riskLabel.join(' + '))
-    if (result.start_time && result.end_time) {
-      try {
-        const s = new Date(result.start_time)
-        const e = new Date(result.end_time)
-        const fmt = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ')
-        parts.push(`${fmt(s)} ~ ${fmt(e)}`)
-      } catch {
-        parts.push('–')
-      }
-    } else {
-      parts.push('–')
+    if (symbol) parts.push(symbol)
+    if (strategy) parts.push(strategy)
+    if (interval) {
+      const intervalLabel = interval.toLowerCase() === 'tick' ? 'tick' : interval
+      parts.push(`K线: ${intervalLabel} 线`)
     }
+
+    const riskParts: string[] = []
+    if (riskInfo) riskParts.push(`风控: ${riskInfo}`)
+    if (useOrderDepth !== undefined) {
+      riskParts.push(`订单深度: ${useOrderDepth ? '有' : '无'}`)
+    }
+    if (riskParts.length > 0) parts.push(riskParts.join(' / '))
+
+    const formatTime = (value?: string) => {
+      if (!value) return ''
+      const d = new Date(value)
+      return Number.isNaN(d.getTime()) ? value : d.toLocaleString()
+    }
+    const startText = formatTime(startTime)
+    const endText = formatTime(endTime)
+    if (startText && endText) parts.push(`起始: ${startText} ~ ${endText}`)
+    else if (startText) parts.push(`起始: ${startText}`)
+    else if (endText) parts.push(`结束: ${endText}`)
+
     return parts.join(' · ')
-  }, [result])
+  }, [result, task])
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside">

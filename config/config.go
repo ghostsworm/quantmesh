@@ -1427,6 +1427,8 @@ func (c *Config) Validate() error {
 	c.Trading.Symbols = normalized
 
 	// 兼容舊欄位：保持首個交易對到舊欄位，供未改造代碼使用
+	// 若用戶已在 trading 頂層設置 position_safety_check，則不讓首個交易對覆蓋（避免 Web 表單默認 100 覆蓋用戶改的 30）
+	tradingPositionSafetyCheckSet := c.Trading.PositionSafetyCheck > 0
 	if len(c.Trading.Symbols) > 0 {
 		primary := c.Trading.Symbols[0]
 		c.Trading.Symbol = primary.Symbol
@@ -1439,7 +1441,9 @@ func (c *Config) Validate() error {
 		c.Trading.OrderCleanupThreshold = primary.OrderCleanupThreshold
 		c.Trading.CleanupBatchSize = primary.CleanupBatchSize
 		c.Trading.MarginLockDurationSec = primary.MarginLockDurationSec
-		c.Trading.PositionSafetyCheck = primary.PositionSafetyCheck
+		if !tradingPositionSafetyCheckSet {
+			c.Trading.PositionSafetyCheck = primary.PositionSafetyCheck
+		}
 		c.Trading.GridRiskControl = primary.GridRiskControl
 	}
 

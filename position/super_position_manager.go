@@ -127,6 +127,11 @@ type InventorySlot struct {
 	BuyFee   float64
 	FeeAsset string
 
+	// 🔥 实际平均买入价格（用於准确计算盈亏）
+	// 当买入订单成交时，使用实际成交价格更新此字段
+	// 计算公式：AvgBuyPrice = (旧AvgBuyPrice * 旧持仓 + 新买入价格 * 新买入数量) / 总持仓
+	AvgBuyPrice float64
+
 	// 策略信息（用於追踪订單来源）
 	StrategyName string // 策略名称（如 "Grid-BTCUSDT-1", "DCA-ETHUSDT"）
 	StrategyType string // 策略類型（如 "grid", "dca", "martingale"）
@@ -177,6 +182,8 @@ type IExchange interface {
 // 用於保存交易記錄（買賣配對）
 type TradeStorage interface {
 	SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time) error
+	// 🔥 SaveTradeWithDeviation 保存交易記錄（包含價格偏差）
+	SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
 }
 
 // ReconciliationStorage 對账存儲介面（避免循環匯入）
@@ -1424,6 +1431,39 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 		// 根據方向更新持倉
 		if side == "BUY" {
 			if deltaQty > 0 {
+				// 🔥 更新平均买入价格（使用实际成交价格）
+				actualBuyPrice := update.AvgPrice
+				if actualBuyPrice <= 0 {
+					actualBuyPrice = update.Price
+				}
+				if actualBuyPrice <= 0 {
+					actualBuyPrice = slot.OrderPrice
+				}
+				
+				// 🔥 监控价格偏差：实际成交价格与委托价格的差异
+				if slot.OrderPrice > 0 && actualBuyPrice > 0 {
+					priceDeviation := (actualBuyPrice - slot.OrderPrice) / slot.OrderPrice * 100
+					// 如果价格偏差超过0.1%（买入价格高于委托价格），记录警告
+					if priceDeviation > 0.1 {
+						logger.Warn("⚠️ [價格偏差警告] 買單實際成交價高於委託價: 委託價=%.2f, 實際價=%.2f, 偏差=%.4f%%, 數量=%.4f, OrderID=%d",
+							slot.OrderPrice, actualBuyPrice, priceDeviation, deltaQty, update.OrderID)
+					} else if priceDeviation < -0.1 {
+						// 买入价格低于委托价格（有利偏差），记录信息
+						logger.Info("💰 [價格偏差] 買單實際成交價低於委託價（有利）: 委託價=%.2f, 實際價=%.2f, 偏差=%.4f%%, 數量=%.4f",
+							slot.OrderPrice, actualBuyPrice, priceDeviation, deltaQty)
+					}
+				}
+				
+				// 计算新的平均买入价格
+				if slot.PositionQty > 0 && slot.AvgBuyPrice > 0 {
+					// 加权平均：(旧价格 * 旧数量 + 新价格 * 新数量) / 总数量
+					totalCost := slot.AvgBuyPrice*slot.PositionQty + actualBuyPrice*deltaQty
+					slot.AvgBuyPrice = totalCost / (slot.PositionQty + deltaQty)
+				} else {
+					// 首次买入或之前没有持仓，直接使用当前买入价格
+					slot.AvgBuyPrice = actualBuyPrice
+				}
+				
 				slot.PositionQty += deltaQty
 				// 累加统计
 				oldTotal := spm.totalBuyQty.Load().(float64)
@@ -1478,6 +1518,17 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 		} else { // SELL
 			if deltaQty > 0 {
+				// 🔥 关键修复：在减少 PositionQty 之前，先计算买入手续费摊销
+				// 这样可以正确处理全平仓的情况（止损单全平时，PositionQty 会变为0）
+				var feeFromBuy float64
+				positionQtyBeforeSell := slot.PositionQty // 保存卖出前的持仓数量
+				if positionQtyBeforeSell > 0 {
+					feeFromBuy = slot.BuyFee * (deltaQty / positionQtyBeforeSell)
+				} else {
+					// 如果卖出前持仓为0，说明是异常情况，使用全部买入手续费
+					feeFromBuy = slot.BuyFee
+				}
+
 				slot.PositionQty -= deltaQty
 				if slot.PositionQty < 0 {
 					slot.PositionQty = 0
@@ -1488,8 +1539,16 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 				// 🔥 保存交易記錄（買賣配對完成）
 				if spm.tradeStorage != nil {
-					// 買入價格就是槽位的價格（每個槽位對应一個買入價格点）
-					buyPrice := slot.Price
+					// 🔥 使用实际平均买入价格（而不是槽位基准价格）
+					// 这样可以准确反映实际盈亏，特别是当实际买入价格与槽位价格不同时
+					buyPrice := slot.AvgBuyPrice
+					if buyPrice <= 0 {
+						// 如果没有平均买入价格（异常情况），回退到槽位价格
+						buyPrice = slot.Price
+						logger.Warn("⚠️ [交易記錄] 槽位 %s 没有平均买入价格，使用槽位价格 %.2f", 
+							formatPrice(slot.Price, spm.priceDecimals), buyPrice)
+					}
+					
 					// 賣出價格使用成交均價，如果没有则使用订單價格
 					sellPrice := update.AvgPrice
 					if sellPrice <= 0 {
@@ -1498,21 +1557,39 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					if sellPrice <= 0 {
 						sellPrice = slot.OrderPrice
 					}
+					
+					// 🔥 监控卖出价格偏差：实际成交价格与委托价格的差异
+					if slot.OrderPrice > 0 && sellPrice > 0 {
+						sellPriceDeviation := (sellPrice - slot.OrderPrice) / slot.OrderPrice * 100
+						// 如果卖出价格低于委托价格超过0.1%（不利偏差），记录警告
+						if sellPriceDeviation < -0.1 {
+							logger.Warn("⚠️ [價格偏差警告] 賣單實際成交價低於委託價: 委託價=%.2f, 實際價=%.2f, 偏差=%.4f%%, 數量=%.4f, OrderID=%d",
+								slot.OrderPrice, sellPrice, sellPriceDeviation, deltaQty, update.OrderID)
+						} else if sellPriceDeviation > 0.1 {
+							// 卖出价格高于委托价格（有利偏差），记录信息
+							logger.Info("💰 [價格偏差] 賣單實際成交價高於委託價（有利）: 委託價=%.2f, 實際價=%.2f, 偏差=%.4f%%, 數量=%.4f",
+								slot.OrderPrice, sellPrice, sellPriceDeviation, deltaQty)
+						}
+					}
 
 					// 🔥 驗证價格和數量的合理性
 					if buyPrice <= 0 || sellPrice <= 0 || deltaQty <= 0 {
 						logger.Warn("⚠️ [交易記錄异常] 買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 跳過保存",
 							buyPrice, sellPrice, deltaQty)
 					} else {
-						// 计算盈亏：(賣出價格 - 買入價格) * 數量（毛利，未扣手續費）
+						// 计算盈亏：(賣出價格 - 實際買入價格) * 數量（毛利，未扣手續費）
 						// 注意：對於USDT本位合約（如BTCUSDT），價格是USDT，數量是BTC，盈亏單位是USDT
 						pnl := (sellPrice - buyPrice) * deltaQty
-
-						// 🔥 手續費：買入攤銷 + 賣出本次手續費
-						var feeFromBuy float64
-						if slot.PositionQty > 0 {
-							feeFromBuy = slot.BuyFee * (deltaQty / slot.PositionQty)
+						
+						// 🔥 检查价格偏差对策略的影响：如果实际盈亏与理论盈亏差异过大，警告
+						theoreticalPnL := (slot.OrderPrice - slot.Price) * deltaQty // 理论盈亏（基于槽位价格）
+						if theoreticalPnL > 0 && pnl < 0 {
+							// 理论应该盈利，但实际亏损了（价格偏差导致策略失效）
+							logger.Error("🚨 [策略失效警告] 理論應盈利但實際虧損: 槽位價=%.2f, 委託賣價=%.2f, 實際買價=%.2f, 實際賣價=%.2f, 理論盈虧=%.4f, 實際盈虧=%.4f, 數量=%.4f",
+								slot.Price, slot.OrderPrice, buyPrice, sellPrice, theoreticalPnL, pnl, deltaQty)
 						}
+
+						// 🔥 手續費：買入攤銷 + 賣出本次手續費（feeFromBuy 已在上面计算）
 						totalFee := feeFromBuy + update.Commission
 						feeAsset := update.CommissionAsset
 						if feeAsset == "" {
@@ -1532,14 +1609,40 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 								buyPrice, sellPrice, deltaQty, pnl, orderAmount, (pnl/orderAmount)*100)
 						}
 
+						// 🔥 计算价格偏差（实际成交价格 - 委托价格）
+						// 买入价格偏差：实际平均买入价格 - 槽位基准价格（槽位价格是买入委托价格）
+						buyPriceDeviation := (buyPrice - slot.Price) * deltaQty // USDT单位
+						
+						// 卖出价格偏差：实际卖出价格 - 委托卖出价格
+						sellPriceDeviation := (sellPrice - slot.OrderPrice) * deltaQty // USDT单位
+						
 						// 保存交易記錄（買入订單ID設為0，因為無法追溯历史订單）
 						buyOrderID := int64(0)
 						sellOrderID := update.OrderID
-						if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, time.Now()); err != nil {
-							logger.Warn("⚠️ 保存交易記錄失败: %v", err)
+						// 🔥 添加详细日志，特别是对于亏损交易
+						if pnl < 0 {
+							logger.Warn("🛑 [亏损交易] 槽位價格: %s, 實際買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s, OrderID: %d, 買入偏差: %.4f, 賣出偏差: %.4f",
+								formatPrice(slot.Price, spm.priceDecimals), formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl, totalFee, feeAsset, sellOrderID, buyPriceDeviation, sellPriceDeviation)
+						}
+						
+						// 🔥 使用SaveTradeWithDeviation保存价格偏差
+						if tradeStWithDev, ok := spm.tradeStorage.(interface {
+							SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
+						}); ok {
+							if err := tradeStWithDev.SaveTradeWithDeviation(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation, time.Now()); err != nil {
+								logger.Warn("⚠️ 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.4f)", err, buyPrice, sellPrice, deltaQty, pnl)
+							} else {
+								logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s, 買入偏差: %.4f, 賣出偏差: %.4f",
+									formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation)
+							}
 						} else {
-							logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s",
-								formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl, totalFee, feeAsset)
+							// 降级：使用旧接口
+							if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, time.Now()); err != nil {
+								logger.Warn("⚠️ 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.4f)", err, buyPrice, sellPrice, deltaQty, pnl)
+							} else {
+								logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s",
+									formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl, totalFee, feeAsset)
+							}
 						}
 						slot.BuyFee -= feeFromBuy
 					}
@@ -2493,6 +2596,12 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		// 設置為有倉状態
 		slot.PositionStatus = PositionStatusFilled
 		slot.PositionQty = slotQty
+		
+		// 🔥 設置平均买入价格（恢复持仓时，使用槽位价格作为平均买入价格）
+		// 因为无法知道实际买入价格，使用槽位价格作为近似值
+		if slot.AvgBuyPrice <= 0 {
+			slot.AvgBuyPrice = price
+		}
 
 		// 清空订單信息，但設置方向為SELL（因為这是恢複的持倉，將来要挂賣單）
 		slot.OrderID = 0

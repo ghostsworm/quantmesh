@@ -96,7 +96,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     order_cleanup_threshold: 50,
     cleanup_batch_size: 20,
     margin_lock_duration_seconds: 20,
-    position_safety_check: 100,
+    position_safety_check: config.trading?.position_safety_check ?? 100,
   })
 
   const exchanges = ['binance', 'bitget', 'bybit', 'gate', 'edgex', 'bit']
@@ -284,7 +284,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       order_cleanup_threshold: 50,
       cleanup_batch_size: 20,
       margin_lock_duration_seconds: 20,
-      position_safety_check: 100,
+      position_safety_check: config.trading?.position_safety_check ?? 100,
     })
     setEditingIndex(-1)
     setCurrentPrice(null)
@@ -418,7 +418,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
           order_cleanup_threshold: 50,
           cleanup_batch_size: 20,
           margin_lock_duration_seconds: 20,
-          position_safety_check: 100,
+          position_safety_check: config.trading?.position_safety_check ?? 100,
         }
         
         newSymbols.push(symbolConfig)
@@ -941,6 +941,27 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     </Text>
                   )
                 })()}
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>
+                  <HStack>
+                    <Text>持倉安全性檢查（最少倉數）</Text>
+                    <Tooltip label="啟動前檢查：賬戶餘額至少能向下購買並持有該數量倉位，否則拒絕啟動。餘額不足時可調低此值（如 30），或補充保證金。">
+                      <InfoIcon boxSize={3} color="gray.400" />
+                    </Tooltip>
+                  </HStack>
+                </FormLabel>
+                <NumberInput
+                  value={formData.position_safety_check ?? 100}
+                  onChange={(_, v) => setFormData({ ...formData, position_safety_check: v })}
+                  min={1}
+                >
+                  <NumberInputField />
+                </NumberInput>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  預設 100；當前最大可持有倉數由「餘額×槓桿÷每筆金額」決定
+                </Text>
               </FormControl>
             </VStack>
           </ModalBody>

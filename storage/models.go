@@ -29,30 +29,34 @@ type Position struct {
 
 // Trade 交易模型（買賣配對）
 type Trade struct {
-	BuyOrderID  int64
-	SellOrderID int64
-	Exchange    string
-	Account     string // 账戶標识（如 API Key 的哈希或前缀）
-	Symbol      string
-	BuyPrice    float64
-	SellPrice   float64
-	Quantity    float64
-	PnL         float64
-	Fee         float64 // 手續費（買+賣合計）
-	FeeAsset    string  // 手續費幣種
-	CreatedAt   time.Time
+	BuyOrderID      int64
+	SellOrderID     int64
+	Exchange        string
+	Account         string // 账戶標识（如 API Key 的哈希或前缀）
+	Symbol          string
+	BuyPrice        float64
+	SellPrice       float64
+	Quantity        float64
+	PnL             float64
+	Fee             float64 // 手續費（買+賣合計）
+	FeeAsset        string  // 手續費幣種
+	BuyPriceDeviation  float64 // 🔥 買入價格偏差（實際買入價 - 委託買入價，USDT）
+	SellPriceDeviation float64 // 🔥 賣出價格偏差（實際賣出價 - 委託賣出價，USDT）
+	CreatedAt       time.Time
 }
 
 // Statistics 统计模型
 type Statistics struct {
-	Date        time.Time
-	TotalTrades int
-	TotalVolume float64
-	TotalPnL    float64 // 淨利潤（毛利 - 手續費）
-	GrossPnL    float64 // 毛利（價差盈虧，未扣手續費）
-	TotalFee    float64 // 手續費合計
-	WinRate     float64
-	CreatedAt   time.Time
+	Date              time.Time
+	TotalTrades       int
+	TotalVolume       float64
+	TotalPnL          float64 // 淨利潤（毛利 - 手續費）
+	GrossPnL          float64 // 毛利（價差盈虧，未扣手續費）
+	TotalFee          float64 // 手續費合計
+	WinRate           float64
+	TotalBuyDeviation float64 // 🔥 買入價格偏差總和（USDT）
+	TotalSellDeviation float64 // 🔥 賣出價格偏差總和（USDT）
+	CreatedAt         time.Time
 }
 
 // DailyStatisticsWithTradeCount 每日统计（包含盈利/亏损交易數）

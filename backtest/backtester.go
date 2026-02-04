@@ -40,6 +40,9 @@ type Backtester struct {
 	// 交易記錄
 	trades []Trade
 
+	// 🔥 价格偏差（slippage）损失累计
+	totalSlippageLoss float64 // 累计slippage损失（USDT）
+
 	// 策略适配器
 	strategy StrategyAdapter
 
@@ -124,8 +127,9 @@ func NewBacktester(
 		takerFee:       0.0004, // Binance 合約 Taker 费率
 		makerFee:       0.0002, // Binance 合約 Maker 费率
 		slippage:       0.0003, // 0.03% 滑点
-		equity:         make([]EquityPoint, 0),
-		trades:         make([]Trade, 0),
+		equity:            make([]EquityPoint, 0),
+		trades:            make([]Trade, 0),
+		totalSlippageLoss: 0,
 	}
 }
 
@@ -183,8 +187,8 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 
 	logger.Info("✅ 回测完成: %d 笔交易", len(bt.trades))
 
-	// 计算指標
-	metrics := CalculateMetrics(bt.equity, bt.trades, bt.initialCapital)
+	// 计算指標（传入slippage损失）
+	metrics := CalculateMetrics(bt.equity, bt.trades, bt.initialCapital, bt.totalSlippageLoss)
 
 	// 计算风險指標
 	riskMetrics := CalculateRiskMetrics(bt.equity)
@@ -216,6 +220,10 @@ func (bt *Backtester) executeBuy(candle *exchange.Candle) {
 	quantity := (bt.cash * 0.95) / price // 使用 95% 资金
 	fee := quantity * price * bt.takerFee
 
+	// 🔥 计算买入slippage损失：实际买入价 - 理想买入价（收盘价）
+	buySlippageLoss := (price - candle.Close) * quantity // 等于 candle.Close * bt.slippage * quantity
+	bt.totalSlippageLoss += buySlippageLoss
+
 	bt.position = quantity
 	bt.entryPrice = price
 	bt.cash -= (quantity*price + fee)
@@ -229,7 +237,7 @@ func (bt *Backtester) executeBuy(candle *exchange.Candle) {
 		PnL:       0,
 	})
 
-	logger.Info("📈 買入: 價格=%.2f, 數量=%.4f, 手续费=%.2f", price, quantity, fee)
+	logger.Info("📈 買入: 價格=%.2f, 數量=%.4f, 手续费=%.2f, slippage損失=%.4f", price, quantity, fee, buySlippageLoss)
 }
 
 // executeSell 執行賣出
@@ -237,6 +245,10 @@ func (bt *Backtester) executeSell(candle *exchange.Candle) {
 	price := candle.Close * (1 - bt.slippage)
 	quantity := bt.position
 	fee := quantity * price * bt.takerFee
+
+	// 🔥 计算卖出slippage损失：理想卖出价（收盘价）- 实际卖出价
+	sellSlippageLoss := (candle.Close - price) * quantity // 等于 candle.Close * bt.slippage * quantity
+	bt.totalSlippageLoss += sellSlippageLoss
 
 	// Bug Fix 2: 计算盈亏時检查 trades 是否為空
 	buyFee := 0.0
@@ -263,7 +275,7 @@ func (bt *Backtester) executeSell(candle *exchange.Candle) {
 		PnL:       pnl,
 	})
 
-	logger.Info("📉 賣出: 價格=%.2f, 數量=%.4f, 手续费=%.2f, 盈亏=%.2f", price, quantity, fee, pnl)
+	logger.Info("📉 賣出: 價格=%.2f, 數量=%.4f, 手续费=%.2f, 盈亏=%.2f, slippage損失=%.4f", price, quantity, fee, pnl, sellSlippageLoss)
 }
 
 // BuildComparisonResult 构建无风控 vs 有风控的对比结果

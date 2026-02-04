@@ -28,6 +28,9 @@ type ProfitSummary struct {
 	UnrealizedProfit    float64 `json:"unrealizedProfit"`
 	WithdrawnProfit     float64 `json:"withdrawnProfit"`
 	AvailableToWithdraw float64 `json:"availableToWithdraw"`
+	PriceDeviationLoss  float64 `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
+	BuyPriceDeviation    float64 `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
+	SellPriceDeviation   float64 `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
 	LastUpdated         string  `json:"lastUpdated"`
 }
 
@@ -220,6 +223,12 @@ func getProfitSummaryHandler(c *gin.Context) {
 	weekProfitWithFunding := weekProfit + weekFunding
 	monthProfitWithFunding := monthProfit + monthFunding
 
+	// 🔥 计算价格偏差导致的损失
+	// 买入价格偏差：如果实际买入价格高于委托价格，会导致成本增加（负值表示损失）
+	// 卖出价格偏差：如果实际卖出价格低于委托价格，会导致收益减少（负值表示损失）
+	// 总偏差损失 = 买入偏差（通常为负）+ 卖出偏差（通常为负）
+	priceDeviationLoss := summaryStats.TotalBuyDeviation + summaryStats.TotalSellDeviation
+
 	summary := ProfitSummary{
 		ExchangeID:          exchangeID,
 		TotalProfit:         math.Round(netWithFunding*100) / 100,
@@ -232,6 +241,9 @@ func getProfitSummaryHandler(c *gin.Context) {
 		UnrealizedProfit:    math.Round(unrealizedProfit*100) / 100,
 		WithdrawnProfit:     0, // TODO: 從提現記錄统计
 		AvailableToWithdraw: math.Round(netWithFunding*100) / 100,
+		PriceDeviationLoss:  math.Round(priceDeviationLoss*100) / 100,
+		BuyPriceDeviation:   math.Round(summaryStats.TotalBuyDeviation*100) / 100,
+		SellPriceDeviation:  math.Round(summaryStats.TotalSellDeviation*100) / 100,
 		LastUpdated:         time.Now().Format(time.RFC3339),
 	}
 
