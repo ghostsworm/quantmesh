@@ -175,10 +175,12 @@ func (nc *NewsCollector) CollectNow() error {
 	return nil
 }
 
-// collectKeywords 合並所有啟用资產的关键词
+// collectKeywords 合並所有啟用资產的关键词，优先使用最重要的关键词
 func (nc *NewsCollector) collectKeywords() []string {
 	seen := make(map[string]bool)
 	var result []string
+	
+	// 优先使用配置的关键词（用户自定义的最重要）
 	if len(nc.cfg.NewsMonitor.Keywords) > 0 {
 		for _, k := range nc.cfg.NewsMonitor.Keywords {
 			k = strings.TrimSpace(k)
@@ -188,32 +190,61 @@ func (nc *NewsCollector) collectKeywords() []string {
 			}
 		}
 	}
+	
+	// 然后添加启用的资产关键词（限制每个资产的关键词数量）
 	for _, a := range nc.cfg.NewsMonitor.Assets {
 		if !a.Enabled || len(a.Keywords) == 0 {
 			continue
 		}
+		// 每个资产最多取前 10 个最重要的关键词
+		maxPerAsset := 10
+		count := 0
 		for _, k := range a.Keywords {
+			if count >= maxPerAsset {
+				break
+			}
 			k = strings.TrimSpace(k)
 			if k != "" && !seen[k] {
 				seen[k] = true
 				result = append(result, k)
+				count++
 			}
 		}
 	}
+	
+	// 如果还没有关键词，使用默认关键词（优先使用 BTC 相关的）
 	if len(result) == 0 {
-		for _, k := range config.DefaultNewsKeywords() {
+		// 优先使用 BTC 相关的核心关键词
+		priorityKeywords := []string{
+			"bitcoin", "btc", "cryptocurrency", "crypto",
+			"binance", "coinbase", "bitcoin etf",
+			"sec crypto", "crypto regulation",
+			"bitcoin crash", "crypto crash", "bitcoin rally",
+		}
+		for _, k := range priorityKeywords {
 			if !seen[k] {
 				seen[k] = true
 				result = append(result, k)
 			}
 		}
-		for _, k := range config.DefaultGoldKeywords() {
+		// 如果还需要更多，添加其他默认关键词
+		for _, k := range config.DefaultNewsKeywords() {
+			if len(result) >= 15 { // 限制总数
+				break
+			}
 			if !seen[k] {
 				seen[k] = true
 				result = append(result, k)
 			}
 		}
 	}
+	
+	// 最终限制：最多 15 个关键词（确保查询字符串不会太长）
+	if len(result) > 15 {
+		result = result[:15]
+		logger.Debug("📰 NewsCollector: 关键词数量过多，已限制到 15 个最重要的关键词")
+	}
+	
 	return result
 }
 
@@ -282,10 +313,39 @@ func (nc *NewsCollector) GetCacheCount() int {
 
 // fetchFromNewsAPI 從NewsAPI獲取新闻
 func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]NewsItem, error) {
+	// NewsAPI 限制查询字符串最大长度为 500 字符
+	// 如果关键词太多，需要分割成多个请求
+	const maxQueryLength = 450 // 留一些余量，避免 URL 编码后超过 500
+	
+	// 限制关键词数量，优先使用最重要的关键词
+	// 如果关键词太多，只取前 N 个最重要的
+	maxKeywords := 20 // 限制最多 20 个关键词
+	if len(keywords) > maxKeywords {
+		logger.Debug("📰 NewsCollector: 关键词数量过多 (%d)，只使用前 %d 个", len(keywords), maxKeywords)
+		keywords = keywords[:maxKeywords]
+	}
+	
+	// 构建查询字符串，确保不超过长度限制
+	query := strings.Join(keywords, " OR ")
+	if len(query) > maxQueryLength {
+		// 如果查询字符串太长，逐步减少关键词直到符合长度要求
+		for len(query) > maxQueryLength && len(keywords) > 1 {
+			keywords = keywords[:len(keywords)-1]
+			query = strings.Join(keywords, " OR ")
+		}
+		if len(query) > maxQueryLength {
+			// 如果单个关键词都太长，截断查询字符串
+			query = query[:maxQueryLength]
+			logger.Warn("📰 NewsCollector: 查询字符串过长，已截断到 %d 字符", maxQueryLength)
+		} else {
+			logger.Debug("📰 NewsCollector: 查询字符串过长，已减少到 %d 个关键词", len(keywords))
+		}
+	}
+	
 	baseURL := "https://newsapi.org/v2/everything"
 	params := url.Values{}
 	params.Set("apiKey", apiKey)
-	params.Set("q", strings.Join(keywords, " OR "))
+	params.Set("q", query)
 	// NewsAPI 只支援單一語言參數，不支援逗號分隔；這裡優先使用英文以獲取更多結果
 	params.Set("language", "en")
 	params.Set("sortBy", "publishedAt")

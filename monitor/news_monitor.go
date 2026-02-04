@@ -206,6 +206,12 @@ func (nm *NewsMonitor) Start() error {
 	nm.newsCollector = NewNewsCollector(nm.cfg)
 	nm.newsCollector.Start()
 
+	// 檢查是否啟用新聞分析功能
+	if nm.cfg.NewsMonitor.EnableAnalysis != nil && !*nm.cfg.NewsMonitor.EnableAnalysis {
+		logger.Info("📰 新聞分析功能已關閉，僅收集新聞不進行分析")
+		return nil
+	}
+
 	// 創建 Gemini 分析器
 	nm.geminiAnalyzer = NewGeminiNewsAnalyzer(nm.cfg, nm.newsCollector)
 

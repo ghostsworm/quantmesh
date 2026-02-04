@@ -658,6 +658,20 @@ const Configuration: React.FC = () => {
                             onChange={(e) => updateConfigField('news_monitor.enabled', e.target.checked)}
                           />
                         </Flex>
+
+                        {config.news_monitor?.enabled && (
+                          <Flex justify="space-between" align="center">
+                            <Box>
+                              <Text fontWeight="600">啟用新聞分析</Text>
+                              <Text fontSize="xs" color="gray.500">定時調用 Gemini 對 BTC 市場做出預判（關閉後僅收集新聞，不進行分析）</Text>
+                            </Box>
+                            <Switch
+                              colorScheme="blue"
+                              isChecked={config.news_monitor?.enable_analysis !== false}
+                              onChange={(e) => updateConfigField('news_monitor.enable_analysis', e.target.checked)}
+                            />
+                          </Flex>
+                        )}
                         
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">NewsAPI Key</FormLabel>
