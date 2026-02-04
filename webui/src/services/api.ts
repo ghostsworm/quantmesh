@@ -81,6 +81,7 @@ export interface SymbolInfo {
   is_active: boolean
   current_price: number
   market_type?: 'spot' | 'futures' // 市場類型
+  direction?: 'LONG' | 'SHORT' // 交易方向，預設 LONG
 }
 
 export interface SymbolsResponse {
@@ -296,6 +297,22 @@ export async function getPendingOrders(exchange?: string, symbol?: string): Prom
   if (symbol) queryParams.append('symbol', symbol)
   const url = `${API_BASE_URL}/orders/pending${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
+}
+
+// Sync Orders (Binance only)
+export interface SyncOrdersResponse {
+  success: boolean
+  message: string
+}
+
+export async function syncOrders(exchange: string, symbol: string): Promise<SyncOrdersResponse> {
+  const queryParams = new URLSearchParams()
+  queryParams.append('exchange', exchange)
+  queryParams.append('symbol', symbol)
+  const url = `${API_BASE_URL}/orders/sync?${queryParams.toString()}`
+  return fetchWithAuth(url, {
+    method: 'POST',
+  })
 }
 
 // Cancel Order

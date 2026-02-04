@@ -1619,3 +1619,91 @@ func (b *BinanceAdapter) InternalTransfer(ctx context.Context, fromAccount, toAc
 	}
 	return strconv.FormatInt(res.ID, 10), nil
 }
+
+// UserTrade 用户成交记录
+type UserTrade struct {
+	ID             int64     // 成交ID
+	OrderID        int64     // 订单ID
+	Symbol         string    // 交易对
+	Side           Side      // 买卖方向
+	Price          float64   // 成交价格
+	Quantity       float64   // 成交数量
+	QuoteQuantity  float64   // 成交金额
+	Commission     float64   // 手续费
+	CommissionAsset string   // 手续费资产
+	RealizedPnL    float64   // 已实现盈亏（仅平仓时有效）
+	Time           time.Time // 成交时间
+	IsMaker        bool      // 是否为Maker
+	PositionSide   string    // 持仓方向（LONG/SHORT）
+}
+
+// GetUserTrades 获取用户成交记录（历史成交）
+// symbol: 交易对
+// startTime, endTime: 毫秒时间戳，0表示不限制
+// limit: 返回数量限制，最大1000
+func (b *BinanceAdapter) GetUserTrades(ctx context.Context, symbol string, startTime, endTime int64, limit int) ([]*UserTrade, error) {
+	if b.apiKey == "" || b.secretKey == "" {
+		return nil, fmt.Errorf("API 密钥未配置")
+	}
+
+	// 速率限制
+	b.apiCallMu.Lock()
+	elapsed := time.Since(b.lastAPICallTime)
+	if elapsed < b.minAPIInterval {
+		waitTime := b.minAPIInterval - elapsed
+		b.apiCallMu.Unlock()
+		time.Sleep(waitTime)
+		b.apiCallMu.Lock()
+	}
+	b.lastAPICallTime = time.Now()
+	b.apiCallMu.Unlock()
+
+	// 使用币安SDK的NewListAccountTradeService获取用户成交记录
+	svc := b.client.NewListAccountTradeService().Symbol(symbol)
+	if startTime > 0 {
+		svc = svc.StartTime(startTime)
+	}
+	if endTime > 0 {
+		svc = svc.EndTime(endTime)
+	}
+	if limit > 0 {
+		if limit > 1000 {
+			limit = 1000
+		}
+		svc = svc.Limit(limit)
+	} else {
+		svc = svc.Limit(500) // 默认500
+	}
+
+	trades, err := svc.Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("獲取用户成交記錄失败: %w", err)
+	}
+
+	result := make([]*UserTrade, 0, len(trades))
+	for _, trade := range trades {
+		price, _ := strconv.ParseFloat(trade.Price, 64)
+		qty, _ := strconv.ParseFloat(trade.Quantity, 64)
+		quoteQty, _ := strconv.ParseFloat(trade.QuoteQuantity, 64)
+		commission, _ := strconv.ParseFloat(trade.Commission, 64)
+		realizedPnL, _ := strconv.ParseFloat(trade.RealizedPnl, 64)
+
+		result = append(result, &UserTrade{
+			ID:              trade.ID,
+			OrderID:         trade.OrderID,
+			Symbol:          trade.Symbol,
+			Side:            Side(trade.Side),
+			Price:           price,
+			Quantity:        qty,
+			QuoteQuantity:   quoteQty,
+			Commission:      commission,
+			CommissionAsset: trade.CommissionAsset,
+			RealizedPnL:     realizedPnL,
+			Time:            time.UnixMilli(trade.Time),
+			IsMaker:         trade.Maker,
+			PositionSide:    string(trade.PositionSide),
+		})
+	}
+
+	return result, nil
+}

@@ -20,16 +20,21 @@ import {
   Center,
   Skeleton,
   SkeletonText,
+  Badge,
+  Flex,
 } from '@chakra-ui/react'
+import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getPositions, getPositionsSummary, type PositionInfo, type PositionSummary, type PositionsResponse } from '../services/api'
+import { getPositions, getSymbols, type PositionInfo, type PositionSummary, type PositionsResponse } from '../services/api'
 
 const Positions: React.FC = () => {
+  const { t } = useTranslation()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [summary, setSummary] = useState<PositionSummary | null>(null)
   const [positions, setPositions] = useState<PositionInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -65,6 +70,26 @@ const Positions: React.FC = () => {
     return () => clearInterval(interval)
   }, [selectedExchange, selectedSymbol])
 
+  // 獲取當前交易對的方向（做多/做空）
+  useEffect(() => {
+    if (!selectedExchange || !selectedSymbol) {
+      setSymbolDirection(null)
+      return
+    }
+    const loadDirection = async () => {
+      try {
+        const res = await getSymbols()
+        const sym = res.symbols?.find(
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+        )
+        setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
+      } catch {
+        setSymbolDirection('LONG')
+      }
+    }
+    loadDirection()
+  }, [selectedExchange, selectedSymbol])
+
   if (loading && !summary) {
     return (
       <Box>
@@ -94,7 +119,14 @@ const Positions: React.FC = () => {
 
   return (
     <Box>
-      <Heading size="lg" mb={6}>持倉彙總</Heading>
+      <Flex align="center" gap={2} mb={6} flexWrap="wrap">
+        <Heading size="lg">持倉彙總</Heading>
+        {symbolDirection != null && (
+          <Badge colorScheme={symbolDirection === 'SHORT' ? 'orange' : 'green'} fontSize="sm">
+            {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+          </Badge>
+        )}
+      </Flex>
 
       {/* 持倉彙總卡片 */}
       {summary && (

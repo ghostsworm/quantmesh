@@ -97,6 +97,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     cleanup_batch_size: 20,
     margin_lock_duration_seconds: 20,
     position_safety_check: config.trading?.position_safety_check ?? 100,
+    direction: 'LONG',
   })
 
   const exchanges = ['binance', 'bitget', 'bybit', 'gate', 'edgex', 'bit']
@@ -275,6 +276,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       exchange: config.app?.current_exchange || '',
       symbol: '',
       market_type: 'futures',
+      direction: 'LONG',
       price_interval: 2,
       order_quantity: 30,
       min_order_value: 20,
@@ -536,6 +538,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                   <Th>交易所</Th>
                   <Th>市场</Th>
                   <Th>交易對</Th>
+                  <Th>方向</Th>
                   <Th>價格間隔</Th>
                   <Th>订單金額</Th>
                   <Th>買單窗口</Th>
@@ -571,6 +574,11 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                         </Badge>
                       </Td>
                       <Td fontWeight="600">{sym.symbol}</Td>
+                      <Td>
+                        <Badge colorScheme={(sym.direction === 'SHORT' ? 'orange' : 'green') as any} fontSize="xs">
+                          {(sym.direction === 'SHORT' ? '做空' : '做多')}
+                        </Badge>
+                      </Td>
                       <Td>{sym.price_interval}</Td>
                       <Td>{sym.order_quantity}</Td>
                       <Td>{sym.buy_window_size}</Td>
@@ -650,6 +658,17 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                 >
                   <option value="futures">合約</option>
                   <option value="spot">現貨</option>
+                </Select>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>{t('configuration.direction')}</FormLabel>
+                <Select
+                  value={formData.direction || 'LONG'}
+                  onChange={(e) => setFormData({ ...formData, direction: e.target.value as 'LONG' | 'SHORT' })}
+                >
+                  <option value="LONG">{t('configuration.directionLong')}</option>
+                  <option value="SHORT">{t('configuration.directionShort')}</option>
                 </Select>
               </FormControl>
 

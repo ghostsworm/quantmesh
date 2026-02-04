@@ -72,11 +72,19 @@ import {
   BackupInfo,
   ConfigDiff,
 } from '../services/config'
+import {
+  getPendingOrders,
+  batchCancelOrders,
+  closeAllPositions,
+  stopTrading,
+  startTrading,
+} from '../services/api'
 import AIConfigWizard from './AIConfigWizard'
 import SymbolManager from './SymbolManager'
 import YamlEditor from './YamlEditor'
 import DiffPreviewModal from './DiffPreviewModal'
 import ConfigHistory from './ConfigHistory'
+import ConfirmDialog from './ConfirmDialog'
 
 const MotionBox = motion(Box)
 
@@ -117,6 +125,11 @@ const Configuration: React.FC = () => {
   const [previewDiff, setPreviewDiff] = useState<ConfigDiff | null>(null)
   const [requiresRestart, setRequiresRestart] = useState(false)
   const [feeRateInputs, setFeeRateInputs] = useState<Record<string, string>>({})
+  const [directionConfirm, setDirectionConfirm] = useState<{ isOpen: boolean; newDirection: string; loading: boolean }>({
+    isOpen: false,
+    newDirection: '',
+    loading: false,
+  })
   
   // Tab control
   const [tabIndex, setTabIndex] = useState(0)
@@ -576,6 +589,19 @@ const Configuration: React.FC = () => {
                       </Stack>
                     </ConfigCard>
                     <ConfigCard title="交易對管理" icon={<RepeatIcon />}>
+                      <FormControl mb={4}>
+                        <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.defaultDirection', { defaultValue: '默认交易方向' })}</FormLabel>
+                        <Select
+                          value={config.trading?.direction || 'LONG'}
+                          onChange={(e) => updateConfigField('trading.direction', e.target.value)}
+                          borderRadius="xl"
+                          maxW="200px"
+                        >
+                          <option value="LONG">{t('configuration.directionLong')}</option>
+                          <option value="SHORT">{t('configuration.directionShort')}</option>
+                        </Select>
+                        <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.defaultDirectionDesc', { defaultValue: '新交易對未單獨設置時使用此方向' })}</Text>
+                      </FormControl>
                       <SymbolManager
                         config={config}
                         onUpdate={async (symbols) => {
@@ -1157,6 +1183,26 @@ const Configuration: React.FC = () => {
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                         </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.direction')}</FormLabel>
+                          <Select
+                            value={(getSelectedSymbolConfig()?.direction ?? config.trading?.direction) || 'LONG'}
+                            onChange={(e) => {
+                              const newDir = e.target.value
+                              const curDir = (getSelectedSymbolConfig()?.direction ?? config.trading?.direction) || 'LONG'
+                              if (newDir !== curDir) {
+                                setDirectionConfirm({ isOpen: true, newDirection: newDir, loading: false })
+                              } else {
+                                updateSelectedSymbolField('direction', newDir)
+                              }
+                            }}
+                            borderRadius="xl"
+                          >
+                            <option value="LONG">{t('configuration.directionLong')}</option>
+                            <option value="SHORT">{t('configuration.directionShort')}</option>
+                          </Select>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.directionDesc')}</Text>
+                        </FormControl>
                       </SimpleGrid>
                     </ConfigCard>
 
@@ -1437,6 +1483,56 @@ const Configuration: React.FC = () => {
           }}
           exchange={config?.app?.current_exchange || 'binance'}
           symbols={config?.trading?.symbols?.map((s: any) => s.symbol) || []}
+        />
+
+        {/* 方向切换确认 */}
+        <ConfirmDialog
+          isOpen={directionConfirm.isOpen}
+          onClose={() => setDirectionConfirm((p) => ({ ...p, isOpen: false }))}
+          onConfirm={async () => {
+            if (!config || !selectedExchange || !selectedSymbol) return
+            setDirectionConfirm((p) => ({ ...p, loading: true }))
+            const newDir = directionConfirm.newDirection
+            const exchange = selectedExchange
+            const symbol = selectedSymbol
+            try {
+              const pend = await getPendingOrders(exchange, symbol).catch(() => ({ orders: [] }))
+              const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
+              if (orderIds.length > 0) {
+                await batchCancelOrders(orderIds, exchange, symbol)
+              }
+              await closeAllPositions(exchange, symbol)
+              await stopTrading(exchange, symbol)
+              const newConfig: Config = JSON.parse(JSON.stringify(config))
+              const syms = newConfig.trading?.symbols || []
+              const idx = syms.findIndex(
+                (s: any) =>
+                  (s.exchange || config.app?.current_exchange || '') === exchange &&
+                  (s.symbol || '').toLowerCase() === symbol.toLowerCase()
+              )
+              if (idx >= 0) {
+                syms[idx] = { ...syms[idx], direction: newDir }
+              } else if (newConfig.trading) {
+                newConfig.trading.direction = newDir
+              }
+              await updateConfig(newConfig)
+              setConfig(newConfig)
+              await startTrading(exchange, symbol)
+              setDirectionConfirm((p) => ({ ...p, isOpen: false, loading: false }))
+              toast({ title: t('configuration.directionSwitchSuccess', { defaultValue: '方向已切换并已重启交易' }), status: 'success', duration: 3000 })
+            } catch (err) {
+              setDirectionConfirm((p) => ({ ...p, loading: false }))
+              toast({ title: t('configuration.directionSwitchFailed', { defaultValue: '方向切换失败' }), description: err instanceof Error ? err.message : String(err), status: 'error', duration: 5000 })
+              throw err
+            }
+          }}
+          title={t('configuration.directionSwitchConfirmTitle', { defaultValue: '切换交易方向' })}
+          message={t('configuration.directionSwitchConfirmMessage', {
+            defaultValue: '切换方向将依次执行：撤单、平仓、停止交易、更新配置、重启交易。请确认？',
+          })}
+          confirmText={t('common.confirm', { defaultValue: '确认' })}
+          confirmColorScheme="orange"
+          isLoading={directionConfirm.loading}
         />
 
         {/* YAML Diff Preview Modal */}

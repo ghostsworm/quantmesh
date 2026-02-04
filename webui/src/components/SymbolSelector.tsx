@@ -130,7 +130,7 @@ const SymbolSelector: React.FC = () => {
             <optgroup label={t('symbolSelector.running')}>
               {activeSymbols.map((sym) => (
                 <option key={sym.symbol} value={sym.symbol}>
-                  🟢 {sym.symbol}
+                  🟢 {sym.symbol} ({sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')})
                 </option>
               ))}
             </optgroup>
@@ -139,7 +139,7 @@ const SymbolSelector: React.FC = () => {
             <optgroup label={t('symbolSelector.notRunning')}>
               {inactiveSymbols.map((sym) => (
                 <option key={sym.symbol} value={sym.symbol}>
-                  ⚪ {sym.symbol}
+                  ⚪ {sym.symbol} ({sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')})
                 </option>
               ))}
             </optgroup>

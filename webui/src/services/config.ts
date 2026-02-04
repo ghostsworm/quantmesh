@@ -84,6 +84,7 @@ export interface SymbolConfig {
   min_order_value?: number
   buy_window_size: number
   sell_window_size: number
+  direction?: 'LONG' | 'SHORT'  // 交易方向，預設 LONG
   reconcile_interval?: number
   order_cleanup_threshold?: number
   cleanup_batch_size?: number

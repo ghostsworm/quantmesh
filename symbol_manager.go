@@ -124,6 +124,7 @@ func startSymbolRuntime(
 	localCfg.Trading.CleanupBatchSize = symCfg.CleanupBatchSize
 	localCfg.Trading.MarginLockDurationSec = symCfg.MarginLockDurationSec
 	localCfg.Trading.PositionSafetyCheck = symCfg.PositionSafetyCheck
+	localCfg.Trading.Direction = symCfg.GetDirection()
 
 	// 創建交易所實例（根據交易對配置的市场類型：spot / futures）
 	ex, err := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
