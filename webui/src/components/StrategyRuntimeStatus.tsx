@@ -38,6 +38,7 @@ import {
   InfoIcon,
 } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
+import { getSymbols } from '../services/api'
 import {
   getStrategyRuntimeStatus,
   type StrategyRuntimeStatus,
@@ -306,6 +307,7 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
 
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
@@ -326,6 +328,25 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
     } finally {
       setLoading(false)
     }
+  }, [exchange, symbol])
+
+  useEffect(() => {
+    if (!exchange || !symbol) {
+      setSymbolDirection(null)
+      return
+    }
+    const loadDirection = async () => {
+      try {
+        const res = await getSymbols()
+        const sym = res.symbols?.find(
+          s => s.exchange?.toLowerCase() === exchange?.toLowerCase() && s.symbol === symbol
+        )
+        setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
+      } catch {
+        setSymbolDirection('LONG')
+      }
+    }
+    loadDirection()
   }, [exchange, symbol])
 
   useEffect(() => {
@@ -363,13 +384,20 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
     >
       <VStack align="stretch" spacing={4}>
         {/* 標題欄 */}
-        <HStack justify="space-between">
-          <VStack align="start" spacing={0}>
-            <Heading size="md">策略運行狀態</Heading>
-            <Text fontSize="sm" color="gray.500">
-              實時查看各策略的執行情況
-            </Text>
-          </VStack>
+        <HStack justify="space-between" flexWrap="wrap">
+          <HStack spacing={2} align="center">
+            <VStack align="start" spacing={0}>
+              <Heading size="md">策略運行狀態</Heading>
+              <Text fontSize="sm" color="gray.500">
+                實時查看各策略的執行情況
+              </Text>
+            </VStack>
+            {symbolDirection != null && (
+              <Badge colorScheme={symbolDirection === 'SHORT' ? 'orange' : 'green'} fontSize="sm">
+                {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+              </Badge>
+            )}
+          </HStack>
           <HStack spacing={2}>
             {lastRefresh && (
               <Text fontSize="xs" color="gray.400">

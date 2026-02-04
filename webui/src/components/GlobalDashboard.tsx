@@ -401,6 +401,13 @@ const GlobalDashboard: React.FC = () => {
     )
   }, [exchangePnL, symbolsByExchange])
 
+  // 交易對方向映射 (exchange:symbol -> LONG|SHORT)
+  const symbolDirectionMap = useMemo(() => {
+    const m = new Map<string, 'LONG' | 'SHORT'>()
+    symbols.forEach(s => m.set(`${s.exchange?.toLowerCase()}:${s.symbol}`, s.direction === 'SHORT' ? 'SHORT' : 'LONG'))
+    return m
+  }, [symbols])
+
   // 默认展开所有交易所
   useEffect(() => {
     if (exchangeData.length > 0 && expandedIndices.length === 0) {
@@ -533,6 +540,7 @@ const GlobalDashboard: React.FC = () => {
                     <Tr>
                       <Th>{t('globalDashboard.positionExchange')}</Th>
                       <Th>{t('globalDashboard.positionSymbol')}</Th>
+                      <Th>{t('configuration.direction')}</Th>
                       <Th>{t('globalDashboard.positionStrategy')}</Th>
                       <Th isNumeric>{t('dashboard.size')}</Th>
                       <Th isNumeric>{t('dashboard.unrealizedPnL')}</Th>
@@ -552,6 +560,11 @@ const GlobalDashboard: React.FC = () => {
                       >
                         <Td fontWeight="600">{pos.exchange.toUpperCase()}</Td>
                         <Td>{pos.symbol}</Td>
+                        <Td>
+                          <Badge colorScheme={(symbolDirectionMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`) === 'SHORT' ? 'orange' : 'green') as any} fontSize="xs">
+                            {(symbolDirectionMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`) || 'LONG') === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+                          </Badge>
+                        </Td>
                         <Td>
                           <Badge size="sm" colorScheme="blue" variant="subtle">
                             {t('strategyNames.' + pos.strategy, { defaultValue: pos.strategy })}
@@ -641,6 +654,9 @@ const GlobalDashboard: React.FC = () => {
                                 <VStack align="start" spacing={1}>
                                   <HStack spacing={2} flexWrap="wrap">
                                     <Text fontWeight="800" fontSize="lg">{sym.symbol}</Text>
+                                    <Badge colorScheme={(sym.direction === 'SHORT' ? 'orange' : 'green') as any} fontSize="xs">
+                                      {sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+                                    </Badge>
                                     <Box
                                       w={2}
                                       h={2}

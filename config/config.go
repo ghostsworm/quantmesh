@@ -127,6 +127,7 @@ type Config struct {
 		CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小（預設 10）
 		MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保證金鎖定時間（秒，預設 10）
 		PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持倉安全性檢查（預設 100，最少能向下持有多少倉）
+		Direction             string  `yaml:"direction"`                    // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
 		// 多交易對配置
 		Symbols []SymbolConfig `yaml:"symbols"`
 		// 注意：price_decimals 和 quantity_decimals 已廢棄，現在從交易所自动獲取
@@ -791,6 +792,7 @@ type SymbolConfig struct {
 	MarginLockDurationSec int                `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保證金鎖定時间（秒）
 	PositionSafetyCheck   int                `yaml:"position_safety_check" json:"position_safety_check"`       // 持倉安全性檢查
 	GridRiskControl       GridRiskControl    `yaml:"grid_risk_control" json:"grid_risk_control"`               // 網格策略风控
+	Direction             string             `yaml:"direction" json:"direction"`                               // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
 }
 
 // IsEnabled 返回交易對是否啟用（nil 預設為 true）
@@ -812,6 +814,14 @@ func (sc *SymbolConfig) GetMarketType() string {
 // IsSpot 是否為現貨交易對
 func (sc *SymbolConfig) IsSpot() bool {
 	return sc.GetMarketType() == "spot"
+}
+
+// GetDirection 返回交易方向，空時預設 LONG（向后兼容）
+func (sc *SymbolConfig) GetDirection() string {
+	if sc.Direction == "SHORT" {
+		return "SHORT"
+	}
+	return "LONG"
 }
 
 // SetEnabled 設置交易對啟用狀態
@@ -1321,6 +1331,15 @@ func (c *Config) Validate() error {
 			}
 		}
 
+		// 方向：空時預設 LONG
+		if sc.Direction == "" {
+			if c.Trading.Direction == "SHORT" {
+				sc.Direction = "SHORT"
+			} else {
+				sc.Direction = "LONG"
+			}
+		}
+
 		if sc.ReconcileInterval <= 0 {
 			if c.Trading.ReconcileInterval > 0 {
 				sc.ReconcileInterval = c.Trading.ReconcileInterval
@@ -1399,6 +1418,10 @@ func (c *Config) Validate() error {
 		if c.Trading.Symbol == "" {
 			return fmt.Errorf("交易對不能為空")
 		}
+		direction := c.Trading.Direction
+		if direction != "SHORT" {
+			direction = "LONG"
+		}
 		c.Trading.Symbols = []SymbolConfig{{
 			Enabled:               BoolPtr(true),
 			Exchange:              c.App.CurrentExchange,
@@ -1408,6 +1431,7 @@ func (c *Config) Validate() error {
 			MinOrderValue:         c.Trading.MinOrderValue,
 			BuyWindowSize:         c.Trading.BuyWindowSize,
 			SellWindowSize:        c.Trading.SellWindowSize,
+			Direction:             direction,
 			ReconcileInterval:     c.Trading.ReconcileInterval,
 			OrderCleanupThreshold: c.Trading.OrderCleanupThreshold,
 			CleanupBatchSize:      c.Trading.CleanupBatchSize,
@@ -1445,6 +1469,7 @@ func (c *Config) Validate() error {
 		if !tradingPositionSafetyCheckSet {
 			c.Trading.PositionSafetyCheck = primary.PositionSafetyCheck
 		}
+		c.Trading.Direction = primary.GetDirection()
 		c.Trading.GridRiskControl = primary.GridRiskControl
 	}
 

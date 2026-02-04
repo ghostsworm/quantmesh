@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
+import { getSymbols } from '../services/api'
 import './Reconciliation.css'
 
 interface ReconciliationStatus {
@@ -78,6 +79,7 @@ const Reconciliation: React.FC = () => {
   const [historyOffset, setHistoryOffset] = useState(0)
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [positionTooltip, setPositionTooltip] = useState<PositionTooltipData | null>(null)
+  const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
   const [aggregatedTooltip, setAggregatedTooltip] = useState<AggregatedTooltipData | null>(null)
   // 图例显示状態
   const [showEstimated, setShowEstimated] = useState(true)
@@ -205,6 +207,26 @@ const Reconciliation: React.FC = () => {
     return () => clearInterval(interval)
   }, [historyLimit, historyOffset, selectedExchange, selectedSymbol, viewMode, timePeriod])
 
+  // 獲取當前交易對的方向（做多/做空）
+  useEffect(() => {
+    if (!selectedExchange || !selectedSymbol) {
+      setSymbolDirection(null)
+      return
+    }
+    const loadDirection = async () => {
+      try {
+        const res = await getSymbols()
+        const sym = res.symbols?.find(
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+        )
+        setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
+      } catch {
+        setSymbolDirection('LONG')
+      }
+    }
+    loadDirection()
+  }, [selectedExchange, selectedSymbol])
+
   const formatTime = (timeStr: string) => {
     try {
       return new Date(timeStr).toLocaleString('zh-CN')
@@ -233,7 +255,23 @@ const Reconciliation: React.FC = () => {
 
   return (
     <div className="reconciliation">
-      <h2>{t('reconciliation.history')}</h2>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        {t('reconciliation.history')}
+        {symbolDirection != null && (
+          <span
+            style={{
+              fontSize: '12px',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              backgroundColor: symbolDirection === 'SHORT' ? '#ed8936' : '#38a169',
+              color: '#fff',
+              fontWeight: 500,
+            }}
+          >
+            {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+          </span>
+        )}
+      </h2>
 
       {status && (
         <div className="status-cards">

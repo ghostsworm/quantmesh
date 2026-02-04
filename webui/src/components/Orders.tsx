@@ -36,7 +36,7 @@ import {
   Flex,
 } from '@chakra-ui/react'
 import { CloseIcon } from '@chakra-ui/icons'
-import { getPendingOrders, getOrderHistory, cancelOrder, batchCancelOrders, PendingOrderInfo } from '../services/api'
+import { getPendingOrders, getOrderHistory, cancelOrder, batchCancelOrders, syncOrders, getSymbols, PendingOrderInfo } from '../services/api'
 
 interface OrderInfo {
   order_id: number
@@ -63,6 +63,7 @@ const Orders: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [cancellingOrderId, setCancellingOrderId] = useState<number | null>(null)
   const [cancellingAll, setCancellingAll] = useState(false)
+  const [syncingOrders, setSyncingOrders] = useState(false)
   const toast = useToast()
   
   // 筛选状态
@@ -74,6 +75,7 @@ const Orders: React.FC = () => {
   const [historyFilterType, setHistoryFilterType] = useState<string>('all')
   const [historyFilterStatus, setHistoryFilterStatus] = useState<string>('all')
   const [historyFilterSide, setHistoryFilterSide] = useState<string>('all')
+  const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
 
   useEffect(() => {
     const fetchPendingOrders = async () => {
@@ -119,6 +121,26 @@ const Orders: React.FC = () => {
     return () => clearInterval(interval)
   }, [tabIndex, selectedExchange, selectedSymbol])
 
+  // 獲取當前交易對的方向（做多/做空）
+  useEffect(() => {
+    if (!selectedExchange || !selectedSymbol) {
+      setSymbolDirection(null)
+      return
+    }
+    const loadDirection = async () => {
+      try {
+        const res = await getSymbols()
+        const sym = res.symbols?.find(
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+        )
+        setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
+      } catch {
+        setSymbolDirection('LONG')
+      }
+    }
+    loadDirection()
+  }, [selectedExchange, selectedSymbol])
+
   // 刷新待成交订單
   const refreshPendingOrders = async () => {
     try {
@@ -126,6 +148,73 @@ const Orders: React.FC = () => {
       setPendingOrders(data.orders || [])
     } catch (err) {
       console.error('Failed to refresh pending orders:', err)
+    }
+  }
+
+  // 刷新历史订單
+  const refreshHistoryOrders = async () => {
+    try {
+      const data = await getOrderHistory({
+        exchange: selectedExchange,
+        symbol: selectedSymbol,
+      })
+      setHistoryOrders(data.orders || [])
+    } catch (err) {
+      console.error('Failed to refresh history orders:', err)
+    }
+  }
+
+  // 手动同步订单（仅币安）
+  const handleSyncOrders = async () => {
+    if (!selectedExchange || !selectedSymbol) {
+      toast({
+        title: t('orders.syncFailed'),
+        description: t('orders.missingExchangeOrSymbol'),
+        status: 'error',
+        duration: 3000,
+      })
+      return
+    }
+
+    if (selectedExchange.toLowerCase() !== 'binance') {
+      toast({
+        title: t('orders.syncFailed'),
+        description: t('orders.onlyBinanceSupported'),
+        status: 'error',
+        duration: 3000,
+      })
+      return
+    }
+
+    setSyncingOrders(true)
+    try {
+      const result = await syncOrders(selectedExchange, selectedSymbol)
+      if (result.success) {
+        toast({
+          title: t('orders.syncSuccess'),
+          description: result.message || t('orders.syncSuccessMessage'),
+          status: 'success',
+          duration: 3000,
+        })
+        // 刷新历史订单列表
+        await refreshHistoryOrders()
+      } else {
+        toast({
+          title: t('orders.syncFailed'),
+          description: result.message || t('orders.syncFailedMessage'),
+          status: 'error',
+          duration: 5000,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: t('orders.syncFailed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setSyncingOrders(false)
     }
   }
 
@@ -346,9 +435,16 @@ const Orders: React.FC = () => {
   return (
     <Box>
       <Heading size="lg" mb={4}>{t('orders.title')}</Heading>
-      <Text fontSize="md" color="gray.600" mb={4}>
-        {t('orders.currentPair', { exchange: selectedExchange, symbol: selectedSymbol })}
-      </Text>
+      <Flex align="center" gap={2} mb={4} flexWrap="wrap">
+        <Text fontSize="md" color="gray.600">
+          {t('orders.currentPair', { exchange: selectedExchange, symbol: selectedSymbol })}
+        </Text>
+        {symbolDirection != null && (
+          <Badge colorScheme={symbolDirection === 'SHORT' ? 'orange' : 'green'} fontSize="sm">
+            {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+          </Badge>
+        )}
+      </Flex>
 
       <Tabs index={tabIndex} onChange={setTabIndex} colorScheme="blue">
         <TabList>
@@ -542,53 +638,68 @@ const Orders: React.FC = () => {
               </Card>
             </SimpleGrid>
 
-            {/* 筛选器 */}
-            {historyOrders.length > 0 && (
-              <Flex mb={4} gap={2} wrap="wrap" align="center">
-                <Select
+            {/* 筛选器和同步按钮 */}
+            <Flex mb={4} gap={2} wrap="wrap" align="center">
+              {historyOrders.length > 0 && (
+                <>
+                  <Select
+                    size="sm"
+                    width="150px"
+                    value={historyFilterStrategy}
+                    onChange={(e) => setHistoryFilterStrategy(e.target.value)}
+                  >
+                    <option value="all">{t('orders.allStrategies')}</option>
+                    {getUniqueStrategies(historyOrders).map(strategy => (
+                      <option key={strategy} value={strategy}>{strategy}</option>
+                    ))}
+                  </Select>
+                  <Select
+                    size="sm"
+                    width="120px"
+                    value={historyFilterType}
+                    onChange={(e) => setHistoryFilterType(e.target.value)}
+                  >
+                    <option value="all">{t('orders.allTypes')}</option>
+                    <option value="LIMIT">{t('orders.limitOrder')}</option>
+                    <option value="MARKET">{t('orders.marketOrder')}</option>
+                  </Select>
+                  <Select
+                    size="sm"
+                    width="120px"
+                    value={historyFilterStatus}
+                    onChange={(e) => setHistoryFilterStatus(e.target.value)}
+                  >
+                    <option value="all">{t('orders.allStatuses')}</option>
+                    <option value="FILLED">{t('orders.filled')}</option>
+                    <option value="CANCELED">{t('orders.canceled')}</option>
+                    <option value="PARTIALLY_FILLED">{t('orders.partiallyFilled')}</option>
+                  </Select>
+                  <Select
+                    size="sm"
+                    width="100px"
+                    value={historyFilterSide}
+                    onChange={(e) => setHistoryFilterSide(e.target.value)}
+                  >
+                    <option value="all">{t('orders.allSides')}</option>
+                    <option value="BUY">{t('orders.buy')}</option>
+                    <option value="SELL">{t('orders.sell')}</option>
+                  </Select>
+                </>
+              )}
+              <Box flex="1" />
+              {/* 仅币安显示同步按钮 */}
+              {selectedExchange && selectedExchange.toLowerCase() === 'binance' && (
+                <Button
+                  colorScheme="blue"
                   size="sm"
-                  width="150px"
-                  value={historyFilterStrategy}
-                  onChange={(e) => setHistoryFilterStrategy(e.target.value)}
+                  onClick={handleSyncOrders}
+                  isLoading={syncingOrders}
+                  loadingText={t('orders.syncing')}
                 >
-                  <option value="all">{t('orders.allStrategies')}</option>
-                  {getUniqueStrategies(historyOrders).map(strategy => (
-                    <option key={strategy} value={strategy}>{strategy}</option>
-                  ))}
-                </Select>
-                <Select
-                  size="sm"
-                  width="120px"
-                  value={historyFilterType}
-                  onChange={(e) => setHistoryFilterType(e.target.value)}
-                >
-                  <option value="all">{t('orders.allTypes')}</option>
-                  <option value="LIMIT">{t('orders.limitOrder')}</option>
-                  <option value="MARKET">{t('orders.marketOrder')}</option>
-                </Select>
-                <Select
-                  size="sm"
-                  width="120px"
-                  value={historyFilterStatus}
-                  onChange={(e) => setHistoryFilterStatus(e.target.value)}
-                >
-                  <option value="all">{t('orders.allStatuses')}</option>
-                  <option value="FILLED">{t('orders.filled')}</option>
-                  <option value="CANCELED">{t('orders.canceled')}</option>
-                  <option value="PARTIALLY_FILLED">{t('orders.partiallyFilled')}</option>
-                </Select>
-                <Select
-                  size="sm"
-                  width="100px"
-                  value={historyFilterSide}
-                  onChange={(e) => setHistoryFilterSide(e.target.value)}
-                >
-                  <option value="all">{t('orders.allSides')}</option>
-                  <option value="BUY">{t('orders.buy')}</option>
-                  <option value="SELL">{t('orders.sell')}</option>
-                </Select>
-              </Flex>
-            )}
+                  {t('orders.syncOrders')}
+                </Button>
+              )}
+            </Flex>
 
             {historyOrders.length === 0 ? (
               <Text color="gray.500" textAlign="center" py={8}>{t('orders.noHistoryOrders')}</Text>

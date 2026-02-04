@@ -367,3 +367,8 @@ func (w *binanceWrapper) GetOrderBook(ctx context.Context, symbol string, limit 
 func (w *binanceWrapper) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return w.adapter.InternalTransfer(ctx, fromAccount, toAccount, asset, amount)
 }
+
+// GetAdapter 获取底层BinanceAdapter（用于订单同步等特殊功能）
+func (w *binanceWrapper) GetAdapter() interface{} {
+	return w.adapter
+}

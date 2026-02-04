@@ -20,6 +20,7 @@ import (
 	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/storage"
+	ordersync "quantmesh/sync"
 	"quantmesh/utils"
 
 	"github.com/gin-gonic/gin"
@@ -541,6 +542,7 @@ type SymbolItem struct {
 	IsActive     bool    `json:"is_active"`
 	CurrentPrice float64 `json:"current_price"`
 	MarketType   string  `json:"market_type,omitempty"` // 市場類型：spot/futures
+	Direction    string  `json:"direction,omitempty"`   // 交易方向：LONG/SHORT，預設 LONG
 }
 
 // getSymbols 返回可用的交易對列表
@@ -578,6 +580,7 @@ func getSymbols(c *gin.Context) {
 						IsActive:     false, // 默认未运行，后面會更新
 						CurrentPrice: 0,
 						MarketType:   marketType,
+						Direction:    sym.GetDirection(),
 					}
 				}
 			}
@@ -587,12 +590,17 @@ func getSymbols(c *gin.Context) {
 				if exchange != "" {
 					key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, cfg.Trading.Symbol))
 					if _, exists := symbolMap[key]; !exists {
+						direction := cfg.Trading.Direction
+						if direction != "SHORT" {
+							direction = "LONG"
+						}
 						symbolMap[key] = &SymbolItem{
 							Exchange:     strings.ToLower(exchange),
 							Symbol:       cfg.Trading.Symbol,
 							IsActive:     false,
 							CurrentPrice: 0,
 							MarketType:   "futures", // 舊版單交易對配置默認為合約
+							Direction:    direction,
 						}
 					}
 				}
@@ -1431,6 +1439,99 @@ func getOrders(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"orders": ordersResponse})
+}
+
+// syncOrders 手动同步订单（仅币安）
+// POST /api/orders/sync
+func syncOrders(c *gin.Context) {
+	exchangeName := c.Query("exchange")
+	symbol := c.Query("symbol")
+
+	if exchangeName == "" || symbol == "" {
+		respondError(c, http.StatusBadRequest, "error.missing_exchange_or_symbol", fmt.Errorf("exchange和symbol参数必填"))
+		return
+	}
+
+	// 检查是否是币安交易所
+	if exchangeName != "binance" {
+		respondError(c, http.StatusBadRequest, "error.only_binance_supported", fmt.Errorf("当前仅支持币安交易所的订单同步"))
+		return
+	}
+
+	// 获取exchange provider
+	exProvider := pickExchangeProvider(c)
+	if exProvider == nil {
+		respondError(c, http.StatusInternalServerError, "error.exchange_provider_not_found", fmt.Errorf("未找到交易所provider"))
+		return
+	}
+
+	// 获取storage provider
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	if storageProv == nil {
+		respondError(c, http.StatusInternalServerError, "error.storage_provider_not_found", fmt.Errorf("未找到storage provider"))
+		return
+	}
+
+	storage := storageProv.GetStorage()
+	if storage == nil {
+		respondError(c, http.StatusInternalServerError, "error.storage_not_found", fmt.Errorf("未找到storage"))
+		return
+	}
+
+	// 获取exchange实例（需要转换为IExchange接口）
+	// 由于ExchangeProvider接口不包含IExchange的所有方法，我们需要通过symbol manager获取
+	// 这里我们创建一个临时的同步服务
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 尝试从symbol manager获取exchange实例
+	var ex exchange.IExchange
+	if symbolManagerProvider != nil {
+		rtInterface, exists := symbolManagerProvider.Get(exchangeName, symbol)
+		if exists {
+			// 使用反射获取Exchange字段
+			rtVal := reflect.ValueOf(rtInterface)
+			if rtVal.Kind() == reflect.Ptr {
+				rtVal = rtVal.Elem()
+			}
+			exchangeField := rtVal.FieldByName("Exchange")
+			if exchangeField.IsValid() && !exchangeField.IsNil() {
+				if exInterface, ok := exchangeField.Interface().(exchange.IExchange); ok {
+					ex = exInterface
+				}
+			}
+		}
+	}
+
+	if ex == nil {
+		respondError(c, http.StatusInternalServerError, "error.exchange_instance_not_found", fmt.Errorf("未找到交易所实例，请确保交易对正在运行"))
+		return
+	}
+
+	// 创建临时同步服务并执行同步
+	orderSync := ordersync.NewOrderSyncService(
+		ex,
+		storage,
+		symbol,
+		"", // accountID暂时为空
+		exchangeName,
+		10*time.Minute, // syncInterval，这里只是用于创建，不会实际使用
+	)
+
+	// 执行同步
+	if err := orderSync.Sync(ctx); err != nil {
+		logger.Error("❌ [订单同步] 手动同步失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "error.sync_failed", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "订单同步成功",
+	})
 }
 
 // getOrderHistory 獲取訂單历史

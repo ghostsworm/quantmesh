@@ -35,7 +35,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital } from '../services/api'
+import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital, getSymbols } from '../services/api'
 import { getStrategyRuntimeStatus } from '../services/strategy'
 import StrategyVisualization from './strategy-visualization/StrategyVisualization'
 import type { StrategyRuntimeStatus } from '../services/strategy'
@@ -102,6 +102,7 @@ const Dashboard: React.FC = () => {
   const [togglePending, setTogglePending] = useState(false) // 启动/停止请求进行中，防重复点击
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   const [releasingCapital, setReleasingCapital] = useState<string | null>(null)
+  const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
   const { isOpen: isNewbieCheckOpen, onOpen: onNewbieCheckOpen, onClose: onNewbieCheckClose } = useDisclosure()
   const toast = useToast()
 
@@ -156,6 +157,26 @@ const Dashboard: React.FC = () => {
     fetchData()
     const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
+  }, [selectedExchange, selectedSymbol])
+
+  // 獲取當前交易對的方向（做多/做空）
+  useEffect(() => {
+    if (!selectedExchange || !selectedSymbol) {
+      setSymbolDirection(null)
+      return
+    }
+    const loadDirection = async () => {
+      try {
+        const res = await getSymbols()
+        const sym = res.symbols?.find(
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+        )
+        setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
+      } catch {
+        setSymbolDirection('LONG')
+      }
+    }
+    loadDirection()
   }, [selectedExchange, selectedSymbol])
 
   const TOGGLE_TIMEOUT_MS = 10_000
@@ -373,9 +394,14 @@ const Dashboard: React.FC = () => {
               <Icon as={RepeatIcon} color="white" w={6} h={6} />
             </Box>
             <VStack align="start" spacing={0}>
-              <HStack>
+              <HStack spacing={2} flexWrap="wrap">
                 <Heading size="lg" fontWeight="800">{selectedSymbol}</Heading>
                 <Badge colorScheme="blue" variant="subtle" borderRadius="full" px={3}>{selectedExchange?.toUpperCase()}</Badge>
+                {symbolDirection != null && (
+                  <Badge colorScheme={symbolDirection === 'SHORT' ? 'orange' : 'green'} fontSize="sm">
+                    {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+                  </Badge>
+                )}
               </HStack>
               {isCurrentSymbolRunning && currentPrice > 0 ? (
                 <Text color="gray.500" fontSize="sm">{t('dashboard.currentPrice')}: <Text as="span" fontWeight="bold" color="blue.500">${currentPrice.toFixed(2)}</Text></Text>

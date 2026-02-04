@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getSlots, SlotInfo } from '../services/api'
+import { getSlots, getSymbols, SlotInfo } from '../services/api'
 
 const Slots: React.FC = () => {
+  const { t } = useTranslation()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [slots, setSlots] = useState<SlotInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'price' | 'status'>('price')
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
 
   useEffect(() => {
     // 🔥 修複：切换交易對時立即清空舊數據
@@ -37,6 +40,26 @@ const Slots: React.FC = () => {
       // 🔥 修複：组件卸載時清空數據
       setSlots([])
     }
+  }, [selectedExchange, selectedSymbol])
+
+  // 獲取當前交易對的方向（做多/做空）
+  useEffect(() => {
+    if (!selectedExchange || !selectedSymbol) {
+      setSymbolDirection(null)
+      return
+    }
+    const loadDirection = async () => {
+      try {
+        const res = await getSymbols()
+        const sym = res.symbols?.find(
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+        )
+        setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
+      } catch {
+        setSymbolDirection('LONG')
+      }
+    }
+    loadDirection()
   }, [selectedExchange, selectedSymbol])
 
   const sortedSlots = [...slots].sort((a, b) => {
@@ -122,7 +145,23 @@ const Slots: React.FC = () => {
 
   return (
     <div className="slots">
-      <h2>槽位管理 ({slots.length})</h2>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        槽位管理 ({slots.length})
+        {symbolDirection != null && (
+          <span
+            style={{
+              fontSize: '12px',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              backgroundColor: symbolDirection === 'SHORT' ? '#ed8936' : '#38a169',
+              color: '#fff',
+              fontWeight: 500,
+            }}
+          >
+            {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+          </span>
+        )}
+      </h2>
       
       <div style={{ marginBottom: '16px', display: 'flex', gap: '16px', alignItems: 'center' }}>
         <div>

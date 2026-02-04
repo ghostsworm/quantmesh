@@ -359,6 +359,11 @@ func (spm *SuperPositionManager) isSpot() bool {
 	return spm.config.Trading.MarketType == "spot"
 }
 
+// isShort 是否為做空方向
+func (spm *SuperPositionManager) isShort() bool {
+	return spm.config.Trading.Direction == "SHORT"
+}
+
 // getActualMargin 獲取實際使用的保证金（考虑杠杆）
 // 現貨：實際占用 = 訂單價值（杠杆 1）；合約：實際保证金 = 訂單價值 / 杠杆倍數
 func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
@@ -500,7 +505,12 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 	logger.Info("✅ 初始网格價格: %s (使用锚点價格)", formatPrice(initialGridPrice, spm.priceDecimals))
 
 	// 4. 使用统一的槽位價格计算方法創建初始槽位
-	slotPrices := spm.calculateSlotPrices(initialGridPrice, spm.config.Trading.BuyWindowSize, "down")
+	// LONG: 槽位在锚点下方（買低賣高）；SHORT: 槽位在锚点上方（賣高買低）
+	slotDir := "down"
+	if spm.isShort() {
+		slotDir = "up"
+	}
+	slotPrices := spm.calculateSlotPrices(initialGridPrice, spm.config.Trading.BuyWindowSize, slotDir)
 	for _, price := range slotPrices {
 		spm.getOrCreateSlot(price)
 	}
@@ -511,8 +521,8 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 	}
 	logger.Info("✅ [初始化] 计算出的槽位價格: %v", slotPricesStr)
 
-	// 5. 為初始槽位下買單
-	err := spm.placeInitialBuyOrders()
+	// 5. 為初始槽位下開倉單（LONG=買單，SHORT=賣單）或恢複持倉
+	err := spm.placeInitialOpenOrders()
 	if err == nil {
 		// 標記為已初始化
 		spm.isInitialized.Store(true)
@@ -579,14 +589,19 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 	return price, side, true
 }
 
-// placeInitialBuyOrders 設定初始槽位（並恢複持倉槽位）
-func (spm *SuperPositionManager) placeInitialBuyOrders() error {
+// placeInitialOpenOrders 設定初始槽位（並恢複持倉槽位）
+func (spm *SuperPositionManager) placeInitialOpenOrders() error {
 	// 🔥 修改：只恢複持倉槽位，不再主动下單
 	// 所有下單操作由 AdjustOrders 统一处理，避免時序问题
 	existingPosition := spm.getExistingPosition()
 	if existingPosition > 0 {
-		logger.Info("🔄 [持倉恢複] 检测到現有持倉: %.4f，开始初始化賣單槽位", existingPosition)
-		spm.initializeSellSlotsFromPosition(existingPosition)
+		if spm.isShort() {
+			logger.Info("🔄 [持倉恢複] 检测到現有做空持倉: %.4f，开始初始化買單平倉槽位", existingPosition)
+			spm.initializeBuySlotsFromPosition(existingPosition)
+		} else {
+			logger.Info("🔄 [持倉恢複] 检测到現有持倉: %.4f，开始初始化賣單槽位", existingPosition)
+			spm.initializeSellSlotsFromPosition(existingPosition)
+		}
 	}
 
 	logger.Info("✅ [初始化] 槽位已創建，订單下达將由 AdjustOrders 统一处理")
@@ -692,8 +707,12 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// logger.Debug("🔄 [實時調整] 當前價格: %s, 网格價格: %s, 買單窗口: %d, 賣單視窗: %d",
 	// 	formatPrice(currentPrice, spm.priceDecimals), formatPrice(currentGridPrice, spm.priceDecimals), buyWindowSize, sellWindowSize)
 
-	// 计算當前网格價格下方buy_window_size個價格
-	slotPrices := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, "down")
+	// 计算槽位價格：LONG 向下（買低賣高），SHORT 向上（賣高買低）
+	slotDir := "down"
+	if spm.isShort() {
+		slotDir = "up"
+	}
+	slotPrices := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, slotDir)
 
 	// 🔥 P2 新增：根據訂單簿深度優化槽位價格
 	slotPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, slotPrices)
@@ -711,9 +730,14 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		if slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed ||
 			slot.OrderStatus == OrderStatusPartiallyFilled {
 			currentOrderCount++
-			if slot.OrderSide == "BUY" {
+			// LONG: 開倉=BUY 平倉=SELL；SHORT: 開倉=SELL 平倉=BUY
+			openSide := "BUY"
+			if spm.isShort() {
+				openSide = "SELL"
+			}
+			if slot.OrderSide == openSide {
 				currentBuyOrderCount++
-			} else if slot.OrderSide == "SELL" {
+			} else if slot.OrderSide != "" {
 				currentSellOrderCount++
 			}
 		}
@@ -842,7 +866,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		if slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed ||
 			slot.OrderStatus == OrderStatusPartiallyFilled {
 			hasActiveOrder = true
-			if slot.OrderSide == "BUY" {
+			openSide := "BUY"
+			if spm.isShort() {
+				openSide = "SELL"
+			}
+			if slot.OrderSide == openSide {
 				activeBuyOrdersInWindow++
 			}
 		}
@@ -861,11 +889,18 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			buyOrdersToCreate < allowedNewBuyOrders
 
 		if shouldCreateBuyOrder {
-			// 安全检查：買單價格不应高於當前價格
+			// 安全检查：LONG 買單價格應低於當前價格；SHORT 賣單價格應高於當前價格
 			safetyBuffer := spm.config.Trading.PriceInterval * 0.1
-			if price >= currentPrice-safetyBuffer {
-				slot.mu.Unlock()
-				continue
+			if spm.isShort() {
+				if price <= currentPrice+safetyBuffer {
+					slot.mu.Unlock()
+					continue
+				}
+			} else {
+				if price >= currentPrice-safetyBuffer {
+					slot.mu.Unlock()
+					continue
+				}
 			}
 
 			quantity := spm.config.Trading.OrderQuantity / price
@@ -902,8 +937,12 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				continue
 			}
 
-			// 生成 ClientOrderID
-			clientOID := spm.generateClientOrderID(price, "BUY")
+			// 生成 ClientOrderID：LONG=BUY，SHORT=SELL
+			openSide := "BUY"
+			if spm.isShort() {
+				openSide = "SELL"
+			}
+			clientOID := spm.generateClientOrderID(price, openSide)
 
 			// 🔥 鎖定槽位：標記為PENDING状態，防止並发操作
 			slot.SlotStatus = SlotStatusPending
@@ -913,7 +952,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol:        spm.config.Trading.Symbol,
-				Side:          "BUY",
+				Side:          openSide,
 				Price:         price,
 				Quantity:      quantity,
 				PriceDecimals: spm.priceDecimals,
@@ -926,40 +965,53 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		slot.mu.Unlock()
 	}
 
-	// 2. 处理賣單
-	sellWindowMaxPrice := currentPrice + float64(sellWindowSize)*priceInterval
-	sellWindowMaxPrice = roundPrice(sellWindowMaxPrice, spm.priceDecimals)
-
-	type sellCandidate struct {
-		SlotPrice     float64 // 槽位價格 (買入價)
-		SellPrice     float64 // 目標賣出價
+	// 2. 处理平倉單（LONG=賣單，SHORT=買單）
+	type closeCandidate struct {
+		SlotPrice     float64
+		ClosePrice    float64 // LONG: 賣出價=slot+interval；SHORT: 買入價=slot-interval
 		Quantity      float64
 		DistanceToMid float64
 	}
-	var sellCandidates []sellCandidate
+	var closeCandidates []closeCandidate
+
+	// LONG: 賣單窗口 above；SHORT: 買單窗口 below
+	sellWindowMaxPrice := currentPrice + float64(sellWindowSize)*priceInterval
+	sellWindowMaxPrice = roundPrice(sellWindowMaxPrice, spm.priceDecimals)
+	buyWindowMinPrice := currentPrice - float64(sellWindowSize)*priceInterval
+	buyWindowMinPrice = roundPrice(buyWindowMinPrice, spm.priceDecimals)
 
 	spm.slots.Range(func(key, value interface{}) bool {
-		slotPrice := key.(float64) // 槽位Key = 買入價
+		slotPrice := key.(float64)
 		slot := value.(*InventorySlot)
 		slot.mu.Lock()
 		defer slot.mu.Unlock()
 
-		// 🔥 賣單条件：持倉状態=FILLED + 槽位鎖=FREE + 無订單ID + 無ClientOID
 		if slot.PositionStatus == PositionStatusFilled &&
 			slot.SlotStatus == SlotStatusFree &&
 			slot.OrderID == 0 &&
 			slot.ClientOID == "" {
 
-			sellPrice := slotPrice + priceInterval
-			sellPrice = roundPrice(sellPrice, spm.priceDecimals)
+			var closePrice float64
+			if spm.isShort() {
+				closePrice = slotPrice - priceInterval // SHORT: 買低平倉
+			} else {
+				closePrice = slotPrice + priceInterval // LONG: 賣高平倉
+			}
+			closePrice = roundPrice(closePrice, spm.priceDecimals)
 
-			// 窗口检查
-			if slotPrice > sellWindowMaxPrice {
-				return true
+			// 窗口检查：LONG 跳過 slot 高於上限；SHORT 跳過 close 低於下限
+			if spm.isShort() {
+				if closePrice < buyWindowMinPrice {
+					return true
+				}
+			} else {
+				if slotPrice > sellWindowMaxPrice {
+					return true
+				}
 			}
 
 			// 最小名义價值检查
-			orderValue := sellPrice * slot.PositionQty
+			orderValue := closePrice * slot.PositionQty
 			minValue := spm.config.Trading.MinOrderValue
 			if minValue <= 0 {
 				minValue = 6.0
@@ -967,9 +1019,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 			if orderValue >= minValue {
 				distance := math.Abs(slotPrice - currentPrice)
-				sellCandidates = append(sellCandidates, sellCandidate{
+				closeCandidates = append(closeCandidates, closeCandidate{
 					SlotPrice:     slotPrice,
-					SellPrice:     sellPrice,
+					ClosePrice:    closePrice,
 					Quantity:      slot.PositionQty,
 					DistanceToMid: distance,
 				})
@@ -979,8 +1031,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	})
 
 	// 按距离排序
-	sort.Slice(sellCandidates, func(i, j int) bool {
-		return sellCandidates[i].DistanceToMid < sellCandidates[j].DistanceToMid
+	sort.Slice(closeCandidates, func(i, j int) bool {
+		return closeCandidates[i].DistanceToMid < closeCandidates[j].DistanceToMid
 	})
 
 	// 🔥 重新计算賣單的剩餘配額（扣除新增買單后的剩餘空间）
@@ -997,11 +1049,15 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 生成賣單请求
 	sellOrdersToCreate := 0
 	// 🔥 調試日志: 显示订單配額计算详情（包含買賣單分布）
-	logger.Debug("📊 [%s:%s] [订單配額] 阈值:%d, 當前订單:%d(買:%d/賣:%d), 剩餘:%d, 新增買單:%d, 賣單候选:%d, 允許賣單:%d",
-		spm.exchangeName, spm.config.Trading.Symbol, threshold, currentOrderCount, currentBuyOrderCount, currentSellOrderCount, remainingOrders, buyOrdersToCreate, len(sellCandidates), allowedNewSellOrders)
+	logger.Debug("📊 [%s:%s] [订單配額] 阈值:%d, 當前订單:%d(開:%d/平:%d), 剩餘:%d, 新增開倉:%d, 平倉候选:%d, 允許平倉:%d",
+		spm.exchangeName, spm.config.Trading.Symbol, threshold, currentOrderCount, currentBuyOrderCount, currentSellOrderCount, remainingOrders, buyOrdersToCreate, len(closeCandidates), allowedNewSellOrders)
 	if allowedNewSellOrders > 0 {
-		for i := 0; i < len(sellCandidates) && sellOrdersToCreate < allowedNewSellOrders; i++ {
-			candidate := sellCandidates[i]
+		closeSide := "SELL"
+		if spm.isShort() {
+			closeSide = "BUY"
+		}
+		for i := 0; i < len(closeCandidates) && sellOrdersToCreate < allowedNewSellOrders; i++ {
+			candidate := closeCandidates[i]
 
 			// 🔥 关键修複：最终驗证PositionStatus必須為FILLED且有持倉，並且SlotStatus為FREE
 			slot := spm.getOrCreateSlot(candidate.SlotPrice)
@@ -1027,14 +1083,14 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			usePostOnly := slot.PostOnlyFailCount < 3
 			slot.mu.Unlock()
 
-			// 生成 ClientOrderID (注意：使用 SlotPrice 即買入價作為標识)
-			clientOID := spm.generateClientOrderID(candidate.SlotPrice, "SELL")
+			// 生成 ClientOrderID
+			clientOID := spm.generateClientOrderID(candidate.SlotPrice, closeSide)
 
 			quantity := candidate.Quantity
-			// 兜底检查：賣單數量也必須大於0
+			// 兜底检查：平倉單數量必須大於0
 			if quantity <= 0 && spm.quantityDecimals >= 0 {
 				minQty := math.Pow10(-spm.quantityDecimals)
-				logger.Error("🚨 [%s] 賣單數量异常 (%.8f)，低於交易所最小精度 (%.8f)，交易已自动暂停！",
+				logger.Error("🚨 [%s] 平倉單數量异常 (%.8f)，低於交易所最小精度 (%.8f)，交易已自动暂停！",
 					spm.config.Trading.Symbol, candidate.Quantity, minQty)
 
 				// 发布事件
@@ -1047,28 +1103,27 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 							"exchange": spm.exchangeName,
 							"quantity": candidate.Quantity,
 							"min_qty":  minQty,
-							"price":    candidate.SellPrice,
+							"price":    candidate.ClosePrice,
 							"action":   "pause",
-							"reason":   "賣單數量低於交易所最小精度",
+							"reason":   "平倉單數量低於交易所最小精度",
 						},
 					})
 				}
 
-				// 暂停交易
+				// 暂停交易（slot 已在前面 unlock）
 				spm.Pause()
-				slot.mu.Unlock()
 				continue
 			}
 
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol:        spm.config.Trading.Symbol,
-				Side:          "SELL",
-				Price:         candidate.SellPrice,
+				Side:          closeSide,
+				Price:         candidate.ClosePrice,
 				Quantity:      quantity,
 				PriceDecimals: spm.priceDecimals,
-				ReduceOnly:    !spm.isSpot(), // 現貨不支援 ReduceOnly
+				ReduceOnly:    !spm.isSpot(), // 平倉單需要 ReduceOnly
 				PostOnly:      usePostOnly,
-				ClientOrderID: clientOID, // 🔥
+				ClientOrderID: clientOID,
 			})
 			sellOrdersToCreate++
 		}
@@ -1428,8 +1483,12 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 		slot.OrderFilledQty = update.ExecutedQty
 
-		// 根據方向更新持倉
-		if side == "BUY" {
+		// 根據方向更新持倉：LONG 時 BUY=開倉(加倉) SELL=平倉(減倉)；SHORT 時 SELL=開倉 BUY=平倉
+		openSide := "BUY"
+		if spm.isShort() {
+			openSide = "SELL"
+		}
+		if side == openSide {
 			if deltaQty > 0 {
 				// 🔥 更新平均买入价格（使用实际成交价格）
 				actualBuyPrice := update.AvgPrice
@@ -1485,7 +1544,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				}
 				// 🔥 如果 WebSocket 未提供手續費，異步查詢補充
 				if update.Commission == 0 && update.OrderID > 0 {
-					go spm.supplementCommission(context.Background(), update.OrderID, update.Symbol, "BUY", slot)
+					go spm.supplementCommission(context.Background(), update.OrderID, update.Symbol, side, slot)
 				}
 				// 🔥 释放槽位鎖：買單成交，允許后续挂賣單
 				slot.SlotStatus = SlotStatusFree
@@ -2358,44 +2417,50 @@ func (spm *SuperPositionManager) getExistingPosition() float64 {
 	}
 
 	// 尝試類型断言 - 假設返回的是包含 Size 字段的結構体切片
-	// 我们使用反射来安全地提取持倉數量
+	// 持倉方向：LONG 時取正數，SHORT 時取負數的絕對值（交易所 short 持倉為負）
+	rawSize := 0.0
 	switch positions := positionsInterface.(type) {
 	case []*PositionInfo:
-		// PositionInfo 切片（简化版）
 		for _, pos := range positions {
 			if pos != nil && pos.Symbol == spm.config.Trading.Symbol {
-				logger.Debug("🔍 [持倉恢複] 找到持倉 (PositionInfo): %.4f", pos.Size)
-				return pos.Size
+				rawSize = pos.Size
+				break
 			}
 		}
 	case []interface{}:
-		// 通用接口數组 - 尝試解析為持倉結構
 		for _, pos := range positions {
-			// 尝試直接類型断言為 PositionInfo
 			if posInfo, ok := pos.(*PositionInfo); ok {
 				if posInfo.Symbol == spm.config.Trading.Symbol {
-					logger.Debug("🔍 [持倉恢複] 找到持倉 (interface->PositionInfo): %.4f", posInfo.Size)
-					return posInfo.Size
+					rawSize = posInfo.Size
+					break
 				}
 			}
-			// 尝試解析為 map
 			if posMap, ok := pos.(map[string]interface{}); ok {
 				if symbol, ok := posMap["Symbol"].(string); ok && symbol == spm.config.Trading.Symbol {
 					if size, ok := posMap["Size"].(float64); ok {
-						logger.Debug("🔍 [持倉恢複] 找到持倉 (map): %.4f", size)
-						return size
+						rawSize = size
+						break
 					}
 				}
 			}
 		}
 	default:
-		// 其他情况：使用反射尝試提取 Size 字段
-		logger.Debug("🔍 [持倉恢複] 持倉類型: %T，尝試使用反射提取", positionsInterface)
-		// 尝試使用反射处理未知類型
-		// 注意：實際上 exchange 返回的是 []*exchange.Position，但因為接口回傳 interface{}，所以需要特殊处理
+		logger.Debug("🔍 [持倉恢複] 持倉類型: %T，未找到匹配的持倉", positionsInterface)
 		return 0
 	}
 
+	// 按方向過濾：LONG 取正數持倉，SHORT 取負數持倉的絕對值
+	if spm.isShort() {
+		if rawSize < 0 {
+			logger.Debug("🔍 [持倉恢複] 找到做空持倉: %.4f", -rawSize)
+			return -rawSize
+		}
+		return 0
+	}
+	if rawSize > 0 {
+		logger.Debug("🔍 [持倉恢複] 找到做多持倉: %.4f", rawSize)
+		return rawSize
+	}
 	logger.Debug("🔍 [持倉恢複] 未找到匹配的持倉")
 	return 0
 }
@@ -2651,6 +2716,65 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	// 8. 提示用戶后续會自动下賣單
 	logger.Info("💡 [持倉恢複] 前 %d 個槽位的賣單將在價格調整時自动創建", sellWindowSize)
 	logger.Info("💡 [持倉恢複] 其餘 %d 個槽位保持有倉状態，價格接近時自动挂單", totalSlotsNeeded-sellWindowSize)
+}
+
+// initializeBuySlotsFromPosition 從現有做空持倉初始化買單平倉槽位（SHORT 方向專用）
+func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition float64) {
+	if totalPosition <= 0 {
+		return
+	}
+	// 做空持倉：槽位價格 = 開倉賣價（高於錨點），平倉買價 = 槽位價格 - interval
+	theoryQtyPerSlot := spm.config.Trading.OrderQuantity / spm.anchorPrice
+	theoryQtyPerSlot = roundPrice(theoryQtyPerSlot, spm.quantityDecimals)
+	totalSlotsNeeded := int(math.Ceil(totalPosition / theoryQtyPerSlot))
+	sellWindowSize := spm.config.Trading.SellWindowSize
+	if sellWindowSize <= 0 {
+		sellWindowSize = spm.config.Trading.BuyWindowSize
+	}
+	sellStartPrice := spm.anchorPrice + spm.config.Trading.PriceInterval
+	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
+	sellPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, sellPrices)
+
+	var totalTheoryQty float64
+	theoryQtys := make([]float64, len(sellPrices))
+	for i, price := range sellPrices {
+		theoryQty := spm.config.Trading.OrderQuantity / price
+		theoryQty = roundPrice(theoryQty, spm.quantityDecimals)
+		theoryQtys[i] = theoryQty
+		totalTheoryQty += theoryQty
+	}
+
+	var allocatedQty float64
+	for i, price := range sellPrices {
+		var slotQty float64
+		if i == len(sellPrices)-1 {
+			slotQty = totalPosition - allocatedQty
+		} else {
+			slotQty = theoryQtys[i] * (totalPosition / totalTheoryQty)
+			slotQty = roundPrice(slotQty, spm.quantityDecimals)
+			if slotQty > totalPosition-allocatedQty {
+				slotQty = totalPosition - allocatedQty
+			}
+		}
+		if slotQty <= 0 {
+			continue
+		}
+		slot := spm.getOrCreateSlot(price)
+		slot.mu.Lock()
+		slot.PositionStatus = PositionStatusFilled
+		slot.PositionQty = slotQty
+		if slot.AvgBuyPrice <= 0 {
+			slot.AvgBuyPrice = price
+		}
+		slot.OrderID = 0
+		slot.OrderStatus = OrderStatusNotPlaced
+		slot.OrderSide = "BUY" // 做空平倉為買單
+		slot.ClientOID = ""
+		slot.OrderFilledQty = 0
+		slot.mu.Unlock()
+		allocatedQty += slotQty
+	}
+	logger.Info("✅ [持倉恢複] 做空持倉恢複完成，總持倉: %.4f，已分配: %.4f", totalPosition, allocatedQty)
 }
 
 // ===== 状態打印功能 =====
