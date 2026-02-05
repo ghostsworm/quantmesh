@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.42.0-rc2] - 2026-02-06
+
+### Fixed
+- **修复前端构建错误**：在 `config.ts` 中补充导出 `getSecurityStatus` 和 `generateMasterKey` 函数，解决 Configuration.tsx 导入失败导致的构建失败
+
 ## [3.42.0] - 2026-02-06
 
 ### Added

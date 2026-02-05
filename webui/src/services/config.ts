@@ -605,6 +605,24 @@ export async function validateConfigYAML(yamlContent: string): Promise<{ valid: 
   return await response.json()
 }
 
+// 獲取安全状态
+export async function getSecurityStatus(): Promise<{
+  encryption_enabled: boolean
+  master_key_path: string
+  master_key_exists: boolean
+}> {
+  return fetchWithAuth(`${window.location.origin}/api/config/security/status`)
+}
+
+// 生成主密钥
+export async function generateMasterKey(): Promise<{
+  master_key_path: string
+}> {
+  return fetchWithAuth(`${window.location.origin}/api/config/security/generate-key`, {
+    method: 'POST',
+  })
+}
+
 // 更新配置（YAML 格式）
 export async function updateConfigYAML(yamlContent: string): Promise<{
   message: string
