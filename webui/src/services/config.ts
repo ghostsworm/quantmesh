@@ -340,11 +340,11 @@ export interface Config {
   }
   news_monitor?: {
     enabled: boolean
-    enable_analysis?: boolean  // 是否启用新闻分析功能（Gemini分析），默认true
+    enable_analysis?: boolean  // 是否启用新闻分析功能（AI分析），默认true
     check_interval?: string
-    analysis_interval?: string
+    analysis_interval?: string  // AI分析间隔，支持 "5m", "15m", "30m", "1h", "2h", "4h", "8h", "24h"
     news_collect_interval?: string
-    use_gemini_search?: boolean
+    use_gemini_search?: boolean  // 是否使用Gemini实时搜索（兼容旧配置）
     sources?: string[]
     news_api_key?: string
     rss_feeds?: string[]
@@ -362,6 +362,12 @@ export interface Config {
       keywords?: string[]
       enabled?: boolean
     }>
+    ai_provider?: {
+      provider?: string  // gemini, openai, claude, poe
+      model?: string     // 模型名称，如 "gpt-4", "claude-3-opus"
+      api_key?: string   // Provider的API Key
+      base_url?: string  // 可选，自定义API端点（用于Poe等代理）
+    }
   }
   strategies?: {
     enabled: boolean

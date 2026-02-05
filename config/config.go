@@ -268,9 +268,9 @@ type Config struct {
 		Enabled              bool     `yaml:"enabled"`               // 是否啟用新聞監控，預設false
 		EnableAnalysis       *bool    `yaml:"enable_analysis"`       // 是否啟用新聞分析功能（Gemini分析），nil表示未設置（默認true），false表示明確關閉
 		CheckInterval        string   `yaml:"check_interval"`        // 相容舊配置，等同於 analysis_interval
-		AnalysisInterval     string   `yaml:"analysis_interval"`     // Gemini分析间隔，預設"30m"
+		AnalysisInterval     string   `yaml:"analysis_interval"`     // AI分析间隔，預設"30m"，支持 "5m", "15m", "30m", "1h", "2h", "4h", "8h", "24h"
 		NewsCollectInterval  string   `yaml:"news_collect_interval"` // NewsAPI收集间隔，預設"5m"
-		UseGeminiSearch      bool     `yaml:"use_gemini_search"`     // 是否使用Gemini實時搜索，預設true
+		UseGeminiSearch      bool     `yaml:"use_gemini_search"`     // 是否使用Gemini實時搜索，預設true（兼容旧配置）
 		Sources              []string `yaml:"sources"`               // 新闻源列表，如 ["newsapi", "rss"]
 		NewsAPIKey           string   `yaml:"news_api_key"`          // NewsAPI密钥（可選）
 		RSSFeeds             []string `yaml:"rss_feeds"`             // RSS源列表（可選）
@@ -284,6 +284,13 @@ type Config struct {
 		} `yaml:"risk_thresholds"`
 		HistoryRetentionDays int           `yaml:"history_retention_days"` // 历史記錄保留天數，預設30
 		Assets               []AssetConfig `yaml:"assets"`                 // 多资產配置（crypto_btc, commodity_gold）
+		// AI Provider 配置
+		AIProvider struct {
+			Provider string `yaml:"provider"` // gemini, openai, claude, poe，預設 gemini
+			Model    string `yaml:"model"`     // 模型名稱，如 "gpt-4", "claude-3-opus"，預設為各provider的默認模型
+			APIKey   string `yaml:"api_key"`   // Provider 的 API Key
+			BaseURL  string `yaml:"base_url"`  // 可選，自定義 API 端點（用於 Poe 等代理）
+		} `yaml:"ai_provider"`
 	} `yaml:"news_monitor"`
 
 	// 時间间隔配置（單位：秒，除非特别說明）
@@ -1722,6 +1729,22 @@ func (c *Config) Validate() error {
 		c.NewsMonitor.Assets = []AssetConfig{
 			{AssetType: "crypto_btc", Symbol: "BTCUSDT", Keywords: DefaultNewsKeywords(), Enabled: true},
 			{AssetType: "commodity_gold", Symbol: "PAXGUSDT", Keywords: DefaultGoldKeywords(), Enabled: true},
+		}
+	}
+	// 設置 AI Provider 配置預設值
+	if c.NewsMonitor.AIProvider.Provider == "" {
+		c.NewsMonitor.AIProvider.Provider = "gemini" // 預設使用 Gemini
+	}
+	// 如果未配置 API Key，嘗試從全局 AI 配置繼承
+	if c.NewsMonitor.AIProvider.APIKey == "" {
+		if c.NewsMonitor.AIProvider.Provider == "gemini" {
+			if c.AI.GeminiAPIKey != "" {
+				c.NewsMonitor.AIProvider.APIKey = c.AI.GeminiAPIKey
+			} else if c.AI.APIKey != "" {
+				c.NewsMonitor.AIProvider.APIKey = c.AI.APIKey
+			}
+		} else if c.AI.APIKey != "" {
+			c.NewsMonitor.AIProvider.APIKey = c.AI.APIKey
 		}
 	}
 

@@ -15,9 +15,11 @@ import (
 )
 
 // GeminiNewsAnalyzer Gemini 新聞分析器：整合历史新闻 + 實時搜索，输出價格概率預测
+// 现在支持多种AI Provider（Gemini、OpenAI、Claude、Poe）
 type GeminiNewsAnalyzer struct {
 	cfg           *config.Config
 	newsCollector *NewsCollector
+	aiClient      ai.AIClient
 	analyzing     atomic.Bool
 	lastResult    *NewsRiskAssessment
 	lastAnalysis  time.Time
@@ -25,10 +27,45 @@ type GeminiNewsAnalyzer struct {
 
 // NewGeminiNewsAnalyzer 創建 Gemini 新聞分析器
 func NewGeminiNewsAnalyzer(cfg *config.Config, newsCollector *NewsCollector) *GeminiNewsAnalyzer {
-	return &GeminiNewsAnalyzer{
+	analyzer := &GeminiNewsAnalyzer{
 		cfg:           cfg,
 		newsCollector: newsCollector,
 	}
+
+	// 初始化AI客户端
+	provider := cfg.NewsMonitor.AIProvider.Provider
+	if provider == "" {
+		provider = "gemini" // 默认使用Gemini
+	}
+
+	apiKey := cfg.NewsMonitor.AIProvider.APIKey
+	if apiKey == "" {
+		// 兼容旧配置：从全局AI配置读取
+		if provider == "gemini" {
+			apiKey = cfg.AI.GeminiAPIKey
+			if apiKey == "" {
+				apiKey = cfg.AI.APIKey
+			}
+		} else {
+			apiKey = cfg.AI.APIKey
+		}
+	}
+
+	if apiKey != "" {
+		aiClient, err := ai.NewAIClient(
+			provider,
+			cfg.NewsMonitor.AIProvider.Model,
+			apiKey,
+			cfg.NewsMonitor.AIProvider.BaseURL,
+		)
+		if err != nil {
+			logger.Warn("⚠️ 初始化AI客户端失败: %v，将使用规则引擎", err)
+		} else {
+			analyzer.aiClient = aiClient
+		}
+	}
+
+	return analyzer
 }
 
 // AssetType 资產類型常量
@@ -54,39 +91,48 @@ func (g *GeminiNewsAnalyzer) AnalyzeAsset(ctx context.Context, assetType, symbol
 	}
 	defer g.analyzing.Store(false)
 
-	apiKey := g.cfg.AI.GeminiAPIKey
-	if apiKey == "" {
-		apiKey = g.cfg.AI.APIKey
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("Gemini API Key 未配置")
+	if g.aiClient == nil {
+		return nil, fmt.Errorf("AI 客户端未初始化，请检查配置")
 	}
 
+	// 检查是否启用AI分析（兼容旧配置）
 	if !g.cfg.NewsMonitor.UseGeminiSearch {
-		// 降级：使用规则引擎（由 NewsMonitor 处理）
-		return nil, fmt.Errorf("Gemini 搜索未啟用，请使用 NewsMonitor 的规则引擎")
+		// 如果UseGeminiSearch为false，但配置了AI Provider，仍然可以使用
+		// 否则降级到规则引擎
+		if g.cfg.NewsMonitor.AIProvider.Provider == "" && g.cfg.NewsMonitor.AIProvider.APIKey == "" {
+			return nil, fmt.Errorf("AI 搜索未啟用，请使用 NewsMonitor 的规则引擎")
+		}
 	}
 
 	prompt := g.buildPrompt(assetType, symbol, currentPrice, focusEvent)
 	schema := g.buildOutputSchema()
 
-	client := ai.NewGeminiClient(apiKey)
-	aiText, err := client.GenerateContentWithGoogleSearch(ctx, prompt, schema)
+	// 判断是否使用Google Search（仅Gemini原生支持）
+	useGoogleSearch := false
+	if g.cfg.NewsMonitor.AIProvider.Provider == "gemini" || g.cfg.NewsMonitor.AIProvider.Provider == "" {
+		useGoogleSearch = g.cfg.NewsMonitor.UseGeminiSearch
+	}
+
+	aiText, err := g.aiClient.GenerateContent(ctx, prompt, schema, useGoogleSearch)
 	if err != nil {
-		logger.Warn("📰 Gemini 新聞分析失败: %v", err)
+		logger.Warn("📰 AI 新聞分析失败: %v", err)
 		return nil, err
 	}
 
 	assessment, err := g.parseResponse(aiText, assetType, symbol, currentPrice)
 	if err != nil {
-		logger.Warn("📰 解析 Gemini 响应失败: %v (原始: %s)", err, truncate(aiText, 200))
+		logger.Warn("📰 解析 AI 响应失败: %v (原始: %s)", err, truncate(aiText, 200))
 		return nil, err
 	}
 
 	g.lastResult = assessment
 	g.lastAnalysis = time.Now()
-	logger.Info("📰 Gemini 新聞分析完成: 建议=%s, 2h跌5%%概率=%.0f%%",
-		assessment.Recommendation, g.getProb2hDown5(assessment)*100)
+	provider := g.cfg.NewsMonitor.AIProvider.Provider
+	if provider == "" {
+		provider = "gemini"
+	}
+	logger.Info("📰 %s 新聞分析完成: 建议=%s, 2h跌5%%概率=%.0f%%",
+		provider, assessment.Recommendation, g.getProb2hDown5(assessment)*100)
 	return assessment, nil
 }
 
