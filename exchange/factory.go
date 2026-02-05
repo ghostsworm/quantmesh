@@ -24,6 +24,7 @@ import (
 	"quantmesh/exchange/phemex"
 	"quantmesh/exchange/poloniex"
 	"quantmesh/utils"
+	"quantmesh/exchange/bitkub"
 	"quantmesh/exchange/whitebit"
 	"quantmesh/exchange/woox"
 	"quantmesh/exchange/xtcom"
@@ -509,6 +510,25 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 			return nil, err
 		}
 		return &whitebitWrapper{adapter: adapter}, nil
+
+	case "bitkub":
+		exchangeCfg, exists := cfg.Exchanges["bitkub"]
+		if !exists {
+			return nil, fmt.Errorf("bitkub 配置不存在")
+		}
+		if marketType != "spot" {
+			return nil, fmt.Errorf("Bitkub 交易所僅支援現貨交易，請使用現貨模式或選擇其他交易所")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := bitkub.NewBitkubSpotAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bitkubSpotWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未實現")

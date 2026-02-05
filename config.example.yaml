@@ -106,6 +106,13 @@ exchanges:
     fee_rate: 0.00035  # taker费率 0.035%
     testnet: false     # WhiteBIT没有测试网，此选项保留以保持接口一致性
 
+  bitkub:
+  #Bitkub 泰国最大交易所，75.4%市场份额，受泰国SEC监管
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.0025   # taker费率 0.25%
+    testnet: false     # Bitkub没有测试网，此选项保留以保持接口一致性
+
   bitmex:
   #BitMEX 开户邀请码【QUANTMESH】开户链接：https://www.bitmex.com/
     api_key: "YOUR_API_KEY"
