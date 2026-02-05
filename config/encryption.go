@@ -213,6 +213,51 @@ func DecryptAPIKey(encrypted string, masterKey []byte) (string, error) {
 	return string(plaintext), nil
 }
 
+// LoadMasterKey 加载主密钥（如果存在）
+// 优先从环境变量加载，其次从文件加载，如果都不存在则返回 nil
+// 不会自动生成新密钥，用于配置加载时的自动解密
+func LoadMasterKey(keyPath string) ([]byte, error) {
+	// 1. 优先从环境变量加载
+	if envKey := os.Getenv(MasterKeyEnvVar); envKey != "" {
+		// 环境变量中的密钥可以是base64编码的，也可以是原始密钥
+		// 尝试解码，如果失败则使用原始值
+		decoded, err := base64.StdEncoding.DecodeString(envKey)
+		if err == nil && len(decoded) >= 32 {
+			return decoded, nil
+		}
+		// 如果不是base64编码，使用原始值（需要至少32字节）
+		if len(envKey) >= 32 {
+			return []byte(envKey)[:32], nil
+		}
+		return nil, fmt.Errorf("环境变量 %s 的密钥长度不足（至少需要32字节）", MasterKeyEnvVar)
+	}
+
+	// 2. 从文件加载
+	if keyPath == "" {
+		keyPath = DefaultMasterKeyPath
+	}
+
+	// 尝试读取文件
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		// 文件不存在，返回 nil（不生成新密钥）
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("读取密钥文件失败: %w", err)
+	}
+
+	// 文件存在，解码base64
+	decoded, err := base64.StdEncoding.DecodeString(string(keyData))
+	if err != nil {
+		return nil, fmt.Errorf("解码密钥文件失败: %w", err)
+	}
+	if len(decoded) < 32 {
+		return nil, fmt.Errorf("密钥文件中的密钥长度不足（至少需要32字节）")
+	}
+	return decoded[:32], nil
+}
+
 // LoadOrGenerateMasterKey 加载或生成主密钥
 // 优先从环境变量加载，其次从文件加载，如果都不存在则生成新密钥
 func LoadOrGenerateMasterKey(keyPath string) ([]byte, error) {
