@@ -42,6 +42,7 @@ import type { StrategyRuntimeStatus } from '../services/strategy'
 import { checkSetupStatus } from '../services/setup'
 import { Alert, AlertIcon, AlertTitle, AlertDescription, useDisclosure } from '@chakra-ui/react'
 import { NewbieCheckModal } from './NewbieCheckModal'
+import { trackTradingStarted } from '../services/telemetry'
 
 const MotionBox = motion(Box)
 const MotionFlex = motion(Flex)
@@ -270,6 +271,10 @@ const Dashboard: React.FC = () => {
     try {
       await Promise.race([actionPromise, timeoutPromise])
       setIsTrading(!isStop)
+      // 追踪交易启动事件
+      if (!isStop) {
+        trackTradingStarted(selectedExchange || undefined, selectedSymbol || undefined)
+      }
       toast({
         title: isStop ? t('dashboard.tradingStopped') : t('dashboard.tradingStarted'),
         status: isStop ? 'info' : 'success',
@@ -328,7 +333,8 @@ const Dashboard: React.FC = () => {
   // 🔥 价格偏差统计
   const buyPriceDeviation = typeof statistics?.total_buy_deviation === 'number' ? statistics.total_buy_deviation : 0
   const sellPriceDeviation = typeof statistics?.total_sell_deviation === 'number' ? statistics.total_sell_deviation : 0
-  const priceDeviationLoss = buyPriceDeviation + sellPriceDeviation // 总偏差损失（通常为负值）
+  // 总偏差净额：买入偏差 + 卖出偏差（正数表示净收益，负数表示净损失）
+  const priceDeviationNet = buyPriceDeviation + sellPriceDeviation
   // 收益率：用分配资金作为分母，无分配资金时不显示百分比
   const totalAllocated = strategyAllocation?.allocation
     ? Object.values(strategyAllocation.allocation).reduce((sum, cap) => sum + (cap.allocated || 0), 0)
@@ -526,35 +532,47 @@ const Dashboard: React.FC = () => {
         </SimpleGrid>
 
         {/* 🔥 价格偏差统计 */}
-        {(priceDeviationLoss !== 0 || buyPriceDeviation !== 0 || sellPriceDeviation !== 0) && (
+        {(Math.abs(priceDeviationNet) > 0.01 || Math.abs(buyPriceDeviation) > 0.01 || Math.abs(sellPriceDeviation) > 0.01) && (
           <GlassCard>
-            <Heading size="sm" mb={4} color="gray.700">{t('dashboard.priceDeviation') || '價格偏差統計'}</Heading>
+            <Heading size="sm" mb={4} color="gray.700">{t('dashboard.priceDeviation')}</Heading>
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
               <Box>
-                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.buyPriceDeviation') || '買入價格偏差'}</Text>
+                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.buyPriceDeviation')}</Text>
                 <Text fontSize="lg" fontWeight="bold" color={buyPriceDeviation >= 0 ? 'green.500' : 'red.500'}>
-                  {buyPriceDeviation >= 0 ? '+' : ''}{buyPriceDeviation.toFixed(2)} USDT
+                  {buyPriceDeviation > 0 ? '+' : ''}{buyPriceDeviation.toFixed(2)} USDT
                 </Text>
                 <Text fontSize="xs" color="gray.400" mt={1}>
-                  {buyPriceDeviation < 0 ? '實際買入價高於委託價' : buyPriceDeviation > 0 ? '實際買入價低於委託價（有利）' : '無偏差'}
+                  {buyPriceDeviation < -0.01 
+                    ? t('dashboard.buyPriceDeviationDescHigher')
+                    : buyPriceDeviation > 0.01 
+                    ? t('dashboard.buyPriceDeviationDescLower')
+                    : t('dashboard.buyPriceDeviationDescNone')}
                 </Text>
               </Box>
               <Box>
-                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.sellPriceDeviation') || '賣出價格偏差'}</Text>
+                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.sellPriceDeviation')}</Text>
                 <Text fontSize="lg" fontWeight="bold" color={sellPriceDeviation >= 0 ? 'green.500' : 'red.500'}>
-                  {sellPriceDeviation >= 0 ? '+' : ''}{sellPriceDeviation.toFixed(2)} USDT
+                  {sellPriceDeviation > 0 ? '+' : ''}{sellPriceDeviation.toFixed(2)} USDT
                 </Text>
                 <Text fontSize="xs" color="gray.400" mt={1}>
-                  {sellPriceDeviation < 0 ? '實際賣出價低於委託價' : sellPriceDeviation > 0 ? '實際賣出價高於委託價（有利）' : '無偏差'}
+                  {sellPriceDeviation < -0.01 
+                    ? t('dashboard.sellPriceDeviationDescLower')
+                    : sellPriceDeviation > 0.01 
+                    ? t('dashboard.sellPriceDeviationDescHigher')
+                    : t('dashboard.sellPriceDeviationDescNone')}
                 </Text>
               </Box>
               <Box>
-                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.totalDeviationLoss') || '價格偏差總損失'}</Text>
-                <Text fontSize="lg" fontWeight="bold" color={priceDeviationLoss >= 0 ? 'green.500' : 'red.500'}>
-                  {priceDeviationLoss >= 0 ? '+' : ''}{priceDeviationLoss.toFixed(2)} USDT
+                <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.totalDeviationLoss')}</Text>
+                <Text fontSize="lg" fontWeight="bold" color={priceDeviationNet >= 0 ? 'green.500' : 'red.500'}>
+                  {priceDeviationNet > 0 ? '+' : ''}{priceDeviationNet.toFixed(2)} USDT
                 </Text>
                 <Text fontSize="xs" color="gray.400" mt={1}>
-                  {priceDeviationLoss < 0 ? '因價格偏差導致的總損失' : priceDeviationLoss > 0 ? '因價格偏差獲得的總收益' : '無偏差'}
+                  {priceDeviationNet < -0.01 
+                    ? t('dashboard.totalDeviationDescLoss')
+                    : priceDeviationNet > 0.01 
+                    ? t('dashboard.totalDeviationDescGain')
+                    : t('dashboard.totalDeviationDescNone')}
                 </Text>
               </Box>
             </SimpleGrid>

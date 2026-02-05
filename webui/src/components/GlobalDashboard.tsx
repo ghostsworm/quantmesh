@@ -45,6 +45,7 @@ import {
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
+import { trackTradingStarted } from '../services/telemetry'
 import { 
   getSymbols, 
   getSystemStatus, 
@@ -258,6 +259,8 @@ const GlobalDashboard: React.FC = () => {
         })
       } else {
         await startTrading(exchange, symbol)
+        // 追踪交易启动事件
+        trackTradingStarted(exchange, symbol)
         toast({
           title: t('globalDashboard.tradingStarted'),
           description: `${exchange}:${symbol}`,
