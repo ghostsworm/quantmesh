@@ -4,6 +4,7 @@ import App from './App'
 import './index.css'
 import './i18n/config'
 import i18n from 'i18next'
+import { trackAppInit } from './services/telemetry'
 
 // PWA Service Worker 註冊已由 vite-plugin-pwa 自動處理（通過 registerSW.js）
 // 不需要手動註冊，避免雙重註冊導致的衝突
@@ -25,6 +26,9 @@ window.addEventListener('appinstalled', () => {
   console.log('✅', i18n.t('pwa.installed'))
   deferredPrompt = null
 })
+
+// 追踪应用初始化
+trackAppInit()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

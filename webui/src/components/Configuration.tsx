@@ -68,6 +68,8 @@ import {
   getConfigYAML,
   validateConfigYAML,
   updateConfigYAML,
+  getSecurityStatus,
+  generateMasterKey,
   Config,
   BackupInfo,
   ConfigDiff,
@@ -85,6 +87,7 @@ import YamlEditor from './YamlEditor'
 import DiffPreviewModal from './DiffPreviewModal'
 import ConfigHistory from './ConfigHistory'
 import ConfirmDialog from './ConfirmDialog'
+import { trackConfigSaved } from '../services/telemetry'
 
 const MotionBox = motion(Box)
 
@@ -148,6 +151,14 @@ const Configuration: React.FC = () => {
   const [yamlValid, setYamlValid] = useState(true)
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [yamlSaving, setYamlSaving] = useState(false)
+  
+  // Security settings state
+  const [securityStatus, setSecurityStatus] = useState<{
+    encryption_enabled: boolean
+    master_key_path: string
+    master_key_exists: boolean
+  } | null>(null)
+  const [generatingKey, setGeneratingKey] = useState(false)
   
   const { isOpen: isPreviewOpen, onOpen: onPreviewOpen, onClose: onPreviewClose } = useDisclosure()
   const { isOpen: isBackupsOpen, onOpen: onBackupsOpen, onClose: onBackupsClose } = useDisclosure()
@@ -257,6 +268,9 @@ const Configuration: React.FC = () => {
       setYamlSaving(true)
       const result = await updateConfigYAML(yamlContent)
       
+      // 追踪配置保存事件
+      trackConfigSaved('yaml')
+      
       toast({
         title: '保存成功',
         description: result.requires_restart ? '部分配置需要重啟后生效' : '配置已更新並生效',
@@ -281,9 +295,42 @@ const Configuration: React.FC = () => {
     }
   }
 
+  const loadSecurityStatus = async () => {
+    try {
+      const status = await getSecurityStatus()
+      setSecurityStatus(status)
+    } catch (err) {
+      console.error('加载安全状态失败:', err)
+    }
+  }
+
+  const handleGenerateMasterKey = async () => {
+    try {
+      setGeneratingKey(true)
+      const result = await generateMasterKey()
+      toast({
+        title: '生成成功',
+        description: `主密钥已生成: ${result.master_key_path}`,
+        status: 'success',
+        duration: 5000,
+      })
+      await loadSecurityStatus()
+    } catch (err) {
+      toast({
+        title: '生成失败',
+        description: err instanceof Error ? err.message : '生成主密钥失败',
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setGeneratingKey(false)
+    }
+  }
+
   useEffect(() => {
     loadConfig()
     loadBackups()
+    loadSecurityStatus()
   }, [])
 
   // Reset tab index when switching view mode
@@ -310,6 +357,8 @@ const Configuration: React.FC = () => {
     setSuccess(null)
     try {
       const result = await updateConfig(config)
+      // 追踪配置保存事件
+      trackConfigSaved(isGlobalView ? 'global' : 'symbol')
       setSuccess(result.message)
       onPreviewClose()
       toast({ 
@@ -448,7 +497,7 @@ const Configuration: React.FC = () => {
   if (loading) return <Center h="400px"><Spinner size="xl" thickness="4px" color="blue.500" /></Center>
   if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />{t('configuration.loadFailed')}</Alert></Container>
 
-  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), 'YAML 编辑器', '历史版本']
+  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), t('configuration.globalTabs.security'), 'YAML 编辑器', '历史版本']
   const symbolTabs = [t('configuration.symbolTabs.tradingParams'), t('configuration.symbolTabs.riskControl'), t('configuration.symbolTabs.aiStrategy')]
 
   const activeTabs = isGlobalView ? globalTabs : symbolTabs
@@ -1142,6 +1191,94 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 4 && (
                   <VStack spacing={6} align="stretch">
+                    <ConfigCard title={t('configuration.securitySettings')} icon={<LockIcon />}>
+                      <VStack spacing={6} align="stretch">
+                        <Alert status="info" borderRadius="lg">
+                          <AlertIcon />
+                          <AlertDescription fontSize="sm">
+                            {t('configuration.securitySettingsDesc')}
+                          </AlertDescription>
+                        </Alert>
+
+                        <FormControl display="flex" alignItems="center">
+                          <FormLabel fontSize="sm" fontWeight="bold" mb={0} flex="1">
+                            {t('configuration.enableEncryption')}
+                          </FormLabel>
+                          <Switch
+                            colorScheme="blue"
+                            isChecked={config.security?.encryption_enabled || false}
+                            onChange={(e) => updateConfigField('security.encryption_enabled', e.target.checked)}
+                          />
+                        </FormControl>
+
+                        {config.security?.encryption_enabled && (
+                          <>
+                            <FormControl>
+                              <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">
+                                {t('configuration.masterKeyPath')}
+                              </FormLabel>
+                              <Input
+                                value={securityStatus?.master_key_path || config.security?.master_key_path || './data/master.key'}
+                                isReadOnly
+                                borderRadius="xl"
+                                bg="gray.50"
+                              />
+                              <Text fontSize="xs" color="gray.500" mt={1}>
+                                {t('configuration.masterKeyPathDesc')}
+                              </Text>
+                            </FormControl>
+
+                            <Divider />
+
+                            <VStack spacing={4} align="stretch">
+                              <Text fontSize="sm" fontWeight="600">
+                                {t('configuration.masterKeyManagement')}
+                              </Text>
+                              
+                              {securityStatus?.master_key_exists ? (
+                                <Alert status="success" borderRadius="md">
+                                  <AlertIcon />
+                                  <AlertDescription fontSize="xs">
+                                    {t('configuration.masterKeyExists')}
+                                  </AlertDescription>
+                                </Alert>
+                              ) : (
+                                <Alert status="warning" borderRadius="md">
+                                  <AlertIcon />
+                                  <AlertDescription fontSize="xs">
+                                    {t('configuration.masterKeyNotExists')}
+                                  </AlertDescription>
+                                </Alert>
+                              )}
+
+                              <Button
+                                size="sm"
+                                colorScheme="blue"
+                                variant="outline"
+                                onClick={handleGenerateMasterKey}
+                                isLoading={generatingKey}
+                                isDisabled={securityStatus?.master_key_exists || false}
+                                leftIcon={<LockIcon />}
+                              >
+                                {t('configuration.generateMasterKey')}
+                              </Button>
+                            </VStack>
+
+                            <Alert status="warning" borderRadius="md" mt={4}>
+                              <AlertIcon />
+                              <AlertDescription fontSize="xs">
+                                {t('configuration.encryptionWarning')}
+                              </AlertDescription>
+                            </Alert>
+                          </>
+                        )}
+                      </VStack>
+                    </ConfigCard>
+                  </VStack>
+                )}
+
+                {tabIndex === 5 && (
+                  <VStack spacing={6} align="stretch">
                     <ConfigCard title="YAML 配置编辑器" icon={<SettingsIcon />}>
                       <VStack spacing={4} align="stretch">
                         <HStack justify="space-between">
@@ -1211,7 +1348,7 @@ const Configuration: React.FC = () => {
                   </VStack>
                 )}
 
-                {tabIndex === 5 && (
+                {tabIndex === 6 && (
                   <VStack spacing={6} align="stretch">
                     <ConfigCard title="配置历史版本" icon={<RepeatIcon />}>
                       <Text fontSize="sm" color="gray.500" mb={4}>

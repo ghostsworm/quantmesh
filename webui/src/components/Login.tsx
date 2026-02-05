@@ -24,6 +24,7 @@ import {
   beginWebAuthnLogin,
   finishWebAuthnLogin,
 } from '../services/auth'
+import { trackUserLogin } from '../services/telemetry'
 import LanguageSelector from './LanguageSelector'
 
 const Login: React.FC = () => {
@@ -73,6 +74,8 @@ const Login: React.FC = () => {
 
     try {
       await verifyPassword(password)
+      // 追踪登录事件
+      trackUserLogin('password')
       // 驗证成功后，清除配置跳過標記，确保每次登錄都显示配置页面
       sessionStorage.removeItem('config_setup_skipped')
       // 刷新认证状態
@@ -155,6 +158,8 @@ const Login: React.FC = () => {
 
       await finishWebAuthnLogin('admin', beginResponse.session_key, credentialResponse, passwordForWebAuthn)
       
+      // 追踪登录事件
+      trackUserLogin('webauthn')
       // 清除配置跳過標記，确保每次登錄都显示配置页面
       sessionStorage.removeItem('config_setup_skipped')
       // 刷新认证状態
