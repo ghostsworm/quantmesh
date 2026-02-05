@@ -23,6 +23,8 @@ import (
 	"quantmesh/exchange/okx"
 	"quantmesh/exchange/phemex"
 	"quantmesh/exchange/poloniex"
+	"quantmesh/utils"
+	"quantmesh/exchange/whitebit"
 	"quantmesh/exchange/woox"
 	"quantmesh/exchange/xtcom"
 )
@@ -40,6 +42,13 @@ func NewExchange(cfg *config.Config, exchangeName, symbol, marketType string) (I
 	if err != nil {
 		return nil, err
 	}
+
+	// 追踪交易所使用情况（异步，不阻塞）
+	// 注意：Version 需要从 main 包导入，这里先使用空字符串，实际版本号会在发送时从 main.Version 获取
+	go func() {
+		// 使用空字符串作为版本号占位符，实际版本号会在 telemetry 函数中从环境变量或配置获取
+		utils.TrackExchangeUsage("", exchangeName, symbol)
+	}()
 
 	// 如果啟用了 DryRun 模式，包装交易所
 	if cfg.System.DryRun {
@@ -481,6 +490,25 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 			return nil, err
 		}
 		return &cryptocomWrapper{adapter: adapter}, nil
+
+	case "whitebit":
+		exchangeCfg, exists := cfg.Exchanges["whitebit"]
+		if !exists {
+			return nil, fmt.Errorf("whitebit 配置不存在")
+		}
+		if marketType == "spot" {
+			return nil, fmt.Errorf("WhiteBIT 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := whitebit.NewWhiteBITAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &whitebitWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未實現")

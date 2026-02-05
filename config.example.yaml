@@ -2,6 +2,11 @@
 app:
   current_exchange: "bitget"  # 当前使用的交易所: binance, bitget, bybit, gate, okx, huobi, kucoin, kraken, bitfinex, mexc, bingx, deribit, edgex
 
+# 安全配置（高级特性）
+security:
+  encryption_enabled: false  # 是否启用API密钥加密（默认false，启用后配置文件中的API Key和Secret将加密存储）
+  master_key_path: "./data/master.key"  # 主密钥文件路径（可选，默认./data/master.key），也可通过环境变量 QUANTMESH_MASTER_KEY 提供
+
 # 多交易所配置
 exchanges:
   binance:
@@ -93,6 +98,13 @@ exchanges:
     secret_key: "YOUR_API_SECRET"
     fee_rate: 0.0003
     testnet: false
+
+  whitebit:
+  #WhiteBIT 欧洲最大交易所之一，乌克兰市场领导者
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.00035  # taker费率 0.035%
+    testnet: false     # WhiteBIT没有测试网，此选项保留以保持接口一致性
 
   bitmex:
   #BitMEX 开户邀请码【QUANTMESH】开户链接：https://www.bitmex.com/
