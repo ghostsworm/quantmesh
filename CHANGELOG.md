@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [3.40.0-rc1] - 2026-02-05
+
+### Added
+- **新聞風控 AI Provider 和多時間間隔配置**：
+  - 支援多種 AI Provider：Gemini、OpenAI、Claude、Poe
+  - 每個 Provider 支援多個模型選擇（如 gpt-4、claude-3-opus 等）
+  - 可配置分析時間間隔：5分鐘、15分鐘、30分鐘、1小時、2小時、4小時、8小時、24小時
+  - 前端配置頁面新增 AI Provider 選擇器、模型選擇器、API Key 輸入框和 Base URL 輸入框
+  - 後端新增統一的 AI 客戶端接口（`AIClient`），支援動態切換 Provider
+  - Google Search 功能僅 Gemini 原生支援，其他 Provider 通過 prompt 增強
+  - 保持向後兼容，現有配置無需修改即可工作
+
+## [3.39.0-rc1] - 2026-02-05
+
+### Fixed
+- **一键平仓交易对匹配失败**：统一交易对键的大小写规范（exchange 小写、symbol 大写），避免大小写不一致导致找不到运行时
+
 ## [3.39.0] - 2026-02-05
 
 ### Added

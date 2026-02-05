@@ -84,7 +84,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.39.0"
+var Version = "3.40.0-rc1"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
@@ -2363,6 +2363,12 @@ func (a *positionExchangeAdapter) GetOpenOrders(ctx context.Context, symbol stri
 }
 
 func (a *positionExchangeAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
+	return a.exchange.GetOrder(ctx, symbol, orderID)
+}
+
+// GetOrderForReconciler 為對賬服務提供 GetOrder 方法（返回 *exchange.Order）
+func (a *positionExchangeAdapter) GetOrderForReconciler(ctx context.Context, symbol string, orderID int64) (*exchange.Order, error) {
+	// exchange.IExchange.GetOrder 已经返回 *exchange.Order，直接返回即可
 	return a.exchange.GetOrder(ctx, symbol, orderID)
 }
 

@@ -216,14 +216,18 @@ func (nm *NewsMonitor) Start() error {
 	nm.geminiAnalyzer = NewGeminiNewsAnalyzer(nm.cfg, nm.newsCollector)
 
 	nm.analysisLoopDone = make(chan struct{})
-	if nm.cfg.NewsMonitor.UseGeminiSearch {
-		// Gemini 模式：每30分钟分析一次
-		analysisInterval, err := time.ParseDuration(nm.cfg.NewsMonitor.AnalysisInterval)
+	if nm.cfg.NewsMonitor.UseGeminiSearch || (nm.cfg.NewsMonitor.AIProvider.Provider != "" && nm.cfg.NewsMonitor.AIProvider.APIKey != "") {
+		// AI 分析模式：使用配置的分析间隔
+		analysisInterval, err := parseAnalysisInterval(nm.cfg.NewsMonitor.AnalysisInterval)
 		if err != nil {
 			logger.Warn("⚠️ 解析分析间隔失败，使用默认30分钟: %v", err)
 			analysisInterval = 30 * time.Minute
 		}
-		logger.Info("📰 啟动新聞監控 (Gemini 分析间隔: %s)", analysisInterval)
+		provider := nm.cfg.NewsMonitor.AIProvider.Provider
+		if provider == "" {
+			provider = "Gemini"
+		}
+		logger.Info("📰 啟动新聞監控 (%s 分析间隔: %s)", provider, analysisInterval)
 		go nm.geminiAnalysisLoop(analysisInterval)
 	} else {
 		// 规则引擎模式：每5分钟检查
@@ -912,6 +916,47 @@ func containsAny(text string, keywords []string) bool {
 		}
 	}
 	return false
+}
+
+// parseAnalysisInterval 解析分析间隔，支持预设间隔：5m, 15m, 30m, 1h, 2h, 4h, 8h, 24h
+// 如果解析失败，返回错误
+func parseAnalysisInterval(intervalStr string) (time.Duration, error) {
+	if intervalStr == "" {
+		return 30 * time.Minute, nil // 默认30分钟
+	}
+
+	// 支持的预设间隔
+	validIntervals := map[string]time.Duration{
+		"5m":  5 * time.Minute,
+		"15m": 15 * time.Minute,
+		"30m": 30 * time.Minute,
+		"1h":  1 * time.Hour,
+		"2h":  2 * time.Hour,
+		"4h":  4 * time.Hour,
+		"8h":  8 * time.Hour,
+		"24h": 24 * time.Hour,
+	}
+
+	// 检查是否为预设间隔
+	if duration, ok := validIntervals[intervalStr]; ok {
+		return duration, nil
+	}
+
+	// 尝试解析任意格式的duration
+	duration, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		return 0, fmt.Errorf("无效的时间间隔格式: %s，支持的格式: 5m, 15m, 30m, 1h, 2h, 4h, 8h, 24h", intervalStr)
+	}
+
+	// 验证duration是否合理（至少1分钟，最多48小时）
+	if duration < time.Minute {
+		return 0, fmt.Errorf("时间间隔太短，至少需要1分钟")
+	}
+	if duration > 48*time.Hour {
+		return 0, fmt.Errorf("时间间隔太长，最多48小时")
+	}
+
+	return duration, nil
 }
 
 // 辅助函數：從RSS獲取新闻（示例實現）

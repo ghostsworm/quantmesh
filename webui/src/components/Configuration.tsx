@@ -722,6 +722,96 @@ const Configuration: React.FC = () => {
                           />
                         </Flex>
 
+                        <Divider />
+                        
+                        <Text fontSize="sm" fontWeight="600" color="gray.700">AI Provider 配置</Text>
+                        
+                        <SimpleGrid columns={2} spacing={4}>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">AI Provider</FormLabel>
+                            <Select
+                              value={config.news_monitor?.ai_provider?.provider || 'gemini'}
+                              onChange={(e) => {
+                                updateConfigField('news_monitor.ai_provider.provider', e.target.value)
+                                // 切换provider时清空model，让用户重新选择
+                                updateConfigField('news_monitor.ai_provider.model', '')
+                              }}
+                              borderRadius="xl"
+                              size="sm"
+                            >
+                              <option value="gemini">Gemini</option>
+                              <option value="openai">OpenAI</option>
+                              <option value="claude">Claude (Anthropic)</option>
+                              <option value="poe">Poe</option>
+                            </Select>
+                          </FormControl>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">模型</FormLabel>
+                            <Select
+                              value={config.news_monitor?.ai_provider?.model || ''}
+                              onChange={(e) => updateConfigField('news_monitor.ai_provider.model', e.target.value)}
+                              borderRadius="xl"
+                              size="sm"
+                              placeholder="使用默认模型"
+                            >
+                              {config.news_monitor?.ai_provider?.provider === 'gemini' && (
+                                <>
+                                  <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                                  <option value="gemini-pro">gemini-pro</option>
+                                  <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                                </>
+                              )}
+                              {config.news_monitor?.ai_provider?.provider === 'openai' && (
+                                <>
+                                  <option value="gpt-4">gpt-4</option>
+                                  <option value="gpt-4-turbo">gpt-4-turbo</option>
+                                  <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                                </>
+                              )}
+                              {config.news_monitor?.ai_provider?.provider === 'claude' && (
+                                <>
+                                  <option value="claude-3-opus-20240229">claude-3-opus</option>
+                                  <option value="claude-3-sonnet-20240229">claude-3-sonnet</option>
+                                  <option value="claude-3-haiku-20240307">claude-3-haiku</option>
+                                </>
+                              )}
+                              {config.news_monitor?.ai_provider?.provider === 'poe' && (
+                                <>
+                                  <option value="gpt-4">gpt-4</option>
+                                  <option value="claude-3-opus">claude-3-opus</option>
+                                  <option value="claude-3-sonnet">claude-3-sonnet</option>
+                                </>
+                              )}
+                            </Select>
+                          </FormControl>
+                        </SimpleGrid>
+
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">API Key</FormLabel>
+                          {renderPasswordInput('news_monitor.ai_provider.api_key', '输入API Key')}
+                          <Text fontSize="xs" color="gray.500" mt={1}>
+                            {config.news_monitor?.ai_provider?.provider === 'gemini' && '从 Google AI Studio 获取'}
+                            {config.news_monitor?.ai_provider?.provider === 'openai' && '从 OpenAI Platform 获取'}
+                            {config.news_monitor?.ai_provider?.provider === 'claude' && '从 Anthropic Console 获取'}
+                            {config.news_monitor?.ai_provider?.provider === 'poe' && 'Poe API Key'}
+                          </Text>
+                        </FormControl>
+
+                        {(config.news_monitor?.ai_provider?.provider === 'poe' || config.news_monitor?.ai_provider?.provider === 'openai' || config.news_monitor?.ai_provider?.provider === 'claude') && (
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Base URL (可选)</FormLabel>
+                            <Input
+                              value={config.news_monitor?.ai_provider?.base_url || ''}
+                              onChange={(e) => updateConfigField('news_monitor.ai_provider.base_url', e.target.value)}
+                              placeholder="自定义API端点（Poe等代理服务需要）"
+                              borderRadius="xl"
+                              size="sm"
+                            />
+                          </FormControl>
+                        )}
+
+                        <Divider />
+
                         <SimpleGrid columns={2} spacing={4}>
                           <FormControl>
                             <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">新聞收集间隔</FormLabel>
@@ -745,9 +835,14 @@ const Configuration: React.FC = () => {
                               borderRadius="xl"
                               size="sm"
                             >
+                              <option value="5m">5 分钟</option>
                               <option value="15m">15 分钟</option>
                               <option value="30m">30 分钟</option>
-                              <option value="60m">60 分钟</option>
+                              <option value="1h">1 小时</option>
+                              <option value="2h">2 小时</option>
+                              <option value="4h">4 小时</option>
+                              <option value="8h">8 小时</option>
+                              <option value="24h">24 小时</option>
                             </Select>
                           </FormControl>
                         </SimpleGrid>
