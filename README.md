@@ -4,6 +4,13 @@
   # QuantMesh Market Maker
   
   **毫秒級高頻加密貨幣做市商系統**
+  
+  <h3>⭐ 如果這個項目對您有幫助，請給個 Star 支持一下！</h3>
+  <p>
+    <a href="https://github.com/ghostsworm/quantmesh">
+      <img src="https://img.shields.io/github/stars/ghostsworm/quantmesh?style=social" alt="GitHub Stars">
+    </a>
+  </p>
 
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
   [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
@@ -13,7 +20,7 @@
   [![GitHub Release](https://img.shields.io/github/release/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/releases)
   [![Website](https://img.shields.io/badge/Website-quantmesh.io-green.svg)](https://quantmesh.io)
   
-  [繁體中文](README.md) | [简体中文](docs/i18n/README.zh-Hans.md) | [English](docs/i18n/README.en.md) | [Español](docs/i18n/README.es.md) | [Français](docs/i18n/README.fr.md) | [Português](docs/i18n/README.pt.md)
+  [繁體中文](README.md) | [简体中文](docs/i18n/README.zh-Hans.md) | [English](docs/i18n/README.en.md) | [Español](docs/i18n/README.es.md) | [Français](docs/i18n/README.fr.md) | [Português](docs/i18n/README.pt.md) | [Deutsch](docs/i18n/README.de.md) | [日本語](docs/i18n/README.ja.md) | [한국어](docs/i18n/README.ko.md) | [Русский](docs/i18n/README.ru.md) | [العربية](docs/i18n/README.ar.md) | [हिन्दी](docs/i18n/README.hi.md) | [Bahasa Indonesia](docs/i18n/README.id.md) | [Tiếng Việt](docs/i18n/README.vi.md) | [ไทย](docs/i18n/README.th.md) | [Türkçe](docs/i18n/README.tr.md) | [Українська](docs/i18n/README.uk.md) | [فارسی](docs/i18n/README.fa.md) | [Nederlands](docs/i18n/README.nl.md) | [Italiano](docs/i18n/README.it.md) | [বাংলা](docs/i18n/README.bn.md) | [اردو](docs/i18n/README.ur.md) | [Polski](docs/i18n/README.pl.md) | [Tagalog](docs/i18n/README.tl.md)
 </div>
 
 ---
@@ -71,7 +78,7 @@ QuantMesh 是高效能、低延遲的加密貨幣做市商系統，專注於永�
 - 📊 **增強監控**：完善日誌系統、指標收集（Prometheus）、健康檢查與即時告警
 - 🛡️ **強化風控**：多層風險監控、自動對帳、異常熔斷、資金安全保護
 - 🔌 **外掛系統**：支援可擴展外掛機制，便於功能自訂與二次開發
-- 📱 **國際化**：多語介面（中/英），i18n 支援
+- 📱 **國際化**：多語介面（21 種語言，含中文/英/波斯語/烏克蘭語/烏爾都語/孟加拉語/泰語等），i18n 支援
 - 🧪 **測試網**：支援多家交易所測試網，便於開發與測試
 
 詳細改進說明與第三方軟體資訊請參閱 [NOTICE](NOTICE) 檔案。
@@ -94,6 +101,7 @@ QuantMesh 是高效能、低延遲的加密貨幣做市商系統，專注於永�
   - **自動對帳**：定期同步本地與交易所狀態，確保資料一致
 - **完整監控體系**：Prometheus 指標、Grafana 儀表板、多層告警、Watchdog 健康檢查
 - **事件中心與新聞監控**：價格波動與交易事件記錄、AI 新聞分析與預測驗證
+- **使用統計（可選）**：匿名使用數據收集，幫助改進產品；完全透明、可審查、可禁用
 - **高並行架構**：基於 Goroutine + Channel + Sync.Map 的高效並行模型
 
 ## 🏦 支援的交易所
@@ -207,11 +215,40 @@ quantmesh_platform/
 
 ## 🚀 快速開始
 
-### 環境需求
+### 方式一：Docker 一鍵運行（推薦，最簡單）
+
+**只需 3 步：**
+
+1. **克隆倉庫並準備配置**
+   ```bash
+   git clone https://github.com/ghostsworm/quantmesh.git
+   cd quantmesh
+   cp config.example.yaml config.yaml
+   ```
+
+2. **編輯配置**：編輯 `config.yaml`，填入 API Key 與策略參數（見下方配置說明）
+
+3. **啟動服務**
+   ```bash
+   docker-compose up -d
+   ```
+
+   訪問 **http://localhost:8080** 即可使用 Web UI。
+
+   **停止服務：**
+   ```bash
+   docker-compose down
+   ```
+
+---
+
+### 方式二：從源碼編譯運行
+
+#### 環境需求
 - Go 1.21 或更高
 - 網路環境可存取交易所 API
 
-### 安裝
+#### 安裝
 
 1. **克隆倉庫**
    ```bash
@@ -224,7 +261,7 @@ quantmesh_platform/
    go mod download
    ```
 
-### 配置
+#### 配置
 
 1. 複製範例配置：
    ```bash
@@ -251,9 +288,9 @@ quantmesh_platform/
      sell_window_size: 10    # 賣單掛單數量
    ```
 
-### 執行
+#### 執行
 
-#### 正式模式
+**正式模式：**
 
 ```bash
 go run main.go
@@ -306,6 +343,58 @@ pnpm dev
 - **Safety & Risk Control**：多層風控，含啟動檢查、執行時監控與異常熔斷
 
 更多架構說明請參閱 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+## 📊 使用統計與隱私保護
+
+QuantMesh 包含一個可選的使用統計功能，用於收集匿名的使用數據，幫助我們了解項目使用情況並改進產品。**所有數據收集都是完全透明的，代碼可審查，並且可以隨時禁用。**
+
+### 🔒 隱私保護
+
+**我們收集的數據（匿名）：**
+- ✅ **基礎信息**：版本號、操作系統、架構、實例 ID（隨機生成的 UUID）
+- ✅ **使用情況**：使用的交易所名稱、交易幣種對
+- ✅ **性能指標**：API 請求/響應耗時、WebSocket 延時
+- ✅ **交易活動**：交易方向（買入/賣出），不包含交易金額
+
+**我們不收集的數據：**
+- ❌ **IP 地址**：前端已禁用 IP 捕獲，後端使用實例 ID 而非 IP
+- ❌ **地理位置**：不收集經緯度、城市等位置信息
+- ❌ **個人信息**：不收集用戶 ID、郵箱、姓名等任何身份信息
+- ❌ **敏感數據**：不收集 API 密鑰、交易金額、賬戶餘額、持倉信息
+- ❌ **財務數據**：不收集任何財務或交易敏感信息
+
+### 🛡️ 隱私保護措施
+
+1. **實例 ID 機制**：使用隨機生成的 UUID 作為唯一標識符，存儲在 `./data/instance_id` 文件中，不包含任何個人信息
+2. **前端 IP 禁用**：PostHog SDK 配置了 `ip_capture: false`，禁用 IP 地址捕獲和地理位置推斷
+3. **後端不發送 IP**：後端代碼不發送 IP 地址到統計服務
+4. **完全可選**：用戶可以隨時通過環境變量禁用統計功能
+5. **代碼透明**：所有統計代碼都可以審查，位於 `utils/telemetry.go`
+
+### ⚙️ 如何禁用統計
+
+**方法一：環境變量（推薦）**
+```bash
+export QUANTMESH_DISABLE_TELEMETRY=1
+```
+
+**方法二：前端禁用**
+在 `webui/.env.local` 文件中：
+```bash
+VITE_DISABLE_TELEMETRY=1
+```
+
+**方法三：修改代碼**
+編輯 `utils/telemetry.go`，將 `Enabled` 設為 `false`
+
+### 📖 詳細說明
+
+更多關於統計功能的詳細說明，請參閱：
+- 📖 [統計功能完整指南](docs/TELEMETRY_GUIDE.md)
+- 🔒 [隱私保護說明](docs/TELEMETRY_PRIVACY.md)
+- 🚀 [快速配置指南](docs/TELEMETRY_SIMPLE_GUIDE.md)
+
+---
 
 ## ⚠️ 免責聲明
 
@@ -368,7 +457,7 @@ QuantMesh 支援以加密貨幣支付訂閱與授權：
 
 - 🌐 **官網**：https://quantmesh.io
 - 📧 **Email**：contact@quantmesh.io
-- 💬 **Discord**：[加入社群](https://discord.gg/YOUR_INVITE_LINK)
+- 💬 **Discord**：歡迎在 [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions) 參與討論
 - 🐛 **Issues**：[GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)
 - 💬 **討論**：[GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)
 - 📖 **文件**：[完整文件](docs/)
@@ -378,7 +467,7 @@ QuantMesh 支援以加密貨幣支付訂閱與授權：
 <div align="center">
   <strong>Made with ❤️ by QuantMesh Team</strong><br/>
   <sub>若本專案對您有幫助，歡迎給予 ⭐</sub><br/>
-  <sub>Version 3.20.2</sub>
+  <sub>Version 3.41.0</sub>
 </div>
 
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
