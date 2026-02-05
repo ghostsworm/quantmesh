@@ -113,6 +113,13 @@ exchanges:
     fee_rate: 0.0025   # taker费率 0.25%
     testnet: false     # Bitkub没有测试网，此选项保留以保持接口一致性
 
+  coinsph:
+  #Coins.ph 菲律宾最大交易所，受菲律宾央行监管，支持PHP交易对
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_API_SECRET"
+    fee_rate: 0.001    # taker费率 0.1%
+    testnet: false     # Coins.ph没有测试网，此选项保留以保持接口一致性
+
   bitmex:
   #BitMEX 开户邀请码【QUANTMESH】开户链接：https://www.bitmex.com/
     api_key: "YOUR_API_KEY"
