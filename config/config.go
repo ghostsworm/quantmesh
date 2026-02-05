@@ -287,9 +287,9 @@ type Config struct {
 		// AI Provider 配置
 		AIProvider struct {
 			Provider string `yaml:"provider"` // gemini, openai, claude, poe，預設 gemini
-			Model    string `yaml:"model"`     // 模型名稱，如 "gpt-4", "claude-3-opus"，預設為各provider的默認模型
-			APIKey   string `yaml:"api_key"`   // Provider 的 API Key
-			BaseURL  string `yaml:"base_url"`  // 可選，自定義 API 端點（用於 Poe 等代理）
+			Model    string `yaml:"model"`    // 模型名稱，如 "gpt-4", "claude-3-opus"，預設為各provider的默認模型
+			APIKey   string `yaml:"api_key"`  // Provider 的 API Key
+			BaseURL  string `yaml:"base_url"` // 可選，自定義 API 端點（用於 Poe 等代理）
 		} `yaml:"ai_provider"`
 	} `yaml:"news_monitor"`
 
