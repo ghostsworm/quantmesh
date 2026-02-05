@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.41.0] - 2026-02-06
+
+### Added
+- **遙測（Telemetry）**：可選匿名使用統計（PostHog），含文檔與腳本（TELEMETRY_*.md、scripts/verify_telemetry.sh 等）
+- **配置加密**：`config/encryption.go` 支援敏感配置加密存儲
+- **多語言**：新增 i18n 語言 bn-BD、fa-IR、ja-JP、pl-PL、th-TH、tl-PH、uk-UA、ur-PK（後端 toml + 前端 JSON）
+- **文檔**：推廣與安全相關文檔（PAID_PROMOTION_GUIDE、TELEGRAM_PROMOTION_QUICKSTART、security-enhancements 等）、sync 模塊
+
 ## [3.40.0-rc1] - 2026-02-05
 
 ### Added
