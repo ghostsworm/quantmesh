@@ -25,6 +25,7 @@ import (
 	"quantmesh/exchange/poloniex"
 	"quantmesh/utils"
 	"quantmesh/exchange/bitkub"
+	"quantmesh/exchange/coinsph"
 	"quantmesh/exchange/whitebit"
 	"quantmesh/exchange/woox"
 	"quantmesh/exchange/xtcom"
@@ -72,6 +73,7 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 	}
 	supportedSpotExchanges := map[string]bool{
 		"binance": true, "bitget": true, "gate": true, "okx": true, "bybit": true,
+		"bitkub": true, "coinsph": true,
 	}
 	if marketType == "spot" && !supportedSpotExchanges[exchangeName] {
 		return nil, fmt.Errorf("交易所 %s 不支援現貨交易，请使用 market_type: futures 或选擇已支援現貨的交易所（Binance/OKX/Bybit/Bitget/Gate）", exchangeName)
@@ -529,6 +531,25 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 			return nil, err
 		}
 		return &bitkubSpotWrapper{adapter: adapter}, nil
+
+	case "coinsph":
+		exchangeCfg, exists := cfg.Exchanges["coinsph"]
+		if !exists {
+			return nil, fmt.Errorf("coinsph 配置不存在")
+		}
+		if marketType != "spot" {
+			return nil, fmt.Errorf("Coins.ph 交易所僅支援現貨交易，請使用現貨模式或選擇其他交易所")
+		}
+		cfgMap := map[string]string{
+			"api_key":    exchangeCfg.APIKey,
+			"secret_key": exchangeCfg.SecretKey,
+			"testnet":    fmt.Sprintf("%v", exchangeCfg.Testnet),
+		}
+		adapter, err := coinsph.NewCoinsphSpotAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &coinsphSpotWrapper{adapter: adapter}, nil
 
 	case "edgex":
 		return nil, fmt.Errorf("edgeX 尚未實現")
