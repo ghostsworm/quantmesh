@@ -10,6 +10,19 @@
 
 ---
 
+## v3.42.0-rc1 - 2026年02月06日
+
+**Git Tag**: `v3.42.0-rc1`
+
+### 修复 (Fixed)
+
+- **CI/CD 前端构建失败**：GitHub Actions 和 Dockerfile 中前端构建从 npm 迁移到 yarn (Yarn 4 Berry)，添加 `setup-node` 和 `corepack enable` 步骤
+- **posthog-js 版本错误**：修正 `posthog-js` 依赖版本从不存在的 `^2.0.0` 改为 `^1.341.0`
+- **pnpm overrides 改为 yarn resolutions**：`package.json` 中 `pnpm.overrides` 替换为 `resolutions`
+- **yarn.lock 纳入版本控制**：从 `.gitignore` 中移除 `webui/yarn.lock`，确保 CI 可用 `--immutable` 安装
+
+---
+
 ## v3.29.0 - 2026年02月03日
 
 **Git Tag**: `v3.29.0`

@@ -63,7 +63,6 @@ webui/.vite/
 webui/.cache/
 webui/.yarn/
 webui/package-lock.json
-webui/yarn.lock
 webui/pnpm-lock.yaml
 web/dist/
 !web/dist/.gitkeep
