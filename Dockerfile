@@ -6,8 +6,9 @@ FROM golang:alpine AS builder
 # 获取版本号（通过 build-args 传递，或使用默认值）
 ARG VERSION=unknown
 
-# 安装构建依赖（包括 Node.js 和 npm 用于构建前端）
-RUN apk add --no-cache git make gcc musl-dev nodejs npm
+# 安装构建依赖（包括 Node.js 和 corepack/yarn 用于构建前端）
+RUN apk add --no-cache git make gcc musl-dev nodejs npm && \
+    corepack enable
 
 # 设置工作目录
 WORKDIR /build
@@ -27,8 +28,8 @@ COPY . .
 # 构建前端（如果需要）
 RUN if [ -d "webui" ] && [ -f "webui/package.json" ]; then \
       cd webui && \
-      npm ci --legacy-peer-deps || npm install --legacy-peer-deps && \
-      npm run build && \
+      yarn install --immutable && \
+      yarn build && \
       cd .. && \
       mkdir -p web/dist && \
       if [ -d "webui/dist" ] && [ "$$(ls -A webui/dist 2>/dev/null)" ]; then \

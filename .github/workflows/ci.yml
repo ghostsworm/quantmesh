@@ -38,14 +38,22 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
         cache: true
         
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Enable Corepack (Yarn 4)
+      run: corepack enable
+
     - name: Build frontend (for go:embed)
       run: |
         mkdir -p web/dist
         if [ -d "webui" ]; then
           cd webui
           if [ -f "package.json" ]; then
-            npm ci || npm install
-            npm run build
+            yarn install --immutable
+            yarn build
             cd ..
             if [ -d "webui/dist" ] && [ "$(ls -A webui/dist 2>/dev/null)" ]; then
               cp -r webui/dist/* web/dist/ || true

@@ -1,17 +1,16 @@
 {
   "name": "quantmesh-webui",
-  "version": "3.42.0",
+  "version": "3.42.0-rc1",
   "type": "module",
+  "packageManager": "yarn@4.12.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "dev:backend": "echo 'Starting backend server...' && cd .. && go run main.go"
   },
-  "pnpm": {
-    "overrides": {
-      "react-is": "^18.3.1"
-    }
+  "resolutions": {
+    "react-is": "^18.3.1"
   },
   "dependencies": {
     "@chakra-ui/icons": "^2.2.4",
@@ -27,6 +26,7 @@
     "i18next-browser-languagedetector": "^8.2.0",
     "lightweight-charts": "^4.2.0",
     "monaco-editor": "^0.55.1",
+    "posthog-js": "^1.341.0",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
     "react-diff-viewer-continued": "^3.4.0",
@@ -36,8 +36,7 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.8.0",
     "recharts": "^2.10.3",
-    "remark-gfm": "^4.0.1",
-    "posthog-js": "^2.0.0"
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
