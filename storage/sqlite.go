@@ -1306,6 +1306,91 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 	return orders, nil
 }
 
+// QueryOrdersWithTimeRange 查詢訂單（带时间范围）
+func (s *SQLiteStorage) QueryOrdersWithTimeRange(limit, offset int, status string, startTime, endTime *time.Time) ([]*Order, error) {
+	// 限制最大返回數量，防止記憶體占用過大
+	maxLimit := 10000 // 最多返回1万条订單
+	if limit <= 0 {
+		limit = 100 // 預設 100条
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 订單查詢 limit 超過限制 (%d)，已限制為 %d", limit, maxLimit)
+	}
+
+	query := `
+		SELECT order_id, client_order_id, symbol, side, 
+			COALESCE(exchange, '') as exchange, COALESCE(type, '') as type,
+			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
+			status, realized_pnl,
+			COALESCE(strategy_name, '') as strategy_name, COALESCE(strategy_type, '') as strategy_type,
+			created_at, updated_at
+		FROM orders
+		WHERE 1=1
+	`
+	args := []interface{}{}
+
+	if status != "" {
+		query += " AND status = ?"
+		args = append(args, status)
+	}
+
+	// 添加时间范围条件
+	if startTime != nil {
+		query += " AND created_at >= ?"
+		args = append(args, *startTime)
+	}
+	if endTime != nil {
+		query += " AND created_at <= ?"
+		args = append(args, *endTime)
+	}
+
+	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查詢訂單失败: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []*Order
+	for rows.Next() {
+		order := &Order{}
+		var realizedPnL sql.NullFloat64
+		err := rows.Scan(
+			&order.OrderID,
+			&order.ClientOrderID,
+			&order.Symbol,
+			&order.Side,
+			&order.Exchange,
+			&order.Type,
+			&order.Price,
+			&order.Quantity,
+			&order.FilledQty,
+			&order.Status,
+			&realizedPnL,
+			&order.StrategyName,
+			&order.StrategyType,
+			&order.CreatedAt,
+			&order.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("掃描訂單失败: %w", err)
+		}
+		if realizedPnL.Valid {
+			order.RealizedPnL = &realizedPnL.Float64
+		}
+		orders = append(orders, order)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("查詢訂單迭代失败: %w", err)
+	}
+
+	return orders, nil
+}
+
 // CountOrders 统计订單数量（不受 limit 限制，返回真实总数）
 func (s *SQLiteStorage) CountOrders(status string) (int64, error) {
 	query := `SELECT COUNT(*) FROM orders WHERE 1=1`

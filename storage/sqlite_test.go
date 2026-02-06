@@ -35,7 +35,7 @@ func TestSQLiteStorage(t *testing.T) {
 		t.Errorf("保存订單失败: %v", err)
 	}
 
-	orders, err := storage.QueryOrders(10, 0, "FILLED")
+	orders, err := storage.QueryOrdersWithTimeRange(10, 0, "FILLED", nil, nil)
 	if err != nil {
 		t.Errorf("查詢訂單失败: %v", err)
 	}

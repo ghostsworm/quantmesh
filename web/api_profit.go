@@ -25,7 +25,8 @@ type ProfitSummary struct {
 	TodayProfit         float64 `json:"todayProfit"`
 	WeekProfit          float64 `json:"weekProfit"`
 	MonthProfit         float64 `json:"monthProfit"`
-	UnrealizedProfit    float64 `json:"unrealizedProfit"`
+	UnrealizedProfit    float64 `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
+	ExchangeProfit      float64 `json:"exchangeProfit"`    // 交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL 計算）
 	WithdrawnProfit     float64 `json:"withdrawnProfit"`
 	AvailableToWithdraw float64 `json:"availableToWithdraw"`
 	PriceDeviationLoss  float64 `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
@@ -229,6 +230,23 @@ func getProfitSummaryHandler(c *gin.Context) {
 	// 总偏差损失 = 买入偏差（通常为负）+ 卖出偏差（通常为负）
 	priceDeviationLoss := summaryStats.TotalBuyDeviation + summaryStats.TotalSellDeviation
 
+	// 4. 計算交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL）
+	exchangeProfit := 0.0
+	// 查詢所有已成交的訂單，累加 RealizedPnL
+	allOrders, err := st.QueryOrdersWithTimeRange(10000, 0, "FILLED", nil, nil) // 查詢最多1萬筆已成交訂單
+	if err == nil {
+		for _, order := range allOrders {
+			// 如果指定了交易所且訂單不屬於該交易所，跳過
+			if exchangeID != "" && order.Exchange != exchangeID {
+				continue
+			}
+			// 累加交易所返回的已實現盈虧
+			if order.RealizedPnL != nil {
+				exchangeProfit += *order.RealizedPnL
+			}
+		}
+	}
+
 	summary := ProfitSummary{
 		ExchangeID:          exchangeID,
 		TotalProfit:         math.Round(netWithFunding*100) / 100,
@@ -239,6 +257,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 		WeekProfit:          math.Round(weekProfitWithFunding*100) / 100,
 		MonthProfit:         math.Round(monthProfitWithFunding*100) / 100,
 		UnrealizedProfit:    math.Round(unrealizedProfit*100) / 100,
+		ExchangeProfit:      math.Round(exchangeProfit*100) / 100,
 		WithdrawnProfit:     0, // TODO: 從提現記錄统计
 		AvailableToWithdraw: math.Round(netWithFunding*100) / 100,
 		PriceDeviationLoss:  math.Round(priceDeviationLoss*100) / 100,

@@ -105,6 +105,13 @@ other = "Prompt template cannot be empty"
 [error.update_prompt_failed]
 other = "Failed to update prompt"
 
+# Order related error messages
+[orders.timeRangeInvalid]
+other = "End time must be later than start time"
+
+[orders.timeRangeMaxDays]
+other = "Time range cannot exceed 7 days"
+
 # Database related errors
 [error.database_error]
 other = "Database error"

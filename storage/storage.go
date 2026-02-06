@@ -30,6 +30,7 @@ type Storage interface {
 	CleanupSystemMetrics(beforeTime time.Time) error
 	CleanupDailySystemMetrics(beforeDate time.Time) error
 	QueryOrders(limit, offset int, status string) ([]*Order, error)
+	QueryOrdersWithTimeRange(limit, offset int, status string, startTime, endTime *time.Time) ([]*Order, error)
 	CountOrders(status string) (int64, error)
 	QueryPositions(limit, offset int) ([]*Position, error)
 	QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error)

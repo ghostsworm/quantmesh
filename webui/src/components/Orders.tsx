@@ -42,6 +42,10 @@ import {
   ModalCloseButton,
   useDisclosure,
   Divider,
+  Input,
+  FormControl,
+  FormLabel,
+  FormErrorMessage,
 } from '@chakra-ui/react'
 import { CloseIcon } from '@chakra-ui/icons'
 import { getPendingOrders, getOrderHistory, cancelOrder, batchCancelOrders, syncOrders, getSymbols, getTradeDetails, PendingOrderInfo, TradeDetailResponse } from '../services/api'
@@ -89,6 +93,45 @@ const Orders: React.FC = () => {
   const [historyFilterStatus, setHistoryFilterStatus] = useState<string>('all')
   const [historyFilterSide, setHistoryFilterSide] = useState<string>('all')
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
+  
+  // 历史订单时间范围状态（默认最近24小时）
+  const getDefaultTimeRange = () => {
+    const now = new Date()
+    const endTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    const startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000 - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    return { startTime, endTime }
+  }
+  const [historyStartTime, setHistoryStartTime] = useState<string>(getDefaultTimeRange().startTime)
+  const [historyEndTime, setHistoryEndTime] = useState<string>(getDefaultTimeRange().endTime)
+  
+  // 将 datetime-local 格式转换为 RFC3339 格式
+  const toRFC3339 = (datetimeLocal: string): string => {
+    if (!datetimeLocal) return ''
+    // datetime-local 格式: YYYY-MM-DDTHH:mm
+    // RFC3339 格式: YYYY-MM-DDTHH:mm:ssZ
+    return new Date(datetimeLocal).toISOString()
+  }
+  
+  // 验证时间范围
+  const validateTimeRange = (): { valid: boolean; error?: string } => {
+    if (!historyStartTime || !historyEndTime) {
+      return { valid: false, error: t('orders.timeRangeRequired') }
+    }
+    
+    const start = new Date(historyStartTime)
+    const end = new Date(historyEndTime)
+    
+    if (end < start) {
+      return { valid: false, error: t('orders.timeRangeInvalid') }
+    }
+    
+    const diffDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    if (diffDays > 7) {
+      return { valid: false, error: t('orders.timeRangeMaxDays') }
+    }
+    
+    return { valid: true }
+  }
 
   // 🔥 成交明细 Modal 状态
   const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure()
@@ -120,11 +163,25 @@ const Orders: React.FC = () => {
     }
 
     const fetchHistoryOrders = async () => {
+      // 验证时间范围
+      const validation = validateTimeRange()
+      if (!validation.valid) {
+        toast({
+          title: t('common.error'),
+          description: validation.error,
+          status: 'error',
+          duration: 3000,
+        })
+        return
+      }
+      
       try {
         const data = await getOrderHistory({
           exchange: selectedExchange,
           symbol: selectedSymbol,
           limit: 500,
+          start_time: toRFC3339(historyStartTime),
+          end_time: toRFC3339(historyEndTime),
         })
         setHistoryOrders(data.orders || [])
         if (data.total_count !== undefined) {
@@ -161,7 +218,7 @@ const Orders: React.FC = () => {
     }, tabIndex === 0 ? 5000 : 30000)
 
     return () => clearInterval(interval)
-  }, [tabIndex, selectedExchange, selectedSymbol])
+  }, [tabIndex, selectedExchange, selectedSymbol, historyStartTime, historyEndTime])
 
   // 獲取當前交易對的方向（做多/做空）
   useEffect(() => {
@@ -195,11 +252,25 @@ const Orders: React.FC = () => {
 
   // 刷新历史订單
   const refreshHistoryOrders = async () => {
+    // 验证时间范围
+    const validation = validateTimeRange()
+    if (!validation.valid) {
+      toast({
+        title: t('common.error'),
+        description: validation.error,
+        status: 'error',
+        duration: 3000,
+      })
+      return
+    }
+    
     try {
       const data = await getOrderHistory({
         exchange: selectedExchange,
         symbol: selectedSymbol,
         limit: 500,
+        start_time: toRFC3339(historyStartTime),
+        end_time: toRFC3339(historyEndTime),
       })
       setHistoryOrders(data.orders || [])
       if (data.total_count !== undefined) {
@@ -688,67 +759,117 @@ const Orders: React.FC = () => {
             </SimpleGrid>
 
             {/* 筛选器和同步按钮 */}
-            <Flex mb={4} gap={2} wrap="wrap" align="center">
-              {historyOrders.length > 0 && (
-                <>
-                  <Select
+            <VStack spacing={4} align="stretch" mb={4}>
+              {/* 时间范围选择器 */}
+              <Box>
+                <Text fontSize="sm" fontWeight="medium" mb={2}>{t('orders.timeRange')}</Text>
+                <Flex gap={2} wrap="wrap" align="center">
+                  <FormControl isInvalid={!validateTimeRange().valid && historyStartTime && historyEndTime} maxW="200px">
+                    <FormLabel fontSize="xs">{t('orders.startTime')}</FormLabel>
+                    <Input
+                      type="datetime-local"
+                      size="sm"
+                      value={historyStartTime}
+                      onChange={(e) => setHistoryStartTime(e.target.value)}
+                    />
+                    {!validateTimeRange().valid && historyStartTime && historyEndTime && (
+                      <FormErrorMessage fontSize="xs">{validateTimeRange().error}</FormErrorMessage>
+                    )}
+                  </FormControl>
+                  <FormControl isInvalid={!validateTimeRange().valid && historyStartTime && historyEndTime} maxW="200px">
+                    <FormLabel fontSize="xs">{t('orders.endTime')}</FormLabel>
+                    <Input
+                      type="datetime-local"
+                      size="sm"
+                      value={historyEndTime}
+                      onChange={(e) => setHistoryEndTime(e.target.value)}
+                    />
+                  </FormControl>
+                  <Button
                     size="sm"
-                    width="150px"
-                    value={historyFilterStrategy}
-                    onChange={(e) => setHistoryFilterStrategy(e.target.value)}
+                    variant="outline"
+                    onClick={() => {
+                      const defaultRange = getDefaultTimeRange()
+                      setHistoryStartTime(defaultRange.startTime)
+                      setHistoryEndTime(defaultRange.endTime)
+                    }}
                   >
-                    <option value="all">{t('orders.allStrategies')}</option>
-                    {getUniqueStrategies(historyOrders).map(strategy => (
-                      <option key={strategy} value={strategy}>{strategy}</option>
-                    ))}
-                  </Select>
-                  <Select
+                    {t('orders.defaultTimeRange')}
+                  </Button>
+                  <Box flex="1" />
+                  <Button
                     size="sm"
-                    width="120px"
-                    value={historyFilterType}
-                    onChange={(e) => setHistoryFilterType(e.target.value)}
+                    colorScheme="blue"
+                    onClick={refreshHistoryOrders}
                   >
-                    <option value="all">{t('orders.allTypes')}</option>
-                    <option value="LIMIT">{t('orders.limitOrder')}</option>
-                    <option value="MARKET">{t('orders.marketOrder')}</option>
-                  </Select>
-                  <Select
+                    {t('common.refresh')}
+                  </Button>
+                </Flex>
+              </Box>
+              
+              {/* 其他筛选器 */}
+              <Flex gap={2} wrap="wrap" align="center">
+                {historyOrders.length > 0 && (
+                  <>
+                    <Select
+                      size="sm"
+                      width="150px"
+                      value={historyFilterStrategy}
+                      onChange={(e) => setHistoryFilterStrategy(e.target.value)}
+                    >
+                      <option value="all">{t('orders.allStrategies')}</option>
+                      {getUniqueStrategies(historyOrders).map(strategy => (
+                        <option key={strategy} value={strategy}>{strategy}</option>
+                      ))}
+                    </Select>
+                    <Select
+                      size="sm"
+                      width="120px"
+                      value={historyFilterType}
+                      onChange={(e) => setHistoryFilterType(e.target.value)}
+                    >
+                      <option value="all">{t('orders.allTypes')}</option>
+                      <option value="LIMIT">{t('orders.limitOrder')}</option>
+                      <option value="MARKET">{t('orders.marketOrder')}</option>
+                    </Select>
+                    <Select
+                      size="sm"
+                      width="120px"
+                      value={historyFilterStatus}
+                      onChange={(e) => setHistoryFilterStatus(e.target.value)}
+                    >
+                      <option value="all">{t('orders.allStatuses')}</option>
+                      <option value="FILLED">{t('orders.filled')}</option>
+                      <option value="CANCELED">{t('orders.canceled')}</option>
+                      <option value="PARTIALLY_FILLED">{t('orders.partiallyFilled')}</option>
+                    </Select>
+                    <Select
+                      size="sm"
+                      width="100px"
+                      value={historyFilterSide}
+                      onChange={(e) => setHistoryFilterSide(e.target.value)}
+                    >
+                      <option value="all">{t('orders.allSides')}</option>
+                      <option value="BUY">{t('orders.buy')}</option>
+                      <option value="SELL">{t('orders.sell')}</option>
+                    </Select>
+                  </>
+                )}
+                <Box flex="1" />
+                {/* 仅币安显示同步按钮 */}
+                {selectedExchange && selectedExchange.toLowerCase() === 'binance' && (
+                  <Button
+                    colorScheme="blue"
                     size="sm"
-                    width="120px"
-                    value={historyFilterStatus}
-                    onChange={(e) => setHistoryFilterStatus(e.target.value)}
+                    onClick={handleSyncOrders}
+                    isLoading={syncingOrders}
+                    loadingText={t('orders.syncing')}
                   >
-                    <option value="all">{t('orders.allStatuses')}</option>
-                    <option value="FILLED">{t('orders.filled')}</option>
-                    <option value="CANCELED">{t('orders.canceled')}</option>
-                    <option value="PARTIALLY_FILLED">{t('orders.partiallyFilled')}</option>
-                  </Select>
-                  <Select
-                    size="sm"
-                    width="100px"
-                    value={historyFilterSide}
-                    onChange={(e) => setHistoryFilterSide(e.target.value)}
-                  >
-                    <option value="all">{t('orders.allSides')}</option>
-                    <option value="BUY">{t('orders.buy')}</option>
-                    <option value="SELL">{t('orders.sell')}</option>
-                  </Select>
-                </>
-              )}
-              <Box flex="1" />
-              {/* 仅币安显示同步按钮 */}
-              {selectedExchange && selectedExchange.toLowerCase() === 'binance' && (
-                <Button
-                  colorScheme="blue"
-                  size="sm"
-                  onClick={handleSyncOrders}
-                  isLoading={syncingOrders}
-                  loadingText={t('orders.syncing')}
-                >
-                  {t('orders.syncOrders')}
-                </Button>
-              )}
-            </Flex>
+                    {t('orders.syncOrders')}
+                  </Button>
+                )}
+              </Flex>
+            </VStack>
 
             {historyOrders.length === 0 ? (
               <Text color="gray.500" textAlign="center" py={8}>{t('orders.noHistoryOrders')}</Text>
