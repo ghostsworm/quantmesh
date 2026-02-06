@@ -1653,7 +1653,8 @@ const Configuration: React.FC = () => {
 
                         {/* 配置档案 */}
                         <Box>
-                          <Text fontSize="sm" fontWeight="600" mb={3}>{t('configuration.profiles')}</Text>
+                          <Text fontSize="sm" fontWeight="600" mb={1}>{t('configuration.profiles')}</Text>
+                          <Text fontSize="2xs" color="gray.500" mb={3}>{t('configuration.profileZeroMeansDefault')}</Text>
                           <VStack spacing={3} align="stretch">
                             {/* Positive Profile */}
                             <Box p={4} borderWidth="1px" borderRadius="lg" borderColor="gray.200">

@@ -320,7 +320,9 @@
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
-    "strategyVisualization": "Strategy Visualization"
+    "strategyVisualization": "Strategy Visualization",
+    "leverage": "Leverage",
+    "leverageTimes": "{{count}}x"
   },
   "login": {
     "title": "Login",
@@ -626,6 +628,7 @@
     "profileSwitching": "Multi-Profile Auto Switching",
     "profileSwitchingDesc": "Automatically switch configuration profiles based on funding rate and fee rate. When rates exceed thresholds, the system will automatically select the corresponding profile (e.g., positive/negative rate).",
     "profiles": "Configuration Profiles",
+    "profileZeroMeansDefault": "Entering 0 in a profile means using the symbol's default value above.",
     "profilePositive": "Positive Rate Profile",
     "profileNegative": "Negative Rate Profile",
     "switchRules": "Switch Rules",
