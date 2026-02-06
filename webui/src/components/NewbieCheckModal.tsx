@@ -56,8 +56,8 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
     } catch (error) {
       console.error('獲取新手体检报告失败:', error);
       toast({
-        title: '獲取报告失败',
-        description: error instanceof Error ? error.message : '未知錯误',
+        title: t('newbieCheckModal.fetchFailed'),
+        description: error instanceof Error ? error.message : t('newbieCheckModal.unknownError'),
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -79,7 +79,7 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
       const response = await applyNewbieSecurityConfig();
       if (response.success) {
         toast({
-          title: '配置已更新',
+          title: t('newbieCheckModal.configUpdated'),
           description: `${response.message} ${t('newbieRiskCheck.applySuccessNotice')}`,
           status: 'success',
           duration: 8000,
@@ -89,8 +89,8 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
       }
     } catch (error) {
       toast({
-        title: '应用失败',
-        description: error instanceof Error ? error.message : '未知錯误',
+        title: t('newbieCheckModal.applyFailed'),
+        description: error instanceof Error ? error.message : t('newbieCheckModal.unknownError'),
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -129,14 +129,14 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
       <ModalOverlay />
       <ModalContent bg="gray.800" color="white">
         <ModalHeader borderBottomWidth="1px" borderColor="gray.700">
-          🛡️ 新手保护体检
+          {t('newbieCheckModal.title')}
         </ModalHeader>
         <ModalCloseButton />
         <ModalBody p={6}>
           {loading ? (
             <VStack py={20}>
               <CircularProgress isIndeterminate color="blue.400" size="80px" />
-              <Text mt={4}>正在進行全维度风險扫描...</Text>
+              <Text mt={4}>{t('newbieCheckModal.scanning')}</Text>
             </VStack>
           ) : report ? (
             <VStack spacing={6} align="stretch">
@@ -152,7 +152,7 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
                       {report.overallScore}
                     </CircularProgressLabel>
                   </CircularProgress>
-                  <Text mt={2} fontSize="sm" color="gray.400">综合安全分</Text>
+                  <Text mt={2} fontSize="sm" color="gray.400">{t('newbieCheckModal.overallScore')}</Text>
                 </Box>
                 
                 <Box height="200px" width="300px">
@@ -173,7 +173,7 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
               </HStack>
 
               <Box>
-                <Text fontSize="lg" fontWeight="bold" mb={4}>详细体检結果</Text>
+                <Text fontSize="lg" fontWeight="bold" mb={4}>{t('newbieCheckModal.detailedResults')}</Text>
                 <List spacing={4}>
                   {report.results.map((result, index) => (
                     <ListItem key={index} p={4} bg="gray.700" borderRadius="md">
@@ -183,11 +183,11 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
                           <HStack justify="space-between" width="100%">
                             <Text fontWeight="bold">{result.item}</Text>
                             <Badge colorScheme={result.level === 'safe' ? 'green' : result.level === 'warning' ? 'orange' : 'red'}>
-                              得分: {result.score}
+                              {t('newbieCheckModal.score')}: {result.score}
                             </Badge>
                           </HStack>
                           <Text fontSize="sm" color="gray.200">{result.message}</Text>
-                          <Text fontSize="xs" color="gray.400" fontStyle="italic">💡 建议: {result.advice}</Text>
+                          <Text fontSize="xs" color="gray.400" fontStyle="italic">💡 {t('newbieCheckModal.advice')}: {result.advice}</Text>
                         </VStack>
                       </HStack>
                     </ListItem>
@@ -196,7 +196,7 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
               </Box>
             </VStack>
           ) : (
-            <Text>未能生成报告，请重試。</Text>
+            <Text>{t('newbieCheckModal.noReport')}</Text>
           )}
         </ModalBody>
         <ModalFooter borderTopWidth="1px" borderColor="gray.700" bg="gray.900" flexDirection="column" alignItems="stretch">
@@ -213,16 +213,16 @@ export const NewbieCheckModal: React.FC<NewbieCheckModalProps> = ({ isOpen, onCl
           </Alert>
           <HStack justify="flex-end">
             <Button variant="ghost" mr={3} onClick={onClose} _hover={{ bg: 'gray.700' }}>
-              关闭
+              {t('common.close')}
             </Button>
             <Button 
               colorScheme="blue" 
               leftIcon={<CheckCircleIcon />} 
               onClick={handleApply}
               isLoading={applying}
-              loadingText="正在加固..."
+              loadingText={t('newbieCheckModal.applying')}
             >
-              一键安全加固
+              {t('newbieCheckModal.applySecurity')}
             </Button>
           </HStack>
         </ModalFooter>

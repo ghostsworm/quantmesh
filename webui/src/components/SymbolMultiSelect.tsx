@@ -177,7 +177,7 @@ const SymbolMultiSelect: React.FC<SymbolMultiSelectProps> = ({
       >
         <Spinner size="md" />
         <Text mt={4} color="gray.500" fontSize="sm">
-          加載交易對列表...
+          {t('common.loading')}
         </Text>
       </Box>
     )

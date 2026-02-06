@@ -127,11 +127,11 @@ const NewsAnalysisHistory: React.FC = () => {
             <Table size="sm">
               <Thead>
                 <Tr>
-                  <Th>時间</Th>
-                  <Th>币种</Th>
-                  <Th>價格</Th>
-                  <Th>建议</Th>
-                  <Th>操作</Th>
+                  <Th>{t('newsAnalysis.time')}</Th>
+                  <Th>{t('newsAnalysis.symbol')}</Th>
+                  <Th>{t('newsAnalysis.price')}</Th>
+                  <Th>{t('newsAnalysis.recommendation')}</Th>
+                  <Th>{t('newsAnalysis.action')}</Th>
                 </Tr>
               </Thead>
               <Tbody>
@@ -147,7 +147,7 @@ const NewsAnalysisHistory: React.FC = () => {
                     </Td>
                     <Td>
                       <ChakraLink as="button" color="blue.600" onClick={() => openDetail(row.id)} fontSize="sm">
-                        详情
+                        {t('newsAnalysis.details')}
                       </ChakraLink>
                     </Td>
                   </Tr>
@@ -158,11 +158,11 @@ const NewsAnalysisHistory: React.FC = () => {
             {totalPages > 1 && (
               <HStack>
                 <Button size="sm" isDisabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
-                  上一页
+                  {t('newsAnalysis.prevPage')}
                 </Button>
                 <Text fontSize="sm">{page + 1} / {totalPages}</Text>
                 <Button size="sm" isDisabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
-                  下一页
+                  {t('newsAnalysis.nextPage')}
                 </Button>
               </HStack>
             )}

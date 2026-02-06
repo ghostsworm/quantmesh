@@ -91,9 +91,9 @@ const Slots: React.FC = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'FILLED':
-        return '有倉'
+        return t('slotsPage.positionFilled')
       case 'EMPTY':
-        return '空倉'
+        return t('slotsPage.positionEmpty')
       default:
         return status
     }
@@ -115,11 +115,11 @@ const Slots: React.FC = () => {
   const getSlotStatusText = (status: string) => {
     switch (status) {
       case 'FREE':
-        return '空闲'
+        return t('slotsPage.slotFree')
       case 'PENDING':
-        return '等待'
+        return t('slotsPage.slotPending')
       case 'LOCKED':
-        return '鎖定'
+        return t('slotsPage.slotLocked')
       default:
         return status
     }
@@ -128,8 +128,8 @@ const Slots: React.FC = () => {
   if (loading && slots.length === 0) {
     return (
       <div className="slots">
-        <h2>槽位管理</h2>
-        <p>加載中...</p>
+        <h2>{t('slotsPage.title')}</h2>
+        <p>{t('common.loading')}</p>
       </div>
     )
   }
@@ -137,8 +137,8 @@ const Slots: React.FC = () => {
   if (error) {
     return (
       <div className="slots">
-        <h2>槽位管理</h2>
-        <p style={{ color: 'red' }}>錯误: {error}</p>
+        <h2>{t('slotsPage.title')}</h2>
+        <p style={{ color: 'red' }}>{t('common.error')}: {error}</p>
       </div>
     )
   }
@@ -146,7 +146,7 @@ const Slots: React.FC = () => {
   return (
     <div className="slots">
       <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-        槽位管理 ({slots.length})
+        {t('slotsPage.title')} ({slots.length})
         {symbolDirection != null && (
           <span
             style={{
@@ -165,38 +165,38 @@ const Slots: React.FC = () => {
       
       <div style={{ marginBottom: '16px', display: 'flex', gap: '16px', alignItems: 'center' }}>
         <div>
-          <label>排序方式: </label>
+          <label>{t('slotsPage.sortBy')}: </label>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'price' | 'status')}>
-            <option value="price">按價格</option>
-            <option value="status">按状態</option>
+            <option value="price">{t('slotsPage.sortByPrice')}</option>
+            <option value="status">{t('slotsPage.sortByStatus')}</option>
           </select>
         </div>
         <div>
-          <label>筛选: </label>
+          <label>{t('slotsPage.filter')}: </label>
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            <option value="all">全部</option>
-            <option value="filled">有倉</option>
-            <option value="empty">空倉</option>
-            <option value="locked">已鎖定</option>
+            <option value="all">{t('common.all')}</option>
+            <option value="filled">{t('slotsPage.positionFilled')}</option>
+            <option value="empty">{t('slotsPage.positionEmpty')}</option>
+            <option value="locked">{t('slotsPage.filterLocked')}</option>
           </select>
         </div>
       </div>
 
       {filteredSlots.length === 0 ? (
-        <p>没有符合条件的槽位</p>
+        <p>{t('slotsPage.noMatchingSlots')}</p>
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #e8e8e8' }}>
-                <th style={{ padding: '12px', textAlign: 'left' }}>價格</th>
-                <th style={{ padding: '12px', textAlign: 'left' }}>持倉状態</th>
-                <th style={{ padding: '12px', textAlign: 'right' }}>持倉數量</th>
-                <th style={{ padding: '12px', textAlign: 'left' }}>槽位状態</th>
-                <th style={{ padding: '12px', textAlign: 'left' }}>订單方向</th>
-                <th style={{ padding: '12px', textAlign: 'left' }}>订單状態</th>
-                <th style={{ padding: '12px', textAlign: 'right' }}>订單價格</th>
-                <th style={{ padding: '12px', textAlign: 'right' }}>订單ID</th>
+                <th style={{ padding: '12px', textAlign: 'left' }}>{t('slotsPage.price')}</th>
+                <th style={{ padding: '12px', textAlign: 'left' }}>{t('slotsPage.positionStatus')}</th>
+                <th style={{ padding: '12px', textAlign: 'right' }}>{t('slotsPage.positionQty')}</th>
+                <th style={{ padding: '12px', textAlign: 'left' }}>{t('slotsPage.slotStatus')}</th>
+                <th style={{ padding: '12px', textAlign: 'left' }}>{t('slotsPage.orderSide')}</th>
+                <th style={{ padding: '12px', textAlign: 'left' }}>{t('slotsPage.orderStatus')}</th>
+                <th style={{ padding: '12px', textAlign: 'right' }}>{t('slotsPage.orderPrice')}</th>
+                <th style={{ padding: '12px', textAlign: 'right' }}>{t('slotsPage.orderId')}</th>
               </tr>
             </thead>
             <tbody>

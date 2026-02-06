@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Modal,
   ModalOverlay,
@@ -27,6 +28,8 @@ interface EventDetailModalProps {
 }
 
 const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onClose }) => {
+  const { t } = useTranslation()
+
   // 解析详细信息
   const parseDetails = () => {
     try {
@@ -36,7 +39,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
       return JSON.parse(event.details)
     } catch (err) {
       console.error('解析事件详情JSON失败:', err, 'Raw details:', event.details)
-      return { error: '详情解析失败', raw: event.details }
+      return { error: t('eventDetail.parseDetailsFailed'), raw: event.details }
     }
   }
 
@@ -45,9 +48,9 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
   // 獲取严重程度配置
   const getSeverityConfig = (severity: string) => {
     const config = {
-      critical: { colorScheme: 'red', icon: WarningIcon, label: '严重' },
-      warning: { colorScheme: 'orange', icon: InfoIcon, label: '警告' },
-      info: { colorScheme: 'blue', icon: CheckCircleIcon, label: '信息' },
+      critical: { colorScheme: 'red', icon: WarningIcon, label: t('eventDetail.severityCritical') },
+      warning: { colorScheme: 'orange', icon: InfoIcon, label: t('eventDetail.severityWarning') },
+      info: { colorScheme: 'blue', icon: CheckCircleIcon, label: t('eventDetail.severityInfo') },
     }
     return config[severity as keyof typeof config] || config.info
   }
@@ -55,11 +58,11 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
   // 獲取来源標签
   const getSourceLabel = (source: string) => {
     const labels: Record<string, string> = {
-      exchange: '交易所',
-      network: '网络',
-      system: '系统',
-      strategy: '策略',
-      risk: '风控',
+      exchange: t('eventDetail.sourceExchange'),
+      network: t('eventDetail.sourceNetwork'),
+      system: t('eventDetail.sourceSystem'),
+      strategy: t('eventDetail.sourceStrategy'),
+      risk: t('eventDetail.sourceRisk'),
       api: 'API',
     }
     return labels[source] || source
@@ -92,7 +95,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
         <ModalHeader>
           <HStack spacing={3}>
             <Icon as={severityConfig.icon} color={`${severityConfig.colorScheme}.500`} boxSize={5} />
-            <Text>事件详情</Text>
+            <Text>{t('eventDetail.title')}</Text>
           </HStack>
         </ModalHeader>
         <ModalCloseButton />
@@ -101,15 +104,15 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
           <VStack align="stretch" spacing={4}>
             {/* 基本信息 */}
             <Box>
-              <Text fontSize="sm" color="gray.500" mb={2}>基本信息</Text>
+              <Text fontSize="sm" color="gray.500" mb={2}>{t('eventDetail.basicInfo')}</Text>
               <VStack align="stretch" spacing={3} p={4} bg="gray.50" borderRadius="md">
                 <HStack justify="space-between">
-                  <Text fontWeight="medium">事件ID:</Text>
+                  <Text fontWeight="medium">{t('eventDetail.eventId')}:</Text>
                   <Text>{event.id}</Text>
                 </HStack>
                 
                 <HStack justify="space-between">
-                  <Text fontWeight="medium">严重程度:</Text>
+                  <Text fontWeight="medium">{t('eventDetail.severity')}:</Text>
                   <Badge colorScheme={severityConfig.colorScheme} display="flex" alignItems="center" gap={1}>
                     <Icon as={severityConfig.icon} boxSize={3} />
                     {severityConfig.label}
@@ -117,31 +120,31 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
                 </HStack>
                 
                 <HStack justify="space-between">
-                  <Text fontWeight="medium">事件来源:</Text>
+                  <Text fontWeight="medium">{t('eventDetail.eventSource')}:</Text>
                   <Badge colorScheme="gray">{getSourceLabel(event.source)}</Badge>
                 </HStack>
                 
                 <HStack justify="space-between">
-                  <Text fontWeight="medium">事件類型:</Text>
+                  <Text fontWeight="medium">{t('eventDetail.eventType')}:</Text>
                   <Code fontSize="sm">{event.type}</Code>
                 </HStack>
                 
                 {event.exchange && (
                   <HStack justify="space-between">
-                    <Text fontWeight="medium">交易所:</Text>
+                    <Text fontWeight="medium">{t('eventDetail.exchange')}:</Text>
                     <Text>{event.exchange}</Text>
                   </HStack>
                 )}
                 
                 {event.symbol && (
                   <HStack justify="space-between">
-                    <Text fontWeight="medium">交易對:</Text>
+                    <Text fontWeight="medium">{t('eventDetail.tradingPair')}:</Text>
                     <Badge colorScheme="purple">{event.symbol}</Badge>
                   </HStack>
                 )}
                 
                 <HStack justify="space-between">
-                  <Text fontWeight="medium">发生時间:</Text>
+                  <Text fontWeight="medium">{t('eventDetail.occurredAt')}:</Text>
                   <HStack spacing={1}>
                     <Icon as={TimeIcon} boxSize={3} color="gray.500" />
                     <Text fontSize="sm">{formatTime(event.created_at)}</Text>
@@ -154,7 +157,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
 
             {/* 事件標题 */}
             <Box>
-              <Text fontSize="sm" color="gray.500" mb={2}>事件標题</Text>
+              <Text fontSize="sm" color="gray.500" mb={2}>{t('eventDetail.eventTitle')}</Text>
               <Text fontSize="lg" fontWeight="semibold">{event.title}</Text>
             </Box>
 
@@ -162,9 +165,9 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
 
             {/* 事件消息 */}
             <Box>
-              <Text fontSize="sm" color="gray.500" mb={2}>事件消息</Text>
+              <Text fontSize="sm" color="gray.500" mb={2}>{t('eventDetail.eventMessage')}</Text>
               <Box p={4} bg="gray.50" borderRadius="md">
-                <Text>{event.message || '暂无消息内容'}</Text>
+                <Text>{event.message || t('eventDetail.noMessage')}</Text>
               </Box>
             </Box>
 
@@ -172,7 +175,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
 
             {/* 详细信息 */}
             <Box>
-              <Text fontSize="sm" color="gray.500" mb={2}>详细信息</Text>
+              <Text fontSize="sm" color="gray.500" mb={2}>{t('eventDetail.detailedInfo')}</Text>
               {Object.keys(details).length > 0 ? (
                 <Box
                   p={4}
@@ -207,7 +210,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
               ) : (
                 <Box p={4} bg="gray.50" borderRadius="md" textAlign="center">
                   <Text color="gray.500" fontSize="sm">
-                    暂无详细信息
+                    {t('eventDetail.noDetails')}
                   </Text>
                 </Box>
               )}
@@ -216,7 +219,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
         </ModalBody>
 
         <ModalFooter>
-          <Button onClick={onClose}>关闭</Button>
+          <Button onClick={onClose}>{t('common.close')}</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>

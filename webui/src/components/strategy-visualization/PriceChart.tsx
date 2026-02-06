@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Box,
   Text,
@@ -28,13 +29,14 @@ const PriceChart: React.FC<PriceChartProps> = ({
   showGrid = true,
   referenceLines = [],
 }) => {
+  const { t } = useTranslation()
   const gridColor = useColorModeValue('rgba(0,0,0,0.05)', 'rgba(255,255,255,0.05)')
   const axisColor = useColorModeValue('gray.400', 'gray.500')
 
   if (!data || data.length === 0) {
     return (
       <Box h={height} display="flex" alignItems="center" justifyContent="center">
-        <Text color="gray.500" fontSize="sm">暂无价格数据</Text>
+        <Text color="gray.500" fontSize="sm">{t('strategyVisualization.noPriceData')}</Text>
       </Box>
     )
   }
@@ -63,7 +65,7 @@ const PriceChart: React.FC<PriceChartProps> = ({
               border: `1px solid ${useColorModeValue('#e2e8f0', '#4a5568')}`,
               borderRadius: '8px',
             }}
-            formatter={(value: number) => [`$${value.toFixed(2)}`, '价格']}
+            formatter={(value: number) => [`$${value.toFixed(2)}`, t('strategyVisualization.price')]}
           />
           {referenceLines.map((line, index) => (
             <ReferenceLine

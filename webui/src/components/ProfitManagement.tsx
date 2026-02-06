@@ -76,7 +76,7 @@ const MOCK_SUMMARY: ProfitSummary = {
 const MOCK_STRATEGY_PROFITS: StrategyProfit[] = [
   {
     strategyId: 'grid',
-    strategyName: '网格交易',
+    strategyName: 'Grid Trading',
     strategyType: 'grid',
     totalProfit: 678.90,
     todayProfit: 23.45,
@@ -91,7 +91,7 @@ const MOCK_STRATEGY_PROFITS: StrategyProfit[] = [
   },
   {
     strategyId: 'dca_enhanced',
-    strategyName: '增强型 DCA',
+    strategyName: 'Enhanced DCA',
     strategyType: 'dca',
     totalProfit: 345.67,
     todayProfit: 12.34,
@@ -106,7 +106,7 @@ const MOCK_STRATEGY_PROFITS: StrategyProfit[] = [
   },
   {
     strategyId: 'trend_following',
-    strategyName: '趋势跟踪',
+    strategyName: 'Trend Following',
     strategyType: 'trend',
     totalProfit: 209.99,
     todayProfit: 9.88,
@@ -136,7 +136,7 @@ const MOCK_WITHDRAW_HISTORY: WithdrawRecord[] = [
   {
     id: '1',
     strategyId: 'grid',
-    strategyName: '网格交易',
+    strategyName: 'Grid Trading',
     amount: 200,
     fee: 1,
     netAmount: 199,
@@ -149,7 +149,7 @@ const MOCK_WITHDRAW_HISTORY: WithdrawRecord[] = [
   {
     id: '2',
     strategyId: 'dca_enhanced',
-    strategyName: '增强型 DCA',
+    strategyName: 'Enhanced DCA',
     amount: 100,
     fee: 0.5,
     netAmount: 99.5,
@@ -418,7 +418,7 @@ const ProfitManagement: React.FC = () => {
             }}
           >
             <TabList overflowX="auto" pb={2}>
-              <Tab px={6}>{t('common.allExchanges') || '全部交易所'}</Tab>
+              <Tab px={6}>{t('common.allExchanges')}</Tab>
               {exchanges.map((ex) => {
                 // 格式化交易所名称显示
                 const displayName = ex === 'binance' ? 'Binance' 
@@ -462,7 +462,7 @@ const ProfitManagement: React.FC = () => {
           <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
-                <StatLabel>{t('profitManagement.netProfit') || '淨利潤'}</StatLabel>
+                <StatLabel>{t('profitManagement.netProfit')}</StatLabel>
                 <StatNumber color={(summary.totalProfit || 0) >= 0 ? 'green.500' : 'red.500'}>
                   {(summary.totalProfit || 0) >= 0 ? '+' : ''}{(summary.totalProfit || 0).toFixed(2)}
                 </StatNumber>
@@ -473,7 +473,7 @@ const ProfitManagement: React.FC = () => {
               <>
                 <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
                   <Stat>
-                    <StatLabel>{t('profitManagement.grossProfit') || '毛利'}</StatLabel>
+                    <StatLabel>{t('profitManagement.grossProfit')}</StatLabel>
                     <StatNumber color={(summary.grossProfit ?? 0) >= 0 ? 'green.500' : 'red.500'}>
                       {(summary.grossProfit ?? 0) >= 0 ? '+' : ''}{(summary.grossProfit ?? 0).toFixed(2)}
                     </StatNumber>
@@ -482,7 +482,7 @@ const ProfitManagement: React.FC = () => {
                 </Box>
                 <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
                   <Stat>
-                    <StatLabel>{t('profitManagement.totalFee') || '手續費'}</StatLabel>
+                    <StatLabel>{t('profitManagement.totalFee')}</StatLabel>
                     <StatNumber color="orange.500">-{(summary.totalFee ?? 0).toFixed(2)}</StatNumber>
                     <StatHelpText>USDT</StatHelpText>
                   </Stat>
@@ -492,7 +492,7 @@ const ProfitManagement: React.FC = () => {
             {summary.fundingNet !== undefined && (
               <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
                 <Stat>
-                  <StatLabel>{t('profitManagement.fundingNet') || '資金費淨額'}</StatLabel>
+                  <StatLabel>{t('profitManagement.fundingNet')}</StatLabel>
                   <StatNumber color={(summary.fundingNet ?? 0) >= 0 ? 'green.500' : 'red.500'}>
                     {(summary.fundingNet ?? 0) >= 0 ? '+' : ''}{(summary.fundingNet ?? 0).toFixed(2)}
                   </StatNumber>
@@ -558,7 +558,7 @@ const ProfitManagement: React.FC = () => {
           <TabList>
             <Tab>{t('profitManagement.autoWithdrawRules')}</Tab>
             <Tab>{t('profitManagement.withdrawHistory')}</Tab>
-            <Tab>{t('profitManagement.fundingDetail') || '資金費明細'}</Tab>
+            <Tab>{t('profitManagement.fundingDetail')}</Tab>
           </TabList>
 
           <TabPanels>
@@ -661,11 +661,11 @@ const ProfitManagement: React.FC = () => {
                   <Table variant="simple" size="sm">
                     <Thead>
                       <Tr>
-                        <Th>{t('profitManagement.date') || '時間'}</Th>
+                        <Th>{t('profitManagement.date')}</Th>
                         <Th>Exchange</Th>
                         <Th>Symbol</Th>
                         <Th>Type</Th>
-                        <Th isNumeric>{t('profitManagement.amount') || '金額'}</Th>
+                        <Th isNumeric>{t('profitManagement.amount')}</Th>
                         <Th>Asset</Th>
                       </Tr>
                     </Thead>
@@ -673,7 +673,7 @@ const ProfitManagement: React.FC = () => {
                       {fundingRecords.length === 0 ? (
                         <Tr>
                           <Td colSpan={6} textAlign="center" py={8} color="gray.500">
-                            {t('profitManagement.noFundingHistory') || '暫無資金費記錄'}
+                            {t('profitManagement.noFundingHistory')}
                           </Td>
                         </Tr>
                       ) : (

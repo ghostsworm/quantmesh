@@ -265,10 +265,10 @@ const CapitalManagement: React.FC = () => {
           <Alert status="warning" borderRadius="lg" mb={4}>
             <AlertIcon />
             <Box flex="1">
-              <Text fontWeight="bold">⚠️ 測試網模式</Text>
+              <Text fontWeight="bold">⚠️ {t('capitalManagement.testnetMode')}</Text>
               <Text fontSize="sm">
-                當前正在使用測試網环境，显示的资產為虚拟测試币，不會產生真實交易。
-                {overview.exchanges.filter(e => e.isTestnet).map(e => e.exchangeName).join('、')} 正在使用測試網。
+                {t('capitalManagement.testnetDesc')}
+                {overview.exchanges.filter(e => e.isTestnet).map(e => e.exchangeName).join(', ')} {t('capitalManagement.usingTestnet')}
               </Text>
             </Box>
           </Alert>
@@ -283,7 +283,7 @@ const CapitalManagement: React.FC = () => {
                   <HStack spacing={2}>
                     <Text>{t('capitalManagement.totalBalance')}</Text>
                     {overview.exchanges?.some(e => e.isTestnet) && (
-                      <Badge colorScheme="orange" fontSize="xs">測試網</Badge>
+                      <Badge colorScheme="orange" fontSize="xs">{t('capitalManagement.testnet')}</Badge>
                     )}
                   </HStack>
                 </StatLabel>
@@ -340,7 +340,7 @@ const CapitalManagement: React.FC = () => {
                 <Tab key={ex.exchangeId} px={6}>
                   {ex.exchangeName}
                   {exchangeSummary?.isTestnet && (
-                    <Badge ml={2} colorScheme="orange" fontSize="xs">測試網</Badge>
+                    <Badge ms={2} colorScheme="orange" fontSize="xs">{t('capitalManagement.testnet')}</Badge>
                   )}
                   {exchangeSummary?.status === 'error' && (
                     <Badge ml={2} colorScheme="red">ERROR</Badge>

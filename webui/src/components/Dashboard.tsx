@@ -811,7 +811,7 @@ const Dashboard: React.FC = () => {
                 return (
                   <GlassCard 
                     key={name} 
-                    title={`${t(`strategyNames.${name}`, { defaultValue: name })} - 策略可视化`}
+                    title={`${t(`strategyNames.${name}`, { defaultValue: name })} - ${t('dashboard.strategyVisualization')}`}
                   >
                     <StrategyVisualization
                       strategy={strategyStatus}

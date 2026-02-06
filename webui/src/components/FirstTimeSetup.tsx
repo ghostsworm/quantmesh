@@ -6,9 +6,11 @@ import {
   beginWebAuthnRegistration,
   finishWebAuthnRegistration,
 } from '../services/auth'
+import { useTranslation } from 'react-i18next'
 import LanguageSelector from './LanguageSelector'
 
 const FirstTimeSetup: React.FC = () => {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { refreshAuth } = useAuth()
   const [step, setStep] = useState<'password' | 'webauthn'>(() => {
@@ -30,17 +32,17 @@ const FirstTimeSetup: React.FC = () => {
     console.log('🔐 密碼长度:', password.length)
     
     if (!password.trim()) {
-      setError('请输入密碼')
+      setError(t('firstTimeSetup.enterPassword'))
       return
     }
 
     if (password.length < 6) {
-      setError('密碼长度至少為6位')
+      setError(t('firstTimeSetup.passwordMinLength'))
       return
     }
 
     if (password !== confirmPassword) {
-      setError('两次输入的密碼不一致')
+      setError(t('firstTimeSetup.passwordMismatch'))
       return
     }
 
@@ -65,7 +67,7 @@ const FirstTimeSetup: React.FC = () => {
       // 失败時清理流程標記並回到密碼步骤
       sessionStorage.removeItem('setup_step')
       setStep('password')
-      setError(err instanceof Error ? err.message : '設置密碼失败')
+      setError(err instanceof Error ? err.message : t('firstTimeSetup.setPasswordFailed'))
     } finally {
       setIsLoading(false)
     }
@@ -73,7 +75,7 @@ const FirstTimeSetup: React.FC = () => {
 
   const handleRegisterWebAuthn = async () => {
     if (!deviceName.trim()) {
-      setError('请输入設备名称')
+      setError(t('firstTimeSetup.enterDeviceName'))
       return
     }
 
@@ -84,7 +86,7 @@ const FirstTimeSetup: React.FC = () => {
       // 1. 开始注册
       const beginResponse = await beginWebAuthnRegistration(deviceName)
       if (!beginResponse.success) {
-        throw new Error('WebAuthn 注册失败')
+        throw new Error(t('firstTimeSetup.webauthnRegFailed'))
       }
 
       // 2. 轉换选项格式
@@ -172,9 +174,9 @@ const FirstTimeSetup: React.FC = () => {
       navigate('/wizard')
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {
-        setError('用戶取消了指纹驗证')
+        setError(t('firstTimeSetup.userCancelledWebauthn'))
       } else {
-        setError(err.message || '指纹注册失败')
+        setError(err.message || t('firstTimeSetup.webauthnRegFailed'))
       }
       setIsLoading(false)
     }
@@ -207,7 +209,7 @@ const FirstTimeSetup: React.FC = () => {
         maxWidth: '500px'
       }}>
         <h2 style={{ textAlign: 'center', marginBottom: '10px' }}>
-          {step === 'password' ? '首次設置 - 設置密碼' : '首次設置 - 注册指纹'}
+          {step === 'password' ? t('firstTimeSetup.stepSetPassword') : t('firstTimeSetup.stepRegisterWebauthn')}
         </h2>
         <div style={{ 
           display: 'flex',
@@ -223,7 +225,7 @@ const FirstTimeSetup: React.FC = () => {
           color: '#999',
           fontFamily: 'monospace'
         }}>
-          版本: v{__APP_VERSION__} | 建構時间: {__BUILD_TIME__}
+          {t('firstTimeSetup.versionInfo', { version: __APP_VERSION__, buildTime: __BUILD_TIME__ })}
         </div>
 
         {error && (
@@ -243,7 +245,7 @@ const FirstTimeSetup: React.FC = () => {
           <form onSubmit={handleSetPassword}>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                密碼
+                {t('firstTimeSetup.password')}
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -259,7 +261,7 @@ const FirstTimeSetup: React.FC = () => {
                     borderRadius: '4px',
                     fontSize: '14px'
                   }}
-                  placeholder="请输入密碼（至少6位）"
+                  placeholder={t('firstTimeSetup.passwordPlaceholder')}
                 />
                 <button
                   type="button"
@@ -279,7 +281,7 @@ const FirstTimeSetup: React.FC = () => {
                     justifyContent: 'center',
                     opacity: isLoading ? 0.5 : 1
                   }}
-                  aria-label={showPassword ? '隐藏密碼' : '显示密碼'}
+                  aria-label={showPassword ? t('firstTimeSetup.hidePassword') : t('firstTimeSetup.showPassword')}
                 >
                   {showPassword ? (
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -298,7 +300,7 @@ const FirstTimeSetup: React.FC = () => {
 
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                确认密碼
+                {t('firstTimeSetup.confirmPassword')}
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -314,7 +316,7 @@ const FirstTimeSetup: React.FC = () => {
                     borderRadius: '4px',
                     fontSize: '14px'
                   }}
-                  placeholder="请再次输入密碼"
+                  placeholder={t('firstTimeSetup.confirmPasswordPlaceholder')}
                 />
                 <button
                   type="button"
@@ -334,7 +336,7 @@ const FirstTimeSetup: React.FC = () => {
                     justifyContent: 'center',
                     opacity: isLoading ? 0.5 : 1
                   }}
-                  aria-label={showConfirmPassword ? '隐藏密碼' : '显示密碼'}
+                  aria-label={showConfirmPassword ? t('firstTimeSetup.hidePassword') : t('firstTimeSetup.showPassword')}
                 >
                   {showConfirmPassword ? (
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -366,14 +368,14 @@ const FirstTimeSetup: React.FC = () => {
                 opacity: isLoading ? 0.6 : 1
               }}
             >
-              {isLoading ? '設置中...' : '下一步'}
+              {isLoading ? t('firstTimeSetup.settingUp') : t('firstTimeSetup.nextStep')}
             </button>
           </form>
         ) : (
           <div>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                設备名称
+                {t('firstTimeSetup.deviceName')}
               </label>
               <input
                 type="text"
@@ -387,10 +389,10 @@ const FirstTimeSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder="例如：Chrome on MacBook"
+                placeholder={t('firstTimeSetup.deviceNamePlaceholder')}
               />
               <div style={{ marginTop: '8px', fontSize: '12px', color: '#8c8c8c' }}>
-                為這個設备起一個名称，方便识别
+                {t('firstTimeSetup.deviceNameHint')}
               </div>
             </div>
 
@@ -410,7 +412,7 @@ const FirstTimeSetup: React.FC = () => {
                 marginBottom: '12px'
               }}
             >
-              {isLoading ? '注册中...' : '注册指纹'}
+              {isLoading ? t('firstTimeSetup.registering') : t('firstTimeSetup.registerWebauthn')}
             </button>
 
             <button
@@ -427,7 +429,7 @@ const FirstTimeSetup: React.FC = () => {
                 cursor: isLoading ? 'not-allowed' : 'pointer'
               }}
             >
-              稍后注册
+              {t('firstTimeSetup.registerLater')}
             </button>
           </div>
         )}

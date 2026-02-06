@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Box,
   VStack,
@@ -24,6 +25,7 @@ interface DCAVisualizationProps {
 }
 
 const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
+  const { t } = useTranslation()
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
@@ -48,47 +50,47 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
       if (data.firstOrderTakeProfit) {
         lines.push({
           value: data.firstOrderTakeProfit,
-          label: '首单止盈',
+          label: t('strategyViz.dca.firstOrderTP'),
           color: '#38A169',
         })
       }
       if (data.totalTakeProfit) {
         lines.push({
           value: data.totalTakeProfit,
-          label: '全仓止盈',
+          label: t('strategyViz.dca.totalTP'),
           color: '#38A169',
         })
       }
       if (data.stopLoss) {
         lines.push({
           value: data.stopLoss,
-          label: '止损',
+          label: t('strategyViz.dca.stopLoss'),
           color: '#E53E3E',
         })
       }
     }
     return lines
-  }, [data.avgEntryPrice, data.firstOrderTakeProfit, data.totalTakeProfit, data.stopLoss])
+  }, [data.avgEntryPrice, data.firstOrderTakeProfit, data.totalTakeProfit, data.stopLoss, t])
 
   return (
     <VStack spacing={4} align="stretch">
       {/* 关键指标 */}
       <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">当前价格</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.dca.currentPrice')}</StatLabel>
           <StatNumber fontSize="lg">${data.currentPrice?.toFixed(2) || '—'}</StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">平均成本</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.dca.avgCost')}</StatLabel>
           <StatNumber fontSize="lg">${data.avgEntryPrice?.toFixed(2) || '—'}</StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">ATR值</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.dca.atrValue')}</StatLabel>
           <StatNumber fontSize="lg">{data.atr?.toFixed(4) || '—'}</StatNumber>
-          <StatHelpText fontSize="xs">动态间距: {data.dynamicInterval?.toFixed(2)}%</StatHelpText>
+          <StatHelpText fontSize="xs">{t('strategyViz.dca.dynamicSpacing')}: {data.dynamicInterval?.toFixed(2)}%</StatHelpText>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">当前层级</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.dca.currentLayer')}</StatLabel>
           <StatNumber fontSize="lg">
             {data.currentLayer || 0}/{data.maxLayers || 0}
           </StatNumber>
@@ -98,7 +100,7 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
       {/* 价格图表 */}
       {chartData.length > 0 && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>价格走势</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.dca.priceTrend')}</Text>
           <PriceChart data={chartData} height={250} referenceLines={referenceLines} />
         </Box>
       )}
@@ -106,7 +108,7 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
       {/* 分层持仓 */}
       {data.layers && data.layers.length > 0 && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>分层持仓</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.dca.layeredPositions')}</Text>
           <VStack spacing={2} align="stretch" maxH="300px" overflowY="auto">
             {data.layers.map((layer, index) => {
               const isProfit = layer.pnl >= 0
@@ -122,7 +124,7 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
                   <HStack justify="space-between" mb={2}>
                     <HStack>
                       <Badge colorScheme={layer.status === 'filled' ? 'green' : 'gray'}>
-                        第{layer.index}层
+                        {t('strategyViz.dca.layerN', { n: layer.index })}
                       </Badge>
                       <Text fontSize="sm" fontWeight="bold">
                         ${layer.price.toFixed(2)}
@@ -140,9 +142,9 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
                     </HStack>
                   </HStack>
                   <SimpleGrid columns={3} spacing={2} fontSize="xs" color="gray.600">
-                    <Text>数量: {layer.quantity.toFixed(4)}</Text>
-                    <Text>成本: ${layer.cost.toFixed(2)}</Text>
-                    <Text>盈亏: ${layer.pnl.toFixed(2)}</Text>
+                    <Text>{t('strategyViz.dca.quantity')}: {layer.quantity.toFixed(4)}</Text>
+                    <Text>{t('strategyViz.dca.cost')}: ${layer.cost.toFixed(2)}</Text>
+                    <Text>{t('strategyViz.dca.pnl')}: ${layer.pnl.toFixed(2)}</Text>
                   </SimpleGrid>
                 </Box>
               )
@@ -153,11 +155,11 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
 
       {/* 决策依据 */}
       <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-        <Text fontSize="sm" fontWeight="bold" mb={3}>决策依据</Text>
+        <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.dca.decisionBasis')}</Text>
         <VStack spacing={2} align="stretch" fontSize="sm">
           {data.nextBuyPrice && data.distanceToNextBuy !== undefined && (
             <HStack justify="space-between">
-              <Text color="gray.600">下一买入点</Text>
+              <Text color="gray.600">{t('strategyViz.dca.nextBuyPoint')}</Text>
               <HStack>
                 <Text fontWeight="bold">${data.nextBuyPrice.toFixed(2)}</Text>
                 <Text color="gray.500">
@@ -169,21 +171,21 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
           {data.isPaused && (
             <HStack>
               <WarningIcon color="orange.500" />
-              <Text color="orange.600">瀑布保护已激活，暂停加仓</Text>
+              <Text color="orange.600">{t('strategyViz.dca.cascadeProtectionActive')}</Text>
             </HStack>
           )}
           {data.trendFilterEnabled !== undefined && (
             <HStack justify="space-between">
-              <Text color="gray.600">趋势过滤</Text>
+              <Text color="gray.600">{t('strategyViz.dca.trendFilter')}</Text>
               <Badge colorScheme={data.isTrendUp ? 'green' : 'red'}>
-                {data.isTrendUp ? '向上' : '向下'}
+                {data.isTrendUp ? t('strategyViz.dca.trendUp') : t('strategyViz.dca.trendDown')}
               </Badge>
             </HStack>
           )}
           {data.takeProfitTriggered && (
             <HStack>
-              <Text color="green.600">追踪止盈已激活</Text>
-              <Text color="gray.500">最高盈利: {data.highestProfit?.toFixed(2)}%</Text>
+              <Text color="green.600">{t('strategyViz.dca.trailingTPActive')}</Text>
+              <Text color="gray.500">{t('strategyViz.dca.highestProfit')}: {data.highestProfit?.toFixed(2)}%</Text>
             </HStack>
           )}
         </VStack>

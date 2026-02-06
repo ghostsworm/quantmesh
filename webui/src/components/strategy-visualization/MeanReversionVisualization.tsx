@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Box,
   VStack,
@@ -24,6 +25,7 @@ interface MeanReversionVisualizationProps {
 }
 
 const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({ data }) => {
+  const { t } = useTranslation()
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
@@ -49,19 +51,19 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
       {/* 关键指标 */}
       <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">当前价格</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.meanReversion.currentPrice')}</StatLabel>
           <StatNumber fontSize="lg">${data.currentPrice?.toFixed(2) || '—'}</StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">上轨</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.meanReversion.upperBand')}</StatLabel>
           <StatNumber fontSize="lg">${data.upperBand?.toFixed(2) || '—'}</StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">中轨（均值）</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.meanReversion.middleBand')}</StatLabel>
           <StatNumber fontSize="lg">${data.middleBand?.toFixed(2) || '—'}</StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">下轨</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.meanReversion.lowerBand')}</StatLabel>
           <StatNumber fontSize="lg">${data.lowerBand?.toFixed(2) || '—'}</StatNumber>
         </Stat>
       </SimpleGrid>
@@ -69,11 +71,11 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
       {/* 价格在布林带中的位置 */}
       {data.upperBand && data.lowerBand && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>价格在布林带中的位置</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.meanReversion.positionInBand')}</Text>
           <VStack spacing={2}>
             <HStack w="100%" justify="space-between" fontSize="xs" color="gray.600">
-              <Text>下轨 (${data.lowerBand.toFixed(2)})</Text>
-              <Text>上轨 (${data.upperBand.toFixed(2)})</Text>
+              <Text>{t('strategyViz.meanReversion.lowerBand')} (${data.lowerBand.toFixed(2)})</Text>
+              <Text>{t('strategyViz.meanReversion.upperBand')} (${data.upperBand.toFixed(2)})</Text>
             </HStack>
             <Box w="100%" position="relative">
               <Progress
@@ -99,7 +101,7 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
               </Box>
             </Box>
             <Text fontSize="xs" color="gray.500">
-              位置: {positionPercent.toFixed(1)}% ({positionPercent < 20 ? '接近下轨' : positionPercent > 80 ? '接近上轨' : '中间区域'})
+              {t('strategyViz.meanReversion.position')}: {positionPercent.toFixed(1)}% ({positionPercent < 20 ? t('strategyViz.meanReversion.nearLower') : positionPercent > 80 ? t('strategyViz.meanReversion.nearUpper') : t('strategyViz.meanReversion.middleZone')})
             </Text>
           </VStack>
         </Box>
@@ -108,7 +110,7 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
       {/* 价格图表 */}
       {chartData.length > 0 && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>价格走势与布林带</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.meanReversion.priceAndBollinger')}</Text>
           <PriceChart data={chartData} height={250} />
         </Box>
       )}
@@ -116,35 +118,35 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
       {/* 交易信号和持仓状态 */}
       <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>交易信号</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.meanReversion.tradeSignals')}</Text>
           <VStack spacing={2} align="stretch">
             <HStack justify="space-between">
-              <Text fontSize="sm" color="gray.600">买入信号</Text>
+              <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.buySignal')}</Text>
               <Badge colorScheme={data.buySignal ? 'green' : 'gray'}>
-                {data.buySignal ? '是' : '否'}
+                {data.buySignal ? t('strategyViz.meanReversion.yes') : t('strategyViz.meanReversion.no')}
               </Badge>
             </HStack>
             <HStack justify="space-between">
-              <Text fontSize="sm" color="gray.600">卖出信号</Text>
+              <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.sellSignal')}</Text>
               <Badge colorScheme={data.sellSignal ? 'red' : 'gray'}>
-                {data.sellSignal ? '是' : '否'}
+                {data.sellSignal ? t('strategyViz.meanReversion.yes') : t('strategyViz.meanReversion.no')}
               </Badge>
             </HStack>
             {data.touchesLowerBand && (
               <HStack>
                 <TriangleDownIcon color="green.500" />
-                <Text fontSize="sm" color="green.600">价格触及下轨</Text>
+                <Text fontSize="sm" color="green.600">{t('strategyViz.meanReversion.touchesLower')}</Text>
               </HStack>
             )}
             {data.touchesUpperBand && (
               <HStack>
                 <TriangleUpIcon color="red.500" />
-                <Text fontSize="sm" color="red.600">价格触及上轨</Text>
+                <Text fontSize="sm" color="red.600">{t('strategyViz.meanReversion.touchesUpper')}</Text>
               </HStack>
             )}
             {data.distanceToBuy !== undefined && !data.hasPosition && (
               <HStack justify="space-between">
-                <Text fontSize="sm" color="gray.600">距离买入点</Text>
+                <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.distanceToBuy')}</Text>
                 <Text fontSize="sm" fontWeight="bold">
                   {data.distanceToBuy >= 0 ? '+' : ''}{data.distanceToBuy.toFixed(2)}%
                 </Text>
@@ -152,7 +154,7 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
             )}
             {data.distanceToSell !== undefined && data.hasPosition && (
               <HStack justify="space-between">
-                <Text fontSize="sm" color="gray.600">距离卖出点</Text>
+                <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.distanceToSell')}</Text>
                 <Text fontSize="sm" fontWeight="bold">
                   {data.distanceToSell >= 0 ? '+' : ''}{data.distanceToSell.toFixed(2)}%
                 </Text>
@@ -162,23 +164,23 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
         </Box>
 
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>持仓状态</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.meanReversion.positionStatus')}</Text>
           <VStack spacing={2} align="stretch">
             <HStack justify="space-between">
-              <Text fontSize="sm" color="gray.600">持仓状态</Text>
+              <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.positionStatus')}</Text>
               <Badge colorScheme={data.hasPosition ? 'green' : 'gray'}>
-                {data.hasPosition ? '已持仓' : '空仓'}
+                {data.hasPosition ? t('strategyViz.meanReversion.hasPosition') : t('strategyViz.meanReversion.noPosition')}
               </Badge>
             </HStack>
             {data.hasPosition && data.entryPrice && (
               <>
                 <HStack justify="space-between">
-                  <Text fontSize="sm" color="gray.600">入场价格</Text>
+                  <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.entryPrice')}</Text>
                   <Text fontSize="sm" fontWeight="bold">${data.entryPrice.toFixed(2)}</Text>
                 </HStack>
                 {data.pnlPercent !== undefined && (
                   <HStack justify="space-between">
-                    <Text fontSize="sm" color="gray.600">当前盈亏</Text>
+                    <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.currentPnL')}</Text>
                     <HStack>
                       {data.pnlPercent >= 0 ? (
                         <TriangleUpIcon color="green.500" />
@@ -198,11 +200,11 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
               </>
             )}
             <HStack justify="space-between">
-              <Text fontSize="sm" color="gray.600">周期</Text>
+              <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.period')}</Text>
               <Text fontSize="sm">{data.period}</Text>
             </HStack>
             <HStack justify="space-between">
-              <Text fontSize="sm" color="gray.600">标准差倍数</Text>
+              <Text fontSize="sm" color="gray.600">{t('strategyViz.meanReversion.stdMultiplier')}</Text>
               <Text fontSize="sm">{data.stdMultiplier}</Text>
             </HStack>
           </VStack>

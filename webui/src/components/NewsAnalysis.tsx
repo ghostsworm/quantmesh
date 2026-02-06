@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Box,
   Center,
@@ -40,19 +41,21 @@ import {
   NewsItem,
 } from '../services/api'
 
-const ASSET_OPTIONS = [
-  { value: 'crypto_btc', label: 'BTC', symbol: 'BTCUSDT' },
-  { value: 'commodity_gold', label: '黃金 (PAXG)', symbol: 'PAXGUSDT' },
-]
-
-const REC_LABELS: Record<string, { label: string; color: string }> = {
-  normal: { label: '正常', color: 'green' },
-  caution: { label: '谨慎', color: 'yellow' },
-  reduce_position: { label: '减倉', color: 'orange' },
-  stop_trading: { label: '暂停交易', color: 'red' },
-}
-
 const NewsAnalysis: React.FC = () => {
+  const { t } = useTranslation()
+
+  const ASSET_OPTIONS = [
+    { value: 'crypto_btc', label: 'BTC', symbol: 'BTCUSDT' },
+    { value: 'commodity_gold', label: t('newsAnalysis.goldPaxg'), symbol: 'PAXGUSDT' },
+  ]
+
+  const REC_LABELS: Record<string, { label: string; color: string }> = {
+    normal: { label: t('newsAnalysis.recNormal'), color: 'green' },
+    caution: { label: t('newsAnalysis.recCaution'), color: 'yellow' },
+    reduce_position: { label: t('newsAnalysis.recReducePosition'), color: 'orange' },
+    stop_trading: { label: t('newsAnalysis.recStopTrading'), color: 'red' },
+  }
+
   const [assetType, setAssetType] = useState('crypto_btc')
   const [assessment, setAssessment] = useState<NewsRiskAssessment | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -79,7 +82,7 @@ const NewsAnalysis: React.FC = () => {
       setAccuracy(accRes ? { total: accRes.total, correct: accRes.correct, accuracy: accRes.accuracy } : null)
     } catch (err) {
       console.error(err)
-      toast({ title: '獲取數據失败', status: 'error', duration: 3000 })
+      toast({ title: t('newsAnalysis.fetchDataFailed'), status: 'error', duration: 3000 })
     } finally {
       setLoading(false)
     }
@@ -95,10 +98,10 @@ const NewsAnalysis: React.FC = () => {
     try {
       setTriggering(true)
       await triggerNewsAnalyze(currentAsset.symbol, focusEvent || undefined, assetType)
-      toast({ title: '分析任務已提交', status: 'success', duration: 2000 })
+      toast({ title: t('newsAnalysis.analysisSubmitted'), status: 'success', duration: 2000 })
       setTimeout(fetchData, 2000)
     } catch (err) {
-      toast({ title: (err as Error).message || '触发失败', status: 'error', duration: 3000 })
+      toast({ title: (err as Error).message || t('newsAnalysis.triggerFailed'), status: 'error', duration: 3000 })
     } finally {
       setTriggering(false)
     }
@@ -122,7 +125,7 @@ const NewsAnalysis: React.FC = () => {
       <VStack align="stretch" spacing={6}>
         <HStack justify="space-between" wrap="wrap" gap={4}>
           <HStack>
-            <Heading size="lg">新聞分析</Heading>
+            <Heading size="lg">{t('newsAnalysis.title')}</Heading>
             <HStack spacing={1}>
               {ASSET_OPTIONS.map((a) => (
                 <Button
@@ -137,17 +140,17 @@ const NewsAnalysis: React.FC = () => {
               ))}
             </HStack>
             <Button as={RouterLink} to="/news-analysis/history" size="sm" variant="ghost">
-              历史記錄
+              {t('newsAnalysis.history')}
             </Button>
             <Button as={RouterLink} to="/news-analysis/predictions" size="sm" variant="ghost">
-              預测准确率
+              {t('newsAnalysis.predictionAccuracy')}
             </Button>
           </HStack>
           <HStack>
             <FormControl w="280px">
-              <FormLabel fontSize="sm">焦点事件（可選）</FormLabel>
+              <FormLabel fontSize="sm">{t('newsAnalysis.focusEventLabel')}</FormLabel>
               <Input
-                placeholder="如：伊朗港口大爆炸事件"
+                placeholder={t('newsAnalysis.focusEventPlaceholder')}
                 value={focusEvent}
                 onChange={(e) => setFocusEvent(e.target.value)}
                 size="sm"
@@ -157,15 +160,15 @@ const NewsAnalysis: React.FC = () => {
               leftIcon={<RepeatIcon />}
               colorScheme="blue"
               isLoading={triggering || isAnalyzing}
-              loadingText={isAnalyzing ? '分析中...' : '提交中...'}
+              loadingText={isAnalyzing ? t('newsAnalysis.analyzing') : t('newsAnalysis.submitting')}
               onClick={handleTrigger}
               size="sm"
               mt={6}
             >
-              手动触发分析
+              {t('newsAnalysis.manualTrigger')}
             </Button>
             <Button variant="ghost" size="sm" onClick={fetchData} mt={6}>
-              刷新
+              {t('common.refresh')}
             </Button>
           </HStack>
         </HStack>
@@ -173,20 +176,20 @@ const NewsAnalysis: React.FC = () => {
         {isAnalyzing && (
           <Alert status="info">
             <Spinner size="sm" mr={2} />
-            <AlertTitle>Gemini 正在分析中...</AlertTitle>
+            <AlertTitle>{t('newsAnalysis.geminiAnalyzing')}</AlertTitle>
           </Alert>
         )}
 
         {accuracy !== null && accuracy.total > 0 && (
           <Card>
             <CardHeader py={3}>
-              <Text fontSize="sm" fontWeight="600">預测准确率（近7天）</Text>
+              <Text fontSize="sm" fontWeight="600">{t('newsAnalysis.predictionAccuracy7d')}</Text>
             </CardHeader>
             <CardBody pt={0}>
               <HStack spacing={6}>
-                <Text>總计 <strong>{accuracy.total}</strong> 次</Text>
-                <Text>正确 <strong>{accuracy.correct}</strong> 次</Text>
-                <Text>准确率 <strong>{accuracy.accuracy.toFixed(1)}%</strong></Text>
+                <Text>{t('newsAnalysis.total')} <strong>{accuracy.total}</strong> {t('newsAnalysis.times')}</Text>
+                <Text>{t('newsAnalysis.correct')} <strong>{accuracy.correct}</strong> {t('newsAnalysis.times')}</Text>
+                <Text>{t('newsAnalysis.accuracyRate')} <strong>{accuracy.accuracy.toFixed(1)}%</strong></Text>
               </HStack>
             </CardBody>
           </Card>
@@ -197,7 +200,7 @@ const NewsAnalysis: React.FC = () => {
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
               <Card>
                 <CardHeader py={3}>
-                  <Text fontSize="sm" color="gray.500">建议操作</Text>
+                  <Text fontSize="sm" color="gray.500">{t('newsAnalysis.recommendedAction')}</Text>
                 </CardHeader>
                 <CardBody pt={0}>
                   <Badge colorScheme={recInfo.color} fontSize="md" px={3} py={1}>
@@ -207,7 +210,7 @@ const NewsAnalysis: React.FC = () => {
               </Card>
               <Card>
                 <CardHeader py={3}>
-                  <Text fontSize="sm" color="gray.500">风險评分</Text>
+                  <Text fontSize="sm" color="gray.500">{t('newsAnalysis.riskScore')}</Text>
                 </CardHeader>
                 <CardBody pt={0}>
                   <Text fontSize="2xl" fontWeight="bold">{assessment.overall_risk_score.toFixed(1)}</Text>
@@ -216,7 +219,7 @@ const NewsAnalysis: React.FC = () => {
               </Card>
               <Card>
                 <CardHeader py={3}>
-                  <Text fontSize="sm" color="gray.500">大跌概率</Text>
+                  <Text fontSize="sm" color="gray.500">{t('newsAnalysis.crashProbability')}</Text>
                 </CardHeader>
                 <CardBody pt={0}>
                   <Text fontSize="2xl" fontWeight="bold">{(assessment.crash_probability * 100).toFixed(1)}%</Text>
@@ -227,7 +230,7 @@ const NewsAnalysis: React.FC = () => {
             {assessment.analysis_summary && (
               <Card>
                 <CardHeader py={3}>
-                  <Text fontSize="sm" fontWeight="600">分析摘要</Text>
+                  <Text fontSize="sm" fontWeight="600">{t('newsAnalysis.analysisSummary')}</Text>
                 </CardHeader>
                 <CardBody pt={0}>
                   <Text fontSize="sm" color="gray.600">{assessment.analysis_summary}</Text>
@@ -238,7 +241,7 @@ const NewsAnalysis: React.FC = () => {
             {assessment.price_predictions && assessment.price_predictions.length > 0 && (
               <Card>
                 <CardHeader py={3}>
-                  <Text fontSize="sm" fontWeight="600">價格預测概率</Text>
+                  <Text fontSize="sm" fontWeight="600">{t('newsAnalysis.pricePrediction')}</Text>
                 </CardHeader>
                 <CardBody pt={0}>
                   <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
@@ -261,7 +264,7 @@ const NewsAnalysis: React.FC = () => {
             {assessment.risk_factors && assessment.risk_factors.length > 0 && (
               <Card>
                 <CardHeader py={3}>
-                  <Text fontSize="sm" fontWeight="600">风險因素</Text>
+                  <Text fontSize="sm" fontWeight="600">{t('newsAnalysis.riskFactors')}</Text>
                 </CardHeader>
                 <CardBody pt={0}>
                   <HStack flexWrap="wrap" gap={2}>
@@ -277,18 +280,18 @@ const NewsAnalysis: React.FC = () => {
 
         <Card>
           <CardHeader py={3}>
-            <Text fontSize="sm" fontWeight="600">已收集新闻（最近 24 小時）</Text>
+            <Text fontSize="sm" fontWeight="600">{t('newsAnalysis.collectedNews24h')}</Text>
           </CardHeader>
           <CardBody pt={0}>
             {news.length === 0 ? (
-              <Text color="gray.500" fontSize="sm">暂無（请检查 NewsAPI Key 配置或网络连接）</Text>
+              <Text color="gray.500" fontSize="sm">{t('newsAnalysis.noNewsHint')}</Text>
             ) : (
               <Table size="sm">
                 <Thead>
                   <Tr>
-                    <Th>時间</Th>
-                    <Th>標题</Th>
-                    <Th>来源</Th>
+                    <Th>{t('newsAnalysis.time')}</Th>
+                    <Th>{t('newsAnalysis.newsTitle')}</Th>
+                    <Th>{t('newsAnalysis.source')}</Th>
                   </Tr>
                 </Thead>
                 <Tbody>

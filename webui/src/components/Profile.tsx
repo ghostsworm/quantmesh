@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
 import {
   changePassword,
@@ -11,6 +12,7 @@ import {
 import './Profile.css'
 
 const Profile: React.FC = () => {
+  const { t, i18n } = useTranslation()
   const { refreshAuth } = useAuth()
   const [activeTab, setActiveTab] = useState<'password' | 'webauthn'>('password')
   
@@ -52,29 +54,29 @@ const Profile: React.FC = () => {
     setPasswordSuccess(null)
 
     if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordError('请填写所有字段')
+      setPasswordError(t('profile.fillAllFields'))
       return
     }
 
     if (newPassword.length < 6) {
-      setPasswordError('新密碼长度至少為6位')
+      setPasswordError(t('profile.passwordMinLength'))
       return
     }
 
     if (newPassword !== confirmPassword) {
-      setPasswordError('两次输入的新密碼不一致')
+      setPasswordError(t('profile.passwordMismatch'))
       return
     }
 
     setPasswordLoading(true)
     try {
       await changePassword(currentPassword, newPassword)
-      setPasswordSuccess('密碼修改成功')
+      setPasswordSuccess(t('profile.passwordChangeSuccess'))
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
     } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : '密碼修改失败')
+      setPasswordError(err instanceof Error ? err.message : t('profile.passwordChangeFailed'))
     } finally {
       setPasswordLoading(false)
     }
@@ -83,7 +85,7 @@ const Profile: React.FC = () => {
   // 注册新的 WebAuthn 凭证
   const handleRegisterWebAuthn = async () => {
     if (!deviceName.trim()) {
-      setWebauthnError('请输入設备名称')
+      setWebauthnError(t('profile.enterDeviceName'))
       return
     }
 
@@ -95,7 +97,7 @@ const Profile: React.FC = () => {
       // 1. 开始注册
       const beginResponse = await beginWebAuthnRegistration(deviceName)
       if (!beginResponse.success) {
-        throw new Error('WebAuthn 注册失败')
+        throw new Error(t('profile.webauthnRegisterFailed'))
       }
 
       // 2. 轉换选项格式
@@ -174,14 +176,14 @@ const Profile: React.FC = () => {
         credentialResponse
       )
 
-      setWebauthnSuccess('指纹注册成功')
+      setWebauthnSuccess(t('profile.fingerprintRegisterSuccess'))
       setDeviceName('')
       await loadCredentials()
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {
-        setWebauthnError('用戶取消了指纹驗证')
+        setWebauthnError(t('profile.userCancelledFingerprint'))
       } else {
-        setWebauthnError(err.message || '指纹注册失败')
+        setWebauthnError(err.message || t('profile.fingerprintRegisterFailed'))
       }
     } finally {
       setWebauthnLoading(false)
@@ -190,42 +192,42 @@ const Profile: React.FC = () => {
 
   // 刪除 WebAuthn 凭证
   const handleDeleteCredential = async (credentialId: string, deviceName: string) => {
-    if (!confirm(`确定要刪除設备 "${deviceName}" 的凭证吗？`)) {
+    if (!confirm(t('profile.confirmDeleteCredential', { deviceName }))) {
       return
     }
 
     try {
       await deleteWebAuthnCredential(credentialId)
-      setWebauthnSuccess('凭证已刪除')
+      setWebauthnSuccess(t('profile.credentialDeleted'))
       await loadCredentials()
     } catch (err) {
-      setWebauthnError(err instanceof Error ? err.message : '刪除凭证失败')
+      setWebauthnError(err instanceof Error ? err.message : t('profile.deleteCredentialFailed'))
     }
   }
 
   return (
     <div className="profile-container">
-      <h2>個人资料</h2>
+      <h2>{t('profile.title')}</h2>
 
       <div className="profile-tabs">
         <button
           className={`tab-button ${activeTab === 'password' ? 'active' : ''}`}
           onClick={() => setActiveTab('password')}
         >
-          修改密碼
+          {t('profile.changePassword')}
         </button>
         <button
           className={`tab-button ${activeTab === 'webauthn' ? 'active' : ''}`}
           onClick={() => setActiveTab('webauthn')}
         >
-          指纹管理
+          {t('profile.fingerprintManagement')}
         </button>
       </div>
 
       <div className="profile-content">
         {activeTab === 'password' && (
           <div className="password-section">
-            <h3>修改密碼</h3>
+            <h3>{t('profile.changePassword')}</h3>
             
             {passwordError && (
               <div className="alert alert-error">{passwordError}</div>
@@ -236,35 +238,35 @@ const Profile: React.FC = () => {
 
             <form onSubmit={handleChangePassword}>
               <div className="form-group">
-                <label>當前密碼</label>
+                <label>{t('profile.currentPassword')}</label>
                 <input
                   type="password"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   disabled={passwordLoading}
-                  placeholder="请输入當前密碼"
+                  placeholder={t('profile.enterCurrentPassword')}
                 />
               </div>
 
               <div className="form-group">
-                <label>新密碼</label>
+                <label>{t('profile.newPassword')}</label>
                 <input
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   disabled={passwordLoading}
-                  placeholder="请输入新密碼（至少6位）"
+                  placeholder={t('profile.enterNewPassword')}
                 />
               </div>
 
               <div className="form-group">
-                <label>确认新密碼</label>
+                <label>{t('profile.confirmNewPassword')}</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   disabled={passwordLoading}
-                  placeholder="请再次输入新密碼"
+                  placeholder={t('profile.reenterNewPassword')}
                 />
               </div>
 
@@ -273,7 +275,7 @@ const Profile: React.FC = () => {
                 className="btn btn-primary"
                 disabled={passwordLoading}
               >
-                {passwordLoading ? '修改中...' : '修改密碼'}
+                {passwordLoading ? t('profile.changing') : t('profile.changePassword')}
               </button>
             </form>
           </div>
@@ -281,7 +283,7 @@ const Profile: React.FC = () => {
 
         {activeTab === 'webauthn' && (
           <div className="webauthn-section">
-            <h3>指纹管理</h3>
+            <h3>{t('profile.fingerprintManagement')}</h3>
 
             {webauthnError && (
               <div className="alert alert-error">{webauthnError}</div>
@@ -291,52 +293,52 @@ const Profile: React.FC = () => {
             )}
 
             <div className="register-webauthn">
-              <h4>注册新設备</h4>
+              <h4>{t('profile.registerNewDevice')}</h4>
               <div className="form-group">
-                <label>設备名称</label>
+                <label>{t('profile.deviceName')}</label>
                 <input
                   type="text"
                   value={deviceName}
                   onChange={(e) => setDeviceName(e.target.value)}
                   disabled={webauthnLoading}
-                  placeholder="例如：Chrome on MacBook"
+                  placeholder={t('profile.deviceNamePlaceholder')}
                 />
-                <small>為這個設备起一個名称，方便识别</small>
+                <small>{t('profile.deviceNameHint')}</small>
               </div>
               <button
                 className="btn btn-primary"
                 onClick={handleRegisterWebAuthn}
                 disabled={webauthnLoading}
               >
-                {webauthnLoading ? '注册中...' : '注册指纹'}
+                {webauthnLoading ? t('profile.registering') : t('profile.registerFingerprint')}
               </button>
             </div>
 
             <div className="credentials-list">
-              <h4>已注册的設备</h4>
+              <h4>{t('profile.registeredDevices')}</h4>
               {credentials.length === 0 ? (
-                <p className="empty-message">暂無已注册的設备</p>
+                <p className="empty-message">{t('profile.noRegisteredDevices')}</p>
               ) : (
                 <table className="credentials-table">
                   <thead>
                     <tr>
-                      <th>設备名称</th>
-                      <th>注册時间</th>
-                      <th>最后使用</th>
-                      <th>操作</th>
+                      <th>{t('profile.deviceName')}</th>
+                      <th>{t('profile.registerTime')}</th>
+                      <th>{t('profile.lastUsed')}</th>
+                      <th>{t('profile.actions')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {credentials.map((cred) => {
                       // 格式化日期，处理可能的無效日期
                       const formatDate = (dateStr: string | undefined): string => {
-                        if (!dateStr) return '未使用'
+                        if (!dateStr) return t('profile.notUsed')
                         try {
                           const date = new Date(dateStr)
                           if (isNaN(date.getTime())) {
-                            return '無效日期'
+                            return t('profile.invalidDate')
                           }
-                          return date.toLocaleString('zh-CN', {
+                          return date.toLocaleString(i18n.language, {
                             year: 'numeric',
                             month: '2-digit',
                             day: '2-digit',
@@ -345,21 +347,21 @@ const Profile: React.FC = () => {
                             second: '2-digit',
                           })
                         } catch (e) {
-                          return '無效日期'
+                          return t('profile.invalidDate')
                         }
                       }
 
                       return (
                         <tr key={cred.id}>
-                          <td>{cred.device_name || '未命名設备'}</td>
+                          <td>{cred.device_name || t('profile.unnamedDevice')}</td>
                           <td>{formatDate(cred.created_at)}</td>
                           <td>{formatDate(cred.last_used_at)}</td>
                           <td>
                             <button
                               className="btn btn-danger btn-sm"
-                              onClick={() => handleDeleteCredential(cred.credential_id, cred.device_name || '未命名設备')}
+                              onClick={() => handleDeleteCredential(cred.credential_id, cred.device_name || t('profile.unnamedDevice'))}
                             >
-                              刪除
+                              {t('profile.delete')}
                             </button>
                           </td>
                         </tr>
@@ -377,4 +379,3 @@ const Profile: React.FC = () => {
 }
 
 export default Profile
-

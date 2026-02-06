@@ -4,6 +4,38 @@
 
 ## [Unreleased]
 
+## [3.43.2-rc1] - 2026-02-06
+
+### Added
+- 複合風控引擎擴展與回測/深度風控相關改進；前端與多語言更新
+
+## [3.43.1-rc1] - 2026-02-06
+
+### Fixed
+- **修复交易记录重复写入 Bug**：`GridStrategy.OnOrderUpdate()` 重复转发导致每笔订单被处理两次（PnL 膨胀 2 倍、持仓翻倍）
+- **修复订单数量被清零**：`SaveOrder` 从 `INSERT OR REPLACE` 改为 `INSERT ... ON CONFLICT DO UPDATE`，保留原始委托量
+- **补全 filled_qty 字段**：`order_filled` 事件正确映射 `executed_qty`，补充 `exchange`/`type`
+- **数据库三轮去重**：清理精确重复、合计重复、翻倍重复，624 → 324 条
+- **修复历史数据**：780 个 FILLED 订单的 quantity/filled_qty 恢复为正确值
+
+### Added
+- **净盈亏展示**：Dashboard 卡片分解显示：已完成利润 + 持仓浮亏 - 手续费
+- **`/api/statistics` 新增字段**：`unrealized_pnl`、`net_pnl`
+- **成交明细弹窗**：订单列表点击盈利值查看委托详情和所有部分成交记录
+- **`/api/trades/by-order/:order_id` 接口**：查询卖单的全部成交明细、手续费分摊、汇总
+- **`/api/orders/history` 补全字段**：`filled_qty`、`exchange`、`type`
+
+## [3.43.0-rc1] - 2026-02-06
+
+### Added
+- **複合風控引擎（Composite Risk Controller）**：
+  - 新增 `safety/composite_risk.go`：風控因子接口、加權聚合、級別映射、定時評估
+  - 五個風控因子：AI 新聞、均線趨勢、資金費率、市場深度、K 線異常（`factor_news.go`、`factor_trend.go`、`factor_funding.go`、`factor_depth.go`、`factor_kline.go`）
+  - 配置項 `composite_risk`：啟用開關、評估間隔、閾值（caution/reduce_position/pause_buying/stop_trading）、各因子權重
+  - `SuperPositionManager` 集成：根據複合風控結果調整買入（RiskStopTrading 撤買單並返回、RiskPauseBuying 暫停買入、RiskReducePosition/RiskCaution 縮減買單數量）
+  - `symbol_manager` 初始化複合風控並注入新聞監控（main 中設置 NewsMonitor 後寫入各 runtime）
+  - API `GET /api/composite-risk`：返回當前複合風控狀態與各因子評分
+
 ## [3.42.0-rc2] - 2026-02-06
 
 ### Fixed

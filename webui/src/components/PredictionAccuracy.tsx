@@ -20,21 +20,23 @@ import {
   Select,
 } from '@chakra-ui/react'
 import { Link as RouterLink } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { getPredictionsAccuracy, getPredictionsHistory, PredictionHistoryItem } from '../services/api'
 
-const ASSET_OPTIONS = [
-  { value: '', label: '全部' },
-  { value: 'crypto_btc', label: 'BTC' },
-  { value: 'commodity_gold', label: '黃金' },
-]
-
 const PredictionAccuracy: React.FC = () => {
+  const { t } = useTranslation()
   const [assetType, setAssetType] = useState('')
   const [accuracy, setAccuracy] = useState<{ total: number; correct: number; accuracy: number } | null>(null)
   const [history, setHistory] = useState<PredictionHistoryItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [sinceDays, setSinceDays] = useState(7)
+
+  const ASSET_OPTIONS = [
+    { value: '', label: t('predictionAccuracy.all') },
+    { value: 'crypto_btc', label: 'BTC' },
+    { value: 'commodity_gold', label: t('predictionAccuracy.gold') },
+  ]
 
   const fetchData = async () => {
     try {
@@ -65,15 +67,15 @@ const PredictionAccuracy: React.FC = () => {
     <Container maxW="container.xl" py={8}>
       <VStack align="stretch" spacing={6}>
         <HStack justify="space-between">
-          <Heading size="lg">預测准确率</Heading>
+          <Heading size="lg">{t('predictionAccuracy.title')}</Heading>
           <Button as={RouterLink} to="/news-analysis" size="sm" variant="outline">
-            返回新聞分析
+            {t('predictionAccuracy.backToNewsAnalysis')}
           </Button>
         </HStack>
 
         <HStack>
           <FormControl w="150px">
-            <FormLabel fontSize="sm">资產</FormLabel>
+            <FormLabel fontSize="sm">{t('predictionAccuracy.asset')}</FormLabel>
             <Select size="sm" value={assetType} onChange={(e) => setAssetType(e.target.value)}>
               {ASSET_OPTIONS.map((a) => (
                 <option key={a.value || 'all'} value={a.value}>{a.label}</option>
@@ -81,11 +83,11 @@ const PredictionAccuracy: React.FC = () => {
             </Select>
           </FormControl>
           <FormControl w="120px">
-            <FormLabel fontSize="sm">统计周期</FormLabel>
+            <FormLabel fontSize="sm">{t('predictionAccuracy.period')}</FormLabel>
             <Select size="sm" value={String(sinceDays)} onChange={(e) => setSinceDays(Number(e.target.value))}>
-              <option value="7">近7天</option>
-              <option value="14">近14天</option>
-              <option value="30">近30天</option>
+              <option value="7">{t('predictionAccuracy.last7d')}</option>
+              <option value="14">{t('predictionAccuracy.last14d')}</option>
+              <option value="30">{t('predictionAccuracy.last30d')}</option>
             </Select>
           </FormControl>
         </HStack>
@@ -98,28 +100,28 @@ const PredictionAccuracy: React.FC = () => {
           <>
             {accuracy && (
               <HStack spacing={6} p={4} bg="gray.50" borderRadius="lg">
-                <Text>總預测次數: <strong>{accuracy.total}</strong></Text>
-                <Text>正确次數: <strong>{accuracy.correct}</strong></Text>
-                <Text>准确率: <strong>{accuracy.accuracy.toFixed(1)}%</strong></Text>
+                <Text>{t('predictionAccuracy.totalPredictions')}: <strong>{accuracy.total}</strong></Text>
+                <Text>{t('predictionAccuracy.correctCount')}: <strong>{accuracy.correct}</strong></Text>
+                <Text>{t('predictionAccuracy.accuracy')}: <strong>{accuracy.accuracy.toFixed(1)}%</strong></Text>
               </HStack>
             )}
 
             <Box>
-              <Text fontWeight="600" mb={2}>最近預测驗证記錄</Text>
+              <Text fontWeight="600" mb={2}>{t('predictionAccuracy.recentRecords')}</Text>
               <Table size="sm">
                 <Thead>
                   <Tr>
-                    <Th>預测時间</Th>
-                    <Th>币种</Th>
-                    <Th>時间窗口</Th>
-                    <Th>預测方向</Th>
-                    <Th>實際方向</Th>
-                    <Th>結果</Th>
+                    <Th>{t('predictionAccuracy.predictionTime')}</Th>
+                    <Th>{t('predictionAccuracy.symbol')}</Th>
+                    <Th>{t('predictionAccuracy.timeWindow')}</Th>
+                    <Th>{t('predictionAccuracy.predictedDirection')}</Th>
+                    <Th>{t('predictionAccuracy.actualDirection')}</Th>
+                    <Th>{t('predictionAccuracy.result')}</Th>
                   </Tr>
                 </Thead>
                 <Tbody>
                   {history.length === 0 ? (
-                    <Tr><Td colSpan={6} color="gray.500">暂無驗证記錄</Td></Tr>
+                    <Tr><Td colSpan={6} color="gray.500">{t('predictionAccuracy.noRecords')}</Td></Tr>
                   ) : (
                     history.map((row) => (
                       <Tr key={row.id}>
@@ -131,7 +133,7 @@ const PredictionAccuracy: React.FC = () => {
                         <Td>
                           {row.status === 'verified' ? (
                             <Badge colorScheme={row.is_correct ? 'green' : 'red'}>
-                              {row.is_correct ? '正确' : '錯误'}
+                              {row.is_correct ? t('predictionAccuracy.correct') : t('predictionAccuracy.incorrect')}
                             </Badge>
                           ) : (
                             <Badge colorScheme="gray">{row.status}</Badge>

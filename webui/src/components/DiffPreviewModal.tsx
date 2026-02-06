@@ -21,6 +21,7 @@ import {
   TabPanel,
 } from '@chakra-ui/react'
 import { CheckIcon, CloseIcon } from '@chakra-ui/icons'
+import { useTranslation } from 'react-i18next'
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
 
 interface DiffPreviewModalProps {
@@ -44,15 +45,22 @@ const DiffPreviewModal: React.FC<DiffPreviewModalProps> = ({
   onConfirm,
   oldValue,
   newValue,
-  oldTitle = '原配置',
-  newTitle = '新配置',
-  title = '配置变更預览',
-  confirmText = '确认应用',
-  cancelText = '取消',
+  oldTitle,
+  newTitle,
+  title,
+  confirmText,
+  cancelText,
   showConfirmButton = true,
   isLoading = false,
 }) => {
+  const { t } = useTranslation()
   const { colorMode } = useColorMode()
+
+  const resolvedOldTitle = oldTitle ?? t('diffPreview.oldConfig')
+  const resolvedNewTitle = newTitle ?? t('diffPreview.newConfig')
+  const resolvedTitle = title ?? t('diffPreview.title')
+  const resolvedConfirmText = confirmText ?? t('diffPreview.confirmApply')
+  const resolvedCancelText = cancelText ?? t('common.cancel')
 
   // 计算变更统计
   const diffStats = useMemo(() => {
@@ -144,21 +152,21 @@ const DiffPreviewModal: React.FC<DiffPreviewModalProps> = ({
       <ModalContent maxW="95vw" maxH="90vh">
         <ModalHeader>
           <HStack justify="space-between" align="center">
-            <Text>{title}</Text>
+            <Text>{resolvedTitle}</Text>
             <HStack spacing={3}>
               {diffStats.added > 0 && (
                 <Badge colorScheme="green" fontSize="sm">
-                  +{diffStats.added} 新增
+                  +{diffStats.added} {t('diffPreview.added')}
                 </Badge>
               )}
               {diffStats.removed > 0 && (
                 <Badge colorScheme="red" fontSize="sm">
-                  -{diffStats.removed} 刪除
+                  -{diffStats.removed} {t('diffPreview.removed')}
                 </Badge>
               )}
               {diffStats.modified > 0 && (
                 <Badge colorScheme="yellow" fontSize="sm">
-                  ~{diffStats.modified} 修改
+                  ~{diffStats.modified} {t('diffPreview.modified')}
                 </Badge>
               )}
             </HStack>
@@ -169,8 +177,8 @@ const DiffPreviewModal: React.FC<DiffPreviewModalProps> = ({
         <ModalBody p={0}>
           <Tabs variant="enclosed" size="sm">
             <TabList px={4} pt={2}>
-              <Tab>並排對比</Tab>
-              <Tab>统一視图</Tab>
+              <Tab>{t('diffPreview.sideBySide')}</Tab>
+              <Tab>{t('diffPreview.unifiedView')}</Tab>
             </TabList>
             <TabPanels>
               {/* 並排對比視图 */}
@@ -245,7 +253,7 @@ const DiffPreviewModal: React.FC<DiffPreviewModalProps> = ({
                 onClick={onConfirm}
                 leftIcon={<CheckIcon />}
                 isLoading={isLoading}
-                loadingText="应用中..."
+                loadingText={t('diffPreview.applying')}
               >
                 {confirmText}
               </Button>

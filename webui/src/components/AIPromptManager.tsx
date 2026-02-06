@@ -18,9 +18,11 @@ import {
   Alert,
   AlertIcon,
 } from '@chakra-ui/react'
+import { useTranslation } from 'react-i18next'
 import { getAIPrompts, updateAIPrompt, AIPromptTemplate } from '../services/api'
 
 const AIPromptManager: React.FC = () => {
+  const { t } = useTranslation()
   const [prompts, setPrompts] = useState<Record<string, AIPromptTemplate>>({})
   const [editing, setEditing] = useState<string | null>(null)
   const [editedPrompts, setEditedPrompts] = useState<Record<string, { template: string; systemPrompt: string }>>({})
@@ -28,11 +30,8 @@ const AIPromptManager: React.FC = () => {
   const [saving, setSaving] = useState<string | null>(null)
   const toast = useToast()
 
-  const moduleNames: Record<string, string> = {
-    market_analysis: '市场分析',
-    parameter_optimization: '参數优化',
-    risk_analysis: '风險分析',
-    sentiment_analysis: '情绪分析',
+  const getModuleName = (module: string): string => {
+    return t(`aiPromptManager.moduleNames.${module}`, { defaultValue: module })
   }
 
   useEffect(() => {
@@ -55,7 +54,7 @@ const AIPromptManager: React.FC = () => {
       setEditedPrompts(edited)
     } catch (error) {
       toast({
-        title: '獲取提示词失败',
+        title: t('aiPromptManager.fetchFailed'),
         description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 5000,
@@ -85,8 +84,8 @@ const AIPromptManager: React.FC = () => {
       }
       await updateAIPrompt(module, edited.template, edited.systemPrompt)
       toast({
-        title: '保存成功',
-        description: `${moduleNames[module] || module} 提示词已更新`,
+        title: t('aiPromptManager.saveSuccess'),
+        description: t('aiPromptManager.promptUpdated', { module: getModuleName(module) }),
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -95,7 +94,7 @@ const AIPromptManager: React.FC = () => {
       await fetchPrompts()
     } catch (error) {
       toast({
-        title: '保存失败',
+        title: t('aiPromptManager.saveFailed'),
         description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 5000,
@@ -137,12 +136,12 @@ const AIPromptManager: React.FC = () => {
   return (
     <Box p={6}>
       <Heading size="lg" mb={6}>
-        AI提示词管理
+        {t('aiPromptManager.title')}
       </Heading>
 
       <Alert status="info" mb={6}>
         <AlertIcon />
-        提示词模板支援Go的fmt.Sprintf占位符格式，例如: %s, %.2f, %d等
+        {t('aiPromptManager.templateHint')}
       </Alert>
 
       <VStack align="stretch" spacing={6}>
@@ -154,14 +153,14 @@ const AIPromptManager: React.FC = () => {
                   <Alert status="info" maxW="md">
                     <AlertIcon />
                     <Box>
-                      <Text fontWeight="bold">暂無提示词數據</Text>
+                      <Text fontWeight="bold">{t('aiPromptManager.noData')}</Text>
                       <Text fontSize="sm" mt={1}>
-                        系统將自动加載默认提示词，请稍候或刷新页面
+                        {t('aiPromptManager.autoLoadHint')}
                       </Text>
                     </Box>
                   </Alert>
                   <Button colorScheme="blue" onClick={fetchPrompts}>
-                    刷新數據
+                    {t('aiPromptManager.refreshData')}
                   </Button>
                 </VStack>
               </Center>
@@ -172,7 +171,7 @@ const AIPromptManager: React.FC = () => {
             <Card key={module}>
               <CardHeader>
                 <HStack justify="space-between">
-                  <Heading size="md">{moduleNames[module] || module}</Heading>
+                  <Heading size="md">{getModuleName(module)}</Heading>
                   {editing === module ? (
                     <HStack>
                       <Button
@@ -181,15 +180,15 @@ const AIPromptManager: React.FC = () => {
                         onClick={() => handleSave(module)}
                         isLoading={saving === module}
                       >
-                        保存
+                        {t('common.save')}
                       </Button>
                       <Button size="sm" onClick={handleCancel}>
-                        取消
+                        {t('common.cancel')}
                       </Button>
                     </HStack>
                   ) : (
                     <Button size="sm" colorScheme="blue" onClick={() => handleEdit(module)}>
-                      编辑
+                      {t('aiPromptManager.edit')}
                     </Button>
                   )}
                 </HStack>
@@ -197,23 +196,23 @@ const AIPromptManager: React.FC = () => {
               <CardBody>
                 <VStack align="stretch" spacing={4}>
                   <Box>
-                    <Text fontWeight="bold" mb={2}>系统提示词:</Text>
+                    <Text fontWeight="bold" mb={2}>{t('aiPromptManager.systemPrompt')}</Text>
                     {editing === module ? (
                       <Textarea
                         value={editedPrompts[module]?.systemPrompt || ''}
                         onChange={(e) => handleSystemPromptChange(module, e.target.value)}
                         rows={2}
-                        placeholder="系统提示词（可選）"
+                        placeholder={t('aiPromptManager.systemPromptPlaceholder')}
                       />
                     ) : (
                       <Text p={2} bg="gray.50" borderRadius="md" minH="40px">
-                        {prompt.system_prompt || '(未設置)'}
+                        {prompt.system_prompt || t('aiPromptManager.notSet')}
                       </Text>
                     )}
                   </Box>
                   <Divider />
                   <Box>
-                    <Text fontWeight="bold" mb={2}>提示词模板:</Text>
+                    <Text fontWeight="bold" mb={2}>{t('aiPromptManager.promptTemplate')}</Text>
                     {editing === module ? (
                       <Textarea
                         value={editedPrompts[module]?.template || ''}
@@ -247,4 +246,3 @@ const AIPromptManager: React.FC = () => {
 }
 
 export default AIPromptManager
-

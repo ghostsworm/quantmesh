@@ -60,7 +60,7 @@ interface ConfigHistoryProps {
 }
 
 const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const toast = useToast()
 
   // 状態
@@ -99,11 +99,11 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       setHistories(result.histories || [])
       setTotal(result.total)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加載历史記錄失败')
+      setError(err instanceof Error ? err.message : t('configHistory.loadHistoryFailed'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadHistory()
@@ -120,8 +120,8 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       setViewContent(detail.content)
     } catch (err) {
       toast({
-        title: '加載失败',
-        description: err instanceof Error ? err.message : '獲取版本详情失败',
+        title: t('configHistory.loadFailed'),
+        description: err instanceof Error ? err.message : t('configHistory.getVersionDetailFailed'),
         status: 'error',
         duration: 3000,
       })
@@ -151,8 +151,8 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       diffModal.onOpen()
     } catch (err) {
       toast({
-        title: '對比失败',
-        description: err instanceof Error ? err.message : '獲取版本差异失败',
+        title: t('configHistory.diffFailed'),
+        description: err instanceof Error ? err.message : t('configHistory.getVersionDiffFailed'),
         status: 'error',
         duration: 3000,
       })
@@ -171,8 +171,8 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       diffModal.onOpen()
     } catch (err) {
       toast({
-        title: '對比失败',
-        description: err instanceof Error ? err.message : '獲取版本差异失败',
+        title: t('configHistory.diffFailed'),
+        description: err instanceof Error ? err.message : t('configHistory.getVersionDiffFailed'),
         status: 'error',
         duration: 3000,
       })
@@ -190,8 +190,8 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       await restoreConfigHistory(restoreVersion)
       
       toast({
-        title: '恢複成功',
-        description: `已恢複到版本 ${restoreVersion}`,
+        title: t('configHistory.restoreSuccess'),
+        description: t('configHistory.restoredToVersion', { version: restoreVersion }),
         status: 'success',
         duration: 3000,
       })
@@ -201,8 +201,8 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       onRestore?.() // 通知父组件
     } catch (err) {
       toast({
-        title: '恢複失败',
-        description: err instanceof Error ? err.message : '恢複版本失败',
+        title: t('configHistory.restoreFailed'),
+        description: err instanceof Error ? err.message : t('configHistory.restoreVersionFailed'),
         status: 'error',
         duration: 3000,
       })
@@ -214,7 +214,7 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
   // 格式化時间
   const formatTime = (timeStr: string) => {
     const date = new Date(timeStr)
-    return date.toLocaleString('zh-CN', {
+    return date.toLocaleString(i18n.language, {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -236,7 +236,7 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       <Center py={10}>
         <VStack spacing={3}>
           <Spinner size="lg" />
-          <Text color="gray.500">加載历史記錄...</Text>
+          <Text color="gray.500">{t('configHistory.loadingHistory')}</Text>
         </VStack>
       </Center>
     )
@@ -248,7 +248,7 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
         <AlertIcon />
         <AlertDescription>{error}</AlertDescription>
         <Button size="sm" ml="auto" onClick={loadHistory}>
-          重試
+          {t('common.retry')}
         </Button>
       </Alert>
     )
@@ -259,9 +259,9 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       <Center py={10}>
         <VStack spacing={3}>
           <TimeIcon boxSize={10} color="gray.400" />
-          <Text color="gray.500">暂無历史記錄</Text>
+          <Text color="gray.500">{t('configHistory.noHistory')}</Text>
           <Text fontSize="sm" color="gray.400">
-            配置修改后會自动保存历史版本
+            {t('configHistory.autoSaveHint')}
           </Text>
         </VStack>
       </Center>
@@ -273,8 +273,8 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       {/* 標题和刷新按钮 */}
       <HStack justify="space-between">
         <HStack spacing={2}>
-          <Text fontWeight="semibold">配置历史版本</Text>
-          <Badge colorScheme="blue">{total} 個版本</Badge>
+          <Text fontWeight="semibold">{t('configHistory.title')}</Text>
+          <Badge colorScheme="blue">{t('configHistory.versionCount', { count: total })}</Badge>
         </HStack>
         <Button
           size="sm"
@@ -282,7 +282,7 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
           onClick={loadHistory}
           variant="ghost"
         >
-          刷新
+          {t('common.refresh')}
         </Button>
       </HStack>
 
@@ -291,11 +291,11 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
         <Table size="sm">
           <Thead>
             <Tr>
-              <Th>版本</Th>
-              <Th>時间</Th>
-              <Th>描述</Th>
-              <Th>大小</Th>
-              <Th>操作</Th>
+              <Th>{t('configHistory.version')}</Th>
+              <Th>{t('configHistory.time')}</Th>
+              <Th>{t('configHistory.description')}</Th>
+              <Th>{t('configHistory.size')}</Th>
+              <Th>{t('common.actions')}</Th>
             </Tr>
           </Thead>
           <Tbody>
@@ -320,9 +320,9 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
                 <Td>
                   <HStack spacing={1}>
                     {/* 查看按钮 */}
-                    <Tooltip label="查看此版本">
+                    <Tooltip label={t('configHistory.viewThisVersion')}>
                       <IconButton
-                        aria-label="查看"
+                        aria-label={t('configHistory.view')}
                         icon={<ViewIcon />}
                         size="sm"
                         variant="ghost"
@@ -334,25 +334,25 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
                     <Menu>
                       <MenuButton
                         as={IconButton}
-                        aria-label="對比"
+                        aria-label={t('configHistory.diff')}
                         icon={<InfoIcon />}
                         size="sm"
                         variant="ghost"
                       />
                       <MenuList>
                         <MenuItem onClick={() => handleQuickDiffWithCurrent(history.version)}>
-                          與當前配置對比
+                          {t('configHistory.diffWithCurrent')}
                         </MenuItem>
                         <MenuItem onClick={() => handleOpenDiffSelect(history.version)}>
-                          與其他版本對比...
+                          {t('configHistory.diffWithOther')}
                         </MenuItem>
                       </MenuList>
                     </Menu>
 
                     {/* 恢複按钮 */}
-                    <Tooltip label="恢複到此版本">
+                    <Tooltip label={t('configHistory.restoreToThisVersion')}>
                       <IconButton
-                        aria-label="恢複"
+                        aria-label={t('configHistory.restore')}
                         icon={<RepeatIcon />}
                         size="sm"
                         variant="ghost"
@@ -376,7 +376,7 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
         <ModalOverlay />
         <ModalContent maxH="80vh">
           <ModalHeader>
-            版本 {viewVersion} 详情
+            {t('configHistory.versionDetail', { version: viewVersion })}
           </ModalHeader>
           <ModalCloseButton />
           <ModalBody>
@@ -394,7 +394,7 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
             )}
           </ModalBody>
           <ModalFooter>
-            <Button onClick={viewModal.onClose}>关闭</Button>
+            <Button onClick={viewModal.onClose}>{t('common.close')}</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
@@ -403,23 +403,23 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       <Modal isOpen={selectVersionModal.isOpen} onClose={selectVersionModal.onClose} size="md">
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>选擇對比目標</ModalHeader>
+          <ModalHeader>{t('configHistory.selectDiffTarget')}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4} align="stretch">
               <Text fontSize="sm" color="gray.500">
-                將版本 {sourceVersionForDiff} 與以下版本進行對比：
+                {t('configHistory.diffDescription', { version: sourceVersionForDiff })}
               </Text>
               <Select
                 value={selectedVersionForDiff ?? ''}
                 onChange={(e) => setSelectedVersionForDiff(Number(e.target.value))}
               >
-                <option value={0}>當前配置</option>
+                <option value={0}>{t('configHistory.currentConfig')}</option>
                 {histories
                   .filter((h) => h.version !== sourceVersionForDiff)
                   .map((h) => (
                     <option key={h.id} value={h.version}>
-                      版本 {h.version} - {formatTime(h.created_at)}
+                      {t('configHistory.versionWithTime', { version: h.version, time: formatTime(h.created_at) })}
                     </option>
                   ))}
               </Select>
@@ -428,14 +428,14 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
           <ModalFooter>
             <HStack spacing={3}>
               <Button variant="ghost" onClick={selectVersionModal.onClose}>
-                取消
+                {t('common.cancel')}
               </Button>
               <Button
                 colorScheme="blue"
                 onClick={handleDiff}
                 isLoading={diffLoading}
               >
-                對比
+                {t('configHistory.diff')}
               </Button>
             </HStack>
           </ModalFooter>
@@ -449,9 +449,9 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
           onClose={diffModal.onClose}
           oldValue={diffData.source_content}
           newValue={diffData.target_content}
-          oldTitle={diffData.source_version === 0 ? '當前配置' : `版本 ${diffData.source_version}`}
-          newTitle={diffData.target_version === 0 ? '當前配置' : `版本 ${diffData.target_version}`}
-          title="版本對比"
+          oldTitle={diffData.source_version === 0 ? t('configHistory.currentConfig') : t('configHistory.versionLabel', { version: diffData.source_version })}
+          newTitle={diffData.target_version === 0 ? t('configHistory.currentConfig') : t('configHistory.versionLabel', { version: diffData.target_version })}
+          title={t('configHistory.versionDiff')}
           showConfirmButton={false}
         />
       )}
@@ -460,33 +460,33 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
       <Modal isOpen={restoreModal.isOpen} onClose={restoreModal.onClose} size="md">
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>确认恢複</ModalHeader>
+          <ModalHeader>{t('configHistory.confirmRestore')}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4} align="stretch">
               <Alert status="warning" borderRadius="md">
                 <AlertIcon />
                 <AlertDescription>
-                  确定要恢複到版本 {restoreVersion} 吗？當前配置將被覆盖。
+                  {t('configHistory.confirmRestoreMessage', { version: restoreVersion })}
                 </AlertDescription>
               </Alert>
               <Text fontSize="sm" color="gray.500">
-                恢複前會自动保存當前配置的备份，您可以随時恢複。
+                {t('configHistory.restoreBackupHint')}
               </Text>
             </VStack>
           </ModalBody>
           <ModalFooter>
             <HStack spacing={3}>
               <Button variant="ghost" onClick={restoreModal.onClose}>
-                取消
+                {t('common.cancel')}
               </Button>
               <Button
                 colorScheme="blue"
                 onClick={handleRestore}
                 isLoading={restoreLoading}
-                loadingText="恢複中..."
+                loadingText={t('configHistory.restoring')}
               >
-                确认恢複
+                {t('configHistory.confirmRestore')}
               </Button>
             </HStack>
           </ModalFooter>
@@ -506,7 +506,7 @@ const ConfigHistory: React.FC<ConfigHistoryProps> = ({ onRestore }) => {
         >
           <VStack spacing={3} bg="white" p={6} borderRadius="lg" shadow="lg">
             <Spinner size="lg" />
-            <Text>加載中...</Text>
+            <Text>{t('common.loading')}</Text>
           </VStack>
         </Center>
       )}

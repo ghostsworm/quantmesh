@@ -190,8 +190,8 @@ const StrategyWeightSlider: React.FC<StrategyWeightSliderProps> = ({
             <InputRightAddon>%</InputRightAddon>
           </InputGroup>
           <HStack spacing={4} fontSize="xs" color="gray.500">
-            <Text>已使用: {strategy.used.toFixed(2)} USDT</Text>
-            <Text>使用率: {strategy.utilizationRate.toFixed(1)}%</Text>
+            <Text>{t('strategyAllocation.used')}: {strategy.used.toFixed(2)} USDT</Text>
+            <Text>{t('strategyAllocation.utilization')}: {strategy.utilizationRate.toFixed(1)}%</Text>
           </HStack>
         </HStack>
       </VStack>
@@ -440,7 +440,7 @@ const StrategyAllocation: React.FC = () => {
                         onClick={handleSaveChanges}
                         isLoading={saving}
                       >
-                        保存更改
+                        {t('strategyAllocation.saveChanges')}
                       </Button>
                     </>
                   )}
@@ -461,13 +461,13 @@ const StrategyAllocation: React.FC = () => {
             <Tab>
               <HStack spacing={2}>
                 <Icon as={SettingsIcon} />
-                <Text>策略配比</Text>
+                <Text>{t('strategyAllocation.allocationTab')}</Text>
               </HStack>
             </Tab>
             <Tab>
               <HStack spacing={2}>
                 <Icon as={ViewIcon} />
-                <Text>運行狀態</Text>
+                <Text>{t('strategyAllocation.runtimeTab')}</Text>
               </HStack>
             </Tab>
           </TabList>
@@ -481,11 +481,10 @@ const StrategyAllocation: React.FC = () => {
           <AlertIcon />
           <Box flex="1">
             <Text fontWeight="bold" fontSize="sm">
-              💡 提示：不同交易所/币种可以配置不同的策略比例
+              💡 {t('strategyAllocation.tipTitle')}
             </Text>
             <AlertDescription fontSize="sm" mt={1}>
-              每個交易所的策略配比是独立的。请先在上方选擇具体的交易所，然后調整該交易所下各策略的资金分配比例。
-              例如：在 Binance 上可以配置 70% 网格 + 30% 马丁格尔，而在 OKX 上可以配置 50% 网格 + 50% DCA。
+              {t('strategyAllocation.tipDesc')}
             </AlertDescription>
           </Box>
         </Alert>
@@ -501,7 +500,7 @@ const StrategyAllocation: React.FC = () => {
               borderColor={borderColor}
             >
               <Stat>
-                <StatLabel>總分配资金</StatLabel>
+                <StatLabel>{t('strategyAllocation.totalAllocated')}</StatLabel>
                 <StatNumber>
                   {(overview.allocatedCapital || 0).toLocaleString(undefined, {
                     minimumFractionDigits: 2,
@@ -518,7 +517,7 @@ const StrategyAllocation: React.FC = () => {
               borderColor={borderColor}
             >
               <Stat>
-                <StatLabel>已使用</StatLabel>
+                <StatLabel>{t('strategyAllocation.usedLabel')}</StatLabel>
                 <StatNumber color="red.500">
                   {(overview.usedCapital || 0).toLocaleString(undefined, {
                     minimumFractionDigits: 2,
@@ -535,7 +534,7 @@ const StrategyAllocation: React.FC = () => {
               borderColor={borderColor}
             >
               <Stat>
-                <StatLabel>可用资金</StatLabel>
+                <StatLabel>{t('strategyAllocation.availableCapital')}</StatLabel>
                 <StatNumber color="green.500">
                   {(overview.availableCapital || 0).toLocaleString(undefined, {
                     minimumFractionDigits: 2,
@@ -552,7 +551,7 @@ const StrategyAllocation: React.FC = () => {
               borderColor={borderColor}
             >
               <Stat>
-                <StatLabel>總权重</StatLabel>
+                <StatLabel>{t('strategyAllocation.totalWeight')}</StatLabel>
                 <StatNumber color={Math.abs(totalWeight - 1) < 0.01 ? 'green.500' : 'orange.500'}>
                   {(totalWeight * 100).toFixed(1)}%
                 </StatNumber>
@@ -575,7 +574,7 @@ const StrategyAllocation: React.FC = () => {
           index={selectedExchangeIndex}
         >
           <TabList mb={4} overflowX="auto" pb={2}>
-            <Tab px={6}>全部交易所</Tab>
+            <Tab px={6}>{t('common.allExchanges')}</Tab>
             {exchanges
               .filter((ex) => ex !== null && ex !== undefined)
               .map((ex) => {
@@ -587,7 +586,7 @@ const StrategyAllocation: React.FC = () => {
                     {ex.exchangeName}
                     {exchangeSummary?.isTestnet && (
                       <Badge ml={2} colorScheme="orange" fontSize="xs">
-                        測試網
+                        {t('strategyAllocation.testnet')}
                       </Badge>
                     )}
                   </Tab>
@@ -605,7 +604,7 @@ const StrategyAllocation: React.FC = () => {
                 {t('capitalManagement.viewOnlyLabel')}
               </Text>
               <Text fontSize="xs" mt={1}>
-                请选擇具体的交易所（如 BINANCE、OKX 等）来調整該交易所的策略配比。
+                {t('strategyAllocation.selectExchangeHint')}
               </Text>
             </Box>
           </Alert>
@@ -629,7 +628,7 @@ const StrategyAllocation: React.FC = () => {
               {selectedExchangeIndex !== 0 && (
                 <FormControl display="flex" alignItems="center" w="auto">
                   <FormLabel mb={0} fontSize="sm">
-                    百分比模式
+                    {t('strategyAllocation.percentMode')}
                   </FormLabel>
                   <Switch
                     isChecked={isPercentageMode}
@@ -692,7 +691,7 @@ const StrategyAllocation: React.FC = () => {
             borderColor={borderColor}
           >
             <Heading size="md" mb={4}>
-              资金分配比例
+              {t('strategyAllocation.allocationRatio')}
             </Heading>
             <Flex wrap="wrap" gap={4}>
               {currentStrategies.map((strategy, index) => {

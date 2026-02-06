@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Box,
   VStack,
@@ -22,6 +23,7 @@ interface GridVisualizationProps {
 }
 
 const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
+  const { t } = useTranslation()
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
@@ -52,24 +54,24 @@ const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
       {/* 关键指标 */}
       <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">总槽位数</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.grid.totalSlots')}</StatLabel>
           <StatNumber fontSize="lg">{data.slotCount || 0}</StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">已填充</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.grid.filled')}</StatLabel>
           <StatNumber fontSize="lg" color="green.500">
             {data.filledCount || 0}
           </StatNumber>
-          <StatHelpText fontSize="xs">填充率: {fillRate.toFixed(1)}%</StatHelpText>
+          <StatHelpText fontSize="xs">{t('strategyViz.grid.fillRate')}: {fillRate.toFixed(1)}%</StatHelpText>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">价格区间</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.grid.priceRange')}</StatLabel>
           <StatNumber fontSize="lg">
             ${data.minPrice?.toFixed(2) || '—'} - ${data.maxPrice?.toFixed(2) || '—'}
           </StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">价格间隔</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.grid.priceInterval')}</StatLabel>
           <StatNumber fontSize="lg">${data.priceInterval?.toFixed(2) || '—'}</StatNumber>
         </Stat>
       </SimpleGrid>
@@ -77,13 +79,13 @@ const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
       {/* 价格区间图表 */}
       {chartData.length > 0 && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>网格价格区间</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.grid.gridPriceRange')}</Text>
           <PriceChart data={chartData} height={250} />
           {data.minPrice && data.maxPrice && (
             <HStack mt={2} fontSize="xs" color="gray.500" justify="space-between">
-              <Text>最低价: ${data.minPrice.toFixed(2)}</Text>
-              <Text>价格范围: ${data.priceRange?.toFixed(2) || '—'}</Text>
-              <Text>最高价: ${data.maxPrice.toFixed(2)}</Text>
+              <Text>{t('strategyViz.grid.lowestPrice')}: ${data.minPrice.toFixed(2)}</Text>
+              <Text>{t('strategyViz.grid.priceSpan')}: ${data.priceRange?.toFixed(2) || '—'}</Text>
+              <Text>{t('strategyViz.grid.highestPrice')}: ${data.maxPrice.toFixed(2)}</Text>
             </HStack>
           )}
         </Box>
@@ -92,7 +94,7 @@ const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
       {/* 槽位状态概览 */}
       {data.slots && data.slots.length > 0 && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>槽位状态概览</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.grid.slotStatusOverview')}</Text>
           <VStack spacing={2} align="stretch" maxH="300px" overflowY="auto">
             {/* 只显示前20个槽位，避免列表过长 */}
             {data.slots.slice(0, 20).map((slot, index) => (
@@ -124,15 +126,15 @@ const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
                       fontSize="xs"
                     >
                       {slot.positionStatus === 'FILLED'
-                        ? '已填充'
+                        ? t('strategyViz.grid.statusFilled')
                         : slot.slotStatus === 'LOCKED'
-                        ? '锁定'
-                        : '空闲'}
+                        ? t('strategyViz.grid.statusLocked')
+                        : t('strategyViz.grid.statusIdle')}
                     </Badge>
                   </HStack>
                   {slot.positionQty > 0 && (
                     <Text fontSize="xs" color="gray.600">
-                      数量: {slot.positionQty.toFixed(4)}
+                      {t('strategyViz.grid.quantity')}: {slot.positionQty.toFixed(4)}
                     </Text>
                   )}
                 </HStack>
@@ -140,7 +142,7 @@ const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
             ))}
             {data.slots.length > 20 && (
               <Text fontSize="xs" color="gray.500" textAlign="center" mt={2}>
-                显示前20个槽位，共{data.slots.length}个
+                {t('strategyViz.grid.showingSlots', { shown: 20, total: data.slots.length })}
               </Text>
             )}
           </VStack>

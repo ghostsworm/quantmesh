@@ -170,22 +170,22 @@ const YamlEditor: React.FC<YamlEditorProps> = ({
             {isValid ? (
               <Badge colorScheme="green" display="flex" alignItems="center" gap={1}>
                 <CheckIcon boxSize={3} />
-                <Text>语法正确</Text>
+                <Text>{t('yamlEditor.syntaxCorrect')}</Text>
               </Badge>
             ) : (
               <Badge colorScheme="red" display="flex" alignItems="center" gap={1}>
                 <WarningIcon boxSize={3} />
-                <Text>语法錯误</Text>
+                <Text>{t('yamlEditor.syntaxError')}</Text>
               </Badge>
             )}
             {hasChanges && (
               <Badge colorScheme="yellow">
-                有未保存的更改
+                {t('yamlEditor.unsavedChanges')}
               </Badge>
             )}
             {readOnly && (
               <Badge colorScheme="gray">
-                只读
+                {t('yamlEditor.readOnly')}
               </Badge>
             )}
           </HStack>

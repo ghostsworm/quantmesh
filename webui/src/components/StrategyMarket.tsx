@@ -42,76 +42,77 @@ import type { StrategyInfo, StrategyDetailInfo, StrategyType } from '../types/st
 const MotionBox = motion(Box)
 
 // Mock data for development (will be replaced by API)
+// Note: names/descriptions/features use English defaults; real data comes from API
 const MOCK_STRATEGIES: StrategyInfo[] = [
   {
     id: 'grid',
-    name: '网格交易',
+    name: 'Grid Trading',
     type: 'grid',
-    description: '經典網格策略，通過在價格区间内設置多個買賣檔位實現低買高賣。适合震荡行情。',
+    description: 'Classic grid strategy that sets multiple buy/sell levels within a price range for low-buy-high-sell. Suitable for ranging markets.',
     riskLevel: 'low',
     isPremium: false,
     isEnabled: true,
-    features: ['自动挂單', '多檔位', '震荡行情'],
+    features: ['Auto Orders', 'Multi-Level', 'Range Trading'],
     minCapital: 100,
     recommendedCapital: 500,
   },
   {
     id: 'dca_enhanced',
-    name: '增强型 DCA',
+    name: 'Enhanced DCA',
     type: 'dca',
-    description: 'ATR 动態间距、三重止盈、50层倉位管理、瀑布保护、趨勢過濾的增强型定投策略。',
+    description: 'Enhanced DCA with ATR dynamic spacing, triple take-profit, 50-layer position management, cascade protection, and trend filtering.',
     riskLevel: 'medium',
     isPremium: false,
     isEnabled: false,
-    features: ['ATR动態', '三重止盈', '50层倉位', '瀑布保护'],
+    features: ['ATR Dynamic', 'Triple TP', '50 Layers', 'Cascade Protection'],
     minCapital: 200,
     recommendedCapital: 1000,
   },
   {
     id: 'martingale',
-    name: '马丁格尔',
+    name: 'Martingale',
     type: 'martingale',
-    description: '基於加倍下注原理的策略，支援正向/反向马丁，遞减风控，多方向支援。',
+    description: 'Strategy based on doubling principle. Supports forward/reverse martingale, decreasing risk control, and multi-direction.',
     riskLevel: 'high',
     isPremium: true,
     isEnabled: false,
-    features: ['加倍策略', '反向马丁', '遞减风控'],
+    features: ['Double Down', 'Reverse Martingale', 'Risk Reduction'],
     minCapital: 500,
     recommendedCapital: 2000,
   },
   {
     id: 'trend_following',
-    name: '趋势跟踪',
+    name: 'Trend Following',
     type: 'trend',
-    description: '基於双均線系统的趋势追踪策略，支援 MA/EMA，自动识别趋势並顺势交易。',
+    description: 'Dual MA trend following strategy. Supports MA/EMA, auto trend detection and trend-aligned trading.',
     riskLevel: 'medium',
     isPremium: false,
     isEnabled: false,
-    features: ['双均線', '趋势识别', '自动交易'],
+    features: ['Dual MA', 'Trend Detection', 'Auto Trading'],
     minCapital: 300,
     recommendedCapital: 1000,
   },
   {
     id: 'mean_reversion',
-    name: '均值回归',
+    name: 'Mean Reversion',
     type: 'mean_reversion',
-    description: '基於布林带的均值回归策略，在價格偏离均值時進行逆向交易。',
+    description: 'Bollinger Band based mean reversion strategy that trades against price deviations from the mean.',
     riskLevel: 'medium',
     isPremium: false,
     isEnabled: false,
-    features: ['布林带', '均值回归', '超買超賣'],
+    features: ['Bollinger Band', 'Mean Reversion', 'Overbought/Oversold'],
     minCapital: 200,
     recommendedCapital: 800,
   },
   {
     id: 'combo',
-    name: '组合策略',
+    name: 'Combo Strategy',
     type: 'combo',
-    description: '多策略组合，多方向對冲，市场自适应切换，动態策略权重調整。',
+    description: 'Multi-strategy combo with multi-direction hedging, market-adaptive switching, and dynamic weight adjustment.',
     riskLevel: 'high',
     isPremium: true,
     isEnabled: false,
-    features: ['多策略', '动態权重', '自适应'],
+    features: ['Multi-Strategy', 'Dynamic Weight', 'Adaptive'],
     minCapital: 1000,
     recommendedCapital: 5000,
   },
@@ -147,7 +148,7 @@ const StrategyMarket: React.FC = () => {
     } catch (err) {
       console.error('獲取策略列表失败:', err)
       setStrategies([])
-      setError('獲取策略列表失败，请检查后端服務是否啟动')
+      setError(t('strategyMarket.fetchError'))
     } finally {
       setLoading(false)
     }
@@ -206,8 +207,8 @@ const StrategyMarket: React.FC = () => {
       })
     } catch (err: any) {
       toast({
-        title: '啟用失败',
-        description: err.message || '请检查后端连接',
+        title: t('strategyMarket.enableFailed'),
+        description: err.message || t('strategyMarket.checkConnection'),
         status: 'error',
         duration: 3000,
       })
@@ -227,8 +228,8 @@ const StrategyMarket: React.FC = () => {
       })
     } catch (err: any) {
       toast({
-        title: '禁用失败',
-        description: err.message || '请检查后端连接',
+        title: t('strategyMarket.disableFailed'),
+        description: err.message || t('strategyMarket.checkConnection'),
         status: 'error',
         duration: 3000,
       })
@@ -245,8 +246,8 @@ const StrategyMarket: React.FC = () => {
       setSelectedStrategy(response.strategy)
     } catch (err: any) {
       toast({
-        title: '獲取详情失败',
-        description: err.message || '無法從服務器獲取策略详情',
+        title: t('strategyMarket.fetchDetailFailed'),
+        description: err.message || t('strategyMarket.cannotFetchDetail'),
         status: 'error',
         duration: 3000,
       })

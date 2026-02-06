@@ -25,6 +25,7 @@ import {
   Badge,
 } from '@chakra-ui/react'
 import { DownloadIcon } from '@chakra-ui/icons'
+import { useTranslation } from 'react-i18next'
 import type { OptimParamResult, OptimResult, OptimTask } from '../services/backtest'
 
 type SortKey = 'total_return' | 'sharpe_ratio' | 'max_drawdown' | 'win_rate' | 'total_trades'
@@ -39,6 +40,7 @@ interface OptimResultModalProps {
 }
 
 export default function OptimResultModal({ isOpen, onClose, result, isLoading, task }: OptimResultModalProps) {
+  const { t } = useTranslation()
   const toast = useToast()
   const [maxDrawdown, setMaxDrawdown] = useState<string>('')
   const [minReturn, setMinReturn] = useState<string>('')
@@ -105,7 +107,7 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
 
   const handleExportCSV = () => {
     if (filteredAndSorted.length === 0) {
-      toast({ title: '无数据可导出', status: 'warning' })
+      toast({ title: t('optimResult.noDataToExport'), status: 'warning' })
       return
     }
     const headers = [...paramKeys, 'total_return', 'max_drawdown', 'sharpe_ratio', 'win_rate', 'total_trades']
@@ -128,7 +130,7 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
     a.download = `optim_result_${result?.task_id ?? 'export'}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    toast({ title: '已导出 CSV', status: 'success' })
+    toast({ title: t('optimResult.exportedCsv'), status: 'success' })
   }
 
   const bestByReturn = result?.best_by_return
@@ -149,26 +151,26 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
     const taskRiskInfo = (() => {
       const ranges = task?.search_space?.ranges
       if (!ranges) return undefined
-      if ('risk_volume_multiplier' in ranges || 'risk_average_window' in ranges) return '成交量风控'
-      return '无'
+      if ('risk_volume_multiplier' in ranges || 'risk_average_window' in ranges) return t('optimResult.volumeRisk')
+      return t('optimResult.noRisk')
     })()
     const riskInfo = result?.risk_info ?? taskRiskInfo
     const useOrderDepth = result?.use_order_depth ?? (task ? false : undefined)
     const hasContext = symbol || strategy || interval || startTime || endTime || riskInfo || useOrderDepth !== undefined
-    if (!hasContext) return '参数优化结果'
+    if (!hasContext) return t('optimResult.defaultTitle')
 
     const parts: string[] = []
     if (symbol) parts.push(symbol)
     if (strategy) parts.push(strategy)
     if (interval) {
       const intervalLabel = interval.toLowerCase() === 'tick' ? 'tick' : interval
-      parts.push(`K线: ${intervalLabel} 线`)
+      parts.push(t('optimResult.klineLabel', { interval: intervalLabel }))
     }
 
     const riskParts: string[] = []
-    if (riskInfo) riskParts.push(`风控: ${riskInfo}`)
+    if (riskInfo) riskParts.push(t('optimResult.riskLabel', { risk: riskInfo }))
     if (useOrderDepth !== undefined) {
-      riskParts.push(`订单深度: ${useOrderDepth ? '有' : '无'}`)
+      riskParts.push(t('optimResult.orderDepthLabel', { status: useOrderDepth ? t('optimResult.hasDepth') : t('optimResult.noDepth') }))
     }
     if (riskParts.length > 0) parts.push(riskParts.join(' / '))
 
@@ -179,12 +181,12 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
     }
     const startText = formatTime(startTime)
     const endText = formatTime(endTime)
-    if (startText && endText) parts.push(`起始: ${startText} ~ ${endText}`)
-    else if (startText) parts.push(`起始: ${startText}`)
-    else if (endText) parts.push(`结束: ${endText}`)
+    if (startText && endText) parts.push(t('optimResult.startEnd', { start: startText, end: endText }))
+    else if (startText) parts.push(t('optimResult.startOnly', { start: startText }))
+    else if (endText) parts.push(t('optimResult.endOnly', { end: endText }))
 
     return parts.join(' · ')
-  }, [result, task])
+  }, [result, task, t])
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside">
@@ -197,66 +199,66 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
         <ModalBody overflowY="auto">
           {isLoading && (
             <Box py={8} textAlign="center">
-              <Text color="gray.500">载入中...</Text>
+              <Text color="gray.500">{t('optimResult.loading')}</Text>
             </Box>
           )}
           {!isLoading && result && (
             <>
               <HStack mb={4} flexWrap="wrap" gap={2}>
                 <FormControl width="120px">
-                  <FormLabel fontSize="xs">最大回撤 ≤ %</FormLabel>
+                  <FormLabel fontSize="xs">{t('optimResult.maxDrawdownFilter')}</FormLabel>
                   <Input
                     size="sm"
-                    placeholder="不限"
+                    placeholder={t('optimResult.unlimited')}
                     value={maxDrawdown}
                     onChange={(e) => setMaxDrawdown(e.target.value)}
                   />
                 </FormControl>
                 <FormControl width="120px">
-                  <FormLabel fontSize="xs">收益率 ≥ %</FormLabel>
+                  <FormLabel fontSize="xs">{t('optimResult.returnFilter')}</FormLabel>
                   <Input
                     size="sm"
-                    placeholder="不限"
+                    placeholder={t('optimResult.unlimited')}
                     value={minReturn}
                     onChange={(e) => setMinReturn(e.target.value)}
                   />
                 </FormControl>
                 <FormControl width="100px">
-                  <FormLabel fontSize="xs">交易次数 ≥</FormLabel>
+                  <FormLabel fontSize="xs">{t('optimResult.minTradesFilter')}</FormLabel>
                   <Input
                     size="sm"
-                    placeholder="不限"
+                    placeholder={t('optimResult.unlimited')}
                     value={minTrades}
                     onChange={(e) => setMinTrades(e.target.value)}
                   />
                 </FormControl>
                 <FormControl width="140px">
-                  <FormLabel fontSize="xs">排序</FormLabel>
+                  <FormLabel fontSize="xs">{t('optimResult.sortBy')}</FormLabel>
                   <Select
                     size="sm"
                     value={sortKey}
                     onChange={(e) => setSortKey(e.target.value as SortKey)}
                   >
-                    <option value="total_return">收益率</option>
-                    <option value="sharpe_ratio">夏普比率</option>
-                    <option value="max_drawdown">最大回撤</option>
-                    <option value="win_rate">胜率</option>
-                    <option value="total_trades">交易次数</option>
+                    <option value="total_return">{t('optimResult.totalReturn')}</option>
+                    <option value="sharpe_ratio">{t('optimResult.sharpeRatio')}</option>
+                    <option value="max_drawdown">{t('optimResult.maxDrawdown')}</option>
+                    <option value="win_rate">{t('optimResult.winRate')}</option>
+                    <option value="total_trades">{t('optimResult.totalTrades')}</option>
                   </Select>
                 </FormControl>
                 <FormControl width="80px">
-                  <FormLabel fontSize="xs">顺序</FormLabel>
+                  <FormLabel fontSize="xs">{t('optimResult.order')}</FormLabel>
                   <Select
                     size="sm"
                     value={sortOrder}
                     onChange={(e) => setSortOrder(e.target.value as SortOrder)}
                   >
-                    <option value="desc">降序</option>
-                    <option value="asc">升序</option>
+                    <option value="desc">{t('optimResult.desc')}</option>
+                    <option value="asc">{t('optimResult.asc')}</option>
                   </Select>
                 </FormControl>
                 <Text fontSize="sm" color="gray.500" alignSelf="flex-end" pb={1}>
-                  共 {filteredAndSorted.length} 组（总 {result.all_results?.length ?? 0} 组）
+                  {t('optimResult.resultCount', { filtered: filteredAndSorted.length, total: result.all_results?.length ?? 0 })}
                 </Text>
               </HStack>
               <Box overflowX="auto">
@@ -266,11 +268,11 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
                       {paramKeys.map((k) => (
                         <Th key={k}>{k}</Th>
                       ))}
-                      <Th>收益率 %</Th>
-                      <Th>最大回撤 %</Th>
-                      <Th>夏普</Th>
-                      <Th>胜率 %</Th>
-                      <Th>交易数</Th>
+                      <Th>{t('optimResult.returnPct')}</Th>
+                      <Th>{t('optimResult.maxDrawdownPct')}</Th>
+                      <Th>{t('optimResult.sharpe')}</Th>
+                      <Th>{t('optimResult.winRatePct')}</Th>
+                      <Th>{t('optimResult.tradeCount')}</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
@@ -299,7 +301,7 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
                           {r.total_return.toFixed(4)}
                           {isBestByReturn(r) && (
                             <Badge ml={1} colorScheme="green" fontSize="xs">
-                              最佳
+                              {t('optimResult.best')}
                             </Badge>
                           )}
                         </Td>
@@ -308,7 +310,7 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
                           {r.sharpe_ratio.toFixed(4)}
                           {isBestBySharpe(r) && (
                             <Badge ml={1} colorScheme="blue" fontSize="xs">
-                              最佳
+                              {t('optimResult.best')}
                             </Badge>
                           )}
                         </Td>
@@ -325,7 +327,7 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
         {result && !isLoading && (
           <ModalFooter>
             <Button leftIcon={<DownloadIcon />} size="sm" onClick={handleExportCSV}>
-              导出 CSV
+              {t('optimResult.exportCsv')}
             </Button>
           </ModalFooter>
         )}

@@ -164,8 +164,8 @@ const AIAnalysis: React.FC = () => {
     return (
       <Alert status="warning">
         <AlertIcon />
-        <AlertTitle>AI功能未啟用</AlertTitle>
-        <AlertDescription>请在配置中啟用AI功能</AlertDescription>
+        <AlertTitle>{t('aiAnalysis.notEnabled')}</AlertTitle>
+        <AlertDescription>{t('aiAnalysis.enableInConfig')}</AlertDescription>
       </Alert>
     )
   }
@@ -173,7 +173,7 @@ const AIAnalysis: React.FC = () => {
   return (
     <Box p={6}>
       <Heading size="lg" mb={6}>
-        AI分析中心
+        {t('aiAnalysis.title')}
       </Heading>
 
       {/* 概览卡片 */}
@@ -290,7 +290,7 @@ const AIAnalysis: React.FC = () => {
                 <Badge colorScheme="green">
                   {parameterOptimization.optimization.expected_improvement.toFixed(2)}%
                 </Badge>
-                <Text>置信度:</Text>
+                <Text>{t('aiAnalysis.confidence')}:</Text>
                 <Badge>{(parameterOptimization.optimization.confidence * 100).toFixed(1)}%</Badge>
               </HStack>
               <Text>{parameterOptimization.optimization.reasoning}</Text>

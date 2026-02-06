@@ -146,7 +146,7 @@ const Statistics: React.FC = () => {
             <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{stats.total_volume.toFixed(4)}</div>
           </div>
           <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.netPnL') || '淨利潤'}</div>
+            <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.netPnL')}</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold', color: stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
               {stats.total_pnl >= 0 ? '+' : ''}{stats.total_pnl.toFixed(2)}
             </div>
@@ -154,13 +154,13 @@ const Statistics: React.FC = () => {
           {(stats.gross_pnl !== undefined || stats.total_fee !== undefined) && (
             <>
               <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-                <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.grossPnL') || '毛利'}</div>
+                <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.grossPnL')}</div>
                 <div style={{ fontSize: '20px', fontWeight: 'bold', color: (stats.gross_pnl ?? 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
                   {(stats.gross_pnl ?? 0) >= 0 ? '+' : ''}{(stats.gross_pnl ?? 0).toFixed(2)}
                 </div>
               </div>
               <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
-                <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalFee') || '手續費'}</div>
+                <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalFee')}</div>
                 <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fa8c16' }}>
                   -{(stats.total_fee ?? 0).toFixed(2)}
                 </div>
@@ -252,11 +252,11 @@ const Statistics: React.FC = () => {
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.pnl')}</th>
                   {(dailyStats.some(s => s.gross_pnl !== undefined) || dailyStats.some(s => s.total_fee !== undefined)) && (
                     <>
-                      <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.grossPnL') || '毛利'}</th>
-                      <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.totalFee') || '手續費'}</th>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.grossPnL')}</th>
+                      <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.totalFee')}</th>
                     </>
                   )}
-                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.fundingFee') || '資金費'}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.fundingFee')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.unrealizedPnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }} title={t('statistics.bookValuePnL')}>{t('statistics.bookValuePnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.cumulativePnL')}</th>

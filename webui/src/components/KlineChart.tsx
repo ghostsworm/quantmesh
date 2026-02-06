@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, getKlines, KlineData } from '../services/api'
@@ -61,6 +62,7 @@ const getLimitByInterval = (interval: Interval): number => {
 }
 
 const KlineChart: React.FC = () => {
+  const { t } = useTranslation()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -309,7 +311,7 @@ const KlineChart: React.FC = () => {
         return
       }
       console.error('加載K線數據失败:', err)
-      setError(err instanceof Error ? err.message : '加載K線數據失败')
+      setError(err instanceof Error ? err.message : t('klineChart.loadFailed'))
     } finally {
       if (!abortController.signal.aborted) {
         setLoading(false)
@@ -383,7 +385,7 @@ const KlineChart: React.FC = () => {
   return (
     <div style={{ padding: '20px' }}>
       <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>K線图 {selectedSymbol && `- ${selectedSymbol}`}</h2>
+        <h2>{t('klineChart.title')} {selectedSymbol && `- ${selectedSymbol}`}</h2>
         <div style={{ display: 'flex', gap: '10px' }}>
           {INTERVALS.map((iv) => (
             <IntervalButton
@@ -406,12 +408,12 @@ const KlineChart: React.FC = () => {
 
       {error && (
         <div style={{ padding: '10px', backgroundColor: '#fff2f0', color: '#ff4d4f', marginBottom: '10px', borderRadius: '4px' }}>
-          錯误: {error}
+          {t('common.error')}: {error}
         </div>
       )}
 
       {loading && !error && (
-        <div style={{ textAlign: 'center', padding: '40px' }}>加載中...</div>
+        <div style={{ textAlign: 'center', padding: '40px' }}>{t('common.loading')}</div>
       )}
 
       <div

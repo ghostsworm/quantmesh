@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react'
 import html2canvas from 'html2canvas'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useTranslation } from 'react-i18next'
 import {
   LineChart,
   Line,
@@ -188,6 +189,7 @@ export default function BacktestMenu() {
   const [savingImage, setSavingImage] = useState(false)
   const reportContentRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
+  const { t } = useTranslation()
 
   // 智能推荐相关状态
   const [smartRecommendation, setSmartRecommendation] = useState<SmartParamsRecommendation | null>(null)
@@ -238,11 +240,11 @@ export default function BacktestMenu() {
 
   const handleStartOptim = useCallback(async () => {
     if (!symbol || !interval || !startDate || !endDate || !strategyType) {
-      toast({ title: '请选择交易对、周期、日期范围和策略', status: 'warning' })
+      toast({ title: t('backtest.selectSymbolIntervalDateStrategy'), status: 'warning' })
       return
     }
     if (totalCapital <= 0) {
-      toast({ title: '总资金需大于 0', status: 'warning' })
+      toast({ title: t('backtest.capitalMustBePositive'), status: 'warning' })
       return
     }
     const start = new Date(startDate)
@@ -260,12 +262,12 @@ export default function BacktestMenu() {
         search_space: undefined, // 使用後端默認
       })
       if (r.success) {
-        toast({ title: '优化任务已创建', status: 'success' })
+        toast({ title: t('backtest.optimTaskCreated'), status: 'success' })
         loadOptimTasks()
         setSelectedOptimTaskId(r.task_id)
       }
     } catch (e) {
-      toast({ title: (e as Error)?.message || '创建失败', status: 'error' })
+      toast({ title: (e as Error)?.message || t('backtest.createFailed'), status: 'error' })
     } finally {
       setOptimRunning(false)
     }
@@ -281,7 +283,7 @@ export default function BacktestMenu() {
         setOptimResultData(data as OptimResult)
       } catch (err) {
         console.error('载入优化结果失败:', err)
-        toast({ title: '载入结果失败', status: 'error' })
+        toast({ title: t('backtest.loadResultFailed'), status: 'error' })
       }
     },
     [optimResultModal, toast]
@@ -296,7 +298,7 @@ export default function BacktestMenu() {
       }
     } catch (err) {
       console.error('载入 K 线缓存列表失败:', err)
-      toast({ title: '载入缓存列表失败', status: 'error' })
+      toast({ title: t('backtest.loadCacheListFailed'), status: 'error' })
     } finally {
       setCachedKlinesLoading(false)
     }
@@ -315,7 +317,7 @@ export default function BacktestMenu() {
       // 只有在用户手动刷新时才显示错误
       console.warn('载入 K 线文件列表失败:', err)
       if (showError) {
-        toast({ title: '载入 K 线文件列表失败', description: 'K 线收集器可能未初始化', status: 'warning' })
+        toast({ title: t('backtest.loadKlineFilesFailed'), description: t('backtest.klineCollectorNotInitialized'), status: 'warning' })
       }
     } finally {
       setKlineFilesLoading(false)
@@ -350,7 +352,7 @@ export default function BacktestMenu() {
   // 获取智能参数推荐
   const handleGetSmartRecommendation = useCallback(async () => {
     if (!symbol || !strategyType) {
-      toast({ title: '请先选择交易对和策略', status: 'warning' })
+      toast({ title: t('backtest.selectSymbolAndStrategy'), status: 'warning' })
       return
     }
 
@@ -366,8 +368,8 @@ export default function BacktestMenu() {
       if (r.success && r.recommendation) {
         setSmartRecommendation(r.recommendation)
         toast({
-          title: '已获取智能推荐',
-          description: `置信度: ${r.recommendation.confidence.toFixed(0)}%`,
+          title: t('backtest.smartRecommendationReceived'),
+          description: `${t('backtest.confidence')}: ${r.recommendation.confidence.toFixed(0)}%`,
           status: 'success',
           duration: 3000,
         })
@@ -387,7 +389,7 @@ export default function BacktestMenu() {
       } else {
         description = msg
       }
-      toast({ title: '获取智能推荐失败', status: 'error', description })
+      toast({ title: t('backtest.smartRecommendationFailed'), status: 'error', description })
     } finally {
       setSmartLoading(false)
     }
@@ -416,7 +418,7 @@ export default function BacktestMenu() {
     }
 
     toast({
-      title: '已应用智能推荐参数',
+      title: t('backtest.smartParamsApplied'),
       status: 'success',
       duration: 2000,
     })
@@ -438,7 +440,7 @@ export default function BacktestMenu() {
     }
 
     toast({
-      title: '已应用预计算配置',
+      title: t('backtest.precomputedConfigApplied'),
       description: `${result.symbol} - ${result.strategy}`,
       status: 'success',
       duration: 3000,
@@ -523,8 +525,8 @@ export default function BacktestMenu() {
         if (Object.keys(newParams).length > 0) {
           setParams(newParams)
           toast({
-            title: '已从配置中载入参数',
-            description: `为 ${symbol} 的 ${strategyType} 策略预填了参数`,
+            title: t('backtest.configParamsLoaded'),
+            description: t('backtest.configParamsLoadedDesc', { symbol, strategy: strategyType }),
             status: 'info',
             duration: 3000,
           })
@@ -587,46 +589,46 @@ export default function BacktestMenu() {
 
   const handleGenerateCache = () => {
     if (!symbol || !interval || !startDate || !endDate) {
-      toast({ title: '请先选择交易对、周期和日期范围', status: 'warning' })
+      toast({ title: t('backtest.selectSymbolIntervalDate'), status: 'warning' })
       return
     }
     setCacheGenerating(true)
     postCacheGenerate({ symbol, interval, start_date: startDate, end_date: endDate })
       .then((r) => {
         if (r.success) {
-          toast({ title: '已在后台生成 K 线缓存', status: 'success' })
+          toast({ title: t('backtest.cacheGeneratedInBackground'), status: 'success' })
           setTimeout(() => getCacheStatus({ symbol, interval, start_date: startDate, end_date: endDate }).then((s) => s.success && setCacheExists(s.exists)), 2000)
         }
       })
-      .catch((e) => toast({ title: e.message || '生成失败', status: 'error' }))
+      .catch((e) => toast({ title: e.message || t('backtest.generateFailed'), status: 'error' }))
       .finally(() => setCacheGenerating(false))
   }
 
   const handleRunBacktest = () => {
     if (!strategyType) {
-      toast({ title: '请选择策略', status: 'warning' })
+      toast({ title: t('backtest.selectStrategyRequired'), status: 'warning' })
       return
     }
     if (totalCapital <= 0) {
-      toast({ title: '总资金需大于 0', status: 'warning' })
+      toast({ title: t('backtest.capitalMustBePositive'), status: 'warning' })
       return
     }
 
     // 按数据来源校验
     if (dataSource === 'kline_file') {
       if (!selectedKlineFile) {
-        toast({ title: '请选择 K 线文件', status: 'warning' })
+        toast({ title: t('backtest.selectKlineFileRequired'), status: 'warning' })
         return
       }
     } else if (dataSource === 'cache') {
       if (!selectedCacheName) {
-        toast({ title: '请选择回测缓存', status: 'warning' })
+        toast({ title: t('backtest.selectCacheRequired'), status: 'warning' })
         return
       }
     } else {
       // 时间范围
       if (!symbol || !interval || !startDate || !endDate) {
-        toast({ title: '请选择交易对、周期和日期范围', status: 'warning' })
+        toast({ title: t('backtest.selectSymbolIntervalDate'), status: 'warning' })
         return
       }
     }
@@ -674,7 +676,7 @@ export default function BacktestMenu() {
     postBacktestTask(payload)
       .then((r) => {
         if (r.success) {
-          toast({ title: '回测任务已创建', status: 'success' })
+          toast({ title: t('backtest.backtestTaskCreated'), status: 'success' })
           loadTasks()
           setSelectedTaskId(r.task_id)
         }
@@ -692,14 +694,14 @@ export default function BacktestMenu() {
             }
           } catch (_) {}
           toast({
-            title: '回测服务不可用',
-            description: description || '请确保已启用存储（SQLite），并在「设置」中保存过配置后重启服务。',
+            title: t('backtest.backtestServiceUnavailable'),
+            description: description || t('backtest.backtestServiceUnavailableDesc'),
             status: 'error',
             duration: 8000,
             isClosable: true,
           })
         } else {
-          toast({ title: msg || '创建失败', status: 'error' })
+          toast({ title: msg || t('backtest.createFailed'), status: 'error' })
         }
       })
       .finally(() => setRunning(false))
@@ -803,13 +805,13 @@ export default function BacktestMenu() {
       
       // 检查 canvas 是否有效
       if (canvas.width === 0 || canvas.height === 0) {
-        throw new Error('Canvas 生成失败，尺寸为 0')
+        throw new Error(t('backtest.canvasGenerationFailed'))
       }
       
       // 下载图片
       const dataUrl = canvas.toDataURL('image/png')
       if (!dataUrl || dataUrl === 'data:,') {
-        throw new Error('图片数据生成失败，可能是内容太大')
+        throw new Error(t('backtest.imageDataGenerationFailed'))
       }
       
       const link = document.createElement('a')
@@ -818,8 +820,8 @@ export default function BacktestMenu() {
       link.click()
       
       toast({
-        title: '图片保存成功',
-        description: `已保存为 backtest_${selectedTaskId}.png`,
+        title: t('backtest.imageSaveSuccess'),
+        description: t('backtest.imageSaveSuccessDesc', { id: selectedTaskId }),
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -827,7 +829,7 @@ export default function BacktestMenu() {
     } catch (error) {
       console.error('保存图片失败:', error)
       toast({
-        title: '图片保存失败',
+        title: t('backtest.imageSaveFailed'),
         description: String(error),
         status: 'error',
         duration: 5000,
@@ -843,13 +845,13 @@ export default function BacktestMenu() {
 
   // 市场类型显示名称
   const marketTypeLabels: Record<string, string> = {
-    futures: '合约',
-    spot: '现货',
+    futures: t('backtest.futures'),
+    spot: t('backtest.spot'),
   }
 
   return (
     <Box>
-      <Heading size="md" mb={4}>回测</Heading>
+      <Heading size="md" mb={4}>{t('backtest.title')}</Heading>
 
       {/* 预计算推荐区域 */}
       {precomputedResults.length > 0 && (
@@ -858,11 +860,11 @@ export default function BacktestMenu() {
             <Flex justify="space-between" align="center">
               <HStack>
                 <StarIcon color="yellow.500" />
-                <Text fontWeight="600">智能推荐 - 预计算回测结果</Text>
-                <Badge colorScheme="green">{precomputedResults.length} 个就绪</Badge>
+                <Text fontWeight="600">{t('backtest.smartPrecomputedTitle')}</Text>
+                <Badge colorScheme="green">{t('backtest.readyCount', { count: precomputedResults.length })}</Badge>
               </HStack>
               <IconButton
-                aria-label="展开/收起"
+                aria-label={t('backtest.expandCollapse')}
                 size="sm"
                 variant="ghost"
                 icon={showPrecomputed ? <ChevronUpIcon /> : <ChevronDownIcon />}
@@ -873,7 +875,7 @@ export default function BacktestMenu() {
           <Collapse in={showPrecomputed}>
             <CardBody pt={0}>
               <Text fontSize="sm" color="gray.600" mb={3}>
-                系统已根据当前市场情况自动运行回测，您可以直接选用表现良好的配置。
+                {t('backtest.precomputedDescription')}
               </Text>
               <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={3}>
                 {precomputedResults.slice(0, 6).map((result, idx) => (
@@ -894,12 +896,12 @@ export default function BacktestMenu() {
                       </Badge>
                     </HStack>
                     <Text fontSize="sm" color="gray.600" mb={1}>
-                      策略: {result.strategy} | {result.market_type === 'spot' ? '现货' : '合约'}
+                      {t('backtest.strategyLabel')}: {result.strategy} | {result.market_type === 'spot' ? t('backtest.spot') : t('backtest.futures')}
                     </Text>
                     <HStack spacing={2} fontSize="xs" color="gray.500">
-                      <Text>夏普: {result.result?.metrics?.sharpe_ratio?.toFixed(4) ?? '-'}</Text>
-                      <Text>回撤: {result.result?.metrics?.max_drawdown?.toFixed(4) ?? '-'}%</Text>
-                      <Text>胜率: {result.result?.metrics?.win_rate?.toFixed(4) ?? '-'}%</Text>
+                      <Text>{t('backtest.sharpe')}: {result.result?.metrics?.sharpe_ratio?.toFixed(4) ?? '-'}</Text>
+                      <Text>{t('backtest.drawdown')}: {result.result?.metrics?.max_drawdown?.toFixed(4) ?? '-'}%</Text>
+                      <Text>{t('backtest.winRate')}: {result.result?.metrics?.win_rate?.toFixed(4) ?? '-'}%</Text>
                     </HStack>
                     {result.recommendation && (
                       <Progress
@@ -910,14 +912,14 @@ export default function BacktestMenu() {
                       />
                     )}
                     <Text fontSize="xs" color="gray.400" mt={1}>
-                      置信度: {result.recommendation?.confidence?.toFixed(0) ?? '-'}%
+                      {t('backtest.confidence')}: {result.recommendation?.confidence?.toFixed(0) ?? '-'}%
                     </Text>
                   </Box>
                 ))}
               </SimpleGrid>
               {precomputedResults.length > 6 && (
                 <Text fontSize="sm" color="gray.500" mt={2} textAlign="center">
-                  还有 {precomputedResults.length - 6} 个推荐结果...
+                  {t('backtest.moreResults', { count: precomputedResults.length - 6 })}
                 </Text>
               )}
             </CardBody>
@@ -928,31 +930,31 @@ export default function BacktestMenu() {
       {precomputedLoading && (
         <Alert status="info" mb={4}>
           <Spinner size="sm" mr={3} />
-          <AlertDescription>正在载入智能推荐...</AlertDescription>
+          <AlertDescription>{t('backtest.loadingSmartRecommendation')}</AlertDescription>
         </Alert>
       )}
 
       <Tabs>
         <TabList>
-          <Tab>新建回测</Tab>
-          <Tab>任务列表</Tab>
-          <Tab>参数优化</Tab>
-          <Tab>K 线缓存</Tab>
+          <Tab>{t('backtest.newBacktest')}</Tab>
+          <Tab>{t('backtest.taskList')}</Tab>
+          <Tab>{t('backtest.paramOptimization')}</Tab>
+          <Tab>{t('backtest.klineCache')}</Tab>
         </TabList>
         <TabPanels>
           <TabPanel>
             <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
               <Card>
-                <CardHeader fontWeight="600">1. 交易对与数据</CardHeader>
+                <CardHeader fontWeight="600">{t('backtest.tradingPairAndData')}</CardHeader>
                 <CardBody>
                   {/* 数据来源选择 */}
                   <FormControl mb={4}>
-                    <FormLabel>数据来源</FormLabel>
+                    <FormLabel>{t('backtest.dataSource')}</FormLabel>
                     <RadioGroup value={dataSource} onChange={(value) => setDataSource(value as 'time_range' | 'kline_file' | 'cache')}>
                       <Stack direction="row" spacing={4}>
-                        <Radio value="time_range">时间范围</Radio>
-                        <Radio value="kline_file">K线文件</Radio>
-                        <Radio value="cache">回测缓存</Radio>
+                        <Radio value="time_range">{t('backtest.dataSourceTimeRange')}</Radio>
+                        <Radio value="kline_file">{t('backtest.dataSourceKlineFile')}</Radio>
+                        <Radio value="cache">{t('backtest.dataSourceCache')}</Radio>
                       </Stack>
                     </RadioGroup>
                   </FormControl>
@@ -961,16 +963,16 @@ export default function BacktestMenu() {
                     <>
                       {/* 交易所选择 */}
                   <FormControl mb={3}>
-                    <FormLabel>交易所</FormLabel>
+                    <FormLabel>{t('backtest.exchange')}</FormLabel>
                     <Select
-                      placeholder="选择交易所"
+                      placeholder={t('backtest.selectExchange')}
                       value={selectedExchange}
                       onChange={(e) => setSelectedExchange(e.target.value)}
                     >
                       {exchanges.map((ex) => (
                         <option key={ex.exchange} value={ex.exchange}>
                           {ex.exchange.toUpperCase()}
-                          {ex.is_configured ? ' (已配置)' : ''}
+                          {ex.is_configured ? ` (${t('backtest.configured')})` : ''}
                         </option>
                       ))}
                     </Select>
@@ -978,7 +980,7 @@ export default function BacktestMenu() {
 
                   {/* 市场类型选择 */}
                   <FormControl mb={3}>
-                    <FormLabel>市场类型</FormLabel>
+                    <FormLabel>{t('backtest.marketType')}</FormLabel>
                     <Select
                       value={selectedMarketType}
                       onChange={(e) => setSelectedMarketType(e.target.value)}
@@ -994,9 +996,9 @@ export default function BacktestMenu() {
 
                   {/* 交易对选择 */}
                   <FormControl mb={3}>
-                    <FormLabel>交易对</FormLabel>
+                    <FormLabel>{t('backtest.tradingPair')}</FormLabel>
                     <Select
-                      placeholder="选择交易对"
+                      placeholder={t('backtest.selectTradingPair')}
                       value={symbol}
                       onChange={(e) => setSymbol(e.target.value)}
                       isDisabled={!selectedExchange}
@@ -1004,7 +1006,7 @@ export default function BacktestMenu() {
                       {symbols.map((s) => (
                         <option key={`${s.exchange}-${s.symbol}`} value={s.symbol}>
                           {s.symbol}
-                          {s.is_configured ? ' (已配置)' : ''}
+                          {s.is_configured ? ` (${t('backtest.configured')})` : ''}
                         </option>
                       ))}
                     </Select>
@@ -1012,11 +1014,11 @@ export default function BacktestMenu() {
 
                   {preset && (
                     <Box mb={3} p={2} bg="gray.50" borderRadius="md" fontSize="sm">
-                      <Text>推荐: {preset.recommended_interval} K线, {preset.recommended_days?.join('/')} 天, 网格间距 {preset.grid_gap_range}</Text>
+                      <Text>{t('backtest.presetRecommendation', { interval: preset.recommended_interval, days: preset.recommended_days?.join('/'), gridGap: preset.grid_gap_range })}</Text>
                     </Box>
                   )}
                   <FormControl mb={3}>
-                    <FormLabel>回测天数</FormLabel>
+                    <FormLabel>{t('backtest.backtestDays')}</FormLabel>
                     <HStack mb={2} flexWrap="wrap" gap={2}>
                       {[3, 7, 14, 30, 90, 180, 365].map((d) => (
                         <Button
@@ -1026,13 +1028,13 @@ export default function BacktestMenu() {
                           colorScheme={days === d ? 'blue' : 'gray'}
                           onClick={() => setDays(d)}
                         >
-                          {d} 天
+                          {t('backtest.nDays', { n: d })}
                         </Button>
                       ))}
                     </HStack>
                     <Box px={1}>
                       <Slider
-                        aria-label="回测天数"
+                        aria-label={t('backtest.backtestDays')}
                         value={days}
                         min={1}
                         max={365}
@@ -1046,13 +1048,13 @@ export default function BacktestMenu() {
                       </Slider>
                       <HStack justify="space-between" mt={1} px={0} fontSize="xs" color="gray.500">
                         <Text>1</Text>
-                        <Text fontWeight="600" color="blue.600">{days} 天</Text>
+                        <Text fontWeight="600" color="blue.600">{t('backtest.nDays', { n: days })}</Text>
                         <Text>365</Text>
                       </HStack>
                     </Box>
                   </FormControl>
                   <FormControl mb={3}>
-                    <FormLabel>K 线周期</FormLabel>
+                    <FormLabel>{t('backtest.klineInterval')}</FormLabel>
                     <Select value={interval} onChange={(e) => setInterval(e.target.value)}>
                       {['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d'].map((i) => (
                         <option key={i} value={i}>{i}</option>
@@ -1061,11 +1063,11 @@ export default function BacktestMenu() {
                   </FormControl>
                   <HStack mb={3}>
                     <FormControl flex={1}>
-                      <FormLabel>开始日期</FormLabel>
+                      <FormLabel>{t('backtest.startDate')}</FormLabel>
                       <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                     </FormControl>
                     <FormControl flex={1}>
-                      <FormLabel>结束日期</FormLabel>
+                      <FormLabel>{t('backtest.endDate')}</FormLabel>
                       <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                     </FormControl>
                   </HStack>
@@ -1076,12 +1078,12 @@ export default function BacktestMenu() {
                       onClick={handleGenerateCache}
                       isDisabled={cacheGenerating || !symbol}
                     >
-                      {cacheExists ? '已缓存' : '生成 K 线缓存'}
+                      {cacheExists ? t('backtest.cached') : t('backtest.generateKlineCache')}
                     </Button>
-                    {cacheExists && <Badge colorScheme="green"><CheckIcon mr={1} /> 缓存就绪</Badge>}
+                    {cacheExists && <Badge colorScheme="green"><CheckIcon mr={1} /> {t('backtest.cacheReady')}</Badge>}
                   </HStack>
                   <Text fontSize="xs" color="gray.500" mt={2}>
-                    可直接运行回测，无缓存时将自动从交易所拉取并缓存数据；预先生成缓存可缩短首次回测等待时间。
+                    {t('backtest.cacheOptionalHint')}
                   </Text>
                     </>
                   )}
@@ -1089,7 +1091,7 @@ export default function BacktestMenu() {
                   {dataSource === 'kline_file' && (
                     <>
                       <FormControl mb={3}>
-                        <FormLabel>K线文件</FormLabel>
+                        <FormLabel>{t('backtest.dataSourceKlineFile')}</FormLabel>
                         <Button
                           size="sm"
                           leftIcon={<RepeatIcon />}
@@ -1097,24 +1099,24 @@ export default function BacktestMenu() {
                           isLoading={klineFilesLoading}
                           mb={2}
                         >
-                          刷新文件列表
+                          {t('backtest.refreshFileList')}
                         </Button>
                         {klineFilesLoading ? (
                           <Flex justify="center" py={4}><Spinner /></Flex>
                         ) : availableKlineFiles.length === 0 ? (
-                          <Text color="gray.500" fontSize="sm">暂无可用的 K 线文件（已完成采集且状态正常）</Text>
+                          <Text color="gray.500" fontSize="sm">{t('backtest.noKlineFilesAvailable')}</Text>
                         ) : (
                           <Box maxH="350px" overflowY="auto" border="1px" borderColor="gray.200" borderRadius="md">
                             <Table size="sm">
                               <Thead>
                                 <Tr>
-                                  <Th>选择</Th>
-                                  <Th>交易对</Th>
-                                  <Th>周期</Th>
-                                  <Th>时间范围</Th>
-                                  <Th>深度</Th>
-                                  <Th>K线数</Th>
-                                  <Th>来源</Th>
+                                  <Th>{t('backtest.select')}</Th>
+                                  <Th>{t('backtest.tradingPair')}</Th>
+                                  <Th>{t('backtest.interval')}</Th>
+                                  <Th>{t('backtest.timeRange')}</Th>
+                                  <Th>{t('backtest.depth')}</Th>
+                                  <Th>{t('backtest.klineCount')}</Th>
+                                  <Th>{t('backtest.source')}</Th>
                                 </Tr>
                               </Thead>
                               <Tbody>
@@ -1135,16 +1137,16 @@ export default function BacktestMenu() {
                                     </Td>
                                     <Td>
                                       {file.has_depth ? (
-                                        <Badge colorScheme="green">有</Badge>
+                                        <Badge colorScheme="green">{t('backtest.hasDepthYes')}</Badge>
                                       ) : (
-                                        <Badge variant="outline">无</Badge>
+                                        <Badge variant="outline">{t('backtest.hasDepthNo')}</Badge>
                                       )}
                                     </Td>
                                     <Td>{file.candle_count.toLocaleString()}</Td>
                                     <Td>
                                       <Badge variant="outline" fontSize="xs">
-                                        {file.source === 'collector' ? '采集' : 
-                                         file.source === 'backtest_cache' ? '缓存' : '手动'}
+                                        {file.source === 'collector' ? t('backtest.sourceCollector') : 
+                                         file.source === 'backtest_cache' ? t('backtest.sourceCache') : t('backtest.sourceManual')}
                                       </Badge>
                                     </Td>
                                   </Tr>
@@ -1160,7 +1162,7 @@ export default function BacktestMenu() {
                   {dataSource === 'cache' && (
                     <>
                       <FormControl mb={3}>
-                        <FormLabel>回测缓存</FormLabel>
+                        <FormLabel>{t('backtest.dataSourceCache')}</FormLabel>
                         <Button
                           size="sm"
                           leftIcon={<RepeatIcon />}
@@ -1168,22 +1170,22 @@ export default function BacktestMenu() {
                           isLoading={cachedKlinesLoading}
                           mb={2}
                         >
-                          刷新缓存列表
+                          {t('backtest.refreshCacheList')}
                         </Button>
                         {cachedKlinesLoading ? (
                           <Flex justify="center" py={4}><Spinner /></Flex>
                         ) : cachedKlines.length === 0 ? (
-                          <Text color="gray.500" fontSize="sm">暂无回测缓存</Text>
+                          <Text color="gray.500" fontSize="sm">{t('backtest.noBacktestCache')}</Text>
                         ) : (
                           <Box maxH="300px" overflowY="auto" border="1px" borderColor="gray.200" borderRadius="md">
                             <Table size="sm">
                               <Thead>
                                 <Tr>
-                                  <Th>选择</Th>
-                                  <Th>缓存名称</Th>
-                                  <Th>交易对</Th>
-                                  <Th>周期</Th>
-                                  <Th>K线数</Th>
+                                  <Th>{t('backtest.select')}</Th>
+                                  <Th>{t('backtest.cacheName')}</Th>
+                                  <Th>{t('backtest.tradingPair')}</Th>
+                                  <Th>{t('backtest.interval')}</Th>
+                                  <Th>{t('backtest.klineCount')}</Th>
                                 </Tr>
                               </Thead>
                               <Tbody>
@@ -1215,19 +1217,19 @@ export default function BacktestMenu() {
                 </CardBody>
               </Card>
               <Card>
-                <CardHeader fontWeight="600">2. 策略与参数</CardHeader>
+                <CardHeader fontWeight="600">{t('backtest.strategyAndParams')}</CardHeader>
                 <CardBody>
                   <FormControl mb={4}>
-                    <FormLabel>总投入资金 (USDT) *</FormLabel>
+                    <FormLabel>{t('backtest.totalCapital')}</FormLabel>
                     <NumberInput value={totalCapital} min={1} onChange={(_: string, v: number) => setTotalCapital(v)}>
                       <NumberInputField />
                     </NumberInput>
-                    <Text fontSize="xs" color="gray.500" mt={1}>默认 10000，选策略后不会被覆盖</Text>
+                    <Text fontSize="xs" color="gray.500" mt={1}>{t('backtest.totalCapitalHint')}</Text>
                   </FormControl>
                   <FormControl mb={3}>
-                    <FormLabel>策略</FormLabel>
+                    <FormLabel>{t('backtest.strategy')}</FormLabel>
                     <Select
-                      placeholder="选择策略"
+                      placeholder={t('backtest.selectStrategyPlaceholder')}
                       value={strategyType}
                       onChange={(e) => {
                         setStrategyType(e.target.value)
@@ -1252,7 +1254,7 @@ export default function BacktestMenu() {
                         isDisabled={smartLoading}
                         mr={2}
                       >
-                        获取智能推荐
+                        {t('backtest.getSmartRecommendation')}
                       </Button>
                       {smartRecommendation && (
                         <Button
@@ -1260,7 +1262,7 @@ export default function BacktestMenu() {
                           colorScheme="green"
                           onClick={() => applySmartRecommendation(smartRecommendation)}
                         >
-                          应用推荐
+                          {t('backtest.applyRecommendation')}
                         </Button>
                       )}
                     </Box>
@@ -1271,14 +1273,14 @@ export default function BacktestMenu() {
                     <Alert status="info" mb={3} borderRadius="md">
                       <Box flex="1">
                         <AlertTitle fontSize="sm">
-                          智能推荐 (置信度: {smartRecommendation.confidence.toFixed(0)}%)
+                          {t('backtest.smartRecommendationTitle', { confidence: smartRecommendation.confidence.toFixed(0) })}
                         </AlertTitle>
                         <AlertDescription fontSize="xs">
-                          <Text mb={1}>当前价格: ${smartRecommendation.current_price.toFixed(2)}</Text>
+                          <Text mb={1}>{t('backtest.currentPrice')}: ${smartRecommendation.current_price.toFixed(2)}</Text>
                           {smartRecommendation.volatility && (
                             <Text mb={1}>
-                              7日波动率: {smartRecommendation.volatility.volatility_7d?.toFixed(1)}% |
-                              趋势: {smartRecommendation.volatility.trend_direction === 'up' ? '上涨' : smartRecommendation.volatility.trend_direction === 'down' ? '下跌' : '震荡'}
+                              {t('backtest.volatility7d')}: {smartRecommendation.volatility.volatility_7d?.toFixed(1)}% |
+                              {t('backtest.trend')}: {smartRecommendation.volatility.trend_direction === 'up' ? t('backtest.trendUp') : smartRecommendation.volatility.trend_direction === 'down' ? t('backtest.trendDown') : t('backtest.trendSideways')}
                             </Text>
                           )}
                           <Text>{smartRecommendation.reasoning}</Text>
@@ -1290,7 +1292,7 @@ export default function BacktestMenu() {
                   {configParamsLoading && (
                     <HStack mb={2}>
                       <Spinner size="sm" />
-                      <Text fontSize="sm" color="gray.500">正在载入配置参数...</Text>
+                      <Text fontSize="sm" color="gray.500">{t('backtest.loadingConfigParams')}</Text>
                     </HStack>
                   )}
                   {currentStrategyDef?.params
@@ -1324,7 +1326,7 @@ export default function BacktestMenu() {
                     isLoading={running}
                     isDisabled={!strategyType || totalCapital <= 0}
                   >
-                    开始回测
+                    {t('backtest.startBacktest')}
                   </Button>
                 </CardBody>
               </Card>
@@ -1338,66 +1340,66 @@ export default function BacktestMenu() {
                 <Table size="sm">
                   <Thead>
                     <Tr>
-                      <Th>状态</Th>
-                      <Th>策略</Th>
-                      <Th>交易对</Th>
-                      <Th>周期</Th>
-                      <Th>时间范围</Th>
-                      <Th>创建时间</Th>
-                      <Th>操作</Th>
+                      <Th>{t('backtest.status')}</Th>
+                      <Th>{t('backtest.strategy')}</Th>
+                      <Th>{t('backtest.tradingPair')}</Th>
+                      <Th>{t('backtest.interval')}</Th>
+                      <Th>{t('backtest.timeRange')}</Th>
+                      <Th>{t('backtest.createdAt')}</Th>
+                      <Th>{t('backtest.actions')}</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
-                    {tasks.map((t) => (
+                    {tasks.map((task) => (
                       <Tr
-                        key={t.id}
-                        bg={t.id === selectedTaskId ? 'blue.50' : undefined}
-                        _dark={{ bg: t.id === selectedTaskId ? 'blue.900' : undefined }}
+                        key={task.id}
+                        bg={task.id === selectedTaskId ? 'blue.50' : undefined}
+                        _dark={{ bg: task.id === selectedTaskId ? 'blue.900' : undefined }}
                       >
                         <Td>
                           <Tooltip
-                            label={t.status === 'failed' && t.error ? t.error : undefined}
-                            isDisabled={t.status !== 'failed' || !t.error}
+                            label={task.status === 'failed' && task.error ? task.error : undefined}
+                            isDisabled={task.status !== 'failed' || !task.error}
                             placement="top"
                             maxW="320px"
                           >
                             <Badge
                               colorScheme={
-                                t.status === 'completed' ? 'green' : t.status === 'failed' ? 'red' : t.status === 'running' ? 'blue' : 'gray'
+                                task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'running' ? 'blue' : 'gray'
                               }
                             >
-                              {t.status}
+                              {task.status}
                             </Badge>
                           </Tooltip>
                         </Td>
-                        <Td>{t.strategy}</Td>
-                        <Td>{t.symbol}</Td>
-                        <Td>{t.interval}</Td>
-                        <Td>{formatDate(t.start_time)} ~ {formatDate(t.end_time)}</Td>
-                        <Td>{formatDate(t.created_at)}</Td>
+                        <Td>{task.strategy}</Td>
+                        <Td>{task.symbol}</Td>
+                        <Td>{task.interval}</Td>
+                        <Td>{formatDate(task.start_time)} ~ {formatDate(task.end_time)}</Td>
+                        <Td>{formatDate(task.created_at)}</Td>
                         <Td>
                           <HStack>
                             <Button
                               size="xs"
                               onClick={() => {
-                                setSelectedTaskId(t.id)
+                                setSelectedTaskId(task.id)
                                 reportModal.onOpen()
                               }}
                             >
-                              查看
+                              {t('backtest.view')}
                             </Button>
-                            {t.status === 'completed' && (
-                              <Tooltip label="下载报告">
+                            {task.status === 'completed' && (
+                              <Tooltip label={t('backtest.downloadReport')}>
                                 <IconButton
-                                  aria-label="下载报告"
+                                  aria-label={t('backtest.downloadReport')}
                                   size="xs"
                                   icon={<DownloadIcon />}
                                   onClick={() => {
-                                    getBacktestTaskReport(t.id, true).then((md) => {
+                                    getBacktestTaskReport(task.id, true).then((md) => {
                                       const blob = new Blob([md], { type: 'text/markdown' })
                                       const a = document.createElement('a')
                                       a.href = URL.createObjectURL(blob)
-                                      a.download = `backtest_${t.id}.md`
+                                      a.download = `backtest_${task.id}.md`
                                       a.click()
                                     })
                                   }}
@@ -1405,12 +1407,12 @@ export default function BacktestMenu() {
                               </Tooltip>
                             )}
                             <IconButton
-                              aria-label="删除"
+                              aria-label={t('backtest.delete')}
                               size="xs"
                               icon={<DeleteIcon />}
                               onClick={() => {
-                                deleteBacktestTask(t.id).then(() => loadTasks())
-                                if (selectedTaskId === t.id) {
+                                deleteBacktestTask(task.id).then(() => loadTasks())
+                                if (selectedTaskId === task.id) {
                                   setSelectedTaskId(null)
                                   reportModal.onClose()
                                 }
@@ -1435,7 +1437,7 @@ export default function BacktestMenu() {
             >
               <ModalOverlay />
               <ModalContent maxH="90vh">
-                <ModalHeader>回测结果: {selectedTaskId ?? '-'}</ModalHeader>
+                <ModalHeader>{t('backtest.backtestResult', { id: selectedTaskId ?? '-' })}</ModalHeader>
                 <ModalCloseButton />
                 <ModalBody pb={6} overflowY="auto">
                   <Box ref={reportContentRef} bg="white" _dark={{ bg: 'gray.900' }}>
@@ -1446,7 +1448,7 @@ export default function BacktestMenu() {
                         <Alert status="error" borderRadius="md" mb={4}>
                           <AlertIcon />
                           <Box>
-                            <AlertTitle>任务执行失败</AlertTitle>
+                            <AlertTitle>{t('backtest.taskFailed')}</AlertTitle>
                             <AlertDescription>{sel.error}</AlertDescription>
                           </Box>
                         </Alert>
@@ -1481,14 +1483,14 @@ export default function BacktestMenu() {
                             <Box key={label || 'single'}>
                               {label && <Text fontSize="xs" fontWeight="600" mb={2} color="gray.600" _dark={{ color: 'gray.400' }}>{label}</Text>}
                               <SimpleGrid columns={[2, 3, 5]} spacing={2}>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">总收益率</Text><Text fontWeight="600">{String(m.total_return ?? '-')}%</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">最大回撤</Text><Text fontWeight="600">{String(m.max_drawdown ?? '-')}%</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">夏普比率</Text><Text fontWeight="600">{String(m.sharpe_ratio ?? '-')}</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">交易次数</Text><Text fontWeight="600">{String(m.total_trades ?? '-')}</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">买/卖</Text><Text fontWeight="600">{String(m.buy_count ?? '-')} / {String(m.sell_count ?? '-')}</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">期末持仓</Text><Text fontWeight="600">{endPosQty.toFixed(6)}</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">期末持仓市值</Text><Text fontWeight="600">{endPosValue.toFixed(4)} USDT</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">期末 USDT</Text><Text fontWeight="600">{endCashUSDT.toFixed(4)}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalReturn')}</Text><Text fontWeight="600">{String(m.total_return ?? '-')}%</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.maxDrawdown')}</Text><Text fontWeight="600">{String(m.max_drawdown ?? '-')}%</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.sharpeRatio')}</Text><Text fontWeight="600">{String(m.sharpe_ratio ?? '-')}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalTrades')}</Text><Text fontWeight="600">{String(m.total_trades ?? '-')}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.buySell')}</Text><Text fontWeight="600">{String(m.buy_count ?? '-')} / {String(m.sell_count ?? '-')}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endPosition')}</Text><Text fontWeight="600">{endPosQty.toFixed(6)}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endPositionValue')}</Text><Text fontWeight="600">{endPosValue.toFixed(4)} USDT</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endUsdt')}</Text><Text fontWeight="600">{endCashUSDT.toFixed(4)}</Text></Box>
                               </SimpleGrid>
                             </Box>
                           )
@@ -1528,25 +1530,25 @@ export default function BacktestMenu() {
                           
                           return (
                             <>
-                              <Text fontSize="sm" fontWeight="600" mb={3}>风控对比</Text>
+                              <Text fontSize="sm" fontWeight="600" mb={3}>{t('backtest.riskComparison')}</Text>
                               <Box overflowX="auto" mb={4}>
                                 <Table size="sm" variant="simple">
                                   <Thead>
                                     <Tr>
-                                      <Th>指标</Th>
-                                      <Th isNumeric>无风控</Th>
-                                      <Th isNumeric>有风控</Th>
+                                      <Th>{t('backtest.metric')}</Th>
+                                      <Th isNumeric>{t('backtest.noRiskControl')}</Th>
+                                      <Th isNumeric>{t('backtest.withRiskControl')}</Th>
                                     </Tr>
                                   </Thead>
                                   <Tbody>
-                                    {compareRow('总收益率', String((noRiskM as Record<string, unknown>)?.total_return ?? '-'), String((withRiskM as Record<string, unknown>)?.total_return ?? '-'), '%')}
-                                    {compareRow('最大回撤', String((noRiskM as Record<string, unknown>)?.max_drawdown ?? '-'), String((withRiskM as Record<string, unknown>)?.max_drawdown ?? '-'), '%')}
-                                    {compareRow('夏普比率', String((noRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'), String((withRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'))}
-                                    {compareRow('交易次数', String((noRiskM as Record<string, unknown>)?.total_trades ?? '-'), String((withRiskM as Record<string, unknown>)?.total_trades ?? '-'))}
-                                    {compareRow('买/卖', `${(noRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(noRiskM as Record<string, unknown>)?.sell_count ?? '-'}`, `${(withRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(withRiskM as Record<string, unknown>)?.sell_count ?? '-'}`)}
-                                    {compareRow('期末持仓', noRiskPos.endPosQty.toFixed(6), withRiskPos.endPosQty.toFixed(6))}
-                                    {compareRow('期末持仓市值', noRiskPos.endPosValue.toFixed(4), withRiskPos.endPosValue.toFixed(4), ' USDT')}
-                                    {compareRow('期末 USDT', noRiskPos.endCashUSDT.toFixed(4), withRiskPos.endCashUSDT.toFixed(4))}
+                                    {compareRow(t('backtest.totalReturn'), String((noRiskM as Record<string, unknown>)?.total_return ?? '-'), String((withRiskM as Record<string, unknown>)?.total_return ?? '-'), '%')}
+                                    {compareRow(t('backtest.maxDrawdown'), String((noRiskM as Record<string, unknown>)?.max_drawdown ?? '-'), String((withRiskM as Record<string, unknown>)?.max_drawdown ?? '-'), '%')}
+                                    {compareRow(t('backtest.sharpeRatio'), String((noRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'), String((withRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'))}
+                                    {compareRow(t('backtest.totalTrades'), String((noRiskM as Record<string, unknown>)?.total_trades ?? '-'), String((withRiskM as Record<string, unknown>)?.total_trades ?? '-'))}
+                                    {compareRow(t('backtest.buySell'), `${(noRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(noRiskM as Record<string, unknown>)?.sell_count ?? '-'}`, `${(withRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(withRiskM as Record<string, unknown>)?.sell_count ?? '-'}`)}
+                                    {compareRow(t('backtest.endPosition'), noRiskPos.endPosQty.toFixed(6), withRiskPos.endPosQty.toFixed(6))}
+                                    {compareRow(t('backtest.endPositionValue'), noRiskPos.endPosValue.toFixed(4), withRiskPos.endPosValue.toFixed(4), ' USDT')}
+                                    {compareRow(t('backtest.endUsdt'), noRiskPos.endCashUSDT.toFixed(4), withRiskPos.endCashUSDT.toFixed(4))}
                                   </Tbody>
                                 </Table>
                               </Box>
@@ -1557,18 +1559,18 @@ export default function BacktestMenu() {
                                 return (
                                   <Box mb={4}>
                                     <Text fontSize="sm" fontWeight="600" mb={2}>
-                                      风控介入记录（共 {cm?.risk_intervention_count ?? 0} 次，跳过 {cm?.skipped_signals ?? 0} 个买入信号）
-                                      {hasMore && <Text as="span" color="gray.500" fontWeight="normal">（仅显示前 {maxDisplay} 条）</Text>}
+                                      {t('backtest.riskInterventionRecord', { count: cm?.risk_intervention_count ?? 0, skipped: cm?.skipped_signals ?? 0 })}
+                                      {hasMore && <Text as="span" color="gray.500" fontWeight="normal">{t('backtest.showingFirst', { count: maxDisplay })}</Text>}
                                     </Text>
                                     <Box overflowX="auto" maxH="200px" overflowY="auto">
                                       <Table size="sm">
                                         <Thead>
                                           <Tr>
-                                            <Th>时间</Th>
-                                            <Th>原因</Th>
-                                            <Th>类型</Th>
-                                            <Th>持续K线</Th>
-                                            <Th>跳过买入</Th>
+                                            <Th>{t('backtest.time')}</Th>
+                                            <Th>{t('backtest.reason')}</Th>
+                                            <Th>{t('backtest.type')}</Th>
+                                            <Th>{t('backtest.durationKlines')}</Th>
+                                            <Th>{t('backtest.skippedBuys')}</Th>
                                           </Tr>
                                         </Thead>
                                         <Tbody>
@@ -1602,7 +1604,7 @@ export default function BacktestMenu() {
                   )}
                   {klinesData && klinesData.klines.length > 0 && (
                     <Box mb={4}>
-                      <Text fontSize="sm" fontWeight="600" mb={2}>期间 K 线走势（收盘价，拆为 4 段）</Text>
+                      <Text fontSize="sm" fontWeight="600" mb={2}>{t('backtest.klineTrend')}</Text>
                       <SimpleGrid columns={2} spacing={3}>
                         {(() => {
                           const kls = klinesData.klines
@@ -1615,13 +1617,13 @@ export default function BacktestMenu() {
                             if (segData.length === 0) return null
                             return (
                               <Box key={i} h="160px" bg="gray.50" borderRadius="md" p={2} _dark={{ bg: 'gray.800' }}>
-                                <Text fontSize="xs" color="gray.500" mb={1}>第{i + 1}段</Text>
+                                <Text fontSize="xs" color="gray.500" mb={1}>{t('backtest.segment', { n: i + 1 })}</Text>
                                 <ResponsiveContainer width="100%" height={130}>
                                   <LineChart data={segData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="2 2" stroke="rgba(0,0,0,0.05)" />
                                     <XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
                                     <YAxis domain={['auto', 'auto']} tick={{ fontSize: 9 }} width={45} />
-                                    <RechartsTooltip formatter={(v: number) => [v.toFixed(2), '收盘']} />
+                                    <RechartsTooltip formatter={(v: number) => [v.toFixed(2), t('backtest.close')]} />
                                     <Line type="monotone" dataKey="close" stroke="#3182ce" dot={false} strokeWidth={1.5} />
                                   </LineChart>
                                 </ResponsiveContainer>
@@ -1659,7 +1661,7 @@ export default function BacktestMenu() {
                   {selectedTaskId && !resultData && !reportMd && !tasks.find((t) => t.id === selectedTaskId)?.error && (
                     <Flex justify="center" py={8}>
                       <Spinner />
-                      <Text ml={3} color="gray.500">载入中...</Text>
+                      <Text ml={3} color="gray.500">{t('common.loading')}</Text>
                     </Flex>
                   )}
                   </Box>
@@ -1674,9 +1676,9 @@ export default function BacktestMenu() {
                           variant="outline"
                           onClick={handleSaveAsImage}
                           isLoading={savingImage}
-                          loadingText="生成中..."
+                          loadingText={t('backtest.generating')}
                         >
-                          保存为图片
+                          {t('backtest.saveAsImage')}
                         </Button>
                         <Button
                           size="sm"
@@ -1692,7 +1694,7 @@ export default function BacktestMenu() {
                             })
                           }}
                         >
-                          下载报告
+                          {t('backtest.downloadReport')}
                         </Button>
                       </>
                     )}
@@ -1704,29 +1706,29 @@ export default function BacktestMenu() {
           <TabPanel>
             <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
               <Card>
-                <CardHeader fontWeight="600">1. 基础配置</CardHeader>
+                <CardHeader fontWeight="600">{t('backtest.baseConfig')}</CardHeader>
                 <CardBody>
                   <Text fontSize="sm" color="gray.600" mb={3}>
-                    选择交易对、策略、日期范围和资金，程序将自动遍历参数组合寻找最优解。
+                    {t('backtest.optimDescription')}
                   </Text>
                   <FormControl mb={2}>
-                    <FormLabel fontSize="sm">交易对</FormLabel>
-                    <Select placeholder="选择交易对" value={symbol} onChange={(e) => setSymbol(e.target.value)} isDisabled={!selectedExchange}>
+                    <FormLabel fontSize="sm">{t('backtest.tradingPair')}</FormLabel>
+                    <Select placeholder={t('backtest.selectTradingPair')} value={symbol} onChange={(e) => setSymbol(e.target.value)} isDisabled={!selectedExchange}>
                       {symbols.map((s) => (
                         <option key={`${s.exchange}-${s.symbol}`} value={s.symbol}>{s.symbol}</option>
                       ))}
                     </Select>
                   </FormControl>
                   <FormControl mb={2}>
-                    <FormLabel fontSize="sm">策略</FormLabel>
-                    <Select placeholder="选择策略" value={strategyType} onChange={(e) => setStrategyType(e.target.value)}>
+                    <FormLabel fontSize="sm">{t('backtest.strategy')}</FormLabel>
+                    <Select placeholder={t('backtest.selectStrategyPlaceholder')} value={strategyType} onChange={(e) => setStrategyType(e.target.value)}>
                       {strategies.filter((s) => ['grid', 'momentum', 'mean_reversion', 'trend_following', 'dca', 'martingale'].includes(s.strategy_type)).map((s) => (
                         <option key={s.strategy_type} value={s.strategy_type}>{s.name}</option>
                       ))}
                     </Select>
                   </FormControl>
                   <FormControl mb={2}>
-                    <FormLabel fontSize="sm">K 线周期</FormLabel>
+                    <FormLabel fontSize="sm">{t('backtest.klineInterval')}</FormLabel>
                     <Select value={interval} onChange={(e) => setInterval(e.target.value)}>
                       {['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d'].map((i) => (
                         <option key={i} value={i}>{i}</option>
@@ -1735,16 +1737,16 @@ export default function BacktestMenu() {
                   </FormControl>
                   <HStack mb={2}>
                     <FormControl flex={1}>
-                      <FormLabel fontSize="sm">开始日期</FormLabel>
+                      <FormLabel fontSize="sm">{t('backtest.startDate')}</FormLabel>
                       <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                     </FormControl>
                     <FormControl flex={1}>
-                      <FormLabel fontSize="sm">结束日期</FormLabel>
+                      <FormLabel fontSize="sm">{t('backtest.endDate')}</FormLabel>
                       <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                     </FormControl>
                   </HStack>
                   <FormControl mb={3}>
-                    <FormLabel fontSize="sm">初始资金 (USDT)</FormLabel>
+                    <FormLabel fontSize="sm">{t('backtest.initialCapital')}</FormLabel>
                     <NumberInput value={totalCapital} min={1} onChange={(_: string, v: number) => setTotalCapital(v)}>
                       <NumberInputField />
                     </NumberInput>
@@ -1755,15 +1757,15 @@ export default function BacktestMenu() {
                     isLoading={optimRunning}
                     isDisabled={!symbol || !strategyType || !interval || !startDate || !endDate || totalCapital <= 0}
                   >
-                    开始参数优化
+                    {t('backtest.startParamOptimization')}
                   </Button>
                   <Text fontSize="xs" color="gray.500" mt={2}>
-                    使用策略默认参数范围，遍历组合并回测，完成后可筛选（如最大回撤≤4%）并按收益率排序。
+                    {t('backtest.optimHint')}
                   </Text>
                 </CardBody>
               </Card>
               <Card>
-                <CardHeader fontWeight="600">2. 优化任务列表</CardHeader>
+                <CardHeader fontWeight="600">{t('backtest.optimTaskList')}</CardHeader>
                 <CardBody>
                   {optimTasksLoading ? (
                     <Flex justify="center" py={6}><Spinner /></Flex>
@@ -1772,44 +1774,44 @@ export default function BacktestMenu() {
                       <Table size="sm">
                         <Thead>
                           <Tr>
-                            <Th>状态</Th>
-                            <Th>策略</Th>
-                            <Th>交易对</Th>
-                            <Th>组合数</Th>
-                            <Th>进度</Th>
-                            <Th>操作</Th>
+                            <Th>{t('backtest.status')}</Th>
+                            <Th>{t('backtest.strategy')}</Th>
+                            <Th>{t('backtest.tradingPair')}</Th>
+                            <Th>{t('backtest.combos')}</Th>
+                            <Th>{t('backtest.progress')}</Th>
+                            <Th>{t('backtest.actions')}</Th>
                           </Tr>
                         </Thead>
                         <Tbody>
-                          {optimTasks.map((t) => (
-                            <Tr key={t.id}>
+                          {optimTasks.map((task) => (
+                            <Tr key={task.id}>
                               <Td>
                                 <Badge
                                   colorScheme={
-                                    t.status === 'completed' ? 'green' : t.status === 'failed' ? 'red' : t.status === 'running' ? 'blue' : 'gray'
+                                    task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'running' ? 'blue' : 'gray'
                                   }
                                 >
-                                  {t.status}
+                                  {task.status}
                                 </Badge>
                               </Td>
-                              <Td>{t.strategy}</Td>
-                              <Td>{t.symbol}</Td>
-                              <Td>{t.total_combos}</Td>
-                              <Td>{t.progress}%</Td>
+                              <Td>{task.strategy}</Td>
+                              <Td>{task.symbol}</Td>
+                              <Td>{task.total_combos}</Td>
+                              <Td>{task.progress}%</Td>
                               <Td>
                                 <HStack>
                                   <Button
                                     size="xs"
-                                    onClick={() => handleViewOptimResult(t.id)}
-                                    isDisabled={t.status !== 'completed'}
+                                    onClick={() => handleViewOptimResult(task.id)}
+                                    isDisabled={task.status !== 'completed'}
                                   >
-                                    查看
+                                    {t('backtest.view')}
                                   </Button>
                                   <IconButton
-                                    aria-label="删除"
+                                    aria-label={t('backtest.delete')}
                                     size="xs"
                                     icon={<DeleteIcon />}
-                                    onClick={() => deleteOptimTask(t.id).then(() => loadOptimTasks())}
+                                    onClick={() => deleteOptimTask(task.id).then(() => loadOptimTasks())}
                                   />
                                 </HStack>
                               </Td>
@@ -1820,7 +1822,7 @@ export default function BacktestMenu() {
                     </Box>
                   )}
                   {!optimTasksLoading && optimTasks.length === 0 && (
-                    <Text color="gray.500" py={4}>暂无优化任务</Text>
+                    <Text color="gray.500" py={4}>{t('backtest.noOptimTasks')}</Text>
                   )}
                 </CardBody>
               </Card>
@@ -1840,14 +1842,14 @@ export default function BacktestMenu() {
             <Card>
               <CardHeader>
                 <Flex justify="space-between" align="center">
-                  <Text fontWeight="600">已缓存的 K 线</Text>
+                  <Text fontWeight="600">{t('backtest.cachedKlines')}</Text>
                   <Button
                     size="sm"
                     leftIcon={<RepeatIcon />}
                     onClick={loadCachedKlines}
                     isLoading={cachedKlinesLoading}
                   >
-                    刷新
+                    {t('backtest.refresh')}
                   </Button>
                 </Flex>
               </CardHeader>
@@ -1855,19 +1857,19 @@ export default function BacktestMenu() {
                 {cachedKlinesLoading && cachedKlines.length === 0 ? (
                   <Flex justify="center" py={6}><Spinner /></Flex>
                 ) : cachedKlines.length === 0 ? (
-                  <Text color="gray.500">暂无 K 线缓存。在「新建回测」中选择交易对、周期与日期后点击「生成 K 线缓存」即可生成。</Text>
+                  <Text color="gray.500">{t('backtest.noKlineCache')}</Text>
                 ) : (
                   <Box overflowX="auto">
                     <Table size="sm">
                         <Thead>
                           <Tr>
-                            <Th>缓存名称</Th>
-                            <Th>交易对</Th>
-                            <Th>周期</Th>
-                            <Th>K 线数</Th>
-                            <Th>大小 (MB)</Th>
-                            <Th>创建时间</Th>
-                            <Th>操作</Th>
+                            <Th>{t('backtest.cacheName')}</Th>
+                            <Th>{t('backtest.tradingPair')}</Th>
+                            <Th>{t('backtest.interval')}</Th>
+                            <Th>{t('backtest.klineCount')}</Th>
+                            <Th>{t('backtest.sizeMb')}</Th>
+                            <Th>{t('backtest.createdAt')}</Th>
+                            <Th>{t('backtest.actions')}</Th>
                           </Tr>
                         </Thead>
                       <Tbody>
@@ -1884,9 +1886,9 @@ export default function BacktestMenu() {
                             <Td>{(c.size_mb ?? 0).toFixed(2)}</Td>
                             <Td>{formatDate(c.created)}</Td>
                             <Td>
-                              <Tooltip label="删除此缓存">
+                              <Tooltip label={t('backtest.deleteCache')}>
                                 <IconButton
-                                  aria-label="删除缓存"
+                                  aria-label={t('backtest.deleteCacheAria')}
                                   size="xs"
                                   icon={<DeleteIcon />}
                                   colorScheme="red"
@@ -1894,10 +1896,10 @@ export default function BacktestMenu() {
                                   onClick={() => {
                                     deleteCache(c.name).then((r) => {
                                       if (r.success) {
-                                        toast({ title: '缓存已删除', status: 'success' })
+                                        toast({ title: t('backtest.cacheDeleted'), status: 'success' })
                                         loadCachedKlines()
                                       }
-                                    }).catch(() => toast({ title: '删除失败', status: 'error' }))
+                                    }).catch(() => toast({ title: t('backtest.deleteFailed'), status: 'error' }))
                                   }}
                                 />
                               </Tooltip>

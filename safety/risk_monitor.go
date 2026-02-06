@@ -590,6 +590,85 @@ func (r *RiskMonitor) GetLastMsg() string {
 	return r.lastMsg
 }
 
+// GetKlineRiskScore 獲取 K 線異常風險評分 0-100（供複合風控因子使用）
+func (r *RiskMonitor) GetKlineRiskScore() (score float64, reason string) {
+	r.mu.RLock()
+	triggered := r.triggered
+	lastMsg := r.lastMsg
+	r.mu.RUnlock()
+
+	if triggered {
+		return 100, lastMsg
+	}
+	var maxScore float64
+	for _, symbol := range r.cfg.RiskControl.MonitorSymbols {
+		s, _ := r.klineRiskScoreForSymbol(symbol)
+		if s > maxScore {
+			maxScore = s
+		}
+	}
+	if maxScore > 100 {
+		maxScore = 100
+	}
+	if maxScore <= 0 {
+		return 0, "正常"
+	}
+	return maxScore, "K線偏離/放量"
+}
+
+func (r *RiskMonitor) klineRiskScoreForSymbol(symbol string) (score float64, reason string) {
+	r.mu.RLock()
+	symbolData, exists := r.symbolDataMap[symbol]
+	r.mu.RUnlock()
+	if !exists {
+		return 0, ""
+	}
+	symbolData.mu.RLock()
+	candles := symbolData.candles
+	candleCount := len(candles)
+	symbolData.mu.RUnlock()
+	if candleCount < r.cfg.RiskControl.AverageWindow+1 {
+		return 0, ""
+	}
+	currentCandle := candles[candleCount-1]
+	currentPrice := currentCandle.Close
+	var totalPrice, totalVol float64
+	var validCount int
+	window := r.cfg.RiskControl.AverageWindow
+	for i := candleCount - 2; i >= 0 && validCount < window; i-- {
+		if candles[i].IsClosed {
+			totalPrice += candles[i].Close
+			totalVol += candles[i].Volume
+			validCount++
+		}
+	}
+	if validCount < window {
+		return 0, ""
+	}
+	avgPrice := totalPrice / float64(validCount)
+	avgVol := totalVol / float64(validCount)
+	volRatio := currentCandle.Volume / avgVol
+	mult := r.cfg.RiskControl.VolumeMultiplier
+	if mult <= 0 {
+		mult = 3.0
+	}
+	score = 0
+	if avgPrice > 0 && currentPrice < avgPrice {
+		score += 50 * (1 - currentPrice/avgPrice)
+	}
+	if avgVol > 0 && volRatio > 0 {
+		ratio := volRatio / mult
+		if ratio > 1 {
+			ratio = 1
+		}
+		score += 50 * ratio
+	}
+	if score > 100 {
+		score = 100
+	}
+	return score, ""
+}
+
 // GetMonitorSymbols 獲取監控币种列表
 func (r *RiskMonitor) GetMonitorSymbols() []string {
 	return r.cfg.RiskControl.MonitorSymbols
