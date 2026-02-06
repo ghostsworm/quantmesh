@@ -1129,6 +1129,49 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
+	// 🔥 去重检查：如果同一價格同時有開倉單和平倉單，移除開倉單（平倉優先）
+	// 場景：LONG模式下，空倉槽位P挂買單，同時已持倉槽位(P-interval)的平倉價也是P
+	// 同價掛買賣單毫無意義，且可能觸發自成交，因此移除開倉單
+	openSideForDedup := "BUY"
+	if spm.isShort() {
+		openSideForDedup = "SELL"
+	}
+	closePriceSet := make(map[float64]bool)
+	for _, order := range ordersToPlace {
+		if order.Side != openSideForDedup {
+			closePriceSet[order.Price] = true
+		}
+	}
+	if len(closePriceSet) > 0 {
+		var filteredOrders []*OrderRequest
+		removedBuyCount := 0
+		for _, order := range ordersToPlace {
+			if order.Side == openSideForDedup && closePriceSet[order.Price] {
+				// 同一價格有平倉單，跳過開倉單
+				logger.Warn("⚠️ [%s:%s] 同一價格 %s 同時有開倉和平倉單，移除開倉單（平倉優先）",
+					spm.exchangeName, spm.config.Trading.Symbol, formatPrice(order.Price, spm.priceDecimals))
+				// 重置被移除的開倉單對應槽位狀態（之前被標記為PENDING）
+				if slotRaw, ok := spm.slots.Load(order.Price); ok {
+					pendingSlot := slotRaw.(*InventorySlot)
+					pendingSlot.mu.Lock()
+					if pendingSlot.SlotStatus == SlotStatusPending {
+						pendingSlot.SlotStatus = SlotStatusFree
+					}
+					pendingSlot.mu.Unlock()
+				}
+				removedBuyCount++
+				buyOrdersToCreate--
+				continue
+			}
+			filteredOrders = append(filteredOrders, order)
+		}
+		if removedBuyCount > 0 {
+			ordersToPlace = filteredOrders
+			logger.Info("📊 [%s:%s] 去重完成：移除了 %d 個與平倉單同價的開倉單",
+				spm.exchangeName, spm.config.Trading.Symbol, removedBuyCount)
+		}
+	}
+
 	// 🔥 在下單前，先检查並調整资金限額（分级限額功能）
 	// 计算當前持倉层數和未實現盈亏
 	positionLayers := 0
