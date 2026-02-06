@@ -15,7 +15,12 @@
     "all": "All",
     "allExchanges": "全部交易所",
     "error": "错误",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "connectionError": "Connection Error",
+    "connectionErrorDesc": "Unable to connect to server. Please check your network.",
+    "unknownError": "Unknown Error",
+    "loadFailed": "Load Failed",
+    "success": "Success"
   },
   "sidebar": {
     "overview": "Gambaran Umum",
@@ -138,7 +143,8 @@
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
-    "used": "Used"
+    "used": "Used",
+    "strategyVisualization": "Strategy Visualization"
   },
   "login": {
     "title": "Masuk",
@@ -749,7 +755,13 @@
       "noPerformanceData": "Tidak ada data kinerja historis",
       "volatility": "Volatilitas",
       "noRiskData": "Tidak ada data risiko yang tersedia"
-    }
+    },
+    "cannotFetchDetail": "Cannot fetch details",
+    "checkConnection": "Please check your connection",
+    "disableFailed": "Disable failed",
+    "enableFailed": "Enable failed",
+    "fetchDetailFailed": "Failed to fetch details",
+    "fetchError": "Failed to fetch strategy list"
   },
   "capitalManagement": {
     "title": "Manajemen Modal",
@@ -904,10 +916,20 @@
     "fundingNet": "Funding bersih",
     "fundingDetail": "Detail funding",
     "noFundingHistory": "Tidak ada riwayat funding",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "Impor Cepat",
+    "conservativeRule": "Aturan Konservatif (50% di 100 USDT)",
+    "aggressiveRule": "Aturan Agresif (30% di 200 USDT)",
+    "importBothPresets": "Impor Kedua Preset",
+    "importedConservative": "Aturan konservatif diimpor",
+    "importedAggressive": "Aturan agresif diimpor",
+    "importedConservativeDesc": "Tarik 50% saat profit mencapai 100 USDT",
+    "importedAggressiveDesc": "Tarik 30% saat profit mencapai 200 USDT",
+    "importedBothPresets": "Kedua preset diimpor",
+    "importedBothPresetsDesc": "Aturan konservatif dan agresif diimpor",
+    "exchangeLabel": "Exchange",
+    "selectExchange": "Pilih exchange"
   },
   "positionPlan": {
     "title": "Rencana Posisi",
@@ -958,8 +980,10 @@
   "connection": {
     "offlineTitle": "Internet Terputus",
     "offlineDesc": "Anda sedang offline. Harap periksa koneksi internet Anda.",
+    "offlineShort": "Jaringan offline",
     "backendDisconnectedTitle": "Koneksi Backend Gagal",
-    "backendDisconnectedDesc": "Tidak dapat terhubung ke layanan backend. Harap pastikan program backend berjalan (localhost:28888)."
+    "backendDisconnectedDesc": "Tidak dapat terhubung ke layanan backend. Harap pastikan program backend berjalan (localhost:28888).",
+    "backendDisconnectedShort": "Backend terputus"
   },
   "pwa": {
     "serviceWorkerRegistered": "Service Worker berhasil terdaftar",
@@ -981,7 +1005,12 @@
     "noReport": "Gagal membuat laporan, silakan coba lagi.",
     "importantNotice": "Pemberitahuan Penting",
     "leverageNotice": "Sistem hanya akan memodifikasi pengaturan leverage di file konfigurasi. Untuk benar-benar menyesuaikan leverage pada akun exchange Anda, harap modifikasi secara manual di setiap situs web exchange. Setelah konfigurasi dimodifikasi, sistem akan menggunakan batas leverage baru untuk pemeriksaan risiko, tetapi Anda perlu menyesuaikan leverage aktual secara manual di akun exchange Anda.",
-    "applySuccessNotice": "Catatan: Sistem hanya memodifikasi file konfigurasi. Anda perlu menyesuaikan leverage aktual secara manual di setiap situs web exchange."
+    "applySuccessNotice": "Catatan: Sistem hanya memodifikasi file konfigurasi. Anda perlu menyesuaikan leverage aktual secara manual di setiap situs web exchange.",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "refreshing": "Refreshing...",
+    "unknownError": "Unknown error"
   },
   "symbolSelector": {
     "globalOverview": "Gambaran Umum Global",
@@ -1024,7 +1053,9 @@
     "days": "hari",
     "hours": "jam",
     "minutes": "menit",
-    "seconds": "detik"
+    "seconds": "detik",
+    "currentFilter": "Current Filter",
+    "viewAllEvents": "View All Events"
   },
   "systemMonitor": {
     "title": "Monitor Sistem",
@@ -1483,7 +1514,11 @@
   "yamlEditor": {
     "tabIndentError": "Baris {{line}}: YAML tidak mengizinkan indentasi Tab, gunakan spasi",
     "colonSpaceError": "Baris {{line}}: Spasi diperlukan setelah titik dua",
-    "unknownError": "Kesalahan tidak diketahui"
+    "unknownError": "Kesalahan tidak diketahui",
+    "readOnly": "Read Only",
+    "syntaxCorrect": "Syntax Correct",
+    "syntaxError": "Syntax Error",
+    "unsavedChanges": "Unsaved Changes"
   },
   "newsAnalysis": {
     "historyTitle": "Riwayat Analisis Berita",
@@ -1525,7 +1560,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "Action",
+    "details": "Details",
+    "nextPage": "Next Page",
+    "prevPage": "Previous Page",
+    "price": "Price",
+    "recommendation": "Recommendation"
   },
   "strategyNames": {
     "grid": "Strategi Trading Grid",
@@ -1971,7 +2012,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "Config Change Preview",
+    "oldConfig": "Old Config",
+    "newConfig": "New Config",
+    "added": "Added",
+    "removed": "Removed",
+    "modified": "Modified",
+    "confirmApply": "Confirm Apply"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "Total Slots",
+      "filled": "Filled",
+      "fillRate": "Fill Rate",
+      "priceRange": "Price Range",
+      "priceInterval": "Price Interval",
+      "gridPriceRange": "Grid Price Range",
+      "lowestPrice": "Lowest Price",
+      "priceSpan": "Price Span",
+      "highestPrice": "Highest Price",
+      "slotStatusOverview": "Slot Status Overview",
+      "statusFilled": "Filled",
+      "statusLocked": "Locked",
+      "statusIdle": "Idle",
+      "quantity": "Quantity",
+      "showingSlots": "Showing {{shown}} of {{total}} slots"
+    },
+    "trendFollowing": {
+      "currentPrice": "Current Price",
+      "fastLine": "Fast Line",
+      "slowLine": "Slow Line",
+      "trendDirection": "Trend Direction",
+      "trendUp": "Uptrend",
+      "trendDown": "Downtrend",
+      "trendSideways": "Sideways",
+      "priceAndMA": "Price & Moving Averages",
+      "tradeSignals": "Trade Signals",
+      "goldenCross": "Golden Cross",
+      "deathCross": "Death Cross",
+      "yes": "Yes",
+      "no": "No",
+      "maDiff": "MA Difference",
+      "positionStatus": "Position Status",
+      "hasPosition": "Has Position",
+      "noPosition": "No Position",
+      "entryPrice": "Entry Price",
+      "currentPnL": "Current P&L",
+      "stopLoss": "Stop Loss",
+      "takeProfit": "Take Profit"
+    },
+    "dca": {
+      "firstOrderTP": "First Order TP",
+      "totalTP": "Total TP",
+      "stopLoss": "Stop Loss",
+      "currentPrice": "Current Price",
+      "avgCost": "Avg Cost",
+      "atrValue": "ATR Value",
+      "dynamicSpacing": "Dynamic Spacing",
+      "currentLayer": "Current Layer",
+      "priceTrend": "Price Trend",
+      "layeredPositions": "Layered Positions",
+      "layerN": "Layer {{n}}",
+      "quantity": "Quantity",
+      "cost": "Cost",
+      "pnl": "P&L",
+      "decisionBasis": "Decision Basis",
+      "nextBuyPoint": "Next Buy Point",
+      "cascadeProtectionActive": "Cascade Protection Active",
+      "trendFilter": "Trend Filter",
+      "trendUp": "Uptrend",
+      "trendDown": "Downtrend",
+      "trailingTPActive": "Trailing TP Active",
+      "highestProfit": "Highest Profit"
+    },
+    "meanReversion": {
+      "currentPrice": "Current Price",
+      "upperBand": "Upper Band",
+      "middleBand": "Middle Band",
+      "lowerBand": "Lower Band",
+      "positionInBand": "Position in Band",
+      "position": "Position",
+      "nearLower": "Near Lower",
+      "nearUpper": "Near Upper",
+      "middleZone": "Middle Zone",
+      "priceAndBollinger": "Price & Bollinger Bands",
+      "tradeSignals": "Trade Signals",
+      "buySignal": "Buy Signal",
+      "sellSignal": "Sell Signal",
+      "yes": "Yes",
+      "no": "No",
+      "touchesLower": "Touches Lower Band",
+      "touchesUpper": "Touches Upper Band",
+      "distanceToBuy": "Distance to Buy",
+      "distanceToSell": "Distance to Sell",
+      "positionStatus": "Position Status",
+      "hasPosition": "Has Position",
+      "noPosition": "No Position",
+      "entryPrice": "Entry Price",
+      "currentPnL": "Current P&L",
+      "period": "Period",
+      "stdMultiplier": "Std Multiplier"
+    }
+  },
+  "security": {
+    "compromisedTitle": "Security Warning",
+    "compromisedMessage": "Your password may have been compromised",
+    "compromisedDetails": "Your password was found in a known data breach database. Please change it immediately.",
+    "compromisedNote": "For your account security, please change your password as soon as possible.",
+    "compromisedAction": "Change Password Now",
+    "passwordManagerError": "Password Manager Error",
+    "passwordManagerErrorMessage": "Unable to connect to password manager. Please enter your password manually."
+  },
+  "aiPromptManager": {
+    "title": "AI Prompt Manager",
+    "systemPrompt": "System Prompt",
+    "systemPromptPlaceholder": "Enter system prompt...",
+    "promptTemplate": "Prompt Template",
+    "templateHint": "Use {{variable}} as variable placeholders",
+    "autoLoadHint": "Auto-load latest data",
+    "edit": "Edit",
+    "noData": "No data",
+    "notSet": "Not set",
+    "fetchFailed": "Failed to fetch data",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed",
+    "refreshData": "Refresh Data"
+  },
+  "fundingRate": {
+    "title": "Funding Rate",
+    "currentRates": "Current Rates",
+    "historyRates": "History Rates",
+    "exchange": "Exchange",
+    "tradingPair": "Trading Pair",
+    "rate": "Rate",
+    "time": "Time",
+    "updateTime": "Update Time",
+    "count": "Count",
+    "noData": "No data",
+    "noHistoryData": "No history data",
+    "error": "Failed to fetch rates",
+    "fetchCurrentFailed": "Failed to fetch current rates",
+    "fetchHistoryFailed": "Failed to fetch history rates"
+  },
+  "positionsPage": {
+    "title": "Posisi Saat Ini",
+    "positionList": "Daftar Posisi",
+    "noPositions": "Tidak ada posisi",
+    "positionPrice": "Harga Posisi",
+    "positionQuantity": "Jumlah Posisi",
+    "positionValue": "Nilai Posisi",
+    "positionValueCol": "Nilai",
+    "positionSlots": "Slot",
+    "averagePrice": "Harga Rata-rata",
+    "currentMarketPrice": "Harga Pasar Saat Ini",
+    "unrealizedPnl": "Laba/Rugi Belum Terealisasi",
+    "leverage": "Leverage Keuangan",
+    "actualMargin": "Margin Aktual",
+    "totalQuantity": "Jumlah Total",
+    "totalValue": "Nilai Total"
+  },
+  "predictionAccuracy": {
+    "title": "Prediction Accuracy",
+    "totalPredictions": "Total Predictions",
+    "correctCount": "Correct Count",
+    "accuracy": "Accuracy",
+    "recentRecords": "Recent Records",
+    "noRecords": "No records",
+    "symbol": "Symbol",
+    "asset": "Asset",
+    "gold": "Gold",
+    "predictionTime": "Prediction Time",
+    "predictedDirection": "Predicted Direction",
+    "actualDirection": "Actual Direction",
+    "result": "Result",
+    "correct": "Correct",
+    "incorrect": "Incorrect",
+    "period": "Period",
+    "timeWindow": "Time Window",
+    "last7d": "Last 7 Days",
+    "last14d": "Last 14 Days",
+    "last30d": "Last 30 Days",
+    "all": "All",
+    "backToNewsAnalysis": "Back to News Analysis"
+  },
+  "slotsPage": {
+    "title": "Slot Details",
+    "filter": "Filter",
+    "filterLocked": "Show Locked Only",
+    "sortBy": "Sort By",
+    "sortByPrice": "Sort by Price",
+    "sortByStatus": "Sort by Status",
+    "noMatchingSlots": "No matching slots",
+    "price": "Price",
+    "slotStatus": "Slot Status",
+    "positionStatus": "Position Status",
+    "slotFree": "Free",
+    "slotLocked": "Locked",
+    "slotPending": "Pending",
+    "positionFilled": "Filled",
+    "positionEmpty": "Empty",
+    "positionQty": "Position Qty",
+    "orderId": "Order ID",
+    "orderPrice": "Order Price",
+    "orderSide": "Side",
+    "orderStatus": "Order Status"
+  },
+  "newbieCheckModal": {
+    "title": "Newbie Risk Check",
+    "scanning": "Scanning...",
+    "overallScore": "Overall Score",
+    "score": "Score",
+    "detailedResults": "Detailed Results",
+    "advice": "Advice",
+    "applySecurity": "Apply Security Suggestions",
+    "applying": "Applying...",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "noReport": "No report available",
+    "unknownError": "Unknown error"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "positions": "Positions",
+    "settings": "Settings",
+    "statistics": "Statistics"
   }
 }

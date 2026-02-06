@@ -1,6 +1,6 @@
 {
   "name": "quantmesh-webui",
-  "version": "3.43.2-rc2",
+  "version": "3.44.1-rc1",
   "type": "module",
   "packageManager": "yarn@4.12.0",
   "scripts": {
@@ -24,6 +24,7 @@
     "html2canvas": "^1.4.1",
     "i18next": "^25.7.3",
     "i18next-browser-languagedetector": "^8.2.0",
+    "i18next-resources-to-backend": "^1.2.1",
     "lightweight-charts": "^4.2.0",
     "monaco-editor": "^0.55.1",
     "posthog-js": "^1.341.0",

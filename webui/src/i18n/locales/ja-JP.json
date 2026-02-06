@@ -15,7 +15,12 @@
     "allExchanges": "すべての取引所",
     "actions": "操作",
     "error": "エラー",
-    "all": "All"
+    "all": "All",
+    "connectionError": "接続エラー",
+    "connectionErrorDesc": "サーバーに接続できません。ネットワークを確認してください。",
+    "unknownError": "不明なエラー",
+    "loadFailed": "読み込み失敗",
+    "success": "成功"
   },
   "sidebar": {
     "overview": "概要",
@@ -312,7 +317,8 @@
     "sellPriceDeviationDescNone": "No deviation",
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescGain": "Total gain from price deviation",
-    "totalDeviationDescNone": "No deviation"
+    "totalDeviationDescNone": "No deviation",
+    "strategyVisualization": "戦略ビジュアライゼーション"
   },
   "login": {
     "title": "ログイン",
@@ -923,7 +929,13 @@
       "noPerformanceData": "No historical performance data",
       "volatility": "Volatility",
       "noRiskData": "No risk data available"
-    }
+    },
+    "cannotFetchDetail": "詳細を取得できません",
+    "checkConnection": "接続を確認してください",
+    "disableFailed": "無効化に失敗",
+    "enableFailed": "有効化に失敗",
+    "fetchDetailFailed": "詳細の取得に失敗",
+    "fetchError": "戦略リストの取得に失敗"
   },
   "capitalManagement": {
     "title": "Capital Management",
@@ -1078,10 +1090,20 @@
     "fundingNet": "Funding Net",
     "fundingDetail": "Funding History",
     "noFundingHistory": "No funding payment records",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "クイックインポート",
+    "conservativeRule": "保守型ルール（100 USDTで50%引出）",
+    "aggressiveRule": "積極型ルール（200 USDTで30%引出）",
+    "importBothPresets": "両方のプリセットをインポート",
+    "importedConservative": "保守型ルールをインポートしました",
+    "importedAggressive": "積極型ルールをインポートしました",
+    "importedConservativeDesc": "利益が100 USDTに達したら50%を引き出す",
+    "importedAggressiveDesc": "利益が200 USDTに達したら30%を引き出す",
+    "importedBothPresets": "両方のプリセットをインポートしました",
+    "importedBothPresetsDesc": "保守型と積極型ルールをインポートしました",
+    "exchangeLabel": "取引所",
+    "selectExchange": "取引所を選択"
   },
   "positionPlan": {
     "title": "Position Plan",
@@ -1132,8 +1154,10 @@
   "connection": {
     "offlineTitle": "インターネット接続なし",
     "offlineDesc": "インターネット接続を確認してください。",
+    "offlineShort": "ネットワークオフライン",
     "backendDisconnectedTitle": "バックエンド接続失敗",
-    "backendDisconnectedDesc": "バックエンドが動作していることを確認してください (localhost:28888)。"
+    "backendDisconnectedDesc": "バックエンドが動作していることを確認してください (localhost:28888)。",
+    "backendDisconnectedShort": "バックエンド切断"
   },
   "pwa": {
     "serviceWorkerRegistered": "Service Worker registered successfully",
@@ -1155,7 +1179,12 @@
     "noReport": "Failed to generate report, please retry.",
     "importantNotice": "Important Notice",
     "leverageNotice": "The system will only modify the leverage settings in the configuration file. To actually adjust the leverage on your exchange account, please manually modify it on each exchange website. After the configuration is modified, the system will use the new leverage limit for risk checks, but you need to manually adjust the actual leverage on your exchange account.",
-    "applySuccessNotice": "Note: The system only modified the configuration file. You need to manually adjust the actual leverage on each exchange website."
+    "applySuccessNotice": "Note: The system only modified the configuration file. You need to manually adjust the actual leverage on each exchange website.",
+    "applyFailed": "適用に失敗",
+    "configUpdated": "設定を更新しました",
+    "fetchFailed": "レポートの取得に失敗",
+    "refreshing": "更新中...",
+    "unknownError": "不明なエラー"
   },
   "symbolSelector": {
     "globalOverview": "Global Overview",
@@ -1198,7 +1227,9 @@
     "days": "days",
     "hours": "hours",
     "minutes": "minutes",
-    "seconds": "seconds"
+    "seconds": "seconds",
+    "currentFilter": "現在のフィルター",
+    "viewAllEvents": "すべてのイベントを表示"
   },
   "systemMonitor": {
     "title": "System Monitor",
@@ -1657,7 +1688,11 @@
   "yamlEditor": {
     "tabIndentError": "Line {{line}}: YAML does not allow Tab indentation, use spaces",
     "colonSpaceError": "Line {{line}}: Space required after colon",
-    "unknownError": "Unknown error"
+    "unknownError": "Unknown error",
+    "readOnly": "読み取り専用",
+    "syntaxCorrect": "構文正常",
+    "syntaxError": "構文エラー",
+    "unsavedChanges": "未保存の変更があります"
   },
   "newsAnalysis": {
     "historyTitle": "News Analysis History",
@@ -1699,7 +1734,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "操作",
+    "details": "詳細",
+    "nextPage": "次のページ",
+    "prevPage": "前のページ",
+    "price": "価格",
+    "recommendation": "推奨"
   },
   "strategyNames": {
     "grid": "Grid Trading Strategy",
@@ -1979,7 +2020,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "設定変更プレビュー",
+    "oldConfig": "旧設定",
+    "newConfig": "新設定",
+    "added": "追加",
+    "removed": "削除",
+    "modified": "変更",
+    "confirmApply": "適用を確認"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "総スロット数",
+      "filled": "約定済み",
+      "fillRate": "約定率",
+      "priceRange": "価格範囲",
+      "priceInterval": "価格間隔",
+      "gridPriceRange": "グリッド価格範囲",
+      "lowestPrice": "最安値",
+      "priceSpan": "価格差",
+      "highestPrice": "最高値",
+      "slotStatusOverview": "スロット状態概要",
+      "statusFilled": "約定済み",
+      "statusLocked": "ロック済み",
+      "statusIdle": "待機中",
+      "quantity": "数量",
+      "showingSlots": "{{shown}} / {{total}} スロットを表示"
+    },
+    "trendFollowing": {
+      "currentPrice": "現在価格",
+      "fastLine": "短期線",
+      "slowLine": "長期線",
+      "trendDirection": "トレンド方向",
+      "trendUp": "上昇トレンド",
+      "trendDown": "下降トレンド",
+      "trendSideways": "レンジ相場",
+      "priceAndMA": "価格と移動平均",
+      "tradeSignals": "売買シグナル",
+      "goldenCross": "ゴールデンクロス",
+      "deathCross": "デッドクロス",
+      "yes": "はい",
+      "no": "いいえ",
+      "maDiff": "MA差",
+      "positionStatus": "ポジション状態",
+      "hasPosition": "ポジションあり",
+      "noPosition": "ポジションなし",
+      "entryPrice": "エントリー価格",
+      "currentPnL": "現在の損益",
+      "stopLoss": "ストップロス",
+      "takeProfit": "テイクプロフィット"
+    },
+    "dca": {
+      "firstOrderTP": "初回注文TP",
+      "totalTP": "合計TP",
+      "stopLoss": "ストップロス",
+      "currentPrice": "現在価格",
+      "avgCost": "平均コスト",
+      "atrValue": "ATR値",
+      "dynamicSpacing": "動的間隔",
+      "currentLayer": "現在のレイヤー",
+      "priceTrend": "価格トレンド",
+      "layeredPositions": "レイヤーポジション",
+      "layerN": "レイヤー {{n}}",
+      "quantity": "数量",
+      "cost": "コスト",
+      "pnl": "損益",
+      "decisionBasis": "判断根拠",
+      "nextBuyPoint": "次の買いポイント",
+      "cascadeProtectionActive": "カスケード保護有効",
+      "trendFilter": "トレンドフィルター",
+      "trendUp": "上昇トレンド",
+      "trendDown": "下降トレンド",
+      "trailingTPActive": "トレーリングTP有効",
+      "highestProfit": "最高利益"
+    },
+    "meanReversion": {
+      "currentPrice": "現在価格",
+      "upperBand": "上限バンド",
+      "middleBand": "中間バンド",
+      "lowerBand": "下限バンド",
+      "positionInBand": "バンド内位置",
+      "position": "位置",
+      "nearLower": "下限付近",
+      "nearUpper": "上限付近",
+      "middleZone": "中間ゾーン",
+      "priceAndBollinger": "価格とボリンジャーバンド",
+      "tradeSignals": "売買シグナル",
+      "buySignal": "買いシグナル",
+      "sellSignal": "売りシグナル",
+      "yes": "はい",
+      "no": "いいえ",
+      "touchesLower": "下限バンドに接触",
+      "touchesUpper": "上限バンドに接触",
+      "distanceToBuy": "買いまでの距離",
+      "distanceToSell": "売りまでの距離",
+      "positionStatus": "ポジション状態",
+      "hasPosition": "ポジションあり",
+      "noPosition": "ポジションなし",
+      "entryPrice": "エントリー価格",
+      "currentPnL": "現在の損益",
+      "period": "期間",
+      "stdMultiplier": "標準偏差倍率"
+    }
+  },
+  "security": {
+    "compromisedTitle": "セキュリティ警告",
+    "compromisedMessage": "パスワードが漏洩した可能性があります",
+    "compromisedDetails": "パスワードが既知の漏洩データベースで見つかりました。直ちに変更してください。",
+    "compromisedNote": "アカウントのセキュリティのため、早急にパスワードを変更してください。",
+    "compromisedAction": "今すぐパスワードを変更",
+    "passwordManagerError": "パスワードマネージャーエラー",
+    "passwordManagerErrorMessage": "パスワードマネージャーに接続できません。手動で入力してください。"
+  },
+  "aiPromptManager": {
+    "title": "AIプロンプト管理",
+    "systemPrompt": "システムプロンプト",
+    "systemPromptPlaceholder": "システムプロンプトを入力...",
+    "promptTemplate": "プロンプトテンプレート",
+    "templateHint": "{{variable}} を変数プレースホルダとして使用",
+    "autoLoadHint": "最新データを自動読み込み",
+    "edit": "編集",
+    "noData": "データなし",
+    "notSet": "未設定",
+    "fetchFailed": "データの取得に失敗",
+    "saveSuccess": "保存しました",
+    "saveFailed": "保存に失敗",
+    "refreshData": "データを更新"
+  },
+  "fundingRate": {
+    "title": "資金調達率",
+    "currentRates": "現在のレート",
+    "historyRates": "過去のレート",
+    "exchange": "取引所",
+    "tradingPair": "取引ペア",
+    "rate": "レート",
+    "time": "時刻",
+    "updateTime": "更新時刻",
+    "count": "回数",
+    "noData": "データなし",
+    "noHistoryData": "過去のデータなし",
+    "error": "レートの取得に失敗",
+    "fetchCurrentFailed": "現在のレート取得に失敗",
+    "fetchHistoryFailed": "過去のレート取得に失敗"
+  },
+  "positionsPage": {
+    "title": "現在のポジション",
+    "positionList": "ポジション一覧",
+    "noPositions": "ポジションなし",
+    "positionPrice": "ポジション価格",
+    "positionQuantity": "数量",
+    "positionValue": "ポジション価値",
+    "positionValueCol": "価値",
+    "positionSlots": "スロット数",
+    "averagePrice": "平均価格",
+    "currentMarketPrice": "現在の市場価格",
+    "unrealizedPnl": "未実現損益",
+    "leverage": "レバレッジ",
+    "actualMargin": "実際の証拠金",
+    "totalQuantity": "合計数量",
+    "totalValue": "合計価値"
+  },
+  "predictionAccuracy": {
+    "title": "予測精度",
+    "totalPredictions": "総予測数",
+    "correctCount": "正解数",
+    "accuracy": "精度",
+    "recentRecords": "最近の記録",
+    "noRecords": "記録なし",
+    "symbol": "銘柄",
+    "asset": "資産",
+    "gold": "金",
+    "predictionTime": "予測時刻",
+    "predictedDirection": "予測方向",
+    "actualDirection": "実際の方向",
+    "result": "結果",
+    "correct": "正解",
+    "incorrect": "不正解",
+    "period": "期間",
+    "timeWindow": "時間枠",
+    "last7d": "過去7日",
+    "last14d": "過去14日",
+    "last30d": "過去30日",
+    "all": "すべて",
+    "backToNewsAnalysis": "ニュース分析に戻る"
+  },
+  "slotsPage": {
+    "title": "スロット詳細",
+    "filter": "フィルター",
+    "filterLocked": "ロック済みのみ表示",
+    "sortBy": "並び替え",
+    "sortByPrice": "価格順",
+    "sortByStatus": "状態順",
+    "noMatchingSlots": "一致するスロットがありません",
+    "price": "価格",
+    "slotStatus": "スロット状態",
+    "positionStatus": "ポジション状態",
+    "slotFree": "空き",
+    "slotLocked": "ロック済み",
+    "slotPending": "注文中",
+    "positionFilled": "約定済み",
+    "positionEmpty": "空",
+    "positionQty": "ポジション数量",
+    "orderId": "注文ID",
+    "orderPrice": "注文価格",
+    "orderSide": "売買",
+    "orderStatus": "注文状態"
+  },
+  "newbieCheckModal": {
+    "title": "初心者リスクチェック",
+    "scanning": "スキャン中...",
+    "overallScore": "総合スコア",
+    "score": "スコア",
+    "detailedResults": "詳細結果",
+    "advice": "アドバイス",
+    "applySecurity": "セキュリティ提案を適用",
+    "applying": "適用中...",
+    "applyFailed": "適用に失敗",
+    "configUpdated": "設定を更新しました",
+    "fetchFailed": "レポートの取得に失敗",
+    "noReport": "レポートなし",
+    "unknownError": "不明なエラー"
+  },
+  "nav": {
+    "dashboard": "ダッシュボード",
+    "positions": "ポジション",
+    "settings": "設定",
+    "statistics": "統計"
   }
 }

@@ -15,7 +15,12 @@
     "allExchanges": "সমস্ত এক্সচেঞ্জ",
     "actions": "ক্রিয়া",
     "error": "ত্রুটি",
-    "all": "All"
+    "all": "All",
+    "connectionError": "Connection Error",
+    "connectionErrorDesc": "Unable to connect to server. Please check your network.",
+    "unknownError": "Unknown Error",
+    "loadFailed": "Load Failed",
+    "success": "Success"
   },
   "sidebar": {
     "overview": "সংক্ষিপ্ত বিবরণ",
@@ -312,7 +317,8 @@
     "sellPriceDeviationDescNone": "No deviation",
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescGain": "Total gain from price deviation",
-    "totalDeviationDescNone": "No deviation"
+    "totalDeviationDescNone": "No deviation",
+    "strategyVisualization": "Strategy Visualization"
   },
   "login": {
     "title": "লগইন",
@@ -923,7 +929,13 @@
       "noPerformanceData": "No historical performance data",
       "volatility": "Volatility",
       "noRiskData": "No risk data available"
-    }
+    },
+    "cannotFetchDetail": "Cannot fetch details",
+    "checkConnection": "Please check your connection",
+    "disableFailed": "Disable failed",
+    "enableFailed": "Enable failed",
+    "fetchDetailFailed": "Failed to fetch details",
+    "fetchError": "Failed to fetch strategy list"
   },
   "capitalManagement": {
     "title": "Capital Management",
@@ -1078,10 +1090,20 @@
     "fundingNet": "Funding Net",
     "fundingDetail": "Funding History",
     "noFundingHistory": "No funding payment records",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "দ্রুত আমদানি",
+    "conservativeRule": "রক্ষণশীল নিয়ম (100 USDT-এ 50%)",
+    "aggressiveRule": "আক্রমণাত্মক নিয়ম (200 USDT-এ 30%)",
+    "importBothPresets": "উভয় প্রিসেট আমদানি করুন",
+    "importedConservative": "রক্ষণশীল নিয়ম আমদানি হয়েছে",
+    "importedAggressive": "আক্রমণাত্মক নিয়ম আমদানি হয়েছে",
+    "importedConservativeDesc": "মুনাফা 100 USDT হলে 50% উত্তোলন",
+    "importedAggressiveDesc": "মুনাফা 200 USDT হলে 30% উত্তোলন",
+    "importedBothPresets": "উভয় প্রিসেট আমদানি হয়েছে",
+    "importedBothPresetsDesc": "রক্ষণশীল ও আক্রমণাত্মক নিয়ম আমদানি হয়েছে",
+    "exchangeLabel": "এক্সচেঞ্জ",
+    "selectExchange": "এক্সচেঞ্জ নির্বাচন করুন"
   },
   "positionPlan": {
     "title": "Position Plan",
@@ -1132,8 +1154,10 @@
   "connection": {
     "offlineTitle": "ইন্টারনেট সংযোগ বিচ্ছিন্ন",
     "offlineDesc": "ইন্টারনেট সংযোগ পরীক্ষা করুন।",
+    "offlineShort": "নেটওয়ার্ক অফলাইন",
     "backendDisconnectedTitle": "ব্যাকএন্ড সংযোগ ব্যর্থ",
-    "backendDisconnectedDesc": "ব্যাকএন্ড চলছে কিনা নিশ্চিত করুন (localhost:28888)।"
+    "backendDisconnectedDesc": "ব্যাকএন্ড চলছে কিনা নিশ্চিত করুন (localhost:28888)।",
+    "backendDisconnectedShort": "ব্যাকএন্ড বিচ্ছিন্ন"
   },
   "pwa": {
     "serviceWorkerRegistered": "Service Worker registered successfully",
@@ -1155,7 +1179,12 @@
     "noReport": "Failed to generate report, please retry.",
     "importantNotice": "Important Notice",
     "leverageNotice": "The system will only modify the leverage settings in the configuration file. To actually adjust the leverage on your exchange account, please manually modify it on each exchange website. After the configuration is modified, the system will use the new leverage limit for risk checks, but you need to manually adjust the actual leverage on your exchange account.",
-    "applySuccessNotice": "Note: The system only modified the configuration file. You need to manually adjust the actual leverage on each exchange website."
+    "applySuccessNotice": "Note: The system only modified the configuration file. You need to manually adjust the actual leverage on each exchange website.",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "refreshing": "Refreshing...",
+    "unknownError": "Unknown error"
   },
   "symbolSelector": {
     "globalOverview": "Global Overview",
@@ -1198,7 +1227,9 @@
     "days": "days",
     "hours": "hours",
     "minutes": "minutes",
-    "seconds": "seconds"
+    "seconds": "seconds",
+    "currentFilter": "Current Filter",
+    "viewAllEvents": "View All Events"
   },
   "systemMonitor": {
     "title": "System Monitor",
@@ -1657,7 +1688,11 @@
   "yamlEditor": {
     "tabIndentError": "Line {{line}}: YAML does not allow Tab indentation, use spaces",
     "colonSpaceError": "Line {{line}}: Space required after colon",
-    "unknownError": "Unknown error"
+    "unknownError": "Unknown error",
+    "readOnly": "Read Only",
+    "syntaxCorrect": "Syntax Correct",
+    "syntaxError": "Syntax Error",
+    "unsavedChanges": "Unsaved Changes"
   },
   "newsAnalysis": {
     "historyTitle": "News Analysis History",
@@ -1699,7 +1734,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "Action",
+    "details": "Details",
+    "nextPage": "Next Page",
+    "prevPage": "Previous Page",
+    "price": "Price",
+    "recommendation": "Recommendation"
   },
   "strategyNames": {
     "grid": "Grid Trading Strategy",
@@ -1979,7 +2020,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "Config Change Preview",
+    "oldConfig": "Old Config",
+    "newConfig": "New Config",
+    "added": "Added",
+    "removed": "Removed",
+    "modified": "Modified",
+    "confirmApply": "Confirm Apply"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "Total Slots",
+      "filled": "Filled",
+      "fillRate": "Fill Rate",
+      "priceRange": "Price Range",
+      "priceInterval": "Price Interval",
+      "gridPriceRange": "Grid Price Range",
+      "lowestPrice": "Lowest Price",
+      "priceSpan": "Price Span",
+      "highestPrice": "Highest Price",
+      "slotStatusOverview": "Slot Status Overview",
+      "statusFilled": "Filled",
+      "statusLocked": "Locked",
+      "statusIdle": "Idle",
+      "quantity": "Quantity",
+      "showingSlots": "Showing {{shown}} of {{total}} slots"
+    },
+    "trendFollowing": {
+      "currentPrice": "Current Price",
+      "fastLine": "Fast Line",
+      "slowLine": "Slow Line",
+      "trendDirection": "Trend Direction",
+      "trendUp": "Uptrend",
+      "trendDown": "Downtrend",
+      "trendSideways": "Sideways",
+      "priceAndMA": "Price & Moving Averages",
+      "tradeSignals": "Trade Signals",
+      "goldenCross": "Golden Cross",
+      "deathCross": "Death Cross",
+      "yes": "Yes",
+      "no": "No",
+      "maDiff": "MA Difference",
+      "positionStatus": "Position Status",
+      "hasPosition": "Has Position",
+      "noPosition": "No Position",
+      "entryPrice": "Entry Price",
+      "currentPnL": "Current P&L",
+      "stopLoss": "Stop Loss",
+      "takeProfit": "Take Profit"
+    },
+    "dca": {
+      "firstOrderTP": "First Order TP",
+      "totalTP": "Total TP",
+      "stopLoss": "Stop Loss",
+      "currentPrice": "Current Price",
+      "avgCost": "Avg Cost",
+      "atrValue": "ATR Value",
+      "dynamicSpacing": "Dynamic Spacing",
+      "currentLayer": "Current Layer",
+      "priceTrend": "Price Trend",
+      "layeredPositions": "Layered Positions",
+      "layerN": "Layer {{n}}",
+      "quantity": "Quantity",
+      "cost": "Cost",
+      "pnl": "P&L",
+      "decisionBasis": "Decision Basis",
+      "nextBuyPoint": "Next Buy Point",
+      "cascadeProtectionActive": "Cascade Protection Active",
+      "trendFilter": "Trend Filter",
+      "trendUp": "Uptrend",
+      "trendDown": "Downtrend",
+      "trailingTPActive": "Trailing TP Active",
+      "highestProfit": "Highest Profit"
+    },
+    "meanReversion": {
+      "currentPrice": "Current Price",
+      "upperBand": "Upper Band",
+      "middleBand": "Middle Band",
+      "lowerBand": "Lower Band",
+      "positionInBand": "Position in Band",
+      "position": "Position",
+      "nearLower": "Near Lower",
+      "nearUpper": "Near Upper",
+      "middleZone": "Middle Zone",
+      "priceAndBollinger": "Price & Bollinger Bands",
+      "tradeSignals": "Trade Signals",
+      "buySignal": "Buy Signal",
+      "sellSignal": "Sell Signal",
+      "yes": "Yes",
+      "no": "No",
+      "touchesLower": "Touches Lower Band",
+      "touchesUpper": "Touches Upper Band",
+      "distanceToBuy": "Distance to Buy",
+      "distanceToSell": "Distance to Sell",
+      "positionStatus": "Position Status",
+      "hasPosition": "Has Position",
+      "noPosition": "No Position",
+      "entryPrice": "Entry Price",
+      "currentPnL": "Current P&L",
+      "period": "Period",
+      "stdMultiplier": "Std Multiplier"
+    }
+  },
+  "security": {
+    "compromisedTitle": "Security Warning",
+    "compromisedMessage": "Your password may have been compromised",
+    "compromisedDetails": "Your password was found in a known data breach database. Please change it immediately.",
+    "compromisedNote": "For your account security, please change your password as soon as possible.",
+    "compromisedAction": "Change Password Now",
+    "passwordManagerError": "Password Manager Error",
+    "passwordManagerErrorMessage": "Unable to connect to password manager. Please enter your password manually."
+  },
+  "aiPromptManager": {
+    "title": "AI Prompt Manager",
+    "systemPrompt": "System Prompt",
+    "systemPromptPlaceholder": "Enter system prompt...",
+    "promptTemplate": "Prompt Template",
+    "templateHint": "Use {{variable}} as variable placeholders",
+    "autoLoadHint": "Auto-load latest data",
+    "edit": "Edit",
+    "noData": "No data",
+    "notSet": "Not set",
+    "fetchFailed": "Failed to fetch data",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed",
+    "refreshData": "Refresh Data"
+  },
+  "fundingRate": {
+    "title": "Funding Rate",
+    "currentRates": "Current Rates",
+    "historyRates": "History Rates",
+    "exchange": "Exchange",
+    "tradingPair": "Trading Pair",
+    "rate": "Rate",
+    "time": "Time",
+    "updateTime": "Update Time",
+    "count": "Count",
+    "noData": "No data",
+    "noHistoryData": "No history data",
+    "error": "Failed to fetch rates",
+    "fetchCurrentFailed": "Failed to fetch current rates",
+    "fetchHistoryFailed": "Failed to fetch history rates"
+  },
+  "positionsPage": {
+    "title": "বর্তমান পজিশন",
+    "positionList": "পজিশন তালিকা",
+    "noPositions": "কোনো পজিশন নেই",
+    "positionPrice": "পজিশনের মূল্য",
+    "positionQuantity": "পজিশনের পরিমাণ",
+    "positionValue": "পজিশনের মূল্য",
+    "positionValueCol": "মূল্য",
+    "positionSlots": "স্লট সংখ্যা",
+    "averagePrice": "গড় মূল্য",
+    "currentMarketPrice": "বর্তমান বাজার মূল্য",
+    "unrealizedPnl": "অবাস্তব লাভ/ক্ষতি",
+    "leverage": "লিভারেজ",
+    "actualMargin": "প্রকৃত মার্জিন",
+    "totalQuantity": "মোট পরিমাণ",
+    "totalValue": "মোট মূল্য"
+  },
+  "predictionAccuracy": {
+    "title": "Prediction Accuracy",
+    "totalPredictions": "Total Predictions",
+    "correctCount": "Correct Count",
+    "accuracy": "Accuracy",
+    "recentRecords": "Recent Records",
+    "noRecords": "No records",
+    "symbol": "Symbol",
+    "asset": "Asset",
+    "gold": "Gold",
+    "predictionTime": "Prediction Time",
+    "predictedDirection": "Predicted Direction",
+    "actualDirection": "Actual Direction",
+    "result": "Result",
+    "correct": "Correct",
+    "incorrect": "Incorrect",
+    "period": "Period",
+    "timeWindow": "Time Window",
+    "last7d": "Last 7 Days",
+    "last14d": "Last 14 Days",
+    "last30d": "Last 30 Days",
+    "all": "All",
+    "backToNewsAnalysis": "Back to News Analysis"
+  },
+  "slotsPage": {
+    "title": "Slot Details",
+    "filter": "Filter",
+    "filterLocked": "Show Locked Only",
+    "sortBy": "Sort By",
+    "sortByPrice": "Sort by Price",
+    "sortByStatus": "Sort by Status",
+    "noMatchingSlots": "No matching slots",
+    "price": "Price",
+    "slotStatus": "Slot Status",
+    "positionStatus": "Position Status",
+    "slotFree": "Free",
+    "slotLocked": "Locked",
+    "slotPending": "Pending",
+    "positionFilled": "Filled",
+    "positionEmpty": "Empty",
+    "positionQty": "Position Qty",
+    "orderId": "Order ID",
+    "orderPrice": "Order Price",
+    "orderSide": "Side",
+    "orderStatus": "Order Status"
+  },
+  "newbieCheckModal": {
+    "title": "Newbie Risk Check",
+    "scanning": "Scanning...",
+    "overallScore": "Overall Score",
+    "score": "Score",
+    "detailedResults": "Detailed Results",
+    "advice": "Advice",
+    "applySecurity": "Apply Security Suggestions",
+    "applying": "Applying...",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "noReport": "No report available",
+    "unknownError": "Unknown error"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "positions": "Positions",
+    "settings": "Settings",
+    "statistics": "Statistics"
   }
 }

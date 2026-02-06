@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { 
   ChakraProvider, 
@@ -24,58 +24,68 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
 import { lightTheme } from './theme'
-import Dashboard from './components/Dashboard'
-import GlobalDashboard from './components/GlobalDashboard'
+// 布局组件 - 每个页面都需要，保持静态导入
 import SymbolSelector from './components/SymbolSelector'
 import StatusBar from './components/StatusBar'
-import Positions from './components/Positions'
-import Orders from './components/Orders'
-import Statistics from './components/Statistics'
-import SystemMonitor from './components/SystemMonitor'
-import Logs from './components/Logs'
-import Slots from './components/Slots'
-import StrategyAllocation from './components/StrategyAllocation'
-import Reconciliation from './components/Reconciliation'
-import RiskMonitor from './components/RiskMonitor'
-import NewsAnalysis from './components/NewsAnalysis'
-import NewsAnalysisHistory from './components/NewsAnalysisHistory'
-import PredictionAccuracy from './components/PredictionAccuracy'
-import Profile from './components/Profile'
-import Login from './components/Login'
-import TermsPage from './components/TermsPage'
-import PrivacyPage from './components/PrivacyPage'
-import FirstTimeSetup from './components/FirstTimeSetup'
-import FirstTimeWizard from './components/FirstTimeWizard'
-import ConfigSetup from './components/ConfigSetup'
-import KlineChart from './components/KlineChart'
-import { checkSetupStatus } from './services/setup'
-import Configuration from './components/Configuration'
-import FundingRate from './components/FundingRate'
-import BasisMonitor from './components/BasisMonitor'
-import MarketIntelligence from './components/MarketIntelligence'
-import AIAnalysis from './components/AIAnalysis'
-import AIPromptManager from './components/AIPromptManager'
-import AIConfigPage from './components/AIConfigPage'
-import EventCenter from './components/EventCenter'
-import AITaskManager from './components/AITaskManager'
-import StrategyMarket from './components/StrategyMarket'
-import CapitalManagement from './components/CapitalManagement'
-import ProfitManagement from './components/ProfitManagement'
-import PositionPlan from './components/PositionPlan'
-import NewbieRiskCheck from './components/NewbieRiskCheck'
-import BacktestMenu from './components/BacktestMenu'
-import ServiceStatusPage from './components/ServiceStatusPage'
-import DataExport from './components/DataExport'
-import KlineFilesManager from './components/KlineFilesManager'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
 import LanguageSelector from './components/LanguageSelector'
 import ConnectionStatusBanner from './components/ConnectionStatusBanner'
+import { checkSetupStatus } from './services/setup'
 import { logout } from './services/auth'
 import { useTranslation } from 'react-i18next'
 import { useResponsive } from './hooks/useResponsive'
 import './App.css'
+
+// ─── 路由级组件 — React.lazy 懒加载，按需拆分 chunk ───
+const Dashboard = lazy(() => import('./components/Dashboard'))
+const GlobalDashboard = lazy(() => import('./components/GlobalDashboard'))
+const Positions = lazy(() => import('./components/Positions'))
+const Orders = lazy(() => import('./components/Orders'))
+const Statistics = lazy(() => import('./components/Statistics'))
+const SystemMonitor = lazy(() => import('./components/SystemMonitor'))
+const Logs = lazy(() => import('./components/Logs'))
+const Slots = lazy(() => import('./components/Slots'))
+const StrategyAllocation = lazy(() => import('./components/StrategyAllocation'))
+const Reconciliation = lazy(() => import('./components/Reconciliation'))
+const RiskMonitor = lazy(() => import('./components/RiskMonitor'))
+const NewsAnalysis = lazy(() => import('./components/NewsAnalysis'))
+const NewsAnalysisHistory = lazy(() => import('./components/NewsAnalysisHistory'))
+const PredictionAccuracy = lazy(() => import('./components/PredictionAccuracy'))
+const Profile = lazy(() => import('./components/Profile'))
+const Login = lazy(() => import('./components/Login'))
+const TermsPage = lazy(() => import('./components/TermsPage'))
+const PrivacyPage = lazy(() => import('./components/PrivacyPage'))
+const FirstTimeSetup = lazy(() => import('./components/FirstTimeSetup'))
+const FirstTimeWizard = lazy(() => import('./components/FirstTimeWizard'))
+const ConfigSetup = lazy(() => import('./components/ConfigSetup'))
+const KlineChart = lazy(() => import('./components/KlineChart'))
+const Configuration = lazy(() => import('./components/Configuration'))
+const FundingRate = lazy(() => import('./components/FundingRate'))
+const BasisMonitor = lazy(() => import('./components/BasisMonitor'))
+const MarketIntelligence = lazy(() => import('./components/MarketIntelligence'))
+const AIAnalysis = lazy(() => import('./components/AIAnalysis'))
+const AIPromptManager = lazy(() => import('./components/AIPromptManager'))
+const AIConfigPage = lazy(() => import('./components/AIConfigPage'))
+const EventCenter = lazy(() => import('./components/EventCenter'))
+const AITaskManager = lazy(() => import('./components/AITaskManager'))
+const StrategyMarket = lazy(() => import('./components/StrategyMarket'))
+const CapitalManagement = lazy(() => import('./components/CapitalManagement'))
+const ProfitManagement = lazy(() => import('./components/ProfitManagement'))
+const PositionPlan = lazy(() => import('./components/PositionPlan'))
+const NewbieRiskCheck = lazy(() => import('./components/NewbieRiskCheck'))
+const BacktestMenu = lazy(() => import('./components/BacktestMenu'))
+const ServiceStatusPage = lazy(() => import('./components/ServiceStatusPage'))
+const DataExport = lazy(() => import('./components/DataExport'))
+const KlineFilesManager = lazy(() => import('./components/KlineFilesManager'))
+
+// 懒加载 fallback
+const LazyFallback = () => (
+  <Center h="200px">
+    <Spinner size="lg" thickness="3px" color="blue.500" />
+  </Center>
+)
 
 const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation()
@@ -268,10 +278,12 @@ const AppContent: React.FC = () => {
   if (needsConfig) {
     return (
       <Box bg="gray.50" minH="100vh">
-        <Routes>
-          <Route path="/config-setup" element={<ConfigSetup />} />
-          <Route path="*" element={<Navigate to="/config-setup" replace />} />
-        </Routes>
+        <Suspense fallback={<LazyFallback />}>
+          <Routes>
+            <Route path="/config-setup" element={<ConfigSetup />} />
+            <Route path="*" element={<Navigate to="/config-setup" replace />} />
+          </Routes>
+        </Suspense>
       </Box>
     )
   }
@@ -282,10 +294,12 @@ const AppContent: React.FC = () => {
   if (!hasPassword || isInSetupFlow) {
     return (
       <Box bg="gray.50" minH="100vh">
-        <Routes>
-          <Route path="/setup" element={<FirstTimeSetup />} />
-          <Route path="*" element={<Navigate to="/setup" replace />} />
-        </Routes>
+        <Suspense fallback={<LazyFallback />}>
+          <Routes>
+            <Route path="/setup" element={<FirstTimeSetup />} />
+            <Route path="*" element={<Navigate to="/setup" replace />} />
+          </Routes>
+        </Suspense>
       </Box>
     )
   }
@@ -297,10 +311,12 @@ const AppContent: React.FC = () => {
   if (isAuthenticated && location.pathname === '/wizard') {
     return (
       <Box bg="gray.50" minH="100vh">
-        <Routes>
-          <Route path="/wizard" element={<FirstTimeWizard />} />
-          <Route path="*" element={<Navigate to="/wizard" replace />} />
-        </Routes>
+        <Suspense fallback={<LazyFallback />}>
+          <Routes>
+            <Route path="/wizard" element={<FirstTimeWizard />} />
+            <Route path="*" element={<Navigate to="/wizard" replace />} />
+          </Routes>
+        </Suspense>
       </Box>
     )
   }
@@ -331,12 +347,14 @@ const AppContent: React.FC = () => {
   if (!isAuthenticated) {
     return (
       <Box bg="gray.50" minH="100vh">
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/terms" element={<TermsPage />} />
-          <Route path="/privacy" element={<PrivacyPage />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
+        <Suspense fallback={<LazyFallback />}>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </Suspense>
       </Box>
     )
   }
@@ -442,6 +460,7 @@ const AppContent: React.FC = () => {
           />
 
           <Container maxW={isGlobalView ? "full" : "container.xl"} px={{ base: 4, md: 8 }} py={{ base: 6, md: 8 }}>
+            <Suspense fallback={<LazyFallback />}>
             <AnimatePresence mode="wait">
               <Routes>
                 <Route path="/" element={
@@ -488,6 +507,7 @@ const AppContent: React.FC = () => {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AnimatePresence>
+            </Suspense>
           </Container>
           {!isMobile && <Footer />}
         </Box>

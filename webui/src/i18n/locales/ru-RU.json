@@ -15,7 +15,12 @@
     "all": "All",
     "allExchanges": "全部交易所",
     "error": "错误",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "connectionError": "Connection Error",
+    "connectionErrorDesc": "Unable to connect to server. Please check your network.",
+    "unknownError": "Unknown Error",
+    "loadFailed": "Load Failed",
+    "success": "Success"
   },
   "sidebar": {
     "overview": "Обзор",
@@ -138,7 +143,8 @@
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
-    "used": "Used"
+    "used": "Used",
+    "strategyVisualization": "Визуализация стратегии"
   },
   "login": {
     "title": "Вход",
@@ -749,7 +755,13 @@
       "noPerformanceData": "Нет исторических данных о производительности",
       "volatility": "Волатильность",
       "noRiskData": "Нет данных о рисках"
-    }
+    },
+    "cannotFetchDetail": "Cannot fetch details",
+    "checkConnection": "Please check your connection",
+    "disableFailed": "Disable failed",
+    "enableFailed": "Enable failed",
+    "fetchDetailFailed": "Failed to fetch details",
+    "fetchError": "Failed to fetch strategy list"
   },
   "capitalManagement": {
     "title": "Управление капиталом",
@@ -904,10 +916,20 @@
     "fundingNet": "Чистый фандинг",
     "fundingDetail": "Детали фандинга",
     "noFundingHistory": "Нет записей о фандинге",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "Быстрый импорт",
+    "conservativeRule": "Консервативное правило (50% при 100 USDT)",
+    "aggressiveRule": "Агрессивное правило (30% при 200 USDT)",
+    "importBothPresets": "Импортировать оба шаблона",
+    "importedConservative": "Консервативное правило импортировано",
+    "importedAggressive": "Агрессивное правило импортировано",
+    "importedConservativeDesc": "Вывод 50% при достижении прибыли 100 USDT",
+    "importedAggressiveDesc": "Вывод 30% при достижении прибыли 200 USDT",
+    "importedBothPresets": "Оба шаблона импортированы",
+    "importedBothPresetsDesc": "Консервативное и агрессивное правила импортированы",
+    "exchangeLabel": "Биржа",
+    "selectExchange": "Выбрать биржу"
   },
   "positionPlan": {
     "title": "План позиции",
@@ -958,8 +980,10 @@
   "connection": {
     "offlineTitle": "Интернет отсутствует",
     "offlineDesc": "Вы сейчас не в сети. Пожалуйста, проверьте ваше интернет-соединение.",
+    "offlineShort": "Сеть оффлайн",
     "backendDisconnectedTitle": "Ошибка подключения к серверу",
-    "backendDisconnectedDesc": "Невозможно подключиться к серверной службе. Убедитесь, что серверная программа запущена (localhost:28888)."
+    "backendDisconnectedDesc": "Невозможно подключиться к серверной службе. Убедитесь, что серверная программа запущена (localhost:28888).",
+    "backendDisconnectedShort": "Сервер отключён"
   },
   "pwa": {
     "serviceWorkerRegistered": "Service Worker успешно зарегистрирован",
@@ -981,7 +1005,12 @@
     "noReport": "Не удалось создать отчет, повторите попытку.",
     "importantNotice": "Важное уведомление",
     "leverageNotice": "Система будет изменять только настройки кредитного плеча в файле конфигурации. Чтобы фактически настроить кредитное плечо в своей учетной записи на бирже, измените его вручную на веб-сайте каждой биржи. После изменения конфигурации система будет использовать новый лимит кредитного плеча для проверки рисков, но вам необходимо вручную настроить фактическое кредитное плечо в своей учетной записи на бирже.",
-    "applySuccessNotice": "Примечание: система изменила только файл конфигурации. Вам необходимо вручную настроить фактическое кредитное плечо на веб-сайте каждой биржи."
+    "applySuccessNotice": "Примечание: система изменила только файл конфигурации. Вам необходимо вручную настроить фактическое кредитное плечо на веб-сайте каждой биржи.",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "refreshing": "Refreshing...",
+    "unknownError": "Unknown error"
   },
   "symbolSelector": {
     "globalOverview": "Глобальный Обзор",
@@ -1024,7 +1053,9 @@
     "days": "дней",
     "hours": "часов",
     "minutes": "минут",
-    "seconds": "секунд"
+    "seconds": "секунд",
+    "currentFilter": "Current Filter",
+    "viewAllEvents": "View All Events"
   },
   "systemMonitor": {
     "title": "Системный монитор",
@@ -1483,7 +1514,11 @@
   "yamlEditor": {
     "tabIndentError": "Строка {{line}}: YAML не допускает отступы табуляцией, используйте пробелы",
     "colonSpaceError": "Строка {{line}}: Требуется пробел после двоеточия",
-    "unknownError": "Неизвестная ошибка"
+    "unknownError": "Неизвестная ошибка",
+    "readOnly": "Read Only",
+    "syntaxCorrect": "Syntax Correct",
+    "syntaxError": "Syntax Error",
+    "unsavedChanges": "Unsaved Changes"
   },
   "newsAnalysis": {
     "historyTitle": "История анализа новостей",
@@ -1525,7 +1560,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "Action",
+    "details": "Details",
+    "nextPage": "Next Page",
+    "prevPage": "Previous Page",
+    "price": "Price",
+    "recommendation": "Recommendation"
   },
   "strategyNames": {
     "grid": "Стратегия сеточной торговли",
@@ -1971,7 +2012,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "Config Change Preview",
+    "oldConfig": "Old Config",
+    "newConfig": "New Config",
+    "added": "Added",
+    "removed": "Removed",
+    "modified": "Modified",
+    "confirmApply": "Confirm Apply"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "Всего слотов",
+      "filled": "Заполнено",
+      "fillRate": "Коэффициент заполнения",
+      "priceRange": "Ценовой диапазон",
+      "priceInterval": "Ценовой интервал",
+      "gridPriceRange": "Ценовой диапазон сетки",
+      "lowestPrice": "Минимальная цена",
+      "priceSpan": "Ценовой спред",
+      "highestPrice": "Максимальная цена",
+      "slotStatusOverview": "Обзор статуса слотов",
+      "statusFilled": "Заполнен",
+      "statusLocked": "Заблокирован",
+      "statusIdle": "Ожидание",
+      "quantity": "Количество",
+      "showingSlots": "Показано {{shown}} из {{total}} слотов"
+    },
+    "trendFollowing": {
+      "currentPrice": "Текущая цена",
+      "fastLine": "Быстрая линия",
+      "slowLine": "Медленная линия",
+      "trendDirection": "Направление тренда",
+      "trendUp": "Восходящий тренд",
+      "trendDown": "Нисходящий тренд",
+      "trendSideways": "Боковой",
+      "priceAndMA": "Цена и скользящие средние",
+      "tradeSignals": "Торговые сигналы",
+      "goldenCross": "Золотой крест",
+      "deathCross": "Мёртвый крест",
+      "yes": "Да",
+      "no": "Нет",
+      "maDiff": "Разница MA",
+      "positionStatus": "Статус позиции",
+      "hasPosition": "Есть позиция",
+      "noPosition": "Нет позиции",
+      "entryPrice": "Цена входа",
+      "currentPnL": "Текущая прибыль/убыток",
+      "stopLoss": "Стоп-лосс",
+      "takeProfit": "Тейк-профит"
+    },
+    "dca": {
+      "firstOrderTP": "TP первого ордера",
+      "totalTP": "Общий TP",
+      "stopLoss": "Стоп-лосс",
+      "currentPrice": "Текущая цена",
+      "avgCost": "Средняя стоимость",
+      "atrValue": "Значение ATR",
+      "dynamicSpacing": "Динамический интервал",
+      "currentLayer": "Текущий уровень",
+      "priceTrend": "Ценовой тренд",
+      "layeredPositions": "Многоуровневые позиции",
+      "layerN": "Уровень {{n}}",
+      "quantity": "Количество",
+      "cost": "Стоимость",
+      "pnl": "Прибыль/убыток",
+      "decisionBasis": "Основание решения",
+      "nextBuyPoint": "Следующая точка покупки",
+      "cascadeProtectionActive": "Каскадная защита активна",
+      "trendFilter": "Фильтр тренда",
+      "trendUp": "Восходящий тренд",
+      "trendDown": "Нисходящий тренд",
+      "trailingTPActive": "Трейлинг TP активен",
+      "highestProfit": "Максимальная прибыль"
+    },
+    "meanReversion": {
+      "currentPrice": "Текущая цена",
+      "upperBand": "Верхняя полоса",
+      "middleBand": "Средняя полоса",
+      "lowerBand": "Нижняя полоса",
+      "positionInBand": "Позиция в полосе",
+      "position": "Позиция",
+      "nearLower": "Около нижней",
+      "nearUpper": "Около верхней",
+      "middleZone": "Средняя зона",
+      "priceAndBollinger": "Цена и полосы Боллинджера",
+      "tradeSignals": "Торговые сигналы",
+      "buySignal": "Сигнал покупки",
+      "sellSignal": "Сигнал продажи",
+      "yes": "Да",
+      "no": "Нет",
+      "touchesLower": "Касается нижней полосы",
+      "touchesUpper": "Касается верхней полосы",
+      "distanceToBuy": "Расстояние до покупки",
+      "distanceToSell": "Расстояние до продажи",
+      "positionStatus": "Статус позиции",
+      "hasPosition": "Есть позиция",
+      "noPosition": "Нет позиции",
+      "entryPrice": "Цена входа",
+      "currentPnL": "Текущая прибыль/убыток",
+      "period": "Период",
+      "stdMultiplier": "Множитель стд. отклонения"
+    }
+  },
+  "security": {
+    "compromisedTitle": "Security Warning",
+    "compromisedMessage": "Your password may have been compromised",
+    "compromisedDetails": "Your password was found in a known data breach database. Please change it immediately.",
+    "compromisedNote": "For your account security, please change your password as soon as possible.",
+    "compromisedAction": "Change Password Now",
+    "passwordManagerError": "Password Manager Error",
+    "passwordManagerErrorMessage": "Unable to connect to password manager. Please enter your password manually."
+  },
+  "aiPromptManager": {
+    "title": "AI Prompt Manager",
+    "systemPrompt": "System Prompt",
+    "systemPromptPlaceholder": "Enter system prompt...",
+    "promptTemplate": "Prompt Template",
+    "templateHint": "Use {{variable}} as variable placeholders",
+    "autoLoadHint": "Auto-load latest data",
+    "edit": "Edit",
+    "noData": "No data",
+    "notSet": "Not set",
+    "fetchFailed": "Failed to fetch data",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed",
+    "refreshData": "Refresh Data"
+  },
+  "fundingRate": {
+    "title": "Funding Rate",
+    "currentRates": "Current Rates",
+    "historyRates": "History Rates",
+    "exchange": "Exchange",
+    "tradingPair": "Trading Pair",
+    "rate": "Rate",
+    "time": "Time",
+    "updateTime": "Update Time",
+    "count": "Count",
+    "noData": "No data",
+    "noHistoryData": "No history data",
+    "error": "Failed to fetch rates",
+    "fetchCurrentFailed": "Failed to fetch current rates",
+    "fetchHistoryFailed": "Failed to fetch history rates"
+  },
+  "positionsPage": {
+    "title": "Текущие позиции",
+    "positionList": "Список позиций",
+    "noPositions": "Нет позиций",
+    "positionPrice": "Цена позиции",
+    "positionQuantity": "Количество",
+    "positionValue": "Стоимость позиции",
+    "positionValueCol": "Стоимость",
+    "positionSlots": "Слоты",
+    "averagePrice": "Средняя цена",
+    "currentMarketPrice": "Текущая рыночная цена",
+    "unrealizedPnl": "Нереализованная прибыль/убыток",
+    "leverage": "Кредитное плечо",
+    "actualMargin": "Фактическая маржа",
+    "totalQuantity": "Общее количество",
+    "totalValue": "Общая стоимость"
+  },
+  "predictionAccuracy": {
+    "title": "Prediction Accuracy",
+    "totalPredictions": "Total Predictions",
+    "correctCount": "Correct Count",
+    "accuracy": "Accuracy",
+    "recentRecords": "Recent Records",
+    "noRecords": "No records",
+    "symbol": "Symbol",
+    "asset": "Asset",
+    "gold": "Gold",
+    "predictionTime": "Prediction Time",
+    "predictedDirection": "Predicted Direction",
+    "actualDirection": "Actual Direction",
+    "result": "Result",
+    "correct": "Correct",
+    "incorrect": "Incorrect",
+    "period": "Period",
+    "timeWindow": "Time Window",
+    "last7d": "Last 7 Days",
+    "last14d": "Last 14 Days",
+    "last30d": "Last 30 Days",
+    "all": "All",
+    "backToNewsAnalysis": "Back to News Analysis"
+  },
+  "slotsPage": {
+    "title": "Slot Details",
+    "filter": "Filter",
+    "filterLocked": "Show Locked Only",
+    "sortBy": "Sort By",
+    "sortByPrice": "Sort by Price",
+    "sortByStatus": "Sort by Status",
+    "noMatchingSlots": "No matching slots",
+    "price": "Price",
+    "slotStatus": "Slot Status",
+    "positionStatus": "Position Status",
+    "slotFree": "Free",
+    "slotLocked": "Locked",
+    "slotPending": "Pending",
+    "positionFilled": "Filled",
+    "positionEmpty": "Empty",
+    "positionQty": "Position Qty",
+    "orderId": "Order ID",
+    "orderPrice": "Order Price",
+    "orderSide": "Side",
+    "orderStatus": "Order Status"
+  },
+  "newbieCheckModal": {
+    "title": "Newbie Risk Check",
+    "scanning": "Scanning...",
+    "overallScore": "Overall Score",
+    "score": "Score",
+    "detailedResults": "Detailed Results",
+    "advice": "Advice",
+    "applySecurity": "Apply Security Suggestions",
+    "applying": "Applying...",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "noReport": "No report available",
+    "unknownError": "Unknown error"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "positions": "Positions",
+    "settings": "Settings",
+    "statistics": "Statistics"
   }
 }
