@@ -70,6 +70,8 @@ const Orders: React.FC = () => {
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [pendingOrders, setPendingOrders] = useState<PendingOrderInfo[]>([])
   const [historyOrders, setHistoryOrders] = useState<OrderInfo[]>([])
+  const [historyTotalCount, setHistoryTotalCount] = useState<number>(0)
+  const [historyTodayCount, setHistoryTodayCount] = useState<number>(0)
   const [tabIndex, setTabIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [cancellingOrderId, setCancellingOrderId] = useState<number | null>(null)
@@ -122,11 +124,22 @@ const Orders: React.FC = () => {
         const data = await getOrderHistory({
           exchange: selectedExchange,
           symbol: selectedSymbol,
+          limit: 500,
         })
         setHistoryOrders(data.orders || [])
+        if (data.total_count !== undefined) {
+          setHistoryTotalCount(data.total_count)
+        } else {
+          setHistoryTotalCount((data.orders || []).length)
+        }
+        if (data.today_count !== undefined) {
+          setHistoryTodayCount(data.today_count)
+        }
       } catch (err) {
         console.error('Failed to fetch history orders:', err)
         setHistoryOrders([])
+        setHistoryTotalCount(0)
+        setHistoryTodayCount(0)
       }
     }
 
@@ -186,8 +199,17 @@ const Orders: React.FC = () => {
       const data = await getOrderHistory({
         exchange: selectedExchange,
         symbol: selectedSymbol,
+        limit: 500,
       })
       setHistoryOrders(data.orders || [])
+      if (data.total_count !== undefined) {
+        setHistoryTotalCount(data.total_count)
+      } else {
+        setHistoryTotalCount((data.orders || []).length)
+      }
+      if (data.today_count !== undefined) {
+        setHistoryTodayCount(data.today_count)
+      }
     } catch (err) {
       console.error('Failed to refresh history orders:', err)
     }
@@ -443,12 +465,10 @@ const Orders: React.FC = () => {
     return true
   })
 
-  // 计算订單统计（基于筛选后的订单）
-  const todayOrders = filteredHistoryOrders.filter(order => {
-    const orderDate = new Date(order.created_at)
-    const today = new Date()
-    return orderDate.toDateString() === today.toDateString()
-  })
+  // 计算订單统计
+  // 今日订单数和总订单数使用后端返回的真实数据
+  const todayOrderCount = historyTodayCount
+  const totalOrderCount = historyTotalCount
 
   const successOrders = filteredHistoryOrders.filter(order => order.status === 'FILLED').length
   const successRate = filteredHistoryOrders.length > 0 ? (successOrders / filteredHistoryOrders.length) * 100 : 0
@@ -478,7 +498,7 @@ const Orders: React.FC = () => {
       <Tabs index={tabIndex} onChange={setTabIndex} colorScheme="blue">
         <TabList>
           <Tab>{t('orders.pendingTab')} ({pendingOrders.length})</Tab>
-          <Tab>{t('orders.historyTab')} ({historyOrders.length})</Tab>
+          <Tab>{t('orders.historyTab')} ({historyTotalCount || historyOrders.length})</Tab>
         </TabList>
 
         <TabPanels>
@@ -634,7 +654,7 @@ const Orders: React.FC = () => {
                 <CardBody>
                   <Stat>
                     <StatLabel>{t('orders.todayOrders')}</StatLabel>
-                    <StatNumber>{todayOrders.length}</StatNumber>
+                    <StatNumber>{todayOrderCount}</StatNumber>
                   </Stat>
                 </CardBody>
               </Card>
@@ -643,7 +663,7 @@ const Orders: React.FC = () => {
                 <CardBody>
                   <Stat>
                     <StatLabel>{t('orders.totalOrders')}</StatLabel>
-                    <StatNumber>{filteredHistoryOrders.length}</StatNumber>
+                    <StatNumber>{totalOrderCount}</StatNumber>
                   </Stat>
                 </CardBody>
               </Card>

@@ -1623,6 +1623,8 @@ func getOrderHistory(c *gin.Context) {
 			"quantity":        order.Quantity,
 			"filled_qty":      order.FilledQty,
 			"status":          order.Status,
+			"strategy_name":   order.StrategyName,
+			"strategy_type":   order.StrategyType,
 			"created_at":      utils.ToUTC8(order.CreatedAt),
 			"updated_at":      utils.ToUTC8(order.UpdatedAt),
 		}
@@ -1641,7 +1643,37 @@ func getOrderHistory(c *gin.Context) {
 		ordersResponse[i] = resp
 	}
 
-	c.JSON(http.StatusOK, gin.H{"orders": ordersResponse})
+	// 查詢真實的订單总数（不受 limit 限制）
+	totalCount := int64(len(orders))
+	todayCount := int64(0)
+
+	// 尝試從數據库获取真实总数
+	type orderCounter interface {
+		CountOrders(status string) (int64, error)
+	}
+	if counter, ok := storage.(orderCounter); ok {
+		filledCount, err1 := counter.CountOrders("FILLED")
+		canceledCount, err2 := counter.CountOrders("CANCELED")
+		if err1 == nil && err2 == nil {
+			totalCount = filledCount + canceledCount
+		}
+	}
+
+	// 计算今日订單数（从已返回的订單中统计）
+	now := utils.NowConfiguredTimezone()
+	todayStr := now.Format("2006-01-02")
+	for _, order := range orders {
+		orderDate := utils.ToConfiguredTimezone(order.CreatedAt).Format("2006-01-02")
+		if orderDate == todayStr {
+			todayCount++
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"orders":      ordersResponse,
+		"total_count": totalCount,
+		"today_count": todayCount,
+	})
 }
 
 var (

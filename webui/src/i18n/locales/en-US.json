@@ -547,6 +547,11 @@
     "interval4h": "4 hours",
     "interval8h": "8 hours",
     "interval24h": "24 hours",
+    "interval1h": "1 hour",
+    "interval2h": "2 hours",
+    "interval4h": "4 hours",
+    "interval8h": "8 hours",
+    "interval24h": "24 hours",
     "newsApiKeyMissing": "NewsAPI Key not configured. News monitoring cannot collect news.",
     "tradingPairManagement": "Trading Pair Management",
     "defaultDirection": "Default Direction",
@@ -2827,6 +2832,9 @@
     "last14d": "Last 14 Days",
     "last30d": "Last 30 Days",
     "all": "All",
+    "up": "Bullish",
+    "down": "Bearish",
+    "stable": "Stable",
     "backToNewsAnalysis": "Back to News Analysis"
   },
   "slotsPage": {

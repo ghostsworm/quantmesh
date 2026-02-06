@@ -547,6 +547,11 @@
     "interval4h": "4 小时",
     "interval8h": "8 小时",
     "interval24h": "24 小时",
+    "interval1h": "1 小时",
+    "interval2h": "2 小时",
+    "interval4h": "4 小时",
+    "interval8h": "8 小时",
+    "interval24h": "24 小时",
     "newsApiKeyMissing": "未配置 NewsAPI Key，新闻监控功能将无法收集新闻",
     "tradingPairManagement": "交易对管理",
     "defaultDirection": "默认交易方向",
@@ -2827,6 +2832,9 @@
     "last14d": "近14天",
     "last30d": "近30天",
     "all": "全部",
+    "up": "看涨",
+    "down": "看跌",
+    "stable": "平稳",
     "backToNewsAnalysis": "返回新闻分析"
   },
   "slotsPage": {

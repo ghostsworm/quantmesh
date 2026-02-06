@@ -26,7 +26,7 @@ import { getPredictionsAccuracy, getPredictionsHistory, PredictionHistoryItem } 
 const PredictionAccuracy: React.FC = () => {
   const { t } = useTranslation()
   const [assetType, setAssetType] = useState('')
-  const [accuracy, setAccuracy] = useState<{ total: number; correct: number; accuracy: number } | null>(null)
+  const [accuracy, setAccuracy] = useState<PredictionAccuracyResponse | null>(null)
   const [history, setHistory] = useState<PredictionHistoryItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -49,7 +49,7 @@ const PredictionAccuracy: React.FC = () => {
           offset: 0,
         }),
       ])
-      setAccuracy(accRes ? { total: accRes.total, correct: accRes.correct, accuracy: accRes.accuracy } : null)
+      setAccuracy(accRes || null)
       setHistory(histRes.items || [])
       setTotal(histRes.total || 0)
     } catch (err) {
@@ -99,11 +99,62 @@ const PredictionAccuracy: React.FC = () => {
         ) : (
           <>
             {accuracy && (
-              <HStack spacing={6} p={4} bg="gray.50" borderRadius="lg">
-                <Text>{t('predictionAccuracy.totalPredictions')}: <strong>{accuracy.total}</strong></Text>
-                <Text>{t('predictionAccuracy.correctCount')}: <strong>{accuracy.correct}</strong></Text>
-                <Text>{t('predictionAccuracy.accuracy')}: <strong>{accuracy.accuracy.toFixed(1)}%</strong></Text>
-              </HStack>
+              <VStack align="stretch" spacing={4}>
+                <HStack spacing={6} p={4} bg="gray.50" borderRadius="lg">
+                  <Text>{t('predictionAccuracy.totalPredictions')}: <strong>{accuracy.total}</strong></Text>
+                  <Text>{t('predictionAccuracy.correctCount')}: <strong>{accuracy.correct}</strong></Text>
+                  <Text>{t('predictionAccuracy.accuracy')}: <strong>{accuracy.accuracy.toFixed(1)}%</strong></Text>
+                </HStack>
+
+                {accuracy.timeframe_breakdown && Object.keys(accuracy.timeframe_breakdown).length > 0 && (
+                  <VStack align="stretch" spacing={4}>
+                    {Object.entries(accuracy.timeframe_breakdown)
+                      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+                      .map(([tf, stats]) => (
+                        <Box key={tf} p={4} border="1px" borderColor="gray.200" borderRadius="lg" bg="white">
+                          <HStack justify="space-between" mb={3}>
+                            <Text fontWeight="bold" fontSize="md">{tf} {t('predictionAccuracy.timeWindow')}</Text>
+                            <Badge colorScheme="blue" fontSize="sm">
+                              {t('predictionAccuracy.accuracy')}: {stats.accuracy.toFixed(1)}% ({stats.correct}/{stats.total})
+                            </Badge>
+                          </HStack>
+                          
+                          {stats.directions && Object.keys(stats.directions).length > 0 && (
+                            <HStack spacing={4} wrap="wrap">
+                              {['up', 'down', 'stable'].map(dir => {
+                                const dStat = stats.directions?.[dir];
+                                if (!dStat) return null;
+                                
+                                let dirLabel = dir;
+                                let color = 'gray';
+                                if (dir === 'up') {
+                                  dirLabel = t('predictionAccuracy.up') || '涨';
+                                  color = 'green';
+                                } else if (dir === 'down') {
+                                  dirLabel = t('predictionAccuracy.down') || '跌';
+                                  color = 'red';
+                                } else if (dir === 'stable') {
+                                  dirLabel = t('predictionAccuracy.stable') || '平';
+                                  color = 'blue';
+                                }
+
+                                return (
+                                  <Box key={dir} p={2} border="1px" borderColor={`${color}.100`} borderRadius="md" bg={`${color}.50`} minW="120px">
+                                    <Text fontSize="xs" color={`${color}.600`} fontWeight="600">{dirLabel}</Text>
+                                    <HStack justify="space-between" mt={1}>
+                                      <Text fontSize="sm" fontWeight="bold">{dStat.accuracy.toFixed(1)}%</Text>
+                                      <Text fontSize="xs" color="gray.500">{dStat.correct}/{dStat.total}</Text>
+                                    </HStack>
+                                  </Box>
+                                );
+                              })}
+                            </HStack>
+                          )}
+                        </Box>
+                      ))}
+                  </VStack>
+                )}
+              </VStack>
             )}
 
             <Box>

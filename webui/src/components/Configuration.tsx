@@ -1590,6 +1590,10 @@ const Configuration: React.FC = () => {
                           <option value="15m">{t('configuration.interval15m')}</option>
                           <option value="30m">{t('configuration.interval30m')}</option>
                           <option value="60m">{t('configuration.interval60m')}</option>
+                          <option value="2h">{t('configuration.interval2h')}</option>
+                          <option value="4h">{t('configuration.interval4h')}</option>
+                          <option value="8h">{t('configuration.interval8h')}</option>
+                          <option value="24h">{t('configuration.interval24h')}</option>
                         </Select>
                       </FormControl>
                       <FormControl>

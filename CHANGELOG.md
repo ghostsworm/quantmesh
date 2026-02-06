@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [3.44.1-rc9] - 2026-02-06
+
+### Fixed
+- **订单策略归属记录**：修复历史订单页面「策略」列始终显示 `-` 的问题
+  - `Order` 模型新增 `StrategyName` / `StrategyType` 字段
+  - 数据库 `orders` 表自动迁移添加 `strategy_name` / `strategy_type` 列
+  - 下单事件（`order_placed`）携带策略信息并持久化到数据库
+  - 历史订单 API 返回 `strategy_name` / `strategy_type` 字段
+  - 使用 UPSERT + COALESCE 确保后续状态更新（成交/取消）不会覆盖已有策略信息
+
+## [3.44.1-rc8] - 2026-02-06
+
+### Added
+- **Gemini 分析间隔扩展**：在新闻监控配置中新增 2小时、4小时、8小时、24小时分析间隔选项
+- **国际化完善**：补全了 zh-CN、zh-TW、en-US 中新增间隔选项的翻译文案
+
 ## [3.44.1-rc7] - 2026-02-06
 
 ### Added
