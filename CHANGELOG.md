@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.44.1-rc3] - 2026-02-06
+
+### Fixed
+- 修复 ConnectionStatusBanner 组件中 keyframes 导入错误（应从 @emotion/react 导入而非 @chakra-ui/react）
+
 ## [3.44.1-rc2] - 2026-02-06
 
 ### Fixed
