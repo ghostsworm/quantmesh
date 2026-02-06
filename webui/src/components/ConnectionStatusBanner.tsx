@@ -6,8 +6,8 @@ import {
   IconButton,
   Tooltip,
   ScaleFade,
-  keyframes,
 } from '@chakra-ui/react'
+import { keyframes } from '@emotion/react'
 import { useTranslation } from 'react-i18next'
 import { RepeatIcon, CloseIcon } from '@chakra-ui/icons'
 
