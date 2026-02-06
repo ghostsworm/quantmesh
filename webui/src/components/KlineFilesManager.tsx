@@ -82,7 +82,7 @@ const KlineFilesManager: React.FC = () => {
         await unprotectKlineFile(filename)
         toast({
           title: t('common.success'),
-          description: '文件保护已取消',
+          description: t('klineFiles.unprotectSuccess'),
           status: 'success',
           duration: 3000,
           isClosable: true,
@@ -91,7 +91,7 @@ const KlineFilesManager: React.FC = () => {
         await protectKlineFile(filename)
         toast({
           title: t('common.success'),
-          description: '文件已保护',
+          description: t('klineFiles.protectSuccess'),
           status: 'success',
           duration: 3000,
           isClosable: true,
@@ -124,7 +124,7 @@ const KlineFilesManager: React.FC = () => {
       await downloadKlineFile(filename)
       toast({
         title: t('common.success'),
-        description: '文件下载成功',
+        description: t('klineFiles.downloadSuccess'),
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -197,19 +197,19 @@ const KlineFilesManager: React.FC = () => {
         <Flex justify="space-between" align="center">
           <Box>
             <Heading size="lg" mb={2}>
-              K线数据文件管理
+              {t('klineFiles.title')}
             </Heading>
             <Text color="gray.600">
-              管理tick级、分钟级、小时级K线数据文件，保护重要文件不被自动删除
+              {t('klineFiles.subtitle')}
             </Text>
           </Box>
           <Button
             leftIcon={<RepeatIcon />}
             onClick={loadFiles}
             isLoading={loading}
-            loadingText="刷新中"
+            loadingText={t('klineFiles.refreshing')}
           >
-            刷新
+            {t('klineFiles.refresh')}
           </Button>
         </Flex>
 
@@ -221,7 +221,7 @@ const KlineFilesManager: React.FC = () => {
                 <SearchIcon color="gray.300" />
               </InputLeftElement>
               <Input
-                placeholder="搜索文件名、交易所、币种..."
+                placeholder={t('klineFiles.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -232,7 +232,7 @@ const KlineFilesManager: React.FC = () => {
         {/* 文件列表 */}
         <Card variant="outline">
           <CardHeader>
-            <Heading size="sm">文件列表 ({filteredFiles.length})</Heading>
+            <Heading size="sm">{t('klineFiles.fileList')} ({filteredFiles.length})</Heading>
           </CardHeader>
           <CardBody>
             {loading ? (
@@ -241,21 +241,21 @@ const KlineFilesManager: React.FC = () => {
               </Flex>
             ) : filteredFiles.length === 0 ? (
               <Text textAlign="center" color="gray.500" py={8}>
-                {searchTerm ? '没有找到匹配的文件' : '暂无文件'}
+                {searchTerm ? t('klineFiles.noMatchingFiles') : t('klineFiles.noFiles')}
               </Text>
             ) : (
               <Box overflowX="auto">
                 <Table variant="simple">
                   <Thead>
                     <Tr>
-                      <Th>文件名</Th>
-                      <Th>交易所</Th>
-                      <Th>币种</Th>
-                      <Th>间隔</Th>
-                      <Th>订单深度</Th>
-                      <Th>文件大小</Th>
-                      <Th>修改时间</Th>
-                      <Th>操作</Th>
+                      <Th>{t('klineFiles.filename')}</Th>
+                      <Th>{t('klineFiles.exchange')}</Th>
+                      <Th>{t('klineFiles.symbol')}</Th>
+                      <Th>{t('klineFiles.interval')}</Th>
+                      <Th>{t('klineFiles.orderDepth')}</Th>
+                      <Th>{t('klineFiles.fileSize')}</Th>
+                      <Th>{t('klineFiles.modifiedTime')}</Th>
+                      <Th>{t('klineFiles.actions')}</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
@@ -279,9 +279,9 @@ const KlineFilesManager: React.FC = () => {
                         </Td>
                         <Td>
                           {file.has_depth ? (
-                            <Badge colorScheme="purple">是</Badge>
+                            <Badge colorScheme="purple">{t('klineFiles.yes')}</Badge>
                           ) : (
-                            <Badge colorScheme="gray">否</Badge>
+                            <Badge colorScheme="gray">{t('klineFiles.no')}</Badge>
                           )}
                         </Td>
                         <Td>{formatFileSize(file.file_size)}</Td>
@@ -290,9 +290,9 @@ const KlineFilesManager: React.FC = () => {
                         </Td>
                         <Td>
                           <HStack spacing={2}>
-                            <Tooltip label={file.is_protected ? '取消保护' : '保护文件'}>
+                            <Tooltip label={file.is_protected ? t('klineFiles.unprotect') : t('klineFiles.protect')}>
                               <IconButton
-                                aria-label={file.is_protected ? '取消保护' : '保护文件'}
+                                aria-label={file.is_protected ? t('klineFiles.unprotect') : t('klineFiles.protect')}
                                 icon={<StarIcon />}
                                 colorScheme={file.is_protected ? 'yellow' : 'gray'}
                                 variant={file.is_protected ? 'solid' : 'outline'}
@@ -301,9 +301,9 @@ const KlineFilesManager: React.FC = () => {
                                 isLoading={protectingFiles.has(file.filename)}
                               />
                             </Tooltip>
-                            <Tooltip label="下载文件">
+                            <Tooltip label={t('klineFiles.download')}>
                               <IconButton
-                                aria-label="下载文件"
+                                aria-label={t('klineFiles.download')}
                                 icon={<DownloadIcon />}
                                 colorScheme="blue"
                                 variant="outline"
@@ -328,22 +328,22 @@ const KlineFilesManager: React.FC = () => {
           <CardBody>
             <VStack align="stretch" spacing={2}>
               <Text fontWeight="medium" color="blue.700">
-                说明：
+                {t('klineFiles.infoTitle')}
               </Text>
               <Text fontSize="sm" color="blue.600">
-                • tick级数据：最新24小时的tick级K线数据，每分钟更新
+                • {t('klineFiles.infoTick')}
               </Text>
               <Text fontSize="sm" color="blue.600">
-                • 分钟级数据：带订单深度的1分钟K线数据，每分钟更新
+                • {t('klineFiles.infoMinute')}
               </Text>
               <Text fontSize="sm" color="blue.600">
-                • 小时级数据：带订单深度的1小时K线数据，每小时更新
+                • {t('klineFiles.infoHour')}
               </Text>
               <Text fontSize="sm" color="blue.600">
-                • 文件保护：被保护的文件不会被7天自动清理机制删除
+                • {t('klineFiles.infoProtection')}
               </Text>
               <Text fontSize="sm" color="blue.600">
-                • 未保护的文件会在7天后自动删除
+                • {t('klineFiles.infoUnprotected')}
               </Text>
             </VStack>
           </CardBody>

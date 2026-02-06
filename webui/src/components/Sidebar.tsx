@@ -548,7 +548,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           onClick={onNavItemClick}
           collapsed={collapsed}
         >
-          {t('sidebar.servicesStatus', '服務狀態')}
+          {t('sidebar.servicesStatus')}
         </NavItem>
         <NavItem 
           icon={SettingsIcon} 

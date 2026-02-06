@@ -93,7 +93,7 @@ const Positions: React.FC = () => {
   if (loading && !summary) {
     return (
       <Box>
-        <Heading size="lg" mb={6}>持倉彙總</Heading>
+        <Heading size="lg" mb={6}>{t('positionsPage.title')}</Heading>
         <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <Card key={i}>
@@ -111,8 +111,8 @@ const Positions: React.FC = () => {
   if (error) {
     return (
       <Box>
-        <Heading size="lg" mb={6}>持倉彙總</Heading>
-        <Text color="red.500">錯误: {error}</Text>
+        <Heading size="lg" mb={6}>{t('positionsPage.title')}</Heading>
+        <Text color="red.500">{t('common.error')}: {error}</Text>
       </Box>
     )
   }
@@ -120,7 +120,7 @@ const Positions: React.FC = () => {
   return (
     <Box>
       <Flex align="center" gap={2} mb={6} flexWrap="wrap">
-        <Heading size="lg">持倉彙總</Heading>
+        <Heading size="lg">{t('positionsPage.title')}</Heading>
         {symbolDirection != null && (
           <Badge colorScheme={symbolDirection === 'SHORT' ? 'orange' : 'green'} fontSize="sm">
             {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
@@ -134,7 +134,7 @@ const Positions: React.FC = () => {
           <Card>
             <CardBody>
               <Stat>
-                <StatLabel>總持倉數量</StatLabel>
+                <StatLabel>{t('positionsPage.totalQuantity')}</StatLabel>
                 <StatNumber>{summary.total_quantity.toFixed(4)}</StatNumber>
               </Stat>
             </CardBody>
@@ -143,7 +143,7 @@ const Positions: React.FC = () => {
           <Card>
             <CardBody>
               <Stat>
-                <StatLabel>總持倉價值</StatLabel>
+                <StatLabel>{t('positionsPage.totalValue')}</StatLabel>
                 <StatNumber>{summary.total_value.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
@@ -152,7 +152,7 @@ const Positions: React.FC = () => {
           <Card>
             <CardBody>
               <Stat>
-                <StatLabel>持倉槽位數</StatLabel>
+                <StatLabel>{t('positionsPage.positionSlots')}</StatLabel>
                 <StatNumber>{summary.position_count}</StatNumber>
               </Stat>
             </CardBody>
@@ -161,7 +161,7 @@ const Positions: React.FC = () => {
           <Card>
             <CardBody>
               <Stat>
-                <StatLabel>平均持倉價格</StatLabel>
+                <StatLabel>{t('positionsPage.averagePrice')}</StatLabel>
                 <StatNumber>{summary.average_price.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
@@ -170,7 +170,7 @@ const Positions: React.FC = () => {
           <Card>
             <CardBody>
               <Stat>
-                <StatLabel>當前市場價格</StatLabel>
+                <StatLabel>{t('positionsPage.currentMarketPrice')}</StatLabel>
                 <StatNumber>{summary.current_price.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
@@ -179,7 +179,7 @@ const Positions: React.FC = () => {
           <Card>
             <CardBody>
               <Stat>
-                <StatLabel>未實現盈亏</StatLabel>
+                <StatLabel>{t('positionsPage.unrealizedPnl')}</StatLabel>
                 <StatNumber color={summary.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
                   {summary.unrealized_pnl >= 0 ? '+' : ''}{summary.unrealized_pnl.toFixed(2)}
                 </StatNumber>
@@ -191,17 +191,17 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>
-                  實際资金占用
+                  {t('positionsPage.actualMargin')}
                   {summary.leverage && summary.leverage > 1 && (
                     <Text as="span" fontSize="xs" color="gray.500" ml={2}>
-                      (杠杆 {summary.leverage}x)
+                      ({t('positionsPage.leverage')} {summary.leverage}x)
                     </Text>
                   )}
                 </StatLabel>
                 <StatNumber>{(summary.actual_margin || 0).toFixed(2)}</StatNumber>
                 {summary.leverage && summary.leverage > 1 && (
                   <Text fontSize="xs" color="gray.500" mt={1}>
-                    倉位價值: {summary.total_value.toFixed(2)}
+                    {t('positionsPage.positionValue')}: {summary.total_value.toFixed(2)}
                   </Text>
                 )}
               </Stat>
@@ -213,15 +213,15 @@ const Positions: React.FC = () => {
       {/* 持倉列表表格 */}
       {positions.length > 0 && (
         <Box>
-          <Heading size="md" mb={4}>持倉列表</Heading>
+          <Heading size="md" mb={4}>{t('positionsPage.positionList')}</Heading>
           <TableContainer>
             <Table variant="simple">
               <Thead>
                 <Tr>
-                  <Th>持倉價格</Th>
-                  <Th isNumeric>持倉數量</Th>
-                  <Th isNumeric>持倉價值</Th>
-                  <Th isNumeric>未實現盈亏</Th>
+                  <Th>{t('positionsPage.positionPrice')}</Th>
+                  <Th isNumeric>{t('positionsPage.positionQuantity')}</Th>
+                  <Th isNumeric>{t('positionsPage.positionValueCol')}</Th>
+                  <Th isNumeric>{t('positionsPage.unrealizedPnl')}</Th>
                 </Tr>
               </Thead>
               <Tbody>
@@ -262,7 +262,7 @@ const Positions: React.FC = () => {
 
       {positions.length === 0 && summary && summary.position_count === 0 && (
         <Box textAlign="center" py={12}>
-          <Text color="gray.500" fontSize="lg">暂無持倉</Text>
+          <Text color="gray.500" fontSize="lg">{t('positionsPage.noPositions')}</Text>
         </Box>
       )}
     </Box>

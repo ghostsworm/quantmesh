@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Box, Text, Spinner, Center } from '@chakra-ui/react'
 import DCAVisualization from './DCAVisualization'
 import TrendFollowingVisualization from './TrendFollowingVisualization'
@@ -17,10 +18,11 @@ const StrategyVisualization: React.FC<StrategyVisualizationProps> = ({
   exchange,
   symbol,
 }) => {
+  const { t } = useTranslation()
   if (!strategy.visualizationData) {
     return (
       <Center h="200px">
-        <Text color="gray.500" fontSize="sm">暂无可视化数据</Text>
+        <Text color="gray.500" fontSize="sm">{t('strategyVisualization.noData')}</Text>
       </Center>
     )
   }
@@ -71,7 +73,7 @@ const StrategyVisualization: React.FC<StrategyVisualizationProps> = ({
   // 默认显示原始数据
   return (
     <Box p={4}>
-      <Text fontSize="sm" color="gray.500" mb={2}>策略类型: {strategy.type}</Text>
+      <Text fontSize="sm" color="gray.500" mb={2}>{t('strategyVisualization.strategyType')}: {strategy.type}</Text>
       <Text fontSize="xs" color="gray.400" fontFamily="mono">
         {JSON.stringify(strategy.visualizationData, null, 2)}
       </Text>

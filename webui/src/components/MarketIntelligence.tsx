@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { getMarketIntelligence, MarketIntelligenceResponse } from '../services/api'
 
 const MarketIntelligence: React.FC = () => {
+  const { t } = useTranslation()
   const [data, setData] = useState<MarketIntelligenceResponse>({
     rss_feeds: [],
     fear_greed: null,
@@ -10,6 +12,7 @@ const MarketIntelligence: React.FC = () => {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isEmptyData, setIsEmptyData] = useState(false)
   const [searchKeyword, setSearchKeyword] = useState('')
   const [selectedSource, setSelectedSource] = useState<string>('')
   const [activeTab, setActiveTab] = useState<'rss' | 'fear_greed' | 'reddit' | 'polymarket' | 'all'>('all')
@@ -19,6 +22,7 @@ const MarketIntelligence: React.FC = () => {
     try {
       setLoading(true)
       setError(null)
+      setIsEmptyData(false)
       const params: any = {
         limit: 50,
       }
@@ -40,11 +44,13 @@ const MarketIntelligence: React.FC = () => {
       )
       
       if (isEmpty) {
-        setError('暂無數據，请稍后重試或点击刷新按钮')
+        setIsEmptyData(true)
+        setError(t('marketIntelligence.noDataHint'))
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '獲取市場情报失败'
-      setError(`獲取數據失败: ${errorMessage}。请检查网络连接或稍后重試。`)
+      const errorMessage = err instanceof Error ? err.message : t('marketIntelligence.fetchFailed')
+      setError(t('marketIntelligence.fetchError', { error: errorMessage }))
+      setIsEmptyData(false)
       console.error('Failed to fetch market intelligence:', err)
     } finally {
       setLoading(false)
@@ -64,11 +70,11 @@ const MarketIntelligence: React.FC = () => {
   }
 
   const getFearGreedColor = (value: number) => {
-    if (value >= 75) return '#ef4444' // 极度贪婪 - 红色
-    if (value >= 55) return '#f59e0b' // 贪婪 - 橙色
-    if (value >= 45) return '#6b7280' // 中性 - 灰色
-    if (value >= 25) return '#3b82f6' // 恐惧 - 蓝色
-    return '#1d4ed8' // 极度恐惧 - 深蓝色
+    if (value >= 75) return '#ef4444'
+    if (value >= 55) return '#f59e0b'
+    if (value >= 45) return '#6b7280'
+    if (value >= 25) return '#3b82f6'
+    return '#1d4ed8'
   }
 
   const formatDate = (dateStr: string) => {
@@ -77,7 +83,7 @@ const MarketIntelligence: React.FC = () => {
 
   return (
     <div style={{ padding: '20px' }}>
-      <h2>市场情报</h2>
+      <h2>{t('marketIntelligence.title')}</h2>
 
       {/* 搜索欄 */}
       <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -86,7 +92,7 @@ const MarketIntelligence: React.FC = () => {
             type="text"
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
-            placeholder="搜索关键词..."
+            placeholder={t('marketIntelligence.searchPlaceholder')}
             style={{
               flex: 1,
               padding: '8px 12px',
@@ -107,7 +113,7 @@ const MarketIntelligence: React.FC = () => {
               fontSize: '14px',
             }}
           >
-            搜索
+            {t('marketIntelligence.search')}
           </button>
         </form>
         <select
@@ -120,9 +126,9 @@ const MarketIntelligence: React.FC = () => {
             fontSize: '14px',
           }}
         >
-          <option value="all">全部數據源</option>
-          <option value="rss">RSS新闻</option>
-          <option value="fear_greed">恐慌贪婪指數</option>
+          <option value="all">{t('marketIntelligence.allSources')}</option>
+          <option value="rss">{t('marketIntelligence.rssNews')}</option>
+          <option value="fear_greed">{t('marketIntelligence.fearGreedIndex')}</option>
           <option value="reddit">Reddit</option>
           <option value="polymarket">Polymarket</option>
         </select>
@@ -141,10 +147,10 @@ const MarketIntelligence: React.FC = () => {
             alignItems: 'center',
             gap: '6px',
           }}
-          title="手动刷新數據"
+          title={t('marketIntelligence.refreshTitle')}
         >
           <span style={{ fontSize: '16px' }}>🔄</span>
-          {loading ? '刷新中...' : '刷新'}
+          {loading ? t('marketIntelligence.refreshing') : t('marketIntelligence.refresh')}
         </button>
       </div>
 
@@ -152,22 +158,22 @@ const MarketIntelligence: React.FC = () => {
         <div style={{ 
           padding: '12px 16px', 
           marginBottom: '20px', 
-          backgroundColor: error.includes('暂無數據') ? '#fef3c7' : '#fee', 
-          color: error.includes('暂無數據') ? '#92400e' : '#c33', 
+          backgroundColor: isEmptyData ? '#fef3c7' : '#fee', 
+          color: isEmptyData ? '#92400e' : '#c33', 
           borderRadius: '6px',
-          border: `1px solid ${error.includes('暂無數據') ? '#fbbf24' : '#f87171'}`,
+          border: `1px solid ${isEmptyData ? '#fbbf24' : '#f87171'}`,
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
         }}>
-          <span style={{ fontSize: '18px' }}>{error.includes('暂無數據') ? '⚠️' : '❌'}</span>
+          <span style={{ fontSize: '18px' }}>{isEmptyData ? '⚠️' : '❌'}</span>
           <span>{error}</span>
         </div>
       )}
 
       {loading && data.rss_feeds.length === 0 && !data.fear_greed && data.reddit_posts.length === 0 && data.polymarket.length === 0 ? (
         <div style={{ padding: '40px', textAlign: 'center' }}>
-          <p>加載中...</p>
+          <p>{t('marketIntelligence.loading')}</p>
         </div>
       ) : (
         <>
@@ -189,7 +195,7 @@ const MarketIntelligence: React.FC = () => {
                   fontWeight: activeTab === tab ? '600' : '400',
                 }}
               >
-                {tab === 'all' ? '全部' : tab === 'rss' ? 'RSS新闻' : tab === 'fear_greed' ? '恐慌贪婪' : tab === 'reddit' ? 'Reddit' : 'Polymarket'}
+                {tab === 'all' ? t('marketIntelligence.tabAll') : tab === 'rss' ? t('marketIntelligence.rssNews') : tab === 'fear_greed' ? t('marketIntelligence.tabFearGreed') : tab === 'reddit' ? 'Reddit' : 'Polymarket'}
               </button>
             ))}
           </div>
@@ -197,16 +203,16 @@ const MarketIntelligence: React.FC = () => {
           {/* RSS新闻 */}
           {(activeTab === 'all' || activeTab === 'rss') && (
             <div style={{ marginBottom: '40px' }}>
-              <h3>RSS新闻</h3>
+              <h3>{t('marketIntelligence.rssNews')}</h3>
               {data.rss_feeds.length === 0 ? (
-                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>暂無RSS新闻</p>
+                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>{t('marketIntelligence.noRssNews')}</p>
               ) : (
                 data.rss_feeds.map((feed, feedIndex) => (
                   <div key={feedIndex} style={{ marginBottom: '30px' }}>
                     <h4 style={{ marginBottom: '10px', color: '#1f2937' }}>
                       {feed.title}
                       <span style={{ marginLeft: '10px', fontSize: '12px', color: '#6b7280', fontWeight: 'normal' }}>
-                        ({feed.items.length} 条)
+                        ({t('marketIntelligence.itemCount', { count: feed.items.length })})
                       </span>
                     </h4>
                     <div style={{ backgroundColor: '#fff', borderRadius: '8px', overflow: 'hidden' }}>
@@ -238,7 +244,7 @@ const MarketIntelligence: React.FC = () => {
                           </p>
                           <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: '#9ca3af' }}>
                             <span>{formatDate(item.pub_date)}</span>
-                            <span>来源: {item.source}</span>
+                            <span>{t('marketIntelligence.source')}: {item.source}</span>
                           </div>
                         </div>
                       ))}
@@ -252,9 +258,9 @@ const MarketIntelligence: React.FC = () => {
           {/* 恐慌贪婪指數 */}
           {(activeTab === 'all' || activeTab === 'fear_greed') && (
             <div style={{ marginBottom: '40px' }}>
-              <h3>恐慌贪婪指數</h3>
+              <h3>{t('marketIntelligence.fearGreedIndex')}</h3>
               {!data.fear_greed ? (
-                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>暂無數據</p>
+                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>{t('marketIntelligence.noFearGreedData')}</p>
               ) : (
                 <div
                   style={{
@@ -295,9 +301,9 @@ const MarketIntelligence: React.FC = () => {
           {/* Reddit帖子 */}
           {(activeTab === 'all' || activeTab === 'reddit') && (
             <div style={{ marginBottom: '40px' }}>
-              <h3>Reddit热门帖子</h3>
+              <h3>{t('marketIntelligence.redditHotPosts')}</h3>
               {data.reddit_posts.length === 0 ? (
-                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>暂無Reddit帖子</p>
+                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>{t('marketIntelligence.noRedditPosts')}</p>
               ) : (
                 <div style={{ backgroundColor: '#fff', borderRadius: '8px', overflow: 'hidden' }}>
                   {data.reddit_posts.map((post, index) => (
@@ -313,7 +319,7 @@ const MarketIntelligence: React.FC = () => {
                           <div style={{ fontSize: '18px', fontWeight: '600', color: '#3b82f6' }}>
                             {post.score > 0 ? '+' : ''}{post.score}
                           </div>
-                          <div style={{ fontSize: '12px', color: '#9ca3af' }}>分數</div>
+                          <div style={{ fontSize: '12px', color: '#9ca3af' }}>{t('marketIntelligence.score')}</div>
                         </div>
                         <div style={{ flex: 1 }}>
                           <a
@@ -338,8 +344,8 @@ const MarketIntelligence: React.FC = () => {
                           )}
                           <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: '#9ca3af', flexWrap: 'wrap' }}>
                             <span>r/{post.subreddit}</span>
-                            <span>作者: {post.author}</span>
-                            <span>赞同率: {(post.upvote_ratio * 100).toFixed(0)}%</span>
+                            <span>{t('marketIntelligence.author')}: {post.author}</span>
+                            <span>{t('marketIntelligence.upvoteRatio')}: {(post.upvote_ratio * 100).toFixed(0)}%</span>
                             <span>{formatDate(post.created_at)}</span>
                           </div>
                         </div>
@@ -354,18 +360,18 @@ const MarketIntelligence: React.FC = () => {
           {/* Polymarket市场 */}
           {(activeTab === 'all' || activeTab === 'polymarket') && (
             <div style={{ marginBottom: '40px' }}>
-              <h3>Polymarket預测市场</h3>
+              <h3>{t('marketIntelligence.polymarketTitle')}</h3>
               {data.polymarket.length === 0 ? (
-                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>暂無Polymarket市场</p>
+                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>{t('marketIntelligence.noPolymarket')}</p>
               ) : (
                 <div style={{ backgroundColor: '#fff', borderRadius: '8px', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ backgroundColor: '#f3f4f6' }}>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e5e7eb' }}>问题</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e5e7eb' }}>交易量</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e5e7eb' }}>流动性</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e5e7eb' }}>結束時间</th>
+                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.question')}</th>
+                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.volume')}</th>
+                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.liquidity')}</th>
+                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.endDate')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -380,7 +386,7 @@ const MarketIntelligence: React.FC = () => {
                             )}
                             {market.outcomes.length > 0 && (
                               <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px' }}>
-                                选项: {market.outcomes.join(', ')}
+                                {t('marketIntelligence.options')}: {market.outcomes.join(', ')}
                               </div>
                             )}
                           </td>
@@ -408,4 +414,3 @@ const MarketIntelligence: React.FC = () => {
 }
 
 export default MarketIntelligence
-

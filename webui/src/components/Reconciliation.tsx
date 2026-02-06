@@ -239,7 +239,7 @@ const Reconciliation: React.FC = () => {
     return (
       <div className="reconciliation">
         <h2>{t('reconciliation.history')}</h2>
-        <p>加載中...</p>
+        <p>{t('common.loading')}</p>
       </div>
     )
   }
@@ -248,7 +248,7 @@ const Reconciliation: React.FC = () => {
     return (
       <div className="reconciliation">
         <h2>{t('reconciliation.history')}</h2>
-        <p style={{ color: 'red' }}>錯误: {error}</p>
+        <p style={{ color: 'red' }}>{t('common.error')}: {error}</p>
       </div>
     )
   }
@@ -307,7 +307,7 @@ const Reconciliation: React.FC = () => {
       {/* 數據視图控制面板 */}
       <div className="view-controls" style={{ marginTop: '24px', padding: '16px', background: '#f9fafb', borderRadius: '8px', display: 'flex', gap: '16px', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <label style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>數據視图:</label>
+          <label style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>{t('reconciliation.dataView')}:</label>
           <button
             onClick={() => setViewMode('raw')}
             style={{
@@ -320,7 +320,7 @@ const Reconciliation: React.FC = () => {
               fontSize: '14px',
             }}
           >
-            原始數據
+            {t('reconciliation.rawData')}
           </button>
           <button
             onClick={() => setViewMode('aggregated')}
@@ -334,13 +334,13 @@ const Reconciliation: React.FC = () => {
               fontSize: '14px',
             }}
           >
-            聚合數據
+            {t('reconciliation.aggregatedData')}
           </button>
         </div>
         
         {viewMode === 'aggregated' && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <label style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>時间维度:</label>
+            <label style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>{t('reconciliation.timeDimension')}:</label>
             <button
               onClick={() => setTimePeriod('day')}
               style={{
@@ -353,7 +353,7 @@ const Reconciliation: React.FC = () => {
                 fontSize: '14px',
               }}
             >
-              按日
+              {t('reconciliation.byDay')}
             </button>
             <button
               onClick={() => setTimePeriod('week')}
@@ -367,7 +367,7 @@ const Reconciliation: React.FC = () => {
                 fontSize: '14px',
               }}
             >
-              按周
+              {t('reconciliation.byWeek')}
             </button>
             <button
               onClick={() => setTimePeriod('month')}
@@ -381,7 +381,7 @@ const Reconciliation: React.FC = () => {
                 fontSize: '14px',
               }}
             >
-              按月
+              {t('reconciliation.byMonth')}
             </button>
           </div>
         )}
@@ -390,7 +390,7 @@ const Reconciliation: React.FC = () => {
       {/* 聚合數據多指標图表 */}
       {viewMode === 'aggregated' && aggregatedData.length > 0 && (
         <div style={{ marginTop: '32px' }}>
-          <h3>盈利趋势（{timePeriod === 'day' ? '按日' : timePeriod === 'week' ? '按周' : '按月'}）</h3>
+          <h3>{t('reconciliation.profitTrend')} ({timePeriod === 'day' ? t('reconciliation.byDay') : timePeriod === 'week' ? t('reconciliation.byWeek') : t('reconciliation.byMonth')})</h3>
           <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ width: '100%', height: '100%', position: 'relative' }}>
               <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setAggregatedTooltip(null)}>
@@ -516,11 +516,11 @@ const Reconciliation: React.FC = () => {
                       {/* 图例 */}
                       <g transform="translate(650, 20)" style={{ cursor: 'pointer' }} onClick={() => setShowEstimated(!showEstimated)}>
                         <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" opacity={showEstimated ? 1 : 0.3} />
-                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showEstimated ? 1 : 0.5}>預计盈利</text>
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showEstimated ? 1 : 0.5}>{t('reconciliation.estimatedProfit')}</text>
                       </g>
                       <g transform="translate(650, 35)" style={{ cursor: 'pointer' }} onClick={() => setShowActual(!showActual)}>
                         <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" opacity={showActual ? 1 : 0.3} />
-                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showActual ? 1 : 0.5}>實際盈利</text>
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showActual ? 1 : 0.5}>{t('reconciliation.actualProfit')}</text>
                       </g>
                     </>
                   )
@@ -536,27 +536,27 @@ const Reconciliation: React.FC = () => {
                     </div>
                     <div className="tooltip-body">
                       <div className="tooltip-row">
-                        <span className="tooltip-label">預计盈利:</span>
+                        <span className="tooltip-label">{t('reconciliation.estimatedProfit')}:</span>
                         <span className="tooltip-value" style={{ color: aggregatedTooltip.item.estimated_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
                           {aggregatedTooltip.item.estimated_profit.toFixed(2)} USDT
                         </span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">實際盈利:</span>
+                        <span className="tooltip-label">{t('reconciliation.actualProfit')}:</span>
                         <span className="tooltip-value" style={{ color: aggregatedTooltip.item.actual_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
                           {aggregatedTooltip.item.actual_profit.toFixed(2)} USDT
                         </span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">累计買入:</span>
+                        <span className="tooltip-label">{t('reconciliation.totalBuyQty')}:</span>
                         <span className="tooltip-value">{aggregatedTooltip.item.total_buy_qty.toFixed(2)}</span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">累计賣出:</span>
+                        <span className="tooltip-label">{t('reconciliation.totalSellQty')}:</span>
                         <span className="tooltip-value">{aggregatedTooltip.item.total_sell_qty.toFixed(2)}</span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">記錄數:</span>
+                        <span className="tooltip-label">{t('reconciliation.recordCount')}:</span>
                         <span className="tooltip-value">{aggregatedTooltip.item.record_count}</span>
                       </div>
                     </div>
@@ -568,7 +568,7 @@ const Reconciliation: React.FC = () => {
           
           {/* 持倉走势图 */}
           <div style={{ marginTop: '32px' }}>
-            <h3>持倉走势（{timePeriod === 'day' ? '按日' : timePeriod === 'week' ? '按周' : '按月'}）</h3>
+            <h3>{t('reconciliation.positionTrend')} ({timePeriod === 'day' ? t('reconciliation.byDay') : timePeriod === 'week' ? t('reconciliation.byWeek') : t('reconciliation.byMonth')})</h3>
             <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
               <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                 <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setAggregatedTooltip(null)}>
@@ -692,11 +692,11 @@ const Reconciliation: React.FC = () => {
                         {/* 图例 */}
                         <g transform="translate(650, 20)" style={{ cursor: 'pointer' }} onClick={() => setShowLocalPosition(!showLocalPosition)}>
                           <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" opacity={showLocalPosition ? 1 : 0.3} />
-                          <text x="35" y="5" fontSize="12" fill="#666" opacity={showLocalPosition ? 1 : 0.5}>本地持倉</text>
+                          <text x="35" y="5" fontSize="12" fill="#666" opacity={showLocalPosition ? 1 : 0.5}>{t('reconciliation.localPosition')}</text>
                         </g>
                         <g transform="translate(650, 35)" style={{ cursor: 'pointer' }} onClick={() => setShowExchangePosition(!showExchangePosition)}>
                           <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" opacity={showExchangePosition ? 1 : 0.3} />
-                          <text x="35" y="5" fontSize="12" fill="#666" opacity={showExchangePosition ? 1 : 0.5}>交易所持倉</text>
+                          <text x="35" y="5" fontSize="12" fill="#666" opacity={showExchangePosition ? 1 : 0.5}>{t('reconciliation.exchangePosition')}</text>
                         </g>
                       </>
                     )
@@ -712,15 +712,15 @@ const Reconciliation: React.FC = () => {
                       </div>
                       <div className="tooltip-body">
                         <div className="tooltip-row">
-                          <span className="tooltip-label">平均本地持倉:</span>
+                          <span className="tooltip-label">{t('reconciliation.avgLocalPosition')}:</span>
                           <span className="tooltip-value">{aggregatedTooltip.item.avg_local_position.toFixed(4)}</span>
                         </div>
                         <div className="tooltip-row">
-                          <span className="tooltip-label">平均交易所持倉:</span>
+                          <span className="tooltip-label">{t('reconciliation.avgExchangePosition')}:</span>
                           <span className="tooltip-value">{aggregatedTooltip.item.avg_exchange_position.toFixed(4)}</span>
                         </div>
                         <div className="tooltip-row">
-                          <span className="tooltip-label">平均持倉差异:</span>
+                          <span className="tooltip-label">{t('reconciliation.avgPositionDiff')}:</span>
                           <span className="tooltip-value" style={{ color: Math.abs(aggregatedTooltip.item.avg_position_diff) > 0.0001 ? '#ff4d4f' : '#52c41a' }}>
                             {aggregatedTooltip.item.avg_position_diff.toFixed(4)}
                           </span>
@@ -738,7 +738,7 @@ const Reconciliation: React.FC = () => {
       {/* 盈利曲線图表 */}
       {viewMode === 'raw' && history.length > 0 && (
         <div style={{ marginTop: '32px' }}>
-          <h3>盈利趋势</h3>
+          <h3>{t('reconciliation.profitTrend')}</h3>
           <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ width: '100%', height: '100%', position: 'relative' }}>
               <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setTooltip(null)}>
@@ -943,7 +943,7 @@ const Reconciliation: React.FC = () => {
                         onClick={() => setShowEstimated(!showEstimated)}
                       >
                         <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" opacity={showEstimated ? 1 : 0.3} />
-                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showEstimated ? 1 : 0.5}>預计盈利</text>
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showEstimated ? 1 : 0.5}>{t('reconciliation.estimatedProfit')}</text>
                       </g>
                       <g 
                         transform="translate(650, 35)" 
@@ -951,7 +951,7 @@ const Reconciliation: React.FC = () => {
                         onClick={() => setShowActual(!showActual)}
                       >
                         <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" opacity={showActual ? 1 : 0.3} />
-                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showActual ? 1 : 0.5}>實際盈利</text>
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showActual ? 1 : 0.5}>{t('reconciliation.actualProfit')}</text>
                       </g>
                     </>
                   )
@@ -976,27 +976,27 @@ const Reconciliation: React.FC = () => {
                     </div>
                     <div className="tooltip-body">
                       <div className="tooltip-row">
-                        <span className="tooltip-label">預计盈利:</span>
+                        <span className="tooltip-label">{t('reconciliation.estimatedProfit')}:</span>
                         <span className="tooltip-value" style={{ color: tooltip.item.estimated_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
                           {tooltip.item.estimated_profit.toFixed(2)} USDT
                         </span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">實際盈利:</span>
+                        <span className="tooltip-label">{t('reconciliation.actualProfit')}:</span>
                         <span className="tooltip-value" style={{ color: tooltip.item.actual_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
                           {tooltip.item.actual_profit.toFixed(2)} USDT
                         </span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">本地持倉:</span>
+                        <span className="tooltip-label">{t('reconciliation.localPosition')}:</span>
                         <span className="tooltip-value">{tooltip.item.local_position.toFixed(4)}</span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">累计買入:</span>
+                        <span className="tooltip-label">{t('reconciliation.totalBuyQty')}:</span>
                         <span className="tooltip-value">{tooltip.item.total_buy_qty.toFixed(2)}</span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">累计賣出:</span>
+                        <span className="tooltip-label">{t('reconciliation.totalSellQty')}:</span>
                         <span className="tooltip-value">{tooltip.item.total_sell_qty.toFixed(2)}</span>
                       </div>
                     </div>
@@ -1011,7 +1011,7 @@ const Reconciliation: React.FC = () => {
       {/* 倉位走势图 */}
       {viewMode === 'raw' && history.length > 0 && (
         <div style={{ marginTop: '32px' }}>
-          <h3>倉位走势</h3>
+          <h3>{t('reconciliation.positionTrendRaw')}</h3>
           <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ width: '100%', height: '100%', position: 'relative' }}>
               <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setPositionTooltip(null)}>
@@ -1186,7 +1186,7 @@ const Reconciliation: React.FC = () => {
                         onClick={() => setShowLocalPosition(!showLocalPosition)}
                       >
                         <line x1="0" y1="0" x2="30" y2="0" stroke="#1890ff" strokeWidth="2" opacity={showLocalPosition ? 1 : 0.3} />
-                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showLocalPosition ? 1 : 0.5}>本地持倉</text>
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showLocalPosition ? 1 : 0.5}>{t('reconciliation.localPosition')}</text>
                       </g>
                       <g 
                         transform="translate(650, 35)" 
@@ -1194,7 +1194,7 @@ const Reconciliation: React.FC = () => {
                         onClick={() => setShowExchangePosition(!showExchangePosition)}
                       >
                         <line x1="0" y1="0" x2="30" y2="0" stroke="#52c41a" strokeWidth="2" opacity={showExchangePosition ? 1 : 0.3} />
-                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showExchangePosition ? 1 : 0.5}>交易所持倉</text>
+                        <text x="35" y="5" fontSize="12" fill="#666" opacity={showExchangePosition ? 1 : 0.5}>{t('reconciliation.exchangePosition')}</text>
                       </g>
                     </>
                   )
@@ -1219,25 +1219,25 @@ const Reconciliation: React.FC = () => {
                     </div>
                     <div className="tooltip-body">
                       <div className="tooltip-row">
-                        <span className="tooltip-label">本地持倉:</span>
+                        <span className="tooltip-label">{t('reconciliation.localPosition')}:</span>
                         <span className="tooltip-value">{positionTooltip.item.local_position.toFixed(4)}</span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">交易所持倉:</span>
+                        <span className="tooltip-label">{t('reconciliation.exchangePosition')}:</span>
                         <span className="tooltip-value">{positionTooltip.item.exchange_position.toFixed(4)}</span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">持倉差异:</span>
+                        <span className="tooltip-label">{t('reconciliation.positionDiff')}:</span>
                         <span className="tooltip-value" style={{ color: Math.abs(positionTooltip.item.position_diff) > 0.0001 ? '#ff4d4f' : '#52c41a' }}>
                           {positionTooltip.item.position_diff.toFixed(4)}
                         </span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">挂單買單:</span>
+                        <span className="tooltip-label">{t('reconciliation.activeBuyOrders')}:</span>
                         <span className="tooltip-value">{positionTooltip.item.active_buy_orders}</span>
                       </div>
                       <div className="tooltip-row">
-                        <span className="tooltip-label">挂單賣單:</span>
+                        <span className="tooltip-label">{t('reconciliation.activeSellOrders')}:</span>
                         <span className="tooltip-value">{positionTooltip.item.active_sell_orders}</span>
                       </div>
                     </div>
@@ -1318,20 +1318,20 @@ const Reconciliation: React.FC = () => {
       {/* 聚合數據表格 */}
       {viewMode === 'aggregated' && aggregatedData.length > 0 && (
         <div style={{ marginTop: '32px' }}>
-          <h3>聚合數據详情（{timePeriod === 'day' ? '按日' : timePeriod === 'week' ? '按周' : '按月'}）</h3>
+          <h3>{t('reconciliation.aggregatedDetail')} ({timePeriod === 'day' ? t('reconciliation.byDay') : timePeriod === 'week' ? t('reconciliation.byWeek') : t('reconciliation.byMonth')})</h3>
           <div style={{ overflowX: 'auto' }}>
             <table className="history-table">
               <thead>
                 <tr>
-                  <th>日期</th>
-                  <th>平均本地持倉</th>
-                  <th>平均交易所持倉</th>
-                  <th>平均持倉差异</th>
-                  <th>累计買入</th>
-                  <th>累计賣出</th>
-                  <th>預计盈利</th>
-                  <th>實際盈利</th>
-                  <th>記錄數</th>
+                  <th>{t('reconciliation.date')}</th>
+                  <th>{t('reconciliation.avgLocalPosition')}</th>
+                  <th>{t('reconciliation.avgExchangePosition')}</th>
+                  <th>{t('reconciliation.avgPositionDiff')}</th>
+                  <th>{t('reconciliation.totalBuyQty')}</th>
+                  <th>{t('reconciliation.totalSellQty')}</th>
+                  <th>{t('reconciliation.estimatedProfit')}</th>
+                  <th>{t('reconciliation.actualProfit')}</th>
+                  <th>{t('reconciliation.recordCount')}</th>
                 </tr>
               </thead>
               <tbody>

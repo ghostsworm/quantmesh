@@ -36,22 +36,22 @@ export const MobileNav: React.FC<MobileNavProps> = ({ onMenuOpen }) => {
     {
       path: '/',
       icon: ViewIcon,
-      label: t('nav.dashboard', '仪表盘'),
+      label: t('nav.dashboard', 'Dashboard'),
     },
     {
       path: '/positions',
       icon: TriangleUpIcon,
-      label: t('nav.positions', '持倉'),
+      label: t('nav.positions', 'Positions'),
     },
     {
       path: '/statistics',
       icon: InfoIcon,
-      label: t('nav.statistics', '统计'),
+      label: t('nav.statistics', 'Statistics'),
     },
     {
       path: '/configuration',
       icon: SettingsIcon,
-      label: t('nav.settings', '設置'),
+      label: t('nav.settings', 'Settings'),
     },
   ]
 

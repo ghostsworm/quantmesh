@@ -47,8 +47,8 @@ const NewbieRiskCheck: React.FC = () => {
     } catch (error) {
       console.error('獲取新手体检报告失败:', error);
       toast({
-        title: '獲取报告失败',
-        description: error instanceof Error ? error.message : '未知錯误',
+        title: t('newbieRiskCheck.fetchFailed'),
+        description: error instanceof Error ? error.message : t('newbieRiskCheck.unknownError'),
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -68,7 +68,7 @@ const NewbieRiskCheck: React.FC = () => {
       const response = await applyNewbieSecurityConfig();
       if (response.success) {
         toast({
-          title: '配置已更新',
+          title: t('newbieRiskCheck.configUpdated'),
           description: `${response.message} ${t('newbieRiskCheck.applySuccessNotice')}`,
           status: 'success',
           duration: 8000,
@@ -78,8 +78,8 @@ const NewbieRiskCheck: React.FC = () => {
       }
     } catch (error) {
       toast({
-        title: '应用失败',
-        description: error instanceof Error ? error.message : '未知錯误',
+        title: t('newbieRiskCheck.applyFailed'),
+        description: error instanceof Error ? error.message : t('newbieRiskCheck.unknownError'),
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -133,7 +133,7 @@ const NewbieRiskCheck: React.FC = () => {
             size="sm"
             onClick={fetchReport}
             isLoading={loading}
-            loadingText="刷新中..."
+            loadingText={t('newbieRiskCheck.refreshing')}
           >
             {t('common.refresh')}
           </Button>

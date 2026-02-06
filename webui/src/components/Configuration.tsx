@@ -208,8 +208,8 @@ const Configuration: React.FC = () => {
     } catch (err) {
       console.error('加載 YAML 配置失败:', err)
       toast({
-        title: '加載失败',
-        description: err instanceof Error ? err.message : '加載 YAML 配置失败',
+        title: t('configuration.loadFailedToast'),
+        description: err instanceof Error ? err.message : t('configuration.loadYamlFailed'),
         status: 'error',
         duration: 3000,
       })
@@ -225,14 +225,14 @@ const Configuration: React.FC = () => {
       setYamlError(result.error || null)
       if (result.valid) {
         toast({
-          title: '驗证通過',
-          description: '配置语法正确',
+          title: t('configuration.validationPassed'),
+          description: t('configuration.configSyntaxCorrect'),
           status: 'success',
           duration: 2000,
         })
       } else {
         toast({
-          title: '驗证失败',
+          title: t('configuration.validationFailed'),
           description: result.error,
           status: 'error',
           duration: 5000,
@@ -240,8 +240,8 @@ const Configuration: React.FC = () => {
       }
     } catch (err) {
       toast({
-        title: '驗证失败',
-        description: err instanceof Error ? err.message : '驗证配置失败',
+        title: t('configuration.validationFailed'),
+        description: err instanceof Error ? err.message : t('configuration.validateConfigFailed'),
         status: 'error',
         duration: 3000,
       })
@@ -253,8 +253,8 @@ const Configuration: React.FC = () => {
     const result = await validateConfigYAML(yamlContent)
     if (!result.valid) {
       toast({
-        title: '配置無效',
-        description: result.error || '请先修複配置錯误',
+        title: t('configuration.configInvalid'),
+        description: result.error || t('configuration.fixConfigErrors'),
         status: 'error',
         duration: 3000,
       })
@@ -272,8 +272,8 @@ const Configuration: React.FC = () => {
       trackConfigSaved('yaml')
       
       toast({
-        title: '保存成功',
-        description: result.requires_restart ? '部分配置需要重啟后生效' : '配置已更新並生效',
+        title: t('configuration.saveSuccess'),
+        description: result.requires_restart ? t('configuration.requiresRestart') : t('configuration.configUpdated'),
         status: 'success',
         duration: 3000,
       })
@@ -285,8 +285,8 @@ const Configuration: React.FC = () => {
       await loadConfig()
     } catch (err) {
       toast({
-        title: '保存失败',
-        description: err instanceof Error ? err.message : '保存配置失败',
+        title: t('configuration.saveFailed'),
+        description: err instanceof Error ? err.message : t('configuration.saveConfigFailed'),
         status: 'error',
         duration: 5000,
       })
@@ -309,16 +309,16 @@ const Configuration: React.FC = () => {
       setGeneratingKey(true)
       const result = await generateMasterKey()
       toast({
-        title: '生成成功',
-        description: `主密钥已生成: ${result.master_key_path}`,
+        title: t('configuration.generateSuccess'),
+        description: t('configuration.masterKeyGenerated', { path: result.master_key_path }),
         status: 'success',
         duration: 5000,
       })
       await loadSecurityStatus()
     } catch (err) {
       toast({
-        title: '生成失败',
-        description: err instanceof Error ? err.message : '生成主密钥失败',
+        title: t('configuration.generateFailed'),
+        description: err instanceof Error ? err.message : t('configuration.generateMasterKeyFailed'),
         status: 'error',
         duration: 5000,
       })
@@ -486,18 +486,18 @@ const Configuration: React.FC = () => {
 
   const exchanges = ['binance', 'bitget', 'bybit', 'gate', 'edgex', 'bit']
   const exchangeNames: Record<string, string> = {
-    binance: '币安 (Binance)',
-    bitget: 'Bitget',
-    bybit: 'Bybit',
-    gate: 'Gate.io',
-    edgex: 'EdgeX',
-    bit: 'Bit.com',
+    binance: t('exchanges.binance'),
+    bitget: t('exchanges.bitget'),
+    bybit: t('exchanges.bybit'),
+    gate: t('exchanges.gate'),
+    edgex: t('exchanges.edgex'),
+    bit: t('exchanges.bit'),
   }
 
   if (loading) return <Center h="400px"><Spinner size="xl" thickness="4px" color="blue.500" /></Center>
   if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />{t('configuration.loadFailed')}</Alert></Container>
 
-  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), t('configuration.globalTabs.security'), 'YAML 编辑器', '历史版本']
+  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), t('configuration.globalTabs.security'), t('configuration.globalTabs.yamlEditor'), t('configuration.globalTabs.history')]
   const symbolTabs = [t('configuration.symbolTabs.tradingParams'), t('configuration.symbolTabs.riskControl'), t('configuration.symbolTabs.aiStrategy')]
 
   const activeTabs = isGlobalView ? globalTabs : symbolTabs
@@ -637,9 +637,9 @@ const Configuration: React.FC = () => {
                         </Flex>
                       </Stack>
                     </ConfigCard>
-                    <ConfigCard title="交易對管理" icon={<RepeatIcon />}>
+                    <ConfigCard title={t('configuration.tradingPairManagement')} icon={<RepeatIcon />}>
                       <FormControl mb={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.defaultDirection', { defaultValue: '默认交易方向' })}</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.defaultDirection')}</FormLabel>
                         <Select
                           value={config.trading?.direction || 'LONG'}
                           onChange={(e) => updateConfigField('trading.direction', e.target.value)}
@@ -649,7 +649,7 @@ const Configuration: React.FC = () => {
                           <option value="LONG">{t('configuration.directionLong')}</option>
                           <option value="SHORT">{t('configuration.directionShort')}</option>
                         </Select>
-                        <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.defaultDirectionDesc', { defaultValue: '新交易對未單獨設置時使用此方向' })}</Text>
+                        <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.defaultDirectionDesc')}</Text>
                       </FormControl>
                       <SymbolManager
                         config={config}
@@ -666,7 +666,7 @@ const Configuration: React.FC = () => {
                             await updateConfig(newConfig)
                             toast({
                               title: t('configuration.saveSuccess'),
-                              description: '交易對配置已自动保存',
+                              description: t('configuration.pairConfigAutoSaved'),
                               status: 'success',
                               duration: 2000,
                               isClosable: true,
@@ -690,13 +690,13 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 1 && (
                   <VStack spacing={6} align="stretch">
-                    <ConfigCard title="AI 配置助手" icon={<StarIcon />}>
+                    <ConfigCard title={t('configuration.aiConfigAssistant')} icon={<StarIcon />}>
                       <VStack spacing={4} align="stretch">
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Gemini API Key</FormLabel>
-                          {renderPasswordInput('ai.gemini_api_key', '输入您的 Gemini API Key')}
+                          {renderPasswordInput('ai.gemini_api_key', t('configuration.geminiApiKeyPlaceholder'))}
                           <Text fontSize="xs" color="gray.500" mt={1}>
-                            用於 AI 配置助手功能，帮助您自动生成最优的网格交易参數和资金分配方案。系统内置异步任務处理，無需配置額外代理。
+                            {t('configuration.geminiApiKeyDesc')}
                           </Text>
                         </FormControl>
                         
@@ -707,25 +707,25 @@ const Configuration: React.FC = () => {
                           onClick={onAIWizardOpen}
                           isDisabled={!getNestedValue(config, 'ai.gemini_api_key')}
                         >
-                          打开 AI 配置助手
+                          {t('configuration.openAIAssistant')}
                         </Button>
                         {!getNestedValue(config, 'ai.gemini_api_key') && (
                           <Alert status="info" size="sm" borderRadius="md">
                             <AlertIcon />
                             <AlertDescription fontSize="xs">
-                              请先配置 Gemini API Key 以使用 AI 配置助手功能
+                              {t('configuration.configureGeminiFirst')}
                             </AlertDescription>
                           </Alert>
                         )}
                       </VStack>
                     </ConfigCard>
 
-                    <ConfigCard title="新聞監控配置" icon={<InfoIcon />}>
+                    <ConfigCard title={t('configuration.newsMonitorConfig')} icon={<InfoIcon />}>
                       <VStack spacing={4} align="stretch">
                         <Flex justify="space-between" align="center">
                           <Box>
-                            <Text fontWeight="600">啟用新聞監控</Text>
-                            <Text fontSize="xs" color="gray.500">使用 Gemini 分析新闻，預测價格波動风險</Text>
+                            <Text fontWeight="600">{t('configuration.enableNewsMonitor')}</Text>
+                            <Text fontSize="xs" color="gray.500">{t('configuration.newsMonitorDesc')}</Text>
                           </Box>
                           <Switch
                             colorScheme="blue"
@@ -737,8 +737,8 @@ const Configuration: React.FC = () => {
                         {config.news_monitor?.enabled && (
                           <Flex justify="space-between" align="center">
                             <Box>
-                              <Text fontWeight="600">啟用新聞分析</Text>
-                              <Text fontSize="xs" color="gray.500">定時調用 Gemini 對 BTC 市場做出預判（關閉後僅收集新聞，不進行分析）</Text>
+                              <Text fontWeight="600">{t('configuration.enableNewsAnalysis')}</Text>
+                              <Text fontSize="xs" color="gray.500">{t('configuration.newsAnalysisDesc')}</Text>
                             </Box>
                             <Switch
                               colorScheme="blue"
@@ -750,19 +750,19 @@ const Configuration: React.FC = () => {
                         
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">NewsAPI Key</FormLabel>
-                          {renderPasswordInput('news_monitor.news_api_key', '從 newsapi.org 獲取')}
+                          {renderPasswordInput('news_monitor.news_api_key', t('configuration.newsApiKeyFromSite'))}
                           <Text fontSize="xs" color="gray.500" mt={1}>
-                            用於收集新聞數據。免费版每天 100 次請求，付费版無限制。
+                            {t('configuration.newsApiKeyDesc')}
                             <a href="https://newsapi.org" target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', marginLeft: '4px' }}>
-                              獲取 API Key →
+                              {t('configuration.getApiKey')}
                             </a>
                           </Text>
                         </FormControl>
 
                         <Flex justify="space-between" align="center">
                           <Box>
-                            <Text fontWeight="600">Gemini 實時搜索</Text>
-                            <Text fontSize="xs" color="gray.500">啟用 Gemini 實時搜索获取更多新闻</Text>
+                            <Text fontWeight="600">{t('configuration.geminiRealtimeSearch')}</Text>
+                            <Text fontSize="xs" color="gray.500">{t('configuration.geminiRealtimeSearchDesc')}</Text>
                           </Box>
                           <Switch
                             colorScheme="green"
@@ -773,7 +773,7 @@ const Configuration: React.FC = () => {
 
                         <Divider />
                         
-                        <Text fontSize="sm" fontWeight="600" color="gray.700">AI Provider 配置</Text>
+                        <Text fontSize="sm" fontWeight="600" color="gray.700">{t('configuration.aiProviderConfig')}</Text>
                         
                         <SimpleGrid columns={2} spacing={4}>
                           <FormControl>
@@ -795,13 +795,13 @@ const Configuration: React.FC = () => {
                             </Select>
                           </FormControl>
                           <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">模型</FormLabel>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.model')}</FormLabel>
                             <Select
                               value={config.news_monitor?.ai_provider?.model || ''}
                               onChange={(e) => updateConfigField('news_monitor.ai_provider.model', e.target.value)}
                               borderRadius="xl"
                               size="sm"
-                              placeholder="使用默认模型"
+                              placeholder={t('configuration.useDefaultModel')}
                             >
                               {config.news_monitor?.ai_provider?.provider === 'gemini' && (
                                 <>
@@ -837,22 +837,22 @@ const Configuration: React.FC = () => {
 
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">API Key</FormLabel>
-                          {renderPasswordInput('news_monitor.ai_provider.api_key', '输入API Key')}
+                          {renderPasswordInput('news_monitor.ai_provider.api_key', t('configuration.enterApiKeyPlaceholder'))}
                           <Text fontSize="xs" color="gray.500" mt={1}>
-                            {config.news_monitor?.ai_provider?.provider === 'gemini' && '从 Google AI Studio 获取'}
-                            {config.news_monitor?.ai_provider?.provider === 'openai' && '从 OpenAI Platform 获取'}
-                            {config.news_monitor?.ai_provider?.provider === 'claude' && '从 Anthropic Console 获取'}
+                            {config.news_monitor?.ai_provider?.provider === 'gemini' && t('configuration.apiKeyFromGoogleAI')}
+                            {config.news_monitor?.ai_provider?.provider === 'openai' && t('configuration.apiKeyFromOpenAI')}
+                            {config.news_monitor?.ai_provider?.provider === 'claude' && t('configuration.apiKeyFromAnthropic')}
                             {config.news_monitor?.ai_provider?.provider === 'poe' && 'Poe API Key'}
                           </Text>
                         </FormControl>
 
                         {(config.news_monitor?.ai_provider?.provider === 'poe' || config.news_monitor?.ai_provider?.provider === 'openai' || config.news_monitor?.ai_provider?.provider === 'claude') && (
                           <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Base URL (可选)</FormLabel>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.baseUrlOptional')}</FormLabel>
                             <Input
                               value={config.news_monitor?.ai_provider?.base_url || ''}
                               onChange={(e) => updateConfigField('news_monitor.ai_provider.base_url', e.target.value)}
-                              placeholder="自定义API端点（Poe等代理服务需要）"
+                              placeholder={t('configuration.baseUrlPlaceholder')}
                               borderRadius="xl"
                               size="sm"
                             />
@@ -863,35 +863,35 @@ const Configuration: React.FC = () => {
 
                         <SimpleGrid columns={2} spacing={4}>
                           <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">新聞收集间隔</FormLabel>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.newsCollectInterval')}</FormLabel>
                             <Select
                               value={config.news_monitor?.news_collect_interval || '5m'}
                               onChange={(e) => updateConfigField('news_monitor.news_collect_interval', e.target.value)}
                               borderRadius="xl"
                               size="sm"
                             >
-                              <option value="5m">5 分钟</option>
-                              <option value="10m">10 分钟</option>
-                              <option value="15m">15 分钟</option>
-                              <option value="30m">30 分钟</option>
+                              <option value="5m">{t('configuration.interval5m')}</option>
+                              <option value="10m">{t('configuration.interval10m')}</option>
+                              <option value="15m">{t('configuration.interval15m')}</option>
+                              <option value="30m">{t('configuration.interval30m')}</option>
                             </Select>
                           </FormControl>
                           <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">AI 分析间隔</FormLabel>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.aiAnalysisInterval')}</FormLabel>
                             <Select
                               value={config.news_monitor?.analysis_interval || '30m'}
                               onChange={(e) => updateConfigField('news_monitor.analysis_interval', e.target.value)}
                               borderRadius="xl"
                               size="sm"
                             >
-                              <option value="5m">5 分钟</option>
-                              <option value="15m">15 分钟</option>
-                              <option value="30m">30 分钟</option>
-                              <option value="1h">1 小时</option>
-                              <option value="2h">2 小时</option>
-                              <option value="4h">4 小时</option>
-                              <option value="8h">8 小时</option>
-                              <option value="24h">24 小时</option>
+                              <option value="5m">{t('configuration.interval5m')}</option>
+                              <option value="15m">{t('configuration.interval15m')}</option>
+                              <option value="30m">{t('configuration.interval30m')}</option>
+                              <option value="1h">{t('configuration.interval1h')}</option>
+                              <option value="2h">{t('configuration.interval2h')}</option>
+                              <option value="4h">{t('configuration.interval4h')}</option>
+                              <option value="8h">{t('configuration.interval8h')}</option>
+                              <option value="24h">{t('configuration.interval24h')}</option>
                             </Select>
                           </FormControl>
                         </SimpleGrid>
@@ -900,7 +900,7 @@ const Configuration: React.FC = () => {
                           <Alert status="warning" size="sm" borderRadius="md">
                             <AlertIcon />
                             <AlertDescription fontSize="xs">
-                              未配置 NewsAPI Key，新聞監控功能将無法收集新闻
+                              {t('configuration.newsApiKeyMissing')}
                             </AlertDescription>
                           </Alert>
                         )}
@@ -1140,7 +1140,7 @@ const Configuration: React.FC = () => {
                     <ConfigCard title={t('configuration.dataStorage')} icon={<SettingsIcon />}>
                       <FormControl mb={4} display="flex" alignItems="center">
                         <FormLabel fontSize="xs" fontWeight="bold" mb={0} flex="1">
-                          {t('configuration.storageEnabled', '启用数据存储')}
+                          {t('configuration.storageEnabled')}
                         </FormLabel>
                         <Switch
                           isChecked={config.storage?.enabled !== false}
@@ -1279,11 +1279,11 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 5 && (
                   <VStack spacing={6} align="stretch">
-                    <ConfigCard title="YAML 配置编辑器" icon={<SettingsIcon />}>
+                    <ConfigCard title={t('configuration.yamlEditorTitle')} icon={<SettingsIcon />}>
                       <VStack spacing={4} align="stretch">
                         <HStack justify="space-between">
                           <Text fontSize="sm" color="gray.500">
-                            直接编辑完整的 YAML 配置文件，支援语法高亮和錯誤提示
+                            {t('configuration.yamlEditorDesc')}
                           </Text>
                           <HStack spacing={2}>
                             <Button
@@ -1292,7 +1292,7 @@ const Configuration: React.FC = () => {
                               onClick={loadYamlContent}
                               isLoading={yamlLoading}
                             >
-                              刷新
+                              {t('common.refresh')}
                             </Button>
                             <Button
                               size="sm"
@@ -1300,7 +1300,7 @@ const Configuration: React.FC = () => {
                               onClick={handleYamlValidate}
                               isDisabled={!yamlContent}
                             >
-                              驗证
+                              {t('configuration.validate')}
                             </Button>
                             <Button
                               size="sm"
@@ -1309,7 +1309,7 @@ const Configuration: React.FC = () => {
                               onClick={handleYamlPreview}
                               isDisabled={!yamlContent || yamlContent === originalYamlContent}
                             >
-                              預览变更
+                              {t('configuration.previewChanges')}
                             </Button>
                           </HStack>
                         </HStack>
@@ -1338,8 +1338,8 @@ const Configuration: React.FC = () => {
                         ) : (
                           <Center py={10}>
                             <VStack spacing={3}>
-                              <Text color="gray.500">点击"刷新"加載配置</Text>
-                              <Button onClick={loadYamlContent}>加載配置</Button>
+                              <Text color="gray.500">{t('configuration.clickRefreshToLoad')}</Text>
+                              <Button onClick={loadYamlContent}>{t('configuration.loadConfig')}</Button>
                             </VStack>
                           </Center>
                         )}
@@ -1350,9 +1350,9 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 6 && (
                   <VStack spacing={6} align="stretch">
-                    <ConfigCard title="配置历史版本" icon={<RepeatIcon />}>
+                    <ConfigCard title={t('configuration.configHistoryTitle')} icon={<RepeatIcon />}>
                       <Text fontSize="sm" color="gray.500" mb={4}>
-                        查看和管理配置的历史版本，支援版本對比和恢複
+                        {t('configuration.configHistoryDesc')}
                       </Text>
                       <ConfigHistory
                         onRestore={() => {
@@ -1393,7 +1393,7 @@ const Configuration: React.FC = () => {
                           </NumberInput>
                           {selectedExchange === 'binance' && (
                             <Text fontSize="xs" color="orange.600" mt={1}>
-                              币安合約最小下單名义金額通常要求 ≥ 100 USDT。為避免數量精度/步進導致 99.x 的临界失败，建议設置 ≥ 105。
+                              {t('configuration.binanceMinOrderWarning')}
                             </Text>
                           )}
                         </FormControl>
@@ -1555,11 +1555,11 @@ const Configuration: React.FC = () => {
                     </SimpleGrid>
                   </ConfigCard>
 
-                  <ConfigCard title="新聞監控" icon={<BellIcon />}>
+                  <ConfigCard title={t('configuration.newsMonitorTitle')} icon={<BellIcon />}>
                     <Flex justify="space-between" align="center" mb={6}>
                       <Box>
-                        <Text fontWeight="600">啟用新聞監控</Text>
-                        <Text fontSize="xs" color="gray.500">使用 Gemini 分析新闻，預测價格波動风險</Text>
+                        <Text fontWeight="600">{t('configuration.enableNewsMonitor')}</Text>
+                        <Text fontSize="xs" color="gray.500">{t('configuration.newsMonitorDesc')}</Text>
                       </Box>
                       <Switch
                         colorScheme="blue"
@@ -1569,31 +1569,31 @@ const Configuration: React.FC = () => {
                     </Flex>
                     <FormControl mb={4}>
                       <FormLabel fontSize="xs" fontWeight="bold">NewsAPI Key</FormLabel>
-                      {renderPasswordInput('news_monitor.news_api_key', '用於收集新闻')}
+                      {renderPasswordInput('news_monitor.news_api_key', t('configuration.forCollectingNews'))}
                     </FormControl>
                     <FormControl mb={4}>
-                      <FormLabel fontSize="xs" fontWeight="bold">Gemini 搜索</FormLabel>
+                      <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.geminiSearch')}</FormLabel>
                       <Switch
                         isChecked={config.news_monitor?.use_gemini_search !== false}
                         onChange={(e) => updateConfigField('news_monitor.use_gemini_search', e.target.checked)}
                       />
-                      <Text fontSize="xs" color="gray.500" mt={1}>啟用 Gemini 實時搜索分析</Text>
+                      <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.geminiRealtimeSearchDesc')}</Text>
                     </FormControl>
                     <SimpleGrid columns={2} spacing={6}>
                       <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold">分析间隔</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.analysisInterval')}</FormLabel>
                         <Select
                           value={config.news_monitor?.analysis_interval || '30m'}
                           onChange={(e) => updateConfigField('news_monitor.analysis_interval', e.target.value)}
                           borderRadius="xl"
                         >
-                          <option value="15m">15 分钟</option>
-                          <option value="30m">30 分钟</option>
-                          <option value="60m">60 分钟</option>
+                          <option value="15m">{t('configuration.interval15m')}</option>
+                          <option value="30m">{t('configuration.interval30m')}</option>
+                          <option value="60m">{t('configuration.interval60m')}</option>
                         </Select>
                       </FormControl>
                       <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold">暂停交易阈值</FormLabel>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.pauseTradingThreshold')}</FormLabel>
                         <NumberInput
                           value={(config.news_monitor?.risk_thresholds?.stop_trading_probability ?? 0.7) * 100}
                           onChange={(_, v) => updateConfigField('news_monitor.risk_thresholds.stop_trading_probability', (v || 70) / 100)}
@@ -1602,7 +1602,7 @@ const Configuration: React.FC = () => {
                         >
                           <NumberInputField borderRadius="xl" />
                         </NumberInput>
-                        <Text fontSize="xs" color="gray.500">概率超過此值暂停交易 (%)</Text>
+                        <Text fontSize="xs" color="gray.500">{t('configuration.pauseTradingThresholdDesc')}</Text>
                       </FormControl>
                     </SimpleGrid>
                   </ConfigCard>
@@ -1751,18 +1751,19 @@ const Configuration: React.FC = () => {
               setConfig(newConfig)
               await startTrading(exchange, symbol)
               setDirectionConfirm((p) => ({ ...p, isOpen: false, loading: false }))
-              toast({ title: t('configuration.directionSwitchSuccess', { defaultValue: '方向已切换并已重启交易' }), status: 'success', duration: 3000 })
+              toast({ title: t('configuration.directionSwitchSuccess'), status: 'success', duration: 3000 })
             } catch (err) {
               setDirectionConfirm((p) => ({ ...p, loading: false }))
-              toast({ title: t('configuration.directionSwitchFailed', { defaultValue: '方向切换失败' }), description: err instanceof Error ? err.message : String(err), status: 'error', duration: 5000 })
+              toast({ title: t('configuration.directionSwitchFailed'), description: err instanceof Error ? err.message : String(err), status: 'error', duration: 5000 })
               throw err
             }
           }}
-          title={t('configuration.directionSwitchConfirmTitle', { defaultValue: '切换交易方向' })}
+          title={t('configuration.directionSwitchConfirmTitle')}
           message={t('configuration.directionSwitchConfirmMessage', {
-            defaultValue: '切换方向将依次执行：撤单、平仓、停止交易、更新配置、重启交易。请确认？',
+
+
           })}
-          confirmText={t('common.confirm', { defaultValue: '确认' })}
+          confirmText={t('common.confirm')}
           confirmColorScheme="orange"
           isLoading={directionConfirm.loading}
         />
@@ -1774,10 +1775,10 @@ const Configuration: React.FC = () => {
           onConfirm={handleYamlSave}
           oldValue={originalYamlContent}
           newValue={yamlContent}
-          oldTitle="當前配置"
-          newTitle="修改后的配置"
-          title="配置变更預览"
-          confirmText="确认保存"
+          oldTitle={t('configuration.currentConfig')}
+          newTitle={t('configuration.modifiedConfig')}
+          title={t('configuration.configChangePreview')}
+          confirmText={t('configuration.confirmSave')}
           isLoading={yamlSaving}
         />
       </VStack>

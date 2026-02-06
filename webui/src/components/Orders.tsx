@@ -34,9 +34,17 @@ import {
   Select,
   VStack,
   Flex,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalCloseButton,
+  useDisclosure,
+  Divider,
 } from '@chakra-ui/react'
 import { CloseIcon } from '@chakra-ui/icons'
-import { getPendingOrders, getOrderHistory, cancelOrder, batchCancelOrders, syncOrders, getSymbols, PendingOrderInfo } from '../services/api'
+import { getPendingOrders, getOrderHistory, cancelOrder, batchCancelOrders, syncOrders, getSymbols, getTradeDetails, PendingOrderInfo, TradeDetailResponse } from '../services/api'
 
 interface OrderInfo {
   order_id: number
@@ -76,6 +84,24 @@ const Orders: React.FC = () => {
   const [historyFilterStatus, setHistoryFilterStatus] = useState<string>('all')
   const [historyFilterSide, setHistoryFilterSide] = useState<string>('all')
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
+
+  // 🔥 成交明细 Modal 状态
+  const { isOpen: isDetailOpen, onOpen: onDetailOpen, onClose: onDetailClose } = useDisclosure()
+  const [tradeDetail, setTradeDetail] = useState<TradeDetailResponse | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const handleShowTradeDetail = async (orderID: number) => {
+    setDetailLoading(true)
+    onDetailOpen()
+    try {
+      const detail = await getTradeDetails(orderID)
+      setTradeDetail(detail)
+    } catch {
+      toast({ title: t('orders.loadDetailFailed'), status: 'error', duration: 3000 })
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   useEffect(() => {
     const fetchPendingOrders = async () => {
@@ -756,9 +782,17 @@ const Orders: React.FC = () => {
                           </Td>
                           <Td isNumeric>
                             {order.pnl != null && order.pnl !== undefined ? (
-                              <Text color={order.pnl >= 0 ? 'green.500' : 'red.500'} fontWeight="medium">
-                                {order.pnl >= 0 ? '+' : ''}{order.pnl.toFixed(4)}
-                              </Text>
+                              <Tooltip label={t('orders.clickToViewDetail')} placement="top" hasArrow>
+                                <Text
+                                  color={order.pnl >= 0 ? 'green.500' : 'red.500'}
+                                  fontWeight="medium"
+                                  cursor="pointer"
+                                  _hover={{ textDecoration: 'underline', opacity: 0.8 }}
+                                  onClick={() => handleShowTradeDetail(order.order_id)}
+                                >
+                                  {order.pnl >= 0 ? '+' : ''}{order.pnl.toFixed(4)}
+                                </Text>
+                              </Tooltip>
                             ) : (
                               '-'
                             )}
@@ -774,6 +808,111 @@ const Orders: React.FC = () => {
           </TabPanel>
         </TabPanels>
       </Tabs>
+
+      {/* 🔥 成交明细 Modal */}
+      <Modal isOpen={isDetailOpen} onClose={onDetailClose} size="xl" scrollBehavior="inside">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>{t('orders.tradeDetail')}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            {detailLoading ? (
+              <Center py={8}><Spinner size="lg" /></Center>
+            ) : tradeDetail ? (
+              <VStack spacing={4} align="stretch">
+                {/* 委托信息 */}
+                {tradeDetail.order && (
+                  <Box bg="gray.50" p={4} borderRadius="lg">
+                    <Text fontWeight="bold" mb={2}>{t('orders.orderInfo')}</Text>
+                    <SimpleGrid columns={2} spacing={2} fontSize="sm">
+                      <Text color="gray.500">{t('orders.orderId')}</Text>
+                      <Text fontFamily="mono">{tradeDetail.order.order_id}</Text>
+                      <Text color="gray.500">{t('orders.side')}</Text>
+                      <Badge colorScheme={tradeDetail.order.side === 'BUY' ? 'green' : 'red'} w="fit-content">
+                        {tradeDetail.order.side === 'BUY' ? t('orders.buy') : t('orders.sell')}
+                      </Badge>
+                      <Text color="gray.500">{t('orders.price')}</Text>
+                      <Text fontWeight="600">{tradeDetail.order.price?.toFixed(2)}</Text>
+                      <Text color="gray.500">{t('orders.orderQty')}</Text>
+                      <Text>{tradeDetail.order.quantity > 0 ? tradeDetail.order.quantity.toFixed(6) : '-'}</Text>
+                      <Text color="gray.500">{t('orders.filledQty')}</Text>
+                      <Text>{tradeDetail.order.filled_qty > 0 ? tradeDetail.order.filled_qty.toFixed(6) : '-'}</Text>
+                      <Text color="gray.500">{t('orders.createdAt')}</Text>
+                      <Text>{formatTime(tradeDetail.order.created_at)}</Text>
+                    </SimpleGrid>
+                  </Box>
+                )}
+
+                <Divider />
+
+                {/* 成交明细 */}
+                <Box>
+                  <Text fontWeight="bold" mb={2}>
+                    {t('orders.fillRecords')} ({tradeDetail.fill_count} {t('orders.fills')})
+                  </Text>
+                  {tradeDetail.fills.length === 0 ? (
+                    <Text color="gray.400" textAlign="center" py={4}>{t('orders.noFills')}</Text>
+                  ) : (
+                    <TableContainer>
+                      <Table size="sm" variant="simple">
+                        <Thead>
+                          <Tr>
+                            <Th>{t('orders.buyPrice')}</Th>
+                            <Th>{t('orders.sellPrice')}</Th>
+                            <Th isNumeric>{t('orders.quantity')}</Th>
+                            <Th isNumeric>{t('orders.pnl')}</Th>
+                            <Th isNumeric>{t('orders.fee')}</Th>
+                            <Th>{t('orders.time')}</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {tradeDetail.fills.map((fill) => (
+                            <Tr key={fill.id}>
+                              <Td>{fill.buy_price.toFixed(2)}</Td>
+                              <Td>{fill.sell_price.toFixed(2)}</Td>
+                              <Td isNumeric>{fill.quantity.toFixed(6)}</Td>
+                              <Td isNumeric>
+                                <Text color={fill.pnl >= 0 ? 'green.500' : 'red.500'} fontWeight="600">
+                                  {fill.pnl >= 0 ? '+' : ''}{fill.pnl.toFixed(4)}
+                                </Text>
+                              </Td>
+                              <Td isNumeric>{fill.fee > 0 ? fill.fee.toFixed(6) : '-'}</Td>
+                              <Td fontSize="xs">{formatTime(fill.created_at)}</Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
+
+                <Divider />
+
+                {/* 汇总 */}
+                <Box bg="blue.50" p={4} borderRadius="lg">
+                  <Text fontWeight="bold" mb={2}>{t('orders.summary')}</Text>
+                  <SimpleGrid columns={2} spacing={2} fontSize="sm">
+                    <Text color="gray.600">{t('orders.totalFilledQty')}</Text>
+                    <Text fontWeight="600">{tradeDetail.summary.total_quantity.toFixed(6)}</Text>
+                    <Text color="gray.600">{t('orders.grossPnl')}</Text>
+                    <Text fontWeight="700" color={tradeDetail.summary.total_pnl >= 0 ? 'green.600' : 'red.500'}>
+                      {tradeDetail.summary.total_pnl >= 0 ? '+' : ''}{tradeDetail.summary.total_pnl.toFixed(4)} USDT
+                    </Text>
+                    <Text color="gray.600">{t('orders.totalFee')}</Text>
+                    <Text color="orange.500">-{tradeDetail.summary.total_fee.toFixed(6)} USDT</Text>
+                    <Text color="gray.600">{t('orders.netPnl')}</Text>
+                    <Text fontWeight="800" fontSize="md" color={tradeDetail.summary.net_pnl >= 0 ? 'green.600' : 'red.500'}>
+                      {tradeDetail.summary.net_pnl >= 0 ? '+' : ''}{tradeDetail.summary.net_pnl.toFixed(4)} USDT
+                    </Text>
+                  </SimpleGrid>
+                </Box>
+              </VStack>
+            ) : (
+              <Text color="gray.400" textAlign="center" py={8}>{t('orders.noData')}</Text>
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </Box>
   )
 }

@@ -102,12 +102,12 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
 
   const exchanges = ['binance', 'bitget', 'bybit', 'gate', 'edgex', 'bit']
   const exchangeNames: Record<string, string> = {
-    binance: '币安 (Binance)',
-    bitget: 'Bitget',
-    bybit: 'Bybit',
-    gate: 'Gate.io',
-    edgex: 'EdgeX',
-    bit: 'Bit.com',
+    binance: t('exchanges.binance'),
+    bitget: t('exchanges.bitget'),
+    bybit: t('exchanges.bybit'),
+    gate: t('exchanges.gate'),
+    edgex: t('exchanges.edgex'),
+    bit: t('exchanges.bit'),
   }
   
   // 支援現貨的交易所列表
@@ -240,8 +240,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       const exchangeConfig = config.exchanges?.[exchange as keyof typeof config.exchanges]
       if (!exchangeConfig?.api_key || !exchangeConfig?.secret_key) {
         toast({
-          title: '無法加載交易對',
-          description: `请先配置 ${exchangeNames[exchange] || exchange} 的 API Key 和 Secret Key`,
+          title: t('symbolManager.cannotLoadPairs'),
+          description: t('symbolManager.configureApiKeyFirst', { exchange: exchangeNames[exchange] || exchange }),
           status: 'warning',
           duration: 3000,
         })
@@ -260,8 +260,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       setAvailableSymbols(response.symbols || [])
     } catch (error: any) {
       toast({
-        title: '加載交易對失败',
-        description: error.message || '请检查 API 配置',
+        title: t('symbolManager.loadPairsFailed'),
+        description: error.message || t('symbolManager.checkApiConfig'),
         status: 'error',
         duration: 3000,
       })
@@ -317,7 +317,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     setSymbols(newSymbols)
     onUpdate(newSymbols)
     toast({
-      title: '刪除成功',
+      title: t('symbolManager.deleteSuccess'),
       status: 'success',
       duration: 2000,
     })
@@ -326,7 +326,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
   const handleSave = () => {
     if (!formData.symbol) {
       toast({
-        title: '请選擇交易對',
+        title: t('symbolManager.pleaseSelectPair'),
         status: 'warning',
         duration: 2000,
       })
@@ -347,8 +347,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       const mt = formData.market_type || 'futures'
       if (newSymbols.some(s => s.symbol === formData.symbol && (s.exchange || '') === (formData.exchange || '') && (s.market_type || 'futures') === mt)) {
         toast({
-          title: '交易對已存在',
-          description: `${formData.exchange || config.app?.current_exchange}:${formData.symbol} 已在配置中`,
+          title: t('symbolManager.pairExists'),
+          description: t('symbolManager.pairExistsDesc', { exchange: formData.exchange || config.app?.current_exchange, symbol: formData.symbol }),
           status: 'warning',
           duration: 3000,
         })
@@ -362,7 +362,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     onAddClose()
     onEditClose()
     toast({
-      title: editingIndex >= 0 ? '更新成功' : '添加成功',
+      title: editingIndex >= 0 ? t('symbolManager.updateSuccess') : t('symbolManager.addSuccess'),
       status: 'success',
       duration: 2000,
     })
@@ -372,7 +372,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
   const handleQuickSetup = async () => {
     if (quickSetupSelectedSymbols.length === 0) {
       toast({
-        title: '请至少选擇一個交易對',
+        title: t('symbolManager.selectAtLeastOnePair'),
         status: 'warning',
         duration: 2000,
       })
@@ -381,7 +381,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     
     if (quickSetupTotalCapital <= 0) {
       toast({
-        title: '请输入總资金',
+        title: t('symbolManager.enterTotalCapital'),
         status: 'warning',
         duration: 2000,
       })
@@ -429,8 +429,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       if (newSymbols.length === 0) {
         // 所有交易對都已存在，提示用戶刪除
         toast({
-          title: '所有选中的交易對都已存在',
-          description: `以下交易對在 ${exchangeName} 已存在：${existingSymbols.join(', ')}。请先刪除現有配置后再添加。`,
+          title: t('symbolManager.allSelectedExist'),
+          description: t('symbolManager.allSelectedExistDesc', { exchange: exchangeName, symbols: existingSymbols.join(', ') }),
           status: 'warning',
           duration: 5000,
           isClosable: true,
@@ -442,8 +442,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       // 如果有部分交易對已存在，也提示
       if (existingSymbols.length > 0) {
         toast({
-          title: '部分交易對已存在',
-          description: `以下交易對已跳過：${existingSymbols.join(', ')}。已成功添加 ${newSymbols.length} 個新交易對。`,
+          title: t('symbolManager.someExist'),
+          description: t('symbolManager.someExistDesc', { symbols: existingSymbols.join(', '), count: newSymbols.length }),
           status: 'info',
           duration: 4000,
           isClosable: true,
@@ -455,8 +455,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       onUpdate(updatedSymbols)
       
       toast({
-        title: '一键設置成功',
-        description: `已添加 ${newSymbols.length} 個交易對配置`,
+        title: t('symbolManager.quickSetupSuccess'),
+        description: t('symbolManager.quickSetupSuccessDesc', { count: newSymbols.length }),
         status: 'success',
         duration: 3000,
       })
@@ -465,8 +465,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       setQuickSetupSelectedSymbols([])
     } catch (error: any) {
       toast({
-        title: '一键設置失败',
-        description: error.message || '请稍后重試',
+        title: t('symbolManager.quickSetupFailed'),
+        description: error.message || t('symbolManager.tryLater'),
         status: 'error',
         duration: 3000,
       })
@@ -486,9 +486,9 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
             size="sm"
           >
             <TabList>
-              <Tab>全部 ({symbols.length})</Tab>
-              <Tab>現貨 ({symbols.filter((s) => s.market_type === 'spot').length})</Tab>
-              <Tab>合約 ({symbols.filter((s) => (s.market_type || 'futures') === 'futures').length})</Tab>
+              <Tab>{t('common.all')} ({symbols.length})</Tab>
+              <Tab>{t('symbolManager.spot')} ({symbols.filter((s) => s.market_type === 'spot').length})</Tab>
+              <Tab>{t('symbolManager.futures')} ({symbols.filter((s) => (s.market_type || 'futures') === 'futures').length})</Tab>
             </TabList>
           </Tabs>
           <HStack spacing={2}>
@@ -500,7 +500,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               borderRadius="md"
               variant="outline"
             >
-              新手一键設置
+              {t('symbolManager.quickSetup')}
             </Button>
             <Button
               leftIcon={<AddIcon />}
@@ -509,7 +509,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               onClick={handleAdd}
               borderRadius="md"
             >
-              添加交易對
+              {t('symbolManager.addPair')}
             </Button>
           </HStack>
         </HStack>
@@ -526,8 +526,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
             <AlertIcon />
             <AlertDescription>
               {symbols.length === 0
-                ? '还没有配置任何交易對。点击"添加交易對"按钮开始配置。'
-                : `當前 Tab 下没有${marketTypeTab === 'spot' ? '現貨' : marketTypeTab === 'futures' ? '合約' : ''}交易對。`}
+                ? t('symbolManager.noPairs')
+                : t('symbolManager.noTabPairs', { type: marketTypeTab === 'spot' ? t('symbolManager.spot') : marketTypeTab === 'futures' ? t('symbolManager.futures') : '' })}
             </AlertDescription>
           </Alert>
         ) : (
@@ -535,15 +535,15 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
             <Table variant="simple" size="sm">
               <Thead>
                 <Tr>
-                  <Th>交易所</Th>
-                  <Th>市场</Th>
-                  <Th>交易對</Th>
-                  <Th>方向</Th>
-                  <Th>價格間隔</Th>
-                  <Th>订單金額</Th>
-                  <Th>買單窗口</Th>
-                  <Th>賣單視窗</Th>
-                  <Th>操作</Th>
+                  <Th>{t('symbolManager.exchange')}</Th>
+                  <Th>{t('symbolManager.market')}</Th>
+                  <Th>{t('symbolManager.symbol')}</Th>
+                  <Th>{t('configuration.direction')}</Th>
+                  <Th>{t('symbolManager.priceInterval')}</Th>
+                  <Th>{t('symbolManager.orderAmount')}</Th>
+                  <Th>{t('symbolManager.buyWindow')}</Th>
+                  <Th>{t('symbolManager.sellWindow')}</Th>
+                  <Th>{t('symbolManager.actions')}</Th>
                 </Tr>
               </Thead>
               <Tbody>
@@ -570,13 +570,13 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                           borderRadius="full"
                           px={3}
                         >
-                          {sym.market_type === 'spot' ? '🟢 現貨' : '📈 合約'}
+                          {sym.market_type === 'spot' ? `🟢 ${t('symbolManager.spot')}` : `📈 ${t('symbolManager.futures')}`}
                         </Badge>
                       </Td>
                       <Td fontWeight="600">{sym.symbol}</Td>
                       <Td>
                         <Badge colorScheme={(sym.direction === 'SHORT' ? 'orange' : 'green') as any} fontSize="xs">
-                          {(sym.direction === 'SHORT' ? '做空' : '做多')}
+                          {sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
                         </Badge>
                       </Td>
                       <Td>{sym.price_interval}</Td>
@@ -586,7 +586,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                       <Td>
                         <HStack spacing={2}>
                           <IconButton
-                            aria-label="编辑"
+                            aria-label={t('symbolManager.edit')}
                             icon={<EditIcon />}
                             size="xs"
                             colorScheme="blue"
@@ -594,7 +594,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                             onClick={() => handleEdit(originalIndex)}
                           />
                           <IconButton
-                            aria-label="刪除"
+                            aria-label={t('symbolManager.delete')}
                             icon={<DeleteIcon />}
                             size="xs"
                             colorScheme="red"
@@ -617,12 +617,12 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       <Modal isOpen={isAddOpen || isEditOpen} onClose={editingIndex >= 0 ? onEditClose : onAddClose} size="xl">
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>{editingIndex >= 0 ? '编辑交易對' : '添加交易對'}</ModalHeader>
+          <ModalHeader>{editingIndex >= 0 ? t('symbolManager.editSymbol') : t('symbolManager.addSymbol')}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4}>
               <FormControl isRequired>
-                <FormLabel>交易所</FormLabel>
+                <FormLabel>{t('symbolManager.exchange')}</FormLabel>
                 <Select
                   value={formData.exchange || ''}
                   onChange={(e) => {
@@ -637,7 +637,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     }
                   }}
                 >
-                  <option value="">使用默认交易所 ({exchangeNames[config.app?.current_exchange || ''] || config.app?.current_exchange})</option>
+                  <option value="">{t('symbolManager.useDefaultExchange', { exchange: exchangeNames[config.app?.current_exchange || ''] || config.app?.current_exchange })}</option>
                   {exchanges.map((ex) => (
                     <option key={ex} value={ex}>{exchangeNames[ex] || ex}</option>
                   ))}
@@ -645,7 +645,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               </FormControl>
 
               <FormControl>
-                <FormLabel>市場類型</FormLabel>
+                <FormLabel>{t('symbolManager.marketType')}</FormLabel>
                 <Select
                   value={formData.market_type || 'futures'}
                   onChange={(e) => {
@@ -656,8 +656,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     }
                   }}
                 >
-                  <option value="futures">合約</option>
-                  <option value="spot">現貨</option>
+                  <option value="futures">{t('symbolManager.futures')}</option>
+                  <option value="spot">{t('symbolManager.spot')}</option>
                 </Select>
               </FormControl>
 
@@ -673,7 +673,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               </FormControl>
 
               <FormControl isRequired>
-                <FormLabel>交易對</FormLabel>
+                <FormLabel>{t('symbolManager.symbol')}</FormLabel>
                 {availableSymbols.length > 0 ? (
                   <Select
                     value={formData.symbol}
@@ -684,7 +684,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                         fetchSymbolPrice(symbol, formData.exchange || config.app?.current_exchange || '')
                       }
                     }}
-                    placeholder="選擇交易對"
+                    placeholder={t('symbolManager.selectPairPlaceholder')}
                   >
                     {availableSymbols.map((sym) => (
                       <option key={sym} value={sym}>{sym}</option>
@@ -700,7 +700,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                         fetchSymbolPrice(symbol, formData.exchange || config.app?.current_exchange || '')
                       }
                     }}
-                    placeholder="例如: BCHUSDT"
+                    placeholder={t('symbolManager.inputPairPlaceholder')}
                   />
                 )}
                 {formData.exchange && (
@@ -711,18 +711,18 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     onClick={() => loadAvailableSymbols(formData.exchange || '')}
                     isLoading={loadingSymbols}
                   >
-                    {availableSymbols.length > 0 ? '刷新交易對列表' : `從交易所加載${formData.market_type === 'spot' ? '現貨' : '合約'}交易對列表`}
+                    {availableSymbols.length > 0 ? t('symbolManager.refreshPairList') : t('symbolManager.loadPairListFromExchange', { type: formData.market_type === 'spot' ? t('symbolManager.spot') : t('symbolManager.futures') })}
                   </Button>
                 )}
                 {formData.symbol && currentPrice && (
                   <Text fontSize="xs" color="gray.500" mt={1}>
-                    當前價格: <Code>{currentPrice.toFixed(2)} USDT</Code>
+                    {t('symbolManager.currentPrice')} <Code>{currentPrice.toFixed(2)} USDT</Code>
                   </Text>
                 )}
               </FormControl>
 
               <FormControl>
-                <FormLabel>分配资金 (USDT)</FormLabel>
+                <FormLabel>{t('symbolManager.allocateCapital')}</FormLabel>
                 <HStack spacing={2}>
                   <NumberInput
                     flex={1}
@@ -741,8 +741,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                       onClick={() => {
                         if (!formData.symbol) {
                           toast({
-                            title: '请先選擇交易對',
-                            description: '需要交易對信息才能计算建议值',
+                            title: t('symbolManager.selectPairFirst'),
+                            description: t('symbolManager.needPairForRecommendation'),
                             status: 'warning',
                             duration: 3000,
                           })
@@ -750,8 +750,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                         }
                         if (!currentPrice) {
                           toast({
-                            title: '無法獲取當前價格',
-                            description: '请确保已選擇交易對並等待價格加載',
+                            title: t('symbolManager.cannotGetPrice'),
+                            description: t('symbolManager.ensurePairSelected'),
                             status: 'warning',
                             duration: 3000,
                           })
@@ -774,21 +774,21 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                         
                         setFormData(updatedFormData)
                         toast({
-                          title: '建议值已应用',
+                          title: t('symbolManager.recommendationsApplied'),
                           description: allocatedCapital > 0 
-                            ? '已根據當前價格和分配资金自动填充所有建议值'
-                            : '已根據當前價格填充價格間隔建议值（请設置分配资金以獲取完整建议）',
+                            ? t('symbolManager.recommendationsAppliedWithCapital')
+                            : t('symbolManager.recommendationsAppliedPriceOnly'),
                           status: 'success',
                           duration: 3000,
                         })
                       }}
                     >
-                      一键引入建议值
+                      {t('symbolManager.applyRecommendations')}
                     </Button>
                   )}
                 </HStack>
                 <Text fontSize="xs" color="gray.500" mt={1}>
-                  用於计算建议的网格参數
+                  {t('symbolManager.forCalculatingGridParams')}
                 </Text>
               </FormControl>
 
@@ -798,27 +798,19 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               <Alert status="info" borderRadius="md" fontSize="sm">
                 <AlertIcon />
                 <VStack align="start" spacing={1}>
-                  <Text fontWeight="600">配置规则說明</Text>
-                  <Text fontSize="xs">
-                    • <strong>價格間隔</strong>: 建议為币值的 0.1% - 1%，太小會導致频繁交易，太大會錯過机會
-                  </Text>
-                  <Text fontSize="xs">
-                    • <strong>订單金額</strong>: 根據分配资金量設置，建议單笔订單不超過總资金的 5%
-                  </Text>
-                  <Text fontSize="xs">
-                    • <strong>窗口大小</strong>: 根據资金量和订單金額计算，确保有足够资金覆盖所有网格
-                  </Text>
-                  <Text fontSize="xs">
-                    • <strong>最小訂單價值</strong>: 建议不小於订單金額的 50%，避免過小的订單
-                  </Text>
+                  <Text fontWeight="600">{t('symbolManager.configRulesTitle')}</Text>
+                  <Text fontSize="xs">{t('symbolManager.rulePriceInterval')}</Text>
+                  <Text fontSize="xs">{t('symbolManager.ruleOrderAmount')}</Text>
+                  <Text fontSize="xs">{t('symbolManager.ruleWindowSize')}</Text>
+                  <Text fontSize="xs">{t('symbolManager.ruleMinOrderValue')}</Text>
                 </VStack>
               </Alert>
 
               <FormControl>
                 <FormLabel>
                   <HStack>
-                    <Text>價格間隔 (USDT)</Text>
-                    <Tooltip label="建议為币值的 0.1% - 1%。如果已選擇交易對，會根據當前價格自动计算建议值。">
+                    <Text>{t('symbolManager.priceIntervalLabel')}</Text>
+                    <Tooltip label={t('symbolManager.priceIntervalTooltip')}>
                       <InfoIcon boxSize={3} color="gray.400" />
                     </Tooltip>
                   </HStack>
@@ -837,8 +829,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                                    formData.price_interval <= rec.price_interval.max
                   return (
                     <Text fontSize="xs" color={isInRange ? "green.500" : "orange.500"} mt={1}>
-                      {isInRange ? "✓" : "⚠"} 建议範圍: {rec.price_interval.min.toFixed(2)} - {rec.price_interval.max.toFixed(2)} USDT
-                      {!isInRange && ` (推荐: ${rec.price_interval.suggested.toFixed(2)} USDT)`}
+                      {isInRange ? "✓" : "⚠"} {t('symbolManager.suggestedRange', { min: rec.price_interval.min.toFixed(2), max: rec.price_interval.max.toFixed(2) })}
+                      {!isInRange && ` (${t('symbolManager.recommended', { value: rec.price_interval.suggested.toFixed(2) })})`}
                     </Text>
                   )
                 })()}
@@ -847,8 +839,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               <FormControl>
                 <FormLabel>
                   <HStack>
-                    <Text>订單金額 (USDT)</Text>
-                    <Tooltip label="每單購買金額。建议根據分配资金量設置：小額资金(500以下)建议20-30，中等资金(500-2000)建议50-100，大額资金(2000+)建议100-200。">
+                    <Text>{t('symbolManager.orderAmountLabel')}</Text>
+                    <Tooltip label={t('symbolManager.orderAmountTooltip')}>
                       <InfoIcon boxSize={3} color="gray.400" />
                     </Tooltip>
                   </HStack>
@@ -867,8 +859,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                   const isReasonable = formData.order_quantity >= suggested * 0.5 && formData.order_quantity <= suggested * 2
                   return (
                     <Text fontSize="xs" color={isReasonable ? "green.500" : "orange.500"} mt={1}>
-                      {isReasonable ? "✓" : "⚠"} 根據资金量建议: {suggested} USDT
-                      {allocatedCapital > 0 && ` (约占總资金 ${((suggested / allocatedCapital) * 100).toFixed(1)}%)`}
+                      {isReasonable ? "✓" : "⚠"} {t('symbolManager.suggestedByCapital', { value: suggested })}
+                      {allocatedCapital > 0 && ` (${t('symbolManager.percentOfCapital', { percent: ((suggested / allocatedCapital) * 100).toFixed(1) })})`}
                     </Text>
                   )
                 })()}
@@ -878,8 +870,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                 <FormControl>
                   <FormLabel>
                     <HStack>
-                      <Text>買單窗口大小</Text>
-                      <Tooltip label="買單网格层數。建议根據资金量和订單金額计算，确保有足够资金覆盖所有网格。">
+                      <Text>{t('symbolManager.buyWindowLabel')}</Text>
+                      <Tooltip label={t('symbolManager.buyWindowTooltip')}>
                         <InfoIcon boxSize={3} color="gray.400" />
                       </Tooltip>
                     </HStack>
@@ -898,8 +890,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     const isReasonable = formData.buy_window_size <= maxAffordable
                     return (
                       <Text fontSize="xs" color={isReasonable ? "green.500" : "red.500"} mt={1}>
-                        {isReasonable ? "✓" : "⚠"} 建议: {suggested} 层
-                        {!isReasonable && ` (最多可承担 ${maxAffordable} 层)`}
+                        {isReasonable ? "✓" : "⚠"} {t('symbolManager.suggestedLevels', { value: suggested })}
+                        {!isReasonable && ` (${t('symbolManager.maxAffordable', { value: maxAffordable })})`}
                       </Text>
                     )
                   })()}
@@ -908,8 +900,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                 <FormControl>
                   <FormLabel>
                     <HStack>
-                      <Text>賣單視窗大小</Text>
-                      <Tooltip label="賣單网格层數。建议與買單窗口大小相同或相近。">
+                      <Text>{t('symbolManager.sellWindowLabel')}</Text>
+                      <Tooltip label={t('symbolManager.sellWindowTooltip')}>
                         <InfoIcon boxSize={3} color="gray.400" />
                       </Tooltip>
                     </HStack>
@@ -926,7 +918,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     const suggested = rec.sell_window_size.suggested
                     return (
                       <Text fontSize="xs" color="green.500" mt={1}>
-                        ✓ 建议: {suggested} 层
+                        ✓ {t('symbolManager.suggestedLevels', { value: suggested })}
                       </Text>
                     )
                   })()}
@@ -936,8 +928,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               <FormControl>
                 <FormLabel>
                   <HStack>
-                    <Text>最小訂單價值 (USDT)</Text>
-                    <Tooltip label="小於此值的订單不會挂單。建议不小於订單金額的 50%。">
+                    <Text>{t('symbolManager.minOrderValueLabel')}</Text>
+                    <Tooltip label={t('symbolManager.minOrderValueTooltip')}>
                       <InfoIcon boxSize={3} color="gray.400" />
                     </Tooltip>
                   </HStack>
@@ -956,7 +948,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                   const isReasonable = formData.min_order_value >= suggested * 0.5
                   return (
                     <Text fontSize="xs" color={isReasonable ? "green.500" : "orange.500"} mt={1}>
-                      {isReasonable ? "✓" : "⚠"} 建议: {suggested} USDT (订單金額的 {((suggested / formData.order_quantity) * 100).toFixed(0)}%)
+                      {isReasonable ? "✓" : "⚠"} {t('symbolManager.suggestedWithPercent', { value: suggested, percent: ((suggested / formData.order_quantity) * 100).toFixed(0) })}
                     </Text>
                   )
                 })()}
@@ -965,8 +957,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               <FormControl>
                 <FormLabel>
                   <HStack>
-                    <Text>持倉安全性檢查（最少倉數）</Text>
-                    <Tooltip label="啟動前檢查：賬戶餘額至少能向下購買並持有該數量倉位，否則拒絕啟動。餘額不足時可調低此值（如 30），或補充保證金。">
+                    <Text>{t('symbolManager.positionSafetyCheck')}</Text>
+                    <Tooltip label={t('symbolManager.positionSafetyTooltip')}>
                       <InfoIcon boxSize={3} color="gray.400" />
                     </Tooltip>
                   </HStack>
@@ -979,17 +971,17 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                   <NumberInputField />
                 </NumberInput>
                 <Text fontSize="xs" color="gray.500" mt={1}>
-                  預設 100；當前最大可持有倉數由「餘額×槓桿÷每筆金額」決定
+                  {t('symbolManager.positionSafetyDesc')}
                 </Text>
               </FormControl>
             </VStack>
           </ModalBody>
           <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={editingIndex >= 0 ? onEditClose : onAddClose}>
-              取消
+            <Button variant="ghost" me={3} onClick={editingIndex >= 0 ? onEditClose : onAddClose}>
+              {t('common.cancel')}
             </Button>
             <Button colorScheme="blue" onClick={handleSave}>
-              保存
+              {t('common.save')}
             </Button>
           </ModalFooter>
         </ModalContent>
@@ -1002,7 +994,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
           <ModalHeader>
             <HStack spacing={2}>
               <StarIcon color="purple.500" />
-              <Text>新手一键設置</Text>
+              <Text>{t('symbolManager.quickSetup')}</Text>
             </HStack>
           </ModalHeader>
           <ModalCloseButton />
@@ -1012,10 +1004,10 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                 <AlertIcon />
                 <Box>
                   <AlertTitle fontSize="sm" mb={1}>
-                    快速配置常用交易對
+                    {t('symbolManager.quickSetupAlertTitle')}
                   </AlertTitle>
                   <AlertDescription fontSize="sm">
-                    系统會根據價格和资金自动计算最优参數
+                    {t('symbolManager.quickSetupAlertDesc')}
                   </AlertDescription>
                 </Box>
               </Alert>
@@ -1031,25 +1023,25 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                 <VStack spacing={2} align="start">
                   <HStack spacing={2} width="100%">
                     <Text fontSize="sm" fontWeight="600" color="purple.700">
-                      目標交易所：
+                      {t('symbolManager.targetExchange')}
                     </Text>
                     <Badge colorScheme="purple" fontSize="sm" px={2} py={1}>
                       {exchangeNames[config.app?.current_exchange || 'binance'] || (config.app?.current_exchange || 'binance').toUpperCase()}
                     </Badge>
-                    <Text fontSize="xs" color="gray.600" ml="auto">
-                      交易對將添加到該交易所
+                    <Text fontSize="xs" color="gray.600" ms="auto">
+                      {t('symbolManager.pairsWillBeAdded')}
                     </Text>
                   </HStack>
                   <HStack spacing={2} width="100%">
                     <Text fontSize="sm" fontWeight="600" color={quickSetupMarketType === 'spot' ? 'green.700' : 'blue.700'}>
-                      市場類型：
+                      {t('symbolManager.marketTypeLabel')}
                     </Text>
                     <Badge colorScheme={quickSetupMarketType === 'spot' ? 'green' : 'blue'} fontSize="sm" px={2} py={1}>
-                      {quickSetupMarketType === 'spot' ? '🟢 現貨交易' : '📈 合約交易'}
+                      {quickSetupMarketType === 'spot' ? `🟢 ${t('symbolManager.spotTrading')}` : `📈 ${t('symbolManager.futuresTrading')}`}
                     </Badge>
                     {quickSetupMarketType === 'spot' && (
-                      <Text fontSize="xs" color="green.600" ml="auto">
-                        現貨無槓桿，風險相對較低
+                      <Text fontSize="xs" color="green.600" ms="auto">
+                        {t('symbolManager.spotLowRisk')}
                       </Text>
                     )}
                   </HStack>
@@ -1057,8 +1049,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     <Alert status="warning" size="sm" borderRadius="md" mt={2}>
                       <AlertIcon boxSize={3} />
                       <AlertDescription fontSize="xs">
-                        當前交易所 {exchangeNames[config.app.current_exchange] || config.app.current_exchange} 暫時不支援現貨交易。
-                        支援現貨的交易所：{spotSupportedExchanges.map(ex => exchangeNames[ex]).filter(Boolean).join('、')}
+                        {t('symbolManager.exchangeNotSupportSpot', { exchange: exchangeNames[config.app.current_exchange] || config.app.current_exchange, supported: spotSupportedExchanges.map(ex => exchangeNames[ex]).filter(Boolean).join(', ') })}
                       </AlertDescription>
                     </Alert>
                   )}
@@ -1066,18 +1057,18 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               </Box>
               
               <FormControl>
-                <FormLabel>市場類型</FormLabel>
+                <FormLabel>{t('symbolManager.marketType')}</FormLabel>
                 <Select
                   value={quickSetupMarketType}
                   onChange={(e) => setQuickSetupMarketType(e.target.value === 'spot' ? 'spot' : 'futures')}
                 >
-                  <option value="futures">合約</option>
-                  <option value="spot">現貨</option>
+                  <option value="futures">{t('symbolManager.futures')}</option>
+                  <option value="spot">{t('symbolManager.spot')}</option>
                 </Select>
               </FormControl>
               
               <FormControl>
-                <FormLabel>總资金 (USDT)</FormLabel>
+                <FormLabel>{t('symbolManager.totalCapital')}</FormLabel>
                 <NumberInput
                   value={quickSetupTotalCapital}
                   onChange={(_, v) => setQuickSetupTotalCapital(v)}
@@ -1087,14 +1078,14 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                   <NumberInputField />
                 </NumberInput>
                 <Text fontSize="xs" color="gray.500" mt={1}>
-                  资金將平均分配给选中的交易對
+                  {t('symbolManager.capitalDistributed')}
                 </Text>
               </FormControl>
               
               <Divider />
               
               <FormControl>
-                <FormLabel>選擇交易對</FormLabel>
+                <FormLabel>{t('symbolManager.selectPairs')}</FormLabel>
                 <CheckboxGroup
                   value={quickSetupSelectedSymbols}
                   onChange={(values) => setQuickSetupSelectedSymbols(values as string[])}
@@ -1145,7 +1136,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                               colorScheme="orange"
                               fontSize="xs"
                             >
-                              已存在
+                              {t('symbolManager.alreadyExists')}
                             </Badge>
                           )}
                           <Checkbox value={symbol} size="md" isDisabled={alreadyExists}>
@@ -1153,35 +1144,33 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                               <HStack spacing={2}>
                                 <Text fontWeight="600">{symbol}</Text>
                                 {alreadyExists && (
-                                  <Tooltip label="該交易對在當前交易所已存在，请先刪除后再添加">
+                                  <Tooltip label={t('symbolManager.existsDeleteFirst')}>
                                     <InfoIcon color="orange.500" boxSize={3} />
                                   </Tooltip>
                                 )}
                               </HStack>
                               {price ? (
                                 <Text fontSize="xs" color="gray.500">
-                                  當前價格: {price.toFixed(2)} USDT
+                                  {t('symbolManager.currentPrice')} {price.toFixed(2)} USDT
                                 </Text>
                               ) : (
                                 <Text fontSize="xs" color="gray.400">
-                                  價格加載中...
+                                  {t('symbolManager.priceLoading')}
                                 </Text>
                               )}
                               {isSelected && !alreadyExists && (
                                 <VStack align="start" spacing={0} mt={1}>
                                   <Text fontSize="xs" color="purple.600" fontWeight="500">
-                                    分配资金: {capitalPerSymbol.toFixed(2)} USDT
+                                    {t('symbolManager.allocatedCapitalLabel', { value: capitalPerSymbol.toFixed(2) })}
                                   </Text>
                                   <Text fontSize="xs" color="blue.500">
-                                    建议参數: 间隔 {rec.price_interval.suggested.toFixed(2)} | 
-                                    订單 {rec.order_quantity.suggested} | 
-                                    窗口 {rec.buy_window_size.suggested}
+                                    {t('symbolManager.suggestedParams', { interval: rec.price_interval.suggested.toFixed(2), order: rec.order_quantity.suggested, window: rec.buy_window_size.suggested })}
                                   </Text>
                                 </VStack>
                               )}
                               {alreadyExists && (
                                 <Text fontSize="xs" color="orange.600" fontWeight="500" mt={1}>
-                                  該交易對已存在，無法重複添加
+                                  {t('symbolManager.cannotAddDuplicate')}
                                 </Text>
                               )}
                             </VStack>
@@ -1200,7 +1189,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                   <Alert status="warning" borderRadius="md" mt={2}>
                     <AlertIcon />
                     <AlertDescription fontSize="sm">
-                      选中的交易對中包含已存在的配置，这些交易對將被跳過。请先刪除現有配置后再添加。
+                      {t('symbolManager.selectedContainExisting')}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -1213,93 +1202,66 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                 <AccordionItem>
                   <AccordionButton>
                     <Box flex="1" textAlign="left">
-                      <Text fontWeight="600">📐 基於價格的计算公式說明</Text>
+                      <Text fontWeight="600">{t('symbolManager.calculationFormulas')}</Text>
                     </Box>
                     <AccordionIcon />
                   </AccordionButton>
                   <AccordionPanel pb={4}>
                     <VStack align="start" spacing={3} fontSize="sm">
                       <Box>
-                        <Text fontWeight="600" mb={1}>1. 價格間隔计算</Text>
-                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
-                          價格間隔 = 當前價格 × (0.1% ~ 1%)<br/>
-                          建议值 = 當前價格 × 0.5%
+                        <Text fontWeight="600" mb={1}>{t('symbolManager.formula1Title')}</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50" whiteSpace="pre-wrap">
+                          {t('symbolManager.formula1Code')}
                         </Code>
-                        <Text fontSize="xs" color="gray.600" mt={1}>
-                          價格間隔太小會導致频繁交易，太大會錯過交易机會
-                        </Text>
+                        <Text fontSize="xs" color="gray.600" mt={1}>{t('symbolManager.formula1Desc')}</Text>
                       </Box>
                       
                       <Box>
-                        <Text fontWeight="600" mb={1}>2. 订單金額计算</Text>
-                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
-                          根據總资金量分级：<br/>
-                          • 资金 &lt; 500 USDT: 建议 20-30 USDT<br/>
-                          • 资金 500-2000 USDT: 建议 50-100 USDT<br/>
-                          • 资金 2000-10000 USDT: 建议 100-200 USDT<br/>
-                          • 资金 &gt; 10000 USDT: 建议 200+ USDT
+                        <Text fontWeight="600" mb={1}>{t('symbolManager.formula2Title')}</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50" whiteSpace="pre-wrap">
+                          {t('symbolManager.formula2Code')}
                         </Code>
-                        <Text fontSize="xs" color="gray.600" mt={1}>
-                          單笔订單建议不超過總资金的 5%
-                        </Text>
+                        <Text fontSize="xs" color="gray.600" mt={1}>{t('symbolManager.formula2Desc')}</Text>
                       </Box>
                       
                       <Box>
-                        <Text fontWeight="600" mb={1}>3. 网格價格计算</Text>
-                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
-                          買入网格價格 = 當前價格 - (网格层數 × 價格間隔)<br/>
-                          賣出网格價格 = 當前價格 + (网格层數 × 價格間隔)
+                        <Text fontWeight="600" mb={1}>{t('symbolManager.formula3Title')}</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50" whiteSpace="pre-wrap">
+                          {t('symbolManager.formula3Code')}
                         </Code>
-                        <Text fontSize="xs" color="gray.600" mt={1}>
-                          例如：當前價格 50000，间隔 100，買入窗口 10 层<br/>
-                          最低買入價 = 50000 - (10 × 100) = 49000
-                        </Text>
+                        <Text fontSize="xs" color="gray.600" mt={1}>{t('symbolManager.formula3Desc')}</Text>
                       </Box>
                       
                       <Box>
-                        <Text fontWeight="600" mb={1}>4. 窗口大小计算</Text>
-                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
-                          建议网格數 = 總资金 ÷ (订單金額 × 2)<br/>
-                          窗口大小 = max(5, min(20, 建议网格數 ÷ 2))
+                        <Text fontWeight="600" mb={1}>{t('symbolManager.formula4Title')}</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50" whiteSpace="pre-wrap">
+                          {t('symbolManager.formula4Code')}
                         </Code>
-                        <Text fontSize="xs" color="gray.600" mt={1}>
-                          确保有足够资金覆盖所有网格（買單和賣單各一半）
-                        </Text>
+                        <Text fontSize="xs" color="gray.600" mt={1}>{t('symbolManager.formula4Desc')}</Text>
                       </Box>
                       
                       <Box>
-                        <Text fontWeight="600" mb={1}>5. 最小訂單價值计算</Text>
-                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
-                          最小訂單價值 = 订單金額 × 50% ~ 100%<br/>
-                          建议值 = 订單金額 × 50%
+                        <Text fontWeight="600" mb={1}>{t('symbolManager.formula5Title')}</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50" whiteSpace="pre-wrap">
+                          {t('symbolManager.formula5Code')}
                         </Code>
-                        <Text fontSize="xs" color="gray.600" mt={1}>
-                          小於此值的订單不會挂單，避免過小的订單產生過多手续费
-                        </Text>
+                        <Text fontSize="xs" color="gray.600" mt={1}>{t('symbolManager.formula5Desc')}</Text>
                       </Box>
                       
                       <Box>
-                        <Text fontWeight="600" mb={1}>6. 單笔订單數量计算</Text>
-                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
-                          订單數量 = 订單金額 ÷ 當前價格<br/>
-                          例如：订單金額 30 USDT，價格 3000 USDT<br/>
-                          數量 = 30 ÷ 3000 = 0.01 BTC
+                        <Text fontWeight="600" mb={1}>{t('symbolManager.formula6Title')}</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50" whiteSpace="pre-wrap">
+                          {t('symbolManager.formula6Code')}
                         </Code>
-                        <Text fontSize="xs" color="gray.600" mt={1}>
-                          订單金額固定，價格越低買入數量越多
-                        </Text>
+                        <Text fontSize="xs" color="gray.600" mt={1}>{t('symbolManager.formula6Desc')}</Text>
                       </Box>
                       
                       <Box>
-                        <Text fontWeight="600" mb={1}>7. 總资金需求计算</Text>
-                        <Code display="block" p={2} borderRadius="md" bg="gray.50">
-                          總资金需求 = (買單窗口 + 賣單視窗) × 订單金額<br/>
-                          例如：買單 10 层，賣單 10 层，订單 30 USDT<br/>
-                          需求 = (10 + 10) × 30 = 600 USDT
+                        <Text fontWeight="600" mb={1}>{t('symbolManager.formula7Title')}</Text>
+                        <Code display="block" p={2} borderRadius="md" bg="gray.50" whiteSpace="pre-wrap">
+                          {t('symbolManager.formula7Code')}
                         </Code>
-                        <Text fontSize="xs" color="gray.600" mt={1}>
-                          确保分配的资金足够覆盖所有网格
-                        </Text>
+                        <Text fontSize="xs" color="gray.600" mt={1}>{t('symbolManager.formula7Desc')}</Text>
                       </Box>
                     </VStack>
                   </AccordionPanel>
@@ -1308,8 +1270,8 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
             </VStack>
           </ModalBody>
           <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={onQuickSetupClose}>
-              取消
+            <Button variant="ghost" me={3} onClick={onQuickSetupClose}>
+              {t('common.cancel')}
             </Button>
             <Button
               colorScheme="purple"
@@ -1317,7 +1279,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
               isLoading={quickSetupLoading}
               isDisabled={quickSetupSelectedSymbols.length === 0}
             >
-              一键添加 {quickSetupSelectedSymbols.length > 0 ? `(${quickSetupSelectedSymbols.length}個)` : ''}
+              {t('symbolManager.quickAddButton')} {quickSetupSelectedSymbols.length > 0 ? `(${quickSetupSelectedSymbols.length})` : ''}
             </Button>
           </ModalFooter>
         </ModalContent>

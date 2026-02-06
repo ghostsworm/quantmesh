@@ -145,10 +145,10 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
     setHasChanges(true)
     
     toast({
-      title: presetIndex === 0 ? '已導入保守型规则' : '已導入激進型规则',
+      title: presetIndex === 0 ? t('profitManagement.importedConservative') : t('profitManagement.importedAggressive'),
       description: presetIndex === 0 
-        ? '盈利達到100 USDT時提取50%，最小提取10 USDT'
-        : '盈利達到200 USDT時提取30%，最小提取20 USDT',
+        ? t('profitManagement.importedConservativeDesc')
+        : t('profitManagement.importedAggressiveDesc'),
       status: 'success',
       duration: 3000,
     })
@@ -168,8 +168,8 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
     setHasChanges(true)
     
     toast({
-      title: '已導入两条預設规则',
-      description: '保守型：盈利100 USDT提取50% | 激進型：盈利200 USDT提取30%',
+      title: t('profitManagement.importedBothPresets'),
+      description: t('profitManagement.importedBothPresetsDesc'),
       status: 'success',
       duration: 3000,
     })
@@ -243,17 +243,17 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
               variant="outline"
               colorScheme="blue"
             >
-              快捷導入
+              {t('profitManagement.quickImport')}
             </MenuButton>
             <MenuList>
               <MenuItem onClick={() => handleImportPreset(0)}>
-                保守型规则（盈利100 USDT提取50%）
+                {t('profitManagement.conservativeRule')}
               </MenuItem>
               <MenuItem onClick={() => handleImportPreset(1)}>
-                激進型规则（盈利200 USDT提取30%）
+                {t('profitManagement.aggressiveRule')}
               </MenuItem>
               <MenuItem onClick={handleImportBothPresets}>
-                導入两条預設规则
+                {t('profitManagement.importBothPresets')}
               </MenuItem>
             </MenuList>
           </Menu>
@@ -331,7 +331,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
 
                   <HStack spacing={4} flexWrap="wrap">
                     <FormControl flex={1} minW="200px">
-                      <FormLabel fontSize="sm">交易所</FormLabel>
+                      <FormLabel fontSize="sm">{t('profitManagement.exchangeLabel')}</FormLabel>
                       <Select
                         size="sm"
                         value={rule.exchangeId || ''}
@@ -339,7 +339,7 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
                         isDisabled={!!activeExchange && activeExchange !== 'all'}
                       >
                         {(!activeExchange || activeExchange === 'all') && (
-                          <option value="">请選擇交易所</option>
+                          <option value="">{t('profitManagement.selectExchange')}</option>
                         )}
                         {(activeExchange && activeExchange !== 'all'
                           ? [activeExchange]
@@ -352,8 +352,8 @@ const WithdrawRuleForm: React.FC<WithdrawRuleFormProps> = ({
                       </Select>
                       <FormHelperText>
                         {activeExchange === 'all'
-                          ? '當前為“全部交易所”視图：每条规则僅對其對应交易所生效'
-                          : '該规则僅對當前选擇的交易所生效'}
+                          ? t('profitManagement.ruleHintAll')
+                          : t('profitManagement.ruleHintExchange')}
                       </FormHelperText>
                     </FormControl>
                   </HStack>

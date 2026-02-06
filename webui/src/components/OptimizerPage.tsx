@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Box,
   Button,
@@ -52,6 +53,7 @@ const MARKET_TYPE = 'futures' // 网格优化默认合约
 
 export default function OptimizerPage() {
   const toast = useToast()
+  const { t } = useTranslation()
   const [exchanges, setExchanges] = useState<BacktestExchangeInfo[]>([])
   const [exchange, setExchange] = useState('binance')
   const [symbolList, setSymbolList] = useState<BacktestSymbolInfo[]>([])
@@ -240,7 +242,7 @@ export default function OptimizerPage() {
 
   const handleRun = async () => {
     if (!symbol || !startDate || !endDate) {
-      toast({ title: '请填写完整参數', status: 'warning' })
+      toast({ title: t('optimizer.fillAllParams'), status: 'warning' })
       return
     }
     const searchSpace: OptimSearchSpace = {
@@ -275,13 +277,13 @@ export default function OptimizerPage() {
       })
       if (res.success) {
         setTaskId(res.task_id)
-        toast({ title: '优化任務已啟动', status: 'success' })
+        toast({ title: t('optimizer.taskStarted'), status: 'success' })
       } else {
-        toast({ title: res.message || '啟动失败', status: 'error' })
+        toast({ title: res.message || t('optimizer.startFailed'), status: 'error' })
         setRunning(false)
       }
     } catch (e: unknown) {
-      toast({ title: (e as Error).message || '请求失败', status: 'error' })
+      toast({ title: (e as Error).message || t('optimizer.requestFailed'), status: 'error' })
       setRunning(false)
     }
   }
@@ -290,68 +292,68 @@ export default function OptimizerPage() {
     if (!taskId) return
     try {
       await postOptimizerStop(taskId)
-      toast({ title: '已发送停止请求', status: 'info' })
+      toast({ title: t('optimizer.stopRequested'), status: 'info' })
     } catch (e: unknown) {
-      toast({ title: (e as Error).message || '停止失败', status: 'error' })
+      toast({ title: (e as Error).message || t('optimizer.stopFailed'), status: 'error' })
     }
   }
 
   return (
     <Box>
-      <Heading size="md" mb={4}>网格参數优化</Heading>
+      <Heading size="md" mb={4}>{t('optimizer.title')}</Heading>
       <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
         {/* 左侧：配置 */}
         <VStack spacing={4} align="stretch">
           <Card>
-            <CardHeader fontWeight="600">1. 數據配置</CardHeader>
+            <CardHeader fontWeight="600">{t('optimizer.dataConfig')}</CardHeader>
             <CardBody>
               <SimpleGrid columns={2} spacing={3}>
                 <FormControl>
-                  <FormLabel fontSize="sm">交易所</FormLabel>
-                  <Select size="sm" value={exchange} onChange={(e) => setExchange(e.target.value)} placeholder="選擇交易所">
+                  <FormLabel fontSize="sm">{t('optimizer.exchange')}</FormLabel>
+                  <Select size="sm" value={exchange} onChange={(e) => setExchange(e.target.value)} placeholder={t('optimizer.selectExchange')}>
                     {exchanges.map((ex) => (
                       <option key={ex.exchange} value={ex.exchange}>
                         {ex.exchange.toUpperCase()}
-                        {ex.is_configured ? ' (已配置)' : ''}
+                        {ex.is_configured ? ` (${t('optimizer.configured')})` : ''}
                       </option>
                     ))}
                   </Select>
                 </FormControl>
                 <FormControl>
-                  <FormLabel fontSize="sm">交易對</FormLabel>
-                  <Select size="sm" value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="選擇交易對">
+                  <FormLabel fontSize="sm">{t('optimizer.tradingPair')}</FormLabel>
+                  <Select size="sm" value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder={t('optimizer.selectTradingPair')}>
                     {symbolList.map((s) => (
                       <option key={s.symbol} value={s.symbol}>
                         {s.symbol}
-                        {s.is_configured ? ' (已配置)' : ''}
+                        {s.is_configured ? ` (${t('optimizer.configured')})` : ''}
                       </option>
                     ))}
                   </Select>
                 </FormControl>
                 <FormControl>
-                  <FormLabel fontSize="sm">K 線周期</FormLabel>
+                  <FormLabel fontSize="sm">{t('optimizer.klineInterval')}</FormLabel>
                   <Select size="sm" value={interval} onChange={(e) => setInterval(e.target.value)}>
                     {KLINE_INTERVALS.map((i) => <option key={i} value={i}>{i}</option>)}
                   </Select>
                 </FormControl>
                 <FormControl>
-                  <FormLabel fontSize="sm">回测天數</FormLabel>
+                  <FormLabel fontSize="sm">{t('optimizer.backtestDays')}</FormLabel>
                   <NumberInput size="sm" value={days} min={7} max={365} onChange={(_s, v) => setDays(v)}>
                     <NumberInputField />
                   </NumberInput>
                 </FormControl>
                 <FormControl>
-                  <FormLabel fontSize="sm">初始资金 (USDT)</FormLabel>
+                  <FormLabel fontSize="sm">{t('optimizer.initialCapital')}</FormLabel>
                   <NumberInput size="sm" value={initialCapital} min={100} onChange={(_s, v) => setInitialCapital(v)}>
                     <NumberInputField />
                   </NumberInput>
                 </FormControl>
                 <FormControl>
-                  <FormLabel fontSize="sm">开始日期</FormLabel>
+                  <FormLabel fontSize="sm">{t('optimizer.startDate')}</FormLabel>
                   <Input size="sm" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                 </FormControl>
                 <FormControl>
-                  <FormLabel fontSize="sm">結束日期</FormLabel>
+                  <FormLabel fontSize="sm">{t('optimizer.endDate')}</FormLabel>
                   <Input size="sm" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                 </FormControl>
               </SimpleGrid>
@@ -359,27 +361,27 @@ export default function OptimizerPage() {
           </Card>
 
           <Card>
-            <CardHeader fontWeight="600">2. 搜索空间</CardHeader>
+            <CardHeader fontWeight="600">{t('optimizer.searchSpace')}</CardHeader>
             <CardBody>
-              <Text fontSize="xs" color="gray.500" mb={2}>價格下限範圍</Text>
+              <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.priceLowRange')}</Text>
               <HStack mb={3}>
                 <FormControl><FormLabel fontSize="xs">Min</FormLabel><NumberInput size="sm" value={priceLowMin} onChange={(_s, v) => setPriceLowMin(v)}><NumberInputField /></NumberInput></FormControl>
                 <FormControl><FormLabel fontSize="xs">Max</FormLabel><NumberInput size="sm" value={priceLowMax} onChange={(_s, v) => setPriceLowMax(v)}><NumberInputField /></NumberInput></FormControl>
                 <FormControl><FormLabel fontSize="xs">Step</FormLabel><NumberInput size="sm" value={priceLowStep} onChange={(_s, v) => setPriceLowStep(v)}><NumberInputField /></NumberInput></FormControl>
               </HStack>
-              <Text fontSize="xs" color="gray.500" mb={2}>價格上限範圍</Text>
+              <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.priceHighRange')}</Text>
               <HStack mb={3}>
                 <FormControl><FormLabel fontSize="xs">Min</FormLabel><NumberInput size="sm" value={priceHighMin} onChange={(_s, v) => setPriceHighMin(v)}><NumberInputField /></NumberInput></FormControl>
                 <FormControl><FormLabel fontSize="xs">Max</FormLabel><NumberInput size="sm" value={priceHighMax} onChange={(_s, v) => setPriceHighMax(v)}><NumberInputField /></NumberInput></FormControl>
                 <FormControl><FormLabel fontSize="xs">Step</FormLabel><NumberInput size="sm" value={priceHighStep} onChange={(_s, v) => setPriceHighStep(v)}><NumberInputField /></NumberInput></FormControl>
               </HStack>
-              <Text fontSize="xs" color="gray.500" mb={2}>网格數量範圍</Text>
+              <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.gridCountRange')}</Text>
               <HStack mb={3}>
                 <FormControl><FormLabel fontSize="xs">Min</FormLabel><NumberInput size="sm" value={gridCountMin} onChange={(_s, v) => setGridCountMin(v)}><NumberInputField /></NumberInput></FormControl>
                 <FormControl><FormLabel fontSize="xs">Max</FormLabel><NumberInput size="sm" value={gridCountMax} onChange={(_s, v) => setGridCountMax(v)}><NumberInputField /></NumberInput></FormControl>
                 <FormControl><FormLabel fontSize="xs">Step</FormLabel><NumberInput size="sm" value={gridCountStep} onChange={(_s, v) => setGridCountStep(v)}><NumberInputField /></NumberInput></FormControl>
               </HStack>
-              <Text fontSize="xs" color="gray.500" mb={2}>單笔订單金額範圍 (USDT)</Text>
+              <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.orderQtyRange')}</Text>
               <HStack>
                 <FormControl><FormLabel fontSize="xs">Min</FormLabel><NumberInput size="sm" value={orderQtyMin} onChange={(_s, v) => setOrderQtyMin(v)}><NumberInputField /></NumberInput></FormControl>
                 <FormControl><FormLabel fontSize="xs">Max</FormLabel><NumberInput size="sm" value={orderQtyMax} onChange={(_s, v) => setOrderQtyMax(v)}><NumberInputField /></NumberInput></FormControl>
@@ -389,25 +391,25 @@ export default function OptimizerPage() {
           </Card>
 
           <Card>
-            <CardHeader fontWeight="600">3. 优化算法</CardHeader>
+            <CardHeader fontWeight="600">{t('optimizer.algorithm')}</CardHeader>
             <CardBody>
               <SimpleGrid columns={3} spacing={3}>
                 <FormControl>
-                  <FormLabel fontSize="sm">方法</FormLabel>
+                  <FormLabel fontSize="sm">{t('optimizer.method')}</FormLabel>
                   <Select size="sm" value={method} onChange={(e) => setMethod(e.target.value as 'grid' | 'bayesian' | 'genetic')}>
-                    <option value="grid">网格搜索</option>
-                    <option value="bayesian">贝叶斯优化</option>
-                    <option value="genetic">遗傳算法</option>
+                    <option value="grid">{t('optimizer.methodGrid')}</option>
+                    <option value="bayesian">{t('optimizer.methodBayesian')}</option>
+                    <option value="genetic">{t('optimizer.methodGenetic')}</option>
                   </Select>
                 </FormControl>
                 <FormControl>
-                  <FormLabel fontSize="sm">风險权重 (λ)</FormLabel>
+                  <FormLabel fontSize="sm">{t('optimizer.riskWeight')}</FormLabel>
                   <NumberInput size="sm" value={lambda} min={0} max={1} step={0.1} onChange={(_s, v) => setLambda(v)}>
                     <NumberInputField />
                   </NumberInput>
                 </FormControl>
                 <FormControl>
-                  <FormLabel fontSize="sm">最大迭代</FormLabel>
+                  <FormLabel fontSize="sm">{t('optimizer.maxIterations')}</FormLabel>
                   <NumberInput size="sm" value={maxIterations} min={10} max={500} onChange={(_s, v) => setMaxIterations(v)}>
                     <NumberInputField />
                   </NumberInput>
@@ -415,9 +417,9 @@ export default function OptimizerPage() {
               </SimpleGrid>
               <HStack mt={4}>
                 <Button colorScheme="blue" onClick={handleRun} isLoading={running} isDisabled={running}>
-                  开始优化
+                  {t('optimizer.startOptimization')}
                 </Button>
-                {running && <Button colorScheme="red" variant="outline" onClick={handleStop}>停止</Button>}
+                {running && <Button colorScheme="red" variant="outline" onClick={handleStop}>{t('optimizer.stop')}</Button>}
               </HStack>
             </CardBody>
           </Card>
@@ -427,7 +429,7 @@ export default function OptimizerPage() {
         <VStack spacing={4} align="stretch">
           {taskStatus && (
             <Card>
-              <CardHeader fontWeight="600">任務状態</CardHeader>
+              <CardHeader fontWeight="600">{t('optimizer.taskStatus')}</CardHeader>
               <CardBody>
                 <HStack mb={2}>
                   <Badge colorScheme={
@@ -436,19 +438,19 @@ export default function OptimizerPage() {
                     taskStatus.status === 'loading_data' ? 'purple' :
                     taskStatus.status === 'failed' ? 'red' : 'gray'
                   }>
-                    {taskStatus.status === 'loading_data' ? '加載數據中' :
-                     taskStatus.status === 'running' ? '优化中' :
-                     taskStatus.status === 'completed' ? '已完成' :
-                     taskStatus.status === 'failed' ? '失敗' :
-                     taskStatus.status === 'pending' ? '等待中' :
-                     taskStatus.status === 'stopped' ? '已停止' :
+                    {taskStatus.status === 'loading_data' ? t('optimizer.statusLoadingData') :
+                     taskStatus.status === 'running' ? t('optimizer.statusRunning') :
+                     taskStatus.status === 'completed' ? t('optimizer.statusCompleted') :
+                     taskStatus.status === 'failed' ? t('optimizer.statusFailed') :
+                     taskStatus.status === 'pending' ? t('optimizer.statusPending') :
+                     taskStatus.status === 'stopped' ? t('optimizer.statusStopped') :
                      taskStatus.status}
                   </Badge>
                   <Text fontSize="sm" color="gray.500">ID: {taskStatus.task_id}</Text>
                 </HStack>
                 {taskStatus.status === 'loading_data' && (
                   <VStack align="start" spacing={1}>
-                    <Text fontSize="sm" color="purple.600">正在從交易所下載歷史K線數據...</Text>
+                    <Text fontSize="sm" color="purple.600">{t('optimizer.downloadingKlines')}</Text>
                     <Progress size="sm" isIndeterminate colorScheme="purple" w="100%" />
                   </VStack>
                 )}
@@ -463,54 +465,54 @@ export default function OptimizerPage() {
           {result && (
             <>
               <Card>
-                <CardHeader fontWeight="600">最优参數</CardHeader>
+                <CardHeader fontWeight="600">{t('optimizer.bestParams')}</CardHeader>
                 <CardBody>
                   <SimpleGrid columns={4} spacing={2}>
                     <Stat size="sm">
-                      <StatLabel>價格下限</StatLabel>
+                      <StatLabel>{t('optimizer.priceLow')}</StatLabel>
                       <StatNumber fontSize="md">{result.best_params.price_low?.toFixed(2) || '-'}</StatNumber>
                     </Stat>
                     <Stat size="sm">
-                      <StatLabel>價格上限</StatLabel>
+                      <StatLabel>{t('optimizer.priceHigh')}</StatLabel>
                       <StatNumber fontSize="md">{result.best_params.price_high?.toFixed(2) || '-'}</StatNumber>
                     </Stat>
                     <Stat size="sm">
-                      <StatLabel>网格數量</StatLabel>
+                      <StatLabel>{t('optimizer.gridCount')}</StatLabel>
                       <StatNumber fontSize="md">{result.best_params.grid_count || '-'}</StatNumber>
                     </Stat>
                     <Stat size="sm">
-                      <StatLabel>單笔金額</StatLabel>
+                      <StatLabel>{t('optimizer.orderAmount')}</StatLabel>
                       <StatNumber fontSize="md">{result.best_params.order_quantity?.toFixed(0) || '-'}</StatNumber>
                     </Stat>
                   </SimpleGrid>
                   <Divider my={3} />
                   <SimpleGrid columns={4} spacing={2}>
                     <Stat size="sm">
-                      <StatLabel>最优得分</StatLabel>
+                      <StatLabel>{t('optimizer.bestScore')}</StatLabel>
                       <StatNumber fontSize="md" color="blue.600">{result.best_score?.toFixed(4) || '-'}</StatNumber>
                     </Stat>
                     <Stat size="sm">
-                      <StatLabel>年化收益</StatLabel>
+                      <StatLabel>{t('optimizer.annualizedReturn')}</StatLabel>
                       <StatNumber fontSize="md">{result.best_metrics?.annualized_return?.toFixed(4) || '-'}%</StatNumber>
                     </Stat>
                     <Stat size="sm">
-                      <StatLabel>最大回撤</StatLabel>
+                      <StatLabel>{t('optimizer.maxDrawdown')}</StatLabel>
                       <StatNumber fontSize="md">{result.best_metrics?.max_drawdown?.toFixed(4) || '-'}%</StatNumber>
                     </Stat>
                     <Stat size="sm">
-                      <StatLabel>夏普比率</StatLabel>
+                      <StatLabel>{t('optimizer.sharpeRatio')}</StatLabel>
                       <StatNumber fontSize="md">{result.best_metrics?.sharpe_ratio?.toFixed(4) || '-'}</StatNumber>
                     </Stat>
                   </SimpleGrid>
                   <Text fontSize="xs" color="gray.500" mt={2}>
-                    方法: {result.method} | 迭代: {result.iterations} | 耗時: {(result.elapsed / 1e9).toFixed(1)}s
+                    {t('optimizer.methodLabel')}: {result.method} | {t('optimizer.iterations')}: {result.iterations} | {t('optimizer.elapsed')}: {(result.elapsed / 1e9).toFixed(1)}s
                   </Text>
                 </CardBody>
               </Card>
 
               {result.heatmap_data && (
                 <Card>
-                  <CardHeader fontWeight="600">热力图 (Score)</CardHeader>
+                  <CardHeader fontWeight="600">{t('optimizer.heatmap')}</CardHeader>
                   <CardBody>
                     <Box ref={chartRef} h="300px" />
                   </CardBody>
@@ -519,7 +521,7 @@ export default function OptimizerPage() {
 
               {result.all_results && result.all_results.length > 0 && (
                 <Card>
-                  <CardHeader fontWeight="600">Top 10 参數组合</CardHeader>
+                  <CardHeader fontWeight="600">{t('optimizer.topCombinations')}</CardHeader>
                   <CardBody>
                     <Box overflowX="auto">
                       <Table size="sm">
@@ -530,8 +532,8 @@ export default function OptimizerPage() {
                             <Th>GridCount</Th>
                             <Th>OrderQty</Th>
                             <Th>Score</Th>
-                            <Th>年化收益</Th>
-                            <Th>最大回撤</Th>
+                            <Th>{t('optimizer.annualizedReturn')}</Th>
+                            <Th>{t('optimizer.maxDrawdown')}</Th>
                           </Tr>
                         </Thead>
                         <Tbody>
@@ -560,14 +562,14 @@ export default function OptimizerPage() {
 
           {!result && !running && (
             <Flex justify="center" align="center" h="200px" color="gray.400">
-              <Text>配置参數后点击"开始优化"</Text>
+              <Text>{t('optimizer.placeholderText')}</Text>
             </Flex>
           )}
           {running && !result && (
             <Flex justify="center" align="center" h="200px">
               <VStack>
                 <Spinner size="lg" color="blue.500" />
-                <Text color="gray.500">优化進行中...</Text>
+                <Text color="gray.500">{t('optimizer.optimizing')}</Text>
               </VStack>
             </Flex>
           )}

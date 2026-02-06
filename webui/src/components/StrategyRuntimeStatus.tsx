@@ -64,7 +64,7 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
       return (
         <Badge colorScheme="green" display="flex" alignItems="center" gap={1}>
           <CheckCircleIcon boxSize={3} />
-          運行中
+          {t('strategyRuntime.statusRunning')}
         </Badge>
       )
     }
@@ -72,28 +72,28 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
       return (
         <Badge colorScheme="yellow" display="flex" alignItems="center" gap={1}>
           <WarningIcon boxSize={3} />
-          已啟用
+          {t('strategyRuntime.statusEnabled')}
         </Badge>
       )
     }
     return (
       <Badge colorScheme="gray" display="flex" alignItems="center" gap={1}>
         <InfoIcon boxSize={3} />
-        未啟用
+        {t('strategyRuntime.statusDisabled')}
       </Badge>
     )
   }
 
   const getStrategyDisplayName = (name: string) => {
     const nameMap: Record<string, string> = {
-      grid: '網格交易策略',
-      dca: 'DCA 定投策略',
-      dca_enhanced: '增強型 DCA 策略',
-      martingale: '馬丁格爾策略',
-      trend: '趨勢跟蹤策略',
-      mean_reversion: '均值回歸策略',
-      momentum: '動量策略',
-      combo: '組合策略',
+      grid: t('strategyRuntime.strategyNames.grid'),
+      dca: t('strategyRuntime.strategyNames.dca'),
+      dca_enhanced: t('strategyRuntime.strategyNames.dca_enhanced'),
+      martingale: t('strategyRuntime.strategyNames.martingale'),
+      trend: t('strategyRuntime.strategyNames.trend'),
+      mean_reversion: t('strategyRuntime.strategyNames.mean_reversion'),
+      momentum: t('strategyRuntime.strategyNames.momentum'),
+      combo: t('strategyRuntime.strategyNames.combo'),
     }
     return nameMap[name] || name
   }
@@ -126,19 +126,19 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
               {getStatusBadge()}
             </HStack>
             <Text fontSize="xs" color="gray.500">
-              類型: {status.type} | 權重: {(status.weight * 100).toFixed(1)}%
+              {t('strategyRuntime.type')}: {status.type} | {t('strategyRuntime.weight')}: {(status.weight * 100).toFixed(1)}%
             </Text>
           </VStack>
           <VStack align="end" spacing={0}>
             <HStack spacing={2}>
-              <Tooltip label="持倉數">
+              <Tooltip label={t('strategyRuntime.positionCountLabel')}>
                 <Badge colorScheme="blue" variant="subtle">
-                  持倉: {status.positionCount}
+                  {t('strategyRuntime.positionPrefix')}: {status.positionCount}
                 </Badge>
               </Tooltip>
-              <Tooltip label="訂單數">
+              <Tooltip label={t('strategyRuntime.orderCountLabel')}>
                 <Badge colorScheme="purple" variant="subtle">
-                  訂單: {status.orderCount}
+                  {t('strategyRuntime.orderPrefix')}: {status.orderCount}
                 </Badge>
               </Tooltip>
             </HStack>
@@ -148,19 +148,19 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
         {/* 資金信息 */}
         <SimpleGrid columns={3} spacing={2}>
           <Box textAlign="center" p={2} bg={expandedBg} borderRadius="md">
-            <Text fontSize="xs" color="gray.500">已分配</Text>
+            <Text fontSize="xs" color="gray.500">{t('strategyRuntime.allocated')}</Text>
             <Text fontWeight="bold" fontSize="sm">
               {status.allocatedFunds.toFixed(2)}
             </Text>
           </Box>
           <Box textAlign="center" p={2} bg={expandedBg} borderRadius="md">
-            <Text fontSize="xs" color="gray.500">已使用</Text>
+            <Text fontSize="xs" color="gray.500">{t('strategyRuntime.used')}</Text>
             <Text fontWeight="bold" fontSize="sm" color="orange.500">
               {status.usedFunds.toFixed(2)}
             </Text>
           </Box>
           <Box textAlign="center" p={2} bg={expandedBg} borderRadius="md">
-            <Text fontSize="xs" color="gray.500">可用</Text>
+            <Text fontSize="xs" color="gray.500">{t('strategyRuntime.available')}</Text>
             <Text fontWeight="bold" fontSize="sm" color="green.500">
               {status.availableFunds.toFixed(2)}
             </Text>
@@ -171,23 +171,23 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
         {status.statistics && (
           <SimpleGrid columns={4} spacing={2}>
             <Stat size="sm">
-              <StatLabel fontSize="xs">交易次數</StatLabel>
+              <StatLabel fontSize="xs">{t('strategyRuntime.totalTrades')}</StatLabel>
               <StatNumber fontSize="md">{status.statistics.totalTrades}</StatNumber>
             </Stat>
             <Stat size="sm">
-              <StatLabel fontSize="xs">勝率</StatLabel>
+              <StatLabel fontSize="xs">{t('strategyRuntime.winRate')}</StatLabel>
               <StatNumber fontSize="md">
                 {(status.statistics.winRate * 100).toFixed(1)}%
               </StatNumber>
             </Stat>
             <Stat size="sm">
-              <StatLabel fontSize="xs">總盈虧</StatLabel>
+              <StatLabel fontSize="xs">{t('strategyRuntime.totalPnL')}</StatLabel>
               <StatNumber fontSize="md">
                 {formatPnL(status.statistics.totalPnL)}
               </StatNumber>
             </Stat>
             <Stat size="sm">
-              <StatLabel fontSize="xs">交易量</StatLabel>
+              <StatLabel fontSize="xs">{t('strategyRuntime.tradingVolume')}</StatLabel>
               <StatNumber fontSize="md">
                 {status.statistics.totalVolume.toFixed(0)}
               </StatNumber>
@@ -204,7 +204,7 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
               rightIcon={isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
               onClick={() => setIsExpanded(!isExpanded)}
             >
-              {isExpanded ? '收起詳情' : '查看詳情'}
+              {isExpanded ? t('strategyRuntime.collapseDetails') : t('strategyRuntime.expandDetails')}
             </Button>
 
             <Collapse in={isExpanded} animateOpacity>
@@ -213,17 +213,17 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
                 {status.positions && status.positions.length > 0 && (
                   <Box>
                     <Text fontWeight="bold" fontSize="sm" mb={2}>
-                      持倉列表
+                      {t('strategyRuntime.positionList')}
                     </Text>
                     <TableContainer>
                       <Table size="sm" variant="simple">
                         <Thead>
                           <Tr>
-                            <Th>交易對</Th>
-                            <Th isNumeric>數量</Th>
-                            <Th isNumeric>入場價</Th>
-                            <Th isNumeric>當前價</Th>
-                            <Th isNumeric>盈虧</Th>
+                            <Th>{t('strategyRuntime.tradingPair')}</Th>
+                            <Th isNumeric>{t('strategyRuntime.quantity')}</Th>
+                            <Th isNumeric>{t('strategyRuntime.entryPrice')}</Th>
+                            <Th isNumeric>{t('strategyRuntime.currentPrice')}</Th>
+                            <Th isNumeric>{t('strategyRuntime.pnl')}</Th>
                           </Tr>
                         </Thead>
                         <Tbody>
@@ -246,18 +246,18 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
                 {status.orders && status.orders.length > 0 && (
                   <Box>
                     <Text fontWeight="bold" fontSize="sm" mb={2}>
-                      訂單列表
+                      {t('strategyRuntime.orderList')}
                     </Text>
                     <TableContainer>
                       <Table size="sm" variant="simple">
                         <Thead>
                           <Tr>
-                            <Th>訂單ID</Th>
-                            <Th>交易對</Th>
-                            <Th>方向</Th>
-                            <Th isNumeric>價格</Th>
-                            <Th isNumeric>數量</Th>
-                            <Th>狀態</Th>
+                            <Th>{t('strategyRuntime.orderId')}</Th>
+                            <Th>{t('strategyRuntime.tradingPair')}</Th>
+                            <Th>{t('strategyRuntime.direction')}</Th>
+                            <Th isNumeric>{t('strategyRuntime.price')}</Th>
+                            <Th isNumeric>{t('strategyRuntime.quantity')}</Th>
+                            <Th>{t('strategyRuntime.status')}</Th>
                           </Tr>
                         </Thead>
                         <Tbody>
@@ -282,7 +282,7 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
                     </TableContainer>
                     {status.orders.length > 10 && (
                       <Text fontSize="xs" color="gray.500" mt={1}>
-                        還有 {status.orders.length - 10} 個訂單未顯示
+                        {t('strategyRuntime.moreOrders', { count: status.orders.length - 10 })}
                       </Text>
                     )}
                   </Box>
@@ -319,11 +319,11 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
         setStatuses(response.strategies || [])
         setError(null)
       } else {
-        setError(response.message || '獲取策略狀態失敗')
+        setError(response.message || t('strategyRuntime.fetchStatusFailed'))
       }
       setLastRefresh(new Date())
     } catch (err) {
-      setError('獲取策略狀態失敗')
+      setError(t('strategyRuntime.fetchStatusFailed'))
       console.error('Failed to fetch strategy runtime status:', err)
     } finally {
       setLoading(false)
@@ -365,7 +365,7 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
       <Center py={8}>
         <VStack spacing={4}>
           <Spinner size="lg" color="blue.500" />
-          <Text color="gray.500">載入策略運行狀態...</Text>
+          <Text color="gray.500">{t('strategyRuntime.loadingStatus')}</Text>
         </VStack>
       </Center>
     )
@@ -387,9 +387,9 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
         <HStack justify="space-between" flexWrap="wrap">
           <HStack spacing={2} align="center">
             <VStack align="start" spacing={0}>
-              <Heading size="md">策略運行狀態</Heading>
+              <Heading size="md">{t('strategyRuntime.title')}</Heading>
               <Text fontSize="sm" color="gray.500">
-                實時查看各策略的執行情況
+                {t('strategyRuntime.subtitle')}
               </Text>
             </VStack>
             {symbolDirection != null && (
@@ -401,7 +401,7 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
           <HStack spacing={2}>
             {lastRefresh && (
               <Text fontSize="xs" color="gray.400">
-                上次更新: {lastRefresh.toLocaleTimeString()}
+                {t('strategyRuntime.lastUpdate')}: {lastRefresh.toLocaleTimeString()}
               </Text>
             )}
             <Button
@@ -411,7 +411,7 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
               isLoading={loading}
               variant="outline"
             >
-              刷新
+              {t('strategyRuntime.refresh')}
             </Button>
           </HStack>
         </HStack>
@@ -422,25 +422,25 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
             <Text fontSize="2xl" fontWeight="bold" color="blue.500">
               {statuses.length}
             </Text>
-            <Text fontSize="sm" color="gray.500">總策略數</Text>
+            <Text fontSize="sm" color="gray.500">{t('strategyRuntime.totalStrategies')}</Text>
           </Box>
           <Box textAlign="center" p={3} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
             <Text fontSize="2xl" fontWeight="bold" color="green.500">
               {runningStrategies.length}
             </Text>
-            <Text fontSize="sm" color="gray.500">運行中</Text>
+            <Text fontSize="sm" color="gray.500">{t('strategyRuntime.running')}</Text>
           </Box>
           <Box textAlign="center" p={3} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
             <Text fontSize="2xl" fontWeight="bold" color="purple.500">
               {statuses.reduce((sum, s) => sum + s.positionCount, 0)}
             </Text>
-            <Text fontSize="sm" color="gray.500">總持倉數</Text>
+            <Text fontSize="sm" color="gray.500">{t('strategyRuntime.totalPositions')}</Text>
           </Box>
           <Box textAlign="center" p={3} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
             <Text fontSize="2xl" fontWeight="bold" color="orange.500">
               {statuses.reduce((sum, s) => sum + s.orderCount, 0)}
             </Text>
-            <Text fontSize="sm" color="gray.500">總訂單數</Text>
+            <Text fontSize="sm" color="gray.500">{t('strategyRuntime.totalOrders')}</Text>
           </Box>
         </SimpleGrid>
 
@@ -459,9 +459,9 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
           <Center py={8}>
             <VStack spacing={2}>
               <Icon as={InfoIcon} boxSize={8} color="gray.300" />
-              <Text color="gray.500">沒有註冊的策略</Text>
+              <Text color="gray.500">{t('strategyRuntime.noStrategies')}</Text>
               <Text fontSize="sm" color="gray.400">
-                請在配置中啟用策略
+                {t('strategyRuntime.enableStrategiesHint')}
               </Text>
             </VStack>
           </Center>

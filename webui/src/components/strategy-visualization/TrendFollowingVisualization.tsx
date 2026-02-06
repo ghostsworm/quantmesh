@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Box,
   VStack,
@@ -23,6 +24,7 @@ interface TrendFollowingVisualizationProps {
 }
 
 const TrendFollowingVisualization: React.FC<TrendFollowingVisualizationProps> = ({ data }) => {
+  const { t } = useTranslation()
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
@@ -54,23 +56,23 @@ const TrendFollowingVisualization: React.FC<TrendFollowingVisualizationProps> = 
       {/* 关键指标 */}
       <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">当前价格</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.trendFollowing.currentPrice')}</StatLabel>
           <StatNumber fontSize="lg">${data.currentPrice?.toFixed(2) || '—'}</StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">快线 ({data.shortPeriod})</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.trendFollowing.fastLine')} ({data.shortPeriod})</StatLabel>
           <StatNumber fontSize="lg">${data.fastMA?.toFixed(2) || '—'}</StatNumber>
           <StatHelpText fontSize="xs">{data.method?.toUpperCase()}</StatHelpText>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">慢线 ({data.longPeriod})</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.trendFollowing.slowLine')} ({data.longPeriod})</StatLabel>
           <StatNumber fontSize="lg">${data.slowMA?.toFixed(2) || '—'}</StatNumber>
         </Stat>
         <Stat p={3} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <StatLabel fontSize="xs">趋势方向</StatLabel>
+          <StatLabel fontSize="xs">{t('strategyViz.trendFollowing.trendDirection')}</StatLabel>
           <StatNumber fontSize="lg">
             <Badge colorScheme={data.trend === 'up' ? 'green' : data.trend === 'down' ? 'red' : 'gray'}>
-              {data.trend === 'up' ? '上涨' : data.trend === 'down' ? '下跌' : '横盘'}
+              {data.trend === 'up' ? t('strategyViz.trendFollowing.trendUp') : data.trend === 'down' ? t('strategyViz.trendFollowing.trendDown') : t('strategyViz.trendFollowing.trendSideways')}
             </Badge>
           </StatNumber>
         </Stat>
@@ -79,7 +81,7 @@ const TrendFollowingVisualization: React.FC<TrendFollowingVisualizationProps> = 
       {/* 价格图表（带均线） */}
       {chartData.length > 0 && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>价格走势与均线</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.trendFollowing.priceAndMA')}</Text>
           <Box h="300px">
             {/* 这里应该使用支持多条线的图表组件，暂时用PriceChart */}
             <PriceChart data={chartData.map(d => ({ time: d.time, price: d.price }))} height={300} />
@@ -90,23 +92,23 @@ const TrendFollowingVisualization: React.FC<TrendFollowingVisualizationProps> = 
       {/* 信号状态 */}
       <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>交易信号</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.trendFollowing.tradeSignals')}</Text>
           <VStack spacing={2} align="stretch">
             <HStack justify="space-between">
-              <Text fontSize="sm" color="gray.600">金叉信号</Text>
+              <Text fontSize="sm" color="gray.600">{t('strategyViz.trendFollowing.goldenCross')}</Text>
               <Badge colorScheme={data.isGoldenCross ? 'green' : 'gray'}>
-                {data.isGoldenCross ? '是' : '否'}
+                {data.isGoldenCross ? t('strategyViz.trendFollowing.yes') : t('strategyViz.trendFollowing.no')}
               </Badge>
             </HStack>
             <HStack justify="space-between">
-              <Text fontSize="sm" color="gray.600">死叉信号</Text>
+              <Text fontSize="sm" color="gray.600">{t('strategyViz.trendFollowing.deathCross')}</Text>
               <Badge colorScheme={data.isDeathCross ? 'red' : 'gray'}>
-                {data.isDeathCross ? '是' : '否'}
+                {data.isDeathCross ? t('strategyViz.trendFollowing.yes') : t('strategyViz.trendFollowing.no')}
               </Badge>
             </HStack>
             {data.maDiff !== undefined && (
               <HStack justify="space-between">
-                <Text fontSize="sm" color="gray.600">均线差值</Text>
+                <Text fontSize="sm" color="gray.600">{t('strategyViz.trendFollowing.maDiff')}</Text>
                 <HStack>
                   {data.maDiff >= 0 ? (
                     <TriangleUpIcon color="green.500" />
@@ -123,23 +125,23 @@ const TrendFollowingVisualization: React.FC<TrendFollowingVisualizationProps> = 
         </Box>
 
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>持仓状态</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.trendFollowing.positionStatus')}</Text>
           <VStack spacing={2} align="stretch">
             <HStack justify="space-between">
-              <Text fontSize="sm" color="gray.600">持仓状态</Text>
+              <Text fontSize="sm" color="gray.600">{t('strategyViz.trendFollowing.positionStatus')}</Text>
               <Badge colorScheme={data.hasPosition ? 'green' : 'gray'}>
-                {data.hasPosition ? '已持仓' : '空仓'}
+                {data.hasPosition ? t('strategyViz.trendFollowing.hasPosition') : t('strategyViz.trendFollowing.noPosition')}
               </Badge>
             </HStack>
             {data.hasPosition && data.entryPrice && (
               <>
                 <HStack justify="space-between">
-                  <Text fontSize="sm" color="gray.600">入场价格</Text>
+                  <Text fontSize="sm" color="gray.600">{t('strategyViz.trendFollowing.entryPrice')}</Text>
                   <Text fontSize="sm" fontWeight="bold">${data.entryPrice.toFixed(2)}</Text>
                 </HStack>
                 {data.pnlPercent !== undefined && (
                   <HStack justify="space-between">
-                    <Text fontSize="sm" color="gray.600">当前盈亏</Text>
+                    <Text fontSize="sm" color="gray.600">{t('strategyViz.trendFollowing.currentPnL')}</Text>
                     <HStack>
                       {data.pnlPercent >= 0 ? (
                         <TriangleUpIcon color="green.500" />
@@ -160,13 +162,13 @@ const TrendFollowingVisualization: React.FC<TrendFollowingVisualizationProps> = 
             )}
             {data.stopLoss && (
               <HStack justify="space-between">
-                <Text fontSize="sm" color="gray.600">止损</Text>
+                <Text fontSize="sm" color="gray.600">{t('strategyViz.trendFollowing.stopLoss')}</Text>
                 <Text fontSize="sm">{data.stopLoss.toFixed(2)}%</Text>
               </HStack>
             )}
             {data.takeProfit && (
               <HStack justify="space-between">
-                <Text fontSize="sm" color="gray.600">止盈</Text>
+                <Text fontSize="sm" color="gray.600">{t('strategyViz.trendFollowing.takeProfit')}</Text>
                 <Text fontSize="sm">{data.takeProfit.toFixed(2)}%</Text>
               </HStack>
             )}

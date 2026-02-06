@@ -32,7 +32,7 @@ const ServiceStatusPage: React.FC = () => {
       if (r?.services) setServices(r.services)
     } catch (e) {
       toast({
-        title: t('common.loadFailed', '載入失敗'),
+        title: t('common.loadFailed'),
         description: (e as Error)?.message,
         status: 'error',
       })
@@ -48,9 +48,9 @@ const ServiceStatusPage: React.FC = () => {
   return (
     <Container maxW="container.md" py={6}>
       <HStack justify="space-between" mb={6}>
-        <Heading size="md">{t('servicesStatus.title', '服務狀態')}</Heading>
+        <Heading size="md">{t('servicesStatus.title')}</Heading>
         <IconButton
-          aria-label={t('common.refresh', '刷新')}
+          aria-label={t('common.refresh')}
           icon={<RepeatIcon />}
           size="sm"
           variant="outline"
@@ -59,7 +59,7 @@ const ServiceStatusPage: React.FC = () => {
         />
       </HStack>
       <Text fontSize="sm" color="gray.500" mb={4}>
-        {t('servicesStatus.hint', '查看存儲、回測等後台服務是否正常；若某項不可用，請按提示檢查配置並重啟服務。')}
+        {t('servicesStatus.hint', ))}
       </Text>
 
       {loading && !services.length ? (
@@ -74,7 +74,7 @@ const ServiceStatusPage: React.FC = () => {
                 <HStack justify="space-between">
                   <Text fontWeight="600">{s.name}</Text>
                   <Badge colorScheme={s.ok ? 'green' : 'red'} fontSize="xs">
-                    {s.ok ? t('servicesStatus.ok', '正常') : t('servicesStatus.unavailable', '不可用')}
+                    {s.ok ? t('servicesStatus.ok') : t('servicesStatus.unavailable')}
                   </Badge>
                 </HStack>
               </CardHeader>
@@ -87,7 +87,7 @@ const ServiceStatusPage: React.FC = () => {
                     mt={0.5}
                   />
                   <Text fontSize="sm" color={s.ok ? 'gray.600' : 'red.600'}>
-                    {s.message || (s.ok ? t('servicesStatus.normal', '正常') : t('servicesStatus.checkHint', '請檢查配置並重啟'))}
+                    {s.message || (s.ok ? t('servicesStatus.normal') : t('servicesStatus.checkHint'))}
                   </Text>
                 </HStack>
               </CardBody>

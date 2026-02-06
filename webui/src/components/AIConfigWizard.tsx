@@ -280,8 +280,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         } catch (err) {
           console.error('加載交易所餘額失败:', err)
           toast({
-            title: '加載餘額失败',
-            description: '將使用默认值，请稍后手动設置',
+            title: t('aiConfig.wizard.loadBalanceFailed'),
+            description: t('aiConfig.wizard.loadBalanceFailedDesc'),
             status: 'warning',
             duration: 3000,
           })
@@ -308,7 +308,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   const handleNext = () => {
     if (step === 'ai-setup') {
       if (!geminiApiKey.trim()) {
-        setError('请输入 Gemini API Key')
+        setError(t('aiConfig.wizard.enterApiKeyError'))
         return
       }
       setStep('asset-alloc')
@@ -328,14 +328,14 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         if (totalCapital <= 0) {
           hasError = true
           const exchangeName = exchangeNames[exchangeId] || exchangeId
-          errorMsg = `${exchangeName} 的 USDT 资金總額未設置或為 0，请先設置资金總額`
+          errorMsg = t('aiConfig.wizard.capitalNotSet', { exchange: exchangeName })
           break
         }
         
         if (totalAllocated > totalCapital) {
           hasError = true
           const exchangeName = exchangeNames[exchangeId] || exchangeId
-          errorMsg = `${exchangeName} 的资金分配總和 (${Math.round(totalAllocated)} USDT) 超過了 USDT 资金總額 (${Math.round(totalCapital)} USDT)`
+          errorMsg = t('aiConfig.wizard.capitalExceeded', { exchange: exchangeName, allocated: Math.round(totalAllocated).toString(), total: Math.round(totalCapital).toString() })
           break
         }
         
@@ -344,7 +344,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         if (!hasAllocation && Object.keys(exchangeSymbols).length > 0) {
           hasError = true
           const exchangeName = exchangeNames[exchangeId] || exchangeId
-          errorMsg = `${exchangeName} 的币种资金分配不能全部為 0`
+          errorMsg = t('aiConfig.wizard.capitalAllZero', { exchange: exchangeName })
           break
         }
       }
@@ -352,7 +352,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       if (hasError) {
         setError(errorMsg)
         toast({
-          title: '驗证失败',
+          title: t('aiConfig.wizard.validationFailed'),
           description: errorMsg,
           status: 'error',
           duration: 5000,
@@ -368,10 +368,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         })
         
         if (!hasAnySymbol) {
-          const errorMsg = '请至少為一個已啟用的交易所配置币种资金分配'
+          const errorMsg = t('aiConfig.wizard.noSymbolAllocation')
           setError(errorMsg)
           toast({
-            title: '驗证失败',
+            title: t('aiConfig.wizard.validationFailed'),
             description: errorMsg,
             status: 'error',
             duration: 5000,
@@ -405,7 +405,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           if (totalPercent !== 100) {
             hasError = true
             const exchangeName = exchangeNames[exchangeId] || exchangeId
-            errorMsg = `${exchangeName} 的 ${symbol} 策略占比總和必須為 100% (當前: ${totalPercent}%)`
+            errorMsg = t('aiConfig.wizard.strategyWeightError', { exchange: exchangeName, symbol, current: totalPercent.toString() })
             break
           }
         }
@@ -415,7 +415,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       if (hasError) {
         setError(errorMsg)
         toast({
-          title: '驗证失败',
+          title: t('aiConfig.wizard.validationFailed'),
           description: errorMsg,
           status: 'error',
           duration: 5000,
@@ -528,8 +528,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     if (maxPossibleWindow < 1) {
       // 资金不足以支撑最小訂單
       toast({
-        title: '资金不足',
-        description: `资金 ${capital.toFixed(0)} USDT 不足以支撑 Binance 最小訂單要求 (100 USDT)，建议至少投入 250 USDT`,
+        title: t('aiConfig.wizard.insufficientCapital'),
+        description: t('aiConfig.wizard.insufficientCapitalDesc', { capital: capital.toFixed(0) }),
         status: 'warning',
         duration: 5000,
       })
@@ -573,8 +573,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     }))
     
     toast({
-      title: '参數优化完成',
-      description: `已根據 ${capital.toFixed(0)} USDT 资金自动优化 ${symbol} 网格参數（窗口 ${orderWindow}，每單 ${orderAmount} USDT）`,
+      title: t('aiConfig.wizard.optimizeComplete'),
+      description: t('aiConfig.wizard.optimizeCompleteDesc', { capital: capital.toFixed(0), symbol, window: orderWindow.toString(), amount: orderAmount.toString() }),
       status: 'success',
       duration: 3000,
     })
@@ -586,7 +586,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   const handleGenerate = async () => {
     // 驗证 Gemini API Key
     if (!geminiApiKey.trim()) {
-      setError('请输入 Gemini API Key')
+      setError(t('aiConfig.wizard.enterApiKeyError'))
       return
     }
 
@@ -606,7 +606,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     }
 
     if (allSymbols.size === 0) {
-      setError('请至少為一個已啟用的交易所配置币种资金分配')
+      setError(t('aiConfig.wizard.noSymbolAllocation'))
       return
     }
 
@@ -678,15 +678,15 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       setTaskStatus('completed')
       setStep('preview')
       toast({
-        title: '配置生成成功',
+        title: t('aiConfig.wizard.generateSuccess'),
         status: 'success',
         duration: 3000,
       })
     } catch (err: any) {
-      const errorMsg = err.message || '生成配置失败，请检查 Gemini API Key 是否正确'
+      const errorMsg = err.message || t('aiConfig.wizard.generateFailedDefault')
       setError(errorMsg)
       toast({
-        title: '生成配置失败',
+        title: t('aiConfig.wizard.generateFailed'),
         description: errorMsg,
         status: 'error',
         duration: 5000,
@@ -706,8 +706,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       await applyAIConfig(aiConfig)
       setStep('success')
       toast({
-        title: '配置应用成功',
-        description: '请重啟服務使配置生效',
+        title: t('aiConfig.wizard.applySuccess'),
+        description: t('aiConfig.wizard.applySuccessDesc'),
         status: 'success',
         duration: 5000,
       })
@@ -715,10 +715,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         onSuccess()
       }
     } catch (err: any) {
-      const errorMsg = err.message || '應用配置失败'
+      const errorMsg = err.message || t('aiConfig.wizard.applyFailedDefault')
       setError(errorMsg)
       toast({
-        title: '應用配置失败',
+        title: t('aiConfig.wizard.applyFailed'),
         description: errorMsg,
         status: 'error',
         duration: 5000,
@@ -746,10 +746,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     }
 
     if (allSymbols.size === 0) {
-      setError('请至少為一個已啟用的交易所配置币种资金分配')
+      setError(t('aiConfig.wizard.noSymbolAllocation'))
       toast({
-        title: '驗证失败',
-        description: '请至少為一個已啟用的交易所配置币种资金分配',
+        title: t('aiConfig.wizard.validationFailed'),
+        description: t('aiConfig.wizard.noSymbolAllocation'),
         status: 'error',
         duration: 5000,
       })
@@ -839,7 +839,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
 
       // 構建配置對象
       const config: AIGenerateConfigResponse = {
-        explanation: '用戶手动配置的策略和资金分配',
+        explanation: t('aiConfig.wizard.manualConfigExplanation'),
         grid_config: gridConfigs,
         allocation: allocationConfigs,
         symbols_config: symbolsConfig,
@@ -849,8 +849,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
       await applyAIConfig(config)
       setStep('success')
       toast({
-        title: '配置保存成功',
-        description: '请重啟服務使配置生效',
+        title: t('aiConfig.wizard.saveSuccess'),
+        description: t('aiConfig.wizard.saveSuccessDesc'),
         status: 'success',
         duration: 5000,
       })
@@ -858,10 +858,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         onSuccess()
       }
     } catch (err: any) {
-      const errorMsg = err.message || '保存配置失败'
+      const errorMsg = err.message || t('aiConfig.wizard.saveFailedDefault')
       setError(errorMsg)
       toast({
-        title: '保存配置失败',
+        title: t('aiConfig.wizard.saveFailed'),
         description: errorMsg,
         status: 'error',
         duration: 5000,
@@ -886,16 +886,16 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   const [recommendingAllocations, setRecommendingAllocations] = useState(false)
   const handleAIRecommendAllocations = async () => {
     if (!geminiApiKey.trim()) {
-      toast({ title: '请先設置 Gemini API Key', status: 'warning', duration: 3000 })
+      toast({ title: t('aiConfig.wizard.setApiKeyFirst'), status: 'warning', duration: 3000 })
       return
     }
     if (selectedSymbols.length === 0) {
-      toast({ title: '请先选擇交易币种', status: 'warning', duration: 3000 })
+      toast({ title: t('aiConfig.wizard.selectSymbolsFirst'), status: 'warning', duration: 3000 })
       return
     }
 
     setRecommendingAllocations(true)
-    toast({ title: 'AI 正在分析行情推荐比例...', status: 'info', duration: 2000 })
+    toast({ title: t('aiConfig.wizard.aiAnalyzing'), status: 'info', duration: 2000 })
 
     try {
       const request: AIGenerateConfigRequest = {
@@ -926,20 +926,20 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           }
         })
         setSymbolAllocations(newAllocations)
-        toast({ title: 'AI 推荐比例已应用', status: 'success', duration: 3000 })
+        toast({ title: t('aiConfig.wizard.aiRecommendApplied'), status: 'success', duration: 3000 })
       } else {
         // 如果没有返回分配結果，使用均等分配
         const equalWeight = 1 / selectedSymbols.length
         const newAllocations: Record<string, number> = {}
         selectedSymbols.forEach(s => newAllocations[s] = equalWeight)
         setSymbolAllocations(newAllocations)
-        toast({ title: 'AI 建议均等分配', status: 'info', duration: 3000 })
+        toast({ title: t('aiConfig.wizard.aiEqualAllocation'), status: 'info', duration: 3000 })
       }
     } catch (err: any) {
       console.error('AI 推荐失败:', err)
       toast({ 
-        title: 'AI 推荐失败', 
-        description: err.message || '请检查网络和 API Key', 
+        title: t('aiConfig.wizard.aiRecommendFailed'), 
+        description: err.message || t('aiConfig.wizard.aiRecommendFailedDesc'), 
         status: 'error', 
         duration: 5000 
       })
@@ -1010,8 +1010,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           }))
           
           toast({ 
-            title: `${exchangeId} ${symbol} 策略比例已应用`, 
-            description: `资金量较小，已采用保守配置：${conservativeStrategies.map(s => `${getStrategyDisplayName(s.type)} ${(s.weight * 100).toFixed(0)}%`).join(', ')}`,
+            title: t('aiConfig.wizard.strategyApplied', { exchange: exchangeId, symbol }), 
+            description: t('aiConfig.wizard.smallCapitalConservative', { config: conservativeStrategies.map(s => `${getStrategyDisplayName(s.type)} ${(s.weight * 100).toFixed(0)}%`).join(', ') }),
             status: 'info', 
             duration: 4000 
           })
@@ -1041,11 +1041,11 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         .join(', ')
 
       const warningMsg = symbolCapital < 10000 
-        ? '资金量较小，已自动排除需要大资金的策略（如马丁格尔）' 
+        ? t('aiConfig.wizard.smallCapitalWarning') 
         : ''
 
       toast({ 
-        title: `${exchangeId} ${symbol} 策略比例已应用`, 
+        title: t('aiConfig.wizard.strategyApplied', { exchange: exchangeId, symbol }), 
         description: description + (warningMsg ? `\n${warningMsg}` : ''),
         status: 'success', 
         duration: 4000 
@@ -1053,8 +1053,8 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     } catch (err: any) {
       console.error('推荐策略失败:', err)
       toast({ 
-        title: '推荐失败', 
-        description: err.message || '应用默认策略配比失败', 
+        title: t('aiConfig.wizard.recommendFailed'), 
+        description: err.message || t('aiConfig.wizard.recommendFailedDefault'), 
         status: 'error', 
         duration: 5000 
       })
@@ -1077,14 +1077,14 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   // 策略類型显示名称映射
   const getStrategyDisplayName = (type: string): string => {
     const names: Record<string, string> = {
-      grid: '網格策略',
-      dca: 'DCA 定投',
-      martingale: '马丁格尔',
-      trend: '趋势跟踪',
-      mean_reversion: '均值回归',
-      breakout: '突破策略',
-      combo: '组合策略',
-      momentum: '动量策略',
+      grid: t('aiConfig.wizard.strategyNames.grid'),
+      dca: t('aiConfig.wizard.strategyNames.dca'),
+      martingale: t('aiConfig.wizard.strategyNames.martingale'),
+      trend: t('aiConfig.wizard.strategyNames.trend'),
+      mean_reversion: t('aiConfig.wizard.strategyNames.mean_reversion'),
+      breakout: t('aiConfig.wizard.strategyNames.breakout'),
+      combo: t('aiConfig.wizard.strategyNames.combo'),
+      momentum: t('aiConfig.wizard.strategyNames.momentum'),
     }
     return names[type] || type
   }
@@ -1092,16 +1092,16 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   // 策略類型說明映射
   const getStrategyDescription = (type: string): string => {
     const descriptions: Record<string, string> = {
-      grid: '網格策略：在價格区间内設置買賣订單网格，通過低買高賣赚取價差。适合震荡市场，风險较低。',
-      dca: 'DCA 定投：定期定額投资策略，分批買入降低平均成本。适合长期持有，平滑價格波動影响。',
-      martingale: '马丁格尔：亏损后加倍投入的策略，通過大額盈利覆盖前期亏损。风險较高，需要充足资金。',
-      trend: '趋势跟踪：跟随市场趋势進行交易，上涨時買入，下跌時賣出。适合有明显趋势的市场。',
-      mean_reversion: '均值回归：當價格偏离均值時反向交易，預期價格會回归均值。适合震荡市场。',
-      breakout: '突破策略：當價格突破关键阻力或支撑位時入场交易。适合波动较大的市场。',
-      combo: '组合策略：多种策略的组合，分散风險，平衡收益。适合稳健型投资者。',
-      momentum: '动量策略：跟随價格动量方向交易，在强势上涨或下跌時顺势而為。适合趋势明显的市场。',
+      grid: t('aiConfig.wizard.strategyDescs.grid'),
+      dca: t('aiConfig.wizard.strategyDescs.dca'),
+      martingale: t('aiConfig.wizard.strategyDescs.martingale'),
+      trend: t('aiConfig.wizard.strategyDescs.trend'),
+      mean_reversion: t('aiConfig.wizard.strategyDescs.mean_reversion'),
+      breakout: t('aiConfig.wizard.strategyDescs.breakout'),
+      combo: t('aiConfig.wizard.strategyDescs.combo'),
+      momentum: t('aiConfig.wizard.strategyDescs.momentum'),
     }
-    return descriptions[type] || '該策略的详细說明'
+    return descriptions[type] || t('aiConfig.wizard.strategyDescs.default')
   }
 
   // 根據风險偏好和资金量獲取推荐的策略权重分配
@@ -1207,7 +1207,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
     <Modal isOpen={isOpen} onClose={handleClose} size="xl" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent bg={bg}>
-        <ModalHeader>AI 智能配置助手</ModalHeader>
+        <ModalHeader>{t('aiConfig.wizard.modalTitle')}</ModalHeader>
         <ModalCloseButton />
         <ModalBody>
           {step === 'ai-setup' && (
@@ -1215,19 +1215,19 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Alert status="info" borderRadius="md">
                 <AlertIcon />
                 <Box>
-                  <AlertTitle>第一步：AI 环境設置</AlertTitle>
+                  <AlertTitle>{t('aiConfig.wizard.step1Title')}</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    配置您的 Gemini AI 访问权限。系统内置异步任務处理，确保生成過程稳定且保护您的 API Key。
+                    {t('aiConfig.wizard.step1Desc')}
                   </AlertDescription>
                 </Box>
               </Alert>
 
               <FormControl isRequired>
-                <FormLabel>Gemini API Key</FormLabel>
+                <FormLabel>{t('aiConfig.wizard.geminiApiKeyLabel')}</FormLabel>
                 <InputGroup size="md">
                   <Input
                     type={showApiKey ? 'text' : 'password'}
-                    placeholder="输入您的 Gemini API Key"
+                    placeholder={t('aiConfig.wizard.geminiApiKeyPlaceholder')}
                     value={geminiApiKey}
                     onChange={(e) => {
                       setGeminiApiKey(e.target.value)
@@ -1241,18 +1241,18 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       size="sm"
                       onClick={() => setShowApiKey(!showApiKey)}
                       icon={showApiKey ? <ViewOffIcon /> : <ViewIcon />}
-                      aria-label={showApiKey ? '隐藏' : '显示'}
+                      aria-label={showApiKey ? t('aiConfig.wizard.hideKey') : t('aiConfig.wizard.showKey')}
                       variant="ghost"
                     />
                   </InputRightElement>
                 </InputGroup>
                 {isKeyFromConfig && geminiApiKey && (
                   <Text fontSize="xs" color="green.500" mt={1}>
-                    ✓ 已從配置文件读取
+                    {t('aiConfig.wizard.keyFromConfig')}
                   </Text>
                 )}
                 <Text fontSize="xs" color="gray.500" mt={isKeyFromConfig && geminiApiKey ? 0 : 2}>
-                  还没有 Key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', textDecoration: 'underline' }}>点击这里從 Google AI Studio 獲取</a>
+                  {t('aiConfig.wizard.noKeyYet')} <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', textDecoration: 'underline' }}>{t('aiConfig.wizard.getKeyLink')}</a>
                 </Text>
               </FormControl>
             </VStack>
@@ -1263,9 +1263,9 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Alert status="info" borderRadius="md">
                 <AlertIcon />
                 <Box>
-                  <AlertTitle>第二步：按交易所分配资金</AlertTitle>
+                  <AlertTitle>{t('aiConfig.wizard.step2Title')}</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    為每個交易所設置不同币种的资金分配。每個交易所的资金總和不能超過該交易所的 USDT 资金總額。
+                    {t('aiConfig.wizard.step2Desc')}
                   </AlertDescription>
                 </Box>
               </Alert>
@@ -1280,13 +1280,13 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               {loadingBalances ? (
                 <Center py={8}>
                   <Spinner size="lg" />
-                  <Text ml={4}>正在加載交易所餘額...</Text>
+                  <Text ml={4}>{t('aiConfig.wizard.loadingBalances')}</Text>
                 </Center>
               ) : selectedExchanges.length === 0 ? (
                 <Alert status="warning" borderRadius="md">
                   <AlertIcon />
                   <AlertDescription>
-                    未找到已配置的交易所。请先在配置页面添加交易所。
+                    {t('aiConfig.wizard.noExchanges')}
                   </AlertDescription>
                 </Alert>
               ) : (
@@ -1327,10 +1327,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                             />
                             <Text fontWeight="bold" fontSize="md">{exchangeName}</Text>
                             {!isEnabled && (
-                              <Badge colorScheme="gray" fontSize="xs">已禁用</Badge>
+                              <Badge colorScheme="gray" fontSize="xs">{t('aiConfig.wizard.disabled')}</Badge>
                             )}
                             {isTestnet && (
-                              <Badge colorScheme="orange" fontSize="xs">測試網</Badge>
+                              <Badge colorScheme="orange" fontSize="xs">{t('aiConfig.wizard.testnet')}</Badge>
                             )}
                           </HStack>
                           {isEnabled && (
@@ -1338,7 +1338,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                               <VStack spacing={1} align="end">
                                 <HStack spacing={2}>
                                   <Text fontSize="xs" color="gray.500">
-                                    可用餘額: <Text as="span" fontWeight="bold" color="blue.500">{availableBalance.toFixed(2)} USDT</Text>
+                                    {t('aiConfig.wizard.availableBalance')} <Text as="span" fontWeight="bold" color="blue.500">{availableBalance.toFixed(2)} USDT</Text>
                                   </Text>
                                   {availableBalance > 0 && Math.round(totalCapital) !== Math.floor(availableBalance) && (
                                     <Button
@@ -1352,12 +1352,12 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                         }))
                                       }}
                                     >
-                                      使用全部
+                                      {t('aiConfig.wizard.useAll')}
                                     </Button>
                                   )}
                                 </HStack>
                                 <HStack spacing={2}>
-                                  <Text fontSize="xs" color="gray.500">USDT 资金總額:</Text>
+                                  <Text fontSize="xs" color="gray.500">{t('aiConfig.wizard.usdtTotal')}</Text>
                                   <NumberInput
                                     size="xs"
                                     value={Math.round(totalCapital)}
@@ -1373,11 +1373,11 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                   >
                                     <NumberInputField />
                                   </NumberInput>
-                                  <Text fontSize="xs" color="gray.500">USDT</Text>
+                                  <Text fontSize="xs" color="gray.500">{t('aiConfig.wizard.usdt')}</Text>
                                 </HStack>
                               </VStack>
                               <Text fontSize="xs" color={isOverBalance ? "red.500" : "gray.500"}>
-                                已分配: <Text as="span" fontWeight="bold" color={isOverBalance ? "red.500" : "green.500"}>{Math.round(totalAllocated)} USDT</Text>
+                                {t('aiConfig.wizard.allocated')} <Text as="span" fontWeight="bold" color={isOverBalance ? "red.500" : "green.500"}>{Math.round(totalAllocated)} USDT</Text>
                               </Text>
                             </HStack>
                           )}
@@ -1387,7 +1387,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                           <Alert status="error" borderRadius="md" mb={4} size="sm">
                             <AlertIcon />
                             <AlertDescription fontSize="xs">
-                              該交易所的资金分配總和 ({Math.round(totalAllocated)} USDT) 超過了 USDT 资金總額 ({Math.round(totalCapital)} USDT)
+                              {t('aiConfig.wizard.overBudgetWarning', { allocated: Math.round(totalAllocated).toString(), total: Math.round(totalCapital).toString() })}
                             </AlertDescription>
                           </Alert>
                         )}
@@ -1397,7 +1397,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                             <VStack spacing={3} align="stretch">
                               {Object.keys(exchangeSymbols).length === 0 ? (
                                 <Center py={4} color="gray.500" fontSize="sm">
-                                  请点击下方按钮為該交易所添加币种
+                                  {t('aiConfig.wizard.addSymbolHint')}
                                 </Center>
                               ) : (
                                 Object.entries(exchangeSymbols).map(([symbol, capital]) => (
@@ -1424,12 +1424,12 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                       </NumberInput>
                                     </Box>
                                     <Text fontSize="xs" color="gray.500" minW="80px">
-                                      USDT
+                                      {t('aiConfig.wizard.usdt')}
                                     </Text>
                                     <IconButton
                                       size="xs"
                                       icon={<Text>×</Text>}
-                                      aria-label="移除"
+                                      aria-label={t('aiConfig.wizard.remove')}
                                       onClick={() => {
                                         const newSymbols = { ...exchangeSymbols }
                                         delete newSymbols[symbol]
@@ -1447,7 +1447,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                             <Divider my={3} />
 
                             <Box>
-                              <Text fontSize="sm" fontWeight="bold" mb={2}>為該交易所添加币种:</Text>
+                              <Text fontSize="sm" fontWeight="bold" mb={2}>{t('aiConfig.wizard.addSymbolLabel')}</Text>
                               <Wrap>
                                 {symbols.filter(s => !exchangeSymbols[s]).map(s => (
                                   <WrapItem key={s}>
@@ -1476,7 +1476,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                         {!isEnabled && (
                           <Box py={4} textAlign="center">
                             <Text fontSize="sm" color="gray.500">
-                              該交易所已禁用，不會参與后续配置生成
+                              {t('aiConfig.wizard.exchangeDisabledMsg')}
                             </Text>
                           </Box>
                         )}
@@ -1493,9 +1493,9 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Alert status="info" borderRadius="md">
                 <AlertIcon />
                 <Box>
-                  <AlertTitle>第三步：策略细分</AlertTitle>
+                  <AlertTitle>{t('aiConfig.wizard.step3Title')}</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    為每個已啟用交易所的每個币种配置具体的交易策略组合（网格、DCA 等）及其资金权重。
+                    {t('aiConfig.wizard.step3Desc')}
                   </AlertDescription>
                 </Box>
               </Alert>
@@ -1526,7 +1526,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                   variant="ghost" 
                                   onClick={() => handleAIRecommendStrategy(exchangeId, symbol)}
                                 >
-                                  推荐配置
+                                  {t('aiConfig.wizard.recommendConfig')}
                                 </Button>
                               </HStack>
 
@@ -1603,9 +1603,9 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Alert status="info" borderRadius="md">
                 <AlertIcon />
                 <Box>
-                  <AlertTitle>第四步：参數調优</AlertTitle>
+                  <AlertTitle>{t('aiConfig.wizard.step4Title')}</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    根據选定的策略和资金，微調交易参數。内置公式已自动生成默认值。
+                    {t('aiConfig.wizard.step4Desc')}
                   </AlertDescription>
                 </Box>
               </Alert>
@@ -1637,18 +1637,18 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                           return (
                             <Box key={symbol} p={4} bg={infoBg} borderRadius="xl" border="1px" borderColor={borderColor}>
                               <HStack justify="space-between" mb={4}>
-                                <Badge colorScheme="green" fontSize="sm">网格参數: {symbol}</Badge>
+                                <Badge colorScheme="green" fontSize="sm">{t('aiConfig.wizard.gridParamsLabel', { symbol })}</Badge>
                                 <Button size="xs" colorScheme="blue" variant="outline" onClick={() => {
                                   handleOptimizeGridParams(exchangeId, symbol, symbolCapital, gridStrategy.weight)
                                 }}>
-                                  一键优化
+                                  {t('aiConfig.wizard.optimizeParams')}
                                 </Button>
                               </HStack>
 
                               <VStack spacing={4} align="stretch">
                                 <HStack>
                                   <FormControl flex={1}>
-                                    <FormLabel fontSize="xs">價格間隔 (USDT)</FormLabel>
+                                    <FormLabel fontSize="xs">{t('aiConfig.wizard.priceInterval')}</FormLabel>
                                     <NumberInput 
                                       size="sm" 
                                       value={currentParams.priceInterval} 
@@ -1660,7 +1660,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                     </NumberInput>
                                   </FormControl>
                                   <FormControl flex={1}>
-                                    <FormLabel fontSize="xs">買/賣單視窗</FormLabel>
+                                    <FormLabel fontSize="xs">{t('aiConfig.wizard.orderWindow')}</FormLabel>
                                     <NumberInput 
                                       size="sm" 
                                       value={currentParams.orderWindow} 
@@ -1673,7 +1673,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                 </HStack>
                                 <HStack>
                                   <FormControl flex={1}>
-                                    <FormLabel fontSize="xs">每單金額 (USDT)</FormLabel>
+                                    <FormLabel fontSize="xs">{t('aiConfig.wizard.orderAmount')}</FormLabel>
                                     <NumberInput 
                                       size="sm" 
                                       value={currentParams.orderAmount} 
@@ -1684,7 +1684,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                     </NumberInput>
                                   </FormControl>
                                   <FormControl flex={1}>
-                                    <FormLabel fontSize="xs">最大网格层數</FormLabel>
+                                    <FormLabel fontSize="xs">{t('aiConfig.wizard.maxGridLevels')}</FormLabel>
                                     <NumberInput 
                                       size="sm" 
                                       value={currentParams.maxGridLevels} 
@@ -1712,9 +1712,9 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Alert status="info" borderRadius="md">
                 <AlertIcon />
                 <Box>
-                  <AlertTitle>第五步：盈利保护設置</AlertTitle>
+                  <AlertTitle>{t('aiConfig.wizard.step5Title')}</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    配置盈利划轉和本金保护规则，确保您的利润得到妥善管理。
+                    {t('aiConfig.wizard.step5Desc')}
                   </AlertDescription>
                 </Box>
               </Alert>
@@ -1724,16 +1724,16 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                 <VStack spacing={5} align="stretch">
                   <FormControl display="flex" alignItems="center" justifyContent="space-between">
                     <Box>
-                      <FormLabel mb="0" fontWeight="bold">啟用利润自动划轉</FormLabel>
-                      <Text fontSize="xs" color="gray.500">盈利達到阈值后自动划轉到現貨钱包</Text>
+                      <FormLabel mb="0" fontWeight="bold">{t('aiConfig.wizard.enableAutoTransfer')}</FormLabel>
+                      <Text fontSize="xs" color="gray.500">{t('aiConfig.wizard.autoTransferDesc')}</Text>
                     </Box>
                     <RadioGroup 
                       value={withdrawalPolicy.enabled ? 'true' : 'false'} 
                       onChange={(v) => setWithdrawalPolicy(prev => ({ ...prev, enabled: v === 'true' }))}
                     >
                       <Stack direction="row">
-                        <Radio value="true">开啟</Radio>
-                        <Radio value="false">关闭</Radio>
+                        <Radio value="true">{t('aiConfig.wizard.on')}</Radio>
+                        <Radio value="false">{t('aiConfig.wizard.off')}</Radio>
                       </Stack>
                     </RadioGroup>
                   </FormControl>
@@ -1744,23 +1744,23 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       
                       {/* 划轉模式选擇 */}
                       <FormControl>
-                        <FormLabel fontWeight="bold">划轉模式</FormLabel>
+                        <FormLabel fontWeight="bold">{t('aiConfig.wizard.transferMode')}</FormLabel>
                         <Select 
                           value={withdrawalPolicy.mode || 'threshold'}
                           onChange={(e) => setWithdrawalPolicy(prev => ({ ...prev, mode: e.target.value as any }))}
                           borderRadius="xl"
                         >
-                          <option value="threshold">阈值触发 - 盈利達到比例后划轉</option>
-                          <option value="fixed">固定金額 - 每赚固定金額就划轉</option>
-                          <option value="tiered">阶梯划轉 - 不同盈利水平不同划轉比例</option>
-                          <option value="scheduled">定時划轉 - 按時间周期划轉</option>
+                          <option value="threshold">{t('aiConfig.wizard.modeThreshold')}</option>
+                          <option value="fixed">{t('aiConfig.wizard.modeFixed')}</option>
+                          <option value="tiered">{t('aiConfig.wizard.modeTiered')}</option>
+                          <option value="scheduled">{t('aiConfig.wizard.modeScheduled')}</option>
                         </Select>
                       </FormControl>
 
                       {/* 阈值模式設置 */}
                       {(withdrawalPolicy.mode === 'threshold' || !withdrawalPolicy.mode) && (
                         <FormControl>
-                          <FormLabel fontWeight="bold">提現触发阈值 (%)</FormLabel>
+                          <FormLabel fontWeight="bold">{t('aiConfig.wizard.withdrawThreshold')}</FormLabel>
                           <HStack>
                             <NumberInput 
                               flex={1}
@@ -1774,7 +1774,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                             <Text fontWeight="bold">%</Text>
                           </HStack>
                           <Text fontSize="xs" color="gray.500" mt={1}>
-                            盈利達到本金的此比例時触发划轉
+                            {t('aiConfig.wizard.withdrawThresholdDesc')}
                           </Text>
                         </FormControl>
                       )}
@@ -1782,7 +1782,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       {/* 固定金額模式設置 */}
                       {withdrawalPolicy.mode === 'fixed' && (
                         <FormControl>
-                          <FormLabel fontWeight="bold">固定划轉金額 (USDT)</FormLabel>
+                          <FormLabel fontWeight="bold">{t('aiConfig.wizard.fixedAmount')}</FormLabel>
                           <NumberInput 
                             value={withdrawalPolicy.fixed_amount || 100}
                             onChange={(_, val) => setWithdrawalPolicy(prev => ({ ...prev, fixed_amount: val }))}
@@ -1791,7 +1791,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                             <NumberInputField borderRadius="xl" />
                           </NumberInput>
                           <Text fontSize="xs" color="gray.500" mt={1}>
-                            每次盈利達到此金額時自动划轉
+                            {t('aiConfig.wizard.fixedAmountDesc')}
                           </Text>
                         </FormControl>
                       )}
@@ -1799,7 +1799,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       {/* 阶梯模式設置 */}
                       {withdrawalPolicy.mode === 'tiered' && (
                         <Box>
-                          <FormLabel fontWeight="bold">阶梯划轉规则</FormLabel>
+                          <FormLabel fontWeight="bold">{t('aiConfig.wizard.tieredRules')}</FormLabel>
                           <VStack spacing={2} align="stretch">
                             {(withdrawalPolicy.tiered_rules || [
                               { profit_threshold: 0.1, withdraw_ratio: 0.3 },
@@ -1807,7 +1807,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                               { profit_threshold: 0.3, withdraw_ratio: 0.7 },
                             ]).map((rule, idx) => (
                               <HStack key={idx} spacing={2}>
-                                <Text fontSize="sm" minW="80px">盈利 ≥</Text>
+                                <Text fontSize="sm" minW="80px">{t('aiConfig.wizard.profitGte')}</Text>
                                 <NumberInput 
                                   size="sm" 
                                   maxW="70px"
@@ -1820,7 +1820,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                                 >
                                   <NumberInputField />
                                 </NumberInput>
-                                <Text fontSize="sm">% 時划轉</Text>
+                                <Text fontSize="sm">{t('aiConfig.wizard.transferAt')}</Text>
                                 <NumberInput 
                                   size="sm" 
                                   maxW="70px"
@@ -1838,7 +1838,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                             ))}
                           </VStack>
                           <Text fontSize="xs" color="gray.500" mt={1}>
-                            例如：盈利 10% 時划轉 30%，盈利 20% 時划轉 50%
+                            {t('aiConfig.wizard.tieredExample')}
                           </Text>
                         </Box>
                       )}
@@ -1847,7 +1847,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       {withdrawalPolicy.mode === 'scheduled' && (
                         <HStack spacing={4}>
                           <FormControl flex={1}>
-                            <FormLabel fontWeight="bold">划轉周期</FormLabel>
+                            <FormLabel fontWeight="bold">{t('aiConfig.wizard.transferCycle')}</FormLabel>
                             <Select 
                               value={withdrawalPolicy.schedule?.frequency || 'daily'}
                               onChange={(e) => setWithdrawalPolicy(prev => ({ 
@@ -1856,13 +1856,13 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                               }))}
                               borderRadius="xl"
                             >
-                              <option value="daily">每日</option>
-                              <option value="weekly">每周</option>
-                              <option value="monthly">每月</option>
+                              <option value="daily">{t('aiConfig.wizard.daily')}</option>
+                              <option value="weekly">{t('aiConfig.wizard.weekly')}</option>
+                              <option value="monthly">{t('aiConfig.wizard.monthly')}</option>
                             </Select>
                           </FormControl>
                           <FormControl flex={1}>
-                            <FormLabel fontWeight="bold">划轉時间</FormLabel>
+                            <FormLabel fontWeight="bold">{t('aiConfig.wizard.transferTime')}</FormLabel>
                             <Input 
                               type="time" 
                               value={withdrawalPolicy.schedule?.time_of_day || '23:00'}
@@ -1878,7 +1878,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
 
                       {/* 划轉比例 */}
                       <FormControl>
-                        <FormLabel fontWeight="bold">划轉比例 (%)</FormLabel>
+                        <FormLabel fontWeight="bold">{t('aiConfig.wizard.transferRatio')}</FormLabel>
                         <HStack>
                           <NumberInput 
                             flex={1}
@@ -1892,7 +1892,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                           <Text fontWeight="bold">%</Text>
                         </HStack>
                         <Text fontSize="xs" color="gray.500" mt={1}>
-                          触发条件满足時，划轉利润的百分比（剩餘部分继续複利）
+                          {t('aiConfig.wizard.transferRatioDesc')}
                         </Text>
                       </FormControl>
                     </>
@@ -1903,12 +1903,12 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               {/* 本金保护設置 */}
               <Box p={5} bg={infoBg} borderRadius="2xl" border="1px" borderColor={borderColor}>
                 <VStack spacing={4} align="stretch">
-                  <Text fontWeight="bold" fontSize="md">🛡️ 本金保护</Text>
+                  <Text fontWeight="bold" fontSize="md">{t('aiConfig.wizard.principalProtection')}</Text>
                   
                   <FormControl display="flex" alignItems="center" justifyContent="space-between">
                     <Box>
-                      <FormLabel mb="0" fontSize="sm">回本即保护</FormLabel>
-                      <Text fontSize="xs" color="gray.500">盈利回本后自动設置保本止损</Text>
+                      <FormLabel mb="0" fontSize="sm">{t('aiConfig.wizard.breakevenProtection')}</FormLabel>
+                      <Text fontSize="xs" color="gray.500">{t('aiConfig.wizard.breakevenProtectionDesc')}</Text>
                     </Box>
                     <RadioGroup 
                       value={withdrawalPolicy.principal_protection?.breakeven_protection ? 'true' : 'false'} 
@@ -1922,16 +1922,16 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       }))}
                     >
                       <Stack direction="row">
-                        <Radio value="true" size="sm">开啟</Radio>
-                        <Radio value="false" size="sm">关闭</Radio>
+                        <Radio value="true" size="sm">{t('aiConfig.wizard.on')}</Radio>
+                        <Radio value="false" size="sm">{t('aiConfig.wizard.off')}</Radio>
                       </Stack>
                     </RadioGroup>
                   </FormControl>
 
                   <FormControl display="flex" alignItems="center" justifyContent="space-between">
                     <Box>
-                      <FormLabel mb="0" fontSize="sm">盈利后划轉本金</FormLabel>
-                      <Text fontSize="xs" color="gray.500">利润足够時优先保护本金</Text>
+                      <FormLabel mb="0" fontSize="sm">{t('aiConfig.wizard.withdrawPrincipal')}</FormLabel>
+                      <Text fontSize="xs" color="gray.500">{t('aiConfig.wizard.withdrawPrincipalDesc')}</Text>
                     </Box>
                     <RadioGroup 
                       value={withdrawalPolicy.principal_protection?.withdraw_principal ? 'true' : 'false'} 
@@ -1945,14 +1945,14 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       }))}
                     >
                       <Stack direction="row">
-                        <Radio value="true" size="sm">开啟</Radio>
-                        <Radio value="false" size="sm">关闭</Radio>
+                        <Radio value="true" size="sm">{t('aiConfig.wizard.on')}</Radio>
+                        <Radio value="false" size="sm">{t('aiConfig.wizard.off')}</Radio>
                       </Stack>
                     </RadioGroup>
                   </FormControl>
 
                   <FormControl>
-                    <FormLabel fontSize="sm">最大亏损限制 (%)</FormLabel>
+                    <FormLabel fontSize="sm">{t('aiConfig.wizard.maxLossLimit')}</FormLabel>
                     <HStack>
                       <NumberInput 
                         size="sm"
@@ -1974,7 +1974,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       <Text fontSize="sm">%</Text>
                     </HStack>
                     <Text fontSize="xs" color="gray.500" mt={1}>
-                      最大允許亏损本金的比例，超過后停止交易
+                      {t('aiConfig.wizard.maxLossLimitDesc')}
                     </Text>
                   </FormControl>
                 </VStack>
@@ -1982,7 +1982,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
 
               <Alert status="warning" borderRadius="xl" fontSize="xs">
                 <AlertIcon />
-                注意：提現操作涉及合約账戶向現貨账戶的资金划轉，请确保您的 API 拥有划轉权限。
+                {t('aiConfig.wizard.withdrawWarning')}
               </Alert>
             </VStack>
           )}
@@ -1992,15 +1992,15 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Alert status="success" borderRadius="md">
                 <AlertIcon />
                 <Box>
-                  <AlertTitle>配置生成成功</AlertTitle>
+                  <AlertTitle>{t('aiConfig.wizard.configGenSuccess')}</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    请仔细查看 AI 生成的多级资產配置方案，确认無误后点击"應用配置"
+                    {t('aiConfig.wizard.previewHint')}
                   </AlertDescription>
                 </Box>
               </Alert>
 
               <Box>
-                <Text fontWeight="bold" mb={2}>AI 配置思路</Text>
+                <Text fontWeight="bold" mb={2}>{t('aiConfig.wizard.aiThinking')}</Text>
                 <Box
                   p={4}
                   bg={infoBg}
@@ -2016,17 +2016,17 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
 
               {aiConfig.symbols_config && aiConfig.symbols_config.length > 0 ? (
                 <Box>
-                  <Text fontWeight="bold" mb={2}>分级配置详情</Text>
+                  <Text fontWeight="bold" mb={2}>{t('aiConfig.wizard.tieredConfigDetail')}</Text>
                   <VStack spacing={4} align="stretch">
                     {aiConfig.symbols_config.map((sc, idx) => (
                       <Box key={idx} p={3} border="1px" borderColor={borderColor} borderRadius="lg">
                         <HStack justify="space-between" mb={2}>
                           <Badge colorScheme="green">{sc.symbol}</Badge>
-                          <Text fontSize="xs" fontWeight="bold">分配资金: {sc.total_allocated_capital} USDT</Text>
+                          <Text fontSize="xs" fontWeight="bold">{t('aiConfig.wizard.allocatedCapital', { capital: sc.total_allocated_capital })}</Text>
                         </HStack>
                         <VStack align="stretch" spacing={1} pl={2}>
                           <HStack justify="space-between">
-                            <Text fontSize="xs" color="gray.500">策略组合:</Text>
+                            <Text fontSize="xs" color="gray.500">{t('aiConfig.wizard.strategyCombo')}</Text>
                             <HStack>
                               {sc.strategies.map((s, si) => (
                                 <Badge key={si} variant="outline" size="xs">{s.type}({(s.weight*100).toFixed(0)}%)</Badge>
@@ -2034,12 +2034,12 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                             </HStack>
                           </HStack>
                           <HStack justify="space-between">
-                            <Text fontSize="xs" color="gray.500">网格参數:</Text>
-                            <Text fontSize="xs">间隔 {sc.price_interval}% | 窗口 {sc.buy_window_size} | 每單 {sc.order_quantity}U</Text>
+                            <Text fontSize="xs" color="gray.500">{t('aiConfig.wizard.gridParamsPreview')}</Text>
+                            <Text fontSize="xs">{t('aiConfig.wizard.gridParamsPreviewDetail', { interval: sc.price_interval, window: sc.buy_window_size, amount: sc.order_quantity })}</Text>
                           </HStack>
                           <HStack justify="space-between">
-                            <Text fontSize="xs" color="gray.500">提現策略:</Text>
-                            <Text fontSize="xs">{sc.withdrawal_policy?.enabled ? `开啟 (${(sc.withdrawal_policy.threshold*100).toFixed(0)}% 触发)` : '关闭'}</Text>
+                            <Text fontSize="xs" color="gray.500">{t('aiConfig.wizard.withdrawStrategy')}</Text>
+                            <Text fontSize="xs">{sc.withdrawal_policy?.enabled ? t('aiConfig.wizard.withdrawOn', { threshold: (sc.withdrawal_policy.threshold*100).toFixed(0) }) : t('aiConfig.wizard.withdrawOff')}</Text>
                           </HStack>
                         </VStack>
                       </Box>
@@ -2049,16 +2049,16 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               ) : (
                 <>
                   <Box>
-                    <Text fontWeight="bold" mb={2}>网格参數配置</Text>
+                    <Text fontWeight="bold" mb={2}>{t('aiConfig.wizard.gridConfigTitle')}</Text>
                     <TableContainer>
                       <Table size="sm" variant="simple">
                         <Thead>
                           <Tr>
-                            <Th>币种</Th>
-                            <Th>價格間隔</Th>
-                            <Th>每單金額</Th>
-                            <Th>買單窗口</Th>
-                            <Th>賣單視窗</Th>
+                            <Th>{t('aiConfig.wizard.thSymbol')}</Th>
+                            <Th>{t('aiConfig.wizard.thPriceInterval')}</Th>
+                            <Th>{t('aiConfig.wizard.thOrderAmount')}</Th>
+                            <Th>{t('aiConfig.wizard.thBuyWindow')}</Th>
+                            <Th>{t('aiConfig.wizard.thSellWindow')}</Th>
                           </Tr>
                         </Thead>
                         <Tbody>
@@ -2079,14 +2079,14 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                   <Divider />
 
                   <Box>
-                    <Text fontWeight="bold" mb={2}>资金分配配置</Text>
+                    <Text fontWeight="bold" mb={2}>{t('aiConfig.wizard.capitalAllocTitle')}</Text>
                     <TableContainer>
                       <Table size="sm" variant="simple">
                         <Thead>
                           <Tr>
-                            <Th>币种</Th>
-                            <Th>最大金額 (USDT)</Th>
-                            <Th>最大百分比 (%)</Th>
+                            <Th>{t('aiConfig.wizard.thSymbol')}</Th>
+                            <Th>{t('aiConfig.wizard.thMaxAmount')}</Th>
+                            <Th>{t('aiConfig.wizard.thMaxPercent')}</Th>
                           </Tr>
                         </Thead>
                         <Tbody>
@@ -2111,9 +2111,9 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Alert status="success" borderRadius="md">
                 <AlertIcon />
                 <Box>
-                  <AlertTitle>配置应用成功！</AlertTitle>
+                  <AlertTitle>{t('aiConfig.wizard.applySuccessTitle')}</AlertTitle>
                   <AlertDescription fontSize="sm">
-                    配置已成功保存到配置文件。请重啟服務使配置生效。
+                    {t('aiConfig.wizard.applySuccessDescFull')}
                   </AlertDescription>
                 </Box>
               </Alert>
@@ -2126,10 +2126,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               {taskStatus && (
                 <VStack spacing={2} w="full" px={4}>
                   <Text fontSize="sm" color="gray.600">
-                    {taskStatus === 'pending' && '任務已創建，等待处理...'}
-                    {taskStatus === 'running' && 'AI 正在生成配置，请稍候...'}
-                    {taskStatus === 'completed' && '配置生成完成！'}
-                    {taskStatus === 'failed' && '配置生成失败'}
+                    {taskStatus === 'pending' && t('aiConfig.wizard.taskPending')}
+                    {taskStatus === 'running' && t('aiConfig.wizard.taskRunning')}
+                    {taskStatus === 'completed' && t('aiConfig.wizard.taskCompleted')}
+                    {taskStatus === 'failed' && t('aiConfig.wizard.taskFailed')}
                   </Text>
                   <Progress 
                     value={taskProgress} 
@@ -2152,13 +2152,13 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           <HStack spacing={3} w="full">
             {step !== 'success' && (
               <Button variant="ghost" onClick={handleClose}>
-                取消
+                {t('aiConfig.wizard.cancel')}
               </Button>
             )}
             <Box flex={1} />
             {['asset-alloc', 'strategy-split', 'param-tuning', 'withdrawal-setup', 'preview'].includes(step) && (
               <Button variant="outline" onClick={handleBack}>
-                上一步
+                {t('aiConfig.wizard.prevStep')}
               </Button>
             )}
             {['ai-setup', 'asset-alloc', 'strategy-split', 'param-tuning'].includes(step) && (
@@ -2167,7 +2167,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                 onClick={handleNext}
                 isDisabled={step === 'ai-setup' && !geminiApiKey.trim()}
               >
-                下一步
+                {t('aiConfig.wizard.nextStep')}
               </Button>
             )}
             {step === 'withdrawal-setup' && (
@@ -2176,7 +2176,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                 onClick={handleSaveDirectly}
                 isLoading={loading}
               >
-                保存配置
+                {t('aiConfig.wizard.saveConfig')}
               </Button>
             )}
             {step === 'preview' && (
@@ -2185,12 +2185,12 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                 onClick={handleApply}
                 isLoading={loading}
               >
-                應用配置
+                {t('aiConfig.wizard.applyConfig')}
               </Button>
             )}
             {step === 'success' && (
               <Button colorScheme="blue" onClick={handleClose}>
-                完成
+                {t('aiConfig.wizard.done')}
               </Button>
             )}
           </HStack>

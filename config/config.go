@@ -65,6 +65,32 @@ type InspectorFocusSymbol struct {
 	AnalysisType string `yaml:"analysis_type"` // full, standard
 }
 
+// CompositeRiskThresholds 複合風控分數閾值
+type CompositeRiskThresholds struct {
+	Caution        float64 `yaml:"caution"`
+	ReducePosition float64 `yaml:"reduce_position"`
+	PauseBuying    float64 `yaml:"pause_buying"`
+	StopTrading    float64 `yaml:"stop_trading"`
+}
+
+// CompositeRiskFactorsConfig 複合風控各因子配置
+type CompositeRiskFactorsConfig struct {
+	News        CompositeRiskFactorOpts `yaml:"news"`
+	Trend       CompositeRiskFactorOpts `yaml:"trend"`
+	FundingRate CompositeRiskFactorOpts `yaml:"funding_rate"`
+	Depth       CompositeRiskFactorOpts `yaml:"depth"`
+	Kline       CompositeRiskFactorOpts `yaml:"kline"`
+}
+
+// CompositeRiskFactorOpts 單一因子開關與權重
+type CompositeRiskFactorOpts struct {
+	Enabled                    bool    `yaml:"enabled"`
+	Weight                     float64 `yaml:"weight"`
+	UseRSI                     bool    `yaml:"use_rsi"`
+	UseMACD                    bool    `yaml:"use_macd"`
+	ConsecutiveNegativePeriods int     `yaml:"consecutive_negative_periods"`
+}
+
 // GridRiskControl 網格策略風控配置
 type GridRiskControl struct {
 	Enabled                 bool    `yaml:"enabled" json:"enabled"`
@@ -259,6 +285,14 @@ type Config struct {
 			MinDepthUSDT      float64 `yaml:"min_depth_usdt"`     // 最小深度（USDT），低於此值触发风控，預設 10000
 		} `yaml:"depth_monitor"`
 	} `yaml:"risk_control"`
+
+	// 複合風控引擎配置
+	CompositeRisk struct {
+		Enabled           bool                        `yaml:"enabled"`
+		EvaluateInterval  int                         `yaml:"evaluate_interval"`
+		Thresholds        CompositeRiskThresholds     `yaml:"thresholds"`
+		Factors           CompositeRiskFactorsConfig  `yaml:"factors"`
+	} `yaml:"composite_risk"`
 
 	// 資金費率監控與套利配置
 	FundingRate FundingRateConfig `yaml:"funding_rate" json:"funding_rate"`
@@ -1636,6 +1670,41 @@ func (c *Config) Validate() error {
 	}
 	if c.RiskControl.DepthMonitor.MinDepthUSDT <= 0 {
 		c.RiskControl.DepthMonitor.MinDepthUSDT = 10000 // 預設 10000 USDT
+	}
+
+	// 複合風控閾值與因子權重預設值
+	if c.CompositeRisk.Thresholds.Caution <= 0 {
+		c.CompositeRisk.Thresholds.Caution = 25
+	}
+	if c.CompositeRisk.Thresholds.ReducePosition <= 0 {
+		c.CompositeRisk.Thresholds.ReducePosition = 45
+	}
+	if c.CompositeRisk.Thresholds.PauseBuying <= 0 {
+		c.CompositeRisk.Thresholds.PauseBuying = 65
+	}
+	if c.CompositeRisk.Thresholds.StopTrading <= 0 {
+		c.CompositeRisk.Thresholds.StopTrading = 80
+	}
+	if c.CompositeRisk.EvaluateInterval <= 0 {
+		c.CompositeRisk.EvaluateInterval = 30
+	}
+	if c.CompositeRisk.Factors.News.Weight <= 0 {
+		c.CompositeRisk.Factors.News.Weight = 0.30
+	}
+	if c.CompositeRisk.Factors.Trend.Weight <= 0 {
+		c.CompositeRisk.Factors.Trend.Weight = 0.25
+	}
+	if c.CompositeRisk.Factors.FundingRate.Weight <= 0 {
+		c.CompositeRisk.Factors.FundingRate.Weight = 0.20
+	}
+	if c.CompositeRisk.Factors.Depth.Weight <= 0 {
+		c.CompositeRisk.Factors.Depth.Weight = 0.10
+	}
+	if c.CompositeRisk.Factors.Kline.Weight <= 0 {
+		c.CompositeRisk.Factors.Kline.Weight = 0.15
+	}
+	if c.CompositeRisk.Factors.FundingRate.ConsecutiveNegativePeriods <= 0 {
+		c.CompositeRisk.Factors.FundingRate.ConsecutiveNegativePeriods = 3
 	}
 
 	// 設置資金費率監控預設值

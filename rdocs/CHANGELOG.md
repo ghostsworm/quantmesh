@@ -10,6 +10,16 @@
 
 ---
 
+## v3.43.0-rc1 - 2026年02月06日
+
+**Git Tag**: `v3.43.0-rc1`
+
+### 新增 (Added)
+
+- **複合風控引擎（Composite Risk Controller）**：五個風控因子（AI 新聞、均線趨勢、資金費率、市場深度、K 線異常）加權聚合，輸出複合評分與級別（normal/caution/reduce_position/pause_buying/stop_trading），並在持倉管理中根據級別調整買入或撤單；配置塊 `composite_risk`、API `GET /api/composite-risk`
+
+---
+
 ## v3.42.0-rc1 - 2026年02月06日
 
 **Git Tag**: `v3.42.0-rc1`

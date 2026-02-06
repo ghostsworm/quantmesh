@@ -313,3 +313,50 @@ func (d *DepthMonitor) GetLastMsg() string {
 	defer d.mu.RUnlock()
 	return d.lastMsg
 }
+
+// GetDepthRiskScore 獲取深度風險評分 0-100（供複合風控因子使用）
+func (d *DepthMonitor) GetDepthRiskScore(symbol string) (score float64, reason string) {
+	d.mu.RLock()
+	history := d.depthHistory[symbol]
+	triggered := d.triggered
+	dropThreshold := d.cfg.RiskControl.DepthMonitor.DropThreshold
+	minDepth := d.cfg.RiskControl.DepthMonitor.MinDepthUSDT
+	d.mu.RUnlock()
+
+	if triggered {
+		return 100, "深度風控已觸發"
+	}
+	if len(history) < 2 {
+		return 0, "數據不足"
+	}
+	current := history[len(history)-1].TotalDepth
+	avgDepth := 0.0
+	count := 0
+	for i := len(history) - 2; i >= 0 && count < 10; i-- {
+		avgDepth += history[i].TotalDepth
+		count++
+	}
+	if count == 0 {
+		return 0, "數據不足"
+	}
+	avgDepth /= float64(count)
+	if current < minDepth {
+		return 100, "深度過低"
+	}
+	if avgDepth <= 0 {
+		return 0, "正常"
+	}
+	depthDropRatio := (avgDepth - current) / avgDepth
+	if depthDropRatio <= 0 {
+		return 0, "正常"
+	}
+	if dropThreshold <= 0 {
+		dropThreshold = 0.5
+	}
+	score = depthDropRatio / dropThreshold * 100
+	if score > 100 {
+		score = 100
+	}
+	reason = "深度下降"
+	return score, reason
+}

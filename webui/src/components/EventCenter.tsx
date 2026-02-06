@@ -236,11 +236,11 @@ const EventCenter: React.FC = () => {
                 <VStack spacing={2}>
                   <Text color="gray.500">{t('eventCenter.noEvents')}</Text>
                   <Text fontSize="sm" color="gray.400">
-                    目前筛选條件: {activeFilter === 'all' ? '全部' : activeFilter}
+                    {t('eventCenter.currentFilter')}: {activeFilter === 'all' ? t('eventCenter.all') : activeFilter}
                   </Text>
                   {activeFilter !== 'all' && (
                     <Button size="sm" variant="link" onClick={() => setActiveFilter('all')}>
-                      查看所有事件
+                      {t('eventCenter.viewAllEvents')}
                     </Button>
                   )}
                 </VStack>

@@ -299,6 +299,49 @@ export async function getPendingOrders(exchange?: string, symbol?: string): Prom
   return fetchWithAuth(url)
 }
 
+// 🔥 Trade Details - 查詢賣單的成交明細（部分成交記錄）
+export interface TradeFill {
+  id: number
+  buy_price: number
+  sell_price: number
+  quantity: number
+  pnl: number
+  fee: number
+  fee_asset: string
+  buy_price_deviation: number
+  sell_price_deviation: number
+  created_at: string
+}
+
+export interface TradeDetailResponse {
+  order: {
+    order_id: number
+    client_order_id: string
+    symbol: string
+    side: string
+    price: number
+    quantity: number
+    filled_qty: number
+    status: string
+    exchange: string
+    type: string
+    created_at: string
+    updated_at: string
+  } | null
+  fills: TradeFill[]
+  fill_count: number
+  summary: {
+    total_quantity: number
+    total_pnl: number
+    total_fee: number
+    net_pnl: number
+  }
+}
+
+export async function getTradeDetails(orderID: number): Promise<TradeDetailResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/trades/by-order/${orderID}`)
+}
+
 // Sync Orders (Binance only)
 export interface SyncOrdersResponse {
   success: boolean
