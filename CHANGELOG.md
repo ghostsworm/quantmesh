@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.48.5-rc1] - 2026-02-07
+
+### Added
+- **AI 解读持久化与历史**：资金费率与价差监控页的「AI 解读」支持记住状态并列出历史
+  - 点击「AI 解读」后离开页面再返回，自动恢复显示上次进行中或已完成的解读；进行中任务会继续轮询直到完成
+  - 新增「历史解读」折叠列表，可按页面类型查看过往解读记录，点击可查看该次结果
+  - 后端：市场解读任务写入 SQLite（`market_interpret_tasks` 表），新增 `GET /api/ai/market-interpret/latest?page_type=`、`GET /api/ai/market-interpret/history?page_type=&limit=`
+  - 前端：挂载时请求最新一条并恢复展示；历史列表与选中查看结果；中英文 i18n（historyTitle、noHistory、status.*）
+
 ## [3.48.4] - 2026-02-07
 
 ### Added

@@ -374,6 +374,9 @@ func createTables(db *sql.DB) error {
 	if err := migrateKlineFilesTable(db); err != nil {
 		return fmt.Errorf("迁移 kline_files 表失败: %w", err)
 	}
+	if err := migrateMarketInterpretTable(db); err != nil {
+		return fmt.Errorf("迁移 market_interpret_tasks 表失败: %w", err)
+	}
 
 	return nil
 }
@@ -417,6 +420,25 @@ func migrateFundingPaymentsTable(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_exchange_symbol ON funding_payments(exchange, symbol);
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_trade_time ON funding_payments(trade_time);
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_account ON funding_payments(account);
+	`)
+	return err
+}
+
+// migrateMarketInterpretTable 遷移市場 AI 解讀任務表
+func migrateMarketInterpretTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS market_interpret_tasks (
+			task_id TEXT PRIMARY KEY,
+			page_type TEXT NOT NULL,
+			symbol TEXT NOT NULL,
+			status TEXT NOT NULL,
+			progress INTEGER NOT NULL DEFAULT 0,
+			result TEXT,
+			error TEXT,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_market_interpret_page_created ON market_interpret_tasks(page_type, created_at);
 	`)
 	return err
 }
