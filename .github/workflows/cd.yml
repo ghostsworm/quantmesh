@@ -60,6 +60,18 @@ jobs:
     - name: Enable Corepack (Yarn 4)
       run: corepack enable
 
+    - name: Prepare Yarn (with retry)
+      run: |
+        # 预先准备 yarn，带重试机制
+        for i in 1 2 3; do
+          if corepack prepare yarn@4.12.0 --activate; then
+            echo "Yarn prepared successfully"
+            break
+          fi
+          echo "Attempt $i failed, retrying in 5 seconds..."
+          sleep 5
+        done
+
     - name: Build frontend (for go:embed)
       run: |
         mkdir -p web/dist
