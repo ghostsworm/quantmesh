@@ -68,6 +68,9 @@ const (
 
 	// 智子巡檢報告（定時彙總或緊急事件）
 	EventTypeInspectorReport EventType = "inspector_report"
+
+	// 配置切换事件
+	EventTypeConfigSwitched EventType = "config_switched" // 配置档案自动切换
 )
 
 // EventSeverity 事件严重程度

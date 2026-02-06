@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"quantmesh/arbitrage"
@@ -18,6 +19,7 @@ import (
 	"quantmesh/safety"
 	"quantmesh/storage"
 	"quantmesh/strategy"
+	"quantmesh/web"
 )
 
 // SymbolRuntime 代表單個交易所/交易對的运行時组件集合
@@ -100,6 +102,90 @@ func (sm *SymbolManager) StopAll() {
 	}
 }
 
+// selectProfile 根据资金费率和手续费率选择配置档案
+func selectProfile(ctx context.Context, symCfg config.SymbolConfig, ex exchange.IExchange, feeRate float64, storageService *storage.StorageService) (config.ProfileConfig, string) {
+	// 如果没有配置 profiles，返回空配置（使用主配置）
+	if len(symCfg.Profiles) == 0 {
+		return config.ProfileConfig{}, ""
+	}
+
+	// 获取资金费率（仅对合约有效）
+	var fundingRate float64
+	if symCfg.GetMarketType() == "futures" {
+		// 优先从存储服务获取最新资金费率
+		if storageService != nil {
+			if st := storageService.GetStorage(); st != nil {
+				if latestRate, err := st.GetLatestFundingRate(symCfg.Symbol, symCfg.Exchange); err == nil {
+					fundingRate = latestRate
+				}
+			}
+		}
+		// 如果存储中没有，尝试从交易所实时获取
+		if fundingRate == 0 && ex != nil {
+			rateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			if rate, err := ex.GetFundingRate(rateCtx, symCfg.Symbol); err == nil {
+				fundingRate = rate
+			}
+			cancel()
+		}
+	}
+
+	// 根据切换规则选择 profile
+	// 优先级：资金费率 > 手续费率
+	selectedProfile := ""
+	if symCfg.SwitchRules.FundingRate.Threshold != 0 && symCfg.GetMarketType() == "futures" {
+		if fundingRate >= symCfg.SwitchRules.FundingRate.Threshold {
+			// 资金费率为正，选择 positive profile
+			if profile, exists := symCfg.Profiles["positive"]; exists {
+				return profile, "positive"
+			}
+		} else if fundingRate < -symCfg.SwitchRules.FundingRate.Threshold {
+			// 资金费率为负，选择 negative profile
+			if profile, exists := symCfg.Profiles["negative"]; exists {
+				return profile, "negative"
+			}
+		}
+	}
+
+	if symCfg.SwitchRules.FeeRate.Threshold != 0 {
+		if feeRate >= symCfg.SwitchRules.FeeRate.Threshold {
+			// 手续费率较高，选择 positive profile
+			if profile, exists := symCfg.Profiles["positive"]; exists {
+				return profile, "positive"
+			}
+		} else if feeRate < symCfg.SwitchRules.FeeRate.Threshold {
+			// 手续费率较低，选择 negative profile
+			if profile, exists := symCfg.Profiles["negative"]; exists {
+				return profile, "negative"
+			}
+		}
+	}
+
+	// 默认使用主配置（返回空 profile）
+	return config.ProfileConfig{}, ""
+}
+
+// applyProfile 应用选中的 profile 到配置
+func applyProfile(symCfg config.SymbolConfig, profile config.ProfileConfig) config.SymbolConfig {
+	result := symCfg
+	if profile.PriceInterval > 0 {
+		result.PriceInterval = profile.PriceInterval
+	}
+	if profile.OrderQuantity > 0 {
+		result.OrderQuantity = profile.OrderQuantity
+	}
+	if profile.BuyWindowSize > 0 {
+		result.BuyWindowSize = profile.BuyWindowSize
+	}
+	if profile.SellWindowSize > 0 {
+		result.SellWindowSize = profile.SellWindowSize
+	}
+	if profile.MinOrderValue > 0 {
+		result.MinOrderValue = profile.MinOrderValue
+	}
+	return result
+}
+
 // startSymbolRuntime 啟动單個交易對的核心组件
 func startSymbolRuntime(
 	ctx context.Context,
@@ -109,6 +195,30 @@ func startSymbolRuntime(
 	storageService *storage.StorageService,
 	distributedLock lock.DistributedLock,
 ) (*SymbolRuntime, error) {
+	// 獲取交易手续费率（在创建交易所实例之前）
+	configFeeRate := baseCfg.Exchanges[symCfg.Exchange].FeeRate
+	feeRate := configFeeRate
+	if symCfg.Exchange == "binance" && configFeeRate == 0 {
+		feeRate = 0.0004 // 币安期货默认Taker费率
+	}
+
+	// 创建临时交易所实例用于获取资金费率（如果配置了 profiles）
+	var tempEx exchange.IExchange
+	if len(symCfg.Profiles) > 0 {
+		var err error
+		tempEx, err = exchange.NewExchange(baseCfg, symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
+		if err != nil {
+			logger.Warn("⚠️ [%s:%s] 创建临时交易所实例失败，将使用主配置: %v", symCfg.Exchange, symCfg.Symbol, err)
+		} else {
+			// 根据费率和手续费率选择 profile
+			profile, profileName := selectProfile(ctx, symCfg, tempEx, feeRate, storageService)
+			if profileName != "" {
+				logger.Info("🔄 [%s:%s] 自动切换到配置档案: %s", symCfg.Exchange, symCfg.Symbol, profileName)
+				symCfg = applyProfile(symCfg, profile)
+			}
+		}
+	}
+
 	// 為該交易對構造局部配置（避免修改全局 cfg）
 	localCfg := *baseCfg
 	localCfg.App.CurrentExchange = symCfg.Exchange
@@ -127,11 +237,19 @@ func startSymbolRuntime(
 	localCfg.Trading.Direction = symCfg.GetDirection()
 
 	// 創建交易所實例（根據交易對配置的市场類型：spot / futures）
-	ex, err := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
-	if err != nil {
-		return nil, fmt.Errorf("創建交易所實例失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	// 如果之前创建了临时实例，重用它；否则创建新实例
+	var ex exchange.IExchange
+	var err error
+	if tempEx != nil {
+		ex = tempEx
+		logger.Info("✅ [%s] 重用交易所實例 (symbol=%s)", ex.GetName(), symCfg.Symbol)
+	} else {
+		ex, err = exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
+		if err != nil {
+			return nil, fmt.Errorf("創建交易所實例失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+		}
+		logger.Info("✅ [%s] 交易所實例已創建 (symbol=%s)", ex.GetName(), symCfg.Symbol)
 	}
-	logger.Info("✅ [%s] 交易所實例已創建 (symbol=%s)", ex.GetName(), symCfg.Symbol)
 
 	// API 权限安全检测
 	logger.Info("🔐 [%s:%s] 开始检测 API 权限...", symCfg.Exchange, symCfg.Symbol)
@@ -202,26 +320,9 @@ func startSymbolRuntime(
 	quantityDecimals := ex.GetQuantityDecimals()
 	logger.Info("ℹ️ [%s] 精度 - 價格:%d 數量:%d", symCfg.Symbol, priceDecimals, quantityDecimals)
 
-	// 獲取交易手续费率
-	// 币安期货API不提供獲取手续费率的接口，因此使用以下策略：
-	// 1. 如果配置文件中設置了费率且不為0，使用配置值
-	// 2. 否则使用币安期货默认Taker费率（0.04%）作為保守估计
-	configFeeRate := baseCfg.Exchanges[symCfg.Exchange].FeeRate
-	feeRate := configFeeRate
-
-	if symCfg.Exchange == "binance" {
-		// 币安期货默认费率：Maker 0.02%, Taker 0.04%
-		// 網格策略使用限價單，通常作為Maker成交，但為保守起见使用Taker费率
-		defaultBinanceTakerFee := 0.0004 // 0.04%
-
-		if configFeeRate == 0 {
-			// 配置文件中未設置或設置為0，使用默认Taker费率
-			feeRate = defaultBinanceTakerFee
-			logger.Info("💳 [%s] 配置文件未設置手续费率，使用币安期货默认Taker费率: %.4f%%", symCfg.Symbol, feeRate*100)
-		} else {
-			// 使用配置文件中的费率
-			logger.Info("💳 [%s] 使用配置文件中的手续费率: %.4f%%", symCfg.Symbol, feeRate*100)
-		}
+	// 使用之前获取的手续费率（已在创建交易所实例前获取）
+	if symCfg.Exchange == "binance" && feeRate == 0 {
+		logger.Info("💳 [%s] 配置文件未設置手续费率，使用币安期货默认Taker费率: %.4f%%", symCfg.Symbol, feeRate*100)
 		logger.Info("ℹ️ [%s] 提示：币安期货實際费率取决於您的VIP等级，请在配置文件中設置准确的费率", symCfg.Symbol)
 	} else {
 		logger.Info("💳 [%s] 使用配置文件中的手续费率: %.4f%%", symCfg.Symbol, feeRate*100)
@@ -682,6 +783,132 @@ func startSymbolRuntime(
 			}
 		}
 	}()
+
+	// 定期检查并自动切换配置档案（如果配置了 profiles）
+	var lastProfileSwitchTime time.Time
+	var currentProfileName string
+	if len(symCfg.Profiles) > 0 {
+		// 初始化当前 profile 名称
+		_, currentProfileName = selectProfile(ctx, symCfg, ex, feeRate, storageService)
+		if currentProfileName != "" {
+			lastProfileSwitchTime = time.Now()
+		}
+
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("❌ [%s] 配置档案切换协程 panic: %v", symCfg.Symbol, r)
+				}
+			}()
+
+			// 每5分钟检查一次（可配置）
+			checkInterval := 5 * time.Minute
+			if symCfg.SwitchRules.CooldownSeconds > 0 {
+				checkInterval = time.Duration(symCfg.SwitchRules.CooldownSeconds) * time.Second
+			}
+			ticker := time.NewTicker(checkInterval)
+			defer ticker.Stop()
+
+			// 保存 feeRate 的副本供协程使用
+			currentFeeRate := feeRate
+
+			for {
+				select {
+				case <-ctx.Done():
+					logger.Debug("⏹️ [%s] 配置档案切换协程已停止", symCfg.Symbol)
+					return
+				case <-ticker.C:
+					// 检查冷却时间
+					if symCfg.SwitchRules.CooldownSeconds > 0 {
+						if time.Since(lastProfileSwitchTime) < time.Duration(symCfg.SwitchRules.CooldownSeconds)*time.Second {
+							continue
+						}
+					}
+
+					// 重新获取最新配置（可能已更新）
+					latestCfg, err := web.GetLatestConfig()
+					if err != nil {
+						logger.Warn("⚠️ [%s] 获取最新配置失败，跳过 profile 切换检查: %v", symCfg.Symbol, err)
+						continue
+					}
+
+					// 查找当前交易对的配置
+					var latestSymCfg *config.SymbolConfig
+					for i := range latestCfg.Trading.Symbols {
+						if strings.EqualFold(latestCfg.Trading.Symbols[i].Exchange, symCfg.Exchange) &&
+							strings.EqualFold(latestCfg.Trading.Symbols[i].Symbol, symCfg.Symbol) {
+							latestSymCfg = &latestCfg.Trading.Symbols[i]
+							break
+						}
+					}
+
+					if latestSymCfg == nil || len(latestSymCfg.Profiles) == 0 {
+						continue
+					}
+
+					// 获取当前资金费率
+					var currentFundingRate float64
+					if symCfg.GetMarketType() == "futures" {
+						if storageService != nil {
+							if st := storageService.GetStorage(); st != nil {
+								if latestRate, err := st.GetLatestFundingRate(symCfg.Symbol, symCfg.Exchange); err == nil {
+									currentFundingRate = latestRate
+								}
+							}
+						}
+						if currentFundingRate == 0 && ex != nil {
+							rateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+							if rate, err := ex.GetFundingRate(rateCtx, symCfg.Symbol); err == nil {
+								currentFundingRate = rate
+							}
+							cancel()
+						}
+					}
+
+					// 选择新的 profile
+					newProfile, newProfileName := selectProfile(ctx, *latestSymCfg, ex, currentFeeRate, storageService)
+					if newProfileName == "" {
+						// 使用主配置
+						newProfileName = "default"
+					}
+
+					// 如果 profile 发生变化，记录日志（实际切换需要在重启时生效）
+					if newProfileName != currentProfileName {
+						logger.Info("🔄 [%s:%s] 检测到费率变化，建议从配置档案 '%s' 切换到 '%s' (资金费率: %.6f%%, 手续费率: %.6f%%)",
+							symCfg.Exchange, symCfg.Symbol, currentProfileName, newProfileName,
+							currentFundingRate*100, currentFeeRate*100)
+
+						// 记录新配置参数
+						if newProfileName != "default" {
+							logger.Info("📋 [%s:%s] 新配置档案参数: price_interval=%.2f, order_quantity=%.2f, buy_window=%d, sell_window=%d",
+								symCfg.Symbol, newProfile.PriceInterval, newProfile.OrderQuantity,
+								newProfile.BuyWindowSize, newProfile.SellWindowSize)
+						}
+
+						oldProfileName := currentProfileName
+						currentProfileName = newProfileName
+						lastProfileSwitchTime = time.Now()
+
+						// 发布事件
+						if eventBus != nil {
+							eventBus.Publish(&event.Event{
+								Type: event.EventTypeConfigSwitched,
+								Data: map[string]interface{}{
+									"exchange":      symCfg.Exchange,
+									"symbol":        symCfg.Symbol,
+									"old_profile":   oldProfileName,
+									"new_profile":   newProfileName,
+									"funding_rate":  currentFundingRate,
+									"fee_rate":      currentFeeRate,
+									"message":       fmt.Sprintf("配置档案切换建议: %s -> %s", oldProfileName, newProfileName),
+								},
+							})
+						}
+					}
+				}
+			}
+		}()
+	}
 
 	// 定期打印持倉
 	go func() {

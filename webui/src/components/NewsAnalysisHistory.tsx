@@ -2,9 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Box,
-  Container,
-  Heading,
-  Button,
   VStack,
   HStack,
   Text,
@@ -29,7 +26,6 @@ import {
   Select,
   Code,
 } from '@chakra-ui/react'
-import { Link as RouterLink } from 'react-router-dom'
 import { getNewsHistory, getNewsHistoryById, NewsHistoryItem } from '../services/api'
 
 const REC_COLORS: Record<string, string> = {
@@ -94,16 +90,8 @@ const NewsAnalysisHistory: React.FC = () => {
   const totalPages = Math.ceil(total / limit)
 
   return (
-    <Container maxW="container.xl" py={8}>
-      <VStack align="stretch" spacing={6}>
-        <HStack justify="space-between">
-          <Heading size="lg">{t('newsAnalysis.historyTitle')}</Heading>
-          <Button as={RouterLink} to="/news-analysis" size="sm" variant="outline">
-            {t('newsAnalysis.backToAnalysis')}
-          </Button>
-        </HStack>
-
-        <HStack>
+    <VStack align="stretch" spacing={6}>
+      <HStack>
           <FormControl w="200px">
             <FormLabel fontSize="sm">{t('newsAnalysis.symbol')}</FormLabel>
             <Select
@@ -203,7 +191,7 @@ const NewsAnalysisHistory: React.FC = () => {
           </ModalBody>
         </ModalContent>
       </Modal>
-    </Container>
+    </VStack>
   )
 }
 

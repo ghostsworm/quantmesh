@@ -1,9 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import {
   Box,
-  Container,
-  Heading,
-  Button,
   VStack,
   HStack,
   Text,
@@ -19,7 +16,6 @@ import {
   FormLabel,
   Select,
 } from '@chakra-ui/react'
-import { Link as RouterLink } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { getPredictionsAccuracy, getPredictionsHistory, PredictionHistoryItem } from '../services/api'
 
@@ -64,16 +60,8 @@ const PredictionAccuracy: React.FC = () => {
   }, [assetType, sinceDays])
 
   return (
-    <Container maxW="container.xl" py={8}>
-      <VStack align="stretch" spacing={6}>
-        <HStack justify="space-between">
-          <Heading size="lg">{t('predictionAccuracy.title')}</Heading>
-          <Button as={RouterLink} to="/news-analysis" size="sm" variant="outline">
-            {t('predictionAccuracy.backToNewsAnalysis')}
-          </Button>
-        </HStack>
-
-        <HStack>
+    <VStack align="stretch" spacing={6}>
+      <HStack>
           <FormControl w="150px">
             <FormLabel fontSize="sm">{t('predictionAccuracy.asset')}</FormLabel>
             <Select size="sm" value={assetType} onChange={(e) => setAssetType(e.target.value)}>
@@ -198,8 +186,7 @@ const PredictionAccuracy: React.FC = () => {
             </Box>
           </>
         )}
-      </VStack>
-    </Container>
+    </VStack>
   )
 }
 

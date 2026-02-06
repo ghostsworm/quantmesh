@@ -242,11 +242,15 @@ func getNewsHistory(c *gin.Context) {
 	if startStr != "" {
 		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
 			startTime = t
+		} else if t, err := time.Parse("2006-01-02", startStr); err == nil {
+			startTime = t
 		}
 	}
 	if endStr != "" {
 		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
 			endTime = t
+		} else if t, err := time.Parse("2006-01-02", endStr); err == nil {
+			endTime = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
 		}
 	}
 
@@ -260,18 +264,28 @@ func getNewsHistory(c *gin.Context) {
 	items := make([]gin.H, 0, len(list))
 	for _, h := range list {
 		rec := ""
+		var riskScore float64
+		var crashProb float64
 		if h.Assessment != "" {
 			var assessment map[string]interface{}
 			if json.Unmarshal([]byte(h.Assessment), &assessment) == nil {
 				rec = extractRecommendation(assessment)
+				if score, ok := assessment["overall_risk_score"].(float64); ok {
+					riskScore = score
+				}
+				if prob, ok := assessment["crash_probability"].(float64); ok {
+					crashProb = prob
+				}
 			}
 		}
 		items = append(items, gin.H{
-			"id":             h.ID,
-			"analysis_time":  h.AnalysisTime,
-			"symbol":         h.Symbol,
-			"current_price":  h.CurrentPrice,
-			"recommendation": rec,
+			"id":                 h.ID,
+			"analysis_time":      h.AnalysisTime,
+			"symbol":             h.Symbol,
+			"current_price":      h.CurrentPrice,
+			"recommendation":     rec,
+			"overall_risk_score": riskScore,
+			"crash_probability":  crashProb,
 		})
 	}
 

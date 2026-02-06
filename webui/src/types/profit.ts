@@ -14,7 +14,8 @@ export interface ProfitSummary {
   todayProfit: number // 今日盈利
   weekProfit: number // 本周盈利
   monthProfit: number // 本月盈利
-  unrealizedProfit: number // 未實現盈利
+  unrealizedProfit: number // 未實現盈利（根據當前倉位和價格計算）
+  exchangeProfit?: number // 交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL 計算）
   withdrawnProfit: number // 已提取盈利
   availableToWithdraw: number // 可提取盈利
   priceDeviationLoss?: number // 🔥 價格偏差導致的總損失（USDT）

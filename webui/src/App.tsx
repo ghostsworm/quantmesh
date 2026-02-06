@@ -51,8 +51,6 @@ const StrategyAllocation = lazy(() => import('./components/StrategyAllocation'))
 const Reconciliation = lazy(() => import('./components/Reconciliation'))
 const RiskMonitor = lazy(() => import('./components/RiskMonitor'))
 const NewsAnalysis = lazy(() => import('./components/NewsAnalysis'))
-const NewsAnalysisHistory = lazy(() => import('./components/NewsAnalysisHistory'))
-const PredictionAccuracy = lazy(() => import('./components/PredictionAccuracy'))
 const Profile = lazy(() => import('./components/Profile'))
 const Login = lazy(() => import('./components/Login'))
 const TermsPage = lazy(() => import('./components/TermsPage'))
@@ -476,8 +474,8 @@ const AppContent: React.FC = () => {
                 <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
                 <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
                 <Route path="/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
-                <Route path="/news-analysis/history" element={<ProtectedRoute><NewsAnalysisHistory /></ProtectedRoute>} />
-                <Route path="/news-analysis/predictions" element={<ProtectedRoute><PredictionAccuracy /></ProtectedRoute>} />
+                <Route path="/news-analysis/history" element={<Navigate to="/news-analysis" replace />} />
+                <Route path="/news-analysis/predictions" element={<Navigate to="/news-analysis" replace />} />
                 <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
                 <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
                 <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
