@@ -472,8 +472,8 @@ func getStrategyConfigsHandler(c *gin.Context) {
 func updateStrategyConfigHandler(c *gin.Context) {
 	strategyID := c.Param("id")
 
-	var config StrategyConfig
-	if err := c.ShouldBindJSON(&config); err != nil {
+	var reqConfig StrategyConfig
+	if err := c.ShouldBindJSON(&reqConfig); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "無效的配置數據: " + err.Error(),
@@ -481,7 +481,7 @@ func updateStrategyConfigHandler(c *gin.Context) {
 		return
 	}
 
-	config.StrategyID = strategyID
+	reqConfig.StrategyID = strategyID
 
 	// TODO: 保存配置到數據库
 	if configManager != nil {
@@ -491,10 +491,9 @@ func updateStrategyConfigHandler(c *gin.Context) {
 				cfg.Strategies.Configs = make(map[string]config.StrategyConfig)
 			}
 			sc := cfg.Strategies.Configs[strategyID]
-			sc.Enabled = config.Enabled
-			sc.Priority = config.Priority
-			sc.Weight = config.MaxAllocation / 100.0 // 假设 maxAllocation 是百分比
-			sc.Config = config.Parameters
+			sc.Enabled = reqConfig.Enabled
+			sc.Weight = reqConfig.MaxAllocation / 100.0 // 假设 maxAllocation 是百分比
+			sc.Config = reqConfig.Parameters
 			cfg.Strategies.Configs[strategyID] = sc
 
 			if err := configManager.UpdateConfig(cfg); err != nil {
