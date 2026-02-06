@@ -324,10 +324,17 @@ func (r *Reconciler) Reconcile() error {
 				logger.Warn("⚠️ [對账同步] 交易所持倉已清空且無挂單，正在强制同步本地状態...")
 				r.pm.ForceSyncPositions(0)
 			}
+		} else if localTotal > exchangePosition && exchangePosition > 0.00000001 {
+			// 🔥 本地持倉超出交易所實際持倉：存在「幻影」槽位
+			// 这会導致平倉委託总量超過實際持倉，必須修剪多餘的本地槽位
+			logger.Warn("🚨 [對账同步] 本地持倉(%.6f) > 交易所持倉(%.6f)，存在幻影槽位，開始修剪...",
+				localTotal, exchangePosition)
+			r.pm.ForceSyncPositions(exchangePosition)
 		} else {
-			// 如果交易所仍有持倉但與本地不符，目前僅記錄警告
-			// 自动同步非零持倉较為危險，需要更複杂的槽位重新分配逻辑
-			logger.Warn("💡 [對账建议] 建议检查交易所挂單或重啟程序以触发完整持倉恢複")
+			// 本地持倉 < 交易所持倉，或其他不一致情況
+			// 缺失的本地持倉較為複雜（涉及槽位重新分配），暂時僅記錄警告
+			logger.Warn("💡 [對账建议] 本地持倉(%.6f) < 交易所持倉(%.6f)，建议重啟程序以触发完整持倉恢複",
+				localTotal, exchangePosition)
 		}
 	}
 

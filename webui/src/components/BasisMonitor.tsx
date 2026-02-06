@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getBasisCurrent, getBasisHistory, getBasisStatistics, BasisData, BasisStats } from '../services/api';
+import AIMarketInterpret from './AIMarketInterpret';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -188,6 +189,32 @@ const BasisMonitor: React.FC = () => {
     return 'text-gray-600';
   };
 
+  // 收集当前页面数据快照供 AI 解读使用
+  const getPageData = useCallback(() => {
+    const data: Record<string, unknown> = {}
+    if (currentBasis.length > 0) {
+      data.current_basis = currentBasis.map(b => ({
+        symbol: b.symbol,
+        spot_price: b.spot_price,
+        futures_price: b.futures_price,
+        basis_percent: b.basis_percent,
+        funding_rate: b.funding_rate,
+      }))
+    }
+    if (statistics) {
+      data.statistics = {
+        symbol: selectedSymbol,
+        hours: statistics.hours,
+        avg_basis: statistics.avg_basis,
+        max_basis: statistics.max_basis,
+        min_basis: statistics.min_basis,
+        std_dev: statistics.std_dev,
+        data_points: statistics.data_points,
+      }
+    }
+    return data
+  }, [currentBasis, statistics, selectedSymbol]);
+
   return (
     <div className="p-6 space-y-6">
       {/* 標题和控制 */}
@@ -340,6 +367,13 @@ const BasisMonitor: React.FC = () => {
           <div className="text-center py-8 text-gray-500">{t('basisMonitor.noHistoryData')}</div>
         )}
       </div>
+
+      {/* AI 解读 */}
+      <AIMarketInterpret
+        pageType="basis"
+        symbol={selectedSymbol}
+        getPageData={getPageData}
+      />
 
       {/* 說明 */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

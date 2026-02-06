@@ -387,10 +387,214 @@ const Reconciliation: React.FC = () => {
         )}
       </div>
 
-      {/* 聚合數據多指標图表 */}
+      {/* 每日盈利增量柱状图 */}
+      {viewMode === 'aggregated' && aggregatedData.length > 1 && (
+        <div style={{ marginTop: '32px' }}>
+          <h3>{t('reconciliation.dailyProfitChange')} ({timePeriod === 'day' ? t('reconciliation.byDay') : timePeriod === 'week' ? t('reconciliation.byWeek') : t('reconciliation.byMonth')})</h3>
+          <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+              <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setAggregatedTooltip(null)}>
+                {(() => {
+                  // 计算每日盈利增量（当天值 - 前一天值）
+                  const dailyChanges = aggregatedData.map((item, i) => {
+                    if (i === 0) return { date: item.date, estimatedDelta: 0, actualDelta: 0, isFirst: true }
+                    return {
+                      date: item.date,
+                      estimatedDelta: item.estimated_profit - aggregatedData[i - 1].estimated_profit,
+                      actualDelta: item.actual_profit - aggregatedData[i - 1].actual_profit,
+                      isFirst: false,
+                    }
+                  }).filter(d => !d.isFirst)
+
+                  if (dailyChanges.length === 0) return null
+
+                  const allValues = dailyChanges.flatMap(d => [d.estimatedDelta, d.actualDelta])
+                  const maxVal = Math.max(...allValues, 0)
+                  const minVal = Math.min(...allValues, 0)
+                  const range = maxVal - minVal || 1
+                  const padding = range * 0.1 || 1
+                  const finalMax = maxVal + padding
+                  const finalMin = minVal - padding
+                  const finalRange = finalMax - finalMin
+
+                  const getY = (value: number) => 290 - ((value - finalMin) / finalRange) * 240
+                  const getX = (index: number) => 60 + ((index + 0.5) / dailyChanges.length) * 720
+                  const barWidth = Math.max(2, Math.min(20, 720 / dailyChanges.length * 0.35))
+                  const zeroY = getY(0)
+
+                  return (
+                    <>
+                      {/* 网格线 */}
+                      {[0, 1, 2, 3, 4].map(i => (
+                        <line key={`daily-grid-${i}`} x1="60" y1={50 + i * 60} x2="780" y2={50 + i * 60} stroke="#e8e8e8" strokeWidth="1" />
+                      ))}
+
+                      {/* 坐标轴 */}
+                      <line x1="60" y1="290" x2="780" y2="290" stroke="#333" strokeWidth="2" />
+                      <line x1="60" y1="50" x2="60" y2="290" stroke="#333" strokeWidth="2" />
+
+                      {/* 零线 */}
+                      <line x1="60" y1={zeroY} x2="780" y2={zeroY} stroke="#999" strokeWidth="1" strokeDasharray="4,4" opacity="0.6" />
+
+                      {/* 预计盈利增量柱子 */}
+                      {showEstimated && dailyChanges.map((item, i) => {
+                        const x = getX(i) - barWidth - 1
+                        const y = getY(item.estimatedDelta)
+                        const barHeight = Math.abs(y - zeroY)
+                        const barY = item.estimatedDelta >= 0 ? y : zeroY
+                        return (
+                          <rect
+                            key={`est-bar-${i}`}
+                            x={x}
+                            y={barY}
+                            width={barWidth}
+                            height={Math.max(1, barHeight)}
+                            fill={item.estimatedDelta >= 0 ? '#1890ff' : '#ff4d4f'}
+                            opacity={0.8}
+                            rx="1"
+                            className="profit-point"
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget
+                              const svg = rect.ownerSVGElement as SVGSVGElement
+                              if (svg) {
+                                const svgRect = svg.getBoundingClientRect()
+                                const elemRect = rect.getBoundingClientRect()
+                                setAggregatedTooltip({
+                                  x: elemRect.left - svgRect.left + elemRect.width / 2,
+                                  y: Math.min(elemRect.top, zeroY) - svgRect.top - 10,
+                                  item: {
+                                    date: item.date,
+                                    avg_local_position: 0,
+                                    avg_exchange_position: 0,
+                                    avg_position_diff: 0,
+                                    total_buy_qty: 0,
+                                    total_sell_qty: 0,
+                                    estimated_profit: item.estimatedDelta,
+                                    actual_profit: item.actualDelta,
+                                    record_count: 0,
+                                  },
+                                  type: 'dailyEstimated'
+                                })
+                              }
+                            }}
+                          />
+                        )
+                      })}
+
+                      {/* 实际盈利增量柱子 */}
+                      {showActual && dailyChanges.map((item, i) => {
+                        const x = getX(i) + 1
+                        const y = getY(item.actualDelta)
+                        const barHeight = Math.abs(y - zeroY)
+                        const barY = item.actualDelta >= 0 ? y : zeroY
+                        return (
+                          <rect
+                            key={`act-bar-${i}`}
+                            x={x}
+                            y={barY}
+                            width={barWidth}
+                            height={Math.max(1, barHeight)}
+                            fill={item.actualDelta >= 0 ? '#52c41a' : '#ff7a45'}
+                            opacity={0.8}
+                            rx="1"
+                            className="profit-point"
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget
+                              const svg = rect.ownerSVGElement as SVGSVGElement
+                              if (svg) {
+                                const svgRect = svg.getBoundingClientRect()
+                                const elemRect = rect.getBoundingClientRect()
+                                setAggregatedTooltip({
+                                  x: elemRect.left - svgRect.left + elemRect.width / 2,
+                                  y: Math.min(elemRect.top, zeroY) - svgRect.top - 10,
+                                  item: {
+                                    date: item.date,
+                                    avg_local_position: 0,
+                                    avg_exchange_position: 0,
+                                    avg_position_diff: 0,
+                                    total_buy_qty: 0,
+                                    total_sell_qty: 0,
+                                    estimated_profit: item.estimatedDelta,
+                                    actual_profit: item.actualDelta,
+                                    record_count: 0,
+                                  },
+                                  type: 'dailyActual'
+                                })
+                              }
+                            }}
+                          />
+                        )
+                      })}
+
+                      {/* Y轴刻度 */}
+                      {[0, 1, 2, 3, 4].map(i => {
+                        const value = finalMin + finalRange * (4 - i) / 4
+                        return (
+                          <text key={`daily-y-${i}`} x="50" y={50 + i * 60 + 5} textAnchor="end" fontSize="12" fill="#666">
+                            {value.toFixed(2)}
+                          </text>
+                        )
+                      })}
+
+                      {/* X轴刻度 */}
+                      {dailyChanges.map((item, i) => {
+                        if (i % Math.ceil(dailyChanges.length / 8) === 0 || i === dailyChanges.length - 1) {
+                          return (
+                            <text key={`daily-x-${i}`} x={getX(i)} y="310" textAnchor="middle" fontSize="10" fill="#666">
+                              {item.date}
+                            </text>
+                          )
+                        }
+                        return null
+                      })}
+
+                      {/* 图例 */}
+                      <g transform="translate(600, 20)" style={{ cursor: 'pointer' }} onClick={() => setShowEstimated(!showEstimated)}>
+                        <rect x="0" y="-6" width="16" height="12" fill="#1890ff" opacity={showEstimated ? 0.8 : 0.3} rx="2" />
+                        <text x="22" y="5" fontSize="12" fill="#666" opacity={showEstimated ? 1 : 0.5}>{t('reconciliation.dailyEstimatedProfit')}</text>
+                      </g>
+                      <g transform="translate(600, 38)" style={{ cursor: 'pointer' }} onClick={() => setShowActual(!showActual)}>
+                        <rect x="0" y="-6" width="16" height="12" fill="#52c41a" opacity={showActual ? 0.8 : 0.3} rx="2" />
+                        <text x="22" y="5" fontSize="12" fill="#666" opacity={showActual ? 1 : 0.5}>{t('reconciliation.dailyActualProfit')}</text>
+                      </g>
+                    </>
+                  )
+                })()}
+              </svg>
+
+              {/* Tooltip */}
+              {aggregatedTooltip && (aggregatedTooltip.type === 'dailyEstimated' || aggregatedTooltip.type === 'dailyActual') && (
+                <div className="profit-tooltip" style={{ position: 'absolute', left: `${aggregatedTooltip.x}px`, top: `${aggregatedTooltip.y}px`, transform: 'translate(-50%, -100%)', pointerEvents: 'none' }}>
+                  <div className="tooltip-content">
+                    <div className="tooltip-header">
+                      <strong>{aggregatedTooltip.item.date}</strong>
+                    </div>
+                    <div className="tooltip-body">
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">{t('reconciliation.dailyEstimatedProfit')}:</span>
+                        <span className="tooltip-value" style={{ color: aggregatedTooltip.item.estimated_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                          {aggregatedTooltip.item.estimated_profit >= 0 ? '+' : ''}{aggregatedTooltip.item.estimated_profit.toFixed(2)} USDT
+                        </span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-label">{t('reconciliation.dailyActualProfit')}:</span>
+                        <span className="tooltip-value" style={{ color: aggregatedTooltip.item.actual_profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                          {aggregatedTooltip.item.actual_profit >= 0 ? '+' : ''}{aggregatedTooltip.item.actual_profit.toFixed(2)} USDT
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 聚合數據多指標图表（累计盈利） */}
       {viewMode === 'aggregated' && aggregatedData.length > 0 && (
         <div style={{ marginTop: '32px' }}>
-          <h3>{t('reconciliation.profitTrend')} ({timePeriod === 'day' ? t('reconciliation.byDay') : timePeriod === 'week' ? t('reconciliation.byWeek') : t('reconciliation.byMonth')})</h3>
+          <h3>{t('reconciliation.cumulativeProfit')} ({timePeriod === 'day' ? t('reconciliation.byDay') : timePeriod === 'week' ? t('reconciliation.byWeek') : t('reconciliation.byMonth')})</h3>
           <div style={{ width: '100%', height: '400px', background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ width: '100%', height: '100%', position: 'relative' }}>
               <svg width="100%" height="100%" viewBox="0 0 800 350" preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setAggregatedTooltip(null)}>

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getFundingRateCurrent, getFundingRateHistory, FundingRateInfo, FundingRateHistoryItem } from '../services/api'
+import AIMarketInterpret from './AIMarketInterpret'
 
 const FundingRate: React.FC = () => {
   const { t, i18n } = useTranslation()
@@ -61,6 +62,22 @@ const FundingRate: React.FC = () => {
     if (rate < -0.0001) return '#10b981' // 绿色：负费率（做多可收到费用）
     return '#6b7280' // 灰色：接近0
   }
+
+  // 收集当前页面数据快照供 AI 解读使用
+  const getPageData = useCallback(() => {
+    const data: Record<string, unknown> = {}
+    if (Object.keys(currentRates).length > 0) {
+      data.current_rates = Object.entries(currentRates).map(([sym, info]) => ({
+        symbol: sym,
+        rate: info.rate,
+        timestamp: info.timestamp,
+      }))
+    }
+    return data
+  }, [currentRates])
+
+  // 当前用于 AI 解读的 symbol：如果用户选择了特定交易对则用它，否则用 BTCUSDT 或第一个
+  const aiSymbol = selectedSymbol || 'BTCUSDT'
 
   const symbols = Object.keys(currentRates).sort()
 
@@ -189,6 +206,15 @@ const FundingRate: React.FC = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* AI 解读 */}
+      <div style={{ marginTop: '40px' }}>
+        <AIMarketInterpret
+          pageType="funding"
+          symbol={aiSymbol}
+          getPageData={getPageData}
+        />
       </div>
     </div>
   )

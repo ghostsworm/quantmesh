@@ -1158,6 +1158,60 @@ export async function updateConfig(config: Partial<Config>): Promise<{ message: 
   })
 }
 
+// ==================== 参数建议 (Param Advisor) ====================
+
+export interface RangeAdvice {
+  min: number
+  recommended: number
+  max: number
+  reason?: string
+}
+
+export interface ParamSuggestion {
+  price_interval: RangeAdvice
+  order_quantity: RangeAdvice
+  min_profitable_interval: number
+  breakeven_fee_rate: number
+}
+
+export interface ParamAdvisorResponse {
+  current_price: number
+  maker_fee: number
+  taker_fee: number
+  fee_source: string // "exchange_api" | "config" | "default" | "user_input"
+  exchange: string
+  symbol: string
+  suggestions: ParamSuggestion
+}
+
+export interface ExchangeFeesResponse {
+  maker_fee: number
+  taker_fee: number
+  fee_source: string
+  exchange: string
+  symbol: string
+}
+
+export async function getParamAdvisor(
+  exchange: string,
+  symbol: string,
+  makerFee?: number,
+  takerFee?: number
+): Promise<ParamAdvisorResponse> {
+  const queryParams = new URLSearchParams({ exchange, symbol })
+  if (makerFee !== undefined) queryParams.append('maker_fee', makerFee.toString())
+  if (takerFee !== undefined) queryParams.append('taker_fee', takerFee.toString())
+  return fetchWithAuth(`${API_BASE_URL}/config/param-advisor?${queryParams.toString()}`)
+}
+
+export async function getExchangeFees(
+  exchange: string,
+  symbol: string
+): Promise<ExchangeFeesResponse> {
+  const queryParams = new URLSearchParams({ exchange, symbol })
+  return fetchWithAuth(`${API_BASE_URL}/config/exchange-fees?${queryParams.toString()}`)
+}
+
 // Trading Control
 export async function startTrading(exchange?: string, symbol?: string): Promise<{ message: string }> {
   const queryParams = new URLSearchParams()
@@ -1866,4 +1920,81 @@ export async function getAITaskStats(startTime?: string, endTime?: string): Prom
   
   const url = `${API_BASE_URL}/ai/tasks/stats${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
+}
+
+// ==================== AI 市场解读 ====================
+
+export interface MarketInterpretRequest {
+  page_type: 'basis' | 'funding'
+  symbol: string
+  page_data: Record<string, unknown>
+}
+
+export interface MarketInterpretTaskResponse {
+  task_id: string
+  status: string
+}
+
+export interface MarketInterpretStatusResponse {
+  task_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  created_at: string
+  updated_at: string
+  result?: string
+  error?: string
+}
+
+// 创建市场 AI 解读任务
+export async function createMarketInterpretTask(request: MarketInterpretRequest): Promise<MarketInterpretTaskResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/market-interpret`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+// 查询市场解读任务状态
+export async function getMarketInterpretStatus(taskId: string): Promise<MarketInterpretStatusResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/market-interpret/${taskId}`)
+}
+
+// 轮询市场解读任务直到完成
+export async function pollMarketInterpretUntilComplete(
+  taskId: string,
+  onProgress?: (progress: number, status: string) => void,
+  maxAttempts: number = 300,
+  interval: number = 2000
+): Promise<string> {
+  let attempts = 0
+
+  while (attempts < maxAttempts) {
+    try {
+      const status = await getMarketInterpretStatus(taskId)
+
+      if (onProgress) {
+        onProgress(status.progress, status.status)
+      }
+
+      if (status.status === 'completed' && status.result) {
+        return status.result
+      }
+
+      if (status.status === 'failed') {
+        throw new Error(status.error || 'AI 解读任务失败')
+      }
+    } catch (err) {
+      if (attempts % 10 === 0) {
+        console.warn(`[市场解读] ${taskId} 轮询出错 (${attempts}/${maxAttempts}):`, err)
+      }
+      // 如果是任务失败的明确错误，直接抛出
+      if (err instanceof Error && err.message.includes('解读任务失败')) {
+        throw err
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, interval))
+    attempts++
+  }
+
+  throw new Error(`AI 解读超时（已等待 ${Math.floor(maxAttempts * interval / 1000)} 秒）`)
 }

@@ -87,6 +87,7 @@ import YamlEditor from './YamlEditor'
 import DiffPreviewModal from './DiffPreviewModal'
 import ConfigHistory from './ConfigHistory'
 import ConfirmDialog from './ConfirmDialog'
+import ParamAdvisor from './ParamAdvisor'
 import { trackConfigSaved } from '../services/telemetry'
 
 const MotionBox = motion(Box)
@@ -1436,6 +1437,16 @@ const Configuration: React.FC = () => {
                           <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.directionDesc')}</Text>
                         </FormControl>
                       </SimpleGrid>
+
+                      {/* 参数建议助手 */}
+                      <ParamAdvisor
+                        exchange={selectedExchange || ''}
+                        symbol={selectedSymbol || ''}
+                        currentPriceInterval={(getSelectedSymbolConfig()?.price_interval ?? config.trading?.price_interval) || undefined}
+                        currentOrderQuantity={(getSelectedSymbolConfig()?.order_quantity ?? config.trading?.order_quantity) || undefined}
+                        onApplyPriceInterval={(v) => updateSelectedSymbolField('price_interval', v)}
+                        onApplyOrderQuantity={(v) => updateSelectedSymbolField('order_quantity', v)}
+                      />
                     </ConfigCard>
 
                     <ConfigCard title={t('configuration.profileSwitching')} icon={<SettingsIcon />}>

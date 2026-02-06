@@ -53,7 +53,8 @@ type AIRequest struct {
 	Model             string                 `json:"model"`
 	GeminiAPIKey      string                 `json:"gemini_api_key"`
 	JSONSchema        map[string]interface{} `json:"json_schema"`
-	UseGoogleSearch   bool                   `json:"use_google_search"` // 是否啟用 Google Search 實時搜索
+	UseGoogleSearch   bool                   `json:"use_google_search"`    // 是否啟用 Google Search 實時搜索
+	ResponseMimeType  string                 `json:"response_mime_type"`   // 响应格式，默认 "application/json"，可设为 "text/plain" 获取纯文本
 }
 
 type AIResponse struct {
@@ -71,6 +72,22 @@ type AIResponse struct {
 func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResponse, error) {
 	startTime := time.Now()
 
+	// 确定响应 MIME 类型（默认 application/json，可通过 ResponseMimeType 字段覆盖）
+	responseMimeType := req.ResponseMimeType
+	if responseMimeType == "" {
+		responseMimeType = "application/json"
+	}
+
+	generationConfig := map[string]interface{}{
+		"temperature": 0.7,
+		"topK":        40,
+		"topP":        0.95,
+	}
+	// 仅在需要 JSON 格式时设置 responseMimeType（纯文本模式不设置，让模型自由输出）
+	if responseMimeType == "application/json" {
+		generationConfig["responseMimeType"] = responseMimeType
+	}
+
 	geminiReq := map[string]interface{}{
 		"contents": []map[string]interface{}{
 			{
@@ -79,12 +96,7 @@ func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResp
 				},
 			},
 		},
-		"generationConfig": map[string]interface{}{
-			"temperature":      0.7,
-			"topK":             40,
-			"topP":             0.95,
-			"responseMimeType": "application/json",
-		},
+		"generationConfig": generationConfig,
 	}
 
 	if req.SystemInstruction != "" {
