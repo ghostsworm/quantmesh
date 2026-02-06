@@ -99,6 +99,7 @@ type OrderUpdate struct {
 	UpdateTime      int64
 	Commission      float64 // 本次成交手續費
 	CommissionAsset string  // 手續費幣種
+	RealizedPnL     float64 // 已實現盈虧（交易所計算）
 }
 
 type OrderUpdateCallback func(update OrderUpdate)
@@ -908,29 +909,35 @@ func (b *BitgetAdapter) StartOrderStream(ctx context.Context, callback func(inte
 			logger.Debug("🔍 [Bitget Adapter] 订單更新回呼触发: ID=%d, ClientOID=%s, Status=%s",
 				localUpdate.OrderID, localUpdate.ClientOrderID, string(localUpdate.Status))
 			genericUpdate := struct {
-				OrderID       int64
-				ClientOrderID string
-				Symbol        string
-				Side          string
-				Type          string
-				Status        string
-				Price         float64
-				Quantity      float64
-				ExecutedQty   float64
-				AvgPrice      float64
-				UpdateTime    int64
+				OrderID         int64
+				ClientOrderID   string
+				Symbol          string
+				Side            string
+				Type            string
+				Status          string
+				Price           float64
+				Quantity        float64
+				ExecutedQty     float64
+				AvgPrice        float64
+				UpdateTime      int64
+				Commission      float64
+				CommissionAsset string
+				RealizedPnL     float64
 			}{
-				OrderID:       localUpdate.OrderID,
-				ClientOrderID: localUpdate.ClientOrderID, // 🔥 关键：傳遞 ClientOrderID
-				Symbol:        localUpdate.Symbol,
-				Side:          string(localUpdate.Side),
-				Type:          string(localUpdate.Type),
-				Status:        string(localUpdate.Status),
-				Price:         localUpdate.Price,
-				Quantity:      localUpdate.Quantity,
-				ExecutedQty:   localUpdate.ExecutedQty,
-				AvgPrice:      localUpdate.AvgPrice,
-				UpdateTime:    localUpdate.UpdateTime,
+				OrderID:         localUpdate.OrderID,
+				ClientOrderID:   localUpdate.ClientOrderID, // 🔥 关键：傳遞 ClientOrderID
+				Symbol:          localUpdate.Symbol,
+				Side:            string(localUpdate.Side),
+				Type:            string(localUpdate.Type),
+				Status:          string(localUpdate.Status),
+				Price:           localUpdate.Price,
+				Quantity:        localUpdate.Quantity,
+				ExecutedQty:     localUpdate.ExecutedQty,
+				AvgPrice:        localUpdate.AvgPrice,
+				UpdateTime:      localUpdate.UpdateTime,
+				Commission:      localUpdate.Commission,
+				CommissionAsset: localUpdate.CommissionAsset,
+				RealizedPnL:     localUpdate.RealizedPnL,
 			}
 			callback(genericUpdate)
 		} else {

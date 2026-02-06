@@ -101,6 +101,7 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 						cfg.Trading.Symbols[i].GridRiskControl.Enabled = gridCfg.GridRiskControl.Enabled
 						if gridCfg.GridRiskControl.Enabled {
 							cfg.Trading.Symbols[i].GridRiskControl.MaxGridLayers = gridCfg.GridRiskControl.MaxGridLayers
+							cfg.Trading.Symbols[i].GridRiskControl.MaxOpenOrdersAtCap = gridCfg.GridRiskControl.MaxOpenOrdersAtCap
 							cfg.Trading.Symbols[i].GridRiskControl.StopLossRatio = gridCfg.GridRiskControl.StopLossRatio
 							cfg.Trading.Symbols[i].GridRiskControl.TakeProfitTriggerRatio = gridCfg.GridRiskControl.TakeProfitTriggerRatio
 							cfg.Trading.Symbols[i].GridRiskControl.TrailingTakeProfitRatio = gridCfg.GridRiskControl.TrailingTakeProfitRatio
@@ -137,6 +138,7 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 					newSymCfg.GridRiskControl.Enabled = gridCfg.GridRiskControl.Enabled
 					if gridCfg.GridRiskControl.Enabled {
 						newSymCfg.GridRiskControl.MaxGridLayers = gridCfg.GridRiskControl.MaxGridLayers
+						newSymCfg.GridRiskControl.MaxOpenOrdersAtCap = gridCfg.GridRiskControl.MaxOpenOrdersAtCap
 						newSymCfg.GridRiskControl.StopLossRatio = gridCfg.GridRiskControl.StopLossRatio
 						newSymCfg.GridRiskControl.TakeProfitTriggerRatio = gridCfg.GridRiskControl.TakeProfitTriggerRatio
 						newSymCfg.GridRiskControl.TrailingTakeProfitRatio = gridCfg.GridRiskControl.TrailingTakeProfitRatio

@@ -2832,6 +2832,9 @@
   },
   "fundingRate": {
     "title": "資金費率",
+    "sumCurveTitle": "資金費率按時間合計（數值相加，無百分號）",
+    "sumCurveYLabel": "合計",
+    "noChartData": "暫無曲線資料",
     "currentRates": "當前費率",
     "historyRates": "歷史費率",
     "exchange": "交易所",

@@ -2766,6 +2766,9 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
+    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
+    "sumCurveYLabel": "Sum",
+    "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",
     "exchange": "Exchange",

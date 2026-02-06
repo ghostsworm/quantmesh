@@ -897,6 +897,10 @@ func (w *WebSocketManager) parseOrderUpdate(data map[string]interface{}) *OrderU
 		status = OrderStatus(statusStr) // 保留原始状態
 	}
 
+	// 🔥 解析已實現盈虧（Bitget 返回 totalProfits 字段）
+	totalProfitsStr, _ := data["totalProfits"].(string)
+	realizedPnL, _ := strconv.ParseFloat(totalProfitsStr, 64)
+
 	return &OrderUpdate{
 		OrderID:         orderID,
 		ClientOrderID:   clientOrderID, // 🔥 包含 ClientOrderID
@@ -911,6 +915,7 @@ func (w *WebSocketManager) parseOrderUpdate(data map[string]interface{}) *OrderU
 		UpdateTime:      updateTime,
 		Commission:      commission,
 		CommissionAsset: commissionAsset,
+		RealizedPnL:     realizedPnL,
 	}
 }
 

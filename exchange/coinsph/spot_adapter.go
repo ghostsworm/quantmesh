@@ -102,6 +102,7 @@ type OrderUpdate struct {
 	UpdateTime      int64
 	Commission      float64
 	CommissionAsset string
+	RealizedPnL     float64 // 已實現盈虧（交易所計算）
 }
 
 // Candle K线数据

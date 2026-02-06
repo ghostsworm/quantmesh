@@ -173,6 +173,7 @@ type SymbolGridConfig struct {
 type GridRiskControlConfig struct {
 	Enabled                 bool    `json:"enabled"`
 	MaxGridLayers           int     `json:"max_grid_layers"`
+	MaxOpenOrdersAtCap      int     `json:"max_open_orders_at_cap"`      // 達到最大持倉預警時最多允許的開倉單數；0=僅不新開倉不撤單
 	StopLossRatio           float64 `json:"stop_loss_ratio"`
 	TakeProfitTriggerRatio  float64 `json:"take_profit_trigger_ratio"`
 	TrailingTakeProfitRatio float64 `json:"trailing_take_profit_ratio"`

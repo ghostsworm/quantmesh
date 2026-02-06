@@ -848,6 +848,18 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
+	// 最大持倉預警：達到層數上限時，若開倉單數超過允許值，先撤多餘的開倉單（做多先撤高價買單，做空先撤低價賣單）
+	if spm.config.Trading.GridRiskControl.Enabled {
+		maxLayers := spm.config.Trading.GridRiskControl.MaxGridLayers
+		maxOpenAtCap := spm.config.Trading.GridRiskControl.MaxOpenOrdersAtCap
+		if maxLayers > 0 && maxOpenAtCap > 0 {
+			currentLayers := spm.GetActiveLayers()
+			if currentLayers >= maxLayers && currentBuyOrderCount > maxOpenAtCap {
+				spm.CancelExcessOpenOrders(maxOpenAtCap)
+			}
+		}
+	}
+
 	for _, price := range slotPrices {
 		if skipBuying {
 			break
@@ -2457,6 +2469,75 @@ func (spm *SuperPositionManager) CancelAllBuyOrders() {
 	}
 
 	logger.Info("✅ [撤销買單] 清理完成")
+}
+
+// CancelExcessOpenOrders 達到最大持倉預警時，撤銷多餘的開倉單，使開倉單數不超過 maxAllowed。
+// LONG：開倉單為買單，先撤委託價高的；SHORT：開倉單為賣單，先撤委託價低的。
+func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
+	if maxAllowed <= 0 {
+		return
+	}
+	openSide := "BUY"
+	if spm.isShort() {
+		openSide = "SELL"
+	}
+	type slotOrder struct {
+		price  float64
+		orderID int64
+	}
+	var openOrders []slotOrder
+	spm.slots.Range(func(key, value interface{}) bool {
+		price := key.(float64)
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.OrderSide == openSide && slot.OrderID > 0 &&
+			slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
+			openOrders = append(openOrders, slotOrder{price: price, orderID: slot.OrderID})
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	if len(openOrders) <= maxAllowed {
+		return
+	}
+	// LONG：價格降序，先撤高價買單；SHORT：價格升序，先撤低價賣單
+	sort.Slice(openOrders, func(i, j int) bool {
+		if spm.isShort() {
+			return openOrders[i].price < openOrders[j].price
+		}
+		return openOrders[i].price > openOrders[j].price
+	})
+	toCancel := len(openOrders) - maxAllowed
+	var orderIDs []int64
+	for i := 0; i < toCancel && i < len(openOrders); i++ {
+		orderIDs = append(orderIDs, openOrders[i].orderID)
+	}
+	if len(orderIDs) == 0 {
+		return
+	}
+	sideLabel := "買單"
+	if spm.isShort() {
+		sideLabel = "賣單"
+	}
+	logger.Info("🔄 [最大持倉預警] 當前開倉單 %d 筆超過上限 %d，撤銷 %d 筆 %s（%s 先撤）",
+		len(openOrders), maxAllowed, len(orderIDs), sideLabel, map[bool]string{false: "高價先撤", true: "低價先撤"}[spm.isShort()])
+	if err := spm.executor.BatchCancelOrders(orderIDs); err != nil {
+		logger.Error("❌ [最大持倉預警] 批量撤單失敗: %v", err)
+		return
+	}
+	orderIDToPrice := make(map[int64]float64, len(openOrders))
+	for _, s := range openOrders {
+		orderIDToPrice[s.orderID] = s.price
+	}
+	for _, oid := range orderIDs {
+		if price, ok := orderIDToPrice[oid]; ok {
+			slot := spm.getOrCreateSlot(price)
+			slot.mu.Lock()
+			slot.OrderStatus = OrderStatusCancelRequested
+			slot.mu.Unlock()
+		}
+	}
+	logger.Info("✅ [最大持倉預警] 已提交撤銷 %d 筆 %s", len(orderIDs), sideLabel)
 }
 
 // LiquidateAll 全平倉位（风控或止损触发時使用）

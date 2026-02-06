@@ -294,6 +294,9 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 			orderSide = SideSell
 		}
 
+		// 🔥 解析已實現盈虧（OKX 返回 pnl 字段，僅平倉訂單有效）
+		realizedPnL, _ := strconv.ParseFloat(getString(orderData, "pnl"), 64)
+
 		// OKX WebSocket 訂單更新消息中通常不包含手續費，需要從交易歷史獲取
 		// 這裡先設為 0，後續可通過查詢交易歷史補充
 		update := OrderUpdate{
@@ -310,6 +313,7 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 			UpdateTime:      updateTime,
 			Commission:      0, // OKX WebSocket 不提供手續費，需從交易歷史查詢
 			CommissionAsset: "USDT",
+			RealizedPnL:     realizedPnL,
 		}
 
 		if w.orderCallback != nil {

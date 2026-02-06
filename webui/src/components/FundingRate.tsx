@@ -1,5 +1,14 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
 import { getFundingRateCurrent, getFundingRateHistory, FundingRateInfo, FundingRateHistoryItem } from '../services/api'
 import AIMarketInterpret from './AIMarketInterpret'
 
@@ -57,6 +66,27 @@ const FundingRate: React.FC = () => {
     return (rate * 100).toFixed(6) + '%'
   }
 
+  // 按时间聚合：同一时刻所有交易对的 rate 相加（去掉百分号后的数值），用于曲线图
+  const sumCurveData = useMemo(() => {
+    const byTime: Record<string, number> = {}
+    for (const item of history) {
+      const t = item.timestamp
+      byTime[t] = (byTime[t] ?? 0) + item.rate
+    }
+    return Object.entries(byTime)
+      .map(([time, sum]) => ({
+        time,
+        timeLabel: new Date(time).toLocaleString(i18n.language, {
+          month: 'numeric',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        sum: sum * 100, // 显示为小数形式，不加百分号
+      }))
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+  }, [history, i18n.language])
+
   const getRateColor = (rate: number) => {
     if (rate > 0.0001) return '#ef4444' // 红色：费率较高
     if (rate < -0.0001) return '#10b981' // 绿色：负费率（做多可收到费用）
@@ -99,6 +129,44 @@ const FundingRate: React.FC = () => {
           {t('fundingRate.error')}: {error}
         </div>
       )}
+
+      {/* 资金费率按时间合计曲线（去掉百分号，同一时刻所有数字相加） */}
+      <div style={{ marginBottom: '32px' }}>
+        <h3 style={{ marginBottom: '12px', fontSize: '1rem', fontWeight: '600' }}>{t('fundingRate.sumCurveTitle')}</h3>
+        <div style={{ height: '280px', backgroundColor: '#fff', borderRadius: '8px', padding: '12px', border: '1px solid #e5e7eb' }}>
+          {sumCurveData.length === 0 ? (
+            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', fontSize: '0.875rem' }}>
+              {t('fundingRate.noChartData')}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={sumCurveData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <XAxis
+                  dataKey="timeLabel"
+                  fontSize={10}
+                  tick={{ fill: '#6b7280' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  fontSize={10}
+                  tick={{ fill: '#6b7280' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => String(Number(v.toFixed(4)))}
+                />
+                <Tooltip
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.time ? new Date(payload[0].payload.time).toLocaleString(i18n.language) : ''}
+                  formatter={(value: number) => [Number(value.toFixed(6)), t('fundingRate.sumCurveYLabel')]}
+                  contentStyle={{ fontSize: '12px', borderRadius: '6px' }}
+                />
+                <Line type="monotone" dataKey="sum" stroke="#6366f1" strokeWidth={2} dot={false} name={t('fundingRate.sumCurveYLabel')} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
 
       {/* 當前资金费率表格 */}
       <div style={{ marginBottom: '40px' }}>

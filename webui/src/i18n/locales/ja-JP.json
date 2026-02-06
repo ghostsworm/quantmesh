@@ -2797,6 +2797,9 @@
   },
   "fundingRate": {
     "title": "資金調達率",
+    "sumCurveTitle": "資金レート時系列合計（数値合計、%なし）",
+    "sumCurveYLabel": "合計",
+    "noChartData": "チャートデータなし",
     "currentRates": "現在のレート",
     "historyRates": "過去のレート",
     "exchange": "取引所",
