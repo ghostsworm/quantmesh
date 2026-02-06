@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Box,
+  Button,
   VStack,
   HStack,
   Text,
@@ -156,7 +157,6 @@ const NewsAnalysisHistory: React.FC = () => {
             )}
           </>
         )}
-      </VStack>
 
       <Modal isOpen={isOpen} onClose={onClose} size="4xl">
         <ModalOverlay />

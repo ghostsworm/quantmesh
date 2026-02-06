@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.48.0-rc4] - 2026-02-06
+
+### Fixed
+- **修复 NewsAnalysisHistory 构建错误**：修复了 `NewsAnalysisHistory.tsx` 的两个问题导致 Vite 构建失败：
+  - 缺少 `Button` 组件的导入（分页按钮使用了但未从 `@chakra-ui/react` 导入）
+  - 多余的 `</VStack>` 闭合标签导致 Modal 成为第二个根元素，触发 JSX 解析错误 `Expected ")" but found "isOpen"`
+
 ## [3.48.0-rc3] - 2026-02-06
 
 ### Fixed
