@@ -2,6 +2,21 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.48.0-rc5] - 2026-02-06
+
+### Fixed
+- **历史订单统计数字不准确**：修复订单管理页"总订单数"和"今日订单数"始终受 API 返回条数限制（最多 200 条）的问题
+  - 后端 `/api/orders/history` 新增 `total_count`（数据库真实总数）和 `today_count`（今日订单数）字段
+  - 后端新增 `CountOrders` 方法，通过 `SELECT COUNT(*)` 从数据库获取真实订单总数
+  - 前端统计卡片（今日订单数、总订单数）改为使用后端返回的真实数据，而非前端数组长度
+  - 前端查询 limit 从默认 100 提升至 500，确保列表显示更多记录
+- **修复多个 Go 编译错误**：补充缺失的包导入并修复变量遮蔽问题
+  - `web/api_capital.go`：添加缺失的 `os` 包导入
+  - `web/api_config.go`：添加缺失的 `time` 包导入
+  - `web/api_news.go`：添加缺失的 `os` 和 `fmt` 包导入
+  - `web/api_risk_check.go`：添加缺失的 `os` 包导入
+  - `web/api_strategy.go`：修复局部变量 `config` 遮蔽 `config` 包名导致的类型错误，移除不存在的 `Priority` 字段引用
+
 ## [3.48.0-rc4] - 2026-02-06
 
 ### Fixed
