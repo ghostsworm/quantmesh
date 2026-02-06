@@ -480,6 +480,10 @@
     "enableRiskEngine": "启用风控引擎",
     "enableRiskEngineDesc": "自动监控异常市场波动并采取保护措施",
     "maxLeverage": "最大允许杠杆",
+    "maxGridLayers": "最大持仓预警层数",
+    "maxGridLayersDesc": "持仓层数达到此值后不再新开仓；配合下方「预警时最多开仓单数」可自动撤销多余挂单",
+    "maxOpenOrdersAtCap": "预警时最多开仓单数",
+    "maxOpenOrdersAtCapDesc": "达到最大持仓预警时，最多允许的挂单数量；超出部分自动撤销。做多先撤高价买单，做空先撤低价卖单。0 表示仅不新开仓、不撤单",
     "volumeMultiplier": "成交量异常倍数",
     "aiDecisionEngine": "AI 决策引擎",
     "enableAIAssist": "启用 AI 辅助决策",
@@ -2841,6 +2845,9 @@
   },
   "fundingRate": {
     "title": "资金费率",
+    "sumCurveTitle": "资金费率按时间合计（数值相加，无百分号）",
+    "sumCurveYLabel": "合计",
+    "noChartData": "暂无曲线数据",
     "currentRates": "当前费率",
     "historyRates": "历史费率",
     "exchange": "交易所",
@@ -2967,7 +2974,15 @@
     "unknownError": "未知错误",
     "collapse": "收起",
     "expand": "展开",
-    "emptyHint": "点击「AI 解读」按钮，AI 将结合实时市场数据和最新新闻为您提供专业的市场分析"
+    "emptyHint": "点击「AI 解读」按钮，AI 将结合实时市场数据和最新新闻为您提供专业的市场分析",
+    "historyTitle": "历史解读",
+    "noHistory": "暂无历史解读",
+    "status": {
+      "pending": "等待中",
+      "running": "分析中",
+      "completed": "已完成",
+      "failed": "失败"
+    }
   },
   "paramAdvisor": {
     "title": "参数建议助手",

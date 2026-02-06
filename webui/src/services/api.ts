@@ -1666,6 +1666,7 @@ export interface AIGridConfig {
   grid_risk_control?: {
     enabled: boolean
     max_grid_layers: number
+    max_open_orders_at_cap?: number  // 達到最大持倉預警時最多允許的開倉單數；超出則撤單。做多先撤高價買單，做空先撤低價賣單。0=僅不新開倉不撤單
     stop_loss_ratio: number
     take_profit_trigger_ratio: number
     trailing_take_profit_ratio: number
@@ -1968,12 +1969,26 @@ export interface MarketInterpretTaskResponse {
 
 export interface MarketInterpretStatusResponse {
   task_id: string
+  page_type?: string
+  symbol?: string
   status: 'pending' | 'running' | 'completed' | 'failed'
   progress: number
   created_at: string
   updated_at: string
   result?: string
   error?: string
+}
+
+export interface MarketInterpretHistoryItem {
+  task_id: string
+  page_type: string
+  symbol: string
+  status: string
+  progress: number
+  result?: string
+  error?: string
+  created_at: string
+  updated_at: string
 }
 
 // 创建市场 AI 解读任务
@@ -1987,6 +2002,24 @@ export async function createMarketInterpretTask(request: MarketInterpretRequest)
 // 查询市场解读任务状态
 export async function getMarketInterpretStatus(taskId: string): Promise<MarketInterpretStatusResponse> {
   return fetchWithAuth(`${API_BASE_URL}/ai/market-interpret/${taskId}`)
+}
+
+// 获取当前页面类型下最新一条解读（用于返回页面时恢复显示）
+export async function getLatestMarketInterpret(pageType: 'basis' | 'funding'): Promise<MarketInterpretStatusResponse | null> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/ai/market-interpret/latest?page_type=${pageType}`)
+  if (res && (res as MarketInterpretStatusResponse).task_id) {
+    return res as MarketInterpretStatusResponse
+  }
+  return null
+}
+
+// 列出指定页面类型的历史解读
+export async function listMarketInterpretHistory(
+  pageType: 'basis' | 'funding',
+  limit: number = 20
+): Promise<{ items: MarketInterpretHistoryItem[] }> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/ai/market-interpret/history?page_type=${pageType}&limit=${limit}`)
+  return res as { items: MarketInterpretHistoryItem[] }
 }
 
 // 轮询市场解读任务直到完成

@@ -480,6 +480,10 @@
     "enableRiskEngine": "Enable Risk Engine",
     "enableRiskEngineDesc": "Automatically monitor abnormal market fluctuations and take protective measures",
     "maxLeverage": "Max Allowed Leverage",
+    "maxGridLayers": "Max Position Alert Layers",
+    "maxGridLayersDesc": "Stop new open orders when position layers reach this value; use with \"Max Open Orders at Cap\" to auto-cancel excess orders",
+    "maxOpenOrdersAtCap": "Max Open Orders at Cap",
+    "maxOpenOrdersAtCapDesc": "When at max position alert, max allowed open orders; excess are auto-cancelled. Long: cancel high-price buys first; Short: cancel low-price sells first. 0 = only stop new orders, do not cancel",
     "volumeMultiplier": "Volume Anomaly Multiplier",
     "aiDecisionEngine": "AI Decision Engine",
     "enableAIAssist": "Enable AI-Assisted Decision Making",
@@ -2832,6 +2836,9 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
+    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
+    "sumCurveYLabel": "Sum",
+    "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",
     "exchange": "Exchange",
@@ -2958,7 +2965,15 @@
     "unknownError": "Unknown error",
     "collapse": "Collapse",
     "expand": "Expand",
-    "emptyHint": "Click the \"AI Interpret\" button, and AI will provide professional market analysis based on real-time data and the latest news."
+    "emptyHint": "Click the \"AI Interpret\" button, and AI will provide professional market analysis based on real-time data and the latest news.",
+    "historyTitle": "History",
+    "noHistory": "No history yet",
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
   },
   "paramAdvisor": {
     "title": "Parameter Advisor",

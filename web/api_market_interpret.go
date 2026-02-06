@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	aiservice "quantmesh/ai/service"
 	"quantmesh/exchange"
 	"quantmesh/logger"
+	"quantmesh/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,6 +34,8 @@ const (
 // MarketInterpretTask 市场解读任务
 type MarketInterpretTask struct {
 	TaskID    string                    `json:"task_id"`
+	PageType  string                    `json:"page_type"`  // "basis" | "funding"
+	Symbol    string                    `json:"symbol"`
 	Status    MarketInterpretTaskStatus `json:"status"`
 	CreatedAt time.Time                 `json:"created_at"`
 	UpdatedAt time.Time                 `json:"updated_at"`
@@ -50,13 +54,15 @@ var miTaskManager = &MarketInterpretTaskManager{
 	tasks: make(map[string]*MarketInterpretTask),
 }
 
-func (m *MarketInterpretTaskManager) CreateTask() *MarketInterpretTask {
+func (m *MarketInterpretTaskManager) CreateTask(pageType, symbol string) *MarketInterpretTask {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	taskID := fmt.Sprintf("mi_%d", time.Now().UnixNano())
 	task := &MarketInterpretTask{
 		TaskID:    taskID,
+		PageType:  pageType,
+		Symbol:    symbol,
 		Status:    MITaskPending,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -103,6 +109,56 @@ func (m *MarketInterpretTaskManager) CleanupOldTasks() {
 		if now.Sub(task.CreatedAt) > time.Hour {
 			delete(m.tasks, taskID)
 		}
+	}
+}
+
+// GetTaskByPageType 按页面类型查找进行中的任务（pending/running）
+func (m *MarketInterpretTaskManager) GetTaskByPageType(pageType string) *MarketInterpretTask {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var latest *MarketInterpretTask
+	for _, task := range m.tasks {
+		if task.PageType != pageType {
+			continue
+		}
+		if task.Status != MITaskPending && task.Status != MITaskRunning {
+			continue
+		}
+		if latest == nil || task.CreatedAt.After(latest.CreatedAt) {
+			latest = task
+		}
+	}
+	return latest
+}
+
+// getMarketInterpretStorage 获取用于持久化市场解读的 SQLite 存储（仅 web 包内使用）
+func getMarketInterpretStorage(c *gin.Context) *storage.SQLiteStorage {
+	p := PickStorageProvider(c)
+	if p == nil {
+		return nil
+	}
+	s := p.GetStorage()
+	if s == nil {
+		return nil
+	}
+	st, ok := s.(*storage.SQLiteStorage)
+	if !ok {
+		return nil
+	}
+	return st
+}
+
+func taskToRecord(task *MarketInterpretTask) *storage.MarketInterpretRecord {
+	return &storage.MarketInterpretRecord{
+		TaskID:    task.TaskID,
+		PageType:  task.PageType,
+		Symbol:    task.Symbol,
+		Status:    string(task.Status),
+		Progress:  task.Progress,
+		Result:    task.Result,
+		Error:     task.Error,
+		CreatedAt: task.CreatedAt,
+		UpdatedAt: task.UpdatedAt,
 	}
 }
 
@@ -162,8 +218,12 @@ func createMarketInterpret(c *gin.Context) {
 	// 清理旧任务
 	miTaskManager.CleanupOldTasks()
 
-	// 创建任务
-	task := miTaskManager.CreateTask()
+	// 创建任务（带 page_type / symbol 便于持久化与按页面恢复）
+	task := miTaskManager.CreateTask(req.PageType, req.Symbol)
+	st := getMarketInterpretStorage(c)
+	if st != nil {
+		_ = st.SaveMarketInterpretTask(taskToRecord(task))
+	}
 
 	// 立即返回任务 ID
 	c.JSON(http.StatusAccepted, gin.H{
@@ -177,6 +237,11 @@ func createMarketInterpret(c *gin.Context) {
 		defer cancel()
 
 		miTaskManager.UpdateTask(task.TaskID, MITaskRunning, "", nil)
+		if st != nil {
+			if t, ok := miTaskManager.GetTask(task.TaskID); ok {
+				_ = st.SaveMarketInterpretTask(taskToRecord(t))
+			}
+		}
 		logger.Info("🔄 [市场解读] %s 开始执行 symbol=%s page=%s", task.TaskID, req.Symbol, req.PageType)
 
 		// 1) 获取最近 30 根 1 分钟 K 线
@@ -184,6 +249,11 @@ func createMarketInterpret(c *gin.Context) {
 		if err != nil {
 			logger.Error("❌ [市场解读] %s 获取1m K线失败: %v", task.TaskID, err)
 			miTaskManager.UpdateTask(task.TaskID, MITaskFailed, "", fmt.Errorf("获取1分钟K线失败: %v", err))
+			if st != nil {
+				if t, ok := miTaskManager.GetTask(task.TaskID); ok {
+					_ = st.SaveMarketInterpretTask(taskToRecord(t))
+				}
+			}
 			return
 		}
 
@@ -192,6 +262,11 @@ func createMarketInterpret(c *gin.Context) {
 		if err != nil {
 			logger.Error("❌ [市场解读] %s 获取15m K线失败: %v", task.TaskID, err)
 			miTaskManager.UpdateTask(task.TaskID, MITaskFailed, "", fmt.Errorf("获取15分钟K线失败: %v", err))
+			if st != nil {
+				if t, ok := miTaskManager.GetTask(task.TaskID); ok {
+					_ = st.SaveMarketInterpretTask(taskToRecord(t))
+				}
+			}
 			return
 		}
 
@@ -213,17 +288,32 @@ func createMarketInterpret(c *gin.Context) {
 		if err != nil {
 			logger.Error("❌ [市场解读] %s Gemini API 调用失败: %v", task.TaskID, err)
 			miTaskManager.UpdateTask(task.TaskID, MITaskFailed, "", fmt.Errorf("AI 调用失败: %v", err))
+			if st != nil {
+				if t, ok := miTaskManager.GetTask(task.TaskID); ok {
+					_ = st.SaveMarketInterpretTask(taskToRecord(t))
+				}
+			}
 			return
 		}
 
 		if !resp.Success {
 			logger.Error("❌ [市场解读] %s Gemini 返回错误: %s", task.TaskID, resp.Error)
 			miTaskManager.UpdateTask(task.TaskID, MITaskFailed, "", fmt.Errorf("AI 返回错误: %s", resp.Error))
+			if st != nil {
+				if t, ok := miTaskManager.GetTask(task.TaskID); ok {
+					_ = st.SaveMarketInterpretTask(taskToRecord(t))
+				}
+			}
 			return
 		}
 
 		logger.Info("✅ [市场解读] %s 完成，tokens: input=%d output=%d", task.TaskID, resp.InputTokens, resp.OutputTokens)
 		miTaskManager.UpdateTask(task.TaskID, MITaskCompleted, resp.Content, nil)
+		if st != nil {
+			if t, ok := miTaskManager.GetTask(task.TaskID); ok {
+				_ = st.SaveMarketInterpretTask(taskToRecord(t))
+			}
+		}
 	}()
 }
 
@@ -238,12 +328,38 @@ func getMarketInterpretStatus(c *gin.Context) {
 
 	task, ok := miTaskManager.GetTask(taskID)
 	if !ok {
+		// 内存中无则从持久化存储查（例如服务重启后）
+		st := getMarketInterpretStorage(c)
+		if st != nil {
+			rec, err := st.GetMarketInterpretTask(taskID)
+			if err == nil && rec != nil {
+				response := gin.H{
+					"task_id":    rec.TaskID,
+					"page_type":  rec.PageType,
+					"symbol":     rec.Symbol,
+					"status":     rec.Status,
+					"progress":   rec.Progress,
+					"created_at": rec.CreatedAt.Format(time.RFC3339),
+					"updated_at": rec.UpdatedAt.Format(time.RFC3339),
+				}
+				if rec.Status == "completed" && rec.Result != "" {
+					response["result"] = rec.Result
+				}
+				if rec.Status == "failed" && rec.Error != "" {
+					response["error"] = rec.Error
+				}
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		}
 		respondError(c, http.StatusNotFound, "error.task_not_found")
 		return
 	}
 
 	response := gin.H{
 		"task_id":    task.TaskID,
+		"page_type":  task.PageType,
+		"symbol":     task.Symbol,
 		"status":     string(task.Status),
 		"progress":   task.Progress,
 		"created_at": task.CreatedAt.Format(time.RFC3339),
@@ -258,6 +374,107 @@ func getMarketInterpretStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// getMarketInterpretLatest 获取指定页面类型下最新一条解读（用于返回页面时自动恢复显示）
+// GET /api/ai/market-interpret/latest?page_type=basis|funding
+func getMarketInterpretLatest(c *gin.Context) {
+	pageType := c.Query("page_type")
+	if pageType != "basis" && pageType != "funding" {
+		respondError(c, http.StatusBadRequest, "error.invalid_page_type")
+		return
+	}
+
+	// 优先返回当前进行中的任务（内存）
+	if task := miTaskManager.GetTaskByPageType(pageType); task != nil {
+		response := gin.H{
+			"task_id":    task.TaskID,
+			"page_type":  task.PageType,
+			"symbol":     task.Symbol,
+			"status":     string(task.Status),
+			"progress":   task.Progress,
+			"created_at": task.CreatedAt.Format(time.RFC3339),
+			"updated_at": task.UpdatedAt.Format(time.RFC3339),
+		}
+		if task.Status == MITaskCompleted && task.Result != "" {
+			response["result"] = task.Result
+		}
+		if task.Status == MITaskFailed && task.Error != "" {
+			response["error"] = task.Error
+		}
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	// 否则从持久化取最新一条
+	st := getMarketInterpretStorage(c)
+	if st == nil {
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+	rec, err := st.GetLatestMarketInterpretByPageType(pageType)
+	if err != nil || rec == nil {
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+	response := gin.H{
+		"task_id":    rec.TaskID,
+		"page_type":  rec.PageType,
+		"symbol":     rec.Symbol,
+		"status":     rec.Status,
+		"progress":   rec.Progress,
+		"created_at": rec.CreatedAt.Format(time.RFC3339),
+		"updated_at": rec.UpdatedAt.Format(time.RFC3339),
+	}
+	if rec.Status == "completed" && rec.Result != "" {
+		response["result"] = rec.Result
+	}
+	if rec.Status == "failed" && rec.Error != "" {
+		response["error"] = rec.Error
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// getMarketInterpretHistory 列出指定页面类型的历史解读
+// GET /api/ai/market-interpret/history?page_type=basis|funding&limit=20
+func getMarketInterpretHistory(c *gin.Context) {
+	pageType := c.Query("page_type")
+	if pageType != "basis" && pageType != "funding" {
+		respondError(c, http.StatusBadRequest, "error.invalid_page_type")
+		return
+	}
+	limit := 20
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	st := getMarketInterpretStorage(c)
+	if st == nil {
+		c.JSON(http.StatusOK, gin.H{"items": []interface{}{}})
+		return
+	}
+	list, err := st.ListMarketInterpretHistory(pageType, limit)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.storage_failed", err)
+		return
+	}
+	items := make([]gin.H, 0, len(list))
+	for _, rec := range list {
+		items = append(items, gin.H{
+			"task_id":    rec.TaskID,
+			"page_type":  rec.PageType,
+			"symbol":     rec.Symbol,
+			"status":     rec.Status,
+			"progress":   rec.Progress,
+			"result":     rec.Result,
+			"error":      rec.Error,
+			"created_at": rec.CreatedAt.Format(time.RFC3339),
+			"updated_at": rec.UpdatedAt.Format(time.RFC3339),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 // ============================================================================

@@ -1,10 +1,13 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import {
   createMarketInterpretTask,
   pollMarketInterpretUntilComplete,
+  getLatestMarketInterpret,
+  listMarketInterpretHistory,
   MarketInterpretRequest,
+  MarketInterpretHistoryItem,
 } from '../services/api'
 
 interface AIMarketInterpretProps {
@@ -26,11 +29,43 @@ const AIMarketInterpret: React.FC<AIMarketInterpretProps> = ({
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(true)
+  const [historyItems, setHistoryItems] = useState<MarketInterpretHistoryItem[]>([])
+  const [historyExpanded, setHistoryExpanded] = useState(false)
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
+  const [restored, setRestored] = useState(false)
+
+  const resumePolling = useCallback((taskId: string) => {
+    setStatusText(t('aiInterpret.analyzing'))
+    pollMarketInterpretUntilComplete(
+      taskId,
+      (prog, status) => {
+        setProgress(prog)
+        if (status === 'running') {
+          setStatusText(t('aiInterpret.analyzing'))
+        } else if (status === 'pending') {
+          setStatusText(t('aiInterpret.pending'))
+        }
+      }
+    )
+      .then((analysisResult) => {
+        setResult(analysisResult)
+        setStatusText('')
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : t('aiInterpret.unknownError'))
+        setStatusText('')
+      })
+      .finally(() => {
+        setLoading(false)
+        setProgress(100)
+      })
+  }, [t])
 
   const handleAnalyze = useCallback(async () => {
     setLoading(true)
     setError(null)
     setResult(null)
+    setSelectedHistoryId(null)
     setProgress(0)
     setStatusText(t('aiInterpret.creating'))
     setExpanded(true)
@@ -43,12 +78,10 @@ const AIMarketInterpret: React.FC<AIMarketInterpretProps> = ({
         page_data: pageData,
       }
 
-      // 创建任务
       const taskResp = await createMarketInterpretTask(request)
       setStatusText(t('aiInterpret.analyzing'))
 
-      // 轮询等待结果
-      const analysisResult = await pollMarketInterpretUntilComplete(
+      await pollMarketInterpretUntilComplete(
         taskResp.task_id,
         (prog, status) => {
           setProgress(prog)
@@ -58,10 +91,10 @@ const AIMarketInterpret: React.FC<AIMarketInterpretProps> = ({
             setStatusText(t('aiInterpret.pending'))
           }
         }
-      )
-
-      setResult(analysisResult)
-      setStatusText('')
+      ).then((analysisResult) => {
+        setResult(analysisResult)
+        setStatusText('')
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : t('aiInterpret.unknownError'))
       setStatusText('')
@@ -70,6 +103,56 @@ const AIMarketInterpret: React.FC<AIMarketInterpretProps> = ({
       setProgress(100)
     }
   }, [pageType, symbol, getPageData, t])
+
+  // 挂载时恢复当前页面类型下「最新一条」解读（进行中或已完成）
+  useEffect(() => {
+    if (restored) return
+    setRestored(true)
+    getLatestMarketInterpret(pageType)
+      .then((latest) => {
+        if (!latest || !latest.task_id) return
+        if (latest.status === 'completed' && latest.result) {
+          setResult(latest.result)
+          setExpanded(true)
+          return
+        }
+        if (latest.status === 'failed' && latest.error) {
+          setError(latest.error)
+          return
+        }
+        if (latest.status === 'pending' || latest.status === 'running') {
+          setLoading(true)
+          setProgress(latest.progress || 0)
+          setExpanded(true)
+          resumePolling(latest.task_id)
+        }
+      })
+      .catch(() => {})
+  }, [pageType, restored, resumePolling])
+
+  const loadHistory = useCallback(() => {
+    if (!historyExpanded) {
+      setHistoryExpanded(true)
+      listMarketInterpretHistory(pageType, 20)
+        .then((res) => setHistoryItems(res.items || []))
+        .catch(() => setHistoryItems([]))
+    }
+  }, [pageType, historyExpanded])
+
+  const showHistoryItem = (item: MarketInterpretHistoryItem) => {
+    setSelectedHistoryId(item.task_id)
+    if (item.status === 'completed' && item.result) {
+      setResult(item.result)
+      setError(null)
+      setExpanded(true)
+    } else if (item.status === 'failed' && item.error) {
+      setError(item.error)
+      setResult(null)
+    } else {
+      setResult(null)
+      setError(null)
+    }
+  }
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
@@ -150,6 +233,47 @@ const AIMarketInterpret: React.FC<AIMarketInterpretProps> = ({
           <ReactMarkdown>{result}</ReactMarkdown>
         </div>
       )}
+
+      {/* 历史解读列表 */}
+      <div className="mt-4 border-t pt-4">
+        <button
+          type="button"
+          onClick={loadHistory}
+          className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+        >
+          {historyExpanded ? '▼' : '▶'} {t('aiInterpret.historyTitle')}
+        </button>
+        {historyExpanded && (
+          <ul className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+            {historyItems.length === 0 && (
+              <li className="text-sm text-gray-400">{t('aiInterpret.noHistory')}</li>
+            )}
+            {historyItems.map((item) => (
+              <li key={item.task_id}>
+                <button
+                  type="button"
+                  onClick={() => showHistoryItem(item)}
+                  className={`text-left w-full text-sm px-2 py-1.5 rounded truncate ${
+                    selectedHistoryId === item.task_id
+                      ? 'bg-purple-100 text-purple-800'
+                      : 'hover:bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  <span className="text-gray-500">
+                    {new Date(item.created_at).toLocaleString()}
+                  </span>
+                  {' · '}
+                  <span>{item.symbol}</span>
+                  {' · '}
+                  <span className={item.status === 'completed' ? 'text-green-600' : item.status === 'failed' ? 'text-red-600' : 'text-gray-500'}>
+                    {t(`aiInterpret.status.${item.status}`)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/* 空状态提示 */}
       {!loading && !result && !error && (

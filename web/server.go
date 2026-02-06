@@ -379,8 +379,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/ai/tasks/stats", getAITaskStats)
 			protected.POST("/ai/apply-config", applyAIConfig)
 
-			// AI 市场解读 API
+			// AI 市场解读 API（latest/history 须在 :task_id 之前注册）
 			protected.POST("/ai/market-interpret", createMarketInterpret)
+			protected.GET("/ai/market-interpret/latest", getMarketInterpretLatest)
+			protected.GET("/ai/market-interpret/history", getMarketInterpretHistory)
 			protected.GET("/ai/market-interpret/:task_id", getMarketInterpretStatus)
 
 			protected.GET("/funding/history", getFundingRateHistory)
