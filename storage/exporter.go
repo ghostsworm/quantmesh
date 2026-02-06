@@ -84,7 +84,7 @@ func (e *Exporter) ExportOrders(params ExportParams) ([]byte, string, error) {
 		limit = params.Limit
 	}
 
-	orders, err := e.storage.QueryOrders(limit, params.Offset, "")
+	orders, err := e.storage.QueryOrdersWithTimeRange(limit, params.Offset, "", nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

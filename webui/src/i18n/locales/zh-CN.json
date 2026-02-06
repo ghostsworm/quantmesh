@@ -606,7 +606,19 @@
     "direction": "方向",
     "directionDesc": "切换方向将撤销所有挂单，平掉所有仓位，然后重启交易",
     "directionLong": "做多",
-    "directionShort": "做空"
+    "directionShort": "做空",
+    "profileSwitching": "多套配置自动切换",
+    "profileSwitchingDesc": "根据资金费率和手续费率自动切换配置档案。当费率超过阈值时，系统会自动选择对应的配置档案（如正费率/负费率）。",
+    "profiles": "配置档案",
+    "profilePositive": "正费率配置档案",
+    "profileNegative": "负费率配置档案",
+    "switchRules": "切换规则",
+    "fundingRateThreshold": "资金费率阈值 (%)",
+    "fundingRateThresholdDesc": "资金费率超过此值时切换到正费率配置档案，低于负值时切换到负费率配置档案",
+    "feeRateThreshold": "手续费率阈值 (%)",
+    "feeRateThresholdDesc": "手续费率超过此值时切换到正费率配置档案，低于此值时切换到负费率配置档案",
+    "cooldownSeconds": "切换冷却时间 (秒)",
+    "cooldownSecondsDesc": "两次切换之间的最小间隔时间，避免频繁切换，默认 300 秒"
   },
   "configSetup": {
     "title": "配置引导",
@@ -794,6 +806,13 @@
     "noData": "暂无数据",
     "loadDetailFailed": "加载明细失败",
     "syncFailedMessage": "订单同步失败，请稍后重试",
+    "timeRange": "时间范围",
+    "startTime": "开始时间",
+    "endTime": "结束时间",
+    "timeRangeRequired": "历史订单必须选择时间范围",
+    "timeRangeMaxDays": "时间范围不能超过7天",
+    "timeRangeInvalid": "结束时间必须晚于开始时间",
+    "defaultTimeRange": "默认最近24小时",
     "onlyBinanceSupported": "当前仅支持币安交易所的订单同步"
   },
   "wizard": {
@@ -1026,6 +1045,7 @@
     "netProfit": "净盈利",
     "todayProfit": "今日盈利",
     "unrealizedProfit": "未实现盈利",
+    "exchangeProfit": "交易所盈利",
     "availableToWithdraw": "可提取盈利",
     "profitTrend": "盈利趋势",
     "dailyProfit": "每日盈利",

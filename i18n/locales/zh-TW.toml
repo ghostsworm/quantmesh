@@ -105,6 +105,13 @@ other = "提示詞模板不能為空"
 [error.update_prompt_failed]
 other = "更新提示詞失敗"
 
+# 訂單相關錯誤訊息
+[orders.timeRangeInvalid]
+other = "結束時間必須晚於開始時間"
+
+[orders.timeRangeMaxDays]
+other = "時間範圍不能超過7天"
+
 # 資料庫相關錯誤
 [error.database_error]
 other = "資料庫錯誤"

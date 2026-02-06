@@ -105,6 +105,13 @@ other = "Prompt template cannot be empty"
 [error.update_prompt_failed]
 other = "Failed to update prompt"
 
+# 注文関連のエラーメッセージ
+[orders.timeRangeInvalid]
+other = "終了時間は開始時間より後である必要があります"
+
+[orders.timeRangeMaxDays]
+other = "時間範囲は7日を超えることはできません"
+
 # Database related errors
 [error.database_error]
 other = "Database error"

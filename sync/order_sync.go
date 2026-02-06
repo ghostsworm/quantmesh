@@ -216,7 +216,7 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 // getExistingOrderIDs 获取数据库中已存在的订单ID集合
 func (s *OrderSyncService) getExistingOrderIDs(ctx context.Context) (map[int64]bool, error) {
 	// 查询最近7天的订单
-	orders, err := s.storage.QueryOrders(1000, 0, "FILLED")
+	orders, err := s.storage.QueryOrdersWithTimeRange(1000, 0, "FILLED", nil, nil)
 	if err != nil {
 		return nil, err
 	}

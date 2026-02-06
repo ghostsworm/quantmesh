@@ -1416,7 +1416,7 @@ func getOrders(c *gin.Context) {
 		offset = o
 	}
 
-	orders, err := storage.QueryOrders(limit, offset, status)
+	orders, err := storage.QueryOrdersWithTimeRange(limit, offset, status, nil, nil)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "error.query_orders_failed", err)
 		return
@@ -1568,6 +1568,8 @@ func getOrderHistory(c *gin.Context) {
 	// 解析参數
 	limitStr := c.DefaultQuery("limit", "100")
 	offsetStr := c.DefaultQuery("offset", "0")
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
 
 	limit := 100
 	offset := 0
@@ -1578,11 +1580,52 @@ func getOrderHistory(c *gin.Context) {
 		offset = o
 	}
 
-	// 只查詢已完成或已取消的订單
-	orders, err := storage.QueryOrders(limit, offset, "FILLED")
+	// 解析时间范围（RFC3339格式）
+	var startTime, endTime *time.Time
+	now := utils.NowUTC()
+	defaultStartTime := now.Add(-24 * time.Hour) // 默认最近24小时
+
+	if startTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
+			startTime = &t
+		} else {
+			logger.Warn("[訂單歷史] 解析 start_time 失败: %v，使用默认值", err)
+		}
+	}
+	if endTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+			endTime = &t
+		} else {
+			logger.Warn("[訂單歷史] 解析 end_time 失败: %v，使用默认值", err)
+		}
+	}
+
+	// 如果缺失时间参数，使用默认值（最近24小时）
+	if startTime == nil {
+		startTime = &defaultStartTime
+	}
+	if endTime == nil {
+		endTime = &now
+	}
+
+	// 验证时间范围
+	if endTime.Before(*startTime) {
+		respondError(c, http.StatusBadRequest, "orders.timeRangeInvalid")
+		return
+	}
+
+	// 验证时间跨度不超过7天
+	diffDays := endTime.Sub(*startTime).Hours() / 24
+	if diffDays > 7 {
+		respondError(c, http.StatusBadRequest, "orders.timeRangeMaxDays")
+		return
+	}
+
+	// 只查詢已完成或已取消的订單（带时间范围）
+	orders, err := storage.QueryOrdersWithTimeRange(limit, offset, "FILLED", startTime, endTime)
 	if err != nil {
 		// 如果查詢失败，尝試查詢所有状態的订單
-		orders, err = storage.QueryOrders(limit, offset, "")
+		orders, err = storage.QueryOrdersWithTimeRange(limit, offset, "", startTime, endTime)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -1590,7 +1633,7 @@ func getOrderHistory(c *gin.Context) {
 	}
 
 	// 也查詢已取消的订單
-	canceledOrders, err := storage.QueryOrders(limit, offset, "CANCELED")
+	canceledOrders, err := storage.QueryOrdersWithTimeRange(limit, offset, "CANCELED", startTime, endTime)
 	if err == nil {
 		orders = append(orders, canceledOrders...)
 	}
@@ -1660,8 +1703,8 @@ func getOrderHistory(c *gin.Context) {
 	}
 
 	// 计算今日订單数（从已返回的订單中统计）
-	now := utils.NowConfiguredTimezone()
-	todayStr := now.Format("2006-01-02")
+	nowLocal := utils.NowConfiguredTimezone()
+	todayStr := nowLocal.Format("2006-01-02")
 	for _, order := range orders {
 		orderDate := utils.ToConfiguredTimezone(order.CreatedAt).Format("2006-01-02")
 		if orderDate == todayStr {

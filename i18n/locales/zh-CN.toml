@@ -105,6 +105,13 @@ other = "提示词模板不能为空"
 [error.update_prompt_failed]
 other = "更新提示词失败"
 
+# 订单相关错误消息
+[orders.timeRangeInvalid]
+other = "结束时间必须晚于开始时间"
+
+[orders.timeRangeMaxDays]
+other = "时间范围不能超过7天"
+
 # 数据库相关错误
 [error.database_error]
 other = "数据库错误"

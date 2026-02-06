@@ -606,7 +606,19 @@
     "direction": "Direction",
     "directionDesc": "Switching direction will cancel orders, close positions, and restart trading",
     "directionLong": "Long",
-    "directionShort": "Short"
+    "directionShort": "Short",
+    "profileSwitching": "Multi-Profile Auto Switching",
+    "profileSwitchingDesc": "Automatically switch configuration profiles based on funding rate and fee rate. When rates exceed thresholds, the system will automatically select the corresponding profile (e.g., positive/negative rate).",
+    "profiles": "Configuration Profiles",
+    "profilePositive": "Positive Rate Profile",
+    "profileNegative": "Negative Rate Profile",
+    "switchRules": "Switch Rules",
+    "fundingRateThreshold": "Funding Rate Threshold (%)",
+    "fundingRateThresholdDesc": "Switch to positive rate profile when funding rate exceeds this value, switch to negative rate profile when below negative value",
+    "feeRateThreshold": "Fee Rate Threshold (%)",
+    "feeRateThresholdDesc": "Switch to positive rate profile when fee rate exceeds this value, switch to negative rate profile when below this value",
+    "cooldownSeconds": "Switch Cooldown (seconds)",
+    "cooldownSecondsDesc": "Minimum interval between switches to avoid frequent switching, default 300 seconds"
   },
   "configSetup": {
     "title": "Configuration Guide",
@@ -794,7 +806,14 @@
     "noData": "No data",
     "loadDetailFailed": "Failed to load details",
     "syncFailedMessage": "Failed to sync orders, please try again later",
-    "onlyBinanceSupported": "Currently only Binance exchange order sync is supported"
+    "onlyBinanceSupported": "Currently only Binance exchange order sync is supported",
+    "timeRange": "Time Range",
+    "startTime": "Start Time",
+    "endTime": "End Time",
+    "timeRangeRequired": "Time range is required for history orders",
+    "timeRangeMaxDays": "Time range cannot exceed 7 days",
+    "timeRangeInvalid": "End time must be later than start time",
+    "defaultTimeRange": "Default: Last 24 hours"
   },
   "wizard": {
     "title": "First-time Setup Wizard",
@@ -1026,6 +1045,7 @@
     "netProfit": "Net Profit",
     "todayProfit": "Today's Profit",
     "unrealizedProfit": "Unrealized Profit",
+    "exchangeProfit": "Exchange Profit",
     "availableToWithdraw": "Available to Withdraw",
     "profitTrend": "Profit Trend",
     "dailyProfit": "Daily Profit",
