@@ -11,6 +11,7 @@ interface StatisticsData {
   gross_pnl?: number // 毛利（未扣手續費）
   total_fee?: number // 手續費合計
   win_rate: number
+  exchange_pnl?: number // 交易所已實現盈虧合計
 }
 
 interface DailyStatistics {
@@ -35,6 +36,7 @@ interface DailyStatistics {
   book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
   intraday_max_drawdown?: number
   intraday_max_drawdown_pct?: number
+  exchange_pnl?: number // 當日交易所已實現盈虧
 }
 
 interface PnLBySymbol {
@@ -167,6 +169,14 @@ const Statistics: React.FC = () => {
               </div>
             </>
           )}
+          {stats.exchange_pnl !== undefined && stats.exchange_pnl !== 0 && (
+            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }} title={t('statistics.exchangePnlTooltip')}>
+              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.exchangePnl')}</div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: stats.exchange_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                {stats.exchange_pnl >= 0 ? '+' : ''}{stats.exchange_pnl.toFixed(2)}
+              </div>
+            </div>
+          )}
           <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
             <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.winRate')}</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{(stats.win_rate * 100).toFixed(2)}%</div>
@@ -250,6 +260,7 @@ const Statistics: React.FC = () => {
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volumeProfit')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volumeStopLoss')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.pnl')}</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }} title={t('statistics.exchangePnlTooltip')}>{t('statistics.exchangePnl')}</th>
                   {(dailyStats.some(s => s.gross_pnl !== undefined) || dailyStats.some(s => s.total_fee !== undefined)) && (
                     <>
                       <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.grossPnL')}</th>
@@ -281,6 +292,11 @@ const Statistics: React.FC = () => {
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right', color: stat.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
                       {stat.total_pnl >= 0 ? '+' : ''}{stat.total_pnl.toFixed(2)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: (stat.exchange_pnl ?? 0) >= 0 ? '#1890ff' : '#ff4d4f', fontSize: '13px' }}>
+                      {stat.exchange_pnl !== undefined && stat.exchange_pnl !== 0
+                        ? (stat.exchange_pnl >= 0 ? '+' : '') + stat.exchange_pnl.toFixed(2)
+                        : '-'}
                     </td>
                     {(stat.gross_pnl !== undefined || stat.total_fee !== undefined) && (
                       <>

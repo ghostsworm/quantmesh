@@ -2361,7 +2361,15 @@
     "type": "Type",
     "used": "Used",
     "weight": "Weight",
-    "winRate": "Win Rate"
+    "winRate": "Win Rate",
+    "orderSideBuy": "Bumili",
+    "orderSideSell": "Ibenta",
+    "orderStatusNew": "Bago",
+    "orderStatusPartiallyFilled": "Bahagyang napunan",
+    "orderStatusFilled": "Napunan",
+    "orderStatusCanceled": "Kinansela",
+    "orderStatusPendingCancel": "Kinakansela",
+    "orderStatusRejected": "Tinanggihan"
   },
   "strategyVisualization": {
     "noData": "No visualization data",
@@ -2833,7 +2841,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderStatus": "Order Status",
+    "orderSideBuy": "Bumili",
+    "orderSideSell": "Ibenta",
+    "orderStatusNew": "Bago",
+    "orderStatusPartiallyFilled": "Bahagyang napunan",
+    "orderStatusFilled": "Napunan",
+    "orderStatusCanceled": "Kinansela",
+    "orderStatusPendingCancel": "Kinakansela",
+    "orderStatusRejected": "Tinanggihan",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",

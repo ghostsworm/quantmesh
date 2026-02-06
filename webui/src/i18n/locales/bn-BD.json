@@ -2361,7 +2361,15 @@
     "type": "Type",
     "used": "Used",
     "weight": "Weight",
-    "winRate": "Win Rate"
+    "winRate": "Win Rate",
+    "orderSideBuy": "কিনুন",
+    "orderSideSell": "বিক্রি",
+    "orderStatusNew": "নতুন",
+    "orderStatusPartiallyFilled": "আংশিক পূর্ণ",
+    "orderStatusFilled": "পূর্ণ",
+    "orderStatusCanceled": "বাতিল",
+    "orderStatusPendingCancel": "বাতিল হচ্ছে",
+    "orderStatusRejected": "প্রত্যাখ্যাত"
   },
   "strategyVisualization": {
     "noData": "No visualization data",
@@ -2833,7 +2841,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderStatus": "Order Status",
+    "orderSideBuy": "কিনুন",
+    "orderSideSell": "বিক্রি",
+    "orderStatusNew": "নতুন",
+    "orderStatusPartiallyFilled": "আংশিক পূর্ণ",
+    "orderStatusFilled": "পূর্ণ",
+    "orderStatusCanceled": "বাতিল",
+    "orderStatusPendingCancel": "বাতিল হচ্ছে",
+    "orderStatusRejected": "প্রত্যাখ্যাত",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",

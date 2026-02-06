@@ -40,6 +40,9 @@ type Storage interface {
 	GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error)
 	QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
+	// 交易所已實現盈虧聚合（從 orders 表的 realized_pnl）
+	GetExchangePnLTotal(exchange, symbol string) (float64, error)
+	GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error)
 	SaveReconciliationHistory(history *ReconciliationHistory) error
 	QueryReconciliationHistory(exchange, symbol, account string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error)
 	GetLatestReconciliationHistory(exchange, symbol, account string) (*ReconciliationHistory, error)

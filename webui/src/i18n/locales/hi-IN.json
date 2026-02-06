@@ -2361,7 +2361,15 @@
     "type": "Type",
     "used": "Used",
     "weight": "Weight",
-    "winRate": "Win Rate"
+    "winRate": "Win Rate",
+    "orderSideBuy": "खरीदें",
+    "orderSideSell": "बेचें",
+    "orderStatusNew": "नया",
+    "orderStatusPartiallyFilled": "आंशिक रूप से भरा",
+    "orderStatusFilled": "भर गया",
+    "orderStatusCanceled": "रद्द",
+    "orderStatusPendingCancel": "रद्द हो रहा है",
+    "orderStatusRejected": "अस्वीकृत"
   },
   "strategyVisualization": {
     "noData": "No visualization data",
@@ -2833,7 +2841,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderStatus": "Order Status",
+    "orderSideBuy": "खरीदें",
+    "orderSideSell": "बेचें",
+    "orderStatusNew": "नया",
+    "orderStatusPartiallyFilled": "आंशिक रूप से भरा",
+    "orderStatusFilled": "भर गया",
+    "orderStatusCanceled": "रद्द",
+    "orderStatusPendingCancel": "रद्द हो रहा है",
+    "orderStatusRejected": "अस्वीकृत",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",

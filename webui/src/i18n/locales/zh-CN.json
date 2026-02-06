@@ -262,6 +262,8 @@
     "tradingVolume": "总成交量",
     "systemUptime": "运行时长",
     "roi": "收益率",
+    "exchangePnl": "交易所盈亏",
+    "exchangePnlTooltip": "交易所按加权平均成本法计算的已实现盈亏合计，与网格策略按买卖配对计算的方法不同",
     "tradesPerHour": "笔/小时",
     "normal": "正常",
     "slotsMatrix": "槽位矩阵",
@@ -1584,7 +1586,10 @@
     "grossPnL": "毛利润",
     "totalFee": "手续费",
     "fundingFee": "资金费用",
-    "fundingFeeShort": "资金费"
+    "fundingFeeShort": "资金费",
+    "exchangePnl": "交易所盈亏",
+    "exchangePnlShort": "交易所",
+    "exchangePnlTooltip": "交易所按加权平均成本法计算的已实现盈亏，与网格策略按买卖配对计算的方法不同"
   },
   "riskMonitor": {
     "title": "风控监控",

@@ -2361,7 +2361,15 @@
     "type": "Type",
     "used": "Used",
     "weight": "Weight",
-    "winRate": "Win Rate"
+    "winRate": "Win Rate",
+    "orderSideBuy": "Купівля",
+    "orderSideSell": "Продаж",
+    "orderStatusNew": "Новий",
+    "orderStatusPartiallyFilled": "Частково виконано",
+    "orderStatusFilled": "Виконано",
+    "orderStatusCanceled": "Скасовано",
+    "orderStatusPendingCancel": "Скасовується",
+    "orderStatusRejected": "Відхилено"
   },
   "strategyVisualization": {
     "noData": "No visualization data",
@@ -2833,7 +2841,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderStatus": "Order Status",
+    "orderSideBuy": "Купівля",
+    "orderSideSell": "Продаж",
+    "orderStatusNew": "Новий",
+    "orderStatusPartiallyFilled": "Частково виконано",
+    "orderStatusFilled": "Виконано",
+    "orderStatusCanceled": "Скасовано",
+    "orderStatusPendingCancel": "Скасовується",
+    "orderStatusRejected": "Відхилено",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",
