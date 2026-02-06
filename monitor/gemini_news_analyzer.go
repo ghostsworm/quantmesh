@@ -70,8 +70,13 @@ func NewGeminiNewsAnalyzer(cfg *config.Config, newsCollector *NewsCollector) *Ge
 
 // AssetType 资產類型常量
 const (
-	AssetTypeCryptoBTC     = "crypto_btc"
-	AssetTypeCommodityGold = "commodity_gold"
+	AssetTypeCryptoBTC        = "crypto_btc"
+	AssetTypeCryptoETH        = "crypto_eth"
+	AssetTypeCryptoSOL        = "crypto_sol"
+	AssetTypeCryptoDOGE       = "crypto_doge"
+	AssetTypeCommodityGold    = "commodity_gold"
+	AssetTypeCommoditySilver  = "commodity_silver"
+	AssetTypeStockUS          = "stock_us"
 )
 
 // Analyze 執行新聞分析（預設 crypto_btc）
@@ -188,8 +193,9 @@ func (g *GeminiNewsAnalyzer) buildPrompt(assetType, symbol string, currentPrice 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("當前市場信息：\n- 交易對: %s\n- 當前價格: $%.2f\n\n", symbol, currentPrice))
 
-	if assetType == AssetTypeCommodityGold {
-		sb.WriteString(`你是一位专业的黃金市场分析师。请基於實時搜索的最新新闻和历史新闻，分析黃金價格走势。
+	switch assetType {
+	case AssetTypeCommodityGold:
+		sb.WriteString(`你是一位专业的黃金市场分析师。请基於實時搜索的最新新闻和历史新闻，分析國際金價（PAXG/USDT）走势。
 
 `)
 		sb.WriteString(`请重点关注：
@@ -201,7 +207,72 @@ func (g *GeminiNewsAnalyzer) buildPrompt(assetType, symbol string, currentPrice 
 6. 市場波動率和避險需求
 
 `)
-	} else {
+	case AssetTypeCommoditySilver:
+		sb.WriteString(`你是一位专业的白銀市场分析师。请基於實時搜索的最新新闻和历史新闻，分析白銀價格走势。
+
+`)
+		sb.WriteString(`请重点关注：
+1. 美聯儲货币政策和利率預期
+2. 美元指數（DXY）走势
+3. 通脹數據（CPI、PCE）
+4. 工業需求（太陽能、電子產品）
+5. 黃金白銀比價關係
+6. 地緣政治和避險需求
+
+`)
+	case AssetTypeStockUS:
+		sb.WriteString(`你是一位专业的美股市场分析师。请基於實時搜索的最新新闻和历史新闻，分析美股（S&P 500）走势。
+
+`)
+		sb.WriteString(`请重点关注：
+1. 美聯儲货币政策和利率決議
+2. 經濟數據（GDP、失業率、CPI、PCE）
+3. 企業財報季和盈利預期
+4. 地緣政治風險
+5. 科技股表現（FAANG、AI相關）
+6. 市場情緒和資金流向
+
+`)
+	case AssetTypeCryptoETH:
+		sb.WriteString(`你是一位专业的以太坊市场分析师。请基於實時搜索的最新新闻和历史新闻，分析以太坊（ETH）價格走势。
+
+`)
+		sb.WriteString(`请重点关注：
+1. 以太坊 ETF 進展和批准情況
+2. 以太坊升級和技術發展
+3. DeFi 生態系統發展
+4. Layer 2 解決方案採用
+5. Gas 費用和網絡擁堵
+6. 監管政策和機構採用
+
+`)
+	case AssetTypeCryptoSOL:
+		sb.WriteString(`你是一位专业的 Solana 市场分析师。请基於實時搜索的最新新闻和历史新闻，分析 Solana（SOL）價格走势。
+
+`)
+		sb.WriteString(`请重点关注：
+1. Solana ETF 進展和批准情況
+2. Solana 網絡穩定性和停機事件
+3. Solana 生態系統發展（DeFi、NFT）
+4. 機構採用和合作夥伴關係
+5. 技術升級和性能改進
+6. 市場競爭和替代方案
+
+`)
+	case AssetTypeCryptoDOGE:
+		sb.WriteString(`你是一位专业的 Dogecoin 市场分析师。请基於實時搜索的最新新闻和历史新闻，分析 Dogecoin（DOGE）價格走势。
+
+`)
+		sb.WriteString(`请重点关注：
+1. Elon Musk 和特斯拉相關動態
+2. 模因幣市場整體趨勢
+3. DOGE 採用和支付場景
+4. 社區活動和社交媒體熱度
+5. 市場情緒和投機需求
+6. 監管環境變化
+
+`)
+	default:
 		sb.WriteString(`你是一位专业的加密貨幣市场分析师。请基於實時搜索的最新新闻和历史新闻，分析比特币價格走势。
 
 请主动搜索：地緣政治、監管政策、總體經濟、交易所安全事件、市场异常等。

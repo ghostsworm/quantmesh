@@ -55,7 +55,12 @@ const NewsAnalysis: React.FC = () => {
 
   const ASSET_OPTIONS = [
     { value: 'crypto_btc', label: 'BTC', symbol: 'BTCUSDT' },
-    { value: 'commodity_gold', label: t('newsAnalysis.goldPaxg'), symbol: 'PAXGUSDT' },
+    { value: 'commodity_gold', label: t('newsAnalysis.goldInternational'), symbol: 'PAXGUSDT' },
+    { value: 'commodity_silver', label: t('newsAnalysis.silver'), symbol: 'XAGUSDT' },
+    { value: 'stock_us', label: t('newsAnalysis.usStock'), symbol: 'SPX' },
+    { value: 'crypto_eth', label: 'ETH', symbol: 'ETHUSDT' },
+    { value: 'crypto_sol', label: 'SOL', symbol: 'SOLUSDT' },
+    { value: 'crypto_doge', label: 'DOGE', symbol: 'DOGEUSDT' },
   ]
 
   const REC_LABELS: Record<string, { label: string; color: string }> = {
@@ -205,9 +210,9 @@ const NewsAnalysis: React.FC = () => {
 
         <Tabs variant="enclosed" colorScheme="blue">
           <TabList>
-            <Tab fontWeight="600">{t('newsAnalysis.latestAnalysis')}</Tab>
-            <Tab fontWeight="600">{t('newsAnalysis.history')}</Tab>
-            <Tab fontWeight="600">{t('newsAnalysis.predictionAccuracy')}</Tab>
+            <Tab fontWeight="600">{t('newsAnalysis.tabAnalysis')}</Tab>
+            <Tab fontWeight="600">{t('newsAnalysis.tabHistory')}</Tab>
+            <Tab fontWeight="600">{t('newsAnalysis.tabPrediction')}</Tab>
           </TabList>
 
           <TabPanels>

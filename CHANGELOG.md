@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+### Fixed
+- **统一配置历史记录逻辑**：确保通过 Web UI（表单编辑器、资金分配、策略管理、新手加固等）修改配置时，也能正确记录到“配置历史”中，而不仅仅是 YAML 编辑器。
+  - 后端：在 `ConfigManager.UpdateConfig` 中统一注入历史记录保存逻辑。
+  - 后端：修复 `SetSymbolEnabled`、`updateCapitalAllocationHandler`、`putNewsKeywords` 等直接调用 `SaveConfig` 的地方，补全历史记录。
+  - 变更描述：自动生成更详细的变更描述（如“通过 Web UI 修改了 N 项配置”）。
+
+## [3.48.0-rc1] - 2026-02-06
+
+### Added
+- **新闻分析多资产支持扩展**：新闻分析功能新增支持美股、白银、ETH、SOL、DOGE 等多种资产
+  - 新增资产类型：美股（S&P 500）、白银（XAGUSDT）、以太坊（ETHUSDT）、Solana（SOLUSDT）、Dogecoin（DOGEUSDT）
+  - 每个资产类型都有专门的关键词配置和 AI 分析 Prompt
+  - 黄金分析改为预测国际金价，使用 PAXG/USDT 核对价格走势
+  - 每个资产独立调用 Gemini 进行分析，避免一次性分析所有资产导致 API 限制
+  - 后端：`config/config.go` 新增各资产的默认关键词函数（`DefaultSilverKeywords`、`DefaultStockKeywords`、`DefaultEthKeywords`、`DefaultSolKeywords`、`DefaultDogeKeywords`）
+  - 后端：`monitor/news_monitor.go` 扩展 `SymbolToAssetType` 映射支持新资产
+  - 后端：`monitor/gemini_news_analyzer.go` 优化 Prompt，为不同资产类型提供针对性分析指令
+  - 前端：`NewsAnalysis.tsx` 增加新资产选项，支持切换不同资产查看分析结果
+  - 国际化：新增资产相关翻译（goldInternational、silver、usStock）
+- **NewsAPI 单元测试**：新增 `monitor/news_collector_test.go` 单元测试文件
+  - 测试 NewsAPI 新闻获取功能
+  - 验证新闻项的基本字段完整性
+  - 测试多关键词合并和收集功能
+  - 测试上下文取消处理
+
 ## [3.47.0-rc1] - 2026-02-06
 
 ### Changed
@@ -12,15 +37,6 @@
   - 移除了原有的路由跳转按钮，统一使用 Tab 切换
   - 优化了页面结构，移除了重复的标题和返回按钮
   - 国际化支持：确保 Tab 标签翻译（tabAnalysis、tabHistory、tabPrediction）
-
-## [3.46.3-rc1] - 2026-02-06
-
-### Changed
-- **新闻分析页面 Tab 化改造**：将新闻分析页面重构为 Tab 布局
-  - 将"最新分析"、"历史记录"、"预测准确率"整合到同一个页面的三个 Tab 中
-  - 移除了原有的路由跳转按钮，统一使用 Tab 切换
-  - 优化了页面结构，移除了重复的标题和返回按钮
-  - 国际化支持：新增 Tab 标签翻译（tabAnalysis、tabHistory、tabPrediction）
 
 ## [3.46.2-rc1] - 2026-02-06
 

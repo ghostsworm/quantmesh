@@ -298,6 +298,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.POST("/config/preview", previewConfigHandler)
 			protected.POST("/config/update", updateConfigHandler)
 			protected.POST("/config/update-yaml", updateConfigYAMLHandler)
+			protected.POST("/config/test-notification", testNotificationHandler)
 			protected.GET("/config/backups", getBackupsHandler)
 			protected.POST("/config/restore/:backup_id", restoreBackupHandler)
 			protected.DELETE("/config/backup/:backup_id", deleteBackupHandler)

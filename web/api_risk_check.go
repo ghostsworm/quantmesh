@@ -285,6 +285,15 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 		return
 	}
 
+	// 保存到历史
+	if configHistoryMgr != nil {
+		currentContent, err := os.ReadFile(configManager.GetConfigPath())
+		if err == nil {
+			description := "通過 Web UI 執行新手安全加固"
+			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
+		}
+	}
+
 	// 热更新
 	if configHotReloader != nil {
 		configHotReloader.UpdateConfig(&newConfig)

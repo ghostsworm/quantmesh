@@ -666,6 +666,15 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 					})
 					return
 				}
+
+				// 保存到历史
+				if configHistoryMgr != nil {
+					currentContent, err := os.ReadFile(configPath)
+					if err == nil {
+						description := fmt.Sprintf("通過 Web UI 更新资金分配配置: 修改了 %d 個策略", len(req.Allocations))
+						_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
+					}
+				}
 				logger.Info("✅ 资金分配配置已保存到 %s", configPath)
 			}
 		}
@@ -883,6 +892,14 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		if err := config.SaveConfig(globalCfg, "config.yaml"); err != nil {
 			logger.Error("❌ 保存再平衡配置失败: %v", err)
 		} else {
+			// 保存到历史
+			if configHistoryMgr != nil {
+				currentContent, err := os.ReadFile("config.yaml")
+				if err == nil {
+					description := fmt.Sprintf("執行资金再平衡 (%s 模式)", req.Mode)
+					_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "system")
+				}
+			}
 			logger.Info("✅ 资金再平衡配置已保存")
 		}
 	}

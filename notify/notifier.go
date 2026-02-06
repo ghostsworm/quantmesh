@@ -136,6 +136,11 @@ func (ns *NotificationService) shouldNotify(eventType event.EventType) bool {
 	}
 }
 
+// GetNotifiers 获取所有已初始化的通知器
+func (ns *NotificationService) GetNotifiers() []Notifier {
+	return ns.notifiers
+}
+
 // Send 发送通知（异步，不阻塞）
 func (ns *NotificationService) Send(evt *event.Event) {
 	if evt == nil {

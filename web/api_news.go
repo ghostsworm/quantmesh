@@ -206,6 +206,15 @@ func putNewsKeywords(c *gin.Context) {
 		return
 	}
 
+	// 保存到历史
+	if configHistoryMgr != nil {
+		currentContent, err := os.ReadFile(configManager.GetConfigPath())
+		if err == nil {
+			description := fmt.Sprintf("通過 Web UI 更新新聞監控關鍵詞: %d 個關鍵詞", len(req.Keywords))
+			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"success": true, "keywords": req.Keywords})
 }
 
