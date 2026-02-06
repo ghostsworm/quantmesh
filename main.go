@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.44.1-rc3"
+var Version = "3.44.1-rc4"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -85,9 +85,6 @@ func (a *capitalDataSourceAdapter) GetPositionManagers() []web.PositionManagerIn
 func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 	return a.cfg
 }
-
-// Version 版本號
-var Version = "3.44.1-rc3"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {
