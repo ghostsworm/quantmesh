@@ -15,7 +15,12 @@
     "allExchanges": "全部交易所",
     "actions": "操作",
     "error": "錯誤",
-    "all": "All"
+    "all": "All",
+    "connectionError": "連線錯誤",
+    "connectionErrorDesc": "無法連接到伺服器，請檢查網路連線。",
+    "unknownError": "未知錯誤",
+    "loadFailed": "載入失敗",
+    "success": "操作成功"
   },
   "sidebar": {
     "overview": "概覽",
@@ -293,7 +298,8 @@
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
-    "used": "Used"
+    "used": "Used",
+    "strategyVisualization": "策略視覺化"
   },
   "login": {
     "title": "登錄",
@@ -904,7 +910,13 @@
       "noPerformanceData": "暫無歷史表現數據",
       "volatility": "波動率",
       "noRiskData": "暫無風險數據"
-    }
+    },
+    "cannotFetchDetail": "無法取得詳情",
+    "checkConnection": "請檢查網路連線",
+    "disableFailed": "停用失敗",
+    "enableFailed": "啟用失敗",
+    "fetchDetailFailed": "取得詳情失敗",
+    "fetchError": "取得策略列表失敗"
   },
   "capitalManagement": {
     "title": "資金管理",
@@ -1059,10 +1071,20 @@
     "fundingNet": "資金費淨額",
     "fundingDetail": "資金費明細",
     "noFundingHistory": "暫無資金費記錄",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "快速匯入",
+    "conservativeRule": "保守型規則（100 USDT 提取 50%）",
+    "aggressiveRule": "積極型規則（200 USDT 提取 30%）",
+    "importBothPresets": "匯入全部預設",
+    "importedConservative": "已匯入保守型規則",
+    "importedAggressive": "已匯入積極型規則",
+    "importedConservativeDesc": "盈利達到 100 USDT 時提取 50%",
+    "importedAggressiveDesc": "盈利達到 200 USDT 時提取 30%",
+    "importedBothPresets": "已匯入全部預設",
+    "importedBothPresetsDesc": "已匯入保守型和積極型規則",
+    "exchangeLabel": "交易所",
+    "selectExchange": "選擇交易所"
   },
   "positionPlan": {
     "title": "倉位計劃",
@@ -1113,8 +1135,10 @@
   "connection": {
     "offlineTitle": "網絡已斷開",
     "offlineDesc": "您當前正處於離線狀態，請檢查您的互聯網連接。",
+    "offlineShort": "網路離線",
     "backendDisconnectedTitle": "後端連接失敗",
-    "backendDisconnectedDesc": "無法連接到後端服務，請確保後端程序已啟動（localhost:28888）。"
+    "backendDisconnectedDesc": "無法連接到後端服務，請確保後端程序已啟動（localhost:28888）。",
+    "backendDisconnectedShort": "後端已斷開"
   },
   "pwa": {
     "serviceWorkerRegistered": "Service Worker 註冊成功",
@@ -1165,7 +1189,9 @@
     "days": "天",
     "hours": "小時",
     "minutes": "分鐘",
-    "seconds": "秒"
+    "seconds": "秒",
+    "currentFilter": "當前篩選",
+    "viewAllEvents": "檢視全部事件"
   },
   "systemMonitor": {
     "title": "系統監控",
@@ -1624,7 +1650,11 @@
   "yamlEditor": {
     "tabIndentError": "第 {{line}} 行: YAML 不允許使用 Tab 縮進，請使用空格",
     "colonSpaceError": "第 {{line}} 行: 冒號後需要有空格",
-    "unknownError": "未知錯誤"
+    "unknownError": "未知錯誤",
+    "readOnly": "唯讀模式",
+    "syntaxCorrect": "語法正確",
+    "syntaxError": "語法錯誤",
+    "unsavedChanges": "有未儲存的更改"
   },
   "newsAnalysis": {
     "historyTitle": "新聞分析歷史",
@@ -1666,7 +1696,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "操作",
+    "details": "詳情",
+    "nextPage": "下一頁",
+    "prevPage": "上一頁",
+    "price": "價格",
+    "recommendation": "建議"
   },
   "strategyNames": {
     "grid": "網格交易策略",
@@ -1690,7 +1726,12 @@
     "noReport": "未能生成報告，請重試。",
     "importantNotice": "重要提示",
     "leverageNotice": "系統僅會在配置文件中修改槓桿倍數設置。如需實際調整交易所賬戶的槓桿倍數，請前往各交易所網站手動修改。配置修改後，系統會使用新的槓桿限制進行風險檢查，但交易所賬戶的實際槓桿倍數需要您手動調整。",
-    "applySuccessNotice": "請注意：系統僅修改了配置文件，您需要前往各交易所網站手動調整實際的槓桿倍數。"
+    "applySuccessNotice": "請注意：系統僅修改了配置文件，您需要前往各交易所網站手動調整實際的槓桿倍數。",
+    "applyFailed": "套用失敗",
+    "configUpdated": "設定已更新",
+    "fetchFailed": "取得報告失敗",
+    "refreshing": "正在重新整理...",
+    "unknownError": "未知錯誤"
   },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved.",
@@ -1971,7 +2012,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "設定變更預覽",
+    "oldConfig": "原設定",
+    "newConfig": "新設定",
+    "added": "新增",
+    "removed": "刪除",
+    "modified": "修改",
+    "confirmApply": "確認套用"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "總槽位數",
+      "filled": "已填充",
+      "fillRate": "填充率",
+      "priceRange": "價格區間",
+      "priceInterval": "價格間距",
+      "gridPriceRange": "網格價格區間",
+      "lowestPrice": "最低價",
+      "priceSpan": "價差",
+      "highestPrice": "最高價",
+      "slotStatusOverview": "槽位狀態概覽",
+      "statusFilled": "已成交",
+      "statusLocked": "已鎖定",
+      "statusIdle": "閒置",
+      "quantity": "數量",
+      "showingSlots": "顯示 {{shown}} / {{total}} 個槽位"
+    },
+    "trendFollowing": {
+      "currentPrice": "當前價格",
+      "fastLine": "快線",
+      "slowLine": "慢線",
+      "trendDirection": "趨勢方向",
+      "trendUp": "上漲趨勢",
+      "trendDown": "下跌趨勢",
+      "trendSideways": "橫盤整理",
+      "priceAndMA": "價格與均線",
+      "tradeSignals": "交易信號",
+      "goldenCross": "金叉",
+      "deathCross": "死叉",
+      "yes": "是",
+      "no": "否",
+      "maDiff": "均線差值",
+      "positionStatus": "持倉狀態",
+      "hasPosition": "有持倉",
+      "noPosition": "無持倉",
+      "entryPrice": "入場價格",
+      "currentPnL": "當前盈虧",
+      "stopLoss": "止損",
+      "takeProfit": "止盈"
+    },
+    "dca": {
+      "firstOrderTP": "首單止盈",
+      "totalTP": "總止盈",
+      "stopLoss": "止損",
+      "currentPrice": "當前價格",
+      "avgCost": "平均成本",
+      "atrValue": "ATR 值",
+      "dynamicSpacing": "動態間距",
+      "currentLayer": "當前層數",
+      "priceTrend": "價格走勢",
+      "layeredPositions": "分層持倉",
+      "layerN": "第 {{n}} 層",
+      "quantity": "數量",
+      "cost": "成本",
+      "pnl": "盈虧",
+      "decisionBasis": "決策依據",
+      "nextBuyPoint": "下一買入點",
+      "cascadeProtectionActive": "級聯保護已啟動",
+      "trendFilter": "趨勢過濾",
+      "trendUp": "上漲趨勢",
+      "trendDown": "下跌趨勢",
+      "trailingTPActive": "追蹤止盈已啟動",
+      "highestProfit": "最高利潤"
+    },
+    "meanReversion": {
+      "currentPrice": "當前價格",
+      "upperBand": "上軌",
+      "middleBand": "中軌",
+      "lowerBand": "下軌",
+      "positionInBand": "布林帶內位置",
+      "position": "位置",
+      "nearLower": "靠近下軌",
+      "nearUpper": "靠近上軌",
+      "middleZone": "中間區域",
+      "priceAndBollinger": "價格與布林帶",
+      "tradeSignals": "交易信號",
+      "buySignal": "買入信號",
+      "sellSignal": "賣出信號",
+      "yes": "是",
+      "no": "否",
+      "touchesLower": "觸及下軌",
+      "touchesUpper": "觸及上軌",
+      "distanceToBuy": "距買入距離",
+      "distanceToSell": "距賣出距離",
+      "positionStatus": "持倉狀態",
+      "hasPosition": "有持倉",
+      "noPosition": "無持倉",
+      "entryPrice": "入場價格",
+      "currentPnL": "當前盈虧",
+      "period": "週期",
+      "stdMultiplier": "標準差倍數"
+    }
+  },
+  "security": {
+    "compromisedTitle": "安全警告",
+    "compromisedMessage": "偵測到密碼可能已洩露",
+    "compromisedDetails": "您的密碼出現在已知的洩露資料庫中，建議立即更改。",
+    "compromisedNote": "為了您的帳戶安全，請盡快修改密碼。",
+    "compromisedAction": "立即修改密碼",
+    "passwordManagerError": "密碼管理器錯誤",
+    "passwordManagerErrorMessage": "無法連接密碼管理器，請手動輸入密碼。"
+  },
+  "aiPromptManager": {
+    "title": "AI Prompt 管理",
+    "systemPrompt": "系統提示詞",
+    "systemPromptPlaceholder": "輸入系統提示詞...",
+    "promptTemplate": "Prompt 範本",
+    "templateHint": "使用 {{variable}} 作為變數佔位符",
+    "autoLoadHint": "自動載入最新資料",
+    "edit": "編輯",
+    "noData": "暫無資料",
+    "notSet": "未設定",
+    "fetchFailed": "取得資料失敗",
+    "saveSuccess": "儲存成功",
+    "saveFailed": "儲存失敗",
+    "refreshData": "重新整理資料"
+  },
+  "fundingRate": {
+    "title": "資金費率",
+    "currentRates": "當前費率",
+    "historyRates": "歷史費率",
+    "exchange": "交易所",
+    "tradingPair": "交易對",
+    "rate": "費率",
+    "time": "時間",
+    "updateTime": "更新時間",
+    "count": "次數",
+    "noData": "暫無資料",
+    "noHistoryData": "暫無歷史資料",
+    "error": "取得費率失敗",
+    "fetchCurrentFailed": "取得當前費率失敗",
+    "fetchHistoryFailed": "取得歷史費率失敗"
+  },
+  "positionsPage": {
+    "title": "當前持倉",
+    "positionList": "持倉列表",
+    "noPositions": "暫無持倉",
+    "positionPrice": "持倉價格",
+    "positionQuantity": "持倉數量",
+    "positionValue": "持倉價值",
+    "positionValueCol": "價值",
+    "positionSlots": "槽位數",
+    "averagePrice": "平均價格",
+    "currentMarketPrice": "當前市價",
+    "unrealizedPnl": "未實現盈虧",
+    "leverage": "槓桿",
+    "actualMargin": "實際保證金",
+    "totalQuantity": "總數量",
+    "totalValue": "總價值"
+  },
+  "predictionAccuracy": {
+    "title": "預測準確率",
+    "totalPredictions": "總預測數",
+    "correctCount": "正確數",
+    "accuracy": "準確率",
+    "recentRecords": "近期記錄",
+    "noRecords": "暫無記錄",
+    "symbol": "幣種",
+    "asset": "資產",
+    "gold": "黃金",
+    "predictionTime": "預測時間",
+    "predictedDirection": "預測方向",
+    "actualDirection": "實際方向",
+    "result": "結果",
+    "correct": "正確",
+    "incorrect": "錯誤",
+    "period": "週期",
+    "timeWindow": "時間窗口",
+    "last7d": "近7天",
+    "last14d": "近14天",
+    "last30d": "近30天",
+    "all": "全部",
+    "backToNewsAnalysis": "返回新聞分析"
+  },
+  "slotsPage": {
+    "title": "槽位詳情",
+    "filter": "篩選",
+    "filterLocked": "僅顯示鎖定",
+    "sortBy": "排序",
+    "sortByPrice": "按價格排序",
+    "sortByStatus": "按狀態排序",
+    "noMatchingSlots": "沒有匹配的槽位",
+    "price": "價格",
+    "slotStatus": "槽位狀態",
+    "positionStatus": "持倉狀態",
+    "slotFree": "空閒",
+    "slotLocked": "已鎖定",
+    "slotPending": "掛單中",
+    "positionFilled": "已成交",
+    "positionEmpty": "空",
+    "positionQty": "持倉量",
+    "orderId": "訂單 ID",
+    "orderPrice": "訂單價格",
+    "orderSide": "方向",
+    "orderStatus": "訂單狀態"
+  },
+  "newbieCheckModal": {
+    "title": "新手風險檢查",
+    "scanning": "正在掃描...",
+    "overallScore": "綜合評分",
+    "score": "評分",
+    "detailedResults": "詳細結果",
+    "advice": "建議",
+    "applySecurity": "套用安全建議",
+    "applying": "套用中...",
+    "applyFailed": "套用失敗",
+    "configUpdated": "設定已更新",
+    "fetchFailed": "取得報告失敗",
+    "noReport": "暫無報告",
+    "unknownError": "未知錯誤"
+  },
+  "nav": {
+    "dashboard": "儀表盤",
+    "positions": "持倉",
+    "settings": "設定",
+    "statistics": "統計"
   }
 }

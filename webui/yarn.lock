@@ -4440,6 +4440,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"i18next-resources-to-backend@npm:^1.2.1":
+  version: 1.2.1
+  resolution: "i18next-resources-to-backend@npm:1.2.1"
+  dependencies:
+    "@babel/runtime": "npm:^7.23.2"
+  checksum: 10c0/ba83152726aae34ab34bb152518b666d4393bf816c91ab6e1064090cbbb9b235d3dfbcf9d5640c825819644fddcaf7799f581cdbe6abb3e7b11d58c50dc4644a
+  languageName: node
+  linkType: hard
+
 "i18next@npm:^25.7.3":
   version: 25.8.0
   resolution: "i18next@npm:25.8.0"
@@ -6253,6 +6262,7 @@ __metadata:
     html2canvas: "npm:^1.4.1"
     i18next: "npm:^25.7.3"
     i18next-browser-languagedetector: "npm:^8.2.0"
+    i18next-resources-to-backend: "npm:^1.2.1"
     lightweight-charts: "npm:^4.2.0"
     monaco-editor: "npm:^0.55.1"
     opencc-js: "npm:^1.0.5"

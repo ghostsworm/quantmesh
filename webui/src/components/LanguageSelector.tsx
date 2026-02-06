@@ -24,6 +24,11 @@ const LanguageSelector: React.FC = () => {
     { code: 'it-IT', name: 'Italiano' },
     { code: 'id-ID', name: 'Bahasa Indonesia' },
     { code: 'nl-NL', name: 'Nederlands' },
+    { code: 'uk-UA', name: 'Українська' },
+    { code: 'bn-BD', name: 'বাংলা' },
+    { code: 'ur-PK', name: 'اردو' },
+    { code: 'tl-PH', name: 'Filipino' },
+    { code: 'fa-IR', name: 'فارسی' },
   ]
 
   const handleLanguageChange = (event: React.ChangeEvent<HTMLSelectElement>) => {

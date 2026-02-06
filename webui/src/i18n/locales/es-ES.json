@@ -15,7 +15,12 @@
     "all": "All",
     "allExchanges": "全部交易所",
     "error": "错误",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "connectionError": "Connection Error",
+    "connectionErrorDesc": "Unable to connect to server. Please check your network.",
+    "unknownError": "Unknown Error",
+    "loadFailed": "Load Failed",
+    "success": "Success"
   },
   "sidebar": {
     "overview": "Visión general",
@@ -293,7 +298,8 @@
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
-    "used": "Used"
+    "used": "Used",
+    "strategyVisualization": "Visualización de estrategia"
   },
   "login": {
     "title": "Acceder",
@@ -904,7 +910,13 @@
       "noPerformanceData": "No hay datos de rendimiento históricos",
       "volatility": "Volatilidad",
       "noRiskData": "No hay datos de riesgo disponibles"
-    }
+    },
+    "cannotFetchDetail": "Cannot fetch details",
+    "checkConnection": "Please check your connection",
+    "disableFailed": "Disable failed",
+    "enableFailed": "Enable failed",
+    "fetchDetailFailed": "Failed to fetch details",
+    "fetchError": "Failed to fetch strategy list"
   },
   "capitalManagement": {
     "title": "Gestión de Capital",
@@ -1059,10 +1071,20 @@
     "fundingNet": "Funding neto",
     "fundingDetail": "Detalle de funding",
     "noFundingHistory": "Sin historial de funding",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "Importación rápida",
+    "conservativeRule": "Regla conservadora (50% a 100 USDT)",
+    "aggressiveRule": "Regla agresiva (30% a 200 USDT)",
+    "importBothPresets": "Importar ambos presets",
+    "importedConservative": "Regla conservadora importada",
+    "importedAggressive": "Regla agresiva importada",
+    "importedConservativeDesc": "Retirar 50% cuando el beneficio alcance 100 USDT",
+    "importedAggressiveDesc": "Retirar 30% cuando el beneficio alcance 200 USDT",
+    "importedBothPresets": "Ambos presets importados",
+    "importedBothPresetsDesc": "Reglas conservadora y agresiva importadas",
+    "exchangeLabel": "Exchange",
+    "selectExchange": "Seleccionar exchange"
   },
   "positionPlan": {
     "title": "Plan de Posición",
@@ -1113,8 +1135,10 @@
   "connection": {
     "offlineTitle": "Internet Desconectado",
     "offlineDesc": "Actualmente estás sin conexión. Por favor, comprueba tu conexión a internet.",
+    "offlineShort": "Red desconectada",
     "backendDisconnectedTitle": "Fallo de conexión con el backend",
-    "backendDisconnectedDesc": "No se puede conectar con el servicio backend. Asegúrate de que el programa backend está en ejecución (localhost:28888)."
+    "backendDisconnectedDesc": "No se puede conectar con el servicio backend. Asegúrate de que el programa backend está en ejecución (localhost:28888).",
+    "backendDisconnectedShort": "Backend desconectado"
   },
   "pwa": {
     "serviceWorkerRegistered": "Service Worker registrado exitosamente",
@@ -1136,7 +1160,12 @@
     "noReport": "Failed to generate report, please retry.",
     "importantNotice": "Important Notice",
     "leverageNotice": "The system will only modify the leverage settings in the configuration file. To actually adjust the leverage on your exchange account, please manually modify it on each exchange website. After the configuration is modified, the system will use the new leverage limit for risk checks, but you need to manually adjust the actual leverage on your exchange account.",
-    "applySuccessNotice": "Note: The system only modified the configuration file. You need to manually adjust the actual leverage on each exchange website."
+    "applySuccessNotice": "Note: The system only modified the configuration file. You need to manually adjust the actual leverage on each exchange website.",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "refreshing": "Refreshing...",
+    "unknownError": "Unknown error"
   },
   "symbolSelector": {
     "globalOverview": "Visión general global",
@@ -1179,7 +1208,9 @@
     "days": "días",
     "hours": "horas",
     "minutes": "minutos",
-    "seconds": "segundos"
+    "seconds": "segundos",
+    "currentFilter": "Current Filter",
+    "viewAllEvents": "View All Events"
   },
   "systemMonitor": {
     "title": "Monitor del sistema",
@@ -1638,7 +1669,11 @@
   "yamlEditor": {
     "tabIndentError": "Línea {{line}}: YAML no permite la indentación con tabulaciones, use espacios",
     "colonSpaceError": "Línea {{line}}: Se requiere un espacio después de los dos puntos",
-    "unknownError": "Error desconocido"
+    "unknownError": "Error desconocido",
+    "readOnly": "Read Only",
+    "syntaxCorrect": "Syntax Correct",
+    "syntaxError": "Syntax Error",
+    "unsavedChanges": "Unsaved Changes"
   },
   "newsAnalysis": {
     "historyTitle": "Historial de Análisis de Noticias",
@@ -1680,7 +1715,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "Action",
+    "details": "Details",
+    "nextPage": "Next Page",
+    "prevPage": "Previous Page",
+    "price": "Price",
+    "recommendation": "Recommendation"
   },
   "strategyNames": {
     "grid": "Estrategia de Trading de Rejilla",
@@ -1971,7 +2012,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "Config Change Preview",
+    "oldConfig": "Old Config",
+    "newConfig": "New Config",
+    "added": "Added",
+    "removed": "Removed",
+    "modified": "Modified",
+    "confirmApply": "Confirm Apply"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "Total de ranuras",
+      "filled": "Completadas",
+      "fillRate": "Tasa de llenado",
+      "priceRange": "Rango de precio",
+      "priceInterval": "Intervalo de precio",
+      "gridPriceRange": "Rango de precio del grid",
+      "lowestPrice": "Precio más bajo",
+      "priceSpan": "Amplitud de precio",
+      "highestPrice": "Precio más alto",
+      "slotStatusOverview": "Resumen de estado de ranuras",
+      "statusFilled": "Completada",
+      "statusLocked": "Bloqueada",
+      "statusIdle": "Inactiva",
+      "quantity": "Cantidad",
+      "showingSlots": "Mostrando {{shown}} de {{total}} ranuras"
+    },
+    "trendFollowing": {
+      "currentPrice": "Precio actual",
+      "fastLine": "Línea rápida",
+      "slowLine": "Línea lenta",
+      "trendDirection": "Dirección de tendencia",
+      "trendUp": "Tendencia alcista",
+      "trendDown": "Tendencia bajista",
+      "trendSideways": "Lateral",
+      "priceAndMA": "Precio y medias móviles",
+      "tradeSignals": "Señales de trading",
+      "goldenCross": "Cruce dorado",
+      "deathCross": "Cruce de la muerte",
+      "yes": "Sí",
+      "no": "No",
+      "maDiff": "Diferencia MA",
+      "positionStatus": "Estado de posición",
+      "hasPosition": "Con posición",
+      "noPosition": "Sin posición",
+      "entryPrice": "Precio de entrada",
+      "currentPnL": "P&L actual",
+      "stopLoss": "Stop Loss",
+      "takeProfit": "Take Profit"
+    },
+    "dca": {
+      "firstOrderTP": "TP primera orden",
+      "totalTP": "TP total",
+      "stopLoss": "Stop Loss",
+      "currentPrice": "Precio actual",
+      "avgCost": "Costo promedio",
+      "atrValue": "Valor ATR",
+      "dynamicSpacing": "Espaciado dinámico",
+      "currentLayer": "Capa actual",
+      "priceTrend": "Tendencia de precio",
+      "layeredPositions": "Posiciones por capas",
+      "layerN": "Capa {{n}}",
+      "quantity": "Cantidad",
+      "cost": "Costo",
+      "pnl": "P&L",
+      "decisionBasis": "Base de decisión",
+      "nextBuyPoint": "Próximo punto de compra",
+      "cascadeProtectionActive": "Protección en cascada activa",
+      "trendFilter": "Filtro de tendencia",
+      "trendUp": "Tendencia alcista",
+      "trendDown": "Tendencia bajista",
+      "trailingTPActive": "TP trailing activo",
+      "highestProfit": "Beneficio máximo"
+    },
+    "meanReversion": {
+      "currentPrice": "Precio actual",
+      "upperBand": "Banda superior",
+      "middleBand": "Banda media",
+      "lowerBand": "Banda inferior",
+      "positionInBand": "Posición en banda",
+      "position": "Posición",
+      "nearLower": "Cerca del inferior",
+      "nearUpper": "Cerca del superior",
+      "middleZone": "Zona media",
+      "priceAndBollinger": "Precio y Bandas de Bollinger",
+      "tradeSignals": "Señales de trading",
+      "buySignal": "Señal de compra",
+      "sellSignal": "Señal de venta",
+      "yes": "Sí",
+      "no": "No",
+      "touchesLower": "Toca banda inferior",
+      "touchesUpper": "Toca banda superior",
+      "distanceToBuy": "Distancia a compra",
+      "distanceToSell": "Distancia a venta",
+      "positionStatus": "Estado de posición",
+      "hasPosition": "Con posición",
+      "noPosition": "Sin posición",
+      "entryPrice": "Precio de entrada",
+      "currentPnL": "P&L actual",
+      "period": "Período",
+      "stdMultiplier": "Multiplicador de desv. estándar"
+    }
+  },
+  "security": {
+    "compromisedTitle": "Security Warning",
+    "compromisedMessage": "Your password may have been compromised",
+    "compromisedDetails": "Your password was found in a known data breach database. Please change it immediately.",
+    "compromisedNote": "For your account security, please change your password as soon as possible.",
+    "compromisedAction": "Change Password Now",
+    "passwordManagerError": "Password Manager Error",
+    "passwordManagerErrorMessage": "Unable to connect to password manager. Please enter your password manually."
+  },
+  "aiPromptManager": {
+    "title": "AI Prompt Manager",
+    "systemPrompt": "System Prompt",
+    "systemPromptPlaceholder": "Enter system prompt...",
+    "promptTemplate": "Prompt Template",
+    "templateHint": "Use {{variable}} as variable placeholders",
+    "autoLoadHint": "Auto-load latest data",
+    "edit": "Edit",
+    "noData": "No data",
+    "notSet": "Not set",
+    "fetchFailed": "Failed to fetch data",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed",
+    "refreshData": "Refresh Data"
+  },
+  "fundingRate": {
+    "title": "Funding Rate",
+    "currentRates": "Current Rates",
+    "historyRates": "History Rates",
+    "exchange": "Exchange",
+    "tradingPair": "Trading Pair",
+    "rate": "Rate",
+    "time": "Time",
+    "updateTime": "Update Time",
+    "count": "Count",
+    "noData": "No data",
+    "noHistoryData": "No history data",
+    "error": "Failed to fetch rates",
+    "fetchCurrentFailed": "Failed to fetch current rates",
+    "fetchHistoryFailed": "Failed to fetch history rates"
+  },
+  "positionsPage": {
+    "title": "Posiciones Actuales",
+    "positionList": "Lista de Posiciones",
+    "noPositions": "Sin posiciones",
+    "positionPrice": "Precio de Posición",
+    "positionQuantity": "Cantidad de Posición",
+    "positionValue": "Valor de Posición",
+    "positionValueCol": "Valor",
+    "positionSlots": "Espacios",
+    "averagePrice": "Precio Promedio",
+    "currentMarketPrice": "Precio de Mercado Actual",
+    "unrealizedPnl": "Ganancia/Pérdida No Realizada",
+    "leverage": "Apalancamiento",
+    "actualMargin": "Margen Real",
+    "totalQuantity": "Cantidad Total",
+    "totalValue": "Valor Total"
+  },
+  "predictionAccuracy": {
+    "title": "Prediction Accuracy",
+    "totalPredictions": "Total Predictions",
+    "correctCount": "Correct Count",
+    "accuracy": "Accuracy",
+    "recentRecords": "Recent Records",
+    "noRecords": "No records",
+    "symbol": "Symbol",
+    "asset": "Asset",
+    "gold": "Gold",
+    "predictionTime": "Prediction Time",
+    "predictedDirection": "Predicted Direction",
+    "actualDirection": "Actual Direction",
+    "result": "Result",
+    "correct": "Correct",
+    "incorrect": "Incorrect",
+    "period": "Period",
+    "timeWindow": "Time Window",
+    "last7d": "Last 7 Days",
+    "last14d": "Last 14 Days",
+    "last30d": "Last 30 Days",
+    "all": "All",
+    "backToNewsAnalysis": "Back to News Analysis"
+  },
+  "slotsPage": {
+    "title": "Slot Details",
+    "filter": "Filter",
+    "filterLocked": "Show Locked Only",
+    "sortBy": "Sort By",
+    "sortByPrice": "Sort by Price",
+    "sortByStatus": "Sort by Status",
+    "noMatchingSlots": "No matching slots",
+    "price": "Price",
+    "slotStatus": "Slot Status",
+    "positionStatus": "Position Status",
+    "slotFree": "Free",
+    "slotLocked": "Locked",
+    "slotPending": "Pending",
+    "positionFilled": "Filled",
+    "positionEmpty": "Empty",
+    "positionQty": "Position Qty",
+    "orderId": "Order ID",
+    "orderPrice": "Order Price",
+    "orderSide": "Side",
+    "orderStatus": "Order Status"
+  },
+  "newbieCheckModal": {
+    "title": "Newbie Risk Check",
+    "scanning": "Scanning...",
+    "overallScore": "Overall Score",
+    "score": "Score",
+    "detailedResults": "Detailed Results",
+    "advice": "Advice",
+    "applySecurity": "Apply Security Suggestions",
+    "applying": "Applying...",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "noReport": "No report available",
+    "unknownError": "Unknown error"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "positions": "Positions",
+    "settings": "Settings",
+    "statistics": "Statistics"
   }
 }

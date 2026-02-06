@@ -39,6 +39,9 @@ import (
 	"quantmesh/web"
 )
 
+// Version 应用版本号
+var Version = "3.44.1-rc1"
+
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
 	manager *SymbolManager
@@ -84,7 +87,7 @@ func (a *capitalDataSourceAdapter) GetConfig() *config.Config {
 }
 
 // Version 版本號
-var Version = "3.43.2-rc2"
+var Version = "3.44.0"
 
 // buildBinanceConfigForBacktest 從配置中提取 Binance API 配置供回測獲取歷史 K 線使用
 func buildBinanceConfigForBacktest(cfg *config.Config) map[string]string {

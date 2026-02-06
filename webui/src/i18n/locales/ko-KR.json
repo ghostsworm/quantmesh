@@ -15,7 +15,12 @@
     "all": "All",
     "allExchanges": "全部交易所",
     "error": "错误",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "connectionError": "연결 오류",
+    "connectionErrorDesc": "서버에 연결할 수 없습니다. 네트워크를 확인하세요.",
+    "unknownError": "알 수 없는 오류",
+    "loadFailed": "로드 실패",
+    "success": "성공"
   },
   "sidebar": {
     "overview": "개요",
@@ -293,7 +298,8 @@
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
-    "used": "Used"
+    "used": "Used",
+    "strategyVisualization": "전략 시각화"
   },
   "login": {
     "title": "로그인",
@@ -904,7 +910,13 @@
       "noPerformanceData": "과거 실적 데이터가 없습니다.",
       "volatility": "변동성",
       "noRiskData": "사용 가능한 위험 데이터가 없습니다."
-    }
+    },
+    "cannotFetchDetail": "상세 정보를 가져올 수 없음",
+    "checkConnection": "연결을 확인하세요",
+    "disableFailed": "비활성화 실패",
+    "enableFailed": "활성화 실패",
+    "fetchDetailFailed": "상세 정보 가져오기 실패",
+    "fetchError": "전략 목록 가져오기 실패"
   },
   "capitalManagement": {
     "title": "자본 관리",
@@ -1059,10 +1071,20 @@
     "fundingNet": "펀딩비 순액",
     "fundingDetail": "펀딩비 내역",
     "noFundingHistory": "펀딩비 기록 없음",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "빠른 가져오기",
+    "conservativeRule": "보수적 규칙 (100 USDT에서 50% 출금)",
+    "aggressiveRule": "공격적 규칙 (200 USDT에서 30% 출금)",
+    "importBothPresets": "모든 프리셋 가져오기",
+    "importedConservative": "보수적 규칙 가져옴",
+    "importedAggressive": "공격적 규칙 가져옴",
+    "importedConservativeDesc": "수익이 100 USDT에 도달하면 50% 출금",
+    "importedAggressiveDesc": "수익이 200 USDT에 도달하면 30% 출금",
+    "importedBothPresets": "모든 프리셋 가져옴",
+    "importedBothPresetsDesc": "보수적 및 공격적 규칙을 가져왔습니다",
+    "exchangeLabel": "거래소",
+    "selectExchange": "거래소 선택"
   },
   "positionPlan": {
     "title": "포지션 계획",
@@ -1113,8 +1135,10 @@
   "connection": {
     "offlineTitle": "인터넷 연결 끊김",
     "offlineDesc": "현재 오프라인 상태입니다. 인터넷 연결을 확인하십시오.",
+    "offlineShort": "네트워크 오프라인",
     "backendDisconnectedTitle": "백엔드 연결 실패",
-    "backendDisconnectedDesc": "백엔드 서비스에 연결할 수 없습니다. 백엔드 프로그램이 실행 중인지 확인하십시오(localhost:28888)."
+    "backendDisconnectedDesc": "백엔드 서비스에 연결할 수 없습니다. 백엔드 프로그램이 실행 중인지 확인하십시오(localhost:28888).",
+    "backendDisconnectedShort": "백엔드 연결 끊김"
   },
   "pwa": {
     "serviceWorkerRegistered": "Service Worker가 성공적으로 등록되었습니다.",
@@ -1136,7 +1160,12 @@
     "noReport": "보고서 생성에 실패했습니다. 다시 시도하십시오.",
     "importantNotice": "중요 공지",
     "leverageNotice": "시스템은 구성 파일의 레버리지 설정만 수정합니다. 거래소 계정에서 실제로 레버리지를 조정하려면 각 거래소 웹사이트에서 수동으로 수정하십시오. 구성이 수정되면 시스템은 위험 검사에 새 레버리지 제한을 사용하지만 거래소 계정에서 실제 레버리지를 수동으로 조정해야 합니다.",
-    "applySuccessNotice": "참고: 시스템은 구성 파일만 수정했습니다. 각 거래소 웹사이트에서 실제 레버리지를 수동으로 조정해야 합니다."
+    "applySuccessNotice": "참고: 시스템은 구성 파일만 수정했습니다. 각 거래소 웹사이트에서 실제 레버리지를 수동으로 조정해야 합니다.",
+    "applyFailed": "적용 실패",
+    "configUpdated": "설정 업데이트됨",
+    "fetchFailed": "보고서 가져오기 실패",
+    "refreshing": "새로고침 중...",
+    "unknownError": "알 수 없는 오류"
   },
   "symbolSelector": {
     "globalOverview": "글로벌 개요",
@@ -1179,7 +1208,9 @@
     "days": "일",
     "hours": "시간",
     "minutes": "분",
-    "seconds": "초"
+    "seconds": "초",
+    "currentFilter": "현재 필터",
+    "viewAllEvents": "모든 이벤트 보기"
   },
   "systemMonitor": {
     "title": "시스템 모니터",
@@ -1638,7 +1669,11 @@
   "yamlEditor": {
     "tabIndentError": "{{line}}번째 줄: YAML은 탭 들여쓰기를 허용하지 않습니다. 공백을 사용하세요.",
     "colonSpaceError": "{{line}}번째 줄: 콜론 뒤에 공백이 필요합니다.",
-    "unknownError": "알 수 없는 오류"
+    "unknownError": "알 수 없는 오류",
+    "readOnly": "읽기 전용",
+    "syntaxCorrect": "구문 정상",
+    "syntaxError": "구문 오류",
+    "unsavedChanges": "저장되지 않은 변경 사항"
   },
   "newsAnalysis": {
     "historyTitle": "News Analysis History",
@@ -1680,7 +1715,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "작업",
+    "details": "상세",
+    "nextPage": "다음 페이지",
+    "prevPage": "이전 페이지",
+    "price": "가격",
+    "recommendation": "추천"
   },
   "strategyNames": {
     "grid": "그리드 트레이딩 전략",
@@ -1971,7 +2012,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "설정 변경 미리보기",
+    "oldConfig": "이전 설정",
+    "newConfig": "새 설정",
+    "added": "추가됨",
+    "removed": "제거됨",
+    "modified": "수정됨",
+    "confirmApply": "적용 확인"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "총 슬롯 수",
+      "filled": "체결됨",
+      "fillRate": "체결률",
+      "priceRange": "가격 범위",
+      "priceInterval": "가격 간격",
+      "gridPriceRange": "그리드 가격 범위",
+      "lowestPrice": "최저가",
+      "priceSpan": "가격 폭",
+      "highestPrice": "최고가",
+      "slotStatusOverview": "슬롯 상태 개요",
+      "statusFilled": "체결됨",
+      "statusLocked": "잠김",
+      "statusIdle": "대기",
+      "quantity": "수량",
+      "showingSlots": "{{shown}} / {{total}} 슬롯 표시"
+    },
+    "trendFollowing": {
+      "currentPrice": "현재 가격",
+      "fastLine": "단기선",
+      "slowLine": "장기선",
+      "trendDirection": "추세 방향",
+      "trendUp": "상승 추세",
+      "trendDown": "하락 추세",
+      "trendSideways": "횡보",
+      "priceAndMA": "가격 및 이동평균",
+      "tradeSignals": "매매 신호",
+      "goldenCross": "골든크로스",
+      "deathCross": "데드크로스",
+      "yes": "예",
+      "no": "아니오",
+      "maDiff": "MA 차이",
+      "positionStatus": "포지션 상태",
+      "hasPosition": "포지션 있음",
+      "noPosition": "포지션 없음",
+      "entryPrice": "진입 가격",
+      "currentPnL": "현재 손익",
+      "stopLoss": "손절",
+      "takeProfit": "익절"
+    },
+    "dca": {
+      "firstOrderTP": "첫 주문 TP",
+      "totalTP": "총 TP",
+      "stopLoss": "손절",
+      "currentPrice": "현재 가격",
+      "avgCost": "평균 비용",
+      "atrValue": "ATR 값",
+      "dynamicSpacing": "동적 간격",
+      "currentLayer": "현재 레이어",
+      "priceTrend": "가격 추세",
+      "layeredPositions": "레이어 포지션",
+      "layerN": "레이어 {{n}}",
+      "quantity": "수량",
+      "cost": "비용",
+      "pnl": "손익",
+      "decisionBasis": "판단 근거",
+      "nextBuyPoint": "다음 매수 포인트",
+      "cascadeProtectionActive": "캐스케이드 보호 활성",
+      "trendFilter": "추세 필터",
+      "trendUp": "상승 추세",
+      "trendDown": "하락 추세",
+      "trailingTPActive": "트레일링 TP 활성",
+      "highestProfit": "최고 수익"
+    },
+    "meanReversion": {
+      "currentPrice": "현재 가격",
+      "upperBand": "상단 밴드",
+      "middleBand": "중간 밴드",
+      "lowerBand": "하단 밴드",
+      "positionInBand": "밴드 내 위치",
+      "position": "위치",
+      "nearLower": "하단 근처",
+      "nearUpper": "상단 근처",
+      "middleZone": "중간 구간",
+      "priceAndBollinger": "가격 및 볼린저 밴드",
+      "tradeSignals": "매매 신호",
+      "buySignal": "매수 신호",
+      "sellSignal": "매도 신호",
+      "yes": "예",
+      "no": "아니오",
+      "touchesLower": "하단 밴드 접촉",
+      "touchesUpper": "상단 밴드 접촉",
+      "distanceToBuy": "매수까지 거리",
+      "distanceToSell": "매도까지 거리",
+      "positionStatus": "포지션 상태",
+      "hasPosition": "포지션 있음",
+      "noPosition": "포지션 없음",
+      "entryPrice": "진입 가격",
+      "currentPnL": "현재 손익",
+      "period": "기간",
+      "stdMultiplier": "표준편차 배수"
+    }
+  },
+  "security": {
+    "compromisedTitle": "보안 경고",
+    "compromisedMessage": "비밀번호가 유출되었을 수 있습니다",
+    "compromisedDetails": "비밀번호가 알려진 유출 데이터베이스에서 발견되었습니다. 즉시 변경하세요.",
+    "compromisedNote": "계정 보안을 위해 가능한 빨리 비밀번호를 변경하세요.",
+    "compromisedAction": "지금 비밀번호 변경",
+    "passwordManagerError": "비밀번호 관리자 오류",
+    "passwordManagerErrorMessage": "비밀번호 관리자에 연결할 수 없습니다. 수동으로 입력하세요."
+  },
+  "aiPromptManager": {
+    "title": "AI 프롬프트 관리",
+    "systemPrompt": "시스템 프롬프트",
+    "systemPromptPlaceholder": "시스템 프롬프트 입력...",
+    "promptTemplate": "프롬프트 템플릿",
+    "templateHint": "{{variable}}을 변수 자리 표시자로 사용",
+    "autoLoadHint": "최신 데이터 자동 로드",
+    "edit": "편집",
+    "noData": "데이터 없음",
+    "notSet": "미설정",
+    "fetchFailed": "데이터 가져오기 실패",
+    "saveSuccess": "저장 완료",
+    "saveFailed": "저장 실패",
+    "refreshData": "데이터 새로고침"
+  },
+  "fundingRate": {
+    "title": "펀딩 비율",
+    "currentRates": "현재 비율",
+    "historyRates": "과거 비율",
+    "exchange": "거래소",
+    "tradingPair": "거래쌍",
+    "rate": "비율",
+    "time": "시간",
+    "updateTime": "업데이트 시간",
+    "count": "횟수",
+    "noData": "데이터 없음",
+    "noHistoryData": "과거 데이터 없음",
+    "error": "비율 가져오기 실패",
+    "fetchCurrentFailed": "현재 비율 가져오기 실패",
+    "fetchHistoryFailed": "과거 비율 가져오기 실패"
+  },
+  "positionsPage": {
+    "title": "현재 포지션",
+    "positionList": "포지션 목록",
+    "noPositions": "포지션 없음",
+    "positionPrice": "포지션 가격",
+    "positionQuantity": "수량",
+    "positionValue": "포지션 가치",
+    "positionValueCol": "가치",
+    "positionSlots": "슬롯 수",
+    "averagePrice": "평균 가격",
+    "currentMarketPrice": "현재 시장가",
+    "unrealizedPnl": "미실현 손익",
+    "leverage": "레버리지",
+    "actualMargin": "실제 증거금",
+    "totalQuantity": "총 수량",
+    "totalValue": "총 가치"
+  },
+  "predictionAccuracy": {
+    "title": "예측 정확도",
+    "totalPredictions": "총 예측 수",
+    "correctCount": "정답 수",
+    "accuracy": "정확도",
+    "recentRecords": "최근 기록",
+    "noRecords": "기록 없음",
+    "symbol": "종목",
+    "asset": "자산",
+    "gold": "금",
+    "predictionTime": "예측 시간",
+    "predictedDirection": "예측 방향",
+    "actualDirection": "실제 방향",
+    "result": "결과",
+    "correct": "정답",
+    "incorrect": "오답",
+    "period": "기간",
+    "timeWindow": "시간 범위",
+    "last7d": "최근 7일",
+    "last14d": "최근 14일",
+    "last30d": "최근 30일",
+    "all": "전체",
+    "backToNewsAnalysis": "뉴스 분석으로 돌아가기"
+  },
+  "slotsPage": {
+    "title": "슬롯 상세",
+    "filter": "필터",
+    "filterLocked": "잠금만 표시",
+    "sortBy": "정렬",
+    "sortByPrice": "가격순",
+    "sortByStatus": "상태순",
+    "noMatchingSlots": "일치하는 슬롯 없음",
+    "price": "가격",
+    "slotStatus": "슬롯 상태",
+    "positionStatus": "포지션 상태",
+    "slotFree": "빈 슬롯",
+    "slotLocked": "잠김",
+    "slotPending": "대기 중",
+    "positionFilled": "체결됨",
+    "positionEmpty": "비어있음",
+    "positionQty": "포지션 수량",
+    "orderId": "주문 ID",
+    "orderPrice": "주문 가격",
+    "orderSide": "방향",
+    "orderStatus": "주문 상태"
+  },
+  "newbieCheckModal": {
+    "title": "초보자 리스크 체크",
+    "scanning": "스캔 중...",
+    "overallScore": "종합 점수",
+    "score": "점수",
+    "detailedResults": "상세 결과",
+    "advice": "조언",
+    "applySecurity": "보안 제안 적용",
+    "applying": "적용 중...",
+    "applyFailed": "적용 실패",
+    "configUpdated": "설정 업데이트됨",
+    "fetchFailed": "보고서 가져오기 실패",
+    "noReport": "보고서 없음",
+    "unknownError": "알 수 없는 오류"
+  },
+  "nav": {
+    "dashboard": "대시보드",
+    "positions": "포지션",
+    "settings": "설정",
+    "statistics": "통계"
   }
 }

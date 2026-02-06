@@ -15,7 +15,12 @@
     "all": "All",
     "allExchanges": "全部交易所",
     "error": "错误",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "connectionError": "Connection Error",
+    "connectionErrorDesc": "Unable to connect to server. Please check your network.",
+    "unknownError": "Unknown Error",
+    "loadFailed": "Load Failed",
+    "success": "Success"
   },
   "sidebar": {
     "overview": "نظرة عامة",
@@ -138,7 +143,8 @@
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
-    "used": "Used"
+    "used": "Used",
+    "strategyVisualization": "تصور الاستراتيجية"
   },
   "login": {
     "title": "تسجيل الدخول",
@@ -749,7 +755,13 @@
       "noPerformanceData": "لا توجد بيانات أداء تاريخية",
       "volatility": "التقلب",
       "noRiskData": "لا توجد بيانات مخاطر متاحة"
-    }
+    },
+    "cannotFetchDetail": "Cannot fetch details",
+    "checkConnection": "Please check your connection",
+    "disableFailed": "Disable failed",
+    "enableFailed": "Enable failed",
+    "fetchDetailFailed": "Failed to fetch details",
+    "fetchError": "Failed to fetch strategy list"
   },
   "capitalManagement": {
     "title": "إدارة رأس المال",
@@ -904,10 +916,20 @@
     "fundingNet": "صافي التمويل",
     "fundingDetail": "تفاصيل التمويل",
     "noFundingHistory": "لا توجد سجلات تمويل",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "استيراد سريع",
+    "conservativeRule": "قاعدة محافظة (50% عند 100 USDT)",
+    "aggressiveRule": "قاعدة جريئة (30% عند 200 USDT)",
+    "importBothPresets": "استيراد كلا الإعدادين",
+    "importedConservative": "تم استيراد القاعدة المحافظة",
+    "importedAggressive": "تم استيراد القاعدة الجريئة",
+    "importedConservativeDesc": "سحب 50% عند وصول الربح إلى 100 USDT",
+    "importedAggressiveDesc": "سحب 30% عند وصول الربح إلى 200 USDT",
+    "importedBothPresets": "تم استيراد كلا الإعدادين",
+    "importedBothPresetsDesc": "تم استيراد القواعد المحافظة والجريئة",
+    "exchangeLabel": "البورصة",
+    "selectExchange": "اختر البورصة"
   },
   "positionPlan": {
     "title": "خطة المراكز",
@@ -958,8 +980,10 @@
   "connection": {
     "offlineTitle": "الاتصال بالإنترنت مقطوع",
     "offlineDesc": "أنت غير متصل بالإنترنت حاليًا. يرجى التحقق من اتصالك بالإنترنت.",
+    "offlineShort": "الشبكة غير متصلة",
     "backendDisconnectedTitle": "فشل الاتصال بالخادم الخلفي",
-    "backendDisconnectedDesc": "تعذر الاتصال بخدمة الخادم الخلفي. يرجى التأكد من تشغيل برنامج الخادم الخلفي (localhost:28888)."
+    "backendDisconnectedDesc": "تعذر الاتصال بخدمة الخادم الخلفي. يرجى التأكد من تشغيل برنامج الخادم الخلفي (localhost:28888).",
+    "backendDisconnectedShort": "الخادم الخلفي منقطع"
   },
   "pwa": {
     "serviceWorkerRegistered": "تم تسجيل عامل الخدمة بنجاح",
@@ -981,7 +1005,12 @@
     "noReport": "فشل إنشاء التقرير، يرجى إعادة المحاولة.",
     "importantNotice": "إشعار هام",
     "leverageNotice": "سيقوم النظام فقط بتعديل إعدادات الرافعة المالية في ملف التكوين. لضبط الرافعة المالية فعليًا على حساب التداول الخاص بك، يرجى تعديلها يدويًا على موقع كل بورصة. بعد تعديل التكوين، سيستخدم النظام حد الرافعة المالية الجديد لعمليات فحص المخاطر، ولكنك تحتاج إلى تعديل الرافعة المالية الفعلية يدويًا على حساب التداول الخاص بك.",
-    "applySuccessNotice": "ملاحظة: قام النظام فقط بتعديل ملف التكوين. تحتاج إلى تعديل الرافعة المالية الفعلية يدويًا على موقع كل بورصة."
+    "applySuccessNotice": "ملاحظة: قام النظام فقط بتعديل ملف التكوين. تحتاج إلى تعديل الرافعة المالية الفعلية يدويًا على موقع كل بورصة.",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "refreshing": "Refreshing...",
+    "unknownError": "Unknown error"
   },
   "symbolSelector": {
     "globalOverview": "نظرة عامة عالمية",
@@ -1024,7 +1053,9 @@
     "days": "أيام",
     "hours": "ساعات",
     "minutes": "دقائق",
-    "seconds": "ثواني"
+    "seconds": "ثواني",
+    "currentFilter": "Current Filter",
+    "viewAllEvents": "View All Events"
   },
   "systemMonitor": {
     "title": "مراقب النظام",
@@ -1483,7 +1514,11 @@
   "yamlEditor": {
     "tabIndentError": "السطر {{line}}: لا يسمح YAML بمسافة الجدولة، استخدم المسافات",
     "colonSpaceError": "السطر {{line}}: مسافة مطلوبة بعد النقطتين",
-    "unknownError": "خطأ غير معروف"
+    "unknownError": "خطأ غير معروف",
+    "readOnly": "Read Only",
+    "syntaxCorrect": "Syntax Correct",
+    "syntaxError": "Syntax Error",
+    "unsavedChanges": "Unsaved Changes"
   },
   "newsAnalysis": {
     "historyTitle": "سجل تحليل الأخبار",
@@ -1525,7 +1560,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "Action",
+    "details": "Details",
+    "nextPage": "Next Page",
+    "prevPage": "Previous Page",
+    "price": "Price",
+    "recommendation": "Recommendation"
   },
   "strategyNames": {
     "grid": "استراتيجية تداول الشبكة",
@@ -1971,7 +2012,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "Config Change Preview",
+    "oldConfig": "Old Config",
+    "newConfig": "New Config",
+    "added": "Added",
+    "removed": "Removed",
+    "modified": "Modified",
+    "confirmApply": "Confirm Apply"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "إجمالي الفتحات",
+      "filled": "مملوءة",
+      "fillRate": "معدل الملء",
+      "priceRange": "نطاق السعر",
+      "priceInterval": "فاصل السعر",
+      "gridPriceRange": "نطاق سعر الشبكة",
+      "lowestPrice": "أدنى سعر",
+      "priceSpan": "نطاق السعر",
+      "highestPrice": "أعلى سعر",
+      "slotStatusOverview": "نظرة عامة على حالة الفتحات",
+      "statusFilled": "مملوءة",
+      "statusLocked": "مقفلة",
+      "statusIdle": "خاملة",
+      "quantity": "الكمية",
+      "showingSlots": "عرض {{shown}} من {{total}} فتحة"
+    },
+    "trendFollowing": {
+      "currentPrice": "السعر الحالي",
+      "fastLine": "الخط السريع",
+      "slowLine": "الخط البطيء",
+      "trendDirection": "اتجاه الاتجاه",
+      "trendUp": "اتجاه صاعد",
+      "trendDown": "اتجاه هابط",
+      "trendSideways": "جانبي",
+      "priceAndMA": "السعر والمتوسطات المتحركة",
+      "tradeSignals": "إشارات التداول",
+      "goldenCross": "التقاطع الذهبي",
+      "deathCross": "تقاطع الموت",
+      "yes": "نعم",
+      "no": "لا",
+      "maDiff": "فرق MA",
+      "positionStatus": "حالة المركز",
+      "hasPosition": "يوجد مركز",
+      "noPosition": "لا يوجد مركز",
+      "entryPrice": "سعر الدخول",
+      "currentPnL": "الربح/الخسارة الحالي",
+      "stopLoss": "وقف الخسارة",
+      "takeProfit": "جني الأرباح"
+    },
+    "dca": {
+      "firstOrderTP": "TP الأمر الأول",
+      "totalTP": "إجمالي TP",
+      "stopLoss": "وقف الخسارة",
+      "currentPrice": "السعر الحالي",
+      "avgCost": "التكلفة المتوسطة",
+      "atrValue": "قيمة ATR",
+      "dynamicSpacing": "التباعد الديناميكي",
+      "currentLayer": "الطبقة الحالية",
+      "priceTrend": "اتجاه السعر",
+      "layeredPositions": "المراكز المتدرجة",
+      "layerN": "الطبقة {{n}}",
+      "quantity": "الكمية",
+      "cost": "التكلفة",
+      "pnl": "الربح/الخسارة",
+      "decisionBasis": "أساس القرار",
+      "nextBuyPoint": "نقطة الشراء التالية",
+      "cascadeProtectionActive": "الحماية المتتالية مفعلة",
+      "trendFilter": "مرشح الاتجاه",
+      "trendUp": "اتجاه صاعد",
+      "trendDown": "اتجاه هابط",
+      "trailingTPActive": "TP المتتبع مفعل",
+      "highestProfit": "أعلى ربح"
+    },
+    "meanReversion": {
+      "currentPrice": "السعر الحالي",
+      "upperBand": "النطاق العلوي",
+      "middleBand": "النطاق الأوسط",
+      "lowerBand": "النطاق السفلي",
+      "positionInBand": "الموقع في النطاق",
+      "position": "الموقع",
+      "nearLower": "قرب السفلي",
+      "nearUpper": "قرب العلوي",
+      "middleZone": "المنطقة الوسطى",
+      "priceAndBollinger": "السعر ونطاقات بولينجر",
+      "tradeSignals": "إشارات التداول",
+      "buySignal": "إشارة شراء",
+      "sellSignal": "إشارة بيع",
+      "yes": "نعم",
+      "no": "لا",
+      "touchesLower": "يلمس النطاق السفلي",
+      "touchesUpper": "يلمس النطاق العلوي",
+      "distanceToBuy": "المسافة للشراء",
+      "distanceToSell": "المسافة للبيع",
+      "positionStatus": "حالة المركز",
+      "hasPosition": "يوجد مركز",
+      "noPosition": "لا يوجد مركز",
+      "entryPrice": "سعر الدخول",
+      "currentPnL": "الربح/الخسارة الحالي",
+      "period": "الفترة",
+      "stdMultiplier": "مضاعف الانحراف المعياري"
+    }
+  },
+  "security": {
+    "compromisedTitle": "Security Warning",
+    "compromisedMessage": "Your password may have been compromised",
+    "compromisedDetails": "Your password was found in a known data breach database. Please change it immediately.",
+    "compromisedNote": "For your account security, please change your password as soon as possible.",
+    "compromisedAction": "Change Password Now",
+    "passwordManagerError": "Password Manager Error",
+    "passwordManagerErrorMessage": "Unable to connect to password manager. Please enter your password manually."
+  },
+  "aiPromptManager": {
+    "title": "AI Prompt Manager",
+    "systemPrompt": "System Prompt",
+    "systemPromptPlaceholder": "Enter system prompt...",
+    "promptTemplate": "Prompt Template",
+    "templateHint": "Use {{variable}} as variable placeholders",
+    "autoLoadHint": "Auto-load latest data",
+    "edit": "Edit",
+    "noData": "No data",
+    "notSet": "Not set",
+    "fetchFailed": "Failed to fetch data",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed",
+    "refreshData": "Refresh Data"
+  },
+  "fundingRate": {
+    "title": "Funding Rate",
+    "currentRates": "Current Rates",
+    "historyRates": "History Rates",
+    "exchange": "Exchange",
+    "tradingPair": "Trading Pair",
+    "rate": "Rate",
+    "time": "Time",
+    "updateTime": "Update Time",
+    "count": "Count",
+    "noData": "No data",
+    "noHistoryData": "No history data",
+    "error": "Failed to fetch rates",
+    "fetchCurrentFailed": "Failed to fetch current rates",
+    "fetchHistoryFailed": "Failed to fetch history rates"
+  },
+  "positionsPage": {
+    "title": "المراكز الحالية",
+    "positionList": "قائمة المراكز",
+    "noPositions": "لا توجد مراكز",
+    "positionPrice": "سعر المركز",
+    "positionQuantity": "كمية المركز",
+    "positionValue": "قيمة المركز",
+    "positionValueCol": "القيمة",
+    "positionSlots": "عدد الفتحات",
+    "averagePrice": "متوسط السعر",
+    "currentMarketPrice": "سعر السوق الحالي",
+    "unrealizedPnl": "الربح/الخسارة غير المحققة",
+    "leverage": "الرافعة المالية",
+    "actualMargin": "الهامش الفعلي",
+    "totalQuantity": "الكمية الإجمالية",
+    "totalValue": "القيمة الإجمالية"
+  },
+  "predictionAccuracy": {
+    "title": "Prediction Accuracy",
+    "totalPredictions": "Total Predictions",
+    "correctCount": "Correct Count",
+    "accuracy": "Accuracy",
+    "recentRecords": "Recent Records",
+    "noRecords": "No records",
+    "symbol": "Symbol",
+    "asset": "Asset",
+    "gold": "Gold",
+    "predictionTime": "Prediction Time",
+    "predictedDirection": "Predicted Direction",
+    "actualDirection": "Actual Direction",
+    "result": "Result",
+    "correct": "Correct",
+    "incorrect": "Incorrect",
+    "period": "Period",
+    "timeWindow": "Time Window",
+    "last7d": "Last 7 Days",
+    "last14d": "Last 14 Days",
+    "last30d": "Last 30 Days",
+    "all": "All",
+    "backToNewsAnalysis": "Back to News Analysis"
+  },
+  "slotsPage": {
+    "title": "Slot Details",
+    "filter": "Filter",
+    "filterLocked": "Show Locked Only",
+    "sortBy": "Sort By",
+    "sortByPrice": "Sort by Price",
+    "sortByStatus": "Sort by Status",
+    "noMatchingSlots": "No matching slots",
+    "price": "Price",
+    "slotStatus": "Slot Status",
+    "positionStatus": "Position Status",
+    "slotFree": "Free",
+    "slotLocked": "Locked",
+    "slotPending": "Pending",
+    "positionFilled": "Filled",
+    "positionEmpty": "Empty",
+    "positionQty": "Position Qty",
+    "orderId": "Order ID",
+    "orderPrice": "Order Price",
+    "orderSide": "Side",
+    "orderStatus": "Order Status"
+  },
+  "newbieCheckModal": {
+    "title": "Newbie Risk Check",
+    "scanning": "Scanning...",
+    "overallScore": "Overall Score",
+    "score": "Score",
+    "detailedResults": "Detailed Results",
+    "advice": "Advice",
+    "applySecurity": "Apply Security Suggestions",
+    "applying": "Applying...",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "noReport": "No report available",
+    "unknownError": "Unknown error"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "positions": "Positions",
+    "settings": "Settings",
+    "statistics": "Statistics"
   }
 }

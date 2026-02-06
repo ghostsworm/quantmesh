@@ -105,6 +105,36 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
     return <Text>{formatted}</Text>
   }
 
+  const getOrderSideText = (side: string) => {
+    switch (side) {
+      case 'BUY':
+        return t('orderSideBuy')
+      case 'SELL':
+        return t('orderSideSell')
+      default:
+        return side
+    }
+  }
+
+  const getOrderStatusText = (status: string) => {
+    switch (status) {
+      case 'NEW':
+        return t('orderStatusNew')
+      case 'PARTIALLY_FILLED':
+        return t('orderStatusPartiallyFilled')
+      case 'FILLED':
+        return t('orderStatusFilled')
+      case 'CANCELED':
+        return t('orderStatusCanceled')
+      case 'PENDING_CANCEL':
+        return t('orderStatusPendingCancel')
+      case 'REJECTED':
+        return t('orderStatusRejected')
+      default:
+        return status
+    }
+  }
+
   return (
     <Box
       p={4}
@@ -267,13 +297,13 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
                               <Td>{order.symbol}</Td>
                               <Td>
                                 <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
-                                  {order.side}
+                                  {getOrderSideText(order.side)}
                                 </Badge>
                               </Td>
                               <Td isNumeric>{order.price.toFixed(2)}</Td>
                               <Td isNumeric>{order.quantity.toFixed(6)}</Td>
                               <Td>
-                                <Badge size="sm">{order.status}</Badge>
+                                <Badge size="sm">{getOrderStatusText(order.status)}</Badge>
                               </Td>
                             </Tr>
                           ))}

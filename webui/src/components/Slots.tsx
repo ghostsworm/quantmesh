@@ -125,6 +125,36 @@ const Slots: React.FC = () => {
     }
   }
 
+  const getOrderSideText = (side: string) => {
+    switch (side) {
+      case 'BUY':
+        return t('orderSideBuy')
+      case 'SELL':
+        return t('orderSideSell')
+      default:
+        return side
+    }
+  }
+
+  const getOrderStatusText = (status: string) => {
+    switch (status) {
+      case 'NEW':
+        return t('orderStatusNew')
+      case 'PARTIALLY_FILLED':
+        return t('orderStatusPartiallyFilled')
+      case 'FILLED':
+        return t('orderStatusFilled')
+      case 'CANCELED':
+        return t('orderStatusCanceled')
+      case 'PENDING_CANCEL':
+        return t('orderStatusPendingCancel')
+      case 'REJECTED':
+        return t('orderStatusRejected')
+      default:
+        return status
+    }
+  }
+
   if (loading && slots.length === 0) {
     return (
       <div className="slots">
@@ -211,9 +241,11 @@ const Slots: React.FC = () => {
                     {getSlotStatusText(slot.slot_status)}
                   </td>
                   <td style={{ padding: '12px', color: slot.order_side === 'BUY' ? '#52c41a' : '#ff4d4f' }}>
-                    {slot.order_side || '-'}
+                    {slot.order_side ? getOrderSideText(slot.order_side) : '-'}
                   </td>
-                  <td style={{ padding: '12px' }}>{slot.order_status || '-'}</td>
+                  <td style={{ padding: '12px' }}>
+                    {slot.order_status ? getOrderStatusText(slot.order_status) : '-'}
+                  </td>
                   <td style={{ padding: '12px', textAlign: 'right' }}>
                     {slot.order_price > 0 ? slot.order_price.toFixed(2) : '-'}
                   </td>

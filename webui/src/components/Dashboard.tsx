@@ -91,6 +91,17 @@ const Dashboard: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { selectedExchange, selectedSymbol } = useSymbol()
+  
+  const getOrderSideText = (side: string) => {
+    switch (side) {
+      case 'BUY':
+        return t('orderSideBuy')
+      case 'SELL':
+        return t('orderSideSell')
+      default:
+        return side
+    }
+  }
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [statistics, setStatistics] = useState<any>(null)
   const [slotsInfo, setSlotsInfo] = useState<SlotsResponse | null>(null)
@@ -746,7 +757,7 @@ const Dashboard: React.FC = () => {
                   {pendingOrders.orders.slice(0, 3).map((order, i) => (
                     <Flex key={i} justify="space-between" align="center" bg="gray.50" p={3} borderRadius="xl">
                       <HStack>
-                        <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>{order.side}</Badge>
+                        <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>{getOrderSideText(order.side)}</Badge>
                         <Text fontSize="sm" fontWeight="bold">{order.price.toFixed(2)}</Text>
                       </HStack>
                       <Text fontSize="xs" color="gray.400">{new Date(order.created_at).toLocaleTimeString()}</Text>

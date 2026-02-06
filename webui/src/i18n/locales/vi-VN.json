@@ -15,7 +15,12 @@
     "all": "All",
     "allExchanges": "全部交易所",
     "error": "错误",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "connectionError": "Connection Error",
+    "connectionErrorDesc": "Unable to connect to server. Please check your network.",
+    "unknownError": "Unknown Error",
+    "loadFailed": "Load Failed",
+    "success": "Success"
   },
   "sidebar": {
     "overview": "Tổng quan",
@@ -138,7 +143,8 @@
     "totalDeviationDescLoss": "Total loss due to price deviation",
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
-    "used": "Used"
+    "used": "Used",
+    "strategyVisualization": "Trực quan hóa chiến lược"
   },
   "login": {
     "title": "Đăng nhập",
@@ -749,7 +755,13 @@
       "noPerformanceData": "Không có dữ liệu hiệu suất lịch sử",
       "volatility": "Độ biến động",
       "noRiskData": "Không có dữ liệu rủi ro nào"
-    }
+    },
+    "cannotFetchDetail": "Cannot fetch details",
+    "checkConnection": "Please check your connection",
+    "disableFailed": "Disable failed",
+    "enableFailed": "Enable failed",
+    "fetchDetailFailed": "Failed to fetch details",
+    "fetchError": "Failed to fetch strategy list"
   },
   "capitalManagement": {
     "title": "Quản lý vốn",
@@ -904,10 +916,20 @@
     "fundingNet": "Phí funding ròng",
     "fundingDetail": "Chi tiết phí funding",
     "noFundingHistory": "Chưa có lịch sử phí funding",
-    "module": "modül",
     "ruleHintAll": "Currently in \"All Exchanges\" view: each rule only applies to its corresponding exchange",
     "ruleHintExchange": "This rule only applies to the currently selected exchange",
-    "statusHealthy": "Sağlıklı"
+    "quickImport": "Nhập nhanh",
+    "conservativeRule": "Quy tắc bảo thủ (50% tại 100 USDT)",
+    "aggressiveRule": "Quy tắc mạnh mẽ (30% tại 200 USDT)",
+    "importBothPresets": "Nhập cả hai mẫu",
+    "importedConservative": "Đã nhập quy tắc bảo thủ",
+    "importedAggressive": "Đã nhập quy tắc mạnh mẽ",
+    "importedConservativeDesc": "Rút 50% khi lợi nhuận đạt 100 USDT",
+    "importedAggressiveDesc": "Rút 30% khi lợi nhuận đạt 200 USDT",
+    "importedBothPresets": "Đã nhập cả hai mẫu",
+    "importedBothPresetsDesc": "Đã nhập quy tắc bảo thủ và mạnh mẽ",
+    "exchangeLabel": "Sàn giao dịch",
+    "selectExchange": "Chọn sàn giao dịch"
   },
   "positionPlan": {
     "title": "Kế hoạch vị thế",
@@ -958,8 +980,10 @@
   "connection": {
     "offlineTitle": "Mất kết nối Internet",
     "offlineDesc": "Bạn hiện đang ngoại tuyến. Vui lòng kiểm tra kết nối internet của bạn.",
+    "offlineShort": "Mạng ngoại tuyến",
     "backendDisconnectedTitle": "Kết nối Backend Thất bại",
-    "backendDisconnectedDesc": "Không thể kết nối với dịch vụ backend. Vui lòng đảm bảo chương trình backend đang chạy (localhost:28888)."
+    "backendDisconnectedDesc": "Không thể kết nối với dịch vụ backend. Vui lòng đảm bảo chương trình backend đang chạy (localhost:28888).",
+    "backendDisconnectedShort": "Backend bị ngắt kết nối"
   },
   "pwa": {
     "serviceWorkerRegistered": "Đăng ký Service Worker thành công",
@@ -981,7 +1005,12 @@
     "noReport": "Không tạo được báo cáo, vui lòng thử lại.",
     "importantNotice": "Thông báo quan trọng",
     "leverageNotice": "Hệ thống sẽ chỉ sửa đổi cài đặt đòn bẩy trong tệp cấu hình. Để thực sự điều chỉnh đòn bẩy trên tài khoản giao dịch của bạn, vui lòng sửa đổi thủ công trên từng trang web sàn giao dịch. Sau khi cấu hình được sửa đổi, hệ thống sẽ sử dụng giới hạn đòn bẩy mới để kiểm tra rủi ro, nhưng bạn cần điều chỉnh thủ công đòn bẩy thực tế trên tài khoản giao dịch của mình.",
-    "applySuccessNotice": "Lưu ý: Hệ thống chỉ sửa đổi tệp cấu hình. Bạn cần điều chỉnh thủ công đòn bẩy thực tế trên từng trang web sàn giao dịch."
+    "applySuccessNotice": "Lưu ý: Hệ thống chỉ sửa đổi tệp cấu hình. Bạn cần điều chỉnh thủ công đòn bẩy thực tế trên từng trang web sàn giao dịch.",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "refreshing": "Refreshing...",
+    "unknownError": "Unknown error"
   },
   "symbolSelector": {
     "globalOverview": "Tổng quan toàn cầu",
@@ -1024,7 +1053,9 @@
     "days": "ngày",
     "hours": "giờ",
     "minutes": "phút",
-    "seconds": "giây"
+    "seconds": "giây",
+    "currentFilter": "Current Filter",
+    "viewAllEvents": "View All Events"
   },
   "systemMonitor": {
     "title": "Giám sát hệ thống",
@@ -1483,7 +1514,11 @@
   "yamlEditor": {
     "tabIndentError": "Dòng {{line}}: YAML không cho phép thụt lề bằng Tab, hãy sử dụng dấu cách",
     "colonSpaceError": "Dòng {{line}}: Cần có khoảng trắng sau dấu hai chấm",
-    "unknownError": "Lỗi không xác định"
+    "unknownError": "Lỗi không xác định",
+    "readOnly": "Read Only",
+    "syntaxCorrect": "Syntax Correct",
+    "syntaxError": "Syntax Error",
+    "unsavedChanges": "Unsaved Changes"
   },
   "newsAnalysis": {
     "historyTitle": "Lịch Sử Phân Tích Tin Tức",
@@ -1525,7 +1560,13 @@
     "times": "times",
     "title": "News Analysis",
     "total": "Total",
-    "triggerFailed": "Trigger failed"
+    "triggerFailed": "Trigger failed",
+    "action": "Action",
+    "details": "Details",
+    "nextPage": "Next Page",
+    "prevPage": "Previous Page",
+    "price": "Price",
+    "recommendation": "Recommendation"
   },
   "strategyNames": {
     "grid": "Chiến lược giao dịch lưới",
@@ -1971,7 +2012,14 @@
   "diffPreview": {
     "applying": "Applying...",
     "sideBySide": "Side by Side",
-    "unifiedView": "Unified View"
+    "unifiedView": "Unified View",
+    "title": "Config Change Preview",
+    "oldConfig": "Old Config",
+    "newConfig": "New Config",
+    "added": "Added",
+    "removed": "Removed",
+    "modified": "Modified",
+    "confirmApply": "Confirm Apply"
   },
   "eventDetail": {
     "basicInfo": "Basic Information",
@@ -2589,5 +2637,223 @@
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
     "useDefaultExchange": "Use default exchange ({{exchange}})"
+  },
+  "strategyViz": {
+    "grid": {
+      "totalSlots": "Tổng slot",
+      "filled": "Đã lấp",
+      "fillRate": "Tỷ lệ lấp",
+      "priceRange": "Phạm vi giá",
+      "priceInterval": "Khoảng cách giá",
+      "gridPriceRange": "Phạm vi giá lưới",
+      "lowestPrice": "Giá thấp nhất",
+      "priceSpan": "Biên độ giá",
+      "highestPrice": "Giá cao nhất",
+      "slotStatusOverview": "Tổng quan trạng thái slot",
+      "statusFilled": "Đã khớp",
+      "statusLocked": "Đã khóa",
+      "statusIdle": "Chờ",
+      "quantity": "Số lượng",
+      "showingSlots": "Hiển thị {{shown}} / {{total}} slot"
+    },
+    "trendFollowing": {
+      "currentPrice": "Giá hiện tại",
+      "fastLine": "Đường nhanh",
+      "slowLine": "Đường chậm",
+      "trendDirection": "Hướng xu hướng",
+      "trendUp": "Xu hướng tăng",
+      "trendDown": "Xu hướng giảm",
+      "trendSideways": "Đi ngang",
+      "priceAndMA": "Giá & Đường trung bình",
+      "tradeSignals": "Tín hiệu giao dịch",
+      "goldenCross": "Golden Cross",
+      "deathCross": "Death Cross",
+      "yes": "Có",
+      "no": "Không",
+      "maDiff": "Chênh lệch MA",
+      "positionStatus": "Trạng thái vị thế",
+      "hasPosition": "Có vị thế",
+      "noPosition": "Không có vị thế",
+      "entryPrice": "Giá vào",
+      "currentPnL": "P&L hiện tại",
+      "stopLoss": "Cắt lỗ",
+      "takeProfit": "Chốt lời"
+    },
+    "dca": {
+      "firstOrderTP": "TP lệnh đầu",
+      "totalTP": "Tổng TP",
+      "stopLoss": "Cắt lỗ",
+      "currentPrice": "Giá hiện tại",
+      "avgCost": "Giá vốn TB",
+      "atrValue": "Giá trị ATR",
+      "dynamicSpacing": "Khoảng cách động",
+      "currentLayer": "Tầng hiện tại",
+      "priceTrend": "Xu hướng giá",
+      "layeredPositions": "Vị thế phân tầng",
+      "layerN": "Tầng {{n}}",
+      "quantity": "Số lượng",
+      "cost": "Chi phí",
+      "pnl": "Lãi/Lỗ",
+      "decisionBasis": "Cơ sở quyết định",
+      "nextBuyPoint": "Điểm mua tiếp",
+      "cascadeProtectionActive": "Bảo vệ tầng đang hoạt động",
+      "trendFilter": "Bộ lọc xu hướng",
+      "trendUp": "Xu hướng tăng",
+      "trendDown": "Xu hướng giảm",
+      "trailingTPActive": "Trailing TP đang hoạt động",
+      "highestProfit": "Lợi nhuận cao nhất"
+    },
+    "meanReversion": {
+      "currentPrice": "Giá hiện tại",
+      "upperBand": "Dải trên",
+      "middleBand": "Dải giữa",
+      "lowerBand": "Dải dưới",
+      "positionInBand": "Vị trí trong dải",
+      "position": "Vị trí",
+      "nearLower": "Gần dải dưới",
+      "nearUpper": "Gần dải trên",
+      "middleZone": "Vùng giữa",
+      "priceAndBollinger": "Giá & Bollinger Bands",
+      "tradeSignals": "Tín hiệu giao dịch",
+      "buySignal": "Tín hiệu mua",
+      "sellSignal": "Tín hiệu bán",
+      "yes": "Có",
+      "no": "Không",
+      "touchesLower": "Chạm dải dưới",
+      "touchesUpper": "Chạm dải trên",
+      "distanceToBuy": "Khoảng cách đến mua",
+      "distanceToSell": "Khoảng cách đến bán",
+      "positionStatus": "Trạng thái vị thế",
+      "hasPosition": "Có vị thế",
+      "noPosition": "Không có vị thế",
+      "entryPrice": "Giá vào",
+      "currentPnL": "P&L hiện tại",
+      "period": "Chu kỳ",
+      "stdMultiplier": "Hệ số độ lệch chuẩn"
+    }
+  },
+  "security": {
+    "compromisedTitle": "Security Warning",
+    "compromisedMessage": "Your password may have been compromised",
+    "compromisedDetails": "Your password was found in a known data breach database. Please change it immediately.",
+    "compromisedNote": "For your account security, please change your password as soon as possible.",
+    "compromisedAction": "Change Password Now",
+    "passwordManagerError": "Password Manager Error",
+    "passwordManagerErrorMessage": "Unable to connect to password manager. Please enter your password manually."
+  },
+  "aiPromptManager": {
+    "title": "AI Prompt Manager",
+    "systemPrompt": "System Prompt",
+    "systemPromptPlaceholder": "Enter system prompt...",
+    "promptTemplate": "Prompt Template",
+    "templateHint": "Use {{variable}} as variable placeholders",
+    "autoLoadHint": "Auto-load latest data",
+    "edit": "Edit",
+    "noData": "No data",
+    "notSet": "Not set",
+    "fetchFailed": "Failed to fetch data",
+    "saveSuccess": "Saved successfully",
+    "saveFailed": "Save failed",
+    "refreshData": "Refresh Data"
+  },
+  "fundingRate": {
+    "title": "Funding Rate",
+    "currentRates": "Current Rates",
+    "historyRates": "History Rates",
+    "exchange": "Exchange",
+    "tradingPair": "Trading Pair",
+    "rate": "Rate",
+    "time": "Time",
+    "updateTime": "Update Time",
+    "count": "Count",
+    "noData": "No data",
+    "noHistoryData": "No history data",
+    "error": "Failed to fetch rates",
+    "fetchCurrentFailed": "Failed to fetch current rates",
+    "fetchHistoryFailed": "Failed to fetch history rates"
+  },
+  "positionsPage": {
+    "title": "Vị Thế Hiện Tại",
+    "positionList": "Danh Sách Vị Thế",
+    "noPositions": "Không có vị thế",
+    "positionPrice": "Giá Vị Thế",
+    "positionQuantity": "Số Lượng Vị Thế",
+    "positionValue": "Giá Trị Vị Thế",
+    "positionValueCol": "Giá Trị",
+    "positionSlots": "Slot",
+    "averagePrice": "Giá Trung Bình",
+    "currentMarketPrice": "Giá Thị Trường Hiện Tại",
+    "unrealizedPnl": "Lãi/Lỗ Chưa Thực Hiện",
+    "leverage": "Đòn Bẩy",
+    "actualMargin": "Ký Quỹ Thực Tế",
+    "totalQuantity": "Tổng Số Lượng",
+    "totalValue": "Tổng Giá Trị"
+  },
+  "predictionAccuracy": {
+    "title": "Prediction Accuracy",
+    "totalPredictions": "Total Predictions",
+    "correctCount": "Correct Count",
+    "accuracy": "Accuracy",
+    "recentRecords": "Recent Records",
+    "noRecords": "No records",
+    "symbol": "Symbol",
+    "asset": "Asset",
+    "gold": "Gold",
+    "predictionTime": "Prediction Time",
+    "predictedDirection": "Predicted Direction",
+    "actualDirection": "Actual Direction",
+    "result": "Result",
+    "correct": "Correct",
+    "incorrect": "Incorrect",
+    "period": "Period",
+    "timeWindow": "Time Window",
+    "last7d": "Last 7 Days",
+    "last14d": "Last 14 Days",
+    "last30d": "Last 30 Days",
+    "all": "All",
+    "backToNewsAnalysis": "Back to News Analysis"
+  },
+  "slotsPage": {
+    "title": "Slot Details",
+    "filter": "Filter",
+    "filterLocked": "Show Locked Only",
+    "sortBy": "Sort By",
+    "sortByPrice": "Sort by Price",
+    "sortByStatus": "Sort by Status",
+    "noMatchingSlots": "No matching slots",
+    "price": "Price",
+    "slotStatus": "Slot Status",
+    "positionStatus": "Position Status",
+    "slotFree": "Free",
+    "slotLocked": "Locked",
+    "slotPending": "Pending",
+    "positionFilled": "Filled",
+    "positionEmpty": "Empty",
+    "positionQty": "Position Qty",
+    "orderId": "Order ID",
+    "orderPrice": "Order Price",
+    "orderSide": "Side",
+    "orderStatus": "Order Status"
+  },
+  "newbieCheckModal": {
+    "title": "Newbie Risk Check",
+    "scanning": "Scanning...",
+    "overallScore": "Overall Score",
+    "score": "Score",
+    "detailedResults": "Detailed Results",
+    "advice": "Advice",
+    "applySecurity": "Apply Security Suggestions",
+    "applying": "Applying...",
+    "applyFailed": "Apply failed",
+    "configUpdated": "Config updated",
+    "fetchFailed": "Failed to fetch report",
+    "noReport": "No report available",
+    "unknownError": "Unknown error"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "positions": "Positions",
+    "settings": "Settings",
+    "statistics": "Statistics"
   }
 }
