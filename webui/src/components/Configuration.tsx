@@ -80,7 +80,9 @@ import {
   closeAllPositions,
   stopTrading,
   startTrading,
+  getPriceRange,
 } from '../services/api'
+import type { PriceRangeData } from '../services/api'
 import AIConfigWizard from './AIConfigWizard'
 import SymbolManager from './SymbolManager'
 import YamlEditor from './YamlEditor'
@@ -161,6 +163,12 @@ const Configuration: React.FC = () => {
   } | null>(null)
   const [generatingKey, setGeneratingKey] = useState(false)
   
+  // Price range state
+  const [priceRange, setPriceRange] = useState<PriceRangeData | null>(null)
+  const [priceRangeSource, setPriceRangeSource] = useState<string>('')
+  const [priceRangeLoading, setPriceRangeLoading] = useState(false)
+  const [hotUpdatedSymbols, setHotUpdatedSymbols] = useState<string[]>([])
+  
   const { isOpen: isPreviewOpen, onOpen: onPreviewOpen, onClose: onPreviewClose } = useDisclosure()
   const { isOpen: isBackupsOpen, onOpen: onBackupsOpen, onClose: onBackupsClose } = useDisclosure()
   const { isOpen: isAIWizardOpen, onOpen: onAIWizardOpen, onClose: onAIWizardClose } = useDisclosure()
@@ -186,6 +194,23 @@ const Configuration: React.FC = () => {
       setError(err instanceof Error ? err.message : t('configuration.loadFailed'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchPriceRange = async () => {
+    if (!selectedExchange || !selectedSymbol) return
+    setPriceRangeLoading(true)
+    try {
+      const res = await getPriceRange(selectedExchange, selectedSymbol)
+      if (res.success) {
+        setPriceRange(res.data)
+        setPriceRangeSource(res.source)
+      }
+    } catch {
+      setPriceRange(null)
+      setPriceRangeSource('')
+    } finally {
+      setPriceRangeLoading(false)
     }
   }
 
@@ -334,6 +359,15 @@ const Configuration: React.FC = () => {
     loadSecurityStatus()
   }, [])
 
+  // Fetch price range when symbol changes
+  useEffect(() => {
+    if (selectedExchange && selectedSymbol) {
+      fetchPriceRange()
+    } else {
+      setPriceRange(null)
+    }
+  }, [selectedExchange, selectedSymbol])
+
   // Reset tab index when switching view mode
   useEffect(() => {
     setTabIndex(0)
@@ -362,13 +396,31 @@ const Configuration: React.FC = () => {
       trackConfigSaved(isGlobalView ? 'global' : 'symbol')
       setSuccess(result.message)
       onPreviewClose()
-      toast({ 
-        title: t('configuration.saveSuccess'), 
-        status: 'success',
-        duration: 3000,
-        isClosable: true
-      })
+      
+      // Check if trading params were hot-updated
+      const hotUpdated = (result as any).hot_updated as string[] | undefined
+      if (hotUpdated && hotUpdated.length > 0) {
+        setHotUpdatedSymbols(hotUpdated)
+        toast({ 
+          title: t('configuration.saveSuccess'), 
+          description: t('configuration.priceRangeHotUpdateSuccess'),
+          status: 'success',
+          duration: 5000,
+          isClosable: true
+        })
+      } else {
+        toast({ 
+          title: t('configuration.saveSuccess'), 
+          status: 'success',
+          duration: 3000,
+          isClosable: true
+        })
+      }
       await loadConfig()
+      // Refresh price range after config save
+      if (selectedExchange && selectedSymbol) {
+        setTimeout(fetchPriceRange, 500)
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : t('configuration.saveFailed')
       setError(errorMessage)
@@ -438,6 +490,7 @@ const Configuration: React.FC = () => {
         exchange: selectedExchange || newConfig.app?.current_exchange || '',
         symbol: selectedSymbol,
         price_interval: newConfig.trading.price_interval || 0,
+        profit_spread: newConfig.trading.profit_spread ?? 0,
         order_quantity: newConfig.trading.order_quantity || 0,
         buy_window_size: newConfig.trading.buy_window_size || 0,
         sell_window_size: fallbackSellWindow || 0,
@@ -1383,6 +1436,19 @@ const Configuration: React.FC = () => {
                           </NumberInput>
                         </FormControl>
                         <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.profitSpread')}</FormLabel>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.profit_spread ?? config.trading?.profit_spread) ?? 0}
+                            onChange={(_, v) => updateSelectedSymbolField('profit_spread', v === undefined ? undefined : (v || 0))}
+                            precision={6}
+                            step={0.01}
+                            min={0}
+                          >
+                            <NumberInputField borderRadius="xl" placeholder={t('configuration.profitSpreadHint')} />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.profitSpreadHint')}</Text>
+                        </FormControl>
+                        <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.orderAmount')}</FormLabel>
                           <NumberInput
                             value={(getSelectedSymbolConfig()?.order_quantity ?? config.trading?.order_quantity) || 0}
@@ -1438,6 +1504,84 @@ const Configuration: React.FC = () => {
                         </FormControl>
                       </SimpleGrid>
 
+                      {/* 实时价格范围 */}
+                      <Box mt={4} p={4} bg="gray.50" borderRadius="lg" borderWidth="1px" borderColor="gray.200">
+                        <Flex justify="space-between" align="center" mb={3}>
+                          <HStack spacing={2}>
+                            <Text fontSize="sm" fontWeight="bold">{t('configuration.priceRangeTitle')}</Text>
+                            {priceRangeSource && (
+                              <Badge colorScheme={priceRangeSource === 'runtime' ? 'green' : 'gray'} fontSize="2xs">
+                                {priceRangeSource === 'runtime' ? t('configuration.priceRangeSourceRuntime') : t('configuration.priceRangeSourceConfig')}
+                              </Badge>
+                            )}
+                            {hotUpdatedSymbols.length > 0 && (
+                              <Badge colorScheme="blue" fontSize="2xs">{t('configuration.priceRangeHotUpdated')}</Badge>
+                            )}
+                          </HStack>
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            leftIcon={<RepeatIcon />}
+                            onClick={fetchPriceRange}
+                            isLoading={priceRangeLoading}
+                          >
+                            {t('configuration.priceRangeRefresh')}
+                          </Button>
+                        </Flex>
+                        {priceRangeLoading && !priceRange ? (
+                          <Center py={3}>
+                            <Spinner size="sm" mr={2} />
+                            <Text fontSize="xs" color="gray.500">{t('configuration.priceRangeLoading')}</Text>
+                          </Center>
+                        ) : priceRange && priceRange.current_price > 0 ? (
+                          <VStack spacing={2} align="stretch">
+                            <SimpleGrid columns={3} spacing={3}>
+                              <Box textAlign="center">
+                                <Text fontSize="2xs" color="gray.500">{t('configuration.priceRangeCurrentPrice')}</Text>
+                                <Text fontSize="sm" fontWeight="bold" color="blue.600">
+                                  {priceRange.current_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </Text>
+                              </Box>
+                              <Box textAlign="center">
+                                <Text fontSize="2xs" color="gray.500">{t('configuration.priceRangeGridPrice')}</Text>
+                                <Text fontSize="sm" fontWeight="bold">
+                                  {(priceRange.grid_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </Text>
+                              </Box>
+                              <Box textAlign="center">
+                                <Text fontSize="2xs" color="gray.500">{t('configuration.priceRangeAnchorPrice')}</Text>
+                                <Text fontSize="sm" fontWeight="bold" color="gray.600">
+                                  {priceRange.anchor_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </Text>
+                              </Box>
+                            </SimpleGrid>
+                            <Divider />
+                            <SimpleGrid columns={2} spacing={3}>
+                              <Box p={2} bg="green.50" borderRadius="md">
+                                <Text fontSize="2xs" color="green.600" fontWeight="bold">{t('configuration.priceRangeBuyRange')}</Text>
+                                <Text fontSize="sm">
+                                  {(priceRange.buy_price_low ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {' ~ '}
+                                  {(priceRange.buy_price_high ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </Text>
+                              </Box>
+                              <Box p={2} bg="red.50" borderRadius="md">
+                                <Text fontSize="2xs" color="red.600" fontWeight="bold">{t('configuration.priceRangeSellRange')}</Text>
+                                <Text fontSize="sm">
+                                  {(priceRange.sell_price_low ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {' ~ '}
+                                  {(priceRange.sell_price_high ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </Text>
+                              </Box>
+                            </SimpleGrid>
+                          </VStack>
+                        ) : (
+                          <Text fontSize="xs" color="gray.400" textAlign="center" py={2}>
+                            {t('configuration.priceRangeNotRunning')}
+                          </Text>
+                        )}
+                      </Box>
+
                       {/* 参数建议助手 */}
                       <ParamAdvisor
                         exchange={selectedExchange || ''}
@@ -1478,6 +1622,7 @@ const Configuration: React.FC = () => {
                                         positive: {
                                           ...profiles.positive,
                                           price_interval: v ?? 0,
+                                          profit_spread: profiles.positive?.profit_spread,
                                           order_quantity: profiles.positive?.order_quantity ?? 0,
                                           buy_window_size: profiles.positive?.buy_window_size ?? 0,
                                           sell_window_size: profiles.positive?.sell_window_size ?? 0,
@@ -1491,6 +1636,33 @@ const Configuration: React.FC = () => {
                                   </NumberInput>
                                 </FormControl>
                                 <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.profitSpread')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.positive?.profit_spread ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        positive: {
+                                          ...profiles.positive,
+                                          price_interval: profiles.positive?.price_interval ?? 0,
+                                          profit_spread: v === undefined || v === 0 ? undefined : v,
+                                          order_quantity: profiles.positive?.order_quantity ?? 0,
+                                          buy_window_size: profiles.positive?.buy_window_size ?? 0,
+                                          sell_window_size: profiles.positive?.sell_window_size ?? 0,
+                                        }
+                                      })
+                                    }}
+                                    precision={6}
+                                    step={0.01}
+                                    min={0}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" placeholder={t('configuration.profitSpreadHint')} />
+                                  </NumberInput>
+                                  <Text fontSize="2xs" color="gray.500" mt={0.5}>{t('configuration.profitSpreadHint')}</Text>
+                                </FormControl>
+                                <FormControl>
                                   <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.orderAmount')}</FormLabel>
                                   <NumberInput
                                     value={getSelectedSymbolConfig()?.profiles?.positive?.order_quantity ?? 0}
@@ -1502,6 +1674,7 @@ const Configuration: React.FC = () => {
                                         positive: {
                                           ...profiles.positive,
                                           price_interval: profiles.positive?.price_interval ?? 0,
+                                          profit_spread: profiles.positive?.profit_spread,
                                           order_quantity: v ?? 0,
                                           buy_window_size: profiles.positive?.buy_window_size ?? 0,
                                           sell_window_size: profiles.positive?.sell_window_size ?? 0,
@@ -1525,6 +1698,7 @@ const Configuration: React.FC = () => {
                                         positive: {
                                           ...profiles.positive,
                                           price_interval: profiles.positive?.price_interval ?? 0,
+                                          profit_spread: profiles.positive?.profit_spread,
                                           order_quantity: profiles.positive?.order_quantity ?? 0,
                                           buy_window_size: v ?? 0,
                                           sell_window_size: profiles.positive?.sell_window_size ?? 0,
@@ -1547,6 +1721,7 @@ const Configuration: React.FC = () => {
                                         positive: {
                                           ...profiles.positive,
                                           price_interval: profiles.positive?.price_interval ?? 0,
+                                          profit_spread: profiles.positive?.profit_spread,
                                           order_quantity: profiles.positive?.order_quantity ?? 0,
                                           buy_window_size: profiles.positive?.buy_window_size ?? 0,
                                           sell_window_size: v ?? 0,
@@ -1576,6 +1751,7 @@ const Configuration: React.FC = () => {
                                         negative: {
                                           ...profiles.negative,
                                           price_interval: v ?? 0,
+                                          profit_spread: profiles.negative?.profit_spread,
                                           order_quantity: profiles.negative?.order_quantity ?? 0,
                                           buy_window_size: profiles.negative?.buy_window_size ?? 0,
                                           sell_window_size: profiles.negative?.sell_window_size ?? 0,
@@ -1589,6 +1765,33 @@ const Configuration: React.FC = () => {
                                   </NumberInput>
                                 </FormControl>
                                 <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.profitSpread')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.negative?.profit_spread ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        negative: {
+                                          ...profiles.negative,
+                                          price_interval: profiles.negative?.price_interval ?? 0,
+                                          profit_spread: v === undefined || v === 0 ? undefined : v,
+                                          order_quantity: profiles.negative?.order_quantity ?? 0,
+                                          buy_window_size: profiles.negative?.buy_window_size ?? 0,
+                                          sell_window_size: profiles.negative?.sell_window_size ?? 0,
+                                        }
+                                      })
+                                    }}
+                                    precision={6}
+                                    step={0.01}
+                                    min={0}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" placeholder={t('configuration.profitSpreadHint')} />
+                                  </NumberInput>
+                                  <Text fontSize="2xs" color="gray.500" mt={0.5}>{t('configuration.profitSpreadHint')}</Text>
+                                </FormControl>
+                                <FormControl>
                                   <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.orderAmount')}</FormLabel>
                                   <NumberInput
                                     value={getSelectedSymbolConfig()?.profiles?.negative?.order_quantity ?? 0}
@@ -1600,6 +1803,7 @@ const Configuration: React.FC = () => {
                                         negative: {
                                           ...profiles.negative,
                                           price_interval: profiles.negative?.price_interval ?? 0,
+                                          profit_spread: profiles.negative?.profit_spread,
                                           order_quantity: v ?? 0,
                                           buy_window_size: profiles.negative?.buy_window_size ?? 0,
                                           sell_window_size: profiles.negative?.sell_window_size ?? 0,
@@ -1623,6 +1827,7 @@ const Configuration: React.FC = () => {
                                         negative: {
                                           ...profiles.negative,
                                           price_interval: profiles.negative?.price_interval ?? 0,
+                                          profit_spread: profiles.negative?.profit_spread,
                                           order_quantity: profiles.negative?.order_quantity ?? 0,
                                           buy_window_size: v ?? 0,
                                           sell_window_size: profiles.negative?.sell_window_size ?? 0,
@@ -1645,6 +1850,7 @@ const Configuration: React.FC = () => {
                                         negative: {
                                           ...profiles.negative,
                                           price_interval: profiles.negative?.price_interval ?? 0,
+                                          profit_spread: profiles.negative?.profit_spread,
                                           order_quantity: profiles.negative?.order_quantity ?? 0,
                                           buy_window_size: profiles.negative?.buy_window_size ?? 0,
                                           sell_window_size: v ?? 0,

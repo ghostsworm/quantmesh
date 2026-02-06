@@ -204,6 +204,7 @@ type Config struct {
 		Symbol                string  `yaml:"symbol"`
 		MarketType            string  `yaml:"market_type"` // 市場類型：spot 現貨 / futures 合約，預設 futures
 		PriceInterval         float64 `yaml:"price_interval"`
+		ProfitSpread          float64 `yaml:"profit_spread"`   // 利潤間距（平倉價差），為 0 時等於 PriceInterval
 		OrderQuantity         float64 `yaml:"order_quantity"`  // 每單購買金額（USDT/USDC）
 		MinOrderValue         float64 `yaml:"min_order_value"` // 最小訂單價值（USDT），預設 6U，小於此值不掛單
 		BuyWindowSize         int     `yaml:"buy_window_size"`
@@ -876,6 +877,7 @@ type StrategyInstance struct {
 // ProfileConfig 配置档案（用于多套配置自动切换）
 type ProfileConfig struct {
 	PriceInterval     float64 `yaml:"price_interval" json:"price_interval"`         // 價格間隔
+	ProfitSpread      float64 `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"` // 利潤間距（平倉價差），為 0 時等於 PriceInterval
 	OrderQuantity     float64 `yaml:"order_quantity" json:"order_quantity"`       // 每單金額（USDT/USDC）
 	BuyWindowSize     int     `yaml:"buy_window_size" json:"buy_window_size"`     // 買單窗口
 	SellWindowSize    int     `yaml:"sell_window_size" json:"sell_window_size"`  // 賣單視窗
@@ -903,6 +905,7 @@ type SymbolConfig struct {
 	Strategies            []StrategyInstance `yaml:"strategies" json:"strategies"`                             // 运行在該幣種上的策略列表
 	WithdrawalPolicy      WithdrawalPolicy   `yaml:"withdrawal_policy" json:"withdrawal_policy"`               // 提現策略
 	PriceInterval         float64            `yaml:"price_interval" json:"price_interval"`                     // 價格間隔（主配置，未配置 profiles 时使用）
+	ProfitSpread          float64            `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`   // 利潤間距（平倉價差），為 0 時等於 PriceInterval
 	OrderQuantity         float64            `yaml:"order_quantity" json:"order_quantity"`                     // 每單金額（USDT/USDC）（主配置，未配置 profiles 时使用）
 	MinOrderValue         float64            `yaml:"min_order_value" json:"min_order_value"`                   // 最小訂單價值
 	BuyWindowSize         int                `yaml:"buy_window_size" json:"buy_window_size"`                   // 買單窗口（主配置，未配置 profiles 时使用）
@@ -1498,6 +1501,15 @@ func (c *Config) Validate() error {
 		}
 		if sc.PriceInterval <= 0 {
 			return sc, fmt.Errorf("交易對 %s 的價格間隔必須大於0", sc.Symbol)
+		}
+
+		// ProfitSpread 預設：<=0 時使用 PriceInterval
+		if sc.ProfitSpread <= 0 {
+			if c.Trading.ProfitSpread > 0 {
+				sc.ProfitSpread = c.Trading.ProfitSpread
+			} else {
+				sc.ProfitSpread = sc.PriceInterval
+			}
 		}
 
 		if sc.OrderQuantity <= 0 {

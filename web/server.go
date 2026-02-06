@@ -293,6 +293,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 配置参数建议 API
 			protected.GET("/config/param-advisor", getParamAdvisor)
 			protected.GET("/config/exchange-fees", getExchangeFees)
+			protected.GET("/config/price-range", getPriceRangeHandler)
 
 			// 配置管理API
 			protected.GET("/config", getConfigHandler)

@@ -2,6 +2,36 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.48.1] - 2026-02-07
+
+### Added
+- **新增利润间距（ProfitSpread）配置**：将网格间距和平仓利润目标解耦
+  - 新增 `profit_spread` 配置字段，控制卖出价与买入价的价差
+  - 不填或填 0 时默认使用 `price_interval`（完全向后兼容）
+  - 例如：`price_interval=80`（网格间距 80），`profit_spread=100`（卖出价 = 买入价 + 100）
+  - 支持主配置、Profile 配置、初始化向导中配置
+  - 前端配置界面、交易对管理弹窗同步新增输入框
+  - 完整 i18n 支持（简体中文 / 繁体中文 / 英文）
+
+## [3.48.0-rc11] - 2026-02-07
+
+### Fixed
+- **修复交易参数热更新不生效的严重 Bug**：修改 `price_interval`、`order_quantity`、`buy_window_size`、`sell_window_size` 等参数后，运行中的 `SuperPositionManager` 内存中的数据不会同步更新，导致后续下单仍使用旧参数（如间隔从 200 改为 80 后，委托单仍按 200 间隔挂单）
+  - 根因：`symbol_manager.go` 启动时通过 `localCfg := *baseCfg` 创建值拷贝，`SuperPositionManager` 持有此拷贝的指针，配置更新只修改了 `configManager.currentConfig`，未推送到运行时
+  - 新增 `SuperPositionManager.UpdateTradingParams()` 方法，支持运行时更新交易参数
+  - 新增 `SymbolManager.UpdateRuntimeTradingParams()` 方法，遍历所有运行时并推送最新配置
+  - 在 `updateConfigHandler` 保存配置后自动调用热更新推送，确保参数立即生效
+  - API 响应新增 `hot_updated` 字段，返回已热更新的交易对列表
+
+### Added
+- **实时价格范围计算**：配置页面新增「实时价格范围」面板
+  - 根据当前市场价格、价格间隔和窗口大小自动计算买单/卖单的价格上下限
+  - 显示当前价格、网格价格、锚点价格
+  - 支持从运行时实时获取或从配置文件静态计算
+  - 保存配置后自动刷新价格范围
+  - 新增后端 API：`GET /api/config/price-range`
+  - 完整 i18n 支持（简体中文 / 繁体中文 / 英文）
+
 ## [3.48.0-rc10] - 2026-02-07
 
 ### Fixed

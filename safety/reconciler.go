@@ -45,6 +45,7 @@ type IPositionManager interface {
 	// 獲取配置信息
 	GetSymbol() string
 	GetPriceInterval() float64
+	GetProfitSpread() float64
 
 	// 强制同步持倉
 	ForceSyncPositions(exchangePosition float64)
@@ -287,8 +288,8 @@ func (r *Reconciler) Reconcile() error {
 
 	totalBuyQty := r.pm.GetTotalBuyQty()
 	totalSellQty := r.pm.GetTotalSellQty()
-	priceInterval := r.pm.GetPriceInterval()
-	estimatedProfit := totalSellQty * priceInterval
+	profitSpread := r.pm.GetProfitSpread()
+	estimatedProfit := totalSellQty * profitSpread
 	logger.Info("📊 [统计] 對账次數: %d, 累计買入: %.2f, 累计賣出: %.2f, 預计盈利: %.2f U",
 		r.pm.GetReconcileCount(), totalBuyQty, totalSellQty, estimatedProfit)
 

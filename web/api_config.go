@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -401,11 +402,20 @@ func updateConfigHandler(c *gin.Context) {
 		}
 	}
 
+	// 🔥 推送交易参數变更到运行中的 SymbolRuntime（解决内存中参數不同步的问题）
+	var updatedSymbols []string
+	if symbolManagerProvider != nil {
+		if updater, ok := symbolManagerProvider.(TradingParamsUpdater); ok {
+			updatedSymbols = updater.UpdateTradingParams(newConfig)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":          "配置更新成功",
 		"backup_id":        backupInfo.ID,
 		"diff":             diff,
 		"requires_restart": diff.RequiresRestart,
+		"hot_updated":      updatedSymbols,
 	})
 }
 
@@ -797,4 +807,74 @@ func testNotificationHandler(c *gin.Context) {
 		"success": true,
 		"message": fmt.Sprintf("测试通知已发送到 %s", channel),
 	})
+}
+
+// getPriceRangeHandler 获取运行中交易对的实时价格范围
+// GET /api/config/price-range?exchange=binance&symbol=BTCUSDT
+func getPriceRangeHandler(c *gin.Context) {
+	exchangeName := c.Query("exchange")
+	symbol := c.Query("symbol")
+
+	if exchangeName == "" || symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "exchange 和 symbol 参数不能为空"})
+		return
+	}
+
+	// 先尝试从运行时获取实时数据
+	if symbolManagerProvider != nil {
+		rtInterface, exists := symbolManagerProvider.Get(exchangeName, symbol)
+		if exists {
+			// 使用反射获取 SuperPositionManager
+			rtVal := reflect.ValueOf(rtInterface)
+			if rtVal.Kind() == reflect.Ptr {
+				rtVal = rtVal.Elem()
+			}
+			spmField := rtVal.FieldByName("SuperPositionManager")
+			if spmField.IsValid() && !spmField.IsNil() {
+				// 调用 GetTradingParamsSummary
+				method := spmField.MethodByName("GetTradingParamsSummary")
+				if method.IsValid() {
+					results := method.Call(nil)
+					if len(results) > 0 {
+						summary := results[0].Interface().(map[string]interface{})
+						c.JSON(http.StatusOK, gin.H{
+							"success": true,
+							"source":  "runtime",
+							"data":    summary,
+						})
+						return
+					}
+				}
+			}
+		}
+	}
+
+	// 如果没有运行时，从配置计算（静态模式）
+	cfg, err := configManager.GetConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+
+	// 找到对应的 SymbolConfig
+	for _, symCfg := range cfg.Trading.Symbols {
+		if strings.EqualFold(symCfg.Exchange, exchangeName) && strings.EqualFold(symCfg.Symbol, symbol) {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"source":  "config",
+				"data": map[string]interface{}{
+					"price_interval":   symCfg.PriceInterval,
+					"order_quantity":   symCfg.OrderQuantity,
+					"buy_window_size":  symCfg.BuyWindowSize,
+					"sell_window_size": symCfg.SellWindowSize,
+					"direction":        symCfg.GetDirection(),
+					"current_price":    0,
+					"message":          "交易对未运行，无法获取实时价格范围",
+				},
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"error": "未找到交易对配置"})
 }

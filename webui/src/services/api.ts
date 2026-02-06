@@ -1212,6 +1212,37 @@ export async function getExchangeFees(
   return fetchWithAuth(`${API_BASE_URL}/config/exchange-fees?${queryParams.toString()}`)
 }
 
+// Price Range (运行时价格范围计算)
+export interface PriceRangeData {
+  price_interval: number
+  order_quantity: number
+  buy_window_size: number
+  sell_window_size: number
+  anchor_price: number
+  current_price: number
+  direction: string
+  grid_price?: number
+  buy_price_low?: number
+  buy_price_high?: number
+  sell_price_low?: number
+  sell_price_high?: number
+  message?: string
+}
+
+export interface PriceRangeResponse {
+  success: boolean
+  source: string // "runtime" | "config"
+  data: PriceRangeData
+}
+
+export async function getPriceRange(
+  exchange: string,
+  symbol: string
+): Promise<PriceRangeResponse> {
+  const queryParams = new URLSearchParams({ exchange, symbol })
+  return fetchWithAuth(`${API_BASE_URL}/config/price-range?${queryParams.toString()}`)
+}
+
 // Trading Control
 export async function startTrading(exchange?: string, symbol?: string): Promise<{ message: string }> {
   const queryParams = new URLSearchParams()
