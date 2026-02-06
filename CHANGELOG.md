@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [3.43.2-rc2] - 2026-02-06
+
+### Fixed
+- 修复 ServiceStatusPage.tsx 语法错误导致构建失败
+- 优化前端构建分包：Monaco Editor、ECharts、PostHog、Markdown/Diff、html2canvas 独立 chunk
+- 增大 PWA 预缓存文件大小上限至 5MB
+
 ## [3.43.2-rc1] - 2026-02-06
 
 ### Added
