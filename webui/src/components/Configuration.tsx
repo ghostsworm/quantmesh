@@ -109,18 +109,24 @@ const WindowSizeSlider: React.FC<{
   const handleChange = (v: number) => onChange(Math.max(1, Math.min(100, v)))
   return (
     <VStack align="stretch" spacing={2}>
-      <Slider
-        value={displayValue}
-        min={1}
-        max={100}
-        step={1}
-        onChange={handleChange}
-      >
-        <SliderTrack bg="gray.200">
-          <SliderFilledTrack bg="blue.500" />
-        </SliderTrack>
-        <SliderThumb boxSize={size === 'sm' ? 3 : 4} />
-      </Slider>
+      <HStack spacing={3} align="center">
+        <Slider
+          flex={1}
+          value={displayValue}
+          min={1}
+          max={100}
+          step={1}
+          onChange={handleChange}
+        >
+          <SliderTrack bg="gray.200">
+            <SliderFilledTrack bg="blue.500" />
+          </SliderTrack>
+          <SliderThumb boxSize={size === 'sm' ? 3 : 4} />
+        </Slider>
+        <Text fontWeight="bold" minW={8} textAlign="right" fontSize={size === 'sm' ? 'sm' : 'md'}>
+          {displayValue}
+        </Text>
+      </HStack>
       <HStack flexWrap="wrap" gap={1}>
         {WINDOW_SIZE_PRESETS.map((preset) => (
           <Button
@@ -1630,6 +1636,9 @@ const Configuration: React.FC = () => {
                         currentOrderQuantity={(getSelectedSymbolConfig()?.order_quantity ?? config.trading?.order_quantity) || undefined}
                         onApplyPriceInterval={(v) => updateSelectedSymbolField('price_interval', v)}
                         onApplyOrderQuantity={(v) => updateSelectedSymbolField('order_quantity', v)}
+                        buyWindowSize={(getSelectedSymbolConfig()?.buy_window_size ?? config.trading?.buy_window_size) || 0}
+                        leverage={config.risk_control?.max_leverage || undefined}
+                        totalCapital={undefined}
                       />
                     </ConfigCard>
 

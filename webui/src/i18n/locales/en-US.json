@@ -2986,6 +2986,16 @@
     "inRange": "In Range",
     "belowMin": "Below Min",
     "aboveMax": "Above Max",
-    "disclaimer": "These are reference suggestions based on current price and fee rates. Actual parameters should be adjusted according to your risk preference, capital size, and market conditions."
+    "disclaimer": "These are reference suggestions based on current price and fee rates. Actual parameters should be adjusted according to your risk preference, capital size, and market conditions.",
+    "liquidationPriceTitle": "Liquidation Price Estimate",
+    "liquidationPriceDesc": "Based on current price, buy window, order amount, interval, total capital and leverage; estimates liquidation price (long) when all buy levels are filled.",
+    "liquidationPriceTooltip": "Assumes ~0.5% maintenance margin rate. Funding rate not included. Actual liquidation price is set by the exchange.",
+    "totalCapital": "Total Capital",
+    "leverage": "Leverage",
+    "estimatedLiquidationPrice": "Est. Liquidation Price",
+    "avgEntryPrice": "Avg. Entry Price",
+    "safetyDistance": "Safety Distance",
+    "liquidationDisclaimer": "For reference only. Actual liquidation price depends on exchange MMR and funding; check exchange display.",
+    "liquidationPriceHint": "Enter total capital and leverage, and ensure parameter suggestions are loaded (current price, buy window, order amount, interval) to see liquidation price."
   }
 }
