@@ -36,6 +36,83 @@ import {
   type RangeAdvice,
 } from '../services/api'
 
+/** 维持保证金比率（常见合约约 0.5%） */
+const DEFAULT_MMR = 0.005
+
+export interface LiquidationEstimate {
+  liquidationPrice: number
+  avgEntryPrice: number
+  positionBtc: number
+  positionNotional: number
+  /** 当前价格距强平价的安全比例 (current - liq) / current */
+  safetyPercent: number
+  /** 是否可计算（参数不足或做多时保证金充足不会强平则可能为 null） */
+  valid: boolean
+}
+
+/**
+ * 根据当前仓位（满买窗）、总资金、杠杆等估算强平价格（做多）。
+ * 假设：买窗全部成交，仓位 = sum(orderQuantity/price_i)，加权平均开仓价 = avg_entry。
+ * 强平条件：保证金余额 <= 持仓价值 × 维持保证金比率。
+ */
+export function computeLiquidationPrice(params: {
+  currentPrice: number
+  buyWindowSize: number
+  orderQuantity: number
+  priceInterval: number
+  totalCapital: number
+  leverage: number
+  maintenanceMarginRate?: number
+}): LiquidationEstimate | null {
+  const {
+    currentPrice,
+    buyWindowSize: n,
+    orderQuantity: Q,
+    priceInterval: I,
+    totalCapital,
+    leverage,
+    maintenanceMarginRate: MMR = DEFAULT_MMR,
+  } = params
+
+  if (currentPrice <= 0 || n <= 0 || Q <= 0 || totalCapital <= 0 || leverage <= 0) {
+    return null
+  }
+
+  let sumInvP = 0
+  for (let i = 0; i < n; i++) {
+    const p = currentPrice - i * I
+    if (p <= 0) return null
+    sumInvP += 1 / p
+  }
+
+  const positionBtc = Q * sumInvP
+  const positionNotional = n * Q
+  const avgEntryPrice = positionNotional / positionBtc
+
+  // 做多强平：margin_balance = totalCapital + (liq_price - avg_entry) * position_btc
+  // 强平时 margin_balance = position_btc * liq_price * MMR
+  // => totalCapital + (liq_price - avg_entry)*position_btc = position_btc * liq_price * MMR
+  // => totalCapital - avg_entry*position_btc = liq_price * position_btc * (MMR - 1)
+  const denom = positionBtc * (MMR - 1)
+  if (denom >= 0) return null
+  const numerator = totalCapital - avgEntryPrice * positionBtc
+  const liquidationPrice = numerator / denom
+  if (liquidationPrice <= 0 || liquidationPrice >= currentPrice) {
+    return null
+  }
+
+  const safetyPercent = ((currentPrice - liquidationPrice) / currentPrice) * 100
+
+  return {
+    liquidationPrice,
+    avgEntryPrice,
+    positionBtc,
+    positionNotional,
+    safetyPercent,
+    valid: true,
+  }
+}
+
 interface ParamAdvisorProps {
   exchange: string
   symbol: string
@@ -43,6 +120,12 @@ interface ParamAdvisorProps {
   currentOrderQuantity?: number
   onApplyPriceInterval?: (value: number) => void
   onApplyOrderQuantity?: (value: number) => void
+  /** 买窗数量（用于强平价估算） */
+  buyWindowSize?: number
+  /** 杠杆倍数（用于强平价估算） */
+  leverage?: number
+  /** 总资金 USDT（用于强平价估算，可在此组件内输入覆盖） */
+  totalCapital?: number
 }
 
 const ParamAdvisor: React.FC<ParamAdvisorProps> = ({
@@ -52,6 +135,9 @@ const ParamAdvisor: React.FC<ParamAdvisorProps> = ({
   currentOrderQuantity,
   onApplyPriceInterval,
   onApplyOrderQuantity,
+  buyWindowSize,
+  leverage: leverageProp,
+  totalCapital: totalCapitalProp,
 }) => {
   const { t } = useTranslation()
   const toast = useToast()
@@ -63,6 +149,8 @@ const ParamAdvisor: React.FC<ParamAdvisorProps> = ({
   const [makerFee, setMakerFee] = useState<string>('')
   const [takerFee, setTakerFee] = useState<string>('')
   const [feeSource, setFeeSource] = useState<string>('')
+  const [totalCapitalInput, setTotalCapitalInput] = useState<string>(totalCapitalProp != null ? String(totalCapitalProp) : '')
+  const [leverageInput, setLeverageInput] = useState<string>(leverageProp != null ? String(leverageProp) : '')
 
   // 获取参数建议
   const fetchAdvisor = useCallback(async () => {
@@ -414,6 +502,106 @@ const ParamAdvisor: React.FC<ParamAdvisorProps> = ({
                   onApplyOrderQuantity,
                   0
                 )}
+
+                {/* 强平价格估算（交易概念） */}
+                <Box
+                  p={4}
+                  borderWidth="1px"
+                  borderRadius="lg"
+                  borderColor="orange.200"
+                  bg="orange.50"
+                >
+                  <Flex justify="space-between" align="center" mb={2}>
+                    <Text fontSize="sm" fontWeight="600" color="orange.800">
+                      {t('paramAdvisor.liquidationPriceTitle')}
+                    </Text>
+                    <Tooltip label={t('paramAdvisor.liquidationPriceTooltip')}>
+                      <InfoIcon color="orange.500" boxSize={4} />
+                    </Tooltip>
+                  </Flex>
+                  <Text fontSize="xs" color="gray.600" mb={3}>
+                    {t('paramAdvisor.liquidationPriceDesc')}
+                  </Text>
+                  <SimpleGrid columns={2} spacing={3} mb={3}>
+                    <FormControl size="sm">
+                      <FormLabel fontSize="xs" color="gray.600">
+                        {t('paramAdvisor.totalCapital')} (USDT)
+                      </FormLabel>
+                      <NumberInput
+                        size="sm"
+                        value={totalCapitalInput}
+                        onChange={setTotalCapitalInput}
+                        min={0}
+                        precision={2}
+                      >
+                        <NumberInputField borderRadius="lg" placeholder="20000" />
+                      </NumberInput>
+                    </FormControl>
+                    <FormControl size="sm">
+                      <FormLabel fontSize="xs" color="gray.600">
+                        {t('paramAdvisor.leverage')}
+                      </FormLabel>
+                      <NumberInput
+                        size="sm"
+                        value={leverageInput}
+                        onChange={setLeverageInput}
+                        min={1}
+                        max={125}
+                        precision={0}
+                      >
+                        <NumberInputField borderRadius="lg" placeholder="10" />
+                      </NumberInput>
+                    </FormControl>
+                  </SimpleGrid>
+                  {(() => {
+                    const totalCap = totalCapitalInput ? parseFloat(totalCapitalInput) : totalCapitalProp
+                    const lev = leverageInput ? parseFloat(leverageInput) : leverageProp
+                    const n = buyWindowSize ?? 0
+                    const Q = currentOrderQuantity ?? 0
+                    const I = currentPriceInterval ?? 0
+                    const price = advisorData.current_price
+                    const liq = totalCap != null && totalCap > 0 && lev != null && lev > 0 && n > 0 && Q > 0 && I > 0 && price > 0
+                      ? computeLiquidationPrice({
+                          currentPrice: price,
+                          buyWindowSize: n,
+                          orderQuantity: Q,
+                          priceInterval: I,
+                          totalCapital: totalCap,
+                          leverage: lev,
+                        })
+                      : null
+                    if (!liq?.valid) {
+                      return (
+                        <Text fontSize="xs" color="gray.500">
+                          {t('paramAdvisor.liquidationPriceHint')}
+                        </Text>
+                      )
+                    }
+                    return (
+                      <VStack align="stretch" spacing={2}>
+                        <HStack justify="space-between">
+                          <Text fontSize="xs" color="gray.600">{t('paramAdvisor.estimatedLiquidationPrice')}</Text>
+                          <Text fontSize="sm" fontWeight="bold" color="orange.700">
+                            {liq.liquidationPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </Text>
+                        </HStack>
+                        <HStack justify="space-between">
+                          <Text fontSize="xs" color="gray.600">{t('paramAdvisor.avgEntryPrice')}</Text>
+                          <Text fontSize="xs">{liq.avgEntryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                        </HStack>
+                        <HStack justify="space-between">
+                          <Text fontSize="xs" color="gray.600">{t('paramAdvisor.safetyDistance')}</Text>
+                          <Text fontSize="xs" color={liq.safetyPercent > 10 ? 'green.600' : liq.safetyPercent > 5 ? 'orange.600' : 'red.600'}>
+                            {liq.safetyPercent.toFixed(2)}%
+                          </Text>
+                        </HStack>
+                        <Text fontSize="2xs" color="gray.500" mt={1}>
+                          {t('paramAdvisor.liquidationDisclaimer')}
+                        </Text>
+                      </VStack>
+                    )
+                  })()}
+                </Box>
 
                 {/* 说明 */}
                 <Alert status="warning" borderRadius="lg" size="sm" py={2}>

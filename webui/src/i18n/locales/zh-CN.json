@@ -2995,6 +2995,16 @@
     "inRange": "在范围内",
     "belowMin": "低于最小值",
     "aboveMax": "超出最大值",
-    "disclaimer": "以上为基于当前价格和手续费率的参考建议，实际参数请根据您的风险偏好、资金规模和市场行情综合调整。"
+    "disclaimer": "以上为基于当前价格和手续费率的参考建议，实际参数请根据您的风险偏好、资金规模和市场行情综合调整。",
+    "liquidationPriceTitle": "强平价格估算",
+    "liquidationPriceDesc": "根据当前价格、买窗、单笔金额、间距、总资金与杠杆，在「买窗全部成交」的极端情况下估算强平价（做多）。",
+    "liquidationPriceTooltip": "基于维持保证金比率约 0.5% 的常见合约假设，未含资金费率。实际强平价以交易所为准。",
+    "totalCapital": "总资金",
+    "leverage": "杠杆倍数",
+    "estimatedLiquidationPrice": "估算强平价",
+    "avgEntryPrice": "加权平均开仓价",
+    "safetyDistance": "距强平安全距离",
+    "liquidationDisclaimer": "仅供参考。实际强平价受交易所维持保证金比率、资金费率等影响，请以交易所显示为准。",
+    "liquidationPriceHint": "请先填写总资金与杠杆，并确保已获取参数建议（当前价格、买窗、单笔金额、间距已填）后再查看强平价。"
   }
 }

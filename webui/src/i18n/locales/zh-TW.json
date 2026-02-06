@@ -2973,6 +2973,16 @@
     "inRange": "在範圍內",
     "belowMin": "低於最小值",
     "aboveMax": "超出最大值",
-    "disclaimer": "以上為基於當前價格和手續費率的參考建議，實際參數請根據您的風險偏好、資金規模和市場行情綜合調整。"
+    "disclaimer": "以上為基於當前價格和手續費率的參考建議，實際參數請根據您的風險偏好、資金規模和市場行情綜合調整。",
+    "liquidationPriceTitle": "強平價格估算",
+    "liquidationPriceDesc": "根據當前價格、買窗、單筆金額、間距、總資金與槓桿，在「買窗全部成交」的極端情況下估算強平價（做多）。",
+    "liquidationPriceTooltip": "基於維持保證金比率約 0.5% 的常見合約假設，未含資金費率。實際強平價以交易所為準。",
+    "totalCapital": "總資金",
+    "leverage": "槓桿倍數",
+    "estimatedLiquidationPrice": "估算強平價",
+    "avgEntryPrice": "加權平均開倉價",
+    "safetyDistance": "距強平安全距離",
+    "liquidationDisclaimer": "僅供參考。實際強平價受交易所維持保證金比率、資金費率等影響，請以交易所顯示為準。",
+    "liquidationPriceHint": "請先填寫總資金與槓桿，並確保已取得參數建議（當前價格、買窗、單筆金額、間距已填）後再查看強平價。"
   }
 }
