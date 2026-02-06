@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.44.1-rc2] - 2026-02-06
+
+### Fixed
+- 修复 GitHub Actions 构建失败问题：为 Corepack 下载 Yarn 添加重试机制（应对 repo.yarnpkg.com 临时故障）
+
 ## [3.44.1-rc1] - 2026-02-06
 
 ### Fixed
