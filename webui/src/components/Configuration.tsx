@@ -1438,6 +1438,295 @@ const Configuration: React.FC = () => {
                       </SimpleGrid>
                     </ConfigCard>
 
+                    <ConfigCard title={t('configuration.profileSwitching')} icon={<SettingsIcon />}>
+                      <VStack spacing={4} align="stretch">
+                        <Alert status="info" borderRadius="md" size="sm">
+                          <AlertIcon />
+                          <AlertDescription fontSize="xs">
+                            {t('configuration.profileSwitchingDesc')}
+                          </AlertDescription>
+                        </Alert>
+
+                        {/* 配置档案 */}
+                        <Box>
+                          <Text fontSize="sm" fontWeight="600" mb={3}>{t('configuration.profiles')}</Text>
+                          <VStack spacing={3} align="stretch">
+                            {/* Positive Profile */}
+                            <Box p={4} borderWidth="1px" borderRadius="lg" borderColor="gray.200">
+                              <Text fontSize="sm" fontWeight="600" mb={2}>{t('configuration.profilePositive')}</Text>
+                              <SimpleGrid columns={2} spacing={4}>
+                                <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceInterval')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.positive?.price_interval ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        positive: {
+                                          ...profiles.positive,
+                                          price_interval: v ?? 0,
+                                          order_quantity: profiles.positive?.order_quantity ?? 0,
+                                          buy_window_size: profiles.positive?.buy_window_size ?? 0,
+                                          sell_window_size: profiles.positive?.sell_window_size ?? 0,
+                                        }
+                                      })
+                                    }}
+                                    precision={6}
+                                    step={0.01}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" />
+                                  </NumberInput>
+                                </FormControl>
+                                <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.orderAmount')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.positive?.order_quantity ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        positive: {
+                                          ...profiles.positive,
+                                          price_interval: profiles.positive?.price_interval ?? 0,
+                                          order_quantity: v ?? 0,
+                                          buy_window_size: profiles.positive?.buy_window_size ?? 0,
+                                          sell_window_size: profiles.positive?.sell_window_size ?? 0,
+                                        }
+                                      })
+                                    }}
+                                    precision={2}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" />
+                                  </NumberInput>
+                                </FormControl>
+                                <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buyWindowSize')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.positive?.buy_window_size ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        positive: {
+                                          ...profiles.positive,
+                                          price_interval: profiles.positive?.price_interval ?? 0,
+                                          order_quantity: profiles.positive?.order_quantity ?? 0,
+                                          buy_window_size: v ?? 0,
+                                          sell_window_size: profiles.positive?.sell_window_size ?? 0,
+                                        }
+                                      })
+                                    }}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" />
+                                  </NumberInput>
+                                </FormControl>
+                                <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.sellWindowSize')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.positive?.sell_window_size ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        positive: {
+                                          ...profiles.positive,
+                                          price_interval: profiles.positive?.price_interval ?? 0,
+                                          order_quantity: profiles.positive?.order_quantity ?? 0,
+                                          buy_window_size: profiles.positive?.buy_window_size ?? 0,
+                                          sell_window_size: v ?? 0,
+                                        }
+                                      })
+                                    }}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" />
+                                  </NumberInput>
+                                </FormControl>
+                              </SimpleGrid>
+                            </Box>
+
+                            {/* Negative Profile */}
+                            <Box p={4} borderWidth="1px" borderRadius="lg" borderColor="gray.200">
+                              <Text fontSize="sm" fontWeight="600" mb={2}>{t('configuration.profileNegative')}</Text>
+                              <SimpleGrid columns={2} spacing={4}>
+                                <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceInterval')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.negative?.price_interval ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        negative: {
+                                          ...profiles.negative,
+                                          price_interval: v ?? 0,
+                                          order_quantity: profiles.negative?.order_quantity ?? 0,
+                                          buy_window_size: profiles.negative?.buy_window_size ?? 0,
+                                          sell_window_size: profiles.negative?.sell_window_size ?? 0,
+                                        }
+                                      })
+                                    }}
+                                    precision={6}
+                                    step={0.01}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" />
+                                  </NumberInput>
+                                </FormControl>
+                                <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.orderAmount')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.negative?.order_quantity ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        negative: {
+                                          ...profiles.negative,
+                                          price_interval: profiles.negative?.price_interval ?? 0,
+                                          order_quantity: v ?? 0,
+                                          buy_window_size: profiles.negative?.buy_window_size ?? 0,
+                                          sell_window_size: profiles.negative?.sell_window_size ?? 0,
+                                        }
+                                      })
+                                    }}
+                                    precision={2}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" />
+                                  </NumberInput>
+                                </FormControl>
+                                <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buyWindowSize')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.negative?.buy_window_size ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        negative: {
+                                          ...profiles.negative,
+                                          price_interval: profiles.negative?.price_interval ?? 0,
+                                          order_quantity: profiles.negative?.order_quantity ?? 0,
+                                          buy_window_size: v ?? 0,
+                                          sell_window_size: profiles.negative?.sell_window_size ?? 0,
+                                        }
+                                      })
+                                    }}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" />
+                                  </NumberInput>
+                                </FormControl>
+                                <FormControl>
+                                  <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.sellWindowSize')}</FormLabel>
+                                  <NumberInput
+                                    value={getSelectedSymbolConfig()?.profiles?.negative?.sell_window_size ?? 0}
+                                    onChange={(_, v) => {
+                                      const symCfg = getSelectedSymbolConfig()
+                                      const profiles = symCfg?.profiles || {}
+                                      updateSelectedSymbolField('profiles', {
+                                        ...profiles,
+                                        negative: {
+                                          ...profiles.negative,
+                                          price_interval: profiles.negative?.price_interval ?? 0,
+                                          order_quantity: profiles.negative?.order_quantity ?? 0,
+                                          buy_window_size: profiles.negative?.buy_window_size ?? 0,
+                                          sell_window_size: v ?? 0,
+                                        }
+                                      })
+                                    }}
+                                  >
+                                    <NumberInputField borderRadius="xl" size="sm" />
+                                  </NumberInput>
+                                </FormControl>
+                              </SimpleGrid>
+                            </Box>
+                          </VStack>
+                        </Box>
+
+                        <Divider />
+
+                        {/* 切换规则 */}
+                        <Box>
+                          <Text fontSize="sm" fontWeight="600" mb={3}>{t('configuration.switchRules')}</Text>
+                          <SimpleGrid columns={2} spacing={4}>
+                            <FormControl>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.fundingRateThreshold')}</FormLabel>
+                              <NumberInput
+                                value={(getSelectedSymbolConfig()?.switch_rules?.funding_rate?.threshold ?? 0) * 100}
+                                onChange={(_, v) => {
+                                  const symCfg = getSelectedSymbolConfig()
+                                  const rules = symCfg?.switch_rules || { funding_rate: {}, fee_rate: {} }
+                                  updateSelectedSymbolField('switch_rules', {
+                                    ...rules,
+                                    funding_rate: {
+                                      threshold: (v ?? 0) / 100
+                                    },
+                                    fee_rate: rules.fee_rate || {},
+                                    cooldown_seconds: rules.cooldown_seconds || 300
+                                  })
+                                }}
+                                precision={4}
+                                step={0.01}
+                              >
+                                <NumberInputField borderRadius="xl" size="sm" />
+                              </NumberInput>
+                              <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.fundingRateThresholdDesc')}</Text>
+                            </FormControl>
+                            <FormControl>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.feeRateThreshold')}</FormLabel>
+                              <NumberInput
+                                value={(getSelectedSymbolConfig()?.switch_rules?.fee_rate?.threshold ?? 0) * 100}
+                                onChange={(_, v) => {
+                                  const symCfg = getSelectedSymbolConfig()
+                                  const rules = symCfg?.switch_rules || { funding_rate: {}, fee_rate: {} }
+                                  updateSelectedSymbolField('switch_rules', {
+                                    ...rules,
+                                    funding_rate: rules.funding_rate || {},
+                                    fee_rate: {
+                                      threshold: (v ?? 0) / 100
+                                    },
+                                    cooldown_seconds: rules.cooldown_seconds || 300
+                                  })
+                                }}
+                                precision={4}
+                                step={0.01}
+                              >
+                                <NumberInputField borderRadius="xl" size="sm" />
+                              </NumberInput>
+                              <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.feeRateThresholdDesc')}</Text>
+                            </FormControl>
+                            <FormControl>
+                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.cooldownSeconds')}</FormLabel>
+                              <NumberInput
+                                value={getSelectedSymbolConfig()?.switch_rules?.cooldown_seconds ?? 300}
+                                onChange={(_, v) => {
+                                  const symCfg = getSelectedSymbolConfig()
+                                  const rules = symCfg?.switch_rules || { funding_rate: {}, fee_rate: {} }
+                                  updateSelectedSymbolField('switch_rules', {
+                                    ...rules,
+                                    funding_rate: rules.funding_rate || {},
+                                    fee_rate: rules.fee_rate || {},
+                                    cooldown_seconds: v ?? 300
+                                  })
+                                }}
+                                min={60}
+                                max={3600}
+                              >
+                                <NumberInputField borderRadius="xl" size="sm" />
+                              </NumberInput>
+                              <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.cooldownSecondsDesc')}</Text>
+                            </FormControl>
+                          </SimpleGrid>
+                        </Box>
+                      </VStack>
+                    </ConfigCard>
+
                     <ConfigCard title={t('configuration.dynamicAdjustment')} icon={<SettingsIcon />}>
                       <Flex justify="space-between" align="center" mb={4}>
                         <Box>

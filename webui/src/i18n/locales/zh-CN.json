@@ -1717,6 +1717,9 @@
     "newsSummary": "新闻摘要",
     "analysisDetail": "分析详情",
     "title": "新闻分析",
+    "tabAnalysis": "最新分析",
+    "tabHistory": "历史记录",
+    "tabPrediction": "预测准确率",
     "goldPaxg": "黄金 (PAXG)",
     "recNormal": "正常",
     "recCaution": "谨慎",
@@ -1754,7 +1757,13 @@
     "nextPage": "下一页",
     "prevPage": "上一页",
     "price": "价格",
-    "recommendation": "建议"
+    "recommendation": "建议",
+    "riskTrend": "风险波动趋势",
+    "crashProbTrend": "大跌概率趋势",
+    "last7d": "最近 7 天",
+    "last30d": "最近 30 天",
+    "last90d": "最近 90 天",
+    "noTrendData": "暂无历史波动数据"
   },
   "firstTimeSetup": {
     "enterPassword": "请输入密码",

@@ -70,6 +70,26 @@ export interface StrategyInstance {
   config: Record<string, any>
 }
 
+// 配置档案（用于多套配置自动切换）
+export interface ProfileConfig {
+  price_interval: number
+  order_quantity: number
+  buy_window_size: number
+  sell_window_size: number
+  min_order_value?: number  // 可選，繼承主配置
+}
+
+// 切换规则（根据资金费率和手续费率自动切换配置档案）
+export interface SwitchRules {
+  funding_rate: {
+    threshold: number  // 资金费率阈值，超过此值切换到对应 profile
+  }
+  fee_rate: {
+    threshold: number  // 手续费率阈值，超过此值切换到对应 profile
+  }
+  cooldown_seconds?: number  // 切换冷却时间（秒），避免频繁切换，預設 300
+}
+
 // 交易對配置
 export interface SymbolConfig {
   enabled?: boolean   // 是否啟用自动交易（后端預設 true）
@@ -79,17 +99,20 @@ export interface SymbolConfig {
   total_allocated_capital?: number // 分配的總资金
   strategies?: StrategyInstance[]  // 並行策略列表
   withdrawal_policy?: WithdrawalPolicy // 提現策略
-  price_interval: number
-  order_quantity: number
+  price_interval: number  // 主配置，未配置 profiles 时使用
+  order_quantity: number  // 主配置，未配置 profiles 时使用
   min_order_value?: number
-  buy_window_size: number
-  sell_window_size: number
+  buy_window_size: number  // 主配置，未配置 profiles 时使用
+  sell_window_size: number  // 主配置，未配置 profiles 时使用
   direction?: 'LONG' | 'SHORT'  // 交易方向，預設 LONG
   reconcile_interval?: number
   order_cleanup_threshold?: number
   cleanup_batch_size?: number
   margin_lock_duration_seconds?: number
   position_safety_check?: number
+  // 多套配置自动切换
+  profiles?: Record<string, ProfileConfig>  // 配置档案（如 positive, negative）
+  switch_rules?: SwitchRules  // 切换规则
 }
 
 // AI模塊配置

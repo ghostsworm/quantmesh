@@ -1031,6 +1031,8 @@ export interface NewsHistoryItem {
   symbol: string
   current_price: number
   recommendation: string
+  overall_risk_score?: number
+  crash_probability?: number
 }
 
 export interface NewsHistoryResponse {

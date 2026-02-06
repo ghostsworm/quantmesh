@@ -813,6 +813,26 @@ type StrategyInstance struct {
 	Config map[string]interface{} `yaml:"config" json:"config"` // 策略专属配置
 }
 
+// ProfileConfig 配置档案（用于多套配置自动切换）
+type ProfileConfig struct {
+	PriceInterval     float64 `yaml:"price_interval" json:"price_interval"`         // 價格間隔
+	OrderQuantity     float64 `yaml:"order_quantity" json:"order_quantity"`       // 每單金額（USDT/USDC）
+	BuyWindowSize     int     `yaml:"buy_window_size" json:"buy_window_size"`     // 買單窗口
+	SellWindowSize    int     `yaml:"sell_window_size" json:"sell_window_size"`  // 賣單視窗
+	MinOrderValue     float64 `yaml:"min_order_value,omitempty" json:"min_order_value,omitempty"` // 最小訂單價值（可選，繼承主配置）
+}
+
+// SwitchRules 切换规则（根据资金费率和手续费率自动切换配置档案）
+type SwitchRules struct {
+	FundingRate struct {
+		Threshold float64 `yaml:"threshold" json:"threshold"` // 资金费率阈值，超过此值切换到对应 profile
+	} `yaml:"funding_rate" json:"funding_rate"`
+	FeeRate struct {
+		Threshold float64 `yaml:"threshold" json:"threshold"` // 手续费率阈值，超过此值切换到对应 profile
+	} `yaml:"fee_rate" json:"fee_rate"`
+	CooldownSeconds int `yaml:"cooldown_seconds" json:"cooldown_seconds"` // 切换冷却时间（秒），避免频繁切换，預設 300
+}
+
 // SymbolConfig 單個交易對配置（可指定所属交易所及交易参數）
 type SymbolConfig struct {
 	Enabled               *bool              `yaml:"enabled" json:"enabled"`                                   // 是否啟用自动交易，預設為 true（使用指針确保 false 時也會被序列化）
@@ -822,11 +842,11 @@ type SymbolConfig struct {
 	TotalAllocatedCapital float64            `yaml:"total_allocated_capital" json:"total_allocated_capital"`   // 該幣種分配的總资金
 	Strategies            []StrategyInstance `yaml:"strategies" json:"strategies"`                             // 运行在該幣種上的策略列表
 	WithdrawalPolicy      WithdrawalPolicy   `yaml:"withdrawal_policy" json:"withdrawal_policy"`               // 提現策略
-	PriceInterval         float64            `yaml:"price_interval" json:"price_interval"`                     // 價格間隔
-	OrderQuantity         float64            `yaml:"order_quantity" json:"order_quantity"`                     // 每單金額（USDT/USDC）
+	PriceInterval         float64            `yaml:"price_interval" json:"price_interval"`                     // 價格間隔（主配置，未配置 profiles 时使用）
+	OrderQuantity         float64            `yaml:"order_quantity" json:"order_quantity"`                     // 每單金額（USDT/USDC）（主配置，未配置 profiles 时使用）
 	MinOrderValue         float64            `yaml:"min_order_value" json:"min_order_value"`                   // 最小訂單價值
-	BuyWindowSize         int                `yaml:"buy_window_size" json:"buy_window_size"`                   // 買單窗口
-	SellWindowSize        int                `yaml:"sell_window_size" json:"sell_window_size"`                 // 賣單視窗
+	BuyWindowSize         int                `yaml:"buy_window_size" json:"buy_window_size"`                   // 買單窗口（主配置，未配置 profiles 时使用）
+	SellWindowSize        int                `yaml:"sell_window_size" json:"sell_window_size"`                 // 賣單視窗（主配置，未配置 profiles 时使用）
 	ReconcileInterval     int                `yaml:"reconcile_interval" json:"reconcile_interval"`             // 對账间隔（秒）
 	OrderCleanupThreshold int                `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`   // 訂單清理上限
 	CleanupBatchSize      int                `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`             // 清理批次大小
@@ -834,6 +854,9 @@ type SymbolConfig struct {
 	PositionSafetyCheck   int                `yaml:"position_safety_check" json:"position_safety_check"`       // 持倉安全性檢查
 	GridRiskControl       GridRiskControl    `yaml:"grid_risk_control" json:"grid_risk_control"`               // 網格策略风控
 	Direction             string             `yaml:"direction" json:"direction"`                               // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
+	// 多套配置自动切换
+	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`       // 配置档案（如 positive, negative）
+	SwitchRules           SwitchRules              `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"` // 切换规则
 }
 
 // IsEnabled 返回交易對是否啟用（nil 預設為 true）

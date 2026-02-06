@@ -521,6 +521,17 @@ const ProfitManagement: React.FC = () => {
                 <StatHelpText>USDT</StatHelpText>
               </Stat>
             </Box>
+            {summary.exchangeProfit !== undefined && (
+              <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
+                <Stat>
+                  <StatLabel>{t('profitManagement.exchangeProfit')}</StatLabel>
+                  <StatNumber color={(summary.exchangeProfit ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                    {(summary.exchangeProfit ?? 0) >= 0 ? '+' : ''}{(summary.exchangeProfit ?? 0).toFixed(2)}
+                  </StatNumber>
+                  <StatHelpText>USDT</StatHelpText>
+                </Stat>
+              </Box>
+            )}
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('profitManagement.availableToWithdraw')}</StatLabel>
