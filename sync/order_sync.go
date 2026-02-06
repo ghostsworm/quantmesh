@@ -169,15 +169,23 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 			continue
 		}
 
-		// 保存订单
+		// 保存订单（包含交易所已实现盈亏）
+		var realizedPnL *float64
+		if trade.RealizedPnL != 0 {
+			v := trade.RealizedPnL
+			realizedPnL = &v
+		}
 		order := &storage.Order{
 			OrderID:       trade.OrderID,
 			ClientOrderID: "", // 成交记录中没有ClientOrderID
 			Symbol:        trade.Symbol,
 			Side:          string(trade.Side),
+			Exchange:      "binance",
 			Price:         trade.Price,
 			Quantity:      trade.Quantity,
-			Status:        "FILLED", // 成交记录都是已成交的
+			FilledQty:     trade.Quantity, // 成交记录 = 已成交
+			Status:        "FILLED",       // 成交记录都是已成交的
+			RealizedPnL:   realizedPnL,
 			CreatedAt:     trade.Time,
 			UpdatedAt:     trade.Time,
 		}

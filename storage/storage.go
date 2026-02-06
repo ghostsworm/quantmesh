@@ -401,14 +401,32 @@ func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 	if side, ok := data["side"].(string); ok {
 		order.Side = side
 	}
+	if exchange, ok := data["exchange"].(string); ok {
+		order.Exchange = exchange
+	}
+	if orderType, ok := data["type"].(string); ok {
+		order.Type = orderType
+	}
 	if price, ok := data["price"].(float64); ok {
 		order.Price = price
 	}
 	if quantity, ok := data["quantity"].(float64); ok {
 		order.Quantity = quantity
 	}
+	// 🔥 修复：事件中字段名为 executed_qty，需要正确映射
+	if executedQty, ok := data["executed_qty"].(float64); ok {
+		order.FilledQty = executedQty
+		// 如果 quantity 未設置，使用 executed_qty 作為回退值（FILLED 订單二者相等）
+		if order.Quantity <= 0 {
+			order.Quantity = executedQty
+		}
+	}
 	if status, ok := data["status"].(string); ok {
 		order.Status = status
+	}
+	// 交易所已實現盈虧
+	if rpnl, ok := data["realized_pnl"].(float64); ok {
+		order.RealizedPnL = &rpnl
 	}
 	if createdAt, ok := data["created_at"].(time.Time); ok {
 		order.CreatedAt = utils.ToUTC(createdAt)

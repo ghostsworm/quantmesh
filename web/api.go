@@ -1617,16 +1617,26 @@ func getOrderHistory(c *gin.Context) {
 			"client_order_id": order.ClientOrderID,
 			"symbol":          order.Symbol,
 			"side":            order.Side,
+			"exchange":        order.Exchange,
+			"type":            order.Type,
 			"price":           order.Price,
 			"quantity":        order.Quantity,
+			"filled_qty":      order.FilledQty,
 			"status":          order.Status,
 			"created_at":      utils.ToUTC8(order.CreatedAt),
 			"updated_at":      utils.ToUTC8(order.UpdatedAt),
 		}
+		// pnl = 网格策略计算的盈亏（基于买卖配对）
 		if pnl, ok := pnlMap[order.OrderID]; ok {
 			resp["pnl"] = pnl
 		} else {
 			resp["pnl"] = nil
+		}
+		// exchange_pnl = 交易所计算的已实现盈亏（基于加权平均成本法）
+		if order.RealizedPnL != nil {
+			resp["exchange_pnl"] = *order.RealizedPnL
+		} else {
+			resp["exchange_pnl"] = nil
 		}
 		ordersResponse[i] = resp
 	}

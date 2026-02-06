@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [3.44.1-rc5] - 2026-02-06
+
+### Fixed
+- **修复订单数量显示为 0.0000 的 Bug**：`order_filled` 事件字段名 `executed_qty` 与 `saveOrderFromMap` 读取的 `quantity` 不匹配，导致入库 quantity=0
+- **修复 SaveOrder 覆盖问题**：从 `INSERT OR REPLACE` 改为 `INSERT ... ON CONFLICT DO UPDATE`，仅在新值非零/非空时更新，避免后续同步覆盖已有正确数据
+- **事件补全字段**：`order_filled` 事件新增 `quantity`、`type`、`realized_pnl`、`exchange` 字段
+
+### Added
+- **双盈亏展示（网格 PnL + 交易所 PnL）**：
+  - 订单历史页面同时展示「盈利(网格)」和「盈利(交易所)」两列
+  - 网格 PnL = `(卖出价 - 买入价) × 数量`，按网格槽位买卖配对计算，反映每个网格周期的利润
+  - 交易所 PnL = 币安等交易所按加权平均成本法计算的已实现盈亏（`RealizedPnL` 字段），反映持仓整体的会计核算
+  - 两种计算方法的差异说明：网格策略的 PnL 始终为正（低买高卖），而交易所 PnL 可能为负（当整体仓位均价高于卖出价时）
+  - 鼠标悬停交易所 PnL 有 Tooltip 说明计算方法差异
+- **orders 表新增列**：`filled_qty`（已成交数量）、`exchange`（交易所）、`type`（订单类型）、`realized_pnl`（交易所已实现盈亏）
+- **订单同步增强**：`order_sync` 同步时传递 `RealizedPnL`、`FilledQty`、`Exchange` 字段
+- **API 增强**：`/api/orders/history` 返回 `filled_qty`、`exchange`、`type`、`exchange_pnl` 字段
+- **多语言支持**：新增 `gridPnl`、`exchangePnl`、`exchangePnlTooltip` 国际化键（zh-CN/zh-TW/en-US/ja-JP/ko-KR）
+
 ## [3.44.1-rc4] - 2026-02-06
 
 ### Fixed

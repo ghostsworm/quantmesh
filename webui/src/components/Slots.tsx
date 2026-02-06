@@ -128,9 +128,9 @@ const Slots: React.FC = () => {
   const getOrderSideText = (side: string) => {
     switch (side) {
       case 'BUY':
-        return t('orderSideBuy')
+        return t('slotsPage.orderSideBuy')
       case 'SELL':
-        return t('orderSideSell')
+        return t('slotsPage.orderSideSell')
       default:
         return side
     }
@@ -139,17 +139,17 @@ const Slots: React.FC = () => {
   const getOrderStatusText = (status: string) => {
     switch (status) {
       case 'NEW':
-        return t('orderStatusNew')
+        return t('slotsPage.orderStatusNew')
       case 'PARTIALLY_FILLED':
-        return t('orderStatusPartiallyFilled')
+        return t('slotsPage.orderStatusPartiallyFilled')
       case 'FILLED':
-        return t('orderStatusFilled')
+        return t('slotsPage.orderStatusFilled')
       case 'CANCELED':
-        return t('orderStatusCanceled')
+        return t('slotsPage.orderStatusCanceled')
       case 'PENDING_CANCEL':
-        return t('orderStatusPendingCancel')
+        return t('slotsPage.orderStatusPendingCancel')
       case 'REJECTED':
-        return t('orderStatusRejected')
+        return t('slotsPage.orderStatusRejected')
       default:
         return status
     }

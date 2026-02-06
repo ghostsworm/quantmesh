@@ -8,9 +8,13 @@ type Order struct {
 	ClientOrderID string
 	Symbol        string
 	Side          string
+	Exchange      string  // 交易所名稱（binance, gate 等）
+	Type          string  // 订單類型（LIMIT, MARKET 等）
 	Price         float64
 	Quantity      float64
+	FilledQty     float64  // 已成交數量
 	Status        string
+	RealizedPnL   *float64 // 交易所計算的已實現盈虧（nil 表示無數據）
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

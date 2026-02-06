@@ -43,6 +43,12 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("迁移 trades 表失败: %w", err)
 	}
 
+	// 迁移：orders 表增加 filled_qty / exchange / type / realized_pnl 列
+	if err := migrateOrdersTable(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("迁移 orders 表失败: %w", err)
+	}
+
 	return &SQLiteStorage{db: db}, nil
 }
 
@@ -994,17 +1000,66 @@ func migrateTradesTable(db *sql.DB) error {
 	return nil
 }
 
-// SaveOrder 保存订單
+// migrateOrdersTable 迁移 orders 表，添加 filled_qty / exchange / type / realized_pnl 列
+func migrateOrdersTable(db *sql.DB) error {
+	columns := []struct {
+		name string
+		def  string
+	}{
+		{"filled_qty", "ALTER TABLE orders ADD COLUMN filled_qty DECIMAL(20,8) DEFAULT 0"},
+		{"exchange", "ALTER TABLE orders ADD COLUMN exchange TEXT DEFAULT ''"},
+		{"type", "ALTER TABLE orders ADD COLUMN type TEXT DEFAULT ''"},
+		{"realized_pnl", "ALTER TABLE orders ADD COLUMN realized_pnl DECIMAL(20,8)"},
+	}
+
+	for _, col := range columns {
+		row := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name=?`, col.name)
+		var count int
+		if err := row.Scan(&count); err != nil {
+			continue
+		}
+		if count == 0 {
+			if _, err := db.Exec(col.def); err != nil {
+				logger.Warn("⚠️ orders 表添加列 %s 失败: %v", col.name, err)
+			} else {
+				logger.Info("🔄 orders 表成功添加列: %s", col.name)
+			}
+		}
+	}
+	return nil
+}
+
+// SaveOrder 保存订單（使用 UPSERT 保留已有非零值）
 func (s *SQLiteStorage) SaveOrder(order *Order) error {
 	// 轉换為UTC時间存儲
 	createdAt := utils.ToUTC(order.CreatedAt)
 	updatedAt := utils.ToUTC(order.UpdatedAt)
+
+	// realized_pnl 可能為 nil（表示無數據），需要傳 NULL
+	var realizedPnL interface{}
+	if order.RealizedPnL != nil {
+		realizedPnL = *order.RealizedPnL
+	}
+
 	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO orders 
-		(order_id, client_order_id, symbol, side, price, quantity, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO orders 
+		(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(order_id) DO UPDATE SET
+			client_order_id = COALESCE(NULLIF(excluded.client_order_id, ''), orders.client_order_id),
+			symbol          = COALESCE(NULLIF(excluded.symbol, ''), orders.symbol),
+			side            = COALESCE(NULLIF(excluded.side, ''), orders.side),
+			exchange        = COALESCE(NULLIF(excluded.exchange, ''), orders.exchange),
+			type            = COALESCE(NULLIF(excluded.type, ''), orders.type),
+			price           = CASE WHEN excluded.price > 0 THEN excluded.price ELSE orders.price END,
+			quantity        = CASE WHEN excluded.quantity > 0 THEN excluded.quantity ELSE orders.quantity END,
+			filled_qty      = CASE WHEN excluded.filled_qty > 0 THEN excluded.filled_qty ELSE orders.filled_qty END,
+			status          = COALESCE(NULLIF(excluded.status, ''), orders.status),
+			realized_pnl    = COALESCE(excluded.realized_pnl, orders.realized_pnl),
+			updated_at      = excluded.updated_at
 	`, order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
-		order.Price, order.Quantity, order.Status, createdAt, updatedAt)
+		order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
+		order.Status, realizedPnL, createdAt, updatedAt)
 	return err
 }
 
@@ -1188,7 +1243,10 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 	}
 
 	query := `
-		SELECT order_id, client_order_id, symbol, side, price, quantity, status, created_at, updated_at
+		SELECT order_id, client_order_id, symbol, side, 
+			COALESCE(exchange, '') as exchange, COALESCE(type, '') as type,
+			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
+			status, realized_pnl, created_at, updated_at
 		FROM orders
 		WHERE 1=1
 	`
@@ -1211,19 +1269,28 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 	var orders []*Order
 	for rows.Next() {
 		order := &Order{}
+		var realizedPnL sql.NullFloat64
 		err := rows.Scan(
 			&order.OrderID,
 			&order.ClientOrderID,
 			&order.Symbol,
 			&order.Side,
+			&order.Exchange,
+			&order.Type,
 			&order.Price,
 			&order.Quantity,
+			&order.FilledQty,
 			&order.Status,
+			&realizedPnL,
 			&order.CreatedAt,
 			&order.UpdatedAt,
 		)
 		if err != nil {
 			continue
+		}
+		if realizedPnL.Valid {
+			v := realizedPnL.Float64
+			order.RealizedPnL = &v
 		}
 		orders = append(orders, order)
 	}
