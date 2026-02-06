@@ -1000,7 +1000,7 @@ func migrateTradesTable(db *sql.DB) error {
 	return nil
 }
 
-// migrateOrdersTable 迁移 orders 表，添加 filled_qty / exchange / type / realized_pnl 列
+// migrateOrdersTable 迁移 orders 表，添加 filled_qty / exchange / type / realized_pnl / strategy_name / strategy_type 列
 func migrateOrdersTable(db *sql.DB) error {
 	columns := []struct {
 		name string
@@ -1010,6 +1010,8 @@ func migrateOrdersTable(db *sql.DB) error {
 		{"exchange", "ALTER TABLE orders ADD COLUMN exchange TEXT DEFAULT ''"},
 		{"type", "ALTER TABLE orders ADD COLUMN type TEXT DEFAULT ''"},
 		{"realized_pnl", "ALTER TABLE orders ADD COLUMN realized_pnl DECIMAL(20,8)"},
+		{"strategy_name", "ALTER TABLE orders ADD COLUMN strategy_name TEXT DEFAULT ''"},
+		{"strategy_type", "ALTER TABLE orders ADD COLUMN strategy_type TEXT DEFAULT ''"},
 	}
 
 	for _, col := range columns {
@@ -1043,8 +1045,8 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 
 	_, err := s.db.Exec(`
 		INSERT INTO orders 
-		(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(order_id) DO UPDATE SET
 			client_order_id = COALESCE(NULLIF(excluded.client_order_id, ''), orders.client_order_id),
 			symbol          = COALESCE(NULLIF(excluded.symbol, ''), orders.symbol),
@@ -1056,10 +1058,12 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 			filled_qty      = CASE WHEN excluded.filled_qty > 0 THEN excluded.filled_qty ELSE orders.filled_qty END,
 			status          = COALESCE(NULLIF(excluded.status, ''), orders.status),
 			realized_pnl    = COALESCE(excluded.realized_pnl, orders.realized_pnl),
+			strategy_name   = COALESCE(NULLIF(excluded.strategy_name, ''), orders.strategy_name),
+			strategy_type   = COALESCE(NULLIF(excluded.strategy_type, ''), orders.strategy_type),
 			updated_at      = excluded.updated_at
 	`, order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
 		order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
-		order.Status, realizedPnL, createdAt, updatedAt)
+		order.Status, realizedPnL, order.StrategyName, order.StrategyType, createdAt, updatedAt)
 	return err
 }
 
@@ -1246,7 +1250,9 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 		SELECT order_id, client_order_id, symbol, side, 
 			COALESCE(exchange, '') as exchange, COALESCE(type, '') as type,
 			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
-			status, realized_pnl, created_at, updated_at
+			status, realized_pnl,
+			COALESCE(strategy_name, '') as strategy_name, COALESCE(strategy_type, '') as strategy_type,
+			created_at, updated_at
 		FROM orders
 		WHERE 1=1
 	`
@@ -1282,6 +1288,8 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 			&order.FilledQty,
 			&order.Status,
 			&realizedPnL,
+			&order.StrategyName,
+			&order.StrategyType,
 			&order.CreatedAt,
 			&order.UpdatedAt,
 		)
@@ -1296,6 +1304,24 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 	}
 
 	return orders, nil
+}
+
+// CountOrders 统计订單数量（不受 limit 限制，返回真实总数）
+func (s *SQLiteStorage) CountOrders(status string) (int64, error) {
+	query := `SELECT COUNT(*) FROM orders WHERE 1=1`
+	args := []interface{}{}
+
+	if status != "" {
+		query += " AND status = ?"
+		args = append(args, status)
+	}
+
+	var count int64
+	err := s.db.QueryRow(query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("统计订單数量失败: %w", err)
+	}
+	return count, nil
 }
 
 // QueryPositions 查詢持倉历史
@@ -3086,6 +3112,77 @@ func (s *SQLiteStorage) GetPredictionAccuracyStats(assetType string, since time.
 		correct = int(sumCorrect.Int64)
 	}
 	return total, correct, nil
+}
+
+// GetPredictionAccuracyStatsByTimeframe 獲取按時间窗口分組的預测准确率统计
+func (s *SQLiteStorage) GetPredictionAccuracyStatsByTimeframe(assetType string, since time.Time) (map[string]struct{ Total, Correct int }, error) {
+	query := "SELECT timeframe, COUNT(*), SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) FROM prediction_verification WHERE status = 'verified' AND verified_at >= ?"
+	args := []interface{}{since}
+	if assetType != "" {
+		query += " AND asset_type = ?"
+		args = append(args, assetType)
+	}
+	query += " GROUP BY timeframe"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make(map[string]struct{ Total, Correct int })
+	for rows.Next() {
+		var tf string
+		var total int
+		var correct sql.NullInt64
+		if err := rows.Scan(&tf, &total, &correct); err != nil {
+			return nil, err
+		}
+		c := 0
+		if correct.Valid {
+			c = int(correct.Int64)
+		}
+		stats[tf] = struct{ Total, Correct int }{Total: total, Correct: c}
+	}
+	return stats, rows.Err()
+}
+
+// GetPredictionDirectionStatsByTimeframe 獲取按時间窗口和方向分組的預测统计
+func (s *SQLiteStorage) GetPredictionDirectionStatsByTimeframe(assetType string, since time.Time) (map[string]map[string]struct{ Total, Correct int }, error) {
+	query := "SELECT timeframe, predicted_direction, COUNT(*), SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) FROM prediction_verification WHERE status = 'verified' AND verified_at >= ?"
+	args := []interface{}{since}
+	if assetType != "" {
+		query += " AND asset_type = ?"
+		args = append(args, assetType)
+	}
+	query += " GROUP BY timeframe, predicted_direction"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// timeframe -> direction -> stats
+	stats := make(map[string]map[string]struct{ Total, Correct int })
+	for rows.Next() {
+		var tf string
+		var dir string
+		var total int
+		var correct sql.NullInt64
+		if err := rows.Scan(&tf, &dir, &total, &correct); err != nil {
+			return nil, err
+		}
+		if _, ok := stats[tf]; !ok {
+			stats[tf] = make(map[string]struct{ Total, Correct int })
+		}
+		c := 0
+		if correct.Valid {
+			c = int(correct.Int64)
+		}
+		stats[tf][dir] = struct{ Total, Correct int }{Total: total, Correct: c}
+	}
+	return stats, rows.Err()
 }
 
 // Close 关闭數據库连接

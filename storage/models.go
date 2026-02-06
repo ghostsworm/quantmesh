@@ -15,6 +15,8 @@ type Order struct {
 	FilledQty     float64  // 已成交數量
 	Status        string
 	RealizedPnL   *float64 // 交易所計算的已實現盈虧（nil 表示無數據）
+	StrategyName  string   // 策略名称（如 "Grid-BTCUSDT-1"）
+	StrategyType  string   // 策略類型（如 "grid", "dca", "martingale"）
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

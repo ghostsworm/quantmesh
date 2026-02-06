@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.44.1-rc7"
+var Version = "3.44.1-rc9"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2503,6 +2503,8 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 		ReduceOnly:    req.ReduceOnly,
 		PostOnly:      req.PostOnly,      // 傳遞 PostOnly 参數
 		ClientOrderID: req.ClientOrderID, // 傳遞 ClientOrderID
+		StrategyName:  req.StrategyName,  // 傳遞策略名称
+		StrategyType:  req.StrategyType,  // 傳遞策略類型
 	}
 	ord, err := a.executor.PlaceOrder(orderReq)
 	if err != nil {
@@ -2521,6 +2523,8 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 				"price":           ord.Price,
 				"quantity":        ord.Quantity,
 				"status":          ord.Status,
+				"strategy_name":   req.StrategyName,
+				"strategy_type":   req.StrategyType,
 				"created_at":      ord.CreatedAt,
 			},
 		})
@@ -2544,6 +2548,8 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrders(orders []*position.OrderReque
 }
 
 func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	// 建立 ClientOrderID -> 策略信息 的映射，用於事件发布時回填
+	strategyMap := make(map[string][2]string) // ClientOrderID -> [StrategyName, StrategyType]
 	orderReqs := make([]*order.OrderRequest, len(orders))
 	for i, req := range orders {
 		orderReqs[i] = &order.OrderRequest{
@@ -2555,6 +2561,11 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 			ReduceOnly:    req.ReduceOnly,
 			PostOnly:      req.PostOnly,      // 傳遞 PostOnly 参數
 			ClientOrderID: req.ClientOrderID, // 傳遞 ClientOrderID
+			StrategyName:  req.StrategyName,  // 傳遞策略名称
+			StrategyType:  req.StrategyType,  // 傳遞策略類型
+		}
+		if req.ClientOrderID != "" {
+			strategyMap[req.ClientOrderID] = [2]string{req.StrategyName, req.StrategyType}
 		}
 	}
 	batchResult := a.executor.BatchPlaceOrdersWithDetails(orderReqs)
@@ -2577,7 +2588,11 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 			CreatedAt:     ord.CreatedAt,
 		}
 
-		// 发布订單下單事件
+		// 发布订單下單事件（回填策略信息）
+		sName, sType := "", ""
+		if info, ok := strategyMap[ord.ClientOrderID]; ok {
+			sName, sType = info[0], info[1]
+		}
 		if a.eventBus != nil {
 			a.eventBus.Publish(&event.Event{
 				Type: event.EventTypeOrderPlaced,
@@ -2589,6 +2604,8 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 					"price":           ord.Price,
 					"quantity":        ord.Quantity,
 					"status":          ord.Status,
+					"strategy_name":   sName,
+					"strategy_type":   sType,
 					"created_at":      ord.CreatedAt,
 				},
 			})

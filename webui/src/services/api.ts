@@ -239,6 +239,8 @@ export interface OrderInfo {
 
 export interface OrdersResponse {
   orders: OrderInfo[]
+  total_count?: number  // 数据库中的真实订单总数
+  today_count?: number  // 今日订单数
 }
 
 export async function getOrders(exchange?: string, symbol?: string): Promise<OrdersResponse> {
@@ -1055,6 +1057,16 @@ export interface PredictionAccuracyResponse {
   total: number
   correct: number
   accuracy: number
+  timeframe_breakdown?: Record<string, {
+    total: number
+    correct: number
+    accuracy: number
+    directions?: Record<string, {
+      total: number
+      correct: number
+      accuracy: number
+    }>
+  }>
   asset_type?: string
 }
 

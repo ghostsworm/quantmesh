@@ -30,6 +30,7 @@ type Storage interface {
 	CleanupSystemMetrics(beforeTime time.Time) error
 	CleanupDailySystemMetrics(beforeDate time.Time) error
 	QueryOrders(limit, offset int, status string) ([]*Order, error)
+	CountOrders(status string) (int64, error)
 	QueryPositions(limit, offset int) ([]*Position, error)
 	QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error)
 	// GetTradesBySellOrderIDs 根據賣單 ID 查詢對應的成交盈虧，返回 sell_order_id -> pnl 的映射
@@ -104,6 +105,8 @@ type Storage interface {
 	GetPredictionVerificationsByStatus(status string, limit int) ([]*PredictionVerification, error)
 	UpdatePredictionVerification(v *PredictionVerification) error
 	GetPredictionAccuracyStats(assetType string, since time.Time) (total int, correct int, err error)
+	GetPredictionAccuracyStatsByTimeframe(assetType string, since time.Time) (map[string]struct{ Total, Correct int }, error)
+	GetPredictionDirectionStatsByTimeframe(assetType string, since time.Time) (map[string]map[string]struct{ Total, Correct int }, error)
 
 	// 每日快照與小時權益（未實現盈虧、日內最大回撤）
 	SaveHourlyEquityRecord(record *HourlyEquityRecord) error
@@ -430,6 +433,13 @@ func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 	// 交易所已實現盈虧
 	if rpnl, ok := data["realized_pnl"].(float64); ok {
 		order.RealizedPnL = &rpnl
+	}
+	// 策略信息
+	if strategyName, ok := data["strategy_name"].(string); ok {
+		order.StrategyName = strategyName
+	}
+	if strategyType, ok := data["strategy_type"].(string); ok {
+		order.StrategyType = strategyType
 	}
 	if createdAt, ok := data["created_at"].(time.Time); ok {
 		order.CreatedAt = utils.ToUTC(createdAt)

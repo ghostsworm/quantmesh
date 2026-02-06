@@ -544,6 +544,11 @@
     "interval4h": "4 hours",
     "interval5m": "5 minutes",
     "interval60m": "60 minutes",
+    "interval1h": "1 hour",
+    "interval2h": "2 hours",
+    "interval4h": "4 hours",
+    "interval8h": "8 hours",
+    "interval24h": "24 hours",
     "interval8h": "8 hours",
     "loadConfig": "Load Config",
     "loadFailedToast": "Failed to load configuration",
@@ -2827,6 +2832,9 @@
     "last14d": "近14天",
     "last30d": "近30天",
     "all": "全部",
+    "up": "看漲",
+    "down": "看跌",
+    "stable": "平穩",
     "backToNewsAnalysis": "返回新聞分析"
   },
   "slotsPage": {

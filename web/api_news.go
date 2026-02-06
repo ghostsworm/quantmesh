@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
+	"quantmesh/logger"
 	"quantmesh/monitor"
 )
 
@@ -366,16 +367,63 @@ func getPredictionsAccuracy(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 獲取按 timeframe 分组的统计
+	tfStats, err := st.GetPredictionAccuracyStatsByTimeframe(assetType, since)
+	if err != nil {
+		logger.Warn("📊 獲取按 timeframe 分组统计失败: %v", err)
+	}
+
+	// 獲取按 timeframe 和方向分组的统计
+	dirStats, err := st.GetPredictionDirectionStatsByTimeframe(assetType, since)
+	if err != nil {
+		logger.Warn("📊 獲取按方向分组统计失败: %v", err)
+	}
+
 	accuracy := 0.0
 	if total > 0 {
 		accuracy = float64(correct) / float64(total) * 100
 	}
+
+	// 格式化 timeframe 统计
+	timeframeBreakdown := make(map[string]interface{})
+	for tf, s := range tfStats {
+		acc := 0.0
+		if s.Total > 0 {
+			acc = float64(s.Correct) / float64(s.Total) * 100
+		}
+
+		// 处理方向统计
+		directions := make(map[string]interface{})
+		if ds, ok := dirStats[tf]; ok {
+			for dir, dstat := range ds {
+				dacc := 0.0
+				if dstat.Total > 0 {
+					dacc = float64(dstat.Correct) / float64(dstat.Total) * 100
+				}
+				directions[dir] = gin.H{
+					"total":    dstat.Total,
+					"correct":  dstat.Correct,
+					"accuracy": dacc,
+				}
+			}
+		}
+
+		timeframeBreakdown[tf] = gin.H{
+			"total":      s.Total,
+			"correct":    s.Correct,
+			"accuracy":   acc,
+			"directions": directions,
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"total":     total,
-		"correct":   correct,
-		"accuracy":  accuracy,
-		"since":     since,
-		"asset_type": assetType,
+		"total":               total,
+		"correct":             correct,
+		"accuracy":            accuracy,
+		"timeframe_breakdown": timeframeBreakdown,
+		"since":               since,
+		"asset_type":          assetType,
 	})
 }
 
