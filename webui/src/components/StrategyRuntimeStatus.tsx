@@ -108,9 +108,9 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
   const getOrderSideText = (side: string) => {
     switch (side) {
       case 'BUY':
-        return t('orderSideBuy')
+        return t('strategyRuntime.orderSideBuy')
       case 'SELL':
-        return t('orderSideSell')
+        return t('strategyRuntime.orderSideSell')
       default:
         return side
     }
@@ -119,17 +119,17 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
   const getOrderStatusText = (status: string) => {
     switch (status) {
       case 'NEW':
-        return t('orderStatusNew')
+        return t('strategyRuntime.orderStatusNew')
       case 'PARTIALLY_FILLED':
-        return t('orderStatusPartiallyFilled')
+        return t('strategyRuntime.orderStatusPartiallyFilled')
       case 'FILLED':
-        return t('orderStatusFilled')
+        return t('strategyRuntime.orderStatusFilled')
       case 'CANCELED':
-        return t('orderStatusCanceled')
+        return t('strategyRuntime.orderStatusCanceled')
       case 'PENDING_CANCEL':
-        return t('orderStatusPendingCancel')
+        return t('strategyRuntime.orderStatusPendingCancel')
       case 'REJECTED':
-        return t('orderStatusRejected')
+        return t('strategyRuntime.orderStatusRejected')
       default:
         return status
     }

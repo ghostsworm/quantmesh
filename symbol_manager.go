@@ -364,17 +364,21 @@ func startSymbolRuntime(
 				eventType = event.EventTypeOrderCanceled
 			}
 			if eventType != "" {
-				eventBus.Publish(&event.Event{
-					Type: eventType,
-					Data: map[string]interface{}{
-						"order_id":        posUpdate.OrderID,
-						"client_order_id": posUpdate.ClientOrderID,
-						"symbol":          posUpdate.Symbol,
-						"side":            posUpdate.Side,
-						"price":           posUpdate.Price,
-						"executed_qty":    posUpdate.ExecutedQty,
-						"status":          posUpdate.Status,
-					},
+			eventBus.Publish(&event.Event{
+				Type: eventType,
+				Data: map[string]interface{}{
+					"order_id":        posUpdate.OrderID,
+					"client_order_id": posUpdate.ClientOrderID,
+					"symbol":          posUpdate.Symbol,
+					"side":            posUpdate.Side,
+					"price":           posUpdate.Price,
+					"quantity":        posUpdate.ExecutedQty, // FILLED 时 quantity == executed_qty
+					"executed_qty":    posUpdate.ExecutedQty,
+					"status":          posUpdate.Status,
+					"type":            posUpdate.Type,
+					"realized_pnl":    posUpdate.RealizedPnL,
+					"exchange":        symCfg.Exchange,
+				},
 				})
 			}
 		}

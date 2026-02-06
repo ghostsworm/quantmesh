@@ -51,13 +51,16 @@ interface OrderInfo {
   client_order_id: string
   symbol: string
   side: string
+  exchange?: string
   type?: string
   price: number
   quantity: number
+  filled_qty?: number
   status: string
   created_at: string
   updated_at: string
-  pnl?: number | null
+  pnl?: number | null           // 网格策略盈亏（基于买卖配对）
+  exchange_pnl?: number | null  // 交易所已实现盈亏（基于加权平均成本）
   strategy_name?: string
   strategy_type?: string
 }
@@ -744,7 +747,8 @@ const Orders: React.FC = () => {
                       <Th isNumeric>{t('orders.price')}</Th>
                       <Th isNumeric>{t('orders.quantity')}</Th>
                       <Th>{t('orders.status')}</Th>
-                      <Th isNumeric>{t('orders.pnl')}</Th>
+                      <Th isNumeric>{t('orders.gridPnl')}</Th>
+                      <Th isNumeric>{t('orders.exchangePnl')}</Th>
                       <Th>{t('orders.createdAt')}</Th>
                       <Th>{t('orders.updatedAt')}</Th>
                     </Tr>
@@ -795,6 +799,21 @@ const Orders: React.FC = () => {
                               </Tooltip>
                             ) : (
                               '-'
+                            )}
+                          </Td>
+                          <Td isNumeric>
+                            {order.exchange_pnl != null && order.exchange_pnl !== undefined ? (
+                              <Tooltip label={t('orders.exchangePnlTooltip')} placement="top" hasArrow>
+                                <Text
+                                  color={order.exchange_pnl >= 0 ? 'green.500' : 'red.500'}
+                                  fontWeight="medium"
+                                  fontSize="sm"
+                                >
+                                  {order.exchange_pnl >= 0 ? '+' : ''}{order.exchange_pnl.toFixed(4)}
+                                </Text>
+                              </Tooltip>
+                            ) : (
+                              <Text color="gray.400" fontSize="sm">-</Text>
                             )}
                           </Td>
                           <Td>{formatTime(order.created_at)}</Td>
