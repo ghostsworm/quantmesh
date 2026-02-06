@@ -544,6 +544,7 @@ const GlobalDashboard: React.FC = () => {
                       <Th>{t('globalDashboard.positionExchange')}</Th>
                       <Th>{t('globalDashboard.positionSymbol')}</Th>
                       <Th>{t('configuration.direction')}</Th>
+                      <Th isNumeric>{t('dashboard.leverage')}</Th>
                       <Th>{t('globalDashboard.positionStrategy')}</Th>
                       <Th isNumeric>{t('dashboard.size')}</Th>
                       <Th isNumeric>{t('dashboard.unrealizedPnL')}</Th>
@@ -567,6 +568,9 @@ const GlobalDashboard: React.FC = () => {
                           <Badge colorScheme={(symbolDirectionMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`) === 'SHORT' ? 'orange' : 'green') as any} fontSize="xs">
                             {(symbolDirectionMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`) || 'LONG') === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
                           </Badge>
+                        </Td>
+                        <Td isNumeric>
+                          {pos.leverage != null && pos.leverage > 0 ? t('dashboard.leverageTimes', { count: pos.leverage }) : '—'}
                         </Td>
                         <Td>
                           <Badge size="sm" colorScheme="blue" variant="subtle">

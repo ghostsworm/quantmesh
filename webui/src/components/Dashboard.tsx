@@ -356,6 +356,11 @@ const Dashboard: React.FC = () => {
     ? (totalPnL / totalAllocated) * 100
     : null
 
+  // 当前币种杠杆（来自持仓汇总或交易所数据）
+  const currentLeverage = selectedExchange && selectedSymbol
+    ? (positionsSummary?.leverage ?? positionsSummary?.exchange_data?.leverage)
+    : undefined
+
   return (
     <Container maxW="container.xl" py={4}>
       <VStack spacing={8} align="stretch">
@@ -419,6 +424,11 @@ const Dashboard: React.FC = () => {
                 {symbolDirection != null && (
                   <Badge colorScheme={symbolDirection === 'SHORT' ? 'orange' : 'green'} fontSize="sm">
                     {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+                  </Badge>
+                )}
+                {currentLeverage != null && currentLeverage > 0 && (
+                  <Badge colorScheme="purple" variant="outline" fontSize="sm">
+                    {t('dashboard.leverage')} {t('dashboard.leverageTimes', { count: currentLeverage })}
                   </Badge>
                 )}
               </HStack>

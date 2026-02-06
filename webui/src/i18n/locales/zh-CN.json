@@ -320,7 +320,9 @@
     "totalDeviationDescLoss": "价格偏差总净损失",
     "totalDeviationDescNone": "无偏差",
     "totalDeviationLoss": "偏差净额",
-    "strategyVisualization": "策略可视化"
+    "strategyVisualization": "策略可视化",
+    "leverage": "杠杆",
+    "leverageTimes": "{{count}}x"
   },
   "login": {
     "title": "登录",
@@ -626,6 +628,7 @@
     "profileSwitching": "多套配置自动切换",
     "profileSwitchingDesc": "根据资金费率和手续费率自动切换配置档案。当费率超过阈值时，系统会自动选择对应的配置档案（如正费率/负费率）。",
     "profiles": "配置档案",
+    "profileZeroMeansDefault": "配置档案中填 0 表示使用上方该交易对的默认值。",
     "profilePositive": "正费率配置档案",
     "profileNegative": "负费率配置档案",
     "switchRules": "切换规则",

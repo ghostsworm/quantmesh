@@ -301,7 +301,9 @@
     "totalDeviationDescNone": "無偏差",
     "totalDeviationLoss": "偏差淨額",
     "used": "Used",
-    "strategyVisualization": "策略視覺化"
+    "strategyVisualization": "策略視覺化",
+    "leverage": "槓桿",
+    "leverageTimes": "{{count}}x"
   },
   "login": {
     "title": "登錄",
@@ -537,6 +539,7 @@
     "profileSwitching": "多套配置自動切換",
     "profileSwitchingDesc": "根據資金費率和手續費率自動切換配置檔案。當費率超過閾值時，系統會自動選擇對應的配置檔案（如正費率/負費率）。",
     "profiles": "配置檔案",
+    "profileZeroMeansDefault": "配置檔案中填 0 表示使用上方該交易對的預設值。",
     "profilePositive": "正費率配置檔案",
     "profileNegative": "負費率配置檔案",
     "switchRules": "切換規則",
