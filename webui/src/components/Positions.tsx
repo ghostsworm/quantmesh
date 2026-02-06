@@ -22,19 +22,23 @@ import {
   SkeletonText,
   Badge,
   Flex,
+  Button,
+  useToast,
 } from '@chakra-ui/react'
 import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getPositions, getSymbols, type PositionInfo, type PositionSummary, type PositionsResponse } from '../services/api'
+import { getPositions, getSymbols, getPendingOrders, batchCancelOrders, type PositionInfo, type PositionSummary, type PositionsResponse } from '../services/api'
 
 const Positions: React.FC = () => {
   const { t } = useTranslation()
+  const toast = useToast()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [summary, setSummary] = useState<PositionSummary | null>(null)
   const [positions, setPositions] = useState<PositionInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
+  const [cancellingAllBuy, setCancellingAllBuy] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -90,6 +94,48 @@ const Positions: React.FC = () => {
     loadDirection()
   }, [selectedExchange, selectedSymbol])
 
+  const handleCancelAllBuyOrders = async () => {
+    if (!selectedExchange || !selectedSymbol) return
+    setCancellingAllBuy(true)
+    try {
+      const { orders } = await getPendingOrders(selectedExchange, selectedSymbol)
+      const buyOrderIds = (orders || []).filter(o => (o.side || '').toUpperCase() === 'BUY').map(o => o.order_id)
+      if (buyOrderIds.length === 0) {
+        toast({
+          title: t('positionsPage.cancelAllBuyOrdersNone'),
+          status: 'info',
+          duration: 3000,
+        })
+        return
+      }
+      const result = await batchCancelOrders(buyOrderIds, selectedExchange, selectedSymbol)
+      if (result.success) {
+        toast({
+          title: t('positionsPage.cancelAllBuyOrdersSuccess'),
+          description: t('positionsPage.cancelAllBuyOrdersCount', { count: result.count ?? buyOrderIds.length }),
+          status: 'success',
+          duration: 3000,
+        })
+      } else {
+        toast({
+          title: t('positionsPage.cancelAllBuyOrdersFailed'),
+          description: result.message,
+          status: 'error',
+          duration: 5000,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: t('positionsPage.cancelAllBuyOrdersFailed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setCancellingAllBuy(false)
+    }
+  }
+
   if (loading && !summary) {
     return (
       <Box>
@@ -119,12 +165,24 @@ const Positions: React.FC = () => {
 
   return (
     <Box>
-      <Flex align="center" gap={2} mb={6} flexWrap="wrap">
+      <Flex align="center" gap={3} mb={6} flexWrap="wrap">
         <Heading size="lg">{t('positionsPage.title')}</Heading>
         {symbolDirection != null && (
           <Badge colorScheme={symbolDirection === 'SHORT' ? 'orange' : 'green'} fontSize="sm">
             {symbolDirection === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
           </Badge>
+        )}
+        {selectedExchange && selectedSymbol && (
+          <Button
+            size="sm"
+            colorScheme="orange"
+            variant="outline"
+            isLoading={cancellingAllBuy}
+            loadingText={t('positionsPage.cancelAllBuyOrders')}
+            onClick={handleCancelAllBuyOrders}
+          >
+            {t('positionsPage.cancelAllBuyOrders')}
+          </Button>
         )}
       </Flex>
 

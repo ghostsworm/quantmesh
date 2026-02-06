@@ -2795,7 +2795,12 @@
     "leverage": "เลเวอเรจ",
     "actualMargin": "มาร์จินจริง",
     "totalQuantity": "จำนวนรวม",
-    "totalValue": "มูลค่ารวม"
+    "totalValue": "มูลค่ารวม",
+    "cancelAllBuyOrders": "Cancel All Buy Orders",
+    "cancelAllBuyOrdersSuccess": "All buy orders cancelled",
+    "cancelAllBuyOrdersNone": "No pending buy orders",
+    "cancelAllBuyOrdersFailed": "Failed to cancel buy orders",
+    "cancelAllBuyOrdersCount": "{{count}} buy order(s) cancelled"
   },
   "predictionAccuracy": {
     "title": "Prediction Accuracy",

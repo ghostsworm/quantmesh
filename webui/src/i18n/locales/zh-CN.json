@@ -2870,7 +2870,12 @@
     "leverage": "杠杆",
     "actualMargin": "实际保证金",
     "totalQuantity": "总数量",
-    "totalValue": "总价值"
+    "totalValue": "总价值",
+    "cancelAllBuyOrders": "撤销所有委托买单",
+    "cancelAllBuyOrdersSuccess": "已撤销所有委托买单",
+    "cancelAllBuyOrdersNone": "当前没有委托买单",
+    "cancelAllBuyOrdersFailed": "撤销委托买单失败",
+    "cancelAllBuyOrdersCount": "已撤销 {{count}} 笔委托买单"
   },
   "predictionAccuracy": {
     "title": "预测准确率",

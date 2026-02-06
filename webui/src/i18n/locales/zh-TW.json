@@ -2861,7 +2861,12 @@
     "leverage": "槓桿",
     "actualMargin": "實際保證金",
     "totalQuantity": "總數量",
-    "totalValue": "總價值"
+    "totalValue": "總價值",
+    "cancelAllBuyOrders": "撤銷所有委託買單",
+    "cancelAllBuyOrdersSuccess": "已撤銷所有委託買單",
+    "cancelAllBuyOrdersNone": "目前沒有委託買單",
+    "cancelAllBuyOrdersFailed": "撤銷委託買單失敗",
+    "cancelAllBuyOrdersCount": "已撤銷 {{count}} 筆委託買單"
   },
   "predictionAccuracy": {
     "title": "預測準確率",
