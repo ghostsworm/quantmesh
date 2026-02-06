@@ -104,6 +104,7 @@ type OrderUpdate struct {
 	UpdateTime      int64
 	Commission      float64 // 本次成交手續費
 	CommissionAsset string  // 手續費幣種
+	RealizedPnL     float64 // 已實現盈虧（交易所計算）
 }
 
 type Candle struct {
@@ -545,29 +546,35 @@ func (b *BybitAdapter) StartOrderStream(ctx context.Context, callback func(inter
 
 	localCallback := func(update OrderUpdate) {
 		genericUpdate := struct {
-			OrderID       int64
-			ClientOrderID string
-			Symbol        string
-			Side          string
-			Type          string
-			Status        string
-			Price         float64
-			Quantity      float64
-			ExecutedQty   float64
-			AvgPrice      float64
-			UpdateTime    int64
+			OrderID         int64
+			ClientOrderID   string
+			Symbol          string
+			Side            string
+			Type            string
+			Status          string
+			Price           float64
+			Quantity        float64
+			ExecutedQty     float64
+			AvgPrice        float64
+			UpdateTime      int64
+			Commission      float64
+			CommissionAsset string
+			RealizedPnL     float64
 		}{
-			OrderID:       update.OrderID,
-			ClientOrderID: update.ClientOrderID,
-			Symbol:        update.Symbol,
-			Side:          string(update.Side),
-			Type:          string(update.Type),
-			Status:        string(update.Status),
-			Price:         update.Price,
-			Quantity:      update.Quantity,
-			ExecutedQty:   update.ExecutedQty,
-			AvgPrice:      update.AvgPrice,
-			UpdateTime:    update.UpdateTime,
+			OrderID:         update.OrderID,
+			ClientOrderID:   update.ClientOrderID,
+			Symbol:          update.Symbol,
+			Side:            string(update.Side),
+			Type:            string(update.Type),
+			Status:          string(update.Status),
+			Price:           update.Price,
+			Quantity:        update.Quantity,
+			ExecutedQty:     update.ExecutedQty,
+			AvgPrice:        update.AvgPrice,
+			UpdateTime:      update.UpdateTime,
+			Commission:      update.Commission,
+			CommissionAsset: update.CommissionAsset,
+			RealizedPnL:     update.RealizedPnL,
 		}
 		callback(genericUpdate)
 	}

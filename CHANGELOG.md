@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.48.5-rc2] - 2026-02-07
+
+### Fixed
+- **修复非 Binance 交易所订单盈亏数据丢失**：交易所返回的已实现盈亏（RealizedPnL）未被正确捕获和存入数据库
+  - **根因**：OKX、Gate.io、Bybit、Bitget 等交易所的 `OrderUpdate` 结构体缺少 `RealizedPnL` 字段，WebSocket 返回的盈亏数据在解析阶段即被丢弃
+  - **二次丢失**：各适配器 `StartOrderStream` 中创建通用匿名结构体时也未包含 `RealizedPnL`、`Commission`、`CommissionAsset` 字段
+  - 修复范围：Gate.io（`realised_pnl`）、Bitget（`totalProfits`）、OKX（`pnl`）、Bybit（`closedPnl`）均已正确解析
+  - 所有交易所适配器包装层已补齐 `RealizedPnL`、`Commission`、`CommissionAsset` 字段传递
+
 ## [3.48.5-rc1] - 2026-02-07
 
 ### Added

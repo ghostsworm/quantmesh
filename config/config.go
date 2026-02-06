@@ -154,7 +154,8 @@ type CompositeRiskFactorOpts struct {
 // GridRiskControl 網格策略風控配置
 type GridRiskControl struct {
 	Enabled                 bool    `yaml:"enabled" json:"enabled"`
-	MaxGridLayers           int     `yaml:"max_grid_layers" json:"max_grid_layers"`                       // 最大允許買入層數
+	MaxGridLayers           int     `yaml:"max_grid_layers" json:"max_grid_layers"`                       // 最大持倉層數預警：達到此層數後不再新開倉，並可限制掛單數量
+	MaxOpenOrdersAtCap      int     `yaml:"max_open_orders_at_cap" json:"max_open_orders_at_cap"`         // 達到預警時最多允許的開倉單數；超出則撤單。做多先撤高價買單，做空先撤低價賣單。0=僅不新開倉不撤單
 	StopLossRatio           float64 `yaml:"stop_loss_ratio" json:"stop_loss_ratio"`                       // 單幣種最大浮虧比例（如 0.1 表示 10%）
 	TakeProfitTriggerRatio  float64 `yaml:"take_profit_trigger_ratio" json:"take_profit_trigger_ratio"`   // 盈利達到此比例後開啟回撤止盈（如 0.08 表示 8%）
 	TrailingTakeProfitRatio float64 `yaml:"trailing_take_profit_ratio" json:"trailing_take_profit_ratio"` // 盈利回撤比例（如 0.03 表示回撤 3% 止盈）

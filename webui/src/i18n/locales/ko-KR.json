@@ -2774,6 +2774,9 @@
   },
   "fundingRate": {
     "title": "펀딩 비율",
+    "sumCurveTitle": "펀딩 비율 시간별 합계 (숫자 합, % 없음)",
+    "sumCurveYLabel": "합계",
+    "noChartData": "차트 데이터 없음",
     "currentRates": "현재 비율",
     "historyRates": "과거 비율",
     "exchange": "거래소",

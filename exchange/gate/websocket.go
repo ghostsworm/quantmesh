@@ -513,6 +513,10 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 		// Gate.io 合約手續費通常以 USDT 計價
 		commissionAsset := "USDT"
 
+		// 🔥 解析已實現盈虧（Gate.io 返回 realised_pnl 字段）
+		realisedPnlStr, _ := orderData["realised_pnl"].(string)
+		realisedPnl, _ := parseFloat(realisedPnlStr)
+
 		// 轉换為標准格式
 		update := OrderUpdate{
 			OrderID:         int64(orderID),
@@ -527,6 +531,7 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 			UpdateTime:       int64(finishTime * 1000), // 轉换為毫秒
 			Commission:       commission,
 			CommissionAsset:  commissionAsset,
+			RealizedPnL:      realisedPnl,
 		}
 
 		w.mu.RLock()
