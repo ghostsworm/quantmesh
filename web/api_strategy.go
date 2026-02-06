@@ -484,6 +484,25 @@ func updateStrategyConfigHandler(c *gin.Context) {
 	config.StrategyID = strategyID
 
 	// TODO: 保存配置到數據库
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil {
+			if cfg.Strategies.Configs == nil {
+				cfg.Strategies.Configs = make(map[string]config.StrategyConfig)
+			}
+			sc := cfg.Strategies.Configs[strategyID]
+			sc.Enabled = config.Enabled
+			sc.Priority = config.Priority
+			sc.Weight = config.MaxAllocation / 100.0 // 假设 maxAllocation 是百分比
+			sc.Config = config.Parameters
+			cfg.Strategies.Configs[strategyID] = sc
+
+			if err := configManager.UpdateConfig(cfg); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "更新配置失败: " + err.Error()})
+				return
+			}
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

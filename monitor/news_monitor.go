@@ -394,7 +394,12 @@ func (nm *NewsMonitor) runGeminiAnalysis(assetType, symbol, focusEvent string) {
 // SymbolToAssetType 交易對到资產類型映射
 var SymbolToAssetType = map[string]string{
 	"BTCUSDT":  AssetTypeCryptoBTC,
+	"ETHUSDT":  AssetTypeCryptoETH,
+	"SOLUSDT":  AssetTypeCryptoSOL,
+	"DOGEUSDT": AssetTypeCryptoDOGE,
 	"PAXGUSDT": AssetTypeCommodityGold,
+	"XAGUSDT":  AssetTypeCommoditySilver,
+	"SPX":      AssetTypeStockUS,
 }
 
 // TriggerAnalysis 手动触发分析（支援指定焦点事件和 assetType）

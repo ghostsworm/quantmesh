@@ -15,13 +15,73 @@ func BoolPtr(b bool) *bool {
 // DefaultGoldKeywords 回傳預設的黃金新聞監控關鍵詞
 func DefaultGoldKeywords() []string {
 	return []string{
-		"gold", "XAU", "黃金", "金價", "gold price",
+		"gold", "XAU", "黃金", "金價", "gold price", "PAXG",
 		"Federal Reserve", "Fed", "美聯儲", "interest rate", "利率",
 		"Dollar", "DXY", "美元指數", "US dollar",
 		"Inflation", "CPI", "PCE", "通脹",
 		"geopolitical", "地緣政治", "war", "戰爭", "sanctions", "制裁",
 		"central bank", "央行", "gold reserve", "黃金儲備", "gold holdings",
 		"safe haven", "避險", "volatility", "市場波動",
+	}
+}
+
+// DefaultSilverKeywords 回傳預設的白銀新聞監控關鍵詞
+func DefaultSilverKeywords() []string {
+	return []string{
+		"silver", "XAG", "白銀", "銀價", "silver price",
+		"Federal Reserve", "Fed", "美聯儲", "interest rate", "利率",
+		"Dollar", "DXY", "美元指數", "US dollar",
+		"Inflation", "CPI", "PCE", "通脹",
+		"industrial demand", "工業需求", "solar panel", "太陽能",
+		"precious metals", "貴金屬", "gold silver ratio",
+	}
+}
+
+// DefaultStockKeywords 回傳預設的美股新聞監控關鍵詞
+func DefaultStockKeywords() []string {
+	return []string{
+		"S&P 500", "SPX", "NASDAQ", "Dow Jones", "DJIA",
+		"Federal Reserve", "Fed", "美聯儲", "interest rate", "利率",
+		"inflation", "CPI", "PCE", "通脹",
+		"earnings", "財報", "GDP", "unemployment", "失業率",
+		"stock market", "股市", "market crash", "市場崩盤",
+		"tech stocks", "科技股", "FAANG", "Apple", "Microsoft", "Google",
+	}
+}
+
+// DefaultEthKeywords 回傳預設的以太坊新聞監控關鍵詞
+func DefaultEthKeywords() []string {
+	return []string{
+		"ethereum", "eth", "ETH", "以太坊",
+		"Ethereum ETF", "ETH ETF", "ethereum spot etf",
+		"Ethereum upgrade", "ETH upgrade", "以太坊升級",
+		"DeFi", "decentralized finance", "去中心化金融",
+		"smart contract", "智能合約", "gas fee", "gas price",
+		"Ethereum staking", "ETH staking", "以太坊質押",
+		"Layer 2", "L2", "Arbitrum", "Optimism", "Polygon",
+	}
+}
+
+// DefaultSolKeywords 回傳預設的 Solana 新聞監控關鍵詞
+func DefaultSolKeywords() []string {
+	return []string{
+		"Solana", "SOL", "sol",
+		"Solana ETF", "SOL ETF", "solana spot etf",
+		"Solana network", "SOL network", "Solana outage", "SOL outage",
+		"Solana ecosystem", "SOL ecosystem", "Solana DeFi",
+		"Solana NFT", "SOL NFT", "Solana meme coin",
+		"Solana validator", "SOL validator", "Solana staking",
+	}
+}
+
+// DefaultDogeKeywords 回傳預設的 Dogecoin 新聞監控關鍵詞
+func DefaultDogeKeywords() []string {
+	return []string{
+		"Dogecoin", "DOGE", "doge",
+		"Elon Musk", "馬斯克", "Tesla", "特斯拉",
+		"meme coin", "模因幣", "DOGE price", "Dogecoin price",
+		"DOGE ETF", "Dogecoin ETF", "DOGE adoption",
+		"crypto meme", "加密模因", "DOGE community",
 	}
 }
 
@@ -52,8 +112,8 @@ func DefaultNewsKeywords() []string {
 
 // AssetConfig 新聞監控多資產配置
 type AssetConfig struct {
-	AssetType string   `yaml:"asset_type" json:"asset_type"` // crypto_btc, commodity_gold
-	Symbol    string   `yaml:"symbol" json:"symbol"`         // BTCUSDT, PAXGUSDT
+	AssetType string   `yaml:"asset_type" json:"asset_type"` // crypto_btc, crypto_eth, crypto_sol, crypto_doge, commodity_gold, commodity_silver, stock_us
+	Symbol    string   `yaml:"symbol" json:"symbol"`         // BTCUSDT, ETHUSDT, SOLUSDT, DOGEUSDT, PAXGUSDT, XAGUSDT, SPX
 	Keywords  []string `yaml:"keywords" json:"keywords"`     // 該資產專用關鍵詞
 	Enabled   bool     `yaml:"enabled" json:"enabled"`       // 是否啟用
 }
@@ -1896,6 +1956,11 @@ func (c *Config) Validate() error {
 		c.NewsMonitor.Assets = []AssetConfig{
 			{AssetType: "crypto_btc", Symbol: "BTCUSDT", Keywords: DefaultNewsKeywords(), Enabled: true},
 			{AssetType: "commodity_gold", Symbol: "PAXGUSDT", Keywords: DefaultGoldKeywords(), Enabled: true},
+			{AssetType: "commodity_silver", Symbol: "XAGUSDT", Keywords: DefaultSilverKeywords(), Enabled: false},
+			{AssetType: "stock_us", Symbol: "SPX", Keywords: DefaultStockKeywords(), Enabled: false},
+			{AssetType: "crypto_eth", Symbol: "ETHUSDT", Keywords: DefaultEthKeywords(), Enabled: false},
+			{AssetType: "crypto_sol", Symbol: "SOLUSDT", Keywords: DefaultSolKeywords(), Enabled: false},
+			{AssetType: "crypto_doge", Symbol: "DOGEUSDT", Keywords: DefaultDogeKeywords(), Enabled: false},
 		}
 	}
 	// 設置 AI Provider 配置預設值

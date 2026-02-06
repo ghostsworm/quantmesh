@@ -12,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
 	"quantmesh/config"
+	"quantmesh/event"
+	"quantmesh/notify"
 )
 
 var (
@@ -108,6 +110,15 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool) error {
 		return err
 	}
 
+	// 保存到历史
+	if configHistoryMgr != nil {
+		currentContent, err := os.ReadFile(configManager.configPath)
+		if err == nil {
+			description := fmt.Sprintf("自动更新交易對狀態: %s:%s -> %v", exchange, symbol, enabled)
+			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "system")
+		}
+	}
+
 	// 更新記憶體中的配置
 	configManager.currentConfig = cfg
 
@@ -165,6 +176,23 @@ func (cm *ConfigManager) GetConfig() (*config.Config, error) {
 func (cm *ConfigManager) UpdateConfig(newConfig *config.Config) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	// 保存當前配置到历史
+	if configHistoryMgr != nil {
+		currentContent, err := os.ReadFile(cm.configPath)
+		if err == nil {
+			// 生成变更描述
+			description := "通過 Web UI 更新配置"
+			// 獲取舊配置用於對比（如果可能）
+			if cm.currentConfig != nil {
+				diff := config.DiffConfig(cm.currentConfig, newConfig)
+				if len(diff.Changes) > 0 {
+					description = fmt.Sprintf("通過 Web UI 修改了 %d 项配置", len(diff.Changes))
+				}
+			}
+			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
+		}
+	}
 
 	// 保存到文件
 	if err := config.SaveConfig(newConfig, cm.configPath); err != nil {
@@ -709,5 +737,63 @@ func updateConfigYAMLHandler(c *gin.Context) {
 		"backup_id":        backupID,
 		"changes_count":    len(diff.Changes),
 		"requires_restart": diff.RequiresRestart,
+	})
+}
+
+// testNotificationHandler 测试通知发送
+// POST /api/config/test-notification
+func testNotificationHandler(c *gin.Context) {
+	// 绑定前端传来的临时配置
+	cfg, err := bindConfigFromJSONMap(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 获取要测试的渠道类型
+	channel := c.Query("channel")
+	if channel == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未指定测试渠道"})
+		return
+	}
+
+	// 创建通知服务（使用传入的配置）
+	ns := notify.NewNotificationService(cfg)
+
+	// 创建测试事件
+	testEvent := &event.Event{
+		Type:      event.EventTypeError, // 使用 Error 类型以确保触发通知
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"message": fmt.Sprintf("这是一条来自 QuantMesh 的测试通知 [%s]", channel),
+		},
+	}
+
+	// 查找对应的通知器
+	var targetNotifier notify.Notifier
+	for _, n := range ns.GetNotifiers() {
+		if strings.EqualFold(n.Name(), channel) {
+			targetNotifier = n
+			break
+		}
+	}
+
+	if targetNotifier == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("渠道 %s 未启用或配置不完整", channel)})
+		return
+	}
+
+	// 同步发送通知以便获取结果
+	if err := targetNotifier.Send(testEvent); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("发送测试通知失败: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("测试通知已发送到 %s", channel),
 	})
 }
