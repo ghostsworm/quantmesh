@@ -52,6 +52,10 @@ import {
   TabList,
   Tab,
   SimpleGrid,
+  Slider,
+  SliderTrack,
+  SliderFilledTrack,
+  SliderThumb,
 } from '@chakra-ui/react'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -93,6 +97,46 @@ import ParamAdvisor from './ParamAdvisor'
 import { trackConfigSaved } from '../services/telemetry'
 
 const MotionBox = motion(Box)
+
+const WINDOW_SIZE_PRESETS = [10, 20, 30, 50, 100] as const
+
+const WindowSizeSlider: React.FC<{
+  value: number
+  onChange: (v: number) => void
+  size?: 'sm' | 'md'
+}> = ({ value, onChange, size = 'md' }) => {
+  const displayValue = Math.max(1, Math.min(100, value || 10))
+  const handleChange = (v: number) => onChange(Math.max(1, Math.min(100, v)))
+  return (
+    <VStack align="stretch" spacing={2}>
+      <Slider
+        value={displayValue}
+        min={1}
+        max={100}
+        step={1}
+        onChange={handleChange}
+      >
+        <SliderTrack bg="gray.200">
+          <SliderFilledTrack bg="blue.500" />
+        </SliderTrack>
+        <SliderThumb boxSize={size === 'sm' ? 3 : 4} />
+      </Slider>
+      <HStack flexWrap="wrap" gap={1}>
+        {WINDOW_SIZE_PRESETS.map((preset) => (
+          <Button
+            key={preset}
+            size="xs"
+            variant={displayValue === preset ? 'solid' : 'outline'}
+            colorScheme="blue"
+            onClick={() => handleChange(preset)}
+          >
+            {preset}
+          </Button>
+        ))}
+      </HStack>
+    </VStack>
+  )
+}
 
 const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: any }> = ({ title, children, icon }) => {
   const bg = 'white'
@@ -1466,21 +1510,17 @@ const Configuration: React.FC = () => {
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buyWindowSize')}</FormLabel>
-                          <NumberInput
+                          <WindowSizeSlider
                             value={(getSelectedSymbolConfig()?.buy_window_size ?? config.trading?.buy_window_size) || 0}
-                            onChange={(_, v) => updateSelectedSymbolField('buy_window_size', v)}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
+                            onChange={(v) => updateSelectedSymbolField('buy_window_size', v)}
+                          />
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.sellWindowSize')}</FormLabel>
-                          <NumberInput
+                          <WindowSizeSlider
                             value={(getSelectedSymbolConfig()?.sell_window_size ?? config.trading?.sell_window_size) || 0}
-                            onChange={(_, v) => updateSelectedSymbolField('sell_window_size', v)}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
+                            onChange={(v) => updateSelectedSymbolField('sell_window_size', v)}
+                          />
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.direction')}</FormLabel>
@@ -1688,9 +1728,9 @@ const Configuration: React.FC = () => {
                                 </FormControl>
                                 <FormControl>
                                   <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buyWindowSize')}</FormLabel>
-                                  <NumberInput
+                                  <WindowSizeSlider
                                     value={getSelectedSymbolConfig()?.profiles?.positive?.buy_window_size ?? 0}
-                                    onChange={(_, v) => {
+                                    onChange={(v) => {
                                       const symCfg = getSelectedSymbolConfig()
                                       const profiles = symCfg?.profiles || {}
                                       updateSelectedSymbolField('profiles', {
@@ -1700,20 +1740,19 @@ const Configuration: React.FC = () => {
                                           price_interval: profiles.positive?.price_interval ?? 0,
                                           profit_spread: profiles.positive?.profit_spread,
                                           order_quantity: profiles.positive?.order_quantity ?? 0,
-                                          buy_window_size: v ?? 0,
+                                          buy_window_size: v,
                                           sell_window_size: profiles.positive?.sell_window_size ?? 0,
                                         }
                                       })
                                     }}
-                                  >
-                                    <NumberInputField borderRadius="xl" size="sm" />
-                                  </NumberInput>
+                                    size="sm"
+                                  />
                                 </FormControl>
                                 <FormControl>
                                   <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.sellWindowSize')}</FormLabel>
-                                  <NumberInput
+                                  <WindowSizeSlider
                                     value={getSelectedSymbolConfig()?.profiles?.positive?.sell_window_size ?? 0}
-                                    onChange={(_, v) => {
+                                    onChange={(v) => {
                                       const symCfg = getSelectedSymbolConfig()
                                       const profiles = symCfg?.profiles || {}
                                       updateSelectedSymbolField('profiles', {
@@ -1724,13 +1763,12 @@ const Configuration: React.FC = () => {
                                           profit_spread: profiles.positive?.profit_spread,
                                           order_quantity: profiles.positive?.order_quantity ?? 0,
                                           buy_window_size: profiles.positive?.buy_window_size ?? 0,
-                                          sell_window_size: v ?? 0,
+                                          sell_window_size: v,
                                         }
                                       })
                                     }}
-                                  >
-                                    <NumberInputField borderRadius="xl" size="sm" />
-                                  </NumberInput>
+                                    size="sm"
+                                  />
                                 </FormControl>
                               </SimpleGrid>
                             </Box>
@@ -1817,9 +1855,9 @@ const Configuration: React.FC = () => {
                                 </FormControl>
                                 <FormControl>
                                   <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buyWindowSize')}</FormLabel>
-                                  <NumberInput
+                                  <WindowSizeSlider
                                     value={getSelectedSymbolConfig()?.profiles?.negative?.buy_window_size ?? 0}
-                                    onChange={(_, v) => {
+                                    onChange={(v) => {
                                       const symCfg = getSelectedSymbolConfig()
                                       const profiles = symCfg?.profiles || {}
                                       updateSelectedSymbolField('profiles', {
@@ -1829,20 +1867,19 @@ const Configuration: React.FC = () => {
                                           price_interval: profiles.negative?.price_interval ?? 0,
                                           profit_spread: profiles.negative?.profit_spread,
                                           order_quantity: profiles.negative?.order_quantity ?? 0,
-                                          buy_window_size: v ?? 0,
+                                          buy_window_size: v,
                                           sell_window_size: profiles.negative?.sell_window_size ?? 0,
                                         }
                                       })
                                     }}
-                                  >
-                                    <NumberInputField borderRadius="xl" size="sm" />
-                                  </NumberInput>
+                                    size="sm"
+                                  />
                                 </FormControl>
                                 <FormControl>
                                   <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.sellWindowSize')}</FormLabel>
-                                  <NumberInput
+                                  <WindowSizeSlider
                                     value={getSelectedSymbolConfig()?.profiles?.negative?.sell_window_size ?? 0}
-                                    onChange={(_, v) => {
+                                    onChange={(v) => {
                                       const symCfg = getSelectedSymbolConfig()
                                       const profiles = symCfg?.profiles || {}
                                       updateSelectedSymbolField('profiles', {
@@ -1853,13 +1890,12 @@ const Configuration: React.FC = () => {
                                           profit_spread: profiles.negative?.profit_spread,
                                           order_quantity: profiles.negative?.order_quantity ?? 0,
                                           buy_window_size: profiles.negative?.buy_window_size ?? 0,
-                                          sell_window_size: v ?? 0,
+                                          sell_window_size: v,
                                         }
                                       })
                                     }}
-                                  >
-                                    <NumberInputField borderRadius="xl" size="sm" />
-                                  </NumberInput>
+                                    size="sm"
+                                  />
                                 </FormControl>
                               </SimpleGrid>
                             </Box>
