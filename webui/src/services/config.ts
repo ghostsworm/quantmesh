@@ -73,6 +73,7 @@ export interface StrategyInstance {
 // 配置档案（用于多套配置自动切换）
 export interface ProfileConfig {
   price_interval: number
+  profit_spread?: number  // 利潤間距（平倉價差），不填則使用 price_interval
   order_quantity: number
   buy_window_size: number
   sell_window_size: number
@@ -100,6 +101,7 @@ export interface SymbolConfig {
   strategies?: StrategyInstance[]  // 並行策略列表
   withdrawal_policy?: WithdrawalPolicy // 提現策略
   price_interval: number  // 主配置，未配置 profiles 时使用
+  profit_spread?: number  // 利潤間距（平倉價差），為 0 時等於 price_interval
   order_quantity: number  // 主配置，未配置 profiles 时使用
   min_order_value?: number
   buy_window_size: number  // 主配置，未配置 profiles 时使用
@@ -173,6 +175,7 @@ export interface Config {
     symbol: string
     symbols?: SymbolConfig[]  // 多交易對配置
     price_interval: number
+    profit_spread?: number  // 利潤間距（平倉價差），不填則使用 price_interval
     order_quantity: number
     min_order_value: number
     buy_window_size: number

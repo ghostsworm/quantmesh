@@ -700,7 +700,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 计算需要監控的價格範圍
 	buyWindowSize := spm.config.Trading.BuyWindowSize
 	sellWindowSize := spm.config.Trading.SellWindowSize
-	priceInterval := spm.config.Trading.PriceInterval
+	profitSpread := spm.getEffectiveProfitSpread()
 
 	// 动態计算网格價格
 	currentGridPrice := spm.findNearestGridPrice(currentPrice)
@@ -974,10 +974,10 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	}
 	var closeCandidates []closeCandidate
 
-	// LONG: 賣單窗口 above；SHORT: 買單窗口 below
-	sellWindowMaxPrice := currentPrice + float64(sellWindowSize)*priceInterval
+	// LONG: 賣單窗口 above；SHORT: 買單窗口 below（窗口範圍用 profitSpread）
+	sellWindowMaxPrice := currentPrice + float64(sellWindowSize)*profitSpread
 	sellWindowMaxPrice = roundPrice(sellWindowMaxPrice, spm.priceDecimals)
-	buyWindowMinPrice := currentPrice - float64(sellWindowSize)*priceInterval
+	buyWindowMinPrice := currentPrice - float64(sellWindowSize)*profitSpread
 	buyWindowMinPrice = roundPrice(buyWindowMinPrice, spm.priceDecimals)
 
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -993,9 +993,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 			var closePrice float64
 			if spm.isShort() {
-				closePrice = slotPrice - priceInterval // SHORT: 買低平倉
+				closePrice = slotPrice - profitSpread // SHORT: 買低平倉
 			} else {
-				closePrice = slotPrice + priceInterval // LONG: 賣高平倉
+				closePrice = slotPrice + profitSpread // LONG: 賣高平倉
 			}
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
 
@@ -2112,9 +2112,110 @@ func (spm *SuperPositionManager) GetPriceInterval() float64 {
 	return spm.config.Trading.PriceInterval
 }
 
+// GetProfitSpread 獲取利潤間距（平倉價差）
+func (spm *SuperPositionManager) GetProfitSpread() float64 {
+	return spm.getEffectiveProfitSpread()
+}
+
+// getEffectiveProfitSpread 獲取有效利潤間距：ProfitSpread > 0 則使用，否則回退到 PriceInterval
+func (spm *SuperPositionManager) getEffectiveProfitSpread() float64 {
+	if spm.config.Trading.ProfitSpread > 0 {
+		return spm.config.Trading.ProfitSpread
+	}
+	return spm.config.Trading.PriceInterval
+}
+
 // GetAnchorPrice 獲取價格锚点
 func (spm *SuperPositionManager) GetAnchorPrice() float64 {
 	return spm.anchorPrice
+}
+
+// UpdateTradingParams 运行時更新交易参數（热更新）
+// 更新後会自动使用新参數计算网格和下單
+func (spm *SuperPositionManager) UpdateTradingParams(priceInterval, profitSpread, orderQuantity float64, buyWindowSize, sellWindowSize int) (changed bool) {
+	spm.mu.Lock()
+	defer spm.mu.Unlock()
+
+	var changes []string
+
+	if priceInterval > 0 && priceInterval != spm.config.Trading.PriceInterval {
+		old := spm.config.Trading.PriceInterval
+		spm.config.Trading.PriceInterval = priceInterval
+		changes = append(changes, fmt.Sprintf("price_interval: %.4f -> %.4f", old, priceInterval))
+	}
+	if profitSpread >= 0 && profitSpread != spm.config.Trading.ProfitSpread {
+		old := spm.config.Trading.ProfitSpread
+		spm.config.Trading.ProfitSpread = profitSpread
+		changes = append(changes, fmt.Sprintf("profit_spread: %.4f -> %.4f", old, profitSpread))
+	}
+	if orderQuantity > 0 && orderQuantity != spm.config.Trading.OrderQuantity {
+		old := spm.config.Trading.OrderQuantity
+		spm.config.Trading.OrderQuantity = orderQuantity
+		changes = append(changes, fmt.Sprintf("order_quantity: %.2f -> %.2f", old, orderQuantity))
+	}
+	if buyWindowSize > 0 && buyWindowSize != spm.config.Trading.BuyWindowSize {
+		old := spm.config.Trading.BuyWindowSize
+		spm.config.Trading.BuyWindowSize = buyWindowSize
+		changes = append(changes, fmt.Sprintf("buy_window_size: %d -> %d", old, buyWindowSize))
+	}
+	if sellWindowSize > 0 && sellWindowSize != spm.config.Trading.SellWindowSize {
+		old := spm.config.Trading.SellWindowSize
+		spm.config.Trading.SellWindowSize = sellWindowSize
+		changes = append(changes, fmt.Sprintf("sell_window_size: %d -> %d", old, sellWindowSize))
+	}
+
+	if len(changes) > 0 {
+		logger.Info("🔄 [%s:%s] 交易参數已热更新: %s",
+			spm.exchangeName, spm.config.Trading.Symbol, strings.Join(changes, ", "))
+		return true
+	}
+	return false
+}
+
+// GetTradingParamsSummary 獲取當前交易参數摘要（用於前端显示）
+func (spm *SuperPositionManager) GetTradingParamsSummary() map[string]interface{} {
+	lastPrice := 0.0
+	if v := spm.lastMarketPrice.Load(); v != nil {
+		lastPrice = v.(float64)
+	}
+
+	priceInterval := spm.config.Trading.PriceInterval
+	profitSpread := spm.getEffectiveProfitSpread()
+	buyWindowSize := spm.config.Trading.BuyWindowSize
+	sellWindowSize := spm.config.Trading.SellWindowSize
+
+	result := map[string]interface{}{
+		"price_interval":   priceInterval,
+		"profit_spread":     profitSpread,
+		"order_quantity":   spm.config.Trading.OrderQuantity,
+		"buy_window_size":  buyWindowSize,
+		"sell_window_size": sellWindowSize,
+		"anchor_price":     spm.anchorPrice,
+		"current_price":    lastPrice,
+		"direction":        spm.config.Trading.Direction,
+	}
+
+	// 根据当前价格计算价格上下限
+	if lastPrice > 0 && priceInterval > 0 {
+		gridPrice := spm.findNearestGridPrice(lastPrice)
+		// 买单价格范围（向下）
+		buyLowPrice := gridPrice - float64(buyWindowSize-1)*priceInterval
+		if buyLowPrice < 0 {
+			buyLowPrice = priceInterval
+		}
+		buyHighPrice := gridPrice
+		// 卖单价格范围（向上，使用 profitSpread）
+		sellLowPrice := gridPrice + profitSpread
+		sellHighPrice := gridPrice + float64(sellWindowSize)*profitSpread
+
+		result["grid_price"] = gridPrice
+		result["buy_price_low"] = roundPrice(buyLowPrice, spm.priceDecimals)
+		result["buy_price_high"] = roundPrice(buyHighPrice, spm.priceDecimals)
+		result["sell_price_low"] = roundPrice(sellLowPrice, spm.priceDecimals)
+		result["sell_price_high"] = roundPrice(sellHighPrice, spm.priceDecimals)
+	}
+
+	return result
 }
 
 // GetLeverage 獲取杠杆倍數（用於计算實際资金占用）
@@ -2744,9 +2845,9 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		sellWindowSize = spm.config.Trading.BuyWindowSize // 默认與買單窗口相同
 	}
 
-	// 4. 计算賣單槽位價格（從锚点價格 + 價格間隔开始）
-	// 賣單最低價 = 锚点價格 + 價格間隔（避免與買單最高價冲突）
-	sellStartPrice := spm.anchorPrice + spm.config.Trading.PriceInterval
+	// 4. 计算賣單槽位價格（從锚点價格 + 利潤間距开始）
+	// 賣單最低價 = 锚点價格 + 利潤間距（避免與買單最高價冲突）
+	sellStartPrice := spm.anchorPrice + spm.getEffectiveProfitSpread()
 	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
 	sellPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, sellPrices)
 
@@ -2871,7 +2972,7 @@ func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition fl
 	if sellWindowSize <= 0 {
 		sellWindowSize = spm.config.Trading.BuyWindowSize
 	}
-	sellStartPrice := spm.anchorPrice + spm.config.Trading.PriceInterval
+	sellStartPrice := spm.anchorPrice + spm.getEffectiveProfitSpread()
 	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
 	sellPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, sellPrices)
 
@@ -3025,8 +3126,8 @@ func (spm *SuperPositionManager) PrintPositions() {
 	logger.Info("%s", positionSummaryMsg)
 	totalBuyQty := spm.totalBuyQty.Load().(float64)
 	totalSellQty := spm.totalSellQty.Load().(float64)
-	// 預计盈利 = 累计賣出數量 × 價格间距（每笔盈利 = 價格间距 × 數量）
-	estimatedProfit := totalSellQty * spm.config.Trading.PriceInterval
+	// 預计盈利 = 累计賣出數量 × 利潤間距（每笔盈利 = 利潤間距 × 數量）
+	estimatedProfit := totalSellQty * spm.getEffectiveProfitSpread()
 	logger.Info("[%s] 累计買入: %.2f, 累计賣出: %.2f, 預计盈利: %.2f U",
 		spm.config.Trading.Symbol, totalBuyQty, totalSellQty, estimatedProfit)
 

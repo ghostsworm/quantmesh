@@ -2413,6 +2413,11 @@ type SymbolManagerProvider interface {
 	StopSymbol(exchange, symbol string) error        // 停止指定交易所/币种的交易
 }
 
+// TradingParamsUpdater 交易参數热更新接口（可选接口，用於配置变更時推送到运行時）
+type TradingParamsUpdater interface {
+	UpdateTradingParams(latestConfig *config.Config) []string
+}
+
 // RegisterSymbolManager 注册 SymbolManager
 func RegisterSymbolManager(provider SymbolManagerProvider) {
 	symbolManagerProvider = provider
@@ -2616,6 +2621,7 @@ type PositionManagerProvider interface {
 	GetTotalBuyQty() float64
 	GetTotalSellQty() float64
 	GetPriceInterval() float64
+	GetProfitSpread() float64
 	GetLeverage() int // 獲取杠杆倍數
 }
 
@@ -2715,6 +2721,11 @@ func (a *positionManagerAdapter) GetTotalSellQty() float64 {
 // GetPriceInterval 獲取價格间隔
 func (a *positionManagerAdapter) GetPriceInterval() float64 {
 	return a.manager.GetPriceInterval()
+}
+
+// GetProfitSpread 獲取利潤間距（平倉價差）
+func (a *positionManagerAdapter) GetProfitSpread() float64 {
+	return a.manager.GetProfitSpread()
 }
 
 // GetLeverage 獲取杠杆倍數
@@ -3329,7 +3340,7 @@ func getReconciliationStatus(c *gin.Context) {
 	// 從 PositionManager 獲取對账统计
 	reconcileCount := pmProvider.GetReconcileCount()
 	lastReconcileTime := pmProvider.GetLastReconcileTime()
-	priceInterval := pmProvider.GetPriceInterval()
+	profitSpread := pmProvider.GetProfitSpread()
 
 	// 优先從數據库實時计算累计買入和累计賣出（更准确，不受重啟影响）
 	totalBuyQty := 0.0
@@ -3377,7 +3388,7 @@ func getReconciliationStatus(c *gin.Context) {
 		}
 	}
 
-	estimatedProfit := totalSellQty * priceInterval
+	estimatedProfit := totalSellQty * profitSpread
 
 	// 计算本地持倉
 	slots := pmProvider.GetAllSlots()

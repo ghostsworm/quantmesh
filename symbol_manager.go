@@ -102,6 +102,33 @@ func (sm *SymbolManager) StopAll() {
 	}
 }
 
+// UpdateRuntimeTradingParams 更新运行中的交易對的交易参數（热更新）
+// 根据最新配置，将参数推送到正在运行的 SuperPositionManager
+func (sm *SymbolManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (updatedSymbols []string) {
+	for _, symCfg := range latestCfg.Trading.Symbols {
+		key := runtimeKey(symCfg.Exchange, symCfg.Symbol)
+		rt, ok := sm.runtimes[key]
+		if !ok || rt == nil || rt.SuperPositionManager == nil {
+			continue
+		}
+
+		// 将最新配置推送到 SuperPositionManager
+		changed := rt.SuperPositionManager.UpdateTradingParams(
+			symCfg.PriceInterval,
+			symCfg.ProfitSpread,
+			symCfg.OrderQuantity,
+			symCfg.BuyWindowSize,
+			symCfg.SellWindowSize,
+		)
+		if changed {
+			// 同时更新 SymbolRuntime 自身持有的 Config 副本
+			rt.Config = symCfg
+			updatedSymbols = append(updatedSymbols, key)
+		}
+	}
+	return
+}
+
 // selectProfile 根据资金费率和手续费率选择配置档案
 func selectProfile(ctx context.Context, symCfg config.SymbolConfig, ex exchange.IExchange, feeRate float64, storageService *storage.StorageService) (config.ProfileConfig, string) {
 	// 如果没有配置 profiles，返回空配置（使用主配置）
@@ -170,6 +197,9 @@ func applyProfile(symCfg config.SymbolConfig, profile config.ProfileConfig) conf
 	if profile.PriceInterval > 0 {
 		result.PriceInterval = profile.PriceInterval
 	}
+	if profile.ProfitSpread > 0 {
+		result.ProfitSpread = profile.ProfitSpread
+	}
 	if profile.OrderQuantity > 0 {
 		result.OrderQuantity = profile.OrderQuantity
 	}
@@ -181,6 +211,9 @@ func applyProfile(symCfg config.SymbolConfig, profile config.ProfileConfig) conf
 	}
 	if profile.MinOrderValue > 0 {
 		result.MinOrderValue = profile.MinOrderValue
+	}
+	if profile.ProfitSpread > 0 {
+		result.ProfitSpread = profile.ProfitSpread
 	}
 	return result
 }
@@ -224,6 +257,7 @@ func startSymbolRuntime(
 	localCfg.Trading.Symbol = symCfg.Symbol
 	localCfg.Trading.MarketType = symCfg.GetMarketType()
 	localCfg.Trading.PriceInterval = symCfg.PriceInterval
+	localCfg.Trading.ProfitSpread = symCfg.ProfitSpread
 	localCfg.Trading.OrderQuantity = symCfg.OrderQuantity
 	localCfg.Trading.MinOrderValue = symCfg.MinOrderValue
 	localCfg.Trading.BuyWindowSize = symCfg.BuyWindowSize

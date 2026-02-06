@@ -278,6 +278,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       market_type: 'futures',
       direction: 'LONG',
       price_interval: 2,
+      profit_spread: 0,
       order_quantity: 30,
       min_order_value: 20,
       buy_window_size: 10,
@@ -834,6 +835,25 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     </Text>
                   )
                 })()}
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>
+                  <HStack>
+                    <Text>{t('configuration.profitSpread')}</Text>
+                    <Tooltip label={t('configuration.profitSpreadHint')}>
+                      <InfoIcon boxSize={3} color="gray.400" />
+                    </Tooltip>
+                  </HStack>
+                </FormLabel>
+                <NumberInput
+                  value={formData.profit_spread ?? 0}
+                  onChange={(_, v) => setFormData({ ...formData, profit_spread: v === undefined || v === 0 ? undefined : v })}
+                  min={0}
+                  precision={6}
+                >
+                  <NumberInputField placeholder={t('configuration.profitSpreadHint')} />
+                </NumberInput>
               </FormControl>
 
               <FormControl>

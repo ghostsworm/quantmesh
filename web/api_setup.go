@@ -77,6 +77,7 @@ type SetupInitRequest struct {
 	Symbol         string   `json:"symbol,omitempty"`        // 向后兼容，但优先使用 Symbols
 	Symbols        []string `json:"symbols,omitempty"`       // 多交易對支援
 	PriceInterval  float64  `json:"price_interval" binding:"required,gt=0"`
+	ProfitSpread   float64  `json:"profit_spread,omitempty"`                  // 利潤間距（可選，為 0 時等於 PriceInterval）
 	OrderQuantity  float64  `json:"order_quantity" binding:"required,gt=0"`
 	MinOrderValue  float64  `json:"min_order_value,omitempty"`
 	BuyWindowSize  int      `json:"buy_window_size" binding:"required,gt=0"`
@@ -189,6 +190,7 @@ func initSetupHandler(c *gin.Context) {
 
 	// 設置交易配置（兼容舊版）
 	cfg.Trading.PriceInterval = req.PriceInterval
+	cfg.Trading.ProfitSpread = req.ProfitSpread
 	cfg.Trading.OrderQuantity = req.OrderQuantity
 	if req.MinOrderValue > 0 {
 		cfg.Trading.MinOrderValue = req.MinOrderValue
@@ -213,6 +215,7 @@ func initSetupHandler(c *gin.Context) {
 			Exchange:              req.Exchange,
 			Symbol:                symbol,
 			PriceInterval:         req.PriceInterval,
+			ProfitSpread:          req.ProfitSpread,
 			OrderQuantity:         req.OrderQuantity,
 			MinOrderValue:         cfg.Trading.MinOrderValue,
 			BuyWindowSize:         req.BuyWindowSize,

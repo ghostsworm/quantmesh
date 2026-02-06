@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.48.0-rc10"
+var Version = "3.48.1-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -577,8 +577,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 						if useEstimation {
 							totalBuyQty := r.SuperPositionManager.GetTotalBuyQty()
 							totalSellQty := r.SuperPositionManager.GetTotalSellQty()
-							priceInterval := r.SuperPositionManager.GetPriceInterval()
-							st.TotalPnL = totalSellQty * priceInterval
+							profitSpread := r.SuperPositionManager.GetProfitSpread()
+							st.TotalPnL = totalSellQty * profitSpread
 
 							if st.CurrentPrice > 0 {
 								orderQtyInBase := r.Config.OrderQuantity / st.CurrentPrice
@@ -664,6 +664,12 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 		})
 	}
 	return nil
+}
+
+// UpdateTradingParams 实现 TradingParamsUpdater 接口
+// 将最新配置推送到所有运行中的 SymbolRuntime，解决配置修改后内存不同步问题
+func (a *symbolManagerWebAdapter) UpdateTradingParams(latestConfig *config.Config) []string {
+	return a.manager.UpdateRuntimeTradingParams(latestConfig)
 }
 
 func (a *symbolManagerWebAdapter) ClosePositions(exchange, symbol string) (*web.ClosePositionsResponse, error) {
@@ -1660,10 +1666,10 @@ func main() {
 							if useEstimation {
 								totalBuyQty := r.SuperPositionManager.GetTotalBuyQty()
 								totalSellQty := r.SuperPositionManager.GetTotalSellQty()
-								priceInterval := r.SuperPositionManager.GetPriceInterval()
+								profitSpread := r.SuperPositionManager.GetProfitSpread()
 
 								// 修正盈亏估算：僅作為参考
-								st.TotalPnL = totalSellQty * priceInterval
+								st.TotalPnL = totalSellQty * profitSpread
 
 								// 修正成交次數估算：數量之和 / (單笔數量 * 2)
 								if st.CurrentPrice > 0 {
