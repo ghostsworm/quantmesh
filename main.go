@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.48.0-rc5"
+var Version = "3.48.0-rc9"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -317,20 +317,20 @@ func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int
 	}
 	// 降级：使用旧接口
 	return st.SaveTrade(&storage.Trade{
-		BuyOrderID:        buyOrderID,
-		SellOrderID:       sellOrderID,
-		Exchange:          exchange,
-		Account:           a.accountID,
-		Symbol:            symbol,
-		BuyPrice:          buyPrice,
-		SellPrice:         sellPrice,
-		Quantity:          quantity,
-		PnL:               pnl,
-		Fee:               fee,
-		FeeAsset:          feeAsset,
-		BuyPriceDeviation: buyPriceDeviation,
+		BuyOrderID:         buyOrderID,
+		SellOrderID:        sellOrderID,
+		Exchange:           exchange,
+		Account:            a.accountID,
+		Symbol:             symbol,
+		BuyPrice:           buyPrice,
+		SellPrice:          sellPrice,
+		Quantity:           quantity,
+		PnL:                pnl,
+		Fee:                fee,
+		FeeAsset:           feeAsset,
+		BuyPriceDeviation:  buyPriceDeviation,
 		SellPriceDeviation: sellPriceDeviation,
-		CreatedAt:         createdAt,
+		CreatedAt:          createdAt,
 	})
 }
 

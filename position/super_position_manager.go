@@ -2541,9 +2541,106 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
 			logger.Debug("ℹ️ [强制同步] 本地本来就没有持倉，無需操作")
 		}
 	} else {
-		// 如果交易所仍有持倉，目前只支援在啟动時通過 initializeSellSlotsFromPosition 恢複
-		// 在線动態同步逻辑较為複杂（涉及槽位重新分配），暂時僅提示
-		logger.Warn("⚠️ [强制同步] 交易所仍有持倉 %.4f，暫不支援在線自动同步（非零持倉），请手动检查或重啟程序", exchangePosition)
+		// 交易所仍有持倉，但本地可能超出交易所實際持倉
+		// 需要修剪多餘的本地槽位，防止平倉委託超出實際持倉
+		spm.trimExcessPositions(exchangePosition)
+	}
+}
+
+// trimExcessPositions 修剪多餘的本地持倉槽位
+// 當本地持倉总量 > 交易所實際持倉時，清除距離當前價格最遠的「幻影」槽位
+func (spm *SuperPositionManager) trimExcessPositions(exchangePosition float64) {
+	// 1. 收集所有 FILLED 槽位
+	type filledSlot struct {
+		Price    float64
+		Qty      float64
+		Distance float64 // 距離當前價格的距離
+	}
+	var filledSlots []filledSlot
+	localTotal := 0.0
+
+	// 獲取當前市場價格
+	currentPrice, _ := spm.lastMarketPrice.Load().(float64)
+	if currentPrice <= 0 {
+		currentPrice = spm.anchorPrice
+	}
+
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			price := key.(float64)
+			localTotal += slot.PositionQty
+			filledSlots = append(filledSlots, filledSlot{
+				Price:    price,
+				Qty:      slot.PositionQty,
+				Distance: math.Abs(price - currentPrice),
+			})
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+
+	excess := localTotal - exchangePosition
+	if excess <= 0.00000001 {
+		logger.Info("✅ [强制同步] 本地持倉 %.6f 未超出交易所持倉 %.6f，無需修剪", localTotal, exchangePosition)
+		return
+	}
+
+	logger.Warn("🚨 [强制同步] 本地持倉 %.6f > 交易所持倉 %.6f，多餘 %.6f，開始修剪幻影槽位",
+		localTotal, exchangePosition, excess)
+
+	// 2. 按距離當前價格的距離降序排序（最遠的排前面，優先清除）
+	sort.Slice(filledSlots, func(i, j int) bool {
+		return filledSlots[i].Distance > filledSlots[j].Distance
+	})
+
+	// 3. 從最遠的槽位開始清除，直到多餘量被消除
+	trimmed := 0
+	for _, fs := range filledSlots {
+		if excess <= 0.00000001 {
+			break
+		}
+
+		slotRaw, ok := spm.slots.Load(fs.Price)
+		if !ok {
+			continue
+		}
+		slot := slotRaw.(*InventorySlot)
+		slot.mu.Lock()
+
+		// 再次確認槽位仍然是 FILLED 狀態
+		if slot.PositionStatus != PositionStatusFilled || slot.PositionQty <= 0 {
+			slot.mu.Unlock()
+			continue
+		}
+
+		if slot.PositionQty <= excess+0.00000001 {
+			// 整個槽位都是多餘的，完全清除
+			logger.Warn("🧹 [强制同步] 清除幻影槽位 價格=%s 數量=%.6f（距離當前價 %.2f）",
+				formatPrice(slot.Price, spm.priceDecimals), slot.PositionQty, fs.Distance)
+			excess -= slot.PositionQty
+			slot.PositionStatus = PositionStatusEmpty
+			slot.PositionQty = 0
+			slot.OrderID = 0
+			slot.OrderStatus = OrderStatusNotPlaced
+			slot.OrderSide = ""
+			slot.ClientOID = ""
+			slot.SlotStatus = SlotStatusFree
+			trimmed++
+		} else {
+			// 槽位數量大於多餘量，部分修剪（這種情況較少見）
+			logger.Warn("✂️ [强制同步] 部分修剪槽位 價格=%s 數量 %.6f -> %.6f（扣除幻影 %.6f）",
+				formatPrice(slot.Price, spm.priceDecimals), slot.PositionQty, slot.PositionQty-excess, excess)
+			slot.PositionQty -= excess
+			excess = 0
+		}
+
+		slot.mu.Unlock()
+	}
+
+	if trimmed > 0 {
+		logger.Info("✅ [强制同步] 已修剪 %d 個幻影槽位，本地持倉已對齊交易所持倉 %.6f", trimmed, exchangePosition)
 	}
 }
 

@@ -290,6 +290,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/risk/newbie-check", getNewbieRiskCheck)
 			protected.POST("/risk/newbie-check/apply", applyNewbieSecurityConfig)
 
+			// 配置参数建议 API
+			protected.GET("/config/param-advisor", getParamAdvisor)
+			protected.GET("/config/exchange-fees", getExchangeFees)
+
 			// 配置管理API
 			protected.GET("/config", getConfigHandler)
 			protected.GET("/config/json", getConfigJSONHandler)
@@ -373,6 +377,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/ai/tasks", getAITasks)
 			protected.GET("/ai/tasks/stats", getAITaskStats)
 			protected.POST("/ai/apply-config", applyAIConfig)
+
+			// AI 市场解读 API
+			protected.POST("/ai/market-interpret", createMarketInterpret)
+			protected.GET("/ai/market-interpret/:task_id", getMarketInterpretStatus)
 
 			protected.GET("/funding/history", getFundingRateHistory)
 
