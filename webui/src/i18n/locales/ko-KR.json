@@ -2803,7 +2803,12 @@
     "leverage": "레버리지",
     "actualMargin": "실제 증거금",
     "totalQuantity": "총 수량",
-    "totalValue": "총 가치"
+    "totalValue": "총 가치",
+    "cancelAllBuyOrders": "모든 매수 주문 취소",
+    "cancelAllBuyOrdersSuccess": "모든 매수 주문이 취소되었습니다",
+    "cancelAllBuyOrdersNone": "대기 중인 매수 주문이 없습니다",
+    "cancelAllBuyOrdersFailed": "매수 주문 취소에 실패했습니다",
+    "cancelAllBuyOrdersCount": "{{count}}건의 매수 주문이 취소되었습니다"
   },
   "predictionAccuracy": {
     "title": "예측 정확도",

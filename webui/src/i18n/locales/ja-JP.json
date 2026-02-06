@@ -2826,7 +2826,12 @@
     "leverage": "レバレッジ",
     "actualMargin": "実際の証拠金",
     "totalQuantity": "合計数量",
-    "totalValue": "合計価値"
+    "totalValue": "合計価値",
+    "cancelAllBuyOrders": "買い注文をすべてキャンセル",
+    "cancelAllBuyOrdersSuccess": "買い注文をすべてキャンセルしました",
+    "cancelAllBuyOrdersNone": "買い注文はありません",
+    "cancelAllBuyOrdersFailed": "買い注文のキャンセルに失敗しました",
+    "cancelAllBuyOrdersCount": "{{count}} 件の買い注文をキャンセルしました"
   },
   "predictionAccuracy": {
     "title": "予測精度",

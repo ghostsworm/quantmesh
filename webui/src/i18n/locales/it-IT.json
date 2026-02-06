@@ -2795,7 +2795,12 @@
     "leverage": "Leva",
     "actualMargin": "Margine Effettivo",
     "totalQuantity": "Quantità Totale",
-    "totalValue": "Valore Totale"
+    "totalValue": "Valore Totale",
+    "cancelAllBuyOrders": "Cancel All Buy Orders",
+    "cancelAllBuyOrdersSuccess": "All buy orders cancelled",
+    "cancelAllBuyOrdersNone": "No pending buy orders",
+    "cancelAllBuyOrdersFailed": "Failed to cancel buy orders",
+    "cancelAllBuyOrdersCount": "{{count}} buy order(s) cancelled"
   },
   "predictionAccuracy": {
     "title": "Prediction Accuracy",

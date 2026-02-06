@@ -2795,7 +2795,12 @@
     "leverage": "Effet de Levier",
     "actualMargin": "Marge Réelle",
     "totalQuantity": "Quantité Totale",
-    "totalValue": "Valeur Totale"
+    "totalValue": "Valeur Totale",
+    "cancelAllBuyOrders": "Cancel All Buy Orders",
+    "cancelAllBuyOrdersSuccess": "All buy orders cancelled",
+    "cancelAllBuyOrdersNone": "No pending buy orders",
+    "cancelAllBuyOrdersFailed": "Failed to cancel buy orders",
+    "cancelAllBuyOrdersCount": "{{count}} buy order(s) cancelled"
   },
   "predictionAccuracy": {
     "title": "Prediction Accuracy",
