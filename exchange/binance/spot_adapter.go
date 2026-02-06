@@ -101,29 +101,56 @@ func (b *BinanceSpotAdapter) fetchSpotExchangeInfo(ctx context.Context) error {
 	for i := range info.Symbols {
 		s := &info.Symbols[i]
 		if s.Symbol == b.symbol {
-			b.priceDecimals = s.QuotePrecision
-			b.quantityDecimals = s.BaseAssetPrecision
 			b.baseAsset = s.BaseAsset
 			b.quoteAsset = s.QuoteAsset
 
+			// 從 Filter 中獲取 tickSize 和 stepSize
 			if pf := s.PriceFilter(); pf != nil && pf.TickSize != "" {
 				b.tickSize, _ = strconv.ParseFloat(pf.TickSize, 64)
 			}
 			if lf := s.LotSizeFilter(); lf != nil && lf.StepSize != "" {
 				b.stepSize, _ = strconv.ParseFloat(lf.StepSize, 64)
 			}
-			if b.tickSize <= 0 {
+
+			// 🔥 修復: 從 tickSize/stepSize 反推實際交易精度
+			// 之前錯誤地使用 QuotePrecision/BaseAssetPrecision（通常是8），
+			// 它们是資產的最大精度，不是交易對的實際精度。
+			// 例如 BTCUSDT: QuotePrecision=8, 但實際 tickSize=0.01 → 價格精度應為 2
+			if b.tickSize > 0 {
+				b.priceDecimals = countDecimalsFromStep(b.tickSize)
+			} else {
+				b.priceDecimals = s.QuotePrecision // fallback
 				b.tickSize = math.Pow10(-b.priceDecimals)
 			}
-			if b.stepSize <= 0 {
+			if b.stepSize > 0 {
+				b.quantityDecimals = countDecimalsFromStep(b.stepSize)
+			} else {
+				b.quantityDecimals = s.BaseAssetPrecision // fallback
 				b.stepSize = math.Pow10(-b.quantityDecimals)
 			}
-			logger.Info("ℹ️ [Binance Spot] %s - 數量精度:%d, 價格精度:%d, 基础:%s, 计價:%s",
-				b.symbol, b.quantityDecimals, b.priceDecimals, b.baseAsset, b.quoteAsset)
+
+			logger.Info("ℹ️ [Binance Spot] %s - 數量精度:%d, 價格精度:%d, tickSize:%.8f, stepSize:%.8f, 基础:%s, 计價:%s",
+				b.symbol, b.quantityDecimals, b.priceDecimals, b.tickSize, b.stepSize, b.baseAsset, b.quoteAsset)
 			return nil
 		}
 	}
 	return fmt.Errorf("未找到交易對信息: %s", b.symbol)
+}
+
+// countDecimalsFromStep 從步進值反推小數位數
+// 例如: 0.01 → 2, 0.00001 → 5, 1 → 0, 0.1 → 1
+func countDecimalsFromStep(step float64) int {
+	if step <= 0 || step >= 1 {
+		return 0
+	}
+	s := strconv.FormatFloat(step, 'f', -1, 64)
+	dotIdx := strings.Index(s, ".")
+	if dotIdx < 0 {
+		return 0
+	}
+	// 去掉尾部的零
+	trimmed := strings.TrimRight(s[dotIdx+1:], "0")
+	return len(trimmed)
 }
 
 func (b *BinanceSpotAdapter) roundToTickSize(price float64, side Side) float64 {
