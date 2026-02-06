@@ -132,7 +132,6 @@ func selectProfile(ctx context.Context, symCfg config.SymbolConfig, ex exchange.
 
 	// 根据切换规则选择 profile
 	// 优先级：资金费率 > 手续费率
-	selectedProfile := ""
 	if symCfg.SwitchRules.FundingRate.Threshold != 0 && symCfg.GetMarketType() == "futures" {
 		if fundingRate >= symCfg.SwitchRules.FundingRate.Threshold {
 			// 资金费率为正，选择 positive profile
