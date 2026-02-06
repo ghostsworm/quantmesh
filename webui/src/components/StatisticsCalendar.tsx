@@ -14,6 +14,7 @@ interface DailyStatistics {
   book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
   intraday_max_drawdown?: number
   intraday_max_drawdown_pct?: number
+  exchange_pnl?: number // 當日交易所已實現盈虧
 }
 
 interface StatisticsCalendarProps {
@@ -148,6 +149,15 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                       }} title={t('statistics.pnl')}>
                         {stats.total_pnl >= 0 ? '+' : ''}{stats.total_pnl.toFixed(2)}
                       </div>
+                      {stats.exchange_pnl !== undefined && stats.exchange_pnl !== 0 && (
+                        <div style={{
+                          color: stats.exchange_pnl >= 0 ? '#1890ff' : '#ff4d4f',
+                          fontSize: '10px',
+                          marginBottom: '2px'
+                        }} title={t('statistics.exchangePnlTooltip')}>
+                          {t('statistics.exchangePnlShort')}: {(stats.exchange_pnl >= 0 ? '+' : '') + stats.exchange_pnl.toFixed(2)}
+                        </div>
+                      )}
                       {stats.unrealized_pnl !== undefined && stats.unrealized_pnl !== 0 && (
                         <div style={{
                           color: stats.unrealized_pnl >= 0 ? '#95de64' : '#ff7875',

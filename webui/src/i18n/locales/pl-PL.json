@@ -2361,7 +2361,15 @@
     "type": "Type",
     "used": "Used",
     "weight": "Weight",
-    "winRate": "Win Rate"
+    "winRate": "Win Rate",
+    "orderSideBuy": "Kup",
+    "orderSideSell": "Sprzedaj",
+    "orderStatusNew": "Nowe",
+    "orderStatusPartiallyFilled": "Częściowo zrealizowane",
+    "orderStatusFilled": "Zrealizowane",
+    "orderStatusCanceled": "Anulowane",
+    "orderStatusPendingCancel": "Anulowanie",
+    "orderStatusRejected": "Odrzucone"
   },
   "strategyVisualization": {
     "noData": "No visualization data",
@@ -2833,7 +2841,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderStatus": "Order Status",
+    "orderSideBuy": "Kup",
+    "orderSideSell": "Sprzedaj",
+    "orderStatusNew": "Nowe",
+    "orderStatusPartiallyFilled": "Częściowo zrealizowane",
+    "orderStatusFilled": "Zrealizowane",
+    "orderStatusCanceled": "Anulowane",
+    "orderStatusPendingCancel": "Anulowanie",
+    "orderStatusRejected": "Odrzucone",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",

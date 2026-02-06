@@ -262,6 +262,8 @@
     "tradingVolume": "TRADING VOLUME",
     "systemUptime": "SYSTEM UPTIME",
     "roi": "ROI",
+    "exchangePnl": "Exchange P&L",
+    "exchangePnlTooltip": "Total realized P&L calculated by the exchange using weighted average cost method, differs from grid strategy",
     "tradesPerHour": "trades / hour",
     "normal": "Normal",
     "slotsMatrix": "Slots Matrix",
@@ -1748,7 +1750,10 @@
     "grossPnL": "Gross P&L",
     "totalFee": "Total Fee",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "Exchange P&L",
+    "exchangePnlShort": "Exch.",
+    "exchangePnlTooltip": "Realized P&L calculated by exchange using weighted average cost method, differs from grid strategy"
   },
   "riskMonitor": {
     "title": "Risk Monitor",
@@ -2531,6 +2536,14 @@
     "price": "Price",
     "status": "Status",
     "moreOrders": "{{count}} more orders...",
+    "orderSideBuy": "Buy",
+    "orderSideSell": "Sell",
+    "orderStatusNew": "New",
+    "orderStatusPartiallyFilled": "Partially Filled",
+    "orderStatusFilled": "Filled",
+    "orderStatusCanceled": "Canceled",
+    "orderStatusPendingCancel": "Canceling",
+    "orderStatusRejected": "Rejected",
     "fetchStatusFailed": "Failed to fetch strategy status",
     "loadingStatus": "Loading strategy status...",
     "title": "Strategy Runtime Status",
@@ -2836,7 +2849,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderSideBuy": "Buy",
+    "orderSideSell": "Sell",
+    "orderStatus": "Order Status",
+    "orderStatusNew": "New",
+    "orderStatusPartiallyFilled": "Partially Filled",
+    "orderStatusFilled": "Filled",
+    "orderStatusCanceled": "Canceled",
+    "orderStatusPendingCancel": "Canceling",
+    "orderStatusRejected": "Rejected",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",

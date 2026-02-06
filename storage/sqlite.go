@@ -1637,6 +1637,62 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol
 	return stat, nil
 }
 
+// GetExchangePnLTotal 獲取交易所已實現盈虧的總計（從 orders 表的 realized_pnl 聚合）
+func (s *SQLiteStorage) GetExchangePnLTotal(exchange, symbol string) (float64, error) {
+	query := `SELECT COALESCE(SUM(realized_pnl), 0) FROM orders WHERE realized_pnl IS NOT NULL AND status = 'FILLED'`
+	args := []interface{}{}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	var total float64
+	err := s.db.QueryRow(query, args...).Scan(&total)
+	return total, err
+}
+
+// GetDailyExchangePnL 獲取每日交易所已實現盈虧（從 orders 表按日期聚合 realized_pnl）
+func (s *SQLiteStorage) GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error) {
+	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
+	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+	query := fmt.Sprintf(`
+		SELECT date(datetime(created_at, '%s')) as dt, COALESCE(SUM(realized_pnl), 0) as total
+		FROM orders
+		WHERE realized_pnl IS NOT NULL AND status = 'FILLED'
+			AND date(datetime(created_at, '%s')) >= ? AND date(datetime(created_at, '%s')) <= ?
+	`, tzModifier, tzModifier, tzModifier)
+	args := []interface{}{startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	query += fmt.Sprintf(" GROUP BY date(datetime(created_at, '%s'))", tzModifier)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查詢每日交易所盈虧失败: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]float64)
+	for rows.Next() {
+		var dt string
+		var total float64
+		if err := rows.Scan(&dt, &total); err != nil {
+			continue
+		}
+		result[dt] = total
+	}
+	return result, rows.Err()
+}
+
 // QueryDailyStatisticsFromTrades 從 trades 表查詢每日统计
 func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
 	return s.QueryDailyStatisticsByExchange("", account, startDate, endDate)

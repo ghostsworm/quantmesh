@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+## [3.44.1-rc7] - 2026-02-06
+
+### Added
+- **交易所盈亏统计全覆盖**：在概览页(Dashboard)、收益统计页(Statistics)的汇总卡片、日历视图、每日统计表格中同步展示交易所已实现盈亏
+  - 后端新增 `GetExchangePnLTotal` / `GetDailyExchangePnL`，从 `orders` 表聚合 `realized_pnl`
+  - `/api/statistics` 返回 `exchange_pnl`（总计）；`/api/statistics/daily` 每日条目返回 `exchange_pnl`
+  - Dashboard 总盈亏卡片下方显示交易所盈亏（带 Tooltip 说明计算差异）
+  - Statistics 汇总区新增「交易所盈亏」卡片；每日统计表新增「交易所盈亏」列（蓝色区分）
+  - 日历格子中在网格盈亏下方显示交易所盈亏行
+  - 计算逻辑说明：网格 PnL = `(卖出价−买入价)×数量`（按买卖配对）；交易所 PnL = 交易所按加权平均成本法计算的已实现盈亏
+- 多语言支持：`dashboard.exchangePnl`、`statistics.exchangePnl`/`exchangePnlShort`/`exchangePnlTooltip`（zh-CN/zh-TW/en-US/ja-JP/ko-KR）
+
+## [3.44.1-rc6] - 2026-02-06
+
+### Fixed
+- **修复多处翻译缺失问题**：
+  - 修复 zh-CN 中 dashboard 价格偏差统计区域 13 个 key 显示英文的问题（buyPriceDeviation、sellPriceDeviation、totalDeviationLoss 等）
+  - 修复 zh-CN 中 configSetup 安全设置区域 10 个 key 显示英文的问题（enableEncryption、securitySettings 等）
+  - 修复 Slots 页面 order_side（BUY/SELL）和 order_status 未翻译的问题
+  - 修复 StrategyRuntimeStatus 组件订单方向和状态未翻译的问题
+  - 修复 Dashboard 组件订单方向翻译 key 引用缺少命名空间前缀的问题
+  - 同步更新全部 22 个语言文件的翻译（新增 slotsPage/strategyRuntime 下的订单方向与状态 key，修复 dashboard 价格偏差翻译）
+
 ## [3.44.1-rc5] - 2026-02-06
 
 ### Fixed

@@ -20,6 +20,7 @@ import {
   Icon,
   Divider,
   Container,
+  Tooltip,
 } from '@chakra-ui/react'
 import { 
   TriangleUpIcon, 
@@ -95,9 +96,9 @@ const Dashboard: React.FC = () => {
   const getOrderSideText = (side: string) => {
     switch (side) {
       case 'BUY':
-        return t('orderSideBuy')
+        return t('orders.buy')
       case 'SELL':
-        return t('orderSideSell')
+        return t('orders.sell')
       default:
         return side
     }
@@ -339,6 +340,7 @@ const Dashboard: React.FC = () => {
     : (positionsSummary?.current_price || 0)
 
   const totalPnL = typeof statistics?.total_pnl === 'number' ? statistics.total_pnl : (status.total_pnl || 0)
+  const exchangePnL = typeof statistics?.exchange_pnl === 'number' ? statistics.exchange_pnl : 0
   const totalTrades = typeof statistics?.total_trades === 'number' ? statistics.total_trades : (status.total_trades || 0)
   const totalVolume = typeof statistics?.total_volume === 'number' ? statistics.total_volume : 0
   // 🔥 价格偏差统计
@@ -491,6 +493,13 @@ const Dashboard: React.FC = () => {
                   <Text color="gray.400">{t('dashboard.roi')}</Text>
                 </HStack>
               </StatHelpText>
+              {exchangePnL !== 0 && (
+                <Tooltip label={t('dashboard.exchangePnlTooltip')} placement="top" hasArrow>
+                  <Text fontSize="xs" color={exchangePnL >= 0 ? 'green.400' : 'red.400'} mt={1}>
+                    {t('dashboard.exchangePnl')}: {exchangePnL >= 0 ? '+' : ''}{exchangePnL.toFixed(2)} USDT
+                  </Text>
+                </Tooltip>
+              )}
             </Stat>
           </GlassCard>
 

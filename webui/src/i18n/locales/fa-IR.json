@@ -2361,7 +2361,15 @@
     "type": "Type",
     "used": "Used",
     "weight": "Weight",
-    "winRate": "Win Rate"
+    "winRate": "Win Rate",
+    "orderSideBuy": "خرید",
+    "orderSideSell": "فروش",
+    "orderStatusNew": "جدید",
+    "orderStatusPartiallyFilled": "تکمیل جزئی",
+    "orderStatusFilled": "تکمیل شده",
+    "orderStatusCanceled": "لغو شده",
+    "orderStatusPendingCancel": "در حال لغو",
+    "orderStatusRejected": "رد شده"
   },
   "strategyVisualization": {
     "noData": "No visualization data",
@@ -2833,7 +2841,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderStatus": "Order Status",
+    "orderSideBuy": "خرید",
+    "orderSideSell": "فروش",
+    "orderStatusNew": "جدید",
+    "orderStatusPartiallyFilled": "تکمیل جزئی",
+    "orderStatusFilled": "تکمیل شده",
+    "orderStatusCanceled": "لغو شده",
+    "orderStatusPendingCancel": "در حال لغو",
+    "orderStatusRejected": "رد شده",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",

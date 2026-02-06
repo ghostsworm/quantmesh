@@ -1793,15 +1793,27 @@ func getStatistics(c *gin.Context) {
 		}
 	}
 
+	// 🔥 查詢交易所已實現盈虧（從 orders 表的 realized_pnl 聚合）
+	exchangePnL := 0.0
+	type exchangePnLGetter interface {
+		GetExchangePnLTotal(exchange, symbol string) (float64, error)
+	}
+	if epGetter, ok := storage.(exchangePnLGetter); ok {
+		if ep, err := epGetter.GetExchangePnLTotal(exchange, symbol); err == nil {
+			exchangePnL = ep
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"total_trades":        totalTrades,
-		"total_volume":        totalVolume,
-		"total_pnl":           totalPnL,
-		"gross_pnl":           grossPnL,
-		"total_fee":           totalFee,
-		"win_rate":            winRate,
-		"total_buy_deviation": totalBuyDeviation,  // 🔥 買入價格偏差總和
-		"total_sell_deviation": totalSellDeviation, // 🔥 賣出價格偏差總和
+		"total_trades":         totalTrades,
+		"total_volume":         totalVolume,
+		"total_pnl":            totalPnL,
+		"gross_pnl":            grossPnL,
+		"total_fee":            totalFee,
+		"win_rate":             winRate,
+		"total_buy_deviation":  totalBuyDeviation,  // 🔥 買入價格偏差總和
+		"total_sell_deviation": totalSellDeviation,  // 🔥 賣出價格偏差總和
+		"exchange_pnl":         exchangePnL,         // 🔥 交易所已實現盈虧合計
 	})
 }
 
@@ -1899,6 +1911,23 @@ func getDailyStatistics(c *gin.Context) {
 		dailyFunding, err := stWithFunding.GetDailyFundingPayments(accountID, exchangeID, startDate, endDate)
 		if err == nil {
 			fundingMap = dailyFunding
+		}
+	}
+
+	// 4c. 獲取每日交易所已實現盈虧（從 orders 表聚合 realized_pnl）
+	exchangePnLMap := make(map[string]float64)
+	type dailyExchangePnLGetter interface {
+		GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error)
+	}
+	if epGetter, ok := st.(dailyExchangePnLGetter); ok {
+		exchangeID := ""
+		symbolID := ""
+		if status != nil {
+			exchangeID = status.Exchange
+			symbolID = status.Symbol
+		}
+		if dailyEP, err := epGetter.GetDailyExchangePnL(exchangeID, symbolID, startDate, endDate); err == nil {
+			exchangePnLMap = dailyEP
 		}
 	}
 
@@ -2012,6 +2041,13 @@ func getDailyStatistics(c *gin.Context) {
 			item["funding_fee"] = funding
 		} else {
 			item["funding_fee"] = 0.0
+		}
+
+		// 合併每日交易所已實現盈虧
+		if epnl, ok := exchangePnLMap[dateKey]; ok {
+			item["exchange_pnl"] = epnl
+		} else {
+			item["exchange_pnl"] = 0.0
 		}
 
 		// 賬面盈虧 = 已平倉盈虧 + 未實現盈虧（真正帳面值）

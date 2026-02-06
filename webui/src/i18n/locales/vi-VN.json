@@ -2361,7 +2361,15 @@
     "type": "Type",
     "used": "Used",
     "weight": "Weight",
-    "winRate": "Win Rate"
+    "winRate": "Win Rate",
+    "orderSideBuy": "Mua",
+    "orderSideSell": "Bán",
+    "orderStatusNew": "Mới",
+    "orderStatusPartiallyFilled": "Khớp một phần",
+    "orderStatusFilled": "Đã khớp",
+    "orderStatusCanceled": "Đã hủy",
+    "orderStatusPendingCancel": "Đang hủy",
+    "orderStatusRejected": "Bị từ chối"
   },
   "strategyVisualization": {
     "noData": "No visualization data",
@@ -2833,7 +2841,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderStatus": "Order Status",
+    "orderSideBuy": "Mua",
+    "orderSideSell": "Bán",
+    "orderStatusNew": "Mới",
+    "orderStatusPartiallyFilled": "Khớp một phần",
+    "orderStatusFilled": "Đã khớp",
+    "orderStatusCanceled": "Đã hủy",
+    "orderStatusPendingCancel": "Đang hủy",
+    "orderStatusRejected": "Bị từ chối",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",

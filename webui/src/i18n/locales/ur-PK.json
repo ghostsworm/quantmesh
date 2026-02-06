@@ -2361,7 +2361,15 @@
     "type": "Type",
     "used": "Used",
     "weight": "Weight",
-    "winRate": "Win Rate"
+    "winRate": "Win Rate",
+    "orderSideBuy": "خریدیں",
+    "orderSideSell": "بیچیں",
+    "orderStatusNew": "نیا",
+    "orderStatusPartiallyFilled": "جزوی طور پر مکمل",
+    "orderStatusFilled": "مکمل",
+    "orderStatusCanceled": "منسوخ",
+    "orderStatusPendingCancel": "منسوخ ہو رہا ہے",
+    "orderStatusRejected": "مسترد"
   },
   "strategyVisualization": {
     "noData": "No visualization data",
@@ -2833,7 +2841,16 @@
     "orderId": "Order ID",
     "orderPrice": "Order Price",
     "orderSide": "Side",
-    "orderStatus": "Order Status"
+    "orderStatus": "Order Status",
+    "orderSideBuy": "خریدیں",
+    "orderSideSell": "بیچیں",
+    "orderStatusNew": "نیا",
+    "orderStatusPartiallyFilled": "جزوی طور پر مکمل",
+    "orderStatusFilled": "مکمل",
+    "orderStatusCanceled": "منسوخ",
+    "orderStatusPendingCancel": "منسوخ ہو رہا ہے",
+    "orderStatusRejected": "مسترد",
+    "noOrder": "-"
   },
   "newbieCheckModal": {
     "title": "Newbie Risk Check",
