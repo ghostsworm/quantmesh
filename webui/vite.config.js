@@ -46,6 +46,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // 允許預緩存最大 5MB 的文件（默認 2MB）
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         // 添加版本号，确保 Service Worker 更新
         skipWaiting: true,
         clientsClaim: true,
@@ -141,6 +143,40 @@ export default defineConfig({
           // i18n 国際化
           if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next')) {
             return 'i18n-vendor'
+          }
+          
+          // Monaco Editor（代碼編輯器，體積最大）
+          if (id.includes('node_modules/monaco-editor') || id.includes('node_modules/@monaco-editor')) {
+            return 'monaco-vendor'
+          }
+          
+          // ECharts + zrender（渲染引擎）
+          if (id.includes('node_modules/echarts') || id.includes('node_modules/zrender')) {
+            return 'echarts-vendor'
+          }
+          
+          // PostHog 分析
+          if (id.includes('node_modules/posthog-js')) {
+            return 'posthog-vendor'
+          }
+          
+          // Markdown / Diff 渲染
+          if (
+            id.includes('node_modules/react-markdown') ||
+            id.includes('node_modules/react-diff-viewer') ||
+            id.includes('node_modules/remark-') ||
+            id.includes('node_modules/rehype-') ||
+            id.includes('node_modules/unified') ||
+            id.includes('node_modules/mdast-') ||
+            id.includes('node_modules/hast-') ||
+            id.includes('node_modules/micromark')
+          ) {
+            return 'markdown-vendor'
+          }
+          
+          // html2canvas
+          if (id.includes('node_modules/html2canvas')) {
+            return 'html2canvas-vendor'
           }
         },
         // 优化 chunk 文件名

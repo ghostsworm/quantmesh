@@ -59,7 +59,7 @@ const ServiceStatusPage: React.FC = () => {
         />
       </HStack>
       <Text fontSize="sm" color="gray.500" mb={4}>
-        {t('servicesStatus.hint', ))}
+        {t('servicesStatus.hint')}
       </Text>
 
       {loading && !services.length ? (
