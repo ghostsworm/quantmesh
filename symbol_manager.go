@@ -32,6 +32,7 @@ type SymbolRuntime struct {
 	FundingMonitor       *safety.FundingRateMonitor
 	ArbitrageManager     *arbitrage.FundingArbitrageManager
 	SuperPositionManager *position.SuperPositionManager
+	OpeningController    *position.OpeningController
 	OrderCleaner         *safety.OrderCleaner
 	Reconciler           *safety.Reconciler
 	TrendDetector        *strategy.TrendDetector
@@ -913,9 +914,9 @@ func startSymbolRuntime(
 
 						// 记录新配置参数
 						if newProfileName != "default" {
-							logger.Info("📋 [%s:%s] 新配置档案参数: price_interval=%.2f, order_quantity=%.2f, buy_window=%d, sell_window=%d",
-								symCfg.Symbol, newProfile.PriceInterval, newProfile.OrderQuantity,
-								newProfile.BuyWindowSize, newProfile.SellWindowSize)
+						logger.Info("📋 [%s:%s] 新配置档案参数: price_interval=%.2f, order_quantity=%.2f, buy_window=%d, sell_window=%d",
+							symCfg.Exchange, symCfg.Symbol, newProfile.PriceInterval, newProfile.OrderQuantity,
+							newProfile.BuyWindowSize, newProfile.SellWindowSize)
 						}
 
 						oldProfileName := currentProfileName
@@ -960,7 +961,38 @@ func startSymbolRuntime(
 		}
 	}()
 
+	rt := &SymbolRuntime{
+		Config:               symCfg,
+		Exchange:             ex,
+		PriceMonitor:         priceMonitor,
+		RiskMonitor:          riskMonitor,
+		DepthMonitor:         depthMonitor,
+		FundingMonitor:       fundingMonitor,
+		ArbitrageManager:     arbitrageManager,
+		SuperPositionManager: superPositionManager,
+		OrderCleaner:         orderCleaner,
+		Reconciler:           reconciler,
+		TrendDetector:        trendDetector,
+		DynamicAdjuster:      dynamicAdjuster,
+		StrategyManager:      strategyManager,
+		ExchangeExecutor:     exchangeExecutor,
+		ExecutorAdapter:      executorAdapter,
+		ExchangeAdapter:      exchangeAdapter,
+		EventBus:             eventBus,
+		StorageService:       storageService,
+		AccountID:            accountID,
+	}
+
+	// 開倉控制器（限倉、定時、週期規則）
+	openingController := position.NewOpeningController(superPositionManager, &rt.Config)
+	openingController.Start()
+	rt.OpeningController = openingController
+
 	stopFn := func() {
+		logger.Info("⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
+		if rt.OpeningController != nil {
+			rt.OpeningController.Stop()
+		}
 		logger.Info("⏹️ [%s] 停止價格監控...", symCfg.Symbol)
 		if priceMonitor != nil {
 			priceMonitor.Stop()
@@ -987,29 +1019,9 @@ func startSymbolRuntime(
 			strategyManager.StopAll()
 		}
 	}
+	rt.Stop = stopFn
 
-	return &SymbolRuntime{
-		Config:               symCfg,
-		Exchange:             ex,
-		PriceMonitor:         priceMonitor,
-		RiskMonitor:          riskMonitor,
-		DepthMonitor:         depthMonitor,
-		FundingMonitor:       fundingMonitor,
-		ArbitrageManager:     arbitrageManager,
-		SuperPositionManager: superPositionManager,
-		OrderCleaner:         orderCleaner,
-		Reconciler:           reconciler,
-		TrendDetector:        trendDetector,
-		DynamicAdjuster:      dynamicAdjuster,
-		StrategyManager:      strategyManager,
-		ExchangeExecutor:     exchangeExecutor,
-		ExecutorAdapter:      executorAdapter,
-		ExchangeAdapter:      exchangeAdapter,
-		EventBus:             eventBus,
-		StorageService:       storageService,
-		AccountID:            accountID,
-		Stop:                 stopFn,
-	}, nil
+	return rt, nil
 }
 
 // toPositionOrderUpdate 提取订單更新為 position.OrderUpdate

@@ -164,6 +164,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.POST("/orders/sync", syncOrders)
 			protected.GET("/statistics", getStatistics)
 			protected.GET("/statistics/daily", getDailyStatistics)
+			protected.GET("/statistics/daily/breakdown", getDailyPnLBreakdown)
 			protected.GET("/statistics/trades", getTradeStatistics)
 			protected.GET("/statistics/pnl/symbol", getPnLBySymbol)
 			protected.GET("/statistics/pnl/time-range", getPnLByTimeRange)
@@ -175,6 +176,13 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 资金分配管理 API
 			protected.GET("/allocation/status", getAllocationStatus)
 			protected.GET("/allocation/status/:exchange/:symbol", getAllocationStatusBySymbol)
+
+			// 開倉管理 API
+			protected.GET("/opening-control/status", getOpeningControlStatus)
+			protected.POST("/opening-control/pause", pauseOpening)
+			protected.POST("/opening-control/resume", resumeOpening)
+			protected.GET("/opening-control/config", getOpeningControlConfig)
+			protected.PUT("/opening-control/config", putOpeningControlConfig)
 
 			// 倉位目標计划 API（check 須在 :id 前注册）
 			protected.GET("/position-plans/check", getPositionPlanCheck)

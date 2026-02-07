@@ -26,6 +26,7 @@ type OrderRequest struct {
 	ClientOrderID string // 自定义订單ID
 	StrategyName  string // 策略名称（可選，用於日志追踪）
 	StrategyType  string // 策略類型（可選，如 "grid", "dca", "martingale"）
+	OrderSource   string // 订單來源（"normal"=正常限價, "stop_loss"=止損平倉, "liquidation"=強制平倉）
 }
 
 // Order 订單信息

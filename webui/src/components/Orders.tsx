@@ -67,6 +67,7 @@ interface OrderInfo {
   exchange_pnl?: number | null  // 交易所已实现盈亏（基于加权平均成本）
   strategy_name?: string
   strategy_type?: string
+  order_source?: string         // 订单来源（normal=正常限价, stop_loss=止损平仓）
 }
 
 const Orders: React.FC = () => {
@@ -500,6 +501,30 @@ const Orders: React.FC = () => {
     }
   }
 
+  const getOrderSourceText = (source?: string) => {
+    if (!source || source === '' || source === 'normal') return t('orders.sourceNormal')
+    switch (source) {
+      case 'stop_loss':
+        return t('orders.sourceStopLoss')
+      case 'liquidation':
+        return t('orders.sourceLiquidation')
+      default:
+        return source
+    }
+  }
+
+  const getOrderSourceColorScheme = (source?: string) => {
+    if (!source || source === '' || source === 'normal') return 'green'
+    switch (source) {
+      case 'stop_loss':
+        return 'red'
+      case 'liquidation':
+        return 'orange'
+      default:
+        return 'gray'
+    }
+  }
+
   // 获取所有唯一的策略名称
   const getUniqueStrategies = (orders: (PendingOrderInfo | OrderInfo)[]) => {
     const strategies = new Set<string>()
@@ -883,6 +908,7 @@ const Orders: React.FC = () => {
                       <Th>{t('orders.orderId')}</Th>
                       <Th>{t('orders.strategy')}</Th>
                       <Th>{t('orders.orderType')}</Th>
+                      <Th>{t('orders.orderSource')}</Th>
                       <Th>{t('orders.symbol')}</Th>
                       <Th>{t('orders.side')}</Th>
                       <Th isNumeric>{t('orders.price')}</Th>
@@ -906,6 +932,11 @@ const Orders: React.FC = () => {
                           <Td>
                             <Badge colorScheme="cyan" variant="outline">
                               {getOrderTypeText(order.type || 'LIMIT')}
+                            </Badge>
+                          </Td>
+                          <Td>
+                            <Badge colorScheme={getOrderSourceColorScheme(order.order_source)} variant="subtle">
+                              {getOrderSourceText(order.order_source)}
                             </Badge>
                           </Td>
                           <Td>

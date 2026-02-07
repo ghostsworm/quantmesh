@@ -42,6 +42,10 @@ type Storage interface {
 	GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error)
 	QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
+	// GetDailyTradesSummary 獲取指定日（配置時區）的成交筆數、毛利、手續費
+	GetDailyTradesSummary(exchange, account, dateStr string) (count int, grossPnl, totalFee float64, err error)
+	// GetFilledOrderQtySumBeforeTime 獲取指定時間前已成交訂單的買/賣數量合計（用於日初持倉）
+	GetFilledOrderQtySumBeforeTime(exchange, symbol string, before time.Time) (buyQty, sellQty float64, err error)
 	// 交易所已實現盈虧聚合（從 orders 表的 realized_pnl）
 	GetExchangePnLTotal(exchange, symbol string) (float64, error)
 	GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error)
@@ -441,6 +445,10 @@ func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 	}
 	if strategyType, ok := data["strategy_type"].(string); ok {
 		order.StrategyType = strategyType
+	}
+	// 订單來源（normal=正常限價, stop_loss=止損平倉, liquidation=強制平倉）
+	if orderSource, ok := data["order_source"].(string); ok {
+		order.OrderSource = orderSource
 	}
 	if createdAt, ok := data["created_at"].(time.Time); ok {
 		order.CreatedAt = utils.ToUTC(createdAt)

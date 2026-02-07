@@ -62,6 +62,7 @@ type OrderRequest struct {
 	ClientOrderID string // 自定义订單ID
 	StrategyName  string // 策略名称（可選，用於日志追踪）
 	StrategyType  string // 策略類型（可選，如 "grid", "dca", "martingale"）
+	OrderSource   string // 订單來源（"normal"=正常限價, "stop_loss"=止損平倉, "liquidation"=強制平倉）
 }
 
 // Order 订單信息（避免循環匯入）
@@ -266,6 +267,10 @@ type SuperPositionManager struct {
 	// 暂停標志
 	isPaused atomic.Bool
 
+	// 開倉管理：僅暫停開倉（區別於 isPaused 暫停所有交易）
+	isOpeningPaused    atomic.Bool
+	openingPauseReason atomic.Value // string - 暫停原因
+
 	// 資金費率監控器（可選，用於費率偏向策略）
 	fundingMonitor FundingMonitor
 
@@ -338,6 +343,109 @@ func (spm *SuperPositionManager) Resume() {
 // IsPaused 是否已暂停
 func (spm *SuperPositionManager) IsPaused() bool {
 	return spm.isPaused.Load()
+}
+
+// PauseOpening 暫停開倉（並撤銷所有開倉委託）
+func (spm *SuperPositionManager) PauseOpening(reason string) {
+	spm.isOpeningPaused.Store(true)
+	spm.openingPauseReason.Store(reason)
+	logger.Warn("⏸️ [%s] 開倉管理：已暫停開倉，原因: %s", spm.config.Trading.Symbol, reason)
+	spm.CancelAllOpenOrders()
+}
+
+// ResumeOpening 恢復開倉
+func (spm *SuperPositionManager) ResumeOpening() {
+	spm.isOpeningPaused.Store(false)
+	spm.openingPauseReason.Store("")
+	logger.Info("▶️ [%s] 開倉管理：已恢復開倉", spm.config.Trading.Symbol)
+}
+
+// IsOpeningPaused 是否已暫停開倉
+func (spm *SuperPositionManager) IsOpeningPaused() bool {
+	return spm.isOpeningPaused.Load()
+}
+
+// GetOpeningPauseReason 獲取開倉暫停原因
+func (spm *SuperPositionManager) GetOpeningPauseReason() string {
+	v := spm.openingPauseReason.Load()
+	if v == nil {
+		return ""
+	}
+	return v.(string)
+}
+
+// CancelAllOpenOrders 撤銷所有開倉委託（根據 direction 自動判斷 BUY 或 SELL）
+func (spm *SuperPositionManager) CancelAllOpenOrders() {
+	openSide := "BUY"
+	if spm.isShort() {
+		openSide = "SELL"
+	}
+	var orderIDs []int64
+	var prices []float64
+
+	spm.slots.Range(func(key, value interface{}) bool {
+		price := key.(float64)
+		slot := value.(*InventorySlot)
+
+		slot.mu.RLock()
+		if slot.OrderSide == openSide && slot.OrderID > 0 &&
+			slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
+			orderIDs = append(orderIDs, slot.OrderID)
+			prices = append(prices, price)
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+
+	if len(orderIDs) == 0 {
+		return
+	}
+
+	sideLabel := "買單"
+	if spm.isShort() {
+		sideLabel = "賣單"
+	}
+	logger.Info("🔄 [開倉管理] 準備撤銷 %d 個開倉 %s", len(orderIDs), sideLabel)
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		if len(orderIDs) == 0 {
+			break
+		}
+		if err := spm.executor.BatchCancelOrders(orderIDs); err != nil {
+			logger.Error("❌ [開倉管理] 批量撤單失敗: %v", err)
+		}
+
+		for _, price := range prices {
+			slot := spm.getOrCreateSlot(price)
+			slot.mu.Lock()
+			slot.OrderStatus = OrderStatusCancelRequested
+			slot.mu.Unlock()
+		}
+
+		time.Sleep(2 * time.Second)
+
+		if attempt < 3 {
+			orderIDs = nil
+			prices = nil
+			spm.slots.Range(func(key, value interface{}) bool {
+				price := key.(float64)
+				slot := value.(*InventorySlot)
+				slot.mu.RLock()
+				if slot.OrderSide == openSide && slot.OrderID > 0 &&
+					slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
+					orderIDs = append(orderIDs, slot.OrderID)
+					prices = append(prices, price)
+				}
+				slot.mu.RUnlock()
+				return true
+			})
+			if len(orderIDs) == 0 {
+				logger.Info("✅ [開倉管理] 所有開倉委託已清理完成")
+				break
+			}
+			logger.Warn("⚠️ [開倉管理] 檢測到 %d 個殘留委託，繼續清理", len(orderIDs))
+		}
+	}
 }
 
 // SetEventBus 設置事件總線
@@ -769,6 +877,10 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 趨勢過濾與层數限制預检查
 	skipBuying := false
+	// 開倉管理：檢查是否暫停開倉
+	if spm.IsOpeningPaused() {
+		skipBuying = true
+	}
 	if spm.config.Trading.GridRiskControl.Enabled {
 		// 趨勢過濾
 		if spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil {
@@ -2588,6 +2700,7 @@ func (spm *SuperPositionManager) LiquidateAll() {
 				ReduceOnly:    !spm.isSpot(), // 現貨不支援 ReduceOnly
 				PostOnly:      false,         // 强制平倉不使用 PostOnly
 				ClientOrderID: clientOID,
+				OrderSource:   "stop_loss", // 止損平倉
 			})
 		}
 		slot.mu.Unlock()
@@ -3374,6 +3487,15 @@ func (spm *SuperPositionManager) calculateTotalPositionValue(currentPrice float6
 		return true
 	})
 	return totalValue
+}
+
+// GetLastMarketPrice 獲取最後市場價格（供開倉控制器等使用）
+func (spm *SuperPositionManager) GetLastMarketPrice() float64 {
+	v := spm.lastMarketPrice.Load()
+	if v == nil {
+		return 0
+	}
+	return v.(float64)
 }
 
 // GetActiveLayers 统计當前持倉层數

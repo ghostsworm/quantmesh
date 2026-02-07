@@ -449,6 +449,67 @@ export async function getDailyStatistics(exchange?: string, symbol?: string, day
   return fetchWithAuth(url)
 }
 
+/** 日盈虧拆解：摘要 */
+export interface DailyPnLBreakdownSummary {
+  total_buy_orders: number
+  total_buy_qty: number
+  total_buy_value: number
+  total_sell_orders: number
+  total_sell_qty: number
+  total_sell_value: number
+  net_cash_flow: number
+  net_qty_change: number
+  start_position_qty: number
+  end_position_qty: number
+  start_position_value: number
+  end_position_value: number
+  position_value_change: number
+  net_trading_pnl: number
+  grid_profit: number
+  grid_trades: number
+  total_fee: number
+  funding_fee: number
+  exchange_pnl: number
+  unrealized_pnl_start: number
+  unrealized_pnl_end: number
+  open_price: number
+  close_price: number
+}
+
+/** 日盈虧拆解：小時權益點 */
+export interface HourlyEquityPoint {
+  timestamp: number
+  equity: number
+}
+
+/** 日盈虧拆解：單筆成交（top_trades） */
+export interface TopTradeItem {
+  sell_order_id: number
+  buy_price: number
+  sell_price: number
+  quantity: number
+  pnl: number
+}
+
+/** 日盈虧拆解 API 響應 */
+export interface DailyPnLBreakdownResponse {
+  date: string
+  summary: DailyPnLBreakdownSummary
+  hourly_equity: HourlyEquityPoint[]
+  top_trades: TopTradeItem[]
+}
+
+export async function getDailyPnLBreakdown(
+  date: string,
+  exchange?: string,
+  symbol?: string
+): Promise<DailyPnLBreakdownResponse> {
+  const queryParams = new URLSearchParams({ date })
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  return fetchWithAuth(`${API_BASE_URL}/statistics/daily/breakdown?${queryParams.toString()}`)
+}
+
 export interface TradeStatistics {
   symbol: string
   trades: number
@@ -1261,6 +1322,89 @@ export async function stopTrading(exchange?: string, symbol?: string): Promise<{
   const url = `${API_BASE_URL}/trading/stop${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url, {
     method: 'POST',
+  })
+}
+
+// Opening Control (開倉管理)
+export interface ScheduleRule {
+  enabled: boolean
+  action: 'pause' | 'resume'
+  time: string // "HH:MM" UTC
+  weekdays?: number[] // 0=周日..6=周六
+}
+
+export interface PeriodicRule {
+  enabled: boolean
+  open_duration_min: number
+  close_duration_min: number
+}
+
+export interface OpenPositionControlConfig {
+  pause_opening?: boolean
+  max_position_value: number
+  max_position_layers: number
+  schedule_rules?: ScheduleRule[]
+  periodic_rule?: PeriodicRule | null
+}
+
+export interface OpeningControlStatus {
+  exchange: string
+  symbol: string
+  opening_paused: boolean
+  pause_reason: string
+  current_position_value_usdt: number
+  current_layers: number
+  config: {
+    max_position_value: number
+    max_position_layers: number
+    schedule_rules: ScheduleRule[]
+    periodic_rule: PeriodicRule | null
+  }
+}
+
+export async function getOpeningControlStatus(exchange: string, symbol: string): Promise<OpeningControlStatus> {
+  const queryParams = new URLSearchParams()
+  queryParams.append('exchange', exchange)
+  queryParams.append('symbol', symbol)
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/status?${queryParams.toString()}`)
+}
+
+export async function pauseOpening(exchange: string, symbol: string): Promise<{ message: string; opening_paused: boolean }> {
+  const queryParams = new URLSearchParams()
+  queryParams.append('exchange', exchange)
+  queryParams.append('symbol', symbol)
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/pause?${queryParams.toString()}`, {
+    method: 'POST',
+  })
+}
+
+export async function resumeOpening(exchange: string, symbol: string): Promise<{ message: string; opening_paused: boolean }> {
+  const queryParams = new URLSearchParams()
+  queryParams.append('exchange', exchange)
+  queryParams.append('symbol', symbol)
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/resume?${queryParams.toString()}`, {
+    method: 'POST',
+  })
+}
+
+export async function getOpeningControlConfig(exchange: string, symbol: string): Promise<OpenPositionControlConfig> {
+  const queryParams = new URLSearchParams()
+  queryParams.append('exchange', exchange)
+  queryParams.append('symbol', symbol)
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${queryParams.toString()}`)
+}
+
+export async function updateOpeningControlConfig(
+  exchange: string,
+  symbol: string,
+  config: Partial<OpenPositionControlConfig>
+): Promise<{ message: string }> {
+  const queryParams = new URLSearchParams()
+  queryParams.append('exchange', exchange)
+  queryParams.append('symbol', symbol)
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${queryParams.toString()}`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
   })
 }
 

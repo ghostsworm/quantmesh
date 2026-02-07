@@ -162,6 +162,39 @@ type GridRiskControl struct {
 	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`             // 是否開啟趨勢過濾
 }
 
+// ScheduleRule 定時規則：在指定時段執行暫停/恢復開倉
+type ScheduleRule struct {
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	Action   string `yaml:"action" json:"action"`   // "pause" 或 "resume"
+	Time     string `yaml:"time" json:"time"`       // "HH:MM" 格式（UTC）
+	Weekdays []int  `yaml:"weekdays,omitempty" json:"weekdays"` // 0=週日..6=週六，空=每天
+}
+
+// PeriodicRule 週期規則：週期性開關倉
+type PeriodicRule struct {
+	Enabled           bool `yaml:"enabled" json:"enabled"`
+	OpenDurationMin   int  `yaml:"open_duration_min" json:"open_duration_min"`   // 開倉持續分鐘數
+	CloseDurationMin  int  `yaml:"close_duration_min" json:"close_duration_min"` // 關倉持續分鐘數
+}
+
+// OpenPositionControl 開倉管理配置
+type OpenPositionControl struct {
+	// 手動暫停開倉（運行時狀態，不持久化到 yaml）
+	PauseOpening bool `yaml:"-" json:"pause_opening"`
+
+	// 限倉：倉位價值上限（USDT），達到後停止開倉並撤銷開倉委託，0=不限
+	MaxPositionValue float64 `yaml:"max_position_value" json:"max_position_value"`
+
+	// 限倉：最大持倉層數（與 GridRiskControl.MaxGridLayers 獨立，0=不限）
+	MaxPositionLayers int `yaml:"max_position_layers" json:"max_position_layers"`
+
+	// 定時規則：在指定時段內關閉開倉
+	ScheduleRules []ScheduleRule `yaml:"schedule_rules,omitempty" json:"schedule_rules"`
+
+	// 週期規則：週期性開關倉
+	PeriodicRule *PeriodicRule `yaml:"periodic_rule,omitempty" json:"periodic_rule"`
+}
+
 // FundingRateConfig 資金費率監控與套利配置
 type FundingRateConfig struct {
 	Enabled         bool    `yaml:"enabled" json:"enabled"`                   // 是否啟用資金費率監控
@@ -917,6 +950,7 @@ type SymbolConfig struct {
 	MarginLockDurationSec int                `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保證金鎖定時间（秒）
 	PositionSafetyCheck   int                `yaml:"position_safety_check" json:"position_safety_check"`       // 持倉安全性檢查
 	GridRiskControl       GridRiskControl    `yaml:"grid_risk_control" json:"grid_risk_control"`               // 網格策略风控
+	OpenPositionControl   OpenPositionControl `yaml:"open_position_control" json:"open_position_control"`       // 開倉管理
 	Direction             string             `yaml:"direction" json:"direction"`                               // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
 	// 多套配置自动切换
 	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`       // 配置档案（如 positive, negative）
