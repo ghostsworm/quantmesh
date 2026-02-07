@@ -896,7 +896,7 @@ export default function BacktestMenu() {
                       </Badge>
                     </HStack>
                     <Text fontSize="sm" color="gray.600" mb={1}>
-                      {t('backtest.strategyLabel')}: {result.strategy} | {result.market_type === 'spot' ? t('backtest.spot') : t('backtest.futures')}
+                      {t('backtest.strategyLabel')}: {t(`backtest.strategyNames.${result.strategy}`, { defaultValue: result.strategy })} | {result.market_type === 'spot' ? t('backtest.spot') : t('backtest.futures')}
                     </Text>
                     <HStack spacing={2} fontSize="xs" color="gray.500">
                       <Text>{t('backtest.sharpe')}: {result.result?.metrics?.sharpe_ratio?.toFixed(4) ?? '-'}</Text>
@@ -1238,7 +1238,7 @@ export default function BacktestMenu() {
                       }}
                     >
                       {strategies.map((s) => (
-                        <option key={s.strategy_type} value={s.strategy_type}>{s.name}</option>
+                        <option key={s.strategy_type} value={s.strategy_type}>{t(`backtest.strategyNames.${s.strategy_type}`, { defaultValue: s.name })}</option>
                       ))}
                     </Select>
                   </FormControl>
@@ -1299,7 +1299,7 @@ export default function BacktestMenu() {
                     ?.filter((p) => p.name !== 'total_capital')
                     ?.map((p) => (
                     <FormControl key={p.name} mb={2}>
-                      <FormLabel fontSize="sm">{p.label}{p.required ? ' *' : ''}</FormLabel>
+                      <FormLabel fontSize="sm">{t(`backtest.paramLabels.${p.name}`, { defaultValue: p.label })}{p.required ? ' *' : ''}</FormLabel>
                       {p.type === 'number' && (
                         <NumberInput
                           value={(params[p.name] as number) ?? (p.default as number)}
@@ -1314,7 +1314,7 @@ export default function BacktestMenu() {
                       )}
                       {p.hint && (
                         <Text fontSize="xs" color="gray.500" mt={1}>
-                          {p.hint}
+                          {t(`backtest.paramHints.${p.name}`, { defaultValue: p.hint })}
                         </Text>
                       )}
                       {p.unit && <Text as="span" fontSize="xs" color="gray.500" ml={2}>{p.unit}</Text>}
@@ -1372,7 +1372,7 @@ export default function BacktestMenu() {
                             </Badge>
                           </Tooltip>
                         </Td>
-                        <Td>{task.strategy}</Td>
+                        <Td>{t(`backtest.strategyNames.${task.strategy}`, { defaultValue: task.strategy })}</Td>
                         <Td>{task.symbol}</Td>
                         <Td>{task.interval}</Td>
                         <Td>{formatDate(task.start_time)} ~ {formatDate(task.end_time)}</Td>
@@ -1723,7 +1723,7 @@ export default function BacktestMenu() {
                     <FormLabel fontSize="sm">{t('backtest.strategy')}</FormLabel>
                     <Select placeholder={t('backtest.selectStrategyPlaceholder')} value={strategyType} onChange={(e) => setStrategyType(e.target.value)}>
                       {strategies.filter((s) => ['grid', 'momentum', 'mean_reversion', 'trend_following', 'dca', 'martingale'].includes(s.strategy_type)).map((s) => (
-                        <option key={s.strategy_type} value={s.strategy_type}>{s.name}</option>
+                        <option key={s.strategy_type} value={s.strategy_type}>{t(`backtest.strategyNames.${s.strategy_type}`, { defaultValue: s.name })}</option>
                       ))}
                     </Select>
                   </FormControl>
@@ -1794,7 +1794,7 @@ export default function BacktestMenu() {
                                   {task.status}
                                 </Badge>
                               </Td>
-                              <Td>{task.strategy}</Td>
+                              <Td>{t(`backtest.strategyNames.${task.strategy}`, { defaultValue: task.strategy })}</Td>
                               <Td>{task.symbol}</Td>
                               <Td>{task.total_combos}</Td>
                               <Td>{task.progress}%</Td>

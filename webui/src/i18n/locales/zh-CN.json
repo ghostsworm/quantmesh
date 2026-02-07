@@ -356,7 +356,13 @@
     "totalDeviationLoss": "偏差净额",
     "strategyVisualization": "策略可视化",
     "leverage": "杠杆",
-    "leverageTimes": "{{count}}x"
+    "leverageTimes": "{{count}}x",
+    "discrepancyReasons": {
+      "quantity_diff": "数量差异：交易所={{exchange}}，槽位={{slot}}，差={{diff}} ({{diffPct}}%)",
+      "entry_price_diff": "入场价差异：交易所={{exchange}}，槽位平均={{slotAvg}}，差={{diff}} ({{diffPct}}%)",
+      "price_diff": "价格差异：标记价={{markPrice}}，WS价={{wsPrice}}，差={{diff}} ({{diffPct}}%)",
+      "pnl_diff_other": "盈亏差异 {{pnlDiff}} USDT，可能原因：手续费/资金费率/滑点/成交价偏差"
+    }
   },
   "login": {
     "title": "登录",

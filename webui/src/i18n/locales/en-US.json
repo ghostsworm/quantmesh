@@ -356,7 +356,13 @@
     "totalDeviationLoss": "Total Deviation Net",
     "strategyVisualization": "Strategy Visualization",
     "leverage": "Leverage",
-    "leverageTimes": "{{count}}x"
+    "leverageTimes": "{{count}}x",
+    "discrepancyReasons": {
+      "quantity_diff": "Quantity diff: exchange={{exchange}}, slot={{slot}}, diff={{diff}} ({{diffPct}}%)",
+      "entry_price_diff": "Entry price diff: exchange={{exchange}}, slot avg={{slotAvg}}, diff={{diff}} ({{diffPct}}%)",
+      "price_diff": "Price diff: mark={{markPrice}}, WS={{wsPrice}}, diff={{diff}} ({{diffPct}}%)",
+      "pnl_diff_other": "PnL diff {{pnlDiff}} USDT, possible causes: fees/funding/slippage/price deviation"
+    }
   },
   "login": {
     "title": "Login",

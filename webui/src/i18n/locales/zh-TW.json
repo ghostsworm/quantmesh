@@ -223,7 +223,40 @@
     "view": "View",
     "volatility7d": "7-Day Volatility",
     "winRate": "Win Rate",
-    "withRiskControl": "With Risk Control"
+    "withRiskControl": "With Risk Control",
+    "strategyNames": {
+      "grid": "網格策略",
+      "momentum": "動量策略",
+      "mean_reversion": "均值回歸策略",
+      "trend_following": "趨勢跟蹤策略",
+      "dca": "定投策略",
+      "martingale": "馬丁格爾策略",
+      "combo": "組合策略"
+    },
+    "paramLabels": {
+      "grid_spacing": "網格間距",
+      "grid_count": "格子數量",
+      "order_quantity": "單筆訂單大小",
+      "total_capital": "總投入資金",
+      "fee_rate": "手續費率",
+      "risk_volume_multiplier": "風控-成交量倍數",
+      "risk_average_window": "風控-均線窗口",
+      "rsi_period": "RSI 週期",
+      "period": "週期",
+      "fast_period": "快線週期",
+      "slow_period": "慢線週期",
+      "interval_days": "定投間隔(天)",
+      "amount_per_trade": "每次投入金額",
+      "base_amount": "基礎下單金額",
+      "multiplier": "加倍倍數"
+    },
+    "paramHints": {
+      "grid_spacing": "每檔價格差，如 200 表示每檔相差 200 USDT。不填則按格子數量均分區間",
+      "grid_count": "最多幾檔。填了間距時表示最多 N 檔；未填間距時表示將區間均分為 N 檔",
+      "fee_rate": "如 0.0004 表示 0.04%",
+      "risk_volume_multiplier": "成交量超過均量的倍數觸發風控（越小越敏感）",
+      "risk_average_window": "計算均價/均量的K線數量"
+    }
   },
   "dashboard": {
     "tradingStopped": "交易已停止",
@@ -303,7 +336,13 @@
     "used": "Used",
     "strategyVisualization": "策略視覺化",
     "leverage": "槓桿",
-    "leverageTimes": "{{count}}x"
+    "leverageTimes": "{{count}}x",
+    "discrepancyReasons": {
+      "quantity_diff": "數量差異：交易所={{exchange}}，槽位={{slot}}，差={{diff}} ({{diffPct}}%)",
+      "entry_price_diff": "入場價差異：交易所={{exchange}}，槽位平均={{slotAvg}}，差={{diff}} ({{diffPct}}%)",
+      "price_diff": "價格差異：標記價={{markPrice}}，WS價={{wsPrice}}，差={{diff}} ({{diffPct}}%)",
+      "pnl_diff_other": "盈虧差異 {{pnlDiff}} USDT，可能原因：手續費/資金費率/滑點/成交價偏差"
+    }
   },
   "login": {
     "title": "登錄",
