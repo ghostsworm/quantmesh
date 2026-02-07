@@ -536,6 +536,8 @@
     "apiKeyOptional": "API Key (optional)",
     "tradingPairParams": "Trading Pair Parameters: {{symbol}}",
     "priceInterval": "Price Interval",
+    "profitSpread": "Profit Spread (Close Price Gap)",
+    "profitSpreadHint": "Leave empty to use price interval",
     "orderAmount": "Order Amount (USDT)",
     "buyWindowSize": "Buy Window Size",
     "sellWindowSize": "Sell Window Size",

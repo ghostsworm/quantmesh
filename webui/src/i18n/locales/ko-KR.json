@@ -451,6 +451,8 @@
     "apiKeyOptional": "API 키 (선택 사항)",
     "tradingPairParams": "거래 쌍 파라미터: {{symbol}}",
     "priceInterval": "가격 간격",
+    "profitSpread": "수익 스프레드 (청산 가격 차이)",
+    "profitSpreadHint": "비워두면 가격 간격을 사용합니다",
     "orderAmount": "주문 금액 (USDT)",
     "buyWindowSize": "매수 창 크기",
     "sellWindowSize": "매도 창 크기",

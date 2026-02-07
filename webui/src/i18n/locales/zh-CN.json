@@ -536,6 +536,8 @@
     "apiKeyOptional": "API 密钥 (可选)",
     "tradingPairParams": "交易对参数: {{symbol}}",
     "priceInterval": "价格间隔 (Interval)",
+    "profitSpread": "利润间距（平仓价差）",
+    "profitSpreadHint": "不填则使用价格间隔",
     "orderAmount": "单笔订单金额 (USDT)",
     "buyWindowSize": "买单窗口大小",
     "sellWindowSize": "卖单窗口大小",

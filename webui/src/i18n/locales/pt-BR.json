@@ -294,6 +294,8 @@
     "apiKeyOptional": "Chave API (opcional)",
     "tradingPairParams": "Parâmetros do Par de Negociação: {{symbol}}",
     "priceInterval": "Intervalo de Preço",
+    "profitSpread": "Spread de Lucro (Diferença de Preço de Fechamento)",
+    "profitSpreadHint": "Deixe vazio para usar o intervalo de preço",
     "orderAmount": "Valor da Ordem (USDT)",
     "buyWindowSize": "Tamanho da Janela de Compra",
     "sellWindowSize": "Tamanho da Janela de Venda",

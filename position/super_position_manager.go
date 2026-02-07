@@ -350,7 +350,70 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 	spm.isOpeningPaused.Store(true)
 	spm.openingPauseReason.Store(reason)
 	logger.Warn("⏸️ [%s] 開倉管理：已暫停開倉，原因: %s", spm.config.Trading.Symbol, reason)
+	
+	// 撤銷所有開倉委託
 	spm.CancelAllOpenOrders()
+	
+	// 為了確保萬無一失，特別是在幣安合約等場景，
+	// 如果本地 slots 狀態同步有延遲，直接調用交易所接口撤銷開倉方向的所有訂單
+	go func() {
+		// 延遲一小段時間，等待可能的本地狀態更新
+		time.Sleep(1 * time.Second)
+		
+		openSide := "BUY"
+		if spm.isShort() {
+			openSide = "SELL"
+		}
+		
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		
+		// 獲取交易所所有掛單
+		openOrdersInterface, err := spm.exchange.GetOpenOrders(ctx, spm.config.Trading.Symbol)
+		if err != nil {
+			logger.Error("❌ [%s] 暫停開倉時獲取掛單失敗: %v", spm.config.Trading.Symbol, err)
+			return
+		}
+		
+		// 類型斷言，因為 IExchange.GetOpenOrders 返回 interface{}
+		// 這裡我們需要根據 IExchange 實際返回的類型進行斷言
+		// 在 adapter 中通常返回的是 []*exchange.Order，但為了避免循環導入，
+		// 我們可能需要處理成 []interface{} 或者反射處理，或者在這裡定義一個兼容的結構
+		
+		var toCancel []int64
+		
+		// 嘗試反射處理，這樣最通用
+		v := reflect.ValueOf(openOrdersInterface)
+		if v.Kind() == reflect.Slice {
+			for i := 0; i < v.Len(); i++ {
+				orderVal := v.Index(i)
+				if orderVal.Kind() == reflect.Ptr {
+					orderVal = orderVal.Elem()
+				}
+				
+				if orderVal.Kind() == reflect.Struct {
+					sideField := orderVal.FieldByName("Side")
+					idField := orderVal.FieldByName("OrderID")
+					
+					if sideField.IsValid() && idField.IsValid() {
+						sideStr := fmt.Sprintf("%v", sideField.Interface())
+						if sideStr == openSide {
+							toCancel = append(toCancel, idField.Int())
+						}
+					}
+				}
+			}
+		}
+		
+		if len(toCancel) > 0 {
+			logger.Warn("🔄 [%s] 暫停開倉：發現 %d 個殘留開倉委託，正在強制撤銷", spm.config.Trading.Symbol, len(toCancel))
+			if err := spm.executor.BatchCancelOrders(toCancel); err != nil {
+				logger.Error("❌ [%s] 強制撤銷殘留委託失敗: %v", spm.config.Trading.Symbol, err)
+			} else {
+				logger.Info("✅ [%s] 強制撤銷殘留委託完成", spm.config.Trading.Symbol)
+			}
+		}
+	}()
 }
 
 // ResumeOpening 恢復開倉

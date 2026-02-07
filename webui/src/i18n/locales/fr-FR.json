@@ -449,6 +449,8 @@
     "apiKeyOptional": "Clé API (facultative)",
     "tradingPairParams": "Paramètres de la paire de trading : {{symbol}}",
     "priceInterval": "Intervalle de prix",
+    "profitSpread": "Écart de profit (Écart de prix de clôture)",
+    "profitSpreadHint": "Laisser vide pour utiliser l'intervalle de prix",
     "orderAmount": "Montant de l'ordre (USDT)",
     "buyWindowSize": "Taille de la fenêtre d'achat",
     "sellWindowSize": "Taille de la fenêtre de vente",

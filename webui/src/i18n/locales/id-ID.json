@@ -294,6 +294,8 @@
     "apiKeyOptional": "Kunci API (opsional)",
     "tradingPairParams": "Parameter Pasangan Perdagangan: {{symbol}}",
     "priceInterval": "Interval Harga",
+    "profitSpread": "Spread Keuntungan (Selisih Harga Tutup)",
+    "profitSpreadHint": "Biarkan kosong untuk menggunakan interval harga",
     "orderAmount": "Jumlah Pesanan (USDT)",
     "buyWindowSize": "Ukuran Jendela Beli",
     "sellWindowSize": "Ukuran Jendela Jual",

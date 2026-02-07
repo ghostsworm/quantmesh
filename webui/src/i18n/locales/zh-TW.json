@@ -493,6 +493,8 @@
     "apiKeyOptional": "API 密鑰 (可選)",
     "tradingPairParams": "交易對參數: {{symbol}}",
     "priceInterval": "價格間隔 (Interval)",
+    "profitSpread": "利潤間距（平倉價差）",
+    "profitSpreadHint": "不填則使用價格間隔",
     "orderAmount": "單筆訂單金額 (USDT)",
     "buyWindowSize": "買單窗口大小",
     "sellWindowSize": "賣單窗口大小",
