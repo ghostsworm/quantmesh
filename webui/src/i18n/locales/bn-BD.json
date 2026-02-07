@@ -234,7 +234,9 @@
     "ok": "OK",
     "unavailable": "Unavailable",
     "normal": "Normal",
-    "checkHint": "Check config and restart"
+    "checkHint": "Check config and restart",
+    "name": { "storage": "Data Storage (SQLite)", "backtest": "Backtest Service", "smart_params": "Smart Parameter Recommendation" },
+    "message": { "normal": "Normal", "normalWithPath": "Normal ({{type}} @ {{path}})", "storageDisabled": "Storage is disabled in config. Enable \"Enable data storage\" under Settings → Storage & Web, save, then restart.", "storageNotConfigured": "storage.path or storage.type is not set in config.", "storageProviderNil": "Storage provider was not injected at startup.", "storageInstanceNil": "Storage instance is nil (check startup logs for SQLite/schema errors).", "configNotLoaded": "Config not loaded.", "backtestNotInit": "Backtest service not initialized. Ensure storage is enabled and initialized (see Data Storage above), save config, then restart.", "smartParamsNotInit": "Not initialized (backtest still works; only parameter recommendation is affected)." }
   },
   "statusBar": {
     "globalView": "Global Overview",

@@ -605,6 +605,8 @@
     "baseUrlPlaceholder": "Custom API endpoint (required for Poe and other proxy services)",
     "newsCollectInterval": "News Collection Interval",
     "aiAnalysisInterval": "AI Analysis Interval",
+    "newsAnalysisAssets": "News Analysis Assets",
+    "newsAnalysisAssetsDesc": "Enabled assets are analyzed by AI on the configured interval; disabled assets can be triggered manually on the News Analysis page.",
     "interval5m": "5 minutes",
     "interval10m": "10 minutes",
     "interval15m": "15 minutes",

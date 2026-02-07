@@ -605,6 +605,8 @@
     "baseUrlPlaceholder": "自定义 API 端点（Poe 等代理服务需要）",
     "newsCollectInterval": "新闻收集间隔",
     "aiAnalysisInterval": "AI 分析间隔",
+    "newsAnalysisAssets": "新闻分析品种",
+    "newsAnalysisAssetsDesc": "开启的品种会按「AI 分析间隔」定时调用 AI 做预测；未开启的品种可在新闻分析页手动触发。",
     "interval5m": "5 分钟",
     "interval10m": "10 分钟",
     "interval15m": "15 分钟",
