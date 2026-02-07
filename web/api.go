@@ -1089,7 +1089,9 @@ func getPositionsSummary(c *gin.Context) {
 	}
 
 	// ========== 差异分析 ==========
-	var discrepancyReasons []string
+	// 返回結構化原因供前端 i18n 格式化，不再硬編碼中文
+	type reasonItem map[string]interface{}
+	var discrepancyReasons []reasonItem
 	pnlDiff := 0.0
 
 	if hasExchangeData && slotTotalQuantity > 0 {
@@ -1099,10 +1101,14 @@ func getPositionsSummary(c *gin.Context) {
 		quantityDiff := exchangePositionSize - slotTotalQuantity
 		if math.Abs(quantityDiff) > 0.000001 {
 			diffPercent := (quantityDiff / slotTotalQuantity) * 100
-			if math.Abs(diffPercent) > 1 { // 超過1%的差异
-				discrepancyReasons = append(discrepancyReasons,
-					fmt.Sprintf("數量差异: 交易所=%.6f, 槽位=%.6f, 差=%.6f (%.2f%%)",
-						exchangePositionSize, slotTotalQuantity, quantityDiff, diffPercent))
+			if math.Abs(diffPercent) > 1 {
+				discrepancyReasons = append(discrepancyReasons, reasonItem{
+					"type":     "quantity_diff",
+					"exchange": exchangePositionSize,
+					"slot":     slotTotalQuantity,
+					"diff":     quantityDiff,
+					"diff_pct": diffPercent,
+				})
 			}
 		}
 
@@ -1110,10 +1116,14 @@ func getPositionsSummary(c *gin.Context) {
 		priceDiff := exchangeEntryPrice - slotAveragePrice
 		if math.Abs(priceDiff) > 0.01 {
 			diffPercent := (priceDiff / slotAveragePrice) * 100
-			if math.Abs(diffPercent) > 0.1 { // 超過0.1%的差异
-				discrepancyReasons = append(discrepancyReasons,
-					fmt.Sprintf("入场價差异: 交易所=%.2f, 槽位平均=%.2f, 差=%.2f (%.4f%%)",
-						exchangeEntryPrice, slotAveragePrice, priceDiff, diffPercent))
+			if math.Abs(diffPercent) > 0.1 {
+				discrepancyReasons = append(discrepancyReasons, reasonItem{
+					"type":     "entry_price_diff",
+					"exchange": exchangeEntryPrice,
+					"slot_avg": slotAveragePrice,
+					"diff":     priceDiff,
+					"diff_pct": diffPercent,
+				})
 			}
 		}
 
@@ -1122,21 +1132,22 @@ func getPositionsSummary(c *gin.Context) {
 			markPriceDiff := exchangeMarkPrice - wsPrice
 			if math.Abs(markPriceDiff) > 0.01 {
 				diffPercent := (markPriceDiff / wsPrice) * 100
-				discrepancyReasons = append(discrepancyReasons,
-					fmt.Sprintf("價格差异: 標記價=%.2f, WS價=%.2f, 差=%.2f (%.4f%%)",
-						exchangeMarkPrice, wsPrice, markPriceDiff, diffPercent))
+				discrepancyReasons = append(discrepancyReasons, reasonItem{
+					"type":       "price_diff",
+					"mark_price": exchangeMarkPrice,
+					"ws_price":   wsPrice,
+					"diff":       markPriceDiff,
+					"diff_pct":   diffPercent,
+				})
 			}
 		}
 
 		// 4. 如果數量和價格都接近但盈亏差异大，可能是其他原因
 		if len(discrepancyReasons) == 0 && math.Abs(pnlDiff) > 1 {
-			// 可能原因：
-			// - 手续费影响（交易所盈亏可能已扣除手续费）
-			// - 资金费率影响（交易所盈亏可能包含资金费率）
-			// - 滑点導致的實際成交價與記錄價的差异
-			// - 槽位記錄的價格與實際成交價有偏差
-			discrepancyReasons = append(discrepancyReasons,
-				fmt.Sprintf("盈亏差异 %.2f USDT，可能原因: 手续费/资金费率/滑点/成交價偏差", pnlDiff))
+			discrepancyReasons = append(discrepancyReasons, reasonItem{
+				"type":     "pnl_diff_other",
+				"pnl_diff": pnlDiff,
+			})
 		}
 
 		// 記錄详细日志
@@ -1146,10 +1157,8 @@ func getPositionsSummary(c *gin.Context) {
 		logger.Info("  槽位:   size=%.6f, avgPrice=%.2f, wsPrice=%.2f, pnl=%.4f",
 			slotTotalQuantity, slotAveragePrice, wsPrice, slotUnrealizedPnL)
 		logger.Info("  差异:   pnlDiff=%.4f USDT", pnlDiff)
-		if len(discrepancyReasons) > 0 {
-			for _, reason := range discrepancyReasons {
-				logger.Info("  原因:   %s", reason)
-			}
+		for i, r := range discrepancyReasons {
+			logger.Info("  原因[%d]: type=%v", i, r["type"])
 		}
 	}
 

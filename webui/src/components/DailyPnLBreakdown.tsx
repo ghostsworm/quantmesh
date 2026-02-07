@@ -87,7 +87,12 @@ const DailyPnLBreakdown: React.FC = () => {
   const formatNum = (v: number) => (v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2))
   const colorOf = (v: number) => (v >= 0 ? colorPositive : colorNegative)
 
-  const hourlyChartData = (data.hourly_equity || []).map((p) => ({
+  const gridProfitTrades = data?.grid_profit_trades ?? []
+  const gridLossTrades = data?.grid_loss_trades ?? []
+  const exchangeProfitOrders = data?.exchange_profit_orders ?? []
+  const exchangeLossOrders = data?.exchange_loss_orders ?? []
+
+  const hourlyChartData = (data?.hourly_equity ?? []).map((p) => ({
     time: new Date(p.timestamp * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
     equity: p.equity,
   }))
@@ -173,6 +178,9 @@ const DailyPnLBreakdown: React.FC = () => {
             <div style={{ fontSize: '14px' }}>
               {t('dailyBreakdown.sellRevenue')} − {t('dailyBreakdown.buyCost')} = {t('dailyBreakdown.netCashFlow')}
             </div>
+            <div style={{ fontSize: '13px', marginTop: '8px', color: '#595959' }}>
+              {t('dailyBreakdown.sellRevenue')}: {s.total_sell_value.toFixed(2)} · {t('dailyBreakdown.buyCost')}: {s.total_buy_value.toFixed(2)}
+            </div>
             <div style={{ fontSize: '18px', fontWeight: 'bold', color: colorOf(s.net_cash_flow), marginTop: '8px' }}>
               {formatNum(s.net_cash_flow)}
             </div>
@@ -223,8 +231,11 @@ const DailyPnLBreakdown: React.FC = () => {
           <span style={{ fontWeight: 'bold', color: colorOf(s.net_trading_pnl - s.total_fee + s.funding_fee) }}>
             {formatNum(s.net_trading_pnl - s.total_fee + s.funding_fee)}
           </span>
-          <div style={{ marginTop: '12px', fontSize: '13px', color: '#8c8c8c' }}>
-            {formatNum(s.net_trading_pnl)} − {s.total_fee.toFixed(2)} + {formatNum(s.funding_fee)}
+          <div style={{ marginTop: '12px', fontSize: '13px', color: '#262626' }}>
+            {t('dailyBreakdown.netTradingPnL')}: {formatNum(s.net_trading_pnl)} · {t('dailyBreakdown.fees')}: −{s.total_fee.toFixed(2)} · {t('dailyBreakdown.funding')}: {formatNum(s.funding_fee)}
+          </div>
+          <div style={{ marginTop: '8px', fontSize: '12px', color: '#8c8c8c' }}>
+            {t('dailyBreakdown.fundingSignNote')}
           </div>
         </div>
       </section>
@@ -249,38 +260,148 @@ const DailyPnLBreakdown: React.FC = () => {
         </section>
       )}
 
-      {/* Top trades (optional compact list) */}
-      {data.top_trades && data.top_trades.length > 0 && (
+      {/* Grid 計算 · 盈利 Top / 虧損 Top */}
+      {(gridProfitTrades.length > 0 || gridLossTrades.length > 0) && (
+        <section style={{ marginBottom: '32px' }}>
+          <p style={{ fontSize: '12px', color: '#8c8c8c', marginBottom: '8px' }}>{t('dailyBreakdown.fundingColumnNote')}</p>
+          {gridProfitTrades.length > 0 && (
+            <div style={{ marginBottom: '20px' }}>
+              <h3 style={{ marginBottom: '8px', fontSize: '15px', color: '#262626' }}>{t('dailyBreakdown.gridCalc')} · {t('dailyBreakdown.profitTop')}</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e8e8e8' }}>
+                  <thead>
+                    <tr style={{ background: '#fafafa' }}>
+                      <th style={{ padding: '8px', textAlign: 'left' }}>{t('dailyBreakdown.sellOrderId')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.buyPrice')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.sellPrice')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.quantity')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.pnl')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.feeColumn')}</th>
+                      <th style={{ padding: '8px', textAlign: 'center' }}>{t('dailyBreakdown.fundingColumn')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gridProfitTrades.map((tr, i) => (
+                      <tr key={`profit-${i}`} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                        <td style={{ padding: '8px' }}>{tr.sell_order_id}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{tr.buy_price.toFixed(2)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{tr.sell_price.toFixed(2)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{tr.quantity.toFixed(4)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: colorOf(tr.pnl) }}>{formatNum(tr.pnl)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>−{(tr.fee ?? 0).toFixed(2)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#8c8c8c' }}>{t('dailyBreakdown.na')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {gridLossTrades.length > 0 && (
+            <div>
+              <h3 style={{ marginBottom: '8px', fontSize: '15px', color: '#262626' }}>{t('dailyBreakdown.gridCalc')} · {t('dailyBreakdown.lossTop')}</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e8e8e8' }}>
+                  <thead>
+                    <tr style={{ background: '#fafafa' }}>
+                      <th style={{ padding: '8px', textAlign: 'left' }}>{t('dailyBreakdown.sellOrderId')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.buyPrice')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.sellPrice')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.quantity')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.pnl')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.feeColumn')}</th>
+                      <th style={{ padding: '8px', textAlign: 'center' }}>{t('dailyBreakdown.fundingColumn')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gridLossTrades.map((tr, i) => (
+                      <tr key={`loss-${i}`} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                        <td style={{ padding: '8px' }}>{tr.sell_order_id}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{tr.buy_price.toFixed(2)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{tr.sell_price.toFixed(2)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{tr.quantity.toFixed(4)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: colorOf(tr.pnl) }}>{formatNum(tr.pnl)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>−{(tr.fee ?? 0).toFixed(2)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#8c8c8c' }}>{t('dailyBreakdown.na')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* 交易所計算 · 盈利 Top / 虧損 Top */}
+      {(exchangeProfitOrders.length > 0 || exchangeLossOrders.length > 0) && (
         <section>
-          <h3 style={{ marginBottom: '12px', fontSize: '16px', color: '#262626' }}>
-            {t('dailyBreakdown.topTrades')}
-          </h3>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e8e8e8' }}>
-              <thead>
-                <tr style={{ background: '#fafafa' }}>
-                  <th style={{ padding: '8px', textAlign: 'left' }}>{t('dailyBreakdown.sellOrderId')}</th>
-                  <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.buyPrice')}</th>
-                  <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.sellPrice')}</th>
-                  <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.quantity')}</th>
-                  <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.pnl')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.top_trades.slice(0, 10).map((tr, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                    <td style={{ padding: '8px' }}>{tr.sell_order_id}</td>
-                    <td style={{ padding: '8px', textAlign: 'right' }}>{tr.buy_price.toFixed(2)}</td>
-                    <td style={{ padding: '8px', textAlign: 'right' }}>{tr.sell_price.toFixed(2)}</td>
-                    <td style={{ padding: '8px', textAlign: 'right' }}>{tr.quantity.toFixed(4)}</td>
-                    <td style={{ padding: '8px', textAlign: 'right', color: colorOf(tr.pnl) }}>
-                      {formatNum(tr.pnl)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {exchangeProfitOrders.length > 0 && (
+            <div style={{ marginBottom: '20px' }}>
+              <h3 style={{ marginBottom: '8px', fontSize: '15px', color: '#262626' }}>{t('dailyBreakdown.exchangeCalc')} · {t('dailyBreakdown.profitTop')}</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e8e8e8' }}>
+                  <thead>
+                    <tr style={{ background: '#fafafa' }}>
+                      <th style={{ padding: '8px', textAlign: 'left' }}>{t('dailyBreakdown.orderId')}</th>
+                      <th style={{ padding: '8px', textAlign: 'left' }}>{t('dailyBreakdown.side')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.price')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.quantity')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.exchangeRealizedPnl')}</th>
+                      <th style={{ padding: '8px', textAlign: 'center' }}>{t('dailyBreakdown.feeColumn')}</th>
+                      <th style={{ padding: '8px', textAlign: 'center' }}>{t('dailyBreakdown.fundingColumn')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exchangeProfitOrders.map((o, i) => (
+                      <tr key={`ex-profit-${i}`} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                        <td style={{ padding: '8px' }}>{o.order_id}</td>
+                        <td style={{ padding: '8px' }}>{o.side}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{o.price.toFixed(2)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{o.filled_qty.toFixed(4)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: colorOf(o.realized_pnl) }}>{formatNum(o.realized_pnl)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#8c8c8c' }}>{t('dailyBreakdown.na')}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#8c8c8c' }}>{t('dailyBreakdown.na')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {exchangeLossOrders.length > 0 && (
+            <div>
+              <h3 style={{ marginBottom: '8px', fontSize: '15px', color: '#262626' }}>{t('dailyBreakdown.exchangeCalc')} · {t('dailyBreakdown.lossTop')}</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e8e8e8' }}>
+                  <thead>
+                    <tr style={{ background: '#fafafa' }}>
+                      <th style={{ padding: '8px', textAlign: 'left' }}>{t('dailyBreakdown.orderId')}</th>
+                      <th style={{ padding: '8px', textAlign: 'left' }}>{t('dailyBreakdown.side')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.price')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.quantity')}</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>{t('dailyBreakdown.exchangeRealizedPnl')}</th>
+                      <th style={{ padding: '8px', textAlign: 'center' }}>{t('dailyBreakdown.feeColumn')}</th>
+                      <th style={{ padding: '8px', textAlign: 'center' }}>{t('dailyBreakdown.fundingColumn')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exchangeLossOrders.map((o, i) => (
+                      <tr key={`ex-loss-${i}`} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                        <td style={{ padding: '8px' }}>{o.order_id}</td>
+                        <td style={{ padding: '8px' }}>{o.side}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{o.price.toFixed(2)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{o.filled_qty.toFixed(4)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: colorOf(o.realized_pnl) }}>{formatNum(o.realized_pnl)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#8c8c8c' }}>{t('dailyBreakdown.na')}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#8c8c8c' }}>{t('dailyBreakdown.na')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </section>
       )}
     </div>

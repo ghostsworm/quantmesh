@@ -682,9 +682,24 @@ const Dashboard: React.FC = () => {
                             </HStack>
                             {positionsSummary.discrepancy.reasons && positionsSummary.discrepancy.reasons.length > 0 && (
                               <VStack align="start" spacing={0.5}>
-                                {positionsSummary.discrepancy.reasons.map((reason, idx) => (
-                                  <Text key={idx} fontSize="10px" color="gray.500">• {reason}</Text>
-                                ))}
+                                {positionsSummary.discrepancy.reasons.map((reason, idx) => {
+                                  if (typeof reason === 'string') {
+                                    return <Text key={idx} fontSize="10px" color="gray.500">• {reason}</Text>
+                                  }
+                                  const key = `dashboard.discrepancyReasons.${reason.type}`
+                                  const values: Record<string, string | number> = {}
+                                  if (reason.exchange != null) values.exchange = reason.type === 'quantity_diff' ? reason.exchange.toFixed(6) : reason.exchange.toFixed(2)
+                                  if (reason.slot != null) values.slot = reason.slot.toFixed(6)
+                                  if (reason.slot_avg != null) values.slotAvg = reason.slot_avg.toFixed(2)
+                                  if (reason.diff != null) values.diff = reason.type === 'quantity_diff' ? reason.diff.toFixed(6) : reason.diff.toFixed(2)
+                                  if (reason.diff_pct != null) values.diffPct = reason.type === 'quantity_diff' ? reason.diff_pct.toFixed(2) : reason.diff_pct.toFixed(4)
+                                  if (reason.mark_price != null) values.markPrice = reason.mark_price.toFixed(2)
+                                  if (reason.ws_price != null) values.wsPrice = reason.ws_price.toFixed(2)
+                                  if (reason.pnl_diff != null) values.pnlDiff = reason.pnl_diff.toFixed(2)
+                                  return (
+                                    <Text key={idx} fontSize="10px" color="gray.500">• {t(key, values)}</Text>
+                                  )
+                                })}
                               </VStack>
                             )}
                           </Box>

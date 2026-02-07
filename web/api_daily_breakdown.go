@@ -40,10 +40,13 @@ type DailyPnLBreakdownSummary struct {
 
 // DailyPnLBreakdownResponse 日盈虧拆解 API 響應
 type DailyPnLBreakdownResponse struct {
-	Date          string                   `json:"date"`
-	Summary       DailyPnLBreakdownSummary `json:"summary"`
-	HourlyEquity  []HourlyEquityPoint     `json:"hourly_equity"`
-	TopTrades     []TopTradeItem          `json:"top_trades"`
+	Date                   string                   `json:"date"`
+	Summary                DailyPnLBreakdownSummary `json:"summary"`
+	HourlyEquity           []HourlyEquityPoint     `json:"hourly_equity"`
+	GridProfitTrades       []TopTradeItem          `json:"grid_profit_trades"`
+	GridLossTrades         []TopTradeItem          `json:"grid_loss_trades"`
+	ExchangeProfitOrders   []ExchangeOrderItem     `json:"exchange_profit_orders"`
+	ExchangeLossOrders     []ExchangeOrderItem     `json:"exchange_loss_orders"`
 }
 
 // HourlyEquityPoint 小時權益點
@@ -52,13 +55,23 @@ type HourlyEquityPoint struct {
 	Equity    float64 `json:"equity"`
 }
 
-// TopTradeItem 單筆成交摘要（用於 top_trades）
+// TopTradeItem 單筆成交摘要（網格計算，盈利/虧損 Top）
 type TopTradeItem struct {
 	SellOrderID int64   `json:"sell_order_id"`
 	BuyPrice    float64 `json:"buy_price"`
 	SellPrice   float64 `json:"sell_price"`
 	Quantity    float64 `json:"quantity"`
 	PnL         float64 `json:"pnl"`
+	Fee         float64 `json:"fee"`
+}
+
+// ExchangeOrderItem 交易所已實現盈虧單筆（交易所計算 Top）
+type ExchangeOrderItem struct {
+	OrderID     int64   `json:"order_id"`
+	Side        string  `json:"side"`
+	Price       float64 `json:"price"`
+	FilledQty   float64 `json:"filled_qty"`
+	RealizedPnL float64 `json:"realized_pnl"`
 }
 
 // getDailyPnLBreakdown 獲取指定日的盈虧拆解
@@ -218,8 +231,8 @@ func getDailyPnLBreakdown(c *gin.Context) {
 	// 淨交易盈虧：現金流 + 持倉價值變化（與手續費、資金費、交易所 PnL 的關係見下方）
 	summary.NetTradingPnL = summary.NetCashFlow + summary.PositionValueChange
 
-	// 9. Top trades（當日成交按 PnL 排序取前若干筆）
-	var topTrades []TopTradeItem
+	// 9. Grid Top trades：盈利 Top / 虧損 Top（含 fee）
+	var gridProfitTrades, gridLossTrades []TopTradeItem
 	trades, errTrades := st.QueryTrades(dayStartUTC, dayEndUTC, 500, 0)
 	if errTrades == nil {
 		for _, tr := range trades {
@@ -229,33 +242,88 @@ func getDailyPnLBreakdown(c *gin.Context) {
 			if symbolID != "" && tr.Symbol != symbolID {
 				continue
 			}
-			topTrades = append(topTrades, TopTradeItem{
+			item := TopTradeItem{
 				SellOrderID: tr.SellOrderID,
 				BuyPrice:    tr.BuyPrice,
 				SellPrice:   tr.SellPrice,
 				Quantity:    tr.Quantity,
 				PnL:         tr.PnL,
-			})
+				Fee:         tr.Fee,
+			}
+			if tr.PnL > 0 {
+				gridProfitTrades = append(gridProfitTrades, item)
+			} else if tr.PnL < 0 {
+				gridLossTrades = append(gridLossTrades, item)
+			}
 		}
-		sort.Slice(topTrades, func(i, j int) bool { return topTrades[i].PnL > topTrades[j].PnL })
-		if len(topTrades) > 20 {
-			topTrades = topTrades[:20]
+		sort.Slice(gridProfitTrades, func(i, j int) bool { return gridProfitTrades[i].PnL > gridProfitTrades[j].PnL })
+		sort.Slice(gridLossTrades, func(i, j int) bool { return gridLossTrades[i].PnL < gridLossTrades[j].PnL })
+		if len(gridProfitTrades) > 20 {
+			gridProfitTrades = gridProfitTrades[:20]
+		}
+		if len(gridLossTrades) > 20 {
+			gridLossTrades = gridLossTrades[:20]
 		}
 	}
 
+	// 10. Exchange Top orders：當日 FILLED 且 realized_pnl 不為空，盈利 Top / 虧損 Top
+	var exchangeProfitOrders, exchangeLossOrders []ExchangeOrderItem
+	for _, o := range orders {
+		if o.RealizedPnL == nil {
+			continue
+		}
+		if exchangeID != "" && o.Exchange != exchangeID {
+			continue
+		}
+		if symbolID != "" && o.Symbol != symbolID {
+			continue
+		}
+		rpnl := *o.RealizedPnL
+		qty := o.FilledQty
+		if qty <= 0 {
+			qty = o.Quantity
+		}
+		item := ExchangeOrderItem{
+			OrderID:     o.OrderID,
+			Side:        o.Side,
+			Price:       o.Price,
+			FilledQty:   qty,
+			RealizedPnL: rpnl,
+		}
+		if rpnl > 0 {
+			exchangeProfitOrders = append(exchangeProfitOrders, item)
+		} else if rpnl < 0 {
+			exchangeLossOrders = append(exchangeLossOrders, item)
+		}
+	}
+	sort.Slice(exchangeProfitOrders, func(i, j int) bool { return exchangeProfitOrders[i].RealizedPnL > exchangeProfitOrders[j].RealizedPnL })
+	sort.Slice(exchangeLossOrders, func(i, j int) bool { return exchangeLossOrders[i].RealizedPnL < exchangeLossOrders[j].RealizedPnL })
+	if len(exchangeProfitOrders) > 20 {
+		exchangeProfitOrders = exchangeProfitOrders[:20]
+	}
+	if len(exchangeLossOrders) > 20 {
+		exchangeLossOrders = exchangeLossOrders[:20]
+	}
+
 	c.JSON(http.StatusOK, DailyPnLBreakdownResponse{
-		Date:         dateStr,
-		Summary:      summary,
-		HourlyEquity: hourlyEquity,
-		TopTrades:    topTrades,
+		Date:                 dateStr,
+		Summary:              summary,
+		HourlyEquity:         hourlyEquity,
+		GridProfitTrades:     gridProfitTrades,
+		GridLossTrades:       gridLossTrades,
+		ExchangeProfitOrders: exchangeProfitOrders,
+		ExchangeLossOrders:   exchangeLossOrders,
 	})
 }
 
 func emptyDailyBreakdown(dateStr string) gin.H {
 	return gin.H{
-		"date":          dateStr,
-		"summary":       DailyPnLBreakdownSummary{},
-		"hourly_equity": []HourlyEquityPoint{},
-		"top_trades":    []TopTradeItem{},
+		"date":                   dateStr,
+		"summary":                DailyPnLBreakdownSummary{},
+		"hourly_equity":          []HourlyEquityPoint{},
+		"grid_profit_trades":     []TopTradeItem{},
+		"grid_loss_trades":       []TopTradeItem{},
+		"exchange_profit_orders": []ExchangeOrderItem{},
+		"exchange_loss_orders":   []ExchangeOrderItem{},
 	}
 }

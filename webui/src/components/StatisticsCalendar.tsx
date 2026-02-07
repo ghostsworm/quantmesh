@@ -82,11 +82,12 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
       <div style={{ 
         display: 'grid', 
         gridTemplateColumns: 'repeat(7, 1fr)', 
-        gap: '8px',
+        gap: '4px',
         border: '1px solid #e8e8e8',
         borderRadius: '4px',
-        padding: '16px',
-        backgroundColor: '#fafafa'
+        padding: '12px',
+        backgroundColor: '#fafafa',
+        maxWidth: '900px'
       }}>
         {/* 星期標题 */}
         {weekDays.map((day, index) => (
@@ -120,8 +121,8 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
               onClick={isClickable ? () => onDayClick(dateStr) : undefined}
               onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onDayClick(dateStr) } : undefined}
               style={{
-                minHeight: '100px',
-                padding: '8px',
+                minHeight: '85px',
+                padding: '6px',
                 border: '1px solid #e8e8e8',
                 borderRadius: '4px',
                 backgroundColor: date ? '#fff' : 'transparent',

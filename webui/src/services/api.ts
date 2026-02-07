@@ -58,9 +58,11 @@ export async function getSystemStatuses(): Promise<SystemStatusesResponse> {
 // 後台服務狀態（存儲、回測等）
 export interface ServiceStatusItem {
   id: string
-  name: string
+  name?: string
   ok: boolean
   message?: string
+  message_key?: string
+  message_params?: Record<string, string>
 }
 
 export interface ServicesStatusResponse {
@@ -175,10 +177,23 @@ export interface PositionsSummary {
     unrealized_pnl: number
     leverage: number
   }
-  // 差异分析
+  // 差异分析（结构化原因供前端 i18n 格式化；旧 API 可能返回 string[]）
   discrepancy?: {
     pnl_diff: number
-    reasons: string[]
+    reasons: Array<
+      | {
+          type: 'quantity_diff' | 'entry_price_diff' | 'price_diff' | 'pnl_diff_other'
+          exchange?: number
+          slot?: number
+          slot_avg?: number
+          diff?: number
+          diff_pct?: number
+          mark_price?: number
+          ws_price?: number
+          pnl_diff?: number
+        }
+      | string
+    >
   }
 }
 
@@ -482,13 +497,23 @@ export interface HourlyEquityPoint {
   equity: number
 }
 
-/** 日盈虧拆解：單筆成交（top_trades） */
+/** 日盈虧拆解：單筆成交（網格計算，盈利/虧損 Top） */
 export interface TopTradeItem {
   sell_order_id: number
   buy_price: number
   sell_price: number
   quantity: number
   pnl: number
+  fee: number
+}
+
+/** 日盈虧拆解：交易所已實現盈虧單筆（交易所計算 Top） */
+export interface ExchangeOrderItem {
+  order_id: number
+  side: string
+  price: number
+  filled_qty: number
+  realized_pnl: number
 }
 
 /** 日盈虧拆解 API 響應 */
@@ -496,7 +521,10 @@ export interface DailyPnLBreakdownResponse {
   date: string
   summary: DailyPnLBreakdownSummary
   hourly_equity: HourlyEquityPoint[]
-  top_trades: TopTradeItem[]
+  grid_profit_trades: TopTradeItem[]
+  grid_loss_trades: TopTradeItem[]
+  exchange_profit_orders: ExchangeOrderItem[]
+  exchange_loss_orders: ExchangeOrderItem[]
 }
 
 export async function getDailyPnLBreakdown(

@@ -145,7 +145,7 @@ const StrategyWeightSlider: React.FC<StrategyWeightSliderProps> = ({
               {currentPercentage.toFixed(1)}%
             </Text>
             <Text fontSize="xs" color="gray.500">
-              ≈ {allocatedAmount.toFixed(2)} USDT
+              ≈ {allocatedAmount.toFixed(2)} {t('common.currencyUnit')}
             </Text>
           </VStack>
         </HStack>
@@ -169,7 +169,7 @@ const StrategyWeightSlider: React.FC<StrategyWeightSliderProps> = ({
             color="white"
             placement="top"
             isOpen={showTooltip && !disabled}
-            label={`${currentPercentage.toFixed(1)}% (${allocatedAmount.toFixed(2)} USDT)`}
+            label={`${currentPercentage.toFixed(1)}% (${allocatedAmount.toFixed(2)} ${t('common.currencyUnit')})`}
           >
             <SliderThumb boxSize={4} />
           </Tooltip>
@@ -190,7 +190,7 @@ const StrategyWeightSlider: React.FC<StrategyWeightSliderProps> = ({
             <InputRightAddon>%</InputRightAddon>
           </InputGroup>
           <HStack spacing={4} fontSize="xs" color="gray.500">
-            <Text>{t('strategyAllocation.used')}: {strategy.used.toFixed(2)} USDT</Text>
+            <Text>{t('strategyAllocation.used')}: {strategy.used.toFixed(2)} {t('common.currencyUnit')}</Text>
             <Text>{t('strategyAllocation.utilization')}: {strategy.utilizationRate.toFixed(1)}%</Text>
           </HStack>
         </HStack>
@@ -506,7 +506,7 @@ const StrategyAllocation: React.FC = () => {
                     minimumFractionDigits: 2,
                   })}
                 </StatNumber>
-                <StatHelpText>USDT</StatHelpText>
+                <StatHelpText>{t('common.currencyUnit')}</StatHelpText>
               </Stat>
             </Box>
             <Box
@@ -523,7 +523,7 @@ const StrategyAllocation: React.FC = () => {
                     minimumFractionDigits: 2,
                   })}
                 </StatNumber>
-                <StatHelpText>USDT</StatHelpText>
+                <StatHelpText>{t('common.currencyUnit')}</StatHelpText>
               </Stat>
             </Box>
             <Box
@@ -540,7 +540,7 @@ const StrategyAllocation: React.FC = () => {
                     minimumFractionDigits: 2,
                   })}
                 </StatNumber>
-                <StatHelpText>USDT</StatHelpText>
+                <StatHelpText>{t('common.currencyUnit')}</StatHelpText>
               </Stat>
             </Box>
             <Box
@@ -717,7 +717,7 @@ const StrategyAllocation: React.FC = () => {
                       borderRadius="sm"
                     />
                     <Text fontSize="sm">
-                      {strategy.strategyName}: {(weight * 100).toFixed(1)}%
+                      {t('strategyNames.' + (strategy.strategyType || ''), { defaultValue: strategy.strategyName })}: {(weight * 100).toFixed(1)}%
                     </Text>
                   </HStack>
                 )

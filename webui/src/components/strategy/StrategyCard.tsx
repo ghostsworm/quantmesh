@@ -186,7 +186,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
 
         {/* Description */}
         <Text fontSize="sm" color="gray.600" noOfLines={2}>
-          {strategy.description}
+          {t(`strategyDescriptions.${strategy.id}`, { defaultValue: strategy.description })}
         </Text>
 
         {/* Features */}
@@ -200,7 +200,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
               borderRadius="full"
               px={2}
             >
-              {feature}
+              {t(`strategyFeatures.${strategy.id}.${index}`, { defaultValue: feature })}
             </Badge>
           ))}
           {strategy.features && strategy.features.length > 3 && (

@@ -31,9 +31,20 @@ func SetNewsMonitorProvider(provider NewsMonitorProvider) {
 	newsMonitorProvider = provider
 }
 
+// assetTypeToSymbol 按资產類型對應交易對（與前端 ASSET_OPTIONS 及 monitor.SymbolToAssetType 一致）
+var assetTypeToSymbol = map[string]string{
+	"crypto_btc":        "BTCUSDT",
+	"commodity_gold":    "PAXGUSDT",
+	"commodity_silver":  "XAGUSDT",
+	"stock_us":          "SPX",
+	"crypto_eth":       "ETHUSDT",
+	"crypto_sol":       "SOLUSDT",
+	"crypto_doge":      "DOGEUSDT",
+}
+
 // getNewsAnalysis 獲取最新新聞分析結果
 // GET /api/news/analysis
-// GET /api/news/analysis/:asset_type 按资產類型獲取（crypto_btc, commodity_gold）
+// GET /api/news/analysis?asset_type= 按资產類型獲取（crypto_btc, commodity_gold, commodity_silver, stock_us, crypto_eth, crypto_sol, crypto_doge）
 func getNewsAnalysis(c *gin.Context) {
 	if newsMonitorProvider == nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -47,9 +58,9 @@ func getNewsAnalysis(c *gin.Context) {
 	assetType := c.Query("asset_type")
 	var assessment *monitor.NewsRiskAssessment
 	if assetType != "" {
-		symbol := "BTCUSDT"
-		if assetType == "commodity_gold" {
-			symbol = "PAXGUSDT"
+		symbol := assetTypeToSymbol[assetType]
+		if symbol == "" {
+			symbol = "BTCUSDT"
 		}
 		assessment = newsMonitorProvider.GetRiskAssessmentBySymbol(symbol)
 	} else {

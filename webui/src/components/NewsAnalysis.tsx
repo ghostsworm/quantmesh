@@ -54,13 +54,13 @@ const NewsAnalysis: React.FC = () => {
   const { t } = useTranslation()
 
   const ASSET_OPTIONS = [
-    { value: 'crypto_btc', label: 'BTC', symbol: 'BTCUSDT' },
+    { value: 'crypto_btc', label: t('newsAnalysis.btc'), symbol: 'BTCUSDT' },
     { value: 'commodity_gold', label: t('newsAnalysis.goldInternational'), symbol: 'PAXGUSDT' },
     { value: 'commodity_silver', label: t('newsAnalysis.silver'), symbol: 'XAGUSDT' },
     { value: 'stock_us', label: t('newsAnalysis.usStock'), symbol: 'SPX' },
-    { value: 'crypto_eth', label: 'ETH', symbol: 'ETHUSDT' },
-    { value: 'crypto_sol', label: 'SOL', symbol: 'SOLUSDT' },
-    { value: 'crypto_doge', label: 'DOGE', symbol: 'DOGEUSDT' },
+    { value: 'crypto_eth', label: t('newsAnalysis.eth'), symbol: 'ETHUSDT' },
+    { value: 'crypto_sol', label: t('newsAnalysis.sol'), symbol: 'SOLUSDT' },
+    { value: 'crypto_doge', label: t('newsAnalysis.doge'), symbol: 'DOGEUSDT' },
   ]
 
   const REC_LABELS: Record<string, { label: string; color: string }> = {
@@ -238,6 +238,12 @@ const NewsAnalysis: React.FC = () => {
                       </HStack>
                     </CardBody>
                   </Card>
+                )}
+
+                {!assessment && !isAnalyzing && (
+                  <Alert status="info">
+                    <AlertTitle>{t('newsAnalysis.noAnalysisHint')}</AlertTitle>
+                  </Alert>
                 )}
 
                 {assessment && (

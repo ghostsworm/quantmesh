@@ -14,6 +14,7 @@
     "refresh": "刷新",
     "allExchanges": "全部交易所",
     "actions": "操作",
+    "currencyUnit": "USDT",
     "error": "错误",
     "all": "全部",
     "connectionError": "连接错误",
@@ -268,7 +269,23 @@
     "ok": "正常",
     "unavailable": "不可用",
     "normal": "正常",
-    "checkHint": "请检查配置并重启"
+    "checkHint": "请检查配置并重启",
+    "name": {
+      "storage": "数据存储 (SQLite)",
+      "backtest": "回测服务",
+      "smart_params": "智能参数推荐"
+    },
+    "message": {
+      "normal": "正常",
+      "normalWithPath": "正常 ({{type}} @ {{path}})",
+      "storageDisabled": "配置中已关闭存储。请在「设置」-「存储与 Web」中开启「启用数据存储」，保存后重启。",
+      "storageNotConfigured": "配置中未设置 storage.path 或 storage.type。",
+      "storageProviderNil": "存储服务提供者未注入（进程启动时未初始化）。",
+      "storageInstanceNil": "存储实例为空（可能初始化失败，请查看启动日志中的 SQLite/建表 错误）。",
+      "configNotLoaded": "配置未加载。",
+      "backtestNotInit": "回测服务未初始化。请确保持储已启用且初始化成功（见上方「数据存储」状态），保存配置后重启。",
+      "smartParamsNotInit": "未初始化（不影响回测提交，仅影响参数推荐）。"
+    }
   },
   "statusBar": {
     "globalView": "全局概览",
@@ -1896,6 +1913,11 @@
     "goldInternational": "国际金价",
     "silver": "白银",
     "usStock": "美股",
+    "btc": "BTC",
+    "eth": "ETH",
+    "sol": "SOL",
+    "doge": "DOGE",
+    "noAnalysisHint": "该品种暂无分析结果，请点击「手动触发分析」或先在新闻监控配置中启用该品种的定时分析。",
     "recNormal": "正常",
     "recCaution": "谨慎",
     "recReducePosition": "减仓",
@@ -2000,6 +2022,96 @@
     "trend_following": "趋势跟踪策略",
     "mean_reversion": "均值回归策略",
     "breakout": "突破策略"
+  },
+  "strategyDescriptions": {
+    "grid": "经典网格交易策略，在价格区间内自动挂单，赚取波动差价",
+    "dca": "定期定额买入策略，分散入场成本，降低投资风险",
+    "dca_enhanced": "基于 ATR 动态间距、三级止盈、50 层仓位管理、瀑布保护和趋势过滤的增强型 DCA",
+    "martingale": "亏损加倍补仓策略，支持正向/反向马丁、风险削减与多空双向",
+    "combo": "多策略组合管理，支持动态权重调整和市场自适应切换",
+    "trend_following": "基于技术指标的趋势跟踪策略，在趋势形成时入场，趋势反转时离场",
+    "mean_reversion": "利用价格偏离均值后回归的特性进行交易",
+    "breakout": "价格突破关键支撑/阻力位时入场，捕捉大幅波动"
+  },
+  "strategyFeatures": {
+    "grid": {
+      "0": "自动挂单买卖",
+      "1": "支援自定义网格数量",
+      "2": "支援动态网格间距"
+    },
+    "dca": {
+      "0": "定时定额买入",
+      "1": "分散入场成本",
+      "2": "自动复投收益"
+    },
+    "dca_enhanced": {
+      "0": "ATR 动态间距调整",
+      "1": "三级阶梯止盈",
+      "2": "50 层精细仓位管理",
+      "3": "瀑布保护机制",
+      "4": "趋势过滤器"
+    },
+    "martingale": {
+      "0": "亏损加倍补仓",
+      "1": "支援反向马丁",
+      "2": "风险削减模式",
+      "3": "多空双向支援"
+    },
+    "combo": {
+      "0": "多策略组合运行",
+      "1": "动态权重分配",
+      "2": "市场自适应切换",
+      "3": "风险对冲能力"
+    },
+    "trend_following": {
+      "0": "趋势指标入场",
+      "1": "动态止盈止损",
+      "2": "趋势过滤"
+    },
+    "mean_reversion": {
+      "0": "均值偏离检测",
+      "1": "回归交易信号",
+      "2": "统计套利"
+    },
+    "breakout": {
+      "0": "支撑阻力突破",
+      "1": "动量捕捉",
+      "2": "波动追踪"
+    }
+  },
+  "strategyParams": {
+    "grid": {
+      "gridCount": { "name": "网格数量", "description": "网格档位数量" },
+      "upperPrice": { "name": "网格上限价格", "description": "网格价格区间上限" },
+      "lowerPrice": { "name": "网格下限价格", "description": "网格价格区间下限" },
+      "totalAmount": { "name": "总投资金额", "description": "策略总投入资金 (USDT)" }
+    },
+    "dca": {
+      "interval": { "name": "定投间隔", "description": "每次定投的时间间隔" },
+      "amount": { "name": "每次投资金额", "description": "单次定投金额 (USDT)" }
+    },
+    "dca_enhanced": {
+      "base_order_amount": { "name": "基础订单金额", "description": "初始买入订单金额 (USDT)" },
+      "safety_order_amount": { "name": "安全订单金额", "description": "补仓订单金额 (USDT)" },
+      "max_safety_orders": { "name": "最大安全订单数", "description": "最多补仓层数" },
+      "atr_period": { "name": "ATR 周期", "description": "ATR 指标计算周期" },
+      "atr_multiplier": { "name": "ATR 乘数", "description": "ATR 动态间距乘数" },
+      "total_take_profit": { "name": "全仓止盈比例", "description": "全部仓位止盈比例 (%)" },
+      "stop_loss": { "name": "止损比例", "description": "止损触发比例 (%)" }
+    },
+    "martingale": {
+      "initial_amount": { "name": "初始金额", "description": "首笔订单金额 (USDT)" },
+      "multiplier": { "name": "加仓倍数", "description": "补仓金额倍增倍数" },
+      "max_levels": { "name": "最大层数", "description": "最大补仓层数" },
+      "price_step": { "name": "加仓间距", "description": "触发补仓的价格间距 (%)" },
+      "take_profit": { "name": "止盈比例", "description": "单层止盈比例 (%)" },
+      "direction": { "name": "方向", "description": "做多 LONG / 做空 SHORT" }
+    },
+    "combo": {
+      "total_capital": { "name": "总资金", "description": "组合策略总资金 (USDT)" },
+      "market_detection": { "name": "市况检测", "description": "启用市场状态自动检测" },
+      "hedge_enabled": { "name": "对冲", "description": "启用多空对冲" }
+    }
   },
   "strategyWizard": {
     "title": "策略配置向导",
