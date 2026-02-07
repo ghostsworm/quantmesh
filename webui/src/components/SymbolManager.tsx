@@ -544,6 +544,14 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                   <Th>{t('symbolManager.orderAmount')}</Th>
                   <Th>{t('symbolManager.buyWindow')}</Th>
                   <Th>{t('symbolManager.sellWindow')}</Th>
+                  <Th>
+                    <Tooltip label={t('symbolManager.positionSafetyDesc')}>
+                      <HStack spacing={1}>
+                        <Text>{t('symbolManager.positionSafetyCheck')}</Text>
+                        <InfoIcon boxSize={3} color="gray.400" />
+                      </HStack>
+                    </Tooltip>
+                  </Th>
                   <Th>{t('symbolManager.actions')}</Th>
                 </Tr>
               </Thead>
@@ -584,6 +592,11 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                       <Td>{sym.order_quantity}</Td>
                       <Td>{sym.buy_window_size}</Td>
                       <Td>{sym.sell_window_size}</Td>
+                      <Td>
+                        <Badge colorScheme={sym.position_safety_check && sym.position_safety_check > 0 ? 'green' : 'gray'} fontSize="xs">
+                          {sym.position_safety_check ?? config.trading?.position_safety_check ?? 100}
+                        </Badge>
+                      </Td>
                       <Td>
                         <HStack spacing={2}>
                           <IconButton

@@ -1630,19 +1630,19 @@ func getOrderHistory(c *gin.Context) {
 		return
 	}
 
-	// 只查詢已完成或已取消的订單（带时间范围）
-	orders, err := storage.QueryOrdersWithTimeRange(limit, offset, "FILLED", startTime, endTime)
+	// 使用新的筛选方法查询已完成和已取消的订单（支持 exchange 和 symbol 筛选）
+	orders, err := storage.QueryOrdersWithFilter(limit, offset, "FILLED", exchange, symbol, startTime, endTime)
 	if err != nil {
 		// 如果查詢失败，尝試查詢所有状態的订單
-		orders, err = storage.QueryOrdersWithTimeRange(limit, offset, "", startTime, endTime)
+		orders, err = storage.QueryOrdersWithFilter(limit, offset, "", exchange, symbol, startTime, endTime)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 	}
 
-	// 也查詢已取消的订單
-	canceledOrders, err := storage.QueryOrdersWithTimeRange(limit, offset, "CANCELED", startTime, endTime)
+	// 也查詢已取消的订單（使用相同的筛选条件）
+	canceledOrders, err := storage.QueryOrdersWithFilter(limit, offset, "CANCELED", exchange, symbol, startTime, endTime)
 	if err == nil {
 		orders = append(orders, canceledOrders...)
 	}
@@ -1700,13 +1700,13 @@ func getOrderHistory(c *gin.Context) {
 	totalCount := int64(len(orders))
 	todayCount := int64(0)
 
-	// 尝試從數據库获取真实总数
+	// 尝試從數據库获取真实总数（使用带筛选的计数方法）
 	type orderCounter interface {
-		CountOrders(status string) (int64, error)
+		CountOrdersWithFilter(status, exchange, symbol string) (int64, error)
 	}
 	if counter, ok := storage.(orderCounter); ok {
-		filledCount, err1 := counter.CountOrders("FILLED")
-		canceledCount, err2 := counter.CountOrders("CANCELED")
+		filledCount, err1 := counter.CountOrdersWithFilter("FILLED", exchange, symbol)
+		canceledCount, err2 := counter.CountOrdersWithFilter("CANCELED", exchange, symbol)
 		if err1 == nil && err2 == nil {
 			totalCount = filledCount + canceledCount
 		}
@@ -2908,6 +2908,10 @@ func releaseAllStrategiesCapital(c *gin.Context) {
 // getPendingOrders 獲取待成交订單列表
 // GET /api/orders/pending
 func getPendingOrders(c *gin.Context) {
+	// 解析筛选参数
+	exchange := c.Query("exchange")
+	symbol := c.Query("symbol")
+
 	pmProvider := PickPositionProvider(c)
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
@@ -2920,6 +2924,14 @@ func getPendingOrders(c *gin.Context) {
 	for _, slot := range slots {
 		// 筛选状態為 PLACED/CONFIRMED/PARTIALLY_FILLED 的订單
 		if slot.OrderStatus == "PLACED" || slot.OrderStatus == "CONFIRMED" || slot.OrderStatus == "PARTIALLY_FILLED" {
+			// 按 exchange 和 symbol 筛选
+			if exchange != "" && !strings.EqualFold(slot.Exchange, exchange) {
+				continue
+			}
+			if symbol != "" && slot.Symbol != symbol {
+				continue
+			}
+
 			// 计算订單原始數量：使用配置的订單金額 / 订單價格
 			var quantity float64
 			if slot.OrderPrice > 0 && orderQuantityConfig > 0 {
@@ -2941,6 +2953,8 @@ func getPendingOrders(c *gin.Context) {
 				SlotPrice:      slot.Price,
 				StrategyName:   slot.StrategyName,
 				StrategyType:   slot.StrategyType,
+				Symbol:         slot.Symbol,
+				Exchange:       slot.Exchange,
 			})
 		}
 	}
@@ -2961,6 +2975,8 @@ type PendingOrderInfo struct {
 	SlotPrice      float64   `json:"slot_price"`    // 槽位價格
 	StrategyName   string    `json:"strategy_name"` // 策略名称
 	StrategyType   string    `json:"strategy_type"` // 策略類型
+	Symbol         string    `json:"symbol"`        // 交易對
+	Exchange       string    `json:"exchange"`      // 交易所
 }
 
 // cancelOrder 取消订單
