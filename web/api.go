@@ -1668,6 +1668,7 @@ func getOrderHistory(c *gin.Context) {
 			"status":          order.Status,
 			"strategy_name":   order.StrategyName,
 			"strategy_type":   order.StrategyType,
+			"order_source":    order.OrderSource,
 			"created_at":      utils.ToUTC8(order.CreatedAt),
 			"updated_at":      utils.ToUTC8(order.UpdatedAt),
 		}

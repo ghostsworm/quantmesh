@@ -738,12 +738,19 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 
 	orderPrice := s.roundPrice(price)
 
+	// 判斷订單來源（止损/止盈）
+	orderSource := "stop_loss"
+	if reason != "止损" {
+		orderSource = "normal"
+	}
+
 	// 下賣單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     "SELL",
-		Quantity: qty,
-		Price:    orderPrice,
+		Symbol:      s.strategyCfg.Symbol,
+		Side:        "SELL",
+		Quantity:    qty,
+		Price:       orderPrice,
+		OrderSource: orderSource,
 	})
 
 	if err != nil {

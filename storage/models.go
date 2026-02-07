@@ -17,6 +17,7 @@ type Order struct {
 	RealizedPnL   *float64 // 交易所計算的已實現盈虧（nil 表示無數據）
 	StrategyName  string   // 策略名称（如 "Grid-BTCUSDT-1"）
 	StrategyType  string   // 策略類型（如 "grid", "dca", "martingale"）
+	OrderSource   string   // 订單來源（"normal"=正常限價委托, "stop_loss"=止損平倉, "liquidation"=強制平倉）
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

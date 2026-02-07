@@ -44,12 +44,14 @@ const GlobalDashboard = lazy(() => import('./components/GlobalDashboard'))
 const Positions = lazy(() => import('./components/Positions'))
 const Orders = lazy(() => import('./components/Orders'))
 const Statistics = lazy(() => import('./components/Statistics'))
+const DailyPnLBreakdown = lazy(() => import('./components/DailyPnLBreakdown'))
 const SystemMonitor = lazy(() => import('./components/SystemMonitor'))
 const Logs = lazy(() => import('./components/Logs'))
 const Slots = lazy(() => import('./components/Slots'))
 const StrategyAllocation = lazy(() => import('./components/StrategyAllocation'))
 const Reconciliation = lazy(() => import('./components/Reconciliation'))
 const RiskMonitor = lazy(() => import('./components/RiskMonitor'))
+const OpeningControl = lazy(() => import('./components/OpeningControl'))
 const NewsAnalysis = lazy(() => import('./components/NewsAnalysis'))
 const Profile = lazy(() => import('./components/Profile'))
 const Login = lazy(() => import('./components/Login'))
@@ -471,8 +473,10 @@ const AppContent: React.FC = () => {
                 <Route path="/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
                 <Route path="/strategies" element={<ProtectedRoute><StrategyAllocation /></ProtectedRoute>} />
                 <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
+                <Route path="/statistics/daily/:date" element={<ProtectedRoute><DailyPnLBreakdown /></ProtectedRoute>} />
                 <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
                 <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
+                <Route path="/opening-control" element={<ProtectedRoute><OpeningControl /></ProtectedRoute>} />
                 <Route path="/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
                 <Route path="/news-analysis/history" element={<Navigate to="/news-analysis" replace />} />
                 <Route path="/news-analysis/predictions" element={<Navigate to="/news-analysis" replace />} />

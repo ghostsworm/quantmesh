@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatistics, getDailyStatistics } from '../services/api'
 import StatisticsCalendar from './StatisticsCalendar'
@@ -50,6 +51,7 @@ interface PnLBySymbol {
 
 const Statistics: React.FC = () => {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [stats, setStats] = useState<StatisticsData | null>(null)
   const [dailyStats, setDailyStats] = useState<DailyStatistics[]>([])
@@ -237,6 +239,7 @@ const Statistics: React.FC = () => {
             const statDate = new Date(stat.date)
             return statDate.getFullYear() === currentYear && statDate.getMonth() + 1 === currentMonth
           })}
+          onDayClick={(date) => navigate(`/statistics/daily/${date}`)}
         />
       </div>
 

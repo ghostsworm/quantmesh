@@ -1034,6 +1034,7 @@ func migrateOrdersTable(db *sql.DB) error {
 		{"realized_pnl", "ALTER TABLE orders ADD COLUMN realized_pnl DECIMAL(20,8)"},
 		{"strategy_name", "ALTER TABLE orders ADD COLUMN strategy_name TEXT DEFAULT ''"},
 		{"strategy_type", "ALTER TABLE orders ADD COLUMN strategy_type TEXT DEFAULT ''"},
+		{"order_source", "ALTER TABLE orders ADD COLUMN order_source TEXT DEFAULT ''"},
 	}
 
 	for _, col := range columns {
@@ -1067,8 +1068,8 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 
 	_, err := s.db.Exec(`
 		INSERT INTO orders 
-		(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(order_id) DO UPDATE SET
 			client_order_id = COALESCE(NULLIF(excluded.client_order_id, ''), orders.client_order_id),
 			symbol          = COALESCE(NULLIF(excluded.symbol, ''), orders.symbol),
@@ -1082,10 +1083,11 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 			realized_pnl    = COALESCE(excluded.realized_pnl, orders.realized_pnl),
 			strategy_name   = COALESCE(NULLIF(excluded.strategy_name, ''), orders.strategy_name),
 			strategy_type   = COALESCE(NULLIF(excluded.strategy_type, ''), orders.strategy_type),
+			order_source    = COALESCE(NULLIF(excluded.order_source, ''), orders.order_source),
 			updated_at      = excluded.updated_at
 	`, order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
 		order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
-		order.Status, realizedPnL, order.StrategyName, order.StrategyType, createdAt, updatedAt)
+		order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt)
 	return err
 }
 
@@ -1274,6 +1276,7 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
 			status, realized_pnl,
 			COALESCE(strategy_name, '') as strategy_name, COALESCE(strategy_type, '') as strategy_type,
+			COALESCE(order_source, '') as order_source,
 			created_at, updated_at
 		FROM orders
 		WHERE 1=1
@@ -1312,6 +1315,7 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 			&realizedPnL,
 			&order.StrategyName,
 			&order.StrategyType,
+			&order.OrderSource,
 			&order.CreatedAt,
 			&order.UpdatedAt,
 		)
@@ -1346,6 +1350,7 @@ func (s *SQLiteStorage) QueryOrdersWithTimeRange(limit, offset int, status strin
 			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
 			status, realized_pnl,
 			COALESCE(strategy_name, '') as strategy_name, COALESCE(strategy_type, '') as strategy_type,
+			COALESCE(order_source, '') as order_source,
 			created_at, updated_at
 		FROM orders
 		WHERE 1=1
@@ -1394,6 +1399,7 @@ func (s *SQLiteStorage) QueryOrdersWithTimeRange(limit, offset int, status strin
 			&realizedPnL,
 			&order.StrategyName,
 			&order.StrategyType,
+			&order.OrderSource,
 			&order.CreatedAt,
 			&order.UpdatedAt,
 		)
@@ -1824,6 +1830,74 @@ func (s *SQLiteStorage) GetDailyExchangePnL(exchange, symbol string, startDate, 
 		result[dt] = total
 	}
 	return result, rows.Err()
+}
+
+// GetDailyTradesSummary 獲取指定日（配置時區）的成交筆數、毛利、手續費
+func (s *SQLiteStorage) GetDailyTradesSummary(exchange, account, dateStr string) (count int, grossPnl, totalFee float64, err error) {
+	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
+	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+	query := fmt.Sprintf(`
+		SELECT COUNT(*), COALESCE(SUM(pnl), 0), COALESCE(SUM(COALESCE(fee, 0)), 0)
+		FROM trades
+		WHERE date(datetime(created_at, '%s')) = ?
+	`, tzModifier)
+	args := []interface{}{dateStr}
+	if exchange != "" {
+		query += " AND (exchange = ? OR exchange = '')"
+		args = append(args, exchange)
+	}
+	if account != "" {
+		query += " AND (account = ? OR account IS NULL OR account = '')"
+		args = append(args, account)
+	}
+	var cnt sql.NullInt64
+	var pnl, fee sql.NullFloat64
+	err = s.db.QueryRow(query, args...).Scan(&cnt, &pnl, &fee)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if cnt.Valid {
+		count = int(cnt.Int64)
+	}
+	if pnl.Valid {
+		grossPnl = pnl.Float64
+	}
+	if fee.Valid {
+		totalFee = fee.Float64
+	}
+	return count, grossPnl, totalFee, nil
+}
+
+// GetFilledOrderQtySumBeforeTime 獲取指定時間前已成交訂單的買/賣數量合計（用於日初持倉）
+func (s *SQLiteStorage) GetFilledOrderQtySumBeforeTime(exchange, symbol string, before time.Time) (buyQty, sellQty float64, err error) {
+	query := `
+		SELECT
+			COALESCE(SUM(CASE WHEN side = 'BUY' THEN COALESCE(filled_qty, quantity) ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN side = 'SELL' THEN COALESCE(filled_qty, quantity) ELSE 0 END), 0)
+		FROM orders
+		WHERE status = 'FILLED' AND created_at < ?
+	`
+	args := []interface{}{before}
+	if exchange != "" {
+		query += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	var bq, sq sql.NullFloat64
+	err = s.db.QueryRow(query, args...).Scan(&bq, &sq)
+	if err != nil {
+		return 0, 0, err
+	}
+	if bq.Valid {
+		buyQty = bq.Float64
+	}
+	if sq.Valid {
+		sellQty = sq.Float64
+	}
+	return buyQty, sellQty, nil
 }
 
 // QueryDailyStatisticsFromTrades 從 trades 表查詢每日统计

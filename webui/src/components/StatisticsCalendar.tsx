@@ -21,9 +21,10 @@ interface StatisticsCalendarProps {
   year: number
   month: number
   dailyStats: DailyStatistics[]
+  onDayClick?: (date: string) => void
 }
 
-const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, dailyStats }) => {
+const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, dailyStats, onDayClick }) => {
   const { t } = useTranslation()
   const statsMap = new Map<string, DailyStatistics>()
   dailyStats.forEach(stat => {
@@ -107,10 +108,17 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
         {calendarDays.map((date, index) => {
           const stats = getDayStats(date)
           const isToday = date ? formatDate(date) === todayStr : false
-          
+          const dateStr = date ? formatDate(date) : ''
+          const hasData = !!stats
+          const isClickable = hasData && onDayClick
+
           return (
             <div
               key={index}
+              role={isClickable ? 'button' : undefined}
+              tabIndex={isClickable ? 0 : undefined}
+              onClick={isClickable ? () => onDayClick(dateStr) : undefined}
+              onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onDayClick(dateStr) } : undefined}
               style={{
                 minHeight: '100px',
                 padding: '8px',
@@ -119,13 +127,24 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                 backgroundColor: date ? '#fff' : 'transparent',
                 display: 'flex',
                 flexDirection: 'column',
-                cursor: date ? 'pointer' : 'default',
+                cursor: isClickable ? 'pointer' : (date ? 'default' : 'default'),
                 position: 'relative',
                 ...(isToday ? {
                   borderColor: '#1890ff',
                   borderWidth: '2px'
+                } : {}),
+                ...(isClickable ? {
+                  transition: 'background-color 0.2s, box-shadow 0.2s'
                 } : {})
               }}
+              onMouseEnter={isClickable ? (e) => {
+                e.currentTarget.style.backgroundColor = '#f0f7ff'
+                e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)'
+              } : undefined}
+              onMouseLeave={isClickable ? (e) => {
+                e.currentTarget.style.backgroundColor = '#fff'
+                e.currentTarget.style.boxShadow = 'none'
+              } : undefined}
             >
               {date ? (
                 <>

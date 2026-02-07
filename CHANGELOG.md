@@ -2,6 +2,36 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.51.0] - 2026-02-07
+
+### Added
+- **日盈虧拆解頁**：統計日曆支持點擊有數據的日期進入當日盈虧拆解
+  - 後端：新增 `GET /api/statistics/daily/breakdown?date=YYYY-MM-DD&exchange=&symbol=`，按配置時區查詢當日訂單/成交/資金費/小時權益/每日快照，返回核心數據、計算步驟、最終等式、小時權益曲線、Top 成交
+  - 存儲：`GetDailyTradesSummary`、`GetFilledOrderQtySumBeforeTime` 支持按日與時區聚合
+  - 前端：日盈虧拆解頁 `/statistics/daily/:date`（核心數據表、四步計算卡片、最終等式、日內權益曲線、Top Trades），日曆格點擊導航；完整 i18n（dailyBreakdown.*，中英文）
+
+## [3.50.0] - 2026-02-07
+
+### Added
+- **訂單來源標記**：在歷史訂單列表中新增「訂單來源」列，區分正常限價委託和止損平倉訂單
+  - 正常委託（normal）：網格策略按價格間距正常下的限價單，顯示綠色標籤
+  - 止損平倉（stop_loss）：風控觸發硬止損或策略止損時的平倉單，顯示紅色標籤
+  - 後端：`storage.Order`、`position.OrderRequest`、`order.OrderRequest` 新增 `OrderSource` 字段
+  - 數據庫：`orders` 表自動遷移新增 `order_source` 列，UPSERT 兼容舊數據
+  - API：`/api/orders/history` 返回 `order_source` 字段
+  - 前端：歷史訂單表格新增「訂單來源」列，完整 i18n 支持（中英文）
+
+## [3.49.0] - 2026-02-07
+
+### Added
+- **開倉管理**：新增開倉管理模組，支持手動暫停開倉、限倉、定時規則、週期規則
+  - 手動暫停開倉：一鍵暫停/恢復開倉，暫停時自動撤銷當前開倉委託（做多撤買單、做空撤賣單）
+  - 限倉功能：當倉位價值或持倉層數達到上限時，自動暫停開倉並撤銷開倉委託
+  - 定時規則：可配置在指定 UTC 時間執行暫停/恢復開倉，支持星期篩選
+  - 週期規則：可配置開倉持續 N 分鐘、關倉持續 M 分鐘的週期性開關倉
+  - 後端：`config.OpenPositionControl`、`position.OpeningController`、`web/api_opening_control.go`
+  - 前端：開倉管理頁面（`/opening-control`）、完整 i18n 支持（中英文）
+
 ## [3.48.5-rc2] - 2026-02-07
 
 ### Fixed

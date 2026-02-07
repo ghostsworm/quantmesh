@@ -693,11 +693,18 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 		side = "BUY" // 空头平倉用買入
 	}
 
+	// 判斷订單來源（止损/止盈）
+	orderSource := "stop_loss"
+	if reason != "止损" {
+		orderSource = "normal"
+	}
+
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     side,
-		Quantity: s.totalQty,
-		Price:    price,
+		Symbol:      s.strategyCfg.Symbol,
+		Side:        side,
+		Quantity:    s.totalQty,
+		Price:       price,
+		OrderSource: orderSource,
 	})
 
 	if err != nil {

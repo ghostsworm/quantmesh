@@ -493,6 +493,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 {t('sidebar.riskMonitor')}
               </NavItem>
               <NavItem 
+                icon={LockIcon} 
+                to="/opening-control" 
+                isActive={isRouteActive('/opening-control')}
+                onClick={onNavItemClick}
+                collapsed={collapsed}
+              >
+                {t('sidebar.openingControl')}
+              </NavItem>
+              <NavItem 
                 icon={SearchIcon} 
                 to="/news-analysis" 
                 isActive={isRouteActive('/news-analysis')}
