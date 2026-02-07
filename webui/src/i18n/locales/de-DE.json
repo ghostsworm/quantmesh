@@ -449,6 +449,8 @@
     "apiKeyOptional": "API-Schlüssel (optional)",
     "tradingPairParams": "Handelspaar-Parameter: {{symbol}}",
     "priceInterval": "Preisintervall",
+    "profitSpread": "Gewinnspread (Schlusspreisdifferenz)",
+    "profitSpreadHint": "Leer lassen, um das Preisintervall zu verwenden",
     "orderAmount": "Auftragsmenge (USDT)",
     "buyWindowSize": "Kauffenstergröße",
     "sellWindowSize": "Verkaufsfenstergröße",
