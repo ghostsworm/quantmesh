@@ -1241,12 +1241,56 @@ func getPositionsSummary(c *gin.Context) {
 // getPositionsSummaryAll 獲取所有交易對的持倉彙總（按交易所、币种、策略列出）
 // GET /api/positions/summary/all
 func getPositionsSummaryAll(c *gin.Context) {
+	// 获取所有配置的币种
+	configuredSymbols := make(map[string]bool) // key: exchange:symbol
+	if configManager != nil {
+		cfg, err := configManager.GetConfig()
+		if err == nil && cfg != nil {
+			for _, sym := range cfg.Trading.Symbols {
+				if sym.Symbol == "" {
+					continue
+				}
+				exchange := sym.Exchange
+				if exchange == "" {
+					exchange = cfg.App.CurrentExchange
+				}
+				if exchange == "" {
+					continue
+				}
+				key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, sym.Symbol))
+				configuredSymbols[key] = true
+			}
+			// 如果只有單交易對配置
+			if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
+				exchange := cfg.App.CurrentExchange
+				if exchange != "" {
+					key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, cfg.Trading.Symbol))
+					configuredSymbols[key] = true
+				}
+			}
+		}
+	}
+
 	providersMu.RLock()
 	keys := make([]string, 0, len(positionProviders))
 	for k := range positionProviders {
 		keys = append(keys, k)
 	}
 	providersMu.RUnlock()
+
+	// 确保所有配置的币种都在 keys 中
+	for key := range configuredSymbols {
+		found := false
+		for _, k := range keys {
+			if strings.ToLower(k) == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			keys = append(keys, key)
+		}
+	}
 
 	var result []gin.H
 	for _, key := range keys {
@@ -1262,7 +1306,34 @@ func getPositionsSummaryAll(c *gin.Context) {
 		exchProv := exchangeProviders[key]
 		providersMu.RUnlock()
 
+		// 如果没有 provider，但配置中有这个币种，仍然返回（持仓为0）
 		if pmProvider == nil {
+			// 检查是否在配置中
+			if configuredSymbols[strings.ToLower(key)] {
+				// 返回持仓为0的记录
+				result = append(result, gin.H{
+					"exchange":       exchangeName,
+					"symbol":         symbol,
+					"strategy":       "grid",
+					"total_quantity": 0.0,
+					"total_value":    0.0,
+					"position_count": 0,
+					"average_price":  0.0,
+					"current_price":  0.0,
+					"unrealized_pnl": 0.0,
+					"pnl_percentage": 0.0,
+					"actual_margin":  0.0,
+					"leverage":       1,
+					"exchange_data": gin.H{
+						"has_data":       false,
+						"quantity":       0.0,
+						"entry_price":    0.0,
+						"mark_price":     0.0,
+						"unrealized_pnl": 0.0,
+						"leverage":       0,
+					},
+				})
+			}
 			continue
 		}
 
@@ -1288,10 +1359,6 @@ func getPositionsSummaryAll(c *gin.Context) {
 					slotTotalValue += slot.PositionQty * slot.Price
 				}
 			}
-		}
-		// 仅返回有持倉的
-		if slotPositionCount == 0 {
-			continue
 		}
 
 		slotAveragePrice := 0.0
@@ -1348,6 +1415,12 @@ func getPositionsSummaryAll(c *gin.Context) {
 		pnlPercentage := 0.0
 		if slotTotalCost > 0 {
 			pnlPercentage = (displayUnrealizedPnL / slotTotalCost) * 100.0
+		}
+
+		// 即使持仓为0，也返回记录（如果配置中有这个币种）
+		if slotPositionCount == 0 && !configuredSymbols[strings.ToLower(key)] {
+			// 如果持仓为0且不在配置中，跳过
+			continue
 		}
 
 		result = append(result, gin.H{
