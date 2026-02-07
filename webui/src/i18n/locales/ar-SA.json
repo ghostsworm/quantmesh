@@ -294,6 +294,8 @@
     "apiKeyOptional": "مفتاح API (اختياري)",
     "tradingPairParams": "معلمات زوج التداول: {{symbol}}",
     "priceInterval": "الفاصل الزمني للسعر",
+    "profitSpread": "هامش الربح (فرق سعر الإغلاق)",
+    "profitSpreadHint": "اتركه فارغاً لاستخدام الفاصل الزمني للسعر",
     "orderAmount": "مبلغ الطلب (بالدولار الأمريكي)",
     "buyWindowSize": "حجم نافذة الشراء",
     "sellWindowSize": "حجم نافذة البيع",

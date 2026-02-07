@@ -2,6 +2,19 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.52.2-rc4] - 2026-02-07
+
+### Fixed
+- **翻译修复**：修复编辑交易对时 `configuration.profitSpread` 和 `configuration.profitSpreadHint` 未翻译的问题，已在所有 24 个语言文件中添加相应翻译。
+
+## [3.52.2-rc3] - 2026-02-07
+
+### Fixed
+- **订单管理交易对筛选修复**：修复订单管理页面在选择特定交易所和交易对时，仍显示其他交易所或交易对订单的问题。
+  - 后端新增 `QueryOrdersWithFilter` 和 `CountOrdersWithFilter` 方法，支持按 `exchange` 和 `symbol` 筛选订单
+  - 历史订单 API (`/api/orders/history`) 现在正确应用交易所和交易对筛选条件
+  - 待成交订单 API (`/api/orders/pending`) 返回的订单信息中增加 `exchange` 和 `symbol` 字段
+
 ## [3.52.2-rc2] - 2026-02-07
 
 ### Fixed
