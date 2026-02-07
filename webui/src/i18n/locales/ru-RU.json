@@ -294,6 +294,8 @@
     "apiKeyOptional": "API Key (необязательно)",
     "tradingPairParams": "Параметры торговой пары: {{symbol}}",
     "priceInterval": "Ценовой интервал",
+    "profitSpread": "Спред прибыли (разница цены закрытия)",
+    "profitSpreadHint": "Оставьте пустым для использования ценового интервала",
     "orderAmount": "Сумма ордера (USDT)",
     "buyWindowSize": "Размер окна покупки",
     "sellWindowSize": "Размер окна продажи",

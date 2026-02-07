@@ -294,6 +294,8 @@
     "apiKeyOptional": "Khóa API (tùy chọn)",
     "tradingPairParams": "Thông số cặp giao dịch: {{symbol}}",
     "priceInterval": "Khoảng giá",
+    "profitSpread": "Chênh lệch lợi nhuận (Khoảng giá đóng)",
+    "profitSpreadHint": "Để trống để sử dụng khoảng giá",
     "orderAmount": "Số lượng đặt hàng (USDT)",
     "buyWindowSize": "Kích thước cửa sổ mua",
     "sellWindowSize": "Kích thước cửa sổ bán",

@@ -1437,6 +1437,131 @@ func (s *SQLiteStorage) CountOrders(status string) (int64, error) {
 	return count, nil
 }
 
+// CountOrdersWithFilter 带筛选条件的订单计数（支持 exchange、symbol 筛选）
+func (s *SQLiteStorage) CountOrdersWithFilter(status, exchange, symbol string) (int64, error) {
+	query := `SELECT COUNT(*) FROM orders WHERE 1=1`
+	args := []interface{}{}
+
+	if status != "" {
+		query += " AND status = ?"
+		args = append(args, status)
+	}
+	if exchange != "" {
+		query += " AND LOWER(exchange) = LOWER(?)"
+		args = append(args, exchange)
+	}
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+
+	var count int64
+	err := s.db.QueryRow(query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("统计订單数量失败: %w", err)
+	}
+	return count, nil
+}
+
+// QueryOrdersWithFilter 带完整筛选条件的订单查询（支持 exchange、symbol 筛选）
+func (s *SQLiteStorage) QueryOrdersWithFilter(limit, offset int, status, exchange, symbol string, startTime, endTime *time.Time) ([]*Order, error) {
+	// 限制最大返回數量，防止記憶體占用過大
+	maxLimit := 10000 // 最多返回1万条订單
+	if limit <= 0 {
+		limit = 100 // 預設 100条
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 订單查詢 limit 超過限制 (%d)，已限制為 %d", limit, maxLimit)
+	}
+
+	query := `
+		SELECT order_id, client_order_id, symbol, side, 
+			COALESCE(exchange, '') as exchange, COALESCE(type, '') as type,
+			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
+			status, realized_pnl,
+			COALESCE(strategy_name, '') as strategy_name, COALESCE(strategy_type, '') as strategy_type,
+			COALESCE(order_source, '') as order_source,
+			created_at, updated_at
+		FROM orders
+		WHERE 1=1
+	`
+	args := []interface{}{}
+
+	if status != "" {
+		query += " AND status = ?"
+		args = append(args, status)
+	}
+
+	// 添加 exchange 筛选条件（大小写不敏感）
+	if exchange != "" {
+		query += " AND LOWER(exchange) = LOWER(?)"
+		args = append(args, exchange)
+	}
+
+	// 添加 symbol 筛选条件
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+
+	// 添加时间范围条件
+	if startTime != nil {
+		query += " AND created_at >= ?"
+		args = append(args, *startTime)
+	}
+	if endTime != nil {
+		query += " AND created_at <= ?"
+		args = append(args, *endTime)
+	}
+
+	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查詢訂單失败: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []*Order
+	for rows.Next() {
+		order := &Order{}
+		var realizedPnL sql.NullFloat64
+		err := rows.Scan(
+			&order.OrderID,
+			&order.ClientOrderID,
+			&order.Symbol,
+			&order.Side,
+			&order.Exchange,
+			&order.Type,
+			&order.Price,
+			&order.Quantity,
+			&order.FilledQty,
+			&order.Status,
+			&realizedPnL,
+			&order.StrategyName,
+			&order.StrategyType,
+			&order.OrderSource,
+			&order.CreatedAt,
+			&order.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("掃描订單失败: %w", err)
+		}
+		if realizedPnL.Valid {
+			order.RealizedPnL = &realizedPnL.Float64
+		}
+		orders = append(orders, order)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("查詢訂單迭代失败: %w", err)
+	}
+
+	return orders, nil
+}
+
 // QueryPositions 查詢持倉历史
 func (s *SQLiteStorage) QueryPositions(limit, offset int) ([]*Position, error) {
 	maxLimit := 10000

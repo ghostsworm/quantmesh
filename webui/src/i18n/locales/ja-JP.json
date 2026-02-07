@@ -474,6 +474,8 @@
     "apiKeyOptional": "API Key (optional)",
     "tradingPairParams": "Trading Pair Parameters: {{symbol}}",
     "priceInterval": "Price Interval",
+    "profitSpread": "利益スプレッド（決済価格差）",
+    "profitSpreadHint": "空欄の場合は価格間隔を使用",
     "orderAmount": "Order Amount (USDT)",
     "buyWindowSize": "Buy Window Size",
     "sellWindowSize": "Sell Window Size",

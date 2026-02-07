@@ -294,6 +294,8 @@
     "apiKeyOptional": "API Anahtarı (isteğe bağlı)",
     "tradingPairParams": "Alım Satım Çifti Parametreleri: {{symbol}}",
     "priceInterval": "Fiyat Aralığı",
+    "profitSpread": "Profit Spread (Close Price Gap)",
+    "profitSpreadHint": "Leave empty to use price interval",
     "orderAmount": "Emir Miktarı (USDT)",
     "buyWindowSize": "Alım Pencere Boyutu",
     "sellWindowSize": "Satım Pencere Boyutu",

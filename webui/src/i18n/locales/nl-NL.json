@@ -294,6 +294,8 @@
     "apiKeyOptional": "API-sleutel (optioneel)",
     "tradingPairParams": "Handelspaarparameters: {{symbol}}",
     "priceInterval": "Prijsinterval",
+    "profitSpread": "Profit Spread (Close Price Gap)",
+    "profitSpreadHint": "Leave empty to use price interval",
     "orderAmount": "Orderbedrag (USDT)",
     "buyWindowSize": "Koopvenstergrootte",
     "sellWindowSize": "Verkoopvenstergrootte",

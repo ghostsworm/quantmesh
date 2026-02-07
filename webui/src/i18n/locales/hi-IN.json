@@ -294,6 +294,8 @@
     "apiKeyOptional": "एपीआई कुंजी (वैकल्पिक)",
     "tradingPairParams": "ट्रेडिंग जोड़ी पैरामीटर: {{symbol}}",
     "priceInterval": "मूल्य अंतराल",
+    "profitSpread": "Profit Spread (Close Price Gap)",
+    "profitSpreadHint": "Leave empty to use price interval",
     "orderAmount": "ऑर्डर राशि (USDT)",
     "buyWindowSize": "खरीद विंडो आकार",
     "sellWindowSize": "बेचने की विंडो आकार",
