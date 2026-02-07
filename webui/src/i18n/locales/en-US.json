@@ -227,7 +227,40 @@
     "cacheDeleted": "Cache deleted",
     "deleteFailed": "Deletion failed",
     "canvasGenerationFailed": "Canvas generation failed, size is 0",
-    "imageDataGenerationFailed": "Image data generation failed, content may be too large"
+    "imageDataGenerationFailed": "Image data generation failed, content may be too large",
+    "strategyNames": {
+      "grid": "Grid Strategy",
+      "momentum": "Momentum Strategy",
+      "mean_reversion": "Mean Reversion Strategy",
+      "trend_following": "Trend Following Strategy",
+      "dca": "DCA Strategy",
+      "martingale": "Martingale Strategy",
+      "combo": "Combo Strategy"
+    },
+    "paramLabels": {
+      "grid_spacing": "Grid Spacing",
+      "grid_count": "Grid Count",
+      "order_quantity": "Order Size Per Trade",
+      "total_capital": "Total Capital",
+      "fee_rate": "Fee Rate",
+      "risk_volume_multiplier": "Risk-Volume Multiplier",
+      "risk_average_window": "Risk-Average Window",
+      "rsi_period": "RSI Period",
+      "period": "Period",
+      "fast_period": "Fast Period",
+      "slow_period": "Slow Period",
+      "interval_days": "DCA Interval (Days)",
+      "amount_per_trade": "Amount Per Trade",
+      "base_amount": "Base Order Amount",
+      "multiplier": "Multiplier"
+    },
+    "paramHints": {
+      "grid_spacing": "Price gap per level, e.g. 200 means 200 USDT per level. If empty, levels are evenly distributed by grid count",
+      "grid_count": "Max levels. With spacing set: at most N levels; without spacing: divide range into N levels",
+      "fee_rate": "e.g. 0.0004 means 0.04%",
+      "risk_volume_multiplier": "Volume multiplier over average to trigger risk control (smaller = more sensitive)",
+      "risk_average_window": "K-line count for average price/volume calculation"
+    }
   },
   "servicesStatus": {
     "title": "Service Status",
@@ -463,6 +496,11 @@
     "slack": "Slack",
     "webhookUrl": "Webhook URL",
     "dingtalkSecret": "DingTalk Secret",
+    "testConnection": "Test Connection",
+    "testConnectionSending": "Sending...",
+    "testConnectionSuccess": "Test notification sent successfully",
+    "testConnectionFailed": "Failed to send test notification",
+    "testConnectionError": "Test connection error",
     "dataStorage": "Data Storage",
     "storageEnabled": "Enable data storage",
     "storageEnabledHint": "When off, backtest and event history will not be persisted; leaving this off can make backtest unavailable.",
@@ -1856,7 +1894,20 @@
     "endValue": "End Value",
     "cashFlow": "Cash Flow",
     "positionChange": "Position Change",
-    "noData": "No breakdown data for this day"
+    "noData": "No breakdown data for this day",
+    "fundingSignNote": "Funding: positive = exchange pays you; negative = you pay the exchange.",
+    "fundingColumnNote": "Funding in the tables below is daily-level only; see Final Equation above.",
+    "profitTop": "Profit Top",
+    "lossTop": "Loss Top",
+    "gridCalc": "Grid (calculated)",
+    "exchangeCalc": "Exchange (realized)",
+    "feeColumn": "Fee",
+    "fundingColumn": "Funding",
+    "na": "—",
+    "orderId": "Order ID",
+    "side": "Side",
+    "price": "Price",
+    "exchangeRealizedPnl": "Exchange Realized PnL"
   },
   "riskMonitor": {
     "title": "Risk Monitor",

@@ -227,7 +227,40 @@
     "cacheDeleted": "缓存已删除",
     "deleteFailed": "删除失败",
     "canvasGenerationFailed": "Canvas 生成失败，尺寸为 0",
-    "imageDataGenerationFailed": "图片数据生成失败，可能是内容太大"
+    "imageDataGenerationFailed": "图片数据生成失败，可能是内容太大",
+    "strategyNames": {
+      "grid": "网格策略",
+      "momentum": "动量策略",
+      "mean_reversion": "均值回归策略",
+      "trend_following": "趋势跟踪策略",
+      "dca": "定投策略",
+      "martingale": "马丁格尔策略",
+      "combo": "组合策略"
+    },
+    "paramLabels": {
+      "grid_spacing": "网格间距",
+      "grid_count": "格子数量",
+      "order_quantity": "单笔订单大小",
+      "total_capital": "总投入资金",
+      "fee_rate": "手续费率",
+      "risk_volume_multiplier": "风控-成交量倍数",
+      "risk_average_window": "风控-均线窗口",
+      "rsi_period": "RSI 周期",
+      "period": "周期",
+      "fast_period": "快线周期",
+      "slow_period": "慢线周期",
+      "interval_days": "定投间隔(天)",
+      "amount_per_trade": "每次投入金额",
+      "base_amount": "基础下单金额",
+      "multiplier": "加倍倍数"
+    },
+    "paramHints": {
+      "grid_spacing": "每档价格差，如 200 表示每档相差 200 USDT。不填则按格子数量均分区间",
+      "grid_count": "最多几档。填了间距时表示最多 N 档；未填间距时表示将区间均分为 N 档",
+      "fee_rate": "如 0.0004 表示 0.04%",
+      "risk_volume_multiplier": "成交量超过均量的倍数触发风控（越小越敏感）",
+      "risk_average_window": "计算均价/均量的K线数量"
+    }
   },
   "servicesStatus": {
     "title": "服务状态",
@@ -463,6 +496,11 @@
     "slack": "Slack",
     "webhookUrl": "Webhook URL",
     "dingtalkSecret": "钉钉签名密钥",
+    "testConnection": "测试连接",
+    "testConnectionSending": "发送中...",
+    "testConnectionSuccess": "测试通知发送成功",
+    "testConnectionFailed": "测试通知发送失败",
+    "testConnectionError": "测试连接出错",
     "dataStorage": "数据存储",
     "storageEnabled": "启用数据存储",
     "storageEnabledHint": "关闭后回测、事件历史等将不持久化；仅填路径不勾选也会导致回测不可用。",
@@ -1692,7 +1730,20 @@
     "endValue": "期末价值",
     "cashFlow": "现金流",
     "positionChange": "持仓变化",
-    "noData": "暂无该日拆解数据"
+    "noData": "暂无该日拆解数据",
+    "fundingSignNote": "资金费用：正数表示交易所付给用户，负数表示用户付给交易所。",
+    "fundingColumnNote": "下方表格中「资金费用」为日级汇总，无法按单笔归属，详见上方最终等式。",
+    "profitTop": "盈利 Top",
+    "lossTop": "亏损 Top",
+    "gridCalc": "网格计算",
+    "exchangeCalc": "交易所计算",
+    "feeColumn": "手续费",
+    "fundingColumn": "资金费用",
+    "na": "—",
+    "orderId": "订单 ID",
+    "side": "方向",
+    "price": "价格",
+    "exchangeRealizedPnl": "交易所已实现盈亏"
   },
   "riskMonitor": {
     "title": "风控监控",

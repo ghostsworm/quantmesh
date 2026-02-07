@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.52.0] - 2026-02-07
+
+### Added
+- **通知測試連接**：在通知配置頁面的每個通知渠道（Telegram、Webhook、Email、飛書、釘釘、企業微信、Slack）下方新增「測試連接」按鈕
+  - 點擊按鈕會使用當前頁面上的配置向對應渠道發送一條測試通知
+  - 發送成功/失敗會通過 Toast 即時反饋
+  - 按鈕在必要配置項未填時自動禁用
+  - 前端：`testNotification` API、i18n（中英文）、`Configuration.tsx` 測試按鈕 UI
+  - 後端：復用已有 `POST /api/config/test-notification?channel=` 端點
+
 ## [3.51.0] - 2026-02-07
 
 ### Added
