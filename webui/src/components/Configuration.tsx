@@ -1039,6 +1039,53 @@ const Configuration: React.FC = () => {
                           </FormControl>
                         </SimpleGrid>
 
+                        {config.news_monitor?.enabled && config.news_monitor?.enable_analysis !== false && (() => {
+                          const defaultAssets: Array<{ asset_type: string; symbol: string; enabled?: boolean }> = [
+                            { asset_type: 'crypto_btc', symbol: 'BTCUSDT', enabled: true },
+                            { asset_type: 'commodity_gold', symbol: 'PAXGUSDT', enabled: true },
+                            { asset_type: 'commodity_silver', symbol: 'XAGUSDT', enabled: false },
+                            { asset_type: 'stock_us', symbol: 'SPX', enabled: false },
+                            { asset_type: 'crypto_eth', symbol: 'ETHUSDT', enabled: false },
+                            { asset_type: 'crypto_sol', symbol: 'SOLUSDT', enabled: false },
+                            { asset_type: 'crypto_doge', symbol: 'DOGEUSDT', enabled: false },
+                          ]
+                          const assetLabelKey: Record<string, string> = {
+                            crypto_btc: 'btc',
+                            commodity_gold: 'goldInternational',
+                            commodity_silver: 'silver',
+                            stock_us: 'usStock',
+                            crypto_eth: 'eth',
+                            crypto_sol: 'sol',
+                            crypto_doge: 'doge',
+                          }
+                          const fromConfig = config.news_monitor?.assets || []
+                          const assets = defaultAssets.map((def) => fromConfig.find((a: { asset_type: string }) => a.asset_type === def.asset_type) || { ...def })
+                          return (
+                            <>
+                              <Divider />
+                              <Text fontSize="sm" fontWeight="600" color="gray.700">{t('configuration.newsAnalysisAssets')}</Text>
+                              <Text fontSize="xs" color="gray.500">{t('configuration.newsAnalysisAssetsDesc')}</Text>
+                              <VStack align="stretch" spacing={2}>
+                                {assets.map((asset: { asset_type: string; symbol: string; enabled?: boolean }) => (
+                                  <Flex key={asset.asset_type} justify="space-between" align="center" py={1} px={2} borderRadius="md" bg="gray.50" _dark={{ bg: 'whiteAlpha.100' }}>
+                                    <Text fontSize="sm">{t(`newsAnalysis.${assetLabelKey[asset.asset_type] || asset.asset_type}`)}</Text>
+                                    <Switch
+                                      size="sm"
+                                      isChecked={asset.enabled !== false}
+                                      onChange={(e) => {
+                                        const next = assets.map((a: { asset_type: string; symbol: string; enabled?: boolean }) =>
+                                          a.asset_type === asset.asset_type ? { ...a, enabled: e.target.checked } : a
+                                        )
+                                        setConfig({ ...config!, news_monitor: { ...config!.news_monitor!, assets: next } })
+                                      }}
+                                    />
+                                  </Flex>
+                                ))}
+                              </VStack>
+                            </>
+                          )
+                        })()}
+
                         {!getNestedValue(config, 'news_monitor.news_api_key') && (
                           <Alert status="warning" size="sm" borderRadius="md">
                             <AlertIcon />

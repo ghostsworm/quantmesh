@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.52.1-rc1] - 2026-02-07
+
+### Added
+- **新聞分析品種開關（配置頁）**：在配置 → 新聞監控下新增「新聞分析品種」區塊，七個品種（BTC、國際金價、白銀、美股、ETH、SOL、DOGE）各有一個啟用開關；開啟的品種會按「AI 分析間隔」定時調用 AI 做預測，未開啟的品種可在新聞分析頁手動觸發。i18n：`newsAnalysisAssets`、`newsAnalysisAssetsDesc`（簡中/繁中/英文）。
+
+### Fixed
+- **新聞分析按品種返回**：後端 `GET /api/news/analysis?asset_type=` 補全 asset_type → symbol 映射（crypto_btc、commodity_gold、commodity_silver、stock_us、crypto_eth、crypto_sol、crypto_doge），切換白銀/黃金/ETH 等品種時正確返回該品種的 Analysis Summary 與評估結果。
+
+### Changed
+- **新聞分析頁**：品種按鈕文案改為 i18n（btc、eth、sol、doge 等）；無該品種分析結果時展示提示「該品種暫無分析結果，請手動觸發或啟用定時分析」。
+
 ## [3.52.0] - 2026-02-07
 
 ### Added
