@@ -649,6 +649,26 @@ export async function generateMasterKey(): Promise<{
   })
 }
 
+// 测试通知渠道
+export interface TestNotificationResponse {
+  success: boolean
+  message?: string
+  error?: string
+}
+
+export async function testNotification(
+  config: Partial<Config>,
+  channel: string
+): Promise<TestNotificationResponse> {
+  return fetchWithAuth(
+    `${window.location.origin}/api/config/test-notification?channel=${encodeURIComponent(channel)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }
+  )
+}
+
 // 更新配置（YAML 格式）
 export async function updateConfigYAML(yamlContent: string): Promise<{
   message: string

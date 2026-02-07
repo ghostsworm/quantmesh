@@ -74,6 +74,7 @@ import {
   updateConfigYAML,
   getSecurityStatus,
   generateMasterKey,
+  testNotification,
   Config,
   BackupInfo,
   ConfigDiff,
@@ -213,6 +214,9 @@ const Configuration: React.FC = () => {
   } | null>(null)
   const [generatingKey, setGeneratingKey] = useState(false)
   
+  // Notification test state
+  const [testingChannel, setTestingChannel] = useState<string | null>(null)
+
   // Price range state
   const [priceRange, setPriceRange] = useState<PriceRangeData | null>(null)
   const [priceRangeSource, setPriceRangeSource] = useState<string>('')
@@ -227,6 +231,41 @@ const Configuration: React.FC = () => {
 
   const togglePasswordVisibility = (key: string) => {
     setShowPasswords(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const handleTestNotification = async (channel: string) => {
+    if (!config || testingChannel) return
+    setTestingChannel(channel)
+    try {
+      const res = await testNotification(config as any, channel)
+      if (res.success) {
+        toast({
+          title: t('configuration.testConnectionSuccess'),
+          description: res.message,
+          status: 'success',
+          duration: 4000,
+          isClosable: true,
+        })
+      } else {
+        toast({
+          title: t('configuration.testConnectionFailed'),
+          description: res.error || res.message,
+          status: 'error',
+          duration: 6000,
+          isClosable: true,
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: t('configuration.testConnectionError'),
+        description: err.message || String(err),
+        status: 'error',
+        duration: 6000,
+        isClosable: true,
+      })
+    } finally {
+      setTestingChannel(null)
+    }
   }
 
   const loadConfig = async () => {
@@ -1091,6 +1130,18 @@ const Configuration: React.FC = () => {
                             borderRadius="xl"
                           />
                         </FormControl>
+                        <Divider />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          isLoading={testingChannel === 'telegram'}
+                          loadingText={t('configuration.testConnectionSending')}
+                          onClick={() => handleTestNotification('telegram')}
+                          isDisabled={!config.notifications?.telegram?.bot_token || !config.notifications?.telegram?.chat_id}
+                        >
+                          {t('configuration.testConnection')}
+                        </Button>
                       </ConfigCard>
                       <ConfigCard title="Webhook">
                         <FormControl mb={4}>
@@ -1102,6 +1153,18 @@ const Configuration: React.FC = () => {
                             borderRadius="xl"
                           />
                         </FormControl>
+                        <Divider />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          isLoading={testingChannel === 'webhook'}
+                          loadingText={t('configuration.testConnectionSending')}
+                          onClick={() => handleTestNotification('webhook')}
+                          isDisabled={!config.notifications?.webhook?.url}
+                        >
+                          {t('configuration.testConnection')}
+                        </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.email')}>
                         <FormControl mb={4}>
@@ -1186,6 +1249,18 @@ const Configuration: React.FC = () => {
                             borderRadius="xl"
                           />
                         </FormControl>
+                        <Divider />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          isLoading={testingChannel === 'email'}
+                          loadingText={t('configuration.testConnectionSending')}
+                          onClick={() => handleTestNotification('email')}
+                          isDisabled={!config.notifications?.email?.from || !config.notifications?.email?.to}
+                        >
+                          {t('configuration.testConnection')}
+                        </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.feishu')}>
                         <FormControl mb={4}>
@@ -1197,6 +1272,18 @@ const Configuration: React.FC = () => {
                             borderRadius="xl"
                           />
                         </FormControl>
+                        <Divider />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          isLoading={testingChannel === 'feishu'}
+                          loadingText={t('configuration.testConnectionSending')}
+                          onClick={() => handleTestNotification('feishu')}
+                          isDisabled={!config.notifications?.feishu?.webhook}
+                        >
+                          {t('configuration.testConnection')}
+                        </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.dingtalk')}>
                         <FormControl mb={4}>
@@ -1212,6 +1299,18 @@ const Configuration: React.FC = () => {
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.dingtalkSecret')}</FormLabel>
                           {renderPasswordInput('notifications.dingtalk.secret')}
                         </FormControl>
+                        <Divider />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          isLoading={testingChannel === 'dingtalk'}
+                          loadingText={t('configuration.testConnectionSending')}
+                          onClick={() => handleTestNotification('dingtalk')}
+                          isDisabled={!config.notifications?.dingtalk?.webhook}
+                        >
+                          {t('configuration.testConnection')}
+                        </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.wechatWork')}>
                         <FormControl mb={4}>
@@ -1223,6 +1322,18 @@ const Configuration: React.FC = () => {
                             borderRadius="xl"
                           />
                         </FormControl>
+                        <Divider />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          isLoading={testingChannel === 'wechat_work'}
+                          loadingText={t('configuration.testConnectionSending')}
+                          onClick={() => handleTestNotification('wechat_work')}
+                          isDisabled={!config.notifications?.wechat_work?.webhook}
+                        >
+                          {t('configuration.testConnection')}
+                        </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.slack')}>
                         <FormControl mb={4}>
@@ -1234,6 +1345,18 @@ const Configuration: React.FC = () => {
                             borderRadius="xl"
                           />
                         </FormControl>
+                        <Divider />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          isLoading={testingChannel === 'slack'}
+                          loadingText={t('configuration.testConnectionSending')}
+                          onClick={() => handleTestNotification('slack')}
+                          isDisabled={!config.notifications?.slack?.webhook}
+                        >
+                          {t('configuration.testConnection')}
+                        </Button>
                       </ConfigCard>
                     </SimpleGrid>
                   </VStack>
