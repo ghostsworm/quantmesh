@@ -72,7 +72,7 @@ const ServiceStatusPage: React.FC = () => {
             <Card key={s.id} size="sm" borderWidth="1px" borderColor={s.ok ? 'gray.100' : 'red.100'}>
               <CardHeader py={3}>
                 <HStack justify="space-between">
-                  <Text fontWeight="600">{s.name}</Text>
+                  <Text fontWeight="600">{t(`servicesStatus.name.${s.id}`)}</Text>
                   <Badge colorScheme={s.ok ? 'green' : 'red'} fontSize="xs">
                     {s.ok ? t('servicesStatus.ok') : t('servicesStatus.unavailable')}
                   </Badge>
@@ -87,7 +87,9 @@ const ServiceStatusPage: React.FC = () => {
                     mt={0.5}
                   />
                   <Text fontSize="sm" color={s.ok ? 'gray.600' : 'red.600'}>
-                    {s.message || (s.ok ? t('servicesStatus.normal') : t('servicesStatus.checkHint'))}
+                    {s.message_key
+                      ? t(`servicesStatus.message.${s.message_key}`, s.message_params || {})
+                      : (s.ok ? t('servicesStatus.normal') : t('servicesStatus.checkHint'))}
                   </Text>
                 </HStack>
               </CardBody>

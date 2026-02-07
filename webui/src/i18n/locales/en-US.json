@@ -13,9 +13,10 @@
     "retry": "Retry",
     "all": "All",
     "refresh": "Refresh",
-    "actions": "操作",
-    "allExchanges": "全部交易所",
-    "error": "错误",
+    "actions": "Actions",
+    "allExchanges": "All Exchanges",
+    "currencyUnit": "USDT",
+    "error": "Error",
     "connectionError": "Connection Error",
     "connectionErrorDesc": "Unable to connect to server. Please check your network.",
     "unknownError": "Unknown Error",
@@ -268,7 +269,23 @@
     "ok": "OK",
     "unavailable": "Unavailable",
     "normal": "Normal",
-    "checkHint": "Check config and restart"
+    "checkHint": "Check config and restart",
+    "name": {
+      "storage": "Data Storage (SQLite)",
+      "backtest": "Backtest Service",
+      "smart_params": "Smart Parameter Recommendation"
+    },
+    "message": {
+      "normal": "Normal",
+      "normalWithPath": "Normal ({{type}} @ {{path}})",
+      "storageDisabled": "Storage is disabled in config. Enable \"Enable data storage\" under Settings → Storage & Web, save, then restart.",
+      "storageNotConfigured": "storage.path or storage.type is not set in config.",
+      "storageProviderNil": "Storage provider was not injected at startup.",
+      "storageInstanceNil": "Storage instance is nil (check startup logs for SQLite/schema errors).",
+      "configNotLoaded": "Config not loaded.",
+      "backtestNotInit": "Backtest service not initialized. Ensure storage is enabled and initialized (see Data Storage above), save config, then restart.",
+      "smartParamsNotInit": "Not initialized (backtest still works; only parameter recommendation is affected)."
+    }
   },
   "statusBar": {
     "globalView": "Global Overview",
@@ -2057,6 +2074,11 @@
     "goldInternational": "International Gold",
     "silver": "Silver",
     "usStock": "US Stocks",
+    "btc": "BTC",
+    "eth": "ETH",
+    "sol": "SOL",
+    "doge": "DOGE",
+    "noAnalysisHint": "No analysis for this asset yet. Click \"Manual Trigger Analysis\" or enable scheduled analysis for this asset in News Monitor config.",
     "recNormal": "Normal",
     "recCaution": "Caution",
     "recReducePosition": "Reduce Position",
@@ -2155,6 +2177,96 @@
     "trend_following": "Trend Following Strategy",
     "mean_reversion": "Mean Reversion Strategy",
     "breakout": "Breakout Strategy"
+  },
+  "strategyDescriptions": {
+    "grid": "Classic grid trading strategy that automatically places orders within a price range to capture volatility spreads",
+    "dca": "Dollar-cost averaging strategy that diversifies entry costs and reduces investment risk",
+    "dca_enhanced": "Enhanced DCA with ATR dynamic spacing, triple take-profit, 50-layer position management, cascade protection, and trend filter",
+    "martingale": "Loss-doubling add-on strategy with support for long/short Martingale, risk reduction mode, and long-short dual direction",
+    "combo": "Multi-strategy portfolio management with dynamic weight adjustment and market-adaptive switching",
+    "trend_following": "Technical indicator-based trend following strategy that enters on trend formation and exits on trend reversal",
+    "mean_reversion": "Trades on price reversion after deviation from the mean",
+    "breakout": "Enters when price breaks key support/resistance levels to capture large moves"
+  },
+  "strategyFeatures": {
+    "grid": {
+      "0": "Auto order placement",
+      "1": "Custom grid count",
+      "2": "Dynamic grid spacing"
+    },
+    "dca": {
+      "0": "Scheduled fixed-amount buying",
+      "1": "Diversified entry cost",
+      "2": "Auto reinvest profit"
+    },
+    "dca_enhanced": {
+      "0": "ATR dynamic spacing",
+      "1": "Triple-tier take-profit",
+      "2": "50-layer position management",
+      "3": "Cascade protection",
+      "4": "Trend filter"
+    },
+    "martingale": {
+      "0": "Loss-doubling add-on",
+      "1": "Reverse Martingale support",
+      "2": "Risk reduction mode",
+      "3": "Long-short dual direction"
+    },
+    "combo": {
+      "0": "Multi-strategy combo",
+      "1": "Dynamic weight allocation",
+      "2": "Market-adaptive switching",
+      "3": "Risk hedging"
+    },
+    "trend_following": {
+      "0": "Trend indicator entry",
+      "1": "Dynamic take-profit/stop-loss",
+      "2": "Trend filter"
+    },
+    "mean_reversion": {
+      "0": "Mean deviation detection",
+      "1": "Reversion trading signal",
+      "2": "Statistical arbitrage"
+    },
+    "breakout": {
+      "0": "Support/resistance breakout",
+      "1": "Momentum capture",
+      "2": "Volatility tracking"
+    }
+  },
+  "strategyParams": {
+    "grid": {
+      "gridCount": { "name": "Grid Count", "description": "Number of grid levels" },
+      "upperPrice": { "name": "Upper Price", "description": "Upper bound of price range" },
+      "lowerPrice": { "name": "Lower Price", "description": "Lower bound of price range" },
+      "totalAmount": { "name": "Total Amount", "description": "Total investment (USDT)" }
+    },
+    "dca": {
+      "interval": { "name": "Interval", "description": "DCA interval between orders" },
+      "amount": { "name": "Amount Per Order", "description": "Amount per DCA order (USDT)" }
+    },
+    "dca_enhanced": {
+      "base_order_amount": { "name": "Base Order Amount", "description": "Initial order amount (USDT)" },
+      "safety_order_amount": { "name": "Safety Order Amount", "description": "Add-on order amount (USDT)" },
+      "max_safety_orders": { "name": "Max Safety Orders", "description": "Maximum add-on levels" },
+      "atr_period": { "name": "ATR Period", "description": "ATR indicator period" },
+      "atr_multiplier": { "name": "ATR Multiplier", "description": "ATR dynamic spacing multiplier" },
+      "total_take_profit": { "name": "Total Take Profit %", "description": "Full position take-profit ratio (%)" },
+      "stop_loss": { "name": "Stop Loss %", "description": "Stop-loss trigger ratio (%)" }
+    },
+    "martingale": {
+      "initial_amount": { "name": "Initial Amount", "description": "First order amount (USDT)" },
+      "multiplier": { "name": "Multiplier", "description": "Add-on amount multiplier" },
+      "max_levels": { "name": "Max Levels", "description": "Maximum add-on levels" },
+      "price_step": { "name": "Price Step %", "description": "Price drop to trigger add-on (%)" },
+      "take_profit": { "name": "Take Profit %", "description": "Per-level take-profit ratio (%)" },
+      "direction": { "name": "Direction", "description": "LONG or SHORT" }
+    },
+    "combo": {
+      "total_capital": { "name": "Total Capital", "description": "Combo strategy total capital (USDT)" },
+      "market_detection": { "name": "Market Detection", "description": "Enable market state auto-detection" },
+      "hedge_enabled": { "name": "Hedge", "description": "Enable long-short hedging" }
+    }
   },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved.",

@@ -90,7 +90,7 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
             <VStack align="start" spacing={1}>
               <HStack>
                 <Text fontSize="xl" fontWeight="bold">
-                  {strategy.name}
+                  {t(`strategyNames.${strategy.id}`, { defaultValue: strategy.name })}
                 </Text>
                 {strategy.isPremium && (
                   <Badge
@@ -148,7 +148,9 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
                       {t('strategyMarket.detail.description')}
                     </Text>
                     <Text color="gray.600" whiteSpace="pre-wrap">
-                      {strategy.longDescription || strategy.description}
+                      {t(`strategyDescriptions.${strategy.id}`, {
+                        defaultValue: strategy.longDescription || strategy.description,
+                      })}
                     </Text>
                   </Box>
 
@@ -171,7 +173,9 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
                           mb={2}
                         >
                           <Icon as={CheckCircleIcon} mr={1} />
-                          {feature}
+                          {t(`strategyFeatures.${strategy.id}.${index}`, {
+                            defaultValue: feature,
+                          })}
                         </Badge>
                       ))}
                     </HStack>
@@ -212,20 +216,29 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
                     </Tr>
                   </Thead>
                   <Tbody>
-                    {strategy.parameters?.map((param) => (
-                      <Tr key={param.key}>
-                        <Td fontWeight="medium">{param.name}</Td>
-                        <Td>
-                          <Badge colorScheme="gray" fontSize="xs">
-                            {param.type}
-                          </Badge>
-                        </Td>
-                        <Td>{String(param.defaultValue)}</Td>
-                        <Td fontSize="sm" color="gray.600">
-                          {param.description}
-                        </Td>
-                      </Tr>
-                    ))}
+                    {strategy.parameters?.map((param) => {
+                      const paramKey = param.key || param.name
+                      return (
+                        <Tr key={paramKey}>
+                          <Td fontWeight="medium">
+                            {t(`strategyParams.${strategy.id}.${paramKey}.name`, {
+                              defaultValue: param.name,
+                            })}
+                          </Td>
+                          <Td>
+                            <Badge colorScheme="gray" fontSize="xs">
+                              {param.type}
+                            </Badge>
+                          </Td>
+                          <Td>{String(param.defaultValue)}</Td>
+                          <Td fontSize="sm" color="gray.600">
+                            {t(`strategyParams.${strategy.id}.${paramKey}.description`, {
+                              defaultValue: param.description,
+                            })}
+                          </Td>
+                        </Tr>
+                      )
+                    })}
                     {(!strategy.parameters || strategy.parameters.length === 0) && (
                       <Tr>
                         <Td colSpan={4} textAlign="center" color="gray.500">

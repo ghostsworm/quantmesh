@@ -45,7 +45,7 @@ const NewbieRiskCheck: React.FC = () => {
       const data = await getNewbieRiskCheck();
       setReport(data);
     } catch (error) {
-      console.error('獲取新手体检报告失败:', error);
+      console.error(t('newbieRiskCheck.fetchFailed'), error);
       toast({
         title: t('newbieRiskCheck.fetchFailed'),
         description: error instanceof Error ? error.message : t('newbieRiskCheck.unknownError'),
@@ -74,7 +74,7 @@ const NewbieRiskCheck: React.FC = () => {
           duration: 8000,
           isClosable: true,
         });
-        fetchReport(); // 重新獲取报告
+        fetchReport();
       }
     } catch (error) {
       toast({
@@ -116,7 +116,7 @@ const NewbieRiskCheck: React.FC = () => {
   return (
     <Container maxW="container.xl" py={8}>
       <VStack align="stretch" spacing={6}>
-        {/* 页头 */}
+        {/* Page header */}
         <Box>
           <HStack spacing={3} mb={2}>
             <Text fontSize="3xl">🛡️</Text>
@@ -127,7 +127,7 @@ const NewbieRiskCheck: React.FC = () => {
           </Text>
         </Box>
 
-        {/* 刷新按钮 */}
+        {/* Refresh button */}
         <Box>
           <Button
             size="sm"
@@ -139,7 +139,7 @@ const NewbieRiskCheck: React.FC = () => {
           </Button>
         </Box>
 
-        {/* 内容区域 */}
+        {/* Content area */}
         {loading ? (
           <Card>
             <CardBody>
@@ -151,7 +151,7 @@ const NewbieRiskCheck: React.FC = () => {
           </Card>
         ) : report ? (
           <VStack spacing={6} align="stretch">
-            {/* 综合评分卡片 */}
+            {/* Overall score card */}
             <Card>
               <CardBody>
                 <HStack spacing={8} justify="center" p={4}>
@@ -177,7 +177,7 @@ const NewbieRiskCheck: React.FC = () => {
                         <PolarGrid stroke="#E2E8F0" />
                         <PolarAngleAxis dataKey="subject" tick={{ fill: '#718096', fontSize: 12 }} />
                         <Radar
-                          name="Score"
+                          name={t('newbieRiskCheck.score')}
                           dataKey="A"
                           stroke="#4299E1"
                           fill="#4299E1"
@@ -190,7 +190,7 @@ const NewbieRiskCheck: React.FC = () => {
               </CardBody>
             </Card>
 
-            {/* 详细結果 */}
+            {/* Detailed results */}
             <Card>
               <CardBody>
                 <Heading size="md" mb={4}>{t('newbieRiskCheck.detailedResults')}</Heading>
@@ -218,7 +218,7 @@ const NewbieRiskCheck: React.FC = () => {
               </CardBody>
             </Card>
 
-            {/* 重要提示 */}
+            {/* Important notice */}
             <Alert status="warning" borderRadius="md">
               <AlertIcon />
               <Box flex="1">
@@ -231,7 +231,7 @@ const NewbieRiskCheck: React.FC = () => {
               </Box>
             </Alert>
 
-            {/* 操作按钮 */}
+            {/* Action buttons */}
             <Card>
               <CardBody>
                 <VStack spacing={4} align="stretch">

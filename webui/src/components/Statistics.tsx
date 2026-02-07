@@ -140,7 +140,7 @@ const Statistics: React.FC = () => {
       <h2>{t('statistics.title')}</h2>
 
       {stats && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginTop: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginTop: '16px', maxWidth: '900px' }}>
           <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
             <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalTrades')}</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{stats.total_trades}</div>
@@ -195,7 +195,7 @@ const Statistics: React.FC = () => {
         </div>
       )}
 
-      <div style={{ marginTop: '32px' }}>
+      <div style={{ marginTop: '32px', maxWidth: '900px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3>{t('statistics.calendarView')}</h3>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>

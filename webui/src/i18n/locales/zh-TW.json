@@ -14,6 +14,7 @@
     "refresh": "刷新",
     "allExchanges": "全部交易所",
     "actions": "操作",
+    "currencyUnit": "USDT",
     "error": "錯誤",
     "all": "All",
     "connectionError": "連線錯誤",
@@ -1777,6 +1778,11 @@
     "goldInternational": "國際金價",
     "silver": "白銀",
     "usStock": "美股",
+    "btc": "BTC",
+    "eth": "ETH",
+    "sol": "SOL",
+    "doge": "DOGE",
+    "noAnalysisHint": "該品種暫無分析結果，請點擊「手動觸發分析」或先在新聞監控配置中啟用該品種的定時分析。",
     "history": "History",
     "manualTrigger": "Manual Trigger Analysis",
     "newsTitle": "Title",
@@ -1814,6 +1820,96 @@
     "trend_following": "趨勢跟蹤策略",
     "mean_reversion": "均值迴歸策略",
     "breakout": "突破策略"
+  },
+  "strategyDescriptions": {
+    "grid": "經典網格交易策略，在價格區間內自動掛單，賺取波動差價",
+    "dca": "定期定額買入策略，分散入場成本，降低投資風險",
+    "dca_enhanced": "基於 ATR 動態間距、三級止盈、50 層倉位管理、瀑布保護和趨勢過濾的增強型 DCA",
+    "martingale": "虧損加倍補倉策略，支援正向/反向馬丁、風險削減與多空雙向",
+    "combo": "多策略組合管理，支援動態權重調整和市場自適應切換",
+    "trend_following": "基於技術指標的趨勢跟蹤策略，在趨勢形成時入場，趨勢反轉時離場",
+    "mean_reversion": "利用價格偏離均值後回歸的特性進行交易",
+    "breakout": "價格突破關鍵支撐/阻力位時入場，捕捉大幅波動"
+  },
+  "strategyFeatures": {
+    "grid": {
+      "0": "自動掛單買賣",
+      "1": "支援自訂網格數量",
+      "2": "支援動態網格間距"
+    },
+    "dca": {
+      "0": "定時定額買入",
+      "1": "分散入場成本",
+      "2": "自動複投收益"
+    },
+    "dca_enhanced": {
+      "0": "ATR 動態間距調整",
+      "1": "三級階梯止盈",
+      "2": "50 層精細倉位管理",
+      "3": "瀑布保護機制",
+      "4": "趨勢過濾器"
+    },
+    "martingale": {
+      "0": "虧損加倍補倉",
+      "1": "支援反向馬丁",
+      "2": "風險削減模式",
+      "3": "多空雙向支援"
+    },
+    "combo": {
+      "0": "多策略組合運行",
+      "1": "動態權重分配",
+      "2": "市場自適應切換",
+      "3": "風險對沖能力"
+    },
+    "trend_following": {
+      "0": "趨勢指標入場",
+      "1": "動態止盈止損",
+      "2": "趨勢過濾"
+    },
+    "mean_reversion": {
+      "0": "均值偏離檢測",
+      "1": "回歸交易信號",
+      "2": "統計套利"
+    },
+    "breakout": {
+      "0": "支撐阻力突破",
+      "1": "動量捕捉",
+      "2": "波動追蹤"
+    }
+  },
+  "strategyParams": {
+    "grid": {
+      "gridCount": { "name": "網格數量", "description": "網格檔位數量" },
+      "upperPrice": { "name": "網格上限價格", "description": "網格價格區間上限" },
+      "lowerPrice": { "name": "網格下限價格", "description": "網格價格區間下限" },
+      "totalAmount": { "name": "總投資金額", "description": "策略總投入資金 (USDT)" }
+    },
+    "dca": {
+      "interval": { "name": "定投間隔", "description": "每次定投的時間間隔" },
+      "amount": { "name": "每次投資金額", "description": "單次定投金額 (USDT)" }
+    },
+    "dca_enhanced": {
+      "base_order_amount": { "name": "基礎訂單金額", "description": "初始買入訂單金額 (USDT)" },
+      "safety_order_amount": { "name": "安全訂單金額", "description": "補倉訂單金額 (USDT)" },
+      "max_safety_orders": { "name": "最大安全訂單數", "description": "最多補倉層數" },
+      "atr_period": { "name": "ATR 週期", "description": "ATR 指標計算週期" },
+      "atr_multiplier": { "name": "ATR 乘數", "description": "ATR 動態間距乘數" },
+      "total_take_profit": { "name": "全倉止盈比例", "description": "全部倉位止盈比例 (%)" },
+      "stop_loss": { "name": "止損比例", "description": "止損觸發比例 (%)" }
+    },
+    "martingale": {
+      "initial_amount": { "name": "初始金額", "description": "首筆訂單金額 (USDT)" },
+      "multiplier": { "name": "加倉倍數", "description": "補倉金額倍增倍數" },
+      "max_levels": { "name": "最大層數", "description": "最大補倉層數" },
+      "price_step": { "name": "加倉間距", "description": "觸發補倉的價格間距 (%)" },
+      "take_profit": { "name": "止盈比例", "description": "單層止盈比例 (%)" },
+      "direction": { "name": "方向", "description": "做多 LONG / 做空 SHORT" }
+    },
+    "combo": {
+      "total_capital": { "name": "總資金", "description": "組合策略總資金 (USDT)" },
+      "market_detection": { "name": "市況檢測", "description": "啟用市場狀態自動檢測" },
+      "hedge_enabled": { "name": "對沖", "description": "啟用多空對沖" }
+    }
   },
   "newbieRiskCheck": {
     "description": "全面檢查您的交易配置，識別潛在風險，並提供安全加固建議",
@@ -2386,12 +2482,28 @@
     "webauthnRegisterFailed": "WebAuthn registration failed"
   },
   "servicesStatus": {
-    "checkHint": "Check config and restart",
-    "hint": "Check whether storage, backtest, and other backend services are available. If a service is unavailable, follow the hint and restart after config changes.",
-    "normal": "Normal",
+    "title": "服務狀態",
+    "hint": "檢查存儲、回測等後台服務是否可用。若某項不可用，請依提示檢查配置並重啟。",
     "ok": "OK",
-    "title": "Service Status",
-    "unavailable": "Unavailable"
+    "unavailable": "不可用",
+    "normal": "正常",
+    "checkHint": "請檢查配置並重啟",
+    "name": {
+      "storage": "數據存儲 (SQLite)",
+      "backtest": "回測服務",
+      "smart_params": "智能參數推薦"
+    },
+    "message": {
+      "normal": "正常",
+      "normalWithPath": "正常 ({{type}} @ {{path}})",
+      "storageDisabled": "配置中 storage.enabled 為關閉；請在「設置」-「存儲與 Web」中開啟「啟用數據存儲」並保存後重啟。",
+      "storageNotConfigured": "配置中未設置 storage.path 或 storage.type。",
+      "storageProviderNil": "存儲服務提供者未注入（進程啟動時未初始化）。",
+      "storageInstanceNil": "存儲實例為空（可能初始化失敗，請查看啟動日誌中的 SQLite/創建表 錯誤）。",
+      "configNotLoaded": "配置未加載。",
+      "backtestNotInit": "回測服務未初始化；請確保存儲已啟用且初始化成功（見上方「數據存儲」狀態），保存配置後重啟服務。",
+      "smartParamsNotInit": "未初始化（不影響回測提交，僅影響參數推薦）。"
+    }
   },
   "strategyAllocation": {
     "allocationRatio": "Capital Allocation Ratio",

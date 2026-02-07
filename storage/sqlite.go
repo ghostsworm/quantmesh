@@ -1500,7 +1500,7 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 	}
 
 	rows, err := s.db.Query(`
-		SELECT buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, created_at
+		SELECT buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, COALESCE(fee, 0) as fee, created_at
 		FROM trades
 		WHERE created_at >= ? AND created_at <= ?
 		ORDER BY created_at DESC
@@ -1524,6 +1524,7 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 			&trade.SellPrice,
 			&trade.Quantity,
 			&trade.PnL,
+			&trade.Fee,
 			&trade.CreatedAt,
 		)
 		if err != nil {

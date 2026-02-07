@@ -105,7 +105,7 @@ const AllocationChart: React.FC<AllocationChartProps> = ({ strategies, totalCapi
                   zIndex={10}
                 >
                   <Text fontWeight="bold">{item.name}</Text>
-                  <Text>{item.value.toFixed(2)} USDT ({item.percentage.toFixed(1)}%)</Text>
+                  <Text>{item.value.toFixed(2)} {t('common.currencyUnit')} ({item.percentage.toFixed(1)}%)</Text>
                 </Box>
               </Box>
             ))}
@@ -130,14 +130,14 @@ const AllocationChart: React.FC<AllocationChartProps> = ({ strategies, totalCapi
             <Text fontSize="xs" color="gray.500">
               {t('capitalManagement.totalBalance')}
             </Text>
-            <Text fontWeight="bold">{totalCapital.toFixed(2)} USDT</Text>
+            <Text fontWeight="bold">{totalCapital.toFixed(2)} {t('common.currencyUnit')}</Text>
           </VStack>
           <VStack align="center" spacing={0}>
             <Text fontSize="xs" color="gray.500">
               {t('capitalManagement.allocated')}
             </Text>
             <Text fontWeight="bold" color="blue.500">
-              {totalAllocated.toFixed(2)} USDT
+              {totalAllocated.toFixed(2)} {t('common.currencyUnit')}
             </Text>
           </VStack>
           <VStack align="end" spacing={0}>
@@ -145,7 +145,7 @@ const AllocationChart: React.FC<AllocationChartProps> = ({ strategies, totalCapi
               {t('capitalManagement.inUse')}
             </Text>
             <Text fontWeight="bold" color="orange.500">
-              {totalUsed.toFixed(2)} USDT
+              {totalUsed.toFixed(2)} {t('common.currencyUnit')}
             </Text>
           </VStack>
         </Flex>
