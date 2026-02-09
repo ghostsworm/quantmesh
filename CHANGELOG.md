@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.0-rc4] - 2026-02-10
+
+### Fixed
+- **修復概覽頁同名交易對去重 bug**：同一交易所的 BTCUSDT 現貨和 BTCUSDT 合約會被錯誤合併為一個，因為 key 只用了 `exchange:symbol`
+  - 後端：`makeSymbolKey` 改為 `exchange:symbol:market_type` 三段式 key
+  - 後端：`SystemStatus` 新增 `MarketType` 欄位
+  - 後端：`RegisterSymbolProviders` 支持傳入 `marketType`
+  - 後端：`resolveSymbolKey` 支持 `market_type` 查詢參數，含向後兼容 fallback
+  - 前端：`GlobalDashboard` 所有 key 更新為含 `market_type`，`pnlInfo` 查找加入 `market_type` 匹配
+
 ## [3.54.0-rc3] - 2026-02-10
 
 ### Fixed
