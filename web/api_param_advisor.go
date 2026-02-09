@@ -280,7 +280,7 @@ func convertToOKXInstID(symbol string) string {
 	if len(symbol) > 4 {
 		base := symbol[:len(symbol)-4]
 		quote := symbol[len(symbol)-4:]
-		if quote == "USDT" || quote == "USDC" {
+		if quote == "USDT" || quote == "USDC" || quote == "U" {
 			return base + "-" + quote + "-SWAP"
 		}
 	}

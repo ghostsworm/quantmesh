@@ -361,10 +361,14 @@ func (b *BinanceSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		totalWallet += free + locked
 		available += free
 	}
-	// 僅统计 USDT/USDC/BUSD 等常用计價资產作為可用餘額
+	// 僅统计常用计價资產作為可用餘額（USDT/USDC/BUSD/U 等）
 	available = 0
+	quoteAsset := b.quoteAsset
+	if quoteAsset == "" {
+		quoteAsset = "USDT"
+	}
 	for _, bal := range acc.Balances {
-		if bal.Asset == "USDT" || bal.Asset == "USDC" || bal.Asset == "BUSD" {
+		if bal.Asset == quoteAsset || bal.Asset == "USDT" || bal.Asset == "USDC" || bal.Asset == "BUSD" || bal.Asset == "U" {
 			f, _ := strconv.ParseFloat(bal.Free, 64)
 			available += f
 		}
@@ -385,9 +389,16 @@ func (b *BinanceSpotAdapter) GetPositions(ctx context.Context, symbol string) ([
 	}
 	base := b.baseAsset
 	if base == "" {
-		base = strings.TrimSuffix(symbol, "USDT")
-		if base == symbol {
-			base = strings.TrimSuffix(symbol, "BUSD")
+		// 嘗試按常見计价幣後綴推導 base asset（注意順序：長後綴優先）
+		for _, suffix := range []string{"USDT", "USDC", "BUSD", "U"} {
+			trimmed := strings.TrimSuffix(symbol, suffix)
+			if trimmed != symbol {
+				base = trimmed
+				break
+			}
+		}
+		if base == "" {
+			base = symbol
 		}
 	}
 	var free, locked float64

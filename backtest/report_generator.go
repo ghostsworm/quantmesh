@@ -542,7 +542,7 @@ func computeEndPosition(trades []Trade, endPrice float64) (qty float64, value fl
 // baseAssetFromSymbol 從交易對推導基幣名稱，如 BTCUSDT -> BTC
 func baseAssetFromSymbol(symbol string) string {
 	s := strings.ToUpper(symbol)
-	for _, suffix := range []string{"USDT", "BUSD", "USDC", "DAI"} {
+	for _, suffix := range []string{"USDT", "BUSD", "USDC", "DAI", "U"} {
 		if strings.HasSuffix(s, suffix) {
 			return strings.TrimSuffix(s, suffix)
 		}
