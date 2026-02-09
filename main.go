@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.54.0-rc5"
+var Version = "3.54.0-rc6"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -388,17 +388,18 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 		cfg = a.cfg
 	}
 
-	// 從配置中查找對应的 SymbolConfig（先找到配置，才能拿到 market_type）
+	// 從配置中查找對应的 SymbolConfig（可能有多個同名交易對，如 BTCUSDT 合約 + BTCUSDT 現貨）
+	// 優先啟動尚未運行的那個
 	var symCfg *config.SymbolConfig
+	var candidates []*config.SymbolConfig
 	for i := range cfg.Trading.Symbols {
 		if strings.EqualFold(cfg.Trading.Symbols[i].Exchange, exchange) &&
 			strings.EqualFold(cfg.Trading.Symbols[i].Symbol, symbol) {
-			symCfg = &cfg.Trading.Symbols[i]
-			break
+			candidates = append(candidates, &cfg.Trading.Symbols[i])
 		}
 	}
 
-	if symCfg == nil {
+	if len(candidates) == 0 {
 		err := fmt.Errorf("未找到交易對配置: %s:%s", exchange, symbol)
 		if a.eventBus != nil {
 			a.eventBus.Publish(&event.Event{
@@ -414,8 +415,35 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 		return err
 	}
 
-	// 检查是否已經运行（使用 market_type 區分現貨/合約）
+	// 從候選中找到尚未運行的
+	for _, c := range candidates {
+		mt := c.GetMarketType()
+		if _, running := a.manager.Get(exchange, symbol, mt); !running {
+			symCfg = c
+			break
+		}
+	}
+
+	if symCfg == nil {
+		// 所有候選都已在運行
+		err := fmt.Errorf("交易對 %s:%s 的所有配置（%d 個）均已在運行", exchange, symbol, len(candidates))
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStartFailed,
+				Data: map[string]interface{}{
+					"exchange": exchange,
+					"symbol":   symbol,
+					"error":    err.Error(),
+					"message":  err.Error(),
+				},
+			})
+		}
+		return err
+	}
+
+	// 已找到尚未運行的配置
 	marketType := symCfg.GetMarketType()
+	// 確認確實未運行（double check）
 	if _, ok := a.manager.Get(exchange, symbol, marketType); ok {
 		err := fmt.Errorf("交易對 %s:%s (%s) 已經在运行", exchange, symbol, marketType)
 		if a.eventBus != nil {

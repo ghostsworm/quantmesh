@@ -234,8 +234,11 @@ const GlobalDashboard: React.FC = () => {
       if (status.opening_paused) openingPausedCount++
     })
 
-    const mainSymbols = symbols.slice(0, 6).map(s => s.symbol)
-    const moreCount = symbols.length > 6 ? symbols.length - 6 : 0
+    // 按市场类型分组交易对
+    const spotSymbols = symbols.filter(s => s.market_type === 'spot').slice(0, 3).map(s => s.symbol)
+    const futuresSymbols = symbols.filter(s => (s.market_type || 'futures') === 'futures').slice(0, 3).map(s => s.symbol)
+    const spotMoreCount = symbols.filter(s => s.market_type === 'spot').length - spotSymbols.length
+    const futuresMoreCount = symbols.filter(s => (s.market_type || 'futures') === 'futures').length - futuresSymbols.length
 
     return {
       totalPnL,
@@ -244,14 +247,17 @@ const GlobalDashboard: React.FC = () => {
       totalCount: symbols.length,
       totalVolume,
       riskTriggered,
-      mainSymbols,
-      moreCount,
+      spotSymbols,
+      futuresSymbols,
+      spotMoreCount,
+      futuresMoreCount,
       openingPausedCount,
     }
   }, [symbols, symbolStatuses, exchangePnL])
 
-  const handleToggleTrading = async (exchange: string, symbol: string, isRunning: boolean) => {
-    const key = `${exchange}:${symbol}`
+  const handleToggleTrading = async (exchange: string, symbol: string, isRunning: boolean, marketType?: string) => {
+    const mt = marketType || 'futures'
+    const key = `${exchange}:${symbol}:${mt}`
     const oldStatus = symbolStatuses.get(key)
     
     // 乐观更新：立即更新本地状態
@@ -266,7 +272,7 @@ const GlobalDashboard: React.FC = () => {
     
     try {
       if (isRunning) {
-        await stopTrading(exchange, symbol)
+        await stopTrading(exchange, symbol, mt)
         toast({
           title: t('globalDashboard.tradingStopped'),
           description: `${exchange}:${symbol}`,
@@ -274,7 +280,7 @@ const GlobalDashboard: React.FC = () => {
           duration: 3000,
         })
       } else {
-        await startTrading(exchange, symbol)
+        await startTrading(exchange, symbol, mt)
         // 追踪交易启动事件
         trackTradingStarted(exchange, symbol)
         toast({
@@ -559,11 +565,27 @@ const GlobalDashboard: React.FC = () => {
           <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
             <Stat>
               <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">{t('globalDashboard.mainTradingSymbols')}</StatLabel>
-              <Text mt={2} fontSize="sm" fontWeight="600" noOfLines={2}>
-                {summary.mainSymbols.length > 0
-                  ? summary.mainSymbols.join(', ') + (summary.moreCount > 0 ? ` +${summary.moreCount}` : '')
-                  : '—'}
-              </Text>
+              <VStack align="stretch" spacing={2} mt={2}>
+                {summary.spotSymbols.length > 0 && (
+                  <Box>
+                    <Text fontSize="xs" color="gray.400" mb={1}>{t('symbolManager.spotTrading')}</Text>
+                    <Text fontSize="sm" fontWeight="600" noOfLines={1}>
+                      {summary.spotSymbols.join(', ')}{summary.spotMoreCount > 0 ? ` +${summary.spotMoreCount}` : ''}
+                    </Text>
+                  </Box>
+                )}
+                {summary.futuresSymbols.length > 0 && (
+                  <Box>
+                    <Text fontSize="xs" color="gray.400" mb={1}>{t('symbolManager.futuresTrading')}</Text>
+                    <Text fontSize="sm" fontWeight="600" noOfLines={1}>
+                      {summary.futuresSymbols.join(', ')}{summary.futuresMoreCount > 0 ? ` +${summary.futuresMoreCount}` : ''}
+                    </Text>
+                  </Box>
+                )}
+                {summary.spotSymbols.length === 0 && summary.futuresSymbols.length === 0 && (
+                  <Text fontSize="sm" fontWeight="600">—</Text>
+                )}
+              </VStack>
             </Stat>
           </Box>
           <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
@@ -865,7 +887,7 @@ const GlobalDashboard: React.FC = () => {
                                 size="sm"
                                 colorScheme={isRunning ? 'red' : 'green'}
                                 width="full"
-                                onClick={() => handleToggleTrading(normalizedExchange, sym.symbol, isRunning)}
+                                onClick={() => handleToggleTrading(normalizedExchange, sym.symbol, isRunning, sym.market_type)}
                                 borderRadius="lg"
                                 mb={2}
                               >

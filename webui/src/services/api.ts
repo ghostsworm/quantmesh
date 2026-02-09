@@ -1335,20 +1335,22 @@ export async function getPriceRange(
 }
 
 // Trading Control
-export async function startTrading(exchange?: string, symbol?: string): Promise<{ message: string }> {
+export async function startTrading(exchange?: string, symbol?: string, marketType?: string): Promise<{ message: string }> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/trading/start${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url, {
     method: 'POST',
   })
 }
 
-export async function stopTrading(exchange?: string, symbol?: string): Promise<{ message: string }> {
+export async function stopTrading(exchange?: string, symbol?: string, marketType?: string): Promise<{ message: string }> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/trading/stop${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url, {
     method: 'POST',

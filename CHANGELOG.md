@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.0-rc6] - 2026-02-10
+
+### Fixed
+- **修復啟動/停止交易 API 未傳 market_type**：前端 `startTrading`/`stopTrading` 函數新增 `marketType` 參數；後端 handler 讀取 `market_type` query param 並用於精確查找 `statusBySymbol`
+- **修復同名交易對啟動衝突**：`StartSymbol` 改為遍歷所有同名候選配置，自動啟動尚未運行的那個（如 BTCUSDT 合約已運行，再啟動 BTCUSDT 現貨不會報錯）
+- 前端 `GlobalDashboard.handleToggleTrading` 傳入 `sym.market_type`
+
 ## [3.54.0-rc5] - 2026-02-10
 
 ### Fixed
