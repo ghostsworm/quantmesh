@@ -102,6 +102,11 @@ const GlobalDashboard: React.FC = () => {
   const borderColor = useColorModeValue('gray.100', 'gray.700')
   const hoverBg = useColorModeValue('gray.50', 'gray.700')
 
+  // 辅助函数：去掉交易所名称中的 [DryRun] 后缀
+  const normalizeExchangeName = (exchangeName: string): string => {
+    return exchangeName.toLowerCase().replace(/\s*\[dryrun\]\s*/gi, '').trim()
+  }
+
   // 检查配置状態
   useEffect(() => {
     const checkConfig = async () => {
@@ -142,10 +147,11 @@ const GlobalDashboard: React.FC = () => {
       // 优先使用批量状態介面（一次返回全部交易對）
       if (statusesData?.statuses?.length) {
         for (const st of statusesData.statuses) {
-          const key = `${(st.exchange || '').toLowerCase()}:${st.symbol}`
+          const normalizedExchange = normalizeExchangeName(st.exchange || '')
+          const key = `${normalizedExchange}:${st.symbol}:${st.market_type || 'futures'}`
           statusMap.set(key, {
             running: st.running,
-            exchange: (st.exchange || '').toLowerCase(),
+            exchange: normalizedExchange,
             symbol: st.symbol,
             current_price: st.current_price,
             total_pnl: st.total_pnl,
@@ -164,9 +170,10 @@ const GlobalDashboard: React.FC = () => {
           const sym = symbolsData.symbols[idx]
           if (res.status === 'fulfilled') {
             const st = res.value
-            statusMap.set(`${sym.exchange}:${sym.symbol}`, {
+            const normalizedExchange = normalizeExchangeName(sym.exchange)
+            statusMap.set(`${normalizedExchange}:${sym.symbol}:${sym.market_type || 'futures'}`, {
               running: st.running,
-              exchange: sym.exchange,
+              exchange: normalizedExchange,
               symbol: sym.symbol,
               current_price: st.current_price,
               total_pnl: st.total_pnl,
@@ -364,11 +371,11 @@ const GlobalDashboard: React.FC = () => {
     }
   }
 
-  // 按交易所分组币种
+  // 按交易所分组币种（去掉 [DryRun] 后缀）
   const symbolsByExchange = useMemo(() => {
     const map = new Map<string, SymbolInfo[]>()
     symbols.forEach(sym => {
-      const exchange = sym.exchange.toLowerCase()
+      const exchange = normalizeExchangeName(sym.exchange)
       if (!map.has(exchange)) {
         map.set(exchange, [])
       }
@@ -377,16 +384,56 @@ const GlobalDashboard: React.FC = () => {
     return map
   }, [symbols])
 
-  // 合並交易所盈亏數據和币种列表
+  // 合並交易所盈亏數據和币种列表（去掉 [DryRun] 后缀，合并显示）
   const exchangeData = useMemo(() => {
     const exchangeMap = new Map<string, ExchangePnLResponse & { symbolList: SymbolInfo[] }>()
     
-    // 先添加盈亏數據
+    // 先添加盈亏數據（合并 [DryRun] 和正常交易所的数据）
     exchangePnL.forEach(ex => {
-      exchangeMap.set(ex.exchange.toLowerCase(), {
-        ...ex,
-        symbolList: [],
-      })
+      const normalizedExchange = normalizeExchangeName(ex.exchange)
+      if (exchangeMap.has(normalizedExchange)) {
+        // 如果已存在，合并数据
+        const existing = exchangeMap.get(normalizedExchange)!
+        existing.total_pnl += ex.total_pnl
+        existing.total_trades += ex.total_trades
+        existing.total_volume += ex.total_volume
+        // 合并 symbols 列表（按 symbol + market_type 去重，避免同名交易對的現貨/合約被錯誤合併）
+        const symbolMap = new Map<string, any>()
+        const symKey = (s: any) => `${s.symbol}:${s.market_type || 'futures'}`
+        existing.symbols.forEach(s => symbolMap.set(symKey(s), s))
+        ex.symbols.forEach(s => {
+          const key = symKey(s)
+          if (symbolMap.has(key)) {
+            // 如果已存在，合并数据
+            const existingSymbol = symbolMap.get(key)
+            existingSymbol.total_pnl += s.total_pnl
+            existingSymbol.total_trades += s.total_trades
+            existingSymbol.total_volume += s.total_volume
+            // 重新计算胜率
+            if (existingSymbol.total_trades > 0) {
+              const winningTrades = existingSymbol.total_trades * existingSymbol.win_rate + s.total_trades * s.win_rate
+              existingSymbol.win_rate = winningTrades / existingSymbol.total_trades
+            }
+          } else {
+            symbolMap.set(key, { ...s })
+          }
+        })
+        existing.symbols = Array.from(symbolMap.values())
+        // 重新计算交易所胜率（总盈利交易数 / 总交易数）
+        if (existing.total_trades > 0) {
+          const totalWinningTrades = existing.symbols.reduce((sum, s) => {
+            return sum + Math.round(s.total_trades * s.win_rate)
+          }, 0)
+          existing.win_rate = totalWinningTrades / existing.total_trades
+        }
+      } else {
+        // 新建条目，使用规范化后的交易所名称
+        exchangeMap.set(normalizedExchange, {
+          ...ex,
+          exchange: normalizedExchange,
+          symbolList: [],
+        })
+      }
     })
 
     // 添加币种列表（按字母顺序排序）
@@ -708,10 +755,11 @@ const GlobalDashboard: React.FC = () => {
                   <AccordionPanel pb={4} pt={4} px={0}>
                     <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
                       {exchange.symbolList.map((sym) => {
-                        const key = `${sym.exchange}:${sym.symbol}`
+                        const normalizedExchange = normalizeExchangeName(sym.exchange)
+                        const key = `${normalizedExchange}:${sym.symbol}:${sym.market_type || 'futures'}`
                         const status = symbolStatuses.get(key)
                         const isRunning = status?.running || false
-                        const pnlInfo = exchange.symbols.find(s => s.symbol === sym.symbol)
+                        const pnlInfo = exchange.symbols.find(s => s.symbol === sym.symbol && (s.market_type || 'futures') === (sym.market_type || 'futures'))
                         
                         return (
                           <MotionBox
@@ -770,7 +818,7 @@ const GlobalDashboard: React.FC = () => {
                                           _hover={{ opacity: 0.8 }}
                                           onClick={(e) => {
                                             e.stopPropagation()
-                                            setSymbolPair(sym.exchange, sym.symbol)
+                                            setSymbolPair(normalizedExchange, sym.symbol)
                                             navigate('/opening-control')
                                           }}
                                         >
@@ -817,7 +865,7 @@ const GlobalDashboard: React.FC = () => {
                                 size="sm"
                                 colorScheme={isRunning ? 'red' : 'green'}
                                 width="full"
-                                onClick={() => handleToggleTrading(sym.exchange, sym.symbol, isRunning)}
+                                onClick={() => handleToggleTrading(normalizedExchange, sym.symbol, isRunning)}
                                 borderRadius="lg"
                                 mb={2}
                               >
@@ -831,7 +879,7 @@ const GlobalDashboard: React.FC = () => {
                                   colorScheme="red"
                                   variant="outline"
                                   width="full"
-                                  onClick={() => openClosePositionsDialog(sym.exchange, sym.symbol)}
+                                  onClick={() => openClosePositionsDialog(normalizedExchange, sym.symbol)}
                                   isLoading={closingPositions.has(key)}
                                   borderRadius="lg"
                                 >

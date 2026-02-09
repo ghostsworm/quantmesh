@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.54.0-rc3"
+var Version = "3.54.0-rc4"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1589,17 +1589,19 @@ func main() {
 			if rt == nil {
 				continue
 			}
+			marketType := rt.Config.GetMarketType()
 			status := &web.SystemStatus{
 				Running:       true,
 				Exchange:      rt.Config.Exchange,
 				Symbol:        rt.Config.Symbol,
+				MarketType:    marketType,
 				CurrentPrice:  0,
 				TotalPnL:      0,
 				TotalTrades:   0,
 				RiskTriggered: false,
 				Uptime:        0,
 			}
-			statusMap[fmt.Sprintf("%s:%s", rt.Config.Exchange, rt.Config.Symbol)] = status
+			statusMap[fmt.Sprintf("%s:%s:%s", rt.Config.Exchange, rt.Config.Symbol, marketType)] = status
 
 			web.RegisterSymbolProviders(rt.Config.Exchange, rt.Config.Symbol, &web.SymbolScopedProviders{
 				Status:   status,
@@ -1608,7 +1610,7 @@ func main() {
 				Position: web.NewPositionManagerAdapter(rt.SuperPositionManager),
 				Risk:     rt.RiskMonitor,
 				Storage:  web.NewStorageServiceAdapter(storageService),
-			})
+			}, marketType)
 
 			startTime := time.Now()
 			go func(r *SymbolRuntime, st *web.SystemStatus, started time.Time) {

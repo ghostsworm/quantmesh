@@ -59,6 +59,7 @@ type SystemStatus struct {
 	Running       bool    `json:"running"`
 	Exchange      string  `json:"exchange"`
 	Symbol        string  `json:"symbol"`
+	MarketType    string  `json:"market_type,omitempty"` // 市場類型：spot/futures
 	CurrentPrice  float64 `json:"current_price"`
 	TotalPnL      float64 `json:"total_pnl"`
 	TotalTrades   int     `json:"total_trades"`
@@ -181,8 +182,34 @@ type SymbolScopedProviders struct {
 	Funding  FundingMonitorProvider
 }
 
-func makeSymbolKey(exchange, symbol string) string {
+// makeSymbolKey 生成交易對唯一 key（含市場類型，避免同名的現貨/合約衝突）
+// marketType 可選，為空時默認 "futures"（向后兼容）
+func makeSymbolKey(exchange, symbol string, marketType ...string) string {
+	mt := "futures"
+	if len(marketType) > 0 && marketType[0] != "" {
+		mt = marketType[0]
+	}
+	return strings.ToLower(fmt.Sprintf("%s:%s:%s", exchange, symbol, mt))
+}
+
+// makeSymbolKeyCompat 向后兼容的 key 生成（不含 market_type，用於查找時的 fallback）
+func makeSymbolKeyCompat(exchange, symbol string) string {
 	return strings.ToLower(fmt.Sprintf("%s:%s", exchange, symbol))
+}
+
+// resolveStatusBySymbol 從 statusBySymbol 中查找，先嘗試精確匹配（含 market_type），再 fallback 到模糊匹配
+func resolveStatusBySymbol(exchange, symbol string, marketType ...string) (*SystemStatus, bool) {
+	// 精確匹配
+	key := makeSymbolKey(exchange, symbol, marketType...)
+	if st, ok := statusBySymbol[key]; ok {
+		return st, true
+	}
+	// fallback: 不帶 market_type 的舊 key 格式
+	compatKey := makeSymbolKeyCompat(exchange, symbol)
+	if st, ok := statusBySymbol[compatKey]; ok {
+		return st, true
+	}
+	return nil, false
 }
 
 // SetStatusProvider 設置状態提供者
@@ -196,11 +223,11 @@ func SetVersion(version string) {
 }
 
 // RegisterSymbolProviders 注册單個交易對的提供者集合
-func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedProviders) {
+func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedProviders, marketType ...string) {
 	if providers == nil {
 		return
 	}
-	key := makeSymbolKey(exchange, symbol)
+	key := makeSymbolKey(exchange, symbol, marketType...)
 
 	logger.Info("[DEBUG] RegisterSymbolProviders - registering key=%s, hasPosition=%v, hasPrice=%v",
 		key, providers.Position != nil, providers.Price != nil)
@@ -252,16 +279,30 @@ func SetDefaultSymbolKey(exchange, symbol string) {
 	defaultSymbolKey = makeSymbolKey(exchange, symbol)
 }
 
-// resolveSymbolKey 根據查詢参數獲取 key
+// resolveSymbolKey 根據查詢参數獲取 key（支持 market_type 参數）
 func resolveSymbolKey(c *gin.Context) string {
 	ex := c.Query("exchange")
 	sym := c.Query("symbol")
+	mt := c.Query("market_type")
 	if ex != "" && sym != "" {
-		key := makeSymbolKey(ex, sym)
-		logger.Info("[DEBUG] resolveSymbolKey - ex=%s, sym=%s, key=%s", ex, sym, key)
+		// 先嘗試精確匹配（含 market_type）
+		key := makeSymbolKey(ex, sym, mt)
+		statusMu.RLock()
+		_, exists := statusBySymbol[key]
+		statusMu.RUnlock()
+		if exists {
+			return key
+		}
+		// fallback: 不帶 market_type
+		compatKey := makeSymbolKeyCompat(ex, sym)
+		statusMu.RLock()
+		_, existsCompat := statusBySymbol[compatKey]
+		statusMu.RUnlock()
+		if existsCompat {
+			return compatKey
+		}
 		return key
 	}
-	logger.Info("[DEBUG] resolveSymbolKey - no params, returning defaultSymbolKey=%s", defaultSymbolKey)
 	return defaultSymbolKey
 }
 
@@ -601,12 +642,9 @@ func getSymbols(c *gin.Context) {
 				if exchange == "" {
 					continue
 				}
-				key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, sym.Symbol))
+				marketType := sym.GetMarketType()
+				key := makeSymbolKey(exchange, sym.Symbol, marketType)
 				if _, exists := symbolMap[key]; !exists {
-					marketType := sym.MarketType
-					if marketType == "" {
-						marketType = "futures" // 默认合約
-					}
 					symbolMap[key] = &SymbolItem{
 						Exchange:     strings.ToLower(exchange),
 						Symbol:       sym.Symbol,
@@ -621,7 +659,7 @@ func getSymbols(c *gin.Context) {
 			if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
 				exchange := cfg.App.CurrentExchange
 				if exchange != "" {
-					key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, cfg.Trading.Symbol))
+					key := makeSymbolKey(exchange, cfg.Trading.Symbol, "futures")
 					if _, exists := symbolMap[key]; !exists {
 						direction := cfg.Trading.Direction
 						if direction != "SHORT" {
@@ -643,23 +681,27 @@ func getSymbols(c *gin.Context) {
 
 	// 然后從运行状態中更新（确保正在运行的交易對状態正确）
 	statusMu.RLock()
-	for _, st := range statusBySymbol {
+	for registeredKey, st := range statusBySymbol {
 		if st == nil {
 			continue
 		}
-		key := strings.ToLower(fmt.Sprintf("%s:%s", st.Exchange, st.Symbol))
-		if item, exists := symbolMap[key]; exists {
+		// 使用註冊時的 key（已含 market_type），避免重建 key 時丟失 market_type
+		if item, exists := symbolMap[registeredKey]; exists {
 			// 更新已存在的交易對状態
 			item.IsActive = st.Running
 			item.CurrentPrice = st.CurrentPrice
 		} else {
 			// 添加新的运行中的交易對
-			symbolMap[key] = &SymbolItem{
+			mt := st.MarketType
+			if mt == "" {
+				mt = "futures"
+			}
+			symbolMap[registeredKey] = &SymbolItem{
 				Exchange:     strings.ToLower(st.Exchange),
 				Symbol:       st.Symbol,
 				IsActive:     st.Running,
 				CurrentPrice: st.CurrentPrice,
-				MarketType:   "futures", // 運行中的交易對默認合約（無法動態檢測）
+				MarketType:   mt,
 			}
 		}
 	}
