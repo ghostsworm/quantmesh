@@ -2,6 +2,20 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.0-rc1] - 2026-02-10
+
+### Added
+- **支持 United Stables (U) 計價幣**：新增對幣安 United Stables (U) 穩定幣的支持，可交易 BTC/U、ETH/U、SOL/U 等零手續費（Maker）交易對
+  - 後端：`getBinanceSpotSymbols` 現貨交易對拉取支持 USDT + U 雙計價幣過濾
+  - 後端：Binance Spot/Futures 適配器餘額檢測支持 U 資產
+  - 後端：`symbol_manager` 餘額獲取改為動態 quote currency（使用 `GetQuoteAsset()`）
+  - 後端：回測報告 `baseAssetFromSymbol` 支持 U 後綴解析
+  - 後端：參數顧問 quote currency 校驗支持 U
+  - 後端：Inspector 賬戶摘要 Currency 字段改為動態取值
+  - 前端：新增 `utils/symbol.ts` 工具函數（`getQuoteAsset`/`getBaseAsset`）
+  - 前端：Dashboard 所有貨幣單位顯示改為動態（不再硬編碼 USDT）
+  - 前端：AIConfigWizard 餘額查詢支持 U/USDT/USDC/BUSD 多計價幣
+
 ## [3.53.1-rc1] - 2026-02-10
 
 ### Fixed

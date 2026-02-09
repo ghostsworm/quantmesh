@@ -552,8 +552,10 @@ func getBinanceSpotSymbols(ctx context.Context, testnet bool) ([]string, error) 
 	symbolSet := make(map[string]bool)
 	priorityList := make([]string, 0)
 	otherList := make([]string, 0)
+	// 支持的计价币种（USDT + United Stables "U" 等）
+	supportedQuoteAssets := map[string]bool{"USDT": true, "U": true}
 	for _, s := range info.Symbols {
-		if s.Status == "TRADING" && s.QuoteAsset == "USDT" && s.BaseAsset != "" {
+		if s.Status == "TRADING" && supportedQuoteAssets[s.QuoteAsset] && s.BaseAsset != "" {
 			if !symbolSet[s.Symbol] {
 				symbolSet[s.Symbol] = true
 				isPriority := false
@@ -587,7 +589,7 @@ func getBinanceSpotSymbols(ctx context.Context, testnet bool) ([]string, error) 
 	result := make([]string, 0, len(priorityList)+len(otherList))
 	result = append(result, priorityList...)
 	result = append(result, otherList...)
-	logger.Info("📊 [Binance Spot] 獲取到 %d 個現貨交易對", len(result))
+	logger.Info("📊 [Binance Spot] 獲取到 %d 個現貨交易對（含 USDT/U 计价）", len(result))
 	return result, nil
 }
 

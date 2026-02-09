@@ -596,13 +596,17 @@ func startSymbolRuntime(
 	if localCfg.Strategies.Enabled {
 		totalCapital := localCfg.Strategies.CapitalAllocation.TotalCapital
 		if totalCapital <= 0 {
-			balance, err := ex.GetBalance(ctx, "USDT")
+			quoteAsset := ex.GetQuoteAsset()
+			if quoteAsset == "" {
+				quoteAsset = "USDT"
+			}
+			balance, err := ex.GetBalance(ctx, quoteAsset)
 			if err == nil && balance > 0 {
 				totalCapital = balance
-				logger.Info("💰 [%s] 從账戶獲取總资金: %.2f USDT", symCfg.Symbol, totalCapital)
+				logger.Info("💰 [%s] 從账戶獲取總资金: %.2f %s", symCfg.Symbol, totalCapital, quoteAsset)
 			} else {
 				totalCapital = 5000
-				logger.Warn("⚠️ [%s] 無法獲取帳戶餘額，使用默认總资金: %.2f USDT", symCfg.Symbol, totalCapital)
+				logger.Warn("⚠️ [%s] 無法獲取帳戶餘額，使用默认總资金: %.2f %s", symCfg.Symbol, totalCapital, quoteAsset)
 			}
 		}
 

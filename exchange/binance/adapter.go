@@ -765,7 +765,7 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	totalMarginBalance := 0.0
 
 	for _, asset := range account.Assets {
-		if asset.Asset == "USDT" || asset.Asset == "USDC" || asset.Asset == "BUSD" {
+		if asset.Asset == "USDT" || asset.Asset == "USDC" || asset.Asset == "BUSD" || asset.Asset == "U" {
 			balance, _ := strconv.ParseFloat(asset.WalletBalance, 64)
 			available, _ := strconv.ParseFloat(asset.AvailableBalance, 64)
 			marginBalance, _ := strconv.ParseFloat(asset.MarginBalance, 64)

@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.53.1-rc1"
+var Version = "3.54.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1960,13 +1960,17 @@ func main() {
 					total = acc.TotalWalletBalance
 				}
 				used := total - acc.AvailableBalance
+				currency := ex.GetQuoteAsset()
+				if currency == "" {
+					currency = "USDT"
+				}
 				return inspector.AccountSummary{
 					Exchange:         exchangeName,
 					Account:          accountID,
 					TotalBalance:     total,
 					AvailableBalance: acc.AvailableBalance,
 					UsedMargin:       used,
-					Currency:         "USDT",
+					Currency:         currency,
 				}, nil
 			}
 			collector := &inspector.Collector{

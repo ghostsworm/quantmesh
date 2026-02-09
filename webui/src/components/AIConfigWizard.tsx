@@ -255,11 +255,13 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           const balances: Record<string, number> = {}
           const totalCapitals: Record<string, number> = {}
           details.forEach(detail => {
-            const usdtAsset = detail.assets.find(a => a.asset === 'USDT')
-            if (usdtAsset) {
-              balances[detail.exchangeId] = usdtAsset.availableBalance
+            // 支持多種计价币：USDT, U, USDC, BUSD
+            const quoteAssets = ['USDT', 'U', 'USDC', 'BUSD']
+            const matchedAsset = detail.assets.find(a => quoteAssets.includes(a.asset))
+            if (matchedAsset) {
+              balances[detail.exchangeId] = matchedAsset.availableBalance
               // 默认使用交易所可用餘額作為總资金（取整）
-              totalCapitals[detail.exchangeId] = Math.floor(usdtAsset.availableBalance)
+              totalCapitals[detail.exchangeId] = Math.floor(matchedAsset.availableBalance)
             } else {
               balances[detail.exchangeId] = 0
               totalCapitals[detail.exchangeId] = 0

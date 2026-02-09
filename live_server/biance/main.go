@@ -334,7 +334,7 @@ func main() {
 			case futures.UserDataEventTypeAccountUpdate:
 				// Account balance update
 				for _, balance := range event.AccountUpdate.Balances {
-					if balance.Asset == "USDT" || balance.Asset == "USDC" {
+					if balance.Asset == "USDT" || balance.Asset == "USDC" || balance.Asset == "U" {
 						hub.broadcast <- WSMessage{
 							Type: MsgTypeAccount,
 							Data: map[string]interface{}{

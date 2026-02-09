@@ -44,6 +44,7 @@ import { checkSetupStatus } from '../services/setup'
 import { Alert, AlertIcon, AlertTitle, AlertDescription, useDisclosure } from '@chakra-ui/react'
 import { NewbieCheckModal } from './NewbieCheckModal'
 import { trackTradingStarted } from '../services/telemetry'
+import { getQuoteAsset } from '../utils/symbol'
 
 const MotionBox = motion(Box)
 const MotionFlex = motion(Flex)
@@ -94,6 +95,7 @@ const Dashboard: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { selectedExchange, selectedSymbol } = useSymbol()
+  const quoteAsset = getQuoteAsset(selectedSymbol)
   
   const getOrderSideText = (side: string) => {
     switch (side) {
@@ -527,7 +529,7 @@ const Dashboard: React.FC = () => {
               <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>{t('dashboard.totalPnL')}</StatLabel>
               <StatNumber fontSize="3xl" fontWeight="800" color={totalPnL >= 0 ? 'green.500' : 'red.500'}>
                 {totalPnL >= 0 ? '+' : ''}{totalPnL.toFixed(2)}
-                <Text as="span" fontSize="sm" ml={1} color="gray.400">USDT</Text>
+                <Text as="span" fontSize="sm" ml={1} color="gray.400">{quoteAsset}</Text>
               </StatNumber>
               <StatHelpText>
                 <HStack spacing={1}>
@@ -541,7 +543,7 @@ const Dashboard: React.FC = () => {
               {exchangePnL !== 0 && (
                 <Tooltip label={t('dashboard.exchangePnlTooltip')} placement="top" hasArrow>
                   <Text fontSize="xs" color={exchangePnL >= 0 ? 'green.400' : 'red.400'} mt={1}>
-                    {t('dashboard.exchangePnl')}: {exchangePnL >= 0 ? '+' : ''}{exchangePnL.toFixed(2)} USDT
+                    {t('dashboard.exchangePnl')}: {exchangePnL >= 0 ? '+' : ''}{exchangePnL.toFixed(2)} {quoteAsset}
                   </Text>
                 </Tooltip>
               )}
@@ -604,7 +606,7 @@ const Dashboard: React.FC = () => {
               <Box>
                 <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.buyPriceDeviation')}</Text>
                 <Text fontSize="lg" fontWeight="bold" color={buyPriceDeviation >= 0 ? 'green.500' : 'red.500'}>
-                  {buyPriceDeviation > 0 ? '+' : ''}{buyPriceDeviation.toFixed(2)} USDT
+                  {buyPriceDeviation > 0 ? '+' : ''}{buyPriceDeviation.toFixed(2)} {quoteAsset}
                 </Text>
                 <Text fontSize="xs" color="gray.400" mt={1}>
                   {buyPriceDeviation < -0.01 
@@ -617,7 +619,7 @@ const Dashboard: React.FC = () => {
               <Box>
                 <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.sellPriceDeviation')}</Text>
                 <Text fontSize="lg" fontWeight="bold" color={sellPriceDeviation >= 0 ? 'green.500' : 'red.500'}>
-                  {sellPriceDeviation > 0 ? '+' : ''}{sellPriceDeviation.toFixed(2)} USDT
+                  {sellPriceDeviation > 0 ? '+' : ''}{sellPriceDeviation.toFixed(2)} {quoteAsset}
                 </Text>
                 <Text fontSize="xs" color="gray.400" mt={1}>
                   {sellPriceDeviation < -0.01 
@@ -630,7 +632,7 @@ const Dashboard: React.FC = () => {
               <Box>
                 <Text fontSize="xs" color="gray.500" mb={1}>{t('dashboard.totalDeviationLoss')}</Text>
                 <Text fontSize="lg" fontWeight="bold" color={priceDeviationNet >= 0 ? 'green.500' : 'red.500'}>
-                  {priceDeviationNet > 0 ? '+' : ''}{priceDeviationNet.toFixed(2)} USDT
+                  {priceDeviationNet > 0 ? '+' : ''}{priceDeviationNet.toFixed(2)} {quoteAsset}
                 </Text>
                 <Text fontSize="xs" color="gray.400" mt={1}>
                   {priceDeviationNet < -0.01 
@@ -691,7 +693,7 @@ const Dashboard: React.FC = () => {
                           <VStack align="start" spacing={1}>
                             <Text color="gray.500">{t('dashboard.exchangeData')}</Text>
                             <Text fontWeight="600" color={(positionsSummary.exchange_data.unrealized_pnl || 0) >= 0 ? 'green.600' : 'red.600'}>
-                              {(positionsSummary.exchange_data.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.exchange_data.unrealized_pnl?.toFixed(2)} USDT
+                              {(positionsSummary.exchange_data.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.exchange_data.unrealized_pnl?.toFixed(2)} {quoteAsset}
                             </Text>
                             <Text color="gray.400">{t('dashboard.entry')}: ${positionsSummary.exchange_data.entry_price?.toFixed(2)}</Text>
                             <Text color="gray.400">{t('dashboard.markPrice')}: ${positionsSummary.exchange_data.mark_price?.toFixed(2)}</Text>
@@ -699,7 +701,7 @@ const Dashboard: React.FC = () => {
                           <VStack align="start" spacing={1}>
                             <Text color="gray.500">{t('dashboard.slotData')}</Text>
                             <Text fontWeight="600" color={(positionsSummary.slot_data.unrealized_pnl || 0) >= 0 ? 'green.600' : 'red.600'}>
-                              {(positionsSummary.slot_data.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.slot_data.unrealized_pnl?.toFixed(2)} USDT
+                              {(positionsSummary.slot_data.unrealized_pnl || 0) >= 0 ? '+' : ''}{positionsSummary.slot_data.unrealized_pnl?.toFixed(2)} {quoteAsset}
                             </Text>
                             <Text color="gray.400">{t('dashboard.avgPrice')}: ${positionsSummary.slot_data.average_price?.toFixed(2)}</Text>
                             <Text color="gray.400">{t('dashboard.wsPrice')}: ${positionsSummary.slot_data.ws_price?.toFixed(2)}</Text>
@@ -712,7 +714,7 @@ const Dashboard: React.FC = () => {
                             <HStack spacing={1} mb={1}>
                               <Icon as={WarningIcon} color="orange.400" w={3} h={3} />
                               <Text fontSize="xs" fontWeight="600" color="orange.600">
-                                {t('dashboard.difference')}: {positionsSummary.discrepancy.pnl_diff >= 0 ? '+' : ''}{positionsSummary.discrepancy.pnl_diff.toFixed(2)} USDT
+                                {t('dashboard.difference')}: {positionsSummary.discrepancy.pnl_diff >= 0 ? '+' : ''}{positionsSummary.discrepancy.pnl_diff.toFixed(2)} {quoteAsset}
                               </Text>
                             </HStack>
                             {positionsSummary.discrepancy.reasons && positionsSummary.discrepancy.reasons.length > 0 && (
