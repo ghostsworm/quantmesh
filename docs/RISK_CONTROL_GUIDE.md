@@ -7,10 +7,25 @@
 | 組件 | 配置區塊 | 用途 |
 |-----------|-----------------|---------|
 | RiskMonitor | `risk_control` | K 線成交量異常偵測；觸發時暫停交易 |
+| **網格風控** | `trading.symbols[].grid_risk_control` | 止損/止盈/回撤止盈、最大層數、趨勢過濾；每交易對可單獨配置 |
 | 帳戶安全 | 啟動時／配置 | 交易前檢查餘額、槓桿與持倉安全 |
 | Reconciler | `trading.reconcile_interval` | 同步本地與交易所（訂單、持倉） |
 | 訂單清理 | `trading.order_cleanup_*` | 移除過多或過期訂單 |
 | 深度監控 | `risk_control.depth_monitor` | 訂單簿深度監控（可選） |
+
+### 網格風控（grid_risk_control，3.53+）
+
+針對單一交易對的網格策略風控，可在 Web 配置頁「網格風控」區塊或 YAML 中配置：
+
+- **enabled**：是否啟用
+- **stop_loss_ratio**：浮虧達到此比例（如 0.1 = 10%）時全部平倉
+- **take_profit_trigger_ratio**：盈利達到此比例後開啟回撤止盈
+- **trailing_take_profit_ratio**：盈利回撤此比例時觸發止盈
+- **max_grid_layers**：達到此持倉層數後不再新開倉
+- **max_open_orders_at_cap**：達到層數預警時最多允許的開倉單數；0 = 僅不新開倉不撤單
+- **trend_filter_enabled**：開啟後下跌趨勢中可暫停買入
+
+詳見 [GRID_STRATEGY_ADVANCED_FEATURES.md](GRID_STRATEGY_ADVANCED_FEATURES.md)。
 
 ---
 

@@ -63,7 +63,9 @@ type SystemStatus struct {
 	TotalPnL      float64 `json:"total_pnl"`
 	TotalTrades   int     `json:"total_trades"`
 	RiskTriggered bool    `json:"risk_triggered"`
-	Uptime        int64   `json:"uptime"` // 运行時间（秒）
+	Uptime        int64   `json:"uptime"`         // 运行時间（秒）
+	OpeningPaused bool    `json:"opening_paused"`  // 是否暫停開倉
+	PauseReason   string  `json:"pause_reason"`    // 暫停原因：manual / schedule / periodic / position_limit
 }
 
 var (
@@ -370,6 +372,29 @@ func PickFundingProvider(c *gin.Context) FundingMonitorProvider {
 	return fundingMonitorProvider
 }
 
+// enrichOpeningStatus 用開倉管理狀態（opening_paused / pause_reason）豐富 SystemStatus
+func enrichOpeningStatus(st *SystemStatus) {
+	if symbolManagerProvider == nil || st.Exchange == "" || st.Symbol == "" {
+		return
+	}
+	rtInterface, exists := symbolManagerProvider.Get(st.Exchange, st.Symbol)
+	if !exists {
+		return
+	}
+	rtVal := reflect.ValueOf(rtInterface)
+	if rtVal.Kind() == reflect.Ptr {
+		rtVal = rtVal.Elem()
+	}
+	spmField := rtVal.FieldByName("SuperPositionManager")
+	if !spmField.IsValid() || spmField.IsNil() {
+		return
+	}
+	if spm, ok := spmField.Interface().(*position.SuperPositionManager); ok && spm != nil {
+		st.OpeningPaused = spm.IsOpeningPaused()
+		st.PauseReason = spm.GetOpeningPauseReason()
+	}
+}
+
 func getStatus(c *gin.Context) {
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
@@ -382,8 +407,10 @@ func getStatus(c *gin.Context) {
 		statusMu.RUnlock()
 
 		if ok && st != nil {
-			// 找到了运行中的状態
-			c.JSON(http.StatusOK, st)
+			// 找到了运行中的状態，豐富開倉管理狀態後返回
+			copySt := *st
+			enrichOpeningStatus(&copySt)
+			c.JSON(http.StatusOK, &copySt)
 			return
 		}
 
@@ -520,7 +547,13 @@ func getStatuses(c *gin.Context) {
 		statusMap[key] = copySt
 	}
 
-	// 4) 轉為 slice 並排序
+	// 4) 填充開倉管理狀態（opening_paused / pause_reason）
+	for key, st := range statusMap {
+		enrichOpeningStatus(&st)
+		statusMap[key] = st
+	}
+
+	// 5) 轉為 slice 並排序
 	statuses := make([]SystemStatus, 0, len(statusMap))
 	for _, st := range statusMap {
 		statuses = append(statuses, st)

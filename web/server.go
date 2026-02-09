@@ -184,6 +184,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/opening-control/config", getOpeningControlConfig)
 			protected.PUT("/opening-control/config", putOpeningControlConfig)
 
+			// 網格上移/下移 API
+			protected.POST("/grid/shift-up", postGridShiftUp)
+			protected.POST("/grid/shift-down", postGridShiftDown)
+
 			// 倉位目標计划 API（check 須在 :id 前注册）
 			protected.GET("/position-plans/check", getPositionPlanCheck)
 			protected.GET("/position-plans", getPositionPlans)

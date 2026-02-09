@@ -132,6 +132,45 @@ dsn: "quantmesh:secret@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=T
 | `db` | int | 0 | Redis 数据库 |
 | `pool_size` | int | 10 | 连接池大小 |
 
+### 交易對進階配置（網格 3.53+）
+
+以下為每個交易對（`trading.symbols[]`）可選的進階參數，用於價格範圍、觸發價、網格模式、上移/下移與終止行為；Web 配置頁「交易對參數」與「網格風控」區塊可編輯。
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `price_low` | float64 | 0 | 網格價格下限（0=不限制）；軟限制：超出時暫停新開倉，保留平倉單 |
+| `price_high` | float64 | 0 | 網格價格上限（0=不限制） |
+| `trigger_price` | float64 | 0 | 觸發價格（0=立即啟動）；做多：當前價≤觸發價才啟動；做空：當前價≥觸發價才啟動 |
+| `grid_mode` | string | "arithmetic" | 網格模式：`arithmetic` 等差、`geometric` 等比（等比時 `price_interval` 為比例，如 0.005=0.5%） |
+| `grid_shift_step` | float64 | 同 price_interval | 網格上移/下移步長（供 API 或按鈕使用） |
+| `close_on_stop` | bool | false | 策略停止時是否自動全部平倉 |
+| `grid_risk_control` | object | — | 網格風控：enabled、stop_loss_ratio、take_profit_trigger_ratio、trailing_take_profit_ratio、max_grid_layers、max_open_orders_at_cap、trend_filter_enabled；詳見 [GRID_STRATEGY_ADVANCED_FEATURES.md](GRID_STRATEGY_ADVANCED_FEATURES.md) 與 [RISK_CONTROL_GUIDE.md](RISK_CONTROL_GUIDE.md) |
+
+示例（單一交易對含進階參數與網格風控）：
+
+```yaml
+trading:
+  symbols:
+    - exchange: binance
+      symbol: ETHUSDT
+      price_interval: 2
+      order_quantity: 30
+      price_low: 2000
+      price_high: 4000
+      trigger_price: 3500
+      grid_mode: geometric
+      grid_shift_step: 2
+      close_on_stop: true
+      grid_risk_control:
+        enabled: true
+        stop_loss_ratio: 0.1
+        take_profit_trigger_ratio: 0.08
+        trailing_take_profit_ratio: 0.03
+        max_grid_layers: 20
+        max_open_orders_at_cap: 0
+        trend_filter_enabled: true
+```
+
 ## 配置模板
 
 ### 模板 1: 单机开发环境

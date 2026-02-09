@@ -74,6 +74,8 @@ interface SymbolStatus {
   total_pnl: number
   total_trades: number
   risk_triggered?: boolean
+  opening_paused?: boolean
+  pause_reason?: string
 }
 
 const GlobalDashboard: React.FC = () => {
@@ -149,6 +151,8 @@ const GlobalDashboard: React.FC = () => {
             total_pnl: st.total_pnl,
             total_trades: st.total_trades,
             risk_triggered: st.risk_triggered,
+            opening_paused: st.opening_paused,
+            pause_reason: st.pause_reason,
           })
         }
       } else {
@@ -168,6 +172,8 @@ const GlobalDashboard: React.FC = () => {
               total_pnl: st.total_pnl,
               risk_triggered: st.risk_triggered,
               total_trades: st.total_trades,
+              opening_paused: st.opening_paused,
+              pause_reason: st.pause_reason,
             })
           } else {
             console.error(`Failed to fetch status for ${sym.exchange}:${sym.symbol}`, res.reason)
@@ -205,6 +211,7 @@ const GlobalDashboard: React.FC = () => {
     let activeCount = 0
     let totalVolume = 0
     let riskTriggered = false
+    let openingPausedCount = 0
 
     exchangePnL.forEach(ex => {
       totalPnL += ex.total_pnl
@@ -217,6 +224,7 @@ const GlobalDashboard: React.FC = () => {
         activeCount++
         if (status.risk_triggered) riskTriggered = true
       }
+      if (status.opening_paused) openingPausedCount++
     })
 
     const mainSymbols = symbols.slice(0, 6).map(s => s.symbol)
@@ -231,6 +239,7 @@ const GlobalDashboard: React.FC = () => {
       riskTriggered,
       mainSymbols,
       moreCount,
+      openingPausedCount,
     }
   }, [symbols, symbolStatuses, exchangePnL])
 
@@ -543,6 +552,40 @@ const GlobalDashboard: React.FC = () => {
           </Box>
         </SimpleGrid>
 
+        {/* 暂停开仓全局提示 */}
+        {summary.openingPausedCount > 0 && (
+          <Alert
+            status="warning"
+            borderRadius="xl"
+            variant="left-accent"
+            bg="orange.50"
+            borderLeftColor="orange.400"
+            mx={2}
+            cursor="pointer"
+            _hover={{ bg: 'orange.100' }}
+            transition="background 0.2s"
+            onClick={() => navigate('/opening-control')}
+          >
+            <AlertIcon color="orange.500" />
+            <Box flex="1">
+              <AlertTitle color="orange.700" fontSize="md" fontWeight="bold">
+                {t('globalDashboard.openingPausedAlert', { count: summary.openingPausedCount })}
+              </AlertTitle>
+              <AlertDescription color="orange.600">
+                {t('globalDashboard.openingPausedAlertDesc')}
+              </AlertDescription>
+            </Box>
+            <Button
+              colorScheme="orange"
+              size="sm"
+              variant="outline"
+              onClick={(e) => { e.stopPropagation(); navigate('/opening-control') }}
+            >
+              {t('dashboard.goToOpeningControl')}
+            </Button>
+          </Alert>
+        )}
+
         {/* 當前持倉（按交易所、币种、策略） */}
         {positionsAll.length > 0 && (
           <Box px={2}>
@@ -712,6 +755,28 @@ const GlobalDashboard: React.FC = () => {
                                       <Badge colorScheme="red" variant="solid" fontSize="10px">
                                         {t('globalDashboard.riskControlPaused')}
                                       </Badge>
+                                    )}
+                                    {status?.opening_paused && (
+                                      <Tooltip
+                                        label={t('dashboard.openingPausedReason.' + (status.pause_reason || 'manual'), { defaultValue: t('dashboard.openingPausedReason.manual') }) + ' — ' + t('dashboard.goToOpeningControl')}
+                                        hasArrow
+                                        placement="top"
+                                      >
+                                        <Badge
+                                          colorScheme="orange"
+                                          variant="solid"
+                                          fontSize="10px"
+                                          cursor="pointer"
+                                          _hover={{ opacity: 0.8 }}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setSymbolPair(sym.exchange, sym.symbol)
+                                            navigate('/opening-control')
+                                          }}
+                                        >
+                                          {t('openingControl.paused')}
+                                        </Badge>
+                                      </Tooltip>
                                     )}
                                   </HStack>
                                   <Text color="gray.500" fontSize="xs">

@@ -269,6 +269,17 @@ func startSymbolRuntime(
 	localCfg.Trading.MarginLockDurationSec = symCfg.MarginLockDurationSec
 	localCfg.Trading.PositionSafetyCheck = symCfg.PositionSafetyCheck
 	localCfg.Trading.Direction = symCfg.GetDirection()
+	localCfg.Trading.PriceLow = symCfg.PriceLow
+	localCfg.Trading.PriceHigh = symCfg.PriceHigh
+	localCfg.Trading.TriggerPrice = symCfg.TriggerPrice
+	localCfg.Trading.GridMode = symCfg.GridMode
+	if localCfg.Trading.GridMode == "" {
+		localCfg.Trading.GridMode = "arithmetic"
+	}
+	localCfg.Trading.GridShiftEnabled = symCfg.GridShiftEnabled
+	localCfg.Trading.GridShiftStep = symCfg.GridShiftStep
+	localCfg.Trading.CloseOnStop = symCfg.CloseOnStop
+	localCfg.Trading.GridRiskControl = symCfg.GridRiskControl
 
 	// 創建交易所實例（根據交易對配置的市场類型：spot / futures）
 	// 如果之前创建了临时实例，重用它；否则创建新实例
@@ -989,6 +1000,11 @@ func startSymbolRuntime(
 	rt.OpeningController = openingController
 
 	stopFn := func() {
+		// 終止時全部平倉：若配置了 close_on_stop，先執行全平倉
+		if symCfg.CloseOnStop && superPositionManager != nil {
+			logger.Info("🔄 [%s] 終止時全部平倉 (close_on_stop=true)...", symCfg.Symbol)
+			superPositionManager.LiquidateAll()
+		}
 		logger.Info("⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
 		if rt.OpeningController != nil {
 			rt.OpeningController.Stop()

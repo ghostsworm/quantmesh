@@ -57,6 +57,8 @@ interface SystemStatus {
   total_trades: number
   risk_triggered: boolean
   uptime: number
+  opening_paused?: boolean
+  pause_reason?: string
 }
 
 const GlassCard: React.FC<{ title?: React.ReactNode; children: React.ReactNode; p?: number | string }> = ({ title, children, p = 6 }) => {
@@ -407,6 +409,39 @@ const Dashboard: React.FC = () => {
               onClick={() => navigate('/strategy-slots')}
             >
               {t('dashboard.goToSettings')}
+            </Button>
+          </Alert>
+        )}
+
+        {/* 暂停开仓提示 - 橙色醒目警告 */}
+        {status.opening_paused && (
+          <Alert
+            status="warning"
+            borderRadius="xl"
+            variant="left-accent"
+            bg="orange.50"
+            borderLeftColor="orange.400"
+            cursor="pointer"
+            _hover={{ bg: 'orange.100' }}
+            transition="background 0.2s"
+            onClick={() => navigate('/opening-control')}
+          >
+            <AlertIcon color="orange.500" />
+            <Box flex="1">
+              <AlertTitle color="orange.700" fontSize="md" fontWeight="bold">
+                {t('dashboard.openingPaused')}
+              </AlertTitle>
+              <AlertDescription color="orange.600">
+                {t('dashboard.openingPausedReason.' + (status.pause_reason || 'manual'), { defaultValue: t('dashboard.openingPausedReason.manual') })}
+              </AlertDescription>
+            </Box>
+            <Button
+              colorScheme="orange"
+              size="sm"
+              variant="outline"
+              onClick={(e) => { e.stopPropagation(); navigate('/opening-control') }}
+            >
+              {t('dashboard.goToOpeningControl')}
             </Button>
           </Alert>
         )}

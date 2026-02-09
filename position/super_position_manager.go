@@ -805,6 +805,22 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 更新最后市场價格（用於打印状態）
 	spm.lastMarketPrice.Store(currentPrice)
 
+	// 觸發價格：未達到時不放置任何訂單
+	if spm.config.Trading.TriggerPrice > 0 {
+		trigger := spm.config.Trading.TriggerPrice
+		if spm.isShort() {
+			if currentPrice < trigger {
+				logger.Debug("⏳ [觸發價] 當前價 %.2f < 觸發價 %.2f，等待後再啟動網格", currentPrice, trigger)
+				return nil
+			}
+		} else {
+			if currentPrice > trigger {
+				logger.Debug("⏳ [觸發價] 當前價 %.2f > 觸發價 %.2f，等待後再啟動網格", currentPrice, trigger)
+				return nil
+			}
+		}
+	}
+
 	// === 网格风控逻辑开始 ===
 	if spm.config.Trading.GridRiskControl.Enabled {
 		// 1. 硬為止损检查
@@ -885,6 +901,23 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	}
 	slotPrices := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, slotDir)
 
+	// 價格範圍軟限制：將槽位價格裁剪到 [PriceLow, PriceHigh] 範圍內
+	priceLow := spm.config.Trading.PriceLow
+	priceHigh := spm.config.Trading.PriceHigh
+	if priceLow > 0 || priceHigh > 0 {
+		filtered := make([]float64, 0, len(slotPrices))
+		for _, p := range slotPrices {
+			if priceLow > 0 && p < priceLow {
+				continue
+			}
+			if priceHigh > 0 && p > priceHigh {
+				continue
+			}
+			filtered = append(filtered, p)
+		}
+		slotPrices = filtered
+	}
+
 	// 🔥 P2 新增：根據訂單簿深度優化槽位價格
 	slotPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, slotPrices)
 
@@ -940,6 +973,15 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 趨勢過濾與层數限制預检查
 	skipBuying := false
+	// 價格範圍軟限制：超出範圍時暫停新開倉，保留平倉單
+	if priceLow > 0 && currentPrice < priceLow {
+		logger.Debug("⏸️ [價格範圍] 當前價 %.2f < 下限 %.2f，暫停新開倉", currentPrice, priceLow)
+		skipBuying = true
+	}
+	if priceHigh > 0 && currentPrice > priceHigh {
+		logger.Debug("⏸️ [價格範圍] 當前價 %.2f > 上限 %.2f，暫停新開倉", currentPrice, priceHigh)
+		skipBuying = true
+	}
 	// 開倉管理：檢查是否暫停開倉
 	if spm.IsOpeningPaused() {
 		skipBuying = true
@@ -2074,13 +2116,28 @@ func (spm *SuperPositionManager) getOrCreateSlot(price float64) *InventorySlot {
 // findNearestGridPrice 找到最近的网格價格
 // 根據當前價格动態计算最近的网格對齐價格
 func (spm *SuperPositionManager) findNearestGridPrice(currentPrice float64) float64 {
-	// 计算當前價格相對於锚点的偏移量
+	gridMode := spm.config.Trading.GridMode
+	if gridMode == "" {
+		gridMode = "arithmetic"
+	}
+	if gridMode == "geometric" {
+		ratio := spm.config.Trading.PriceInterval
+		if ratio <= 0 || ratio >= 1 {
+			ratio = 0.01 // 默認 1%
+		}
+		// 等比：gridPrice = anchor * (1+ratio)^k，k = round(log(current/anchor) / log(1+ratio))
+		if spm.anchorPrice <= 0 {
+			return roundPrice(currentPrice, spm.priceDecimals)
+		}
+		logRatio := math.Log(1 + ratio)
+		k := math.Round(math.Log(currentPrice/spm.anchorPrice) / logRatio)
+		gridPrice := spm.anchorPrice * math.Pow(1+ratio, k)
+		return roundPrice(gridPrice, spm.priceDecimals)
+	}
+	// 等差
 	offset := currentPrice - spm.anchorPrice
-	// 计算离當前價格最近的网格间隔數（四舍五入）
 	intervals := math.Round(offset / spm.config.Trading.PriceInterval)
-	// 计算最近的网格價格
 	gridPrice := spm.anchorPrice + intervals*spm.config.Trading.PriceInterval
-	// 使用检测到的價格精度進行舍入
 	return roundPrice(gridPrice, spm.priceDecimals)
 }
 
@@ -2095,20 +2152,32 @@ func (spm *SuperPositionManager) findNearestGridPrice(currentPrice float64) floa
 func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count int, direction string) []float64 {
 	var prices []float64
 	priceInterval := spm.config.Trading.PriceInterval
+	gridMode := spm.config.Trading.GridMode
+	if gridMode == "" {
+		gridMode = "arithmetic"
+	}
 
 	for i := 0; i < count; i++ {
 		var price float64
-		if direction == "down" {
-			// 向下：网格價格 - i * 间隔
-			price = gridPrice - float64(i)*priceInterval
+		if gridMode == "geometric" {
+			ratio := priceInterval
+			if ratio <= 0 || ratio >= 1 {
+				ratio = 0.01
+			}
+			if direction == "down" {
+				price = gridPrice * math.Pow(1+ratio, -float64(i))
+			} else {
+				price = gridPrice * math.Pow(1+ratio, float64(i))
+			}
 		} else {
-			// 向上：网格價格 + i * 间隔
-			price = gridPrice + float64(i)*priceInterval
+			if direction == "down" {
+				price = gridPrice - float64(i)*priceInterval
+			} else {
+				price = gridPrice + float64(i)*priceInterval
+			}
 		}
-		// 使用检测到的價格精度進行舍入
 		price = roundPrice(price, spm.priceDecimals)
 
-		// 驗证價格有效性：跳過無效價格（负數或零）
 		if price <= 0 {
 			logger.Warn("⚠️ [%s:%s] 跳過無效槽位價格 %.8f（方向=%s, 索引=%d, 网格價格=%.2f, 间隔=%.4f）",
 				spm.exchangeName, spm.config.Trading.Symbol, price, direction, i, gridPrice, priceInterval)
@@ -2791,6 +2860,29 @@ func (spm *SuperPositionManager) LiquidateAll() {
 	} else {
 		logger.Info("ℹ️ [全平倉] 没有发現需要平倉的持倉")
 	}
+}
+
+// ShiftGrid 整體移動網格錨點（上移或下移），並撤銷開倉委託以便下一輪按新錨點掛單
+func (spm *SuperPositionManager) ShiftGrid(direction string, step float64) {
+	if step <= 0 {
+		step = spm.config.Trading.GridShiftStep
+	}
+	if step <= 0 {
+		step = spm.config.Trading.PriceInterval
+	}
+	spm.mu.Lock()
+	if direction == "up" {
+		spm.anchorPrice += step
+		logger.Info("📈 [網格上移] 錨點 +%.2f，新錨點=%.2f", step, spm.anchorPrice)
+	} else {
+		spm.anchorPrice -= step
+		if spm.anchorPrice < 0 {
+			spm.anchorPrice = 0
+		}
+		logger.Info("📉 [網格下移] 錨點 -%.2f，新錨點=%.2f", step, spm.anchorPrice)
+	}
+	spm.mu.Unlock()
+	spm.CancelAllOpenOrders()
 }
 
 // ===== 對账功能已迁移到 safety.Reconciler =====

@@ -2,6 +2,28 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.53.0] - 2026-02-10
+
+### Added
+- **網格策略增強（對標幣安）**：
+  - **網格風控 UI**：配置頁交易對參數下新增「網格風控」區塊，可配置啟用、止損比例、止盈觸發比例、回撤止盈比例、最大持倉層數、預警時最多開倉單數、趨勢過濾；後端風控邏輯已存在，此前無 UI 暴露。
+  - **價格範圍（軟限制）**：支持配置價格下限/上限；超出範圍時暫停新開倉，保留已有倉位的平倉單；槽位價格裁剪到 [price_low, price_high] 範圍內。
+  - **觸發價格**：可設置觸發價，達到後才啟動網格（做多：當前價 ≤ 觸發價啟動；做空：當前價 ≥ 觸發價啟動）。
+  - **網格模式**：支持等差（arithmetic）與等比（geometric）兩種網格間距；等比時 price_interval 為比例（如 0.005 表示 0.5%）。
+  - **網格上移/下移**：配置項 grid_shift_step；新增 API `POST /api/grid/shift-up`、`POST /api/grid/shift-down`；配置頁提供上移/下移按鈕，可手動整體移動網格錨點並撤銷開倉委託。
+  - **終止時全部平倉**：配置項 close_on_stop；策略停止時若啟用則自動執行全平倉。
+- **後端**：`config.SymbolConfig` 與 `Config.Trading` 新增 price_low、price_high、trigger_price、grid_mode、grid_shift_enabled、grid_shift_step、close_on_stop；symbol_manager 合併上述字段到 localCfg；super_position_manager 實現觸發價檢查、價格範圍軟限制、等比網格計算、ShiftGrid 方法；symbol_manager 停止時若 close_on_stop 則調用 LiquidateAll。
+- **前端**：TypeScript 類型補全（GridRiskControl、SymbolConfig 新字段）；配置頁新增價格範圍、觸發價、網格模式、終止時平倉、網格步長及上移/下移按鈕、網格風控卡片；24 語言 i18n 新增對應 key。
+
+## [3.53.0-rc1] - 2026-02-10
+
+### Added
+- **交易面板/概览显示开仓暂停状态**：在交易面板（Dashboard）和概览（GlobalDashboard）页面中展示「暂停开仓」的醒目提示。
+  - 后端 `SystemStatus` 新增 `opening_paused` 和 `pause_reason` 字段，`/api/status` 和 `/api/statuses` 接口自动返回开仓控制状态
+  - 交易面板：当所选交易对处于暂停开仓状态时，显示橙色警告横幅，标明暂停原因（手动/定时/周期/限仓），并提供跳转至「开仓管理」的快捷入口
+  - 概览页：在全局汇总区域下方显示暂停开仓的交易对计数提示，每个交易对卡片上也会显示橙色「已暂停开仓」标识
+  - 支持全部 24 种语言的国际化翻译
+
 ## [3.52.2-rc4] - 2026-02-07
 
 ### Fixed
