@@ -112,22 +112,35 @@ func (w *SpotWebSocketManager) StartPriceStream(ctx context.Context, symbol stri
 					break // 跳出內層循環，重新連接
 				}
 
-				// 解析消息：24hrMiniTicker 每 1 秒推送，含最新收盤價 "c"
-				// {"e":"24hrMiniTicker","E":1672515782136,"s":"PAXGUSDT","c":"2950.00","o":"2948.00","h":"2951.00","l":"2947.00","v":"10000","q":"18"}
-				var event struct {
-					EventType string `json:"e"` // "24hrMiniTicker"
-					Symbol    string `json:"s"`
-					Close     string `json:"c"` // 最新價（收盤價）
-				}
-
-				if err := json.Unmarshal(message, &event); err != nil {
+				// 解析消息：使用 map 解析，兼容不同消息格式
+				// miniTicker 格式: {"e":"24hrMiniTicker","E":1672515782136,"s":"BTCUSDT","c":"70000.00",...}
+				// 也可能收到其他格式的消息（心跳、錯误等），需要跳過
+				var msg map[string]interface{}
+				if err := json.Unmarshal(message, &msg); err != nil {
 					logger.Debug("[Binance Spot] 解析消息失敗: %v", err)
 					continue
 				}
 
-				price, err := strconv.ParseFloat(event.Close, 64)
-				if err != nil {
-					logger.Debug("[Binance Spot] 解析價格失敗: %v", err)
+				// 檢查事件類型：只處理 miniTicker 和含有 "c"（收盤價）的消息
+				closePrice, hasClose := msg["c"]
+				if !hasClose {
+					// 非價格消息（心跳、訂閱確認等），跳過
+					continue
+				}
+
+				// 提取收盤價
+				var priceStr string
+				switch v := closePrice.(type) {
+				case string:
+					priceStr = v
+				case float64:
+					priceStr = strconv.FormatFloat(v, 'f', -1, 64)
+				default:
+					continue
+				}
+
+				price, err := strconv.ParseFloat(priceStr, 64)
+				if err != nil || price <= 0 {
 					continue
 				}
 

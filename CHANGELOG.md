@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.0-rc8] - 2026-02-10
+
+### Fixed
+- **修復現貨 WebSocket 消息解析失敗**：`spot_websocket.go` 改用 `map[string]interface{}` 解析消息，兼容 Binance 推送的不同消息格式（miniTicker `e` 為字串、心跳/控制消息 `e` 為數字）。之前嚴格的 struct 解析導致所有消息都失敗，價格永遠收不到
+
 ## [3.54.0-rc7] - 2026-02-10
 
 ### Fixed
