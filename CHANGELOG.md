@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.0-rc5] - 2026-02-10
+
+### Fixed
+- **修復啟動/停止交易對缺少 market_type 判斷**：`SymbolManager.runtimeKey` 從 `exchange:symbol` 改為 `exchange:symbol:market_type`，解決同名交易對（如 BTCUSDT 合約已運行時，BTCUSDT 現貨無法啟動）互相衝突的問題
+  - `SymbolManager.Get`/`Add`/`Remove` 均支持 `market_type` 參數
+  - `StartSymbol` 在找到配置後用 `market_type` 精確判斷是否已在運行
+  - `StopSymbol`/`ClosePositions` 使用 `resolveMarketType` 推導正確的 market_type
+  - `UpdateRuntimeTradingParams` 使用含 market_type 的 key 匹配運行時
+
 ## [3.54.0-rc4] - 2026-02-10
 
 ### Fixed

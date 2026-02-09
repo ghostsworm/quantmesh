@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.54.0-rc4"
+var Version = "3.54.0-rc5"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -380,23 +380,6 @@ func (a *symbolManagerWebAdapter) List() []interface{} {
 }
 
 func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
-	// 检查是否已經运行
-	if _, ok := a.manager.Get(exchange, symbol); ok {
-		err := fmt.Errorf("交易對 %s:%s 已經在运行", exchange, symbol)
-		if a.eventBus != nil {
-			a.eventBus.Publish(&event.Event{
-				Type: event.EventTypeTradingStartFailed,
-				Data: map[string]interface{}{
-					"exchange": exchange,
-					"symbol":   symbol,
-					"error":    err.Error(),
-					"message":  err.Error(),
-				},
-			})
-		}
-		return err
-	}
-
 	// 從配置管理器獲取最新配置（而不是使用啟动時的配置）
 	cfg, err := web.GetLatestConfig()
 	if err != nil {
@@ -405,7 +388,7 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 		cfg = a.cfg
 	}
 
-	// 從配置中查找對应的 SymbolConfig
+	// 從配置中查找對应的 SymbolConfig（先找到配置，才能拿到 market_type）
 	var symCfg *config.SymbolConfig
 	for i := range cfg.Trading.Symbols {
 		if strings.EqualFold(cfg.Trading.Symbols[i].Exchange, exchange) &&
@@ -425,6 +408,25 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 					"symbol":   symbol,
 					"error":    err.Error(),
 					"message":  err.Error(),
+				},
+			})
+		}
+		return err
+	}
+
+	// 检查是否已經运行（使用 market_type 區分現貨/合約）
+	marketType := symCfg.GetMarketType()
+	if _, ok := a.manager.Get(exchange, symbol, marketType); ok {
+		err := fmt.Errorf("交易對 %s:%s (%s) 已經在运行", exchange, symbol, marketType)
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{
+				Type: event.EventTypeTradingStartFailed,
+				Data: map[string]interface{}{
+					"exchange":    exchange,
+					"symbol":      symbol,
+					"market_type": marketType,
+					"error":       err.Error(),
+					"message":     err.Error(),
 				},
 			})
 		}
@@ -610,9 +612,11 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 }
 
 func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
-	rt, ok := a.manager.Get(exchange, symbol)
+	// 嘗試從配置中獲取 market_type，再用精確 key 查找
+	mt := a.resolveMarketType(exchange, symbol)
+	rt, ok := a.manager.Get(exchange, symbol, mt)
 	if !ok {
-		err := fmt.Errorf("交易對 %s:%s 未运行", exchange, symbol)
+		err := fmt.Errorf("交易對 %s:%s (%s) 未运行", exchange, symbol, mt)
 		if a.eventBus != nil {
 			a.eventBus.Publish(&event.Event{
 				Type: event.EventTypeTradingStopFailed,
@@ -650,9 +654,9 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 	}
 
 	// 從管理器中移除，这样下次 StartSymbol 才不會误判為"已运行"
-	a.manager.Remove(exchange, symbol)
+	a.manager.Remove(exchange, symbol, mt)
 
-	logger.Info("⏹️ [%s:%s] 交易已停止", exchange, symbol)
+	logger.Info("⏹️ [%s:%s:%s] 交易已停止", exchange, symbol, mt)
 	if a.eventBus != nil {
 		a.eventBus.Publish(&event.Event{
 			Type: event.EventTypeTradingStopped,
@@ -666,6 +670,26 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 	return nil
 }
 
+// resolveMarketType 從配置或运行時中推導 market_type
+func (a *symbolManagerWebAdapter) resolveMarketType(exchange, symbol string) string {
+	// 先從配置中查找
+	cfg, err := web.GetLatestConfig()
+	if err == nil {
+		for _, sym := range cfg.Trading.Symbols {
+			if strings.EqualFold(sym.Exchange, exchange) && strings.EqualFold(sym.Symbol, symbol) {
+				return sym.GetMarketType()
+			}
+		}
+	}
+	// 再從运行時中遍歷查找
+	for _, rt := range a.manager.List() {
+		if rt != nil && strings.EqualFold(rt.Config.Exchange, exchange) && strings.EqualFold(rt.Config.Symbol, symbol) {
+			return rt.Config.GetMarketType()
+		}
+	}
+	return "futures" // 默認合約
+}
+
 // UpdateTradingParams 实现 TradingParamsUpdater 接口
 // 将最新配置推送到所有运行中的 SymbolRuntime，解决配置修改后内存不同步问题
 func (a *symbolManagerWebAdapter) UpdateTradingParams(latestConfig *config.Config) []string {
@@ -673,9 +697,10 @@ func (a *symbolManagerWebAdapter) UpdateTradingParams(latestConfig *config.Confi
 }
 
 func (a *symbolManagerWebAdapter) ClosePositions(exchange, symbol string) (*web.ClosePositionsResponse, error) {
-	rt, ok := a.manager.Get(exchange, symbol)
+	mt := a.resolveMarketType(exchange, symbol)
+	rt, ok := a.manager.Get(exchange, symbol, mt)
 	if !ok {
-		return nil, fmt.Errorf("交易對 %s:%s 未找到", exchange, symbol)
+		return nil, fmt.Errorf("交易對 %s:%s (%s) 未找到", exchange, symbol, mt)
 	}
 
 	// 創建上下文（带超時）
