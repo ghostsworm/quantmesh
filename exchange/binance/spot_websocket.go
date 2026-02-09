@@ -50,8 +50,11 @@ func (w *SpotWebSocketManager) StartPriceStream(ctx context.Context, symbol stri
 		url = fmt.Sprintf("wss://stream.testnet.binance.vision/ws/%s@miniTicker", symbolLower)
 		logger.Info("🌐 [Binance Spot WS] 使用測試網 WebSocket: %s", url)
 	} else {
-		url = fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@miniTicker", symbolLower)
+		// 使用 443 端口（標準 HTTPS）而非 9443，兼容性更好（不易被防火牆/代理阻擋）
+		url = fmt.Sprintf("wss://stream.binance.com:443/ws/%s@miniTicker", symbolLower)
 	}
+
+	logger.Info("🔗 [Binance Spot WS] 準備連接: %s", url)
 
 	// 使用通道等待首個價格
 	firstPriceCh := make(chan struct{})

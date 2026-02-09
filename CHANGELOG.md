@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.0-rc3] - 2026-02-10
+
+### Fixed
+- **修復現貨 WebSocket 連接失敗**：Binance 現貨 WebSocket 端點從 `stream.binance.com:9443` 改為 `stream.binance.com:443`（標準 HTTPS 端口），解決因 9443 端口被防火牆/代理阻擋導致 BTCU 等現貨交易對價格流啟動超時的問題
+
 ## [3.54.0-rc2] - 2026-02-10
 
 ### Fixed
