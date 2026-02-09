@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Box,
   VStack,
@@ -55,6 +55,7 @@ import { useTranslation } from 'react-i18next'
 import { Config, SymbolConfig } from '../services/config'
 import { getExchangeSymbols } from '../services/setup'
 import { getSymbols } from '../services/api'
+import { getQuoteAsset } from '../utils/symbol'
 
 interface SymbolManagerProps {
   config: Config
@@ -72,6 +73,32 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
   const [editingIndex, setEditingIndex] = useState<number>(-1)
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([])
   const [loadingSymbols, setLoadingSymbols] = useState(false)
+  
+  // 按计价币分组交易对（使用 useMemo 优化性能）
+  const groupedSymbols = useMemo(() => {
+    const grouped = availableSymbols.reduce((acc, sym) => {
+      const quote = getQuoteAsset(sym)
+      if (!acc[quote]) {
+        acc[quote] = []
+      }
+      acc[quote].push(sym)
+      return acc
+    }, {} as Record<string, string[]>)
+    
+    // 排序：优先显示 U，然后 USDT，其他按字母顺序
+    const quoteOrder = ['U', 'USDT', 'USDC', 'BUSD', 'FDUSD']
+    return Object.keys(grouped).sort((a, b) => {
+      const idxA = quoteOrder.indexOf(a)
+      const idxB = quoteOrder.indexOf(b)
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      return a.localeCompare(b)
+    }).map(quote => ({
+      quote,
+      symbols: grouped[quote].sort()
+    }))
+  }, [availableSymbols])
   const [currentPrice, setCurrentPrice] = useState<number | null>(null)
   const [allocatedCapital, setAllocatedCapital] = useState<number>(0)
   
@@ -232,7 +259,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     return recommendations
   }
 
-  const loadAvailableSymbols = async (exchange: string) => {
+  const loadAvailableSymbols = async (exchange: string, marketTypeOverride?: string) => {
     if (!exchange) return
     
     setLoadingSymbols(true)
@@ -251,7 +278,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
 
       const response = await getExchangeSymbols({
         exchange,
-        market_type: formData.market_type || 'futures',
+        market_type: marketTypeOverride || formData.market_type || 'futures',
         api_key: exchangeConfig.api_key,
         secret_key: exchangeConfig.secret_key,
         passphrase: exchangeConfig.passphrase,
@@ -666,7 +693,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     const market_type = (e.target.value === 'spot' ? 'spot' : 'futures') as 'spot' | 'futures'
                     setFormData({ ...formData, market_type })
                     if (formData.exchange) {
-                      loadAvailableSymbols(formData.exchange)
+                      loadAvailableSymbols(formData.exchange, market_type)
                     }
                   }}
                 >
@@ -700,8 +727,12 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                     }}
                     placeholder={t('symbolManager.selectPairPlaceholder')}
                   >
-                    {availableSymbols.map((sym) => (
-                      <option key={sym} value={sym}>{sym}</option>
+                    {groupedSymbols.map(({ quote, symbols }) => (
+                      <optgroup key={quote} label={`${quote} 计价`}>
+                        {symbols.map((sym) => (
+                          <option key={sym} value={sym}>{sym}</option>
+                        ))}
+                      </optgroup>
                     ))}
                   </Select>
                 ) : (
