@@ -61,20 +61,24 @@ func NewSymbolManager(cfg *config.Config) *SymbolManager {
 	}
 }
 
-// runtimeKey 生成唯一键（exchange:symbol）
-func runtimeKey(exchangeName, symbol string) string {
-	return fmt.Sprintf("%s:%s", exchangeName, symbol)
+// runtimeKey 生成唯一键（exchange:symbol:market_type）
+func runtimeKey(exchangeName, symbol string, marketType ...string) string {
+	mt := "futures"
+	if len(marketType) > 0 && marketType[0] != "" {
+		mt = marketType[0]
+	}
+	return fmt.Sprintf("%s:%s:%s", exchangeName, symbol, mt)
 }
 
 // Add 注册运行時
 func (sm *SymbolManager) Add(rt *SymbolRuntime) {
-	key := runtimeKey(rt.Config.Exchange, rt.Config.Symbol)
+	key := runtimeKey(rt.Config.Exchange, rt.Config.Symbol, rt.Config.GetMarketType())
 	sm.runtimes[key] = rt
 }
 
-// Get 獲取运行時
-func (sm *SymbolManager) Get(exchangeName, symbol string) (*SymbolRuntime, bool) {
-	key := runtimeKey(exchangeName, symbol)
+// Get 獲取运行時（支持傳入 market_type，不傳時 fallback 到只匹配 exchange:symbol）
+func (sm *SymbolManager) Get(exchangeName, symbol string, marketType ...string) (*SymbolRuntime, bool) {
+	key := runtimeKey(exchangeName, symbol, marketType...)
 	rt, ok := sm.runtimes[key]
 	return rt, ok
 }
@@ -89,8 +93,8 @@ func (sm *SymbolManager) List() []*SymbolRuntime {
 }
 
 // Remove 從管理器中移除运行時
-func (sm *SymbolManager) Remove(exchangeName, symbol string) {
-	key := runtimeKey(exchangeName, symbol)
+func (sm *SymbolManager) Remove(exchangeName, symbol string, marketType ...string) {
+	key := runtimeKey(exchangeName, symbol, marketType...)
 	delete(sm.runtimes, key)
 }
 
@@ -107,7 +111,7 @@ func (sm *SymbolManager) StopAll() {
 // 根据最新配置，将参数推送到正在运行的 SuperPositionManager
 func (sm *SymbolManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (updatedSymbols []string) {
 	for _, symCfg := range latestCfg.Trading.Symbols {
-		key := runtimeKey(symCfg.Exchange, symCfg.Symbol)
+		key := runtimeKey(symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
 		rt, ok := sm.runtimes[key]
 		if !ok || rt == nil || rt.SuperPositionManager == nil {
 			continue
