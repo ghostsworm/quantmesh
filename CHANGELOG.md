@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.0-rc7] - 2026-02-10
+
+### Fixed
+- **修復啟動/停止交易互相覆蓋 bug**：`SetSymbolEnabled` 新增 `marketType` 參數，按 `exchange + symbol + market_type` 精確匹配，避免啟動現貨時把合約的 enabled 狀態覆蓋（反之亦然）
+  - `StartSymbol` / `StopSymbol` 調用 `SetSymbolEnabled` 時傳入 `marketType`
+  - `StartSymbol` 第二次配置查找加入 `market_type` 精確匹配
+
 ## [3.54.0-rc6] - 2026-02-10
 
 ### Fixed

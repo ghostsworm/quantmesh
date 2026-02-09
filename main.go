@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.54.0-rc6"
+var Version = "3.54.0-rc7"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -461,8 +461,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 		return err
 	}
 
-	// 持久化啟用状態：确保重啟后仍保持啟动
-	if err := web.SetSymbolEnabled(exchange, symbol, true); err != nil {
+	// 持久化啟用状態：确保重啟后仍保持啟动（帶 market_type 精確匹配）
+	if err := web.SetSymbolEnabled(exchange, symbol, true, marketType); err != nil {
 		wrapped := fmt.Errorf("更新配置失败: %w", err)
 		if a.eventBus != nil {
 			a.eventBus.Publish(&event.Event{
@@ -487,13 +487,14 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 	symCfg = nil
 	for i := range cfg.Trading.Symbols {
 		if strings.EqualFold(cfg.Trading.Symbols[i].Exchange, exchange) &&
-			strings.EqualFold(cfg.Trading.Symbols[i].Symbol, symbol) {
+			strings.EqualFold(cfg.Trading.Symbols[i].Symbol, symbol) &&
+			strings.EqualFold(cfg.Trading.Symbols[i].GetMarketType(), marketType) {
 			symCfg = &cfg.Trading.Symbols[i]
 			break
 		}
 	}
 	if symCfg == nil {
-		err := fmt.Errorf("未找到交易對配置: %s:%s", exchange, symbol)
+		err := fmt.Errorf("未找到交易對配置: %s:%s (%s)", exchange, symbol, marketType)
 		if a.eventBus != nil {
 			a.eventBus.Publish(&event.Event{
 				Type: event.EventTypeTradingStartFailed,
@@ -659,8 +660,8 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 		return err
 	}
 
-	// 持久化停用状態：确保重啟后不會自动再啟动
-	if err := web.SetSymbolEnabled(exchange, symbol, false); err != nil {
+	// 持久化停用状態：确保重啟后不會自动再啟动（帶 market_type 精確匹配）
+	if err := web.SetSymbolEnabled(exchange, symbol, false, mt); err != nil {
 		wrapped := fmt.Errorf("更新配置失败: %w", err)
 		if a.eventBus != nil {
 			a.eventBus.Publish(&event.Event{

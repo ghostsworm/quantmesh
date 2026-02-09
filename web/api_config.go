@@ -73,7 +73,7 @@ func GetLatestConfig() (*config.Config, error) {
 // 用途：
 // - StopTrading 時写回 enabled=false，确保重啟后不會自动再啟动
 // - StartTrading 時写回 enabled=true，确保重啟后保持啟动
-func SetSymbolEnabled(exchange, symbol string, enabled bool) error {
+func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...string) error {
 	if configManager == nil {
 		return fmt.Errorf("配置管理器未初始化")
 	}
@@ -94,17 +94,26 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool) error {
 		cfg = loaded
 	}
 
+	mt := ""
+	if len(marketType) > 0 {
+		mt = marketType[0]
+	}
+
 	found := false
 	for i := range cfg.Trading.Symbols {
 		if strings.EqualFold(cfg.Trading.Symbols[i].Exchange, exchange) &&
 			strings.EqualFold(cfg.Trading.Symbols[i].Symbol, symbol) {
+			// 如果指定了 market_type，必須精確匹配
+			if mt != "" && !strings.EqualFold(cfg.Trading.Symbols[i].GetMarketType(), mt) {
+				continue
+			}
 			cfg.Trading.Symbols[i].SetEnabled(enabled)
 			found = true
 			break
 		}
 	}
 	if !found {
-		return fmt.Errorf("未找到交易對配置: %s:%s", exchange, symbol)
+		return fmt.Errorf("未找到交易對配置: %s:%s (market_type=%s)", exchange, symbol, mt)
 	}
 
 	// 保存到文件（含校驗/normalize）
