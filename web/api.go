@@ -1241,56 +1241,12 @@ func getPositionsSummary(c *gin.Context) {
 // getPositionsSummaryAll 獲取所有交易對的持倉彙總（按交易所、币种、策略列出）
 // GET /api/positions/summary/all
 func getPositionsSummaryAll(c *gin.Context) {
-	// 获取所有配置的币种
-	configuredSymbols := make(map[string]bool) // key: exchange:symbol
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
-			for _, sym := range cfg.Trading.Symbols {
-				if sym.Symbol == "" {
-					continue
-				}
-				exchange := sym.Exchange
-				if exchange == "" {
-					exchange = cfg.App.CurrentExchange
-				}
-				if exchange == "" {
-					continue
-				}
-				key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, sym.Symbol))
-				configuredSymbols[key] = true
-			}
-			// 如果只有單交易對配置
-			if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
-				exchange := cfg.App.CurrentExchange
-				if exchange != "" {
-					key := strings.ToLower(fmt.Sprintf("%s:%s", exchange, cfg.Trading.Symbol))
-					configuredSymbols[key] = true
-				}
-			}
-		}
-	}
-
 	providersMu.RLock()
 	keys := make([]string, 0, len(positionProviders))
 	for k := range positionProviders {
 		keys = append(keys, k)
 	}
 	providersMu.RUnlock()
-
-	// 确保所有配置的币种都在 keys 中
-	for key := range configuredSymbols {
-		found := false
-		for _, k := range keys {
-			if strings.ToLower(k) == key {
-				found = true
-				break
-			}
-		}
-		if !found {
-			keys = append(keys, key)
-		}
-	}
 
 	var result []gin.H
 	for _, key := range keys {
@@ -1306,34 +1262,7 @@ func getPositionsSummaryAll(c *gin.Context) {
 		exchProv := exchangeProviders[key]
 		providersMu.RUnlock()
 
-		// 如果没有 provider，但配置中有这个币种，仍然返回（持仓为0）
 		if pmProvider == nil {
-			// 检查是否在配置中
-			if configuredSymbols[strings.ToLower(key)] {
-				// 返回持仓为0的记录
-				result = append(result, gin.H{
-					"exchange":       exchangeName,
-					"symbol":         symbol,
-					"strategy":       "grid",
-					"total_quantity": 0.0,
-					"total_value":    0.0,
-					"position_count": 0,
-					"average_price":  0.0,
-					"current_price":  0.0,
-					"unrealized_pnl": 0.0,
-					"pnl_percentage": 0.0,
-					"actual_margin":  0.0,
-					"leverage":       1,
-					"exchange_data": gin.H{
-						"has_data":       false,
-						"quantity":       0.0,
-						"entry_price":    0.0,
-						"mark_price":     0.0,
-						"unrealized_pnl": 0.0,
-						"leverage":       0,
-					},
-				})
-			}
 			continue
 		}
 
@@ -1359,6 +1288,10 @@ func getPositionsSummaryAll(c *gin.Context) {
 					slotTotalValue += slot.PositionQty * slot.Price
 				}
 			}
+		}
+		// 仅返回有持倉的
+		if slotPositionCount == 0 {
+			continue
 		}
 
 		slotAveragePrice := 0.0
@@ -1415,12 +1348,6 @@ func getPositionsSummaryAll(c *gin.Context) {
 		pnlPercentage := 0.0
 		if slotTotalCost > 0 {
 			pnlPercentage = (displayUnrealizedPnL / slotTotalCost) * 100.0
-		}
-
-		// 即使持仓为0，也返回记录（如果配置中有这个币种）
-		if slotPositionCount == 0 && !configuredSymbols[strings.ToLower(key)] {
-			// 如果持仓为0且不在配置中，跳过
-			continue
 		}
 
 		result = append(result, gin.H{
@@ -1703,7 +1630,7 @@ func getOrderHistory(c *gin.Context) {
 		return
 	}
 
-	// 使用新的筛选方法查询已完成和已取消的订单（支持 exchange 和 symbol 筛选）
+	// 只查詢已完成或已取消的订單（带时间范围和交易所/交易对筛选）
 	orders, err := storage.QueryOrdersWithFilter(limit, offset, "FILLED", exchange, symbol, startTime, endTime)
 	if err != nil {
 		// 如果查詢失败，尝試查詢所有状態的订單
@@ -1714,7 +1641,7 @@ func getOrderHistory(c *gin.Context) {
 		}
 	}
 
-	// 也查詢已取消的订單（使用相同的筛选条件）
+	// 也查詢已取消的订單
 	canceledOrders, err := storage.QueryOrdersWithFilter(limit, offset, "CANCELED", exchange, symbol, startTime, endTime)
 	if err == nil {
 		orders = append(orders, canceledOrders...)
@@ -1769,15 +1696,15 @@ func getOrderHistory(c *gin.Context) {
 		ordersResponse[i] = resp
 	}
 
-	// 查詢真實的订單总数（不受 limit 限制）
+	// 查詢真實的订單总数（不受 limit 限制，带交易所/交易对筛选）
 	totalCount := int64(len(orders))
 	todayCount := int64(0)
 
-	// 尝試從數據库获取真实总数（使用带筛选的计数方法）
-	type orderCounter interface {
+	// 尝試從數據库获取真实总数（带交易所/交易对筛选）
+	type orderCounterWithFilter interface {
 		CountOrdersWithFilter(status, exchange, symbol string) (int64, error)
 	}
-	if counter, ok := storage.(orderCounter); ok {
+	if counter, ok := storage.(orderCounterWithFilter); ok {
 		filledCount, err1 := counter.CountOrdersWithFilter("FILLED", exchange, symbol)
 		canceledCount, err2 := counter.CountOrdersWithFilter("CANCELED", exchange, symbol)
 		if err1 == nil && err2 == nil {
@@ -2981,10 +2908,6 @@ func releaseAllStrategiesCapital(c *gin.Context) {
 // getPendingOrders 獲取待成交订單列表
 // GET /api/orders/pending
 func getPendingOrders(c *gin.Context) {
-	// 解析筛选参数
-	exchange := c.Query("exchange")
-	symbol := c.Query("symbol")
-
 	pmProvider := PickPositionProvider(c)
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
@@ -2997,14 +2920,6 @@ func getPendingOrders(c *gin.Context) {
 	for _, slot := range slots {
 		// 筛选状態為 PLACED/CONFIRMED/PARTIALLY_FILLED 的订單
 		if slot.OrderStatus == "PLACED" || slot.OrderStatus == "CONFIRMED" || slot.OrderStatus == "PARTIALLY_FILLED" {
-			// 按 exchange 和 symbol 筛选
-			if exchange != "" && !strings.EqualFold(slot.Exchange, exchange) {
-				continue
-			}
-			if symbol != "" && slot.Symbol != symbol {
-				continue
-			}
-
 			// 计算订單原始數量：使用配置的订單金額 / 订單價格
 			var quantity float64
 			if slot.OrderPrice > 0 && orderQuantityConfig > 0 {
@@ -3017,6 +2932,8 @@ func getPendingOrders(c *gin.Context) {
 			pendingOrders = append(pendingOrders, PendingOrderInfo{
 				OrderID:        slot.OrderID,
 				ClientOrderID:  slot.ClientOID,
+				Exchange:       slot.Exchange,
+				Symbol:         slot.Symbol,
 				Price:          slot.OrderPrice,
 				Quantity:       quantity,
 				Side:           slot.OrderSide,
@@ -3026,8 +2943,6 @@ func getPendingOrders(c *gin.Context) {
 				SlotPrice:      slot.Price,
 				StrategyName:   slot.StrategyName,
 				StrategyType:   slot.StrategyType,
-				Symbol:         slot.Symbol,
-				Exchange:       slot.Exchange,
 			})
 		}
 	}
@@ -3039,6 +2954,8 @@ func getPendingOrders(c *gin.Context) {
 type PendingOrderInfo struct {
 	OrderID        int64     `json:"order_id"`
 	ClientOrderID  string    `json:"client_order_id"`
+	Exchange       string    `json:"exchange"`           // 交易所
+	Symbol         string    `json:"symbol"`             // 交易对
 	Price          float64   `json:"price"`
 	Quantity       float64   `json:"quantity"`
 	Side           string    `json:"side"` // BUY/SELL
@@ -3048,8 +2965,6 @@ type PendingOrderInfo struct {
 	SlotPrice      float64   `json:"slot_price"`    // 槽位價格
 	StrategyName   string    `json:"strategy_name"` // 策略名称
 	StrategyType   string    `json:"strategy_type"` // 策略類型
-	Symbol         string    `json:"symbol"`        // 交易對
-	Exchange       string    `json:"exchange"`      // 交易所
 }
 
 // cancelOrder 取消订單
@@ -6389,5 +6304,187 @@ func applyAIConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "配置已成功应用，请重啟服務使配置生效",
+	})
+}
+
+// getPriceStability 获取价格稳定性分析
+// GET /api/price/stability?symbol=BNTUSDT&hours=1
+func getPriceStability(c *gin.Context) {
+	symbol := c.Query("symbol")
+	if symbol == "" {
+		respondError(c, http.StatusBadRequest, "errors.missing_parameter",
+			map[string]interface{}{"param": "symbol"})
+		return
+	}
+
+	// 解析时间范围（默认1小时）
+	hours := 1
+	if hoursStr := c.Query("hours"); hoursStr != "" {
+		if h, err := strconv.Atoi(hoursStr); err == nil && h > 0 {
+			hours = h
+		}
+	}
+
+	// 获取存储服务
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	if storageProv == nil {
+		respondError(c, http.StatusServiceUnavailable, "errors.service_unavailable")
+		return
+	}
+
+	storage := storageProv.GetStorage()
+	if storage == nil {
+		respondError(c, http.StatusServiceUnavailable, "errors.service_unavailable")
+		return
+	}
+
+	// 计算时间范围
+	endTime := time.Now().UTC()
+	startTime := endTime.Add(-time.Duration(hours) * time.Hour)
+
+	// 尝试从资产配置中获取 asset_type
+	assetType := ""
+	if configManager != nil {
+		if cfg, err := configManager.GetConfig(); err == nil {
+			for _, asset := range cfg.NewsMonitor.Assets {
+				if asset.Symbol == symbol {
+					assetType = asset.AssetType
+					break
+				}
+			}
+		}
+	}
+
+	// 如果没有找到 asset_type，尝试推断
+	if assetType == "" {
+		// 根据符号推断资产类型
+		if strings.Contains(symbol, "PAXG") {
+			assetType = "commodity_gold"
+		} else if strings.Contains(symbol, "BTC") {
+			assetType = "crypto_btc"
+		} else if strings.Contains(symbol, "ETH") {
+			assetType = "crypto_eth"
+		} else if strings.Contains(symbol, "BNB") {
+			assetType = "crypto_bnb"
+		} else {
+			assetType = "crypto_other"
+		}
+	}
+
+	// 获取价格历史
+	history, err := storage.GetPriceHistory(assetType, symbol, startTime, endTime, 1000)
+	if err != nil {
+		logger.Warn("⚠️ 获取价格历史失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "errors.internal_error", err)
+		return
+	}
+
+	if len(history) < 2 {
+		c.JSON(http.StatusOK, gin.H{
+			"symbol":     symbol,
+			"hours":      hours,
+			"data_points": len(history),
+			"message":    "数据点不足，无法计算稳定性",
+		})
+		return
+	}
+
+	// 计算价格统计
+	var prices []float64
+	var minPrice, maxPrice float64 = history[0].Price, history[0].Price
+	var sum float64
+
+	for _, h := range history {
+		if h.Price > 0 {
+			prices = append(prices, h.Price)
+			sum += h.Price
+			if h.Price < minPrice {
+				minPrice = h.Price
+			}
+			if h.Price > maxPrice {
+				maxPrice = h.Price
+			}
+		}
+	}
+
+	if len(prices) < 2 {
+		c.JSON(http.StatusOK, gin.H{
+			"symbol":     symbol,
+			"hours":      hours,
+			"data_points": len(prices),
+			"message":    "有效数据点不足",
+		})
+		return
+	}
+
+	// 计算平均价格
+	avgPrice := sum / float64(len(prices))
+
+	// 计算标准差和波动率
+	var variance float64
+	for _, p := range prices {
+		diff := p - avgPrice
+		variance += diff * diff
+	}
+	variance /= float64(len(prices))
+	stdDev := math.Sqrt(variance)
+	volatility := (stdDev / avgPrice) * 100
+
+	// 计算价格范围
+	priceRange := maxPrice - minPrice
+	priceRangePercent := (priceRange / avgPrice) * 100
+
+	// 计算收益率序列的标准差（更准确的波动率）
+	var returns []float64
+	for i := 1; i < len(prices); i++ {
+		if prices[i-1] > 0 {
+			ret := (prices[i] - prices[i-1]) / prices[i-1]
+			returns = append(returns, ret)
+		}
+	}
+
+	var returnStdDev float64
+	if len(returns) > 0 {
+		var returnSum float64
+		for _, r := range returns {
+			returnSum += r
+		}
+		returnMean := returnSum / float64(len(returns))
+
+		var returnVariance float64
+		for _, r := range returns {
+			returnVariance += math.Pow(r-returnMean, 2)
+		}
+		returnVariance /= float64(len(returns))
+		returnStdDev = math.Sqrt(returnVariance) * 100 // 转换为百分比
+	}
+
+	// 判断稳定性等级
+	stabilityLevel := "high"
+	if volatility > 2.0 {
+		stabilityLevel = "low"
+	} else if volatility > 0.5 {
+		stabilityLevel = "medium"
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"symbol":            symbol,
+		"hours":             hours,
+		"data_points":      len(prices),
+		"current_price":     prices[len(prices)-1],
+		"average_price":    avgPrice,
+		"min_price":        minPrice,
+		"max_price":        maxPrice,
+		"price_range":      priceRange,
+		"price_range_percent": priceRangePercent,
+		"volatility":        volatility,
+		"return_volatility": returnStdDev,
+		"std_dev":          stdDev,
+		"stability_level":  stabilityLevel,
+		"start_time":        startTime.Format(time.RFC3339),
+		"end_time":          endTime.Format(time.RFC3339),
 	})
 }

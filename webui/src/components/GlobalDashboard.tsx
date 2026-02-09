@@ -411,6 +411,17 @@ const GlobalDashboard: React.FC = () => {
     return m
   }, [symbols])
 
+  // 交易對市場類型映射 (exchange:symbol -> spot|futures)
+  const symbolMarketTypeMap = useMemo(() => {
+    const m = new Map<string, 'spot' | 'futures'>()
+    symbols.forEach(s => {
+      if (s.market_type) {
+        m.set(`${s.exchange?.toLowerCase()}:${s.symbol}`, s.market_type)
+      }
+    })
+    return m
+  }, [symbols])
+
   // 默认展开所有交易所
   useEffect(() => {
     if (exchangeData.length > 0 && expandedIndices.length === 0) {
@@ -543,6 +554,7 @@ const GlobalDashboard: React.FC = () => {
                     <Tr>
                       <Th>{t('globalDashboard.positionExchange')}</Th>
                       <Th>{t('globalDashboard.positionSymbol')}</Th>
+                      <Th>{t('symbolManager.marketTypeLabel')}</Th>
                       <Th>{t('configuration.direction')}</Th>
                       <Th isNumeric>{t('dashboard.leverage')}</Th>
                       <Th>{t('globalDashboard.positionStrategy')}</Th>
@@ -552,38 +564,54 @@ const GlobalDashboard: React.FC = () => {
                     </Tr>
                   </Thead>
                   <Tbody>
-                    {positionsAll.map((pos, i) => (
-                      <Tr
-                        key={`${pos.exchange}:${pos.symbol}:${i}`}
-                        _hover={{ bg: hoverBg }}
-                        cursor="pointer"
-                        onClick={() => {
-                          setSymbolPair(pos.exchange, pos.symbol)
-                          navigate('/')
-                        }}
-                      >
-                        <Td fontWeight="600">{pos.exchange.toUpperCase()}</Td>
-                        <Td>{pos.symbol}</Td>
-                        <Td>
-                          <Badge colorScheme={(symbolDirectionMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`) === 'SHORT' ? 'orange' : 'green') as any} fontSize="xs">
-                            {(symbolDirectionMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`) || 'LONG') === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
-                          </Badge>
-                        </Td>
-                        <Td isNumeric>
-                          {pos.leverage != null && pos.leverage > 0 ? t('dashboard.leverageTimes', { count: pos.leverage }) : '—'}
-                        </Td>
-                        <Td>
-                          <Badge size="sm" colorScheme="blue" variant="subtle">
-                            {t('strategyNames.' + pos.strategy, { defaultValue: pos.strategy })}
-                          </Badge>
-                        </Td>
-                        <Td isNumeric>{pos.total_quantity?.toFixed(4)}</Td>
-                        <Td isNumeric color={(pos.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'} fontWeight="600">
-                          {(pos.unrealized_pnl || 0) >= 0 ? '+' : ''}{(pos.unrealized_pnl || 0).toFixed(2)}
-                        </Td>
-                        <Td isNumeric>${pos.total_value?.toFixed(2)}</Td>
-                      </Tr>
-                    ))}
+                    {positionsAll.map((pos, i) => {
+                      const marketType = symbolMarketTypeMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`)
+                      return (
+                        <Tr
+                          key={`${pos.exchange}:${pos.symbol}:${i}`}
+                          _hover={{ bg: hoverBg }}
+                          cursor="pointer"
+                          onClick={() => {
+                            setSymbolPair(pos.exchange, pos.symbol)
+                            navigate('/')
+                          }}
+                        >
+                          <Td fontWeight="600">{pos.exchange.toUpperCase()}</Td>
+                          <Td>{pos.symbol}</Td>
+                          <Td>
+                            {marketType ? (
+                              <Badge 
+                                colorScheme={marketType === 'spot' ? 'green' : 'blue'} 
+                                fontSize="xs"
+                                variant="subtle"
+                              >
+                                {marketType === 'spot' ? t('symbolManager.spotTrading') : t('symbolManager.futuresTrading')}
+                              </Badge>
+                            ) : (
+                              <Text fontSize="xs" color="gray.400">—</Text>
+                            )}
+                          </Td>
+                          <Td>
+                            <Badge colorScheme={(symbolDirectionMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`) === 'SHORT' ? 'orange' : 'green') as any} fontSize="xs">
+                              {(symbolDirectionMap.get(`${pos.exchange?.toLowerCase()}:${pos.symbol}`) || 'LONG') === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
+                            </Badge>
+                          </Td>
+                          <Td isNumeric>
+                            {pos.leverage != null && pos.leverage > 0 ? t('dashboard.leverageTimes', { count: pos.leverage }) : '—'}
+                          </Td>
+                          <Td>
+                            <Badge size="sm" colorScheme="blue" variant="subtle">
+                              {t('strategyNames.' + pos.strategy, { defaultValue: pos.strategy })}
+                            </Badge>
+                          </Td>
+                          <Td isNumeric>{pos.total_quantity?.toFixed(4)}</Td>
+                          <Td isNumeric color={(pos.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'} fontWeight="600">
+                            {(pos.unrealized_pnl || 0) >= 0 ? '+' : ''}{(pos.unrealized_pnl || 0).toFixed(2)}
+                          </Td>
+                          <Td isNumeric>${pos.total_value?.toFixed(2)}</Td>
+                        </Tr>
+                      )
+                    })}
                   </Tbody>
                 </Table>
               </TableContainer>
@@ -661,6 +689,15 @@ const GlobalDashboard: React.FC = () => {
                                 <VStack align="start" spacing={1}>
                                   <HStack spacing={2} flexWrap="wrap">
                                     <Text fontWeight="800" fontSize="lg">{sym.symbol}</Text>
+                                    {sym.market_type && (
+                                      <Badge 
+                                        colorScheme={sym.market_type === 'spot' ? 'green' : 'blue'} 
+                                        fontSize="xs"
+                                        variant="subtle"
+                                      >
+                                        {sym.market_type === 'spot' ? t('symbolManager.spotTrading') : t('symbolManager.futuresTrading')}
+                                      </Badge>
+                                    )}
                                     <Badge colorScheme={(sym.direction === 'SHORT' ? 'orange' : 'green') as any} fontSize="xs">
                                       {sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}
                                     </Badge>
