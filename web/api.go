@@ -2373,6 +2373,7 @@ func updateConfig(c *gin.Context) {
 func startTrading(c *gin.Context) {
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
+	marketType := c.Query("market_type")
 
 	if exchange == "" || symbol == "" {
 		respondError(c, http.StatusBadRequest, "error.missing_exchange_or_symbol")
@@ -2386,32 +2387,34 @@ func startTrading(c *gin.Context) {
 
 	err := symbolManagerProvider.StartSymbol(exchange, symbol)
 	if err != nil {
-		logger.Error("❌ [%s:%s] 啟动交易失败: %v", exchange, symbol, err)
+		logger.Error("❌ [%s:%s:%s] 啟动交易失败: %v", exchange, symbol, marketType, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// 更新状態
-	key := makeSymbolKey(exchange, symbol)
+	key := makeSymbolKey(exchange, symbol, marketType)
 	statusMu.Lock()
 	if status, ok := statusBySymbol[key]; ok {
 		status.Running = true
 	} else {
 		statusBySymbol[key] = &SystemStatus{
-			Running:  true,
-			Exchange: exchange,
-			Symbol:   symbol,
+			Running:    true,
+			Exchange:   exchange,
+			Symbol:     symbol,
+			MarketType: marketType,
 		}
 	}
 	statusMu.Unlock()
 
-	logger.Info("✅ [%s:%s] 交易已啟动", exchange, symbol)
+	logger.Info("✅ [%s:%s:%s] 交易已啟动", exchange, symbol, marketType)
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("交易已啟动: %s:%s", exchange, symbol)})
 }
 
 func stopTrading(c *gin.Context) {
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
+	marketType := c.Query("market_type")
 
 	if exchange == "" || symbol == "" {
 		respondError(c, http.StatusBadRequest, "error.missing_exchange_or_symbol")
@@ -2425,20 +2428,20 @@ func stopTrading(c *gin.Context) {
 
 	err := symbolManagerProvider.StopSymbol(exchange, symbol)
 	if err != nil {
-		logger.Error("❌ [%s:%s] 停止交易失败: %v", exchange, symbol, err)
+		logger.Error("❌ [%s:%s:%s] 停止交易失败: %v", exchange, symbol, marketType, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// 更新状態
-	key := makeSymbolKey(exchange, symbol)
+	key := makeSymbolKey(exchange, symbol, marketType)
 	statusMu.Lock()
 	if status, ok := statusBySymbol[key]; ok {
 		status.Running = false
 	}
 	statusMu.Unlock()
 
-	logger.Info("⏹️ [%s:%s] 交易已停止", exchange, symbol)
+	logger.Info("⏹️ [%s:%s:%s] 交易已停止", exchange, symbol, marketType)
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("交易已停止: %s:%s", exchange, symbol)})
 }
 
