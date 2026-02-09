@@ -17,7 +17,9 @@ build-frontend:
 		echo "Frontend directory not found, skipping..."; \
 	fi
 
-# 构建后端
+# 构建后端（仅主程序，不编译 tools/ 与 plugin/examples）
+# 若需编译全模块检查：go build ./...（会跳过带 //go:build tools 的包）
+# 单独编译某工具：go build -tags tools -o set_password ./tools/set_password.go
 build-backend:
 	@echo "Building backend..."
 	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "3.4.4"); \

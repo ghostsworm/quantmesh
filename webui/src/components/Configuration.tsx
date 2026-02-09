@@ -78,6 +78,7 @@ import {
   Config,
   BackupInfo,
   ConfigDiff,
+  type GridRiskControl,
 } from '../services/config'
 import {
   getPendingOrders,
@@ -86,6 +87,8 @@ import {
   stopTrading,
   startTrading,
   getPriceRange,
+  gridShiftUp,
+  gridShiftDown,
 } from '../services/api'
 import type { PriceRangeData } from '../services/api'
 import AIConfigWizard from './AIConfigWizard'
@@ -1718,6 +1721,122 @@ const Configuration: React.FC = () => {
                           </Select>
                           <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.directionDesc')}</Text>
                         </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceLow')}</FormLabel>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.price_low ?? 0) || ''}
+                            onChange={(_, v) => updateSelectedSymbolField('price_low', v === '' ? undefined : (v ?? 0))}
+                            precision={6}
+                            step={0.01}
+                            min={0}
+                          >
+                            <NumberInputField borderRadius="xl" placeholder={t('configuration.priceRangeOptional')} />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.priceLowHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceHigh')}</FormLabel>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.price_high ?? 0) || ''}
+                            onChange={(_, v) => updateSelectedSymbolField('price_high', v === '' ? undefined : (v ?? 0))}
+                            precision={6}
+                            step={0.01}
+                            min={0}
+                          >
+                            <NumberInputField borderRadius="xl" placeholder={t('configuration.priceRangeOptional')} />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.priceHighHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.triggerPrice')}</FormLabel>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.trigger_price ?? 0) || ''}
+                            onChange={(_, v) => updateSelectedSymbolField('trigger_price', v === '' ? undefined : (v ?? 0))}
+                            precision={6}
+                            step={0.01}
+                            min={0}
+                          >
+                            <NumberInputField borderRadius="xl" placeholder={t('configuration.triggerPriceHint')} />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.triggerPriceHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.gridMode')}</FormLabel>
+                          <Select
+                            value={(getSelectedSymbolConfig()?.grid_mode ?? 'arithmetic') || 'arithmetic'}
+                            onChange={(e) => updateSelectedSymbolField('grid_mode', e.target.value as 'arithmetic' | 'geometric')}
+                            borderRadius="xl"
+                          >
+                            <option value="arithmetic">{t('configuration.gridModeArithmetic')}</option>
+                            <option value="geometric">{t('configuration.gridModeGeometric')}</option>
+                          </Select>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.gridModeHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.closeOnStop')}</FormLabel>
+                          <Switch
+                            isChecked={!!getSelectedSymbolConfig()?.close_on_stop}
+                            onChange={(e) => updateSelectedSymbolField('close_on_stop', e.target.checked)}
+                            colorScheme="teal"
+                          />
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.closeOnStopHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.gridShiftStep')}</FormLabel>
+                          <NumberInput
+                            value={(getSelectedSymbolConfig()?.grid_shift_step ?? config.trading?.price_interval) ?? 0}
+                            onChange={(_, v) => updateSelectedSymbolField('grid_shift_step', v ?? 0)}
+                            precision={6}
+                            step={0.01}
+                            min={0}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.gridShiftStepHint')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.gridShiftUp')} / {t('configuration.gridShiftDown')}</FormLabel>
+                          <HStack mt={2} spacing={2}>
+                            <Button
+                              size="sm"
+                              colorScheme="teal"
+                              variant="outline"
+                              leftIcon={<ViewIcon />}
+                              onClick={async () => {
+                                if (!selectedExchange || !selectedSymbol) return
+                                try {
+                                  const step = getSelectedSymbolConfig()?.grid_shift_step ?? config.trading?.price_interval ?? 0
+                                  await gridShiftUp(selectedExchange, selectedSymbol, step || undefined)
+                                  toast({ title: t('common.success'), status: 'success', duration: 2000 })
+                                  fetchPriceRange()
+                                } catch (e: any) {
+                                  toast({ title: e?.message || t('common.error'), status: 'error' })
+                                }
+                              }}
+                            >
+                              {t('configuration.gridShiftUp')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              colorScheme="orange"
+                              variant="outline"
+                              leftIcon={<ViewOffIcon />}
+                              onClick={async () => {
+                                if (!selectedExchange || !selectedSymbol) return
+                                try {
+                                  const step = getSelectedSymbolConfig()?.grid_shift_step ?? config.trading?.price_interval ?? 0
+                                  await gridShiftDown(selectedExchange, selectedSymbol, step || undefined)
+                                  toast({ title: t('common.success'), status: 'success', duration: 2000 })
+                                  fetchPriceRange()
+                                } catch (e: any) {
+                                  toast({ title: e?.message || t('common.error'), status: 'error' })
+                                }
+                              }}
+                            >
+                              {t('configuration.gridShiftDown')}
+                            </Button>
+                          </HStack>
+                        </FormControl>
                       </SimpleGrid>
 
                       {/* 实时价格范围 */}
@@ -1810,6 +1929,159 @@ const Configuration: React.FC = () => {
                         leverage={config.risk_control?.max_leverage || undefined}
                         totalCapital={undefined}
                       />
+
+                      {/* 网格风控 */}
+                      <Box mt={6} p={4} borderWidth="1px" borderRadius="lg" borderColor="gray.200">
+                        <Text fontSize="sm" fontWeight="bold" mb={3}>{t('configuration.gridRiskControl')}</Text>
+                        <FormControl display="flex" alignItems="center" mb={3}>
+                          <FormLabel fontSize="xs" mb={0}>{t('configuration.gridRiskControlEnabled')}</FormLabel>
+                          <Switch
+                            isChecked={!!getSelectedSymbolConfig()?.grid_risk_control?.enabled}
+                            onChange={(e) => updateSelectedSymbolField('grid_risk_control', {
+                              ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
+                              enabled: e.target.checked,
+                              max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
+                              max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
+                              stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
+                              take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
+                              trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
+                              trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
+                            } as GridRiskControl)}
+                            colorScheme="teal"
+                          />
+                        </FormControl>
+                        <SimpleGrid columns={2} spacing={4}>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.stopLossRatio')}</FormLabel>
+                            <NumberInput
+                              value={(getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0) * 100}
+                              onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
+                                ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
+                                enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
+                                max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
+                                max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
+                                stop_loss_ratio: (v === undefined || v === '' ? 0 : Number(v)) / 100,
+                                take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
+                                trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
+                                trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
+                              } as GridRiskControl)}
+                              precision={2}
+                              step={1}
+                              min={0}
+                              max={100}
+                            >
+                              <NumberInputField borderRadius="xl" />
+                            </NumberInput>
+                            <Text fontSize="2xs" color="gray.500" mt={1}>{t('configuration.stopLossRatioHint')}</Text>
+                          </FormControl>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.takeProfitTriggerRatio')}</FormLabel>
+                            <NumberInput
+                              value={(getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0) * 100}
+                              onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
+                                ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
+                                enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
+                                max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
+                                max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
+                                stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
+                                take_profit_trigger_ratio: (v === undefined || v === '' ? 0 : Number(v)) / 100,
+                                trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
+                                trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
+                              } as GridRiskControl)}
+                              precision={2}
+                              step={0.5}
+                              min={0}
+                              max={100}
+                            >
+                              <NumberInputField borderRadius="xl" />
+                            </NumberInput>
+                            <Text fontSize="2xs" color="gray.500" mt={1}>{t('configuration.takeProfitTriggerRatioHint')}</Text>
+                          </FormControl>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.trailingTakeProfitRatio')}</FormLabel>
+                            <NumberInput
+                              value={(getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0) * 100}
+                              onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
+                                ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
+                                enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
+                                max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
+                                max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
+                                stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
+                                take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
+                                trailing_take_profit_ratio: (v === undefined || v === '' ? 0 : Number(v)) / 100,
+                                trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
+                              } as GridRiskControl)}
+                              precision={2}
+                              step={0.5}
+                              min={0}
+                              max={100}
+                            >
+                              <NumberInputField borderRadius="xl" />
+                            </NumberInput>
+                            <Text fontSize="2xs" color="gray.500" mt={1}>{t('configuration.trailingTakeProfitRatioHint')}</Text>
+                          </FormControl>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.maxGridLayers')}</FormLabel>
+                            <NumberInput
+                              value={getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0}
+                              onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
+                                ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
+                                enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
+                                max_grid_layers: v === undefined || v === '' ? 0 : Number(v),
+                                max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
+                                stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
+                                take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
+                                trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
+                                trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
+                              } as GridRiskControl)}
+                              min={0}
+                              max={500}
+                            >
+                              <NumberInputField borderRadius="xl" />
+                            </NumberInput>
+                            <Text fontSize="2xs" color="gray.500" mt={1}>{t('configuration.maxGridLayersHint')}</Text>
+                          </FormControl>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.maxOpenOrdersAtCap')}</FormLabel>
+                            <NumberInput
+                              value={getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0}
+                              onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
+                                ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
+                                enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
+                                max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
+                                max_open_orders_at_cap: v === undefined || v === '' ? 0 : Number(v),
+                                stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
+                                take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
+                                trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
+                                trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
+                              } as GridRiskControl)}
+                              min={0}
+                              max={500}
+                            >
+                              <NumberInputField borderRadius="xl" />
+                            </NumberInput>
+                            <Text fontSize="2xs" color="gray.500" mt={1}>{t('configuration.maxOpenOrdersAtCapHint')}</Text>
+                          </FormControl>
+                          <FormControl display="flex" alignItems="center" gridColumn="1 / -1">
+                            <FormLabel fontSize="xs" mb={0}>{t('configuration.trendFilterEnabled')}</FormLabel>
+                            <Switch
+                              isChecked={!!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled}
+                              onChange={(e) => updateSelectedSymbolField('grid_risk_control', {
+                                ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
+                                enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
+                                max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
+                                max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
+                                stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
+                                take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
+                                trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
+                                trend_filter_enabled: e.target.checked,
+                              } as GridRiskControl)}
+                              colorScheme="teal"
+                            />
+                            <Text fontSize="2xs" color="gray.500" ml={2}>{t('configuration.trendFilterEnabledHint')}</Text>
+                          </FormControl>
+                        </SimpleGrid>
+                      </Box>
                     </ConfigCard>
 
                     <ConfigCard title={t('configuration.profileSwitching')} icon={<SettingsIcon />}>

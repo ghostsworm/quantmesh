@@ -249,6 +249,13 @@ type Config struct {
 		MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保證金鎖定時間（秒，預設 10）
 		PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持倉安全性檢查（預設 100，最少能向下持有多少倉）
 		Direction             string  `yaml:"direction"`                    // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
+		PriceLow              float64 `yaml:"price_low"`                    // 網格價格下限，0=不限制（合併自 SymbolConfig）
+		PriceHigh             float64 `yaml:"price_high"`                   // 網格價格上限，0=不限制（合併自 SymbolConfig）
+		TriggerPrice         float64 `yaml:"trigger_price"`                 // 觸發價格，0=立即啟動（合併自 SymbolConfig）
+		GridMode             string  `yaml:"grid_mode"`                     // arithmetic / geometric（合併自 SymbolConfig）
+		GridShiftEnabled     bool    `yaml:"grid_shift_enabled"`            // 合併自 SymbolConfig
+		GridShiftStep        float64 `yaml:"grid_shift_step"`               // 合併自 SymbolConfig
+		CloseOnStop          bool    `yaml:"close_on_stop"`                 // 終止時全部平倉（合併自 SymbolConfig）
 		// 多交易對配置
 		Symbols []SymbolConfig `yaml:"symbols"`
 		// 注意：price_decimals 和 quantity_decimals 已廢棄，現在從交易所自动獲取
@@ -952,6 +959,13 @@ type SymbolConfig struct {
 	GridRiskControl       GridRiskControl    `yaml:"grid_risk_control" json:"grid_risk_control"`               // 網格策略风控
 	OpenPositionControl   OpenPositionControl `yaml:"open_position_control" json:"open_position_control"`       // 開倉管理
 	Direction             string             `yaml:"direction" json:"direction"`                               // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
+	PriceLow              float64            `yaml:"price_low" json:"price_low"`                               // 網格價格下限，0 表示不限制（軟限制：超出時暫停新開倉，保留平倉單）
+	PriceHigh             float64            `yaml:"price_high" json:"price_high"`                              // 網格價格上限，0 表示不限制
+	TriggerPrice          float64            `yaml:"trigger_price" json:"trigger_price"`                       // 觸發價格，達到後才啟動網格，0 表示立即啟動
+	GridMode              string             `yaml:"grid_mode" json:"grid_mode"`                               // 網格模式：arithmetic 等差 / geometric 等比，預設 arithmetic
+	GridShiftEnabled      bool               `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`             // 是否啟用網格上移/下移
+	GridShiftStep         float64            `yaml:"grid_shift_step" json:"grid_shift_step"`                    // 每次移動步長
+	CloseOnStop           bool               `yaml:"close_on_stop" json:"close_on_stop"`                       // 終止時全部平倉
 	// 多套配置自动切换
 	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`       // 配置档案（如 positive, negative）
 	SwitchRules           SwitchRules              `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"` // 切换规则

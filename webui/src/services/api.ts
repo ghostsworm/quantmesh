@@ -36,6 +36,8 @@ export interface SystemStatus {
   total_trades: number
   risk_triggered: boolean
   uptime: number
+  opening_paused?: boolean   // 是否暂停开仓
+  pause_reason?: string      // 暂停原因：manual / schedule / periodic / position_limit
 }
 
 export async function getSystemStatus(exchange?: string, symbol?: string): Promise<SystemStatus> {
@@ -1450,6 +1452,18 @@ export async function closeAllPositions(exchange?: string, symbol?: string): Pro
   return fetchWithAuth(url, {
     method: 'POST',
   })
+}
+
+// 網格上移/下移
+export async function gridShiftUp(exchange: string, symbol: string, step?: number): Promise<{ message: string }> {
+  const queryParams = new URLSearchParams({ exchange, symbol })
+  if (step != null && step > 0) queryParams.append('step', String(step))
+  return fetchWithAuth(`${API_BASE_URL}/grid/shift-up?${queryParams.toString()}`, { method: 'POST' })
+}
+export async function gridShiftDown(exchange: string, symbol: string, step?: number): Promise<{ message: string }> {
+  const queryParams = new URLSearchParams({ exchange, symbol })
+  if (step != null && step > 0) queryParams.append('step', String(step))
+  return fetchWithAuth(`${API_BASE_URL}/grid/shift-down?${queryParams.toString()}`, { method: 'POST' })
 }
 
 // K線數據

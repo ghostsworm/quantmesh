@@ -781,9 +781,12 @@ func testNotificationHandler(c *gin.Context) {
 	}
 
 	// 查找对应的通知器
+	// 注意：某些通知器的 Name() 包含额外信息，如 "Email (smtp)"
+	// 前端传来的 channel 是简短名称如 "email"，需要支持前缀匹配
 	var targetNotifier notify.Notifier
 	for _, n := range ns.GetNotifiers() {
-		if strings.EqualFold(n.Name(), channel) {
+		name := n.Name()
+		if strings.EqualFold(name, channel) || strings.HasPrefix(strings.ToLower(name), strings.ToLower(channel)) {
 			targetNotifier = n
 			break
 		}

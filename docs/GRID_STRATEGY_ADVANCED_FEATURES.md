@@ -1,8 +1,39 @@
-# 網格策略進階功能（P1 / P2）
+# 網格策略進階功能（P1 / P2 與 3.53 增強）
 
-本指南說明網格策略的進階功能：**P1（資金費率與趨勢聯動）**、**P2（訂單簿優化掛單）**，以及動態單筆金額調整。
+本指南說明網格策略的進階功能：**3.53 網格增強（對標幣安）**、**P1（資金費率與趨勢聯動）**、**P2（訂單簿優化掛單）**，以及動態單筆金額調整。
 
-## 概覽
+## 3.53 網格增強（對標幣安）
+
+自 3.53.0 起，網格策略支援以下進階參數，便於精細風控與策略行為控制。
+
+| 功能 | 配置鍵 | 說明 |
+|--------|-------------|-------------|
+| 網格風控 | `trading.symbols[].grid_risk_control` | 止損比例、止盈觸發/回撤止盈、最大持倉層數、預警時最多開倉單數、趨勢過濾；Web 配置頁「網格風控」區塊可編輯 |
+| 價格範圍 | `price_low` / `price_high` | 軟限制：超出範圍暫停新開倉，保留已有倉位平倉單；槽位價格裁剪到 [price_low, price_high] |
+| 觸發價格 | `trigger_price` | 達到後才啟動網格（做多：當前價 ≤ 觸發價；做空：當前價 ≥ 觸發價）；0 表示立即啟動 |
+| 網格模式 | `grid_mode` | `arithmetic` 等差（固定價差）或 `geometric` 等比（固定比例；等比時 `price_interval` 為比例，如 0.005 表示 0.5%） |
+| 網格上移/下移 | `grid_shift_step` + API | 配置步長；`POST /api/grid/shift-up`、`POST /api/grid/shift-down` 可手動整體移動網格錨點並撤銷開倉委託 |
+| 終止時全部平倉 | `close_on_stop` | 策略停止時若啟用則自動執行全平倉 |
+
+### 網格風控（grid_risk_control）
+
+- **enabled**：是否啟用網格風控
+- **stop_loss_ratio**：單幣種最大浮虧比例（如 0.1 表示 10%），達到時全部平倉
+- **take_profit_trigger_ratio**：盈利達到此比例後開啟回撤止盈（如 0.08 表示 8%）
+- **trailing_take_profit_ratio**：盈利回撤比例（如 0.03 表示回撤 3% 止盈）
+- **max_grid_layers**：最大持倉層數預警；達到後不再新開倉
+- **max_open_orders_at_cap**：達到預警時最多允許的開倉單數；0 表示僅不新開倉不撤單
+- **trend_filter_enabled**：趨勢過濾；下跌趨勢中可暫停買入
+
+### 網格上移/下移 API
+
+- `POST /api/grid/shift-up?exchange=xxx&symbol=xxx&step=可選`：網格上移（錨點 + step）
+- `POST /api/grid/shift-down?exchange=xxx&symbol=xxx&step=可選`：網格下移（錨點 - step）  
+未傳 `step` 時使用該交易對配置的 `grid_shift_step` 或 `price_interval`。
+
+---
+
+## 概覽（P1 / P2 / 動態）
 
 | 功能 | 配置鍵 | 說明 |
 |--------|-------------|-------------|

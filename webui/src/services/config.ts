@@ -91,6 +91,17 @@ export interface SwitchRules {
   cooldown_seconds?: number  // 切换冷却时间（秒），避免频繁切换，預設 300
 }
 
+// 网格策略风控配置
+export interface GridRiskControl {
+  enabled: boolean
+  max_grid_layers: number
+  max_open_orders_at_cap?: number
+  stop_loss_ratio: number
+  take_profit_trigger_ratio: number
+  trailing_take_profit_ratio: number
+  trend_filter_enabled: boolean
+}
+
 // 交易對配置
 export interface SymbolConfig {
   enabled?: boolean   // 是否啟用自动交易（后端預設 true）
@@ -112,6 +123,14 @@ export interface SymbolConfig {
   cleanup_batch_size?: number
   margin_lock_duration_seconds?: number
   position_safety_check?: number
+  grid_risk_control?: GridRiskControl  // 網格策略风控
+  price_low?: number   // 网格价格下限，0 表示不限制
+  price_high?: number  // 网格价格上限，0 表示不限制
+  trigger_price?: number  // 触发价格，达到后才启动策略
+  grid_mode?: 'arithmetic' | 'geometric'  // 等差 / 等比
+  grid_shift_enabled?: boolean
+  grid_shift_step?: number  // 每次移动步长
+  close_on_stop?: boolean   // 终止时全部平仓
   // 多套配置自动切换
   profiles?: Record<string, ProfileConfig>  // 配置档案（如 positive, negative）
   switch_rules?: SwitchRules  // 切换规则

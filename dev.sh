@@ -48,10 +48,10 @@ if ! command -v go &> /dev/null; then
     exit 1
 fi
 
-# 检查 pnpm 是否安装
-if ! command -v pnpm &> /dev/null; then
-    log_error "未找到 pnpm，请先安装 pnpm"
-    log_warn "安装命令: npm install -g pnpm"
+# 检查 yarn 是否安装（项目 package.json 指定 packageManager: yarn）
+if ! command -v yarn &> /dev/null; then
+    log_error "未找到 yarn，请先安装 yarn"
+    log_warn "安装命令: npm install -g yarn 或使用 corepack enable"
     exit 1
 fi
 
@@ -129,7 +129,7 @@ stop_dev_processes
 if [ ! -d "${SCRIPT_DIR}/webui/node_modules" ]; then
     log_warn "检测到 webui 目录缺少依赖，正在安装..."
     cd "${SCRIPT_DIR}/webui"
-    pnpm install
+    yarn install
     cd "${SCRIPT_DIR}"
 fi
 
@@ -169,21 +169,58 @@ go run main.go symbol_manager.go &
 GO_PID=$!
 echo "${GO_PID}" > "${PID_FILE_GO}"
 
-# 等待 Go 后端启动
+# 等待 Go 后端进程存在
 sleep 2
 
-# 检查 Go 后端是否成功启动
+# 检查 Go 后端进程是否还在运行
 if ! kill -0 $GO_PID 2>/dev/null; then
     log_error "Go 后端启动失败"
     rm -f "${PID_FILE_GO}"
     exit 1
 fi
-log_info "Go 后端已启动 (PID: ${GO_PID})"
+log_info "Go 后端进程已启动 (PID: ${GO_PID})，等待 HTTP 服务就绪..."
+
+# 轮询等待 Go HTTP 服务真正开始监听（避免前端代理 ECONNREFUSED）
+# 后端初始化链较长（配置、存储、交易所等），最多等 60 秒
+wait_for_backend() {
+    local port=$1
+    local max_attempts=60
+    local attempt=1
+    while [ $attempt -le $max_attempts ]; do
+        if kill -0 $GO_PID 2>/dev/null; then
+            if command -v curl >/dev/null 2>&1; then
+                if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1 "http://127.0.0.1:${port}/api/version" 2>/dev/null | grep -q '200'; then
+                    return 0
+                fi
+            elif command -v nc >/dev/null 2>&1; then
+                if nc -z 127.0.0.1 ${port} 2>/dev/null; then
+                    return 0
+                fi
+            fi
+        else
+            log_error "Go 后端进程已退出"
+            return 1
+        fi
+        if [ $((attempt % 5)) -eq 0 ]; then
+            log_info "等待 Go 后端 HTTP 服务... ${attempt}s"
+        fi
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+if ! wait_for_backend ${GO_PORT}; then
+    log_error "等待 Go 后端 HTTP 服务超时（约 60 秒），请检查后端日志或 config.yaml"
+    kill $GO_PID 2>/dev/null || true
+    rm -f "${PID_FILE_GO}"
+    exit 1
+fi
+log_info "Go 后端 HTTP 服务已就绪 (端口 ${GO_PORT})"
 
 # 启动 Vite 前端开发服务器
 log_info "启动 Vite 前端开发服务器 (端口 ${VITE_PORT})..."
 cd "${SCRIPT_DIR}/webui"
-pnpm dev &
+yarn dev &
 VITE_PID=$!
 echo "${VITE_PID}" > "${PID_FILE_VITE}"
 cd "${SCRIPT_DIR}"

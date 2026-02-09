@@ -67,6 +67,8 @@
 | POST | `/api/trading/start` | 是 | 開始交易 |
 | POST | `/api/trading/stop` | 是 | 停止交易 |
 | POST | `/api/trading/close-positions` | 是 | 平掉所有持倉 |
+| POST | `/api/grid/shift-up` | 是 | 網格上移（查參：`exchange`, `symbol`, 可選 `step`） |
+| POST | `/api/grid/shift-down` | 是 | 網格下移（查參：`exchange`, `symbol`, 可選 `step`） |
 
 ---
 
