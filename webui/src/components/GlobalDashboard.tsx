@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import {
   Box,
   Container,
@@ -87,6 +88,7 @@ const GlobalDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [symbolStatuses, setSymbolStatuses] = useState<Map<string, SymbolStatus>>(new Map())
   const [closingPositions, setClosingPositions] = useState<Set<string>>(new Set())
+  const [togglePendingKeys, setTogglePendingKeys] = useState<Set<string>>(new Set())
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   const isFetchingRef = useRef(false)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -255,11 +257,16 @@ const GlobalDashboard: React.FC = () => {
     }
   }, [symbols, symbolStatuses, exchangePnL])
 
+  const TOGGLE_TIMEOUT_MS = 10_000
+
   const handleToggleTrading = async (exchange: string, symbol: string, isRunning: boolean, marketType?: string) => {
     const mt = marketType || 'futures'
     const key = `${exchange}:${symbol}:${mt}`
     const oldStatus = symbolStatuses.get(key)
-    
+
+    if (togglePendingKeys.has(key)) return
+    flushSync(() => setTogglePendingKeys(prev => new Set(prev).add(key)))
+
     // 乐观更新：立即更新本地状態
     if (oldStatus) {
       setSymbolStatuses(prev => {
@@ -269,28 +276,25 @@ const GlobalDashboard: React.FC = () => {
         return next
       })
     }
-    
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('TIMEOUT')), TOGGLE_TIMEOUT_MS)
+    })
+    const actionPromise = isRunning
+      ? stopTrading(exchange, symbol, mt)
+      : startTrading(exchange, symbol, mt)
+
     try {
-      if (isRunning) {
-        await stopTrading(exchange, symbol, mt)
-        toast({
-          title: t('globalDashboard.tradingStopped'),
-          description: `${exchange}:${symbol}`,
-          status: 'info',
-          duration: 3000,
-        })
-      } else {
-        await startTrading(exchange, symbol, mt)
-        // 追踪交易启动事件
+      await Promise.race([actionPromise, timeoutPromise])
+      if (!isRunning) {
         trackTradingStarted(exchange, symbol)
-        toast({
-          title: t('globalDashboard.tradingStarted'),
-          description: `${exchange}:${symbol}`,
-          status: 'success',
-          duration: 3000,
-        })
       }
-      // 刷新數據以同步后端状態
+      toast({
+        title: isRunning ? t('globalDashboard.tradingStopped') : t('globalDashboard.tradingStarted'),
+        description: `${exchange}:${symbol}`,
+        status: isRunning ? 'info' : 'success',
+        duration: 3000,
+      })
       setTimeout(fetchData, 1000)
     } catch (error) {
       // 如果 API 調用失败，回滚状態
@@ -301,37 +305,47 @@ const GlobalDashboard: React.FC = () => {
           return next
         })
       }
-      
-      const errorMessage = error instanceof Error ? error.message : t('globalDashboard.unknownError')
-      
-      // 如果后端返回"未运行"錯误，說明状態确實未运行，更新本地状態
-      const lowerErrorMessage = errorMessage.toLowerCase()
-      if (lowerErrorMessage.includes('未运行') || lowerErrorMessage.includes('not running') || lowerErrorMessage.includes('is not running')) {
-        if (oldStatus) {
-          setSymbolStatuses(prev => {
-            const next = new Map(prev)
-            const updated = { ...oldStatus, running: false }
-            next.set(key, updated)
-            return next
-          })
-        }
+
+      if (error instanceof Error && error.message === 'TIMEOUT') {
         toast({
-          title: t('globalDashboard.operationFailed'),
-          description: `${exchange}:${symbol} ${t('globalDashboard.tradingStopped')}`,
+          title: t('dashboard.startStopTimeout'),
           status: 'warning',
-          duration: 3000,
-        })
-      } else {
-        toast({
-          title: t('globalDashboard.operationFailed'),
-          description: errorMessage,
-          status: 'error',
           duration: 5000,
         })
+      } else {
+        const errorMessage = error instanceof Error ? error.message : t('globalDashboard.unknownError')
+        const lowerErrorMessage = errorMessage.toLowerCase()
+        if (lowerErrorMessage.includes('未运行') || lowerErrorMessage.includes('not running') || lowerErrorMessage.includes('is not running')) {
+          if (oldStatus) {
+            setSymbolStatuses(prev => {
+              const next = new Map(prev)
+              const updated = { ...oldStatus, running: false }
+              next.set(key, updated)
+              return next
+            })
+          }
+          toast({
+            title: t('globalDashboard.operationFailed'),
+            description: `${exchange}:${symbol} ${t('globalDashboard.tradingStopped')}`,
+            status: 'warning',
+            duration: 3000,
+          })
+        } else {
+          toast({
+            title: t('globalDashboard.operationFailed'),
+            description: errorMessage,
+            status: 'error',
+            duration: 5000,
+          })
+        }
       }
-      
-      // 即使失败也刷新數據，确保状態同步
       setTimeout(fetchData, 1000)
+    } finally {
+      setTogglePendingKeys(prev => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
     }
   }
 
@@ -888,6 +902,9 @@ const GlobalDashboard: React.FC = () => {
                                 colorScheme={isRunning ? 'red' : 'green'}
                                 width="full"
                                 onClick={() => handleToggleTrading(normalizedExchange, sym.symbol, isRunning, sym.market_type)}
+                                isDisabled={togglePendingKeys.has(key)}
+                                isLoading={togglePendingKeys.has(key)}
+                                loadingText={isRunning ? t('dashboard.stopping') : t('dashboard.starting')}
                                 borderRadius="lg"
                                 mb={2}
                               >

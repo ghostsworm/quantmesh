@@ -32,7 +32,7 @@ import { getPositions, getSymbols, getPendingOrders, batchCancelOrders, type Pos
 const Positions: React.FC = () => {
   const { t } = useTranslation()
   const toast = useToast()
-  const { selectedExchange, selectedSymbol } = useSymbol()
+  const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const [summary, setSummary] = useState<PositionSummary | null>(null)
   const [positions, setPositions] = useState<PositionInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -84,7 +84,7 @@ const Positions: React.FC = () => {
       try {
         const res = await getSymbols()
         const sym = res.symbols?.find(
-          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol && (s.market_type ?? 'futures') === (selectedMarketType ?? 'futures')
         )
         setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
       } catch {
@@ -92,7 +92,7 @@ const Positions: React.FC = () => {
       }
     }
     loadDirection()
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   const handleCancelAllBuyOrders = async () => {
     if (!selectedExchange || !selectedSymbol) return

@@ -12,13 +12,30 @@ import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getSymbols, getExchanges, SymbolInfo } from '../services/api'
 
+const SYMBOL_MARKET_SEP = '::'
+
+function symbolOptionValue(symbol: string, marketType: 'spot' | 'futures') {
+  return `${symbol}${SYMBOL_MARKET_SEP}${marketType}`
+}
+
+function parseSymbolOptionValue(value: string): { symbol: string; marketType: 'spot' | 'futures' } | null {
+  const idx = value.indexOf(SYMBOL_MARKET_SEP)
+  if (idx === -1) return null
+  const symbol = value.slice(0, idx)
+  const marketType = value.slice(idx + SYMBOL_MARKET_SEP.length) as 'spot' | 'futures'
+  if (marketType !== 'spot' && marketType !== 'futures') return null
+  return { symbol, marketType }
+}
+
 const SymbolSelector: React.FC = () => {
   const { t } = useTranslation()
   const {
     selectedExchange,
     selectedSymbol,
+    selectedMarketType,
     setSelectedExchange,
     setSelectedSymbol,
+    setSelectedMarketType,
     clearSelection,
     isGlobalView,
   } = useSymbol()
@@ -71,10 +88,29 @@ const SymbolSelector: React.FC = () => {
     const value = e.target.value
     if (value === '') {
       setSelectedSymbol(null)
+      setSelectedMarketType(null)
     } else {
-      setSelectedSymbol(value)
+      const parsed = parseSymbolOptionValue(value)
+      if (parsed) {
+        setSelectedSymbol(parsed.symbol)
+        setSelectedMarketType(parsed.marketType)
+      } else {
+        setSelectedSymbol(value)
+        setSelectedMarketType('futures')
+      }
     }
   }
+
+  const effectiveMarketType = selectedMarketType ?? 'futures'
+  const symbolSelectValue = selectedSymbol && selectedExchange
+    ? (() => {
+        const composite = symbolOptionValue(selectedSymbol, effectiveMarketType)
+        if (filteredSymbols.some(s => s.symbol === selectedSymbol && (s.market_type ?? 'futures') === effectiveMarketType))
+          return composite
+        const first = filteredSymbols.find(s => s.symbol === selectedSymbol)
+        return first ? symbolOptionValue(first.symbol, first.market_type ?? 'futures') : composite
+      })()
+    : ''
 
   if (loading) {
     return (
@@ -118,8 +154,8 @@ const SymbolSelector: React.FC = () => {
       <Flex align="center" gap={1}>
         <Select
           size="xs"
-          w="140px"
-          value={selectedSymbol || ''}
+          w="180px"
+          value={symbolSelectValue}
           onChange={handleSymbolChange}
           placeholder={t('symbolSelector.selectSymbol')}
           isDisabled={!selectedExchange}
@@ -128,20 +164,28 @@ const SymbolSelector: React.FC = () => {
         >
           {activeSymbols.length > 0 && (
             <optgroup label={t('symbolSelector.running')}>
-              {activeSymbols.map((sym) => (
-                <option key={sym.symbol} value={sym.symbol}>
-                  🟢 {sym.symbol} ({sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')})
-                </option>
-              ))}
+              {activeSymbols.map((sym) => {
+                const mt = sym.market_type ?? 'futures'
+                const marketLabel = mt === 'spot' ? t('symbolManager.spot') : t('symbolManager.futures')
+                return (
+                  <option key={`${sym.symbol}::${mt}`} value={symbolOptionValue(sym.symbol, mt)}>
+                    🟢 {sym.symbol} ({sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}) {marketLabel}
+                  </option>
+                )
+              })}
             </optgroup>
           )}
           {inactiveSymbols.length > 0 && (
             <optgroup label={t('symbolSelector.notRunning')}>
-              {inactiveSymbols.map((sym) => (
-                <option key={sym.symbol} value={sym.symbol}>
-                  ⚪ {sym.symbol} ({sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')})
-                </option>
-              ))}
+              {inactiveSymbols.map((sym) => {
+                const mt = sym.market_type ?? 'futures'
+                const marketLabel = mt === 'spot' ? t('symbolManager.spot') : t('symbolManager.futures')
+                return (
+                  <option key={`${sym.symbol}::${mt}`} value={symbolOptionValue(sym.symbol, mt)}>
+                    ⚪ {sym.symbol} ({sym.direction === 'SHORT' ? t('configuration.directionShort') : t('configuration.directionLong')}) {marketLabel}
+                  </option>
+                )
+              })}
             </optgroup>
           )}
         </Select>

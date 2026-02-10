@@ -72,7 +72,7 @@ interface OrderInfo {
 
 const Orders: React.FC = () => {
   const { t } = useTranslation()
-  const { selectedExchange, selectedSymbol } = useSymbol()
+  const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const [pendingOrders, setPendingOrders] = useState<PendingOrderInfo[]>([])
   const [historyOrders, setHistoryOrders] = useState<OrderInfo[]>([])
   const [historyTotalCount, setHistoryTotalCount] = useState<number>(0)
@@ -231,7 +231,7 @@ const Orders: React.FC = () => {
       try {
         const res = await getSymbols()
         const sym = res.symbols?.find(
-          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol && (s.market_type ?? 'futures') === (selectedMarketType ?? 'futures')
         )
         setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
       } catch {
@@ -239,7 +239,7 @@ const Orders: React.FC = () => {
       }
     }
     loadDirection()
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   // 刷新待成交订單
   const refreshPendingOrders = async () => {

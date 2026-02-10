@@ -5,7 +5,7 @@ import { getSlots, getSymbols, SlotInfo } from '../services/api'
 
 const Slots: React.FC = () => {
   const { t } = useTranslation()
-  const { selectedExchange, selectedSymbol } = useSymbol()
+  const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const [slots, setSlots] = useState<SlotInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -52,7 +52,7 @@ const Slots: React.FC = () => {
       try {
         const res = await getSymbols()
         const sym = res.symbols?.find(
-          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol && (s.market_type ?? 'futures') === (selectedMarketType ?? 'futures')
         )
         setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
       } catch {
@@ -60,7 +60,7 @@ const Slots: React.FC = () => {
       }
     }
     loadDirection()
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   const sortedSlots = [...slots].sort((a, b) => {
     if (sortBy === 'price') {
