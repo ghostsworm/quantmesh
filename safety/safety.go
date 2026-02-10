@@ -81,15 +81,21 @@ func CheckAccountSafety(ex exchange.IExchange, symbol string, currentPrice, orde
 
 	logger.Info("📊 交易所: %s, 交易對: %s, 當前杠杆倍數: %dx, 當前持倉: %.4f", exchangeName, symbol, leverage, positionAmt)
 
-	// 3. 强制杠杆倍數检查
-	// 如果 maxLeverage 為 0，使用默认值；如果 maxLeverage > 0，使用配置值
-	effectiveMaxLeverage := maxLeverage
-	if effectiveMaxLeverage == 0 {
-		effectiveMaxLeverage = DefaultMaxLeverage
-	}
+	// 3. 强制杠杆倍數检查（現貨無杠杆，跳過此檢查並強制為 1x）
+	marketType := ex.GetMarketType()
+	if marketType == "spot" {
+		leverage = 1
+		logger.Info("ℹ️ 現貨市場，跳過杠杆倍數檢查（恒為 1x）")
+	} else {
+		// 如果 maxLeverage 為 0，使用默认值；如果 maxLeverage > 0，使用配置值
+		effectiveMaxLeverage := maxLeverage
+		if effectiveMaxLeverage == 0 {
+			effectiveMaxLeverage = DefaultMaxLeverage
+		}
 
-	if effectiveMaxLeverage > 0 && leverage > effectiveMaxLeverage {
-		return fmt.Errorf("您的账戶杠杆倍率太高（%dx），风險太大，禁止开倉。最大允許杠杆倍數: %dx（可在配置文件中修改 risk_control.max_leverage）", leverage, effectiveMaxLeverage)
+		if effectiveMaxLeverage > 0 && leverage > effectiveMaxLeverage {
+			return fmt.Errorf("您的账戶杠杆倍率太高（%dx），风險太大，禁止开倉。最大允許杠杆倍數: %dx（可在配置文件中修改 risk_control.max_leverage）", leverage, effectiveMaxLeverage)
+		}
 	}
 
 	// 4. 计算最大可持有倉位

@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.54.1-rc1"
+var Version = "3.54.1-rc2"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -379,7 +379,7 @@ func (a *symbolManagerWebAdapter) List() []interface{} {
 	return result
 }
 
-func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
+func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketType string) error {
 	// 從配置管理器獲取最新配置（而不是使用啟动時的配置）
 	cfg, err := web.GetLatestConfig()
 	if err != nil {
@@ -389,7 +389,7 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 	}
 
 	// 從配置中查找對应的 SymbolConfig（可能有多個同名交易對，如 BTCUSDT 合約 + BTCUSDT 現貨）
-	// 優先啟動尚未運行的那個
+	// 若前端傳入 market_type，優先啟動與之匹配且尚未運行的；否則啟動首個尚未運行的
 	var symCfg *config.SymbolConfig
 	var candidates []*config.SymbolConfig
 	for i := range cfg.Trading.Symbols {
@@ -415,12 +415,57 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol string) error {
 		return err
 	}
 
-	// 從候選中找到尚未運行的
-	for _, c := range candidates {
-		mt := c.GetMarketType()
-		if _, running := a.manager.Get(exchange, symbol, mt); !running {
-			symCfg = c
-			break
+	// 若指定了 market_type，優先匹配該類型且未運行的
+	if requestedMarketType != "" {
+		reqMT := strings.ToLower(strings.TrimSpace(requestedMarketType))
+		if reqMT == "spot" || reqMT == "futures" {
+			var hasMatching bool
+			for _, c := range candidates {
+				mt := strings.ToLower(c.GetMarketType())
+				if mt == reqMT {
+					hasMatching = true
+					if _, running := a.manager.Get(exchange, symbol, c.GetMarketType()); !running {
+						symCfg = c
+						break
+					}
+				}
+			}
+			if symCfg == nil && hasMatching {
+				err := fmt.Errorf("交易對 %s:%s (%s) 已在使用中，無需重複啟動", exchange, symbol, requestedMarketType)
+				if a.eventBus != nil {
+					a.eventBus.Publish(&event.Event{
+						Type: event.EventTypeTradingStartFailed,
+						Data: map[string]interface{}{
+							"exchange": exchange, "symbol": symbol,
+							"error": err.Error(), "message": err.Error(),
+						},
+					})
+				}
+				return err
+			}
+			if symCfg == nil && reqMT == "spot" {
+				err := fmt.Errorf("未找到 %s:%s 的現貨配置，請先在配置中新增 market_type: spot 的交易對", exchange, symbol)
+				if a.eventBus != nil {
+					a.eventBus.Publish(&event.Event{
+						Type: event.EventTypeTradingStartFailed,
+						Data: map[string]interface{}{
+							"exchange": exchange, "symbol": symbol,
+							"error": err.Error(), "message": err.Error(),
+						},
+					})
+				}
+				return err
+			}
+		}
+	}
+	// 未指定或未匹配到：取首個尚未運行的
+	if symCfg == nil {
+		for _, c := range candidates {
+			mt := c.GetMarketType()
+			if _, running := a.manager.Get(exchange, symbol, mt); !running {
+				symCfg = c
+				break
+			}
 		}
 	}
 
