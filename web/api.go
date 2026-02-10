@@ -439,35 +439,38 @@ func enrichOpeningStatus(st *SystemStatus) {
 func getStatus(c *gin.Context) {
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
+	marketType := c.Query("market_type")
+	if marketType == "" {
+		marketType = "futures"
+	}
 
-	// 如果指定了 exchange 和 symbol，尝試獲取對应的状態
+	// 如果指定了 exchange 和 symbol，尝試獲取對应的状態（按 exchange:symbol:market_type 精確匹配）
 	if exchange != "" && symbol != "" {
-		key := makeSymbolKey(exchange, symbol)
 		statusMu.RLock()
-		st, ok := statusBySymbol[key]
-		statusMu.RUnlock()
-
+		st, ok := resolveStatusBySymbol(exchange, symbol, marketType)
 		if ok && st != nil {
-			// 找到了运行中的状態，豐富開倉管理狀態後返回
 			copySt := *st
+			statusMu.RUnlock()
 			enrichOpeningStatus(&copySt)
 			c.JSON(http.StatusOK, &copySt)
 			return
 		}
+		statusMu.RUnlock()
 
-		// 没有找到运行中的状態，检查配置中是否有這個币种
+		// 没有找到运行中的状態，检查配置中是否有該 exchange:symbol:market_type
 		if configManager != nil {
 			cfg, err := configManager.GetConfig()
 			if err == nil && cfg != nil {
-				// 检查配置中是否有這個币种
 				for _, symCfg := range cfg.Trading.Symbols {
 					if strings.EqualFold(symCfg.Exchange, exchange) &&
-						strings.EqualFold(symCfg.Symbol, symbol) {
-						// 配置中存在但未运行，返回正确的状態信息
+						strings.EqualFold(symCfg.Symbol, symbol) &&
+						strings.EqualFold(symCfg.GetMarketType(), marketType) {
+						// 配置中存在但未运行，返回正确的状態信息（含 market_type）
 						c.JSON(http.StatusOK, &SystemStatus{
 							Running:       false,
 							Exchange:      exchange,
 							Symbol:        symbol,
+							MarketType:    marketType,
 							CurrentPrice:  0,
 							TotalPnL:      0,
 							TotalTrades:   0,
@@ -480,11 +483,12 @@ func getStatus(c *gin.Context) {
 			}
 		}
 
-		// 配置中也没有找到，返回未运行状態（但包含请求的 exchange 和 symbol）
+		// 配置中也没有找到，返回未运行状態（但包含请求的 exchange、symbol、market_type）
 		c.JSON(http.StatusOK, &SystemStatus{
 			Running:       false,
 			Exchange:      exchange,
 			Symbol:        symbol,
+			MarketType:    marketType,
 			CurrentPrice:  0,
 			TotalPnL:      0,
 			TotalTrades:   0,
@@ -512,11 +516,11 @@ type StatusesResponse struct {
 
 // getStatuses 批量返回所有交易對的系统状態（用於概览页一次拉取）
 // GET /api/statuses
+// key 為 exchange:symbol:market_type，避免同交易所同币种的現貨/合約互相覆蓋
 func getStatuses(c *gin.Context) {
-	// 使用 map 做去重，key 為 exchange:symbol（小写）
 	statusMap := make(map[string]SystemStatus)
 
-	// 1) 先從配置中構造“未运行”的默认状態，确保列表完整
+	// 1) 先從配置中構造“未运行”的默认状態，key 含 market_type
 	if configManager != nil {
 		cfg, err := configManager.GetConfig()
 		if err == nil && cfg != nil {
@@ -531,12 +535,17 @@ func getStatuses(c *gin.Context) {
 				if ex == "" {
 					continue
 				}
-				key := strings.ToLower(fmt.Sprintf("%s:%s", ex, sym.Symbol))
+				mt := sym.GetMarketType()
+				if mt == "" {
+					mt = "futures"
+				}
+				key := makeSymbolKey(ex, sym.Symbol, mt)
 				if _, exists := statusMap[key]; !exists {
 					statusMap[key] = SystemStatus{
 						Running:       false,
 						Exchange:      strings.ToLower(ex),
 						Symbol:        sym.Symbol,
+						MarketType:    mt,
 						CurrentPrice:  0,
 						TotalPnL:      0,
 						TotalTrades:   0,
@@ -548,12 +557,13 @@ func getStatuses(c *gin.Context) {
 
 			// 兼容舊的單交易對配置
 			if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" && cfg.App.CurrentExchange != "" {
-				key := strings.ToLower(fmt.Sprintf("%s:%s", cfg.App.CurrentExchange, cfg.Trading.Symbol))
+				key := makeSymbolKey(cfg.App.CurrentExchange, cfg.Trading.Symbol, "futures")
 				if _, exists := statusMap[key]; !exists {
 					statusMap[key] = SystemStatus{
 						Running:       false,
 						Exchange:      strings.ToLower(cfg.App.CurrentExchange),
 						Symbol:        cfg.Trading.Symbol,
+						MarketType:    "futures",
 						CurrentPrice:  0,
 						TotalPnL:      0,
 						TotalTrades:   0,
@@ -565,15 +575,14 @@ func getStatuses(c *gin.Context) {
 		}
 	}
 
-	// 2) 再用运行中状態覆盖（複制一份，避免並发读写數據竞争）
+	// 2) 再用运行中状態覆盖，key 使用註冊時的 exchange:symbol:market_type
 	statusMu.RLock()
-	for _, st := range statusBySymbol {
+	for key, st := range statusBySymbol {
 		if st == nil {
 			continue
 		}
 		copySt := *st
 		copySt.Exchange = strings.ToLower(copySt.Exchange)
-		key := strings.ToLower(fmt.Sprintf("%s:%s", copySt.Exchange, copySt.Symbol))
 		statusMap[key] = copySt
 	}
 	statusMu.RUnlock()
@@ -584,7 +593,11 @@ func getStatuses(c *gin.Context) {
 		copySt := *currentStatus
 		statusMu.RUnlock()
 		copySt.Exchange = strings.ToLower(copySt.Exchange)
-		key := strings.ToLower(fmt.Sprintf("%s:%s", copySt.Exchange, copySt.Symbol))
+		mt := copySt.MarketType
+		if mt == "" {
+			mt = "futures"
+		}
+		key := makeSymbolKey(copySt.Exchange, copySt.Symbol, mt)
 		statusMap[key] = copySt
 	}
 

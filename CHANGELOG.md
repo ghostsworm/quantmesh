@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.1-rc3] - 2026-02-10
+
+### Fixed
+- **修復概覽頁「未運行」與「已啟動」狀態不一致**：判斷當前是否已啟動時區分 spot/future，避免選中現貨時顯示未運行但點擊啟動報「已在使用中」
+  - 後端 `GET /api/status` 支援 `market_type` 查詢參數，按 `exchange:symbol:market_type` 精確查詢運行狀態；配置匹配時亦按 market_type 過濾
+  - 後端 `GET /api/statuses` 列表 key 改為 `exchange:symbol:market_type`，現貨與合約不再互相覆蓋
+  - 前端 `getSystemStatus` 傳入 `marketType`；Dashboard 拉狀態與匹配 isTrading 時均比較 `market_type`；GlobalDashboard 兜底拉單條狀態時傳入 `sym.market_type`
+
 ## [3.54.1-rc2] - 2026-02-10
 
 ### Fixed
