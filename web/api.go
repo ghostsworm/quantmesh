@@ -2385,7 +2385,7 @@ func startTrading(c *gin.Context) {
 		return
 	}
 
-	err := symbolManagerProvider.StartSymbol(exchange, symbol)
+	err := symbolManagerProvider.StartSymbol(exchange, symbol, marketType)
 	if err != nil {
 		logger.Error("❌ [%s:%s:%s] 啟动交易失败: %v", exchange, symbol, marketType, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -2497,7 +2497,7 @@ var (
 type SymbolManagerProvider interface {
 	Get(exchange, symbol string) (interface{}, bool) // 回傳 SymbolRuntime（使用 interface{} 避免循环依赖）
 	List() []interface{}                             // 回傳 SymbolRuntime 列表
-	StartSymbol(exchange, symbol string) error       // 啟动指定交易所/币种的交易
+	StartSymbol(exchange, symbol, marketType string) error // 啟动指定交易所/币种的交易，marketType 為空時自動選首個未運行的
 	StopSymbol(exchange, symbol string) error        // 停止指定交易所/币种的交易
 }
 
