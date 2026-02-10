@@ -54,6 +54,7 @@ interface SystemStatus {
   running: boolean
   exchange: string
   symbol: string
+  market_type?: string
   current_price: number
   total_pnl: number
   total_trades: number
@@ -145,7 +146,7 @@ const Dashboard: React.FC = () => {
     const fetchData = async () => {
       try {
         const [statusData, statsData, slotsData, allocationData, ordersData, positionsData, runtimeStatuses] = await Promise.all([
-          getStatus(selectedExchange || undefined, selectedSymbol || undefined),
+          getStatus(selectedExchange || undefined, selectedSymbol || undefined, selectedMarketType ?? undefined),
           getStatistics(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
           getSlots(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
           getStrategyAllocation().catch(() => null),
@@ -162,9 +163,12 @@ const Dashboard: React.FC = () => {
         if (runtimeStatuses && runtimeStatuses.success) {
           setStrategyRuntimeStatuses(runtimeStatuses.strategies || [])
         }
-        // 只有當状態匹配當前选擇的币种時才更新 isTrading
+        // 只有當状態匹配當前选擇的币种（含 exchange/symbol/market_type）時才更新 isTrading
+        const statusMt = statusData?.market_type ?? 'futures'
+        const selectedMt = selectedMarketType ?? 'futures'
         const isMatched = statusData?.exchange?.toLowerCase() === selectedExchange?.toLowerCase() &&
-          statusData?.symbol?.toUpperCase() === selectedSymbol?.toUpperCase()
+          statusData?.symbol?.toUpperCase() === selectedSymbol?.toUpperCase() &&
+          statusMt === selectedMt
         setIsTrading(isMatched && (statusData?.running || false))
         setLoading(false)
       } catch (error) {
@@ -175,7 +179,7 @@ const Dashboard: React.FC = () => {
     fetchData()
     const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   // 獲取當前交易對的方向（做多/做空）
   useEffect(() => {

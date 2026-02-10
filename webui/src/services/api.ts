@@ -31,6 +31,7 @@ export interface SystemStatus {
   running: boolean
   exchange: string
   symbol: string
+  market_type?: string       // 市場類型：spot/futures，用於區分現貨與合約
   current_price: number
   total_pnl: number
   total_trades: number
@@ -40,10 +41,11 @@ export interface SystemStatus {
   pause_reason?: string      // 暂停原因：manual / schedule / periodic / position_limit
 }
 
-export async function getSystemStatus(exchange?: string, symbol?: string): Promise<SystemStatus> {
+export async function getSystemStatus(exchange?: string, symbol?: string, marketType?: string): Promise<SystemStatus> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/status${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }

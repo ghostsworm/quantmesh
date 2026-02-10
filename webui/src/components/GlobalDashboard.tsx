@@ -166,7 +166,7 @@ const GlobalDashboard: React.FC = () => {
       } else {
         // 兜底：批量接口异常時，改為並发拉單個状態，避免串行卡住
         const results = await Promise.allSettled(
-          symbolsData.symbols.map(sym => getSystemStatus(sym.exchange, sym.symbol))
+          symbolsData.symbols.map(sym => getSystemStatus(sym.exchange, sym.symbol, sym.market_type))
         )
         results.forEach((res, idx) => {
           const sym = symbolsData.symbols[idx]
