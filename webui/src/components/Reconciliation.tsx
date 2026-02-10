@@ -69,7 +69,7 @@ type ViewMode = 'raw' | 'aggregated'
 
 const Reconciliation: React.FC = () => {
   const { t } = useTranslation()
-  const { selectedExchange, selectedSymbol } = useSymbol()
+  const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const [status, setStatus] = useState<ReconciliationStatus | null>(null)
   const [history, setHistory] = useState<ReconciliationHistoryItem[]>([])
   const [aggregatedData, setAggregatedData] = useState<AggregatedData[]>([])
@@ -217,7 +217,7 @@ const Reconciliation: React.FC = () => {
       try {
         const res = await getSymbols()
         const sym = res.symbols?.find(
-          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol && (s.market_type ?? 'futures') === (selectedMarketType ?? 'futures')
         )
         setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
       } catch {
@@ -225,7 +225,7 @@ const Reconciliation: React.FC = () => {
       }
     }
     loadDirection()
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   const formatTime = (timeStr: string) => {
     try {

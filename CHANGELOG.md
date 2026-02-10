@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.1-rc1] - 2026-02-10
+
+### Added
+- **頂部菜單交易對選擇標明現貨/合約**：選擇交易所後的交易對下拉中每項顯示「現貨」或「合約」標籤，避免同名交易對混淆
+  - SymbolContext 新增 `selectedMarketType` 並持久化；交易對選項使用複合 value（symbol::market_type）區分現貨與合約
+  - Dashboard 起停交易、Orders/Positions/Reconciliation/Slots 的當前交易對匹配均按 exchange+symbol+market_type 精確匹配
+
 ## [3.54.0-rc8] - 2026-02-10
 
 ### Fixed

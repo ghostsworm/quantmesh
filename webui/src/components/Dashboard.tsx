@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
 import {
   Box,
   Heading,
@@ -94,7 +95,7 @@ const GlassCard: React.FC<{ title?: React.ReactNode; children: React.ReactNode; 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { selectedExchange, selectedSymbol } = useSymbol()
+  const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const quoteAsset = getQuoteAsset(selectedSymbol)
   
   const getOrderSideText = (side: string) => {
@@ -186,7 +187,7 @@ const Dashboard: React.FC = () => {
       try {
         const res = await getSymbols()
         const sym = res.symbols?.find(
-          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol
+          s => s.exchange?.toLowerCase() === selectedExchange?.toLowerCase() && s.symbol === selectedSymbol && (s.market_type ?? 'futures') === (selectedMarketType ?? 'futures')
         )
         setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
       } catch {
@@ -194,7 +195,7 @@ const Dashboard: React.FC = () => {
       }
     }
     loadDirection()
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   const TOGGLE_TIMEOUT_MS = 10_000
 
@@ -276,14 +277,14 @@ const Dashboard: React.FC = () => {
 
   const handleToggleTrading = async () => {
     if (togglePending) return
-    setTogglePending(true)
+    flushSync(() => setTogglePending(true))
     const isStop = isTrading
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('TIMEOUT')), TOGGLE_TIMEOUT_MS)
     })
     const actionPromise = isStop
-      ? stopTrading(selectedExchange || undefined, selectedSymbol || undefined)
-      : startTrading(selectedExchange || undefined, selectedSymbol || undefined)
+      ? stopTrading(selectedExchange || undefined, selectedSymbol || undefined, selectedMarketType ?? undefined)
+      : startTrading(selectedExchange || undefined, selectedSymbol || undefined, selectedMarketType ?? undefined)
     try {
       await Promise.race([actionPromise, timeoutPromise])
       setIsTrading(!isStop)
