@@ -79,6 +79,8 @@ const BacktestMenu = lazy(() => import('./components/BacktestMenu'))
 const ServiceStatusPage = lazy(() => import('./components/ServiceStatusPage'))
 const DataExport = lazy(() => import('./components/DataExport'))
 const KlineFilesManager = lazy(() => import('./components/KlineFilesManager'))
+const StrategyOverview = lazy(() => import('./components/StrategyOverview'))
+const StrategyDetail = lazy(() => import('./components/StrategyDetail'))
 
 // 懒加载 fallback
 const LazyFallback = () => (
@@ -491,6 +493,8 @@ const AppContent: React.FC = () => {
                 <Route path="/ai-config" element={<ProtectedRoute><AIConfigPage /></ProtectedRoute>} />
                 <Route path="/ai/tasks" element={<ProtectedRoute><AITaskManager /></ProtectedRoute>} />
                 <Route path="/events" element={<ProtectedRoute><EventCenter /></ProtectedRoute>} />
+                <Route path="/strategy-overview" element={<ProtectedRoute><StrategyOverview /></ProtectedRoute>} />
+                <Route path="/strategy-detail" element={<ProtectedRoute><StrategyDetail /></ProtectedRoute>} />
                 <Route path="/strategy-market" element={<ProtectedRoute><StrategyMarket /></ProtectedRoute>} />
                 <Route path="/capital-management" element={<ProtectedRoute><CapitalManagement /></ProtectedRoute>} />
                 <Route path="/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />

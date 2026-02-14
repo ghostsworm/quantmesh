@@ -357,6 +357,7 @@ const Dashboard: React.FC = () => {
   const sellPriceDeviation = typeof statistics?.total_sell_deviation === 'number' ? statistics.total_sell_deviation : 0
   // 总偏差净额：买入偏差 + 卖出偏差（正数表示净收益，负数表示净损失）
   const priceDeviationNet = buyPriceDeviation + sellPriceDeviation
+  const hasGridStrategy = strategyRuntimeStatuses.some((s) => s.name === 'grid' || s.type === 'grid')
   // 收益率：用分配资金作为分母，无分配资金时不显示百分比
   const totalAllocated = strategyAllocation?.allocation
     ? Object.values(strategyAllocation.allocation).reduce((sum, cap) => sum + (cap.allocated || 0), 0)
@@ -603,8 +604,8 @@ const Dashboard: React.FC = () => {
           </GlassCard>
         </SimpleGrid>
 
-        {/* 🔥 价格偏差统计 */}
-        {(Math.abs(priceDeviationNet) > 0.01 || Math.abs(buyPriceDeviation) > 0.01 || Math.abs(sellPriceDeviation) > 0.01) && (
+        {/* 🔥 价格偏差统计 - 仅网格策略时显示 */}
+        {hasGridStrategy && (Math.abs(priceDeviationNet) > 0.01 || Math.abs(buyPriceDeviation) > 0.01 || Math.abs(sellPriceDeviation) > 0.01) && (
           <GlassCard>
             <Heading size="sm" mb={4} color="gray.700">{t('dashboard.priceDeviation')}</Heading>
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
@@ -860,7 +861,8 @@ const Dashboard: React.FC = () => {
           </VStack>
         </SimpleGrid>
 
-        {/* Slots Matrix - 移到底部，更紧凑的展示 */}
+        {/* Slots Matrix - 仅网格策略时显示 */}
+        {hasGridStrategy && (
         <GlassCard title={t('dashboard.slotsMatrix')}>
           {slotsInfo ? (
             <SimpleGrid columns={{ base: 4, md: 8 }} spacing={3}>
@@ -885,6 +887,7 @@ const Dashboard: React.FC = () => {
             <Text color="gray.400" fontSize="sm">{t('dashboard.noSlotsInfo')}</Text>
           )}
         </GlassCard>
+        )}
 
         {/* 策略可视化 */}
         {strategyAllocation && strategyRuntimeStatuses.length > 0 && (

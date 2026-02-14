@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
-import { getStatistics, getDailyStatistics } from '../services/api'
+import { getStatistics, getDailyStatistics, getPnLByTimeRange } from '../services/api'
 import StatisticsCalendar from './StatisticsCalendar'
 
 interface StatisticsData {
@@ -97,24 +97,18 @@ const Statistics: React.FC = () => {
 
   // 獲取按時间区间的盈亏數據
   useEffect(() => {
-    const fetchPnLByTimeRange = async () => {
+    const loadPnLByTimeRange = async () => {
       try {
-        const params = new URLSearchParams({
-          start_time: new Date(startDate).toISOString(),
-          end_time: new Date(endDate + 'T23:59:59').toISOString(),
-        })
-        const response = await fetch(`/api/statistics/pnl/time-range?${params}`, {
-          credentials: 'include',
-        })
-        if (!response.ok) throw new Error(t('statistics.fetchPnLFailed'))
-        const data = await response.json()
+        const startTime = new Date(startDate).toISOString()
+        const endTime = new Date(endDate + 'T23:59:59').toISOString()
+        const data = await getPnLByTimeRange(startTime, endTime)
         setPnlByTimeRange(data.pnl_by_symbol || [])
       } catch (err) {
         console.error('Failed to fetch PnL by time range:', err)
       }
     }
 
-    fetchPnLByTimeRange()
+    loadPnLByTimeRange()
   }, [startDate, endDate])
 
   if (loading && !stats) {

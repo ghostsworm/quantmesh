@@ -54,7 +54,7 @@ const WEEKDAYS = [
 const OpeningControl: React.FC = () => {
   const { t } = useTranslation()
   const toast = useToast()
-  const { selectedExchange, selectedSymbol } = useSymbol()
+  const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
 
   const [status, setStatus] = useState<OpeningControlStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,7 +80,7 @@ const OpeningControl: React.FC = () => {
     }
     try {
       setLoading(true)
-      const data = await getOpeningControlStatus(selectedExchange, selectedSymbol)
+      const data = await getOpeningControlStatus(selectedExchange, selectedSymbol, selectedMarketType ?? undefined)
       setStatus(data)
       setError(null)
 
@@ -108,17 +108,17 @@ const OpeningControl: React.FC = () => {
     fetchStatus()
     const interval = setInterval(fetchStatus, 10000)
     return () => clearInterval(interval)
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   const handleToggleOpening = async () => {
     if (!selectedExchange || !selectedSymbol) return
     setToggling(true)
     try {
       if (status?.opening_paused) {
-        await resumeOpening(selectedExchange, selectedSymbol)
+        await resumeOpening(selectedExchange, selectedSymbol, selectedMarketType ?? undefined)
         toast({ title: t('openingControl.resumeSuccess'), status: 'success', duration: 2000 })
       } else {
-        await pauseOpening(selectedExchange, selectedSymbol)
+        await pauseOpening(selectedExchange, selectedSymbol, selectedMarketType ?? undefined)
         toast({ title: t('openingControl.pauseSuccess'), status: 'info', duration: 2000 })
       }
       await fetchStatus()
@@ -141,7 +141,7 @@ const OpeningControl: React.FC = () => {
           ? { enabled: true, open_duration_min: parseInt(openDurationMin, 10) || 60, close_duration_min: parseInt(closeDurationMin, 10) || 30 }
           : { enabled: false, open_duration_min: 60, close_duration_min: 30 },
       }
-      await updateOpeningControlConfig(selectedExchange, selectedSymbol, cfg)
+      await updateOpeningControlConfig(selectedExchange, selectedSymbol, cfg, selectedMarketType ?? undefined)
       toast({ title: t('openingControl.configSaved'), status: 'success', duration: 2000 })
       await fetchStatus()
     } catch (err) {

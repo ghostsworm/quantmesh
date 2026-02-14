@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.54.1-rc3"
+var Version = "3.54.2-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -363,7 +363,15 @@ type symbolManagerWebAdapter struct {
 }
 
 func (a *symbolManagerWebAdapter) Get(exchange, symbol string) (interface{}, bool) {
-	rt, ok := a.manager.Get(exchange, symbol)
+	return a.GetEx(exchange, symbol, "")
+}
+
+func (a *symbolManagerWebAdapter) GetEx(exchange, symbol, marketType string) (interface{}, bool) {
+	mt := marketType
+	if mt == "" {
+		mt = "futures"
+	}
+	rt, ok := a.manager.Get(exchange, symbol, mt)
 	if !ok {
 		return nil, false
 	}
@@ -955,6 +963,77 @@ func (a *symbolManagerWebAdapter) GetStrategyStatus(exchange, symbol, strategyNa
 	}
 
 	return resp, nil
+}
+
+// GetAllStrategyStatusAll 獲取所有幣種下所有策略的運行狀態（聚合）
+func (a *symbolManagerWebAdapter) GetAllStrategyStatusAll() ([]web.SymbolStrategyRuntimeItem, error) {
+	runtimes := a.manager.List()
+	result := make([]web.SymbolStrategyRuntimeItem, 0, len(runtimes))
+	for _, rt := range runtimes {
+		if rt.StrategyManager == nil {
+			continue
+		}
+		statuses := rt.StrategyManager.GetAllStrategyStatus()
+		strategies := make([]web.StrategyRuntimeStatusResponse, 0, len(statuses))
+		for _, s := range statuses {
+			resp := web.StrategyRuntimeStatusResponse{
+				Name:           s.Name,
+				Type:           s.Type,
+				IsEnabled:      s.IsEnabled,
+				IsRunning:      s.IsRunning,
+				Weight:         s.Weight,
+				AllocatedFunds: s.AllocatedFunds,
+				UsedFunds:      s.UsedFunds,
+				AvailableFunds: s.AvailableFunds,
+				PositionCount:  s.PositionCount,
+				OrderCount:     s.OrderCount,
+			}
+			if s.Statistics != nil {
+				resp.Statistics = &web.StrategyStatsResponse{
+					TotalTrades: s.Statistics.TotalTrades,
+					WinRate:     s.Statistics.WinRate,
+					TotalPnL:    s.Statistics.TotalPnL,
+					TotalVolume: s.Statistics.TotalVolume,
+				}
+			}
+			if s.Positions != nil {
+				resp.Positions = make([]web.StrategyPositionResp, 0, len(s.Positions))
+				for _, p := range s.Positions {
+					resp.Positions = append(resp.Positions, web.StrategyPositionResp{
+						Symbol:       p.Symbol,
+						Size:         p.Size,
+						EntryPrice:   p.EntryPrice,
+						CurrentPrice: p.CurrentPrice,
+						PnL:          p.PnL,
+					})
+				}
+			}
+			if s.Orders != nil {
+				resp.Orders = make([]web.StrategyOrderResp, 0, len(s.Orders))
+				for _, o := range s.Orders {
+					resp.Orders = append(resp.Orders, web.StrategyOrderResp{
+						OrderID:  o.OrderID,
+						Symbol:   o.Symbol,
+						Side:     o.Side,
+						Price:    o.Price,
+						Quantity: o.Quantity,
+						Status:   o.Status,
+					})
+				}
+			}
+			if s.VisualizationData != nil {
+				resp.VisualizationData = s.VisualizationData
+			}
+			strategies = append(strategies, resp)
+		}
+		result = append(result, web.SymbolStrategyRuntimeItem{
+			Exchange:   rt.Config.Exchange,
+			Symbol:     rt.Config.Symbol,
+			MarketType: rt.Config.GetMarketType(),
+			Strategies: strategies,
+		})
+	}
+	return result, nil
 }
 
 func init() {
