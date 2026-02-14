@@ -421,6 +421,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				strategies.GET("/configs", getStrategyConfigsHandler)
 				strategies.GET("/enabled", getEnabledStrategiesHandler)
 				strategies.GET("/runtime", getStrategyRuntimeStatusHandler)         // 獲取所有策略運行狀態
+				strategies.GET("/runtime/all", getStrategyRuntimeAllHandler)       // 獲取所有幣種下所有策略運行狀態（聚合）
 				strategies.GET("/runtime/:id", getStrategyRuntimeStatusByIDHandler) // 獲取單個策略運行狀態
 				strategies.POST("/batch-update", batchUpdateStrategiesHandler)
 				strategies.POST("/release-all-capital", releaseAllStrategiesCapital) // 释放所有策略锁定资金

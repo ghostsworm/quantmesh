@@ -817,9 +817,18 @@ type StrategyOrderResp struct {
 	Status   string  `json:"status"`
 }
 
+// SymbolStrategyRuntimeItem 單個幣種下的策略運行狀態聚合（用於 GET /api/strategies/runtime/all）
+type SymbolStrategyRuntimeItem struct {
+	Exchange    string                         `json:"exchange"`
+	Symbol      string                         `json:"symbol"`
+	MarketType  string                         `json:"marketType"`
+	Strategies  []StrategyRuntimeStatusResponse `json:"strategies"`
+}
+
 // StrategyRuntimeProvider 策略運行時提供者接口
 type StrategyRuntimeProvider interface {
 	GetAllStrategyStatus(exchange, symbol string) ([]StrategyRuntimeStatusResponse, error)
+	GetAllStrategyStatusAll() ([]SymbolStrategyRuntimeItem, error)
 	GetStrategyStatus(exchange, symbol, strategyName string) (*StrategyRuntimeStatusResponse, error)
 }
 
@@ -917,5 +926,35 @@ func getStrategyRuntimeStatusByIDHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
 		"strategy": status,
+	})
+}
+
+// getStrategyRuntimeAllHandler 獲取所有幣種下所有策略的運行狀態（聚合）
+func getStrategyRuntimeAllHandler(c *gin.Context) {
+	if strategyRuntimeProvider == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    []SymbolStrategyRuntimeItem{},
+			"message": "策略運行時提供者未初始化",
+		})
+		return
+	}
+
+	data, err := strategyRuntimeProvider.GetAllStrategyStatusAll()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "獲取策略狀態失敗: " + err.Error(),
+		})
+		return
+	}
+
+	if data == nil {
+		data = []SymbolStrategyRuntimeItem{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    data,
 	})
 }

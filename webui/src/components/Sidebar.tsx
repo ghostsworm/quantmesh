@@ -240,6 +240,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           </Box>
         )}
         <NavItem 
+          icon={ViewIcon} 
+          to="/strategy-overview" 
+          isActive={isRouteActive('/strategy-overview')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.strategyOverview')}
+        </NavItem>
+        <NavItem 
           icon={InfoIcon} 
           to="/" 
           isActive={isRouteActive('/') && isGlobalView}

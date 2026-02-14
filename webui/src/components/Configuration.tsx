@@ -176,7 +176,7 @@ const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: an
 const Configuration: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { isGlobalView, selectedExchange, selectedSymbol } = useSymbol()
+  const { isGlobalView, selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const [config, setConfig] = useState<Config | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -1806,7 +1806,7 @@ const Configuration: React.FC = () => {
                                 if (!selectedExchange || !selectedSymbol) return
                                 try {
                                   const step = getSelectedSymbolConfig()?.grid_shift_step ?? config.trading?.price_interval ?? 0
-                                  await gridShiftUp(selectedExchange, selectedSymbol, step || undefined)
+                                  await gridShiftUp(selectedExchange, selectedSymbol, step || undefined, selectedMarketType ?? undefined)
                                   toast({ title: t('common.success'), status: 'success', duration: 2000 })
                                   fetchPriceRange()
                                 } catch (e: any) {
@@ -1825,7 +1825,7 @@ const Configuration: React.FC = () => {
                                 if (!selectedExchange || !selectedSymbol) return
                                 try {
                                   const step = getSelectedSymbolConfig()?.grid_shift_step ?? config.trading?.price_interval ?? 0
-                                  await gridShiftDown(selectedExchange, selectedSymbol, step || undefined)
+                                  await gridShiftDown(selectedExchange, selectedSymbol, step || undefined, selectedMarketType ?? undefined)
                                   toast({ title: t('common.success'), status: 'success', duration: 2000 })
                                   fetchPriceRange()
                                 } catch (e: any) {

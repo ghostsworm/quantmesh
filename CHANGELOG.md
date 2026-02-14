@@ -2,6 +2,27 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.54.2-rc1] - 2026-02-15
+
+### Added
+- **策略總覽優先**：導航改為策略維度優先，進入系統先看到所有策略運行概況
+  - 新增 `GET /api/strategies/runtime/all` 聚合 API，返回所有幣種下所有策略的運行狀態
+  - 新增策略總覽頁 `/strategy-overview`，展示所有策略卡片（狀態/PnL/持倉/資金），支持篩選與搜索
+  - 新增策略詳情頁 `/strategy-detail`，展示單策略的持倉、訂單、統計與可視化
+  - 側邊欄「策略總覽」置於全局監控首位
+- **修復持倉 strategy 硬編碼**：`getPositionsSummaryAll` 從策略運行時獲取實際策略名稱，不再硬編碼 `"grid"`
+- **Dashboard 去網格中心化**：Slots 矩陣與價格偏差僅在有 grid 策略時顯示
+
+## [3.54.1-rc5] - 2026-02-12
+
+### Fixed
+- **401 未登錄時自動跳轉登錄頁**：API 返回 401 時自動跳轉至 `/login`，避免頁面顯示錯誤提示；`fetchWithAuth` 及 backtest/optimizer 共用此邏輯
+
+## [3.54.1-rc4] - 2026-02-10
+
+### Fixed
+- **修復現貨交易對開倉管理/網格報 symbol_not_found**：開倉管理、網格上移/下移 API 現支援 `market_type` 查詢參數，按 `exchange:symbol:market_type` 精確查找運行時；前端開倉管理、配置頁網格操作傳入 `selectedMarketType`，現貨交易對（如 PAXGUSDT）可正常使用
+
 ## [3.54.1-rc3] - 2026-02-10
 
 ### Fixed

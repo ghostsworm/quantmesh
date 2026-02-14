@@ -56,7 +56,11 @@ func getGridSPM(c *gin.Context, exchange, symbol string) (*position.SuperPositio
 		respondError(c, http.StatusServiceUnavailable, "error.symbol_manager_unavailable")
 		return nil, false
 	}
-	rtInterface, exists := symbolManagerProvider.Get(exchange, symbol)
+	marketType := c.DefaultQuery("market_type", "futures")
+	if marketType != "spot" && marketType != "futures" {
+		marketType = "futures"
+	}
+	rtInterface, exists := symbolManagerProvider.GetEx(exchange, symbol, marketType)
 	if !exists {
 		respondError(c, http.StatusNotFound, "error.symbol_not_found")
 		return nil, false

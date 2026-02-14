@@ -25,6 +25,7 @@
     "success": "Success"
   },
   "sidebar": {
+    "strategyOverview": "Strategy Overview",
     "overview": "Overview",
     "performanceMonitor": "Performance Monitor",
     "eventCenter": "Event Center",
@@ -2211,6 +2212,40 @@
     "detailedInfo": "Detailed Information",
     "noDetails": "No details available",
     "parseDetailsFailed": "Failed to parse details"
+  },
+  "strategyOverview": {
+    "title": "Strategy Overview",
+    "searchPlaceholder": "Search exchange/symbol/strategy",
+    "filterByType": "Filter by type",
+    "noStrategies": "No running strategies",
+    "running": "Running",
+    "stopped": "Stopped",
+    "pnl": "Total PnL",
+    "positions": "Positions",
+    "orders": "Orders",
+    "fundsUsed": "Funds used",
+    "spot": "Spot",
+    "futures": "Futures"
+  },
+  "strategyDetail": {
+    "missingParams": "Missing required parameters",
+    "notFound": "Strategy not found",
+    "backToOverview": "Back to Strategy Overview",
+    "goToTradingPanel": "Go to Trading Panel",
+    "totalTrades": "Total Trades",
+    "winRate": "Win Rate",
+    "positions": "Positions",
+    "orders": "Orders",
+    "symbol": "Symbol",
+    "size": "Size",
+    "entryPrice": "Entry Price",
+    "currentPrice": "Current Price",
+    "pnl": "PnL",
+    "orderId": "Order ID",
+    "side": "Side",
+    "price": "Price",
+    "quantity": "Quantity",
+    "status": "Status"
   },
   "strategyNames": {
     "grid": "Grid Trading Strategy",

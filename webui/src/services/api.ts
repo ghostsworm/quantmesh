@@ -19,6 +19,9 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      window.location.replace('/login')
+    }
     const errorText = await response.text()
     throw new Error(`HTTP ${response.status}: ${errorText}`)
   }
@@ -1396,51 +1399,48 @@ export interface OpeningControlStatus {
   }
 }
 
-export async function getOpeningControlStatus(exchange: string, symbol: string): Promise<OpeningControlStatus> {
+function openingControlQueryParams(exchange: string, symbol: string, marketType?: string | null): URLSearchParams {
   const queryParams = new URLSearchParams()
   queryParams.append('exchange', exchange)
   queryParams.append('symbol', symbol)
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/status?${queryParams.toString()}`)
+  if (marketType === 'spot' || marketType === 'futures') {
+    queryParams.append('market_type', marketType)
+  }
+  return queryParams
 }
 
-export async function pauseOpening(exchange: string, symbol: string): Promise<{ message: string; opening_paused: boolean }> {
-  const queryParams = new URLSearchParams()
-  queryParams.append('exchange', exchange)
-  queryParams.append('symbol', symbol)
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/pause?${queryParams.toString()}`, {
+export async function getOpeningControlStatus(exchange: string, symbol: string, marketType?: string | null): Promise<OpeningControlStatus> {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/status?${openingControlQueryParams(exchange, symbol, marketType).toString()}`)
+}
+
+export async function pauseOpening(exchange: string, symbol: string, marketType?: string | null): Promise<{ message: string; opening_paused: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/pause?${openingControlQueryParams(exchange, symbol, marketType).toString()}`, {
     method: 'POST',
   })
 }
 
-export async function resumeOpening(exchange: string, symbol: string): Promise<{ message: string; opening_paused: boolean }> {
-  const queryParams = new URLSearchParams()
-  queryParams.append('exchange', exchange)
-  queryParams.append('symbol', symbol)
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/resume?${queryParams.toString()}`, {
+export async function resumeOpening(exchange: string, symbol: string, marketType?: string | null): Promise<{ message: string; opening_paused: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/resume?${openingControlQueryParams(exchange, symbol, marketType).toString()}`, {
     method: 'POST',
   })
 }
 
-export async function getOpeningControlConfig(exchange: string, symbol: string): Promise<OpenPositionControlConfig> {
-  const queryParams = new URLSearchParams()
-  queryParams.append('exchange', exchange)
-  queryParams.append('symbol', symbol)
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${queryParams.toString()}`)
+export async function getOpeningControlConfig(exchange: string, symbol: string, marketType?: string | null): Promise<OpenPositionControlConfig> {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${openingControlQueryParams(exchange, symbol, marketType).toString()}`)
 }
 
 export async function updateOpeningControlConfig(
   exchange: string,
   symbol: string,
-  config: Partial<OpenPositionControlConfig>
+  config: Partial<OpenPositionControlConfig>,
+  marketType?: string | null
 ): Promise<{ message: string }> {
-  const queryParams = new URLSearchParams()
-  queryParams.append('exchange', exchange)
-  queryParams.append('symbol', symbol)
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${queryParams.toString()}`, {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${openingControlQueryParams(exchange, symbol, marketType).toString()}`, {
     method: 'PUT',
     body: JSON.stringify(config),
   })
 }
+
 
 export interface ClosePositionsResponse {
   success_count: number
@@ -1459,14 +1459,16 @@ export async function closeAllPositions(exchange?: string, symbol?: string): Pro
 }
 
 // 網格上移/下移
-export async function gridShiftUp(exchange: string, symbol: string, step?: number): Promise<{ message: string }> {
+export async function gridShiftUp(exchange: string, symbol: string, step?: number, marketType?: string | null): Promise<{ message: string }> {
   const queryParams = new URLSearchParams({ exchange, symbol })
   if (step != null && step > 0) queryParams.append('step', String(step))
+  if (marketType === 'spot' || marketType === 'futures') queryParams.append('market_type', marketType)
   return fetchWithAuth(`${API_BASE_URL}/grid/shift-up?${queryParams.toString()}`, { method: 'POST' })
 }
-export async function gridShiftDown(exchange: string, symbol: string, step?: number): Promise<{ message: string }> {
+export async function gridShiftDown(exchange: string, symbol: string, step?: number, marketType?: string | null): Promise<{ message: string }> {
   const queryParams = new URLSearchParams({ exchange, symbol })
   if (step != null && step > 0) queryParams.append('step', String(step))
+  if (marketType === 'spot' || marketType === 'futures') queryParams.append('market_type', marketType)
   return fetchWithAuth(`${API_BASE_URL}/grid/shift-down?${queryParams.toString()}`, { method: 'POST' })
 }
 

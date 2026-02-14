@@ -1329,6 +1329,30 @@ func getPositionsSummary(c *gin.Context) {
 // getPositionsSummaryAll 獲取所有交易對的持倉彙總（按交易所、币种、策略列出）
 // GET /api/positions/summary/all
 func getPositionsSummaryAll(c *gin.Context) {
+	// 從策略運行時獲取各 key 對應的策略名稱（用於替換硬編碼 "grid"）
+	strategyByKey := make(map[string]string)
+	if strategyRuntimeProvider != nil {
+		allData, err := strategyRuntimeProvider.GetAllStrategyStatusAll()
+		if err == nil {
+			for _, item := range allData {
+				k := makeSymbolKey(item.Exchange, item.Symbol, item.MarketType)
+				strategyName := "grid"
+				for _, s := range item.Strategies {
+					if s.IsEnabled && (s.PositionCount > 0 || s.OrderCount > 0) {
+						strategyName = s.Name
+						break
+					}
+					if strategyName == "grid" && s.Name != "" {
+						strategyName = s.Name
+					}
+				}
+				strategyByKey[k] = strategyName
+				// 兼容不含 marketType 的舊 key
+				strategyByKey[makeSymbolKeyCompat(item.Exchange, item.Symbol)] = strategyName
+			}
+		}
+	}
+
 	providersMu.RLock()
 	keys := make([]string, 0, len(positionProviders))
 	for k := range positionProviders {
@@ -1338,11 +1362,15 @@ func getPositionsSummaryAll(c *gin.Context) {
 
 	var result []gin.H
 	for _, key := range keys {
-		parts := strings.SplitN(key, ":", 2)
-		if len(parts) != 2 {
+		parts := strings.Split(key, ":")
+		var exchangeName, symbol, marketType string
+		if len(parts) >= 3 {
+			exchangeName, symbol, marketType = parts[0], parts[1], parts[2]
+		} else if len(parts) == 2 {
+			exchangeName, symbol, marketType = parts[0], parts[1], "futures"
+		} else {
 			continue
 		}
-		exchangeName, symbol := parts[0], parts[1]
 
 		providersMu.RLock()
 		pmProvider := positionProviders[key]
@@ -1438,10 +1466,17 @@ func getPositionsSummaryAll(c *gin.Context) {
 			pnlPercentage = (displayUnrealizedPnL / slotTotalCost) * 100.0
 		}
 
+		strategyName := "grid"
+		if n, ok := strategyByKey[key]; ok && n != "" {
+			strategyName = n
+		} else if n, ok := strategyByKey[makeSymbolKeyCompat(exchangeName, symbol)]; ok && n != "" {
+			strategyName = n
+		}
 		result = append(result, gin.H{
 			"exchange":       exchangeName,
 			"symbol":         symbol,
-			"strategy":       "grid", // 當前架構每個交易對為網格策略
+			"market_type":    marketType,
+			"strategy":       strategyName,
 			"total_quantity": slotTotalQuantity,
 			"total_value":    slotTotalValue,
 			"position_count": slotPositionCount,
@@ -2509,6 +2544,7 @@ var (
 // SymbolManagerProvider SymbolManager 提供者接口
 type SymbolManagerProvider interface {
 	Get(exchange, symbol string) (interface{}, bool) // 回傳 SymbolRuntime（使用 interface{} 避免循环依赖）
+	GetEx(exchange, symbol, marketType string) (interface{}, bool) // 按 market_type 獲取（spot/futures），空則默認 futures
 	List() []interface{}                             // 回傳 SymbolRuntime 列表
 	StartSymbol(exchange, symbol, marketType string) error // 啟动指定交易所/币种的交易，marketType 為空時自動選首個未運行的
 	StopSymbol(exchange, symbol string) error        // 停止指定交易所/币种的交易

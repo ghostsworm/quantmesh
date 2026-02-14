@@ -245,10 +245,44 @@ export interface StrategyRuntimeResponse {
   message?: string
 }
 
+/** 單個幣種下的策略運行狀態聚合（GET /api/strategies/runtime/all） */
+export interface SymbolStrategyRuntimeItem {
+  exchange: string
+  symbol: string
+  marketType: string
+  strategies: StrategyRuntimeStatus[]
+}
+
+export interface StrategyRuntimeAllResponse {
+  success: boolean
+  data: SymbolStrategyRuntimeItem[]
+  message?: string
+}
+
 export interface SingleStrategyRuntimeResponse {
   success: boolean
   strategy: StrategyRuntimeStatus | null
   message?: string
+}
+
+// 單個幣種下的策略運行狀態聚合（用於 GET /api/strategies/runtime/all）
+export interface SymbolStrategyRuntimeItem {
+  exchange: string
+  symbol: string
+  marketType: string
+  strategies: StrategyRuntimeStatus[]
+}
+
+export interface StrategyRuntimeAllResponse {
+  success: boolean
+  data: SymbolStrategyRuntimeItem[]
+  message?: string
+}
+
+// 獲取所有幣種下所有策略的運行狀態（聚合）
+export async function getStrategyRuntimeStatusAll(): Promise<StrategyRuntimeAllResponse> {
+  const url = `${API_BASE_URL}/strategies/runtime/all`
+  return fetchWithAuth(url)
 }
 
 // 獲取所有策略的運行狀態

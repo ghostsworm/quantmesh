@@ -1,19 +1,6 @@
-const API_BASE_URL = `${window.location.origin}/api`
+import { fetchWithAuth } from './api'
 
-async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const currentLang = localStorage.getItem('i18nextLng') || 'zh-CN'
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    'Accept-Language': currentLang,
-    ...(options.headers as Record<string, string>),
-  }
-  const response = await fetch(url, { ...options, headers, credentials: 'include' })
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`HTTP ${response.status}: ${errorText}`)
-  }
-  return response.json()
-}
+const API_BASE_URL = `${window.location.origin}/api`
 
 // 参數範圍
 export interface Range {
