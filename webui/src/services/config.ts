@@ -104,6 +104,8 @@ export interface GridRiskControl {
 
 // 交易對配置
 export interface SymbolConfig {
+  id?: string        // 可選：Bot 唯一標識，同交易所同幣多實例時需唯一
+  name?: string      // 可選：顯示名稱，用於區分多個同幣 Bot
   enabled?: boolean   // 是否啟用自动交易（后端預設 true）
   exchange?: string  // 交易所，留空時使用 app.current_exchange
   symbol: string     // 交易對名称

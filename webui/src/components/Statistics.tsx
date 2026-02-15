@@ -131,8 +131,16 @@ const Statistics: React.FC = () => {
     )
   }
 
+  const isGlobalMode = !botId
+  const modeLabel = isGlobalMode
+    ? t('statistics.modeGlobal')
+    : t('statistics.modeSingleBot', { symbol: selectedSymbol || '' })
+
   return (
     <div className="statistics">
+      <div style={{ marginBottom: '16px', padding: '12px 16px', background: '#f5f5f5', borderRadius: '8px', fontSize: '14px', color: '#595959' }}>
+        {modeLabel}
+      </div>
       <h2>{t('statistics.title')}</h2>
 
       {stats && (
@@ -235,7 +243,10 @@ const Statistics: React.FC = () => {
             const statDate = new Date(stat.date)
             return statDate.getFullYear() === currentYear && statDate.getMonth() + 1 === currentMonth
           })}
-          onDayClick={(date) => botId && navigate(`/bots/${botId}/statistics/daily/${date}`)}
+          onDayClick={(date) => {
+            if (botId) navigate(`/bots/${botId}/statistics/daily/${date}`)
+            else navigate(`/statistics/daily/${date}`)
+          }}
         />
       </div>
 

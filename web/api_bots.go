@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"quantmesh/config"
 
@@ -109,6 +110,11 @@ func postBotStart(c *gin.Context) {
 		return
 	}
 	if err := botManagerProvider.StartBot(c.Request.Context(), *botCfg); err != nil {
+		// 區分衝突錯誤和其他錯誤，衝突返回 409 Conflict
+		if strings.Contains(err.Error(), "symbol_conflict") {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "error_key": "error.bot_symbol_conflict"})
+			return
+		}
 		respondError(c, http.StatusInternalServerError, "error.bot_start_failed", err)
 		return
 	}

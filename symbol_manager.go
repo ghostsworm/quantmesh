@@ -242,6 +242,11 @@ func startSymbolRuntime(
 	// 為該交易對構造局部配置（避免修改全局 cfg）
 	localCfg := *baseCfg
 	localCfg.App.CurrentExchange = symCfg.Exchange
+	botID := symCfg.ID
+	if botID == "" {
+		botID = config.GenerateBotID(symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
+	}
+	localCfg.Trading.BotID = botID
 	localCfg.Trading.Symbol = symCfg.Symbol
 	localCfg.Trading.MarketType = symCfg.GetMarketType()
 	localCfg.Trading.PriceInterval = symCfg.PriceInterval

@@ -65,6 +65,7 @@
     "collapseSidebar": "साइडबार को संक्षिप्त करें",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "बाज़ार डेटा",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "पुष्टि करें",
     "step3Desc": "जांचें और बनाएं",
     "marketType": "बाजार प्रकार",
+    "botName": "बॉट नाम",
+    "botNamePlaceholder": "वैकल्पिक, आसान पहचान के लिए बॉट को नाम दें",
     "selectSymbol": "प्रतीक चुनें",
     "priceInterval": "मूल्य अंतराल",
     "orderQuantity": "ऑर्डर मात्रा",
@@ -113,7 +116,7 @@
     "create": "बनाएं",
     "reviewDesc": "कॉन्फ़िगरेशन की पुष्टि करें और बनाएं।",
     "fillRequired": "आवश्यक फ़ील्ड भरें",
-    "alreadyExists": "बॉट पहले से मौजूद है",
+    "alreadyExists": "इस प्रतीक के लिए बॉट पहले से मौजूद है। एक ही प्रतीक पर कई बॉट की अनुमति नहीं है (एक्सचेंज पोजीशन को अलग नहीं किया जा सकता)।",
     "success": "बॉट बनाया गया",
     "failed": "बनाने में विफल"
   },

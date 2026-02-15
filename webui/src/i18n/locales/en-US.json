@@ -52,6 +52,8 @@
     "step3Title": "Confirm",
     "step3Desc": "Review and create",
     "marketType": "Market Type",
+    "botName": "Bot Name",
+    "botNamePlaceholder": "Optional, give the bot a name for easy identification",
     "selectSymbol": "Select symbol",
     "priceInterval": "Price Interval",
     "orderQuantity": "Order Quantity",
@@ -61,7 +63,7 @@
     "create": "Create",
     "reviewDesc": "Confirm the config below. Click Create to add the Bot and go to detail page.",
     "fillRequired": "Please fill required fields",
-    "alreadyExists": "Bot already exists",
+    "alreadyExists": "A bot for this symbol already exists. Multiple bots on the same symbol are not allowed (exchange positions cannot be isolated).",
     "success": "Bot created",
     "failed": "Create failed"
   },
@@ -127,6 +129,7 @@
     "collapseSidebar": "Collapse sidebar",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "Market Data",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital"
   },
@@ -1941,6 +1944,8 @@
     "button": "Newbie Risk Check"
   },
   "statistics": {
+    "modeGlobal": "All Bots Statistics",
+    "modeSingleBot": "Bot Statistics: {{symbol}}",
     "title": "Trading Statistics",
     "loading": "Loading...",
     "error": "Error",

@@ -66,6 +66,7 @@
     "collapseSidebar": "收起側邊欄",
     "groupMonitor": "監控與概覽",
     "groupBacktestData": "回測與數據",
+    "groupMarketData": "市場數據",
     "groupAI": "AI",
     "groupStrategyCapital": "策略與資金",
     "servicesStatus": "Service Status"
@@ -112,6 +113,8 @@
     "step3Title": "確認創建",
     "step3Desc": "檢查配置並創建",
     "marketType": "市場類型",
+    "botName": "Bot 名稱",
+    "botNamePlaceholder": "可選，給 Bot 起個名字方便辨認",
     "selectSymbol": "請選擇交易對",
     "priceInterval": "價格間隔",
     "orderQuantity": "每單金額",
@@ -121,7 +124,7 @@
     "create": "創建",
     "reviewDesc": "請確認以下配置，點擊創建將添加 Bot 到配置並跳轉到詳情頁。",
     "fillRequired": "請填寫必填項",
-    "alreadyExists": "該 Bot 已存在",
+    "alreadyExists": "該交易對已存在 Bot，同一交易對不能運行多個 Bot（交易所倉位無法隔離）",
     "success": "Bot 創建成功",
     "failed": "創建失敗"
   },
@@ -1726,6 +1729,8 @@
     "button": "新手體檢"
   },
   "statistics": {
+    "modeGlobal": "全局收益統計",
+    "modeSingleBot": "Bot 收益統計：{{symbol}}",
     "title": "交易統計",
     "loading": "加載中...",
     "error": "錯誤",

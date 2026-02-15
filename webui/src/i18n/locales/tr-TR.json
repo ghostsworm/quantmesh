@@ -65,6 +65,7 @@
     "collapseSidebar": "Kenar çubuğunu daralt",
     "groupMonitor": "İzleme ve genel bakış",
     "groupBacktestData": "Backtest ve veri",
+    "groupMarketData": "Piyasa verileri",
     "groupAI": "AI",
     "groupStrategyCapital": "Strateji ve sermaye",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "Onayla",
     "step3Desc": "Kontrol et ve oluştur",
     "marketType": "Piyasa türü",
+    "botName": "Bot Adı",
+    "botNamePlaceholder": "İsteğe bağlı, botu kolayca tanımlamak için bir isim verin",
     "selectSymbol": "Sembol seç",
     "priceInterval": "Fiyat aralığı",
     "orderQuantity": "Emir miktarı",
@@ -113,7 +116,7 @@
     "create": "Oluştur",
     "reviewDesc": "Yapılandırmayı onayla ve oluştur.",
     "fillRequired": "Zorunlu alanları doldur",
-    "alreadyExists": "Bot zaten var",
+    "alreadyExists": "Bu sembol için zaten bir bot mevcut. Aynı sembolde birden fazla bot bulunamaz (borsa pozisyonları izole edilemez).",
     "success": "Bot oluşturuldu",
     "failed": "Oluşturma başarısız"
   },

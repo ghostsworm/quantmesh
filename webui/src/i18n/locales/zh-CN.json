@@ -52,6 +52,8 @@
     "step3Title": "确认创建",
     "step3Desc": "检查配置并创建",
     "marketType": "市场类型",
+    "botName": "Bot 名称",
+    "botNamePlaceholder": "可选，给 Bot 起个名字方便辨认",
     "selectSymbol": "请选择交易对",
     "priceInterval": "价格间隔",
     "orderQuantity": "每单金额",
@@ -61,7 +63,7 @@
     "create": "创建",
     "reviewDesc": "请确认以下配置，点击创建将添加 Bot 到配置并跳转到详情页。",
     "fillRequired": "请填写必填项",
-    "alreadyExists": "该 Bot 已存在",
+    "alreadyExists": "该交易对已存在 Bot，同一交易对不能运行多个 Bot（交易所仓位无法隔离）",
     "success": "Bot 创建成功",
     "failed": "创建失败"
   },
@@ -127,6 +129,7 @@
     "collapseSidebar": "收起侧边栏",
     "groupMonitor": "监控与概览",
     "groupBacktestData": "回测与数据",
+    "groupMarketData": "市场数据",
     "groupAI": "AI",
     "groupStrategyCapital": "策略与资金"
   },
@@ -1777,6 +1780,8 @@
     "button": "新手体检"
   },
   "statistics": {
+    "modeGlobal": "全局收益统计",
+    "modeSingleBot": "Bot 收益统计：{{symbol}}",
     "title": "交易统计",
     "loading": "加载中...",
     "error": "错误",

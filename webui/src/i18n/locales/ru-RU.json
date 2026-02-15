@@ -65,6 +65,7 @@
     "collapseSidebar": "Свернуть боковую панель",
     "groupMonitor": "Монитор и обзор",
     "groupBacktestData": "Бэктест и данные",
+    "groupMarketData": "Рыночные данные",
     "groupAI": "ИИ",
     "groupStrategyCapital": "Стратегия и капитал",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "Подтверждение",
     "step3Desc": "Проверить и создать",
     "marketType": "Тип рынка",
+    "botName": "Имя бота",
+    "botNamePlaceholder": "Необязательно, дайте боту имя для удобной идентификации",
     "selectSymbol": "Выберите символ",
     "priceInterval": "Интервал цены",
     "orderQuantity": "Объём ордера",
@@ -113,7 +116,7 @@
     "create": "Создать",
     "reviewDesc": "Подтвердите конфигурацию и создайте.",
     "fillRequired": "Заполните обязательные поля",
-    "alreadyExists": "Бот уже существует",
+    "alreadyExists": "Бот для этого символа уже существует. Несколько ботов на одном символе не допускаются (позиции биржи не могут быть изолированы).",
     "success": "Бот создан",
     "failed": "Ошибка создания"
   },

@@ -66,6 +66,7 @@
     "collapseSidebar": "Collapse sidebar",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "Market Data",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital"
   },
@@ -280,6 +281,8 @@
     "step3Title": "ยืนยัน",
     "step3Desc": "ตรวจสอบและสร้าง",
     "marketType": "ประเภทตลาด",
+    "botName": "ชื่อบอท",
+    "botNamePlaceholder": "ไม่บังคับ ตั้งชื่อให้บอทเพื่อระบุได้ง่าย",
     "selectSymbol": "เลือกสัญลักษณ์",
     "priceInterval": "ช่วงราคา",
     "orderQuantity": "จำนวนคำสั่ง",
@@ -289,7 +292,7 @@
     "create": "สร้าง",
     "reviewDesc": "ยืนยันการตั้งค่าและสร้าง",
     "fillRequired": "กรอกข้อมูลที่จำเป็น",
-    "alreadyExists": "บอทมีอยู่แล้ว",
+    "alreadyExists": "มีบอทสำหรับสัญลักษณ์นี้อยู่แล้ว ไม่อนุญาตให้มีหลายบอทบนสัญลักษณ์เดียวกัน (ตำแหน่งบน exchange แยกไม่ได้)",
     "success": "สร้างบอทแล้ว",
     "failed": "สร้างล้มเหลว"
   },

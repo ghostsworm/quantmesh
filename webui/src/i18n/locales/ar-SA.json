@@ -65,6 +65,7 @@
     "collapseSidebar": "طي الشريط الجانبي",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "بيانات السوق",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "تأكيد",
     "step3Desc": "مراجعة وإنشاء",
     "marketType": "نوع السوق",
+    "botName": "اسم البوت",
+    "botNamePlaceholder": "اختياري، أعطِ البوت اسماً لسهولة التعرف عليه",
     "selectSymbol": "اختر الرمز",
     "priceInterval": "فاصل السعر",
     "orderQuantity": "كمية الأمر",
@@ -113,7 +116,7 @@
     "create": "إنشاء",
     "reviewDesc": "أكد الإعدادات وأنشئ.",
     "fillRequired": "املأ الحقول المطلوبة",
-    "alreadyExists": "البوت موجود بالفعل",
+    "alreadyExists": "البوت موجود بالفعل لهذا الرمز. لا يُسمح بعدة بوتات على نفس الرمز (لا يمكن عزل مراكز البورصة).",
     "success": "تم إنشاء البوت",
     "failed": "فشل الإنشاء"
   },

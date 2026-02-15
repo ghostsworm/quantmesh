@@ -238,6 +238,8 @@ type Config struct {
 	Bots []BotConfig `yaml:"bots"`
 
 	Trading struct {
+		// BotID 運行時標識（不持久化），用於日誌區分同交易所同幣多實例
+		BotID string `yaml:"-"`
 		// 相容舊配置：單交易對欄位（若啟用多交易對，將自動轉換為 Symbols 列表）
 		Symbol                string  `yaml:"symbol"`
 		MarketType            string  `yaml:"market_type"` // 市場類型：spot 現貨 / futures 合約，預設 futures
@@ -942,6 +944,8 @@ type SwitchRules struct {
 
 // SymbolConfig 單個交易對配置（可指定所属交易所及交易参數）
 type SymbolConfig struct {
+	ID                    string             `yaml:"id,omitempty" json:"id,omitempty"`                         // 可選：Bot 唯一標識，未填時由 Exchange:Symbol:MarketType 生成；同交易所同幣可多實例時需唯一
+	Name                  string             `yaml:"name,omitempty" json:"name,omitempty"`                       // 可選：顯示名稱，用於區分多個同幣 Bot
 	Enabled               *bool              `yaml:"enabled" json:"enabled"`                                   // 是否啟用自动交易，預設為 true（使用指針确保 false 時也會被序列化）
 	Exchange              string             `yaml:"exchange" json:"exchange"`                                 // 所属交易所，預設為 app.current_exchange
 	Symbol                string             `yaml:"symbol" json:"symbol"`                                     // 交易對，如 BTCUSDT
@@ -1111,12 +1115,17 @@ func GenerateBotID(exchange, symbol, marketType string) string {
 // SymbolConfigToBotConfig 將 SymbolConfig 轉換為 BotConfig（用於配置遷移）
 func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 	mt := sc.GetMarketType()
-	id := GenerateBotID(sc.Exchange, sc.Symbol, mt)
-	name := sc.Symbol
-	if mt == "spot" {
-		name = sc.Symbol + " (spot)"
-	} else {
-		name = sc.Symbol + " (futures)"
+	id := sc.ID
+	if id == "" {
+		id = GenerateBotID(sc.Exchange, sc.Symbol, mt)
+	}
+	name := sc.Name
+	if name == "" {
+		if mt == "spot" {
+			name = sc.Symbol + " (spot)"
+		} else {
+			name = sc.Symbol + " (futures)"
+		}
 	}
 	bc := BotConfig{
 		ID:                    id,
@@ -1156,28 +1165,47 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 	return bc
 }
 
-// MigrateToBots 將舊的 symbols 配置遷移為 bots 配置（若 bots 為空且 symbols 有數據則執行）
+// MigrateToBots 將 symbols 配置遷移/合併為 bots 配置
+// 若 bots 為空則全量轉換；若 bots 已有數據則將 symbols 中尚未存在的項合併進去（支援透過 Web 新增 symbol 後生效）
 func (c *Config) MigrateToBots() {
-	if len(c.Bots) > 0 {
-		return
-	}
 	if len(c.Trading.Symbols) == 0 {
 		return
 	}
-	for _, sc := range c.Trading.Symbols {
-		exCfg, ok := c.Exchanges[sc.Exchange]
-		testnet := false
-		if ok {
-			testnet = exCfg.Testnet
+	exCfgByEx := func(ex string) (testnet bool) {
+		if ec, ok := c.Exchanges[ex]; ok {
+			return ec.Testnet
 		}
-		bc := SymbolConfigToBotConfig(sc, testnet)
-		c.Bots = append(c.Bots, bc)
+		return false
+	}
+	if len(c.Bots) == 0 {
+		for _, sc := range c.Trading.Symbols {
+			bc := SymbolConfigToBotConfig(sc, exCfgByEx(sc.Exchange))
+			c.Bots = append(c.Bots, bc)
+		}
+		return
+	}
+	// 已有 Bots：合併 Symbols 中尚未存在的項（僅按 ID 判重，支援同交易所同幣多實例）
+	hasBot := func(bc BotConfig) bool {
+		for _, b := range c.Bots {
+			if b.ID == bc.ID {
+				return true
+			}
+		}
+		return false
+	}
+	for _, sc := range c.Trading.Symbols {
+		bc := SymbolConfigToBotConfig(sc, exCfgByEx(sc.Exchange))
+		if !hasBot(bc) {
+			c.Bots = append(c.Bots, bc)
+		}
 	}
 }
 
 // BotConfigToSymbolConfig 將 BotConfig 轉換為 SymbolConfig（用於向後兼容，供仍讀取 Symbols 的代碼使用）
 func BotConfigToSymbolConfig(bc BotConfig) SymbolConfig {
 	return SymbolConfig{
+		ID:                    bc.ID,
+		Name:                  bc.Name,
 		Enabled:               bc.Enabled,
 		Exchange:              bc.Exchange,
 		Symbol:                bc.Symbol,
@@ -1354,9 +1382,7 @@ func LoadConfig(configPath string) (*Config, error) {
 		}
 	}
 
-	// 自動遷移：若 bots 為空且 symbols 有數據，則將 symbols 轉為 bots
-	cfg.MigrateToBots()
-
+	// MigrateToBots 在 Validate 內執行
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("配置驗证失败: %v", err)
 	}
@@ -1683,6 +1709,8 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 
 // Validate 驗证配置
 func (c *Config) Validate() error {
+	// 先將 Symbols 合併進 Bots（含 Web 新增的 symbol），再處理向後兼容
+	c.MigrateToBots()
 	// 當 Bots 為數據源且 Symbols 為空時，同步 Bots -> Symbols（向後兼容）
 	c.SyncSymbolsFromBots()
 

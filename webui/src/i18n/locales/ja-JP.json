@@ -66,6 +66,7 @@
     "collapseSidebar": "サイドバーを折りたたむ",
     "groupMonitor": "監視と概要",
     "groupBacktestData": "バックテストとデータ",
+    "groupMarketData": "市場データ",
     "groupAI": "AI",
     "groupStrategyCapital": "戦略と資金"
   },
@@ -96,6 +97,8 @@
     "step3Title": "確認",
     "step3Desc": "設定を確認して作成",
     "marketType": "市場タイプ",
+    "botName": "Bot名",
+    "botNamePlaceholder": "任意、Bot に名前を付けて識別しやすくします",
     "selectSymbol": "シンボルを選択",
     "priceInterval": "価格間隔",
     "orderQuantity": "注文数量",
@@ -105,7 +108,7 @@
     "create": "作成",
     "reviewDesc": "設定を確認して作成してください。",
     "fillRequired": "必須項目を入力してください",
-    "alreadyExists": "Botは既に存在します",
+    "alreadyExists": "このシンボルの Bot は既にあります。同じシンボルで複数の Bot は使用できません（取引所のポジションを分離できないため）。",
     "success": "Botを作成しました",
     "failed": "作成失敗"
   },

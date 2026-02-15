@@ -65,6 +65,7 @@
     "collapseSidebar": "Ciutkan bilah sisi",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "Data pasar",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "Konfirmasi",
     "step3Desc": "Periksa dan buat",
     "marketType": "Tipe pasar",
+    "botName": "Nama Bot",
+    "botNamePlaceholder": "Opsional, beri nama bot untuk identifikasi yang mudah",
     "selectSymbol": "Pilih simbol",
     "priceInterval": "Interval harga",
     "orderQuantity": "Jumlah perintah",
@@ -113,7 +116,7 @@
     "create": "Buat",
     "reviewDesc": "Konfirmasi konfigurasi dan buat.",
     "fillRequired": "Isi bidang wajib",
-    "alreadyExists": "Bot sudah ada",
+    "alreadyExists": "Bot untuk simbol ini sudah ada. Beberapa bot pada simbol yang sama tidak diizinkan (posisi bursa tidak dapat diisolasi).",
     "success": "Bot dibuat",
     "failed": "Gagal membuat"
   },
