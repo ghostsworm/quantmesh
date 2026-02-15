@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/lock"
+	"quantmesh/logger"
 	"quantmesh/storage"
 )
 
@@ -37,6 +40,25 @@ func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService 
 	}
 }
 
+// symbolKey 返回交易所+交易對+市場類型的標準化 key，用於衝突檢測
+func symbolKey(exchange, symbol, marketType string) string {
+	return strings.ToLower(fmt.Sprintf("%s:%s:%s", exchange, symbol, marketType))
+}
+
+// findConflictingBot 檢查是否已有同一交易所+交易對+市場類型的 Bot 在運行
+// 同交易所同幣同市場類型的多個 Bot 會共享交易所的同一個倉位，
+// 導致倉位重複認領、訂單互相干擾、對賬互相覆蓋等嚴重問題。
+func (bm *BotManager) findConflictingBot(exchange, symbol, marketType string) *BotRuntime {
+	targetKey := symbolKey(exchange, symbol, marketType)
+	for _, br := range bm.runtimes {
+		existingKey := symbolKey(br.Config.Exchange, br.Config.Symbol, br.Config.GetMarketType())
+		if existingKey == targetKey {
+			return br
+		}
+	}
+	return nil
+}
+
 // StartBot 啟動指定 Bot
 func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
 	botID := botCfg.ID
@@ -46,6 +68,19 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 	if _, ok := bm.runtimes[botID]; ok {
 		return nil, nil // 已在運行
 	}
+
+	// 🔒 衝突檢測：阻止同一交易所+交易對+市場類型啟動多個 Bot
+	// 原因：交易所倉位按 Symbol 隔離，多個 Bot 無法區分誰擁有哪部分倉位，
+	// 會導致倉位重複認領、訂單互撞、對賬覆蓋等問題。
+	if conflict := bm.findConflictingBot(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType()); conflict != nil {
+		logger.Warn("🚫 [%s] 跳過啟動：同一交易對 %s:%s(%s) 已有 Bot [%s] 在運行。"+
+			"交易所倉位按幣種隔離，多個 Bot 共享同一倉位會導致互相衝突。"+
+			"如需多策略，請在同一 Bot 內配置多個 strategies。",
+			botID, botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
+		return nil, fmt.Errorf("symbol_conflict: %s:%s(%s) 已有 Bot [%s] 在運行",
+			botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
+	}
+
 	symCfg := config.BotConfigToSymbolConfig(botCfg)
 	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock)
 	if err != nil {

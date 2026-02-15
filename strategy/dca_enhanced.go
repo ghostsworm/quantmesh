@@ -267,6 +267,14 @@ func (s *DCAEnhancedStrategy) Name() string {
 	return s.name
 }
 
+// logPrefix 返回日誌前綴，含 bot ID 便於區分同交易所同幣多實例
+func (s *DCAEnhancedStrategy) logPrefix() string {
+	if s.cfg != nil && s.cfg.Trading.BotID != "" {
+		return s.cfg.Trading.BotID + " [" + s.name + "]"
+	}
+	return s.name
+}
+
 // Initialize 初始化策略
 func (s *DCAEnhancedStrategy) Initialize(cfg *config.Config, executor position.OrderExecutorInterface, exchange position.IExchange) error {
 	s.cfg = cfg
@@ -474,7 +482,7 @@ func (s *DCAEnhancedStrategy) detectCascadeDrop() bool {
 func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 	// 检查趨勢過濾
 	if s.strategyCfg.TrendFilterEnabled && !s.isTrendUp() {
-		logger.Info("📊 [%s] 趋势向下，暂不开倉", s.name)
+		logger.Info("📊 [%s] 趋势向下，暂不开倉", s.logPrefix())
 		return nil
 	}
 

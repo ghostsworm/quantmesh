@@ -219,6 +219,7 @@ type SuperPositionManager struct {
 	executor     OrderExecutorInterface
 	exchange     IExchange
 	exchangeName string // 交易所名称（配置中的名称，如 "binance"）
+	botID        string // Bot 唯一標識，用於日誌區分同交易所同幣多實例
 
 	// 策略信息（用於追踪订單来源）
 	strategyName string // 策略名称（如 "Grid-BTCUSDT-1"）
@@ -302,6 +303,16 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		exchangeName = "binance" // 默认值
 	}
 
+	// Bot ID（用於日誌區分同交易所同幣多實例）
+	botID := cfg.Trading.BotID
+	if botID == "" {
+		mt := cfg.Trading.MarketType
+		if mt == "" {
+			mt = "futures"
+		}
+		botID = config.GenerateBotID(exchangeName, cfg.Trading.Symbol, mt)
+	}
+
 	// 生成策略名称
 	symbol := cfg.Trading.Symbol
 	strategyName := fmt.Sprintf("Grid-%s", symbol)
@@ -311,6 +322,7 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		executor:           executor,
 		exchange:           exchange,
 		exchangeName:       exchangeName,
+		botID:              botID,
 		strategyName:       strategyName,  // 策略名称
 		strategyType:       "grid",        // 策略類型固定為 grid
 		insufficientMargin: false,
@@ -328,16 +340,24 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 	return spm
 }
 
+// logPrefix 返回日誌前綴，含 bot ID 便於區分同交易所同幣多實例
+func (spm *SuperPositionManager) logPrefix() string {
+	if spm.botID != "" {
+		return spm.botID
+	}
+	return spm.exchangeName + ":" + spm.config.Trading.Symbol
+}
+
 // Pause 暂停交易
 func (spm *SuperPositionManager) Pause() {
 	spm.isPaused.Store(true)
-	logger.Warn("⏸️ [%s] 倉位管理器已暂停交易", spm.config.Trading.Symbol)
+	logger.Warn("⏸️ [%s] 倉位管理器已暂停交易", spm.logPrefix())
 }
 
 // Resume 恢複交易
 func (spm *SuperPositionManager) Resume() {
 	spm.isPaused.Store(false)
-	logger.Info("▶️ [%s] 倉位管理器已恢複交易", spm.config.Trading.Symbol)
+	logger.Info("▶️ [%s] 倉位管理器已恢複交易", spm.logPrefix())
 }
 
 // IsPaused 是否已暂停
@@ -349,7 +369,7 @@ func (spm *SuperPositionManager) IsPaused() bool {
 func (spm *SuperPositionManager) PauseOpening(reason string) {
 	spm.isOpeningPaused.Store(true)
 	spm.openingPauseReason.Store(reason)
-	logger.Warn("⏸️ [%s] 開倉管理：已暫停開倉，原因: %s", spm.config.Trading.Symbol, reason)
+	logger.Warn("⏸️ [%s] 開倉管理：已暫停開倉，原因: %s", spm.logPrefix(), reason)
 	
 	// 撤銷所有開倉委託
 	spm.CancelAllOpenOrders()
@@ -371,7 +391,7 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 		// 獲取交易所所有掛單
 		openOrdersInterface, err := spm.exchange.GetOpenOrders(ctx, spm.config.Trading.Symbol)
 		if err != nil {
-			logger.Error("❌ [%s] 暫停開倉時獲取掛單失敗: %v", spm.config.Trading.Symbol, err)
+			logger.Error("❌ [%s] 暫停開倉時獲取掛單失敗: %v", spm.logPrefix(), err)
 			return
 		}
 		
@@ -406,11 +426,11 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 		}
 		
 		if len(toCancel) > 0 {
-			logger.Warn("🔄 [%s] 暫停開倉：發現 %d 個殘留開倉委託，正在強制撤銷", spm.config.Trading.Symbol, len(toCancel))
+			logger.Warn("🔄 [%s] 暫停開倉：發現 %d 個殘留開倉委託，正在強制撤銷", spm.logPrefix(), len(toCancel))
 			if err := spm.executor.BatchCancelOrders(toCancel); err != nil {
-				logger.Error("❌ [%s] 強制撤銷殘留委託失敗: %v", spm.config.Trading.Symbol, err)
+				logger.Error("❌ [%s] 強制撤銷殘留委託失敗: %v", spm.logPrefix(), err)
 			} else {
-				logger.Info("✅ [%s] 強制撤銷殘留委託完成", spm.config.Trading.Symbol)
+				logger.Info("✅ [%s] 強制撤銷殘留委託完成", spm.logPrefix())
 			}
 		}
 	}()
@@ -420,7 +440,7 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 func (spm *SuperPositionManager) ResumeOpening() {
 	spm.isOpeningPaused.Store(false)
 	spm.openingPauseReason.Store("")
-	logger.Info("▶️ [%s] 開倉管理：已恢復開倉", spm.config.Trading.Symbol)
+	logger.Info("▶️ [%s] 開倉管理：已恢復開倉", spm.logPrefix())
 }
 
 // IsOpeningPaused 是否已暫停開倉
@@ -789,7 +809,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 检查是否暂停
 	if spm.IsPaused() {
-		logger.Debug("⏸️ [%s:%s] 交易已暂停，跳過订單調整", spm.exchangeName, spm.config.Trading.Symbol)
+		logger.Debug("⏸️ [%s] 交易已暂停，跳過订單調整", spm.logPrefix())
 		return nil
 	}
 
@@ -1277,9 +1297,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 生成賣單请求
 	sellOrdersToCreate := 0
-	// 🔥 調試日志: 显示订單配額计算详情（包含買賣單分布）
-	logger.Debug("📊 [%s:%s] [订單配額] 阈值:%d, 當前订單:%d(開:%d/平:%d), 剩餘:%d, 新增開倉:%d, 平倉候选:%d, 允許平倉:%d",
-		spm.exchangeName, spm.config.Trading.Symbol, threshold, currentOrderCount, currentBuyOrderCount, currentSellOrderCount, remainingOrders, buyOrdersToCreate, len(closeCandidates), allowedNewSellOrders)
+	// 🔥 調試日志: 显示订單配額计算详情（包含買賣單分布），含 bot ID 便於區分多實例
+	logger.Debug("📊 [%s] [订單配額] 阈值:%d, 當前订單:%d(開:%d/平:%d), 剩餘:%d, 新增開倉:%d, 平倉候选:%d, 允許平倉:%d",
+		spm.logPrefix(), threshold, currentOrderCount, currentBuyOrderCount, currentSellOrderCount, remainingOrders, buyOrdersToCreate, len(closeCandidates), allowedNewSellOrders)
 	if allowedNewSellOrders > 0 {
 		closeSide := "SELL"
 		if spm.isShort() {
@@ -1377,8 +1397,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		for _, order := range ordersToPlace {
 			if order.Side == openSideForDedup && closePriceSet[order.Price] {
 				// 同一價格有平倉單，跳過開倉單
-				logger.Warn("⚠️ [%s:%s] 同一價格 %s 同時有開倉和平倉單，移除開倉單（平倉優先）",
-					spm.exchangeName, spm.config.Trading.Symbol, formatPrice(order.Price, spm.priceDecimals))
+				logger.Warn("⚠️ [%s] 同一價格 %s 同時有開倉和平倉單，移除開倉單（平倉優先）",
+					spm.logPrefix(), formatPrice(order.Price, spm.priceDecimals))
 				// 重置被移除的開倉單對應槽位狀態（之前被標記為PENDING）
 				if slotRaw, ok := spm.slots.Load(order.Price); ok {
 					pendingSlot := slotRaw.(*InventorySlot)
@@ -1396,8 +1416,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 		if removedBuyCount > 0 {
 			ordersToPlace = filteredOrders
-			logger.Info("📊 [%s:%s] 去重完成：移除了 %d 個與平倉單同價的開倉單",
-				spm.exchangeName, spm.config.Trading.Symbol, removedBuyCount)
+			logger.Info("📊 [%s] 去重完成：移除了 %d 個與平倉單同價的開倉單",
+				spm.logPrefix(), removedBuyCount)
 		}
 	}
 
@@ -1452,9 +1472,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				}
 				// 使用可用餘額（AvailableBalance）進行资金分配检查
 				// 注意：對於合約账戶，如果有持倉，AvailableBalance可能為0，这是正常的
-				logger.Debug("💰 [%s:%s] [资金分配] 账戶可用餘額: %.2f USDT", spm.exchangeName, spm.config.Trading.Symbol, accountBalance)
+				logger.Debug("💰 [%s] [资金分配] 账戶可用餘額: %.2f USDT", spm.logPrefix(), accountBalance)
 			} else {
-				logger.Warn("⚠️ [%s:%s] [资金分配] 無法獲取帳戶餘額: %v，使用0作為默认值", spm.exchangeName, spm.config.Trading.Symbol, err)
+				logger.Warn("⚠️ [%s] [资金分配] 無法獲取帳戶餘額: %v，使用0作為默认值", spm.logPrefix(), err)
 			}
 		}
 
@@ -1511,8 +1531,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			)
 
 			if err != nil {
-				logger.Warn("⚠️ [%s:%s] [资金分配] %v (訂單價值: %.2f USDT, 實際保证金: %.2f USDT, 杠杆: %dx)",
-					spm.exchangeName, spm.config.Trading.Symbol, err, orderValue, actualMargin, leverage)
+				logger.Warn("⚠️ [%s] [资金分配] %v (訂單價值: %.2f USDT, 實際保证金: %.2f USDT, 杠杆: %dx)",
+					spm.logPrefix(), err, orderValue, actualMargin, leverage)
 				// 触发告警事件
 				if spm.eventBus != nil {
 					spm.eventBus.Publish(&event.Event{
@@ -1546,7 +1566,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 執行下單
 	if len(ordersToPlace) > 0 {
-		logger.Debug("🔄 [%s:%s] [實時調整] 需要新增: %d 個订單", spm.exchangeName, spm.config.Trading.Symbol, len(ordersToPlace))
+		logger.Debug("🔄 [%s] [實時調整] 需要新增: %d 個订單", spm.logPrefix(), len(ordersToPlace))
 		result := spm.executor.BatchPlaceOrdersWithDetails(ordersToPlace)
 
 		if result.HasMarginError {
@@ -1638,7 +1658,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			price, side, valid := spm.parseClientOrderID(ord.ClientOrderID)
 
 			if !valid {
-				logger.Warn("⚠️ [%s:%s] [實時調整] 無法解析 ClientOID: %s", spm.exchangeName, spm.config.Trading.Symbol, ord.ClientOrderID)
+				logger.Warn("⚠️ [%s] [實時調整] 無法解析 ClientOID: %s", spm.logPrefix(), ord.ClientOrderID)
 				continue
 			}
 
@@ -2179,8 +2199,8 @@ func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count in
 		price = roundPrice(price, spm.priceDecimals)
 
 		if price <= 0 {
-			logger.Warn("⚠️ [%s:%s] 跳過無效槽位價格 %.8f（方向=%s, 索引=%d, 网格價格=%.2f, 间隔=%.4f）",
-				spm.exchangeName, spm.config.Trading.Symbol, price, direction, i, gridPrice, priceInterval)
+			logger.Warn("⚠️ [%s] 跳過無效槽位價格 %.8f（方向=%s, 索引=%d, 网格價格=%.2f, 间隔=%.4f）",
+				spm.logPrefix(), price, direction, i, gridPrice, priceInterval)
 			continue
 		}
 
@@ -2421,8 +2441,8 @@ func (spm *SuperPositionManager) UpdateTradingParams(priceInterval, profitSpread
 	}
 
 	if len(changes) > 0 {
-		logger.Info("🔄 [%s:%s] 交易参數已热更新: %s",
-			spm.exchangeName, spm.config.Trading.Symbol, strings.Join(changes, ", "))
+		logger.Info("🔄 [%s] 交易参數已热更新: %s",
+			spm.logPrefix(), strings.Join(changes, ", "))
 		return true
 	}
 	return false
@@ -3299,8 +3319,8 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	if totalUsedAmount > 0 {
 		spm.allocationManager.SetUsedAmount(spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
 		positionValue := spm.anchorPrice * totalPosition // 總倉位價值
-		logger.Info("💰 [%s:%s] [资金分配] 恢複持倉，初始化已用资金: %.2f USDT (實際保证金，杠杆 %dx，倉位價值: %.2f USDT)",
-			spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount, leverage, positionValue)
+		logger.Info("💰 [%s] [资金分配] 恢複持倉，初始化已用资金: %.2f USDT (實際保证金，杠杆 %dx，倉位價值: %.2f USDT)",
+			spm.logPrefix(), totalUsedAmount, leverage, positionValue)
 	}
 
 	// 8. 提示用戶后续會自动下賣單
@@ -3481,14 +3501,14 @@ func (spm *SuperPositionManager) PrintPositions() {
 		spm.config.Trading.Symbol, totalBuyQty, totalSellQty, estimatedProfit)
 
 	// === 新增：打印買單窗口详细信息 ===
-	logger.Info("🔍 ===== 買單窗口状態 [%s] =====", spm.config.Trading.Symbol)
+	logger.Info("🔍 ===== 買單窗口状態 [%s] =====", spm.logPrefix())
 
 	// 獲取最后的市场價格
 	lastPrice, ok := spm.lastMarketPrice.Load().(float64)
 	if !ok || lastPrice <= 0 {
 		lastPrice = spm.anchorPrice // 如果没有更新過，使用锚点價格
 	}
-	logger.Info("[%s] 當前市場價格: %s", spm.config.Trading.Symbol, formatPrice(lastPrice, spm.priceDecimals))
+	logger.Info("[%s] 當前市場價格: %s", spm.logPrefix(), formatPrice(lastPrice, spm.priceDecimals))
 
 	// 收集所有槽位信息（包括買單和空槽位）
 	type slotInfo struct {
@@ -3528,7 +3548,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 
 	// 找到最接近當前價格的网格價格
 	currentGridPrice := spm.findNearestGridPrice(lastPrice)
-	logger.Info("[%s] 當前网格價格: %s", spm.config.Trading.Symbol, formatPrice(currentGridPrice, spm.priceDecimals))
+	logger.Info("[%s] 當前网格價格: %s", spm.logPrefix(), formatPrice(currentGridPrice, spm.priceDecimals))
 
 	// 计算買單窗口範圍（當前网格價格下方的買單窗口）
 	buyWindowSize := spm.config.Trading.BuyWindowSize
@@ -3541,7 +3561,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 	}
 
 	// 打印買單窗口内的所有槽位
-	logger.Info("[%s] 買單窗口大小: %d 個槽位 (當前网格價格下方)", spm.config.Trading.Symbol, buyWindowSize)
+	logger.Info("[%s] 買單窗口大小: %d 個槽位 (當前网格價格下方)", spm.logPrefix(), buyWindowSize)
 	buyOrderCount := 0
 	emptySlotCount := 0
 	filledSlotCount := 0
@@ -3586,7 +3606,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 	}
 
 	logger.Info("[%s] 窗口统计: %d 個買單活跃, %d 個已持倉, %d 個空槽位",
-		spm.config.Trading.Symbol, buyOrderCount, filledSlotCount, emptySlotCount)
+		spm.logPrefix(), buyOrderCount, filledSlotCount, emptySlotCount)
 	logger.Info("==========================")
 }
 

@@ -48,7 +48,7 @@ const DailyPnLBreakdown: React.FC = () => {
     return (
       <div style={{ padding: '24px' }}>
         <p>{t('common.error')}</p>
-        <button type="button" onClick={() => botId && navigate(`/bots/${botId}/statistics`)} style={{ marginTop: '12px' }}>
+        <button type="button" onClick={() => botId ? navigate(`/bots/${botId}/statistics`) : navigate('/statistics')} style={{ marginTop: '12px' }}>
           {t('dailyBreakdown.back')}
         </button>
       </div>
@@ -67,7 +67,7 @@ const DailyPnLBreakdown: React.FC = () => {
     return (
       <div style={{ padding: '24px' }}>
         <p style={{ color: colorNegative }}>{error}</p>
-        <button type="button" onClick={() => botId && navigate(`/bots/${botId}/statistics`)} style={{ marginTop: '12px' }}>
+        <button type="button" onClick={() => botId ? navigate(`/bots/${botId}/statistics`) : navigate('/statistics')} style={{ marginTop: '12px' }}>
           {t('dailyBreakdown.back')}
         </button>
       </div>
@@ -78,7 +78,7 @@ const DailyPnLBreakdown: React.FC = () => {
   if (!s) {
     return (
       <div style={{ padding: '24px' }}>
-        <button type="button" onClick={() => botId && navigate(`/bots/${botId}/statistics`)}>
+        <button type="button" onClick={() => botId ? navigate(`/bots/${botId}/statistics`) : navigate('/statistics')}>
           {t('dailyBreakdown.back')}
         </button>
         <p style={{ marginTop: '16px' }}>{t('dailyBreakdown.noData')}</p>
@@ -104,7 +104,7 @@ const DailyPnLBreakdown: React.FC = () => {
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
         <button
           type="button"
-          onClick={() => botId && navigate(`/bots/${botId}/statistics`)}
+          onClick={() => botId ? navigate(`/bots/${botId}/statistics`) : navigate('/statistics')}
           style={{
             padding: '8px 16px',
             border: '1px solid #d9d9d9',

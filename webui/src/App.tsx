@@ -476,17 +476,17 @@ const AppContent: React.FC = () => {
                 <Route path="/orders" element={<Navigate to="/bots" replace />} />
                 <Route path="/slots" element={<Navigate to="/bots" replace />} />
                 <Route path="/strategies" element={<Navigate to="/bots" replace />} />
-                <Route path="/statistics" element={<Navigate to="/bots" replace />} />
+                <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
+                <Route path="/statistics/daily/:date" element={<ProtectedRoute><DailyPnLBreakdown /></ProtectedRoute>} />
                 <Route path="/reconciliation" element={<Navigate to="/bots" replace />} />
                 <Route path="/risk" element={<Navigate to="/bots" replace />} />
                 <Route path="/opening-control" element={<Navigate to="/bots" replace />} />
-                <Route path="/news-analysis" element={<Navigate to="/bots" replace />} />
+                <Route path="/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
                 <Route path="/profit-management" element={<Navigate to="/bots" replace />} />
                 <Route path="/position-plan" element={<Navigate to="/bots" replace />} />
                 <Route path="/kline" element={<Navigate to="/bots" replace />} />
-                <Route path="/funding-rate" element={<Navigate to="/bots" replace />} />
-                <Route path="/basis-monitor" element={<Navigate to="/bots" replace />} />
-                <Route path="/statistics/daily/:date" element={<Navigate to="/bots" replace />} />
+                <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
+                <Route path="/basis-monitor" element={<ProtectedRoute><BasisMonitor /></ProtectedRoute>} />
                 <Route path="/news-analysis/history" element={<Navigate to="/news-analysis" replace />} />
                 <Route path="/news-analysis/predictions" element={<Navigate to="/news-analysis" replace />} />
                 <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />

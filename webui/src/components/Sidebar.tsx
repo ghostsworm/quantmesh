@@ -278,6 +278,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           {t('sidebar.strategyOverview')}
         </NavItem>
         <NavItem 
+          icon={CalendarIcon} 
+          to="/statistics" 
+          isActive={isRouteActive('/statistics')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.profitStatistics')}
+        </NavItem>
+        <NavItem 
           icon={SettingsIcon} 
           to="/system-monitor" 
           isActive={isRouteActive('/system-monitor')}
@@ -339,6 +348,42 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           collapsed={collapsed}
         >
           {t('sidebar.klineFiles')}
+        </NavItem>
+
+        {/* 全局 - 市场数据 */}
+        {!collapsed && (
+          <Box px="7" mb="2" mt={2}>
+            <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
+              {t('common.global')} · {t('sidebar.groupMarketData')}
+            </Heading>
+          </Box>
+        )}
+        <NavItem 
+          icon={SearchIcon} 
+          to="/news-analysis" 
+          isActive={isRouteActive('/news-analysis')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.newsAnalysis')}
+        </NavItem>
+        <NavItem 
+          icon={AtSignIcon} 
+          to="/funding-rate" 
+          isActive={isRouteActive('/funding-rate')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.fundingRate')}
+        </NavItem>
+        <NavItem 
+          icon={AtSignIcon} 
+          to="/basis-monitor" 
+          isActive={isRouteActive('/basis-monitor')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.basisMonitor')}
         </NavItem>
 
         {/* 全局 - AI */}
@@ -459,15 +504,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 {t('sidebar.strategySlots')}
               </NavItem>
               <NavItem 
-                icon={StarIcon} 
-                to={`${botPrefix}/strategies`}
-                isActive={location.pathname.startsWith(`${botPrefix}/strategies`)}
-                onClick={onNavItemClick}
-                collapsed={collapsed}
-              >
-                {t('sidebar.strategyAllocation')}
-              </NavItem>
-              <NavItem 
                 icon={CalendarIcon} 
                 to={`${botPrefix}/statistics`}
                 isActive={location.pathname.startsWith(`${botPrefix}/statistics`)}
@@ -522,15 +558,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 {t('sidebar.positionPlan')}
               </NavItem>
               <NavItem 
-                icon={SearchIcon} 
-                to={`${botPrefix}/news-analysis`}
-                isActive={location.pathname.startsWith(`${botPrefix}/news-analysis`)}
-                onClick={onNavItemClick}
-                collapsed={collapsed}
-              >
-                {t('sidebar.newsAnalysis')}
-              </NavItem>
-              <NavItem 
                 icon={TimeIcon} 
                 to={`${botPrefix}/kline`}
                 isActive={location.pathname.startsWith(`${botPrefix}/kline`)}
@@ -538,24 +565,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 collapsed={collapsed}
               >
                 {t('sidebar.klineDepth')}
-              </NavItem>
-              <NavItem 
-                icon={AtSignIcon} 
-                to={`${botPrefix}/funding-rate`}
-                isActive={location.pathname.startsWith(`${botPrefix}/funding-rate`)}
-                onClick={onNavItemClick}
-                collapsed={collapsed}
-              >
-                {t('sidebar.fundingRate')}
-              </NavItem>
-              <NavItem 
-                icon={AtSignIcon} 
-                to={`${botPrefix}/basis-monitor`}
-                isActive={location.pathname.startsWith(`${botPrefix}/basis-monitor`)}
-                onClick={onNavItemClick}
-                collapsed={collapsed}
-              >
-                {t('sidebar.basisMonitor')}
               </NavItem>
             </MotionBox>
           )}

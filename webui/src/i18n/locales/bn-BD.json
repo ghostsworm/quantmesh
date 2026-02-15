@@ -66,6 +66,7 @@
     "collapseSidebar": "Collapse sidebar",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "Market Data",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital"
   },
@@ -280,6 +281,8 @@
     "step3Title": "নিশ্চিত করুন",
     "step3Desc": "পরীক্ষা করুন এবং তৈরি করুন",
     "marketType": "মার্কেট টাইপ",
+    "botName": "বটের নাম",
+    "botNamePlaceholder": "ঐচ্ছিক, সহজ সনাক্তকরণের জন্য বটকে একটি নাম দিন",
     "selectSymbol": "সিম্বল নির্বাচন করুন",
     "priceInterval": "মূল্য ব্যবধান",
     "orderQuantity": "অর্ডার পরিমাণ",
@@ -289,7 +292,7 @@
     "create": "তৈরি করুন",
     "reviewDesc": "কনফিগারেশন নিশ্চিত করুন এবং তৈরি করুন।",
     "fillRequired": "আবশ্যক ফিল্ড পূরণ করুন",
-    "alreadyExists": "বট ইতিমধ্যে বিদ্যমান",
+    "alreadyExists": "এই সিম্বলের জন্য বট ইতিমধ্যে বিদ্যমান। একই সিম্বলে একাধিক বটের অনুমতি নেই (এক্সচেঞ্জ পজিশন বিচ্ছিন্ন করা যায় না)।",
     "success": "বট তৈরি হয়েছে",
     "failed": "তৈরি ব্যর্থ"
   },

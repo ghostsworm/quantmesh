@@ -65,6 +65,7 @@
     "collapseSidebar": "Thu gọn thanh bên",
     "groupMonitor": "Giám sát & Tổng quan",
     "groupBacktestData": "Backtest & Dữ liệu",
+    "groupMarketData": "Dữ liệu thị trường",
     "groupAI": "AI",
     "groupStrategyCapital": "Chiến lược & Vốn",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "Xác nhận",
     "step3Desc": "Kiểm tra và tạo",
     "marketType": "Loại thị trường",
+    "botName": "Tên Bot",
+    "botNamePlaceholder": "Tùy chọn, đặt tên cho bot để dễ nhận biết",
     "selectSymbol": "Chọn ký hiệu",
     "priceInterval": "Khoảng giá",
     "orderQuantity": "Số lượng đơn",
@@ -113,7 +116,7 @@
     "create": "Tạo",
     "reviewDesc": "Xác nhận cấu hình và tạo.",
     "fillRequired": "Điền các trường bắt buộc",
-    "alreadyExists": "Bot đã tồn tại",
+    "alreadyExists": "Đã tồn tại bot cho ký hiệu này. Không cho phép nhiều bot trên cùng ký hiệu (vị thế sàn không thể tách biệt).",
     "success": "Bot đã tạo",
     "failed": "Tạo thất bại"
   },

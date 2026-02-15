@@ -65,6 +65,7 @@
     "collapseSidebar": "Seitenleiste einklappen",
     "groupMonitor": "Monitor & Übersicht",
     "groupBacktestData": "Backtest & Daten",
+    "groupMarketData": "Marktdaten",
     "groupAI": "KI",
     "groupStrategyCapital": "Strategie & Kapital",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "Bestätigen",
     "step3Desc": "Konfiguration prüfen und erstellen",
     "marketType": "Markttyp",
+    "botName": "Bot-Name",
+    "botNamePlaceholder": "Optional, geben Sie dem Bot einen Namen zur einfachen Identifikation",
     "selectSymbol": "Handelspaar auswählen",
     "priceInterval": "Preisintervall",
     "orderQuantity": "Auftragsmenge",
@@ -113,7 +116,7 @@
     "create": "Erstellen",
     "reviewDesc": "Konfiguration bestätigen. Klicken Sie auf Erstellen, um den Bot hinzuzufügen.",
     "fillRequired": "Bitte Pflichtfelder ausfüllen",
-    "alreadyExists": "Bot existiert bereits",
+    "alreadyExists": "Ein Bot für dieses Symbol existiert bereits. Mehrere Bots für dasselbe Symbol sind nicht erlaubt (Börsenpositionen können nicht isoliert werden).",
     "success": "Bot erstellt",
     "failed": "Erstellung fehlgeschlagen"
   },

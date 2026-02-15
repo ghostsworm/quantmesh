@@ -65,6 +65,7 @@
     "collapseSidebar": "Contraer la barra lateral",
     "groupMonitor": "Monitor y resumen",
     "groupBacktestData": "Backtest y datos",
+    "groupMarketData": "Datos de mercado",
     "groupAI": "IA",
     "groupStrategyCapital": "Estrategia y capital",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "Confirmar",
     "step3Desc": "Revisar y crear",
     "marketType": "Tipo de mercado",
+    "botName": "Nombre del Bot",
+    "botNamePlaceholder": "Opcional, dale un nombre al bot para identificarlo fácilmente",
     "selectSymbol": "Seleccionar símbolo",
     "priceInterval": "Intervalo de precio",
     "orderQuantity": "Cantidad por orden",
@@ -113,7 +116,7 @@
     "create": "Crear",
     "reviewDesc": "Confirmar la configuración y crear.",
     "fillRequired": "Complete los campos obligatorios",
-    "alreadyExists": "El Bot ya existe",
+    "alreadyExists": "Ya existe un bot para este símbolo. No se permiten múltiples bots en el mismo símbolo (las posiciones del exchange no pueden aislarse).",
     "success": "Bot creado",
     "failed": "Error al crear"
   },

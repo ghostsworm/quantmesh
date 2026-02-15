@@ -66,6 +66,7 @@
     "collapseSidebar": "Collapse sidebar",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "Market Data",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital"
   },
@@ -280,6 +281,8 @@
     "step3Title": "تصدیق کریں",
     "step3Desc": "جائزہ لیں اور بنائیں",
     "marketType": "مارکیٹ کی قسم",
+    "botName": "بوٹ کا نام",
+    "botNamePlaceholder": "اختیاری، بوٹ کو آسانی سے شناخت کے لیے نام دیں",
     "selectSymbol": "علامت منتخب کریں",
     "priceInterval": "قیمت کا وقفہ",
     "orderQuantity": "آرڈر کی مقدار",
@@ -289,7 +292,7 @@
     "create": "بنائیں",
     "reviewDesc": "کنفیگریشن کی تصدیق کریں اور بنائیں۔",
     "fillRequired": "ضروری فیلڈز بھریں",
-    "alreadyExists": "بوٹ پہلے سے موجود ہے",
+    "alreadyExists": "اس علامت کے لیے بوٹ پہلے سے موجود ہے۔ ایک ہی علامت پر متعدد بوٹس کی اجازت نہیں ہے (ایکسچینج پوزیشنز کو الگ نہیں کیا جا سکتا)۔",
     "success": "بوٹ بن گیا",
     "failed": "بنانا ناکام"
   },

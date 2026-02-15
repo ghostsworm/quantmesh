@@ -66,6 +66,7 @@
     "collapseSidebar": "Collapse sidebar",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "Dane rynkowe",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital"
   },
@@ -280,6 +281,8 @@
     "step3Title": "Potwierdź",
     "step3Desc": "Sprawdź i utwórz",
     "marketType": "Typ rynku",
+    "botName": "Nazwa bota",
+    "botNamePlaceholder": "Opcjonalnie, nadaj botowi nazwę dla łatwej identyfikacji",
     "selectSymbol": "Wybierz symbol",
     "priceInterval": "Przedział cen",
     "orderQuantity": "Ilość zamówienia",
@@ -289,7 +292,7 @@
     "create": "Utwórz",
     "reviewDesc": "Potwierdź konfigurację i utwórz.",
     "fillRequired": "Wypełnij wymagane pola",
-    "alreadyExists": "Bot już istnieje",
+    "alreadyExists": "Bot dla tego symbolu już istnieje. Wiele botów na tym samym symbolu nie jest dozwolone (pozycje giełdy nie mogą być izolowane).",
     "success": "Bot utworzony",
     "failed": "Błąd tworzenia"
   },

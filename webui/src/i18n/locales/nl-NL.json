@@ -65,6 +65,7 @@
     "collapseSidebar": "Zijbalk inklappen",
     "groupMonitor": "Monitor & overzicht",
     "groupBacktestData": "Backtest & data",
+    "groupMarketData": "Marktgegevens",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategie & kapitaal",
     "servicesStatus": "Service Status"
@@ -104,6 +105,8 @@
     "step3Title": "Bevestigen",
     "step3Desc": "Controleren en maken",
     "marketType": "Markttype",
+    "botName": "Botnaam",
+    "botNamePlaceholder": "Optioneel, geef de bot een naam voor gemakkelijke identificatie",
     "selectSymbol": "Selecteer symbool",
     "priceInterval": "Prijsinterval",
     "orderQuantity": "Orderhoeveelheid",
@@ -113,7 +116,7 @@
     "create": "Maken",
     "reviewDesc": "Bevestig de configuratie en maak.",
     "fillRequired": "Vul verplichte velden in",
-    "alreadyExists": "Bot bestaat al",
+    "alreadyExists": "Er bestaat al een bot voor dit symbool. Meerdere bots op hetzelfde symbool zijn niet toegestaan (beursposities kunnen niet worden geïsoleerd).",
     "success": "Bot gemaakt",
     "failed": "Maken mislukt"
   },

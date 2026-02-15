@@ -49,6 +49,7 @@ const BotCreateWizard: React.FC = () => {
     exchange: 'binance',
     symbol: '',
     market_type: 'futures',
+    name: '',
     enabled: true,
     price_interval: 2,
     order_quantity: 30,
@@ -106,28 +107,31 @@ const BotCreateWizard: React.FC = () => {
     }
     setSaving(true)
     try {
+      const mt = form.market_type || 'futures'
+      const symbols = Array.isArray(config.trading?.symbols) ? [...config.trading.symbols] : []
+      // 檢查同交易所+交易對+市場類型是否已存在
+      const exists = symbols.some(
+        (s) =>
+          (s.exchange || '').toLowerCase() === (form.exchange || '').toLowerCase() &&
+          (s.symbol || '').toUpperCase() === (form.symbol || '').toUpperCase() &&
+          (s.market_type || 'futures') === mt
+      )
+      if (exists) {
+        toast({ title: t('botCreate.alreadyExists'), status: 'warning', duration: 3000 })
+        setSaving(false)
+        return
+      }
       const newSymbol: SymbolConfig = {
+        ...(form.name?.trim() && { name: form.name.trim() }),
         exchange: form.exchange,
         symbol: form.symbol,
-        market_type: form.market_type || 'futures',
+        market_type: mt,
         enabled: form.enabled ?? true,
         price_interval: form.price_interval ?? 2,
         order_quantity: form.order_quantity ?? 30,
         buy_window_size: form.buy_window_size ?? 10,
         sell_window_size: form.sell_window_size ?? 10,
         direction: form.direction || 'LONG',
-      }
-      const symbols = Array.isArray(config.trading?.symbols) ? [...config.trading.symbols] : []
-      const exists = symbols.some(
-        (s) =>
-          s.exchange === newSymbol.exchange &&
-          s.symbol === newSymbol.symbol &&
-          (s.market_type || 'futures') === (newSymbol.market_type || 'futures')
-      )
-      if (exists) {
-        toast({ title: t('botCreate.alreadyExists'), status: 'warning', duration: 3000 })
-        setSaving(false)
-        return
       }
       symbols.push(newSymbol)
       const updated = { ...config, trading: { ...config.trading, symbols } }
@@ -198,7 +202,7 @@ const BotCreateWizard: React.FC = () => {
           {step === 0 && (
             <VStack spacing={4} align="stretch">
               <FormControl isRequired>
-                <FormLabel>{t('configuration.exchange')}</FormLabel>
+                <FormLabel>{t('configSetup.exchange')}</FormLabel>
                 <Select
                   value={form.exchange || ''}
                   onChange={(e) => setForm((f) => ({ ...f, exchange: e.target.value }))}
@@ -221,7 +225,7 @@ const BotCreateWizard: React.FC = () => {
                 </Select>
               </FormControl>
               <FormControl isRequired>
-                <FormLabel>{t('configuration.symbol')}</FormLabel>
+                <FormLabel>{t('configSetup.symbol')}</FormLabel>
                 <Select
                   value={form.symbol || ''}
                   onChange={(e) => setForm((f) => ({ ...f, symbol: e.target.value }))}
@@ -233,6 +237,14 @@ const BotCreateWizard: React.FC = () => {
                     </option>
                   ))}
                 </Select>
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('botCreate.botName')}</FormLabel>
+                <Input
+                  value={form.name || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value.trim() }))}
+                  placeholder={t('botCreate.botNamePlaceholder')}
+                />
               </FormControl>
             </VStack>
           )}
@@ -287,8 +299,11 @@ const BotCreateWizard: React.FC = () => {
             <VStack spacing={4} align="stretch">
               <Text>{t('botCreate.reviewDesc')}</Text>
               <Box bg="gray.50" p={4} borderRadius="md" fontSize="sm">
-                <Text><strong>{t('configuration.exchange')}:</strong> {form.exchange}</Text>
-                <Text><strong>{t('configuration.symbol')}:</strong> {form.symbol}</Text>
+                {form.name && (
+                  <Text><strong>{t('botCreate.botName')}:</strong> {form.name}</Text>
+                )}
+                <Text><strong>{t('configSetup.exchange')}:</strong> {form.exchange}</Text>
+                <Text><strong>{t('configSetup.symbol')}:</strong> {form.symbol}</Text>
                 <Text><strong>{t('botCreate.marketType')}:</strong> {form.market_type}</Text>
                 <Text><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
                 <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>

@@ -66,6 +66,7 @@
     "collapseSidebar": "Collapse sidebar",
     "groupMonitor": "Monitor & Overview",
     "groupBacktestData": "Backtest & Data",
+    "groupMarketData": "Market Data",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital"
   },
@@ -280,6 +281,8 @@
     "step3Title": "Kumpirmahin",
     "step3Desc": "Suriin at lumikha",
     "marketType": "Uri ng merkado",
+    "botName": "Pangalan ng Bot",
+    "botNamePlaceholder": "Opsyonal, bigyan ang bot ng pangalan para madaling makilala",
     "selectSymbol": "Pumili ng simbolo",
     "priceInterval": "Price interval",
     "orderQuantity": "Order quantity",
@@ -289,7 +292,7 @@
     "create": "Lumikha",
     "reviewDesc": "Kumpirmahin ang config at lumikha.",
     "fillRequired": "Punan ang mga required field",
-    "alreadyExists": "Bot already exists",
+    "alreadyExists": "May umiiral nang bot para sa simbolong ito. Hindi pinapayagan ang maraming bot sa parehong simbolo (hindi maaaring ihiwalay ang mga posisyon sa exchange).",
     "success": "Bot created",
     "failed": "Create failed"
   },

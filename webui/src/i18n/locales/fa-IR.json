@@ -66,6 +66,7 @@
     "collapseSidebar": "جمع کردن نوار کناری",
     "groupMonitor": "مانیتور و نمای کلی",
     "groupBacktestData": "بک‌تست و داده",
+    "groupMarketData": "داده‌های بازار",
     "groupAI": "هوش مصنوعی",
     "groupStrategyCapital": "استراتژی و سرمایه"
   },
@@ -280,6 +281,8 @@
     "step3Title": "تأیید",
     "step3Desc": "بررسی و ایجاد",
     "marketType": "نوع بازار",
+    "botName": "نام ربات",
+    "botNamePlaceholder": "اختیاری، برای شناسایی آسان به ربات نام بدهید",
     "selectSymbol": "انتخاب نماد",
     "priceInterval": "فاصله قیمت",
     "orderQuantity": "مقدار سفارش",
@@ -289,7 +292,7 @@
     "create": "ایجاد",
     "reviewDesc": "پیکربندی را تأیید و ایجاد کنید.",
     "fillRequired": "فیلدهای اجباری را پر کنید",
-    "alreadyExists": "ربات از قبل وجود دارد",
+    "alreadyExists": "ربات برای این نماد از قبل وجود دارد. چند ربات روی همان نماد مجاز نیست (موقعیت‌های صرافی قابل جداسازی نیستند).",
     "success": "ربات ایجاد شد",
     "failed": "ایجاد ناموفق"
   },

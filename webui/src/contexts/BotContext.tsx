@@ -16,12 +16,19 @@ interface BotContextValue {
 
 const BotContext = createContext<BotContextValue | undefined>(undefined)
 
+/** 非 bot 的路径段（不应解析为 botId） */
+const RESERVED_BOT_PATH_SEGMENTS = ['create']
+
 /**
  * 从 URL 路径解析 botId，例如 /bots/xxx 或 /bots/xxx/positions
+ * 排除 /bots/create 等保留路径，这些场景下不显示 bot 相关菜单
  */
 function parseBotIdFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/bots\/([^/]+)(?:\/|$)/)
-  return match ? match[1] : null
+  if (!match) return null
+  const segment = match[1]
+  if (RESERVED_BOT_PATH_SEGMENTS.includes(segment.toLowerCase())) return null
+  return segment
 }
 
 /**
