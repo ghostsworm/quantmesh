@@ -40,7 +40,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.54.2-rc1"
+var Version = "3.55.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -750,6 +750,166 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 		})
 	}
 	return nil
+}
+
+// botManagerProviderAdapter 實現 web.BotManagerProvider
+type botManagerProviderAdapter struct {
+	manager *SymbolManager
+}
+
+func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
+	cfg, err := web.GetLatestConfig()
+	if err != nil || cfg == nil {
+		return nil
+	}
+	botMgr := a.manager.GetBotManager()
+	runningMap := make(map[string]*BotRuntime)
+	for _, br := range botMgr.List() {
+		if br != nil && br.BotID != "" {
+			runningMap[br.BotID] = br
+		}
+	}
+	var result []web.BotResponse
+	for _, bc := range cfg.Bots {
+		botID := bc.ID
+		if botID == "" {
+			botID = config.GenerateBotID(bc.Exchange, bc.Symbol, bc.GetMarketType())
+		}
+		name := bc.Name
+		if name == "" {
+			name = bc.Symbol + " (" + bc.GetMarketType() + ")"
+		}
+		resp := web.BotResponse{
+			BotID:      botID,
+			Name:       name,
+			Exchange:   bc.Exchange,
+			Symbol:     bc.Symbol,
+			MarketType: bc.GetMarketType(),
+			Running:     false,
+		}
+		if br, ok := runningMap[botID]; ok && br.Inner != nil {
+			resp.Running = true
+			if br.Inner.PriceMonitor != nil {
+				resp.CurrentPrice = br.Inner.PriceMonitor.GetLastPrice()
+			}
+			if br.Inner.SuperPositionManager != nil {
+				resp.TotalPnL = br.Inner.SuperPositionManager.GetUnrealizedPnL(resp.CurrentPrice)
+				// TotalTrades 需從存儲查詢，此處暫不填充
+			}
+			if br.Inner.RiskMonitor != nil {
+				resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
+			}
+		}
+		result = append(result, resp)
+	}
+	// 兼容：若 Bots 為空但 Symbols 有數據，從 Symbols 轉換
+	if len(result) == 0 && len(cfg.Trading.Symbols) > 0 {
+		for _, sc := range cfg.Trading.Symbols {
+			exCfg, ok := cfg.Exchanges[sc.Exchange]
+			testnet := false
+			if ok {
+				testnet = exCfg.Testnet
+			}
+			bc := config.SymbolConfigToBotConfig(sc, testnet)
+			botID := bc.ID
+			name := bc.Name
+			if name == "" {
+				name = bc.Symbol + " (" + bc.GetMarketType() + ")"
+			}
+			resp := web.BotResponse{
+				BotID:      botID,
+				Name:       name,
+				Exchange:   bc.Exchange,
+				Symbol:     bc.Symbol,
+				MarketType: bc.GetMarketType(),
+				Running:     false,
+			}
+			if br, ok := runningMap[botID]; ok && br.Inner != nil {
+				resp.Running = true
+				if br.Inner.PriceMonitor != nil {
+					resp.CurrentPrice = br.Inner.PriceMonitor.GetLastPrice()
+				}
+				if br.Inner.SuperPositionManager != nil {
+					resp.TotalPnL = br.Inner.SuperPositionManager.GetUnrealizedPnL(resp.CurrentPrice)
+				}
+				if br.Inner.RiskMonitor != nil {
+					resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
+				}
+			}
+			result = append(result, resp)
+		}
+	}
+	return result
+}
+
+func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse, bool) {
+	botMgr := a.manager.GetBotManager()
+	br, ok := botMgr.Get(botID)
+	if ok && br != nil && br.Inner != nil {
+		name := br.Config.Name
+		if name == "" {
+			name = br.Config.Symbol + " (" + br.Config.GetMarketType() + ")"
+		}
+		resp := &web.BotDetailResponse{
+			BotResponse: web.BotResponse{
+				BotID:      br.BotID,
+				Name:       name,
+				Exchange:   br.Config.Exchange,
+				Symbol:     br.Config.Symbol,
+				MarketType: br.Config.GetMarketType(),
+				Running:    true,
+			},
+			Config: &br.Config,
+		}
+		if br.Inner.PriceMonitor != nil {
+			resp.CurrentPrice = br.Inner.PriceMonitor.GetLastPrice()
+		}
+		if br.Inner.SuperPositionManager != nil {
+			resp.TotalPnL = br.Inner.SuperPositionManager.GetUnrealizedPnL(resp.CurrentPrice)
+		}
+		if br.Inner.RiskMonitor != nil {
+			resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
+		}
+		return resp, true
+	}
+	cfg, err := web.GetLatestConfig()
+	if err != nil || cfg == nil {
+		return nil, false
+	}
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if id == botID {
+			bc := &cfg.Bots[i]
+			name := bc.Name
+			if name == "" {
+				name = bc.Symbol + " (" + bc.GetMarketType() + ")"
+			}
+			return &web.BotDetailResponse{
+				BotResponse: web.BotResponse{
+					BotID:      botID,
+					Name:       name,
+					Exchange:   bc.Exchange,
+					Symbol:     bc.Symbol,
+					MarketType: bc.GetMarketType(),
+					Running:    false,
+				},
+				Config: bc,
+			}, true
+		}
+	}
+	return nil, false
+}
+
+func (a *botManagerProviderAdapter) StartBot(ctx context.Context, botCfg config.BotConfig) error {
+	_, err := a.manager.StartBot(ctx, botCfg)
+	return err
+}
+
+func (a *botManagerProviderAdapter) StopBot(botID string) error {
+	return a.manager.GetBotManager().StopBot(botID)
 }
 
 // resolveMarketType 從配置或运行時中推導 market_type
@@ -1672,7 +1832,7 @@ func main() {
 		logger.Info("ℹ️ Web 服務未啟用（配置中 web.enabled=false）")
 	}
 
-	symbolManager := NewSymbolManager(cfg)
+	symbolManager := NewSymbolManager(cfg, eventBus, storageService, distributedLock)
 
 	// 創建 SymbolManager 适配器（用於 Web API）
 	symbolManagerAdapter := &symbolManagerWebAdapter{
@@ -1685,24 +1845,35 @@ func main() {
 	}
 	web.RegisterSymbolManager(symbolManagerAdapter)
 	web.RegisterStrategyRuntimeProvider(symbolManagerAdapter) // 注册策略運行時提供者
+	web.RegisterBotManagerProvider(&botManagerProviderAdapter{manager: symbolManager})
 
-	// 只有在配置完整時才啟动交易系统
+	// 只有在配置完整時才啟动交易系统（優先使用 Bots，兼容舊 Symbols）
 	var firstRuntime *SymbolRuntime
 	if configComplete {
-		// 啟动所有交易對
-		for _, symCfg := range cfg.Trading.Symbols {
-			if !symCfg.IsEnabled() {
-				logger.Info("⏭️ [%s:%s] 已禁用，跳過自动啟动", symCfg.Exchange, symCfg.Symbol)
+		botCfgs := cfg.Bots
+		if len(botCfgs) == 0 && len(cfg.Trading.Symbols) > 0 {
+			// 兼容：若 Bots 為空但 Symbols 有數據，現場轉換
+			for _, symCfg := range cfg.Trading.Symbols {
+				exCfg, ok := cfg.Exchanges[symCfg.Exchange]
+				testnet := false
+				if ok {
+					testnet = exCfg.Testnet
+				}
+				botCfgs = append(botCfgs, config.SymbolConfigToBotConfig(symCfg, testnet))
+			}
+		}
+		for _, botCfg := range botCfgs {
+			if !botCfg.IsEnabled() {
+				logger.Info("⏭️ [%s:%s] 已禁用，跳過自动啟动", botCfg.Exchange, botCfg.Symbol)
 				continue
 			}
-			rt, err := startSymbolRuntime(ctx, cfg, symCfg, eventBus, storageService, distributedLock)
+			br, err := symbolManager.StartBot(ctx, botCfg)
 			if err != nil {
-				logger.Error("❌ [%s:%s] 啟动失败: %v", symCfg.Exchange, symCfg.Symbol, err)
+				logger.Error("❌ [%s:%s] 啟动失败: %v", botCfg.Exchange, botCfg.Symbol, err)
 				continue
 			}
-			symbolManager.Add(rt)
-			if firstRuntime == nil {
-				firstRuntime = rt
+			if br != nil && br.Inner != nil && firstRuntime == nil {
+				firstRuntime = br.Inner
 			}
 		}
 

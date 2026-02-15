@@ -109,6 +109,49 @@ export async function getExchanges(): Promise<ExchangesResponse> {
   return fetchWithAuth(`${API_BASE_URL}/exchanges`)
 }
 
+// Bots
+export interface BotInfo {
+  bot_id: string
+  name: string
+  exchange: string
+  symbol: string
+  market_type: string
+  running: boolean
+  current_price?: number
+  total_pnl?: number
+  total_trades?: number
+  risk_triggered?: boolean
+  uptime?: number
+}
+
+export interface BotsResponse {
+  bots: BotInfo[]
+}
+
+export async function getBots(): Promise<BotsResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/bots`)
+}
+
+export interface BotDetailInfo extends BotInfo {
+  config?: Record<string, unknown>
+}
+
+export async function getBotById(botId: string): Promise<BotDetailInfo> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}`)
+}
+
+export async function startBot(botId: string): Promise<{ ok: boolean; bot_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/start`, {
+    method: 'POST',
+  })
+}
+
+export async function stopBot(botId: string): Promise<{ ok: boolean; bot_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/stop`, {
+    method: 'POST',
+  })
+}
+
 // Positions
 // 舊的 PositionInfo 介面（用於其他API，保留以兼容）
 export interface ExchangePositionInfo {
@@ -703,6 +746,7 @@ export interface LogsParams {
   limit?: number
   offset?: number
   level?: string
+  keyword?: string
   start_time?: string
   end_time?: string
 }
@@ -717,6 +761,7 @@ export async function getLogs(params?: LogsParams): Promise<LogsResponse> {
   if (params?.limit) queryParams.append('limit', params.limit.toString())
   if (params?.offset) queryParams.append('offset', params.offset.toString())
   if (params?.level) queryParams.append('level', params.level)
+  if (params?.keyword) queryParams.append('keyword', params.keyword)
   if (params?.start_time) queryParams.append('start_time', params.start_time)
   if (params?.end_time) queryParams.append('end_time', params.end_time)
   

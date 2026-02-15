@@ -49,7 +49,6 @@ const StrategyDetail: React.FC = () => {
       setLoading(false)
       return
     }
-    setSymbolPair(exchange, symbol, marketType)
     const fetchData = async () => {
       setLoading(true)
       try {
@@ -73,7 +72,7 @@ const StrategyDetail: React.FC = () => {
       }
     }
     fetchData()
-  }, [exchange, symbol, marketType, strategyName, setSymbolPair, t, toast])
+  }, [exchange, symbol, marketType, strategyName, t, toast])
 
   const handleBack = () => {
     navigate('/strategy-overview')
@@ -81,7 +80,6 @@ const StrategyDetail: React.FC = () => {
 
   const handleGoToDashboard = () => {
     setSymbolPair(exchange, symbol, marketType)
-    navigate('/')
   }
 
   if (!exchange || !symbol || !strategyName) {

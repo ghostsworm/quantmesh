@@ -96,6 +96,21 @@ other = "Failed to get prompts"
 [error.invalid_request]
 other = "Invalid request"
 
+[error.invalid_bot_id]
+other = "Invalid Bot ID"
+
+[error.bot_manager_unavailable]
+other = "Bot manager unavailable"
+
+[error.config_load_failed]
+other = "Failed to load config"
+
+[error.bot_start_failed]
+other = "Failed to start Bot"
+
+[error.bot_stop_failed]
+other = "Failed to stop Bot"
+
 [error.module_name_empty]
 other = "Module name cannot be empty"
 

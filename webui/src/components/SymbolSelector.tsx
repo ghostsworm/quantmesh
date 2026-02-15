@@ -33,12 +33,11 @@ const SymbolSelector: React.FC = () => {
     selectedExchange,
     selectedSymbol,
     selectedMarketType,
-    setSelectedExchange,
-    setSelectedSymbol,
-    setSelectedMarketType,
+    setSymbolPair,
     clearSelection,
     isGlobalView,
   } = useSymbol()
+  const [pendingExchange, setPendingExchange] = useState<string | null>(selectedExchange)
 
   const [symbols, setSymbols] = useState<SymbolInfo[]>([])
   const [exchanges, setExchanges] = useState<string[]>([])
@@ -66,38 +65,35 @@ const SymbolSelector: React.FC = () => {
   }, [])
 
   // 根據选中的交易所過滤交易對（忽略大小写）
-  const filteredSymbols = selectedExchange
-    ? symbols.filter((s) => s.exchange.toLowerCase() === selectedExchange.toLowerCase())
+  const effectiveExchange = pendingExchange || selectedExchange
+  const filteredSymbols = effectiveExchange
+    ? symbols.filter((s) => s.exchange.toLowerCase() === effectiveExchange.toLowerCase())
     : symbols
 
   // 分组：活跃和非活跃
   const activeSymbols = filteredSymbols.filter((s) => s.is_active)
   const inactiveSymbols = filteredSymbols.filter((s) => !s.is_active)
 
+  useEffect(() => {
+    setPendingExchange(selectedExchange)
+  }, [selectedExchange])
+
   const handleExchangeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value
     if (value === '') {
       clearSelection()
     } else {
-      setSelectedExchange(value)
-      setSelectedSymbol(null) // 清空交易對选擇
+      setPendingExchange(value)
     }
   }
 
   const handleSymbolChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value
-    if (value === '') {
-      setSelectedSymbol(null)
-      setSelectedMarketType(null)
-    } else {
-      const parsed = parseSymbolOptionValue(value)
-      if (parsed) {
-        setSelectedSymbol(parsed.symbol)
-        setSelectedMarketType(parsed.marketType)
-      } else {
-        setSelectedSymbol(value)
-        setSelectedMarketType('futures')
-      }
+    if (value === '') return
+    const parsed = parseSymbolOptionValue(value)
+    if (parsed) {
+      const ex = pendingExchange || selectedExchange
+      if (ex) setSymbolPair(ex, parsed.symbol, parsed.marketType)
     }
   }
 
@@ -137,7 +133,7 @@ const SymbolSelector: React.FC = () => {
         <Select
           size="xs"
           w="110px"
-          value={selectedExchange || ''}
+          value={effectiveExchange || ''}
           onChange={handleExchangeChange}
           placeholder={t('symbolSelector.selectExchange')}
           variant="filled"
@@ -158,7 +154,7 @@ const SymbolSelector: React.FC = () => {
           value={symbolSelectValue}
           onChange={handleSymbolChange}
           placeholder={t('symbolSelector.selectSymbol')}
-          isDisabled={!selectedExchange}
+          isDisabled={!effectiveExchange}
           variant="filled"
           borderRadius="md"
         >

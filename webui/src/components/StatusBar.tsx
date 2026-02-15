@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react'
-import { Flex, Text, Badge, Spinner, HStack, Tooltip } from '@chakra-ui/react'
+import { Flex, Text, Badge, Spinner, HStack, Tooltip, Button } from '@chakra-ui/react'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getFundingRateCurrent } from '../services/api'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 
 const StatusBar: React.FC = () => {
-  const { selectedExchange, selectedSymbol, isGlobalView } = useSymbol()
+  const { selectedExchange, selectedSymbol, isGlobalView, clearSelection } = useSymbol()
   const [fundingRate, setFundingRate] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const { t } = useTranslation()
@@ -41,9 +42,20 @@ const StatusBar: React.FC = () => {
 
   if (isGlobalView) {
     return (
-      <Badge colorScheme="purple" variant="subtle" fontSize="10px" borderRadius="full" px={3}>
-        {t('statusBar.globalView')}
-      </Badge>
+      <HStack spacing={2}>
+        <Button
+          as={Link}
+          to="/bots"
+          size="xs"
+          variant="ghost"
+          colorScheme="blue"
+        >
+          {t('sidebar.botList')}
+        </Button>
+        <Badge colorScheme="purple" variant="subtle" fontSize="10px" borderRadius="full" px={3}>
+          {t('statusBar.globalView')}
+        </Badge>
+      </HStack>
     )
   }
 
@@ -53,6 +65,9 @@ const StatusBar: React.FC = () => {
 
   return (
     <HStack spacing={3}>
+      <Button size="xs" variant="ghost" onClick={clearSelection}>
+        {t('statusBar.backToGlobal')}
+      </Button>
       <Tooltip label={`${selectedExchange.toUpperCase()} ${t('statusBar.fundingRate')}`}>
         <HStack spacing={2} bg="gray.50" px={3} py={1} borderRadius="full" border="1px" borderColor="gray.100">
           <Text fontSize="10px" fontWeight="bold" color="gray.400">FR</Text>

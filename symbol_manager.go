@@ -22,6 +22,18 @@ import (
 	"quantmesh/web"
 )
 
+// SymbolManager 管理多個 SymbolRuntime（委託給 BotManager 實現）
+type SymbolManager struct {
+	botManager *BotManager
+}
+
+// NewSymbolManager 創建管理器（內部創建 BotManager，需傳入完整依賴）
+func NewSymbolManager(cfg *config.Config, eventBus *event.EventBus, storageService *storage.StorageService, distributedLock lock.DistributedLock) *SymbolManager {
+	return &SymbolManager{
+		botManager: NewBotManager(cfg, eventBus, storageService, distributedLock),
+	}
+}
+
 // SymbolRuntime 代表單個交易所/交易對的运行時组件集合
 type SymbolRuntime struct {
 	Config               config.SymbolConfig
@@ -47,91 +59,62 @@ type SymbolRuntime struct {
 	Stop                 func()
 }
 
-// SymbolManager 管理多個 SymbolRuntime
-type SymbolManager struct {
-	cfg      *config.Config
-	runtimes map[string]*SymbolRuntime
-}
-
-// NewSymbolManager 創建管理器
-func NewSymbolManager(cfg *config.Config) *SymbolManager {
-	return &SymbolManager{
-		cfg:      cfg,
-		runtimes: make(map[string]*SymbolRuntime),
-	}
-}
-
 // runtimeKey 生成唯一键（exchange:symbol:market_type）
 func runtimeKey(exchangeName, symbol string, marketType ...string) string {
 	mt := "futures"
 	if len(marketType) > 0 && marketType[0] != "" {
 		mt = marketType[0]
 	}
-	return fmt.Sprintf("%s:%s:%s", exchangeName, symbol, mt)
+	return config.GenerateBotID(exchangeName, symbol, mt)
 }
 
-// Add 注册运行時
+// Add 注册运行時（包裝為 BotRuntime 後加入 BotManager）
 func (sm *SymbolManager) Add(rt *SymbolRuntime) {
-	key := runtimeKey(rt.Config.Exchange, rt.Config.Symbol, rt.Config.GetMarketType())
-	sm.runtimes[key] = rt
+	exCfg, _ := sm.botManager.cfg.Exchanges[rt.Config.Exchange]
+	botCfg := config.SymbolConfigToBotConfig(rt.Config, exCfg.Testnet)
+	botID := config.GenerateBotID(rt.Config.Exchange, rt.Config.Symbol, rt.Config.GetMarketType())
+	br := &BotRuntime{Config: botCfg, BotID: botID, Inner: rt, EventBus: sm.botManager.eventBus}
+	sm.botManager.AddRuntime(br)
 }
 
-// Get 獲取运行時（支持傳入 market_type，不傳時 fallback 到只匹配 exchange:symbol）
+// Get 獲取运行時（委託 BotManager）
 func (sm *SymbolManager) Get(exchangeName, symbol string, marketType ...string) (*SymbolRuntime, bool) {
-	key := runtimeKey(exchangeName, symbol, marketType...)
-	rt, ok := sm.runtimes[key]
-	return rt, ok
+	br, ok := sm.botManager.GetByExchangeSymbol(exchangeName, symbol, marketType...)
+	if !ok || br.Inner == nil {
+		return nil, false
+	}
+	return br.Inner, true
 }
 
-// List 列出所有运行時
+// List 列出所有运行時（委託 BotManager）
 func (sm *SymbolManager) List() []*SymbolRuntime {
-	list := make([]*SymbolRuntime, 0, len(sm.runtimes))
-	for _, rt := range sm.runtimes {
-		list = append(list, rt)
-	}
-	return list
+	return sm.botManager.ListSymbolRuntimes()
 }
 
-// Remove 從管理器中移除运行時
+// Remove 從管理器中移除运行時（委託 BotManager）
 func (sm *SymbolManager) Remove(exchangeName, symbol string, marketType ...string) {
-	key := runtimeKey(exchangeName, symbol, marketType...)
-	delete(sm.runtimes, key)
+	botID := runtimeKey(exchangeName, symbol, marketType...)
+	sm.botManager.Remove(botID)
 }
 
-// StopAll 停止所有运行時（如退出時調用）
+// StopAll 停止所有运行時（委託 BotManager）
 func (sm *SymbolManager) StopAll() {
-	for _, rt := range sm.runtimes {
-		if rt != nil && rt.Stop != nil {
-			rt.Stop()
-		}
-	}
+	sm.botManager.StopAll()
 }
 
-// UpdateRuntimeTradingParams 更新运行中的交易對的交易参數（热更新）
-// 根据最新配置，将参数推送到正在运行的 SuperPositionManager
+// UpdateRuntimeTradingParams 更新运行中的交易對的交易参數（热更新，委託 BotManager）
 func (sm *SymbolManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (updatedSymbols []string) {
-	for _, symCfg := range latestCfg.Trading.Symbols {
-		key := runtimeKey(symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
-		rt, ok := sm.runtimes[key]
-		if !ok || rt == nil || rt.SuperPositionManager == nil {
-			continue
-		}
+	return sm.botManager.UpdateRuntimeTradingParams(latestCfg)
+}
 
-		// 将最新配置推送到 SuperPositionManager
-		changed := rt.SuperPositionManager.UpdateTradingParams(
-			symCfg.PriceInterval,
-			symCfg.ProfitSpread,
-			symCfg.OrderQuantity,
-			symCfg.BuyWindowSize,
-			symCfg.SellWindowSize,
-		)
-		if changed {
-			// 同时更新 SymbolRuntime 自身持有的 Config 副本
-			rt.Config = symCfg
-			updatedSymbols = append(updatedSymbols, key)
-		}
-	}
-	return
+// StartBot 啟動指定 Bot（委託 BotManager）
+func (sm *SymbolManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
+	return sm.botManager.StartBot(ctx, botCfg)
+}
+
+// GetBotManager 返回底層 BotManager（供 Web API 等使用）
+func (sm *SymbolManager) GetBotManager() *BotManager {
+	return sm.botManager
 }
 
 // selectProfile 根据资金费率和手续费率选择配置档案

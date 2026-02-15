@@ -38,6 +38,7 @@ import {
   WarningIcon,
 } from '@chakra-ui/icons'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useBot } from '../contexts/BotContext'
 import { useTranslation } from 'react-i18next'
 
 const MotionBox = motion(Box)
@@ -135,7 +136,9 @@ const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
 
 const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
   const { isGlobalView, selectedSymbol } = useSymbol()
+  const { botId } = useBot()
   const location = useLocation()
+  const botPrefix = botId ? `/bots/${botId}` : ''
   const { t } = useTranslation()
   
   // 從 localStorage 读取收起状態，默认展开
@@ -231,14 +234,40 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           </Flex>
         )}
         
-        {/* 全局 - 监控与概览 */}
+        {/* Bot 广场 */}
         {!collapsed && (
           <Box px="7" mb="2">
             <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-              {t('common.global')} · {t('sidebar.groupMonitor')}
+              {t('sidebar.groupBotPlaza')}
             </Heading>
           </Box>
         )}
+        <NavItem 
+          icon={RepeatIcon} 
+          to="/bots" 
+          isActive={isRouteActive('/bots')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.botList')}
+        </NavItem>
+        {/* 全局看板 */}
+        {!collapsed && (
+          <Box px="7" mb="2" mt={2}>
+            <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
+              {t('sidebar.groupGlobalDashboard')}
+            </Heading>
+          </Box>
+        )}
+        <NavItem 
+          icon={InfoIcon} 
+          to="/" 
+          isActive={isRouteActive('/') && isGlobalView}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.globalDashboard')}
+        </NavItem>
         <NavItem 
           icon={ViewIcon} 
           to="/strategy-overview" 
@@ -247,15 +276,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           collapsed={collapsed}
         >
           {t('sidebar.strategyOverview')}
-        </NavItem>
-        <NavItem 
-          icon={InfoIcon} 
-          to="/" 
-          isActive={isRouteActive('/') && isGlobalView}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.overview')}
         </NavItem>
         <NavItem 
           icon={SettingsIcon} 
@@ -366,7 +386,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           {t('sidebar.aiTasks')}
         </NavItem>
 
-        {/* 全局 - 策略与资金 */}
+        {/* 全局 - 策略与资金（策略市场仅在新建 bot 时使用，不在此展示） */}
         {!collapsed && (
           <Box px="7" mb="2" mt={2}>
             <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
@@ -375,15 +395,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           </Box>
         )}
         <NavItem 
-          icon={ExternalLinkIcon} 
-          to="/strategy-market" 
-          isActive={isRouteActive('/strategy-market')}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.strategyMarket')}
-        </NavItem>
-        <NavItem 
           icon={CheckCircleIcon} 
           to="/capital-management" 
           isActive={isRouteActive('/capital-management')}
@@ -391,24 +402,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           collapsed={collapsed}
         >
           {t('sidebar.capitalManagement')}
-        </NavItem>
-        <NavItem 
-          icon={RepeatIcon} 
-          to="/profit-management" 
-          isActive={isRouteActive('/profit-management')}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.profitManagement')}
-        </NavItem>
-        <NavItem 
-          icon={StarIcon} 
-          to="/position-plan" 
-          isActive={isRouteActive('/position-plan')}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.positionPlan')}
         </NavItem>
 
         <AnimatePresence>
@@ -431,8 +424,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               )}
               <NavItem 
                 icon={ViewIcon} 
-                to="/" 
-                isActive={isRouteActive('/') && !isGlobalView}
+                to={`${botPrefix}/dashboard`}
+                isActive={location.pathname === `${botPrefix}/dashboard`}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -440,8 +433,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={DragHandleIcon} 
-                to="/positions" 
-                isActive={isRouteActive('/positions')}
+                to={`${botPrefix}/positions`}
+                isActive={location.pathname.startsWith(`${botPrefix}/positions`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -449,8 +442,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={RepeatIcon} 
-                to="/orders" 
-                isActive={isRouteActive('/orders')}
+                to={`${botPrefix}/orders`}
+                isActive={location.pathname.startsWith(`${botPrefix}/orders`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -458,8 +451,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={AddIcon} 
-                to="/slots" 
-                isActive={isRouteActive('/slots')}
+                to={`${botPrefix}/slots`}
+                isActive={location.pathname.startsWith(`${botPrefix}/slots`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -467,8 +460,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={StarIcon} 
-                to="/strategies" 
-                isActive={isRouteActive('/strategies')}
+                to={`${botPrefix}/strategies`}
+                isActive={location.pathname.startsWith(`${botPrefix}/strategies`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -476,8 +469,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={CalendarIcon} 
-                to="/statistics" 
-                isActive={isRouteActive('/statistics')}
+                to={`${botPrefix}/statistics`}
+                isActive={location.pathname.startsWith(`${botPrefix}/statistics`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -485,8 +478,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={SearchIcon} 
-                to="/reconciliation" 
-                isActive={isRouteActive('/reconciliation')}
+                to={`${botPrefix}/reconciliation`}
+                isActive={location.pathname.startsWith(`${botPrefix}/reconciliation`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -494,8 +487,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={TriangleUpIcon} 
-                to="/risk" 
-                isActive={isRouteActive('/risk')}
+                to={`${botPrefix}/risk`}
+                isActive={location.pathname.startsWith(`${botPrefix}/risk`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -503,17 +496,35 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={LockIcon} 
-                to="/opening-control" 
-                isActive={isRouteActive('/opening-control')}
+                to={`${botPrefix}/opening-control`}
+                isActive={location.pathname.startsWith(`${botPrefix}/opening-control`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
                 {t('sidebar.openingControl')}
               </NavItem>
               <NavItem 
+                icon={RepeatIcon} 
+                to={`${botPrefix}/profit-management`}
+                isActive={location.pathname.startsWith(`${botPrefix}/profit-management`)}
+                onClick={onNavItemClick}
+                collapsed={collapsed}
+              >
+                {t('sidebar.profitManagement')}
+              </NavItem>
+              <NavItem 
+                icon={StarIcon} 
+                to={`${botPrefix}/position-plan`}
+                isActive={location.pathname.startsWith(`${botPrefix}/position-plan`)}
+                onClick={onNavItemClick}
+                collapsed={collapsed}
+              >
+                {t('sidebar.positionPlan')}
+              </NavItem>
+              <NavItem 
                 icon={SearchIcon} 
-                to="/news-analysis" 
-                isActive={isRouteActive('/news-analysis')}
+                to={`${botPrefix}/news-analysis`}
+                isActive={location.pathname.startsWith(`${botPrefix}/news-analysis`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -521,8 +532,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={TimeIcon} 
-                to="/kline" 
-                isActive={isRouteActive('/kline')}
+                to={`${botPrefix}/kline`}
+                isActive={location.pathname.startsWith(`${botPrefix}/kline`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -530,8 +541,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={AtSignIcon} 
-                to="/funding-rate" 
-                isActive={isRouteActive('/funding-rate')}
+                to={`${botPrefix}/funding-rate`}
+                isActive={location.pathname.startsWith(`${botPrefix}/funding-rate`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -539,8 +550,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               </NavItem>
               <NavItem 
                 icon={AtSignIcon} 
-                to="/basis-monitor" 
-                isActive={isRouteActive('/basis-monitor')}
+                to={`${botPrefix}/basis-monitor`}
+                isActive={location.pathname.startsWith(`${botPrefix}/basis-monitor`)}
                 onClick={onNavItemClick}
                 collapsed={collapsed}
               >
@@ -552,13 +563,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
 
         <Divider my={4} mx={collapsed ? "2" : "6"} borderColor={borderColor} />
 
+        {/* 系统设置 */}
         {!collapsed && (
           <Box px="7" mb="2">
             <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
-              {t('common.system')}
+              {t('sidebar.groupSystemSettings')}
             </Heading>
           </Box>
         )}
+        <NavItem 
+          icon={SettingsIcon} 
+          to={botPrefix ? `${botPrefix}/config` : '/config'} 
+          isActive={isRouteActive(botPrefix ? `${botPrefix}/config` : '/config')}
+          onClick={onNavItemClick}
+          collapsed={collapsed}
+        >
+          {t('sidebar.configManagement')}
+        </NavItem>
         <NavItem 
           icon={CheckCircleIcon} 
           to="/services/status" 
@@ -567,15 +588,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           collapsed={collapsed}
         >
           {t('sidebar.servicesStatus')}
-        </NavItem>
-        <NavItem 
-          icon={SettingsIcon} 
-          to="/config" 
-          isActive={isRouteActive('/config')}
-          onClick={onNavItemClick}
-          collapsed={collapsed}
-        >
-          {t('sidebar.configManagement')}
         </NavItem>
         <NavItem 
           icon={InfoIcon} 

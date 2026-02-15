@@ -60,10 +60,23 @@ import {
   closeAllPositions,
   getSystemStatuses,
 } from '../services/api'
+import { getCapitalOverview, getCapitalHistory } from '../services/capital'
 import { useSymbol } from '../contexts/SymbolContext'
 import { checkSetupStatus } from '../services/setup'
 import ConfirmDialog from './ConfirmDialog'
 import { Alert, AlertIcon, AlertTitle, AlertDescription } from '@chakra-ui/react'
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from 'recharts'
 
 const MotionBox = motion(Box)
 
@@ -97,6 +110,8 @@ const GlobalDashboard: React.FC = () => {
     symbol: string
   } | null>(null)
   const [expandedIndices, setExpandedIndices] = useState<number[]>([])
+  const [capitalOverview, setCapitalOverview] = useState<{ totalBalance: number; unrealizedPnL: number } | null>(null)
+  const [capitalHistory, setCapitalHistory] = useState<Array<{ date: string; balance: number }>>([])
   const toast = useToast()
   const { setSymbolPair } = useSymbol()
 
@@ -133,16 +148,35 @@ const GlobalDashboard: React.FC = () => {
       const startTime = new Date('2020-01-01T00:00:00Z').toISOString()
       const endTime = new Date().toISOString()
       
-      const [symbolsData, pnlData, statusesData, positionsAllData] = await Promise.all([
+      const [symbolsData, pnlData, statusesData, positionsAllData, capitalRes, historyRes] = await Promise.all([
         getSymbols(),
         getPnLByExchange(startTime, endTime),
         getSystemStatuses(),
         getPositionsSummaryAll().catch(() => ({ positions: [] })),
+        getCapitalOverview().catch(() => null),
+        getCapitalHistory(30).catch(() => ({ history: [] })),
       ])
       
       setSymbols(symbolsData.symbols)
       setExchangePnL(pnlData.exchanges || [])
       setPositionsAll(positionsAllData?.positions || [])
+      if (capitalRes?.success && capitalRes.overview) {
+        setCapitalOverview({
+          totalBalance: capitalRes.overview.totalBalance,
+          unrealizedPnL: capitalRes.overview.unrealizedPnL,
+        })
+      } else {
+        setCapitalOverview(null)
+      }
+      const hist = historyRes?.history || []
+      setCapitalHistory(
+        hist
+          .map((h) => ({
+            date: h.timestamp?.slice(0, 10) || '',
+            balance: h.totalBalance ?? 0,
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date))
+      )
       
       const statusMap = new Map<string, SymbolStatus>()
       
@@ -228,13 +262,32 @@ const GlobalDashboard: React.FC = () => {
       totalVolume += ex.total_volume
     })
 
+    let normalCount = 0
+    let riskTriggeredCount = 0
+    let openingPausedCountDist = 0
+
     symbolStatuses.forEach((status) => {
       if (status.running) {
         activeCount++
         if (status.risk_triggered) riskTriggered = true
       }
       if (status.opening_paused) openingPausedCount++
+
+      // 风险分布：风控暂停优先，其次开仓暂停，否则正常
+      if (status.risk_triggered) {
+        riskTriggeredCount++
+      } else if (status.opening_paused) {
+        openingPausedCountDist++
+      } else {
+        normalCount++
+      }
     })
+
+    const riskDistribution = [
+      { name: 'normal', value: normalCount, color: '#38A169' },
+      { name: 'riskTriggered', value: riskTriggeredCount, color: '#E53E3E' },
+      { name: 'openingPaused', value: openingPausedCountDist, color: '#DD6B20' },
+    ].filter((d) => d.value > 0)
 
     // 按市场类型分组交易对
     const spotSymbols = symbols.filter(s => s.market_type === 'spot').slice(0, 3).map(s => s.symbol)
@@ -254,6 +307,7 @@ const GlobalDashboard: React.FC = () => {
       spotMoreCount,
       futuresMoreCount,
       openingPausedCount,
+      riskDistribution,
     }
   }, [symbols, symbolStatuses, exchangePnL])
 
@@ -562,6 +616,17 @@ const GlobalDashboard: React.FC = () => {
 
         {/* 彙總统计 */}
         <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+          {capitalOverview != null && (
+            <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
+              <Stat>
+                <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">{t('globalDashboard.totalAssets')}</StatLabel>
+                <StatNumber fontSize="2xl" fontWeight="800">{capitalOverview.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</StatNumber>
+                <StatHelpText color="gray.500" fontSize="xs">
+                  {t('globalDashboard.unrealizedPnL')}: {capitalOverview.unrealizedPnL >= 0 ? '+' : ''}{capitalOverview.unrealizedPnL.toFixed(2)} USDT
+                </StatHelpText>
+              </Stat>
+            </Box>
+          )}
           <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
             <Stat>
               <StatLabel color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase">{t('globalDashboard.totalPnL')}</StatLabel>
@@ -635,6 +700,70 @@ const GlobalDashboard: React.FC = () => {
           </Box>
         </SimpleGrid>
 
+        {/* 权益曲线 */}
+        {capitalHistory.length > 0 && (
+          <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
+            <Text color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase" mb={4}>{t('globalDashboard.equityCurve')}</Text>
+            <Box h="200px">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={capitalHistory} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3182CE" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#3182CE" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => v.toLocaleString()} />
+                  <Tooltip formatter={(v: number) => [v.toLocaleString(undefined, { minimumFractionDigits: 2 }), t('globalDashboard.totalAssets')]} />
+                  <Area type="monotone" dataKey="balance" stroke="#3182CE" fill="url(#equityGradient)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Box>
+          </Box>
+        )}
+
+        {/* 风险分布 */}
+        {summary.riskDistribution.length > 0 && (
+          <Box bg={cardBg} p={5} borderRadius="2xl" border="1px solid" borderColor={borderColor} boxShadow="sm">
+            <Text color="gray.500" fontSize="xs" fontWeight="bold" textTransform="uppercase" mb={4}>{t('globalDashboard.riskDistribution')}</Text>
+            <Box h="200px">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={summary.riskDistribution}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={70}
+                    label={({ name, value }) => {
+                      const labelKey = name === 'normal' ? 'riskNormal' : name === 'riskTriggered' ? 'riskTriggered' : 'openingPaused'
+                      return `${t(`globalDashboard.${labelKey}`)}: ${value}`
+                    }}
+                  >
+                    {summary.riskDistribution.map((entry, index) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: number, name: string) => {
+                      const labelKey = name === 'normal' ? 'riskNormal' : name === 'riskTriggered' ? 'riskTriggered' : 'openingPaused'
+                      return [value, t(`globalDashboard.${labelKey}`)]
+                    }}
+                  />
+                  <Legend
+                    formatter={(value) => {
+                      const labelKey = value === 'normal' ? 'riskNormal' : value === 'riskTriggered' ? 'riskTriggered' : 'openingPaused'
+                      return t(`globalDashboard.${labelKey}`)
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </Box>
+          </Box>
+        )}
+
         {/* 暂停开仓全局提示 */}
         {summary.openingPausedCount > 0 && (
           <Alert
@@ -647,7 +776,7 @@ const GlobalDashboard: React.FC = () => {
             cursor="pointer"
             _hover={{ bg: 'orange.100' }}
             transition="background 0.2s"
-            onClick={() => navigate('/opening-control')}
+            onClick={() => navigate('/bots')}
           >
             <AlertIcon color="orange.500" />
             <Box flex="1">
@@ -662,7 +791,7 @@ const GlobalDashboard: React.FC = () => {
               colorScheme="orange"
               size="sm"
               variant="outline"
-              onClick={(e) => { e.stopPropagation(); navigate('/opening-control') }}
+              onClick={(e) => { e.stopPropagation(); navigate('/bots') }}
             >
               {t('dashboard.goToOpeningControl')}
             </Button>
@@ -699,7 +828,6 @@ const GlobalDashboard: React.FC = () => {
                           cursor="pointer"
                           onClick={() => {
                             setSymbolPair(pos.exchange, pos.symbol)
-                            navigate('/')
                           }}
                         >
                           <Td fontWeight="600">{pos.exchange.toUpperCase()}</Td>
@@ -854,8 +982,7 @@ const GlobalDashboard: React.FC = () => {
                                           _hover={{ opacity: 0.8 }}
                                           onClick={(e) => {
                                             e.stopPropagation()
-                                            setSymbolPair(normalizedExchange, sym.symbol)
-                                            navigate('/opening-control')
+                                            setSymbolPair(normalizedExchange, sym.symbol, undefined, 'opening-control')
                                           }}
                                         >
                                           {t('openingControl.paused')}

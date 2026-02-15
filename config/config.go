@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -232,6 +233,9 @@ type Config struct {
 
 	// 多交易所配置
 	Exchanges map[string]ExchangeConfig `yaml:"exchanges"`
+
+	// Bot 配置列表（新模型：每個 Bot 為獨立運行單元，替代 symbols 驅動）
+	Bots []BotConfig `yaml:"bots"`
 
 	Trading struct {
 		// 相容舊配置：單交易對欄位（若啟用多交易對，將自動轉換為 Symbols 列表）
@@ -1029,6 +1033,197 @@ type StrategyConfig struct {
 	Config  map[string]interface{} `yaml:"config" json:"config"`
 }
 
+// BotConfig 單個 Bot 配置（獨立的運行單元：交易所+交易對+策略集+參數+風控+資金）
+type BotConfig struct {
+	ID                    string                 `yaml:"id" json:"id"`                                                       // Bot 唯一標識，由 Exchange:Symbol:MarketType 生成或 UUID
+	Name                  string                 `yaml:"name" json:"name"`                                                   // 顯示名稱
+	Exchange              string                 `yaml:"exchange" json:"exchange"`                                           // 所屬交易所
+	Symbol                string                 `yaml:"symbol" json:"symbol"`                                               // 交易對，如 BTCUSDT
+	MarketType            string                 `yaml:"market_type" json:"market_type"`                                     // 市場類型：spot 現貨 / futures 合約，預設 futures
+	Testnet               bool                   `yaml:"testnet" json:"testnet"`                                             // 是否使用測試網
+	Enabled               *bool                  `yaml:"enabled" json:"enabled"`                                             // 是否啟用，nil 預設 true
+	Strategies            []StrategyInstance    `yaml:"strategies" json:"strategies"`                                       // 該 Bot 運行的策略列表
+	TotalAllocatedCapital float64               `yaml:"total_allocated_capital" json:"total_allocated_capital"`             // 分配的總資金（USDT）
+	WithdrawalPolicy      WithdrawalPolicy      `yaml:"withdrawal_policy" json:"withdrawal_policy"`                           // 提現策略
+	PriceInterval         float64               `yaml:"price_interval" json:"price_interval"`                               // 價格間隔
+	ProfitSpread          float64               `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`             // 利潤間距，0 時等於 PriceInterval
+	OrderQuantity         float64               `yaml:"order_quantity" json:"order_quantity"`                                 // 每單金額（USDT/USDC）
+	MinOrderValue         float64               `yaml:"min_order_value" json:"min_order_value"`                               // 最小訂單價值
+	BuyWindowSize         int                   `yaml:"buy_window_size" json:"buy_window_size"`                               // 買單窗口
+	SellWindowSize        int                   `yaml:"sell_window_size" json:"sell_window_size"`                            // 賣單視窗
+	ReconcileInterval     int                   `yaml:"reconcile_interval" json:"reconcile_interval"`                          // 對賬間隔（秒）
+	OrderCleanupThreshold int                   `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`               // 訂單清理上限
+	CleanupBatchSize      int                   `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`                         // 清理批次大小
+	MarginLockDurationSec int                   `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration_seconds"`    // 保證金鎖定時間（秒）
+	PositionSafetyCheck   int                   `yaml:"position_safety_check" json:"position_safety_check"`                   // 持倉安全性檢查
+	GridRiskControl       GridRiskControl       `yaml:"grid_risk_control" json:"grid_risk_control"`                            // 網格策略風控
+	OpenPositionControl   OpenPositionControl   `yaml:"open_position_control" json:"open_position_control"`                   // 開倉管理
+	Direction             string                `yaml:"direction" json:"direction"`                                         // 交易方向：LONG / SHORT
+	PriceLow              float64               `yaml:"price_low" json:"price_low"`                                           // 網格價格下限，0=不限制
+	PriceHigh             float64               `yaml:"price_high" json:"price_high"`                                         // 網格價格上限，0=不限制
+	TriggerPrice          float64               `yaml:"trigger_price" json:"trigger_price"`                                 // 觸發價格，0=立即啟動
+	GridMode              string                `yaml:"grid_mode" json:"grid_mode"`                                          // 網格模式：arithmetic / geometric
+	GridShiftEnabled      bool                  `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`                         // 是否啟用網格上移/下移
+	GridShiftStep         float64               `yaml:"grid_shift_step" json:"grid_shift_step"`                               // 每次移動步長
+	CloseOnStop           bool                  `yaml:"close_on_stop" json:"close_on_stop"`                                   // 終止時全部平倉
+	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`                      // 配置檔案（多套參數切換）
+	SwitchRules           SwitchRules           `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"`                  // 切換規則
+}
+
+// IsEnabled 返回 Bot 是否啟用（nil 預設為 true）
+func (bc *BotConfig) IsEnabled() bool {
+	if bc.Enabled == nil {
+		return true
+	}
+	return *bc.Enabled
+}
+
+// GetMarketType 返回市場類型，空時預設為 futures
+func (bc *BotConfig) GetMarketType() string {
+	if bc.MarketType == "spot" {
+		return "spot"
+	}
+	return "futures"
+}
+
+// GetDirection 返回交易方向，空時預設 LONG
+func (bc *BotConfig) GetDirection() string {
+	if bc.Direction == "SHORT" {
+		return "SHORT"
+	}
+	return "LONG"
+}
+
+// SetEnabled 設置 Bot 啟用狀態
+func (bc *BotConfig) SetEnabled(enabled bool) {
+	bc.Enabled = &enabled
+}
+
+// GenerateBotID 根據交易所、交易對、市場類型生成 Bot 唯一標識
+func GenerateBotID(exchange, symbol, marketType string) string {
+	mt := marketType
+	if mt == "" {
+		mt = "futures"
+	}
+	return strings.ToLower(fmt.Sprintf("%s:%s:%s", exchange, symbol, mt))
+}
+
+// SymbolConfigToBotConfig 將 SymbolConfig 轉換為 BotConfig（用於配置遷移）
+func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
+	mt := sc.GetMarketType()
+	id := GenerateBotID(sc.Exchange, sc.Symbol, mt)
+	name := sc.Symbol
+	if mt == "spot" {
+		name = sc.Symbol + " (spot)"
+	} else {
+		name = sc.Symbol + " (futures)"
+	}
+	bc := BotConfig{
+		ID:                    id,
+		Name:                  name,
+		Exchange:              sc.Exchange,
+		Symbol:                sc.Symbol,
+		MarketType:            mt,
+		Testnet:               exchangeTestnet,
+		Enabled:               sc.Enabled,
+		Strategies:            sc.Strategies,
+		TotalAllocatedCapital: sc.TotalAllocatedCapital,
+		WithdrawalPolicy:      sc.WithdrawalPolicy,
+		PriceInterval:         sc.PriceInterval,
+		ProfitSpread:          sc.ProfitSpread,
+		OrderQuantity:         sc.OrderQuantity,
+		MinOrderValue:         sc.MinOrderValue,
+		BuyWindowSize:         sc.BuyWindowSize,
+		SellWindowSize:        sc.SellWindowSize,
+		ReconcileInterval:     sc.ReconcileInterval,
+		OrderCleanupThreshold:  sc.OrderCleanupThreshold,
+		CleanupBatchSize:      sc.CleanupBatchSize,
+		MarginLockDurationSec: sc.MarginLockDurationSec,
+		PositionSafetyCheck:   sc.PositionSafetyCheck,
+		GridRiskControl:       sc.GridRiskControl,
+		OpenPositionControl:   sc.OpenPositionControl,
+		Direction:             sc.GetDirection(),
+		PriceLow:              sc.PriceLow,
+		PriceHigh:             sc.PriceHigh,
+		TriggerPrice:          sc.TriggerPrice,
+		GridMode:              sc.GridMode,
+		GridShiftEnabled:      sc.GridShiftEnabled,
+		GridShiftStep:         sc.GridShiftStep,
+		CloseOnStop:           sc.CloseOnStop,
+		Profiles:              sc.Profiles,
+		SwitchRules:           sc.SwitchRules,
+	}
+	return bc
+}
+
+// MigrateToBots 將舊的 symbols 配置遷移為 bots 配置（若 bots 為空且 symbols 有數據則執行）
+func (c *Config) MigrateToBots() {
+	if len(c.Bots) > 0 {
+		return
+	}
+	if len(c.Trading.Symbols) == 0 {
+		return
+	}
+	for _, sc := range c.Trading.Symbols {
+		exCfg, ok := c.Exchanges[sc.Exchange]
+		testnet := false
+		if ok {
+			testnet = exCfg.Testnet
+		}
+		bc := SymbolConfigToBotConfig(sc, testnet)
+		c.Bots = append(c.Bots, bc)
+	}
+}
+
+// BotConfigToSymbolConfig 將 BotConfig 轉換為 SymbolConfig（用於向後兼容，供仍讀取 Symbols 的代碼使用）
+func BotConfigToSymbolConfig(bc BotConfig) SymbolConfig {
+	return SymbolConfig{
+		Enabled:               bc.Enabled,
+		Exchange:              bc.Exchange,
+		Symbol:                bc.Symbol,
+		MarketType:            bc.MarketType,
+		TotalAllocatedCapital: bc.TotalAllocatedCapital,
+		Strategies:            bc.Strategies,
+		WithdrawalPolicy:      bc.WithdrawalPolicy,
+		PriceInterval:         bc.PriceInterval,
+		ProfitSpread:          bc.ProfitSpread,
+		OrderQuantity:         bc.OrderQuantity,
+		MinOrderValue:         bc.MinOrderValue,
+		BuyWindowSize:         bc.BuyWindowSize,
+		SellWindowSize:        bc.SellWindowSize,
+		ReconcileInterval:     bc.ReconcileInterval,
+		OrderCleanupThreshold: bc.OrderCleanupThreshold,
+		CleanupBatchSize:      bc.CleanupBatchSize,
+		MarginLockDurationSec: bc.MarginLockDurationSec,
+		PositionSafetyCheck:   bc.PositionSafetyCheck,
+		GridRiskControl:       bc.GridRiskControl,
+		OpenPositionControl:   bc.OpenPositionControl,
+		Direction:             bc.Direction,
+		PriceLow:              bc.PriceLow,
+		PriceHigh:             bc.PriceHigh,
+		TriggerPrice:          bc.TriggerPrice,
+		GridMode:              bc.GridMode,
+		GridShiftEnabled:      bc.GridShiftEnabled,
+		GridShiftStep:         bc.GridShiftStep,
+		CloseOnStop:           bc.CloseOnStop,
+		Profiles:              bc.Profiles,
+		SwitchRules:           bc.SwitchRules,
+	}
+}
+
+// SyncSymbolsFromBots 當 Bots 為數據源時，將 Bots 同步到 Trading.Symbols（向後兼容）
+func (c *Config) SyncSymbolsFromBots() {
+	if len(c.Bots) == 0 {
+		return
+	}
+	if len(c.Trading.Symbols) > 0 {
+		return // 已有 Symbols，不覆蓋（可能來自遷移前的並存狀態）
+	}
+	for _, bc := range c.Bots {
+		c.Trading.Symbols = append(c.Trading.Symbols, BotConfigToSymbolConfig(bc))
+	}
+}
+
 // ExchangeConfig 交易所配置
 type ExchangeConfig struct {
 	APIKey     string  `yaml:"api_key" json:"api_key"`
@@ -1158,6 +1353,9 @@ func LoadConfig(configPath string) (*Config, error) {
 			cfg.AI.GeminiAPIKey = decrypted
 		}
 	}
+
+	// 自動遷移：若 bots 為空且 symbols 有數據，則將 symbols 轉為 bots
+	cfg.MigrateToBots()
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("配置驗证失败: %v", err)
@@ -1485,6 +1683,9 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 
 // Validate 驗证配置
 func (c *Config) Validate() error {
+	// 當 Bots 為數據源且 Symbols 為空時，同步 Bots -> Symbols（向後兼容）
+	c.SyncSymbolsFromBots()
+
 	// 驗证交易所配置
 	if c.App.CurrentExchange == "" {
 		return fmt.Errorf("必須指定當前使用的交易所 (app.current_exchange)")

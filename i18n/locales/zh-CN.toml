@@ -96,6 +96,21 @@ other = "获取提示词失败"
 [error.invalid_request]
 other = "无效的请求"
 
+[error.invalid_bot_id]
+other = "无效的 Bot ID"
+
+[error.bot_manager_unavailable]
+other = "Bot 管理器不可用"
+
+[error.config_load_failed]
+other = "加载配置失败"
+
+[error.bot_start_failed]
+other = "启动 Bot 失败"
+
+[error.bot_stop_failed]
+other = "停止 Bot 失败"
+
 [error.module_name_empty]
 other = "模块名不能为空"
 

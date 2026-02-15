@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useBot } from '../contexts/BotContext'
 import { getDailyPnLBreakdown, type DailyPnLBreakdownResponse } from '../services/api'
 import {
   LineChart,
@@ -20,6 +21,7 @@ const DailyPnLBreakdown: React.FC = () => {
   const { date } = useParams<{ date: string }>()
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const { botId } = useBot()
   const { selectedExchange, selectedSymbol } = useSymbol()
   const [data, setData] = useState<DailyPnLBreakdownResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -46,7 +48,7 @@ const DailyPnLBreakdown: React.FC = () => {
     return (
       <div style={{ padding: '24px' }}>
         <p>{t('common.error')}</p>
-        <button type="button" onClick={() => navigate('/statistics')} style={{ marginTop: '12px' }}>
+        <button type="button" onClick={() => botId && navigate(`/bots/${botId}/statistics`)} style={{ marginTop: '12px' }}>
           {t('dailyBreakdown.back')}
         </button>
       </div>
@@ -65,7 +67,7 @@ const DailyPnLBreakdown: React.FC = () => {
     return (
       <div style={{ padding: '24px' }}>
         <p style={{ color: colorNegative }}>{error}</p>
-        <button type="button" onClick={() => navigate('/statistics')} style={{ marginTop: '12px' }}>
+        <button type="button" onClick={() => botId && navigate(`/bots/${botId}/statistics`)} style={{ marginTop: '12px' }}>
           {t('dailyBreakdown.back')}
         </button>
       </div>
@@ -76,7 +78,7 @@ const DailyPnLBreakdown: React.FC = () => {
   if (!s) {
     return (
       <div style={{ padding: '24px' }}>
-        <button type="button" onClick={() => navigate('/statistics')}>
+        <button type="button" onClick={() => botId && navigate(`/bots/${botId}/statistics`)}>
           {t('dailyBreakdown.back')}
         </button>
         <p style={{ marginTop: '16px' }}>{t('dailyBreakdown.noData')}</p>
@@ -102,7 +104,7 @@ const DailyPnLBreakdown: React.FC = () => {
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
         <button
           type="button"
-          onClick={() => navigate('/statistics')}
+          onClick={() => botId && navigate(`/bots/${botId}/statistics`)}
           style={{
             padding: '8px 16px',
             border: '1px solid #d9d9d9',

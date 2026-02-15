@@ -1,4 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useCallback, ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useBot } from './BotContext'
+import { getBots } from '../services/api'
 
 export type MarketType = 'spot' | 'futures'
 
@@ -9,74 +12,65 @@ interface SymbolContextType {
   setSelectedExchange: (exchange: string | null) => void
   setSelectedSymbol: (symbol: string | null) => void
   setSelectedMarketType: (marketType: MarketType | null) => void
-  setSymbolPair: (exchange: string | null, symbol: string | null, marketType?: MarketType | null) => void
+  setSymbolPair: (exchange: string | null, symbol: string | null, marketType?: MarketType | null, subPath?: string) => void
   clearSelection: () => void
   isGlobalView: boolean
+  /** 通过 botId 直接导航到 bot 工作区 */
+  navigateToBot: (botId: string, subPath?: string) => void
 }
 
 const SymbolContext = createContext<SymbolContextType | undefined>(undefined)
 
-const STORAGE_KEY_EXCHANGE = 'quantmesh_selected_exchange'
-const STORAGE_KEY_SYMBOL = 'quantmesh_selected_symbol'
-const STORAGE_KEY_MARKET_TYPE = 'quantmesh_selected_market_type'
-
 export const SymbolProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [selectedExchange, setSelectedExchangeState] = useState<string | null>(() => {
-    return localStorage.getItem(STORAGE_KEY_EXCHANGE)
-  })
-  
-  const [selectedSymbol, setSelectedSymbolState] = useState<string | null>(() => {
-    return localStorage.getItem(STORAGE_KEY_SYMBOL)
-  })
+  const navigate = useNavigate()
+  const { botId, exchange, symbol, marketType } = useBot()
 
-  const [selectedMarketType, setSelectedMarketTypeState] = useState<MarketType | null>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY_MARKET_TYPE)
-    if (stored === 'spot' || stored === 'futures') return stored
-    return null
-  })
+  // 完全由 URL 决定，不再使用 localStorage
+  const selectedExchange = exchange
+  const selectedSymbol = symbol
+  const selectedMarketType = marketType
+  const isGlobalView = !botId
 
-  const setSelectedExchange = (exchange: string | null) => {
-    setSelectedExchangeState(exchange)
-    if (exchange) {
-      localStorage.setItem(STORAGE_KEY_EXCHANGE, exchange)
-    } else {
-      localStorage.removeItem(STORAGE_KEY_EXCHANGE)
-    }
-  }
+  const navigateToBot = useCallback(
+    (id: string, subPath = 'dashboard') => {
+      navigate(`/bots/${id}/${subPath}`)
+    },
+    [navigate]
+  )
 
-  const setSelectedSymbol = (symbol: string | null) => {
-    setSelectedSymbolState(symbol)
-    if (symbol) {
-      localStorage.setItem(STORAGE_KEY_SYMBOL, symbol)
-    } else {
-      localStorage.removeItem(STORAGE_KEY_SYMBOL)
-    }
-  }
+  const clearSelection = useCallback(() => {
+    navigate('/bots')
+  }, [navigate])
 
-  const setSelectedMarketType = (marketType: MarketType | null) => {
-    setSelectedMarketTypeState(marketType)
-    if (marketType) {
-      localStorage.setItem(STORAGE_KEY_MARKET_TYPE, marketType)
-    } else {
-      localStorage.removeItem(STORAGE_KEY_MARKET_TYPE)
-    }
-  }
+  const setSymbolPair = useCallback(
+    async (ex: string | null, sym: string | null, _mt?: MarketType | null, subPath = 'dashboard') => {
+      if (!ex || !sym) {
+        navigate('/bots')
+        return
+      }
+      try {
+        const { bots } = await getBots()
+        const match = bots?.find(
+          (b) =>
+            b.exchange?.toLowerCase() === ex.toLowerCase() &&
+            b.symbol?.toUpperCase() === sym.toUpperCase()
+        )
+        if (match) {
+          navigate(`/bots/${match.bot_id}/${subPath}`)
+        } else {
+          navigate('/bots')
+        }
+      } catch {
+        navigate('/bots')
+      }
+    },
+    [navigate]
+  )
 
-  const setSymbolPair = (exchange: string | null, symbol: string | null, marketType?: MarketType | null) => {
-    setSelectedExchange(exchange)
-    setSelectedSymbol(symbol)
-    if (marketType !== undefined) {
-      setSelectedMarketType(marketType)
-    }
-  }
-
-  const clearSelection = () => {
-    setSelectedExchange(null)
-    setSelectedSymbol(null)
-    setSelectedMarketType(null)
-  }
-
-  const isGlobalView = !selectedExchange || !selectedSymbol
+  // 以下为兼容旧 API，实际通过 setSymbolPair 或 navigateToBot 操作
+  const setSelectedExchange = useCallback(() => {}, [])
+  const setSelectedSymbol = useCallback(() => {}, [])
+  const setSelectedMarketType = useCallback(() => {}, [])
 
   return (
     <SymbolContext.Provider
@@ -90,6 +84,7 @@ export const SymbolProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setSymbolPair,
         clearSelection,
         isGlobalView,
+        navigateToBot,
       }}
     >
       {children}
@@ -104,4 +99,3 @@ export const useSymbol = (): SymbolContextType => {
   }
   return context
 }
-

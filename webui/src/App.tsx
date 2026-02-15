@@ -22,11 +22,12 @@ import {
 import { HamburgerIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { BotProvider } from './contexts/BotContext'
 import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
 import { lightTheme } from './theme'
 // 布局组件 - 每个页面都需要，保持静态导入
 import SymbolSelector from './components/SymbolSelector'
-import StatusBar from './components/StatusBar'
+import GlobalHeaderStatus from './components/GlobalHeaderStatus'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
@@ -81,6 +82,9 @@ const DataExport = lazy(() => import('./components/DataExport'))
 const KlineFilesManager = lazy(() => import('./components/KlineFilesManager'))
 const StrategyOverview = lazy(() => import('./components/StrategyOverview'))
 const StrategyDetail = lazy(() => import('./components/StrategyDetail'))
+const BotList = lazy(() => import('./components/BotList'))
+const BotDetail = lazy(() => import('./components/BotDetail'))
+const BotCreateWizard = lazy(() => import('./components/BotCreateWizard'))
 
 // 懒加载 fallback
 const LazyFallback = () => (
@@ -398,15 +402,12 @@ const AppContent: React.FC = () => {
               </Badge>
             </HStack>
             
-            <Box flex="1" display="flex" justifyContent="center">
-              <SymbolSelector />
+            <Box flex="1" display="flex" justifyContent="center" alignItems="center" gap={3}>
+              <GlobalHeaderStatus />
             </Box>
 
             {isAuthenticated && (
               <HStack spacing={{ base: 2, md: 4 }}>
-                <Box display={{ base: 'none', lg: 'block' }}>
-                  <StatusBar />
-                </Box>
                 <LanguageSelector />
                 <Button
                   variant="ghost"
@@ -467,25 +468,28 @@ const AppContent: React.FC = () => {
               <Routes>
                 <Route path="/" element={
                   <ProtectedRoute>
-                    {isGlobalView ? <GlobalDashboard /> : <Dashboard />}
+                    <GlobalDashboard />
                   </ProtectedRoute>
                 } />
-                <Route path="/positions" element={<ProtectedRoute><Positions /></ProtectedRoute>} />
-                <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
-                <Route path="/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
-                <Route path="/strategies" element={<ProtectedRoute><StrategyAllocation /></ProtectedRoute>} />
-                <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
-                <Route path="/statistics/daily/:date" element={<ProtectedRoute><DailyPnLBreakdown /></ProtectedRoute>} />
-                <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
-                <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
-                <Route path="/opening-control" element={<ProtectedRoute><OpeningControl /></ProtectedRoute>} />
-                <Route path="/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
+                {/* 旧 flat 路由重定向到 /bots，bot 工作区改用 /bots/:botId/* */}
+                <Route path="/positions" element={<Navigate to="/bots" replace />} />
+                <Route path="/orders" element={<Navigate to="/bots" replace />} />
+                <Route path="/slots" element={<Navigate to="/bots" replace />} />
+                <Route path="/strategies" element={<Navigate to="/bots" replace />} />
+                <Route path="/statistics" element={<Navigate to="/bots" replace />} />
+                <Route path="/reconciliation" element={<Navigate to="/bots" replace />} />
+                <Route path="/risk" element={<Navigate to="/bots" replace />} />
+                <Route path="/opening-control" element={<Navigate to="/bots" replace />} />
+                <Route path="/news-analysis" element={<Navigate to="/bots" replace />} />
+                <Route path="/profit-management" element={<Navigate to="/bots" replace />} />
+                <Route path="/position-plan" element={<Navigate to="/bots" replace />} />
+                <Route path="/kline" element={<Navigate to="/bots" replace />} />
+                <Route path="/funding-rate" element={<Navigate to="/bots" replace />} />
+                <Route path="/basis-monitor" element={<Navigate to="/bots" replace />} />
+                <Route path="/statistics/daily/:date" element={<Navigate to="/bots" replace />} />
                 <Route path="/news-analysis/history" element={<Navigate to="/news-analysis" replace />} />
                 <Route path="/news-analysis/predictions" element={<Navigate to="/news-analysis" replace />} />
                 <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
-                <Route path="/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
-                <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
-                <Route path="/basis-monitor" element={<ProtectedRoute><BasisMonitor /></ProtectedRoute>} />
                 <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
                 <Route path="/ai-analysis" element={<ProtectedRoute><AIAnalysis /></ProtectedRoute>} />
                 <Route path="/ai-prompts" element={<ProtectedRoute><AIPromptManager /></ProtectedRoute>} />
@@ -493,12 +497,30 @@ const AppContent: React.FC = () => {
                 <Route path="/ai-config" element={<ProtectedRoute><AIConfigPage /></ProtectedRoute>} />
                 <Route path="/ai/tasks" element={<ProtectedRoute><AITaskManager /></ProtectedRoute>} />
                 <Route path="/events" element={<ProtectedRoute><EventCenter /></ProtectedRoute>} />
+                <Route path="/bots" element={<ProtectedRoute><BotList /></ProtectedRoute>} />
+                <Route path="/bots/create" element={<ProtectedRoute><BotCreateWizard /></ProtectedRoute>} />
+                <Route path="/bots/:botId/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                <Route path="/bots/:botId/positions" element={<ProtectedRoute><Positions /></ProtectedRoute>} />
+                <Route path="/bots/:botId/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
+                <Route path="/bots/:botId/slots" element={<ProtectedRoute><Slots /></ProtectedRoute>} />
+                <Route path="/bots/:botId/strategies" element={<ProtectedRoute><StrategyAllocation /></ProtectedRoute>} />
+                <Route path="/bots/:botId/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
+                <Route path="/bots/:botId/statistics/daily/:date" element={<ProtectedRoute><DailyPnLBreakdown /></ProtectedRoute>} />
+                <Route path="/bots/:botId/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
+                <Route path="/bots/:botId/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
+                <Route path="/bots/:botId/opening-control" element={<ProtectedRoute><OpeningControl /></ProtectedRoute>} />
+                <Route path="/bots/:botId/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
+                <Route path="/bots/:botId/position-plan" element={<ProtectedRoute><PositionPlan /></ProtectedRoute>} />
+                <Route path="/bots/:botId/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
+                <Route path="/bots/:botId/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />
+                <Route path="/bots/:botId/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
+                <Route path="/bots/:botId/basis-monitor" element={<ProtectedRoute><BasisMonitor /></ProtectedRoute>} />
+                <Route path="/bots/:botId/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
+                <Route path="/bots/:botId" element={<ProtectedRoute><BotDetail /></ProtectedRoute>} />
                 <Route path="/strategy-overview" element={<ProtectedRoute><StrategyOverview /></ProtectedRoute>} />
                 <Route path="/strategy-detail" element={<ProtectedRoute><StrategyDetail /></ProtectedRoute>} />
                 <Route path="/strategy-market" element={<ProtectedRoute><StrategyMarket /></ProtectedRoute>} />
                 <Route path="/capital-management" element={<ProtectedRoute><CapitalManagement /></ProtectedRoute>} />
-                <Route path="/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
-                <Route path="/position-plan" element={<ProtectedRoute><PositionPlan /></ProtectedRoute>} />
                 <Route path="/backtest" element={<ProtectedRoute><BacktestMenu /></ProtectedRoute>} />
                 <Route path="/data-export" element={<ProtectedRoute><DataExport /></ProtectedRoute>} />
                 <Route path="/kline-files" element={<ProtectedRoute><KlineFilesManager /></ProtectedRoute>} />
@@ -538,9 +560,11 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <SymbolProvider>
-          <ThemedApp />
-        </SymbolProvider>
+        <BotProvider>
+          <SymbolProvider>
+            <ThemedApp />
+          </SymbolProvider>
+        </BotProvider>
       </AuthProvider>
     </BrowserRouter>
   )
