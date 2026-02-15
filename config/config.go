@@ -1184,10 +1184,12 @@ func (c *Config) MigrateToBots() {
 		}
 		return
 	}
-	// 已有 Bots：合併 Symbols 中尚未存在的項（僅按 ID 判重，支援同交易所同幣多實例）
-	hasBot := func(bc BotConfig) bool {
+	// 已有 Bots：合併 Symbols 中尚未存在的項（按 symbolKey 判重，避免同交易所同幣同市場類型重複）
+	// 交易所倉位按 symbol 隔離，同一 exchange+symbol+marketType 只能有一個 Bot，否則會導致倉位重複認領等問題
+	hasSymbolKey := func(bc BotConfig) bool {
+		key := GenerateBotID(bc.Exchange, bc.Symbol, bc.GetMarketType())
 		for _, b := range c.Bots {
-			if b.ID == bc.ID {
+			if GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType()) == key {
 				return true
 			}
 		}
@@ -1195,7 +1197,7 @@ func (c *Config) MigrateToBots() {
 	}
 	for _, sc := range c.Trading.Symbols {
 		bc := SymbolConfigToBotConfig(sc, exCfgByEx(sc.Exchange))
-		if !hasBot(bc) {
+		if !hasSymbolKey(bc) {
 			c.Bots = append(c.Bots, bc)
 		}
 	}

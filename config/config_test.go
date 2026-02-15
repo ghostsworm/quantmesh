@@ -162,3 +162,46 @@ func TestConfigBackup(t *testing.T) {
 		}
 	}
 }
+
+// TestMigrateToBots_SymbolKeyDeduplication 驗證 MigrateToBots 按 symbolKey 去重，避免同交易所同幣同市場類型重複
+func TestMigrateToBots_SymbolKeyDeduplication(t *testing.T) {
+	cfg := &Config{}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Exchanges = map[string]ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+
+	// Bots 已有 binance:BTCUSDT:futures (id=existing-bot)
+	cfg.Bots = []BotConfig{
+		{
+			ID:         "existing-bot",
+			Exchange:   "binance",
+			Symbol:     "BTCUSDT",
+			MarketType: "futures",
+		},
+	}
+
+	// Symbols 中有同 exchange+symbol+marketType 但不同 ID 的項
+	cfg.Trading.Symbols = []SymbolConfig{
+		{ID: "new-bot-different-id", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"},
+	}
+
+	cfg.MigrateToBots()
+
+	// 應只保留 1 個 bot（按 symbolKey 去重，不應新增重複項）
+	if len(cfg.Bots) != 1 {
+		t.Errorf("同 symbolKey 應去重：期望 1 個 bot，實際 %d 個", len(cfg.Bots))
+	}
+	if cfg.Bots[0].ID != "existing-bot" {
+		t.Errorf("應保留原有 bot，期望 id=existing-bot，實際 id=%s", cfg.Bots[0].ID)
+	}
+
+	// 不同 marketType 的應可並存
+	cfg.Trading.Symbols = append(cfg.Trading.Symbols, SymbolConfig{
+		ID: "spot-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot",
+	})
+	cfg.MigrateToBots()
+	if len(cfg.Bots) != 2 {
+		t.Errorf("不同 marketType 應並存：期望 2 個 bot，實際 %d 個", len(cfg.Bots))
+	}
+}
