@@ -37,6 +37,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useBot } from '../contexts/BotContext'
 import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital, getSymbols } from '../services/api'
 import { getStrategyRuntimeStatus } from '../services/strategy'
 import StrategyVisualization from './strategy-visualization/StrategyVisualization'
@@ -96,6 +97,7 @@ const GlassCard: React.FC<{ title?: React.ReactNode; children: React.ReactNode; 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { botId } = useBot()
   const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const quoteAsset = getQuoteAsset(selectedSymbol)
   
@@ -414,7 +416,7 @@ const Dashboard: React.FC = () => {
               size="sm"
               fontWeight="bold"
               _hover={{ bg: 'red.50' }}
-              onClick={() => navigate('/strategy-slots')}
+              onClick={() => botId && navigate(`/bots/${botId}/slots`)}
             >
               {t('dashboard.goToSettings')}
             </Button>
@@ -432,7 +434,7 @@ const Dashboard: React.FC = () => {
             cursor="pointer"
             _hover={{ bg: 'orange.100' }}
             transition="background 0.2s"
-            onClick={() => navigate('/opening-control')}
+            onClick={() => botId && navigate(`/bots/${botId}/opening-control`)}
           >
             <AlertIcon color="orange.500" />
             <Box flex="1">
@@ -447,7 +449,7 @@ const Dashboard: React.FC = () => {
               colorScheme="orange"
               size="sm"
               variant="outline"
-              onClick={(e) => { e.stopPropagation(); navigate('/opening-control') }}
+              onClick={(e) => { e.stopPropagation(); botId && navigate(`/bots/${botId}/opening-control`) }}
             >
               {t('dashboard.goToOpeningControl')}
             </Button>
@@ -846,7 +848,7 @@ const Dashboard: React.FC = () => {
                       color="blue.500" 
                       textAlign="center" 
                       cursor="pointer"
-                      onClick={() => navigate('/orders')}
+                      onClick={() => botId && navigate(`/bots/${botId}/orders`)}
                       _hover={{ color: 'blue.600', textDecoration: 'underline' }}
                       transition="all 0.2s"
                     >

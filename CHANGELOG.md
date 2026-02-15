@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.55.0-rc1] - 2026-02-15
+
+### Added
+- **Bot 概念重構**：系統從「交易對驅動」轉向「Bot 驅動」
+  - 後端：新增 `BotConfig` 結構，`MigrateToBots()` 將舊 `symbols` 配置平滑遷移至 `bots`
+  - 後端：新增 `BotRuntime`、`BotManager`，按 BotID 進行生命週期管理
+  - 後端：新增 `/api/bots` 系列 API（列表、詳情、啟動、停止）
+  - 前端：新增 Bot 列表頁 `/bots`、Bot 詳情頁 `/bots/:id`
+  - 前端：頂部移除交易所/幣種選擇器，改為 StatusBar（全局視圖、返回全局）
+  - 前端：側邊欄新增 Bot 列表入口，點擊 Bot 可進入工作區
+
 ## [3.54.2-rc1] - 2026-02-15
 
 ### Added

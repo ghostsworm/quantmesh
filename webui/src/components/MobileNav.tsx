@@ -1,5 +1,6 @@
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { useBot } from '../contexts/BotContext'
 import {
   Box,
   Flex,
@@ -27,6 +28,8 @@ export const MobileNav: React.FC<MobileNavProps> = ({ onMenuOpen }) => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
+  const { botId } = useBot()
+  const botPrefix = botId ? `/bots/${botId}` : ''
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.700')
   const activeColor = useColorModeValue('blue.500', 'blue.300')
@@ -34,32 +37,30 @@ export const MobileNav: React.FC<MobileNavProps> = ({ onMenuOpen }) => {
 
   const navItems = [
     {
-      path: '/',
+      path: botId ? `${botPrefix}/dashboard` : '/',
       icon: ViewIcon,
       label: t('nav.dashboard', 'Dashboard'),
     },
     {
-      path: '/positions',
+      path: botId ? `${botPrefix}/positions` : '/bots',
       icon: TriangleUpIcon,
       label: t('nav.positions', 'Positions'),
     },
     {
-      path: '/statistics',
+      path: botId ? `${botPrefix}/statistics` : '/',
       icon: InfoIcon,
       label: t('nav.statistics', 'Statistics'),
     },
     {
-      path: '/configuration',
+      path: '/config',
       icon: SettingsIcon,
       label: t('nav.settings', 'Settings'),
     },
   ]
 
   const isActive = (path: string) => {
-    if (path === '/') {
-      return location.pathname === '/'
-    }
-    return location.pathname.startsWith(path)
+    if (path === '/') return location.pathname === '/'
+    return location.pathname === path || location.pathname.startsWith(path + '/')
   }
 
   return (

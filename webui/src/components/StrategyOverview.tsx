@@ -39,7 +39,6 @@ interface StrategyCardData {
 const StrategyOverview: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { setSymbolPair } = useSymbol()
   const [data, setData] = useState<SymbolStrategyRuntimeItem[]>([])
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState<string>('')

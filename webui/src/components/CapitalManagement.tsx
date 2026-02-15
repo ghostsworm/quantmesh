@@ -454,7 +454,7 @@ const CapitalManagement: React.FC = () => {
           <Button
             variant="outline"
             leftIcon={<RepeatIcon />}
-            onClick={() => navigate('/profit-management')}
+            onClick={() => navigate('/bots')}
           >
             {t('capitalManagement.viewProfits')}
           </Button>

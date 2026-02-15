@@ -96,6 +96,21 @@ other = "獲取提示詞失敗"
 [error.invalid_request]
 other = "無效的請求"
 
+[error.invalid_bot_id]
+other = "無效的 Bot ID"
+
+[error.bot_manager_unavailable]
+other = "Bot 管理器不可用"
+
+[error.config_load_failed]
+other = "載入配置失敗"
+
+[error.bot_start_failed]
+other = "啟動 Bot 失敗"
+
+[error.bot_stop_failed]
+other = "停止 Bot 失敗"
+
 [error.module_name_empty]
 other = "模組名稱不可為空"
 
