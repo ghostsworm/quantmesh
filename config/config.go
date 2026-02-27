@@ -186,6 +186,9 @@ type OpenPositionControl struct {
 	// 限倉：倉位價值上限（USDT），達到後停止開倉並撤銷開倉委託，0=不限
 	MaxPositionValue float64 `yaml:"max_position_value" json:"max_position_value"`
 
+	// 限倉：最大持倉數量（按幣種數量），達到後停止開倉
+	MaxPositionQuantity float64 `yaml:"max_position_quantity" json:"max_position_quantity"`
+
 	// 限倉：最大持倉層數（與 GridRiskControl.MaxGridLayers 獨立，0=不限）
 	MaxPositionLayers int `yaml:"max_position_layers" json:"max_position_layers"`
 
@@ -194,6 +197,32 @@ type OpenPositionControl struct {
 
 	// 週期規則：週期性開關倉
 	PeriodicRule *PeriodicRule `yaml:"periodic_rule,omitempty" json:"periodic_rule"`
+
+	// 🔥 新增：單獨 Bot 的風控策略（可覆蓋全局配置）
+	BotRiskControl *BotRiskControl `yaml:"bot_risk_control,omitempty" json:"bot_risk_control,omitempty"`
+}
+
+// BotRiskControl 單獨 Bot 的風控配置
+type BotRiskControl struct {
+	Enabled bool `yaml:"enabled" json:"enabled"` // 是否啟用 Bot 獨立風控
+
+	// 倉位數量限制
+	MaxPositionQuantity float64 `yaml:"max_position_quantity" json:"max_position_quantity"` // 最大持倉數量（幣種）
+	MaxPositionValue    float64 `yaml:"max_position_value" json:"max_position_value"`    // 最大倉位價值（USDT）
+	MaxPositionLayers    int     `yaml:"max_position_layers" json:"max_position_layers"`    // 最大持倉層數
+
+	// 止損止盈
+	StopLossRatio       float64 `yaml:"stop_loss_ratio" json:"stop_loss_ratio"`           // 止損比例
+	TakeProfitRatio      float64 `yaml:"take_profit_ratio" json:"take_profit_ratio"`         // 止盈比例
+	TrailingStopRatio    float64 `yaml:"trailing_stop_ratio" json:"trailing_stop_ratio"`     // 移動止盈比例
+
+	// 暫停開倉
+	PauseOpening         bool    `yaml:"pause_opening" json:"pause_opening"`                 // 是否暫停開倉
+	PauseOpeningReason   string  `yaml:"pause_opening_reason,omitempty" json:"pause_opening_reason,omitempty"` // 暫停原因
+	AutoResumeAfter      int     `yaml:"auto_resume_after,omitempty" json:"auto_resume_after,omitempty"` // 自動恢復時間（秒），0=不自動恢復
+
+	// 趨勢過濾
+	TrendFilterEnabled   bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`   // 是否啟用趨勢過濾
 }
 
 // FundingRateConfig 資金費率監控與套利配置
@@ -1062,7 +1091,7 @@ type BotConfig struct {
 	PositionSafetyCheck   int                   `yaml:"position_safety_check" json:"position_safety_check"`                   // 持倉安全性檢查
 	GridRiskControl       GridRiskControl       `yaml:"grid_risk_control" json:"grid_risk_control"`                            // 網格策略風控
 	OpenPositionControl   OpenPositionControl   `yaml:"open_position_control" json:"open_position_control"`                   // 開倉管理
-	Direction             string                `yaml:"direction" json:"direction"`                                         // 交易方向：LONG / SHORT
+	Direction             string                `yaml:"direction" json:"direction"`                                         // 交易方向：LONG / SHORT / BOTH
 	PriceLow              float64               `yaml:"price_low" json:"price_low"`                                           // 網格價格下限，0=不限制
 	PriceHigh             float64               `yaml:"price_high" json:"price_high"`                                         // 網格價格上限，0=不限制
 	TriggerPrice          float64               `yaml:"trigger_price" json:"trigger_price"`                                 // 觸發價格，0=立即啟動
@@ -1070,8 +1099,44 @@ type BotConfig struct {
 	GridShiftEnabled      bool                  `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`                         // 是否啟用網格上移/下移
 	GridShiftStep         float64               `yaml:"grid_shift_step" json:"grid_shift_step"`                               // 每次移動步長
 	CloseOnStop           bool                  `yaml:"close_on_stop" json:"close_on_stop"`                                   // 終止時全部平倉
+	CloseOnStopConfig     ClosePositionConfig   `yaml:"close_on_stop_config,omitempty" json:"close_on_stop_config,omitempty"` // 平倉配置
+	SlotFilter            SlotFilterConfig      `yaml:"slot_filter,omitempty" json:"slot_filter,omitempty"`                   // 槽位過濾配置
+	SmartOrder            SmartOrderConfig      `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`                   // 智能掛單配置
 	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`                      // 配置檔案（多套參數切換）
 	SwitchRules           SwitchRules           `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"`                  // 切換規則
+}
+
+// ClosePositionConfig 平倉配置
+type ClosePositionConfig struct {
+	Method      string  `yaml:"method" json:"method"`                           // 平倉方式：market/limit
+	PriceOffset float64 `yaml:"price_offset,omitempty" json:"price_offset,omitempty"` // 限價偏移百分比，如 -0.1 表示賣低 0.1%
+	TimeoutSec  int     `yaml:"timeout_sec,omitempty" json:"timeout_sec,omitempty"`   // 超時時間（秒），0=不超時
+	AutoRetry   bool    `yaml:"auto_retry,omitempty" json:"auto_retry,omitempty"`     // 超時後自動重試
+	MaxRetries  int     `yaml:"max_retries,omitempty" json:"max_retries,omitempty"`   // 最大重試次數
+}
+
+// SlotFilterRule 槽位過濾規則
+type SlotFilterRule struct {
+	Type     string   `yaml:"type" json:"type"`                               // "exclude"/"include"
+	Prices   []float64 `yaml:"prices,omitempty" json:"prices,omitempty"`     // 具體價格列表
+	MinPrice float64   `yaml:"min_price,omitempty" json:"min_price,omitempty"` // 價格區間下限
+	MaxPrice float64   `yaml:"max_price,omitempty" json:"max_price,omitempty"` // 價格區間上限
+	Reason   string    `yaml:"reason,omitempty" json:"reason,omitempty"`     // 禁用原因（可選）
+}
+
+// SlotFilterConfig 槽位過濾配置
+type SlotFilterConfig struct {
+	Rules []SlotFilterRule `yaml:"rules" json:"rules"` // 過濾規則列表
+}
+
+// SmartOrderConfig 智能掛單配置
+type SmartOrderConfig struct {
+	Enabled              bool    `yaml:"enabled" json:"enabled"`                                         // 是否啟用智能掛單
+	MaxOpenOrders        int     `yaml:"max_open_orders,omitempty" json:"max_open_orders,omitempty"`     // 最大開倉掛單數（每個方向）
+	OpenOrderDistance    float64 `yaml:"open_order_distance,omitempty" json:"open_order_distance,omitempty"` // 開倉單距離當前價的最大間隔數
+	OnlyCloseFilledSlots bool    `yaml:"only_close_filled_slots,omitempty" json:"only_close_filled_slots,omitempty"` // 只為已成交槽位掛平倉單
+	ProgressivePlacement bool    `yaml:"progressive_placement,omitempty" json:"progressive_placement,omitempty"` // 漸進式掛單（價格移動時逐步添加）
+	LeadSlots            int     `yaml:"lead_slots,omitempty" json:"lead_slots,omitempty"`                 // 領先槽位數量（當前價前幾個）
 }
 
 // IsEnabled 返回 Bot 是否啟用（nil 預設為 true）
@@ -1092,10 +1157,31 @@ func (bc *BotConfig) GetMarketType() string {
 
 // GetDirection 返回交易方向，空時預設 LONG
 func (bc *BotConfig) GetDirection() string {
-	if bc.Direction == "SHORT" {
+	switch strings.ToUpper(bc.Direction) {
+	case "SHORT":
 		return "SHORT"
+	case "BOTH":
+		return "BOTH"
+	default:
+		return "LONG"
 	}
-	return "LONG"
+}
+
+// IsLong 是否做多
+func (bc *BotConfig) IsLong() bool {
+	dir := bc.GetDirection()
+	return dir == "LONG" || dir == "BOTH"
+}
+
+// IsShort 是否做空
+func (bc *BotConfig) IsShort() bool {
+	dir := bc.GetDirection()
+	return dir == "SHORT" || dir == "BOTH"
+}
+
+// IsBoth 是否双向交易
+func (bc *BotConfig) IsBoth() bool {
+	return bc.GetDirection() == "BOTH"
 }
 
 // SetEnabled 設置 Bot 啟用狀態

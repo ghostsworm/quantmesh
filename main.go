@@ -912,6 +912,20 @@ func (a *botManagerProviderAdapter) StopBot(botID string) error {
 	return a.manager.GetBotManager().StopBot(botID)
 }
 
+// botExtendedProviderAdapter 實現 web.BotExtendedProvider
+type botExtendedProviderAdapter struct {
+	manager *SymbolManager
+}
+
+func (a *botExtendedProviderAdapter) GetBot(botID string) (web.BotExtended, bool) {
+	botMgr := a.manager.GetBotManager()
+	br, ok := botMgr.Get(botID)
+	if !ok {
+		return nil, false
+	}
+	return br, true
+}
+
 // resolveMarketType 從配置或运行時中推導 market_type
 func (a *symbolManagerWebAdapter) resolveMarketType(exchange, symbol string) string {
 	// 先從配置中查找
@@ -1846,6 +1860,7 @@ func main() {
 	web.RegisterSymbolManager(symbolManagerAdapter)
 	web.RegisterStrategyRuntimeProvider(symbolManagerAdapter) // 注册策略運行時提供者
 	web.RegisterBotManagerProvider(&botManagerProviderAdapter{manager: symbolManager})
+	web.RegisterBotExtendedProvider(&botExtendedProviderAdapter{manager: symbolManager}) // 註冊擴展的 Bot 提供者
 
 	// 只有在配置完整時才啟动交易系统（優先使用 Bots，兼容舊 Symbols）
 	var firstRuntime *SymbolRuntime

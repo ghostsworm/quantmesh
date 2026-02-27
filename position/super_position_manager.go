@@ -282,6 +282,13 @@ type SuperPositionManager struct {
 	fillTimestamps []time.Time
 	fillMu         sync.RWMutex
 
+	// 槽位過濾器
+	slotFilter     *config.SlotFilterConfig
+	slotFilterMu   sync.RWMutex
+
+	// 智能掛單管理器
+	smartOrderMgr  *SmartOrderManager
+
 	mu sync.RWMutex // 全局鎖（用於关键操作）
 }
 
@@ -332,11 +339,20 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		peakPnL:            -math.MaxFloat64,          // 初始化為一個极小值
 		tradeStorage:       nil,                       // 默认不保存交易記錄，可通過 SetTradeStorage 設置
 		allocationManager:  NewAllocationManager(cfg), // 初始化资金分配管理器
+		slotFilter:         nil,                       // 初始化為空，可通過 SetSlotFilter 設置
 	}
 	spm.totalBuyQty.Store(0.0)
 	spm.totalSellQty.Store(0.0)
 	spm.lastReconcileTime.Store(time.Now())
 	spm.lastMarketPrice.Store(0.0)
+
+	// 初始化智能掛單管理器（如果配置啟用）
+	if cfg.Trading.SmartOrder.Enabled {
+		spm.smartOrderMgr = NewSmartOrderManager(spm, &cfg.Trading.SmartOrder)
+		logger.Info("🧠 [%s] 智能掛單已啟用: MaxOpenOrders=%d Distance=%.1f",
+			spm.logPrefix(), cfg.Trading.SmartOrder.MaxOpenOrders, cfg.Trading.SmartOrder.OpenOrderDistance)
+	}
+
 	return spm
 }
 
@@ -553,6 +569,124 @@ func (spm *SuperPositionManager) isSpot() bool {
 // isShort 是否為做空方向
 func (spm *SuperPositionManager) isShort() bool {
 	return spm.config.Trading.Direction == "SHORT"
+}
+
+// isLong 是否為做多方向
+func (spm *SuperPositionManager) isLong() bool {
+	return spm.config.Trading.Direction == "LONG"
+}
+
+// isBoth 是否為雙向交易
+func (spm *SuperPositionManager) isBoth() bool {
+	return spm.config.Trading.Direction == "BOTH"
+}
+
+// isSlotEnabled 檢查槽位是否啟用
+func (spm *SuperPositionManager) isSlotEnabled(price float64) bool {
+	spm.slotFilterMu.RLock()
+	defer spm.slotFilterMu.RUnlock()
+
+	if spm.slotFilter == nil || len(spm.slotFilter.Rules) == 0 {
+		return true // 無過濾規則，全部啟用
+	}
+
+	// 檢查每條規則
+	for _, rule := range spm.slotFilter.Rules {
+		matches := false
+
+		// 檢查具體價格列表
+		if len(rule.Prices) > 0 {
+			for _, p := range rule.Prices {
+				if math.Abs(p-price) < 0.000001 { // 浮點數比較
+					matches = true
+					break
+				}
+			}
+		}
+
+		// 檢查價格區間
+		if !matches && rule.MinPrice > 0 && rule.MaxPrice > 0 {
+			if price >= rule.MinPrice && price <= rule.MaxPrice {
+				matches = true
+			}
+		}
+
+		// 根據規則類型返回
+		if matches {
+			if rule.Type == "exclude" {
+				return false // 排除
+			}
+			if rule.Type == "include" {
+				return true // 包含（需要所有規則都是include才返回true）
+			}
+		}
+	}
+
+	// 默認：如果沒有include規則匹配，返回true
+	// 如果只有exclude規則，返回true（因為沒有被排除）
+	hasIncludeRule := false
+	for _, rule := range spm.slotFilter.Rules {
+		if rule.Type == "include" {
+			hasIncludeRule = true
+			break
+		}
+	}
+	return !hasIncludeRule
+}
+
+// SetSlotFilter 設置槽位過濾器
+func (spm *SuperPositionManager) SetSlotFilter(filter *config.SlotFilterConfig) {
+	spm.slotFilterMu.Lock()
+	defer spm.slotFilterMu.Unlock()
+	spm.slotFilter = filter
+
+	// 記錄日誌
+	for _, rule := range filter.Rules {
+		if rule.Type == "exclude" {
+			if len(rule.Prices) > 0 {
+				logger.Info("🚫 [槽位過濾] 禁用價格位: %v 原因: %s",
+					rule.Prices, rule.Reason)
+			}
+			if rule.MinPrice > 0 || rule.MaxPrice > 0 {
+				logger.Info("🚫 [槽位過濾] 禁用價格區間: [%.2f, %.2f] 原因: %s",
+					rule.MinPrice, rule.MaxPrice, rule.Reason)
+			}
+		}
+	}
+
+	// 立即觸發訂單調整，取消被禁用槽位的訂單
+	spm.cancelFilteredSlotOrders()
+}
+
+// cancelFilteredSlotOrders 取消被過濾槽位的訂單
+func (spm *SuperPositionManager) cancelFilteredSlotOrders() {
+	var orderIDsToCancel []int64
+
+	spm.slots.Range(func(key, value interface{}) bool {
+		price := key.(float64)
+		slot := value.(*InventorySlot)
+
+		if !spm.isSlotEnabled(price) {
+			slot.mu.Lock()
+			if slot.OrderID != 0 {
+				orderIDsToCancel = append(orderIDsToCancel, slot.OrderID)
+			}
+			slot.mu.Unlock()
+		}
+		return true
+	})
+
+	if len(orderIDsToCancel) > 0 {
+		logger.Info("🧹 [槽位過濾] 取消被禁用槽位的訂單: %d 個", len(orderIDsToCancel))
+		spm.executor.BatchCancelOrders(orderIDsToCancel)
+	}
+}
+
+// GetSlotFilter 獲取當前槽位過濾器
+func (spm *SuperPositionManager) GetSlotFilter() *config.SlotFilterConfig {
+	spm.slotFilterMu.RLock()
+	defer spm.slotFilterMu.RUnlock()
+	return spm.slotFilter
 }
 
 // getActualMargin 獲取實際使用的保证金（考虑杠杆）
@@ -1027,6 +1161,51 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
+	// 🔥 開倉管理：檢查 Bot 獨立風控的倉位數量限制
+	openControl := spm.config.Trading.OpenPositionControl
+	// 優先檢查 Bot 獨立風控
+	if openControl.BotRiskControl != nil && openControl.BotRiskControl.Enabled {
+		if openControl.BotRiskControl.MaxPositionQuantity > 0 {
+			// 計算當前總持倉數量
+			totalQty := 0.0
+			spm.slots.Range(func(key, value interface{}) bool {
+				slot := value.(*InventorySlot)
+				slot.mu.RLock()
+				if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+					totalQty += slot.PositionQty
+				}
+				slot.mu.RUnlock()
+				return true
+			})
+			if totalQty >= openControl.BotRiskControl.MaxPositionQuantity {
+				logger.Warn("🚫 [Bot風控] 當前持倉數量 (%.4f) 已達到 Bot 限制 (%.4f)，暂停開倉",
+					totalQty, openControl.BotRiskControl.MaxPositionQuantity)
+				skipBuying = true
+			}
+		}
+		if openControl.BotRiskControl.PauseOpening {
+			logger.Warn("⏸️ [Bot風控] Bot 開倉已暫停（原因: %s）", openControl.BotRiskControl.PauseOpeningReason)
+			skipBuying = true
+		}
+	} else if openControl.MaxPositionQuantity > 0 {
+		// 如果沒有啟用 Bot 獨立風控，檢查全局配置
+		totalQty := 0.0
+		spm.slots.Range(func(key, value interface{}) bool {
+			slot := value.(*InventorySlot)
+			slot.mu.RLock()
+			if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+				totalQty += slot.PositionQty
+			}
+			slot.mu.RUnlock()
+			return true
+		})
+		if totalQty >= openControl.MaxPositionQuantity {
+			logger.Warn("🚫 [開倉管理] 當前持倉數量 (%.4f) 已達到限制 (%.4f)，暂停開倉",
+				totalQty, openControl.MaxPositionQuantity)
+			skipBuying = true
+		}
+	}
+
 	// 資金費率偏向策略檢查
 	if spm.fundingMonitor != nil && spm.config.FundingRate.BiasEnabled {
 		buyBias := spm.fundingMonitor.GetBuyBias()
@@ -1101,6 +1280,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		if skipBuying {
 			break
 		}
+
+		// 🔥 新增：槽位過濾檢查
+		if !spm.isSlotEnabled(price) {
+			logger.Debug("⏭️ [槽位過濾] 跳過被禁用的價格位: %.2f", price)
+			continue
+		}
+
 		slot := spm.getOrCreateSlot(price)
 		slot.mu.Lock()
 

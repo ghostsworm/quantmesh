@@ -480,6 +480,30 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				klineFiles.DELETE("/:filename/protect", unprotectKlineFileHandler)
 				klineFiles.GET("/:filename/download", downloadKlineFileHandler)
 			}
+
+			// V2 API: 平倉和槽位管理
+			v2 := protected.Group("/v2")
+			{
+				bots := v2.Group("/bots")
+				{
+					bots.POST("/:id/close-positions", closePositionsV2)
+					bots.GET("/:id/close-records", getClosePositionRecords)
+					bots.GET("/:id/slots", getBotSlots)
+					bots.GET("/:id/slot-filter", getSlotFilter)
+					bots.POST("/:id/slot-filter", setSlotFilter)
+					bots.POST("/:id/slot-filter/rules", addSlotFilterRule)
+					bots.DELETE("/:id/slot-filter/rules/:index", removeSlotFilterRule)
+					bots.POST("/:id/slots/toggle", toggleSlotEnabled)
+
+					// 风控管理 API
+					bots.GET("/:id/risk-control", getBotRiskControl)
+					bots.PUT("/:id/risk-control", updateBotRiskControl)
+					bots.POST("/:id/pause-opening", pauseBotOpening)
+					bots.POST("/:id/resume-opening", resumeBotOpening)
+					bots.GET("/:id/position-status", getBotPositionStatus)
+				}
+				v2.POST("/close-records/:record_id/retry", retryClosePosition)
+			}
 		}
 
 		// 事件中心 API

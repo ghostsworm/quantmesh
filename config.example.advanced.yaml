@@ -1,0 +1,155 @@
+# QuantMesh 高级配置示例
+# 展示新增的平仓方式选择、槽位过滤、双向交易、智能挂单功能
+
+app:
+  log_level: "info"
+  current_exchange: "binance"
+
+exchanges:
+  binance:
+    api_key: "${BINANCE_API_KEY}"
+    api_secret: "${BINANCE_API_SECRET}"
+    testnet: false
+
+bots:
+  # 示例 1: PAXGUSDT 永续合约 - 使用平仓配置和智能挂单
+  - id: "binance:PAXGUSDT:futures"
+    name: "PAXG 黄金网格"
+    exchange: "binance"
+    symbol: "PAXGUSDT"
+    market_type: "futures"
+
+    # 交易方向（支持 LONG/SHORT/BOTH）
+    direction: "LONG"  # 可选: "LONG" | "SHORT" | "BOTH"
+
+    # 平仓配置（新增）
+    close_on_stop: true
+    close_on_stop_config:
+      method: "limit"        # 平仓方式: "market"=市价, "limit"=限价
+      price_offset: -0.1     # 限价偏移: -0.1% (卖低一点，更容易成交)
+      timeout_sec: 3600      # 超时时间: 1小时
+      auto_retry: true       # 超时后自动重试为市价单
+      max_retries: 3         # 最大重试次数
+
+    # 智能挂单配置（新增）
+    smart_order:
+      enabled: true                # 启用智能挂单
+      max_open_orders: 3           # 最多3个开仓挂单
+      open_order_distance: 5       # 开仓单距离当前价5个间隔内
+      only_close_filled_slots: true  # 只为已成交槽位挂平仓单
+      progressive_placement: true   # 渐进式挂单（价格移动时逐步添加）
+      lead_slots: 2                # 领前2个槽位
+
+    # 槽位过滤配置（新增）- 可通过 API 动态修改
+    # 示例：禁用某些价格位的委托
+    slot_filter:
+      rules:
+        - type: "exclude"
+          prices: [5180, 5200]  # 禁用这些价格的委托
+          reason: "手动禁用特定价位"
+
+    # 开仓管理配置（新增）
+    open_position_control:
+      # 全局持仓数量限制（所有 Bot 共享）
+      max_position_quantity: 0  # 0=不限制，例如：4 表示最多持有 4 个 PAXG
+
+      # 🔥 Bot 独立风控配置（新增）- 可通过 API 动态修改
+      # 为该 Bot 设置单独的风控规则，优先级高于全局配置
+      bot_risk_control:
+        enabled: true                     # 启用 Bot 独立风控
+        max_position_quantity: 4          # 最大持仓数量（币种）- 例如：最多持有 4 个 PAXG
+        max_position_value: 1000          # 最大仓位价值（USDT）
+        max_position_layers: 10           # 最大持仓层数
+        stop_loss_ratio: 0.15             # 止损比例：15%
+        take_profit_ratio: 0.10           # 止盈触发比例：10%
+        trailing_stop_ratio: 0.03         # 回撤止盈比例：3%
+        pause_opening: false              # 是否暂停开仓（可通过 API 动态修改）
+        pause_opening_reason: ""          # 暂停原因
+        auto_resume_after: 0              # 自动恢复时间（秒），0=不自动恢复
+        trend_filter_enabled: false       # 是否启用趋势过滤
+
+    # 交易参数
+    total_allocated_capital: 1000
+    price_interval: 20
+    order_quantity: 100
+    buy_window_size: 20
+    sell_window_size: 5
+    profit_spread: 20
+
+    # 网格风控
+    grid_risk_control:
+      enabled: true
+      stop_loss_ratio: 0.15           # 硬止损: 15%浮亏率
+      take_profit_trigger_ratio: 0.10  # 止盈触发: 10%盈利
+      trailing_take_profit_ratio: 0.03  # 盈利回撤止盈: 从最高点回撤3%
+      trend_filter_enabled: false
+      max_grid_layers: 0
+
+  # 示例 2: 双向交易
+  - id: "binance:BTCUSDT:futures:both"
+    name: "BTC 双向网格"
+    exchange: "binance"
+    symbol: "BTCUSDT"
+    market_type: "futures"
+
+    direction: "BOTH"  # 双向交易：同时做多和做空
+
+    close_on_stop: true
+    close_on_stop_config:
+      method: "market"
+      timeout_sec: 0  # 市价单不设置超时
+
+    smart_order:
+      enabled: true
+      max_open_orders: 5
+      open_order_distance: 3
+
+    total_allocated_capital: 2000
+    price_interval: 100
+    order_quantity: 500
+    buy_window_size: 10
+    sell_window_size: 3
+
+  # 示例 3: 使用价格区间过滤
+  - id: "binance:ETHUSDT:futures"
+    name: "ETH 网格（带价格区间过滤）"
+    exchange: "binance"
+    symbol: "ETHUSDT"
+    market_type: "futures"
+
+    direction: "LONG"
+
+    # 槽位过滤：禁用某个价格区间
+    slot_filter:
+      rules:
+        - type: "exclude"
+          min_price: 2000
+          max_price: 2100  # 禁用 2000-2100 区间的所有委托
+          reason: "避开关键阻力位"
+
+    total_allocated_capital: 1500
+    price_interval: 50
+    order_quantity: 200
+    buy_window_size: 15
+    sell_window_size: 5
+
+# 系统配置
+system:
+  log_level: "info"
+  timezone: "Asia/Shanghai"
+  cancel_on_exit: false
+  close_positions_on_exit: false  # 退出时是否平仓（默认 false）
+
+# 数据库配置
+database:
+  type: "sqlite"
+  dsn: "./data/quantmesh.db"
+
+# 分布式锁配置（多实例部署时启用）
+distributed_lock:
+  enabled: false
+  type: "redis"
+  redis:
+    addr: "localhost:6379"
+    password: ""
+    db: 0
