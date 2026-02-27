@@ -42,6 +42,7 @@ import {
   BotDetailInfo,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
+import BotRiskControlPanel from './BotRiskControlPanel'
 
 const BotDetail: React.FC = () => {
   const { botId } = useParams<{ botId: string }>()
@@ -296,14 +297,9 @@ const BotDetail: React.FC = () => {
             </Card>
           </TabPanel>
           <TabPanel px={0}>
-            <Card>
-              <CardBody>
-                <Text color="gray.600" mb={4}>{t('botDetail.riskHint')}</Text>
-                <Button size="sm" colorScheme="blue" onClick={handleNavigateToRisk}>
-                  {t('sidebar.riskMonitor')}
-                </Button>
-              </CardBody>
-            </Card>
+            {botId && (
+              <BotRiskControlPanel botId={botId} botRunning={bot.running} />
+            )}
           </TabPanel>
           <TabPanel px={0}>
             <Card>
