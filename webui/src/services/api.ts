@@ -1503,6 +1503,127 @@ export async function closeAllPositions(exchange?: string, symbol?: string): Pro
   })
 }
 
+// ========== V2 API: 平倉和槽位管理 ==========
+
+export interface ClosePositionsV2Request {
+  method: 'market' | 'limit'
+  price_offset?: number
+  timeout_sec?: number
+  auto_retry?: boolean
+}
+
+export interface ClosePositionsV2Response {
+  success: boolean
+  record_id?: string
+  order_id?: number
+  status?: string
+  error_message?: string
+}
+
+export interface ClosePositionRecord {
+  record_id: string
+  bot_id: string
+  symbol: string
+  side: string
+  target_qty: number
+  filled_qty: number
+  method: string
+  price: number
+  order_id: number
+  status: string
+  created_at: string
+  updated_at: string
+  timeout_at: string
+  retry_count: number
+  error_message?: string
+}
+
+export interface CloseRecordsResponse {
+  records: ClosePositionRecord[]
+}
+
+// 平倉 V2 API
+export async function closePositionsV2(botID: string, req: ClosePositionsV2Request): Promise<ClosePositionsV2Response> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${botID}/close-positions`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+export async function getClosePositionRecords(botID: string): Promise<CloseRecordsResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${botID}/close-records`)
+}
+
+export async function retryClosePosition(recordID: string, method: 'market' | 'limit'): Promise<ClosePositionsV2Response> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/close-records/${recordID}/retry`, {
+    method: 'POST',
+    body: JSON.stringify({ method }),
+  })
+}
+
+// 槽位過濾 API
+export interface SlotFilterRule {
+  type: 'exclude' | 'include'
+  prices?: number[]
+  min_price?: number
+  max_price?: number
+  reason?: string
+}
+
+export interface SlotFilterConfig {
+  rules: SlotFilterRule[]
+}
+
+export interface SlotInfo {
+  price: number
+  position_status: string
+  position_qty: number
+  order_id: number
+  order_side: string
+  order_status: string
+  order_price: number
+  slot_status: string
+}
+
+export interface SlotsResponse {
+  slots: SlotInfo[]
+}
+
+export async function getSlotFilter(botID: string): Promise<SlotFilterConfig> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${botID}/slot-filter`)
+}
+
+export async function setSlotFilter(botID: string, filter: SlotFilterConfig): Promise<{ ok: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${botID}/slot-filter`, {
+    method: 'POST',
+    body: JSON.stringify(filter),
+  })
+}
+
+export async function addSlotFilterRule(botID: string, rule: SlotFilterRule): Promise<{ ok: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${botID}/slot-filter/rules`, {
+    method: 'POST',
+    body: JSON.stringify(rule),
+  })
+}
+
+export async function removeSlotFilterRule(botID: string, index: number): Promise<{ ok: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${botID}/slot-filter/rules/${index}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function getBotSlots(botID: string): Promise<SlotsResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${botID}/slots`)
+}
+
+export async function toggleSlotEnabled(botID: string, price: number, enabled: boolean): Promise<{ ok: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${botID}/slots/toggle`, {
+    method: 'POST',
+    body: JSON.stringify({ price, enabled }),
+  })
+}
+
 // 網格上移/下移
 export async function gridShiftUp(exchange: string, symbol: string, step?: number, marketType?: string | null): Promise<{ message: string }> {
   const queryParams = new URLSearchParams({ exchange, symbol })
@@ -2298,4 +2419,77 @@ export async function pollMarketInterpretUntilComplete(
   }
 
   throw new Error(`AI 解读超时（已等待 ${Math.floor(maxAttempts * interval / 1000)} 秒）`)
+}
+
+// ============================================================
+// Bot Risk Control API (V2)
+// ============================================================
+
+// Bot 风控配置
+export interface BotRiskControl {
+  enabled?: boolean
+  max_position_qty?: number
+  max_position_value?: number
+  max_position_layers?: number
+  stop_loss_ratio?: number
+  take_profit_ratio?: number
+  trailing_stop_ratio?: number
+  pause_opening?: boolean
+  pause_opening_reason?: string
+  auto_resume_after?: number
+  trend_filter_enabled?: boolean
+}
+
+// 仓位状态
+export interface PositionStatus {
+  total_position_qty: number
+  total_position_value: number
+  position_layers: number
+  current_price: number
+  paused: boolean
+  max_position_qty?: number
+  reached_limit_qty: boolean
+  max_position_value?: number
+  reached_limit_value: boolean
+  max_position_layers?: number
+  reached_limit_layers: boolean
+  should_stop_opening: boolean
+  error?: string
+}
+
+// 获取 Bot 风控配置
+export async function getBotRiskControl(botID: string): Promise<BotRiskControl> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/risk-control`)
+}
+
+// 更新 Bot 风控配置
+export async function updateBotRiskControl(botID: string, config: BotRiskControl): Promise<BotRiskControl> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/risk-control`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+}
+
+// 暂停 Bot 开仓
+export async function pauseBotOpening(
+  botID: string,
+  reason: string,
+  autoResumeSec?: number
+): Promise<{ status: string; reason: string; auto_resume_at?: number }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/pause-opening`, {
+    method: 'POST',
+    body: JSON.stringify({ reason, auto_resume_sec: autoResumeSec }),
+  })
+}
+
+// 恢复 Bot 开仓
+export async function resumeBotOpening(botID: string): Promise<{ status: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/resume-opening`, {
+    method: 'POST',
+  })
+}
+
+// 获取 Bot 仓位状态
+export async function getBotPositionStatus(botID: string): Promise<PositionStatus> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/position-status`)
 }
