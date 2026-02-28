@@ -34,6 +34,7 @@ import (
 	"quantmesh/plugin"
 	"quantmesh/position"
 	"quantmesh/profit"
+	"quantmesh/risk"
 	"quantmesh/storage"
 	"quantmesh/utils"
 	"quantmesh/web"
@@ -910,6 +911,19 @@ func (a *botManagerProviderAdapter) StartBot(ctx context.Context, botCfg config.
 
 func (a *botManagerProviderAdapter) StopBot(botID string) error {
 	return a.manager.GetBotManager().StopBot(botID)
+}
+
+// GetAllBots 實現 risk.BotProvider 接口
+func (a *botManagerProviderAdapter) GetAllBots() []risk.BotController {
+	botMgr := a.manager.GetBotManager()
+	bots := botMgr.List()
+	result := make([]risk.BotController, 0, len(bots))
+	for _, bot := range bots {
+		if bot != nil {
+			result = append(result, bot)
+		}
+	}
+	return result
 }
 
 // botExtendedProviderAdapter 實現 web.BotExtendedProvider
@@ -1861,6 +1875,46 @@ func main() {
 	web.RegisterStrategyRuntimeProvider(symbolManagerAdapter) // 注册策略運行時提供者
 	web.RegisterBotManagerProvider(&botManagerProviderAdapter{manager: symbolManager})
 	web.RegisterBotExtendedProvider(&botExtendedProviderAdapter{manager: symbolManager}) // 註冊擴展的 Bot 提供者
+
+	// 初始化全局熔斷器
+	if cfg.CircuitBreaker.Enabled {
+		logger.Info("🔧 正在初始化全局熔斷器...")
+		circuitBreaker := risk.NewGlobalCircuitBreaker(
+			&cfg.CircuitBreaker,
+			eventBus,
+			&botManagerProviderAdapter{manager: symbolManager},
+		)
+		web.SetGlobalCircuitBreaker(circuitBreaker)
+		logger.Info("✅ 全局熔斷器已初始化並啟用")
+	}
+
+	// 初始化紧急操作中心
+	if cfg.EmergencyCenter.Enabled {
+		logger.Info("🚨 正在初始化紧急操作中心...")
+		emergencyCenter := risk.NewEmergencyCenter(
+			&cfg.EmergencyCenter,
+			eventBus,
+			&botManagerProviderAdapter{manager: symbolManager},
+		)
+		web.SetEmergencyCenter(emergencyCenter)
+		logger.Info("✅ 紧急操作中心已初始化並啟用")
+	}
+
+	// 初始化动态止损管理器
+	if cfg.DynamicStopLoss.Enabled {
+		logger.Info("🎯 正在初始化动态止损管理器...")
+		dynamicSLManager := risk.NewDynamicStopLossManager(
+			&cfg.DynamicStopLoss,
+			eventBus,
+			&botManagerProviderAdapter{manager: symbolManager},
+		)
+		dynamicSLManager.Start()
+		web.SetDynamicStopLossManager(dynamicSLManager)
+		logger.Info("✅ 动态止损管理器已初始化並啟用")
+
+		// 程序退出时停止
+		defer dynamicSLManager.Stop()
+	}
 
 	// 只有在配置完整時才啟动交易系统（優先使用 Bots，兼容舊 Symbols）
 	var firstRuntime *SymbolRuntime

@@ -117,7 +117,7 @@ func (cpm *ClosePositionManager) ClosePositions(
 		Symbol:    cpm.symbol,
 		Side:      side,
 		TargetQty: quantity,
-		Method:    cfg.Method,
+		Method:    CloseMethod(cfg.Method),
 		Status:    CloseStatusPending,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -136,7 +136,7 @@ func (cpm *ClosePositionManager) ClosePositions(
 		PriceDecimals: 2, // 默认精度
 	}
 
-	if cfg.Method == CloseMethodMarket {
+	if CloseMethod(cfg.Method) == CloseMethodMarket {
 		orderReq.Type = "MARKET"
 	} else {
 		// 限价单：根据当前价计算限价
@@ -179,7 +179,7 @@ func (cpm *ClosePositionManager) ClosePositions(
 	cpm.saveRecord(record)
 
 	// 启动超时检查（仅限价单且设置了超时）
-	if cfg.TimeoutSec > 0 && cfg.Method == CloseMethodLimit {
+	if cfg.TimeoutSec > 0 && CloseMethod(cfg.Method) == CloseMethodLimit {
 		cpm.wg.Add(1)
 		go cpm.watchTimeout(record, cfg)
 	}
@@ -236,7 +236,7 @@ func (cpm *ClosePositionManager) watchTimeout(
 					if remainingQty > 0 {
 						_, err := cpm.ClosePositions(context.Background(), record.Side,
 							remainingQty, config.ClosePositionConfig{
-								Method:     CloseMethodMarket,
+								Method:     string(CloseMethodMarket),
 								TimeoutSec: 0, // 重试的市价单不设置超时
 							})
 						if err != nil {

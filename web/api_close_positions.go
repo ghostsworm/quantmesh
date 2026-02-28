@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"quantmesh/config"
 	"quantmesh/position"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +12,7 @@ import (
 
 // BotExtendedProvider 擴展的 Bot 管理提供者接口
 type BotExtendedProvider interface {
-	GetBot(botID string) (*BotExtended, bool)
+	GetBot(botID string) (BotExtended, bool)
 }
 
 // BotExtended 擴展的 Bot 接口
@@ -175,7 +174,7 @@ func getClosePositionRecords(c *gin.Context) {
 // retryClosePosition 重試平倉（手動觸發）
 // POST /api/v2/close-records/:record_id/retry
 func retryClosePosition(c *gin.Context) {
-	recordID := c.Param("record_id")
+	_ = c.Param("record_id") // recordID 暫未使用
 
 	var req struct {
 		Method string `json:"method" binding:"required"`

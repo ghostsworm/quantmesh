@@ -253,6 +253,124 @@ type OrderbookOptimization struct {
 	OptimizationInterval int  `yaml:"optimization_interval" json:"optimization_interval"` // 優化間隔（秒），0 表示每次 AdjustOrders 都優化，預設 30
 }
 
+// CircuitBreakerConfig 全局熔斷器配置
+type CircuitBreakerConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"` // 是否啟用全局熔斷器
+
+	// 觸發條件
+	Triggers struct {
+		TotalDailyLoss struct {
+			Enabled    bool    `yaml:"enabled" json:"enabled"`    // 是否啟用單日總虧損觸發
+			Threshold float64 `yaml:"threshold" json:"threshold"` // USDT
+		} `yaml:"total_daily_loss" json:"total_daily_loss"`
+
+		MaxDrawdown struct {
+			Enabled    bool    `yaml:"enabled" json:"enabled"`    // 是否啟用最大回撤觸發
+			Threshold float64 `yaml:"threshold" json:"threshold"` // 百分比
+		} `yaml:"max_drawdown" json:"max_drawdown"`
+
+		ConsecutiveLosses struct {
+			Enabled bool `yaml:"enabled" json:"enabled"` // 是否啟用連續虧損觸發
+			Count   int  `yaml:"count" json:"count"`   // 連續虧損次數
+		} `yaml:"consecutive_losses" json:"consecutive_losses"`
+
+		WebSocketDisconnected struct {
+			Enabled bool `yaml:"enabled" json:"enabled"` // 是否啟用 WebSocket 斷線觸發
+			Timeout int  `yaml:"timeout" json:"timeout"` // 秒
+		} `yaml:"websocket_disconnected" json:"websocket_disconnected"`
+
+		APIAuthFailed struct {
+			Enabled bool `yaml:"enabled" json:"enabled"` // 是否啟用 API 認證失敗觸發
+			Count   int  `yaml:"count" json:"count"`   // 連續失敗次數
+		} `yaml:"api_auth_failed" json:"api_auth_failed"`
+
+		AllocationExceeded struct {
+			Enabled bool `yaml:"enabled" json:"enabled"` // 是否啟用配額超限觸發
+		} `yaml:"allocation_exceeded" json:"allocation_exceeded"`
+	} `yaml:"triggers" json:"triggers"`
+
+	// 熔斷動作
+	Actions struct {
+		StopAllNewOrders    bool `yaml:"stop_all_new_orders" json:"stop_all_new_orders"`    // 停止所有新開倉
+		CancelAllOpenOrders bool `yaml:"cancel_all_open_orders" json:"cancel_all_open_orders"` // 撤銷所有掛單
+		ClosePositions      struct {
+			Enabled bool   `yaml:"enabled" json:"enabled"` // 是否啟用平倉
+			Method  string `yaml:"method" json:"method"`  // market/limit
+			Timeout int    `yaml:"timeout" json:"timeout"`
+		} `yaml:"close_positions" json:"close_positions"`
+		PauseDuration int `yaml:"pause_duration" json:"pause_duration"` // 秒，0=無限期
+	} `yaml:"actions" json:"actions"`
+
+	// 恢復條件
+	Recovery struct {
+		AutoResume      bool `yaml:"auto_resume" json:"auto_resume"`       // 是否自動恢復
+		ManualRequired  bool `yaml:"manual_required" json:"manual_required"`   // 是否需要手動恢復
+		CooldownMinutes int  `yaml:"cooldown_minutes" json:"cooldown_minutes"`  // 冷卻時間（分鐘）
+	} `yaml:"recovery" json:"recovery"`
+
+	// 通知配置
+	Notifications struct {
+		Enabled bool     `yaml:"enabled" json:"enabled"`              // 是否啟用通知
+		Channels []string `yaml:"channels" json:"channels"`             // telegram, email, webhook
+	} `yaml:"notifications" json:"notifications"`
+}
+
+// EmergencyScenarioConfig 紧急场景配置
+type EmergencyScenarioConfig struct {
+	Description string   `yaml:"description" json:"description"`
+	Actions     []string `yaml:"actions" json:"actions"`     // stop_all, cancel_all_orders, close_all_positions, pause_all, reduce_position, emergency_mode
+	CloseMethod string   `yaml:"close_method" json:"close_method"` // market/limit
+	Timeout     int      `yaml:"timeout" json:"timeout"`      // 秒
+}
+
+// EmergencyCenterConfig 紧急操作中心配置
+type EmergencyCenterConfig struct {
+	Enabled         bool                             `yaml:"enabled" json:"enabled"`
+	RequireConfirmation bool                         `yaml:"require_confirmation" json:"require_confirmation"` // 是否需要确认
+	CustomScenarios map[string]EmergencyScenarioConfig `yaml:"custom_scenarios" json:"custom_scenarios"` // 自定义场景
+}
+
+// DynamicStopLossConfig 动态止损配置
+type DynamicStopLossConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"` // 是否启用动态止损
+
+	// 波动率调整
+	VolatilityBased struct {
+		Enabled          bool    `yaml:"enabled" json:"enabled"`           // 是否启用波动率调整
+		ATRMultiplier    float64 `yaml:"atr_multiplier" json:"atr_multiplier"`   // ATR倍数
+		ATRPeriod        int     `yaml:"atr_period" json:"atr_period"`           // ATR周期
+		MinStopLoss      float64 `yaml:"min_stop_loss" json:"min_stop_loss"`     // 最小止损比例
+		MaxStopLoss      float64 `yaml:"max_stop_loss" json:"max_stop_loss"`     // 最大止损比例
+		CheckInterval    int     `yaml:"check_interval" json:"check_interval"`   // 检查间隔（秒）
+	} `yaml:"volatility_based" json:"volatility_based"`
+
+	// 时间分段调整
+	TimeBased struct {
+		Enabled    bool     `yaml:"enabled" json:"enabled"`     // 是否启用时间分段
+		HighVolatilityHours []int `yaml:"high_volatility_hours" json:"high_volatility_hours"` // 高波动时段（0-23）
+		LowVolatilityHours  []int `yaml:"low_volatility_hours" json:"low_volatility_hours"`   // 低波动时段
+		HighVolatilityMultiplier float64 `yaml:"high_volatility_multiplier" json:"high_volatility_multiplier"` // 高波动时段止损倍数
+		LowVolatilityMultiplier  float64 `yaml:"low_volatility_multiplier" json:"low_volatility_multiplier"`   // 低波动时段止损倍数
+	} `yaml:"time_based" json:"time_based"`
+
+	// 盈利追踪调整
+	ProfitBasedTrailing struct {
+		Enabled         bool    `yaml:"enabled" json:"enabled"`           // 是否启用盈利追踪
+		ActivateProfit  float64 `yaml:"activate_profit" json:"activate_profit"` // 激活追踪的盈利比例
+		TrailingDistance float64 `yaml:"trailing_distance" json:"trailing_distance"` // 追踪距离（回撤多少触发止损）
+		MinDistance     float64 `yaml:"min_distance" json:"min_distance"`     // 最小追踪距离
+		UpdateFrequency int     `yaml:"update_frequency" json:"update_frequency"` // 更新频率（秒）
+	} `yaml:"profit_based_trailing" json:"profit_based_trailing"`
+
+	// 趋势反转调整
+	TrendReversal struct {
+		Enabled         bool    `yaml:"enabled" json:"enabled"`            // 是否启用趋势反转检测
+		TrendWindow     int     `yaml:"trend_window" json:"trend_window"`      // 趋势窗口
+		ReversalThreshold float64 `yaml:"reversal_threshold" json:"reversal_threshold"` // 反转阈值
+		TightenMultiplier float64 `yaml:"tighten_multiplier" json:"tighten_multiplier"` // 收紧止损倍数
+	} `yaml:"trend_reversal" json:"trend_reversal"`
+}
+
 // Config 做市商系統配置
 type Config struct {
 	// 應用配置
@@ -358,6 +476,8 @@ type Config struct {
 
 		GridRiskControl       GridRiskControl       `yaml:"grid_risk_control"`
 		OrderbookOptimization OrderbookOptimization `yaml:"orderbook_optimization"`
+		SmartOrder            SmartOrderConfig      `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`                   // 智能掛單配置
+		OpenPositionControl   OpenPositionControl   `yaml:"open_position_control" json:"open_position_control"`                   // 開倉管理
 	} `yaml:"trading"`
 
 	System struct {
@@ -879,6 +999,15 @@ type Config struct {
 		DefaultCapital        float64              `yaml:"default_capital"`         // 預設回測資金，預設 10000
 		Symbols               []AutoBacktestSymbol `yaml:"symbols"`                 // 要自動回測的交易對和策略
 	} `yaml:"auto_backtest"`
+
+	// 全局熔斷器配置
+	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
+
+	// 紧急操作中心配置
+	EmergencyCenter EmergencyCenterConfig `yaml:"emergency_center"`
+
+	// 动态止损配置
+	DynamicStopLoss DynamicStopLossConfig `yaml:"dynamic_stop_loss"`
 }
 
 // AutoBacktestSymbol 自動回測交易對配置
