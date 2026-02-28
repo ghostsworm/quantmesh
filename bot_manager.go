@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/lock"
 	"quantmesh/logger"
+	"quantmesh/position"
 	"quantmesh/storage"
 )
 
@@ -218,7 +220,7 @@ func (br *BotRuntime) ClosePositions(ctx context.Context, cfg config.ClosePositi
 	)
 
 	// 獲取持倉
-	positions, err := exchange.GetPositions(ctx, br.Config.Symbol)
+	_, err := exchange.GetPositions(ctx, br.Config.Symbol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get positions: %w", err)
 	}
@@ -347,25 +349,13 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 
 	spm := br.Inner.SuperPositionManager
 
-	// 计算总持仓数量
-	totalPositionQty := 0.0
-	totalPositionValue := 0.0
-	positionLayers := 0
-
-	spm.slots.Range(func(key, value interface{}) bool {
-		slot := value.(*position.InventorySlot)
-		slot.mu.RLock()
-		if slot.PositionStatus == position.PositionStatusFilled && slot.PositionQty > 0 {
-			totalPositionQty += slot.PositionQty
-			positionLayers++
-		}
-		slot.mu.RUnlock()
-		return true
-	})
+	// 使用公开方法获取仓位信息
+	positionLayers := spm.GetActiveLayers()
+	totalPositionValue := spm.GetTotalPositionValueUSDT()
 
 	// 获取当前价格
 	currentPrice := spm.GetLastMarketPrice()
-	totalPositionValue = totalPositionQty * currentPrice
+	totalPositionQty := totalPositionValue / currentPrice
 
 	// 读取风控配置（使用读锁保护）
 	br.configMu.RLock()
@@ -425,6 +415,88 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 
 	return status
 }
+
+// CancelAllOpenOrders 取消所有开仓订单
+func (br *BotRuntime) CancelAllOpenOrders() error {
+	if br.Inner == nil || br.Inner.SuperPositionManager == nil {
+		return fmt.Errorf("bot not initialized")
+	}
+	br.Inner.SuperPositionManager.CancelAllOpenOrders()
+	return nil
+}
+
+// CloseAllPositions 平掉所有仓位
+func (br *BotRuntime) CloseAllPositions(ctx context.Context, method string, timeout int) error {
+	if br.Inner == nil || br.Inner.SuperPositionManager == nil {
+		return fmt.Errorf("bot not initialized")
+	}
+	spm := br.Inner.SuperPositionManager
+
+	// 获取当前价格以确定平仓方向
+	currentPrice := spm.GetLastMarketPrice()
+	if currentPrice == 0 {
+		return fmt.Errorf("unable to get current price")
+	}
+
+	// 确定平仓方向
+	var side string
+	if br.Config.GetDirection() == "SHORT" {
+		side = "BUY"  // 做空平仓是买入
+	} else {
+		side = "SELL" // 做多平仓是卖出
+	}
+
+	// 获取总持仓价值
+	totalValue := spm.GetTotalPositionValueUSDT()
+	if totalValue == 0 {
+		return nil // 没有持仓
+	}
+
+	// 计算需要平仓的数量
+	totalQty := totalValue / currentPrice
+
+	// 创建平仓配置
+	cfg := config.ClosePositionConfig{
+		Method:     method,
+		TimeoutSec: timeout,
+		AutoRetry:  timeout > 0,
+		MaxRetries: 3,
+	}
+
+	// 创建平仓管理器
+	exchange := br.Inner.Exchange
+	closeMgr := position.NewClosePositionManager(
+		position.NewExchangeAdapterWrapper(exchange),
+		br.BotID,
+		br.Config.Symbol,
+	)
+
+	// 执行平仓
+	_, err := closeMgr.ClosePositions(ctx, side, totalQty, cfg)
+	return err
+}
+
+// GetPositionSummary 获取仓位摘要信息
+func (br *BotRuntime) GetPositionSummary() (float64, float64, error) {
+	if br.Inner == nil || br.Inner.SuperPositionManager == nil {
+		return 0, 0, fmt.Errorf("bot not initialized")
+	}
+
+	spm := br.Inner.SuperPositionManager
+	currentPrice := spm.GetLastMarketPrice()
+	if currentPrice == 0 {
+		return 0, 0, fmt.Errorf("unable to get current price")
+	}
+
+	// 获取未实现盈亏
+	unrealizedPnL := spm.GetUnrealizedPnL(currentPrice)
+
+	// 获取总持仓价值
+	totalValue := spm.GetTotalPositionValueUSDT()
+
+	return unrealizedPnL, totalValue, nil
+}
+
 
 // autoResumeAfter 在指定秒数后自动恢复开仓
 func (br *BotRuntime) autoResumeAfter(seconds int) {

@@ -1,7 +1,6 @@
 package position
 
 import (
-	"math"
 	"sort"
 
 	"quantmesh/config"
@@ -105,7 +104,7 @@ func (som *SmartOrderManager) ShouldAddNewSlot(
 	spm := som.spm
 
 	spm.slots.Range(func(key, value interface{}) bool {
-		price := key.(float64)
+		_ = key.(float64) // 价格未使用
 		slot := value.(*InventorySlot)
 
 		slot.mu.RLock()

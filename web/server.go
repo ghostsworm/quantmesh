@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/pprof"
+	"strconv"
 	"strings"
 
 	"quantmesh/config"
@@ -504,6 +505,37 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				}
 				v2.POST("/close-records/:record_id/retry", retryClosePosition)
 			}
+
+			// 全局熔断器 API
+			circuitBreaker := protected.Group("/circuit-breaker")
+			{
+				circuitBreaker.GET("/status", getCircuitBreakerStatus)
+				circuitBreaker.GET("/events", getCircuitBreakerEvents)
+				circuitBreaker.POST("/trigger", manualTriggerCircuitBreaker)
+				circuitBreaker.POST("/recover", manualRecoverCircuitBreaker)
+				circuitBreaker.POST("/metrics", updateCircuitBreakerMetrics)
+				circuitBreaker.POST("/report/auth-failure", reportAuthFailure)
+				circuitBreaker.POST("/report/websocket-disconnect", reportWebSocketDisconnect)
+				circuitBreaker.POST("/report/websocket-reconnected", reportWebSocketReconnected)
+			}
+
+			// 紧急操作中心 API
+			emergency := protected.Group("/emergency")
+			{
+				emergency.GET("/scenarios", getEmergencyScenarios)
+				emergency.POST("/execute", executeEmergencyScenario)
+				emergency.GET("/operations", getEmergencyOperations)
+				emergency.GET("/mode", getEmergencyModeStatus)
+				emergency.POST("/mode/disable", disableEmergencyMode)
+			}
+
+			// 动态止损 API
+			dynamicSL := protected.Group("/dynamic-stop-loss")
+			{
+				dynamicSL.GET("/slots", getDynamicStopLossSlots)
+				dynamicSL.GET("/stats", getDynamicStopLossStats)
+				dynamicSL.POST("/adjust", adjustStopLoss)
+			}
 		}
 
 		// 事件中心 API
@@ -590,4 +622,19 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		}
 		c.Data(http.StatusOK, "text/html; charset=utf-8", index)
 	})
+}
+
+// parseIntParam 解析整数参数，带范围检查
+func parseIntParam(s string, min, max int) (int, error) {
+	parsed, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+	if parsed < min {
+		return min, nil
+	}
+	if parsed > max {
+		return max, nil
+	}
+	return parsed, nil
 }
