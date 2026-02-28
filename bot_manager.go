@@ -314,6 +314,12 @@ func (br *BotRuntime) PauseOpening(reason string) {
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpening = true
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = reason
 	br.Config.OpenPositionControl.BotRiskControl.Enabled = true
+
+	// 🔥 如果设置了自动恢复时间，启动自动恢复 goroutine
+	if br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter > 0 {
+		autoResumeSec := br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter
+		go br.autoResumeAfter(autoResumeSec)
+	}
 }
 
 // ResumeOpening 恢复开仓
@@ -418,5 +424,33 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 	status["should_stop_opening"] = reachedLimitQty || reachedLimitValue || reachedLimitLayers || paused
 
 	return status
+}
+
+// autoResumeAfter 在指定秒数后自动恢复开仓
+func (br *BotRuntime) autoResumeAfter(seconds int) {
+	if seconds <= 0 {
+		return
+	}
+
+	logger.Info("⏰ [%s] 自动恢复定时器已启动，将在 %d 秒后恢复开仓", br.BotID, seconds)
+
+	select {
+	case <-time.After(time.Duration(seconds) * time.Second):
+		// 检查是否仍处于暂停状态
+		br.configMu.RLock()
+		stillPaused := br.Config.OpenPositionControl.PauseOpening
+		pauseReason := ""
+		if br.Config.OpenPositionControl.BotRiskControl != nil {
+			pauseReason = br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason
+		}
+		br.configMu.RUnlock()
+
+		if stillPaused {
+			logger.Info("🔔 [%s] 自动恢复定时器触发，恢复开仓（暂停原因: %s）", br.BotID, pauseReason)
+			br.ResumeOpening()
+		} else {
+			logger.Info("ℹ️ [%s] 自动恢复定时器触发，但开仓已恢复，跳过", br.BotID)
+		}
+	}
 }
 

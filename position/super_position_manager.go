@@ -1161,47 +1161,73 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
-	// 🔥 開倉管理：檢查 Bot 獨立風控的倉位數量限制
+	// 🔥 開倉管理：檢查 Bot 獨立風控的倉位限制
 	openControl := spm.config.Trading.OpenPositionControl
+
+	// 一次性計算所有需要的倉位統計數據（避免多次遍歷）
+	type positionStats struct {
+		totalQty    float64
+		totalValue  float64
+		totalLayers int
+	}
+	stats := positionStats{}
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			stats.totalQty += slot.PositionQty
+			stats.totalLayers++
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	stats.totalValue = stats.totalQty * currentPrice
+
 	// 優先檢查 Bot 獨立風控
 	if openControl.BotRiskControl != nil && openControl.BotRiskControl.Enabled {
-		if openControl.BotRiskControl.MaxPositionQuantity > 0 {
-			// 計算當前總持倉數量
-			totalQty := 0.0
-			spm.slots.Range(func(key, value interface{}) bool {
-				slot := value.(*InventorySlot)
-				slot.mu.RLock()
-				if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-					totalQty += slot.PositionQty
-				}
-				slot.mu.RUnlock()
-				return true
-			})
-			if totalQty >= openControl.BotRiskControl.MaxPositionQuantity {
-				logger.Warn("🚫 [Bot風控] 當前持倉數量 (%.4f) 已達到 Bot 限制 (%.4f)，暂停開倉",
-					totalQty, openControl.BotRiskControl.MaxPositionQuantity)
-				skipBuying = true
-			}
-		}
+		// 檢查暫停狀態
 		if openControl.BotRiskControl.PauseOpening {
 			logger.Warn("⏸️ [Bot風控] Bot 開倉已暫停（原因: %s）", openControl.BotRiskControl.PauseOpeningReason)
 			skipBuying = true
 		}
-	} else if openControl.MaxPositionQuantity > 0 {
+
+		// 檢查數量限制
+		if openControl.BotRiskControl.MaxPositionQuantity > 0 && stats.totalQty >= openControl.BotRiskControl.MaxPositionQuantity {
+			logger.Warn("🚫 [Bot風控] 當前持倉數量 (%.4f) 已達到 Bot 限制 (%.4f)，暂停開倉",
+				stats.totalQty, openControl.BotRiskControl.MaxPositionQuantity)
+			skipBuying = true
+		}
+
+		// 檢查價值限制
+		if openControl.BotRiskControl.MaxPositionValue > 0 && stats.totalValue >= openControl.BotRiskControl.MaxPositionValue {
+			logger.Warn("🚫 [Bot風控] 當前倉位價值 (%.2f) 已達到 Bot 限制 (%.2f)，暂停開倉",
+				stats.totalValue, openControl.BotRiskControl.MaxPositionValue)
+			skipBuying = true
+		}
+
+		// 檢查層數限制
+		if openControl.BotRiskControl.MaxPositionLayers > 0 && stats.totalLayers >= openControl.BotRiskControl.MaxPositionLayers {
+			logger.Warn("🚫 [Bot風控] 當前持倉層數 (%d) 已達到 Bot 限制 (%d)，暂停開倉",
+				stats.totalLayers, openControl.BotRiskControl.MaxPositionLayers)
+			skipBuying = true
+		}
+	} else {
 		// 如果沒有啟用 Bot 獨立風控，檢查全局配置
-		totalQty := 0.0
-		spm.slots.Range(func(key, value interface{}) bool {
-			slot := value.(*InventorySlot)
-			slot.mu.RLock()
-			if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-				totalQty += slot.PositionQty
-			}
-			slot.mu.RUnlock()
-			return true
-		})
-		if totalQty >= openControl.MaxPositionQuantity {
+		if openControl.MaxPositionQuantity > 0 && stats.totalQty >= openControl.MaxPositionQuantity {
 			logger.Warn("🚫 [開倉管理] 當前持倉數量 (%.4f) 已達到限制 (%.4f)，暂停開倉",
-				totalQty, openControl.MaxPositionQuantity)
+				stats.totalQty, openControl.MaxPositionQuantity)
+			skipBuying = true
+		}
+
+		if openControl.MaxPositionValue > 0 && stats.totalValue >= openControl.MaxPositionValue {
+			logger.Warn("🚫 [開倉管理] 當前倉位價值 (%.2f) 已達到限制 (%.2f)，暂停開倉",
+				stats.totalValue, openControl.MaxPositionValue)
+			skipBuying = true
+		}
+
+		if openControl.MaxPositionLayers > 0 && stats.totalLayers >= openControl.MaxPositionLayers {
+			logger.Warn("🚫 [開倉管理] 當前持倉層數 (%d) 已達到限制 (%d)，暂停開倉",
+				stats.totalLayers, openControl.MaxPositionLayers)
 			skipBuying = true
 		}
 	}
