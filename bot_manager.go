@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"quantmesh/config"
 	"quantmesh/event"
@@ -18,6 +19,7 @@ type BotRuntime struct {
 	BotID    string
 	Inner    *SymbolRuntime
 	EventBus *event.EventBus
+	configMu sync.RWMutex // 保護 Config 的並發訪問
 }
 
 // BotManager 管理多個 BotRuntime，按 BotID 進行生命週期管理
@@ -287,6 +289,9 @@ func (br *BotRuntime) GetBotRiskControl() *config.BotRiskControl {
 
 // SetBotRiskControl 设置 Bot 风控配置
 func (br *BotRuntime) SetBotRiskControl(riskControl *config.BotRiskControl) error {
+	br.configMu.Lock()
+	defer br.configMu.Unlock()
+
 	if br.Config.OpenPositionControl.BotRiskControl == nil {
 		br.Config.OpenPositionControl.BotRiskControl = &config.BotRiskControl{}
 	}
@@ -296,6 +301,9 @@ func (br *BotRuntime) SetBotRiskControl(riskControl *config.BotRiskControl) erro
 
 // PauseOpening 暂停开仓
 func (br *BotRuntime) PauseOpening(reason string) {
+	br.configMu.Lock()
+	defer br.configMu.Unlock()
+
 	// 更新 OpenPositionControl 中的 PauseOpening 状态
 	br.Config.OpenPositionControl.PauseOpening = true
 
@@ -310,6 +318,9 @@ func (br *BotRuntime) PauseOpening(reason string) {
 
 // ResumeOpening 恢复开仓
 func (br *BotRuntime) ResumeOpening() {
+	br.configMu.Lock()
+	defer br.configMu.Unlock()
+
 	// 更新 OpenPositionControl 中的 PauseOpening 状态
 	br.Config.OpenPositionControl.PauseOpening = false
 
@@ -350,21 +361,29 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 	currentPrice := spm.GetLastMarketPrice()
 	totalPositionValue = totalPositionQty * currentPrice
 
-	// 检查风控限制
-	riskControl := br.GetBotRiskControl()
+	// 读取风控配置（使用读锁保护）
+	br.configMu.RLock()
+	riskControl := br.Config.OpenPositionControl.BotRiskControl
 	openControl := br.Config.OpenPositionControl
+	br.configMu.RUnlock()
+
+	// 计算暂停状态（安全处理 nil 情况）
+	paused := openControl.PauseOpening
+	if riskControl != nil && riskControl.Enabled && riskControl.PauseOpening {
+		paused = true
+	}
 
 	status := map[string]interface{}{
 		"total_position_qty":   totalPositionQty,
 		"total_position_value": totalPositionValue,
 		"position_layers":      positionLayers,
 		"current_price":        currentPrice,
-		"paused":               openControl.PauseOpening || (riskControl.Enabled && riskControl.PauseOpening),
+		"paused":               paused,
 	}
 
 	// 检查是否达到数量限制
 	reachedLimitQty := false
-	if riskControl.Enabled && riskControl.MaxPositionQuantity > 0 {
+	if riskControl != nil && riskControl.Enabled && riskControl.MaxPositionQuantity > 0 {
 		status["max_position_qty"] = riskControl.MaxPositionQuantity
 		reachedLimitQty = totalPositionQty >= riskControl.MaxPositionQuantity
 	} else if openControl.MaxPositionQuantity > 0 {
@@ -375,7 +394,7 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 
 	// 检查是否达到价值限制
 	reachedLimitValue := false
-	if riskControl.Enabled && riskControl.MaxPositionValue > 0 {
+	if riskControl != nil && riskControl.Enabled && riskControl.MaxPositionValue > 0 {
 		status["max_position_value"] = riskControl.MaxPositionValue
 		reachedLimitValue = totalPositionValue >= riskControl.MaxPositionValue
 	} else if openControl.MaxPositionValue > 0 {
@@ -386,7 +405,7 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 
 	// 检查是否达到层数限制
 	reachedLimitLayers := false
-	if riskControl.Enabled && riskControl.MaxPositionLayers > 0 {
+	if riskControl != nil && riskControl.Enabled && riskControl.MaxPositionLayers > 0 {
 		status["max_position_layers"] = riskControl.MaxPositionLayers
 		reachedLimitLayers = positionLayers >= riskControl.MaxPositionLayers
 	} else if openControl.MaxPositionLayers > 0 {
@@ -396,7 +415,7 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 	status["reached_limit_layers"] = reachedLimitLayers
 
 	// 是否应该停止开仓
-	status["should_stop_opening"] = reachedLimitQty || reachedLimitValue || reachedLimitLayers || status["paused"].(bool)
+	status["should_stop_opening"] = reachedLimitQty || reachedLimitValue || reachedLimitLayers || paused
 
 	return status
 }

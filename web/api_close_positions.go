@@ -23,6 +23,13 @@ type BotExtended interface {
 	GetSlotFilter() *config.SlotFilterConfig
 	SetSlotFilter(filter *config.SlotFilterConfig)
 	GetSlots() []map[string]interface{}
+
+	// Bot 风控相关方法
+	GetBotRiskControl() *config.BotRiskControl
+	SetBotRiskControl(riskControl *config.BotRiskControl) error
+	PauseOpening(reason string)
+	ResumeOpening()
+	GetPositionStatus() map[string]interface{}
 }
 
 var botExtendedProvider BotExtendedProvider
