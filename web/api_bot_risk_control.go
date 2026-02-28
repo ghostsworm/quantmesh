@@ -117,20 +117,24 @@ func pauseBotOpening(c *gin.Context) {
 	// 获取当前风控配置
 	riskControl := bot.GetBotRiskControl()
 
-	// 设置暂停状态和原因
-	bot.PauseOpening(req.Reason)
-
 	// 如果设置了自动恢复时间，也更新到风控配置中
 	if req.AutoResumeSec != nil && *req.AutoResumeSec > 0 {
 		if riskControl == nil {
 			riskControl = &config.BotRiskControl{}
 		}
 		riskControl.AutoResumeAfter = *req.AutoResumeSec
+		// 保存风控配置
+		if err := bot.SetBotRiskControl(riskControl); err != nil {
+			logger.Warn("⚠️ [%s] 保存自动恢复时间失败: %v", botID, err)
+		}
 		resumeAt := time.Now().Add(time.Duration(*req.AutoResumeSec) * time.Second)
 		logger.Info("⏸️ [%s] 暂停开仓（原因: %s），将在 %s 自动恢复", botID, req.Reason, resumeAt.Format("15:04:05"))
 	} else {
 		logger.Info("⏸️ [%s] 暂停开仓（原因: %s）", botID, req.Reason)
 	}
+
+	// 设置暂停状态和原因
+	bot.PauseOpening(req.Reason)
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":         "paused",
