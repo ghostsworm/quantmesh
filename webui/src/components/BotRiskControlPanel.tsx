@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import {
   Box,
   Button,
@@ -15,7 +15,6 @@ import {
   FormControl,
   FormLabel,
   Switch,
-  Input,
   NumberInput,
   NumberInputField,
   NumberInputStepper,
@@ -57,11 +56,23 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
   const [updating, setUpdating] = useState(false)
   const [pausing, setPausing] = useState(false)
 
-  const fetchRiskControl = async () => {
+  // 使用 ref 避免依赖项变化导致定时器重建
+  const botIdRef = useRef(botId)
+
+  // 当 botId 变化时更新 ref
+  useEffect(() => {
+    botIdRef.current = botId
+  }, [botId])
+
+  // 使用 useCallback 缓存函数，避免不必要的重新渲染
+  const fetchRiskControl = useCallback(async () => {
+    const currentBotId = botIdRef.current
+    if (!currentBotId) return
+
     try {
       const [rc, ps] = await Promise.all([
-        getBotRiskControl(botId),
-        getBotPositionStatus(botId),
+        getBotRiskControl(currentBotId),
+        getBotPositionStatus(currentBotId),
       ])
       setRiskControl(rc)
       setPositionStatus(ps)
@@ -71,21 +82,20 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
     } finally {
       setLoading(false)
     }
-  }
+  }, [t, toast])
 
   useEffect(() => {
-    if (!botId) return
     fetchRiskControl()
     // 每 10 秒刷新一次仓位状态
     const interval = setInterval(fetchRiskControl, 10000)
     return () => clearInterval(interval)
-  }, [botId])
+  }, [fetchRiskControl])
 
-  const handleUpdateConfig = async () => {
-    if (!riskControl) return
+  const handleUpdateConfig = useCallback(async () => {
+    if (!riskControl || !botIdRef.current) return
     setUpdating(true)
     try {
-      await updateBotRiskControl(botId, riskControl)
+      await updateBotRiskControl(botIdRef.current, riskControl)
       toast({ title: t('botRiskControl.configUpdateSuccess'), status: 'success', duration: 2000 })
       await fetchRiskControl()
     } catch (err) {
@@ -94,12 +104,13 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
     } finally {
       setUpdating(false)
     }
-  }
+  }, [riskControl, fetchRiskControl, t, toast])
 
-  const handlePauseOpening = async () => {
+  const handlePauseOpening = useCallback(async () => {
+    if (!botIdRef.current) return
     setPausing(true)
     try {
-      await pauseBotOpening(botId, '手动暂停')
+      await pauseBotOpening(botIdRef.current, '手动暂停')
       toast({ title: t('botRiskControl.pauseSuccess'), status: 'success', duration: 2000 })
       await fetchRiskControl()
     } catch (err) {
@@ -108,12 +119,13 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
     } finally {
       setPausing(false)
     }
-  }
+  }, [fetchRiskControl, t, toast])
 
-  const handleResumeOpening = async () => {
+  const handleResumeOpening = useCallback(async () => {
+    if (!botIdRef.current) return
     setPausing(true)
     try {
-      await resumeBotOpening(botId)
+      await resumeBotOpening(botIdRef.current)
       toast({ title: t('botRiskControl.resumeSuccess'), status: 'success', duration: 2000 })
       await fetchRiskControl()
     } catch (err) {
@@ -122,7 +134,24 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
     } finally {
       setPausing(false)
     }
-  }
+  }, [fetchRiskControl, t, toast])
+
+  // 使用 useMemo 缓存计算值，避免不必要的重新计算
+  const shouldStopOpening = useMemo(() => {
+    return positionStatus?.should_stop_opening || false
+  }, [positionStatus?.should_stop_opening])
+
+  const isPaused = useMemo(() => {
+    return positionStatus?.paused || false
+  }, [positionStatus?.paused])
+
+  // 缓存配置更新处理函数，避免子组件不必要的重新渲染
+  const updateConfigField = useCallback(<K extends keyof BotRiskControlType>(
+    key: K,
+    value: BotRiskControlType[K]
+  ) => {
+    setRiskControl(prev => prev ? { ...prev, [key]: value } : null)
+  }, [])
 
   if (loading) {
     return (
@@ -131,9 +160,6 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
       </Flex>
     )
   }
-
-  const shouldStopOpening = positionStatus?.should_stop_opening || false
-  const isPaused = positionStatus?.paused || false
 
   return (
     <VStack spacing={4} align="stretch">
@@ -200,7 +226,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
               <AlertIcon />
               <Text fontSize="sm">
                 {t('botRiskControl.shouldStopOpening')}
-                {isPaused && ` (${positionStatus?.paused ? t('botRiskControl.paused') : ''})`}
+                {isPaused && ` (${t('botRiskControl.paused')})`}
               </Text>
             </Alert>
           )}
@@ -257,7 +283,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <Switch
                     id="enabled"
                     isChecked={riskControl.enabled ?? false}
-                    onChange={(e) => setRiskControl({ ...riskControl, enabled: e.target.checked })}
+                    onChange={(e) => updateConfigField('enabled', e.target.checked)}
                   />
                 </FormControl>
                 <Text fontSize="xs" color="gray.500">{t('botRiskControl.enabledDesc')}</Text>
@@ -271,8 +297,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.maxPositionQty')}</FormLabel>
                     <NumberInput
-                      value={riskControl.max_position_qty || 0}
-                      onChange={(_, val) => setRiskControl({ ...riskControl, max_position_qty: val })}
+                      value={riskControl.max_position_qty ?? 0}
+                      onChange={(_, val) => updateConfigField('max_position_qty', val)}
                       min={0}
                       precision={4}
                     >
@@ -288,8 +314,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.maxPositionValue')}</FormLabel>
                     <NumberInput
-                      value={riskControl.max_position_value || 0}
-                      onChange={(_, val) => setRiskControl({ ...riskControl, max_position_value: val })}
+                      value={riskControl.max_position_value ?? 0}
+                      onChange={(_, val) => updateConfigField('max_position_value', val)}
                       min={0}
                       precision={2}
                     >
@@ -305,8 +331,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.maxPositionLayers')}</FormLabel>
                     <NumberInput
-                      value={riskControl.max_position_layers || 0}
-                      onChange={(_, val) => setRiskControl({ ...riskControl, max_position_layers: val })}
+                      value={riskControl.max_position_layers ?? 0}
+                      onChange={(_, val) => updateConfigField('max_position_layers', val)}
                       min={0}
                     >
                       <NumberInputField />
@@ -328,8 +354,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.stopLossRatio')} (%)</FormLabel>
                     <NumberInput
-                      value={(riskControl.stop_loss_ratio || 0) * 100}
-                      onChange={(_, val) => setRiskControl({ ...riskControl, stop_loss_ratio: val / 100 })}
+                      value={(riskControl.stop_loss_ratio ?? 0) * 100}
+                      onChange={(_, val) => updateConfigField('stop_loss_ratio', val / 100)}
                       min={0}
                       max={100}
                       precision={2}
@@ -346,8 +372,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.takeProfitRatio')} (%)</FormLabel>
                     <NumberInput
-                      value={(riskControl.take_profit_ratio || 0) * 100}
-                      onChange={(_, val) => setRiskControl({ ...riskControl, take_profit_ratio: val / 100 })}
+                      value={(riskControl.take_profit_ratio ?? 0) * 100}
+                      onChange={(_, val) => updateConfigField('take_profit_ratio', val / 100)}
                       min={0}
                       max={100}
                       precision={2}
@@ -364,8 +390,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.trailingStopRatio')} (%)</FormLabel>
                     <NumberInput
-                      value={(riskControl.trailing_stop_ratio || 0) * 100}
-                      onChange={(_, val) => setRiskControl({ ...riskControl, trailing_stop_ratio: val / 100 })}
+                      value={(riskControl.trailing_stop_ratio ?? 0) * 100}
+                      onChange={(_, val) => updateConfigField('trailing_stop_ratio', val / 100)}
                       min={0}
                       max={100}
                       precision={2}
@@ -389,8 +415,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.autoResumeAfter')}</FormLabel>
                     <NumberInput
-                      value={riskControl.auto_resume_after || 0}
-                      onChange={(_, val) => setRiskControl({ ...riskControl, auto_resume_after: val })}
+                      value={riskControl.auto_resume_after ?? 0}
+                      onChange={(_, val) => updateConfigField('auto_resume_after', val)}
                       min={0}
                     >
                       <NumberInputField />
@@ -409,7 +435,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                     <Switch
                       id="trend-filter"
                       isChecked={riskControl.trend_filter_enabled ?? false}
-                      onChange={(e) => setRiskControl({ ...riskControl, trend_filter_enabled: e.target.checked })}
+                      onChange={(e) => updateConfigField('trend_filter_enabled', e.target.checked)}
                     />
                   </FormControl>
                 </SimpleGrid>
