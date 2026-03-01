@@ -1075,6 +1075,36 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 🔥 P2 新增：根據訂單簿深度優化槽位價格
 	slotPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, slotPrices)
 
+	// 🔥 開倉掛單數限制：單向做多/做空時每筆開倉委託佔用保證金，限制掛單數可節省資金
+	openCtrl := spm.config.Trading.OpenPositionControl
+	priceInterval := spm.config.Trading.PriceInterval
+	if priceInterval <= 0 {
+		priceInterval = 1
+	}
+	dir := "LONG"
+	if spm.isShort() {
+		dir = "SHORT"
+	}
+	maxOpenOrders := 0
+	openOrderDist := 0.0
+	if openCtrl.BotRiskControl != nil && openCtrl.BotRiskControl.MaxOpenOrders > 0 {
+		maxOpenOrders = openCtrl.BotRiskControl.MaxOpenOrders
+		openOrderDist = openCtrl.BotRiskControl.OpenOrderDistance
+		if openOrderDist <= 0 {
+			openOrderDist = 3
+		}
+	} else if spm.config.Trading.SmartOrder.Enabled && spm.config.Trading.SmartOrder.MaxOpenOrders > 0 {
+		maxOpenOrders = spm.config.Trading.SmartOrder.MaxOpenOrders
+		openOrderDist = spm.config.Trading.SmartOrder.OpenOrderDistance
+		if openOrderDist <= 0 {
+			openOrderDist = 3
+		}
+	}
+	if maxOpenOrders > 0 {
+		slotPrices = FilterSlotsByMaxOpenOrders(slotPrices, currentPrice, priceInterval, maxOpenOrders, openOrderDist, dir)
+		logger.Debug("🧠 [開倉掛單限制] 篩選後槽位數: %d (max_open_orders=%d)", len(slotPrices), maxOpenOrders)
+	}
+
 	var ordersToPlace []*OrderRequest
 	var activeBuyOrdersInWindow int
 
@@ -2588,6 +2618,33 @@ func (spm *SuperPositionManager) GetTotalPositionValueUSDT() float64 {
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 && slot.Price > 0 {
 			total += slot.Price * slot.PositionQty
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	return total
+}
+
+// GetPendingBuyOrderValueUSDT 獲取當前掛單買單佔用的資金（USDT），用於資金管理展示
+// 統計所有 OrderSide=BUY 且 OrderStatus 為 Placed/Confirmed/PartiallyFilled 的訂單金額
+func (spm *SuperPositionManager) GetPendingBuyOrderValueUSDT() float64 {
+	orderQty := spm.config.Trading.OrderQuantity
+	var total float64
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.OrderSide == "BUY" && slot.OrderPrice > 0 &&
+			(slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed ||
+				slot.OrderStatus == OrderStatusPartiallyFilled) {
+			orderValue := orderQty
+			if slot.OrderFilledQty > 0 {
+				filledValue := slot.OrderPrice * slot.OrderFilledQty
+				orderValue = orderQty - filledValue
+				if orderValue < 0 {
+					orderValue = 0
+				}
+			}
+			total += orderValue
 		}
 		slot.mu.RUnlock()
 		return true

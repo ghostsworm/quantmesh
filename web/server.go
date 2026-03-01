@@ -462,6 +462,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			capital := protected.Group("/capital")
 			{
 				capital.GET("/overview", getCapitalOverviewHandler)
+				capital.GET("/usage", getCapitalUsageHandler)
 				capital.GET("/allocation", getCapitalAllocationHandler)
 				capital.PUT("/allocation", updateCapitalAllocationHandler)
 				capital.GET("/allocation/:id", getStrategyCapitalDetailHandler)

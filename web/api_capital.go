@@ -148,8 +148,48 @@ type CapitalHistoryPoint struct {
 	PnL       float64 `json:"pnl"`
 }
 
+// CapitalUsageResponse 资金使用视图（主打查看：交易所 -> Bot 占用明细）
+type CapitalUsageResponse struct {
+	Exchanges []ExchangeUsageDetail `json:"exchanges"`
+}
+
+// ExchangeUsageDetail 交易所资金使用详情
+type ExchangeUsageDetail struct {
+	ExchangeID   string         `json:"exchangeId"`
+	ExchangeName string         `json:"exchangeName"`
+	TotalBalance float64        `json:"totalBalance"`
+	Available    float64        `json:"available"`
+	Used         float64        `json:"used"`
+	PnL          float64       `json:"pnl"`
+	Status       string         `json:"status"`
+	IsTestnet    bool           `json:"isTestnet"`
+	Bots         []BotUsageInfo `json:"bots"`
+}
+
+// BotUsageInfo Bot 资金占用信息
+type BotUsageInfo struct {
+	BotID          string  `json:"botId"`
+	Symbol         string  `json:"symbol"`
+	OrderValue     float64 `json:"orderValue"`     // 委托资金（挂单占用）
+	PositionValue  float64 `json:"positionValue"`  // 持仓占用
+	TotalUsed      float64 `json:"totalUsed"`      // 合计占用
+	OrderPct       float64 `json:"orderPct"`       // 委托占比（占该交易所总余额）
+	PositionPct    float64 `json:"positionPct"`    // 持仓占比
+	TotalUsedPct   float64 `json:"totalUsedPct"`  // 合计占比
+}
+
 // 獲取资金概览
 func getCapitalOverviewHandler(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("❌ [资金概览] panic: %v", r)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("资金概览处理异常: %v", r),
+				"overview": CapitalOverview{LastUpdated: time.Now().Format(time.RFC3339)},
+			})
+		}
+	}()
 	if capitalDataSource == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -201,6 +241,10 @@ func getCapitalOverviewHandler(c *gin.Context) {
 			})
 			continue
 		}
+		if acc == nil {
+			logger.Warn("⚠️ [资金概览] 交易所 %s 返回空帳戶", name)
+			continue
+		}
 
 		// 從配置中獲取測試網状態
 		isTestnet := false
@@ -236,6 +280,9 @@ func getCapitalOverviewHandler(c *gin.Context) {
 
 	// 3. 彙總實際占用资金
 	for _, pm := range posManagers {
+		if pm.Manager == nil {
+			continue
+		}
 		overview.UsedCapital += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
 	}
 
@@ -253,6 +300,219 @@ func getCapitalOverviewHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
 		"overview": overview,
+	})
+}
+
+// 獲取资金使用视图（主打查看：各交易所、各 Bot 的委托/持仓占用）
+func getCapitalUsageHandler(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("❌ [资金使用] panic: %v", r)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"success":   false,
+				"message":   fmt.Sprintf("资金使用处理异常: %v", r),
+				"exchanges": []ExchangeUsageDetail{},
+			})
+		}
+	}()
+	if capitalDataSource == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success":   false,
+			"message":   "资金數據源未就绪",
+			"exchanges": []ExchangeUsageDetail{},
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	exchanges := capitalDataSource.GetExchanges()
+	posManagers := capitalDataSource.GetPositionManagers()
+	cfg := capitalDataSource.GetConfig()
+
+	formatExchangeName := func(exID string) string {
+		exIDLower := strings.ToLower(exID)
+		switch exIDLower {
+		case "binance":
+			return "Binance"
+		case "gate":
+			return "Gate.io"
+		case "okx":
+			return "OKX"
+		case "bitget":
+			return "Bitget"
+		case "bybit":
+			return "Bybit"
+		case "huobi":
+			return "Huobi"
+		case "kucoin":
+			return "KuCoin"
+		default:
+			if len(exID) > 0 {
+				return strings.ToUpper(exID[:1]) + strings.ToLower(exID[1:])
+			}
+			return exID
+		}
+	}
+
+	// 按交易所聚合
+	exchangeMap := make(map[string]*ExchangeUsageDetail)
+	exchangeInstanceMap := make(map[string]exchange.IExchange)
+
+	for _, ex := range exchanges {
+		name := ex.GetName()
+		exchangeInstanceMap[strings.ToLower(name)] = ex
+	}
+
+	// 建立交易所条目：从配置、position managers、运行实例收集
+	for exLower := range exchangeInstanceMap {
+		if _, ok := exchangeMap[exLower]; ok {
+			continue
+		}
+		isTestnet := false
+		if cfg != nil {
+			for exKey := range cfg.Exchanges {
+				if strings.ToLower(exKey) == exLower {
+					if exCfg, ok := cfg.Exchanges[exKey]; ok {
+						isTestnet = exCfg.Testnet
+					}
+					break
+				}
+			}
+		}
+		exchangeMap[exLower] = &ExchangeUsageDetail{
+			ExchangeID:   exLower,
+			ExchangeName: formatExchangeName(exLower),
+			Bots:         []BotUsageInfo{},
+			IsTestnet:    isTestnet,
+		}
+	}
+	if cfg != nil {
+		for exName := range cfg.Exchanges {
+			exLower := strings.ToLower(exName)
+			if _, ok := exchangeMap[exLower]; ok {
+				continue
+			}
+			isTestnet := false
+			if exCfg, ok := cfg.Exchanges[exName]; ok {
+				isTestnet = exCfg.Testnet
+			}
+			exchangeMap[exLower] = &ExchangeUsageDetail{
+				ExchangeID:   exLower,
+				ExchangeName: formatExchangeName(exName),
+				Bots:         []BotUsageInfo{},
+				IsTestnet:    isTestnet,
+			}
+		}
+	}
+	for _, pm := range posManagers {
+		exLower := strings.ToLower(pm.Exchange)
+		if _, ok := exchangeMap[exLower]; ok {
+			continue
+		}
+		isTestnet := false
+		if cfg != nil {
+			for exKey := range cfg.Exchanges {
+				if strings.ToLower(exKey) == exLower {
+					if exCfg, ok := cfg.Exchanges[exKey]; ok {
+						isTestnet = exCfg.Testnet
+					}
+					break
+				}
+			}
+		}
+		exchangeMap[exLower] = &ExchangeUsageDetail{
+			ExchangeID:   exLower,
+			ExchangeName: formatExchangeName(pm.Exchange),
+			Bots:         []BotUsageInfo{},
+			IsTestnet:    isTestnet,
+		}
+	}
+
+	// 获取各交易所余额并填充 Bot 占用
+	for exLower, exDetail := range exchangeMap {
+		if ex, hasInstance := exchangeInstanceMap[exLower]; hasInstance {
+			acc, err := ex.GetAccount(ctx)
+			if err != nil {
+				exDetail.Status = "error"
+				exDetail.TotalBalance = 0
+				exDetail.Available = 0
+				exDetail.Used = 0
+				continue
+			}
+			if acc == nil {
+				exDetail.Status = "error"
+				continue
+			}
+			exDetail.Status = "online"
+			exDetail.TotalBalance = math.Round(acc.TotalMarginBalance*100) / 100
+			exDetail.Available = math.Round(acc.AvailableBalance*100) / 100
+			exDetail.Used = math.Round((acc.TotalMarginBalance-acc.AvailableBalance)*100) / 100
+			exDetail.PnL = math.Round((acc.TotalMarginBalance-acc.TotalWalletBalance)*100) / 100
+		} else {
+			exDetail.Status = "offline"
+		}
+
+		// 填充该交易所下的 Bot 占用
+		var totalOrderVal, totalPosVal float64
+		for _, pm := range posManagers {
+			if strings.ToLower(pm.Exchange) != exLower {
+				continue
+			}
+			if pm.Manager == nil {
+				continue
+			}
+			orderVal := pm.Manager.GetPendingBuyOrderValueUSDT()
+			posVal := pm.Manager.GetTotalPositionValueUSDT()
+			orderVal = math.Round(orderVal*100) / 100
+			posVal = math.Round(posVal*100) / 100
+			totalOrderVal += orderVal
+			totalPosVal += posVal
+
+			botID := config.GenerateBotID(pm.Exchange, pm.Symbol, "")
+			orderPct := 0.0
+			positionPct := 0.0
+			totalUsedPct := 0.0
+			if exDetail.TotalBalance > 0 {
+				totalUsed := orderVal + posVal
+				orderPct = (orderVal / exDetail.TotalBalance) * 100
+				positionPct = (posVal / exDetail.TotalBalance) * 100
+				totalUsedPct = (totalUsed / exDetail.TotalBalance) * 100
+			}
+
+			exDetail.Bots = append(exDetail.Bots, BotUsageInfo{
+				BotID:         botID,
+				Symbol:        pm.Symbol,
+				OrderValue:    orderVal,
+				PositionValue: posVal,
+				TotalUsed:     orderVal + posVal,
+				OrderPct:      math.Round(orderPct*100) / 100,
+				PositionPct:   math.Round(positionPct*100) / 100,
+				TotalUsedPct:  math.Round(totalUsedPct*100) / 100,
+			})
+		}
+	}
+
+	// 按交易所 ID 排序输出
+	var result []ExchangeUsageDetail
+	order := []string{"binance", "gate", "okx", "bybit", "bitget", "huobi", "kucoin"}
+	seen := make(map[string]bool)
+	for _, exLower := range order {
+		if d, ok := exchangeMap[exLower]; ok {
+			result = append(result, *d)
+			seen[exLower] = true
+		}
+	}
+	for exLower, d := range exchangeMap {
+		if !seen[exLower] {
+			result = append(result, *d)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"exchanges": result,
 	})
 }
 

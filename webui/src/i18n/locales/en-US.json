@@ -85,6 +85,7 @@
     "loadLogs": "Load Logs"
   },
   "sidebar": {
+    "backToBotList": "Back to Bot List",
     "botList": "Bot List",
     "groupBotPlaza": "Bot Plaza",
     "groupGlobalDashboard": "Global Dashboard",
@@ -1191,6 +1192,7 @@
   "capitalManagement": {
     "title": "Capital Management",
     "subtitle": "Manage capital allocation across strategies",
+    "subtitleView": "View capital per exchange and per-bot usage breakdown",
     "totalBalance": "Total Balance",
     "allocated": "Allocated",
     "available": "Available",
@@ -1205,6 +1207,7 @@
     "saveSuccess": "Capital allocation saved",
     "fetchDataFailed": "Failed to fetch capital data",
     "checkBackendConnection": "Please check backend service connection",
+    "backendError": "Backend error, check server logs",
     "saveFailed": "Save failed",
     "globalOverview": "Global Overview",
     "allStrategiesAllocation": "All Strategies Allocation",
@@ -1255,6 +1258,20 @@
     "balanced": "Balanced",
     "adjustTo100": "Adjust to 100%",
     "viewOnlyLabel": "Currently in \"All Exchanges\" view (read-only)",
+    "refresh": "Refresh data",
+    "viewBots": "View Bot list",
+    "symbol": "Symbol",
+    "orderValue": "Order Value",
+    "positionValue": "Position Value",
+    "totalUsed": "Total Used",
+    "orderPct": "Order %",
+    "positionPct": "Position %",
+    "totalUsedPct": "Total %",
+    "exchangeCount": "Exchanges",
+    "exchanges": "exchanges",
+    "noExchanges": "No exchange data",
+    "noBots": "No running bots on this exchange",
+    "offline": "Offline",
     "testnetMode": "Testnet Mode",
     "testnetDesc": "Currently using testnet environment. Displayed assets are virtual test coins and no real trades will be made.",
     "usingTestnet": "is using testnet.",
@@ -2429,6 +2446,13 @@
       "market_detection": { "name": "Market Detection", "description": "Enable market state auto-detection" },
       "hedge_enabled": { "name": "Hedge", "description": "Enable long-short hedging" }
     }
+  },
+  "botRiskControl": {
+    "maxOpenOrders": "Max Open Orders",
+    "maxOpenOrdersDesc": "Each open order occupies margin. Limit to save capital; 0 = unlimited",
+    "openOrderDistance": "Open Order Distance (intervals)",
+    "openOrderDistanceDesc": "Max intervals from current price for open orders",
+    "stoppedBotNoPosition": "Stopped bot has no position"
   },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved.",

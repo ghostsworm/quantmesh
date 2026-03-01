@@ -25,6 +25,7 @@
     "success": "操作成功"
   },
   "sidebar": {
+    "backToBotList": "返回 Bot 列表",
     "botList": "Bot 列表",
     "groupBotPlaza": "Bot 廣場",
     "groupGlobalDashboard": "全局看板",

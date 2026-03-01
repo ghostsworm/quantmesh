@@ -8,6 +8,7 @@ import type {
   RebalanceResult,
   CapitalOverviewResponse,
   CapitalAllocationResponse,
+  CapitalUsageResponse,
   UpdateAllocationRequest,
   UpdateAllocationResponse,
   CapitalHistoryResponse,
@@ -18,6 +19,11 @@ const API_BASE_URL = `${window.location.origin}/api`
 // 獲取资金概览
 export async function getCapitalOverview(): Promise<CapitalOverviewResponse> {
   return fetchWithAuth(`${API_BASE_URL}/capital/overview`)
+}
+
+// 獲取资金使用视图（主打查看：各交易所、各 Bot 的委托/持仓占用）
+export async function getCapitalUsage(): Promise<CapitalUsageResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/capital/usage`)
 }
 
 // 獲取资金分配配置

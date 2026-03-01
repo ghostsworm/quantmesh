@@ -24,11 +24,24 @@ import {
   VStack,
   Alert,
   AlertIcon,
+  Icon,
   IconButton,
   Collapse,
   useDisclosure,
 } from '@chakra-ui/react'
-import { ChevronDownIcon, ChevronUpIcon, PauseIcon, PlayIcon } from '@chakra-ui/icons'
+import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons'
+
+// @chakra-ui/icons 不提供 PauseIcon/PlayIcon，使用自定义 SVG
+const PlayIcon = (props: React.ComponentProps<typeof Icon>) => (
+  <Icon viewBox="0 0 24 24" {...props}>
+    <path fill="currentColor" d="M8 5v14l11-7z" />
+  </Icon>
+)
+const PauseIcon = (props: React.ComponentProps<typeof Icon>) => (
+  <Icon viewBox="0 0 24 24" {...props}>
+    <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+  </Icon>
+)
 import { useTranslation } from 'react-i18next'
 import {
   getBotRiskControl,
@@ -78,11 +91,15 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
       setPositionStatus(ps)
     } catch (err) {
       console.error('Failed to fetch risk control:', err)
-      toast({ title: t('botRiskControl.positionStatusFailed'), status: 'error', duration: 3000 })
+      // 已停止的 Bot 由后端返回 200+stopped，不会进 catch；进 catch 多为网络等真实错误
+      if (botRunning) {
+        toast({ title: t('botRiskControl.positionStatusFailed'), status: 'error', duration: 3000 })
+      }
+      // 停止的 bot 不弹 toast，在仓位区域会显示 stoppedBotNoPosition
     } finally {
       setLoading(false)
     }
-  }, [t, toast])
+  }, [t, toast, botRunning])
 
   useEffect(() => {
     fetchRiskControl()
@@ -167,6 +184,13 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
       <Card>
         <CardBody>
           <Heading size="sm" mb={4}>{t('botRiskControl.currentStatus')}</Heading>
+          {(positionStatus?.stopped || !botRunning) ? (
+            <Alert status="info" borderRadius="md">
+              <AlertIcon />
+              <Text fontSize="sm">{t('botRiskControl.stoppedBotNoPosition')}</Text>
+            </Alert>
+          ) : (
+          <>
           <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={4}>
             <Box>
               <Text fontSize="sm" color="gray.500">{t('botRiskControl.totalPositionQty')}</Text>
@@ -233,7 +257,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
 
           {/* 暂停/恢复按钮 */}
           <Flex justify="flex-end" mt={4}>
-            {botRunning && (
+            {botRunning && !positionStatus?.stopped && (
               isPaused ? (
                 <Button
                   size="sm"
@@ -257,6 +281,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
               )
             )}
           </Flex>
+          </>
+          )}
         </CardBody>
       </Card>
 
@@ -342,6 +368,39 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                       </NumberInputStepper>
                     </NumberInput>
                     <Text fontSize="xs" color="gray.500">{t('botRiskControl.maxPositionLayersDesc')}</Text>
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel fontSize="sm">{t('botRiskControl.maxOpenOrders')}</FormLabel>
+                    <NumberInput
+                      value={riskControl.max_open_orders ?? 0}
+                      onChange={(_, val) => updateConfigField('max_open_orders', val)}
+                      min={0}
+                    >
+                      <NumberInputField />
+                      <NumberInputStepper>
+                        <NumberIncrementStepper />
+                        <NumberDecrementStepper />
+                      </NumberInputStepper>
+                    </NumberInput>
+                    <Text fontSize="xs" color="gray.500">{t('botRiskControl.maxOpenOrdersDesc')}</Text>
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel fontSize="sm">{t('botRiskControl.openOrderDistance')}</FormLabel>
+                    <NumberInput
+                      value={riskControl.open_order_distance ?? 0}
+                      onChange={(_, val) => updateConfigField('open_order_distance', val)}
+                      min={0}
+                      precision={1}
+                    >
+                      <NumberInputField />
+                      <NumberInputStepper>
+                        <NumberIncrementStepper />
+                        <NumberDecrementStepper />
+                      </NumberInputStepper>
+                    </NumberInput>
+                    <Text fontSize="xs" color="gray.500">{t('botRiskControl.openOrderDistanceDesc')}</Text>
                   </FormControl>
                 </SimpleGrid>
 

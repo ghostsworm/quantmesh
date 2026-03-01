@@ -149,3 +149,44 @@ func (som *SmartOrderManager) sortFloat64s(arr []float64, direction string) {
 		})
 	}
 }
+
+// FilterSlotsByMaxOpenOrders 根據 max_open_orders 和 open_order_distance 篩選開倉槽位
+// 用於開倉管理中的掛單數限制，避免單向做多/做空時過多開倉委託佔用保證金
+func FilterSlotsByMaxOpenOrders(slotPrices []float64, currentPrice, priceInterval float64, maxOrders int, maxDistance float64, direction string) []float64 {
+	if maxOrders <= 0 || len(slotPrices) == 0 {
+		return slotPrices
+	}
+	if maxDistance <= 0 {
+		maxDistance = 3
+	}
+	dist := maxDistance * priceInterval
+
+	sorted := make([]float64, len(slotPrices))
+	copy(sorted, slotPrices)
+	if direction == "LONG" {
+		sort.Float64s(sorted)
+	} else {
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] > sorted[j] })
+	}
+
+	var nearby []float64
+	for _, p := range sorted {
+		if direction == "LONG" {
+			if p < currentPrice && currentPrice-p <= dist {
+				nearby = append(nearby, p)
+			}
+		} else {
+			if p > currentPrice && p-currentPrice <= dist {
+				nearby = append(nearby, p)
+			}
+		}
+	}
+
+	if len(nearby) <= maxOrders {
+		return nearby
+	}
+	if direction == "LONG" {
+		return nearby[len(nearby)-maxOrders:]
+	}
+	return nearby[:maxOrders]
+}
