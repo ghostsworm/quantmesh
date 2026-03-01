@@ -16,6 +16,8 @@ type BotRiskControlRequest struct {
 	MaxPositionQuantity *float64 `json:"max_position_quantity"`
 	MaxPositionValue    *float64 `json:"max_position_value"`
 	MaxPositionLayers   *int     `json:"max_position_layers"`
+	MaxOpenOrders       *int     `json:"max_open_orders"`       // 最多開倉掛單數，0=不限制
+	OpenOrderDistance   *float64 `json:"open_order_distance"`  // 開倉單距離當前價的最大間隔數
 	StopLossRatio       *float64 `json:"stop_loss_ratio"`
 	TakeProfitRatio     *float64 `json:"take_profit_ratio"`
 	TrailingStopRatio   *float64 `json:"trailing_stop_ratio"`
@@ -28,17 +30,36 @@ type PauseOpeningRequest struct {
 	AutoResumeSec *int   `json:"auto_resume_sec"` // 自动恢复时间（秒），0=不自动恢复
 }
 
-// getBotRiskControl 获取 Bot 风控配置
+// getBotRiskControl 获取 Bot 风控配置（运行中从运行时取，已停止从配置取）
 func getBotRiskControl(c *gin.Context) {
 	botID := c.Param("id")
 	bot, ok := botExtendedProvider.GetBot(botID)
-	if !ok {
+	if ok {
+		riskControl := bot.GetBotRiskControl()
+		c.JSON(http.StatusOK, riskControl)
+		return
+	}
+	// 已停止的 Bot：从配置读取风控
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
 	}
-
-	riskControl := bot.GetBotRiskControl()
-	c.JSON(http.StatusOK, riskControl)
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if id == botID {
+			rc := cfg.Bots[i].OpenPositionControl.BotRiskControl
+			if rc == nil {
+				rc = &config.BotRiskControl{}
+			}
+			c.JSON(http.StatusOK, rc)
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 }
 
 // updateBotRiskControl 更新 Bot 风控配置
@@ -74,6 +95,12 @@ func updateBotRiskControl(c *gin.Context) {
 	}
 	if req.MaxPositionLayers != nil {
 		currentRiskControl.MaxPositionLayers = *req.MaxPositionLayers
+	}
+	if req.MaxOpenOrders != nil {
+		currentRiskControl.MaxOpenOrders = *req.MaxOpenOrders
+	}
+	if req.OpenOrderDistance != nil {
+		currentRiskControl.OpenOrderDistance = *req.OpenOrderDistance
 	}
 	if req.StopLossRatio != nil {
 		currentRiskControl.StopLossRatio = *req.StopLossRatio
@@ -161,14 +188,41 @@ func resumeBotOpening(c *gin.Context) {
 }
 
 // getBotPositionStatus 获取 Bot 仓位状态（包括是否达到限制）
+// 已停止的 Bot 返回 stopped: true 的空状态，避免前端报错
 func getBotPositionStatus(c *gin.Context) {
 	botID := c.Param("id")
 	bot, ok := botExtendedProvider.GetBot(botID)
-	if !ok {
+	if ok {
+		status := bot.GetPositionStatus()
+		c.JSON(http.StatusOK, status)
+		return
+	}
+	// 已停止的 Bot：返回空仓位状态，供前端友好展示
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
 	}
-
-	status := bot.GetPositionStatus()
-	c.JSON(http.StatusOK, status)
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if id == botID {
+			c.JSON(http.StatusOK, gin.H{
+				"stopped":             true,
+				"total_position_qty":  0,
+				"total_position_value": 0,
+				"position_layers":     0,
+				"current_price":       0,
+				"paused":              false,
+				"reached_limit_qty":   false,
+				"reached_limit_value":  false,
+				"reached_limit_layers": false,
+				"should_stop_opening": false,
+			})
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 }

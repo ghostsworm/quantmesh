@@ -24,6 +24,7 @@
     "success": "成功"
   },
   "sidebar": {
+    "backToBotList": "Bot一覧に戻る",
     "botList": "Bot一覧",
     "groupBotPlaza": "Bot広場",
     "groupGlobalDashboard": "グローバルダッシュボード",

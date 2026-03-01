@@ -1,5 +1,5 @@
 import React, { useEffect, useState, Suspense, lazy } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { 
   ChakraProvider, 
   Box, 
@@ -19,10 +19,10 @@ import {
   DrawerCloseButton,
   useDisclosure,
 } from '@chakra-ui/react'
-import { HamburgerIcon } from '@chakra-ui/icons'
+import { HamburgerIcon, ChevronLeftIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
-import { BotProvider } from './contexts/BotContext'
+import { BotProvider, useBot } from './contexts/BotContext'
 import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
 import { lightTheme } from './theme'
 // 布局组件 - 每个页面都需要，保持静态导入
@@ -130,17 +130,20 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 // 主应用内容
 const AppContent: React.FC = () => {
   const location = useLocation()
+  const navigate = useNavigate()
   const { isAuthenticated, hasPassword, isLoading, connectionError, securityCompromised, passwordManagerError } = useAuth()
   const { isGlobalView } = useSymbol()
+  const { botId } = useBot()
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { t } = useTranslation()
   const [needsConfig, setNeedsConfig] = useState<boolean | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
   const { isMobile } = useResponsive()
-  
-  const headerBg = 'rgba(255, 255, 255, 0.8)'
-  const borderColor = 'gray.100'
-  const contentBg = isGlobalView ? 'gray.50' : 'white'
+  const isInBotMode = !!botId
+
+  const headerBg = isInBotMode ? 'rgba(237, 242, 247, 0.95)' : 'rgba(255, 255, 255, 0.8)'
+  const borderColor = isInBotMode ? 'blue.100' : 'gray.100'
+  const contentBg = isInBotMode ? 'blue.50' : (isGlobalView ? 'gray.50' : 'white')
 
   // 检查配置状態 - 每次登錄時都检查
   useEffect(() => {
@@ -387,6 +390,18 @@ const AppContent: React.FC = () => {
                 variant="ghost"
                 onClick={onOpen}
               />
+              {isInBotMode && (
+                <Button
+                  leftIcon={<ChevronLeftIcon />}
+                  variant="ghost"
+                  size="sm"
+                  colorScheme="blue"
+                  onClick={() => navigate('/bots')}
+                  fontWeight="600"
+                >
+                  {t('sidebar.backToBotList')}
+                </Button>
+              )}
               <Heading size="sm" fontWeight="800" color="blue.600" letterSpacing="tighter">
                 QuantMesh
               </Heading>
@@ -479,10 +494,10 @@ const AppContent: React.FC = () => {
                 <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
                 <Route path="/statistics/daily/:date" element={<ProtectedRoute><DailyPnLBreakdown /></ProtectedRoute>} />
                 <Route path="/reconciliation" element={<Navigate to="/bots" replace />} />
-                <Route path="/risk" element={<Navigate to="/bots" replace />} />
+                <Route path="/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
                 <Route path="/opening-control" element={<Navigate to="/bots" replace />} />
                 <Route path="/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
-                <Route path="/profit-management" element={<Navigate to="/bots" replace />} />
+                <Route path="/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
                 <Route path="/position-plan" element={<Navigate to="/bots" replace />} />
                 <Route path="/kline" element={<Navigate to="/bots" replace />} />
                 <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
@@ -507,9 +522,9 @@ const AppContent: React.FC = () => {
                 <Route path="/bots/:botId/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
                 <Route path="/bots/:botId/statistics/daily/:date" element={<ProtectedRoute><DailyPnLBreakdown /></ProtectedRoute>} />
                 <Route path="/bots/:botId/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
-                <Route path="/bots/:botId/risk" element={<ProtectedRoute><RiskMonitor /></ProtectedRoute>} />
+                <Route path="/bots/:botId/risk" element={<Navigate to="/risk" replace />} />
                 <Route path="/bots/:botId/opening-control" element={<ProtectedRoute><OpeningControl /></ProtectedRoute>} />
-                <Route path="/bots/:botId/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
+                <Route path="/bots/:botId/profit-management" element={<Navigate to="/profit-management" replace />} />
                 <Route path="/bots/:botId/position-plan" element={<ProtectedRoute><PositionPlan /></ProtectedRoute>} />
                 <Route path="/bots/:botId/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
                 <Route path="/bots/:botId/kline" element={<ProtectedRoute><KlineChart /></ProtectedRoute>} />

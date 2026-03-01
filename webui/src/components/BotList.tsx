@@ -17,7 +17,7 @@ import {
 } from '@chakra-ui/react'
 import { AddIcon, ChevronRightIcon, RepeatIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getBots, startBot, stopBot, BotInfo } from '../services/api'
 
 type FilterStatus = 'all' | 'running' | 'stopped'
@@ -25,6 +25,7 @@ type FilterStatus = 'all' | 'running' | 'stopped'
 const BotList: React.FC = () => {
   const { t } = useTranslation()
   const toast = useToast()
+  const navigate = useNavigate()
   const [bots, setBots] = useState<BotInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [actionBotId, setActionBotId] = useState<string | null>(null)
@@ -142,7 +143,12 @@ const BotList: React.FC = () => {
       ) : (
         <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }} gap={4}>
           {filteredBots.map((bot) => (
-            <Card key={bot.bot_id} _hover={{ shadow: 'md' }}>
+            <Card
+              key={bot.bot_id}
+              _hover={{ shadow: 'md' }}
+              cursor="pointer"
+              onClick={() => navigate(`/bots/${bot.bot_id}`)}
+            >
               <CardBody>
                 <Flex justify="space-between" align="flex-start" mb={2}>
                   <Box>
@@ -154,7 +160,14 @@ const BotList: React.FC = () => {
                         <Badge colorScheme="red" fontSize="10px">{t('botList.riskTriggered')}</Badge>
                       )}
                     </HStack>
-                    <Heading size="sm" mt={2}>{bot.name || bot.symbol}</Heading>
+                    <Heading
+                      size="sm"
+                      mt={2}
+                      color="blue.500"
+                      _hover={{ textDecoration: 'underline' }}
+                    >
+                      {bot.name || bot.symbol}
+                    </Heading>
                     <Text fontSize="xs" color="gray.500">{bot.exchange} · {bot.symbol} ({bot.market_type})</Text>
                   </Box>
                   <IconButton
@@ -164,6 +177,7 @@ const BotList: React.FC = () => {
                     icon={<ChevronRightIcon />}
                     size="sm"
                     variant="ghost"
+                    onClick={(e) => e.stopPropagation()}
                   />
                 </Flex>
                 {bot.running && (
@@ -178,7 +192,7 @@ const BotList: React.FC = () => {
                     )}
                   </HStack>
                 )}
-                <Flex mt={4} gap={2}>
+                <Flex mt={4} gap={2} onClick={(e) => e.stopPropagation()}>
                   {bot.running ? (
                     <Button
                       size="sm"

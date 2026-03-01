@@ -17,7 +17,6 @@ const Footer: React.FC = () => {
           </p>
           <div className="app-footer-links">
             <RouterLink to="/terms" className="app-footer-link">{t('footer.terms')}</RouterLink>
-            <span className="app-footer-separator">|</span>
             <RouterLink to="/privacy" className="app-footer-link">{t('footer.privacy')}</RouterLink>
           </div>
         </div>

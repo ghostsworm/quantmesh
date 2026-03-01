@@ -14,6 +14,7 @@ import {
   SettingsIcon,
   InfoIcon,
   TriangleUpIcon,
+  ChevronLeftIcon,
 } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 
@@ -35,28 +36,19 @@ export const MobileNav: React.FC<MobileNavProps> = ({ onMenuOpen }) => {
   const activeColor = useColorModeValue('blue.500', 'blue.300')
   const inactiveColor = useColorModeValue('gray.600', 'gray.400')
 
-  const navItems = [
-    {
-      path: botId ? `${botPrefix}/dashboard` : '/',
-      icon: ViewIcon,
-      label: t('nav.dashboard', 'Dashboard'),
-    },
-    {
-      path: botId ? `${botPrefix}/positions` : '/bots',
-      icon: TriangleUpIcon,
-      label: t('nav.positions', 'Positions'),
-    },
-    {
-      path: botId ? `${botPrefix}/statistics` : '/',
-      icon: InfoIcon,
-      label: t('nav.statistics', 'Statistics'),
-    },
-    {
-      path: '/config',
-      icon: SettingsIcon,
-      label: t('nav.settings', 'Settings'),
-    },
-  ]
+  const navItems = botId
+    ? [
+        { path: '/bots', icon: ChevronLeftIcon, label: t('sidebar.backToBotList', 'Back') },
+        { path: `${botPrefix}/dashboard`, icon: ViewIcon, label: t('nav.dashboard', 'Dashboard') },
+        { path: `${botPrefix}/positions`, icon: TriangleUpIcon, label: t('nav.positions', 'Positions') },
+        { path: `${botPrefix}/config`, icon: SettingsIcon, label: t('nav.settings', 'Settings') },
+      ]
+    : [
+        { path: '/', icon: ViewIcon, label: t('nav.dashboard', 'Dashboard') },
+        { path: '/bots', icon: TriangleUpIcon, label: t('nav.positions', 'Positions') },
+        { path: '/', icon: InfoIcon, label: t('nav.statistics', 'Statistics') },
+        { path: '/config', icon: SettingsIcon, label: t('nav.settings', 'Settings') },
+      ]
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'

@@ -2431,6 +2431,8 @@ export interface BotRiskControl {
   max_position_qty?: number
   max_position_value?: number
   max_position_layers?: number
+  max_open_orders?: number       // 最多開倉掛單數，0=不限制
+  open_order_distance?: number   // 開倉單距離當前價的最大間隔數
   stop_loss_ratio?: number
   take_profit_ratio?: number
   trailing_stop_ratio?: number
@@ -2455,6 +2457,8 @@ export interface PositionStatus {
   reached_limit_layers: boolean
   should_stop_opening: boolean
   error?: string
+  /** 已停止的 Bot 无实时仓位，后端返回此标记 */
+  stopped?: boolean
 }
 
 // 获取 Bot 风控配置

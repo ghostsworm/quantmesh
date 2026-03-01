@@ -1,5 +1,35 @@
 // 资金管理類型定义
 
+// 资金使用视图（主打查看）
+export interface CapitalUsageResponse {
+  success: boolean
+  message?: string
+  exchanges: ExchangeUsageDetail[]
+}
+
+export interface ExchangeUsageDetail {
+  exchangeId: string
+  exchangeName: string
+  totalBalance: number
+  available: number
+  used: number
+  pnl: number
+  status: 'online' | 'offline' | 'error'
+  isTestnet?: boolean
+  bots: BotUsageInfo[]
+}
+
+export interface BotUsageInfo {
+  botId: string
+  symbol: string
+  orderValue: number      // 委托资金（挂单占用）
+  positionValue: number   // 持仓占用
+  totalUsed: number       // 合计占用
+  orderPct: number        // 委托占比
+  positionPct: number     // 持仓占比
+  totalUsedPct: number    // 合计占比
+}
+
 export interface CapitalOverview {
   totalBalance: number // 账戶總权益
   allocatedCapital: number // 已分配给策略的资金

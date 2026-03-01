@@ -10,6 +10,17 @@
 
 ---
 
+## v3.56.0-rc1 - 2026年03月01日
+
+**Git Tag**: `v3.56.0-rc1`
+
+### 變更 (Changed)
+
+- **资金管理重构**：资金管理页面改为主打「查看」的仪表盘，展示各交易所总余额、可用资金、未实现盈亏；每个交易所下按 Bot 列出委托资金（挂单占用）、持仓占用、合计占用及占比；新增 API `GET /api/capital/usage`
+- **SuperPositionManager**：新增 `GetPendingBuyOrderValueUSDT()` 方法，用于统计挂单买单占用的资金
+
+---
+
 ## v3.43.0-rc1 - 2026年02月06日
 
 **Git Tag**: `v3.43.0-rc1`

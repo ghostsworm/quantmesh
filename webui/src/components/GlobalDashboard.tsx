@@ -70,7 +70,7 @@ import {
   Area,
   XAxis,
   YAxis,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -715,7 +715,7 @@ const GlobalDashboard: React.FC = () => {
                   </defs>
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => v.toLocaleString()} />
-                  <Tooltip formatter={(v: number) => [v.toLocaleString(undefined, { minimumFractionDigits: 2 }), t('globalDashboard.totalAssets')]} />
+                  <RechartsTooltip formatter={(v: number) => [v.toLocaleString(undefined, { minimumFractionDigits: 2 }), t('globalDashboard.totalAssets')]} />
                   <Area type="monotone" dataKey="balance" stroke="#3182CE" fill="url(#equityGradient)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -746,7 +746,7 @@ const GlobalDashboard: React.FC = () => {
                       <Cell key={entry.name} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip
+                  <RechartsTooltip
                     formatter={(value: number, name: string) => {
                       const labelKey = name === 'normal' ? 'riskNormal' : name === 'riskTriggered' ? 'riskTriggered' : 'openingPaused'
                       return [value, t(`globalDashboard.${labelKey}`)]

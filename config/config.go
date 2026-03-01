@@ -211,6 +211,10 @@ type BotRiskControl struct {
 	MaxPositionValue    float64 `yaml:"max_position_value" json:"max_position_value"`    // 最大倉位價值（USDT）
 	MaxPositionLayers    int     `yaml:"max_position_layers" json:"max_position_layers"`    // 最大持倉層數
 
+	// 開倉掛單限制（單向做多/做空時，每筆開倉委託佔用保證金，限制掛單數可節省資金）
+	MaxOpenOrders     int     `yaml:"max_open_orders" json:"max_open_orders"`           // 最多開倉掛單數（每方向），0=不限制
+	OpenOrderDistance float64 `yaml:"open_order_distance" json:"open_order_distance"`   // 開倉單距離當前價的最大間隔數，0=用默認
+
 	// 止損止盈
 	StopLossRatio       float64 `yaml:"stop_loss_ratio" json:"stop_loss_ratio"`           // 止損比例
 	TakeProfitRatio      float64 `yaml:"take_profit_ratio" json:"take_profit_ratio"`         // 止盈比例
