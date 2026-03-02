@@ -243,6 +243,26 @@ func (nm *NewsMonitor) Start() error {
 	return nil
 }
 
+// InitForManualTrigger 為手動觸發分析初始化分析器（未啟用新聞監控時調用）
+// 僅創建 Gemini 分析器，不啟動定時循環
+func (nm *NewsMonitor) InitForManualTrigger() {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	if nm.geminiAnalyzer != nil {
+		return
+	}
+	// 需有 AI 配置才能手動分析
+	hasAI := nm.cfg.NewsMonitor.UseGeminiSearch ||
+		(nm.cfg.NewsMonitor.AIProvider.Provider != "" && nm.cfg.NewsMonitor.AIProvider.APIKey != "") ||
+		(nm.cfg.NewsMonitor.AIProvider.Provider == "" && nm.cfg.AI.GeminiAPIKey != "") ||
+		nm.cfg.AI.APIKey != ""
+	if !hasAI {
+		return
+	}
+	// 可傳 nil newsCollector，分析器會用 AI 內建搜索
+	nm.geminiAnalyzer = NewGeminiNewsAnalyzer(nm.cfg, nil)
+}
+
 // Stop 停止新聞監控
 func (nm *NewsMonitor) Stop() {
 	nm.cancel()
@@ -408,15 +428,14 @@ func (nm *NewsMonitor) TriggerAnalysis(symbol string, focusEvent string) error {
 }
 
 // TriggerAnalysisWithAsset 手动触发分析，可指定 assetType
+// 無論新聞監控是否啟用，手動觸發均可用（需有 AI 配置）
 func (nm *NewsMonitor) TriggerAnalysisWithAsset(symbol, assetType, focusEvent string) error {
-	if !nm.cfg.NewsMonitor.Enabled {
-		return fmt.Errorf("新聞監控未啟用")
-	}
-	if !nm.cfg.NewsMonitor.UseGeminiSearch {
-		return fmt.Errorf("Gemini 搜索未啟用，無法触发分析")
+	// 手動觸發時若分析器未初始化，嘗試初始化
+	if nm.geminiAnalyzer == nil {
+		nm.InitForManualTrigger()
 	}
 	if nm.geminiAnalyzer == nil {
-		return fmt.Errorf("Gemini 分析器未初始化")
+		return fmt.Errorf("AI 未配置，無法觸發分析。請在配置中設置 NewsMonitor.AIProvider 或啟用 UseGeminiSearch")
 	}
 	if nm.geminiAnalyzer.IsAnalyzing() {
 		return fmt.Errorf("已有分析任務在執行中")
