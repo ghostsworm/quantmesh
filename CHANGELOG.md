@@ -2,13 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.56.2-rc1] - 2026-03-02
+
+### Changed
+- **restart_backend.sh → restart_api.sh**：重命名为 `restart_api.sh`，仅重启 API 后端，不编译前端（前端由 Vite 单独服务）；`start.sh` 新增 `--api-only` 选项
+
 ## [3.56.1-rc1] - 2026-03-02
 
 ### Added
 - **保存配置前可选操作**：修改机器人/网格策略参数并保存时，弹出「保存前可选操作」对话框，支持勾选「撤回当前委托单」「平掉当前仓位」，按用户选择执行后再保存配置；确保撤单、平仓指令实际执行
-
-### Changed
-- **restart_backend.sh → restart_api.sh**：重命名为 `restart_api.sh`，仅重启 API 后端，不编译前端（前端由 Vite 单独服务）；`start.sh` 新增 `--api-only` 选项
 
 ## [3.56.0-rc2] - 2026-03-02
 
