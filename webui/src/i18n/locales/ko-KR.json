@@ -436,7 +436,7 @@
     "openingPaused": "진입 일시정지",
     "totalPnL": "총 P&L",
     "exchangeOverview": "거래소 개요",
-    "addSymbol": "심볼 추가",
+    "addSymbol": "봇 추가",
     "openingPausedAlert": "{{count}}개 심볼의 신규 주문이 일시정지됨",
     "openingPausedAlertDesc": "일부 심볼의 신규 주문이 일시정지되었습니다. 해당 심볼에 대해 새로운 매수 주문이 생성되지 않습니다.",
     "unknownError": "알 수 없는 오류",
@@ -2891,8 +2891,7 @@
   },
   "fundingRate": {
     "title": "펀딩 비율",
-    "sumCurveTitle": "펀딩 비율 시간별 합계 (숫자 합, % 없음)",
-    "sumCurveYLabel": "합계",
+    "chartTitle": "레이트 추이 (거래소+거래쌍별)",
     "noChartData": "차트 데이터 없음",
     "currentRates": "현재 비율",
     "historyRates": "과거 비율",

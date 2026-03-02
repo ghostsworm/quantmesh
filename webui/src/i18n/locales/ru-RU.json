@@ -279,7 +279,7 @@
     "openingPaused": "Открытие приостановлено",
     "totalPnL": "Общий P&L",
     "exchangeOverview": "Обзор биржи",
-    "addSymbol": "Добавить символ",
+    "addSymbol": "Добавить бота",
     "openingPausedAlert": "{{count}} символ(ов) имеют приостановленное открытие",
     "openingPausedAlertDesc": "У некоторых символов приостановлено открытие. Для этих символов не будут созданы новые ордера на покупку.",
     "unknownError": "Неизвестная ошибка",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Динамика ставок (по бирже + паре)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

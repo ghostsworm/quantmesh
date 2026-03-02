@@ -455,7 +455,7 @@
     "openingPaused": "খোলা বিরতি",
     "totalPnL": "Total P&L",
     "exchangeOverview": "Exchange Overview",
-    "addSymbol": "সিম্বল যোগ করুন",
+    "addSymbol": "বট যোগ করুন",
     "openingPausedAlert": "{{count}} টি সিম্বলের ওপেনিং বিরতি দেওয়া হয়েছে",
     "openingPausedAlertDesc": "কিছু সিম্বলের ওপেনিং বিরতি দেওয়া হয়েছে। এই সিম্বলগুলোর জন্য নতুন কোনো বাই অর্ডার তৈরি হবে না।",
     "unknownError": "Unknown Error",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Rate Trend (by Exchange + Trading Pair)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

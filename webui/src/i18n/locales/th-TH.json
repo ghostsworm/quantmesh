@@ -455,7 +455,7 @@
     "openingPaused": "การเปิดตำแหน่งหยุดชั่วคราว",
     "totalPnL": "Total P&L",
     "exchangeOverview": "Exchange Overview",
-    "addSymbol": "เพิ่มสัญลักษณ์",
+    "addSymbol": "เพิ่มบอท",
     "openingPausedAlert": "{{count}} สัญลักษณ์มีการหยุดเปิดสถานะชั่วคราว",
     "openingPausedAlertDesc": "บางสัญลักษณ์มีการหยุดเปิดสถานะชั่วคราว จะไม่สร้างคำสั่งซื้อใหม่สำหรับสัญลักษณ์เหล่านี้",
     "unknownError": "ข้อผิดพลาดที่ไม่ทราบสาเหตุ",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Rate Trend (by Exchange + Trading Pair)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

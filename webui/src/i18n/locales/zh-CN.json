@@ -3407,8 +3407,7 @@
   },
   "fundingRate": {
     "title": "资金费率",
-    "sumCurveTitle": "资金费率按时间合计（数值相加，无百分号）",
-    "sumCurveYLabel": "合计",
+    "chartTitle": "费率走势（按交易所+交易对分线显示）",
     "noChartData": "暂无曲线数据",
     "currentRates": "当前费率",
     "historyRates": "历史费率",
