@@ -2158,22 +2158,23 @@ func main() {
 			}
 
 			// 初始化新聞監控（Gemini 分析 + NewsAPI 收集）
-			if cfg.NewsMonitor.Enabled {
-				logger.Info("📰 初始化新聞監控...")
-				getPrice := func(symbol string) float64 {
-					for _, rt := range symbolManager.List() {
-						if rt.Config.Symbol == symbol && rt.PriceMonitor != nil {
-							return rt.PriceMonitor.GetLastPrice()
-						}
+			// 始終創建 NewsMonitor 並設置 provider，以便「手動觸發分析」在未啟用時也可用
+			logger.Info("📰 初始化新聞監控...")
+			getPrice := func(symbol string) float64 {
+				for _, rt := range symbolManager.List() {
+					if rt.Config.Symbol == symbol && rt.PriceMonitor != nil {
+						return rt.PriceMonitor.GetLastPrice()
 					}
-					return 0
 				}
-				newsMonitor = monitor.NewNewsMonitor(cfg, storageService.GetStorage())
-				newsMonitor.SetPriceGetter(getPrice)
+				return 0
+			}
+			newsMonitor = monitor.NewNewsMonitor(cfg, storageService.GetStorage())
+			newsMonitor.SetPriceGetter(getPrice)
+			web.SetNewsMonitorProvider(newsMonitor)
+			if cfg.NewsMonitor.Enabled {
 				if err := newsMonitor.Start(); err != nil {
 					logger.Warn("⚠️ 新聞監控啟动失败: %v", err)
 				} else {
-					web.SetNewsMonitorProvider(newsMonitor)
 					// 將新聞監控注入各运行時的风控監視器
 					for _, rt := range symbolManager.List() {
 						if rt.RiskMonitor != nil {
@@ -2188,6 +2189,10 @@ func main() {
 					predVerifier := monitor.NewPredictionVerifier(cfg, storageService.GetStorage())
 					predVerifier.Start()
 				}
+			} else {
+				// 未啟用時僅初始化分析器，支援手動觸發
+				newsMonitor.InitForManualTrigger()
+				logger.Info("✅ 新聞監控已就緒（手動觸發可用）")
 			}
 		}
 
