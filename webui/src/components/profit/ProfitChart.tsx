@@ -48,8 +48,9 @@ const COLORS = [
   '#00B5D8', // cyan.500
 ]
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label, t }: any) => {
   if (active && payload && payload.length) {
+    const date = payload[0]?.payload?.date ?? label ?? ''
     return (
       <Box
         bg="gray.800"
@@ -59,7 +60,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         fontSize="sm"
         boxShadow="lg"
       >
-        <Text fontWeight="bold" mb={2}>{label}</Text>
+        {date && (
+          <Text fontWeight="bold" mb={2}>
+            {t?.('profitManagement.date') ?? '日期'}: {date}
+          </Text>
+        )}
         {payload.map((entry: any) => (
           <Text key={entry.dataKey} color={entry.color}>
             {entry.name}: {entry.value != null && entry.value !== null ? (Number(entry.value) >= 0 ? '+' : '') + Number(entry.value).toFixed(2) : '-'} USDT
@@ -197,7 +202,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
                     tickFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}`}
                   />
                 )}
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={(props) => <CustomTooltip {...props} t={t} />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line
                   yAxisId="left"
