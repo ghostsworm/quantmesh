@@ -97,6 +97,8 @@ import YamlEditor from './YamlEditor'
 import DiffPreviewModal from './DiffPreviewModal'
 import ConfigHistory from './ConfigHistory'
 import ConfirmDialog from './ConfirmDialog'
+import ConfigSaveOptionsModal from './ConfigSaveOptionsModal'
+import type { SymbolTarget } from './ConfigSaveOptionsModal'
 import ParamAdvisor from './ParamAdvisor'
 import { trackConfigSaved } from '../services/telemetry'
 
@@ -190,7 +192,8 @@ const Configuration: React.FC = () => {
     newDirection: '',
     loading: false,
   })
-  
+  const [saveOptionsOpen, setSaveOptionsOpen] = useState(false)
+
   // Tab control
   const [tabIndex, setTabIndex] = useState(0)
   
@@ -477,54 +480,102 @@ const Configuration: React.FC = () => {
     }
   }
 
-  const handleSave = async () => {
+  const getSaveTargets = (): SymbolTarget[] => {
+    if (!config?.trading?.symbols?.length) return []
+    if (selectedExchange && selectedSymbol) {
+      const ex = (selectedExchange || config.app?.current_exchange || '').toLowerCase()
+      const sym = (selectedSymbol || '').toLowerCase()
+      return [{ exchange: ex, symbol: sym }]
+    }
+    return config.trading.symbols
+      .filter((s: any) => s.exchange && s.symbol)
+      .map((s: any) => ({
+        exchange: (s.exchange || config.app?.current_exchange || '').toLowerCase(),
+        symbol: (s.symbol || '').toLowerCase(),
+      }))
+  }
+
+  const performSaveWithOptions = async (options: { cancelOrders: boolean; closePositions: boolean }) => {
+    if (!config) return
+    const targets = getSaveTargets()
+    for (const { exchange, symbol } of targets) {
+      if (options.cancelOrders) {
+        try {
+          const pend = await getPendingOrders(exchange, symbol).catch(() => ({ orders: [] }))
+          const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
+          if (orderIds.length > 0) {
+            await batchCancelOrders(orderIds, exchange, symbol)
+            toast({ title: t('configuration.saveOptionsCancelSuccess', { count: orderIds.length }), status: 'success', duration: 2000 })
+          }
+        } catch (e) {
+          toast({ title: t('configuration.saveOptionsCancelFailed'), description: e instanceof Error ? e.message : String(e), status: 'error' })
+          throw e
+        }
+      }
+      if (options.closePositions) {
+        try {
+          const res = await closeAllPositions(exchange, symbol)
+          if (res.success_count > 0 || res.fail_count > 0) {
+            toast({ title: t('configuration.saveOptionsCloseSuccess', { success: res.success_count, fail: res.fail_count }), status: res.fail_count > 0 ? 'warning' : 'success', duration: 2000 })
+          }
+        } catch (e) {
+          toast({ title: t('configuration.saveOptionsCloseFailed'), description: e instanceof Error ? e.message : String(e), status: 'error' })
+          throw e
+        }
+      }
+    }
+    await doSaveConfig()
+  }
+
+  const doSaveConfig = async () => {
     if (!config) return
     setSaving(true)
     setError(null)
     setSuccess(null)
     try {
       const result = await updateConfig(config)
-      // 追踪配置保存事件
       trackConfigSaved(isGlobalView ? 'global' : 'symbol')
       setSuccess(result.message)
       onPreviewClose()
-      
-      // Check if trading params were hot-updated
       const hotUpdated = (result as any).hot_updated as string[] | undefined
       if (hotUpdated && hotUpdated.length > 0) {
         setHotUpdatedSymbols(hotUpdated)
-        toast({ 
-          title: t('configuration.saveSuccess'), 
-          description: t('configuration.priceRangeHotUpdateSuccess'),
-          status: 'success',
-          duration: 5000,
-          isClosable: true
-        })
+        toast({ title: t('configuration.saveSuccess'), description: t('configuration.priceRangeHotUpdateSuccess'), status: 'success', duration: 5000, isClosable: true })
       } else {
-        toast({ 
-          title: t('configuration.saveSuccess'), 
-          status: 'success',
-          duration: 3000,
-          isClosable: true
-        })
+        toast({ title: t('configuration.saveSuccess'), status: 'success', duration: 3000, isClosable: true })
       }
       await loadConfig()
-      // Refresh price range after config save
-      if (selectedExchange && selectedSymbol) {
-        setTimeout(fetchPriceRange, 500)
-      }
+      if (selectedExchange && selectedSymbol) setTimeout(fetchPriceRange, 500)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : t('configuration.saveFailed')
       setError(errorMessage)
-      toast({ 
-        title: t('configuration.saveFailed'), 
-        description: errorMessage,
-        status: 'error',
-        duration: 5000,
-        isClosable: true
-      })
+      toast({ title: t('configuration.saveFailed'), description: errorMessage, status: 'error', duration: 5000, isClosable: true })
       console.error('保存配置失败:', err)
     } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!config) return
+    const targets = getSaveTargets()
+    if (targets.length > 0) {
+      onPreviewClose()
+      setSaveOptionsOpen(true)
+    } else {
+      await doSaveConfig()
+    }
+  }
+
+  const handleSaveOptionsConfirm = async (options: { cancelOrders: boolean; closePositions: boolean }) => {
+    if (!config) return
+    setSaving(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      await performSaveWithOptions(options)
+      setSaveOptionsOpen(false)
+    } catch (err) {
       setSaving(false)
     }
   }
@@ -2764,6 +2815,15 @@ const Configuration: React.FC = () => {
           confirmText={t('common.confirm')}
           confirmColorScheme="orange"
           isLoading={directionConfirm.loading}
+        />
+
+        {/* 保存前操作选项 */}
+        <ConfigSaveOptionsModal
+          isOpen={saveOptionsOpen}
+          onClose={() => setSaveOptionsOpen(false)}
+          onConfirm={handleSaveOptionsConfirm}
+          targets={getSaveTargets()}
+          isLoading={saving}
         />
 
         {/* YAML Diff Preview Modal */}
