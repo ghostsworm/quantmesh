@@ -24,19 +24,21 @@ show_help() {
     echo ""
     echo "选项:"
     echo "  -f, --force    强制重新编译前后端（忽略时间戳检查）"
+    echo "  -a, --api-only 仅构建并启动 API 后端，不编译前端（前端由 Vite 单独服务时使用）"
     echo "  -h, --help     显示此帮助信息"
     echo ""
     echo "示例:"
     echo "  $0                    # 使用默认配置文件 config.yaml"
     echo "  $0 config.yaml        # 使用指定配置文件"
     echo "  $0 -f                 # 强制重新编译"
-    echo "  $0 config.yaml -f     # 使用指定配置文件并强制重新编译"
+    echo "  $0 --api-only         # 仅重启 API，不碰前端"
     echo ""
     exit 0
 }
 
 # 解析参数
 FORCE_BUILD=false
+API_ONLY=false
 CONFIG_FILE=""
 
 for arg in "$@"; do
@@ -46,6 +48,9 @@ for arg in "$@"; do
             ;;
         -f|--force)
             FORCE_BUILD=true
+            ;;
+        -a|--api-only)
+            API_ONLY=true
             ;;
         -*)
             log_error "未知选项: $arg"
@@ -295,7 +300,7 @@ check_and_build() {
         need_build=true
         log_info "二进制文件不存在，需要构建"
     else
-        # 检查 Go 源码或前端是否有更新
+        # 检查 Go 源码是否有更新（api-only 模式下不检查前端）
         local go_files_newer=false
         local frontend_newer=false
         
@@ -304,18 +309,18 @@ check_and_build() {
             go_files_newer=true
         fi
         
-        # 检查前端 dist 是否比二进制新（检查 webui/dist 和 web/dist）
-        if [ -d "${SCRIPT_DIR}/webui/dist" ] && [ "${SCRIPT_DIR}/webui/dist" -nt "${SCRIPT_DIR}/${BINARY_NAME}" ] 2>/dev/null; then
-            frontend_newer=true
-        fi
-        if [ -d "${SCRIPT_DIR}/web/dist" ] && [ "${SCRIPT_DIR}/web/dist" -nt "${SCRIPT_DIR}/${BINARY_NAME}" ] 2>/dev/null; then
-            frontend_newer=true
-        fi
-        
-        # 检查前端源码是否比二进制新
-        if [ -d "${SCRIPT_DIR}/webui/src" ]; then
-            if find "${SCRIPT_DIR}/webui/src" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.jsx" -o -name "*.js" -o -name "*.css" \) -newer "${SCRIPT_DIR}/${BINARY_NAME}" 2>/dev/null | grep -q .; then
+        # 非 api-only 模式下才检查前端更新
+        if [ "$API_ONLY" != true ]; then
+            if [ -d "${SCRIPT_DIR}/webui/dist" ] && [ "${SCRIPT_DIR}/webui/dist" -nt "${SCRIPT_DIR}/${BINARY_NAME}" ] 2>/dev/null; then
                 frontend_newer=true
+            fi
+            if [ -d "${SCRIPT_DIR}/web/dist" ] && [ "${SCRIPT_DIR}/web/dist" -nt "${SCRIPT_DIR}/${BINARY_NAME}" ] 2>/dev/null; then
+                frontend_newer=true
+            fi
+            if [ -d "${SCRIPT_DIR}/webui/src" ]; then
+                if find "${SCRIPT_DIR}/webui/src" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.jsx" -o -name "*.js" -o -name "*.css" \) -newer "${SCRIPT_DIR}/${BINARY_NAME}" 2>/dev/null | grep -q .; then
+                    frontend_newer=true
+                fi
             fi
         fi
         
@@ -331,17 +336,25 @@ check_and_build() {
     fi
     
     if [ "$need_build" = true ]; then
-        # 先构建前端
-        build_frontend
-        if [ $? -ne 0 ]; then
-            log_error "前端构建失败，无法继续"
-            exit 1
+        # api-only 模式：不构建前端，仅确保 web/dist 存在（go:embed 需要）
+        if [ "$API_ONLY" = true ]; then
+            if [ ! -d "${SCRIPT_DIR}/web/dist" ] || [ -z "$(ls -A ${SCRIPT_DIR}/web/dist 2>/dev/null)" ]; then
+                log_warn "web/dist 为空，创建占位文件（前端由 Vite 服务时无需构建）"
+                mkdir -p "${SCRIPT_DIR}/web/dist"
+                echo "# Placeholder for go:embed" > "${SCRIPT_DIR}/web/dist/.gitkeep"
+            fi
+        else
+            # 先构建前端
+            build_frontend
+            if [ $? -ne 0 ]; then
+                log_error "前端构建失败，无法继续"
+                exit 1
+            fi
         fi
         
-        # 再构建后端
+        # 构建后端
         log_info "构建后端..."
         cd "${SCRIPT_DIR}"
-        # 只编译主程序文件，排除测试和回测文件
         go build -o "${BINARY_NAME}" -tags="!test" main.go symbol_manager.go 2>/dev/null || \
         go build -o "${BINARY_NAME}" $(find . -maxdepth 1 -name "*.go" ! -name "*_test.go" ! -name "test_*.go" ! -name "run_*.go" ! -name "analyze_*.go" | tr '\n' ' ')
         if [ $? -ne 0 ]; then
