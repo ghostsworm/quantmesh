@@ -1664,6 +1664,8 @@
     "button": "Newbie Risk Check"
   },
   "statistics": {
+    "modeGlobal": "Globalna statystyka zwrotów",
+    "modeSingleBot": "Statystyka zwrotów bota: {{symbol}}",
     "title": "Trading Statistics",
     "loading": "Loading...",
     "error": "Error",
@@ -1717,7 +1719,10 @@
     "grossPnL": "Gross P&L",
     "totalFee": "Total Fee",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L giełdy",
+    "exchangePnlShort": "Giełda",
+    "exchangePnlTooltip": "Zrealizowany P&L obliczony przez giełdę metodą średniego kosztu ważonego, różni się od strategii siatkowej"
   },
   "riskMonitor": {
     "title": "Risk Monitor",

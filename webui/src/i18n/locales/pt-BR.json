@@ -1488,6 +1488,8 @@
     "button": "Verificação de Risco para Iniciantes"
   },
   "statistics": {
+    "modeGlobal": "Estatísticas de retorno global",
+    "modeSingleBot": "Estatísticas de retorno do bot: {{symbol}}",
     "title": "Estatísticas de Negociação",
     "loading": "Carregando...",
     "error": "Erro",
@@ -1541,7 +1543,10 @@
     "grossPnL": "P&L bruto",
     "totalFee": "Taxa total",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L da exchange",
+    "exchangePnlShort": "Exch.",
+    "exchangePnlTooltip": "P&L realizado calculado pela exchange pelo método do custo médio ponderado, difere da estratégia grid"
   },
   "riskMonitor": {
     "title": "Monitor de Risco",

@@ -1648,6 +1648,8 @@
     "button": "Newbie Risk Check"
   },
   "statistics": {
+    "modeGlobal": "전역 수익 통계",
+    "modeSingleBot": "봇 수익 통계: {{symbol}}",
     "title": "거래 통계",
     "loading": "로드 중...",
     "error": "오류",

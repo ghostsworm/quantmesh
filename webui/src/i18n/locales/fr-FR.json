@@ -1643,6 +1643,8 @@
     "button": "Vérification des risques pour débutants"
   },
   "statistics": {
+    "modeGlobal": "Statistiques de rendement global",
+    "modeSingleBot": "Statistiques de rendement du bot: {{symbol}}",
     "title": "Statistiques de trading",
     "loading": "Chargement...",
     "error": "Erreur",
@@ -1696,7 +1698,10 @@
     "grossPnL": "P&L brut",
     "totalFee": "Frais totaux",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L de l'exchange",
+    "exchangePnlShort": "Exch.",
+    "exchangePnlTooltip": "P&L réalisé calculé par l'exchange selon la méthode du coût moyen pondéré, diffère de la stratégie grid"
   },
   "riskMonitor": {
     "title": "Moniteur de risque",

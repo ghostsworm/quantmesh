@@ -1488,6 +1488,8 @@
     "button": "Acemi Risk Kontrolü"
   },
   "statistics": {
+    "modeGlobal": "Globale getiri istatistikleri",
+    "modeSingleBot": "Bot getiri istatistikleri: {{symbol}}",
     "title": "Alım Satım İstatistikleri",
     "loading": "Yükleniyor...",
     "error": "Hata",
@@ -1541,7 +1543,10 @@
     "grossPnL": "Brüt K&Z",
     "totalFee": "Toplam Ücret",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "Borsa K&Z",
+    "exchangePnlShort": "Borsa",
+    "exchangePnlTooltip": "Borsa tarafından ağırlıklı ortalama maliyet yöntemiyle hesaplanan gerçekleşen K&Z, ızgara stratejisinden farklıdır"
   },
   "riskMonitor": {
     "title": "Risk İzleme",

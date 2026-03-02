@@ -1488,6 +1488,8 @@
     "button": "नौसिखिया जोखिम जांच"
   },
   "statistics": {
+    "modeGlobal": "वैश्विक रिटर्न सांख्यिकी",
+    "modeSingleBot": "बॉट रिटर्न सांख्यिकी: {{symbol}}",
     "title": "ट्रेडिंग सांख्यिकी",
     "loading": "लोड हो रहा है...",
     "error": "त्रुटि",
@@ -1541,7 +1543,10 @@
     "grossPnL": "सकल लाभ/हानि",
     "totalFee": "कुल शुल्क",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "एक्सचेंज P&L",
+    "exchangePnlShort": "एक्सचेंज",
+    "exchangePnlTooltip": "Realized P&L calculated by exchange using weighted average cost method, differs from grid strategy"
   },
   "riskMonitor": {
     "title": "जोखिम मॉनिटर",

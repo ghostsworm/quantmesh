@@ -1488,6 +1488,8 @@
     "button": "Проверка рисков для новичков"
   },
   "statistics": {
+    "modeGlobal": "Глобальная статистика доходности",
+    "modeSingleBot": "Статистика доходности бота: {{symbol}}",
     "title": "Торговая статистика",
     "loading": "Загрузка...",
     "error": "Ошибка",
@@ -1541,7 +1543,10 @@
     "grossPnL": "Валовая прибыль/убыток",
     "totalFee": "Общая комиссия",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L биржи",
+    "exchangePnlShort": "Биржа",
+    "exchangePnlTooltip": "Реализованный P&L, рассчитанный биржей по методу средневзвешенной стоимости, отличается от сеточной стратегии"
   },
   "riskMonitor": {
     "title": "Монитор рисков",

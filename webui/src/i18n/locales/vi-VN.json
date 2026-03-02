@@ -1488,6 +1488,8 @@
     "button": "Kiểm tra rủi ro cho người mới"
   },
   "statistics": {
+    "modeGlobal": "Thống kê lợi nhuận toàn cầu",
+    "modeSingleBot": "Thống kê lợi nhuận bot: {{symbol}}",
     "title": "Thống kê giao dịch",
     "loading": "Đang tải...",
     "error": "Lỗi",
@@ -1541,7 +1543,10 @@
     "grossPnL": "Lợi nhuận gộp",
     "totalFee": "Tổng phí",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L sàn",
+    "exchangePnlShort": "Sàn",
+    "exchangePnlTooltip": "P&L đã thực hiện do sàn tính theo phương pháp chi phí bình quân gia quyền, khác với chiến lược grid"
   },
   "riskMonitor": {
     "title": "Giám sát rủi ro",
