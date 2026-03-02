@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# QuantMesh 仅重启后端脚本
-# 只停止并重启 Go 后端，不涉及前端
+# QuantMesh 仅重启 API 后端脚本
+# 只停止并重启 Go API 服务，不编译前端（前端由 Vite 单独服务）
 #
 # 使用方法：
-#   ./restart_backend.sh [config.yaml]   # 生产模式重启后端
-#   ./restart_backend.sh --dev           # 开发模式重启后端（仅重启 go run，Vite 保持运行）
+#   ./restart_api.sh [config.yaml]   # 生产模式重启 API
+#   ./restart_api.sh --dev           # 开发模式（go run，Vite 保持运行）
 
 set -e
 
@@ -32,7 +32,7 @@ show_help() {
     echo "  -h, --help   显示帮助"
     echo ""
     echo "示例:"
-    echo "  $0              # 生产模式，使用 config.yaml"
+    echo "  $0              # 生产模式，使用 config.yaml，仅重启 API（不编译前端）"
     echo "  $0 config.yaml  # 生产模式，指定配置"
     echo "  $0 --dev        # 开发模式"
     exit 0
@@ -99,7 +99,7 @@ stop_backend() {
 }
 
 log_info "=========================================="
-log_info "重启 QuantMesh 后端"
+log_info "重启 QuantMesh API 后端"
 log_info "=========================================="
 
 stop_backend
@@ -118,6 +118,6 @@ if [ "$DEV_MODE" = true ]; then
         exit 1
     fi
 else
-    log_info "启动生产模式后端..."
-    exec "${SCRIPT_DIR}/start.sh" "${CONFIG_FILE}"
+    log_info "启动生产模式 API（不编译前端）..."
+    exec "${SCRIPT_DIR}/start.sh" --api-only "${CONFIG_FILE}"
 fi
