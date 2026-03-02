@@ -1643,6 +1643,8 @@
     "button": "Newbie Risiko Check"
   },
   "statistics": {
+    "modeGlobal": "Globale Ertragsstatistik",
+    "modeSingleBot": "Bot-Ertragsstatistik: {{symbol}}",
     "title": "Handelsstatistik",
     "loading": "Wird geladen...",
     "error": "Fehler",
@@ -1696,7 +1698,10 @@
     "grossPnL": "Brutto-G&V",
     "totalFee": "Gesamtgebühr",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "Börsen-G&V",
+    "exchangePnlShort": "Börse",
+    "exchangePnlTooltip": "Realisiertes G&V nach gewichtetem Durchschnittskostenverfahren der Börse, abweichend von der Grid-Strategie"
   },
   "riskMonitor": {
     "title": "Risikoüberwachung",

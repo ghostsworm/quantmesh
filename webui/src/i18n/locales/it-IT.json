@@ -1488,6 +1488,8 @@
     "button": "Controllo rischio principiante"
   },
   "statistics": {
+    "modeGlobal": "Statistiche di rendimento globale",
+    "modeSingleBot": "Statistiche di rendimento bot: {{symbol}}",
     "title": "Statistiche di Trading",
     "loading": "Caricamento...",
     "error": "Errore",
@@ -1541,7 +1543,10 @@
     "grossPnL": "P&L lordo",
     "totalFee": "Commissione totale",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L Exchange",
+    "exchangePnlShort": "Exch.",
+    "exchangePnlTooltip": "P&L realizzato calcolato dall'exchange con metodo del costo medio ponderato, diverso dalla strategia grid"
   },
   "riskMonitor": {
     "title": "Monitoraggio del Rischio",

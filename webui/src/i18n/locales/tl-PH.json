@@ -1664,6 +1664,8 @@
     "button": "Newbie Risk Check"
   },
   "statistics": {
+    "modeGlobal": "Global na return statistics",
+    "modeSingleBot": "Bot return statistics: {{symbol}}",
     "title": "Trading Statistics",
     "loading": "Loading...",
     "error": "Error",
@@ -1717,7 +1719,10 @@
     "grossPnL": "Gross P&L",
     "totalFee": "Total Fee",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "Exchange P&L",
+    "exchangePnlShort": "Exch.",
+    "exchangePnlTooltip": "Realized P&L calculated by exchange using weighted average cost method, differs from grid strategy"
   },
   "riskMonitor": {
     "title": "Risk Monitor",

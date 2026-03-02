@@ -274,7 +274,7 @@ const BotDetail: React.FC = () => {
                 <Card>
                   <CardBody>
                     <Stat>
-                      <StatLabel>{t('statistics.totalPnl')}</StatLabel>
+                      <StatLabel>{t('statistics.totalPnL')}</StatLabel>
                       <StatNumber color={(statistics?.total_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
                         {(statistics?.total_pnl ?? 0) >= 0 ? '+' : ''}{(statistics?.total_pnl ?? 0).toFixed(2)}
                       </StatNumber>

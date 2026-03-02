@@ -1488,6 +1488,8 @@
     "button": "Pemeriksaan Risiko Pemula"
   },
   "statistics": {
+    "modeGlobal": "Statistik pengembalian global",
+    "modeSingleBot": "Statistik pengembalian bot: {{symbol}}",
     "title": "Statistik Perdagangan",
     "loading": "Memuat...",
     "error": "Kesalahan",
@@ -1541,7 +1543,10 @@
     "grossPnL": "P&L kotor",
     "totalFee": "Total biaya",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L Exchange",
+    "exchangePnlShort": "Exch.",
+    "exchangePnlTooltip": "Realized P&L calculated by exchange using weighted average cost method, differs from grid strategy"
   },
   "riskMonitor": {
     "title": "Monitor Risiko",

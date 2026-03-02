@@ -1690,6 +1690,8 @@
     "button": "Newbie Risk Check"
   },
   "statistics": {
+    "modeGlobal": "グローバル収益統計",
+    "modeSingleBot": "ボット収益統計: {{symbol}}",
     "title": "Trading Statistics",
     "loading": "Loading...",
     "error": "Error",

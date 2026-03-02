@@ -2,6 +2,12 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.56.2-rc2] - 2026-03-02
+
+### Fixed
+- **statistics.totalPnL 未翻译**：BotDetail 中 `t('statistics.totalPnl')` 改为 `t('statistics.totalPnL')`，与 locale 键一致
+- **statistics 多语言补全**：21 个 locale 补全 `modeGlobal`、`modeSingleBot`、`exchangePnl`、`exchangePnlShort`、`exchangePnlTooltip` 等缺失键
+
 ## [3.56.2-rc1] - 2026-03-02
 
 ### Changed

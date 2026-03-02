@@ -1488,6 +1488,8 @@
     "button": "Nieuwe Risicocontrole voor beginners"
   },
   "statistics": {
+    "modeGlobal": "Globale rendementsstatistieken",
+    "modeSingleBot": "Bot rendementsstatistieken: {{symbol}}",
     "title": "Handelsstatistieken",
     "loading": "Laden...",
     "error": "Fout",
@@ -1541,7 +1543,10 @@
     "grossPnL": "Bruto W&V",
     "totalFee": "Totale vergoeding",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "Beurs P&L",
+    "exchangePnlShort": "Beurs",
+    "exchangePnlTooltip": "Gerealiseerde P&L berekend door beurs met gewogen gemiddelde kostprijsmethode, verschilt van gridstrategie"
   },
   "riskMonitor": {
     "title": "Risicomonitor",

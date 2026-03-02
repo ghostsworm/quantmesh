@@ -1488,6 +1488,8 @@
     "button": "فحص المخاطر للمبتدئين"
   },
   "statistics": {
+    "modeGlobal": "إحصائيات الأرباح العالمية",
+    "modeSingleBot": "إحصائيات أرباح البوت: {{symbol}}",
     "title": "إحصائيات التداول",
     "loading": "جارٍ التحميل...",
     "error": "خطأ",
@@ -1541,7 +1543,10 @@
     "grossPnL": "إجمالي الأرباح/الخسائر",
     "totalFee": "إجمالي الرسوم",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "أرباح وخسائر البورصة",
+    "exchangePnlShort": "البورصة",
+    "exchangePnlTooltip": "الأرباح المحققة حسب طريقة التكلفة المتوسطة المرجحة للبورصة، تختلف عن استراتيجية الشبكة"
   },
   "riskMonitor": {
     "title": "مراقب المخاطر",

@@ -1643,6 +1643,8 @@
     "button": "Comprobación de riesgo para novatos"
   },
   "statistics": {
+    "modeGlobal": "Estadísticas de rendimiento global",
+    "modeSingleBot": "Estadísticas de rendimiento del bot: {{symbol}}",
     "title": "Estadísticas de Trading",
     "loading": "Cargando...",
     "error": "Error",
@@ -1696,7 +1698,10 @@
     "grossPnL": "P&L bruto",
     "totalFee": "Comisión total",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L del exchange",
+    "exchangePnlShort": "Exch.",
+    "exchangePnlTooltip": "P&L realizado calculado por el exchange con método de costo promedio ponderado, difiere de la estrategia grid"
   },
   "riskMonitor": {
     "title": "Monitor de Riesgo",

@@ -1664,6 +1664,8 @@
     "button": "Newbie Risk Check"
   },
   "statistics": {
+    "modeGlobal": "Глобальна статистика доходності",
+    "modeSingleBot": "Статистика доходності бота: {{symbol}}",
     "title": "Trading Statistics",
     "loading": "Loading...",
     "error": "Error",
@@ -1717,7 +1719,10 @@
     "grossPnL": "Gross P&L",
     "totalFee": "Total Fee",
     "fundingFee": "Funding Fee",
-    "fundingFeeShort": "Fund"
+    "fundingFeeShort": "Fund",
+    "exchangePnl": "P&L біржі",
+    "exchangePnlShort": "Біржа",
+    "exchangePnlTooltip": "Реалізований P&L, розрахований біржею за методом середньозваженої cost, відрізняється від сіткової стратегії"
   },
   "riskMonitor": {
     "title": "Risk Monitor",
