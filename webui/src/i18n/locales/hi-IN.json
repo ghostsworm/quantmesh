@@ -279,7 +279,7 @@
     "openingPaused": "खोलना रुका",
     "totalPnL": "कुल पी एंड एल",
     "exchangeOverview": "एक्सचेंज अवलोकन",
-    "addSymbol": "प्रतीक जोड़ें",
+    "addSymbol": "बॉट जोड़ें",
     "openingPausedAlert": "{{count}} प्रतीक(ओं) की ओपनिंग रुकी हुई है",
     "openingPausedAlertDesc": "कुछ प्रतीकों की ओपनिंग रुकी हुई है। इन प्रतीकों के लिए कोई नया खरीद ऑर्डर नहीं बनाया जाएगा।",
     "unknownError": "अज्ञात त्रुटि",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Rate Trend (by Exchange + Trading Pair)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

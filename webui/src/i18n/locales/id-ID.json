@@ -279,7 +279,7 @@
     "openingPaused": "Pembukaan dijeda",
     "totalPnL": "Total P&L",
     "exchangeOverview": "Ikhtisar Bursa",
-    "addSymbol": "Tambah Simbol",
+    "addSymbol": "Tambah Bot",
     "openingPausedAlert": "{{count}} simbol memiliki pembukaan yang dijeda",
     "openingPausedAlertDesc": "Beberapa simbol memiliki pembukaan yang dijeda. Tidak ada pesanan beli baru yang akan dibuat untuk simbol-simbol ini.",
     "unknownError": "Kesalahan Tidak Diketahui",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Tren Tingkat (per bursa + pasangan)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

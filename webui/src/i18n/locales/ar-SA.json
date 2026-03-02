@@ -279,7 +279,7 @@
     "openingPaused": "الفتح متوقف",
     "totalPnL": "إجمالي الربح والخسارة",
     "exchangeOverview": "نظرة عامة على البورصة",
-    "addSymbol": "إضافة رمز",
+    "addSymbol": "إضافة بوت",
     "openingPausedAlert": "{{count}} رمز(رموز) تم إيقاف فتح صفقاتها مؤقتًا",
     "openingPausedAlertDesc": "بعض الرموز تم إيقاف فتح صفقاتها مؤقتًا. لن يتم إنشاء أوامر شراء جديدة لهذه الرموز.",
     "unknownError": "خطأ غير معروف",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Rate Trend (by Exchange + Trading Pair)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

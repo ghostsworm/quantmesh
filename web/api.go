@@ -4750,6 +4750,7 @@ func getFundingRate(c *gin.Context) {
 // GET /api/funding/history
 // 查詢参數：
 //   - symbol: 交易對（可選）
+//   - exchange: 交易所（可選，不傳則返回所有交易所）
 //   - limit: 返回數量（預設 100）
 func getFundingRateHistory(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
@@ -4766,6 +4767,7 @@ func getFundingRateHistory(c *gin.Context) {
 
 	// 解析查詢参數
 	symbol := c.Query("symbol")
+	exchangeParam := c.Query("exchange")
 	limitStr := c.DefaultQuery("limit", "100")
 	limit := 100
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
@@ -4775,9 +4777,13 @@ func getFundingRateHistory(c *gin.Context) {
 		}
 	}
 
-	// 獲取交易所名称
+	// 交易所：exchange=all 表示所有交易所，不傳則用當前連接的交易所
 	exchangeName := ""
-	if currentStatus != nil {
+	if exchangeParam == "all" {
+		exchangeName = ""
+	} else if exchangeParam != "" {
+		exchangeName = exchangeParam
+	} else if currentStatus != nil {
 		exchangeName = currentStatus.Exchange
 	}
 

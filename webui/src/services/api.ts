@@ -1699,11 +1699,14 @@ export interface FundingRateHistoryResponse {
   history: FundingRateHistoryItem[]
 }
 
-export async function getFundingRateHistory(symbol?: string, limit: number = 100): Promise<FundingRateHistoryResponse> {
+export async function getFundingRateHistory(
+  symbol?: string,
+  limit: number = 100,
+  exchange?: string
+): Promise<FundingRateHistoryResponse> {
   const queryParams = new URLSearchParams()
-  if (symbol) {
-    queryParams.append('symbol', symbol)
-  }
+  if (symbol) queryParams.append('symbol', symbol)
+  if (exchange) queryParams.append('exchange', exchange)
   queryParams.append('limit', limit.toString())
   return fetchWithAuth(`${API_BASE_URL}/funding/history?${queryParams.toString()}`)
 }

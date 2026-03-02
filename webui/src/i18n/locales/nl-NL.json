@@ -279,7 +279,7 @@
     "openingPaused": "Openen gepauzeerd",
     "totalPnL": "Totale W&V",
     "exchangeOverview": "Beursoverzicht",
-    "addSymbol": "Symbool Toevoegen",
+    "addSymbol": "Bot toevoegen",
     "openingPausedAlert": "{{count}} symbo(o)l(en) hebben opening gepauzeerd",
     "openingPausedAlertDesc": "Sommige symbolen hebben opening gepauzeerd. Er worden geen nieuwe kooporders aangemaakt voor deze symbolen.",
     "unknownError": "Onbekende Fout",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Koersverloop (per exchange + paar)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

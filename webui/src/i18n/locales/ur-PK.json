@@ -455,7 +455,7 @@
     "openingPaused": "کھولنا روک دیا گیا",
     "totalPnL": "Total P&L",
     "exchangeOverview": "Exchange Overview",
-    "addSymbol": "علامت شامل کریں",
+    "addSymbol": "بوٹ شامل کریں",
     "openingPausedAlert": "{{count}} علامت(وں) کی اوپننگ روکی گئی ہے",
     "openingPausedAlertDesc": "کچھ علامتوں کی اوپننگ روکی گئی ہے۔ ان علامتوں کے لیے کوئی نیا خرید آرڈر نہیں بنایا جائے گا۔",
     "unknownError": "نامعلوم خرابی",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Rate Trend (by Exchange + Trading Pair)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

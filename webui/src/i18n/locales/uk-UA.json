@@ -455,7 +455,7 @@
     "openingPaused": "Відкриття призупинено",
     "totalPnL": "Total P&L",
     "exchangeOverview": "Exchange Overview",
-    "addSymbol": "Додати символ",
+    "addSymbol": "Додати бота",
     "openingPausedAlert": "{{count}} символ(ів) мають призупинене відкриття",
     "openingPausedAlertDesc": "Деякі символи мають призупинене відкриття. Для цих символів не будуть створені нові ордери на купівлю.",
     "unknownError": "Невідома помилка",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Тренд ставок (за біржею + парою)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

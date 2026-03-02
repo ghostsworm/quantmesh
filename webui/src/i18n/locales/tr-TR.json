@@ -279,7 +279,7 @@
     "openingPaused": "Açılış duraklatıldı",
     "totalPnL": "Toplam K&Z",
     "exchangeOverview": "Borsa Genel Bakışı",
-    "addSymbol": "Sembol Ekle",
+    "addSymbol": "Bot Ekle",
     "openingPausedAlert": "{{count}} sembolde açılış duraklatıldı",
     "openingPausedAlertDesc": "Bazı sembollerde açılış duraklatıldı. Bu semboller için yeni alım emirleri oluşturulmayacak.",
     "unknownError": "Bilinmeyen Hata",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Oran Trendi (borsa + çift bazında)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

@@ -279,7 +279,7 @@
     "openingPaused": "Abertura pausada",
     "totalPnL": "P&L Total",
     "exchangeOverview": "Visão Geral da Exchange",
-    "addSymbol": "Adicionar Símbolo",
+    "addSymbol": "Adicionar Bot",
     "openingPausedAlert": "{{count}} símbolo(s) têm a abertura pausada",
     "openingPausedAlertDesc": "Alguns símbolos têm a abertura pausada. Nenhuma nova ordem de compra será criada para esses símbolos.",
     "unknownError": "Erro Desconhecido",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Tendência de taxas (por exchange + par)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

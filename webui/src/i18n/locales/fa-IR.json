@@ -455,7 +455,7 @@
     "openingPaused": "باز کردن متوقف",
     "totalPnL": "کل سود و زیان",
     "exchangeOverview": "نمای کلی صرافی",
-    "addSymbol": "افزودن نماد",
+    "addSymbol": "افزودن ربات",
     "openingPausedAlert": "{{count}} نماد باز کردن معامله متوقف شده",
     "openingPausedAlertDesc": "برخی نمادها باز کردن معامله‌شان متوقف شده است. سفارش خرید جدیدی برای این نمادها ایجاد نخواهد شد.",
     "unknownError": "خطای ناشناخته",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Rate Trend (by Exchange + Trading Pair)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",

@@ -455,7 +455,7 @@
     "openingPaused": "Opening Paused",
     "totalPnL": "Total P&L",
     "exchangeOverview": "Exchange Overview",
-    "addSymbol": "Magdagdag ng Simbolo",
+    "addSymbol": "Magdagdag ng Bot",
     "openingPausedAlert": "{{count}} (mga) simbolo ang naka-pause ang pagbukas",
     "openingPausedAlertDesc": "May mga simbolo na naka-pause ang pagbukas. Walang bagong buy order ang gagawin para sa mga simbolong ito.",
     "unknownError": "Hindi kilalang Error",
@@ -2883,8 +2883,7 @@
   },
   "fundingRate": {
     "title": "Funding Rate",
-    "sumCurveTitle": "Funding Rate Sum Over Time (numeric sum, no %)",
-    "sumCurveYLabel": "Sum",
+    "chartTitle": "Rate Trend (by Exchange + Trading Pair)",
     "noChartData": "No chart data",
     "currentRates": "Current Rates",
     "historyRates": "History Rates",
