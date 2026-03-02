@@ -760,6 +760,58 @@ func updateConfigYAMLHandler(c *gin.Context) {
 	})
 }
 
+// mergeNotificationChannelConfig 当请求配置中某渠道的必填项为空时，从已保存配置补充
+func mergeNotificationChannelConfig(cfg, saved *config.Config, channel string) {
+	switch channel {
+	case "email":
+		if cfg.Notifications.Email.From == "" && saved.Notifications.Email.From != "" {
+			cfg.Notifications.Email.From = saved.Notifications.Email.From
+		}
+		if cfg.Notifications.Email.To == "" && saved.Notifications.Email.To != "" {
+			cfg.Notifications.Email.To = saved.Notifications.Email.To
+		}
+		if cfg.Notifications.Email.Provider == "" && saved.Notifications.Email.Provider != "" {
+			cfg.Notifications.Email.Provider = saved.Notifications.Email.Provider
+		}
+		if cfg.Notifications.Email.Resend.APIKey == "" && saved.Notifications.Email.Resend.APIKey != "" {
+			cfg.Notifications.Email.Resend.APIKey = saved.Notifications.Email.Resend.APIKey
+		}
+		if cfg.Notifications.Email.SMTP.Host == "" && saved.Notifications.Email.SMTP.Host != "" {
+			cfg.Notifications.Email.SMTP = saved.Notifications.Email.SMTP
+		}
+	case "feishu":
+		if cfg.Notifications.Feishu.Webhook == "" && saved.Notifications.Feishu.Webhook != "" {
+			cfg.Notifications.Feishu.Webhook = saved.Notifications.Feishu.Webhook
+		}
+	case "dingtalk":
+		if cfg.Notifications.DingTalk.Webhook == "" && saved.Notifications.DingTalk.Webhook != "" {
+			cfg.Notifications.DingTalk.Webhook = saved.Notifications.DingTalk.Webhook
+		}
+		if cfg.Notifications.DingTalk.Secret == "" && saved.Notifications.DingTalk.Secret != "" {
+			cfg.Notifications.DingTalk.Secret = saved.Notifications.DingTalk.Secret
+		}
+	case "wechat_work":
+		if cfg.Notifications.WeChatWork.Webhook == "" && saved.Notifications.WeChatWork.Webhook != "" {
+			cfg.Notifications.WeChatWork.Webhook = saved.Notifications.WeChatWork.Webhook
+		}
+	case "slack":
+		if cfg.Notifications.Slack.Webhook == "" && saved.Notifications.Slack.Webhook != "" {
+			cfg.Notifications.Slack.Webhook = saved.Notifications.Slack.Webhook
+		}
+	case "webhook":
+		if cfg.Notifications.Webhook.URL == "" && saved.Notifications.Webhook.URL != "" {
+			cfg.Notifications.Webhook.URL = saved.Notifications.Webhook.URL
+		}
+	case "telegram":
+		if cfg.Notifications.Telegram.BotToken == "" && saved.Notifications.Telegram.BotToken != "" {
+			cfg.Notifications.Telegram.BotToken = saved.Notifications.Telegram.BotToken
+		}
+		if cfg.Notifications.Telegram.ChatID == "" && saved.Notifications.Telegram.ChatID != "" {
+			cfg.Notifications.Telegram.ChatID = saved.Notifications.Telegram.ChatID
+		}
+	}
+}
+
 // testNotificationHandler 测试通知发送
 // POST /api/config/test-notification
 func testNotificationHandler(c *gin.Context) {
@@ -775,6 +827,36 @@ func testNotificationHandler(c *gin.Context) {
 	if channel == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "未指定测试渠道"})
 		return
+	}
+
+	// 若请求中的渠道配置不完整，尝试从已保存配置补充（前端可能发送了稀疏 config）
+	if configManager != nil {
+		if saved, err := configManager.GetConfig(); err == nil && saved != nil {
+			mergeNotificationChannelConfig(cfg, saved, strings.ToLower(channel))
+		}
+	}
+
+	// 测试时临时启用被测试渠道：前端可能未勾选 notifications.enabled 或各渠道的 enabled，
+	// 用户填好参数后直接点「测试连接」，应能测试成功
+	cfg.Notifications.Enabled = true
+	switch strings.ToLower(channel) {
+	case "email":
+		cfg.Notifications.Email.Enabled = true
+		if cfg.Notifications.Email.Provider == "" {
+			cfg.Notifications.Email.Provider = "smtp"
+		}
+	case "telegram":
+		cfg.Notifications.Telegram.Enabled = true
+	case "webhook":
+		cfg.Notifications.Webhook.Enabled = true
+	case "feishu":
+		cfg.Notifications.Feishu.Enabled = true
+	case "dingtalk":
+		cfg.Notifications.DingTalk.Enabled = true
+	case "wechat_work":
+		cfg.Notifications.WeChatWork.Enabled = true
+	case "slack":
+		cfg.Notifications.Slack.Enabled = true
 	}
 
 	// 创建通知服务（使用传入的配置）
@@ -802,7 +884,47 @@ func testNotificationHandler(c *gin.Context) {
 	}
 
 	if targetNotifier == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("渠道 %s 未启用或配置不完整", channel)})
+		// 返回更具体的错误提示，便于用户排查
+		var hint string
+		switch strings.ToLower(channel) {
+		case "email":
+			if cfg.Notifications.Email.From == "" || cfg.Notifications.Email.To == "" {
+				hint = "请填写发件人和收件人"
+			} else if cfg.Notifications.Email.Provider == "resend" && cfg.Notifications.Email.Resend.APIKey == "" {
+				hint = "请填写 Resend API Key"
+			} else if cfg.Notifications.Email.Provider == "smtp" && cfg.Notifications.Email.SMTP.Host == "" {
+				hint = "请填写 SMTP 配置"
+			}
+		case "feishu":
+			if cfg.Notifications.Feishu.Webhook == "" {
+				hint = "请填写飞书 Webhook URL"
+			}
+		case "dingtalk":
+			if cfg.Notifications.DingTalk.Webhook == "" {
+				hint = "请填写钉钉 Webhook URL"
+			}
+		case "wechat_work":
+			if cfg.Notifications.WeChatWork.Webhook == "" {
+				hint = "请填写企业微信 Webhook URL"
+			}
+		case "slack":
+			if cfg.Notifications.Slack.Webhook == "" {
+				hint = "请填写 Slack Webhook URL"
+			}
+		case "webhook":
+			if cfg.Notifications.Webhook.URL == "" {
+				hint = "请填写 Webhook URL"
+			}
+		case "telegram":
+			if cfg.Notifications.Telegram.BotToken == "" || cfg.Notifications.Telegram.ChatID == "" {
+				hint = "请填写 Telegram Bot Token 和 Chat ID"
+			}
+		}
+		if hint != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("渠道 %s 配置不完整: %s", channel, hint)})
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("渠道 %s 未启用或配置不完整", channel)})
+		}
 		return
 	}
 

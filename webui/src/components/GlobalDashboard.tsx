@@ -110,6 +110,7 @@ const GlobalDashboard: React.FC = () => {
     symbol: string
   } | null>(null)
   const [expandedIndices, setExpandedIndices] = useState<number[]>([])
+  const hasInitialExpandedRef = useRef(false)
   const [capitalOverview, setCapitalOverview] = useState<{ totalBalance: number; unrealizedPnL: number } | null>(null)
   const [capitalHistory, setCapitalHistory] = useState<Array<{ date: string; balance: number }>>([])
   const toast = useToast()
@@ -552,12 +553,13 @@ const GlobalDashboard: React.FC = () => {
     return m
   }, [symbols])
 
-  // 默认展开所有交易所
+  // 仅在首次加载数据时默认展开所有交易所，用户手动收起后不再自动展开
   useEffect(() => {
-    if (exchangeData.length > 0 && expandedIndices.length === 0) {
+    if (exchangeData.length > 0 && !hasInitialExpandedRef.current) {
+      hasInitialExpandedRef.current = true
       setExpandedIndices(exchangeData.map((_, index) => index))
     }
-  }, [exchangeData, expandedIndices.length])
+  }, [exchangeData])
 
   if (loading) {
     return (
