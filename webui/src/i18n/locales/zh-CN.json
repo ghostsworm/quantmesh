@@ -399,7 +399,8 @@
     "activePositions": "当前持仓",
     "recentActivity": "最近活动",
     "size": "规模",
-    "unrealizedPnL": "未实现盈亏",
+    "unrealizedPnL": "待实现盈亏",
+    "unrealizedPnLTooltip": "根据当前持仓和当前价格计算的未实现盈亏，平仓后转为已实现",
     "entryPrice": "开仓均价",
     "value": "价值",
     "noActivePositions": "暂无持仓",
@@ -1932,7 +1933,16 @@
     "fundingFeeShort": "资金费",
     "exchangePnl": "交易所盈亏",
     "exchangePnlShort": "交易所",
-    "exchangePnlTooltip": "交易所按加权平均成本法计算的已实现盈亏，与网格策略按买卖配对计算的方法不同"
+    "exchangePnlTooltip": "交易所按加权平均成本法计算的已实现盈亏，与网格策略按买卖配对计算的方法不同",
+    "unrealizedPnLTooltip": "根据当前持仓和当前价格计算的未实现盈亏，平仓后转为已实现",
+    "pnlDiagnosis": "盈亏诊断",
+    "pnlDiagnosisTitle": "网格 vs 交易所盈亏诊断",
+    "diagnosisGridPnL": "网格盈亏",
+    "diagnosisExchangePnL": "交易所盈亏",
+    "diagnosisDiscrepancy": "差异",
+    "diagnosisOrdersWithPnL": "有 realized_pnl 的订单数",
+    "diagnosisSellOrdersMissingPnL": "卖单缺少 PnL 数",
+    "diagnosisNoData": "暂无诊断数据"
   },
   "dailyBreakdown": {
     "title": "日盈亏拆解",

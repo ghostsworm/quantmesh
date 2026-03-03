@@ -21,7 +21,9 @@
     "connectionErrorDesc": "Unable to connect to server. Please check your network.",
     "unknownError": "Unknown Error",
     "loadFailed": "Load Failed",
-    "success": "Success"
+    "success": "Success",
+    "back": "Back",
+    "currencyUnit": "USDT"
   },
   "sidebar": {
     "botList": "Danh sách Bot",
@@ -68,12 +70,17 @@
     "groupMarketData": "Dữ liệu thị trường",
     "groupAI": "AI",
     "groupStrategyCapital": "Chiến lược & Vốn",
-    "servicesStatus": "Service Status"
+    "servicesStatus": "Service Status",
+    "backToBotList": "Back to Bot List",
+    "openingControl": "Opening Control",
+    "systemSettings": "System Settings"
   },
   "statusBar": {
     "globalView": "Tổng quan toàn cầu",
     "fundingRate": "Tỷ lệ tài trợ",
-    "fundingRateError": "Không thể tìm nạp tỷ lệ tài trợ"
+    "fundingRateError": "Không thể tìm nạp tỷ lệ tài trợ",
+    "backToBotList": "Back to Bot List",
+    "backToGlobal": "Back to Global"
   },
   "app": {
     "logoutError": "Đăng xuất không thành công"
@@ -219,7 +226,18 @@
     "totalDeviationDescNone": "No deviation",
     "totalDeviationLoss": "Total Deviation Net",
     "used": "Used",
-    "strategyVisualization": "Trực quan hóa chiến lược"
+    "strategyVisualization": "Trực quan hóa chiến lược",
+    "discrepancyReasons": {
+      "entry_price_diff": "Entry price diff: exchange={{exchange}}, slot avg={{slotAvg}}, diff={{diff}} ({{diffPct}}%)",
+      "pnl_diff_other": "PnL diff {{pnlDiff}} USDT, possible causes: fees/funding/slippage/price deviation",
+      "price_diff": "Price diff: mark={{markPrice}}, WS={{wsPrice}}, diff={{diff}} ({{diffPct}}%)",
+      "quantity_diff": "Quantity diff: exchange={{exchange}}, slot={{slot}}, diff={{diff}} ({{diffPct}}%)"
+    },
+    "exchangePnl": "Exchange P&L",
+    "exchangePnlTooltip": "Total realized P&L calculated by the exchange using weighted average cost method, differs from grid strategy",
+    "leverage": "Leverage",
+    "leverageTimes": "{{count}}x",
+    "unrealizedPnLTooltip": "Unrealized P&L based on current position and price; becomes realized when closed"
   },
   "login": {
     "title": "Đăng nhập",
@@ -304,7 +322,71 @@
     "stopTrading": "Dừng giao dịch",
     "positionExchange": "Exchange",
     "positionStrategy": "Strategy",
-    "positionSymbol": "Symbol"
+    "positionSymbol": "Symbol",
+    "closePositions": {
+      "autoRetry": "Auto retry as market on timeout",
+      "confirm": "Confirm Close",
+      "failed": "Close failed",
+      "limit": "Limit",
+      "market": "Market",
+      "method": "Close Method",
+      "priceOffset": "Limit Offset (%)",
+      "priceOffsetDesc": "Negative = more aggressive, positive = more conservative",
+      "recordCreated": "Record ID: {{id}}",
+      "success": "Close order sent",
+      "timeout": "Timeout (seconds)",
+      "title": "Close Positions"
+    },
+    "closeRecords": {
+      "actions": "Actions",
+      "failed": "Failed",
+      "filled": "Filled",
+      "method": "Method",
+      "pending": "Pending",
+      "quantity": "Quantity",
+      "retry": "Retry",
+      "side": "Side",
+      "status": "Status",
+      "time": "Time",
+      "timeout": "Timeout",
+      "title": "Close Records"
+    },
+    "direction": {
+      "both": "Both",
+      "label": "Trading Direction",
+      "long": "Long Only",
+      "short": "Short Only"
+    },
+    "slotManager": {
+      "action": "Action",
+      "addFailed": "Add failed",
+      "addRule": "Add Rule",
+      "disabled": "Disabled",
+      "enabled": "Enabled",
+      "exclude": "Exclude",
+      "filterRules": "Filter Rules",
+      "include": "Include",
+      "order": "Order",
+      "position": "Position",
+      "price": "Price",
+      "prices": "Prices",
+      "range": "Range",
+      "reason": "Reason",
+      "removeFailed": "Remove failed",
+      "ruleAdded": "Rule added",
+      "status": "Status",
+      "title": "Slot Manager",
+      "toggleFailed": "Toggle failed",
+      "type": "Type"
+    },
+    "smartOrder": {
+      "enabled": "Enable Smart Order",
+      "leadSlots": "Lead Slots",
+      "maxOpenOrders": "Max Open Orders",
+      "onlyCloseFilledSlots": "Only place close orders for filled slots",
+      "openOrderDistance": "Open Order Distance (intervals)",
+      "progressivePlacement": "Progressive Placement"
+    }
   },
   "configuration": {
     "title": "Cài đặt",
@@ -540,7 +622,59 @@
     "maxGridLayersHint": "No new positions above this layer count; 0 = no limit",
     "maxOpenOrdersAtCapHint": "Max open orders at cap; 0 = only pause new, do not cancel",
     "trendFilterEnabled": "Trend Filter",
-    "trendFilterEnabledHint": "When enabled, may pause buying in downtrends"
+    "trendFilterEnabledHint": "When enabled, may pause buying in downtrends",
+    "cooldownSeconds": "Switch Cooldown (seconds)",
+    "cooldownSecondsDesc": "Minimum interval between switches to avoid frequent switching, default 300 seconds",
+    "feeRateThreshold": "Fee Rate Threshold (%)",
+    "feeRateThresholdDesc": "Switch to positive rate profile when fee rate exceeds this value, switch to negative rate profile when below this value",
+    "fundingRateThreshold": "Funding Rate Threshold (%)",
+    "fundingRateThresholdDesc": "Switch to positive rate profile when funding rate exceeds this value, switch to negative rate profile when below negative value",
+    "maxGridLayers": "Max Position Alert Layers",
+    "maxGridLayersDesc": "Stop new open orders when position layers reach this value; use with \"Max Open Orders at Cap\" to auto-cancel excess orders",
+    "maxOpenOrdersAtCap": "Max Open Orders at Cap",
+    "maxOpenOrdersAtCapDesc": "When at max position alert, max allowed open orders; excess are auto-cancelled. Long: cancel high-price buys first; Short: cancel low-price sells first. 0 = only stop new orders, do not cancel",
+    "newsAnalysisAssets": "News Analysis Assets",
+    "newsAnalysisAssetsDesc": "Enabled assets are analyzed by AI on the configured interval; disabled assets can be triggered manually on the News Analysis page.",
+    "priceRangeAnchorPrice": "Anchor Price",
+    "priceRangeBuyRange": "Buy Range",
+    "priceRangeCurrentPrice": "Current Price",
+    "priceRangeDesc": "Auto-calculated buy/sell price range based on current price and parameters",
+    "priceRangeError": "Failed to get price range",
+    "priceRangeGridPrice": "Grid Price",
+    "priceRangeHotUpdateSuccess": "Parameters hot-updated to running trading instance",
+    "priceRangeHotUpdated": "Hot Updated",
+    "priceRangeLoading": "Calculating price range...",
+    "priceRangeNotRunning": "Symbol not running, cannot calculate live price range",
+    "priceRangeRefresh": "Refresh",
+    "priceRangeSellRange": "Sell Range",
+    "priceRangeSource": "Data Source",
+    "priceRangeSourceConfig": "Config File",
+    "priceRangeSourceRuntime": "Live Runtime",
+    "priceRangeTitle": "Live Price Range",
+    "profileNegative": "Negative Rate Profile",
+    "profilePositive": "Positive Rate Profile",
+    "profileSwitching": "Multi-Profile Auto Switching",
+    "profileSwitchingDesc": "Automatically switch configuration profiles based on funding rate and fee rate. When rates exceed thresholds, the system will automatically select the corresponding profile (e.g., positive/negative rate).",
+    "profileZeroMeansDefault": "Entering 0 in a profile means using the symbol's default value above.",
+    "profiles": "Configuration Profiles",
+    "saveOptionsCancelFailed": "Failed to cancel orders",
+    "saveOptionsCancelOrders": "Cancel pending orders",
+    "saveOptionsCancelOrdersDesc": "Cancel all unfilled buy/sell orders for this pair",
+    "saveOptionsCancelSuccess": "Cancelled {{count}} order(s)",
+    "saveOptionsCloseFailed": "Failed to close positions",
+    "saveOptionsClosePositions": "Close current positions",
+    "saveOptionsClosePositionsDesc": "Market-close all positions, then rebuild with new parameters",
+    "saveOptionsCloseSuccess": "Close complete: {{success}} success, {{fail}} failed",
+    "saveOptionsConfirm": "Save and Execute",
+    "saveOptionsDesc": "Optional actions for {{target}} before saving:",
+    "saveOptionsTargetsAll": "All {{count}} trading pairs",
+    "saveOptionsTitle": "Optional Actions Before Save",
+    "switchRules": "Switch Rules",
+    "testConnection": "Test Connection",
+    "testConnectionError": "Test connection error",
+    "testConnectionFailed": "Failed to send test notification",
+    "testConnectionSending": "Sending...",
+    "testConnectionSuccess": "Test notification sent successfully"
   },
   "configSetup": {
     "title": "Hướng dẫn cấu hình",
@@ -608,7 +742,9 @@
     "masterKeyPath": "Master Key File Path",
     "masterKeyPathDesc": "Master key file path, default ./data/master.key. Can be provided via QUANTMESH_MASTER_KEY environment variable.",
     "securitySettings": "Security Settings",
-    "securitySettingsDesc": "Encrypt API keys in configuration files using a server master key, automatically decrypting at runtime. This is an advanced feature for advanced users only."
+    "securitySettingsDesc": "Encrypt API keys in configuration files using a server master key, automatically decrypting at runtime. This is an advanced feature for advanced users only.",
+    "profitSpread": "Profit Spread (Close Price Gap)",
+    "profitSpreadHint": "Leave empty to use price interval"
   },
   "pnlChart": {
     "noData": "Không có dữ liệu, đang chờ dữ liệu giao dịch được tạo..."
@@ -647,7 +783,12 @@
     "profitTrend": "Profit Trend",
     "rawData": "Raw Data",
     "recordCount": "Records",
-    "timeDimension": "Time Dimension"
+    "timeDimension": "Time Dimension",
+    "cumulativeProfit": "Cumulative Profit Trend",
+    "dailyActualProfit": "Daily Actual Profit",
+    "dailyEstimatedProfit": "Daily Estimated Profit",
+    "dailyProfitChange": "Daily Profit Change",
+    "profitAmount": "Profit Amount"
   },
   "orders": {
     "title": "Quản lý đơn hàng",
@@ -725,7 +866,21 @@
     "time": "Time",
     "totalFee": "Total Fee",
     "totalFilledQty": "Total Filled",
-    "tradeDetail": "Trade Details"
+    "tradeDetail": "Trade Details",
+    "defaultTimeRange": "Default: Last 24 hours",
+    "endTime": "End Time",
+    "exchangePnl": "Exchange P&L",
+    "exchangePnlTooltip": "Realized P&L calculated by the exchange using weighted average cost method, differs from grid strategy's buy-sell pair matching method",
+    "gridPnl": "Grid P&L",
+    "orderSource": "Source",
+    "sourceLiquidation": "Liquidation",
+    "sourceNormal": "Normal",
+    "sourceStopLoss": "Stop Loss",
+    "startTime": "Start Time",
+    "timeRange": "Time Range",
+    "timeRangeInvalid": "End time must be later than start time",
+    "timeRangeMaxDays": "Time range cannot exceed 7 days",
+    "timeRangeRequired": "Time range is required for history orders"
   },
   "wizard": {
     "title": "Trình hướng dẫn thiết lập lần đầu",
@@ -948,7 +1103,23 @@
     "testnet": "Testnet",
     "testnetDesc": "Currently using testnet environment. Displayed assets are virtual test coins and no real trades will be made.",
     "testnetMode": "Testnet Mode",
-    "usingTestnet": "is using testnet."
+    "usingTestnet": "is using testnet.",
+    "backendError": "Backend error, check server logs",
+    "exchangeCount": "Exchanges",
+    "exchanges": "exchanges",
+    "noBots": "No running bots on this exchange",
+    "noExchanges": "No exchange data",
+    "offline": "Offline",
+    "orderPct": "Order %",
+    "orderValue": "Order Value",
+    "positionPct": "Position %",
+    "positionValue": "Position Value",
+    "refresh": "Refresh data",
+    "subtitleView": "View capital per exchange and per-bot usage breakdown",
+    "symbol": "Symbol",
+    "totalUsed": "Total Used",
+    "totalUsedPct": "Total %",
+    "viewBots": "View Bot list"
   },
   "profitManagement": {
     "title": "Quản lý lợi nhuận",
@@ -1044,7 +1215,8 @@
     "importedBothPresets": "Đã nhập cả hai mẫu",
     "importedBothPresetsDesc": "Đã nhập quy tắc bảo thủ và mạnh mẽ",
     "exchangeLabel": "Sàn giao dịch",
-    "selectExchange": "Chọn sàn giao dịch"
+    "selectExchange": "Chọn sàn giao dịch",
+    "exchangeProfit": "Exchange Profit"
   },
   "positionPlan": {
     "title": "Kế hoạch vị thế",
@@ -1546,7 +1718,16 @@
     "fundingFeeShort": "Fund",
     "exchangePnl": "P&L sàn",
     "exchangePnlShort": "Sàn",
-    "exchangePnlTooltip": "P&L đã thực hiện do sàn tính theo phương pháp chi phí bình quân gia quyền, khác với chiến lược grid"
+    "exchangePnlTooltip": "P&L đã thực hiện do sàn tính theo phương pháp chi phí bình quân gia quyền, khác với chiến lược grid",
+    "pnlDiagnosis": "Chẩn đoán P&L",
+    "pnlDiagnosisTitle": "Chẩn đoán Grid vs Sàn P&L",
+    "diagnosisGridPnL": "P&L Grid",
+    "diagnosisExchangePnL": "P&L Sàn",
+    "diagnosisDiscrepancy": "Chênh lệch",
+    "diagnosisOrdersWithPnL": "Lệnh có PnL đã thực hiện",
+    "diagnosisSellOrdersMissingPnL": "Lệnh bán thiếu PnL",
+    "diagnosisNoData": "Không có dữ liệu chẩn đoán",
+    "unrealizedPnLTooltip": "Unrealized P&L based on current position and price; becomes realized when closed"
   },
   "riskMonitor": {
     "title": "Giám sát rủi ro",
@@ -1686,7 +1867,24 @@
     "nextPage": "Next Page",
     "prevPage": "Previous Page",
     "price": "Price",
-    "recommendation": "Recommendation"
+    "recommendation": "Recommendation",
+    "btc": "BTC",
+    "crashProbTrend": "Crash Probability Trend",
+    "doge": "DOGE",
+    "eth": "ETH",
+    "goldInternational": "International Gold",
+    "last30d": "Last 30 Days",
+    "last7d": "Last 7 Days",
+    "last90d": "Last 90 Days",
+    "noAnalysisHint": "No analysis for this asset yet. Click \"Manual Trigger Analysis\" or enable scheduled analysis for this asset in News Monitor config.",
+    "noTrendData": "No historical trend data",
+    "riskTrend": "Risk Trend",
+    "silver": "Silver",
+    "sol": "SOL",
+    "tabAnalysis": "Latest Analysis",
+    "tabHistory": "History",
+    "tabPrediction": "Prediction Accuracy",
+    "usStock": "US Stocks"
   },
   "strategyNames": {
     "grid": "Chiến lược giao dịch lưới",
@@ -2039,7 +2237,40 @@
     "view": "View",
     "volatility7d": "7-Day Volatility",
     "winRate": "Win Rate",
-    "withRiskControl": "With Risk Control"
+    "withRiskControl": "With Risk Control",
+    "paramHints": {
+      "fee_rate": "e.g. 0.0004 means 0.04%",
+      "grid_count": "Max levels. With spacing set: at most N levels; without spacing: divide range into N levels",
+      "grid_spacing": "Price gap per level, e.g. 200 means 200 USDT per level. If empty, levels are evenly distributed by grid count",
+      "risk_average_window": "K-line count for average price/volume calculation",
+      "risk_volume_multiplier": "Volume multiplier over average to trigger risk control (smaller = more sensitive)"
+    },
+    "paramLabels": {
+      "amount_per_trade": "Amount Per Trade",
+      "base_amount": "Base Order Amount",
+      "fast_period": "Fast Period",
+      "fee_rate": "Fee Rate",
+      "grid_count": "Grid Count",
+      "grid_spacing": "Grid Spacing",
+      "interval_days": "DCA Interval (Days)",
+      "multiplier": "Multiplier",
+      "order_quantity": "Order Size Per Trade",
+      "period": "Period",
+      "risk_average_window": "Risk-Average Window",
+      "risk_volume_multiplier": "Risk-Volume Multiplier",
+      "rsi_period": "RSI Period",
+      "slow_period": "Slow Period",
+      "total_capital": "Total Capital"
+    },
+    "strategyNames": {
+      "combo": "Combo Strategy",
+      "dca": "DCA Strategy",
+      "grid": "Grid Strategy",
+      "martingale": "Martingale Strategy",
+      "mean_reversion": "Mean Reversion Strategy",
+      "momentum": "Momentum Strategy",
+      "trend_following": "Trend Following Strategy"
+    }
   },
   "backtestOptim": {
     "exportCsv": "Export CSV",
@@ -2411,8 +2642,22 @@
     "ok": "OK",
     "title": "Service Status",
     "unavailable": "Unavailable",
-    "name": { "storage": "Data Storage (SQLite)", "backtest": "Backtest Service", "smart_params": "Smart Parameter Recommendation" },
-    "message": { "normal": "Normal", "normalWithPath": "Normal ({{type}} @ {{path}})", "storageDisabled": "Storage is disabled in config. Enable \"Enable data storage\" under Settings → Storage & Web, save, then restart.", "storageNotConfigured": "storage.path or storage.type is not set in config.", "storageProviderNil": "Storage provider was not injected at startup.", "storageInstanceNil": "Storage instance is nil (check startup logs for SQLite/schema errors).", "configNotLoaded": "Config not loaded.", "backtestNotInit": "Backtest service not initialized. Ensure storage is enabled and initialized (see Data Storage above), save config, then restart.", "smartParamsNotInit": "Not initialized (backtest still works; only parameter recommendation is affected)." }
+    "name": {
+      "storage": "Data Storage (SQLite)",
+      "backtest": "Backtest Service",
+      "smart_params": "Smart Parameter Recommendation"
+    },
+    "message": {
+      "normal": "Normal",
+      "normalWithPath": "Normal ({{type}} @ {{path}})",
+      "storageDisabled": "Storage is disabled in config. Enable \"Enable data storage\" under Settings → Storage & Web, save, then restart.",
+      "storageNotConfigured": "storage.path or storage.type is not set in config.",
+      "storageProviderNil": "Storage provider was not injected at startup.",
+      "storageInstanceNil": "Storage instance is nil (check startup logs for SQLite/schema errors).",
+      "configNotLoaded": "Config not loaded.",
+      "backtestNotInit": "Backtest service not initialized. Ensure storage is enabled and initialized (see Data Storage above), save config, then restart.",
+      "smartParamsNotInit": "Not initialized (backtest still works; only parameter recommendation is affected)."
+    }
   },
   "strategyAllocation": {
     "allocationRatio": "Capital Allocation Ratio",
@@ -2766,7 +3011,11 @@
     "totalCapital": "Total Capital (USDT)",
     "tryLater": "Please try again later",
     "updateSuccess": "Trading pair configuration updated",
-    "useDefaultExchange": "Use default exchange ({{exchange}})"
+    "useDefaultExchange": "Use default exchange ({{exchange}})",
+    "profitSpread": "Profit Spread",
+    "profitSpreadHint": "Leave empty to use price interval",
+    "profitSpreadLabel": "Profit Spread (USDT)",
+    "profitSpreadTooltip": "Price gap between buy and sell. Leave empty or 0 to use price interval. E.g., interval=80, spread=100 means sell price = buy price + 100"
   },
   "strategyViz": {
     "grid": {
@@ -2948,7 +3197,10 @@
     "last14d": "Last 14 Days",
     "last30d": "Last 30 Days",
     "all": "All",
-    "backToNewsAnalysis": "Back to News Analysis"
+    "backToNewsAnalysis": "Back to News Analysis",
+    "down": "Bearish",
+    "stable": "Stable",
+    "up": "Bullish"
   },
   "slotsPage": {
     "title": "Slot Details",
@@ -3001,5 +3253,412 @@
     "positions": "Positions",
     "settings": "Settings",
     "statistics": "Statistics"
+  },
+  "aiInterpret": {
+    "analyzing": "AI is analyzing, please wait...",
+    "button": "AI Interpret",
+    "collapse": "Collapse",
+    "creating": "Creating analysis task...",
+    "emptyHint": "Click the \"AI Interpret\" button, and AI will provide professional market analysis based on real-time data and the latest news.",
+    "error": "Analysis failed",
+    "expand": "Expand",
+    "hint": "AI will analyze using the latest market news, K-line data, and current page data. This usually takes 20-60 seconds.",
+    "historyTitle": "History",
+    "noHistory": "No history yet",
+    "pending": "Waiting to process...",
+    "status": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "pending": "Pending",
+      "running": "Running"
+    },
+    "title": "AI Interpretation",
+    "unknownError": "Unknown error"
+  },
+  "botRiskControl": {
+    "actions": "Actions",
+    "autoResumeAfter": "Auto Resume After (seconds)",
+    "autoResumeAfterDesc": "Auto resume time after pause; 0 = no auto resume",
+    "configUpdateFailed": "Failed to update risk config",
+    "configUpdateSuccess": "Risk config updated",
+    "currentPrice": "Current Price",
+    "currentStatus": "Current Status",
+    "enabled": "Enable Bot-specific risk control",
+    "enabledDesc": "Set separate risk rules for this bot, overriding global config",
+    "maxOpenOrders": "Max Open Orders",
+    "maxOpenOrdersDesc": "Each open order occupies margin. Limit to save capital; 0 = unlimited",
+    "maxPositionLayers": "Max Position Layers",
+    "maxPositionLayersDesc": "Max grid layers held at once",
+    "maxPositionQty": "Max Position Qty",
+    "maxPositionQtyDesc": "Limit by asset quantity (e.g. max 4 PAXG)",
+    "maxPositionValue": "Max Position Value",
+    "maxPositionValueDesc": "Limit by USDT value (e.g. max 1000 USDT)",
+    "openOrderDistance": "Open Order Distance (intervals)",
+    "openOrderDistanceDesc": "Max intervals from current price for open orders",
+    "pause": "Pause Opening",
+    "pauseControl": "Pause Control",
+    "pauseOpening": "Pause Opening",
+    "pauseOpeningDesc": "Manually pause opening for this bot",
+    "pauseOpeningReason": "Pause Reason",
+    "pauseReasonPlaceholder": "Enter pause reason",
+    "pauseSuccess": "Opening paused",
+    "paused": "Paused",
+    "positionLayers": "Current Position Layers",
+    "positionLimits": "Position Limits",
+    "positionStatusFailed": "Failed to fetch position status",
+    "reachedLimitLayers": "Layer limit reached",
+    "reachedLimitQty": "Qty limit reached",
+    "reachedLimitValue": "Value limit reached",
+    "resume": "Resume Opening",
+    "resumeSuccess": "Opening resumed",
+    "shouldStopOpening": "Should stop opening",
+    "stopLossRatio": "Stop Loss Ratio",
+    "stopLossRatioDesc": "Close all when unrealized loss reaches this ratio",
+    "stopLossTakeProfit": "Stop Loss / Take Profit",
+    "stoppedBotNoPosition": "Stopped bot has no position",
+    "takeProfitRatio": "Take Profit Ratio",
+    "takeProfitRatioDesc": "Enable trailing take profit when profit reaches this ratio",
+    "title": "Bot Risk Control",
+    "totalPositionQty": "Current Position Qty",
+    "totalPositionValue": "Current Position Value",
+    "trailingStopRatio": "Trailing Stop Ratio",
+    "trailingStopRatioDesc": "Take profit when profit drawdown reaches this ratio",
+    "trendFilter": "Trend Filter",
+    "trendFilterDesc": "Pause buying in downtrend",
+    "trendFilterEnabled": "Enable Trend Filter"
+  },
+  "dailyBreakdown": {
+    "back": "Back to Statistics",
+    "buyCost": "Buy Cost",
+    "buyOrders": "Buy Orders",
+    "buyPrice": "Buy Price",
+    "buyQty": "Buy Qty",
+    "buyValue": "Buy Value",
+    "calculationSteps": "Calculation Steps",
+    "cashFlow": "Cash Flow",
+    "coreData": "Core Data (Deduplicated)",
+    "endPositionQty": "End Position Qty",
+    "endPositionValue": "End Position Value",
+    "endValue": "End Value",
+    "equity": "Equity",
+    "exchangeCalc": "Exchange (realized)",
+    "exchangeRealizedPnl": "Exchange Realized PnL",
+    "feeColumn": "Fee",
+    "fees": "Fees",
+    "finalEquation": "Final Equation",
+    "funding": "Funding",
+    "fundingColumn": "Funding",
+    "fundingColumnNote": "Funding in the tables below is daily-level only; see Final Equation above.",
+    "fundingSignNote": "Funding: positive = exchange pays you; negative = you pay the exchange.",
+    "gridCalc": "Grid (calculated)",
+    "intradayEquityCurve": "Intraday Equity Curve",
+    "lossTop": "Loss Top",
+    "na": "—",
+    "netCashFlow": "Net Cash Flow",
+    "netQtyChange": "Net Qty Change",
+    "netTradingPnL": "Net Trading PnL",
+    "noData": "No breakdown data for this day",
+    "orderId": "Order ID",
+    "pnl": "PnL",
+    "positionChange": "Position Change",
+    "positionValueChange": "Position Value Change",
+    "price": "Price",
+    "profitTop": "Profit Top",
+    "quantity": "Quantity",
+    "sellOrderId": "Sell Order ID",
+    "sellOrders": "Sell Orders",
+    "sellPrice": "Sell Price",
+    "sellQty": "Sell Qty",
+    "sellRevenue": "Sell Revenue",
+    "sellValue": "Sell Value",
+    "side": "Side",
+    "startPositionQty": "Start Position Qty",
+    "startPositionValue": "Start Position Value",
+    "startValue": "Start Value",
+    "stepCashFlow": "Cash Flow",
+    "stepFeeCalculation": "Fee Calculation",
+    "stepNetTradingPnL": "Net Trading PnL",
+    "stepPositionChange": "Position Value Change",
+    "title": "Daily PnL Breakdown",
+    "topTrades": "Top Trades",
+    "totalFee": "Total Fee"
+  },
+  "headerStatus": {
+    "botDetailView": "Bot Detail",
+    "runningBots": "Running",
+    "totalPnL": "Total PnL"
+  },
+  "openingControl": {
+    "action": "Action",
+    "actionPause": "Pause Opening",
+    "actionResume": "Resume Opening",
+    "addScheduleRule": "Add Cron Rule",
+    "closeDurationMin": "Close Duration",
+    "configSaved": "Config saved",
+    "currentLayers": "Current Layers",
+    "currentPositionValue": "Current Position Value",
+    "limitCard": "Position Limit",
+    "manualControl": "Manual Control",
+    "maxPositionLayers": "Max Position Layers",
+    "maxPositionLayersHint": "0 = unlimited",
+    "maxPositionValue": "Max Position Value (USDT)",
+    "maxPositionValueHint": "0 = unlimited",
+    "minutes": "minutes",
+    "openDurationMin": "Open Duration",
+    "opening": "Opening",
+    "pauseSuccess": "Opening paused",
+    "paused": "Opening Paused",
+    "periodicCard": "Periodic Rule",
+    "periodicEnabled": "Enable Periodic Switch",
+    "resumeSuccess": "Opening resumed",
+    "scheduleCard": "Cron Rules",
+    "selectSymbolHint": "Please select exchange and symbol first",
+    "statusCard": "Status",
+    "timeUTC": "Time (UTC)",
+    "title": "Opening Control",
+    "weekday0": "Sun",
+    "weekday1": "Mon",
+    "weekday2": "Tue",
+    "weekday3": "Wed",
+    "weekday4": "Thu",
+    "weekday5": "Fri",
+    "weekday6": "Sat",
+    "weekdays": "Weekdays"
+  },
+  "paramAdvisor": {
+    "aboveMax": "Above Max",
+    "applyRecommended": "Apply",
+    "autoFillFromExchange": "Auto-fill from Exchange",
+    "avgEntryPrice": "Avg. Entry Price",
+    "belowMin": "Below Min",
+    "breakEvenInterval": "Break-even Interval",
+    "calculating": "Calculating...",
+    "currentPrice": "Current Price",
+    "currentValue": "Current",
+    "disclaimer": "These are reference suggestions based on current price and fee rates. Actual parameters should be adjusted according to your risk preference, capital size, and market conditions.",
+    "estimatedLiquidationPrice": "Est. Liquidation Price",
+    "feeRateSettings": "Fee Rate Settings",
+    "feesFetched": "Fee rates updated",
+    "feesFromConfig": "Using fee rate from configuration",
+    "feesFromExchangeApi": "Successfully fetched from exchange API",
+    "fetchFailed": "Failed to get suggestions",
+    "fetchFeesFailed": "Failed to fetch fee rates",
+    "fetchFromExchangeTooltip": "Fetch actual fee rates from exchange API (requires API key configured)",
+    "fetching": "Fetching...",
+    "getSuggestions": "Get Suggestions",
+    "inRange": "In Range",
+    "leverage": "Leverage",
+    "liquidationDisclaimer": "For reference only. Actual liquidation price depends on exchange MMR and funding; check exchange display.",
+    "liquidationPriceDesc": "Based on current price, buy window, order amount, interval, total capital and leverage; estimates liquidation price (long) when all buy levels are filled.",
+    "liquidationPriceHint": "Enter total capital and leverage, and ensure parameter suggestions are loaded (current price, buy window, order amount, interval) to see liquidation price.",
+    "liquidationPriceTitle": "Liquidation Price Estimate",
+    "liquidationPriceTooltip": "Assumes ~0.5% maintenance margin rate. Funding rate not included. Actual liquidation price is set by the exchange.",
+    "makerFee": "Maker Fee",
+    "max": "Max",
+    "min": "Min",
+    "missingSymbol": "Please select a trading pair first",
+    "orderQuantitySuggestion": "Order Amount Suggestion (USDT)",
+    "priceIntervalSuggestion": "Price Interval Suggestion",
+    "recommended": "Recommended",
+    "safetyDistance": "Safety Distance",
+    "sourceConfig": "Config",
+    "sourceDefault": "Default",
+    "sourceExchangeApi": "Exchange API",
+    "sourceUserInput": "Manual",
+    "subtitle": "Smart suggestions based on price & fees",
+    "takerFee": "Taker Fee",
+    "title": "Parameter Advisor",
+    "totalCapital": "Total Capital",
+    "totalFeeRate": "Round-trip Fee"
+  },
+  "strategyDescriptions": {
+    "breakout": "Enters when price breaks key support/resistance levels to capture large moves",
+    "combo": "Multi-strategy portfolio management with dynamic weight adjustment and market-adaptive switching",
+    "dca": "Dollar-cost averaging strategy that diversifies entry costs and reduces investment risk",
+    "dca_enhanced": "Enhanced DCA with ATR dynamic spacing, triple take-profit, 50-layer position management, cascade protection, and trend filter",
+    "grid": "Classic grid trading strategy that automatically places orders within a price range to capture volatility spreads",
+    "martingale": "Loss-doubling add-on strategy with support for long/short Martingale, risk reduction mode, and long-short dual direction",
+    "mean_reversion": "Trades on price reversion after deviation from the mean",
+    "trend_following": "Technical indicator-based trend following strategy that enters on trend formation and exits on trend reversal"
+  },
+  "strategyDetail": {
+    "backToOverview": "Back to Strategy Overview",
+    "currentPrice": "Current Price",
+    "entryPrice": "Entry Price",
+    "goToTradingPanel": "Go to Trading Panel",
+    "missingParams": "Missing required parameters",
+    "notFound": "Strategy not found",
+    "orderId": "Order ID",
+    "orders": "Orders",
+    "pnl": "PnL",
+    "positions": "Positions",
+    "price": "Price",
+    "quantity": "Quantity",
+    "side": "Side",
+    "size": "Size",
+    "status": "Status",
+    "symbol": "Symbol",
+    "totalTrades": "Total Trades",
+    "winRate": "Win Rate"
+  },
+  "strategyFeatures": {
+    "breakout": {
+      "0": "Support/resistance breakout",
+      "1": "Momentum capture",
+      "2": "Volatility tracking"
+    },
+    "combo": {
+      "0": "Multi-strategy combo",
+      "1": "Dynamic weight allocation",
+      "2": "Market-adaptive switching",
+      "3": "Risk hedging"
+    },
+    "dca": {
+      "0": "Scheduled fixed-amount buying",
+      "1": "Diversified entry cost",
+      "2": "Auto reinvest profit"
+    },
+    "dca_enhanced": {
+      "0": "ATR dynamic spacing",
+      "1": "Triple-tier take-profit",
+      "2": "50-layer position management",
+      "3": "Cascade protection",
+      "4": "Trend filter"
+    },
+    "grid": {
+      "0": "Auto order placement",
+      "1": "Custom grid count",
+      "2": "Dynamic grid spacing"
+    },
+    "martingale": {
+      "0": "Loss-doubling add-on",
+      "1": "Reverse Martingale support",
+      "2": "Risk reduction mode",
+      "3": "Long-short dual direction"
+    },
+    "mean_reversion": {
+      "0": "Mean deviation detection",
+      "1": "Reversion trading signal",
+      "2": "Statistical arbitrage"
+    },
+    "trend_following": {
+      "0": "Trend indicator entry",
+      "1": "Dynamic take-profit/stop-loss",
+      "2": "Trend filter"
+    }
+  },
+  "strategyOverview": {
+    "filterByType": "Filter by type",
+    "fundsUsed": "Funds used",
+    "futures": "Futures",
+    "noStrategies": "No running strategies",
+    "orders": "Orders",
+    "pnl": "Total PnL",
+    "positions": "Positions",
+    "running": "Running",
+    "searchPlaceholder": "Search exchange/symbol/strategy",
+    "spot": "Spot",
+    "stopped": "Stopped",
+    "title": "Strategy Overview"
+  },
+  "strategyParams": {
+    "combo": {
+      "hedge_enabled": {
+        "description": "Enable long-short hedging",
+        "name": "Hedge"
+      },
+      "market_detection": {
+        "description": "Enable market state auto-detection",
+        "name": "Market Detection"
+      },
+      "total_capital": {
+        "description": "Combo strategy total capital (USDT)",
+        "name": "Total Capital"
+      }
+    },
+    "dca": {
+      "amount": {
+        "description": "Amount per DCA order (USDT)",
+        "name": "Amount Per Order"
+      },
+      "interval": {
+        "description": "DCA interval between orders",
+        "name": "Interval"
+      }
+    },
+    "dca_enhanced": {
+      "atr_multiplier": {
+        "description": "ATR dynamic spacing multiplier",
+        "name": "ATR Multiplier"
+      },
+      "atr_period": {
+        "description": "ATR indicator period",
+        "name": "ATR Period"
+      },
+      "base_order_amount": {
+        "description": "Initial order amount (USDT)",
+        "name": "Base Order Amount"
+      },
+      "max_safety_orders": {
+        "description": "Maximum add-on levels",
+        "name": "Max Safety Orders"
+      },
+      "safety_order_amount": {
+        "description": "Add-on order amount (USDT)",
+        "name": "Safety Order Amount"
+      },
+      "stop_loss": {
+        "description": "Stop-loss trigger ratio (%)",
+        "name": "Stop Loss %"
+      },
+      "total_take_profit": {
+        "description": "Full position take-profit ratio (%)",
+        "name": "Total Take Profit %"
+      }
+    },
+    "grid": {
+      "gridCount": {
+        "description": "Number of grid levels",
+        "name": "Grid Count"
+      },
+      "lowerPrice": {
+        "description": "Lower bound of price range",
+        "name": "Lower Price"
+      },
+      "totalAmount": {
+        "description": "Total investment (USDT)",
+        "name": "Total Amount"
+      },
+      "upperPrice": {
+        "description": "Upper bound of price range",
+        "name": "Upper Price"
+      }
+    },
+    "martingale": {
+      "direction": {
+        "description": "LONG or SHORT",
+        "name": "Direction"
+      },
+      "initial_amount": {
+        "description": "First order amount (USDT)",
+        "name": "Initial Amount"
+      },
+      "max_levels": {
+        "description": "Maximum add-on levels",
+        "name": "Max Levels"
+      },
+      "multiplier": {
+        "description": "Add-on amount multiplier",
+        "name": "Multiplier"
+      },
+      "price_step": {
+        "description": "Price drop to trigger add-on (%)",
+        "name": "Price Step %"
+      },
+      "take_profit": {
+        "description": "Per-level take-profit ratio (%)",
+        "name": "Take Profit %"
+      }
+    }
   }
 }

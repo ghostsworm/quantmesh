@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.56.2-rc3] - 2026-03-03
+
+### Fixed
+- **i18n 补全**：补全 21 个 locale 的 525 个缺失键（aiInterpret、botRiskControl、backtest.paramHints、globalDashboard.closePositions/slotManager/smartOrder、newsAnalysis 等），en-US 补全 108 个键，zh-TW 补全 282 个键
+
 ## [3.56.2-rc2] - 2026-03-02
 
 ### Fixed

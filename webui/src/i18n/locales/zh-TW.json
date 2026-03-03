@@ -22,7 +22,8 @@
     "connectionErrorDesc": "無法連接到伺服器，請檢查網路連線。",
     "unknownError": "未知錯誤",
     "loadFailed": "載入失敗",
-    "success": "操作成功"
+    "success": "操作成功",
+    "back": "返回"
   },
   "sidebar": {
     "backToBotList": "返回 Bot 列表",
@@ -70,7 +71,9 @@
     "groupMarketData": "市場數據",
     "groupAI": "AI",
     "groupStrategyCapital": "策略與資金",
-    "servicesStatus": "Service Status"
+    "servicesStatus": "Service Status",
+    "openingControl": "开仓管理",
+    "systemSettings": "系统设置"
   },
   "headerStatus": {
     "runningBots": "運行中",
@@ -426,7 +429,8 @@
       "entry_price_diff": "入場價差異：交易所={{exchange}}，槽位平均={{slotAvg}}，差={{diff}} ({{diffPct}}%)",
       "price_diff": "價格差異：標記價={{markPrice}}，WS價={{wsPrice}}，差={{diff}} ({{diffPct}}%)",
       "pnl_diff_other": "盈虧差異 {{pnlDiff}} USDT，可能原因：手續費/資金費率/滑點/成交價偏差"
-    }
+    },
+    "unrealizedPnLTooltip": "根据当前持仓和当前价格计算的未实现盈亏，平仓后转为已实现"
   },
   "login": {
     "title": "登錄",
@@ -511,7 +515,71 @@
     "stopTrading": "停止交易",
     "positionExchange": "Exchange",
     "positionStrategy": "Strategy",
-    "positionSymbol": "Symbol"
+    "positionSymbol": "Symbol",
+    "closePositions": {
+      "autoRetry": "超时自动重试为市价",
+      "confirm": "确认平仓",
+      "failed": "平仓失败",
+      "limit": "限价平仓",
+      "market": "市价平仓",
+      "method": "平仓方式",
+      "priceOffset": "限价偏移 (%)",
+      "priceOffsetDesc": "负数=更激进，正数=更保守",
+      "recordCreated": "记录ID: {{id}}",
+      "success": "平仓指令已发送",
+      "timeout": "超时时间 (秒)",
+      "title": "平仓设置"
+    },
+    "closeRecords": {
+      "actions": "操作",
+      "failed": "失败",
+      "filled": "已成交",
+      "method": "方式",
+      "pending": "等待中",
+      "quantity": "数量",
+      "retry": "重试",
+      "side": "方向",
+      "status": "状态",
+      "time": "时间",
+      "timeout": "已超时",
+      "title": "平仓记录"
+    },
+    "direction": {
+      "both": "双向交易",
+      "label": "交易方向",
+      "long": "单向做多",
+      "short": "单向做空"
+    },
+    "slotManager": {
+      "action": "操作",
+      "addFailed": "添加失败",
+      "addRule": "添加规则",
+      "disabled": "禁用",
+      "enabled": "启用",
+      "exclude": "排除",
+      "filterRules": "过滤规则",
+      "include": "包含",
+      "order": "订单",
+      "position": "持仓",
+      "price": "价格",
+      "prices": "价格列表",
+      "range": "价格区间",
+      "reason": "原因",
+      "removeFailed": "删除失败",
+      "ruleAdded": "规则已添加",
+      "status": "状态",
+      "title": "槽位管理",
+      "toggleFailed": "切换失败",
+      "type": "类型"
+    },
+    "smartOrder": {
+      "enabled": "启用智能挂单",
+      "leadSlots": "领先槽位数量",
+      "maxOpenOrders": "最大开仓挂单数",
+      "onlyCloseFilledSlots": "只为已成交槽位挂平仓单",
+      "openOrderDistance": "开仓单距离间隔数",
+      "progressivePlacement": "渐进式挂单"
+    }
   },
   "configuration": {
     "title": "設置",
@@ -752,11 +820,6 @@
     "interval4h": "4 hours",
     "interval5m": "5 minutes",
     "interval60m": "60 minutes",
-    "interval1h": "1 hour",
-    "interval2h": "2 hours",
-    "interval4h": "4 hours",
-    "interval8h": "8 hours",
-    "interval24h": "24 hours",
     "interval8h": "8 hours",
     "loadConfig": "Load Config",
     "loadFailedToast": "Failed to load configuration",
@@ -795,7 +858,16 @@
     "validationFailed": "Validation Failed",
     "validationPassed": "Validation Passed",
     "yamlEditorDesc": "Edit the complete YAML configuration file directly with syntax highlighting and error hints",
-    "yamlEditorTitle": "YAML Configuration Editor"
+    "yamlEditorTitle": "YAML Configuration Editor",
+    "maxGridLayers": "最大持仓预警层数",
+    "maxGridLayersDesc": "持仓层数达到此值后不再新开仓；配合下方「预警时最多开仓单数」可自动撤销多余挂单",
+    "maxOpenOrdersAtCap": "预警时最多开仓单数",
+    "maxOpenOrdersAtCapDesc": "达到最大持仓预警时，最多允许的挂单数量；超出部分自动撤销。做多先撤高价买单，做空先撤低价卖单。0 表示仅不新开仓、不撤单",
+    "testConnection": "测试连接",
+    "testConnectionError": "测试连接出错",
+    "testConnectionFailed": "测试通知发送失败",
+    "testConnectionSending": "发送中...",
+    "testConnectionSuccess": "测试通知发送成功"
   },
   "configSetup": {
     "title": "配置引導",
@@ -997,7 +1069,11 @@
     "time": "Time",
     "totalFee": "Total Fee",
     "totalFilledQty": "Total Filled",
-    "tradeDetail": "Trade Details"
+    "tradeDetail": "Trade Details",
+    "orderSource": "订单来源",
+    "sourceLiquidation": "强制平仓",
+    "sourceNormal": "正常委托",
+    "sourceStopLoss": "止损平仓"
   },
   "wizard": {
     "title": "首次使用嚮導",
@@ -1220,7 +1296,23 @@
     "testnet": "Testnet",
     "testnetDesc": "Currently using testnet environment. Displayed assets are virtual test coins and no real trades will be made.",
     "testnetMode": "Testnet Mode",
-    "usingTestnet": "is using testnet."
+    "usingTestnet": "is using testnet.",
+    "backendError": "后端处理异常，请查看服务端日志",
+    "exchangeCount": "交易所数",
+    "exchanges": "个交易所",
+    "noBots": "该交易所暂无运行中的 Bot",
+    "noExchanges": "暂无交易所数据",
+    "offline": "未连接",
+    "orderPct": "委托占比",
+    "orderValue": "委托资金",
+    "positionPct": "持仓占比",
+    "positionValue": "持仓占用",
+    "refresh": "刷新数据",
+    "subtitleView": "查看各交易所资金及各 Bot 占用明细",
+    "symbol": "交易对",
+    "totalUsed": "合计占用",
+    "totalUsedPct": "合计占比",
+    "viewBots": "查看 Bot 列表"
   },
   "profitManagement": {
     "title": "盈利管理",
@@ -1289,7 +1381,6 @@
     "saveRules": "保存規則",
     "rulesSaved": "規則已保存",
     "saveError": "保存失敗",
-    "date": "日期",
     "amount": "金額",
     "type": "類型",
     "status": "狀態",
@@ -1801,7 +1892,16 @@
     "fundingFeeShort": "資金費",
     "exchangePnl": "交易所盈虧",
     "exchangePnlShort": "交易所",
-    "exchangePnlTooltip": "交易所按加權平均成本法計算的已實現盈虧，與網格策略按買賣配對計算的方法不同"
+    "exchangePnlTooltip": "交易所按加權平均成本法計算的已實現盈虧，與網格策略按買賣配對計算的方法不同",
+    "unrealizedPnLTooltip": "根據當前持倉和當前價格計算的未實現盈虧，平倉後轉為已實現",
+    "pnlDiagnosis": "盈虧診斷",
+    "pnlDiagnosisTitle": "網格 vs 交易所盈虧診斷",
+    "diagnosisGridPnL": "網格盈虧",
+    "diagnosisExchangePnL": "交易所盈虧",
+    "diagnosisDiscrepancy": "差異",
+    "diagnosisOrdersWithPnL": "有 realized_pnl 的訂單數",
+    "diagnosisSellOrdersMissingPnL": "賣單缺少 PnL 數",
+    "diagnosisNoData": "暫無診斷數據"
   },
   "riskMonitor": {
     "title": "風控監控",
@@ -1949,7 +2049,16 @@
     "nextPage": "下一頁",
     "prevPage": "上一頁",
     "price": "價格",
-    "recommendation": "建議"
+    "recommendation": "建議",
+    "crashProbTrend": "大跌概率趋势",
+    "last30d": "最近 30 天",
+    "last7d": "最近 7 天",
+    "last90d": "最近 90 天",
+    "noTrendData": "暂无历史波动数据",
+    "riskTrend": "风险波动趋势",
+    "tabAnalysis": "最新分析",
+    "tabHistory": "历史记录",
+    "tabPrediction": "预测准确率"
   },
   "strategyNames": {
     "grid": "網格交易策略",
@@ -2019,36 +2128,102 @@
   },
   "strategyParams": {
     "grid": {
-      "gridCount": { "name": "網格數量", "description": "網格檔位數量" },
-      "upperPrice": { "name": "網格上限價格", "description": "網格價格區間上限" },
-      "lowerPrice": { "name": "網格下限價格", "description": "網格價格區間下限" },
-      "totalAmount": { "name": "總投資金額", "description": "策略總投入資金 (USDT)" }
+      "gridCount": {
+        "name": "網格數量",
+        "description": "網格檔位數量"
+      },
+      "upperPrice": {
+        "name": "網格上限價格",
+        "description": "網格價格區間上限"
+      },
+      "lowerPrice": {
+        "name": "網格下限價格",
+        "description": "網格價格區間下限"
+      },
+      "totalAmount": {
+        "name": "總投資金額",
+        "description": "策略總投入資金 (USDT)"
+      }
     },
     "dca": {
-      "interval": { "name": "定投間隔", "description": "每次定投的時間間隔" },
-      "amount": { "name": "每次投資金額", "description": "單次定投金額 (USDT)" }
+      "interval": {
+        "name": "定投間隔",
+        "description": "每次定投的時間間隔"
+      },
+      "amount": {
+        "name": "每次投資金額",
+        "description": "單次定投金額 (USDT)"
+      }
     },
     "dca_enhanced": {
-      "base_order_amount": { "name": "基礎訂單金額", "description": "初始買入訂單金額 (USDT)" },
-      "safety_order_amount": { "name": "安全訂單金額", "description": "補倉訂單金額 (USDT)" },
-      "max_safety_orders": { "name": "最大安全訂單數", "description": "最多補倉層數" },
-      "atr_period": { "name": "ATR 週期", "description": "ATR 指標計算週期" },
-      "atr_multiplier": { "name": "ATR 乘數", "description": "ATR 動態間距乘數" },
-      "total_take_profit": { "name": "全倉止盈比例", "description": "全部倉位止盈比例 (%)" },
-      "stop_loss": { "name": "止損比例", "description": "止損觸發比例 (%)" }
+      "base_order_amount": {
+        "name": "基礎訂單金額",
+        "description": "初始買入訂單金額 (USDT)"
+      },
+      "safety_order_amount": {
+        "name": "安全訂單金額",
+        "description": "補倉訂單金額 (USDT)"
+      },
+      "max_safety_orders": {
+        "name": "最大安全訂單數",
+        "description": "最多補倉層數"
+      },
+      "atr_period": {
+        "name": "ATR 週期",
+        "description": "ATR 指標計算週期"
+      },
+      "atr_multiplier": {
+        "name": "ATR 乘數",
+        "description": "ATR 動態間距乘數"
+      },
+      "total_take_profit": {
+        "name": "全倉止盈比例",
+        "description": "全部倉位止盈比例 (%)"
+      },
+      "stop_loss": {
+        "name": "止損比例",
+        "description": "止損觸發比例 (%)"
+      }
     },
     "martingale": {
-      "initial_amount": { "name": "初始金額", "description": "首筆訂單金額 (USDT)" },
-      "multiplier": { "name": "加倉倍數", "description": "補倉金額倍增倍數" },
-      "max_levels": { "name": "最大層數", "description": "最大補倉層數" },
-      "price_step": { "name": "加倉間距", "description": "觸發補倉的價格間距 (%)" },
-      "take_profit": { "name": "止盈比例", "description": "單層止盈比例 (%)" },
-      "direction": { "name": "方向", "description": "做多 LONG / 做空 SHORT" }
+      "initial_amount": {
+        "name": "初始金額",
+        "description": "首筆訂單金額 (USDT)"
+      },
+      "multiplier": {
+        "name": "加倉倍數",
+        "description": "補倉金額倍增倍數"
+      },
+      "max_levels": {
+        "name": "最大層數",
+        "description": "最大補倉層數"
+      },
+      "price_step": {
+        "name": "加倉間距",
+        "description": "觸發補倉的價格間距 (%)"
+      },
+      "take_profit": {
+        "name": "止盈比例",
+        "description": "單層止盈比例 (%)"
+      },
+      "direction": {
+        "name": "方向",
+        "description": "做多 LONG / 做空 SHORT"
+      }
     },
     "combo": {
-      "total_capital": { "name": "總資金", "description": "組合策略總資金 (USDT)" },
-      "market_detection": { "name": "市況檢測", "description": "啟用市場狀態自動檢測" },
-      "hedge_enabled": { "name": "對沖", "description": "啟用多空對沖" }
+      "total_capital": {
+        "name": "總資金",
+        "description": "組合策略總資金 (USDT)"
+      },
+      "market_detection": {
+        "name": "市況檢測",
+        "description": "啟用市場狀態自動檢測"
+      },
+      "hedge_enabled": {
+        "name": "對沖",
+        "description": "啟用多空對沖"
+      }
     }
   },
   "newbieRiskCheck": {
@@ -3285,5 +3460,205 @@
     "safetyDistance": "距強平安全距離",
     "liquidationDisclaimer": "僅供參考。實際強平價受交易所維持保證金比率、資金費率等影響，請以交易所顯示為準。",
     "liquidationPriceHint": "請先填寫總資金與槓桿，並確保已取得參數建議（當前價格、買窗、單筆金額、間距已填）後再查看強平價。"
+  },
+  "aiInterpret": {
+    "analyzing": "AI 正在分析中，请稍候...",
+    "button": "AI 解读",
+    "collapse": "收起",
+    "creating": "正在创建分析任务...",
+    "emptyHint": "点击「AI 解读」按钮，AI 将结合实时市场数据和最新新闻为您提供专业的市场分析",
+    "error": "分析失败",
+    "expand": "展开",
+    "hint": "AI 将结合最新市场新闻、K线数据和当前页面数据进行综合分析，通常需要 20-60 秒",
+    "historyTitle": "历史解读",
+    "noHistory": "暂无历史解读",
+    "pending": "等待处理中...",
+    "status": {
+      "completed": "已完成",
+      "failed": "失败",
+      "pending": "等待中",
+      "running": "分析中"
+    },
+    "title": "AI 解读",
+    "unknownError": "未知错误"
+  },
+  "botRiskControl": {
+    "actions": "操作",
+    "autoResumeAfter": "自动恢复时间（秒）",
+    "autoResumeAfterDesc": "暂停后自动恢复的时间，0 表示不自动恢复",
+    "configUpdateFailed": "风控配置更新失败",
+    "configUpdateSuccess": "风控配置已更新",
+    "currentPrice": "当前价格",
+    "currentStatus": "当前状态",
+    "enabled": "启用 Bot 独立风控",
+    "enabledDesc": "为该 Bot 设置单独的风控规则，可覆盖全局配置",
+    "maxOpenOrders": "最多开仓挂单数",
+    "maxOpenOrdersDesc": "单向做多/做空时，每笔开仓委托占用保证金。限制挂单数可节省资金，0 表示不限制",
+    "maxPositionLayers": "最大持仓层数",
+    "maxPositionLayersDesc": "最大同时持有的网格层数",
+    "maxPositionQty": "最大持仓数量",
+    "maxPositionQtyDesc": "按币种数量限制（如：最多持有 4 个 PAXG）",
+    "maxPositionValue": "最大仓位价值",
+    "maxPositionValueDesc": "按 USDT 价值限制（如：最多价值 1000 USDT）",
+    "openOrderDistance": "开仓单距离间隔数",
+    "openOrderDistanceDesc": "开仓单距离当前价的最大间隔数，仅挂此范围内的槽位",
+    "pause": "暂停开仓",
+    "pauseControl": "暂停控制",
+    "pauseOpening": "暂停开仓",
+    "pauseOpeningDesc": "手动暂停该 Bot 的开仓操作",
+    "pauseOpeningReason": "暂停原因",
+    "pauseReasonPlaceholder": "请输入暂停原因",
+    "pauseSuccess": "已暂停开仓",
+    "paused": "已暂停",
+    "positionLayers": "当前持仓层数",
+    "positionLimits": "仓位限制",
+    "positionStatusFailed": "获取仓位状态失败",
+    "reachedLimitLayers": "已达层数限制",
+    "reachedLimitQty": "已达数量限制",
+    "reachedLimitValue": "已达价值限制",
+    "resume": "恢复开仓",
+    "resumeSuccess": "已恢复开仓",
+    "shouldStopOpening": "应停止开仓",
+    "stopLossRatio": "止损比例",
+    "stopLossRatioDesc": "浮亏达到此比例时全部平仓",
+    "stopLossTakeProfit": "止损止盈",
+    "stoppedBotNoPosition": "停止交易的 Bot，没有仓位",
+    "takeProfitRatio": "止盈比例",
+    "takeProfitRatioDesc": "盈利达到此比例后开启回撤止盈",
+    "title": "Bot 风控",
+    "totalPositionQty": "当前持仓数量",
+    "totalPositionValue": "当前仓位价值",
+    "trailingStopRatio": "回撤止盈比例",
+    "trailingStopRatioDesc": "盈利回撤此比例时止盈",
+    "trendFilter": "趋势过滤",
+    "trendFilterDesc": "在下跌趋势中暂停买入",
+    "trendFilterEnabled": "启用趋势过滤"
+  },
+  "dailyBreakdown": {
+    "back": "返回统计",
+    "buyCost": "买入成本",
+    "buyOrders": "买单笔数",
+    "buyPrice": "买价",
+    "buyQty": "买入数量",
+    "buyValue": "买入金额",
+    "calculationSteps": "计算过程",
+    "cashFlow": "现金流",
+    "coreData": "核心数据（去重后）",
+    "endPositionQty": "期末持仓量",
+    "endPositionValue": "期末持仓价值",
+    "endValue": "期末价值",
+    "equity": "权益",
+    "exchangeCalc": "交易所计算",
+    "exchangeRealizedPnl": "交易所已实现盈亏",
+    "feeColumn": "手续费",
+    "fees": "手续费",
+    "finalEquation": "最终等式",
+    "funding": "资金费用",
+    "fundingColumn": "资金费用",
+    "fundingColumnNote": "下方表格中「资金费用」为日级汇总，无法按单笔归属，详见上方最终等式。",
+    "fundingSignNote": "资金费用：正数表示交易所付给用户，负数表示用户付给交易所。",
+    "gridCalc": "网格计算",
+    "intradayEquityCurve": "日内权益曲线",
+    "lossTop": "亏损 Top",
+    "na": "—",
+    "netCashFlow": "净现金流",
+    "netQtyChange": "净数量变化",
+    "netTradingPnL": "净交易盈亏",
+    "noData": "暂无该日拆解数据",
+    "orderId": "订单 ID",
+    "pnl": "盈亏",
+    "positionChange": "持仓变化",
+    "positionValueChange": "持仓价值变化",
+    "price": "价格",
+    "profitTop": "盈利 Top",
+    "quantity": "数量",
+    "sellOrderId": "卖单 ID",
+    "sellOrders": "卖单笔数",
+    "sellPrice": "卖价",
+    "sellQty": "卖出数量",
+    "sellRevenue": "卖出收入",
+    "sellValue": "卖出金额",
+    "side": "方向",
+    "startPositionQty": "期初持仓量",
+    "startPositionValue": "期初持仓价值",
+    "startValue": "期初价值",
+    "stepCashFlow": "交易现金流",
+    "stepFeeCalculation": "费用计算",
+    "stepNetTradingPnL": "净交易盈亏",
+    "stepPositionChange": "持仓价值变化",
+    "title": "日盈亏拆解",
+    "topTrades": "当日成交 Top",
+    "totalFee": "手续费"
+  },
+  "openingControl": {
+    "action": "动作",
+    "actionPause": "暂停开仓",
+    "actionResume": "恢复开仓",
+    "addScheduleRule": "添加重复规则",
+    "closeDurationMin": "关仓持续时间",
+    "configSaved": "配置已保存",
+    "currentLayers": "当前持仓层数",
+    "currentPositionValue": "当前仓位价值",
+    "limitCard": "限仓设置",
+    "manualControl": "手动控制",
+    "maxPositionLayers": "持仓层数上限",
+    "maxPositionLayersHint": "0 表示不限",
+    "maxPositionValue": "仓位价值上限 (USDT)",
+    "maxPositionValueHint": "0 表示不限",
+    "minutes": "分钟",
+    "openDurationMin": "开仓持续时间",
+    "opening": "开仓中",
+    "pauseSuccess": "已暂停开仓",
+    "paused": "已暂停开仓",
+    "periodicCard": "周期规则",
+    "periodicEnabled": "启用周期开关仓",
+    "resumeSuccess": "已恢复开仓",
+    "scheduleCard": "重复规则",
+    "selectSymbolHint": "请先选择交易所和交易对",
+    "statusCard": "状态",
+    "timeUTC": "时间 (UTC)",
+    "title": "开仓管理",
+    "weekday0": "日",
+    "weekday1": "一",
+    "weekday2": "二",
+    "weekday3": "三",
+    "weekday4": "四",
+    "weekday5": "五",
+    "weekday6": "六",
+    "weekdays": "星期"
+  },
+  "strategyDetail": {
+    "backToOverview": "返回策略总览",
+    "currentPrice": "现价",
+    "entryPrice": "开仓价",
+    "goToTradingPanel": "进入交易面板",
+    "missingParams": "缺少必要参数",
+    "notFound": "未找到该策略",
+    "orderId": "订单ID",
+    "orders": "订单列表",
+    "pnl": "盈亏",
+    "positions": "持仓列表",
+    "price": "价格",
+    "quantity": "数量",
+    "side": "方向",
+    "size": "数量",
+    "status": "状态",
+    "symbol": "交易对",
+    "totalTrades": "总交易数",
+    "winRate": "胜率"
+  },
+  "strategyOverview": {
+    "filterByType": "按类型筛选",
+    "fundsUsed": "资金使用",
+    "futures": "合约",
+    "noStrategies": "暂无运行中的策略",
+    "orders": "挂单数",
+    "pnl": "累计盈亏",
+    "positions": "持仓数",
+    "running": "运行中",
+    "searchPlaceholder": "搜索交易所/币种/策略",
+    "spot": "现货",
+    "stopped": "已停止",
+    "title": "策略总览"
   }
 }
