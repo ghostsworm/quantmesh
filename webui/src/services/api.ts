@@ -23,7 +23,21 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
       window.location.replace('/login')
     }
     const errorText = await response.text()
-    throw new Error(`HTTP ${response.status}: ${errorText}`)
+    let parsed: { error_key?: string; group_name?: string } | null = null
+    try {
+      parsed = JSON.parse(errorText) as { error_key?: string; group_name?: string }
+    } catch {
+      /* ignore */
+    }
+    const err = new Error(`HTTP ${response.status}: ${errorText}`) as Error & {
+      status?: number
+      errorKey?: string
+      groupName?: string
+    }
+    err.status = response.status
+    if (parsed?.error_key) err.errorKey = parsed.error_key
+    if (parsed?.group_name) err.groupName = parsed.group_name
+    throw err
   }
 
   return response.json()
@@ -130,6 +144,86 @@ export interface BotsResponse {
 
 export async function getBots(): Promise<BotsResponse> {
   return fetchWithAuth(`${API_BASE_URL}/bots`)
+}
+
+// 創建 Bot 請求（含策略配置）
+export interface CreateBotRequest {
+  name?: string
+  exchange: string
+  symbol: string
+  market_type?: 'spot' | 'futures'
+  testnet?: boolean
+  strategies?: Array<{ type: string; weight: number; config?: Record<string, unknown> }>
+  total_allocated_capital?: number
+  price_interval?: number
+  profit_spread?: number
+  order_quantity?: number
+  min_order_value?: number
+  buy_window_size?: number
+  sell_window_size?: number
+  reconcile_interval?: number
+  order_cleanup_threshold?: number
+  cleanup_batch_size?: number
+  margin_lock_duration_seconds?: number
+  position_safety_check?: number
+  direction?: string
+  price_low?: number
+  price_high?: number
+  trigger_price?: number
+  grid_mode?: string
+  grid_shift_enabled?: boolean
+  grid_shift_step?: number
+  close_on_stop?: boolean
+}
+
+export async function createBot(req: CreateBotRequest): Promise<{ ok: boolean; bot_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/create`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+export async function deleteBot(botId: string): Promise<{ ok: boolean; bot_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}`, {
+    method: 'DELETE',
+  })
+}
+
+// Bot 組
+export interface BotGroupResponse {
+  id: string
+  name: string
+  type: string
+  bot_ids: string[]
+  hedge_config: {
+    hedge_ratio: number
+    max_drawdown: number
+    auto_rebalance: boolean
+    rebalance_interval: number
+  }
+}
+
+export async function getBotGroups(): Promise<{ bot_groups: BotGroupResponse[] }> {
+  return fetchWithAuth(`${API_BASE_URL}/bot-groups`)
+}
+
+export async function createBotGroup(req: {
+  name?: string
+  type: 'futures_spot_hedge' | 'long_short_hedge'
+  hedge_config?: { hedge_ratio?: number; max_drawdown?: number; auto_rebalance?: boolean; rebalance_interval?: number }
+  futures_bot: CreateBotRequest
+  spot_bot: CreateBotRequest
+}): Promise<{ ok: boolean; group_id: string; bot_ids: string[] }> {
+  return fetchWithAuth(`${API_BASE_URL}/bot-groups`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+export async function deleteBotGroup(groupId: string): Promise<{ ok: boolean; group_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bot-groups/${encodeURIComponent(groupId)}`, {
+    method: 'DELETE',
+  })
 }
 
 export interface BotDetailInfo extends BotInfo {

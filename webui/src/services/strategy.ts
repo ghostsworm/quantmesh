@@ -19,6 +19,25 @@ export async function getStrategies(): Promise<StrategiesResponse> {
   return fetchWithAuth(`${API_BASE_URL}/strategies`)
 }
 
+// 策略組合模板
+export interface StrategyTemplate {
+  id: string
+  name: string
+  description: string
+  type: 'combo' | 'hedge'
+  strategies: string[]
+  weights?: number[]
+  tags: string[]
+}
+
+export async function getStrategyTemplates(): Promise<{
+  success: boolean
+  templates: StrategyTemplate[]
+  total: number
+}> {
+  return fetchWithAuth(`${API_BASE_URL}/strategies/templates`)
+}
+
 // 獲取策略详情
 export async function getStrategyDetail(strategyId: string): Promise<StrategyDetailResponse> {
   return fetchWithAuth(`${API_BASE_URL}/strategies/${strategyId}`)

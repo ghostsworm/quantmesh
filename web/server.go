@@ -157,9 +157,15 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/services/status", getServicesStatus)
 			protected.GET("/symbols", getSymbols)
 			protected.GET("/bots", getBots)
+			protected.POST("/bots/create", postBotCreate)
 			protected.GET("/bots/:id", getBotByID)
+			protected.DELETE("/bots/:id", deleteBot)
 			protected.POST("/bots/:id/start", postBotStart)
 			protected.POST("/bots/:id/stop", postBotStop)
+			protected.GET("/bot-groups", getBotGroups)
+			protected.GET("/bot-groups/:id", getBotGroupByID)
+			protected.POST("/bot-groups", postBotGroupCreate)
+			protected.DELETE("/bot-groups/:id", deleteBotGroup)
 			protected.GET("/exchanges", getExchanges)
 			protected.GET("/positions", getPositions)
 			protected.GET("/positions/summary", getPositionsSummary)
@@ -421,8 +427,9 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 策略管理 API
 			strategies := protected.Group("/strategies")
 			{
-				strategies.GET("", getStrategiesHandler)
-				strategies.GET("/types", getStrategyTypesHandler)
+			strategies.GET("", getStrategiesHandler)
+			strategies.GET("/templates", getStrategyTemplatesHandler)
+			strategies.GET("/types", getStrategyTypesHandler)
 				strategies.GET("/configs", getStrategyConfigsHandler)
 				strategies.GET("/enabled", getEnabledStrategiesHandler)
 				strategies.GET("/runtime", getStrategyRuntimeStatusHandler)         // 獲取所有策略運行狀態

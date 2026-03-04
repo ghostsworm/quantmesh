@@ -25,6 +25,11 @@
     "loadFailed": "Load Failed",
     "success": "Success"
   },
+  "error": {
+    "bot_symbol_conflict": "A bot for this symbol already exists. Multiple bots on the same symbol are not allowed.",
+    "bot_symbol_used_by_hedge_group": "This symbol is used by hedge group {{groupName}}. Delete the hedge group first to create a standalone bot.",
+    "bot_in_hedge_group_cannot_delete": "This bot belongs to hedge group {{groupName}}. Delete the hedge group first."
+  },
   "botList": {
     "title": "Bot List",
     "noBots": "No bots configured",
@@ -41,16 +46,26 @@
     "stopSuccess": "Bot stopped",
     "stopFailed": "Failed to stop bot",
     "viewDetail": "View detail",
-    "createBot": "Create Bot"
+    "createBot": "Create Bot",
+    "hedgeGroup": "Hedge",
+    "deleteConfirmTitle": "Delete Bot?",
+    "deleteConfirmDesc": "This will remove \"{{name}}\" from config. The bot will be stopped if running.",
+    "deleteSuccess": "Bot deleted",
+    "deleteFailed": "Failed to delete bot",
+    "deleteInHedgeGroupHint": "This bot belongs to hedge group «{{groupName}}». Delete the group first."
   },
   "botCreate": {
     "title": "Create Bot",
-    "step1Title": "Select Trading Pair",
-    "step1Desc": "Choose exchange, market type and symbol",
-    "step2Title": "Basic Params",
-    "step2Desc": "Configure price interval, order quantity, etc.",
-    "step3Title": "Confirm",
-    "step3Desc": "Review and create",
+    "step0Title": "Strategy Type",
+    "step0Desc": "Choose single, combo, or hedge strategy",
+    "step1Title": "Select Strategy",
+    "step1Desc": "Pick strategy or combo template",
+    "step2Title": "Trading Pair",
+    "step2Desc": "Choose exchange, market type and symbol",
+    "step3Title": "Parameters",
+    "step3Desc": "Configure strategy and basic params",
+    "step4Title": "Confirm",
+    "step4Desc": "Review and create",
     "marketType": "Market Type",
     "botName": "Bot Name",
     "botNamePlaceholder": "Optional, give the bot a name for easy identification",
@@ -65,7 +80,49 @@
     "fillRequired": "Please fill required fields",
     "alreadyExists": "A bot for this symbol already exists. Multiple bots on the same symbol are not allowed (exchange positions cannot be isolated).",
     "success": "Bot created",
-    "failed": "Create failed"
+    "failed": "Create failed",
+    "strategyTypeLabel": "Strategy Type",
+    "strategyLabel": "Strategy",
+    "hedgeMode": "Futures + Spot Hedge",
+    "hedgeMarketHint": "Hedge mode: creates both futures and spot bots for the same symbol.",
+    "strategyType": {
+      "single": {
+        "title": "Single Strategy",
+        "desc": "Run one strategy (grid, DCA, etc.) on a single market.",
+        "scene": "Suitable for beginners, stable markets."
+      },
+      "combo": {
+        "title": "Combo Strategy",
+        "desc": "Combine multiple strategies with configurable weights.",
+        "scene": "Adapt to different market conditions."
+      },
+      "hedge": {
+        "title": "Hedge Group",
+        "desc": "Futures + spot cross-market hedge, reduces directional risk.",
+        "scene": "Suitable for capital preservation."
+      }
+    },
+    "riskLevel": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
+    "strategyPicker": {
+      "singleTitle": "Select a strategy",
+      "comboTitle": "Select strategies to combine",
+      "hedgeTitle": "Select strategies for futures and spot",
+      "templateTitle": "Preset templates",
+      "weights": "Weights",
+      "hedgeFutures": "Futures strategy",
+      "hedgeSpot": "Spot strategy",
+      "hedgeRatio": "Hedge ratio"
+    },
+    "strategyTemplate": {
+      "grid_trend": "Grid + Trend",
+      "dca_martingale": "DCA + Martingale",
+      "futures_spot_hedge": "Futures + Spot Hedge"
+    },
+    "strategyParams": {}
   },
   "botDetail": {
     "openWorkspace": "Open Workspace",

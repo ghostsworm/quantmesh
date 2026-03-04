@@ -388,6 +388,9 @@ type Config struct {
 	// Bot 配置列表（新模型：每個 Bot 為獨立運行單元，替代 symbols 驅動）
 	Bots []BotConfig `yaml:"bots"`
 
+	// Bot 組（跨市場對沖：合約+現貨等）
+	BotGroups []BotGroup `yaml:"bot_groups"`
+
 	Trading struct {
 		// BotID 運行時標識（不持久化），用於日誌區分同交易所同幣多實例
 		BotID string `yaml:"-"`
@@ -1197,6 +1200,23 @@ type StrategyConfig struct {
 	Type    string                 `yaml:"type" json:"type"`     // 策略類型 (grid, dca, martingale, dca_enhanced, combo)
 	Weight  float64                `yaml:"weight" json:"weight"` // 资金权重
 	Config  map[string]interface{} `yaml:"config" json:"config"`
+}
+
+// HedgeConfig 跨市場對沖配置
+type HedgeConfig struct {
+	HedgeRatio        float64 `yaml:"hedge_ratio" json:"hedge_ratio"`                 // 對沖比例 0-1
+	MaxDrawdown       float64 `yaml:"max_drawdown" json:"max_drawdown"`               // 觸發對沖的最大回撤
+	AutoRebalance     bool    `yaml:"auto_rebalance" json:"auto_rebalance"`           // 自動再平衡
+	RebalanceInterval int     `yaml:"rebalance_interval" json:"rebalance_interval"`   // 再平衡間隔（秒）
+}
+
+// BotGroup 跨市場 Bot 組（用於對沖策略：合約+現貨等）
+type BotGroup struct {
+	ID          string       `yaml:"id" json:"id"`
+	Name        string       `yaml:"name" json:"name"`
+	Type        string       `yaml:"type" json:"type"`               // "futures_spot_hedge", "long_short_hedge"
+	BotIDs      []string     `yaml:"bot_ids" json:"bot_ids"`         // 關聯的 Bot ID 列表
+	HedgeConfig HedgeConfig  `yaml:"hedge_config" json:"hedge_config"`
 }
 
 // BotConfig 單個 Bot 配置（獨立的運行單元：交易所+交易對+策略集+參數+風控+資金）

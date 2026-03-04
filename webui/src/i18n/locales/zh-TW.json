@@ -106,16 +106,31 @@
     "stopSuccess": "Bot 已停止",
     "stopFailed": "停止 Bot 失敗",
     "viewDetail": "查看詳情",
-    "createBot": "創建 Bot"
+    "createBot": "創建 Bot",
+    "hedgeGroup": "對沖組",
+    "deleteConfirmTitle": "確認刪除 Bot？",
+    "deleteConfirmDesc": "將把「{{name}}」從配置中移除，若正在運行會先停止。",
+    "deleteSuccess": "Bot 已刪除",
+    "deleteFailed": "刪除 Bot 失敗",
+    "deleteInHedgeGroupHint": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組"
+  },
+  "error": {
+    "bot_symbol_conflict": "該交易對已存在 Bot，同一交易對不能運行多個 Bot。",
+    "bot_symbol_used_by_hedge_group": "該交易對已被對沖組「{{groupName}}」佔用，請先刪除對沖組再創建獨立 Bot。",
+    "bot_in_hedge_group_cannot_delete": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組。"
   },
   "botCreate": {
     "title": "創建 Bot",
-    "step1Title": "選擇交易對",
-    "step1Desc": "選擇交易所、市場類型和交易對",
-    "step2Title": "基礎參數",
-    "step2Desc": "配置價格間隔、訂單數量等",
-    "step3Title": "確認創建",
-    "step3Desc": "檢查配置並創建",
+    "step0Title": "策略類型",
+    "step0Desc": "選擇基礎、組合或對沖策略",
+    "step1Title": "選擇策略",
+    "step1Desc": "選擇具體策略或組合模板",
+    "step2Title": "交易對",
+    "step2Desc": "選擇交易所、市場類型和交易對",
+    "step3Title": "策略參數",
+    "step3Desc": "配置價格間隔、訂單數量等",
+    "step4Title": "確認創建",
+    "step4Desc": "檢查配置並創建",
     "marketType": "市場類型",
     "botName": "Bot 名稱",
     "botNamePlaceholder": "可選，給 Bot 起個名字方便辨認",
@@ -130,7 +145,49 @@
     "fillRequired": "請填寫必填項",
     "alreadyExists": "該交易對已存在 Bot，同一交易對不能運行多個 Bot（交易所倉位無法隔離）",
     "success": "Bot 創建成功",
-    "failed": "創建失敗"
+    "failed": "創建失敗",
+    "strategyTypeLabel": "策略類型",
+    "strategyLabel": "策略",
+    "hedgeMode": "期貨 + 現貨對沖",
+    "hedgeMarketHint": "對沖模式：將同時建立期貨和現貨 Bot，共用同一交易對。",
+    "strategyType": {
+      "single": {
+        "title": "單一策略",
+        "desc": "在單一市場上執行一種策略（網格、DCA 等）。",
+        "scene": "適合新手、穩定市場。"
+      },
+      "combo": {
+        "title": "組合策略",
+        "desc": "組合多種策略，可配置權重比例。",
+        "scene": "適應不同市場行情。"
+      },
+      "hedge": {
+        "title": "對沖組合",
+        "desc": "期貨 + 現貨跨市場對沖，降低方向性風險。",
+        "scene": "適合穩健型資金管理。"
+      }
+    },
+    "riskLevel": {
+      "low": "低風險",
+      "medium": "中風險",
+      "high": "高風險"
+    },
+    "strategyPicker": {
+      "singleTitle": "選擇一個策略",
+      "comboTitle": "選擇要組合的策略",
+      "hedgeTitle": "選擇期貨和現貨策略",
+      "templateTitle": "預設模板",
+      "weights": "權重",
+      "hedgeFutures": "期貨策略",
+      "hedgeSpot": "現貨策略",
+      "hedgeRatio": "對沖比例"
+    },
+    "strategyTemplate": {
+      "grid_trend": "網格 + 趨勢",
+      "dca_martingale": "DCA + 馬丁格爾",
+      "futures_spot_hedge": "期貨 + 現貨對沖"
+    },
+    "strategyParams": {}
   },
   "botDetail": {
     "openWorkspace": "進入工作區",

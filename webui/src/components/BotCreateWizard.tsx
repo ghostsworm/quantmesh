@@ -28,11 +28,14 @@ import {
 import { ChevronLeftIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
-import { getConfig, updateConfig, Config, SymbolConfig } from '../services/config'
+import { getConfig, type Config, type ExchangeConfig } from '../services/config'
 import { getExchangeSymbols } from '../services/setup'
-import { getExchanges, getBots } from '../services/api'
+import { getExchanges, getBots, createBot, createBotGroup } from '../services/api'
+import StrategyTypeSelector, { type StrategyTypeCategory } from './bot-create/StrategyTypeSelector'
+import StrategyPicker from './bot-create/StrategyPicker'
+import StrategyParamForm from './bot-create/StrategyParamForm'
 
-const STEPS = 3
+const STEPS = 5
 
 const BotCreateWizard: React.FC = () => {
   const { t } = useTranslation()
@@ -42,21 +45,40 @@ const BotCreateWizard: React.FC = () => {
   const [config, setConfig] = useState<Config | null>(null)
   const [exchanges, setExchanges] = useState<string[]>([])
   const [symbols, setSymbols] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
 
-  const [form, setForm] = useState<Partial<SymbolConfig>>({
+  const [strategyType, setStrategyType] = useState<StrategyTypeCategory | null>(null)
+  const [selectedSingle, setSelectedSingle] = useState<string | null>(null)
+  const [selectedCombo, setSelectedCombo] = useState<string[]>([])
+  const [comboWeights, setComboWeights] = useState<Record<string, number>>({})
+  const [hedgePrimary, setHedgePrimary] = useState<string | null>(null)
+  const [hedgeSecondary, setHedgeSecondary] = useState<string | null>(null)
+  const [hedgeRatio, setHedgeRatio] = useState(0.5)
+  const [strategyParams, setStrategyParams] = useState<Record<string, Record<string, unknown>>>({})
+
+  const [form, setForm] = useState<{
+    exchange: string
+    symbol: string
+    market_type: 'spot' | 'futures'
+    name: string
+    price_interval: number
+    order_quantity: number
+    buy_window_size: number
+    sell_window_size: number
+    direction: string
+  }>({
     exchange: 'binance',
     symbol: '',
     market_type: 'futures',
     name: '',
-    enabled: true,
     price_interval: 2,
     order_quantity: 30,
     buy_window_size: 10,
     sell_window_size: 10,
     direction: 'LONG',
   })
+
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -78,7 +100,7 @@ const BotCreateWizard: React.FC = () => {
 
   useEffect(() => {
     if (!form.exchange || !config?.exchanges) return
-    const exCfg = config.exchanges[form.exchange]
+    const exCfg = (config.exchanges as Record<string, ExchangeConfig>)?.[form.exchange]
     if (!exCfg?.api_key || !exCfg?.secret_key) {
       setSymbols([])
       return
@@ -86,10 +108,10 @@ const BotCreateWizard: React.FC = () => {
     const load = async () => {
       try {
         const res = await getExchangeSymbols({
-          exchange: form.exchange!,
-          api_key: exCfg.api_key,
-          secret_key: exCfg.secret_key,
-          passphrase: exCfg.passphrase || '',
+          exchange: form.exchange,
+          api_key: String(exCfg.api_key),
+          secret_key: String(exCfg.secret_key),
+          passphrase: String(exCfg.passphrase || ''),
           market_type: form.market_type === 'spot' ? 'spot' : 'futures',
         })
         setSymbols(res.symbols || [])
@@ -100,62 +122,97 @@ const BotCreateWizard: React.FC = () => {
     load()
   }, [form.exchange, form.market_type, config?.exchanges])
 
+  const getStrategyIds = (): string[] => {
+    if (strategyType === 'single' && selectedSingle) return [selectedSingle]
+    if (strategyType === 'combo' && selectedCombo.length > 0) return selectedCombo
+    if (strategyType === 'hedge') {
+      const ids: string[] = []
+      if (hedgePrimary) ids.push(hedgePrimary)
+      if (hedgeSecondary) ids.push(hedgeSecondary)
+      return ids
+    }
+    return []
+  }
+
+  const buildStrategies = () => {
+    const ids = getStrategyIds()
+    if (ids.length === 0) return [{ type: 'grid', weight: 1.0, config: {} }]
+    if (strategyType === 'combo') {
+      const total = ids.reduce((s, id) => s + (comboWeights[id] ?? 1 / ids.length), 0) || 1
+      return ids.map((id) => ({
+        type: id,
+        weight: (comboWeights[id] ?? 1 / ids.length) / total,
+        config: strategyParams[id] || {},
+      }))
+    }
+    return ids.map((id) => ({
+      type: id,
+      weight: 1 / ids.length,
+      config: strategyParams[id] || {},
+    }))
+  }
+
   const handleSubmit = async () => {
-    if (!config || !form.exchange || !form.symbol) {
+    if (!form.exchange || !form.symbol) {
       toast({ title: t('botCreate.fillRequired'), status: 'error', duration: 3000 })
       return
     }
     setSaving(true)
     try {
-      const mt = form.market_type || 'futures'
-      const symbols = Array.isArray(config.trading?.symbols) ? [...config.trading.symbols] : []
-      // 檢查同交易所+交易對+市場類型是否已存在
-      const exists = symbols.some(
-        (s) =>
-          (s.exchange || '').toLowerCase() === (form.exchange || '').toLowerCase() &&
-          (s.symbol || '').toUpperCase() === (form.symbol || '').toUpperCase() &&
-          (s.market_type || 'futures') === mt
-      )
-      if (exists) {
-        toast({ title: t('botCreate.alreadyExists'), status: 'warning', duration: 3000 })
-        setSaving(false)
-        return
-      }
-      const newSymbol: SymbolConfig = {
-        ...(form.name?.trim() && { name: form.name.trim() }),
+      const baseReq = {
         exchange: form.exchange,
         symbol: form.symbol,
-        market_type: mt,
-        enabled: form.enabled ?? true,
+        market_type: form.market_type,
+        name: form.name?.trim() || undefined,
         price_interval: form.price_interval ?? 2,
         order_quantity: form.order_quantity ?? 30,
         buy_window_size: form.buy_window_size ?? 10,
         sell_window_size: form.sell_window_size ?? 10,
         direction: form.direction || 'LONG',
+        strategies: buildStrategies(),
       }
-      symbols.push(newSymbol)
-      const updated = { ...config, trading: { ...config.trading, symbols } }
-      await updateConfig(updated)
-      toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
 
-      const botsRes = await getBots()
-      const bot = (botsRes.bots || []).find(
-        (b) =>
-          b.exchange === newSymbol.exchange &&
-          b.symbol === newSymbol.symbol &&
-          b.market_type === (newSymbol.market_type || 'futures')
-      )
-      if (bot) {
-        navigate(`/bots/${bot.bot_id}`)
-      } else {
+      if (strategyType === 'hedge') {
+        await createBotGroup({
+          name: form.name?.trim() || `${form.symbol} Hedge`,
+          type: 'futures_spot_hedge',
+          hedge_config: { hedge_ratio: hedgeRatio, rebalance_interval: 3600 },
+          futures_bot: { ...baseReq, market_type: 'futures' },
+          spot_bot: { ...baseReq, market_type: 'spot' },
+        })
+        toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
         navigate('/bots')
+      } else {
+        await createBot(baseReq)
+        toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
+        const botsRes = await getBots()
+        const bot = (botsRes.bots || []).find(
+          (b) =>
+            b.exchange === form.exchange &&
+            b.symbol === form.symbol &&
+            b.market_type === (form.market_type || 'futures')
+        )
+        if (bot) navigate(`/bots/${bot.bot_id}`)
+        else navigate('/bots')
       }
     } catch (err) {
-      toast({ title: t('botCreate.failed'), status: 'error', duration: 3000 })
+      const e = err as Error & { errorKey?: string; groupName?: string }
+      const msg =
+        e.errorKey
+          ? t(e.errorKey, { groupName: e.groupName ?? '' })
+          : t('botCreate.failed')
+      toast({ title: msg, status: 'error', duration: 4000 })
     } finally {
       setSaving(false)
     }
   }
+
+  const canProceedStep0 = strategyType !== null
+  const canProceedStep1 =
+    (strategyType === 'single' && selectedSingle) ||
+    (strategyType === 'combo' && selectedCombo.length > 0) ||
+    (strategyType === 'hedge' && hedgePrimary && hedgeSecondary)
+  const canProceedStep2 = form.exchange && form.symbol
 
   if (loading) {
     return (
@@ -164,6 +221,21 @@ const BotCreateWizard: React.FC = () => {
       </Box>
     )
   }
+
+  const stepTitles = [
+    t('botCreate.step0Title'),
+    t('botCreate.step1Title'),
+    t('botCreate.step2Title'),
+    t('botCreate.step3Title'),
+    t('botCreate.step4Title'),
+  ]
+  const stepDescs = [
+    t('botCreate.step0Desc'),
+    t('botCreate.step1Desc'),
+    t('botCreate.step2Desc'),
+    t('botCreate.step3Desc'),
+    t('botCreate.step4Desc'),
+  ]
 
   return (
     <Box>
@@ -175,22 +247,14 @@ const BotCreateWizard: React.FC = () => {
       </Heading>
 
       <Stepper index={step} mb={8}>
-        {[0, 1, 2].map((i) => (
+        {Array.from({ length: STEPS }, (_, i) => (
           <Step key={i}>
             <StepIndicator>
               <StepStatus complete={<StepNumber />} incomplete={<StepNumber />} active={<StepNumber />} />
             </StepIndicator>
             <Box flexShrink="0">
-              <StepTitle>
-                {i === 0 && t('botCreate.step1Title')}
-                {i === 1 && t('botCreate.step2Title')}
-                {i === 2 && t('botCreate.step3Title')}
-              </StepTitle>
-              <StepDescription>
-                {i === 0 && t('botCreate.step1Desc')}
-                {i === 1 && t('botCreate.step2Desc')}
-                {i === 2 && t('botCreate.step3Desc')}
-              </StepDescription>
+              <StepTitle>{stepTitles[i]}</StepTitle>
+              <StepDescription>{stepDescs[i]}</StepDescription>
             </Box>
             <StepSeparator />
           </Step>
@@ -200,6 +264,32 @@ const BotCreateWizard: React.FC = () => {
       <Card>
         <CardBody>
           {step === 0 && (
+            <StrategyTypeSelector value={strategyType} onChange={setStrategyType} />
+          )}
+
+          {step === 1 && (
+            <StrategyPicker
+              strategyType={strategyType!}
+              selectedSingle={selectedSingle}
+              selectedCombo={selectedCombo}
+              comboWeights={comboWeights}
+              hedgePrimary={hedgePrimary}
+              hedgeSecondary={hedgeSecondary}
+              hedgeRatio={hedgeRatio}
+              onSingleChange={setSelectedSingle}
+              onComboChange={(ids, w) => {
+                setSelectedCombo(ids)
+                setComboWeights(w)
+              }}
+              onHedgeChange={(p, s, r) => {
+                setHedgePrimary(p)
+                setHedgeSecondary(s)
+                setHedgeRatio(r)
+              }}
+            />
+          )}
+
+          {step === 2 && (
             <VStack spacing={4} align="stretch">
               <FormControl isRequired>
                 <FormLabel>{t('configSetup.exchange')}</FormLabel>
@@ -208,22 +298,25 @@ const BotCreateWizard: React.FC = () => {
                   onChange={(e) => setForm((f) => ({ ...f, exchange: e.target.value }))}
                 >
                   {exchanges.map((ex) => (
-                    <option key={ex} value={ex}>
-                      {ex.toUpperCase()}
-                    </option>
+                    <option key={ex} value={ex}>{ex.toUpperCase()}</option>
                   ))}
                 </Select>
               </FormControl>
-              <FormControl isRequired>
-                <FormLabel>{t('botCreate.marketType')}</FormLabel>
-                <Select
-                  value={form.market_type || 'futures'}
-                  onChange={(e) => setForm((f) => ({ ...f, market_type: e.target.value as 'spot' | 'futures' }))}
-                >
-                  <option value="futures">{t('symbolManager.futures')}</option>
-                  <option value="spot">{t('symbolManager.spot')}</option>
-                </Select>
-              </FormControl>
+              {strategyType !== 'hedge' && (
+                <FormControl isRequired>
+                  <FormLabel>{t('botCreate.marketType')}</FormLabel>
+                  <Select
+                    value={form.market_type || 'futures'}
+                    onChange={(e) => setForm((f) => ({ ...f, market_type: e.target.value as 'spot' | 'futures' }))}
+                  >
+                    <option value="futures">{t('symbolManager.futures')}</option>
+                    <option value="spot">{t('symbolManager.spot')}</option>
+                  </Select>
+                </FormControl>
+              )}
+              {strategyType === 'hedge' && (
+                <Text fontSize="sm" color="gray.600">{t('botCreate.hedgeMarketHint')}</Text>
+              )}
               <FormControl isRequired>
                 <FormLabel>{t('configSetup.symbol')}</FormLabel>
                 <Select
@@ -232,9 +325,7 @@ const BotCreateWizard: React.FC = () => {
                   placeholder={t('botCreate.selectSymbol')}
                 >
                   {symbols.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
+                    <option key={s} value={s}>{s}</option>
                   ))}
                 </Select>
               </FormControl>
@@ -249,8 +340,13 @@ const BotCreateWizard: React.FC = () => {
             </VStack>
           )}
 
-          {step === 1 && (
+          {step === 3 && (
             <VStack spacing={4} align="stretch">
+              <StrategyParamForm
+                strategyIds={getStrategyIds()}
+                value={strategyParams}
+                onChange={setStrategyParams}
+              />
               <FormControl>
                 <FormLabel>{t('botCreate.priceInterval')}</FormLabel>
                 <NumberInput
@@ -295,16 +391,23 @@ const BotCreateWizard: React.FC = () => {
             </VStack>
           )}
 
-          {step === 2 && (
+          {step === 4 && (
             <VStack spacing={4} align="stretch">
               <Text>{t('botCreate.reviewDesc')}</Text>
               <Box bg="gray.50" p={4} borderRadius="md" fontSize="sm">
-                {form.name && (
-                  <Text><strong>{t('botCreate.botName')}:</strong> {form.name}</Text>
-                )}
+                {form.name && <Text><strong>{t('botCreate.botName')}:</strong> {form.name}</Text>}
                 <Text><strong>{t('configSetup.exchange')}:</strong> {form.exchange}</Text>
                 <Text><strong>{t('configSetup.symbol')}:</strong> {form.symbol}</Text>
-                <Text><strong>{t('botCreate.marketType')}:</strong> {form.market_type}</Text>
+                <Text><strong>{t('botCreate.strategyTypeLabel')}:</strong> {t(`botCreate.strategyType.${strategyType}.title`)}</Text>
+                {strategyType === 'single' && selectedSingle && (
+                  <Text><strong>{t('botCreate.strategyLabel')}:</strong> {t(`strategyNames.${selectedSingle}`, selectedSingle)}</Text>
+                )}
+                {strategyType === 'combo' && (
+                  <Text><strong>{t('botCreate.strategyLabel')}:</strong> {selectedCombo.map((s) => t(`strategyNames.${s}`, s)).join(', ')}</Text>
+                )}
+                {strategyType === 'hedge' && (
+                  <Text><strong>{t('botCreate.strategyLabel')}:</strong> {t('botCreate.hedgeMode')} ({hedgePrimary} + {hedgeSecondary})</Text>
+                )}
                 <Text><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
                 <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
               </Box>
@@ -312,18 +415,18 @@ const BotCreateWizard: React.FC = () => {
           )}
 
           <HStack mt={6} justify="space-between">
-            <Button
-              isDisabled={step === 0}
-              variant="ghost"
-              onClick={() => setStep((s) => Math.max(0, s - 1))}
-            >
+            <Button isDisabled={step === 0} variant="ghost" onClick={() => setStep((s) => Math.max(0, s - 1))}>
               {t('common.back')}
             </Button>
             {step < STEPS - 1 ? (
               <Button
                 colorScheme="blue"
                 onClick={() => setStep((s) => Math.min(STEPS - 1, s + 1))}
-                isDisabled={step === 0 && (!form.exchange || !form.symbol)}
+                isDisabled={
+                  (step === 0 && !canProceedStep0) ||
+                  (step === 1 && !canProceedStep1) ||
+                  (step === 2 && !canProceedStep2)
+                }
               >
                 {t('botCreate.next')}
               </Button>

@@ -14,11 +14,20 @@ import {
   Text,
   Badge,
   useToast,
+  useDisclosure,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
+  Tooltip,
 } from '@chakra-ui/react'
-import { AddIcon, ChevronRightIcon, RepeatIcon } from '@chakra-ui/icons'
+import { AddIcon, ChevronRightIcon, RepeatIcon, DeleteIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
-import { getBots, startBot, stopBot, BotInfo } from '../services/api'
+import { getBots, getBotGroups, startBot, stopBot, deleteBot, BotInfo } from '../services/api'
+import type { BotGroupResponse } from '../services/api'
 
 type FilterStatus = 'all' | 'running' | 'stopped'
 
@@ -27,9 +36,23 @@ const BotList: React.FC = () => {
   const toast = useToast()
   const navigate = useNavigate()
   const [bots, setBots] = useState<BotInfo[]>([])
+  const [botGroups, setBotGroups] = useState<BotGroupResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [actionBotId, setActionBotId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const [deleteTarget, setDeleteTarget] = useState<BotInfo | null>(null)
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
+  const cancelDeleteRef = React.useRef<HTMLButtonElement>(null)
+
+  const botIdToGroup = React.useMemo(() => {
+    const m = new Map<string, BotGroupResponse>()
+    for (const g of botGroups) {
+      for (const id of g.bot_ids || []) {
+        m.set(id, g)
+      }
+    }
+    return m
+  }, [botGroups])
 
   const filteredBots = bots.filter((b) => {
     if (filterStatus === 'running') return b.running
@@ -39,8 +62,12 @@ const BotList: React.FC = () => {
 
   const fetchBots = async () => {
     try {
-      const res = await getBots()
-      setBots(res.bots || [])
+      const [botsRes, groupsRes] = await Promise.all([
+        getBots(),
+        getBotGroups().catch(() => ({ bot_groups: [] as BotGroupResponse[] })),
+      ])
+      setBots(botsRes.bots || [])
+      setBotGroups(groupsRes.bot_groups || [])
     } catch (err) {
       console.error('Failed to fetch bots:', err)
       toast({ title: t('botList.fetchFailed'), status: 'error', duration: 3000 })
@@ -62,7 +89,9 @@ const BotList: React.FC = () => {
       toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
       fetchBots()
     } catch (err) {
-      toast({ title: t('botList.startFailed'), status: 'error', duration: 3000 })
+      const e = err as Error & { errorKey?: string; groupName?: string }
+      const msg = e.errorKey ? t(e.errorKey, { groupName: e.groupName ?? '' }) : t('botList.startFailed')
+      toast({ title: msg, status: 'error', duration: 4000 })
     } finally {
       setActionBotId(null)
     }
@@ -79,6 +108,34 @@ const BotList: React.FC = () => {
     } finally {
       setActionBotId(null)
     }
+  }
+
+  const handleDeleteClick = (bot: BotInfo) => {
+    setDeleteTarget(bot)
+    onDeleteOpen()
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    setActionBotId(deleteTarget.bot_id)
+    try {
+      await deleteBot(deleteTarget.bot_id)
+      toast({ title: t('botList.deleteSuccess'), status: 'success', duration: 2000 })
+      onDeleteClose()
+      setDeleteTarget(null)
+      fetchBots()
+    } catch (err) {
+      const e = err as Error & { errorKey?: string; groupName?: string }
+      const msg = e.errorKey ? t(e.errorKey, { groupName: e.groupName ?? '' }) : t('botList.deleteFailed')
+      toast({ title: msg, status: 'error', duration: 4000 })
+    } finally {
+      setActionBotId(null)
+    }
+  }
+
+  const handleDeleteCancel = () => {
+    onDeleteClose()
+    setDeleteTarget(null)
   }
 
   if (loading) {
@@ -152,12 +209,17 @@ const BotList: React.FC = () => {
               <CardBody>
                 <Flex justify="space-between" align="flex-start" mb={2}>
                   <Box>
-                    <HStack spacing={2}>
+                    <HStack spacing={2} flexWrap="wrap">
                       <Badge colorScheme={bot.running ? 'green' : 'gray'} fontSize="10px">
                         {bot.running ? t('botList.running') : t('botList.stopped')}
                       </Badge>
                       {bot.risk_triggered && (
                         <Badge colorScheme="red" fontSize="10px">{t('botList.riskTriggered')}</Badge>
+                      )}
+                      {botIdToGroup.get(bot.bot_id) && (
+                        <Badge colorScheme="purple" fontSize="10px" title={botIdToGroup.get(bot.bot_id)!.name}>
+                          {t('botList.hedgeGroup')}
+                        </Badge>
                       )}
                     </HStack>
                     <Heading
@@ -192,33 +254,82 @@ const BotList: React.FC = () => {
                     )}
                   </HStack>
                 )}
-                <Flex mt={4} gap={2} onClick={(e) => e.stopPropagation()}>
-                  {bot.running ? (
-                    <Button
+                <Flex mt={4} gap={2} onClick={(e) => e.stopPropagation()} align="center" justify="space-between">
+                  <HStack spacing={2}>
+                    {bot.running ? (
+                      <Button
+                        size="sm"
+                        colorScheme="red"
+                        variant="outline"
+                        isLoading={actionBotId === bot.bot_id}
+                        onClick={() => handleStop(bot.bot_id)}
+                      >
+                        {t('botList.stop')}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        colorScheme="green"
+                        isLoading={actionBotId === bot.bot_id}
+                        onClick={() => handleStart(bot.bot_id)}
+                      >
+                        {t('botList.start')}
+                      </Button>
+                    )}
+                  </HStack>
+                  <Tooltip
+                    label={
+                      botIdToGroup.get(bot.bot_id)
+                        ? t('botList.deleteInHedgeGroupHint', {
+                            groupName: botIdToGroup.get(bot.bot_id)!.name,
+                          })
+                        : t('common.delete')
+                    }
+                  >
+                    <IconButton
+                      aria-label={t('common.delete')}
+                      icon={<DeleteIcon />}
                       size="sm"
+                      variant="ghost"
                       colorScheme="red"
-                      variant="outline"
                       isLoading={actionBotId === bot.bot_id}
-                      onClick={() => handleStop(bot.bot_id)}
-                    >
-                      {t('botList.stop')}
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      colorScheme="green"
-                      isLoading={actionBotId === bot.bot_id}
-                      onClick={() => handleStart(bot.bot_id)}
-                    >
-                      {t('botList.start')}
-                    </Button>
-                  )}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteClick(bot)
+                      }}
+                    />
+                  </Tooltip>
                 </Flex>
               </CardBody>
             </Card>
           ))}
         </Grid>
       )}
+
+      <AlertDialog
+        isOpen={isDeleteOpen}
+        leastDestructiveRef={cancelDeleteRef}
+        onClose={handleDeleteCancel}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              {t('botList.deleteConfirmTitle')}
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              {deleteTarget && t('botList.deleteConfirmDesc', { name: deleteTarget.name || deleteTarget.symbol })}
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <Button ref={cancelDeleteRef} onClick={handleDeleteCancel}>
+                {t('common.cancel')}
+              </Button>
+              <Button colorScheme="red" onClick={handleDeleteConfirm} ml={3}>
+                {t('common.delete')}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Box>
   )
 }
