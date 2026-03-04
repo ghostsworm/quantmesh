@@ -2,6 +2,35 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.57.0-rc3] - 2026-03-04
+
+### Fixed
+- **啟動失敗錯誤提示**：BotList、BotDetail 的 handleStart 失敗時使用 API 返回的 errorKey 展示具體原因（如交易對衝突）
+- **刪除按鈕**：對沖組內 Bot 懸停刪除按鈕時顯示 tooltip 提示「請先刪除對沖組」；點擊時 stopPropagation 避免觸發卡片導航
+- **後端日誌**：Bot 創建/對沖組創建衝突、刪除被拒、刪除成功時增加 logger 記錄，便於排查
+
+## [3.57.0-rc2] - 2026-03-04
+
+### Fixed (P0)
+- **衝突檢測區分**：創建 Bot 時，若交易對已被對沖組占用，返回明確錯誤 `error.bot_symbol_used_by_hedge_group` 並提示組名，不再僅顯示「交易對衝突」
+- **創建對沖組衝突**：同邏輯，創建對沖組時若 futures/spot 已被另一對沖組占用，返回明確提示
+- **BotList 對沖組標籤**：Bot 列表並行拉取 `getBotGroups`，對屬於對沖組的 Bot 顯示紫色「Hedge」badge
+- **單個 Bot 刪除**：新增 `DELETE /api/bots/:id`，若 Bot 屬於對沖組則返回 403 禁止單獨刪除；前端 BotList 增加刪除按鈕與確認對話框
+- **i18n**：所有 21 個 locale 補全 `error.bot_symbol_conflict`、`error.bot_symbol_used_by_hedge_group`、`error.bot_in_hedge_group_cannot_delete` 及 botList 刪除相關 key
+
+## [3.57.0-rc1] - 2026-03-04
+
+### Added
+- **Bot 創建流程策略選擇重構**：Bot 創建嚮導從 3 步擴展為 5 步，支持策略選擇與配置
+  - 後端：新增 `POST /api/bots/create` API，接受含策略配置的 BotConfig，替代前端直接改 config
+  - 後端：config.go 新增 `BotGroup`/`HedgeConfig` 類型，Config 增加 `BotGroups` 字段
+  - 後端：新增 BotGroup CRUD API（`POST/GET/DELETE /api/bot-groups`），支持跨市場對沖
+  - 後端：新增 `strategy/hedge_coordinator.go` 和 `bot_group_manager.go`，實現對沖協調邏輯
+  - 後端：`GET /api/strategies/templates` 返回預設組合模板（grid_trend/dca_martingale/futures_spot_hedge）
+  - 前端：新增 `StrategyTypeSelector`、`StrategyPicker`、`StrategyParamForm` 組件
+  - 前端：支持基礎策略、組合策略（多策略+權重）、對沖策略（合約+現貨 Bot 組）
+  - i18n：所有 locale 新增策略選擇相關 key（~50 個）
+
 ## [3.56.3-rc2] - 2026-03-04
 
 ### Changed

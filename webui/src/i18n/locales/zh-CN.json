@@ -25,6 +25,11 @@
     "loadFailed": "加载失败",
     "success": "操作成功"
   },
+  "error": {
+    "bot_symbol_conflict": "该交易对已存在 Bot，同一交易对不能运行多个 Bot。",
+    "bot_symbol_used_by_hedge_group": "该交易对已被对冲组「{{groupName}}」占用，请先删除对冲组再创建独立 Bot。",
+    "bot_in_hedge_group_cannot_delete": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组。"
+  },
   "botList": {
     "title": "Bot 列表",
     "noBots": "暂无 Bot 配置",
@@ -41,16 +46,26 @@
     "stopSuccess": "Bot 已停止",
     "stopFailed": "停止 Bot 失败",
     "viewDetail": "查看详情",
-    "createBot": "创建 Bot"
+    "createBot": "创建 Bot",
+    "hedgeGroup": "对冲组",
+    "deleteConfirmTitle": "确认删除 Bot？",
+    "deleteConfirmDesc": "将把「{{name}}」从配置中移除，若正在运行会先停止。",
+    "deleteSuccess": "Bot 已删除",
+    "deleteFailed": "删除 Bot 失败",
+    "deleteInHedgeGroupHint": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组"
   },
   "botCreate": {
     "title": "创建 Bot",
-    "step1Title": "选择交易对",
-    "step1Desc": "选择交易所、市场类型和交易对",
-    "step2Title": "基础参数",
-    "step2Desc": "配置价格间隔、订单数量等",
-    "step3Title": "确认创建",
-    "step3Desc": "检查配置并创建",
+    "step0Title": "策略类型",
+    "step0Desc": "选择基础、组合或对冲策略",
+    "step1Title": "选择策略",
+    "step1Desc": "选择具体策略或组合模板",
+    "step2Title": "交易对",
+    "step2Desc": "选择交易所、市场类型和交易对",
+    "step3Title": "参数配置",
+    "step3Desc": "配置策略参数和基础交易参数",
+    "step4Title": "确认创建",
+    "step4Desc": "检查配置并创建",
     "marketType": "市场类型",
     "botName": "Bot 名称",
     "botNamePlaceholder": "可选，给 Bot 起个名字方便辨认",
@@ -65,7 +80,49 @@
     "fillRequired": "请填写必填项",
     "alreadyExists": "该交易对已存在 Bot，同一交易对不能运行多个 Bot（交易所仓位无法隔离）",
     "success": "Bot 创建成功",
-    "failed": "创建失败"
+    "failed": "创建失败",
+    "strategyTypeLabel": "策略类型",
+    "strategyLabel": "策略",
+    "hedgeMode": "合约+现货对冲",
+    "hedgeMarketHint": "对冲模式：将同时创建合约和现货两个 Bot，使用同一交易对。",
+    "strategyType": {
+      "single": {
+        "title": "基础策略",
+        "desc": "在单一市场运行一种策略（网格、DCA 等）。",
+        "scene": "适合新手、震荡市。"
+      },
+      "combo": {
+        "title": "组合策略",
+        "desc": "多策略组合，可配置权重，适应不同市况。",
+        "scene": "震荡时网格、突破时趋势。"
+      },
+      "hedge": {
+        "title": "对冲策略",
+        "desc": "合约+现货跨市场对冲，降低方向性风险。",
+        "scene": "适合资金保值。"
+      }
+    },
+    "riskLevel": {
+      "low": "低风险",
+      "medium": "中风险",
+      "high": "高风险"
+    },
+    "strategyPicker": {
+      "singleTitle": "选择策略",
+      "comboTitle": "选择要组合的策略",
+      "hedgeTitle": "选择合约与现货策略",
+      "templateTitle": "预设模板",
+      "weights": "权重",
+      "hedgeFutures": "合约策略",
+      "hedgeSpot": "现货策略",
+      "hedgeRatio": "对冲比例"
+    },
+    "strategyTemplate": {
+      "grid_trend": "网格+趋势",
+      "dca_martingale": "DCA+马丁",
+      "futures_spot_hedge": "合约+现货对冲"
+    },
+    "strategyParams": {}
   },
   "botDetail": {
     "openWorkspace": "进入工作区",

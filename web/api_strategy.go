@@ -89,6 +89,55 @@ type StrategyConfig struct {
 	Parameters    map[string]interface{} `json:"parameters"`
 }
 
+// StrategyTemplate 策略組合模板
+type StrategyTemplate struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Type        string   `json:"type"` // combo, hedge
+	Strategies  []string `json:"strategies"`
+	Weights     []float64 `json:"weights,omitempty"`
+	Tags        []string `json:"tags"`
+}
+
+// getStrategyTemplatesHandler 獲取預設組合模板
+// GET /api/strategies/templates
+func getStrategyTemplatesHandler(c *gin.Context) {
+	templates := []StrategyTemplate{
+		{
+			ID:          "grid_trend",
+			Name:        "網格+趨勢",
+			Description: "震盪時網格，突破時趨勢",
+			Type:        "combo",
+			Strategies:  []string{"grid", "trend_following"},
+			Weights:     []float64{0.6, 0.4},
+			Tags:        []string{"网格", "趋势", "震荡市", "突破"},
+		},
+		{
+			ID:          "dca_martingale",
+			Name:        "DCA+馬丁",
+			Description: "穩健定投+極端行情補倉",
+			Type:        "combo",
+			Strategies:  []string{"dca", "martingale"},
+			Weights:     []float64{0.7, 0.3},
+			Tags:        []string{"DCA", "马丁", "定投", "补仓"},
+		},
+		{
+			ID:          "futures_spot_hedge",
+			Name:        "合約+現貨對沖",
+			Description: "合約打底+現貨對沖",
+			Type:        "hedge",
+			Strategies:  []string{"grid", "grid"},
+			Tags:        []string{"对冲", "合约", "现货", "跨市场"},
+		},
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"templates": templates,
+		"total":     len(templates),
+	})
+}
+
 // 獲取所有可用策略
 func getStrategiesHandler(c *gin.Context) {
 	// 獲取當前配置以确定策略是否啟用

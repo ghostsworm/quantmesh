@@ -118,7 +118,9 @@ const BotDetail: React.FC = () => {
       toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
       await fetchBot()
     } catch (err) {
-      toast({ title: t('botList.startFailed'), status: 'error', duration: 3000 })
+      const e = err as Error & { errorKey?: string; groupName?: string }
+      const msg = e.errorKey ? t(e.errorKey, { groupName: e.groupName ?? '' }) : t('botList.startFailed')
+      toast({ title: msg, status: 'error', duration: 4000 })
     } finally {
       setActioning(false)
     }

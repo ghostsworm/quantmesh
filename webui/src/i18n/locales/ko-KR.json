@@ -101,16 +101,27 @@
     "stopSuccess": "봇 중지됨",
     "stopFailed": "중지 실패",
     "viewDetail": "상세 보기",
-    "createBot": "봇 만들기"
+    "createBot": "봇 만들기",
+    "hedgeGroup": "헤지",
+    "deleteConfirmTitle": "봇을 삭제하시겠습니까?",
+    "deleteConfirmDesc": "「{{name}}」이(가) 설정에서 제거됩니다. 실행 중이면 중지됩니다.",
+    "deleteSuccess": "봇이 삭제되었습니다",
+    "deleteFailed": "봇 삭제에 실패했습니다",
+    "deleteInHedgeGroupHint": "이 봇은 헤지 그룹「{{groupName}}」에 속합니다. 먼저 그룹을 삭제하세요."
+  },
+  "error": {
+    "bot_symbol_conflict": "이 심볼에 대한 봇이 이미 존재합니다.",
+    "bot_symbol_used_by_hedge_group": "이 심볼은 헤지 그룹「{{groupName}}」에서 사용 중입니다. 먼저 헤지 그룹을 삭제하세요.",
+    "bot_in_hedge_group_cannot_delete": "이 봇은 헤지 그룹「{{groupName}}」에 속합니다. 먼저 헤지 그룹을 삭제하세요."
   },
   "botCreate": {
     "title": "봇 만들기",
-    "step1Title": "거래쌍 선택",
-    "step1Desc": "거래소, 시장 유형, 심볼 선택",
-    "step2Title": "기본 매개변수",
-    "step2Desc": "가격 간격, 주문 수량 등 설정",
-    "step3Title": "확인",
-    "step3Desc": "설정 확인 후 생성",
+    "step1Title": "Select Strategy",
+    "step1Desc": "Pick strategy or combo template",
+    "step2Title": "Trading Pair",
+    "step2Desc": "Choose exchange, market type and symbol",
+    "step3Title": "Strategy Parameters",
+    "step3Desc": "Configure price interval, order quantity, etc.",
     "marketType": "시장 유형",
     "botName": "봇 이름",
     "botNamePlaceholder": "선택 사항, 봇에 이름을 지정하여 쉽게 식별할 수 있습니다",
@@ -125,7 +136,53 @@
     "fillRequired": "필수 항목을 입력하세요",
     "alreadyExists": "이 심볼에 대한 봇이 이미 존재합니다. 같은 심볼에 여러 봇을 사용할 수 없습니다 (거래소 포지션을 분리할 수 없음).",
     "success": "봇이 생성되었습니다",
-    "failed": "생성 실패"
+    "failed": "생성 실패",
+    "step0Title": "Strategy Type",
+    "step0Desc": "Choose single, combo, or hedge strategy",
+    "step4Title": "Confirm",
+    "step4Desc": "Review and create",
+    "strategyTypeLabel": "Strategy Type",
+    "strategyLabel": "Strategy",
+    "hedgeMode": "Futures + Spot Hedge",
+    "hedgeMarketHint": "Hedge mode: creates both futures and spot bots for the same symbol.",
+    "strategyType": {
+      "single": {
+        "title": "Single Strategy",
+        "desc": "Run one strategy (grid, DCA, etc.) on a single market.",
+        "scene": "Suitable for beginners, stable markets."
+      },
+      "combo": {
+        "title": "Combo Strategy",
+        "desc": "Combine multiple strategies with configurable weights.",
+        "scene": "Adapt to different market conditions."
+      },
+      "hedge": {
+        "title": "Hedge Group",
+        "desc": "Futures + spot cross-market hedge, reduces directional risk.",
+        "scene": "Suitable for capital preservation."
+      }
+    },
+    "riskLevel": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
+    "strategyPicker": {
+      "singleTitle": "Select a strategy",
+      "comboTitle": "Select strategies to combine",
+      "hedgeTitle": "Select strategies for futures and spot",
+      "templateTitle": "Preset templates",
+      "weights": "Weights",
+      "hedgeFutures": "Futures strategy",
+      "hedgeSpot": "Spot strategy",
+      "hedgeRatio": "Hedge ratio"
+    },
+    "strategyTemplate": {
+      "grid_trend": "Grid + Trend",
+      "dca_martingale": "DCA + Martingale",
+      "futures_spot_hedge": "Futures + Spot Hedge"
+    },
+    "strategyParams": {}
   },
   "botDetail": {
     "openWorkspace": "작업 공간 열기",

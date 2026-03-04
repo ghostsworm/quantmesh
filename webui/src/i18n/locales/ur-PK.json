@@ -324,16 +324,27 @@
     "stopSuccess": "بوٹ بند ہو گیا",
     "stopFailed": "روکنا ناکام",
     "viewDetail": "تفصیلات",
-    "createBot": "بوٹ بنائیں"
+    "createBot": "بوٹ بنائیں",
+    "hedgeGroup": "ہیج",
+    "deleteConfirmTitle": "بوٹ حذف کریں؟",
+    "deleteConfirmDesc": "«{{name}}» کنفیگریشن سے ہٹا دیا جائے گا۔ چل رہا ہو تو بوٹ رک جائے گا۔",
+    "deleteSuccess": "بوٹ حذف ہو گیا",
+    "deleteFailed": "بوٹ حذف کرنے میں ناکام",
+    "deleteInHedgeGroupHint": "یہ بوٹ ہیج گروپ «{{groupName}}» سے تعلق رکھتا ہے۔ پہلے گروپ حذف کریں۔"
+  },
+  "error": {
+    "bot_symbol_conflict": "اس علامت کے لیے بوٹ پہلے سے موجود ہے۔",
+    "bot_symbol_used_by_hedge_group": "یہ علامت ہیج گروپ «{{groupName}}» استعمال کر رہا ہے۔ پہلے گروپ حذف کریں۔",
+    "bot_in_hedge_group_cannot_delete": "یہ بوٹ ہیج گروپ «{{groupName}}» سے تعلق رکھتا ہے۔ پہلے گروپ حذف کریں۔"
   },
   "botCreate": {
     "title": "بوٹ بنائیں",
-    "step1Title": "جوڑی منتخب کریں",
-    "step1Desc": "ایکسچینج، مارکیٹ کی قسم اور علامت",
-    "step2Title": "بنیادی پیرامیٹرز",
-    "step2Desc": "قیمت کا وقفہ، مقدار وغیرہ",
-    "step3Title": "تصدیق کریں",
-    "step3Desc": "جائزہ لیں اور بنائیں",
+    "step1Title": "Select Strategy",
+    "step1Desc": "Pick strategy or combo template",
+    "step2Title": "Trading Pair",
+    "step2Desc": "Choose exchange, market type and symbol",
+    "step3Title": "Strategy Parameters",
+    "step3Desc": "Configure price interval, order quantity, etc.",
     "marketType": "مارکیٹ کی قسم",
     "botName": "بوٹ کا نام",
     "botNamePlaceholder": "اختیاری، بوٹ کو آسانی سے شناخت کے لیے نام دیں",
@@ -348,7 +359,53 @@
     "fillRequired": "ضروری فیلڈز بھریں",
     "alreadyExists": "اس علامت کے لیے بوٹ پہلے سے موجود ہے۔ ایک ہی علامت پر متعدد بوٹس کی اجازت نہیں ہے (ایکسچینج پوزیشنز کو الگ نہیں کیا جا سکتا)۔",
     "success": "بوٹ بن گیا",
-    "failed": "بنانا ناکام"
+    "failed": "بنانا ناکام",
+    "step0Title": "Strategy Type",
+    "step0Desc": "Choose single, combo, or hedge strategy",
+    "step4Title": "Confirm",
+    "step4Desc": "Review and create",
+    "strategyTypeLabel": "Strategy Type",
+    "strategyLabel": "Strategy",
+    "hedgeMode": "Futures + Spot Hedge",
+    "hedgeMarketHint": "Hedge mode: creates both futures and spot bots for the same symbol.",
+    "strategyType": {
+      "single": {
+        "title": "Single Strategy",
+        "desc": "Run one strategy (grid, DCA, etc.) on a single market.",
+        "scene": "Suitable for beginners, stable markets."
+      },
+      "combo": {
+        "title": "Combo Strategy",
+        "desc": "Combine multiple strategies with configurable weights.",
+        "scene": "Adapt to different market conditions."
+      },
+      "hedge": {
+        "title": "Hedge Group",
+        "desc": "Futures + spot cross-market hedge, reduces directional risk.",
+        "scene": "Suitable for capital preservation."
+      }
+    },
+    "riskLevel": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
+    "strategyPicker": {
+      "singleTitle": "Select a strategy",
+      "comboTitle": "Select strategies to combine",
+      "hedgeTitle": "Select strategies for futures and spot",
+      "templateTitle": "Preset templates",
+      "weights": "Weights",
+      "hedgeFutures": "Futures strategy",
+      "hedgeSpot": "Spot strategy",
+      "hedgeRatio": "Hedge ratio"
+    },
+    "strategyTemplate": {
+      "grid_trend": "Grid + Trend",
+      "dca_martingale": "DCA + Martingale",
+      "futures_spot_hedge": "Futures + Spot Hedge"
+    },
+    "strategyParams": {}
   },
   "botDetail": {
     "openWorkspace": "ورک اسپیس کھولیں",

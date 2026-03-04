@@ -324,16 +324,27 @@
     "stopSuccess": "Бот зупинено",
     "stopFailed": "Помилка зупинки",
     "viewDetail": "Деталі",
-    "createBot": "Створити бота"
+    "createBot": "Створити бота",
+    "hedgeGroup": "Хедж",
+    "deleteConfirmTitle": "Видалити бота?",
+    "deleteConfirmDesc": "«{{name}}» буде видалено з конфігурації. Бот буде зупинено, якщо запущено.",
+    "deleteSuccess": "Бота видалено",
+    "deleteFailed": "Не вдалося видалити бота",
+    "deleteInHedgeGroupHint": "Цей бот належить хедж-групі «{{groupName}}». Спочатку видаліть групу."
+  },
+  "error": {
+    "bot_symbol_conflict": "Бот для цього символу вже існує.",
+    "bot_symbol_used_by_hedge_group": "Цей символ використовується хедж-групою «{{groupName}}». Спочатку видаліть групу.",
+    "bot_in_hedge_group_cannot_delete": "Цей бот належить хедж-групі «{{groupName}}». Спочатку видаліть групу."
   },
   "botCreate": {
     "title": "Створити бота",
-    "step1Title": "Вибрати пару",
-    "step1Desc": "Біржа, тип ринку та символ",
-    "step2Title": "Базові параметри",
-    "step2Desc": "Інтервал ціни, об'єм тощо",
-    "step3Title": "Підтвердити",
-    "step3Desc": "Перевірити та створити",
+    "step1Title": "Select Strategy",
+    "step1Desc": "Pick strategy or combo template",
+    "step2Title": "Trading Pair",
+    "step2Desc": "Choose exchange, market type and symbol",
+    "step3Title": "Strategy Parameters",
+    "step3Desc": "Configure price interval, order quantity, etc.",
     "marketType": "Тип ринку",
     "botName": "Назва бота",
     "botNamePlaceholder": "Необов'язково, дайте боту ім'я для легкої ідентифікації",
@@ -348,7 +359,53 @@
     "fillRequired": "Заповніть обов'язкові поля",
     "alreadyExists": "Бот для цього символу вже існує. Кілька ботів на одному символі не дозволені (позиції біржі не можуть бути ізольовані).",
     "success": "Бот створено",
-    "failed": "Помилка створення"
+    "failed": "Помилка створення",
+    "step0Title": "Strategy Type",
+    "step0Desc": "Choose single, combo, or hedge strategy",
+    "step4Title": "Confirm",
+    "step4Desc": "Review and create",
+    "strategyTypeLabel": "Strategy Type",
+    "strategyLabel": "Strategy",
+    "hedgeMode": "Futures + Spot Hedge",
+    "hedgeMarketHint": "Hedge mode: creates both futures and spot bots for the same symbol.",
+    "strategyType": {
+      "single": {
+        "title": "Single Strategy",
+        "desc": "Run one strategy (grid, DCA, etc.) on a single market.",
+        "scene": "Suitable for beginners, stable markets."
+      },
+      "combo": {
+        "title": "Combo Strategy",
+        "desc": "Combine multiple strategies with configurable weights.",
+        "scene": "Adapt to different market conditions."
+      },
+      "hedge": {
+        "title": "Hedge Group",
+        "desc": "Futures + spot cross-market hedge, reduces directional risk.",
+        "scene": "Suitable for capital preservation."
+      }
+    },
+    "riskLevel": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
+    "strategyPicker": {
+      "singleTitle": "Select a strategy",
+      "comboTitle": "Select strategies to combine",
+      "hedgeTitle": "Select strategies for futures and spot",
+      "templateTitle": "Preset templates",
+      "weights": "Weights",
+      "hedgeFutures": "Futures strategy",
+      "hedgeSpot": "Spot strategy",
+      "hedgeRatio": "Hedge ratio"
+    },
+    "strategyTemplate": {
+      "grid_trend": "Grid + Trend",
+      "dca_martingale": "DCA + Martingale",
+      "futures_spot_hedge": "Futures + Spot Hedge"
+    },
+    "strategyParams": {}
   },
   "botDetail": {
     "openWorkspace": "Відкрити робочий простір",
