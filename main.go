@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -41,7 +42,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.56.3-rc1"
+var Version = "3.56.3-rc2"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1375,6 +1376,10 @@ func main() {
 	logger.Info("✅ 配置加載成功: 交易對數量=%d, 當前預設交易所=%s",
 		len(cfg.Trading.Symbols), cfg.App.CurrentExchange)
 
+	// 啟動耗時追蹤（用於優化 Web API 就緒時間）
+	startTime := time.Now()
+	logger.Info("⏱️ [啟動] 開始初始化 (t=0)")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1466,6 +1471,7 @@ func main() {
 		logger.Warn("⚠️ 存儲服務已創建但 GetStorage() 為空（storage.enabled 可能為 false），回測等依賴存儲的功能將不可用")
 	}
 	logger.Info("✅ 存儲服務初始化完成 (enabled=%v, storage!=nil=%v)", cfg.Storage.Enabled, storageService != nil && storageService.GetStorage() != nil)
+	logger.Info("⏱️ [啟動] 存儲服務完成 (耗時: %v)", time.Since(startTime))
 
 	// 运行 K 线文件迁移（一次性迁移现有文件到统一管理系统）
 	if storageService != nil {
@@ -1582,6 +1588,112 @@ func main() {
 		logger.Warn("⚠️ 數據库未初始化，事件中心將不可用")
 	}
 	logger.Info("✅ 事件中心初始化完成")
+	logger.Info("⏱️ [啟動] 事件中心完成 (耗時: %v)", time.Since(startTime))
+
+	// Web 服務器（提前啟動，讓 API 盡快可用；交易相關接口在 SymbolManager 就緒前返回 503）
+	var webServer *web.WebServer
+	if cfg.Web.Enabled {
+		logger.Info("🌐 开始初始化 Web 服務器（提前啟動優化）...")
+		// 初始化密碼管理器
+		passwordManager, err := web.NewPasswordManager("./data")
+		if err != nil {
+			logger.Error("❌ 初始化密碼管理器失败: %v", err)
+		} else {
+			web.SetPasswordManager(passwordManager)
+			logger.Info("✅ 密碼管理器已初始化")
+		}
+
+		// 初始化 WebAuthn 管理器
+		var rpID string
+		var rpOrigin string
+		if domain := os.Getenv("DOMAIN"); domain != "" {
+			rpID = domain
+			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
+				rpOrigin = fmt.Sprintf("https://%s", domain)
+			} else {
+				rpOrigin = fmt.Sprintf("http://%s", domain)
+			}
+		} else if cfg.Web.Domain != "" {
+			rpID = cfg.Web.Domain
+			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
+				rpOrigin = fmt.Sprintf("https://%s", cfg.Web.Domain)
+			} else {
+				rpOrigin = fmt.Sprintf("http://%s", cfg.Web.Domain)
+			}
+		} else {
+			host := cfg.Web.Host
+			if host == "" || host == "0.0.0.0" {
+				host = "localhost"
+			}
+			rpID = host
+			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
+				if cfg.Web.Port == 443 {
+					rpOrigin = fmt.Sprintf("https://%s", host)
+				} else {
+					rpOrigin = fmt.Sprintf("https://%s:%d", host, cfg.Web.Port)
+				}
+			} else {
+				if cfg.Web.Port == 80 {
+					rpOrigin = fmt.Sprintf("http://%s", host)
+				} else {
+					rpOrigin = fmt.Sprintf("http://%s:%d", host, cfg.Web.Port)
+				}
+			}
+		}
+		webauthnManager, err := web.NewWebAuthnManager(&webAuthnLoggerAdapter{}, "./data", rpID, rpOrigin)
+		if err != nil {
+			logger.Error("❌ 初始化 WebAuthn 管理器失败: %v", err)
+		} else {
+			web.SetWebAuthnManager(webauthnManager)
+			logger.Info("✅ WebAuthn 管理器已初始化 (rpID=%s, rpOrigin=%s)", rpID, rpOrigin)
+		}
+
+		configManager := web.NewConfigManager(configPath)
+		web.SetConfigManager(configManager)
+		logger.Info("✅ 配置管理器已初始化")
+
+		web.SetVersion(Version)
+		logger.Info("✅ 版本号已設置: %s", Version)
+
+		backupManager := config.NewBackupManager(configPath)
+		web.SetConfigBackupManager(backupManager)
+		logger.Info("✅ 配置备份管理器已初始化")
+
+		historyManager, err := config.NewHistoryManager("./data", configPath)
+		if err != nil {
+			logger.Warn("⚠️ 初始化配置历史管理器失败: %v", err)
+		} else {
+			web.SetConfigHistoryManager(historyManager)
+			logger.Info("✅ 配置历史管理器已初始化")
+		}
+
+		hotReloader := config.NewHotReloader(cfg)
+		web.SetConfigHotReloader(hotReloader)
+		logger.Info("✅ 配置热更新器已初始化")
+
+		if globalLogStorage != nil {
+			logStorageAdapter := web.NewLogStorageAdapter(globalLogStorage)
+			web.SetLogStorageProvider(logStorageAdapter)
+			logger.Info("✅ 日志存儲提供者已設置")
+		}
+
+		logger.Info("🔧 正在創建 Web 服務器實例...")
+		webServer = web.NewWebServer(cfg)
+		if webServer == nil {
+			logger.Warn("⚠️ Web 服務器未創建（可能配置中 Web.Enabled=false）")
+		} else {
+			logger.Info("🔧 正在啟动 Web 服務器...")
+			if err := webServer.Start(ctx); err != nil {
+				logger.Error("❌ 啟动Web服務器失败: %v", err)
+			} else {
+				logger.Info("✅ Web服務器已啟动，可通過 http://%s:%d 访问", cfg.Web.Host, cfg.Web.Port)
+				logger.Info("⏱️ [啟動] Web API 已就緒 (耗時: %v)", time.Since(startTime))
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	} else {
+		logger.Info("ℹ️ Web 服務未啟用（配置中 web.enabled=false）")
+	}
 
 	// 舊的事件处理器（保留用於存儲服務）
 	// 使用 worker pool 模式，限制並发數量，避免 goroutine 泄漏
@@ -1659,19 +1771,45 @@ func main() {
 		}
 	}
 
-	// 初始化K线数据收集器
+	// 初始化K线数据收集器（按需創建：僅為實際使用的交易所創建適配器）
 	logger.Info("🔧 正在初始化K线数据收集器...")
 	var klineCollector *monitor.KlineCollector
 	if storageService != nil {
-		// 创建交易所实例映射（用于K线收集器）
-		// 只创建主要交易所的实例（前5大）
-		majorExchanges := []string{"binance", "okx", "bybit", "bitget", "gate"}
+		// 收集實際使用的交易所（Bots 或 Trading.Symbols），避免為未使用的交易所創建客戶端
+		usedExchanges := make(map[string]bool)
+		for _, bot := range cfg.Bots {
+			if bot.Exchange != "" {
+				usedExchanges[strings.ToLower(bot.Exchange)] = true
+			}
+		}
+		for _, sym := range cfg.Trading.Symbols {
+			if sym.Exchange != "" {
+				usedExchanges[strings.ToLower(sym.Exchange)] = true
+			} else if cfg.App.CurrentExchange != "" {
+				usedExchanges[strings.ToLower(cfg.App.CurrentExchange)] = true
+			}
+		}
+		// 若無實際交易對，僅使用 binance（公開 K 線 API 無需認證）
+		if len(usedExchanges) == 0 {
+			if _, ok := cfg.Exchanges["binance"]; ok {
+				usedExchanges["binance"] = true
+			}
+		}
+		// 後備：若仍無，使用主要交易所中已配置的
+		if len(usedExchanges) == 0 {
+			for _, ex := range []string{"binance", "okx", "bybit", "bitget", "gate"} {
+				if _, exists := cfg.Exchanges[ex]; exists {
+					usedExchanges[ex] = true
+					break
+				}
+			}
+		}
+
 		exchanges := make(map[string]exchange.IExchange)
-		for _, exchangeName := range majorExchanges {
+		for exchangeName := range usedExchanges {
 			if _, exists := cfg.Exchanges[exchangeName]; !exists {
 				continue
 			}
-			// 使用NewExchange创建交易所实例
 			ex, err := exchange.NewExchange(cfg, exchangeName, "BTCUSDT", "futures")
 			if err != nil {
 				logger.Warn("⚠️ 创建交易所实例失败 %s: %v", exchangeName, err)
@@ -1685,7 +1823,13 @@ func main() {
 			if err := klineCollector.Start(); err != nil {
 				logger.Error("❌ 啟动K线数据收集器失败: %v", err)
 			} else {
-				logger.Info("✅ K线数据收集器已啟动")
+				exchangeNames := make([]string, 0, len(exchanges))
+				for k := range exchanges {
+					exchangeNames = append(exchangeNames, k)
+				}
+				sort.Strings(exchangeNames)
+				logger.Info("✅ K线数据收集器已啟动 (交易所: %v)", exchangeNames)
+				logger.Info("⏱️ [啟動] K線收集器完成 (耗時: %v)", time.Since(startTime))
 				// 注入到Web层
 				web.SetKlineCollector(klineCollector)
 				defer klineCollector.Stop()
@@ -1744,121 +1888,7 @@ func main() {
 		logger.Info("ℹ️ 插件系统未啟用")
 	}
 
-	// Web 服務器
-	var webServer *web.WebServer
-	if cfg.Web.Enabled {
-		logger.Info("🌐 开始初始化 Web 服務器...")
-		// 初始化密碼管理器
-		passwordManager, err := web.NewPasswordManager("./data")
-		if err != nil {
-			logger.Error("❌ 初始化密碼管理器失败: %v", err)
-		} else {
-			web.SetPasswordManager(passwordManager)
-			logger.Info("✅ 密碼管理器已初始化")
-		}
-
-		// 初始化 WebAuthn 管理器
-		// 根據實際配置決定 RPID 和 RPOrigin
-		var rpID string
-		var rpOrigin string
-
-		// 優先使用環境變數或配置檔案中的域名
-		if domain := os.Getenv("DOMAIN"); domain != "" {
-			rpID = domain
-			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
-				rpOrigin = fmt.Sprintf("https://%s", domain)
-			} else {
-				rpOrigin = fmt.Sprintf("http://%s", domain)
-			}
-		} else if cfg.Web.Domain != "" {
-			rpID = cfg.Web.Domain
-			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
-				rpOrigin = fmt.Sprintf("https://%s", cfg.Web.Domain)
-			} else {
-				rpOrigin = fmt.Sprintf("http://%s", cfg.Web.Domain)
-			}
-		} else {
-			// 後備方案：使用配置的 host
-			host := cfg.Web.Host
-			if host == "" || host == "0.0.0.0" {
-				host = "localhost"
-			}
-			rpID = host
-
-			if cfg.Web.TLS != nil && cfg.Web.TLS.Enabled {
-				if cfg.Web.Port == 443 {
-					rpOrigin = fmt.Sprintf("https://%s", host)
-				} else {
-					rpOrigin = fmt.Sprintf("https://%s:%d", host, cfg.Web.Port)
-				}
-			} else {
-				if cfg.Web.Port == 80 {
-					rpOrigin = fmt.Sprintf("http://%s", host)
-				} else {
-					rpOrigin = fmt.Sprintf("http://%s:%d", host, cfg.Web.Port)
-				}
-			}
-		}
-		webauthnManager, err := web.NewWebAuthnManager(&webAuthnLoggerAdapter{}, "./data", rpID, rpOrigin)
-		if err != nil {
-			logger.Error("❌ 初始化 WebAuthn 管理器失败: %v", err)
-		} else {
-			web.SetWebAuthnManager(webauthnManager)
-			logger.Info("✅ WebAuthn 管理器已初始化 (rpID=%s, rpOrigin=%s)", rpID, rpOrigin)
-		}
-
-		// 初始化配置管理器
-		configManager := web.NewConfigManager(configPath)
-		web.SetConfigManager(configManager)
-		logger.Info("✅ 配置管理器已初始化")
-
-		// 設置版本号
-		web.SetVersion(Version)
-		logger.Info("✅ 版本号已設置: %s", Version)
-
-		// 初始化配置备份管理器（备份目錄為 config.yaml 同級 backups/）
-		backupManager := config.NewBackupManager(configPath)
-		web.SetConfigBackupManager(backupManager)
-		logger.Info("✅ 配置备份管理器已初始化")
-
-		// 初始化配置历史管理器
-		historyManager, err := config.NewHistoryManager("./data", configPath)
-		if err != nil {
-			logger.Warn("⚠️ 初始化配置历史管理器失败: %v", err)
-		} else {
-			web.SetConfigHistoryManager(historyManager)
-			logger.Info("✅ 配置历史管理器已初始化")
-		}
-
-		// 初始化配置热更新器
-		hotReloader := config.NewHotReloader(cfg)
-		web.SetConfigHotReloader(hotReloader)
-		logger.Info("✅ 配置热更新器已初始化")
-
-		// 設置日志存儲提供者（用於Web API日志查詢）
-		if globalLogStorage != nil {
-			logStorageAdapter := web.NewLogStorageAdapter(globalLogStorage)
-			web.SetLogStorageProvider(logStorageAdapter)
-			logger.Info("✅ 日志存儲提供者已設置")
-		}
-
-		logger.Info("🔧 正在創建 Web 服務器實例...")
-		webServer = web.NewWebServer(cfg)
-		if webServer == nil {
-			logger.Warn("⚠️ Web 服務器未創建（可能配置中 Web.Enabled=false）")
-		} else {
-			logger.Info("🔧 正在啟动 Web 服務器...")
-			if err := webServer.Start(ctx); err != nil {
-				logger.Error("❌ 啟动Web服務器失败: %v", err)
-			} else {
-				logger.Info("✅ Web服務器已啟动，可通過 http://%s:%d 访问", cfg.Web.Host, cfg.Web.Port)
-				// 等待一下，确保 goroutine 中的日志也能输出
-				time.Sleep(200 * time.Millisecond)
-			}
-		}
-	} else {
-		logger.Info("ℹ️ Web 服務未啟用（配置中 web.enabled=false）")
-	}
+	logger.Info("⏱️ [啟動] 插件系統完成 (耗時: %v)", time.Since(startTime))
 
 	symbolManager := NewSymbolManager(cfg, eventBus, storageService, distributedLock)
 
@@ -2647,6 +2677,7 @@ func main() {
 
 	// 所有初始化完成，程序進入运行状態
 	logger.Info("✅ 系统初始化完成，程序正在运行中...")
+	logger.Info("⏱️ [啟動] 總耗時: %v", time.Since(startTime))
 	logger.Info("💡 按 Ctrl+C 退出程序")
 
 	// 等待退出信号（SIGINT 或 SIGTERM）
