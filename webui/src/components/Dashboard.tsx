@@ -352,6 +352,10 @@ const Dashboard: React.FC = () => {
 
   const totalPnL = typeof statistics?.total_pnl === 'number' ? statistics.total_pnl : (status.total_pnl || 0)
   const exchangePnL = typeof statistics?.exchange_pnl === 'number' ? statistics.exchange_pnl : 0
+  // 待實現盈虧：優先從 statistics（後端按持倉+當前價計算），否則從 positionsSummary
+  const unrealizedPnL = typeof statistics?.unrealized_pnl === 'number'
+    ? statistics.unrealized_pnl
+    : (positionsSummary?.unrealized_pnl ?? 0)
   const totalTrades = typeof statistics?.total_trades === 'number' ? statistics.total_trades : (status.total_trades || 0)
   const totalVolume = typeof statistics?.total_volume === 'number' ? statistics.total_volume : 0
   // 🔥 价格偏差统计
@@ -548,13 +552,22 @@ const Dashboard: React.FC = () => {
                   <Text color="gray.400">{t('dashboard.roi')}</Text>
                 </HStack>
               </StatHelpText>
-              {exchangePnL !== 0 && (
-                <Tooltip label={t('dashboard.exchangePnlTooltip')} placement="top" hasArrow>
-                  <Text fontSize="xs" color={exchangePnL >= 0 ? 'green.400' : 'red.400'} mt={1}>
-                    {t('dashboard.exchangePnl')}: {exchangePnL >= 0 ? '+' : ''}{exchangePnL.toFixed(2)} {quoteAsset}
-                  </Text>
-                </Tooltip>
-              )}
+              <VStack align="stretch" spacing={0.5} mt={2} fontSize="xs">
+                {exchangePnL !== 0 && (
+                  <Tooltip label={t('dashboard.exchangePnlTooltip')} placement="top" hasArrow>
+                    <Text color={exchangePnL >= 0 ? 'green.400' : 'red.400'}>
+                      {t('dashboard.exchangePnl')}: {exchangePnL >= 0 ? '+' : ''}{exchangePnL.toFixed(2)} {quoteAsset}
+                    </Text>
+                  </Tooltip>
+                )}
+                {Math.abs(unrealizedPnL) > 0.001 && (
+                  <Tooltip label={t('dashboard.unrealizedPnLTooltip')} placement="top" hasArrow>
+                    <Text color={unrealizedPnL >= 0 ? 'green.400' : 'red.400'} fontStyle="italic">
+                      {t('dashboard.unrealizedPnL')}: {unrealizedPnL >= 0 ? '+' : ''}{unrealizedPnL.toFixed(2)} {quoteAsset}
+                    </Text>
+                  </Tooltip>
+                )}
+              </VStack>
             </Stat>
           </GlassCard>
 

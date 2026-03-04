@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.56.3-rc1] - 2026-03-03
+
+### Added
+- **盈亏诊断**：Statistics 页面新增「盈亏诊断」按钮，弹窗展示网格盈亏 vs 交易所盈亏对比、差异说明及订单统计；后端 `GET /api/statistics/pnl/diagnosis` 增强返回 `pnl_comparison`
+- **待实现盈亏展示**：Statistics 汇总卡片与 Dashboard 总盈亏卡片增加「待实现盈亏」展示；后端 `GET /api/statistics` 新增 `unrealized_pnl` 字段
+- **rdocs**：新增《网格盈亏与交易所盈亏的差异说明》，手续费文档增加相关链接
+
 ## [3.56.2-rc3] - 2026-03-03
 
 ### Fixed

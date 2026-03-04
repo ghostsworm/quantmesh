@@ -1919,6 +1919,34 @@ func (s *SQLiteStorage) GetExchangePnLTotal(exchange, symbol string) (float64, e
 	return total, err
 }
 
+// GetExchangePnLOrderStats 獲取交易所盈虧相關的訂單統計（用於診斷差異）
+// 返回：有 realized_pnl 的訂單數、無 realized_pnl 的 FILLED SELL 訂單數、有 realized_pnl 的訂單總和
+func (s *SQLiteStorage) GetExchangePnLOrderStats(exchange, symbol string) (withPnLCount, missingPnLCount int, totalPnL float64, err error) {
+	baseWhere := "status = 'FILLED'"
+	args := []interface{}{}
+	if exchange != "" {
+		baseWhere += " AND exchange = ?"
+		args = append(args, exchange)
+	}
+	if symbol != "" {
+		baseWhere += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	// 有 realized_pnl 的訂單數及總和
+	var cnt int
+	if err := s.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(realized_pnl), 0) FROM orders WHERE realized_pnl IS NOT NULL AND "+baseWhere, args...).Scan(&cnt, &totalPnL); err != nil {
+		return 0, 0, 0, err
+	}
+	withPnLCount = cnt
+	// 無 realized_pnl 的 FILLED SELL 訂單數（可能漏記）
+	var missing int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM orders WHERE "+baseWhere+" AND side = 'SELL' AND realized_pnl IS NULL", args...).Scan(&missing); err != nil {
+		return withPnLCount, 0, totalPnL, err
+	}
+	missingPnLCount = missing
+	return withPnLCount, missingPnLCount, totalPnL, nil
+}
+
 // GetDailyExchangePnL 獲取每日交易所已實現盈虧（從 orders 表按日期聚合 realized_pnl）
 func (s *SQLiteStorage) GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error) {
 	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
