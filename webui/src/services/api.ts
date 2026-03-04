@@ -674,6 +674,43 @@ export async function getPnLByExchange(startTime?: string, endTime?: string): Pr
   return fetchWithAuth(url)
 }
 
+/** 网格盈亏 vs 交易所盈亏 诊断 */
+export interface DiagnosisPnLComparison {
+  grid_pnl: number
+  exchange_pnl: number
+  discrepancy: number
+  discrepancy_explanation: string
+  orders_with_realized_pnl: number
+  sell_orders_missing_pnl: number
+}
+
+export interface ExchangePnLDiagnosisResponse {
+  exchange?: string
+  symbol?: string
+  error?: string
+  time_range?: { start: string; end: string }
+  pnl_comparison?: DiagnosisPnLComparison
+  summary?: Record<string, unknown>
+  by_symbol?: unknown[]
+  by_date?: unknown[]
+  note?: string
+}
+
+export async function getExchangePnLDiagnosis(
+  exchange?: string,
+  symbol?: string,
+  startTime?: string,
+  endTime?: string
+): Promise<ExchangePnLDiagnosisResponse> {
+  const queryParams = new URLSearchParams()
+  if (exchange) queryParams.append('exchange', exchange)
+  if (symbol) queryParams.append('symbol', symbol)
+  if (startTime) queryParams.append('start_time', startTime)
+  if (endTime) queryParams.append('end_time', endTime)
+  const url = `${API_BASE_URL}/statistics/pnl/diagnosis${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  return fetchWithAuth(url)
+}
+
 // System Metrics
 export interface SystemMetrics {
   timestamp: string

@@ -1,9 +1,24 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
+import {
+  Button,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalCloseButton,
+  useDisclosure,
+  VStack,
+  Text,
+  SimpleGrid,
+  Alert,
+  AlertIcon,
+} from '@chakra-ui/react'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
-import { getStatistics, getDailyStatistics, getPnLByTimeRange } from '../services/api'
+import { getStatistics, getDailyStatistics, getPnLByTimeRange, getExchangePnLDiagnosis, type ExchangePnLDiagnosisResponse } from '../services/api'
 import StatisticsCalendar from './StatisticsCalendar'
 
 interface StatisticsData {
@@ -14,6 +29,7 @@ interface StatisticsData {
   total_fee?: number // 手續費合計
   win_rate: number
   exchange_pnl?: number // 交易所已實現盈虧合計
+  unrealized_pnl?: number // 待實現盈虧（當前持倉×當前價格）
 }
 
 interface DailyStatistics {
@@ -67,6 +83,26 @@ const Statistics: React.FC = () => {
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0])
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1)
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
+  const { isOpen: isDiagnosisOpen, onOpen: onDiagnosisOpen, onClose: onDiagnosisClose } = useDisclosure()
+  const [diagnosisData, setDiagnosisData] = useState<ExchangePnLDiagnosisResponse | null>(null)
+  const [diagnosisLoading, setDiagnosisLoading] = useState(false)
+
+  const handleOpenDiagnosis = async () => {
+    onDiagnosisOpen()
+    setDiagnosisLoading(true)
+    setDiagnosisData(null)
+    try {
+      const data = await getExchangePnLDiagnosis(
+        selectedExchange || undefined,
+        selectedSymbol || undefined
+      )
+      setDiagnosisData(data)
+    } catch (err) {
+      console.error('Diagnosis failed:', err)
+    } finally {
+      setDiagnosisLoading(false)
+    }
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -138,8 +174,11 @@ const Statistics: React.FC = () => {
 
   return (
     <div className="statistics">
-      <div style={{ marginBottom: '16px', padding: '12px 16px', background: '#f5f5f5', borderRadius: '8px', fontSize: '14px', color: '#595959' }}>
-        {modeLabel}
+      <div style={{ marginBottom: '16px', padding: '12px 16px', background: '#f5f5f5', borderRadius: '8px', fontSize: '14px', color: '#595959', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>{modeLabel}</span>
+        <Button size="sm" variant="outline" colorScheme="blue" onClick={handleOpenDiagnosis}>
+          {t('statistics.pnlDiagnosis')}
+        </Button>
       </div>
       <h2>{t('statistics.title')}</h2>
 
@@ -180,6 +219,14 @@ const Statistics: React.FC = () => {
               <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.exchangePnl')}</div>
               <div style={{ fontSize: '20px', fontWeight: 'bold', color: stats.exchange_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
                 {stats.exchange_pnl >= 0 ? '+' : ''}{stats.exchange_pnl.toFixed(2)}
+              </div>
+            </div>
+          )}
+          {(stats.unrealized_pnl !== undefined && Math.abs(stats.unrealized_pnl) > 0.001) && (
+            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }} title={t('statistics.unrealizedPnLTooltip')}>
+              <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.unrealizedPnL')}</div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: stats.unrealized_pnl >= 0 ? '#95de64' : '#ff7875', fontStyle: 'italic' }}>
+                {stats.unrealized_pnl >= 0 ? '+' : ''}{stats.unrealized_pnl.toFixed(2)}
               </div>
             </div>
           )}
@@ -433,6 +480,61 @@ const Statistics: React.FC = () => {
           <div style={{ padding: '32px', textAlign: 'center', color: '#8c8c8c' }}>{t('statistics.noDataInRange')}</div>
         )}
       </div>
+
+      {/* 网格 vs 交易所盈亏诊断 Modal */}
+      <Modal isOpen={isDiagnosisOpen} onClose={onDiagnosisClose} size="lg" scrollBehavior="inside">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>{t('statistics.pnlDiagnosisTitle')}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            {diagnosisLoading ? (
+              <Text>{t('statistics.loading')}</Text>
+            ) : diagnosisData?.error ? (
+              <Alert status="error" borderRadius="md">
+                <AlertIcon />
+                <Text fontSize="sm">{String(diagnosisData.error)}</Text>
+              </Alert>
+            ) : diagnosisData?.pnl_comparison ? (
+              <VStack align="stretch" spacing={4}>
+                <SimpleGrid columns={2} spacing={4}>
+                  <div style={{ padding: '12px', border: '1px solid #e8e8e8', borderRadius: '8px' }}>
+                    <Text fontSize="sm" color="gray.600">{t('statistics.diagnosisGridPnL')}</Text>
+                    <Text fontSize="xl" fontWeight="bold" color={diagnosisData.pnl_comparison.grid_pnl >= 0 ? 'green.500' : 'red.500'}>
+                      {diagnosisData.pnl_comparison.grid_pnl >= 0 ? '+' : ''}{diagnosisData.pnl_comparison.grid_pnl.toFixed(2)}
+                    </Text>
+                  </div>
+                  <div style={{ padding: '12px', border: '1px solid #e8e8e8', borderRadius: '8px' }}>
+                    <Text fontSize="sm" color="gray.600">{t('statistics.diagnosisExchangePnL')}</Text>
+                    <Text fontSize="xl" fontWeight="bold" color={diagnosisData.pnl_comparison.exchange_pnl >= 0 ? 'green.500' : 'red.500'}>
+                      {diagnosisData.pnl_comparison.exchange_pnl >= 0 ? '+' : ''}{diagnosisData.pnl_comparison.exchange_pnl.toFixed(2)}
+                    </Text>
+                  </div>
+                </SimpleGrid>
+                <div style={{ padding: '12px', border: '1px solid #e8e8e8', borderRadius: '8px' }}>
+                  <Text fontSize="sm" color="gray.600">{t('statistics.diagnosisDiscrepancy')}</Text>
+                  <Text fontSize="lg" fontWeight="bold">
+                    {diagnosisData.pnl_comparison.discrepancy >= 0 ? '+' : ''}{diagnosisData.pnl_comparison.discrepancy.toFixed(2)}
+                  </Text>
+                </div>
+                {diagnosisData.pnl_comparison.discrepancy_explanation && (
+                  <Alert status="info" borderRadius="md">
+                    <AlertIcon />
+                    <Text fontSize="sm">{diagnosisData.pnl_comparison.discrepancy_explanation}</Text>
+                  </Alert>
+                )}
+                <SimpleGrid columns={2} spacing={2} fontSize="sm" color="gray.600">
+                  <Text>{t('statistics.diagnosisOrdersWithPnL')}: {diagnosisData.pnl_comparison.orders_with_realized_pnl}</Text>
+                  <Text>{t('statistics.diagnosisSellOrdersMissingPnL')}: {diagnosisData.pnl_comparison.sell_orders_missing_pnl}</Text>
+                </SimpleGrid>
+                <Text fontSize="xs" color="gray.500" fontStyle="italic">{diagnosisData.note}</Text>
+              </VStack>
+            ) : (
+              <Text color="gray.500">{t('statistics.diagnosisNoData')}</Text>
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
   )
 }

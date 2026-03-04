@@ -2012,6 +2012,29 @@ func getStatistics(c *gin.Context) {
 		}
 	}
 
+	// 🔥 待實現盈虧：根據當前持倉和當前價格計算（僅當有持倉且能獲取價格時）
+	unrealizedPnL := 0.0
+	if exchange != "" && symbol != "" {
+		pmProvider := PickPositionProvider(c)
+		priceProv := PickPriceProvider(c)
+		if pmProvider != nil && priceProv != nil {
+			slots := pmProvider.GetAllSlots()
+			wsPrice := priceProv.GetLastPrice()
+			slotTotalQty := 0.0
+			slotTotalCost := 0.0
+			for _, slot := range slots {
+				if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
+					slotTotalQty += slot.PositionQty
+					slotTotalCost += slot.Price * slot.PositionQty
+				}
+			}
+			if wsPrice > 0 && slotTotalQty > 0 && slotTotalCost > 0 {
+				slotAvgPrice := slotTotalCost / slotTotalQty
+				unrealizedPnL = (wsPrice - slotAvgPrice) * slotTotalQty
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"total_trades":         totalTrades,
 		"total_volume":         totalVolume,
@@ -2022,6 +2045,7 @@ func getStatistics(c *gin.Context) {
 		"total_buy_deviation":  totalBuyDeviation,  // 🔥 買入價格偏差總和
 		"total_sell_deviation": totalSellDeviation,  // 🔥 賣出價格偏差總和
 		"exchange_pnl":         exchangePnL,         // 🔥 交易所已實現盈虧合計
+		"unrealized_pnl":       unrealizedPnL,       // 🔥 待實現盈虧（當前持倉×當前價格）
 	})
 }
 
@@ -4149,8 +4173,8 @@ func getAnomalousTrades(c *gin.Context) {
 	})
 }
 
-// getExchangePnLDiagnosis 诊断交易所盈亏數據
-// GET /api/statistics/pnl/diagnosis
+// getExchangePnLDiagnosis 诊断交易所盈亏數據，對比網格盈虧與交易所盈虧的差異
+// GET /api/statistics/pnl/diagnosis?exchange=&symbol=&start_time=&end_time=
 func getExchangePnLDiagnosis(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
@@ -4165,6 +4189,7 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	}
 
 	exchangeID := strings.ToLower(c.DefaultQuery("exchange", "binance"))
+	symbolID := c.Query("symbol") // 可選，用於篩選交易對
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
 
@@ -4220,6 +4245,9 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		}
 
 		if tradeExchange != exchangeID {
+			continue
+		}
+		if symbolID != "" && !strings.EqualFold(trade.Symbol, symbolID) {
 			continue
 		}
 
@@ -4317,26 +4345,68 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		return dateList[i]["date"].(string) < dateList[j]["date"].(string)
 	})
 
+	// 🔥 對比網格盈虧與交易所盈虧
+	gridPnL := math.Round((totalPnL)*100) / 100
+	exchangePnL := 0.0
+	orderStatsWithPnL := 0
+	orderStatsMissingPnL := 0
+	if epGetter, ok := st.(interface {
+		GetExchangePnLTotal(exchange, symbol string) (float64, error)
+	}); ok {
+		if ep, err := epGetter.GetExchangePnLTotal(exchangeID, symbolID); err == nil {
+			exchangePnL = math.Round(ep*100) / 100
+		}
+	}
+	if statsGetter, ok := st.(interface {
+		GetExchangePnLOrderStats(exchange, symbol string) (withPnLCount, missingPnLCount int, totalPnL float64, err error)
+	}); ok {
+		if withCnt, missingCnt, _, err := statsGetter.GetExchangePnLOrderStats(exchangeID, symbolID); err == nil {
+			orderStatsWithPnL = withCnt
+			orderStatsMissingPnL = missingCnt
+		}
+	}
+	discrepancy := math.Round((gridPnL-exchangePnL)*100) / 100
+	discrepancyExplanation := ""
+	if math.Abs(discrepancy) > 1 {
+		if (gridPnL > 0 && exchangePnL < 0) || (gridPnL < 0 && exchangePnL > 0) {
+			discrepancyExplanation = "盈虧性質相反：網格按槽位買賣配對計算（每格低買高賣），交易所按持倉加權均價計算。若持倉均價高於多數賣出價，交易所會顯示虧損，而網格可能顯示盈利。"
+		} else {
+			discrepancyExplanation = "差異較大：計算口徑不同。網格=按槽位配對；交易所=按持倉加權均價。持倉結構（買入價分佈）會導致兩者差異。"
+		}
+		if orderStatsMissingPnL > 0 {
+			discrepancyExplanation += fmt.Sprintf(" 另：有 %d 筆 FILLED 賣單缺少 realized_pnl，可能漏記交易所數據。", orderStatsMissingPnL)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"exchange": exchangeID,
+		"symbol":   symbolID,
 		"time_range": gin.H{
 			"start": startTime.Format(time.RFC3339),
 			"end":   endTime.Format(time.RFC3339),
 		},
+		"pnl_comparison": gin.H{
+			"grid_pnl":                 gridPnL,
+			"exchange_pnl":             exchangePnL,
+			"discrepancy":              discrepancy,
+			"discrepancy_explanation":  discrepancyExplanation,
+			"orders_with_realized_pnl": orderStatsWithPnL,
+			"sell_orders_missing_pnl":  orderStatsMissingPnL,
+		},
 		"summary": gin.H{
-			"total_pnl":      math.Round(totalPnL*100) / 100,
+			"total_pnl":      gridPnL,
 			"total_trades":   totalTrades,
 			"total_volume":   math.Round(totalVolume*100) / 100,
 			"winning_trades": winningTrades,
 			"losing_trades":  losingTrades,
-			"win_rate":       math.Round(winRate*10000) / 100, // 百分比，保留2位小數
+			"win_rate":       math.Round(winRate*10000) / 100,
 			"avg_pnl":        math.Round(avgPnL*100) / 100,
 			"max_profit":     math.Round(maxProfit*100) / 100,
 			"max_loss":       math.Round(maxLoss*100) / 100,
 		},
 		"by_symbol": symbolList,
 		"by_date":   dateList,
-		"note":      "注意：當前盈亏计算未扣除手续费，實際亏损可能更大",
+		"note":      "網格盈虧按買賣配對計算（未扣手續費）；交易所盈虧為交易所 API 返回的已實現盈虧。兩者計算口徑不同，存在差異屬正常。",
 	})
 }
 
