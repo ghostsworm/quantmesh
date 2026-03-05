@@ -43,7 +43,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.58.0-rc3"
+var Version = "3.58.0-rc4"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1385,38 +1385,50 @@ func main() {
 	defer cancel()
 
 	// 啟動定期日誌清理任務（在 ctx 定義之後）
-	if globalLogStorage != nil {
+	if globalLogStorage != nil && cfg.System.LogCleanup.Enabled {
+		lc := cfg.System.LogCleanup
+		schedule := lc.Schedule
+		if schedule == "" {
+			schedule = "02:00"
+		}
+		retentionDays := lc.RetentionDays
+		if retentionDays <= 0 {
+			retentionDays = 7
+		}
+		levelsToClean := lc.LevelsToClean
+		if len(levelsToClean) == 0 {
+			levelsToClean = []string{"INFO", "WARN"}
+		}
+
 		go func() {
-			// 每天凌晨 2 點執行清理
+			// 解析執行時间 HH:MM
+			hour, min := 2, 0
+			if t, err := time.Parse("15:04", schedule); err == nil {
+				hour, min = t.Hour(), t.Minute()
+			}
+
 			ticker := time.NewTicker(24 * time.Hour)
 			defer ticker.Stop()
 
-			// 計算到下一個凌晨 2 點的時間
 			now := time.Now()
-			nextCleanup := time.Date(now.Year(), now.Month(), now.Day(), 2, 0, 0, 0, now.Location())
+			nextCleanup := time.Date(now.Year(), now.Month(), now.Day(), hour, min, 0, 0, now.Location())
 			if nextCleanup.Before(now) {
 				nextCleanup = nextCleanup.Add(24 * time.Hour)
 			}
 			initialDelay := nextCleanup.Sub(now)
+			logger.Info("🧹 日志清理任務已啟用，下次執行: %s (保留 %d 天前的 %v)", nextCleanup.Format("2006-01-02 15:04"), retentionDays, levelsToClean)
 
-			// 使用 timer 等待到第一個清理時间，同時監听 context
 			initialTimer := time.NewTimer(initialDelay)
 			defer initialTimer.Stop()
 
-			select {
-			case <-ctx.Done():
-				return
-			case <-initialTimer.C:
-				// 立即執行一次清理
+			runCleanup := func() {
 				logger.Info("🧹 開始定期清理日誌...")
-				rowsAffected, err := globalLogStorage.CleanOldLogsByLevel(7, []string{"INFO", "WARN"})
+				rowsAffected, err := globalLogStorage.CleanOldLogsByLevel(retentionDays, levelsToClean)
 				if err != nil {
 					logger.Warn("⚠️ 清理日志失败: %v", err)
 				} else {
-					logger.Info("✅ 已清理 %d 条 INFO/WARN 级别日志（7天前）", rowsAffected)
+					logger.Info("✅ 已清理 %d 条 %v 级别日志（%d天前）", rowsAffected, levelsToClean, retentionDays)
 				}
-
-				// 執行 VACUUM 优化
 				if err := globalLogStorage.Vacuum(); err != nil {
 					logger.Warn("⚠️ 數據库优化失败: %v", err)
 				} else {
@@ -1424,26 +1436,19 @@ func main() {
 				}
 			}
 
-			// 定期執行
+			select {
+			case <-ctx.Done():
+				return
+			case <-initialTimer.C:
+				runCleanup()
+			}
+
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					logger.Info("🧹 开始定期清理日志...")
-					rowsAffected, err := globalLogStorage.CleanOldLogsByLevel(7, []string{"INFO", "WARN"})
-					if err != nil {
-						logger.Warn("⚠️ 清理日志失败: %v", err)
-					} else {
-						logger.Info("✅ 已清理 %d 条 INFO/WARN 级别日志（7天前）", rowsAffected)
-					}
-
-					// 執行 VACUUM 优化
-					if err := globalLogStorage.Vacuum(); err != nil {
-						logger.Warn("⚠️ 數據库优化失败: %v", err)
-					} else {
-						logger.Info("✅ 日志數據库优化完成")
-					}
+					runCleanup()
 				}
 			}
 		}()
@@ -1698,14 +1703,18 @@ func main() {
 
 	// 舊的事件处理器（保留用於存儲服務）
 	// 使用 worker pool 模式，限制並发數量，避免 goroutine 泄漏
+	// 重要：Subscribe() 必須在循環外調用一次，否則每次循環都會創建新 channel 導致嚴重內存泄漏
+	eventCh := eventBus.Subscribe()
 	eventWorkerPool := make(chan struct{}, 10) // 最多10個並发 worker
 	go func() {
-		defer close(eventWorkerPool)
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case evt := <-eventBus.Subscribe():
+			case evt, ok := <-eventCh:
+				if !ok {
+					return // EventBus 已關閉
+				}
 				if evt == nil {
 					continue
 				}
@@ -2744,6 +2753,12 @@ func main() {
 	// 🔥 第三优先级：停止所有协程（取消 context）
 	// 这會通知所有使用 ctx 的协程停止工作（包括事件处理协程）
 	cancel()
+
+	// 關閉事件總線，釋放訂閱者 channel 與 dedup goroutine，避免內存泄漏
+	if eventBus != nil {
+		eventBus.Close()
+		logger.Info("✅ 事件總線已關閉")
+	}
 
 	// 停止記憶體管理器
 	if memoryManager != nil {
