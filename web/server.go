@@ -418,6 +418,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 市场情报API
 			protected.GET("/market-intelligence", getMarketIntelligence)
 
+			// 宏觀事件預測市場 API
+			protected.GET("/macro/events", getMacroEvents)
+			protected.GET("/macro/impact", getMacroImpact)
+
 			// API 权限检测
 			protected.GET("/permissions/check", getAPIPermissions)
 

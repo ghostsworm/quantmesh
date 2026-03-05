@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getMarketIntelligence, MarketIntelligenceResponse } from '../services/api'
+import {
+  getMarketIntelligence,
+  MarketIntelligenceResponse,
+  getMacroEvents,
+  getMacroImpact,
+  MacroEventsResponse,
+  MacroImpactResponse,
+} from '../services/api'
 
 const MarketIntelligence: React.FC = () => {
   const { t } = useTranslation()
@@ -10,12 +17,14 @@ const MarketIntelligence: React.FC = () => {
     reddit_posts: [],
     polymarket: [],
   })
+  const [macroEvents, setMacroEvents] = useState<MacroEventsResponse | null>(null)
+  const [macroImpact, setMacroImpact] = useState<MacroImpactResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isEmptyData, setIsEmptyData] = useState(false)
   const [searchKeyword, setSearchKeyword] = useState('')
   const [selectedSource, setSelectedSource] = useState<string>('')
-  const [activeTab, setActiveTab] = useState<'rss' | 'fear_greed' | 'reddit' | 'polymarket' | 'all'>('all')
+  const [activeTab, setActiveTab] = useState<'rss' | 'fear_greed' | 'reddit' | 'polymarket' | 'macro' | 'all'>('all')
 
   // 獲取市場情报數據
   const fetchData = async () => {
@@ -57,11 +66,29 @@ const MarketIntelligence: React.FC = () => {
     }
   }
 
+  const fetchMacroData = async () => {
+    try {
+      const [eventsRes, impactRes] = await Promise.all([
+        getMacroEvents().catch(() => ({ events: [], last_fetched: null, enabled: false })),
+        getMacroImpact().catch(() => ({ composite_risk_score: 0, event_count: 0, high_impact_count: 0, assessments: [], last_fetched: null, enabled: false })),
+      ])
+      setMacroEvents(eventsRes)
+      setMacroImpact(impactRes)
+    } catch {
+      setMacroEvents(null)
+      setMacroImpact(null)
+    }
+  }
+
   useEffect(() => {
     fetchData()
-    // 每10分钟刷新一次
+    fetchMacroData()
     const interval = setInterval(fetchData, 10 * 60 * 1000)
-    return () => clearInterval(interval)
+    const macroInterval = setInterval(fetchMacroData, 5 * 60 * 1000)
+    return () => {
+      clearInterval(interval)
+      clearInterval(macroInterval)
+    }
   }, [searchKeyword, selectedSource])
 
   const handleSearch = (e: React.FormEvent) => {
@@ -178,8 +205,8 @@ const MarketIntelligence: React.FC = () => {
       ) : (
         <>
           {/* 標签页 */}
-          <div style={{ marginBottom: '20px', display: 'flex', gap: '8px', borderBottom: '2px solid #e5e7eb' }}>
-            {(['all', 'rss', 'fear_greed', 'reddit', 'polymarket'] as const).map((tab) => (
+          <div style={{ marginBottom: '20px', display: 'flex', gap: '8px', borderBottom: '2px solid #e5e7eb', flexWrap: 'wrap' }}>
+            {(['all', 'rss', 'fear_greed', 'reddit', 'polymarket', 'macro'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -195,7 +222,7 @@ const MarketIntelligence: React.FC = () => {
                   fontWeight: activeTab === tab ? '600' : '400',
                 }}
               >
-                {tab === 'all' ? t('marketIntelligence.tabAll') : tab === 'rss' ? t('marketIntelligence.rssNews') : tab === 'fear_greed' ? t('marketIntelligence.tabFearGreed') : tab === 'reddit' ? 'Reddit' : 'Polymarket'}
+                {tab === 'all' ? t('marketIntelligence.tabAll') : tab === 'rss' ? t('marketIntelligence.rssNews') : tab === 'fear_greed' ? t('marketIntelligence.tabFearGreed') : tab === 'reddit' ? 'Reddit' : tab === 'polymarket' ? 'Polymarket' : t('marketIntelligence.tabMacro')}
               </button>
             ))}
           </div>
@@ -404,6 +431,69 @@ const MarketIntelligence: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* 宏觀事件預測 */}
+          {(activeTab === 'all' || activeTab === 'macro') && (
+            <div style={{ marginBottom: '40px' }}>
+              <h3>{t('marketIntelligence.macroTitle')}</h3>
+              {!macroEvents?.enabled && !macroImpact?.enabled ? (
+                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>{t('marketIntelligence.macroDisabled')}</p>
+              ) : (
+                <>
+                  {macroImpact != null && macroImpact.enabled && (
+                    <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                        <span><strong>{t('marketIntelligence.macroRiskScore')}:</strong> {macroImpact.composite_risk_score.toFixed(1)}</span>
+                        <span><strong>{t('marketIntelligence.macroEventCount')}:</strong> {macroImpact.event_count}</span>
+                        <span><strong>{t('marketIntelligence.macroHighImpact')}:</strong> {macroImpact.high_impact_count}</span>
+                        {macroImpact.last_fetched && (
+                          <span style={{ fontSize: '12px', color: '#6b7280' }}>{t('marketIntelligence.macroLastFetched')}: {formatDate(macroImpact.last_fetched)}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {macroEvents != null && macroEvents.enabled && macroEvents.events.length > 0 ? (
+                    <div style={{ backgroundColor: '#fff', borderRadius: '8px', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f3f4f6' }}>
+                            <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.macroQuestion')}</th>
+                            <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.macroCategory')}</th>
+                            <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.macroProbability')}</th>
+                            <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.macroDelta')}</th>
+                            <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e5e7eb' }}>{t('marketIntelligence.macroLink')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {macroEvents.events.map((evt) => (
+                            <tr key={evt.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                              <td style={{ padding: '12px' }}>
+                                <div style={{ fontWeight: '500' }}>{evt.title}</div>
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '12px', color: '#6b7280' }}>{evt.category_label || evt.category}</td>
+                              <td style={{ padding: '12px', textAlign: 'right' }}>{(evt.probability * 100).toFixed(0)}%</td>
+                              <td style={{ padding: '12px', textAlign: 'right', color: evt.probability_delta > 0 ? '#ef4444' : evt.probability_delta < 0 ? '#22c55e' : '#6b7280' }}>
+                                {evt.probability_delta > 0 ? '+' : ''}{(evt.probability_delta * 100).toFixed(0)}%
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                {evt.source_url && (
+                                  <a href={evt.source_url} target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6', fontSize: '12px' }}>
+                                    Polymarket
+                                  </a>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>{t('marketIntelligence.macroNoData')}</p>
+                  )}
+                </>
               )}
             </div>
           )}

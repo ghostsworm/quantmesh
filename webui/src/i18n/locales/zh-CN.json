@@ -3007,7 +3007,20 @@
     "volume": "交易量",
     "liquidity": "流动性",
     "endDate": "结束时间",
-    "options": "选项"
+    "options": "选项",
+    "tabMacro": "宏观事件",
+    "macroTitle": "宏观事件预测（战争/利率/汇率/监管/经济）",
+    "macroDisabled": "宏观事件功能未启用，请在配置中启用 macro_event",
+    "macroNoData": "暂无宏观事件数据",
+    "macroRiskScore": "综合风险评分",
+    "macroEventCount": "事件数量",
+    "macroHighImpact": "高影响事件",
+    "macroLastFetched": "上次拉取",
+    "macroQuestion": "事件",
+    "macroCategory": "分类",
+    "macroProbability": "概率",
+    "macroDelta": "变化",
+    "macroLink": "链接"
   },
   "klineFiles": {
     "title": "K线数据文件管理",

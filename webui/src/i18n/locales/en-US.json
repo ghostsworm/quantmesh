@@ -3007,7 +3007,20 @@
     "volume": "Volume",
     "liquidity": "Liquidity",
     "endDate": "End Date",
-    "options": "Options"
+    "options": "Options",
+    "tabMacro": "Macro Events",
+    "macroTitle": "Macro Event Predictions (War/Interest/Currency/Regulation/Economy)",
+    "macroDisabled": "Macro events disabled. Enable macro_event in config.",
+    "macroNoData": "No macro event data available",
+    "macroRiskScore": "Composite Risk Score",
+    "macroEventCount": "Event Count",
+    "macroHighImpact": "High Impact",
+    "macroLastFetched": "Last Fetched",
+    "macroQuestion": "Event",
+    "macroCategory": "Category",
+    "macroProbability": "Probability",
+    "macroDelta": "Delta",
+    "macroLink": "Link"
   },
   "klineFiles": {
     "title": "K-Line Data File Management",
