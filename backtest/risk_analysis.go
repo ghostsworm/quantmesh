@@ -13,13 +13,13 @@ type RiskMetrics struct {
 	CVaR99 float64 `json:"cvar_99"` // 99% 置信度的条件风險價值
 }
 
-// CalculateRiskMetrics 计算风險指標
+// CalculateRiskMetrics 計算风險指標
 func CalculateRiskMetrics(equity []EquityPoint) RiskMetrics {
 	if len(equity) < 2 {
 		return RiskMetrics{}
 	}
 
-	// 计算收益率序列
+	// 計算收益率序列
 	returns := make([]float64, len(equity)-1)
 	for i := 1; i < len(equity); i++ {
 		if equity[i-1].Equity > 0 {
@@ -27,11 +27,11 @@ func CalculateRiskMetrics(equity []EquityPoint) RiskMetrics {
 		}
 	}
 
-	// 计算 VaR
+	// 計算 VaR
 	var95 := calculateHistoricalVaR(returns, 0.95)
 	var99 := calculateHistoricalVaR(returns, 0.99)
 
-	// 计算 CVaR
+	// 計算 CVaR
 	cvar95 := calculateCVaR(returns, 0.95)
 	cvar99 := calculateCVaR(returns, 0.99)
 
@@ -43,7 +43,7 @@ func CalculateRiskMetrics(equity []EquityPoint) RiskMetrics {
 	}
 }
 
-// calculateHistoricalVaR 历史模拟法计算 VaR
+// calculateHistoricalVaR 歷史模拟法計算 VaR
 func calculateHistoricalVaR(returns []float64, confidence float64) float64 {
 	if len(returns) == 0 {
 		return 0
@@ -63,10 +63,10 @@ func calculateHistoricalVaR(returns []float64, confidence float64) float64 {
 		index = 0
 	}
 
-	return math.Abs(sorted[index]) // VaR 是正數，表示损失
+	return math.Abs(sorted[index]) // VaR 是正數，表示損失
 }
 
-// calculateCVaR 计算条件风險價值（CVaR / Expected Shortfall）
+// calculateCVaR 計算条件风險價值（CVaR / Expected Shortfall）
 func calculateCVaR(returns []float64, confidence float64) float64 {
 	if len(returns) == 0 {
 		return 0
@@ -85,7 +85,7 @@ func calculateCVaR(returns []float64, confidence float64) float64 {
 		return 0
 	}
 
-	// 计算超過 VaR 的平均损失
+	// 計算超過 VaR 的平均損失
 	sum := 0.0
 	count := 0
 	for i := 0; i <= index; i++ {

@@ -20,9 +20,9 @@ type BacktestTask struct {
 	Error        string                 `json:"error,omitempty"`
 	ResultPath   string                 `json:"result_path,omitempty"`
 	ReportPath   string                 `json:"report_path,omitempty"`
-	// 数据来源扩展字段
+	// 數據来源扩展字段
 	DataSource   string                 `json:"data_source,omitempty"` // "time_range" | "kline_file" | "cache"
-	KlineFile    string                 `json:"kline_file,omitempty"`  // K线文件名 (如 1m_binance_BTCUSDT_20260102.csv)
+	KlineFile    string                 `json:"kline_file,omitempty"`  // K線檔案名 (如 1m_binance_BTCUSDT_20260102.csv)
 	CacheName    string                 `json:"cache_name,omitempty"`  // 回测缓存名称
 }
 
@@ -30,6 +30,6 @@ type BacktestTask struct {
 type BacktestTaskResult struct {
 	TaskID     string            `json:"task_id"`
 	Task       *BacktestTask     `json:"task"`
-	Result     *BacktestResult   `json:"result"`     // 单次回测结果（非对比模式）
-	Comparison *ComparisonResult `json:"comparison"` // 对比结果（网格策略带风控对比时使用）
+	Result     *BacktestResult   `json:"result"`     // 单次回测結果（非对比模式）
+	Comparison *ComparisonResult `json:"comparison"` // 对比結果（网格策略带风控对比时使用）
 }

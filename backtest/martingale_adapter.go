@@ -18,7 +18,7 @@ type MartingaleBacktestParams struct {
 	StopLossPct   float64 // 止损百分比，如 2 表示 2%
 }
 
-// RunMartingaleBacktest 运行马丁格尔回测（简化版：定期“下注”，亏损加倍，總资金限制）
+// RunMartingaleBacktest 運行马丁格尔回测（简化版：定期“下注”，亏损加倍，總資金限制）
 func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, params MartingaleBacktestParams, initialCapital float64) (*BacktestResult, error) {
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
@@ -57,7 +57,7 @@ func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, 
 			Equity:    cash + position*c.Close,
 		})
 
-		// 有持倉：检查止盈止损
+		// 有持倉：檢查止盈止损
 		if position > 0 && entryPrice > 0 {
 			ret := (c.Close - entryPrice) / entryPrice
 			if ret >= tp {

@@ -38,11 +38,11 @@ type Metrics struct {
 	// 持倉（基幣數量，如 BTCUSDT 即最大持倉 BTC 數量）
 	MaxPosition float64 `json:"max_position"` // 最大持倉（基幣）
 
-	// 🔥 价格偏差（slippage）损失
-	TotalSlippageLoss float64 `json:"total_slippage_loss"` // 累计slippage损失（USDT）
+	// 🔥 價格偏差（slippage）損失
+	TotalSlippageLoss float64 `json:"total_slippage_loss"` // 累计slippage損失（USDT）
 }
 
-// CalculateMetrics 计算所有指標
+// CalculateMetrics 計算所有指標
 func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float64, totalSlippageLoss float64) Metrics {
 	if len(equity) == 0 || len(trades) == 0 {
 		return Metrics{
@@ -82,14 +82,14 @@ func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float
 		MaxConsecutiveWins:   calculateMaxConsecutiveWins(trades),
 		MaxConsecutiveLosses: calculateMaxConsecutiveLosses(trades),
 
-		// 🔥 价格偏差损失
+		// 🔥 價格偏差損失
 		TotalSlippageLoss: totalSlippageLoss,
 	}
 
 	return metrics
 }
 
-// calculateReturns 计算收益率序列
+// calculateReturns 計算收益率序列
 func calculateReturns(equity []EquityPoint) []float64 {
 	if len(equity) < 2 {
 		return []float64{}
@@ -105,7 +105,7 @@ func calculateReturns(equity []EquityPoint) []float64 {
 	return returns
 }
 
-// calculateTotalReturn 计算總收益率
+// calculateTotalReturn 計算總收益率
 func calculateTotalReturn(equity []EquityPoint, initialCapital float64) float64 {
 	if len(equity) == 0 || initialCapital == 0 {
 		return 0
@@ -115,7 +115,7 @@ func calculateTotalReturn(equity []EquityPoint, initialCapital float64) float64 
 	return (finalEquity - initialCapital) / initialCapital * 100
 }
 
-// calculateAnnualizedReturn 计算年化收益率（複利換算，返回值為百分比，與 TotalReturn 一致）
+// calculateAnnualizedReturn 計算年化收益率（複利換算，返回值為百分比，與 TotalReturn 一致）
 // 公式：(1 + 總收益率/100)^(365/天數) - 1，再乘 100 得到百分比
 func calculateAnnualizedReturn(equity []EquityPoint, initialCapital float64) float64 {
 	if len(equity) < 2 || initialCapital == 0 {
@@ -135,7 +135,7 @@ func calculateAnnualizedReturn(equity []EquityPoint, initialCapital float64) flo
 	return (math.Pow(1+totalReturn/100, 365/days) - 1) * 100
 }
 
-// calculateMaxDrawdown 计算最大回撤
+// calculateMaxDrawdown 計算最大回撤
 func calculateMaxDrawdown(equity []EquityPoint) float64 {
 	if len(equity) == 0 {
 		return 0
@@ -160,7 +160,7 @@ func calculateMaxDrawdown(equity []EquityPoint) float64 {
 	return maxDrawdown
 }
 
-// calculateMaxDrawdownDuration 计算最大回撤持续時间（天）
+// calculateMaxDrawdownDuration 計算最大回撤持续時间（天）
 // 使用實際時間差（毫秒 -> 天），避免按「數據點個數」統計導致 1m 回測顯示成千上萬天
 func calculateMaxDrawdownDuration(equity []EquityPoint) int {
 	if len(equity) == 0 {
@@ -201,7 +201,7 @@ func calculateMaxDrawdownDuration(equity []EquityPoint) int {
 	return maxDurationDays
 }
 
-// calculateVolatility 计算波动率（年化）
+// calculateVolatility 計算波动率（年化）
 func calculateVolatility(returns []float64) float64 {
 	if len(returns) == 0 {
 		return 0
@@ -224,7 +224,7 @@ func calculateVolatility(returns []float64) float64 {
 	return math.Sqrt(variance) * math.Sqrt(252) * 100
 }
 
-// calculateSharpeRatio 计算夏普比率
+// calculateSharpeRatio 計算夏普比率
 func calculateSharpeRatio(returns []float64) float64 {
 	if len(returns) == 0 {
 		return 0
@@ -252,7 +252,7 @@ func calculateSharpeRatio(returns []float64) float64 {
 	return (mean - riskFreeRate) / stdDev * math.Sqrt(252)
 }
 
-// calculateSortinoRatio 计算索提诺比率（只考虑下行波动）
+// calculateSortinoRatio 計算索提诺比率（只考虑下行波动）
 func calculateSortinoRatio(returns []float64) float64 {
 	if len(returns) == 0 {
 		return 0
@@ -264,7 +264,7 @@ func calculateSortinoRatio(returns []float64) float64 {
 	}
 	mean /= float64(len(returns))
 
-	// 只计算负收益的方差
+	// 只計算负收益的方差
 	downVariance := 0.0
 	downCount := 0
 	for _, r := range returns {
@@ -289,7 +289,7 @@ func calculateSortinoRatio(returns []float64) float64 {
 	return (mean - riskFreeRate) / downStdDev * math.Sqrt(252)
 }
 
-// calculateCalmarRatio 计算卡玛比率（年化收益率 / 最大回撤）
+// calculateCalmarRatio 計算卡玛比率（年化收益率 / 最大回撤）
 func calculateCalmarRatio(equity []EquityPoint, initialCapital float64) float64 {
 	annualizedReturn := calculateAnnualizedReturn(equity, initialCapital)
 	maxDrawdown := calculateMaxDrawdown(equity)
@@ -333,7 +333,7 @@ func calculateTotalTrades(trades []Trade) int {
 	return sellCount
 }
 
-// calculateWinRate 计算胜率
+// calculateWinRate 計算胜率
 func calculateWinRate(trades []Trade) float64 {
 	if len(trades) == 0 {
 		return 0
@@ -358,7 +358,7 @@ func calculateWinRate(trades []Trade) float64 {
 	return float64(winCount) / float64(totalTrades) * 100
 }
 
-// calculateProfitFactor 计算利润因子（總盈利 / 總亏损）
+// calculateProfitFactor 計算利润因子（總盈利 / 總亏损）
 func calculateProfitFactor(trades []Trade) float64 {
 	totalProfit := 0.0
 	totalLoss := 0.0
@@ -380,7 +380,7 @@ func calculateProfitFactor(trades []Trade) float64 {
 	return totalProfit / totalLoss
 }
 
-// calculateAvgWin 计算平均盈利
+// calculateAvgWin 計算平均盈利
 func calculateAvgWin(trades []Trade) float64 {
 	totalWin := 0.0
 	winCount := 0
@@ -399,7 +399,7 @@ func calculateAvgWin(trades []Trade) float64 {
 	return totalWin / float64(winCount)
 }
 
-// calculateAvgLoss 计算平均亏损
+// calculateAvgLoss 計算平均亏损
 func calculateAvgLoss(trades []Trade) float64 {
 	totalLoss := 0.0
 	lossCount := 0
@@ -418,7 +418,7 @@ func calculateAvgLoss(trades []Trade) float64 {
 	return totalLoss / float64(lossCount)
 }
 
-// calculateLargestWin 计算最大單笔盈利
+// calculateLargestWin 計算最大單笔盈利
 func calculateLargestWin(trades []Trade) float64 {
 	largestWin := 0.0
 
@@ -431,7 +431,7 @@ func calculateLargestWin(trades []Trade) float64 {
 	return largestWin
 }
 
-// calculateLargestLoss 计算最大單笔亏损
+// calculateLargestLoss 計算最大單笔亏损
 func calculateLargestLoss(trades []Trade) float64 {
 	largestLoss := 0.0
 
@@ -447,7 +447,7 @@ func calculateLargestLoss(trades []Trade) float64 {
 	return largestLoss
 }
 
-// calculateMaxConsecutiveWins 计算最大连续盈利次數
+// calculateMaxConsecutiveWins 計算最大连续盈利次數
 func calculateMaxConsecutiveWins(trades []Trade) int {
 	maxWins := 0
 	currentWins := 0
@@ -468,7 +468,7 @@ func calculateMaxConsecutiveWins(trades []Trade) int {
 	return maxWins
 }
 
-// calculateMaxConsecutiveLosses 计算最大连续亏损次數
+// calculateMaxConsecutiveLosses 計算最大连续亏损次數
 func calculateMaxConsecutiveLosses(trades []Trade) int {
 	maxLosses := 0
 	currentLosses := 0

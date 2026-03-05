@@ -29,7 +29,7 @@ func GetHistoricalData(
 	return GetHistoricalDataEx("binance", symbol, interval, startTime, endTime, binanceConfig)
 }
 
-// GetHistoricalDataEx 支援多交易所的历史數據獲取
+// GetHistoricalDataEx 支援多交易所的歷史數據獲取
 func GetHistoricalDataEx(
 	exchangeName string, // "binance", "bitget"
 	symbol string,
@@ -38,7 +38,7 @@ func GetHistoricalDataEx(
 	endTime time.Time,
 	config map[string]string,
 ) ([]*exchange.Candle, error) {
-	// 历史數據當前主要從 Binance 獲取（流动性最好）
+	// 歷史數據當前主要從 Binance 獲取（流动性最好）
 	// Bitget 等交易所的 USDT 現貨對與 Binance 數據通常一致
 	if exchangeName != "binance" && exchangeName != "bitget" {
 		exchangeName = "binance"
@@ -60,7 +60,7 @@ func GetHistoricalDataEx(
 		endTime.Format("2006-01-02"),
 	)
 
-	// 2. 检查缓存
+	// 2. 檢查缓存
 	if candles, err := LoadFromCache(cacheKey); err == nil {
 		logger.Info("✅ 從缓存加載: %s (%d 根K線)", cacheKey, len(candles))
 		return candles, nil
@@ -85,7 +85,7 @@ func GetHistoricalDataEx(
 
 	// 4. 保存缓存
 	if err := SaveToCache(cacheKey, candles); err != nil {
-		logger.Warn("⚠️ 缓存保存失败: %v", err)
+		logger.Warn("⚠️ 缓存保存失敗: %v", err)
 	} else {
 		sizeMB := float64(len(candles)*80) / 1024 / 1024
 		logger.Info("💾 已缓存: %s (%d 根 K 線, %.2f MB)", cacheKey, len(candles), sizeMB)
@@ -109,20 +109,20 @@ func fetchFromBinance(
 		var err error
 		adapter, err = binance.NewBinanceAdapter(binanceConfig, symbol)
 		if err != nil {
-			return nil, fmt.Errorf("創建 Binance adapter 失败: %w", err)
+			return nil, fmt.Errorf("創建 Binance adapter 失敗: %w", err)
 		}
 	} else {
 		var err error
 		adapter, err = binance.NewBinanceAdapterForPublicData(binanceConfig, symbol)
 		if err != nil {
-			return nil, fmt.Errorf("創建 Binance adapter 失败: %w", err)
+			return nil, fmt.Errorf("創建 Binance adapter 失敗: %w", err)
 		}
 	}
 
 	allCandles := make([]*exchange.Candle, 0)
 	currentStart := startTime
 
-	// 计算每批的時间跨度（根據 interval）
+	// 計算每批的時间跨度（根據 interval）
 	batchDuration := calculateBatchDuration(interval, 1000)
 
 	totalBatches := int(endTime.Sub(startTime) / batchDuration)
@@ -140,7 +140,7 @@ func fetchFromBinance(
 		cancel()
 
 		if err != nil {
-			return nil, fmt.Errorf("獲取第 %d 批數據失败: %w", batchNum, err)
+			return nil, fmt.Errorf("獲取第 %d 批數據失敗: %w", batchNum, err)
 		}
 
 		if len(candles) == 0 {
@@ -169,7 +169,7 @@ func fetchFromBinance(
 			})
 		}
 
-		// 计算下一批的起始時间
+		// 計算下一批的起始時间
 		if len(candles) > 0 {
 			lastTimestamp := candles[len(candles)-1].Timestamp
 			currentStart = time.Unix(lastTimestamp/1000, 0).Add(time.Second)
@@ -197,7 +197,7 @@ func fetchFromBinance(
 	return allCandles, nil
 }
 
-// calculateBatchDuration 计算每批的時间跨度
+// calculateBatchDuration 計算每批的時间跨度
 func calculateBatchDuration(interval string, limit int) time.Duration {
 	var duration time.Duration
 
@@ -239,9 +239,9 @@ func calculateBatchDuration(interval string, limit int) time.Duration {
 	return duration * time.Duration(limit)
 }
 
-// LoadFromCache 從统一目录加载 CSV
+// LoadFromCache 從统一目錄加載 CSV
 func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
-	// 首先尝试从统一目录加载
+	// 首先嘗試从统一目錄加載
 	filename := filepath.Join("./data/kline", cacheKey+".csv")
 
 	candles, err := loadCandlesFromFile(filename)
@@ -249,12 +249,12 @@ func LoadFromCache(cacheKey string) ([]*exchange.Candle, error) {
 		return candles, nil
 	}
 
-	// 向后兼容：如果统一目录没有，尝试从旧的 backtest/cache 目录
+	// 向后兼容：如果统一目錄没有，嘗試从旧的 backtest/cache 目錄
 	legacyFilename := filepath.Join("backtest", "cache", cacheKey+".csv")
 	return loadCandlesFromFile(legacyFilename)
 }
 
-// loadCandlesFromFile 从指定文件加载 K 线数据
+// loadCandlesFromFile 从指定檔案加載 K 线數據
 func loadCandlesFromFile(filename string) ([]*exchange.Candle, error) {
 
 	file, err := os.Open(filename)
@@ -268,10 +268,10 @@ func loadCandlesFromFile(filename string) ([]*exchange.Candle, error) {
 	// 跳過表头
 	_, err = reader.Read()
 	if err != nil {
-		return nil, fmt.Errorf("读取表头失败: %w", err)
+		return nil, fmt.Errorf("读取表头失敗: %w", err)
 	}
 
-	// 使用流式读取，避免一次性加載整個文件到記憶體
+	// 使用流式读取，避免一次性加載整個檔案到記憶體
 	// 限制最大读取數量，防止記憶體占用過大
 	maxCandles := 1000000                         // 最多100万根K線
 	candles := make([]*exchange.Candle, 0, 10000) // 預分配1万容量
@@ -283,18 +283,18 @@ func loadCandlesFromFile(filename string) ([]*exchange.Candle, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("读取第 %d 行失败: %w", lineNum+1, err)
+			return nil, fmt.Errorf("读取第 %d 行失敗: %w", lineNum+1, err)
 		}
 
 		// 限制最大數量
 		if len(candles) >= maxCandles {
-			logger.Warn("⚠️ CSV 文件過大，只读取前 %d 根K線", maxCandles)
+			logger.Warn("⚠️ CSV 檔案過大，只读取前 %d 根K線", maxCandles)
 			break
 		}
 
 		candle, err := parseCSVRecord(record)
 		if err != nil {
-			return nil, fmt.Errorf("解析第 %d 行失败: %w", lineNum+1, err)
+			return nil, fmt.Errorf("解析第 %d 行失敗: %w", lineNum+1, err)
 		}
 		candles = append(candles, candle)
 		lineNum++
@@ -311,32 +311,32 @@ func parseCSVRecord(record []string) (*exchange.Candle, error) {
 
 	timestamp, err := strconv.ParseInt(record[0], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("解析 timestamp 失败: %w", err)
+		return nil, fmt.Errorf("解析 timestamp 失敗: %w", err)
 	}
 
 	open, err := strconv.ParseFloat(record[1], 64)
 	if err != nil {
-		return nil, fmt.Errorf("解析 open 失败: %w", err)
+		return nil, fmt.Errorf("解析 open 失敗: %w", err)
 	}
 
 	high, err := strconv.ParseFloat(record[2], 64)
 	if err != nil {
-		return nil, fmt.Errorf("解析 high 失败: %w", err)
+		return nil, fmt.Errorf("解析 high 失敗: %w", err)
 	}
 
 	low, err := strconv.ParseFloat(record[3], 64)
 	if err != nil {
-		return nil, fmt.Errorf("解析 low 失败: %w", err)
+		return nil, fmt.Errorf("解析 low 失敗: %w", err)
 	}
 
 	close, err := strconv.ParseFloat(record[4], 64)
 	if err != nil {
-		return nil, fmt.Errorf("解析 close 失败: %w", err)
+		return nil, fmt.Errorf("解析 close 失敗: %w", err)
 	}
 
 	volume, err := strconv.ParseFloat(record[5], 64)
 	if err != nil {
-		return nil, fmt.Errorf("解析 volume 失败: %w", err)
+		return nil, fmt.Errorf("解析 volume 失敗: %w", err)
 	}
 
 	symbol := record[6]
@@ -353,38 +353,38 @@ func parseCSVRecord(record []string) (*exchange.Candle, error) {
 	}, nil
 }
 
-// SaveToCache 保存到统一目录并录入数据库（無數據時不寫入，避免產生 K 線數為 0 的緩存條目）
+// SaveToCache 保存到统一目錄并录入數據库（無數據時不寫入，避免產生 K 線數為 0 的緩存條目）
 func SaveToCache(cacheKey string, candles []*exchange.Candle) error {
 	return SaveToCacheWithStorage(cacheKey, candles, nil)
 }
 
-// SaveToCacheWithStorage 保存到统一目录（暂时不录入数据库以避免循环导入）
+// SaveToCacheWithStorage 保存到统一目錄（暂时不录入數據库以避免循环导入）
 func SaveToCacheWithStorage(cacheKey string, candles []*exchange.Candle, storageService interface{}) error {
 	if len(candles) == 0 {
 		return nil
 	}
-	// 统一使用 ./data/kline 目录
+	// 统一使用 ./data/kline 目錄
 	cacheDir := "./data/kline"
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return fmt.Errorf("創建缓存目錄失败: %w", err)
+		return fmt.Errorf("創建缓存目錄失敗: %w", err)
 	}
 
 	filename := filepath.Join(cacheDir, cacheKey+".csv")
 	file, err := os.Create(filename)
 	if err != nil {
-		return fmt.Errorf("創建缓存文件失败: %w", err)
+		return fmt.Errorf("創建缓存檔案失敗: %w", err)
 	}
 	defer file.Close()
 
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	// 写入表头
+	// 寫入表头
 	if err := writer.Write([]string{"timestamp", "open", "high", "low", "close", "volume", "symbol"}); err != nil {
-		return fmt.Errorf("写入表头失败: %w", err)
+		return fmt.Errorf("寫入表头失敗: %w", err)
 	}
 
-	// 写入數據
+	// 寫入數據
 	for _, c := range candles {
 		record := []string{
 			fmt.Sprintf("%d", c.Timestamp),
@@ -396,18 +396,18 @@ func SaveToCacheWithStorage(cacheKey string, candles []*exchange.Candle, storage
 			c.Symbol,
 		}
 		if err := writer.Write(record); err != nil {
-			return fmt.Errorf("写入數據失败: %w", err)
+			return fmt.Errorf("寫入數據失敗: %w", err)
 		}
 	}
 
 	// 更新缓存索引（保持向后兼容）
 	if err := updateCacheIndex(cacheKey, candles); err != nil {
-		logger.Warn("⚠️ 更新缓存索引失败: %v", err)
+		logger.Warn("⚠️ 更新缓存索引失敗: %v", err)
 	}
 
-	// 录入统一的 kline_files 数据库表
-	// TODO: 录入统一的 kline_files 数据库表
-	// 暂时跳过数据库录入以避免循环导入，后续通过迁移脚本处理
+	// 录入统一的 kline_files 數據库表
+	// TODO: 录入统一的 kline_files 數據库表
+	// 暂时跳过數據库录入以避免循环导入，后续通过迁移脚本處理
 
 	return nil
 }
@@ -455,7 +455,7 @@ func updateCacheIndex(cacheKey string, candles []*exchange.Candle) error {
 	start, _ := time.Parse("2006-01-02", startStr)
 	end, _ := time.Parse("2006-01-02", endStr)
 
-	// 计算文件大小
+	// 計算檔案大小
 	filename := filepath.Join("backtest", "cache", cacheKey+".csv")
 	fileInfo, err := os.Stat(filename)
 	var sizeMB float64

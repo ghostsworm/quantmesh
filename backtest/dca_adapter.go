@@ -35,11 +35,11 @@ func candlesPerDay(interval string) int {
 	case "1d":
 		return 1
 	default:
-		return 24 // 默认按 1h
+		return 24 // 預設按 1h
 	}
 }
 
-// RunDCABacktest 运行 DCA 定投策略回测：每隔 N 天買入固定金額，持有至結束
+// RunDCABacktest 運行 DCA 定投策略回测：每隔 N 天買入固定金額，持有至結束
 func RunDCABacktest(symbol, interval string, candles []*exchange.Candle, params DCABacktestParams, initialCapital float64) (*BacktestResult, error) {
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")

@@ -21,7 +21,7 @@ func main() {
 	// 加載配置
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		log.Fatalf("❌ 加載配置失败: %v", err)
+		log.Fatalf("❌ 加載配置失敗: %v", err)
 	}
 
 	binanceConfig, ok := cfg.Exchanges["binance"]
@@ -61,7 +61,7 @@ func main() {
 
 	allResults := make([]TestResult, 0)
 
-	// 對每個配置运行测試
+	// 對每個配置運行测試
 	for _, tc := range testConfigs {
 		fmt.Println("")
 		fmt.Println("=" + string(make([]rune, 80)))
@@ -73,7 +73,7 @@ func main() {
 		startTime := endTime.AddDate(0, 0, -tc.days)
 
 		fmt.Printf("⏰ 時间範圍: %s 至 %s\n", startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
-		fmt.Printf("💰 初始资金: $%.2f\n", initialCapital)
+		fmt.Printf("💰 初始資金: $%.2f\n", initialCapital)
 		fmt.Println("")
 
 		// 獲取歷史數據
@@ -85,7 +85,7 @@ func main() {
 			"testnet":    fmt.Sprintf("%t", binanceConfig.Testnet),
 		})
 		if err != nil {
-			log.Printf("❌ 獲取歷史數據失败: %v", err)
+			log.Printf("❌ 獲取歷史數據失敗: %v", err)
 			continue
 		}
 		fetchDuration := time.Since(fetchStart).Seconds()
@@ -103,22 +103,22 @@ func main() {
 			{"trend_following", "trend_following"},
 		}
 
-		// 运行每個策略
+		// 運行每個策略
 		for _, s := range strategies {
-			fmt.Printf("▶️  运行 %s 策略...\n", s.Name)
+			fmt.Printf("▶️  運行 %s 策略...\n", s.Name)
 			backtestStart := time.Now()
 
 			// 創建策略适配器
 			adapter, err := backtest.NewPluginStrategyAdapter(pluginPath, s.StrategyName, map[string]interface{}{})
 			if err != nil {
-				fmt.Printf("❌ 加載策略失败: %v\n", err)
+				fmt.Printf("❌ 加載策略失敗: %v\n", err)
 				continue
 			}
 
 			bt := backtest.NewBacktester(symbol, candles, adapter, initialCapital)
 			result, err := bt.Run()
 			if err != nil {
-				fmt.Printf("❌ %s 策略回测失败: %v\n", s.Name, err)
+				fmt.Printf("❌ %s 策略回测失敗: %v\n", s.Name, err)
 				continue
 			}
 
@@ -127,7 +127,7 @@ func main() {
 			// 生成报告
 			reportPath, err := backtest.GenerateReport(result)
 			if err != nil {
-				fmt.Printf("⚠️  生成报告失败: %v\n", err)
+				fmt.Printf("⚠️  生成报告失敗: %v\n", err)
 			}
 
 			// 保存結果
@@ -224,7 +224,7 @@ func main() {
 	fmt.Println("=" + string(make([]rune, 80)))
 	fmt.Println("")
 
-	// 计算每個周期的平均表現
+	// 計算每個周期的平均表現
 	periodStats := make(map[string]struct {
 		avgReturn   float64
 		avgDrawdown float64

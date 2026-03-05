@@ -13,7 +13,7 @@ import (
 	"quantmesh/logger"
 )
 
-// BotBacktestRequest Bot回测请求
+// BotBacktestRequest Bot回测請求
 type BotBacktestRequest struct {
 	BotID       string    `json:"bot_id" binding:"required"`
 	StartDate   time.Time `json:"start_date"`
@@ -32,7 +32,7 @@ type BotBacktestResponse struct {
 	BacktestConfig *backtest.EngineConfig   `json:"backtest_config,omitempty"`
 }
 
-// BotBacktestTask Bot回测任务
+// BotBacktestTask Bot回测任務
 type BotBacktestTask struct {
 	TaskID       string                               `json:"task_id"`
 	BotID        string                               `json:"bot_id"`
@@ -55,7 +55,7 @@ var (
 	botBacktestMu    sync.RWMutex
 )
 
-// postBotBacktestCreate 创建Bot回测任务
+// postBotBacktestCreate 創建Bot回测任務
 // POST /api/bot/:botId/backtest
 func postBotBacktestCreate(c *gin.Context) {
 	botID := c.Param("botId")
@@ -64,7 +64,7 @@ func postBotBacktestCreate(c *gin.Context) {
 		return
 	}
 
-	// 获取Bot配置
+	// 獲取Bot配置
 	if botManagerProvider == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_unavailable")
 		return
@@ -76,15 +76,15 @@ func postBotBacktestCreate(c *gin.Context) {
 		return
 	}
 
-	// 解析请求
+	// 解析請求
 	var req BotBacktestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// 检查是否为空请求体（EOF）而非真正的错误
+		// 檢查是否为空請求体（EOF）而非真正的錯誤
 		if err.Error() != "EOF" && err.Error() != "unexpected EOF" {
 			respondError(c, http.StatusBadRequest, "error.invalid_request")
 			return
 		}
-		// 空请求体，使用默认配置
+		// 空請求体，使用預設配置
 		req = BotBacktestRequest{
 			BotID:      botID,
 			DataDir:    "./data",
@@ -95,16 +95,16 @@ func postBotBacktestCreate(c *gin.Context) {
 		}
 	}
 
-	// 验证日期
+	// 驗證日期
 	if req.StartDate.After(req.EndDate) {
 		respondError(c, http.StatusBadRequest, "error.invalid_date_range")
 		return
 	}
 
-	// 创建任务ID
+	// 創建任務ID
 	taskID := fmt.Sprintf("backtest_%s_%d", botID, time.Now().UnixNano())
 
-	// 创建回测引擎配置
+	// 創建回测引擎配置
 	engineConfig := &backtest.EngineConfig{
 		Symbol:           botDetail.Config.Symbol,
 		InitialCapital:   botDetail.Config.TotalAllocatedCapital,
@@ -118,7 +118,7 @@ func postBotBacktestCreate(c *gin.Context) {
 		MatcherConfig:    backtest.DefaultMatcherConfig(),
 	}
 
-	// 创建任务
+	// 創建任務
 	ctx, cancel := context.WithCancel(context.Background())
 	task := &BotBacktestTask{
 		TaskID:    taskID,
@@ -130,12 +130,12 @@ func postBotBacktestCreate(c *gin.Context) {
 		cancel:    cancel,
 	}
 
-	// 存储任务
+	// 存储任務
 	botBacktestMu.Lock()
 	botBacktestTasks[taskID] = task
 	botBacktestMu.Unlock()
 
-	// 异步执行回测
+	// 异步執行回测
 	go executeBotBacktest(task, engineConfig)
 
 	// 返回响应
@@ -148,7 +148,7 @@ func postBotBacktestCreate(c *gin.Context) {
 	})
 }
 
-// executeBotBacktest 执行Bot回测
+// executeBotBacktest 執行Bot回测
 func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConfig) {
 	task.mu.Lock()
 	task.Status = "running"
@@ -156,7 +156,7 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 	task.StartedAt = &now
 	task.mu.Unlock()
 
-	// 检查策略配置
+	// 檢查策略配置
 	if len(task.BotConfig.Strategies) == 0 {
 		task.mu.Lock()
 		task.Status = "failed"
@@ -171,18 +171,18 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 	logger.Info("Starting bot backtest: task=%s, bot=%s, strategies=%d",
 		task.TaskID, task.BotID, len(task.BotConfig.Strategies))
 
-	// 创建回测引擎
+	// 創建回测引擎
 	engine := backtest.NewMultiStrategyEngine(engineConfig)
 	task.Engine = engine
 
-	// 设置进度回调
+	// 设置进度回調
 	engine.SetProgressCallback(func(progress float64) {
 		task.mu.Lock()
 		task.Progress = progress
 		task.mu.Unlock()
 	})
 
-	// 加载数据
+	// 加載數據
 	if err := engine.LoadData(); err != nil {
 		task.mu.Lock()
 		task.Status = "failed"
@@ -194,7 +194,7 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 		return
 	}
 
-	// 创建策略实例
+	// 創建策略实例
 	for _, strategyCfg := range task.BotConfig.Strategies {
 		strategy, err := createBacktestStrategy(strategyCfg, task.BotConfig)
 		if err != nil {
@@ -220,7 +220,7 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 		}
 	}
 
-	// 运行回测
+	// 運行回测
 	result, err := engine.Run()
 	if err != nil {
 		task.mu.Lock()
@@ -233,7 +233,7 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 		return
 	}
 
-	// 保存结果
+	// 保存結果
 	task.mu.Lock()
 	task.Status = "completed"
 	task.Result = result
@@ -246,9 +246,9 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 		task.TaskID, result.TotalReturnPct, result.TotalTrades)
 }
 
-// createBacktestStrategy 根据配置创建回测策略
+// createBacktestStrategy 根据配置創建回测策略
 func createBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig) (backtest.BacktestStrategy, error) {
-	// 根据策略类型创建相应的回测策略
+	// 根据策略類型創建相应的回测策略
 	switch strategyCfg.Type {
 	case "grid":
 		return createGridBacktestStrategy(strategyCfg, botCfg)
@@ -265,14 +265,14 @@ func createBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.
 	}
 }
 
-// createGridBacktestStrategy 创建网格回测策略
+// createGridBacktestStrategy 創建网格回测策略
 func createGridBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig) (backtest.BacktestStrategy, error) {
 	// 提取网格参数
 	gridCount := getIntParam(strategyCfg.Config, "grid_count", 50)
 	gridSpacing := getFloatParam(strategyCfg.Config, "grid_spacing", 0.0025)
 	gridLeverage := getIntParam(strategyCfg.Config, "grid_leverage", 5)
 
-	// 创建网格回测策略
+	// 創建网格回测策略
 	strategy := backtest.NewGridBacktestStrategy(
 		fmt.Sprintf("grid_%s", botCfg.Symbol),
 		botCfg.Symbol,
@@ -285,7 +285,7 @@ func createGridBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *con
 	return strategy, nil
 }
 
-// createDCABacktestStrategy 创建DCA回测策略
+// createDCABacktestStrategy 創建DCA回测策略
 func createDCABacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig) (backtest.BacktestStrategy, error) {
 	baseOrderAmount := getFloatParam(strategyCfg.Config, "base_order_amount", 30.0)
 	maxOrders := getIntParam(strategyCfg.Config, "max_orders", 10)
@@ -301,7 +301,7 @@ func createDCABacktestStrategy(strategyCfg config.StrategyInstance, botCfg *conf
 	return strategy, nil
 }
 
-// createMartingaleBacktestStrategy 创建马丁回测策略
+// createMartingaleBacktestStrategy 創建马丁回测策略
 func createMartingaleBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig) (backtest.BacktestStrategy, error) {
 	baseOrderAmount := getFloatParam(strategyCfg.Config, "base_order_amount", 30.0)
 	multiplier := getFloatParam(strategyCfg.Config, "multiplier", 2.0)
@@ -319,7 +319,7 @@ func createMartingaleBacktestStrategy(strategyCfg config.StrategyInstance, botCf
 	return strategy, nil
 }
 
-// createTrendBacktestStrategy 创建趋势回测策略
+// createTrendBacktestStrategy 創建趋势回测策略
 func createTrendBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig) (backtest.BacktestStrategy, error) {
 	lookback := getIntParam(strategyCfg.Config, "lookback", 20)
 
@@ -333,7 +333,7 @@ func createTrendBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *co
 	return strategy, nil
 }
 
-// createComboBacktestStrategy 创建组合回测策略
+// createComboBacktestStrategy 創建组合回测策略
 func createComboBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig) (backtest.BacktestStrategy, error) {
 	// 组合策略需要包含子策略配置
 	subStrategiesCfg := getSliceParam(strategyCfg.Config, "strategies")
@@ -344,7 +344,7 @@ func createComboBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *co
 	var subStrategies []backtest.BacktestStrategy
 	var weights []float64
 
-	// 创建子策略
+	// 創建子策略
 	for _, subCfg := range subStrategiesCfg {
 		subStrategyInstance, ok := subCfg.(map[string]interface{})
 		if !ok {
@@ -383,7 +383,7 @@ func createComboBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *co
 	return strategy, nil
 }
 
-// getBotBacktestTask 获取回测任务状态
+// getBotBacktestTask 獲取回测任務狀態
 // GET /api/bot/backtest/:taskId
 func getBotBacktestTask(c *gin.Context) {
 	taskID := c.Param("taskId")
@@ -407,7 +407,7 @@ func getBotBacktestTask(c *gin.Context) {
 	c.JSON(http.StatusOK, task)
 }
 
-// getBotBacktestResult 获取回测结果
+// getBotBacktestResult 獲取回测結果
 // GET /api/bot/backtest/:taskId/result
 func getBotBacktestResult(c *gin.Context) {
 	taskID := c.Param("taskId")
@@ -436,7 +436,7 @@ func getBotBacktestResult(c *gin.Context) {
 	c.JSON(http.StatusOK, task.Result)
 }
 
-// deleteBotBacktestTask 删除回测任务
+// deleteBotBacktestTask 删除回测任務
 // DELETE /api/bot/backtest/:taskId
 func deleteBotBacktestTask(c *gin.Context) {
 	taskID := c.Param("taskId")
@@ -454,7 +454,7 @@ func deleteBotBacktestTask(c *gin.Context) {
 		return
 	}
 
-	// 取消正在运行的任务
+	// 取消正在運行的任務
 	task.mu.RLock()
 	if task.Status == "running" && task.cancel != nil {
 		task.cancel()
@@ -469,7 +469,7 @@ func deleteBotBacktestTask(c *gin.Context) {
 	})
 }
 
-// listBotBacktestTasks 列出回测任务
+// listBotBacktestTasks 列出回测任務
 // GET /api/bot/:botId/backtest/tasks
 func listBotBacktestTasks(c *gin.Context) {
 	botID := c.Param("botId")
@@ -549,7 +549,7 @@ func getSliceParam(cfg map[string]interface{}, key string) []interface{} {
 	return []interface{}{}
 }
 
-// BinanceDataDownloadRequest Binance数据下载请求
+// BinanceDataDownloadRequest Binance數據下載請求
 type BinanceDataDownloadRequest struct {
 	Symbol   string `json:"symbol" binding:"required"`
 	Interval string `json:"interval"`   // 1m, 5m, 15m, 1h, 4h, 1d
@@ -558,7 +558,7 @@ type BinanceDataDownloadRequest struct {
 	DataDir   string `json:"data_dir"`
 }
 
-// BinanceDataInfoResponse 数据信息响应
+// BinanceDataInfoResponse 數據信息响应
 type BinanceDataInfoResponse struct {
 	Symbol          string    `json:"symbol"`
 	Interval        string    `json:"interval"`
@@ -572,7 +572,7 @@ type BinanceDataInfoResponse struct {
 	FundingSizeMB   float64   `json:"funding_size_mb"`
 }
 
-// postBinanceDataDownload 下载数据
+// postBinanceDataDownload 下載數據
 // POST /api/backtest/data/download
 func postBinanceDataDownload(c *gin.Context) {
 	var req BinanceDataDownloadRequest
@@ -581,7 +581,7 @@ func postBinanceDataDownload(c *gin.Context) {
 		return
 	}
 
-	// 设置默认值
+	// 设置預設值
 	if req.Interval == "" {
 		req.Interval = "1m"
 	}
@@ -589,17 +589,17 @@ func postBinanceDataDownload(c *gin.Context) {
 		req.DataDir = "./data"
 	}
 
-	// 解析时间范围
+	// 解析時間範圍
 	startDate, endDate, err := backtest.ParseTimeRange(req.StartDate, req.EndDate)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "error.invalid_date_range")
 		return
 	}
 
-	// 创建下载器
+	// 創建下載器
 	downloader := backtest.NewBinanceDownloader(req.DataDir, req.Symbol, req.Interval)
 
-	// 异步执行下载
+	// 异步執行下載
 	go func() {
 		logger.Info("Starting data download: symbol=%s, interval=%s, start=%s, end=%s",
 			req.Symbol, req.Interval, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
@@ -619,7 +619,7 @@ func postBinanceDataDownload(c *gin.Context) {
 	})
 }
 
-// getBinanceDataInfo 获取数据信息
+// getBinanceDataInfo 獲取數據信息
 // GET /api/backtest/data/info
 func getBinanceDataInfo(c *gin.Context) {
 	symbol := c.Query("symbol")
@@ -645,7 +645,7 @@ func getBinanceDataInfo(c *gin.Context) {
 		return
 	}
 
-	// 转换时间戳
+	// 轉換時間戳
 	resp := BinanceDataInfoResponse{
 		Symbol:          info.Symbol,
 		Interval:        info.Interval,
@@ -662,7 +662,7 @@ func getBinanceDataInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// getBinanceDataAvailability 检查数据可用性
+// getBinanceDataAvailability 檢查數據可用性
 // GET /api/backtest/data/availability
 func getBinanceDataAvailability(c *gin.Context) {
 	symbol := c.Query("symbol")
@@ -695,7 +695,7 @@ func getBinanceDataAvailability(c *gin.Context) {
 	})
 }
 
-// getBinanceLatestDataTime 获取最新数据时间
+// getBinanceLatestDataTime 獲取最新數據時間
 // GET /api/backtest/data/latest
 func getBinanceLatestDataTime(c *gin.Context) {
 	symbol := c.Query("symbol")

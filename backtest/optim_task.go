@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// OptimParamRange 参数取值范围（避免 import cycle）
+// OptimParamRange 参数取值範圍（避免 import cycle）
 type OptimParamRange struct {
 	Min  float64 `json:"min"`
 	Max  float64 `json:"max"`
@@ -18,7 +18,7 @@ type OptimSearchSpace struct {
 	Ranges   map[string]OptimParamRange `json:"ranges"`
 }
 
-// OptimTaskStore 优化任务存储接口
+// OptimTaskStore 优化任務存储接口
 type OptimTaskStore interface {
 	CreateOptimTask(task *OptimTask) error
 	GetOptimTask(id string) (*OptimTask, error)
@@ -28,7 +28,7 @@ type OptimTaskStore interface {
 	DeleteOptimTask(id string) error
 }
 
-// OptimTask 参数优化任务
+// OptimTask 参数优化任務
 type OptimTask struct {
 	ID              string           `json:"id"`
 	Status          string           `json:"status"` // pending, running, completed, failed

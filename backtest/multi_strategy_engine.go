@@ -9,12 +9,12 @@ import (
 )
 
 // MultiStrategyEngine 多策略回测引擎
-// 支持单个Bot中的多个策略组合进行回测
+// 支援单个Bot中的多个策略组合进行回测
 type MultiStrategyEngine struct {
 	// 配置
 	Config *EngineConfig
 
-	// 数据
+	// 數據
 	Klines []TickKline
 
 	// 组件
@@ -23,27 +23,27 @@ type MultiStrategyEngine struct {
 	// 策略
 	Strategies []BacktestStrategy
 
-	// 账户状态
+	// 帳戶狀態
 	Account *BacktestAccount
 
-	// 资金费率
+	// 資金費率
 	FundingRates []FundingRateRow
 
-	// 运行时状态
+	// 運行时狀態
 	mu             sync.RWMutex
 	currentIndex   int
 	isRunning      bool
 	isPaused       bool
 	progressCallback func(float64)
 
-	// 结果
+	// 結果
 	trades        []TickTrade
 	equityCurve   []EquityPoint
 	completedTrades []CompletedTrade
 	totalSlippage float64
 	totalFunding  float64
 
-	// 统计
+	// 統計
 	statsByStrategy map[string]*StrategyStats
 }
 
@@ -51,15 +51,15 @@ type MultiStrategyEngine struct {
 type EngineConfig struct {
 	Symbol              string
 	InitialCapital      float64
-	CommissionRate      float64 // 手续费率
+	CommissionRate      float64 // 手续費率
 	Leverage            float64 // 杠杆倍数
 	StartDate           time.Time
 	EndDate             time.Time
 	PositionMode        string  // "long_only", "short_only", "both"
-	MaxLongRatio        float64 // 最大多头仓位比例
-	MaxShortRatio       float64 // 最大空头仓位比例
-	EnableFunding       bool    // 是否启用资金费率
-	DataDir             string  // 数据目录
+	MaxLongRatio        float64 // 最大多头倉位比例
+	MaxShortRatio       float64 // 最大空头倉位比例
+	EnableFunding       bool    // 是否启用資金費率
+	DataDir             string  // 數據目錄
 	MatcherConfig       MatcherConfig
 }
 
@@ -68,41 +68,41 @@ type BacktestStrategy interface {
 	// OnInit 策略初始化
 	OnInit(account *BacktestAccount, cfg interface{}) error
 
-	// OnKline 收到K线时调用
+	// OnKline 收到K線时调用
 	OnKline(kline TickKline, timestamp int64) ([]TickOrder, error)
 
-	// OnTrade 成交回调
+	// OnTrade 成交回調
 	OnTrade(trade TickTrade)
 
-	// GetName 获取策略名称
+	// GetName 獲取策略名称
 	GetName() string
 
-	// GetType 获取策略类型
+	// GetType 獲取策略類型
 	GetType() string
 
-	// GetConfig 获取策略配置
+	// GetConfig 獲取策略配置
 	GetConfig() map[string]interface{}
 }
 
-// BacktestAccount 回测账户
+// BacktestAccount 回测帳戶
 type BacktestAccount struct {
 	// 基础信息
 	Symbol       string
 	InitialBalance float64
 	Leverage     float64
 
-	// 当前状态
+	// 當前狀態
 	mu               sync.RWMutex
 	Balance          float64 // 余额
-	PositionSize     float64 // 净仓位（正=多，负=空）
+	PositionSize     float64 // 净倉位（正=多，负=空）
 	PositionEntryPrice float64 // 平均入场价
-	UnrealizedPnL    float64 // 未实现盈亏
-	RealizedPnL      float64 // 已实现盈亏
+	UnrealizedPnL    float64 // 未實現盈亏
+	RealizedPnL      float64 // 已實現盈亏
 	MarginUsed       float64 // 已用保证金
-	Equity           float64 // 权益
-	PeakEquity       float64 // 历史最高权益
+	Equity           float64 // 權益
+	PeakEquity       float64 // 歷史最高權益
 
-	// 统计
+	// 統計
 	TotalVolume      float64
 	TotalFees        float64
 	TotalSlippage    float64
@@ -110,7 +110,7 @@ type BacktestAccount struct {
 	LiquidationPrice float64
 }
 
-// StrategyStats 策略统计
+// StrategyStats 策略統計
 type StrategyStats struct {
 	Name              string
 	Type              string
@@ -123,10 +123,10 @@ type StrategyStats struct {
 	CompletedTrades   []CompletedTrade
 }
 
-// NewMultiStrategyEngine 创建多策略回测引擎
+// NewMultiStrategyEngine 創建多策略回测引擎
 func NewMultiStrategyEngine(cfg *EngineConfig) *MultiStrategyEngine {
 	if cfg.CommissionRate == 0 {
-		cfg.CommissionRate = 0.0004 // 默认0.04%
+		cfg.CommissionRate = 0.0004 // 預設0.04%
 	}
 	if cfg.Leverage == 0 {
 		cfg.Leverage = 1.0
@@ -147,7 +147,7 @@ func NewMultiStrategyEngine(cfg *EngineConfig) *MultiStrategyEngine {
 	}
 }
 
-// NewBacktestAccount 创建回测账户
+// NewBacktestAccount 創建回测帳戶
 func NewBacktestAccount(symbol string, initialBalance, leverage float64) *BacktestAccount {
 	return &BacktestAccount{
 		Symbol:          symbol,
@@ -170,7 +170,7 @@ func (e *MultiStrategyEngine) AddStrategy(strategy BacktestStrategy) error {
 
 	e.Strategies = append(e.Strategies, strategy)
 
-	// 初始化统计
+	// 初始化統計
 	e.statsByStrategy[strategy.GetName()] = &StrategyStats{
 		Name:            strategy.GetName(),
 		Type:            strategy.GetType(),
@@ -180,24 +180,24 @@ func (e *MultiStrategyEngine) AddStrategy(strategy BacktestStrategy) error {
 	return nil
 }
 
-// LoadData 加载历史数据
+// LoadData 加載歷史數據
 func (e *MultiStrategyEngine) LoadData() error {
 	logger.Info("Loading historical data for %s from %s", e.Config.Symbol, e.Config.DataDir)
 
 	loader := NewDataLoader(e.Config.DataDir, e.Config.Symbol)
 
-	// 加载K线数据
+	// 加載K線數據
 	klineRows, err := loader.LoadKlinesFromDir()
 	if err != nil {
 		return fmt.Errorf("failed to load klines: %w", err)
 	}
 
-	// 验证数据
+	// 驗證數據
 	if err := ValidateKlines(klineRows); err != nil {
 		return fmt.Errorf("invalid klines data: %w", err)
 	}
 
-	// 过滤时间范围
+	// 过滤時間範圍
 	if !e.Config.StartDate.IsZero() || !e.Config.EndDate.IsZero() {
 		klineRows = loader.FilterByTimeRange(klineRows, e.Config.StartDate, e.Config.EndDate)
 	}
@@ -206,15 +206,15 @@ func (e *MultiStrategyEngine) LoadData() error {
 		return fmt.Errorf("no klines data after filtering")
 	}
 
-	// 转换为TickKline
+	// 轉換为TickKline
 	e.Klines = ConvertToTickKlines(klineRows)
 
-	// 打印统计信息
+	// 打印統計信息
 	stats := GetDataStats(klineRows)
 	logger.Info("Data loaded: %d klines, span: %s, price change: %.2f%%",
 		stats.TotalKlines, stats.TimeSpan, stats.PriceChangePct)
 
-	// 加载资金费率数据（如果启用）
+	// 加載資金費率數據（如果启用）
 	if e.Config.EnableFunding {
 		fundingRates, err := loader.LoadFundingRatesFromDir()
 		if err != nil {
@@ -228,7 +228,7 @@ func (e *MultiStrategyEngine) LoadData() error {
 	return nil
 }
 
-// Run 运行回测
+// Run 運行回测
 func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 	e.mu.Lock()
 	e.isRunning = true
@@ -244,38 +244,38 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 
 	startTime := time.Now()
 
-	// 重置状态
+	// 重置狀態
 	e.reset()
 
-	// 初始化资金费率索引
+	// 初始化資金費率索引
 	fundingIdx := 0
 
-	// 主循环：处理每根K线
+	// 主循环：處理每根K線
 	for i, kline := range e.Klines {
 		e.mu.Lock()
 		e.currentIndex = i
 		e.mu.Unlock()
 
-		// 检查暂停
+		// 檢查暂停
 		for e.isPaused {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		// 检查强平
+		// 檢查強平
 		if e.Account.Liquidated {
 			logger.Warn("Account liquidated at kline %d", i)
 			break
 		}
 
-		// 更新账户权益
+		// 更新帳戶權益
 		e.updateEquity(kline)
 
-		// 处理资金费率
+		// 處理資金費率
 		if e.Config.EnableFunding && len(e.FundingRates) > 0 {
 			e.processFundingRate(kline.Timestamp, &fundingIdx)
 		}
 
-		// 收集所有策略的订单
+		// 收集所有策略的訂單
 		var allOrders []TickOrder
 		for _, strategy := range e.Strategies {
 			orders, err := strategy.OnKline(kline, kline.Timestamp)
@@ -297,7 +297,7 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 			maxShortSize,
 		)
 
-		// 处理成交
+		// 處理成交
 		for _, trade := range trades {
 			e.processTrade(&trade)
 		}
@@ -322,7 +322,7 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 		}
 	}
 
-	// 强制平仓剩余仓位
+	// 强制平倉剩餘倉位
 	if len(e.Klines) > 0 && e.Account.PositionSize != 0 {
 		lastKline := e.Klines[len(e.Klines)-1]
 		e.forceClosePosition(lastKline.Close, int64(lastKline.Timestamp))
@@ -340,7 +340,7 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 	return e.generateResult(), nil
 }
 
-// reset 重置引擎状态
+// reset 重置引擎狀態
 func (e *MultiStrategyEngine) reset() {
 	e.Account.Balance = e.Config.InitialCapital
 	e.Account.Equity = e.Config.InitialCapital
@@ -366,49 +366,49 @@ func (e *MultiStrategyEngine) reset() {
 	}
 }
 
-// updateEquity 更新权益
+// updateEquity 更新權益
 func (e *MultiStrategyEngine) updateEquity(kline TickKline) {
 	e.Account.mu.Lock()
 	defer e.Account.mu.Unlock()
 
-	// 计算未实现盈亏
+	// 計算未實現盈亏
 	if e.Account.PositionSize != 0 {
 		unrealizedPnL := 0.0
 		if e.Account.PositionSize > 0 {
-			// 多头仓位
+			// 多头倉位
 			unrealizedPnL = (kline.Close - e.Account.PositionEntryPrice) * e.Account.PositionSize
 		} else {
-			// 空头仓位
+			// 空头倉位
 			unrealizedPnL = (e.Account.PositionEntryPrice - kline.Close) * (-e.Account.PositionSize)
 		}
 		e.Account.UnrealizedPnL = unrealizedPnL
 	}
 
-	// 计算权益
+	// 計算權益
 	e.Account.Equity = e.Account.Balance + e.Account.UnrealizedPnL
 
-	// 更新峰值权益
+	// 更新峰值權益
 	if e.Account.Equity > e.Account.PeakEquity {
 		e.Account.PeakEquity = e.Account.Equity
 	}
 
-	// 记录权益曲线
+	// 記錄權益曲線
 	e.equityCurve = append(e.equityCurve, EquityPoint{
 		Timestamp: kline.Timestamp,
 		Equity:    e.Account.Equity,
 	})
 }
 
-// processFundingRate 处理资金费率
+// processFundingRate 處理資金費率
 func (e *MultiStrategyEngine) processFundingRate(timestamp int64, fundingIdx *int) {
-	// 查找适用的资金费率
+	// 查找适用的資金費率
 	for *fundingIdx < len(e.FundingRates) {
 		funding := e.FundingRates[*fundingIdx]
 		if funding.FundingTime > timestamp {
 			break
 		}
 
-		// 计算资金费用
+		// 計算資金费用
 		if e.Account.PositionSize != 0 {
 			positionValue := e.Account.PositionSize * e.Account.PositionEntryPrice
 			fundingCost := positionValue * funding.FundingRate
@@ -420,7 +420,7 @@ func (e *MultiStrategyEngine) processFundingRate(timestamp int64, fundingIdx *in
 	}
 }
 
-// calculatePositionLimits 计算仓位限制
+// calculatePositionLimits 計算倉位限制
 func (e *MultiStrategyEngine) calculatePositionLimits(price float64) (maxLongSize, maxShortSize float64) {
 	maxLongRatio := e.Config.MaxLongRatio
 	maxShortRatio := e.Config.MaxShortRatio
@@ -443,21 +443,21 @@ func (e *MultiStrategyEngine) calculatePositionLimits(price float64) (maxLongSiz
 	return
 }
 
-// processTrade 处理成交
+// processTrade 處理成交
 func (e *MultiStrategyEngine) processTrade(trade *TickTrade) {
 	e.Account.mu.Lock()
 	defer e.Account.mu.Unlock()
 
-	// 计算手续费
+	// 計算手续费
 	fee := trade.Price * trade.Size * e.Config.CommissionRate
 
-	// 记录交易
+	// 記錄交易
 	e.trades = append(e.trades, *trade)
 	e.totalSlippage += trade.Slippage
 	e.Account.TotalFees += fee
 	e.Account.TotalSlippage += trade.Slippage
 
-	// 更新账户
+	// 更新帳戶
 	if trade.Side == "buy" {
 		// 买入（开多或平空）
 		if e.Account.PositionSize < 0 {
@@ -468,10 +468,10 @@ func (e *MultiStrategyEngine) processTrade(trade *TickTrade) {
 			e.Account.RealizedPnL += closePnL
 			e.Account.PositionSize += closeSize
 
-			// 记录完成交易
+			// 記錄完成交易
 			e.recordCompletedTrade(trade, "short", closeSize, closePnL, fee, trade.Slippage)
 
-			// 剩余部分开多
+			// 剩餘部分开多
 			remaining := trade.Size - closeSize
 			if remaining > 0 {
 				e.openPosition(trade, remaining, "buy", fee)
@@ -490,10 +490,10 @@ func (e *MultiStrategyEngine) processTrade(trade *TickTrade) {
 			e.Account.RealizedPnL += closePnL
 			e.Account.PositionSize -= closeSize
 
-			// 记录完成交易
+			// 記錄完成交易
 			e.recordCompletedTrade(trade, "long", closeSize, closePnL, fee, trade.Slippage)
 
-			// 剩余部分开空
+			// 剩餘部分开空
 			remaining := trade.Size - closeSize
 			if remaining > 0 {
 				e.openPosition(trade, remaining, "sell", fee)
@@ -504,13 +504,13 @@ func (e *MultiStrategyEngine) processTrade(trade *TickTrade) {
 		}
 	}
 
-	// 更新策略统计
+	// 更新策略統計
 	if stats, ok := e.statsByStrategy[trade.Strategy]; ok {
 		stats.TotalTrades++
 		stats.SlippageCost += trade.Slippage
 	}
 
-	// 检查强平
+	// 檢查強平
 	e.checkLiquidation(trade.Price)
 }
 
@@ -526,7 +526,7 @@ func (e *MultiStrategyEngine) openPosition(trade *TickTrade, size float64, side 
 			e.Account.PositionSize = -size
 		}
 	} else {
-		// 加仓时重新计算平均价
+		// 加仓时重新計算平均价
 		totalCost := e.Account.PositionEntryPrice*abs(e.Account.PositionSize) + cost
 		totalSize := abs(e.Account.PositionSize) + size
 		e.Account.PositionEntryPrice = totalCost / totalSize
@@ -542,7 +542,7 @@ func (e *MultiStrategyEngine) openPosition(trade *TickTrade, size float64, side 
 	e.Account.TotalVolume += cost
 }
 
-// recordCompletedTrade 记录完成交易
+// recordCompletedTrade 記錄完成交易
 func (e *MultiStrategyEngine) recordCompletedTrade(trade *TickTrade, side string, size float64, pnl, fee, slippage float64) {
 	completed := CompletedTrade{
 		Timestamp:     trade.Timestamp,
@@ -559,14 +559,14 @@ func (e *MultiStrategyEngine) recordCompletedTrade(trade *TickTrade, side string
 
 	e.completedTrades = append(e.completedTrades, completed)
 
-	// 更新策略统计
+	// 更新策略統計
 	if stats, ok := e.statsByStrategy[trade.Strategy]; ok {
 		stats.CompletedTrades = append(stats.CompletedTrades, completed)
 		stats.RealizedPnL += pnl
 	}
 }
 
-// checkLiquidation 检查强平
+// checkLiquidation 檢查強平
 func (e *MultiStrategyEngine) checkLiquidation(price float64) {
 	if e.Account.PositionSize == 0 {
 		return
@@ -585,7 +585,7 @@ func (e *MultiStrategyEngine) checkLiquidation(price float64) {
 	}
 }
 
-// forceClosePosition 强制平仓
+// forceClosePosition 强制平倉
 func (e *MultiStrategyEngine) forceClosePosition(price float64, timestamp int64) {
 	if e.Account.PositionSize == 0 {
 		return
@@ -593,7 +593,7 @@ func (e *MultiStrategyEngine) forceClosePosition(price float64, timestamp int64)
 
 	logger.Info("Forcing close position: size=%.4f, price=%.2f", e.Account.PositionSize, price)
 
-	// 创建平仓订单
+	// 創建平倉訂單
 	side := "sell"
 	if e.Account.PositionSize < 0 {
 		side = "buy"
@@ -633,14 +633,14 @@ func (e *MultiStrategyEngine) Stop() {
 	e.isRunning = false
 }
 
-// IsRunning 是否正在运行
+// IsRunning 是否正在運行
 func (e *MultiStrategyEngine) IsRunning() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.isRunning
 }
 
-// GetProgress 获取进度
+// GetProgress 獲取进度
 func (e *MultiStrategyEngine) GetProgress() float64 {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -650,12 +650,12 @@ func (e *MultiStrategyEngine) GetProgress() float64 {
 	return float64(e.currentIndex) / float64(len(e.Klines)) * 100
 }
 
-// SetProgressCallback 设置进度回调
+// SetProgressCallback 设置进度回調
 func (e *MultiStrategyEngine) SetProgressCallback(callback func(float64)) {
 	e.progressCallback = callback
 }
 
-// MultiStrategyResult 多策略回测结果
+// MultiStrategyResult 多策略回测結果
 type MultiStrategyResult struct {
 	// 基本信息
 	Symbol         string    `json:"symbol"`
@@ -663,34 +663,34 @@ type MultiStrategyResult struct {
 	EndTime        time.Time `json:"end_time"`
 	Duration       string    `json:"duration"`
 
-	// 账户信息
+	// 帳戶信息
 	InitialCapital float64 `json:"initial_capital"`
 	FinalEquity    float64 `json:"final_equity"`
 	TotalReturn    float64 `json:"total_return"`
 	TotalReturnPct float64 `json:"total_return_pct"`
 
-	// 统计信息
+	// 統計信息
 	TotalTrades       int     `json:"total_trades"`
 	TotalVolume       float64 `json:"total_volume"`
 	TotalFees         float64 `json:"total_fees"`
 	TotalSlippage     float64 `json:"total_slippage"`
 	TotalFunding      float64 `json:"total_funding"`
 
-	// 权益曲线
+	// 權益曲線
 	EquityCurve []EquityPoint `json:"equity_curve"`
 
-	// 交易记录
+	// 交易記錄
 	Trades          []TickTrade      `json:"trades"`
 	CompletedTrades []CompletedTrade `json:"completed_trades"`
 
-	// 策略统计
+	// 策略統計
 	StatsByStrategy map[string]*StrategyStats `json:"stats_by_strategy"`
 
-	// 风险指标
+	// 风险指標
 	RiskMetrics *MultiStrategyRiskMetrics `json:"risk_metrics"`
 }
 
-// MultiStrategyRiskMetrics 风险指标
+// MultiStrategyRiskMetrics 风险指標
 type MultiStrategyRiskMetrics struct {
 	MaxDrawdown      float64 `json:"max_drawdown"`
 	MaxDrawdownPct   float64 `json:"max_drawdown_pct"`
@@ -703,7 +703,7 @@ type MultiStrategyRiskMetrics struct {
 	LargestLoss      float64 `json:"largest_loss"`
 }
 
-// generateResult 生成回测结果
+// generateResult 生成回测結果
 func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 	if len(e.Klines) == 0 {
 		return nil
@@ -740,13 +740,13 @@ func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 	return result
 }
 
-// calculateRiskMetrics 计算风险指标
+// calculateRiskMetrics 計算风险指標
 func (e *MultiStrategyEngine) calculateRiskMetrics() *MultiStrategyRiskMetrics {
 	if len(e.equityCurve) == 0 {
 		return &MultiStrategyRiskMetrics{}
 	}
 
-	// 计算最大回撤
+	// 計算最大回撤
 	peak := e.equityCurve[0].Equity
 	maxDD := 0.0
 	var maxDDPct float64
@@ -764,7 +764,7 @@ func (e *MultiStrategyEngine) calculateRiskMetrics() *MultiStrategyRiskMetrics {
 		}
 	}
 
-	// 计算胜率
+	// 計算胜率
 	wins := 0
 	totalCompleted := len(e.completedTrades)
 	var totalWin, totalLoss float64
@@ -809,7 +809,7 @@ func (e *MultiStrategyEngine) calculateRiskMetrics() *MultiStrategyRiskMetrics {
 	return &MultiStrategyRiskMetrics{
 		MaxDrawdown:    maxDD,
 		MaxDrawdownPct: maxDDPct,
-		SharpeRatio:    0, // 需要更复杂的计算
+		SharpeRatio:    0, // 需要更复杂的計算
 		WinRate:        winRate,
 		ProfitFactor:   profitFactor,
 		AvgWin:         avgWin,
@@ -819,7 +819,7 @@ func (e *MultiStrategyEngine) calculateRiskMetrics() *MultiStrategyRiskMetrics {
 	}
 }
 
-// CompletedTrade 完成交易记录
+// CompletedTrade 完成交易記錄
 type CompletedTrade struct {
 	Timestamp  int64   `json:"timestamp"`
 	Side       string  `json:"side"`       // "long" or "short"

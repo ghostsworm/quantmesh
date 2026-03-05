@@ -37,7 +37,7 @@ func (ibt *IntrabarBacktester) SetFees(takerFee, makerFee, slippage float64) {
 func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) []IntrabarTick {
 	ticks := make([]IntrabarTick, 0, ibt.ticksPerBar)
 
-	// 计算時间间隔
+	// 計算時间间隔
 	timeStep := int64(180000 / ibt.ticksPerBar) // 3分钟 = 180000毫秒
 
 	// 根據 OHLC 关系确定價格路径
@@ -129,7 +129,7 @@ type IntrabarTick struct {
 	Timestamp int64
 }
 
-// Run 运行K線内模拟回测
+// Run 運行K線内模拟回测
 func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 	ibt.cash = ibt.initialCapital
 	ibt.position = 0
@@ -159,7 +159,7 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 				IsClosed:  false,
 			}
 
-			// 更新权益
+			// 更新權益
 			currentEquity := ibt.cash + ibt.position*tick.Price
 			ibt.equity = append(ibt.equity, EquityPoint{
 				Timestamp: tick.Timestamp,
@@ -193,7 +193,7 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 
 	logger.Info("✅ K線内模拟回测完成: %d 笔交易, %d 次tick", len(ibt.trades), totalTicks)
 
-	// 计算指標（intrabar_backtester继承自Backtester，已有totalSlippageLoss）
+	// 計算指標（intrabar_backtester继承自Backtester，已有totalSlippageLoss）
 	metrics := CalculateMetrics(ibt.equity, ibt.trades, ibt.initialCapital, ibt.totalSlippageLoss)
 	riskMetrics := CalculateRiskMetrics(ibt.equity)
 
@@ -218,14 +218,14 @@ func (ibt *IntrabarBacktester) executeBuyAtPrice(price float64, timestamp int64)
 		return
 	}
 
-	// 计算可買數量（扣除手续费）
+	// 計算可買數量（扣除手续费）
 	quantity := ibt.cash / (price * (1 + ibt.takerFee))
 
 	if quantity <= 0 {
 		return
 	}
 
-	// 计算成本
+	// 計算成本
 	cost := quantity * price
 	fee := cost * ibt.takerFee
 	totalCost := cost + fee
@@ -262,7 +262,7 @@ func (ibt *IntrabarBacktester) executeSellAtPrice(price float64, timestamp int64
 
 	quantity := ibt.position
 
-	// 计算收益
+	// 計算收益
 	revenue := quantity * price
 	fee := revenue * ibt.takerFee
 	cost := quantity * ibt.entryPrice

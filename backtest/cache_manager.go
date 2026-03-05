@@ -22,7 +22,7 @@ type CacheInfo struct {
 	Created  time.Time `json:"created"`
 }
 
-// CacheStats 缓存统计
+// CacheStats 缓存統計
 type CacheStats struct {
 	FileCount int     `json:"file_count"`
 	TotalSize int64   `json:"total_size"`
@@ -33,18 +33,18 @@ type CacheStats struct {
 func ListCache() ([]CacheInfo, error) {
 	indexFile := filepath.Join("backtest", "cache", "cache_index.json")
 
-	// 读取索引文件
+	// 读取索引檔案
 	data, err := os.ReadFile(indexFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []CacheInfo{}, nil
 		}
-		return nil, fmt.Errorf("读取缓存索引失败: %w", err)
+		return nil, fmt.Errorf("读取缓存索引失敗: %w", err)
 	}
 
 	index := make(map[string]CacheIndexEntry)
 	if err := json.Unmarshal(data, &index); err != nil {
-		return nil, fmt.Errorf("解析缓存索引失败: %w", err)
+		return nil, fmt.Errorf("解析缓存索引失敗: %w", err)
 	}
 
 	caches := make([]CacheInfo, 0, len(index))
@@ -100,7 +100,7 @@ func ListCache() ([]CacheInfo, error) {
 	return caches, nil
 }
 
-// countCsvLinesAndSize 統計 CSV 數據行數（不含表頭）與文件字節數。無文件或錯誤時返回 -1, 0。
+// countCsvLinesAndSize 統計 CSV 數據行數（不含表頭）與檔案字節數。無檔案或錯誤時返回 -1, 0。
 func countCsvLinesAndSize(csvPath string) (dataLines int, fileSize int64) {
 	fi, err := os.Stat(csvPath)
 	if err != nil {
@@ -130,29 +130,29 @@ func countCsvLinesAndSize(csvPath string) (dataLines int, fileSize int64) {
 func ClearCache() error {
 	cacheDir := filepath.Join("backtest", "cache")
 	if err := os.RemoveAll(cacheDir); err != nil {
-		return fmt.Errorf("清理缓存失败: %w", err)
+		return fmt.Errorf("清理缓存失敗: %w", err)
 	}
 	return nil
 }
 
 // DeleteCache 刪除指定缓存
 func DeleteCache(cacheKey string) error {
-	// 刪除 CSV 文件
+	// 刪除 CSV 檔案
 	filename := filepath.Join("backtest", "cache", cacheKey+".csv")
 	if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("刪除缓存文件失败: %w", err)
+		return fmt.Errorf("刪除缓存檔案失敗: %w", err)
 	}
 
 	// 更新索引
 	indexFile := filepath.Join("backtest", "cache", "cache_index.json")
 	data, err := os.ReadFile(indexFile)
 	if err != nil {
-		return nil // 索引文件不存在，忽略
+		return nil // 索引檔案不存在，忽略
 	}
 
 	index := make(map[string]CacheIndexEntry)
 	if err := json.Unmarshal(data, &index); err != nil {
-		return fmt.Errorf("解析缓存索引失败: %w", err)
+		return fmt.Errorf("解析缓存索引失敗: %w", err)
 	}
 
 	delete(index, cacheKey)
@@ -166,12 +166,12 @@ func DeleteCache(cacheKey string) error {
 	return os.WriteFile(indexFile, data, 0644)
 }
 
-// GetCacheStats 獲取缓存统计
+// GetCacheStats 獲取缓存統計
 func GetCacheStats() (CacheStats, error) {
 	cacheDir := filepath.Join("backtest", "cache")
 	files, err := filepath.Glob(filepath.Join(cacheDir, "*.csv"))
 	if err != nil {
-		return CacheStats{}, fmt.Errorf("读取缓存目錄失败: %w", err)
+		return CacheStats{}, fmt.Errorf("读取缓存目錄失敗: %w", err)
 	}
 
 	var totalSize int64
@@ -203,7 +203,7 @@ func CleanOldCache(days int) error {
 	for _, cache := range caches {
 		if cache.Created.Before(cutoffTime) {
 			if err := DeleteCache(cache.Name); err != nil {
-				return fmt.Errorf("刪除過期缓存 %s 失败: %w", cache.Name, err)
+				return fmt.Errorf("刪除過期缓存 %s 失敗: %w", cache.Name, err)
 			}
 			deletedCount++
 		}

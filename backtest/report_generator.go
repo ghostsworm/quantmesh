@@ -21,10 +21,10 @@ func GenerateReport(result *BacktestResult) (string, error) {
 	// 創建报告目錄
 	reportDir := filepath.Join("backtest", "reports")
 	if err := os.MkdirAll(reportDir, 0755); err != nil {
-		return "", fmt.Errorf("創建报告目錄失败: %w", err)
+		return "", fmt.Errorf("創建报告目錄失敗: %w", err)
 	}
 
-	// 生成报告文件名
+	// 生成报告檔案名
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := fmt.Sprintf("%s_%s_%s.md",
 		result.Strategy,
@@ -39,12 +39,12 @@ func GenerateReport(result *BacktestResult) (string, error) {
 	// 渲染模板
 	content, err := renderReportTemplate(data)
 	if err != nil {
-		return "", fmt.Errorf("渲染报告模板失败: %w", err)
+		return "", fmt.Errorf("渲染报告模板失敗: %w", err)
 	}
 
-	// 写入文件
+	// 寫入檔案
 	if err := os.WriteFile(reportPath, []byte(content), 0644); err != nil {
-		return "", fmt.Errorf("写入报告文件失败: %w", err)
+		return "", fmt.Errorf("寫入报告檔案失敗: %w", err)
 	}
 
 	return reportPath, nil
@@ -55,11 +55,11 @@ func GenerateReportToFile(result *BacktestResult, reportPath string, meta *Repor
 	data := prepareReportData(result, meta)
 	content, err := renderReportTemplate(data)
 	if err != nil {
-		return fmt.Errorf("渲染报告模板失败: %w", err)
+		return fmt.Errorf("渲染报告模板失敗: %w", err)
 	}
 	dir := filepath.Dir(reportPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("創建报告目錄失败: %w", err)
+		return fmt.Errorf("創建报告目錄失敗: %w", err)
 	}
 	return os.WriteFile(reportPath, []byte(content), 0644)
 }
@@ -113,11 +113,11 @@ func GenerateComparisonReportToFile(comparison *ComparisonResult, reportPath str
 	data := prepareComparisonReportData(comparison, meta)
 	content, err := renderComparisonReportTemplate(data)
 	if err != nil {
-		return fmt.Errorf("渲染對比報告模板失败: %w", err)
+		return fmt.Errorf("渲染對比報告模板失敗: %w", err)
 	}
 	dir := filepath.Dir(reportPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("創建报告目錄失败: %w", err)
+		return fmt.Errorf("創建报告目錄失敗: %w", err)
 	}
 	return os.WriteFile(reportPath, []byte(content), 0644)
 }
@@ -247,7 +247,7 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 
 - **交易對**: {{.Symbol}}
 - **回测期间**: {{.StartDate}} 至 {{.EndDate}} ({{.Duration}})
-- **初始资金**: ${{.InitialCapital}}
+- **初始資金**: ${{.InitialCapital}}
 
 {{if .Interval}}
 ## 回测配置
@@ -418,7 +418,7 @@ type ReportData struct {
 	EndPositionQty       string // 期末持倉（基幣數量）
 	EndPositionValue     string // 期末持倉市值（USDT）
 	EndCashUSDT          string // 期末持有 USDT（現金）
-	TotalSlippageLoss    string // 🔥 累计价格偏差（slippage）损失（USDT）
+	TotalSlippageLoss    string // 🔥 累计價格偏差（slippage）損失（USDT）
 
 	// 交易明细
 	TopTrades         []TradeRow  // 前20筆原始成交
@@ -579,7 +579,7 @@ func formatParamValue(v interface{}) string {
 func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 	m := result.Metrics
 
-	// 计算持续時间
+	// 計算持续時间
 	duration := result.EndTime.Sub(result.StartTime)
 	durationStr := fmt.Sprintf("%d 天", int(duration.Hours()/24))
 
@@ -601,7 +601,7 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		}
 	}
 
-	// 准备交易明细（前20笔）：包含买/卖所有成交，避免仅统计 sell 时策略多为买入导致明细为空
+	// 准备交易明细（前20笔）：包含买/卖所有成交，避免仅統計 sell 时策略多为买入导致明细为空
 	topTrades := make([]TradeRow, 0)
 	for i, trade := range result.Trades {
 		if i >= 20 {
@@ -705,7 +705,7 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		EndPositionQty:       fmt.Sprintf("%.6f %s", endPosQty, base),
 		EndPositionValue:     fmt.Sprintf("%.4f USDT", endPosValue),
 		EndCashUSDT:          fmt.Sprintf("%.4f USDT", endCashUSDT),
-		TotalSlippageLoss:    fmt.Sprintf("%.4f USDT", m.TotalSlippageLoss), // 🔥 价格偏差损失
+		TotalSlippageLoss:    fmt.Sprintf("%.4f USDT", m.TotalSlippageLoss), // 🔥 價格偏差損失
 
 		TopTrades:         topTrades,
 		TopPairedTrades:   topPaired,
@@ -799,8 +799,8 @@ func renderReportTemplate(data ReportData) (string, error) {
 
 - **交易對**: {{.Symbol}}
 - **回测期间**: {{.StartDate}} 至 {{.EndDate}} ({{.Duration}})
-- **初始资金**: ${{.InitialCapital}}
-- **最终资金**: ${{.FinalCapital}}
+- **初始資金**: ${{.InitialCapital}}
+- **最终資金**: ${{.FinalCapital}}
 - **總收益率**: {{.TotalReturn}}
 - **年化收益率**: {{.AnnualizedReturn}}
 - **最大回撤**: {{.MaxDrawdown}}
@@ -910,14 +910,14 @@ func renderReportTemplate(data ReportData) (string, error) {
 
 | 指標 | 數值 | 說明 |
 |------|------|------|
-| VaR (95%) | {{.VaR95}} | 95% 置信度下的最大损失 |
-| VaR (99%) | {{.VaR99}} | 99% 置信度下的最大损失 |
-| CVaR (95%) | {{.CVaR95}} | 超過 VaR 的平均损失 |
-| CVaR (99%) | {{.CVaR99}} | 超過 VaR 的平均损失 |
+| VaR (95%) | {{.VaR95}} | 95% 置信度下的最大損失 |
+| VaR (99%) | {{.VaR99}} | 99% 置信度下的最大損失 |
+| CVaR (95%) | {{.CVaR95}} | 超過 VaR 的平均損失 |
+| CVaR (99%) | {{.CVaR99}} | 超過 VaR 的平均損失 |
 
 **說明**：
-- **VaR (Value at Risk)**: 在给定置信度下，投资组合在未来特定時间内可能遭受的最大损失。
-- **CVaR (Conditional Value at Risk)**: 也称為預期损失，是超過 VaR 阈值的平均损失，比 VaR 更能反映极端风險。
+- **VaR (Value at Risk)**: 在给定置信度下，投资组合在未来特定時间内可能遭受的最大損失。
+- **CVaR (Conditional Value at Risk)**: 也称為預期損失，是超過 VaR 阈值的平均損失，比 VaR 更能反映极端风險。
 
 ## 风控說明
 
@@ -959,11 +959,11 @@ func renderReportTemplate(data ReportData) (string, error) {
 	return buf.String(), nil
 }
 
-// SaveEquityCurveCSV 保存权益曲線到 CSV
+// SaveEquityCurveCSV 保存權益曲線到 CSV
 func SaveEquityCurveCSV(result *BacktestResult) (string, error) {
 	reportDir := filepath.Join("backtest", "reports")
 	if err := os.MkdirAll(reportDir, 0755); err != nil {
-		return "", fmt.Errorf("創建报告目錄失败: %w", err)
+		return "", fmt.Errorf("創建报告目錄失敗: %w", err)
 	}
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
@@ -976,14 +976,14 @@ func SaveEquityCurveCSV(result *BacktestResult) (string, error) {
 
 	file, err := os.Create(csvPath)
 	if err != nil {
-		return "", fmt.Errorf("創建 CSV 文件失败: %w", err)
+		return "", fmt.Errorf("創建 CSV 檔案失敗: %w", err)
 	}
 	defer file.Close()
 
-	// 写入表头
+	// 寫入表头
 	file.WriteString("timestamp,equity\n")
 
-	// 写入數據
+	// 寫入數據
 	for _, point := range result.Equity {
 		file.WriteString(fmt.Sprintf("%d,%.2f\n", point.Timestamp, point.Equity))
 	}
