@@ -2,6 +2,33 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.59.0] - 2026-03-05
+
+### Added
+- **Bot 回測系統**：實現完整的基於 paxg 專案專業級回測功能
+  - **Tick 級別訂單撮合引擎**：實現基於價格路徑穿越檢測的訂單撮合（`backtest/tick_matcher.go`）
+  - **多策略組合回測**：支援單 Bot 包含多個策略組合回測（`backtest/multi_strategy_engine.go`）
+  - **歷史數據下載器**：整合幣安歷史數據下載器，支援從 data.binance.vision 下載 K 線與資金費率數據（`backtest/binance_downloader.go`）
+  - **CSV 數據加載器**：支援 gzip 壓縮格式的 CSV 歷史數據加載（`backtest/data_loader.go`）
+  - **策略實現**：實現 5 種回測策略（網格/DCA/馬丁格爾/趨勢/組合）（`backtest/strategies.go`）
+  - **API 端點**：
+    - `POST /api/v2/bots/:id/backtest` - 建立回測任務
+    - `GET /api/v2/bot/backtest/:taskId` - 查詢任務狀態
+    - `GET /api/v2/bot/backtest/:taskId/result` - 獲取回測結果
+    - `DELETE /api/v2/bot/backtest/:taskId` - 刪除任務
+    - `GET /api/v2/bots/:id/backtest/tasks` - 列出 Bot 的所有回測任務
+    - `POST /api/v2/backtest/data/download` - 下載歷史數據
+    - `GET /api/v2/backtest/data/info` - 獲取數據信息
+    - `GET /api/v2/backtest/data/availability` - 檢查數據可用性
+  - **UI 組件**：使用 Chakra UI 實現的 `BotBacktestDialog` 組件，支援實時進度顯示、權益曲線圖表、策略統計表格
+  - **i18n**：補全中英文回測相關翻譯鍵
+
+### Fixed
+- **API 請求解析邏輯**：修復空請求體與無效 JSON 的區分邏輯
+- **空策略列表檢查**：添加策略配置為空時的檢查與錯誤提示
+- **進度回調不報告 100%**：修復回測完成時進度回調不報告最終進度的問題
+- **除零保護**：添加 `CalculateEffectiveSpread` 函數的除零保護
+
 ## [3.58.0-rc3] - 2026-03-05
 
 ### Added
