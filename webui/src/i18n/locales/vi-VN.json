@@ -108,7 +108,12 @@
     "deleteSuccess": "Đã xóa Bot",
     "deleteFailed": "Không thể xóa Bot",
     "deleteInHedgeGroupHint": "Bot này thuộc nhóm hedge «{{groupName}}». Xóa nhóm trước.",
-    "backtest": "Kiểm tra lại"
+    "backtest": "Kiểm tra lại",
+    "priceInterval": "Khoảng cách",
+    "profitSpread": "Khoảng lợi nhuận",
+    "orderQuantity": "Số tiền đặt hàng",
+    "totalCapital": "Vốn",
+    "totalInvestment": "Tổng đầu tư"
   },
   "error": {
     "bot_symbol_conflict": "Đã tồn tại bot cho ký hiệu này.",

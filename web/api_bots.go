@@ -13,17 +13,21 @@ import (
 
 // BotResponse Bot 列表項
 type BotResponse struct {
-	BotID         string  `json:"bot_id"`
-	Name          string  `json:"name"`
-	Exchange      string  `json:"exchange"`
-	Symbol        string  `json:"symbol"`
-	MarketType    string  `json:"market_type"`
-	Running       bool    `json:"running"`
-	CurrentPrice  float64 `json:"current_price,omitempty"`
-	TotalPnL      float64 `json:"total_pnl,omitempty"`
-	TotalTrades   int     `json:"total_trades,omitempty"`
-	RiskTriggered bool    `json:"risk_triggered,omitempty"`
-	Uptime        int64   `json:"uptime,omitempty"`
+	BotID                  string  `json:"bot_id"`
+	Name                   string  `json:"name"`
+	Exchange               string  `json:"exchange"`
+	Symbol                 string  `json:"symbol"`
+	MarketType             string  `json:"market_type"`
+	Running                bool    `json:"running"`
+	CurrentPrice           float64 `json:"current_price,omitempty"`
+	TotalPnL               float64 `json:"total_pnl,omitempty"`
+	TotalTrades            int     `json:"total_trades,omitempty"`
+	RiskTriggered          bool    `json:"risk_triggered,omitempty"`
+	Uptime                 int64   `json:"uptime,omitempty"`
+	PriceInterval          float64 `json:"price_interval,omitempty"`           // 價格間隔
+	ProfitSpread           float64 `json:"profit_spread,omitempty"`             // 利潤間距
+	OrderQuantity          float64 `json:"order_quantity,omitempty"`            // 每單金額
+	TotalAllocatedCapital  float64 `json:"total_allocated_capital,omitempty"`    // 總投入資金
 }
 
 // BotDetailResponse Bot 詳情（含持倉、訂單等）

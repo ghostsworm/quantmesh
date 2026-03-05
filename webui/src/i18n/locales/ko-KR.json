@@ -108,7 +108,12 @@
     "deleteSuccess": "봇이 삭제되었습니다",
     "deleteFailed": "봇 삭제에 실패했습니다",
     "deleteInHedgeGroupHint": "이 봇은 헤지 그룹「{{groupName}}」에 속합니다. 먼저 그룹을 삭제하세요.",
-    "backtest": "백테스트"
+    "backtest": "백테스트",
+    "priceInterval": "간격",
+    "profitSpread": "이익 간격",
+    "orderQuantity": "주문 금액",
+    "totalCapital": "투자 금액",
+    "totalInvestment": "총 투자"
   },
   "error": {
     "bot_symbol_conflict": "이 심볼에 대한 봇이 이미 존재합니다.",

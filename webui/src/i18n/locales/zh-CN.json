@@ -54,7 +54,12 @@
     "deleteSuccess": "Bot 已删除",
     "deleteFailed": "删除 Bot 失败",
     "deleteInHedgeGroupHint": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组",
-    "backtest": "回测"
+    "backtest": "回测",
+    "priceInterval": "间距",
+    "profitSpread": "利润间距",
+    "orderQuantity": "每单金额",
+    "totalCapital": "投入资金",
+    "totalInvestment": "总投入"
   },
   "botCreate": {
     "title": "创建 Bot",

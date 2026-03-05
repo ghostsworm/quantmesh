@@ -331,7 +331,12 @@
     "deleteSuccess": "بوٹ حذف ہو گیا",
     "deleteFailed": "بوٹ حذف کرنے میں ناکام",
     "deleteInHedgeGroupHint": "یہ بوٹ ہیج گروپ «{{groupName}}» سے تعلق رکھتا ہے۔ پہلے گروپ حذف کریں۔",
-    "backtest": "بیک ٹیسٹ"
+    "backtest": "بیک ٹیسٹ",
+    "priceInterval": "فاصلہ",
+    "profitSpread": "منافع کا فاصلہ",
+    "orderQuantity": "آرڈر کی رقم",
+    "totalCapital": "سرمایہ",
+    "totalInvestment": "کل سرمایہ کاری"
   },
   "error": {
     "bot_symbol_conflict": "اس علامت کے لیے بوٹ پہلے سے موجود ہے۔",

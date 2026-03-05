@@ -447,7 +447,7 @@ const BotBacktestDialog: React.FC<BotBacktestDialogProps> = ({
         </ModalBody>
 
         <ModalFooter>
-          <Button onClick={onClose} isDisabled={loading} mr={3}>
+          <Button onClick={onClose} mr={3}>
             {t('common.close')}
           </Button>
           {tabIndex === 0 && (

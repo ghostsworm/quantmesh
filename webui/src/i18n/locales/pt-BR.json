@@ -108,7 +108,12 @@
     "deleteSuccess": "Bot excluído",
     "deleteFailed": "Falha ao excluir o bot",
     "deleteInHedgeGroupHint": "Este bot pertence ao grupo de hedge «{{groupName}}». Exclua o grupo primeiro.",
-    "backtest": "Backtest"
+    "backtest": "Backtest",
+    "priceInterval": "Intervalo",
+    "profitSpread": "Margem de lucro",
+    "orderQuantity": "Valor do pedido",
+    "totalCapital": "Capital",
+    "totalInvestment": "Investimento total"
   },
   "error": {
     "bot_symbol_conflict": "Já existe um bot para este símbolo.",

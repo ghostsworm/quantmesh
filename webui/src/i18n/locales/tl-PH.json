@@ -331,7 +331,12 @@
     "deleteSuccess": "Natanggal ang Bot",
     "deleteFailed": "Nabigo ang pagtanggal ng bot",
     "deleteInHedgeGroupHint": "Ang bot na ito ay kabilang sa hedge group «{{groupName}}». Tanggalin muna ang grupo.",
-    "backtest": "Backtest"
+    "backtest": "Backtest",
+    "priceInterval": "Agwat",
+    "profitSpread": "Agwat ng kita",
+    "orderQuantity": "Halaga ng order",
+    "totalCapital": "Kapital",
+    "totalInvestment": "Kabuuang pamumuhunan"
   },
   "error": {
     "bot_symbol_conflict": "May umiiral nang bot para sa simbolong ito.",

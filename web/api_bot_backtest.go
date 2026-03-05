@@ -56,9 +56,9 @@ var (
 )
 
 // postBotBacktestCreate 創建Bot回测任務
-// POST /api/bot/:botId/backtest
+// POST /api/v2/bots/:id/backtest
 func postBotBacktestCreate(c *gin.Context) {
-	botID := c.Param("botId")
+	botID := c.Param("id")
 	if botID == "" {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
 		return
@@ -470,9 +470,9 @@ func deleteBotBacktestTask(c *gin.Context) {
 }
 
 // listBotBacktestTasks 列出回测任務
-// GET /api/bot/:botId/backtest/tasks
+// GET /api/v2/bots/:id/backtest/tasks
 func listBotBacktestTasks(c *gin.Context) {
-	botID := c.Param("botId")
+	botID := c.Param("id")
 	if botID == "" {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
 		return

@@ -108,7 +108,12 @@
     "deleteSuccess": "Bot dihapus",
     "deleteFailed": "Gagal menghapus bot",
     "deleteInHedgeGroupHint": "Bot ini milik grup hedge «{{groupName}}». Hapus grup terlebih dahulu.",
-    "backtest": "Backtest"
+    "backtest": "Backtest",
+    "priceInterval": "Interval",
+    "profitSpread": "Spread keuntungan",
+    "orderQuantity": "Jumlah pesanan",
+    "totalCapital": "Modal",
+    "totalInvestment": "Total investasi"
   },
   "error": {
     "bot_symbol_conflict": "Bot untuk simbol ini sudah ada.",

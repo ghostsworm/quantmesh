@@ -108,7 +108,12 @@
     "deleteSuccess": "تم حذف البوت",
     "deleteFailed": "فشل في حذف البوت",
     "deleteInHedgeGroupHint": "ينتمي هذا البوت إلى مجموعة التحوط «{{groupName}}». احذف المجموعة أولاً.",
-    "backtest": "الاختبار الخلفي"
+    "backtest": "الاختبار الخلفي",
+    "priceInterval": "الفاصل",
+    "profitSpread": "فاصل الربح",
+    "orderQuantity": "مبلغ الطلب",
+    "totalCapital": "رأس المال",
+    "totalInvestment": "إجمالي الاستثمار"
   },
   "error": {
     "bot_symbol_conflict": "يوجد بالفعل بوت لهذا الرمز.",

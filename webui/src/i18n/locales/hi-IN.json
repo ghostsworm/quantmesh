@@ -108,7 +108,12 @@
     "deleteSuccess": "बॉट हटाया गया",
     "deleteFailed": "बॉट हटाने में विफल",
     "deleteInHedgeGroupHint": "यह बॉट हेज समूह «{{groupName}}» से संबंधित है। पहले समूह हटाएं।",
-    "backtest": "बैकटेस्ट"
+    "backtest": "बैकटेस्ट",
+    "priceInterval": "अंतराल",
+    "profitSpread": "लाभ अंतराल",
+    "orderQuantity": "ऑर्डर राशि",
+    "totalCapital": "पूंजी",
+    "totalInvestment": "कुल निवेश"
   },
   "error": {
     "bot_symbol_conflict": "इस प्रतीक के लिए पहले से बॉट मौजूद है।",

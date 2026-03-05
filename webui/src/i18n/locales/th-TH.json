@@ -331,7 +331,12 @@
     "deleteSuccess": "ลบบอทแล้ว",
     "deleteFailed": "ลบบอทไม่สำเร็จ",
     "deleteInHedgeGroupHint": "บอทนี้เป็นของกลุ่มเฮดจ์ «{{groupName}}» ลบกลุ่มก่อน",
-    "backtest": "แบ็คเทสต์"
+    "backtest": "แบ็คเทสต์",
+    "priceInterval": "ช่วง",
+    "profitSpread": "ช่วงกำไร",
+    "orderQuantity": "จำนวนคำสั่ง",
+    "totalCapital": "ทุน",
+    "totalInvestment": "การลงทุนทั้งหมด"
   },
   "error": {
     "bot_symbol_conflict": "มีบอทสำหรับสัญลักษณ์นี้อยู่แล้ว",

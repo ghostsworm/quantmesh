@@ -98,7 +98,12 @@
     "deleteSuccess": "Botを削除しました",
     "deleteFailed": "Botの削除に失敗しました",
     "deleteInHedgeGroupHint": "このBotはヘッジグループ「{{groupName}}」に属しています。先にグループを削除してください。",
-    "backtest": "バックテスト"
+    "backtest": "バックテスト",
+    "priceInterval": "間隔",
+    "profitSpread": "利潤間隔",
+    "orderQuantity": "1注金額",
+    "totalCapital": "投入資金",
+    "totalInvestment": "総投入"
   },
   "error": {
     "bot_symbol_conflict": "このシンボルのBotは既に存在します。",

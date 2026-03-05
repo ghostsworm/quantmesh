@@ -113,7 +113,12 @@
     "deleteSuccess": "Bot 已刪除",
     "deleteFailed": "刪除 Bot 失敗",
     "deleteInHedgeGroupHint": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組",
-    "backtest": "回測"
+    "backtest": "回測",
+    "priceInterval": "間距",
+    "profitSpread": "利潤間距",
+    "orderQuantity": "每單金額",
+    "totalCapital": "投入資金",
+    "totalInvestment": "總投入"
   },
   "error": {
     "bot_symbol_conflict": "該交易對已存在 Bot，同一交易對不能運行多個 Bot。",

@@ -43,7 +43,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.59.0-rc3"
+var Version = "3.60.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -783,12 +783,16 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			name = bc.Symbol + " (" + bc.GetMarketType() + ")"
 		}
 		resp := web.BotResponse{
-			BotID:      botID,
-			Name:       name,
-			Exchange:   bc.Exchange,
-			Symbol:     bc.Symbol,
-			MarketType: bc.GetMarketType(),
-			Running:     false,
+			BotID:                 botID,
+			Name:                  name,
+			Exchange:              bc.Exchange,
+			Symbol:                bc.Symbol,
+			MarketType:            bc.GetMarketType(),
+			Running:               false,
+			PriceInterval:         bc.PriceInterval,
+			ProfitSpread:          bc.ProfitSpread,
+			OrderQuantity:         bc.OrderQuantity,
+			TotalAllocatedCapital: bc.TotalAllocatedCapital,
 		}
 		if br, ok := runningMap[botID]; ok && br.Inner != nil {
 			resp.Running = true
@@ -820,12 +824,16 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 				name = bc.Symbol + " (" + bc.GetMarketType() + ")"
 			}
 			resp := web.BotResponse{
-				BotID:      botID,
-				Name:       name,
-				Exchange:   bc.Exchange,
-				Symbol:     bc.Symbol,
-				MarketType: bc.GetMarketType(),
-				Running:     false,
+				BotID:                 botID,
+				Name:                  name,
+				Exchange:              bc.Exchange,
+				Symbol:                bc.Symbol,
+				MarketType:            bc.GetMarketType(),
+				Running:               false,
+				PriceInterval:         bc.PriceInterval,
+				ProfitSpread:          bc.ProfitSpread,
+				OrderQuantity:         bc.OrderQuantity,
+				TotalAllocatedCapital: bc.TotalAllocatedCapital,
 			}
 			if br, ok := runningMap[botID]; ok && br.Inner != nil {
 				resp.Running = true
