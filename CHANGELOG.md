@@ -2,6 +2,12 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.58.0-rc3] - 2026-03-05
+
+### Added
+- **macro 包與相關文件**：修復 CI 構建，補齊 macro/、safety/factor_macro.go、web/api_macro.go
+- **宏觀事件完善**：配置項、API 路由、前端 MarketIntelligence 組件與 i18n
+
 ## [3.58.0-rc2] - 2026-03-05
 
 ### Fixed
