@@ -28,9 +28,10 @@ import (
 	"quantmesh/inspector"
 	"quantmesh/lock"
 	"quantmesh/logger"
-	"quantmesh/metrics"
-	"quantmesh/monitor"
-	"quantmesh/notify"
+		"quantmesh/macro"
+		"quantmesh/metrics"
+		"quantmesh/monitor"
+		"quantmesh/notify"
 	"quantmesh/order"
 	"quantmesh/plugin"
 	"quantmesh/position"
@@ -42,7 +43,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.57.0-rc3"
+var Version = "3.58.0-rc2"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2224,6 +2225,16 @@ func main() {
 				newsMonitor.InitForManualTrigger()
 				logger.Info("✅ 新聞監控已就緒（手動觸發可用）")
 			}
+		}
+
+		// 初始化宏觀事件預測市場拉取（Polymarket Gamma API）
+		if cfg.MacroEvent.Enabled {
+			logger.Info("📊 初始化宏觀事件預測市場...")
+			macroClassifier := macro.NewEventImpactClassifier(cfg)
+			macroFetcher := macro.NewMacroEventFetcher(cfg, macroClassifier)
+			macroFetcher.Start(ctx)
+			web.SetMacroEventFetcher(macroFetcher)
+			logger.Info("✅ 宏觀事件拉取已啟动")
 		}
 
 		// 設置系统監控數據提供者

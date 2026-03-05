@@ -279,9 +279,9 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 				result.HasMarginError = true
 				logger.Error("❌ [保证金不足] 订單 %.2f %s 因保证金不足失败", orderReq.Price, orderReq.Side)
 			} else if isReduceOnlyError(err) {
-				// 記錄 ReduceOnly 錯误
+				// 記錄 ReduceOnly 錯误（系統會自動清空槽位，降級為 WARN 減少告警噪音）
 				result.ReduceOnlyErrors[orderReq.ClientOrderID] = true
-				logger.Error("❌ [ReduceOnly錯误] 订單 %.2f %s 無持倉，需要清空槽位", orderReq.Price, orderReq.Side)
+				logger.Warn("⚠️ [ReduceOnly] 订單 %.2f %s 無持倉，將清空槽位", orderReq.Price, orderReq.Side)
 			}
 			continue
 		}
