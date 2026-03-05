@@ -179,6 +179,14 @@ type PeriodicRule struct {
 	CloseDurationMin  int  `yaml:"close_duration_min" json:"close_duration_min"` // 關倉持續分鐘數
 }
 
+// LogCleanupConfig 定期清理 INFO/WARN 日志（保留 ERROR/DEBUG 便於排查）
+type LogCleanupConfig struct {
+	Enabled        bool     `yaml:"enabled"`         // 是否啟用，預設 true
+	Schedule       string   `yaml:"schedule"`       // 執行時间 HH:MM（如 02:00），預設 02:00
+	RetentionDays  int      `yaml:"retention_days"` // 保留天數，超過此天數的指定級別日志將被清理，預設 7
+	LevelsToClean  []string `yaml:"levels_to_clean"` // 要清理的級別，如 ["INFO","WARN"]，預設 INFO/WARN
+}
+
 // OpenPositionControl 開倉管理配置
 type OpenPositionControl struct {
 	// 手動暫停開倉（運行時狀態，不持久化到 yaml）
@@ -489,13 +497,14 @@ type Config struct {
 	} `yaml:"trading"`
 
 	System struct {
-		LogLevel             string `yaml:"log_level"`
-		Timezone             string `yaml:"timezone"`     // 時区，如 "Asia/Shanghai"
-		LogLanguage          string `yaml:"log_language"` // 日志语言，如 "zh-CN" 或 "en-US"
-		CancelOnExit         bool   `yaml:"cancel_on_exit"`
-		ClosePositionsOnExit bool   `yaml:"close_positions_on_exit"` // 退出時是否平倉（預設false）
-		LogRetentionDays     int    `yaml:"log_retention_days"`      // 日志保留天數（預設30天，0表示不清理）
-		DryRun               bool   `yaml:"dry_run"`                 // 模拟运行模式（不實際下單，只記錄日志）
+		LogLevel             string       `yaml:"log_level"`
+		Timezone             string       `yaml:"timezone"`     // 時区，如 "Asia/Shanghai"
+		LogLanguage          string       `yaml:"log_language"` // 日志语言，如 "zh-CN" 或 "en-US"
+		CancelOnExit         bool         `yaml:"cancel_on_exit"`
+		ClosePositionsOnExit bool         `yaml:"close_positions_on_exit"` // 退出時是否平倉（預設false）
+		LogRetentionDays     int          `yaml:"log_retention_days"`      // 日志保留天數（預設30天，0表示不清理）
+		DryRun               bool         `yaml:"dry_run"`                 // 模拟运行模式（不實際下單，只記錄日志）
+		LogCleanup            LogCleanupConfig `yaml:"log_cleanup"`        // 定期清理 INFO/WARN 日志（保留 ERROR/DEBUG）
 	} `yaml:"system"`
 
 	// 實例配置（多實例部署）
@@ -1768,6 +1777,10 @@ func CreateMinimalConfig() *Config {
 	cfg.System.CancelOnExit = true
 	cfg.System.ClosePositionsOnExit = false
 	cfg.System.LogRetentionDays = 30 // 預設保留30天
+	cfg.System.LogCleanup.Enabled = true
+	cfg.System.LogCleanup.Schedule = "02:00"
+	cfg.System.LogCleanup.RetentionDays = 7
+	cfg.System.LogCleanup.LevelsToClean = []string{"INFO", "WARN"}
 
 	// Web 服務配置（啟用）
 	cfg.Web.Enabled = true
@@ -2231,6 +2244,25 @@ func (c *Config) Validate() error {
 	}
 	if c.System.LogRetentionDays <= 0 {
 		c.System.LogRetentionDays = 30 // 預設保留30天
+	}
+
+	// 日志清理（INFO/WARN）預設值
+	lc := &c.System.LogCleanup
+	if lc.Schedule == "" && lc.RetentionDays == 0 && len(lc.LevelsToClean) == 0 {
+		lc.Enabled = true
+		lc.Schedule = "02:00"
+		lc.RetentionDays = 7
+		lc.LevelsToClean = []string{"INFO", "WARN"}
+	} else {
+		if lc.Schedule == "" {
+			lc.Schedule = "02:00"
+		}
+		if lc.RetentionDays <= 0 {
+			lc.RetentionDays = 7
+		}
+		if len(lc.LevelsToClean) == 0 {
+			lc.LevelsToClean = []string{"INFO", "WARN"}
+		}
 	}
 
 	if c.Timing.WebSocketReconnectDelay <= 0 {

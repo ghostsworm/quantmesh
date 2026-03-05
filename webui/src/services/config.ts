@@ -264,6 +264,12 @@ export interface Config {
     timezone: string
     cancel_on_exit: boolean
     close_positions_on_exit: boolean
+    log_cleanup?: {
+      enabled: boolean
+      schedule: string
+      retention_days: number
+      levels_to_clean: string[]
+    }
   }
   risk_control: {
     enabled: boolean
