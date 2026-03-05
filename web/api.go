@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -5164,78 +5165,144 @@ func (a *dataSourceAdapter) GetRedditPosts(subreddits []string, limit int) ([]Re
 	return posts, nil
 }
 
-// GetPolymarketMarkets 獲取Polymarket市场
+// GetPolymarketMarkets 獲取Polymarket市场（優先使用 Gamma REST API，無需 dsm）
 func (a *dataSourceAdapter) GetPolymarketMarkets(keywords []string) ([]PolymarketMarketInfo, error) {
-	if a.dsm == nil {
-		return nil, fmt.Errorf("數據源管理器未初始化")
+	// 優先使用 Gamma REST API（無需認證、免費）
+	gammaURL := "https://gamma-api.polymarket.com"
+	if a.polymarketAPIURL != "" && strings.Contains(a.polymarketAPIURL, "gamma") {
+		gammaURL = strings.TrimSuffix(a.polymarketAPIURL, "/")
 	}
-
-	apiURL := a.polymarketAPIURL
-	if apiURL == "" {
-		apiURL = "https://api.polymarket.com/graphql"
+	markets, err := a.fetchPolymarketFromGamma(gammaURL, keywords)
+	if err == nil && len(markets) > 0 {
+		return markets, nil
 	}
-
-	dsmValue := reflect.ValueOf(a.dsm)
-	method := dsmValue.MethodByName("FetchPolymarketMarkets")
-	if !method.IsValid() {
-		return nil, fmt.Errorf("方法不存在")
-	}
-
-	results := method.Call([]reflect.Value{
-		reflect.ValueOf(apiURL),
-		reflect.ValueOf(keywords),
-	})
-
-	if len(results) != 2 {
-		return nil, fmt.Errorf("返回值數量錯误")
-	}
-
-	if !results[1].IsNil() {
-		return nil, results[1].Interface().(error)
-	}
-
-	marketsValue := results[0]
-	if marketsValue.IsNil() {
-		return []PolymarketMarketInfo{}, nil
-	}
-
-	marketsSlice := reflect.ValueOf(marketsValue.Interface())
-	if marketsSlice.Kind() != reflect.Slice {
-		return []PolymarketMarketInfo{}, nil
-	}
-
-	markets := make([]PolymarketMarketInfo, 0)
-	for i := 0; i < marketsSlice.Len(); i++ {
-		market := marketsSlice.Index(i)
-		if !market.IsValid() {
-			continue
-		}
-
-		// 处理指針類型
-		if market.Kind() == reflect.Ptr {
-			market = market.Elem()
-		}
-
-		outcomesValue := market.FieldByName("Outcomes")
-		outcomes := []string{}
-		if outcomesValue.IsValid() && outcomesValue.Kind() == reflect.Slice {
-			for j := 0; j < outcomesValue.Len(); j++ {
-				outcomes = append(outcomes, outcomesValue.Index(j).String())
+	markets = make([]PolymarketMarketInfo, 0)
+	// 回退：嘗試通過 dsm 反射調用（兼容舊實現）
+	if a.dsm != nil {
+		dsmValue := reflect.ValueOf(a.dsm)
+		method := dsmValue.MethodByName("FetchPolymarketMarkets")
+		if method.IsValid() {
+			apiURL := a.polymarketAPIURL
+			if apiURL == "" {
+				apiURL = "https://api.polymarket.com/graphql"
+			}
+			results := method.Call([]reflect.Value{
+				reflect.ValueOf(apiURL),
+				reflect.ValueOf(keywords),
+			})
+			if len(results) == 2 && results[1].IsNil() && !results[0].IsNil() {
+				marketsSlice := reflect.ValueOf(results[0].Interface())
+				if marketsSlice.Kind() == reflect.Slice {
+					for i := 0; i < marketsSlice.Len(); i++ {
+						market := marketsSlice.Index(i)
+						if market.Kind() == reflect.Ptr {
+							market = market.Elem()
+						}
+						outcomesValue := market.FieldByName("Outcomes")
+						outcomes := []string{}
+						if outcomesValue.IsValid() && outcomesValue.Kind() == reflect.Slice {
+							for j := 0; j < outcomesValue.Len(); j++ {
+								outcomes = append(outcomes, outcomesValue.Index(j).String())
+							}
+						}
+						markets = append(markets, PolymarketMarketInfo{
+							ID:          getFieldString(market, "ID"),
+							Question:    getFieldString(market, "Question"),
+							Description: getFieldString(market, "Description"),
+							EndDate:     getFieldTime(market, "EndDate"),
+							Outcomes:    outcomes,
+							Volume:      getFieldFloat(market, "Volume"),
+							Liquidity:   getFieldFloat(market, "Liquidity"),
+						})
+					}
+					return markets, nil
+				}
 			}
 		}
-
-		markets = append(markets, PolymarketMarketInfo{
-			ID:          getFieldString(market, "ID"),
-			Question:    getFieldString(market, "Question"),
-			Description: getFieldString(market, "Description"),
-			EndDate:     getFieldTime(market, "EndDate"),
-			Outcomes:    outcomes,
-			Volume:      getFieldFloat(market, "Volume"),
-			Liquidity:   getFieldFloat(market, "Liquidity"),
-		})
 	}
+	return markets, err
+}
 
-	return markets, nil
+// fetchPolymarketFromGamma 從 Polymarket Gamma REST API 拉取市場
+func (a *dataSourceAdapter) fetchPolymarketFromGamma(baseURL string, keywords []string) ([]PolymarketMarketInfo, error) {
+	url := baseURL + "/events?limit=50&active=true&closed=false&order=volume24hr&ascending=false"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Gamma API %d", resp.StatusCode)
+	}
+	var events []struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Markets  []struct {
+			ID           string `json:"id"`
+			Question     string `json:"question"`
+			Description  string `json:"description"`
+			Outcomes     string `json:"outcomes"`
+			Volume       string `json:"volume"`
+			Liquidity    string `json:"liquidity"`
+			VolumeNum    float64 `json:"volumeNum"`
+			LiquidityNum float64 `json:"liquidityNum"`
+			EndDate      string `json:"endDate"`
+		} `json:"markets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		return nil, err
+	}
+	kwLower := make(map[string]bool)
+	for _, k := range keywords {
+		kwLower[strings.ToLower(k)] = true
+	}
+	var out []PolymarketMarketInfo
+	for _, evt := range events {
+		titleLower := strings.ToLower(evt.Title)
+		if len(kwLower) > 0 {
+			matched := false
+			for k := range kwLower {
+				if strings.Contains(titleLower, k) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		for _, m := range evt.Markets {
+			var outcomes []string
+			_ = json.Unmarshal([]byte(m.Outcomes), &outcomes)
+			vol, _ := strconv.ParseFloat(m.Volume, 64)
+			liq, _ := strconv.ParseFloat(m.Liquidity, 64)
+			if vol == 0 {
+				vol = m.VolumeNum
+			}
+			if liq == 0 {
+				liq = m.LiquidityNum
+			}
+			var endDate time.Time
+			if m.EndDate != "" {
+				endDate, _ = time.Parse(time.RFC3339, m.EndDate)
+			}
+			out = append(out, PolymarketMarketInfo{
+				ID:          m.ID,
+				Question:    m.Question,
+				Description: m.Description,
+				EndDate:     endDate,
+				Outcomes:    outcomes,
+				Volume:      vol,
+				Liquidity:   liq,
+			})
+		}
+	}
+	return out, nil
 }
 
 // 辅助函數：從反射值獲取字符串字段

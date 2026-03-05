@@ -2047,6 +2047,60 @@ export interface MarketIntelligenceParams {
   limit?: number
 }
 
+// Macro Events (Polymarket 宏觀事件預測)
+export interface MacroEventItem {
+  id: string
+  title: string
+  description: string
+  category: string
+  category_label: string
+  probability: number
+  probability_delta: number
+  volume: number
+  volume_24hr: number
+  liquidity: number
+  source_url: string
+  end_date: string
+  last_updated: string
+  market_count: number
+}
+
+export interface MacroEventsResponse {
+  events: MacroEventItem[]
+  last_fetched: string | null
+  enabled: boolean
+}
+
+export interface MacroImpactAssessment {
+  event_id: string
+  event_title: string
+  category: string
+  probability: number
+  probability_delta: number
+  risk_score: number
+  impact_direction: string
+  crypto_impact: string
+  reason: string
+  weight: number
+}
+
+export interface MacroImpactResponse {
+  composite_risk_score: number
+  event_count: number
+  high_impact_count: number
+  assessments: MacroImpactAssessment[]
+  last_fetched: string | null
+  enabled: boolean
+}
+
+export async function getMacroEvents(): Promise<MacroEventsResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/macro/events`)
+}
+
+export async function getMacroImpact(): Promise<MacroImpactResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/macro/impact`)
+}
+
 export async function getMarketIntelligence(params?: MarketIntelligenceParams): Promise<MarketIntelligenceResponse> {
   const queryParams = new URLSearchParams()
   if (params?.source) queryParams.append('source', params.source)

@@ -141,6 +141,7 @@ type CompositeRiskFactorsConfig struct {
 	FundingRate CompositeRiskFactorOpts `yaml:"funding_rate"`
 	Depth       CompositeRiskFactorOpts `yaml:"depth"`
 	Kline       CompositeRiskFactorOpts `yaml:"kline"`
+	Macro       CompositeRiskFactorOpts `yaml:"macro"` // 宏觀事件因子（預測市場）
 }
 
 // CompositeRiskFactorOpts 單一因子開關與權重
@@ -760,6 +761,27 @@ type Config struct {
 
 		CleanupInterval int `yaml:"cleanup_interval"` // 清理间隔（小時），預設24
 	} `yaml:"event_center"`
+
+	// 宏觀事件預測市場配置（Polymarket Gamma API）
+	MacroEvent struct {
+		Enabled       bool   `yaml:"enabled"`
+		FetchInterval int    `yaml:"fetch_interval"` // 拉取間隔（秒），預設 300
+		GammaAPIURL   string `yaml:"gamma_api_url"`  // Gamma API 地址
+		Categories    map[string]struct {
+			Keywords    []string `yaml:"keywords"`
+			CryptoImpact string  `yaml:"crypto_impact"`
+			RiskWeight   float64 `yaml:"risk_weight"`
+		} `yaml:"categories"`
+		Filters struct {
+			MinLiquidity   float64 `yaml:"min_liquidity"`
+			MinVolume24h   float64 `yaml:"min_volume_24h"`
+			ActiveOnly     bool    `yaml:"active_only"`
+		} `yaml:"filters"`
+		Signal struct {
+			ProbabilityChangeThreshold float64 `yaml:"probability_change_threshold"`
+			HighProbabilityThreshold   float64 `yaml:"high_probability_threshold"`
+		} `yaml:"signal"`
+	} `yaml:"macro_event"`
 
 	// 多策略配置
 	Strategies struct {
@@ -2316,6 +2338,9 @@ func (c *Config) Validate() error {
 	}
 	if c.CompositeRisk.Factors.Kline.Weight <= 0 {
 		c.CompositeRisk.Factors.Kline.Weight = 0.15
+	}
+	if c.CompositeRisk.Factors.Macro.Weight <= 0 {
+		c.CompositeRisk.Factors.Macro.Weight = 0.20
 	}
 	if c.CompositeRisk.Factors.FundingRate.ConsecutiveNegativePeriods <= 0 {
 		c.CompositeRisk.Factors.FundingRate.ConsecutiveNegativePeriods = 3
