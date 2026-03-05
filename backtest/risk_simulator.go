@@ -9,21 +9,21 @@ import (
 
 // RiskSimulatorConfig 风控模拟器配置（与实盘 RiskMonitor 对齐）
 type RiskSimulatorConfig struct {
-	VolumeMultiplier   float64 `json:"volume_multiplier"`    // 成交量异常倍数（默认3.0）
-	AverageWindow      int     `json:"average_window"`       // 移动平均窗口（默认20）
+	VolumeMultiplier   float64 `json:"volume_multiplier"`    // 成交量异常倍数（預設3.0）
+	AverageWindow      int     `json:"average_window"`       // 移动平均窗口（預設20）
 	// 深度风控参数
-	MinDepthUSDT       float64 `json:"min_depth_usdt"`       // 最小深度阈值(USDT)，默认 10000
-	DepthDropThreshold float64 `json:"depth_drop_threshold"` // 深度下降阈值，默认 0.5
-	DepthWindow        int     `json:"depth_window"`         // 深度移动平均窗口，默认 10
+	MinDepthUSDT       float64 `json:"min_depth_usdt"`       // 最小深度阈值(USDT)，預設 10000
+	DepthDropThreshold float64 `json:"depth_drop_threshold"` // 深度下降阈值，預設 0.5
+	DepthWindow        int     `json:"depth_window"`         // 深度移动平均窗口，預設 10
 }
 
-// RiskIntervention 风控介入记录
+// RiskIntervention 风控介入記錄
 type RiskIntervention struct {
 	Timestamp   int64  `json:"timestamp"`
 	TimeStr     string `json:"time_str"`
 	Reason      string `json:"reason"`
 	RiskType    string `json:"risk_type"` // volume_spike, price_drop
-	Duration    int    `json:"duration"`  // 持续K线数
+	Duration    int    `json:"duration"`  // 持续K線数
 	SkippedBuys int    `json:"skipped_buys"`
 }
 
@@ -32,13 +32,13 @@ type RiskSimulator struct {
 	cfg            RiskSimulatorConfig
 	triggered      bool
 	interventions  []RiskIntervention
-	currentInterv  *RiskIntervention               // 当前未结束的介入
-	skippedBuys    int                             // 当前介入期间跳过的买入数
-	barCount       int                             // 当前介入持续的K线数
-	depthSnapshots []*DepthSnapshotForBacktest     // 深度快照数据（与 candles 一一对应）
+	currentInterv  *RiskIntervention               // 當前未结束的介入
+	skippedBuys    int                             // 當前介入期间跳过的买入数
+	barCount       int                             // 當前介入持续的K線数
+	depthSnapshots []*DepthSnapshotForBacktest     // 深度快照數據（与 candles 一一对应）
 }
 
-// NewRiskSimulator 创建风控模拟器
+// NewRiskSimulator 創建风控模拟器
 func NewRiskSimulator(cfg *RiskSimulatorConfig) *RiskSimulator {
 	c := RiskSimulatorConfig{
 		VolumeMultiplier:   3.0,
@@ -70,14 +70,14 @@ func NewRiskSimulator(cfg *RiskSimulatorConfig) *RiskSimulator {
 	}
 }
 
-// NewRiskSimulatorWithDepth 创建带深度数据的风控模拟器
+// NewRiskSimulatorWithDepth 創建带深度數據的风控模拟器
 func NewRiskSimulatorWithDepth(cfg *RiskSimulatorConfig, depthSnapshots []*DepthSnapshotForBacktest) *RiskSimulator {
 	rs := NewRiskSimulator(cfg)
 	rs.depthSnapshots = depthSnapshots
 	return rs
 }
 
-// DefaultRiskSimulatorConfig 返回默认风控配置
+// DefaultRiskSimulatorConfig 返回預設风控配置
 func DefaultRiskSimulatorConfig() RiskSimulatorConfig {
 	return RiskSimulatorConfig{
 		VolumeMultiplier:   3.0,
@@ -88,8 +88,8 @@ func DefaultRiskSimulatorConfig() RiskSimulatorConfig {
 	}
 }
 
-// Check 检查当前K线是否触发/恢复风控，返回是否应跳过买入
-// candles: 从开始到当前的所有K线，candleIndex: 当前K线在 candles 中的索引
+// Check 檢查當前K線是否触发/恢复风控，返回是否应跳过买入
+// candles: 从开始到當前的所有K線，candleIndex: 當前K線在 candles 中的索引
 func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skipBuy bool, reason string) {
 	if candles == nil || candleIndex < 0 || candleIndex >= len(candles) {
 		return false, ""
@@ -99,7 +99,7 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 	}
 
 	currentCandle := candles[candleIndex]
-	// 计算移动平均价格和成交量（使用前 AverageWindow 根完結K線）
+	// 計算移动平均價格和成交量（使用前 AverageWindow 根完結K線）
 	var totalPrice, totalVol float64
 	validCount := 0
 	for i := candleIndex - 1; i >= 0 && validCount < r.cfg.AverageWindow; i-- {
@@ -116,11 +116,11 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 	priceBelowMA := currentCandle.Close < avgPrice
 	volSpike := currentCandle.Volume > avgVol*r.cfg.VolumeMultiplier
 
-	// 传统风控：价格低于均价 且 成交量放大
+	// 传统风控：價格低于均价 且 成交量放大
 	tradPriceVolRisk := priceBelowMA && volSpike
 	tradPriceVolRecover := currentCandle.Close > avgPrice && currentCandle.Volume < avgVol*r.cfg.VolumeMultiplier
 
-	// 深度风控检查
+	// 深度风控檢查
 	depthRisk := false
 	depthRecover := true
 	var depthReason string
@@ -128,12 +128,12 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 	if r.depthSnapshots != nil && candleIndex < len(r.depthSnapshots) && r.cfg.MinDepthUSDT > 0 {
 		currentDepth := r.depthSnapshots[candleIndex]
 		
-		// 检查绝对深度不足
+		// 檢查绝对深度不足
 		if currentDepth.TotalDepth < r.cfg.MinDepthUSDT {
 			depthRisk = true
 			depthReason = fmt.Sprintf("深度不足: %.0f USDT < %.0f", currentDepth.TotalDepth, r.cfg.MinDepthUSDT)
 		} else {
-			// 检查深度相对下降
+			// 檢查深度相对下降
 			if candleIndex >= r.cfg.DepthWindow {
 				var avgDepth float64
 				validDepthCount := 0
@@ -150,7 +150,7 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 						depthDropRatio := (avgDepth - currentDepth.TotalDepth) / avgDepth
 						if depthDropRatio >= r.cfg.DepthDropThreshold {
 							depthRisk = true
-							depthReason = fmt.Sprintf("深度骤降: %.1f%% (当前: %.0f, 平均: %.0f)", 
+							depthReason = fmt.Sprintf("深度骤降: %.1f%% (當前: %.0f, 平均: %.0f)", 
 								depthDropRatio*100, currentDepth.TotalDepth, avgDepth)
 						}
 					}
@@ -208,13 +208,13 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 		return true, "风控中"
 	}
 
-	// 未触发状态
+	// 未触发狀態
 	if shouldTrigger {
 		r.triggered = true
 		r.barCount = 1
 		r.skippedBuys = 0
 		
-		// 确定触发原因和类型
+		// 确定触发原因和類型
 		var riskType string
 		if depthRisk {
 			reason = depthReason
@@ -236,14 +236,14 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 	return false, ""
 }
 
-// RecordSkippedBuy 记录跳过一次买入（在跳过买入时调用）
+// RecordSkippedBuy 記錄跳过一次买入（在跳过买入时调用）
 func (r *RiskSimulator) RecordSkippedBuy() {
 	if r.triggered && r.currentInterv != nil {
 		r.skippedBuys++
 	}
 }
 
-// GetInterventions 获取所有介入记录
+// GetInterventions 獲取所有介入記錄
 func (r *RiskSimulator) GetInterventions() []RiskIntervention {
 	// 如果有未结束的介入，也加入
 	if r.currentInterv != nil {

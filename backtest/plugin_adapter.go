@@ -24,7 +24,7 @@ func NewPluginStrategyAdapter(pluginPath string, strategyName string, config map
 	// 加載插件
 	p, err := plugin.Open(pluginPath)
 	if err != nil {
-		return nil, fmt.Errorf("加載插件失败: %w", err)
+		return nil, fmt.Errorf("加載插件失敗: %w", err)
 	}
 
 	// 獲取 NewPlugin 函數
@@ -46,7 +46,7 @@ func NewPluginStrategyAdapter(pluginPath string, strategyName string, config map
 		Initialize(config map[string]interface{}) error
 	}); ok {
 		if err := initializer.Initialize(config); err != nil {
-			return nil, fmt.Errorf("初始化插件失败: %w", err)
+			return nil, fmt.Errorf("初始化插件失敗: %w", err)
 		}
 	}
 
@@ -62,7 +62,7 @@ func NewPluginStrategyAdapter(pluginPath string, strategyName string, config map
 	return adapter, nil
 }
 
-// OnCandle 处理 K 線數據
+// OnCandle 處理 K 線數據
 func (a *PluginStrategyAdapter) OnCandle(candle *exchange.Candle) Signal {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -77,8 +77,8 @@ func (a *PluginStrategyAdapter) OnCandle(candle *exchange.Candle) Signal {
 
 		result, err := executor.ExecuteStrategy(context.Background(), a.strategyName, params)
 		if err != nil {
-			logger.Warn("⚠️ 執行策略失败: %v", err)
-			return Signal{Action: "hold", Price: candle.Close, Reason: "策略執行失败"}
+			logger.Warn("⚠️ 執行策略失敗: %v", err)
+			return Signal{Action: "hold", Price: candle.Close, Reason: "策略執行失敗"}
 		}
 
 		// 解析結果
@@ -168,17 +168,17 @@ func NewMomentumAdapterWithParams(params map[string]interface{}) *MomentumAdapte
 	}
 }
 
-// OnCandle 处理 K 線數據
+// OnCandle 處理 K 線數據
 func (a *MomentumAdapter) OnCandle(candle *exchange.Candle) Signal {
 	a.priceHistory = append(a.priceHistory, candle.Close)
 
-	// 保持历史記錄
+	// 保持歷史記錄
 	maxHistory := a.rsiPeriod * 3
 	if len(a.priceHistory) > maxHistory {
 		a.priceHistory = a.priceHistory[len(a.priceHistory)-maxHistory:]
 	}
 
-	// 计算 RSI
+	// 計算 RSI
 	rsi := a.calculateRSI()
 	if rsi == 50 {
 		return Signal{Action: "hold", Price: candle.Close, Reason: "數據不足"}
@@ -209,7 +209,7 @@ func (a *MomentumAdapter) OnCandle(candle *exchange.Candle) Signal {
 	return Signal{Action: "hold", Price: candle.Close, Reason: "等待信号"}
 }
 
-// calculateRSI 计算 RSI（简化版）
+// calculateRSI 計算 RSI（简化版）
 func (a *MomentumAdapter) calculateRSI() float64 {
 	if len(a.priceHistory) < a.rsiPeriod+1 {
 		return 50
@@ -295,11 +295,11 @@ func NewMeanReversionAdapterWithParams(params map[string]interface{}) *MeanRever
 	}
 }
 
-// OnCandle 处理 K 線數據
+// OnCandle 處理 K 線數據
 func (a *MeanReversionAdapter) OnCandle(candle *exchange.Candle) Signal {
 	a.priceHistory = append(a.priceHistory, candle.Close)
 
-	// 保持历史記錄
+	// 保持歷史記錄
 	maxHistory := a.period * 3
 	if len(a.priceHistory) > maxHistory {
 		a.priceHistory = a.priceHistory[len(a.priceHistory)-maxHistory:]
@@ -309,7 +309,7 @@ func (a *MeanReversionAdapter) OnCandle(candle *exchange.Candle) Signal {
 		return Signal{Action: "hold", Price: candle.Close, Reason: "數據不足"}
 	}
 
-	// 计算均值和標准差
+	// 計算均值和標准差
 	mean := 0.0
 	for i := len(a.priceHistory) - a.period; i < len(a.priceHistory); i++ {
 		mean += a.priceHistory[i]
@@ -330,7 +330,7 @@ func (a *MeanReversionAdapter) OnCandle(candle *exchange.Candle) Signal {
 		}
 	}
 
-	// 计算布林带
+	// 計算布林带
 	upperBand := mean + a.threshold*stdDev
 	lowerBand := mean - a.threshold*stdDev
 
@@ -432,11 +432,11 @@ func NewTrendFollowingAdapterWithParams(params map[string]interface{}) *TrendFol
 	}
 }
 
-// OnCandle 处理 K 線數據
+// OnCandle 處理 K 線數據
 func (a *TrendFollowingAdapter) OnCandle(candle *exchange.Candle) Signal {
 	a.priceHistory = append(a.priceHistory, candle.Close)
 
-	// 保持历史記錄
+	// 保持歷史記錄
 	maxHistory := a.slowPeriod * 3
 	if len(a.priceHistory) > maxHistory {
 		a.priceHistory = a.priceHistory[len(a.priceHistory)-maxHistory:]
@@ -446,14 +446,14 @@ func (a *TrendFollowingAdapter) OnCandle(candle *exchange.Candle) Signal {
 		return Signal{Action: "hold", Price: candle.Close, Reason: "數據不足"}
 	}
 
-	// 计算快速均線
+	// 計算快速均線
 	fastMA := 0.0
 	for i := len(a.priceHistory) - a.fastPeriod; i < len(a.priceHistory); i++ {
 		fastMA += a.priceHistory[i]
 	}
 	fastMA /= float64(a.fastPeriod)
 
-	// 计算慢速均線
+	// 計算慢速均線
 	slowMA := 0.0
 	for i := len(a.priceHistory) - a.slowPeriod; i < len(a.priceHistory); i++ {
 		slowMA += a.priceHistory[i]

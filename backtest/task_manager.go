@@ -28,7 +28,7 @@ type TaskManager struct {
 	binanceConfig map[string]string
 	resultsDir    string
 	reportsDir    string
-	klineDataDir  string // K线文件目录 (./data/kline)
+	klineDataDir  string // K線檔案目錄 (./data/kline)
 	mu            sync.Mutex
 	running       map[string]struct{}
 }
@@ -50,7 +50,7 @@ func (m *TaskManager) GetStore() TaskStore {
 	return m.store
 }
 
-// GetKlineDataDir 返回 K 线数据目录
+// GetKlineDataDir 返回 K 线數據目錄
 func (m *TaskManager) GetKlineDataDir() string {
 	return m.klineDataDir
 }
@@ -94,24 +94,24 @@ func (m *TaskManager) RunTask(id string) error {
 	now := time.Now()
 	_ = m.store.UpdateBacktestTaskStatus(id, "running", 0, &now, nil, "", "", "")
 
-	// 1. 按数据源获取 K 线数据
+	// 1. 按數據源獲取 K 线數據
 	var candles []*exchange.Candle
 	var depthSnapshots []*DepthSnapshotForBacktest
 
 	switch task.DataSource {
 	case "kline_file":
 		if task.KlineFile == "" {
-			m.failTask(id, "未指定 K 线文件")
+			m.failTask(id, "未指定 K 线檔案")
 			return nil
 		}
-		logger.Info("📁 从 K 线文件加载数据: %s", task.KlineFile)
+		logger.Info("📁 从 K 线檔案加載數據: %s", task.KlineFile)
 		candles, depthSnapshots, err = LoadCandlesFromKlineFile(m.klineDataDir, task.KlineFile)
 		if err != nil {
-			m.failTask(id, fmt.Sprintf("加载 K 线文件失败: %v", err))
+			m.failTask(id, fmt.Sprintf("加載 K 线檔案失敗: %v", err))
 			return nil
 		}
 
-		// 从文件名解析元信息并更新任务
+		// 从檔案名解析元信息并更新任務
 		meta := ParseKlineFileMeta(task.KlineFile)
 		if meta.Symbol != "" {
 			task.Symbol = meta.Symbol
@@ -119,7 +119,7 @@ func (m *TaskManager) RunTask(id string) error {
 		if meta.Interval != "" {
 			task.Interval = meta.Interval
 		}
-		// 从 K 线数据推导时间范围
+		// 从 K 线數據推导時間範圍
 		if len(candles) > 0 {
 			task.StartTime = time.Unix(candles[0].Timestamp/1000, 0)
 			task.EndTime = time.Unix(candles[len(candles)-1].Timestamp/1000, 0)
@@ -130,14 +130,14 @@ func (m *TaskManager) RunTask(id string) error {
 			m.failTask(id, "未指定回测缓存")
 			return nil
 		}
-		logger.Info("💾 从回测缓存加载数据: %s", task.CacheName)
+		logger.Info("💾 从回测缓存加載數據: %s", task.CacheName)
 		candles, err = LoadCandlesFromCache(task.CacheName)
 		if err != nil {
-			m.failTask(id, fmt.Sprintf("加载缓存失败: %v", err))
+			m.failTask(id, fmt.Sprintf("加載缓存失敗: %v", err))
 			return nil
 		}
 
-		// 从缓存元数据获取信息（通过缓存名解析）
+		// 从缓存元數據獲取信息（通过缓存名解析）
 		// 缓存名格式: binance_BTCUSDT_1m_2025-01-01_2025-01-31
 		cacheParts := strings.Split(task.CacheName, "_")
 		if len(cacheParts) >= 5 {
@@ -152,24 +152,24 @@ func (m *TaskManager) RunTask(id string) error {
 		}
 
 	default:
-		// 默认或 "time_range": 使用原有逻辑
-		logger.Info("⬇️ 从交易所获取历史数据: %s %s (%s - %s)",
+		// 預設或 "time_range": 使用原有逻辑
+		logger.Info("⬇️ 从交易所獲取歷史數據: %s %s (%s - %s)",
 			task.Symbol, task.Interval,
 			task.StartTime.Format("2006-01-02"),
 			task.EndTime.Format("2006-01-02"))
 		candles, err = GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
 		if err != nil {
-			m.failTask(id, fmt.Sprintf("獲取歷史數據失败: %v", err))
+			m.failTask(id, fmt.Sprintf("獲取歷史數據失敗: %v", err))
 			return nil
 		}
 	}
 
 	if len(candles) == 0 {
-		m.failTask(id, "未獲取到历史數據")
+		m.failTask(id, "未獲取到歷史數據")
 		return nil
 	}
 
-	// 2. 根據策略類型运行回测
+	// 2. 根據策略類型運行回测
 	var result *BacktestResult
 	var comparison *ComparisonResult
 	capital := task.TotalCapital
@@ -179,7 +179,7 @@ func (m *TaskManager) RunTask(id string) error {
 		// 執行兩次：無風控 + 帶風控
 		resultNoRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, nil)
 		if err != nil {
-			m.failTask(id, fmt.Sprintf("回测執行失败: %v", err))
+			m.failTask(id, fmt.Sprintf("回测執行失敗: %v", err))
 			return nil
 		}
 		riskCfg := m.riskConfigFromTask(task)
@@ -192,7 +192,7 @@ func (m *TaskManager) RunTask(id string) error {
 		}
 		resultWithRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, riskSim)
 		if err != nil {
-			m.failTask(id, fmt.Sprintf("回测執行失败: %v", err))
+			m.failTask(id, fmt.Sprintf("回测執行失敗: %v", err))
 			return nil
 		}
 		comparison = BuildComparisonResult(resultNoRisk, resultWithRisk, riskSim.GetInterventions())
@@ -221,26 +221,26 @@ func (m *TaskManager) RunTask(id string) error {
 	}
 
 	if err != nil {
-		m.failTask(id, fmt.Sprintf("回测執行失败: %v", err))
+		m.failTask(id, fmt.Sprintf("回测執行失敗: %v", err))
 		return nil
 	}
 
 	// 3. 保存結果 JSON
 	if err := os.MkdirAll(m.resultsDir, 0755); err != nil {
-		m.failTask(id, fmt.Sprintf("創建結果目錄失败: %v", err))
+		m.failTask(id, fmt.Sprintf("創建結果目錄失敗: %v", err))
 		return nil
 	}
 	resultPath := filepath.Join(m.resultsDir, id+".json")
 	payload := BacktestTaskResult{TaskID: id, Task: task, Result: result, Comparison: comparison}
 	body, _ := json.MarshalIndent(payload, "", "  ")
 	if err := os.WriteFile(resultPath, body, 0644); err != nil {
-		m.failTask(id, fmt.Sprintf("保存結果失败: %v", err))
+		m.failTask(id, fmt.Sprintf("保存結果失敗: %v", err))
 		return nil
 	}
 
 	// 4. 生成报告 Markdown（帶 meta 以輸出 K 線周期與回測參數）
 	if err := os.MkdirAll(m.reportsDir, 0755); err != nil {
-		logger.Warn("創建报告目錄失败: %v", err)
+		logger.Warn("創建报告目錄失敗: %v", err)
 	}
 	reportPath := filepath.Join(m.reportsDir, id+".md")
 	// 複製 params，過濾掉 total_capital（使用任務級別的 TotalCapital）
@@ -260,11 +260,11 @@ func (m *TaskManager) RunTask(id string) error {
 	}
 	if comparison != nil {
 		if err := GenerateComparisonReportToFile(comparison, reportPath, reportMeta); err != nil {
-			logger.Warn("生成对比报告失败: %v", err)
+			logger.Warn("生成对比报告失敗: %v", err)
 			reportPath = ""
 		}
 	} else if err := GenerateReportToFile(result, reportPath, reportMeta); err != nil {
-		logger.Warn("生成报告失败: %v", err)
+		logger.Warn("生成报告失敗: %v", err)
 		reportPath = ""
 	}
 
@@ -283,7 +283,7 @@ func (m *TaskManager) RunTask(id string) error {
 func (m *TaskManager) failTask(id, errMsg string) {
 	completed := time.Now()
 	_ = m.store.UpdateBacktestTaskStatus(id, "failed", 0, nil, &completed, errMsg, "", "")
-	logger.Error("❌ 回测任務失败: %s, %s", id, errMsg)
+	logger.Error("❌ 回测任務失敗: %s, %s", id, errMsg)
 }
 
 func (m *TaskManager) riskConfigFromTask(task *BacktestTask) *RiskSimulatorConfig {
@@ -373,7 +373,7 @@ func getInt(m map[string]interface{}, key string, def int) int {
 	return def
 }
 
-// LoadResult 加載任務結果（從 JSON 文件）
+// LoadResult 加載任務結果（從 JSON 檔案）
 func LoadResult(resultsDir, taskID string) (*BacktestTaskResult, error) {
 	path := filepath.Join(resultsDir, taskID+".json")
 	data, err := os.ReadFile(path)

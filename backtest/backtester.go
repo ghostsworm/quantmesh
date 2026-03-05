@@ -40,8 +40,8 @@ type Backtester struct {
 	// 交易記錄
 	trades []Trade
 
-	// 🔥 价格偏差（slippage）损失累计
-	totalSlippageLoss float64 // 累计slippage损失（USDT）
+	// 🔥 價格偏差（slippage）損失累计
+	totalSlippageLoss float64 // 累计slippage損失（USDT）
 
 	// 策略适配器
 	strategy StrategyAdapter
@@ -50,7 +50,7 @@ type Backtester struct {
 	symbol string
 }
 
-// EquityPoint 权益点
+// EquityPoint 權益点
 type EquityPoint struct {
 	Timestamp int64   `json:"timestamp"`
 	Equity    float64 `json:"equity"`
@@ -76,13 +76,13 @@ type BacktestResult struct {
 	InitialCapital float64   `json:"initial_capital"`
 	FinalCapital   float64   `json:"final_capital"`
 
-	// 权益曲線
+	// 權益曲線
 	Equity []EquityPoint `json:"equity"`
 
 	// 交易記錄
 	Trades []Trade `json:"trades"`
 
-	// 指標（由 metrics.go 计算）
+	// 指標（由 metrics.go 計算）
 	Metrics Metrics `json:"metrics"`
 
 	// 风險指標
@@ -93,17 +93,17 @@ type BacktestResult struct {
 
 	// 风控相关
 	RiskEnabled       bool               `json:"risk_enabled"`       // 是否启用风控
-	RiskInterventions []RiskIntervention `json:"risk_interventions"` // 风控介入记录
+	RiskInterventions []RiskIntervention `json:"risk_interventions"` // 风控介入記錄
 }
 
-// ComparisonResult 无风控 vs 有风控对比结果
+// ComparisonResult 无风控 vs 有风控对比結果
 type ComparisonResult struct {
 	NoRiskResult   *BacktestResult    `json:"no_risk_result"`
 	WithRiskResult *BacktestResult    `json:"with_risk_result"`
 	Comparison     *ComparisonMetrics `json:"comparison"`
 }
 
-// ComparisonMetrics 对比指标
+// ComparisonMetrics 对比指標
 type ComparisonMetrics struct {
 	ReturnDiff            float64 `json:"return_diff"`             // 收益率差异（有风控 - 无风控）
 	DrawdownDiff          float64 `json:"drawdown_diff"`           // 最大回撤差异
@@ -124,8 +124,8 @@ func NewBacktester(
 		candles:        candles,
 		strategy:       strategy,
 		initialCapital: initialCapital,
-		takerFee:       0.0004, // Binance 合約 Taker 费率
-		makerFee:       0.0002, // Binance 合約 Maker 费率
+		takerFee:       0.0004, // Binance 合約 Taker 費率
+		makerFee:       0.0002, // Binance 合約 Maker 費率
 		slippage:       0.0003, // 0.03% 滑点
 		equity:            make([]EquityPoint, 0),
 		trades:            make([]Trade, 0),
@@ -140,11 +140,11 @@ func (bt *Backtester) SetFees(takerFee, makerFee, slippage float64) {
 	bt.slippage = slippage
 }
 
-// Run 运行回测
+// Run 運行回测
 func (bt *Backtester) Run() (*BacktestResult, error) {
-	// Bug Fix 1: 检查 candles 是否為空
+	// Bug Fix 1: 檢查 candles 是否為空
 	if len(bt.candles) == 0 {
-		logger.Error("❌ 回测失败: K線數據為空")
+		logger.Error("❌ 回测失敗: K線數據為空")
 		return nil, fmt.Errorf("candles data is empty")
 	}
 
@@ -154,7 +154,7 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 	logger.Info("🚀 开始回测: %s 策略, %d 根K線", bt.strategy.GetName(), len(bt.candles))
 
 	for i, candle := range bt.candles {
-		// 1. 更新权益
+		// 1. 更新權益
 		currentEquity := bt.cash + bt.position*candle.Close
 		bt.equity = append(bt.equity, EquityPoint{
 			Timestamp: candle.Timestamp,
@@ -187,13 +187,13 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 
 	logger.Info("✅ 回测完成: %d 笔交易", len(bt.trades))
 
-	// 计算指標（传入slippage损失）
+	// 計算指標（传入slippage損失）
 	metrics := CalculateMetrics(bt.equity, bt.trades, bt.initialCapital, bt.totalSlippageLoss)
 
-	// 计算风險指標
+	// 計算风險指標
 	riskMetrics := CalculateRiskMetrics(bt.equity)
 
-	// Bug Fix 1: 检查 equity 是否為空（雖然理論上不會，但加上防御性检查）
+	// Bug Fix 1: 檢查 equity 是否為空（雖然理論上不會，但加上防御性檢查）
 	finalCapital := bt.initialCapital
 	if len(bt.equity) > 0 {
 		finalCapital = bt.equity[len(bt.equity)-1].Equity
@@ -217,10 +217,10 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 // executeBuy 執行買入
 func (bt *Backtester) executeBuy(candle *exchange.Candle) {
 	price := candle.Close * (1 + bt.slippage)
-	quantity := (bt.cash * 0.95) / price // 使用 95% 资金
+	quantity := (bt.cash * 0.95) / price // 使用 95% 資金
 	fee := quantity * price * bt.takerFee
 
-	// 🔥 计算买入slippage损失：实际买入价 - 理想买入价（收盘价）
+	// 🔥 計算买入slippage損失：实际买入价 - 理想买入价（收盘价）
 	buySlippageLoss := (price - candle.Close) * quantity // 等于 candle.Close * bt.slippage * quantity
 	bt.totalSlippageLoss += buySlippageLoss
 
@@ -246,11 +246,11 @@ func (bt *Backtester) executeSell(candle *exchange.Candle) {
 	quantity := bt.position
 	fee := quantity * price * bt.takerFee
 
-	// 🔥 计算卖出slippage损失：理想卖出价（收盘价）- 实际卖出价
+	// 🔥 計算卖出slippage損失：理想卖出价（收盘价）- 实际卖出价
 	sellSlippageLoss := (candle.Close - price) * quantity // 等于 candle.Close * bt.slippage * quantity
 	bt.totalSlippageLoss += sellSlippageLoss
 
-	// Bug Fix 2: 计算盈亏時检查 trades 是否為空
+	// Bug Fix 2: 計算盈亏時檢查 trades 是否為空
 	buyFee := 0.0
 	if len(bt.trades) > 0 {
 		// 找到最近的買入交易
@@ -278,7 +278,7 @@ func (bt *Backtester) executeSell(candle *exchange.Candle) {
 	logger.Info("📉 賣出: 價格=%.2f, 數量=%.4f, 手续费=%.2f, 盈亏=%.2f, slippage損失=%.4f", price, quantity, fee, pnl, sellSlippageLoss)
 }
 
-// BuildComparisonResult 构建无风控 vs 有风控的对比结果
+// BuildComparisonResult 构建无风控 vs 有风控的对比結果
 func BuildComparisonResult(noRisk, withRisk *BacktestResult, interventions []RiskIntervention) *ComparisonResult {
 	if noRisk == nil || withRisk == nil {
 		return nil

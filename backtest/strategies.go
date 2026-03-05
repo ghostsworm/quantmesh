@@ -14,14 +14,14 @@ type GridBacktestStrategy struct {
 	GridLeverage int
 	TotalCapital float64
 
-	// 运行时状态
+	// 運行时狀態
 	Initialized  bool
 	centerPrice  float64
 	gridOrders   map[float64]TickOrder
 	currentState string // RANGE, BREAKOUT_UP, BREAKOUT_DOWN
 }
 
-// NewGridBacktestStrategy 创建网格回测策略
+// NewGridBacktestStrategy 創建网格回测策略
 func NewGridBacktestStrategy(name, symbol string, gridCount int, gridSpacing, gridLeverage, totalCapital float64) *GridBacktestStrategy {
 	return &GridBacktestStrategy{
 		Name:         name,
@@ -41,7 +41,7 @@ func (s *GridBacktestStrategy) OnInit(account *BacktestAccount, cfg interface{})
 }
 
 func (s *GridBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]TickOrder, error) {
-	// 只在RANGE状态下运行网格
+	// 只在RANGE狀態下運行网格
 	if s.currentState == "BREAKOUT_UP" || s.currentState == "BREAKOUT_DOWN" {
 		return []TickOrder{}, nil
 	}
@@ -51,10 +51,10 @@ func (s *GridBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]Tick
 		s.initializeGrid(kline.Close)
 	}
 
-	// 检测市场状态
+	// 检测市场狀態
 	s.detectMarketState(kline)
 
-	// 返回网格订单
+	// 返回网格訂單
 	var orders []TickOrder
 	for _, order := range s.gridOrders {
 		orders = append(orders, order)
@@ -64,7 +64,7 @@ func (s *GridBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]Tick
 }
 
 func (s *GridBacktestStrategy) OnTrade(trade TickTrade) {
-	// 成交后更新网格（移除已成交订单）
+	// 成交后更新网格（移除已成交訂單）
 	delete(s.gridOrders, trade.Price)
 }
 
@@ -89,12 +89,12 @@ func (s *GridBacktestStrategy) initializeGrid(price float64) {
 	s.centerPrice = price
 	s.gridOrders = make(map[float64]TickOrder)
 
-	// 计算每格资金
+	// 計算每格資金
 	capitalPerLevel := s.TotalCapital / float64(s.GridCount)
 
-	// 生成网格订单
+	// 生成网格訂單
 	for i := 0; i < s.GridCount; i++ {
-		// 计算网格价格（等差数列）
+		// 計算网格價格（等差数列）
 		priceOffset := float64(i-s.GridCount/2) * s.centerPrice * s.GridSpacing
 		gridPrice := s.centerPrice + priceOffset
 
@@ -102,7 +102,7 @@ func (s *GridBacktestStrategy) initializeGrid(price float64) {
 			continue
 		}
 
-		// 计算订单数量
+		// 計算訂單數量
 		orderSize := (capitalPerLevel * float64(s.GridLeverage)) / gridPrice
 
 		var order TickOrder
@@ -139,8 +139,8 @@ func (s *GridBacktestStrategy) initializeGrid(price float64) {
 }
 
 func (s *GridBacktestStrategy) detectMarketState(kline TickKline) {
-	// 简化的市场状态检测
-	// 实际应用中应该使用更复杂的指标
+	// 简化的市场狀態检测
+	// 实际应用中应该使用更复杂的指標
 	change := (kline.Close - s.centerPrice) / s.centerPrice
 
 	if change > 0.05 { // 上涨5%突破
@@ -160,7 +160,7 @@ type DCABacktestStrategy struct {
 	MaxOrders       int
 	TotalCapital    float64
 
-	// 运行时状态
+	// 運行时狀態
 	orders []DCAOrder
 }
 
@@ -170,7 +170,7 @@ type DCAOrder struct {
 	Timestamp int64
 }
 
-// NewDCABacktestStrategy 创建DCA回测策略
+// NewDCABacktestStrategy 創建DCA回测策略
 func NewDCABacktestStrategy(name, symbol string, baseOrderAmount float64, maxOrders, totalCapital float64) *DCABacktestStrategy {
 	return &DCABacktestStrategy{
 		Name:            name,
@@ -189,15 +189,15 @@ func (s *DCABacktestStrategy) OnInit(account *BacktestAccount, cfg interface{}) 
 func (s *DCABacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]TickOrder, error) {
 	var orders []TickOrder
 
-	// 检查是否需要下新订单
+	// 檢查是否需要下新訂單
 	if len(s.orders) < s.MaxOrders {
-		// 简单的DCA策略：价格每下跌1%加仓
+		// 简单的DCA策略：價格每下跌1%加仓
 		if len(s.orders) > 0 {
 			lastOrder := s.orders[len(s.orders)-1]
 			change := (lastOrder.Price - kline.Close) / lastOrder.Price
 
 			if change > 0.01 {
-				// 价格下跌超过1%，加仓
+				// 價格下跌超过1%，加仓
 				size := s.BaseOrderAmount / kline.Close
 				order := TickOrder{
 					OrderID:   fmt.Sprintf("%s_dca_%d", s.Name, timestamp),
@@ -240,7 +240,7 @@ func (s *DCABacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]TickO
 }
 
 func (s *DCABacktestStrategy) OnTrade(trade TickTrade) {
-	// 更新订单状态
+	// 更新訂單狀態
 	for i, order := range s.orders {
 		if order.Price == trade.Price && order.Timestamp == trade.Timestamp {
 			s.orders = append(s.orders[:i], s.orders[i+1:]...)
@@ -274,7 +274,7 @@ type MartingaleBacktestStrategy struct {
 	MaxOrders       int
 	TotalCapital    float64
 
-	// 运行时状态
+	// 運行时狀態
 	orders []MartingaleOrder
 }
 
@@ -285,7 +285,7 @@ type MartingaleOrder struct {
 	Level     int
 }
 
-// NewMartingaleBacktestStrategy 创建马丁回测策略
+// NewMartingaleBacktestStrategy 創建马丁回测策略
 func NewMartingaleBacktestStrategy(name, symbol string, baseOrderAmount, multiplier float64, maxOrders, totalCapital float64) *MartingaleBacktestStrategy {
 	return &MartingaleBacktestStrategy{
 		Name:            name,
@@ -305,13 +305,13 @@ func (s *MartingaleBacktestStrategy) OnInit(account *BacktestAccount, cfg interf
 func (s *MartingaleBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]TickOrder, error) {
 	var orders []TickOrder
 
-	// 检查是否需要下新订单
+	// 檢查是否需要下新訂單
 	if len(s.orders) < s.MaxOrders {
 		if len(s.orders) > 0 {
 			lastOrder := s.orders[len(s.orders)-1]
 			change := (lastOrder.Price - kline.Close) / lastOrder.Price
 
-			// 价格下跌超过设定比例，加仓
+			// 價格下跌超过设定比例，加仓
 			if change > 0.01 {
 				level := lastOrder.Level + 1
 				size := s.BaseOrderAmount * math.Pow(s.Multiplier, float64(level)) / kline.Close
@@ -359,7 +359,7 @@ func (s *MartingaleBacktestStrategy) OnKline(kline TickKline, timestamp int64) (
 }
 
 func (s *MartingaleBacktestStrategy) OnTrade(trade TickTrade) {
-	// 更新订单状态
+	// 更新訂單狀態
 	for i, order := range s.orders {
 		if order.Price == trade.Price && order.Timestamp == trade.Timestamp {
 			s.orders = append(s.orders[:i], s.orders[i+1:]...)
@@ -392,13 +392,13 @@ type TrendBacktestStrategy struct {
 	TotalCapital float64
 	Lookback     int
 
-	// 运行时状态
+	// 運行时狀態
 	positionSize float64
 	entryPrice   float64
 	priceHistory []float64
 }
 
-// NewTrendBacktestStrategy 创建趋势回测策略
+// NewTrendBacktestStrategy 創建趋势回测策略
 func NewTrendBacktestStrategy(name, symbol string, totalCapital float64, lookback int) *TrendBacktestStrategy {
 	return &TrendBacktestStrategy{
 		Name:         name,
@@ -416,7 +416,7 @@ func (s *TrendBacktestStrategy) OnInit(account *BacktestAccount, cfg interface{}
 }
 
 func (s *TrendBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]TickOrder, error) {
-	// 更新价格历史
+	// 更新價格歷史
 	s.priceHistory = append(s.priceHistory, kline.Close)
 	if len(s.priceHistory) > s.Lookback {
 		s.priceHistory = s.priceHistory[len(s.priceHistory)-s.Lookback:]
@@ -424,7 +424,7 @@ func (s *TrendBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]Tic
 
 	var orders []TickOrder
 
-	// 计算移动平均线
+	// 計算移动平均线
 	if len(s.priceHistory) < s.Lookback {
 		return orders, nil
 	}
@@ -439,7 +439,7 @@ func (s *TrendBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]Tic
 	if s.positionSize == 0 {
 		if kline.Close > ma && kline.Close > s.priceHistory[len(s.priceHistory)-2] {
 			// 突破上涨，做多
-			size := (s.TotalCapital * 0.3) / kline.Close // 使用30%资金
+			size := (s.TotalCapital * 0.3) / kline.Close // 使用30%資金
 			order := TickOrder{
 				OrderID:   fmt.Sprintf("%s_trend_long_%d", s.Name, timestamp),
 				Side:      "buy",
@@ -452,12 +452,12 @@ func (s *TrendBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]Tic
 			orders = append(orders, order)
 		}
 	} else {
-		// 持仓中，检查止损
+		// 持仓中，檢查止损
 		change := (kline.Close - s.entryPrice) / s.entryPrice
 
 		// 止损3%或趋势反转
 		if change < -0.03 || kline.Close < ma {
-			// 平仓
+			// 平倉
 			order := TickOrder{
 				OrderID:   fmt.Sprintf("%s_trend_close_%d", s.Name, timestamp),
 				Side:      "sell",
@@ -509,7 +509,7 @@ type ComboBacktestStrategy struct {
 	MarketState   string
 }
 
-// NewComboBacktestStrategy 创建组合回测策略
+// NewComboBacktestStrategy 創建组合回测策略
 func NewComboBacktestStrategy(name, symbol string, totalCapital float64, subStrategies []BacktestStrategy, weights []float64) *ComboBacktestStrategy {
 	return &ComboBacktestStrategy{
 		Name:          name,
@@ -528,7 +528,7 @@ func (s *ComboBacktestStrategy) OnInit(account *BacktestAccount, cfg interface{}
 func (s *ComboBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]TickOrder, error) {
 	var allOrders []TickOrder
 
-	// 收集所有子策略的订单
+	// 收集所有子策略的訂單
 	for _, strategy := range s.SubStrategies {
 		orders, err := strategy.OnKline(kline, timestamp)
 		if err != nil {

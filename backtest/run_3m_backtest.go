@@ -15,14 +15,14 @@ func main() {
 	// 加載配置
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		logger.Error("❌ 加載配置失败: %v", err)
+		logger.Error("❌ 加載配置失敗: %v", err)
 		return
 	}
 
 	logger.Info("🚀 开始 3 分钟周期回测 - 7 天數據")
 	logger.Info("=" + string(make([]rune, 60)))
 
-	// 计算時间範圍（最近 7 天）
+	// 計算時间範圍（最近 7 天）
 	endTime := time.Now()
 	startTime := endTime.AddDate(0, 0, -7)
 
@@ -30,7 +30,7 @@ func main() {
 	interval := "3m"
 	initialCapital := 10000.0
 
-	// 從配置文件獲取 Binance 配置
+	// 從配置檔案獲取 Binance 配置
 	binanceExchange := cfg.Exchanges["binance"]
 	binanceConfig := map[string]string{
 		"api_key":    binanceExchange.APIKey,
@@ -42,7 +42,7 @@ func main() {
 	logger.Info("  交易對: %s", symbol)
 	logger.Info("  周期: %s", interval)
 	logger.Info("  時间範圍: %s 至 %s", startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
-	logger.Info("  初始资金: $%.2f", initialCapital)
+	logger.Info("  初始資金: $%.2f", initialCapital)
 	logger.Info("  使用測試網: %v", binanceExchange.Testnet)
 	logger.Info("")
 
@@ -51,14 +51,14 @@ func main() {
 	startFetch := time.Now()
 	candles, err := backtest.GetHistoricalData(symbol, interval, startTime, endTime, binanceConfig)
 	if err != nil {
-		logger.Error("❌ 獲取歷史數據失败: %v", err)
+		logger.Error("❌ 獲取歷史數據失敗: %v", err)
 		return
 	}
 	fetchDuration := time.Since(startFetch)
 	logger.Info("✅ 數據獲取完成: %d 根 K 線 (耗時: %.2f 秒)", len(candles), fetchDuration.Seconds())
 	logger.Info("")
 
-	// 2. 运行三個策略的回测
+	// 2. 運行三個策略的回测
 	strategies := []struct {
 		name    string
 		adapter backtest.StrategyAdapter
@@ -79,10 +79,10 @@ func main() {
 		// 創建回测器
 		backtester := backtest.NewBacktester(symbol, candles, strategy.adapter, initialCapital)
 
-		// 运行回测
+		// 運行回测
 		result, err := backtester.Run()
 		if err != nil {
-			logger.Error("❌ 回测失败: %v", err)
+			logger.Error("❌ 回测失敗: %v", err)
 			continue
 		}
 
@@ -91,17 +91,17 @@ func main() {
 		// 生成报告
 		reportPath, err := backtest.GenerateReport(result)
 		if err != nil {
-			logger.Warn("⚠️ 生成报告失败: %v", err)
+			logger.Warn("⚠️ 生成报告失敗: %v", err)
 		} else {
 			logger.Info("📄 报告已生成: %s", reportPath)
 		}
 
-		// 保存权益曲線
+		// 保存權益曲線
 		equityPath, err := backtest.SaveEquityCurveCSV(result)
 		if err != nil {
-			logger.Warn("⚠️ 保存权益曲線失败: %v", err)
+			logger.Warn("⚠️ 保存權益曲線失敗: %v", err)
 		} else {
-			logger.Info("📈 权益曲線已保存: %s", equityPath)
+			logger.Info("📈 權益曲線已保存: %s", equityPath)
 		}
 
 		results = append(results, result)

@@ -115,7 +115,7 @@ var defaultSymbolPresets = map[string]SymbolBacktestPreset{
 	},
 }
 
-// GetSymbolPreset 獲取交易對預設，無则返回通用默认
+// GetSymbolPreset 獲取交易對預設，無则返回通用預設
 func GetSymbolPreset(symbol string) SymbolBacktestPreset {
 	if p, ok := defaultSymbolPresets[symbol]; ok {
 		return p
@@ -172,8 +172,8 @@ func GetGridStrategyDefinition() StrategyParamDefinition {
 			{Name: "grid_spacing", Label: "網格間距", Type: "number", Required: false, Default: 200, Min: &minGap, Unit: "USDT", Hint: "每檔價格差，如 200 表示每檔相差 200 USDT。不填則按格子數量均分區間"},
 			{Name: "grid_count", Label: "格子數量", Type: "number", Required: false, Default: 20, Min: &minZero, Hint: "最多幾檔。填了間距時表示最多 N 檔；未填間距時表示將區間均分為 N 檔"},
 			{Name: "order_quantity", Label: "單笔订單大小", Type: "number", Required: true, Default: 100, Min: &minGap, Unit: "USDT"},
-			{Name: "total_capital", Label: "總投入资金", Type: "number", Required: true, Default: 10000, Min: &minGap, Unit: "USDT"},
-			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004, Min: &minZero, Max: &maxGap, Step: &stepPoint0001, Hint: "如 0.0004 表示 0.04%"},
+			{Name: "total_capital", Label: "總投入資金", Type: "number", Required: true, Default: 10000, Min: &minGap, Unit: "USDT"},
+			{Name: "fee_rate", Label: "手续費率", Type: "number", Required: false, Default: 0.0004, Min: &minZero, Max: &maxGap, Step: &stepPoint0001, Hint: "如 0.0004 表示 0.04%"},
 			{Name: "risk_volume_multiplier", Label: "風控-成交量倍數", Type: "number", Required: false, Default: 3.0, Min: &minOne, Max: &maxTen, Step: &stepPoint1, Hint: "成交量超過均量的倍數觸發風控（越小越敏感）"},
 			{Name: "risk_average_window", Label: "風控-均線窗口", Type: "number", Required: false, Default: 20, Min: &minOne, Max: &max200, Hint: "計算均價/均量的K線數量"},
 		},
@@ -190,8 +190,8 @@ func GetMomentumStrategyDefinition() StrategyParamDefinition {
 		Description:  "基於 RSI 的超買超賣策略。",
 		Params: []ParamField{
 			{Name: "rsi_period", Label: "RSI 周期", Type: "number", Required: false, Default: 14, Min: &minVal, Max: &maxVal},
-			{Name: "total_capital", Label: "總投入资金", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
-			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004},
+			{Name: "total_capital", Label: "總投入資金", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
+			{Name: "fee_rate", Label: "手续費率", Type: "number", Required: false, Default: 0.0004},
 		},
 	}
 }
@@ -205,8 +205,8 @@ func GetMeanReversionStrategyDefinition() StrategyParamDefinition {
 		Description:  "基於布林带的均值回归。",
 		Params: []ParamField{
 			{Name: "period", Label: "周期", Type: "number", Required: false, Default: 20, Min: &minVal},
-			{Name: "total_capital", Label: "總投入资金", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
-			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004},
+			{Name: "total_capital", Label: "總投入資金", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
+			{Name: "fee_rate", Label: "手续費率", Type: "number", Required: false, Default: 0.0004},
 		},
 	}
 }
@@ -221,8 +221,8 @@ func GetTrendFollowingStrategyDefinition() StrategyParamDefinition {
 		Params: []ParamField{
 			{Name: "fast_period", Label: "快線周期", Type: "number", Required: false, Default: 10, Min: &minVal},
 			{Name: "slow_period", Label: "慢線周期", Type: "number", Required: false, Default: 30, Min: &minVal},
-			{Name: "total_capital", Label: "總投入资金", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
-			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004},
+			{Name: "total_capital", Label: "總投入資金", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
+			{Name: "fee_rate", Label: "手续費率", Type: "number", Required: false, Default: 0.0004},
 		},
 	}
 }
@@ -237,8 +237,8 @@ func GetDCAStrategyDefinition() StrategyParamDefinition {
 		Params: []ParamField{
 			{Name: "interval_days", Label: "定投间隔(天)", Type: "number", Required: true, Default: 7, Min: &minVal},
 			{Name: "amount_per_trade", Label: "每次投入金額", Type: "number", Required: true, Default: 100, Min: &minVal, Unit: "USDT"},
-			{Name: "total_capital", Label: "總投入资金上限", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
-			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004},
+			{Name: "total_capital", Label: "總投入資金上限", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
+			{Name: "fee_rate", Label: "手续費率", Type: "number", Required: false, Default: 0.0004},
 		},
 	}
 }
@@ -253,8 +253,8 @@ func GetMartingaleStrategyDefinition() StrategyParamDefinition {
 		Params: []ParamField{
 			{Name: "base_amount", Label: "基础下單金額", Type: "number", Required: true, Default: 100, Min: &minVal, Unit: "USDT"},
 			{Name: "multiplier", Label: "加倍倍數", Type: "number", Required: false, Default: 2.0, Min: &minVal},
-			{Name: "total_capital", Label: "總投入资金上限", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
-			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004},
+			{Name: "total_capital", Label: "總投入資金上限", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
+			{Name: "fee_rate", Label: "手续費率", Type: "number", Required: false, Default: 0.0004},
 		},
 	}
 }
@@ -267,8 +267,8 @@ func GetComboStrategyDefinition() StrategyParamDefinition {
 		Name:         "组合策略",
 		Description:  "多策略组合。",
 		Params: []ParamField{
-			{Name: "total_capital", Label: "總投入资金", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
-			{Name: "fee_rate", Label: "手续费率", Type: "number", Required: false, Default: 0.0004},
+			{Name: "total_capital", Label: "總投入資金", Type: "number", Required: true, Default: 10000, Min: &minVal, Unit: "USDT"},
+			{Name: "fee_rate", Label: "手续費率", Type: "number", Required: false, Default: 0.0004},
 		},
 	}
 }

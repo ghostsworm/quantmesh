@@ -21,7 +21,7 @@ type GridBacktestParams struct {
 	SlippageRatio float64 `json:"slippage_ratio"`
 }
 
-// RunGridBacktest 运行網格策略回测（独立於 StrategyAdapter，多檔位多笔交易）
+// RunGridBacktest 運行網格策略回测（独立於 StrategyAdapter，多檔位多笔交易）
 // 回测時可不填價格上下限：若 price_low/price_high 未填或為 0，則從 K 線數據推導回測區間的實際最低價/最高價，更貼近「實盤不知未來高低」的假設。
 // riskSimulator 可選，為 nil 時不啟用風控；非 nil 時在觸發風控時跳過買入信號。
 func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBacktestParams, initialCapital float64, riskSimulator *RiskSimulator) (*BacktestResult, error) {
@@ -79,7 +79,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 	var trades []Trade
 	var equity []EquityPoint
 	maxPositionQty := 0.0 // 最大持倉（基幣數量）
-	totalSlippageLoss := 0.0 // 🔥 累计slippage损失
+	totalSlippageLoss := 0.0 // 🔥 累计slippage損失
 
 	feeRate := params.FeeRate
 	if feeRate <= 0 {
@@ -92,14 +92,14 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 
 	prevClose := candles[0].Close
 	for candleIdx, c := range candles {
-		// 检查风控状态（仅在风控模拟器启用时）
+		// 檢查风控狀態（仅在风控模拟器启用时）
 		riskSkipBuy := false
 		if riskSimulator != nil {
 			skipBuy, _ := riskSimulator.Check(candles, candleIdx)
 			riskSkipBuy = skipBuy
 		}
 
-		// 权益 = 現金 + 各檔位持倉市值（按當前收盘價）
+		// 權益 = 現金 + 各檔位持倉市值（按當前收盘價）
 		positionValue := 0.0
 		totalQty := 0.0
 		for _, qty := range positions {
@@ -128,7 +128,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 				execPrice := level * (1 - slippage)
 				fee := qty * execPrice * feeRate
 				pnl := (execPrice - sellLevel) * qty
-				// 🔥 计算卖出slippage损失：理想价格（level）- 实际价格
+				// 🔥 計算卖出slippage損失：理想價格（level）- 实际價格
 				sellSlippageLoss := (level - execPrice) * qty // 等于 level * slippage * qty
 				totalSlippageLoss += sellSlippageLoss
 				cash += qty*execPrice - fee
@@ -172,7 +172,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 					buyFee = buyQty * execPrice * feeRate
 					totalCost = buyQty*execPrice + buyFee
 				}
-				// 🔥 计算买入slippage损失：实际价格 - 理想价格（level）
+				// 🔥 計算买入slippage損失：实际價格 - 理想價格（level）
 				buySlippageLoss := (execPrice - level) * buyQty // 等于 level * slippage * buyQty
 				totalSlippageLoss += buySlippageLoss
 				cash -= totalCost
@@ -197,7 +197,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		prevClose = closePrice
 	}
 
-	// 期末权益：現金 + 持倉按最后收盘價计價
+	// 期末權益：現金 + 持倉按最后收盘價计價
 	lastClose := candles[len(candles)-1].Close
 	finalEquity := cash
 	for level, qty := range positions {

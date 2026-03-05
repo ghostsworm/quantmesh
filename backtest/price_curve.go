@@ -7,10 +7,10 @@ import (
 	"quantmesh/exchange"
 )
 
-// PriceCurveSummary 回测期间价格曲线摘要：拐点、起止价、最大连续涨跌价差
+// PriceCurveSummary 回测期间價格曲線摘要：拐点、起止价、最大连续涨跌价差
 type PriceCurveSummary struct {
-	StartPrice            float64   `json:"start_price"`             // 开始价（首根K线收盘）
-	EndPrice              float64   `json:"end_price"`               // 结束价（末根K线收盘）
+	StartPrice            float64   `json:"start_price"`             // 开始价（首根K線收盘）
+	EndPrice              float64   `json:"end_price"`               // 结束价（末根K線收盘）
 	Top3Valleys           []float64 `json:"top3_valleys"`            // 期间最重要的 3 个谷底价（由低到高）
 	Top3Peaks             []float64 `json:"top3_peaks"`              // 期间最重要的 3 个峰值价（由高到低）
 	MaxConsecutiveDecline float64   `json:"max_consecutive_decline"` // 最大连续下跌价差（从某高点到后续低点的最大跌幅）
@@ -19,7 +19,7 @@ type PriceCurveSummary struct {
 
 const topN = 3
 
-// ComputePriceCurveSummary 从 K 线序列计算价格曲线摘要（拐点、起止价、最大连续涨跌）
+// ComputePriceCurveSummary 从 K 线序列計算價格曲線摘要（拐点、起止价、最大连续涨跌）
 func ComputePriceCurveSummary(candles []*exchange.Candle) *PriceCurveSummary {
 	if len(candles) == 0 {
 		return nil

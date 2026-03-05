@@ -20,10 +20,10 @@ func TestMomentumStrategy(t *testing.T) {
 	// 創建回测器
 	backtester := NewBacktester("BTCUSDT", candles, strategy, 10000)
 
-	// 运行回测
+	// 運行回测
 	result, err := backtester.Run()
 	if err != nil {
-		t.Fatalf("回测失败: %v", err)
+		t.Fatalf("回测失敗: %v", err)
 	}
 
 	// 驗证結果
@@ -43,7 +43,7 @@ func TestMomentumStrategy(t *testing.T) {
 		t.Error("交易次數不能為负")
 	}
 	if result.FinalCapital < 0 {
-		t.Error("最终资金不能為负")
+		t.Error("最终資金不能為负")
 	}
 }
 
@@ -60,10 +60,10 @@ func TestMeanReversionStrategy(t *testing.T) {
 	// 創建回测器
 	backtester := NewBacktester("BTCUSDT", candles, strategy, 10000)
 
-	// 运行回测
+	// 運行回测
 	result, err := backtester.Run()
 	if err != nil {
-		t.Fatalf("回测失败: %v", err)
+		t.Fatalf("回测失敗: %v", err)
 	}
 
 	// 驗证結果
@@ -83,7 +83,7 @@ func TestMeanReversionStrategy(t *testing.T) {
 		t.Error("交易次數不能為负")
 	}
 	if result.FinalCapital < 0 {
-		t.Error("最终资金不能為负")
+		t.Error("最终資金不能為负")
 	}
 }
 
@@ -100,10 +100,10 @@ func TestTrendFollowingStrategy(t *testing.T) {
 	// 創建回测器
 	backtester := NewBacktester("BTCUSDT", candles, strategy, 10000)
 
-	// 运行回测
+	// 運行回测
 	result, err := backtester.Run()
 	if err != nil {
-		t.Fatalf("回测失败: %v", err)
+		t.Fatalf("回测失敗: %v", err)
 	}
 
 	// 驗证結果
@@ -123,7 +123,7 @@ func TestTrendFollowingStrategy(t *testing.T) {
 		t.Error("交易次數不能為负")
 	}
 	if result.FinalCapital < 0 {
-		t.Error("最终资金不能為负")
+		t.Error("最终資金不能為负")
 	}
 }
 
@@ -140,27 +140,27 @@ func TestReportGeneration(t *testing.T) {
 	// 創建回测器
 	backtester := NewBacktester("BTCUSDT", candles, strategy, 10000)
 
-	// 运行回测
+	// 運行回测
 	result, err := backtester.Run()
 	if err != nil {
-		t.Fatalf("回测失败: %v", err)
+		t.Fatalf("回测失敗: %v", err)
 	}
 
 	// 生成报告
 	reportPath, err := GenerateReport(result)
 	if err != nil {
-		t.Fatalf("生成报告失败: %v", err)
+		t.Fatalf("生成报告失敗: %v", err)
 	}
 
 	t.Logf("✅ 报告已生成: %s", reportPath)
 
-	// 保存权益曲線
+	// 保存權益曲線
 	equityPath, err := SaveEquityCurveCSV(result)
 	if err != nil {
-		t.Fatalf("保存权益曲線失败: %v", err)
+		t.Fatalf("保存權益曲線失敗: %v", err)
 	}
 
-	t.Logf("✅ 权益曲線已保存: %s", equityPath)
+	t.Logf("✅ 權益曲線已保存: %s", equityPath)
 }
 
 // generateMockCandles 生成模拟K線數據（震荡行情）

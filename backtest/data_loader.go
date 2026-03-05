@@ -14,14 +14,14 @@ import (
 	"quantmesh/logger"
 )
 
-// DataLoader 历史数据加载器
-// 支持 CSV 和 gzip 压缩的 CSV 文件
+// DataLoader 歷史數據加載器
+// 支援 CSV 和 gzip 压缩的 CSV 檔案
 type DataLoader struct {
 	dataDir string
 	symbol  string
 }
 
-// NewDataLoader 创建数据加载器
+// NewDataLoader 創建數據加載器
 func NewDataLoader(dataDir, symbol string) *DataLoader {
 	return &DataLoader{
 		dataDir: dataDir,
@@ -29,7 +29,7 @@ func NewDataLoader(dataDir, symbol string) *DataLoader {
 	}
 }
 
-// KlineRow K线数据行（CSV格式）
+// KlineRow K線數據行（CSV格式）
 type KlineRow struct {
 	OpenTime  int64
 	Open      float64
@@ -41,13 +41,13 @@ type KlineRow struct {
 	NumTrades int64
 }
 
-// LoadKlinesFromCSV 从CSV文件加载K线数据
-// 支持的CSV格式（参考币安格式）：
+// LoadKlinesFromCSV 从CSV檔案加載K線數據
+// 支援的CSV格式（参考幣安格式）：
 // open_time,open,high,low,close,volume,close_time,quote_volume,trades,....
 func (dl *DataLoader) LoadKlinesFromCSV(filePath string) ([]KlineRow, error) {
 	logger.Info("Loading klines from CSV: %s", filePath)
 
-	// 检查文件扩展名
+	// 檢查檔案扩展名
 	var reader io.Reader
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -111,12 +111,12 @@ func (dl *DataLoader) LoadKlinesFromCSV(filePath string) ([]KlineRow, error) {
 	return klines, nil
 }
 
-// parseKlineRow 解析K线数据行
+// parseKlineRow 解析K線數據行
 func parseKlineRow(record []string) (KlineRow, error) {
 	var kline KlineRow
 	var err error
 
-	// 解析时间戳
+	// 解析時間戳
 	kline.OpenTime, err = strconv.ParseInt(record[0], 10, 64)
 	if err != nil {
 		return kline, fmt.Errorf("invalid open_time: %w", err)
@@ -148,7 +148,7 @@ func parseKlineRow(record []string) (KlineRow, error) {
 		return kline, fmt.Errorf("invalid volume: %w", err)
 	}
 
-	// 解析收盘时间
+	// 解析收盘時間
 	kline.CloseTime, err = strconv.ParseInt(record[6], 10, 64)
 	if err != nil {
 		return kline, fmt.Errorf("invalid close_time: %w", err)
@@ -165,8 +165,8 @@ func parseKlineRow(record []string) (KlineRow, error) {
 	return kline, nil
 }
 
-// LoadKlinesFromDir 从目录加载所有K线数据
-// 目录结构：data_dir/{symbol}/1m/*.csv.gz
+// LoadKlinesFromDir 从目錄加載所有K線數據
+// 目錄结构：data_dir/{symbol}/1m/*.csv.gz
 func (dl *DataLoader) LoadKlinesFromDir() ([]KlineRow, error) {
 	symbolDir := filepath.Join(dl.dataDir, dl.symbol, "1m")
 	if _, err := os.Stat(symbolDir); os.IsNotExist(err) {
@@ -198,17 +198,17 @@ func (dl *DataLoader) LoadKlinesFromDir() ([]KlineRow, error) {
 		return nil, fmt.Errorf("no valid klines loaded")
 	}
 
-	// 按时间排序
+	// 按時間排序
 	allKlines = sortKlines(allKlines)
 
 	logger.Info("Loaded total %d klines for %s", len(allKlines), dl.symbol)
 	return allKlines, nil
 }
 
-// sortKlines 按时间排序K线数据
+// sortKlines 按時間排序K線數據
 func sortKlines(klines []KlineRow) []KlineRow {
-	// 简单的冒泡排序（对于小数据集足够）
-	// 对于大数据集，可以考虑使用更高效的排序算法
+	// 简单的冒泡排序（对于小數據集足够）
+	// 对于大數據集，可以考虑使用更高效的排序算法
 	n := len(klines)
 	for i := 0; i < n-1; i++ {
 		for j := 0; j < n-i-1; j++ {
@@ -220,7 +220,7 @@ func sortKlines(klines []KlineRow) []KlineRow {
 	return klines
 }
 
-// FilterByTimeRange 按时间范围过滤
+// FilterByTimeRange 按時間範圍过滤
 func (dl *DataLoader) FilterByTimeRange(klines []KlineRow, start, end time.Time) []KlineRow {
 	startTs := start.UnixMilli()
 	endTs := end.UnixMilli()
@@ -235,7 +235,7 @@ func (dl *DataLoader) FilterByTimeRange(klines []KlineRow, start, end time.Time)
 	return filtered
 }
 
-// ConvertToTickKlines 转换为TickKline格式
+// ConvertToTickKlines 轉換为TickKline格式
 func ConvertToTickKlines(klines []KlineRow) []TickKline {
 	tickKlines := make([]TickKline, len(klines))
 	for i, k := range klines {
@@ -251,7 +251,7 @@ func ConvertToTickKlines(klines []KlineRow) []TickKline {
 	return tickKlines
 }
 
-// KlineToTickKline 单个K线转换
+// KlineToTickKline 单个K線轉換
 func KlineToTickKline(k KlineRow) TickKline {
 	return TickKline{
 		Timestamp: k.OpenTime,
@@ -263,13 +263,13 @@ func KlineToTickKline(k KlineRow) TickKline {
 	}
 }
 
-// FundingRateRow 资金费率数据行
+// FundingRateRow 資金費率數據行
 type FundingRateRow struct {
 	FundingTime int64
 	FundingRate float64
 }
 
-// LoadFundingRatesFromCSV 从CSV文件加载资金费率数据
+// LoadFundingRatesFromCSV 从CSV檔案加載資金費率數據
 func (dl *DataLoader) LoadFundingRatesFromCSV(filePath string) ([]FundingRateRow, error) {
 	logger.Info("Loading funding rates from CSV: %s", filePath)
 
@@ -336,11 +336,11 @@ func (dl *DataLoader) LoadFundingRatesFromCSV(filePath string) ([]FundingRateRow
 	return rates, nil
 }
 
-// LoadFundingRatesFromDir 从目录加载所有资金费率数据
+// LoadFundingRatesFromDir 从目錄加載所有資金費率數據
 func (dl *DataLoader) LoadFundingRatesFromDir() ([]FundingRateRow, error) {
 	fundingDir := filepath.Join(dl.dataDir, "funding_rate", dl.symbol)
 	if _, err := os.Stat(fundingDir); os.IsNotExist(err) {
-		// 资金费率数据可选，不存在时不报错
+		// 資金費率數據可选，不存在时不报错
 		logger.Info("Funding rate directory does not exist: %s (skipping)", fundingDir)
 		return []FundingRateRow{}, nil
 	}
@@ -367,7 +367,7 @@ func (dl *DataLoader) LoadFundingRatesFromDir() ([]FundingRateRow, error) {
 	return allRates, nil
 }
 
-// DataStats 数据统计信息
+// DataStats 數據統計信息
 type DataStats struct {
 	TotalKlines    int
 	StartTime      time.Time
@@ -379,7 +379,7 @@ type DataStats struct {
 	PriceChangePct float64
 }
 
-// GetDataStats 获取数据统计信息
+// GetDataStats 獲取數據統計信息
 func GetDataStats(klines []KlineRow) DataStats {
 	if len(klines) == 0 {
 		return DataStats{}
@@ -410,7 +410,7 @@ func GetDataStats(klines []KlineRow) DataStats {
 	return stats
 }
 
-// ValidateKlines 验证K线数据
+// ValidateKlines 驗證K線數據
 func ValidateKlines(klines []KlineRow) error {
 	if len(klines) == 0 {
 		return fmt.Errorf("no klines to validate")
@@ -420,12 +420,12 @@ func ValidateKlines(klines []KlineRow) error {
 	prevClose := klines[0].Close
 
 	for i, k := range klines {
-		// 检查时间戳递增
+		// 檢查時間戳递增
 		if k.OpenTime < prevTime {
 			return fmt.Errorf("timestamp not increasing at index %d", i)
 		}
 
-		// 检查OHLC逻辑
+		// 檢查OHLC逻辑
 		if k.High < k.Low {
 			return fmt.Errorf("invalid high/low at index %d: high (%.2f) < low (%.2f)", i, k.High, k.Low)
 		}
@@ -436,7 +436,7 @@ func ValidateKlines(klines []KlineRow) error {
 			return fmt.Errorf("negative volume at index %d", i)
 		}
 
-		// 检查价格连续性（允许跳涨但不应该超过50%）
+		// 檢查價格连续性（允许跳涨但不应该超过50%）
 		priceChange := abs((k.Close - prevClose) / prevClose)
 		if priceChange > 0.5 {
 			logger.Warn("Large price gap detected at index %d: %.2f%% change", i, priceChange*100)
@@ -456,7 +456,7 @@ func abs(x float64) float64 {
 	return x
 }
 
-// ResampleToInterval 重采样到不同时间周期
+// ResampleToInterval 重采样到不同時間周期
 func ResampleToInterval(klines []KlineRow, intervalMinutes int) []KlineRow {
 	if len(klines) == 0 || intervalMinutes < 1 {
 		return klines
@@ -480,7 +480,7 @@ func ResampleToInterval(klines []KlineRow, intervalMinutes int) []KlineRow {
 			continue
 		}
 
-		// 合并K线
+		// 合并K線
 		merged := KlineRow{
 			OpenTime:  bucket[0].OpenTime,
 			Open:      bucket[0].Open,
