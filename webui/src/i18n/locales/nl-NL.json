@@ -108,7 +108,12 @@
     "deleteSuccess": "Bot verwijderd",
     "deleteFailed": "Kon bot niet verwijderen",
     "deleteInHedgeGroupHint": "Deze bot hoort bij hedgegroep «{{groupName}}». Verwijder eerst de groep.",
-    "backtest": "Backtest"
+    "backtest": "Backtest",
+    "priceInterval": "Spread",
+    "profitSpread": "Winstmarge",
+    "orderQuantity": "Orderbedrag",
+    "totalCapital": "Kapitaal",
+    "totalInvestment": "Totale investering"
   },
   "error": {
     "bot_symbol_conflict": "Er bestaat al een bot voor dit symbool.",

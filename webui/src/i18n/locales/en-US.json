@@ -54,7 +54,12 @@
     "deleteSuccess": "Bot deleted",
     "deleteFailed": "Failed to delete bot",
     "deleteInHedgeGroupHint": "This bot belongs to hedge group «{{groupName}}». Delete the group first.",
-    "backtest": "Backtest"
+    "backtest": "Backtest",
+    "priceInterval": "Spread",
+    "profitSpread": "Profit Spread",
+    "orderQuantity": "Order Amount",
+    "totalCapital": "Capital",
+    "totalInvestment": "Total Investment"
   },
   "botCreate": {
     "title": "Create Bot",

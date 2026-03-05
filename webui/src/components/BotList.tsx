@@ -209,6 +209,21 @@ const BotList: React.FC = () => {
         </HStack>
       </Flex>
 
+      {/* 总投入资金汇总 */}
+      {filteredBots.length > 0 && (() => {
+        const total = filteredBots.reduce((sum, b) => sum + (b.total_allocated_capital ?? 0), 0)
+        if (total <= 0) return null
+        return (
+          <Card mb={4} size="sm">
+            <CardBody py={3}>
+              <Text fontSize="sm" fontWeight="medium">
+                {t('botList.totalInvestment')}: <Text as="span" color="blue.600" fontWeight="bold">${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              </Text>
+            </CardBody>
+          </Card>
+        )
+      })()}
+
       {filteredBots.length === 0 ? (
         <Card>
           <CardBody>
@@ -252,6 +267,21 @@ const BotList: React.FC = () => {
                       {bot.name || bot.symbol}
                     </Heading>
                     <Text fontSize="xs" color="gray.500">{bot.exchange} · {bot.symbol} ({bot.market_type})</Text>
+                    {/* 间距、每单金额、投入资金 */}
+                    <HStack spacing={3} mt={2} fontSize="xs" color="gray.600" flexWrap="wrap">
+                      {(bot.price_interval != null && bot.price_interval > 0) && (
+                        <Text>{t('botList.priceInterval')}: {bot.price_interval.toLocaleString(undefined, { maximumFractionDigits: 4 })}</Text>
+                      )}
+                      {(bot.profit_spread != null && bot.profit_spread > 0) && (
+                        <Text>{t('botList.profitSpread')}: {bot.profit_spread.toLocaleString(undefined, { maximumFractionDigits: 4 })}</Text>
+                      )}
+                      {(bot.order_quantity != null && bot.order_quantity > 0) && (
+                        <Text>{t('botList.orderQuantity')}: ${bot.order_quantity.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                      )}
+                      {(bot.total_allocated_capital != null && bot.total_allocated_capital > 0) && (
+                        <Text fontWeight="medium">{t('botList.totalCapital')}: ${bot.total_allocated_capital.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                      )}
+                    </HStack>
                   </Box>
                   <IconButton
                     as={Link}

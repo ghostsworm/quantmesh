@@ -138,6 +138,10 @@ export interface BotInfo {
   total_trades?: number
   risk_triggered?: boolean
   uptime?: number
+  price_interval?: number
+  profit_spread?: number
+  order_quantity?: number
+  total_allocated_capital?: number
 }
 
 export interface BotsResponse {

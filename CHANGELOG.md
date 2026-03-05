@@ -2,6 +2,19 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.60.0-rc1] - 2026-03-06
+
+### Added
+- **Bot 列表卡片信息增强**：卡片展示间距（price_interval）、利润间距（profit_spread）、每单金额（order_quantity）、投入资金（total_allocated_capital）
+- **总投入汇总**：Bot 列表顶部展示当前筛选下所有 Bot 的总投入金额
+
+### Fixed
+- **Bot 回测「无效的 Bot ID」**：修复路由参数名不一致（`:id` vs `botId`）导致 botID 为空的问题
+- **回测弹窗关闭按钮**：回测运行中时「关闭」按钮不再禁用，可随时关闭弹窗
+
+### Changed
+- **i18n**：补全 `botList.priceInterval`、`profitSpread`、`orderQuantity`、`totalCapital`、`totalInvestment` 多语言（24 种语言）
+
 ## [3.59.0-rc3] - 2026-03-06
 
 ### Changed

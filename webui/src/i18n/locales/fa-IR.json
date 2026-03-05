@@ -331,7 +331,12 @@
     "deleteSuccess": "ربات حذف شد",
     "deleteFailed": "حذف ربات ناموفق بود",
     "deleteInHedgeGroupHint": "این ربات متعلق به گروه پوشش «{{groupName}}» است. ابتدا گروه را حذف کنید.",
-    "backtest": "بک‌تست"
+    "backtest": "بک‌تست",
+    "priceInterval": "فاصله",
+    "profitSpread": "فاصله سود",
+    "orderQuantity": "مبلغ سفارش",
+    "totalCapital": "سرمایه",
+    "totalInvestment": "کل سرمایه‌گذاری"
   },
   "error": {
     "bot_symbol_conflict": "ربات برای این نماد از قبل وجود دارد.",

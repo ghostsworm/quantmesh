@@ -331,7 +331,12 @@
     "deleteSuccess": "বট মুছে ফেলা হয়েছে",
     "deleteFailed": "বট মুছতে ব্যর্থ",
     "deleteInHedgeGroupHint": "এই বট হেজ গ্রুপ «{{groupName}}» এর অন্তর্ভুক্ত। প্রথমে গ্রুপ মুছুন।",
-    "backtest": "ব্যাকটেস্ট"
+    "backtest": "ব্যাকটেস্ট",
+    "priceInterval": "ব্যবধান",
+    "profitSpread": "লাভের ব্যবধান",
+    "orderQuantity": "অর্ডার পরিমাণ",
+    "totalCapital": "মূলধন",
+    "totalInvestment": "মোট বিনিয়োগ"
   },
   "error": {
     "bot_symbol_conflict": "এই সিম্বলের জন্য ইতিমধ্যে বট বিদ্যমান।",

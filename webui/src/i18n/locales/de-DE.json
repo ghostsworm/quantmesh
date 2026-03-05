@@ -108,7 +108,12 @@
     "deleteSuccess": "Bot gelöscht",
     "deleteFailed": "Bot konnte nicht gelöscht werden",
     "deleteInHedgeGroupHint": "Dieser Bot gehört zur Hedge-Gruppe «{{groupName}}». Löschen Sie zuerst die Gruppe.",
-    "backtest": "Backtest"
+    "backtest": "Backtest",
+    "priceInterval": "Abstand",
+    "profitSpread": "Gewinnabstand",
+    "orderQuantity": "Orderbetrag",
+    "totalCapital": "Kapital",
+    "totalInvestment": "Gesamtinvestition"
   },
   "error": {
     "bot_symbol_conflict": "Ein Bot für dieses Symbol existiert bereits.",

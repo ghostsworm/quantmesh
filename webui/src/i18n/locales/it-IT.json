@@ -108,7 +108,12 @@
     "deleteSuccess": "Bot eliminato",
     "deleteFailed": "Impossibile eliminare il bot",
     "deleteInHedgeGroupHint": "Questo bot appartiene al gruppo di copertura «{{groupName}}». Eliminare prima il gruppo.",
-    "backtest": "Backtest"
+    "backtest": "Backtest",
+    "priceInterval": "Intervallo",
+    "profitSpread": "Margine di profitto",
+    "orderQuantity": "Importo ordine",
+    "totalCapital": "Capitale",
+    "totalInvestment": "Investimento totale"
   },
   "error": {
     "bot_symbol_conflict": "Esiste già un bot per questo simbolo.",

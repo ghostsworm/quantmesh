@@ -331,7 +331,12 @@
     "deleteSuccess": "Бота видалено",
     "deleteFailed": "Не вдалося видалити бота",
     "deleteInHedgeGroupHint": "Цей бот належить хедж-групі «{{groupName}}». Спочатку видаліть групу.",
-    "backtest": "Бектест"
+    "backtest": "Бектест",
+    "priceInterval": "Інтервал",
+    "profitSpread": "Прибутковий інтервал",
+    "orderQuantity": "Сума замовлення",
+    "totalCapital": "Капітал",
+    "totalInvestment": "Загальні інвестиції"
   },
   "error": {
     "bot_symbol_conflict": "Бот для цього символу вже існує.",
