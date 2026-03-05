@@ -62,6 +62,42 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
+func TestLogCleanupDefaults(t *testing.T) {
+	// 未配置 log_cleanup 時應設置默認值
+	cfg := createValidConfig()
+	cfg.System.LogCleanup = LogCleanupConfig{} // 零值
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	lc := &cfg.System.LogCleanup
+	if !lc.Enabled {
+		t.Error("期望 LogCleanup.Enabled 默認為 true")
+	}
+	if lc.Schedule != "02:00" {
+		t.Errorf("期望 LogCleanup.Schedule 默認為 02:00, 得到 %s", lc.Schedule)
+	}
+	if lc.RetentionDays != 7 {
+		t.Errorf("期望 LogCleanup.RetentionDays 默認為 7, 得到 %d", lc.RetentionDays)
+	}
+	if len(lc.LevelsToClean) != 2 || lc.LevelsToClean[0] != "INFO" || lc.LevelsToClean[1] != "WARN" {
+		t.Errorf("期望 LogCleanup.LevelsToClean 默認為 [INFO WARN], 得到 %v", lc.LevelsToClean)
+	}
+
+	// 部分配置時應補全其餘默認值
+	cfg2 := createValidConfig()
+	cfg2.System.LogCleanup = LogCleanupConfig{Enabled: false, Schedule: "03:00"}
+	if err := cfg2.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	lc2 := &cfg2.System.LogCleanup
+	if lc2.Schedule != "03:00" {
+		t.Errorf("期望保留用戶設置的 Schedule 03:00, 得到 %s", lc2.Schedule)
+	}
+	if lc2.RetentionDays != 7 {
+		t.Errorf("期望 RetentionDays 補全為 7, 得到 %d", lc2.RetentionDays)
+	}
+}
+
 func TestConfigDiff(t *testing.T) {
 	oldCfg := createValidConfig()
 	newCfg := createValidConfig()

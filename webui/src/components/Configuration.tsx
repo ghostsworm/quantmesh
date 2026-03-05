@@ -833,6 +833,57 @@ const Configuration: React.FC = () => {
                           />
                         </Flex>
                       </Stack>
+                      <Divider my={2} />
+                      <Box>
+                        <Text fontWeight="600" size="sm" mb={2}>{t('configuration.logCleanup')}</Text>
+                        <Text fontSize="xs" color="gray.500" mb={3}>{t('configuration.logCleanupDesc')}</Text>
+                        <Stack spacing={4}>
+                          <Flex justify="space-between" align="center">
+                            <Text fontSize="sm">{t('configuration.logCleanupEnabled')}</Text>
+                            <Switch
+                              isChecked={config.system?.log_cleanup?.enabled ?? true}
+                              onChange={(e) => {
+                                const lc = config.system?.log_cleanup || { enabled: true, schedule: '02:00', retention_days: 7, levels_to_clean: ['INFO', 'WARN'] }
+                                updateConfigField('system.log_cleanup', { ...lc, enabled: e.target.checked })
+                              }}
+                            />
+                          </Flex>
+                          {(config.system?.log_cleanup?.enabled ?? true) && (
+                            <SimpleGrid columns={2} spacing={4}>
+                              <FormControl>
+                                <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.logCleanupSchedule')}</FormLabel>
+                                <Input
+                                  type="time"
+                                  value={config.system?.log_cleanup?.schedule || '02:00'}
+                                  onChange={(e) => {
+                                    const lc = config.system?.log_cleanup || { enabled: true, schedule: '02:00', retention_days: 7, levels_to_clean: ['INFO', 'WARN'] }
+                                    updateConfigField('system.log_cleanup', { ...lc, schedule: e.target.value })
+                                  }}
+                                  borderRadius="xl"
+                                />
+                              </FormControl>
+                              <FormControl>
+                                <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.logCleanupRetentionDays')}</FormLabel>
+                                <NumberInput
+                                  value={config.system?.log_cleanup?.retention_days ?? 7}
+                                  min={1}
+                                  max={90}
+                                  onChange={(_, v) => {
+                                    const lc = config.system?.log_cleanup || { enabled: true, schedule: '02:00', retention_days: 7, levels_to_clean: ['INFO', 'WARN'] }
+                                    updateConfigField('system.log_cleanup', { ...lc, retention_days: v ?? 7 })
+                                  }}
+                                >
+                                  <NumberInputField borderRadius="xl" />
+                                  <NumberInputStepper>
+                                    <NumberIncrementStepper />
+                                    <NumberDecrementStepper />
+                                  </NumberInputStepper>
+                                </NumberInput>
+                              </FormControl>
+                            </SimpleGrid>
+                          )}
+                        </Stack>
+                      </Box>
                     </ConfigCard>
                     <ConfigCard title={t('configuration.tradingPairManagement')} icon={<RepeatIcon />}>
                       <FormControl mb={4}>
