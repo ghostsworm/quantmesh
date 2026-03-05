@@ -118,6 +118,7 @@ stop_dev_processes() {
     
     # 通过进程名杀掉可能遗留的进程
     pkill -f "go run main.go symbol_manager.go" 2>/dev/null || true
+    pkill -f "go run \." 2>/dev/null || true
     pkill -f "go run main.go" 2>/dev/null || true
     pkill -f "vite.*${VITE_PORT}" 2>/dev/null || true
 }
@@ -164,8 +165,8 @@ trap cleanup SIGINT SIGTERM EXIT
 # 启动 Go 后端
 log_info "启动 Go 后端服务器 (端口 ${GO_PORT})..."
 cd "${SCRIPT_DIR}"
-# 需要同时编译 main.go 和 symbol_manager.go
-go run main.go symbol_manager.go &
+# 编译整个包（含 main、symbol_manager、bot_manager 等）
+go run . &
 GO_PID=$!
 echo "${GO_PID}" > "${PID_FILE_GO}"
 

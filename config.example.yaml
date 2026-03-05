@@ -546,6 +546,42 @@ event_center:
   
   cleanup_interval: 24  # 清理间隔（小时），默认每24小时清理一次
 
+# ========================================
+# 宏观事件预测市场配置（Polymarket Gamma API）
+# ========================================
+macro_event:
+  enabled: false          # 是否启用宏观事件信号
+  fetch_interval: 300     # 拉取间隔（秒）
+  gamma_api_url: "https://gamma-api.polymarket.com"
+  categories:
+    geopolitics:
+      keywords: ["war", "conflict", "invasion", "military", "sanctions", "nuclear"]
+      crypto_impact: "bearish_short_bullish_long"
+      risk_weight: 0.9
+    interest_rate:
+      keywords: ["fed", "interest rate", "rate cut", "rate hike", "ECB", "monetary policy", "FOMC"]
+      crypto_impact: "rate_inverse"
+      risk_weight: 0.8
+    currency:
+      keywords: ["dollar", "USD", "EUR", "CNY", "exchange rate", "devaluation", "forex"]
+      crypto_impact: "usd_inverse"
+      risk_weight: 0.7
+    regulation:
+      keywords: ["crypto ban", "SEC", "regulation", "CBDC", "stablecoin"]
+      crypto_impact: "direct"
+      risk_weight: 0.85
+    recession:
+      keywords: ["recession", "GDP", "unemployment", "inflation", "CPI"]
+      crypto_impact: "risk_asset"
+      risk_weight: 0.6
+  filters:
+    min_liquidity: 50000
+    min_volume_24h: 10000
+    active_only: true
+  signal:
+    probability_change_threshold: 0.10
+    high_probability_threshold: 0.75
+
 plugins:
   enabled: false  # 设置为 true 启用插件系统
   directory: "../quantmesh-premium/plugins"  # 插件目录（相对路径或绝对路径）

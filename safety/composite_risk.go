@@ -95,6 +95,18 @@ func (c *CompositeRiskController) SetNewsMonitor(nm *monitor.NewsMonitor) {
 	}
 }
 
+// SetMacroEventProvider 設置宏觀事件提供者（由 main 在創建 MacroEventFetcher 後注入到宏觀因子）
+func (c *CompositeRiskController) SetMacroEventProvider(p MacroEventProvider) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, f := range c.factors {
+		if mf, ok := f.(*MacroEventRiskFactor); ok {
+			mf.SetProvider(p)
+			break
+		}
+	}
+}
+
 // Evaluate 执行一次评估
 func (c *CompositeRiskController) Evaluate(ctx context.Context) CompositeRiskResult {
 	c.mu.RLock()
