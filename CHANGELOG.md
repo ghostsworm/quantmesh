@@ -29,6 +29,14 @@
 - **進度回調不報告 100%**：修復回測完成時進度回調不報告最終進度的問題
 - **除零保護**：添加 `CalculateEffectiveSpread` 函數的除零保護
 
+## [3.58.0-rc4] - 2026-03-06
+
+### Fixed
+- **內存持續增長**：修復多處導致內存泄漏的問題
+  - 事件處理循環：`Subscribe()` 在循環內每次調用會創建新 channel 導致嚴重泄漏，改為循環外訂閱一次
+  - 程序退出時關閉 EventBus，釋放訂閱者 channel 與 dedup goroutine
+  - SmartParamsService：價格/波動率緩存無過期淘汰，新增 `evictExpiredCache` 與訪問時刪除過期條目
+
 ## [3.58.0-rc3] - 2026-03-05
 
 ### Added

@@ -95,6 +95,23 @@ func NewSmartParamsService(
 	}
 }
 
+// evictExpiredCache 清理過期緩存條目，避免 map 無限增長導致內存泄漏
+func (s *SmartParamsService) evictExpiredCache() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for k, v := range s.priceCache {
+		if now.Sub(v.UpdatedAt) >= s.config.PriceCacheTTL {
+			delete(s.priceCache, k)
+		}
+	}
+	for k, v := range s.volatilityCache {
+		if now.Sub(v.UpdatedAt) >= s.config.VolatilityCacheTTL {
+			delete(s.volatilityCache, k)
+		}
+	}
+}
+
 // GetRecommendation 獲取智能參數推薦
 func (s *SmartParamsService) GetRecommendation(
 	ctx context.Context,
@@ -104,6 +121,9 @@ func (s *SmartParamsService) GetRecommendation(
 	strategy string,
 	totalCapital float64,
 ) (*SmartParamsRecommendation, error) {
+	// 0. 清理過期緩存，避免內存持續增長
+	s.evictExpiredCache()
+
 	// 1. 獲取當前價格
 	priceInfo, err := s.getCurrentPrice(ctx, exchangeName, marketType, symbol)
 	if err != nil {
@@ -163,14 +183,16 @@ func (s *SmartParamsService) getCurrentPrice(
 	cacheKey := fmt.Sprintf("%s:%s:%s", exchangeName, marketType, symbol)
 
 	// 檢查緩存
-	s.mu.RLock()
+	s.mu.Lock()
 	if cached, ok := s.priceCache[cacheKey]; ok {
 		if time.Since(cached.UpdatedAt) < s.config.PriceCacheTTL {
-			s.mu.RUnlock()
+			s.mu.Unlock()
 			return cached, nil
 		}
+		// 過期則刪除，避免 map 無限增長導致內存泄漏
+		delete(s.priceCache, cacheKey)
 	}
-	s.mu.RUnlock()
+	s.mu.Unlock()
 
 	// 獲取新價格
 	if s.exchangeFactory == nil {
@@ -276,14 +298,16 @@ func (s *SmartParamsService) getVolatilityInfo(
 	cacheKey := fmt.Sprintf("%s:%s", exchangeName, symbol)
 
 	// 檢查緩存
-	s.mu.RLock()
+	s.mu.Lock()
 	if cached, ok := s.volatilityCache[cacheKey]; ok {
 		if time.Since(cached.UpdatedAt) < s.config.VolatilityCacheTTL {
-			s.mu.RUnlock()
+			s.mu.Unlock()
 			return cached, nil
 		}
+		// 過期則刪除，避免 map 無限增長導致內存泄漏
+		delete(s.volatilityCache, cacheKey)
 	}
-	s.mu.RUnlock()
+	s.mu.Unlock()
 
 	// 計算波動率
 	if s.exchangeFactory == nil {
