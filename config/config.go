@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1373,13 +1374,18 @@ func (bc *BotConfig) SetEnabled(enabled bool) {
 	bc.Enabled = &enabled
 }
 
-// GenerateBotID 根據交易所、交易對、市場類型生成 Bot 唯一標識
+// GenerateBotID 根據交易所、交易對、市場類型生成 Bot 唯一標識（用於向後兼容與遷移）
 func GenerateBotID(exchange, symbol, marketType string) string {
 	mt := marketType
 	if mt == "" {
 		mt = "futures"
 	}
 	return strings.ToLower(fmt.Sprintf("%s:%s:%s", exchange, symbol, mt))
+}
+
+// GenerateUniqueBotID 生成全局唯一的 Bot ID（UUID），用於允許同一交易對存在多個 Bot 配置
+func GenerateUniqueBotID() string {
+	return uuid.New().String()
 }
 
 // SymbolConfigToBotConfig 將 SymbolConfig 轉換為 BotConfig（用於配置遷移）

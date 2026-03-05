@@ -28,6 +28,7 @@
   "error": {
     "bot_symbol_conflict": "A bot for this symbol already exists. Multiple bots on the same symbol are not allowed.",
     "bot_symbol_used_by_hedge_group": "This symbol is used by hedge group {{groupName}}. Delete the hedge group first to create a standalone bot.",
+    "bot_symbol_running": "A bot ({{botId}}) for this symbol is already running. Stop or delete it first. Only one bot per symbol can run at a time.",
     "bot_in_hedge_group_cannot_delete": "This bot belongs to hedge group {{groupName}}. Delete the hedge group first."
   },
   "botList": {
