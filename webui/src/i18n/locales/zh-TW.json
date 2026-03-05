@@ -123,7 +123,8 @@
   "error": {
     "bot_symbol_conflict": "該交易對已存在 Bot，同一交易對不能運行多個 Bot。",
     "bot_symbol_used_by_hedge_group": "該交易對已被對沖組「{{groupName}}」佔用，請先刪除對沖組再創建獨立 Bot。",
-    "bot_in_hedge_group_cannot_delete": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組。"
+    "bot_in_hedge_group_cannot_delete": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組。",
+    "bot_symbol_running": "该交易对已有 Bot（{{botId}}）在运行，请先停止或删除后再创建新 Bot。同一交易对同一时刻只能有一个 Bot 运行。"
   },
   "botCreate": {
     "title": "創建 Bot",
@@ -193,7 +194,11 @@
       "dca_martingale": "DCA + 馬丁格爾",
       "futures_spot_hedge": "期貨 + 現貨對沖"
     },
-    "strategyParams": {}
+    "strategyParams": {},
+    "last24hHigh": "24h 波峰",
+    "last24hLow": "24h 波谷",
+    "markPrice": "标记价格",
+    "marketData": "市场行情"
   },
   "botDetail": {
     "openWorkspace": "進入工作區",
@@ -398,7 +403,29 @@
       "fee_rate": "如 0.0004 表示 0.04%",
       "risk_volume_multiplier": "成交量超過均量的倍數觸發風控（越小越敏感）",
       "risk_average_window": "計算均價/均量的K線數量"
-    }
+    },
+    "commissionRate": "手续费率",
+    "config": "参数配置",
+    "configureParameters": "配置回测参数",
+    "dataDirectory": "数据目录",
+    "dataDirectoryHelp": "历史数据文件存储路径，例如：./data",
+    "date": "日期",
+    "equity": "权益",
+    "equityCurve": "权益曲线",
+    "executionFailed": "回测执行失败",
+    "leverage": "杠杆倍数",
+    "noTask": "暂无回测任务",
+    "pnl": "盈亏",
+    "profitFactor": "盈亏比",
+    "results": "回测结果",
+    "running": "回测运行中...",
+    "start": "开始回测",
+    "strategyStats": "策略统计",
+    "summary": "回测概览",
+    "taskId": "任务ID",
+    "totalFees": "总手续费",
+    "totalSlippage": "总滑点",
+    "trades": "交易"
   },
   "dashboard": {
     "tradingStopped": "交易已停止",
@@ -2738,7 +2765,20 @@
     "tabFearGreed": "Fear & Greed",
     "title": "Market Intelligence",
     "upvoteRatio": "Upvote ratio",
-    "volume": "Volume"
+    "volume": "Volume",
+    "macroCategory": "分类",
+    "macroDelta": "变化",
+    "macroDisabled": "宏观事件功能未启用，请在配置中启用 macro_event",
+    "macroEventCount": "事件数量",
+    "macroHighImpact": "高影响事件",
+    "macroLastFetched": "上次拉取",
+    "macroLink": "链接",
+    "macroNoData": "暂无宏观事件数据",
+    "macroProbability": "概率",
+    "macroQuestion": "事件",
+    "macroRiskScore": "综合风险评分",
+    "macroTitle": "宏观事件预测（战争/利率/汇率/监管/经济）",
+    "tabMacro": "宏观事件"
   },
   "optimResult": {
     "asc": "Ascending",
@@ -3538,7 +3578,9 @@
     "avgEntryPrice": "加權平均開倉價",
     "safetyDistance": "距強平安全距離",
     "liquidationDisclaimer": "僅供參考。實際強平價受交易所維持保證金比率、資金費率等影響，請以交易所顯示為準。",
-    "liquidationPriceHint": "請先填寫總資金與槓桿，並確保已取得參數建議（當前價格、買窗、單筆金額、間距已填）後再查看強平價。"
+    "liquidationPriceHint": "請先填寫總資金與槓桿，並確保已取得參數建議（當前價格、買窗、單筆金額、間距已填）後再查看強平價。",
+    "backtest": "回测",
+    "backtestButton": "回测"
   },
   "aiInterpret": {
     "analyzing": "AI 正在分析中，请稍候...",

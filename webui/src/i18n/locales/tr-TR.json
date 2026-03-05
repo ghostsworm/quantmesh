@@ -118,7 +118,8 @@
   "error": {
     "bot_symbol_conflict": "Bu sembol için zaten bir bot mevcut.",
     "bot_symbol_used_by_hedge_group": "Bu sembol hedge grubu «{{groupName}}» tarafından kullanılıyor. Önce grubu silin.",
-    "bot_in_hedge_group_cannot_delete": "Bu bot hedge grubu «{{groupName}}»'a ait. Önce grubu silin."
+    "bot_in_hedge_group_cannot_delete": "Bu bot hedge grubu «{{groupName}}»'a ait. Önce grubu silin.",
+    "bot_symbol_running": "A bot ({{botId}}) for this symbol is already running. Stop or delete it first. Only one bot per symbol can run at a time."
   },
   "botCreate": {
     "title": "Bot Oluştur",
@@ -188,7 +189,11 @@
       "dca_martingale": "DCA + Martingale",
       "futures_spot_hedge": "Futures + Spot Hedge"
     },
-    "strategyParams": {}
+    "strategyParams": {},
+    "last24hHigh": "24h High",
+    "last24hLow": "24h Low",
+    "markPrice": "Mark Price",
+    "marketData": "Market Data"
   },
   "botDetail": {
     "openWorkspace": "Çalışma alanını aç",
@@ -449,6 +454,15 @@
       "onlyCloseFilledSlots": "Only place close orders for filled slots",
       "openOrderDistance": "Open Order Distance (intervals)",
       "progressivePlacement": "Progressive Placement"
+    },
+    "stopConfirm": {
+      "confirmStopAndClose": "Stop and Close",
+      "confirmStopOnly": "Stop Only",
+      "limitHint": "Limit orders may not fill; monitor manually if needed.",
+      "message": "After stopping {{name}}, no new positions will be opened. Do you also want to close existing positions?",
+      "stopAndClose": "Stop and Close Positions",
+      "stopOnly": "Stop Only",
+      "title": "Confirm Stop?"
     }
   },
   "configuration": {
@@ -737,7 +751,14 @@
     "testConnectionError": "Test connection error",
     "testConnectionFailed": "Failed to send test notification",
     "testConnectionSending": "Sending...",
-    "testConnectionSuccess": "Test notification sent successfully"
+    "testConnectionSuccess": "Test notification sent successfully",
+    "logCleanup": "Log Cleanup",
+    "logCleanupDesc": "Daily cleanup of INFO/WARN logs older than retention days. Keeps ERROR/DEBUG for troubleshooting. Runs VACUUM after cleanup.",
+    "logCleanupEnabled": "Enable scheduled cleanup",
+    "logCleanupLevels": "Levels to clean",
+    "logCleanupLevelsDesc": "Selected levels will be cleaned periodically. Unselected are kept (recommend keeping ERROR/DEBUG for troubleshooting)",
+    "logCleanupRetentionDays": "Retention days",
+    "logCleanupSchedule": "Schedule (HH:MM)"
   },
   "configSetup": {
     "title": "Yapılandırma Kılavuzu",
@@ -2333,7 +2354,29 @@
       "mean_reversion": "Mean Reversion Strategy",
       "momentum": "Momentum Strategy",
       "trend_following": "Trend Following Strategy"
-    }
+    },
+    "commissionRate": "Commission Rate",
+    "config": "Configuration",
+    "configureParameters": "Configure Backtest Parameters",
+    "dataDirectory": "Data Directory",
+    "dataDirectoryHelp": "Historical data storage path, e.g.: ./data",
+    "date": "Date",
+    "equity": "Equity",
+    "equityCurve": "Equity Curve",
+    "executionFailed": "Backtest execution failed",
+    "leverage": "Leverage",
+    "noTask": "No backtest task yet",
+    "pnl": "PnL",
+    "profitFactor": "Profit Factor",
+    "results": "Backtest Results",
+    "running": "Backtest Running...",
+    "start": "Start Backtest",
+    "strategyStats": "Strategy Statistics",
+    "summary": "Backtest Summary",
+    "taskId": "Task ID",
+    "totalFees": "Total Fees",
+    "totalSlippage": "Total Slippage",
+    "trades": "Trades"
   },
   "backtestOptim": {
     "exportCsv": "Export CSV",
@@ -2561,7 +2604,20 @@
     "tabFearGreed": "Fear & Greed",
     "title": "Market Intelligence",
     "upvoteRatio": "Upvote ratio",
-    "volume": "Volume"
+    "volume": "Volume",
+    "macroCategory": "Category",
+    "macroDelta": "Delta",
+    "macroDisabled": "Macro events disabled. Enable macro_event in config.",
+    "macroEventCount": "Event Count",
+    "macroHighImpact": "High Impact",
+    "macroLastFetched": "Last Fetched",
+    "macroLink": "Link",
+    "macroNoData": "No macro event data available",
+    "macroProbability": "Probability",
+    "macroQuestion": "Event",
+    "macroRiskScore": "Composite Risk Score",
+    "macroTitle": "Macro Event Predictions (War/Interest/Currency/Regulation/Economy)",
+    "tabMacro": "Macro Events"
   },
   "optimResult": {
     "asc": "Ascending",
@@ -3532,7 +3588,9 @@
     "takerFee": "Taker Fee",
     "title": "Parameter Advisor",
     "totalCapital": "Total Capital",
-    "totalFeeRate": "Round-trip Fee"
+    "totalFeeRate": "Round-trip Fee",
+    "backtest": "Backtest",
+    "backtestButton": "Backtest"
   },
   "strategyDescriptions": {
     "breakout": "Enters when price breaks key support/resistance levels to capture large moves",
