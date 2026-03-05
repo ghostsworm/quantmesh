@@ -313,6 +313,9 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/risk/newbie-check", getNewbieRiskCheck)
 			protected.POST("/risk/newbie-check/apply", applyNewbieSecurityConfig)
 
+			// 市场行情 API（当前价、标记价、24h 高低）
+			protected.GET("/market/ticker", getMarketTicker)
+
 			// 配置参数建议 API
 			protected.GET("/config/param-advisor", getParamAdvisor)
 			protected.GET("/config/exchange-fees", getExchangeFees)

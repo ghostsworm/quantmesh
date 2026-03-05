@@ -30,7 +30,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { getConfig, type Config, type ExchangeConfig } from '../services/config'
 import { getExchangeSymbols } from '../services/setup'
-import { getExchanges, getBots, createBot, createBotGroup } from '../services/api'
+import { getExchanges, getBots, createBot, createBotGroup, getMarketTicker } from '../services/api'
 import StrategyTypeSelector, { type StrategyTypeCategory } from './bot-create/StrategyTypeSelector'
 import StrategyPicker from './bot-create/StrategyPicker'
 import StrategyParamForm from './bot-create/StrategyParamForm'
@@ -79,6 +79,12 @@ const BotCreateWizard: React.FC = () => {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [marketTicker, setMarketTicker] = useState<{
+    mark_price: number
+    last_price: number
+    high_24h: number
+    low_24h: number
+  } | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -121,6 +127,27 @@ const BotCreateWizard: React.FC = () => {
     }
     load()
   }, [form.exchange, form.market_type, config?.exchanges])
+
+  useEffect(() => {
+    if (!form.exchange || !form.symbol) {
+      setMarketTicker(null)
+      return
+    }
+    const load = async () => {
+      try {
+        const res = await getMarketTicker(form.exchange, form.symbol, form.market_type)
+        setMarketTicker({
+          mark_price: res.mark_price,
+          last_price: res.last_price,
+          high_24h: res.high_24h,
+          low_24h: res.low_24h,
+        })
+      } catch {
+        setMarketTicker(null)
+      }
+    }
+    load()
+  }, [form.exchange, form.symbol, form.market_type])
 
   const getStrategyIds = (): string[] => {
     if (strategyType === 'single' && selectedSingle) return [selectedSingle]
@@ -337,11 +364,31 @@ const BotCreateWizard: React.FC = () => {
                   placeholder={t('botCreate.botNamePlaceholder')}
                 />
               </FormControl>
+              {marketTicker && (
+                <Box p={3} bg="blue.50" borderRadius="md" fontSize="sm">
+                  <Text fontWeight="medium" mb={2}>{t('botCreate.marketData')}</Text>
+                  <HStack spacing={4} flexWrap="wrap">
+                    <Text><strong>{t('botCreate.markPrice')}:</strong> {marketTicker.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hHigh')}:</strong> {marketTicker.high_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hLow')}:</strong> {marketTicker.low_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                  </HStack>
+                </Box>
+              )}
             </VStack>
           )}
 
           {step === 3 && (
             <VStack spacing={4} align="stretch">
+              {marketTicker && (
+                <Box p={3} bg="blue.50" borderRadius="md" fontSize="sm">
+                  <Text fontWeight="medium" mb={2}>{t('botCreate.marketData')}</Text>
+                  <HStack spacing={4} flexWrap="wrap">
+                    <Text><strong>{t('botCreate.markPrice')}:</strong> {marketTicker.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hHigh')}:</strong> {marketTicker.high_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hLow')}:</strong> {marketTicker.low_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                  </HStack>
+                </Box>
+              )}
               <StrategyParamForm
                 strategyIds={getStrategyIds()}
                 value={strategyParams}
@@ -408,8 +455,24 @@ const BotCreateWizard: React.FC = () => {
                 {strategyType === 'hedge' && (
                   <Text><strong>{t('botCreate.strategyLabel')}:</strong> {t('botCreate.hedgeMode')} ({hedgePrimary} + {hedgeSecondary})</Text>
                 )}
-                <Text><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
+                {getStrategyIds().map((sid) => {
+                  const params = strategyParams[sid]
+                  if (!params || Object.keys(params).length === 0) return null
+                  return (
+                    <Box key={sid} mt={2} pl={2} borderLeftWidth={2} borderColor="gray.300">
+                      <Text fontWeight="medium" mb={1}>{t(`strategyNames.${sid}`, sid)}</Text>
+                      {Object.entries(params).map(([k, v]) => (
+                        <Text key={k} pl={2}>
+                          <strong>{t(`strategyParams.${sid}.${k}.name`, { defaultValue: k })}:</strong> {String(v)}
+                        </Text>
+                      ))}
+                    </Box>
+                  )
+                })}
+                <Text mt={2}><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
                 <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
+                <Text><strong>{t('botCreate.buyWindowSize')}:</strong> {form.buy_window_size}</Text>
+                <Text><strong>{t('botCreate.sellWindowSize')}:</strong> {form.sell_window_size}</Text>
               </Box>
             </VStack>
           )}

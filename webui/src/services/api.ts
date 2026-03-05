@@ -1484,6 +1484,27 @@ export async function getExchangeFees(
   return fetchWithAuth(`${API_BASE_URL}/config/exchange-fees?${queryParams.toString()}`)
 }
 
+// Market Ticker (当前价、标记价、24h 高低)
+export interface MarketTickerResponse {
+  mark_price: number
+  last_price: number
+  high_24h: number
+  low_24h: number
+  exchange: string
+  symbol: string
+  market_type: string
+}
+
+export async function getMarketTicker(
+  exchange: string,
+  symbol: string,
+  marketType?: string
+): Promise<MarketTickerResponse> {
+  const params = new URLSearchParams({ exchange, symbol })
+  if (marketType) params.append('market_type', marketType)
+  return fetchWithAuth(`${API_BASE_URL}/market/ticker?${params.toString()}`)
+}
+
 // Price Range (运行时价格范围计算)
 export interface PriceRangeData {
   price_interval: number
