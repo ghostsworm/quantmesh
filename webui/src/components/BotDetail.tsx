@@ -28,6 +28,7 @@ import {
   Th,
   Td,
   TableContainer,
+  useDisclosure,
 } from '@chakra-ui/react'
 import { ChevronLeftIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
@@ -36,6 +37,7 @@ import {
   getBotById,
   startBot,
   stopBot,
+  closePositionsV2,
   getPositionsSummary,
   getStatistics,
   getLogs,
@@ -43,6 +45,7 @@ import {
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
 import BotRiskControlPanel from './BotRiskControlPanel'
+import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 
 const BotDetail: React.FC = () => {
   const { botId } = useParams<{ botId: string }>()
@@ -57,6 +60,7 @@ const BotDetail: React.FC = () => {
   const [statistics, setStatistics] = useState<any>(null)
   const [logs, setLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+  const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
 
   const fetchBot = async () => {
     if (!botId) return
@@ -126,7 +130,7 @@ const BotDetail: React.FC = () => {
     }
   }
 
-  const handleStop = async () => {
+  const handleStopOnly = async () => {
     if (!botId) return
     setActioning(true)
     try {
@@ -135,6 +139,26 @@ const BotDetail: React.FC = () => {
       await fetchBot()
     } catch (err) {
       toast({ title: t('botList.stopFailed'), status: 'error', duration: 3000 })
+    } finally {
+      setActioning(false)
+    }
+  }
+
+  const handleStopAndClose = async (req: Parameters<typeof closePositionsV2>[1]) => {
+    if (!botId) return
+    setActioning(true)
+    try {
+      await stopBot(botId)
+      await closePositionsV2(botId, req)
+      toast({ title: t('globalDashboard.closePositions.success'), status: 'success', duration: 2000 })
+      await fetchBot()
+    } catch (err) {
+      toast({
+        title: t('globalDashboard.closePositions.failed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 4000,
+      })
     } finally {
       setActioning(false)
     }
@@ -218,7 +242,7 @@ const BotDetail: React.FC = () => {
                     colorScheme="red"
                     variant="outline"
                     isLoading={actioning}
-                    onClick={handleStop}
+                    onClick={onStopDialogOpen}
                   >
                     {t('botList.stop')}
                   </Button>
@@ -343,6 +367,15 @@ const BotDetail: React.FC = () => {
           </TabPanel>
         </TabPanels>
       </Tabs>
+
+      <StopWithCloseConfirmDialog
+        isOpen={isStopDialogOpen}
+        onClose={onStopDialogClose}
+        onStopOnly={handleStopOnly}
+        onStopAndClose={handleStopAndClose}
+        botId={botId!}
+        botName={bot?.name || bot?.symbol}
+      />
     </Box>
   )
 }

@@ -565,6 +565,15 @@
     "confirmClosePositions": "確認平倉",
     "confirmClosePositionsMessage": "確定要平掉 {{exchange}}:{{symbol}} 的所有持倉嗎？此操作不可撤銷。",
     "closeAllPositions": "一鍵平倉",
+    "stopConfirm": {
+      "title": "確定要停止？",
+      "message": "停止 {{name}} 後將不再開新倉。是否同時平掉現有持倉？",
+      "stopOnly": "僅停止",
+      "stopAndClose": "停止並平倉",
+      "limitHint": "限價單可能無法成交，需自行關注",
+      "confirmStopOnly": "僅停止",
+      "confirmStopAndClose": "停止並平倉"
+    },
     "loading": "加載中...",
     "price": "價格",
     "pnl": "盈虧",
