@@ -107,7 +107,8 @@
     "deleteConfirmDesc": "«{{name}}» yapılandırmadan kaldırılacak. Çalışıyorsa bot durdurulacak.",
     "deleteSuccess": "Bot silindi",
     "deleteFailed": "Bot silinemedi",
-    "deleteInHedgeGroupHint": "Bu bot hedge grubu «{{groupName}}»'a ait. Önce grubu silin."
+    "deleteInHedgeGroupHint": "Bu bot hedge grubu «{{groupName}}»'a ait. Önce grubu silin.",
+    "backtest": "Geriye Dönük Test"
   },
   "error": {
     "bot_symbol_conflict": "Bu sembol için zaten bir bot mevcut.",

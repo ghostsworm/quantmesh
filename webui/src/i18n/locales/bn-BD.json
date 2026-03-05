@@ -330,7 +330,8 @@
     "deleteConfirmDesc": "«{{name}}» কনফিগারেশন থেকে সরানো হবে। চালু থাকলে বট বন্ধ হবে।",
     "deleteSuccess": "বট মুছে ফেলা হয়েছে",
     "deleteFailed": "বট মুছতে ব্যর্থ",
-    "deleteInHedgeGroupHint": "এই বট হেজ গ্রুপ «{{groupName}}» এর অন্তর্ভুক্ত। প্রথমে গ্রুপ মুছুন।"
+    "deleteInHedgeGroupHint": "এই বট হেজ গ্রুপ «{{groupName}}» এর অন্তর্ভুক্ত। প্রথমে গ্রুপ মুছুন।",
+    "backtest": "ব্যাকটেস্ট"
   },
   "error": {
     "bot_symbol_conflict": "এই সিম্বলের জন্য ইতিমধ্যে বট বিদ্যমান।",

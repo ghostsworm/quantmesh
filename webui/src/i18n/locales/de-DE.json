@@ -107,7 +107,8 @@
     "deleteConfirmDesc": "„{{name}}“ wird aus der Konfiguration entfernt. Der Bot wird bei Bedarf gestoppt.",
     "deleteSuccess": "Bot gelöscht",
     "deleteFailed": "Bot konnte nicht gelöscht werden",
-    "deleteInHedgeGroupHint": "Dieser Bot gehört zur Hedge-Gruppe «{{groupName}}». Löschen Sie zuerst die Gruppe."
+    "deleteInHedgeGroupHint": "Dieser Bot gehört zur Hedge-Gruppe «{{groupName}}». Löschen Sie zuerst die Gruppe.",
+    "backtest": "Backtest"
   },
   "error": {
     "bot_symbol_conflict": "Ein Bot für dieses Symbol existiert bereits.",

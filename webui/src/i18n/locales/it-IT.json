@@ -107,7 +107,8 @@
     "deleteConfirmDesc": "«{{name}}» verrà rimosso dalla configurazione. Il bot verrà arrestato se in esecuzione.",
     "deleteSuccess": "Bot eliminato",
     "deleteFailed": "Impossibile eliminare il bot",
-    "deleteInHedgeGroupHint": "Questo bot appartiene al gruppo di copertura «{{groupName}}». Eliminare prima il gruppo."
+    "deleteInHedgeGroupHint": "Questo bot appartiene al gruppo di copertura «{{groupName}}». Eliminare prima il gruppo.",
+    "backtest": "Backtest"
   },
   "error": {
     "bot_symbol_conflict": "Esiste già un bot per questo simbolo.",
