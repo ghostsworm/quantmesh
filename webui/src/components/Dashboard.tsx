@@ -38,7 +38,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
-import { getStatus, startTrading, stopTrading, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital, getSymbols } from '../services/api'
+import { getStatus, startTrading, stopTrading, stopBot, closePositionsV2, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital, getSymbols } from '../services/api'
 import { getStrategyRuntimeStatus } from '../services/strategy'
 import StrategyVisualization from './strategy-visualization/StrategyVisualization'
 import type { StrategyRuntimeStatus } from '../services/strategy'
@@ -47,6 +47,7 @@ import { Alert, AlertIcon, AlertTitle, AlertDescription, useDisclosure } from '@
 import { NewbieCheckModal } from './NewbieCheckModal'
 import { trackTradingStarted } from '../services/telemetry'
 import { getQuoteAsset } from '../utils/symbol'
+import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 
 const MotionBox = motion(Box)
 const MotionFlex = motion(Flex)
@@ -125,6 +126,7 @@ const Dashboard: React.FC = () => {
   const [releasingCapital, setReleasingCapital] = useState<string | null>(null)
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
   const { isOpen: isNewbieCheckOpen, onOpen: onNewbieCheckOpen, onClose: onNewbieCheckClose } = useDisclosure()
+  const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
   const toast = useToast()
 
   const cardBg = 'white'
@@ -283,8 +285,12 @@ const Dashboard: React.FC = () => {
 
   const handleToggleTrading = async () => {
     if (togglePending) return
-    flushSync(() => setTogglePending(true))
     const isStop = isTrading
+    if (isStop && botId) {
+      onStopDialogOpen()
+      return
+    }
+    flushSync(() => setTogglePending(true))
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('TIMEOUT')), TOGGLE_TIMEOUT_MS)
     })
@@ -294,7 +300,6 @@ const Dashboard: React.FC = () => {
     try {
       await Promise.race([actionPromise, timeoutPromise])
       setIsTrading(!isStop)
-      // 追踪交易启动事件
       if (!isStop) {
         trackTradingStarted(selectedExchange || undefined, selectedSymbol || undefined)
       }
@@ -316,6 +321,58 @@ const Dashboard: React.FC = () => {
           title: t('dashboard.operationFailed'),
           description: err instanceof Error ? err.message : t('dashboard.unknownError'),
           status: 'error',
+        })
+      }
+    } finally {
+      setTogglePending(false)
+    }
+  }
+
+  const handleStopOnly = async () => {
+    if (togglePending || !botId) return
+    flushSync(() => setTogglePending(true))
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('TIMEOUT')), TOGGLE_TIMEOUT_MS)
+    })
+    try {
+      await Promise.race([stopBot(botId), timeoutPromise])
+      setIsTrading(false)
+      toast({ title: t('dashboard.tradingStopped'), status: 'info', borderRadius: 'full' })
+    } catch (err) {
+      if (err instanceof Error && err.message === 'TIMEOUT') {
+        toast({ title: t('dashboard.startStopTimeout'), status: 'warning', duration: 5000, borderRadius: 'full' })
+      } else {
+        toast({
+          title: t('dashboard.operationFailed'),
+          description: err instanceof Error ? err.message : t('dashboard.unknownError'),
+          status: 'error',
+        })
+      }
+    } finally {
+      setTogglePending(false)
+    }
+  }
+
+  const handleStopAndClose = async (req: Parameters<typeof closePositionsV2>[1]) => {
+    if (togglePending || !botId) return
+    flushSync(() => setTogglePending(true))
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('TIMEOUT')), TOGGLE_TIMEOUT_MS)
+    })
+    try {
+      await Promise.race([stopBot(botId), timeoutPromise])
+      await closePositionsV2(botId, req)
+      setIsTrading(false)
+      toast({ title: t('globalDashboard.closePositions.success'), status: 'success', duration: 2000 })
+    } catch (err) {
+      if (err instanceof Error && err.message === 'TIMEOUT') {
+        toast({ title: t('dashboard.startStopTimeout'), status: 'warning', duration: 5000, borderRadius: 'full' })
+      } else {
+        toast({
+          title: t('globalDashboard.closePositions.failed'),
+          description: err instanceof Error ? err.message : String(err),
+          status: 'error',
+          duration: 4000,
         })
       }
     } finally {
@@ -930,6 +987,16 @@ const Dashboard: React.FC = () => {
         )}
       </VStack>
       <NewbieCheckModal isOpen={isNewbieCheckOpen} onClose={onNewbieCheckClose} />
+      {botId && (
+        <StopWithCloseConfirmDialog
+          isOpen={isStopDialogOpen}
+          onClose={onStopDialogClose}
+          onStopOnly={handleStopOnly}
+          onStopAndClose={handleStopAndClose}
+          botId={botId}
+          botName={selectedSymbol ? `${selectedExchange}:${selectedSymbol}` : undefined}
+        />
+      )}
     </Container>
   )
 }

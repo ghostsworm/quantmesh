@@ -605,6 +605,15 @@
     "confirmClosePositions": "Confirm Close Positions",
     "confirmClosePositionsMessage": "Are you sure you want to close all positions for {{exchange}}:{{symbol}}? This action cannot be undone.",
     "closeAllPositions": "Close All Positions",
+    "stopConfirm": {
+      "title": "Confirm Stop?",
+      "message": "After stopping {{name}}, no new positions will be opened. Do you also want to close existing positions?",
+      "stopOnly": "Stop Only",
+      "stopAndClose": "Stop and Close Positions",
+      "limitHint": "Limit orders may not fill; monitor manually if needed.",
+      "confirmStopOnly": "Stop Only",
+      "confirmStopAndClose": "Stop and Close"
+    },
     "closePositions": {
       "title": "Close Positions",
       "method": "Close Method",

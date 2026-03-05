@@ -605,6 +605,15 @@
     "confirmClosePositions": "确认平仓",
     "confirmClosePositionsMessage": "确定要平掉 {{exchange}}:{{symbol}} 的所有持仓吗？此操作不可撤销。",
     "closeAllPositions": "一键平仓",
+    "stopConfirm": {
+      "title": "确定要停止？",
+      "message": "停止 {{name}} 后将不再开新仓。是否同时平掉现有持仓？",
+      "stopOnly": "仅停止",
+      "stopAndClose": "停止并平仓",
+      "limitHint": "限价单可能无法成交，需自行关注",
+      "confirmStopOnly": "仅停止",
+      "confirmStopAndClose": "停止并平仓"
+    },
     "closePositions": {
       "title": "平仓设置",
       "method": "平仓方式",
