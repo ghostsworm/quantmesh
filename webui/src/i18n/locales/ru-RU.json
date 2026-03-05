@@ -107,7 +107,8 @@
     "deleteConfirmDesc": "«{{name}}» будет удалён из конфигурации. Бот будет остановлен, если запущен.",
     "deleteSuccess": "Бот удалён",
     "deleteFailed": "Не удалось удалить бота",
-    "deleteInHedgeGroupHint": "Этот бот принадлежит хедж-группе «{{groupName}}». Сначала удалите группу."
+    "deleteInHedgeGroupHint": "Этот бот принадлежит хедж-группе «{{groupName}}». Сначала удалите группу.",
+    "backtest": "Бэктест"
   },
   "error": {
     "bot_symbol_conflict": "Бот для этого символа уже существует.",

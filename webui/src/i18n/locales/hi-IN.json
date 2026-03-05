@@ -107,7 +107,8 @@
     "deleteConfirmDesc": "«{{name}}» कॉन्फ़िगरेशन से हटा दिया जाएगा। चल रहा हो तो बॉट रुक जाएगा।",
     "deleteSuccess": "बॉट हटाया गया",
     "deleteFailed": "बॉट हटाने में विफल",
-    "deleteInHedgeGroupHint": "यह बॉट हेज समूह «{{groupName}}» से संबंधित है। पहले समूह हटाएं।"
+    "deleteInHedgeGroupHint": "यह बॉट हेज समूह «{{groupName}}» से संबंधित है। पहले समूह हटाएं।",
+    "backtest": "बैकटेस्ट"
   },
   "error": {
     "bot_symbol_conflict": "इस प्रतीक के लिए पहले से बॉट मौजूद है।",

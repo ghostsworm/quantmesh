@@ -15,6 +15,7 @@ import {
   Badge,
   useToast,
   useDisclosure,
+  useColorModeValue,
   AlertDialog,
   AlertDialogBody,
   AlertDialogFooter,
@@ -44,6 +45,7 @@ const BotList: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<BotInfo | null>(null)
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
   const cancelDeleteRef = React.useRef<HTMLButtonElement>(null)
+  const stoppedCardBg = useColorModeValue('gray.50', 'whiteAlpha.50')
 
   // 回测对话框状态
   const [backtestBotId, setBacktestBotId] = useState<string | null>(null)
@@ -220,6 +222,7 @@ const BotList: React.FC = () => {
           {filteredBots.map((bot) => (
             <Card
               key={bot.bot_id}
+              bg={bot.running ? undefined : stoppedCardBg}
               _hover={{ shadow: 'md' }}
               cursor="pointer"
               onClick={() => navigate(`/bots/${bot.bot_id}`)}

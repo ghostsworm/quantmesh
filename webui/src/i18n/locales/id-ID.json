@@ -107,7 +107,8 @@
     "deleteConfirmDesc": "«{{name}}» akan dihapus dari konfigurasi. Bot akan dihentikan jika sedang berjalan.",
     "deleteSuccess": "Bot dihapus",
     "deleteFailed": "Gagal menghapus bot",
-    "deleteInHedgeGroupHint": "Bot ini milik grup hedge «{{groupName}}». Hapus grup terlebih dahulu."
+    "deleteInHedgeGroupHint": "Bot ini milik grup hedge «{{groupName}}». Hapus grup terlebih dahulu.",
+    "backtest": "Backtest"
   },
   "error": {
     "bot_symbol_conflict": "Bot untuk simbol ini sudah ada.",

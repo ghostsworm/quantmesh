@@ -52,7 +52,8 @@
     "deleteConfirmDesc": "将把「{{name}}」从配置中移除，若正在运行会先停止。",
     "deleteSuccess": "Bot 已删除",
     "deleteFailed": "删除 Bot 失败",
-    "deleteInHedgeGroupHint": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组"
+    "deleteInHedgeGroupHint": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组",
+    "backtest": "回测"
   },
   "botCreate": {
     "title": "创建 Bot",

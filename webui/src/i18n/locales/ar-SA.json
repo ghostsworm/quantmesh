@@ -107,7 +107,8 @@
     "deleteConfirmDesc": "سيتم إزالة «{{name}}» من التكوين. سيتم إيقاف البوت إذا كان قيد التشغيل.",
     "deleteSuccess": "تم حذف البوت",
     "deleteFailed": "فشل في حذف البوت",
-    "deleteInHedgeGroupHint": "ينتمي هذا البوت إلى مجموعة التحوط «{{groupName}}». احذف المجموعة أولاً."
+    "deleteInHedgeGroupHint": "ينتمي هذا البوت إلى مجموعة التحوط «{{groupName}}». احذف المجموعة أولاً.",
+    "backtest": "الاختبار الخلفي"
   },
   "error": {
     "bot_symbol_conflict": "يوجد بالفعل بوت لهذا الرمز.",

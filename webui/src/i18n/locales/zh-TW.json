@@ -112,7 +112,8 @@
     "deleteConfirmDesc": "將把「{{name}}」從配置中移除，若正在運行會先停止。",
     "deleteSuccess": "Bot 已刪除",
     "deleteFailed": "刪除 Bot 失敗",
-    "deleteInHedgeGroupHint": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組"
+    "deleteInHedgeGroupHint": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組",
+    "backtest": "回測"
   },
   "error": {
     "bot_symbol_conflict": "該交易對已存在 Bot，同一交易對不能運行多個 Bot。",

@@ -330,7 +330,8 @@
     "deleteConfirmDesc": "Ang «{{name}}» ay aalisin mula sa config. Ihihinto ang bot kung tumatakbo.",
     "deleteSuccess": "Natanggal ang Bot",
     "deleteFailed": "Nabigo ang pagtanggal ng bot",
-    "deleteInHedgeGroupHint": "Ang bot na ito ay kabilang sa hedge group «{{groupName}}». Tanggalin muna ang grupo."
+    "deleteInHedgeGroupHint": "Ang bot na ito ay kabilang sa hedge group «{{groupName}}». Tanggalin muna ang grupo.",
+    "backtest": "Backtest"
   },
   "error": {
     "bot_symbol_conflict": "May umiiral nang bot para sa simbolong ito.",

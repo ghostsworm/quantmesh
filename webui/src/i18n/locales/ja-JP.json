@@ -97,7 +97,8 @@
     "deleteConfirmDesc": "「{{name}}」を設定から削除します。実行中の場合は停止します。",
     "deleteSuccess": "Botを削除しました",
     "deleteFailed": "Botの削除に失敗しました",
-    "deleteInHedgeGroupHint": "このBotはヘッジグループ「{{groupName}}」に属しています。先にグループを削除してください。"
+    "deleteInHedgeGroupHint": "このBotはヘッジグループ「{{groupName}}」に属しています。先にグループを削除してください。",
+    "backtest": "バックテスト"
   },
   "error": {
     "bot_symbol_conflict": "このシンボルのBotは既に存在します。",

@@ -107,7 +107,8 @@
     "deleteConfirmDesc": "«{{name}}» sẽ bị xóa khỏi cấu hình. Bot sẽ dừng nếu đang chạy.",
     "deleteSuccess": "Đã xóa Bot",
     "deleteFailed": "Không thể xóa Bot",
-    "deleteInHedgeGroupHint": "Bot này thuộc nhóm hedge «{{groupName}}». Xóa nhóm trước."
+    "deleteInHedgeGroupHint": "Bot này thuộc nhóm hedge «{{groupName}}». Xóa nhóm trước.",
+    "backtest": "Kiểm tra lại"
   },
   "error": {
     "bot_symbol_conflict": "Đã tồn tại bot cho ký hiệu này.",

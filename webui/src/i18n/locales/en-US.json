@@ -52,7 +52,8 @@
     "deleteConfirmDesc": "This will remove \"{{name}}\" from config. The bot will be stopped if running.",
     "deleteSuccess": "Bot deleted",
     "deleteFailed": "Failed to delete bot",
-    "deleteInHedgeGroupHint": "This bot belongs to hedge group «{{groupName}}». Delete the group first."
+    "deleteInHedgeGroupHint": "This bot belongs to hedge group «{{groupName}}». Delete the group first.",
+    "backtest": "Backtest"
   },
   "botCreate": {
     "title": "Create Bot",
