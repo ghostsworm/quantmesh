@@ -42,6 +42,12 @@ yarn install --frozen-lockfile
 yarn build
 cd ..
 
+# 複製前端構建產物到 web/dist（Go embed 需要）
+echo ">>> 複製前端構建產物..."
+rm -rf web/dist
+mkdir -p web/dist
+cp -r webui/dist/* web/dist/
+
 # 編譯 Go 後端
 echo ">>> 編譯 Go 後端..."
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$VERSION" -o quantmesh .
