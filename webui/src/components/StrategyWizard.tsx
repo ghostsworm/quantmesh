@@ -1,84 +1,86 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react'
 import {
   Box,
-  Stepper,
-  Step,
-  StepLabel,
-  StepContent,
   Button,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Slider,
-  TextField,
+  Text,
   FormControl,
-  FormControlLabel,
-  InputLabel,
-  Select,
-  MenuItem,
+  FormLabel,
+  Input,
   Switch,
-  Chip,
+  Badge,
   Alert,
+  AlertIcon,
   AlertTitle,
-  CircularProgress,
+  AlertDescription,
+  Flex,
+  Grid,
+  SimpleGrid,
   Divider,
-  Paper,
-  Tooltip,
   IconButton,
   Collapse,
-} from '@mui/material';
+  useDisclosure,
+  Progress,
+  Heading,
+  Card,
+  CardBody,
+  Stack,
+  HStack,
+  VStack,
+  Icon,
+  Tooltip,
+  Spinner,
+} from '@chakra-ui/react'
 import {
-  TrendingUp,
-  TrendingDown,
-  ShowChart,
-  Timeline,
-  Security,
-  Speed,
-  AccountBalance,
-  Warning,
-  CheckCircle,
-  Info,
-  ExpandMore,
-  ExpandLess,
-  Refresh,
-  Save,
-  PlayArrow,
-} from '@mui/icons-material';
-import { useTranslation } from 'react-i18next';
+  FiTrendingUp,
+  FiTrendingDown,
+  FiActivity,
+  FiClock,
+  FiShield,
+  FiZap,
+  FiServer,
+  FiAlertTriangle,
+  FiCheckCircle,
+  FiInfo,
+  FiChevronDown,
+  FiChevronUp,
+  FiRefreshCw,
+  FiSave,
+  FiPlay,
+} from 'react-icons/fi'
+import { useTranslation } from 'react-i18next'
 
-// 策略類型定义
+// 策略類型定義
 interface StrategyConfig {
-  type: string;
-  name: string;
-  direction: 'LONG' | 'SHORT' | 'BOTH';
-  parameters: Record<string, any>;
+  type: string
+  name: string
+  direction: 'LONG' | 'SHORT' | 'BOTH'
+  parameters: Record<string, any>
 }
 
-// 风險评估結果
+// 风險評估結果
 interface RiskAssessment {
-  overallScore: number;
-  riskLevel: 'low' | 'medium' | 'high' | 'extreme';
+  overallScore: number
+  riskLevel: 'low' | 'medium' | 'high' | 'extreme'
   scoreBreakdown: {
-    capitalManagement: number;
-    riskControl: number;
-    strategyFit: number;
-    marketCondition: number;
-  };
-  warnings: string[];
+    capitalManagement: number
+    riskControl: number
+    strategyFit: number
+    marketCondition: number
+  }
+  warnings: string[]
   suggestions: Array<{
-    title: string;
-    description: string;
-    priority: 'high' | 'medium' | 'low';
-  }>;
-  recommended: boolean;
+    title: string
+    description: string
+    priority: 'high' | 'medium' | 'low'
+  }>
+  recommended: boolean
 }
 
 // 預設模板
 const STRATEGY_TEMPLATES = {
   conservative: {
-    icon: <Security color="success" />,
-    color: 'success.main',
+    icon: FiShield,
+    color: 'green',
     defaults: {
       maxLayers: 10,
       stopLoss: 5,
@@ -91,8 +93,8 @@ const STRATEGY_TEMPLATES = {
     },
   },
   balanced: {
-    icon: <ShowChart color="warning" />,
-    color: 'warning.main',
+    icon: FiActivity,
+    color: 'yellow',
     defaults: {
       maxLayers: 20,
       stopLoss: 10,
@@ -105,8 +107,8 @@ const STRATEGY_TEMPLATES = {
     },
   },
   aggressive: {
-    icon: <Speed color="error" />,
-    color: 'error.main',
+    icon: FiZap,
+    color: 'red',
     defaults: {
       maxLayers: 30,
       stopLoss: 15,
@@ -118,36 +120,36 @@ const STRATEGY_TEMPLATES = {
       cascadeProtection: true,
     },
   },
-};
+}
 
 // 策略類型
 const STRATEGY_TYPES = [
   {
     type: 'dca',
-    icon: <Timeline />,
+    icon: FiClock,
     featureKeys: ['dynamicSpacing', 'tripleTP', 'cascadeProtection'],
   },
   {
     type: 'martingale',
-    icon: <TrendingDown />,
+    icon: FiTrendingDown,
     featureKeys: ['doubleDown', 'riskDecrement', 'reverseMartingale'],
   },
   {
     type: 'combo',
-    icon: <AccountBalance />,
+    icon: FiServer,
     featureKeys: ['longShortHedge', 'adaptiveWeight', 'allMarketCoverage'],
   },
   {
     type: 'trend',
-    icon: <TrendingUp />,
+    icon: FiTrendingUp,
     featureKeys: ['trendIdentification', 'dynamicTP', 'trailingStop'],
   },
-];
+]
 
 interface StrategyWizardProps {
-  onComplete: (config: StrategyConfig) => void;
-  onCancel: () => void;
-  initialConfig?: StrategyConfig;
+  onComplete: (config: StrategyConfig) => void
+  onCancel: () => void
+  initialConfig?: StrategyConfig
 }
 
 const StrategyWizard: React.FC<StrategyWizardProps> = ({
@@ -155,99 +157,99 @@ const StrategyWizard: React.FC<StrategyWizardProps> = ({
   onCancel,
   initialConfig,
 }) => {
-  const { t } = useTranslation();
-  const [activeStep, setActiveStep] = useState(0);
-  const [template, setTemplate] = useState<string>('balanced');
-  const [strategyType, setStrategyType] = useState<string>('dca');
-  const [direction, setDirection] = useState<'LONG' | 'SHORT' | 'BOTH'>('LONG');
-  const [symbol, setSymbol] = useState<string>('BTCUSDT');
-  const [capital, setCapital] = useState<number>(1000);
+  const { t } = useTranslation()
+  const { isOpen: showAdvanced, onToggle: toggleAdvanced } = useDisclosure()
+  const [activeStep, setActiveStep] = useState(0)
+  const [template, setTemplate] = useState<string>('balanced')
+  const [strategyType, setStrategyType] = useState<string>('dca')
+  const [direction, setDirection] = useState<'LONG' | 'SHORT' | 'BOTH'>('LONG')
+  const [symbol, setSymbol] = useState<string>('BTCUSDT')
+  const [capital, setCapital] = useState<number>(1000)
   const [parameters, setParameters] = useState<Record<string, any>>(
     STRATEGY_TEMPLATES.balanced.defaults
-  );
-  const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null);
-  const [isAssessing, setIsAssessing] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  )
+  const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null)
+  const [isAssessing, setIsAssessing] = useState(false)
 
-  // 步骤定义
+  // 步驟定義
   const steps = [
     { label: t('strategyWizard.steps.style.label'), description: t('strategyWizard.steps.style.description') },
     { label: t('strategyWizard.steps.strategy.label'), description: t('strategyWizard.steps.strategy.description') },
     { label: t('strategyWizard.steps.params.label'), description: t('strategyWizard.steps.params.description') },
     { label: t('strategyWizard.steps.riskAssessment.label'), description: t('strategyWizard.steps.riskAssessment.description') },
     { label: t('strategyWizard.steps.confirm.label'), description: t('strategyWizard.steps.confirm.description') },
-  ];
+  ]
 
-  // 处理模板选擇
+  // 處理模板選擇
   const handleTemplateSelect = useCallback((templateKey: string) => {
-    setTemplate(templateKey);
-    const templateConfig = STRATEGY_TEMPLATES[templateKey as keyof typeof STRATEGY_TEMPLATES];
-    setParameters(templateConfig.defaults);
-  }, []);
+    setTemplate(templateKey)
+    const templateConfig = STRATEGY_TEMPLATES[templateKey as keyof typeof STRATEGY_TEMPLATES]
+    setParameters(templateConfig.defaults)
+  }, [])
 
-  // 处理参數变化
+  // 處理參數變化
   const handleParamChange = useCallback((key: string, value: any) => {
-    setParameters((prev) => ({ ...prev, [key]: value }));
-  }, []);
+    setParameters((prev) => ({ ...prev, [key]: value }))
+  }, [])
 
-  // 執行风險评估
+  // 執行風險評估
   const runRiskAssessment = useCallback(async () => {
-    setIsAssessing(true);
+    setIsAssessing(true)
     try {
-      // 模拟 API 調用
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      // 计算风險评分
-      let score = 100;
-      const warnings: string[] = [];
-      const suggestions: RiskAssessment['suggestions'] = [];
+      // 模擬 API 調用
+      await new Promise((resolve) => setTimeout(resolve, 1500))
 
-      // 评估杠杆
+      // 計算風險評分
+      let score = 100
+      const warnings: string[] = []
+      const suggestions: RiskAssessment['suggestions'] = []
+
+      // 評估槓桿
       if (parameters.leverage > 10) {
-        score -= 20;
-        warnings.push(t('strategyWizard.warnings.highLeverage'));
+        score -= 20
+        warnings.push(t('strategyWizard.warnings.highLeverage'))
       } else if (parameters.leverage > 5) {
-        score -= 10;
+        score -= 10
       }
 
       if (!parameters.stopLoss || parameters.stopLoss <= 0) {
-        score -= 25;
-        warnings.push(t('strategyWizard.warnings.noStopLoss'));
+        score -= 25
+        warnings.push(t('strategyWizard.warnings.noStopLoss'))
         suggestions.push({
           title: t('strategyWizard.suggestions.addStopLoss'),
           description: t('strategyWizard.suggestions.addStopLossDesc'),
           priority: 'high',
-        });
+        })
       } else if (parameters.stopLoss > 20) {
-        score -= 10;
+        score -= 10
         suggestions.push({
           title: t('strategyWizard.suggestions.adjustStopLoss'),
           description: t('strategyWizard.suggestions.adjustStopLossDesc'),
           priority: 'medium',
-        });
+        })
       }
 
       if (parameters.maxLayers > 30) {
-        score -= 15;
-        warnings.push(t('strategyWizard.warnings.tooManyLayers'));
+        score -= 15
+        warnings.push(t('strategyWizard.warnings.tooManyLayers'))
       }
 
       if (!parameters.trendFilter) {
-        score -= 5;
+        score -= 5
         suggestions.push({
           title: t('strategyWizard.suggestions.enableTrendFilter'),
           description: t('strategyWizard.suggestions.enableTrendFilterDesc'),
           priority: 'medium',
-        });
+        })
       }
 
-      // 确保评分在有效範圍内
-      score = Math.max(0, Math.min(100, score));
+      // 確保評分在有效範圍內
+      score = Math.max(0, Math.min(100, score))
 
-      const riskLevel: RiskAssessment['riskLevel'] = 
+      const riskLevel: RiskAssessment['riskLevel'] =
         score >= 80 ? 'low' :
         score >= 60 ? 'medium' :
-        score >= 40 ? 'high' : 'extreme';
+        score >= 40 ? 'high' : 'extreme'
 
       setRiskAssessment({
         overallScore: score,
@@ -261,26 +263,26 @@ const StrategyWizard: React.FC<StrategyWizardProps> = ({
         warnings,
         suggestions,
         recommended: score >= 60,
-      });
+      })
     } catch (error) {
-      console.error('Risk assessment failed:', error);
+      console.error('Risk assessment failed:', error)
     } finally {
-      setIsAssessing(false);
+      setIsAssessing(false)
     }
-  }, [parameters]);
+  }, [parameters, t])
 
   // 下一步
   const handleNext = useCallback(() => {
     if (activeStep === 3 && !riskAssessment) {
-      runRiskAssessment();
+      runRiskAssessment()
     }
-    setActiveStep((prev) => prev + 1);
-  }, [activeStep, riskAssessment, runRiskAssessment]);
+    setActiveStep((prev) => prev + 1)
+  }, [activeStep, riskAssessment, runRiskAssessment])
 
   // 上一步
   const handleBack = useCallback(() => {
-    setActiveStep((prev) => prev - 1);
-  }, []);
+    setActiveStep((prev) => prev - 1)
+  }, [])
 
   // 完成配置
   const handleComplete = useCallback(() => {
@@ -293,543 +295,589 @@ const StrategyWizard: React.FC<StrategyWizardProps> = ({
         capital,
         ...parameters,
       },
-    };
-    onComplete(config);
-  }, [strategyType, symbol, direction, capital, parameters, onComplete]);
+    }
+    onComplete(config)
+  }, [strategyType, symbol, direction, capital, parameters, onComplete, t])
 
-  // 獲取风險等级颜色
+  // 獲取風險等級顏色
   const getRiskColor = (level: string) => {
     switch (level) {
-      case 'low': return 'success';
-      case 'medium': return 'warning';
-      case 'high': return 'error';
-      case 'extreme': return 'error';
-      default: return 'default';
+      case 'low': return 'green'
+      case 'medium': return 'yellow'
+      case 'high': return 'orange'
+      case 'extreme': return 'red'
+      default: return 'gray'
     }
-  };
+  }
 
-  // 渲染步骤内容
+  // 渲染步驟內容
   const renderStepContent = (step: number) => {
     switch (step) {
       case 0:
         return (
           <Box>
-            <Typography variant="h6" gutterBottom>
+            <Heading size="md" mb={4}>
               {t('strategyWizard.selectTradingStyle')}
-            </Typography>
-            <Grid container spacing={2}>
+            </Heading>
+            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
               {Object.entries(STRATEGY_TEMPLATES).map(([key, value]) => (
-                <Grid item xs={12} md={4} key={key}>
-                  <Card
-                    sx={{
-                      cursor: 'pointer',
-                      border: template === key ? 2 : 1,
-                      borderColor: template === key ? value.color : 'divider',
-                      transition: 'all 0.3s',
-                      '&:hover': {
-                        transform: 'translateY(-4px)',
-                        boxShadow: 3,
-                      },
-                    }}
-                    onClick={() => handleTemplateSelect(key)}
-                  >
-                    <CardContent>
-                      <Box display="flex" alignItems="center" mb={1}>
-                        {value.icon}
-                        <Typography variant="h6" ml={1}>
-                          {t(`strategyWizard.templates.${key}.name`)}
-                        </Typography>
-                      </Box>
-                      <Typography variant="body2" color="text.secondary">
-                        {t(`strategyWizard.templates.${key}.description`)}
-                      </Typography>
-                      {template === key && (
-                        <Chip
-                          label={t('strategyWizard.selected')}
-                          size="small"
-                          color="primary"
-                          sx={{ mt: 1 }}
-                        />
-                      )}
-                    </CardContent>
-                  </Card>
-                </Grid>
+                <Card
+                  key={key}
+                  cursor="pointer"
+                  border="2px"
+                  borderColor={template === key ? `${value.color}.500` : 'gray.200'}
+                  bg={template === key ? `${value.color}.50` : 'white'}
+                  _hover={{ transform: 'translateY(-4px)', boxShadow: 'lg' }}
+                  transition="all 0.3s"
+                  onClick={() => handleTemplateSelect(key)}
+                >
+                  <CardBody>
+                    <HStack mb={2}>
+                      <Icon as={value.icon} boxSize={6} color={`${value.color}.500`} />
+                      <Text fontSize="lg" fontWeight="semibold">
+                        {t(`strategyWizard.templates.${key}.name`)}
+                      </Text>
+                    </HStack>
+                    <Text fontSize="sm" color="gray.600">
+                      {t(`strategyWizard.templates.${key}.description`)}
+                    </Text>
+                    {template === key && (
+                      <Badge mt={2} colorScheme="blue">
+                        {t('strategyWizard.selected')}
+                      </Badge>
+                    )}
+                  </CardBody>
+                </Card>
               ))}
-            </Grid>
+            </SimpleGrid>
           </Box>
-        );
+        )
 
       case 1:
         return (
           <Box>
-            <Typography variant="h6" gutterBottom>
+            <Heading size="md" mb={4}>
               {t('strategyWizard.selectStrategyType')}
-            </Typography>
-            <Grid container spacing={2}>
+            </Heading>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4} mb={6}>
               {STRATEGY_TYPES.map((strategy) => (
-                <Grid item xs={12} md={6} key={strategy.type}>
-                  <Card
-                    sx={{
-                      cursor: 'pointer',
-                      border: strategyType === strategy.type ? 2 : 1,
-                      borderColor: strategyType === strategy.type ? 'primary.main' : 'divider',
-                      transition: 'all 0.3s',
-                      '&:hover': {
-                        transform: 'translateY(-4px)',
-                        boxShadow: 3,
-                      },
-                    }}
-                    onClick={() => setStrategyType(strategy.type)}
-                  >
-                    <CardContent>
-                      <Box display="flex" alignItems="center" mb={1}>
-                        {strategy.icon}
-                        <Typography variant="h6" ml={1}>
-                          {t(`strategyWizard.strategyTypes.${strategy.type}.name`)}
-                        </Typography>
-                      </Box>
-                      <Typography variant="body2" color="text.secondary" mb={2}>
-                        {t(`strategyWizard.strategyTypes.${strategy.type}.description`)}
-                      </Typography>
-                      <Box display="flex" gap={1} flexWrap="wrap">
-                        {strategy.featureKeys.map((featureKey) => (
-                          <Chip
-                            key={featureKey}
-                            label={t(`strategyWizard.features.${featureKey}`)}
-                            size="small"
-                            variant="outlined"
-                          />
-                        ))}
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                <Card
+                  key={strategy.type}
+                  cursor="pointer"
+                  border="2px"
+                  borderColor={strategyType === strategy.type ? 'blue.500' : 'gray.200'}
+                  bg={strategyType === strategy.type ? 'blue.50' : 'white'}
+                  _hover={{ transform: 'translateY(-4px)', boxShadow: 'lg' }}
+                  transition="all 0.3s"
+                  onClick={() => setStrategyType(strategy.type)}
+                >
+                  <CardBody>
+                    <HStack mb={2}>
+                      <Icon as={strategy.icon} boxSize={5} />
+                      <Text fontSize="lg" fontWeight="semibold">
+                        {t(`strategyWizard.strategyTypes.${strategy.type}.name`)}
+                      </Text>
+                    </HStack>
+                    <Text fontSize="sm" color="gray.600" mb={3}>
+                      {t(`strategyWizard.strategyTypes.${strategy.type}.description`)}
+                    </Text>
+                    <Flex gap={2} flexWrap="wrap">
+                      {strategy.featureKeys.map((featureKey) => (
+                        <Badge
+                          key={featureKey}
+                          variant="outline"
+                          colorScheme="gray"
+                        >
+                          {t(`strategyWizard.features.${featureKey}`)}
+                        </Badge>
+                      ))}
+                    </Flex>
+                  </CardBody>
+                </Card>
               ))}
-            </Grid>
+            </SimpleGrid>
 
-            <Box mt={3}>
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>{t('strategyWizard.tradingPair')}</InputLabel>
-                    <Select
-                      value={symbol}
-                      label={t('strategyWizard.tradingPair')}
-                      onChange={(e) => setSymbol(e.target.value)}
-                    >
-                      <MenuItem value="BTCUSDT">BTC/USDT</MenuItem>
-                      <MenuItem value="ETHUSDT">ETH/USDT</MenuItem>
-                      <MenuItem value="BNBUSDT">BNB/USDT</MenuItem>
-                      <MenuItem value="SOLUSDT">SOL/USDT</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>{t('strategyWizard.tradingDirection')}</InputLabel>
-                    <Select
-                      value={direction}
-                      label={t('strategyWizard.tradingDirection')}
-                      onChange={(e) => setDirection(e.target.value as any)}
-                    >
-                      <MenuItem value="LONG">{t('strategyWizard.longOnly')}</MenuItem>
-                      <MenuItem value="SHORT">{t('strategyWizard.shortOnly')}</MenuItem>
-                      <MenuItem value="BOTH">{t('strategyWizard.longShortBoth')}</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
-            </Box>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl>
+                <FormLabel>{t('strategyWizard.tradingPair')}</FormLabel>
+                <Box as="select"
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                  p={2}
+                  border="1px solid"
+                  borderColor="gray.300"
+                  borderRadius="md"
+                  w="full"
+                >
+                  <option value="BTCUSDT">BTC/USDT</option>
+                  <option value="ETHUSDT">ETH/USDT</option>
+                  <option value="BNBUSDT">BNB/USDT</option>
+                  <option value="SOLUSDT">SOL/USDT</option>
+                </Box>
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('strategyWizard.tradingDirection')}</FormLabel>
+                <Box as="select"
+                  value={direction}
+                  onChange={(e) => setDirection(e.target.value as any)}
+                  p={2}
+                  border="1px solid"
+                  borderColor="gray.300"
+                  borderRadius="md"
+                  w="full"
+                >
+                  <option value="LONG">{t('strategyWizard.longOnly')}</option>
+                  <option value="SHORT">{t('strategyWizard.shortOnly')}</option>
+                  <option value="BOTH">{t('strategyWizard.longShortBoth')}</option>
+                </Box>
+              </FormControl>
+            </SimpleGrid>
           </Box>
-        );
+        )
 
       case 2:
         return (
           <Box>
-            <Typography variant="h6" gutterBottom>
+            <Heading size="md" mb={4}>
               {t('strategyWizard.configureParams')}
-            </Typography>
-            
-            <Paper sx={{ p: 3, mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+            </Heading>
+
+            <Card mb={4} p={4}>
+              <Text fontSize="lg" fontWeight="semibold" mb={4}>
                 {t('strategyWizard.capitalConfig')}
-              </Typography>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label={t('strategyWizard.capitalInput')}
+              </Text>
+              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                <FormControl>
+                  <FormLabel>{t('strategyWizard.capitalInput')}</FormLabel>
+                  <Input
                     type="number"
+                    min={100}
                     value={capital}
                     onChange={(e) => setCapital(Number(e.target.value))}
-                    InputProps={{ inputProps: { min: 100 } }}
                   />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography gutterBottom>{t('strategyWizard.leverageMultiplier')}: {parameters.leverage}x</Typography>
-                  <Slider
-                    value={parameters.leverage}
-                    onChange={(_, v) => handleParamChange('leverage', v)}
-                    min={1}
-                    max={20}
-                    marks={[
-                      { value: 1, label: '1x' },
-                      { value: 5, label: '5x' },
-                      { value: 10, label: '10x' },
-                      { value: 20, label: '20x' },
-                    ]}
-                  />
-                </Grid>
-              </Grid>
-            </Paper>
+                </FormControl>
+                <FormControl>
+                  <FormLabel>
+                    {t('strategyWizard.leverageMultiplier')}: {parameters.leverage}x
+                  </FormLabel>
+                  <Box mt={4}>
+                    <Input
+                      type="range"
+                      min={1}
+                      max={20}
+                      value={parameters.leverage}
+                      onChange={(e) => handleParamChange('leverage', Number(e.target.value))}
+                    />
+                    <Flex justify="space-between" fontSize="xs" color="gray.500" mt={1}>
+                      <Text>1x</Text>
+                      <Text>5x</Text>
+                      <Text>10x</Text>
+                      <Text>20x</Text>
+                    </Flex>
+                  </Box>
+                </FormControl>
+              </SimpleGrid>
+            </Card>
 
-            <Paper sx={{ p: 3, mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+            <Card mb={4} p={4}>
+              <Text fontSize="lg" fontWeight="semibold" mb={4}>
                 {t('strategyWizard.riskControl')}
-              </Typography>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Typography gutterBottom>{t('strategyWizard.stopLossRatio')}: {parameters.stopLoss}%</Typography>
-                  <Slider
-                    value={parameters.stopLoss}
-                    onChange={(_, v) => handleParamChange('stopLoss', v)}
-                    min={1}
-                    max={30}
-                    marks={[
-                      { value: 5, label: '5%' },
-                      { value: 15, label: '15%' },
-                      { value: 30, label: '30%' },
-                    ]}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography gutterBottom>{t('strategyWizard.takeProfitRatio')}: {parameters.takeProfit}%</Typography>
-                  <Slider
-                    value={parameters.takeProfit}
-                    onChange={(_, v) => handleParamChange('takeProfit', v)}
-                    min={0.5}
-                    max={10}
-                    step={0.5}
-                    marks={[
-                      { value: 1, label: '1%' },
-                      { value: 5, label: '5%' },
-                      { value: 10, label: '10%' },
-                    ]}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography gutterBottom>{t('strategyWizard.maxLayers')}: {parameters.maxLayers}</Typography>
-                  <Slider
-                    value={parameters.maxLayers}
-                    onChange={(_, v) => handleParamChange('maxLayers', v)}
-                    min={5}
-                    max={50}
-                    marks={[
-                      { value: 10, label: '10' },
-                      { value: 30, label: '30' },
-                      { value: 50, label: '50' },
-                    ]}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography gutterBottom>{t('strategyWizard.priceSpacing')}: {parameters.priceStep}%</Typography>
-                  <Slider
-                    value={parameters.priceStep}
-                    onChange={(_, v) => handleParamChange('priceStep', v)}
-                    min={0.5}
-                    max={5}
-                    step={0.1}
-                    marks={[
-                      { value: 1, label: '1%' },
-                      { value: 2, label: '2%' },
-                      { value: 5, label: '5%' },
-                    ]}
-                  />
-                </Grid>
-              </Grid>
-            </Paper>
+              </Text>
+              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                <FormControl>
+                  <FormLabel>
+                    {t('strategyWizard.stopLossRatio')}: {parameters.stopLoss}%
+                  </FormLabel>
+                  <Box mt={4}>
+                    <Input
+                      type="range"
+                      min={1}
+                      max={30}
+                      value={parameters.stopLoss}
+                      onChange={(e) => handleParamChange('stopLoss', Number(e.target.value))}
+                    />
+                    <Flex justify="space-between" fontSize="xs" color="gray.500" mt={1}>
+                      <Text>5%</Text>
+                      <Text>15%</Text>
+                      <Text>30%</Text>
+                    </Flex>
+                  </Box>
+                </FormControl>
+                <FormControl>
+                  <FormLabel>
+                    {t('strategyWizard.takeProfitRatio')}: {parameters.takeProfit}%
+                  </FormLabel>
+                  <Box mt={4}>
+                    <Input
+                      type="range"
+                      min={0.5}
+                      max={10}
+                      step={0.5}
+                      value={parameters.takeProfit}
+                      onChange={(e) => handleParamChange('takeProfit', Number(e.target.value))}
+                    />
+                    <Flex justify="space-between" fontSize="xs" color="gray.500" mt={1}>
+                      <Text>1%</Text>
+                      <Text>5%</Text>
+                      <Text>10%</Text>
+                    </Flex>
+                  </Box>
+                </FormControl>
+                <FormControl>
+                  <FormLabel>
+                    {t('strategyWizard.maxLayers')}: {parameters.maxLayers}
+                  </FormLabel>
+                  <Box mt={4}>
+                    <Input
+                      type="range"
+                      min={5}
+                      max={50}
+                      value={parameters.maxLayers}
+                      onChange={(e) => handleParamChange('maxLayers', Number(e.target.value))}
+                    />
+                    <Flex justify="space-between" fontSize="xs" color="gray.500" mt={1}>
+                      <Text>10</Text>
+                      <Text>30</Text>
+                      <Text>50</Text>
+                    </Flex>
+                  </Box>
+                </FormControl>
+                <FormControl>
+                  <FormLabel>
+                    {t('strategyWizard.priceSpacing')}: {parameters.priceStep}%
+                  </FormLabel>
+                  <Box mt={4}>
+                    <Input
+                      type="range"
+                      min={0.5}
+                      max={5}
+                      step={0.1}
+                      value={parameters.priceStep}
+                      onChange={(e) => handleParamChange('priceStep', Number(e.target.value))}
+                    />
+                    <Flex justify="space-between" fontSize="xs" color="gray.500" mt={1}>
+                      <Text>1%</Text>
+                      <Text>2%</Text>
+                      <Text>5%</Text>
+                    </Flex>
+                  </Box>
+                </FormControl>
+              </SimpleGrid>
+            </Card>
 
-            <Paper sx={{ p: 3 }}>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Typography variant="subtitle1" fontWeight="bold">
+            <Card p={4}>
+              <Flex justify="space-between" align="center">
+                <Text fontSize="lg" fontWeight="semibold">
                   {t('strategyWizard.advancedSettings')}
-                </Typography>
-                <IconButton onClick={() => setShowAdvanced(!showAdvanced)}>
-                  {showAdvanced ? <ExpandLess /> : <ExpandMore />}
-                </IconButton>
-              </Box>
+                </Text>
+                <IconButton
+                  aria-label="Toggle advanced"
+                  icon={showAdvanced ? <FiChevronUp /> : <FiChevronDown />}
+                  onClick={toggleAdvanced}
+                  variant="ghost"
+                />
+              </Flex>
               <Collapse in={showAdvanced}>
-                <Grid container spacing={2} mt={1}>
-                  <Grid item xs={12} md={6}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={parameters.trendFilter}
-                          onChange={(e) => handleParamChange('trendFilter', e.target.checked)}
-                        />
-                      }
-                      label={t('strategyWizard.trendFilter')}
+                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4} mt={4}>
+                  <FormControl display="flex" alignItems="center">
+                    <Switch
+                      id="trend-filter"
+                      isChecked={parameters.trendFilter}
+                      onChange={(e) => handleParamChange('trendFilter', e.target.checked)}
+                      mr={3}
                     />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={parameters.cascadeProtection}
-                          onChange={(e) => handleParamChange('cascadeProtection', e.target.checked)}
-                        />
-                      }
-                      label={t('strategyWizard.cascadeProtectionSwitch')}
+                    <FormLabel htmlFor="trend-filter" mb={0}>
+                      {t('strategyWizard.trendFilter')}
+                    </FormLabel>
+                  </FormControl>
+                  <FormControl display="flex" alignItems="center">
+                    <Switch
+                      id="cascade-protection"
+                      isChecked={parameters.cascadeProtection}
+                      onChange={(e) => handleParamChange('cascadeProtection', e.target.checked)}
+                      mr={3}
                     />
-                  </Grid>
+                    <FormLabel htmlFor="cascade-protection" mb={0}>
+                      {t('strategyWizard.cascadeProtectionSwitch')}
+                    </FormLabel>
+                  </FormControl>
                   {strategyType === 'martingale' && (
-                    <Grid item xs={12} md={6}>
-                      <Typography gutterBottom>
+                    <FormControl>
+                      <FormLabel>
                         {t('strategyWizard.positionMultiplier')}: {parameters.multiplier}x
-                      </Typography>
-                      <Slider
-                        value={parameters.multiplier}
-                        onChange={(_, v) => handleParamChange('multiplier', v)}
-                        min={1}
-                        max={3}
-                        step={0.1}
-                        marks={[
-                          { value: 1, label: '1x' },
-                          { value: 2, label: '2x' },
-                          { value: 3, label: '3x' },
-                        ]}
-                      />
-                    </Grid>
+                      </FormLabel>
+                      <Box mt={4}>
+                        <Input
+                          type="range"
+                          min={1}
+                          max={3}
+                          step={0.1}
+                          value={parameters.multiplier}
+                          onChange={(e) => handleParamChange('multiplier', Number(e.target.value))}
+                        />
+                        <Flex justify="space-between" fontSize="xs" color="gray.500" mt={1}>
+                          <Text>1x</Text>
+                          <Text>2x</Text>
+                          <Text>3x</Text>
+                        </Flex>
+                      </Box>
+                    </FormControl>
                   )}
-                </Grid>
+                </SimpleGrid>
               </Collapse>
-            </Paper>
+            </Card>
           </Box>
-        );
+        )
 
       case 3:
         return (
           <Box>
-            <Typography variant="h6" gutterBottom>
+            <Heading size="md" mb={4}>
               {t('strategyWizard.aiRiskAssessment')}
-            </Typography>
-            
+            </Heading>
+
             {isAssessing ? (
-              <Box display="flex" flexDirection="column" alignItems="center" py={4}>
-                <CircularProgress size={60} />
-                <Typography mt={2}>{t('strategyWizard.analyzingStrategy')}</Typography>
-              </Box>
+              <Flex direction="column" align="center" py={8}>
+                <Spinner size="xl" mb={4} />
+                <Text>{t('strategyWizard.analyzingStrategy')}</Text>
+              </Flex>
             ) : riskAssessment ? (
               <Box>
-                <Paper sx={{ p: 3, mb: 3, textAlign: 'center' }}>
-                  <Typography variant="h2" fontWeight="bold">
+                <Card mb={4} p={6} textAlign="center" bg="gray.50">
+                  <Text fontSize="4xl" fontWeight="bold" mb={2}>
                     {riskAssessment.overallScore}
-                  </Typography>
-                  <Chip
-                    label={t(`strategyWizard.riskLevels.${riskAssessment.riskLevel}`)}
-                    color={getRiskColor(riskAssessment.riskLevel) as any}
-                    sx={{ mt: 1 }}
-                  />
-                </Paper>
+                  </Text>
+                  <Badge colorScheme={getRiskColor(riskAssessment.riskLevel)} fontSize="md" px={3} py={1}>
+                    {t(`strategyWizard.riskLevels.${riskAssessment.riskLevel}`)}
+                  </Badge>
+                </Card>
 
-                <Grid container spacing={2} mb={3}>
+                <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4} mb={4}>
                   {Object.entries(riskAssessment.scoreBreakdown).map(([key, value]) => (
-                    <Grid item xs={6} md={3} key={key}>
-                      <Paper sx={{ p: 2, textAlign: 'center' }}>
-                        <Typography variant="h4">{value}/25</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {t(`strategyWizard.scoreBreakdown.${key}`)}
-                        </Typography>
-                      </Paper>
-                    </Grid>
+                    <Card key={key} p={4} textAlign="center">
+                      <Text fontSize="2xl" fontWeight="bold">{value}/25</Text>
+                      <Text fontSize="sm" color="gray.600">
+                        {t(`strategyWizard.scoreBreakdown.${key}`)}
+                      </Text>
+                    </Card>
                   ))}
-                </Grid>
+                </SimpleGrid>
 
                 {riskAssessment.warnings.length > 0 && (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    <AlertTitle>{t('strategyWizard.warnings.title')}</AlertTitle>
-                    <ul style={{ margin: 0, paddingLeft: 20 }}>
-                      {riskAssessment.warnings.map((warning, i) => (
-                        <li key={i}>{warning}</li>
-                      ))}
-                    </ul>
+                  <Alert status="warning" mb={4}>
+                    <AlertIcon />
+                    <Box>
+                      <AlertTitle>{t('strategyWizard.warnings.title')}</AlertTitle>
+                      <AlertDescription as="ul" style={{ margin: 0, paddingLeft: 20 }}>
+                        {riskAssessment.warnings.map((warning, i) => (
+                          <li key={i}>{warning}</li>
+                        ))}
+                      </AlertDescription>
+                    </Box>
                   </Alert>
                 )}
 
                 {riskAssessment.suggestions.length > 0 && (
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    <AlertTitle>{t('strategyWizard.suggestions.title')}</AlertTitle>
-                    <ul style={{ margin: 0, paddingLeft: 20 }}>
-                      {riskAssessment.suggestions.map((suggestion, i) => (
-                        <li key={i}>
-                          <strong>{suggestion.title}</strong>: {suggestion.description}
-                        </li>
-                      ))}
-                    </ul>
+                  <Alert status="info" mb={4}>
+                    <AlertIcon />
+                    <Box>
+                      <AlertTitle>{t('strategyWizard.suggestions.title')}</AlertTitle>
+                      <AlertDescription as="ul" style={{ margin: 0, paddingLeft: 20 }}>
+                        {riskAssessment.suggestions.map((suggestion, i) => (
+                          <li key={i}>
+                            <strong>{suggestion.title}</strong>: {suggestion.description}
+                          </li>
+                        ))}
+                      </AlertDescription>
+                    </Box>
                   </Alert>
                 )}
 
-                <Box display="flex" justifyContent="center" mt={2}>
+                <Flex justify="center" mt={4}>
                   <Button
-                    variant="outlined"
-                    startIcon={<Refresh />}
+                    variant="outline"
+                    leftIcon={<FiRefreshCw />}
                     onClick={runRiskAssessment}
                   >
                     {t('strategyWizard.reassess')}
                   </Button>
-                </Box>
+                </Flex>
               </Box>
             ) : (
-              <Box textAlign="center" py={4}>
+              <Flex justify="center" py={8}>
                 <Button
-                  variant="contained"
-                  size="large"
+                  colorScheme="blue"
+                  size="lg"
                   onClick={runRiskAssessment}
-                  >
-                    {t('strategyWizard.startRiskAssessment')}
-                  </Button>
-              </Box>
+                >
+                  {t('strategyWizard.startRiskAssessment')}
+                </Button>
+              </Flex>
             )}
           </Box>
-        );
+        )
 
       case 4:
         return (
           <Box>
-            <Typography variant="h6" gutterBottom>
+            <Heading size="md" mb={4}>
               {t('strategyWizard.confirmStrategyConfig')}
-            </Typography>
-            
-            <Paper sx={{ p: 3, mb: 3 }}>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography color="text.secondary">{t('strategyWizard.strategyType')}</Typography>
-                  <Typography variant="h6">
+            </Heading>
+
+            <Card mb={4} p={4}>
+              <SimpleGrid columns={2} spacing={4} mb={4}>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.strategyType')}</Text>
+                  <Text fontSize="lg" fontWeight="semibold">
                     {t(`strategyWizard.strategyTypes.${strategyType}.name`)}
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography color="text.secondary">{t('strategyWizard.tradingPair')}</Typography>
-                  <Typography variant="h6">{symbol}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography color="text.secondary">{t('strategyWizard.tradingDirection')}</Typography>
-                  <Typography variant="h6">
+                  </Text>
+                </Box>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.tradingPair')}</Text>
+                  <Text fontSize="lg" fontWeight="semibold">{symbol}</Text>
+                </Box>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.tradingDirection')}</Text>
+                  <Text fontSize="lg" fontWeight="semibold">
                     {direction === 'LONG' ? t('strategyWizard.directionLong') : direction === 'SHORT' ? t('strategyWizard.directionShort') : t('strategyWizard.directionBoth')}
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography color="text.secondary">{t('strategyWizard.capitalInvested')}</Typography>
-                  <Typography variant="h6">{capital} USDT</Typography>
-                </Grid>
-              </Grid>
-              
-              <Divider sx={{ my: 2 }} />
-              
-              <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  </Text>
+                </Box>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.capitalInvested')}</Text>
+                  <Text fontSize="lg" fontWeight="semibold">{capital} USDT</Text>
+                </Box>
+              </SimpleGrid>
+
+              <Divider my={4} />
+
+              <Text fontSize="md" fontWeight="semibold" mb={4}>
                 {t('strategyWizard.coreParams')}
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={4}>
-                  <Typography color="text.secondary">{t('strategyWizard.leverage')}</Typography>
-                  <Typography>{parameters.leverage}x</Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography color="text.secondary">{t('strategyWizard.stopLoss')}</Typography>
-                  <Typography>{parameters.stopLoss}%</Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography color="text.secondary">{t('strategyWizard.takeProfit')}</Typography>
-                  <Typography>{parameters.takeProfit}%</Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography color="text.secondary">{t('strategyWizard.maxLayers')}</Typography>
-                  <Typography>{parameters.maxLayers}</Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography color="text.secondary">{t('strategyWizard.priceStep')}</Typography>
-                  <Typography>{parameters.priceStep}%</Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography color="text.secondary">{t('strategyWizard.trendFilterLabel')}</Typography>
-                  <Typography>{parameters.trendFilter ? t('strategyWizard.enabled') : t('strategyWizard.disabled')}</Typography>
-                </Grid>
-              </Grid>
-            </Paper>
+              </Text>
+              <SimpleGrid columns={3} spacing={4}>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.leverage')}</Text>
+                  <Text>{parameters.leverage}x</Text>
+                </Box>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.stopLoss')}</Text>
+                  <Text>{parameters.stopLoss}%</Text>
+                </Box>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.takeProfit')}</Text>
+                  <Text>{parameters.takeProfit}%</Text>
+                </Box>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.maxLayers')}</Text>
+                  <Text>{parameters.maxLayers}</Text>
+                </Box>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.priceStep')}</Text>
+                  <Text>{parameters.priceStep}%</Text>
+                </Box>
+                <Box>
+                  <Text color="gray.600" fontSize="sm">{t('strategyWizard.trendFilterLabel')}</Text>
+                  <Text>{parameters.trendFilter ? t('strategyWizard.enabled') : t('strategyWizard.disabled')}</Text>
+                </Box>
+              </SimpleGrid>
+            </Card>
 
             {riskAssessment && (
               <Alert
-                severity={riskAssessment.recommended ? 'success' : 'warning'}
-                icon={riskAssessment.recommended ? <CheckCircle /> : <Warning />}
+                status={riskAssessment.recommended ? 'success' : 'warning'}
               >
-                {t('strategyWizard.riskScore')}: {riskAssessment.overallScore}/100 - 
+                <AlertIcon />
+                {t('strategyWizard.riskScore')}: {riskAssessment.overallScore}/100 -
                 {riskAssessment.recommended ? ` ${t('strategyWizard.recommendStart')}` : ` ${t('strategyWizard.recommendOptimize')}`}
               </Alert>
             )}
           </Box>
-        );
+        )
 
       default:
-        return null;
+        return null
     }
-  };
+  }
 
   return (
-    <Box sx={{ maxWidth: 900, mx: 'auto', p: 3 }}>
-      <Typography variant="h4" gutterBottom fontWeight="bold">
+    <Box maxW="900px" mx="auto" p={6}>
+      <Heading size="lg" mb={2}>
         {t('strategyWizard.title')}
-      </Typography>
-      <Typography color="text.secondary" mb={3}>
+      </Heading>
+      <Text color="gray.600" mb={6}>
         {t('strategyWizard.subtitle')}
-      </Typography>
+      </Text>
 
-      <Stepper activeStep={activeStep} orientation="vertical">
+      {/* 步驟指示器 */}
+      <Flex mb={8} align="center">
         {steps.map((step, index) => (
-          <Step key={step.label}>
-            <StepLabel>
-              <Typography variant="subtitle1">{step.label}</Typography>
-              <Typography variant="body2" color="text.secondary">
-                {step.description}
-              </Typography>
-            </StepLabel>
-            <StepContent>
-              <Box sx={{ mb: 2 }}>
-                {renderStepContent(index)}
+          <React.Fragment key={index}>
+            <Flex flex="1" align="center">
+              <Box
+                w={8}
+                h={8}
+                borderRadius="full"
+                bg={index <= activeStep ? 'blue.500' : 'gray.200'}
+                color={index <= activeStep ? 'white' : 'gray.600'}
+                display="flex"
+                alignItems="center"
+                justifyContent="center"
+                fontWeight="semibold"
+              >
+                {index + 1}
               </Box>
-              <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
-                <Button
-                  disabled={index === 0}
-                  onClick={handleBack}
-                >
-                  {t('strategyWizard.previousStep')}
-                </Button>
-                {index === steps.length - 1 ? (
-                  <Button
-                    variant="contained"
-                    onClick={handleComplete}
-                    startIcon={<PlayArrow />}
-                    color="success"
-                  >
-                    {t('strategyWizard.startStrategy')}
-                  </Button>
-                ) : (
-                  <Button
-                    variant="contained"
-                    onClick={handleNext}
-                  >
-                    {t('strategyWizard.nextStep')}
-                  </Button>
-                )}
-                <Button onClick={onCancel} color="inherit">
-                  {t('strategyWizard.cancel')}
-                </Button>
+              <Box ml={2} flex="1">
+                <Text fontSize="sm" fontWeight={index <= activeStep ? 'semibold' : 'normal'}>
+                  {step.label}
+                </Text>
               </Box>
-            </StepContent>
-          </Step>
+            </Flex>
+            {index < steps.length - 1 && (
+              <Box flex="1" h={1} bg={index < activeStep ? 'blue.500' : 'gray.200'} mx={2} />
+            )}
+          </React.Fragment>
         ))}
-      </Stepper>
-    </Box>
-  );
-};
+      </Flex>
 
-export default StrategyWizard;
+      {/* 步驟內容 */}
+      <Box mb={6}>
+        {renderStepContent(activeStep)}
+      </Box>
+
+      {/* 導航按鈕 */}
+      <Flex gap={3}>
+        <Button
+          isDisabled={activeStep === 0}
+          onClick={handleBack}
+          variant="outline"
+        >
+          {t('strategyWizard.previousStep')}
+        </Button>
+        {activeStep === steps.length - 1 ? (
+          <Button
+            colorScheme="green"
+            onClick={handleComplete}
+            leftIcon={<FiPlay />}
+          >
+            {t('strategyWizard.startStrategy')}
+          </Button>
+        ) : (
+          <Button
+            colorScheme="blue"
+            onClick={handleNext}
+          >
+            {t('strategyWizard.nextStep')}
+          </Button>
+        )}
+        <Button
+          onClick={onCancel}
+          variant="ghost"
+          ml="auto"
+        >
+          {t('strategyWizard.cancel')}
+        </Button>
+      </Flex>
+    </Box>
+  )
+}
+
+export default StrategyWizard
