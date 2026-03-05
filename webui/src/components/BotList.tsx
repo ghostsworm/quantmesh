@@ -23,11 +23,12 @@ import {
   AlertDialogOverlay,
   Tooltip,
 } from '@chakra-ui/react'
-import { AddIcon, ChevronRightIcon, RepeatIcon, DeleteIcon } from '@chakra-ui/icons'
+import { AddIcon, ChevronRightIcon, RepeatIcon, DeleteIcon, TimeIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { getBots, getBotGroups, startBot, stopBot, deleteBot, BotInfo } from '../services/api'
 import type { BotGroupResponse } from '../services/api'
+import BotBacktestDialog from './BotBacktestDialog'
 
 type FilterStatus = 'all' | 'running' | 'stopped'
 
@@ -43,6 +44,11 @@ const BotList: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<BotInfo | null>(null)
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
   const cancelDeleteRef = React.useRef<HTMLButtonElement>(null)
+
+  // 回测对话框状态
+  const [backtestBotId, setBacktestBotId] = useState<string | null>(null)
+  const [backtestBotName, setBacktestBotName] = useState<string>('')
+  const [isBacktestOpen, setIsBacktestOpen] = useState(false)
 
   const botIdToGroup = React.useMemo(() => {
     const m = new Map<string, BotGroupResponse>()
@@ -131,6 +137,18 @@ const BotList: React.FC = () => {
     } finally {
       setActionBotId(null)
     }
+  }
+
+  const handleBacktest = (bot: BotInfo) => {
+    setBacktestBotId(bot.bot_id)
+    setBacktestBotName(bot.name || bot.symbol)
+    setIsBacktestOpen(true)
+  }
+
+  const handleCloseBacktest = () => {
+    setIsBacktestOpen(false)
+    setBacktestBotId(null)
+    setBacktestBotName('')
   }
 
   const handleDeleteCancel = () => {
@@ -276,6 +294,15 @@ const BotList: React.FC = () => {
                         {t('botList.start')}
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      colorScheme="purple"
+                      variant="outline"
+                      leftIcon={<TimeIcon />}
+                      onClick={() => handleBacktest(bot)}
+                    >
+                      {t('botList.backtest')}
+                    </Button>
                   </HStack>
                   <Tooltip
                     label={
@@ -330,6 +357,16 @@ const BotList: React.FC = () => {
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
+
+      {/* 回测对话框 */}
+      {backtestBotId && (
+        <BotBacktestDialog
+          open={isBacktestOpen}
+          onClose={handleCloseBacktest}
+          botId={backtestBotId}
+          botName={backtestBotName}
+        />
+      )}
     </Box>
   )
 }
