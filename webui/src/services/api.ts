@@ -2685,3 +2685,130 @@ export async function resumeBotOpening(botID: string): Promise<{ status: string 
 export async function getBotPositionStatus(botID: string): Promise<PositionStatus> {
   return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/position-status`)
 }
+
+// ==================== Bot Backtest API ====================
+
+// Bot 回测请求
+export interface BotBacktestRequest {
+  bot_id: string
+  start_date?: string // ISO 8601 format
+  end_date?: string   // ISO 8601 format
+  data_dir?: string
+  commission?: number
+  leverage?: number
+}
+
+// Bot 回测响应
+export interface BotBacktestResponse {
+  task_id: string
+  status: string
+  message: string
+  bot_config?: any
+  backtest_config?: any
+}
+
+// Bot 回测任务
+export interface BotBacktestTask {
+  task_id: string
+  bot_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  created_at: string
+  started_at?: string
+  completed_at?: string
+  result?: BotBacktestResult
+  error?: string
+  progress: number
+}
+
+// Bot 回测结果
+export interface BotBacktestResult {
+  symbol: string
+  start_time: string
+  end_time: string
+  duration: string
+  initial_capital: number
+  final_equity: number
+  total_return: number
+  total_return_pct: number
+  total_trades: number
+  total_volume: number
+  total_fees: number
+  total_slippage: number
+  total_funding: number
+  equity_curve: Array<{ timestamp: number; equity: number }>
+  trades: Array<{
+    trade_id: string
+    order_id: string
+    side: string
+    price: number
+    size: number
+    strategy: string
+    timestamp: number
+    grid_level?: number
+    slippage: number
+  }>
+  completed_trades: Array<{
+    timestamp: number
+    side: 'long' | 'short'
+    entry_price: number
+    exit_price: number
+    size: number
+    pnl: number
+    fee: number
+    slippage: number
+    strategy: string
+    grid_level?: number
+  }>
+  stats_by_strategy: Record<string, {
+    name: string
+    type: string
+    total_trades: number
+    realized_pnl: number
+    slippage_cost: number
+    funding_cost: number
+    win_rate: number
+    max_drawdown: number
+    completed_trades: any[]
+  }>
+  risk_metrics: {
+    max_drawdown: number
+    max_drawdown_pct: number
+    sharpe_ratio: number
+    win_rate: number
+    profit_factor: number
+    avg_win: number
+    avg_loss: number
+    largest_win: number
+    largest_loss: number
+  }
+}
+
+// 创建 Bot 回测任务
+export async function createBotBacktest(botId: string, request: Omit<BotBacktestRequest, 'bot_id'>): Promise<BotBacktestResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botId)}/backtest`, {
+    method: 'POST',
+    body: JSON.stringify({ ...request, bot_id: botId }),
+  })
+}
+
+// 获取 Bot 回测任务状态
+export async function getBotBacktestTask(taskId: string): Promise<BotBacktestTask> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bot/backtest/${encodeURIComponent(taskId)}`)
+}
+
+// 获取 Bot 回测结果
+export async function getBotBacktestResult(taskId: string): Promise<BotBacktestResult> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bot/backtest/${encodeURIComponent(taskId)}/result`)
+}
+
+// 列出 Bot 回测任务
+export async function listBotBacktestTasks(botId: string): Promise<{ tasks: BotBacktestTask[]; count: number }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botId)}/backtest/tasks`)
+}
+
+// 删除 Bot 回测任务
+export async function deleteBotBacktestTask(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bot/backtest/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE',
+  })
+}

@@ -514,8 +514,29 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 					bots.POST("/:id/pause-opening", pauseBotOpening)
 					bots.POST("/:id/resume-opening", resumeBotOpening)
 					bots.GET("/:id/position-status", getBotPositionStatus)
+
+					// 回测 API
+					bots.POST("/:id/backtest", postBotBacktestCreate)
+					bots.GET("/:id/backtest/tasks", listBotBacktestTasks)
 				}
 				v2.POST("/close-records/:record_id/retry", retryClosePosition)
+
+				// 回测任务管理 API
+				backtest := v2.Group("/bot/backtest")
+				{
+					backtest.GET("/:taskId", getBotBacktestTask)
+					backtest.GET("/:taskId/result", getBotBacktestResult)
+					backtest.DELETE("/:taskId", deleteBotBacktestTask)
+				}
+
+				// 历史数据管理 API
+				data := v2.Group("/backtest/data")
+				{
+					data.POST("/download", postBinanceDataDownload)
+					data.GET("/info", getBinanceDataInfo)
+					data.GET("/availability", getBinanceDataAvailability)
+					data.GET("/latest", getBinanceLatestDataTime)
+				}
 			}
 
 			// 全局熔断器 API
