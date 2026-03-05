@@ -56,6 +56,8 @@ import {
   SliderTrack,
   SliderFilledTrack,
   SliderThumb,
+  Checkbox,
+  CheckboxGroup,
 } from '@chakra-ui/react'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -881,6 +883,28 @@ const Configuration: React.FC = () => {
                                 </NumberInput>
                               </FormControl>
                             </SimpleGrid>
+                          )}
+                          {(config.system?.log_cleanup?.enabled ?? true) && (
+                            <FormControl>
+                              <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.logCleanupLevels')}</FormLabel>
+                              <Text fontSize="xs" color="gray.500" mb={2}>{t('configuration.logCleanupLevelsDesc')}</Text>
+                              <CheckboxGroup
+                                value={config.system?.log_cleanup?.levels_to_clean ?? ['INFO', 'WARN']}
+                                onChange={(values: (string | number)[]) => {
+                                  const lc = config.system?.log_cleanup || { enabled: true, schedule: '02:00', retention_days: 7, levels_to_clean: ['INFO', 'WARN'] }
+                                  const levels = (values as string[]).length > 0 ? (values as string[]) : ['INFO', 'WARN']
+                                  updateConfigField('system.log_cleanup', { ...lc, levels_to_clean: levels })
+                                }}
+                              >
+                                <HStack spacing={4} flexWrap="wrap">
+                                  {['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'].map((level) => (
+                                    <Checkbox key={level} value={level} size="sm">
+                                      {level}
+                                    </Checkbox>
+                                  ))}
+                                </HStack>
+                              </CheckboxGroup>
+                            </FormControl>
                           )}
                         </Stack>
                       </Box>

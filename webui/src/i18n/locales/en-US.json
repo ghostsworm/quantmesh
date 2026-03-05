@@ -714,6 +714,8 @@
     "logCleanupEnabled": "Enable scheduled cleanup",
     "logCleanupSchedule": "Schedule (HH:MM)",
     "logCleanupRetentionDays": "Retention days",
+    "logCleanupLevels": "Levels to clean",
+    "logCleanupLevelsDesc": "Selected levels will be cleaned periodically. Unselected are kept (recommend keeping ERROR/DEBUG for troubleshooting)",
     "useTestnet": "Use Testnet",
     "feeRate": "Fee Rate:",
     "globalNotificationSwitch": "Global Notification Switch",
