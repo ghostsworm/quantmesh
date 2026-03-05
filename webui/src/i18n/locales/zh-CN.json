@@ -714,6 +714,8 @@
     "logCleanupEnabled": "启用定期清理",
     "logCleanupSchedule": "执行时间",
     "logCleanupRetentionDays": "保留天数",
+    "logCleanupLevels": "要清理的级别",
+    "logCleanupLevelsDesc": "勾选的级别将被定期清理，未勾选的保留（建议保留 ERROR/DEBUG 便于排查）",
     "useTestnet": "使用测试网 (Testnet)",
     "feeRate": "手续费率:",
     "globalNotificationSwitch": "全局通知开关",
