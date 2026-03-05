@@ -2,6 +2,25 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.58.0-rc2] - 2026-03-05
+
+### Fixed
+- **ReduceOnly 錯誤頻率優化**：降低「無持倉需清空槽位」重複告警
+  - 新增槽位冷却期（2 分鐘）：同一槽位 ReduceOnly 失敗後短期內不再嘗試平倉，避免 5 分鐘內重複觸發
+  - 解析失敗 fallback：`parseClientOrderID` 失敗時從 `ordersToPlace` 反推槽位價格並清空，避免因解析失敗導致槽位無法清空、持續重試
+  - 日誌降級：ReduceOnly 錯誤從 ERROR 改為 WARN（系統會自動清空槽位，減少 AIPipe 告警噪音）
+
+## [3.58.0-rc1] - 2026-03-04
+
+### Added
+- **宏觀事件預測市場信號**：接入 Polymarket Gamma REST API，追蹤戰爭、利率、匯率、監管、經濟衰退等宏觀事件
+  - 新增 `macro` 包：`MacroEventFetcher` 定時拉取、`EventImpactClassifier` 事件分類與影響映射
+  - 新增 `safety/factor_macro.go`：`MacroEventRiskFactor` 風控因子，可註冊到複合風控引擎
+  - 配置 `macro_event`：啟用開關、拉取間隔、分類關鍵詞、過濾條件
+  - API：`GET /api/macro/events`、`GET /api/macro/impact`
+  - 市場情報頁新增「宏觀事件」標籤，展示預測概率與影響評估
+  - `GetPolymarketMarkets` 優先使用 Gamma REST API（無需認證），回退 GraphQL
+
 ## [3.57.0-rc3] - 2026-03-04
 
 ### Fixed

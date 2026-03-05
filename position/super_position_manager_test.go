@@ -4,6 +4,7 @@ import (
 	"context"
 	"quantmesh/config"
 	"testing"
+	"time"
 )
 
 // MockExecutor 模拟订單執行器
@@ -58,8 +59,19 @@ func (m *MockExchange) GetOpenOrders(ctx context.Context, symbol string) (interf
 func (m *MockExchange) GetOrder(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
 	return nil, nil
 }
-func (m *MockExchange) GetBaseAsset() string                                     { return "BTC" }
-func (m *MockExchange) CancelAllOrders(ctx context.Context, symbol string) error { return nil }
+func (m *MockExchange) GetAccount(ctx context.Context) (interface{}, error)       { return nil, nil }
+func (m *MockExchange) GetPriceDecimals() int                                     { return 2 }
+func (m *MockExchange) GetQuantityDecimals() int                                  { return 3 }
+func (m *MockExchange) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
+	return nil, nil
+}
+func (m *MockExchange) GetOrderFills(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
+	return nil, nil
+}
+func (m *MockExchange) GetBaseAsset() string { return "BTC" }
+func (m *MockExchange) CancelAllOrders(ctx context.Context, symbol string) error {
+	return nil
+}
 
 func TestSuperPositionManager_Initialize(t *testing.T) {
 	cfg := &config.Config{}
@@ -150,5 +162,35 @@ func TestSuperPositionManager_OnOrderUpdate(t *testing.T) {
 	defer testSlot.mu.RUnlock()
 	if testSlot.PositionStatus != PositionStatusFilled {
 		t.Errorf("槽位持倉状態錯误: 期望 FILLED, 得到 %s", testSlot.PositionStatus)
+	}
+}
+
+func TestSuperPositionManager_ReduceOnlyCooldown(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100.0
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.OrderQuantity = 100.0
+
+	executor := &MockExecutor{}
+	ex := &MockExchange{}
+	spm := NewSuperPositionManager(cfg, executor, ex, 2, 3)
+	spm.Initialize(50000.0, "50000.00")
+
+	slotPrice := 49900.0
+	// 初始不在冷却期
+	if spm.isReduceOnlyCooldown(slotPrice) {
+		t.Error("新槽位不應在冷却期")
+	}
+	// 記錄冷却
+	spm.reduceOnlyCooldown.Store(slotPrice, time.Now())
+	// 應在冷却期
+	if !spm.isReduceOnlyCooldown(slotPrice) {
+		t.Error("剛記錄的槽位應在冷却期")
+	}
+	// 記錄 3 分鐘前，應已過期
+	spm.reduceOnlyCooldown.Store(slotPrice, time.Now().Add(-3*time.Minute))
+	if spm.isReduceOnlyCooldown(slotPrice) {
+		t.Error("3 分鐘前的冷却應已過期")
 	}
 }

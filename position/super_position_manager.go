@@ -287,7 +287,10 @@ type SuperPositionManager struct {
 	slotFilterMu   sync.RWMutex
 
 	// 智能掛單管理器
-	smartOrderMgr  *SmartOrderManager
+	smartOrderMgr *SmartOrderManager
+
+	// ReduceOnly 槽位冷却期：同一槽位 ReduceOnly 失败后，短期内不再尝试下平仓单（防止重复告警）
+	reduceOnlyCooldown sync.Map // map[float64]time.Time
 
 	mu sync.RWMutex // 全局鎖（用於关键操作）
 }
@@ -864,6 +867,16 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 func (spm *SuperPositionManager) generateClientOrderID(price float64, side string) string {
 	// 使用统一的 utils 包生成紧凑ID
 	return utils.GenerateOrderID(price, side, spm.priceDecimals)
+}
+
+// isReduceOnlyCooldown 检查槽位是否处于 ReduceOnly 冷却期（2 分钟内不再尝试平仓）
+func (spm *SuperPositionManager) isReduceOnlyCooldown(slotPrice float64) bool {
+	const cooldown = 2 * time.Minute
+	if v, ok := spm.reduceOnlyCooldown.Load(slotPrice); ok {
+		t := v.(time.Time)
+		return time.Since(t) < cooldown
+	}
+	return false
 }
 
 // parseClientOrderID 解析 ClientOrderID
@@ -1482,6 +1495,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			slot.OrderID == 0 &&
 			slot.ClientOID == "" {
 
+			// 🔥 ReduceOnly 冷却期：该槽位近期 ReduceOnly 失败过，跳过避免重复告警
+			if spm.isReduceOnlyCooldown(slotPrice) {
+				return true
+			}
+
 			var closePrice float64
 			if spm.isShort() {
 				closePrice = slotPrice - profitSpread // SHORT: 買低平倉
@@ -1845,6 +1863,33 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		// 🔥 处理 ReduceOnly 錯误：清空對应槽位的持倉
 		for clientOID := range result.ReduceOnlyErrors {
 			price, side, valid := spm.parseClientOrderID(clientOID)
+			if !valid {
+				// 解析失败时 fallback：从 ordersToPlace 中根据 ClientOrderID 反推槽位价格
+				var fallbackPrice float64
+				for _, req := range ordersToPlace {
+					if req.ClientOrderID == clientOID {
+						profitSpread := spm.getEffectiveProfitSpread()
+						if req.Side == "SELL" {
+							fallbackPrice = req.Price - profitSpread // LONG: closePrice = slotPrice + spread
+						} else {
+							fallbackPrice = req.Price + profitSpread // SHORT: closePrice = slotPrice - spread
+						}
+						break
+					}
+				}
+				if fallbackPrice > 0 {
+					price = fallbackPrice
+					side = "SELL"
+					if spm.isShort() {
+						side = "BUY"
+					}
+					valid = true
+					logger.Warn("⚠️ [ReduceOnly錯誤處理] ClientOrderID 解析失败，使用 fallback 反推槽位價格=%s", formatPrice(price, spm.priceDecimals))
+				} else {
+					logger.Warn("⚠️ [ReduceOnly錯誤處理] 無法解析 ClientOrderID=%s，跳過清空槽位（可能導致重複告警）", clientOID)
+					continue
+				}
+			}
 			if valid {
 				if side == "SELL" {
 					// SELL ReduceOnly：平多倉失败，清空槽位持倉状態
@@ -1859,10 +1904,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 						slot.SlotStatus = SlotStatusFree
 					}
 					slot.mu.Unlock()
+					// 記錄冷却期，2 分钟内不再尝试该槽位平仓
+					spm.reduceOnlyCooldown.Store(price, time.Now())
 				} else if side == "BUY" {
 					// BUY ReduceOnly：平空倉失败，账戶中無空倉（系统不管理空倉状態，僅記錄日志）
 					logger.Warn("⚠️ [ReduceOnly錯誤處理] BUY平空倉订單被拒绝: 價格=%s, 账戶中無空倉",
 						formatPrice(price, spm.priceDecimals))
+					spm.reduceOnlyCooldown.Store(price, time.Now())
 				}
 			}
 		}
