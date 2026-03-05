@@ -210,23 +210,16 @@ const BotCreateWizard: React.FC = () => {
         toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
         navigate('/bots')
       } else {
-        await createBot(baseReq)
+        const res = await createBot(baseReq)
         toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
-        const botsRes = await getBots()
-        const bot = (botsRes.bots || []).find(
-          (b) =>
-            b.exchange === form.exchange &&
-            b.symbol === form.symbol &&
-            b.market_type === (form.market_type || 'futures')
-        )
-        if (bot) navigate(`/bots/${bot.bot_id}`)
+        if (res?.bot_id) navigate(`/bots/${res.bot_id}`)
         else navigate('/bots')
       }
     } catch (err) {
-      const e = err as Error & { errorKey?: string; groupName?: string }
+      const e = err as Error & { errorKey?: string; groupName?: string; botId?: string }
       const msg =
         e.errorKey
-          ? t(e.errorKey, { groupName: e.groupName ?? '' })
+          ? t(e.errorKey, { groupName: e.groupName ?? '', botId: e.botId ?? '' })
           : t('botCreate.failed')
       toast({ title: msg, status: 'error', duration: 4000 })
     } finally {

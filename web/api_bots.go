@@ -123,16 +123,17 @@ func postBotCreate(c *gin.Context) {
 		return
 	}
 
-	// 檢查同 exchange+symbol+marketType 是否已存在
-	botID := config.GenerateBotID(req.Exchange, req.Symbol, mt)
+	// 1. 檢查對沖組占用：若該交易對已被對沖組占用，拒絕
+	symbolKey := config.GenerateBotID(req.Exchange, req.Symbol, mt)
 	for _, b := range cfg.Bots {
 		id := b.ID
 		if id == "" {
 			id = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
 		}
-		if id == botID {
+		existingKey := config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
+		if existingKey == symbolKey {
 			if groupName := findGroupNameByBotID(cfg, id); groupName != "" {
-				logger.Warn("⚠️ [Bot創建] 衝突：%s 已被對沖組「%s」占用", botID, groupName)
+				logger.Warn("⚠️ [Bot創建] 衝突：%s 已被對沖組「%s」占用", symbolKey, groupName)
 				c.JSON(http.StatusConflict, gin.H{
 					"error":      "symbol_used_by_hedge_group",
 					"error_key":  "error.bot_symbol_used_by_hedge_group",
@@ -140,11 +141,29 @@ func postBotCreate(c *gin.Context) {
 				})
 				return
 			}
-			logger.Warn("⚠️ [Bot創建] 衝突：%s 已存在（普通衝突）", botID)
-			c.JSON(http.StatusConflict, gin.H{"error": "symbol_conflict", "error_key": "error.bot_symbol_conflict"})
-			return
 		}
 	}
+
+	// 2. 檢查運行中衝突：若同一交易對已有 Bot 在運行，拒絕（同一交易對只能有一個運行）
+	if botManagerProvider != nil {
+		for _, resp := range botManagerProvider.ListBots() {
+			if resp.Running &&
+				strings.EqualFold(resp.Exchange, req.Exchange) &&
+				strings.EqualFold(resp.Symbol, req.Symbol) &&
+				strings.EqualFold(resp.MarketType, mt) {
+				logger.Warn("⚠️ [Bot創建] 衝突：%s 已有 Bot [%s] 在運行，請先停止或刪除", symbolKey, resp.BotID)
+				c.JSON(http.StatusConflict, gin.H{
+					"error":     "symbol_running",
+					"error_key": "error.bot_symbol_running",
+					"bot_id":    resp.BotID,
+				})
+				return
+			}
+		}
+	}
+
+	// 3. 使用 UUID 作為新 Bot 的唯一 ID，支持同一交易對多個 Bot 配置（僅一個可運行）
+	botID := config.GenerateUniqueBotID()
 
 	// 構建 BotConfig
 	name := req.Name

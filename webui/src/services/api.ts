@@ -23,9 +23,9 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
       window.location.replace('/login')
     }
     const errorText = await response.text()
-    let parsed: { error_key?: string; group_name?: string } | null = null
+    let parsed: { error_key?: string; group_name?: string; bot_id?: string } | null = null
     try {
-      parsed = JSON.parse(errorText) as { error_key?: string; group_name?: string }
+      parsed = JSON.parse(errorText) as { error_key?: string; group_name?: string; bot_id?: string }
     } catch {
       /* ignore */
     }
@@ -33,10 +33,12 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
       status?: number
       errorKey?: string
       groupName?: string
+      botId?: string
     }
     err.status = response.status
     if (parsed?.error_key) err.errorKey = parsed.error_key
     if (parsed?.group_name) err.groupName = parsed.group_name
+    if (parsed?.bot_id) err.botId = parsed.bot_id
     throw err
   }
 

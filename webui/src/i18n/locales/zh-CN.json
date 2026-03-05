@@ -28,6 +28,7 @@
   "error": {
     "bot_symbol_conflict": "该交易对已存在 Bot，同一交易对不能运行多个 Bot。",
     "bot_symbol_used_by_hedge_group": "该交易对已被对冲组「{{groupName}}」占用，请先删除对冲组再创建独立 Bot。",
+    "bot_symbol_running": "该交易对已有 Bot（{{botId}}）在运行，请先停止或删除后再创建新 Bot。同一交易对同一时刻只能有一个 Bot 运行。",
     "bot_in_hedge_group_cannot_delete": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组。"
   },
   "botList": {
