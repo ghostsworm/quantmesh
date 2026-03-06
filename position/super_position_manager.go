@@ -3328,9 +3328,11 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
 			logger.Debug("ℹ️ [强制同步] 本地本来就没有持倉，無需操作")
 		}
 	} else {
-		// 交易所仍有持倉，但本地可能超出交易所實際持倉
-		// 需要修剪多餘的本地槽位，防止平倉委託超出實際持倉
+		// 交易所仍有持倉
+		// 1. 若本地超出交易所：修剪多餘的本地槽位，防止平倉委託超出實際持倉
+		// 2. 若本地少於交易所：以交易所為準，補齊本地持倉差額
 		spm.trimExcessPositions(exchangePosition)
+		spm.fillDeficitPositions(exchangePosition)
 	}
 }
 
@@ -3429,6 +3431,78 @@ func (spm *SuperPositionManager) trimExcessPositions(exchangePosition float64) {
 	if trimmed > 0 {
 		logger.Info("✅ [强制同步] 已修剪 %d 個幻影槽位，本地持倉已對齊交易所持倉 %.6f", trimmed, exchangePosition)
 	}
+}
+
+// fillDeficitPositions 補齊本地持倉差額（當本地持倉 < 交易所持倉時，以交易所為準）
+// 將差額分配到距離當前價格最近的已填充槽位；若無任何槽位則觸發完整持倉恢復
+func (spm *SuperPositionManager) fillDeficitPositions(exchangePosition float64) {
+	type filledSlot struct {
+		Price    float64
+		Qty      float64
+		Distance float64
+	}
+	var filledSlots []filledSlot
+	localTotal := 0.0
+
+	currentPrice, _ := spm.lastMarketPrice.Load().(float64)
+	if currentPrice <= 0 {
+		currentPrice = spm.anchorPrice
+	}
+
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			price := key.(float64)
+			localTotal += slot.PositionQty
+			filledSlots = append(filledSlots, filledSlot{
+				Price:    price,
+				Qty:      slot.PositionQty,
+				Distance: math.Abs(price - currentPrice),
+			})
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+
+	deficit := exchangePosition - localTotal
+	if deficit <= 0.00000001 {
+		return
+	}
+
+	if len(filledSlots) == 0 {
+		// 本地無任何持倉槽位，觸發完整持倉恢復
+		logger.Warn("🚨 [强制同步] 本地持倉為 0，交易所持倉 %.6f，觸發完整持倉恢復", exchangePosition)
+		spm.initializeSellSlotsFromPosition(exchangePosition)
+		return
+	}
+
+	// 按距離當前價格升序排序，取最近的槽位補齊差額
+	sort.Slice(filledSlots, func(i, j int) bool {
+		return filledSlots[i].Distance < filledSlots[j].Distance
+	})
+
+	deficit = roundPrice(deficit, spm.quantityDecimals)
+	if deficit <= 0 {
+		return
+	}
+
+	nearestPrice := filledSlots[0].Price
+	slotRaw, ok := spm.slots.Load(nearestPrice)
+	if !ok {
+		return
+	}
+	slot := slotRaw.(*InventorySlot)
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+
+	if slot.PositionStatus != PositionStatusFilled {
+		return
+	}
+
+	slot.PositionQty += deficit
+	logger.Info("✅ [强制同步] 以交易所為準補齊持倉：槽位 %s 增加 %.6f，本地持倉 %.6f -> %.6f",
+		formatPrice(slot.Price, spm.priceDecimals), deficit, localTotal, localTotal+deficit)
 }
 
 // initializeSellSlotsFromPosition 從現有持倉初始化賣單槽位（用於程序重啟后恢複状態）

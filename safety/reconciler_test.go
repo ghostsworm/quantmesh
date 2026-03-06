@@ -33,6 +33,7 @@ func (m *MockPositionManager) UpdateLastReconcileTime(t time.Time) {}
 func (m *MockPositionManager) GetSymbol() string                   { return m.Symbol }
 func (m *MockPositionManager) GetPriceInterval() float64           { return m.PriceInterval }
 func (m *MockPositionManager) GetProfitSpread() float64            { return m.PriceInterval }
+func (m *MockPositionManager) ForceSyncPositions(exchangePosition float64) {}
 
 // TestSlot 用於對账反射
 type TestSlot struct {
