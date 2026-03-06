@@ -41,6 +41,8 @@ import {
   VStack,
   Alert,
   AlertIcon,
+  AlertTitle,
+  AlertDescription,
   Divider,
   Switch,
 } from '@chakra-ui/react'
