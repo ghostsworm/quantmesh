@@ -619,6 +619,29 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
             </NavItem>
           </>
         )}
+
+        {/* 版本信息 */}
+        {!collapsed && (
+          <Box
+            px="6"
+            py="3"
+            mt="auto"
+            position="absolute"
+            bottom="0"
+            left="0"
+            right="0"
+            bg={isInBotMode ? 'blue.50' : 'rgba(255, 255, 255, 0.8)'}
+            borderTop="1px solid"
+            borderTopColor={borderColor}
+          >
+            <Text fontSize="xs" color="gray.400" fontWeight="medium">
+              v{__APP_VERSION__}
+            </Text>
+            <Text fontSize="xs" color="gray.400" fontWeight="medium">
+              {__GIT_HASH__}
+            </Text>
+          </Box>
+        )}
       </VStack>
     </Box>
   )
