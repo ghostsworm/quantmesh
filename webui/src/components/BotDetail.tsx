@@ -29,6 +29,20 @@ import {
   Td,
   TableContainer,
   useDisclosure,
+  FormControl,
+  FormLabel,
+  Input,
+  NumberInput,
+  NumberInputField,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper,
+  Select,
+  VStack,
+  Alert,
+  AlertIcon,
+  Divider,
+  Switch,
 } from '@chakra-ui/react'
 import { ChevronLeftIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
@@ -41,11 +55,32 @@ import {
   getPositionsSummary,
   getStatistics,
   getLogs,
+  updateBotStrategy,
   BotDetailInfo,
+  UpdateBotStrategyRequest,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
 import BotRiskControlPanel from './BotRiskControlPanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
+
+// 策略选项定义
+interface StrategyOption {
+  value: string
+  label: string
+}
+
+const GRID_RELATED_STRATEGIES: StrategyOption[] = [
+  { value: 'grid', label: '網格策略' },
+  { value: 'grid+trend', label: '網格+趨勢組合' },
+  { value: 'trend_following', label: '趨勢跟蹤' },
+  { value: 'momentum', label: '動量策略' },
+  { value: 'mean_reversion', label: '均值回歸' },
+]
+
+const DCA_RELATED_STRATEGIES: StrategyOption[] = [
+  { value: 'dca', label: '定投策略' },
+  { value: 'martingale', label: '馬丁格爾' },
+]
 
 const BotDetail: React.FC = () => {
   const { botId } = useParams<{ botId: string }>()
@@ -361,14 +396,7 @@ const BotDetail: React.FC = () => {
             )}
           </TabPanel>
           <TabPanel px={0}>
-            <Card>
-              <CardBody>
-                <Text color="gray.600" mb={4}>{t('botDetail.strategyHint')}</Text>
-                <Button size="sm" colorScheme="blue" onClick={handleOpenWorkspace}>
-                  {t('botDetail.openWorkspace')} → {t('sidebar.strategyAllocation')}
-                </Button>
-              </CardBody>
-            </Card>
+            <BotStrategyConfigPanel botId={botId!} bot={bot} />
           </TabPanel>
           <TabPanel px={0}>
             {botId && (
@@ -425,6 +453,331 @@ const BotDetail: React.FC = () => {
         botName={bot?.name || bot?.symbol}
       />
     </Box>
+  )
+}
+
+// BotStrategyConfigPanel Bot 策略配置面板
+interface BotStrategyConfigPanelProps {
+  botId: string
+  bot: BotDetailInfo | null
+}
+
+const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, bot }) => {
+  const { t } = useTranslation()
+  const toast = useToast()
+
+  const [strategyType, setStrategyType] = useState<string>('grid')
+  const [originalStrategyType, setOriginalStrategyType] = useState<string>('')
+  const [priceInterval, setPriceInterval] = useState<string>('')
+  const [profitSpread, setProfitSpread] = useState<string>('')
+  const [orderQuantity, setOrderQuantity] = useState<string>('')
+  const [priceLow, setPriceLow] = useState<string>('')
+  const [priceHigh, setPriceHigh] = useState<string>('')
+  const [hasChanges, setHasChanges] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // 策略类型选项（根据当前策略类型限制可切换的类型）
+  const getAvailableStrategies = () => {
+    if (!bot?.config?.strategies || bot.config.strategies.length === 0) {
+      return GRID_RELATED_STRATEGIES
+    }
+    const currentType = bot.config.strategies[0].type
+    if (GRID_RELATED_STRATEGIES.some(s => s.value === currentType)) {
+      return GRID_RELATED_STRATEGIES
+    }
+    if (DCA_RELATED_STRATEGIES.some(s => s.value === currentType)) {
+      return DCA_RELATED_STRATEGIES
+    }
+    return GRID_RELATED_STRATEGIES
+  }
+
+  // 初始化表单数据
+  useEffect(() => {
+    if (bot?.config) {
+      const cfg = bot.config as any
+      if (cfg.strategies && cfg.strategies.length > 0) {
+        const type = cfg.strategies[0].type || 'grid'
+        setStrategyType(type)
+        setOriginalStrategyType(type)
+      }
+      setPriceInterval(cfg.price_interval?.toString() || '')
+      setProfitSpread(cfg.profit_spread?.toString() || '')
+      setOrderQuantity(cfg.order_quantity?.toString() || '')
+      setPriceLow(cfg.price_low?.toString() || '')
+      setPriceHigh(cfg.price_high?.toString() || '')
+    }
+  }, [bot])
+
+  // 检查是否尝试切换策略类型
+  const isTryingToChangeStrategyType = strategyType !== originalStrategyType
+
+  const handleSave = async () => {
+    // 运行中不允许切换策略类型，但允许修改参数
+    if (bot.running && isTryingToChangeStrategyType) {
+      toast({
+        title: t('botDetail.strategy.cannotChangeTypeRunning'),
+        status: 'warning',
+        duration: 3000,
+      })
+      return
+    }
+
+    setSaving(true)
+    try {
+      const updateData: UpdateBotStrategyRequest = {
+        strategies: [{
+          type: strategyType,
+          weight: 1.0,
+          config: {},
+        }],
+      }
+
+      // 只添加有值的字段
+      if (priceInterval) updateData.price_interval = parseFloat(priceInterval)
+      if (profitSpread) updateData.profit_spread = parseFloat(profitSpread)
+      if (orderQuantity) updateData.order_quantity = parseFloat(orderQuantity)
+      if (priceLow) updateData.price_low = parseFloat(priceLow)
+      if (priceHigh) updateData.price_high = parseFloat(priceHigh)
+
+      await updateBotStrategy(botId, updateData)
+      toast({
+        title: t('botDetail.strategy.saveSuccess'),
+        status: 'success',
+        duration: 2000,
+      })
+      setHasChanges(false)
+      setOriginalStrategyType(strategyType) // 更新原始策略类型
+    } catch (err: any) {
+      const errorMsg = err.errorKey ? t(err.errorKey) : t('botDetail.strategy.saveFailed')
+      toast({
+        title: errorMsg,
+        status: 'error',
+        duration: 3000,
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReset = () => {
+    if (bot?.config) {
+      const cfg = bot.config as any
+      if (cfg.strategies && cfg.strategies.length > 0) {
+        setStrategyType(cfg.strategies[0].type || 'grid')
+      }
+      setPriceInterval(cfg.price_interval?.toString() || '')
+      setProfitSpread(cfg.profit_spread?.toString() || '')
+      setOrderQuantity(cfg.order_quantity?.toString() || '')
+      setPriceLow(cfg.price_low?.toString() || '')
+      setPriceHigh(cfg.price_high?.toString() || '')
+      setHasChanges(false)
+    }
+  }
+
+  return (
+    <VStack align="stretch" spacing={4}>
+      {/* 提示信息 */}
+      {bot.running && isTryingToChangeStrategyType && (
+        <Alert status="warning">
+          <AlertIcon />
+          <Text>{t('botDetail.strategy.cannotChangeTypeRunning')}</Text>
+        </Alert>
+      )}
+
+      {/* 策略类型选择 */}
+      <Card>
+        <CardBody>
+          <FormControl isDisabled={bot.running}>
+            <FormLabel>{t('botDetail.strategy.strategyType')}</FormLabel>
+            <Select
+              value={strategyType}
+              onChange={(e) => {
+                setStrategyType(e.target.value)
+                setHasChanges(true)
+              }}
+            >
+              {getAvailableStrategies().map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </Select>
+            <Text fontSize="xs" color="gray.500" mt={1}>
+              {t('botDetail.strategy.typeHint')}
+            </Text>
+            {bot.running && (
+              <Text fontSize="xs" color="orange.500" mt={1}>
+                {t('botDetail.strategy.typeChangeDisabledRunning')}
+              </Text>
+            )}
+          </FormControl>
+        </CardBody>
+      </Card>
+
+      {/* 网格参数配置 */}
+      <Card>
+        <CardBody>
+          <Heading size="sm" mb={4}>{t('botDetail.strategy.gridParams')}</Heading>
+          <VStack align="stretch" spacing={4}>
+            <FormControl>
+              <FormLabel>{t('botDetail.strategy.priceInterval')}</FormLabel>
+              <NumberInput
+                value={priceInterval}
+                onChange={(valueString) => {
+                  setPriceInterval(valueString)
+                  setHasChanges(true)
+                }}
+                min={0}
+                step={10}
+              >
+                <NumberInputField />
+                <NumberInputStepper>
+                  <NumberIncrementStepper />
+                  <NumberDecrementStepper />
+                </NumberInputStepper>
+              </NumberInput>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {t('botDetail.strategy.priceIntervalHint')}
+              </Text>
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>{t('botDetail.strategy.profitSpread')}</FormLabel>
+              <NumberInput
+                value={profitSpread}
+                onChange={(valueString) => {
+                  setProfitSpread(valueString)
+                  setHasChanges(true)
+                }}
+                min={0}
+                step={10}
+              >
+                <NumberInputField />
+                <NumberInputStepper>
+                  <NumberIncrementStepper />
+                  <NumberDecrementStepper />
+                </NumberInputStepper>
+              </NumberInput>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {t('botDetail.strategy.profitSpreadHint')}
+              </Text>
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>{t('botDetail.strategy.orderQuantity')}</FormLabel>
+              <NumberInput
+                value={orderQuantity}
+                onChange={(valueString) => {
+                  setOrderQuantity(valueString)
+                  setHasChanges(true)
+                }}
+                min={0}
+                step={10}
+              >
+                <NumberInputField />
+                <NumberInputStepper>
+                  <NumberIncrementStepper />
+                  <NumberDecrementStepper />
+                </NumberInputStepper>
+              </NumberInput>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {t('botDetail.strategy.orderQuantityHint')}
+              </Text>
+            </FormControl>
+
+            <Divider />
+
+            <FormControl>
+              <FormLabel>{t('botDetail.strategy.priceLow')}</FormLabel>
+              <NumberInput
+                value={priceLow}
+                onChange={(valueString) => {
+                  setPriceLow(valueString)
+                  setHasChanges(true)
+                }}
+                min={0}
+                step={100}
+              >
+                <NumberInputField />
+                <NumberInputStepper>
+                  <NumberIncrementStepper />
+                  <NumberDecrementStepper />
+                </NumberInputStepper>
+              </NumberInput>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {t('botDetail.strategy.priceLowHint')}
+              </Text>
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>{t('botDetail.strategy.priceHigh')}</FormLabel>
+              <NumberInput
+                value={priceHigh}
+                onChange={(valueString) => {
+                  setPriceHigh(valueString)
+                  setHasChanges(true)
+                }}
+                min={0}
+                step={100}
+              >
+                <NumberInputField />
+                <NumberInputStepper>
+                  <NumberIncrementStepper />
+                  <NumberDecrementStepper />
+                </NumberInputStepper>
+              </NumberInput>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {t('botDetail.strategy.priceHighHint')}
+              </Text>
+            </FormControl>
+          </VStack>
+        </CardBody>
+      </Card>
+
+      {/* 操作按钮 */}
+      {hasChanges && (
+        <HStack spacing={3} justifyContent="flex-end">
+          <Button
+            variant="ghost"
+            onClick={handleReset}
+            isDisabled={saving}
+          >
+            {t('common.reset')}
+          </Button>
+          <Button
+            colorScheme="blue"
+            onClick={handleSave}
+            isLoading={saving}
+            isDisabled={bot.running && isTryingToChangeStrategyType}
+          >
+            {t('common.save')}
+          </Button>
+        </HStack>
+      )}
+
+      {/* 跳转到工作区的按钮 */}
+      {!hasChanges && (
+        <Card>
+          <CardBody>
+            <Flex justify="space-between" align="center">
+              <Text color="gray.600">{t('botDetail.strategy.workspaceHint')}</Text>
+              <Button
+                size="sm"
+                colorScheme="blue"
+                variant="outline"
+                onClick={() => {
+                  if (bot) {
+                    navigateToBot(botId, 'dashboard')
+                  }
+                }}
+              >
+                {t('botDetail.openWorkspace')} → {t('sidebar.strategyAllocation')}
+              </Button>
+            </Flex>
+          </CardBody>
+        </Card>
+      )}
+    </VStack>
   )
 }
 

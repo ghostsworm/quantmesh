@@ -9,6 +9,7 @@
     "cancel": "Cancel",
     "close": "Close",
     "save": "Save",
+    "reset": "Reset",
     "confirm": "Confirm",
     "delete": "Delete",
     "loading": "Loading...",
@@ -29,7 +30,9 @@
     "bot_symbol_conflict": "A bot for this symbol already exists. Multiple bots on the same symbol are not allowed.",
     "bot_symbol_used_by_hedge_group": "This symbol is used by hedge group {{groupName}}. Delete the hedge group first to create a standalone bot.",
     "bot_symbol_running": "A bot ({{botId}}) for this symbol is already running. Stop or delete it first. Only one bot per symbol can run at a time.",
-    "bot_in_hedge_group_cannot_delete": "This bot belongs to hedge group {{groupName}}. Delete the hedge group first."
+    "bot_in_hedge_group_cannot_delete": "This bot belongs to hedge group {{groupName}}. Delete the hedge group first.",
+    "bot_running_cannot_modify": "Cannot modify strategy while bot is running. Please stop the bot first.",
+    "invalid_strategy_change": "Invalid strategy type change. Grid strategies can only switch to grid-related types, DCA strategies can only switch to DCA-related types."
   },
   "botList": {
     "title": "Bot List",
@@ -157,7 +160,27 @@
     "todayPnlOurs": "Today PnL (Ours)",
     "todayPnlExchange": "Today PnL (Exchange)",
     "ours": "Ours",
-    "exchange": "Exchange"
+    "exchange": "Exchange",
+    "strategy": {
+      "strategyType": "Strategy Type",
+      "typeHint": "Can only switch between related strategy types. Grid strategies can switch to grid+trend etc; DCA strategies can only switch to martingale etc.",
+      "typeChangeDisabledRunning": "Cannot change strategy type while bot is running, but grid parameters can be modified",
+      "gridParams": "Grid Parameters",
+      "priceInterval": "Price Interval (Grid Spacing)",
+      "priceIntervalHint": "Price difference per grid level, e.g. 200 means 200 USDT difference per level",
+      "profitSpread": "Profit Spread",
+      "profitSpreadHint": "Profit margin for closing positions, 0 means equal to price interval",
+      "orderQuantity": "Order Quantity",
+      "orderQuantityHint": "Amount per order (USDT)",
+      "priceLow": "Price Lower Bound",
+      "priceLowHint": "Grid price lower limit, 0 means unlimited",
+      "priceHigh": "Price Upper Bound",
+      "priceHighHint": "Grid price upper limit, 0 means unlimited",
+      "cannotChangeTypeRunning": "Cannot change strategy type while bot is running. Parameters can be modified, but strategy type changes require stopping the bot first.",
+      "saveSuccess": "Strategy configuration updated",
+      "saveFailed": "Failed to update strategy configuration",
+      "workspaceHint": "For more detailed strategy allocation configuration, please go to the Strategy Allocation page"
+    }
   },
   "sidebar": {
     "backToBotList": "Back to Bot List",

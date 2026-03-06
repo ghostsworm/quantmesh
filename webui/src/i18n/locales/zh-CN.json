@@ -9,6 +9,7 @@
     "cancel": "取消",
     "close": "关闭",
     "save": "保存",
+    "reset": "重置",
     "confirm": "确认",
     "delete": "删除",
     "loading": "加载中...",
@@ -29,7 +30,9 @@
     "bot_symbol_conflict": "该交易对已存在 Bot，同一交易对不能运行多个 Bot。",
     "bot_symbol_used_by_hedge_group": "该交易对已被对冲组「{{groupName}}」占用，请先删除对冲组再创建独立 Bot。",
     "bot_symbol_running": "该交易对已有 Bot（{{botId}}）在运行，请先停止或删除后再创建新 Bot。同一交易对同一时刻只能有一个 Bot 运行。",
-    "bot_in_hedge_group_cannot_delete": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组。"
+    "bot_in_hedge_group_cannot_delete": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组。",
+    "bot_running_cannot_modify": "Bot 正在运行中，无法修改策略配置。请先停止 Bot。",
+    "invalid_strategy_change": "不支持的策略类型切换。网格策略只能在网格相关类型间切换，DCA 策略只能在 DCA 相关类型间切换。"
   },
   "botList": {
     "title": "Bot 列表",
@@ -157,7 +160,27 @@
     "todayPnlOurs": "当日盈亏(自算)",
     "todayPnlExchange": "当日盈亏(交易所)",
     "ours": "自算",
-    "exchange": "交易所"
+    "exchange": "交易所",
+    "strategy": {
+      "strategyType": "策略类型",
+      "typeHint": "只能在相关策略类型之间切换。网格策略可以切换到网格+趋势等类型；DCA 策略只能切换到马丁等类型。",
+      "typeChangeDisabledRunning": "Bot 运行中无法切换策略类型，但可以修改网格参数",
+      "gridParams": "网格参数配置",
+      "priceInterval": "价格间隔（网格间距）",
+      "priceIntervalHint": "每档价格差，如 200 表示每档相差 200 USDT",
+      "profitSpread": "利润间距",
+      "profitSpreadHint": "平仓价差，为 0 时等于价格间隔",
+      "orderQuantity": "每笔金额",
+      "orderQuantityHint": "每笔订单的金额（USDT）",
+      "priceLow": "价格下限",
+      "priceLowHint": "网格价格下限，0 表示不限制",
+      "priceHigh": "价格上限",
+      "priceHighHint": "网格价格上限，0 表示不限制",
+      "cannotChangeTypeRunning": "Bot 运行中无法切换策略类型。参数可以修改，但策略类型变更需要先停止 Bot。",
+      "saveSuccess": "策略配置已更新",
+      "saveFailed": "策略配置更新失败",
+      "workspaceHint": "如需更详细的策略分配配置，请前往策略配比页面"
+    }
   },
   "sidebar": {
     "backToBotList": "返回 Bot 列表",
