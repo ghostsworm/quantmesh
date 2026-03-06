@@ -2170,7 +2170,21 @@ func (c *Config) Validate() error {
 			}
 		}
 
-		// 驗证策略占比
+		// 開倉管理配置繼承和默認值處理
+		// 如果單個交易對未配置 MaxPositionLayers，從全局繼承
+		if sc.OpenPositionControl.MaxPositionLayers == 0 && c.Trading.OpenPositionControl.MaxPositionLayers > 0 {
+			sc.OpenPositionControl.MaxPositionLayers = c.Trading.OpenPositionControl.MaxPositionLayers
+		}
+		// 如果全局也沒有配置，設置合理的默認值（8層）
+		if sc.OpenPositionControl.MaxPositionLayers == 0 {
+			sc.OpenPositionControl.MaxPositionLayers = 8
+		}
+		// 同樣處理 MaxPositionValue（0 表示不限制，但如果全局設置了則繼承）
+		if sc.OpenPositionControl.MaxPositionValue == 0 && c.Trading.OpenPositionControl.MaxPositionValue > 0 {
+			sc.OpenPositionControl.MaxPositionValue = c.Trading.OpenPositionControl.MaxPositionValue
+		}
+
+		// 驗證策略占比
 		if len(sc.Strategies) > 0 {
 			var totalWeight float64
 			for _, s := range sc.Strategies {

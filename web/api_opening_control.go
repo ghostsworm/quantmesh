@@ -27,18 +27,27 @@ func getOpeningControlStatus(c *gin.Context) {
 
 	currentPrice := spm.GetLastMarketPrice()
 	totalValue := 0.0
+	actualMargin := 0.0 // 實際占用資金（保證金）
+	leverage := 1
 	if currentPrice > 0 {
 		totalValue = spm.GetTotalPositionValueAtPrice(currentPrice)
+		leverage = spm.GetLeverage()
+		if leverage <= 0 {
+			leverage = 1
+		}
+		actualMargin = totalValue / float64(leverage)
 	}
 	layers := spm.GetActiveLayers()
 
 	c.JSON(http.StatusOK, gin.H{
-		"exchange":            exchange,
-		"symbol":              symbol,
-		"opening_paused":      spm.IsOpeningPaused(),
-		"pause_reason":        spm.GetOpeningPauseReason(),
-		"current_position_value_usdt": totalValue,
-		"current_layers":      layers,
+		"exchange":                      exchange,
+		"symbol":                        symbol,
+		"opening_paused":                spm.IsOpeningPaused(),
+		"pause_reason":                  spm.GetOpeningPauseReason(),
+		"current_position_value_usdt":   totalValue,      // 倉位價值（供參考）
+		"current_actual_margin_usdt":    actualMargin,    // 實際占用資金
+		"current_leverage":              leverage,         // 槓桿倍數
+		"current_layers":                layers,
 		"config": gin.H{
 			"max_position_value":  cfg.OpenPositionControl.MaxPositionValue,
 			"max_position_layers": cfg.OpenPositionControl.MaxPositionLayers,

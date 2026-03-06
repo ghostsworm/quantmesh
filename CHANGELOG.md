@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.61.0-rc1] - 2026-03-07
+
+### Fixed
+- **开仓管理资金限制逻辑**：修复限仓检查使用仓位价值而非实际占用资金的问题
+  - 修改 `checkPositionLimit` 使用 `实际占用资金 = 仓位价值 / 杠杆倍数` 进行判断
+  - 日志输出清晰显示实际占用资金、仓位价值和杠杆倍数
+  - API 新增 `current_actual_margin_usdt` 和 `current_leverage` 字段
+- **开仓管理层数配置丢失**：修复重启后 `MaxPositionLayers` 配置被重置为默认值的问题
+  - 在 `normalizeSymbol` 中添加 `OpenPositionControl` 的继承和默认值处理
+  - 未配置时从全局继承，全局未配置时默认为 8 层
+
 ## [3.60.0-rc5] - 2026-03-07
 
 ### Fixed
