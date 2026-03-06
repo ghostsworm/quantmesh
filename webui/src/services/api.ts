@@ -252,6 +252,36 @@ export async function stopBot(botId: string): Promise<{ ok: boolean; bot_id: str
   })
 }
 
+// 更新 Bot 策略配置
+export interface UpdateBotStrategyRequest {
+  strategies?: Array<{
+    type: string
+    weight: number
+    config?: Record<string, unknown>
+  }>
+  price_interval?: number
+  profit_spread?: number
+  order_quantity?: number
+  price_low?: number
+  price_high?: number
+}
+
+export interface UpdateBotStrategyResponse {
+  ok: boolean
+  bot_id: string
+  message: string
+}
+
+export async function updateBotStrategy(
+  botId: string,
+  config: UpdateBotStrategyRequest
+): Promise<UpdateBotStrategyResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/strategy`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+}
+
 // Positions
 // 舊的 PositionInfo 介面（用於其他API，保留以兼容）
 export interface ExchangePositionInfo {

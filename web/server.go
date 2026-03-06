@@ -162,6 +162,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.DELETE("/bots/:id", deleteBot)
 			protected.POST("/bots/:id/start", postBotStart)
 			protected.POST("/bots/:id/stop", postBotStop)
+			protected.PUT("/bots/:id/strategy", putBotStrategy)
 			protected.GET("/bot-groups", getBotGroups)
 			protected.GET("/bot-groups/:id", getBotGroupByID)
 			protected.POST("/bot-groups", postBotGroupCreate)

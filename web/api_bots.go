@@ -692,3 +692,147 @@ func deleteBotGroup(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "group_id": groupID})
 }
+
+// UpdateBotStrategyRequest 更新 Bot 策略請求
+type UpdateBotStrategyRequest struct {
+	Strategies     []config.StrategyInstance `json:"strategies"`     // 策略列表
+	PriceInterval  *float64                  `json:"price_interval,omitempty"`  // 價格間隔
+	ProfitSpread   *float64                  `json:"profit_spread,omitempty"`   // 利潤間距
+	OrderQuantity  *float64                  `json:"order_quantity,omitempty"`  // 每單金額
+	PriceLow       *float64                  `json:"price_low,omitempty"`        // 網格價格下限
+	PriceHigh      *float64                  `json:"price_high,omitempty"`       // 網格價格上限
+}
+
+// putBotStrategy 更新 Bot 策略配置
+// PUT /api/bots/:id/strategy
+func putBotStrategy(c *gin.Context) {
+	botID := c.Param("id")
+	if botID == "" {
+		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
+		return
+	}
+	if configManager == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.config_manager_unavailable")
+		return
+	}
+	var req UpdateBotStrategyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
+		return
+	}
+
+	// 查找並更新 Bot
+	found := false
+	var originalStrategyType string
+	for i := range cfg.Bots {
+		bc := &cfg.Bots[i]
+		id := bc.ID
+		if id == "" {
+			id = config.GenerateBotID(bc.Exchange, bc.Symbol, bc.GetMarketType())
+		}
+		if id == botID {
+			// 檢查 Bot 是否正在運行（只對策略類型切換有限制，參數修改允許）
+			isRunning := false
+			if botManagerProvider != nil {
+				if bot, ok := botManagerProvider.GetBot(botID); ok {
+					isRunning = bot.Running
+				}
+			}
+
+			// 記錄原始策略類型
+			if len(bc.Strategies) > 0 {
+				originalStrategyType = bc.Strategies[0].Type
+			}
+
+			// 驗證策略變更：只能在相關策略類型之間切換
+			// 網格策略 (grid) 可以切換到: grid+trend, trend, momentum
+			// DCA 策略 (dca) 只能在 dca 相關策略內切換
+			gridRelatedStrategies := map[string]bool{
+				"grid":              true,
+				"trend_following":   true,
+				"momentum":          true,
+				"mean_reversion":    true,
+			}
+			dcaRelatedStrategies := map[string]bool{
+				"dca":        true,
+				"martingale": true,
+			}
+
+			// 只有在修改策略類型時才進行驗證
+			if len(req.Strategies) > 0 {
+				newStrategyType := req.Strategies[0].Type
+				isOriginalGrid := gridRelatedStrategies[originalStrategyType]
+				isOriginalDCA := dcaRelatedStrategies[originalStrategyType]
+				isNewGrid := gridRelatedStrategies[newStrategyType]
+				isNewDCA := dcaRelatedStrategies[newStrategyType]
+
+				// 運行中不允許切換策略類型
+				if isRunning && newStrategyType != originalStrategyType {
+					c.JSON(http.StatusConflict, gin.H{
+						"error":     "bot_running",
+						"error_key": "error.bot_running_cannot_change_strategy_type",
+						"message":   "Cannot change strategy type while bot is running. Parameters can be modified, but strategy type changes require stopping the bot first.",
+					})
+					return
+				}
+
+				// 不允許從 DCA 切換到網格類策略，或反之
+				if (isOriginalDCA && isNewGrid) || (isOriginalGrid && isNewDCA) {
+					respondError(c, http.StatusBadRequest, "error.invalid_strategy_change")
+					return
+				}
+			}
+
+			// 更新策略
+			if len(req.Strategies) > 0 {
+				bc.Strategies = req.Strategies
+			}
+
+			// 更新價格間隔
+			if req.PriceInterval != nil {
+				bc.PriceInterval = *req.PriceInterval
+			}
+			// 更新利潤間距
+			if req.ProfitSpread != nil {
+				bc.ProfitSpread = *req.ProfitSpread
+			}
+			// 更新每單金額
+			if req.OrderQuantity != nil {
+				bc.OrderQuantity = *req.OrderQuantity
+			}
+			// 更新網格價格下限
+			if req.PriceLow != nil {
+				bc.PriceLow = *req.PriceLow
+			}
+			// 更新網格價格上限
+			if req.PriceHigh != nil {
+				bc.PriceHigh = *req.PriceHigh
+			}
+
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		respondError(c, http.StatusNotFound, "error.bot_not_found")
+		return
+	}
+
+	if err := configManager.UpdateConfig(cfg); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"bot_id":  botID,
+		"message": "Strategy updated successfully",
+	})
+}
