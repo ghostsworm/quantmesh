@@ -331,11 +331,11 @@ func (r *Reconciler) Reconcile() error {
 			logger.Warn("🚨 [對账同步] 本地持倉(%.6f) > 交易所持倉(%.6f)，存在幻影槽位，開始修剪...",
 				localTotal, exchangePosition)
 			r.pm.ForceSyncPositions(exchangePosition)
-		} else {
-			// 本地持倉 < 交易所持倉，或其他不一致情況
-			// 缺失的本地持倉較為複雜（涉及槽位重新分配），暂時僅記錄警告
-			logger.Warn("💡 [對账建议] 本地持倉(%.6f) < 交易所持倉(%.6f)，建议重啟程序以触发完整持倉恢複",
+		} else if localTotal < exchangePosition && exchangePosition > 0.00000001 {
+			// 🔥 本地持倉少於交易所：以交易所為準，補齊本地持倉差額
+			logger.Warn("🚨 [對账同步] 本地持倉(%.6f) < 交易所持倉(%.6f)，以交易所為準補齊本地持倉...",
 				localTotal, exchangePosition)
+			r.pm.ForceSyncPositions(exchangePosition)
 		}
 	}
 
