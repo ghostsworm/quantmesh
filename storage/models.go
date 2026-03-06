@@ -66,6 +66,13 @@ type Statistics struct {
 	CreatedAt         time.Time
 }
 
+// TodayStatistics 當日統計模型（用於 Bot 概覽頁）
+type TodayStatistics struct {
+	TotalTrades      int     // 當日成交筆數
+	GridPnL          float64 // 當日網格盈虧（trades 表）
+	ExchangePnL      float64 // 當日交易所盈虧（orders 表 realized_pnl）
+}
+
 // DailyStatisticsWithTradeCount 每日统计（包含盈利/亏损交易數）
 type DailyStatisticsWithTradeCount struct {
 	Date           time.Time

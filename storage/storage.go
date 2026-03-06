@@ -44,6 +44,8 @@ type Storage interface {
 	GetStatisticsSummary(account string) (*Statistics, error)
 	GetStatisticsSummaryByExchange(exchange, account string) (*Statistics, error)
 	GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error)
+	// GetTodayStatisticsByExchangeAndSymbol 獲取指定交易所、交易對的當日統計
+	GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, account string) (*TodayStatistics, error)
 	QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
 	// GetDailyTradesSummary 獲取指定日（配置時區）的成交筆數、毛利、手續費

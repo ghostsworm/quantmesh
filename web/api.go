@@ -2036,6 +2036,33 @@ func getStatistics(c *gin.Context) {
 		}
 	}
 
+	// 🔥 當日統計數據
+	todayTrades := 0
+	todayPnL := 0.0
+	todayExchangePnL := 0.0
+	if exchange != "" && symbol != "" && storage != nil {
+		// 使用反射調用 GetTodayStatisticsByExchangeAndSymbol 方法
+		// 這樣可以避免直接引用 storage.TodayStatistics 類型
+		method := reflect.ValueOf(storage).MethodByName("GetTodayStatisticsByExchangeAndSymbol")
+		if method.IsValid() {
+			results := method.Call([]reflect.Value{
+				reflect.ValueOf(exchange),
+				reflect.ValueOf(symbol),
+				reflect.ValueOf(accountID),
+			})
+			if len(results) == 2 {
+				if !results[0].IsNil() {
+					todayStats := results[0].Interface()
+					// 通過反射獲取字段值
+					statsValue := reflect.ValueOf(todayStats).Elem()
+					todayTrades = int(statsValue.FieldByName("TotalTrades").Int())
+					todayPnL = statsValue.FieldByName("GridPnL").Float()
+					todayExchangePnL = statsValue.FieldByName("ExchangePnL").Float()
+				}
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"total_trades":         totalTrades,
 		"total_volume":         totalVolume,
@@ -2047,6 +2074,9 @@ func getStatistics(c *gin.Context) {
 		"total_sell_deviation": totalSellDeviation,  // 🔥 賣出價格偏差總和
 		"exchange_pnl":         exchangePnL,         // 🔥 交易所已實現盈虧合計
 		"unrealized_pnl":       unrealizedPnL,       // 🔥 待實現盈虧（當前持倉×當前價格）
+		"today_trades":         todayTrades,         // 🔥 當日成交筆數
+		"today_pnl":            todayPnL,            // 🔥 當日網格盈虧
+		"today_exchange_pnl":   todayExchangePnL,    // 🔥 當日交易所盈虧
 	})
 }
 

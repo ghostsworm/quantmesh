@@ -150,7 +150,14 @@
     "logTime": "时间",
     "logLevel": "级别",
     "logMessage": "消息",
-    "loadLogs": "加载日志"
+    "loadLogs": "加载日志",
+    "allTimeMetrics": "【全部】",
+    "todayMetrics": "【当日】",
+    "todayTrades": "当日交易数",
+    "todayPnlOurs": "当日盈亏(自算)",
+    "todayPnlExchange": "当日盈亏(交易所)",
+    "ours": "自算",
+    "exchange": "交易所"
   },
   "sidebar": {
     "backToBotList": "返回 Bot 列表",
