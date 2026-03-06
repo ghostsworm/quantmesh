@@ -237,23 +237,37 @@ build_frontend() {
         # 检查 node_modules，如果没有则安装
         if [ ! -d "node_modules" ]; then
             log_info "安装前端依赖..."
-            if command -v pnpm >/dev/null 2>&1; then
+
+            # 优先使用 package.json 中配置的包管理器
+            local package_manager=$(node -e "console.log(require('./package.json').packageManager?.split('@')[0] || '')" 2>/dev/null || echo "")
+
+            if [ "$package_manager" = "yarn" ] && command -v yarn >/dev/null 2>&1; then
+                yarn install
+            elif [ "$package_manager" = "pnpm" ] && command -v pnpm >/dev/null 2>&1; then
                 pnpm install
             elif command -v yarn >/dev/null 2>&1; then
                 yarn install
+            elif command -v pnpm >/dev/null 2>&1; then
+                pnpm install
             elif command -v npm >/dev/null 2>&1; then
                 npm install
             else
-                log_error "未找到 pnpm、yarn 或 npm，无法构建前端"
+                log_error "未找到 yarn、pnpm 或 npm，无法构建前端"
                 return 1
             fi
         fi
-        
-        # 构建前端（优先使用 pnpm）
-        if command -v pnpm >/dev/null 2>&1; then
+
+        # 构建前端（优先使用 package.json 中配置的包管理器）
+        local package_manager=$(node -e "console.log(require('./package.json').packageManager?.split('@')[0] || '')" 2>/dev/null || echo "")
+
+        if [ "$package_manager" = "yarn" ] && command -v yarn >/dev/null 2>&1; then
+            yarn build
+        elif [ "$package_manager" = "pnpm" ] && command -v pnpm >/dev/null 2>&1; then
             pnpm run build
         elif command -v yarn >/dev/null 2>&1; then
             yarn build
+        elif command -v pnpm >/dev/null 2>&1; then
+            pnpm run build
         else
             npm run build
         fi
