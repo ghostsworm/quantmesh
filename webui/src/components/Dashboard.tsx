@@ -23,6 +23,8 @@ import {
   Container,
   Tooltip,
 } from '@chakra-ui/react'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatTime } from '../utils/dateFormat'
 import { 
   TriangleUpIcon, 
   TriangleDownIcon, 
@@ -96,10 +98,11 @@ const GlassCard: React.FC<{ title?: React.ReactNode; children: React.ReactNode; 
 }
 
 const Dashboard: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { botId } = useBot()
   const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
+  const { timezone } = useConfig()
   const quoteAsset = getQuoteAsset(selectedSymbol)
   
   const getOrderSideText = (side: string) => {
@@ -909,7 +912,7 @@ const Dashboard: React.FC = () => {
                         <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>{getOrderSideText(order.side)}</Badge>
                         <Text fontSize="sm" fontWeight="bold">{order.price.toFixed(2)}</Text>
                       </HStack>
-                      <Text fontSize="xs" color="gray.400">{new Date(order.created_at).toLocaleTimeString()}</Text>
+                      <Text fontSize="xs" color="gray.400">{formatTime(order.created_at, timezone, i18n.language)}</Text>
                     </Flex>
                   ))}
                   {pendingOrders.count > 3 && (

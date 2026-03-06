@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatDateTime } from '../utils/dateFormat'
 import {
   Box,
   Heading,
@@ -71,8 +73,9 @@ interface OrderInfo {
 }
 
 const Orders: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
+  const { timezone } = useConfig()
   const [pendingOrders, setPendingOrders] = useState<PendingOrderInfo[]>([])
   const [historyOrders, setHistoryOrders] = useState<OrderInfo[]>([])
   const [historyTotalCount, setHistoryTotalCount] = useState<number>(0)
@@ -440,11 +443,7 @@ const Orders: React.FC = () => {
   }
 
   const formatTime = (timeStr: string) => {
-    try {
-      return new Date(timeStr).toLocaleString('zh-CN')
-    } catch {
-      return timeStr
-    }
+    return formatDateTime(timeStr, timezone, i18n.language)
   }
 
   const getStatusColorScheme = (status: string) => {

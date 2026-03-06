@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getLogs, LogEntry, subscribeLogs, cleanLogs, getLogStats, vacuumLogs, LogStats, getEventCenterStatus, setEventCenterStatus } from '../services/api'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatDateTime } from '../utils/dateFormat'
 import './Logs.css'
 import {
   Button,
@@ -34,7 +36,8 @@ import {
 type LogRecord = LogEntry
 
 const Logs: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { timezone } = useConfig()
   const [logs, setLogs] = useState<LogRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -150,16 +153,7 @@ const Logs: React.FC = () => {
 
   // 格式化時间
   const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    })
+    return formatDateTime(timestamp, timezone, i18n.language)
   }
 
   // 重置過滤条件
@@ -550,13 +544,13 @@ const Logs: React.FC = () => {
                 {logStats.oldest_time && (
                   <Text>
                     <strong>{t('logs.oldestLog')}: </strong>
-                    {new Date(logStats.oldest_time).toLocaleString('zh-CN')}
+                    {formatDateTime(logStats.oldest_time, timezone, i18n.language)}
                   </Text>
                 )}
                 {logStats.newest_time && (
                   <Text>
                     <strong>{t('logs.newestLog')}: </strong>
-                    {new Date(logStats.newest_time).toLocaleString('zh-CN')}
+                    {formatDateTime(logStats.newest_time, timezone, i18n.language)}
                   </Text>
                 )}
               </VStack>

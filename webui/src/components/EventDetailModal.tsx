@@ -20,6 +20,8 @@ import {
 } from '@chakra-ui/react'
 import { WarningIcon, InfoIcon, CheckCircleIcon, TimeIcon, RepeatIcon } from '@chakra-ui/icons'
 import { EventRecord } from '../services/api'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatDateTime } from '../utils/dateFormat'
 
 interface EventDetailModalProps {
   event: EventRecord
@@ -28,7 +30,8 @@ interface EventDetailModalProps {
 }
 
 const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onClose }) => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { timezone } = useConfig()
 
   // 解析详细信息
   const parseDetails = () => {
@@ -70,15 +73,7 @@ const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, isOpen, onCl
 
   // 格式化時间
   const formatTime = (timeStr: string) => {
-    const date = new Date(timeStr)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
+    return formatDateTime(timeStr, timezone, i18n.language)
   }
 
   // 格式化JSON

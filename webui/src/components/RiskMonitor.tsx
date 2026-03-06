@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { 
-  getRiskStatus, 
-  getRiskMonitorData, 
+import {
+  getRiskStatus,
+  getRiskMonitorData,
   getRiskCheckHistory,
-  RiskStatusResponse, 
+  RiskStatusResponse,
   SymbolMonitorData,
-  RiskCheckHistoryItem 
+  RiskCheckHistoryItem
 } from '../services/api'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatDateTime } from '../utils/dateFormat'
 import './RiskMonitor.css'
 
 const RiskMonitor: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { timezone } = useConfig()
   const [riskStatus, setRiskStatus] = useState<RiskStatusResponse | null>(null)
   const [monitorData, setMonitorData] = useState<SymbolMonitorData[]>([])
   const [historyData, setHistoryData] = useState<RiskCheckHistoryItem[]>([])
@@ -99,11 +102,7 @@ const RiskMonitor: React.FC = () => {
 
   const formatTime = (timeStr: string | Date) => {
     if (!timeStr) return 'N/A'
-    try {
-      return new Date(timeStr).toLocaleString('zh-CN')
-    } catch {
-      return String(timeStr)
-    }
+    return formatDateTime(String(timeStr), timezone, i18n.language)
   }
 
   return (
@@ -224,12 +223,7 @@ const RiskMonitor: React.FC = () => {
               data={historyData.map((item, itemIndex) => {
                 // 為每個检查時间段創建數據点
                 const dataPoint: any = {
-                  time: new Date(item.check_time).toLocaleString('zh-CN', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  }),
+                  time: formatDateTime(item.check_time, timezone, i18n.language),
                   timestamp: item.check_time,
                   symbols: item.symbols,
                   total: item.total_count,
@@ -261,9 +255,9 @@ const RiskMonitor: React.FC = () => {
               <Tooltip
                 content={({ active, payload }) => {
                   if (!active || !payload || !payload.length) return null
-                  
+
                   const data = payload[0].payload
-                  const checkTime = new Date(data.timestamp).toLocaleString('zh-CN')
+                  const checkTime = formatDateTime(String(data.timestamp), timezone, i18n.language)
                   
                   return (
                     <div style={{

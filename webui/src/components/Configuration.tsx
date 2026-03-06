@@ -59,6 +59,7 @@ import {
   Checkbox,
   CheckboxGroup,
 } from '@chakra-ui/react'
+import { COMMON_TIMEZONES } from '../utils/dateFormat'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
@@ -803,12 +804,17 @@ const Configuration: React.FC = () => {
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.timezone')}</FormLabel>
-                          <Input
-                            value={config.system?.timezone || ''}
+                          <Select
+                            value={config.system?.timezone || 'Asia/Shanghai'}
                             onChange={(e) => updateConfigField('system.timezone', e.target.value)}
-                            placeholder="Asia/Shanghai"
                             borderRadius="xl"
-                          />
+                          >
+                            {COMMON_TIMEZONES.map((tz) => (
+                              <option key={tz.value} value={tz.value}>
+                                {tz.label}
+                              </option>
+                            ))}
+                          </Select>
                         </FormControl>
                       </SimpleGrid>
                       <Divider my={2} />
