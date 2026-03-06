@@ -564,6 +564,10 @@ export interface StatisticsSummary {
   max_loss: number
   total_buy_deviation?: number // 🔥 買入價格偏差總和（USDT）
   total_sell_deviation?: number // 🔥 賣出價格偏差總和（USDT）
+  // 🔥 當日統計
+  today_trades?: number // 當日成交筆數
+  today_pnl?: number // 當日網格盈虧
+  today_exchange_pnl?: number // 當日交易所盈虧
 }
 
 // /statistics 直接返回彙總字段（非 {summary: ...} 包装）

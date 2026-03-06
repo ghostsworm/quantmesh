@@ -150,7 +150,14 @@
     "logTime": "Time",
     "logLevel": "Level",
     "logMessage": "Message",
-    "loadLogs": "Load Logs"
+    "loadLogs": "Load Logs",
+    "allTimeMetrics": "All Time",
+    "todayMetrics": "Today",
+    "todayTrades": "Today Trades",
+    "todayPnlOurs": "Today PnL (Ours)",
+    "todayPnlExchange": "Today PnL (Exchange)",
+    "ours": "Ours",
+    "exchange": "Exchange"
   },
   "sidebar": {
     "backToBotList": "Back to Bot List",

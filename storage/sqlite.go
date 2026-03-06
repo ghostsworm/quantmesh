@@ -1919,6 +1919,73 @@ func (s *SQLiteStorage) GetExchangePnLTotal(exchange, symbol string) (float64, e
 	return total, err
 }
 
+// GetTodayStatisticsByExchangeAndSymbol 獲取指定交易所、交易對的當日統計
+func (s *SQLiteStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, account string) (*TodayStatistics, error) {
+	// 獲取當日日期（UTC）
+	now := time.Now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	todayEnd := todayStart.Add(24 * time.Hour)
+
+	// 查詢當日網格盈虧（trades 表）
+	gridQuery := `
+		SELECT
+			COUNT(*) as total_trades,
+			COALESCE(SUM(pnl), 0) as grid_pnl
+		FROM trades
+		WHERE created_at >= ? AND created_at < ?
+	`
+	gridArgs := []interface{}{todayStart, todayEnd}
+	if exchange != "" {
+		gridQuery += " AND exchange = ?"
+		gridArgs = append(gridArgs, exchange)
+	}
+	if symbol != "" {
+		gridQuery += " AND symbol = ?"
+		gridArgs = append(gridArgs, symbol)
+	}
+	if account != "" {
+		gridQuery += " AND (account = ? OR account IS NULL OR account = '')"
+		gridArgs = append(gridArgs, account)
+	}
+
+	var gridTrades int
+	var gridPnL float64
+	err := s.db.QueryRow(gridQuery, gridArgs...).Scan(&gridTrades, &gridPnL)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("查詢當日網格統計失敗: %w", err)
+	}
+
+	// 查詢當日交易所盈虧（orders 表的 realized_pnl）
+	exchangeQuery := `
+		SELECT COALESCE(SUM(realized_pnl), 0)
+		FROM orders
+		WHERE realized_pnl IS NOT NULL
+			AND status = 'FILLED'
+			AND created_at >= ? AND created_at < ?
+	`
+	exchangeArgs := []interface{}{todayStart, todayEnd}
+	if exchange != "" {
+		exchangeQuery += " AND exchange = ?"
+		exchangeArgs = append(exchangeArgs, exchange)
+	}
+	if symbol != "" {
+		exchangeQuery += " AND symbol = ?"
+		exchangeArgs = append(exchangeArgs, symbol)
+	}
+
+	var exchangePnL float64
+	err = s.db.QueryRow(exchangeQuery, exchangeArgs...).Scan(&exchangePnL)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("查詢當日交易所盈虧失敗: %w", err)
+	}
+
+	return &TodayStatistics{
+		TotalTrades: gridTrades,
+		GridPnL:     gridPnL,
+		ExchangePnL: exchangePnL,
+	}, nil
+}
+
 // GetExchangePnLOrderStats 獲取交易所盈虧相關的訂單統計（用於診斷差異）
 // 返回：有 realized_pnl 的訂單數、無 realized_pnl 的 FILLED SELL 訂單數、有 realized_pnl 的訂單總和
 func (s *SQLiteStorage) GetExchangePnLOrderStats(exchange, symbol string) (withPnLCount, missingPnLCount int, totalPnL float64, err error) {

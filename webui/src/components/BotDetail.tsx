@@ -267,47 +267,95 @@ const BotDetail: React.FC = () => {
         <TabPanels>
           <TabPanel px={0}>
             {bot.running ? (
-              <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
-                <Card>
-                  <CardBody>
-                    <Stat>
-                      <StatLabel>{t('botDetail.currentPrice')}</StatLabel>
-                      <StatNumber>
-                        ${(positionsSummary?.current_price ?? bot.current_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </StatNumber>
-                    </Stat>
-                  </CardBody>
-                </Card>
-                <Card>
-                  <CardBody>
-                    <Stat>
-                      <StatLabel>{t('botDetail.unrealizedPnl')}</StatLabel>
-                      <StatNumber color={(positionsSummary?.unrealized_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
-                        {(positionsSummary?.unrealized_pnl ?? bot.total_pnl ?? 0) >= 0 ? '+' : ''}
-                        {(positionsSummary?.unrealized_pnl ?? bot.total_pnl ?? 0).toFixed(2)}
-                      </StatNumber>
-                    </Stat>
-                  </CardBody>
-                </Card>
-                <Card>
-                  <CardBody>
-                    <Stat>
-                      <StatLabel>{t('statistics.totalTrades')}</StatLabel>
-                      <StatNumber>{statistics?.total_trades ?? 0}</StatNumber>
-                    </Stat>
-                  </CardBody>
-                </Card>
-                <Card>
-                  <CardBody>
-                    <Stat>
-                      <StatLabel>{t('statistics.totalPnL')}</StatLabel>
-                      <StatNumber color={(statistics?.total_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
-                        {(statistics?.total_pnl ?? 0) >= 0 ? '+' : ''}{(statistics?.total_pnl ?? 0).toFixed(2)}
-                      </StatNumber>
-                    </Stat>
-                  </CardBody>
-                </Card>
-              </SimpleGrid>
+              <>
+                {/* 【全部】指标 */}
+                <Text fontSize="sm" color="gray.500" mb={3}>{t('botDetail.allTimeMetrics')}</Text>
+                <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={6}>
+                  <Card>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('botDetail.currentPrice')}</StatLabel>
+                        <StatNumber>
+                          ${(positionsSummary?.current_price ?? bot.current_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </StatNumber>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                  <Card>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('botDetail.unrealizedPnl')}</StatLabel>
+                        <StatNumber color={(positionsSummary?.unrealized_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                          {(positionsSummary?.unrealized_pnl ?? bot.total_pnl ?? 0) >= 0 ? '+' : ''}
+                          {(positionsSummary?.unrealized_pnl ?? bot.total_pnl ?? 0).toFixed(2)}
+                        </StatNumber>
+                        {/* 未实现盈亏双口径展示 */}
+                        {(positionsSummary?.slot_data || positionsSummary?.exchange_data) && (
+                          <StatHelpText fontSize="xs" color="gray.500">
+                            {positionsSummary?.slot_data && (
+                              <Text display="block">{t('botDetail.ours')}: {positionsSummary.slot_data.unrealized_pnl?.toFixed(2) ?? '0.00'}</Text>
+                            )}
+                            {positionsSummary?.exchange_data?.has_data && (
+                              <Text display="block">{t('botDetail.exchange')}: {positionsSummary.exchange_data.unrealized_pnl?.toFixed(2) ?? '0.00'}</Text>
+                            )}
+                          </StatHelpText>
+                        )}
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                  <Card>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('statistics.totalTrades')}</StatLabel>
+                        <StatNumber>{statistics?.total_trades ?? 0}</StatNumber>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                  <Card>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('statistics.totalPnL')}</StatLabel>
+                        <StatNumber color={(statistics?.total_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                          {(statistics?.total_pnl ?? 0) >= 0 ? '+' : ''}{(statistics?.total_pnl ?? 0).toFixed(2)}
+                        </StatNumber>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                </SimpleGrid>
+
+                {/* 【当日】指标 */}
+                <Text fontSize="sm" color="gray.500" mb={3}>{t('botDetail.todayMetrics')}</Text>
+                <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+                  <Card>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('botDetail.todayTrades')}</StatLabel>
+                        <StatNumber>{statistics?.today_trades ?? 0}</StatNumber>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                  <Card>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('botDetail.todayPnlOurs')}</StatLabel>
+                        <StatNumber color={(statistics?.today_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                          {(statistics?.today_pnl ?? 0) >= 0 ? '+' : ''}{(statistics?.today_pnl ?? 0).toFixed(2)}
+                        </StatNumber>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                  <Card>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('botDetail.todayPnlExchange')}</StatLabel>
+                        <StatNumber color={(statistics?.today_exchange_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                          {(statistics?.today_exchange_pnl ?? 0) >= 0 ? '+' : ''}{(statistics?.today_exchange_pnl ?? 0).toFixed(2)}
+                        </StatNumber>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                </SimpleGrid>
+              </>
             ) : (
               <Text color="gray.500">{t('botDetail.startToViewOverview')}</Text>
             )}
