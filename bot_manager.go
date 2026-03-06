@@ -357,6 +357,13 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 	currentPrice := spm.GetLastMarketPrice()
 	totalPositionQty := totalPositionValue / currentPrice
 
+	// 获取杠杆并计算实际占用资金
+	leverage := spm.GetLeverage()
+	if leverage <= 0 {
+		leverage = 1
+	}
+	actualMargin := totalPositionValue / float64(leverage)
+
 	// 读取风控配置（使用读锁保护）
 	br.configMu.RLock()
 	riskControl := br.Config.OpenPositionControl.BotRiskControl
@@ -370,11 +377,13 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 	}
 
 	status := map[string]interface{}{
-		"total_position_qty":   totalPositionQty,
-		"total_position_value": totalPositionValue,
-		"position_layers":      positionLayers,
-		"current_price":        currentPrice,
-		"paused":               paused,
+		"total_position_qty":    totalPositionQty,
+		"total_position_value":  totalPositionValue,
+		"total_actual_margin":   actualMargin,
+		"leverage":              leverage,
+		"position_layers":       positionLayers,
+		"current_price":         currentPrice,
+		"paused":                paused,
 	}
 
 	// 检查是否达到数量限制
@@ -388,14 +397,14 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 	}
 	status["reached_limit_qty"] = reachedLimitQty
 
-	// 检查是否达到价值限制
+	// 检查是否达到价值限制（使用实际占用资金）
 	reachedLimitValue := false
 	if riskControl != nil && riskControl.Enabled && riskControl.MaxPositionValue > 0 {
 		status["max_position_value"] = riskControl.MaxPositionValue
-		reachedLimitValue = totalPositionValue >= riskControl.MaxPositionValue
+		reachedLimitValue = actualMargin >= riskControl.MaxPositionValue
 	} else if openControl.MaxPositionValue > 0 {
 		status["max_position_value"] = openControl.MaxPositionValue
-		reachedLimitValue = totalPositionValue >= openControl.MaxPositionValue
+		reachedLimitValue = actualMargin >= openControl.MaxPositionValue
 	}
 	status["reached_limit_value"] = reachedLimitValue
 

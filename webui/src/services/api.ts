@@ -2695,6 +2695,8 @@ export interface BotRiskControl {
 export interface PositionStatus {
   total_position_qty: number
   total_position_value: number
+  total_actual_margin: number  // 当前实际占用资金（保证金）
+  leverage: number              // 杠杆倍数
   position_layers: number
   current_price: number
   paused: boolean
