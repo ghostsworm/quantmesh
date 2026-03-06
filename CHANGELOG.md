@@ -2,6 +2,12 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.61.0-rc4] - 2026-03-07
+
+### Changed
+- **版本号同步**：统一 main.go 与 webui/package.json 版本号
+- **组件与 UI 改进**：Dashboard、Orders、Reconciliation、RiskMonitor、Logs、MarketIntelligence、KlineFilesManager、AITaskManager、Configuration、EventDetailModal、SystemMonitor 等组件优化
+
 ## [3.61.0-rc3] - 2026-03-07
 
 ### Fixed

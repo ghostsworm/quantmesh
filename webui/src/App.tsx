@@ -24,6 +24,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { BotProvider, useBot } from './contexts/BotContext'
 import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
+import { ConfigProvider } from './contexts/ConfigContext'
 import { lightTheme } from './theme'
 // 布局组件 - 每个页面都需要，保持静态导入
 import SymbolSelector from './components/SymbolSelector'
@@ -577,7 +578,9 @@ function App() {
       <AuthProvider>
         <BotProvider>
           <SymbolProvider>
-            <ThemedApp />
+            <ConfigProvider>
+              <ThemedApp />
+            </ConfigProvider>
           </SymbolProvider>
         </BotProvider>
       </AuthProvider>

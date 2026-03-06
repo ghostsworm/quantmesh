@@ -21,9 +21,12 @@ import {
   HStack as TooltipHStack,
 } from '@chakra-ui/react'
 import { getCurrentSystemMetrics, getDailySystemMetrics, getSystemMetrics, SystemMetrics, DailySystemMetric } from '../services/api'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatDateTime, formatTime } from '../utils/dateFormat'
 
 const SystemMonitor: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { timezone } = useConfig()
   const [currentMetrics, setCurrentMetrics] = useState<SystemMetrics | null>(null)
   const [metrics, setMetrics] = useState<SystemMetrics[]>([])
   const [dailyMetrics, setDailyMetrics] = useState<DailySystemMetric[]>([])
@@ -209,17 +212,17 @@ const SystemMonitor: React.FC = () => {
       if (!timestamp) return ''
       const date = new Date(timestamp)
       if (isNaN(date.getTime())) return ''
-      
+
       // 根據時间範圍决定显示格式
       if (timeRange === '1h' || timeRange === '6h') {
         // 短時间範圍显示時:分
-        return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        return formatTime(timestamp, timezone, i18n.language).slice(-8) // HH:mm:ss
       } else if (timeRange === '24h' || timeRange === '7d') {
         // 中等時间範圍显示月/日 時:分
-        return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-')
+        return formatDateTime(timestamp, timezone, i18n.language).replace(/\//g, '-').slice(0, -3) // 去掉秒
       } else {
         // 长時间範圍显示月-日
-        return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }).replace(/\//g, '-')
+        return formatDateTime(timestamp, timezone, i18n.language).replace(/\//g, '-').slice(0, 10)
       }
     }
 

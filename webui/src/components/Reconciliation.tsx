@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useConfig } from '../contexts/ConfigContext'
 import { getSymbols } from '../services/api'
+import { formatDateTime } from '../utils/dateFormat'
 import './Reconciliation.css'
 
 interface ReconciliationStatus {
@@ -68,8 +70,9 @@ type TimePeriod = 'day' | 'week' | 'month'
 type ViewMode = 'raw' | 'aggregated'
 
 const Reconciliation: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
+  const { timezone } = useConfig()
   const [status, setStatus] = useState<ReconciliationStatus | null>(null)
   const [history, setHistory] = useState<ReconciliationHistoryItem[]>([])
   const [aggregatedData, setAggregatedData] = useState<AggregatedData[]>([])
@@ -228,11 +231,7 @@ const Reconciliation: React.FC = () => {
   }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   const formatTime = (timeStr: string) => {
-    try {
-      return new Date(timeStr).toLocaleString('zh-CN')
-    } catch {
-      return timeStr
-    }
+    return formatDateTime(timeStr, timezone, i18n.language)
   }
 
   if (loading && !status) {

@@ -40,9 +40,12 @@ import {
 import { StarIcon } from '@chakra-ui/icons'
 import { getAITasks, getAITaskStats, AITask, AITaskFilter, AITaskStats } from '../services/api'
 import { useTranslation } from 'react-i18next'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatDateTime } from '../utils/dateFormat'
 
 const AITaskManager: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { timezone } = useConfig()
   const [tasks, setTasks] = useState<AITask[]>([])
   const [stats, setStats] = useState<AITaskStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -145,16 +148,7 @@ const AITaskManager: React.FC = () => {
 
   // 格式化時间（完整）
   const formatFullTime = (timeStr?: string) => {
-    if (!timeStr) return '-'
-    const date = new Date(timeStr)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
+    return formatDateTime(timeStr || '', timezone, i18n.language)
   }
 
   // 格式化數字（添加千分位）

@@ -8,9 +8,12 @@ import {
   MacroEventsResponse,
   MacroImpactResponse,
 } from '../services/api'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatDateTime } from '../utils/dateFormat'
 
 const MarketIntelligence: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { timezone } = useConfig()
   const [data, setData] = useState<MarketIntelligenceResponse>({
     rss_feeds: [],
     fear_greed: null,
@@ -105,7 +108,7 @@ const MarketIntelligence: React.FC = () => {
   }
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('zh-CN')
+    return formatDateTime(dateStr, timezone, i18n.language)
   }
 
   return (

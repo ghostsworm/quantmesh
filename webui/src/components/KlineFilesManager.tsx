@@ -39,9 +39,12 @@ import {
   downloadKlineFile,
   type KlineFileInfo,
 } from '../services/klineFiles'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatDateTime } from '../utils/dateFormat'
 
 const KlineFilesManager: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { timezone } = useConfig()
   const toast = useToast()
   
   const [files, setFiles] = useState<KlineFileInfo[]>([])
@@ -156,12 +159,7 @@ const KlineFilesManager: React.FC = () => {
 
   // 格式化日期
   const formatDate = (dateStr: string): string => {
-    try {
-      const date = new Date(dateStr)
-      return date.toLocaleString('zh-CN')
-    } catch {
-      return dateStr
-    }
+    return formatDateTime(dateStr, timezone, i18n.language)
   }
 
   // 获取间隔标签颜色
