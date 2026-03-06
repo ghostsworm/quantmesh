@@ -102,9 +102,18 @@ func (oc *OpeningController) checkPositionLimit(cfg *config.OpenPositionControl)
 	layers := oc.spm.GetActiveLayers()
 
 	shouldPause := false
-	if cfg.MaxPositionValue > 0 && totalValue >= cfg.MaxPositionValue {
-		logger.Warn("🚫 [開倉管理] 倉位價值 %.2f USDT 已達上限 %.2f USDT，暫停開倉", totalValue, cfg.MaxPositionValue)
-		shouldPause = true
+	if cfg.MaxPositionValue > 0 {
+		// 計算實際占用資金（保證金）= 倉位價值 / 杠桿倍數
+		leverage := oc.spm.GetLeverage()
+		if leverage <= 0 {
+			leverage = 1 // 默認無槓桿
+		}
+		actualMargin := totalValue / float64(leverage)
+		if actualMargin >= cfg.MaxPositionValue {
+			logger.Warn("🚫 [開倉管理] 實際占用資金 %.2f USDT（倉位價值 %.2f USDT / %dx槓桿）已達上限 %.2f USDT，暫停開倉",
+				actualMargin, totalValue, leverage, cfg.MaxPositionValue)
+			shouldPause = true
+		}
 	}
 	if cfg.MaxPositionLayers > 0 && layers >= cfg.MaxPositionLayers {
 		logger.Warn("🚫 [開倉管理] 持倉層數 %d 已達上限 %d，暫停開倉", layers, cfg.MaxPositionLayers)
