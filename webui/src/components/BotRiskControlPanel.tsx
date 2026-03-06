@@ -208,14 +208,25 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
             </Box>
             <Box>
               <Text fontSize="sm" color="gray.500">{t('botRiskControl.totalPositionValue')}</Text>
-              <Text fontSize="lg" fontWeight="bold">
+              <Text fontSize="xs" color="gray.600">
                 ${positionStatus?.total_position_value?.toFixed(2) || '-'}
+              </Text>
+            </Box>
+            <Box>
+              <Text fontSize="sm" color="gray.500">{t('botRiskControl.totalActualMargin')}</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                ${positionStatus?.total_actual_margin?.toFixed(2) || '-'}
                 {positionStatus?.max_position_value && (
                   <Text as="span" fontSize="sm" color="gray.500">
                     {' '} / ${positionStatus.max_position_value}
                   </Text>
                 )}
               </Text>
+              {positionStatus?.leverage && positionStatus.leverage > 1 && (
+                <Text fontSize="xs" color="gray.500">
+                  ({positionStatus.leverage}x杠杆)
+                </Text>
+              )}
               {positionStatus?.reached_limit_value && (
                 <Badge colorScheme="red" size="sm">{t('botRiskControl.reachedLimitValue')}</Badge>
               )}

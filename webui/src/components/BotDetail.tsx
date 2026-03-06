@@ -62,6 +62,7 @@ import {
 import { useSymbol } from '../contexts/SymbolContext'
 import BotRiskControlPanel from './BotRiskControlPanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
+import BotBacktestDialog from './BotBacktestDialog'
 
 // 策略选项定义
 interface StrategyOption {
@@ -96,6 +97,7 @@ const BotDetail: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
+  const { isOpen: isBacktestDialogOpen, onOpen: onBacktestDialogOpen, onClose: onBacktestDialogClose } = useDisclosure()
 
   const fetchBot = async () => {
     if (!botId) return
@@ -297,6 +299,7 @@ const BotDetail: React.FC = () => {
           <Tab>{t('botDetail.tabOverview')}</Tab>
           <Tab>{t('botDetail.tabStrategy')}</Tab>
           <Tab>{t('botDetail.tabRisk')}</Tab>
+          <Tab>{t('botDetail.tabBacktest')}</Tab>
           <Tab>{t('botDetail.tabLogs')}</Tab>
         </TabList>
         <TabPanels>
@@ -406,6 +409,74 @@ const BotDetail: React.FC = () => {
           <TabPanel px={0}>
             <Card>
               <CardBody>
+                <VStack spacing={4} align="stretch">
+                  <Flex justify="space-between" align="center">
+                    <Heading size="md">{t('botDetail.tabBacktest')}</Heading>
+                    <Text fontSize="sm" color="gray.600">
+                      {t('backtest.botBacktestHint')}
+                    </Text>
+                  </Flex>
+
+                  <Alert status="info" borderRadius="md">
+                    <AlertIcon />
+                    <Box>
+                      <AlertTitle fontSize="sm" mb={1}>
+                        {t('backtest.parametersFromBot')}
+                      </AlertTitle>
+                      <AlertDescription fontSize="xs">
+                        {t('backtest.parametersAutoFilled')}
+                      </AlertDescription>
+                    </Box>
+                  </Alert>
+
+                  <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                    <Stat>
+                      <StatLabel>{t('botDetail.maxPositionValue')}</StatLabel>
+                      <StatNumber>
+                        {bot.config?.open_position_control?.max_position_value || 0} USDT
+                      </StatNumber>
+                      <StatHelpText>{t('backtest.actualMarginUsed')}</StatHelpText>
+                    </Stat>
+
+                    <Stat>
+                      <StatLabel>{t('botDetail.maxPositionLayers')}</StatLabel>
+                      <StatNumber>
+                        {bot.config?.open_position_control?.max_position_layers || 0}
+                      </StatNumber>
+                      <StatHelpText>{t('backtest.maxLayers')}</StatHelpText>
+                    </Stat>
+
+                    <Stat>
+                      <StatLabel>{t('botDetail.priceInterval')}</StatLabel>
+                      <StatNumber>
+                        ${bot.config?.price_interval || 0}
+                      </StatNumber>
+                    </Stat>
+
+                    <Stat>
+                      <StatLabel>{t('botDetail.orderQuantity')}</StatLabel>
+                      <StatNumber>
+                        ${bot.config?.order_quantity || 0}
+                      </StatNumber>
+                    </Stat>
+                  </SimpleGrid>
+
+                  <Flex justify="center" pt={4}>
+                    <Button
+                      colorScheme="blue"
+                      size="lg"
+                      onClick={onBacktestDialogOpen}
+                    >
+                      {t('backtest.openBacktestDialog')}
+                    </Button>
+                  </Flex>
+                </VStack>
+              </CardBody>
+            </Card>
+          </TabPanel>
+          <TabPanel px={0}>
+            <Card>
+              <CardBody>
                 <Flex justify="space-between" align="center" mb={4}>
                   <Text color="gray.600">{t('botDetail.logsHint')}</Text>
                   <Button size="sm" variant="outline" onClick={fetchLogs} isLoading={logsLoading}>
@@ -451,6 +522,14 @@ const BotDetail: React.FC = () => {
         onStopAndClose={handleStopAndClose}
         botId={botId!}
         botName={bot?.name || bot?.symbol}
+      />
+
+      <BotBacktestDialog
+        open={isBacktestDialogOpen}
+        onClose={onBacktestDialogClose}
+        botId={botId!}
+        botName={bot?.name || bot?.symbol}
+        botConfig={bot?.config}
       />
     </Box>
   )
