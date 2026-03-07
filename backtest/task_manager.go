@@ -171,53 +171,67 @@ func (m *TaskManager) RunTask(id string) error {
 
 	// 2. 根據策略類型運行回测
 	var result *BacktestResult
+	var multiResult *MultiStrategyResult
+	var hedgeResult *HedgePairResult
 	var comparison *ComparisonResult
 	capital := task.TotalCapital
-	switch task.Strategy {
-	case "grid":
-		params := m.gridParamsFromTask(task)
-		// 執行兩次：無風控 + 帶風控
-		resultNoRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, nil)
-		if err != nil {
-			m.failTask(id, fmt.Sprintf("回测執行失敗: %v", err))
+	if task.Mode == TaskModeHedgeGroup {
+		legACandles := candles
+		legBCandles, loadErr := m.loadHedgeLegBCandles(task)
+		if loadErr != nil {
+			m.failTask(id, fmt.Sprintf("對沖腿數據加載失敗: %v", loadErr))
 			return nil
 		}
-		riskCfg := m.riskConfigFromTask(task)
-		var riskSim *RiskSimulator
-		if depthSnapshots != nil && len(depthSnapshots) > 0 {
-			logger.Info("🛡️ 启用深度风控: %d 个深度快照", len(depthSnapshots))
-			riskSim = NewRiskSimulatorWithDepth(riskCfg, depthSnapshots)
-		} else {
-			riskSim = NewRiskSimulator(riskCfg)
-		}
-		resultWithRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, riskSim)
-		if err != nil {
-			m.failTask(id, fmt.Sprintf("回测執行失敗: %v", err))
-			return nil
-		}
-		comparison = BuildComparisonResult(resultNoRisk, resultWithRisk, riskSim.GetInterventions())
-		result = resultNoRisk // 用於日誌，報告使用 comparison
-	case "dca":
-		params := m.dcaParamsFromTask(task)
-		result, err = RunDCABacktest(task.Symbol, task.Interval, candles, params, capital)
-	case "martingale":
-		params := m.martingaleParamsFromTask(task)
-		result, err = RunMartingaleBacktest(task.Symbol, task.Interval, candles, params, capital)
-	case "momentum", "mean_reversion", "trend_following":
-		var strategy StrategyAdapter
+		hedgeResult, err = RunHedgePairTask(task, legACandles, legBCandles)
+	} else if len(task.Strategies) > 0 {
+		multiResult, err = RunMultiStrategyTask(task, candles)
+	} else {
 		switch task.Strategy {
-		case "momentum":
-			strategy = NewMomentumAdapter()
-		case "mean_reversion":
-			strategy = NewMeanReversionAdapter()
-		case "trend_following":
-			strategy = NewTrendFollowingAdapter()
+		case "grid":
+			params := m.gridParamsFromTask(task)
+			// 執行兩次：無風控 + 帶風控
+			resultNoRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, nil)
+			if err != nil {
+				m.failTask(id, fmt.Sprintf("回测執行失敗: %v", err))
+				return nil
+			}
+			riskCfg := m.riskConfigFromTask(task)
+			var riskSim *RiskSimulator
+			if len(depthSnapshots) > 0 {
+				logger.Info("🛡️ 启用深度风控: %d 个深度快照", len(depthSnapshots))
+				riskSim = NewRiskSimulatorWithDepth(riskCfg, depthSnapshots)
+			} else {
+				riskSim = NewRiskSimulator(riskCfg)
+			}
+			resultWithRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, riskSim)
+			if err != nil {
+				m.failTask(id, fmt.Sprintf("回测執行失敗: %v", err))
+				return nil
+			}
+			comparison = BuildComparisonResult(resultNoRisk, resultWithRisk, riskSim.GetInterventions())
+			result = resultNoRisk // 用於日誌，報告使用 comparison
+		case "dca":
+			params := m.dcaParamsFromTask(task)
+			result, err = RunDCABacktest(task.Symbol, task.Interval, candles, params, capital)
+		case "martingale":
+			params := m.martingaleParamsFromTask(task)
+			result, err = RunMartingaleBacktest(task.Symbol, task.Interval, candles, params, capital)
+		case "momentum", "mean_reversion", "trend_following":
+			var strategy StrategyAdapter
+			switch task.Strategy {
+			case "momentum":
+				strategy = NewMomentumAdapter()
+			case "mean_reversion":
+				strategy = NewMeanReversionAdapter()
+			case "trend_following":
+				strategy = NewTrendFollowingAdapter()
+			}
+			backtester := NewBacktester(task.Symbol, candles, strategy, capital)
+			result, err = backtester.Run()
+		default:
+			m.failTask(id, fmt.Sprintf("不支援的策略: %s", task.Strategy))
+			return nil
 		}
-		backtester := NewBacktester(task.Symbol, candles, strategy, capital)
-		result, err = backtester.Run()
-	default:
-		m.failTask(id, fmt.Sprintf("不支援的策略: %s", task.Strategy))
-		return nil
 	}
 
 	if err != nil {
@@ -231,7 +245,7 @@ func (m *TaskManager) RunTask(id string) error {
 		return nil
 	}
 	resultPath := filepath.Join(m.resultsDir, id+".json")
-	payload := BacktestTaskResult{TaskID: id, Task: task, Result: result, Comparison: comparison}
+	payload := BacktestTaskResult{TaskID: id, Task: task, Result: result, MultiResult: multiResult, HedgeResult: hedgeResult, Comparison: comparison}
 	body, _ := json.MarshalIndent(payload, "", "  ")
 	if err := os.WriteFile(resultPath, body, 0644); err != nil {
 		m.failTask(id, fmt.Sprintf("保存結果失敗: %v", err))
@@ -258,7 +272,9 @@ func (m *TaskManager) RunTask(id string) error {
 		Interval: task.Interval,
 		Params:   reportParams,
 	}
-	if comparison != nil {
+	if multiResult != nil || hedgeResult != nil {
+		reportPath = ""
+	} else if comparison != nil {
 		if err := GenerateComparisonReportToFile(comparison, reportPath, reportMeta); err != nil {
 			logger.Warn("生成对比报告失敗: %v", err)
 			reportPath = ""
@@ -271,13 +287,39 @@ func (m *TaskManager) RunTask(id string) error {
 	// 5. 更新任務為完成
 	completed := time.Now()
 	_ = m.store.UpdateBacktestTaskStatus(id, "completed", 100, nil, &completed, "", resultPath, reportPath)
-	if comparison != nil {
+	if hedgeResult != nil {
+		logger.Info("✅ 對沖回测任務完成: %s, 收益率=%.2f%%, 最大回撤=%.2f%%, 再平衡=%d",
+			id, hedgeResult.TotalReturnPct, hedgeResult.MaxDrawdownPct, hedgeResult.RebalanceCount)
+	} else if multiResult != nil {
+		logger.Info("✅ 多策略回测任務完成: %s, 收益率=%.2f%%, 交易=%d, 策略=%d",
+			id, multiResult.TotalReturnPct, multiResult.TotalTrades, len(task.Strategies))
+	} else if comparison != nil {
 		logger.Info("✅ 回测任務完成: %s, 無風控收益率=%.2f%%, 有風控收益率=%.2f%%, 風控介入%d次",
 			id, result.Metrics.TotalReturn, comparison.WithRiskResult.Metrics.TotalReturn, comparison.Comparison.RiskInterventionCount)
 	} else {
 		logger.Info("✅ 回测任務完成: %s, 收益率=%.2f%%", id, result.Metrics.TotalReturn)
 	}
 	return nil
+}
+
+func (m *TaskManager) loadHedgeLegBCandles(task *BacktestTask) ([]*exchange.Candle, error) {
+	switch task.DataSource {
+	case "kline_file":
+		legBFile := getString(task.Params, "leg_b_kline_file", "")
+		if legBFile == "" {
+			return nil, fmt.Errorf("hedge mode requires params.leg_b_kline_file when data_source=kline_file")
+		}
+		legBCandles, _, err := LoadCandlesFromKlineFile(m.klineDataDir, legBFile)
+		return legBCandles, err
+	case "time_range":
+		legBSymbol := getString(task.Params, "leg_b_symbol", "")
+		if legBSymbol == "" {
+			return nil, fmt.Errorf("hedge mode requires params.leg_b_symbol when data_source=time_range")
+		}
+		return GetHistoricalData(legBSymbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
+	default:
+		return nil, fmt.Errorf("unsupported data_source for hedge mode: %s", task.DataSource)
+	}
 }
 
 func (m *TaskManager) failTask(id, errMsg string) {

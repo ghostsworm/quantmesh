@@ -14,12 +14,20 @@ func (s *SQLiteStorage) CreateBacktestTask(task *backtest.BacktestTask) error {
 	if err != nil {
 		return err
 	}
+	strategiesJSON, err := json.Marshal(task.Strategies)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.Exec(`
-		INSERT INTO backtest_tasks (id, status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, data_source, kline_file, cache_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO backtest_tasks (id, status, mode, bot_id, group_id, strategy, strategies_json, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, data_source, kline_file, cache_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID,
 		task.Status,
+		task.Mode,
+		task.BotID,
+		task.GroupID,
 		task.Strategy,
+		string(strategiesJSON),
 		task.Symbol,
 		task.Interval,
 		task.StartTime.UnixMilli(),
@@ -45,15 +53,19 @@ func (s *SQLiteStorage) GetBacktestTask(id string) (*backtest.BacktestTask, erro
 	var (
 		startTime, endTime, createdAt int64
 		startedAt, completedAt        sql.NullInt64
-		paramsJSON                    string
+		paramsJSON, strategiesJSON    string
 	)
 	task := &backtest.BacktestTask{ID: id}
 	err := s.db.QueryRow(`
-		SELECT status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, 
+		SELECT status, COALESCE(mode, '') as mode, COALESCE(bot_id, '') as bot_id, COALESCE(group_id, '') as group_id, strategy, COALESCE(strategies_json, '') as strategies_json, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, 
 		       COALESCE(data_source, '') as data_source, COALESCE(kline_file, '') as kline_file, COALESCE(cache_name, '') as cache_name
 		FROM backtest_tasks WHERE id = ?`, id).Scan(
 		&task.Status,
+		&task.Mode,
+		&task.BotID,
+		&task.GroupID,
 		&task.Strategy,
+		&strategiesJSON,
 		&task.Symbol,
 		&task.Interval,
 		&startTime,
@@ -91,6 +103,9 @@ func (s *SQLiteStorage) GetBacktestTask(id string) (*backtest.BacktestTask, erro
 	if paramsJSON != "" {
 		_ = json.Unmarshal([]byte(paramsJSON), &task.Params)
 	}
+	if strategiesJSON != "" {
+		_ = json.Unmarshal([]byte(strategiesJSON), &task.Strategies)
+	}
 	if task.Params == nil {
 		task.Params = make(map[string]interface{})
 	}
@@ -100,7 +115,7 @@ func (s *SQLiteStorage) GetBacktestTask(id string) (*backtest.BacktestTask, erro
 // ListBacktestTasks 列出回测任務（按創建時间倒序）
 func (s *SQLiteStorage) ListBacktestTasks(limit, offset int) ([]*backtest.BacktestTask, error) {
 	rows, err := s.db.Query(`
-		SELECT id, status, strategy, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path,
+		SELECT id, status, COALESCE(mode, '') as mode, COALESCE(bot_id, '') as bot_id, COALESCE(group_id, '') as group_id, strategy, COALESCE(strategies_json, '') as strategies_json, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path,
 		       COALESCE(data_source, '') as data_source, COALESCE(kline_file, '') as kline_file, COALESCE(cache_name, '') as cache_name
 		FROM backtest_tasks ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
@@ -112,10 +127,10 @@ func (s *SQLiteStorage) ListBacktestTasks(limit, offset int) ([]*backtest.Backte
 		var (
 			startTime, endTime, createdAt int64
 			startedAt, completedAt        sql.NullInt64
-			paramsJSON                    string
+			paramsJSON, strategiesJSON    string
 		)
 		task := &backtest.BacktestTask{}
-		if err := rows.Scan(&task.ID, &task.Status, &task.Strategy, &task.Symbol, &task.Interval, &startTime, &endTime, &paramsJSON, &task.TotalCapital, &task.Progress, &createdAt, &startedAt, &completedAt, &task.Error, &task.ResultPath, &task.ReportPath, &task.DataSource, &task.KlineFile, &task.CacheName); err != nil {
+		if err := rows.Scan(&task.ID, &task.Status, &task.Mode, &task.BotID, &task.GroupID, &task.Strategy, &strategiesJSON, &task.Symbol, &task.Interval, &startTime, &endTime, &paramsJSON, &task.TotalCapital, &task.Progress, &createdAt, &startedAt, &completedAt, &task.Error, &task.ResultPath, &task.ReportPath, &task.DataSource, &task.KlineFile, &task.CacheName); err != nil {
 			return nil, err
 		}
 		task.StartTime = time.UnixMilli(startTime)
@@ -131,6 +146,9 @@ func (s *SQLiteStorage) ListBacktestTasks(limit, offset int) ([]*backtest.Backte
 		}
 		if paramsJSON != "" {
 			_ = json.Unmarshal([]byte(paramsJSON), &task.Params)
+		}
+		if strategiesJSON != "" {
+			_ = json.Unmarshal([]byte(strategiesJSON), &task.Strategies)
 		}
 		if task.Params == nil {
 			task.Params = make(map[string]interface{})

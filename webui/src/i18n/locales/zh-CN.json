@@ -362,6 +362,12 @@
     "close": "收盘",
     "generating": "生成中...",
     "saveAsImage": "保存为图片",
+    "hedgeMode": "对冲模式",
+    "truePair": "真双腿联动",
+    "rebalanceCount": "再平衡次数",
+    "alignedPoints": "对齐K线点数",
+    "longSymbol": "多腿交易对",
+    "shortSymbol": "空腿交易对",
     "baseConfig": "1. 基础配置",
     "optimDescription": "选择交易对、策略、日期范围和资金，程序将自动遍历参数组合寻找最优解。",
     "initialCapital": "初始资金 (USDT)",
@@ -3783,6 +3789,12 @@
     "drawdown": "回撤",
     "date": "日期",
     "equity": "权益",
-    "config": "参数配置"
+    "config": "参数配置",
+    "hedgeMode": "对冲模式",
+    "truePair": "真双腿联动",
+    "rebalanceCount": "再平衡次数",
+    "alignedPoints": "对齐K线点数",
+    "longSymbol": "多腿交易对",
+    "shortSymbol": "空腿交易对"
   }
 }
