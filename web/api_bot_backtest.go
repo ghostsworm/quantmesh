@@ -195,7 +195,7 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 	}
 
 	// 創建策略实例
-	for _, strategyCfg := range task.BotConfig.Strategies {
+	for _, strategyCfg := range normalizeBotStrategies(task.BotConfig.Strategies) {
 		strategy, err := createBacktestStrategy(strategyCfg, task.BotConfig)
 		if err != nil {
 			task.mu.Lock()
@@ -248,21 +248,38 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 
 // createBacktestStrategy 根据配置創建回测策略
 func createBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig) (backtest.BacktestStrategy, error) {
-	// 根据策略類型創建相应的回测策略
-	switch strategyCfg.Type {
-	case "grid":
-		return createGridBacktestStrategy(strategyCfg, botCfg)
-	case "dca", "dca_enhanced":
-		return createDCABacktestStrategy(strategyCfg, botCfg)
-	case "martingale":
-		return createMartingaleBacktestStrategy(strategyCfg, botCfg)
-	case "trend":
-		return createTrendBacktestStrategy(strategyCfg, botCfg)
-	case "combo":
-		return createComboBacktestStrategy(strategyCfg, botCfg)
-	default:
-		return nil, fmt.Errorf("unsupported strategy type: %s", strategyCfg.Type)
+	return backtest.CreateTaskBacktestStrategy(
+		backtest.TaskStrategy{
+			Type:   strategyCfg.Type,
+			Weight: strategyCfg.Weight,
+			Config: strategyCfg.Config,
+		},
+		backtest.StrategyExecutionContext{
+			Symbol:       botCfg.Symbol,
+			TotalCapital: botCfg.TotalAllocatedCapital,
+		},
+	)
+}
+
+func normalizeBotStrategies(strategies []config.StrategyInstance) []config.StrategyInstance {
+	taskStrategies := make([]backtest.TaskStrategy, 0, len(strategies))
+	for _, strategy := range strategies {
+		taskStrategies = append(taskStrategies, backtest.TaskStrategy{
+			Type:   strategy.Type,
+			Weight: strategy.Weight,
+			Config: strategy.Config,
+		})
 	}
+	normalized := backtest.NormalizeTaskStrategies(taskStrategies)
+	result := make([]config.StrategyInstance, 0, len(normalized))
+	for _, strategy := range normalized {
+		result = append(result, config.StrategyInstance{
+			Type:   strategy.Type,
+			Weight: strategy.Weight,
+			Config: strategy.Config,
+		})
+	}
+	return result
 }
 
 // createGridBacktestStrategy 創建网格回测策略
