@@ -43,7 +43,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.62.1-rc1"
+var Version = "3.63.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1672,6 +1672,16 @@ func main() {
 		backupManager := config.NewBackupManager(configPath)
 		web.SetConfigBackupManager(backupManager)
 		logger.Info("✅ 配置备份管理器已初始化")
+
+		// 初始化 Bot 配置文件管理器
+		if err := web.InitBotConfigManager("."); err != nil {
+			logger.Warn("⚠️ 初始化 Bot 配置管理器失败: %v", err)
+		}
+
+		// 初始化策略模板管理器
+		if err := web.InitStrategyTemplateManager("."); err != nil {
+			logger.Warn("⚠️ 初始化策略模板管理器失败: %v", err)
+		}
 
 		historyManager, err := config.NewHistoryManager("./data", configPath)
 		if err != nil {

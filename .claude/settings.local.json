@@ -41,7 +41,8 @@
       "Bash(STATS=\"$HOME/Library/Application Support/Claude/claude-code/skills/\" ls:*)",
       "Bash(SKILLS_DIR=\"$HOME/Library/Application Support/Claude/claude-code/skills/\" ls:*)",
       "Bash(git rm:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(gh release view:*)"
     ],
     "deny": [],
     "ask": []

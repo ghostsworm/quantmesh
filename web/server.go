@@ -163,6 +163,34 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.POST("/bots/:id/start", postBotStart)
 			protected.POST("/bots/:id/stop", postBotStop)
 			protected.PUT("/bots/:id/strategy", putBotStrategy)
+
+			// Bot 配置文件 API（独立配置文件系统）
+			protected.GET("/bots/:id/config-file", getBotConfigFile)
+			protected.PUT("/bots/:id/config-file", putBotConfigFile)
+			protected.DELETE("/bots/:id/config-file", deleteBotConfigFile)
+			protected.PUT("/bots/:id/strategy-config", putBotStrategyConfig)
+			protected.POST("/bots/:id/strategies", addBotStrategy)
+			protected.DELETE("/bots/:id/strategies/:index", removeBotStrategy)
+			protected.GET("/bots/:id/validate", getBotConfigValidation)
+			protected.POST("/bots/:id/apply-template", applyStrategyTemplate)
+
+			// 混合策略 API
+			protected.GET("/bots/:id/hybrid-config", getHybridStrategyConfig)
+			protected.PUT("/bots/:id/hybrid-config", updateHybridStrategy)
+			protected.POST("/bots/:id/enable-hybrid", enableHybridMode)
+			protected.POST("/bots/:id/disable-hybrid", disableHybridMode)
+			protected.GET("/bots/:id/hybrid-status", getHybridStrategyStatus)
+			protected.GET("/hybrid/rules/templates", getBuiltInRuleTemplates)
+
+			// 策略模板 API
+			protected.GET("/strategy-templates", getStrategyTemplates)
+			protected.GET("/strategy-templates/:id", getStrategyTemplate)
+			protected.GET("/strategy-templates/category/:category", getStrategyTemplatesByCategory)
+			protected.GET("/strategy-templates/:id/export", exportStrategyTemplate)
+			protected.POST("/strategy-templates/custom", saveCustomTemplate)
+			protected.DELETE("/strategy-templates/:id", deleteCustomTemplate)
+			protected.POST("/strategy-templates/import", importStrategyTemplate)
+
 			protected.GET("/bot-groups", getBotGroups)
 			protected.GET("/bot-groups/:id", getBotGroupByID)
 			protected.POST("/bot-groups", postBotGroupCreate)
