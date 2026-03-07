@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { getConfig } from '../services/config'
 import { useTranslation } from 'react-i18next'
 import { getDefaultTimezoneByLanguage } from '../utils/dateFormat'
+import { useAuth } from './AuthContext'
 
 interface ConfigContextType {
   timezone: string
@@ -13,6 +14,7 @@ const ConfigContext = createContext<ConfigContextType | undefined>(undefined)
 
 export const ConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { i18n } = useTranslation()
+  const { isAuthenticated } = useAuth()
   const [timezone, setTimezone] = useState<string>(() => {
     // 从 localStorage 读取，如果没有则根据语言设置默认值
     const saved = localStorage.getItem('quantmesh-timezone')
@@ -21,8 +23,12 @@ export const ConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   })
   const [loading, setLoading] = useState(true)
 
-  // 从后端加载配置
+  // 仅已认证时从后端加载配置，避免在 /login 页触发 getConfig() -> 401 -> 重定向循环
   useEffect(() => {
+    if (!isAuthenticated) {
+      setLoading(false)
+      return
+    }
     const loadConfig = async () => {
       try {
         const config = await getConfig()
@@ -38,7 +44,7 @@ export const ConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
     }
     loadConfig()
-  }, [])
+  }, [isAuthenticated])
 
   // 语言变化时更新默认时区
   useEffect(() => {

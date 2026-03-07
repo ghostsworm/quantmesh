@@ -9,7 +9,9 @@ async function fetchText(url: string) {
     credentials: 'include',
   })
   if (!response.ok) {
-    if (response.status === 401) window.location.replace('/login')
+    if (response.status === 401 && window.location.pathname !== '/login') {
+      window.location.replace('/login')
+    }
     throw new Error(`HTTP ${response.status}`)
   }
   return response.text()

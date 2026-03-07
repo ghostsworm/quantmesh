@@ -20,7 +20,10 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     if (response.status === 401) {
-      window.location.replace('/login')
+      // 已在登录页时不重定向，避免 401 -> replace('/login') -> 整页重载 -> 再次 401 的循环
+      if (window.location.pathname !== '/login') {
+        window.location.replace('/login')
+      }
     }
     const errorText = await response.text()
     let parsed: { error_key?: string; group_name?: string; bot_id?: string } | null = null
