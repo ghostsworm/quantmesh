@@ -2878,3 +2878,282 @@ export async function deleteBotBacktestTask(taskId: string): Promise<{ ok: boole
     method: 'DELETE',
   })
 }
+
+// ==================== Bot 配置文件 API ====================
+
+// Bot 配置文件结构
+export interface BotConfigFile {
+  bot_id: string
+  name: string
+  created_at: string
+  updated_at: string
+  exchange: string
+  symbol: string
+  market_type: string
+  testnet: boolean
+  strategy_mode: 'single' | 'multi'
+  strategies: BotStrategyConfig[]
+  capital: {
+    total_allocated: number
+    per_strategy: boolean
+    withdrawal?: any
+  }
+  grid?: {
+    price_interval: number
+    profit_spread?: number
+    order_quantity: number
+    min_order_value: number
+    buy_window_size: number
+    sell_window_size: number
+    direction?: string
+    price_low?: number
+    price_high?: number
+    trigger_price?: number
+    grid_mode?: string
+    grid_shift_enabled?: boolean
+    grid_shift_step?: number
+  }
+  risk_control: {
+    grid_risk_control?: any
+    open_position_control?: any
+    max_drawdown_ratio?: number
+    stop_loss_ratio?: number
+    take_profit_ratio?: number
+  }
+  advanced?: {
+    reconcile_interval?: number
+    order_cleanup_threshold?: number
+    cleanup_batch_size?: number
+    margin_lock_duration_sec?: number
+    position_safety_check?: number
+    close_on_stop?: boolean
+    close_on_stop_config?: any
+    slot_filter?: any
+    smart_order?: any
+    profiles?: any
+    switch_rules?: any
+  }
+  hedge?: {
+    group_id: string
+    group_name: string
+    role: string
+    hedge_ratio: number
+    rebalance: boolean
+    sync_position: boolean
+  }
+}
+
+// Bot 策略配置
+export interface BotStrategyConfig {
+  type: string
+  enabled: boolean
+  weight: number
+  params?: Record<string, any>
+  settings?: Record<string, any>
+}
+
+// Bot 配置文件响应
+export interface BotConfigFileResponse {
+  bot_id: string
+  name: string
+  exchange: string
+  symbol: string
+  market_type: string
+  config: BotConfigFile
+  exists: boolean
+}
+
+// 获取 Bot 配置文件
+export async function getBotConfigFile(botId: string): Promise<BotConfigFileResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/config-file`)
+}
+
+// 更新 Bot 配置文件
+export async function updateBotConfigFile(
+  botId: string,
+  config: BotConfigFile
+): Promise<{ ok: boolean; bot_id: string; action: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/config-file`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+}
+
+// 删除 Bot 配置文件
+export async function deleteBotConfigFile(botId: string): Promise<{ ok: boolean; bot_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/config-file`, {
+    method: 'DELETE',
+  })
+}
+
+// 更新单个策略配置
+export async function updateBotStrategyConfig(
+  botId: string,
+  strategyIndex: number,
+  strategy: BotStrategyConfig
+): Promise<{ ok: boolean; bot_id: string; strategy_index: number }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/strategy-config`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      strategy_index: strategyIndex,
+      strategy: strategy,
+    }),
+  })
+}
+
+// 添加策略
+export async function addBotStrategy(
+  botId: string,
+  strategy: BotStrategyConfig
+): Promise<{ ok: boolean; bot_id: string; strategy_type: string; strategy_count: number }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/strategies`, {
+    method: 'POST',
+    body: JSON.stringify(strategy),
+  })
+}
+
+// 移除策略
+export async function removeBotStrategy(
+  botId: string,
+  strategyIndex: number
+): Promise<{ ok: boolean; bot_id: string; strategy_type: string; strategy_count: number }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/strategies/${strategyIndex}`, {
+    method: 'DELETE',
+  })
+}
+
+// 导出 Bot 配置为 JSON
+export async function exportBotConfig(botId: string): Promise<string> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/config-file`)
+  const config = response.config
+  return JSON.stringify(config, null, 2)
+}
+
+// 从 JSON 导入 Bot 配置
+export async function importBotConfig(
+  botId: string,
+  jsonConfig: string
+): Promise<{ ok: boolean; bot_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/config-file`, {
+    method: 'PUT',
+    body: jsonConfig,
+  })
+}
+
+// ==================== 混合策略 API ====================
+
+// 混合策略配置
+export interface HybridStrategyConfig {
+  name: string
+  description?: string
+  sub_strategies: SubStrategyConfig[]
+  collaboration_rules: CollaborationRule[]
+  global_settings?: Record<string, any>
+}
+
+// 子策略配置
+export interface SubStrategyConfig {
+  id: string
+  name: string
+  type: string
+  role: 'primary' | 'signal' | 'hybrid' | 'monitor'
+  weight: number
+  enabled: boolean
+  config: Record<string, any>
+  metadata?: Record<string, any>
+}
+
+// 协作规则
+export interface CollaborationRule {
+  id: string
+  name: string
+  description?: string
+  priority?: number
+  enabled: boolean
+  when: SignalCondition
+  then: Action[]
+}
+
+// 信号条件
+export interface SignalCondition {
+  source_strategy: string
+  signal_type: string
+  operator: '==' | '!=' | '>' | '<' | '>=' | '<=' | 'in' | 'not_in'
+  value: any
+  within?: string // 时间窗口，如 "1m", "5m"
+}
+
+// 执行动作
+export interface Action {
+  target_strategy: string
+  operation: 'allow_open' | 'deny_open' | 'allow_close' | 'deny_close' | 'modify_params' | 'enable_strategy' | 'disable_strategy' | 'emit_signal'
+  condition?: string
+  params?: Record<string, any>
+}
+
+// 获取混合策略配置
+export async function getHybridStrategyConfig(botId: string): Promise<{
+  hybrid_mode: boolean
+  config?: HybridStrategyConfig
+  message?: string
+}> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/hybrid-config`)
+}
+
+// 更新混合策略配置
+export async function updateHybridStrategy(
+  botId: string,
+  data: { hybrid_strategy: HybridStrategyConfig }
+): Promise<{ ok: boolean; bot_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/hybrid-config`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+// 启用混合模式
+export async function enableHybridMode(
+  botId: string,
+  data: {
+    name: string
+    description?: string
+    sub_strategies: SubStrategyConfig[]
+    collaboration_rules: CollaborationRule[]
+  }
+): Promise<{ ok: boolean; bot_id: string; mode: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/enable-hybrid`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+// 禁用混合模式
+export async function disableHybridMode(botId: string): Promise<{
+  ok: boolean
+  bot_id: string
+  mode: string
+}> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/disable-hybrid`, {
+    method: 'POST',
+  })
+}
+
+// 获取混合策略状态
+export async function getHybridStrategyStatus(botId: string): Promise<{
+  bot_id: string
+  hybrid_mode: boolean
+  sub_strategies_count?: number
+  rules_count?: number
+  enabled_sub_strategies?: number
+  enabled_rules?: number
+}> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/hybrid-status`)
+}
+
+// 获取内置规则模板
+export async function getBuiltInRuleTemplates(): Promise<{
+  templates: CollaborationRule[]
+}> {
+  return fetchWithAuth(`${API_BASE_URL}/hybrid/rules/templates`)
+}
+

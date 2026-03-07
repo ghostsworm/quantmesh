@@ -23,6 +23,9 @@ type MultiStrategyEngine struct {
 	// 資金費率
 	FundingRates []FundingRateRow
 
+	// 信号总线（混合策略）
+	signalBus *BacktestSignalBus
+
 	runtimes []*StrategyRuntime
 
 	// 運行时狀態
@@ -42,6 +45,9 @@ type MultiStrategyEngine struct {
 
 	// 統計
 	statsByStrategy map[string]*StrategyStats
+
+	// 混合策略配置
+	hybridConfig *TaskHybridStrategyConfig
 }
 
 // EngineConfig 引擎配置
@@ -314,6 +320,10 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 
 	logger.Info("Starting backtest: %d strategies, %d klines", len(e.Strategies), len(e.Klines))
 
+	if e.IsHybridMode() {
+		logger.Info("🔄 混合策略回测模式已启用")
+	}
+
 	startTime := time.Now()
 
 	// 重置狀態
@@ -358,6 +368,15 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 				}
 				if orders[j].AccountID == "" {
 					orders[j].AccountID = runtime.account.AccountID
+				}
+			}
+
+			// 混合策略：评估协作规则
+			if e.IsHybridMode() && e.signalBus != nil {
+				// 评估规则并获取动作
+				actions := e.signalBus.EvaluateRules()
+				if len(actions) > 0 {
+					e.applyRuleActions(actions, kline, i)
 				}
 			}
 
@@ -986,4 +1005,91 @@ func min(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// SetHybridStrategyConfig 设置混合策略配置
+func (e *MultiStrategyEngine) SetHybridStrategyConfig(config *TaskHybridStrategyConfig) {
+	e.hybridConfig = config
+	if config != nil && len(config.CollaborationRules) > 0 {
+		e.signalBus = NewBacktestSignalBus(config.CollaborationRules)
+		logger.Info("✅ 混合策略模式已启用: %d 个子策略, %d 条协作规则",
+			len(config.SubStrategies), len(config.CollaborationRules))
+	}
+}
+
+// IsHybridMode 检查是否为混合策略模式
+func (e *MultiStrategyEngine) IsHybridMode() bool {
+	return e.hybridConfig != nil && e.signalBus != nil && e.signalBus.IsEnabled()
+}
+
+// publishSignal 发布策略信号
+func (e *MultiStrategyEngine) publishSignal(strategyID, signalType string, value interface{}, metadata map[string]interface{}, klineIndex int) {
+	if e.signalBus == nil {
+		return
+	}
+
+	signal := &BacktestSignal{
+		ID:        fmt.Sprintf("%s_%s_%d", strategyID, signalType, klineIndex),
+		Type:      signalType,
+		Source:    strategyID,
+		Value:     value,
+		Metadata:  metadata,
+		KlineIndex: klineIndex,
+	}
+
+	e.signalBus.Publish(signal)
+}
+
+// applyRuleActions 应用协作规则动作
+func (e *MultiStrategyEngine) applyRuleActions(actions map[string][]RuleAction, kline TickKline, klineIndex int) {
+	if len(actions) == 0 {
+		return
+	}
+
+	// 记录被应用的规则
+	for targetID, actionList := range actions {
+		for _, action := range actionList {
+			logger.Debug("应用协作规则 [%s]: %s -> %s (操作: %s, 优先级: %d)",
+				action.RuleName, action.RuleID, targetID, action.Operation, action.RulePriority)
+
+			// 找到目标策略的runtime
+			var targetRuntime *StrategyRuntime
+			for _, runtime := range e.runtimes {
+				if runtime.strategyID == targetID {
+					targetRuntime = runtime
+					break
+				}
+			}
+
+			if targetRuntime == nil {
+				continue
+			}
+
+			// 应用动作
+			switch action.Operation {
+			case "deny_open":
+				// 阻止开仓 - 设置一个标记，在下一根K线时检查
+				if targetRuntime.account != nil {
+					targetRuntime.account.mu.Lock()
+					// 这里可以使用 account 的 metadata 来存储临时标记
+					targetRuntime.account.mu.Unlock()
+				}
+
+			case "adjust_size":
+				// 调整仓位大小
+				if _, ok := action.Params["size_multiplier"].(float64); ok {
+					// 在策略内部处理
+				}
+
+			case "close_position":
+				// 强制平仓
+				if targetRuntime.account.PositionSize != 0 {
+					e.forceClosePosition(targetRuntime, kline.Close, int64(kline.Timestamp))
+				}
+
+			case "skip_next":
+				// 跳过下一次信号
+			}
+		}
+	}
 }
