@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.61.2] - 2026-03-07
+
+### Changed
+- **Bot 详情回测区重构**：移除弹窗式回测，改为跳转全局回测页并预填参数
+  - 补全 botDetail 回测区 i18n（maxPositionValue、priceInterval、goToBacktest 等）
+  - 展示更多参数：策略类型、利润间距、价格上下限
+  - 点击「前往回测」跳转 `/backtest`，URL 携带 exchange、symbol、strategy、total_capital、grid_spacing、order_quantity 等
+  - BacktestMenu 支持从 URL 参数预填表单
+
 ## [3.61.1-rc2] - 2026-03-07
 
 ### Fixed

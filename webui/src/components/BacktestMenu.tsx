@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import html2canvas from 'html2canvas'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -149,6 +150,7 @@ const formatDate = (s: string) => {
 // 网格策略回测时价格区间从 K 线自动推导，不再需要预设价格上下限
 
 export default function BacktestMenu() {
+  const [searchParams] = useSearchParams()
   const [strategies, setStrategies] = useState<StrategyParamDefinition[]>([])
   
   // 三级联动：交易所 → 市场类型 → 交易对
@@ -169,6 +171,7 @@ export default function BacktestMenu() {
   const [strategyType, setStrategyType] = useState('')
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [totalCapital, setTotalCapital] = useState(10000)
+  const urlParamsApplied = useRef(false)
   
   // 数据来源相关状态
   const [dataSource, setDataSource] = useState<'time_range' | 'kline_file' | 'cache'>('time_range')
@@ -324,6 +327,17 @@ export default function BacktestMenu() {
     }
   }, [toast])
 
+  // 从 URL 解析预填参数（用于从 Bot 详情页跳转）
+  const urlExchange = searchParams.get('exchange')
+  const urlMarketType = searchParams.get('market_type')
+  const urlSymbol = searchParams.get('symbol')
+  const urlStrategy = searchParams.get('strategy')
+  const urlDays = searchParams.get('days')
+  const urlTotalCapital = searchParams.get('total_capital')
+  const urlGridSpacing = searchParams.get('grid_spacing')
+  const urlOrderQuantity = searchParams.get('order_quantity')
+  const urlProfitSpread = searchParams.get('profit_spread')
+
   // 初始化：载入策略列表、交易所列表、预计算结果和 K 线缓存列表
   useEffect(() => {
     getBacktestStrategies().then((r) => r.success && setStrategies(r.strategies || []))
@@ -333,14 +347,17 @@ export default function BacktestMenu() {
           a.exchange.localeCompare(b.exchange, undefined, { sensitivity: 'base' })
         )
         setExchanges(sorted)
-        // 自动选择已配置的交易所，或预设第一个
+        // 优先使用 URL 参数，否则使用已配置或第一个
+        const urlEx = urlExchange && sorted.some(e => e.exchange === urlExchange) ? urlExchange : null
         const configured = sorted.find(e => e.is_configured)
-        if (configured) {
-          setSelectedExchange(configured.exchange)
-          setAvailableMarketTypes(configured.market_types || ['futures', 'spot'])
-        } else if (sorted.length > 0) {
-          setSelectedExchange(sorted[0].exchange)
-          setAvailableMarketTypes(sorted[0].market_types || ['futures', 'spot'])
+        const fallback = configured || sorted[0]
+        if (urlEx) {
+          setSelectedExchange(urlEx)
+          const ex = sorted.find(e => e.exchange === urlEx)
+          setAvailableMarketTypes(ex?.market_types || ['futures', 'spot'])
+        } else if (fallback) {
+          setSelectedExchange(fallback.exchange)
+          setAvailableMarketTypes(fallback.market_types || ['futures', 'spot'])
         }
       }
     })
@@ -348,6 +365,25 @@ export default function BacktestMenu() {
     loadCachedKlines()
     loadKlineFiles()
   }, [loadPrecomputedResults, loadCachedKlines, loadKlineFiles])
+
+  // 应用 URL 参数到表单（非 exchange/symbol 的需在初始化后执行一次）
+  useEffect(() => {
+    if (urlParamsApplied.current) return
+    if (urlStrategy) setStrategyType(urlStrategy)
+    const d = parseInt(urlDays || '', 10)
+    if (!isNaN(d) && d > 0) setDays(d)
+    const tc = parseFloat(urlTotalCapital || '')
+    if (!isNaN(tc) && tc > 0) setTotalCapital(tc)
+    const p: Record<string, unknown> = {}
+    const gs = parseFloat(urlGridSpacing || '')
+    if (!isNaN(gs) && gs > 0) p.grid_spacing = gs
+    const oq = parseFloat(urlOrderQuantity || '')
+    if (!isNaN(oq) && oq > 0) p.order_quantity = oq
+    const ps = parseFloat(urlProfitSpread || '')
+    if (!isNaN(ps) && ps >= 0) p.profit_spread = ps
+    if (Object.keys(p).length > 0) setParams(prev => ({ ...prev, ...p }))
+    urlParamsApplied.current = true
+  }, [urlStrategy, urlDays, urlTotalCapital, urlGridSpacing, urlOrderQuantity, urlProfitSpread])
 
   // 获取智能参数推荐
   const handleGetSmartRecommendation = useCallback(async () => {
@@ -453,13 +489,16 @@ export default function BacktestMenu() {
     const ex = exchanges.find(e => e.exchange === selectedExchange)
     if (ex) {
       setAvailableMarketTypes(ex.market_types || ['futures', 'spot'])
-      // 如果当前选择的市场类型不在可用列表中，重置
-      if (!ex.market_types?.includes(selectedMarketType)) {
-        setSelectedMarketType(ex.market_types?.[0] || 'futures')
+      // 若有 URL 的 market_type 且合法，优先使用；否则若当前不在列表中则重置
+      const mt = ex.market_types || ['futures', 'spot']
+      if (urlMarketType && mt.includes(urlMarketType)) {
+        setSelectedMarketType(urlMarketType)
+      } else if (!mt.includes(selectedMarketType)) {
+        setSelectedMarketType(mt[0] || 'futures')
       }
     }
-    // 清空交易对选择
-    setSymbol('')
+    // 若无 URL symbol，清空交易对选择
+    if (!urlSymbol) setSymbol('')
     setSymbols([])
   }, [selectedExchange])
 
@@ -469,9 +508,12 @@ export default function BacktestMenu() {
     getBacktestSymbols(selectedExchange, selectedMarketType).then((r) => {
       if (r.success && r.symbols) {
         setSymbols(r.symbols)
-        // 自动选择已配置的交易对，或清空
+        // 优先使用 URL 的 symbol（若在列表中），否则选已配置或清空
+        const urlSym = urlSymbol && r.symbols.some(s => s.symbol === urlSymbol) ? urlSymbol : null
         const configured = r.symbols.find(s => s.is_configured)
-        if (configured) {
+        if (urlSym) {
+          setSymbol(urlSym)
+        } else if (configured) {
           setSymbol(configured.symbol)
         } else {
           setSymbol('')
