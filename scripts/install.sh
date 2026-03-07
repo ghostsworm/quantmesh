@@ -1,7 +1,11 @@
 #!/bin/bash
 #
 # QuantMesh Installation Script
-# Usage: sudo ./install.sh
+# Usage: sudo ./install.sh [OPTIONS]
+#
+# Options:
+#   --silent, -s, --silent-upgrade   Silent install/upgrade: no prompts, keep existing
+#                                     config, upgrade binary and restart service
 #
 # Features:
 #   - Auto-install QuantMesh binary to /opt/quantmesh
@@ -14,6 +18,17 @@
 #
 
 set -e
+
+# Parse silent mode before other logic
+SILENT_MODE=0
+for arg in "$@"; do
+    case $arg in
+        --silent|-s|--silent-upgrade)
+            SILENT_MODE=1
+            break
+            ;;
+    esac
+done
 
 # Color definitions
 RED='\033[0;31m'
@@ -48,6 +63,12 @@ declare -A LANG_STRINGS
 
 # Language selection menu
 select_language() {
+    if [ "$SILENT_MODE" = "1" ]; then
+        LANG_CODE="en"
+        load_language_strings
+        return
+    fi
+    
     echo ""
     echo "=============================================="
     echo "     QuantMesh Installation Script"
@@ -1380,6 +1401,18 @@ handle_config() {
         return
     fi
     
+    if [ "$SILENT_MODE" = "1" ]; then
+        # Silent mode: always keep existing config, never overwrite
+        if [ -f "$CONFIG_FILE" ]; then
+            log_info "$(t "info_config_kept")"
+            [ -n "$CONFIG_EXAMPLE" ] && cp "${CONFIG_EXAMPLE}" "${INSTALL_DIR}/config.example.yaml" 2>/dev/null || true
+        else
+            cp "${CONFIG_EXAMPLE}" "$CONFIG_FILE"
+            cp "${CONFIG_EXAMPLE}" "${INSTALL_DIR}/config.example.yaml"
+        fi
+        return
+    fi
+    
     log_step "$(t "step_handle_config")"
     
     if [ -f "$CONFIG_FILE" ]; then
@@ -1528,17 +1561,33 @@ copy_scripts() {
 
 # Start service
 start_service() {
+    if [ "$SILENT_MODE" = "1" ]; then
+        # Silent mode: always restart service (upgrade scenario)
+        log_step "$(t "step_start_service")"
+        systemctl daemon-reload
+        systemctl restart ${SERVICE_NAME}
+
+        sleep 3
+        if systemctl is-active --quiet ${SERVICE_NAME}; then
+            log_info "$(t "info_service_started")"
+        else
+            log_error "$(t "error_service_failed" "$SERVICE_NAME")"
+            exit 1
+        fi
+        return
+    fi
+
     echo ""
     read -p "$(t "prompt_start_service")" start_now
     start_now=${start_now:-Y}
-    
+
     if [[ "$start_now" =~ ^[Yy]$ ]]; then
         log_step "$(t "step_start_service")"
         systemctl start ${SERVICE_NAME}
-        
+
         # Wait a few seconds and check status
         sleep 3
-        
+
         if systemctl is-active --quiet ${SERVICE_NAME}; then
             log_info "$(t "info_service_started")"
         else
@@ -1608,6 +1657,13 @@ send_install_telemetry() {
 
 # Print completion information
 print_completion() {
+    if [ "$SILENT_MODE" = "1" ]; then
+        echo ""
+        log_info "$(t "success_title")"
+        send_install_telemetry
+        return
+    fi
+
     echo ""
     echo "=============================================="
     echo -e "${GREEN}$(t "success_title")${NC}"
