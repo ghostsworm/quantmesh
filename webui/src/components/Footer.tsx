@@ -13,7 +13,6 @@ const Footer: React.FC = () => {
         <div className="app-footer-section">
           <p className="app-footer-copyright">
             {t('footer.copyright', { year })}
-            <span className="app-footer-version"> v{__APP_VERSION__}</span>
           </p>
           <div className="app-footer-links">
             <RouterLink to="/terms" className="app-footer-link">{t('footer.terms')}</RouterLink>
