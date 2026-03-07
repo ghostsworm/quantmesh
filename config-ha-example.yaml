@@ -10,18 +10,29 @@ instance:
 database:
   # 数据库类型: sqlite, postgres, mysql
   type: "postgres"
-  
+
   # 数据源名称 (DSN)
   # SQLite: ./data/quantmesh.db
   # PostgreSQL: host=localhost user=quantmesh password=secret dbname=quantmesh port=5432 sslmode=disable
-  # MySQL: quantmesh:secret@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=Local
+  # MySQL 8: quantmesh:secret@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=Local&collation=utf8mb4_unicode_ci
+  #
+  # MySQL 8 推荐配置参数说明:
+  # - charset=utf8mb4: 使用完整的 UTF-8 支持
+  # - parseTime=True: 自动解析时间字段
+  # - loc=Local: 使用本地时区（或 UTC）
+  # - collation=utf8mb4_unicode_ci: Unicode 排序规则
+  # - timeout=10s: 连接超时 10 秒
+  # - readTimeout=30s: 读超时 30 秒
+  # - writeTimeout=30s: 写超时 30 秒
+  #
+  # 完整示例: quantmesh:secret@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=Local&collation=utf8mb4_unicode_ci&timeout=10s&readTimeout=30s&writeTimeout=30s
   dsn: "host=localhost user=quantmesh password=secret dbname=quantmesh port=5432 sslmode=disable"
-  
+
   # 连接池配置
-  max_open_conns: 100      # 最大打开连接数
-  max_idle_conns: 10       # 最大空闲连接数
+  max_open_conns: 100      # 最大打开连接数（MySQL 建议: CPU核心数 × 2）
+  max_idle_conns: 10       # 最大空闲连接数（建议: 10-20）
   conn_max_lifetime: 3600  # 连接最大生命周期（秒）
-  
+
   # 日志级别: silent, error, warn, info
   log_level: "error"
 

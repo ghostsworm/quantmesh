@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 import { checkAuthStatus, AuthStatus } from '../services/auth'
 
 interface AuthContextType {
@@ -7,8 +7,8 @@ interface AuthContextType {
   hasWebAuthn: boolean
   isLoading: boolean
   connectionError: boolean  // 新增：標识是否為网络连接錯误
-  securityCompromised: boolean  // 🔒 新增：標識是否存在安全隱患（數據丟失）
-  passwordManagerError: boolean  // 🔒 新增：標識密碼管理器初始化失敗
+  securityCompromised: boolean  // 🔒 新增：標识是否存在安全隱患（數據丟失）
+  passwordManagerError: boolean  // 🔒 新增：標识密碼管理器初始化失敗
   refreshAuth: () => Promise<void>
 }
 
@@ -41,7 +41,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return cached === 'true'
   }
 
-  const refreshAuth = async () => {
+  const refreshAuth = useCallback(async () => {
     try {
       setIsLoading(true)
       setConnectionError(false)
@@ -53,12 +53,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSecurityCompromised(status.security_compromised || false)
       // 🔒 檢測密碼管理器錯誤
       setPasswordManagerError(status.password_manager_error || false)
-      // 缓存 hasPassword 状態，用於网络錯误時的回退
+      // 缓存 hasPassword 状態，用於网络錯誤時的回退
       localStorage.setItem('auth_hasPassword', String(status.has_password))
     } catch (error) {
       console.error('Failed to check auth status:', error)
-      // 网络錯误時，不要將 hasPassword 設為 false，而是使用上次已知状態
-      // 这样可以避免 WiFi 断开時錯误显示"設置密碼"界面
+      // 网络錯誤時，不要將 hasPassword 設為 false，而是使用上次已知状態
+      // 这样可以避免 WiFi 断开時錯誤显示"設置密碼"界面
       setConnectionError(true)
       setIsAuthenticated(false)
       // 保持上次已知的 hasPassword 状態，而不是直接設為 false
@@ -70,10 +70,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
+  // 只在组件挂载时调用一次 refreshAuth
   useEffect(() => {
     refreshAuth()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
@@ -93,4 +95,3 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     </AuthContext.Provider>
   )
 }
-

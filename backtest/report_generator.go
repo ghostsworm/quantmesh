@@ -990,3 +990,280 @@ func SaveEquityCurveCSV(result *BacktestResult) (string, error) {
 
 	return csvPath, nil
 }
+
+// ========== 多策略回測報告 ==========
+
+// MultiStrategyReportData 多策略報告數據
+type MultiStrategyReportData struct {
+	GeneratedAt    string                      `json:"generated_at"`
+	Symbol         string                      `json:"symbol"`
+	Interval       string                      `json:"interval"`
+	StartDate      string                      `json:"start_date"`
+	EndDate        string                      `json:"end_date"`
+	Duration       string                      `json:"duration"`
+	InitialCapital float64                     `json:"initial_capital"`
+	FinalEquity    float64                     `json:"final_equity"`
+	TotalReturnPct float64                     `json:"total_return_pct"`
+	TotalTrades    int                         `json:"total_trades"`
+	TotalFees      float64                     `json:"total_fees"`
+	TotalFunding   float64                     `json:"total_funding"`
+	MaxDrawdownPct float64                     `json:"max_drawdown_pct"`
+	SharpeRatio    float64                     `json:"sharpe_ratio"`
+	WinRate        float64                     `json:"win_rate"`
+	Strategies     []MultiStrategyReportItem   `json:"strategies"`
+	ParamsTable    []ReportParamRow            `json:"params_table"`
+}
+
+// MultiStrategyReportItem 多策略報告中的單個策略項
+type MultiStrategyReportItem struct {
+	Name           string  `json:"name"`
+	Weight         float64 `json:"weight"`
+	TotalTrades    int     `json:"total_trades"`
+	RealizedPnl    float64 `json:"realized_pnl"`
+	WinRate        float64 `json:"win_rate"`
+	MaxDrawdown    float64 `json:"max_drawdown"`
+}
+
+// GenerateMultiStrategyReportToFile 生成多策略報告到指定路徑
+func GenerateMultiStrategyReportToFile(result *MultiStrategyResult, reportPath string, task *BacktestTask) error {
+	// 計算持續時間
+	duration := result.EndTime.Sub(result.StartTime)
+	durationStr := fmt.Sprintf("%d 天", int(duration.Hours()/24))
+
+	// 構建參數表
+	var paramsTable []ReportParamRow
+	if task != nil && len(task.Strategies) > 0 {
+		for _, s := range task.Strategies {
+			paramsTable = append(paramsTable, ReportParamRow{
+				Key:   fmt.Sprintf("策略: %s (權重: %.0f%%)", s.Type, s.Weight),
+				Value: fmt.Sprintf("配置: %+v", s.Config),
+			})
+		}
+	}
+
+	data := MultiStrategyReportData{
+		GeneratedAt:    time.Now().Format("2006-01-02 15:04:05"),
+		Symbol:         result.Symbol,
+		Interval:       "", // 將在 task_manager 中填充
+		StartDate:      result.StartTime.Format("2006-01-02 15:04:05"),
+		EndDate:        result.EndTime.Format("2006-01-02 15:04:05"),
+		Duration:       durationStr,
+		InitialCapital: result.InitialCapital,
+		FinalEquity:    result.FinalEquity,
+		TotalReturnPct: result.TotalReturnPct,
+		TotalTrades:    result.TotalTrades,
+		TotalFees:      result.TotalFees,
+		TotalFunding:   result.TotalFunding,
+		MaxDrawdownPct: result.RiskMetrics.MaxDrawdownPct,
+		SharpeRatio:    result.RiskMetrics.SharpeRatio,
+		WinRate:        result.RiskMetrics.WinRate,
+		ParamsTable:    paramsTable,
+	}
+
+	// 構建各策略統計
+	if result.StatsByStrategy != nil {
+		for name, stats := range result.StatsByStrategy {
+			// 從 task.Strategies 中找到對應的權重
+			var weight float64
+			for _, s := range task.Strategies {
+				if s.Type == stats.Type {
+					weight = s.Weight
+					break
+				}
+			}
+			data.Strategies = append(data.Strategies, MultiStrategyReportItem{
+				Name:        name,
+				Weight:      weight,
+				TotalTrades: stats.TotalTrades,
+				RealizedPnl: stats.RealizedPnL,
+				WinRate:     stats.WinRate,
+				MaxDrawdown: stats.MaxDrawdown,
+			})
+		}
+		// 按權重排序
+		sort.Slice(data.Strategies, func(i, j int) bool {
+			return data.Strategies[i].Weight > data.Strategies[j].Weight
+		})
+	}
+
+	content, err := renderMultiStrategyReportTemplate(data)
+	if err != nil {
+		return fmt.Errorf("渲染多策略報告模板失敗: %w", err)
+	}
+	dir := filepath.Dir(reportPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("創建报告目錄失敗: %w", err)
+	}
+	return os.WriteFile(reportPath, []byte(content), 0644)
+}
+
+// renderMultiStrategyReportTemplate 渲染多策略報告模板
+func renderMultiStrategyReportTemplate(data MultiStrategyReportData) (string, error) {
+	tmpl := `# 多策略組合回測報告
+
+生成時间: {{.GeneratedAt}}
+
+## 執行摘要
+
+- **交易對**: {{.Symbol}}
+- **回测期间**: {{.StartDate}} 至 {{.EndDate}} ({{.Duration}})
+- **初始資金**: ${{.InitialCapital}}
+- **最終權益**: ${{.FinalEquity}}
+- **總收益率**: {{.TotalReturnPct}}%
+- **最大回撤**: {{.MaxDrawdownPct}}%
+- **夏普比率**: {{.SharpeRatio}}
+- **勝率**: {{.WinRate}}%
+
+## 交易統計
+
+- **總交易次數**: {{.TotalTrades}}
+- **總手續費**: ${{.TotalFees}}
+- **總資金費**: ${{.TotalFunding}}
+
+{{if .ParamsTable}}
+## 策略配置
+
+{{range .ParamsTable}}
+- **{{.Key}}**: {{.Value}}
+{{end}}
+{{end}}
+
+{{if .Strategies}}
+## 各策略表現
+
+| 策略 | 權重 | 交易次數 | 已實現盈虧 | 勝率 | 最大回撤 |
+|------|------|----------|------------|------|----------|
+{{range .Strategies}}
+| {{.Name}} | {{.Weight}}% | {{.TotalTrades}} | ${{.RealizedPnl}} | {{.WinRate}}% | {{.MaxDrawdown}}% |
+{{end}}
+{{end}}
+
+---
+
+*本報告由 QuantMesh 回測系統自動生成*
+`
+
+	t, err := template.New("multi_strategy_report").Parse(tmpl)
+	if err != nil {
+		return "", err
+	}
+
+	var buf strings.Builder
+	if err := t.Execute(&buf, data); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+// ========== 對沖回測報告 ==========
+
+// HedgeReportData 對沖報告數據
+type HedgeReportData struct {
+	GeneratedAt     string  `json:"generated_at"`
+	StartTime       string  `json:"start_time"`
+	EndTime         string  `json:"end_time"`
+	InitialCapital  float64 `json:"initial_capital"`
+	FinalEquity     float64 `json:"final_equity"`
+	TotalReturnPct  float64 `json:"total_return_pct"`
+	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`
+	RebalanceCount  int     `json:"rebalance_count"`
+	AlignedPoints   int     `json:"aligned_points"`
+	LongSymbol      string  `json:"long_symbol"`
+	ShortSymbol     string  `json:"short_symbol"`
+	ParamsTable     []ReportParamRow `json:"params_table"`
+}
+
+// GenerateHedgeReportToFile 生成對沖報告到指定路徑
+func GenerateHedgeReportToFile(result *HedgePairResult, reportPath string, task *BacktestTask) error {
+	// 構建參數表
+	var paramsTable []ReportParamRow
+	if task != nil {
+		hedgeRatio := getFloat(task.Params, "hedge_ratio", 1.0)
+		rebalanceThreshold := getFloat(task.Params, "rebalance_threshold", 0.15)
+		rebalanceInterval := getInt(task.Params, "rebalance_interval", 24)
+		paramsTable = []ReportParamRow{
+			{Key: "對沖比例", Value: fmt.Sprintf("%.2f", hedgeRatio)},
+			{Key: "再平衡閾值", Value: fmt.Sprintf("%.2f%%", rebalanceThreshold*100)},
+			{Key: "再平衡間隔", Value: fmt.Sprintf("%d 小時", rebalanceInterval)},
+		}
+	}
+
+	data := HedgeReportData{
+		GeneratedAt:     time.Now().Format("2006-01-02 15:04:05"),
+		StartTime:       result.StartTime.Format("2006-01-02 15:04:05"),
+		EndTime:         result.EndTime.Format("2006-01-02 15:04:05"),
+		InitialCapital:  result.InitialCapital,
+		FinalEquity:     result.FinalEquity,
+		TotalReturnPct:  result.TotalReturnPct,
+		MaxDrawdownPct:  result.MaxDrawdownPct,
+		RebalanceCount:  result.RebalanceCount,
+		AlignedPoints:   result.AlignedPoints,
+		LongSymbol:      result.LongSymbol,
+		ShortSymbol:     result.ShortSymbol,
+		ParamsTable:     paramsTable,
+	}
+
+	content, err := renderHedgeReportTemplate(data)
+	if err != nil {
+		return fmt.Errorf("渲染對沖報告模板失敗: %w", err)
+	}
+	dir := filepath.Dir(reportPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("創建报告目錄失敗: %w", err)
+	}
+	return os.WriteFile(reportPath, []byte(content), 0644)
+}
+
+// renderHedgeReportTemplate 渲染對沖報告模板
+func renderHedgeReportTemplate(data HedgeReportData) (string, error) {
+	tmpl := `# 對沖組合回測報告
+
+生成時间: {{.GeneratedAt}}
+
+## 執行摘要
+
+- **回測期間**: {{.StartTime}} 至 {{.EndTime}}
+- **初始資金**: ${{.InitialCapital}}
+- **最終權益**: ${{.FinalEquity}}
+- **總收益率**: {{.TotalReturnPct}}%
+- **最大回撤**: {{.MaxDrawdownPct}}%
+
+## 對沖配置
+
+- **多腿交易對**: {{.LongSymbol}}
+- **空腿交易對**: {{.ShortSymbol}}
+- **K線對齊點數**: {{.AlignedPoints}}
+
+## 再平衡統計
+
+- **再平衡次數**: {{.RebalanceCount}}
+
+{{if .ParamsTable}}
+## 對沖參數
+
+| 參數 | 值 |
+|------|-----|
+{{range .ParamsTable}}
+| {{.Key}} | {{.Value}} |
+{{end}}
+{{end}}
+
+---
+
+*本報告由 QuantMesh 回測系統自動生成*
+`
+
+	t, err := template.New("hedge_report").Parse(tmpl)
+	if err != nil {
+		return "", err
+	}
+
+	var buf strings.Builder
+	if err := t.Execute(&buf, data); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+

@@ -30,7 +30,18 @@
       "Bash(kill:*)",
       "Bash(git describe:*)",
       "Bash(scp:*)",
-      "Bash(done:*)"
+      "Bash(done:*)",
+      "Bash(curl:*)",
+      "Bash(mysql:*)",
+      "Bash(timeout:*)",
+      "Bash(pkill -9 -f \"dist/quantmesh\" sleep 2 ps aux)",
+      "Bash(python3:*)",
+      "Bash(find:*)",
+      "Bash(echo \"📁 Claude Code Skills 目录内容:\" ls -1 \"$HOME/Library/Application Support/Claude/claude-code/skills/\")",
+      "Bash(STATS=\"$HOME/Library/Application Support/Claude/claude-code/skills/\" ls:*)",
+      "Bash(SKILLS_DIR=\"$HOME/Library/Application Support/Claude/claude-code/skills/\" ls:*)",
+      "Bash(git rm:*)",
+      "Bash(git reset:*)"
     ],
     "deny": [],
     "ask": []

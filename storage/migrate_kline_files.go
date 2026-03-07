@@ -173,17 +173,32 @@ func (s *SQLiteStorage) importKlineCollectorFile(dir, filename, source string) e
 
 // importBacktestCacheFile 导入回测缓存文件
 func (s *SQLiteStorage) importBacktestCacheFile(dir, filename string) error {
-	// 解析文件名：{exchange}_{symbol}_{interval}_{start}_{end}.csv
+	// 解析文件名：
+	// 旧格式: {exchange}_{symbol}_{interval}_{start}_{end}.csv
+	// 新格式: {symbol}_{interval}_{start}_{end}.csv
 	parts := strings.Split(strings.TrimSuffix(filename, ".csv"), "_")
-	if len(parts) < 5 {
-		return fmt.Errorf("文件名格式不正确: %s", filename)
+	if len(parts) < 4 {
+		return fmt.Errorf("文件名格式不正确: %s (期望: symbol_interval_start_end.csv 或 exchange_symbol_interval_start_end.csv)", filename)
 	}
 
-	exchange := parts[0]
-	symbol := parts[1]
-	interval := parts[2]
-	startDateStr := parts[3]
-	endDateStr := parts[4]
+	var exchange, symbol, interval, startDateStr, endDateStr string
+
+	if len(parts) == 5 {
+		// 旧格式: {exchange}_{symbol}_{interval}_{start}_{end}.csv
+		exchange = parts[0]
+		symbol = parts[1]
+		interval = parts[2]
+		startDateStr = parts[3]
+		endDateStr = parts[4]
+	} else {
+		// 新格式: {symbol}_{interval}_{start}_{end}.csv
+		// exchange 默认为 binance
+		exchange = "binance"
+		symbol = parts[0]
+		interval = parts[1]
+		startDateStr = parts[2]
+		endDateStr = parts[3]
+	}
 
 	// 解析日期
 	startTime, err := time.Parse("2006-01-02", startDateStr)

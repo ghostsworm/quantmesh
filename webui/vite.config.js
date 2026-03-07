@@ -102,7 +102,8 @@ export default defineConfig({
         ]
       },
       devOptions: {
-        enabled: true,
+        // 登录/初始化流程对缓存和重载更敏感，开发环境禁用 SW 以避免调试时反复刷新。
+        enabled: false,
         type: 'module'
       }
     })

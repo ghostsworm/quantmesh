@@ -94,3 +94,4 @@ backups/
 config_backups/
 backups/
 test_logs
+.gh_key

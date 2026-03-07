@@ -5,6 +5,7 @@ import './index.css'
 import './i18n/config'
 import i18n from 'i18next'
 import { trackAppInit } from './services/telemetry'
+import { disableServiceWorkersForAuthFlow } from './utils/appRuntimeGuards'
 
 // PWA Service Worker 註冊已由 vite-plugin-pwa 自動處理（通過 registerSW.js）
 // 不需要手動註冊，避免雙重註冊導致的衝突
@@ -27,12 +28,12 @@ window.addEventListener('appinstalled', () => {
   deferredPrompt = null
 })
 
+void disableServiceWorkersForAuthFlow(window.location.pathname)
+
 // 追踪应用初始化
 trackAppInit()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <App />
 )
 

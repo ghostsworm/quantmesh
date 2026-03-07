@@ -1,0 +1,218 @@
+# QuantMesh MySQL 8 配置示例
+# 此配置文件展示了如何使用 MySQL 8 作为后端数据库
+
+# 实例配置
+instance:
+  id: "instance-1"
+  index: 0
+  total: 1
+
+# ============================================
+# MySQL 8 数据库配置
+# ============================================
+database:
+  # 数据库类型
+  type: "mysql"
+
+  # MySQL 8 连接字符串 (DSN)
+  # 格式: username:password@protocol(host:port)/dbname?param=value
+  #
+  # 常用参数:
+  #   - charset=utf8mb4:          字符集（推荐使用 utf8mb4 以支持完整 Unicode）
+  #   - parseTime=True:           自动解析时间字段为 time.Time
+  #   - loc=Local:                时区设置（Local 或 UTC）
+  #   - collation=utf8mb4_unicode_ci: 排序规则
+  #   - timeout=10s:              连接超时
+  #   - readTimeout=30s:          读超时
+  #   - writeTimeout=30s:         写超时
+  #   - allowNativePasswords=true: 允许原生密码认证
+  #
+  # 示例 DSN:
+  # 1. 本地开发: quantmesh:secret@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=Local
+  # 2. 生产环境: quantmesh:strong_pwd@tcp(db.example.com:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=UTC&collation=utf8mb4_unicode_ci&timeout=10s&readTimeout=30s&writeTimeout=30s
+  # 3. Unix Socket: quantmesh:secret@unix(/var/run/mysql/mysql.sock)/quantmesh?charset=utf8mb4&parseTime=True&loc=Local
+  dsn: "quantmesh:your_secure_password@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=UTC&collation=utf8mb4_unicode_ci&timeout=10s&readTimeout=30s&writeTimeout=30s"
+
+  # 连接池配置
+  # MySQL 8 推荐配置:
+  #   - max_open_conns: CPU核心数 × 2（例如 8 核 CPU = 16）
+  #   - max_idle_conns: 10-20（根据并发调整）
+  #   - conn_max_lifetime: 3600 秒（1 小时）
+  max_open_conns: 20
+  max_idle_conns: 10
+  conn_max_lifetime: 3600
+
+  # GORM 日志级别
+  # - silent: 静默模式（生产环境推荐）
+  # - error: 仅显示错误
+  # - warn: 显示警告和错误
+  # - info: 显示详细信息（开发调试用）
+  log_level: "error"
+
+# ============================================
+# MySQL 8 初始化脚本（可选）
+# ============================================
+# 在首次使用前，请确保已创建数据库和用户：
+#
+# CREATE DATABASE quantmesh CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+# CREATE USER 'quantmesh'@'%' IDENTIFIED BY 'your_secure_password';
+# GRANT ALL PRIVILEGES ON quantmesh.* TO 'quantmesh'@'%';
+# FLUSH PRIVILEGES;
+#
+# 推荐的 MySQL 8 服务器配置（my.cnf）:
+# [mysqld]
+# default-storage-engine = InnoDB
+# character-set-server = utf8mb4
+# collation-server = utf8mb4_unicode_ci
+# innodb_buffer_pool_size = 2G
+# innodb_log_file_size = 512M
+# innodb_flush_log_at_trx_commit = 2
+# max_connections = 200
+# default-time-zone = '+00:00'
+
+# ============================================
+# 应用配置
+# ============================================
+app:
+  current_exchange: "binance"
+
+# ============================================
+# 交易所配置
+# ============================================
+exchanges:
+  binance:
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+    fee_rate: 0.0002
+    testnet: false
+
+# ============================================
+# 交易配置
+# ============================================
+trading:
+  symbols:
+    - exchange: "binance"
+      symbol: "BTCUSDT"
+      price_interval: 50
+      order_quantity: 0.001
+      window_size: 5
+
+    - exchange: "binance"
+      symbol: "ETHUSDT"
+      price_interval: 2
+      order_quantity: 30
+      window_size: 5
+
+# ============================================
+# 系统配置
+# ============================================
+system:
+  log_level: "INFO"
+  timezone: "Asia/Shanghai"
+  cancel_on_exit: true
+  close_positions_on_exit: false
+
+# ============================================
+# 风控配置
+# ============================================
+risk_control:
+  enabled: true
+  monitor_symbols:
+    - "BTCUSDT"
+    - "ETHUSDT"
+  interval: "1m"
+  volume_multiplier: 3.0
+  average_window: 10
+  recovery_threshold: 2
+  max_leverage: 10
+
+# ============================================
+# 存储配置
+# ============================================
+storage:
+  enabled: true
+  type: "database"  # 使用 MySQL 数据库存储
+  buffer_size: 1000
+  batch_size: 100
+  flush_interval: 10
+
+# ============================================
+# Web 服务配置
+# ============================================
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 28888
+  api_key: ""
+
+# ============================================
+# Watchdog 配置
+# ============================================
+watchdog:
+  enabled: true
+  sampling_interval: 10
+  retention_days: 30
+  notifications:
+    enabled: true
+    cpu_threshold: 80
+    memory_threshold: 80
+  aggregation:
+    enabled: true
+    interval: "1h"
+
+# ============================================
+# AI 功能配置
+# ============================================
+ai:
+  enabled: false
+  provider: "openai"
+  api_key: ""
+  modules:
+    market_analysis: false
+    parameter_optimization: false
+    risk_analysis: false
+    sentiment_analysis: false
+    polymarket_signal: false
+    strategy_generation: false
+
+# ============================================
+# 通知配置
+# ============================================
+notifications:
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+
+  webhook:
+    enabled: false
+    url: ""
+
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    username: ""
+    password: ""
+    from: ""
+    to: []
+
+# ============================================
+# 性能监控配置（MySQL 8 特有）
+# ============================================
+# 在 MySQL 8 中，你可以启用以下监控：
+# 1. 慢查询日志: 记录执行时间超过阈值的查询
+# 2. Performance Schema: 详细的性能监控（可能影响性能）
+# 3. 信息 Schema: 查询表和索引的元数据
+#
+# 相关 SQL 查询:
+# -- 查看连接数
+# SHOW STATUS LIKE 'Threads_connected';
+#
+# -- 查看表大小
+# SELECT TABLE_NAME, ROUND(((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024), 2) AS 'Size (MB)'
+# FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'quantmesh'
+# ORDER BY (DATA_LENGTH + INDEX_LENGTH) DESC;
+#
+# -- 查看慢查询
+# SELECT * FROM mysql.slow_log ORDER BY query_time DESC LIMIT 10;
