@@ -70,7 +70,7 @@ import {
   Radio,
   Stack,
 } from '@chakra-ui/react'
-import { RepeatIcon, DownloadIcon, DeleteIcon, CheckIcon, StarIcon, ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons'
+import { RepeatIcon, DownloadIcon, DeleteIcon, CheckIcon, StarIcon, ChevronDownIcon, ChevronUpIcon, AddIcon, MinusIcon } from '@chakra-ui/icons'
 import {
   getBacktestStrategies,
   getBacktestPreset,
@@ -1351,25 +1351,193 @@ export default function BacktestMenu() {
                     </NumberInput>
                     <Text fontSize="xs" color="gray.500" mt={1}>{t('backtest.totalCapitalHint')}</Text>
                   </FormControl>
+
+                  {/* 策略模式选择 */}
                   <FormControl mb={3}>
-                    <FormLabel>{t('backtest.strategy')}</FormLabel>
-                    <Select
-                      placeholder={t('backtest.selectStrategyPlaceholder')}
-                      value={strategyType}
-                      onChange={(e) => {
-                        setStrategyType(e.target.value)
-                        setParams({}) // 清空参数，loadConfigParams 会自动触发
-                        setSmartRecommendation(null) // 清空智能推荐
+                    <FormLabel>{t('backtest.strategyMode')}</FormLabel>
+                    <RadioGroup
+                      value={taskStrategies.length > 1 ? 'multi' : 'single'}
+                      onChange={(value) => {
+                        if (value === 'single') {
+                          setTaskStrategies([])
+                          setStrategyType('')
+                          setParams({})
+                        } else {
+                          // 切换到多策略模式：至少需要 2 个策略才能让 value 保持为 'multi'，否则会立刻回退到单策略
+                          if (strategyType && strategies.length > 0) {
+                            const second = strategies.find(s => s.strategy_type !== strategyType)?.strategy_type ?? strategyType
+                            setTaskStrategies([
+                              { type: strategyType, weight: 50, config: {} },
+                              { type: second, weight: 50, config: {} },
+                            ])
+                          } else if (strategies.length >= 2) {
+                            setTaskStrategies([
+                              { type: strategies[0].strategy_type, weight: 50, config: {} },
+                              { type: strategies[1].strategy_type, weight: 50, config: {} },
+                            ])
+                          }
+                        }
                       }}
                     >
-                      {strategies.map((s) => (
-                        <option key={s.strategy_type} value={s.strategy_type}>{t(`backtest.strategyNames.${s.strategy_type}`, { defaultValue: s.name })}</option>
-                      ))}
-                    </Select>
+                      <Stack direction="row" spacing={4}>
+                        <Radio value="single">{t('backtest.strategyModeSingle')}</Radio>
+                        <Radio value="multi">{t('backtest.strategyModeMulti')}</Radio>
+                      </Stack>
+                    </RadioGroup>
                   </FormControl>
 
+                  {/* 单策略模式 */}
+                  {taskStrategies.length <= 1 && (
+                    <FormControl mb={3}>
+                      <FormLabel>{t('backtest.strategy')}</FormLabel>
+                      <Select
+                        placeholder={t('backtest.selectStrategyPlaceholder')}
+                        value={strategyType}
+                        onChange={(e) => {
+                          setStrategyType(e.target.value)
+                          setParams({}) // 清空参数，loadConfigParams 会自动触发
+                          setSmartRecommendation(null) // 清空智能推荐
+                        }}
+                      >
+                        {strategies.map((s) => (
+                          <option key={s.strategy_type} value={s.strategy_type}>{t(`backtest.strategyNames.${s.strategy_type}`, { defaultValue: s.name })}</option>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+
+                  {/* 多策略模式 */}
+                  {taskStrategies.length > 1 && (
+                    <Box mb={3}>
+                      <Flex justify="space-between" align="center" mb={2}>
+                        <Text fontSize="sm" fontWeight="600">{t('backtest.strategyList')}</Text>
+                        <Button
+                          size="xs"
+                          leftIcon={<AddIcon />}
+                          colorScheme="green"
+                          onClick={() => {
+                            const availableStrategies = strategies.filter(s => !taskStrategies.some(ts => ts.type === s.strategy_type))
+                            if (availableStrategies.length > 0) {
+                              setTaskStrategies([...taskStrategies, { type: availableStrategies[0].strategy_type, weight: 10, config: {} }])
+                            }
+                          }}
+                          isDisabled={strategies.length === taskStrategies.length}
+                        >
+                          {t('backtest.addStrategy')}
+                        </Button>
+                      </Flex>
+                      <VStack spacing={2} align="stretch">
+                        {taskStrategies.map((taskStrategy, idx) => {
+                          const strategyDef = strategies.find(s => s.strategy_type === taskStrategy.type)
+                          return (
+                            <Box key={idx} p={3} border="1px" borderColor="gray.200" borderRadius="md">
+                              <Flex justify="space-between" align="center" mb={2}>
+                                <Text fontSize="sm" fontWeight="600">
+                                  {t(`backtest.strategyNames.${taskStrategy.type}`, { defaultValue: strategyDef?.name || taskStrategy.type })}
+                                </Text>
+                                {taskStrategies.length > 1 && (
+                                  <IconButton
+                                    aria-label={t('backtest.removeStrategy')}
+                                    size="xs"
+                                    icon={<MinusIcon />}
+                                    colorScheme="red"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      const newStrategies = taskStrategies.filter((_, i) => i !== idx)
+                                      setTaskStrategies(newStrategies)
+                                      if (newStrategies.length === 1) {
+                                        setStrategyType(newStrategies[0].type)
+                                      }
+                                    }}
+                                  />
+                                )}
+                              </Flex>
+                              <HStack spacing={3}>
+                                <FormControl flex={2}>
+                                  <FormLabel fontSize="xs">{t('backtest.strategyType')}</FormLabel>
+                                  <Select
+                                    size="sm"
+                                    value={taskStrategy.type}
+                                    onChange={(e) => {
+                                      const newStrategies = [...taskStrategies]
+                                      newStrategies[idx].type = e.target.value
+                                      newStrategies[idx].config = {}
+                                      setTaskStrategies(newStrategies)
+                                    }}
+                                  >
+                                    {strategies.map((s) => (
+                                      <option
+                                        key={s.strategy_type}
+                                        value={s.strategy_type}
+                                        disabled={taskStrategies.some((ts, i) => ts.type === s.strategy_type && i !== idx)}
+                                      >
+                                        {t(`backtest.strategyNames.${s.strategy_type}`, { defaultValue: s.name })}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                </FormControl>
+                                <FormControl flex={1}>
+                                  <FormLabel fontSize="xs">{t('backtest.strategyWeight')}</FormLabel>
+                                  <NumberInput
+                                    size="sm"
+                                    value={taskStrategy.weight}
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    onChange={(_: string, v) => {
+                                      const newStrategies = [...taskStrategies]
+                                      newStrategies[idx].weight = v
+                                      setTaskStrategies(newStrategies)
+                                    }}
+                                  >
+                                    <NumberInputField />
+                                  </NumberInput>
+                                </FormControl>
+                              </HStack>
+                              <Text fontSize="xs" color="gray.500" mt={1}>
+                                {t('backtest.weightHint')}: {(taskStrategy.weight / Math.max(1, taskStrategies.reduce((sum, s) => sum + s.weight, 0)) * 100).toFixed(1)}%
+                              </Text>
+                              {/* 多策略下每个策略自己的参数（如网格间距、格子数等） */}
+                              {strategyDef?.params
+                                ?.filter((p) => p.name !== 'total_capital')
+                                ?.map((p) => (
+                                  <FormControl key={p.name} mt={2}>
+                                    <FormLabel fontSize="xs">{t(`backtest.paramLabels.${p.name}`, { defaultValue: p.label })}{p.required ? ' *' : ''}</FormLabel>
+                                    {p.type === 'number' && (
+                                      <NumberInput
+                                        size="sm"
+                                        value={(taskStrategy.config?.[p.name] as number) ?? (p.default as number)}
+                                        min={p.min}
+                                        max={p.max}
+                                        step={p.step ?? 0.1}
+                                        precision={p.step ? Math.max(0, Math.round(-Math.log10(p.step))) : 1}
+                                        onChange={(_: string, v: number) => {
+                                          const newStrategies = [...taskStrategies]
+                                          const cfg = { ...(newStrategies[idx].config || {}), [p.name]: v }
+                                          newStrategies[idx] = { ...newStrategies[idx], config: cfg }
+                                          setTaskStrategies(newStrategies)
+                                        }}
+                                      >
+                                        <NumberInputField />
+                                      </NumberInput>
+                                    )}
+                                    {p.hint && (
+                                      <Text fontSize="xs" color="gray.500" mt={0.5}>
+                                        {t(`backtest.paramHints.${p.name}`, { defaultValue: p.hint })}
+                                      </Text>
+                                    )}
+                                    {p.unit && <Text as="span" fontSize="xs" color="gray.500" ml={2}>{p.unit}</Text>}
+                                  </FormControl>
+                                ))}
+                            </Box>
+                          )
+                        })}
+                      </VStack>
+                    </Box>
+                  )}
+
                   {/* 智能推荐按钮 */}
-                  {symbol && strategyType && (
+                  {symbol && (strategyType || taskStrategies.length > 0) && (
                     <Box mb={3}>
                       <Button
                         size="sm"
@@ -1414,13 +1582,14 @@ export default function BacktestMenu() {
                     </Alert>
                   )}
 
-                  {configParamsLoading && (
+                  {taskStrategies.length <= 1 && configParamsLoading && (
                     <HStack mb={2}>
                       <Spinner size="sm" />
                       <Text fontSize="sm" color="gray.500">{t('backtest.loadingConfigParams')}</Text>
                     </HStack>
                   )}
-                  {currentStrategyDef?.params
+                  {/* 单策略时才显示全局参数表单；多策略时参数在各策略卡片内 */}
+                  {taskStrategies.length <= 1 && currentStrategyDef?.params
                     ?.filter((p) => p.name !== 'total_capital')
                     ?.map((p) => (
                     <FormControl key={p.name} mb={2}>
@@ -1449,7 +1618,7 @@ export default function BacktestMenu() {
                     colorScheme="blue"
                     onClick={handleRunBacktest}
                     isLoading={running}
-                    isDisabled={!strategyType || totalCapital <= 0}
+                    isDisabled={!(strategyType || taskStrategies.length > 0) || totalCapital <= 0}
                   >
                     {t('backtest.startBacktest')}
                   </Button>
