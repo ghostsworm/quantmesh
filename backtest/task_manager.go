@@ -272,8 +272,16 @@ func (m *TaskManager) RunTask(id string) error {
 		Interval: task.Interval,
 		Params:   reportParams,
 	}
-	if multiResult != nil || hedgeResult != nil {
-		reportPath = ""
+	if hedgeResult != nil {
+		if err := GenerateHedgeReportToFile(hedgeResult, reportPath, task); err != nil {
+			logger.Warn("生成對沖報告失敗: %v", err)
+			reportPath = ""
+		}
+	} else if multiResult != nil {
+		if err := GenerateMultiStrategyReportToFile(multiResult, reportPath, task); err != nil {
+			logger.Warn("生成多策略報告失敗: %v", err)
+			reportPath = ""
+		}
 	} else if comparison != nil {
 		if err := GenerateComparisonReportToFile(comparison, reportPath, reportMeta); err != nil {
 			logger.Warn("生成对比报告失敗: %v", err)

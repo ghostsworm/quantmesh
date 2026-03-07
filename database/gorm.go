@@ -17,7 +17,8 @@ import (
 
 // GormDatabase GORM 數據库實現
 type GormDatabase struct {
-	db *gorm.DB
+	db     *gorm.DB
+	dbType string // sqlite, postgres, mysql
 }
 
 // DBConfig 數據库配置
@@ -81,6 +82,16 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		sqlDB.SetConnMaxLifetime(config.ConnMaxLifetime)
 	}
 
+	// MySQL 8 特定配置
+	if config.Type == "mysql" {
+		// 设置 MySQL 8 会话参数以获得最佳性能
+		db.Exec("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO'")
+		// 设置时区为 UTC 以确保时间处理一致
+		db.Exec("SET SESSION time_zone = '+00:00'")
+		// MySQL 8 性能优化：禁用性能 schema 以减少开销
+		db.Exec("SET SESSION performance_schema = OFF")
+	}
+
 	// 自动迁移
 	models := []interface{}{
 		&Trade{},
@@ -130,7 +141,20 @@ func NewGormDatabase(config *DBConfig) (*GormDatabase, error) {
 		}
 	}
 
-	return &GormDatabase{db: db}, nil
+	return &GormDatabase{db: db, dbType: config.Type}, nil
+}
+
+// getDateExpr 返回适用于不同数据库的日期表达式
+func (g *GormDatabase) getDateExpr(column string) string {
+	switch g.dbType {
+	case "mysql":
+		// MySQL 8: 使用 CONVERT_TZ 确保时区一致性
+		return "DATE(CONVERT_TZ(" + column + ", '+00:00', '+00:00'))"
+	case "postgres", "postgresql":
+		return "DATE(" + column + " AT TIME ZONE 'UTC')"
+	default: // sqlite
+		return "DATE(" + column + ")"
+	}
 }
 
 // SaveTrade 保存交易記錄
@@ -535,14 +559,15 @@ func (g *GormDatabase) GetAsyncTaskStats(ctx context.Context, startTime, endTime
 		TaskCount    int64
 	}
 
-	// 每日统计（按日期分组）
+	// 每日统计（按日期分组）- 使用数据库兼容的日期函数
+	dateExpr := g.getDateExpr("created_at")
 	err := g.db.WithContext(ctx).Model(&AsyncTask{}).
-		Select("DATE(created_at) as date, " +
+		Select(dateExpr+" as date, " +
 			"COALESCE(SUM(input_tokens), 0) as input_tokens, " +
 			"COALESCE(SUM(output_tokens), 0) as output_tokens, " +
 			"COUNT(*) as task_count").
 		Where("created_at >= ?", thirtyDaysAgo).
-		Group("DATE(created_at)").
+		Group(dateExpr).
 		Order("date DESC").
 		Scan(&dailyStats).Error
 

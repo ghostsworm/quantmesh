@@ -10,6 +10,7 @@ import {
 import { keyframes } from '@emotion/react'
 import { useTranslation } from 'react-i18next'
 import { RepeatIcon, CloseIcon } from '@chakra-ui/icons'
+import { getInitialBackendProbeDelayMs } from '../utils/appRuntimeGuards'
 
 const pulse = keyframes`
   0% { opacity: 1; }
@@ -26,7 +27,9 @@ const ConnectionStatusBanner: React.FC = () => {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttemptRef = useRef(0)
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const initialConnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUnmountedRef = useRef(false)
+  const initialProbeDelayMs = getInitialBackendProbeDelayMs(window.location.pathname)
 
   const clearHeartbeat = useCallback(() => {
     if (heartbeatRef.current) {
@@ -39,6 +42,13 @@ const ConnectionStatusBanner: React.FC = () => {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
+    }
+  }, [])
+
+  const clearInitialConnectTimer = useCallback(() => {
+    if (initialConnectTimerRef.current) {
+      clearTimeout(initialConnectTimerRef.current)
+      initialConnectTimerRef.current = null
     }
   }, [])
 
@@ -127,6 +137,7 @@ const ConnectionStatusBanner: React.FC = () => {
       setIsOnline(true)
       // 网络恢复时立即尝试重连
       reconnectAttemptRef.current = 0
+      clearInitialConnectTimer()
       connectWebSocket()
     }
     const handleOffline = () => setIsOnline(false)
@@ -138,15 +149,24 @@ const ConnectionStatusBanner: React.FC = () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [connectWebSocket])
+  }, [clearInitialConnectTimer, connectWebSocket])
 
   // WebSocket 连接管理
   useEffect(() => {
     isUnmountedRef.current = false
-    connectWebSocket()
+
+    if (initialProbeDelayMs > 0) {
+      initialConnectTimerRef.current = setTimeout(() => {
+        initialConnectTimerRef.current = null
+        connectWebSocket()
+      }, initialProbeDelayMs)
+    } else {
+      connectWebSocket()
+    }
 
     return () => {
       isUnmountedRef.current = true
+      clearInitialConnectTimer()
       clearHeartbeat()
       clearReconnectTimer()
       if (wsRef.current) {
@@ -158,12 +178,13 @@ const ConnectionStatusBanner: React.FC = () => {
         wsRef.current = null
       }
     }
-  }, [connectWebSocket, clearHeartbeat, clearReconnectTimer])
+  }, [clearHeartbeat, clearInitialConnectTimer, clearReconnectTimer, connectWebSocket, initialProbeDelayMs])
 
   const handleRetry = useCallback(() => {
     reconnectAttemptRef.current = 0
+    clearInitialConnectTimer()
     connectWebSocket()
-  }, [connectWebSocket])
+  }, [clearInitialConnectTimer, connectWebSocket])
 
   const hasIssue = !isOnline || !isBackendReachable
   const showBanner = hasIssue && !dismissed

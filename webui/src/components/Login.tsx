@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -39,6 +39,9 @@ const Login: React.FC = () => {
   const bgColor = 'gray.50'
   const cardBg = 'white'
 
+  // 用于防止重复导航的 ref
+  const hasNavigatedRef = useRef(false)
+
   // 獲取版本号
   useEffect(() => {
     const fetchVersion = async () => {
@@ -56,11 +59,17 @@ const Login: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    // 如果已經登錄，重定向到主页
-    if (isAuthenticated) {
-      navigate('/')
+    // 如果已經登錄，重定向到主页（只执行一次）
+    if (isAuthenticated && !hasNavigatedRef.current) {
+      hasNavigatedRef.current = true
+      navigate('/', { replace: true })
     }
-  }, [isAuthenticated, navigate])
+    // 当退出登录时重置标记
+    if (!isAuthenticated) {
+      hasNavigatedRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,9 +87,9 @@ const Login: React.FC = () => {
       trackUserLogin('password')
       // 驗证成功后，清除配置跳過標記，确保每次登錄都显示配置页面
       sessionStorage.removeItem('config_setup_skipped')
-      // 刷新认证状態
+      // 刷新认证状態 - 这会触发 useEffect 中的导航逻辑
       await refreshAuth()
-      navigate('/')
+      // 不在这里调用 navigate，让 useEffect 来处理
     } catch (err) {
       setError(err instanceof Error ? err.message : t('login.passwordError'))
     } finally {
@@ -157,14 +166,14 @@ const Login: React.FC = () => {
       }
 
       await finishWebAuthnLogin('admin', beginResponse.session_key, credentialResponse, passwordForWebAuthn)
-      
+
       // 追踪登录事件
       trackUserLogin('webauthn')
       // 清除配置跳過標記，确保每次登錄都显示配置页面
       sessionStorage.removeItem('config_setup_skipped')
-      // 刷新认证状態
+      // 刷新认证状態 - 这会触发 useEffect 中的导航逻辑
       await refreshAuth()
-      navigate('/')
+      // 不在这里调用 navigate，让 useEffect 来处理
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {
         setError(t('login.userCancelled'))

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3182ce;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c5282;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#grad1)"/>
+  
+  <!-- Grid Pattern (representing market making) -->
+  <g stroke="#ffffff" stroke-width="8" fill="none" opacity="0.9">
+    <!-- Horizontal lines -->
+    <line x1="120" y1="180" x2="392" y2="180"/>
+    <line x1="120" y1="256" x2="392" y2="256"/>
+    <line x1="120" y1="332" x2="392" y2="332"/>
+    
+    <!-- Vertical lines -->
+    <line x1="180" y1="120" x2="180" y2="392"/>
+    <line x1="256" y1="120" x2="256" y2="392"/>
+    <line x1="332" y1="120" x2="332" y2="392"/>
+  </g>
+  
+  <!-- Trading Symbol (stylized Q) -->
+  <g fill="#ffffff">
+    <circle cx="256" cy="256" r="80" fill="none" stroke="#ffffff" stroke-width="16"/>
+    <path d="M 256 176 L 256 336 M 256 256 L 320 320" stroke="#ffffff" stroke-width="16" stroke-linecap="round"/>
+  </g>
+  
+  <!-- Accent dots (representing orders) -->
+  <circle cx="180" cy="180" r="12" fill="#48bb78"/>
+  <circle cx="332" cy="180" r="12" fill="#48bb78"/>
+  <circle cx="180" cy="332" r="12" fill="#f56565"/>
+  <circle cx="332" cy="332" r="12" fill="#f56565"/>
+</svg>
+
