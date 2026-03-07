@@ -7,8 +7,93 @@ import (
 )
 
 type StrategyExecutionContext struct {
-	Symbol       string
-	TotalCapital float64
+	Symbol           string
+	TotalCapital     float64
+	AllocatedCapital float64
+	StrategyID       string
+	StrategyName     string
+	StrategyIndex    int
+}
+
+type AuditableBacktestStrategy struct {
+	id               string
+	name             string
+	allocatedCapital float64
+	inner            BacktestStrategy
+}
+
+func (s *AuditableBacktestStrategy) OnInit(account *BacktestAccount, cfg interface{}) error {
+	if account != nil {
+		account.StrategyID = s.id
+		account.StrategyName = s.name
+		account.AccountID = strategyAccountID(s.id)
+		account.AllocatedCapital = s.allocatedCapital
+	}
+	return s.inner.OnInit(account, cfg)
+}
+
+func (s *AuditableBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]TickOrder, error) {
+	orders, err := s.inner.OnKline(kline, timestamp)
+	if err != nil {
+		return nil, err
+	}
+	for i := range orders {
+		orders[i].Strategy = s.name
+		orders[i].StrategyID = s.id
+		orders[i].AccountID = strategyAccountID(s.id)
+	}
+	return orders, nil
+}
+
+func (s *AuditableBacktestStrategy) OnTrade(trade TickTrade) {
+	if trade.StrategyID != "" && trade.StrategyID != s.id {
+		return
+	}
+	s.inner.OnTrade(trade)
+}
+
+func (s *AuditableBacktestStrategy) GetName() string {
+	return s.name
+}
+
+func (s *AuditableBacktestStrategy) GetType() string {
+	return s.inner.GetType()
+}
+
+func (s *AuditableBacktestStrategy) GetConfig() map[string]interface{} {
+	cfg := s.inner.GetConfig()
+	if cfg == nil {
+		cfg = make(map[string]interface{})
+	}
+	cfg["strategy_id"] = s.id
+	cfg["strategy_name"] = s.name
+	cfg["account_id"] = strategyAccountID(s.id)
+	cfg["total_capital"] = s.allocatedCapital
+	return cfg
+}
+
+func wrapAuditableStrategy(strategy BacktestStrategy, ctx StrategyExecutionContext) BacktestStrategy {
+	return &AuditableBacktestStrategy{
+		id:               ctx.StrategyID,
+		name:             ctx.StrategyName,
+		allocatedCapital: ctx.AllocatedCapital,
+		inner:            strategy,
+	}
+}
+
+func strategyAccountID(strategyID string) string {
+	return fmt.Sprintf("acct_%s", strategyID)
+}
+
+func defaultTaskStrategyID(strategyType string, strategyIndex int) string {
+	return fmt.Sprintf("%s_%d", strategyType, strategyIndex+1)
+}
+
+func defaultTaskStrategyName(strategyType string, strategyID string) string {
+	if strategyID != "" {
+		return strategyID
+	}
+	return strategyType
 }
 
 // AdapterBacktestStrategy bridges StrategyAdapter-based strategies into MultiStrategyEngine.
@@ -116,6 +201,12 @@ func NormalizeTaskStrategies(strategies []TaskStrategy) []TaskStrategy {
 		if normalized[i].Weight <= 0 {
 			normalized[i].Weight = 1
 		}
+		if normalized[i].ID == "" {
+			normalized[i].ID = defaultTaskStrategyID(normalized[i].Type, i)
+		}
+		if normalized[i].Name == "" {
+			normalized[i].Name = defaultTaskStrategyName(normalized[i].Type, normalized[i].ID)
+		}
 		totalWeight += normalized[i].Weight
 	}
 	if totalWeight <= 0 {
@@ -132,63 +223,79 @@ func NormalizeTaskStrategies(strategies []TaskStrategy) []TaskStrategy {
 }
 
 func CreateTaskBacktestStrategy(strategy TaskStrategy, ctx StrategyExecutionContext) (BacktestStrategy, error) {
-	totalCapital := ctx.TotalCapital * strategy.Weight
+	totalCapital := ctx.AllocatedCapital
+	if totalCapital <= 0 {
+		totalCapital = ctx.TotalCapital * strategy.Weight
+	}
+	if ctx.StrategyID == "" {
+		ctx.StrategyID = strategy.ID
+	}
+	if ctx.StrategyID == "" {
+		ctx.StrategyID = defaultTaskStrategyID(strategy.Type, ctx.StrategyIndex)
+	}
+	if ctx.StrategyName == "" {
+		ctx.StrategyName = strategy.Name
+	}
+	if ctx.StrategyName == "" {
+		ctx.StrategyName = defaultTaskStrategyName(strategy.Type, ctx.StrategyID)
+	}
+	ctx.AllocatedCapital = totalCapital
 	switch strategy.Type {
 	case "grid":
 		gridCount := getIntParam(strategy.Config, "grid_count", 50)
 		gridSpacing := getFloatParam(strategy.Config, "grid_spacing", 0.0025)
 		gridLeverage := getIntParam(strategy.Config, "grid_leverage", 5)
-		return NewGridBacktestStrategy(
-			fmt.Sprintf("grid_%s", ctx.Symbol),
+		return wrapAuditableStrategy(NewGridBacktestStrategy(
+			ctx.StrategyName,
 			ctx.Symbol,
 			gridCount,
 			gridSpacing,
 			float64(gridLeverage),
 			totalCapital,
-		), nil
+		), ctx), nil
 	case "dca", "dca_enhanced":
 		baseOrderAmount := getFloatParam(strategy.Config, "base_order_amount", 30.0)
 		maxOrders := getIntParam(strategy.Config, "max_orders", 10)
-		return NewDCABacktestStrategy(
-			fmt.Sprintf("dca_%s", ctx.Symbol),
+		return wrapAuditableStrategy(NewDCABacktestStrategy(
+			ctx.StrategyName,
 			ctx.Symbol,
 			baseOrderAmount,
 			float64(maxOrders),
 			totalCapital,
-		), nil
+		), ctx), nil
 	case "martingale":
 		baseOrderAmount := getFloatParam(strategy.Config, "base_order_amount", 30.0)
 		multiplier := getFloatParam(strategy.Config, "multiplier", 2.0)
 		maxOrders := getIntParam(strategy.Config, "max_orders", 7)
-		return NewMartingaleBacktestStrategy(
-			fmt.Sprintf("martingale_%s", ctx.Symbol),
+		return wrapAuditableStrategy(NewMartingaleBacktestStrategy(
+			ctx.StrategyName,
 			ctx.Symbol,
 			baseOrderAmount,
 			multiplier,
 			float64(maxOrders),
 			totalCapital,
-		), nil
+		), ctx), nil
 	case "trend", "trend_following":
-		return &AdapterBacktestStrategy{
+		return wrapAuditableStrategy(&AdapterBacktestStrategy{
 			name:         fmt.Sprintf("trend_following_%s", ctx.Symbol),
 			strategyType: "trend_following",
 			adapter:      NewTrendFollowingAdapterWithParams(strategy.Config),
 			totalCapital: totalCapital,
-		}, nil
+		}, ctx), nil
 	case "momentum":
-		return &AdapterBacktestStrategy{
+		return wrapAuditableStrategy(&AdapterBacktestStrategy{
 			name:         fmt.Sprintf("momentum_%s", ctx.Symbol),
 			strategyType: "momentum",
 			adapter:      NewMomentumAdapterWithParams(strategy.Config),
 			totalCapital: totalCapital,
-		}, nil
+		}, ctx), nil
 	case "mean_reversion":
-		return &AdapterBacktestStrategy{
+		return wrapAuditableStrategy(&AdapterBacktestStrategy{
 			name:         fmt.Sprintf("mean_reversion_%s", ctx.Symbol),
 			strategyType: "mean_reversion",
 			adapter:      NewMeanReversionAdapterWithParams(strategy.Config),
 			totalCapital: totalCapital,
-		}, nil
+		}, ctx), nil
 	case "combo":
 		subStrategiesCfg, _ := strategy.Config["strategies"].([]interface{})
 		if len(subStrategiesCfg) == 0 {
@@ -214,8 +321,12 @@ func CreateTaskBacktestStrategy(strategy TaskStrategy, ctx StrategyExecutionCont
 		weights := make([]float64, 0, len(subStrategies))
 		for _, subStrategy := range subStrategies {
 			bs, err := CreateTaskBacktestStrategy(subStrategy, StrategyExecutionContext{
-				Symbol:       ctx.Symbol,
-				TotalCapital: totalCapital,
+				Symbol:           ctx.Symbol,
+				TotalCapital:     totalCapital,
+				AllocatedCapital: totalCapital * subStrategy.Weight,
+				StrategyID:       subStrategy.ID,
+				StrategyName:     subStrategy.Name,
+				StrategyIndex:    ctx.StrategyIndex,
 			})
 			if err != nil {
 				return nil, err
@@ -223,13 +334,13 @@ func CreateTaskBacktestStrategy(strategy TaskStrategy, ctx StrategyExecutionCont
 			created = append(created, bs)
 			weights = append(weights, subStrategy.Weight)
 		}
-		return NewComboBacktestStrategy(
-			fmt.Sprintf("combo_%s", ctx.Symbol),
+		return wrapAuditableStrategy(NewComboBacktestStrategy(
+			ctx.StrategyName,
 			ctx.Symbol,
 			totalCapital,
 			created,
 			weights,
-		), nil
+		), ctx), nil
 	default:
 		return nil, fmt.Errorf("unsupported strategy type: %s", strategy.Type)
 	}
@@ -273,8 +384,15 @@ func RunMultiStrategyTask(task *BacktestTask, candles []*exchange.Candle) (*Mult
 		Symbol:       task.Symbol,
 		TotalCapital: task.TotalCapital,
 	}
-	for _, strategy := range NormalizeTaskStrategies(task.Strategies) {
-		bs, err := CreateTaskBacktestStrategy(strategy, ctx)
+	for i, strategy := range NormalizeTaskStrategies(task.Strategies) {
+		bs, err := CreateTaskBacktestStrategy(strategy, StrategyExecutionContext{
+			Symbol:           ctx.Symbol,
+			TotalCapital:     ctx.TotalCapital,
+			AllocatedCapital: task.TotalCapital * strategy.Weight,
+			StrategyID:       strategy.ID,
+			StrategyName:     strategy.Name,
+			StrategyIndex:    i,
+		})
 		if err != nil {
 			return nil, err
 		}
