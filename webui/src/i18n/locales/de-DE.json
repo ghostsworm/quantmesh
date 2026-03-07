@@ -420,7 +420,22 @@
     "taskId": "Task ID",
     "totalFees": "Total Fees",
     "totalSlippage": "Total Slippage",
-    "trades": "Trades"
+    "trades": "Trades",
+    "actualMarginUsed": "Actual margin used",
+    "alignedPoints": "Aligned K-Line Points",
+    "botBacktestHint": "Run backtest with current Bot configuration",
+    "executionCompleted": "Backtest completed",
+    "feeRate": "Fee Rate",
+    "fundingRate": "Funding Rate",
+    "hedgeMode": "Hedge Mode",
+    "longSymbol": "Long Leg Symbol",
+    "maxLayers": "Max layers",
+    "openBacktestDialog": "Open Backtest Dialog",
+    "parametersAutoFilled": "Backtest will automatically use current Bot's max position value, max layers, price interval and other parameters",
+    "parametersFromBot": "Parameters from Bot configuration",
+    "rebalanceCount": "Rebalance Count",
+    "shortSymbol": "Short Leg Symbol",
+    "truePair": "True Pair Linked"
   },
   "dashboard": {
     "tradingStopped": "Handel gestoppt",

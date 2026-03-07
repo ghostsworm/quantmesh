@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.61.2-rc3] - 2026-03-07
+
+### Fixed
+- **回测页 i18n 不全**：修复 en-US/zh-CN 中重复的 `backtest` 键导致后者覆盖前者、BacktestMenu 翻译丢失的问题
+  - 合并两处 backtest 对象，补全 BotBacktestDialog 所需键（executionCompleted、config、feeRate、fundingRate 等）
+  - 为 de-DE 补全缺失的 backtest 键
+
 ## [3.61.2-rc2] - 2026-03-07
 
 ### Fixed
