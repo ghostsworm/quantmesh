@@ -888,6 +888,15 @@ func RegisterStrategyRuntimeProvider(provider StrategyRuntimeProvider) {
 	strategyRuntimeProvider = provider
 }
 
+func isStrategyRuntimeNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	// 运行态不存在属于可预期业务状态，不应返回 500。
+	return strings.Contains(msg, "未找到") || strings.Contains(msg, "not found")
+}
+
 // getStrategyRuntimeStatusHandler 獲取所有策略的運行狀態
 func getStrategyRuntimeStatusHandler(c *gin.Context) {
 	exchange := c.Query("exchange")
@@ -915,6 +924,16 @@ func getStrategyRuntimeStatusHandler(c *gin.Context) {
 
 	statuses, err := strategyRuntimeProvider.GetAllStrategyStatus(exchange, symbol)
 	if err != nil {
+		if isStrategyRuntimeNotFoundError(err) {
+			c.JSON(http.StatusOK, gin.H{
+				"success":    true,
+				"strategies": []StrategyRuntimeStatusResponse{},
+				"exchange":   exchange,
+				"symbol":     symbol,
+				"message":    "策略運行時未找到",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": "獲取策略狀態失敗: " + err.Error(),

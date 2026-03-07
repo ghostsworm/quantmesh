@@ -363,8 +363,8 @@ const Dashboard: React.FC = () => {
       setTimeout(() => reject(new Error('TIMEOUT')), TOGGLE_TIMEOUT_MS)
     })
     try {
-      await Promise.race([stopBot(botId), timeoutPromise])
       await closePositionsV2(botId, req)
+      await Promise.race([stopBot(botId), timeoutPromise])
       setIsTrading(false)
       toast({ title: t('globalDashboard.closePositions.success'), status: 'success', duration: 2000 })
     } catch (err) {

@@ -187,8 +187,8 @@ const BotDetail: React.FC = () => {
     if (!botId) return
     setActioning(true)
     try {
-      await stopBot(botId)
       await closePositionsV2(botId, req)
+      await stopBot(botId)
       toast({ title: t('globalDashboard.closePositions.success'), status: 'success', duration: 2000 })
       await fetchBot()
     } catch (err) {
