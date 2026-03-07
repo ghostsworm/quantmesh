@@ -63,12 +63,18 @@ declare -A LANG_STRINGS
 
 # Language selection menu
 select_language() {
-    if [ "$SILENT_MODE" = "1" ]; then
-        LANG_CODE="en"
-        load_language_strings
-        return
-    fi
-    
+    # 静默模式：不显示任何交互，直接使用英文并返回（必须在函数最开头检查）
+    for a in "$@"; do
+        case "$a" in
+            --silent|-s|--silent-upgrade)
+                LANG_CODE="en"
+                load_language_strings
+                return
+                ;;
+        esac
+    done
+    [ "$SILENT_MODE" = "1" ] && { LANG_CODE="en"; load_language_strings; return; }
+
     echo ""
     echo "=============================================="
     echo "     QuantMesh Installation Script"
@@ -1699,7 +1705,7 @@ print_completion() {
 # Main function
 main() {
     # Select language first (before any other output)
-    select_language
+    select_language "$@"
     
     check_root
     detect_os
