@@ -49,6 +49,7 @@ import {
 import { ChevronLeftIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useNavigate } from 'react-router-dom'
+import { ExternalLinkIcon } from '@chakra-ui/icons'
 import {
   getBotById,
   startBot,
@@ -64,7 +65,6 @@ import {
 import { useSymbol } from '../contexts/SymbolContext'
 import BotRiskControlPanel from './BotRiskControlPanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
-import BotBacktestDialog from './BotBacktestDialog'
 
 // 策略选项定义
 interface StrategyOption {
@@ -99,7 +99,6 @@ const BotDetail: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
-  const { isOpen: isBacktestDialogOpen, onOpen: onBacktestDialogOpen, onClose: onBacktestDialogClose } = useDisclosure()
 
   const fetchBot = async () => {
     if (!botId) return
@@ -409,72 +408,7 @@ const BotDetail: React.FC = () => {
             )}
           </TabPanel>
           <TabPanel px={0}>
-            <Card>
-              <CardBody>
-                <VStack spacing={4} align="stretch">
-                  <Flex justify="space-between" align="center">
-                    <Heading size="md">{t('botDetail.tabBacktest')}</Heading>
-                    <Text fontSize="sm" color="gray.600">
-                      {t('backtest.botBacktestHint')}
-                    </Text>
-                  </Flex>
-
-                  <Alert status="info" borderRadius="md">
-                    <AlertIcon />
-                    <Box>
-                      <AlertTitle fontSize="sm" mb={1}>
-                        {t('backtest.parametersFromBot')}
-                      </AlertTitle>
-                      <AlertDescription fontSize="xs">
-                        {t('backtest.parametersAutoFilled')}
-                      </AlertDescription>
-                    </Box>
-                  </Alert>
-
-                  <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                    <Stat>
-                      <StatLabel>{t('botDetail.maxPositionValue')}</StatLabel>
-                      <StatNumber>
-                        {bot.config?.open_position_control?.max_position_value || 0} USDT
-                      </StatNumber>
-                      <StatHelpText>{t('backtest.actualMarginUsed')}</StatHelpText>
-                    </Stat>
-
-                    <Stat>
-                      <StatLabel>{t('botDetail.maxPositionLayers')}</StatLabel>
-                      <StatNumber>
-                        {bot.config?.open_position_control?.max_position_layers || 0}
-                      </StatNumber>
-                      <StatHelpText>{t('backtest.maxLayers')}</StatHelpText>
-                    </Stat>
-
-                    <Stat>
-                      <StatLabel>{t('botDetail.priceInterval')}</StatLabel>
-                      <StatNumber>
-                        ${bot.config?.price_interval || 0}
-                      </StatNumber>
-                    </Stat>
-
-                    <Stat>
-                      <StatLabel>{t('botDetail.orderQuantity')}</StatLabel>
-                      <StatNumber>
-                        ${bot.config?.order_quantity || 0}
-                      </StatNumber>
-                    </Stat>
-                  </SimpleGrid>
-
-                  <Flex justify="center" pt={4}>
-                    <Button
-                      colorScheme="blue"
-                      size="lg"
-                      onClick={onBacktestDialogOpen}
-                    >
-                      {t('backtest.openBacktestDialog')}
-                    </Button>
-                  </Flex>
-                </VStack>
-              </CardBody>
-            </Card>
+            <BotBacktestPanel bot={bot} />
           </TabPanel>
           <TabPanel px={0}>
             <Card>
@@ -525,15 +459,123 @@ const BotDetail: React.FC = () => {
         botId={botId!}
         botName={bot?.name || bot?.symbol}
       />
-
-      <BotBacktestDialog
-        open={isBacktestDialogOpen}
-        onClose={onBacktestDialogClose}
-        botId={botId!}
-        botName={bot?.name || bot?.symbol}
-        botConfig={bot?.config}
-      />
     </Box>
+  )
+}
+
+/** 构建跳转到全局回测页的 URL，预填 Bot 参数 */
+function buildBacktestUrl(bot: BotDetailInfo | null): string {
+  if (!bot?.exchange || !bot?.symbol) return '/backtest'
+  const cfg = bot.config as Record<string, unknown> | undefined
+  const openCtrl = cfg?.open_position_control as Record<string, unknown> | undefined
+  const strategies = cfg?.strategies as Array<{ type?: string }> | undefined
+  const strategyType = strategies?.[0]?.type || 'grid'
+  const params = new URLSearchParams()
+  params.set('exchange', bot.exchange)
+  params.set('market_type', bot.market_type || 'futures')
+  params.set('symbol', bot.symbol)
+  params.set('strategy', strategyType)
+  params.set('days', '7')
+  const maxVal = openCtrl?.max_position_value
+  if (typeof maxVal === 'number' && maxVal > 0) params.set('total_capital', String(maxVal))
+  const priceInterval = cfg?.price_interval
+  if (typeof priceInterval === 'number' && priceInterval > 0) params.set('grid_spacing', String(priceInterval))
+  const orderQty = cfg?.order_quantity
+  if (typeof orderQty === 'number' && orderQty > 0) params.set('order_quantity', String(orderQty))
+  const profitSpread = cfg?.profit_spread
+  if (typeof profitSpread === 'number' && profitSpread > 0) params.set('profit_spread', String(profitSpread))
+  return `/backtest?${params.toString()}`
+}
+
+// BotBacktestPanel Bot 回测面板：展示参数并跳转全局回测
+const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
+  const { t } = useTranslation()
+  const cfg = bot?.config as Record<string, unknown> | undefined
+  const openCtrl = cfg?.open_position_control as Record<string, unknown> | undefined
+  const strategies = cfg?.strategies as Array<{ type?: string }> | undefined
+  const strategyType = strategies?.[0]?.type || '-'
+
+  return (
+    <Card>
+      <CardBody>
+        <VStack spacing={4} align="stretch">
+          <Flex justify="space-between" align="center">
+            <Heading size="md">{t('botDetail.tabBacktest')}</Heading>
+            <Text fontSize="sm" color="gray.600">
+              {t('backtest.botBacktestHint')}
+            </Text>
+          </Flex>
+
+          <Alert status="info" borderRadius="md">
+            <AlertIcon />
+            <Box>
+              <AlertTitle fontSize="sm" mb={1}>
+                {t('backtest.parametersFromBot')}
+              </AlertTitle>
+              <AlertDescription fontSize="xs">
+                {t('backtest.parametersAutoFilled')}
+              </AlertDescription>
+            </Box>
+          </Alert>
+
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
+            <Stat>
+              <StatLabel>{t('botDetail.strategyType')}</StatLabel>
+              <StatNumber fontSize="md">{strategyType}</StatNumber>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.maxPositionValue')}</StatLabel>
+              <StatNumber>
+                {openCtrl?.max_position_value ?? 0} USDT
+              </StatNumber>
+              <StatHelpText>{t('backtest.actualMarginUsed')}</StatHelpText>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.maxPositionLayers')}</StatLabel>
+              <StatNumber>
+                {openCtrl?.max_position_layers ?? 0}
+              </StatNumber>
+              <StatHelpText>{t('backtest.maxLayers')}</StatHelpText>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.priceInterval')}</StatLabel>
+              <StatNumber>${cfg?.price_interval ?? 0}</StatNumber>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.orderQuantity')}</StatLabel>
+              <StatNumber>${cfg?.order_quantity ?? 0}</StatNumber>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.profitSpread')}</StatLabel>
+              <StatNumber>${cfg?.profit_spread ?? 0}</StatNumber>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.priceLow')}</StatLabel>
+              <StatNumber>${cfg?.price_low ?? 0}</StatNumber>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.priceHigh')}</StatLabel>
+              <StatNumber>${cfg?.price_high ?? 0}</StatNumber>
+            </Stat>
+          </SimpleGrid>
+
+          <Box>
+            <Text fontSize="sm" color="gray.600" mb={2}>
+              {t('botDetail.goToBacktestDesc')}
+            </Text>
+            <Button
+              as={Link}
+              to={buildBacktestUrl(bot)}
+              colorScheme="blue"
+              size="lg"
+              rightIcon={<ExternalLinkIcon />}
+            >
+              {t('botDetail.goToBacktest')}
+            </Button>
+          </Box>
+        </VStack>
+      </CardBody>
+    </Card>
   )
 }
 

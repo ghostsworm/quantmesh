@@ -205,6 +205,7 @@
     "tabOverview": "概覽",
     "tabStrategy": "策略參數",
     "tabRisk": "風控",
+    "tabBacktest": "回測",
     "tabLogs": "實時日誌",
     "currentPrice": "當前價格",
     "unrealizedPnl": "未實現盈虧",
@@ -215,7 +216,17 @@
     "logTime": "時間",
     "logLevel": "級別",
     "logMessage": "消息",
-    "loadLogs": "加載日誌"
+    "loadLogs": "加載日誌",
+    "maxPositionValue": "佔用資金上限",
+    "maxPositionLayers": "持倉層數上限",
+    "priceInterval": "價格間隔",
+    "orderQuantity": "每筆金額",
+    "profitSpread": "利潤間距",
+    "priceLow": "價格下限",
+    "priceHigh": "價格上限",
+    "strategyType": "策略類型",
+    "goToBacktest": "前往回測",
+    "goToBacktestDesc": "跳轉到全局回測頁面，已預填當前 Bot 的交易所、交易對、策略類型及參數"
   },
   "backtest": {
     "dataSource": "資料來源",
