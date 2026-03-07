@@ -86,6 +86,7 @@ Thumbs.db
 
 # Personal private directory (not tracked by git)
 _mine/
+.worktrees/
 
 # Backup directories
 backups/
