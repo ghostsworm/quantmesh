@@ -45,6 +45,8 @@ type TickOrder struct {
 	Price      float64
 	Size       float64
 	Strategy   string
+	StrategyID string
+	AccountID  string
 	GridLevel  int    // 网格层级（仅网格策略使用）
 	IsGrid     bool   // 是否为网格訂單
 }
@@ -57,6 +59,8 @@ type TickTrade struct {
 	Price      float64
 	Size       float64
 	Strategy   string
+	StrategyID string
+	AccountID  string
 	Timestamp  int64
 	GridLevel  int
 	Slippage   float64 // 滑点成本
@@ -221,6 +225,8 @@ func (m *TickMatcher) ProcessPath(kline *TickKline, orders []TickOrder, timestam
 				Price:     fillPrice,
 				Size:      order.Size,
 				Strategy:  order.Strategy,
+				StrategyID: order.StrategyID,
+				AccountID: order.AccountID,
 				Timestamp: timestamp,
 				GridLevel: order.GridLevel,
 				Slippage:  slippage * order.Size,
@@ -330,6 +336,8 @@ func (m *TickMatcher) ProcessPathWithLimit(
 				Price:     fillPrice,
 				Size:      order.Size,
 				Strategy:  order.Strategy,
+				StrategyID: order.StrategyID,
+				AccountID: order.AccountID,
 				Timestamp: timestamp,
 				GridLevel: order.GridLevel,
 				Slippage:  slippage * order.Size,

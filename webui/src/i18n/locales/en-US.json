@@ -362,6 +362,12 @@
     "close": "Close",
     "generating": "Generating...",
     "saveAsImage": "Save as Image",
+    "hedgeMode": "Hedge Mode",
+    "truePair": "True Pair Linked",
+    "rebalanceCount": "Rebalance Count",
+    "alignedPoints": "Aligned K-Line Points",
+    "longSymbol": "Long Leg Symbol",
+    "shortSymbol": "Short Leg Symbol",
     "baseConfig": "1. Base Configuration",
     "optimDescription": "Select trading pair, strategy, date range, and capital. The system will iterate through parameter combinations to find the optimal solution.",
     "initialCapital": "Initial Capital (USDT)",
@@ -3781,6 +3787,12 @@
     "drawdown": "Drawdown",
     "date": "Date",
     "equity": "Equity",
-    "config": "Configuration"
+    "config": "Configuration",
+    "hedgeMode": "Hedge Mode",
+    "truePair": "True Pair Linked",
+    "rebalanceCount": "Rebalance Count",
+    "alignedPoints": "Aligned K-Line Points",
+    "longSymbol": "Long Leg Symbol",
+    "shortSymbol": "Short Leg Symbol"
   }
 }

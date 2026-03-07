@@ -409,7 +409,11 @@ func postBacktestTasks(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Strategy     string                 `json:"strategy" binding:"required"`
+		Mode         backtest.TaskMode      `json:"mode"`
+		BotID        string                 `json:"bot_id"`
+		GroupID      string                 `json:"group_id"`
+		Strategy     string                 `json:"strategy"`
+		Strategies   []backtest.TaskStrategy `json:"strategies"`
 		Symbol       string                 `json:"symbol"`
 		Interval     string                 `json:"interval"`
 		StartTime    time.Time              `json:"start_time"`
@@ -424,6 +428,23 @@ func postBacktestTasks(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参數錯误: %v", err)})
 		return
+	}
+	if req.Mode != backtest.TaskModeHedgeGroup && req.Strategy == "" && len(req.Strategies) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "strategy 或 strategies 必填"})
+		return
+	}
+	if req.Mode == backtest.TaskModeHedgeGroup {
+		if req.GroupID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "hedge_group 模式必须提供 group_id"})
+			return
+		}
+		if req.Params == nil {
+			req.Params = make(map[string]interface{})
+		}
+		if _, ok := req.Params["leg_b_symbol"]; !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "hedge_group 模式必须提供 params.leg_b_symbol"})
+			return
+		}
 	}
 
 	// 按数据来源校验
@@ -462,12 +483,25 @@ func postBacktestTasks(c *gin.Context) {
 		"grid": true, "momentum": true, "mean_reversion": true,
 		"trend_following": true, "dca": true, "martingale": true, "combo": true,
 	}
-	if !validStrategies[req.Strategy] {
+	if req.Strategy != "" && !validStrategies[req.Strategy] {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的策略: %s", req.Strategy)})
 		return
 	}
+	for _, strategy := range req.Strategies {
+		if !validStrategies[strategy.Type] {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的策略: %s", strategy.Type)})
+			return
+		}
+	}
+	if len(req.Strategies) > 0 && req.Mode == "" {
+		req.Mode = backtest.TaskModeBotStrategies
+	}
 	task := &backtest.BacktestTask{
+		Mode:         req.Mode,
+		BotID:        req.BotID,
+		GroupID:      req.GroupID,
 		Strategy:     req.Strategy,
+		Strategies:   req.Strategies,
 		Symbol:       req.Symbol,
 		Interval:     req.Interval,
 		StartTime:    req.StartTime,
@@ -1263,7 +1297,7 @@ func postOptimTasks(c *gin.Context) {
 		return
 	}
 	space := backtest.OptimSearchSpace{Strategy: req.Strategy, Ranges: make(map[string]backtest.OptimParamRange)}
-	if req.SearchSpace.Ranges != nil && len(req.SearchSpace.Ranges) > 0 {
+	if len(req.SearchSpace.Ranges) > 0 {
 		for k, v := range req.SearchSpace.Ranges {
 			space.Ranges[k] = backtest.OptimParamRange{Min: v.Min, Max: v.Max, Step: v.Step}
 		}

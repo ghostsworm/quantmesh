@@ -525,7 +525,11 @@ func migrateBacktestTasksTable(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS backtest_tasks (
 			id TEXT PRIMARY KEY,
 			status TEXT NOT NULL,
+			mode TEXT,
+			bot_id TEXT,
+			group_id TEXT,
 			strategy TEXT NOT NULL,
+			strategies_json TEXT,
 			symbol TEXT NOT NULL,
 			interval TEXT NOT NULL,
 			start_time INTEGER NOT NULL,
@@ -560,6 +564,10 @@ func migrateBacktestTasksColumns(db *sql.DB) error {
 		name string
 		def  string
 	}{
+		{"mode", "ALTER TABLE backtest_tasks ADD COLUMN mode TEXT;"},
+		{"bot_id", "ALTER TABLE backtest_tasks ADD COLUMN bot_id TEXT;"},
+		{"group_id", "ALTER TABLE backtest_tasks ADD COLUMN group_id TEXT;"},
+		{"strategies_json", "ALTER TABLE backtest_tasks ADD COLUMN strategies_json TEXT;"},
 		{"data_source", "ALTER TABLE backtest_tasks ADD COLUMN data_source TEXT;"},
 		{"kline_file", "ALTER TABLE backtest_tasks ADD COLUMN kline_file TEXT;"},
 		{"cache_name", "ALTER TABLE backtest_tasks ADD COLUMN cache_name TEXT;"},
@@ -970,24 +978,6 @@ func migrateTradesTable(db *sql.DB) error {
 			return fmt.Errorf("添加 fee_asset 列失败: %w", err)
 		}
 		logger.Info("✅ fee_asset 列添加成功")
-	}
-
-	// 🔥 检查并添加价格偏差字段
-	if !hasBuyPriceDeviationColumn {
-		logger.Info("🔄 开始迁移 trades 表：添加 buy_price_deviation 字段")
-		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN buy_price_deviation DECIMAL(20,8) DEFAULT 0`)
-		if err != nil {
-			return fmt.Errorf("添加 buy_price_deviation 列失败: %w", err)
-		}
-		logger.Info("✅ buy_price_deviation 列添加成功")
-	}
-	if !hasSellPriceDeviationColumn {
-		logger.Info("🔄 开始迁移 trades 表：添加 sell_price_deviation 字段")
-		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN sell_price_deviation DECIMAL(20,8) DEFAULT 0`)
-		if err != nil {
-			return fmt.Errorf("添加 sell_price_deviation 列失败: %w", err)
-		}
-		logger.Info("✅ sell_price_deviation 列添加成功")
 	}
 
 	// 🔥 检查并添加价格偏差字段
