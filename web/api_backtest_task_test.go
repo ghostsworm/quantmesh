@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/backtest"
+	"quantmesh/config"
 )
 
 type fakeWebTaskStore struct {
@@ -166,5 +167,93 @@ func TestPostBacktestTasksAcceptsHedgeGroupWithoutStrategy(t *testing.T) {
 	}
 	if store.task.GroupID != "group_hedge_1" {
 		t.Fatalf("expected group id to be preserved, got %q", store.task.GroupID)
+	}
+}
+
+func TestDeriveHedgeGroupTaskDefaultsFromConfig(t *testing.T) {
+	cfg := &config.Config{
+		Bots: []config.BotConfig{
+			{ID: "bot_fut", Symbol: "BTCUSDT", Exchange: "binance", MarketType: "futures"},
+			{ID: "bot_spot", Symbol: "BTCUSDC", Exchange: "binance", MarketType: "spot"},
+		},
+		BotGroups: []config.BotGroup{
+			{
+				ID:     "grp_1",
+				Name:   "hedge-1",
+				BotIDs: []string{"bot_fut", "bot_spot"},
+				HedgeConfig: config.HedgeConfig{
+					HedgeRatio:        0.8,
+					MaxDrawdown:       12,
+					RebalanceInterval: 900,
+				},
+			},
+		},
+	}
+
+	primaryBotID, symbol, params, err := deriveHedgeGroupTaskDefaults(cfg, "grp_1", "", nil)
+	if err != nil {
+		t.Fatalf("derive defaults failed: %v", err)
+	}
+	if primaryBotID != "bot_fut" {
+		t.Fatalf("expected primary bot id bot_fut, got %s", primaryBotID)
+	}
+	if symbol != "BTCUSDT" {
+		t.Fatalf("expected primary symbol BTCUSDT, got %s", symbol)
+	}
+	if params["leg_b_symbol"] != "BTCUSDC" {
+		t.Fatalf("expected leg_b_symbol BTCUSDC, got %#v", params["leg_b_symbol"])
+	}
+	if params["hedge_ratio"] != 0.8 {
+		t.Fatalf("expected hedge_ratio 0.8, got %#v", params["hedge_ratio"])
+	}
+	if params["rebalance_interval"] != 900 {
+		t.Fatalf("expected rebalance_interval 900, got %#v", params["rebalance_interval"])
+	}
+	if params["rebalance_threshold"] != 0.12 {
+		t.Fatalf("expected rebalance_threshold 0.12, got %#v", params["rebalance_threshold"])
+	}
+}
+
+func TestDeriveHedgeGroupTaskDefaultsKeepsProvidedParams(t *testing.T) {
+	cfg := &config.Config{
+		Bots: []config.BotConfig{
+			{ID: "bot_a", Symbol: "ETHUSDT", Exchange: "binance", MarketType: "futures"},
+			{ID: "bot_b", Symbol: "ETHUSDC", Exchange: "binance", MarketType: "spot"},
+		},
+		BotGroups: []config.BotGroup{
+			{
+				ID:     "grp_keep",
+				BotIDs: []string{"bot_a", "bot_b"},
+				HedgeConfig: config.HedgeConfig{
+					HedgeRatio:        0.7,
+					MaxDrawdown:       10,
+					RebalanceInterval: 600,
+				},
+			},
+		},
+	}
+
+	inputParams := map[string]interface{}{
+		"leg_b_symbol":        "MANUALB",
+		"hedge_ratio":         1.3,
+		"rebalance_threshold": 0.2,
+		"rebalance_interval":  120,
+	}
+	_, _, params, err := deriveHedgeGroupTaskDefaults(cfg, "grp_keep", "ETHUSDT", inputParams)
+	if err != nil {
+		t.Fatalf("derive defaults failed: %v", err)
+	}
+
+	if params["leg_b_symbol"] != "MANUALB" {
+		t.Fatalf("expected leg_b_symbol to be preserved, got %#v", params["leg_b_symbol"])
+	}
+	if params["hedge_ratio"] != 1.3 {
+		t.Fatalf("expected hedge_ratio to be preserved, got %#v", params["hedge_ratio"])
+	}
+	if params["rebalance_threshold"] != 0.2 {
+		t.Fatalf("expected rebalance_threshold to be preserved, got %#v", params["rebalance_threshold"])
+	}
+	if params["rebalance_interval"] != 120 {
+		t.Fatalf("expected rebalance_interval to be preserved, got %#v", params["rebalance_interval"])
 	}
 }

@@ -41,17 +41,17 @@ type BacktestTask struct {
 	ResultPath   string                 `json:"result_path,omitempty"`
 	ReportPath   string                 `json:"report_path,omitempty"`
 	// 數據来源扩展字段
-	DataSource   string                 `json:"data_source,omitempty"` // "time_range" | "kline_file" | "cache"
-	KlineFile    string                 `json:"kline_file,omitempty"`  // K線檔案名 (如 1m_binance_BTCUSDT_20260102.csv)
-	CacheName    string                 `json:"cache_name,omitempty"`  // 回测缓存名称
+	DataSource string `json:"data_source,omitempty"` // "time_range" | "kline_file" | "cache"
+	KlineFile  string `json:"kline_file,omitempty"`  // K線檔案名 (如 1m_binance_BTCUSDT_20260102.csv)
+	CacheName  string `json:"cache_name,omitempty"`  // 回测缓存名称
 }
 
 // BacktestTaskResult 回测任務結果（持久化 JSON）
 type BacktestTaskResult struct {
-	TaskID     string            `json:"task_id"`
-	Task       *BacktestTask     `json:"task"`
-	Result     *BacktestResult   `json:"result"`     // 单次回测結果（非对比模式）
+	TaskID      string               `json:"task_id"`
+	Task        *BacktestTask        `json:"task"`
+	Result      *BacktestResult      `json:"result"` // 单次回测結果（非对比模式）
 	MultiResult *MultiStrategyResult `json:"multi_result,omitempty"`
-	HedgeResult *HedgePairResult `json:"hedge_result,omitempty"`
-	Comparison *ComparisonResult `json:"comparison"` // 对比結果（网格策略带风控对比时使用）
+	HedgeResult *HedgePairResult     `json:"hedge_result,omitempty"`
+	Comparison  *ComparisonResult    `json:"comparison"` // 对比結果（网格策略带风控对比时使用）
 }

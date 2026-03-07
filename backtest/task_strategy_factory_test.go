@@ -53,9 +53,9 @@ func TestCreateTaskBacktestStrategySupportsTrendFollowing(t *testing.T) {
 
 func TestRunMultiStrategyTaskReturnsCombinedResult(t *testing.T) {
 	task := &BacktestTask{
-		Mode:          TaskModeBotStrategies,
-		Symbol:        "BTCUSDT",
-		TotalCapital:  1000,
+		Mode:         TaskModeBotStrategies,
+		Symbol:       "BTCUSDT",
+		TotalCapital: 1000,
 		Strategies: []TaskStrategy{
 			{Type: "grid", Weight: 0.5, Config: map[string]interface{}{"grid_count": 4, "grid_spacing": 0.01}},
 			{Type: "trend_following", Weight: 0.5, Config: map[string]interface{}{"fast_period": 3, "slow_period": 5}},
