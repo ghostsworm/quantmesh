@@ -51,7 +51,11 @@ export interface SymbolBacktestPreset {
 export interface BacktestTask {
   id: string
   status: string
+  mode?: 'single_strategy' | 'bot_strategies' | 'hedge_group'
+  bot_id?: string
+  group_id?: string
   strategy: string
+  strategies?: Array<{ type: string; weight: number; config?: Record<string, unknown> }>
   symbol: string
   interval: string
   start_time: string
@@ -122,7 +126,11 @@ export async function deleteCache(cacheKey: string): Promise<{ success: boolean;
 }
 
 export async function postBacktestTask(params: {
-  strategy: string
+  mode?: 'single_strategy' | 'bot_strategies' | 'hedge_group'
+  bot_id?: string
+  group_id?: string
+  strategy?: string
+  strategies?: Array<{ type: string; weight: number; config?: Record<string, unknown> }>
   symbol?: string
   interval?: string
   start_time?: string

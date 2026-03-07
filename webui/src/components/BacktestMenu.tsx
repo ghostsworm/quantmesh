@@ -136,6 +136,30 @@ interface BacktestResultData {
     }
     comparison?: { risk_intervention_count?: number; skipped_signals?: number }
   }
+  multi_result?: {
+    total_return_pct?: number
+    total_trades?: number
+    final_equity?: number
+    initial_capital?: number
+    total_fees?: number
+    total_funding?: number
+    stats_by_strategy?: Record<string, unknown>
+    risk_metrics?: {
+      max_drawdown_pct?: number
+      sharpe_ratio?: number
+      win_rate?: number
+    }
+  }
+  hedge_result?: {
+    total_return_pct?: number
+    max_drawdown_pct?: number
+    final_equity?: number
+    initial_capital?: number
+    rebalance_count?: number
+    aligned_points?: number
+    long_symbol?: string
+    short_symbol?: string
+  }
 }
 
 const formatDate = (s: string) => {
@@ -169,6 +193,10 @@ export default function BacktestMenu() {
   const [cacheExists, setCacheExists] = useState(false)
   const [cacheGenerating, setCacheGenerating] = useState(false)
   const [strategyType, setStrategyType] = useState('')
+  const [taskMode, setTaskMode] = useState<'single_strategy' | 'bot_strategies' | 'hedge_group'>('single_strategy')
+  const [taskBotId, setTaskBotId] = useState('')
+  const [taskGroupId, setTaskGroupId] = useState('')
+  const [taskStrategies, setTaskStrategies] = useState<Array<{ type: string; weight: number; config?: Record<string, unknown> }>>([])
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [totalCapital, setTotalCapital] = useState(10000)
   const urlParamsApplied = useRef(false)
@@ -331,6 +359,10 @@ export default function BacktestMenu() {
   const urlExchange = searchParams.get('exchange')
   const urlMarketType = searchParams.get('market_type')
   const urlSymbol = searchParams.get('symbol')
+  const urlMode = searchParams.get('mode')
+  const urlBotId = searchParams.get('bot_id')
+  const urlGroupId = searchParams.get('group_id')
+  const urlStrategies = searchParams.get('strategies')
   const urlStrategy = searchParams.get('strategy')
   const urlDays = searchParams.get('days')
   const urlTotalCapital = searchParams.get('total_capital')
@@ -369,6 +401,32 @@ export default function BacktestMenu() {
   // 应用 URL 参数到表单（非 exchange/symbol 的需在初始化后执行一次）
   useEffect(() => {
     if (urlParamsApplied.current) return
+    if (urlMode === 'bot_strategies' || urlMode === 'hedge_group' || urlMode === 'single_strategy') {
+      setTaskMode(urlMode)
+    }
+    if (urlBotId) setTaskBotId(urlBotId)
+    if (urlGroupId) setTaskGroupId(urlGroupId)
+    if (urlStrategies) {
+      try {
+        const parsed = JSON.parse(urlStrategies) as Array<{ type?: string; weight?: number; config?: Record<string, unknown> }>
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const normalized = parsed
+            .filter((strategy) => typeof strategy?.type === 'string' && strategy.type.length > 0)
+            .map((strategy) => ({
+              type: strategy.type as string,
+              weight: typeof strategy.weight === 'number' ? strategy.weight : 0,
+              config: strategy.config || {},
+            }))
+          if (normalized.length > 0) {
+            setTaskStrategies(normalized)
+            setTaskMode('bot_strategies')
+            setStrategyType(normalized[0].type)
+          }
+        }
+      } catch (err) {
+        console.error('failed to parse url strategies', err)
+      }
+    }
     if (urlStrategy) setStrategyType(urlStrategy)
     const d = parseInt(urlDays || '', 10)
     if (!isNaN(d) && d > 0) setDays(d)
@@ -381,9 +439,19 @@ export default function BacktestMenu() {
     if (!isNaN(oq) && oq > 0) p.order_quantity = oq
     const ps = parseFloat(urlProfitSpread || '')
     if (!isNaN(ps) && ps >= 0) p.profit_spread = ps
+    const hr = parseFloat(searchParams.get('hedge_ratio') || '')
+    if (!isNaN(hr) && hr > 0) p.hedge_ratio = hr
+    const rt = parseFloat(searchParams.get('rebalance_threshold') || '')
+    if (!isNaN(rt) && rt > 0) p.rebalance_threshold = rt
+    const ri = parseInt(searchParams.get('rebalance_interval') || '', 10)
+    if (!isNaN(ri) && ri > 0) p.rebalance_interval = ri
+    const legBSymbol = searchParams.get('leg_b_symbol')
+    if (legBSymbol) p.leg_b_symbol = legBSymbol
+    const legBKlineFile = searchParams.get('leg_b_kline_file')
+    if (legBKlineFile) p.leg_b_kline_file = legBKlineFile
     if (Object.keys(p).length > 0) setParams(prev => ({ ...prev, ...p }))
     urlParamsApplied.current = true
-  }, [urlStrategy, urlDays, urlTotalCapital, urlGridSpacing, urlOrderQuantity, urlProfitSpread])
+  }, [searchParams, urlMode, urlBotId, urlGroupId, urlStrategies, urlStrategy, urlDays, urlTotalCapital, urlGridSpacing, urlOrderQuantity, urlProfitSpread])
 
   // 获取智能参数推荐
   const handleGetSmartRecommendation = useCallback(async () => {
@@ -677,9 +745,15 @@ export default function BacktestMenu() {
 
     setRunning(true)
     
+    const hasMode = taskMode !== 'single_strategy'
+    const hasMultiStrategies = taskStrategies.length > 0
     const payload = dataSource === 'kline_file'
       ? { 
-          strategy: strategyType, 
+          mode: hasMode ? taskMode : undefined,
+          bot_id: hasMode ? taskBotId || undefined : undefined,
+          group_id: taskMode === 'hedge_group' ? taskGroupId || undefined : undefined,
+          strategy: hasMultiStrategies || taskMode === 'hedge_group' ? undefined : strategyType,
+          strategies: hasMultiStrategies ? taskStrategies : undefined,
           data_source: 'kline_file' as const, 
           kline_file: selectedKlineFile, 
           total_capital: totalCapital, 
@@ -690,7 +764,11 @@ export default function BacktestMenu() {
           // 从缓存列表中获取选中缓存的元信息，以便在任务列表中显示币种等信息
           const selectedCache = cachedKlines.find(c => c.name === selectedCacheName)
           return { 
-            strategy: strategyType, 
+            mode: hasMode ? taskMode : undefined,
+            bot_id: hasMode ? taskBotId || undefined : undefined,
+            group_id: taskMode === 'hedge_group' ? taskGroupId || undefined : undefined,
+            strategy: hasMultiStrategies || taskMode === 'hedge_group' ? undefined : strategyType,
+            strategies: hasMultiStrategies ? taskStrategies : undefined,
             data_source: 'cache' as const, 
             cache_name: selectedCacheName,
             symbol: selectedCache?.symbol,
@@ -702,7 +780,11 @@ export default function BacktestMenu() {
           }
         })()
       : { 
-          strategy: strategyType, 
+          mode: hasMode ? taskMode : undefined,
+          bot_id: hasMode ? taskBotId || undefined : undefined,
+          group_id: taskMode === 'hedge_group' ? taskGroupId || undefined : undefined,
+          strategy: hasMultiStrategies || taskMode === 'hedge_group' ? undefined : strategyType,
+          strategies: hasMultiStrategies ? taskStrategies : undefined,
           symbol, 
           interval, 
           start_time: new Date(startDate).toISOString(), 
@@ -884,6 +966,7 @@ export default function BacktestMenu() {
 
   const currentStrategyDef = strategies.find((s) => s.strategy_type === strategyType)
   const selectedOptimTask = selectedOptimTaskId ? optimTasks.find((t) => t.id === selectedOptimTaskId) : null
+  const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null
 
   // 市场类型显示名称
   const marketTypeLabels: Record<string, string> = {
@@ -1414,7 +1497,7 @@ export default function BacktestMenu() {
                             </Badge>
                           </Tooltip>
                         </Td>
-                        <Td>{t(`backtest.strategyNames.${task.strategy}`, { defaultValue: task.strategy })}</Td>
+                        <Td>{task.mode === 'hedge_group' ? t('backtest.hedgeMode') : t(`backtest.strategyNames.${task.strategy}`, { defaultValue: task.strategy })}</Td>
                         <Td>{task.symbol}</Td>
                         <Td>{task.interval}</Td>
                         <Td>{formatDate(task.start_time)} ~ {formatDate(task.end_time)}</Td>
@@ -1498,10 +1581,12 @@ export default function BacktestMenu() {
                     }
                     return null
                   })()}
-                  {resultData && typeof resultData === 'object' && ('result' in resultData || 'comparison' in resultData) && (
+                  {resultData && typeof resultData === 'object' && ('result' in resultData || 'comparison' in resultData || 'multi_result' in resultData || 'hedge_result' in resultData) && (
                     <Box mb={4}>
                       {(() => {
                         const data = resultData as BacktestResultData
+                        const multi = data.multi_result
+                        const hedge = data.hedge_result
                         const comp = data.comparison
                         const hasComparison = comp != null
 
@@ -1632,6 +1717,40 @@ export default function BacktestMenu() {
                                 )
                               })()}
                             </>
+                          )
+                        }
+
+                        if (hedge) {
+                          return (
+                            <SimpleGrid columns={[2, 3, 5]} spacing={2}>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.hedgeMode')}</Text><Text fontWeight="600">{selectedTask?.group_id || taskGroupId || t('backtest.truePair')}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalReturn')}</Text><Text fontWeight="600">{hedge.total_return_pct?.toFixed(4) ?? '-'}%</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.maxDrawdown')}</Text><Text fontWeight="600">{hedge.max_drawdown_pct?.toFixed(4) ?? '-'}%</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endUsdt')}</Text><Text fontWeight="600">{hedge.final_equity?.toFixed(4) ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalCapital')}</Text><Text fontWeight="600">{hedge.initial_capital?.toFixed(4) ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.rebalanceCount')}</Text><Text fontWeight="600">{hedge.rebalance_count ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.alignedPoints')}</Text><Text fontWeight="600">{hedge.aligned_points ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.longSymbol')}</Text><Text fontWeight="600">{hedge.long_symbol ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.shortSymbol')}</Text><Text fontWeight="600">{hedge.short_symbol ?? '-'}</Text></Box>
+                            </SimpleGrid>
+                          )
+                        }
+
+                        if (multi) {
+                          const strategyCount = Object.keys(multi.stats_by_strategy || {}).length
+                          return (
+                            <SimpleGrid columns={[2, 3, 5]} spacing={2}>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalReturn')}</Text><Text fontWeight="600">{multi.total_return_pct?.toFixed(4) ?? '-'}%</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.maxDrawdown')}</Text><Text fontWeight="600">{multi.risk_metrics?.max_drawdown_pct?.toFixed(4) ?? '-'}%</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.sharpeRatio')}</Text><Text fontWeight="600">{multi.risk_metrics?.sharpe_ratio?.toFixed(4) ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalTrades')}</Text><Text fontWeight="600">{multi.total_trades ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.strategyLabel')}</Text><Text fontWeight="600">{strategyCount}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endUsdt')}</Text><Text fontWeight="600">{multi.final_equity?.toFixed(4) ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalCapital')}</Text><Text fontWeight="600">{multi.initial_capital?.toFixed(4) ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.feeRate')}</Text><Text fontWeight="600">{multi.total_fees?.toFixed(4) ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.fundingRate')}</Text><Text fontWeight="600">{multi.total_funding?.toFixed(4) ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.winRate')}</Text><Text fontWeight="600">{multi.risk_metrics?.win_rate?.toFixed(4) ?? '-'}%</Text></Box>
+                            </SimpleGrid>
                           )
                         }
 

@@ -66,6 +66,7 @@ webui/package-lock.json
 webui/pnpm-lock.yaml
 web/dist/
 !web/dist/.gitkeep
+!web/dist/placeholder.txt
 
 # Test coverage
 *.cover

@@ -186,7 +186,7 @@ func (m *InstanceManagerV2) handleHighCPU(instance *Instance, usage *ResourceUsa
 		instance.ID, usage.CPU*100, instance.Plan, instance.UserID,
 	)
 
-	logger.Warn(msg)
+	logger.Warn("%s", msg)
 
 	if m.notifier != nil {
 		m.notifier.Send(&event.Event{
@@ -206,7 +206,7 @@ func (m *InstanceManagerV2) handleHighMemory(instance *Instance, usage *Resource
 		instance.ID, usage.MemoryPct*100, instance.Plan, instance.UserID,
 	)
 
-	logger.Warn(msg)
+	logger.Warn("%s", msg)
 
 	if m.notifier != nil {
 		m.notifier.Send(&event.Event{
@@ -251,7 +251,7 @@ func (m *InstanceManagerV2) scaleUp(instance *Instance) {
 		int64(float64(instance.Memory)/1.5), instance.Memory,
 	)
 
-	logger.Info(msg)
+	logger.Info("%s", msg)
 
 	if m.notifier != nil {
 		m.notifier.Send(&event.Event{
