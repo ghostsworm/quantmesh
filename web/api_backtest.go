@@ -11,12 +11,92 @@ import (
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimizer"
 	"quantmesh/backtest/optimrun"
+	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/storage"
 
 	"github.com/gin-gonic/gin"
 )
+
+func deriveHedgeGroupTaskDefaults(cfg *config.Config, groupID, currentSymbol string, params map[string]interface{}) (string, string, map[string]interface{}, error) {
+	if cfg == nil {
+		return "", "", params, fmt.Errorf("配置不可用")
+	}
+	var group *config.BotGroup
+	for i := range cfg.BotGroups {
+		if cfg.BotGroups[i].ID == groupID {
+			group = &cfg.BotGroups[i]
+			break
+		}
+	}
+	if group == nil {
+		return "", "", params, fmt.Errorf("未找到对冲组: %s", groupID)
+	}
+	if len(group.BotIDs) < 2 {
+		return "", "", params, fmt.Errorf("对冲组至少需要 2 个 Bot")
+	}
+
+	botByID := make(map[string]config.BotConfig, len(cfg.Bots))
+	for i := range cfg.Bots {
+		bot := cfg.Bots[i]
+		id := bot.ID
+		if id == "" {
+			id = config.GenerateBotID(bot.Exchange, bot.Symbol, bot.GetMarketType())
+		}
+		botByID[id] = bot
+	}
+
+	groupBots := make([]config.BotConfig, 0, len(group.BotIDs))
+	for _, botID := range group.BotIDs {
+		bot, ok := botByID[botID]
+		if !ok {
+			return "", "", params, fmt.Errorf("对冲组内 Bot 不存在: %s", botID)
+		}
+		groupBots = append(groupBots, bot)
+	}
+
+	primary := groupBots[0]
+	secondary := groupBots[1]
+	if currentSymbol != "" {
+		for i := range groupBots {
+			if groupBots[i].Symbol == currentSymbol {
+				primary = groupBots[i]
+				for j := range groupBots {
+					if j != i {
+						secondary = groupBots[j]
+						break
+					}
+				}
+				break
+			}
+		}
+	}
+
+	if params == nil {
+		params = make(map[string]interface{})
+	}
+	if _, ok := params["leg_a_symbol"]; !ok && primary.Symbol != "" {
+		params["leg_a_symbol"] = primary.Symbol
+	}
+	if _, ok := params["leg_b_symbol"]; !ok && secondary.Symbol != "" {
+		params["leg_b_symbol"] = secondary.Symbol
+	}
+	if _, ok := params["hedge_ratio"]; !ok && group.HedgeConfig.HedgeRatio > 0 {
+		params["hedge_ratio"] = group.HedgeConfig.HedgeRatio
+	}
+	if _, ok := params["rebalance_interval"]; !ok && group.HedgeConfig.RebalanceInterval > 0 {
+		params["rebalance_interval"] = group.HedgeConfig.RebalanceInterval
+	}
+	if _, ok := params["rebalance_threshold"]; !ok && group.HedgeConfig.MaxDrawdown > 0 {
+		threshold := group.HedgeConfig.MaxDrawdown
+		if threshold > 1 {
+			threshold = threshold / 100
+		}
+		params["rebalance_threshold"] = threshold
+	}
+	return primary.ID, primary.Symbol, params, nil
+}
 
 // backtestTaskManager 回测任務管理器（由 main 注入）
 var backtestTaskManager *backtest.TaskManager
@@ -428,6 +508,23 @@ func postBacktestTasks(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参數錯误: %v", err)})
 		return
+	}
+	if req.Mode == backtest.TaskModeHedgeGroup && req.GroupID != "" && configManager != nil {
+		cfg, cfgErr := configManager.GetConfig()
+		if cfgErr == nil && cfg != nil {
+			primaryBotID, primarySymbol, mergedParams, deriveErr := deriveHedgeGroupTaskDefaults(cfg, req.GroupID, req.Symbol, req.Params)
+			if deriveErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": deriveErr.Error()})
+				return
+			}
+			req.Params = mergedParams
+			if req.BotID == "" {
+				req.BotID = primaryBotID
+			}
+			if req.Symbol == "" {
+				req.Symbol = primarySymbol
+			}
+		}
 	}
 	if req.Mode != backtest.TaskModeHedgeGroup && req.Strategy == "" && len(req.Strategies) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "strategy 或 strategies 必填"})

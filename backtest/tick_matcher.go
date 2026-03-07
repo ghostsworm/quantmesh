@@ -9,17 +9,17 @@ import (
 // 参考自 paxg 项目，實現基于價格路径穿越检测的訂單撮合
 type TickMatcher struct {
 	// 配置参数
-	BuySlippage           float64 // 买入滑点系数 (預設 1.0001)
-	SellSlippage          float64 // 卖出滑点系数 (預設 0.9999)
-	MaxVolumeRatio        float64 // 每分钟最大成交量占比 (預設 0.2)
+	BuySlippage            float64 // 买入滑点系数 (預設 1.0001)
+	SellSlippage           float64 // 卖出滑点系数 (預設 0.9999)
+	MaxVolumeRatio         float64 // 每分钟最大成交量占比 (預設 0.2)
 	MaxGridTradesPerMinute int     // 每分钟最大网格成交数 (預設 5)
 
 	// 運行时狀態
-	minuteVolumeUsed  float64
-	minuteGridTrades  int
-	currentMinuteVol  float64
-	tradeIDCounter    int
-	onTradeCallback   func(*TickTrade)
+	minuteVolumeUsed float64
+	minuteGridTrades int
+	currentMinuteVol float64
+	tradeIDCounter   int
+	onTradeCallback  func(*TickTrade)
 }
 
 // TickPricePath 價格路径点 (價格, 時間权重)
@@ -47,8 +47,8 @@ type TickOrder struct {
 	Strategy   string
 	StrategyID string
 	AccountID  string
-	GridLevel  int    // 网格层级（仅网格策略使用）
-	IsGrid     bool   // 是否为网格訂單
+	GridLevel  int  // 网格层级（仅网格策略使用）
+	IsGrid     bool // 是否为网格訂單
 }
 
 // TickTrade 成交記錄
@@ -68,18 +68,18 @@ type TickTrade struct {
 
 // MatcherConfig 撮合引擎配置
 type MatcherConfig struct {
-	BuySlippage           float64
-	SellSlippage          float64
-	MaxVolumeRatio        float64
+	BuySlippage            float64
+	SellSlippage           float64
+	MaxVolumeRatio         float64
 	MaxGridTradesPerMinute int
 }
 
 // DefaultMatcherConfig 返回預設配置
 func DefaultMatcherConfig() MatcherConfig {
 	return MatcherConfig{
-		BuySlippage:           1.0001,
-		SellSlippage:          0.9999,
-		MaxVolumeRatio:        0.2,
+		BuySlippage:            1.0001,
+		SellSlippage:           0.9999,
+		MaxVolumeRatio:         0.2,
 		MaxGridTradesPerMinute: 5,
 	}
 }
@@ -100,9 +100,9 @@ func NewTickMatcher(config MatcherConfig) *TickMatcher {
 	}
 
 	return &TickMatcher{
-		BuySlippage:           config.BuySlippage,
-		SellSlippage:          config.SellSlippage,
-		MaxVolumeRatio:        config.MaxVolumeRatio,
+		BuySlippage:            config.BuySlippage,
+		SellSlippage:           config.SellSlippage,
+		MaxVolumeRatio:         config.MaxVolumeRatio,
 		MaxGridTradesPerMinute: config.MaxGridTradesPerMinute,
 	}
 }
@@ -219,17 +219,17 @@ func (m *TickMatcher) ProcessPath(kline *TickKline, orders []TickOrder, timestam
 			// 創建成交記錄
 			m.tradeIDCounter++
 			trade := &TickTrade{
-				TradeID:   fmt.Sprintf("T%d", m.tradeIDCounter),
-				OrderID:   order.OrderID,
-				Side:      order.Side,
-				Price:     fillPrice,
-				Size:      order.Size,
-				Strategy:  order.Strategy,
+				TradeID:    fmt.Sprintf("T%d", m.tradeIDCounter),
+				OrderID:    order.OrderID,
+				Side:       order.Side,
+				Price:      fillPrice,
+				Size:       order.Size,
+				Strategy:   order.Strategy,
 				StrategyID: order.StrategyID,
-				AccountID: order.AccountID,
-				Timestamp: timestamp,
-				GridLevel: order.GridLevel,
-				Slippage:  slippage * order.Size,
+				AccountID:  order.AccountID,
+				Timestamp:  timestamp,
+				GridLevel:  order.GridLevel,
+				Slippage:   slippage * order.Size,
 			}
 
 			trades = append(trades, *trade)
@@ -330,17 +330,17 @@ func (m *TickMatcher) ProcessPathWithLimit(
 
 			m.tradeIDCounter++
 			trade := &TickTrade{
-				TradeID:   fmt.Sprintf("T%d", m.tradeIDCounter),
-				OrderID:   order.OrderID,
-				Side:      order.Side,
-				Price:     fillPrice,
-				Size:      order.Size,
-				Strategy:  order.Strategy,
+				TradeID:    fmt.Sprintf("T%d", m.tradeIDCounter),
+				OrderID:    order.OrderID,
+				Side:       order.Side,
+				Price:      fillPrice,
+				Size:       order.Size,
+				Strategy:   order.Strategy,
 				StrategyID: order.StrategyID,
-				AccountID: order.AccountID,
-				Timestamp: timestamp,
-				GridLevel: order.GridLevel,
-				Slippage:  slippage * order.Size,
+				AccountID:  order.AccountID,
+				Timestamp:  timestamp,
+				GridLevel:  order.GridLevel,
+				Slippage:   slippage * order.Size,
 			}
 
 			trades = append(trades, *trade)
@@ -403,10 +403,10 @@ func (m *TickMatcher) ValidateOrder(order TickOrder) error {
 
 // GetStatistics 獲取撮合統計信息
 type MatcherStatistics struct {
-	TotalVolumeUsed  float64
-	TotalGridTrades  int
-	TotalTrades      int
-	AverageSlippage  float64
+	TotalVolumeUsed float64
+	TotalGridTrades int
+	TotalTrades     int
+	AverageSlippage float64
 }
 
 // GetStats 獲取當前統計信息
@@ -430,11 +430,11 @@ func (m *TickMatcher) Reset() {
 // Clone 克隆撮合引擎（用于并行回测）
 func (m *TickMatcher) Clone() *TickMatcher {
 	return &TickMatcher{
-		BuySlippage:           m.BuySlippage,
-		SellSlippage:          m.SellSlippage,
-		MaxVolumeRatio:        m.MaxVolumeRatio,
+		BuySlippage:            m.BuySlippage,
+		SellSlippage:           m.SellSlippage,
+		MaxVolumeRatio:         m.MaxVolumeRatio,
 		MaxGridTradesPerMinute: m.MaxGridTradesPerMinute,
-		tradeIDCounter:        0,
+		tradeIDCounter:         0,
 	}
 }
 
