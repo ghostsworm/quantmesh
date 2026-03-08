@@ -730,26 +730,56 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
         <CardBody>
           <FormControl isDisabled={bot.running}>
             <FormLabel>{t('botDetail.strategy.strategyType')}</FormLabel>
-            <Select
-              value={strategyType}
-              onChange={(e) => {
-                setStrategyType(e.target.value)
-                setHasChanges(true)
-              }}
-            >
-              {getAvailableStrategies().map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
-            <Text fontSize="xs" color="gray.500" mt={1}>
-              {t('botDetail.strategy.typeHint')}
-            </Text>
-            {bot.running && (
-              <Text fontSize="xs" color="orange.500" mt={1}>
-                {t('botDetail.strategy.typeChangeDisabledRunning')}
-              </Text>
+            {/* 多策略时展示全部策略及权重，与列表页一致 */}
+            {bot?.config?.strategies && (bot.config as any).strategies.length > 1 ? (
+              <>
+                <HStack spacing={1} flexWrap="wrap" mb={2}>
+                  {(bot.config as any).strategies.map((s: { type: string; weight?: number }, idx: number) => (
+                    <Badge
+                      key={idx}
+                      size="sm"
+                      variant="outline"
+                      fontSize="10px"
+                      colorScheme="blue"
+                    >
+                      {t(`strategyRuntime.strategyNames.${s.type}`, { defaultValue: s.type })}
+                      {s.weight != null && s.weight > 0 && ` (${Math.round(s.weight * 100)}%)`}
+                    </Badge>
+                  ))}
+                </HStack>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botDetail.strategy.typeHint')}
+                </Text>
+                {bot.running && (
+                  <Text fontSize="xs" color="orange.500" mt={1}>
+                    {t('botDetail.strategy.typeChangeDisabledRunning')}
+                  </Text>
+                )}
+              </>
+            ) : (
+              <>
+                <Select
+                  value={strategyType}
+                  onChange={(e) => {
+                    setStrategyType(e.target.value)
+                    setHasChanges(true)
+                  }}
+                >
+                  {getAvailableStrategies().map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </Select>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botDetail.strategy.typeHint')}
+                </Text>
+                {bot.running && (
+                  <Text fontSize="xs" color="orange.500" mt={1}>
+                    {t('botDetail.strategy.typeChangeDisabledRunning')}
+                  </Text>
+                )}
+              </>
             )}
           </FormControl>
         </CardBody>
