@@ -245,14 +245,38 @@ func CreateTaskBacktestStrategy(strategy TaskStrategy, ctx StrategyExecutionCont
 		gridCount := getIntParam(strategy.Config, "grid_count", 50)
 		gridSpacing := getFloatParam(strategy.Config, "grid_spacing", 0.0025)
 		gridLeverage := getIntParam(strategy.Config, "grid_leverage", 5)
-		return wrapAuditableStrategy(NewGridBacktestStrategy(
+
+		strategyInstance := NewGridBacktestStrategy(
 			ctx.StrategyName,
 			ctx.Symbol,
 			gridCount,
 			gridSpacing,
 			float64(gridLeverage),
 			totalCapital,
-		), ctx), nil
+		)
+
+		// 设置方向
+		direction := getStringParam(strategy.Config, "direction")
+		if direction != "" {
+			strategyInstance.SetDirection(direction)
+		}
+
+		// 设置风控配置
+		riskControlEnabled := getBoolParam(strategy.Config, "grid_risk_control_enabled", false)
+		if riskControlEnabled {
+			riskControl := &GridRiskControl{
+				Enabled:                   true,
+				StopLossRatio:             getFloatParam(strategy.Config, "grid_risk_control_stop_loss_ratio", 0.2),
+				TakeProfitTriggerRatio:    getFloatParam(strategy.Config, "grid_risk_control_take_profit_trigger_ratio", 0.08),
+				TrailingTakeProfitRatio:   getFloatParam(strategy.Config, "grid_risk_control_trailing_take_profit_ratio", 0.02),
+				MaxGridLayers:             getIntParam(strategy.Config, "grid_risk_control_max_grid_layers", 0),
+				MaxOpenOrdersAtCap:        getIntParam(strategy.Config, "grid_risk_control_max_open_orders_at_cap", 0),
+				TrendFilterEnabled:        getBoolParam(strategy.Config, "grid_risk_control_trend_filter_enabled", false),
+			}
+			strategyInstance.SetRiskControl(riskControl)
+		}
+
+		return wrapAuditableStrategy(strategyInstance, ctx), nil
 	case "dca", "dca_enhanced":
 		baseOrderAmount := getFloatParam(strategy.Config, "base_order_amount", 30.0)
 		maxOrders := getIntParam(strategy.Config, "max_orders", 10)
@@ -456,4 +480,21 @@ func getStringParam(params map[string]interface{}, key string) string {
 		}
 	}
 	return ""
+}
+
+func getBoolParam(params map[string]interface{}, key string, defaultValue bool) bool {
+	if params == nil {
+		return defaultValue
+	}
+	if val, ok := params[key]; ok {
+		switch v := val.(type) {
+		case bool:
+			return v
+		case float64:
+			return v > 0
+		case int:
+			return v > 0
+		}
+	}
+	return defaultValue
 }

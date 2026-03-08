@@ -575,7 +575,20 @@
     "equity": "权益",
     "config": "参数配置",
     "feeRate": "手续费率",
-    "fundingRate": "资金费率"
+    "fundingRate": "资金费率",
+    "gridDirectionAndRisk": "网格方向与风控",
+    "direction": "交易方向",
+    "directionHint": "单向做多：只在价格下跌时买入，上涨时卖出；单向做空：只在价格上涨时卖出，下跌时买入；双向：同时挂买单和卖单。",
+    "enableRiskControl": "启用风控",
+    "enableRiskControlHint": "启用后可设置止损、止盈和趋势检测",
+    "stopLossRatio": "止损比例",
+    "stopLossRatioHint": "例如 0.2 表示亏损 20% 时止损",
+    "takeProfitTriggerRatio": "止盈触发比例",
+    "takeProfitTriggerRatioHint": "例如 0.08 表示盈利 8% 后开始监控回撤止盈",
+    "trailingTakeProfitRatio": "移动止盈比例",
+    "trailingTakeProfitRatioHint": "触发止盈后，回撤多少比例时平仓",
+    "enableTrendFilter": "启用趋势检测",
+    "enableTrendFilterHint": "启用后，下跌趋势中暂停开仓"
   },
   "servicesStatus": {
     "title": "服务状态",

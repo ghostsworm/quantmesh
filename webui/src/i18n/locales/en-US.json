@@ -576,7 +576,20 @@
     "equity": "Equity",
     "config": "Configuration",
     "feeRate": "Fee Rate",
-    "fundingRate": "Funding Rate"
+    "fundingRate": "Funding Rate",
+    "gridDirectionAndRisk": "Grid Direction & Risk Control",
+    "direction": "Trading Direction",
+    "directionHint": "Long Only: Buy on dip, sell on rally; Short Only: Sell on rally, buy on dip; Both: Place both buy and sell orders.",
+    "enableRiskControl": "Enable Risk Control",
+    "enableRiskControlHint": "Enable to set stop loss, take profit and trend filter",
+    "stopLossRatio": "Stop Loss Ratio",
+    "stopLossRatioHint": "E.g., 0.2 means stop loss at 20% loss",
+    "takeProfitTriggerRatio": "Take Profit Trigger Ratio",
+    "takeProfitTriggerRatioHint": "E.g., 0.08 means start trailing stop at 8% profit",
+    "trailingTakeProfitRatio": "Trailing Take Profit Ratio",
+    "trailingTakeProfitRatioHint": "Drawdown threshold after triggering take profit",
+    "enableTrendFilter": "Enable Trend Filter",
+    "enableTrendFilterHint": "When enabled, pause opening new positions during downtrend"
   },
   "servicesStatus": {
     "title": "Service Status",

@@ -73,6 +73,7 @@ import {
   MenuButton,
   MenuList,
   MenuItem,
+  Switch,
 } from '@chakra-ui/react'
 import { RepeatIcon, DownloadIcon, DeleteIcon, CheckIcon, StarIcon, ChevronDownIcon, ChevronUpIcon, AddIcon, MinusIcon, SmallAddIcon, ExternalLinkIcon } from '@chakra-ui/icons'
 import {
@@ -1647,6 +1648,132 @@ export default function BacktestMenu() {
                       {p.unit && <Text as="span" fontSize="xs" color="gray.500" ml={2}>{p.unit}</Text>}
                     </FormControl>
                   ))}
+
+                  {/* 网格方向和风控设置（仅网格策略） */}
+                  {taskStrategies.length <= 1 && strategyType === 'grid' && (
+                    <>
+                      <Divider my={4} />
+                      <Text fontWeight="medium" fontSize="sm" mb={3}>
+                        {t('backtest.gridDirectionAndRisk')}
+                      </Text>
+
+                      {/* 交易方向 */}
+                      <FormControl mb={3}>
+                        <FormLabel fontSize="sm">{t('backtest.direction')}</FormLabel>
+                        <Select
+                          value={params['direction'] || 'LONG'}
+                          onChange={(e) => setParams((prev) => ({ ...prev, direction: e.target.value }))}
+                          size="sm"
+                        >
+                          <option value="LONG">{t('botDetail.strategy.directionLong')}</option>
+                          <option value="SHORT">{t('botDetail.strategy.directionShort')}</option>
+                          <option value="BOTH">{t('botDetail.strategy.directionBoth')}</option>
+                        </Select>
+                        <Text fontSize="xs" color="gray.500" mt={1}>
+                          {t('backtest.directionHint')}
+                        </Text>
+                      </FormControl>
+
+                      {/* 风控开关 */}
+                      <FormControl mb={3} display="flex" alignItems="center">
+                        <Switch
+                          isChecked={(params['grid_risk_control_enabled'] as boolean) || false}
+                          onChange={(e) => setParams((prev) => ({ ...prev, grid_risk_control_enabled: e.target.checked }))}
+                        />
+                        <Box ml={3}>
+                          <FormLabel fontSize="sm" mb={0}>{t('backtest.enableRiskControl')}</FormLabel>
+                          <Text fontSize="xs" color="gray.500" display="block">
+                            {t('backtest.enableRiskControlHint')}
+                          </Text>
+                        </Box>
+                      </FormControl>
+
+                      {/* 风控参数 */}
+                      {(params['grid_risk_control_enabled'] as boolean) && (
+                        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3} mb={3}>
+                          <FormControl>
+                            <FormLabel fontSize="sm">{t('backtest.stopLossRatio')}</FormLabel>
+                            <NumberInput
+                              value={(params['grid_risk_control_stop_loss_ratio'] as number) || 0.2}
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              precision={2}
+                              size="sm"
+                              onChange={(valueAsString: string, valueAsNumber: number) => {
+                                const isPartial = valueAsString !== '' && (valueAsString.endsWith('.') || valueAsString !== String(valueAsNumber))
+                                const v = isPartial ? valueAsString : (!Number.isNaN(valueAsNumber) ? valueAsNumber : undefined)
+                                setParams((prev) => ({ ...prev, grid_risk_control_stop_loss_ratio: v }))
+                              }}
+                            >
+                              <NumberInputField />
+                            </NumberInput>
+                            <Text fontSize="xs" color="gray.500" mt={1}>
+                              {t('backtest.stopLossRatioHint')}
+                            </Text>
+                          </FormControl>
+
+                          <FormControl>
+                            <FormLabel fontSize="sm">{t('backtest.takeProfitTriggerRatio')}</FormLabel>
+                            <NumberInput
+                              value={(params['grid_risk_control_take_profit_trigger_ratio'] as number) || 0.08}
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              precision={2}
+                              size="sm"
+                              onChange={(valueAsString: string, valueAsNumber: number) => {
+                                const isPartial = valueAsString !== '' && (valueAsString.endsWith('.') || valueAsString !== String(valueAsNumber))
+                                const v = isPartial ? valueAsString : (!Number.isNaN(valueAsNumber) ? valueAsNumber : undefined)
+                                setParams((prev) => ({ ...prev, grid_risk_control_take_profit_trigger_ratio: v }))
+                              }}
+                            >
+                              <NumberInputField />
+                            </NumberInput>
+                            <Text fontSize="xs" color="gray.500" mt={1}>
+                              {t('backtest.takeProfitTriggerRatioHint')}
+                            </Text>
+                          </FormControl>
+
+                          <FormControl>
+                            <FormLabel fontSize="sm">{t('backtest.trailingTakeProfitRatio')}</FormLabel>
+                            <NumberInput
+                              value={(params['grid_risk_control_trailing_take_profit_ratio'] as number) || 0.02}
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              precision={2}
+                              size="sm"
+                              onChange={(valueAsString: string, valueAsNumber: number) => {
+                                const isPartial = valueAsString !== '' && (valueAsString.endsWith('.') || valueAsString !== String(valueAsNumber))
+                                const v = isPartial ? valueAsString : (!Number.isNaN(valueAsNumber) ? valueAsNumber : undefined)
+                                setParams((prev) => ({ ...prev, grid_risk_control_trailing_take_profit_ratio: v }))
+                              }}
+                            >
+                              <NumberInputField />
+                            </NumberInput>
+                            <Text fontSize="xs" color="gray.500" mt={1}>
+                              {t('backtest.trailingTakeProfitRatioHint')}
+                            </Text>
+                          </FormControl>
+
+                          <FormControl display="flex" alignItems="center">
+                            <Switch
+                              isChecked={(params['grid_risk_control_trend_filter_enabled'] as boolean) || false}
+                              onChange={(e) => setParams((prev) => ({ ...prev, grid_risk_control_trend_filter_enabled: e.target.checked }))}
+                              size="sm"
+                            />
+                            <Box ml={3}>
+                              <FormLabel fontSize="sm" mb={0}>{t('backtest.enableTrendFilter')}</FormLabel>
+                              <Text fontSize="xs" color="gray.500" display="block">
+                                {t('backtest.enableTrendFilterHint')}
+                              </Text>
+                            </Box>
+                          </FormControl>
+                        </SimpleGrid>
+                      )}
+                    </>
+                  )}
                   <Button
                     colorScheme="blue"
                     onClick={handleRunBacktest}
