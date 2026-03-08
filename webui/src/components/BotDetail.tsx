@@ -851,6 +851,146 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
         </CardBody>
       </Card>
 
+      {/* 网格方向与风控配置（只读显示） */}
+      <Card>
+        <CardBody>
+          <Heading size="sm" mb={4}>{t('botDetail.strategy.gridDirectionAndRisk')}</Heading>
+          <VStack align="stretch" spacing={4}>
+            {/* 网格方向 */}
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <Box>
+                <Text fontSize="sm" fontWeight="medium" color="gray.600">
+                  {t('botDetail.strategy.direction')}
+                </Text>
+                <Text fontSize="lg" fontWeight="bold" mt={1}>
+                  {(() => {
+                    const cfg = bot?.config as any
+                    const direction = cfg?.direction || cfg?.grid_mode || 'LONG'
+                    const directionMap: Record<string, string> = {
+                      'LONG': t('botDetail.strategy.directionLong'),
+                      'SHORT': t('botDetail.strategy.directionShort'),
+                      'BOTH': t('botDetail.strategy.directionBoth'),
+                      'long': t('botDetail.strategy.directionLong'),
+                      'short': t('botDetail.strategy.directionShort'),
+                      'both': t('botDetail.strategy.directionBoth'),
+                    }
+                    return directionMap[direction] || direction
+                  })()}
+                </Text>
+              </Box>
+
+              {/* 趋势检测 */}
+              <Box>
+                <Text fontSize="sm" fontWeight="medium" color="gray.600">
+                  {t('botDetail.strategy.trendFilter')}
+                </Text>
+                <Badge mt={1} colorScheme={(() => {
+                  const cfg = bot?.config as any
+                  const enabled = cfg?.grid_risk_control?.trend_filter_enabled || false
+                  return enabled ? 'green' : 'gray'
+                })()}>
+                  {(() => {
+                    const cfg = bot?.config as any
+                    const enabled = cfg?.grid_risk_control?.trend_filter_enabled || false
+                    return enabled ? t('common.enabled') : t('common.disabled')
+                  })()}
+                </Badge>
+              </Box>
+            </SimpleGrid>
+
+            <Divider />
+
+            {/* 网格风控配置 */}
+            <Text fontSize="sm" fontWeight="medium" color="gray.600">
+              {t('botDetail.strategy.gridRiskControl')}
+            </Text>
+
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              {/* 止损比例 */}
+              <Box>
+                <Text fontSize="xs" color="gray.500">{t('botDetail.strategy.stopLossRatio')}</Text>
+                <Text fontSize="md" fontWeight="semibold">
+                  {(() => {
+                    const cfg = bot?.config as any
+                    const ratio = cfg?.grid_risk_control?.stop_loss_ratio ?? cfg?.stop_loss_ratio
+                    return ratio !== undefined && ratio !== null ? `${(ratio * 100).toFixed(1)}%` : '-'
+                  })()}
+                </Text>
+              </Box>
+
+              {/* 止盈触发比例 */}
+              <Box>
+                <Text fontSize="xs" color="gray.500">{t('botDetail.strategy.takeProfitTriggerRatio')}</Text>
+                <Text fontSize="md" fontWeight="semibold">
+                  {(() => {
+                    const cfg = bot?.config as any
+                    const ratio = cfg?.grid_risk_control?.take_profit_trigger_ratio ?? cfg?.take_profit_ratio
+                    return ratio !== undefined && ratio !== null ? `${(ratio * 100).toFixed(1)}%` : '-'
+                  })()}
+                </Text>
+              </Box>
+
+              {/* 移动止盈比例 */}
+              <Box>
+                <Text fontSize="xs" color="gray.500">{t('botDetail.strategy.trailingTakeProfitRatio')}</Text>
+                <Text fontSize="md" fontWeight="semibold">
+                  {(() => {
+                    const cfg = bot?.config as any
+                    const ratio = cfg?.grid_risk_control?.trailing_take_profit_ratio ?? cfg?.trailing_stop_ratio
+                    return ratio !== undefined && ratio !== null ? `${(ratio * 100).toFixed(1)}%` : '-'
+                  })()}
+                </Text>
+              </Box>
+
+              {/* 最大网格层数 */}
+              <Box>
+                <Text fontSize="xs" color="gray.500">{t('botDetail.strategy.maxGridLayers')}</Text>
+                <Text fontSize="md" fontWeight="semibold">
+                  {(() => {
+                    const cfg = bot?.config as any
+                    const layers = cfg?.grid_risk_control?.max_grid_layers
+                    return layers ? `${layers} ${t('botDetail.strategy.layers')}` : '-'
+                  })()}
+                </Text>
+              </Box>
+
+              {/* 达到层数限制时的最大挂单数 */}
+              <Box>
+                <Text fontSize="xs" color="gray.500">{t('botDetail.strategy.maxOpenOrdersAtCap')}</Text>
+                <Text fontSize="md" fontWeight="semibold">
+                  {(() => {
+                    const cfg = bot?.config as any
+                    const orders = cfg?.grid_risk_control?.max_open_orders_at_cap
+                    return orders !== undefined && orders !== null ? `${orders}` : '-'
+                  })()}
+                </Text>
+              </Box>
+
+              {/* 风控启用状态 */}
+              <Box>
+                <Text fontSize="xs" color="gray.500">{t('botDetail.strategy.riskControlEnabled')}</Text>
+                <Badge mt={1} colorScheme={(() => {
+                  const cfg = bot?.config as any
+                  const enabled = cfg?.grid_risk_control?.enabled || false
+                  return enabled ? 'green' : 'gray'
+                })()}>
+                  {(() => {
+                    const cfg = bot?.config as any
+                    const enabled = cfg?.grid_risk_control?.enabled || false
+                    return enabled ? t('common.enabled') : t('common.disabled')
+                  })()}
+                </Badge>
+              </Box>
+            </SimpleGrid>
+
+            <Alert status="info" fontSize="sm">
+              <AlertIcon />
+              <Text>{t('botDetail.strategy.riskConfigHint')}</Text>
+            </Alert>
+          </VStack>
+        </CardBody>
+      </Card>
+
       {/* 操作按钮 */}
       {hasChanges && (
         <HStack spacing={3} justifyContent="flex-end">
