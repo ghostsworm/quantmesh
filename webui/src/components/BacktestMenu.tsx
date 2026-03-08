@@ -727,6 +727,20 @@ export default function BacktestMenu() {
       .finally(() => setCacheGenerating(false))
   }
 
+  // 将 params 中的字符串（如 "3."）转为数字，供 API 提交
+  const normalizeParamsForApi = (p: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(p)) {
+      if (typeof v === 'string') {
+        const n = parseFloat(v)
+        if (!Number.isNaN(n)) out[k] = n
+      } else if (typeof v === 'number' && !Number.isNaN(v)) {
+        out[k] = v
+      }
+    }
+    return out
+  }
+
   const handleRunBacktest = () => {
     if (!strategyType) {
       toast({ title: t('backtest.selectStrategyRequired'), status: 'warning' })
@@ -766,11 +780,11 @@ export default function BacktestMenu() {
           bot_id: hasMode ? taskBotId || undefined : undefined,
           group_id: taskMode === 'hedge_group' ? taskGroupId || undefined : undefined,
           strategy: hasMultiStrategies || taskMode === 'hedge_group' ? undefined : strategyType,
-          strategies: hasMultiStrategies ? taskStrategies : undefined,
+          strategies: hasMultiStrategies ? taskStrategies.map((s) => ({ ...s, config: s.config ? normalizeParamsForApi(s.config as Record<string, unknown>) : {} })) : undefined,
           data_source: 'kline_file' as const, 
           kline_file: selectedKlineFile, 
           total_capital: totalCapital, 
-          params: Object.keys(params).length ? params : undefined 
+          params: Object.keys(params).length ? normalizeParamsForApi(params) : undefined 
         }
       : dataSource === 'cache'
       ? (() => {
@@ -781,7 +795,7 @@ export default function BacktestMenu() {
             bot_id: hasMode ? taskBotId || undefined : undefined,
             group_id: taskMode === 'hedge_group' ? taskGroupId || undefined : undefined,
             strategy: hasMultiStrategies || taskMode === 'hedge_group' ? undefined : strategyType,
-            strategies: hasMultiStrategies ? taskStrategies : undefined,
+            strategies: hasMultiStrategies ? taskStrategies.map((s) => ({ ...s, config: s.config ? normalizeParamsForApi(s.config as Record<string, unknown>) : {} })) : undefined,
             data_source: 'cache' as const, 
             cache_name: selectedCacheName,
             symbol: selectedCache?.symbol,
@@ -789,7 +803,7 @@ export default function BacktestMenu() {
             start_time: selectedCache?.start ? new Date(selectedCache.start).toISOString() : undefined,
             end_time: selectedCache?.end ? new Date(selectedCache.end).toISOString() : undefined,
             total_capital: totalCapital, 
-            params: Object.keys(params).length ? params : undefined 
+            params: Object.keys(params).length ? normalizeParamsForApi(params) : undefined 
           }
         })()
       : { 
@@ -797,7 +811,7 @@ export default function BacktestMenu() {
           bot_id: hasMode ? taskBotId || undefined : undefined,
           group_id: taskMode === 'hedge_group' ? taskGroupId || undefined : undefined,
           strategy: hasMultiStrategies || taskMode === 'hedge_group' ? undefined : strategyType,
-          strategies: hasMultiStrategies ? taskStrategies : undefined,
+          strategies: hasMultiStrategies ? taskStrategies.map((s) => ({ ...s, config: s.config ? normalizeParamsForApi(s.config as Record<string, unknown>) : {} })) : undefined,
           symbol, 
           interval, 
           start_time: new Date(startDate).toISOString(), 
@@ -807,7 +821,7 @@ export default function BacktestMenu() {
             return end.toISOString()
           })(),
           total_capital: totalCapital, 
-          params: Object.keys(params).length ? params : undefined 
+          params: Object.keys(params).length ? normalizeParamsForApi(params) : undefined 
         }
 
     postBacktestTask(payload)
@@ -1519,12 +1533,14 @@ export default function BacktestMenu() {
                                     {p.type === 'number' && (
                                       <NumberInput
                                         size="sm"
-                                        value={(taskStrategy.config?.[p.name] as number) ?? (p.default as number)}
+                                        value={taskStrategy.config?.[p.name] !== undefined && taskStrategy.config?.[p.name] !== '' ? (taskStrategy.config[p.name] as number | string) : (p.default as number)}
                                         min={p.min}
                                         max={p.max}
                                         step={p.step ?? 0.1}
-                                        precision={p.step ? Math.max(0, Math.round(-Math.log10(p.step))) : 1}
-                                        onChange={(_: string, v: number) => {
+                                        precision={p.step ? Math.max(0, Math.round(-Math.log10(p.step))) : 2}
+                                        onChange={(valueAsString: string, valueAsNumber: number) => {
+                                          const isPartial = valueAsString !== '' && (valueAsString.endsWith('.') || valueAsString !== String(valueAsNumber))
+                                          const v = isPartial ? valueAsString : (!Number.isNaN(valueAsNumber) ? valueAsNumber : (valueAsString !== '' ? valueAsString : undefined))
                                           const newStrategies = [...taskStrategies]
                                           const cfg = { ...(newStrategies[idx].config || {}), [p.name]: v }
                                           newStrategies[idx] = { ...newStrategies[idx], config: cfg }
@@ -1609,12 +1625,16 @@ export default function BacktestMenu() {
                       <FormLabel fontSize="sm">{t(`backtest.paramLabels.${p.name}`, { defaultValue: p.label })}{p.required ? ' *' : ''}</FormLabel>
                       {p.type === 'number' && (
                         <NumberInput
-                          value={(params[p.name] as number) ?? (p.default as number)}
+                          value={params[p.name] !== undefined && params[p.name] !== '' ? (params[p.name] as number | string) : (p.default as number)}
                           min={p.min}
                           max={p.max}
                           step={p.step ?? 0.1}
-                          precision={p.step ? Math.max(0, Math.round(-Math.log10(p.step))) : 1}
-                          onChange={(_: string, v: number) => setParams((prev) => ({ ...prev, [p.name]: v }))}
+                          precision={p.step ? Math.max(0, Math.round(-Math.log10(p.step))) : 2}
+                          onChange={(valueAsString: string, valueAsNumber: number) => {
+                            const isPartial = valueAsString !== '' && (valueAsString.endsWith('.') || valueAsString !== String(valueAsNumber))
+                            const v = isPartial ? valueAsString : (!Number.isNaN(valueAsNumber) ? valueAsNumber : (valueAsString !== '' ? valueAsString : undefined))
+                            setParams((prev) => ({ ...prev, [p.name]: v }))
+                          }}
                         >
                           <NumberInputField />
                         </NumberInput>

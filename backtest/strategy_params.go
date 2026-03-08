@@ -161,6 +161,7 @@ func GetGridStrategyDefinition() StrategyParamDefinition {
 	maxGap := 10.0
 	maxTen := 10.0
 	max200 := 200.0
+	stepPoint01 := 0.01
 	stepPoint1 := 0.1
 	stepPoint0001 := 0.0001
 	return StrategyParamDefinition{
@@ -169,9 +170,9 @@ func GetGridStrategyDefinition() StrategyParamDefinition {
 		Description:  "在價格区间内按网格挂單，低買高賣。",
 		Params: []ParamField{
 			// 回测時價格區間從 K 線自動推導，不再顯示 price_low / price_high
-			{Name: "grid_spacing", Label: "網格間距", Type: "number", Required: false, Default: 200, Min: &minGap, Unit: "USDT", Hint: "每檔價格差，如 200 表示每檔相差 200 USDT。不填則按格子數量均分區間"},
+			{Name: "grid_spacing", Label: "網格間距", Type: "number", Required: false, Default: 200, Min: &minGap, Step: &stepPoint01, Unit: "USDT", Hint: "每檔價格差，如 200 表示每檔相差 200 USDT。不填則按格子數量均分區間"},
 			{Name: "grid_count", Label: "格子數量", Type: "number", Required: false, Default: 20, Min: &minZero, Hint: "最多幾檔。填了間距時表示最多 N 檔；未填間距時表示將區間均分為 N 檔"},
-			{Name: "order_quantity", Label: "單笔订單大小", Type: "number", Required: true, Default: 100, Min: &minGap, Unit: "USDT"},
+			{Name: "order_quantity", Label: "單笔订單大小", Type: "number", Required: true, Default: 100, Min: &minGap, Step: &stepPoint01, Unit: "USDT"},
 			{Name: "total_capital", Label: "總投入資金", Type: "number", Required: true, Default: 10000, Min: &minGap, Unit: "USDT"},
 			{Name: "fee_rate", Label: "手续費率", Type: "number", Required: false, Default: 0.0004, Min: &minZero, Max: &maxGap, Step: &stepPoint0001, Hint: "如 0.0004 表示 0.04%"},
 			{Name: "risk_volume_multiplier", Label: "風控-成交量倍數", Type: "number", Required: false, Default: 3.0, Min: &minOne, Max: &maxTen, Step: &stepPoint1, Hint: "成交量超過均量的倍數觸發風控（越小越敏感）"},
