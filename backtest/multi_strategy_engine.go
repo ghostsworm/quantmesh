@@ -733,21 +733,33 @@ func (e *MultiStrategyEngine) openPosition(runtime *StrategyRuntime, trade *Tick
 	runtime.account.TotalVolume += cost
 }
 
-// recordCompletedTrade 記錄完成交易
+// recordCompletedTrade 記錄完成交易（含交易後持倉、餘額、方向）
 func (e *MultiStrategyEngine) recordCompletedTrade(runtime *StrategyRuntime, trade *TickTrade, side string, size float64, pnl, fee, slippage float64) {
+	pos := runtime.account.PositionSize
+	bal := runtime.account.Balance
+	posSide := ""
+	if pos > 0 {
+		posSide = "LONG"
+	} else if pos < 0 {
+		posSide = "SHORT"
+	}
+
 	completed := CompletedTrade{
-		Timestamp:  trade.Timestamp,
-		Side:       side,
-		EntryPrice: runtime.account.PositionEntryPrice,
-		ExitPrice:  trade.Price,
-		Size:       size,
-		PnL:        pnl,
-		Fee:        fee,
-		Slippage:   slippage,
-		Strategy:   trade.Strategy,
-		StrategyID: trade.StrategyID,
-		AccountID:  trade.AccountID,
-		GridLevel:  trade.GridLevel,
+		Timestamp:     trade.Timestamp,
+		Side:          side,
+		EntryPrice:    runtime.account.PositionEntryPrice,
+		ExitPrice:     trade.Price,
+		Size:          size,
+		PnL:           pnl,
+		Fee:           fee,
+		Slippage:      slippage,
+		Strategy:      trade.Strategy,
+		StrategyID:    trade.StrategyID,
+		AccountID:     trade.AccountID,
+		GridLevel:     trade.GridLevel,
+		PositionAfter: pos,
+		BalanceAfter:  bal,
+		PositionSide:  posSide,
 	}
 
 	e.completedTrades = append(e.completedTrades, completed)
@@ -975,18 +987,21 @@ func (e *MultiStrategyEngine) calculateRiskMetrics() *MultiStrategyRiskMetrics {
 
 // CompletedTrade 完成交易記錄
 type CompletedTrade struct {
-	Timestamp  int64   `json:"timestamp"`
-	Side       string  `json:"side"` // "long" or "short"
-	EntryPrice float64 `json:"entry_price"`
-	ExitPrice  float64 `json:"exit_price"`
-	Size       float64 `json:"size"`
-	PnL        float64 `json:"pnl"`
-	Fee        float64 `json:"fee"`
-	Slippage   float64 `json:"slippage"`
-	Strategy   string  `json:"strategy"`
-	StrategyID string  `json:"strategy_id,omitempty"`
-	AccountID  string  `json:"account_id,omitempty"`
-	GridLevel  int     `json:"grid_level,omitempty"`
+	Timestamp     int64   `json:"timestamp"`
+	Side          string  `json:"side"` // "long" or "short"
+	EntryPrice    float64 `json:"entry_price"`
+	ExitPrice     float64 `json:"exit_price"`
+	Size          float64 `json:"size"`
+	PnL           float64 `json:"pnl"`
+	Fee           float64 `json:"fee"`
+	Slippage      float64 `json:"slippage"`
+	Strategy      string  `json:"strategy"`
+	StrategyID    string  `json:"strategy_id,omitempty"`
+	AccountID     string  `json:"account_id,omitempty"`
+	GridLevel     int     `json:"grid_level,omitempty"`
+	PositionAfter float64 `json:"position_after"`   // 交易後持倉量（正=多，負=空）
+	BalanceAfter  float64 `json:"balance_after"`    // 交易後剩餘資金
+	PositionSide  string  `json:"position_side"`   // 交易後持倉方向：LONG/SHORT/空（無持倉）
 }
 
 func calculateRiskMetricsFrom(equityCurve []EquityPoint, completedTrades []CompletedTrade) *MultiStrategyRiskMetrics {

@@ -131,6 +131,9 @@ const BacktestTradesTable: React.FC<BacktestTradesTableProps> = ({ taskId, isOpe
                       <Th isNumeric>{t('backtest.quantity')}</Th>
                       <Th isNumeric>{t('backtest.fee')}</Th>
                       <Th isNumeric>{t('backtest.pnl')}</Th>
+                      <Th isNumeric>{t('backtest.positionAfter')}</Th>
+                      <Th isNumeric>{t('backtest.balanceAfter')}</Th>
+                      <Th>{t('backtest.positionSide')}</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
@@ -139,7 +142,7 @@ const BacktestTradesTable: React.FC<BacktestTradesTableProps> = ({ taskId, isOpe
                         <Td fontSize="xs">{trade.timestamp}</Td>
                         <Td>
                           <Badge
-                            colorScheme={trade.type === 'buy' || trade.type === 'BUY' ? 'green' : 'red'}
+                            colorScheme={trade.type === 'buy' || trade.type === 'BUY' || trade.type === 'long' ? 'green' : 'red'}
                             fontSize="xs"
                           >
                             {trade.type.toUpperCase()}
@@ -156,6 +159,24 @@ const BacktestTradesTable: React.FC<BacktestTradesTableProps> = ({ taskId, isOpe
                         </Td>
                         <Td isNumeric fontSize="xs" color={trade.pnl >= 0 ? 'green.500' : 'red.500'}>
                           {trade.pnl >= 0 ? '+' : ''}{trade.pnl.toFixed(4)}
+                        </Td>
+                        <Td isNumeric fontSize="xs">
+                          {trade.position_after != null ? trade.position_after.toFixed(6) : '-'}
+                        </Td>
+                        <Td isNumeric fontSize="xs">
+                          {trade.balance_after != null ? trade.balance_after.toFixed(2) : '-'}
+                        </Td>
+                        <Td>
+                          {trade.position_side ? (
+                            <Badge
+                              colorScheme={trade.position_side === 'LONG' ? 'green' : trade.position_side === 'SHORT' ? 'orange' : 'gray'}
+                              fontSize="xs"
+                            >
+                              {trade.position_side}
+                            </Badge>
+                          ) : (
+                            '-'
+                          )}
                         </Td>
                       </Tr>
                     ))}
