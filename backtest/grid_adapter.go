@@ -112,11 +112,62 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash + positionValue})
 
 		closePrice := c.Close
-		// 從 prevClose 到 closePrice 穿越的网格線
-		crossed := getCrossedLevels(prevClose, closePrice, gridLevels)
-		for _, level := range crossed {
-			if closePrice > prevClose {
-				// 價格上行：賣出該檔或下方一檔的持倉。若只有一檔（無下方一檔），則在穿越的該檔平倉
+		// 利用 K 線 High/Low 檢測穿越（修復：原僅用收盤價導致 1 分鐘內很少穿越 130 USDT 而零交易）
+		crossed := getCrossedLevelsIntrabar(prevClose, c.Low, c.High, closePrice, gridLevels)
+		for _, cl := range crossed {
+			level := cl.level
+			if cl.isBuy {
+				// 價格下行穿越：在 level 買入
+				if riskSkipBuy {
+					riskSimulator.RecordSkippedBuy()
+					continue
+				}
+				if level < 1e-12 {
+					continue
+				}
+				if positions[level] > 0 {
+					continue
+				}
+				costUSDT := params.OrderQuantity
+				if costUSDT > cash {
+					costUSDT = cash
+				}
+				if costUSDT < 1e-6 {
+					continue
+				}
+				execPrice := level * (1 + slippage)
+				buyQty := costUSDT / execPrice
+				buyFee := buyQty * execPrice * feeRate
+				totalCost := buyQty*execPrice + buyFee
+				if totalCost > cash {
+					buyQty = (cash - buyFee) / execPrice
+					if buyQty <= 0 {
+						continue
+					}
+					buyFee = buyQty * execPrice * feeRate
+					totalCost = buyQty*execPrice + buyFee
+				}
+				buySlippageLoss := (execPrice - level) * buyQty
+				totalSlippageLoss += buySlippageLoss
+				cash -= totalCost
+				positions[level] = positions[level] + buyQty
+				totalQtyAfter := 0.0
+				for _, q := range positions {
+					totalQtyAfter += q
+				}
+				if totalQtyAfter > maxPositionQty {
+					maxPositionQty = totalQtyAfter
+				}
+				trades = append(trades, Trade{
+					Timestamp: c.Timestamp,
+					Type:      "buy",
+					Price:     execPrice,
+					Quantity:  buyQty,
+					Fee:       buyFee,
+					PnL:       0,
+				})
+			} else {
+				// 價格上行穿越：賣出該檔或下方一檔的持倉
 				sellLevel := findLevelBelow(gridLevels, level)
 				if sellLevel < 0 {
 					sellLevel = level
@@ -140,57 +191,6 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 					Quantity:  qty,
 					Fee:       fee,
 					PnL:       pnl - fee,
-				})
-			} else {
-				// 價格下行：在 level 買入
-				if riskSkipBuy {
-					riskSimulator.RecordSkippedBuy()
-					continue
-				}
-				if level < 1e-12 {
-					continue
-				}
-				if positions[level] > 0 {
-					continue // 該檔位已有持倉，須等賣出後才能再次買入
-				}
-				costUSDT := params.OrderQuantity
-				if costUSDT > cash {
-					costUSDT = cash
-				}
-				if costUSDT < 1e-6 {
-					continue
-				}
-				execPrice := level * (1 + slippage)
-				buyQty := costUSDT / execPrice
-				buyFee := buyQty * execPrice * feeRate
-				totalCost := buyQty*execPrice + buyFee
-				if totalCost > cash {
-					buyQty = (cash - buyFee) / execPrice
-					if buyQty <= 0 {
-						continue
-					}
-					buyFee = buyQty * execPrice * feeRate
-					totalCost = buyQty*execPrice + buyFee
-				}
-				// 🔥 計算买入slippage損失：实际價格 - 理想價格（level）
-				buySlippageLoss := (execPrice - level) * buyQty // 等于 level * slippage * buyQty
-				totalSlippageLoss += buySlippageLoss
-				cash -= totalCost
-				positions[level] = positions[level] + buyQty
-				totalQtyAfter := 0.0
-				for _, q := range positions {
-					totalQtyAfter += q
-				}
-				if totalQtyAfter > maxPositionQty {
-					maxPositionQty = totalQtyAfter
-				}
-				trades = append(trades, Trade{
-					Timestamp: c.Timestamp,
-					Type:      "buy",
-					Price:     execPrice,
-					Quantity:  buyQty,
-					Fee:       buyFee,
-					PnL:       0,
 				})
 			}
 		}
@@ -274,7 +274,40 @@ func roundPrice(p float64, decimals int) float64 {
 	return math.Round(p*f) / f
 }
 
-// getCrossedLevels 返回從 prev 到 curr 穿越的网格價格（按穿越顺序）
+// crossedLevel 帶方向的穿越檔位
+type crossedLevel struct {
+	level float64
+	isBuy bool // true=向下穿越(買入), false=向上穿越(賣出)
+}
+
+// getCrossedLevelsIntrabar 利用 K 線 High/Low 檢測檔位穿越（修復：原邏輯僅用收盤價，1 分鐘內很少波動 130+ 導致零交易）
+// 若檔位在 [Low, High] 區間內且與 prevClose 在兩側，則認為該 K 線內穿越了該檔位
+func getCrossedLevelsIntrabar(prevClose, low, high, closePrice float64, levels []float64) []crossedLevel {
+	var result []crossedLevel
+	for _, l := range levels {
+		if l < low-1e-12 || l > high+1e-12 {
+			continue
+		}
+		if prevClose > l+1e-12 {
+			result = append(result, crossedLevel{level: l, isBuy: true})
+		} else if prevClose < l-1e-12 {
+			result = append(result, crossedLevel{level: l, isBuy: false})
+		}
+	}
+	// 按穿越順序：向下穿越從高到低，向上穿越從低到高；同根 K 線內先買後賣
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].isBuy != result[j].isBuy {
+			return result[i].isBuy
+		}
+		if result[i].isBuy {
+			return result[i].level > result[j].level
+		}
+		return result[i].level < result[j].level
+	})
+	return result
+}
+
+// getCrossedLevels 返回從 prev 到 curr 穿越的网格價格（按穿越顺序，僅用收盤價，供測試或兼容）
 func getCrossedLevels(prev, curr float64, levels []float64) []float64 {
 	var crossed []float64
 	if prev <= curr {
