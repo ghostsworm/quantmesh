@@ -59,6 +59,7 @@ import {
   Checkbox,
   CheckboxGroup,
 } from '@chakra-ui/react'
+import DecimalNumberInput from './DecimalNumberInput'
 import { COMMON_TIMEZONES } from '../utils/dateFormat'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -529,13 +530,28 @@ const Configuration: React.FC = () => {
     await doSaveConfig()
   }
 
+  const normalizeConfigForSave = (c: typeof config) => {
+    if (!c?.trading?.symbols) return c
+    const symbols = c.trading.symbols.map((s: any) => {
+      const grc = s?.grid_risk_control
+      if (!grc) return s
+      const normalized = { ...grc }
+      if (typeof normalized.stop_loss_ratio === 'string') normalized.stop_loss_ratio = parseFloat(String(normalized.stop_loss_ratio) || '0') / 100
+      if (typeof normalized.take_profit_trigger_ratio === 'string') normalized.take_profit_trigger_ratio = parseFloat(String(normalized.take_profit_trigger_ratio) || '0') / 100
+      if (typeof normalized.trailing_take_profit_ratio === 'string') normalized.trailing_take_profit_ratio = parseFloat(String(normalized.trailing_take_profit_ratio) || '0') / 100
+      return { ...s, grid_risk_control: normalized }
+    })
+    return { ...c, trading: { ...c.trading, symbols } }
+  }
+
   const doSaveConfig = async () => {
     if (!config) return
     setSaving(true)
     setError(null)
     setSuccess(null)
     try {
-      const result = await updateConfig(config)
+      const toSend = normalizeConfigForSave(config)
+      const result = await updateConfig(toSend)
       trackConfigSaved(isGlobalView ? 'global' : 'symbol')
       setSuccess(result.message)
       onPreviewClose()
@@ -1206,16 +1222,14 @@ const Configuration: React.FC = () => {
                           </HStack>
                           <HStack>
                             <Text fontSize="xs" color="gray.500">{t('configuration.feeRate')}</Text>
-                            <NumberInput
+                            <DecimalNumberInput
                               size="sm"
                               w="100px"
                               value={feeRateInputs[exchange] ?? ''}
-                              onChange={(value) => {
-                                setFeeRateInputs((prev) => ({ ...prev, [exchange]: value }))
-                              }}
+                              onChange={(v) => setFeeRateInputs((prev) => ({ ...prev, [exchange]: v !== undefined && v !== '' ? v : '' }))}
                               onBlur={() => {
                                 const rawValue = feeRateInputs[exchange] ?? ''
-                                const trimmed = rawValue.trim()
+                                const trimmed = String(rawValue).trim()
                                 const parsed = trimmed === '' ? 0 : Number(trimmed)
                                 if (Number.isNaN(parsed)) {
                                   const currentValue = getNestedValue(config, `exchanges.${exchange}.fee_rate`)
@@ -1224,13 +1238,11 @@ const Configuration: React.FC = () => {
                                   return
                                 }
                                 updateConfigField(`exchanges.${exchange}.fee_rate`, parsed)
-                                setFeeRateInputs((prev) => ({ ...prev, [exchange]: trimmed === '' ? '0' : trimmed }))
                               }}
                               precision={6}
                               step={0.0001}
-                            >
-                              <NumberInputField borderRadius="md" inputMode="decimal" />
-                            </NumberInput>
+                              sx={{ '& input': { borderRadius: 'md' } }}
+                            />
                           </HStack>
                         </Flex>
                       </ConfigCard>
@@ -1732,38 +1744,37 @@ const Configuration: React.FC = () => {
                       <SimpleGrid columns={2} spacing={6}>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceInterval')}</FormLabel>
-                          <NumberInput
+                          <DecimalNumberInput
                             value={(getSelectedSymbolConfig()?.price_interval ?? config.trading?.price_interval) || 0}
-                            onChange={(_, v) => updateSelectedSymbolField('price_interval', v)}
+                            onChange={(v) => updateSelectedSymbolField('price_interval', v as number)}
                             precision={6}
                             step={0.01}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
+                            sx={{ '& input': { borderRadius: 'xl' } }}
+                          />
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.profitSpread')}</FormLabel>
-                          <NumberInput
+                          <DecimalNumberInput
                             value={(getSelectedSymbolConfig()?.profit_spread ?? config.trading?.profit_spread) ?? 0}
-                            onChange={(_, v) => updateSelectedSymbolField('profit_spread', v === undefined ? undefined : (v || 0))}
+                            onChange={(v) => updateSelectedSymbolField('profit_spread', v === undefined ? undefined : v)}
                             precision={6}
                             step={0.01}
                             min={0}
-                          >
-                            <NumberInputField borderRadius="xl" placeholder={t('configuration.profitSpreadHint')} />
-                          </NumberInput>
+                            placeholder={t('configuration.profitSpreadHint')}
+                            sx={{ '& input': { borderRadius: 'xl' } }}
+                          />
                           <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.profitSpreadHint')}</Text>
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.orderAmount')}</FormLabel>
-                          <NumberInput
+                          <DecimalNumberInput
                             value={(getSelectedSymbolConfig()?.order_quantity ?? config.trading?.order_quantity) || 0}
-                            onChange={(_, v) => updateSelectedSymbolField('order_quantity', v)}
+                            onChange={(v) => updateSelectedSymbolField('order_quantity', v)}
                             precision={2}
+                            step={0.01}
                             min={selectedExchange === 'binance' ? 100 : 0}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
+                            sx={{ '& input': { borderRadius: 'xl' } }}
+                          />
                           {selectedExchange === 'binance' && (
                             <Text fontSize="xs" color="orange.600" mt={1}>
                               {t('configuration.binanceMinOrderWarning')}
@@ -1806,41 +1817,41 @@ const Configuration: React.FC = () => {
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceLow')}</FormLabel>
-                          <NumberInput
+                          <DecimalNumberInput
                             value={(getSelectedSymbolConfig()?.price_low ?? 0) || ''}
-                            onChange={(_, v) => updateSelectedSymbolField('price_low', v === '' ? undefined : (v ?? 0))}
+                            onChange={(v) => updateSelectedSymbolField('price_low', v === '' || v === undefined ? undefined : v)}
                             precision={6}
                             step={0.01}
                             min={0}
-                          >
-                            <NumberInputField borderRadius="xl" placeholder={t('configuration.priceRangeOptional')} />
-                          </NumberInput>
+                            placeholder={t('configuration.priceRangeOptional')}
+                            sx={{ '& input': { borderRadius: 'xl' } }}
+                          />
                           <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.priceLowHint')}</Text>
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.priceHigh')}</FormLabel>
-                          <NumberInput
+                          <DecimalNumberInput
                             value={(getSelectedSymbolConfig()?.price_high ?? 0) || ''}
-                            onChange={(_, v) => updateSelectedSymbolField('price_high', v === '' ? undefined : (v ?? 0))}
+                            onChange={(v) => updateSelectedSymbolField('price_high', v === '' || v === undefined ? undefined : v)}
                             precision={6}
                             step={0.01}
                             min={0}
-                          >
-                            <NumberInputField borderRadius="xl" placeholder={t('configuration.priceRangeOptional')} />
-                          </NumberInput>
+                            placeholder={t('configuration.priceRangeOptional')}
+                            sx={{ '& input': { borderRadius: 'xl' } }}
+                          />
                           <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.priceHighHint')}</Text>
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.triggerPrice')}</FormLabel>
-                          <NumberInput
+                          <DecimalNumberInput
                             value={(getSelectedSymbolConfig()?.trigger_price ?? 0) || ''}
-                            onChange={(_, v) => updateSelectedSymbolField('trigger_price', v === '' ? undefined : (v ?? 0))}
+                            onChange={(v) => updateSelectedSymbolField('trigger_price', v === '' || v === undefined ? undefined : v)}
                             precision={6}
                             step={0.01}
                             min={0}
-                          >
-                            <NumberInputField borderRadius="xl" placeholder={t('configuration.triggerPriceHint')} />
-                          </NumberInput>
+                            placeholder={t('configuration.triggerPriceHint')}
+                            sx={{ '& input': { borderRadius: 'xl' } }}
+                          />
                           <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.triggerPriceHint')}</Text>
                         </FormControl>
                         <FormControl>
@@ -1866,15 +1877,14 @@ const Configuration: React.FC = () => {
                         </FormControl>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.gridShiftStep')}</FormLabel>
-                          <NumberInput
+                          <DecimalNumberInput
                             value={(getSelectedSymbolConfig()?.grid_shift_step ?? config.trading?.price_interval) ?? 0}
-                            onChange={(_, v) => updateSelectedSymbolField('grid_shift_step', v ?? 0)}
+                            onChange={(v) => updateSelectedSymbolField('grid_shift_step', v ?? 0)}
                             precision={6}
                             step={0.01}
                             min={0}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
+                            sx={{ '& input': { borderRadius: 'xl' } }}
+                          />
                           <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.gridShiftStepHint')}</Text>
                         </FormControl>
                         <FormControl>
@@ -2036,71 +2046,74 @@ const Configuration: React.FC = () => {
                         <SimpleGrid columns={2} spacing={4}>
                           <FormControl>
                             <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.stopLossRatio')}</FormLabel>
-                            <NumberInput
-                              value={(getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0) * 100}
-                              onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
+                            <DecimalNumberInput
+                              value={typeof getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio === 'string'
+                                ? getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio
+                                : ((getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0) * 100)}
+                              onChange={(v) => updateSelectedSymbolField('grid_risk_control', {
                                 ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
                                 enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
                                 max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
                                 max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
-                                stop_loss_ratio: (v === undefined || v === '' ? 0 : Number(v)) / 100,
+                                stop_loss_ratio: typeof v === 'number' ? v / 100 : v,
                                 take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
                                 trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
                                 trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
                               } as GridRiskControl)}
-                              precision={2}
-                              step={1}
+                              step={0.01}
                               min={0}
                               max={100}
-                            >
-                              <NumberInputField borderRadius="xl" />
-                            </NumberInput>
+                              precision={2}
+                              sx={{ '& input': { borderRadius: 'xl' } }}
+                            />
                             <Text fontSize="2xs" color="gray.500" mt={1}>{t('configuration.stopLossRatioHint')}</Text>
                           </FormControl>
                           <FormControl>
                             <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.takeProfitTriggerRatio')}</FormLabel>
-                            <NumberInput
-                              value={(getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0) * 100}
-                              onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
+                            <DecimalNumberInput
+                              value={typeof getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio === 'string'
+                                ? getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio
+                                : ((getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0) * 100)}
+                              onChange={(v) => updateSelectedSymbolField('grid_risk_control', {
                                 ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
                                 enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
                                 max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
                                 max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
                                 stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
-                                take_profit_trigger_ratio: (v === undefined || v === '' ? 0 : Number(v)) / 100,
+                                take_profit_trigger_ratio: typeof v === 'number' ? v / 100 : v,
                                 trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
                                 trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
                               } as GridRiskControl)}
-                              precision={2}
-                              step={0.5}
+                              step={0.01}
                               min={0}
                               max={100}
-                            >
-                              <NumberInputField borderRadius="xl" />
-                            </NumberInput>
+                              precision={2}
+                              sx={{ '& input': { borderRadius: 'xl' } }}
+                            />
                             <Text fontSize="2xs" color="gray.500" mt={1}>{t('configuration.takeProfitTriggerRatioHint')}</Text>
                           </FormControl>
                           <FormControl>
                             <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.trailingTakeProfitRatio')}</FormLabel>
-                            <NumberInput
-                              value={(getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0) * 100}
-                              onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
+                            <DecimalNumberInput
+                              value={typeof getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio === 'string'
+                                ? getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio
+                                : ((getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0) * 100)}
+                              onChange={(v) => updateSelectedSymbolField('grid_risk_control', {
                                 ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
                                 enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
                                 max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
                                 max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
                                 stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
                                 take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
-                                trailing_take_profit_ratio: (v === undefined || v === '' ? 0 : Number(v)) / 100,
+                                trailing_take_profit_ratio: typeof v === 'number' ? v / 100 : v,
                                 trend_filter_enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.trend_filter_enabled,
                               } as GridRiskControl)}
-                              precision={2}
-                              step={0.5}
+                              step={0.01}
                               min={0}
                               max={100}
-                            >
-                              <NumberInputField borderRadius="xl" />
-                            </NumberInput>
+                              precision={2}
+                              sx={{ '& input': { borderRadius: 'xl' } }}
+                            />
                             <Text fontSize="2xs" color="gray.500" mt={1}>{t('configuration.trailingTakeProfitRatioHint')}</Text>
                           </FormControl>
                           <FormControl>

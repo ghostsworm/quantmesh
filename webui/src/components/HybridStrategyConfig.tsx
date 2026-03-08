@@ -19,8 +19,6 @@ import {
   FormControl,
   FormLabel,
   Input,
-  NumberInput,
-  NumberInputField,
   Select,
   Switch,
   Collapse,
@@ -68,6 +66,7 @@ import {
   BotConfigFile,
   HybridStrategyConfig,
 } from '../services/api'
+import DecimalNumberInput from './DecimalNumberInput'
 
 interface HybridStrategyConfigProps {
   botId: string
@@ -113,21 +112,20 @@ const SubStrategyCard: React.FC<{
           <SimpleGrid columns={2} spacing={2}>
             <FormControl size="sm">
               <FormLabel fontSize="xs">权重</FormLabel>
-              <NumberInput
+              <DecimalNumberInput
                 size="sm"
                 value={subStrategy.weight}
                 min={0}
                 max={1}
                 step={0.1}
                 isDisabled={botRunning}
-                onChange={(_, value) => {
+                onChange={(v) => {
                   if (onUpdate) {
-                    onUpdate(subStrategy.id, { ...subStrategy, weight: value })
+                    const num = typeof v === 'number' ? v : parseFloat(String(v)) || 0
+                    onUpdate(subStrategy.id, { ...subStrategy, weight: num })
                   }
                 }}
-              >
-                <NumberInputField />
-              </NumberInput>
+              />
             </FormControl>
 
             <FormControl size="sm" display="flex" alignItems="center" gap={2}>
