@@ -384,12 +384,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
             </NavItem>
             <NavItem
               icon={ViewIcon}
-              to="/strategy-overview"
-              isActive={isRouteActive('/strategy-overview')}
+              to="/strategy-market"
+              isActive={isRouteActive('/strategy-market')}
               onClick={onNavItemClick}
               collapsed={collapsed}
             >
-              {t('sidebar.strategyOverview')}
+              {t('sidebar.strategyMarket')}
             </NavItem>
             <NavItem
               icon={CalendarIcon}
@@ -555,6 +555,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               collapsed={collapsed}
             >
               {t('sidebar.aiTasks')}
+            </NavItem>
+            <NavItem
+              icon={AtSignIcon}
+              to="/agent-chat"
+              isActive={isRouteActive('/agent-chat')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.aiChat')}
             </NavItem>
             {!collapsed && (
               <Box px="7" mb="2" mt={2}>

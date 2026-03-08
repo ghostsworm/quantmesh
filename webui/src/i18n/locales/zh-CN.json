@@ -201,7 +201,7 @@
     "globalDashboard": "全局看板",
     "groupSystemSettings": "系统设置",
     "systemSettings": "系统设置",
-    "strategyOverview": "策略总览",
+    "strategyOverview": "策略运行状态",
     "overview": "概览",
     "performanceMonitor": "性能监控",
     "eventCenter": "事件中心",
@@ -211,6 +211,7 @@
     "aiConfig": "AI 智能配置",
     "aiTasks": "AI 任务管理",
     "strategyMarket": "策略市场",
+    "aiChat": "AI 聊天助手",
     "capitalManagement": "资金管理",
     "profitManagement": "盈利管理",
     "positionPlan": "仓位计划",
@@ -2935,6 +2936,10 @@
       "auditLogs": {
         "title": "审计日志",
         "desc": "导出合规交易审计日志（ZIP 格式）"
+      },
+      "backtestReports": {
+        "title": "回测报告",
+        "desc": "导出回测报告文件（ZIP 格式）"
       }
     },
     "tips": {
@@ -3876,5 +3881,26 @@
     "export_failed": "导出配置失败",
     "import_failed": "导入配置失败",
     "failed_to_load_config": "加载配置失败"
+  },
+  "agent": {
+    "sessionCreateFailed": "创建会话失败",
+    "sendMessageFailed": "发送消息失败",
+    "conversationReset": "对话已重置",
+    "configApplied": "配置已应用",
+    "configApplyFailed": "应用配置失败",
+    "welcomeMessage": "👋 你好！我是 AI 交易助手",
+    "welcomeHint": "我可以帮你优化策略参数、分析市场行情、解释交易逻辑。请问有什么可以帮助你的？",
+    "configPreview": "配置预览",
+    "applyConfig": "应用配置",
+    "dismiss": "忽略",
+    "inputPlaceholder": "输入你的问题...",
+    "sendMessage": "发送消息",
+    "resetConversation": "重置对话",
+    "suggestionApply": "应用此配置",
+    "suggestionBacktest": "回测此策略",
+    "suggestionExplain": "解释策略逻辑",
+    "riskWarning": "⚠️ AI 建议仅供参考，实际交易请谨慎评估风险",
+    "toolCompleted": "工具调用完成",
+    "strategyConfig": "策略配置"
   }
 }

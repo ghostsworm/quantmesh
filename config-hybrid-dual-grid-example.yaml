@@ -1,0 +1,166 @@
+# 混合策略配置示例：双向网格策略
+# 解决问题：单边网格在趋势行情中的劣势
+
+app:
+  name: "Dual-Direction Grid Bot"
+  current_exchange: "binance"
+
+exchanges:
+  binance:
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+    testnet: false
+    fee_rate: 0.0004
+
+# 启用混合策略模式
+strategy_mode: "hybrid"
+
+hybrid_strategy:
+  name: "Dual-Direction Grid Strategy"
+  description: "根据趋势自动切换做多/做空网格"
+
+  sub_strategies:
+    # 做多网格（下跌时赚钱）
+    - id: "grid_long"
+      name: "做多网格"
+      type: "grid"
+      role: "primary"
+      weight: 0.5
+      enabled: true
+      config:
+        symbol: "ETHUSDT"
+        position_mode: "long_only"
+        price_interval: 5.0
+        order_quantity: 50
+        buy_window_size: 8
+        sell_window_size: 12  # 卢单多一些，方便止盈
+
+    # 做空网格（上涨时赚钱）
+    - id: "grid_short"
+      name: "做空网格"
+      type: "grid"
+      role: "primary"
+      weight: 0.5
+      enabled: true
+      config:
+        symbol: "ETHUSDT"
+        position_mode: "short_only"
+        price_interval: 5.0
+        order_quantity: 50
+        buy_window_size: 12  # 买入平仓多一些
+        sell_window_size: 8
+
+    # 趋势判断信号
+    - id: "trend_detector"
+      name: "趋势探测器"
+      type: "trend_following"
+      role: "signal"
+      weight: 0.0
+      enabled: true
+      config:
+        trend_period: 60
+        use_ema: true
+        ema_fast: 12
+        ema_slow: 26
+        use_adx: true  # ADX判断趋势强度
+
+  collaboration_rules:
+    # 强上升趋势：做多网格只卖不买，做空网格正常
+    - id: "strong_uptrend"
+      name: "强上涨模式"
+      priority: 100
+      enabled: true
+      when:
+        source_strategy: "trend_detector"
+        signal_type: "trend_direction"
+        operator: "in"
+        value: ["strong_up", "up"]
+      then:
+        # 做多网格：只允许卖出（止盈）
+        - target_strategy: "grid_long"
+          operation: "deny_open"
+          condition: "side == 'BUY'"
+        # 做空网格：暂停
+        - target_strategy: "grid_short"
+          operation: "pause"
+
+    # 强下跌趋势：做空网格只卖不买，做多网格正常
+    - id: "strong_downtrend"
+      name: "强下跌模式"
+      priority: 100
+      enabled: true
+      when:
+        source_strategy: "trend_detector"
+        signal_type: "trend_direction"
+        operator: "in"
+        value: ["strong_down", "down"]
+      then:
+        # 做空网格：只允许卖出（止盈）
+        - target_strategy: "grid_short"
+          operation: "deny_open"
+          condition: "side == 'BUY'"
+        # 做多网格：暂停
+        - target_strategy: "grid_long"
+          operation: "pause"
+
+    # 震荡市：两个网格都运行
+    - id: "sideways_both_active"
+      name: "震荡模式-双向运行"
+      priority: 90
+      enabled: true
+      when:
+        source_strategy: "trend_detector"
+        signal_type: "trend_direction"
+        operator: "=="
+        value: "sideways"
+      then:
+        # 激活两个网格
+        - target_strategy: "grid_long"
+          operation: "resume"
+        - target_strategy: "grid_short"
+          operation: "resume"
+
+    # 趋势转折时提前平仓
+    - id: "trend_reversal_close"
+      name: "趋势转折提前平仓"
+      priority: 110
+      enabled: true
+      when:
+        source_strategy: "trend_detector"
+        signal_type: "trend_reversal"
+        operator: "=="
+        value: true
+      then:
+        - target_strategy: "grid_long"
+          operation: "close_position_if_profit"
+          params:
+            min_profit_pct: 0.005  # 0.5%以上利润就平
+        - target_strategy: "grid_short"
+          operation: "close_position_if_profit"
+          params:
+            min_profit_pct: 0.005
+
+  global_settings:
+    # 资金分配
+    capital_allocation:
+      grid_long: 0.5
+      grid_short: 0.5
+      reserve: 0.0  # 不留储备金，全部投入
+
+    # 风控
+    max_total_position: 0.9     # 总仓位不超过90%
+    emergency_stop_loss: 0.2    # 20%紧急止损
+
+    # 趋势阈值
+    adx_strong_trend: 25        # ADX>25为强趋势
+    ema_diff_threshold: 0.01    # EMA差值1%以上为趋势
+
+trading:
+  symbol: "ETHUSDT"
+  total_capital: 10000
+
+safety:
+  startup_check: true
+  risk_monitor: true
+  # 特别注意：双向网格需要足够的资金
+  min_reserve_ratio: 0.2

@@ -1,0 +1,160 @@
+# 混合策略配置示例：趋势感知网格策略
+# 解决问题：连续上涨后下跌导致的大幅亏损
+
+app:
+  name: "Trend-Aware Grid Bot"
+  current_exchange: "binance"
+
+# 主配置保持不变
+exchanges:
+  binance:
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+    testnet: false
+    fee_rate: 0.0004
+
+# 启用混合策略模式
+strategy_mode: "hybrid"
+
+# 混合策略配置
+hybrid_strategy:
+  name: "Trend-Aware Grid Strategy"
+  description: "网格策略 + 趋势过滤，避免单边暴跌风险"
+
+  # 子策略配置
+  sub_strategies:
+    # 主策略：网格策略
+    - id: "grid_primary"
+      name: "主策略-网格"
+      type: "grid"
+      role: "primary"  # 交易策略
+      weight: 1.0
+      enabled: true
+      config:
+        symbol: "ETHUSDT"
+        price_interval: 5.0      # 网格间距
+        order_quantity: 50       # 每格投入
+        buy_window_size: 10      # 买单数量
+        sell_window_size: 10     # 卖单数量
+        # 高级功能
+        grid_p1_spread_max_long: 0.95  # P1价差保护
+        grid_p2_orderbook_optimization: true
+
+    # 信号策略：趋势判断
+    - id: "trend_signal"
+      name: "信号策略-趋势"
+      type: "trend_following"
+      role: "signal"  # 信号策略，不实际交易
+      weight: 0.0
+      enabled: true
+      config:
+        trend_period: 60          # 趋势判断周期
+        trend_threshold: 0.5      # 趋势强度阈值
+        volatility_window: 20     # 波动率窗口
+
+  # 协作规则
+  collaboration_rules:
+    # 规则1：强上升趋势时扩大网格
+    - id: "trend_expand_grid"
+      name: "强上涨扩大网格"
+      description: "当趋势强势向上时，扩大网格间距减少交易"
+      priority: 90
+      enabled: true
+      when:
+        source_strategy: "trend_signal"
+        signal_type: "trend_direction"
+        operator: "=="
+        value: "strong_up"
+      then:
+        - target_strategy: "grid_primary"
+          operation: "adjust_grid_interval"
+          params:
+            multiplier: 1.5  # 网格间距扩大50%
+
+    # 规则2：趋势转弱时停止买入
+    - id: "trend_weak_stop_buy"
+      name: "趋势转弱停止买入"
+      description: "当趋势从强转弱时，停止新的买单"
+      priority: 100
+      enabled: true
+      when:
+        source_strategy: "trend_signal"
+        signal_type: "trend_strength"
+        operator: "<"
+        value: 0.3
+      then:
+        - target_strategy: "grid_primary"
+          operation: "deny_open"
+          condition: "side == 'BUY'"
+
+    # 规则3：明确下跌趋势时只卖不买
+    - id: "downtrend_sell_only"
+      name: "下跌趋势只卖不买"
+      description: "当明确下跌趋势时，只允许卖出，禁止买入"
+      priority: 110
+      enabled: true
+      when:
+        source_strategy: "trend_signal"
+        signal_type: "trend_direction"
+        operator: "=="
+        value: "down"
+      then:
+        - target_strategy: "grid_primary"
+          operation: "deny_open"
+          condition: "side == 'BUY'"
+
+    # 规则4：极端下跌时减仓
+    - id: "extreme_drop_reduce"
+      name: "极端下跌减仓保护"
+      description: "当短时间内大幅下跌时，主动减仓"
+      priority: 120
+      enabled: true
+      when:
+        source_strategy: "trend_signal"
+        signal_type: "price_drop_pct"
+        operator: ">"
+        value: 0.05  # 5分钟内跌超5%
+      then:
+        - target_strategy: "grid_primary"
+          operation: "reduce_position"
+          params:
+            reduce_ratio: 0.3  # 减持30%
+
+    # 规则5：高位震荡恢复正常
+    - id: "normal_range_restore"
+      name: "正常区间恢复正常"
+      description: "价格在正常区间波动时，恢复正常网格"
+      priority: 80
+      enabled: true
+      when:
+        source_strategy: "trend_signal"
+        signal_type: "market_state"
+        operator: "=="
+        value: "normal"
+      then:
+        - target_strategy: "grid_primary"
+          operation: "reset_grid_params"
+
+  # 全局设置
+  global_settings:
+    # 风控参数
+    max_position_ratio: 0.8      # 最大仓位比例
+    max_loss_per_day: 0.1        # 单日最大亏损
+    emergency_stop_loss: 0.15     # 紧急止损线
+
+    # 趋势参数
+    strong_trend_threshold: 0.7   # 强趋势阈值
+    weak_trend_threshold: 0.3     # 弱趋势阈值
+
+    # 价格监控
+    price_drop_threshold: 0.05    # 快速下跌阈值（5%）
+    price_rise_threshold: 0.05    # 快速上涨阈值（5%）
+
+# 其他配置...
+trading:
+  symbol: "ETHUSDT"
+  total_capital: 10000
+
+safety:
+  startup_check: true
+  risk_monitor: true

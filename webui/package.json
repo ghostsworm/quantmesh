@@ -34,6 +34,7 @@
     "react-diff-viewer-continued": "^3.4.0",
     "react-dom": "^18.2.0",
     "react-i18next": "^16.5.0",
+    "react-icons": "^5.5.0",
     "react-is": "^18.2.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.8.0",

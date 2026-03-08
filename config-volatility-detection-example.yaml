@@ -1,0 +1,126 @@
+# QuantMesh 波动率检测配置示例
+# 这个配置文件展示了如何启用和配置波动率区间检测功能
+
+bot_name: "BTC网格-波动率检测"
+
+trading:
+  exchange: "binance_spot"
+  symbol: "BTCUSDT"
+
+  # ========== 动态调整配置 ==========
+  dynamic_adjustment:
+    enabled: true  # 启用动态调整
+
+    # 价格间距动态调整
+    price_interval:
+      enabled: true
+      min: 0.5      # 最小价格间距
+      max: 10.0     # 最大价格间距
+      volatility_window: 50      # 波动率计算窗口
+      volatility_threshold: 0.02 # 波动率阈值 2%
+      adjustment_step: 0.5      # 每次调整步长
+      check_interval: 60        # 检查间隔（秒）
+
+    # 窗口大小动态调整
+    window_size:
+      enabled: true
+      buy_window:
+        min: 5
+        max: 50
+      sell_window:
+        min: 5
+        max: 50
+      utilization_threshold: 0.8  # 资金利用率阈值 80%
+      adjustment_step: 2          # 每次调整步长
+      check_interval: 300         # 检查间隔（秒）
+
+    # 单笔金额动态调整
+    order_quantity:
+      enabled: true
+      min: 50                # 最小单笔金额（USDT）
+      max: 500               # 最大单笔金额（USDT）
+      frequency_threshold: 5 # 交易频率阈值（次/分钟）
+      adjustment_step: 20    # 每次调整步长
+      check_interval: 60     # 检查间隔（秒）
+
+    # ========== 波动率区间检测（新增功能）==========
+    volatility_detection:
+      enabled: true  # 启用波动率区间检测
+
+      # 检测周期（小时）
+      short_period: 24    # 短期周期：24小时
+      medium_period: 72   # 中期周期：72小时（3天）
+      long_period: 168    # 长期周期：168小时（7天）
+
+      # 波动率阈值（百分比）
+      low_threshold: 1.0      # 低波动阈值：1%
+      normal_threshold: 3.0   # 正常波动上限：3%
+      high_threshold: 5.0     # 高波动上限：5%
+      extreme_threshold: 10.0 # 极端波动阈值：10%
+
+      # 价格范围检测（用于识别低波动区间）
+      price_range_period: 72     # 检测周期：72小时（3天）
+      price_range_threshold: 1.5 # 价格范围阈值：1.5%
+
+  # ========== 网格策略配置 ==========
+  upper_price: 50000    # 网格上限
+  lower_price: 40000    # 网格下限
+  grid_count: 20        # 网格数量
+  order_quantity: 100   # 单笔金额（USDT）
+
+  # 买入/卖出窗口
+  buy_window_size: 10
+  sell_window_size: 10
+
+  # 价格间距（会根据波动率动态调整）
+  price_interval: 500
+
+  # ========== 风险控制 ==========
+  # 止损配置
+  stop_loss:
+    enabled: true
+    stop_loss_price: 38000  # 止损价格
+
+  # 止盈配置
+  take_profit:
+    enabled: true
+    take_profit_price: 52000  # 止盈价格
+
+# ========== 波动率区间说明 ==========
+#
+# 系统会根据市场波动率自动调整策略参数：
+#
+# 1. 低波动区间 (LOW) - 波动率 < 1%
+#    ✅ 适合网格策略运行
+#    📊 自动缩小网格间距（-20%）提高收益
+#    📈 增加窗口大小（+20%）捕获更多机会
+#
+# 2. 正常波动区间 (NORMAL) - 1% ≤ 波动率 < 3%
+#    ℹ️ 正常波动，策略按默认参数运行
+#
+# 3. 高波动区间 (HIGH) - 3% ≤ 波动率 < 5%
+#    ⚠️ 需要谨慎
+#    📊 自动扩大网格间距（+50%）减少频繁交易
+#    📉 减少窗口大小（-30%）降低风险
+#
+# 4. 极端波动区间 (EXTREME) - 波动率 ≥ 10%
+#    🚨 危险！强烈建议暂停策略
+#    🛡️ 设置最保守参数
+#    ⚠️ 系统会发出紧急预警
+#
+# ========== 特殊场景检测 ==========
+#
+# 1. 从低波动突然进入高波动
+#    🚨 触发紧急保护机制
+#    🛡️ 价格间距翻倍
+#    📉 窗口大小减半
+#    💰 单笔金额减半
+#
+# 2. 连续3天价格在1.5%范围内波动
+#    ✅ 识别为低波动区间
+#    💡 自动优化网格参数
+#
+# 3. 单日波动超过10%
+#    🚨 立即触发极端波动预警
+#    ⛔ 建议暂停策略
+#    🛡️ 自动设置最保守参数
