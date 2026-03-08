@@ -813,11 +813,11 @@ func getBacktestTaskTradesExport(c *gin.Context) {
 
 	var rows []exportTradeRow
 
-	// 單策略模式：Result.Trades
+	// 單策略模式：Result.Trades（Timestamp 為毫秒）
 	if taskResult.Result != nil && len(taskResult.Result.Trades) > 0 {
 		for _, t := range taskResult.Result.Trades {
 			rows = append(rows, exportTradeRow{
-				Timestamp: time.Unix(t.Timestamp, 0).Format("2006-01-02 15:04:05"),
+				Timestamp: time.UnixMilli(t.Timestamp).Format("2006-01-02 15:04:05"),
 				Type:      t.Type,
 				Price:     t.Price,
 				Quantity:  t.Quantity,
@@ -920,11 +920,11 @@ func getBacktestTaskTrades(c *gin.Context) {
 
 	var allTrades []exportTradeRow
 
-	// 單策略模式：Result.Trades
+	// 單策略模式：Result.Trades（Timestamp 為毫秒）
 	if taskResult.Result != nil && len(taskResult.Result.Trades) > 0 {
 		for _, t := range taskResult.Result.Trades {
 			allTrades = append(allTrades, exportTradeRow{
-				Timestamp: time.Unix(t.Timestamp, 0).Format("2006-01-02 15:04:05"),
+				Timestamp: time.UnixMilli(t.Timestamp).Format("2006-01-02 15:04:05"),
 				Type:      t.Type,
 				Price:     t.Price,
 				Quantity:  t.Quantity,

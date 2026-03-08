@@ -273,8 +273,8 @@ func TestGetBacktestTaskTradesExport_SingleStrategy(t *testing.T) {
 		"task_id": "` + taskID + `",
 		"result": {
 			"trades": [
-				{"timestamp": 1735689600, "type": "buy", "price": 100, "quantity": 1, "fee": 0.1, "pnl": 0},
-				{"timestamp": 1735689660, "type": "sell", "price": 101, "quantity": 1, "fee": 0.1, "pnl": 0.9}
+				{"timestamp": 1735689600000, "type": "buy", "price": 100, "quantity": 1, "fee": 0.1, "pnl": 0},
+				{"timestamp": 1735689660000, "type": "sell", "price": 101, "quantity": 1, "fee": 0.1, "pnl": 0.9}
 			]
 		}
 	}`
@@ -309,6 +309,10 @@ func TestGetBacktestTaskTradesExport_SingleStrategy(t *testing.T) {
 	}
 	if !strings.Contains(body, "buy") || !strings.Contains(body, "sell") {
 		t.Errorf("expected trade rows, got: %s", body)
+	}
+	// Timestamp 1735689600000ms = 2025-01-01 00:00:00 UTC
+	if !strings.Contains(body, "2025-01-01") {
+		t.Errorf("expected timestamp to be in 2025, got: %s", body)
 	}
 }
 
