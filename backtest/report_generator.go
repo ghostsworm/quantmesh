@@ -525,10 +525,11 @@ type ReportData struct {
 	MaxConsecutiveWins   string
 	MaxConsecutiveLosses string
 	MaxPosition          string // 最大持倉（基幣數量，如 0.1234 BTC）
-	EndPositionQty       string // 期末持倉（基幣數量）
-	EndPositionValue     string // 期末持倉市值（USDT）
+	EndPositionQty       string // 期末持倉（基幣數量）或做空時「欠 X.XXX 基幣」
+	EndPositionValue     string // 期末持倉市值（USDT）或做空時「倉位負債 X.XXX USDT」
 	EndCashUSDT          string // 期末持有 USDT（現金）
 	RealFinalCapital     string // 真正的期末資金（現金 + 市值/杠杆）
+	EndNetValue          string // 期末净價值（做多=USDT+持倉市值，做空=USDT-負債；等於 RealFinalCapital）
 	Leverage             float64 // 杠杆倍数
 	TotalSlippageLoss    string // 🔥 累计價格偏差（slippage）損失（USDT）
 
@@ -701,7 +702,8 @@ func extractPairedAndUnpairedTrades(trades []Trade, maxN int, direction string) 
 }
 
 // computeEndPosition 從交易記錄計算期末持倉數量與市值
-func computeEndPosition(trades []Trade, endPrice float64) (qty float64, value float64) {
+// direction: LONG/SHORT/BOTH。做空時 qty 可為負（表示欠的基幣數量），value 為負（負債價值）
+func computeEndPosition(trades []Trade, endPrice float64, direction string) (qty float64, value float64) {
 	for _, t := range trades {
 		if t.Type == "buy" {
 			qty += t.Quantity
@@ -709,7 +711,8 @@ func computeEndPosition(trades []Trade, endPrice float64) (qty float64, value fl
 			qty -= t.Quantity
 		}
 	}
-	if qty < 0 {
+	// 做多或雙向時，負持倉視為 0（不應出現）；做空時保留負數表示空頭倉位（欠的幣）
+	if qty < 0 && strings.ToUpper(direction) != "SHORT" {
 		qty = 0
 	}
 	value = qty * endPrice
@@ -872,9 +875,9 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 	if hasPriceCurve {
 		endPrice = result.PriceCurve.EndPrice
 	}
-	endPosQty, endPosValue := computeEndPosition(result.Trades, endPrice)
+	endPosQty, endPosValue := computeEndPosition(result.Trades, endPrice, direction)
 	// 注意：endCashUSDT 不是真正的现金，而是用於展示的計算值
-	// 真正的期末資金是 result.FinalCapital
+	// 真正的期末資金是 result.FinalCapital（權益 = 現金 + 持倉市值，做空時持倉市值為負）
 	endCashUSDT := result.FinalCapital - endPosValue
 	if endCashUSDT < 0 {
 		endCashUSDT = 0
@@ -897,13 +900,27 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		leverage = 1
 	}
 
-	// 真實期末資金就是 FinalCapital（實際權益）
-	// 它已經考慮了杠杆、保證金、未實現盈虧等因素
+	// 真實期末資金就是 FinalCapital（實際權益 = 期末净價值）
+	// 做多：净價值 = USDT + 持倉市值；做空：净價值 = USDT - 倉位負債價值
 	realFinalCapital := result.FinalCapital
 
 	// 格式化期末持倉和市值，顯示杠杆調整後的值
+	// 做空時：endPosQty < 0 表示欠的基幣，endPosValue < 0 表示負債價值
 	var endPositionQtyStr, endPositionValueStr string
-	if leverage > 1 {
+	isShort := strings.ToUpper(direction) == "SHORT"
+	if isShort && endPosQty < 0 {
+		absQty := -endPosQty
+		liabilityValue := -endPosValue
+		if leverage > 1 {
+			actualQty := absQty / leverage
+			actualValue := liabilityValue / leverage
+			endPositionQtyStr = fmt.Sprintf("欠 %.6f %s / %.0fx = %.6f %s", absQty, base, leverage, actualQty, base)
+			endPositionValueStr = fmt.Sprintf("倉位負債 %.4f USDT / %.0fx = %.4f USDT", liabilityValue, leverage, actualValue)
+		} else {
+			endPositionQtyStr = fmt.Sprintf("欠 %.6f %s", absQty, base)
+			endPositionValueStr = fmt.Sprintf("倉位負債 %.4f USDT", liabilityValue)
+		}
+	} else if leverage > 1 {
 		actualQty := endPosQty / leverage
 		actualValue := endPosValue / leverage
 		endPositionQtyStr = fmt.Sprintf("%.6f %s / %.0fx = %.6f %s", endPosQty, base, leverage, actualQty, base)
@@ -963,6 +980,7 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		EndPositionValue:     endPositionValueStr,
 		EndCashUSDT:          fmt.Sprintf("%.4f USDT", endCashUSDT),
 		RealFinalCapital:     fmt.Sprintf("%.4f USDT", realFinalCapital),
+		EndNetValue:          fmt.Sprintf("%.4f USDT", realFinalCapital), // 期末净價值 = 權益（做多/做空統一）
 		Leverage:             leverage,
 		TotalSlippageLoss:    fmt.Sprintf("%.4f USDT", m.TotalSlippageLoss), // 🔥 價格偏差損失
 
@@ -1142,7 +1160,8 @@ func renderReportTemplate(data ReportData) (string, error) {
 | 最大持倉（基幣） | {{.MaxPosition}} |
 | 期末持倉（基幣） | {{.EndPositionQty}} |
 | 期末持倉市值 | {{.EndPositionValue}} |
-| 最終權益（實際資金） | {{.RealFinalCapital}} |
+| 期末 USDT（現金） | {{.EndCashUSDT}} |
+| 期末净價值（USDT±持倉市值） | {{.EndNetValue}} |
 {{if gt .Leverage 1.0}}| 備註 | 持倉市值為名義價值，實際占用保證金 = 市值/{{.Leverage}} |
 {{end}}| 🔥 價格偏差（slippage）累計損失 | {{.TotalSlippageLoss}} |
 
