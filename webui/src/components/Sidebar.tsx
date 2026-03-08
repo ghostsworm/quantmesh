@@ -419,6 +419,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               {t('sidebar.eventCenter')}
             </NavItem>
             <NavItem
+              icon={AtSignIcon}
+              to="/market-intelligence"
+              isActive={isRouteActive('/market-intelligence')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.marketIntelligence')}
+            </NavItem>
+            <NavItem
               icon={TriangleUpIcon}
               to="/risk"
               isActive={isRouteActive('/risk')}
