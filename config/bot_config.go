@@ -175,8 +175,11 @@ func (m *BotConfigManager) SaveBotConfig(config *BotConfigFile) error {
 		return fmt.Errorf("创建 Bot 目录失败: %w", err)
 	}
 
+	// 清理策略配置中的数值类型，避免 YAML 序列化为字符串
+	cleanedConfig := m.cleanConfigValues(config)
+
 	configPath := m.GetBotConfigPath(config.BotID)
-	data, err := yaml.Marshal(config)
+	data, err := yaml.Marshal(cleanedConfig)
 	if err != nil {
 		return fmt.Errorf("序列化 Bot 配置失败: %w", err)
 	}
@@ -186,6 +189,78 @@ func (m *BotConfigManager) SaveBotConfig(config *BotConfigFile) error {
 	}
 
 	return nil
+}
+
+// cleanConfigValues 清理配置中的数值类型，确保数值不会被序列化为字符串
+func (m *BotConfigManager) cleanConfigValues(config *BotConfigFile) *BotConfigFile {
+	cleaned := *config
+
+	// 清理每个策略的 Params 和 Settings
+	for i := range cleaned.Strategies {
+		cleaned.Strategies[i].Params = cleanMapValues(cleaned.Strategies[i].Params)
+		cleaned.Strategies[i].Settings = cleanMapValues(cleaned.Strategies[i].Settings)
+	}
+
+	return &cleaned
+}
+
+// cleanMapValues 清理 map[string]interface{} 中的数值类型
+func cleanMapValues(m map[string]interface{}) map[string]interface{} {
+	if m == nil {
+		return nil
+	}
+
+	cleaned := make(map[string]interface{})
+	for k, v := range m {
+		cleaned[k] = cleanValue(v)
+	}
+
+	return cleaned
+}
+
+// cleanValue 清理单个值的类型
+func cleanValue(v interface{}) interface{} {
+	if v == nil {
+		return nil
+	}
+
+	// 处理字符串类型，尝试转换为数值
+	switch val := v.(type) {
+	case string:
+		// 尝试解析为浮点数
+		var f float64
+		if _, err := fmt.Sscanf(val, "%f", &f); err == nil {
+			// 成功解析为数字，返回浮点数
+			return f
+		}
+		// 尝试解析为整数
+		var i int64
+		if _, err := fmt.Sscanf(val, "%d", &i); err == nil {
+			return i
+		}
+		// 尝试解析为布尔值
+		if val == "true" {
+			return true
+		}
+		if val == "false" {
+			return false
+		}
+		// 保持字符串
+		return val
+	case map[string]interface{}:
+		// 递归处理嵌套 map
+		return cleanMapValues(val)
+	case []interface{}:
+		// 处理数组
+		arr := make([]interface{}, len(val))
+		for i, item := range val {
+			arr[i] = cleanValue(item)
+		}
+		return arr
+	default:
+		// 其他类型保持不变
+		return v
+	}
 }
 
 // CreateBotConfig 创建新的 Bot 配置文件
