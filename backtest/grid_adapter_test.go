@@ -176,6 +176,144 @@ func TestRiskSimulator_SHORT_Direction(t *testing.T) {
 	}
 }
 
+func TestRunGridBacktest_FlashCrashRecovery(t *testing.T) {
+	// 闪崩场景：价格从 60000 暴跌到 59000（一根 K 线内跌穿多个档位），然后恢复
+	// 修复前：所有买入在闪崩 K 线内完成，后续恢复时只有最高档能匹配卖出
+	// 修复后：恢复时每个卖出触发都能匹配到实际有持仓的档位
+	candles := []*exchange.Candle{
+		// K1: 平稳
+		{Open: 60000, High: 60100, Low: 59900, Close: 60000, Timestamp: 1000, IsClosed: true},
+		// K2: 闪崩！从 60000 暴跌到 59000，收在 59100
+		{Open: 60000, High: 60050, Low: 59000, Close: 59100, Timestamp: 2000, IsClosed: true},
+		// K3-K6: 缓慢恢复
+		{Open: 59100, High: 59400, Low: 59050, Close: 59350, Timestamp: 3000, IsClosed: true},
+		{Open: 59350, High: 59700, Low: 59300, Close: 59650, Timestamp: 4000, IsClosed: true},
+		{Open: 59650, High: 60000, Low: 59600, Close: 59950, Timestamp: 5000, IsClosed: true},
+		{Open: 59950, High: 60300, Low: 59900, Close: 60250, Timestamp: 6000, IsClosed: true},
+	}
+	params := GridBacktestParams{
+		PriceLow:      58900,
+		PriceHigh:     60400,
+		GridSpacing:   100,
+		OrderQuantity: 500,
+		TotalCapital:  10000,
+		FeeRate:       0.0004,
+		SlippageRatio: 0.0003,
+		Direction:     "LONG",
+	}
+	result, err := RunGridBacktest("BTCUSDT", candles, params, 10000, nil)
+	if err != nil {
+		t.Fatalf("RunGridBacktest FlashCrash: %v", err)
+	}
+
+	t.Logf("闪崩恢复: 买入=%d, 卖出=%d, 成对=%d, 总收益=%.2f%%",
+		result.Metrics.BuyCount, result.Metrics.SellCount,
+		result.Metrics.TotalTrades, result.Metrics.TotalReturn)
+
+	if result.Metrics.BuyCount == 0 {
+		t.Error("预期有买入交易")
+	}
+	if result.Metrics.SellCount == 0 {
+		t.Error("闪崩后价格恢复，应有卖出（平仓）交易。修复前此值为 0（卖出匹配仅找紧邻档位）")
+	}
+	if result.Metrics.TotalTrades == 0 && result.Metrics.BuyCount > 0 && result.Metrics.SellCount > 0 {
+		t.Error("有买卖交易但成对数为 0")
+	}
+
+	for _, trade := range result.Trades {
+		t.Logf("  %s @ %.2f qty=%.6f pnl=%.4f", trade.Type, trade.Price, trade.Quantity, trade.PnL)
+	}
+}
+
+func TestRunGridBacktest_SHORT_FlashPumpRecovery(t *testing.T) {
+	// SHORT 方向的闪崩（暴涨）场景：价格从 60000 暴涨到 61000，然后回落
+	candles := []*exchange.Candle{
+		{Open: 60000, High: 60100, Low: 59900, Close: 60000, Timestamp: 1000, IsClosed: true},
+		// 暴涨 K 线：开空多档
+		{Open: 60000, High: 61000, Low: 59950, Close: 60900, Timestamp: 2000, IsClosed: true},
+		// 回落：应平空
+		{Open: 60900, High: 60950, Low: 60500, Close: 60600, Timestamp: 3000, IsClosed: true},
+		{Open: 60600, High: 60650, Low: 60100, Close: 60200, Timestamp: 4000, IsClosed: true},
+		{Open: 60200, High: 60250, Low: 59700, Close: 59800, Timestamp: 5000, IsClosed: true},
+	}
+	params := GridBacktestParams{
+		PriceLow:      59600,
+		PriceHigh:     61100,
+		GridSpacing:   100,
+		OrderQuantity: 500,
+		TotalCapital:  10000,
+		FeeRate:       0.0004,
+		SlippageRatio: 0.0003,
+		Direction:     "SHORT",
+	}
+	result, err := RunGridBacktest("BTCUSDT", candles, params, 10000, nil)
+	if err != nil {
+		t.Fatalf("RunGridBacktest SHORT FlashPump: %v", err)
+	}
+
+	t.Logf("SHORT 暴涨恢复: 卖出(开空)=%d, 买入(平空)=%d, 成对=%d",
+		result.Metrics.SellCount, result.Metrics.BuyCount, result.Metrics.TotalTrades)
+
+	if result.Metrics.SellCount == 0 {
+		t.Error("预期有卖出(开空)交易")
+	}
+	if result.Metrics.BuyCount == 0 {
+		t.Error("暴涨后价格回落，应有买入(平空)交易")
+	}
+}
+
+func TestFindHighestPositionBelow(t *testing.T) {
+	positions := map[float64]float64{
+		56700: 0.01,
+		56770: 0.01,
+		56840: 0.01,
+		57050: 0.01,
+	}
+	tests := []struct {
+		target float64
+		want   float64
+	}{
+		{57120, 57050},  // 应找到 57050（有持仓的最高档）
+		{57050, 56840},  // 严格小于 target
+		{56840, 56770},
+		{56770, 56700},
+		{56700, -1},     // 没有更低的持仓
+		{56000, -1},
+	}
+	for _, tt := range tests {
+		got := findHighestPositionBelow(positions, tt.target)
+		if got != tt.want {
+			t.Errorf("findHighestPositionBelow(positions, %.0f) = %.0f, want %.0f", tt.target, got, tt.want)
+		}
+	}
+}
+
+func TestFindLowestPositionAbove(t *testing.T) {
+	positions := map[float64]float64{
+		60200: 0.01,
+		60300: 0.01,
+		60500: 0.01,
+		60700: 0.01,
+	}
+	tests := []struct {
+		target float64
+		want   float64
+	}{
+		{60100, 60200},  // 应找到 60200（有持仓的最低档）
+		{60200, 60300},
+		{60300, 60500},
+		{60500, 60700},
+		{60700, -1},     // 没有更高的持仓
+		{61000, -1},
+	}
+	for _, tt := range tests {
+		got := findLowestPositionAbove(positions, tt.target)
+		if got != tt.want {
+			t.Errorf("findLowestPositionAbove(positions, %.0f) = %.0f, want %.0f", tt.target, got, tt.want)
+		}
+	}
+}
+
 func TestGetCrossedLevelsIntrabar(t *testing.T) {
 	levels := []float64{67500, 67630, 67760, 67890}
 	// prevClose=67950, Low=67600, High=68000: 穿越 67890,67760,67630 向下
