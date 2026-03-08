@@ -356,6 +356,7 @@ func (m *TaskManager) riskConfigFromTask(task *BacktestTask) *RiskSimulatorConfi
 	return &RiskSimulatorConfig{
 		VolumeMultiplier: vm,
 		AverageWindow:    aw,
+		Direction:        getString(task.Params, "direction", "LONG"),
 	}
 }
 
