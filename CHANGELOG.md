@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.65.0-rc3] - 2026-03-09
+
+### Fixed
+- **單向做空網格回測方向未生效**：前端 `normalizeParamsForApi` 僅保留數字參數，導致 `direction: "SHORT"` 被過濾；後端 `grid_adapter` 未支援 Direction、`gridParamsFromTask` 未傳遞。現前端保留字串/布林參數，後端新增 Direction 支援做空邏輯（價格上漲開空、下跌平空），報告正確顯示網格方向
+
 ## [3.65.0-rc2] - 2026-03-09
 
 ### Fixed

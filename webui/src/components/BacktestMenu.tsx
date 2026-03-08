@@ -737,14 +737,21 @@ export default function BacktestMenu() {
       .finally(() => setCacheGenerating(false))
   }
 
-  // 将 params 中的字符串（如 "3."）转为数字，供 API 提交
+  // 将 params 转为 API 格式：数字保留，字符串（如 direction "SHORT"）也保留
   const normalizeParamsForApi = (p: Record<string, unknown>): Record<string, unknown> => {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(p)) {
+      if (v === undefined || v === null) continue
       if (typeof v === 'string') {
         const n = parseFloat(v)
-        if (!Number.isNaN(n)) out[k] = n
+        if (!Number.isNaN(n)) {
+          out[k] = n
+        } else {
+          out[k] = v // 保留非数字字符串，如 direction: "SHORT"
+        }
       } else if (typeof v === 'number' && !Number.isNaN(v)) {
+        out[k] = v
+      } else if (typeof v === 'boolean') {
         out[k] = v
       }
     }

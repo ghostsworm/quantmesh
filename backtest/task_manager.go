@@ -369,6 +369,7 @@ func (m *TaskManager) gridParamsFromTask(task *BacktestTask) GridBacktestParams 
 		TotalCapital:  task.TotalCapital,
 		FeeRate:       getFloat(task.Params, "fee_rate", 0.0004),
 		SlippageRatio: 0.0003,
+		Direction:     getString(task.Params, "direction", "LONG"),
 	}
 	return p
 }
