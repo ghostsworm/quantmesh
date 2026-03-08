@@ -2,6 +2,7 @@ package backtest
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -242,6 +243,17 @@ func getDirectionFromMeta(meta *ReportMeta) string {
 		return "BOTH"
 	}
 	return ""
+}
+
+// formatProfitFactor 格式化利润因子：-1 表示不适用，+Inf 表示全盈利无亏损
+func formatProfitFactor(pf float64) string {
+	if pf == -1 {
+		return "N/A（無已平倉交易）"
+	}
+	if math.IsInf(pf, 1) {
+		return "∞（全部盈利）"
+	}
+	return fmt.Sprintf("%.4f", pf)
 }
 
 func formatRiskTimestamp(ts int64) string {

@@ -1,7 +1,10 @@
 package backtest
 
 import (
+	"math"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestTradeTypeLabel(t *testing.T) {
@@ -43,6 +46,157 @@ func TestExtractPairedAndUnpairedTradesShort(t *testing.T) {
 	}
 	if len(unpaired) != 0 {
 		t.Errorf("len(unpaired)=%d, want 0", len(unpaired))
+	}
+}
+
+func TestCalculateProfitFactor(t *testing.T) {
+	tests := []struct {
+		name   string
+		trades []Trade
+		want   float64
+		isInf  bool
+	}{
+		{
+			name:   "no trades at all",
+			trades: []Trade{},
+			want:   -1,
+		},
+		{
+			name: "only buy trades, no sell",
+			trades: []Trade{
+				{Type: "buy", PnL: 0},
+				{Type: "buy", PnL: 0},
+			},
+			want: -1,
+		},
+		{
+			name: "all winning sells, no loss",
+			trades: []Trade{
+				{Type: "sell", PnL: 100},
+				{Type: "sell", PnL: 50},
+			},
+			isInf: true,
+		},
+		{
+			name: "all losing sells, no profit",
+			trades: []Trade{
+				{Type: "sell", PnL: -100},
+				{Type: "sell", PnL: -50},
+			},
+			want: 0,
+		},
+		{
+			name: "normal profit factor",
+			trades: []Trade{
+				{Type: "sell", PnL: 200},
+				{Type: "sell", PnL: -100},
+			},
+			want: 2.0,
+		},
+		{
+			name: "profit factor < 1",
+			trades: []Trade{
+				{Type: "sell", PnL: 50},
+				{Type: "sell", PnL: -100},
+			},
+			want: 0.5,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := calculateProfitFactor(tt.trades)
+			if tt.isInf {
+				if !math.IsInf(got, 1) {
+					t.Errorf("calculateProfitFactor() = %v, want +Inf", got)
+				}
+				return
+			}
+			if got != tt.want {
+				t.Errorf("calculateProfitFactor() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatProfitFactor(t *testing.T) {
+	tests := []struct {
+		name string
+		pf   float64
+		want string
+	}{
+		{"not applicable", -1, "N/A（無已平倉交易）"},
+		{"all profit", math.Inf(1), "∞（全部盈利）"},
+		{"normal", 1.5, "1.5000"},
+		{"zero", 0, "0.0000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatProfitFactor(tt.pf)
+			if got != tt.want {
+				t.Errorf("formatProfitFactor(%v) = %q, want %q", tt.pf, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateConclusionNoCompletedTrades(t *testing.T) {
+	now := time.Now()
+	result := &BacktestResult{
+		Strategy:       "grid",
+		Symbol:         "BTCUSDT",
+		InitialCapital: 10000,
+		FinalCapital:   11700,
+		StartTime:      now.Add(-30 * 24 * time.Hour),
+		EndTime:        now,
+		Metrics: Metrics{
+			TotalReturn:  17.0,
+			MaxDrawdown:  10.0,
+			SharpeRatio:  -1.0,
+			WinRate:      0,
+			ProfitFactor: -1,
+			TotalTrades:  0,
+			BuyCount:     16,
+			SellCount:    0,
+		},
+	}
+	conclusion := generateConclusion(result)
+	if strings.Contains(conclusion, "利润因子 < 1") {
+		t.Error("should not report profit factor < 1 when no completed trades")
+	}
+	if !strings.Contains(conclusion, "利润因子指標不適用") {
+		t.Error("should report profit factor N/A for no completed trades")
+	}
+	if !strings.Contains(conclusion, "胜率指標不適用") {
+		t.Error("should report win rate N/A for no completed trades")
+	}
+}
+
+func TestGenerateConclusionWithCompletedTrades(t *testing.T) {
+	now := time.Now()
+	result := &BacktestResult{
+		Strategy:       "grid",
+		Symbol:         "BTCUSDT",
+		InitialCapital: 10000,
+		FinalCapital:   8000,
+		StartTime:      now.Add(-30 * 24 * time.Hour),
+		EndTime:        now,
+		Metrics: Metrics{
+			TotalReturn:  -20.0,
+			MaxDrawdown:  25.0,
+			SharpeRatio:  -0.5,
+			WinRate:      30,
+			ProfitFactor: 0.5,
+			TotalTrades:  10,
+			BuyCount:     10,
+			SellCount:    10,
+		},
+	}
+	conclusion := generateConclusion(result)
+	if !strings.Contains(conclusion, "利润因子 < 1") {
+		t.Error("should report profit factor < 1 when there ARE completed losing trades")
+	}
+	if strings.Contains(conclusion, "不適用") {
+		t.Error("should not report N/A when there are completed trades")
 	}
 }
 
