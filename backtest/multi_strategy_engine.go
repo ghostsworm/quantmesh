@@ -867,6 +867,9 @@ func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 	for _, runtime := range e.runtimes {
 		runtime.stats.FinalEquity = runtime.account.Equity
 		runtime.stats.OpenPositionSize = runtime.account.PositionSize
+		riskMetrics := calculateRiskMetricsFrom(runtime.equityCurve, runtime.completedTrades)
+		runtime.stats.WinRate = riskMetrics.WinRate
+		runtime.stats.MaxDrawdown = riskMetrics.MaxDrawdownPct
 		weight := 0.0
 		if e.Config.InitialCapital > 0 {
 			weight = runtime.initialCapital / e.Config.InitialCapital
@@ -884,7 +887,7 @@ func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 			CompletedTrades:  append([]CompletedTrade(nil), runtime.completedTrades...),
 			EquityCurve:      append([]EquityPoint(nil), runtime.equityCurve...),
 			Stats:            runtime.stats,
-			RiskMetrics:      calculateRiskMetricsFrom(runtime.equityCurve, runtime.completedTrades),
+			RiskMetrics:      riskMetrics,
 		})
 	}
 
