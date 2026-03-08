@@ -95,7 +95,6 @@ import {
 } from '../services/api'
 import type { PriceRangeData } from '../services/api'
 import AIConfigWizard from './AIConfigWizard'
-import SymbolManager from './SymbolManager'
 import YamlEditor from './YamlEditor'
 import DiffPreviewModal from './DiffPreviewModal'
 import ConfigHistory from './ConfigHistory'
@@ -914,54 +913,6 @@ const Configuration: React.FC = () => {
                           )}
                         </Stack>
                       </Box>
-                    </ConfigCard>
-                    <ConfigCard title={t('configuration.tradingPairManagement')} icon={<RepeatIcon />}>
-                      <FormControl mb={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.defaultDirection')}</FormLabel>
-                        <Select
-                          value={config.trading?.direction || 'LONG'}
-                          onChange={(e) => updateConfigField('trading.direction', e.target.value)}
-                          borderRadius="xl"
-                          maxW="200px"
-                        >
-                          <option value="LONG">{t('configuration.directionLong')}</option>
-                          <option value="SHORT">{t('configuration.directionShort')}</option>
-                        </Select>
-                        <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.defaultDirectionDesc')}</Text>
-                      </FormControl>
-                      <SymbolManager
-                        config={config}
-                        onUpdate={async (symbols) => {
-                          const newConfig = { ...config }
-                          if (!newConfig.trading) {
-                            newConfig.trading = {} as any
-                          }
-                          newConfig.trading.symbols = symbols
-                          setConfig(newConfig)
-                          
-                          // 自动保存交易對变更到后端
-                          try {
-                            await updateConfig(newConfig)
-                            toast({
-                              title: t('configuration.saveSuccess'),
-                              description: t('configuration.pairConfigAutoSaved'),
-                              status: 'success',
-                              duration: 2000,
-                              isClosable: true,
-                            })
-                          } catch (err) {
-                            const errorMessage = err instanceof Error ? err.message : t('configuration.saveFailed')
-                            toast({
-                              title: t('configuration.saveFailed'),
-                              description: errorMessage,
-                              status: 'error',
-                              duration: 5000,
-                              isClosable: true,
-                            })
-                            console.error('自动保存交易對配置失败:', err)
-                          }
-                        }}
-                      />
                     </ConfigCard>
                   </VStack>
                 )}

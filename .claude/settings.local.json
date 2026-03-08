@@ -51,7 +51,8 @@
       "WebSearch",
       "Bash(pkill:*)",
       "Bash(npm install:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(bash:*)"
     ],
     "deny": [],
     "ask": []
