@@ -48,6 +48,10 @@ func SetupRoutes(r *gin.Engine) {
 // SetupRoutesWithConfig 設置路由（带配置）
 func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 	globalConfig = cfg
+
+	// 初始化默認數據源提供者（如果還沒有設置）
+	InitDefaultDataSourceProvider()
+
 	// 首先处理根路径，回傳 index.html（必須在其他路由之前）
 	r.GET("/", func(c *gin.Context) {
 		index, err := staticFiles.ReadFile("dist/index.html")

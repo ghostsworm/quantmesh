@@ -3,7 +3,9 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"reflect"
@@ -4978,6 +4980,204 @@ type PolymarketMarketInfo struct {
 // SetDataSourceProvider 設置數據源提供者
 func SetDataSourceProvider(provider DataSourceProvider) {
 	dataSourceProvider = provider
+}
+
+// InitDefaultDataSourceProvider 初始化默認的數據源提供者（內置實現）
+func InitDefaultDataSourceProvider() {
+	// 如果已經設置了提供者，不要再初始化
+	if dataSourceProvider != nil {
+		return
+	}
+
+	provider := &builtinDataSourceProvider{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		rssFeeds: []string{
+			"https://www.coindesk.com/arc/outboundfeeds/rss/",
+			"https://cointelegraph.com/rss",
+			"https://cryptonews.com/news/feed/",
+		},
+		fearGreedAPIURL: "https://api.alternative.me/fng/",
+	}
+	dataSourceProvider = provider
+	logger.Info("✅ 已初始化內置數據源提供者")
+}
+
+// builtinDataSourceProvider 內置數據源提供者（不依賴 AI 模塊）
+type builtinDataSourceProvider struct {
+	httpClient        *http.Client
+	rssFeeds         []string
+	fearGreedAPIURL  string
+	mu               sync.RWMutex
+	cachedRSS        []RSSFeedInfo
+	cachedFearGreed  *FearGreedIndexInfo
+	lastRSSUpdate    time.Time
+	lastFearGreedUpdate time.Time
+}
+
+// GetRSSFeeds 獲取RSS新聞
+func (p *builtinDataSourceProvider) GetRSSFeeds() ([]RSSFeedInfo, error) {
+	p.mu.RLock()
+	if time.Since(p.lastRSSUpdate) < 5*time.Minute && len(p.cachedRSS) > 0 {
+		defer p.mu.RUnlock()
+		return p.cachedRSS, nil
+	}
+	p.mu.RUnlock()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// 雙重檢查
+	if time.Since(p.lastRSSUpdate) < 5*time.Minute && len(p.cachedRSS) > 0 {
+		return p.cachedRSS, nil
+	}
+
+	feeds := make([]RSSFeedInfo, 0)
+	for _, feedURL := range p.rssFeeds {
+		items, err := p.fetchRSSFeed(feedURL)
+		if err != nil {
+			logger.Warn("獲取 RSS 源失敗: %s, 錯誤: %v", feedURL, err)
+			continue
+		}
+
+		sourceName := extractSourceName(feedURL)
+		feeds = append(feeds, RSSFeedInfo{
+			Title:       sourceName,
+			Description: fmt.Sprintf("来自 %s 的加密貨幣新闻", sourceName),
+			URL:         feedURL,
+			Items:       items,
+			LastUpdate:  time.Now(),
+		})
+	}
+
+	p.cachedRSS = feeds
+	p.lastRSSUpdate = time.Now()
+	return feeds, nil
+}
+
+// fetchRSSFeed 獲取單個RSS源的內容
+func (p *builtinDataSourceProvider) fetchRSSFeed(feedURL string) ([]RSSItemInfo, error) {
+	resp, err := p.httpClient.Get(feedURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP status: %d", resp.StatusCode)
+	}
+
+	// 簡單的XML解析（使用標準庫）
+	// 這是一個簡化實現，實際生產建議使用專門的RSS庫
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// 簡單的正則表達式提取（生產環境應該使用XML解析器）
+	items := make([]RSSItemInfo, 0)
+
+	// 嘗試解析為XML
+	var rss struct {
+		Channel struct {
+			Title string `xml:"title"`
+			Items []struct {
+				Title       string `xml:"title"`
+				Link        string `xml:"link"`
+				Description string `xml:"description"`
+				PubDate     string `xml:"pubDate"`
+			} `xml:"item"`
+		} `xml:"channel"`
+	}
+
+	err = xml.Unmarshal(body, &rss)
+	if err != nil {
+		// XML解析失敗，返回空列表
+		return items, nil
+	}
+
+	sourceName := extractSourceName(feedURL)
+	for _, item := range rss.Channel.Items {
+		pubDate := time.Now()
+		if item.PubDate != "" {
+			pubDate, _ = time.Parse(time.RFC1123, item.PubDate)
+		}
+
+		items = append(items, RSSItemInfo{
+			Title:       item.Title,
+			Description: item.Description,
+			Link:        item.Link,
+			PubDate:     pubDate,
+			Source:      sourceName,
+		})
+	}
+
+	return items, nil
+}
+
+// GetFearGreedIndex 獲取恐慌贪婪指數
+func (p *builtinDataSourceProvider) GetFearGreedIndex() (*FearGreedIndexInfo, error) {
+	p.mu.RLock()
+	if time.Since(p.lastFearGreedUpdate) < 1*time.Hour && p.cachedFearGreed != nil {
+		defer p.mu.RUnlock()
+		return p.cachedFearGreed, nil
+	}
+	p.mu.RUnlock()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// 雙重檢查
+	if time.Since(p.lastFearGreedUpdate) < 1*time.Hour && p.cachedFearGreed != nil {
+		return p.cachedFearGreed, nil
+	}
+
+	resp, err := p.httpClient.Get(p.fearGreedAPIURL)
+	if err != nil {
+		// 返回緩存值（如果有）
+		if p.cachedFearGreed != nil {
+			return p.cachedFearGreed, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data struct {
+			Value          int    `json:"value"`
+			Classification string `json:"value_classification"`
+			Timestamp      int64  `json:"timestamp"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		// 返回緩存值（如果有）
+		if p.cachedFearGreed != nil {
+			return p.cachedFearGreed, nil
+		}
+		return nil, err
+	}
+
+	fgi := &FearGreedIndexInfo{
+		Value:          result.Data.Value,
+		Classification: result.Data.Classification,
+		Timestamp:      time.Unix(result.Data.Timestamp, 0),
+	}
+
+	p.cachedFearGreed = fgi
+	p.lastFearGreedUpdate = time.Now()
+	return fgi, nil
+}
+
+// GetRedditPosts 獲取Reddit帖子（暫未實現）
+func (p *builtinDataSourceProvider) GetRedditPosts(subreddits []string, limit int) ([]RedditPostInfo, error) {
+	// Reddit API 需要 OAuth，暫未實現
+	return []RedditPostInfo{}, nil
+}
+
+// GetPolymarketMarkets 獲取Polymarket市場（暫未實現）
+func (p *builtinDataSourceProvider) GetPolymarketMarkets(keywords []string) ([]PolymarketMarketInfo, error) {
+	// Polymarket API 需要特殊處理，暫未實現
+	return []PolymarketMarketInfo{}, nil
 }
 
 // dataSourceAdapter 數據源适配器
