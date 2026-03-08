@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -255,5 +256,144 @@ func TestDeriveHedgeGroupTaskDefaultsKeepsProvidedParams(t *testing.T) {
 	}
 	if params["rebalance_interval"] != 120 {
 		t.Fatalf("expected rebalance_interval to be preserved, got %#v", params["rebalance_interval"])
+	}
+}
+
+func TestGetBacktestTaskTradesExport_SingleStrategy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	resultsDir := filepath.Join(tempDir, "backtest", "results")
+	if err := os.MkdirAll(resultsDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	taskID := "bt_export_test_single"
+	resultJSON := `{
+		"task_id": "` + taskID + `",
+		"result": {
+			"trades": [
+				{"timestamp": 1735689600, "type": "buy", "price": 100, "quantity": 1, "fee": 0.1, "pnl": 0},
+				{"timestamp": 1735689660, "type": "sell", "price": 101, "quantity": 1, "fee": 0.1, "pnl": 0.9}
+			]
+		}
+	}`
+	resultPath := filepath.Join(resultsDir, taskID+".json")
+	if err := os.WriteFile(resultPath, []byte(resultJSON), 0644); err != nil {
+		t.Fatalf("write result: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: taskID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/backtest/tasks/"+taskID+"/trades/export?format=csv", nil)
+
+	getBacktestTaskTradesExport(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Timestamp,Type,Price,Quantity,Fee,PnL") {
+		preview := body
+		if len(preview) > 80 {
+			preview = preview[:80]
+		}
+		t.Errorf("expected CSV header, got: %s", preview)
+	}
+	if !strings.Contains(body, "buy") || !strings.Contains(body, "sell") {
+		t.Errorf("expected trade rows, got: %s", body)
+	}
+}
+
+func TestGetBacktestTaskTradesExport_MultiStrategy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	resultsDir := filepath.Join(tempDir, "backtest", "results")
+	if err := os.MkdirAll(resultsDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	taskID := "bt_export_test_multi"
+	resultJSON := `{
+		"task_id": "` + taskID + `",
+		"result": null,
+		"multi_result": {
+			"trades": [
+				{"TradeID": "T1", "Side": "buy", "Price": 100, "Size": 0.5, "Timestamp": 1735689600000, "Slippage": 0.01},
+				{"TradeID": "T2", "Side": "sell", "Price": 101, "Size": 0.5, "Timestamp": 1735689660000, "Slippage": 0.01}
+			]
+		}
+	}`
+	resultPath := filepath.Join(resultsDir, taskID+".json")
+	if err := os.WriteFile(resultPath, []byte(resultJSON), 0644); err != nil {
+		t.Fatalf("write result: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: taskID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/backtest/tasks/"+taskID+"/trades/export?format=json", nil)
+
+	getBacktestTaskTradesExport(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var rows []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0]["type"] != "buy" || rows[1]["type"] != "sell" {
+		t.Errorf("expected buy/sell, got %v %v", rows[0]["type"], rows[1]["type"])
+	}
+}
+
+func TestGetBacktestTaskTradesExport_NoTrades(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	resultsDir := filepath.Join(tempDir, "backtest", "results")
+	if err := os.MkdirAll(resultsDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	taskID := "bt_export_test_empty"
+	resultJSON := `{"task_id": "` + taskID + `", "result": {"trades": []}, "multi_result": null}`
+	if err := os.WriteFile(filepath.Join(resultsDir, taskID+".json"), []byte(resultJSON), 0644); err != nil {
+		t.Fatalf("write result: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: taskID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/backtest/tasks/"+taskID+"/trades/export?format=csv", nil)
+
+	getBacktestTaskTradesExport(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for no trades, got %d", w.Code)
 	}
 }

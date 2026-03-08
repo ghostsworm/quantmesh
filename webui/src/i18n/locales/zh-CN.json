@@ -190,7 +190,22 @@
       "cannotChangeTypeRunning": "Bot 运行中无法切换策略类型。参数可以修改，但策略类型变更需要先停止 Bot。",
       "saveSuccess": "策略配置已更新",
       "saveFailed": "策略配置更新失败",
-      "workspaceHint": "如需更详细的策略分配配置，请前往策略配比页面"
+      "workspaceHint": "如需更详细的策略分配配置，请前往策略配比页面",
+      "gridDirectionAndRisk": "网格方向与风控",
+      "direction": "交易方向",
+      "directionLong": "单向做多",
+      "directionShort": "单向做空",
+      "directionBoth": "双向交易",
+      "trendFilter": "趋势检测",
+      "gridRiskControl": "网格风控配置",
+      "stopLossRatio": "止损比例",
+      "takeProfitTriggerRatio": "止盈触发比例",
+      "trailingTakeProfitRatio": "移动止盈比例",
+      "maxGridLayers": "最大网格层数",
+      "maxOpenOrdersAtCap": "达到层数限制时最大挂单数",
+      "riskControlEnabled": "风控状态",
+      "layers": "层",
+      "riskConfigHint": "当前显示的是配置文件中的网格风控设置。如需修改，请到配置管理页面或编辑配置文件。"
     }
   },
   "sidebar": {
@@ -392,6 +407,7 @@
     "downloadTrades": "下载交易记录",
     "downloadTradesCSV": "下载交易记录 (CSV)",
     "downloadTradesJSON": "下载交易记录 (JSON)",
+    "downloadTradesFailed": "下载交易记录失败",
     "delete": "删除",
     "backtestResult": "回测结果: {{id}}",
     "taskFailed": "任务执行失败",
