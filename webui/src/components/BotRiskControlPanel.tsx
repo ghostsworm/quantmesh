@@ -29,6 +29,7 @@ import {
   Collapse,
   useDisclosure,
 } from '@chakra-ui/react'
+import DecimalNumberInput from './DecimalNumberInput'
 import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons'
 
 // @chakra-ui/icons 不提供 PauseIcon/PlayIcon，使用自定义 SVG
@@ -112,7 +113,14 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
     if (!riskControl || !botIdRef.current) return
     setUpdating(true)
     try {
-      await updateBotRiskControl(botIdRef.current, riskControl)
+      const toSend = { ...riskControl }
+      if (typeof toSend.stop_loss_ratio === 'string') toSend.stop_loss_ratio = parseFloat(toSend.stop_loss_ratio || '0') / 100
+      if (typeof toSend.take_profit_ratio === 'string') toSend.take_profit_ratio = parseFloat(toSend.take_profit_ratio || '0') / 100
+      if (typeof toSend.trailing_stop_ratio === 'string') toSend.trailing_stop_ratio = parseFloat(toSend.trailing_stop_ratio || '0') / 100
+      if (typeof toSend.max_position_qty === 'string') toSend.max_position_qty = parseFloat(toSend.max_position_qty || '0')
+      if (typeof toSend.max_position_value === 'string') toSend.max_position_value = parseFloat(toSend.max_position_value || '0')
+      if (typeof toSend.open_order_distance === 'string') toSend.open_order_distance = parseFloat(toSend.open_order_distance || '0')
+      await updateBotRiskControl(botIdRef.current, toSend)
       toast({ title: t('botRiskControl.configUpdateSuccess'), status: 'success', duration: 2000 })
       await fetchRiskControl()
     } catch (err) {
@@ -333,35 +341,27 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                 <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.maxPositionQty')}</FormLabel>
-                    <NumberInput
+                    <DecimalNumberInput
                       value={riskControl.max_position_qty ?? 0}
-                      onChange={(_, val) => updateConfigField('max_position_qty', val)}
+                      onChange={(val) => updateConfigField('max_position_qty', val)}
                       min={0}
                       precision={4}
-                    >
-                      <NumberInputField />
-                      <NumberInputStepper>
-                        <NumberIncrementStepper />
-                        <NumberDecrementStepper />
-                      </NumberInputStepper>
-                    </NumberInput>
+                      step={0.0001}
+                      showStepper
+                    />
                     <Text fontSize="xs" color="gray.500">{t('botRiskControl.maxPositionQtyDesc')}</Text>
                   </FormControl>
 
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.maxPositionValue')}</FormLabel>
-                    <NumberInput
+                    <DecimalNumberInput
                       value={riskControl.max_position_value ?? 0}
-                      onChange={(_, val) => updateConfigField('max_position_value', val)}
+                      onChange={(val) => updateConfigField('max_position_value', val)}
                       min={0}
                       precision={2}
-                    >
-                      <NumberInputField />
-                      <NumberInputStepper>
-                        <NumberIncrementStepper />
-                        <NumberDecrementStepper />
-                      </NumberInputStepper>
-                    </NumberInput>
+                      step={0.01}
+                      showStepper
+                    />
                     <Text fontSize="xs" color="gray.500">{t('botRiskControl.maxPositionValueDesc')}</Text>
                   </FormControl>
 
@@ -399,18 +399,14 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
 
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.openOrderDistance')}</FormLabel>
-                    <NumberInput
+                    <DecimalNumberInput
                       value={riskControl.open_order_distance ?? 0}
-                      onChange={(_, val) => updateConfigField('open_order_distance', val)}
+                      onChange={(val) => updateConfigField('open_order_distance', val)}
                       min={0}
                       precision={1}
-                    >
-                      <NumberInputField />
-                      <NumberInputStepper>
-                        <NumberIncrementStepper />
-                        <NumberDecrementStepper />
-                      </NumberInputStepper>
-                    </NumberInput>
+                      step={0.1}
+                      showStepper
+                    />
                     <Text fontSize="xs" color="gray.500">{t('botRiskControl.openOrderDistanceDesc')}</Text>
                   </FormControl>
                 </SimpleGrid>
@@ -423,55 +419,43 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                 <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.stopLossRatio')} (%)</FormLabel>
-                    <NumberInput
-                      value={(riskControl.stop_loss_ratio ?? 0) * 100}
-                      onChange={(_, val) => updateConfigField('stop_loss_ratio', val / 100)}
+                    <DecimalNumberInput
+                      value={typeof riskControl.stop_loss_ratio === 'string' ? riskControl.stop_loss_ratio : (riskControl.stop_loss_ratio ?? 0) * 100}
+                      onChange={(val) => updateConfigField('stop_loss_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
                       precision={2}
-                    >
-                      <NumberInputField />
-                      <NumberInputStepper>
-                        <NumberIncrementStepper />
-                        <NumberDecrementStepper />
-                      </NumberInputStepper>
-                    </NumberInput>
+                      step={0.01}
+                      showStepper
+                    />
                     <Text fontSize="xs" color="gray.500">{t('botRiskControl.stopLossRatioDesc')}</Text>
                   </FormControl>
 
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.takeProfitRatio')} (%)</FormLabel>
-                    <NumberInput
-                      value={(riskControl.take_profit_ratio ?? 0) * 100}
-                      onChange={(_, val) => updateConfigField('take_profit_ratio', val / 100)}
+                    <DecimalNumberInput
+                      value={typeof riskControl.take_profit_ratio === 'string' ? riskControl.take_profit_ratio : (riskControl.take_profit_ratio ?? 0) * 100}
+                      onChange={(val) => updateConfigField('take_profit_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
                       precision={2}
-                    >
-                      <NumberInputField />
-                      <NumberInputStepper>
-                        <NumberIncrementStepper />
-                        <NumberDecrementStepper />
-                      </NumberInputStepper>
-                    </NumberInput>
+                      step={0.01}
+                      showStepper
+                    />
                     <Text fontSize="xs" color="gray.500">{t('botRiskControl.takeProfitRatioDesc')}</Text>
                   </FormControl>
 
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.trailingStopRatio')} (%)</FormLabel>
-                    <NumberInput
-                      value={(riskControl.trailing_stop_ratio ?? 0) * 100}
-                      onChange={(_, val) => updateConfigField('trailing_stop_ratio', val / 100)}
+                    <DecimalNumberInput
+                      value={typeof riskControl.trailing_stop_ratio === 'string' ? riskControl.trailing_stop_ratio : (riskControl.trailing_stop_ratio ?? 0) * 100}
+                      onChange={(val) => updateConfigField('trailing_stop_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
                       precision={2}
-                    >
-                      <NumberInputField />
-                      <NumberInputStepper>
-                        <NumberIncrementStepper />
-                        <NumberDecrementStepper />
-                      </NumberInputStepper>
-                    </NumberInput>
+                      step={0.01}
+                      showStepper
+                    />
                     <Text fontSize="xs" color="gray.500">{t('botRiskControl.trailingStopRatioDesc')}</Text>
                   </FormControl>
                 </SimpleGrid>

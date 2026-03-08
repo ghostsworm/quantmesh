@@ -17,8 +17,6 @@ import {
   FormControl,
   FormLabel,
   Input,
-  NumberInput,
-  NumberInputField,
   Select,
   Switch,
   Alert,
@@ -28,6 +26,7 @@ import {
   Spacer,
   Tooltip,
 } from '@chakra-ui/react'
+import DecimalNumberInput from './DecimalNumberInput'
 import { AddIcon, DeleteIcon, EditIcon, CheckIcon, CloseIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import {
@@ -229,6 +228,22 @@ const MultiStrategyConfig: React.FC<MultiStrategyConfigProps> = ({ botId, botRun
     }
   }
 
+  // 更新策略参数
+  const handleUpdateParams = async (index: number, params: Record<string, unknown>) => {
+    if (!config || botRunning) return
+    try {
+      const strategy = { ...config.strategies[index], params }
+      await updateBotStrategyConfig(botId, index, strategy)
+      const newStrategies = [...config.strategies]
+      newStrategies[index] = strategy
+      setConfig({ ...config, strategies: newStrategies })
+      onConfigUpdate?.()
+    } catch (error) {
+      console.error('Failed to update strategy params', error)
+      toast({ title: t('bot.failed_to_update_weight'), status: 'error' })
+    }
+  }
+
   // 更新策略权重
   const handleUpdateWeight = async (index: number, weight: number) => {
     if (!config || botRunning) {
@@ -391,21 +406,15 @@ const MultiStrategyConfig: React.FC<MultiStrategyConfigProps> = ({ botId, botRun
                           <HStack spacing={4}>
                             <FormControl>
                               <FormLabel fontSize="sm">{t('bot.weight')}</FormLabel>
-                              <NumberInput
+                              <DecimalNumberInput
                                 size="sm"
                                 value={strategy.weight}
                                 min={0.1}
                                 max={1}
                                 step={0.1}
-                                onChange={(_, value) => handleUpdateWeight(index, value)}
-                                isDisabled={botRunning}
-                              >
-                                <NumberInputField />
-                                <NumberInputStepper>
-                                  <NumberIncrementStepper />
-                                  <NumberDecrementStepper />
-                                </NumberInputStepper>
-                              </NumberInput>
+                                onChange={(v) => handleUpdateWeight(index, typeof v === 'number' ? v : parseFloat(String(v)) || 0.1)}
+                                showStepper
+                              />
                             </FormControl>
                           </HStack>
 
@@ -415,17 +424,14 @@ const MultiStrategyConfig: React.FC<MultiStrategyConfigProps> = ({ botId, botRun
                               {Object.entries(strategyDef.params).map(([key, param]) => (
                                 <FormControl key={key} size="sm">
                                   <FormLabel fontSize="xs">{param.label}</FormLabel>
-                                  <NumberInput
+                                  <DecimalNumberInput
                                     size="sm"
-                                    value={(strategy.params?.[key] as number) || param.default}
-                                    onChange={(_, value) => {
-                                      const newParams = { ...strategy.params, [key]: value }
-                                      handleUpdateWeight(index, strategy.weight)
+                                    value={(strategy.params?.[key] as number | string) ?? param.default}
+                                    onChange={(v) => {
+                                      const newParams = { ...strategy.params, [key]: typeof v === 'number' ? v : (typeof v === 'string' ? parseFloat(v) : param.default) }
+                                      handleUpdateParams(index, newParams)
                                     }}
-                                    isDisabled={botRunning}
-                                  >
-                                    <NumberInputField />
-                                  </NumberInput>
+                                  />
                                 </FormControl>
                               ))}
                             </SimpleGrid>

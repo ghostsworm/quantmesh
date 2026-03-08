@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.62.4-rc2] - 2026-03-08
+
+### Fixed
+- **全面支持小数输入**：所有需小数的 NumberInput 改为 DecimalNumberInput，确保能正常输入小数点
+  - HybridStrategyConfig：子策略权重 (0–1)
+  - OptimizerPage：初始资金、价格区间、订单量、lambda、最大迭代等
+  - Configuration 网格风控：止损比例、止盈触发比例、追踪止盈比例
+  - 保存前将百分比字符串转为数值
+
 ## [3.62.4-rc1] - 2026-03-08
 
 ### Fixed

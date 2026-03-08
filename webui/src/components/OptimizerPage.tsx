@@ -11,8 +11,6 @@ import {
   Heading,
   HStack,
   Input,
-  NumberInput,
-  NumberInputField,
   Select,
   SimpleGrid,
   Spinner,
@@ -47,6 +45,7 @@ import {
   type OptimizerTaskStatus,
 } from '../services/optimizer'
 import { getBacktestExchanges, getBacktestSymbols, type BacktestExchangeInfo, type BacktestSymbolInfo } from '../services/backtest'
+import DecimalNumberInput from './DecimalNumberInput'
 
 const KLINE_INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'] as const
 const MARKET_TYPE = 'futures' // 网格优化默认合约
@@ -155,10 +154,16 @@ export default function OptimizerPage() {
       .catch(() => {})
   }, [exchange, symbol])
 
+  const toNum = (v: number | string | undefined, fallback: number) => {
+    if (typeof v === 'number' && !Number.isNaN(v)) return v
+    const n = parseFloat(String(v))
+    return !Number.isNaN(n) ? n : fallback
+  }
+
   useEffect(() => {
     const end = new Date()
     const start = new Date()
-    start.setDate(start.getDate() - days)
+    start.setDate(start.getDate() - toNum(days, 90))
     setStartDate(start.toISOString().slice(0, 10))
     setEndDate(end.toISOString().slice(0, 10))
   }, [days])
@@ -246,15 +251,15 @@ export default function OptimizerPage() {
       return
     }
     const searchSpace: OptimSearchSpace = {
-      price_low_range: { min: priceLowMin, max: priceLowMax, step: priceLowStep },
-      price_high_range: { min: priceHighMin, max: priceHighMax, step: priceHighStep },
-      grid_count_range: { min: gridCountMin, max: gridCountMax, step: gridCountStep },
-      order_qty_range: { min: orderQtyMin, max: orderQtyMax, step: orderQtyStep },
+      price_low_range: { min: toNum(priceLowMin, 2200), max: toNum(priceLowMax, 2400), step: toNum(priceLowStep, 50) },
+      price_high_range: { min: toNum(priceHighMin, 2400), max: toNum(priceHighMax, 2800), step: toNum(priceHighStep, 50) },
+      grid_count_range: { min: Math.round(toNum(gridCountMin, 10)), max: Math.round(toNum(gridCountMax, 30)), step: Math.round(toNum(gridCountStep, 5)) },
+      order_qty_range: { min: toNum(orderQtyMin, 50), max: toNum(orderQtyMax, 200), step: toNum(orderQtyStep, 50) },
     }
     const config: OptimConfig = {
       method,
-      lambda,
-      max_iterations: maxIterations,
+      lambda: toNum(lambda, 0.5),
+      max_iterations: Math.round(toNum(maxIterations, 50)),
       tolerance: 1e-4,
       parallelism: 0,
     }
@@ -271,7 +276,7 @@ export default function OptimizerPage() {
         interval,
         start_time: start.toISOString(),
         end_time: end.toISOString(),
-        initial_capital: initialCapital,
+        initial_capital: toNum(initialCapital, 10000),
         search_space: searchSpace,
         config,
       })
@@ -338,15 +343,11 @@ export default function OptimizerPage() {
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.backtestDays')}</FormLabel>
-                  <NumberInput size="sm" value={days} min={7} max={365} onChange={(_s, v) => setDays(v)}>
-                    <NumberInputField />
-                  </NumberInput>
+                  <DecimalNumberInput size="sm" value={days} min={7} max={365} step={1} onChange={(v) => setDays(v ?? 7)} />
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.initialCapital')}</FormLabel>
-                  <NumberInput size="sm" value={initialCapital} min={100} onChange={(_s, v) => setInitialCapital(v)}>
-                    <NumberInputField />
-                  </NumberInput>
+                  <DecimalNumberInput size="sm" value={initialCapital} min={100} step={0.01} onChange={(v) => setInitialCapital(v ?? 100)} />
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.startDate')}</FormLabel>
@@ -365,27 +366,27 @@ export default function OptimizerPage() {
             <CardBody>
               <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.priceLowRange')}</Text>
               <HStack mb={3}>
-                <FormControl><FormLabel fontSize="xs">Min</FormLabel><NumberInput size="sm" value={priceLowMin} onChange={(_s, v) => setPriceLowMin(v)}><NumberInputField /></NumberInput></FormControl>
-                <FormControl><FormLabel fontSize="xs">Max</FormLabel><NumberInput size="sm" value={priceLowMax} onChange={(_s, v) => setPriceLowMax(v)}><NumberInputField /></NumberInput></FormControl>
-                <FormControl><FormLabel fontSize="xs">Step</FormLabel><NumberInput size="sm" value={priceLowStep} onChange={(_s, v) => setPriceLowStep(v)}><NumberInputField /></NumberInput></FormControl>
+                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={priceLowMin} step={0.01} onChange={(v) => setPriceLowMin(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={priceLowMax} step={0.01} onChange={(v) => setPriceLowMax(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={priceLowStep} step={0.01} onChange={(v) => setPriceLowStep(v ?? 0)} /></FormControl>
               </HStack>
               <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.priceHighRange')}</Text>
               <HStack mb={3}>
-                <FormControl><FormLabel fontSize="xs">Min</FormLabel><NumberInput size="sm" value={priceHighMin} onChange={(_s, v) => setPriceHighMin(v)}><NumberInputField /></NumberInput></FormControl>
-                <FormControl><FormLabel fontSize="xs">Max</FormLabel><NumberInput size="sm" value={priceHighMax} onChange={(_s, v) => setPriceHighMax(v)}><NumberInputField /></NumberInput></FormControl>
-                <FormControl><FormLabel fontSize="xs">Step</FormLabel><NumberInput size="sm" value={priceHighStep} onChange={(_s, v) => setPriceHighStep(v)}><NumberInputField /></NumberInput></FormControl>
+                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={priceHighMin} step={0.01} onChange={(v) => setPriceHighMin(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={priceHighMax} step={0.01} onChange={(v) => setPriceHighMax(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={priceHighStep} step={0.01} onChange={(v) => setPriceHighStep(v ?? 0)} /></FormControl>
               </HStack>
               <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.gridCountRange')}</Text>
               <HStack mb={3}>
-                <FormControl><FormLabel fontSize="xs">Min</FormLabel><NumberInput size="sm" value={gridCountMin} onChange={(_s, v) => setGridCountMin(v)}><NumberInputField /></NumberInput></FormControl>
-                <FormControl><FormLabel fontSize="xs">Max</FormLabel><NumberInput size="sm" value={gridCountMax} onChange={(_s, v) => setGridCountMax(v)}><NumberInputField /></NumberInput></FormControl>
-                <FormControl><FormLabel fontSize="xs">Step</FormLabel><NumberInput size="sm" value={gridCountStep} onChange={(_s, v) => setGridCountStep(v)}><NumberInputField /></NumberInput></FormControl>
+                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={gridCountMin} step={1} onChange={(v) => setGridCountMin(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={gridCountMax} step={1} onChange={(v) => setGridCountMax(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={gridCountStep} step={1} onChange={(v) => setGridCountStep(v ?? 0)} /></FormControl>
               </HStack>
               <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.orderQtyRange')}</Text>
               <HStack>
-                <FormControl><FormLabel fontSize="xs">Min</FormLabel><NumberInput size="sm" value={orderQtyMin} onChange={(_s, v) => setOrderQtyMin(v)}><NumberInputField /></NumberInput></FormControl>
-                <FormControl><FormLabel fontSize="xs">Max</FormLabel><NumberInput size="sm" value={orderQtyMax} onChange={(_s, v) => setOrderQtyMax(v)}><NumberInputField /></NumberInput></FormControl>
-                <FormControl><FormLabel fontSize="xs">Step</FormLabel><NumberInput size="sm" value={orderQtyStep} onChange={(_s, v) => setOrderQtyStep(v)}><NumberInputField /></NumberInput></FormControl>
+                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={orderQtyMin} step={0.01} onChange={(v) => setOrderQtyMin(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={orderQtyMax} step={0.01} onChange={(v) => setOrderQtyMax(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={orderQtyStep} step={0.01} onChange={(v) => setOrderQtyStep(v ?? 0)} /></FormControl>
               </HStack>
             </CardBody>
           </Card>
@@ -404,15 +405,11 @@ export default function OptimizerPage() {
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.riskWeight')}</FormLabel>
-                  <NumberInput size="sm" value={lambda} min={0} max={1} step={0.1} onChange={(_s, v) => setLambda(v)}>
-                    <NumberInputField />
-                  </NumberInput>
+                  <DecimalNumberInput size="sm" value={lambda} min={0} max={1} step={0.01} onChange={(v) => setLambda(v ?? 0)} />
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.maxIterations')}</FormLabel>
-                  <NumberInput size="sm" value={maxIterations} min={10} max={500} onChange={(_s, v) => setMaxIterations(v)}>
-                    <NumberInputField />
-                  </NumberInput>
+                  <DecimalNumberInput size="sm" value={maxIterations} min={10} max={500} step={1} onChange={(v) => setMaxIterations(v ?? 10)} />
                 </FormControl>
               </SimpleGrid>
               <HStack mt={4}>
