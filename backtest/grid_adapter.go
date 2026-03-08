@@ -135,12 +135,12 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 				// 做空：價格上漲賣出開空，價格下跌買入平空
 				if cl.isBuy {
 					// 價格下行：買入平空
-					buyLevel := findLevelAbove(gridLevels, level)
+					buyLevel := findLowestPositionAbove(positions, level)
 					if buyLevel < 0 {
 						continue
 					}
-					qty, ok := positions[buyLevel]
-					if !ok || qty <= 0 {
+					qty := positions[buyLevel]
+					if qty <= 0 {
 						continue
 					}
 					execPrice := level * (1 + slippage)
@@ -260,31 +260,31 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 						Fee:       buyFee,
 						PnL:       0,
 					})
-				} else {
-					sellLevel := findLevelBelow(gridLevels, level)
-					if sellLevel < 0 {
-						sellLevel = level
-					}
-					qty, ok := positions[sellLevel]
-					if !ok || qty <= 0 {
-						continue
-					}
-					execPrice := level * (1 - slippage)
-					fee := qty * execPrice * feeRate
-					pnl := (execPrice - sellLevel) * qty
-					sellSlippageLoss := (level - execPrice) * qty
-					totalSlippageLoss += sellSlippageLoss
-					cash += qty*execPrice - fee
-					delete(positions, sellLevel)
-					trades = append(trades, Trade{
-						Timestamp: c.Timestamp,
-						Type:      "sell",
-						Price:     execPrice,
-						Quantity:  qty,
-						Fee:       fee,
-						PnL:       pnl - fee,
-					})
+			} else {
+				sellLevel := findHighestPositionBelow(positions, level)
+				if sellLevel < 0 {
+					continue
 				}
+				qty := positions[sellLevel]
+				if qty <= 0 {
+					continue
+				}
+				execPrice := level * (1 - slippage)
+				fee := qty * execPrice * feeRate
+				pnl := (execPrice - sellLevel) * qty
+				sellSlippageLoss := (level - execPrice) * qty
+				totalSlippageLoss += sellSlippageLoss
+				cash += qty*execPrice - fee
+				delete(positions, sellLevel)
+				trades = append(trades, Trade{
+					Timestamp: c.Timestamp,
+					Type:      "sell",
+					Price:     execPrice,
+					Quantity:  qty,
+					Fee:       fee,
+					PnL:       pnl - fee,
+				})
+			}
 			}
 		}
 		prevClose = closePrice
@@ -453,6 +453,33 @@ func findLevelBelow(levels []float64, target float64) float64 {
 		}
 	}
 	return -1
+}
+
+// findHighestPositionBelow 在已有持仓中找到低于 target 的最高档位
+// 解决闪崩场景：一次性买入多档后，卖出应匹配实际有持仓的档位，而非仅找紧邻的空档
+func findHighestPositionBelow(positions map[float64]float64, target float64) float64 {
+	const eps = 1e-12
+	best := -1.0
+	for level, qty := range positions {
+		if level < target-eps && qty > 0 && level > best {
+			best = level
+		}
+	}
+	return best
+}
+
+// findLowestPositionAbove 在已有持仓中找到高于 target 的最低档位（用于 SHORT 方向平仓）
+func findLowestPositionAbove(positions map[float64]float64, target float64) float64 {
+	const eps = 1e-12
+	best := -1.0
+	for level, qty := range positions {
+		if level > target+eps && qty > 0 {
+			if best < 0 || level < best {
+				best = level
+			}
+		}
+	}
+	return best
 }
 
 func findLevelAbove(levels []float64, target float64) float64 {
