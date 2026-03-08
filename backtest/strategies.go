@@ -79,7 +79,7 @@ func (s *GridBacktestStrategy) OnInit(account *BacktestAccount, cfg interface{})
 	// 初始化风控状态
 	if s.RiskControl != nil && s.RiskControl.Enabled {
 		s.entryPrice = account.GetLastPrice()
-		s.entryCapital = account.Cash + account.PositionSize*s.entryPrice
+		s.entryCapital = account.Cash() + account.PositionSize*s.entryPrice
 		s.maxCapital = s.entryCapital
 	}
 	return nil
@@ -150,7 +150,7 @@ func (s *GridBacktestStrategy) checkRiskControl(kline TickKline, timestamp int64
 		return nil, false
 	}
 
-	currentCapital := s.account.Cash + s.account.PositionSize*kline.Close
+	currentCapital := s.account.Cash() + s.account.PositionSize*kline.Close
 
 	// 更新最高资金
 	if currentCapital > s.maxCapital {
