@@ -77,6 +77,9 @@ type ComparisonReportData struct {
 	NoRiskBuyCount     string
 	NoRiskSellCount    string
 	NoRiskFinalCapital string
+	NoRiskOpenCloseDiff string
+	NoRiskEndPositionQty string
+	NoRiskEndPositionValue string
 	// 有風控
 	WithRiskTotalReturn  string
 	WithRiskMaxDrawdown  string
@@ -84,10 +87,14 @@ type ComparisonReportData struct {
 	WithRiskBuyCount     string
 	WithRiskSellCount    string
 	WithRiskFinalCapital string
+	WithRiskOpenCloseDiff string
+	WithRiskEndPositionQty string
+	WithRiskEndPositionValue string
 	// 差異
 	ReturnDiff     string
 	DrawdownDiff   string
 	TradeCountDiff string
+	TradeCountExplain string
 	// 風控介入
 	InterventionCount int
 	SkippedSignals    int
@@ -136,6 +143,21 @@ func prepareComparisonReportData(comp *ComparisonResult, meta *ReportMeta) Compa
 
 	// 使用無風控結果作為基礎 ReportData（帶 meta 以輸出 K 線周期與參數）
 	base := prepareReportData(noRisk, meta)
+	direction := getDirectionFromMeta(meta)
+	baseAsset := baseAssetFromSymbol(noRisk.Symbol)
+
+	noRiskOpenCloseDiff := calcOpenCloseDiff(noRisk.Metrics.BuyCount, noRisk.Metrics.SellCount, direction)
+	withRiskOpenCloseDiff := calcOpenCloseDiff(withRisk.Metrics.BuyCount, withRisk.Metrics.SellCount, direction)
+	noRiskEndPrice := 0.0
+	withRiskEndPrice := 0.0
+	if noRisk.PriceCurve != nil {
+		noRiskEndPrice = noRisk.PriceCurve.EndPrice
+	}
+	if withRisk.PriceCurve != nil {
+		withRiskEndPrice = withRisk.PriceCurve.EndPrice
+	}
+	noRiskEndQty, noRiskEndVal := computeEndPosition(noRisk.Trades, noRiskEndPrice, direction)
+	withRiskEndQty, withRiskEndVal := computeEndPosition(withRisk.Trades, withRiskEndPrice, direction)
 
 	// 風控介入表格：分為有跳過買入（介入）和無跳過買入（未介入）
 	var intervSkipped, intervNotSkipped []RiskInterventionRow
@@ -180,15 +202,22 @@ func prepareComparisonReportData(comp *ComparisonResult, meta *ReportMeta) Compa
 		NoRiskBuyCount:          fmt.Sprintf("%d", noRisk.Metrics.BuyCount),
 		NoRiskSellCount:         fmt.Sprintf("%d", noRisk.Metrics.SellCount),
 		NoRiskFinalCapital:      fmt.Sprintf("%.4f", noRisk.FinalCapital),
+		NoRiskOpenCloseDiff:     fmt.Sprintf("%+d", noRiskOpenCloseDiff),
+		NoRiskEndPositionQty:    formatComparisonEndPositionQty(noRiskEndQty, direction, baseAsset),
+		NoRiskEndPositionValue:  formatComparisonEndPositionValue(noRiskEndVal, direction),
 		WithRiskTotalReturn:     fmt.Sprintf("%.4f%%", withRisk.Metrics.TotalReturn),
 		WithRiskMaxDrawdown:     fmt.Sprintf("%.4f%%", withRisk.Metrics.MaxDrawdown),
 		WithRiskTotalTrades:     fmt.Sprintf("%d", withRisk.Metrics.TotalTrades),
 		WithRiskBuyCount:        fmt.Sprintf("%d", withRisk.Metrics.BuyCount),
 		WithRiskSellCount:       fmt.Sprintf("%d", withRisk.Metrics.SellCount),
 		WithRiskFinalCapital:    fmt.Sprintf("%.4f", withRisk.FinalCapital),
+		WithRiskOpenCloseDiff:   fmt.Sprintf("%+d", withRiskOpenCloseDiff),
+		WithRiskEndPositionQty:  formatComparisonEndPositionQty(withRiskEndQty, direction, baseAsset),
+		WithRiskEndPositionValue: formatComparisonEndPositionValue(withRiskEndVal, direction),
 		ReturnDiff:              fmt.Sprintf("%+.4f%%", cm.ReturnDiff),
 		DrawdownDiff:            fmt.Sprintf("%+.4f%%", cm.DrawdownDiff),
 		TradeCountDiff:          fmt.Sprintf("%+d", cm.TradeCountDiff),
+		TradeCountExplain:       buildTradeCountExplain(direction, noRiskOpenCloseDiff, noRiskEndQty, withRiskOpenCloseDiff, withRiskEndQty),
 		InterventionCount:       cm.RiskInterventionCount,
 		SkippedSignals:          cm.SkippedSignals,
 		InterventionsSkipped:    intervSkipped,
@@ -197,6 +226,41 @@ func prepareComparisonReportData(comp *ComparisonResult, meta *ReportMeta) Compa
 		TotalNotSkippedCount:    totalNotSkippedCount,
 		RiskAnalysis:            riskAnalysis,
 	}
+}
+
+func calcOpenCloseDiff(buyCount, sellCount int, direction string) int {
+	if strings.ToUpper(direction) == "SHORT" {
+		return sellCount - buyCount
+	}
+	return buyCount - sellCount
+}
+
+func formatComparisonEndPositionQty(qty float64, direction, base string) string {
+	if strings.ToUpper(direction) == "SHORT" && qty < 0 {
+		return fmt.Sprintf("欠 %.6f %s", -qty, base)
+	}
+	return fmt.Sprintf("%.6f %s", qty, base)
+}
+
+func formatComparisonEndPositionValue(value float64, direction string) string {
+	if strings.ToUpper(direction) == "SHORT" && value < 0 {
+		return fmt.Sprintf("倉位負債 %.4f USDT", -value)
+	}
+	return fmt.Sprintf("%.4f USDT", value)
+}
+
+func buildTradeCountExplain(direction string, noRiskDiff int, noRiskEndQty float64, withRiskDiff int, withRiskEndQty float64) string {
+	eps := 1e-9
+	if math.Abs(noRiskEndQty) <= eps && math.Abs(withRiskEndQty) <= eps && (noRiskDiff != 0 || withRiskDiff != 0) {
+		return "開平筆數不相等但期末持倉為 0，表示按“數量”已配平（可能單筆數量不同、部分平倉或一次平掉多筆開倉）。"
+	}
+	if math.Abs(noRiskEndQty) > eps || math.Abs(withRiskEndQty) > eps {
+		if strings.ToUpper(direction) == "SHORT" {
+			return "仍有未平空頭倉位，期末資金按最新價格做市值估值（非強制平倉成交）。"
+		}
+		return "仍有未平倉位，期末資金按最新價格做市值估值（非強制平倉成交）。"
+	}
+	return "開平筆數與期末持倉一致。"
 }
 
 // tradeTypeLabel 根據 direction 返回 buy/sell 的顯示標籤
@@ -369,7 +433,12 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 | 總交易次數 | {{.NoRiskTotalTrades}} | {{.WithRiskTotalTrades}} | {{.TradeCountDiff}} |
 | {{.BuyLabel}}次數 | {{.NoRiskBuyCount}} | {{.WithRiskBuyCount}} | - |
 | {{.SellLabel}}次數 | {{.NoRiskSellCount}} | {{.WithRiskSellCount}} | - |
+| 開平筆數差（開倉-平倉） | {{.NoRiskOpenCloseDiff}} | {{.WithRiskOpenCloseDiff}} | - |
+| 期末持倉（按成交數量淨額） | {{.NoRiskEndPositionQty}} | {{.WithRiskEndPositionQty}} | - |
+| 期末持倉市值（按最新價） | {{.NoRiskEndPositionValue}} | {{.WithRiskEndPositionValue}} | - |
 | 最終資金 | ${{.NoRiskFinalCapital}} | ${{.WithRiskFinalCapital}} | - |
+
+> 註：{{.TradeCountExplain}}
 
 ## 風控介入記錄
 
@@ -732,7 +801,7 @@ func baseAssetFromSymbol(symbol string) string {
 
 // formatStrategyConfig 將策略 Config map 格式化為可讀字符串，避免顯示 map[]
 func formatStrategyConfig(cfg map[string]interface{}) string {
-	if cfg == nil || len(cfg) == 0 {
+	if len(cfg) == 0 {
 		return "（無）"
 	}
 	keys := make([]string, 0, len(cfg))
@@ -746,6 +815,65 @@ func formatStrategyConfig(cfg map[string]interface{}) string {
 		parts = append(parts, fmt.Sprintf("%s=%v", k, formatParamValue(v)))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// paramKeyToLabel 參數鍵到中文標籤的映射（網格策略、風控等）
+var paramKeyToLabel = map[string]string{
+	"grid_spacing":                          "網格間距",
+	"grid_count":                            "格子數",
+	"order_quantity":                        "單筆訂單大小（USDT）",
+	"fee_rate":                              "手續費率",
+	"direction":                             "方向",
+	"price_low":                             "價格下限",
+	"price_high":                            "價格上限",
+	"total_capital":                         "總資金",
+	"profit_spread":                         "利潤間距（止盈價差）",
+	"risk_volume_multiplier":                "風控-成交量倍數",
+	"risk_average_window":                   "風控-均線窗口",
+	"grid_risk_control_enabled":             "風控-啟用",
+	"grid_risk_control_trend_filter_enabled": "風控-趨勢過濾",
+	"leverage":                              "槓桿倍數",
+	"max_capital_ratio":                     "最大資金占用比例",
+}
+
+// formatParamKey 將參數鍵轉為可讀標籤
+func formatParamKey(k string) string {
+	if label, ok := paramKeyToLabel[k]; ok {
+		return label
+	}
+	return k
+}
+
+// indexInParamOrder 返回參數在顯示順序中的索引，不在列表中則返回較大值
+func indexInParamOrder(k string) int {
+	for i, p := range paramDisplayOrder {
+		if p == k {
+			return i
+		}
+	}
+	return len(paramDisplayOrder)
+}
+
+// toFloat64 將 interface{} 轉為 float64
+func toFloat64(v interface{}) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	}
+	return 0, false
+}
+
+// paramDisplayOrder 參數顯示順序（優先顯示的在前）
+var paramDisplayOrder = []string{
+	"grid_spacing", "grid_count", "order_quantity", "fee_rate", "direction",
+	"profit_spread", "price_low", "price_high",
+	"risk_volume_multiplier", "risk_average_window",
+	"grid_risk_control_enabled", "grid_risk_control_trend_filter_enabled",
+	"total_capital", "leverage", "max_capital_ratio",
 }
 
 // formatParamValue 格式化參數值為字符串（用於報告參數表）
@@ -781,7 +909,7 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 	duration := result.EndTime.Sub(result.StartTime)
 	durationStr := fmt.Sprintf("%d 天", int(duration.Hours()/24))
 
-	// K 線周期與回測參數表（由 meta 填充）
+	// K 線周期與回測參數表（由 meta 填充，含可讀標籤與邏輯排序）
 	var interval string
 	var paramsTable []ReportParamRow
 	if meta != nil {
@@ -791,10 +919,22 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 			for k := range meta.Params {
 				keys = append(keys, k)
 			}
-			sort.Strings(keys)
+			sort.Slice(keys, func(i, j int) bool {
+				ii, jj := indexInParamOrder(keys[i]), indexInParamOrder(keys[j])
+				if ii != jj {
+					return ii < jj
+				}
+				return keys[i] < keys[j]
+			})
 			for _, k := range keys {
 				v := meta.Params[k]
-				paramsTable = append(paramsTable, ReportParamRow{Key: k, Value: formatParamValue(v)})
+				val := formatParamValue(v)
+				if k == "fee_rate" {
+					if f, ok := toFloat64(v); ok && f > 0 {
+						val = fmt.Sprintf("%g", f*100) + "%"
+					}
+				}
+				paramsTable = append(paramsTable, ReportParamRow{Key: formatParamKey(k), Value: val})
 			}
 		}
 	}
@@ -886,7 +1026,7 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 
 	// 從參數中提取杠杆
 	leverage := 1.0
-	if meta != nil && meta.Params != nil {
+	if meta != nil {
 		if v, ok := meta.Params["leverage"]; ok {
 			switch val := v.(type) {
 			case float64:

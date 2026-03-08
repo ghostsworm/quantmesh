@@ -253,3 +253,102 @@ func TestFormatGridDirectionLabel(t *testing.T) {
 		})
 	}
 }
+
+func TestCalcOpenCloseDiff(t *testing.T) {
+	if got := calcOpenCloseDiff(978, 984, "SHORT"); got != 6 {
+		t.Fatalf("SHORT open-close diff = %d, want 6", got)
+	}
+	if got := calcOpenCloseDiff(984, 978, "LONG"); got != 6 {
+		t.Fatalf("LONG open-close diff = %d, want 6", got)
+	}
+}
+
+func TestBuildTradeCountExplain(t *testing.T) {
+	t.Run("count mismatch but flat quantity", func(t *testing.T) {
+		got := buildTradeCountExplain("SHORT", 6, 0, 2, 0)
+		if !strings.Contains(got, "持倉為 0") {
+			t.Fatalf("expected flat-quantity explanation, got: %s", got)
+		}
+	})
+
+	t.Run("non-flat end quantity", func(t *testing.T) {
+		got := buildTradeCountExplain("SHORT", 6, -0.1, 0, 0)
+		if !strings.Contains(got, "未平空頭倉位") {
+			t.Fatalf("expected short liability explanation, got: %s", got)
+		}
+	})
+
+	t.Run("fully matched", func(t *testing.T) {
+		got := buildTradeCountExplain("LONG", 0, 0, 0, 0)
+		if !strings.Contains(got, "一致") {
+			t.Fatalf("expected consistent explanation, got: %s", got)
+		}
+	})
+}
+
+func TestFormatParamKey(t *testing.T) {
+	tests := []struct {
+		key  string
+		want string
+	}{
+		{"grid_spacing", "網格間距"},
+		{"grid_count", "格子數"},
+		{"order_quantity", "單筆訂單大小（USDT）"},
+		{"fee_rate", "手續費率"},
+		{"risk_volume_multiplier", "風控-成交量倍數"},
+		{"risk_average_window", "風控-均線窗口"},
+		{"unknown_key", "unknown_key"},
+	}
+	for _, tt := range tests {
+		got := formatParamKey(tt.key)
+		if got != tt.want {
+			t.Errorf("formatParamKey(%q) = %q, want %q", tt.key, got, tt.want)
+		}
+	}
+}
+
+func TestReportParamsTableWithLabels(t *testing.T) {
+	now := time.Now()
+	result := &BacktestResult{
+		Strategy:       "grid",
+		Symbol:         "BTCUSDT",
+		InitialCapital: 10000,
+		FinalCapital:   11000,
+		StartTime:      now.Add(-7 * 24 * time.Hour),
+		EndTime:        now,
+		Metrics:        Metrics{TotalReturn: 10, MaxDrawdown: 2, SharpeRatio: 1.5, TotalTrades: 20},
+	}
+	meta := &ReportMeta{
+		Interval: "1m",
+		Params: map[string]interface{}{
+			"grid_spacing":            170,
+			"grid_count":              60,
+			"order_quantity":          350,
+			"fee_rate":                0.0004,
+			"direction":               "SHORT",
+			"risk_volume_multiplier":  3.0,
+			"risk_average_window":     20,
+			"total_capital":           10000,
+		},
+	}
+	data := prepareReportData(result, meta)
+	if len(data.ParamsTable) == 0 {
+		t.Fatal("ParamsTable should not be empty when meta has params")
+	}
+	keySet := make(map[string]bool)
+	for _, row := range data.ParamsTable {
+		keySet[row.Key] = true
+	}
+	wantLabels := []string{"網格間距", "格子數", "單筆訂單大小（USDT）", "手續費率", "風控-成交量倍數", "風控-均線窗口"}
+	for _, label := range wantLabels {
+		if !keySet[label] {
+			t.Errorf("ParamsTable should contain label %q", label)
+		}
+	}
+	// fee_rate 應顯示為百分比
+	for _, row := range data.ParamsTable {
+		if row.Key == "手續費率" && !strings.Contains(row.Value, "%") {
+			t.Errorf("fee_rate value should show as percentage, got %q", row.Value)
+		}
+	}
+}

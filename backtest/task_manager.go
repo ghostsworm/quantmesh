@@ -276,6 +276,35 @@ func (m *TaskManager) RunTask(id string) error {
 			}
 		}
 	}
+	// 網格策略（含對比模式）：合併實際使用的參數，確保報告註明間距、格子數、訂單大小、手續費率、風控參數等
+	if task.Strategy == "grid" || comparison != nil {
+		gp := m.gridParamsFromTask(task)
+		reportParams["grid_spacing"] = gp.GridSpacing
+		reportParams["grid_count"] = gp.GridCount
+		reportParams["order_quantity"] = gp.OrderQuantity
+		reportParams["fee_rate"] = gp.FeeRate
+		reportParams["direction"] = gp.Direction
+		if gp.PriceLow > 0 {
+			reportParams["price_low"] = gp.PriceLow
+		}
+		if gp.PriceHigh > 0 {
+			reportParams["price_high"] = gp.PriceHigh
+		}
+		rc := m.riskConfigFromTask(task)
+		reportParams["risk_volume_multiplier"] = rc.VolumeMultiplier
+		reportParams["risk_average_window"] = rc.AverageWindow
+		if task.Params != nil {
+			if v, ok := task.Params["profit_spread"]; ok && v != nil {
+				reportParams["profit_spread"] = v
+			}
+			if v, ok := task.Params["grid_risk_control_enabled"]; ok {
+				reportParams["grid_risk_control_enabled"] = v
+			}
+			if v, ok := task.Params["grid_risk_control_trend_filter_enabled"]; ok {
+				reportParams["grid_risk_control_trend_filter_enabled"] = v
+			}
+		}
+	}
 	reportMeta := &ReportMeta{
 		Interval: task.Interval,
 		Params:   reportParams,
