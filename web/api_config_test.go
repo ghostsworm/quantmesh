@@ -312,3 +312,128 @@ func TestUpdateConfig(t *testing.T) {
 		t.Error("响应中应該包含 backup_id")
 	}
 }
+
+func TestNormalizeNumericStrings(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected interface{}
+	}{
+		{
+			name:     "string float to float64",
+			input:    "70.000000",
+			expected: 70.0,
+		},
+		{
+			name:     "string int to int64",
+			input:    "42",
+			expected: int64(42),
+		},
+		{
+			name:     "non-numeric string unchanged",
+			input:    "BTCUSDT",
+			expected: "BTCUSDT",
+		},
+		{
+			name:     "empty string unchanged",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "actual number unchanged",
+			input:    3.14,
+			expected: 3.14,
+		},
+		{
+			name:     "bool unchanged",
+			input:    true,
+			expected: true,
+		},
+		{
+			name:     "nil unchanged",
+			input:    nil,
+			expected: nil,
+		},
+		{
+			name: "nested map with string numbers",
+			input: map[string]interface{}{
+				"price_interval": "70.000000",
+				"order_quantity": "700",
+				"symbol":         "BTCUSDT",
+				"nested": map[string]interface{}{
+					"value": "3.14",
+				},
+			},
+			expected: map[string]interface{}{
+				"price_interval": 70.0,
+				"order_quantity": int64(700),
+				"symbol":         "BTCUSDT",
+				"nested": map[string]interface{}{
+					"value": 3.14,
+				},
+			},
+		},
+		{
+			name:     "slice with string numbers",
+			input:    []interface{}{"1.5", "hello", "42"},
+			expected: []interface{}{1.5, "hello", int64(42)},
+		},
+		{
+			name:     "negative string number",
+			input:    "-0.05",
+			expected: -0.05,
+		},
+		{
+			name:     "scientific notation",
+			input:    "1e-5",
+			expected: 1e-5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeNumericStrings(tt.input)
+
+			resultJSON, _ := json.Marshal(result)
+			expectedJSON, _ := json.Marshal(tt.expected)
+			if string(resultJSON) != string(expectedJSON) {
+				t.Errorf("normalizeNumericStrings(%v) = %v (%T), want %v (%T)",
+					tt.input, result, result, tt.expected, tt.expected)
+			}
+		})
+	}
+}
+
+func TestUpdateConfigWithStringNumbers(t *testing.T) {
+	router := setupTestRouter()
+
+	configWithStrings := map[string]interface{}{
+		"app": map[string]interface{}{
+			"current_exchange": "binance",
+		},
+		"trading": map[string]interface{}{
+			"symbol":           "BTCUSDT",
+			"price_interval":   "70.000000",
+			"order_quantity":    "700",
+			"buy_window_size":  10,
+			"sell_window_size": 10,
+		},
+		"exchanges": map[string]interface{}{
+			"binance": map[string]interface{}{
+				"api_key":    "test_key",
+				"secret_key": "test_secret",
+				"fee_rate":   "0.0002",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(configWithStrings)
+	req, _ := http.NewRequest("POST", "/api/config/update", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("期望状態碼 %d，實際 %d。响应: %s", http.StatusOK, w.Code, w.Body.String())
+	}
+}
