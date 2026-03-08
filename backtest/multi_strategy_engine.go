@@ -439,19 +439,33 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 		}
 	}
 
-	// 强制平倉剩餘倉位
+	// 期末强制平倉剩餘倉位，確保最終收益為已實現盈虧
 	if len(e.Klines) > 0 {
 		lastKline := e.Klines[len(e.Klines)-1]
+		forceClosedCount := 0
 		for _, runtime := range e.runtimes {
 			if runtime.account.PositionSize != 0 {
 				e.forceClosePosition(runtime, lastKline.Close, int64(lastKline.Timestamp))
+				forceClosedCount++
 			}
+		}
+		if forceClosedCount > 0 {
+			logger.Info("📊 期末强制平倉: %d 個策略有剩餘倉位已平倉，最終權益為已實現盈虧", forceClosedCount)
 		}
 	}
 
 	e.finalEquity = 0
 	for _, runtime := range e.runtimes {
 		e.finalEquity += runtime.account.Equity
+	}
+
+	// 追加權益曲線終點（平倉後），確保報告與導出的最終權益一致
+	if len(e.Klines) > 0 {
+		lastKline := e.Klines[len(e.Klines)-1]
+		e.equityCurve = append(e.equityCurve, EquityPoint{
+			Timestamp: lastKline.Timestamp,
+			Equity:    e.finalEquity,
+		})
 	}
 
 	// 报告最终进度
@@ -749,7 +763,7 @@ func (e *MultiStrategyEngine) forceClosePosition(runtime *StrategyRuntime, price
 		Side:       side,
 		Price:      price,
 		Size:       abs(runtime.account.PositionSize),
-		Strategy:   runtime.strategyName,
+		Strategy:   runtime.strategyName + " [期末强制平仓]",
 		StrategyID: runtime.strategyID,
 		AccountID:  runtime.account.AccountID,
 		Timestamp:  timestamp,
