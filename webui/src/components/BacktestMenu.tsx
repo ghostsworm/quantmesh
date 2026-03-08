@@ -69,8 +69,12 @@ import {
   RadioGroup,
   Radio,
   Stack,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
 } from '@chakra-ui/react'
-import { RepeatIcon, DownloadIcon, DeleteIcon, CheckIcon, StarIcon, ChevronDownIcon, ChevronUpIcon, AddIcon, MinusIcon } from '@chakra-ui/icons'
+import { RepeatIcon, DownloadIcon, DeleteIcon, CheckIcon, StarIcon, ChevronDownIcon, ChevronUpIcon, AddIcon, MinusIcon, SmallAddIcon, ExternalLinkIcon } from '@chakra-ui/icons'
 import {
   getBacktestStrategies,
   getBacktestPreset,
@@ -86,6 +90,7 @@ import {
   getBacktestTask,
   getBacktestTaskResult,
   getBacktestTaskReport,
+  getBacktestTaskTradesExport,
   getBacktestTaskKlines,
   deleteBacktestTask,
   getSmartParamsRecommendation,
@@ -1683,22 +1688,40 @@ export default function BacktestMenu() {
                               {t('backtest.view')}
                             </Button>
                             {task.status === 'completed' && (
-                              <Tooltip label={t('backtest.downloadReport')}>
-                                <IconButton
-                                  aria-label={t('backtest.downloadReport')}
-                                  size="xs"
-                                  icon={<DownloadIcon />}
-                                  onClick={() => {
-                                    getBacktestTaskReport(task.id, true).then((md) => {
-                                      const blob = new Blob([md], { type: 'text/markdown' })
-                                      const a = document.createElement('a')
-                                      a.href = URL.createObjectURL(blob)
-                                      a.download = `backtest_${task.id}.md`
-                                      a.click()
-                                    })
-                                  }}
-                                />
-                              </Tooltip>
+                              <>
+                                <Tooltip label={t('backtest.downloadReport')}>
+                                  <IconButton
+                                    aria-label={t('backtest.downloadReport')}
+                                    size="xs"
+                                    icon={<DownloadIcon />}
+                                    onClick={() => {
+                                      getBacktestTaskReport(task.id, true).then((md) => {
+                                        const blob = new Blob([md], { type: 'text/markdown' })
+                                        const a = document.createElement('a')
+                                        a.href = URL.createObjectURL(blob)
+                                        a.download = `backtest_${task.id}.md`
+                                        a.click()
+                                      })
+                                    }}
+                                  />
+                                </Tooltip>
+                                <Menu>
+                                  <MenuButton
+                                    as={IconButton}
+                                    aria-label={t('backtest.downloadTrades')}
+                                    size="xs"
+                                    icon={<ExternalLinkIcon />}
+                                  />
+                                  <MenuList>
+                                    <MenuItem onClick={() => getBacktestTaskTradesExport(task.id, 'csv')}>
+                                      {t('backtest.downloadTradesCSV')}
+                                    </MenuItem>
+                                    <MenuItem onClick={() => getBacktestTaskTradesExport(task.id, 'json')}>
+                                      {t('backtest.downloadTradesJSON')}
+                                    </MenuItem>
+                                  </MenuList>
+                                </Menu>
+                              </>
                             )}
                             <IconButton
                               aria-label={t('backtest.delete')}

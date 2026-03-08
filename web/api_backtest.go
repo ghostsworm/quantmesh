@@ -768,6 +768,69 @@ func getBacktestTaskReport(c *gin.Context) {
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", data)
 }
 
+// getBacktestTaskTradesExport 導出回測交易記錄 (CSV/JSON) GET /api/backtest/tasks/:id/trades/export
+func getBacktestTaskTradesExport(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
+		return
+	}
+
+	// 獲取導出格式 (csv 或 json，默認 csv)
+	format := c.Query("format")
+	if format != "json" && format != "csv" {
+		format = "csv"
+	}
+
+	// 讀取回測結果
+	taskPath := filepath.Join("backtest", "tasks", id+".json")
+	taskData, err := os.ReadFile(taskPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "回測任務不存在"})
+		return
+	}
+
+	var task BacktestTask
+	if err := json.Unmarshal(taskData, &task); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "解析任務數據失敗"})
+		return
+	}
+
+	if task.Result == nil || len(task.Result.Trades) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "無交易記錄"})
+		return
+	}
+
+	trades := task.Result.Trades
+	filename := fmt.Sprintf("backtest_trades_%s", id)
+
+	// 根據格式返回數據
+	if format == "json" {
+		// JSON 格式
+		jsonData, err := json.MarshalIndent(trades, "", "  ")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "生成 JSON 失敗"})
+			return
+		}
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.json", filename))
+		c.Data(http.StatusOK, "application/json; charset=utf-8", jsonData)
+		return
+	}
+
+	// CSV 格式
+	var csvBuilder strings.Builder
+	csvBuilder.WriteString("Timestamp,Type,Price,Quantity,Fee,PnL\n")
+	for _, trade := range trades {
+		timestamp := time.Unix(trade.Timestamp, 0).Format("2006-01-02 15:04:05")
+		csvBuilder.WriteString(fmt.Sprintf("%s,%s,%.4f,%.6f,%.4f,%.4f\n",
+			timestamp, trade.Type, trade.Price, trade.Quantity, trade.Fee, trade.PnL))
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.csv", filename))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", []byte(csvBuilder.String()))
+}
+
+
 // deleteBacktestTask 刪除任務 DELETE /api/backtest/tasks/:id
 func deleteBacktestTask(c *gin.Context) {
 	id := c.Param("id")

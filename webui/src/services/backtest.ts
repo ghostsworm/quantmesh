@@ -171,6 +171,39 @@ export async function getBacktestTaskReport(id: string, download = false): Promi
   return fetchText(url)
 }
 
+export async function getBacktestTaskTradesExport(id: string, format: 'csv' | 'json' = 'csv'): Promise<void> {
+  const url = `${API_BASE_URL}/backtest/tasks/${encodeURIComponent(id)}/trades/export?format=${format}`
+  const currentLang = localStorage.getItem('i18nextLng') || 'zh-CN'
+  const response = await fetch(url, {
+    headers: { 'Accept-Language': currentLang },
+    credentials: 'include',
+  })
+  if (!response.ok) {
+    if (response.status === 401 && window.location.pathname !== '/login') {
+      window.location.replace('/login')
+    }
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  // Get filename from Content-Disposition header or use default
+  let filename = `backtest_trades_${id}.${format}`
+  const contentDisposition = response.headers.get('Content-Disposition')
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+    if (match && match[1]) {
+      filename = match[1].replace(/['"]/g, '')
+    }
+  }
+
+  // Create blob and download
+  const blob = await response.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 export interface KlinePoint {
   time: number
   open: number

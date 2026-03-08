@@ -407,6 +407,7 @@ type ReportData struct {
 	BuyCount             string
 	SellCount            string
 	WinRate              string
+	ExchangeWinRate      string // 交易所风格勝率（基于平均持仓成本）
 	ProfitFactor         string
 	AvgWin               string
 	AvgLoss              string
@@ -694,6 +695,7 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		BuyCount:             fmt.Sprintf("%d", m.BuyCount),
 		SellCount:            fmt.Sprintf("%d", m.SellCount),
 		WinRate:              fmt.Sprintf("%.4f%%", m.WinRate),
+		ExchangeWinRate:      fmt.Sprintf("%.4f%%", m.ExchangeStyle.ExchangeWinRate),
 		ProfitFactor:         fmt.Sprintf("%.4f", m.ProfitFactor),
 		AvgWin:               fmt.Sprintf("%.4f", m.AvgWin),
 		AvgLoss:              fmt.Sprintf("%.4f", m.AvgLoss),
@@ -867,7 +869,8 @@ func renderReportTemplate(data ReportData) (string, error) {
 | 總交易次數（成對） | {{.TotalTrades}} |
 | 買入次數 | {{.BuyCount}} |
 | 賣出次數 | {{.SellCount}} |
-| 胜率 | {{.WinRate}} |
+| 胜率（网格） | {{.WinRate}} |
+| 胜率（交易所） | {{.ExchangeWinRate}} |
 | 利润因子 | {{.ProfitFactor}} |
 | 平均盈利 | ${{.AvgWin}} |
 | 平均亏损 | ${{.AvgLoss}} |
