@@ -72,7 +72,6 @@ const AIPromptManager = lazy(() => import('./components/AIPromptManager'))
 const AIConfigPage = lazy(() => import('./components/AIConfigPage'))
 const EventCenter = lazy(() => import('./components/EventCenter'))
 const AITaskManager = lazy(() => import('./components/AITaskManager'))
-const StrategyMarket = lazy(() => import('./components/StrategyMarket'))
 const CapitalManagement = lazy(() => import('./components/CapitalManagement'))
 const ProfitManagement = lazy(() => import('./components/ProfitManagement'))
 const PositionPlan = lazy(() => import('./components/PositionPlan'))
@@ -81,11 +80,12 @@ const BacktestMenu = lazy(() => import('./components/BacktestMenu'))
 const ServiceStatusPage = lazy(() => import('./components/ServiceStatusPage'))
 const DataExport = lazy(() => import('./components/DataExport'))
 const KlineFilesManager = lazy(() => import('./components/KlineFilesManager'))
-const StrategyOverview = lazy(() => import('./components/StrategyOverview'))
+const StrategyMarket = lazy(() => import('./components/StrategyMarket'))
 const StrategyDetail = lazy(() => import('./components/StrategyDetail'))
 const BotList = lazy(() => import('./components/BotList'))
 const BotDetail = lazy(() => import('./components/BotDetail'))
 const BotCreateWizard = lazy(() => import('./components/BotCreateWizard'))
+const AgentChat = lazy(() => import('./components/AgentChat'))
 
 // 懒加载 fallback
 const LazyFallback = () => (
@@ -533,9 +533,9 @@ const AppContent: React.FC = () => {
                 <Route path="/bots/:botId/basis-monitor" element={<ProtectedRoute><BasisMonitor /></ProtectedRoute>} />
                 <Route path="/bots/:botId/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
                 <Route path="/bots/:botId" element={<ProtectedRoute><BotDetail /></ProtectedRoute>} />
-                <Route path="/strategy-overview" element={<ProtectedRoute><StrategyOverview /></ProtectedRoute>} />
                 <Route path="/strategy-detail" element={<ProtectedRoute><StrategyDetail /></ProtectedRoute>} />
                 <Route path="/strategy-market" element={<ProtectedRoute><StrategyMarket /></ProtectedRoute>} />
+                <Route path="/agent-chat" element={<ProtectedRoute><AgentChat /></ProtectedRoute>} />
                 <Route path="/capital-management" element={<ProtectedRoute><CapitalManagement /></ProtectedRoute>} />
                 <Route path="/backtest" element={<ProtectedRoute><BacktestMenu /></ProtectedRoute>} />
                 <Route path="/data-export" element={<ProtectedRoute><DataExport /></ProtectedRoute>} />

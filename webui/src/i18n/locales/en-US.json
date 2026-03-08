@@ -201,7 +201,7 @@
     "globalDashboard": "Global Dashboard",
     "groupSystemSettings": "System Settings",
     "systemSettings": "System Settings",
-    "strategyOverview": "Strategy Overview",
+    "strategyOverview": "Strategy Runtime Status",
     "overview": "Overview",
     "performanceMonitor": "Performance Monitor",
     "eventCenter": "Event Center",
@@ -211,6 +211,7 @@
     "aiConfig": "AI Config",
     "aiTasks": "AI Tasks",
     "strategyMarket": "Strategy Market",
+    "aiChat": "AI Chat Assistant",
     "capitalManagement": "Capital Management",
     "profitManagement": "Profit Management",
     "positionPlan": "Position Plan",
@@ -2933,6 +2934,10 @@
       "auditLogs": {
         "title": "Audit Logs",
         "desc": "Export compliance trading audit logs (ZIP format)"
+      },
+      "backtestReports": {
+        "title": "Backtest Reports",
+        "desc": "Export backtest report files (ZIP format)"
       }
     },
     "tips": {
@@ -3874,5 +3879,26 @@
     "export_failed": "Failed to export configuration",
     "import_failed": "Failed to import configuration",
     "failed_to_load_config": "Failed to load configuration"
+  },
+  "agent": {
+    "sessionCreateFailed": "Failed to create session",
+    "sendMessageFailed": "Failed to send message",
+    "conversationReset": "Conversation reset",
+    "configApplied": "Configuration applied",
+    "configApplyFailed": "Failed to apply configuration",
+    "welcomeMessage": "👋 Hello! I'm your AI Trading Assistant",
+    "welcomeHint": "I can help you optimize strategy parameters, analyze market conditions, and explain trading logic. How can I help you today?",
+    "configPreview": "Configuration Preview",
+    "applyConfig": "Apply Configuration",
+    "dismiss": "Dismiss",
+    "inputPlaceholder": "Type your question...",
+    "sendMessage": "Send Message",
+    "resetConversation": "Reset Conversation",
+    "suggestionApply": "Apply This Config",
+    "suggestionBacktest": "Backtest This Strategy",
+    "suggestionExplain": "Explain Strategy Logic",
+    "riskWarning": "⚠️ AI suggestions are for reference only, please assess risks carefully before actual trading",
+    "toolCompleted": "Tool call completed",
+    "strategyConfig": "Strategy Configuration"
   }
 }

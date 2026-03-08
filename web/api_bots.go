@@ -28,6 +28,14 @@ type BotResponse struct {
 	ProfitSpread           float64 `json:"profit_spread,omitempty"`             // 利潤間距
 	OrderQuantity          float64 `json:"order_quantity,omitempty"`            // 每單金額
 	TotalAllocatedCapital  float64 `json:"total_allocated_capital,omitempty"`    // 總投入資金
+	Strategies             []BotStrategyInfo `json:"strategies,omitempty"`       // 該 Bot 配置的策略列表
+}
+
+// BotStrategyInfo Bot 策略信息（用于列表显示）
+type BotStrategyInfo struct {
+	Type   string  `json:"type"`   // 策略类型，如 grid, dca, martingale
+	Weight float64 `json:"weight"` // 策略权重（资金分配比例）
+	Name   string  `json:"name"`   // 策略显示名称
 }
 
 // BotDetailResponse Bot 詳情（含持倉、訂單等）

@@ -267,6 +267,24 @@ const BotList: React.FC = () => {
                       {bot.name || bot.symbol}
                     </Heading>
                     <Text fontSize="xs" color="gray.500">{bot.exchange} · {bot.symbol} ({bot.market_type})</Text>
+
+                    {/* 策略显示 */}
+                    {bot.strategies && bot.strategies.length > 0 && (
+                      <HStack spacing={1} mt={1} flexWrap="wrap">
+                        {bot.strategies.map((strategy, idx) => (
+                          <Badge
+                            key={idx}
+                            size="sm"
+                            variant="outline"
+                            fontSize="10px"
+                            colorScheme="blue"
+                          >
+                            {strategy.name} {strategy.weight > 0 && `(${Math.round(strategy.weight * 100)}%)`}
+                          </Badge>
+                        ))}
+                      </HStack>
+                    )}
+
                     {/* 间距、每单金额、投入资金 */}
                     <HStack spacing={3} mt={2} fontSize="xs" color="gray.600" flexWrap="wrap">
                       {(bot.price_interval != null && bot.price_interval > 0) && (

@@ -34,6 +34,9 @@ PriceMonitor 架構說明：
 type PriceChange struct {
 	OldPrice  float64
 	NewPrice  float64
+	HighPrice float64 // 时间窗口内的最高价
+	LowPrice  float64 // 时间窗口内的最低价
+	Volume    float64 // 成交量
 	Change    float64
 	Timestamp time.Time
 }
@@ -130,6 +133,40 @@ func (pm *PriceMonitor) updatePrice(newPrice float64) {
 		event := &PriceChange{
 			OldPrice:  oldPrice,
 			NewPrice:  newPrice,
+			Change:    change,
+			Timestamp: time.Now(),
+		}
+		pm.latestPriceChange.Store(event)
+	}
+}
+
+// UpdatePriceWithOHLCV 更新價格并带有 OHLCV 数据（用于波动率检测）
+func (pm *PriceMonitor) UpdatePriceWithOHLCV(price, high, low, volume float64) {
+	if price <= 0 {
+		return
+	}
+
+	oldPrice := pm.GetLastPrice()
+
+	// 存儲新價格
+	pm.lastPrice.Store(price)
+	pm.lastPriceStr.Store(fmt.Sprintf("%f", price))
+	pm.lastPriceTime.Store(time.Now())
+
+	// 記錄 Prometheus 指標
+	promMetrics := metrics.GetPrometheusMetrics()
+	promMetrics.SetCurrentPrice(pm.exchange.GetName(), pm.symbol, price)
+	promMetrics.RecordPriceUpdate(pm.exchange.GetName(), pm.symbol)
+
+	// 生成带有 OHLCV 数据的事件
+	if oldPrice > 0 {
+		change := price - oldPrice
+		event := &PriceChange{
+			OldPrice:  oldPrice,
+			NewPrice:  price,
+			HighPrice: high,
+			LowPrice:  low,
+			Volume:    volume,
 			Change:    change,
 			Timestamp: time.Now(),
 		}

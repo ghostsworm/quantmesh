@@ -145,6 +145,13 @@ export interface BotInfo {
   profit_spread?: number
   order_quantity?: number
   total_allocated_capital?: number
+  strategies?: BotStrategyInfo[] // 该 Bot 配置的策略列表
+}
+
+export interface BotStrategyInfo {
+  type: string // 策略类型，如 grid, dca, martingale
+  weight: number // 策略权重（资金分配比例）
+  name: string // 策略显示名称
 }
 
 export interface BotsResponse {

@@ -1,0 +1,205 @@
+# QuantMesh 波动率暂停开仓配置示例
+# 展示如何配置不同交易对的波动率检测和自动暂停开仓功能
+
+# ========== BTC 网格策略配置 ==========
+bot_name: "BTC网格-智能波动保护"
+
+trading:
+  exchange: "binance_spot"
+  symbol: "BTCUSDT"
+
+  # ========== 动态调整 ==========
+  dynamic_adjustment:
+    enabled: true
+
+    # 波动率区间检测（使用 BTC 预设）
+    volatility_detection:
+      enabled: true  # 启用后自动使用 BTC 内置预设
+      # BTC 预设: 低<1.5%, 正常<4.0%, 高<7.0%, 极端≥15.0%
+      # 如果想自定义，可以覆盖预设值：
+      # low_threshold: 1.5
+      # normal_threshold: 4.0
+      # high_threshold: 7.0
+      # extreme_threshold: 15.0
+
+  # ========== 网格策略参数 ==========
+  upper_price: 50000
+  lower_price: 40000
+  grid_count: 20
+  order_quantity: 100
+  price_interval: 500
+
+  # ========== 开仓管理（含波动率暂停）==========
+  open_position_control:
+    # Bot 独立风控配置
+    bot_risk_control:
+      enabled: true
+
+      # ========== 波动率暂停开仓配置 ==========
+      volatility_pause_enabled: true  # 启用波动率暂停开仓
+
+      volatility_pause_config:
+        # 基本暂停条件
+        pause_on_high_volatility: true     # 高波动时暂停开仓（推荐）
+        pause_on_extreme_volatility: true  # 极端波动时暂停开仓（强烈推荐）
+        pause_on_sudden_increase: true     # 波动率突然增加时暂停开仓（推荐）
+
+        # 策略方向过滤（根据策略和行情组合判断）
+        pause_on_downtrend: true   # 做多策略在高波动下跌行情中暂停开仓
+        pause_on_uptrend: false    # 做空策略在高波动上涨行情中暂停开仓（本策略是做多）
+
+        # 自动恢复
+        auto_resume_on_normal: true  # 波动率回归正常时自动恢复开仓
+        resume_threshold: 2.0        # 低于此波动率时恢复开仓（%）
+
+        # 趋势判断配置
+        trend_check_period: 15       # 趋势检查周期（分钟）
+        trend_down_threshold: 2.0    # 下跌趋势阈值（%）
+        trend_up_threshold: 2.0      # 上涨趋势阈值（%）
+
+# ========== 黄金 (PAXG) 网格策略配置 ==========
+# bot_name: "黄金网格-保守波动保护"
+#
+# trading:
+#   exchange: "binance_spot"
+#   symbol: "PAXGUSDT"
+#
+#   dynamic_adjustment:
+#     enabled: true
+#     volatility_detection:
+#       enabled: true  # 自动使用黄金预设
+#       # 黄金预设: 低<0.5%, 正常<1.5%, 高<3.0%, 极端≥6.0%
+#
+#   upper_price: 2800
+#   lower_price: 2500
+#   grid_count: 20
+#   order_quantity: 100
+#
+#   open_position_control:
+#     bot_risk_control:
+#       enabled: true
+#       volatility_pause_enabled: true
+#       volatility_pause_config:
+#         pause_on_high_volatility: true
+#         pause_on_extreme_volatility: true
+#         pause_on_downtrend: true   # 做多策略
+#         pause_on_uptrend: false
+#         auto_resume_on_normal: true
+
+# ========== ETH 网格策略配置 ==========
+# bot_name: "ETH网格-激进波动保护"
+#
+# trading:
+#   exchange: "binance_spot"
+#   symbol: "ETHUSDT"
+#
+#   dynamic_adjustment:
+#     enabled: true
+#     volatility_detection:
+#       enabled: true  # 自动使用 ETH 预设（与 BTC 相同）
+#
+#   upper_price: 3000
+#   lower_price: 2000
+#   grid_count: 20
+#   order_quantity: 50
+#
+#   open_position_control:
+#     bot_risk_control:
+#       enabled: true
+#       volatility_pause_enabled: true
+#       volatility_pause_config:
+#         pause_on_high_volatility: true
+#         pause_on_extreme_volatility: true
+#         pause_on_sudden_increase: true
+#         pause_on_downtrend: true
+#         auto_resume_on_normal: true
+
+# ========== 做空网格策略配置 ==========
+# bot_name: "BTC做空网格-波动保护"
+#
+# trading:
+#   exchange: "binance_futures"
+#   symbol: "BTCUSDT"
+#
+#   dynamic_adjustment:
+#     enabled: true
+#     volatility_detection:
+#       enabled: true
+#
+#   upper_price: 60000
+#   lower_price: 30000
+#   grid_count: 20
+#   order_quantity: 100
+#
+#   open_position_control:
+#     bot_risk_control:
+#       enabled: true
+#       volatility_pause_enabled: true
+#       volatility_pause_config:
+#         pause_on_high_volatility: true
+#         pause_on_extreme_volatility: true
+#         pause_on_downtrend: false  # 做空策略，不暂停下跌
+#         pause_on_uptrend: true    # 做空策略，高波动上涨时暂停开仓
+#         auto_resume_on_normal: true
+
+# ========== ========== ========== ==========
+# 使用场景说明
+# ========== ========== ========== ==========
+
+# 场景 1: 做多网格（常规）
+# - 配置: pause_on_downtrend: true, pause_on_uptrend: false
+# - 效果: 下跌行情中暂停开仓，避免"接飞刀"
+# - 适用: BTC/ETH 做多网格
+
+# 场景 2: 做空网格
+# - 配置: pause_on_downtrend: false, pause_on_uptrend: true
+# - 效果: 上涨行情中暂停开仓，避免逆势加仓
+# - 适用: 期货做空网格
+
+# 场景 3: 稳定币套利
+# - 配置: 使用稳定币预设（极低阈值）
+# - 效果: 在异常波动时及时保护
+# - 适用: USDT/BUSD 等稳定币对
+
+# 场景 4: Meme 币交易
+# - 配置: 启用所有保护机制
+# - 效果: 极端波动时立即暂停，避免大幅亏损
+# - 适用: DOGE/SHIB 等高波动品种
+
+# ========== ========== ========== ==========
+# AI Agent 配置示例
+# ========== ========== ========== ==========
+
+# 通过 AI Agent 聊天配置波动率检测：
+#
+# 用户: "帮我的 BTC 网格策略配置波动率检测"
+# Agent: "好的！我来为 BTCUSDT 配置波动率检测。
+#
+#        📊 使用 BTC 预设配置:
+#           - 低波动: < 1.5%
+#           - 正常波动: < 4.0%
+#           - 高波动: < 7.0%
+#           - 极端波动: ≥ 15.0%
+#
+#        💡 建议配置:
+#           ✓ 高波动时暂停开仓
+#           ✓ 极端波动时暂停开仓
+#           ✓ 做多策略在下跌时暂停开仓
+#           ✓ 波动率回归正常时自动恢复
+#
+#        是否应用此配置？"
+#
+# 用户: "好的，应用配置"
+# Agent: "✅ 配置已应用！波动率检测已启用，策略将受到保护。"
+
+# 用户: "我想为黄金配置更保守的阈值"
+# Agent: "好的！黄金 (PAXGUSDT) 使用保守配置：
+#
+#        📊 黄金预设:
+#           - 低波动: < 0.5%
+#           - 正常波动: < 1.5%
+#           - 高波动: < 3.0%
+#           - 极端波动: ≥ 6.0%
+#
+#        黄金波动相对温和，这些阈值可以提供及时保护。
+#        是否应用？"

@@ -601,6 +601,18 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				dynamicSL.GET("/stats", getDynamicStopLossStats)
 				dynamicSL.POST("/adjust", adjustStopLoss)
 			}
+
+			// AI Agent API
+			agent := protected.Group("/agent")
+			{
+				agent.POST("/sessions", createSession)
+				agent.POST("/sessions/:id/messages", sendMessage)
+				agent.GET("/sessions/:id/history", getSessionHistory)
+				agent.GET("/sessions/:id/config", getSessionConfig)
+				agent.POST("/sessions/:id/apply", applyConfig)
+				agent.DELETE("/sessions/:id", deleteSession)
+				agent.GET("/sessions/:id/ws", handleAgentWebSocket)
+			}
 		}
 
 		// 事件中心 API

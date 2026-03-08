@@ -756,6 +756,40 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 }
 
 // botManagerProviderAdapter 實現 web.BotManagerProvider
+// convertStrategies 将配置中的策略列表转换为 API 返回的格式
+func convertStrategies(strategies []config.StrategyInstance) []web.BotStrategyInfo {
+	if len(strategies) == 0 {
+		return nil
+	}
+	result := make([]web.BotStrategyInfo, len(strategies))
+	for i, s := range strategies {
+		result[i] = web.BotStrategyInfo{
+			Type:   s.Type,
+			Weight: s.Weight,
+			Name:   getStrategyDisplayName(s.Type),
+		}
+	}
+	return result
+}
+
+// getStrategyDisplayName 返回策略的显示名称
+func getStrategyDisplayName(strategyType string) string {
+	// 策略类型到显示名称的映射
+	strategyNames := map[string]string{
+		"grid":          "网格交易",
+		"dca":           "DCA定投",
+		"dca_enhanced":  "增强DCA",
+		"martingale":    "马丁格尔",
+		"trend_following": "趋势跟踪",
+		"mean_reversion":  "均值回归",
+		"combo":         "组合策略",
+	}
+	if name, ok := strategyNames[strategyType]; ok {
+		return name
+	}
+	return strategyType
+}
+
 type botManagerProviderAdapter struct {
 	manager *SymbolManager
 }
@@ -793,6 +827,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			ProfitSpread:          bc.ProfitSpread,
 			OrderQuantity:         bc.OrderQuantity,
 			TotalAllocatedCapital: bc.TotalAllocatedCapital,
+			Strategies:            convertStrategies(bc.Strategies),
 		}
 		if br, ok := runningMap[botID]; ok && br.Inner != nil {
 			resp.Running = true
