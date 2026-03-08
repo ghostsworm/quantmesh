@@ -63,6 +63,7 @@ import {
   UpdateBotStrategyRequest,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
+import { buildBacktestUrl } from '../utils/backtestUrl'
 import BotRiskControlPanel from './BotRiskControlPanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 
@@ -467,44 +468,6 @@ const BotDetail: React.FC = () => {
       />
     </Box>
   )
-}
-
-/** 构建跳转到全局回测页的 URL，预填 Bot 参数 */
-function buildBacktestUrl(bot: BotDetailInfo | null): string {
-  if (!bot?.exchange || !bot?.symbol) return '/backtest'
-  const cfg = bot.config as Record<string, unknown> | undefined
-  const openCtrl = cfg?.open_position_control as Record<string, unknown> | undefined
-  const strategies = cfg?.strategies as Array<{ type?: string; weight?: number; config?: Record<string, unknown> }> | undefined
-  const strategyType = strategies?.[0]?.type || 'grid'
-  const params = new URLSearchParams()
-  params.set('exchange', bot.exchange)
-  params.set('market_type', bot.market_type || 'futures')
-  params.set('symbol', bot.symbol)
-  params.set('strategy', strategyType)
-  if (bot.bot_id) params.set('bot_id', bot.bot_id)
-  if (strategies && strategies.length > 0) {
-    params.set('mode', 'bot_strategies')
-    params.set(
-      'strategies',
-      JSON.stringify(
-        strategies.map((strategy) => ({
-          type: strategy.type || 'grid',
-          weight: typeof strategy.weight === 'number' ? strategy.weight : 0,
-          config: strategy.config || {},
-        }))
-      )
-    )
-  }
-  params.set('days', '7')
-  const maxVal = openCtrl?.max_position_value
-  if (typeof maxVal === 'number' && maxVal > 0) params.set('total_capital', String(maxVal))
-  const priceInterval = cfg?.price_interval
-  if (typeof priceInterval === 'number' && priceInterval > 0) params.set('grid_spacing', String(priceInterval))
-  const orderQty = cfg?.order_quantity
-  if (typeof orderQty === 'number' && orderQty > 0) params.set('order_quantity', String(orderQty))
-  const profitSpread = cfg?.profit_spread
-  if (typeof profitSpread === 'number' && profitSpread > 0) params.set('profit_spread', String(profitSpread))
-  return `/backtest?${params.toString()}`
 }
 
 // BotBacktestPanel Bot 回测面板：展示参数并跳转全局回测
