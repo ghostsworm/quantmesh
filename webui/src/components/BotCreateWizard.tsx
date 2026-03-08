@@ -475,7 +475,9 @@ const BotCreateWizard: React.FC = () => {
                 <FormLabel>{t('botCreate.orderQuantity')}</FormLabel>
                 <NumberInput
                   value={form.order_quantity ?? 30}
-                  min={1}
+                  min={0.01}
+                  step={0.01}
+                  precision={2}
                   onChange={(_, v) => setForm((f) => ({ ...f, order_quantity: v }))}
                 >
                   <NumberInputField />
@@ -485,7 +487,9 @@ const BotCreateWizard: React.FC = () => {
                 <FormLabel>{t('botCreate.buyWindowSize')}</FormLabel>
                 <NumberInput
                   value={form.buy_window_size ?? 10}
-                  min={1}
+                  min={0.01}
+                  step={0.01}
+                  precision={2}
                   onChange={(_, v) => setForm((f) => ({ ...f, buy_window_size: v }))}
                 >
                   <NumberInputField />
@@ -495,7 +499,9 @@ const BotCreateWizard: React.FC = () => {
                 <FormLabel>{t('botCreate.sellWindowSize')}</FormLabel>
                 <NumberInput
                   value={form.sell_window_size ?? 10}
-                  min={1}
+                  min={0.01}
+                  step={0.01}
+                  precision={2}
                   onChange={(_, v) => setForm((f) => ({ ...f, sell_window_size: v }))}
                 >
                   <NumberInputField />
