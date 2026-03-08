@@ -205,6 +205,8 @@ export default function BacktestMenu() {
   const [taskStrategies, setTaskStrategies] = useState<Array<{ type: string; weight: number; config?: Record<string, unknown> }>>([])
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [totalCapital, setTotalCapital] = useState(10000)
+  const [leverage, setLeverage] = useState(1) // 杠杆倍数
+  const [maxCapitalRatio, setMaxCapitalRatio] = useState(1) // 最大资金占用比例
   const urlParamsApplied = useRef(false)
   
   // 数据来源相关状态
@@ -815,14 +817,16 @@ export default function BacktestMenu() {
           strategies: hasMultiStrategies ? taskStrategies.map((s) => ({ ...s, config: s.config ? normalizeParamsForApi(s.config as Record<string, unknown>) : {} })) : undefined,
           symbol, 
           interval, 
-          start_time: new Date(startDate).toISOString(), 
+          start_time: new Date(startDate).toISOString(),
           end_time: (() => {
             const end = new Date(endDate)
             end.setHours(23, 59, 59, 999)
             return end.toISOString()
           })(),
-          total_capital: totalCapital, 
-          params: Object.keys(params).length ? normalizeParamsForApi(params) : undefined 
+          total_capital: totalCapital,
+          leverage: leverage,
+          max_capital_ratio: maxCapitalRatio,
+          params: Object.keys(params).length ? normalizeParamsForApi(params) : undefined
         }
 
     postBacktestTask(payload)
@@ -1379,6 +1383,44 @@ export default function BacktestMenu() {
                     </NumberInput>
                     <Text fontSize="xs" color="gray.500" mt={1}>{t('backtest.totalCapitalHint')}</Text>
                   </FormControl>
+
+                  {/* 杠杆和最大资金占用设置 */}
+                  <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4} mb={4}>
+                    <FormControl>
+                      <FormLabel fontSize="sm">{t('backtest.leverage')}</FormLabel>
+                      <NumberInput
+                        value={leverage}
+                        min={1}
+                        max={20}
+                        step={1}
+                        onChange={(_: string, v: number) => setLeverage(v)}
+                      >
+                        <NumberInputField />
+                      </NumberInput>
+                      <Text fontSize="xs" color="gray.500" mt={1}>{t('backtest.leverageHint')}</Text>
+                    </FormControl>
+
+                    <FormControl>
+                      <FormLabel fontSize="sm">{t('backtest.maxCapitalRatio')}</FormLabel>
+                      <HStack>
+                        <Slider
+                          flex={1}
+                          value={maxCapitalRatio * 100}
+                          min={10}
+                          max={100}
+                          step={5}
+                          onChange={(v) => setMaxCapitalRatio(v / 100)}
+                        >
+                          <SliderTrack>
+                            <SliderFilledTrack />
+                          </SliderTrack>
+                          <SliderThumb fontSize="sm" boxSize="16px" children={`${Math.round(maxCapitalRatio * 100)}%`} />
+                        </Slider>
+                        <Text fontSize="sm" w="60px" textAlign="right">{Math.round(maxCapitalRatio * 100)}%</Text>
+                      </HStack>
+                      <Text fontSize="xs" color="gray.500" mt={1}>{t('backtest.maxCapitalRatioHint', { maxCapital: Math.round(totalCapital * maxCapitalRatio) })}</Text>
+                    </FormControl>
+                  </SimpleGrid>
 
                   {/* 策略模式选择 */}
                   <FormControl mb={3}>

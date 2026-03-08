@@ -83,6 +83,8 @@ type BacktestTask struct {
 	EndTime         time.Time                   `json:"end_time"`
 	Params          map[string]interface{}      `json:"params"`
 	TotalCapital    float64                     `json:"total_capital"`
+	Leverage        float64                     `json:"leverage"`         // 杠杆倍数 (1-20)
+	MaxCapitalRatio float64                     `json:"max_capital_ratio"` // 最大资金占用比例 (0.1-1.0, 如 0.2 表示最多用 20%)
 	Progress        int                         `json:"progress"` // 0-100
 	CreatedAt       time.Time                   `json:"created_at"`
 	StartedAt       *time.Time                  `json:"started_at,omitempty"`

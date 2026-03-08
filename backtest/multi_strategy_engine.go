@@ -52,18 +52,19 @@ type MultiStrategyEngine struct {
 
 // EngineConfig 引擎配置
 type EngineConfig struct {
-	Symbol         string
-	InitialCapital float64
-	CommissionRate float64 // 手续費率
-	Leverage       float64 // 杠杆倍数
-	StartDate      time.Time
-	EndDate        time.Time
-	PositionMode   string  // "long_only", "short_only", "both"
-	MaxLongRatio   float64 // 最大多头倉位比例
-	MaxShortRatio  float64 // 最大空头倉位比例
-	EnableFunding  bool    // 是否启用資金費率
-	DataDir        string  // 數據目錄
-	MatcherConfig  MatcherConfig
+	Symbol          string
+	InitialCapital  float64
+	CommissionRate  float64 // 手续費率
+	Leverage        float64 // 杠杆倍数
+	MaxCapitalRatio float64 // 最大资金占用比例 (0.1-1.0)
+	StartDate       time.Time
+	EndDate         time.Time
+	PositionMode    string  // "long_only", "short_only", "both"
+	MaxLongRatio    float64 // 最大多头倉位比例
+	MaxShortRatio   float64 // 最大空头倵位比例
+	EnableFunding   bool    // 是否启用資金費率
+	DataDir         string  // 數據目錄
+	MatcherConfig   MatcherConfig
 }
 
 // BacktestStrategy 回测策略接口
@@ -97,6 +98,7 @@ type BacktestAccount struct {
 	InitialBalance   float64
 	AllocatedCapital float64
 	Leverage         float64
+	MaxCapital       float64 // 最大可用資金（考慮 max_capital_ratio）
 
 	// 當前狀態
 	mu                 sync.RWMutex
@@ -213,12 +215,22 @@ func NewMultiStrategyEngine(cfg *EngineConfig) *MultiStrategyEngine {
 }
 
 // NewBacktestAccount 創建回测帳戶
-func NewBacktestAccount(symbol string, initialBalance, leverage float64) *BacktestAccount {
+func NewBacktestAccount(symbol string, initialBalance, leverage, maxCapitalRatio float64) *BacktestAccount {
+	// 計算最大可用資金
+	maxCapital := initialBalance * maxCapitalRatio
+	if maxCapital > initialBalance {
+		maxCapital = initialBalance
+	}
+	if maxCapital <= 0 {
+		maxCapital = initialBalance
+	}
+
 	return &BacktestAccount{
 		Symbol:             symbol,
 		InitialBalance:     initialBalance,
 		AllocatedCapital:   initialBalance,
 		Leverage:           leverage,
+		MaxCapital:         maxCapital, // 最大可用資金
 		Balance:            initialBalance,
 		Equity:             initialBalance,
 		PeakEquity:         initialBalance,
@@ -243,7 +255,7 @@ func (e *MultiStrategyEngine) AddStrategy(strategy BacktestStrategy) error {
 	if accountID == "" {
 		accountID = strategyAccountID(strategyID)
 	}
-	account := NewBacktestAccount(e.Config.Symbol, initialCapital, e.Config.Leverage)
+	account := NewBacktestAccount(e.Config.Symbol, initialCapital, e.Config.Leverage, e.Config.MaxCapitalRatio)
 	account.AccountID = accountID
 	account.StrategyID = strategyID
 	account.StrategyName = strategyName

@@ -292,8 +292,14 @@ func (s *GridBacktestStrategy) initializeGrid(price float64) {
 	s.centerPrice = price
 	s.gridOrders = make(map[float64]TickOrder)
 
-	// 計算每格資金
-	capitalPerLevel := s.TotalCapital / float64(s.GridCount)
+	// 使用最大可用資金而不是總資金
+	maxCapital := s.TotalCapital
+	if s.account != nil && s.account.MaxCapital > 0 {
+		maxCapital = s.account.MaxCapital
+	}
+
+	// 計算每格資金（基于最大可用資金）
+	capitalPerLevel := maxCapital / float64(s.GridCount)
 
 	// 生成网格訂單
 	for i := 0; i < s.GridCount; i++ {
@@ -305,8 +311,12 @@ func (s *GridBacktestStrategy) initializeGrid(price float64) {
 			continue
 		}
 
-		// 計算訂單數量
-		orderSize := (capitalPerLevel * float64(s.GridLeverage)) / gridPrice
+		// 計算訂單數量（使用帳戶的杠杆）
+		effectiveLeverage := float64(s.GridLeverage)
+		if s.account != nil && s.account.Leverage > 0 {
+			effectiveLeverage = s.account.Leverage
+		}
+		orderSize := (capitalPerLevel * effectiveLeverage) / gridPrice
 
 		var order TickOrder
 		orderID := fmt.Sprintf("%s_%d", s.Name, i)
