@@ -1967,7 +1967,7 @@ export default function BacktestMenu() {
                               <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.strategyLabel')}</Text><Text fontWeight="600">{strategyCount}</Text></Box>
                               <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endUsdt')}</Text><Text fontWeight="600">{multi.final_equity?.toFixed(4) ?? '-'}</Text></Box>
                               <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalCapital')}</Text><Text fontWeight="600">{multi.initial_capital?.toFixed(4) ?? '-'}</Text></Box>
-                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.feeRate')}</Text><Text fontWeight="600">{multi.total_fees?.toFixed(4) ?? '-'}</Text></Box>
+                              <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalFees')}</Text><Text fontWeight="600">{multi.total_fees?.toFixed(4) ?? '-'}</Text></Box>
                               <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.fundingRate')}</Text><Text fontWeight="600">{multi.total_funding?.toFixed(4) ?? '-'}</Text></Box>
                               <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.winRate')}</Text><Text fontWeight="600">{multi.risk_metrics?.win_rate?.toFixed(4) ?? '-'}%</Text></Box>
                             </SimpleGrid>
