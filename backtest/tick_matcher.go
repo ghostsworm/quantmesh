@@ -49,6 +49,7 @@ type TickOrder struct {
 	AccountID  string
 	GridLevel  int  // 网格层级（仅网格策略使用）
 	IsGrid     bool // 是否为网格訂單
+	IsRiskCtrl bool // 是否为风控訂單
 }
 
 // TickTrade 成交記錄

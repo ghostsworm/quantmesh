@@ -108,6 +108,7 @@ type BacktestAccount struct {
 	MarginUsed         float64 // 已用保证金
 	Equity             float64 // 權益
 	PeakEquity         float64 // 歷史最高權益
+	lastPrice          float64 // 最後價格
 
 	// 統計
 	TotalVolume      float64
@@ -115,6 +116,27 @@ type BacktestAccount struct {
 	TotalSlippage    float64
 	Liquidated       bool
 	LiquidationPrice float64
+}
+
+// GetLastPrice 獲取最後價格
+func (a *BacktestAccount) GetLastPrice() float64 {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.lastPrice
+}
+
+// SetLastPrice 設置最後價格
+func (a *BacktestAccount) SetLastPrice(price float64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.lastPrice = price
+}
+
+// Cash 獲取可用現金（別名）
+func (a *BacktestAccount) Cash() float64 {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.Balance
 }
 
 // StrategyStats 策略統計
@@ -486,6 +508,9 @@ func (e *MultiStrategyEngine) reset() {
 func (e *MultiStrategyEngine) updateEquity(runtime *StrategyRuntime, kline TickKline) {
 	runtime.account.mu.Lock()
 	defer runtime.account.mu.Unlock()
+
+	// 更新最後價格
+	runtime.account.lastPrice = kline.Close
 
 	// 計算未實現盈亏
 	if runtime.account.PositionSize != 0 {

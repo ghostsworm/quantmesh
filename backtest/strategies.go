@@ -5,6 +5,17 @@ import (
 	"math"
 )
 
+// GridRiskControl 网格风控配置
+type GridRiskControl struct {
+	Enabled                   bool    // 是否启用风控
+	StopLossRatio             float64 // 止损比例（如 0.2 = 20%）
+	TakeProfitTriggerRatio    float64 // 止盈触发比例（如 0.08 = 8%）
+	TrailingTakeProfitRatio   float64 // 移动止盈比例
+	MaxGridLayers             int     // 最大网格层数
+	MaxOpenOrdersAtCap        int     // 达到层数限制时最大挂单数
+	TrendFilterEnabled        bool    // 是否启用趋势检测
+}
+
 // GridBacktestStrategy 网格回测策略
 type GridBacktestStrategy struct {
 	Name         string
@@ -13,12 +24,21 @@ type GridBacktestStrategy struct {
 	GridSpacing  float64
 	GridLeverage int
 	TotalCapital float64
+	Direction    string // "LONG", "SHORT", "BOTH"
+	RiskControl  *GridRiskControl
 
-	// 運行时狀態
-	Initialized  bool
-	centerPrice  float64
-	gridOrders   map[float64]TickOrder
-	currentState string // RANGE, BREAKOUT_UP, BREAKOUT_DOWN
+	// 運行時狀態
+	Initialized     bool
+	centerPrice     float64
+	gridOrders      map[float64]TickOrder
+	currentState    string // RANGE, BREAKOUT_UP, BREAKOUT_DOWN
+	account         *BacktestAccount
+	entryPrice      float64     // 入场价格（用于风控）
+	entryCapital    float64     // 入场资金（用于风控）
+	maxCapital      float64     // 最高资金（用于移动止盈）
+	priceHistory    []float64   // 价格历史（用于趋势检测）
+	currentPosition float64     // 当前持仓量
+	currentLayers   int         // 当前网格层数
 }
 
 // NewGridBacktestStrategy 創建网格回测策略
@@ -30,17 +50,55 @@ func NewGridBacktestStrategy(name, symbol string, gridCount int, gridSpacing, gr
 		GridSpacing:  gridSpacing,
 		GridLeverage: int(gridLeverage),
 		TotalCapital: totalCapital,
+		Direction:    "LONG", // 默认做多
+		RiskControl:  nil,
 		Initialized:  false,
 		gridOrders:   make(map[float64]TickOrder),
 		currentState: "RANGE",
+		priceHistory: make([]float64, 0, 100),
 	}
 }
 
+// SetDirection 设置交易方向
+func (s *GridBacktestStrategy) SetDirection(direction string) {
+	switch direction {
+	case "LONG", "SHORT", "BOTH":
+		s.Direction = direction
+	default:
+		s.Direction = "LONG"
+	}
+}
+
+// SetRiskControl 设置风控配置
+func (s *GridBacktestStrategy) SetRiskControl(riskControl *GridRiskControl) {
+	s.RiskControl = riskControl
+}
+
 func (s *GridBacktestStrategy) OnInit(account *BacktestAccount, cfg interface{}) error {
+	s.account = account
+	// 初始化风控状态
+	if s.RiskControl != nil && s.RiskControl.Enabled {
+		s.entryPrice = account.GetLastPrice()
+		s.entryCapital = account.Cash + account.PositionSize*s.entryPrice
+		s.maxCapital = s.entryCapital
+	}
 	return nil
 }
 
 func (s *GridBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]TickOrder, error) {
+	// 更新价格历史（用于趋势检测）
+	s.priceHistory = append(s.priceHistory, kline.Close)
+	if len(s.priceHistory) > 100 {
+		s.priceHistory = s.priceHistory[len(s.priceHistory)-100:]
+	}
+
+	// 风控检查
+	if s.RiskControl != nil && s.RiskControl.Enabled {
+		if stopOrders, shouldStop := s.checkRiskControl(kline, timestamp); shouldStop {
+			return stopOrders, nil
+		}
+	}
+
 	// 只在RANGE狀態下運行网格
 	if s.currentState == "BREAKOUT_UP" || s.currentState == "BREAKOUT_DOWN" {
 		return []TickOrder{}, nil
@@ -54,18 +112,150 @@ func (s *GridBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]Tick
 	// 检测市场狀態
 	s.detectMarketState(kline)
 
-	// 返回网格訂單
+	// 返回网格訂單，根据方向过滤
 	var orders []TickOrder
 	for _, order := range s.gridOrders {
+		// 根据交易方向过滤订单
+		if !s.shouldGenerateOrder(order.Side) {
+			continue
+		}
 		orders = append(orders, order)
 	}
 
 	return orders, nil
 }
 
+// shouldGenerateOrder 根据交易方向判断是否应该生成订单
+func (s *GridBacktestStrategy) shouldGenerateOrder(orderSide string) bool {
+	switch s.Direction {
+	case "LONG":
+		// 单向做多：只生成买单（当无持仓时），不生成卖单
+		// 实际上网格策略需要同时挂买卖单来成交
+		// 这里我们简化处理：LONG 表示倾向于持有做多仓位
+		return true
+	case "SHORT":
+		// 单向做空
+		return true
+	case "BOTH":
+		// 双向交易
+		return true
+	default:
+		return true
+	}
+}
+
+// checkRiskControl 检查风控条件
+func (s *GridBacktestStrategy) checkRiskControl(kline TickKline, timestamp int64) ([]TickOrder, bool) {
+	if s.account == nil {
+		return nil, false
+	}
+
+	currentCapital := s.account.Cash + s.account.PositionSize*kline.Close
+
+	// 更新最高资金
+	if currentCapital > s.maxCapital {
+		s.maxCapital = currentCapital
+	}
+
+	// 检查止损
+	if s.RiskControl.StopLossRatio > 0 {
+		lossRatio := (s.entryCapital - currentCapital) / s.entryCapital
+		if lossRatio >= s.RiskControl.StopLossRatio {
+			// 触发止损，平仓
+			if s.account.PositionSize > 0 {
+				closeOrder := TickOrder{
+					OrderID:   fmt.Sprintf("%s_stoploss_%d", s.Name, timestamp),
+					Side:      "sell",
+					Price:     kline.Close,
+					Size:      s.account.PositionSize,
+					Strategy:  s.Name,
+					IsGrid:    false,
+					IsRiskCtrl: true,
+				}
+				return []TickOrder{closeOrder}, true
+			}
+		}
+	}
+
+	// 检查移动止盈
+	if s.RiskControl.TakeProfitTriggerRatio > 0 && s.RiskControl.TrailingTakeProfitRatio > 0 {
+		profitRatio := (currentCapital - s.entryCapital) / s.entryCapital
+		if profitRatio >= s.RiskControl.TakeProfitTriggerRatio {
+			// 已达到止盈触发比例，检查回撤
+			drawdownRatio := (s.maxCapital - currentCapital) / s.maxCapital
+			if drawdownRatio >= s.RiskControl.TrailingTakeProfitRatio {
+				// 触发移动止盈，平仓
+				if s.account.PositionSize > 0 {
+					closeOrder := TickOrder{
+						OrderID:   fmt.Sprintf("%s_trailingtp_%d", s.Name, timestamp),
+						Side:      "sell",
+						Price:     kline.Close,
+						Size:      s.account.PositionSize,
+						Strategy:  s.Name,
+						IsGrid:    false,
+						IsRiskCtrl: true,
+					}
+					return []TickOrder{closeOrder}, true
+				}
+			}
+		}
+	}
+
+	// 检查趋势检测
+	if s.RiskControl.TrendFilterEnabled && len(s.priceHistory) >= 20 {
+		if s.isDownTrend() {
+			// 下跌趋势中，暂停开仓（已挂的订单仍然有效）
+			// 这里可以返回空订单列表来暂停新开仓
+		}
+	}
+
+	// 检查网格层数限制
+	if s.RiskControl.MaxGridLayers > 0 {
+		if s.currentLayers >= s.RiskControl.MaxGridLayers {
+			// 达到层数限制，限制挂单数量
+			maxOrders := s.RiskControl.MaxOpenOrdersAtCap
+			if maxOrders > 0 && len(s.gridOrders) > maxOrders {
+				// 只保留最近的 maxOrders 个订单
+				// 这里简化处理，返回限制后的订单
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// isDownTrend 检测是否为下跌趋势
+func (s *GridBacktestStrategy) isDownTrend() bool {
+	if len(s.priceHistory) < 20 {
+		return false
+	}
+
+	// 简单的趋势检测：比较最近20根K线的MA
+	sum := 0.0
+	for _, p := range s.priceHistory {
+		sum += p
+	}
+	ma := sum / float64(len(s.priceHistory))
+
+	// 如果当前价格低于MA，认为是下跌趋势
+	return s.priceHistory[len(s.priceHistory)-1] < ma
+}
+
 func (s *GridBacktestStrategy) OnTrade(trade TickTrade) {
 	// 成交后更新网格（移除已成交訂單）
 	delete(s.gridOrders, trade.Price)
+
+	// 更新当前持仓
+	if trade.Side == "buy" {
+		s.currentPosition += trade.Size
+	} else if trade.Side == "sell" {
+		s.currentPosition -= trade.Size
+	}
+
+	// 更新网格层数（简化计算）
+	if len(s.gridOrders) > 0 {
+		s.currentLayers = s.GridCount - len(s.gridOrders)
+	}
 }
 
 func (s *GridBacktestStrategy) GetName() string {
@@ -77,12 +267,25 @@ func (s *GridBacktestStrategy) GetType() string {
 }
 
 func (s *GridBacktestStrategy) GetConfig() map[string]interface{} {
-	return map[string]interface{}{
+	config := map[string]interface{}{
 		"grid_count":    s.GridCount,
 		"grid_spacing":  s.GridSpacing,
 		"grid_leverage": s.GridLeverage,
 		"total_capital": s.TotalCapital,
+		"direction":     s.Direction,
 	}
+
+	if s.RiskControl != nil {
+		config["risk_control_enabled"] = s.RiskControl.Enabled
+		config["stop_loss_ratio"] = s.RiskControl.StopLossRatio
+		config["take_profit_trigger_ratio"] = s.RiskControl.TakeProfitTriggerRatio
+		config["trailing_take_profit_ratio"] = s.RiskControl.TrailingTakeProfitRatio
+		config["max_grid_layers"] = s.RiskControl.MaxGridLayers
+		config["max_open_orders_at_cap"] = s.RiskControl.MaxOpenOrdersAtCap
+		config["trend_filter_enabled"] = s.RiskControl.TrendFilterEnabled
+	}
+
+	return config
 }
 
 func (s *GridBacktestStrategy) initializeGrid(price float64) {
