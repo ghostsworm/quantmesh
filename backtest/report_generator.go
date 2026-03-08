@@ -1033,6 +1033,8 @@ type MultiStrategyReportData struct {
 	WinRate        float64                     `json:"win_rate"`
 	Strategies     []MultiStrategyReportItem   `json:"strategies"`
 	ParamsTable    []ReportParamRow            `json:"params_table"`
+	Leverage       float64                     `json:"leverage"`         // 杠杆倍数
+	MaxCapitalRatio float64                    `json:"max_capital_ratio"` // 最大资金占用比例 (0.1-1.0)
 }
 
 // MultiStrategyReportItem 多策略報告中的單個策略項
@@ -1083,6 +1085,22 @@ func GenerateMultiStrategyReportToFile(result *MultiStrategyResult, reportPath s
 		SharpeRatio:    result.RiskMetrics.SharpeRatio,
 		WinRate:        result.RiskMetrics.WinRate,
 		ParamsTable:    paramsTable,
+		Leverage:        result.Leverage,
+		MaxCapitalRatio: result.MaxCapitalRatio,
+	}
+
+	// 添加杠杆和资金占用到参数表
+	if data.Leverage > 0 {
+		paramsTable = append(paramsTable, ReportParamRow{
+			Key:   "杠杆倍数",
+			Value: fmt.Sprintf("%.0fx", data.Leverage),
+		})
+	}
+	if data.MaxCapitalRatio > 0 && data.MaxCapitalRatio < 1 {
+		paramsTable = append(paramsTable, ReportParamRow{
+			Key:   "最大资金占用",
+			Value: fmt.Sprintf("%.0f%%", data.MaxCapitalRatio*100),
+		})
 	}
 
 	// 構建各策略統計
