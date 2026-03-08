@@ -3,6 +3,9 @@ import { Link as RouterLink } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import './Footer.css'
 
+// 从 package.json 导入版本号（在构建时会被 Vite 替换）
+const APP_VERSION = __APP_VERSION__ || '3.62.1-rc1'
+
 const Footer: React.FC = () => {
   const { t } = useTranslation()
   const year = new Date().getFullYear()
@@ -12,7 +15,7 @@ const Footer: React.FC = () => {
       <div className="app-footer-content">
         <div className="app-footer-section">
           <p className="app-footer-copyright">
-            {t('footer.copyright', { year })}
+            {t('footer.copyright', { year, version: APP_VERSION })}
           </p>
           <div className="app-footer-links">
             <RouterLink to="/terms" className="app-footer-link">{t('footer.terms')}</RouterLink>
