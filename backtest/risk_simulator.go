@@ -11,6 +11,7 @@ import (
 type RiskSimulatorConfig struct {
 	VolumeMultiplier   float64 `json:"volume_multiplier"`    // 成交量异常倍数（預設3.0）
 	AverageWindow      int     `json:"average_window"`       // 移动平均窗口（預設20）
+	Direction          string  `json:"direction"`            // LONG/SHORT/BOTH，影響風控觸發方向
 	// 深度风控参数
 	MinDepthUSDT       float64 `json:"min_depth_usdt"`       // 最小深度阈值(USDT)，預設 10000
 	DepthDropThreshold float64 `json:"depth_drop_threshold"` // 深度下降阈值，預設 0.5
@@ -63,6 +64,9 @@ func NewRiskSimulator(cfg *RiskSimulatorConfig) *RiskSimulator {
 		if cfg.DepthWindow > 0 {
 			c.DepthWindow = cfg.DepthWindow
 		}
+		if cfg.Direction != "" {
+			c.Direction = cfg.Direction
+		}
 	}
 	return &RiskSimulator{
 		cfg:           c,
@@ -113,12 +117,22 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 	avgPrice := totalPrice / float64(validCount)
 	avgVol := totalVol / float64(validCount)
 
-	priceBelowMA := currentCandle.Close < avgPrice
 	volSpike := currentCandle.Volume > avgVol*r.cfg.VolumeMultiplier
+	volNormal := currentCandle.Volume < avgVol*r.cfg.VolumeMultiplier
 
-	// 传统风控：價格低于均价 且 成交量放大
-	tradPriceVolRisk := priceBelowMA && volSpike
-	tradPriceVolRecover := currentCandle.Close > avgPrice && currentCandle.Volume < avgVol*r.cfg.VolumeMultiplier
+	// 根據方向決定風控觸發條件：
+	// LONG：價格低於均價 + 放量 → 可能繼續下跌，暫停買入
+	// SHORT：價格高於均價 + 放量 → 可能繼續上漲，暫停開空
+	var tradPriceVolRisk, tradPriceVolRecover bool
+	if r.cfg.Direction == "SHORT" {
+		priceAboveMA := currentCandle.Close > avgPrice
+		tradPriceVolRisk = priceAboveMA && volSpike
+		tradPriceVolRecover = currentCandle.Close < avgPrice && volNormal
+	} else {
+		priceBelowMA := currentCandle.Close < avgPrice
+		tradPriceVolRisk = priceBelowMA && volSpike
+		tradPriceVolRecover = currentCandle.Close > avgPrice && volNormal
+	}
 
 	// 深度风控檢查
 	depthRisk := false
@@ -222,7 +236,11 @@ func (r *RiskSimulator) Check(candles []*exchange.Candle, candleIndex int) (skip
 		} else {
 			priceDeviation := (currentCandle.Close - avgPrice) / avgPrice * 100
 			volRatio := currentCandle.Volume / avgVol
-			reason = fmt.Sprintf("價格%.2f%%低於均線/量×%.1f", priceDeviation, volRatio)
+			deviationLabel := "低於均線"
+			if r.cfg.Direction == "SHORT" {
+				deviationLabel = "高於均線"
+			}
+			reason = fmt.Sprintf("價格%.2f%%%s/量×%.1f", priceDeviation, deviationLabel, volRatio)
 			riskType = "volume_spike"
 		}
 		

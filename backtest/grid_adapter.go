@@ -66,18 +66,25 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		return nil, fmt.Errorf("price_high must be greater than price_low")
 	}
 
+	direction := normalizeGridDirection(params.Direction)
+	isShort := direction == "SHORT"
+
 	var gridLevels []float64
 	if params.GridSpacing > 0 {
-		gridLevels = buildGridLevelsBySpacing(priceLow, priceHigh, params.GridSpacing, params.GridCount)
+		switch direction {
+		case "SHORT":
+			gridLevels = buildGridLevelsBySpacingFromHigh(priceLow, priceHigh, params.GridSpacing, params.GridCount)
+		case "BOTH":
+			gridLevels = buildGridLevelsBySpacing(priceLow, priceHigh, params.GridSpacing, 0)
+		default:
+			gridLevels = buildGridLevelsBySpacing(priceLow, priceHigh, params.GridSpacing, params.GridCount)
+		}
 	} else {
 		gridLevels = buildGridLevels(priceLow, priceHigh, params.GridCount)
 	}
 	if len(gridLevels) == 0 {
 		return nil, fmt.Errorf("no grid levels (set grid_spacing or grid_count)")
 	}
-
-	direction := normalizeGridDirection(params.Direction)
-	isShort := direction == "SHORT"
 
 	cash := initialCapital
 	positions := make(map[float64]float64) // LONG: level->持倉量；SHORT: level->空頭量
@@ -329,6 +336,28 @@ func buildGridLevels(low, high float64, gridCount int) []float64 {
 		if p > 0 {
 			levels = append(levels, roundPrice(p, 8))
 		}
+	}
+	sort.Float64s(levels)
+	return levels
+}
+
+// buildGridLevelsBySpacingFromHigh 從上限往下按間距生成檔位，用於 SHORT 方向
+// 做空需要在高位開倉，因此從 priceHigh 往下構建，確保檔位覆蓋價格高位區間
+func buildGridLevelsBySpacingFromHigh(low, high, spacing float64, maxCount int) []float64 {
+	if spacing <= 0 {
+		return nil
+	}
+	var levels []float64
+	for p := high; p >= low-1e-9; p -= spacing {
+		if p > 0 {
+			levels = append(levels, roundPrice(p, 8))
+		}
+		if maxCount > 0 && len(levels) >= maxCount {
+			break
+		}
+	}
+	if len(levels) == 0 && high > 0 {
+		levels = append(levels, roundPrice(high, 8))
 	}
 	sort.Float64s(levels)
 	return levels
