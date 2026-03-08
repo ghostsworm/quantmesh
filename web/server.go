@@ -605,6 +605,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// AI Agent API
 			agent := protected.Group("/agent")
 			{
+				agent.GET("/sessions", listSessions)
 				agent.POST("/sessions", createSession)
 				agent.POST("/sessions/:id/messages", sendMessage)
 				agent.GET("/sessions/:id/history", getSessionHistory)
@@ -640,6 +641,13 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		r.StaticFS("/icons", iconsFS)
 	}
 
+	// 共享目錄（AI 生成的图片、视频等）
+	if cfg != nil && cfg.Web.SharedDir != "" {
+		sharedDir := cfg.Web.SharedDir
+		r.Static("/shared", sharedDir)
+		logger.Info("✅ 共享目錄已啟用: %s -> /shared", sharedDir)
+	}
+
 	// PWA 相关静態文件（Service Worker、Manifest 等）
 	// 这些文件需要從根路径访问
 	pwaFiles := map[string]string{
@@ -669,7 +677,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
 		// 跳過 API 和 WebSocket 路径
-		if strings.HasPrefix(path, "/api") || strings.HasPrefix(path, "/ws") {
+		if strings.HasPrefix(path, "/api") || strings.HasPrefix(path, "/ws") || strings.HasPrefix(path, "/shared") {
 			c.Status(http.StatusNotFound)
 			return
 		}

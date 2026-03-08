@@ -29,14 +29,16 @@ export interface StrategyProfit {
   strategyId: string
   strategyName: string
   strategyType: string
-  totalProfit: number
+  totalProfit: number          // 网格方式盈亏
+  exchangeTotalProfit: number  // 交易所方式盈亏
   todayProfit: number
   unrealizedProfit: number
   realizedProfit: number
   withdrawnProfit: number
   availableToWithdraw: number
   tradeCount: number
-  winRate: number
+  winRate: number            // 网格方式胜率
+  exchangeWinRate: number    // 交易所方式胜率
   avgProfitPerTrade: number
   lastTradeAt?: string
 }

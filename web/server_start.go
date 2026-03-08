@@ -48,7 +48,23 @@ func NewWebServer(cfg *config.Config) *WebServer {
 	// 添加 i18n 中间件
 	r.Use(I18nMiddleware())
 
-	// 設置路由（傳入配置以便 pprof 可以读取配置）
+	// 初始化 AI Agent Manager
+	if cfg.Web.AI.LLMAPIKey != "" && cfg.Web.AI.LLMProvider != "" {
+		err := InitAgentManager(AgentManagerConfig{
+			LLMProvider: cfg.Web.AI.LLMProvider,
+			LLMAPIKey:   cfg.Web.AI.LLMAPIKey,
+			LLMModel:    cfg.Web.AI.LLMModel,
+		})
+		if err != nil {
+			logger.Warn("⚠️ AI Agent Manager 初始化失败: %v", err)
+		} else {
+			logger.Info("✅ AI Agent Manager 初始化成功")
+		}
+	} else {
+		logger.Info("ℹ️ AI Agent 未配置（需要在 web.ai 中设置 llm_provider 和 llm_api_key）")
+	}
+
+	// 設置路由（傳入配置以便 pprof 可以讀取配置）
 	SetupRoutesWithConfig(r, cfg)
 
 	// 配置服務器

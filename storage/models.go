@@ -44,8 +44,9 @@ type Trade struct {
 	BuyPrice        float64
 	SellPrice       float64
 	Quantity        float64
-	PnL             float64
-	Fee             float64 // 手續費（買+賣合計）
+	PnL             float64  // 网格方式盈亏（sell_price - buy_level）* quantity
+	ExchangePnL     float64  // 交易所方式盈亏（average cost basis）
+	Fee             float64  // 手續費（買+賣合計）
 	FeeAsset        string  // 手續費幣種
 	BuyPriceDeviation  float64 // 🔥 買入價格偏差（實際買入價 - 委託買入價，USDT）
 	SellPriceDeviation float64 // 🔥 賣出價格偏差（實際賣出價 - 委託賣出價，USDT）
@@ -169,23 +170,27 @@ type ReconciliationHistory struct {
 
 // PnLSummary 盈亏彙總（按币种對）
 type PnLSummary struct {
-	Symbol        string
-	TotalPnL      float64
-	TotalTrades   int
-	TotalVolume   float64
-	WinRate       float64
-	WinningTrades int
-	LosingTrades  int
+	Symbol           string
+	TotalPnL         float64  // 网格方式盈亏
+	ExchangePnL      float64  // 交易所方式盈亏
+	TotalTrades      int
+	TotalVolume      float64
+	WinRate          float64  // 网格方式胜率
+	ExchangeWinRate  float64  // 交易所方式胜率
+	WinningTrades    int
+	LosingTrades     int
 }
 
 // PnLBySymbol 按币种對的盈亏數據
 type PnLBySymbol struct {
-	Exchange    string
-	Symbol      string
-	TotalPnL    float64
-	TotalTrades int
-	TotalVolume float64
-	WinRate     float64
+	Exchange          string
+	Symbol            string
+	TotalPnL          float64  // 网格方式盈亏
+	ExchangePnL       float64  // 交易所方式盈亏
+	TotalTrades       int
+	TotalVolume       float64
+	WinRate           float64  // 网格方式胜率
+	ExchangeWinRate   float64  // 交易所方式胜率
 }
 
 // RiskCheckRecord 风控检查記錄（單条）

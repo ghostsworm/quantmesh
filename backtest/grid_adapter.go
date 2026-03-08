@@ -205,7 +205,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		_ = level
 	}
 
-	metrics := CalculateMetrics(equity, trades, initialCapital, totalSlippageLoss)
+	metrics := CalculateMetricsWithPrice(equity, trades, initialCapital, totalSlippageLoss, lastClose)
 	metrics.MaxPosition = maxPositionQty
 	riskMetrics := CalculateRiskMetrics(equity)
 

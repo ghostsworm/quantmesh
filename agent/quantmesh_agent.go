@@ -59,6 +59,8 @@ func NewQuantMeshAgent(config AgentConfig) (*QuantMeshAgent, error) {
 		llmClient = llm.NewClaudeClient(config.LLMAPIKey, config.LLMModel)
 	case "openai":
 		llmClient, err = llm.NewOpenAIClient(config.LLMAPIKey, config.LLMModel)
+	case "gemini":
+		llmClient, err = llm.NewGeminiClient(config.LLMAPIKey, config.LLMModel)
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", config.LLMProvider)
 	}
@@ -202,6 +204,11 @@ func (qa *QuantMeshAgent) ProcessMessage(ctx context.Context, msg types.Message)
 // ExecuteTool 执行工具调用
 func (qa *QuantMeshAgent) ExecuteTool(ctx context.Context, call types.ToolCall) (types.ToolResult, error) {
 	return qa.tools.ExecuteTool(ctx, call)
+}
+
+// GetLLMClient 获取 LLM 客户端
+func (qa *QuantMeshAgent) GetLLMClient() types.LLMClient {
+	return qa.llm
 }
 
 // GetState 获取对话状态

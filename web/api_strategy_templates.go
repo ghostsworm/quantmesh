@@ -22,7 +22,7 @@ func InitStrategyTemplateManager(baseDir string) error {
 }
 
 // getStrategyTemplates 获取所有策略模板
-// GET /api/strategy-templates
+// GET /api/strategy-templates?category=grid&symbol=BTCUSDT&difficulty=beginner&risk_level=low
 func getStrategyTemplates(c *gin.Context) {
 	if strategyTemplateManager == nil {
 		c.JSON(http.StatusOK, gin.H{"templates": []interface{}{}})
@@ -30,7 +30,64 @@ func getStrategyTemplates(c *gin.Context) {
 	}
 
 	templates := strategyTemplateManager.ListTemplates()
-	c.JSON(http.StatusOK, gin.H{"templates": templates})
+
+	// 支持筛选
+	category := c.Query("category")
+	symbol := c.Query("symbol")
+	difficulty := c.Query("difficulty")
+	riskLevel := c.Query("risk_level")
+	tag := c.Query("tag")
+
+	// 过滤模板
+	filtered := make([]*config.StrategyTemplate, 0)
+	for _, t := range templates {
+		// 分类筛选
+		if category != "" && t.Category != category {
+			continue
+		}
+
+		// 币种筛选
+		if symbol != "" && len(t.Symbols) > 0 {
+			found := false
+			for _, s := range t.Symbols {
+				if s == symbol {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
+		// 难度筛选
+		if difficulty != "" && t.Difficulty != difficulty {
+			continue
+		}
+
+		// 风险等级筛选
+		if riskLevel != "" && t.RiskLevel != riskLevel {
+			continue
+		}
+
+		// 标签筛选
+		if tag != "" && len(t.Tags) > 0 {
+			found := false
+			for _, ttag := range t.Tags {
+				if ttag == tag {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
+		filtered = append(filtered, t)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"templates": filtered})
 }
 
 // getStrategyTemplate 获取指定策略模板

@@ -41,14 +41,16 @@ type StrategyProfit struct {
 	StrategyID          string  `json:"strategyId"`
 	StrategyName        string  `json:"strategyName"`
 	StrategyType        string  `json:"strategyType"`
-	TotalProfit         float64 `json:"totalProfit"`
+	TotalProfit         float64 `json:"totalProfit"`          // 网格方式盈亏
+	ExchangeTotalProfit float64 `json:"exchangeTotalProfit"`  // 交易所方式盈亏
 	TodayProfit         float64 `json:"todayProfit"`
 	UnrealizedProfit    float64 `json:"unrealizedProfit"`
 	RealizedProfit      float64 `json:"realizedProfit"`
 	WithdrawnProfit     float64 `json:"withdrawnProfit"`
 	AvailableToWithdraw float64 `json:"availableToWithdraw"`
 	TradeCount          int     `json:"tradeCount"`
-	WinRate             float64 `json:"winRate"`
+	WinRate             float64 `json:"winRate"`            // 网格方式胜率
+	ExchangeWinRate     float64 `json:"exchangeWinRate"`    // 交易所方式胜率
 	AvgProfitPerTrade   float64 `json:"avgProfitPerTrade"`
 	LastTradeAt         string  `json:"lastTradeAt,omitempty"`
 }
@@ -420,15 +422,17 @@ func getStrategyProfitsHandler(c *gin.Context) {
 			StrategyID:          p.Symbol, // 使用 Symbol 作為唯一標识
 			StrategyName:        p.Symbol + " 策略",
 			StrategyType:        "grid", // 默认為网格，實際应從配置獲取
-			TotalProfit:         math.Round(p.TotalPnL*100) / 100,
+			TotalProfit:         math.Round(p.TotalPnL*100) / 100,          // 网格方式盈亏
+			ExchangeTotalProfit: math.Round(p.ExchangePnL*100) / 100,     // 交易所方式盈亏
 			TodayProfit:         math.Round(todayPnlMap[key]*100) / 100,
 			UnrealizedProfit:    math.Round(unrealizedPnlMap[key]*100) / 100,
 			RealizedProfit:      math.Round(p.TotalPnL*100) / 100,
 			WithdrawnProfit:     0,
 			AvailableToWithdraw: math.Round(p.TotalPnL*100) / 100,
 			TradeCount:          p.TotalTrades,
-			WinRate:             math.Round(p.WinRate*100) / 100, // 保持小數形式（0-1），前端會轉换為百分比
-			AvgProfitPerTrade:   0,                               // 可计算
+			WinRate:             math.Round(p.WinRate*100) / 100,         // 网格方式胜率
+			ExchangeWinRate:     math.Round(p.ExchangeWinRate*100) / 100, // 交易所方式胜率
+			AvgProfitPerTrade:   0,                                          // 可计算
 		})
 	}
 

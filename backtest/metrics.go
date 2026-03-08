@@ -40,10 +40,18 @@ type Metrics struct {
 
 	// 🔥 價格偏差（slippage）損失
 	TotalSlippageLoss float64 `json:"total_slippage_loss"` // 累计slippage損失（USDT）
+
+	// 交易所风格指標（基于平均持仓成本）
+	ExchangeStyle ExchangeStyleMetrics `json:"exchange_style"` // 交易所风格指标
 }
 
 // CalculateMetrics 計算所有指標
 func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float64, totalSlippageLoss float64) Metrics {
+	return CalculateMetricsWithPrice(equity, trades, initialCapital, totalSlippageLoss, 0)
+}
+
+// CalculateMetricsWithPrice 計算所有指標（包含當前價格用於交易所風格指標）
+func CalculateMetricsWithPrice(equity []EquityPoint, trades []Trade, initialCapital float64, totalSlippageLoss float64, currentPrice float64) Metrics {
 	if len(equity) == 0 || len(trades) == 0 {
 		return Metrics{
 			TotalSlippageLoss: totalSlippageLoss,
@@ -85,6 +93,9 @@ func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float
 		// 🔥 價格偏差損失
 		TotalSlippageLoss: totalSlippageLoss,
 	}
+
+	// 计算交易所风格指标
+	metrics.ExchangeStyle = CalculateExchangeStyleMetrics(trades, currentPrice)
 
 	return metrics
 }

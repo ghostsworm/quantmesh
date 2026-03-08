@@ -768,6 +768,16 @@ type Config struct {
 			KeyFile  string `yaml:"key_file"`  // 私钥文件路徑
 		} `yaml:"tls"`
 
+		// 共享目录配置（AI 生成的图片、视频等）
+		SharedDir string `yaml:"shared_dir"` // 共享目录路径，預設 ./data/shared
+
+		// AI Agent 配置
+		AI struct {
+			LLMProvider string `yaml:"llm_provider"` // LLM 提供商: openai, anthropic, gemini
+			LLMAPIKey   string `yaml:"llm_api_key"`  // LLM API 密钥
+			LLMModel    string `yaml:"llm_model"`    // LLM 模型名称
+		} `yaml:"ai"`
+
 		// pprof 性能分析配置
 		Pprof struct {
 			Enabled     bool     `yaml:"enabled"`      // 是否啟用 pprof，預設 false（生產环境建议禁用）
@@ -2500,6 +2510,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Web.Port <= 0 {
 		c.Web.Port = 28888 // 預設端口（使用10000以上端口，避免常见端口冲突）
+	}
+	if c.Web.SharedDir == "" {
+		c.Web.SharedDir = "./data/shared" // 預設共享目錄（AI 生成的圖片、視頻等）
 	}
 
 	// 設置 pprof 配置預設值
