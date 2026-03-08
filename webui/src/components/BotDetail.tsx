@@ -45,6 +45,7 @@ import {
   AlertDescription,
   Divider,
   Switch,
+  Tooltip,
 } from '@chakra-ui/react'
 import { ChevronLeftIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
@@ -66,6 +67,7 @@ import { useSymbol } from '../contexts/SymbolContext'
 import { buildBacktestUrl } from '../utils/backtestUrl'
 import BotRiskControlPanel from './BotRiskControlPanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
+import { computeLiquidationPrice } from './ParamAdvisor'
 
 // 策略选项定义
 interface StrategyOption {
@@ -273,6 +275,28 @@ const BotDetail: React.FC = () => {
                       PnL: {bot.total_pnl >= 0 ? '+' : ''}{bot.total_pnl.toFixed(2)}
                     </Text>
                   )}
+                  {/* 平仓价估算 */}
+                  {(() => {
+                    const leverage = bot.leverage || 1
+                    const maxCapitalRatio = bot.max_capital_ratio ?? 1.0
+                    const buyWindowSize = bot.buy_window_size || (bot.strategies?.find(s => s.type === 'grid') ? 50 : 20)
+                    const liqEstimate = computeLiquidationPrice({
+                      currentPrice: bot.current_price || 0,
+                      buyWindowSize,
+                      orderQuantity: bot.order_quantity || 100,
+                      priceInterval: bot.price_interval || 0.0025,
+                      totalCapital: bot.total_allocated_capital || 10000,
+                      leverage,
+                      maxCapitalRatio,
+                    })
+                    return liqEstimate?.valid && liqEstimate.liquidationPrice > 0 ? (
+                      <Tooltip label={`基于最大仓位估算：${liqEstimate.positionBtc.toFixed(4)} BTC @ ${liqEstimate.avgEntryPrice.toFixed(2)} | 杠杆: ${leverage}x | 资金占用: ${Math.round(maxCapitalRatio * 100)}%`}>
+                        <Text color="orange.500" fontWeight="medium">
+                          强平: ${liqEstimate.liquidationPrice.toFixed(2)}
+                        </Text>
+                      </Tooltip>
+                    ) : null
+                  })()}
                 </HStack>
               )}
             </Box>

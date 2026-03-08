@@ -336,6 +336,20 @@ const BotList: React.FC = () => {
                         leverage,
                         maxCapitalRatio,
                       })
+                      // 调试：如果计算失败，在控制台输出
+                      if (!liqEstimate?.valid && process.env.NODE_ENV === 'development') {
+                        console.debug('[BotList] 强平价计算失败:', {
+                          botId: bot.bot_id,
+                          currentPrice: bot.current_price,
+                          buyWindowSize,
+                          orderQuantity: bot.order_quantity,
+                          priceInterval: bot.price_interval,
+                          totalCapital: bot.total_allocated_capital,
+                          leverage,
+                          maxCapitalRatio,
+                          liqEstimate
+                        })
+                      }
                       return liqEstimate?.valid && liqEstimate.liquidationPrice > 0 ? (
                         <Tooltip label={`基于最大仓位估算：${liqEstimate.positionBtc.toFixed(4)} BTC @ ${liqEstimate.avgEntryPrice.toFixed(2)} | 杠杆: ${leverage}x | 资金占用: ${Math.round(maxCapitalRatio * 100)}%`}>
                           <Text color="orange.500" fontWeight="medium">

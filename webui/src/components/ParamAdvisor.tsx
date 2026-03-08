@@ -104,7 +104,11 @@ export function computeLiquidationPrice(params: {
   if (denom >= 0) return null
   const numerator = actualCapital - avgEntryPrice * positionBtc
   const liquidationPrice = numerator / denom
-  if (liquidationPrice <= 0 || liquidationPrice >= currentPrice) {
+  if (liquidationPrice <= 0) {
+    return null
+  }
+  // 放宽条件：即使强平价接近当前价格也显示（只是风险很高）
+  if (liquidationPrice >= currentPrice * 0.99) {
     return null
   }
 
