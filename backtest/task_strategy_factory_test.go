@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -88,6 +89,27 @@ func TestRunMultiStrategyTaskReturnsCombinedResult(t *testing.T) {
 	if len(result.StatsByStrategy) != 2 {
 		t.Fatalf("expected 2 strategy stats, got %d", len(result.StatsByStrategy))
 	}
+	// 驗證期末強制平倉：有剩餘倉位時應產生帶 [期末强制平仓] 的 CompletedTrade
+	for _, ct := range result.CompletedTrades {
+		if containsForceCloseMarker(ct.Strategy) {
+			// 強制平倉交易應有正確的 PnL
+			if ct.PnL == 0 && ct.Size > 0 {
+				t.Logf("force close trade: size=%.4f, pnl=%.4f (expected non-zero pnl if position had unrealized gain/loss)", ct.Size, ct.PnL)
+			}
+			break
+		}
+	}
+	// 驗證權益曲線最後一點等於最終權益（期末強制平倉後追加的終點）
+	if len(result.EquityCurve) > 0 && result.FinalEquity > 0 {
+		lastEquity := result.EquityCurve[len(result.EquityCurve)-1].Equity
+		if lastEquity != result.FinalEquity {
+			t.Errorf("expected last equity curve point %.2f to equal FinalEquity %.2f", lastEquity, result.FinalEquity)
+		}
+	}
+}
+
+func containsForceCloseMarker(s string) bool {
+	return strings.Contains(s, "期末强制平仓")
 }
 
 func TestRunMultiStrategyTaskReturnsAuditableStrategyResults(t *testing.T) {

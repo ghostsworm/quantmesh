@@ -1142,7 +1142,7 @@ func renderMultiStrategyReportTemplate(data MultiStrategyReportData) (string, er
 - **交易對**: {{.Symbol}}
 - **回测期间**: {{.StartDate}} 至 {{.EndDate}} ({{.Duration}})
 - **初始資金**: ${{.InitialCapital}}
-- **最終權益**: ${{.FinalEquity}}
+- **最終權益**: ${{.FinalEquity}}（期末已强制平仓所有剩余仓位，最终权益为已实现盈亏）
 - **總收益率**: {{.TotalReturnPct}}%
 - **最大回撤**: {{.MaxDrawdownPct}}%
 - **夏普比率**: {{.SharpeRatio}}
