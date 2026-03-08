@@ -530,18 +530,46 @@ const Configuration: React.FC = () => {
     await doSaveConfig()
   }
 
+  const deepNormalizeNumerics = (obj: any): any => {
+    if (obj === null || obj === undefined) return obj
+    if (Array.isArray(obj)) return obj.map(deepNormalizeNumerics)
+    if (typeof obj === 'object') {
+      const result: any = {}
+      for (const [k, v] of Object.entries(obj)) {
+        result[k] = deepNormalizeNumerics(v)
+      }
+      return result
+    }
+    if (typeof obj === 'string' && obj !== '' && !isNaN(Number(obj)) && obj.trim() === obj) {
+      return Number(obj)
+    }
+    return obj
+  }
+
   const normalizeConfigForSave = (c: typeof config) => {
-    if (!c?.trading?.symbols) return c
-    const symbols = c.trading.symbols.map((s: any) => {
-      const grc = s?.grid_risk_control
-      if (!grc) return s
-      const normalized = { ...grc }
-      if (typeof normalized.stop_loss_ratio === 'string') normalized.stop_loss_ratio = parseFloat(String(normalized.stop_loss_ratio) || '0') / 100
-      if (typeof normalized.take_profit_trigger_ratio === 'string') normalized.take_profit_trigger_ratio = parseFloat(String(normalized.take_profit_trigger_ratio) || '0') / 100
-      if (typeof normalized.trailing_take_profit_ratio === 'string') normalized.trailing_take_profit_ratio = parseFloat(String(normalized.trailing_take_profit_ratio) || '0') / 100
-      return { ...s, grid_risk_control: normalized }
-    })
-    return { ...c, trading: { ...c.trading, symbols } }
+    if (!c) return c
+    let result = c
+    if (result?.trading?.symbols) {
+      result = {
+        ...result,
+        trading: {
+          ...result.trading,
+          symbols: result.trading.symbols.map((s: any) => {
+            const grc = s?.grid_risk_control
+            if (!grc) return s
+            const fixed = { ...grc }
+            if (typeof fixed.stop_loss_ratio === 'string')
+              fixed.stop_loss_ratio = parseFloat(fixed.stop_loss_ratio || '0') / 100
+            if (typeof fixed.take_profit_trigger_ratio === 'string')
+              fixed.take_profit_trigger_ratio = parseFloat(fixed.take_profit_trigger_ratio || '0') / 100
+            if (typeof fixed.trailing_take_profit_ratio === 'string')
+              fixed.trailing_take_profit_ratio = parseFloat(fixed.trailing_take_profit_ratio || '0') / 100
+            return { ...s, grid_risk_control: fixed }
+          }),
+        },
+      }
+    }
+    return deepNormalizeNumerics(result)
   }
 
   const doSaveConfig = async () => {

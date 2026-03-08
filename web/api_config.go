@@ -277,6 +277,37 @@ func getConfigJSONHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, configMap)
 }
 
+// normalizeNumericStrings 递归遍历 map，将可解析为数字的字符串转为 float64/int。
+// 前端 DecimalNumberInput 可能把 "70.000000" 这样的值作为字符串传入，
+// 导致 YAML unmarshal 到 float64 字段时失败。
+func normalizeNumericStrings(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		for k, item := range val {
+			val[k] = normalizeNumericStrings(item)
+		}
+		return val
+	case []interface{}:
+		for i, item := range val {
+			val[i] = normalizeNumericStrings(item)
+		}
+		return val
+	case string:
+		if val == "" {
+			return val
+		}
+		if n, err := strconv.ParseFloat(val, 64); err == nil {
+			if intVal, intErr := strconv.ParseInt(val, 10, 64); intErr == nil {
+				return intVal
+			}
+			return n
+		}
+		return val
+	default:
+		return val
+	}
+}
+
 // bindConfigFromJSONMap 绑定前端 snake_case JSON 為 Config
 //
 // 前端通過 /api/config/json 獲取的配置是 snake_case 字段名（来自 YAML tag）。
@@ -287,6 +318,8 @@ func bindConfigFromJSONMap(c *gin.Context) (*config.Config, error) {
 	if err := c.ShouldBindJSON(&configMap); err != nil {
 		return nil, fmt.Errorf("無效的配置格式: %w", err)
 	}
+
+	normalizeNumericStrings(configMap)
 
 	yamlData, err := yaml.Marshal(configMap)
 	if err != nil {

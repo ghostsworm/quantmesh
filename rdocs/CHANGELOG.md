@@ -10,6 +10,16 @@
 
 ---
 
+## v3.65.0-rc5 - 2026年03月09日
+
+**Git Tag**: `v3.65.0-rc5`
+
+### 修復 (Fixed)
+
+- **配置保存類型錯誤**：修復前端 DecimalNumberInput 返回字符串（如 `"70.000000"`）導致後端 YAML 反序列化 float64 字段失敗的問題；後端 `bindConfigFromJSONMap` 增加遞歸數值規範化防禦，前端 `normalizeConfigForSave` 擴展為遞歸處理所有數值字段
+
+---
+
 ## v3.65.0-rc1 - 2026年03月09日
 
 **Git Tag**: `v3.65.0-rc1`
