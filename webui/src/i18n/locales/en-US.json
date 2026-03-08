@@ -190,7 +190,22 @@
       "cannotChangeTypeRunning": "Cannot change strategy type while bot is running. Parameters can be modified, but strategy type changes require stopping the bot first.",
       "saveSuccess": "Strategy configuration updated",
       "saveFailed": "Failed to update strategy configuration",
-      "workspaceHint": "For more detailed strategy allocation configuration, please go to the Strategy Allocation page"
+      "workspaceHint": "For more detailed strategy allocation configuration, please go to the Strategy Allocation page",
+      "gridDirectionAndRisk": "Grid Direction & Risk Control",
+      "direction": "Trading Direction",
+      "directionLong": "Long Only",
+      "directionShort": "Short Only",
+      "directionBoth": "Both Directions",
+      "trendFilter": "Trend Filter",
+      "gridRiskControl": "Grid Risk Control",
+      "stopLossRatio": "Stop Loss Ratio",
+      "takeProfitTriggerRatio": "Take Profit Trigger Ratio",
+      "trailingTakeProfitRatio": "Trailing Take Profit Ratio",
+      "maxGridLayers": "Max Grid Layers",
+      "maxOpenOrdersAtCap": "Max Open Orders at Cap",
+      "riskControlEnabled": "Risk Control Status",
+      "layers": "layers",
+      "riskConfigHint": "Displaying grid risk control settings from config file. To modify, go to Config Management or edit the config file directly."
     }
   },
   "sidebar": {
@@ -392,6 +407,7 @@
     "downloadTrades": "Download Trade Records",
     "downloadTradesCSV": "Download Trade Records (CSV)",
     "downloadTradesJSON": "Download Trade Records (JSON)",
+    "downloadTradesFailed": "Failed to download trade records",
     "delete": "Delete",
     "backtestResult": "Backtest Result: {{id}}",
     "taskFailed": "Task Execution Failed",

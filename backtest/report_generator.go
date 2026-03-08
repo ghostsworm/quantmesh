@@ -1136,7 +1136,7 @@ func renderMultiStrategyReportTemplate(data MultiStrategyReportData) (string, er
 
 | 策略 | 權重 | 交易次數 | 已實現盈虧 | 勝率 | 最大回撤 |
 |------|------|----------|------------|------|----------|
-{{range .Strategies}}
+{{range .Strategies -}}
 | {{.Name}} | {{.Weight}}% | {{.TotalTrades}} | ${{.RealizedPnl}} | {{.WinRate}}% | {{.MaxDrawdown}}% |
 {{end}}
 {{end}}

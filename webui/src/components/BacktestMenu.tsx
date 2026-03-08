@@ -1741,10 +1741,22 @@ export default function BacktestMenu() {
                                     icon={<ExternalLinkIcon />}
                                   />
                                   <MenuList>
-                                    <MenuItem onClick={() => getBacktestTaskTradesExport(task.id, 'csv')}>
+                                    <MenuItem
+                                      onClick={() =>
+                                        getBacktestTaskTradesExport(task.id, 'csv').catch((err) => {
+                                          toast({ title: t('backtest.downloadTradesFailed'), description: String(err), status: 'error', isClosable: true })
+                                        })
+                                      }
+                                    >
                                       {t('backtest.downloadTradesCSV')}
                                     </MenuItem>
-                                    <MenuItem onClick={() => getBacktestTaskTradesExport(task.id, 'json')}>
+                                    <MenuItem
+                                      onClick={() =>
+                                        getBacktestTaskTradesExport(task.id, 'json').catch((err) => {
+                                          toast({ title: t('backtest.downloadTradesFailed'), description: String(err), status: 'error', isClosable: true })
+                                        })
+                                      }
+                                    >
                                       {t('backtest.downloadTradesJSON')}
                                     </MenuItem>
                                   </MenuList>

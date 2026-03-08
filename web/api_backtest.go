@@ -770,6 +770,16 @@ func getBacktestTaskReport(c *gin.Context) {
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", data)
 }
 
+// exportTradeRow 統一導出格式（單策略 Trade 與多策略 TickTrade 共用）
+type exportTradeRow struct {
+	Timestamp string  `json:"timestamp"`
+	Type      string  `json:"type"`
+	Price     float64 `json:"price"`
+	Quantity  float64 `json:"quantity"`
+	Fee       float64 `json:"fee"`
+	PnL       float64 `json:"pnl"`
+}
+
 // getBacktestTaskTradesExport 導出回測交易記錄 (CSV/JSON) GET /api/backtest/tasks/:id/trades/export
 func getBacktestTaskTradesExport(c *gin.Context) {
 	id := c.Param("id")
@@ -798,18 +808,44 @@ func getBacktestTaskTradesExport(c *gin.Context) {
 		return
 	}
 
-	if taskResult.Result == nil || len(taskResult.Result.Trades) == 0 {
+	var rows []exportTradeRow
+
+	// 單策略模式：Result.Trades
+	if taskResult.Result != nil && len(taskResult.Result.Trades) > 0 {
+		for _, t := range taskResult.Result.Trades {
+			rows = append(rows, exportTradeRow{
+				Timestamp: time.Unix(t.Timestamp, 0).Format("2006-01-02 15:04:05"),
+				Type:      t.Type,
+				Price:     t.Price,
+				Quantity:  t.Quantity,
+				Fee:       t.Fee,
+				PnL:       t.PnL,
+			})
+		}
+	} else if taskResult.MultiResult != nil && len(taskResult.MultiResult.Trades) > 0 {
+		// 多策略模式：MultiResult.Trades (TickTrade)
+		for _, t := range taskResult.MultiResult.Trades {
+			rows = append(rows, exportTradeRow{
+				Timestamp: time.UnixMilli(t.Timestamp).Format("2006-01-02 15:04:05"),
+				Type:      t.Side,
+				Price:     t.Price,
+				Quantity:  t.Size,
+				Fee:       t.Slippage,
+				PnL:       0,
+			})
+		}
+	}
+
+	if len(rows) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "無交易記錄"})
 		return
 	}
 
-	trades := taskResult.Result.Trades
 	filename := fmt.Sprintf("backtest_trades_%s", id)
 
 	// 根據格式返回數據
 	if format == "json" {
-		// JSON 格式
-		jsonData, err := json.MarshalIndent(trades, "", "  ")
+		jsonData, err := json.MarshalIndent(rows, "", "  ")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "生成 JSON 失敗"})
 			return
@@ -822,10 +858,9 @@ func getBacktestTaskTradesExport(c *gin.Context) {
 	// CSV 格式
 	var csvBuilder strings.Builder
 	csvBuilder.WriteString("Timestamp,Type,Price,Quantity,Fee,PnL\n")
-	for _, trade := range trades {
-		timestamp := time.Unix(trade.Timestamp, 0).Format("2006-01-02 15:04:05")
+	for _, r := range rows {
 		csvBuilder.WriteString(fmt.Sprintf("%s,%s,%.4f,%.6f,%.4f,%.4f\n",
-			timestamp, trade.Type, trade.Price, trade.Quantity, trade.Fee, trade.PnL))
+			r.Timestamp, r.Type, r.Price, r.Quantity, r.Fee, r.PnL))
 	}
 
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.csv", filename))
