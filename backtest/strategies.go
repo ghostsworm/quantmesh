@@ -115,8 +115,8 @@ func (s *GridBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]Tick
 	// 返回网格訂單，根据方向过滤
 	var orders []TickOrder
 	for _, order := range s.gridOrders {
-		// 根据交易方向过滤订单
-		if !s.shouldGenerateOrder(order.Side) {
+		// 根据交易方向过滤订单（单向做多/做空时，避免生成会开反向仓的订单）
+		if !s.shouldGenerateOrder(order) {
 			continue
 		}
 		orders = append(orders, order)
@@ -126,18 +126,27 @@ func (s *GridBacktestStrategy) OnKline(kline TickKline, timestamp int64) ([]Tick
 }
 
 // shouldGenerateOrder 根据交易方向判断是否应该生成订单
-func (s *GridBacktestStrategy) shouldGenerateOrder(orderSide string) bool {
+// 单向做多：卖单仅当有多头持仓时生成（用于平多），否则会开空；买单始终生成
+// 单向做空：买单仅当有空头持仓时生成（用于平空）；卖单始终生成
+func (s *GridBacktestStrategy) shouldGenerateOrder(order TickOrder) bool {
+	pos := s.currentPosition
+	if s.account != nil {
+		pos = s.account.PositionSize
+	}
 	switch s.Direction {
 	case "LONG":
-		// 单向做多：只生成买单（当无持仓时），不生成卖单
-		// 实际上网格策略需要同时挂买卖单来成交
-		// 这里我们简化处理：LONG 表示倾向于持有做多仓位
-		return true
+		if order.Side == "buy" {
+			return true
+		}
+		// 卖单：仅当有多头持仓时才生成，用于平多；无持仓时卖单会开空，必须过滤
+		return pos > 0
 	case "SHORT":
-		// 单向做空
-		return true
+		if order.Side == "sell" {
+			return true
+		}
+		// 买单：仅当有空头持仓时才生成，用于平空
+		return pos < 0
 	case "BOTH":
-		// 双向交易
 		return true
 	default:
 		return true

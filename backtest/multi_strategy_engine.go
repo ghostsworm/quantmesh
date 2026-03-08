@@ -612,10 +612,30 @@ func (e *MultiStrategyEngine) calculatePositionLimits(runtime *StrategyRuntime, 
 	return
 }
 
+// isLongOnly 是否单向做多模式（LONG、long_only 等）
+func isLongOnly(mode string) bool {
+	return mode == "LONG" || mode == "long_only"
+}
+
+// isShortOnly 是否单向做空模式
+func isShortOnly(mode string) bool {
+	return mode == "SHORT" || mode == "short_only"
+}
+
 // processTrade 處理成交
 func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *TickTrade) {
 	runtime.account.mu.Lock()
 	defer runtime.account.mu.Unlock()
+
+	// 单向模式防护：禁止开反向仓
+	if trade.Side == "sell" && runtime.account.PositionSize <= 0 && isLongOnly(e.Config.PositionMode) {
+		logger.Warn("[回测] 单向做多模式下拒绝开空，跳过成交: %s size=%.6f", trade.OrderID, trade.Size)
+		return
+	}
+	if trade.Side == "buy" && runtime.account.PositionSize >= 0 && isShortOnly(e.Config.PositionMode) {
+		logger.Warn("[回测] 单向做空模式下拒绝开多，跳过成交: %s size=%.6f", trade.OrderID, trade.Size)
+		return
+	}
 
 	// 計算手续费
 	fee := trade.Price * trade.Size * e.Config.CommissionRate
@@ -642,9 +662,9 @@ func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *Tick
 			// 記錄完成交易
 			e.recordCompletedTrade(runtime, trade, "short", closeSize, closePnL, fee, trade.Slippage)
 
-			// 剩餘部分开多
+			// 剩餘部分开多（單向做空時禁止）
 			remaining := trade.Size - closeSize
-			if remaining > 0 {
+			if remaining > 0 && !isShortOnly(e.Config.PositionMode) {
 				e.openPosition(runtime, trade, remaining, "buy", fee)
 			}
 		} else {
@@ -664,9 +684,9 @@ func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *Tick
 			// 記錄完成交易
 			e.recordCompletedTrade(runtime, trade, "long", closeSize, closePnL, fee, trade.Slippage)
 
-			// 剩餘部分开空
+			// 剩餘部分开空（單向做多時禁止）
 			remaining := trade.Size - closeSize
-			if remaining > 0 {
+			if remaining > 0 && !isLongOnly(e.Config.PositionMode) {
 				e.openPosition(runtime, trade, remaining, "sell", fee)
 			}
 		} else {
