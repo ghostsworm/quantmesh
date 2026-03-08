@@ -112,6 +112,59 @@ func containsForceCloseMarker(s string) bool {
 	return strings.Contains(s, "期末强制平仓")
 }
 
+// TestRunMultiStrategyTaskDirectionLongOnly 驗證單向做多時不產生 SHORT 平倉記錄
+func TestRunMultiStrategyTaskDirectionLongOnly(t *testing.T) {
+	task := &BacktestTask{
+		Mode:         TaskModeBotStrategies,
+		Symbol:       "BTCUSDT",
+		TotalCapital: 1000,
+		Strategies: []TaskStrategy{
+			{
+				Type:   "grid",
+				Weight: 1,
+				Config: map[string]interface{}{
+					"grid_count":    6,
+					"grid_spacing":  0.01,
+					"direction":     "LONG",
+				},
+			},
+		},
+	}
+
+	candles := make([]*exchange.Candle, 0, 20)
+	baseTs := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	// 價格上下波動，觸發網格買賣
+	prices := []float64{100, 99, 101, 100, 102, 101, 103, 102, 104, 103, 105, 104, 103, 102, 101, 100, 99, 100, 101, 100}
+	for i, price := range prices {
+		candles = append(candles, &exchange.Candle{
+			Symbol:    "BTCUSDT",
+			Open:      price - 0.5,
+			High:      price + 1,
+			Low:       price - 1,
+			Close:     price,
+			Volume:    1000,
+			Timestamp: baseTs + int64(i)*60_000,
+			IsClosed:  true,
+		})
+	}
+
+	result, err := RunMultiStrategyTask(task, candles)
+	if err != nil {
+		t.Fatalf("expected multi-strategy task to run successfully, got error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected result, got nil")
+	}
+
+	// 單向做多：CompletedTrades 中不應出現 side="short"
+	for _, ct := range result.CompletedTrades {
+		if ct.Side == "short" {
+			t.Errorf("單向做多模式下不應有 SHORT 平倉記錄，got: strategy=%s side=%s size=%.4f",
+				ct.Strategy, ct.Side, ct.Size)
+		}
+	}
+}
+
 func TestRunMultiStrategyTaskReturnsAuditableStrategyResults(t *testing.T) {
 	task := &BacktestTask{
 		Mode:         TaskModeBotStrategies,

@@ -391,6 +391,15 @@ func RunMultiStrategyTask(task *BacktestTask, candles []*exchange.Candle) (*Mult
 		maxCapitalRatio = 1.0 // 默认不限制
 	}
 
+	// 从首个策略的 direction 推导 PositionMode，用于引擎层单向防护
+	positionMode := ""
+	for _, s := range task.Strategies {
+		if d := getStringParam(s.Config, "direction"); d != "" {
+			positionMode = d
+			break
+		}
+	}
+
 	engine := NewMultiStrategyEngine(&EngineConfig{
 		Symbol:           task.Symbol,
 		InitialCapital:   task.TotalCapital,
@@ -400,6 +409,7 @@ func RunMultiStrategyTask(task *BacktestTask, candles []*exchange.Candle) (*Mult
 		Leverage:         leverage,
 		MaxCapitalRatio:  maxCapitalRatio,
 		CommissionRate:   0.0004, // 0.04% 手续费
+		PositionMode:     positionMode,
 	})
 	engine.Klines = make([]TickKline, 0, len(candles))
 	for _, candle := range candles {
