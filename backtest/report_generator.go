@@ -1435,9 +1435,14 @@ type MultiStrategyReportData struct {
 	SharpeRatio    float64                     `json:"sharpe_ratio"`
 	WinRate        float64                     `json:"win_rate"`
 	Strategies     []MultiStrategyReportItem   `json:"strategies"`
-	ParamsTable    []ReportParamRow            `json:"params_table"`
-	Leverage       float64                     `json:"leverage"`         // 杠杆倍数
-	MaxCapitalRatio float64                    `json:"max_capital_ratio"` // 最大资金占用比例 (0.1-1.0)
+	ParamsTable     []ReportParamRow            `json:"params_table"`
+	Leverage        float64                     `json:"leverage"`         // 杠杆倍数
+	MaxCapitalRatio float64                     `json:"max_capital_ratio"` // 最大资金占用比例 (0.1-1.0)
+	// 期末結算明細（一眼區分估值收官 vs 強平收官）
+	EndLiquidated       bool    `json:"end_liquidated"`
+	EndLiquidationPrice string  `json:"end_liquidation_price"`
+	EndLiquidationQty   string  `json:"end_liquidation_qty"`
+	EndLiquidationAmt   string  `json:"end_liquidation_amt"`
 }
 
 // MultiStrategyReportItem 多策略報告中的單個策略項
@@ -1471,25 +1476,37 @@ func GenerateMultiStrategyReportToFile(result *MultiStrategyResult, reportPath s
 		}
 	}
 
+	// 期末結算明細
+	endLiqPrice, endLiqQty, endLiqAmt := "", "", ""
+	if result.EndSettlement.Liquidated {
+		endLiqPrice = fmt.Sprintf("%.2f", result.EndSettlement.LiquidationPrice)
+		endLiqQty = fmt.Sprintf("%.6f", result.EndSettlement.LiquidationQty)
+		endLiqAmt = fmt.Sprintf("%.4f USDT", result.EndSettlement.LiquidationAmt)
+	}
+
 	data := MultiStrategyReportData{
-		GeneratedAt:    time.Now().Format("2006-01-02 15:04:05"),
-		Symbol:         result.Symbol,
-		Interval:       "", // 將在 task_manager 中填充
-		StartDate:      result.StartTime.Format("2006-01-02 15:04:05"),
-		EndDate:        result.EndTime.Format("2006-01-02 15:04:05"),
-		Duration:       durationStr,
-		InitialCapital: result.InitialCapital,
-		FinalEquity:    result.FinalEquity,
-		TotalReturnPct: result.TotalReturnPct,
-		TotalTrades:    result.TotalTrades,
-		TotalFees:      result.TotalFees,
-		TotalFunding:   result.TotalFunding,
-		MaxDrawdownPct: result.RiskMetrics.MaxDrawdownPct,
-		SharpeRatio:    result.RiskMetrics.SharpeRatio,
-		WinRate:        result.RiskMetrics.WinRate,
-		ParamsTable:    paramsTable,
-		Leverage:        result.Leverage,
-		MaxCapitalRatio: result.MaxCapitalRatio,
+		GeneratedAt:        time.Now().Format("2006-01-02 15:04:05"),
+		Symbol:              result.Symbol,
+		Interval:            "", // 將在 task_manager 中填充
+		StartDate:           result.StartTime.Format("2006-01-02 15:04:05"),
+		EndDate:             result.EndTime.Format("2006-01-02 15:04:05"),
+		Duration:            durationStr,
+		InitialCapital:      result.InitialCapital,
+		FinalEquity:         result.FinalEquity,
+		TotalReturnPct:      result.TotalReturnPct,
+		TotalTrades:         result.TotalTrades,
+		TotalFees:           result.TotalFees,
+		TotalFunding:        result.TotalFunding,
+		MaxDrawdownPct:      result.RiskMetrics.MaxDrawdownPct,
+		SharpeRatio:         result.RiskMetrics.SharpeRatio,
+		WinRate:             result.RiskMetrics.WinRate,
+		ParamsTable:         paramsTable,
+		Leverage:             result.Leverage,
+		MaxCapitalRatio:     result.MaxCapitalRatio,
+		EndLiquidated:       result.EndSettlement.Liquidated,
+		EndLiquidationPrice: endLiqPrice,
+		EndLiquidationQty:   endLiqQty,
+		EndLiquidationAmt:   endLiqAmt,
 	}
 
 	// 添加杠杆和资金占用到参数表
@@ -1568,6 +1585,26 @@ func renderMultiStrategyReportTemplate(data MultiStrategyReportData) (string, er
 - **最大回撤**: {{.MaxDrawdownPct}}%
 - **夏普比率**: {{.SharpeRatio}}
 - **勝率**: {{.WinRate}}%
+
+## 期末結算明細
+
+{{if .EndLiquidated}}
+**收官方式**: 強平收官
+
+| 項目 | 數值 |
+|------|------|
+| 期末是否強平 | 是 |
+| 強平價格 | {{.EndLiquidationPrice}} |
+| 強平數量 | {{.EndLiquidationQty}} |
+| 強平金額 | {{.EndLiquidationAmt}} |
+{{else}}
+**收官方式**: 估值收官
+
+| 項目 | 數值 |
+|------|------|
+| 期末是否強平 | 否 |
+| 說明 | 期末按收盤價強制平倉剩餘倉位，最終權益為已實現盈虧 |
+{{end}}
 
 ## 交易統計
 

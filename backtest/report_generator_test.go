@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -304,6 +305,98 @@ func TestFormatParamKey(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("formatParamKey(%q) = %q, want %q", tt.key, got, tt.want)
 		}
+	}
+}
+
+func TestMultiStrategyReportEndSettlement(t *testing.T) {
+	now := time.Now()
+	// 估值收官
+	resultNoLiq := &MultiStrategyResult{
+		Symbol:         "BTCUSDT",
+		StartTime:      now.Add(-7 * 24 * time.Hour),
+		EndTime:        now,
+		InitialCapital: 10000,
+		FinalEquity:    10500,
+		EndSettlement:  EndSettlementDetail{Liquidated: false},
+		RiskMetrics:    &MultiStrategyRiskMetrics{},
+	}
+	content, err := renderMultiStrategyReportTemplate(buildMultiStrategyReportData(resultNoLiq))
+	if err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+	if !strings.Contains(content, "估值收官") {
+		preview := content
+		if len(preview) > 500 {
+			preview = preview[:500]
+		}
+		t.Errorf("expected 估值收官 when not liquidated, got: %s", preview)
+	}
+	if strings.Contains(content, "強平收官") {
+		t.Error("should not show 強平收官 when not liquidated")
+	}
+
+	// 強平收官
+	resultLiq := &MultiStrategyResult{
+		Symbol:         "BTCUSDT",
+		StartTime:      now.Add(-7 * 24 * time.Hour),
+		EndTime:        now,
+		InitialCapital: 10000,
+		FinalEquity:    2000,
+		EndSettlement: EndSettlementDetail{
+			Liquidated:       true,
+			LiquidationPrice: 65000,
+			LiquidationQty:   0.05,
+			LiquidationAmt:   3250,
+		},
+		RiskMetrics: &MultiStrategyRiskMetrics{},
+	}
+	content2, err := renderMultiStrategyReportTemplate(buildMultiStrategyReportData(resultLiq))
+	if err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+	if !strings.Contains(content2, "強平收官") {
+		preview := content2
+		if len(preview) > 500 {
+			preview = preview[:500]
+		}
+		t.Errorf("expected 強平收官 when liquidated, got: %s", preview)
+	}
+	if !strings.Contains(content2, "65000.00") || !strings.Contains(content2, "0.050000") || !strings.Contains(content2, "3250.0000") {
+		preview := content2
+		if len(preview) > 800 {
+			preview = preview[:800]
+		}
+		t.Errorf("expected liquidation price/qty/amt in report, got: %s", preview)
+	}
+}
+
+func buildMultiStrategyReportData(result *MultiStrategyResult) MultiStrategyReportData {
+	endLiqPrice, endLiqQty, endLiqAmt := "", "", ""
+	if result.EndSettlement.Liquidated {
+		endLiqPrice = fmt.Sprintf("%.2f", result.EndSettlement.LiquidationPrice)
+		endLiqQty = fmt.Sprintf("%.6f", result.EndSettlement.LiquidationQty)
+		endLiqAmt = fmt.Sprintf("%.4f USDT", result.EndSettlement.LiquidationAmt)
+	}
+	return MultiStrategyReportData{
+		GeneratedAt:         time.Now().Format("2006-01-02 15:04:05"),
+		Symbol:              result.Symbol,
+		StartDate:           result.StartTime.Format("2006-01-02 15:04:05"),
+		EndDate:             result.EndTime.Format("2006-01-02 15:04:05"),
+		Duration:            "7 天",
+		InitialCapital:      result.InitialCapital,
+		FinalEquity:         result.FinalEquity,
+		TotalReturnPct:      5,
+		MaxDrawdownPct:      2,
+		SharpeRatio:         1,
+		WinRate:             60,
+		TotalTrades:         10,
+		TotalFees:           1,
+		TotalFunding:        0,
+		EndLiquidated:       result.EndSettlement.Liquidated,
+		EndLiquidationPrice: endLiqPrice,
+		EndLiquidationQty:   endLiqQty,
+		EndLiquidationAmt:   endLiqAmt,
+		ParamsTable:         nil,
 	}
 }
 
