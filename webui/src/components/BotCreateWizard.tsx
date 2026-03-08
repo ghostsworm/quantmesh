@@ -32,6 +32,8 @@ import {
   ModalBody,
   ModalCloseButton,
   useDisclosure,
+  Switch,
+  Divider,
 } from '@chakra-ui/react'
 import { ChevronLeftIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
@@ -75,6 +77,10 @@ const BotCreateWizard: React.FC = () => {
     buy_window_size: number
     sell_window_size: number
     direction: string
+    enable_risk_control?: boolean
+    stop_loss_ratio?: number
+    take_profit_trigger_ratio?: number
+    enable_trend_filter?: boolean
   }>({
     exchange: 'binance',
     symbol: '',
@@ -85,6 +91,10 @@ const BotCreateWizard: React.FC = () => {
     buy_window_size: 10,
     sell_window_size: 10,
     direction: 'LONG',
+    enable_risk_control: false,
+    stop_loss_ratio: 0.2,
+    take_profit_trigger_ratio: 0.08,
+    enable_trend_filter: false,
   })
 
   const [loading, setLoading] = useState(true)
@@ -260,6 +270,11 @@ const BotCreateWizard: React.FC = () => {
         sell_window_size: form.sell_window_size ?? 10,
         direction: form.direction || 'LONG',
         strategies: buildStrategies(),
+        // 网格风控配置
+        grid_risk_control_enabled: form.enable_risk_control,
+        grid_risk_control_stop_loss_ratio: form.enable_risk_control ? form.stop_loss_ratio : undefined,
+        grid_risk_control_take_profit_trigger_ratio: form.enable_risk_control ? form.take_profit_trigger_ratio : undefined,
+        grid_risk_control_trend_filter_enabled: form.enable_risk_control ? form.enable_trend_filter : undefined,
       }
 
       if (strategyType === 'hedge') {
@@ -507,6 +522,87 @@ const BotCreateWizard: React.FC = () => {
                   <NumberInputField />
                 </NumberInput>
               </FormControl>
+
+              <Divider my={2} />
+              <Text fontWeight="medium" fontSize="sm">{t('botCreate.advancedSettings')}</Text>
+
+              {/* 网格方向设置 */}
+              <FormControl>
+                <FormLabel>{t('botCreate.direction')}</FormLabel>
+                <Select
+                  value={form.direction || 'LONG'}
+                  onChange={(e) => setForm((f) => ({ ...f, direction: e.target.value }))}
+                >
+                  <option value="LONG">{t('botDetail.strategy.directionLong')}</option>
+                  <option value="SHORT">{t('botDetail.strategy.directionShort')}</option>
+                  <option value="BOTH">{t('botDetail.strategy.directionBoth')}</option>
+                </Select>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.directionHint')}
+                </Text>
+              </FormControl>
+
+              {/* 网格风控设置 - 简化版，只显示关键选项 */}
+              <Text fontWeight="medium" fontSize="sm" mt={2}>{t('botCreate.gridRiskControl')}</Text>
+              <FormControl>
+                <FormLabel>{t('botCreate.enableRiskControl')}</FormLabel>
+                <Switch
+                  isChecked={form.enable_risk_control || false}
+                  onChange={(e) => setForm((f) => ({ ...f, enable_risk_control: e.target.checked }))}
+                />
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.enableRiskControlHint')}
+                </Text>
+              </FormControl>
+
+              {form.enable_risk_control && (
+                <>
+                  <FormControl>
+                    <FormLabel>{t('botCreate.stopLossRatio')}</FormLabel>
+                    <NumberInput
+                      value={form.stop_loss_ratio ?? 0.2}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      precision={2}
+                      onChange={(_, v) => setForm((f) => ({ ...f, stop_loss_ratio: v }))}
+                    >
+                      <NumberInputField />
+                    </NumberInput>
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {t('botCreate.stopLossRatioHint')}
+                    </Text>
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel>{t('botCreate.takeProfitTriggerRatio')}</FormLabel>
+                    <NumberInput
+                      value={form.take_profit_trigger_ratio ?? 0.08}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      precision={2}
+                      onChange={(_, v) => setForm((f) => ({ ...f, take_profit_trigger_ratio: v }))}
+                    >
+                      <NumberInputField />
+                    </NumberInput>
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {t('botCreate.takeProfitTriggerRatioHint')}
+                    </Text>
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel>{t('botCreate.enableTrendFilter')}</FormLabel>
+                    <Switch
+                      isChecked={form.enable_trend_filter || false}
+                      onChange={(e) => setForm((f) => ({ ...f, enable_trend_filter: e.target.checked }))}
+                    />
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {t('botCreate.enableTrendFilterHint')}
+                    </Text>
+                  </FormControl>
+                </>
+              )}
             </VStack>
           )}
 

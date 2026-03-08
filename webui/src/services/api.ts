@@ -190,6 +190,11 @@ export interface CreateBotRequest {
   grid_shift_enabled?: boolean
   grid_shift_step?: number
   close_on_stop?: boolean
+  // 网格风控配置
+  grid_risk_control_enabled?: boolean
+  grid_risk_control_stop_loss_ratio?: number
+  grid_risk_control_take_profit_trigger_ratio?: number
+  grid_risk_control_trend_filter_enabled?: boolean
 }
 
 export async function createBot(req: CreateBotRequest): Promise<{ ok: boolean; bot_id: string }> {
