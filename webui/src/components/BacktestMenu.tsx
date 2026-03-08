@@ -121,6 +121,10 @@ import BacktestTradesTable from './BacktestTradesTable'
 
 /** 回测结果数据结构（含风控对比） */
 interface BacktestResultData {
+  task?: {
+    params?: Record<string, unknown>
+    strategy?: string
+  }
   result?: {
     metrics?: Record<string, unknown>
     trades?: Array<{ type?: string; quantity?: number }>
@@ -2067,9 +2071,14 @@ export default function BacktestMenu() {
                             </Tr>
                           )
                           
+                          const direction = (data as BacktestResultData).task?.params?.direction as string | undefined
+                          const directionLabel = direction === 'SHORT' ? t('backtest.gridDirectionShort') : direction === 'BOTH' ? t('backtest.gridDirectionBoth') : t('backtest.gridDirectionLong')
                           return (
                             <>
                               <Text fontSize="sm" fontWeight="600" mb={3}>{t('backtest.riskComparison')}</Text>
+                              <Text fontSize="xs" color="gray.600" _dark={{ color: 'gray.400' }} mb={2}>
+                                {t('backtest.gridDirection')}: {directionLabel}
+                              </Text>
                               <Box overflowX="auto" mb={4}>
                                 <Table size="sm" variant="simple">
                                   <Thead>
