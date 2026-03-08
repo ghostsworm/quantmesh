@@ -3378,7 +3378,11 @@
       "trend": "Trend Following",
       "mean_reversion": "Mean Reversion",
       "momentum": "Momentum",
-      "combo": "Combo Strategy"
+      "combo": "Combo Strategy",
+      "grid+trend": "Grid+Trend Combo",
+      "trend_following": "Trend Following",
+      "grid+dca": "Grid+DCA",
+      "grid+martingale": "Grid+Martingale"
     },
     "type": "Type",
     "weight": "Weight",

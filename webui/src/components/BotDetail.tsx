@@ -72,17 +72,23 @@ interface StrategyOption {
   label: string
 }
 
-const GRID_RELATED_STRATEGIES: StrategyOption[] = [
-  { value: 'grid', label: '網格策略' },
-  { value: 'grid+trend', label: '網格+趨勢組合' },
-  { value: 'trend_following', label: '趨勢跟蹤' },
-  { value: 'momentum', label: '動量策略' },
-  { value: 'mean_reversion', label: '均值回歸' },
+// Helper function to get strategy options with i18n
+const getGridRelatedStrategies = (t: any): StrategyOption[] => [
+  { value: 'grid', label: t('strategyNames.grid', '网格策略') },
+  { value: 'grid+trend', label: t('strategyNames.grid+trend', '网格+趋势组合') },
+  { value: 'trend_following', label: t('strategyNames.trend_following', '趋势跟踪') },
+  { value: 'momentum', label: t('strategyNames.momentum', '动量策略') },
+  { value: 'mean_reversion', label: t('strategyNames.mean_reversion', '均值回归') },
 ]
 
-const DCA_RELATED_STRATEGIES: StrategyOption[] = [
-  { value: 'dca', label: '定投策略' },
-  { value: 'martingale', label: '馬丁格爾' },
+const getDcaRelatedStrategies = (t: any): StrategyOption[] => [
+  { value: 'dca', label: t('strategyNames.dca', 'DCA定投') },
+  { value: 'martingale', label: t('strategyNames.martingale', '马丁格尔') },
+]
+
+const getMixedStrategies = (t: any): StrategyOption[] => [
+  { value: 'grid+dca', label: t('strategyNames.grid+dca', '网格+DCA') },
+  { value: 'grid+martingale', label: t('strategyNames.grid+martingale', '网格+马丁格尔') },
 ]
 
 const BotDetail: React.FC = () => {
@@ -616,16 +622,27 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
   // 策略类型选项（根据当前策略类型限制可切换的类型）
   const getAvailableStrategies = () => {
     if (!bot?.config?.strategies || bot.config.strategies.length === 0) {
-      return GRID_RELATED_STRATEGIES
+      return getGridRelatedStrategies(t)
     }
-    const currentType = bot.config.strategies[0].type
-    if (GRID_RELATED_STRATEGIES.some(s => s.value === currentType)) {
-      return GRID_RELATED_STRATEGIES
+    const strategies = bot.config.strategies
+    // 如果是混合策略（多个策略）
+    if (strategies.length > 1) {
+      return [
+        ...getGridRelatedStrategies(t),
+        ...getDcaRelatedStrategies(t),
+        ...getMixedStrategies(t),
+      ]
     }
-    if (DCA_RELATED_STRATEGIES.some(s => s.value === currentType)) {
-      return DCA_RELATED_STRATEGIES
+    const currentType = strategies[0].type
+    const gridStrategies = getGridRelatedStrategies(t)
+    const dcaStrategies = getDcaRelatedStrategies(t)
+    if (gridStrategies.some(s => s.value === currentType)) {
+      return [...gridStrategies, ...getMixedStrategies(t)]
     }
-    return GRID_RELATED_STRATEGIES
+    if (dcaStrategies.some(s => s.value === currentType)) {
+      return [...dcaStrategies, ...getMixedStrategies(t)]
+    }
+    return getGridRelatedStrategies(t)
   }
 
   // 初始化表单数据
