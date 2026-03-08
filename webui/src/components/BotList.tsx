@@ -324,32 +324,48 @@ const BotList: React.FC = () => {
                     )}
                     {/* 平仓价估算 */}
                     {(() => {
+                      // 确保 bot 有必要的字段
+                      if (!bot.current_price || bot.current_price <= 0) {
+                        return null
+                      }
+
                       const leverage = bot.leverage || 1
                       const maxCapitalRatio = bot.max_capital_ratio ?? 1.0
                       const buyWindowSize = bot.buy_window_size || (bot.strategies?.find(s => s.type === 'grid') ? 50 : 20)
+                      const orderQty = bot.order_quantity || 100
+
+                      // 调试输出
+                      if (process.env.NODE_ENV === 'development') {
+                        console.debug('[BotList] 计算强平价:', {
+                          botId: bot.bot_id,
+                          symbol: bot.symbol,
+                          currentPrice: bot.current_price,
+                          buyWindowSize,
+                          orderQty,
+                          priceInterval: bot.price_interval,
+                          totalCapital: bot.total_allocated_capital,
+                          leverage,
+                          maxCapitalRatio,
+                        })
+                      }
+
                       const liqEstimate = computeLiquidationPrice({
-                        currentPrice: bot.current_price || 0,
+                        currentPrice: bot.current_price,
                         buyWindowSize,
-                        orderQuantity: bot.order_quantity || 100,
+                        orderQuantity: orderQty,
                         priceInterval: bot.price_interval || 0.0025,
                         totalCapital: bot.total_allocated_capital || 10000,
                         leverage,
                         maxCapitalRatio,
                       })
-                      // 调试：如果计算失败，在控制台输出
-                      if (!liqEstimate?.valid && process.env.NODE_ENV === 'development') {
-                        console.debug('[BotList] 强平价计算失败:', {
+
+                      if (process.env.NODE_ENV === 'development') {
+                        console.debug('[BotList] 计算结果:', {
                           botId: bot.bot_id,
-                          currentPrice: bot.current_price,
-                          buyWindowSize,
-                          orderQuantity: bot.order_quantity,
-                          priceInterval: bot.price_interval,
-                          totalCapital: bot.total_allocated_capital,
-                          leverage,
-                          maxCapitalRatio,
                           liqEstimate
                         })
                       }
+
                       return liqEstimate?.valid && liqEstimate.liquidationPrice > 0 ? (
                         <Tooltip label={`基于最大仓位估算：${liqEstimate.positionBtc.toFixed(4)} BTC @ ${liqEstimate.avgEntryPrice.toFixed(2)} | 杠杆: ${leverage}x | 资金占用: ${Math.round(maxCapitalRatio * 100)}%`}>
                           <Text color="orange.500" fontWeight="medium">
