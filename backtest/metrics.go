@@ -370,12 +370,15 @@ func calculateWinRate(trades []Trade) float64 {
 }
 
 // calculateProfitFactor 計算利润因子（總盈利 / 總亏损）
+// 返回 -1 表示無已平倉交易（指標不適用），0 表示全部虧損無盈利
 func calculateProfitFactor(trades []Trade) float64 {
 	totalProfit := 0.0
 	totalLoss := 0.0
+	hasSell := false
 
 	for _, trade := range trades {
 		if trade.Type == "sell" {
+			hasSell = true
 			if trade.PnL > 0 {
 				totalProfit += trade.PnL
 			} else {
@@ -384,7 +387,14 @@ func calculateProfitFactor(trades []Trade) float64 {
 		}
 	}
 
+	if !hasSell {
+		return -1
+	}
+
 	if totalLoss == 0 {
+		if totalProfit > 0 {
+			return math.Inf(1)
+		}
 		return 0
 	}
 
