@@ -951,6 +951,7 @@
     "emailFrom": "From",
     "emailTo": "To",
     "feishu": "Feishu",
+    "enableFeishu": "Enable Feishu notifications",
     "dingtalk": "DingTalk",
     "wechatWork": "WeChat Work",
     "slack": "Slack",

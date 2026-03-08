@@ -950,6 +950,7 @@
     "emailFrom": "发件人",
     "emailTo": "收件人",
     "feishu": "飞书",
+    "enableFeishu": "启用飞书通知",
     "dingtalk": "钉钉",
     "wechatWork": "企业微信",
     "slack": "Slack",

@@ -1408,6 +1408,13 @@ const Configuration: React.FC = () => {
                         </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.feishu')}>
+                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
+                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableFeishu')}</FormLabel>
+                          <Switch
+                            isChecked={config.notifications?.feishu?.enabled || false}
+                            onChange={(e) => updateConfigField('notifications.feishu.enabled', e.target.checked)}
+                          />
+                        </FormControl>
                         <FormControl mb={4}>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
                           <Input
