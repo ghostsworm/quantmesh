@@ -198,6 +198,52 @@ func prepareComparisonReportData(comp *ComparisonResult, meta *ReportMeta) Compa
 	}
 }
 
+// tradeTypeLabel 根據 direction 返回 buy/sell 的顯示標籤
+func tradeTypeLabel(tradeType, direction string) string {
+	d := strings.ToUpper(direction)
+	switch d {
+	case "LONG":
+		if tradeType == "buy" {
+			return "開倉"
+		}
+		if tradeType == "sell" {
+			return "平倉"
+		}
+	case "SHORT":
+		if tradeType == "sell" {
+			return "開倉"
+		}
+		if tradeType == "buy" {
+			return "平倉"
+		}
+	}
+	return tradeType // BOTH 或未知：保持 buy/sell
+}
+
+// getDirectionFromMeta 從 meta 提取 direction 參數
+func getDirectionFromMeta(meta *ReportMeta) string {
+	if meta == nil || meta.Params == nil {
+		return ""
+	}
+	v, ok := meta.Params["direction"]
+	if !ok {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		if t == 0 {
+			return "LONG"
+		}
+		if t == 1 {
+			return "SHORT"
+		}
+		return "BOTH"
+	}
+	return ""
+}
+
 func formatRiskTimestamp(ts int64) string {
 	var sec int64
 	if ts > 10000000000 {
@@ -309,8 +355,8 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 | 總收益率 | {{.NoRiskTotalReturn}} | {{.WithRiskTotalReturn}} | {{.ReturnDiff}} |
 | 最大回撤 | {{.NoRiskMaxDrawdown}} | {{.WithRiskMaxDrawdown}} | {{.DrawdownDiff}} |
 | 總交易次數 | {{.NoRiskTotalTrades}} | {{.WithRiskTotalTrades}} | {{.TradeCountDiff}} |
-| 買入次數 | {{.NoRiskBuyCount}} | {{.WithRiskBuyCount}} | - |
-| 賣出次數 | {{.NoRiskSellCount}} | {{.WithRiskSellCount}} | - |
+| {{.BuyLabel}}次數 | {{.NoRiskBuyCount}} | {{.WithRiskBuyCount}} | - |
+| {{.SellLabel}}次數 | {{.NoRiskSellCount}} | {{.WithRiskSellCount}} | - |
 | 最終資金 | ${{.NoRiskFinalCapital}} | ${{.WithRiskFinalCapital}} | - |
 
 ## 風控介入記錄
@@ -351,7 +397,7 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 | 最大回撤 | {{.NoRiskMaxDrawdown}} |
 | 夏普比率 | {{.SharpeRatio}} |
 | 交易次數 | {{.NoRiskTotalTrades}} |
-| 買入/賣出 | {{.NoRiskBuyCount}} / {{.NoRiskSellCount}} |
+| {{.BuyLabel}}/{{.SellLabel}} | {{.NoRiskBuyCount}} / {{.NoRiskSellCount}} |
 
 ## 有風控詳細指標
 
@@ -361,7 +407,7 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 | 最大回撤 | {{.WithRiskMaxDrawdown}} |
 | 夏普比率 | {{.SharpeRatio}} |
 | 交易次數 | {{.WithRiskTotalTrades}} |
-| 買入/賣出 | {{.WithRiskBuyCount}} / {{.WithRiskSellCount}} |
+| {{.BuyLabel}}/{{.SellLabel}} | {{.WithRiskBuyCount}} / {{.WithRiskSellCount}} |
 
 ## 價格曲線概況
 
@@ -380,9 +426,9 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 ## 成對交易（無風控，前10笔）
 
 {{if .TopPairedTrades}}
-| 買入時間 | 買入價 | 賣出時間 | 賣出價 | 數量 | 盈虧 |
+| {{.OpenTimeCol}} | {{.OpenPriceCol}} | {{.CloseTimeCol}} | {{.ClosePriceCol}} | 數量 | 盈虧 |
 |----------|--------|----------|--------|------|------|
-{{range .TopPairedTrades}}| {{.BuyTime}} | {{.BuyPrice}} | {{.SellTime}} | {{.SellPrice}} | {{.Quantity}} | {{.PnL}} |
+{{range .TopPairedTrades}}| {{.OpenTime}} | {{.OpenPrice}} | {{.CloseTime}} | {{.ClosePrice}} | {{.Quantity}} | {{.PnL}} |
 {{end}}
 {{end}}
 
@@ -429,6 +475,15 @@ type ReportData struct {
 	// 數據與參數（由 ReportMeta 填充，meta 為 nil 時為空）
 	Interval    string           // K 線周期，如 1m, 5m, 1h
 	ParamsTable []ReportParamRow // 回測參數表（含策略與風控參數）
+
+	// 方向相關標籤（根據 direction：LONG=開倉/平倉，SHORT=開倉/平倉，BOTH=買入/賣出）
+	BuyLabel  string // 買入對應的顯示標籤（開倉/平倉/買入）
+	SellLabel string // 賣出對應的顯示標籤（平倉/開倉/賣出）
+	// 成對交易表頭（開倉時間/開倉價、平倉時間/平倉價，或 買入/賣出）
+	OpenTimeCol  string
+	OpenPriceCol string
+	CloseTimeCol string
+	ClosePriceCol string
 
 	// 收益指標
 	TotalReturn      string
@@ -500,7 +555,7 @@ type TradeRow struct {
 	PnL      string
 }
 
-// PairedRow 成對交易行（買入+賣出一對）
+// PairedRow 成對交易行（買入+賣出一對，或開倉+平倉）
 type PairedRow struct {
 	BuyTime   string
 	BuyPrice  string
@@ -508,62 +563,127 @@ type PairedRow struct {
 	SellPrice string
 	Quantity  string
 	PnL       string
+	// 方向感知顯示：開倉/平倉（LONG 時 Open=Buy Close=Sell，SHORT 時 Open=Sell Close=Buy）
+	OpenTime   string
+	OpenPrice  string
+	CloseTime  string
+	ClosePrice string
 }
 
 // extractPairedAndUnpairedTrades 從交易序列提取成對與未成對交易（FIFO 匹配）
+// direction: LONG=買入開倉賣出平倉，SHORT=賣出開倉買入平倉，BOTH 或空=買入/賣出
 // 返回：成對列表（前 maxN 個）、未成對列表（前 maxN 個）
-func extractPairedAndUnpairedTrades(trades []Trade, maxN int) ([]PairedRow, []TradeRow) {
-	var buyQueue []Trade
+func extractPairedAndUnpairedTrades(trades []Trade, maxN int, direction string) ([]PairedRow, []TradeRow) {
+	d := strings.ToUpper(direction)
 	var paired []PairedRow
 	var unpaired []TradeRow
 
-	for _, t := range trades {
-		if t.Type == "buy" {
-			buyQueue = append(buyQueue, t)
-		} else if t.Type == "sell" {
-			if len(buyQueue) > 0 {
-				buy := buyQueue[0]
-				buyQueue = buyQueue[1:]
-				buyTime := time.Unix(buy.Timestamp/1000, 0)
-				sellTime := time.Unix(t.Timestamp/1000, 0)
-				if len(paired) < maxN {
-					paired = append(paired, PairedRow{
-						BuyTime:   buyTime.Format("2006-01-02 15:04"),
-						BuyPrice:  fmt.Sprintf("%.2f", buy.Price),
-						SellTime:  sellTime.Format("2006-01-02 15:04"),
-						SellPrice: fmt.Sprintf("%.2f", t.Price),
-						Quantity:  fmt.Sprintf("%.4f", t.Quantity),
-						PnL:       fmt.Sprintf("%.2f", t.PnL),
-					})
-				}
-			} else {
-				// 無對應買入的賣出（如做空場景）
-				if len(unpaired) < maxN {
-					sellTime := time.Unix(t.Timestamp/1000, 0)
-					unpaired = append(unpaired, TradeRow{
-						Time:     sellTime.Format("2006-01-02 15:04"),
-						Type:     "sell",
-						Price:    fmt.Sprintf("%.2f", t.Price),
-						Quantity: fmt.Sprintf("%.4f", t.Quantity),
-						PnL:      fmt.Sprintf("%.2f", t.PnL),
-					})
+	if d == "SHORT" {
+		// 做空：賣出開倉、買入平倉，FIFO 為 sell -> buy
+		var sellQueue []Trade
+		for _, t := range trades {
+			if t.Type == "sell" {
+				sellQueue = append(sellQueue, t)
+			} else if t.Type == "buy" {
+				if len(sellQueue) > 0 {
+					sell := sellQueue[0]
+					sellQueue = sellQueue[1:]
+					sellTime := time.Unix(sell.Timestamp/1000, 0)
+					buyTime := time.Unix(t.Timestamp/1000, 0)
+					if len(paired) < maxN {
+						paired = append(paired, PairedRow{
+							BuyTime:    buyTime.Format("2006-01-02 15:04"),
+							BuyPrice:   fmt.Sprintf("%.2f", t.Price),
+							SellTime:   sellTime.Format("2006-01-02 15:04"),
+							SellPrice:  fmt.Sprintf("%.2f", sell.Price),
+							Quantity:   fmt.Sprintf("%.4f", t.Quantity),
+							PnL:        fmt.Sprintf("%.2f", t.PnL),
+							OpenTime:   sellTime.Format("2006-01-02 15:04"),
+							OpenPrice:  fmt.Sprintf("%.2f", sell.Price),
+							CloseTime:  buyTime.Format("2006-01-02 15:04"),
+							ClosePrice: fmt.Sprintf("%.2f", t.Price),
+						})
+					}
+				} else {
+					if len(unpaired) < maxN {
+						buyTime := time.Unix(t.Timestamp/1000, 0)
+						unpaired = append(unpaired, TradeRow{
+							Time:     buyTime.Format("2006-01-02 15:04"),
+							Type:     "buy",
+							Price:    fmt.Sprintf("%.2f", t.Price),
+							Quantity: fmt.Sprintf("%.4f", t.Quantity),
+							PnL:      fmt.Sprintf("%.2f", t.PnL),
+						})
+					}
 				}
 			}
 		}
-	}
-	// 剩餘未匹配的買入
-	for _, buy := range buyQueue {
-		if len(unpaired) >= maxN {
-			break
+		for _, sell := range sellQueue {
+			if len(unpaired) >= maxN {
+				break
+			}
+			sellTime := time.Unix(sell.Timestamp/1000, 0)
+			unpaired = append(unpaired, TradeRow{
+				Time:     sellTime.Format("2006-01-02 15:04"),
+				Type:     "sell",
+				Price:    fmt.Sprintf("%.2f", sell.Price),
+				Quantity: fmt.Sprintf("%.4f", sell.Quantity),
+				PnL:      "-",
+			})
 		}
-		buyTime := time.Unix(buy.Timestamp/1000, 0)
-		unpaired = append(unpaired, TradeRow{
-			Time:     buyTime.Format("2006-01-02 15:04"),
-			Type:     "buy",
-			Price:    fmt.Sprintf("%.2f", buy.Price),
-			Quantity: fmt.Sprintf("%.4f", buy.Quantity),
-			PnL:      "-",
-		})
+	} else {
+		// LONG 或 BOTH：買入開倉、賣出平倉，FIFO 為 buy -> sell
+		var buyQueue []Trade
+		for _, t := range trades {
+			if t.Type == "buy" {
+				buyQueue = append(buyQueue, t)
+			} else if t.Type == "sell" {
+				if len(buyQueue) > 0 {
+					buy := buyQueue[0]
+					buyQueue = buyQueue[1:]
+					buyTime := time.Unix(buy.Timestamp/1000, 0)
+					sellTime := time.Unix(t.Timestamp/1000, 0)
+					if len(paired) < maxN {
+						paired = append(paired, PairedRow{
+							BuyTime:    buyTime.Format("2006-01-02 15:04"),
+							BuyPrice:   fmt.Sprintf("%.2f", buy.Price),
+							SellTime:   sellTime.Format("2006-01-02 15:04"),
+							SellPrice:  fmt.Sprintf("%.2f", t.Price),
+							Quantity:   fmt.Sprintf("%.4f", t.Quantity),
+							PnL:        fmt.Sprintf("%.2f", t.PnL),
+							OpenTime:   buyTime.Format("2006-01-02 15:04"),
+							OpenPrice:  fmt.Sprintf("%.2f", buy.Price),
+							CloseTime:  sellTime.Format("2006-01-02 15:04"),
+							ClosePrice: fmt.Sprintf("%.2f", t.Price),
+						})
+					}
+				} else {
+					if len(unpaired) < maxN {
+						sellTime := time.Unix(t.Timestamp/1000, 0)
+						unpaired = append(unpaired, TradeRow{
+							Time:     sellTime.Format("2006-01-02 15:04"),
+							Type:     "sell",
+							Price:    fmt.Sprintf("%.2f", t.Price),
+							Quantity: fmt.Sprintf("%.4f", t.Quantity),
+							PnL:      fmt.Sprintf("%.2f", t.PnL),
+						})
+					}
+				}
+			}
+		}
+		for _, buy := range buyQueue {
+			if len(unpaired) >= maxN {
+				break
+			}
+			buyTime := time.Unix(buy.Timestamp/1000, 0)
+			unpaired = append(unpaired, TradeRow{
+				Time:     buyTime.Format("2006-01-02 15:04"),
+				Type:     "buy",
+				Price:    fmt.Sprintf("%.2f", buy.Price),
+				Quantity: fmt.Sprintf("%.4f", buy.Quantity),
+				PnL:      "-",
+			})
+		}
 	}
 	return paired, unpaired
 }
@@ -664,6 +784,17 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		}
 	}
 
+	// 方向標籤（用於開倉/平倉 vs 買入/賣出）
+	direction := getDirectionFromMeta(meta)
+	buyLabel := tradeTypeLabel("buy", direction)
+	sellLabel := tradeTypeLabel("sell", direction)
+	openTimeCol, openPriceCol, closeTimeCol, closePriceCol := "買入時間", "買入價", "賣出時間", "賣出價"
+	if direction == "LONG" {
+		openTimeCol, openPriceCol, closeTimeCol, closePriceCol = "開倉時間", "開倉價", "平倉時間", "平倉價"
+	} else if direction == "SHORT" {
+		openTimeCol, openPriceCol, closeTimeCol, closePriceCol = "開倉時間", "開倉價", "平倉時間", "平倉價"
+	}
+
 	// 准备交易明细（前20笔）：包含买/卖所有成交，避免仅統計 sell 时策略多为买入导致明细为空
 	topTrades := make([]TradeRow, 0)
 	for i, trade := range result.Trades {
@@ -671,9 +802,10 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 			break
 		}
 		tradeTime := time.Unix(trade.Timestamp/1000, 0)
+		displayType := tradeTypeLabel(trade.Type, direction)
 		topTrades = append(topTrades, TradeRow{
 			Time:     tradeTime.Format("2006-01-02 15:04"),
-			Type:     trade.Type,
+			Type:     displayType,
 			Price:    fmt.Sprintf("%.2f", trade.Price),
 			Quantity: fmt.Sprintf("%.4f", trade.Quantity),
 			PnL:      fmt.Sprintf("%.2f", trade.PnL),
@@ -681,7 +813,15 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 	}
 
 	// 成對交易（前10）、未成對交易（前10）
-	topPaired, topUnpaired := extractPairedAndUnpairedTrades(result.Trades, 10)
+	topPaired, topUnpaired := extractPairedAndUnpairedTrades(result.Trades, 10, direction)
+	// 未成對交易的 Type 也改為顯示標籤
+	for i := range topUnpaired {
+		rawType := "buy"
+		if topUnpaired[i].Type == "sell" {
+			rawType = "sell"
+		}
+		topUnpaired[i].Type = tradeTypeLabel(rawType, direction)
+	}
 
 	// 價格曲線概況（若有）
 	hasPriceCurve := result.PriceCurve != nil
@@ -775,6 +915,13 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		FinalCapital:   fmt.Sprintf("%.4f", result.FinalCapital),
 		Interval:       interval,
 		ParamsTable:    paramsTable,
+
+		BuyLabel:      buyLabel,
+		SellLabel:     sellLabel,
+		OpenTimeCol:   openTimeCol,
+		OpenPriceCol:  openPriceCol,
+		CloseTimeCol:  closeTimeCol,
+		ClosePriceCol: closePriceCol,
 
 		TotalReturn:      fmt.Sprintf("%.4f%%", m.TotalReturn),
 		AnnualizedReturn: fmt.Sprintf("%.4f%%", m.AnnualizedReturn),
@@ -965,8 +1112,8 @@ func renderReportTemplate(data ReportData) (string, error) {
 | 指標 | 數值 |
 |------|------|
 | 總交易次數（成對） | {{.TotalTrades}} |
-| 買入次數 | {{.BuyCount}} |
-| 賣出次數 | {{.SellCount}} |
+| {{.BuyLabel}}次數 | {{.BuyCount}} |
+| {{.SellLabel}}次數 | {{.SellCount}} |
 | 胜率（网格） | {{.WinRate}} |
 | 胜率（交易所） | {{.ExchangeWinRate}} |
 | 利润因子 | {{.ProfitFactor}} |
@@ -993,9 +1140,9 @@ func renderReportTemplate(data ReportData) (string, error) {
 {{if .TopPairedTrades}}
 ## 成對交易（前10笔）
 
-| 買入時間 | 買入價 | 賣出時間 | 賣出價 | 數量 | 盈虧 |
+| {{.OpenTimeCol}} | {{.OpenPriceCol}} | {{.CloseTimeCol}} | {{.ClosePriceCol}} | 數量 | 盈虧 |
 |----------|--------|----------|--------|------|------|
-{{range .TopPairedTrades}}| {{.BuyTime}} | {{.BuyPrice}} | {{.SellTime}} | {{.SellPrice}} | {{.Quantity}} | {{.PnL}} |
+{{range .TopPairedTrades}}| {{.OpenTime}} | {{.OpenPrice}} | {{.CloseTime}} | {{.ClosePrice}} | {{.Quantity}} | {{.PnL}} |
 {{end}}
 {{end}}
 

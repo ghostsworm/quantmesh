@@ -268,6 +268,14 @@ func (m *TaskManager) RunTask(id string) error {
 	if task.TotalCapital > 0 {
 		reportParams["total_capital"] = task.TotalCapital
 	}
+	// 若 params 無 direction 但策略有，從首個策略合併（供報告開倉/平倉標籤）
+	if _, hasDir := reportParams["direction"]; !hasDir && len(task.Strategies) > 0 {
+		if cfg := task.Strategies[0].Config; cfg != nil {
+			if d, ok := cfg["direction"].(string); ok && d != "" {
+				reportParams["direction"] = d
+			}
+		}
+	}
 	reportMeta := &ReportMeta{
 		Interval: task.Interval,
 		Params:   reportParams,
