@@ -54,6 +54,8 @@ export interface LiquidationEstimate {
  * 根据当前仓位（满买窗）、总资金、杠杆等估算强平价格（做多）。
  * 假设：买窗全部成交，仓位 = sum(orderQuantity/price_i)，加权平均开仓价 = avg_entry。
  * 强平条件：保证金余额 <= 持仓价值 × 维持保证金比率。
+ *
+ * @param maxCapitalRatio 最大资金占用比例 (0.1-1.0)，例如 0.2 表示只用 20% 的资金
  */
 export function computeLiquidationPrice(params: {
   currentPrice: number
@@ -63,6 +65,7 @@ export function computeLiquidationPrice(params: {
   totalCapital: number
   leverage: number
   maintenanceMarginRate?: number
+  maxCapitalRatio?: number // 新增：最大资金占用比例
 }): LiquidationEstimate | null {
   const {
     currentPrice,
@@ -72,11 +75,15 @@ export function computeLiquidationPrice(params: {
     totalCapital,
     leverage,
     maintenanceMarginRate: MMR = DEFAULT_MMR,
+    maxCapitalRatio = 1.0, // 默认不限制
   } = params
 
   if (currentPrice <= 0 || n <= 0 || Q <= 0 || totalCapital <= 0 || leverage <= 0) {
     return null
   }
+
+  // 计算实际可用资金（考虑最大资金占用限制）
+  const actualCapital = totalCapital * Math.min(maxCapitalRatio, 1.0)
 
   let sumInvP = 0
   for (let i = 0; i < n; i++) {
@@ -89,13 +96,13 @@ export function computeLiquidationPrice(params: {
   const positionNotional = n * Q
   const avgEntryPrice = positionNotional / positionBtc
 
-  // 做多强平：margin_balance = totalCapital + (liq_price - avg_entry) * position_btc
+  // 做多强平：margin_balance = actualCapital + (liq_price - avg_entry) * position_btc
   // 强平时 margin_balance = position_btc * liq_price * MMR
-  // => totalCapital + (liq_price - avg_entry)*position_btc = position_btc * liq_price * MMR
-  // => totalCapital - avg_entry*position_btc = liq_price * position_btc * (MMR - 1)
+  // => actualCapital + (liq_price - avg_entry)*position_btc = position_btc * liq_price * MMR
+  // => actualCapital - avg_entry*position_btc = liq_price * position_btc * (MMR - 1)
   const denom = positionBtc * (MMR - 1)
   if (denom >= 0) return null
-  const numerator = totalCapital - avgEntryPrice * positionBtc
+  const numerator = actualCapital - avgEntryPrice * positionBtc
   const liquidationPrice = numerator / denom
   if (liquidationPrice <= 0 || liquidationPrice >= currentPrice) {
     return null

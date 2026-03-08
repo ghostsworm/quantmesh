@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import {
   Box,
   Button,
@@ -30,6 +30,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { getBots, getBotGroups, startBot, stopBot, deleteBot, BotInfo } from '../services/api'
 import type { BotGroupResponse } from '../services/api'
 import BotBacktestDialog from './BotBacktestDialog'
+import { computeLiquidationPrice } from './ParamAdvisor'
 
 type FilterStatus = 'all' | 'running' | 'stopped'
 
@@ -321,6 +322,28 @@ const BotList: React.FC = () => {
                         PnL: {bot.total_pnl >= 0 ? '+' : ''}{bot.total_pnl.toFixed(2)}
                       </Text>
                     )}
+                    {/* 平仓价估算 */}
+                    {(() => {
+                      const leverage = bot.leverage || 1
+                      const maxCapitalRatio = bot.max_capital_ratio ?? 1.0
+                      const buyWindowSize = bot.buy_window_size || (bot.strategies?.find(s => s.type === 'grid') ? 50 : 20)
+                      const liqEstimate = computeLiquidationPrice({
+                        currentPrice: bot.current_price || 0,
+                        buyWindowSize,
+                        orderQuantity: bot.order_quantity || 100,
+                        priceInterval: bot.price_interval || 0.0025,
+                        totalCapital: bot.total_allocated_capital || 10000,
+                        leverage,
+                        maxCapitalRatio,
+                      })
+                      return liqEstimate?.valid && liqEstimate.liquidationPrice > 0 ? (
+                        <Tooltip label={`基于最大仓位估算：${liqEstimate.positionBtc.toFixed(4)} BTC @ ${liqEstimate.avgEntryPrice.toFixed(2)} | 杠杆: ${leverage}x | 资金占用: ${Math.round(maxCapitalRatio * 100)}%`}>
+                          <Text color="orange.500" fontWeight="medium">
+                            强平: ${liqEstimate.liquidationPrice.toFixed(2)}
+                          </Text>
+                        </Tooltip>
+                      ) : null
+                    })()}
                   </HStack>
                 )}
                 <Flex mt={4} gap={2} onClick={(e) => e.stopPropagation()} align="center" justify="space-between">

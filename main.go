@@ -853,6 +853,19 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			OrderQuantity:         bc.OrderQuantity,
 			TotalAllocatedCapital: bc.TotalAllocatedCapital,
 			Strategies:            convertStrategies(bc.Strategies),
+			BuyWindowSize:         bc.BuyWindowSize,
+		}
+		// 从策略配置中读取杠杆和最大资金占用
+		for _, strategy := range bc.Strategies {
+			if strategy.Type == "grid" {
+				if leverage, ok := strategy.Config["leverage"].(float64); ok {
+					resp.Leverage = leverage
+				}
+				if maxCapitalRatio, ok := strategy.Config["max_capital_ratio"].(float64); ok {
+					resp.MaxCapitalRatio = maxCapitalRatio
+				}
+				break
+			}
 		}
 		if br, ok := runningMap[botID]; ok && br.Inner != nil {
 			resp.Running = true

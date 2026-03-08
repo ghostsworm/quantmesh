@@ -146,6 +146,9 @@ export interface BotInfo {
   order_quantity?: number
   total_allocated_capital?: number
   strategies?: BotStrategyInfo[] // 该 Bot 配置的策略列表
+  leverage?: number // 杠杆倍数
+  max_capital_ratio?: number // 最大资金占用比例 (0.1-1.0)
+  buy_window_size?: number // 买窗大小（用于计算平仓价）
 }
 
 export interface BotStrategyInfo {
