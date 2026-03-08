@@ -73,7 +73,7 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 	if params.GridSpacing > 0 {
 		switch direction {
 		case "SHORT":
-			gridLevels = buildGridLevelsBySpacingFromHigh(priceLow, priceHigh, params.GridSpacing, params.GridCount)
+			gridLevels = buildGridLevelsByCenteredSpacing(priceLow, priceHigh, params.GridSpacing, params.GridCount, candles[0].Close)
 		case "BOTH":
 			gridLevels = buildGridLevelsBySpacing(priceLow, priceHigh, params.GridSpacing, 0)
 		default:
@@ -341,8 +341,51 @@ func buildGridLevels(low, high float64, gridCount int) []float64 {
 	return levels
 }
 
+// buildGridLevelsByCenteredSpacing 以 centerPrice 為中心按間距生成檔位，用於 SHORT 方向
+// 修復: 原 buildGridLevelsBySpacingFromHigh 配合 maxCount 會導致檔位集中在極端高價區（priceHigh 可能是尖峰），
+// 正常交易價格遠低於檔位 → 開倉後永遠無法平倉。改為以起始價為中心向兩側展開，確保檔位覆蓋正常交易區間。
+func buildGridLevelsByCenteredSpacing(low, high, spacing float64, maxCount int, centerPrice float64) []float64 {
+	if spacing <= 0 {
+		return nil
+	}
+	if maxCount <= 0 {
+		return buildGridLevelsBySpacing(low, high, spacing, 0)
+	}
+	if centerPrice <= 0 {
+		centerPrice = (low + high) / 2
+	}
+
+	alignedCenter := low + math.Round((centerPrice-low)/spacing)*spacing
+	halfBelow := maxCount / 2
+	halfAbove := maxCount - halfBelow - 1
+
+	var levels []float64
+	for i := -halfBelow; i <= halfAbove; i++ {
+		p := alignedCenter + float64(i)*spacing
+		if p >= low-1e-9 && p <= high+1e-9 && p > 0 {
+			levels = append(levels, roundPrice(p, 8))
+		}
+	}
+	if len(levels) < maxCount {
+		for p := alignedCenter + float64(halfAbove+1)*spacing; p <= high+1e-9 && len(levels) < maxCount; p += spacing {
+			if p > 0 {
+				levels = append(levels, roundPrice(p, 8))
+			}
+		}
+	}
+	if len(levels) < maxCount {
+		for p := alignedCenter - float64(halfBelow+1)*spacing; p >= low-1e-9 && len(levels) < maxCount; p -= spacing {
+			if p > 0 {
+				levels = append(levels, roundPrice(p, 8))
+			}
+		}
+	}
+	sort.Float64s(levels)
+	return levels
+}
+
 // buildGridLevelsBySpacingFromHigh 從上限往下按間距生成檔位，用於 SHORT 方向
-// 做空需要在高位開倉，因此從 priceHigh 往下構建，確保檔位覆蓋價格高位區間
+// Deprecated: 配合 maxCount 時檔位集中在極端高價區，推薦使用 buildGridLevelsByCenteredSpacing
 func buildGridLevelsBySpacingFromHigh(low, high, spacing float64, maxCount int) []float64 {
 	if spacing <= 0 {
 		return nil

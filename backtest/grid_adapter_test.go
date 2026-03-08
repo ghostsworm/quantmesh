@@ -132,6 +132,91 @@ func TestRunGridBacktest_SHORT_AutoDerivedRange(t *testing.T) {
 	t.Logf("SHORT AutoDerived 交易次數: %d", len(result.Trades))
 }
 
+func TestRunGridBacktest_SHORT_SpikeRange_ZeroClose(t *testing.T) {
+	// 復現 bug：價格正常在 67000 附近波動，但曾有一次尖峰到 69500
+	// 自動推導 priceHigh=69500，buildGridLevelsBySpacingFromHigh 配合 maxCount=20
+	// 會把 20 檔全部放在 69500 附近（68170~69500），遠離正常交易區間
+	// → 只在尖峰時開倉，之後永遠無法平倉
+	// 修復後使用 buildGridLevelsByCenteredSpacing 以起始價為中心建檔位
+	candles := make([]*exchange.Candle, 200)
+	for i := range candles {
+		base := 67000.0 + float64(i%30)*5 - 75 // 在 66925~67075 間波動
+		candles[i] = &exchange.Candle{
+			Open:      base,
+			High:      base + 50,
+			Low:       base - 50,
+			Close:     base + 10,
+			Volume:    100,
+			Timestamp: int64(i) * 60000,
+		}
+	}
+	// 第 20 根 K 線：一次尖峰到 69500（模擬 auto-derived priceHigh）
+	candles[20] = &exchange.Candle{
+		Open: 67000, High: 69500, Low: 66900, Close: 67100, Volume: 5000, Timestamp: 20 * 60000,
+	}
+
+	params := GridBacktestParams{
+		GridSpacing:   70,
+		GridCount:     20,
+		OrderQuantity: 500,
+		TotalCapital:  10000,
+		FeeRate:       0.0004,
+		Direction:     "SHORT",
+	}
+	result, err := RunGridBacktest("BTCUSDT", candles, params, 10000, nil)
+	if err != nil {
+		t.Fatalf("RunGridBacktest SHORT SpikeRange: %v", err)
+	}
+	t.Logf("SHORT SpikeRange: 賣出(開空)=%d, 買入(平空)=%d, 成對=%d",
+		result.Metrics.SellCount, result.Metrics.BuyCount, result.Metrics.TotalTrades)
+
+	if result.Metrics.SellCount == 0 {
+		t.Error("預期有賣出(開空)交易")
+	}
+	if result.Metrics.BuyCount == 0 {
+		t.Error("修復後預期有買入(平空)交易，但 BuyCount=0。" +
+			"此前 bug：檔位集中在尖峰區域，正常價格波動無法觸發平倉")
+	}
+	if result.Metrics.TotalTrades == 0 && result.Metrics.SellCount > 0 {
+		t.Error("有開倉但零平倉 — 這是修復前的 bug 症狀")
+	}
+}
+
+func TestBuildGridLevelsByCenteredSpacing(t *testing.T) {
+	// 驗證 centered spacing 以 centerPrice 為中心生成檔位
+	levels := buildGridLevelsByCenteredSpacing(60000, 75000, 70, 20, 67000)
+	if len(levels) != 20 {
+		t.Fatalf("預期 20 個檔位，得到 %d", len(levels))
+	}
+	// 檔位應圍繞 67000 分佈
+	mid := levels[len(levels)/2]
+	if mid < 66500 || mid > 67500 {
+		t.Errorf("中間檔位 %.2f 應接近 67000，但偏離太遠", mid)
+	}
+	// 最低不應低於 60000
+	if levels[0] < 60000 {
+		t.Errorf("最低檔位 %.2f 不應低於 60000", levels[0])
+	}
+	// 最高不應高於 75000
+	if levels[len(levels)-1] > 75000 {
+		t.Errorf("最高檔位 %.2f 不應高於 75000", levels[len(levels)-1])
+	}
+	t.Logf("Centered 檔位範圍: %.2f ~ %.2f (center=67000)", levels[0], levels[len(levels)-1])
+
+	// 對比舊的 buildGridLevelsBySpacingFromHigh：檔位集中在高位
+	oldLevels := buildGridLevelsBySpacingFromHigh(60000, 75000, 70, 20)
+	if oldLevels[0] > 73000 {
+		t.Logf("舊方法最低檔位 %.2f 遠離 67000（集中在高位），已棄用", oldLevels[0])
+	}
+
+	// maxCount=0 時應生成全部檔位
+	allLevels := buildGridLevelsByCenteredSpacing(60000, 60700, 70, 0, 60350)
+	expectedCount := 11 // (60700-60000)/70 + 1 = 11
+	if len(allLevels) != expectedCount {
+		t.Errorf("maxCount=0 時預期 %d 檔位，得到 %d", expectedCount, len(allLevels))
+	}
+}
+
 func TestRiskSimulator_SHORT_Direction(t *testing.T) {
 	// SHORT 方向的風控應在價格高於均價 + 放量時觸發（看漲對空頭不利）
 	cfg := &RiskSimulatorConfig{

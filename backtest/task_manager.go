@@ -361,11 +361,16 @@ func (m *TaskManager) riskConfigFromTask(task *BacktestTask) *RiskSimulatorConfi
 }
 
 func (m *TaskManager) gridParamsFromTask(task *BacktestTask) GridBacktestParams {
+	gridCountDefault := 20
+	spacing := getFloat(task.Params, "grid_spacing", 0)
+	if spacing > 0 && !hasKey(task.Params, "grid_count") {
+		gridCountDefault = 0
+	}
 	p := GridBacktestParams{
 		PriceLow:      getFloat(task.Params, "price_low", 0),
 		PriceHigh:     getFloat(task.Params, "price_high", 0),
-		GridCount:     getInt(task.Params, "grid_count", 20),
-		GridSpacing:   getFloat(task.Params, "grid_spacing", 0),
+		GridCount:     getInt(task.Params, "grid_count", gridCountDefault),
+		GridSpacing:   spacing,
 		OrderQuantity: getFloat(task.Params, "order_quantity", 100),
 		TotalCapital:  task.TotalCapital,
 		FeeRate:       getFloat(task.Params, "fee_rate", 0.0004),
@@ -431,6 +436,14 @@ func getInt(m map[string]interface{}, key string, def int) int {
 		return int(t)
 	}
 	return def
+}
+
+func hasKey(m map[string]interface{}, key string) bool {
+	if m == nil {
+		return false
+	}
+	_, ok := m[key]
+	return ok
 }
 
 // LoadResult 加載任務結果（從 JSON 檔案）

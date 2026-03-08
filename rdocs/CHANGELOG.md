@@ -10,6 +10,17 @@
 
 ---
 
+## v3.65.0-rc7 - 2026年03月09日
+
+**Git Tag**: `v3.65.0-rc7`
+
+### 修復 (Fixed)
+
+- **做空网格回测零平仓 bug**：修復 `buildGridLevelsBySpacingFromHigh` 配合 `maxCount` 限制時，20 個檔位全部集中在自動推導的極端高價區（priceHigh 可能是一次性尖峰），導致正常交易價格遠低於所有檔位 → 開倉後永遠觸不到檔位來平倉。改用 `buildGridLevelsByCenteredSpacing` 以首根 K 線收盤價為中心向兩側展開檔位，確保覆蓋正常交易區間
+- **grid_count 默認值過度限制**：當用戶指定了 `grid_spacing` 但未指定 `grid_count` 時，原默認 20 檔會截斷大範圍為極小子集；改為 `grid_spacing` 存在且 `grid_count` 未指定時默認不限制檔位數（0=全區間）
+
+---
+
 ## v3.65.0-rc5 - 2026年03月09日
 
 **Git Tag**: `v3.65.0-rc5`
