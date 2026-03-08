@@ -939,7 +939,7 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		SellCount:            fmt.Sprintf("%d", m.SellCount),
 		WinRate:              fmt.Sprintf("%.4f%%", m.WinRate),
 		ExchangeWinRate:      fmt.Sprintf("%.4f%%", m.ExchangeStyle.ExchangeWinRate),
-		ProfitFactor:         fmt.Sprintf("%.4f", m.ProfitFactor),
+		ProfitFactor:         formatProfitFactor(m.ProfitFactor),
 		AvgWin:               fmt.Sprintf("%.4f", m.AvgWin),
 		AvgLoss:              fmt.Sprintf("%.4f", m.AvgLoss),
 		LargestWin:           fmt.Sprintf("%.4f", m.LargestWin),
@@ -1013,8 +1013,10 @@ func generateConclusion(result *BacktestResult) string {
 		conclusions = append(conclusions, "❌ 风險調整收益差，夏普比率為负")
 	}
 
-	// 胜率评估
-	if m.WinRate > 60 {
+	// 胜率评估（无成对交易时跳过，因为没有平仓无法计算胜率）
+	if m.TotalTrades == 0 {
+		conclusions = append(conclusions, "ℹ️ 無成對交易完成（僅開倉未平倉），胜率指標不適用")
+	} else if m.WinRate > 60 {
 		conclusions = append(conclusions, "✅ 胜率高，超過 60%")
 	} else if m.WinRate > 50 {
 		conclusions = append(conclusions, "✅ 胜率良好，超過 50%")
@@ -1022,8 +1024,10 @@ func generateConclusion(result *BacktestResult) string {
 		conclusions = append(conclusions, "⚠️ 胜率较低，需要优化策略")
 	}
 
-	// 利润因子评估
-	if m.ProfitFactor > 2 {
+	// 利润因子评估（ProfitFactor == -1 或无成对交易时跳过）
+	if m.TotalTrades == 0 || m.ProfitFactor == -1 {
+		conclusions = append(conclusions, "ℹ️ 無成對交易完成，利润因子指標不適用（收益來自未實現盈虧）")
+	} else if m.ProfitFactor > 2 {
 		conclusions = append(conclusions, "✅ 利润因子优秀，盈利能力强")
 	} else if m.ProfitFactor > 1.5 {
 		conclusions = append(conclusions, "✅ 利润因子良好")
