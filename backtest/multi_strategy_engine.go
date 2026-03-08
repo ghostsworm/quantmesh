@@ -861,6 +861,10 @@ type MultiStrategyResult struct {
 
 	// 风险指標
 	RiskMetrics *MultiStrategyRiskMetrics `json:"risk_metrics"`
+
+	// 交易配置
+	Leverage        float64 `json:"leverage"`         // 杠杆倍数
+	MaxCapitalRatio float64 `json:"max_capital_ratio"` // 最大资金占用比例 (0.1-1.0)
 }
 
 // MultiStrategyRiskMetrics 风险指標
@@ -937,6 +941,8 @@ func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 		StatsByStrategy: e.statsByStrategy,
 		StrategyResults: strategyResults,
 		RiskMetrics:     e.calculateRiskMetrics(),
+		Leverage:        e.Config.Leverage,
+		MaxCapitalRatio: e.Config.MaxCapitalRatio,
 	}
 
 	return result
