@@ -536,7 +536,7 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 	})
 
 	if err != nil {
-		logger.Error("❌ [%s] 基础订單下單失败: %v", s.name, err)
+		logger.Error("❌ [%s] 基础订單下單失败: %v", s.logPrefix(), err)
 		return err
 	}
 

@@ -37,6 +37,11 @@ func NewCapitalAllocator(cfg *config.Config, totalCapital float64) *CapitalAlloc
 	}
 }
 
+// GetConfig 獲取配置（用於訪問 bot ID 等信息）
+func (ca *CapitalAllocator) GetConfig() *config.Config {
+	return ca.cfg
+}
+
 // RegisterStrategy 注册策略
 func (ca *CapitalAllocator) RegisterStrategy(name string, weight float64, fixedPool float64) {
 	ca.mu.Lock()
