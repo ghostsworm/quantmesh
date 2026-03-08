@@ -200,6 +200,33 @@ func TestGenerateConclusionWithCompletedTrades(t *testing.T) {
 	}
 }
 
+func TestComputeEndPosition(t *testing.T) {
+	tests := []struct {
+		name      string
+		trades    []Trade
+		endPrice  float64
+		direction string
+		wantQty   float64
+		wantValue float64
+	}{
+		{"LONG no trades", nil, 70000, "LONG", 0, 0},
+		{"LONG buy only", []Trade{{Type: "buy", Quantity: 0.1}}, 70000, "LONG", 0.1, 7000},
+		{"LONG buy sell closed", []Trade{{Type: "buy", Quantity: 0.1}, {Type: "sell", Quantity: 0.1}}, 70000, "LONG", 0, 0},
+		{"SHORT sell only (欠)", []Trade{{Type: "sell", Quantity: 0.1}}, 70000, "SHORT", -0.1, -7000},
+		{"SHORT sell buy closed", []Trade{{Type: "sell", Quantity: 0.1}, {Type: "buy", Quantity: 0.1}}, 70000, "SHORT", 0, 0},
+		{"SHORT partial close", []Trade{{Type: "sell", Quantity: 0.2}, {Type: "buy", Quantity: 0.1}}, 70000, "SHORT", -0.1, -7000},
+		{"LONG negative qty zeroed", []Trade{{Type: "sell", Quantity: 0.1}}, 70000, "LONG", 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotQty, gotValue := computeEndPosition(tt.trades, tt.endPrice, tt.direction)
+			if gotQty != tt.wantQty || gotValue != tt.wantValue {
+				t.Errorf("computeEndPosition() = (%.4f, %.4f), want (%.4f, %.4f)", gotQty, gotValue, tt.wantQty, tt.wantValue)
+			}
+		})
+	}
+}
+
 func TestFormatGridDirectionLabel(t *testing.T) {
 	tests := []struct {
 		name     string

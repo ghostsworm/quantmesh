@@ -2013,12 +2013,15 @@ export default function BacktestMenu() {
                         const comp = data.comparison
                         const hasComparison = comp != null
 
+                        const direction = (data as BacktestResultData).task?.params?.direction as string | undefined
+                        const isShort = (direction ?? '').toUpperCase() === 'SHORT'
                         const metricBox = (
                           m: Record<string, unknown> | undefined,
                           trades: Array<{ type?: string; quantity?: number }>,
                           endPrice: number,
                           finalCapital: number,
-                          label?: string
+                          label?: string,
+                          shortMode?: boolean
                         ) => {
                           if (!m) return null
                           let endPosQty = 0
@@ -2026,9 +2029,14 @@ export default function BacktestMenu() {
                             if (t.type === 'buy') endPosQty += t.quantity ?? 0
                             else if (t.type === 'sell') endPosQty -= t.quantity ?? 0
                           }
-                          if (endPosQty < 0) endPosQty = 0
+                          if (endPosQty < 0 && !shortMode) endPosQty = 0
                           const endPosValue = endPosQty * endPrice
                           const endCashUSDT = Math.max(0, finalCapital - endPosValue)
+                          const endNetValue = finalCapital
+                          const posLabel = shortMode && endPosQty < 0 ? t('backtest.endPositionLiability') : t('backtest.endPosition')
+                          const posDisplay = shortMode && endPosQty < 0 ? `${t('backtest.owed')} ${(-endPosQty).toFixed(6)}` : endPosQty.toFixed(6)
+                          const valueLabel = shortMode && endPosValue < 0 ? t('backtest.endPositionLiabilityValue') : t('backtest.endPositionValue')
+                          const valueDisplay = shortMode && endPosValue < 0 ? `${(-endPosValue).toFixed(4)} USDT` : `${endPosValue.toFixed(4)} USDT`
                           return (
                             <Box key={label || 'single'}>
                               {label && <Text fontSize="xs" fontWeight="600" mb={2} color="gray.600" _dark={{ color: 'gray.400' }}>{label}</Text>}
@@ -2038,9 +2046,10 @@ export default function BacktestMenu() {
                                 <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.sharpeRatio')}</Text><Text fontWeight="600">{String(m.sharpe_ratio ?? '-')}</Text></Box>
                                 <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.totalTrades')}</Text><Text fontWeight="600">{String(m.total_trades ?? '-')}</Text></Box>
                                 <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.buySell')}</Text><Text fontWeight="600">{String(m.buy_count ?? '-')} / {String(m.sell_count ?? '-')}</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endPosition')}</Text><Text fontWeight="600">{endPosQty.toFixed(6)}</Text></Box>
-                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endPositionValue')}</Text><Text fontWeight="600">{endPosValue.toFixed(4)} USDT</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{posLabel}</Text><Text fontWeight="600">{posDisplay}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{valueLabel}</Text><Text fontWeight="600">{valueDisplay}</Text></Box>
                                 <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endUsdt')}</Text><Text fontWeight="600">{endCashUSDT.toFixed(4)}</Text></Box>
+                                <Box p={2} bg="gray.50" borderRadius="md" _dark={{ bg: 'gray.700' }}><Text fontSize="xs">{t('backtest.endNetValue')}</Text><Text fontWeight="600">{endNetValue.toFixed(4)}</Text></Box>
                               </SimpleGrid>
                             </Box>
                           )
@@ -2052,20 +2061,21 @@ export default function BacktestMenu() {
                           const cm = comp.comparison
                           const interventions = comp.with_risk_result?.risk_interventions ?? []
                           
-                          // 计算期末持仓相关数据
-                          const calcEndPos = (trades: typeof noRisk.trades, endPrice: number, finalCapital: number) => {
+                          // 计算期末持仓相关数据（做空时 endPosQty 可为负表示欠的币）
+                          const calcEndPos = (trades: typeof noRisk.trades, endPrice: number, finalCapital: number, shortMode: boolean) => {
                             let endPosQty = 0
                             for (const t of (trades ?? [])) {
                               if (t.type === 'buy') endPosQty += t.quantity ?? 0
                               else if (t.type === 'sell') endPosQty -= t.quantity ?? 0
                             }
-                            if (endPosQty < 0) endPosQty = 0
+                            if (endPosQty < 0 && !shortMode) endPosQty = 0
                             const endPosValue = endPosQty * endPrice
                             const endCashUSDT = Math.max(0, finalCapital - endPosValue)
-                            return { endPosQty, endPosValue, endCashUSDT }
+                            const endNetValue = finalCapital
+                            return { endPosQty, endPosValue, endCashUSDT, endNetValue }
                           }
-                          const noRiskPos = calcEndPos(noRisk.trades, noRisk.price_curve?.end_price ?? 0, noRisk.final_capital ?? 0)
-                          const withRiskPos = calcEndPos(withRisk.trades, withRisk.price_curve?.end_price ?? 0, withRisk.final_capital ?? 0)
+                          const noRiskPos = calcEndPos(noRisk.trades, noRisk.price_curve?.end_price ?? 0, noRisk.final_capital ?? 0, direction === 'SHORT')
+                          const withRiskPos = calcEndPos(withRisk.trades, withRisk.price_curve?.end_price ?? 0, withRisk.final_capital ?? 0, direction === 'SHORT')
                           const noRiskM = noRisk.metrics
                           const withRiskM = withRisk.metrics
                           
@@ -2101,9 +2111,10 @@ export default function BacktestMenu() {
                                     {compareRow(t('backtest.sharpeRatio'), String((noRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'), String((withRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'))}
                                     {compareRow(t('backtest.totalTrades'), String((noRiskM as Record<string, unknown>)?.total_trades ?? '-'), String((withRiskM as Record<string, unknown>)?.total_trades ?? '-'))}
                                     {compareRow(t('backtest.buySell'), `${(noRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(noRiskM as Record<string, unknown>)?.sell_count ?? '-'}`, `${(withRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(withRiskM as Record<string, unknown>)?.sell_count ?? '-'}`)}
-                                    {compareRow(t('backtest.endPosition'), noRiskPos.endPosQty.toFixed(6), withRiskPos.endPosQty.toFixed(6))}
-                                    {compareRow(t('backtest.endPositionValue'), noRiskPos.endPosValue.toFixed(4), withRiskPos.endPosValue.toFixed(4), ' USDT')}
+                                    {compareRow(direction === 'SHORT' ? t('backtest.endPositionLiability') : t('backtest.endPosition'), direction === 'SHORT' && noRiskPos.endPosQty < 0 ? `${t('backtest.owed')} ${(-noRiskPos.endPosQty).toFixed(6)}` : noRiskPos.endPosQty.toFixed(6), direction === 'SHORT' && withRiskPos.endPosQty < 0 ? `${t('backtest.owed')} ${(-withRiskPos.endPosQty).toFixed(6)}` : withRiskPos.endPosQty.toFixed(6))}
+                                    {compareRow(direction === 'SHORT' ? t('backtest.endPositionLiabilityValue') : t('backtest.endPositionValue'), (direction === 'SHORT' && noRiskPos.endPosValue < 0 ? -noRiskPos.endPosValue : noRiskPos.endPosValue).toFixed(4), (direction === 'SHORT' && withRiskPos.endPosValue < 0 ? -withRiskPos.endPosValue : withRiskPos.endPosValue).toFixed(4), ' USDT')}
                                     {compareRow(t('backtest.endUsdt'), noRiskPos.endCashUSDT.toFixed(4), withRiskPos.endCashUSDT.toFixed(4))}
+                                    {compareRow(t('backtest.endNetValue'), noRiskPos.endNetValue.toFixed(4), withRiskPos.endNetValue.toFixed(4))}
                                   </Tbody>
                                 </Table>
                               </Box>
@@ -2187,7 +2198,7 @@ export default function BacktestMenu() {
                         const trades = res?.trades ?? []
                         const endPrice = res?.price_curve?.end_price ?? 0
                         const finalCapital = res?.final_capital ?? 0
-                        return metricBox(m, trades, endPrice, finalCapital)
+                        return metricBox(m, trades, endPrice, finalCapital, undefined, isShort)
                       })()}
                     </Box>
                   )}
