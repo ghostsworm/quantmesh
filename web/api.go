@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -5104,7 +5105,7 @@ func (p *builtinDataSourceProvider) fetchRSSFeed(feedURL string) ([]RSSItemInfo,
 
 		items = append(items, RSSItemInfo{
 			Title:       item.Title,
-			Description: item.Description,
+			Description: stripHTMLTags(item.Description),
 			Link:        item.Link,
 			PubDate:     pubDate,
 			Source:      sourceName,
@@ -5112,6 +5113,42 @@ func (p *builtinDataSourceProvider) fetchRSSFeed(feedURL string) ([]RSSItemInfo,
 	}
 
 	return items, nil
+}
+
+// stripHTMLTags 移除 HTML 標簽，返回純文本
+func stripHTMLTags(html string) string {
+	if html == "" {
+		return ""
+	}
+
+	// 簡單的 HTML 標簽移除（使用正則表達式）
+	// 移除 <script> 和 <style> 標簽及其內容
+	scriptRegex := `(?i)<(script|style)[^>]*>.*?</\1>`
+	re := regexp.MustCompile(scriptRegex)
+	html = re.ReplaceAllString(html, "")
+
+	// 移除 HTML 標簽
+	tagRegex := `<[^>]*>`
+	re = regexp.MustCompile(tagRegex)
+	html = re.ReplaceAllString(html, "")
+
+	// 移除連續的空白字符
+	spaceRegex := `\s+`
+	re = regexp.MustCompile(spaceRegex)
+	html = re.ReplaceAllString(html, " ")
+
+	// 移除 HTML 實體（如 &nbsp;, &amp;, 等）
+	html = strings.ReplaceAll(html, "&nbsp;", " ")
+	html = strings.ReplaceAll(html, "&amp;", "&")
+	html = strings.ReplaceAll(html, "&lt;", "<")
+	html = strings.ReplaceAll(html, "&gt;", ">")
+	html = strings.ReplaceAll(html, "&quot;", "\"")
+	html = strings.ReplaceAll(html, "&#39;", "'")
+
+	// 去除首尾空白
+	html = strings.TrimSpace(html)
+
+	return html
 }
 
 // GetFearGreedIndex 獲取恐慌贪婪指數
