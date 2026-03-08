@@ -29,6 +29,9 @@ type BotResponse struct {
 	OrderQuantity          float64 `json:"order_quantity,omitempty"`            // 每單金額
 	TotalAllocatedCapital  float64 `json:"total_allocated_capital,omitempty"`    // 總投入資金
 	Strategies             []BotStrategyInfo `json:"strategies,omitempty"`       // 該 Bot 配置的策略列表
+	Leverage               float64 `json:"leverage,omitempty"`                 // 杠杆倍數
+	MaxCapitalRatio        float64 `json:"max_capital_ratio,omitempty"`        // 最大資金占用比例 (0.1-1.0)
+	BuyWindowSize          int     `json:"buy_window_size,omitempty"`          // 買窗大小（用於計算平倉價）
 }
 
 // BotStrategyInfo Bot 策略信息（用于列表显示）
