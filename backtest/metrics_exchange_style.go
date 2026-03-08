@@ -74,25 +74,50 @@ func CalculateExchangeStyleMetrics(trades []Trade, currentPrice float64) Exchang
 	}
 
 	// 计算交易所风格的胜率
-	// 这里我们定义为：有持仓的期间，价格上涨则为盈利期间
-	// 由于回测是连续的，我们用另一种方式：
-	// 统计所有卖出交易中，卖出价高于买入成本的比例
+	// 交易所规则：基于平均持仓成本计算每笔卖出交易的盈亏
+	// 而不是基于网格的买入卖出价差
 	winCount := 0
 	lossCount := 0
 	totalProfit := 0.0
 	totalLoss := 0.0
 
-	// 遍历所有卖出交易，检查是否盈利
-	// 注意：这是简化版本，应该追踪每笔卖出的实际成本基础
+	// 追踪累计的持仓成本和数量
+	cumulativeCost := 0.0
+	cumulativeQty := 0.0
+
+	// 按时间顺序遍历所有交易
+	// 对于每笔卖出，使用当时的累计平均成本来计算盈亏
 	for _, trade := range trades {
-		if trade.Type == "sell" {
-			// 使用 trade.PnL 来判断（这是基于网格的计算）
-			if trade.PnL > 0 {
+		if trade.Type == "buy" {
+			// 买入：增加持仓成本和数量
+			buyCost := trade.Price*trade.Quantity + trade.Fee
+			cumulativeCost += buyCost
+			cumulativeQty += trade.Quantity
+		} else if trade.Type == "sell" && cumulativeQty > 0 {
+			// 卖出：基于当时的平均持仓成本计算盈亏
+			// 平均成本 = 累计成本 / 累计数量
+			avgCostAtTime := cumulativeCost / cumulativeQty
+
+			// 卖出收入（扣除手续费）
+			sellRevenue := trade.Price*trade.Quantity - trade.Fee
+
+			// 这部分卖出的持仓成本
+			costOfSold := avgCostAtTime * trade.Quantity
+
+			// 基于平均成本的真实盈亏
+			truePnL := sellRevenue - costOfSold
+
+			// 更新累计持仓（减少对应数量和成本）
+			cumulativeQty -= trade.Quantity
+			cumulativeCost -= costOfSold
+
+			// 统计胜率
+			if truePnL > 0 {
 				winCount++
-				totalProfit += trade.PnL
-			} else if trade.PnL < 0 {
+				totalProfit += truePnL
+			} else if truePnL < 0 {
 				lossCount++
-				totalLoss += -trade.PnL
+				totalLoss += -truePnL
 			}
 		}
 	}

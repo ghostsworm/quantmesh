@@ -282,6 +282,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				backtestAPI.GET("/tasks/:id/result", getBacktestTaskResult)
 				backtestAPI.GET("/tasks/:id/klines", getBacktestTaskKlines)
 				backtestAPI.GET("/tasks/:id/report", getBacktestTaskReport)
+				backtestAPI.GET("/tasks/:id/trades/export", getBacktestTaskTradesExport)
 				backtestAPI.DELETE("/tasks/:id", deleteBacktestTask)
 				// 智能參數推薦 API
 				backtestAPI.GET("/smart-params", getSmartParamsRecommendation)
