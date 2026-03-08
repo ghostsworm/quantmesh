@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# QuantMesh Market Maker 启动/重启脚本
-# 功能：
-# - 支持生产模式和开发模式
-# - 如果服务正在运行，先停止再启动（重启模式）
-# - 自动处理端口冲突
+# QuantMesh Market Maker 啟動/重啟腳本
+# QuantMesh Market Maker Start/Restart Script
 #
-# 使用方法：
-#   ./restart.sh [config.yaml]       # 生产模式重启
-#   ./restart.sh --dev               # 开发模式重启
-#   ./restart.sh -d                  # 开发模式重启（简写）
+# 功能 / Features:
+# - 支持生產模式和開發模式 / Support production and development modes
+# - 如果服務正在運行，先停止再啟動（重啟模式）/ Stop and restart if running
+# - 自動處理端口衝突 / Auto handle port conflicts
+#
+# 使用方法 / Usage:
+#   ./restart.sh [config.yaml]       # 生產模式重啟 / Production mode restart
+#   ./restart.sh --dev               # 開發模式重啟 / Development mode restart
+#   ./restart.sh -d                  # 開發模式重啟（簡寫）/ Dev mode (short)
 
 set -e
 
@@ -47,21 +49,24 @@ log_error() {
 
 # 显示帮助信息
 show_help() {
-    echo "使用方法: $0 [选项] [配置文件]"
+    echo "使用方法 / Usage: $0 [选项] [配置文件]"
     echo ""
-    echo "选项:"
-    echo "  -d, --dev      开发模式重启（同时重启 Go 后端和 Vite 前端）"
-    echo "  -h, --help     显示此帮助信息"
+    echo "选项 / Options:"
+    echo "  -d, --dev      開發模式重啟（同時重啟 Go 後端和 Vite 前端）"
+    echo "                 Development mode restart (restart Go backend and Vite frontend)"
+    echo "  -h, --help     顯示此幫助信息 / Show this help message"
     echo ""
-    echo "示例:"
-    echo "  $0                    # 生产模式重启，使用默认配置文件 config.yaml"
-    echo "  $0 config.yaml        # 生产模式重启，使用指定配置文件"
-    echo "  $0 --dev              # 开发模式重启"
-    echo "  $0 -d                 # 开发模式重启（简写）"
+    echo "示例 / Examples:"
+    echo "  $0                    # 生產模式重啟，使用默認配置文件 config.yaml"
+    echo "                        Production mode restart with default config"
+    echo "  $0 config.yaml        # 生產模式重啟，使用指定配置文件"
+    echo "                        Production mode restart with specified config"
+    echo "  $0 --dev              # 開發模式重啟 / Development mode restart"
+    echo "  $0 -d                 # 開發模式重啟（簡寫）/ Development mode (short)"
     echo ""
-    echo "端口配置:"
-    echo "  Go 后端: ${GO_PORT}"
-    echo "  Vite 前端（仅开发模式）: ${VITE_PORT}"
+    echo "端口配置 / Port Configuration:"
+    echo "  Go 後端 / Backend: ${GO_PORT}"
+    echo "  Vite 前端（僅開發模式 / dev only）: ${VITE_PORT}"
     echo ""
     exit 0
 }
