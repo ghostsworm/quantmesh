@@ -1,11 +1,13 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"quantmesh/backtest"
@@ -782,26 +784,26 @@ func getBacktestTaskTradesExport(c *gin.Context) {
 		format = "csv"
 	}
 
-	// 讀取回測結果
-	taskPath := filepath.Join("backtest", "tasks", id+".json")
-	taskData, err := os.ReadFile(taskPath)
+	// 讀取回測結果文件
+	resultPath := filepath.Join("backtest", "results", id+".json")
+	resultData, err := os.ReadFile(resultPath)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "回測任務不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "回測結果不存在"})
 		return
 	}
 
-	var task BacktestTask
-	if err := json.Unmarshal(taskData, &task); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "解析任務數據失敗"})
+	var taskResult backtest.BacktestTaskResult
+	if err := json.Unmarshal(resultData, &taskResult); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "解析結果數據失敗"})
 		return
 	}
 
-	if task.Result == nil || len(task.Result.Trades) == 0 {
+	if taskResult.Result == nil || len(taskResult.Result.Trades) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "無交易記錄"})
 		return
 	}
 
-	trades := task.Result.Trades
+	trades := taskResult.Result.Trades
 	filename := fmt.Sprintf("backtest_trades_%s", id)
 
 	// 根據格式返回數據
