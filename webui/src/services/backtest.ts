@@ -211,6 +211,12 @@ export interface BacktestTradeRow {
   quantity: number
   fee: number
   pnl: number
+  /** 交易後持倉量（正=多，負=空） */
+  position_after?: number
+  /** 交易後剩餘資金 */
+  balance_after?: number
+  /** 交易後持倉方向：LONG/SHORT/空 */
+  position_side?: string
 }
 
 export interface BacktestTradesResponse {

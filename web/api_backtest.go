@@ -772,12 +772,15 @@ func getBacktestTaskReport(c *gin.Context) {
 
 // exportTradeRow 統一導出格式（單策略 Trade 與多策略 TickTrade 共用）
 type exportTradeRow struct {
-	Timestamp string  `json:"timestamp"`
-	Type      string  `json:"type"`
-	Price     float64 `json:"price"`
-	Quantity  float64 `json:"quantity"`
-	Fee       float64 `json:"fee"`
-	PnL       float64 `json:"pnl"`
+	Timestamp      string  `json:"timestamp"`
+	Type           string  `json:"type"`
+	Price          float64 `json:"price"`
+	Quantity       float64 `json:"quantity"`
+	Fee            float64 `json:"fee"`
+	PnL            float64 `json:"pnl"`
+	PositionAfter  float64 `json:"position_after,omitempty"`  // 交易後持倉量（正=多，負=空）
+	BalanceAfter   float64 `json:"balance_after,omitempty"`   // 交易後剩餘資金
+	PositionSide   string  `json:"position_side,omitempty"`   // 交易後持倉方向：LONG/SHORT/空
 }
 
 // getBacktestTaskTradesExport 導出回測交易記錄 (CSV/JSON) GET /api/backtest/tasks/:id/trades/export
@@ -827,12 +830,15 @@ func getBacktestTaskTradesExport(c *gin.Context) {
 		if len(taskResult.MultiResult.CompletedTrades) > 0 {
 			for _, ct := range taskResult.MultiResult.CompletedTrades {
 				rows = append(rows, exportTradeRow{
-					Timestamp: time.UnixMilli(ct.Timestamp).Format("2006-01-02 15:04:05"),
-					Type:      ct.Side,
-					Price:     ct.ExitPrice,
-					Quantity:  ct.Size,
-					Fee:       ct.Fee,
-					PnL:       ct.PnL,
+					Timestamp:     time.UnixMilli(ct.Timestamp).Format("2006-01-02 15:04:05"),
+					Type:          ct.Side,
+					Price:         ct.ExitPrice,
+					Quantity:      ct.Size,
+					Fee:           ct.Fee,
+					PnL:           ct.PnL,
+					PositionAfter: ct.PositionAfter,
+					BalanceAfter:  ct.BalanceAfter,
+					PositionSide:  ct.PositionSide,
 				})
 			}
 		} else if len(taskResult.MultiResult.Trades) > 0 {
@@ -868,12 +874,12 @@ func getBacktestTaskTradesExport(c *gin.Context) {
 		return
 	}
 
-	// CSV 格式
+	// CSV 格式（含交易後持倉、餘額、方向）
 	var csvBuilder strings.Builder
-	csvBuilder.WriteString("Timestamp,Type,Price,Quantity,Fee,PnL\n")
+	csvBuilder.WriteString("Timestamp,Type,Price,Quantity,Fee,PnL,PositionAfter,BalanceAfter,PositionSide\n")
 	for _, r := range rows {
-		csvBuilder.WriteString(fmt.Sprintf("%s,%s,%.4f,%.6f,%.4f,%.4f\n",
-			r.Timestamp, r.Type, r.Price, r.Quantity, r.Fee, r.PnL))
+		csvBuilder.WriteString(fmt.Sprintf("%s,%s,%.4f,%.6f,%.4f,%.4f,%.6f,%.4f,%s\n",
+			r.Timestamp, r.Type, r.Price, r.Quantity, r.Fee, r.PnL, r.PositionAfter, r.BalanceAfter, r.PositionSide))
 	}
 
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.csv", filename))
@@ -931,12 +937,15 @@ func getBacktestTaskTrades(c *gin.Context) {
 		if len(taskResult.MultiResult.CompletedTrades) > 0 {
 			for _, ct := range taskResult.MultiResult.CompletedTrades {
 				allTrades = append(allTrades, exportTradeRow{
-					Timestamp: time.UnixMilli(ct.Timestamp).Format("2006-01-02 15:04:05"),
-					Type:      ct.Side,
-					Price:     ct.ExitPrice,
-					Quantity:  ct.Size,
-					Fee:       ct.Fee,
-					PnL:       ct.PnL,
+					Timestamp:     time.UnixMilli(ct.Timestamp).Format("2006-01-02 15:04:05"),
+					Type:          ct.Side,
+					Price:         ct.ExitPrice,
+					Quantity:      ct.Size,
+					Fee:           ct.Fee,
+					PnL:           ct.PnL,
+					PositionAfter: ct.PositionAfter,
+					BalanceAfter:  ct.BalanceAfter,
+					PositionSide:  ct.PositionSide,
 				})
 			}
 		} else if len(taskResult.MultiResult.Trades) > 0 {
