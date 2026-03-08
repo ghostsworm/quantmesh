@@ -36,6 +36,38 @@ func TestRunGridBacktest_IntrabarCrossing(t *testing.T) {
 		result.Metrics.BuyCount, result.Metrics.SellCount)
 }
 
+func TestRunGridBacktest_SHORT(t *testing.T) {
+	// 做空網格：價格上漲賣出開空，價格下跌買入平空
+	candles := []*exchange.Candle{
+		{Open: 67400, High: 67700, Low: 67300, Close: 67650, Timestamp: 1000}, // 上漲，開空
+		{Open: 67650, High: 67750, Low: 67450, Close: 67520, Timestamp: 2000}, // 下跌，平空
+		{Open: 67520, High: 67820, Low: 67420, Close: 67700, Timestamp: 3000}, // 上漲，開空
+		{Open: 67700, High: 67800, Low: 67500, Close: 67580, Timestamp: 4000}, // 下跌，平空
+	}
+	params := GridBacktestParams{
+		PriceLow:      67300,
+		PriceHigh:    67900,
+		GridSpacing:  150,
+		GridCount:    10,
+		OrderQuantity: 500,
+		TotalCapital: 10000,
+		FeeRate:       0.0004,
+		Direction:     "SHORT",
+	}
+	result, err := RunGridBacktest("BTCUSDT", candles, params, 10000, nil)
+	if err != nil {
+		t.Fatalf("RunGridBacktest SHORT: %v", err)
+	}
+	if result.Metrics.SellCount == 0 {
+		t.Error("做空網格預期有賣出(開空)，但 SellCount=0")
+	}
+	if result.Metrics.BuyCount == 0 {
+		t.Error("做空網格預期有買入(平空)，但 BuyCount=0")
+	}
+	t.Logf("SHORT 交易次數: %d, 買入(平空)/賣出(開空): %d/%d", result.Metrics.TotalTrades,
+		result.Metrics.BuyCount, result.Metrics.SellCount)
+}
+
 func TestGetCrossedLevelsIntrabar(t *testing.T) {
 	levels := []float64{67500, 67630, 67760, 67890}
 	// prevClose=67950, Low=67600, High=68000: 穿越 67890,67760,67630 向下

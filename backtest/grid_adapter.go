@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"quantmesh/exchange"
@@ -19,6 +20,7 @@ type GridBacktestParams struct {
 	TotalCapital  float64 `json:"total_capital"`
 	FeeRate       float64 `json:"fee_rate"`
 	SlippageRatio float64 `json:"slippage_ratio"`
+	Direction     string  `json:"direction"` // LONG/SHORT/BOTH，預設 LONG。做空時：價格上漲開空(賣)，價格下跌平空(買)
 }
 
 // RunGridBacktest 運行網格策略回测（独立於 StrategyAdapter，多檔位多笔交易）
@@ -74,12 +76,15 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		return nil, fmt.Errorf("no grid levels (set grid_spacing or grid_count)")
 	}
 
+	direction := normalizeGridDirection(params.Direction)
+	isShort := direction == "SHORT"
+
 	cash := initialCapital
-	positions := make(map[float64]float64) // price -> quantity
+	positions := make(map[float64]float64) // LONG: level->持倉量；SHORT: level->空頭量
 	var trades []Trade
 	var equity []EquityPoint
-	maxPositionQty := 0.0 // 最大持倉（基幣數量）
-	totalSlippageLoss := 0.0 // 🔥 累计slippage損失
+	maxPositionQty := 0.0 // 最大持倉（基幣數量，做空時為空頭量）
+	totalSlippageLoss := 0.0
 
 	feeRate := params.FeeRate
 	if feeRate <= 0 {
@@ -92,19 +97,23 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 
 	prevClose := candles[0].Close
 	for candleIdx, c := range candles {
-		// 檢查风控狀態（仅在风控模拟器启用时）
 		riskSkipBuy := false
 		if riskSimulator != nil {
 			skipBuy, _ := riskSimulator.Check(candles, candleIdx)
 			riskSkipBuy = skipBuy
 		}
 
-		// 權益 = 現金 + 各檔位持倉市值（按當前收盘價）
+		// 權益：LONG=現金+持倉市值；SHORT=現金+空頭浮盈（持倉為負，市值為負）
 		positionValue := 0.0
 		totalQty := 0.0
 		for _, qty := range positions {
-			positionValue += qty * c.Close
-			totalQty += qty
+			if isShort {
+				positionValue -= qty * c.Close // 空頭：負持倉
+				totalQty += qty
+			} else {
+				positionValue += qty * c.Close
+				totalQty += qty
+			}
 		}
 		if totalQty > maxPositionQty {
 			maxPositionQty = totalQty
@@ -112,96 +121,176 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash + positionValue})
 
 		closePrice := c.Close
-		// 利用 K 線 High/Low 檢測穿越（修復：原僅用收盤價導致 1 分鐘內很少穿越 130 USDT 而零交易）
 		crossed := getCrossedLevelsIntrabar(prevClose, c.Low, c.High, closePrice, gridLevels)
 		for _, cl := range crossed {
 			level := cl.level
-			if cl.isBuy {
-				// 價格下行穿越：在 level 買入
-				if riskSkipBuy {
-					riskSimulator.RecordSkippedBuy()
-					continue
-				}
-				if level < 1e-12 {
-					continue
-				}
-				if positions[level] > 0 {
-					continue
-				}
-				costUSDT := params.OrderQuantity
-				if costUSDT > cash {
-					costUSDT = cash
-				}
-				if costUSDT < 1e-6 {
-					continue
-				}
-				execPrice := level * (1 + slippage)
-				buyQty := costUSDT / execPrice
-				buyFee := buyQty * execPrice * feeRate
-				totalCost := buyQty*execPrice + buyFee
-				if totalCost > cash {
-					buyQty = (cash - buyFee) / execPrice
-					if buyQty <= 0 {
+			if isShort {
+				// 做空：價格上漲賣出開空，價格下跌買入平空
+				if cl.isBuy {
+					// 價格下行：買入平空
+					buyLevel := findLevelAbove(gridLevels, level)
+					if buyLevel < 0 {
 						continue
 					}
-					buyFee = buyQty * execPrice * feeRate
-					totalCost = buyQty*execPrice + buyFee
+					qty, ok := positions[buyLevel]
+					if !ok || qty <= 0 {
+						continue
+					}
+					execPrice := level * (1 + slippage)
+					fee := qty * execPrice * feeRate
+					pnl := (buyLevel - execPrice) * qty // 做空：高賣低買盈利
+					buySlippageLoss := (execPrice - level) * qty
+					totalSlippageLoss += buySlippageLoss
+					cash -= qty*execPrice + fee
+					delete(positions, buyLevel)
+					trades = append(trades, Trade{
+						Timestamp: c.Timestamp,
+						Type:      "buy",
+						Price:     execPrice,
+						Quantity:  qty,
+						Fee:       fee,
+						PnL:       pnl - fee,
+					})
+				} else {
+					// 價格上行：賣出開空
+					if riskSkipBuy {
+						riskSimulator.RecordSkippedBuy()
+						continue
+					}
+					if level < 1e-12 {
+						continue
+					}
+					if positions[level] > 0 {
+						continue
+					}
+					costUSDT := params.OrderQuantity
+					if costUSDT > cash {
+						costUSDT = cash
+					}
+					if costUSDT < 1e-6 {
+						continue
+					}
+					execPrice := level * (1 - slippage)
+					sellQty := costUSDT / execPrice
+					fee := sellQty * execPrice * feeRate
+					totalCost := sellQty*execPrice + fee
+					if totalCost > cash {
+						sellQty = (cash - fee) / execPrice
+						if sellQty <= 0 {
+							continue
+						}
+						fee = sellQty * execPrice * feeRate
+						totalCost = sellQty*execPrice + fee
+					}
+					sellSlippageLoss := (level - execPrice) * sellQty
+					totalSlippageLoss += sellSlippageLoss
+					cash += sellQty*execPrice - fee
+					positions[level] = positions[level] + sellQty
+					totalQtyAfter := 0.0
+					for _, q := range positions {
+						totalQtyAfter += q
+					}
+					if totalQtyAfter > maxPositionQty {
+						maxPositionQty = totalQtyAfter
+					}
+					trades = append(trades, Trade{
+						Timestamp: c.Timestamp,
+						Type:      "sell",
+						Price:     execPrice,
+						Quantity:  sellQty,
+						Fee:       fee,
+						PnL:       0,
+					})
 				}
-				buySlippageLoss := (execPrice - level) * buyQty
-				totalSlippageLoss += buySlippageLoss
-				cash -= totalCost
-				positions[level] = positions[level] + buyQty
-				totalQtyAfter := 0.0
-				for _, q := range positions {
-					totalQtyAfter += q
-				}
-				if totalQtyAfter > maxPositionQty {
-					maxPositionQty = totalQtyAfter
-				}
-				trades = append(trades, Trade{
-					Timestamp: c.Timestamp,
-					Type:      "buy",
-					Price:     execPrice,
-					Quantity:  buyQty,
-					Fee:       buyFee,
-					PnL:       0,
-				})
 			} else {
-				// 價格上行穿越：賣出該檔或下方一檔的持倉
-				sellLevel := findLevelBelow(gridLevels, level)
-				if sellLevel < 0 {
-					sellLevel = level
+				// 做多：價格下跌買入，價格上漲賣出
+				if cl.isBuy {
+					if riskSkipBuy {
+						riskSimulator.RecordSkippedBuy()
+						continue
+					}
+					if level < 1e-12 {
+						continue
+					}
+					if positions[level] > 0 {
+						continue
+					}
+					costUSDT := params.OrderQuantity
+					if costUSDT > cash {
+						costUSDT = cash
+					}
+					if costUSDT < 1e-6 {
+						continue
+					}
+					execPrice := level * (1 + slippage)
+					buyQty := costUSDT / execPrice
+					buyFee := buyQty * execPrice * feeRate
+					totalCost := buyQty*execPrice + buyFee
+					if totalCost > cash {
+						buyQty = (cash - buyFee) / execPrice
+						if buyQty <= 0 {
+							continue
+						}
+						buyFee = buyQty * execPrice * feeRate
+						totalCost = buyQty*execPrice + buyFee
+					}
+					buySlippageLoss := (execPrice - level) * buyQty
+					totalSlippageLoss += buySlippageLoss
+					cash -= totalCost
+					positions[level] = positions[level] + buyQty
+					totalQtyAfter := 0.0
+					for _, q := range positions {
+						totalQtyAfter += q
+					}
+					if totalQtyAfter > maxPositionQty {
+						maxPositionQty = totalQtyAfter
+					}
+					trades = append(trades, Trade{
+						Timestamp: c.Timestamp,
+						Type:      "buy",
+						Price:     execPrice,
+						Quantity:  buyQty,
+						Fee:       buyFee,
+						PnL:       0,
+					})
+				} else {
+					sellLevel := findLevelBelow(gridLevels, level)
+					if sellLevel < 0 {
+						sellLevel = level
+					}
+					qty, ok := positions[sellLevel]
+					if !ok || qty <= 0 {
+						continue
+					}
+					execPrice := level * (1 - slippage)
+					fee := qty * execPrice * feeRate
+					pnl := (execPrice - sellLevel) * qty
+					sellSlippageLoss := (level - execPrice) * qty
+					totalSlippageLoss += sellSlippageLoss
+					cash += qty*execPrice - fee
+					delete(positions, sellLevel)
+					trades = append(trades, Trade{
+						Timestamp: c.Timestamp,
+						Type:      "sell",
+						Price:     execPrice,
+						Quantity:  qty,
+						Fee:       fee,
+						PnL:       pnl - fee,
+					})
 				}
-				qty, ok := positions[sellLevel]
-				if !ok || qty <= 0 {
-					continue
-				}
-				execPrice := level * (1 - slippage)
-				fee := qty * execPrice * feeRate
-				pnl := (execPrice - sellLevel) * qty
-				// 🔥 計算卖出slippage損失：理想價格（level）- 实际價格
-				sellSlippageLoss := (level - execPrice) * qty // 等于 level * slippage * qty
-				totalSlippageLoss += sellSlippageLoss
-				cash += qty*execPrice - fee
-				delete(positions, sellLevel)
-				trades = append(trades, Trade{
-					Timestamp: c.Timestamp,
-					Type:      "sell",
-					Price:     execPrice,
-					Quantity:  qty,
-					Fee:       fee,
-					PnL:       pnl - fee,
-				})
 			}
 		}
 		prevClose = closePrice
 	}
 
-	// 期末權益：現金 + 持倉按最后收盘價计價
 	lastClose := candles[len(candles)-1].Close
 	finalEquity := cash
 	for level, qty := range positions {
-		finalEquity += qty * lastClose
+		if isShort {
+			finalEquity -= qty * lastClose
+		} else {
+			finalEquity += qty * lastClose
+		}
 		_ = level
 	}
 
@@ -335,4 +424,24 @@ func findLevelBelow(levels []float64, target float64) float64 {
 		}
 	}
 	return -1
+}
+
+func findLevelAbove(levels []float64, target float64) float64 {
+	const eps = 1e-12
+	for i := 0; i < len(levels); i++ {
+		if levels[i] > target+eps {
+			return levels[i]
+		}
+	}
+	return -1
+}
+
+func normalizeGridDirection(d string) string {
+	switch strings.ToUpper(strings.TrimSpace(d)) {
+	case "SHORT":
+		return "SHORT"
+	case "BOTH":
+		return "BOTH"
+	}
+	return "LONG"
 }
