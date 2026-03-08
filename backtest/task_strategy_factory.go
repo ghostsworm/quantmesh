@@ -381,13 +381,25 @@ func RunMultiStrategyTask(task *BacktestTask, candles []*exchange.Candle) (*Mult
 		return nil, fmt.Errorf("candles data is empty")
 	}
 
+	// 设置默认值
+	leverage := task.Leverage
+	if leverage <= 0 {
+		leverage = 1 // 默认无杠杆
+	}
+	maxCapitalRatio := task.MaxCapitalRatio
+	if maxCapitalRatio <= 0 || maxCapitalRatio > 1 {
+		maxCapitalRatio = 1.0 // 默认不限制
+	}
+
 	engine := NewMultiStrategyEngine(&EngineConfig{
-		Symbol:         task.Symbol,
-		InitialCapital: task.TotalCapital,
-		StartDate:      task.StartTime,
-		EndDate:        task.EndTime,
-		MatcherConfig:  DefaultMatcherConfig(),
-		Leverage:       1,
+		Symbol:           task.Symbol,
+		InitialCapital:   task.TotalCapital,
+		StartDate:        task.StartTime,
+		EndDate:          task.EndTime,
+		MatcherConfig:    DefaultMatcherConfig(),
+		Leverage:         leverage,
+		MaxCapitalRatio:  maxCapitalRatio,
+		CommissionRate:   0.0004, // 0.04% 手续费
 	})
 	engine.Klines = make([]TickKline, 0, len(candles))
 	for _, candle := range candles {
