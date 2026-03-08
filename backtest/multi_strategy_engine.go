@@ -43,6 +43,9 @@ type MultiStrategyEngine struct {
 	totalFunding    float64
 	finalEquity     float64
 
+	// 期末結算：強平事件記錄（首次觸發時記錄，用於報告區分估值收官 vs 強平收官）
+	liquidationEvent *LiquidationEvent
+
 	// 統計
 	statsByStrategy map[string]*StrategyStats
 
@@ -500,6 +503,7 @@ func (e *MultiStrategyEngine) reset() {
 	e.totalSlippage = 0
 	e.totalFunding = 0
 	e.finalEquity = 0
+	e.liquidationEvent = nil
 
 	for _, runtime := range e.runtimes {
 		runtime.account.Balance = runtime.initialCapital
@@ -783,6 +787,15 @@ func (e *MultiStrategyEngine) checkLiquidation(runtime *StrategyRuntime, price f
 	if remainingMargin <= maintenanceMargin {
 		runtime.account.Liquidated = true
 		runtime.account.LiquidationPrice = price
+		// 記錄強平事件（首次觸發），供期末結算明細使用
+		if e.liquidationEvent == nil {
+			qty := abs(runtime.account.PositionSize)
+			e.liquidationEvent = &LiquidationEvent{
+				Price:  price,
+				Qty:    qty,
+				Amount: price * qty,
+			}
+		}
 		logger.Warn("Liquidation triggered at price %.2f", price)
 	}
 }
@@ -859,6 +872,21 @@ func (e *MultiStrategyEngine) SetProgressCallback(callback func(float64)) {
 	e.progressCallback = callback
 }
 
+// LiquidationEvent 強平事件（用於期末結算明細）
+type LiquidationEvent struct {
+	Price  float64 `json:"price"`  // 強平價格
+	Qty    float64 `json:"qty"`    // 強平數量（持倉絕對值）
+	Amount float64 `json:"amount"` // 強平金額（名義價值 = price * qty）
+}
+
+// EndSettlementDetail 期末結算明細（區分估值收官 vs 強平收官）
+type EndSettlementDetail struct {
+	Liquidated       bool    `json:"liquidated"`        // 期末是否強平
+	LiquidationPrice float64 `json:"liquidation_price"`  // 強平價格（未強平時為 0）
+	LiquidationQty   float64 `json:"liquidation_qty"`    // 強平數量（未強平時為 0）
+	LiquidationAmt   float64 `json:"liquidation_amount"` // 強平金額 USDT（未強平時為 0）
+}
+
 // MultiStrategyResult 多策略回测結果
 type MultiStrategyResult struct {
 	// 基本信息
@@ -870,6 +898,9 @@ type MultiStrategyResult struct {
 	// 帳戶信息
 	InitialCapital float64 `json:"initial_capital"`
 	FinalEquity    float64 `json:"final_equity"`
+
+	// 期末結算明細（一眼區分估值收官 vs 強平收官）
+	EndSettlement EndSettlementDetail `json:"end_settlement"`
 	TotalReturn    float64 `json:"total_return"`
 	TotalReturnPct float64 `json:"total_return_pct"`
 
@@ -953,6 +984,17 @@ func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 		})
 	}
 
+	// 期末結算明細：區分估值收官 vs 強平收官
+	endSettlement := EndSettlementDetail{Liquidated: false}
+	if e.liquidationEvent != nil {
+		endSettlement = EndSettlementDetail{
+			Liquidated:       true,
+			LiquidationPrice: e.liquidationEvent.Price,
+			LiquidationQty:   e.liquidationEvent.Qty,
+			LiquidationAmt:   e.liquidationEvent.Amount,
+		}
+	}
+
 	result := &MultiStrategyResult{
 		Symbol:          e.Config.Symbol,
 		StartTime:       startTime,
@@ -960,6 +1002,7 @@ func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 		Duration:        duration.String(),
 		InitialCapital:  e.Config.InitialCapital,
 		FinalEquity:     e.finalEquity,
+		EndSettlement:   endSettlement,
 		TotalReturn:     totalReturn,
 		TotalReturnPct:  totalReturnPct,
 		TotalTrades:     len(e.trades),

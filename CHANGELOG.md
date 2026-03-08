@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.65.0-rc10] - 2026-03-09
+
+### Added
+- **回測期末結算明細**：多策略回測報告新增「期末結算明細」章節，後端結構化欄位 `end_settlement`（liquidated、liquidation_price、liquidation_qty、liquidation_amount），一眼區分「估值收官」與「強平收官」；強平觸發時記錄價格/數量/金額供報告展示
+
 ## [3.65.0-rc9] - 2026-03-09
 
 ### Added
