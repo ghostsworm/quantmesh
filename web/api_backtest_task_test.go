@@ -365,6 +365,67 @@ func TestGetBacktestTaskTradesExport_MultiStrategy(t *testing.T) {
 	}
 }
 
+func TestGetBacktestTaskTradesExport_MultiStrategyWithCompletedTrades(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	resultsDir := filepath.Join(tempDir, "backtest", "results")
+	if err := os.MkdirAll(resultsDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	taskID := "bt_export_test_completed"
+	resultJSON := `{
+		"task_id": "` + taskID + `",
+		"result": null,
+		"multi_result": {
+			"trades": [],
+			"completed_trades": [
+				{"timestamp": 1735689600000, "side": "long", "entry_price": 100, "exit_price": 101, "size": 1, "pnl": 0.9, "fee": 0.1, "slippage": 0.01},
+				{"timestamp": 1735689720000, "side": "long", "entry_price": 102, "exit_price": 103, "size": 0.5, "pnl": 0.45, "fee": 0.05, "slippage": 0.005}
+			]
+		}
+	}`
+	resultPath := filepath.Join(resultsDir, taskID+".json")
+	if err := os.WriteFile(resultPath, []byte(resultJSON), 0644); err != nil {
+		t.Fatalf("write result: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: taskID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/backtest/tasks/"+taskID+"/trades/export?format=json", nil)
+
+	getBacktestTaskTradesExport(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var rows []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows from completed_trades, got %d", len(rows))
+	}
+	// 驗證 PnL 正確導出（修復前為 0）
+	if pnl, ok := rows[0]["pnl"].(float64); !ok || pnl != 0.9 {
+		t.Errorf("expected first row pnl=0.9, got %v (type %T)", rows[0]["pnl"], rows[0]["pnl"])
+	}
+	if pnl, ok := rows[1]["pnl"].(float64); !ok || pnl != 0.45 {
+		t.Errorf("expected second row pnl=0.45, got %v (type %T)", rows[1]["pnl"], rows[1]["pnl"])
+	}
+	if fee, ok := rows[0]["fee"].(float64); !ok || fee != 0.1 {
+		t.Errorf("expected first row fee=0.1, got %v", rows[0]["fee"])
+	}
+}
+
 func TestGetBacktestTaskTradesExport_NoTrades(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

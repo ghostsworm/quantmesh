@@ -551,6 +551,24 @@ func baseAssetFromSymbol(symbol string) string {
 	return symbol
 }
 
+// formatStrategyConfig 將策略 Config map 格式化為可讀字符串，避免顯示 map[]
+func formatStrategyConfig(cfg map[string]interface{}) string {
+	if cfg == nil || len(cfg) == 0 {
+		return "（無）"
+	}
+	keys := make([]string, 0, len(cfg))
+	for k := range cfg {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		v := cfg[k]
+		parts = append(parts, fmt.Sprintf("%s=%v", k, formatParamValue(v)))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // formatParamValue 格式化參數值為字符串（用於報告參數表）
 func formatParamValue(v interface{}) string {
 	switch val := v.(type) {
@@ -1037,9 +1055,13 @@ func GenerateMultiStrategyReportToFile(result *MultiStrategyResult, reportPath s
 	var paramsTable []ReportParamRow
 	if task != nil && len(task.Strategies) > 0 {
 		for _, s := range task.Strategies {
+			weightPct := s.Weight
+			if weightPct <= 1 && weightPct > 0 {
+				weightPct = s.Weight * 100
+			}
 			paramsTable = append(paramsTable, ReportParamRow{
-				Key:   fmt.Sprintf("策略: %s (權重: %.0f%%)", s.Type, s.Weight),
-				Value: fmt.Sprintf("配置: %+v", s.Config),
+				Key:   fmt.Sprintf("策略: %s (權重: %.0f%%)", s.Type, weightPct),
+				Value: formatStrategyConfig(s.Config),
 			})
 		}
 	}
@@ -1068,15 +1090,24 @@ func GenerateMultiStrategyReportToFile(result *MultiStrategyResult, reportPath s
 		for name, stats := range result.StatsByStrategy {
 			// 從 task.Strategies 中找到對應的權重
 			var weight float64
-			for _, s := range task.Strategies {
-				if s.Type == stats.Type {
-					weight = s.Weight
-					break
+			if task != nil {
+				for _, s := range task.Strategies {
+					if s.Type == stats.Type {
+						weight = s.Weight
+						break
+					}
 				}
+			}
+			// 權重若為 0-1 區間，轉為百分比顯示（1 -> 100%）
+			weightPct := weight
+			if weight <= 1 && weight > 0 {
+				weightPct = weight * 100
+			} else if weight == 0 && task != nil && len(task.Strategies) == 1 {
+				weightPct = 100 // 單一策略時預設 100%
 			}
 			data.Strategies = append(data.Strategies, MultiStrategyReportItem{
 				Name:        name,
-				Weight:      weight,
+				Weight:      weightPct,
 				TotalTrades: stats.TotalTrades,
 				RealizedPnl: stats.RealizedPnL,
 				WinRate:     stats.WinRate,

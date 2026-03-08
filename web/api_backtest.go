@@ -822,17 +822,30 @@ func getBacktestTaskTradesExport(c *gin.Context) {
 				PnL:       t.PnL,
 			})
 		}
-	} else if taskResult.MultiResult != nil && len(taskResult.MultiResult.Trades) > 0 {
-		// 多策略模式：MultiResult.Trades (TickTrade)
-		for _, t := range taskResult.MultiResult.Trades {
-			rows = append(rows, exportTradeRow{
-				Timestamp: time.UnixMilli(t.Timestamp).Format("2006-01-02 15:04:05"),
-				Type:      t.Side,
-				Price:     t.Price,
-				Quantity:  t.Size,
-				Fee:       t.Slippage,
-				PnL:       0,
-			})
+	} else if taskResult.MultiResult != nil {
+		// 多策略模式：優先使用 CompletedTrades（含真實 PnL、Fee），否則回退到 Trades
+		if len(taskResult.MultiResult.CompletedTrades) > 0 {
+			for _, ct := range taskResult.MultiResult.CompletedTrades {
+				rows = append(rows, exportTradeRow{
+					Timestamp: time.UnixMilli(ct.Timestamp).Format("2006-01-02 15:04:05"),
+					Type:      ct.Side,
+					Price:     ct.ExitPrice,
+					Quantity:  ct.Size,
+					Fee:       ct.Fee,
+					PnL:       ct.PnL,
+				})
+			}
+		} else if len(taskResult.MultiResult.Trades) > 0 {
+			for _, t := range taskResult.MultiResult.Trades {
+				rows = append(rows, exportTradeRow{
+					Timestamp: time.UnixMilli(t.Timestamp).Format("2006-01-02 15:04:05"),
+					Type:      t.Side,
+					Price:     t.Price,
+					Quantity:  t.Size,
+					Fee:       t.Slippage,
+					PnL:       0,
+				})
+			}
 		}
 	}
 
