@@ -373,8 +373,8 @@ const ConfigSetup: React.FC = () => {
                 value={formData.order_quantity}
                 onChange={handleChange}
                 disabled={isLoading}
-                step="1"
-                min="1"
+                step="0.01"
+                min="0.01"
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -422,8 +422,8 @@ const ConfigSetup: React.FC = () => {
                 value={formData.buy_window_size}
                 onChange={handleChange}
                 disabled={isLoading}
-                step="1"
-                min="1"
+                step="0.01"
+                min="0.01"
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -448,8 +448,8 @@ const ConfigSetup: React.FC = () => {
                 value={formData.sell_window_size}
                 onChange={handleChange}
                 disabled={isLoading}
-                step="1"
-                min="1"
+                step="0.01"
+                min="0.01"
                 style={{
                   width: '100%',
                   padding: '12px',
