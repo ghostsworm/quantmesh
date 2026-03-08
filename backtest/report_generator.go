@@ -67,6 +67,8 @@ func GenerateReportToFile(result *BacktestResult, reportPath string, meta *Repor
 // ComparisonReportData 对比报告數據
 type ComparisonReportData struct {
 	ReportData
+	// 網格方向（開多/開空/雙向網格）
+	GridDirectionLabel string
 	// 無風控
 	NoRiskTotalReturn  string
 	NoRiskMaxDrawdown  string
@@ -165,8 +167,12 @@ func prepareComparisonReportData(comp *ComparisonResult, meta *ReportMeta) Compa
 	// 風控效果分析
 	riskAnalysis := generateRiskAnalysis(comp)
 
+	// 網格方向標籤（從 meta.Params 提取）
+	gridDirLabel := formatGridDirectionLabel(meta)
+
 	return ComparisonReportData{
 		ReportData:              base,
+		GridDirectionLabel:      gridDirLabel,
 		NoRiskTotalReturn:       fmt.Sprintf("%.4f%%", noRisk.Metrics.TotalReturn),
 		NoRiskMaxDrawdown:       fmt.Sprintf("%.4f%%", noRisk.Metrics.MaxDrawdown),
 		NoRiskTotalTrades:       fmt.Sprintf("%d", noRisk.Metrics.TotalTrades),
@@ -200,6 +206,40 @@ func formatRiskTimestamp(ts int64) string {
 		sec = ts
 	}
 	return time.Unix(sec, 0).Format("2006-01-02 15:04:05")
+}
+
+// formatGridDirectionLabel 從 meta.Params 提取 direction 並轉為可讀標籤（開多/開空/雙向網格）
+func formatGridDirectionLabel(meta *ReportMeta) string {
+	if meta == nil || meta.Params == nil {
+		return "開多" // 無參數時默認做多
+	}
+	v, ok := meta.Params["direction"]
+	if !ok {
+		return "開多"
+	}
+	d := ""
+	switch t := v.(type) {
+	case string:
+		d = t
+	case float64:
+		if t == 0 {
+			d = "LONG"
+		} else if t == 1 {
+			d = "SHORT"
+		} else {
+			d = "BOTH"
+		}
+	}
+	switch d {
+	case "LONG", "long":
+		return "開多"
+	case "SHORT", "short":
+		return "開空"
+	case "BOTH", "both":
+		return "雙向網格"
+	default:
+		return d
+	}
 }
 
 func generateRiskAnalysis(comp *ComparisonResult) string {
@@ -262,7 +302,9 @@ func renderComparisonReportTemplate(data ComparisonReportData) (string, error) {
 
 ## 風控對比
 
-| 指標 | 無風控 | 有風控 | 差異 |
+{{if .GridDirectionLabel}}**網格方向**: {{.GridDirectionLabel}}
+
+{{end}}| 指標 | 無風控 | 有風控 | 差異 |
 |------|--------|--------|------|
 | 總收益率 | {{.NoRiskTotalReturn}} | {{.WithRiskTotalReturn}} | {{.ReturnDiff}} |
 | 最大回撤 | {{.NoRiskMaxDrawdown}} | {{.WithRiskMaxDrawdown}} | {{.DrawdownDiff}} |
