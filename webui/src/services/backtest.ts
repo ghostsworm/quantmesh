@@ -204,6 +204,28 @@ export async function getBacktestTaskTradesExport(id: string, format: 'csv' | 'j
   URL.revokeObjectURL(a.href)
 }
 
+export interface BacktestTradeRow {
+  timestamp: string
+  type: string
+  price: number
+  quantity: number
+  fee: number
+  pnl: number
+}
+
+export interface BacktestTradesResponse {
+  success: boolean
+  data?: {
+    total: number
+    limit: number
+    trades: BacktestTradeRow[]
+  }
+}
+
+export async function getBacktestTaskTrades(id: string, limit = 500): Promise<BacktestTradesResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/backtest/tasks/${encodeURIComponent(id)}/trades?limit=${limit}`)
+}
+
 export interface KlinePoint {
   time: number
   open: number

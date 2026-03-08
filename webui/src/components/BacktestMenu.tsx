@@ -117,6 +117,7 @@ import {
 } from '../services/backtest'
 import { listKlineFiles, listAvailableKlineFiles, type KlineFileInfo, type AvailableKlineFile } from '../services/klineFiles'
 import OptimResultModal from './OptimResultModal'
+import BacktestTradesTable from './BacktestTradesTable'
 
 /** 回测结果数据结构（含风控对比） */
 interface BacktestResultData {
@@ -224,6 +225,8 @@ export default function BacktestMenu() {
   const [klinesData, setKlinesData] = useState<{ klines: { ts: number; time: string; close: number }[]; symbol: string } | null>(null)
   const [running, setRunning] = useState(false)
   const reportModal = useDisclosure()
+  const tradesModal = useDisclosure()
+  const [selectedTaskIdForTrades, setSelectedTaskIdForTrades] = useState<string | null>(null)
   const [configParamsLoading, setConfigParamsLoading] = useState(false)
   const [savingImage, setSavingImage] = useState(false)
   const reportContentRef = useRef<HTMLDivElement>(null)
@@ -1907,9 +1910,17 @@ export default function BacktestMenu() {
                                     as={IconButton}
                                     aria-label={t('backtest.downloadTrades')}
                                     size="xs"
-                                    icon={<ExternalLinkIcon />}
+                                    icon={<DownloadIcon />}
                                   />
                                   <MenuList>
+                                    <MenuItem
+                                      onClick={() => {
+                                        setSelectedTaskIdForTrades(task.id)
+                                        tradesModal.onOpen()
+                                      }}
+                                    >
+                                      {t('backtest.viewTrades')}
+                                    </MenuItem>
                                     <MenuItem
                                       onClick={() =>
                                         getBacktestTaskTradesExport(task.id, 'csv').catch((err) => {
@@ -2477,6 +2488,18 @@ export default function BacktestMenu() {
           </TabPanel>
         </TabPanels>
       </Tabs>
+
+      {/* 交易记录表格 */}
+      {selectedTaskIdForTrades && (
+        <BacktestTradesTable
+          taskId={selectedTaskIdForTrades}
+          isOpen={tradesModal.isOpen}
+          onClose={() => {
+            tradesModal.onClose()
+            setSelectedTaskIdForTrades(null)
+          }}
+        />
+      )}
     </Box>
   )
 }

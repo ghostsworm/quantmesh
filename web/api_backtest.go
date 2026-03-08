@@ -880,6 +880,97 @@ func getBacktestTaskTradesExport(c *gin.Context) {
 	c.Data(http.StatusOK, "text/csv; charset=utf-8", []byte(csvBuilder.String()))
 }
 
+// getBacktestTaskTrades 獲取回測交易記錄 (JSON) GET /api/backtest/tasks/:id/trades
+// 用於前端顯示交易記錄表格
+func getBacktestTaskTrades(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
+		return
+	}
+
+	// 獲取 limit 參數（默認 500，最大 10000）
+	limitStr := c.Query("limit")
+	limit := 500
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 10000 {
+			limit = l
+		}
+	}
+
+	// 讀取回測結果文件
+	resultPath := filepath.Join("backtest", "results", id+".json")
+	resultData, err := os.ReadFile(resultPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "回測結果不存在"})
+		return
+	}
+
+	var taskResult backtest.BacktestTaskResult
+	if err := json.Unmarshal(resultData, &taskResult); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "解析結果數據失敗"})
+		return
+	}
+
+	var allTrades []exportTradeRow
+
+	// 單策略模式：Result.Trades
+	if taskResult.Result != nil && len(taskResult.Result.Trades) > 0 {
+		for _, t := range taskResult.Result.Trades {
+			allTrades = append(allTrades, exportTradeRow{
+				Timestamp: time.Unix(t.Timestamp, 0).Format("2006-01-02 15:04:05"),
+				Type:      t.Type,
+				Price:     t.Price,
+				Quantity:  t.Quantity,
+				Fee:       t.Fee,
+				PnL:       t.PnL,
+			})
+		}
+	} else if taskResult.MultiResult != nil {
+		// 多策略模式：優先使用 CompletedTrades（含真實 PnL、Fee），否則回退到 Trades
+		if len(taskResult.MultiResult.CompletedTrades) > 0 {
+			for _, ct := range taskResult.MultiResult.CompletedTrades {
+				allTrades = append(allTrades, exportTradeRow{
+					Timestamp: time.UnixMilli(ct.Timestamp).Format("2006-01-02 15:04:05"),
+					Type:      ct.Side,
+					Price:     ct.ExitPrice,
+					Quantity:  ct.Size,
+					Fee:       ct.Fee,
+					PnL:       ct.PnL,
+				})
+			}
+		} else if len(taskResult.MultiResult.Trades) > 0 {
+			for _, t := range taskResult.MultiResult.Trades {
+				allTrades = append(allTrades, exportTradeRow{
+					Timestamp: time.UnixMilli(t.Timestamp).Format("2006-01-02 15:04:05"),
+					Type:      t.Side,
+					Price:     t.Price,
+					Quantity:  t.Size,
+					Fee:       t.Slippage,
+					PnL:       0,
+				})
+			}
+		}
+	}
+
+	// 返回總數量和限制後的數據
+	total := len(allTrades)
+	trades := allTrades
+	if total > limit {
+		// 返回最新的 N 筆交易
+		trades = allTrades[total-limit:]
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"total":  total,
+			"limit":  limit,
+			"trades": trades,
+		},
+	})
+}
+
 
 // deleteBacktestTask 刪除任務 DELETE /api/backtest/tasks/:id
 func deleteBacktestTask(c *gin.Context) {

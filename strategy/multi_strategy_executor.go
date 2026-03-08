@@ -88,13 +88,23 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 
 		// 检查策略资金是否充足
 		if !mse.allocator.CheckAvailable(strategyName, estimatedAmount) {
-			return nil, fmt.Errorf("策略 %s 资金不足: 需要 %.2f, 可用 %.2f",
-				strategyName, estimatedAmount, mse.allocator.GetAvailable(strategyName))
+			// 嘗試從配置中獲取 bot ID 以提供更好的錯誤信息
+			botID := ""
+			if cfg := mse.allocator.GetConfig(); cfg != nil && cfg.Trading.BotID != "" {
+				botID = cfg.Trading.BotID + " "
+			}
+			return nil, fmt.Errorf("%s策略 %s 资金不足: 需要 %.2f, 可用 %.2f",
+				botID, strategyName, estimatedAmount, mse.allocator.GetAvailable(strategyName))
 		}
 
 		// 預留资金（使用預估的最终金額）
 		if !mse.allocator.Reserve(strategyName, estimatedAmount) {
-			return nil, fmt.Errorf("策略 %s 资金預留失败", strategyName)
+			// 嘗試從配置中獲取 bot ID 以提供更好的錯誤信息
+			botID := ""
+			if cfg := mse.allocator.GetConfig(); cfg != nil && cfg.Trading.BotID != "" {
+				botID = cfg.Trading.BotID + " "
+			}
+			return nil, fmt.Errorf("%s策略 %s 资金預留失败", botID, strategyName)
 		}
 	}
 
