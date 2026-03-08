@@ -295,15 +295,15 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
                   <VStack align="start" spacing={0}>
                     <Text fontWeight="medium">{sp.strategyName}</Text>
                     <Text fontSize="xs" color="gray.500">
-                      {sp.tradeCount} {t('profitManagement.trades')} · {((sp.winRate || 0) * 100).toFixed(1)}% {t('profitManagement.winRate')}
+                      {sp.tradeCount} {t('profitManagement.trades')} · {((sp.exchangeWinRate || sp.winRate || 0) * 100).toFixed(1)}% {t('profitManagement.winRate')}
                     </Text>
                   </VStack>
                   <VStack align="end" spacing={0}>
                     <Text
                       fontWeight="bold"
-                      color={(sp.totalProfit || 0) >= 0 ? 'green.500' : 'red.500'}
+                      color={(sp.exchangeTotalProfit ?? sp.totalProfit ?? 0) >= 0 ? 'green.500' : 'red.500'}
                     >
-                      {(sp.totalProfit || 0) >= 0 ? '+' : ''}{(sp.totalProfit || 0).toFixed(2)} USDT
+                      {(sp.exchangeTotalProfit ?? sp.totalProfit ?? 0) >= 0 ? '+' : ''}{(sp.exchangeTotalProfit ?? sp.totalProfit ?? 0).toFixed(2)} USDT
                     </Text>
                     <Text fontSize="xs" color="gray.500">
                       {t('profitManagement.today')}: {(sp.todayProfit || 0) >= 0 ? '+' : ''}{(sp.todayProfit || 0).toFixed(2)}

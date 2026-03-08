@@ -136,8 +136,9 @@ func sendMessage(c *gin.Context) {
 	}
 
 	var req struct {
-		Content string `json:"content" binding:"required"`
-		Stream   bool   `json:"stream"`
+		Content string                 `json:"content" binding:"required"`
+		Stream   bool                   `json:"stream"`
+		Images   []types.ImageData      `json:"images"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -151,8 +152,39 @@ func sendMessage(c *gin.Context) {
 		Content: req.Content,
 	}
 
-	// 处理消息
-	response, err := quantmeshAgent.ProcessMessage(c.Request.Context(), msg)
+	// 如果有图片，使用多模态生成
+	var response types.Response
+	var err error
+
+	if len(req.Images) > 0 {
+		// 使用多模态 API（仅 Gemini 支持）
+		llmClient := quantmeshAgent.GetLLMClient()
+		generateReq := types.GenerateRequest{
+			Messages:     []types.LLMMessage{{Role: "user", Content: req.Content}},
+			MaxTokens:    4096,
+			Temperature:  0.7,
+		}
+
+		llmResp, err := llmClient.GenerateWithImage(c.Request.Context(), req.Content, req.Images, generateReq)
+		if err != nil {
+			logger.Error("多模态生成失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process message with images"})
+			return
+		}
+
+		// 转换 LLM 响应为 Agent 响应
+		response = types.Response{
+			Message:   llmResp.Message,
+			ToolCalls: llmResp.ToolCalls,
+			NeedsMore: false,
+			Images:    llmResp.Images,
+			Files:     llmResp.Files,
+		}
+	} else {
+		// 普通文本处理
+		response, err = quantmeshAgent.ProcessMessage(c.Request.Context(), msg)
+	}
+
 	if err != nil {
 		logger.Error("处理消息失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process message"})
@@ -165,6 +197,8 @@ func sendMessage(c *gin.Context) {
 		"tool_calls":  response.ToolCalls,
 		"needs_more":  response.NeedsMore,
 		"suggestions": response.Suggestions,
+		"images":      response.Images,
+		"files":       response.Files,
 	}
 
 	// 获取当前配置状态
@@ -173,6 +207,33 @@ func sendMessage(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+// listSessions 列出所有会话
+// GET /api/agent/sessions
+func listSessions(c *gin.Context) {
+	if agentManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		return
+	}
+
+	agentManager.mu.RLock()
+	defer agentManager.mu.RUnlock()
+
+	sessions := make([]gin.H, 0, len(agentManager.sessions))
+	for id, agent := range agentManager.sessions {
+		state := agent.GetState()
+		sessions = append(sessions, gin.H{
+			"id":         id,
+			"created_at": state.CreatedAt,
+			"updated_at": state.UpdatedAt,
+			"message_count": len(state.Messages),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"sessions": sessions,
+	})
 }
 
 // getSessionHistory 获取会话历史

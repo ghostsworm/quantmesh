@@ -24,6 +24,14 @@ import {
   Text,
   HStack,
   Spinner,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalFooter,
+  ModalBody,
+  ModalCloseButton,
+  useDisclosure,
 } from '@chakra-ui/react'
 import { ChevronLeftIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
@@ -34,6 +42,8 @@ import { getExchanges, getBots, createBot, createBotGroup, getMarketTicker } fro
 import StrategyTypeSelector, { type StrategyTypeCategory } from './bot-create/StrategyTypeSelector'
 import StrategyPicker from './bot-create/StrategyPicker'
 import StrategyParamForm from './bot-create/StrategyParamForm'
+import StrategyTemplates from './StrategyTemplates'
+import { getStrategyTemplateById } from '../services/strategy'
 
 const STEPS = 5
 
@@ -85,6 +95,59 @@ const BotCreateWizard: React.FC = () => {
     high_24h: number
     low_24h: number
   } | null>(null)
+
+  // Template modal
+  const { isOpen: isTemplateModalOpen, onOpen: onTemplateModalOpen, onClose: onTemplateModalClose } = useDisclosure()
+
+  const handleSelectTemplate = async (templateId: string) => {
+    try {
+      const template = await getStrategyTemplateById(templateId)
+      if (!template) return
+
+      // Apply template configuration
+      if (template.strategy_type === 'single') {
+        setStrategyType('single')
+        setSelectedSingle(template.strategy_type)
+      } else if (template.strategy_type === 'combo') {
+        setStrategyType('combo')
+        // Handle combo template
+        const strategies = template.config?.strategies as Array<{ type: string; weight: number }> || []
+        const ids = strategies.map(s => s.type)
+        const weights: Record<string, number> = {}
+        strategies.forEach(s => {
+          weights[s.type] = s.weight
+        })
+        setSelectedCombo(ids)
+        setComboWeights(weights)
+      }
+
+      // Apply form defaults from template
+      if (template.config) {
+        const cfg = template.config as any
+        if (cfg.price_interval) setForm(f => ({ ...f, price_interval: cfg.price_interval }))
+        if (cfg.order_quantity) setForm(f => ({ ...f, order_quantity: cfg.order_quantity }))
+        if (cfg.buy_window_size) setForm(f => ({ ...f, buy_window_size: cfg.buy_window_size }))
+        if (cfg.sell_window_size) setForm(f => ({ ...f, sell_window_size: cfg.sell_window_size }))
+        if (cfg.direction) setForm(f => ({ ...f, direction: cfg.direction }))
+      }
+
+      // Apply strategy params from template
+      if (template.params) {
+        const params: Record<string, Record<string, unknown>> = {}
+        for (const [key, param] of Object.entries(template.params)) {
+          params[key] = { [key]: param.default }
+        }
+        setStrategyParams(params)
+      }
+
+      onTemplateModalClose()
+      // Move to step 2 after selecting template
+      setStep(2)
+    } catch (err) {
+      console.error('Failed to load template:', err)
+      toast({ title: t('template.loadFailed'), status: 'error', duration: 3000 })
+    }
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -262,9 +325,19 @@ const BotCreateWizard: React.FC = () => {
       <Button as={Link} to="/bots" leftIcon={<ChevronLeftIcon />} variant="ghost" size="sm" mb={4}>
         {t('common.back')}
       </Button>
-      <Heading size="lg" mb={6}>
-        {t('botCreate.title')}
-      </Heading>
+      <HStack justify="space-between" align="center" mb={6}>
+        <Heading size="lg">
+          {t('botCreate.title')}
+        </Heading>
+        <Button
+          leftIcon={<ChevronLeftIcon />}
+          variant="outline"
+          size="sm"
+          onClick={onTemplateModalOpen}
+        >
+          {t('template.selectTemplate')}
+        </Button>
+      </HStack>
 
       <Stepper index={step} mb={8}>
         {Array.from({ length: STEPS }, (_, i) => (
@@ -494,6 +567,27 @@ const BotCreateWizard: React.FC = () => {
           </HStack>
         </CardBody>
       </Card>
+
+      {/* Template Selection Modal */}
+      <Modal
+        isOpen={isTemplateModalOpen}
+        onClose={onTemplateModalClose}
+        size="full"
+        scrollBehavior="inside"
+      >
+        <ModalOverlay />
+        <ModalContent maxW="90vw" h="90vh">
+          <ModalHeader>{t('template.selectTemplate')}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            <StrategyTemplates
+              onSelectTemplate={handleSelectTemplate}
+              selectedSymbol={form.symbol}
+              selectedExchange={form.exchange}
+            />
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </Box>
   )
 }

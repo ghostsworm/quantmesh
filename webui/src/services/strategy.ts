@@ -19,7 +19,7 @@ export async function getStrategies(): Promise<StrategiesResponse> {
   return fetchWithAuth(`${API_BASE_URL}/strategies`)
 }
 
-// 策略組合模板
+// 策略組合模板 (舊版，保留兼容性)
 export interface StrategyTemplate {
   id: string
   name: string
@@ -30,12 +30,60 @@ export interface StrategyTemplate {
   tags: string[]
 }
 
+// 新版策略模板 (完整版)
+export interface StrategyTemplateFull {
+  id: string
+  name: string
+  description: string
+  category: string
+  strategy_type: string
+  config: Record<string, any>
+  params: Record<string, TemplateParam>
+  default_weight: number
+  symbols?: string[]
+  difficulty?: string
+  risk_level?: string
+  tags?: string[]
+  min_capital?: number
+}
+
+export interface TemplateParam {
+  name: string
+  description: string
+  type: string
+  default: any
+  min?: number
+  max?: number
+  options?: string[]
+  required: boolean
+}
+
 export async function getStrategyTemplates(): Promise<{
   success: boolean
   templates: StrategyTemplate[]
   total: number
 }> {
   return fetchWithAuth(`${API_BASE_URL}/strategies/templates`)
+}
+
+// 獲取新版策略模板列表
+export async function getStrategyTemplatesFull(): Promise<{
+  templates: StrategyTemplateFull[]
+}> {
+  return fetchWithAuth(`${API_BASE_URL}/strategy-templates`)
+}
+
+// 獲取單個策略模板詳情
+export async function getStrategyTemplateById(templateId: string): Promise<StrategyTemplateFull | null> {
+  try {
+    const res = await fetchWithAuth<{ templates: StrategyTemplateFull[] }>(`${API_BASE_URL}/strategy-templates`)
+    if (res?.templates) {
+      return res.templates.find(t => t.id === templateId) || null
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 // 獲取策略详情

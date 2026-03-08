@@ -33,10 +33,12 @@ type Message struct {
 
 // Response Agent 响应
 type Response struct {
-	Message   string     `json:"message"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	NeedsMore bool       `json:"needs_more"` // 是否需要更多输入
-	Suggestions []string `json:"suggestions,omitempty"` // 建议的下一步操作
+	Message    string         `json:"message"`
+	ToolCalls  []ToolCall     `json:"tool_calls,omitempty"`
+	NeedsMore  bool           `json:"needs_more"` // 是否需要更多输入
+	Suggestions []string       `json:"suggestions,omitempty"` // 建议的下一步操作
+	Images     []ImageData     `json:"images,omitempty"` // AI 生成的图片
+	Files      []GeneratedFile `json:"files,omitempty"`  // AI 生成的文件
 }
 
 // ToolCall 工具调用
@@ -183,6 +185,15 @@ type LLMClient interface {
 
 	// GenerateStream 流式生成
 	GenerateStream(ctx context.Context, req GenerateRequest) (<-chan GenerateChunk, error)
+
+	// GenerateWithImage 生成响应（支持图片输入）
+	GenerateWithImage(ctx context.Context, text string, images []ImageData, req GenerateRequest) (GenerateResponse, error)
+}
+
+// ImageData 图片数据（用于多模态）
+type ImageData struct {
+	MimeType string `json:"mime_type"` // image/png, image/jpeg, image/gif, image/webp
+	Data     string `json:"data"`      // base64 encoded
 }
 
 // GenerateRequest LLM 生成请求
@@ -192,6 +203,7 @@ type GenerateRequest struct {
 	Temperature  float64           `json:"temperature,omitempty"`
 	MaxTokens    int               `json:"max_tokens,omitempty"`
 	SystemPrompt string            `json:"system_prompt,omitempty"`
+	Images       []ImageData       `json:"images,omitempty"` // 多模态图片数据
 }
 
 // LLMMessage LLM 消息
@@ -211,10 +223,22 @@ type ToolDefinition struct {
 
 // GenerateResponse LLM 生成响应
 type GenerateResponse struct {
-	Message      string    `json:"message"`
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
-	FinishReason string    `json:"finish_reason"`
-	Usage        TokenUsage `json:"usage"`
+	Message      string        `json:"message"`
+	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+	FinishReason string        `json:"finish_reason"`
+	Usage        TokenUsage    `json:"usage"`
+	Images       []ImageData    `json:"images,omitempty"` // AI 生成的图片
+	Files        []GeneratedFile `json:"files,omitempty"` // AI 生成的文件
+}
+
+// GeneratedFile AI 生成的文件
+type GeneratedFile struct {
+	Type       string `json:"type"`       // "image", "video", "chart" 等
+	URL        string `json:"url"`        // 文件访问 URL
+	Path       string `json:"path"`       // 本地文件路径
+	Filename   string `json:"filename"`   // 文件名
+	Size       int64  `json:"size"`       // 文件大小
+	MimeType   string `json:"mime_type"`  // MIME 类型
 }
 
 // GenerateChunk 流式生成块

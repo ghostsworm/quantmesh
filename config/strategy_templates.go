@@ -19,6 +19,12 @@ type StrategyTemplate struct {
 	Config      map[string]interface{} `yaml:"config" json:"config"`
 	Params      map[string]TemplateParam `yaml:"params" json:"params"`
 	DefaultWeight float64              `yaml:"default_weight" json:"default_weight"`
+	// 新增字段
+	Symbols     []string               `yaml:"symbols,omitempty" json:"symbols,omitempty"`           // 推荐币种: BTCUSDT, ETHUSDT, etc.
+	Difficulty  string                 `yaml:"difficulty,omitempty" json:"difficulty,omitempty"`     // beginner, intermediate, advanced
+	RiskLevel   string                 `yaml:"risk_level,omitempty" json:"risk_level,omitempty"`    // low, medium, high
+	Tags        []string               `yaml:"tags,omitempty" json:"tags,omitempty"`                // 标签: conservative, aggressive, trending, etc.
+	MinCapital  float64                `yaml:"min_capital,omitempty" json:"min_capital,omitempty"`  // 最低资金要求（U）
 }
 
 // TemplateParam 模板参数定义
@@ -63,10 +69,377 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 网格策略模板
+	// ==================== 基础网格策略系列 ====================
+
+	m.templates["grid_basic_btc"] = &StrategyTemplate{
+		ID:          "grid_basic_btc",
+		Name:        "BTC 基础网格",
+		Description: "适合 BTC 的经典网格策略，在价格区间内等距挂单，适合横盘震荡行情",
+		Category:    "grid",
+		StrategyType: "grid",
+		Config: map[string]interface{}{
+			"grid_spacing": 500.0,
+			"grid_levels": 10,
+		},
+		Params: map[string]TemplateParam{
+			"price_interval": {
+				Name:        "价格间隔",
+				Description: "每档价格差（U），BTC 建议 300-800",
+				Type:        "number",
+				Default:     500.0,
+				Min:         ptrFloat64(100),
+				Max:         ptrFloat64(2000),
+				Required:    true,
+			},
+			"order_quantity": {
+				Name:        "订单金额",
+				Description: "每笔订单金额（U）",
+				Type:        "number",
+				Default:     200.0,
+				Min:         ptrFloat64(50),
+				Required:    true,
+			},
+		},
+		DefaultWeight: 1.0,
+		Symbols:       []string{"BTCUSDT"},
+		Difficulty:    "beginner",
+		RiskLevel:     "low",
+		Tags:          []string{"conservative", "sideways"},
+		MinCapital:    2000,
+	}
+
+	m.templates["grid_basic_eth"] = &StrategyTemplate{
+		ID:          "grid_basic_eth",
+		Name:        "ETH 基础网格",
+		Description: "适合 ETH 的经典网格策略，ETH 波动相对较小，可以设置更小的网格间距",
+		Category:    "grid",
+		StrategyType: "grid",
+		Config: map[string]interface{}{
+			"grid_spacing": 20.0,
+			"grid_levels": 15,
+		},
+		Params: map[string]TemplateParam{
+			"price_interval": {
+				Name:        "价格间隔",
+				Description: "每档价格差（U），ETH 建议 10-50",
+				Type:        "number",
+				Default:     20.0,
+				Min:         ptrFloat64(5),
+				Max:         ptrFloat64(100),
+				Required:    true,
+			},
+			"order_quantity": {
+				Name:        "订单金额",
+				Description: "每笔订单金额（U）",
+				Type:        "number",
+				Default:     100.0,
+				Min:         ptrFloat64(20),
+				Required:    true,
+			},
+		},
+		DefaultWeight: 1.0,
+		Symbols:       []string{"ETHUSDT"},
+		Difficulty:    "beginner",
+		RiskLevel:     "low",
+		Tags:          []string{"conservative", "sideways"},
+		MinCapital:    1000,
+	}
+
+	m.templates["grid_basic_gold"] = &StrategyTemplate{
+		ID:          "grid_basic_gold",
+		Name:        "黄金网格策略",
+		Description: "适合黄金/稳定币对的基础网格，黄金波动较小，适合保守型投资者",
+		Category:    "grid",
+		StrategyType: "grid",
+		Config: map[string]interface{}{
+			"grid_spacing": 2.0,
+			"grid_levels": 8,
+		},
+		Params: map[string]TemplateParam{
+			"price_interval": {
+				Name:        "价格间隔",
+				Description: "每档价格差（U），黄金建议 1-5",
+				Type:        "number",
+				Default:     2.0,
+				Min:         ptrFloat64(0.5),
+				Max:         ptrFloat64(10),
+				Required:    true,
+			},
+			"order_quantity": {
+				Name:        "订单金额",
+				Description: "每笔订单金额（U）",
+				Type:        "number",
+				Default:     100.0,
+				Min:         ptrFloat64(50),
+				Required:    true,
+			},
+		},
+		DefaultWeight: 1.0,
+		Symbols:       []string{"PAXGUSDT", "XAUTUSDT"},
+		Difficulty:    "beginner",
+		RiskLevel:     "low",
+		Tags:          []string{"conservative", "safehaven", "sideways"},
+		MinCapital:    1000,
+	}
+
+	// ==================== 组合策略系列 ====================
+
+	m.templates["combo_grid_dca_btc"] = &StrategyTemplate{
+		ID:          "combo_grid_dca_btc",
+		Name:        "BTC 网格+定投",
+		Description: "网格策略（70%）+ 定投策略（30%），既能获得震荡收益，又能长期持有",
+		Category:    "combo",
+		StrategyType: "combo",
+		Config: map[string]interface{}{
+			"strategies": []map[string]interface{}{
+				{"type": "grid", "weight": 0.7},
+				{"type": "dca", "weight": 0.3},
+			},
+		},
+		Params: map[string]TemplateParam{
+			"price_interval": {
+				Name:        "网格间距",
+				Description: "网格每档价格差（U）",
+				Type:        "number",
+				Default:     500.0,
+				Min:         ptrFloat64(200),
+				Required:    true,
+			},
+			"grid_order_qty": {
+				Name:        "网格单笔金额",
+				Description: "网格每笔订单（U）",
+				Type:        "number",
+				Default:     200.0,
+				Min:         ptrFloat64(50),
+				Required:    true,
+			},
+			"dca_amount": {
+				Name:        "定投金额",
+				Description: "每次定投金额（U）",
+				Type:        "number",
+				Default:     100.0,
+				Min:         ptrFloat64(20),
+				Required:    true,
+			},
+			"dca_interval": {
+				Name:        "定投间隔",
+				Description: "定投间隔（分钟）",
+				Type:        "number",
+				Default:     3600.0,
+				Min:         ptrFloat64(60),
+				Required:    true,
+			},
+		},
+		DefaultWeight: 1.0,
+		Symbols:       []string{"BTCUSDT"},
+		Difficulty:    "intermediate",
+		RiskLevel:     "medium",
+		Tags:          []string{"balanced", "longterm"},
+		MinCapital:    3000,
+	}
+
+	m.templates["combo_grid_trend_eth"] = &StrategyTemplate{
+		ID:          "combo_grid_trend_eth",
+		Name:        "ETH 网格+趋势止损",
+		Description: "网格策略（80%）+ 趋势跟踪止损，在盈利时跟随趋势，亏损时及时止损",
+		Category:    "combo",
+		StrategyType: "combo",
+		Config: map[string]interface{}{
+			"strategies": []map[string]interface{}{
+				{"type": "grid", "weight": 0.8},
+				{"type": "trend_following", "weight": 0.2},
+			},
+		},
+		Params: map[string]TemplateParam{
+			"price_interval": {
+				Name:        "网格间距",
+				Description: "网格每档价格差（U）",
+				Type:        "number",
+				Default:     20.0,
+				Min:         ptrFloat64(10),
+				Required:    true,
+			},
+			"grid_order_qty": {
+				Name:        "网格单笔金额",
+				Description: "网格每笔订单（U）",
+				Type:        "number",
+				Default:     100.0,
+				Min:         ptrFloat64(30),
+				Required:    true,
+			},
+			"take_profit_ratio": {
+				Name:        "止盈比例",
+				Description: "止盈触发比例（如 0.08 = 8%）",
+				Type:        "number",
+				Default:     0.08,
+				Min:         ptrFloat64(0.02),
+				Max:         ptrFloat64(0.3),
+				Required:    true,
+			},
+			"trailing_stop_ratio": {
+				Name:        "跟踪止损",
+				Description: "回撤止盈比例（如 0.03 = 回撤3%止盈）",
+				Type:        "number",
+				Default:     0.03,
+				Min:         ptrFloat64(0.01),
+				Max:         ptrFloat64(0.1),
+				Required:    true,
+			},
+		},
+		DefaultWeight: 1.0,
+		Symbols:       []string{"ETHUSDT"},
+		Difficulty:    "intermediate",
+		RiskLevel:     "medium",
+		Tags:          []string{"balanced", "trending"},
+		MinCapital:    2000,
+	}
+
+	// ==================== 高级策略系列 ====================
+
+	m.templates["martingale_grid_btc"] = &StrategyTemplate{
+		ID:          "martingale_grid_btc",
+		Name:        "BTC 马丁格尔网格",
+		Description: "⚠️ 高风险！每跌一格加倍买入，适合有经验的交易者，需要足够资金支撑",
+		Category:    "grid",
+		StrategyType: "martingale_grid",
+		Config: map[string]interface{}{
+			"base_amount": 100,
+			"multiplier": 1.5,
+			"max_levels": 8,
+		},
+		Params: map[string]TemplateParam{
+			"price_interval": {
+				Name:        "价格间隔",
+				Description: "每档价格差（U）",
+				Type:        "number",
+				Default:     300.0,
+				Min:         ptrFloat64(100),
+				Required:    true,
+			},
+			"base_amount": {
+				Name:        "基础金额",
+				Description: "首笔订单金额（U）",
+				Type:        "number",
+				Default:     100.0,
+				Min:         ptrFloat64(50),
+				Required:    true,
+			},
+			"multiplier": {
+				Name:        "倍增系数",
+				Description: "每跌一格的倍增系数（1.2-2.0）",
+				Type:        "number",
+				Default:     1.5,
+				Min:         ptrFloat64(1.2),
+				Max:         ptrFloat64(2.0),
+				Required:    true,
+			},
+			"max_levels": {
+				Name:        "最大层数",
+				Description: "最大加仓层数",
+				Type:        "number",
+				Default:     8.0,
+				Min:         ptrFloat64(3),
+				Max:         ptrFloat64(15),
+				Required:    true,
+			},
+		},
+		DefaultWeight: 1.0,
+		Symbols:       []string{"BTCUSDT"},
+		Difficulty:    "advanced",
+		RiskLevel:     "high",
+		Tags:          []string{"aggressive", "highrisk"},
+		MinCapital:    10000,
+	}
+
+	m.templates["momentum_grid_eth"] = &StrategyTemplate{
+		ID:          "momentum_grid_eth",
+		Name:        "ETH 动量网格",
+		Description: "结合动量指标的网格策略，上涨时减少买入，下跌时增加买入",
+		Category:    "grid",
+		StrategyType: "momentum_grid",
+		Config: map[string]interface{}{
+			"momentum_period": 14,
+			"momentum_threshold": 0.02,
+		},
+		Params: map[string]TemplateParam{
+			"price_interval": {
+				Name:        "基础间距",
+				Description: "基础网格间距（U）",
+				Type:        "number",
+				Default:     15.0,
+				Min:         ptrFloat64(5),
+				Required:    true,
+			},
+			"momentum_period": {
+				Name:        "动量周期",
+				Description: "计算动量的K线周期",
+				Type:        "number",
+				Default:     14.0,
+				Min:         ptrFloat64(5),
+				Max:         ptrFloat64(50),
+				Required:    true,
+			},
+			"momentum_threshold": {
+				Name:        "动量阈值",
+				Description: "动量信号阈值",
+				Type:        "number",
+				Default:     0.02,
+				Min:         ptrFloat64(0.005),
+				Max:         ptrFloat64(0.1),
+				Required:    true,
+			},
+		},
+		DefaultWeight: 0.8,
+		Symbols:       []string{"ETHUSDT"},
+		Difficulty:    "intermediate",
+		RiskLevel:     "medium",
+		Tags:          []string{"trending", "smart"},
+		MinCapital:    2000,
+	}
+
+	// ==================== 保守型策略系列 ====================
+
+	m.templates["dca_regular_btc"] = &StrategyTemplate{
+		ID:          "dca_regular_btc",
+		Name:        "BTC 定期定投",
+		Description: "🛡️ 最保守策略！定期定额买入，长期持有，适合新手",
+		Category:    "dca",
+		StrategyType: "dca",
+		Config: map[string]interface{}{
+			"dca_amount": 100,
+			"dca_interval": 3600, // 每小时
+		},
+		Params: map[string]TemplateParam{
+			"dca_amount": {
+				Name:        "定投金额",
+				Description: "每次定投金额（U）",
+				Type:        "number",
+				Default:     100.0,
+				Min:         ptrFloat64(10),
+				Required:    true,
+			},
+			"dca_interval": {
+				Name:        "定投间隔",
+				Description: "定投间隔（分钟）：60=每小时, 3600=每天, 10080=每周",
+				Type:        "select",
+				Default:     3600,
+				Options:     []string{"60", "3600", "10080", "43200"},
+				Required:    true,
+			},
+		},
+		DefaultWeight: 1.0,
+		Symbols:       []string{"BTCUSDT", "ETHUSDT", "PAXGUSDT"},
+		Difficulty:    "beginner",
+		RiskLevel:     "low",
+		Tags:          []string{"conservative", "longterm", "passive"},
+		MinCapital:    500,
+	}
+
+	// ==================== 原有模板保持兼容 ====================
+
 	m.templates["grid_basic"] = &StrategyTemplate{
 		ID:          "grid_basic",
-		Name:        "基础网格策略",
+		Name:        "通用基础网格",
 		Description: "经典网格策略，在价格区间内等距挂单",
 		Category:    "grid",
 		StrategyType: "grid",
@@ -93,9 +466,13 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			},
 		},
 		DefaultWeight: 1.0,
+		Symbols:       []string{},
+		Difficulty:    "beginner",
+		RiskLevel:     "low",
+		Tags:          []string{"conservative"},
+		MinCapital:    1000,
 	}
 
-	// 趋势跟踪模板
 	m.templates["trend_following"] = &StrategyTemplate{
 		ID:          "trend_following",
 		Name:        "趋势跟踪策略",
@@ -127,9 +504,13 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			},
 		},
 		DefaultWeight: 0.5,
+		Symbols:       []string{"BTCUSDT", "ETHUSDT"},
+		Difficulty:    "intermediate",
+		RiskLevel:     "medium",
+		Tags:          []string{"trending"},
+		MinCapital:    2000,
 	}
 
-	// 动量策略模板
 	m.templates["momentum"] = &StrategyTemplate{
 		ID:          "momentum",
 		Name:        "动量策略",
@@ -161,9 +542,13 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			},
 		},
 		DefaultWeight: 0.4,
+		Symbols:       []string{"ETHUSDT", "BTCUSDT"},
+		Difficulty:    "intermediate",
+		RiskLevel:     "medium",
+		Tags:          []string{"trending", "smart"},
+		MinCapital:    2000,
 	}
 
-	// 定投策略模板
 	m.templates["dca_regular"] = &StrategyTemplate{
 		ID:          "dca_regular",
 		Name:        "定期定投策略",
@@ -194,13 +579,17 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			},
 		},
 		DefaultWeight: 1.0,
+		Symbols:       []string{},
+		Difficulty:    "beginner",
+		RiskLevel:     "low",
+		Tags:          []string{"conservative", "longterm"},
+		MinCapital:    500,
 	}
 
-	// 马丁格尔策略模板
 	m.templates["martingale"] = &StrategyTemplate{
 		ID:          "martingale",
 		Name:        "马丁格尔策略",
-		Description: "亏损后加倍投入，风险较高",
+		Description: "⚠️ 亏损后加倍投入，风险较高",
 		Category:    "dca",
 		StrategyType: "martingale",
 		Config: map[string]interface{}{
@@ -237,9 +626,13 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			},
 		},
 		DefaultWeight: 1.0,
+		Symbols:       []string{},
+		Difficulty:    "advanced",
+		RiskLevel:     "high",
+		Tags:          []string{"aggressive", "highrisk"},
+		MinCapital:    5000,
 	}
 
-	// 均值回归模板
 	m.templates["mean_reversion"] = &StrategyTemplate{
 		ID:          "mean_reversion",
 		Name:        "均值回归策略",
@@ -271,6 +664,11 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			},
 		},
 		DefaultWeight: 0.6,
+		Symbols:       []string{"BTCUSDT", "ETHUSDT"},
+		Difficulty:    "intermediate",
+		RiskLevel:     "medium",
+		Tags:          []string{"sideways", "smart"},
+		MinCapital:    2000,
 	}
 }
 

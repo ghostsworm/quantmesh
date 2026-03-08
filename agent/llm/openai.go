@@ -293,3 +293,11 @@ func convertFromOpenAIResponse(resp openaiResponse) types.GenerateResponse {
 		},
 	}
 }
+
+// GenerateWithImage OpenAI 暂不支持图片输入
+func (c *OpenAIClient) GenerateWithImage(ctx context.Context, text string, images []types.ImageData, req types.GenerateRequest) (types.GenerateResponse, error) {
+	return types.GenerateResponse{
+		FinishReason: "not_implemented",
+		Message:      "OpenAI 客户端暂不支持图片输入，请使用 Gemini 客户端",
+	}, nil
+}

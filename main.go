@@ -312,6 +312,12 @@ func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int
 	if st == nil {
 		return nil
 	}
+	// 🔥 优先使用SaveTradeWithExchangePnL方法（交易所盈亏默认为0）
+	if sqliteSt, ok := st.(interface {
+		SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
+	}); ok {
+		return sqliteSt.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, 0, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt)
+	}
 	// 使用SQLiteStorage的SaveTradeWithDeviation方法
 	if sqliteSt, ok := st.(interface {
 		SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
@@ -335,6 +341,25 @@ func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int
 		SellPriceDeviation: sellPriceDeviation,
 		CreatedAt:          createdAt,
 	})
+}
+
+// SaveTradeWithExchangePnL 保存交易記錄（包含交易所盈亏和價格偏差）
+func (a *tradeStorageAdapter) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
+	if a.storageService == nil {
+		return nil
+	}
+	st := a.storageService.GetStorage()
+	if st == nil {
+		return nil
+	}
+	// 使用SQLiteStorage的SaveTradeWithExchangePnL方法
+	if sqliteSt, ok := st.(interface {
+		SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
+	}); ok {
+		return sqliteSt.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt)
+	}
+	// 降级：使用SaveTradeWithDeviation
+	return a.SaveTradeWithDeviation(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt)
 }
 
 // symbolManagerWebAdapter SymbolManager Web API 适配器

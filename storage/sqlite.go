@@ -43,6 +43,12 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("迁移 trades 表失败: %w", err)
 	}
 
+	// 迁移：trades 表添加交易所方式盈亏字段
+	if err := migrateTradesExchangePnL(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("迁移 trades exchange_pnl 字段失败: %w", err)
+	}
+
 	// 迁移：orders 表增加 filled_qty / exchange / type / realized_pnl 列
 	if err := migrateOrdersTable(db); err != nil {
 		db.Close()
@@ -1013,6 +1019,33 @@ func migrateTradesTable(db *sql.DB) error {
 }
 
 // migrateOrdersTable 迁移 orders 表，添加 filled_qty / exchange / type / realized_pnl / strategy_name / strategy_type 列
+func migrateTradesExchangePnL(db *sql.DB) error {
+	// 检查表是否存在新字段，不存在则添加
+	columns := []struct {
+		name string
+		def  string
+	}{
+		{"exchange_pnl", "ALTER TABLE trades ADD COLUMN exchange_pnl DECIMAL(20,8) DEFAULT 0"},
+	}
+
+	for _, col := range columns {
+		// 先检查列是否存在
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('trades') WHERE name = ?", col.name).Scan(&count)
+		if err != nil {
+			continue // 忽略错误，尝试下一列
+		}
+		if count == 0 {
+			if _, err := db.Exec(col.def); err != nil {
+				logger.Warn("⚠️ trades 表添加列 %s 失败: %v", col.name, err)
+			} else {
+				logger.Info("🔄 trades 表成功添加列: %s", col.name)
+			}
+		}
+	}
+	return nil
+}
+
 func migrateOrdersTable(db *sql.DB) error {
 	columns := []struct {
 		name string
@@ -1111,11 +1144,11 @@ func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
 		exchange = "binance"
 	}
 	_, err := s.db.Exec(`
-		INSERT INTO trades 
-		(buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO trades
+		(buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, trade.BuyOrderID, trade.SellOrderID, exchange, trade.Account, trade.Symbol,
-		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.Fee, trade.FeeAsset, 
+		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.ExchangePnL, trade.Fee, trade.FeeAsset,
 		trade.BuyPriceDeviation, trade.SellPriceDeviation, createdAt)
 	if err != nil {
 		return err
@@ -1138,6 +1171,27 @@ func (s *SQLiteStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, ex
 		SellPrice:         sellPrice,
 		Quantity:          quantity,
 		PnL:               pnl,
+		Fee:               fee,
+		FeeAsset:          feeAsset,
+		BuyPriceDeviation: buyPriceDeviation,
+		SellPriceDeviation: sellPriceDeviation,
+		CreatedAt:         createdAt,
+	}
+	return s.SaveTrade(trade)
+}
+
+// SaveTradeWithExchangePnL 保存交易記錄（包含交易所盈虧和價格偏差）
+func (s *SQLiteStorage) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
+	trade := &Trade{
+		BuyOrderID:        buyOrderID,
+		SellOrderID:       sellOrderID,
+		Exchange:          exchange,
+		Symbol:            symbol,
+		BuyPrice:          buyPrice,
+		SellPrice:         sellPrice,
+		Quantity:          quantity,
+		PnL:               pnl,
+		ExchangePnL:       exchangePnL,
 		Fee:               fee,
 		FeeAsset:          feeAsset,
 		BuyPriceDeviation: buyPriceDeviation,
@@ -2473,13 +2527,15 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 	// 限制最大返回數量，防止記憶體占用過大（分组后的結果通常不會太多，但还是要限制）
 	maxLimit := 1000 // 最多返回1000個币种對
 	query := `
-		SELECT 
+		SELECT
 			exchange,
 			symbol,
 			COUNT(*) as total_trades,
 			COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as total_pnl,
+			COALESCE(SUM(exchange_pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as exchange_pnl,
 			SUM(quantity) as total_volume,
-			CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as win_rate
+			CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as win_rate,
+			CAST(SUM(CASE WHEN exchange_pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as exchange_win_rate
 		FROM trades
 		WHERE created_at >= ? AND created_at <= ?
 		`
@@ -2503,10 +2559,12 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 		r := &PnLBySymbol{}
 		var totalTrades sql.NullInt64
 		var totalPnL sql.NullFloat64
+		var exchangePnL sql.NullFloat64
 		var totalVolume sql.NullFloat64
 		var winRate sql.NullFloat64
+		var exchangeWinRate sql.NullFloat64
 
-		err := rows.Scan(&r.Exchange, &r.Symbol, &totalTrades, &totalPnL, &totalVolume, &winRate)
+		err := rows.Scan(&r.Exchange, &r.Symbol, &totalTrades, &totalPnL, &exchangePnL, &totalVolume, &winRate, &exchangeWinRate)
 		if err != nil {
 			continue
 		}
@@ -2517,11 +2575,17 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 		if totalPnL.Valid {
 			r.TotalPnL = totalPnL.Float64
 		}
+		if exchangePnL.Valid {
+			r.ExchangePnL = exchangePnL.Float64
+		}
 		if totalVolume.Valid {
 			r.TotalVolume = totalVolume.Float64
 		}
 		if winRate.Valid {
 			r.WinRate = winRate.Float64
+		}
+		if exchangeWinRate.Valid {
+			r.ExchangeWinRate = exchangeWinRate.Float64
 		}
 
 		results = append(results, r)
