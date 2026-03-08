@@ -64,6 +64,18 @@ import { getCapitalOverview, getCapitalHistory } from '../services/capital'
 import { useSymbol } from '../contexts/SymbolContext'
 import { checkSetupStatus } from '../services/setup'
 import ConfirmDialog from './ConfirmDialog'
+
+// 超时包装函数，防止API调用卡住
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Timeout')), timeoutMs)
+  )
+  try {
+    return await Promise.race([promise, timeout])
+  } catch {
+    return defaultValue
+  }
+}
 import { Alert, AlertIcon, AlertTitle, AlertDescription } from '@chakra-ui/react'
 import {
   AreaChart,
@@ -154,8 +166,10 @@ const GlobalDashboard: React.FC = () => {
         getPnLByExchange(startTime, endTime),
         getSystemStatuses(),
         getPositionsSummaryAll().catch(() => ({ positions: [] })),
-        getCapitalOverview().catch(() => null),
-        getCapitalHistory(30).catch(() => ({ history: [] })),
+        // 使用超时包装，防止 capital API 卡住页面加载（5秒超时）
+        withTimeout(getCapitalOverview(), 5000, null as any),
+        // 使用超时包装，防止 history API 卡住页面加载（5秒超时）
+        withTimeout(getCapitalHistory(30), 5000, { history: [] } as any),
       ])
       
       setSymbols(symbolsData.symbols)
