@@ -419,6 +419,8 @@ type ReportData struct {
 	EndPositionQty       string // 期末持倉（基幣數量）
 	EndPositionValue     string // 期末持倉市值（USDT）
 	EndCashUSDT          string // 期末持有 USDT（現金）
+	RealFinalCapital     string // 真正的期末資金（現金 + 市值/杠杆）
+	Leverage             float64 // 杠杆倍数
 	TotalSlippageLoss    string // 🔥 累计價格偏差（slippage）損失（USDT）
 
 	// 交易明细
@@ -677,11 +679,45 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		endPrice = result.PriceCurve.EndPrice
 	}
 	endPosQty, endPosValue := computeEndPosition(result.Trades, endPrice)
-	endCashUSDT := result.FinalCapital - endPosValue // 最終權益 - 持倉市值 = 現金
+	// 注意：endCashUSDT 不是真正的现金，而是用於展示的計算值
+	// 真正的期末資金是 result.FinalCapital
+	endCashUSDT := result.FinalCapital - endPosValue
 	if endCashUSDT < 0 {
 		endCashUSDT = 0
 	}
 	base := baseAssetFromSymbol(result.Symbol)
+
+	// 從參數中提取杠杆
+	leverage := 1.0
+	if meta != nil && meta.Params != nil {
+		if v, ok := meta.Params["leverage"]; ok {
+			switch val := v.(type) {
+			case float64:
+				leverage = val
+			case int:
+				leverage = float64(val)
+			}
+		}
+	}
+	if leverage < 1 {
+		leverage = 1
+	}
+
+	// 真實期末資金就是 FinalCapital（實際權益）
+	// 它已經考慮了杠杆、保證金、未實現盈虧等因素
+	realFinalCapital := result.FinalCapital
+
+	// 格式化期末持倉和市值，顯示杠杆調整後的值
+	var endPositionQtyStr, endPositionValueStr string
+	if leverage > 1 {
+		actualQty := endPosQty / leverage
+		actualValue := endPosValue / leverage
+		endPositionQtyStr = fmt.Sprintf("%.6f %s / %.0fx = %.6f %s", endPosQty, base, leverage, actualQty, base)
+		endPositionValueStr = fmt.Sprintf("%.4f USDT / %.0fx = %.4f USDT", endPosValue, leverage, actualValue)
+	} else {
+		endPositionQtyStr = fmt.Sprintf("%.6f %s", endPosQty, base)
+		endPositionValueStr = fmt.Sprintf("%.4f USDT", endPosValue)
+	}
 
 	// 生成結論
 	conclusion := generateConclusion(result)
@@ -722,9 +758,11 @@ func prepareReportData(result *BacktestResult, meta *ReportMeta) ReportData {
 		MaxConsecutiveWins:   fmt.Sprintf("%d", m.MaxConsecutiveWins),
 		MaxConsecutiveLosses: fmt.Sprintf("%d", m.MaxConsecutiveLosses),
 		MaxPosition:          fmt.Sprintf("%.6f %s", m.MaxPosition, base),
-		EndPositionQty:       fmt.Sprintf("%.6f %s", endPosQty, base),
-		EndPositionValue:     fmt.Sprintf("%.4f USDT", endPosValue),
+		EndPositionQty:       endPositionQtyStr,
+		EndPositionValue:     endPositionValueStr,
 		EndCashUSDT:          fmt.Sprintf("%.4f USDT", endCashUSDT),
+		RealFinalCapital:     fmt.Sprintf("%.4f USDT", realFinalCapital),
+		Leverage:             leverage,
 		TotalSlippageLoss:    fmt.Sprintf("%.4f USDT", m.TotalSlippageLoss), // 🔥 價格偏差損失
 
 		TopTrades:         topTrades,
@@ -899,8 +937,9 @@ func renderReportTemplate(data ReportData) (string, error) {
 | 最大持倉（基幣） | {{.MaxPosition}} |
 | 期末持倉（基幣） | {{.EndPositionQty}} |
 | 期末持倉市值 | {{.EndPositionValue}} |
-| 期末持有 USDT | {{.EndCashUSDT}} |
-| 🔥 價格偏差（slippage）累計損失 | {{.TotalSlippageLoss}} |
+| 最終權益（實際資金） | {{.RealFinalCapital}} |
+{{if gt .Leverage 1.0}}| 備註 | 持倉市值為名義價值，實際占用保證金 = 市值/{{.Leverage}} |
+{{end}}| 🔥 價格偏差（slippage）累計損失 | {{.TotalSlippageLoss}} |
 
 ## 交易明细（前20笔）
 
