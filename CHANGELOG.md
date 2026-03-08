@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.62.3-rc1] - 2026-03-08
+
+### Fixed
+- **Bot 详情跳转回测参数未完全填入**：从 Bot 详情「前往回测」跳转时，URL 携带的 grid_spacing、order_quantity、grid_count 未正确填入表单
+  - BotDetail.buildBacktestUrl 补充 grid_count 参数（来自 max_position_layers 或 buy_window_size + sell_window_size）
+  - BacktestMenu 解析并应用 url grid_count 参数
+  - loadConfigParams 改为合并而非覆盖，保留 URL 预填参数优先；API 返回的 price_interval 映射为 grid_spacing
+
 ## [3.62.1-rc1] - 2026-03-08
 
 ### Added

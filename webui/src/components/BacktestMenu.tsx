@@ -373,6 +373,7 @@ export default function BacktestMenu() {
   const urlTotalCapital = searchParams.get('total_capital')
   const urlGridSpacing = searchParams.get('grid_spacing')
   const urlOrderQuantity = searchParams.get('order_quantity')
+  const urlGridCount = searchParams.get('grid_count')
   const urlProfitSpread = searchParams.get('profit_spread')
 
   // 初始化：载入策略列表、交易所列表、预计算结果和 K 线缓存列表
@@ -442,6 +443,8 @@ export default function BacktestMenu() {
     if (!isNaN(gs) && gs > 0) p.grid_spacing = gs
     const oq = parseFloat(urlOrderQuantity || '')
     if (!isNaN(oq) && oq > 0) p.order_quantity = oq
+    const gc = parseInt(urlGridCount || '', 10)
+    if (!isNaN(gc) && gc > 0) p.grid_count = gc
     const ps = parseFloat(urlProfitSpread || '')
     if (!isNaN(ps) && ps >= 0) p.profit_spread = ps
     const hr = parseFloat(searchParams.get('hedge_ratio') || '')
@@ -456,7 +459,7 @@ export default function BacktestMenu() {
     if (legBKlineFile) p.leg_b_kline_file = legBKlineFile
     if (Object.keys(p).length > 0) setParams(prev => ({ ...prev, ...p }))
     urlParamsApplied.current = true
-  }, [searchParams, urlMode, urlBotId, urlGroupId, urlStrategies, urlStrategy, urlDays, urlTotalCapital, urlGridSpacing, urlOrderQuantity, urlProfitSpread])
+  }, [searchParams, urlMode, urlBotId, urlGroupId, urlStrategies, urlStrategy, urlDays, urlTotalCapital, urlGridSpacing, urlOrderQuantity, urlGridCount, urlProfitSpread])
 
   // 获取智能参数推荐
   const handleGetSmartRecommendation = useCallback(async () => {
@@ -627,7 +630,11 @@ export default function BacktestMenu() {
         const newParams: Record<string, unknown> = {}
         const configParams = r.params as Record<string, unknown>
         
-        // 根据策略定义过滤并设置参数（不覆盖总投入资金，保留用户已填写的值）
+        // API 返回 price_interval，网格策略表单使用 grid_spacing，需映射
+        if (strategyType === 'grid' && configParams.price_interval !== undefined) {
+          configParams.grid_spacing = configParams.price_interval
+        }
+        // 根据策略定义过滤并设置参数
         const strategyDef = strategies.find(s => s.strategy_type === strategyType)
         if (strategyDef?.params) {
           for (const p of strategyDef.params) {
@@ -638,7 +645,8 @@ export default function BacktestMenu() {
         }
         
         if (Object.keys(newParams).length > 0) {
-          setParams(newParams)
+          // 合并而非覆盖：保留 URL 预填参数（从 Bot 详情跳转时），仅填充缺失项
+          setParams((prev) => ({ ...newParams, ...prev }))
           toast({
             title: t('backtest.configParamsLoaded'),
             description: t('backtest.configParamsLoadedDesc', { symbol, strategy: strategyType }),
