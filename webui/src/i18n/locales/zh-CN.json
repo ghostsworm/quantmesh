@@ -3380,7 +3380,11 @@
       "trend": "趋势跟踪",
       "mean_reversion": "均值回归",
       "momentum": "动量策略",
-      "combo": "组合策略"
+      "combo": "组合策略",
+      "grid+trend": "网格+趋势组合",
+      "trend_following": "趋势跟踪",
+      "grid+dca": "网格+DCA",
+      "grid+martingale": "网格+马丁格尔"
     },
     "type": "类型",
     "weight": "权重",
