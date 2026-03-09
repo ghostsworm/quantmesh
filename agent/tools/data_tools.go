@@ -274,7 +274,6 @@ func (t *GetPositionsTool) Execute(ctx context.Context, params map[string]interf
 
 	// 计算汇总信息
 	totalQuantity := 0.0
-	totalValue := 0.0
 	positionCount := 0
 	var totalCost float64
 
