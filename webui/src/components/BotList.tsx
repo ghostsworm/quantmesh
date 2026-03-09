@@ -320,6 +320,34 @@ const BotList: React.FC = () => {
                       {(bot.total_allocated_capital != null && bot.total_allocated_capital > 0) && (
                         <Text fontWeight="medium">{t('botList.totalCapital')}: ${bot.total_allocated_capital.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
                       )}
+                      {/* 强平价估算（与投入资金在同一行） */}
+                      {bot.running && (() => {
+                        if (!bot.current_price || bot.current_price <= 0) {
+                          return null
+                        }
+                        const leverage = bot.leverage || 1
+                        const maxCapitalRatio = bot.max_capital_ratio ?? 1.0
+                        const buyWindowSize = bot.buy_window_size || (bot.strategies?.find(s => s.type === 'grid') ? 50 : 20)
+                        const orderQty = bot.order_quantity || 100
+
+                        const liqEstimate = computeLiquidationPrice({
+                          currentPrice: bot.current_price,
+                          buyWindowSize,
+                          orderQuantity: orderQty,
+                          priceInterval: bot.price_interval || 0.0025,
+                          totalCapital: bot.total_allocated_capital || 10000,
+                          leverage,
+                          maxCapitalRatio,
+                        })
+
+                        return liqEstimate?.valid && liqEstimate.liquidationPrice > 0 ? (
+                          <Tooltip label={`基于最大仓位估算：${liqEstimate.positionBtc.toFixed(4)} BTC @ ${liqEstimate.avgEntryPrice.toFixed(2)} | 杠杆: ${leverage}x | 资金占用: ${Math.round(maxCapitalRatio * 100)}%`}>
+                            <Text color="orange.500" fontWeight="medium">
+                              强平: ${liqEstimate.liquidationPrice.toFixed(2)}
+                            </Text>
+                          </Tooltip>
+                        ) : null
+                      })()}
                     </HStack>
                   </Box>
                   <IconButton
@@ -342,58 +370,6 @@ const BotList: React.FC = () => {
                         PnL: {bot.total_pnl >= 0 ? '+' : ''}{bot.total_pnl.toFixed(2)}
                       </Text>
                     )}
-                    {/* 平仓价估算 */}
-                    {(() => {
-                      // 确保 bot 有必要的字段
-                      if (!bot.current_price || bot.current_price <= 0) {
-                        return null
-                      }
-
-                      const leverage = bot.leverage || 1
-                      const maxCapitalRatio = bot.max_capital_ratio ?? 1.0
-                      const buyWindowSize = bot.buy_window_size || (bot.strategies?.find(s => s.type === 'grid') ? 50 : 20)
-                      const orderQty = bot.order_quantity || 100
-
-                      // 调试输出
-                      if (process.env.NODE_ENV === 'development') {
-                        console.debug('[BotList] 计算强平价:', {
-                          botId: bot.bot_id,
-                          symbol: bot.symbol,
-                          currentPrice: bot.current_price,
-                          buyWindowSize,
-                          orderQty,
-                          priceInterval: bot.price_interval,
-                          totalCapital: bot.total_allocated_capital,
-                          leverage,
-                          maxCapitalRatio,
-                        })
-                      }
-
-                      const liqEstimate = computeLiquidationPrice({
-                        currentPrice: bot.current_price,
-                        buyWindowSize,
-                        orderQuantity: orderQty,
-                        priceInterval: bot.price_interval || 0.0025,
-                        totalCapital: bot.total_allocated_capital || 10000,
-                        leverage,
-                        maxCapitalRatio,
-                      })
-
-                      if (process.env.NODE_ENV === 'development') {
-                        console.debug('[BotList] 计算结果:', {
-                          botId: bot.bot_id,
-                          liqEstimate
-                        })
-                      }
-
-                      return liqEstimate?.valid && liqEstimate.liquidationPrice > 0 ? (
-                        <Tooltip label={`基于最大仓位估算：${liqEstimate.positionBtc.toFixed(4)} BTC @ ${liqEstimate.avgEntryPrice.toFixed(2)} | 杠杆: ${leverage}x | 资金占用: ${Math.round(maxCapitalRatio * 100)}%`}>
-                          <Text color="orange.500" fontWeight="medium">
-                            强平: ${liqEstimate.liquidationPrice.toFixed(2)}
-                          </Text>
-                        </Tooltip>
-                      ) : null
-                    })()}
                   </HStack>
                 )}
                 <Flex mt={4} gap={2} onClick={(e) => e.stopPropagation()} align="center" justify="space-between">
