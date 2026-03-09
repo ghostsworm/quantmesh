@@ -3491,13 +3491,14 @@ func vacuumLogs(c *gin.Context) {
 
 // ReconciliationStatus 對账状態
 type ReconciliationStatus struct {
-	ReconcileCount    int64     `json:"reconcile_count"`     // 對账次數
-	LastReconcileTime time.Time `json:"last_reconcile_time"` // 最后對账時间
-	LocalPosition     float64   `json:"local_position"`      // 本地持倉
-	TotalBuyQty       float64   `json:"total_buy_qty"`       // 累计買入
-	TotalSellQty      float64   `json:"total_sell_qty"`      // 累计賣出
-	EstimatedProfit   float64   `json:"estimated_profit"`    // 預计盈利
-	ActualProfit      float64   `json:"actual_profit"`       // 實際盈利（来自 trades 表）
+	ReconcileCount      int64     `json:"reconcile_count"`       // 對账次數（運行時自增，重啟後歸零）
+	HistoryRecordCount  int64     `json:"history_record_count"` // 對账歷史記錄數（數據庫，與下方列表一致）
+	LastReconcileTime   time.Time `json:"last_reconcile_time"`   // 最后對账時间
+	LocalPosition       float64   `json:"local_position"`        // 本地持倉
+	TotalBuyQty         float64   `json:"total_buy_qty"`         // 累计買入
+	TotalSellQty        float64   `json:"total_sell_qty"`        // 累计賣出
+	EstimatedProfit     float64   `json:"estimated_profit"`      // 預计盈利
+	ActualProfit        float64   `json:"actual_profit"`         // 實際盈利（来自 trades 表）
 }
 
 // ReconciliationHistoryInfo 對账历史信息
@@ -3522,11 +3523,32 @@ type ReconciliationHistoryInfo struct {
 // getReconciliationStatus 獲取對账状態
 // GET /api/reconciliation/status
 func getReconciliationStatus(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	symbol := c.Query("symbol")
+	exchange := c.Query("exchange")
+	if symbol == "" {
+		if st := pickStatus(c); st != nil {
+			symbol = st.Symbol
+			if exchange == "" {
+				exchange = st.Exchange
+			}
+		}
+	}
+
+	historyRecordCount := int64(0)
+	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
+		accountID := GetCurrentAccountID()
+		if cnt, err := storageProv.GetStorage().GetReconciliationCount(exchange, symbol, accountID); err == nil {
+			historyRecordCount = cnt
+		}
+	}
+
 	pmProvider := PickPositionProvider(c)
 	if pmProvider == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"reconcile_count":     0,
-			"last_reconcile_time": time.Time{},
+			"reconcile_count":      0,
+			"history_record_count": historyRecordCount,
+			"last_reconcile_time":  time.Time{},
 			"local_position":      0,
 			"total_buy_qty":       0,
 			"total_sell_qty":      0,
@@ -3544,14 +3566,6 @@ func getReconciliationStatus(c *gin.Context) {
 	// 优先從數據库實時计算累计買入和累计賣出（更准确，不受重啟影响）
 	totalBuyQty := 0.0
 	totalSellQty := 0.0
-
-	storageProv := PickStorageProvider(c)
-	symbol := c.Query("symbol")
-	if symbol == "" {
-		if st := pickStatus(c); st != nil {
-			symbol = st.Symbol
-		}
-	}
 
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
 		// 從數據库直接计算累计買入和累计賣出（更高效）
@@ -3607,13 +3621,14 @@ func getReconciliationStatus(c *gin.Context) {
 	}
 
 	status := ReconciliationStatus{
-		ReconcileCount:    reconcileCount,
-		LastReconcileTime: utils.ToUTC8(lastReconcileTime),
-		LocalPosition:     localPosition,
-		TotalBuyQty:       totalBuyQty,
-		TotalSellQty:      totalSellQty,
-		EstimatedProfit:   estimatedProfit,
-		ActualProfit:      actualProfit,
+		ReconcileCount:     reconcileCount,
+		HistoryRecordCount: historyRecordCount,
+		LastReconcileTime:  utils.ToUTC8(lastReconcileTime),
+		LocalPosition:      localPosition,
+		TotalBuyQty:        totalBuyQty,
+		TotalSellQty:       totalSellQty,
+		EstimatedProfit:    estimatedProfit,
+		ActualProfit:       actualProfit,
 	}
 
 	c.JSON(http.StatusOK, status)

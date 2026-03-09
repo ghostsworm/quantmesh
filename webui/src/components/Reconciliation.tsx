@@ -8,6 +8,7 @@ import './Reconciliation.css'
 
 interface ReconciliationStatus {
   reconcile_count: number
+  history_record_count?: number // 對账歷史記錄數（數據庫），與下方列表一致
   last_reconcile_time: string
   local_position: number
   total_buy_qty: number
@@ -98,6 +99,7 @@ const Reconciliation: React.FC = () => {
       const params = new URLSearchParams()
       if (selectedExchange) params.append('exchange', selectedExchange)
       if (selectedSymbol) params.append('symbol', selectedSymbol)
+      if (selectedMarketType) params.append('market_type', selectedMarketType)
       const response = await fetch(`/api/reconciliation/status?${params}`, {
         credentials: 'include',
       })
@@ -127,6 +129,7 @@ const Reconciliation: React.FC = () => {
       })
       if (selectedExchange) params.append('exchange', selectedExchange)
       if (selectedSymbol) params.append('symbol', selectedSymbol)
+      if (selectedMarketType) params.append('market_type', selectedMarketType)
       // 扩大時间範圍到最近30天，确保能查詢到所有历史記錄
       const endTime = new Date()
       const startTime = new Date()
@@ -160,6 +163,7 @@ const Reconciliation: React.FC = () => {
       })
       if (selectedExchange) params.append('exchange', selectedExchange)
       if (selectedSymbol) params.append('symbol', selectedSymbol)
+      if (selectedMarketType) params.append('market_type', selectedMarketType)
       
       // 根據時间周期設置查詢範圍
       const endTime = new Date()
@@ -208,7 +212,7 @@ const Reconciliation: React.FC = () => {
     fetchData()
     const interval = setInterval(fetchData, 10000) // 每10秒刷新一次
     return () => clearInterval(interval)
-  }, [historyLimit, historyOffset, selectedExchange, selectedSymbol, viewMode, timePeriod])
+  }, [historyLimit, historyOffset, selectedExchange, selectedSymbol, selectedMarketType, viewMode, timePeriod])
 
   // 獲取當前交易對的方向（做多/做空）
   useEffect(() => {
@@ -276,7 +280,7 @@ const Reconciliation: React.FC = () => {
         <div className="status-cards">
           <div className="status-card">
             <h3>{t('reconciliation.history')}</h3>
-            <p className="value">{status.reconcile_count}</p>
+            <p className="value">{status.history_record_count ?? status.reconcile_count}</p>
           </div>
           <div className="status-card">
             <h3>{t('reconciliation.reconcileTime')}</h3>
