@@ -59,7 +59,7 @@ func NewWebServer(cfg *config.Config) *WebServer {
 		llmProvider = "gemini"
 		llmAPIKey = cfg.AI.GeminiAPIKey
 		if llmModel == "" {
-			llmModel = "gemini-1.5-flash" // 默认使用 flash 模型
+			llmModel = "gemini-2.5-flash" // 默认使用 gemini-2.5-flash 模型
 		}
 		logger.Info("🔄 AI Agent 使用全局 ai.gemini_api_key 配置")
 	}
