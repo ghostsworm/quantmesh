@@ -49,6 +49,8 @@
     "stop": "停止",
     "startSuccess": "Bot 已启动",
     "startFailed": "启动 Bot 失败",
+    "starting": "Bot 正在启动…",
+    "startPending": "启动可能需要较长时间，请刷新列表查看",
     "stopSuccess": "Bot 已停止",
     "stopFailed": "停止 Bot 失败",
     "viewDetail": "查看详情",

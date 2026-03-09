@@ -88,6 +88,8 @@
     "stop": "停止",
     "startSuccess": "Botを開始しました",
     "startFailed": "開始失敗",
+    "starting": "Botを起動中…",
+    "startPending": "起動に時間がかかる場合があります。リストを更新して確認してください",
     "stopSuccess": "Botを停止しました",
     "stopFailed": "停止失敗",
     "viewDetail": "詳細",

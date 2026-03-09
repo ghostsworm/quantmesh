@@ -258,10 +258,33 @@ export async function getBotById(botId: string): Promise<BotDetailInfo> {
   return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}`)
 }
 
-export async function startBot(botId: string): Promise<{ ok: boolean; bot_id: string }> {
+export interface StartBotResponse {
+  ok: boolean
+  bot_id: string
+  status?: 'starting' | 'running'
+  message?: string
+}
+
+export async function startBot(botId: string): Promise<StartBotResponse> {
   return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/start`, {
     method: 'POST',
   })
+}
+
+/** 輪詢 Bot 狀態直到運行或超時（用於異步啟動後確認） */
+export async function pollBotUntilRunning(
+  botId: string,
+  options?: { intervalMs?: number; timeoutMs?: number }
+): Promise<boolean> {
+  const intervalMs = options?.intervalMs ?? 2000
+  const timeoutMs = options?.timeoutMs ?? 60000
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const bot = await getBotById(botId)
+    if (bot.running) return true
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+  return false
 }
 
 export async function stopBot(botId: string): Promise<{ ok: boolean; bot_id: string }> {

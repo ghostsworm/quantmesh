@@ -55,6 +55,7 @@ import {
   getBotById,
   startBot,
   stopBot,
+  pollBotUntilRunning,
   closePositionsV2,
   getPositionsSummary,
   getStatistics,
@@ -165,8 +166,18 @@ const BotDetail: React.FC = () => {
     if (!botId) return
     setActioning(true)
     try {
-      await startBot(botId)
-      toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
+      const res = await startBot(botId)
+      if (res.status === 'starting') {
+        toast({ title: t('botList.starting'), status: 'info', duration: 3000 })
+        const running = await pollBotUntilRunning(botId)
+        if (running) {
+          toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
+        } else {
+          toast({ title: t('botList.startPending'), status: 'warning', duration: 4000 })
+        }
+      } else {
+        toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
+      }
       await fetchBot()
     } catch (err) {
       const e = err as Error & { errorKey?: string; groupName?: string }

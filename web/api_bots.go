@@ -308,7 +308,7 @@ func getBotByID(c *gin.Context) {
 	c.JSON(http.StatusOK, bot)
 }
 
-// postBotStart 啟動 Bot
+// postBotStart 啟動 Bot（異步執行，避免長時間阻塞導致請求超時）
 // POST /api/bots/:id/start
 func postBotStart(c *gin.Context) {
 	botID := c.Param("id")
@@ -340,16 +340,30 @@ func postBotStart(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot config not found"})
 		return
 	}
-	if err := botManagerProvider.StartBot(c.Request.Context(), *botCfg); err != nil {
-		// 區分衝突錯誤和其他錯誤，衝突返回 409 Conflict
-		if strings.Contains(err.Error(), "symbol_conflict") {
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "error_key": "error.bot_symbol_conflict"})
-			return
-		}
-		respondError(c, http.StatusInternalServerError, "error.bot_start_failed", err)
+	// 已在運行則直接返回成功
+	if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
+	// 異步啟動，避免 WebSocket 連接、價格獲取等耗時操作阻塞請求導致超時
+	bc := *botCfg
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("❌ [%s] Bot 啟動時發生 panic: %v", botID, r)
+			}
+		}()
+		ctx := context.Background()
+		if err := botManagerProvider.StartBot(ctx, bc); err != nil {
+			logger.Error("❌ [%s] Bot 異步啟動失敗: %v", botID, err)
+		}
+	}()
+	c.JSON(http.StatusAccepted, gin.H{
+		"ok":      true,
+		"bot_id":  botID,
+		"status":  "starting",
+		"message": "Bot 正在啟動，請稍後刷新狀態",
+	})
 }
 
 // deleteBot 刪除 Bot（若屬於對沖組則禁止）

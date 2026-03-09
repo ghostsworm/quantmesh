@@ -49,6 +49,8 @@
     "stop": "Stop",
     "startSuccess": "Bot started",
     "startFailed": "Failed to start bot",
+    "starting": "Bot is starting…",
+    "startPending": "Start may take a while, please refresh to check",
     "stopSuccess": "Bot stopped",
     "stopFailed": "Failed to stop bot",
     "viewDetail": "View detail",
