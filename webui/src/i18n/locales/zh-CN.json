@@ -24,7 +24,9 @@
     "connectionErrorDesc": "无法连接到服务器，请检查网络连接。",
     "unknownError": "未知错误",
     "loadFailed": "加载失败",
-    "success": "操作成功"
+    "success": "操作成功",
+    "enabled": "启用",
+    "disabled": "禁用"
   },
   "error": {
     "bot_symbol_conflict": "该交易对已存在 Bot，同一交易对不能运行多个 Bot。",
@@ -448,6 +450,8 @@
     "sharpeRatio": "夏普比率",
     "totalTrades": "交易次数",
     "buySell": "买/卖",
+    "openCloseCountDiff": "开平笔数差（开仓-平仓）",
+    "countQtyMismatchHint": "买卖笔数不等但期末持仓为 0，通常是因为单笔成交数量不同、部分平仓或一次平掉多笔开仓（统计按数量净额计算）。",
     "endPosition": "期末持仓",
     "endPositionLiability": "期末欠（基币）",
     "endPositionLiabilityValue": "仓位负债价值",
@@ -471,6 +475,7 @@
     "durationKlines": "持续K线",
     "skippedBuys": "跳过买入",
     "klineTrend": "期间 K 线走势（收盘价，拆为 4 段）",
+    "segment": "第 {{n}} 段",
     "close": "收盘",
     "generating": "生成中...",
     "saveAsImage": "保存为图片",

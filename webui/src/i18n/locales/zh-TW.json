@@ -23,7 +23,9 @@
     "unknownError": "未知錯誤",
     "loadFailed": "載入失敗",
     "success": "操作成功",
-    "back": "返回"
+    "back": "返回",
+    "enabled": "啟用",
+    "disabled": "禁用"
   },
   "sidebar": {
     "backToBotList": "返回 Bot 列表",
@@ -343,7 +345,7 @@
     "alignedPoints": "Aligned K-Line Points",
     "longSymbol": "Long Leg Symbol",
     "shortSymbol": "Short Leg Symbol",
-    "segment": "Segment {{n}}",
+    "segment": "第 {{n}} 段",
     "select": "Select",
     "selectCacheRequired": "Please select a backtest cache",
     "selectExchange": "Select Exchange",
