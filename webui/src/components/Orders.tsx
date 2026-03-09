@@ -637,16 +637,6 @@ const Orders: React.FC = () => {
                     <option value="CONFIRMED">{t('orders.confirmed')}</option>
                     <option value="PARTIALLY_FILLED">{t('orders.partiallyFilled')}</option>
                   </Select>
-                  <Select
-                    size="sm"
-                    width="100px"
-                    value={pendingFilterSide}
-                    onChange={(e) => setPendingFilterSide(e.target.value)}
-                  >
-                    <option value="all">{t('orders.allSides')}</option>
-                    <option value="BUY">{t('orders.buy')}</option>
-                    <option value="SELL">{t('orders.sell')}</option>
-                  </Select>
                   <Box flex="1" />
                   <Button
                     colorScheme="red"
@@ -659,84 +649,133 @@ const Orders: React.FC = () => {
                     {t('orders.cancelAll')} ({filteredPendingOrders.length})
                   </Button>
                 </Flex>
-                <TableContainer>
-                <Table variant="simple">
-                  <Thead>
-                    <Tr>
-                      <Th>{t('orders.orderId')}</Th>
-                      <Th>{t('orders.strategy')}</Th>
-                      <Th>{t('orders.orderType')}</Th>
-                      <Th>{t('orders.symbol')}</Th>
-                      <Th>{t('orders.side')}</Th>
-                      <Th isNumeric>{t('orders.price')}</Th>
-                      <Th isNumeric>{t('orders.quantity')}</Th>
-                      <Th isNumeric>{t('orders.filled')}</Th>
-                      <Th>{t('orders.status')}</Th>
-                      <Th isNumeric>{t('orders.slotPrice')}</Th>
-                      <Th>{t('orders.createdAt')}</Th>
-                      <Th>{t('common.actions')}</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {filteredPendingOrders.length === 0 ? (
-                      <Tr>
-                        <Td colSpan={11} textAlign="center" color="gray.500" py={8}>
-                          {t('orders.noMatchingOrders')}
-                        </Td>
-                      </Tr>
-                    ) : (
-                      filteredPendingOrders.map((order) => (
-                        <Tr key={order.order_id}>
-                          <Td>{order.order_id}</Td>
-                          <Td>
-                            <Badge colorScheme={order.strategy_type === 'grid' ? 'blue' : order.strategy_type === 'dca' ? 'purple' : 'gray'} variant="subtle">
-                              {order.strategy_name || order.strategy_type || '-'}
-                            </Badge>
-                          </Td>
-                          <Td>
-                            <Badge colorScheme="cyan" variant="outline">
-                              {getOrderTypeText((order as any).type || 'LIMIT')}
-                            </Badge>
-                          </Td>
-                          <Td>
-                            <Badge colorScheme="purple" variant="subtle">
-                              {order.symbol}
-                            </Badge>
-                          </Td>
-                          <Td>
-                            <Badge colorScheme={order.side === 'BUY' ? 'green' : 'red'}>
-                              {order.side === 'BUY' ? t('orders.buy') : t('orders.sell')}
-                            </Badge>
-                          </Td>
-                          <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
-                          <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
-                          <Td isNumeric>{order.filled_quantity != null ? order.filled_quantity.toFixed(4) : '-'}</Td>
-                          <Td>
-                            <Badge colorScheme={getStatusColorScheme(order.status)}>
-                              {getStatusText(order.status)}
-                            </Badge>
-                          </Td>
-                          <Td isNumeric>{order.slot_price != null ? order.slot_price.toFixed(2) : '-'}</Td>
-                          <Td>{formatTime(order.created_at)}</Td>
-                          <Td>
-                            <Tooltip label={t('orders.cancelOrder')} hasArrow>
-                              <IconButton
-                                aria-label={t('orders.cancelOrder')}
-                                icon={<CloseIcon />}
-                                size="sm"
-                                colorScheme="red"
-                                variant="ghost"
-                                isLoading={cancellingOrderId === order.order_id}
-                                onClick={() => handleCancelOrder(order.order_id)}
-                              />
-                            </Tooltip>
-                          </Td>
-                        </Tr>
-                      ))
-                    )}
-                  </Tbody>
-                </Table>
-              </TableContainer>
+
+                {/* 分列显示买单和卖单委托 */}
+                <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
+                  {/* 买单委托 */}
+                  <Card>
+                    <CardBody>
+                      <Heading size="sm" mb={3} color="green.600">
+                        {t('orders.buy')} ({filteredPendingOrders.filter(o => o.side === 'BUY').length})
+                      </Heading>
+                      {filteredPendingOrders.filter(o => o.side === 'BUY').length === 0 ? (
+                        <Text color="gray.500" textAlign="center" py={4}>
+                          暂无买单委托
+                        </Text>
+                      ) : (
+                        <TableContainer>
+                          <Table size="sm" variant="simple">
+                            <Thead>
+                              <Tr>
+                                <Th>{t('orders.price')}</Th>
+                                <Th isNumeric>{t('orders.quantity')}</Th>
+                                <Th isNumeric>{t('orders.filled')}</Th>
+                                <Th>{t('orders.status')}</Th>
+                                <Th>{t('common.actions')}</Th>
+                              </Tr>
+                            </Thead>
+                            <Tbody>
+                              {filteredPendingOrders
+                                .filter(o => o.side === 'BUY')
+                                .sort((a, b) => b.price - a.price) // 按价格降序排列
+                                .map((order) => (
+                                  <Tr key={order.order_id}>
+                                    <Td>
+                                      <Text fontWeight="bold" color="green.600">
+                                        {order.price != null ? order.price.toFixed(2) : '-'}
+                                      </Text>
+                                    </Td>
+                                    <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
+                                    <Td isNumeric>{order.filled_quantity != null ? order.filled_quantity.toFixed(4) : '-'}</Td>
+                                    <Td>
+                                      <Badge colorScheme={getStatusColorScheme(order.status)} fontSize="xs">
+                                        {getStatusText(order.status)}
+                                      </Badge>
+                                    </Td>
+                                    <Td>
+                                      <Tooltip label={t('orders.cancelOrder')} hasArrow>
+                                        <IconButton
+                                          aria-label={t('orders.cancelOrder')}
+                                          icon={<CloseIcon />}
+                                          size="xs"
+                                          colorScheme="red"
+                                          variant="ghost"
+                                          isLoading={cancellingOrderId === order.order_id}
+                                          onClick={() => handleCancelOrder(order.order_id)}
+                                        />
+                                      </Tooltip>
+                                    </Td>
+                                  </Tr>
+                                ))}
+                            </Tbody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </CardBody>
+                  </Card>
+
+                  {/* 卖单委托 */}
+                  <Card>
+                    <CardBody>
+                      <Heading size="sm" mb={3} color="red.600">
+                        {t('orders.sell')} ({filteredPendingOrders.filter(o => o.side === 'SELL').length})
+                      </Heading>
+                      {filteredPendingOrders.filter(o => o.side === 'SELL').length === 0 ? (
+                        <Text color="gray.500" textAlign="center" py={4}>
+                          暂无卖单委托
+                        </Text>
+                      ) : (
+                        <TableContainer>
+                          <Table size="sm" variant="simple">
+                            <Thead>
+                              <Tr>
+                                <Th>{t('orders.price')}</Th>
+                                <Th isNumeric>{t('orders.quantity')}</Th>
+                                <Th isNumeric>{t('orders.filled')}</Th>
+                                <Th>{t('orders.status')}</Th>
+                                <Th>{t('common.actions')}</Th>
+                              </Tr>
+                            </Thead>
+                            <Tbody>
+                              {filteredPendingOrders
+                                .filter(o => o.side === 'SELL')
+                                .sort((a, b) => a.price - b.price) // 按价格升序排列
+                                .map((order) => (
+                                  <Tr key={order.order_id}>
+                                    <Td>
+                                      <Text fontWeight="bold" color="red.600">
+                                        {order.price != null ? order.price.toFixed(2) : '-'}
+                                      </Text>
+                                    </Td>
+                                    <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
+                                    <Td isNumeric>{order.filled_quantity != null ? order.filled_quantity.toFixed(4) : '-'}</Td>
+                                    <Td>
+                                      <Badge colorScheme={getStatusColorScheme(order.status)} fontSize="xs">
+                                        {getStatusText(order.status)}
+                                      </Badge>
+                                    </Td>
+                                    <Td>
+                                      <Tooltip label={t('orders.cancelOrder')} hasArrow>
+                                        <IconButton
+                                          aria-label={t('orders.cancelOrder')}
+                                          icon={<CloseIcon />}
+                                          size="xs"
+                                          colorScheme="red"
+                                          variant="ghost"
+                                          isLoading={cancellingOrderId === order.order_id}
+                                          onClick={() => handleCancelOrder(order.order_id)}
+                                        />
+                                      </Tooltip>
+                                    </Td>
+                                  </Tr>
+                                ))}
+                            </Tbody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </CardBody>
+                  </Card>
+                </SimpleGrid>
               </>
             )}
           </TabPanel>
