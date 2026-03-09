@@ -2,7 +2,7 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
-## [3.71.0-rc1] - 2026-03-09
+## [3.71.3] - 2026-03-09
 
 ### Fixed
 - **歷史訂單賣出單不顯示**：根因是 `orders` 表部分訂單 `exchange` 字段為空，前端篩選 binance 時被排除；`order_placed` 事件現補充 `exchange` 字段，新下單從創建時即正確寫入；線上已對 PAXGUSDT 等補全 `exchange='binance'`
