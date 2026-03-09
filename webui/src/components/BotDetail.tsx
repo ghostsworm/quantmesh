@@ -494,13 +494,41 @@ const BotDetail: React.FC = () => {
   )
 }
 
+// 策略参数定义映射（用于展示各策略专属参数）
+const STRATEGY_PARAM_DEFS: Record<string, Array<{ key: string; labelKey: string; fallback: string }>> = {
+  grid: [
+    { key: 'grid_spacing', labelKey: 'backtest.paramLabels.grid_spacing', fallback: 'Grid Spacing' },
+    { key: 'profit_spread', labelKey: 'backtest.paramLabels.profit_spread', fallback: 'Profit Spread' },
+    { key: 'grid_count', labelKey: 'backtest.paramLabels.grid_count', fallback: 'Grid Count' },
+    { key: 'order_quantity', labelKey: 'backtest.paramLabels.order_quantity', fallback: 'Order Quantity' },
+  ],
+  trend_following: [
+    { key: 'fast_period', labelKey: 'backtest.paramLabels.fast_period', fallback: 'Fast Period' },
+    { key: 'slow_period', labelKey: 'backtest.paramLabels.slow_period', fallback: 'Slow Period' },
+  ],
+  momentum: [
+    { key: 'rsi_period', labelKey: 'backtest.paramLabels.rsi_period', fallback: 'RSI Period' },
+  ],
+  mean_reversion: [
+    { key: 'period', labelKey: 'backtest.paramLabels.period', fallback: 'Period' },
+  ],
+}
+
 // BotBacktestPanel Bot 回测面板：展示参数并跳转全局回测
 const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
   const { t } = useTranslation()
   const cfg = bot?.config as Record<string, unknown> | undefined
   const openCtrl = cfg?.open_position_control as Record<string, unknown> | undefined
-  const strategies = cfg?.strategies as Array<{ type?: string }> | undefined
-  const strategyType = strategies?.[0]?.type || '-'
+  const strategies = cfg?.strategies as Array<{ type?: string; weight?: number; config?: Record<string, unknown> }> | undefined
+
+  // 计算网格数量
+  const gridCount = (() => {
+    const maxLayers = openCtrl?.max_position_layers
+    if (typeof maxLayers === 'number' && maxLayers > 0) return maxLayers
+    const buyWin = cfg?.buy_window_size as number | undefined
+    const sellWin = cfg?.sell_window_size as number | undefined
+    return (typeof buyWin === 'number' ? buyWin : 0) + (typeof sellWin === 'number' ? sellWin : 0)
+  })()
 
   return (
     <Card>
@@ -525,11 +553,25 @@ const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
             </Box>
           </Alert>
 
+          {/* 策略组合概览 */}
+          {strategies && strategies.length > 0 && (
+            <Box>
+              <Text fontSize="sm" fontWeight="medium" color="gray.600" mb={2}>
+                {t('botDetail.strategyType')}
+              </Text>
+              <HStack spacing={2} flexWrap="wrap">
+                {strategies.map((s, idx) => (
+                  <Badge key={idx} colorScheme="blue" fontSize="sm" px={2} py={1}>
+                    {t(`backtest.strategyNames.${s.type}`, { defaultValue: s.type })}
+                    {s.weight != null && s.weight > 0 && ` (${Math.round(s.weight * 100)}%)`}
+                  </Badge>
+                ))}
+              </HStack>
+            </Box>
+          )}
+
+          {/* 网格基础参数 */}
           <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
-            <Stat>
-              <StatLabel>{t('botDetail.strategyType')}</StatLabel>
-              <StatNumber fontSize="md">{strategyType}</StatNumber>
-            </Stat>
             <Stat>
               <StatLabel>{t('botDetail.maxPositionValue')}</StatLabel>
               <StatNumber>
@@ -538,33 +580,75 @@ const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
               <StatHelpText>{t('backtest.actualMarginUsed')}</StatHelpText>
             </Stat>
             <Stat>
-              <StatLabel>{t('botDetail.maxPositionLayers')}</StatLabel>
-              <StatNumber>
-                {openCtrl?.max_position_layers ?? 0}
-              </StatNumber>
-              <StatHelpText>{t('backtest.maxLayers')}</StatHelpText>
-            </Stat>
-            <Stat>
               <StatLabel>{t('botDetail.priceInterval')}</StatLabel>
-              <StatNumber>${cfg?.price_interval ?? 0}</StatNumber>
-            </Stat>
-            <Stat>
-              <StatLabel>{t('botDetail.orderQuantity')}</StatLabel>
-              <StatNumber>${cfg?.order_quantity ?? 0}</StatNumber>
+              <StatNumber>{cfg?.price_interval ?? 0} USDT</StatNumber>
+              <StatHelpText>{t('botDetail.strategy.priceIntervalHint')}</StatHelpText>
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.profitSpread')}</StatLabel>
-              <StatNumber>${cfg?.profit_spread ?? 0}</StatNumber>
+              <StatNumber>{cfg?.profit_spread ?? 0} USDT</StatNumber>
+              <StatHelpText>{t('botDetail.strategy.profitSpreadHint')}</StatHelpText>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.orderQuantity')}</StatLabel>
+              <StatNumber>{cfg?.order_quantity ?? 0} USDT</StatNumber>
+            </Stat>
+            <Stat>
+              <StatLabel>{t('botDetail.gridCount')}</StatLabel>
+              <StatNumber>{gridCount || '-'}</StatNumber>
+              <StatHelpText>{t('backtest.maxLayers')}</StatHelpText>
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.priceLow')}</StatLabel>
-              <StatNumber>${cfg?.price_low ?? 0}</StatNumber>
+              <StatNumber>{cfg?.price_low ?? 0} USDT</StatNumber>
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.priceHigh')}</StatLabel>
-              <StatNumber>${cfg?.price_high ?? 0}</StatNumber>
+              <StatNumber>{cfg?.price_high ?? 0} USDT</StatNumber>
             </Stat>
           </SimpleGrid>
+
+          {/* 各策略专属参数 */}
+          {strategies && strategies.length > 0 && strategies.some(s => s.type !== 'grid' && s.config && Object.keys(s.config).length > 0) && (
+            <>
+              <Divider />
+              <Text fontSize="sm" fontWeight="medium" color="gray.600">
+                {t('botDetail.strategySpecificParams')}
+              </Text>
+              {strategies.filter(s => s.type !== 'grid').map((s, idx) => {
+                const paramDefs = STRATEGY_PARAM_DEFS[s.type || ''] || []
+                const configEntries = s.config ? Object.entries(s.config) : []
+                if (paramDefs.length === 0 && configEntries.length === 0) return null
+                return (
+                  <Box key={idx}>
+                    <Badge colorScheme="purple" mb={2}>
+                      {t(`backtest.strategyNames.${s.type}`, { defaultValue: s.type })}
+                    </Badge>
+                    <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={3}>
+                      {paramDefs.map((pd) => {
+                        const val = s.config?.[pd.key]
+                        return (
+                          <Stat key={pd.key} size="sm">
+                            <StatLabel fontSize="xs">{t(pd.labelKey, { defaultValue: pd.fallback })}</StatLabel>
+                            <StatNumber fontSize="md">{val != null ? String(val) : '-'}</StatNumber>
+                          </Stat>
+                        )
+                      })}
+                      {configEntries
+                        .filter(([k]) => !paramDefs.some(pd => pd.key === k))
+                        .map(([k, v]) => (
+                          <Stat key={k} size="sm">
+                            <StatLabel fontSize="xs">{t(`backtest.paramLabels.${k}`, { defaultValue: k })}</StatLabel>
+                            <StatNumber fontSize="md">{v != null ? String(v) : '-'}</StatNumber>
+                          </Stat>
+                        ))
+                      }
+                    </SimpleGrid>
+                  </Box>
+                )
+              })}
+            </>
+          )}
 
           <Box>
             <Text fontSize="sm" color="gray.600" mb={2}>
@@ -904,6 +988,55 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
           </VStack>
         </CardBody>
       </Card>
+
+      {/* 各策略专属参数展示（只读） */}
+      {bot?.config?.strategies && (bot.config as any).strategies.length > 1 && (() => {
+        const strats = (bot.config as any).strategies as Array<{ type: string; weight?: number; config?: Record<string, unknown> }>
+        const nonGridStrats = strats.filter(s => s.type !== 'grid')
+        if (nonGridStrats.length === 0) return null
+        return (
+          <Card>
+            <CardBody>
+              <Heading size="sm" mb={4}>{t('botDetail.strategySpecificParams')}</Heading>
+              <VStack align="stretch" spacing={4}>
+                {nonGridStrats.map((s, idx) => {
+                  const paramDefs = STRATEGY_PARAM_DEFS[s.type] || []
+                  const cfgEntries = s.config ? Object.entries(s.config) : []
+                  return (
+                    <Box key={idx}>
+                      <HStack mb={2}>
+                        <Badge colorScheme="purple">
+                          {t(`backtest.strategyNames.${s.type}`, { defaultValue: s.type })}
+                        </Badge>
+                        {s.weight != null && s.weight > 0 && (
+                          <Badge colorScheme="blue">{Math.round(s.weight * 100)}%</Badge>
+                        )}
+                      </HStack>
+                      <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={3}>
+                        {paramDefs.map((pd) => (
+                          <Box key={pd.key}>
+                            <Text fontSize="xs" color="gray.500">{t(pd.labelKey, { defaultValue: pd.fallback })}</Text>
+                            <Text fontSize="md" fontWeight="semibold">{s.config?.[pd.key] != null ? String(s.config[pd.key]) : '-'}</Text>
+                          </Box>
+                        ))}
+                        {cfgEntries
+                          .filter(([k]) => !paramDefs.some(pd => pd.key === k))
+                          .map(([k, v]) => (
+                            <Box key={k}>
+                              <Text fontSize="xs" color="gray.500">{t(`backtest.paramLabels.${k}`, { defaultValue: k })}</Text>
+                              <Text fontSize="md" fontWeight="semibold">{v != null ? String(v) : '-'}</Text>
+                            </Box>
+                          ))
+                        }
+                      </SimpleGrid>
+                    </Box>
+                  )
+                })}
+              </VStack>
+            </CardBody>
+          </Card>
+        )
+      })()}
 
       {/* 网格方向与风控配置（只读显示） */}
       <Card>

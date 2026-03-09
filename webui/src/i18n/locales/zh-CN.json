@@ -167,6 +167,8 @@
     "priceLow": "价格下限",
     "priceHigh": "价格上限",
     "strategyType": "策略类型",
+    "gridCount": "网格数量",
+    "strategySpecificParams": "策略专属参数",
     "goToBacktest": "前往回测",
     "goToBacktestDesc": "跳转到全局回测页面，已预填当前 Bot 的交易所、交易对、策略类型及参数",
     "currentPrice": "当前价格",
@@ -565,7 +567,8 @@
       "combo": "组合策略"
     },
     "paramLabels": {
-      "grid_spacing": "网格间距",
+      "grid_spacing": "网格间距（下单间距）",
+      "profit_spread": "利润间距（平仓价差）",
       "grid_count": "格子数量",
       "order_quantity": "单笔订单大小",
       "total_capital": "总投入资金",
@@ -582,7 +585,8 @@
       "multiplier": "加倍倍数"
     },
     "paramHints": {
-      "grid_spacing": "每档价格差，如 200 表示每档相差 200 USDT。不填则按格子数量均分区间",
+      "grid_spacing": "每档价格差（下单间距），如 200 表示每隔 200 USDT 下单。不填则按格子数量均分区间",
+      "profit_spread": "买单和卖单之间的价差。不填或为 0 时等于下单间距",
       "grid_count": "最多几档。填了间距时表示最多 N 档；未填间距时表示将区间均分为 N 档",
       "fee_rate": "如 0.0004 表示 0.04%",
       "risk_volume_multiplier": "成交量超过均量的倍数触发风控（越小越敏感）",

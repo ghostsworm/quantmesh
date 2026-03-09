@@ -23,14 +23,42 @@ export function buildBacktestUrl(bot: BotConfigForBacktest | null): string {
   if (bot.bot_id) params.set('bot_id', bot.bot_id)
   if (strategies && strategies.length > 0) {
     params.set('mode', 'bot_strategies')
+
+    // Bot 顶层网格参数 → 注入到每个 grid 策略的 config 中
+    const topLevelGridConfig: Record<string, unknown> = {}
+    const pi = cfg?.price_interval
+    if (typeof pi === 'number' && pi > 0) topLevelGridConfig.grid_spacing = pi
+    const oq = cfg?.order_quantity
+    if (typeof oq === 'number' && oq > 0) topLevelGridConfig.order_quantity = oq
+    const ps = cfg?.profit_spread
+    if (typeof ps === 'number' && ps > 0) topLevelGridConfig.profit_spread = ps
+    const ml = openCtrl?.max_position_layers
+    if (typeof ml === 'number' && ml > 0) {
+      topLevelGridConfig.grid_count = ml
+    } else {
+      const bw = cfg?.buy_window_size as number | undefined
+      const sw = cfg?.sell_window_size as number | undefined
+      const total = (typeof bw === 'number' ? bw : 0) + (typeof sw === 'number' ? sw : 0)
+      if (total > 0) topLevelGridConfig.grid_count = total
+    }
+    const dir = cfg?.direction as string | undefined
+    if (dir) topLevelGridConfig.direction = dir
+
     params.set(
       'strategies',
       JSON.stringify(
-        strategies.map((strategy) => ({
-          type: strategy.type || 'grid',
-          weight: typeof strategy.weight === 'number' ? strategy.weight : 0,
-          config: strategy.config || {},
-        }))
+        strategies.map((strategy) => {
+          const sType = strategy.type || 'grid'
+          const isGridLike = sType === 'grid' || sType === 'grid+trend'
+          const mergedConfig = isGridLike
+            ? { ...topLevelGridConfig, ...(strategy.config || {}) }
+            : { ...(strategy.config || {}) }
+          return {
+            type: sType,
+            weight: typeof strategy.weight === 'number' ? strategy.weight : 0,
+            config: mergedConfig,
+          }
+        })
       )
     )
   }

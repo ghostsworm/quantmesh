@@ -167,6 +167,8 @@
     "priceLow": "Price Lower Bound",
     "priceHigh": "Price Upper Bound",
     "strategyType": "Strategy Type",
+    "gridCount": "Grid Count",
+    "strategySpecificParams": "Strategy-specific Parameters",
     "goToBacktest": "Go to Backtest",
     "goToBacktestDesc": "Navigate to global backtest page with exchange, symbol, strategy and params pre-filled from this Bot",
     "currentPrice": "Current Price",
@@ -564,7 +566,8 @@
       "combo": "Combo Strategy"
     },
     "paramLabels": {
-      "grid_spacing": "Grid Spacing",
+      "grid_spacing": "Grid Spacing (Order Spacing)",
+      "profit_spread": "Profit Spread (Close Price Gap)",
       "grid_count": "Grid Count",
       "order_quantity": "Order Size Per Trade",
       "total_capital": "Total Capital",
@@ -581,7 +584,8 @@
       "multiplier": "Multiplier"
     },
     "paramHints": {
-      "grid_spacing": "Price gap per level, e.g. 200 means 200 USDT per level. If empty, levels are evenly distributed by grid count",
+      "grid_spacing": "Order spacing - price gap per level, e.g. 200 means place order every 200 USDT. If empty, levels are evenly distributed by grid count",
+      "profit_spread": "Price gap between buy and sell orders. Leave empty or 0 to use grid spacing",
       "grid_count": "Max levels. With spacing set: at most N levels; without spacing: divide range into N levels",
       "fee_rate": "e.g. 0.0004 means 0.04%",
       "risk_volume_multiplier": "Volume multiplier over average to trigger risk control (smaller = more sensitive)",
