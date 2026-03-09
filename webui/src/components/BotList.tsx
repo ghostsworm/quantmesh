@@ -46,7 +46,10 @@ const BotList: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<BotInfo | null>(null)
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
   const cancelDeleteRef = React.useRef<HTMLButtonElement>(null)
+  const runningCardBg = useColorModeValue('green.50', 'green.900')
+  const runningBorder = useColorModeValue('green.200', 'green.700')
   const stoppedCardBg = useColorModeValue('gray.50', 'whiteAlpha.50')
+  const stoppedBorder = useColorModeValue('gray.200', 'gray.700')
 
   // 回测对话框状态
   const [backtestBotId, setBacktestBotId] = useState<string | null>(null)
@@ -67,6 +70,11 @@ const BotList: React.FC = () => {
     if (filterStatus === 'running') return b.running
     if (filterStatus === 'stopped') return !b.running
     return true
+  }).sort((a, b) => {
+    // 按状态排序：运行中的排前面
+    if (a.running && !b.running) return -1
+    if (!a.running && b.running) return 1
+    return 0
   })
 
   const fetchBots = async () => {
@@ -248,7 +256,9 @@ const BotList: React.FC = () => {
           {filteredBots.map((bot) => (
             <Card
               key={bot.bot_id}
-              bg={bot.running ? undefined : stoppedCardBg}
+              bg={bot.running ? runningCardBg : stoppedCardBg}
+              borderWidth="1px"
+              borderColor={bot.running ? runningBorder : stoppedBorder}
               _hover={{ shadow: 'md' }}
               cursor="pointer"
               onClick={() => navigate(`/bots/${bot.bot_id}`)}
