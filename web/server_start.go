@@ -49,11 +49,26 @@ func NewWebServer(cfg *config.Config) *WebServer {
 	r.Use(I18nMiddleware())
 
 	// 初始化 AI Agent Manager
-	if cfg.Web.AI.LLMAPIKey != "" && cfg.Web.AI.LLMProvider != "" {
+	// 优先使用 web.ai 配置，如果为空则从 ai.gemini_api_key 读取
+	llmProvider := cfg.Web.AI.LLMProvider
+	llmAPIKey := cfg.Web.AI.LLMAPIKey
+	llmModel := cfg.Web.AI.LLMModel
+
+	// 如果 web.ai 未配置，尝试使用 ai.gemini_api_key
+	if llmAPIKey == "" && cfg.AI.GeminiAPIKey != "" {
+		llmProvider = "gemini"
+		llmAPIKey = cfg.AI.GeminiAPIKey
+		if llmModel == "" {
+			llmModel = "gemini-1.5-flash" // 默认使用 flash 模型
+		}
+		logger.Info("🔄 AI Agent 使用全局 ai.gemini_api_key 配置")
+	}
+
+	if llmAPIKey != "" && llmProvider != "" {
 		err := InitAgentManager(AgentManagerConfig{
-			LLMProvider: cfg.Web.AI.LLMProvider,
-			LLMAPIKey:   cfg.Web.AI.LLMAPIKey,
-			LLMModel:    cfg.Web.AI.LLMModel,
+			LLMProvider: llmProvider,
+			LLMAPIKey:   llmAPIKey,
+			LLMModel:    llmModel,
 		})
 		if err != nil {
 			logger.Warn("⚠️ AI Agent Manager 初始化失败: %v", err)
@@ -61,7 +76,7 @@ func NewWebServer(cfg *config.Config) *WebServer {
 			logger.Info("✅ AI Agent Manager 初始化成功")
 		}
 	} else {
-		logger.Info("ℹ️ AI Agent 未配置（需要在 web.ai 中设置 llm_provider 和 llm_api_key）")
+		logger.Info("ℹ️ AI Agent 未配置（需要在 web.ai 中设置 llm_provider 和 llm_api_key，或在 ai 中设置 gemini_api_key）")
 	}
 
 	// 設置路由（傳入配置以便 pprof 可以讀取配置）
