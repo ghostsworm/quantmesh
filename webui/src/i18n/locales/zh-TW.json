@@ -2386,6 +2386,7 @@
   },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved.",
+    "versionInfo": "前端: {{frontend}} | 後端: {{backend}}",
     "terms": "服務條款",
     "privacy": "隱私政策",
     "disclaimerTitle": "免責聲明",
