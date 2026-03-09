@@ -24,7 +24,9 @@
     "connectionErrorDesc": "Unable to connect to server. Please check your network.",
     "unknownError": "Unknown Error",
     "loadFailed": "Load Failed",
-    "success": "Success"
+    "success": "Success",
+    "enabled": "Enabled",
+    "disabled": "Disabled"
   },
   "error": {
     "bot_symbol_conflict": "A bot for this symbol already exists. Multiple bots on the same symbol are not allowed.",
@@ -447,6 +449,8 @@
     "sharpeRatio": "Sharpe Ratio",
     "totalTrades": "Total Trades",
     "buySell": "Buy/Sell",
+    "openCloseCountDiff": "Open-Close Count Diff (Open-Close)",
+    "countQtyMismatchHint": "Buy/sell counts can differ while end position is 0. This usually happens when fill quantities vary, with partial closes, or one close offsets multiple opens (position is calculated by net quantity).",
     "endPosition": "End Position",
     "endPositionLiability": "End Owed (Base)",
     "endPositionLiabilityValue": "Position Liability Value",
