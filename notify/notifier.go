@@ -130,6 +130,10 @@ func (ns *NotificationService) shouldNotify(eventType event.EventType) bool {
 		return true // 精度异常始终通知
 	case event.EventTypeInspectorReport:
 		return rules.InspectorReport
+	case event.EventTypeTradingStarted, event.EventTypeTradingStopped:
+		return true // Bot 启动/停止始终通知
+	case event.EventTypeTradingStartFailed, event.EventTypeTradingStopFailed:
+		return true // Bot 启动/停止失败始终通知
 	default:
 		// 其他事件默认通知
 		return true
