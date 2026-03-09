@@ -98,6 +98,15 @@
     "size_mb": 1,
     "created": "2026-02-03T01:50:00.470887+08:00"
   },
+  "binance_BTCUSDT_1m_2026-02-06_2026-03-08": {
+    "symbol": "BTCUSDT",
+    "interval": "1m",
+    "start": "2026-02-06T00:00:00Z",
+    "end": "2026-03-08T00:00:00Z",
+    "candles": 44160,
+    "size_mb": 0,
+    "created": "2026-03-09T01:59:08.738059+08:00"
+  },
   "binance_BTCUSDT_1m_2026-02-28_2026-03-07": {
     "symbol": "BTCUSDT",
     "interval": "1m",
