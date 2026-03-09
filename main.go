@@ -43,7 +43,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.71.0"
+var Version = "3.71.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -3124,9 +3124,10 @@ func (a *exchangeProviderAdapter) GetPositions(ctx context.Context, symbol strin
 
 // exchangeExecutorAdapter 适配器，將 order.ExchangeOrderExecutor 轉换為 position.OrderExecutorInterface
 type exchangeExecutorAdapter struct {
-	executor *order.ExchangeOrderExecutor
-	eventBus *event.EventBus
-	symbol   string
+	executor  *order.ExchangeOrderExecutor
+	eventBus  *event.EventBus
+	symbol    string
+	exchange  string // 交易所名稱，用於 order_placed 事件入庫時正確寫入 exchange 字段
 }
 
 func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
@@ -3147,7 +3148,7 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 		return nil, err
 	}
 
-	// 发布订單下單事件
+	// 发布订單下單事件（含 exchange 供歷史訂單查詢篩選）
 	if a.eventBus != nil {
 		a.eventBus.Publish(&event.Event{
 			Type: event.EventTypeOrderPlaced,
@@ -3159,6 +3160,7 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 				"price":           ord.Price,
 				"quantity":        ord.Quantity,
 				"status":          ord.Status,
+				"exchange":        a.exchange,
 				"strategy_name":   req.StrategyName,
 				"strategy_type":   req.StrategyType,
 				"order_source":    req.OrderSource,
@@ -3242,6 +3244,7 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 					"price":           ord.Price,
 					"quantity":        ord.Quantity,
 					"status":          ord.Status,
+					"exchange":        a.exchange,
 					"strategy_name":   sName,
 					"strategy_type":   sType,
 					"order_source":    oSource,

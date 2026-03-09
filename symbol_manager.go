@@ -395,9 +395,10 @@ func startSymbolRuntime(
 		distributedLock,
 	)
 	executorAdapter := &exchangeExecutorAdapter{
-		executor: exchangeExecutor,
-		eventBus: eventBus,
-		symbol:   symCfg.Symbol,
+		executor:  exchangeExecutor,
+		eventBus:  eventBus,
+		symbol:    symCfg.Symbol,
+		exchange:  symCfg.Exchange,
 	}
 	exchangeAdapter := &positionExchangeAdapter{exchange: ex}
 
