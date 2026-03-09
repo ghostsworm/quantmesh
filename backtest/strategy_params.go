@@ -170,7 +170,8 @@ func GetGridStrategyDefinition() StrategyParamDefinition {
 		Description:  "在價格区间内按网格挂單，低買高賣。",
 		Params: []ParamField{
 			// 回测時價格區間從 K 線自動推導，不再顯示 price_low / price_high
-			{Name: "grid_spacing", Label: "網格間距", Type: "number", Required: false, Default: 200, Min: &minGap, Step: &stepPoint01, Unit: "USDT", Hint: "每檔價格差，如 200 表示每檔相差 200 USDT。不填則按格子數量均分區間"},
+			{Name: "grid_spacing", Label: "網格間距（下單間距）", Type: "number", Required: false, Default: 200, Min: &minGap, Step: &stepPoint01, Unit: "USDT", Hint: "每檔價格差（下單間距），如 200 表示每隔 200 USDT 下單。不填則按格子數量均分區間"},
+			{Name: "profit_spread", Label: "利潤間距（平倉價差）", Type: "number", Required: false, Default: 0, Min: &minZero, Step: &stepPoint01, Unit: "USDT", Hint: "買單和賣單之間的價差。不填或為 0 時等於下單間距"},
 			{Name: "grid_count", Label: "格子數量", Type: "number", Required: false, Default: 20, Min: &minZero, Hint: "最多幾檔。填了間距時表示最多 N 檔；未填間距時表示將區間均分為 N 檔"},
 			{Name: "order_quantity", Label: "單笔订單大小", Type: "number", Required: true, Default: 100, Min: &minGap, Step: &stepPoint01, Unit: "USDT"},
 			{Name: "total_capital", Label: "總投入資金", Type: "number", Required: true, Default: 10000, Min: &minGap, Unit: "USDT"},

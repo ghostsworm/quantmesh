@@ -227,6 +227,8 @@
     "priceLow": "價格下限",
     "priceHigh": "價格上限",
     "strategyType": "策略類型",
+    "gridCount": "網格數量",
+    "strategySpecificParams": "策略專屬參數",
     "goToBacktest": "前往回測",
     "goToBacktestDesc": "跳轉到全局回測頁面，已預填當前 Bot 的交易所、交易對、策略類型及參數"
   },
@@ -408,7 +410,8 @@
       "combo": "組合策略"
     },
     "paramLabels": {
-      "grid_spacing": "網格間距",
+      "grid_spacing": "網格間距（下單間距）",
+      "profit_spread": "利潤間距（平倉價差）",
       "grid_count": "格子數量",
       "order_quantity": "單筆訂單大小",
       "total_capital": "總投入資金",
@@ -425,7 +428,8 @@
       "multiplier": "加倍倍數"
     },
     "paramHints": {
-      "grid_spacing": "每檔價格差，如 200 表示每檔相差 200 USDT。不填則按格子數量均分區間",
+      "grid_spacing": "每檔價格差（下單間距），如 200 表示每隔 200 USDT 下單。不填則按格子數量均分區間",
+      "profit_spread": "買單和賣單之間的價差。不填或為 0 時等於下單間距",
       "grid_count": "最多幾檔。填了間距時表示最多 N 檔；未填間距時表示將區間均分為 N 檔",
       "fee_rate": "如 0.0004 表示 0.04%",
       "risk_volume_multiplier": "成交量超過均量的倍數觸發風控（越小越敏感）",

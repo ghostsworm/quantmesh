@@ -10,6 +10,19 @@
 
 ---
 
+## v3.65.0-rc11 - 2026年03月09日
+
+**Git Tag**: `v3.65.0-rc11`
+
+### 修復 (Fixed)
+
+- **网格参数传递到回测不完整**：Bot 详情页跳转回测时，只传了「网格间距」，缺少「利润间距」和正确的「单笔订单大小」「网格数量」。后端网格策略定义新增 `profit_spread` 参数，前端 `buildBacktestUrl` 将 bot 顶层配置（price_interval→grid_spacing、profit_spread、order_quantity、grid_count、direction）合并到各 grid 策略的 config 中
+- **趋势跟踪策略参数不可见**：Bot 详情页策略配置面板只展示网格参数，未展示趋势跟踪（fast_period、slow_period）等策略专属参数。新增策略专属参数展示区域
+- **BotBacktestPanel 缺少关键参数展示**：新增网格数量展示，新增各策略专属参数（趋势跟踪、动量等）展示区域
+- **多策略回测参数丢失**：多策略模式下，各策略的 config 可能为空（参数在 bot 顶层而非 strategy config 内），导致回测引擎使用默认值。通过 buildBacktestUrl 自动合并解决
+
+---
+
 ## v3.65.0-rc7 - 2026年03月09日
 
 **Git Tag**: `v3.65.0-rc7`
