@@ -61,7 +61,10 @@ func GetAgentManager() *AgentManager {
 // POST /api/agent/sessions
 func createSession(c *gin.Context) {
 	if agentManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "AI_AGENT_NOT_CONFIGURED",
+			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
+		})
 		return
 	}
 
@@ -119,7 +122,10 @@ func createSession(c *gin.Context) {
 // POST /api/agent/sessions/:id/messages
 func sendMessage(c *gin.Context) {
 	if agentManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "AI_AGENT_NOT_CONFIGURED",
+			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
+		})
 		return
 	}
 
@@ -213,7 +219,10 @@ func sendMessage(c *gin.Context) {
 // GET /api/agent/sessions
 func listSessions(c *gin.Context) {
 	if agentManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "AI_AGENT_NOT_CONFIGURED",
+			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
+		})
 		return
 	}
 
@@ -240,7 +249,10 @@ func listSessions(c *gin.Context) {
 // GET /api/agent/sessions/:id/history
 func getSessionHistory(c *gin.Context) {
 	if agentManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "AI_AGENT_NOT_CONFIGURED",
+			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
+		})
 		return
 	}
 
@@ -269,7 +281,10 @@ func getSessionHistory(c *gin.Context) {
 // GET /api/agent/sessions/:id/config
 func getSessionConfig(c *gin.Context) {
 	if agentManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "AI_AGENT_NOT_CONFIGURED",
+			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
+		})
 		return
 	}
 
@@ -296,7 +311,10 @@ func getSessionConfig(c *gin.Context) {
 // POST /api/agent/sessions/:id/apply
 func applyConfig(c *gin.Context) {
 	if agentManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "AI_AGENT_NOT_CONFIGURED",
+			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
+		})
 		return
 	}
 
@@ -327,7 +345,10 @@ func applyConfig(c *gin.Context) {
 // DELETE /api/agent/sessions/:id
 func deleteSession(c *gin.Context) {
 	if agentManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "AI_AGENT_NOT_CONFIGURED",
+			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
+		})
 		return
 	}
 
@@ -347,7 +368,10 @@ func deleteSession(c *gin.Context) {
 // GET /api/agent/sessions/:id/ws
 func handleAgentWebSocket(c *gin.Context) {
 	if agentManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Agent manager not initialized"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "AI_AGENT_NOT_CONFIGURED",
+			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
+		})
 		return
 	}
 
