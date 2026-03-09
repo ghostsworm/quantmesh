@@ -2791,6 +2791,18 @@ func main() {
 	logger.Info("⏱️ [啟動] 總耗時: %v", time.Since(startTime))
 	logger.Info("💡 按 Ctrl+C 退出程序")
 
+	// 发布系统启动事件
+	if eventBus != nil {
+		eventBus.Publish(&event.Event{
+			Type: event.EventTypeSystemStart,
+			Data: map[string]interface{}{
+				"startup_time":    startTime,
+				"startup_duration": time.Since(startTime).String(),
+				"version":         Version,
+			},
+		})
+	}
+
 	// 等待退出信号（SIGINT 或 SIGTERM）
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
