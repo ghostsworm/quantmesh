@@ -166,6 +166,9 @@ func (g *GormDatabase) SaveTrade(ctx context.Context, trade *Trade) error {
 func (g *GormDatabase) GetTrades(ctx context.Context, filter *TradeFilter) ([]*Trade, error) {
 	query := g.db.WithContext(ctx).Model(&Trade{})
 
+	if filter.BotID != "" {
+		query = query.Where("bot_id = ?", filter.BotID)
+	}
 	if filter.Exchange != "" {
 		query = query.Where("exchange = ?", filter.Exchange)
 	}
@@ -213,6 +216,9 @@ func (g *GormDatabase) SaveOrder(ctx context.Context, order *Order) error {
 func (g *GormDatabase) GetOrders(ctx context.Context, filter *OrderFilter) ([]*Order, error) {
 	query := g.db.WithContext(ctx).Model(&Order{})
 
+	if filter.BotID != "" {
+		query = query.Where("bot_id = ?", filter.BotID)
+	}
 	if filter.Exchange != "" {
 		query = query.Where("exchange = ?", filter.Exchange)
 	}
