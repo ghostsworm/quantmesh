@@ -99,3 +99,76 @@ func TestSQLiteStorage(t *testing.T) {
 		t.Errorf("账戶隔离失败: 期望 0, 得到 %.2f", summaryOther.TotalPnL)
 	}
 }
+
+// TestQueryOrdersWithFilterExchange 驗證按 exchange 篩選時，exchange 為空的訂單會被排除
+func TestQueryOrdersWithFilterExchange(t *testing.T) {
+	dbPath := "./test_quantmesh_exchange_filter.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now()
+	// 有 exchange 的訂單
+	orderWithEx := &Order{
+		OrderID:       111,
+		ClientOrderID: "oid_111",
+		Symbol:        "PAXGUSDT",
+		Side:          "SELL",
+		Exchange:      "binance",
+		Price:         5100,
+		Quantity:      0.01,
+		Status:        "FILLED",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	// exchange 為空的訂單（歷史遺留）
+	orderEmptyEx := &Order{
+		OrderID:       222,
+		ClientOrderID: "oid_222",
+		Symbol:        "PAXGUSDT",
+		Side:          "SELL",
+		Exchange:      "",
+		Price:         5099,
+		Quantity:      0.01,
+		Status:        "FILLED",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := st.SaveOrder(orderWithEx); err != nil {
+		t.Fatalf("保存訂單失败: %v", err)
+	}
+	if err := st.SaveOrder(orderEmptyEx); err != nil {
+		t.Fatalf("保存訂單失败: %v", err)
+	}
+
+	// 先驗證兩筆訂單都能查到（不按 exchange 篩選）
+	allOrders, _ := st.QueryOrdersWithFilter(10, 0, "FILLED", "", "PAXGUSDT", nil, nil)
+	if len(allOrders) != 2 {
+		t.Fatalf("預期 2 筆訂單，得到 %d 筆", len(allOrders))
+	}
+
+	// 按 exchange=binance 篩選，應只返回有 exchange 的訂單（exchange 為空的會被排除）
+	// 不傳時間範圍，專注驗證 exchange 篩選邏輯
+	orders, err := st.QueryOrdersWithFilter(10, 0, "FILLED", "binance", "PAXGUSDT", nil, nil)
+	if err != nil {
+		t.Fatalf("查詢訂單失败: %v", err)
+	}
+	if len(orders) != 1 || orders[0].OrderID != 111 {
+		t.Errorf("按 exchange=binance 篩選應只返回 1 筆：得到 %d 筆，order_ids=%v", len(orders), func() []int64 {
+			ids := make([]int64, len(orders))
+			for i, o := range orders {
+				ids[i] = o.OrderID
+			}
+			return ids
+		}())
+	}
+	if len(orders) > 0 && orders[0].Exchange != "binance" {
+		t.Errorf("返回訂單的 exchange 應為 binance，得到 %q", orders[0].Exchange)
+	}
+}
