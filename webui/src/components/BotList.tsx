@@ -321,9 +321,12 @@ const BotList: React.FC = () => {
                         <Text fontWeight="medium">{t('botList.totalCapital')}: ${bot.total_allocated_capital.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
                       )}
                       {/* 强平价估算（与投入资金在同一行） */}
-                      {bot.running && (() => {
+                      {(() => {
+                        if (!bot.running) {
+                          return <Text>强平价: -</Text>
+                        }
                         if (!bot.current_price || bot.current_price <= 0) {
-                          return null
+                          return <Text color="gray.400">强平价: -</Text>
                         }
                         const leverage = bot.leverage || 1
                         const maxCapitalRatio = bot.max_capital_ratio ?? 1.0
@@ -340,13 +343,16 @@ const BotList: React.FC = () => {
                           maxCapitalRatio,
                         })
 
-                        return liqEstimate?.valid && liqEstimate.liquidationPrice > 0 ? (
-                          <Tooltip label={`基于最大仓位估算：${liqEstimate.positionBtc.toFixed(4)} BTC @ ${liqEstimate.avgEntryPrice.toFixed(2)} | 杠杆: ${leverage}x | 资金占用: ${Math.round(maxCapitalRatio * 100)}%`}>
-                            <Text color="orange.500" fontWeight="medium">
-                              强平: ${liqEstimate.liquidationPrice.toFixed(2)}
-                            </Text>
-                          </Tooltip>
-                        ) : null
+                        if (liqEstimate?.valid && liqEstimate.liquidationPrice > 0) {
+                          return (
+                            <Tooltip label={`基于最大仓位估算：${liqEstimate.positionBtc.toFixed(4)} BTC @ ${liqEstimate.avgEntryPrice.toFixed(2)} | 杠杆: ${leverage}x | 资金占用: ${Math.round(maxCapitalRatio * 100)}%`}>
+                              <Text color="orange.500" fontWeight="medium">
+                                强平价: ${liqEstimate.liquidationPrice.toFixed(2)}
+                              </Text>
+                            </Tooltip>
+                          )
+                        }
+                        return <Text color="gray.400">强平价: -</Text>
                       })()}
                     </HStack>
                   </Box>
