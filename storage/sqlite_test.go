@@ -172,3 +172,72 @@ func TestQueryOrdersWithFilterExchange(t *testing.T) {
 		t.Errorf("返回訂單的 exchange 應為 binance，得到 %q", orders[0].Exchange)
 	}
 }
+
+// TestGetReconciliationCount 驗證對账歷史記錄數統計（與對账頁面卡片顯示一致）
+func TestGetReconciliationCount(t *testing.T) {
+	dbPath := "./test_recon_count.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now()
+	// 插入 3 條對账記錄
+	for i := 0; i < 3; i++ {
+		h := &ReconciliationHistory{
+			Exchange:         "binance",
+			Symbol:           "BTCUSDT",
+			Account:          "acc1",
+			ReconcileTime:    now.Add(time.Duration(i) * time.Minute),
+			LocalPosition:    0.001 * float64(i+1),
+			ExchangePosition: 0.001 * float64(i+1),
+			PositionDiff:     0,
+			ActiveBuyOrders:  0,
+			ActiveSellOrders: 0,
+			PendingSellQty:   0,
+			TotalBuyQty:      1,
+			TotalSellQty:     0.5,
+			EstimatedProfit:  10,
+			ActualProfit:     8,
+			CreatedAt:        now,
+		}
+		if err := st.SaveReconciliationHistory(h); err != nil {
+			t.Fatalf("保存對账歷史失败: %v", err)
+		}
+	}
+
+	// 按 exchange+symbol+account 查詢應返回 3
+	cnt, err := st.GetReconciliationCount("binance", "BTCUSDT", "acc1")
+	if err != nil {
+		t.Fatalf("GetReconciliationCount 失败: %v", err)
+	}
+	if cnt != 3 {
+		t.Errorf("期望 3 條記錄，得到 %d", cnt)
+	}
+
+	// 不同 account 應返回 0
+	cntOther, _ := st.GetReconciliationCount("binance", "BTCUSDT", "other_acc")
+	if cntOther != 0 {
+		t.Errorf("不同 account 應為 0，得到 %d", cntOther)
+	}
+
+	// 空 account 時兼容舊數據（匹配 account 為空或 NULL 的記錄）
+	hNoAccount := &ReconciliationHistory{
+		Exchange: "binance", Symbol: "ETHUSDT", Account: "",
+		ReconcileTime: now, LocalPosition: 0, ExchangePosition: 0, PositionDiff: 0,
+		ActiveBuyOrders: 0, ActiveSellOrders: 0, PendingSellQty: 0,
+		TotalBuyQty: 0, TotalSellQty: 0, EstimatedProfit: 0, ActualProfit: 0, CreatedAt: now,
+	}
+	if err := st.SaveReconciliationHistory(hNoAccount); err != nil {
+		t.Fatalf("保存對账歷史(無account)失败: %v", err)
+	}
+	cntEmpty, _ := st.GetReconciliationCount("binance", "ETHUSDT", "acc1")
+	if cntEmpty != 1 {
+		t.Errorf("空 account 記錄應被 acc1 查詢到(兼容)，期望 1，得到 %d", cntEmpty)
+	}
+}
