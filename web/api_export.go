@@ -66,9 +66,14 @@ func exportConfigHandler(c *gin.Context) {
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if globalConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置未初始化"})
+		return
+	}
+
+	cfg := globalConfig
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置无效"})
 		return
 	}
 
@@ -357,9 +362,9 @@ func exportLogsHandler(c *gin.Context) {
 func exportAuditLogsHandler(c *gin.Context) {
 	params := parseExportParams(c)
 	auditDir := "./data/audit"
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil && cfg.Compliance.AuditLog.Directory != "" {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil && cfg.Compliance.AuditLog.Directory != "" {
 			auditDir = cfg.Compliance.AuditLog.Directory
 		}
 	}
@@ -390,13 +395,13 @@ func exportAllHandler(c *gin.Context) {
 	auditDir := "./data/audit"
 	configContent := []byte{}
 
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			sanitized := config.SanitizeForExport(cfg)
 			configContent, _ = yaml.Marshal(sanitized)
 		}
-		if err == nil && cfg != nil && cfg.Compliance.AuditLog.Directory != "" {
+		if cfg != nil && cfg.Compliance.AuditLog.Directory != "" {
 			auditDir = cfg.Compliance.AuditLog.Directory
 		}
 	}

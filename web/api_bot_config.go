@@ -183,7 +183,7 @@ func putBotConfigFile(c *gin.Context) {
 			}
 
 			// 保存主配置
-			if err := configManager.UpdateConfig(cfg); err != nil {
+			if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 				logger.Error("同步主配置失败: %v", err)
 			}
 		}
@@ -526,7 +526,7 @@ func syncBotConfigToMain(botID string, botConfig *config.BotConfigFile) {
 	}
 
 	// 保存主配置
-	if err := configManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		logger.Error("同步主配置失败: %v", err)
 	}
 }

@@ -356,9 +356,9 @@ func getBinanceConfig() map[string]string {
 
 // getExchangeConfig 根據交易所名称獲取配置（用於历史 K 線等公开接口）
 func getExchangeConfig(exchange string) map[string]string {
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			switch exchange {
 			case "binance":
 				if exCfg, ok := cfg.Exchanges["binance"]; ok {
@@ -511,9 +511,9 @@ func postBacktestTasks(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参數錯误: %v", err)})
 		return
 	}
-	if req.Mode == backtest.TaskModeHedgeGroup && req.GroupID != "" && configManager != nil {
-		cfg, cfgErr := configManager.GetConfig()
-		if cfgErr == nil && cfg != nil {
+	if req.Mode == backtest.TaskModeHedgeGroup && req.GroupID != "" && globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			primaryBotID, primarySymbol, mergedParams, deriveErr := deriveHedgeGroupTaskDefaults(cfg, req.GroupID, req.Symbol, req.Params)
 			if deriveErr != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": deriveErr.Error()})
@@ -1022,9 +1022,9 @@ func getBacktestExchanges(c *gin.Context) {
 	configuredExchanges := make(map[string]bool)
 
 	// 從配置中讀取已配置的交易所
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			for ex := range cfg.Exchanges {
 				if ex != "" {
 					configuredExchanges[ex] = true
@@ -1078,9 +1078,9 @@ func getBacktestSymbols(c *gin.Context) {
 	configuredSymbols := make(map[string]bool)
 
 	// 從配置中讀取已配置的交易對
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			for _, sym := range cfg.Trading.Symbols {
 				symExchange := sym.Exchange
 				if symExchange == "" {
@@ -1156,9 +1156,9 @@ func getBacktestConfigParams(c *gin.Context) {
 	params := make(map[string]interface{})
 	found := false
 
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			// 查找匹配的交易對配置
 			for _, sym := range cfg.Trading.Symbols {
 				symExchange := sym.Exchange

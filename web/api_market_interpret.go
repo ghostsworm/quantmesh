@@ -188,14 +188,14 @@ func createMarketInterpret(c *gin.Context) {
 	}
 
 	// 获取 Gemini API Key
-	if configManager == nil {
+	if globalConfig == nil {
 		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+	cfg := globalConfig
+	if cfg == nil {
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
 		return
 	}
 

@@ -270,7 +270,7 @@ func postBotCreate(c *gin.Context) {
 	}
 
 	cfg.Bots = append(cfg.Bots, bc)
-	if err := configManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
@@ -410,7 +410,7 @@ func deleteBot(c *gin.Context) {
 		return
 	}
 	cfg.Bots = newBots
-	if err := configManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
@@ -680,7 +680,7 @@ func postBotGroupCreate(c *gin.Context) {
 	cfg.BotGroups = append(cfg.BotGroups, group)
 	cfg.Bots = append(cfg.Bots, bcFutures, bcSpot)
 
-	if err := configManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
@@ -757,7 +757,7 @@ func deleteBotGroup(c *gin.Context) {
 	}
 	cfg.BotGroups = newGroups
 	cfg.Bots = newBots
-	if err := configManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
@@ -901,7 +901,7 @@ func putBotStrategy(c *gin.Context) {
 		return
 	}
 
-	if err := configManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
