@@ -88,6 +88,16 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 	symCfg := config.BotConfigToSymbolConfig(botCfg)
 	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock)
 	if err != nil {
+		// 发布启动失败事件
+		bm.eventBus.Publish(&event.Event{
+			Type: event.EventTypeTradingStartFailed,
+			Data: map[string]interface{}{
+				"bot_id":   botID,
+				"exchange": botCfg.Exchange,
+				"symbol":   botCfg.Symbol,
+				"error":    err.Error(),
+			},
+		})
 		return nil, err
 	}
 	br := &BotRuntime{
@@ -97,6 +107,18 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 		EventBus: bm.eventBus,
 	}
 	bm.runtimes[botID] = br
+
+	// 发布启动成功事件
+	bm.eventBus.Publish(&event.Event{
+		Type: event.EventTypeTradingStarted,
+		Data: map[string]interface{}{
+			"bot_id":   botID,
+			"exchange": botCfg.Exchange,
+			"symbol":   botCfg.Symbol,
+			"strategy": botCfg.Strategies,
+		},
+	})
+
 	return br, nil
 }
 
@@ -106,10 +128,23 @@ func (bm *BotManager) StopBot(botID string) error {
 	if !ok {
 		return nil
 	}
+
 	if br.Inner != nil && br.Inner.Stop != nil {
 		br.Inner.Stop()
 	}
 	delete(bm.runtimes, botID)
+
+	// 发布停止事件
+	bm.eventBus.Publish(&event.Event{
+		Type: event.EventTypeTradingStopped,
+		Data: map[string]interface{}{
+			"bot_id":   botID,
+			"exchange": br.Config.Exchange,
+			"symbol":   br.Config.Symbol,
+			"strategy": br.Config.Strategies,
+		},
+	})
+
 	return nil
 }
 
