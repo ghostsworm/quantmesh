@@ -698,6 +698,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
   const [orderQuantity, setOrderQuantity] = useState<string>('')
   const [priceLow, setPriceLow] = useState<string>('')
   const [priceHigh, setPriceHigh] = useState<string>('')
+  const [direction, setDirection] = useState<string>('LONG')
   const [hasChanges, setHasChanges] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -741,6 +742,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       setOrderQuantity(cfg.order_quantity?.toString() || '')
       setPriceLow(cfg.price_low?.toString() || '')
       setPriceHigh(cfg.price_high?.toString() || '')
+      setDirection(cfg.direction || 'LONG')
     }
   }, [bot])
 
@@ -774,6 +776,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       if (orderQuantity) updateData.order_quantity = parseFloat(orderQuantity)
       if (priceLow) updateData.price_low = parseFloat(priceLow)
       if (priceHigh) updateData.price_high = parseFloat(priceHigh)
+      if (direction) updateData.direction = direction
 
       await updateBotStrategy(botId, updateData)
       toast({
@@ -806,6 +809,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       setOrderQuantity(cfg.order_quantity?.toString() || '')
       setPriceLow(cfg.price_low?.toString() || '')
       setPriceHigh(cfg.price_high?.toString() || '')
+      setDirection(cfg.direction || 'LONG')
       setHasChanges(false)
     }
   }
@@ -885,6 +889,27 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
         <CardBody>
           <Heading size="sm" mb={4}>{t('botDetail.strategy.gridParams')}</Heading>
           <VStack align="stretch" spacing={4}>
+            {/* 网格方向 */}
+            <FormControl>
+              <FormLabel>{t('botDetail.strategy.direction')}</FormLabel>
+              <Select
+                value={direction || 'LONG'}
+                onChange={(e) => {
+                  setDirection(e.target.value)
+                  setHasChanges(true)
+                }}
+              >
+                <option value="LONG">{t('botDetail.strategy.directionLong')}</option>
+                <option value="SHORT">{t('botDetail.strategy.directionShort')}</option>
+                <option value="BOTH">{t('botDetail.strategy.directionBoth')}</option>
+              </Select>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {t('botCreate.directionHint')}
+              </Text>
+            </FormControl>
+
+            <Divider />
+
             <FormControl>
               <FormLabel>{t('botDetail.strategy.priceInterval')}</FormLabel>
               <NumberInput

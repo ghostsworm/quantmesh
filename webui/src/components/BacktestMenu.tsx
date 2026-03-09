@@ -2078,6 +2078,17 @@ export default function BacktestMenu() {
                           const withRiskPos = calcEndPos(withRisk.trades, withRisk.price_curve?.end_price ?? 0, withRisk.final_capital ?? 0, direction === 'SHORT')
                           const noRiskM = noRisk.metrics
                           const withRiskM = withRisk.metrics
+                          const noRiskBuyCount = Number((noRiskM as Record<string, unknown>)?.buy_count ?? 0)
+                          const noRiskSellCount = Number((noRiskM as Record<string, unknown>)?.sell_count ?? 0)
+                          const withRiskBuyCount = Number((withRiskM as Record<string, unknown>)?.buy_count ?? 0)
+                          const withRiskSellCount = Number((withRiskM as Record<string, unknown>)?.sell_count ?? 0)
+                          const calcOpenCloseDiff = (buyCount: number, sellCount: number, shortMode: boolean) =>
+                            shortMode ? (sellCount - buyCount) : (buyCount - sellCount)
+                          const noRiskOpenCloseDiff = calcOpenCloseDiff(noRiskBuyCount, noRiskSellCount, direction === 'SHORT')
+                          const withRiskOpenCloseDiff = calcOpenCloseDiff(withRiskBuyCount, withRiskSellCount, direction === 'SHORT')
+                          const hasCountQtyMismatch =
+                            (Math.abs(noRiskPos.endPosQty) < 1e-9 && noRiskOpenCloseDiff !== 0) ||
+                            (Math.abs(withRiskPos.endPosQty) < 1e-9 && withRiskOpenCloseDiff !== 0)
                           
                           // 对比行组件
                           const compareRow = (label: string, noVal: string | number, withVal: string | number, unit?: string) => (
@@ -2111,6 +2122,7 @@ export default function BacktestMenu() {
                                     {compareRow(t('backtest.sharpeRatio'), String((noRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'), String((withRiskM as Record<string, unknown>)?.sharpe_ratio ?? '-'))}
                                     {compareRow(t('backtest.totalTrades'), String((noRiskM as Record<string, unknown>)?.total_trades ?? '-'), String((withRiskM as Record<string, unknown>)?.total_trades ?? '-'))}
                                     {compareRow(t('backtest.buySell'), `${(noRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(noRiskM as Record<string, unknown>)?.sell_count ?? '-'}`, `${(withRiskM as Record<string, unknown>)?.buy_count ?? '-'} / ${(withRiskM as Record<string, unknown>)?.sell_count ?? '-'}`)}
+                                    {compareRow(t('backtest.openCloseCountDiff'), String(noRiskOpenCloseDiff), String(withRiskOpenCloseDiff))}
                                     {compareRow(direction === 'SHORT' ? t('backtest.endPositionLiability') : t('backtest.endPosition'), direction === 'SHORT' && noRiskPos.endPosQty < 0 ? `${t('backtest.owed')} ${(-noRiskPos.endPosQty).toFixed(6)}` : noRiskPos.endPosQty.toFixed(6), direction === 'SHORT' && withRiskPos.endPosQty < 0 ? `${t('backtest.owed')} ${(-withRiskPos.endPosQty).toFixed(6)}` : withRiskPos.endPosQty.toFixed(6))}
                                     {compareRow(direction === 'SHORT' ? t('backtest.endPositionLiabilityValue') : t('backtest.endPositionValue'), (direction === 'SHORT' && noRiskPos.endPosValue < 0 ? -noRiskPos.endPosValue : noRiskPos.endPosValue).toFixed(4), (direction === 'SHORT' && withRiskPos.endPosValue < 0 ? -withRiskPos.endPosValue : withRiskPos.endPosValue).toFixed(4), ' USDT')}
                                     {compareRow(t('backtest.endUsdt'), noRiskPos.endCashUSDT.toFixed(4), withRiskPos.endCashUSDT.toFixed(4))}
@@ -2118,6 +2130,12 @@ export default function BacktestMenu() {
                                   </Tbody>
                                 </Table>
                               </Box>
+                              {hasCountQtyMismatch && (
+                                <Alert status="info" borderRadius="md" mb={4}>
+                                  <AlertIcon />
+                                  <Text fontSize="sm">{t('backtest.countQtyMismatchHint')}</Text>
+                                </Alert>
+                              )}
                               {(cm?.risk_intervention_count ?? 0) > 0 && (() => {
                                 const maxDisplay = 50
                                 const displayList = interventions.slice(0, maxDisplay)
