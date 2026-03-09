@@ -55,6 +55,12 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("迁移 orders 表失败: %w", err)
 	}
 
+	// 迁移：创建系统设置表
+	if err := migrateSystemSettingsTable(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("迁移 system_settings 表失败: %w", err)
+	}
+
 	return &SQLiteStorage{db: db}, nil
 }
 

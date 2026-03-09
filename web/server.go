@@ -400,6 +400,14 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/system/metrics/current", getCurrentSystemMetrics)
 			protected.GET("/system/metrics/daily", getDailySystemMetrics)
 
+			// 系统设置 API
+			protected.GET("/system/settings", getSystemSettings)
+			protected.GET("/system/settings/:key", getSystemSetting)
+			protected.POST("/system/settings", setSystemSetting)
+			protected.DELETE("/system/settings/:key", deleteSystemSetting)
+			protected.GET("/system/local-dev-mode", getLocalDevMode)
+			protected.POST("/system/local-dev-mode", setLocalDevMode)
+
 			// 日志API
 			protected.GET("/logs", getLogs)
 			protected.POST("/logs/clean", cleanLogs)
