@@ -85,6 +85,24 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 			botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
 	}
 
+	// 🔒 檢查數據庫中的啟停狀態（優先級高於配置文件）
+	// 如果數據庫中標記為已禁用，則跳過啟動
+	dbEnabled, reason := bm.isBotEnabledInDB(botID)
+	if !dbEnabled {
+		logger.Warn("🚫 [%s] 跳過啟動：數據庫中已禁用此 Bot（原因: %s）", botID, reason)
+		// 发布启动失败事件（因被禁用）
+		bm.eventBus.Publish(&event.Event{
+			Type: event.EventTypeTradingStartFailed,
+			Data: map[string]interface{}{
+				"bot_id":   botID,
+				"exchange": botCfg.Exchange,
+				"symbol":   botCfg.Symbol,
+				"error":    fmt.Sprintf("Bot 在數據庫中被禁用: %s", reason),
+			},
+		})
+		return nil, fmt.Errorf("bot_disabled_in_database: %s", reason)
+	}
+
 	symCfg := config.BotConfigToSymbolConfig(botCfg)
 	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock)
 	if err != nil {
@@ -134,6 +152,9 @@ func (bm *BotManager) StopBot(botID string) error {
 	}
 	delete(bm.runtimes, botID)
 
+	// 🔥 保存停止狀態到數據庫（持久化，重啟後仍然有效）
+	bm.saveBotStateToDB(botID, false, "web_ui", "用戶通過 Web UI 停止")
+
 	// 发布停止事件
 	bm.eventBus.Publish(&event.Event{
 		Type: event.EventTypeTradingStopped,
@@ -145,6 +166,17 @@ func (bm *BotManager) StopBot(botID string) error {
 		},
 	})
 
+	return nil
+}
+
+// EnableBot 啟用 Bot（從數據庫移除禁用標記）
+// 注意：這只是從數據庫移除禁用標記，不會立即啟動 Bot
+// Bot 需要通過 StartBot 方法或在配置文件中 enabled=true 才會啟動
+func (bm *BotManager) EnableBot(botID string) error {
+	// 🔥 從數據庫中刪除禁用記錄（或設置為 enabled=true）
+	bm.saveBotStateToDB(botID, true, "web_ui", "用戶通過 Web UI 啟用")
+
+	logger.Info("✅ [%s] Bot 已在數據庫中標記為啟用，可以通過 StartBot 方法啟動", botID)
 	return nil
 }
 
@@ -567,6 +599,59 @@ func (br *BotRuntime) autoResumeAfter(seconds int) {
 		} else {
 			logger.Info("ℹ️ [%s] 自动恢复定时器触发，但开仓已恢复，跳过", br.BotID)
 		}
+	}
+}
+
+// isBotEnabledInDB 检查數據庫中的 Bot 啟停狀態
+// 返回值: (是否啟用, 原因)
+// 如果數據庫中沒有記錄，默認返回 (true, "")（使用配置文件的值）
+func (bm *BotManager) isBotEnabledInDB(botID string) (bool, string) {
+	if bm.storageService == nil {
+		return true, "" // 存儲服務未啟用，使用配置文件
+	}
+
+	store := bm.storageService.GetStorage()
+	if store == nil {
+		return true, "" // 存儲未初始化，使用配置文件
+	}
+
+	state, err := store.GetBotState(botID)
+	if err != nil {
+		logger.Warn("查詢 Bot 狀態失敗: %v，使用配置文件值", err)
+		return true, ""
+	}
+
+	if state == nil {
+		// 數據庫中沒有記錄，使用配置文件的值
+		return true, ""
+	}
+
+	return state.Enabled, state.Reason
+}
+
+// saveBotStateToDB 保存 Bot 啟停狀態到數據庫
+func (bm *BotManager) saveBotStateToDB(botID string, enabled bool, updatedBy, reason string) {
+	if bm.storageService == nil {
+		return
+	}
+
+	store := bm.storageService.GetStorage()
+	if store == nil {
+		return
+	}
+
+	state := &storage.BotState{
+		BotID:     botID,
+		Enabled:   enabled,
+		UpdatedAt: time.Now(),
+		UpdatedBy: updatedBy,
+		Reason:    reason,
+	}
+
+	if err := store.SetBotState(state); err != nil {
+		logger.Error("保存 Bot 狀態失敗: %v", err)
+	} else {
+		logger.Info("✅ [%s] Bot 狀態已保存到數據庫: enabled=%v, reason=%s", botID, enabled, reason)
 	}
 }
 

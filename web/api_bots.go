@@ -53,6 +53,7 @@ type BotManagerProvider interface {
 	GetBot(botID string) (*BotDetailResponse, bool)
 	StartBot(ctx context.Context, botCfg config.BotConfig) error
 	StopBot(botID string) error
+	EnableBot(botID string) error  // 啟用 Bot（從數據庫移除禁用標記）
 }
 
 var botManagerProvider BotManagerProvider
@@ -399,6 +400,26 @@ func postBotStop(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.bot_stop_failed", err)
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
+}
+
+// postBotEnable 啟用 Bot（從數據庫移除禁用標記）
+// POST /api/bots/:id/enable
+func postBotEnable(c *gin.Context) {
+	botID := c.Param("id")
+	if botID == "" {
+		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
+		return
+	}
+	if botManagerProvider == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_unavailable")
+		return
+	}
+	if err := botManagerProvider.EnableBot(botID); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.bot_enable_failed", err)
+		return
+	}
+	logger.Info("✅ [Bot啟用] 已從數據庫移除禁用標記 %s", botID)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
 }
 

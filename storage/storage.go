@@ -135,6 +135,11 @@ type Storage interface {
 	UnprotectKlineFile(filename string) error
 	GetProtectedKlineFiles() ([]string, error)
 	IsKlineFileProtected(filename string) (bool, error)
+
+	// Bot 啟停狀態管理
+	GetBotState(botID string) (*BotState, error)
+	SetBotState(state *BotState) error
+	ListBotStates() ([]*BotState, error)
 }
 
 // storageEvent 存儲事件

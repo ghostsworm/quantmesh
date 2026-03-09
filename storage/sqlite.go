@@ -383,6 +383,9 @@ func createTables(db *sql.DB) error {
 	if err := migrateMarketInterpretTable(db); err != nil {
 		return fmt.Errorf("迁移 market_interpret_tasks 表失败: %w", err)
 	}
+	if err := migrateBotStatesTable(db); err != nil {
+		return fmt.Errorf("迁移 bot_states 表失败: %w", err)
+	}
 
 	return nil
 }
@@ -4173,4 +4176,119 @@ func (s *SQLiteStorage) IsKlineFileProtected(filename string) (bool, error) {
 		return false, fmt.Errorf("查詢文件保護狀態失败: %w", err)
 	}
 	return count > 0, nil
+}
+
+// migrateBotStatesTable 遷移 Bot 啟停狀態表
+func migrateBotStatesTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS bot_states (
+			bot_id TEXT PRIMARY KEY,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_by TEXT,
+			reason TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_bot_states_enabled ON bot_states(enabled);
+		CREATE INDEX IF NOT EXISTS idx_bot_states_updated_at ON bot_states(updated_at);
+	`)
+	return err
+}
+
+// GetBotState 獲取 Bot 啟停狀態
+func (s *SQLiteStorage) GetBotState(botID string) (*BotState, error) {
+	var state BotState
+	var enabled int
+	var updatedAt, updatedBy, reason sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT bot_id, enabled, updated_at, updated_by, reason
+		FROM bot_states
+		WHERE bot_id = ?`, botID).Scan(
+		&state.BotID, &enabled, &updatedAt, &updatedBy, &reason)
+
+	if err == sql.ErrNoRows {
+		// 數據庫中沒有記錄，返回 nil（表示使用配置文件的值）
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("查詢 bot_state 失败: %w", err)
+	}
+
+	state.Enabled = enabled == 1
+	if updatedAt.Valid {
+		if t, e := time.Parse(time.RFC3339, updatedAt.String); e == nil {
+			state.UpdatedAt = t
+		}
+	}
+	if updatedBy.Valid {
+		state.UpdatedBy = updatedBy.String
+	}
+	if reason.Valid {
+		state.Reason = reason.String
+	}
+
+	return &state, nil
+}
+
+// SetBotState 設置 Bot 啟停狀態
+func (s *SQLiteStorage) SetBotState(state *BotState) error {
+	enabled := 0
+	if state.Enabled {
+		enabled = 1
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO bot_states (bot_id, enabled, updated_at, updated_by, reason)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(bot_id) DO UPDATE SET
+			enabled = excluded.enabled,
+			updated_at = excluded.updated_at,
+			updated_by = excluded.updated_by,
+			reason = excluded.reason`,
+		state.BotID, enabled, state.UpdatedAt.Format(time.RFC3339),
+		state.UpdatedBy, state.Reason)
+
+	if err != nil {
+		return fmt.Errorf("設置 bot_state 失败: %w", err)
+	}
+	return nil
+}
+
+// ListBotStates 列出所有 Bot 狀態
+func (s *SQLiteStorage) ListBotStates() ([]*BotState, error) {
+	rows, err := s.db.Query(`
+		SELECT bot_id, enabled, updated_at, updated_by, reason
+		FROM bot_states
+		ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("查詢 bot_states 列表失败: %w", err)
+	}
+	defer rows.Close()
+
+	var states []*BotState
+	for rows.Next() {
+		var state BotState
+		var enabled int
+		var updatedAt, updatedBy, reason sql.NullString
+
+		if err := rows.Scan(&state.BotID, &enabled, &updatedAt, &updatedBy, &reason); err != nil {
+			continue
+		}
+
+		state.Enabled = enabled == 1
+		if updatedAt.Valid {
+			if t, e := time.Parse(time.RFC3339, updatedAt.String); e == nil {
+				state.UpdatedAt = t
+			}
+		}
+		if updatedBy.Valid {
+			state.UpdatedBy = updatedBy.String
+		}
+		if reason.Valid {
+			state.Reason = reason.String
+		}
+
+		states = append(states, &state)
+	}
+	return states, rows.Err()
 }
