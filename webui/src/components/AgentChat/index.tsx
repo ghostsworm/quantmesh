@@ -861,7 +861,7 @@ const ConfigPreviewCard: React.FC<{ config: any }> = ({ config }) => {
     >
       <VStack align="stretch" spacing={2}>
         <Text fontWeight="bold" fontSize="sm">
-          {t('agent.strategyConfig')}
+          策略配置
         </Text>
 
         {Object.entries(config).map(([key, value]) => (
