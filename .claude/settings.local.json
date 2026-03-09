@@ -56,7 +56,8 @@
       "Bash(yarn build:*)",
       "Bash(yarn install:*)",
       "Bash(git checkout:*)",
-      "Bash(gh workflow list:*)"
+      "Bash(gh workflow list:*)",
+      "Bash(后端: x.x.x\"\n- 更新国际化文件，移除 copyright 中的版本参数\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
