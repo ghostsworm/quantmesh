@@ -996,6 +996,10 @@ func (a *botManagerProviderAdapter) StopBot(botID string) error {
 	return a.manager.GetBotManager().StopBot(botID)
 }
 
+func (a *botManagerProviderAdapter) EnableBot(botID string) error {
+	return a.manager.GetBotManager().EnableBot(botID)
+}
+
 // GetAllBots 實現 risk.BotProvider 接口
 func (a *botManagerProviderAdapter) GetAllBots() []risk.BotController {
 	botMgr := a.manager.GetBotManager()

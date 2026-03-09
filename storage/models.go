@@ -375,3 +375,12 @@ type ProfitWithdrawRecord struct {
 	FailedReason string
 	Note         string
 }
+
+// BotState Bot 啟停狀態（數據庫存儲，優先級高於配置文件）
+type BotState struct {
+	BotID     string    // Bot ID (格式: exchange:symbol:market_type)
+	Enabled   bool      // 是否啟用
+	UpdatedAt time.Time // 最後更新時間
+	UpdatedBy string    // 更新來源: web_ui, api, system
+	Reason    string    // 停用原因（可選）
+}

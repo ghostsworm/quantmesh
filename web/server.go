@@ -166,6 +166,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.DELETE("/bots/:id", deleteBot)
 			protected.POST("/bots/:id/start", postBotStart)
 			protected.POST("/bots/:id/stop", postBotStop)
+			protected.POST("/bots/:id/enable", postBotEnable)
 			protected.PUT("/bots/:id/strategy", putBotStrategy)
 
 			// Bot 配置文件 API（独立配置文件系统）
