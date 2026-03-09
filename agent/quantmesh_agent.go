@@ -80,7 +80,21 @@ func NewQuantMeshAgent(config AgentConfig) (*QuantMeshAgent, error) {
 		tools.NewSuggestParametersTool(nil),
 	}
 
+	// 注册数据访问工具
+	dataTools := []tools.Tool{
+		tools.NewGetOrdersTool(),
+		tools.NewGetPositionsTool(),
+		tools.NewGetMarketTickerTool(),
+		tools.NewGetBotStatusTool(),
+	}
+
 	for _, tool := range coreTools {
+		if err := toolRegistry.Register(tool); err != nil {
+			logger.Warn("Failed to register tool %s: %v", tool.Name(), err)
+		}
+	}
+
+	for _, tool := range dataTools {
 		if err := toolRegistry.Register(tool); err != nil {
 			logger.Warn("Failed to register tool %s: %v", tool.Name(), err)
 		}
