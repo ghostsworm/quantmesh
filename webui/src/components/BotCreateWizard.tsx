@@ -8,8 +8,6 @@ import {
   FormLabel,
   Heading,
   Input,
-  NumberInput,
-  NumberInputField,
   Select,
   Stepper,
   Step,
@@ -41,6 +39,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { getConfig, type Config, type ExchangeConfig } from '../services/config'
 import { getExchangeSymbols } from '../services/setup'
 import { getExchanges, getBots, createBot, createBotGroup, getMarketTicker } from '../services/api'
+import DecimalNumberInput from './DecimalNumberInput'
 import StrategyTypeSelector, { type StrategyTypeCategory } from './bot-create/StrategyTypeSelector'
 import StrategyPicker from './bot-create/StrategyPicker'
 import StrategyParamForm from './bot-create/StrategyParamForm'
@@ -72,14 +71,14 @@ const BotCreateWizard: React.FC = () => {
     symbol: string
     market_type: 'spot' | 'futures'
     name: string
-    price_interval: number
-    order_quantity: number
-    buy_window_size: number
-    sell_window_size: number
+    price_interval: number | string
+    order_quantity: number | string
+    buy_window_size: number | string
+    sell_window_size: number | string
     direction: string
     enable_risk_control?: boolean
-    stop_loss_ratio?: number
-    take_profit_trigger_ratio?: number
+    stop_loss_ratio?: number | string
+    take_profit_trigger_ratio?: number | string
     enable_trend_filter?: boolean
   }>({
     exchange: 'binance',
@@ -234,6 +233,20 @@ const BotCreateWizard: React.FC = () => {
     return []
   }
 
+  const normalizeConfigForApi = (cfg: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(cfg)) {
+      if (typeof v === 'string' && v !== '' && !Number.isNaN(parseFloat(v))) {
+        out[k] = parseFloat(v)
+      } else if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+        out[k] = normalizeConfigForApi(v as Record<string, unknown>)
+      } else {
+        out[k] = v
+      }
+    }
+    return out
+  }
+
   const buildStrategies = () => {
     const ids = getStrategyIds()
     if (ids.length === 0) return [{ type: 'grid', weight: 1.0, config: {} }]
@@ -242,13 +255,13 @@ const BotCreateWizard: React.FC = () => {
       return ids.map((id) => ({
         type: id,
         weight: (comboWeights[id] ?? 1 / ids.length) / total,
-        config: strategyParams[id] || {},
+        config: normalizeConfigForApi((strategyParams[id] || {}) as Record<string, unknown>),
       }))
     }
     return ids.map((id) => ({
       type: id,
       weight: 1 / ids.length,
-      config: strategyParams[id] || {},
+      config: normalizeConfigForApi((strategyParams[id] || {}) as Record<string, unknown>),
     }))
   }
 
@@ -259,21 +272,27 @@ const BotCreateWizard: React.FC = () => {
     }
     setSaving(true)
     try {
+      const toNum = (v: number | string | undefined, def: number) => {
+        if (typeof v === 'number' && !Number.isNaN(v)) return v
+        if (v == null || v === '') return def
+        const n = parseFloat(String(v))
+        return Number.isNaN(n) ? def : n
+      }
       const baseReq = {
         exchange: form.exchange,
         symbol: form.symbol,
         market_type: form.market_type,
         name: form.name?.trim() || undefined,
-        price_interval: form.price_interval ?? 2,
-        order_quantity: form.order_quantity ?? 30,
-        buy_window_size: form.buy_window_size ?? 10,
-        sell_window_size: form.sell_window_size ?? 10,
+        price_interval: toNum(form.price_interval, 2),
+        order_quantity: toNum(form.order_quantity, 30),
+        buy_window_size: toNum(form.buy_window_size, 10),
+        sell_window_size: toNum(form.sell_window_size, 10),
         direction: form.direction || 'LONG',
         strategies: buildStrategies(),
         // 网格风控配置
         grid_risk_control_enabled: form.enable_risk_control,
-        grid_risk_control_stop_loss_ratio: form.enable_risk_control ? form.stop_loss_ratio : undefined,
-        grid_risk_control_take_profit_trigger_ratio: form.enable_risk_control ? form.take_profit_trigger_ratio : undefined,
+        grid_risk_control_stop_loss_ratio: form.enable_risk_control ? toNum(form.stop_loss_ratio, 0.2) : undefined,
+        grid_risk_control_take_profit_trigger_ratio: form.enable_risk_control ? toNum(form.take_profit_trigger_ratio, 0.08) : undefined,
         grid_risk_control_trend_filter_enabled: form.enable_risk_control ? form.enable_trend_filter : undefined,
       }
 
@@ -477,50 +496,43 @@ const BotCreateWizard: React.FC = () => {
               />
               <FormControl>
                 <FormLabel>{t('botCreate.priceInterval')}</FormLabel>
-                <NumberInput
+                <DecimalNumberInput
                   value={form.price_interval ?? 2}
                   min={0.01}
                   step={0.1}
-                  onChange={(_, v) => setForm((f) => ({ ...f, price_interval: v }))}
-                >
-                  <NumberInputField />
-                </NumberInput>
+                  precision={4}
+                  onChange={(v) => setForm((f) => ({ ...f, price_interval: v ?? 2 }))}
+                />
               </FormControl>
               <FormControl>
                 <FormLabel>{t('botCreate.orderQuantity')}</FormLabel>
-                <NumberInput
+                <DecimalNumberInput
                   value={form.order_quantity ?? 30}
                   min={0.01}
                   step={0.01}
                   precision={2}
-                  onChange={(_, v) => setForm((f) => ({ ...f, order_quantity: v }))}
-                >
-                  <NumberInputField />
-                </NumberInput>
+                  onChange={(v) => setForm((f) => ({ ...f, order_quantity: v ?? 30 }))}
+                />
               </FormControl>
               <FormControl>
                 <FormLabel>{t('botCreate.buyWindowSize')}</FormLabel>
-                <NumberInput
+                <DecimalNumberInput
                   value={form.buy_window_size ?? 10}
                   min={0.01}
                   step={0.01}
                   precision={2}
-                  onChange={(_, v) => setForm((f) => ({ ...f, buy_window_size: v }))}
-                >
-                  <NumberInputField />
-                </NumberInput>
+                  onChange={(v) => setForm((f) => ({ ...f, buy_window_size: v ?? 10 }))}
+                />
               </FormControl>
               <FormControl>
                 <FormLabel>{t('botCreate.sellWindowSize')}</FormLabel>
-                <NumberInput
+                <DecimalNumberInput
                   value={form.sell_window_size ?? 10}
                   min={0.01}
                   step={0.01}
                   precision={2}
-                  onChange={(_, v) => setForm((f) => ({ ...f, sell_window_size: v }))}
-                >
-                  <NumberInputField />
-                </NumberInput>
+                  onChange={(v) => setForm((f) => ({ ...f, sell_window_size: v ?? 10 }))}
+                />
               </FormControl>
 
               <Divider my={2} />
@@ -559,16 +571,14 @@ const BotCreateWizard: React.FC = () => {
                 <>
                   <FormControl>
                     <FormLabel>{t('botCreate.stopLossRatio')}</FormLabel>
-                    <NumberInput
+                    <DecimalNumberInput
                       value={form.stop_loss_ratio ?? 0.2}
                       min={0}
                       max={1}
                       step={0.01}
                       precision={2}
-                      onChange={(_, v) => setForm((f) => ({ ...f, stop_loss_ratio: v }))}
-                    >
-                      <NumberInputField />
-                    </NumberInput>
+                      onChange={(v) => setForm((f) => ({ ...f, stop_loss_ratio: v ?? 0.2 }))}
+                    />
                     <Text fontSize="xs" color="gray.500" mt={1}>
                       {t('botCreate.stopLossRatioHint')}
                     </Text>
@@ -576,16 +586,14 @@ const BotCreateWizard: React.FC = () => {
 
                   <FormControl>
                     <FormLabel>{t('botCreate.takeProfitTriggerRatio')}</FormLabel>
-                    <NumberInput
+                    <DecimalNumberInput
                       value={form.take_profit_trigger_ratio ?? 0.08}
                       min={0}
                       max={1}
                       step={0.01}
                       precision={2}
-                      onChange={(_, v) => setForm((f) => ({ ...f, take_profit_trigger_ratio: v }))}
-                    >
-                      <NumberInputField />
-                    </NumberInput>
+                      onChange={(v) => setForm((f) => ({ ...f, take_profit_trigger_ratio: v ?? 0.08 }))}
+                    />
                     <Text fontSize="xs" color="gray.500" mt={1}>
                       {t('botCreate.takeProfitTriggerRatioHint')}
                     </Text>

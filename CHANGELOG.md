@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.67.0-rc1] - 2026-03-09
+
+### Fixed
+- **創建 Bot 頁價格/數量等無法輸入小數**：bots/create 頁面的價格間隔、訂單數量、買賣窗口、止損比例、止盈觸發比例等欄位改用 DecimalNumberInput，修復 Chakra NumberInput 輸入 "3." 時小數點丟失的問題；StrategyParamForm 策略參數的 number 類型同樣改用 DecimalNumberInput
+
 ## [3.65.0-rc10] - 2026-03-09
 
 ### Added

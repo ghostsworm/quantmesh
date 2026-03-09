@@ -4,13 +4,12 @@ import {
   FormControl,
   FormLabel,
   Input,
-  NumberInput,
-  NumberInputField,
   Select,
   Switch,
   VStack,
   Spinner,
 } from '@chakra-ui/react'
+import DecimalNumberInput from '../DecimalNumberInput'
 import { useTranslation } from 'react-i18next'
 import { getStrategyDetail } from '../../services/strategy'
 
@@ -108,14 +107,12 @@ const StrategyParamForm: React.FC<StrategyParamFormProps> = ({ strategyIds, valu
                   <FormControl key={key}>
                     <FormLabel fontSize="sm">{t(`botCreate.strategyParams.${p.name}`, { defaultValue: p.name })}</FormLabel>
                     {p.type === 'number' && (
-                      <NumberInput
-                        value={Number(current) ?? 0}
+                      <DecimalNumberInput
+                        value={current !== undefined && current !== null ? current : (p.default ?? 0)}
                         min={p.min}
                         max={p.max}
-                        onChange={(_, v) => updateParam(sid, p.name, v)}
-                      >
-                        <NumberInputField />
-                      </NumberInput>
+                        onChange={(v) => updateParam(sid, p.name, v)}
+                      />
                     )}
                     {p.type === 'boolean' && (
                       <Switch
