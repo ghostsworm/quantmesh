@@ -106,6 +106,28 @@ type CreateBotRequest struct {
 	GridShiftEnabled      bool                       `json:"grid_shift_enabled"`
 	GridShiftStep         float64                    `json:"grid_shift_step"`
 	CloseOnStop           bool                       `json:"close_on_stop"`
+	// 網格風控配置（創建時填寫，建好後在 Bot 詳情可見）
+	GridRiskControlEnabled          bool    `json:"grid_risk_control_enabled"`
+	GridRiskControlStopLossRatio    float64 `json:"grid_risk_control_stop_loss_ratio"`
+	GridRiskControlTakeProfitRatio  float64 `json:"grid_risk_control_take_profit_trigger_ratio"`
+	GridRiskControlTrailingRatio    float64 `json:"grid_risk_control_trailing_take_profit_ratio"`
+	GridRiskControlTrendFilter      bool    `json:"grid_risk_control_trend_filter_enabled"`
+	GridRiskControlMaxGridLayers    int     `json:"grid_risk_control_max_grid_layers"`
+	GridRiskControlMaxOpenOrdersCap int     `json:"grid_risk_control_max_open_orders_at_cap"`
+}
+
+// buildGridRiskControlFromRequest 從創建請求構建 GridRiskControl
+func buildGridRiskControlFromRequest(req CreateBotRequest) config.GridRiskControl {
+	grc := config.GridRiskControl{
+		Enabled:                 req.GridRiskControlEnabled,
+		StopLossRatio:           req.GridRiskControlStopLossRatio,
+		TakeProfitTriggerRatio:  req.GridRiskControlTakeProfitRatio,
+		TrailingTakeProfitRatio: req.GridRiskControlTrailingRatio,
+		TrendFilterEnabled:      req.GridRiskControlTrendFilter,
+		MaxGridLayers:           req.GridRiskControlMaxGridLayers,
+		MaxOpenOrdersAtCap:      req.GridRiskControlMaxOpenOrdersCap,
+	}
+	return grc
 }
 
 // postBotCreate 創建 Bot
@@ -219,6 +241,7 @@ func postBotCreate(c *gin.Context) {
 		GridShiftEnabled:      req.GridShiftEnabled,
 		GridShiftStep:         req.GridShiftStep,
 		CloseOnStop:           req.CloseOnStop,
+		GridRiskControl:       buildGridRiskControlFromRequest(req),
 	}
 	if bc.ReconcileInterval <= 0 {
 		bc.ReconcileInterval = 60
@@ -578,6 +601,7 @@ func postBotGroupCreate(c *gin.Context) {
 		GridShiftEnabled:      req.FuturesBot.GridShiftEnabled,
 		GridShiftStep:         req.FuturesBot.GridShiftStep,
 		CloseOnStop:           req.FuturesBot.CloseOnStop,
+		GridRiskControl:       buildGridRiskControlFromRequest(req.FuturesBot),
 	}
 	if len(bcFutures.Strategies) == 0 {
 		bcFutures.Strategies = []config.StrategyInstance{{Type: "grid", Weight: 1.0, Config: map[string]interface{}{}}}
@@ -613,6 +637,7 @@ func postBotGroupCreate(c *gin.Context) {
 		GridShiftEnabled:      req.SpotBot.GridShiftEnabled,
 		GridShiftStep:         req.SpotBot.GridShiftStep,
 		CloseOnStop:           req.SpotBot.CloseOnStop,
+		GridRiskControl:       buildGridRiskControlFromRequest(req.SpotBot),
 	}
 	if len(bcSpot.Strategies) == 0 {
 		bcSpot.Strategies = []config.StrategyInstance{{Type: "grid", Weight: 1.0, Config: map[string]interface{}{}}}

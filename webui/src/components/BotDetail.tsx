@@ -1079,7 +1079,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                   {(() => {
                     const cfg = bot?.config as any
                     const enabled = cfg?.grid_risk_control?.trend_filter_enabled || false
-                    return enabled ? t('common.enabled') : t('common.disabled')
+                    return enabled ? t('common.enabled', { defaultValue: '启用' }) : t('common.disabled', { defaultValue: '禁用' })
                   })()}
                 </Badge>
               </Box>
@@ -1164,7 +1164,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                   {(() => {
                     const cfg = bot?.config as any
                     const enabled = cfg?.grid_risk_control?.enabled || false
-                    return enabled ? t('common.enabled') : t('common.disabled')
+                    return enabled ? t('common.enabled', { defaultValue: '启用' }) : t('common.disabled', { defaultValue: '禁用' })
                   })()}
                 </Badge>
               </Box>
