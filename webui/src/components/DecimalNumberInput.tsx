@@ -24,7 +24,8 @@ export interface DecimalNumberInputProps extends Omit<NumberInputProps, 'onChang
   placeholder?: string
 }
 
-function parseDecimalValue(
+/** 解析小数输入，保留 "3." 等中间态字符串，供单元测试使用 */
+export function parseDecimalValue(
   valueAsString: string,
   valueAsNumber: number
 ): number | string | undefined {
