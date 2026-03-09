@@ -2911,7 +2911,7 @@
     "stoppedBotNoPosition": "停止交易的 Bot，没有仓位"
   },
   "footer": {
-    "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved. v{{version}}",
+    "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved.",
     "terms": "服务条款",
     "privacy": "隐私政策",
     "disclaimerTitle": "免责声明",

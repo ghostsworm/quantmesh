@@ -2908,7 +2908,7 @@
     "stoppedBotNoPosition": "Stopped bot has no position"
   },
   "footer": {
-    "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved. v{{version}}",
+    "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved.",
     "terms": "Terms of Service",
     "privacy": "Privacy Policy",
     "disclaimerTitle": "Disclaimer",
