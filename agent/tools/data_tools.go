@@ -22,6 +22,7 @@ type DataProvider interface {
 
 // OrderFilter 订单过滤器
 type OrderFilter struct {
+	BotID    string
 	Exchange string
 	Symbol   string
 	Status   string
@@ -33,6 +34,7 @@ type OrderFilter struct {
 // Order 订单数据
 type Order struct {
 	OrderID       int64
+	BotID         string
 	ClientOrderID string
 	Symbol        string
 	Side          string
@@ -107,9 +109,14 @@ func NewGetOrdersTool() *GetOrdersTool {
 	return &GetOrdersTool{
 		BaseTool: BaseTool{
 			name:        "get_orders",
-			description: "获取订单历史数据，支持按交易所、交易对、状态等筛选",
+			description: "获取订单历史数据，支持按 Bot ID、交易所、交易对、状态等筛选",
 			category:    CategoryMarket,
 			schema: CreateParameterSchema(map[string]SchemaProperty{
+				"bot_id": {
+					Type:        "string",
+					Description: "Bot ID（可选，不提供则查询所有 Bot 的订单）",
+					Required:    false,
+				},
 				"exchange": {
 					Type:        "string",
 					Description: "交易所名称（如 binance, okx）",
@@ -152,6 +159,7 @@ func (t *GetOrdersTool) Execute(ctx context.Context, params map[string]interface
 		}, nil
 	}
 
+	botID, _ := params["bot_id"].(string)
 	exchange, _ := params["exchange"].(string)
 	symbol, _ := params["symbol"].(string)
 	status, _ := params["status"].(string)
@@ -165,7 +173,8 @@ func (t *GetOrdersTool) Execute(ctx context.Context, params map[string]interface
 		offset = int64(o)
 	}
 
-	filter := &storage.OrderFilter{
+	filter := &OrderFilter{
+		BotID:    botID,
 		Exchange: exchange,
 		Symbol:   symbol,
 		Status:   status,
@@ -185,21 +194,22 @@ func (t *GetOrdersTool) Execute(ctx context.Context, params map[string]interface
 	orderList := make([]map[string]interface{}, 0, len(orders))
 	for _, o := range orders {
 		orderList = append(orderList, map[string]interface{}{
-			"order_id":       o.OrderID,
+			"bot_id":          o.BotID,
+			"order_id":        o.OrderID,
 			"client_order_id": o.ClientOrderID,
-			"symbol":         o.Symbol,
-			"exchange":       o.Exchange,
-			"side":           o.Side,
-			"type":           o.Type,
-			"price":          o.Price,
-			"quantity":       o.Quantity,
-			"filled_qty":     o.FilledQty,
-			"status":         o.Status,
-			"realized_pnl":   o.RealizedPnL,
-			"strategy_name":  o.StrategyName,
-			"strategy_type":  o.StrategyType,
-			"order_source":   o.OrderSource,
-			"created_at":     o.CreatedAt.Format(time.RFC3339),
+			"symbol":          o.Symbol,
+			"exchange":        o.Exchange,
+			"side":            o.Side,
+			"type":            o.Type,
+			"price":           o.Price,
+			"quantity":        o.Quantity,
+			"filled_qty":      o.FilledQty,
+			"status":          o.Status,
+			"realized_pnl":    o.RealizedPnL,
+			"strategy_name":   o.StrategyName,
+			"strategy_type":   o.StrategyType,
+			"order_source":    o.OrderSource,
+			"created_at":      o.CreatedAt.Format(time.RFC3339),
 		})
 	}
 
@@ -208,6 +218,7 @@ func (t *GetOrdersTool) Execute(ctx context.Context, params map[string]interface
 			"orders": orderList,
 			"count":  len(orderList),
 			"filter": map[string]interface{}{
+				"bot_id":   botID,
 				"exchange": exchange,
 				"symbol":   symbol,
 				"status":   status,

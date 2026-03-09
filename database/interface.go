@@ -72,6 +72,7 @@ type Tx interface {
 // Trade 交易記錄
 type Trade struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	BotID     string    `gorm:"index:idx_bot_id;size:100" json:"bot_id"` // 关联的 Bot ID
 	Exchange  string    `gorm:"index:idx_exchange_symbol_time;size:50" json:"exchange"`
 	Symbol    string    `gorm:"index:idx_exchange_symbol_time;size:50" json:"symbol"`
 	OrderID   int64     `gorm:"index" json:"order_id"`
@@ -88,6 +89,7 @@ type Trade struct {
 // Order 订單記錄
 type Order struct {
 	ID            int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	BotID         string    `gorm:"index:idx_bot_id;size:100" json:"bot_id"` // 关联的 Bot ID
 	Exchange      string    `gorm:"index:idx_exchange_symbol;size:50" json:"exchange"`
 	Symbol        string    `gorm:"index:idx_exchange_symbol;size:50" json:"symbol"`
 	OrderID       int64     `gorm:"uniqueIndex" json:"order_id"`
@@ -229,6 +231,7 @@ type EventStats struct {
 
 // TradeFilter 交易記錄過滤器
 type TradeFilter struct {
+	BotID     string // Bot ID 筛选
 	Exchange  string
 	Symbol    string
 	StartTime *time.Time
@@ -239,6 +242,7 @@ type TradeFilter struct {
 
 // OrderFilter 订單記錄過滤器
 type OrderFilter struct {
+	BotID    string // Bot ID 筛选
 	Exchange string
 	Symbol   string
 	Status   string
