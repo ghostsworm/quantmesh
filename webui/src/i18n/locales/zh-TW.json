@@ -105,6 +105,8 @@
     "stop": "停止",
     "startSuccess": "Bot 已啟動",
     "startFailed": "啟動 Bot 失敗",
+    "starting": "Bot 正在啟動…",
+    "startPending": "啟動可能需要較長時間，請刷新列表查看",
     "stopSuccess": "Bot 已停止",
     "stopFailed": "停止 Bot 失敗",
     "viewDetail": "查看詳情",

@@ -98,6 +98,8 @@
     "stop": "Arrêter",
     "startSuccess": "Bot démarré",
     "startFailed": "Échec du démarrage",
+    "starting": "Démarrage du bot…",
+    "startPending": "Le démarrage peut prendre du temps, actualisez la liste",
     "stopSuccess": "Bot arrêté",
     "stopFailed": "Échec de l'arrêt",
     "viewDetail": "Détails",

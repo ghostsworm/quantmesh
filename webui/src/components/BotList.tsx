@@ -27,7 +27,7 @@ import {
 import { AddIcon, ChevronRightIcon, RepeatIcon, DeleteIcon, TimeIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
-import { getBots, getBotGroups, startBot, stopBot, deleteBot, BotInfo } from '../services/api'
+import { getBots, getBotGroups, startBot, stopBot, deleteBot, pollBotUntilRunning, BotInfo } from '../services/api'
 import type { BotGroupResponse } from '../services/api'
 import BotBacktestDialog from './BotBacktestDialog'
 import { computeLiquidationPrice } from './ParamAdvisor'
@@ -94,8 +94,18 @@ const BotList: React.FC = () => {
   const handleStart = async (botId: string) => {
     setActionBotId(botId)
     try {
-      await startBot(botId)
-      toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
+      const res = await startBot(botId)
+      if (res.status === 'starting') {
+        toast({ title: t('botList.starting'), status: 'info', duration: 3000 })
+        const running = await pollBotUntilRunning(botId)
+        if (running) {
+          toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
+        } else {
+          toast({ title: t('botList.startPending'), status: 'warning', duration: 4000 })
+        }
+      } else {
+        toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
+      }
       fetchBots()
     } catch (err) {
       const e = err as Error & { errorKey?: string; groupName?: string }

@@ -98,6 +98,8 @@
     "stop": "중지",
     "startSuccess": "봇 시작됨",
     "startFailed": "시작 실패",
+    "starting": "봇 시작 중…",
+    "startPending": "시작에 시간이 걸릴 수 있습니다. 목록을 새로고침하여 확인하세요",
     "stopSuccess": "봇 중지됨",
     "stopFailed": "중지 실패",
     "viewDetail": "상세 보기",

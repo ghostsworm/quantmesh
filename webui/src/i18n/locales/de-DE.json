@@ -98,6 +98,8 @@
     "stop": "Stoppen",
     "startSuccess": "Bot gestartet",
     "startFailed": "Bot konnte nicht gestartet werden",
+    "starting": "Bot wird gestartet…",
+    "startPending": "Start kann etwas dauern, bitte Liste aktualisieren",
     "stopSuccess": "Bot gestoppt",
     "stopFailed": "Bot konnte nicht gestoppt werden",
     "viewDetail": "Details anzeigen",
