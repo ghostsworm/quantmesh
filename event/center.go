@@ -366,7 +366,7 @@ func (ec *EventCenter) shouldNotify(eventType EventType, severity EventSeverity)
 	if severity == SeverityCritical {
 		return true
 	}
-	
+
 	// Warning 级别的某些重要事件需要通知
 	if severity == SeverityWarning {
 		switch eventType {
@@ -374,8 +374,17 @@ func (ec *EventCenter) shouldNotify(eventType EventType, severity EventSeverity)
 			return true
 		}
 	}
-	
-	// Info 级别的事件通常不通知（除非在通知配置中明确啟用）
+
+	// Info 级别的事件中，以下事件需要通知（Bot 启动/停止等重要状态变化）
+	if severity == SeverityInfo {
+		switch eventType {
+		case EventTypeTradingStarted, EventTypeTradingStopped, // Bot 启动/停止
+			EventTypeSystemStart, EventTypeSystemStop: // 系统启动/停止
+			return true
+		}
+	}
+
+	// 其他 Info 级别的事件通常不通知（除非在通知配置中明确啟用）
 	return false
 }
 

@@ -63,9 +63,9 @@ exchanges:
 	}
 
 	// 初始化配置管理器
-	configManager := NewConfigManager(testConfigPath)
-	configManager.UpdateConfig(testConfig)
-	SetConfigManager(configManager)
+	fileConfigMgr := NewFileConfigManager(testConfigPath)
+	fileConfigMgr.UpdateConfig(testConfig)
+	SetFileConfigManager(fileConfigMgr)
 
 	// 初始化备份管理器
 	backupMgr := config.NewBackupManager(testConfigPath)
@@ -227,11 +227,11 @@ func TestGetBackups(t *testing.T) {
 	// 先創建一個备份
 	configManager := configManager
 	if configManager != nil {
-		cfg, _ := configManager.GetConfig()
+		cfg, _ := fileConfigManager.GetConfig()
 		if cfg != nil {
 			backupMgr := configBackupMgr
 			if backupMgr != nil {
-				backupMgr.CreateBackup(configManager.GetConfigPath(), "测試备份")
+				backupMgr.CreateBackup(fileConfigManager.GetConfigPath(), "测試备份")
 			}
 		}
 	}

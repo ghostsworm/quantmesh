@@ -32,9 +32,14 @@ func getNewbieRiskCheck(c *gin.Context) {
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败: " + err.Error()})
+	if globalConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置未初始化"})
+		return
+	}
+
+	cfg := globalConfig
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败"})
 		return
 	}
 
@@ -220,9 +225,14 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取當前配置失败: " + err.Error()})
+	if globalConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置未初始化"})
+		return
+	}
+
+	cfg := globalConfig
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取當前配置失败"})
 		return
 	}
 
@@ -281,14 +291,18 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 	}
 
 	// 保存配置
-	if err := configManager.UpdateConfig(&newConfig); err != nil {
+	if err := fileConfigManager.UpdateConfig(&newConfig); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存加固配置失败: " + err.Error()})
 		return
 	}
 
 	// 保存到历史
 	if configHistoryMgr != nil {
-		currentContent, err := os.ReadFile(configManager.GetConfigPath())
+		configPath := "config.yaml" // 默认配置文件路径
+		if fileConfigManager != nil {
+			configPath = fileConfigManager.GetConfigPath()
+		}
+		currentContent, err := os.ReadFile(configPath)
 		if err == nil {
 			description := "通過 Web UI 執行新手安全加固"
 			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")

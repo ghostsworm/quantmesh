@@ -1,11 +1,14 @@
 package notify
 
 import (
+	"context"
 	"sync"
 
+	"quantmesh/cfgmgr"
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/logger"
+	"quantmesh/storage"
 )
 
 // Notifier 通知接口
@@ -18,12 +21,18 @@ type Notifier interface {
 type NotificationService struct {
 	notifiers []Notifier
 	cfg       *config.Config
+	configMgr *cfgmgr.ConfigManager
+	ctx       context.Context
+	mu        sync.RWMutex
 }
 
 // NewNotificationService 創建通知服務
-func NewNotificationService(cfg *config.Config) *NotificationService {
+func NewNotificationService(cfg *config.Config, configMgr *cfgmgr.ConfigManager) *NotificationService {
+	ctx := context.Background()
 	ns := &NotificationService{
-		cfg: cfg,
+		cfg:       cfg,
+		configMgr: configMgr,
+		ctx:       ctx,
 	}
 
 	// 初始化啟用的通知渠道
@@ -104,40 +113,82 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 
 // shouldNotify 检查是否需要通知
 func (ns *NotificationService) shouldNotify(eventType event.EventType) bool {
-	if !ns.cfg.Notifications.Enabled {
+	// 从配置管理器获取通知开关
+	enabled := true
+	if ns.configMgr != nil {
+		enabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.enabled")
+	}
+
+	if !enabled {
 		return false
 	}
 
-	rules := ns.cfg.Notifications.Rules
-	switch eventType {
-	case event.EventTypeOrderPlaced:
-		return rules.OrderPlaced
-	case event.EventTypeOrderFilled:
-		return rules.OrderFilled
-	case event.EventTypeRiskTriggered:
-		return rules.RiskTriggered
-	case event.EventTypeStopLoss:
-		return rules.StopLoss
-	case event.EventTypeError:
-		return rules.Error
-	case event.EventTypeMarginInsufficient:
-		return rules.MarginInsufficient
-	case event.EventTypeAllocationExceeded:
-		return rules.AllocationExceeded
-	case event.EventTypeAllocationLimitChanged:
-		return rules.AllocationExceeded // 使用相同的通知规则
-	case event.EventTypePrecisionAdjustment:
-		return true // 精度异常始终通知
-	case event.EventTypeInspectorReport:
-		return rules.InspectorReport
-	case event.EventTypeTradingStarted, event.EventTypeTradingStopped:
-		return true // Bot 启动/停止始终通知
-	case event.EventTypeTradingStartFailed, event.EventTypeTradingStopFailed:
-		return true // Bot 启动/停止失败始终通知
-	default:
-		// 其他事件默认通知
-		return true
+	// 从配置管理器获取通知规则
+	var ruleEnabled bool
+	if ns.configMgr != nil {
+		switch eventType {
+		case event.EventTypeOrderPlaced:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.order_placed")
+		case event.EventTypeOrderFilled:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.order_filled")
+		case event.EventTypeRiskTriggered:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.risk_triggered")
+		case event.EventTypeStopLoss:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.stop_loss")
+		case event.EventTypeError:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.error")
+		case event.EventTypeMarginInsufficient:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.margin_insufficient")
+		case event.EventTypeAllocationExceeded:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.allocation_exceeded")
+		case event.EventTypeAllocationLimitChanged:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.allocation_exceeded")
+		case event.EventTypePrecisionAdjustment:
+			return true // 精度异常始终通知
+		case event.EventTypeInspectorReport:
+			ruleEnabled = ns.configMgr.GetBool(storage.ScopeGlobal, "", "notifications.rules.inspector_report")
+		case event.EventTypeTradingStarted, event.EventTypeTradingStopped:
+			return true // Bot 启动/停止始终通知
+		case event.EventTypeTradingStartFailed, event.EventTypeTradingStopFailed:
+			return true // Bot 启动/停止失败始终通知
+		default:
+			// 其他事件默认通知
+			return true
+		}
+	} else {
+		// 如果没有配置管理器，使用配置文件的值
+		rules := ns.cfg.Notifications.Rules
+		switch eventType {
+		case event.EventTypeOrderPlaced:
+			ruleEnabled = rules.OrderPlaced
+		case event.EventTypeOrderFilled:
+			ruleEnabled = rules.OrderFilled
+		case event.EventTypeRiskTriggered:
+			ruleEnabled = rules.RiskTriggered
+		case event.EventTypeStopLoss:
+			ruleEnabled = rules.StopLoss
+		case event.EventTypeError:
+			ruleEnabled = rules.Error
+		case event.EventTypeMarginInsufficient:
+			ruleEnabled = rules.MarginInsufficient
+		case event.EventTypeAllocationExceeded:
+			ruleEnabled = rules.AllocationExceeded
+		case event.EventTypeAllocationLimitChanged:
+			ruleEnabled = rules.AllocationExceeded
+		case event.EventTypePrecisionAdjustment:
+			return true
+		case event.EventTypeInspectorReport:
+			ruleEnabled = rules.InspectorReport
+		case event.EventTypeTradingStarted, event.EventTypeTradingStopped:
+			return true
+		case event.EventTypeTradingStartFailed, event.EventTypeTradingStopFailed:
+			return true
+		default:
+			return true
+		}
 	}
+
+	return ruleEnabled
 }
 
 // GetNotifiers 获取所有已初始化的通知器

@@ -6,14 +6,25 @@ import (
 	"strconv"
 	"strings"
 
+	"quantmesh/cfgmgr"
 	"quantmesh/config"
 	"quantmesh/logger"
+	"quantmesh/storage"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var globalConfig *config.Config
+var (
+	globalConfig    *config.Config
+	configStorage   storage.ConfigStorage
+	configManager   *cfgmgr.ConfigManager
+)
+
+// SetGlobalConfig 設置全局配置
+func SetGlobalConfig(cfg *config.Config) {
+	globalConfig = cfg
+}
 
 // ipWhitelistMiddleware IP 白名單中间件
 func ipWhitelistMiddleware(allowedIPs []string) gin.HandlerFunc {
@@ -407,6 +418,12 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.DELETE("/system/settings/:key", deleteSystemSetting)
 			protected.GET("/system/local-dev-mode", getLocalDevMode)
 			protected.POST("/system/local-dev-mode", setLocalDevMode)
+
+			// 配置管理 API
+			if configStorage != nil {
+				configAPI := NewConfigManagerAPI(configStorage)
+				configAPI.RegisterRoutes(protected)
+			}
 
 			// 日志API
 			protected.GET("/logs", getLogs)

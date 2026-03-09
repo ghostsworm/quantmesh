@@ -28,8 +28,8 @@ type SetupStatusResponse struct {
 // GET /api/setup/status
 func getSetupStatusHandler(c *gin.Context) {
 	configPath := "config.yaml"
-	if configManager != nil {
-		configPath = configManager.GetConfigPath()
+	if fileConfigManager != nil {
+		configPath = fileConfigManager.GetConfigPath()
 	}
 
 	// 检查配置文件是否存在
@@ -146,8 +146,8 @@ func initSetupHandler(c *gin.Context) {
 
 	// 獲取配置文件路径
 	configPath := "config.yaml"
-	if configManager != nil {
-		configPath = configManager.GetConfigPath()
+	if fileConfigManager != nil {
+		configPath = fileConfigManager.GetConfigPath()
 	}
 
 	// 尝試加載現有配置，如果不存在则創建最小化配置
@@ -276,10 +276,10 @@ func initSetupHandler(c *gin.Context) {
 	}
 
 	// 更新配置管理器中的配置
-	if configManager != nil {
-		configManager.mu.Lock()
-		configManager.currentConfig = cfg
-		configManager.mu.Unlock()
+	if fileConfigManager != nil {
+		fileConfigManager.mu.Lock()
+		fileConfigManager.currentConfig = cfg
+		fileConfigManager.mu.Unlock()
 	}
 
 	symbolsStr := ""

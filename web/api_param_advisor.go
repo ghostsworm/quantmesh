@@ -403,9 +403,9 @@ func fetchBitgetFeeRate(apiKey, secretKey, passphrase, symbol string) (makerFee,
 
 // getFeeRateFromConfig 从配置中获取手续费率
 func getFeeRateFromConfig(exchangeName string) (makerFee, takerFee float64, source string) {
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			if exCfg, ok := cfg.Exchanges[exchangeName]; ok {
 				if exCfg.FeeRate > 0 {
 					// 配置中的 fee_rate 是单一值，视为 taker 费率；maker 取其 40% 作为默认估算

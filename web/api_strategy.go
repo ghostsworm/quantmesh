@@ -142,9 +142,9 @@ func getStrategyTemplatesHandler(c *gin.Context) {
 func getStrategiesHandler(c *gin.Context) {
 	// 獲取當前配置以确定策略是否啟用
 	var enabledMap = make(map[string]bool)
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			for id, sc := range cfg.Strategies.Configs {
 				enabledMap[id] = sc.Enabled
 			}
@@ -374,9 +374,14 @@ func enableStrategyHandler(c *gin.Context) {
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败: " + err.Error()})
+	if globalConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置未初始化"})
+		return
+	}
+
+	cfg := globalConfig
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败"})
 		return
 	}
 
@@ -396,7 +401,7 @@ func enableStrategyHandler(c *gin.Context) {
 	}
 	cfg.Strategies.Configs[strategyID] = sc
 
-	if err := configManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新配置失败: " + err.Error()})
 		return
 	}
@@ -421,9 +426,14 @@ func disableStrategyHandler(c *gin.Context) {
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败: " + err.Error()})
+	if globalConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置未初始化"})
+		return
+	}
+
+	cfg := globalConfig
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败"})
 		return
 	}
 
@@ -432,7 +442,7 @@ func disableStrategyHandler(c *gin.Context) {
 			sc.Enabled = false
 			cfg.Strategies.Configs[strategyID] = sc
 
-			if err := configManager.UpdateConfig(cfg); err != nil {
+			if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "更新配置失败: " + err.Error()})
 				return
 			}
@@ -533,9 +543,9 @@ func updateStrategyConfigHandler(c *gin.Context) {
 	reqConfig.StrategyID = strategyID
 
 	// TODO: 保存配置到數據库
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			if cfg.Strategies.Configs == nil {
 				cfg.Strategies.Configs = make(map[string]config.StrategyConfig)
 			}
@@ -545,7 +555,7 @@ func updateStrategyConfigHandler(c *gin.Context) {
 			sc.Config = reqConfig.Parameters
 			cfg.Strategies.Configs[strategyID] = sc
 
-			if err := configManager.UpdateConfig(cfg); err != nil {
+			if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "更新配置失败: " + err.Error()})
 				return
 			}
@@ -904,9 +914,9 @@ func getStrategyRuntimeStatusHandler(c *gin.Context) {
 
 	if exchange == "" || symbol == "" {
 		// 嘗試從配置獲取默認值
-		if configManager != nil {
-			cfg, err := configManager.GetConfig()
-			if err == nil && len(cfg.Trading.Symbols) > 0 {
+		if globalConfig != nil {
+			cfg := globalConfig
+			if cfg != nil && len(cfg.Trading.Symbols) > 0 {
 				exchange = cfg.Trading.Symbols[0].Exchange
 				symbol = cfg.Trading.Symbols[0].Symbol
 			}
@@ -957,9 +967,9 @@ func getStrategyRuntimeStatusByIDHandler(c *gin.Context) {
 
 	if exchange == "" || symbol == "" {
 		// 嘗試從配置獲取默認值
-		if configManager != nil {
-			cfg, err := configManager.GetConfig()
-			if err == nil && len(cfg.Trading.Symbols) > 0 {
+		if globalConfig != nil {
+			cfg := globalConfig
+			if cfg != nil && len(cfg.Trading.Symbols) > 0 {
 				exchange = cfg.Trading.Symbols[0].Exchange
 				symbol = cfg.Trading.Symbols[0].Symbol
 			}

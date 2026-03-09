@@ -20,6 +20,7 @@ import (
 	"quantmesh/ai/service"
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimrun"
+	"quantmesh/cfgmgr"
 	"quantmesh/config"
 	"quantmesh/database"
 	"quantmesh/event"
@@ -1580,8 +1581,6 @@ func main() {
 	logger.Info("🔧 正在初始化事件總線...")
 	// 增加缓冲区大小到5000，避免事件队列满
 	eventBus := event.NewEventBus(5000)
-	logger.Info("🔧 正在初始化通知服務...")
-	notifier := notify.NewNotificationService(cfg)
 
 	logger.Info("🔧 正在初始化存儲服務...")
 	// 若已配置路徑與類型則強制視為啟用（與 config.Validate 一致，避免設置頁開關已開但進程未重啟或配置未寫入導致回測不可用）
@@ -1600,6 +1599,66 @@ func main() {
 	}
 	logger.Info("✅ 存儲服務初始化完成 (enabled=%v, storage!=nil=%v)", cfg.Storage.Enabled, storageService != nil && storageService.GetStorage() != nil)
 	logger.Info("⏱️ [啟動] 存儲服務完成 (耗時: %v)", time.Since(startTime))
+
+	// 初始化配置管理器
+	var configManager *cfgmgr.ConfigManager
+	var configStorage storage.ConfigStorage
+
+	// 根据配置的数据库类型初始化配置存储
+	dbType := cfg.Database.Type
+	if dbType == "" {
+		dbType = "sqlite" // 默认使用 SQLite
+	}
+
+	logger.Info("🔧 正在初始化配置存儲 (数据库类型: %s)...", dbType)
+
+	if dbType == "sqlite" {
+		// SQLite 使用存储路径
+		configDBPath := cfg.Storage.Path
+		if configDBPath == "" {
+			configDBPath = "./data/config.db"
+		}
+		configStorage, err = storage.NewConfigStorage(configDBPath)
+		if err != nil {
+			logger.Warn("⚠️ 初始化 SQLite 配置存儲失败: %v", err)
+		}
+	} else if dbType == "mysql" {
+		// MySQL 使用 DSN
+		dsn := cfg.Database.DSN
+		if dsn == "" {
+			// 构建默认 DSN
+			dsn = fmt.Sprintf("root:@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=Local")
+		}
+		configStorage, err = storage.NewConfigStorageByType(dbType, dsn)
+		if err != nil {
+			logger.Warn("⚠️ 初始化 MySQL 配置存儲失败: %v", err)
+		}
+	} else {
+		configStorage, err = storage.NewConfigStorageByType(dbType, cfg.Storage.Path)
+		if err != nil {
+			logger.Warn("⚠️ 初始化配置存儲失败: %v", err)
+		}
+	}
+
+	if configStorage != nil {
+		logger.Info("✅ 配置存儲已初始化 (类型: %s)", dbType)
+		logger.Info("🔧 正在初始化配置管理器...")
+		configManager = cfgmgr.NewConfigManager(cfg, configStorage)
+		if err := configManager.Start(); err != nil {
+			logger.Warn("⚠️ 初始化配置管理器失败: %v", err)
+		} else {
+			logger.Info("✅ 配置管理器已啟动")
+		}
+	}
+
+	// 初始化通知服务（使用配置管理器）
+	logger.Info("🔧 正在初始化通知服務...")
+	var notifier *notify.NotificationService
+	if configManager != nil {
+		notifier = notify.NewNotificationService(cfg, configManager)
+	} else {
+		notifier = notify.NewNotificationService(cfg, nil)
+	}
 
 	// 运行 K 线文件迁移（一次性迁移现有文件到统一管理系统）
 	if storageService != nil {
@@ -1776,8 +1835,9 @@ func main() {
 			logger.Info("✅ WebAuthn 管理器已初始化 (rpID=%s, rpOrigin=%s)", rpID, rpOrigin)
 		}
 
-		configManager := web.NewConfigManager(configPath)
-		web.SetConfigManager(configManager)
+		fileConfigManager := web.NewFileConfigManager(configPath)
+		web.SetFileConfigManager(fileConfigManager)
+		web.SetGlobalConfig(cfg)
 		logger.Info("✅ 配置管理器已初始化")
 
 		web.SetVersion(Version)
@@ -2686,11 +2746,21 @@ func main() {
 			logger.Info("✅ 智子巡檢已啟動")
 		}
 
-		// 設置全局存儲服務提供者（用於不带 symbol 参數的 API，如提現规则管理）
+		// 設置全局存儲服務提供者（用於不带 symbol 參數的 API，如提現规则管理）
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
 			logger.Info("✅ 全局存儲服務提供者已設置")
+
+			// 設置配置存儲和配置管理器
+			if configStorage != nil {
+				web.SetConfigStorage(configStorage)
+				if configManager != nil {
+					web.SetConfigManager(configManager)
+					logger.Info("✅ 配置管理器已設置到 Web 服務器")
+				}
+			}
+
 			// 回测任務管理器（需要 TaskStore，即 SQLite）
 			if st := storageService.GetStorage(); st != nil {
 				if taskStore := st.GetBacktestTaskStore(); taskStore != nil {

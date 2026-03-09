@@ -164,9 +164,9 @@ func putOpeningControlConfig(c *gin.Context) {
 	}
 
 	// 持久化到配置文件
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			for i := range cfg.Trading.Symbols {
 				sym := &cfg.Trading.Symbols[i]
 				if sym.Exchange == exchange && sym.Symbol == symbol {
@@ -174,7 +174,7 @@ func putOpeningControlConfig(c *gin.Context) {
 					sym.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
 					sym.OpenPositionControl.ScheduleRules = req.ScheduleRules
 					sym.OpenPositionControl.PeriodicRule = req.PeriodicRule
-					if err := configManager.UpdateConfig(cfg); err != nil {
+					if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 						logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
 					}
 					break

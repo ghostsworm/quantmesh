@@ -164,13 +164,13 @@ func getNewsCollected(c *gin.Context) {
 // getNewsKeywords 獲取當前关键词列表
 // GET /api/news/keywords
 func getNewsKeywords(c *gin.Context) {
-	if configManager == nil {
+	if globalConfig == nil {
 		c.JSON(http.StatusOK, gin.H{"keywords": config.DefaultNewsKeywords()})
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
+	cfg := globalConfig
+	if cfg == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取配置失败"})
 		return
 	}
@@ -207,21 +207,30 @@ func putNewsKeywords(c *gin.Context) {
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
+	if globalConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "配置未初始化"})
+		return
+	}
+
+	cfg := globalConfig
+	if cfg == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "獲取配置失败"})
 		return
 	}
 
 	cfg.NewsMonitor.Keywords = req.Keywords
-	if err := configManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
 	// 保存到历史
 	if configHistoryMgr != nil {
-		currentContent, err := os.ReadFile(configManager.GetConfigPath())
+		configPath := "config.yaml" // 默认配置文件路径
+		if fileConfigManager != nil {
+			configPath = fileConfigManager.GetConfigPath()
+		}
+		currentContent, err := os.ReadFile(configPath)
 		if err == nil {
 			description := fmt.Sprintf("通過 Web UI 更新新聞監控關鍵詞: %d 個關鍵詞", len(req.Keywords))
 			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")

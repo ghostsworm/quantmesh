@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"quantmesh/ai"
+	"quantmesh/cfgmgr"
 	"quantmesh/config"
 	"quantmesh/database"
 	"quantmesh/exchange"
@@ -462,9 +463,9 @@ func getStatus(c *gin.Context) {
 		statusMu.RUnlock()
 
 		// 没有找到运行中的状態，检查配置中是否有該 exchange:symbol:market_type
-		if configManager != nil {
-			cfg, err := configManager.GetConfig()
-			if err == nil && cfg != nil {
+		if globalConfig != nil {
+			cfg := globalConfig
+			if cfg != nil {
 				for _, symCfg := range cfg.Trading.Symbols {
 					if strings.EqualFold(symCfg.Exchange, exchange) &&
 						strings.EqualFold(symCfg.Symbol, symbol) &&
@@ -524,10 +525,10 @@ type StatusesResponse struct {
 func getStatuses(c *gin.Context) {
 	statusMap := make(map[string]SystemStatus)
 
-	// 1) 先從配置中構造“未运行”的默认状態，key 含 market_type
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	// 1) 先從配置中構造"未运行"的默认状態，key 含 market_type
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			for _, sym := range cfg.Trading.Symbols {
 				if sym.Symbol == "" {
 					continue
@@ -644,9 +645,9 @@ func getSymbols(c *gin.Context) {
 	inactiveList := make([]SymbolItem, 0)
 
 	// 首先從配置文件中读取所有配置的交易對
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			// 從交易對配置中读取
 			for _, sym := range cfg.Trading.Symbols {
 				if sym.Symbol == "" {
@@ -778,9 +779,9 @@ func getExchanges(c *gin.Context) {
 	exchangeSet := make(map[string]bool)
 
 	// 首先從配置文件中读取所有配置的交易所
-	if configManager != nil {
-		cfg, err := configManager.GetConfig()
-		if err == nil && cfg != nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			// 從配置的 exchanges 中读取
 			for ex := range cfg.Exchanges {
 				if ex != "" {
@@ -6528,14 +6529,14 @@ func generateAIConfig(c *gin.Context) {
 	}
 
 	// 獲取配置
-	if configManager == nil {
+	if globalConfig == nil {
 		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+	cfg := globalConfig
+	if cfg == nil {
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
 		return
 	}
 
@@ -6676,7 +6677,10 @@ func generateAIConfig(c *gin.Context) {
 		}
 
 		// 驗证配置
-		configPath := configManager.GetConfigPath()
+		configPath := "config.yaml" // 默认配置文件路径
+		if fileConfigManager != nil {
+			configPath = fileConfigManager.GetConfigPath()
+		}
 		configService := ai.NewConfigService(configPath)
 		if err := configService.ValidateAIConfig(aiConfig, totalCapital); err != nil {
 			logger.Error("❌ [AI任務] %s 配置驗证失败: %v", task.TaskID, err)
@@ -6835,18 +6839,21 @@ func applyAIConfig(c *gin.Context) {
 		return
 	}
 
-	if configManager == nil {
+	if globalConfig == nil {
 		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
 		return
 	}
 
-	cfg, err := configManager.GetConfig()
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+	cfg := globalConfig
+	if cfg == nil {
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
 		return
 	}
 
-	configPath := configManager.GetConfigPath()
+	configPath := "config.yaml" // 默认配置文件路径
+	if fileConfigManager != nil {
+		configPath = fileConfigManager.GetConfigPath()
+	}
 	configService := ai.NewConfigService(configPath)
 	if err := configService.ApplyAIConfig(&req, cfg); err != nil {
 		logger.Error("❌ 应用 AI 配置失败: %v", err)
@@ -6899,8 +6906,9 @@ func getPriceStability(c *gin.Context) {
 
 	// 尝试从资产配置中获取 asset_type
 	assetType := ""
-	if configManager != nil {
-		if cfg, err := configManager.GetConfig(); err == nil {
+	if globalConfig != nil {
+		cfg := globalConfig
+		if cfg != nil {
 			for _, asset := range cfg.NewsMonitor.Assets {
 				if asset.Symbol == symbol {
 					assetType = asset.AssetType
@@ -7039,4 +7047,14 @@ func getPriceStability(c *gin.Context) {
 		"start_time":        startTime.Format(time.RFC3339),
 		"end_time":          endTime.Format(time.RFC3339),
 	})
+}
+
+// SetConfigStorage 設置配置存儲
+func SetConfigStorage(cs storage.ConfigStorage) {
+	configStorage = cs
+}
+
+// SetConfigManager 設置配置管理器
+func SetConfigManager(cm *cfgmgr.ConfigManager) {
+	configManager = cm
 }
