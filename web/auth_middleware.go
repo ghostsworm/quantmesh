@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/logger"
+	"quantmesh/storage"
 )
 
 var (
@@ -23,6 +24,12 @@ var (
 // SystemSettingsProvider 系统设置提供者接口
 type SystemSettingsProvider interface {
 	GetSystemSettingBool(ctx context.Context, key string, defaultValue bool) (bool, error)
+	GetSystemSettings(ctx context.Context, filter *storage.SystemSettingFilter) ([]*storage.SystemSetting, error)
+	GetSystemSetting(ctx context.Context, key string) (*storage.SystemSetting, error)
+	SetSystemSettingBool(ctx context.Context, key string, value bool) error
+	SetSystemSettingString(ctx context.Context, key, value string) error
+	SaveSystemSetting(ctx context.Context, key, value, settingType string) error
+	DeleteSystemSetting(ctx context.Context, key string) error
 }
 
 // SetStorageProvider 设置存储提供者

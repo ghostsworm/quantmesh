@@ -2,9 +2,11 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"quantmesh/logger"
 )
 
 var systemSettingsProvider SystemSettingsProvider
@@ -144,12 +146,7 @@ func setSystemSetting(c *gin.Context) {
 		}
 	default:
 		// JSON 类型直接保存
-		setting := &SystemSettingStruct{
-			Key:   req.Key,
-			Value: req.Value,
-			Type:  req.Type,
-		}
-		if err := systemSettingsProvider.SaveSystemSetting(ctx, setting); err != nil {
+		if err := systemSettingsProvider.SaveSystemSetting(ctx, req.Key, req.Value, req.Type); err != nil {
 			respondError(c, http.StatusInternalServerError, "保存设置失败", err)
 			return
 		}
@@ -248,7 +245,7 @@ func setLocalDevMode(c *gin.Context) {
 	// 刷新缓存
 	refreshLocalDevModeCache()
 
-	logger.WriteWebLog("[SYSTEM] Local dev mode 设置为: %v", req.Enabled)
+	logger.WriteWebLog(fmt.Sprintf("[SYSTEM] Local dev mode 设置为: %v", req.Enabled))
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
 		"enabled": req.Enabled,
