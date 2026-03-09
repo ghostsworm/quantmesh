@@ -2200,6 +2200,7 @@
   },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. Todos los derechos reservados.",
+    "versionInfo": "Frontend: {{frontend}} | Backend: {{backend}}",
     "terms": "Términos de Servicio",
     "privacy": "Política de Privacidad",
     "disclaimerTitle": "Descargo de responsabilidad",

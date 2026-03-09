@@ -1982,6 +1982,7 @@
   },
   "footer": {
     "copyright": "© {{year}} صانع السوق QuantMesh. جميع الحقوق محفوظة.",
+    "versionInfo": "Frontend: {{frontend}} | Backend: {{backend}}",
     "terms": "شروط الخدمة",
     "privacy": "سياسة الخصوصية",
     "disclaimerTitle": "تنصل",

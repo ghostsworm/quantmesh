@@ -1982,6 +1982,7 @@
   },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. Tutti i diritti riservati.",
+    "versionInfo": "Frontend: {{frontend}} | Backend: {{backend}}",
     "terms": "Termini di Servizio",
     "privacy": "Politica sulla Privacy",
     "disclaimerTitle": "Dichiarazione di non responsabilità",

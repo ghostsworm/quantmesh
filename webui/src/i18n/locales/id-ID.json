@@ -1982,6 +1982,7 @@
   },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. Seluruh hak cipta dilindungi undang-undang.",
+    "versionInfo": "Frontend: {{frontend}} | Backend: {{backend}}",
     "terms": "Ketentuan Layanan",
     "privacy": "Kebijakan Privasi",
     "disclaimerTitle": "Penafian",

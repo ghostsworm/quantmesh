@@ -2202,6 +2202,7 @@
   },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. 모든 권리 보유.",
+    "versionInfo": "프론트엔드: {{frontend}} | 백엔드: {{backend}}",
     "terms": "서비스 약관",
     "privacy": "개인 정보 정책",
     "disclaimerTitle": "면책 조항",

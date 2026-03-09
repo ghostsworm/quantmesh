@@ -39,7 +39,7 @@ const Footer: React.FC = () => {
             {t('footer.copyright', { year })}
           </p>
           <p className="app-footer-version">
-            前端: {FRONTEND_VERSION} | 后端: {backendVersion}
+            {t('footer.versionInfo', { frontend: FRONTEND_VERSION, backend: backendVersion })}
           </p>
           <div className="app-footer-links">
             <RouterLink to="/terms" className="app-footer-link">{t('footer.terms')}</RouterLink>
