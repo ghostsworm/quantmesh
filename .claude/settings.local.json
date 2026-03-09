@@ -52,7 +52,11 @@
       "Bash(pkill:*)",
       "Bash(npm install:*)",
       "Bash(grep:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(yarn build:*)",
+      "Bash(yarn install:*)",
+      "Bash(git checkout:*)",
+      "Bash(gh workflow list:*)"
     ],
     "deny": [],
     "ask": []

@@ -7,8 +7,68 @@ import i18n from 'i18next'
 import { trackAppInit } from './services/telemetry'
 import { disableServiceWorkersForAuthFlow } from './utils/appRuntimeGuards'
 
-// PWA Service Worker 註冊已由 vite-plugin-pwa 自動處理（通過 registerSW.js）
-// 不需要手動註冊，避免雙重註冊導致的衝突
+// ============================================
+// PWA Service Worker 注册与更新处理
+// ============================================
+function registerServiceWorker() {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return
+  }
+
+  // 检查是否在认证流程页面，如果是则禁用 Service Worker
+  const pathname = window.location.pathname
+  if (pathname === '/login' || pathname === '/register' || pathname === '/setup') {
+    disableServiceWorkersForAuthFlow(pathname)
+    return
+  }
+
+  window.addEventListener('load', async () => {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js', {
+        scope: '/'
+      })
+
+      console.log('✅ Service Worker registered:', registration.scope)
+
+      // 监听 Service Worker 更新
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing
+        if (!newWorker) return
+
+        newWorker.addEventListener('statechange', () => {
+          // 新的 Service Worker 已安装完成，等待激活
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            console.log('🔄 New version available, refreshing...')
+
+            // 直接刷新页面（skipWaiting 已经在 workbox 配置中启用）
+            // 这样可以避免旧的 Service Worker 缓存导致的 404 错误
+            window.location.reload()
+          }
+        })
+      })
+
+      // 监听新的 Service Worker 接管页面
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        console.log('🔄 Service Worker controller changed, reloading page...')
+        window.location.reload()
+      })
+
+    } catch (error) {
+      console.error('❌ Service Worker registration failed:', error)
+    }
+  })
+
+  // 监听来自 Service Worker 的消息
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+      // Service Worker 要求立即刷新
+      window.location.reload()
+    }
+  })
+}
+
+// 注册 Service Worker
+registerServiceWorker()
 
 // PWA 安装提示
 let deferredPrompt: any

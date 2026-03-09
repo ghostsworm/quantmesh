@@ -29,7 +29,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png', 'icons/*.svg'],
       // 添加錯誤處理，避免 Service Worker 註冊失敗導致頁面卡住
-      injectRegister: 'auto',
+      injectRegister: null, // 禁用自动注入，使用自定义注册脚本
       manifest: {
         name: 'QuantMesh 做市商系統',
         short_name: 'QuantMesh',
