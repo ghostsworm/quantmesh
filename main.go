@@ -936,14 +936,32 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 		}
 		resp := &web.BotDetailResponse{
 			BotResponse: web.BotResponse{
-				BotID:      br.BotID,
-				Name:       name,
-				Exchange:   br.Config.Exchange,
-				Symbol:     br.Config.Symbol,
-				MarketType: br.Config.GetMarketType(),
-				Running:    true,
+				BotID:                 br.BotID,
+				Name:                  name,
+				Exchange:              br.Config.Exchange,
+				Symbol:                br.Config.Symbol,
+				MarketType:            br.Config.GetMarketType(),
+				Running:               true,
+				PriceInterval:         br.Config.PriceInterval,
+				ProfitSpread:          br.Config.ProfitSpread,
+				OrderQuantity:         br.Config.OrderQuantity,
+				TotalAllocatedCapital: br.Config.TotalAllocatedCapital,
+				Strategies:            convertStrategies(br.Config.Strategies),
+				BuyWindowSize:         br.Config.BuyWindowSize,
 			},
 			Config: &br.Config,
+		}
+		// 从策略配置中读取杠杆和最大资金占用
+		for _, strategy := range br.Config.Strategies {
+			if strategy.Type == "grid" {
+				if leverage, ok := strategy.Config["leverage"].(float64); ok {
+					resp.Leverage = leverage
+				}
+				if maxCapitalRatio, ok := strategy.Config["max_capital_ratio"].(float64); ok {
+					resp.MaxCapitalRatio = maxCapitalRatio
+				}
+				break
+			}
 		}
 		if br.Inner.PriceMonitor != nil {
 			resp.CurrentPrice = br.Inner.PriceMonitor.GetLastPrice()
@@ -971,17 +989,36 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 			if name == "" {
 				name = bc.Symbol + " (" + bc.GetMarketType() + ")"
 			}
-			return &web.BotDetailResponse{
+			resp := &web.BotDetailResponse{
 				BotResponse: web.BotResponse{
-					BotID:      botID,
-					Name:       name,
-					Exchange:   bc.Exchange,
-					Symbol:     bc.Symbol,
-					MarketType: bc.GetMarketType(),
-					Running:    false,
+					BotID:                 botID,
+					Name:                  name,
+					Exchange:              bc.Exchange,
+					Symbol:                bc.Symbol,
+					MarketType:            bc.GetMarketType(),
+					Running:               false,
+					PriceInterval:         bc.PriceInterval,
+					ProfitSpread:          bc.ProfitSpread,
+					OrderQuantity:         bc.OrderQuantity,
+					TotalAllocatedCapital: bc.TotalAllocatedCapital,
+					Strategies:            convertStrategies(bc.Strategies),
+					BuyWindowSize:         bc.BuyWindowSize,
 				},
 				Config: bc,
-			}, true
+			}
+			// 从策略配置中读取杠杆和最大资金占用
+			for _, strategy := range bc.Strategies {
+				if strategy.Type == "grid" {
+					if leverage, ok := strategy.Config["leverage"].(float64); ok {
+						resp.Leverage = leverage
+					}
+					if maxCapitalRatio, ok := strategy.Config["max_capital_ratio"].(float64); ok {
+						resp.MaxCapitalRatio = maxCapitalRatio
+					}
+					break
+				}
+			}
+			return resp, true
 		}
 	}
 	return nil, false
