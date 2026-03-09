@@ -129,7 +129,16 @@ func (t *SetParameterTool) Execute(ctx context.Context, params map[string]interf
 }
 
 func (t *SetParameterTool) AssessRisk(params map[string]interface{}) types.SecurityLevel {
-	parameter := params["parameter"].(string)
+	// 安全获取 parameter 参数
+	parameterVal, ok := params["parameter"]
+	if !ok {
+		return types.SecurityLevelMedium
+	}
+
+	parameter, ok := parameterVal.(string)
+	if !ok {
+		return types.SecurityLevelMedium
+	}
 
 	// 某些参数是高风险的
 	highRiskParams := map[string]bool{
