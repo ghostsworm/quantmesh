@@ -2,6 +2,12 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.67.0-rc2] - 2026-03-09
+
+### Fixed
+- **創建 Bot 後風控參數不可見**：創建 Bot 時填寫的網格風控（止損、止盈、趨勢檢測等）未寫入配置，導致建好後詳情頁看不到；現後端 `postBotCreate` 與 `postBotGroupCreate` 正確解析並保存 `grid_risk_control_*` 欄位到 BotConfig.GridRiskControl
+- **Bot 詳情風控狀態未翻譯**：趨勢檢測、風控狀態的「啟用/禁用」顯示為 `COMMON.DISABLED` 等原始 key；為 `t('common.enabled')`、`t('common.disabled')` 增加 `defaultValue` 兜底，確保任何語言環境下均顯示正確譯文
+
 ## [3.67.0-rc1] - 2026-03-09
 
 ### Fixed
