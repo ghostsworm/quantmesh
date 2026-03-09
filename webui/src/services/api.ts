@@ -305,6 +305,7 @@ export interface UpdateBotStrategyRequest {
   order_quantity?: number
   price_low?: number
   price_high?: number
+  direction?: string
 }
 
 export interface UpdateBotStrategyResponse {

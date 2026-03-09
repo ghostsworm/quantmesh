@@ -424,7 +424,13 @@ const Configuration: React.FC = () => {
       const status = await getSecurityStatus()
       setSecurityStatus(status)
     } catch (err) {
-      console.error('加载安全状态失败:', err)
+      // 暂时忽略安全状态加载失败（后端 API 未实现）
+      console.debug('安全状态功能暂未实现:', err)
+      setSecurityStatus({
+        encryption_enabled: false,
+        master_key_path: './data/master.key',
+        master_key_exists: false,
+      })
     }
   }
 

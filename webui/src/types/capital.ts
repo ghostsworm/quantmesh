@@ -137,10 +137,14 @@ export interface UpdateAllocationResponse {
 
 export interface CapitalHistoryItem {
   timestamp: string
-  totalBalance: number
-  allocatedCapital: number
-  usedCapital: number
-  unrealizedPnL: number
+  total?: number
+  totalBalance?: number
+  allocated?: number
+  allocatedCapital?: number
+  available?: number
+  usedCapital?: number
+  pnl?: number
+  unrealizedPnL?: number
 }
 
 export interface CapitalHistoryResponse {

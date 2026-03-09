@@ -772,6 +772,7 @@ type UpdateBotStrategyRequest struct {
 	OrderQuantity  *float64                  `json:"order_quantity,omitempty"`  // 每單金額
 	PriceLow       *float64                  `json:"price_low,omitempty"`        // 網格價格下限
 	PriceHigh      *float64                  `json:"price_high,omitempty"`       // 網格價格上限
+	Direction      *string                   `json:"direction,omitempty"`       // 交易方向：LONG/SHORT/BOTH
 }
 
 // putBotStrategy 更新 Bot 策略配置
@@ -884,6 +885,10 @@ func putBotStrategy(c *gin.Context) {
 			// 更新網格價格上限
 			if req.PriceHigh != nil {
 				bc.PriceHigh = *req.PriceHigh
+			}
+			// 更新交易方向
+			if req.Direction != nil {
+				bc.Direction = *req.Direction
 			}
 
 			found = true

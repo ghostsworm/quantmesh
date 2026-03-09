@@ -64,6 +64,7 @@ import { getCapitalOverview, getCapitalHistory } from '../services/capital'
 import { useSymbol } from '../contexts/SymbolContext'
 import { checkSetupStatus } from '../services/setup'
 import ConfirmDialog from './ConfirmDialog'
+import { mapCapitalHistoryToEquityCurve } from '../utils/capitalHistory'
 
 // 超时包装函数，防止API调用卡住
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
@@ -184,14 +185,7 @@ const GlobalDashboard: React.FC = () => {
         setCapitalOverview(null)
       }
       const hist = historyRes?.history || []
-      setCapitalHistory(
-        hist
-          .map((h) => ({
-            date: h.timestamp?.slice(0, 10) || '',
-            balance: h.totalBalance ?? 0,
-          }))
-          .sort((a, b) => a.date.localeCompare(b.date))
-      )
+      setCapitalHistory(mapCapitalHistoryToEquityCurve(hist))
       
       const statusMap = new Map<string, SymbolStatus>()
       

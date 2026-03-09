@@ -72,7 +72,11 @@ func runtimeKey(exchangeName, symbol string, marketType ...string) string {
 func (sm *SymbolManager) Add(rt *SymbolRuntime) {
 	exCfg, _ := sm.botManager.cfg.Exchanges[rt.Config.Exchange]
 	botCfg := config.SymbolConfigToBotConfig(rt.Config, exCfg.Testnet)
-	botID := config.GenerateBotID(rt.Config.Exchange, rt.Config.Symbol, rt.Config.GetMarketType())
+	// 使用 botCfg.ID，优先使用配置中的自定义 ID（如 UUID），否则使用生成的标准格式 ID
+	botID := botCfg.ID
+	if botID == "" {
+		botID = config.GenerateBotID(rt.Config.Exchange, rt.Config.Symbol, rt.Config.GetMarketType())
+	}
 	br := &BotRuntime{Config: botCfg, BotID: botID, Inner: rt, EventBus: sm.botManager.eventBus}
 	sm.botManager.AddRuntime(br)
 }
