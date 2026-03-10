@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.0-rc5] - 2026-03-11
+
+### Fixed
+- **Bot 啟動失敗「ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint」**：`order_placed` 等事件寫入 orders 表時，舊版遷移創建的 partial unique index 無法被 `ON CONFLICT(order_id)` 匹配；現遷移改為創建完整唯一索引，並在啟動時檢測並替換已有的 partial 索引，確保 SaveOrder upsert 正常
+
+### Test
+- **storage/sqlite_test.go**：新增 `TestSaveOrderUpsert`、`TestSaveOrderWithPartialIndexMigration`，驗證訂單 upsert 與 partial 索引遷移
+
 ## [3.74.0-rc4] - 2026-03-11
 
 ### Fixed
