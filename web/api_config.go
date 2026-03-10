@@ -263,7 +263,7 @@ func getConfigHandler(c *gin.Context) {
 // getConfigJSONHandler 獲取當前配置（JSON格式）
 // GET /api/config/json
 func getConfigJSONHandler(c *gin.Context) {
-	if configManager == nil {
+	if fileConfigManager == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
 		return
 	}

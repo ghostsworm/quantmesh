@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.0-rc4] - 2026-03-11
+
+### Fixed
+- **Bot Detail 保存參數時 500「配置管理器未初始化」**：`GET /api/config/json` 錯誤地檢查 `configManager`（cfgmgr），而該變量僅在 configStorage 初始化後才注入；實際配置數據來自 `fileConfigManager`，現改為檢查 `fileConfigManager`，與 `getConfigHandler` 一致
+
 ## [3.74.0-rc3] - 2026-03-11
 
 ### Fixed
