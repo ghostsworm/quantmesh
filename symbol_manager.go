@@ -276,6 +276,13 @@ func startSymbolRuntime(
 	localCfg.Trading.GridShiftStep = symCfg.GridShiftStep
 	localCfg.Trading.CloseOnStop = symCfg.CloseOnStop
 	localCfg.Trading.GridRiskControl = symCfg.GridRiskControl
+	localCfg.Trading.SmartOrder = symCfg.SmartOrder
+	if symCfg.SmartOrder.Enabled && symCfg.SmartOrder.MaxOpenOrders <= 0 {
+		localCfg.Trading.SmartOrder.MaxOpenOrders = 3
+	}
+	if symCfg.SmartOrder.OpenOrderDistance <= 0 && symCfg.SmartOrder.Enabled {
+		localCfg.Trading.SmartOrder.OpenOrderDistance = 5
+	}
 
 	// 創建交易所實例（根據交易對配置的市场類型：spot / futures）
 	// 如果之前创建了临时实例，重用它；否则创建新实例

@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.0-rc8] - 2026-03-11
+
+### Fixed
+- **智能開倉掛單 max_open_orders 未生效**：設置 `smart_order.max_open_orders=3` 後仍出現 10 個開倉委託；現每次 AdjustOrders 與 SmartOrderManager 定期檢查時，若開倉單數超過上限則動態撤銷最遠的委託單（做多撤高價買單、做空撤低價賣單）
+- **FilterSlotsByMaxOpenOrders 做空取錯槽位**：做空時原取高價（最遠）槽位，現改為取低價（最接近當前價）槽位
+- **SmartOrder 配置未傳遞到運行時**：SymbolConfig 新增 SmartOrder 欄位，BotConfigToSymbolConfig 與 symbol_manager 正確傳遞 SmartOrder 到 Trading 配置，確保 Bot 創建時設定的智能掛單參數生效
+- **grid_auto_rebuild 日誌格式錯誤**：fmt.Sprintf 參數順序與格式符不匹配導致編譯失敗
+
 ## [3.74.0-rc7] - 2026-03-11
 
 ### Fixed

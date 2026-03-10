@@ -205,7 +205,7 @@ func (gar *GridAutoRebuilder) checkPriceDeviation(currentPrice, priceInterval fl
 			direction = "下"
 		}
 		return fmt.Sprintf("价格%s偏离 %d 层网格 (当前价格: %.2f, 锚点: %.2f, 偏离层数: %d)",
-			direction, currentPrice, anchorPrice, deviationLayers)
+			direction, deviationLayers, currentPrice, anchorPrice, deviationLayers)
 	}
 
 	return ""

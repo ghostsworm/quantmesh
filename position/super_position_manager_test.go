@@ -194,3 +194,37 @@ func TestSuperPositionManager_ReduceOnlyCooldown(t *testing.T) {
 		t.Error("3 分鐘前的冷却應已過期")
 	}
 }
+
+// TestFilterSlotsByMaxOpenOrders 驗證智能開倉掛單數限制
+func TestFilterSlotsByMaxOpenOrders(t *testing.T) {
+	priceInterval := 10.0
+	currentPrice := 100.0
+
+	// LONG: 槽位在當前價下方，取最近的 maxOrders 個（最高價的 3 個 = 最接近當前價）
+	slotPrices := []float64{90, 85, 80, 75, 70, 65, 60} // 7 個，距離 10~40，均在 dist=50 內
+	filtered := FilterSlotsByMaxOpenOrders(slotPrices, currentPrice, priceInterval, 3, 5, "LONG")
+	if len(filtered) != 3 {
+		t.Errorf("LONG 應保留 3 個槽位，得到 %d", len(filtered))
+	}
+	// 應保留距離最近的 3 個：80, 85, 90（升序排列）
+	if filtered[0] != 80 || filtered[1] != 85 || filtered[2] != 90 {
+		t.Errorf("LONG 應保留 [80,85,90]，得到 %v", filtered)
+	}
+
+	// SHORT: 槽位在當前價上方，取最近的 maxOrders 個（最低價的 2 個 = 最接近當前價）
+	slotPricesShort := []float64{110, 115, 120, 125, 130}
+	filteredShort := FilterSlotsByMaxOpenOrders(slotPricesShort, currentPrice, priceInterval, 2, 3, "SHORT")
+	if len(filteredShort) != 2 {
+		t.Errorf("SHORT 應保留 2 個槽位，得到 %d", len(filteredShort))
+	}
+	// 應保留 115, 110（降序排列，最接近當前價的 2 個）
+	if filteredShort[0] != 115 || filteredShort[1] != 110 {
+		t.Errorf("SHORT 應保留 [115,110]，得到 %v", filteredShort)
+	}
+
+	// maxOrders=0 時不限制
+	all := FilterSlotsByMaxOpenOrders(slotPrices, currentPrice, priceInterval, 0, 5, "LONG")
+	if len(all) != len(slotPrices) {
+		t.Errorf("maxOrders=0 應返回全部 %d 個，得到 %d", len(slotPrices), len(all))
+	}
+}

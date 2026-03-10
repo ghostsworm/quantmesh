@@ -97,18 +97,47 @@ func (som *SmartOrderManager) checkAndAdjustOrders() {
 
 // shouldAdjustOrders 判断是否需要调整订单
 func (som *SmartOrderManager) shouldAdjustOrders(currentPrice float64) bool {
+	maxOrders := som.getMaxOpenOrders()
 	maxDistance := som.getMaxDistance()
-	if maxDistance <= 0 {
-		return false
-	}
 
-	// 检查是否有订单超出最大距离
-	hasFarOrders := false
+	// 统计开仓单数量
+	var openOrderCount int
 	direction := "LONG"
 	if som.spm.isShort() {
 		direction = "SHORT"
 	}
 
+	som.spm.slots.Range(func(key, value interface{}) bool {
+		_ = key.(float64)
+		slot := value.(*InventorySlot)
+
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+
+		var isOpeningOrder bool
+		if direction == "LONG" && slot.OrderSide == "BUY" {
+			isOpeningOrder = true
+		} else if direction == "SHORT" && slot.OrderSide == "SELL" {
+			isOpeningOrder = true
+		}
+
+		if isOpeningOrder && (slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed) {
+			openOrderCount++
+		}
+		return true
+	})
+
+	// 开仓单数量超过上限：需要撤掉最远的
+	if maxOrders > 0 && openOrderCount > maxOrders {
+		return true
+	}
+
+	// 检查是否有订单超出最大距离
+	if maxDistance <= 0 {
+		return false
+	}
+
+	hasFarOrders := false
 	som.spm.slots.Range(func(key, value interface{}) bool {
 		price := key.(float64)
 		slot := value.(*InventorySlot)
@@ -116,7 +145,6 @@ func (som *SmartOrderManager) shouldAdjustOrders(currentPrice float64) bool {
 		slot.mu.RLock()
 		defer slot.mu.RUnlock()
 
-		// 只检查开仓订单
 		var isOpeningOrder bool
 		if direction == "LONG" && slot.OrderSide == "BUY" {
 			isOpeningOrder = true
@@ -136,7 +164,7 @@ func (som *SmartOrderManager) shouldAdjustOrders(currentPrice float64) bool {
 				hasFarOrders = true
 				logger.Debug("🧠 [%s] 发现远距离订单: %.2f (距离: %.2f)",
 					som.spm.logPrefix(), price, distance)
-				return false // 找到一个就停止
+				return false
 			}
 		}
 		return true
@@ -147,15 +175,25 @@ func (som *SmartOrderManager) shouldAdjustOrders(currentPrice float64) bool {
 
 // adjustOrders 调整订单
 func (som *SmartOrderManager) adjustOrders(currentPrice float64) {
+	maxOrders := som.getMaxOpenOrders()
+	maxDistance := som.getMaxDistance()
+
+	// 1. 优先处理：开仓单数量超过上限，撤掉最远的（做多撤高價買單，做空撤低價賣單）
+	if maxOrders > 0 {
+		som.spm.CancelExcessOpenOrders(maxOrders)
+	}
+
+	// 2. 收集超出距离的订单ID并撤销
+	if maxDistance <= 0 {
+		return
+	}
+
 	direction := "LONG"
 	if som.spm.isShort() {
 		direction = "SHORT"
 	}
 
-	// 1. 收集需要撤销的订单ID
 	var orderIDsToCancel []int64
-	maxDistance := som.getMaxDistance()
-
 	som.spm.slots.Range(func(key, value interface{}) bool {
 		price := key.(float64)
 		slot := value.(*InventorySlot)
@@ -185,13 +223,10 @@ func (som *SmartOrderManager) adjustOrders(currentPrice float64) {
 		return true
 	})
 
-	// 2. 撤销远距离订单
 	if len(orderIDsToCancel) > 0 {
 		logger.Info("🧠 [%s] 撤销 %d 个远距离订单", som.spm.logPrefix(), len(orderIDsToCancel))
 		som.spm.executor.BatchCancelOrders(orderIDsToCancel)
 	}
-
-	// 3. 系统会在下一轮价格更新时自动补充新的订单
 }
 
 // getMaxOpenOrders 获取最大开仓订单数
@@ -382,8 +417,6 @@ func FilterSlotsByMaxOpenOrders(slotPrices []float64, currentPrice, priceInterva
 	if len(nearby) <= maxOrders {
 		return nearby
 	}
-	if direction == "LONG" {
-		return nearby[len(nearby)-maxOrders:]
-	}
-	return nearby[:maxOrders]
+	// 取最接近當前價的 maxOrders 個：LONG 取最高的幾個（下方最近），SHORT 取最低的幾個（上方最近）
+	return nearby[len(nearby)-maxOrders:]
 }
