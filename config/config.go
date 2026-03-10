@@ -1336,6 +1336,7 @@ type BotConfig struct {
 	CloseOnStopConfig     ClosePositionConfig   `yaml:"close_on_stop_config,omitempty" json:"close_on_stop_config,omitempty"` // 平倉配置
 	SlotFilter            SlotFilterConfig      `yaml:"slot_filter,omitempty" json:"slot_filter,omitempty"`                   // 槽位過濾配置
 	SmartOrder            SmartOrderConfig      `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`                   // 智能掛單配置
+	AutoRebuild           GridAutoRebuildConfig `yaml:"auto_rebuild,omitempty" json:"auto_rebuild,omitempty"`                 // 網格自動重建配置
 	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`                      // 配置檔案（多套參數切換）
 	SwitchRules           SwitchRules           `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"`                  // 切換規則
 }

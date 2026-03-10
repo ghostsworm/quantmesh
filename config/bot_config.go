@@ -81,6 +81,46 @@ type GridConfig struct {
 	GridMode         string  `yaml:"grid_mode,omitempty" json:"grid_mode,omitempty"`           // arithmetic/geometric
 	GridShiftEnabled bool    `yaml:"grid_shift_enabled,omitempty" json:"grid_shift_enabled,omitempty"`
 	GridShiftStep    float64 `yaml:"grid_shift_step,omitempty" json:"grid_shift_step,omitempty"`
+
+	// 网格自动重建配置（价格偏离时自动调整网格锚点）
+	AutoRebuild GridAutoRebuildConfig `yaml:"auto_rebuild,omitempty" json:"auto_rebuild,omitempty"`
+}
+
+// GridAutoRebuildConfig 网格自动重建配置
+// 当价格长期偏离网格区间时，自动撤销旧订单并按新价格重建网格
+type GridAutoRebuildConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"` // 是否启用自动重建
+
+	// 检查间隔
+	CheckIntervalMinutes int `yaml:"check_interval_minutes" json:"check_interval_minutes"` // 检查间隔（分钟），默认 5
+
+	// 触发条件（满足任一即可）
+	PriceDeviationLayers int     `yaml:"price_deviation_layers" json:"price_deviation_layers"` // 价格偏离网格中心层数，默认 5
+	OrderExpireMinutes   int     `yaml:"order_expire_minutes" json:"order_expire_minutes"`     // 订单过期时间（分钟），默认 30
+	ExpiredOrderRatio    float64 `yaml:"expired_order_ratio" json:"expired_order_ratio"`        // 过期订单比例，默认 0.7
+
+	// 重建模式
+	RebuildMode string `yaml:"rebuild_mode" json:"rebuild_mode"` // smart/always，默认 smart
+
+	// 保护机制（防止频繁重建）
+	MaxRebuildsPerHour  int `yaml:"max_rebuilds_per_hour" json:"max_rebuilds_per_hour"` // 每小时最大重建次数，默认 2
+	MinRebuildInterval  int `yaml:"min_rebuild_interval" json:"min_rebuild_interval"` // 两次重建最小间隔（分钟），默认 15
+	RequireTrendConfirm bool `yaml:"require_trend_confirm" json:"require_trend_confirm"` // 是否需要趋势确认，默认 false
+}
+
+// GetDefaultAutoRebuildConfig 返回保守的默认自动重建配置
+func GetDefaultAutoRebuildConfig() GridAutoRebuildConfig {
+	return GridAutoRebuildConfig{
+		Enabled:             false, // 默认关闭，需要用户主动开启
+		CheckIntervalMinutes: 5,
+		PriceDeviationLayers: 5,    // 偏离 5 层网格才触发（足够宽松）
+		OrderExpireMinutes:   30,   // 订单挂单 30 分钟未成交算过期
+		ExpiredOrderRatio:    0.7,  // 70% 订单过期才触发
+		RebuildMode:          "smart",
+		MaxRebuildsPerHour:   2,    // 每小时最多重建 2 次
+		MinRebuildInterval:   15,   // 两次重建最少间隔 15 分钟
+		RequireTrendConfirm:  false, // 默认不需要趋势确认（保守策略）
+	}
 }
 
 // RiskControlConfig 风控配置

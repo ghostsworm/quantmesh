@@ -1,24 +1,221 @@
 package position
 
 import (
+	"context"
 	"sort"
+	"sync"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/logger"
 )
 
 // SmartOrderManager 智能挂单管理器
+// 定期检查订单状态，动态调整挂单位置，避免订单偏离当前价格太远
 type SmartOrderManager struct {
 	spm *SuperPositionManager
 	cfg *config.SmartOrderConfig
+
+	// 运行控制
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	once   sync.Once
 }
 
 // NewSmartOrderManager 创建智能挂单管理器
 func NewSmartOrderManager(spm *SuperPositionManager, cfg *config.SmartOrderConfig) *SmartOrderManager {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &SmartOrderManager{
-		spm: spm,
-		cfg: cfg,
+		spm:    spm,
+		cfg:    cfg,
+		ctx:    ctx,
+		cancel: cancel,
 	}
+}
+
+// Start 启动智能挂单管理器
+func (som *SmartOrderManager) Start() {
+	if !som.cfg.Enabled {
+		logger.Info("🧠 [%s] 智能挂单未启用", som.spm.logPrefix())
+		return
+	}
+
+	som.once.Do(func() {
+		som.wg.Add(1)
+		go som.run()
+		logger.Info("✅ [%s] 智能挂单已启动 (MaxOpenOrders=%d, Distance=%.1f)",
+			som.spm.logPrefix(), som.getMaxOpenOrders(), som.getMaxDistance())
+	})
+}
+
+// Stop 停止智能挂单管理器
+func (som *SmartOrderManager) Stop() {
+	if som.cancel != nil {
+		som.cancel()
+	}
+	som.wg.Wait()
+	logger.Info("🛑 [%s] 智能挂单已停止", som.spm.logPrefix())
+}
+
+// run 主循环
+func (som *SmartOrderManager) run() {
+	defer som.wg.Done()
+
+	// 检查间隔：默认 60 秒
+	checkInterval := 60 * time.Second
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	// 启动时立即检查一次
+	som.checkAndAdjustOrders()
+
+	for {
+		select {
+		case <-som.ctx.Done():
+			return
+		case <-ticker.C:
+			som.checkAndAdjustOrders()
+		}
+	}
+}
+
+// checkAndAdjustOrders 检查并调整订单
+func (som *SmartOrderManager) checkAndAdjustOrders() {
+	currentPrice := som.spm.lastMarketPrice.Load().(float64)
+	if currentPrice <= 0 {
+		return
+	}
+
+	// 检查是否需要调整订单
+	if som.shouldAdjustOrders(currentPrice) {
+		logger.Info("🧠 [%s] 智能挂单：检测到价格变化，开始调整订单", som.spm.logPrefix())
+		som.adjustOrders(currentPrice)
+	}
+}
+
+// shouldAdjustOrders 判断是否需要调整订单
+func (som *SmartOrderManager) shouldAdjustOrders(currentPrice float64) bool {
+	maxDistance := som.getMaxDistance()
+	if maxDistance <= 0 {
+		return false
+	}
+
+	// 检查是否有订单超出最大距离
+	hasFarOrders := false
+	direction := "LONG"
+	if som.spm.isShort() {
+		direction = "SHORT"
+	}
+
+	som.spm.slots.Range(func(key, value interface{}) bool {
+		price := key.(float64)
+		slot := value.(*InventorySlot)
+
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+
+		// 只检查开仓订单
+		var isOpeningOrder bool
+		if direction == "LONG" && slot.OrderSide == "BUY" {
+			isOpeningOrder = true
+		} else if direction == "SHORT" && slot.OrderSide == "SELL" {
+			isOpeningOrder = true
+		}
+
+		if isOpeningOrder && (slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed) {
+			var distance float64
+			if direction == "LONG" {
+				distance = currentPrice - price
+			} else {
+				distance = price - currentPrice
+			}
+
+			if distance > maxDistance {
+				hasFarOrders = true
+				logger.Debug("🧠 [%s] 发现远距离订单: %.2f (距离: %.2f)",
+					som.spm.logPrefix(), price, distance)
+				return false // 找到一个就停止
+			}
+		}
+		return true
+	})
+
+	return hasFarOrders
+}
+
+// adjustOrders 调整订单
+func (som *SmartOrderManager) adjustOrders(currentPrice float64) {
+	direction := "LONG"
+	if som.spm.isShort() {
+		direction = "SHORT"
+	}
+
+	// 1. 收集需要撤销的订单ID
+	var orderIDsToCancel []int64
+	maxDistance := som.getMaxDistance()
+
+	som.spm.slots.Range(func(key, value interface{}) bool {
+		price := key.(float64)
+		slot := value.(*InventorySlot)
+
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+
+		var isOpeningOrder bool
+		if direction == "LONG" && slot.OrderSide == "BUY" {
+			isOpeningOrder = true
+		} else if direction == "SHORT" && slot.OrderSide == "SELL" {
+			isOpeningOrder = true
+		}
+
+		if isOpeningOrder && (slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed) {
+			var distance float64
+			if direction == "LONG" {
+				distance = currentPrice - price
+			} else {
+				distance = price - currentPrice
+			}
+
+			if distance > maxDistance {
+				orderIDsToCancel = append(orderIDsToCancel, slot.OrderID)
+			}
+		}
+		return true
+	})
+
+	// 2. 撤销远距离订单
+	if len(orderIDsToCancel) > 0 {
+		logger.Info("🧠 [%s] 撤销 %d 个远距离订单", som.spm.logPrefix(), len(orderIDsToCancel))
+		som.spm.executor.BatchCancelOrders(orderIDsToCancel)
+	}
+
+	// 3. 系统会在下一轮价格更新时自动补充新的订单
+}
+
+// getMaxOpenOrders 获取最大开仓订单数
+func (som *SmartOrderManager) getMaxOpenOrders() int {
+	if som.cfg.MaxOpenOrders > 0 {
+		return som.cfg.MaxOpenOrders
+	}
+	return 3 // 默认 3 个
+}
+
+// getMaxDistance 获取最大距离
+func (som *SmartOrderManager) getMaxDistance() float64 {
+	priceInterval := som.spm.config.Trading.PriceInterval
+	if priceInterval <= 0 {
+		return 0
+	}
+
+	// OpenOrderDistance 是间隔数的倍数
+	distance := som.cfg.OpenOrderDistance * priceInterval
+	if distance <= 0 {
+		// 默认 5 个间隔
+		distance = 5 * priceInterval
+	}
+	return distance
 }
 
 // CalculateOpenSlots 计算应该挂开仓单的槽位
