@@ -223,7 +223,15 @@
       "maxOpenOrdersAtCap": "Max Open Orders at Cap",
       "riskControlEnabled": "Risk Control Status",
       "layers": "layers",
-      "riskConfigHint": "Displaying grid risk control settings from config file. To modify, go to Config Management or edit the config file directly."
+      "riskConfigHint": "Displaying grid risk control settings from config file. To modify, go to Config Management or edit the config file directly.",
+      "smartOrderConfig": "Smart Order Config",
+      "smartOrderDescription": "Smart order reduces capital usage by placing orders only near current price, automatically following price movement.",
+      "smartOrderEnabled": "Enable Smart Order",
+      "maxOpenOrders": "Max Open Orders",
+      "maxOpenOrdersHint": "Max orders per direction, recommended 2-4",
+      "openOrderDistance": "Max Distance (intervals)",
+      "openOrderDistanceHint": "Max intervals from current price for open orders; orders beyond this will be cancelled",
+      "smartOrderEffect": "When enabled, system will place orders only within {{count}} intervals of current price, checked every 60 seconds."
     }
   },
   "sidebar": {

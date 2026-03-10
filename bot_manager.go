@@ -240,6 +240,7 @@ func (bm *BotManager) ListSymbolRuntimes() []*SymbolRuntime {
 }
 
 // UpdateRuntimeTradingParams 更新運行中的 Bot 交易參數（熱更新）
+// 始終同步 Config 到運行時，確保 smart_order 等非交易參數變更也能反映到 GetBot 返回的詳情中
 func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (updatedBotIDs []string) {
 	for _, botCfg := range latestCfg.Bots {
 		botID := botCfg.ID
@@ -258,9 +259,10 @@ func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (upda
 			symCfg.BuyWindowSize,
 			symCfg.SellWindowSize,
 		)
+		// 始終同步 Config，確保 smart_order、風控等配置變更在刷新頁面時正確顯示
+		br.Config = botCfg
+		br.Inner.Config = symCfg
 		if changed {
-			br.Config = botCfg
-			br.Inner.Config = symCfg
 			updatedBotIDs = append(updatedBotIDs, botID)
 		}
 	}

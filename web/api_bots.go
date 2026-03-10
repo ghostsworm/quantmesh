@@ -978,6 +978,13 @@ func putBotStrategy(c *gin.Context) {
 		return
 	}
 
+	// 推送配置到運行中的 Bot，確保 smart_order 等變更在刷新頁面時正確顯示
+	if symbolManagerProvider != nil {
+		if updater, ok := symbolManagerProvider.(TradingParamsUpdater); ok {
+			_ = updater.UpdateTradingParams(cfg)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
 		"bot_id":  botID,
