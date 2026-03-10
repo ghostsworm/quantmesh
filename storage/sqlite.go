@@ -1089,6 +1089,42 @@ func migrateOrdersTable(db *sql.DB) error {
 			}
 		}
 	}
+
+	// 确保 order_id 有唯一约束（旧库可能缺失）
+	// 检查是否已存在 order_id 的唯一索引
+	var indexCount int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_index_list('orders')
+		JOIN pragma_index_info ON pragma_index_list.name = pragma_index_info.name
+		WHERE pragma_index_list.origin = 'u' AND pragma_index_info.name = 'order_id'
+	`).Scan(&indexCount)
+
+	if err == nil && indexCount == 0 {
+		// 检查是否有重复的 order_id
+		var duplicateCount int
+		err = db.QueryRow(`
+			SELECT COUNT(*) FROM (
+				SELECT order_id, COUNT(*) as cnt FROM orders
+				WHERE order_id IS NOT NULL AND order_id != 0
+				GROUP BY order_id HAVING cnt > 1
+			)
+		`).Scan(&duplicateCount)
+
+		if err != nil {
+			logger.Warn("⚠️ 检查 order_id 重复失败: %v", err)
+		} else if duplicateCount > 0 {
+			logger.Warn("⚠️ orders 表存在 %d 个重复的 order_id，无法创建唯一约束", duplicateCount)
+		} else {
+			// 创建唯一索引
+			_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id) WHERE order_id IS NOT NULL AND order_id != 0`)
+			if err != nil {
+				logger.Warn("⚠️ 创建 orders.order_id 唯一索引失败: %v", err)
+			} else {
+				logger.Info("✅ orders 表成功创建 order_id 唯一索引")
+			}
+		}
+	}
+
 	return nil
 }
 
