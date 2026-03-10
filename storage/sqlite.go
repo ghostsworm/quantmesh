@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -1090,10 +1091,31 @@ func migrateOrdersTable(db *sql.DB) error {
 		}
 	}
 
-	// 确保 order_id 有唯一约束（旧库可能缺失）
-	// 检查是否已存在 order_id 的唯一索引
+	// 确保 order_id 有完整唯一约束（非 partial），否则 SaveOrder 的 ON CONFLICT(order_id) 会报错
+	// 参见: ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint
+	var indexSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_orders_order_id'`).Scan(&indexSQL)
+	if err == sql.ErrNoRows {
+		indexSQL = ""
+		err = nil
+	}
+	if err != nil {
+		return err
+	}
+
+	// 若存在 partial 索引（含 WHERE），需替换为完整索引，否则 ON CONFLICT 无法匹配
+	isPartial := indexSQL != "" && strings.Contains(indexSQL, " WHERE ")
+	if isPartial {
+		if _, err := db.Exec(`DROP INDEX IF EXISTS idx_orders_order_id`); err != nil {
+			logger.Warn("⚠️ 删除 orders 表 partial 索引失败: %v", err)
+		} else {
+			logger.Info("🔄 已删除 orders 表 partial 索引，将创建完整索引")
+		}
+	}
+
+	// 检查是否已存在 order_id 的完整唯一索引
 	var indexCount int
-	err := db.QueryRow(`
+	err = db.QueryRow(`
 		SELECT COUNT(*) FROM pragma_index_list('orders')
 		JOIN pragma_index_info ON pragma_index_list.name = pragma_index_info.name
 		WHERE pragma_index_list.origin = 'u' AND pragma_index_info.name = 'order_id'
@@ -1115,8 +1137,8 @@ func migrateOrdersTable(db *sql.DB) error {
 		} else if duplicateCount > 0 {
 			logger.Warn("⚠️ orders 表存在 %d 个重复的 order_id，无法创建唯一约束", duplicateCount)
 		} else {
-			// 创建唯一索引
-			_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id) WHERE order_id IS NOT NULL AND order_id != 0`)
+			// 创建完整唯一索引（非 partial），否则 ON CONFLICT(order_id) 无法匹配
+			_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)`)
 			if err != nil {
 				logger.Warn("⚠️ 创建 orders.order_id 唯一索引失败: %v", err)
 			} else {

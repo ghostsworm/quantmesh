@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"database/sql"
 	"os"
 	"testing"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestSQLiteStorage(t *testing.T) {
@@ -170,6 +173,112 @@ func TestQueryOrdersWithFilterExchange(t *testing.T) {
 	}
 	if len(orders) > 0 && orders[0].Exchange != "binance" {
 		t.Errorf("返回訂單的 exchange 應為 binance，得到 %q", orders[0].Exchange)
+	}
+}
+
+// TestSaveOrderUpsert 驗證 order_placed 等事件的 SaveOrder 使用 ON CONFLICT 正確 upsert
+// 修復: ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint
+func TestSaveOrderUpsert(t *testing.T) {
+	dbPath := "./test_order_upsert.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now()
+	// 模擬 order_placed: 首次插入
+	o1 := &Order{
+		OrderID:       999888,
+		ClientOrderID: "oid_999",
+		Symbol:        "BTCUSDT",
+		Side:          "BUY",
+		Exchange:      "binance",
+		Price:         50000,
+		Quantity:      0.01,
+		FilledQty:     0,
+		Status:        "NEW",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := st.SaveOrder(o1); err != nil {
+		t.Fatalf("保存訂單失败: %v", err)
+	}
+
+	// 模擬 order_filled: 相同 order_id 更新，應 upsert 而非報錯
+	o2 := &Order{
+		OrderID:       999888,
+		ClientOrderID: "oid_999",
+		Symbol:        "BTCUSDT",
+		Side:          "BUY",
+		Exchange:      "binance",
+		Price:         50000,
+		Quantity:      0.01,
+		FilledQty:     0.01,
+		Status:        "FILLED",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := st.SaveOrder(o2); err != nil {
+		t.Fatalf("upsert 訂單失败 (ON CONFLICT): %v", err)
+	}
+
+	orders, err := st.QueryOrdersWithTimeRange(10, 0, "FILLED", nil, nil)
+	if err != nil {
+		t.Fatalf("查詢訂單失败: %v", err)
+	}
+	if len(orders) != 1 || orders[0].Status != "FILLED" || orders[0].FilledQty != 0.01 {
+		t.Errorf("upsert 後應僅 1 筆且 status=FILLED, filled_qty=0.01，得到 %d 筆 status=%s filled_qty=%f",
+			len(orders), orders[0].Status, orders[0].FilledQty)
+	}
+}
+
+// TestSaveOrderWithPartialIndexMigration 驗證從 partial 索引遷移到完整索引後 SaveOrder 正常
+func TestSaveOrderWithPartialIndexMigration(t *testing.T) {
+	dbPath := "./test_partial_migrate.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	// 手動創建帶 partial 索引的 orders 表（模擬舊版遷移產物）
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
+	if err != nil {
+		t.Fatalf("打開 DB 失败: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			order_id BIGINT,
+			client_order_id TEXT, symbol TEXT, side TEXT, exchange TEXT, type TEXT,
+			price DECIMAL(20,8), quantity DECIMAL(20,8), filled_qty DECIMAL(20,8),
+			status TEXT, realized_pnl DECIMAL(20,8), strategy_name TEXT, strategy_type TEXT,
+			order_source TEXT, created_at TIMESTAMP, updated_at TIMESTAMP
+		);
+		CREATE UNIQUE INDEX idx_orders_order_id ON orders(order_id) WHERE order_id IS NOT NULL AND order_id != 0
+	`)
+	db.Close()
+	if err != nil {
+		t.Fatalf("創建 partial 索引表失败: %v", err)
+	}
+
+	// NewSQLiteStorage 會執行遷移：刪除 partial 索引並創建完整索引
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	// 應能正常 SaveOrder（修復前會報 ON CONFLICT clause does not match）
+	o := &Order{
+		OrderID:   777666, Symbol: "ETHUSDT", Side: "BUY", Exchange: "binance",
+		Price: 3000, Quantity: 0.1, Status: "NEW", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := st.SaveOrder(o); err != nil {
+		t.Fatalf("遷移後 SaveOrder 失败: %v", err)
 	}
 }
 
