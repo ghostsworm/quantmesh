@@ -383,6 +383,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               {t('sidebar.globalDashboard')}
             </NavItem>
             <NavItem
+              icon={DragHandleIcon}
+              to="/global-positions"
+              isActive={isRouteActive('/global-positions')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.globalPositions')}
+            </NavItem>
+            <NavItem
               icon={ViewIcon}
               to="/strategy-market"
               isActive={isRouteActive('/strategy-market')}

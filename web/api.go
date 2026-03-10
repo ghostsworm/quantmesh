@@ -1334,6 +1334,19 @@ func getPositionsSummary(c *gin.Context) {
 // getPositionsSummaryAll 獲取所有交易對的持倉彙總（按交易所、币种、策略列出）
 // GET /api/positions/summary/all
 func getPositionsSummaryAll(c *gin.Context) {
+	// 建立 exchange:symbol:marketType -> bot_id 的映射
+	botIDByKey := make(map[string]string)
+	if botManagerProvider != nil {
+		for _, b := range botManagerProvider.ListBots() {
+			mt := b.MarketType
+			if mt == "" {
+				mt = "futures"
+			}
+			k := makeSymbolKey(strings.ToLower(b.Exchange), b.Symbol, mt)
+			botIDByKey[k] = b.BotID
+		}
+	}
+
 	// 從策略運行時獲取各 key 對應的策略名稱（用於替換硬編碼 "grid"）
 	strategyByKey := make(map[string]string)
 	if strategyRuntimeProvider != nil {
@@ -1477,7 +1490,11 @@ func getPositionsSummaryAll(c *gin.Context) {
 		} else if n, ok := strategyByKey[makeSymbolKeyCompat(exchangeName, symbol)]; ok && n != "" {
 			strategyName = n
 		}
+		botKey := makeSymbolKey(strings.ToLower(exchangeName), symbol, marketType)
+		botID := botIDByKey[botKey]
+
 		result = append(result, gin.H{
+			"bot_id":         botID,
 			"exchange":       exchangeName,
 			"symbol":         symbol,
 			"market_type":    marketType,

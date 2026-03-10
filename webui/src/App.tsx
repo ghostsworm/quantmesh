@@ -86,6 +86,7 @@ const BotList = lazy(() => import('./components/BotList'))
 const BotDetail = lazy(() => import('./components/BotDetail'))
 const BotCreateWizard = lazy(() => import('./components/BotCreateWizard'))
 const AgentChat = lazy(() => import('./components/AgentChat'))
+const GlobalPositions = lazy(() => import('./components/GlobalPositions'))
 
 // 懒加载 fallback
 const LazyFallback = () => (
@@ -536,6 +537,7 @@ const AppContent: React.FC = () => {
                 <Route path="/strategy-detail" element={<ProtectedRoute><StrategyDetail /></ProtectedRoute>} />
                 <Route path="/strategy-market" element={<ProtectedRoute><StrategyMarket /></ProtectedRoute>} />
                 <Route path="/agent-chat" element={<ProtectedRoute><AgentChat /></ProtectedRoute>} />
+                <Route path="/global-positions" element={<ProtectedRoute><GlobalPositions /></ProtectedRoute>} />
                 <Route path="/capital-management" element={<ProtectedRoute><CapitalManagement /></ProtectedRoute>} />
                 <Route path="/backtest" element={<ProtectedRoute><BacktestMenu /></ProtectedRoute>} />
                 <Route path="/data-export" element={<ProtectedRoute><DataExport /></ProtectedRoute>} />

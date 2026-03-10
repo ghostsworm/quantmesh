@@ -1343,11 +1343,12 @@ type BotConfig struct {
 
 // ClosePositionConfig 平倉配置
 type ClosePositionConfig struct {
-	Method      string  `yaml:"method" json:"method"`                           // 平倉方式：market/limit
-	PriceOffset float64 `yaml:"price_offset,omitempty" json:"price_offset,omitempty"` // 限價偏移百分比，如 -0.1 表示賣低 0.1%
-	TimeoutSec  int     `yaml:"timeout_sec,omitempty" json:"timeout_sec,omitempty"`   // 超時時間（秒），0=不超時
-	AutoRetry   bool    `yaml:"auto_retry,omitempty" json:"auto_retry,omitempty"`     // 超時後自動重試
-	MaxRetries  int     `yaml:"max_retries,omitempty" json:"max_retries,omitempty"`   // 最大重試次數
+	Method        string  `yaml:"method" json:"method"`                                     // 平倉方式：market/limit
+	PriceOffset   float64 `yaml:"price_offset,omitempty" json:"price_offset,omitempty"`     // 限價偏移百分比，如 -0.1 表示賣低 0.1%
+	TimeoutSec    int     `yaml:"timeout_sec,omitempty" json:"timeout_sec,omitempty"`       // 超時時間（秒），0=不超時
+	AutoRetry     bool    `yaml:"auto_retry,omitempty" json:"auto_retry,omitempty"`         // 超時後自動重試
+	MaxRetries    int     `yaml:"max_retries,omitempty" json:"max_retries,omitempty"`       // 最大重試次數
+	QuantityRatio float64 `yaml:"quantity_ratio,omitempty" json:"quantity_ratio,omitempty"` // 平倉比例 0~1，0 或 1 表示全倉
 }
 
 // SlotFilterRule 槽位過濾規則
