@@ -282,6 +282,49 @@ func TestSaveOrderWithPartialIndexMigration(t *testing.T) {
 	}
 }
 
+// TestSaveOrderWithNonUniqueIndexMigration 驗證從非唯一索引遷移到唯一索引後 SaveOrder 正常
+// 模擬 createTables 曾創建的 CREATE INDEX idx_orders_order_id（非 UNIQUE）導致 ON CONFLICT 報錯的場景
+func TestSaveOrderWithNonUniqueIndexMigration(t *testing.T) {
+	dbPath := "./test_nonunique_migrate.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
+	if err != nil {
+		t.Fatalf("打開 DB 失败: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			order_id BIGINT,
+			client_order_id TEXT, symbol TEXT, side TEXT, exchange TEXT, type TEXT,
+			price DECIMAL(20,8), quantity DECIMAL(20,8), filled_qty DECIMAL(20,8),
+			status TEXT, realized_pnl DECIMAL(20,8), strategy_name TEXT, strategy_type TEXT,
+			order_source TEXT, created_at TIMESTAMP, updated_at TIMESTAMP
+		);
+		CREATE INDEX idx_orders_order_id ON orders(order_id)
+	`)
+	db.Close()
+	if err != nil {
+		t.Fatalf("創建非唯一索引表失败: %v", err)
+	}
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	o := &Order{
+		OrderID:   888999, Symbol: "BTCUSDT", Side: "SELL", Exchange: "binance",
+		Price: 50000, Quantity: 0.01, Status: "FILLED", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := st.SaveOrder(o); err != nil {
+		t.Fatalf("遷移後 SaveOrder 失败（非唯一索引應被替換為唯一索引）: %v", err)
+	}
+}
+
 // TestGetReconciliationCount 驗證對账歷史記錄數統計（與對账頁面卡片顯示一致）
 func TestGetReconciliationCount(t *testing.T) {
 	dbPath := "./test_recon_count.db"

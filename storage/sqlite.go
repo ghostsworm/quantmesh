@@ -298,9 +298,9 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_created_at ON profit_withdraw_records(created_at);
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_rule_id ON profit_withdraw_records(rule_id);`
 
-	// 創建索引
+	// 創建索引（idx_orders_order_id 必須為 UNIQUE，否則 SaveOrder 的 ON CONFLICT(order_id) 會報錯）
 	indexesSQL := `
-	CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
 	CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
 	CREATE INDEX IF NOT EXISTS idx_positions_slot_price ON positions(slot_price);
 	CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at);
@@ -1093,35 +1093,46 @@ func migrateOrdersTable(db *sql.DB) error {
 
 	// 确保 order_id 有完整唯一约束（非 partial），否则 SaveOrder 的 ON CONFLICT(order_id) 会报错
 	// 参见: ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint
+	// 根因：createTables 曾创建 CREATE INDEX idx_orders_order_id（非唯一），导致 ON CONFLICT 无法匹配
 	var indexSQL string
-	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_orders_order_id'`).Scan(&indexSQL)
+	var isUnique int
+	err := db.QueryRow(`SELECT sql, CASE WHEN sql LIKE '%UNIQUE%' THEN 1 ELSE 0 END FROM sqlite_master WHERE type='index' AND name='idx_orders_order_id'`).Scan(&indexSQL, &isUnique)
 	if err == sql.ErrNoRows {
 		indexSQL = ""
+		isUnique = 0
 		err = nil
 	}
 	if err != nil {
 		return err
 	}
 
-	// 若存在 partial 索引（含 WHERE），需替换为完整索引，否则 ON CONFLICT 无法匹配
+	// 若存在 partial 索引（含 WHERE）或非唯一索引，需替换为完整唯一索引，否则 ON CONFLICT 无法匹配
 	isPartial := indexSQL != "" && strings.Contains(indexSQL, " WHERE ")
-	if isPartial {
+	needsReplace := isPartial || (indexSQL != "" && isUnique == 0)
+	if needsReplace {
 		if _, err := db.Exec(`DROP INDEX IF EXISTS idx_orders_order_id`); err != nil {
-			logger.Warn("⚠️ 删除 orders 表 partial 索引失败: %v", err)
+			logger.Warn("⚠️ 删除 orders 表 idx_orders_order_id 索引失败: %v", err)
 		} else {
-			logger.Info("🔄 已删除 orders 表 partial 索引，将创建完整索引")
+			logger.Info("🔄 已删除 orders 表 idx_orders_order_id（partial 或非唯一），将创建完整唯一索引")
 		}
 	}
 
-	// 检查是否已存在 order_id 的完整唯一索引
+	// 检查是否已存在 order_id 的完整唯一索引（含隐式 unique 与 idx_orders_order_id）
 	var indexCount int
 	err = db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_index_list('orders')
-		JOIN pragma_index_info ON pragma_index_list.name = pragma_index_info.name
-		WHERE pragma_index_list.origin = 'u' AND pragma_index_info.name = 'order_id'
+		SELECT COUNT(*) FROM pragma_index_list('orders') AS pil
+		WHERE pil.origin IN ('u', 'pk') AND pil.partial = 0
+		AND EXISTS (SELECT 1 FROM pragma_index_info(pil.name) WHERE name = 'order_id')
 	`).Scan(&indexCount)
+	if err != nil {
+		// 兼容旧版 SQLite：pragma_index_info 可能不支持参数，回退到简单检查
+		var anyUnique int
+		_ = db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND tbl_name='orders' AND (sql LIKE '%UNIQUE%' OR sql LIKE '%PRIMARY%') AND (sql LIKE '%order_id%') AND (sql NOT LIKE '%WHERE%')`).Scan(&anyUnique)
+		indexCount = anyUnique
+		err = nil
+	}
 
-	if err == nil && indexCount == 0 {
+	if indexCount == 0 {
 		// 检查是否有重复的 order_id
 		var duplicateCount int
 		err = db.QueryRow(`

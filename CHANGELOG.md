@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.0-rc7] - 2026-03-11
+
+### Fixed
+- **order_placed 仍報「ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint」**：根因是 createTables 曾創建 `CREATE INDEX idx_orders_order_id`（非 UNIQUE），遷移時因索引已存在而跳過創建唯一索引；現遷移會檢測並刪除非唯一/partial 索引後重建，createTables 改為直接創建 `CREATE UNIQUE INDEX`
+
+### Test
+- **storage/sqlite_test.go**：新增 `TestSaveOrderWithNonUniqueIndexMigration`，驗證非唯一索引遷移場景
+
 ## [3.74.0-rc6] - 2026-03-11
 
 ### Changed
