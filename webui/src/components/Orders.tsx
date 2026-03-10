@@ -692,8 +692,8 @@ const Orders: React.FC = () => {
                                 .filter(o => o.side === 'BUY')
                                 .sort((a, b) => b.price - a.price) // 按价格降序排列
                                 .map((order) => {
-                                  const totalPrice = (order.price ?? 0) * (order.quantity ?? 0)
-                                  const capitalUsage = pendingLeverage > 0 ? totalPrice / pendingLeverage : totalPrice
+                                  const totalPrice = computeOrderTotalPrice(order.price, order.quantity)
+                                  const capitalUsage = computeOrderCapitalUsage(totalPrice, pendingLeverage)
                                   return (
                                   <Tr key={order.order_id}>
                                     <Td>
@@ -765,8 +765,8 @@ const Orders: React.FC = () => {
                                 .filter(o => o.side === 'SELL')
                                 .sort((a, b) => a.price - b.price) // 按价格升序排列
                                 .map((order) => {
-                                  const totalPrice = (order.price ?? 0) * (order.quantity ?? 0)
-                                  const capitalUsage = pendingLeverage > 0 ? totalPrice / pendingLeverage : totalPrice
+                                  const totalPrice = computeOrderTotalPrice(order.price, order.quantity)
+                                  const capitalUsage = computeOrderCapitalUsage(totalPrice, pendingLeverage)
                                   return (
                                   <Tr key={order.order_id}>
                                     <Td>
@@ -1026,14 +1026,14 @@ const Orders: React.FC = () => {
                           <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
                           <Td isNumeric>
                             {(() => {
-                              const totalPrice = (order.price ?? 0) * (order.quantity ?? 0)
+                              const totalPrice = computeOrderTotalPrice(order.price, order.quantity)
                               return totalPrice > 0 ? totalPrice.toFixed(2) : '-'
                             })()}
                           </Td>
                           <Td isNumeric>
                             {(() => {
-                              const totalPrice = (order.price ?? 0) * (order.quantity ?? 0)
-                              const capitalUsage = historyLeverage > 0 ? totalPrice / historyLeverage : totalPrice
+                              const totalPrice = computeOrderTotalPrice(order.price, order.quantity)
+                              const capitalUsage = computeOrderCapitalUsage(totalPrice, historyLeverage)
                               return capitalUsage > 0 ? capitalUsage.toFixed(2) : '-'
                             })()}
                           </Td>
