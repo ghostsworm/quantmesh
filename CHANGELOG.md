@@ -7,6 +7,9 @@
 ### Fixed
 - **MySQL 配置存儲初始化失敗導致 panic**：當 MySQL 連接失敗（如 Error 1449 definer 不存在）時，原邏輯會導致 nil 指針 panic；現增加防禦性 nil 檢查，並在 MySQL 失敗時自動回退到 SQLite，確保服務可正常啟動
 
+### Test
+- **config_mysql_test.go**：新增 `TestMySQLConfigStorage_InitializeConfigs_NilDB`，驗證 db 為 nil 時返回錯誤而非 panic
+
 ## [3.74.0] - 2026-03-11
 
 ### Added
