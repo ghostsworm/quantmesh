@@ -433,6 +433,9 @@ func (s *MySQLConfigStorage) DeleteConfig(ctx context.Context, scope ConfigScope
 
 // InitializeConfigs 初始化默认配置
 func (s *MySQLConfigStorage) InitializeConfigs(ctx context.Context, entries []*ConfigEntry) error {
+	if s.db == nil {
+		return fmt.Errorf("MySQL 配置存储未正确初始化（数据库连接为空），请检查 MySQL 连接或改用 SQLite")
+	}
 	// 使用事务确保原子性
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

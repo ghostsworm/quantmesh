@@ -378,7 +378,32 @@ SET GLOBAL long_query_time = 2;
 -- 查看慢查询日志文件
 ```
 
-#### 4. 字符集问题
+#### 4. Error 1449: definer 不存在
+
+**问题**: `Error 1449 (HY000): The user specified as a definer ('qt'@'47.82.4.54:34842') does not exist`
+
+**原因**: 数据库中存在视图、存储过程或触发器，其 definer（创建者）用户已不存在（常见于跨服务器迁移或用户删除后）。
+
+**解决方案**（任选其一）:
+
+1. **创建缺失用户**（若需保留原 definer）:
+   ```sql
+   CREATE USER 'qt'@'47.82.4.54' IDENTIFIED BY 'your_password';
+   GRANT ALL ON quantmesh.* TO 'qt'@'47.82.4.54';
+   FLUSH PRIVILEGES;
+   ```
+
+2. **修改 definer 为当前用户**（推荐）:
+   ```sql
+   -- 查看有问题的视图
+   SELECT TABLE_NAME, DEFINER FROM information_schema.VIEWS WHERE TABLE_SCHEMA = 'quantmesh';
+   -- 修改视图 definer（将 youruser@host 替换为当前用户）
+   -- 或删除有问题的视图后重建
+   ```
+
+3. **使用 SQLite 回退**: QuantMesh 3.74.0-rc2+ 在 MySQL 连接失败时会自动回退到 SQLite，确保服务可启动。可将 `database.type` 改为 `sqlite` 或修复 MySQL 后重启。
+
+#### 5. 字符集问题
 
 **问题**: 中文乱码
 

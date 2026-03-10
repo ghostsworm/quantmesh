@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.74.0-rc1"
+var Version = "3.74.0-rc2"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1631,7 +1631,19 @@ func main() {
 		}
 		configStorage, err = storage.NewConfigStorageByType(dbType, dsn)
 		if err != nil {
-			logger.Warn("⚠️ 初始化 MySQL 配置存儲失败: %v", err)
+			logger.Warn("⚠️ 初始化 MySQL 配置存儲失败: %v，將回退使用 SQLite", err)
+			// MySQL 失败时回退到 SQLite，避免服务无法启动
+			configDBPath := cfg.Storage.Path
+			if configDBPath == "" {
+				configDBPath = "./data/config.db"
+			}
+			configStorage, err = storage.NewConfigStorage(configDBPath)
+			if err != nil {
+				logger.Warn("⚠️ SQLite 回退也失败: %v", err)
+			} else {
+				dbType = "sqlite"
+				logger.Info("ℹ️ 已回退使用 SQLite 配置存儲: %s", configDBPath)
+			}
 		}
 	} else {
 		configStorage, err = storage.NewConfigStorageByType(dbType, cfg.Storage.Path)
