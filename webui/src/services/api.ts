@@ -433,8 +433,10 @@ export async function getPositionsSummary(exchange?: string, symbol?: string): P
 
 // 按交易所、币种、策略列出的所有持倉彙總
 export interface PositionSummaryItem {
+  bot_id?: string
   exchange: string
   symbol: string
+  market_type?: string
   strategy: string
   total_quantity: number
   total_value: number
@@ -1758,6 +1760,7 @@ export async function closeAllPositions(exchange?: string, symbol?: string): Pro
 // ========== V2 API: 平倉和槽位管理 ==========
 
 export interface ClosePositionsV2Request {
+  quantity_ratio?: number  // 平倉比例 0~1，0 或 1 表示全倉
   method: 'market' | 'limit'
   price_offset?: number
   timeout_sec?: number

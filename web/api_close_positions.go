@@ -40,10 +40,11 @@ func RegisterBotExtendedProvider(provider BotExtendedProvider) {
 
 // ClosePositionsV2Request 平倉請求
 type ClosePositionsV2Request struct {
-	Method      string  `json:"method" binding:"required"`      // market/limit
-	PriceOffset float64 `json:"price_offset,omitempty"`         // 限價偏移（%）
-	TimeoutSec  int     `json:"timeout_sec,omitempty"`         // 超時時間（秒）
-	AutoRetry   bool    `json:"auto_retry,omitempty"`          // 是否自動重試
+	Method        string  `json:"method" binding:"required"` // market/limit
+	PriceOffset   float64 `json:"price_offset,omitempty"`    // 限價偏移（%）
+	TimeoutSec    int     `json:"timeout_sec,omitempty"`     // 超時時間（秒）
+	AutoRetry     bool    `json:"auto_retry,omitempty"`      // 是否自動重試
+	QuantityRatio float64 `json:"quantity_ratio,omitempty"`  // 平倉比例 0~1，0 或 1 表示全倉
 }
 
 // ClosePositionsV2Response 平倉響應
@@ -104,11 +105,12 @@ func closePositionsV2(c *gin.Context) {
 
 	// 調用平倉
 	cfg := config.ClosePositionConfig{
-		Method:      req.Method,
-		PriceOffset: req.PriceOffset,
-		TimeoutSec:  req.TimeoutSec,
-		AutoRetry:   req.AutoRetry,
-		MaxRetries:  3,
+		Method:        req.Method,
+		PriceOffset:   req.PriceOffset,
+		TimeoutSec:    req.TimeoutSec,
+		AutoRetry:     req.AutoRetry,
+		MaxRetries:    3,
+		QuantityRatio: req.QuantityRatio,
 	}
 
 	result, err := bot.ClosePositions(context.Background(), cfg)
