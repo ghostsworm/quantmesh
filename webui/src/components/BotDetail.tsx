@@ -474,7 +474,7 @@ const BotDetail: React.FC = () => {
             )}
           </TabPanel>
           <TabPanel px={0}>
-            <BotStrategyConfigPanel botId={botId!} bot={bot} />
+            <BotStrategyConfigPanel botId={botId!} bot={bot} onSaved={fetchBot} />
           </TabPanel>
           <TabPanel px={0}>
             {botId && (
@@ -717,9 +717,10 @@ const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
 interface BotStrategyConfigPanelProps {
   botId: string
   bot: BotDetailInfo | null
+  onSaved?: () => void | Promise<void>
 }
 
-const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, bot }) => {
+const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, bot, onSaved }) => {
   const { t } = useTranslation()
   const toast = useToast()
 
@@ -836,6 +837,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       })
       setHasChanges(false)
       setOriginalStrategyType(strategyType) // 更新原始策略类型
+      await onSaved?.() // 刷新 Bot 詳情，確保 smart_order 等配置與後端一致
     } catch (err: any) {
       const errorMsg = err.errorKey ? t(err.errorKey) : t('botDetail.strategy.saveFailed')
       toast({
@@ -1085,18 +1087,18 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       {/* 智能挂单配置 */}
       <Card>
         <CardBody>
-          <Heading size="sm" mb={4}>🧠 {t('botDetail.strategy.smartOrderConfig') || '智能挂单配置'}</Heading>
+          <Heading size="sm" mb={4}>🧠 {t('botDetail.strategy.smartOrderConfig')}</Heading>
           <VStack align="stretch" spacing={4}>
             <Alert status="info" borderRadius="md" py={2}>
               <AlertIcon />
               <AlertDescription fontSize="sm">
-                {t('botDetail.strategy.smartOrderDescription') || '智能挂单可以减少资金占用，只在当前价格附近挂单，自动跟随价格移动。'}
+                {t('botDetail.strategy.smartOrderDescription')}
               </AlertDescription>
             </Alert>
 
             <FormControl display="flex" alignItems="center" gap={3}>
               <FormLabel htmlFor="smart-order-enabled" mb={0}>
-                {t('botDetail.strategy.smartOrderEnabled') || '启用智能挂单'}
+                {t('botDetail.strategy.smartOrderEnabled')}
               </FormLabel>
               <Switch
                 id="smart-order-enabled"
@@ -1114,7 +1116,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                 <Divider />
 
                 <FormControl>
-                  <FormLabel>{t('botDetail.strategy.maxOpenOrders') || '最大开仓订单数'}</FormLabel>
+                  <FormLabel>{t('botDetail.strategy.maxOpenOrders')}</FormLabel>
                   <NumberInput
                     value={smartOrderMaxOpenOrders}
                     onChange={(valueString) => {
@@ -1132,12 +1134,12 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                     </NumberInputStepper>
                   </NumberInput>
                   <Text fontSize="xs" color="gray.500" mt={1}>
-                    {t('botDetail.strategy.maxOpenOrdersHint') || '每个方向最多挂几个订单，建议 2-4 个'}
+                    {t('botDetail.strategy.maxOpenOrdersHint')}
                   </Text>
                 </FormControl>
 
                 <FormControl>
-                  <FormLabel>{t('botDetail.strategy.openOrderDistance') || '最大距离间隔数'}</FormLabel>
+                  <FormLabel>{t('botDetail.strategy.openOrderDistance')}</FormLabel>
                   <NumberInput
                     value={smartOrderOpenOrderDistance}
                     onChange={(valueString) => {
@@ -1155,14 +1157,14 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                     </NumberInputStepper>
                   </NumberInput>
                   <Text fontSize="xs" color="gray.500" mt={1}>
-                    {t('botDetail.strategy.openOrderDistanceHint') || '订单距离当前价格的最大间隔数，超过此距离的订单会被撤销'}
+                    {t('botDetail.strategy.openOrderDistanceHint')}
                   </Text>
                 </FormControl>
 
                 <Alert status="success" borderRadius="md" py={2} mt={2}>
                   <AlertIcon />
                   <AlertDescription fontSize="xs">
-                    {t('botDetail.strategy.smartOrderEffect') || `启用后，系统将只在当前价格附近 ${smartOrderMaxOpenOrders} 个间隔内挂单，每 60 秒检查一次并自动调整。`}
+                    {t('botDetail.strategy.smartOrderEffect', { count: smartOrderMaxOpenOrders })}
                   </AlertDescription>
                 </Alert>
               </>

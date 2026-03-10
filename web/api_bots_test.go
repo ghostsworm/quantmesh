@@ -1,10 +1,29 @@
 package web
 
 import (
+	"encoding/json"
 	"testing"
 
 	"quantmesh/config"
 )
+
+func TestUpdateBotStrategyRequest_SmartOrderEnabled(t *testing.T) {
+	// 驗證 smart_order_enabled 能正確解析並持久化
+	body := `{"strategies":[{"type":"grid","weight":1}],"smart_order_enabled":true,"smart_order_max_open_orders":4,"smart_order_open_order_distance":6}`
+	var req UpdateBotStrategyRequest
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+	if req.SmartOrderEnabled == nil || !*req.SmartOrderEnabled {
+		t.Error("smart_order_enabled should be true")
+	}
+	if req.SmartOrderMaxOpenOrders == nil || *req.SmartOrderMaxOpenOrders != 4 {
+		t.Error("smart_order_max_open_orders should be 4")
+	}
+	if req.SmartOrderOpenOrderDistance == nil || *req.SmartOrderOpenOrderDistance != 6 {
+		t.Error("smart_order_open_order_distance should be 6")
+	}
+}
 
 func TestBuildGridRiskControlFromRequest(t *testing.T) {
 	tests := []struct {

@@ -223,7 +223,15 @@
       "maxOpenOrdersAtCap": "达到层数限制时最大挂单数",
       "riskControlEnabled": "风控状态",
       "layers": "层",
-      "riskConfigHint": "当前显示的是配置文件中的网格风控设置。如需修改，请到配置管理页面或编辑配置文件。"
+      "riskConfigHint": "当前显示的是配置文件中的网格风控设置。如需修改，请到配置管理页面或编辑配置文件。",
+      "smartOrderConfig": "智能挂单配置",
+      "smartOrderDescription": "智能挂单可以减少资金占用，只在当前价格附近挂单，自动跟随价格移动。",
+      "smartOrderEnabled": "启用智能挂单",
+      "maxOpenOrders": "最大开仓订单数",
+      "maxOpenOrdersHint": "每个方向最多挂几个订单，建议 2-4 个",
+      "openOrderDistance": "最大距离间隔数",
+      "openOrderDistanceHint": "订单距离当前价格的最大间隔数，超过此距离的订单会被撤销",
+      "smartOrderEffect": "启用后，系统将只在当前价格附近 {{count}} 个间隔内挂单，每 60 秒检查一次并自动调整。"
     }
   },
   "sidebar": {

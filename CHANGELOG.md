@@ -2,6 +2,12 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.73.2] - 2026-03-11
+
+### Fixed
+- **智能掛單開關刷新後還原**：啟用 smartOrderEnabled 後刷新頁面又變關閉；根因是策略更新 API 未將新配置推送到運行中的 Bot，且 UpdateRuntimeTradingParams 僅在交易參數變更時才同步 Config。現策略更新後立即調用 UpdateTradingParams 推送配置，且運行時始終同步 Config（含 smart_order、風控等），確保刷新後正確顯示
+- **智能掛單配置未多語系化**：補全 botDetail.strategy 下 smartOrderConfig、smartOrderDescription、smartOrderEnabled、maxOpenOrders、maxOpenOrdersHint、openOrderDistance、openOrderDistanceHint、smartOrderEffect 的 zh-CN / en-US 翻譯；保存策略後自動刷新 Bot 詳情
+
 ## [3.71.7] - 2026-03-09
 
 ### Fixed
