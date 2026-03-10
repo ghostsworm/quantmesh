@@ -294,6 +294,9 @@ type SuperPositionManager struct {
 	// ReduceOnly 槽位冷却期：同一槽位 ReduceOnly 失败后，短期内不再尝试下平仓单（防止重复告警）
 	reduceOnlyCooldown sync.Map // map[float64]time.Time
 
+	// 网格自动重建管理器（可选，用于价格偏离时自动调整网格锚点）
+	autoRebuilder *GridAutoRebuilder
+
 	mu sync.RWMutex // 全局鎖（用於关键操作）
 }
 
@@ -692,6 +695,32 @@ func (spm *SuperPositionManager) GetSlotFilter() *config.SlotFilterConfig {
 	spm.slotFilterMu.RLock()
 	defer spm.slotFilterMu.RUnlock()
 	return spm.slotFilter
+}
+
+// StartAutoRebuild 啟動網格自動重建
+func (spm *SuperPositionManager) StartAutoRebuild(cfg config.GridAutoRebuildConfig) {
+	if spm.autoRebuilder != nil {
+		logger.Warn("⚠️ [%s] 網格自動重建已經在運行中", spm.logPrefix())
+		return
+	}
+
+	spm.autoRebuilder = NewGridAutoRebuilder(spm, cfg)
+	spm.autoRebuilder.Start()
+}
+
+// StopAutoRebuild 停止網格自動重建
+func (spm *SuperPositionManager) StopAutoRebuild() {
+	if spm.autoRebuilder == nil {
+		return
+	}
+
+	spm.autoRebuilder.Stop()
+	spm.autoRebuilder = nil
+}
+
+// IsAutoRebuildEnabled 檢查是否啟用了自動重建
+func (spm *SuperPositionManager) IsAutoRebuildEnabled() bool {
+	return spm.autoRebuilder != nil
 }
 
 // getActualMargin 獲取實際使用的保证金（考虑杠杆）

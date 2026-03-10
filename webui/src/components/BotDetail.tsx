@@ -734,6 +734,11 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
   const [hasChanges, setHasChanges] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // 智能挂单配置状态
+  const [smartOrderEnabled, setSmartOrderEnabled] = useState(false)
+  const [smartOrderMaxOpenOrders, setSmartOrderMaxOpenOrders] = useState('3')
+  const [smartOrderOpenOrderDistance, setSmartOrderOpenOrderDistance] = useState('5')
+
   // 策略类型选项（根据当前策略类型限制可切换的类型）
   const getAvailableStrategies = () => {
     if (!bot?.config?.strategies || bot.config.strategies.length === 0) {
@@ -775,6 +780,12 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       setPriceLow(cfg.price_low?.toString() || '')
       setPriceHigh(cfg.price_high?.toString() || '')
       setDirection(cfg.direction || 'LONG')
+
+      // 初始化智能挂单配置
+      const smartOrder = cfg.smart_order || {}
+      setSmartOrderEnabled(smartOrder.enabled || false)
+      setSmartOrderMaxOpenOrders(smartOrder.max_open_orders?.toString() || '3')
+      setSmartOrderOpenOrderDistance(smartOrder.open_order_distance?.toString() || '5')
     }
   }, [bot])
 
@@ -810,6 +821,13 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       if (priceHigh) updateData.price_high = parseFloat(priceHigh)
       if (direction) updateData.direction = direction
 
+      // 智能挂单配置
+      updateData.smart_order_enabled = smartOrderEnabled
+      if (smartOrderEnabled) {
+        updateData.smart_order_max_open_orders = parseInt(smartOrderMaxOpenOrders) || 3
+        updateData.smart_order_open_order_distance = parseFloat(smartOrderOpenOrderDistance) || 5
+      }
+
       await updateBotStrategy(botId, updateData)
       toast({
         title: t('botDetail.strategy.saveSuccess'),
@@ -842,6 +860,13 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       setPriceLow(cfg.price_low?.toString() || '')
       setPriceHigh(cfg.price_high?.toString() || '')
       setDirection(cfg.direction || 'LONG')
+
+      // 重置智能挂单配置
+      const smartOrder = cfg.smart_order || {}
+      setSmartOrderEnabled(smartOrder.enabled || false)
+      setSmartOrderMaxOpenOrders(smartOrder.max_open_orders?.toString() || '3')
+      setSmartOrderOpenOrderDistance(smartOrder.open_order_distance?.toString() || '5')
+
       setHasChanges(false)
     }
   }
@@ -1053,6 +1078,95 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                 {t('botDetail.strategy.priceHighHint')}
               </Text>
             </FormControl>
+          </VStack>
+        </CardBody>
+      </Card>
+
+      {/* 智能挂单配置 */}
+      <Card>
+        <CardBody>
+          <Heading size="sm" mb={4}>🧠 {t('botDetail.strategy.smartOrderConfig') || '智能挂单配置'}</Heading>
+          <VStack align="stretch" spacing={4}>
+            <Alert status="info" borderRadius="md" py={2}>
+              <AlertIcon />
+              <AlertDescription fontSize="sm">
+                {t('botDetail.strategy.smartOrderDescription') || '智能挂单可以减少资金占用，只在当前价格附近挂单，自动跟随价格移动。'}
+              </AlertDescription>
+            </Alert>
+
+            <FormControl display="flex" alignItems="center" gap={3}>
+              <FormLabel htmlFor="smart-order-enabled" mb={0}>
+                {t('botDetail.strategy.smartOrderEnabled') || '启用智能挂单'}
+              </FormLabel>
+              <Switch
+                id="smart-order-enabled"
+                isChecked={smartOrderEnabled}
+                onChange={(e) => {
+                  setSmartOrderEnabled(e.target.checked)
+                  setHasChanges(true)
+                }}
+                isDisabled={bot.running}
+              />
+            </FormControl>
+
+            {smartOrderEnabled && (
+              <>
+                <Divider />
+
+                <FormControl>
+                  <FormLabel>{t('botDetail.strategy.maxOpenOrders') || '最大开仓订单数'}</FormLabel>
+                  <NumberInput
+                    value={smartOrderMaxOpenOrders}
+                    onChange={(valueString) => {
+                      setSmartOrderMaxOpenOrders(valueString)
+                      setHasChanges(true)
+                    }}
+                    min={1}
+                    max={10}
+                    step={1}
+                  >
+                    <NumberInputField />
+                    <NumberInputStepper>
+                      <NumberIncrementStepper />
+                      <NumberDecrementStepper />
+                    </NumberInputStepper>
+                  </NumberInput>
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    {t('botDetail.strategy.maxOpenOrdersHint') || '每个方向最多挂几个订单，建议 2-4 个'}
+                  </Text>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>{t('botDetail.strategy.openOrderDistance') || '最大距离间隔数'}</FormLabel>
+                  <NumberInput
+                    value={smartOrderOpenOrderDistance}
+                    onChange={(valueString) => {
+                      setSmartOrderOpenOrderDistance(valueString)
+                      setHasChanges(true)
+                    }}
+                    min={1}
+                    max={20}
+                    step={1}
+                  >
+                    <NumberInputField />
+                    <NumberInputStepper>
+                      <NumberIncrementStepper />
+                      <NumberDecrementStepper />
+                    </NumberInputStepper>
+                  </NumberInput>
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    {t('botDetail.strategy.openOrderDistanceHint') || '订单距离当前价格的最大间隔数，超过此距离的订单会被撤销'}
+                  </Text>
+                </FormControl>
+
+                <Alert status="success" borderRadius="md" py={2} mt={2}>
+                  <AlertIcon />
+                  <AlertDescription fontSize="xs">
+                    {t('botDetail.strategy.smartOrderEffect') || `启用后，系统将只在当前价格附近 ${smartOrderMaxOpenOrders} 个间隔内挂单，每 60 秒检查一次并自动调整。`}
+                  </AlertDescription>
+                </Alert>
+              </>
+            )}
           </VStack>
         </CardBody>
       </Card>

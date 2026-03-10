@@ -306,6 +306,10 @@ export interface UpdateBotStrategyRequest {
   price_low?: number
   price_high?: number
   direction?: string
+  // 智能挂单配置
+  smart_order_enabled?: boolean
+  smart_order_max_open_orders?: number
+  smart_order_open_order_distance?: number
 }
 
 export interface UpdateBotStrategyResponse {

@@ -114,6 +114,25 @@ type CreateBotRequest struct {
 	GridRiskControlTrendFilter      bool    `json:"grid_risk_control_trend_filter_enabled"`
 	GridRiskControlMaxGridLayers    int     `json:"grid_risk_control_max_grid_layers"`
 	GridRiskControlMaxOpenOrdersCap int     `json:"grid_risk_control_max_open_orders_at_cap"`
+
+	// 網格自動重建配置
+	AutoRebuildEnabled             bool    `json:"auto_rebuild_enabled"`
+	AutoRebuildCheckInterval       int     `json:"auto_rebuild_check_interval_minutes"`
+	AutoRebuildPriceDeviation      int     `json:"auto_rebuild_price_deviation_layers"`
+	AutoRebuildOrderExpire         int     `json:"auto_rebuild_order_expire_minutes"`
+	AutoRebuildExpiredRatio        float64 `json:"auto_rebuild_expired_order_ratio"`
+	AutoRebuildMode                string  `json:"auto_rebuild_mode"`
+	AutoRebuildMaxPerHour          int     `json:"auto_rebuild_max_per_hour"`
+	AutoRebuildMinInterval         int     `json:"auto_rebuild_min_interval"`
+	AutoRebuildRequireTrendConfirm bool    `json:"auto_rebuild_require_trend_confirm"`
+
+	// 智能掛單配置
+	SmartOrderEnabled              bool    `json:"smart_order_enabled"`
+	SmartOrderMaxOpenOrders        int     `json:"smart_order_max_open_orders"`
+	SmartOrderOpenOrderDistance    float64 `json:"smart_order_open_order_distance"`
+	SmartOrderOnlyCloseFilledSlots bool    `json:"smart_order_only_close_filled_slots"`
+	SmartOrderProgressivePlacement bool    `json:"smart_order_progressive_placement"`
+	SmartOrderLeadSlots            int     `json:"smart_order_lead_slots"`
 }
 
 // buildGridRiskControlFromRequest 從創建請求構建 GridRiskControl
@@ -128,6 +147,35 @@ func buildGridRiskControlFromRequest(req CreateBotRequest) config.GridRiskContro
 		MaxOpenOrdersAtCap:      req.GridRiskControlMaxOpenOrdersCap,
 	}
 	return grc
+}
+
+// buildGridAutoRebuildFromRequest 從創建請求構建 GridAutoRebuildConfig
+func buildGridAutoRebuildFromRequest(req CreateBotRequest) config.GridAutoRebuildConfig {
+	arc := config.GridAutoRebuildConfig{
+		Enabled:             req.AutoRebuildEnabled,
+		CheckIntervalMinutes: req.AutoRebuildCheckInterval,
+		PriceDeviationLayers: req.AutoRebuildPriceDeviation,
+		OrderExpireMinutes:   req.AutoRebuildOrderExpire,
+		ExpiredOrderRatio:    req.AutoRebuildExpiredRatio,
+		RebuildMode:          req.AutoRebuildMode,
+		MaxRebuildsPerHour:   req.AutoRebuildMaxPerHour,
+		MinRebuildInterval:   req.AutoRebuildMinInterval,
+		RequireTrendConfirm:  req.AutoRebuildRequireTrendConfirm,
+	}
+	return arc
+}
+
+// buildSmartOrderFromRequest 從創建請求構建 SmartOrderConfig
+func buildSmartOrderFromRequest(req CreateBotRequest) config.SmartOrderConfig {
+	soc := config.SmartOrderConfig{
+		Enabled:              req.SmartOrderEnabled,
+		MaxOpenOrders:        req.SmartOrderMaxOpenOrders,
+		OpenOrderDistance:    req.SmartOrderOpenOrderDistance,
+		OnlyCloseFilledSlots: req.SmartOrderOnlyCloseFilledSlots,
+		ProgressivePlacement: req.SmartOrderProgressivePlacement,
+		LeadSlots:            req.SmartOrderLeadSlots,
+	}
+	return soc
 }
 
 // postBotCreate 創建 Bot
@@ -242,6 +290,8 @@ func postBotCreate(c *gin.Context) {
 		GridShiftStep:         req.GridShiftStep,
 		CloseOnStop:           req.CloseOnStop,
 		GridRiskControl:       buildGridRiskControlFromRequest(req),
+		AutoRebuild:           buildGridAutoRebuildFromRequest(req),
+		SmartOrder:            buildSmartOrderFromRequest(req),
 	}
 	if bc.ReconcileInterval <= 0 {
 		bc.ReconcileInterval = 60
@@ -773,6 +823,10 @@ type UpdateBotStrategyRequest struct {
 	PriceLow       *float64                  `json:"price_low,omitempty"`        // 網格價格下限
 	PriceHigh      *float64                  `json:"price_high,omitempty"`       // 網格價格上限
 	Direction      *string                   `json:"direction,omitempty"`       // 交易方向：LONG/SHORT/BOTH
+	// 智能掛單配置
+	SmartOrderEnabled           *bool    `json:"smart_order_enabled,omitempty"`
+	SmartOrderMaxOpenOrders     *int     `json:"smart_order_max_open_orders,omitempty"`
+	SmartOrderOpenOrderDistance *float64 `json:"smart_order_open_order_distance,omitempty"`
 }
 
 // putBotStrategy 更新 Bot 策略配置
@@ -889,6 +943,24 @@ func putBotStrategy(c *gin.Context) {
 			// 更新交易方向
 			if req.Direction != nil {
 				bc.Direction = *req.Direction
+			}
+
+			// 更新智能掛單配置
+			if req.SmartOrderEnabled != nil {
+				if bc.SmartOrder.Enabled != *req.SmartOrderEnabled {
+					bc.SmartOrder.Enabled = *req.SmartOrderEnabled
+					// 如果启用了智能挂单，设置默认值
+					if *req.SmartOrderEnabled && bc.SmartOrder.MaxOpenOrders == 0 {
+						bc.SmartOrder.MaxOpenOrders = 3
+						bc.SmartOrder.OpenOrderDistance = 5
+					}
+				}
+			}
+			if req.SmartOrderMaxOpenOrders != nil {
+				bc.SmartOrder.MaxOpenOrders = *req.SmartOrderMaxOpenOrders
+			}
+			if req.SmartOrderOpenOrderDistance != nil {
+				bc.SmartOrder.OpenOrderDistance = *req.SmartOrderOpenOrderDistance
 			}
 
 			found = true
