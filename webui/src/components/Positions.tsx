@@ -108,7 +108,7 @@ const Positions: React.FC = () => {
         })
         return
       }
-      const result = await batchCancelOrders(buyOrderIds, selectedExchange, selectedSymbol)
+      const result = await batchCancelOrders(buyOrderIds, selectedExchange, selectedSymbol, selectedMarketType || 'futures')
       if (result.success) {
         toast({
           title: t('positionsPage.cancelAllBuyOrdersSuccess'),

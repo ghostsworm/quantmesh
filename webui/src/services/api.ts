@@ -482,6 +482,7 @@ export interface OrdersResponse {
   orders: OrderInfo[]
   total_count?: number  // 数据库中的真实订单总数
   today_count?: number  // 今日订单数
+  leverage?: number     // 杠杆倍数，用于计算资金占用
 }
 
 export async function getOrders(exchange?: string, symbol?: string): Promise<OrdersResponse> {
@@ -532,6 +533,7 @@ export interface PendingOrderInfo {
 
 export interface PendingOrdersResponse {
   orders: PendingOrderInfo[]
+  leverage?: number  // 杠杆倍数，用于计算资金占用
 }
 
 export async function getPendingOrders(exchange?: string, symbol?: string): Promise<PendingOrdersResponse> {
@@ -608,8 +610,15 @@ export interface CancelOrderResponse {
   order_id?: number
 }
 
-export async function cancelOrder(orderId: number, exchange: string, symbol: string): Promise<CancelOrderResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/orders/${orderId}/cancel?exchange=${exchange}&symbol=${symbol}`, {
+export async function cancelOrder(
+  orderId: number,
+  exchange: string,
+  symbol: string,
+  marketType: string = 'futures'
+): Promise<CancelOrderResponse> {
+  const params = new URLSearchParams({ exchange, symbol })
+  if (marketType) params.set('market_type', marketType)
+  return fetchWithAuth(`${API_BASE_URL}/orders/${orderId}/cancel?${params}`, {
     method: 'POST',
   })
 }
@@ -620,10 +629,15 @@ export interface BatchCancelOrdersResponse {
   count?: number
 }
 
-export async function batchCancelOrders(orderIds: number[], exchange: string, symbol: string): Promise<BatchCancelOrdersResponse> {
+export async function batchCancelOrders(
+  orderIds: number[],
+  exchange: string,
+  symbol: string,
+  marketType: string = 'futures'
+): Promise<BatchCancelOrdersResponse> {
   return fetchWithAuth(`${API_BASE_URL}/orders/cancel`, {
     method: 'POST',
-    body: JSON.stringify({ order_ids: orderIds, exchange, symbol }),
+    body: JSON.stringify({ order_ids: orderIds, exchange, symbol, market_type: marketType }),
   })
 }
 
