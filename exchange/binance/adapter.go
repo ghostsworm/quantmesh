@@ -335,18 +335,22 @@ func (b *BinanceAdapter) roundToStepSize(quantity float64) float64 {
 
 // PlaceOrder 下單
 func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	// 驗证價格
-	if req.Price <= 0 {
+	// 市价单不需要价格验证
+	isMarketOrder := req.Type == OrderTypeMarket
+	if !isMarketOrder && req.Price <= 0 {
 		return nil, fmt.Errorf("無效的下單價格: %.8f（價格必須大於0）", req.Price)
 	}
 
-	// 使用 tickSize 調整價格，确保符合交易所要求
-	originalPrice := req.Price
-	adjustedPrice := b.roundToTickSize(req.Price, req.Side)
-	if adjustedPrice != originalPrice {
-		logger.Debug("ℹ️ [Binance] [%s] 價格已按 tickSize(%.8f) 調整: %.8f -> %.8f",
-			req.Symbol, b.tickSize, originalPrice, adjustedPrice)
-		req.Price = adjustedPrice
+	// 使用 tickSize 調整價格，确保符合交易所要求（仅限限价单）
+	var adjustedPrice float64
+	if !isMarketOrder {
+		originalPrice := req.Price
+		adjustedPrice = b.roundToTickSize(req.Price, req.Side)
+		if adjustedPrice != originalPrice {
+			logger.Debug("ℹ️ [Binance] [%s] 價格已按 tickSize(%.8f) 調整: %.8f -> %.8f",
+				req.Symbol, b.tickSize, originalPrice, adjustedPrice)
+			req.Price = adjustedPrice
+		}
 	}
 
 	// 使用 stepSize 調整數量
@@ -375,7 +379,11 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		logger.Warn("⚠️ [Binance] [%s] 下單數量原始值為 0，已自动調整為最小成交單位: %.8f", req.Symbol, minQty)
 	}
 
-	priceStr := fmt.Sprintf("%.*f", pDec, req.Price)
+	// 价格字符串（仅限价单需要）
+	var priceStr string
+	if !isMarketOrder {
+		priceStr = fmt.Sprintf("%.*f", pDec, req.Price)
+	}
 	quantityStr := fmt.Sprintf("%.*f", qDec, req.Quantity)
 
 	// 特殊处理：如果數量截断后為 0，则用交易所允許的最小數量兜底，避免报錯
@@ -487,19 +495,33 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		}
 	}
 
-	// 根據 PostOnly 参數选擇 TimeInForce
+	// 根據订单类型和 PostOnly 参數选擇 TimeInForce（仅限价单需要）
 	timeInForce := futures.TimeInForceTypeGTC
-	if req.PostOnly {
+	if req.PostOnly && !isMarketOrder {
 		timeInForce = futures.TimeInForceTypeGTX // Post Only - 只做 Maker
 	}
 
+	// 确定订单类型
+	var orderType futures.OrderType
+	if isMarketOrder {
+		orderType = futures.OrderTypeMarket
+	} else {
+		orderType = futures.OrderTypeLimit
+	}
+
+	// 构建订单服务
 	orderService := b.client.NewCreateOrderService().
 		Symbol(req.Symbol).
 		Side(futures.SideType(req.Side)).
-		Type(futures.OrderTypeLimit).
-		TimeInForce(timeInForce).
-		Quantity(quantityStr).
-		Price(priceStr)
+		Type(orderType).
+		Quantity(quantityStr)
+
+	// 限价单需要设置价格和 TimeInForce
+	if !isMarketOrder {
+		orderService = orderService.
+			TimeInForce(timeInForce).
+			Price(priceStr)
+	}
 
 	// 設置自定义订單ID（添加返佣標识）
 	clientOrderID := req.ClientOrderID
