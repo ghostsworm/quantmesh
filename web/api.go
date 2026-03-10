@@ -1850,10 +1850,19 @@ func getOrderHistory(c *gin.Context) {
 		}
 	}
 
+	// 獲取槓桿倍數（用於計算資金占用）
+	leverage := 1
+	if pmProvider := PickPositionProvider(c); pmProvider != nil {
+		if l := pmProvider.GetLeverage(); l > 0 {
+			leverage = l
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"orders":      ordersResponse,
 		"total_count": totalCount,
 		"today_count": todayCount,
+		"leverage":    leverage,
 	})
 }
 
@@ -3096,7 +3105,7 @@ func releaseAllStrategiesCapital(c *gin.Context) {
 func getPendingOrders(c *gin.Context) {
 	pmProvider := PickPositionProvider(c)
 	if pmProvider == nil {
-		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
+		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}, "leverage": 1})
 		return
 	}
 
@@ -3133,7 +3142,15 @@ func getPendingOrders(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"orders": pendingOrders, "count": len(pendingOrders)})
+	// 獲取槓桿倍數（用於計算資金占用）
+	leverage := 1
+	if pmProvider != nil {
+		if l := pmProvider.GetLeverage(); l > 0 {
+			leverage = l
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"orders": pendingOrders, "count": len(pendingOrders), "leverage": leverage})
 }
 
 // PendingOrderInfo 待成交订單信息
@@ -3153,6 +3170,23 @@ type PendingOrderInfo struct {
 	StrategyType   string    `json:"strategy_type"` // 策略類型
 }
 
+// getExchangeForCancel 獲取交易所實例：優先從運行中的 bot 獲取，否則從配置按需創建
+func getExchangeForCancel(exchangeName, symbol, marketType string) (exchange.IExchange, error) {
+	if exchangeGetterFunc != nil {
+		if ex := exchangeGetterFunc(exchangeName); ex != nil {
+			return ex, nil
+		}
+	}
+	// 無運行中的 bot 時，從配置按需創建（支持訂單管理在 bot 未運行時取消訂單）
+	if globalConfig == nil {
+		return nil, fmt.Errorf("配置未加載")
+	}
+	if marketType == "" {
+		marketType = "futures"
+	}
+	return exchange.NewExchange(globalConfig, exchangeName, symbol, marketType)
+}
+
 // cancelOrder 取消订單
 // POST /api/orders/:id/cancel
 func cancelOrder(c *gin.Context) {
@@ -3166,19 +3200,15 @@ func cancelOrder(c *gin.Context) {
 	// 獲取交易所和交易對
 	exchangeName := c.Query("exchange")
 	symbol := c.Query("symbol")
+	marketType := c.DefaultQuery("market_type", "futures")
 	if exchangeName == "" || symbol == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 exchange 或 symbol 参數"})
 		return
 	}
 
-	// 獲取交易所實例
-	if exchangeGetterFunc == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "交易所服務未初始化"})
-		return
-	}
-
-	ex := exchangeGetterFunc(exchangeName)
-	if ex == nil {
+	ex, err := getExchangeForCancel(exchangeName, symbol, marketType)
+	if err != nil {
+		logger.Warn("❌ [取消订單] 獲取交易所失敗: exchange=%s, symbol=%s, error=%v", exchangeName, symbol, err)
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "交易所不存在: " + exchangeName})
 		return
 	}
@@ -3201,9 +3231,10 @@ func cancelOrder(c *gin.Context) {
 // POST /api/orders/cancel
 func batchCancelOrders(c *gin.Context) {
 	var req struct {
-		OrderIDs []int64 `json:"order_ids"`
-		Exchange string  `json:"exchange"`
-		Symbol   string  `json:"symbol"`
+		OrderIDs   []int64 `json:"order_ids"`
+		Exchange   string  `json:"exchange"`
+		Symbol     string  `json:"symbol"`
+		MarketType string  `json:"market_type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "無效的请求數據"})
@@ -3220,14 +3251,13 @@ func batchCancelOrders(c *gin.Context) {
 		return
 	}
 
-	// 獲取交易所實例
-	if exchangeGetterFunc == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "交易所服務未初始化"})
-		return
+	if req.MarketType == "" {
+		req.MarketType = "futures"
 	}
 
-	ex := exchangeGetterFunc(req.Exchange)
-	if ex == nil {
+	ex, err := getExchangeForCancel(req.Exchange, req.Symbol, req.MarketType)
+	if err != nil {
+		logger.Warn("❌ [批量取消订單] 獲取交易所失敗: exchange=%s, symbol=%s, error=%v", req.Exchange, req.Symbol, err)
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "交易所不存在: " + req.Exchange})
 		return
 	}

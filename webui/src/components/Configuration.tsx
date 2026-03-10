@@ -513,7 +513,7 @@ const Configuration: React.FC = () => {
           const pend = await getPendingOrders(exchange, symbol).catch(() => ({ orders: [] }))
           const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
           if (orderIds.length > 0) {
-            await batchCancelOrders(orderIds, exchange, symbol)
+            await batchCancelOrders(orderIds, exchange, symbol, selectedMarketType || 'futures')
             toast({ title: t('configuration.saveOptionsCancelSuccess', { count: orderIds.length }), status: 'success', duration: 2000 })
           }
         } catch (e) {
@@ -2863,11 +2863,11 @@ const Configuration: React.FC = () => {
             const exchange = selectedExchange
             const symbol = selectedSymbol
             try {
-              const pend = await getPendingOrders(exchange, symbol).catch(() => ({ orders: [] }))
-              const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
-              if (orderIds.length > 0) {
-                await batchCancelOrders(orderIds, exchange, symbol)
-              }
+          const pend = await getPendingOrders(exchange, symbol).catch(() => ({ orders: [] }))
+          const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
+          if (orderIds.length > 0) {
+            await batchCancelOrders(orderIds, exchange, symbol, selectedMarketType || 'futures')
+          }
               await closeAllPositions(exchange, symbol)
               await stopTrading(exchange, symbol)
               const newConfig: Config = JSON.parse(JSON.stringify(config))

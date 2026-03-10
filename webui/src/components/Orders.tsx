@@ -51,6 +51,7 @@ import {
 } from '@chakra-ui/react'
 import { CloseIcon } from '@chakra-ui/icons'
 import { getPendingOrders, getOrderHistory, cancelOrder, batchCancelOrders, syncOrders, getSymbols, getTradeDetails, PendingOrderInfo, TradeDetailResponse } from '../services/api'
+import { computeOrderTotalPrice, computeOrderCapitalUsage } from '../utils/orderCalculations'
 
 interface OrderInfo {
   order_id: number
@@ -77,7 +78,9 @@ const Orders: React.FC = () => {
   const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const { timezone } = useConfig()
   const [pendingOrders, setPendingOrders] = useState<PendingOrderInfo[]>([])
+  const [pendingLeverage, setPendingLeverage] = useState<number>(1)
   const [historyOrders, setHistoryOrders] = useState<OrderInfo[]>([])
+  const [historyLeverage, setHistoryLeverage] = useState<number>(1)
   const [historyTotalCount, setHistoryTotalCount] = useState<number>(0)
   const [historyTodayCount, setHistoryTodayCount] = useState<number>(0)
   const [tabIndex, setTabIndex] = useState(0)
@@ -160,6 +163,7 @@ const Orders: React.FC = () => {
       try {
         const data = await getPendingOrders(selectedExchange, selectedSymbol)
         setPendingOrders(data.orders || [])
+        setPendingLeverage(data.leverage ?? 1)
       } catch (err) {
         console.error('Failed to fetch pending orders:', err)
         setPendingOrders([])
@@ -188,6 +192,7 @@ const Orders: React.FC = () => {
           end_time: toRFC3339(historyEndTime),
         })
         setHistoryOrders(data.orders || [])
+        setHistoryLeverage(data.leverage ?? 1)
         if (data.total_count !== undefined) {
           setHistoryTotalCount(data.total_count)
         } else {
@@ -249,6 +254,7 @@ const Orders: React.FC = () => {
     try {
       const data = await getPendingOrders(selectedExchange, selectedSymbol)
       setPendingOrders(data.orders || [])
+      setPendingLeverage(data.leverage ?? 1)
     } catch (err) {
       console.error('Failed to refresh pending orders:', err)
     }
@@ -277,6 +283,7 @@ const Orders: React.FC = () => {
         end_time: toRFC3339(historyEndTime),
       })
       setHistoryOrders(data.orders || [])
+      setHistoryLeverage(data.leverage ?? 1)
       if (data.total_count !== undefined) {
         setHistoryTotalCount(data.total_count)
       } else {
@@ -358,7 +365,7 @@ const Orders: React.FC = () => {
 
     setCancellingOrderId(orderId)
     try {
-      const result = await cancelOrder(orderId, selectedExchange, selectedSymbol)
+      const result = await cancelOrder(orderId, selectedExchange, selectedSymbol, selectedMarketType || 'futures')
       if (result.success) {
         toast({
           title: t('orders.cancelSuccess'),
@@ -412,7 +419,7 @@ const Orders: React.FC = () => {
 
     setCancellingAll(true)
     try {
-      const result = await batchCancelOrders(orderIds, selectedExchange, selectedSymbol)
+      const result = await batchCancelOrders(orderIds, selectedExchange, selectedSymbol, selectedMarketType || 'futures')
       if (result.success) {
         toast({
           title: t('orders.cancelAllSuccess'),
@@ -660,7 +667,7 @@ const Orders: React.FC = () => {
                       </Heading>
                       {filteredPendingOrders.filter(o => o.side === 'BUY').length === 0 ? (
                         <Text color="gray.500" textAlign="center" py={4}>
-                          暂无买单委托
+                          {t('orders.noBuyOrders')}
                         </Text>
                       ) : (
                         <TableContainer>
@@ -669,6 +676,12 @@ const Orders: React.FC = () => {
                               <Tr>
                                 <Th>{t('orders.price')}</Th>
                                 <Th isNumeric>{t('orders.quantity')}</Th>
+                                <Th isNumeric>{t('orders.totalPrice')}</Th>
+                                <Th isNumeric>
+                                  <Tooltip label={t('orders.capitalUsageTooltip')} hasArrow placement="top">
+                                    <span>{t('orders.capitalUsage')}</span>
+                                  </Tooltip>
+                                </Th>
                                 <Th isNumeric>{t('orders.filled')}</Th>
                                 <Th>{t('orders.status')}</Th>
                                 <Th>{t('common.actions')}</Th>
@@ -678,7 +691,10 @@ const Orders: React.FC = () => {
                               {filteredPendingOrders
                                 .filter(o => o.side === 'BUY')
                                 .sort((a, b) => b.price - a.price) // 按价格降序排列
-                                .map((order) => (
+                                .map((order) => {
+                                  const totalPrice = (order.price ?? 0) * (order.quantity ?? 0)
+                                  const capitalUsage = pendingLeverage > 0 ? totalPrice / pendingLeverage : totalPrice
+                                  return (
                                   <Tr key={order.order_id}>
                                     <Td>
                                       <Text fontWeight="bold" color="green.600">
@@ -686,6 +702,8 @@ const Orders: React.FC = () => {
                                       </Text>
                                     </Td>
                                     <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
+                                    <Td isNumeric>{totalPrice > 0 ? totalPrice.toFixed(2) : '-'}</Td>
+                                    <Td isNumeric>{capitalUsage > 0 ? capitalUsage.toFixed(2) : '-'}</Td>
                                     <Td isNumeric>{order.filled_quantity != null ? order.filled_quantity.toFixed(4) : '-'}</Td>
                                     <Td>
                                       <Badge colorScheme={getStatusColorScheme(order.status)} fontSize="xs">
@@ -706,7 +724,7 @@ const Orders: React.FC = () => {
                                       </Tooltip>
                                     </Td>
                                   </Tr>
-                                ))}
+                                )})}
                             </Tbody>
                           </Table>
                         </TableContainer>
@@ -722,7 +740,7 @@ const Orders: React.FC = () => {
                       </Heading>
                       {filteredPendingOrders.filter(o => o.side === 'SELL').length === 0 ? (
                         <Text color="gray.500" textAlign="center" py={4}>
-                          暂无卖单委托
+                          {t('orders.noSellOrders')}
                         </Text>
                       ) : (
                         <TableContainer>
@@ -731,6 +749,12 @@ const Orders: React.FC = () => {
                               <Tr>
                                 <Th>{t('orders.price')}</Th>
                                 <Th isNumeric>{t('orders.quantity')}</Th>
+                                <Th isNumeric>{t('orders.totalPrice')}</Th>
+                                <Th isNumeric>
+                                  <Tooltip label={t('orders.capitalUsageTooltip')} hasArrow placement="top">
+                                    <span>{t('orders.capitalUsage')}</span>
+                                  </Tooltip>
+                                </Th>
                                 <Th isNumeric>{t('orders.filled')}</Th>
                                 <Th>{t('orders.status')}</Th>
                                 <Th>{t('common.actions')}</Th>
@@ -740,7 +764,10 @@ const Orders: React.FC = () => {
                               {filteredPendingOrders
                                 .filter(o => o.side === 'SELL')
                                 .sort((a, b) => a.price - b.price) // 按价格升序排列
-                                .map((order) => (
+                                .map((order) => {
+                                  const totalPrice = (order.price ?? 0) * (order.quantity ?? 0)
+                                  const capitalUsage = pendingLeverage > 0 ? totalPrice / pendingLeverage : totalPrice
+                                  return (
                                   <Tr key={order.order_id}>
                                     <Td>
                                       <Text fontWeight="bold" color="red.600">
@@ -748,6 +775,8 @@ const Orders: React.FC = () => {
                                       </Text>
                                     </Td>
                                     <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
+                                    <Td isNumeric>{totalPrice > 0 ? totalPrice.toFixed(2) : '-'}</Td>
+                                    <Td isNumeric>{capitalUsage > 0 ? capitalUsage.toFixed(2) : '-'}</Td>
                                     <Td isNumeric>{order.filled_quantity != null ? order.filled_quantity.toFixed(4) : '-'}</Td>
                                     <Td>
                                       <Badge colorScheme={getStatusColorScheme(order.status)} fontSize="xs">
@@ -768,7 +797,7 @@ const Orders: React.FC = () => {
                                       </Tooltip>
                                     </Td>
                                   </Tr>
-                                ))}
+                                )})}
                             </Tbody>
                           </Table>
                         </TableContainer>
@@ -951,6 +980,12 @@ const Orders: React.FC = () => {
                       <Th>{t('orders.side')}</Th>
                       <Th isNumeric>{t('orders.price')}</Th>
                       <Th isNumeric>{t('orders.quantity')}</Th>
+                      <Th isNumeric>{t('orders.totalPrice')}</Th>
+                      <Th isNumeric>
+                        <Tooltip label={t('orders.capitalUsageTooltip')} hasArrow placement="top">
+                          <span>{t('orders.capitalUsage')}</span>
+                        </Tooltip>
+                      </Th>
                       <Th>{t('orders.status')}</Th>
                       <Th isNumeric>{t('orders.gridPnl')}</Th>
                       <Th isNumeric>{t('orders.exchangePnl')}</Th>
@@ -989,6 +1024,19 @@ const Orders: React.FC = () => {
                           </Td>
                           <Td isNumeric>{order.price != null ? order.price.toFixed(2) : '-'}</Td>
                           <Td isNumeric>{order.quantity != null ? order.quantity.toFixed(4) : '-'}</Td>
+                          <Td isNumeric>
+                            {(() => {
+                              const totalPrice = (order.price ?? 0) * (order.quantity ?? 0)
+                              return totalPrice > 0 ? totalPrice.toFixed(2) : '-'
+                            })()}
+                          </Td>
+                          <Td isNumeric>
+                            {(() => {
+                              const totalPrice = (order.price ?? 0) * (order.quantity ?? 0)
+                              const capitalUsage = historyLeverage > 0 ? totalPrice / historyLeverage : totalPrice
+                              return capitalUsage > 0 ? capitalUsage.toFixed(2) : '-'
+                            })()}
+                          </Td>
                           <Td>
                             <Badge colorScheme={getStatusColorScheme(order.status)}>
                               {getStatusText(order.status)}
