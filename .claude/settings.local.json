@@ -17,7 +17,13 @@
       "Bash(CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build:*)",
       "Bash(CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build:*)",
       "Bash(gh release list:*)",
-      "Bash(gh workflow view:*)"
+      "Bash(gh workflow view:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(sqlite3:*)",
+      "Bash(pkill:*)",
+      "Bash(mysql:*)",
+      "Bash(git describe:*)"
     ],
     "deny": [],
     "ask": []
