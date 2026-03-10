@@ -1364,6 +1364,14 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
+	// 🔥 智能開倉掛單限制：開倉單數超過 max_open_orders 時，動態撤銷最遠的委託單
+	// 適用於 smart_order 或 open_position_control.bot_risk_control 的 max_open_orders 配置
+	if maxOpenOrders > 0 && currentBuyOrderCount > maxOpenOrders {
+		spm.CancelExcessOpenOrders(maxOpenOrders)
+		// 撤單後需重新統計，避免本輪繼續下新單；下一輪價格更新時會重新評估
+		currentBuyOrderCount = maxOpenOrders
+	}
+
 	// 最大持倉預警：達到層數上限時，若開倉單數超過允許值，先撤多餘的開倉單（做多先撤高價買單，做空先撤低價賣單）
 	if spm.config.Trading.GridRiskControl.Enabled {
 		maxLayers := spm.config.Trading.GridRiskControl.MaxGridLayers
