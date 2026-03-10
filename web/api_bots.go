@@ -395,6 +395,11 @@ func postBotStart(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
 		return
 	}
+	// 用戶點擊啟動時，先清除數據庫中的禁用標記（若之前通過 Web UI 停止過）
+	// 否則 StartBot 會因 bot_disabled_in_database 失敗，而 API 已返回 202，前端輪詢 60s 無果
+	if err := botManagerProvider.EnableBot(botID); err != nil {
+		logger.Warn("⚠️ [%s] 清除禁用標記失敗（不影響啟動）: %v", botID, err)
+	}
 	// 異步啟動，避免 WebSocket 連接、價格獲取等耗時操作阻塞請求導致超時
 	bc := *botCfg
 	go func() {

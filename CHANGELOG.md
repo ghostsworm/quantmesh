@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.0-rc3] - 2026-03-11
+
+### Fixed
+- **Bot Detail 啟動失敗（bot_disabled_in_database）**：用戶通過 Web UI 停止後再次點擊啟動時，後端因數據庫中禁用標記導致 StartBot 失敗，但 API 已返回 202，前端輪詢 60 秒無果；現在 postBotStart 中先調用 EnableBot 清除禁用標記再異步啟動，確保啟動流程正常
+
+### Test
+- **api_bots_test.go**：新增 `TestPostBotStartCallsEnableBotBeforeStart`，驗證 postBotStart 在啟動前會調用 EnableBot
+
 ## [3.74.0-rc2] - 2026-03-11
 
 ### Fixed
