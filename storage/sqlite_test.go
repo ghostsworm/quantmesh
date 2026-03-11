@@ -103,7 +103,7 @@ func TestSQLiteStorage(t *testing.T) {
 	}
 }
 
-// TestQueryOrdersWithFilterExchange 驗證按 exchange 篩選時，exchange 為空的訂單會被排除
+// TestQueryOrdersWithFilterExchange 驗證按 exchange 篩選時，會包含 exchange 匹配的訂單及 exchange 為空的歷史訂單（向後兼容）
 func TestQueryOrdersWithFilterExchange(t *testing.T) {
 	dbPath := "./test_quantmesh_exchange_filter.db"
 	defer os.Remove(dbPath)
@@ -156,14 +156,13 @@ func TestQueryOrdersWithFilterExchange(t *testing.T) {
 		t.Fatalf("預期 2 筆訂單，得到 %d 筆", len(allOrders))
 	}
 
-	// 按 exchange=binance 篩選，應只返回有 exchange 的訂單（exchange 為空的會被排除）
-	// 不傳時間範圍，專注驗證 exchange 篩選邏輯
+	// 按 exchange=binance 篩選，應返回 exchange=binance 的訂單 + exchange 為空的歷史訂單（向後兼容）
 	orders, err := st.QueryOrdersWithFilter(10, 0, "FILLED", "binance", "PAXGUSDT", nil, nil)
 	if err != nil {
 		t.Fatalf("查詢訂單失败: %v", err)
 	}
-	if len(orders) != 1 || orders[0].OrderID != 111 {
-		t.Errorf("按 exchange=binance 篩選應只返回 1 筆：得到 %d 筆，order_ids=%v", len(orders), func() []int64 {
+	if len(orders) != 2 {
+		t.Errorf("按 exchange=binance 篩選應返回 2 筆（含歷史空 exchange）：得到 %d 筆，order_ids=%v", len(orders), func() []int64 {
 			ids := make([]int64, len(orders))
 			for i, o := range orders {
 				ids[i] = o.OrderID
@@ -171,8 +170,24 @@ func TestQueryOrdersWithFilterExchange(t *testing.T) {
 			return ids
 		}())
 	}
-	if len(orders) > 0 && orders[0].Exchange != "binance" {
-		t.Errorf("返回訂單的 exchange 應為 binance，得到 %q", orders[0].Exchange)
+	// 應包含 order 111 (exchange=binance) 和 order 222 (exchange 為空)
+	has111, has222 := false, false
+	for _, o := range orders {
+		if o.OrderID == 111 {
+			has111 = true
+		}
+		if o.OrderID == 222 {
+			has222 = true
+		}
+	}
+	if !has111 || !has222 {
+		t.Errorf("應同時包含 order 111 和 222，得到 order_ids=%v", func() []int64 {
+			ids := make([]int64, len(orders))
+			for i, o := range orders {
+				ids[i] = o.OrderID
+			}
+			return ids
+		}())
 	}
 }
 

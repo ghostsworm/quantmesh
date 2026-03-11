@@ -11,64 +11,102 @@ import (
 	"quantmesh/logger"
 	"quantmesh/utils"
 
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// SQLiteStorage SQLite 存儲實現
+// SQLiteStorage SQLite 存儲實現（現在支援多種數據库）
 type SQLiteStorage struct {
 	db     *sql.DB
+	dbType string // sqlite, mysql, postgres
 	closed bool
 }
 
 // NewSQLiteStorage 創建 SQLite 存儲
 func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
-	// 使用 WAL 模式提高並发性能
-	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_synchronous=NORMAL")
+	return NewStorage("sqlite", path+"?_journal_mode=WAL&_synchronous=NORMAL")
+}
+
+// NewMySQLStorage 創建 MySQL 存儲
+func NewMySQLStorage(dsn string) (*SQLiteStorage, error) {
+	return NewStorage("mysql", dsn)
+}
+
+// NewPostgresStorage 創建 PostgreSQL 存儲
+func NewPostgresStorage(dsn string) (*SQLiteStorage, error) {
+	return NewStorage("postgres", dsn)
+}
+
+// NewStorage 創建通用存儲（支援多種數據库）
+func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
+	var driverName string
+	switch dbType {
+	case "sqlite":
+		driverName = "sqlite3"
+	case "mysql":
+		driverName = "mysql"
+	case "postgres", "postgresql":
+		driverName = "postgres"
+		dbType = "postgres"
+	default:
+		return nil, fmt.Errorf("不支援的數據库類型: %s", dbType)
+	}
+
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("打开數據库失败: %w", err)
 	}
 
 	// 設置连接池
-	db.SetMaxOpenConns(1) // SQLite 並发限制
-	db.SetMaxIdleConns(1)
-
-	// 創建表
-	if err := createTables(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("創建表失败: %w", err)
+	if dbType == "sqlite" {
+		db.SetMaxOpenConns(1) // SQLite 並发限制
+		db.SetMaxIdleConns(1)
+	} else {
+		db.SetMaxOpenConns(100)
+		db.SetMaxIdleConns(10)
 	}
 
-	// 迁移：添加 exchange 字段（如果不存在）
-	if err := migrateTradesTable(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("迁移 trades 表失败: %w", err)
+	// 創建表和索引（僅 SQLite 需要，MySQL/PostgreSQL 使用 GORM AutoMigrate）
+	if dbType == "sqlite" {
+		// 創建表
+		if err := createTables(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("創建表失败: %w", err)
+		}
+
+		// 迁移：添加 exchange 字段（如果不存在）
+		if err := migrateTradesTable(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 trades 表失败: %w", err)
+		}
+
+		// 迁移：trades 表添加交易所方式盈亏字段
+		if err := migrateTradesExchangePnL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 trades exchange_pnl 字段失败: %w", err)
+		}
+
+		// 迁移：orders 表增加 filled_qty / exchange / type / realized_pnl 列
+		if err := migrateOrdersTable(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 orders 表失败: %w", err)
+		}
+
+		// 迁移：创建系统设置表
+		if err := migrateSystemSettingsTable(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 system_settings 表失败: %w", err)
+		}
+
+		// 迁移：创建配置管理表
+		if err := migrateConfigTables(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 config_tables 表失败: %w", err)
+		}
 	}
 
-	// 迁移：trades 表添加交易所方式盈亏字段
-	if err := migrateTradesExchangePnL(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("迁移 trades exchange_pnl 字段失败: %w", err)
-	}
-
-	// 迁移：orders 表增加 filled_qty / exchange / type / realized_pnl 列
-	if err := migrateOrdersTable(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("迁移 orders 表失败: %w", err)
-	}
-
-	// 迁移：创建系统设置表
-	if err := migrateSystemSettingsTable(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("迁移 system_settings 表失败: %w", err)
-	}
-
-	// 迁移：创建配置管理表
-	if err := migrateConfigTables(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("迁移 config_tables 表失败: %w", err)
-	}
-
-	return &SQLiteStorage{db: db}, nil
+	return &SQLiteStorage{db: db, dbType: dbType}, nil
 }
 
 // createTables 創建表
@@ -1161,7 +1199,7 @@ func migrateOrdersTable(db *sql.DB) error {
 	return nil
 }
 
-// SaveOrder 保存订單（使用 UPSERT 保留已有非零值）
+// SaveOrder 保存订單（使用 UPSERT 保留已有非零值，支援 SQLite/MySQL/PostgreSQL）
 func (s *SQLiteStorage) SaveOrder(order *Order) error {
 	// 轉换為UTC時间存儲
 	createdAt := utils.ToUTC(order.CreatedAt)
@@ -1173,28 +1211,97 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 		realizedPnL = *order.RealizedPnL
 	}
 
-	_, err := s.db.Exec(`
-		INSERT INTO orders 
-		(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(order_id) DO UPDATE SET
-			client_order_id = COALESCE(NULLIF(excluded.client_order_id, ''), orders.client_order_id),
-			symbol          = COALESCE(NULLIF(excluded.symbol, ''), orders.symbol),
-			side            = COALESCE(NULLIF(excluded.side, ''), orders.side),
-			exchange        = COALESCE(NULLIF(excluded.exchange, ''), orders.exchange),
-			type            = COALESCE(NULLIF(excluded.type, ''), orders.type),
-			price           = CASE WHEN excluded.price > 0 THEN excluded.price ELSE orders.price END,
-			quantity        = CASE WHEN excluded.quantity > 0 THEN excluded.quantity ELSE orders.quantity END,
-			filled_qty      = CASE WHEN excluded.filled_qty > 0 THEN excluded.filled_qty ELSE orders.filled_qty END,
-			status          = COALESCE(NULLIF(excluded.status, ''), orders.status),
-			realized_pnl    = COALESCE(excluded.realized_pnl, orders.realized_pnl),
-			strategy_name   = COALESCE(NULLIF(excluded.strategy_name, ''), orders.strategy_name),
-			strategy_type   = COALESCE(NULLIF(excluded.strategy_type, ''), orders.strategy_type),
-			order_source    = COALESCE(NULLIF(excluded.order_source, ''), orders.order_source),
-			updated_at      = excluded.updated_at
-	`, order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
-		order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
-		order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt)
+	var query string
+	var args []interface{}
+
+	// 根據數據库類型使用不同的 UPSERT 語法
+	switch s.dbType {
+	case "mysql":
+		// MySQL 使用 ON DUPLICATE KEY UPDATE
+		query = `
+			INSERT INTO orders
+			(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE
+				client_order_id = COALESCE(NULLIF(VALUES(client_order_id), ''), orders.client_order_id),
+				symbol          = COALESCE(NULLIF(VALUES(symbol), ''), orders.symbol),
+				side            = COALESCE(NULLIF(VALUES(side), ''), orders.side),
+				exchange        = COALESCE(NULLIF(VALUES(exchange), ''), orders.exchange),
+				type            = COALESCE(NULLIF(VALUES(type), ''), orders.type),
+				price           = CASE WHEN VALUES(price) > 0 THEN VALUES(price) ELSE orders.price END,
+				quantity        = CASE WHEN VALUES(quantity) > 0 THEN VALUES(quantity) ELSE orders.quantity END,
+				filled_qty      = CASE WHEN VALUES(filled_qty) > 0 THEN VALUES(filled_qty) ELSE orders.filled_qty END,
+				status          = COALESCE(NULLIF(VALUES(status), ''), orders.status),
+				realized_pnl    = COALESCE(VALUES(realized_pnl), orders.realized_pnl),
+				strategy_name   = COALESCE(NULLIF(VALUES(strategy_name), ''), orders.strategy_name),
+				strategy_type   = COALESCE(NULLIF(VALUES(strategy_type), ''), orders.strategy_type),
+				order_source    = COALESCE(NULLIF(VALUES(order_source), ''), orders.order_source),
+				updated_at      = VALUES(updated_at)
+		`
+		args = []interface{}{
+			order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
+			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
+			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
+		}
+
+	case "postgres":
+		// PostgreSQL 使用 ON CONFLICT
+		query = `
+			INSERT INTO orders
+			(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			ON CONFLICT(order_id) DO UPDATE SET
+				client_order_id = COALESCE(NULLIF(EXCLUDED.client_order_id, ''), orders.client_order_id),
+				symbol          = COALESCE(NULLIF(EXCLUDED.symbol, ''), orders.symbol),
+				side            = COALESCE(NULLIF(EXCLUDED.side, ''), orders.side),
+				exchange        = COALESCE(NULLIF(EXCLUDED.exchange, ''), orders.exchange),
+				type            = COALESCE(NULLIF(EXCLUDED.type, ''), orders.type),
+				price           = CASE WHEN EXCLUDED.price > 0 THEN EXCLUDED.price ELSE orders.price END,
+				quantity        = CASE WHEN EXCLUDED.quantity > 0 THEN EXCLUDED.quantity ELSE orders.quantity END,
+				filled_qty      = CASE WHEN EXCLUDED.filled_qty > 0 THEN EXCLUDED.filled_qty ELSE orders.filled_qty END,
+				status          = COALESCE(NULLIF(EXCLUDED.status, ''), orders.status),
+				realized_pnl    = COALESCE(EXCLUDED.realized_pnl, orders.realized_pnl),
+				strategy_name   = COALESCE(NULLIF(EXCLUDED.strategy_name, ''), orders.strategy_name),
+				strategy_type   = COALESCE(NULLIF(EXCLUDED.strategy_type, ''), orders.strategy_type),
+				order_source    = COALESCE(NULLIF(EXCLUDED.order_source, ''), orders.order_source),
+				updated_at      = EXCLUDED.updated_at
+		`
+		args = []interface{}{
+			order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
+			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
+			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
+		}
+
+	default: // sqlite
+		// SQLite 使用 ON CONFLICT
+		query = `
+			INSERT INTO orders
+			(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(order_id) DO UPDATE SET
+				client_order_id = COALESCE(NULLIF(excluded.client_order_id, ''), orders.client_order_id),
+				symbol          = COALESCE(NULLIF(excluded.symbol, ''), orders.symbol),
+				side            = COALESCE(NULLIF(excluded.side, ''), orders.side),
+				exchange        = COALESCE(NULLIF(excluded.exchange, ''), orders.exchange),
+				type            = COALESCE(NULLIF(excluded.type, ''), orders.type),
+				price           = CASE WHEN excluded.price > 0 THEN excluded.price ELSE orders.price END,
+				quantity        = CASE WHEN excluded.quantity > 0 THEN excluded.quantity ELSE orders.quantity END,
+				filled_qty      = CASE WHEN excluded.filled_qty > 0 THEN excluded.filled_qty ELSE orders.filled_qty END,
+				status          = COALESCE(NULLIF(excluded.status, ''), orders.status),
+				realized_pnl    = COALESCE(excluded.realized_pnl, orders.realized_pnl),
+				strategy_name   = COALESCE(NULLIF(excluded.strategy_name, ''), orders.strategy_name),
+				strategy_type   = COALESCE(NULLIF(excluded.strategy_type, ''), orders.strategy_type),
+				order_source    = COALESCE(NULLIF(excluded.order_source, ''), orders.order_source),
+				updated_at      = excluded.updated_at
+		`
+		args = []interface{}{
+			order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
+			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
+			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
+		}
+	}
+
+	_, err := s.db.Exec(query, args...)
 	return err
 }
 
@@ -1575,7 +1682,7 @@ func (s *SQLiteStorage) CountOrdersWithFilter(status, exchange, symbol string) (
 		args = append(args, status)
 	}
 	if exchange != "" {
-		query += " AND LOWER(exchange) = LOWER(?)"
+		query += " AND (LOWER(COALESCE(exchange, '')) = LOWER(?) OR COALESCE(exchange, '') = '')"
 		args = append(args, exchange)
 	}
 	if symbol != "" {
@@ -1622,8 +1729,9 @@ func (s *SQLiteStorage) QueryOrdersWithFilter(limit, offset int, status, exchang
 	}
 
 	// 添加 exchange 筛选条件（大小写不敏感）
+	// 兼容历史订单：早期 SaveOrder 未写入 exchange，导致 exchange 为空；筛选时也包含空 exchange 的订单
 	if exchange != "" {
-		query += " AND LOWER(exchange) = LOWER(?)"
+		query += " AND (LOWER(COALESCE(exchange, '')) = LOWER(?) OR COALESCE(exchange, '') = '')"
 		args = append(args, exchange)
 	}
 
