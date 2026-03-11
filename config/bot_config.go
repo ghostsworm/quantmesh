@@ -82,6 +82,9 @@ type GridConfig struct {
 	GridShiftEnabled bool    `yaml:"grid_shift_enabled,omitempty" json:"grid_shift_enabled,omitempty"`
 	GridShiftStep    float64 `yaml:"grid_shift_step,omitempty" json:"grid_shift_step,omitempty"`
 
+	// 三级火箭模式：小波动小网格、大波动大网格，根据持仓层数自动切换间距
+	RocketTieredGrid *RocketTieredGridConfig `yaml:"rocket_tiered_grid,omitempty" json:"rocket_tiered_grid,omitempty"`
+
 	// 网格自动重建配置（价格偏离时自动调整网格锚点）
 	AutoRebuild GridAutoRebuildConfig `yaml:"auto_rebuild,omitempty" json:"auto_rebuild,omitempty"`
 }
@@ -382,6 +385,7 @@ func ConvertFromBotConfig(bc BotConfig) *BotConfigFile {
 			GridMode:          bc.GridMode,
 			GridShiftEnabled:  bc.GridShiftEnabled,
 			GridShiftStep:     bc.GridShiftStep,
+			RocketTieredGrid:  bc.RocketTieredGrid,
 		},
 		RiskControl: RiskControlConfig{
 			GridRiskControl:     bc.GridRiskControl,
@@ -447,6 +451,7 @@ func ConvertToBotConfig(bcf *BotConfigFile) BotConfig {
 		GridMode:              bcf.Grid.GridMode,
 		GridShiftEnabled:      bcf.Grid.GridShiftEnabled,
 		GridShiftStep:         bcf.Grid.GridShiftStep,
+		RocketTieredGrid:      bcf.Grid.RocketTieredGrid,
 		GridRiskControl:       bcf.RiskControl.GridRiskControl,
 		OpenPositionControl:   bcf.RiskControl.OpenPositionControl,
 		ReconcileInterval:     bcf.Advanced.ReconcileInterval,
