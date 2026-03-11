@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.4-rc2] - 2026-03-12
+
+### Fixed
+- **線上更改配置時 HTTP 500「配置管理器未初始化」**：`previewConfigHandler`、`updateConfigHandler`、`restoreBackupHandler`、`restoreConfigHistoryHandler`、`updateConfigYAMLHandler` 錯誤地檢查 `configManager`（cfgmgr），而該變量僅在 configStorage 初始化後才注入；實際配置讀寫使用 `fileConfigManager`，現改為檢查 `fileConfigManager`，與 `getConfigHandler` 一致
+
 ## [3.74.4-rc1] - 2026-03-12
 
 ### Added
