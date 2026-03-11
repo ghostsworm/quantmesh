@@ -1296,7 +1296,14 @@ const Configuration: React.FC = () => {
                       </Flex>
                     </ConfigCard>
                     <SimpleGrid columns={2} spacing={6}>
-                      <ConfigCard title="Telegram Bot">
+                      <ConfigCard title={t('configuration.telegramBot')}>
+                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
+                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableTelegram')}</FormLabel>
+                          <Switch
+                            isChecked={config.notifications?.telegram?.enabled || false}
+                            onChange={(e) => updateConfigField('notifications.telegram.enabled', e.target.checked)}
+                          />
+                        </FormControl>
                         <FormControl mb={4}>
                           <FormLabel fontSize="xs" fontWeight="bold">Token</FormLabel>
                           {renderPasswordInput('notifications.telegram.bot_token')}
@@ -1322,7 +1329,14 @@ const Configuration: React.FC = () => {
                           {t('configuration.testConnection')}
                         </Button>
                       </ConfigCard>
-                      <ConfigCard title="Webhook">
+                      <ConfigCard title={t('configuration.webhook')}>
+                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
+                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableWebhook')}</FormLabel>
+                          <Switch
+                            isChecked={config.notifications?.webhook?.enabled || false}
+                            onChange={(e) => updateConfigField('notifications.webhook.enabled', e.target.checked)}
+                          />
+                        </FormControl>
                         <FormControl mb={4}>
                           <FormLabel fontSize="xs" fontWeight="bold">URL</FormLabel>
                           <Input
@@ -1346,6 +1360,13 @@ const Configuration: React.FC = () => {
                         </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.email')}>
+                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
+                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableEmail')}</FormLabel>
+                          <Switch
+                            isChecked={config.notifications?.email?.enabled || false}
+                            onChange={(e) => updateConfigField('notifications.email.enabled', e.target.checked)}
+                          />
+                        </FormControl>
                         <FormControl mb={4}>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.emailProvider')}</FormLabel>
                           <Select
@@ -1472,6 +1493,13 @@ const Configuration: React.FC = () => {
                         </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.dingtalk')}>
+                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
+                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableDingtalk')}</FormLabel>
+                          <Switch
+                            isChecked={config.notifications?.dingtalk?.enabled || false}
+                            onChange={(e) => updateConfigField('notifications.dingtalk.enabled', e.target.checked)}
+                          />
+                        </FormControl>
                         <FormControl mb={4}>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
                           <Input
@@ -1499,6 +1527,13 @@ const Configuration: React.FC = () => {
                         </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.wechatWork')}>
+                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
+                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableWechatWork')}</FormLabel>
+                          <Switch
+                            isChecked={config.notifications?.wechat_work?.enabled || false}
+                            onChange={(e) => updateConfigField('notifications.wechat_work.enabled', e.target.checked)}
+                          />
+                        </FormControl>
                         <FormControl mb={4}>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
                           <Input
@@ -1522,6 +1557,13 @@ const Configuration: React.FC = () => {
                         </Button>
                       </ConfigCard>
                       <ConfigCard title={t('configuration.slack')}>
+                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
+                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableSlack')}</FormLabel>
+                          <Switch
+                            isChecked={config.notifications?.slack?.enabled || false}
+                            onChange={(e) => updateConfigField('notifications.slack.enabled', e.target.checked)}
+                          />
+                        </FormControl>
                         <FormControl mb={4}>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
                           <Input
