@@ -65,6 +65,8 @@ import {
   UpdateBotStrategyRequest,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useConfig } from '../contexts/ConfigContext'
+import { formatTime as formatTimeUtil } from '../utils/dateFormat'
 import { buildBacktestUrl } from '../utils/backtestUrl'
 import BotRiskControlPanel from './BotRiskControlPanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
@@ -98,9 +100,10 @@ const getMixedStrategies = (t: any): StrategyOption[] => [
 const BotDetail: React.FC = () => {
   const { botId } = useParams<{ botId: string }>()
   const navigate = useNavigate()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const toast = useToast()
   const { navigateToBot } = useSymbol()
+  const { timezone } = useConfig()
   const [bot, setBot] = useState<BotDetailInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [actioning, setActioning] = useState(false)
@@ -159,6 +162,20 @@ const BotDetail: React.FC = () => {
       setLogs([])
     } finally {
       setLogsLoading(false)
+    }
+  }
+
+  const formatLogTime = (ts: string) => formatTimeUtil(ts, timezone, i18n.language)
+
+  const buildFullLogText = (log: { timestamp?: string; level?: string; message?: string }) =>
+    [log.timestamp || '-', `[${(log.level || 'info').toUpperCase()}]`, log.message || '-'].join(' ')
+
+  const handleCopyLog = async (log: { timestamp?: string; level?: string; message?: string }) => {
+    try {
+      await navigator.clipboard.writeText(buildFullLogText(log))
+      toast({ title: t('botDetail.logCopied'), status: 'success', duration: 1500 })
+    } catch {
+      toast({ title: t('botDetail.logCopyFailed'), status: 'error', duration: 2000 })
     }
   }
 
@@ -495,20 +512,34 @@ const BotDetail: React.FC = () => {
                 </Flex>
                 {logs.length > 0 ? (
                   <TableContainer maxH="300px" overflowY="auto">
-                    <Table size="sm">
+                    <Table size="sm" sx={{ tableLayout: 'fixed' }}>
                       <Thead>
                         <Tr>
-                          <Th>{t('botDetail.logTime')}</Th>
-                          <Th>{t('botDetail.logLevel')}</Th>
+                          <Th w="80px">{t('botDetail.logTime')}</Th>
+                          <Th w="72px">{t('botDetail.logLevel')}</Th>
                           <Th>{t('botDetail.logMessage')}</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
                         {logs.map((log, i) => (
-                          <Tr key={log.id || i}>
-                            <Td fontSize="xs">{log.timestamp || '-'}</Td>
+                          <Tr
+                            key={log.id || i}
+                            onDoubleClick={() => handleCopyLog(log)}
+                            cursor="pointer"
+                            title={t('botDetail.logCopyHint')}
+                            _hover={{ bg: 'gray.50' }}
+                          >
+                            <Td fontSize="xs" whiteSpace="nowrap">
+                              <Tooltip label={log.timestamp || '-'} placement="top">
+                                <span>{formatLogTime(log.timestamp || '')}</span>
+                              </Tooltip>
+                            </Td>
                             <Td><Badge size="sm">{log.level || 'info'}</Badge></Td>
-                            <Td fontSize="xs" maxW="400px" isTruncated>{log.message || '-'}</Td>
+                            <Td fontSize="xs" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                              <Tooltip label={log.message || '-'} placement="top" maxW="400px">
+                                <span>{log.message || '-'}</span>
+                              </Tooltip>
+                            </Td>
                           </Tr>
                         ))}
                       </Tbody>
@@ -740,6 +771,9 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
   const [smartOrderMaxOpenOrders, setSmartOrderMaxOpenOrders] = useState('3')
   const [smartOrderOpenOrderDistance, setSmartOrderOpenOrderDistance] = useState('5')
 
+  // 三级火箭网格
+  const [rocketTieredGridEnabled, setRocketTieredGridEnabled] = useState(false)
+
   // 策略类型选项（根据当前策略类型限制可切换的类型）
   const getAvailableStrategies = () => {
     if (!bot?.config?.strategies || bot.config.strategies.length === 0) {
@@ -787,6 +821,10 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       setSmartOrderEnabled(smartOrder.enabled || false)
       setSmartOrderMaxOpenOrders(smartOrder.max_open_orders?.toString() || '3')
       setSmartOrderOpenOrderDistance(smartOrder.open_order_distance?.toString() || '5')
+
+      // 三级火箭网格
+      const rtg = cfg.rocket_tiered_grid as { enabled?: boolean } | undefined
+      setRocketTieredGridEnabled(rtg?.enabled ?? false)
     }
   }, [bot])
 
@@ -828,6 +866,18 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
         updateData.smart_order_max_open_orders = parseInt(smartOrderMaxOpenOrders) || 3
         updateData.smart_order_open_order_distance = parseFloat(smartOrderOpenOrderDistance) || 5
       }
+
+      // 三级火箭网格
+      updateData.rocket_tiered_grid = rocketTieredGridEnabled
+        ? {
+            enabled: true,
+            tiers: [
+              { filled_threshold: 4, interval: 100, profit_spread: 100 },
+              { filled_threshold: 8, interval: 300, profit_spread: 300 },
+              { filled_threshold: 0, interval: 600, profit_spread: 600 },
+            ],
+          }
+        : { enabled: false, tiers: [] }
 
       await updateBotStrategy(botId, updateData)
       toast({
@@ -1078,6 +1128,26 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
               </NumberInput>
               <Text fontSize="xs" color="gray.500" mt={1}>
                 {t('botDetail.strategy.priceHighHint')}
+              </Text>
+            </FormControl>
+
+            <Divider />
+
+            <FormControl display="flex" alignItems="center" gap={3}>
+              <FormLabel htmlFor="rocket-tiered-grid" mb={0}>
+                {t('botDetail.strategy.rocketTieredGrid')}
+              </FormLabel>
+              <Switch
+                id="rocket-tiered-grid"
+                isChecked={rocketTieredGridEnabled}
+                onChange={(e) => {
+                  setRocketTieredGridEnabled(e.target.checked)
+                  setHasChanges(true)
+                }}
+                isDisabled={bot.running}
+              />
+              <Text fontSize="xs" color="gray.500">
+                {t('botDetail.strategy.rocketTieredGridHint')}
               </Text>
             </FormControl>
           </VStack>

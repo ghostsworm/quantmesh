@@ -203,6 +203,9 @@
     "logTime": "時刻",
     "logLevel": "レベル",
     "logMessage": "メッセージ",
+    "logCopyHint": "ダブルクリックでログ全文をコピー",
+    "logCopied": "クリップボードにコピーしました",
+    "logCopyFailed": "コピーに失敗しました",
     "loadLogs": "ログを読み込む"
   },
   "backtestOptim": {
