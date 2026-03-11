@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.2-rc3] - 2026-03-12
+
+### Fixed
+- **storage 構建失敗 no required module provides package github.com/lib/pq**：移除 PostgreSQL (lib/pq) 依賴，PostgreSQL 存儲類型暫不支持，配置時返回明確錯誤提示使用 sqlite 或 mysql
+
+### Test
+- **storage/sqlite_test.go**：新增 TestPostgresUnsupported 驗證 postgres 配置時錯誤訊息
+
 ## [3.74.2-rc2] - 2026-03-12
 
 ### Fixed
