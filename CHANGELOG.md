@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.7] - 2026-03-12
+
+### Fixed
+- **平倉委託價格保護（LONG + SHORT 雙向）**：波動/滑點導致實際成交價偏離網格價時，平倉委託價格現統一以實際開倉均價為基準計算，防止虧損出場
+  - LONG：賣出價 = `max(slotPrice, AvgBuyPrice) + spread`
+  - SHORT：買回價 = `min(slotPrice, AvgOpenPrice) - spread`
+
+---
+
 ## [3.74.6-rc4] - 2026-03-12
 
 ### Fixed
