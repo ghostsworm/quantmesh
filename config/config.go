@@ -165,6 +165,20 @@ type GridRiskControl struct {
 	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`             // 是否開啟趨勢過濾
 }
 
+// RocketTieredGridConfig 三級火箭網格配置
+// 小波動時用小間距（如 100），持倉層數增加後自動切換到大間距（如 300、600）
+type RocketTieredGridConfig struct {
+	Enabled bool         `yaml:"enabled" json:"enabled"`
+	Tiers   []RocketTier `yaml:"tiers" json:"tiers"` // 檔位配置，按 filled_threshold 升序
+}
+
+// RocketTier 單檔配置
+type RocketTier struct {
+	FilledThreshold int     `yaml:"filled_threshold" json:"filled_threshold"` // 達到此持倉層數後進入此檔（不含）
+	Interval        float64 `yaml:"interval" json:"interval"`                 // 該檔網格間距（USDT）
+	ProfitSpread    float64 `yaml:"profit_spread" json:"profit_spread"`       // 該檔平倉利差，0 則等於 Interval
+}
+
 // ScheduleRule 定時規則：在指定時段執行暫停/恢復開倉
 type ScheduleRule struct {
 	Enabled  bool   `yaml:"enabled" json:"enabled"`
