@@ -1561,7 +1561,15 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			slotSpread := spm.getProfitSpreadForSlot(slotPrice, currentGridPrice)
 			var closePrice float64
 			if spm.isShort() {
-				closePrice = slotPrice - slotSpread // SHORT: 買低平倉
+				// SHORT: 買低平倉。必須保證買回價 <= 實際開空均價，否則波動/滑點時可能虧損。
+				// AvgBuyPrice 在 SHORT 模式下存儲的是實際賣出（開空）均價。
+				basePrice := slotPrice
+				if slot.AvgBuyPrice > 0 && slot.AvgBuyPrice < slotPrice {
+					basePrice = slot.AvgBuyPrice
+					logger.Debug("📊 [%s] 槽位 %.2f 實際開空價(%.2f) < 網格價，平倉基準價調整為 %.2f",
+						spm.logPrefix(), slotPrice, slot.AvgBuyPrice, basePrice)
+				}
+				closePrice = basePrice - slotSpread
 			} else {
 				// LONG: 賣高平倉。必須保證賣出價 >= 實際買入均價，否則波動/滑點時可能虧損
 				basePrice := slotPrice
