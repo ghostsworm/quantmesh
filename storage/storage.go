@@ -162,7 +162,7 @@ type StorageService struct {
 	stopMu       sync.Mutex
 }
 
-// NewStorageService 創建存儲服務
+// NewStorageService 創建存儲服務（支援 SQLite/MySQL，PostgreSQL 暂不支持）
 func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService, error) {
 	if !cfg.Storage.Enabled {
 		return &StorageService{}, nil
@@ -179,20 +179,34 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 		fallbackPath: "./data/storage_fallback.log",
 	}
 
-	// 創建數據目錄
-	dataDir := filepath.Dir(cfg.Storage.Path)
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("創建數據目錄失败: %w", err)
+	// 創建數據目錄（僅 SQLite 需要）
+	if cfg.Storage.Type == "sqlite" {
+		dataDir := filepath.Dir(cfg.Storage.Path)
+		if err := os.MkdirAll(dataDir, 0755); err != nil {
+			return nil, fmt.Errorf("創建數據目錄失败: %w", err)
+		}
 	}
 
-	// 初始化存儲實現
+	// 初始化存儲實現（支援多種數據库）
+	var err error
 	switch cfg.Storage.Type {
 	case "sqlite":
-		sqliteStorage, err := NewSQLiteStorage(cfg.Storage.Path)
+		ss.storage, err = NewSQLiteStorage(cfg.Storage.Path)
 		if err != nil {
 			return nil, fmt.Errorf("初始化 SQLite 存儲失败: %w", err)
 		}
-		ss.storage = sqliteStorage
+	case "mysql":
+		// 使用 database 配置中的 DSN，或使用 storage.path
+		dsn := cfg.Storage.Path
+		if dsn == "" && cfg.Database.DSN != "" {
+			dsn = cfg.Database.DSN
+		}
+		ss.storage, err = NewMySQLStorage(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("初始化 MySQL 存儲失败: %w", err)
+		}
+	case "postgres", "postgresql":
+		return nil, fmt.Errorf("PostgreSQL 暂不支持，请使用 sqlite 或 mysql")
 	default:
 		return nil, fmt.Errorf("不支援的存儲類型: %s", cfg.Storage.Type)
 	}

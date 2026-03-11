@@ -12,7 +12,6 @@ import (
 	"quantmesh/utils"
 
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -33,12 +32,7 @@ func NewMySQLStorage(dsn string) (*SQLiteStorage, error) {
 	return NewStorage("mysql", dsn)
 }
 
-// NewPostgresStorage 創建 PostgreSQL 存儲
-func NewPostgresStorage(dsn string) (*SQLiteStorage, error) {
-	return NewStorage("postgres", dsn)
-}
-
-// NewStorage 創建通用存儲（支援多種數據库）
+// NewStorage 創建通用存儲（支援 sqlite、mysql，PostgreSQL 暂不支持）
 func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
 	var driverName string
 	switch dbType {
@@ -47,8 +41,7 @@ func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
 	case "mysql":
 		driverName = "mysql"
 	case "postgres", "postgresql":
-		driverName = "postgres"
-		dbType = "postgres"
+		return nil, fmt.Errorf("PostgreSQL 暂不支持，请使用 sqlite 或 mysql")
 	default:
 		return nil, fmt.Errorf("不支援的數據库類型: %s", dbType)
 	}

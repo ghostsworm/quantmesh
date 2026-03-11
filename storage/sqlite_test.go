@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -406,5 +407,16 @@ func TestGetReconciliationCount(t *testing.T) {
 	cntEmpty, _ := st.GetReconciliationCount("binance", "ETHUSDT", "acc1")
 	if cntEmpty != 1 {
 		t.Errorf("空 account 記錄應被 acc1 查詢到(兼容)，期望 1，得到 %d", cntEmpty)
+	}
+}
+
+// TestPostgresUnsupported 驗證 PostgreSQL 暫不支持時返回明確錯誤
+func TestPostgresUnsupported(t *testing.T) {
+	_, err := NewStorage("postgres", "host=localhost dbname=test")
+	if err == nil {
+		t.Fatal("期望 postgres 返回錯誤，得到 nil")
+	}
+	if !strings.Contains(err.Error(), "PostgreSQL 暂不支持") {
+		t.Errorf("期望錯誤包含「PostgreSQL 暂不支持」，得到: %v", err)
 	}
 }
