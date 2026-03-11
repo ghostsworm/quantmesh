@@ -399,6 +399,11 @@ func (g *GormDatabase) Close() error {
 	return sqlDB.Close()
 }
 
+// DB 返回底层的 gorm.DB 实例（用于 storage 包共享连接）
+func (g *GormDatabase) DB() *gorm.DB {
+	return g.db
+}
+
 // SaveEvent 保存事件記錄
 func (g *GormDatabase) SaveEvent(ctx context.Context, event *EventRecord) error {
 	return g.db.WithContext(ctx).Create(event).Error
