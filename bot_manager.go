@@ -622,6 +622,13 @@ func (br *BotRuntime) autoResumeAfter(seconds int) {
 	}
 }
 
+// IsBotEnabledInDB 检查數據庫中的 Bot 啟停狀態（公開方法，供 StartSymbol 等調用方使用）
+// 返回值: (是否啟用, 原因)
+// 如果數據庫中沒有記錄，默認返回 (true, "")（使用配置文件的值）
+func (bm *BotManager) IsBotEnabledInDB(botID string) (bool, string) {
+	return bm.isBotEnabledInDB(botID)
+}
+
 // isBotEnabledInDB 检查數據庫中的 Bot 啟停狀態
 // 返回值: (是否啟用, 原因)
 // 如果數據庫中沒有記錄，默認返回 (true, "")（使用配置文件的值）

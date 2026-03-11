@@ -391,9 +391,9 @@ func startSymbolRuntime(
 		priceDecimals,
 		maxLeverage,
 	); err != nil {
-		return nil, fmt.Errorf("持倉安全性检查失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+		return nil, fmt.Errorf("持倉安全性检查失败(%s): %w", botID, err)
 	}
-	logger.Info("✅ [%s] 持倉安全性检查通過", symCfg.Symbol)
+	logger.Info("✅ [%s] 持倉安全性检查通過", botID)
 
 	// 核心组件
 	exchangeExecutor := order.NewExchangeOrderExecutor(
