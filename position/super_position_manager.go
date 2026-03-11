@@ -1031,6 +1031,23 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				pnlRatio := unrealizedPnL / totalValue
 				if pnlRatio <= -stopLossRatio {
 					logger.Error("🚨 [网格风控] 触发硬為止损! 當前浮亏率: %.2f%%, 阈值: %.2f%%", pnlRatio*100, -stopLossRatio*100)
+					// 发布止损事件，触发飞书/邮件等通知
+					if spm.eventBus != nil {
+						spm.eventBus.Publish(&event.Event{
+							Type:      event.EventTypeStopLoss,
+							Timestamp: time.Now(),
+							Data: map[string]interface{}{
+								"bot_id":        spm.botID,
+								"symbol":        spm.config.Trading.Symbol,
+								"exchange":      spm.exchangeName,
+								"reason":        "grid_risk_control",
+								"pnl_ratio_pct": pnlRatio * 100,
+								"threshold_pct": stopLossRatio * 100,
+								"unrealized_pnl": unrealizedPnL,
+								"total_value":   totalValue,
+							},
+						})
+					}
 					spm.LiquidateAll()
 					return nil
 				}
@@ -3397,6 +3414,15 @@ func (spm *SuperPositionManager) LiquidateAll() {
 	} else {
 		logger.Info("ℹ️ [全平倉] 没有发現需要平倉的持倉")
 	}
+}
+
+// SetGridRiskControl 更新網格風控配置（運行時熱更新，供 API 調用）
+func (spm *SuperPositionManager) SetGridRiskControl(grc config.GridRiskControl) {
+	if spm.config == nil {
+		return
+	}
+	spm.config.Trading.GridRiskControl = grc
+	logger.Info("✅ [%s] 網格風控已熱更新: enabled=%v, stop_loss=%.1f%%", spm.botID, grc.Enabled, grc.StopLossRatio*100)
 }
 
 // ShiftGrid 整體移動網格錨點（上移或下移），並撤銷開倉委託以便下一輪按新錨點掛單

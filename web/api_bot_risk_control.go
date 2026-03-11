@@ -17,11 +17,12 @@ type BotRiskControlRequest struct {
 	MaxPositionValue    *float64 `json:"max_position_value"`
 	MaxPositionLayers   *int     `json:"max_position_layers"`
 	MaxOpenOrders       *int     `json:"max_open_orders"`       // 最多開倉掛單數，0=不限制
-	OpenOrderDistance   *float64 `json:"open_order_distance"`  // 開倉單距離當前價的最大間隔數
+	OpenOrderDistance   *float64 `json:"open_order_distance"`   // 開倉單距離當前價的最大間隔數
 	StopLossRatio       *float64 `json:"stop_loss_ratio"`
 	TakeProfitRatio     *float64 `json:"take_profit_ratio"`
 	TrailingStopRatio   *float64 `json:"trailing_stop_ratio"`
 	TrendFilterEnabled  *bool    `json:"trend_filter_enabled"`
+	GridRiskControl     *config.GridRiskControl `json:"grid_risk_control,omitempty"` // 網格風控（止損、止盈、回撤等）
 }
 
 // PauseOpeningRequest 暂停开仓请求
@@ -31,12 +32,31 @@ type PauseOpeningRequest struct {
 }
 
 // getBotRiskControl 获取 Bot 风控配置（运行中从运行时取，已停止从配置取）
+// 返回包含 open_position_control 與 grid_risk_control 的合併結構
 func getBotRiskControl(c *gin.Context) {
 	botID := c.Param("id")
 	bot, ok := botExtendedProvider.GetBot(botID)
 	if ok {
-		riskControl := bot.GetBotRiskControl()
-		c.JSON(http.StatusOK, riskControl)
+		rc := bot.GetBotRiskControl()
+		if rc == nil {
+			rc = &config.BotRiskControl{}
+		}
+		grc := bot.GetGridRiskControl()
+		c.JSON(http.StatusOK, gin.H{
+			"enabled":               rc.Enabled,
+			"max_position_quantity": rc.MaxPositionQuantity,
+			"max_position_value":    rc.MaxPositionValue,
+			"max_position_layers":   rc.MaxPositionLayers,
+			"max_open_orders":       rc.MaxOpenOrders,
+			"open_order_distance":   rc.OpenOrderDistance,
+			"stop_loss_ratio":       rc.StopLossRatio,
+			"take_profit_ratio":     rc.TakeProfitRatio,
+			"trailing_stop_ratio":   rc.TrailingStopRatio,
+			"trend_filter_enabled":  rc.TrendFilterEnabled,
+			"pause_opening":         rc.PauseOpening,
+			"auto_resume_after":     rc.AutoResumeAfter,
+			"grid_risk_control":     grc,
+		})
 		return
 	}
 	// 已停止的 Bot：从配置读取风控
@@ -55,7 +75,22 @@ func getBotRiskControl(c *gin.Context) {
 			if rc == nil {
 				rc = &config.BotRiskControl{}
 			}
-			c.JSON(http.StatusOK, rc)
+			grc := cfg.Bots[i].GridRiskControl
+			c.JSON(http.StatusOK, gin.H{
+				"enabled":               rc.Enabled,
+				"max_position_quantity": rc.MaxPositionQuantity,
+				"max_position_value":    rc.MaxPositionValue,
+				"max_position_layers":   rc.MaxPositionLayers,
+				"max_open_orders":       rc.MaxOpenOrders,
+				"open_order_distance":   rc.OpenOrderDistance,
+				"stop_loss_ratio":       rc.StopLossRatio,
+				"take_profit_ratio":     rc.TakeProfitRatio,
+				"trailing_stop_ratio":   rc.TrailingStopRatio,
+				"trend_filter_enabled":  rc.TrendFilterEnabled,
+				"pause_opening":         rc.PauseOpening,
+				"auto_resume_after":     rc.AutoResumeAfter,
+				"grid_risk_control":     grc,
+			})
 			return
 		}
 	}
@@ -122,8 +157,56 @@ func updateBotRiskControl(c *gin.Context) {
 		return
 	}
 
+	// 更新網格風控（若請求中包含）
+	if req.GridRiskControl != nil {
+		if err := bot.SetGridRiskControl(*req.GridRiskControl); err != nil {
+			logger.Error("❌ [%s] 更新網格風控失敗: %v", botID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		// 持久化到配置文件
+		if err := persistGridRiskControlToConfig(botID, *req.GridRiskControl); err != nil {
+			logger.Warn("⚠️ [%s] 網格風控持久化失敗（運行時已更新）: %v", botID, err)
+		}
+	}
+
 	logger.Info("✅ [%s] 风控配置已更新: %+v", botID, currentRiskControl)
-	c.JSON(http.StatusOK, currentRiskControl)
+	resp := gin.H{
+		"enabled":               currentRiskControl.Enabled,
+		"max_position_quantity": currentRiskControl.MaxPositionQuantity,
+		"max_position_value":    currentRiskControl.MaxPositionValue,
+		"max_position_layers":   currentRiskControl.MaxPositionLayers,
+		"max_open_orders":       currentRiskControl.MaxOpenOrders,
+		"open_order_distance":   currentRiskControl.OpenOrderDistance,
+		"stop_loss_ratio":       currentRiskControl.StopLossRatio,
+		"take_profit_ratio":     currentRiskControl.TakeProfitRatio,
+		"trailing_stop_ratio":   currentRiskControl.TrailingStopRatio,
+		"trend_filter_enabled":  currentRiskControl.TrendFilterEnabled,
+		"grid_risk_control":     bot.GetGridRiskControl(),
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// persistGridRiskControlToConfig 將網格風控寫入主配置文件
+func persistGridRiskControlToConfig(botID string, grc config.GridRiskControl) error {
+	if fileConfigManager == nil {
+		return nil
+	}
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
+		return err
+	}
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if id == botID {
+			cfg.Bots[i].GridRiskControl = grc
+			return fileConfigManager.UpdateConfig(cfg)
+		}
+	}
+	return nil
 }
 
 // pauseBotOpening 暂停 Bot 开仓

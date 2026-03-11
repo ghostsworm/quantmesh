@@ -2,6 +2,12 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.5-rc1] - 2026-03-12
+
+### Added
+- **Bot 詳情風控標籤 - 網格風控展示與編輯**：Bot Detail 風控標籤新增「網格風控」區塊，展示並可編輯 stop_loss_ratio、take_profit_trigger_ratio、trailing_take_profit_ratio、max_grid_layers、trend_filter_enabled；支持運行時熱更新並持久化到配置文件
+- **網格風控觸發止損時發送通知**：`super_position_manager` 觸發硬止損時發布 `EventTypeStopLoss` 事件，會觸發飛書/郵件通知（需在 `notifications.rules.stop_loss` 啟用）
+
 ## [3.74.4-rc2] - 2026-03-12
 
 ### Fixed

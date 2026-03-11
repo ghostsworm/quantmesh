@@ -115,13 +115,23 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
     if (!riskControl || !botIdRef.current) return
     setUpdating(true)
     try {
-      const toSend = { ...riskControl }
+      const toSend: BotRiskControlType = { ...riskControl }
       if (typeof toSend.stop_loss_ratio === 'string') toSend.stop_loss_ratio = parseFloat(toSend.stop_loss_ratio || '0') / 100
       if (typeof toSend.take_profit_ratio === 'string') toSend.take_profit_ratio = parseFloat(toSend.take_profit_ratio || '0') / 100
       if (typeof toSend.trailing_stop_ratio === 'string') toSend.trailing_stop_ratio = parseFloat(toSend.trailing_stop_ratio || '0') / 100
-      if (typeof toSend.max_position_qty === 'string') toSend.max_position_qty = parseFloat(toSend.max_position_qty || '0')
+      const mpq = toSend.max_position_quantity ?? toSend.max_position_qty
+      if (mpq != null) toSend.max_position_quantity = typeof mpq === 'string' ? parseFloat(mpq || '0') : mpq
       if (typeof toSend.max_position_value === 'string') toSend.max_position_value = parseFloat(toSend.max_position_value || '0')
       if (typeof toSend.open_order_distance === 'string') toSend.open_order_distance = parseFloat(toSend.open_order_distance || '0')
+      // 網格風控比例轉換（前端用 % 顯示，後端用 0-1）
+      if (toSend.grid_risk_control) {
+        const grc = { ...toSend.grid_risk_control }
+        const toRatio = (v: number | undefined) => (typeof v === 'number' && v > 1 ? v / 100 : v)
+        grc.stop_loss_ratio = toRatio(grc.stop_loss_ratio)
+        grc.take_profit_trigger_ratio = toRatio(grc.take_profit_trigger_ratio)
+        grc.trailing_take_profit_ratio = toRatio(grc.trailing_take_profit_ratio)
+        toSend.grid_risk_control = grc
+      }
       await updateBotRiskControl(botIdRef.current, toSend)
       toast({ title: t('botRiskControl.configUpdateSuccess'), status: 'success', duration: 2000 })
       await fetchRiskControl()
@@ -178,6 +188,16 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
     value: BotRiskControlType[K]
   ) => {
     setRiskControl(prev => prev ? { ...prev, [key]: value } : null)
+  }, [])
+
+  const updateGridRiskControlField = useCallback(<K extends keyof NonNullable<BotRiskControlType['grid_risk_control']>>(
+    key: K,
+    value: NonNullable<BotRiskControlType['grid_risk_control']>[K]
+  ) => {
+    setRiskControl(prev => prev ? {
+      ...prev,
+      grid_risk_control: { ...(prev.grid_risk_control || {}), [key]: value },
+    } : null)
   }, [])
 
   if (loading) {
@@ -346,8 +366,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.maxPositionQty')}</FormLabel>
                     <DecimalNumberInput
-                      value={riskControl.max_position_qty ?? 0}
-                      onChange={(val) => updateConfigField('max_position_qty', val)}
+                      value={riskControl.max_position_quantity ?? riskControl.max_position_qty ?? 0}
+                      onChange={(val) => updateConfigField('max_position_quantity', val)}
                       min={0}
                       precision={4}
                       step={0.0001}
@@ -461,6 +481,91 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
                       showStepper
                     />
                     <Text fontSize="xs" color="gray.500">{t('botRiskControl.trailingStopRatioDesc')}</Text>
+                  </FormControl>
+                </SimpleGrid>
+
+                <Divider />
+                <Heading size="xs" textTransform="uppercase" color="gray.500">
+                  {t('botRiskControl.gridRiskControl')}
+                </Heading>
+                <Text fontSize="xs" color="gray.500">{t('botRiskControl.gridRiskControlDesc')}</Text>
+                <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
+                  <FormControl display="flex" alignItems="center">
+                    <FormLabel htmlFor="grc-enabled" mb="0" flex="1">
+                      {t('botRiskControl.gridRiskControlEnabled')}
+                    </FormLabel>
+                    <Switch
+                      id="grc-enabled"
+                      isChecked={riskControl.grid_risk_control?.enabled ?? false}
+                      onChange={(e) => updateGridRiskControlField('enabled', e.target.checked)}
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel fontSize="sm">{t('botRiskControl.gridStopLossRatio')} (%)</FormLabel>
+                    <DecimalNumberInput
+                      value={typeof riskControl.grid_risk_control?.stop_loss_ratio === 'number'
+                        ? (riskControl.grid_risk_control.stop_loss_ratio <= 1 ? riskControl.grid_risk_control.stop_loss_ratio * 100 : riskControl.grid_risk_control.stop_loss_ratio)
+                        : 0}
+                      onChange={(val) => updateGridRiskControlField('stop_loss_ratio', typeof val === 'number' ? val / 100 : val)}
+                      min={0}
+                      max={100}
+                      precision={2}
+                      step={0.5}
+                      showStepper
+                    />
+                    <Text fontSize="xs" color="gray.500">{t('botRiskControl.gridStopLossRatioDesc')}</Text>
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel fontSize="sm">{t('botRiskControl.gridTakeProfitTrigger')} (%)</FormLabel>
+                    <DecimalNumberInput
+                      value={typeof riskControl.grid_risk_control?.take_profit_trigger_ratio === 'number'
+                        ? (riskControl.grid_risk_control.take_profit_trigger_ratio <= 1 ? riskControl.grid_risk_control.take_profit_trigger_ratio * 100 : riskControl.grid_risk_control.take_profit_trigger_ratio)
+                        : 0}
+                      onChange={(val) => updateGridRiskControlField('take_profit_trigger_ratio', typeof val === 'number' ? val / 100 : val)}
+                      min={0}
+                      max={100}
+                      precision={2}
+                      step={0.5}
+                      showStepper
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel fontSize="sm">{t('botRiskControl.gridTrailingTakeProfit')} (%)</FormLabel>
+                    <DecimalNumberInput
+                      value={typeof riskControl.grid_risk_control?.trailing_take_profit_ratio === 'number'
+                        ? (riskControl.grid_risk_control.trailing_take_profit_ratio <= 1 ? riskControl.grid_risk_control.trailing_take_profit_ratio * 100 : riskControl.grid_risk_control.trailing_take_profit_ratio)
+                        : 0}
+                      onChange={(val) => updateGridRiskControlField('trailing_take_profit_ratio', typeof val === 'number' ? val / 100 : val)}
+                      min={0}
+                      max={100}
+                      precision={2}
+                      step={0.5}
+                      showStepper
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel fontSize="sm">{t('botRiskControl.gridMaxLayers')}</FormLabel>
+                    <NumberInput
+                      value={riskControl.grid_risk_control?.max_grid_layers ?? 0}
+                      onChange={(_, val) => updateGridRiskControlField('max_grid_layers', val)}
+                      min={0}
+                    >
+                      <NumberInputField />
+                      <NumberInputStepper>
+                        <NumberIncrementStepper />
+                        <NumberDecrementStepper />
+                      </NumberInputStepper>
+                    </NumberInput>
+                  </FormControl>
+                  <FormControl display="flex" alignItems="center">
+                    <FormLabel htmlFor="grc-trend-filter" mb="0" flex="1">
+                      {t('botRiskControl.gridTrendFilter')}
+                    </FormLabel>
+                    <Switch
+                      id="grc-trend-filter"
+                      isChecked={riskControl.grid_risk_control?.trend_filter_enabled ?? false}
+                      onChange={(e) => updateGridRiskControlField('trend_filter_enabled', e.target.checked)}
+                    />
                   </FormControl>
                 </SimpleGrid>
 

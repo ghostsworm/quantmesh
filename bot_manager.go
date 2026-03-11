@@ -370,6 +370,24 @@ func (br *BotRuntime) SetBotRiskControl(riskControl *config.BotRiskControl) erro
 	return nil
 }
 
+// GetGridRiskControl 獲取網格風控配置
+func (br *BotRuntime) GetGridRiskControl() config.GridRiskControl {
+	br.configMu.RLock()
+	defer br.configMu.RUnlock()
+	return br.Config.GridRiskControl
+}
+
+// SetGridRiskControl 設置網格風控配置（運行時熱更新 + 同步到 SuperPositionManager）
+func (br *BotRuntime) SetGridRiskControl(grc config.GridRiskControl) error {
+	br.configMu.Lock()
+	defer br.configMu.Unlock()
+	br.Config.GridRiskControl = grc
+	if br.Inner != nil && br.Inner.SuperPositionManager != nil {
+		br.Inner.SuperPositionManager.SetGridRiskControl(grc)
+	}
+	return nil
+}
+
 // PauseOpening 暂停开仓
 func (br *BotRuntime) PauseOpening(reason string) {
 	br.configMu.Lock()

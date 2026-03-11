@@ -2757,9 +2757,21 @@ export async function pollMarketInterpretUntilComplete(
 // Bot Risk Control API (V2)
 // ============================================================
 
+// 網格風控配置（止損、止盈、回撤等，觸發時會全平倉）
+export interface GridRiskControl {
+  enabled?: boolean
+  stop_loss_ratio?: number
+  take_profit_trigger_ratio?: number
+  trailing_take_profit_ratio?: number
+  max_grid_layers?: number
+  max_open_orders_at_cap?: number
+  trend_filter_enabled?: boolean
+}
+
 // Bot 风控配置
 export interface BotRiskControl {
   enabled?: boolean
+  max_position_quantity?: number
   max_position_qty?: number
   max_position_value?: number
   max_position_layers?: number
@@ -2772,6 +2784,8 @@ export interface BotRiskControl {
   pause_opening_reason?: string
   auto_resume_after?: number
   trend_filter_enabled?: boolean
+  /** 網格風控（浮虧達止損比例時全平倉，觸發飛書/郵件通知） */
+  grid_risk_control?: GridRiskControl
 }
 
 // 仓位状态
