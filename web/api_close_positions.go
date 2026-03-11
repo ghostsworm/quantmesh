@@ -26,6 +26,8 @@ type BotExtended interface {
 	// Bot 风控相关方法
 	GetBotRiskControl() *config.BotRiskControl
 	SetBotRiskControl(riskControl *config.BotRiskControl) error
+	GetGridRiskControl() config.GridRiskControl
+	SetGridRiskControl(grc config.GridRiskControl) error
 	PauseOpening(reason string)
 	ResumeOpening()
 	GetPositionStatus() map[string]interface{}
