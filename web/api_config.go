@@ -375,7 +375,7 @@ func validateConfigHandler(c *gin.Context) {
 // previewConfigHandler 預览配置变更
 // POST /api/config/preview
 func previewConfigHandler(c *gin.Context) {
-	if configManager == nil {
+	if fileConfigManager == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
 		return
 	}
@@ -406,7 +406,7 @@ func previewConfigHandler(c *gin.Context) {
 // updateConfigHandler 更新配置
 // POST /api/config/update
 func updateConfigHandler(c *gin.Context) {
-	if configManager == nil {
+	if fileConfigManager == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
 		return
 	}
@@ -499,7 +499,7 @@ func getBackupsHandler(c *gin.Context) {
 // restoreBackupHandler 恢複备份
 // POST /api/config/restore/:backup_id
 func restoreBackupHandler(c *gin.Context) {
-	if configManager == nil || configBackupMgr == nil {
+	if fileConfigManager == nil || configBackupMgr == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器或备份管理器未初始化"})
 		return
 	}
@@ -622,7 +622,7 @@ func getConfigHistoryHandler(c *gin.Context) {
 // restoreConfigHistoryHandler 恢複到指定历史版本
 // POST /api/config/history/:version/restore
 func restoreConfigHistoryHandler(c *gin.Context) {
-	if configHistoryMgr == nil || configManager == nil {
+	if configHistoryMgr == nil || fileConfigManager == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
 		return
 	}
@@ -725,7 +725,7 @@ func validateConfigYAMLHandler(c *gin.Context) {
 // updateConfigYAMLHandler 更新配置（直接接收 YAML 文本）
 // POST /api/config/update-yaml
 func updateConfigYAMLHandler(c *gin.Context) {
-	if configManager == nil {
+	if fileConfigManager == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
 		return
 	}
