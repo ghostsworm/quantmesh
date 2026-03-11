@@ -1412,6 +1412,7 @@
     "sourceLiquidation": "Liquidation",
     "allStrategies": "All Strategies",
     "allTypes": "All Types",
+    "allSources": "All Sources",
     "allStatuses": "All Statuses",
     "allSides": "All Sides",
     "noMatchingOrders": "No matching orders",
