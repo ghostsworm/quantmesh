@@ -1563,7 +1563,14 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			if spm.isShort() {
 				closePrice = slotPrice - slotSpread // SHORT: 買低平倉
 			} else {
-				closePrice = slotPrice + slotSpread // LONG: 賣高平倉
+				// LONG: 賣高平倉。必須保證賣出價 >= 實際買入均價，否則波動/滑點時可能虧損
+				basePrice := slotPrice
+				if slot.AvgBuyPrice > 0 && slot.AvgBuyPrice > slotPrice {
+					basePrice = slot.AvgBuyPrice
+					logger.Debug("📊 [%s] 槽位 %.2f 實際買入價(%.2f) > 網格價，平倉基準價調整為 %.2f",
+						spm.logPrefix(), slotPrice, slot.AvgBuyPrice, basePrice)
+				}
+				closePrice = basePrice + slotSpread
 			}
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
 

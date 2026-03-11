@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.74.6-rc2"
+var Version = "3.74.6-rc4"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -592,7 +592,14 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 	}
 
 	// 啟动 SymbolRuntime（使用最新配置）
-	rt, err := startSymbolRuntime(a.ctx, cfg, *symCfg, a.eventBus, a.storageService, a.distributedLock)
+	exCfg, _ := cfg.Exchanges[symCfg.Exchange]
+	botCfg := config.SymbolConfigToBotConfig(*symCfg, exCfg.Testnet)
+	botID := botCfg.ID
+	if botID == "" {
+		botID = config.GenerateBotID(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType())
+	}
+	_ = a.manager.GetBotManager().EnableBot(botID)
+	br, err := a.manager.StartBot(a.ctx, botCfg)
 	if err != nil {
 		wrapped := fmt.Errorf("啟动失败: %w", err)
 		hint := ""
@@ -617,9 +624,10 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 		}
 		return wrapped
 	}
-
-	// 添加到管理器
-	a.manager.Add(rt)
+	if br == nil || br.Inner == nil {
+		return fmt.Errorf("啟動成功但未返回運行時")
+	}
+	rt := br.Inner
 
 	// 注册到 Web API
 	if a.storageService != nil {
@@ -2170,13 +2178,22 @@ func main() {
 			}
 		}
 		for _, botCfg := range botCfgs {
+			botID := botCfg.ID
+			if botID == "" {
+				botID = config.GenerateBotID(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType())
+			}
 			if !botCfg.IsEnabled() {
-				logger.Info("⏭️ [%s:%s] 已禁用，跳過自动啟动", botCfg.Exchange, botCfg.Symbol)
+				logger.Info("⏭️ [%s] 配置已禁用，跳過自动啟动", botID)
+				continue
+			}
+			// 數據庫 bot_states 優先：若已停止則跳過，不執行持倉安全性檢查
+			if enabled, reason := symbolManager.GetBotManager().IsBotEnabledInDB(botID); !enabled {
+				logger.Info("⏭️ [%s] 數據庫中已停止，跳過自动啟动（原因: %s）", botID, reason)
 				continue
 			}
 			br, err := symbolManager.StartBot(ctx, botCfg)
 			if err != nil {
-				logger.Error("❌ [%s:%s] 啟动失败: %v", botCfg.Exchange, botCfg.Symbol, err)
+				logger.Error("❌ [%s] 啟动失败: %v", botID, err)
 				continue
 			}
 			if br != nil && br.Inner != nil && firstRuntime == nil {
