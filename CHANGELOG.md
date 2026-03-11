@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.3-rc1] - 2026-03-12
+
+### Added
+- **ClientOrderID 編碼訂單來源**：止損平倉單的 ClientOrderID 追加 `_SL` 後綴，幣安等交易所會原樣存儲並返回，可從訂單歷史/WebSocket 中解析 order_source；`utils.ParseOrderSource` 支持從任意 ClientOrderID 解析；WebSocket 訂單更新與 strategyMap 未命中時自動從 ClientOrderID 回填 order_source
+
+### Test
+- **utils/orderid_test.go**：新增 TestGenerateOrderIDWithSource、TestParseOrderSource、TestParseOrderIDWithSLSuffix
+
 ## [3.74.2-rc3] - 2026-03-12
 
 ### Fixed

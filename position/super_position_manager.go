@@ -892,13 +892,13 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 }
 
 // generateClientOrderID 生成自定义订單ID
-// 使用新的紧凑格式，最大长度不超過18字符
-// 格式: {price_int}_{side}_{timestamp}{seq}
+// 使用新的紧凑格式，最大长度不超過18字符（止損單加 _SL 後綴約 21 字符）
+// 格式: {price_int}_{side}_{timestamp}{seq} 或 {price_int}_{side}_{timestamp}{seq}_SL
 // price_int: price * 10^decimals (轉為整數)
 // side: B=Buy, S=Sell
-func (spm *SuperPositionManager) generateClientOrderID(price float64, side string) string {
-	// 使用统一的 utils 包生成紧凑ID
-	return utils.GenerateOrderID(price, side, spm.priceDecimals)
+// orderSource: 可選，傳 "stop_loss" 時追加 _SL，便於從交易所訂單中解析訂單來源
+func (spm *SuperPositionManager) generateClientOrderID(price float64, side string, orderSource string) string {
+	return utils.GenerateOrderIDWithSource(price, side, spm.priceDecimals, orderSource)
 }
 
 // isReduceOnlyCooldown 检查槽位是否处于 ReduceOnly 冷却期（2 分钟内不再尝试平仓）
@@ -1486,7 +1486,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			if spm.isShort() {
 				openSide = "SELL"
 			}
-			clientOID := spm.generateClientOrderID(price, openSide)
+			clientOID := spm.generateClientOrderID(price, openSide, "")
 
 			// 🔥 鎖定槽位：標記為PENDING状態，防止並发操作
 			slot.SlotStatus = SlotStatusPending
@@ -1635,7 +1635,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			slot.mu.Unlock()
 
 			// 生成 ClientOrderID
-			clientOID := spm.generateClientOrderID(candidate.SlotPrice, closeSide)
+			clientOID := spm.generateClientOrderID(candidate.SlotPrice, closeSide, "")
 
 			quantity := candidate.Quantity
 			// 兜底检查：平倉單數量必須大於0
@@ -3358,7 +3358,7 @@ func (spm *SuperPositionManager) LiquidateAll() {
 			sellPrice := lastPrice * 0.99 // 使用略低於市價的價格确保成交（限價平倉）
 			sellPrice = roundPrice(sellPrice, spm.priceDecimals)
 
-			clientOID := spm.generateClientOrderID(price, "SELL")
+			clientOID := spm.generateClientOrderID(price, "SELL", "stop_loss")
 
 			sellOrders = append(sellOrders, &OrderRequest{
 				Symbol:        spm.config.Trading.Symbol,
@@ -3369,7 +3369,7 @@ func (spm *SuperPositionManager) LiquidateAll() {
 				ReduceOnly:    !spm.isSpot(), // 現貨不支援 ReduceOnly
 				PostOnly:      false,         // 强制平倉不使用 PostOnly
 				ClientOrderID: clientOID,
-				OrderSource:   "stop_loss", // 止損平倉
+				OrderSource:   "stop_loss", // 止損平倉（ClientOrderID 含 _SL 後綴，可從交易所訂單中解析）
 			})
 		}
 		slot.mu.Unlock()
