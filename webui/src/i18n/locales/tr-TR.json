@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "24s Volatilite",
+    "tooltip": "{{count}} mum (MA{{period}}) üzerinden hesaplandı",
+    "atrPct": "ATR%",
+    "upsideDev": "Yukarı sapma",
+    "downsideDev": "Aşağı sapma",
+    "bias": {
+      "bullish": "Boğa",
+      "bearish": "Ayı",
+      "neutral": "Nötr"
+    },
+    "intensity": "Yoğunluk",
+    "level": {
+      "calm": "Sakin",
+      "normal": "Normal",
+      "active": "Aktif",
+      "extreme": "Aşırı"
+    },
+    "biasLabel": "Yön eğilimi"
   }
 }

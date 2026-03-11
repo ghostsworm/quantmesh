@@ -4,6 +4,9 @@
 
 ## [3.74.7] - 2026-03-12
 
+### Added
+- **VolatilityIndicator 波動率指標組件**：新增 K 線圖波動率面板，展示 24h ATR%、上行/下行偏差、多空偏向及波動強度（Calm/Normal/Active/Extreme）；支持 24 種語言國際化
+
 ### Fixed
 - **平倉委託價格保護（LONG + SHORT 雙向）**：波動/滑點導致實際成交價偏離網格價時，平倉委託價格現統一以實際開倉均價為基準計算，防止虧損出場
   - LONG：賣出價 = `max(slotPrice, AvgBuyPrice) + spread`

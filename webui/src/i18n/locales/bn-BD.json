@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "২৪ঘ অস্থিরতা",
+    "tooltip": "{{count}} ক্যান্ডেল (MA{{period}}) থেকে গণনা করা",
+    "atrPct": "ATR%",
+    "upsideDev": "ঊর্ধ্ব বিচ্যুতি",
+    "downsideDev": "নিম্ন বিচ্যুতি",
+    "bias": {
+      "bullish": "বুলিশ",
+      "bearish": "বেয়ারিশ",
+      "neutral": "নিরপেক্ষ"
+    },
+    "intensity": "তীব্রতা",
+    "level": {
+      "calm": "শান্ত",
+      "normal": "স্বাভাবিক",
+      "active": "সক্রিয়",
+      "extreme": "চরম"
+    },
+    "biasLabel": "পক্ষপাত"
   }
 }

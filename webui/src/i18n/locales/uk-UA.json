@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "Волатильність 24г",
+    "tooltip": "Розраховано по {{count}} свічках (MA{{period}})",
+    "atrPct": "ATR%",
+    "upsideDev": "Відхил вгору",
+    "downsideDev": "Відхил вниз",
+    "bias": {
+      "bullish": "Бичачий",
+      "bearish": "Ведмежий",
+      "neutral": "Нейтральний"
+    },
+    "intensity": "Інтенсивність",
+    "level": {
+      "calm": "Спокійно",
+      "normal": "Нормально",
+      "active": "Активно",
+      "extreme": "Екстремально"
+    },
+    "biasLabel": "Уклін"
   }
 }

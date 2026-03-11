@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "24 घंटे अस्थिरता",
+    "tooltip": "{{count}} कैंडल (MA{{period}}) से गणना",
+    "atrPct": "ATR%",
+    "upsideDev": "ऊर्ध्व विचलन",
+    "downsideDev": "निम्न विचलन",
+    "bias": {
+      "bullish": "बुलिश",
+      "bearish": "बेयरिश",
+      "neutral": "तटस्थ"
+    },
+    "intensity": "तीव्रता",
+    "level": {
+      "calm": "शांत",
+      "normal": "सामान्य",
+      "active": "सक्रिय",
+      "extreme": "चरम"
+    },
+    "biasLabel": "झुकाव"
   }
 }

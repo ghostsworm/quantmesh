@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "Biến động 24h",
+    "tooltip": "Tính từ {{count}} nến (MA{{period}})",
+    "atrPct": "ATR%",
+    "upsideDev": "Lệch lên",
+    "downsideDev": "Lệch xuống",
+    "bias": {
+      "bullish": "Tăng",
+      "bearish": "Giảm",
+      "neutral": "Trung lập"
+    },
+    "intensity": "Cường độ",
+    "level": {
+      "calm": "Bình lặng",
+      "normal": "Bình thường",
+      "active": "Hoạt động",
+      "extreme": "Cực đoan"
+    },
+    "biasLabel": "Xu hướng"
   }
 }

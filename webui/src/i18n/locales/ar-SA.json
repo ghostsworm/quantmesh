@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "التذبذب 24 ساعة",
+    "tooltip": "مقاييس التذبذب المحسوبة من {{count}} شمعة (MA{{period}})",
+    "atrPct": "ATR٪",
+    "upsideDev": "انحراف صعودي",
+    "downsideDev": "انحراف هبوطي",
+    "bias": {
+      "bullish": "صعودي",
+      "bearish": "هبوطي",
+      "neutral": "محايد"
+    },
+    "intensity": "الشدة",
+    "level": {
+      "calm": "هادئ",
+      "normal": "طبيعي",
+      "active": "نشط",
+      "extreme": "متطرف"
+    },
+    "biasLabel": "الاتجاه"
   }
 }

@@ -3662,6 +3662,26 @@
     "loadFailed": "Failed to load K-line data",
     "title": "K-Line Chart"
   },
+  "volatilityIndicator": {
+    "title": "24h Volatility",
+    "tooltip": "Volatility metrics computed from {{count}} candles (MA{{period}})",
+    "atrPct": "ATR%",
+    "upsideDev": "Upside Dev",
+    "downsideDev": "Downside Dev",
+    "biasLabel": "Bias",
+    "intensity": "Intensity",
+    "level": {
+      "calm": "Calm",
+      "normal": "Normal",
+      "active": "Active",
+      "extreme": "Extreme"
+    },
+    "bias": {
+      "bullish": "Bullish",
+      "bearish": "Bearish",
+      "neutral": "Neutral"
+    }
+  },
   "diffPreview": {
     "sideBySide": "Side by Side",
     "unifiedView": "Unified View",
