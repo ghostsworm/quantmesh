@@ -3873,5 +3873,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "24h 변동성",
+    "tooltip": "{{count}}개 캔들 (MA{{period}}) 기반 계산",
+    "atrPct": "ATR%",
+    "upsideDev": "상방 이탈",
+    "downsideDev": "하방 이탈",
+    "bias": {
+      "bullish": "강세",
+      "bearish": "약세",
+      "neutral": "중립"
+    },
+    "intensity": "강도",
+    "level": {
+      "calm": "안정",
+      "normal": "보통",
+      "active": "활발",
+      "extreme": "극단"
+    },
+    "biasLabel": "방향성"
   }
 }

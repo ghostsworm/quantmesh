@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "24u Volatiliteit",
+    "tooltip": "Berekend uit {{count}} kaarsen (MA{{period}})",
+    "atrPct": "ATR%",
+    "upsideDev": "Opwaartse afw.",
+    "downsideDev": "Neerwaartse afw.",
+    "bias": {
+      "bullish": "Bullish",
+      "bearish": "Bearish",
+      "neutral": "Neutraal"
+    },
+    "intensity": "Intensiteit",
+    "level": {
+      "calm": "Rustig",
+      "normal": "Normaal",
+      "active": "Actief",
+      "extreme": "Extreem"
+    },
+    "biasLabel": "Richting"
   }
 }

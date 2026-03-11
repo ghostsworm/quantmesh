@@ -3873,5 +3873,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "24hボラティリティ",
+    "tooltip": "{{count}}本のローソク足（MA{{period}}）から計算",
+    "atrPct": "ATR%",
+    "upsideDev": "上方乖離",
+    "downsideDev": "下方乖離",
+    "bias": {
+      "bullish": "強気",
+      "bearish": "弱気",
+      "neutral": "中立"
+    },
+    "intensity": "強度",
+    "level": {
+      "calm": "穏やか",
+      "normal": "普通",
+      "active": "活発",
+      "extreme": "極端"
+    },
+    "biasLabel": "方向性"
   }
 }

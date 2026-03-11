@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "24 گھنٹے اتار چڑھاؤ",
+    "tooltip": "{{count}} شمع (MA{{period}}) سے حساب",
+    "atrPct": "ATR%",
+    "upsideDev": "اوپر انحراف",
+    "downsideDev": "نیچے انحراف",
+    "bias": {
+      "bullish": "تیزی",
+      "bearish": "مندی",
+      "neutral": "غیرجانبدار"
+    },
+    "intensity": "شدت",
+    "level": {
+      "calm": "پرسکون",
+      "normal": "عام",
+      "active": "فعال",
+      "extreme": "انتہائی"
+    },
+    "biasLabel": "رجحان"
   }
 }

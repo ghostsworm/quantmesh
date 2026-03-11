@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, getKlines, KlineData } from '../services/api'
+import VolatilityIndicator from './VolatilityIndicator'
 
 const INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'] as const
 type Interval = typeof INTERVALS[number]
@@ -72,6 +73,7 @@ const KlineChart: React.FC = () => {
   const [interval, setInterval] = useState<Interval>('1m')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [klineDataForMetrics, setKlineDataForMetrics] = useState<KlineData[]>([])
   
   // 用於取消正在進行的请求
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -305,6 +307,9 @@ const KlineChart: React.FC = () => {
 
       // 增量更新图表數據
       updateChartIncremental(candleData, volumeData)
+
+      // 保存最新 kline 数据用于波动率指标计算
+      setKlineDataForMetrics(response.klines)
     } catch (err) {
       // 忽略取消的请求錯误
       if (abortController.signal.aborted) {
@@ -414,6 +419,11 @@ const KlineChart: React.FC = () => {
 
       {loading && !error && (
         <div style={{ textAlign: 'center', padding: '40px' }}>{t('common.loading')}</div>
+      )}
+
+      {/* 波动率指标面板 */}
+      {klineDataForMetrics.length > 0 && (
+        <VolatilityIndicator klines={klineDataForMetrics} />
       )}
 
       <div

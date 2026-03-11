@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "نوسان ۲۴ساعته",
+    "tooltip": "محاسبه از {{count}} شمع (MA{{period}})",
+    "atrPct": "ATR٪",
+    "upsideDev": "انحراف صعودی",
+    "downsideDev": "انحراف نزولی",
+    "bias": {
+      "bullish": "صعودی",
+      "bearish": "نزولی",
+      "neutral": "خنثی"
+    },
+    "intensity": "شدت",
+    "level": {
+      "calm": "آرام",
+      "normal": "عادی",
+      "active": "فعال",
+      "extreme": "شدید"
+    },
+    "biasLabel": "گرایش"
   }
 }

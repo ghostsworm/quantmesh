@@ -3868,5 +3868,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "ความผันผวน 24ชม",
+    "tooltip": "คำนวณจาก {{count}} แท่งเทียน (MA{{period}})",
+    "atrPct": "ATR%",
+    "upsideDev": "เบี่ยงขึ้น",
+    "downsideDev": "เบี่ยงลง",
+    "bias": {
+      "bullish": "ขาขึ้น",
+      "bearish": "ขาลง",
+      "neutral": "กลาง"
+    },
+    "intensity": "ความรุนแรง",
+    "level": {
+      "calm": "สงบ",
+      "normal": "ปกติ",
+      "active": "ตื่นตัว",
+      "extreme": "สุดขั้ว"
+    },
+    "biasLabel": "ทิศทาง"
   }
 }

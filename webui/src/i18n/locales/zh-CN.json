@@ -3665,6 +3665,26 @@
     "loadFailed": "加载K线数据失败",
     "title": "K线图"
   },
+  "volatilityIndicator": {
+    "title": "24h波动率",
+    "tooltip": "基于{{count}}根K线（MA{{period}}均线）计算的波动率指标",
+    "atrPct": "ATR波动率",
+    "upsideDev": "均线上偏",
+    "downsideDev": "均线下偏",
+    "biasLabel": "方向偏向",
+    "intensity": "波动强度",
+    "level": {
+      "calm": "平静",
+      "normal": "正常",
+      "active": "活跃",
+      "extreme": "极端"
+    },
+    "bias": {
+      "bullish": "偏多",
+      "bearish": "偏空",
+      "neutral": "中性"
+    }
+  },
   "diffPreview": {
     "sideBySide": "并排对比",
     "unifiedView": "统一视图",

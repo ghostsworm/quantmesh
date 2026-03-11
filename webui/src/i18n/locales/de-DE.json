@@ -3885,5 +3885,25 @@
     "confirmTitle": "Confirm Close",
     "confirmDesc": "Close {{ratio}} of {{symbol}} position via {{method}}. Proceed?",
     "botNotFound": "Bot not found, cannot execute"
+  },
+  "volatilityIndicator": {
+    "title": "24h Volatilität",
+    "tooltip": "Volatilitätskennzahlen aus {{count}} Kerzen (MA{{period}})",
+    "atrPct": "ATR%",
+    "upsideDev": "Aufwärts-Abw.",
+    "downsideDev": "Abwärts-Abw.",
+    "bias": {
+      "bullish": "Bullisch",
+      "bearish": "Bärisch",
+      "neutral": "Neutral"
+    },
+    "intensity": "Intensität",
+    "level": {
+      "calm": "Ruhig",
+      "normal": "Normal",
+      "active": "Aktiv",
+      "extreme": "Extrem"
+    },
+    "biasLabel": "Tendenz"
   }
 }

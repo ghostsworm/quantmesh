@@ -3904,5 +3904,25 @@
     "confirmTitle": "確認平倉",
     "confirmDesc": "將以{{method}}方式平掉 {{symbol}} {{ratio}} 倉位，是否繼續？",
     "botNotFound": "未找到對應 Bot，無法執行"
+  },
+  "volatilityIndicator": {
+    "title": "24h波動率",
+    "tooltip": "基於{{count}}根K線（MA{{period}}均線）計算",
+    "atrPct": "ATR波動率",
+    "upsideDev": "均線上偏",
+    "downsideDev": "均線下偏",
+    "bias": {
+      "bullish": "偏多",
+      "bearish": "偏空",
+      "neutral": "中性"
+    },
+    "intensity": "波動強度",
+    "level": {
+      "calm": "平靜",
+      "normal": "正常",
+      "active": "活躍",
+      "extreme": "極端"
+    },
+    "biasLabel": "方向偏向"
   }
 }
