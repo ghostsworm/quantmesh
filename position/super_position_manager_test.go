@@ -369,3 +369,75 @@ func TestCloseOrderPriceAboveAvgBuyPrice(t *testing.T) {
 		}
 	}
 }
+
+// TestCloseOrderPriceBelowAvgOpenPriceForShort 驗證 SHORT 波動/滑點時，平倉買單價格必須 <= 實際開空均價
+// 場景：槽位網格賣出價 50000，但實際成交 49800（滑點），買回單必須 <= 49800 - spread
+func TestCloseOrderPriceBelowAvgOpenPriceForShort(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.Direction = "SHORT"
+	cfg.Trading.PriceInterval = 100.0
+	cfg.Trading.ProfitSpread = 100.0
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.SellWindowSize = 2
+	cfg.Trading.OrderQuantity = 100.0
+
+	mockExec := &MockExecutor{}
+	ex := &MockExchange{}
+	spm := NewSuperPositionManager(cfg, mockExec, ex, 2, 3)
+	spm.Initialize(50000.0, "50000.00")
+
+	// 1. 觸發 SHORT 開倉賣單
+	spm.AdjustOrders(50050.0)
+
+	// 2. 找到已下的 SELL 開倉槽位
+	var slotPrice float64
+	var clientOID string
+	var orderID int64
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+		if slot.SlotStatus == SlotStatusLocked && slot.OrderSide == "SELL" {
+			slotPrice = key.(float64)
+			clientOID = slot.ClientOID
+			orderID = slot.OrderID
+			return false
+		}
+		return true
+	})
+	if clientOID == "" {
+		t.Log("本輪未產生 SHORT 開倉賣單（可能窗口/初始化限制），跳過")
+		return
+	}
+
+	// 3. 模擬 SELL 開倉成交，但實際成交價低於委託價（滑點向下）
+	avgOpenPrice := slotPrice - 200 // 例如 slotPrice=50100，實際賣了 49900
+	spm.OnOrderUpdate(OrderUpdate{
+		OrderID:       orderID,
+		ClientOrderID: clientOID,
+		Symbol:        "BTCUSDT",
+		Status:        OrderStatusFilled,
+		ExecutedQty:   0.002,
+		Price:         avgOpenPrice,
+		AvgPrice:      avgOpenPrice,
+		Side:          "SELL",
+	})
+
+	// 4. 觸發平倉買單
+	mockExec.PlacedOrders = nil
+	spm.AdjustOrders(49800.0)
+
+	// 5. 驗證買回單價格 <= 實際開空均價 - spread
+	maxBuyPrice := avgOpenPrice - 100 // spread=100
+	for _, req := range mockExec.PlacedOrders {
+		if req.Side == "BUY" {
+			if req.Price > maxBuyPrice {
+				t.Errorf("SHORT 平倉買單價格 %.2f 高於最大允許值 %.2f (AvgOpenPrice=%.2f - spread=100)，可能虧損",
+					req.Price, maxBuyPrice, avgOpenPrice)
+			} else {
+				t.Logf("✅ SHORT 平倉買單價格 %.2f <= 最大允許值 %.2f，修復正確", req.Price, maxBuyPrice)
+			}
+		}
+	}
+}

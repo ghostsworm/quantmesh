@@ -2,10 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.6-rc4] - 2026-03-12
+
+### Fixed
+- **SHORT 方向平倉買單價格未保證低於實際開空均價**：SHORT 波動/滑點時，若實際賣出價低於網格檔位價，原邏輯仍用 `slotPrice - spread` 計算買回價，可能高於成本導致虧損；現改為以 `min(slotPrice, AvgOpenPrice) - spread` 為基準，與 LONG 方向修復對稱
+
+### Test
+- **position/super_position_manager_test.go**：新增 `TestCloseOrderPriceBelowAvgOpenPriceForShort` 驗證 SHORT 方向修復
+
 ## [3.74.6-rc3] - 2026-03-12
 
 ### Fixed
-- **平倉賣單價格未保證高於實際買入價**：波動/滑點時，若實際成交價高於網格檔位價，原邏輯僅用 `slotPrice + spread` 計算賣單價，可能低於成本導致虧損；現改為以 `max(slotPrice, AvgBuyPrice) + spread` 為基準，確保賣出價始終高於實際買入均價
+- **平倉賣單價格未保證高於實際買入價（LONG）**：波動/滑點時，若實際成交價高於網格檔位價，原邏輯僅用 `slotPrice + spread` 計算賣單價，可能低於成本導致虧損；現改為以 `max(slotPrice, AvgBuyPrice) + spread` 為基準，確保賣出價始終高於實際買入均價
 
 ### Test
 - **position/super_position_manager_test.go**：新增 `TestCloseOrderPriceAboveAvgBuyPrice` 驗證修復
