@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.6-rc2] - 2026-03-12
+
+### Fixed
+- **Bot 風控更新 400 Bad Request**：網格風控 `stop_loss_ratio` 等比例欄位由 `DecimalNumberInput` 傳入 string（如 "15"）時未轉為 number，Go 後端無法 unmarshal；現抽取 `normalizeGridRiskControlPayload` 統一將 string 轉為 float64，並正確處理 % 與 0-1 比例
+
+### Test
+- **gridRiskControlPayload.test.ts**：新增 `toRatio`、`normalizeGridRiskControlPayload` 單元測試
+
 ## [3.74.6-rc1] - 2026-03-12
 
 ### Added
