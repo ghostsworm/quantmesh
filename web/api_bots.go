@@ -133,6 +133,9 @@ type CreateBotRequest struct {
 	SmartOrderOnlyCloseFilledSlots bool    `json:"smart_order_only_close_filled_slots"`
 	SmartOrderProgressivePlacement bool    `json:"smart_order_progressive_placement"`
 	SmartOrderLeadSlots            int     `json:"smart_order_lead_slots"`
+
+	// 三級火箭網格
+	RocketTieredGrid *config.RocketTieredGridConfig `json:"rocket_tiered_grid,omitempty"`
 }
 
 // buildGridRiskControlFromRequest 從創建請求構建 GridRiskControl
@@ -292,6 +295,7 @@ func postBotCreate(c *gin.Context) {
 		GridRiskControl:       buildGridRiskControlFromRequest(req),
 		AutoRebuild:           buildGridAutoRebuildFromRequest(req),
 		SmartOrder:            buildSmartOrderFromRequest(req),
+		RocketTieredGrid:      req.RocketTieredGrid,
 	}
 	if bc.ReconcileInterval <= 0 {
 		bc.ReconcileInterval = 60
@@ -711,6 +715,17 @@ func postBotGroupCreate(c *gin.Context) {
 	if len(bcSpot.Strategies) == 0 {
 		bcSpot.Strategies = []config.StrategyInstance{{Type: "grid", Weight: 1.0, Config: map[string]interface{}{}}}
 	}
+	// 若現貨腿為 spot_short，啟用 UseSpotMargin 並注入 group_id
+	for i := range bcSpot.Strategies {
+		if bcSpot.Strategies[i].Type == "spot_short" {
+			bcSpot.UseSpotMargin = true
+			if bcSpot.Strategies[i].Config == nil {
+				bcSpot.Strategies[i].Config = make(map[string]interface{})
+			}
+			bcSpot.Strategies[i].Config["group_id"] = groupID
+			break
+		}
+	}
 	applyBotDefaults(&bcSpot)
 
 	hedgeCfg := req.HedgeConfig
@@ -719,6 +734,12 @@ func postBotGroupCreate(c *gin.Context) {
 	}
 	if hedgeCfg.RebalanceInterval <= 0 {
 		hedgeCfg.RebalanceInterval = 3600
+	}
+	if hedgeCfg.ShortNotionalRatio <= 0 {
+		hedgeCfg.ShortNotionalRatio = 0.25
+	}
+	if hedgeCfg.HedgeTriggerLayers <= 0 {
+		hedgeCfg.HedgeTriggerLayers = 3
 	}
 
 	group := config.BotGroup{
@@ -832,6 +853,9 @@ type UpdateBotStrategyRequest struct {
 	SmartOrderEnabled           *bool    `json:"smart_order_enabled,omitempty"`
 	SmartOrderMaxOpenOrders     *int     `json:"smart_order_max_open_orders,omitempty"`
 	SmartOrderOpenOrderDistance *float64 `json:"smart_order_open_order_distance,omitempty"`
+
+	// 三級火箭網格
+	RocketTieredGrid *config.RocketTieredGridConfig `json:"rocket_tiered_grid,omitempty"`
 }
 
 // putBotStrategy 更新 Bot 策略配置
@@ -966,6 +990,11 @@ func putBotStrategy(c *gin.Context) {
 			}
 			if req.SmartOrderOpenOrderDistance != nil {
 				bc.SmartOrder.OpenOrderDistance = *req.SmartOrderOpenOrderDistance
+			}
+
+			// 更新三級火箭網格
+			if req.RocketTieredGrid != nil {
+				bc.RocketTieredGrid = req.RocketTieredGrid
 			}
 
 			found = true

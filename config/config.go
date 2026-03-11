@@ -447,10 +447,11 @@ type Config struct {
 		PriceLow              float64 `yaml:"price_low"`                    // 網格價格下限，0=不限制（合併自 SymbolConfig）
 		PriceHigh             float64 `yaml:"price_high"`                   // 網格價格上限，0=不限制（合併自 SymbolConfig）
 		TriggerPrice         float64 `yaml:"trigger_price"`                 // 觸發價格，0=立即啟動（合併自 SymbolConfig）
-		GridMode             string  `yaml:"grid_mode"`                     // arithmetic / geometric（合併自 SymbolConfig）
-		GridShiftEnabled     bool    `yaml:"grid_shift_enabled"`            // 合併自 SymbolConfig
-		GridShiftStep        float64 `yaml:"grid_shift_step"`               // 合併自 SymbolConfig
-		CloseOnStop          bool    `yaml:"close_on_stop"`                 // 終止時全部平倉（合併自 SymbolConfig）
+		GridMode             string                   `yaml:"grid_mode"`                     // arithmetic / geometric（合併自 SymbolConfig）
+		GridShiftEnabled     bool                     `yaml:"grid_shift_enabled"`            // 合併自 SymbolConfig
+		GridShiftStep        float64                  `yaml:"grid_shift_step"`               // 合併自 SymbolConfig
+		RocketTieredGrid     *RocketTieredGridConfig   `yaml:"rocket_tiered_grid"`             // 三級火箭網格（合併自 SymbolConfig）
+		CloseOnStop          bool                     `yaml:"close_on_stop"`                 // 終止時全部平倉（合併自 SymbolConfig）
 		// 多交易對配置
 		Symbols []SymbolConfig `yaml:"symbols"`
 		// 注意：price_decimals 和 quantity_decimals 已廢棄，現在從交易所自动獲取
@@ -1217,10 +1218,12 @@ type SymbolConfig struct {
 	PriceLow              float64            `yaml:"price_low" json:"price_low"`                               // 網格價格下限，0 表示不限制（軟限制：超出時暫停新開倉，保留平倉單）
 	PriceHigh             float64            `yaml:"price_high" json:"price_high"`                              // 網格價格上限，0 表示不限制
 	TriggerPrice          float64            `yaml:"trigger_price" json:"trigger_price"`                       // 觸發價格，達到後才啟動網格，0 表示立即啟動
-	GridMode              string             `yaml:"grid_mode" json:"grid_mode"`                               // 網格模式：arithmetic 等差 / geometric 等比，預設 arithmetic
-	GridShiftEnabled      bool               `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`             // 是否啟用網格上移/下移
+	GridMode              string                   `yaml:"grid_mode" json:"grid_mode"`                               // 網格模式：arithmetic 等差 / geometric 等比，預設 arithmetic
+	GridShiftEnabled      bool                     `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`             // 是否啟用網格上移/下移
+	RocketTieredGrid      *RocketTieredGridConfig   `yaml:"rocket_tiered_grid,omitempty" json:"rocket_tiered_grid,omitempty"` // 三級火箭網格
 	GridShiftStep         float64            `yaml:"grid_shift_step" json:"grid_shift_step"`                    // 每次移動步長
 	CloseOnStop           bool               `yaml:"close_on_stop" json:"close_on_stop"`                       // 終止時全部平倉
+	UseSpotMargin         bool               `yaml:"use_spot_margin,omitempty" json:"use_spot_margin,omitempty"` // 是否使用現貨槓桿（借幣做空）
 	// 多套配置自动切换
 	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`       // 配置档案（如 positive, negative）
 	SwitchRules           SwitchRules              `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"` // 切换规则
@@ -1235,8 +1238,12 @@ func (sc *SymbolConfig) IsEnabled() bool {
 }
 
 // GetMarketType 返回市場類型，空時預設為 futures（向后兼容）
+// 若 UseSpotMargin 為 true 且 MarketType 為 spot，返回 spot_margin（現貨槓桿借幣做空）
 func (sc *SymbolConfig) GetMarketType() string {
 	if sc.MarketType == "spot" {
+		if sc.UseSpotMargin {
+			return "spot_margin"
+		}
 		return "spot"
 	}
 	return "futures"
@@ -1286,10 +1293,12 @@ type StrategyConfig struct {
 
 // HedgeConfig 跨市場對沖配置
 type HedgeConfig struct {
-	HedgeRatio        float64 `yaml:"hedge_ratio" json:"hedge_ratio"`                 // 對沖比例 0-1
-	MaxDrawdown       float64 `yaml:"max_drawdown" json:"max_drawdown"`               // 觸發對沖的最大回撤
-	AutoRebalance     bool    `yaml:"auto_rebalance" json:"auto_rebalance"`           // 自動再平衡
-	RebalanceInterval int     `yaml:"rebalance_interval" json:"rebalance_interval"`   // 再平衡間隔（秒）
+	HedgeRatio          float64 `yaml:"hedge_ratio" json:"hedge_ratio"`                     // 對沖比例 0-1
+	ShortNotionalRatio  float64 `yaml:"short_notional_ratio" json:"short_notional_ratio"`   // 做空名義敞口占網格名義敞口比例，默認 0.25
+	HedgeTriggerLayers  int     `yaml:"hedge_trigger_layers" json:"hedge_trigger_layers"`   // 網格滿幾格才觸發開現貨空倉，默認 3
+	MaxDrawdown         float64 `yaml:"max_drawdown" json:"max_drawdown"`                   // 觸發對沖的最大回撤
+	AutoRebalance       bool    `yaml:"auto_rebalance" json:"auto_rebalance"`               // 自動再平衡
+	RebalanceInterval   int     `yaml:"rebalance_interval" json:"rebalance_interval"`       // 再平衡間隔（秒）
 }
 
 // BotGroup 跨市場 Bot 組（用於對沖策略：合約+現貨等）
@@ -1330,13 +1339,15 @@ type BotConfig struct {
 	PriceLow              float64               `yaml:"price_low" json:"price_low"`                                           // 網格價格下限，0=不限制
 	PriceHigh             float64               `yaml:"price_high" json:"price_high"`                                         // 網格價格上限，0=不限制
 	TriggerPrice          float64               `yaml:"trigger_price" json:"trigger_price"`                                 // 觸發價格，0=立即啟動
-	GridMode              string                `yaml:"grid_mode" json:"grid_mode"`                                          // 網格模式：arithmetic / geometric
-	GridShiftEnabled      bool                  `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`                         // 是否啟用網格上移/下移
-	GridShiftStep         float64               `yaml:"grid_shift_step" json:"grid_shift_step"`                               // 每次移動步長
-	CloseOnStop           bool                  `yaml:"close_on_stop" json:"close_on_stop"`                                   // 終止時全部平倉
+	GridMode              string                  `yaml:"grid_mode" json:"grid_mode"`                                          // 網格模式：arithmetic / geometric
+	GridShiftEnabled      bool                    `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`                         // 是否啟用網格上移/下移
+	GridShiftStep         float64                 `yaml:"grid_shift_step" json:"grid_shift_step"`                               // 每次移動步長
+	RocketTieredGrid      *RocketTieredGridConfig  `yaml:"rocket_tiered_grid,omitempty" json:"rocket_tiered_grid,omitempty"`     // 三級火箭網格
+	CloseOnStop           bool                    `yaml:"close_on_stop" json:"close_on_stop"`                                   // 終止時全部平倉
 	CloseOnStopConfig     ClosePositionConfig   `yaml:"close_on_stop_config,omitempty" json:"close_on_stop_config,omitempty"` // 平倉配置
 	SlotFilter            SlotFilterConfig      `yaml:"slot_filter,omitempty" json:"slot_filter,omitempty"`                   // 槽位過濾配置
 	SmartOrder            SmartOrderConfig      `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`                   // 智能掛單配置
+	UseSpotMargin         bool                  `yaml:"use_spot_margin,omitempty" json:"use_spot_margin,omitempty"`           // 是否使用現貨槓桿（借幣做空）
 	AutoRebuild           GridAutoRebuildConfig `yaml:"auto_rebuild,omitempty" json:"auto_rebuild,omitempty"`                 // 網格自動重建配置
 	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`                      // 配置檔案（多套參數切換）
 	SwitchRules           SwitchRules           `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"`                  // 切換規則
@@ -1385,8 +1396,12 @@ func (bc *BotConfig) IsEnabled() bool {
 }
 
 // GetMarketType 返回市場類型，空時預設為 futures
+// 若 UseSpotMargin 為 true 且 MarketType 為 spot，返回 spot_margin（現貨槓桿借幣做空）
 func (bc *BotConfig) GetMarketType() string {
 	if bc.MarketType == "spot" {
+		if bc.UseSpotMargin {
+			return "spot_margin"
+		}
 		return "spot"
 	}
 	return "futures"
@@ -1486,6 +1501,7 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 		GridMode:              sc.GridMode,
 		GridShiftEnabled:      sc.GridShiftEnabled,
 		GridShiftStep:         sc.GridShiftStep,
+		RocketTieredGrid:      sc.RocketTieredGrid,
 		CloseOnStop:           sc.CloseOnStop,
 		Profiles:              sc.Profiles,
 		SwitchRules:           sc.SwitchRules,
@@ -1564,7 +1580,9 @@ func BotConfigToSymbolConfig(bc BotConfig) SymbolConfig {
 		GridMode:              bc.GridMode,
 		GridShiftEnabled:      bc.GridShiftEnabled,
 		GridShiftStep:         bc.GridShiftStep,
+		RocketTieredGrid:      bc.RocketTieredGrid,
 		CloseOnStop:           bc.CloseOnStop,
+		UseSpotMargin:         bc.UseSpotMargin,
 		Profiles:              bc.Profiles,
 		SwitchRules:           bc.SwitchRules,
 	}
@@ -2309,6 +2327,10 @@ func (c *Config) Validate() error {
 		}
 		c.Trading.Direction = primary.GetDirection()
 		c.Trading.GridRiskControl = primary.GridRiskControl
+		c.Trading.GridMode = primary.GridMode
+		c.Trading.GridShiftEnabled = primary.GridShiftEnabled
+		c.Trading.GridShiftStep = primary.GridShiftStep
+		c.Trading.RocketTieredGrid = primary.RocketTieredGrid
 	}
 
 	// 設置預設時间间隔

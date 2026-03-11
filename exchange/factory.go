@@ -75,8 +75,14 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 		"binance": true, "bitget": true, "gate": true, "okx": true, "bybit": true,
 		"bitkub": true, "coinsph": true,
 	}
+	supportedSpotMarginExchanges := map[string]bool{
+		"binance": true, // 現貨槓桿借幣做空
+	}
 	if marketType == "spot" && !supportedSpotExchanges[exchangeName] {
 		return nil, fmt.Errorf("交易所 %s 不支援現貨交易，请使用 market_type: futures 或选擇已支援現貨的交易所（Binance/OKX/Bybit/Bitget/Gate）", exchangeName)
+	}
+	if marketType == "spot_margin" && !supportedSpotMarginExchanges[exchangeName] {
+		return nil, fmt.Errorf("交易所 %s 不支援現貨槓桿（借幣做空），目前僅 Binance 支援", exchangeName)
 	}
 
 	switch exchangeName {
@@ -120,6 +126,13 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 				return nil, err
 			}
 			return &binanceSpotWrapper{adapter: adapter}, nil
+		}
+		if marketType == "spot_margin" {
+			adapter, err := binance.NewBinanceSpotMarginAdapter(cfgMap, symbol)
+			if err != nil {
+				return nil, err
+			}
+			return &binanceSpotMarginWrapper{adapter: adapter}, nil
 		}
 		adapter, err := binance.NewBinanceAdapter(cfgMap, symbol)
 		if err != nil {

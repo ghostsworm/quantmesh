@@ -274,6 +274,7 @@ func startSymbolRuntime(
 	}
 	localCfg.Trading.GridShiftEnabled = symCfg.GridShiftEnabled
 	localCfg.Trading.GridShiftStep = symCfg.GridShiftStep
+	localCfg.Trading.RocketTieredGrid = symCfg.RocketTieredGrid
 	localCfg.Trading.CloseOnStop = symCfg.CloseOnStop
 	localCfg.Trading.GridRiskControl = symCfg.GridRiskControl
 	localCfg.Trading.SmartOrder = symCfg.SmartOrder
@@ -514,9 +515,7 @@ func startSymbolRuntime(
 				eventType = event.EventTypeOrderCanceled
 			}
 			if eventType != "" {
-			eventBus.Publish(&event.Event{
-				Type: eventType,
-				Data: map[string]interface{}{
+				evtData := map[string]interface{}{
 					"order_id":        posUpdate.OrderID,
 					"client_order_id": posUpdate.ClientOrderID,
 					"symbol":          posUpdate.Symbol,
@@ -528,7 +527,16 @@ func startSymbolRuntime(
 					"type":            posUpdate.Type,
 					"realized_pnl":    posUpdate.RealizedPnL,
 					"exchange":        symCfg.Exchange,
-				},
+					"bot_id":          localCfg.Trading.BotID,
+					"market_type":     localCfg.Trading.MarketType,
+				}
+				if eventType == event.EventTypeOrderFilled && superPositionManager != nil {
+					evtData["position"] = superPositionManager.GetTotalBuyQty() - superPositionManager.GetTotalSellQty()
+					evtData["filled_layers"] = superPositionManager.GetActiveLayers()
+				}
+				eventBus.Publish(&event.Event{
+					Type: eventType,
+					Data: evtData,
 				})
 			}
 		}
@@ -724,6 +732,23 @@ func startSymbolRuntime(
 			}
 			strategyManager.RegisterStrategy("combo", comboStrategy, comboCfg.Weight, fixedPool)
 			logger.Info("✅ [%s] 组合策略已注册", symCfg.Symbol)
+		}
+
+		// spot_short：現貨借幣做空策略（僅 spot/spot_margin，對沖組現貨腿）
+		if symCfg.GetMarketType() == "spot" || symCfg.GetMarketType() == "spot_margin" {
+			for _, si := range symCfg.Strategies {
+				if si.Type == "spot_short" {
+					spotShortCfg := map[string]interface{}{}
+					if si.Config != nil {
+						spotShortCfg = si.Config
+					}
+					spotShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_short")
+					spotShortStrategy := strategy.NewSpotShortStrategy("spot_short", &localCfg, spotShortExecutor, exchangeAdapter, ex, spotShortCfg)
+					strategyManager.RegisterStrategy("spot_short", spotShortStrategy, si.Weight, 0)
+					logger.Info("✅ [%s] 現貨做空策略已注册 (group=%v)", symCfg.Symbol, spotShortCfg["group_id"])
+					break
+				}
+			}
 		}
 
 		if err := strategyManager.StartAll(); err != nil {

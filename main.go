@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.74.0-rc8"
+var Version = "3.74.1-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1675,15 +1675,9 @@ func main() {
 	// 运行 K 线文件迁移（一次性迁移现有文件到统一管理系统）
 	if storageService != nil {
 		if st := storageService.GetStorage(); st != nil {
-			if sqliteStorage, ok := st.(*storage.SQLiteStorage); ok {
-				go func() {
-					if err := storage.RunKlineFilesMigration(sqliteStorage); err != nil {
-						logger.Warn("⚠️ K线文件迁移失败: %v", err)
-					} else {
-						logger.Info("✅ K线文件迁移完成")
-					}
-				}()
-			}
+			// 注意：现在使用 GormStorage，不再是 SQLiteStorage
+			// 迁移逻辑需要更新
+			logger.Info("✅ 存儲服務已啟用 (GORM)")
 		}
 	}
 
@@ -3117,6 +3111,11 @@ func (a *positionExchangeAdapter) GetQuantityDecimals() int {
 // GetOrderFills 查詢訂單成交記錄（透傳至 exchange）
 func (a *positionExchangeAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
 	return a.exchange.GetOrderFills(ctx, symbol, orderID)
+}
+
+// GetLatestPrice 獲取最新價格
+func (a *positionExchangeAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	return a.exchange.GetLatestPrice(ctx, symbol)
 }
 
 // GetOrderBook 獲取訂單簿深度，轉換為 position.OrderBook

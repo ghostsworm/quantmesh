@@ -100,6 +100,8 @@
     "takeProfitTriggerRatioHint": "例如 0.08 表示盈利 8% 后开始监控回撤止盈",
     "enableTrendFilter": "启用趋势检测",
     "enableTrendFilterHint": "启用后，下跌趋势中暂停开仓",
+    "rocketTieredGrid": "三级火箭网格",
+    "rocketTieredGridHint": "小波动 100 间距、4 格满仓后 300 间距、再跌则 600 间距，大波动时自动放大网格",
     "marketData": "市场行情",
     "markPrice": "标记价格",
     "last24hHigh": "24h 波峰",
@@ -150,7 +152,8 @@
     "strategyTemplate": {
       "grid_trend": "网格+趋势",
       "dca_martingale": "DCA+马丁",
-      "futures_spot_hedge": "合约+现货对冲"
+      "futures_spot_hedge": "合约+现货对冲",
+      "grid_spot_short_hedge": "网格+现货做空对冲"
     },
     "strategyParams": {}
   },
@@ -231,7 +234,9 @@
       "maxOpenOrdersHint": "每个方向最多挂几个订单，建议 2-4 个",
       "openOrderDistance": "最大距离间隔数",
       "openOrderDistanceHint": "订单距离当前价格的最大间隔数，超过此距离的订单会被撤销",
-      "smartOrderEffect": "启用后，系统将只在当前价格附近 {{count}} 个间隔内挂单，每 60 秒检查一次并自动调整。"
+      "smartOrderEffect": "启用后，系统将只在当前价格附近 {{count}} 个间隔内挂单，每 60 秒检查一次并自动调整。",
+      "rocketTieredGrid": "三级火箭网格",
+      "rocketTieredGridHint": "小波动小网格、大波动大网格，根据持仓层数自动切换间距"
     }
   },
   "sidebar": {
@@ -2615,7 +2620,8 @@
     "combo": "组合策略模块",
     "trend_following": "趋势跟踪策略",
     "mean_reversion": "均值回归策略",
-    "breakout": "突破策略"
+    "breakout": "突破策略",
+    "spot_short": "现货借币做空"
   },
   "strategyDescriptions": {
     "grid": "经典网格交易策略，在价格区间内自动挂单，赚取波动差价",

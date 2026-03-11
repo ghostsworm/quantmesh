@@ -80,6 +80,7 @@ const BotCreateWizard: React.FC = () => {
     stop_loss_ratio?: number | string
     take_profit_trigger_ratio?: number | string
     enable_trend_filter?: boolean
+    rocket_tiered_grid_enabled?: boolean
   }>({
     exchange: 'binance',
     symbol: '',
@@ -94,6 +95,7 @@ const BotCreateWizard: React.FC = () => {
     stop_loss_ratio: 0.2,
     take_profit_trigger_ratio: 0.08,
     enable_trend_filter: false,
+    rocket_tiered_grid_enabled: false,
   })
 
   const [loading, setLoading] = useState(true)
@@ -294,15 +296,32 @@ const BotCreateWizard: React.FC = () => {
         grid_risk_control_stop_loss_ratio: form.enable_risk_control ? toNum(form.stop_loss_ratio, 0.2) : undefined,
         grid_risk_control_take_profit_trigger_ratio: form.enable_risk_control ? toNum(form.take_profit_trigger_ratio, 0.08) : undefined,
         grid_risk_control_trend_filter_enabled: form.enable_risk_control ? form.enable_trend_filter : undefined,
+        // 三级火箭网格
+        rocket_tiered_grid: form.rocket_tiered_grid_enabled
+          ? {
+              enabled: true,
+              tiers: [
+                { filled_threshold: 4, interval: 100, profit_spread: 100 },
+                { filled_threshold: 8, interval: 300, profit_spread: 300 },
+                { filled_threshold: 0, interval: 600, profit_spread: 600 },
+              ],
+            }
+          : undefined,
       }
 
       if (strategyType === 'hedge') {
+        const futuresStrategies = hedgePrimary
+          ? [{ type: hedgePrimary, weight: 1.0, config: normalizeConfigForApi((strategyParams[hedgePrimary] || {}) as Record<string, unknown>) }]
+          : [{ type: 'grid', weight: 1.0, config: {} }]
+        const spotStrategies = hedgeSecondary
+          ? [{ type: hedgeSecondary, weight: 1.0, config: normalizeConfigForApi((strategyParams[hedgeSecondary] || {}) as Record<string, unknown>) }]
+          : [{ type: 'grid', weight: 1.0, config: {} }]
         await createBotGroup({
           name: form.name?.trim() || `${form.symbol} Hedge`,
           type: 'futures_spot_hedge',
-          hedge_config: { hedge_ratio: hedgeRatio, rebalance_interval: 3600 },
-          futures_bot: { ...baseReq, market_type: 'futures' },
-          spot_bot: { ...baseReq, market_type: 'spot' },
+          hedge_config: { hedge_ratio: hedgeRatio, short_notional_ratio: 0.25, hedge_trigger_layers: 3, rebalance_interval: 3600 },
+          futures_bot: { ...baseReq, market_type: 'futures', strategies: futuresStrategies },
+          spot_bot: { ...baseReq, market_type: 'spot', strategies: spotStrategies },
         })
         toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
         navigate('/bots')
@@ -538,6 +557,18 @@ const BotCreateWizard: React.FC = () => {
               <Divider my={2} />
               <Text fontWeight="medium" fontSize="sm">{t('botCreate.advancedSettings')}</Text>
 
+              {/* 三级火箭网格 */}
+              <FormControl>
+                <FormLabel>{t('botCreate.rocketTieredGrid')}</FormLabel>
+                <Switch
+                  isChecked={form.rocket_tiered_grid_enabled || false}
+                  onChange={(e) => setForm((f) => ({ ...f, rocket_tiered_grid_enabled: e.target.checked }))}
+                />
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.rocketTieredGridHint')}
+                </Text>
+              </FormControl>
+
               {/* 网格方向设置 */}
               <FormControl>
                 <FormLabel>{t('botCreate.direction')}</FormLabel>
@@ -649,6 +680,9 @@ const BotCreateWizard: React.FC = () => {
                 <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
                 <Text><strong>{t('botCreate.buyWindowSize')}:</strong> {form.buy_window_size}</Text>
                 <Text><strong>{t('botCreate.sellWindowSize')}:</strong> {form.sell_window_size}</Text>
+                {form.rocket_tiered_grid_enabled && (
+                  <Text><strong>{t('botCreate.rocketTieredGrid')}:</strong> {t('common.enabled')}</Text>
+                )}
               </Box>
             </VStack>
           )}
