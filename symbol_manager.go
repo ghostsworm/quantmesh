@@ -19,6 +19,7 @@ import (
 	"quantmesh/safety"
 	"quantmesh/storage"
 	"quantmesh/strategy"
+	"quantmesh/utils"
 	"quantmesh/web"
 )
 
@@ -529,6 +530,7 @@ func startSymbolRuntime(
 					"exchange":        symCfg.Exchange,
 					"bot_id":          localCfg.Trading.BotID,
 					"market_type":     localCfg.Trading.MarketType,
+					"order_source":    utils.ParseOrderSource(posUpdate.ClientOrderID), // 從 ClientOrderID 解析（如 _SL=止損）
 				}
 				if eventType == event.EventTypeOrderFilled && superPositionManager != nil {
 					evtData["position"] = superPositionManager.GetTotalBuyQty() - superPositionManager.GetTotalSellQty()

@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.74.2-rc3"
+var Version = "3.74.3-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -3286,7 +3286,13 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 			OrderSource:   req.OrderSource,   // 傳遞订單來源
 		}
 		if req.ClientOrderID != "" {
-			strategyMap[req.ClientOrderID] = [3]string{req.StrategyName, req.StrategyType, req.OrderSource}
+			info := [3]string{req.StrategyName, req.StrategyType, req.OrderSource}
+			strategyMap[req.ClientOrderID] = info
+			// 部分交易所（如幣安）返回的 ClientOrderID 帶前綴，預先加入以便 lookup
+			prefixed := utils.AddBrokerPrefix(strings.ToLower(a.exchange), req.ClientOrderID)
+			if prefixed != req.ClientOrderID {
+				strategyMap[prefixed] = info
+			}
 		}
 	}
 	batchResult := a.executor.BatchPlaceOrdersWithDetails(orderReqs)
@@ -3313,6 +3319,9 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 		sName, sType, oSource := "", "", ""
 		if info, ok := strategyMap[ord.ClientOrderID]; ok {
 			sName, sType, oSource = info[0], info[1], info[2]
+		} else if oSource == "" {
+			// strategyMap 未命中時，從 ClientOrderID 解析訂單來源（如 _SL 後綴表示止損）
+			oSource = utils.ParseOrderSource(ord.ClientOrderID)
 		}
 		if a.eventBus != nil {
 			a.eventBus.Publish(&event.Event{

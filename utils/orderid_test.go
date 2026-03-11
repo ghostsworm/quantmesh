@@ -52,6 +52,66 @@ func TestParseOrderID(t *testing.T) {
 	}
 }
 
+func TestGenerateOrderIDWithSource(t *testing.T) {
+	price := 65000.5
+	side := "SELL"
+	decimals := 2
+
+	// 正常單
+	idNormal := GenerateOrderIDWithSource(price, side, decimals, "")
+	if strings.HasSuffix(idNormal, "_SL") {
+		t.Errorf("正常單不應有 _SL 後綴: %s", idNormal)
+	}
+
+	// 止損單
+	idSL := GenerateOrderIDWithSource(price, side, decimals, "stop_loss")
+	if !strings.HasSuffix(idSL, "_SL") {
+		t.Errorf("止損單應有 _SL 後綴: %s", idSL)
+	}
+	// 驗證帶 _SL 的 ID 可直接解析（ParseOrderID 會自動剝離）
+	parsedPrice, _, _, valid := ParseOrderID(idSL, decimals)
+	if !valid || parsedPrice != price {
+		t.Errorf("止損單 _SL 後綴應可解析: %s", idSL)
+	}
+}
+
+func TestParseOrderSource(t *testing.T) {
+	tests := []struct {
+		clientOrderID string
+		want         string
+	}{
+		{"65000_S_1702468800123", "normal"},
+		{"65000_S_1702468800123_SL", "stop_loss"},
+		{"x-zdfVM8vY65000_S_1702468800123_SL", "stop_loss"},
+		{"65000_B_1702468800001", "normal"},
+	}
+	for _, tt := range tests {
+		got := ParseOrderSource(tt.clientOrderID)
+		if got != tt.want {
+			t.Errorf("ParseOrderSource(%q) = %q, want %q", tt.clientOrderID, got, tt.want)
+		}
+	}
+}
+
+func TestParseOrderIDWithSLSuffix(t *testing.T) {
+	price := 1234.56
+	side := "SELL"
+	decimals := 2
+
+	clientOID := GenerateOrderIDWithSource(price, side, decimals, "stop_loss")
+	parsedPrice, parsedSide, _, valid := ParseOrderID(clientOID, decimals)
+
+	if !valid {
+		t.Fatal("帶 _SL 後綴的訂單ID應可解析")
+	}
+	if parsedPrice != price {
+		t.Errorf("價格解析錯誤: 期望 %.2f, 得到 %.2f", price, parsedPrice)
+	}
+	if parsedSide != side {
+		t.Errorf("方向解析錯誤: 期望 %s, 得到 %s", side, parsedSide)
+	}
+}
+
 func TestBrokerPrefix(t *testing.T) {
 	clientOID := "12345_B_1700000000001"
 
@@ -81,5 +141,12 @@ func TestBrokerPrefix(t *testing.T) {
 	removedGate := RemoveBrokerPrefix("gate", gateID)
 	if removedGate != clientOID {
 		t.Errorf("Gate.io前缀移除失败: 期望 %s, 得到 %s", clientOID, removedGate)
+	}
+
+	// 止損單帶 _SL 後綴，幣安 36 字符限制
+	slOID := "65000_S_1702468800123_SL"
+	binanceSL := AddBrokerPrefix("binance", slOID)
+	if len(binanceSL) > 36 {
+		t.Errorf("止損單加幣安前綴超长: %d > 36, %s", len(binanceSL), binanceSL)
 	}
 }

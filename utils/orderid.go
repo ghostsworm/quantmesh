@@ -68,10 +68,35 @@ func GenerateOrderID(price float64, side string, priceDecimals int) string {
 	return fmt.Sprintf("%d_%s_%s", priceInt, sideCode, timestampSeq)
 }
 
+// GenerateOrderIDWithSource 生成带訂單來源標識的 ClientOrderID
+// 當 orderSource 為 "stop_loss" 時，在末尾追加 _SL 後綴，便於從交易所返回的訂單中解析訂單來源
+// 格式: {price}_{side}_{timestamp}{seq} 或 {price}_{side}_{timestamp}{seq}_SL
+// 交易所（如幣安 newClientOrderId）會原樣存儲並返回此 ID，可從訂單歷史/WebSocket 中解析出 order_source
+func GenerateOrderIDWithSource(price float64, side string, priceDecimals int, orderSource string) string {
+	base := GenerateOrderID(price, side, priceDecimals)
+	if orderSource == "stop_loss" {
+		return base + "_SL"
+	}
+	return base
+}
+
+// ParseOrderSource 從 ClientOrderID 解析訂單來源
+// 支持帶交易所前綴的 ID（如 x-zdfVM8vY65000_S_xxx_SL），_SL 後綴表示止損平倉
+// 返回 "stop_loss" 或 "normal"
+func ParseOrderSource(clientOrderID string) string {
+	if strings.HasSuffix(clientOrderID, "_SL") {
+		return "stop_loss"
+	}
+	return "normal"
+}
+
 // ParseOrderID 解析紧凑的订單ID
+// 支持帶 _SL 後綴的止損單格式，解析前會自動剝離
 // 返回: price, side, timestamp, valid
 func ParseOrderID(clientOrderID string, priceDecimals int) (float64, string, int64, bool) {
-	parts := strings.Split(clientOrderID, "_")
+	// 剝離 _SL 後綴（止損單），保持向後兼容
+	baseID := strings.TrimSuffix(clientOrderID, "_SL")
+	parts := strings.Split(baseID, "_")
 	if len(parts) != 3 {
 		return 0, "", 0, false
 	}
