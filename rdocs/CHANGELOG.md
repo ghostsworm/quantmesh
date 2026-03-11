@@ -10,7 +10,16 @@
 
 ---
 
-## v3.67.0 - 2026年03月09日
+## v3.74.6-rc4 - 2026年03月12日
+
+**Git Tag**: `v3.74.6-rc4`
+
+### 修復 (Fixed)
+
+- **已停止 Bot 仍執行持倉安全性檢查**：啟動時若 Bot 在數據庫 `bot_states` 中已標記為停止，現在會提前跳過、不再執行持倉安全性檢查；`StartSymbol` API 改為通過 `BotManager.StartBot` 啟動，統一走數據庫檢查
+- **日誌標識格式**：啟動相關日誌改為使用 Bot ID（如 `binance:paxgusdt:futures`）替代 `exchange:symbol`，並包含市場類型（期貨/現貨）
+
+---
 
 **Git Tag**: `v3.67.0`
 
