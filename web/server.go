@@ -439,8 +439,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 
 			// 待成交订單API
 			protected.GET("/orders/pending", getPendingOrders)
+			protected.GET("/orders/exchange-open", getExchangeOpenOrders)
 			protected.POST("/orders/:id/cancel", cancelOrder)
 			protected.POST("/orders/cancel", batchCancelOrders)
+			protected.POST("/orders/cancel-all-exchange", cancelAllExchangeOrders)
 
 			// K線數據API
 			protected.GET("/klines", getKlines)

@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.74.7"
+var Version = "3.75.0"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {

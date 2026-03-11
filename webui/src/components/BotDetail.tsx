@@ -77,9 +77,12 @@ import {
   pauseBotOpening,
   resumeBotOpening,
   updateBotStrategy,
+  getExchangeOpenOrders,
+  cancelAllExchangeOrders,
   BotDetailInfo,
   UpdateBotStrategyRequest,
   PositionStatus,
+  ExchangeOpenOrderInfo,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useConfig } from '../contexts/ConfigContext'
@@ -131,6 +134,9 @@ const BotDetail: React.FC = () => {
   const [logsLoading, setLogsLoading] = useState(false)
   const [tpSlOrders, setTpSlOrders] = useState<any[]>([])
   const [tpSlLoading, setTpSlLoading] = useState(false)
+  const [exchangeOrders, setExchangeOrders] = useState<ExchangeOpenOrderInfo[]>([])
+  const [exchangeOrdersLoading, setExchangeOrdersLoading] = useState(false)
+  const [cancellingAll, setCancellingAll] = useState(false)
   const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
 
   const fetchBot = async () => {
@@ -234,6 +240,46 @@ const BotDetail: React.FC = () => {
     }, 30000)
     return () => clearInterval(interval)
   }, [bot?.exchange, bot?.symbol])
+
+  const fetchExchangeOrders = async () => {
+    if (!bot?.exchange || !bot?.symbol) return
+    setExchangeOrdersLoading(true)
+    try {
+      const res = await getExchangeOpenOrders(
+        bot.exchange,
+        bot.symbol,
+        bot.market_type || 'futures'
+      )
+      setExchangeOrders(res.orders || [])
+    } catch {
+      setExchangeOrders([])
+    } finally {
+      setExchangeOrdersLoading(false)
+    }
+  }
+
+  const handleCancelAllExchange = async () => {
+    if (!bot?.exchange || !bot?.symbol) return
+    if (!window.confirm(t('botDetail.cancelAllExchangeConfirm'))) return
+    setCancellingAll(true)
+    try {
+      const res = await cancelAllExchangeOrders(
+        bot.exchange,
+        bot.symbol,
+        bot.market_type || 'futures'
+      )
+      if (res.success) {
+        toast({ title: t('botDetail.cancelAllExchangeSuccess'), description: res.message, status: 'success', duration: 3000 })
+        await fetchExchangeOrders()
+      } else {
+        toast({ title: t('botDetail.cancelAllExchangeFailed'), description: res.message, status: 'error', duration: 4000 })
+      }
+    } catch (err: any) {
+      toast({ title: t('botDetail.cancelAllExchangeFailed'), description: err?.message, status: 'error', duration: 4000 })
+    } finally {
+      setCancellingAll(false)
+    }
+  }
 
   const handlePauseOpening = async () => {
     if (!botId) return
@@ -486,6 +532,14 @@ const BotDetail: React.FC = () => {
           <Tab>{t('botDetail.tabStrategy')}</Tab>
           <Tab>{t('botDetail.tabRisk')}</Tab>
           <Tab>{t('botDetail.tabTpSl')}</Tab>
+          <Tab onClick={fetchExchangeOrders}>
+            {t('botDetail.tabOrders')}
+            {exchangeOrders.length > 0 && (
+              <Badge ml={1} colorScheme="orange" borderRadius="full" fontSize="xs">
+                {exchangeOrders.length}
+              </Badge>
+            )}
+          </Tab>
           <Tab>{t('botDetail.tabBacktest')}</Tab>
           <Tab>{t('botDetail.tabLogs')}</Tab>
         </TabList>
@@ -743,6 +797,118 @@ const BotDetail: React.FC = () => {
                   </TableContainer>
                 ) : (
                   <Text color="gray.500">{t('botDetail.noTpSlOrders')}</Text>
+                )}
+              </CardBody>
+            </Card>
+          </TabPanel>
+          {/* 当前委托 tab */}
+          <TabPanel px={0}>
+            <Card>
+              <CardBody>
+                <Flex justify="space-between" align="center" mb={3}>
+                  <Box>
+                    <Text fontWeight="medium">{t('botDetail.exchangeOpenOrders')}</Text>
+                    <Text fontSize="xs" color="gray.500" mt={0.5}>{t('botDetail.exchangeOpenOrdersDesc')}</Text>
+                  </Box>
+                  <HStack>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={fetchExchangeOrders}
+                      isLoading={exchangeOrdersLoading}
+                    >
+                      {t('botDetail.syncFromExchange')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      colorScheme="red"
+                      variant="solid"
+                      onClick={handleCancelAllExchange}
+                      isLoading={cancellingAll}
+                      isDisabled={exchangeOrders.length === 0}
+                    >
+                      {t('botDetail.cancelAllExchange')}
+                    </Button>
+                  </HStack>
+                </Flex>
+
+                {/* 统计概要 */}
+                {exchangeOrders.length > 0 && (
+                  <HStack mb={3} spacing={4}>
+                    <Badge colorScheme="blue" px={2} py={1} borderRadius="md">
+                      {t('botDetail.exchangeOrderCount')}: {exchangeOrders.length}
+                    </Badge>
+                    <Badge colorScheme="green" px={2} py={1} borderRadius="md">
+                      {t('botDetail.myOrderCount')}: {exchangeOrders.filter(o => o.is_mine).length}
+                    </Badge>
+                    {exchangeOrders.filter(o => !o.is_mine).length > 0 && (
+                      <Badge colorScheme="orange" px={2} py={1} borderRadius="md">
+                        {t('botDetail.orderIsUnknown')}: {exchangeOrders.filter(o => !o.is_mine).length}
+                      </Badge>
+                    )}
+                  </HStack>
+                )}
+
+                {exchangeOrdersLoading && exchangeOrders.length === 0 ? (
+                  <Flex justify="center" py={8}><Spinner /></Flex>
+                ) : exchangeOrders.length > 0 ? (
+                  <TableContainer maxH="450px" overflowY="auto">
+                    <Table size="sm">
+                      <Thead>
+                        <Tr>
+                          <Th>{t('botDetail.logTime')}</Th>
+                          <Th>{t('orders.side')}</Th>
+                          <Th isNumeric>{t('orders.price')}</Th>
+                          <Th isNumeric>{t('orders.quantity')}</Th>
+                          <Th isNumeric>{t('orders.filled')}</Th>
+                          <Th>{t('orders.status')}</Th>
+                          <Th>{t('orders.orderSource')}</Th>
+                          <Th>Order ID</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {exchangeOrders.map((o) => (
+                          <Tr
+                            key={o.order_id}
+                            bg={!o.is_mine ? 'orange.50' : undefined}
+                            _dark={{ bg: !o.is_mine ? 'orange.900' : undefined }}
+                          >
+                            <Td fontSize="xs" whiteSpace="nowrap">
+                              {formatTimeUtil(o.created_at, timezone, i18n.language)}
+                            </Td>
+                            <Td>
+                              <Badge colorScheme={o.side === 'BUY' ? 'green' : 'red'} size="sm">
+                                {o.side}
+                              </Badge>
+                            </Td>
+                            <Td isNumeric fontFamily="mono">
+                              ${o.price != null ? o.price.toFixed(2) : '-'}
+                            </Td>
+                            <Td isNumeric fontFamily="mono">{o.quantity ?? '-'}</Td>
+                            <Td isNumeric fontFamily="mono">{o.executed_qty ?? 0}</Td>
+                            <Td>
+                              <Badge size="sm" colorScheme="blue">{o.status}</Badge>
+                            </Td>
+                            <Td>
+                              {o.is_mine ? (
+                                <Tooltip label={o.strategy_name || ''}>
+                                  <Badge colorScheme="green" size="sm">{t('botDetail.orderIsMine')}</Badge>
+                                </Tooltip>
+                              ) : (
+                                <Badge colorScheme="orange" size="sm">{t('botDetail.orderIsUnknown')}</Badge>
+                              )}
+                            </Td>
+                            <Td fontSize="xs" color="gray.500" fontFamily="mono">{o.order_id}</Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </TableContainer>
+                ) : (
+                  <Flex direction="column" align="center" py={8} color="gray.400">
+                    <Text>{t('botDetail.noExchangeOpenOrders')}</Text>
+                    <Text fontSize="xs" mt={1}>{t('botDetail.syncFromExchange')}</Text>
+                  </Flex>
                 )}
               </CardBody>
             </Card>

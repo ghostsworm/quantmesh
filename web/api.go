@@ -3293,6 +3293,163 @@ func batchCancelOrders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("已取消 %d 個订單", len(req.OrderIDs)), "count": len(req.OrderIDs)})
 }
 
+// ExchangeOpenOrderInfo 交易所开放委托信息
+type ExchangeOpenOrderInfo struct {
+	OrderID        int64     `json:"order_id"`
+	ClientOrderID  string    `json:"client_order_id"`
+	Exchange       string    `json:"exchange"`
+	Symbol         string    `json:"symbol"`
+	Price          float64   `json:"price"`
+	Quantity       float64   `json:"quantity"`
+	ExecutedQty    float64   `json:"executed_qty"`
+	Side           string    `json:"side"`
+	Type           string    `json:"type"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	IsMine         bool      `json:"is_mine"`          // 是否为本机器人管理的委托
+	StrategyName   string    `json:"strategy_name"`    // 如果是本机器人的委托，关联的策略名
+	SlotPrice      float64   `json:"slot_price"`       // 关联槽位价格
+}
+
+// getExchangeOpenOrders 直接从交易所查询开放委托，并与内部 slots 对比标记
+// GET /api/orders/exchange-open
+func getExchangeOpenOrders(c *gin.Context) {
+	exchangeName := c.Query("exchange")
+	symbol := c.Query("symbol")
+	marketType := c.DefaultQuery("market_type", "futures")
+
+	if exchangeName == "" || symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 exchange 或 symbol 参數"})
+		return
+	}
+
+	ex, err := getExchangeForCancel(exchangeName, symbol, marketType)
+	if err != nil {
+		logger.Warn("❌ [交易所委托] 获取交易所失败: exchange=%s, symbol=%s, error=%v", exchangeName, symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "获取交易所失败: " + err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	orders, err := ex.GetOpenOrders(ctx, symbol)
+	if err != nil {
+		logger.Error("❌ [交易所委托] 查询失败: exchange=%s, symbol=%s, error=%v", exchangeName, symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询交易所委托失败: " + err.Error()})
+		return
+	}
+
+	// 构建内部 slots 的 orderID 集合，用于标记哪些是"我们的"委托
+	myOrderIDs := make(map[int64]struct {
+		StrategyName string
+		SlotPrice    float64
+	})
+	pmProvider := PickPositionProvider(c)
+	if pmProvider != nil {
+		for _, slot := range pmProvider.GetAllSlots() {
+			if slot.OrderID > 0 {
+				myOrderIDs[slot.OrderID] = struct {
+					StrategyName string
+					SlotPrice    float64
+				}{slot.StrategyName, slot.Price}
+			}
+		}
+	}
+
+	result := make([]ExchangeOpenOrderInfo, 0, len(orders))
+	for _, o := range orders {
+		info := ExchangeOpenOrderInfo{
+			OrderID:       o.OrderID,
+			ClientOrderID: o.ClientOrderID,
+			Exchange:      exchangeName,
+			Symbol:        o.Symbol,
+			Price:         o.Price,
+			Quantity:      o.Quantity,
+			ExecutedQty:   o.ExecutedQty,
+			Side:          string(o.Side),
+			Type:          string(o.Type),
+			Status:        string(o.Status),
+			CreatedAt:     utils.ToUTC8(o.CreatedAt),
+		}
+		if meta, ok := myOrderIDs[o.OrderID]; ok {
+			info.IsMine = true
+			info.StrategyName = meta.StrategyName
+			info.SlotPrice = meta.SlotPrice
+		}
+		result = append(result, info)
+	}
+
+	logger.Info("✅ [交易所委托] 查询成功: exchange=%s, symbol=%s, count=%d", exchangeName, symbol, len(result))
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"orders":  result,
+		"count":   len(result),
+	})
+}
+
+// cancelAllExchangeOrders 取消交易所该交易对的所有开放委托（一键清理）
+// POST /api/orders/cancel-all-exchange
+func cancelAllExchangeOrders(c *gin.Context) {
+	var req struct {
+		Exchange   string `json:"exchange"`
+		Symbol     string `json:"symbol"`
+		MarketType string `json:"market_type"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "无效的请求数据"})
+		return
+	}
+	if req.Exchange == "" || req.Symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 exchange 或 symbol 参數"})
+		return
+	}
+	if req.MarketType == "" {
+		req.MarketType = "futures"
+	}
+
+	ex, err := getExchangeForCancel(req.Exchange, req.Symbol, req.MarketType)
+	if err != nil {
+		logger.Warn("❌ [一键清理] 获取交易所失败: exchange=%s, symbol=%s, error=%v", req.Exchange, req.Symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "获取交易所失败: " + err.Error()})
+		return
+	}
+
+	// 先查询所有开放委托
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	orders, err := ex.GetOpenOrders(ctx, req.Symbol)
+	if err != nil {
+		logger.Error("❌ [一键清理] 查询委托失败: exchange=%s, symbol=%s, error=%v", req.Exchange, req.Symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询委托失败: " + err.Error()})
+		return
+	}
+
+	if len(orders) == 0 {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "没有需要取消的委托", "count": 0})
+		return
+	}
+
+	orderIDs := make([]int64, 0, len(orders))
+	for _, o := range orders {
+		orderIDs = append(orderIDs, o.OrderID)
+	}
+
+	if err := ex.BatchCancelOrders(ctx, req.Symbol, orderIDs); err != nil {
+		logger.Error("❌ [一键清理] 批量取消失败: exchange=%s, symbol=%s, count=%d, error=%v", req.Exchange, req.Symbol, len(orderIDs), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "批量取消失败: " + err.Error()})
+		return
+	}
+
+	logger.Info("✅ [一键清理] 成功取消全部委托: exchange=%s, symbol=%s, count=%d", req.Exchange, req.Symbol, len(orderIDs))
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("已取消全部 %d 个委托", len(orderIDs)),
+		"count":   len(orderIDs),
+	})
+}
+
 // ========== 日志相关API ==========
 
 var (
