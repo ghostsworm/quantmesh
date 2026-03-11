@@ -72,6 +72,28 @@ func (m *MockExchange) GetBaseAsset() string { return "BTC" }
 func (m *MockExchange) CancelAllOrders(ctx context.Context, symbol string) error {
 	return nil
 }
+func (m *MockExchange) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	return 50000.0, nil
+}
+
+// MockExchangeGetAccountFails 模擬 GetAccount 失敗（API 限流等），用於驗證 reflect panic 修復
+type MockExchangeGetAccountFails struct {
+	MockExchange
+	// ReturnNilPtrAsInterface 為 true 時返回 (*T)(nil) 轉 interface{}，模擬某些邊界情況
+	ReturnNilPtrAsInterface bool
+}
+
+func (m *MockExchangeGetAccountFails) GetAccount(ctx context.Context) (interface{}, error) {
+	if m.ReturnNilPtrAsInterface {
+		// 模擬 (*Account)(nil) 轉成 interface{}，此時 accountResult != nil 但 Elem() 得 zero Value
+		var nilAccount *struct {
+			AvailableBalance float64
+			AccountLeverage  int
+		}
+		return nilAccount, context.DeadlineExceeded // 模擬 API 超時/限流
+	}
+	return nil, context.DeadlineExceeded
+}
 
 func TestSuperPositionManager_Initialize(t *testing.T) {
 	cfg := &config.Config{}
@@ -227,4 +249,38 @@ func TestFilterSlotsByMaxOpenOrders(t *testing.T) {
 	if len(all) != len(slotPrices) {
 		t.Errorf("maxOrders=0 應返回全部 %d 個，得到 %d", len(slotPrices), len(all))
 	}
+}
+
+// TestAdjustOrders_GetAccountFails_NoPanic 驗證 API 限流/失敗時 GetAccount 返回 nil 或 (*T)(nil) 不會導致 reflect panic
+func TestAdjustOrders_GetAccountFails_NoPanic(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100.0
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.OrderQuantity = 100.0
+
+	executor := &MockExecutor{}
+	ex := &MockExchangeGetAccountFails{ReturnNilPtrAsInterface: true}
+	spm := NewSuperPositionManager(cfg, executor, ex, 2, 3)
+	spm.Initialize(50000.0, "50000.00")
+
+	// 修復前：會 panic: reflect: call of reflect.Value.FieldByName on zero Value
+	// 修復後：應正常返回，使用默認 leverage=1
+	spm.AdjustOrders(49950.0)
+}
+
+// TestAdjustOrders_GetAccountReturnsNil_NoPanic 驗證 GetAccount 返回 (nil, err) 時不會 panic
+func TestAdjustOrders_GetAccountReturnsNil_NoPanic(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100.0
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.OrderQuantity = 100.0
+
+	executor := &MockExecutor{}
+	ex := &MockExchangeGetAccountFails{ReturnNilPtrAsInterface: false}
+	spm := NewSuperPositionManager(cfg, executor, ex, 2, 3)
+	spm.Initialize(50000.0, "50000.00")
+
+	spm.AdjustOrders(49950.0)
 }
