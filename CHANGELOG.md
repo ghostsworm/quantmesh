@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.2-rc2] - 2026-03-12
+
+### Fixed
+- **Binance API 限流導致 quantmesh panic 崩潰**：當 GetAccount 因限流（-1003 Too many requests）失敗時，accountResult 可能為 `(*T)(nil)` 轉 interface{}，對其 reflect.Elem() 後調用 FieldByName 會 panic；現增加 IsValid/IsNil/Kind 檢查，避免對 zero Value 做 reflect 操作
+- **position/super_position_manager.go**：獲取 AccountLeverage 時增加 IsNil() 與 Struct 類型檢查，避免 API 失敗時 reflect panic
+
+### Test
+- **position/super_position_manager_test.go**：新增 TestAdjustOrders_GetAccountFails_NoPanic、TestAdjustOrders_GetAccountReturnsNil_NoPanic 驗證修復
+
 ## [3.74.2-rc1] - 2026-03-12
 
 ### Changed

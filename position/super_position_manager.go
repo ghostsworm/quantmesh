@@ -1781,15 +1781,18 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 
 		// 獲取杠杆倍數（用於计算實際使用的保证金）
+		// 注意：API 限流/失敗時 accountResult 可能為 (*T)(nil) 轉 interface{}，Elem() 後得 zero Value，對其 FieldByName 會 panic，需先檢查 IsValid
 		leverage := 1 // 默认1倍（無杠杆）
 		if accountResult != nil {
 			accountValue := reflect.ValueOf(accountResult)
-			if accountValue.Kind() == reflect.Ptr {
+			if accountValue.Kind() == reflect.Ptr && !accountValue.IsNil() {
 				accountValue = accountValue.Elem()
 			}
-			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
-				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-					leverage = lev
+			if accountValue.IsValid() && accountValue.Kind() == reflect.Struct {
+				if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
+					if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
+						leverage = lev
+					}
 				}
 			}
 		}
