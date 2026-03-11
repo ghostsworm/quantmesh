@@ -213,6 +213,9 @@
     "logTime": "시간",
     "logLevel": "레벨",
     "logMessage": "메시지",
+    "logCopyHint": "더블클릭하여 전체 로그 복사",
+    "logCopied": "클립보드에 복사됨",
+    "logCopyFailed": "복사 실패",
     "loadLogs": "로그 로드"
   },
   "backtest": {
