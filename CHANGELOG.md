@@ -2,6 +2,11 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.1-rc3] - 2026-03-12
+
+### Fixed
+- **CI 構建失敗 undefined: RocketTieredGridConfig**：將 RocketTieredGridConfig、RocketTier 類型定義從 bot_config.go 移至 config.go，解決 linux/amd64 CGO 構建時符號未定義錯誤
+
 ## [3.74.1-rc2] - 2026-03-11
 
 ### Changed
