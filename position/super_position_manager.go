@@ -177,6 +177,7 @@ type IExchange interface {
 	// GetOrderFills 查詢訂單成交記錄（用於獲取手續費）
 	// 返回 nil, nil 表示不支援或查詢失敗
 	GetOrderFills(ctx context.Context, symbol string, orderID int64) (interface{}, error)
+	GetLatestPrice(ctx context.Context, symbol string) (float64, error)
 }
 
 // TradeStorage 交易存儲介面（避免循環匯入）
@@ -1539,11 +1540,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				return true
 			}
 
+			// 三級火箭模式：每個槽位使用其檔位對應的利差
+			slotSpread := spm.getProfitSpreadForSlot(slotPrice, currentGridPrice)
 			var closePrice float64
 			if spm.isShort() {
-				closePrice = slotPrice - profitSpread // SHORT: 買低平倉
+				closePrice = slotPrice - slotSpread // SHORT: 買低平倉
 			} else {
-				closePrice = slotPrice + profitSpread // LONG: 賣高平倉
+				closePrice = slotPrice + slotSpread // LONG: 賣高平倉
 			}
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
 
@@ -2512,6 +2515,11 @@ func (spm *SuperPositionManager) findNearestGridPrice(currentPrice float64) floa
 //
 // 回傳：槽位價格列表，從网格價格开始，按價格間隔遞减或遞增，使用检测到的價格精度
 func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count int, direction string) []float64 {
+	// 三級火箭模式：小波動小網格、大波動大網格
+	if rtc := spm.config.Trading.RocketTieredGrid; rtc != nil && rtc.Enabled && len(rtc.Tiers) > 0 {
+		return spm.calculateSlotPricesRocket(gridPrice, count, direction)
+	}
+
 	var prices []float64
 	priceInterval := spm.config.Trading.PriceInterval
 	gridMode := spm.config.Trading.GridMode
@@ -2550,6 +2558,143 @@ func (spm *SuperPositionManager) calculateSlotPrices(gridPrice float64, count in
 	}
 
 	return prices
+}
+
+// calculateSlotPricesRocket 三級火箭模式：按檔位生成槽位價格
+// 檔位 0：前 4 格 100 間距；檔位 1：接下來 4 格 300 間距；檔位 2：其餘 600 間距
+func (spm *SuperPositionManager) calculateSlotPricesRocket(gridPrice float64, count int, direction string) []float64 {
+	tiers := spm.config.Trading.RocketTieredGrid.Tiers
+	if len(tiers) == 0 {
+		tiers = []config.RocketTier{
+			{FilledThreshold: 4, Interval: 100, ProfitSpread: 100},
+			{FilledThreshold: 8, Interval: 300, ProfitSpread: 300},
+			{FilledThreshold: 0, Interval: 600, ProfitSpread: 600},
+		}
+	}
+	baseInterval := spm.config.Trading.PriceInterval
+	if baseInterval <= 0 {
+		baseInterval = 100
+	}
+
+	var prices []float64
+	cumulativeOffset := 0.0
+
+	for i := 0; i < count; i++ {
+		interval := spm.getRocketIntervalForSlotIndex(i, tiers, baseInterval)
+		cumulativeOffset += interval
+
+		var price float64
+		if direction == "down" {
+			price = gridPrice - cumulativeOffset
+		} else {
+			price = gridPrice + cumulativeOffset
+		}
+		price = roundPrice(price, spm.priceDecimals)
+
+		if price <= 0 {
+			logger.Warn("⚠️ [%s] 跳過無效火箭槽位價格 %.8f（方向=%s, 索引=%d, 网格價格=%.2f）",
+				spm.logPrefix(), price, direction, i, gridPrice)
+			continue
+		}
+
+		prices = append(prices, price)
+	}
+
+	return prices
+}
+
+// getRocketIntervalForSlotIndex 根據槽位索引返回該檔的間距
+// filled_threshold：槽位索引小於此值時使用該檔
+func (spm *SuperPositionManager) getRocketIntervalForSlotIndex(slotIndex int, tiers []config.RocketTier, defaultInterval float64) float64 {
+	for _, t := range tiers {
+		if t.FilledThreshold > 0 && slotIndex < t.FilledThreshold {
+			if t.Interval > 0 {
+				return t.Interval
+			}
+			return defaultInterval
+		}
+	}
+	if len(tiers) > 0 {
+		last := tiers[len(tiers)-1]
+		if last.Interval > 0 {
+			return last.Interval
+		}
+	}
+	return defaultInterval
+}
+
+// getProfitSpreadForSlot 獲取指定槽位的平倉利差（三級火箭時按檔位，否則用全局）
+func (spm *SuperPositionManager) getProfitSpreadForSlot(slotPrice, gridPrice float64) float64 {
+	rtc := spm.config.Trading.RocketTieredGrid
+	if rtc == nil || !rtc.Enabled {
+		return spm.getEffectiveProfitSpread()
+	}
+	tiers := rtc.Tiers
+	if len(tiers) == 0 {
+		tiers = []config.RocketTier{
+			{FilledThreshold: 4, Interval: 100, ProfitSpread: 100},
+			{FilledThreshold: 8, Interval: 300, ProfitSpread: 300},
+			{FilledThreshold: 0, Interval: 600, ProfitSpread: 600},
+		}
+	}
+
+	// 根據 slot 與 gridPrice 的距離推斷槽位索引（LONG 時 slot 在下方，SHORT 時在上方）
+	var slotIndex int
+	if spm.isShort() {
+		// SHORT：買單在上方，slotPrice > gridPrice
+		diff := slotPrice - gridPrice
+		slotIndex = spm.inferRocketSlotIndex(diff, tiers)
+	} else {
+		// LONG：買單在下方，slotPrice < gridPrice
+		diff := gridPrice - slotPrice
+		slotIndex = spm.inferRocketSlotIndex(diff, tiers)
+	}
+
+	for _, t := range tiers {
+		if t.FilledThreshold > 0 && slotIndex < t.FilledThreshold {
+			if t.ProfitSpread > 0 {
+				return t.ProfitSpread
+			}
+			if t.Interval > 0 {
+				return t.Interval
+			}
+		}
+	}
+	if len(tiers) > 0 {
+		last := tiers[len(tiers)-1]
+		if last.ProfitSpread > 0 {
+			return last.ProfitSpread
+		}
+		if last.Interval > 0 {
+			return last.Interval
+		}
+	}
+	return spm.getEffectiveProfitSpread()
+}
+
+// inferRocketSlotIndex 根據價格差推斷槽位索引（用於 getProfitSpreadForSlot）
+func (spm *SuperPositionManager) inferRocketSlotIndex(priceDiff float64, tiers []config.RocketTier) int {
+	baseInterval := spm.config.Trading.PriceInterval
+	if baseInterval <= 0 {
+		baseInterval = 100
+	}
+	if len(tiers) == 0 {
+		tiers = []config.RocketTier{
+			{FilledThreshold: 4, Interval: 100},
+			{FilledThreshold: 8, Interval: 300},
+			{FilledThreshold: 0, Interval: 600},
+		}
+	}
+
+	cumulative := 0.0
+	for i := 0; i < 100; i++ {
+		interval := spm.getRocketIntervalForSlotIndex(i, tiers, baseInterval)
+		cumulative += interval
+		if cumulative >= priceDiff-0.01 {
+			return i
+		}
+	}
+	return 99
 }
 
 // ===== IPositionManager 接口實現（供 safety.Reconciler 使用）=====

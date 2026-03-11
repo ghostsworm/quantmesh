@@ -71,6 +71,9 @@ const (
 
 	// 配置切换事件
 	EventTypeConfigSwitched EventType = "config_switched" // 配置档案自动切换
+
+	// 對沖信號事件（HedgeCoordinator 發送，spot_short 策略訂閱）
+	EventTypeHedgeSignal EventType = "hedge_signal"
 )
 
 // EventSeverity 事件严重程度
@@ -126,7 +129,8 @@ func GetEventSeverity(eventType EventType) EventSeverity {
 		EventTypeSystemStart,
 		EventTypeTradingStarted,
 		EventTypeTradingStopped,
-		EventTypeInspectorReport:
+		EventTypeInspectorReport,
+		EventTypeHedgeSignal:
 		return SeverityInfo
 
 	default:
@@ -139,6 +143,16 @@ type Event struct {
 	Type      EventType
 	Timestamp time.Time
 	Data      map[string]interface{}
+}
+
+// HedgeSignalPayload 對沖信號 payload（EventTypeHedgeSignal）
+type HedgeSignalPayload struct {
+	GroupID             string  `json:"group_id"`
+	Symbol              string  `json:"symbol"`
+	Exchange            string  `json:"exchange"`
+	TargetSpotShort     float64 `json:"target_spot_short"`      // 目標現貨空倉數量（base 資產）
+	FuturesFilledLayers int     `json:"futures_filled_layers"`  // 網格已買入層數
+	FuturesPosition     float64 `json:"futures_position"`       // 合約持倉數量
 }
 
 // EventSource 事件源
@@ -177,7 +191,8 @@ func GetEventSource(eventType EventType) EventSource {
 	case EventTypeAPIRateLimited, EventTypeAPIServerError, EventTypeAPIAuthFailed, EventTypeAPIBadRequest:
 		return SourceAPI
 
-	case EventTypePriceVolatility, EventTypePriceAnomaly, EventTypePrecisionAdjustment:
+	case EventTypePriceVolatility, EventTypePriceAnomaly, EventTypePrecisionAdjustment,
+		EventTypeHedgeSignal:
 		return SourceStrategy
 
 	case EventTypeSystemCPUHigh, EventTypeSystemMemoryHigh, EventTypeSystemDiskFull,
@@ -248,6 +263,9 @@ func GetEventTitle(eventType EventType) string {
 
 		// 智子巡檢
 		EventTypeInspectorReport: "智子巡檢報告",
+
+		// 對沖信號
+		EventTypeHedgeSignal: "對沖信號",
 	}
 
 	if title, ok := titles[eventType]; ok {

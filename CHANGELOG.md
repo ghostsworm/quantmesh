@@ -2,6 +2,21 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.74.1-rc1] - 2026-03-11
+
+### Added
+- **網格+現貨做空對沖 Bot**：合約網格做多 + 現貨借幣做空對沖策略
+  - 合約腿：單邊做多網格；現貨腿：現貨借幣做空（Binance Spot Margin）
+  - 倉位關係：現貨做空 ≈ 網格名義敞口 × ShortNotionalRatio（預設 25%）
+  - 觸發：網格滿 N 格（HedgeTriggerLayers，預設 3）後才開現貨空倉
+  - HedgeCoordinator 監聽 OrderFilled 事件，計算目標空倉並發送 EventTypeHedgeSignal
+  - spot_short 策略訂閱對沖信號，執行借幣/賣出或買回/還幣
+  - 前端：對沖策略選擇器新增 spot_short 選項，新增 grid_spot_short_hedge 模板
+  - 配置：`config.HedgeConfig` 支援 ShortNotionalRatio、HedgeTriggerLayers；BotConfig 支援 UseSpotMargin
+
+### Test
+- **strategy/hedge_coordinator_test.go**：新增 GetTargetSpotPosition、getFloat64、getInt、getString 單元測試
+
 ## [3.74.0-rc8] - 2026-03-11
 
 ### Fixed

@@ -100,6 +100,8 @@
     "takeProfitTriggerRatioHint": "E.g., 0.08 means start trailing stop at 8% profit",
     "enableTrendFilter": "Enable Trend Filter",
     "enableTrendFilterHint": "When enabled, pause opening new positions during downtrend",
+    "rocketTieredGrid": "Rocket Tiered Grid",
+    "rocketTieredGridHint": "Small grid (100) for small moves; 300 after 4 filled slots; 600 for deeper drops",
     "marketData": "Market Data",
     "markPrice": "Mark Price",
     "last24hHigh": "24h High",
@@ -150,7 +152,8 @@
     "strategyTemplate": {
       "grid_trend": "Grid + Trend",
       "dca_martingale": "DCA + Martingale",
-      "futures_spot_hedge": "Futures + Spot Hedge"
+      "futures_spot_hedge": "Futures + Spot Hedge",
+      "grid_spot_short_hedge": "Grid + Spot Short Hedge"
     },
     "strategyParams": {}
   },
@@ -231,7 +234,9 @@
       "maxOpenOrdersHint": "Max orders per direction, recommended 2-4",
       "openOrderDistance": "Max Distance (intervals)",
       "openOrderDistanceHint": "Max intervals from current price for open orders; orders beyond this will be cancelled",
-      "smartOrderEffect": "When enabled, system will place orders only within {{count}} intervals of current price, checked every 60 seconds."
+      "smartOrderEffect": "When enabled, system will place orders only within {{count}} intervals of current price, checked every 60 seconds.",
+      "rocketTieredGrid": "Rocket Tiered Grid",
+      "rocketTieredGridHint": "Small grid for small moves, larger grid for bigger drops"
     }
   },
   "sidebar": {
@@ -2777,7 +2782,8 @@
     "combo": "Combo Strategy Module",
     "trend_following": "Trend Following Strategy",
     "mean_reversion": "Mean Reversion Strategy",
-    "breakout": "Breakout Strategy"
+    "breakout": "Breakout Strategy",
+    "spot_short": "Spot Short (Borrow & Sell)"
   },
   "strategyDescriptions": {
     "grid": "Classic grid trading strategy that automatically places orders within a price range to capture volatility spreads",

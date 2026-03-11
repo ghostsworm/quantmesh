@@ -156,3 +156,11 @@ type IExchange interface {
 	// 返回: 轉账ID, error
 	InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error)
 }
+
+// ISpotMarginExchange 現貨槓桿交易所介面（借幣做空）
+// 僅 Binance Spot Margin 等支援借還的交易所實現
+type ISpotMarginExchange interface {
+	IExchange
+	Borrow(ctx context.Context, asset string, amount float64) (int64, error)
+	Repay(ctx context.Context, asset string, amount float64) (int64, error)
+}

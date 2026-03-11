@@ -9,6 +9,59 @@ import (
 	"quantmesh/logger"
 )
 
+// getFloat64 從 event.Data 安全提取 float64
+func getFloat64(m map[string]interface{}, key string) float64 {
+	if m == nil {
+		return 0
+	}
+	v, ok := m[key]
+	if !ok {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return t
+	case int:
+		return float64(t)
+	case int64:
+		return float64(t)
+	}
+	return 0
+}
+
+// getInt 從 event.Data 安全提取 int
+func getInt(m map[string]interface{}, key string) int {
+	if m == nil {
+		return 0
+	}
+	v, ok := m[key]
+	if !ok {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case int:
+		return t
+	case int64:
+		return int(t)
+	}
+	return 0
+}
+
+// getString 從 event.Data 安全提取 string
+func getString(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
+}
+
 // HedgeCoordinator 跨市場對沖協調器
 // 監聽主 Bot (futures) 的持倉變化，根據 HedgeRatio 計算 spot Bot 應持有的對沖倉位，
 // 通過 EventBus 發送對沖信號到 spot Bot
@@ -74,13 +127,62 @@ func (hc *HedgeCoordinator) run() {
 
 // onEvent 處理事件（持倉變化等）
 func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
-	// 簡化實現：僅記錄事件，實際對沖邏輯需與 position manager 整合
-	// 完整實現需：解析 evt 中的 exchange/symbol/marketType，判斷是否為本 group 的 futures Bot，
-	// 計算 spot 應持倉 = futuresPos * HedgeRatio，發送對沖信號
 	switch evt.Type {
 	case event.EventTypeOrderFilled, event.EventTypePositionOpened, event.EventTypePositionClosed:
-		// TODO: 解析持倉變化，計算對沖目標，發送對沖信號
-		_ = evt
+		botID := getString(evt.Data, "bot_id")
+		if botID == "" {
+			return
+		}
+		// 僅處理本組的 futures Bot（第一個 BotID）
+		if len(hc.group.BotIDs) < 2 || hc.group.BotIDs[0] != botID {
+			return
+		}
+		marketType := getString(evt.Data, "market_type")
+		if marketType != "futures" {
+			return
+		}
+		position := getFloat64(evt.Data, "position")
+		filledLayers := getInt(evt.Data, "filled_layers")
+		symbol := getString(evt.Data, "symbol")
+		exchangeName := getString(evt.Data, "exchange")
+		if symbol == "" || exchangeName == "" {
+			return
+		}
+		hc.mu.Lock()
+		triggerLayers := hc.group.HedgeConfig.HedgeTriggerLayers
+		shortRatio := hc.group.HedgeConfig.ShortNotionalRatio
+		hc.mu.Unlock()
+		if triggerLayers <= 0 {
+			triggerLayers = 3
+		}
+		if shortRatio <= 0 {
+			if hc.group.HedgeConfig.HedgeRatio > 0 {
+				shortRatio = hc.group.HedgeConfig.HedgeRatio
+			} else {
+				shortRatio = 0.25
+			}
+		}
+		if filledLayers < triggerLayers {
+			logger.Debug("HedgeCoordinator: 網格未滿 %d 格 (當前 %d)，跳過對沖", triggerLayers, filledLayers)
+			return
+		}
+		targetSpotShort := position * shortRatio
+		if targetSpotShort < 0.000001 {
+			return
+		}
+		hc.eventBus.Publish(&event.Event{
+			Type: event.EventTypeHedgeSignal,
+			Data: map[string]interface{}{
+				"group_id":              hc.group.ID,
+				"symbol":                symbol,
+				"exchange":              exchangeName,
+				"target_spot_short":     targetSpotShort,
+				"futures_filled_layers":  filledLayers,
+				"futures_position":      position,
+			},
+		})
+		logger.Info("📤 HedgeCoordinator: 發送對沖信號 group=%s symbol=%s target_short=%.6f layers=%d",
+			hc.group.ID, symbol, targetSpotShort, filledLayers)
 	}
 }
 

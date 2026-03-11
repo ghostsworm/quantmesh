@@ -71,6 +71,11 @@ const StrategyPicker: React.FC<StrategyPickerProps> = ({
   const baseStrategies = strategies.filter((s) =>
     ['grid', 'dca', 'dca_enhanced', 'martingale', 'trend_following', 'mean_reversion', 'breakout'].includes(s.id)
   )
+  // 現貨腿額外支援 spot_short（借幣做空對沖）
+  const spotStrategies = [
+    ...baseStrategies,
+    ...(baseStrategies.some((s) => s.id === 'spot_short') ? [] : [{ id: 'spot_short', name: 'Spot Short' }]),
+  ]
 
   const applyTemplate = (tmpl: StrategyTemplate) => {
     if (tmpl.type === 'combo' && tmpl.strategies?.length) {
@@ -215,7 +220,7 @@ const StrategyPicker: React.FC<StrategyPickerProps> = ({
             <Text fontSize="sm" mb={1}>{t('botCreate.strategyPicker.hedgeSpot')}</Text>
             <RadioGroup value={hedgeSecondary || ''} onChange={(v) => onHedgeChange(hedgePrimary || '', v, hedgeRatio)}>
               <Stack spacing={1}>
-                {baseStrategies.map((s) => (
+                {spotStrategies.map((s) => (
                   <Radio key={s.id} value={s.id}>{t(`strategyNames.${s.id}`, s.name)}</Radio>
                 ))}
               </Stack>
