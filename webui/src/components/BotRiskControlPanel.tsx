@@ -30,6 +30,7 @@ import {
   useDisclosure,
 } from '@chakra-ui/react'
 import DecimalNumberInput from './DecimalNumberInput'
+import { normalizeGridRiskControlPayload } from '../utils/gridRiskControlPayload'
 import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons'
 
 // @chakra-ui/icons 不提供 PauseIcon/PlayIcon，使用自定义 SVG
@@ -123,14 +124,9 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
       if (mpq != null) toSend.max_position_quantity = typeof mpq === 'string' ? parseFloat(mpq || '0') : mpq
       if (typeof toSend.max_position_value === 'string') toSend.max_position_value = parseFloat(toSend.max_position_value || '0')
       if (typeof toSend.open_order_distance === 'string') toSend.open_order_distance = parseFloat(toSend.open_order_distance || '0')
-      // 網格風控比例轉換（前端用 % 顯示，後端用 0-1）
+      // 網格風控比例轉換（前端用 % 顯示，後端用 0-1）；DecimalNumberInput 可能傳 string，需統一轉 number
       if (toSend.grid_risk_control) {
-        const grc = { ...toSend.grid_risk_control }
-        const toRatio = (v: number | undefined) => (typeof v === 'number' && v > 1 ? v / 100 : v)
-        grc.stop_loss_ratio = toRatio(grc.stop_loss_ratio)
-        grc.take_profit_trigger_ratio = toRatio(grc.take_profit_trigger_ratio)
-        grc.trailing_take_profit_ratio = toRatio(grc.trailing_take_profit_ratio)
-        toSend.grid_risk_control = grc
+        toSend.grid_risk_control = normalizeGridRiskControlPayload(toSend.grid_risk_control) as typeof toSend.grid_risk_control
       }
       await updateBotRiskControl(botIdRef.current, toSend)
       toast({ title: t('botRiskControl.configUpdateSuccess'), status: 'success', duration: 2000 })
