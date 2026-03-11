@@ -97,6 +97,7 @@ const Orders: React.FC = () => {
   const [pendingFilterSide, setPendingFilterSide] = useState<string>('all')
   const [historyFilterStrategy, setHistoryFilterStrategy] = useState<string>('all')
   const [historyFilterType, setHistoryFilterType] = useState<string>('all')
+  const [historyFilterOrderSource, setHistoryFilterOrderSource] = useState<string>('all')
   const [historyFilterStatus, setHistoryFilterStatus] = useState<string>('all')
   const [historyFilterSide, setHistoryFilterSide] = useState<string>('all')
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
@@ -562,6 +563,10 @@ const Orders: React.FC = () => {
       const orderType = order.type || 'LIMIT' // 默认限价单
       if (orderType !== historyFilterType) return false
     }
+    if (historyFilterOrderSource !== 'all') {
+      const src = order.order_source || 'normal'
+      if (src !== historyFilterOrderSource) return false
+    }
     if (historyFilterStatus !== 'all' && order.status !== historyFilterStatus) return false
     if (historyFilterSide !== 'all' && order.side !== historyFilterSide) return false
     return true
@@ -923,6 +928,17 @@ const Orders: React.FC = () => {
                       <option value="all">{t('orders.allTypes')}</option>
                       <option value="LIMIT">{t('orders.limitOrder')}</option>
                       <option value="MARKET">{t('orders.marketOrder')}</option>
+                    </Select>
+                    <Select
+                      size="sm"
+                      width="130px"
+                      value={historyFilterOrderSource}
+                      onChange={(e) => setHistoryFilterOrderSource(e.target.value)}
+                    >
+                      <option value="all">{t('orders.allSources')}</option>
+                      <option value="normal">{t('orders.sourceNormal')}</option>
+                      <option value="stop_loss">{t('orders.sourceStopLoss')}</option>
+                      <option value="liquidation">{t('orders.sourceLiquidation')}</option>
                     </Select>
                     <Select
                       size="sm"
