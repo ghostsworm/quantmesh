@@ -609,6 +609,56 @@ export async function getTradeDetails(orderID: number): Promise<TradeDetailRespo
   return fetchWithAuth(`${API_BASE_URL}/trades/by-order/${orderID}`)
 }
 
+// Exchange Open Orders - 直接从交易所查询开放委托
+export interface ExchangeOpenOrderInfo {
+  order_id: number
+  client_order_id: string
+  exchange: string
+  symbol: string
+  price: number
+  quantity: number
+  executed_qty: number
+  side: string
+  type: string
+  status: string
+  created_at: string
+  is_mine: boolean       // 是否为本机器人管理的委托
+  strategy_name: string  // 关联的策略名（如果 is_mine）
+  slot_price: number     // 关联槽位价格（如果 is_mine）
+}
+
+export interface ExchangeOpenOrdersResponse {
+  success: boolean
+  orders: ExchangeOpenOrderInfo[]
+  count: number
+}
+
+export async function getExchangeOpenOrders(
+  exchange: string,
+  symbol: string,
+  marketType: string = 'futures'
+): Promise<ExchangeOpenOrdersResponse> {
+  const params = new URLSearchParams({ exchange, symbol, market_type: marketType })
+  return fetchWithAuth(`${API_BASE_URL}/orders/exchange-open?${params}`)
+}
+
+export interface CancelAllExchangeOrdersResponse {
+  success: boolean
+  message: string
+  count: number
+}
+
+export async function cancelAllExchangeOrders(
+  exchange: string,
+  symbol: string,
+  marketType: string = 'futures'
+): Promise<CancelAllExchangeOrdersResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/orders/cancel-all-exchange`, {
+    method: 'POST',
+    body: JSON.stringify({ exchange, symbol, market_type: marketType }),
+  })
+}
+
 // Sync Orders (Binance only)
 export interface SyncOrdersResponse {
   success: boolean
