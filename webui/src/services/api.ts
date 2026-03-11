@@ -198,6 +198,16 @@ export interface CreateBotRequest {
   grid_risk_control_stop_loss_ratio?: number
   grid_risk_control_take_profit_trigger_ratio?: number
   grid_risk_control_trend_filter_enabled?: boolean
+
+  // 三级火箭网格
+  rocket_tiered_grid?: {
+    enabled: boolean
+    tiers: Array<{
+      filled_threshold: number
+      interval: number
+      profit_spread: number
+    }>
+  }
 }
 
 export async function createBot(req: CreateBotRequest): Promise<{ ok: boolean; bot_id: string }> {
@@ -310,6 +320,16 @@ export interface UpdateBotStrategyRequest {
   smart_order_enabled?: boolean
   smart_order_max_open_orders?: number
   smart_order_open_order_distance?: number
+
+  // 三级火箭网格
+  rocket_tiered_grid?: {
+    enabled: boolean
+    tiers: Array<{
+      filled_threshold: number
+      interval: number
+      profit_spread: number
+    }>
+  }
 }
 
 export interface UpdateBotStrategyResponse {

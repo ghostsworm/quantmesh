@@ -57,12 +57,14 @@ import {
 interface BotRiskControlPanelProps {
   botId: string
   botRunning: boolean
+  /** 隱藏持倉狀態區塊（已移至概覽標籤） */
+  hidePositionStatus?: boolean
 }
 
-const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRunning }) => {
+const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRunning, hidePositionStatus }) => {
   const { t } = useTranslation()
   const toast = useToast()
-  const { isOpen: showConfig, onToggle: toggleConfig } = useDisclosure()
+  const { isOpen: showConfig, onToggle: toggleConfig } = useDisclosure({ defaultIsOpen: true })
 
   const [riskControl, setRiskControl] = useState<BotRiskControlType | null>(null)
   const [positionStatus, setPositionStatus] = useState<PositionStatus | null>(null)
@@ -188,7 +190,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
 
   return (
     <VStack spacing={4} align="stretch">
-      {/* 当前状态卡片 */}
+      {/* 当前状态卡片（可隱藏，已移至概覽） */}
+      {!hidePositionStatus && (
       <Card>
         <CardBody>
           <Heading size="sm" mb={4}>{t('botRiskControl.currentStatus')}</Heading>
@@ -304,6 +307,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
           )}
         </CardBody>
       </Card>
+      )}
 
       {/* 风控配置 */}
       <Card>

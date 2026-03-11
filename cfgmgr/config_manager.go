@@ -2,6 +2,7 @@ package cfgmgr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -506,6 +507,23 @@ func (cm *ConfigManager) initBotConfigs() []*storage.ConfigEntry {
 			Editable:    true,
 		})
 
+		// 三级火箭网格（JSON 存储）
+		if bot.RocketTieredGrid != nil {
+			jsonBytes, _ := json.Marshal(bot.RocketTieredGrid)
+			entries = append(entries, &storage.ConfigEntry{
+				Key:         "rocket_tiered_grid",
+				Scope:       storage.ScopeBot,
+				ScopeID:     botID,
+				Type:        storage.TypeJSON,
+				JSONValue:   string(jsonBytes),
+				Value:       string(jsonBytes),
+				Category:    "trading",
+				DisplayName: "三级火箭网格",
+				Description: "小波动小网格、大波动大网格，根据持仓层数自动切换间距",
+				Editable:    true,
+			})
+		}
+
 		// 风控配置
 		entries = append(entries, &storage.ConfigEntry{
 			Key:         "grid_risk_control.enabled",
@@ -608,6 +626,8 @@ func (cm *ConfigManager) getBotDefault(botID, key string) (interface{}, error) {
 				return bot.PriceInterval, nil
 			case "profit_spread":
 				return bot.ProfitSpread, nil
+			case "rocket_tiered_grid":
+				return bot.RocketTieredGrid, nil
 			// 可以添加更多配置项
 			}
 		}

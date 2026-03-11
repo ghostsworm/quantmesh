@@ -46,8 +46,20 @@ import {
   Divider,
   Switch,
   Tooltip,
+  Icon,
 } from '@chakra-ui/react'
 import { ChevronLeftIcon } from '@chakra-ui/icons'
+
+const PlayIcon = (props: React.ComponentProps<typeof Icon>) => (
+  <Icon viewBox="0 0 24 24" {...props}>
+    <path fill="currentColor" d="M8 5v14l11-7z" />
+  </Icon>
+)
+const PauseIcon = (props: React.ComponentProps<typeof Icon>) => (
+  <Icon viewBox="0 0 24 24" {...props}>
+    <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+  </Icon>
+)
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { ExternalLinkIcon } from '@chakra-ui/icons'
@@ -60,9 +72,14 @@ import {
   getPositionsSummary,
   getStatistics,
   getLogs,
+  getOrderHistory,
+  getBotPositionStatus,
+  pauseBotOpening,
+  resumeBotOpening,
   updateBotStrategy,
   BotDetailInfo,
   UpdateBotStrategyRequest,
+  PositionStatus,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useConfig } from '../contexts/ConfigContext'
@@ -109,8 +126,11 @@ const BotDetail: React.FC = () => {
   const [actioning, setActioning] = useState(false)
   const [positionsSummary, setPositionsSummary] = useState<any>(null)
   const [statistics, setStatistics] = useState<any>(null)
+  const [positionStatus, setPositionStatus] = useState<PositionStatus | null>(null)
   const [logs, setLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+  const [tpSlOrders, setTpSlOrders] = useState<any[]>([])
+  const [tpSlLoading, setTpSlLoading] = useState(false)
   const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
 
   const fetchBot = async () => {
@@ -133,24 +153,30 @@ const BotDetail: React.FC = () => {
   }, [botId])
 
   useEffect(() => {
-    if (!bot?.running || !bot?.exchange || !bot?.symbol) return
+    if (!bot?.running || !bot?.exchange || !bot?.symbol) {
+      if (!bot?.running) setPositionStatus(null)
+      return
+    }
     const fetchOverview = async () => {
       try {
-        const [posRes, statRes] = await Promise.all([
+        const [posRes, statRes, posStatus] = await Promise.all([
           getPositionsSummary(bot.exchange, bot.symbol).catch(() => null),
           getStatistics(bot.exchange, bot.symbol).catch(() => null),
+          botId ? getBotPositionStatus(botId).catch(() => null) : Promise.resolve(null),
         ])
         setPositionsSummary(posRes)
         setStatistics(statRes)
+        setPositionStatus(posStatus ?? null)
       } catch {
         setPositionsSummary(null)
         setStatistics(null)
+        setPositionStatus(null)
       }
     }
     fetchOverview()
     const interval = setInterval(fetchOverview, 10000)
     return () => clearInterval(interval)
-  }, [bot?.running, bot?.exchange, bot?.symbol])
+  }, [bot?.running, bot?.exchange, bot?.symbol, botId])
 
   const fetchLogs = async () => {
     if (!bot?.symbol) return
@@ -162,6 +188,74 @@ const BotDetail: React.FC = () => {
       setLogs([])
     } finally {
       setLogsLoading(false)
+    }
+  }
+
+  // 進入頁面時自動加載最新 50 條日誌
+  useEffect(() => {
+    if (bot?.symbol) {
+      setLogsLoading(true)
+      getLogs({ limit: 50, keyword: bot.symbol })
+        .then((res) => setLogs(res.logs || []))
+        .catch(() => setLogs([]))
+        .finally(() => setLogsLoading(false))
+    }
+  }, [bot?.symbol])
+
+  const fetchTpSlOrders = async () => {
+    if (!bot?.exchange || !bot?.symbol) return
+    setTpSlLoading(true)
+    try {
+      const now = new Date()
+      const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      const res = await getOrderHistory({
+        exchange: bot.exchange,
+        symbol: bot.symbol,
+        limit: 200,
+        start_time: start.toISOString(),
+        end_time: now.toISOString(),
+      })
+      const orders = (res.orders || []).filter(
+        (o: { order_source?: string }) =>
+          o.order_source === 'stop_loss' || o.order_source === 'take_profit'
+      )
+      setTpSlOrders(orders)
+    } catch {
+      setTpSlOrders([])
+    } finally {
+      setTpSlLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (bot?.exchange && bot?.symbol) fetchTpSlOrders()
+    const interval = setInterval(() => {
+      if (bot?.exchange && bot?.symbol) fetchTpSlOrders()
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [bot?.exchange, bot?.symbol])
+
+  const handlePauseOpening = async () => {
+    if (!botId) return
+    try {
+      await pauseBotOpening(botId)
+      toast({ title: t('botRiskControl.pauseSuccess'), status: 'success', duration: 2000 })
+      const ps = await getBotPositionStatus(botId)
+      setPositionStatus(ps)
+    } catch {
+      toast({ title: t('botRiskControl.configUpdateFailed'), status: 'error', duration: 3000 })
+    }
+  }
+
+  const handleResumeOpening = async () => {
+    if (!botId) return
+    try {
+      await resumeBotOpening(botId)
+      toast({ title: t('botRiskControl.resumeSuccess'), status: 'success', duration: 2000 })
+      const ps = await getBotPositionStatus(botId)
+      setPositionStatus(ps)
+    } catch {
+      toast({ title: t('botRiskControl.configUpdateFailed'), status: 'error', duration: 3000 })
     }
   }
 
@@ -391,6 +485,7 @@ const BotDetail: React.FC = () => {
           <Tab>{t('botDetail.tabOverview')}</Tab>
           <Tab>{t('botDetail.tabStrategy')}</Tab>
           <Tab>{t('botDetail.tabRisk')}</Tab>
+          <Tab>{t('botDetail.tabTpSl')}</Tab>
           <Tab>{t('botDetail.tabBacktest')}</Tab>
           <Tab>{t('botDetail.tabLogs')}</Tab>
         </TabList>
@@ -398,6 +493,108 @@ const BotDetail: React.FC = () => {
           <TabPanel px={0}>
             {bot.running ? (
               <>
+                {/* 持倉與資金（從風控移入） */}
+                {positionStatus && !positionStatus.stopped && (
+                  <Box mb={6}>
+                    <Text fontSize="sm" color="gray.500" mb={3}>{t('botRiskControl.currentStatus')}</Text>
+                    <SimpleGrid columns={{ base: 1, md: 2, lg: 5 }} spacing={4} mb={4}>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botRiskControl.totalPositionQty')}</StatLabel>
+                            <StatNumber fontSize="lg">
+                              {positionStatus.total_position_qty?.toFixed(4) || '-'}
+                              {positionStatus.max_position_qty && (
+                                <Text as="span" fontSize="sm" color="gray.500" fontWeight="normal">
+                                  {' '}/ {positionStatus.max_position_qty}
+                                </Text>
+                              )}
+                            </StatNumber>
+                            {positionStatus.reached_limit_qty && (
+                              <Badge colorScheme="red" size="sm" mt={1}>{t('botRiskControl.reachedLimitQty')}</Badge>
+                            )}
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botRiskControl.totalPositionValue')}</StatLabel>
+                            <StatNumber fontSize="lg">${positionStatus.total_position_value?.toFixed(2) || '-'}</StatNumber>
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botRiskControl.totalActualMargin')}</StatLabel>
+                            <StatNumber fontSize="lg">
+                              ${positionStatus.total_actual_margin?.toFixed(2) || '-'}
+                              {positionStatus.max_position_value && (
+                                <Text as="span" fontSize="sm" color="gray.500" fontWeight="normal">
+                                  {' '}/ ${positionStatus.max_position_value}
+                                </Text>
+                              )}
+                            </StatNumber>
+                            {positionStatus.reached_limit_value && (
+                              <Badge colorScheme="red" size="sm" mt={1}>{t('botRiskControl.reachedLimitValue')}</Badge>
+                            )}
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botRiskControl.positionLayers')}</StatLabel>
+                            <StatNumber fontSize="lg">
+                              {positionStatus.position_layers ?? '-'}
+                              {positionStatus.max_position_layers && (
+                                <Text as="span" fontSize="sm" color="gray.500" fontWeight="normal">
+                                  {' '}/ {positionStatus.max_position_layers}
+                                </Text>
+                              )}
+                            </StatNumber>
+                            {positionStatus.reached_limit_layers && (
+                              <Badge colorScheme="red" size="sm" mt={1}>{t('botRiskControl.reachedLimitLayers')}</Badge>
+                            )}
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botRiskControl.currentPrice')}</StatLabel>
+                            <StatNumber fontSize="lg">${positionStatus.current_price?.toFixed(2) || '-'}</StatNumber>
+                            {positionStatus.paused && (
+                              <Badge colorScheme="orange" size="sm" mt={1}>{t('botRiskControl.paused')}</Badge>
+                            )}
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                    </SimpleGrid>
+                    {(positionStatus.should_stop_opening || positionStatus.paused) && (
+                      <Alert status="warning" borderRadius="md" mb={4}>
+                        <AlertIcon />
+                        <Text fontSize="sm">
+                          {t('botRiskControl.shouldStopOpening')}
+                          {positionStatus.paused && ` (${t('botRiskControl.paused')})`}
+                        </Text>
+                      </Alert>
+                    )}
+                    <Flex justify="flex-end" mb={4}>
+                      {positionStatus.paused ? (
+                        <Button size="sm" colorScheme="green" leftIcon={<PlayIcon />} onClick={handleResumeOpening}>
+                          {t('botRiskControl.resume')}
+                        </Button>
+                      ) : (
+                        <Button size="sm" colorScheme="orange" leftIcon={<PauseIcon />} onClick={handlePauseOpening}>
+                          {t('botRiskControl.pause')}
+                        </Button>
+                      )}
+                    </Flex>
+                  </Box>
+                )}
+
                 {/* 【全部】指标 */}
                 <Text fontSize="sm" color="gray.500" mb={3}>{t('botDetail.allTimeMetrics')}</Text>
                 <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={6}>
@@ -495,8 +692,60 @@ const BotDetail: React.FC = () => {
           </TabPanel>
           <TabPanel px={0}>
             {botId && (
-              <BotRiskControlPanel botId={botId} botRunning={bot.running} />
+              <BotRiskControlPanel botId={botId} botRunning={bot.running} hidePositionStatus />
             )}
+          </TabPanel>
+          <TabPanel px={0}>
+            <Card>
+              <CardBody>
+                <Flex justify="space-between" align="center" mb={4}>
+                  <Text fontWeight="medium">{t('botDetail.tabTpSl')}</Text>
+                  <Button size="sm" variant="outline" onClick={fetchTpSlOrders} isLoading={tpSlLoading}>
+                    {t('common.refresh')}
+                  </Button>
+                </Flex>
+                {tpSlLoading && tpSlOrders.length === 0 ? (
+                  <Flex justify="center" py={8}><Spinner /></Flex>
+                ) : tpSlOrders.length > 0 ? (
+                  <TableContainer maxH="400px" overflowY="auto">
+                    <Table size="sm">
+                      <Thead>
+                        <Tr>
+                          <Th>{t('botDetail.logTime')}</Th>
+                          <Th>{t('orders.side')}</Th>
+                          <Th>{t('orders.price')}</Th>
+                          <Th>{t('orders.quantity')}</Th>
+                          <Th>{t('orders.orderSource')}</Th>
+                          <Th>{t('orders.exchangePnl')}</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {tpSlOrders.map((o: any, i: number) => (
+                          <Tr key={o.order_id || i}>
+                            <Td fontSize="xs" whiteSpace="nowrap">
+                              {formatTimeUtil(o.created_at || o.updated_at || '', timezone, i18n.language)}
+                            </Td>
+                            <Td>{o.side || '-'}</Td>
+                            <Td>${o.price != null ? o.price.toFixed(2) : '-'}</Td>
+                            <Td>{o.filled_quantity ?? o.quantity ?? '-'}</Td>
+                            <Td>
+                              <Badge size="sm" colorScheme={o.order_source === 'stop_loss' ? 'red' : 'green'}>
+                                {o.order_source === 'stop_loss' ? t('orders.sourceStopLoss') : t('orders.sourceTakeProfit')}
+                              </Badge>
+                            </Td>
+                            <Td color={((o.exchange_pnl ?? o.realized_pnl) ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                              {(o.exchange_pnl ?? o.realized_pnl) != null ? ((o.exchange_pnl ?? o.realized_pnl) >= 0 ? '+' : '') + (o.exchange_pnl ?? o.realized_pnl).toFixed(2) : '-'}
+                            </Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </TableContainer>
+                ) : (
+                  <Text color="gray.500">{t('botDetail.noTpSlOrders')}</Text>
+                )}
+              </CardBody>
+            </Card>
           </TabPanel>
           <TabPanel px={0}>
             <BotBacktestPanel bot={bot} />
@@ -545,10 +794,10 @@ const BotDetail: React.FC = () => {
                       </Tbody>
                     </Table>
                   </TableContainer>
+                ) : logsLoading ? (
+                  <Flex justify="center" py={8}><Spinner /></Flex>
                 ) : (
-                  <Button size="sm" onClick={fetchLogs} isLoading={logsLoading}>
-                    {t('botDetail.loadLogs')}
-                  </Button>
+                  <Text color="gray.500">{t('botDetail.noLogs')}</Text>
                 )}
               </CardBody>
             </Card>
