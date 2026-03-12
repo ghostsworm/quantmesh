@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"quantmesh/logger"
+
+	binancesdk "github.com/adshao/go-binance/v2"
 )
 
 // BinanceSpotMarginAdapter 幣安現貨槓桿適配器（借幣做空）
@@ -94,10 +96,14 @@ func (b *BinanceSpotMarginAdapter) PlaceOrder(ctx context.Context, req *OrderReq
 	}, nil
 }
 
-// GetAccount 獲取槓桿賬戶
+// GetAccount 獲取槓桿賬戶，含限流
 func (b *BinanceSpotMarginAdapter) GetAccount(ctx context.Context) (*Account, error) {
-	acc, err := b.client.NewGetMarginAccountService().Do(ctx)
-	if err != nil {
+	var acc *binancesdk.MarginAccount
+	if err := b.withRateLimit(ctx, func() error {
+		var err error
+		acc, err = b.client.NewGetMarginAccountService().Do(ctx)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	var totalWallet, available float64
@@ -127,10 +133,14 @@ func (b *BinanceSpotMarginAdapter) GetAccount(ctx context.Context) (*Account, er
 	}, nil
 }
 
-// GetPositions 獲取持倉（借入的 base 資產視為空倉，Size 為負）
+// GetPositions 獲取持倉（借入的 base 資產視為空倉，Size 為負），含限流
 func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
-	acc, err := b.client.NewGetMarginAccountService().Do(ctx)
-	if err != nil {
+	var acc *binancesdk.MarginAccount
+	if err := b.withRateLimit(ctx, func() error {
+		var err error
+		acc, err = b.client.NewGetMarginAccountService().Do(ctx)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	base := b.baseAsset

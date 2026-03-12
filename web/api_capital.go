@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,20 @@ import (
 	"quantmesh/logger"
 	"quantmesh/position"
 )
+
+// 資金概覽緩存，降低頻繁刷新時的 GetAccount 調用
+var (
+	capitalOverviewCache struct {
+		mu       sync.RWMutex
+		overview CapitalOverview
+		at       time.Time
+		ttl      time.Duration
+	}
+)
+
+func init() {
+	capitalOverviewCache.ttl = 3 * time.Second
+}
 
 // CapitalDataSource 资金數據源介面（由 main.go 實現）
 type CapitalDataSource interface {
@@ -201,6 +216,19 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		return
 	}
 
+	// 檢查緩存：3 秒內重複請求直接返回
+	capitalOverviewCache.mu.RLock()
+	if time.Since(capitalOverviewCache.at) < capitalOverviewCache.ttl {
+		cached := capitalOverviewCache.overview
+		capitalOverviewCache.mu.RUnlock()
+		c.JSON(http.StatusOK, gin.H{
+			"success":  true,
+			"overview": cached,
+		})
+		return
+	}
+	capitalOverviewCache.mu.RUnlock()
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
@@ -296,6 +324,12 @@ func getCapitalOverviewHandler(c *gin.Context) {
 	overview.UsedCapital = math.Round(overview.UsedCapital*100) / 100
 	overview.AvailableCapital = math.Round(overview.AvailableCapital*100) / 100
 	overview.UnrealizedPnL = math.Round(overview.UnrealizedPnL*100) / 100
+
+	// 更新緩存
+	capitalOverviewCache.mu.Lock()
+	capitalOverviewCache.overview = overview
+	capitalOverviewCache.at = time.Now()
+	capitalOverviewCache.mu.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
