@@ -85,6 +85,8 @@
     "botNamePlaceholder": "Optional, give the bot a name for easy identification",
     "selectSymbol": "Select symbol",
     "priceInterval": "Price Interval",
+    "profitSpread": "Profit Spread",
+    "profitSpreadHint": "Leave empty or 0 to use price interval. E.g., interval 80, spread 100 → sell price = buy price + 100",
     "orderQuantity": "Order Quantity",
     "buyWindowSize": "Buy Window",
     "sellWindowSize": "Sell Window",

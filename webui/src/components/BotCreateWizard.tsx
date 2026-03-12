@@ -75,6 +75,7 @@ const BotCreateWizard: React.FC = () => {
     market_type: 'spot' | 'futures'
     name: string
     price_interval: number | string
+    profit_spread: number | string
     order_quantity: number | string
     buy_window_size: number | string
     sell_window_size: number | string
@@ -90,6 +91,7 @@ const BotCreateWizard: React.FC = () => {
     market_type: 'futures',
     name: '',
     price_interval: 2,
+    profit_spread: '',
     order_quantity: 30,
     buy_window_size: 10,
     sell_window_size: 10,
@@ -153,6 +155,7 @@ const BotCreateWizard: React.FC = () => {
       if (template.config) {
         const cfg = template.config as any
         if (cfg.price_interval) setForm(f => ({ ...f, price_interval: cfg.price_interval }))
+        if (cfg.profit_spread != null && cfg.profit_spread !== '') setForm(f => ({ ...f, profit_spread: cfg.profit_spread }))
         if (cfg.order_quantity) setForm(f => ({ ...f, order_quantity: cfg.order_quantity }))
         if (cfg.buy_window_size) setForm(f => ({ ...f, buy_window_size: cfg.buy_window_size }))
         if (cfg.sell_window_size) setForm(f => ({ ...f, sell_window_size: cfg.sell_window_size }))
@@ -303,6 +306,7 @@ const BotCreateWizard: React.FC = () => {
         market_type: form.market_type,
         name: form.name?.trim() || undefined,
         price_interval: toNum(form.price_interval, 2),
+        profit_spread: toNum(form.profit_spread, 0),
         order_quantity: toNum(form.order_quantity, 30),
         buy_window_size: toNum(form.buy_window_size, 10),
         sell_window_size: toNum(form.sell_window_size, 10),
@@ -645,6 +649,19 @@ const BotCreateWizard: React.FC = () => {
                 />
               </FormControl>
               <FormControl>
+                <FormLabel>{t('botCreate.profitSpread')}</FormLabel>
+                <DecimalNumberInput
+                  value={form.profit_spread ?? ''}
+                  min={0}
+                  step={0.1}
+                  precision={4}
+                  onChange={(v) => setForm((f) => ({ ...f, profit_spread: v ?? '' }))}
+                />
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.profitSpreadHint')}
+                </Text>
+              </FormControl>
+              <FormControl>
                 <FormLabel>{t('botCreate.orderQuantity')}</FormLabel>
                 <DecimalNumberInput
                   value={form.order_quantity ?? 30}
@@ -799,6 +816,9 @@ const BotCreateWizard: React.FC = () => {
                 )}
                 <Text mt={2}><strong>{t('botCreate.direction')}:</strong> {form.direction === 'LONG' ? t('botDetail.strategy.directionLong') : form.direction === 'SHORT' ? t('botDetail.strategy.directionShort') : t('botDetail.strategy.directionBoth')}</Text>
                 <Text><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
+                {(form.profit_spread != null && form.profit_spread !== '') && (
+                  <Text><strong>{t('botCreate.profitSpread')}:</strong> {form.profit_spread}</Text>
+                )}
                 <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
                 <Text><strong>{t('botCreate.buyWindowSize')}:</strong> {form.buy_window_size}</Text>
                 <Text><strong>{t('botCreate.sellWindowSize')}:</strong> {form.sell_window_size}</Text>
