@@ -801,6 +801,12 @@ type Config struct {
 		} `yaml:"pprof"`
 	} `yaml:"web"`
 
+	// FIX 协议配置
+	Fix struct {
+		Enabled             *bool `yaml:"enabled" json:"enabled"`                           // FIX 开关，nil/未配置时預設 true
+		HeartbeatTimeoutSec int   `yaml:"heartbeat_timeout_sec" json:"heartbeat_timeout_sec"` // 心跳超时秒数，預設 120
+	} `yaml:"fix"`
+
 	// 插件配置
 	Plugins struct {
 		Enabled   bool                              `yaml:"enabled"`   // 是否啟用插件系统，預設false
@@ -1907,6 +1913,9 @@ func CreateMinimalConfig() *Config {
 	cfg.Storage.BatchSize = 100
 	cfg.Storage.FlushInterval = 5
 
+	cfg.Fix.Enabled = BoolPtr(true)
+	cfg.Fix.HeartbeatTimeoutSec = 120
+
 	cfg.Notifications.Enabled = false
 	cfg.Notifications.Webhook.Timeout = 3
 	cfg.Notifications.Email.Provider = "smtp"
@@ -2553,6 +2562,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Web.SharedDir == "" {
 		c.Web.SharedDir = "./data/shared" // 預設共享目錄（AI 生成的圖片、視頻等）
+	}
+
+	// 設置 FIX 協議配置預設值
+	if c.Fix.Enabled == nil {
+		c.Fix.Enabled = BoolPtr(true) // 未配置時預設啟用
+	}
+	if c.Fix.HeartbeatTimeoutSec <= 0 {
+		c.Fix.HeartbeatTimeoutSec = 120 // 預設 120 秒
 	}
 
 	// 設置 pprof 配置預設值
