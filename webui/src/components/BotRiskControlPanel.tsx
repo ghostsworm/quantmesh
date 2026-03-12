@@ -567,6 +567,54 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
 
                 <Divider />
                 <Heading size="xs" textTransform="uppercase" color="gray.500">
+                  {t('botRiskControl.closeCondition')}
+                </Heading>
+                <Text fontSize="xs" color="gray.500">{t('botRiskControl.closeConditionDesc')}</Text>
+                <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
+                  <FormControl display="flex" alignItems="center">
+                    <FormLabel htmlFor="grc-close-condition" mb="0" flex="1">
+                      {t('botRiskControl.closeConditionEnabled')}
+                    </FormLabel>
+                    <Switch
+                      id="grc-close-condition"
+                      isChecked={riskControl.grid_risk_control?.close_condition_enabled ?? false}
+                      onChange={(e) => updateGridRiskControlField('close_condition_enabled', e.target.checked)}
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel fontSize="sm">{t('botRiskControl.closeConditionProfitTarget')} (%)</FormLabel>
+                    <DecimalNumberInput
+                      value={typeof riskControl.grid_risk_control?.close_condition_profit_target === 'number'
+                        ? (riskControl.grid_risk_control.close_condition_profit_target <= 1 ? riskControl.grid_risk_control.close_condition_profit_target * 100 : riskControl.grid_risk_control.close_condition_profit_target)
+                        : 0}
+                      onChange={(val) => updateGridRiskControlField('close_condition_profit_target', typeof val === 'number' ? val / 100 : val)}
+                      min={0}
+                      max={1000}
+                      precision={2}
+                      step={1}
+                      showStepper
+                    />
+                    <Text fontSize="xs" color="gray.500">{t('botRiskControl.closeConditionProfitTargetDesc')}</Text>
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel fontSize="sm">{t('botRiskControl.closeConditionLossLimit')} (%)</FormLabel>
+                    <DecimalNumberInput
+                      value={typeof riskControl.grid_risk_control?.close_condition_loss_limit === 'number'
+                        ? (riskControl.grid_risk_control.close_condition_loss_limit <= 1 ? riskControl.grid_risk_control.close_condition_loss_limit * 100 : riskControl.grid_risk_control.close_condition_loss_limit)
+                        : 0}
+                      onChange={(val) => updateGridRiskControlField('close_condition_loss_limit', typeof val === 'number' ? val / 100 : val)}
+                      min={0}
+                      max={100}
+                      precision={2}
+                      step={0.5}
+                      showStepper
+                    />
+                    <Text fontSize="xs" color="gray.500">{t('botRiskControl.closeConditionLossLimitDesc')}</Text>
+                  </FormControl>
+                </SimpleGrid>
+
+                <Divider />
+                <Heading size="xs" textTransform="uppercase" color="gray.500">
                   {t('botRiskControl.pauseControl')}
                 </Heading>
 

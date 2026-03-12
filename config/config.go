@@ -163,6 +163,10 @@ type GridRiskControl struct {
 	TakeProfitTriggerRatio  float64 `yaml:"take_profit_trigger_ratio" json:"take_profit_trigger_ratio"`   // 盈利達到此比例後開啟回撤止盈（如 0.08 表示 8%）
 	TrailingTakeProfitRatio float64 `yaml:"trailing_take_profit_ratio" json:"trailing_take_profit_ratio"` // 盈利回撤比例（如 0.03 表示回撤 3% 止盈）
 	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`             // 是否開啟趨勢過濾
+	// 關閉條件：滿足時自動停止 Bot（平倉並停止運行）
+	CloseConditionEnabled         bool    `yaml:"close_condition_enabled" json:"close_condition_enabled"`                   // 是否啟用關閉條件
+	CloseConditionProfitTarget    float64 `yaml:"close_condition_profit_target" json:"close_condition_profit_target"`       // 盈利率達到此值時停止 Bot（如 0.2 表示 20%）
+	CloseConditionLossLimit       float64 `yaml:"close_condition_loss_limit" json:"close_condition_loss_limit"`             // 虧損率達到此值時停止 Bot（如 0.1 表示 10%）
 }
 
 // RocketTieredGridConfig 三級火箭網格配置

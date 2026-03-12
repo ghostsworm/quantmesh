@@ -9,6 +9,9 @@ export interface GridRiskControlPayload {
   trailing_take_profit_ratio?: number | string
   max_grid_layers?: number | string
   trend_filter_enabled?: boolean
+  close_condition_enabled?: boolean
+  close_condition_profit_target?: number | string
+  close_condition_loss_limit?: number | string
   [key: string]: unknown
 }
 
@@ -31,5 +34,7 @@ export function normalizeGridRiskControlPayload(
   if (typeof grc.max_grid_layers === 'string') {
     out.max_grid_layers = parseInt(String(grc.max_grid_layers), 10) || 0
   }
+  out.close_condition_profit_target = toRatio(grc.close_condition_profit_target)
+  out.close_condition_loss_limit = toRatio(grc.close_condition_loss_limit)
   return out
 }
