@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.75.0-rc1] - 2026-03-12
+
+### Fixed
+- **PostOnly/ReduceOnly 全覆蓋**：修復策略層與平倉路徑未正確傳遞 PostOnly/ReduceOnly 的問題
+  - `strategy/martingale.go`：開倉/加倉/平倉單補全 PostOnly、平倉補全 ReduceOnly
+  - `strategy/dca_enhanced.go`：開倉/加倉/平倉單補全 PostOnly、平倉補全 ReduceOnly
+  - `strategy/spot_short.go`：賣出/買回單補全 PostOnly
+  - `position/close_manager.go`：限價平倉單啟用 PostOnly
+  - `position/exchange_wrapper.go`：移除 PostOnly 硬編碼，改為透傳 req.PostOnly
+
+---
+
 ## [3.75.0] - 2026-03-12
 
 ### Added

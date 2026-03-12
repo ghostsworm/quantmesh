@@ -80,6 +80,7 @@ type ExchangeOrderRequest struct {
 	Quantity      float64
 	Price         float64
 	ReduceOnly    bool
+	PostOnly      bool   // 限价单时使用，获取 Maker 手续费
 	TimeInForce   string
 	PriceDecimals int
 }
@@ -151,6 +152,7 @@ func (cpm *ClosePositionManager) ClosePositions(
 		orderReq.Type = "LIMIT"
 		orderReq.Price = price
 		orderReq.TimeInForce = "GTC"
+		orderReq.PostOnly = true // 限价平仓使用 PostOnly 获取 Maker 手续费
 		record.Price = price
 	}
 

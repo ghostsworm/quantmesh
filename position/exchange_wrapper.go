@@ -40,7 +40,7 @@ func (w *ExchangeAdapterWrapper) PlaceOrder(ctx context.Context, req *ExchangeOr
 		Quantity:      req.Quantity,
 		Price:         req.Price,
 		ReduceOnly:    req.ReduceOnly,
-		PostOnly:      false,
+		PostOnly:      req.PostOnly,
 		TimeInForce:   tif,
 		PriceDecimals: req.PriceDecimals,
 	}

@@ -529,10 +529,11 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     "BUY",
-		Quantity: quantity,
-		Price:    orderPrice,
+		Symbol:     s.strategyCfg.Symbol,
+		Side:       "BUY",
+		Quantity:   quantity,
+		Price:      orderPrice,
+		PostOnly:   true,
 	})
 
 	if err != nil {
@@ -615,10 +616,11 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     "BUY",
-		Quantity: quantity,
-		Price:    orderPrice,
+		Symbol:     s.strategyCfg.Symbol,
+		Side:       "BUY",
+		Quantity:   quantity,
+		Price:      orderPrice,
+		PostOnly:   true,
 	})
 
 	if err != nil {
@@ -758,6 +760,8 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 		Side:        "SELL",
 		Quantity:    qty,
 		Price:       orderPrice,
+		ReduceOnly:  true,
+		PostOnly:    true,
 		OrderSource: orderSource,
 	})
 
