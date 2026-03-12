@@ -191,17 +191,39 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 		}
 
 		if primaryLeg == "spot" {
-			// 現貨主腿：現貨網格做多，持倉為正，對沖用合約做空
+			hc.mu.Lock()
+			direction := hc.group.HedgeConfig.Direction
+			hc.mu.Unlock()
+			if direction == "" {
+				direction = "LONG"
+			}
 			evtData["spot_filled_layers"] = filledLayers
 			evtData["spot_position"] = position
-			targetFuturesShort := position * shortRatio
-			if targetFuturesShort < 0.000001 {
-				return
+			// 現貨做多：持倉為正，對沖用合約做空
+			// 現貨做空：持倉為負，對沖用合約做多
+			if direction == "SHORT" {
+				absPos := position
+				if absPos < 0 {
+					absPos = -absPos
+				}
+				targetFuturesLong := absPos * shortRatio
+				if targetFuturesLong < 0.000001 {
+					return
+				}
+				evtData["target_futures_long"] = targetFuturesLong
+				hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
+				logger.Info("📤 HedgeCoordinator: 發送對沖信號(現貨主做空) group=%s symbol=%s target_futures_long=%.6f layers=%d",
+					hc.group.ID, symbol, targetFuturesLong, filledLayers)
+			} else {
+				targetFuturesShort := position * shortRatio
+				if targetFuturesShort < 0.000001 {
+					return
+				}
+				evtData["target_futures_short"] = targetFuturesShort
+				hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
+				logger.Info("📤 HedgeCoordinator: 發送對沖信號(現貨主做多) group=%s symbol=%s target_futures_short=%.6f layers=%d",
+					hc.group.ID, symbol, targetFuturesShort, filledLayers)
 			}
-			evtData["target_futures_short"] = targetFuturesShort
-			hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
-			logger.Info("📤 HedgeCoordinator: 發送對沖信號(現貨主) group=%s symbol=%s target_futures_short=%.6f layers=%d",
-				hc.group.ID, symbol, targetFuturesShort, filledLayers)
 			return
 		}
 

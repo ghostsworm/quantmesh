@@ -77,10 +77,11 @@ const StrategyPicker: React.FC<StrategyPickerProps> = ({
     ...(baseStrategies.some((s) => s.id === 'spot_short') ? [] : [{ id: 'spot_short', name: 'Spot Short' }]),
     ...(baseStrategies.some((s) => s.id === 'spot_long') ? [] : [{ id: 'spot_long', name: 'Spot Long' }]),
   ]
-  // 合約腿額外支援 futures_short（現貨網格+合約對沖用）
+  // 合約腿額外支援 futures_short（現貨網格做多+合約對沖）、futures_long（現貨網格做空+合約做多對沖）
   const futuresStrategies = [
     ...baseStrategies,
     ...(baseStrategies.some((s) => s.id === 'futures_short') ? [] : [{ id: 'futures_short', name: 'Futures Short' }]),
+    ...(baseStrategies.some((s) => s.id === 'futures_long') ? [] : [{ id: 'futures_long', name: 'Futures Long' }]),
   ]
 
   const applyTemplate = (tmpl: StrategyTemplate) => {
