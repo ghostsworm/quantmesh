@@ -153,6 +153,13 @@ type BinanceAdapter struct {
 	lastAPICallTime time.Time     // 上次API調用時间
 	apiCallMu       sync.Mutex    // API調用互斥鎖
 	minAPIInterval  time.Duration // 最小API調用间隔
+
+	// GetAccount 短期緩存，降低 REST 調用頻率
+	accountCache           *Account
+	accountCacheTime       time.Time
+	accountCacheTTL        time.Duration
+	accountCacheInvalidated bool
+	accountCacheMu         sync.RWMutex
 }
 
 // APIPermissions API 权限信息（临時定义，避免循環匯入）
@@ -228,13 +235,15 @@ func newBinanceAdapterWithKeys(apiKey, secretKey, symbol string, useTestnet bool
 	wsManager := NewWebSocketManager(apiKey, secretKey, useTestnet)
 
 	adapter := &BinanceAdapter{
-		client:         client,
-		symbol:         symbol,
-		apiKey:         apiKey,
-		secretKey:      secretKey,
-		wsManager:      wsManager,
-		useTestnet:     useTestnet,
-		minAPIInterval: 200 * time.Millisecond, // 最小API調用间隔200ms，避免触发限流
+		client:                  client,
+		symbol:                  symbol,
+		apiKey:                  apiKey,
+		secretKey:               secretKey,
+		wsManager:               wsManager,
+		useTestnet:              useTestnet,
+		minAPIInterval:          200 * time.Millisecond, // 最小API調用间隔200ms，避免触发限流
+		accountCacheTTL:        5 * time.Second,        // 賬戶緩存 5 秒，ACCOUNT_UPDATE 時失效
+		accountCacheInvalidated: true,                  // 啟動時無緩存
 	}
 
 	// 獲取合約信息（價格精度、數量精度等）
@@ -248,7 +257,17 @@ func newBinanceAdapterWithKeys(apiKey, secretKey, symbol string, useTestnet bool
 		adapter.quantityDecimals = 3
 	}
 
+	// 註冊 ACCOUNT_UPDATE 回調，WebSocket 收到賬戶變更時失效緩存
+	adapter.wsManager.SetOnAccountUpdate(adapter.invalidateAccountCache)
+
 	return adapter, nil
+}
+
+// invalidateAccountCache 失效賬戶緩存（由 WebSocket ACCOUNT_UPDATE 觸發）
+func (b *BinanceAdapter) invalidateAccountCache() {
+	b.accountCacheMu.Lock()
+	defer b.accountCacheMu.Unlock()
+	b.accountCacheInvalidated = true
 }
 
 // GetName 獲取交易所名称
@@ -762,7 +781,33 @@ func (b *BinanceAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 }
 
 // GetAccount 獲取帳戶信息（合約账戶）
+// 含限流、短期緩存、ACCOUNT_UPDATE 時失效，降低 REST 調用頻率
 func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
+	// 檢查緩存：未失效且未過期則直接返回
+	b.accountCacheMu.RLock()
+	if !b.accountCacheInvalidated && b.accountCache != nil && time.Since(b.accountCacheTime) < b.accountCacheTTL {
+		cached := b.accountCache
+		b.accountCacheMu.RUnlock()
+		return cached, nil
+	}
+	b.accountCacheMu.RUnlock()
+
+	// 速率限制
+	b.apiCallMu.Lock()
+	elapsed := time.Since(b.lastAPICallTime)
+	if elapsed < b.minAPIInterval {
+		waitTime := b.minAPIInterval - elapsed
+		b.apiCallMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(waitTime):
+		}
+		b.apiCallMu.Lock()
+	}
+	b.lastAPICallTime = time.Now()
+	b.apiCallMu.Unlock()
+
 	// 記錄當前使用的网络模式
 	if b.useTestnet {
 		logger.Debug("🌐 [Binance] 正在從測試網獲取帳戶信息")
@@ -828,13 +873,22 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		})
 	}
 
-	return &Account{
+	result := &Account{
 		TotalWalletBalance: totalWalletBalance,
 		TotalMarginBalance: totalMarginBalance,
 		AvailableBalance:   availableBalance,
 		Positions:          positions,
 		AccountLeverage:    accountLeverage,
-	}, nil
+	}
+
+	// 更新緩存
+	b.accountCacheMu.Lock()
+	b.accountCache = result
+	b.accountCacheTime = time.Now()
+	b.accountCacheInvalidated = false
+	b.accountCacheMu.Unlock()
+
+	return result, nil
 }
 
 // parseBanTime 從錯误消息中解析封禁時间（毫秒時间戳）

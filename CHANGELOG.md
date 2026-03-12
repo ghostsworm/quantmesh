@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc9] - 2026-03-12
+
+### Fixed
+- **Binance API 限流優化**：GetAccount/GetPositions 等賬戶類 REST 調用加限流與緩存，降低 -1003 Too many requests 觸發
+  - 合約適配器：GetAccount 加 200ms 限流、5 秒緩存，WebSocket ACCOUNT_UPDATE 時失效
+  - 現貨/槓桿適配器：GetAccount、GetPositions、GetBalance 加限流
+  - 資金概覽 API：3 秒內重複請求返回緩存
+
+---
+
 ## [3.76.0-rc8] - 2026-03-12
 
 ### Fixed

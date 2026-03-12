@@ -36,6 +36,17 @@ type WebSocketManager struct {
 	reconnectDelay    time.Duration
 	keepAliveInterval time.Duration
 	closeTimeout      time.Duration
+
+	// ACCOUNT_UPDATE 時觸發，用於失效適配器端的賬戶緩存
+	onAccountUpdate func()
+	onAccountMu     sync.RWMutex
+}
+
+// SetOnAccountUpdate 設置 ACCOUNT_UPDATE 回調，收到賬戶變更時調用以失效緩存
+func (w *WebSocketManager) SetOnAccountUpdate(fn func()) {
+	w.onAccountMu.Lock()
+	defer w.onAccountMu.Unlock()
+	w.onAccountUpdate = fn
 }
 
 // NewWebSocketManager 創建 WebSocket 管理器
@@ -265,6 +276,17 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context) {
 
 // handleUserDataEvent 处理用戶數據事件
 func (w *WebSocketManager) handleUserDataEvent(event *futures.WsUserDataEvent) {
+	// ACCOUNT_UPDATE：賬戶餘額/持倉變更，通知適配器失效緩存
+	if event.Event == futures.UserDataEventTypeAccountUpdate {
+		w.onAccountMu.RLock()
+		fn := w.onAccountUpdate
+		w.onAccountMu.RUnlock()
+		if fn != nil {
+			fn()
+		}
+		return
+	}
+
 	if event.Event != futures.UserDataEventTypeOrderTradeUpdate {
 		return
 	}

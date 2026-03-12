@@ -348,10 +348,33 @@ func (b *BinanceSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) (
 	return result, nil
 }
 
-// GetAccount 獲取現貨账戶（餘額）
+// withRateLimit 確保 API 調用間隔，避免觸發幣安限流
+func (b *BinanceSpotAdapter) withRateLimit(ctx context.Context, fn func() error) error {
+	b.apiCallMu.Lock()
+	elapsed := time.Since(b.lastAPICallTime)
+	if elapsed < b.minAPIInterval {
+		waitTime := b.minAPIInterval - elapsed
+		b.apiCallMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(waitTime):
+		}
+		b.apiCallMu.Lock()
+	}
+	b.lastAPICallTime = time.Now()
+	b.apiCallMu.Unlock()
+	return fn()
+}
+
+// GetAccount 獲取現貨账戶（餘額），含限流
 func (b *BinanceSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
-	acc, err := b.client.NewGetAccountService().Do(ctx)
-	if err != nil {
+	var acc *binancesdk.Account
+	if err := b.withRateLimit(ctx, func() error {
+		var err error
+		acc, err = b.client.NewGetAccountService().Do(ctx)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	var totalWallet, available float64
@@ -383,8 +406,12 @@ func (b *BinanceSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 
 // GetPositions 現貨無合約持倉，返回基础资產餘額構成的“持倉”（用於网格賣單逻辑）
 func (b *BinanceSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
-	acc, err := b.client.NewGetAccountService().Do(ctx)
-	if err != nil {
+	var acc *binancesdk.Account
+	if err := b.withRateLimit(ctx, func() error {
+		var err error
+		acc, err = b.client.NewGetAccountService().Do(ctx)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	base := b.baseAsset
@@ -429,10 +456,14 @@ func (b *BinanceSpotAdapter) GetPositions(ctx context.Context, symbol string) ([
 	}}, nil
 }
 
-// GetBalance 獲取某资產餘額
+// GetBalance 獲取某资產餘額，含限流
 func (b *BinanceSpotAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
-	acc, err := b.client.NewGetAccountService().Do(ctx)
-	if err != nil {
+	var acc *binancesdk.Account
+	if err := b.withRateLimit(ctx, func() error {
+		var err error
+		acc, err = b.client.NewGetAccountService().Do(ctx)
+		return err
+	}); err != nil {
 		return 0, err
 	}
 	for _, bal := range acc.Balances {
