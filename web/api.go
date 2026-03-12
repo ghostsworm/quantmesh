@@ -23,6 +23,7 @@ import (
 	"quantmesh/exchange"
 	qmi18n "quantmesh/i18n"
 	"quantmesh/logger"
+	"quantmesh/metrics"
 	"quantmesh/position"
 	"quantmesh/storage"
 	ordersync "quantmesh/sync"
@@ -1912,7 +1913,10 @@ func getFixSessions(c *gin.Context) {
 	}
 	resp := make([]map[string]interface{}, 0, len(sessions))
 	for _, s := range sessions {
-		botID := getFixSessionBotBinding(s.SessionID)
+		botID := s.BotID
+		if botID == "" {
+			botID = getFixSessionBotBinding(s.SessionID)
+		}
 		item := map[string]interface{}{
 			"session_id":        s.SessionID,
 			"bot_id":            botID,
@@ -2039,6 +2043,8 @@ type fixReplaceOrderRequest struct {
 	OrderQty    float64 `json:"order_qty" binding:"required,gt=0"`
 }
 
+const fixSessionHeartbeatTimeout = 120 * time.Second
+
 var (
 	fixSessionBotBinding   = make(map[string]string)
 	fixSessionBindingMutex sync.RWMutex
@@ -2113,6 +2119,7 @@ func fixLogonSession(c *gin.Context) {
 	}
 	state := &storage.FixSessionState{
 		SessionID:       req.SessionID,
+		BotID:           req.BotID,
 		Role:            role,
 		BeginString:     beginString,
 		SenderCompID:    req.SenderCompID,
@@ -2128,7 +2135,9 @@ func fixLogonSession(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.save_failed", err)
 		return
 	}
-	setFixSessionBotBinding(req.SessionID, req.BotID)
+	setFixSessionBotBinding(req.SessionID, req.BotID) // 内存兜底，进程内立即可用
+	logger.Info("FIX logon: session_id=%s bot_id=%s reset_seq=%v", req.SessionID, req.BotID, req.ResetSeqNumFlg)
+	metrics.GetPrometheusMetrics().RecordFixSessionLogon(req.SessionID, req.BotID)
 	c.JSON(http.StatusOK, gin.H{
 		"ok":                true,
 		"session_id":        state.SessionID,
@@ -2268,9 +2277,12 @@ func fixNewOrder(c *gin.Context) {
 	_ = st.UpsertFixSessionState(state)
 
 	statusCode := http.StatusOK
+	orderStatus := "ok"
 	if placeErr != nil {
 		statusCode = http.StatusBadRequest
+		orderStatus = "reject"
 	}
+	metrics.GetPrometheusMetrics().RecordFixOrder(req.SessionID, "new", orderStatus)
 	c.JSON(statusCode, gin.H{
 		"session_id":      req.SessionID,
 		"cl_ord_id":       req.ClOrdID,
@@ -2336,9 +2348,12 @@ func fixCancelOrder(c *gin.Context) {
 	bumpFixSessionSeq(state, now)
 	_ = st.UpsertFixSessionState(state)
 	code := http.StatusOK
+	cancelStatus := "ok"
 	if cancelErr != nil {
 		code = http.StatusBadRequest
+		cancelStatus = "reject"
 	}
+	metrics.GetPrometheusMetrics().RecordFixOrder(req.SessionID, "cancel", cancelStatus)
 	c.JSON(code, gin.H{
 		"session_id":      req.SessionID,
 		"cl_ord_id":       req.ClOrdID,
@@ -2418,9 +2433,12 @@ func fixReplaceOrder(c *gin.Context) {
 	bumpFixSessionSeq(state, now)
 	_ = st.UpsertFixSessionState(state)
 	code := http.StatusOK
+	replaceStatus := "ok"
 	if placeErr != nil {
 		code = http.StatusBadRequest
+		replaceStatus = "reject"
 	}
+	metrics.GetPrometheusMetrics().RecordFixOrder(req.SessionID, "replace", replaceStatus)
 	c.JSON(code, gin.H{
 		"session_id":      req.SessionID,
 		"cl_ord_id":       req.ClOrdID,
@@ -2450,7 +2468,19 @@ func resolveFixExecutionContext(c *gin.Context, sessionID string) (storage.Stora
 	if state == nil || !state.IsLoggedOn {
 		return nil, nil, nil, nil, "", fmt.Errorf("session not logged on")
 	}
-	botID := getFixSessionBotBinding(sessionID)
+	// 心跳超时判定：超过阈值则标记失活并拒单
+	if state.LastHeartbeatAt != nil && time.Since(*state.LastHeartbeatAt) > fixSessionHeartbeatTimeout {
+		state.IsLoggedOn = false
+		state.UpdatedAt = utils.NowUTC()
+		_ = st.UpsertFixSessionState(state)
+		logger.Warn("FIX session timeout: session_id=%s last_heartbeat=%v", sessionID, utils.ToUTC8(*state.LastHeartbeatAt))
+		metrics.GetPrometheusMetrics().RecordFixSessionTimeout(sessionID)
+		return nil, nil, nil, nil, "", fmt.Errorf("session heartbeat timeout; please logon again")
+	}
+	botID := state.BotID
+	if botID == "" {
+		botID = getFixSessionBotBinding(sessionID)
+	}
 	if botID == "" {
 		return nil, nil, nil, nil, "", fmt.Errorf("session bot binding missing; please logon again")
 	}

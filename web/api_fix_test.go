@@ -209,6 +209,9 @@ func TestFixLogonAndHeartbeat(t *testing.T) {
 	if !state.IsLoggedOn {
 		t.Fatalf("会话绑定异常: %+v", state)
 	}
+	if state.BotID != "binance:BTCUSDT:futures" {
+		t.Fatalf("BotID 应持久化到存储: got %q", state.BotID)
+	}
 
 	heartbeatBody := []byte(`{"session_id":"FIX.4.4:BUYER->SELLER"}`)
 	w2 := httptest.NewRecorder()
@@ -218,5 +221,70 @@ func TestFixLogonAndHeartbeat(t *testing.T) {
 	fixHeartbeat(c2)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("heartbeat expected 200, got %d body=%s", w2.Code, w2.Body.String())
+	}
+}
+
+func TestFixSessionTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dbPath := "./test_api_fix_timeout.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("创建存储失败: %v", err)
+	}
+	defer st.Close()
+
+	// 创建超时会话：last_heartbeat_at 超过 120 秒前
+	oldTime := time.Now().Add(-150 * time.Second)
+	state := &storage.FixSessionState{
+		SessionID:       "FIX.4.4:TIMEOUT_SESSION",
+		BotID:           "binance:BTCUSDT:futures",
+		Role:            "acceptor",
+		BeginString:     "FIX.4.4",
+		NextSenderSeq:   1,
+		NextTargetSeq:   1,
+		IsLoggedOn:      true,
+		LastLogonAt:     &oldTime,
+		LastHeartbeatAt: &oldTime,
+		UpdatedAt:       time.Now().UTC(),
+	}
+	if err := st.UpsertFixSessionState(state); err != nil {
+		t.Fatalf("创建超时会话失败: %v", err)
+	}
+	setFixSessionBotBinding(state.SessionID, state.BotID)
+
+	origStorageProvider := storageServiceProvider
+	origBotProvider := botManagerProvider
+	SetStorageServiceProvider(&testStorageProvider{st: st})
+	RegisterBotManagerProvider(&mockFixBotManager{})
+	t.Cleanup(func() {
+		SetStorageServiceProvider(origStorageProvider)
+		RegisterBotManagerProvider(origBotProvider)
+	})
+
+	// fixNewOrder 应因超时被拒
+	newOrderBody := []byte(`{
+		"session_id":"FIX.4.4:TIMEOUT_SESSION",
+		"cl_ord_id":"T-O-1",
+		"side":"BUY",
+		"price":50000,
+		"order_qty":0.001
+	}`)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/fix/orders/new", bytes.NewReader(newOrderBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	fixNewOrder(c)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("超时会话应拒单 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	// 验证会话已被标记失活
+	updated, _ := st.GetFixSessionState(state.SessionID)
+	if updated != nil && updated.IsLoggedOn {
+		t.Fatalf("超时后会话应被标记 is_logged_on=false")
 	}
 }

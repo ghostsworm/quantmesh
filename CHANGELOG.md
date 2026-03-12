@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc3] - 2026-03-12
+
+### Added
+- **FIX 会话绑定持久化**：`fixLogonSession` 将 `bot_id` 写入 `FixSessionState`，进程重启后可从存储恢复绑定，`resolveFixExecutionContext` 优先使用存储字段
+- **FIX 会话超时失活**：心跳超过 120 秒未更新则标记 `is_logged_on=false` 并拒单，返回 `session heartbeat timeout`
+- **FIX 审计与指标**：登录/新单/撤单/改单/超时均记录 logger 与 Prometheus 指标（`quantmesh_fix_session_logon_total`、`quantmesh_fix_order_total`、`quantmesh_fix_session_timeout_total`）
+
+### Test
+- **web/api_fix_test.go**：`TestFixLogonAndHeartbeat` 增加 BotID 持久化断言；新增 `TestFixSessionTimeout` 验证超时拒单与会话失活
+
+---
+
 ## [3.76.0-rc2] - 2026-03-12
 
 ### Added
