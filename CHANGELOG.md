@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc27] - 2026-03-13
+
+### Fixed
+- **持倉安全性檢查失敗（API 空響應）**：當 Binance API 返回空響應（`<APIError> rsp= `）時，錯誤信息現附加排查建議（網絡/地區限制、API Key 與 testnet 不匹配、IP 白名單等）
+- **常見問題文檔**：新增 Q22「持倉安全性检查失败，獲取帳戶信息失败」的故障排查說明
+
+### Changed
+- **safety 測試**：MockExchange 補全 `GetMarketType` 實現，新增 `TestAccountAPIErrorHint` 單元測試
+
+---
+
 ## [3.76.0-rc26] - 2026-03-13
 
 ### Added

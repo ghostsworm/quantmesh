@@ -2,8 +2,10 @@ package safety
 
 import (
 	"context"
-	"quantmesh/exchange"
+	"fmt"
 	"testing"
+
+	"quantmesh/exchange"
 )
 
 // MockExchange 模拟交易所實現
@@ -24,8 +26,9 @@ func (m *MockExchange) GetAccount(ctx context.Context) (*exchange.Account, error
 func (m *MockExchange) GetPositions(ctx context.Context, symbol string) ([]*exchange.Position, error) {
 	return m.Positions, nil
 }
-func (m *MockExchange) GetQuoteAsset() string { return m.QuoteAsset }
+func (m *MockExchange) GetQuoteAsset() string   { return m.QuoteAsset }
 func (m *MockExchange) GetPriceDecimals() int { return m.PriceDecimals }
+func (m *MockExchange) GetMarketType() string { return "futures" }
 
 func TestCheckAccountSafety(t *testing.T) {
 	symbol := "BTCUSDT"
@@ -124,6 +127,27 @@ func TestCheckAccountSafety(t *testing.T) {
 			err := CheckAccountSafety(tt.mockEx, symbol, currentPrice, orderAmount, pInterval, fRate, requiredPositions, priceDecimals, maxLeverage)
 			if (err != nil) != tt.expectErr {
 				t.Errorf("CheckAccountSafety() error = %v, expectErr %v", err, tt.expectErr)
+			}
+		})
+	}
+}
+
+func TestAccountAPIErrorHint(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		hasHint bool
+	}{
+		{"空響應", fmt.Errorf("<APIError> rsp= "), true},
+		{"空響應無空格", fmt.Errorf("<APIError> rsp="), true},
+		{"有 code 無 hint", fmt.Errorf("<APIError> code=-2015, msg=Invalid API-key"), false},
+		{"普通錯誤無 hint", fmt.Errorf("connection refused"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hint := accountAPIErrorHint(tt.err)
+			if (len(hint) > 0) != tt.hasHint {
+				t.Errorf("accountAPIErrorHint() hint=%q, hasHint=%v", hint, tt.hasHint)
 			}
 		})
 	}

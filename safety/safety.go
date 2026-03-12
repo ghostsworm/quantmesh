@@ -3,6 +3,8 @@ package safety
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"quantmesh/exchange"
 	"quantmesh/logger"
 )
@@ -32,7 +34,7 @@ func CheckAccountSafety(ex exchange.IExchange, symbol string, currentPrice, orde
 	ctx := context.Background()
 	account, err := ex.GetAccount(ctx)
 	if err != nil {
-		return fmt.Errorf("獲取帳戶信息失败: %w", err)
+		return fmt.Errorf("獲取帳戶信息失败: %w%s", err, accountAPIErrorHint(err))
 	}
 
 	// 2. 獲取交易對的杠杆倍數和持倉資訊
@@ -198,4 +200,23 @@ func tryGetBinanceLeverage(ex exchange.IExchange, symbol string) int {
 	// 后续可以扩展：通過反射或扩展接口来獲取特定交易所的杠杆信息
 
 	return 0 // 表示無法獲取，使用默认值
+}
+
+// accountAPIErrorHint 當 API 返回空響應（如 <APIError> rsp= ）時，附加排查建議
+func accountAPIErrorHint(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	// go-binance 在 HTTP 4xx/5xx 且響應體非 JSON 時會輸出 <APIError> rsp=xxx
+	if !strings.Contains(s, "<APIError>") {
+		return ""
+	}
+	if idx := strings.Index(s, "rsp="); idx >= 0 {
+		rsp := strings.TrimSpace(s[idx+4:])
+		if rsp == "" || len(rsp) < 3 {
+			return "（提示：API 返回空響應，常見原因：網絡/地區限制、API Key 與 testnet 不匹配、IP 白名單、Key 無效。詳見 rdocs/articles/zh/07-常见问题.md Q22）"
+		}
+	}
+	return ""
 }
