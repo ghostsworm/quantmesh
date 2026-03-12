@@ -675,26 +675,60 @@ func postBotGroupCreate(c *gin.Context) {
 
 	futuresID := config.GenerateBotID(req.FuturesBot.Exchange, req.FuturesBot.Symbol, "futures")
 	spotID := config.GenerateBotID(req.SpotBot.Exchange, req.SpotBot.Symbol, "spot")
+
+	// 1. 檢查對沖組占用：若該 ID 已被對沖組占用，拒絕
 	for _, b := range cfg.Bots {
 		id := b.ID
 		if id == "" {
 			id = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
 		}
-		if id == futuresID || id == spotID {
-			if groupName := findGroupNameByBotID(cfg, id); groupName != "" {
-				logger.Warn("⚠️ [對沖組創建] 衝突：%s 已被對沖組「%s」占用", id, groupName)
-				c.JSON(http.StatusConflict, gin.H{
-					"error":      "symbol_used_by_hedge_group",
-					"error_key":  "error.bot_symbol_used_by_hedge_group",
-					"group_name": groupName,
-				})
-				return
-			}
-			logger.Warn("⚠️ [對沖組創建] 衝突：%s 已存在（普通衝突）", id)
-			c.JSON(http.StatusConflict, gin.H{"error": "symbol_conflict", "error_key": "error.bot_symbol_conflict"})
+		if (id == futuresID || id == spotID) && findGroupNameByBotID(cfg, id) != "" {
+			groupName := findGroupNameByBotID(cfg, id)
+			logger.Warn("⚠️ [對沖組創建] 衝突：%s 已被對沖組「%s」占用", id, groupName)
+			c.JSON(http.StatusConflict, gin.H{
+				"error":      "symbol_used_by_hedge_group",
+				"error_key":  "error.bot_symbol_used_by_hedge_group",
+				"group_name": groupName,
+			})
 			return
 		}
 	}
+
+	// 2. 檢查運行中衝突：若同一交易對已有 Bot 在運行，拒絕（與單 Bot 創建邏輯一致）
+	if botManagerProvider != nil {
+		for _, resp := range botManagerProvider.ListBots() {
+			if !resp.Running {
+				continue
+			}
+			if (strings.EqualFold(resp.Exchange, req.FuturesBot.Exchange) &&
+				strings.EqualFold(resp.Symbol, req.FuturesBot.Symbol) &&
+				strings.EqualFold(resp.MarketType, "futures")) ||
+				(strings.EqualFold(resp.Exchange, req.SpotBot.Exchange) &&
+					strings.EqualFold(resp.Symbol, req.SpotBot.Symbol) &&
+					strings.EqualFold(resp.MarketType, "spot")) {
+				logger.Warn("⚠️ [對沖組創建] 衝突：%s/%s 已有 Bot [%s] 在運行", req.FuturesBot.Symbol, resp.MarketType, resp.BotID)
+				c.JSON(http.StatusConflict, gin.H{
+					"error":     "symbol_running",
+					"error_key": "error.bot_symbol_running",
+					"bot_id":    resp.BotID,
+				})
+				return
+			}
+		}
+	}
+
+	// 3. 移除已停止的同 ID 舊 Bot，避免重複（對沖組將創建新的 futuresID/spotID）
+	var filteredBots []config.BotConfig
+	for _, b := range cfg.Bots {
+		id := b.ID
+		if id == "" {
+			id = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
+		}
+		if id != futuresID && id != spotID {
+			filteredBots = append(filteredBots, b)
+		}
+	}
+	cfg.Bots = filteredBots
 
 	groupID := "bg-" + uuid.New().String()[:8]
 	groupName := req.Name

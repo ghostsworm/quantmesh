@@ -268,6 +268,153 @@ func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
 	_ = os.Remove(configPath)
 }
 
+// mockBotManagerForGroupCreateTest 用於對沖組創建測試，可返回運行中/已停止的 Bot 列表
+type mockBotManagerForGroupCreateTest struct {
+	bots []BotResponse
+}
+
+func (m *mockBotManagerForGroupCreateTest) ListBots() []BotResponse { return m.bots }
+func (m *mockBotManagerForGroupCreateTest) GetBot(botID string) (*BotDetailResponse, bool) {
+	for _, b := range m.bots {
+		if b.BotID == botID {
+			return &BotDetailResponse{BotResponse: b}, true
+		}
+	}
+	return nil, false
+}
+func (m *mockBotManagerForGroupCreateTest) StartBot(ctx context.Context, cfg config.BotConfig) error { return nil }
+func (m *mockBotManagerForGroupCreateTest) StopBot(botID string) error                              { return nil }
+func (m *mockBotManagerForGroupCreateTest) EnableBot(botID string) error                              { return nil }
+
+// TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists 驗證：當同交易對僅有已停止的 Bot 時，對沖組創建應成功
+func TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	futuresID := config.GenerateBotID("binance", "ETHUSDT", "futures")
+	cfg := &config.Config{
+		Bots: []config.BotConfig{
+			{ID: futuresID, Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
+		},
+		BotGroups: []config.BotGroup{},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	fcm := NewFileConfigManager(configPath)
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	configManager = nil
+	t.Cleanup(func() { configManager = &cfgmgr.ConfigManager{} })
+
+	// 無運行中 Bot（ListBots 返回空或僅已停止的）
+	mock := &mockBotManagerForGroupCreateTest{
+		bots: []BotResponse{
+			{BotID: futuresID, Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", Running: false},
+		},
+	}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	body := `{
+		"name": "test-hedge",
+		"type": "futures_spot_hedge",
+		"hedge_config": {"hedge_ratio": 0.5, "short_notional_ratio": 0.25, "hedge_trigger_layers": 3, "rebalance_interval": 3600},
+		"futures_bot": {"exchange": "binance", "symbol": "ETHUSDT", "strategies": [{"type": "grid", "weight": 1}], "price_interval": 100, "order_quantity": 100},
+		"spot_bot": {"exchange": "binance", "symbol": "ETHUSDT", "strategies": [{"type": "grid", "weight": 1}], "price_interval": 100, "order_quantity": 100}
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/bot-groups", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	postBotGroupCreate(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 when only stopped bot exists, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestPostBotGroupCreateRejectsWhenRunningBotExists 驗證：當同交易對有運行中的 Bot 時，對沖組創建應拒絕
+func TestPostBotGroupCreateRejectsWhenRunningBotExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	cfg := &config.Config{
+		Bots:      []config.BotConfig{},
+		BotGroups: []config.BotGroup{},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.Symbol = "ETHUSDT"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 10
+	cfg.Trading.MinOrderValue = 6
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	fcm := NewFileConfigManager(configPath)
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	configManager = nil
+	t.Cleanup(func() { configManager = &cfgmgr.ConfigManager{} })
+
+	// 有運行中的 Bot
+	mock := &mockBotManagerForGroupCreateTest{
+		bots: []BotResponse{
+			{BotID: "running-bot", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", Running: true},
+		},
+	}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	body := `{
+		"name": "test-hedge",
+		"type": "futures_spot_hedge",
+		"hedge_config": {"hedge_ratio": 0.5, "short_notional_ratio": 0.25, "hedge_trigger_layers": 3, "rebalance_interval": 3600},
+		"futures_bot": {"exchange": "binance", "symbol": "ETHUSDT", "strategies": [{"type": "grid", "weight": 1}], "price_interval": 100, "order_quantity": 100},
+		"spot_bot": {"exchange": "binance", "symbol": "ETHUSDT", "strategies": [{"type": "grid", "weight": 1}], "price_interval": 100, "order_quantity": 100}
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/bot-groups", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	postBotGroupCreate(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when running bot exists, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if resp["error_key"] != "error.bot_symbol_running" {
+		t.Errorf("expected error_key=error.bot_symbol_running, got %v", resp["error_key"])
+	}
+}
+
 // TestPostBotGroupCreateWorksWithFileConfigManagerOnly 驗證：當 configManager 為 nil 但 fileConfigManager 已設置時，
 // postBotGroupCreate 仍可成功創建對沖組（修復 503 Service Unavailable）
 func TestPostBotGroupCreateWorksWithFileConfigManagerOnly(t *testing.T) {
