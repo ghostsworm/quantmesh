@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -108,13 +107,21 @@ func createTables(db *sql.DB) error {
 	ordersSQL := `
 	CREATE TABLE IF NOT EXISTS orders (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		order_id BIGINT UNIQUE,
+		order_id BIGINT,
+		bot_id TEXT DEFAULT '',
 		client_order_id TEXT,
 		symbol TEXT,
 		side TEXT,
+		exchange TEXT DEFAULT '',
+		type TEXT DEFAULT '',
 		price DECIMAL(20,8),
 		quantity DECIMAL(20,8),
+		filled_qty DECIMAL(20,8) DEFAULT 0,
 		status TEXT,
+		realized_pnl DECIMAL(20,8),
+		strategy_name TEXT DEFAULT '',
+		strategy_type TEXT DEFAULT '',
+		order_source TEXT DEFAULT '',
 		created_at TIMESTAMP,
 		updated_at TIMESTAMP
 	);`
@@ -329,9 +336,10 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_created_at ON profit_withdraw_records(created_at);
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_rule_id ON profit_withdraw_records(rule_id);`
 
-	// 創建索引（idx_orders_order_id 必須為 UNIQUE，否則 SaveOrder 的 ON CONFLICT(order_id) 會報錯）
+	// 創建索引
 	indexesSQL := `
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_exchange_order_id ON orders(exchange, order_id);
+	CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
 	CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
 	CREATE INDEX IF NOT EXISTS idx_positions_slot_price ON positions(slot_price);
 	CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at);
@@ -1099,6 +1107,7 @@ func migrateOrdersTable(db *sql.DB) error {
 		def  string
 	}{
 		{"filled_qty", "ALTER TABLE orders ADD COLUMN filled_qty DECIMAL(20,8) DEFAULT 0"},
+		{"bot_id", "ALTER TABLE orders ADD COLUMN bot_id TEXT DEFAULT ''"},
 		{"exchange", "ALTER TABLE orders ADD COLUMN exchange TEXT DEFAULT ''"},
 		{"type", "ALTER TABLE orders ADD COLUMN type TEXT DEFAULT ''"},
 		{"realized_pnl", "ALTER TABLE orders ADD COLUMN realized_pnl DECIMAL(20,8)"},
@@ -1122,73 +1131,157 @@ func migrateOrdersTable(db *sql.DB) error {
 		}
 	}
 
-	// 确保 order_id 有完整唯一约束（非 partial），否则 SaveOrder 的 ON CONFLICT(order_id) 会报错
-	// 参见: ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint
-	// 根因：createTables 曾创建 CREATE INDEX idx_orders_order_id（非唯一），导致 ON CONFLICT 无法匹配
-	var indexSQL string
-	var isUnique int
-	err := db.QueryRow(`SELECT sql, CASE WHEN sql LIKE '%UNIQUE%' THEN 1 ELSE 0 END FROM sqlite_master WHERE type='index' AND name='idx_orders_order_id'`).Scan(&indexSQL, &isUnique)
-	if err == sql.ErrNoRows {
-		indexSQL = ""
-		isUnique = 0
-		err = nil
+	if err := ensureOrdersCompositeUniqueConstraint(db); err != nil {
+		return err
 	}
+	return nil
+}
+
+func hasLegacyOrderIDUniqueConstraint(db *sql.DB) (bool, error) {
+	rows, err := db.Query(`PRAGMA index_list('orders')`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	type idxInfo struct {
+		name    string
+		unique  int
+		partial int
+	}
+	var indexes []idxInfo
+	for rows.Next() {
+		var seq int
+		var name string
+		var unique int
+		var origin string
+		var partial int
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			return false, err
+		}
+		indexes = append(indexes, idxInfo{name: name, unique: unique, partial: partial})
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	for _, idx := range indexes {
+		if idx.unique == 0 || idx.partial != 0 {
+			continue
+		}
+		infoRows, err := db.Query(fmt.Sprintf(`PRAGMA index_info('%s')`, idx.name))
+		if err != nil {
+			return false, err
+		}
+		var cols []string
+		for infoRows.Next() {
+			var seqno, cid int
+			var colName string
+			if err := infoRows.Scan(&seqno, &cid, &colName); err != nil {
+				infoRows.Close()
+				return false, err
+			}
+			cols = append(cols, colName)
+		}
+		infoRows.Close()
+		if len(cols) == 1 && cols[0] == "order_id" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func rebuildOrdersTableForCompositeUnique(db *sql.DB) error {
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-
-	// 若存在 partial 索引（含 WHERE）或非唯一索引，需替换为完整唯一索引，否则 ON CONFLICT 无法匹配
-	isPartial := indexSQL != "" && strings.Contains(indexSQL, " WHERE ")
-	needsReplace := isPartial || (indexSQL != "" && isUnique == 0)
-	if needsReplace {
-		if _, err := db.Exec(`DROP INDEX IF EXISTS idx_orders_order_id`); err != nil {
-			logger.Warn("⚠️ 删除 orders 表 idx_orders_order_id 索引失败: %v", err)
-		} else {
-			logger.Info("🔄 已删除 orders 表 idx_orders_order_id（partial 或非唯一），将创建完整唯一索引")
-		}
-	}
-
-	// 检查是否已存在 order_id 的完整唯一索引（含隐式 unique 与 idx_orders_order_id）
-	var indexCount int
-	err = db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_index_list('orders') AS pil
-		WHERE pil.origin IN ('u', 'pk') AND pil.partial = 0
-		AND EXISTS (SELECT 1 FROM pragma_index_info(pil.name) WHERE name = 'order_id')
-	`).Scan(&indexCount)
-	if err != nil {
-		// 兼容旧版 SQLite：pragma_index_info 可能不支持参数，回退到简单检查
-		var anyUnique int
-		_ = db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND tbl_name='orders' AND (sql LIKE '%UNIQUE%' OR sql LIKE '%PRIMARY%') AND (sql LIKE '%order_id%') AND (sql NOT LIKE '%WHERE%')`).Scan(&anyUnique)
-		indexCount = anyUnique
-		err = nil
-	}
-
-	if indexCount == 0 {
-		// 检查是否有重复的 order_id
-		var duplicateCount int
-		err = db.QueryRow(`
-			SELECT COUNT(*) FROM (
-				SELECT order_id, COUNT(*) as cnt FROM orders
-				WHERE order_id IS NOT NULL AND order_id != 0
-				GROUP BY order_id HAVING cnt > 1
-			)
-		`).Scan(&duplicateCount)
-
+	defer func() {
 		if err != nil {
-			logger.Warn("⚠️ 检查 order_id 重复失败: %v", err)
-		} else if duplicateCount > 0 {
-			logger.Warn("⚠️ orders 表存在 %d 个重复的 order_id，无法创建唯一约束", duplicateCount)
-		} else {
-			// 创建完整唯一索引（非 partial），否则 ON CONFLICT(order_id) 无法匹配
-			_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)`)
-			if err != nil {
-				logger.Warn("⚠️ 创建 orders.order_id 唯一索引失败: %v", err)
-			} else {
-				logger.Info("✅ orders 表成功创建 order_id 唯一索引")
-			}
+			_ = tx.Rollback()
 		}
+	}()
+
+	if _, err = tx.Exec(`
+		CREATE TABLE IF NOT EXISTS orders_v2 (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			order_id BIGINT,
+			bot_id TEXT DEFAULT '',
+			client_order_id TEXT,
+			symbol TEXT,
+			side TEXT,
+			exchange TEXT DEFAULT '',
+			type TEXT DEFAULT '',
+			price DECIMAL(20,8),
+			quantity DECIMAL(20,8),
+			filled_qty DECIMAL(20,8) DEFAULT 0,
+			status TEXT,
+			realized_pnl DECIMAL(20,8),
+			strategy_name TEXT DEFAULT '',
+			strategy_type TEXT DEFAULT '',
+			order_source TEXT DEFAULT '',
+			created_at TIMESTAMP,
+			updated_at TIMESTAMP
+		);
+	`); err != nil {
+		return err
 	}
 
+	if _, err = tx.Exec(`
+		INSERT INTO orders_v2 (
+			id, order_id, bot_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty,
+			status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at
+		)
+		SELECT
+			id, order_id, COALESCE(bot_id, ''), client_order_id, symbol, side, COALESCE(exchange, ''), COALESCE(type, ''),
+			price, quantity, COALESCE(filled_qty, 0), status, realized_pnl, COALESCE(strategy_name, ''),
+			COALESCE(strategy_type, ''), COALESCE(order_source, ''), created_at, updated_at
+		FROM orders;
+	`); err != nil {
+		return err
+	}
+
+	if _, err = tx.Exec(`DROP TABLE orders`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`ALTER TABLE orders_v2 RENAME TO orders`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_exchange_order_id ON orders(exchange, order_id)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_bot_id ON orders(bot_id)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func ensureOrdersCompositeUniqueConstraint(db *sql.DB) error {
+	legacyUnique, err := hasLegacyOrderIDUniqueConstraint(db)
+	if err != nil {
+		return err
+	}
+	if legacyUnique {
+		logger.Info("🔄 檢測到舊版 orders(order_id) 唯一約束，開始遷移為 (exchange, order_id)")
+		if err := rebuildOrdersTableForCompositeUnique(db); err != nil {
+			return fmt.Errorf("重建 orders 表失败: %w", err)
+		}
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_exchange_order_id ON orders(exchange, order_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_bot_id ON orders(bot_id)`); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1213,9 +1306,10 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 		// MySQL 使用 ON DUPLICATE KEY UPDATE
 		query = `
 			INSERT INTO orders
-			(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(order_id, bot_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE
+				bot_id          = COALESCE(NULLIF(VALUES(bot_id), ''), orders.bot_id),
 				client_order_id = COALESCE(NULLIF(VALUES(client_order_id), ''), orders.client_order_id),
 				symbol          = COALESCE(NULLIF(VALUES(symbol), ''), orders.symbol),
 				side            = COALESCE(NULLIF(VALUES(side), ''), orders.side),
@@ -1232,7 +1326,7 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 				updated_at      = VALUES(updated_at)
 		`
 		args = []interface{}{
-			order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
+			order.OrderID, order.BotID, order.ClientOrderID, order.Symbol, order.Side,
 			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
 			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
 		}
@@ -1241,9 +1335,10 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 		// PostgreSQL 使用 ON CONFLICT
 		query = `
 			INSERT INTO orders
-			(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-			ON CONFLICT(order_id) DO UPDATE SET
+			(order_id, bot_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			ON CONFLICT(exchange, order_id) DO UPDATE SET
+				bot_id          = COALESCE(NULLIF(EXCLUDED.bot_id, ''), orders.bot_id),
 				client_order_id = COALESCE(NULLIF(EXCLUDED.client_order_id, ''), orders.client_order_id),
 				symbol          = COALESCE(NULLIF(EXCLUDED.symbol, ''), orders.symbol),
 				side            = COALESCE(NULLIF(EXCLUDED.side, ''), orders.side),
@@ -1260,7 +1355,7 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 				updated_at      = EXCLUDED.updated_at
 		`
 		args = []interface{}{
-			order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
+			order.OrderID, order.BotID, order.ClientOrderID, order.Symbol, order.Side,
 			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
 			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
 		}
@@ -1269,9 +1364,10 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 		// SQLite 使用 ON CONFLICT
 		query = `
 			INSERT INTO orders
-			(order_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(order_id) DO UPDATE SET
+			(order_id, bot_id, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(exchange, order_id) DO UPDATE SET
+				bot_id          = COALESCE(NULLIF(excluded.bot_id, ''), orders.bot_id),
 				client_order_id = COALESCE(NULLIF(excluded.client_order_id, ''), orders.client_order_id),
 				symbol          = COALESCE(NULLIF(excluded.symbol, ''), orders.symbol),
 				side            = COALESCE(NULLIF(excluded.side, ''), orders.side),
@@ -1288,7 +1384,7 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 				updated_at      = excluded.updated_at
 		`
 		args = []interface{}{
-			order.OrderID, order.ClientOrderID, order.Symbol, order.Side,
+			order.OrderID, order.BotID, order.ClientOrderID, order.Symbol, order.Side,
 			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
 			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
 		}
@@ -1499,7 +1595,7 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 	}
 
 	query := `
-		SELECT order_id, client_order_id, symbol, side, 
+		SELECT order_id, COALESCE(bot_id, '') as bot_id, client_order_id, symbol, side, 
 			COALESCE(exchange, '') as exchange, COALESCE(type, '') as type,
 			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
 			status, realized_pnl,
@@ -1531,6 +1627,7 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 		var realizedPnL sql.NullFloat64
 		err := rows.Scan(
 			&order.OrderID,
+			&order.BotID,
 			&order.ClientOrderID,
 			&order.Symbol,
 			&order.Side,
@@ -1573,7 +1670,7 @@ func (s *SQLiteStorage) QueryOrdersWithTimeRange(limit, offset int, status strin
 	}
 
 	query := `
-		SELECT order_id, client_order_id, symbol, side, 
+		SELECT order_id, COALESCE(bot_id, '') as bot_id, client_order_id, symbol, side, 
 			COALESCE(exchange, '') as exchange, COALESCE(type, '') as type,
 			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
 			status, realized_pnl,
@@ -1615,6 +1712,7 @@ func (s *SQLiteStorage) QueryOrdersWithTimeRange(limit, offset int, status strin
 		var realizedPnL sql.NullFloat64
 		err := rows.Scan(
 			&order.OrderID,
+			&order.BotID,
 			&order.ClientOrderID,
 			&order.Symbol,
 			&order.Side,
@@ -1704,7 +1802,7 @@ func (s *SQLiteStorage) QueryOrdersWithFilter(limit, offset int, status, exchang
 	}
 
 	query := `
-		SELECT order_id, client_order_id, symbol, side, 
+		SELECT order_id, COALESCE(bot_id, '') as bot_id, client_order_id, symbol, side, 
 			COALESCE(exchange, '') as exchange, COALESCE(type, '') as type,
 			price, quantity, COALESCE(filled_qty, 0) as filled_qty, 
 			status, realized_pnl,
@@ -1759,6 +1857,7 @@ func (s *SQLiteStorage) QueryOrdersWithFilter(limit, offset int, status, exchang
 		var realizedPnL sql.NullFloat64
 		err := rows.Scan(
 			&order.OrderID,
+			&order.BotID,
 			&order.ClientOrderID,
 			&order.Symbol,
 			&order.Side,

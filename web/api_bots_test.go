@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"quantmesh/cfgmgr"
 	"quantmesh/config"
 )
 
@@ -128,6 +130,9 @@ func TestPostBotStartCallsEnableBotBeforeStart(t *testing.T) {
 	origFCM := fileConfigManager
 	SetFileConfigManager(fcm)
 	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
 
 	mock := &mockBotManagerForStartTest{}
 	origProvider := botManagerProvider
@@ -150,4 +155,91 @@ func TestPostBotStartCallsEnableBotBeforeStart(t *testing.T) {
 	if !called {
 		t.Error("postBotStart 應在啟動前調用 EnableBot 清除禁用標記，否則 StartBot 會因 bot_disabled_in_database 失敗")
 	}
+}
+
+type mockBotManagerForDeleteGroupTest struct {
+	stopCalls []string
+	mu        sync.Mutex
+}
+
+func (m *mockBotManagerForDeleteGroupTest) ListBots() []BotResponse { return nil }
+func (m *mockBotManagerForDeleteGroupTest) GetBot(botID string) (*BotDetailResponse, bool) {
+	return nil, false
+}
+func (m *mockBotManagerForDeleteGroupTest) StartBot(ctx context.Context, cfg config.BotConfig) error {
+	return nil
+}
+func (m *mockBotManagerForDeleteGroupTest) StopBot(botID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stopCalls = append(m.stopCalls, botID)
+	return nil
+}
+func (m *mockBotManagerForDeleteGroupTest) EnableBot(botID string) error { return nil }
+
+func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	cfg := &config.Config{
+		Bots: []config.BotConfig{
+			{ID: "futures-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
+			{ID: "spot-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
+		},
+		BotGroups: []config.BotGroup{
+			{ID: "g1", Name: "pair-1", BotIDs: []string{"futures-bot", "spot-bot"}},
+		},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	fcm := NewFileConfigManager(configPath)
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	mock := &mockBotManagerForDeleteGroupTest{}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/api/bot-groups/g1", nil)
+	c.Params = gin.Params{{Key: "id", Value: "g1"}}
+
+	deleteBotGroup(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	mock.mu.Lock()
+	calls := append([]string(nil), mock.stopCalls...)
+	mock.mu.Unlock()
+	if len(calls) != 2 {
+		t.Fatalf("expected StopBot called twice, got %d (%v)", len(calls), calls)
+	}
+
+	latest, err := GetLatestConfig()
+	if err != nil {
+		t.Fatalf("GetLatestConfig: %v", err)
+	}
+	if len(latest.BotGroups) != 0 {
+		t.Fatalf("group should be removed, got groups=%d", len(latest.BotGroups))
+	}
+
+	_ = os.Remove(configPath)
 }

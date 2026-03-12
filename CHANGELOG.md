@@ -2,6 +2,20 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.75.0-rc2] - 2026-03-12
+
+### Fixed
+- **Bot 归属与隔离增强**：订单存储新增 `bot_id` 并改为按 `(exchange, order_id)` 做唯一约束，修复同 `order_id` 在不同交易所/不同 Bot 场景下互相覆盖的问题
+- **BotManager 并发安全**：为运行时 `runtimes` 读写加锁，修复并发启停/查询时可能触发的 map 竞态与崩溃风险
+- **Bot Group 删除安全**：删除组前先逐个停止组内 Bot，避免配置删除后出现“孤儿腿”继续交易
+
+### Test
+- **bot_manager_test.go**：新增 `TestBotManagerConcurrentAccessNoPanic`，覆盖并发读写稳定性
+- **storage/sqlite_test.go**：新增 `TestSaveOrderKeepIsolationByExchangeAndBotID`，验证同 `order_id` 跨交易所/Bot 隔离
+- **web/api_bots_test.go**：新增 `TestDeleteBotGroupStopsRunningBotsBeforeRemove`，验证删除组时先停机
+
+---
+
 ## [3.75.0-rc1] - 2026-03-12
 
 ### Fixed

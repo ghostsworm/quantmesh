@@ -431,6 +431,9 @@ func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 	if clientOID, ok := data["client_order_id"].(string); ok {
 		order.ClientOrderID = clientOID
 	}
+	if botID, ok := data["bot_id"].(string); ok {
+		order.BotID = botID
+	}
 	if symbol, ok := data["symbol"].(string); ok {
 		order.Symbol = symbol
 	}

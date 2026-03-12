@@ -5,6 +5,7 @@ import "time"
 // Order 订單模型
 type Order struct {
 	OrderID       int64
+	BotID         string
 	ClientOrderID string
 	Symbol        string
 	Side          string
