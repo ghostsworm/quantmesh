@@ -779,10 +779,20 @@ func postBotGroupCreate(c *gin.Context) {
 	if len(bcSpot.Strategies) == 0 {
 		bcSpot.Strategies = []config.StrategyInstance{{Type: "grid", Weight: 1.0, Config: map[string]interface{}{}}}
 	}
-	// 若現貨腿為 spot_short，啟用 UseSpotMargin 並注入 group_id
+	// 若現貨腿為 spot_short（借幣做空），啟用 UseSpotMargin 並注入 group_id
 	for i := range bcSpot.Strategies {
 		if bcSpot.Strategies[i].Type == "spot_short" {
 			bcSpot.UseSpotMargin = true
+			if bcSpot.Strategies[i].Config == nil {
+				bcSpot.Strategies[i].Config = make(map[string]interface{})
+			}
+			bcSpot.Strategies[i].Config["group_id"] = groupID
+			break
+		}
+	}
+	// 若現貨腿為 spot_long（買入持倉對沖做空），注入 group_id（無需借幣）
+	for i := range bcSpot.Strategies {
+		if bcSpot.Strategies[i].Type == "spot_long" {
 			if bcSpot.Strategies[i].Config == nil {
 				bcSpot.Strategies[i].Config = make(map[string]interface{})
 			}
@@ -804,6 +814,14 @@ func postBotGroupCreate(c *gin.Context) {
 	}
 	if hedgeCfg.HedgeTriggerLayers <= 0 {
 		hedgeCfg.HedgeTriggerLayers = 3
+	}
+	// 從合約腿繼承方向，供 HedgeCoordinator 決定發 target_spot_short 或 target_spot_long
+	if hedgeCfg.Direction == "" {
+		d := req.FuturesBot.Direction
+		if d == "" {
+			d = "LONG"
+		}
+		hedgeCfg.Direction = d
 	}
 
 	group := config.BotGroup{
