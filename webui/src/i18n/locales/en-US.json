@@ -150,6 +150,9 @@
       "hedgeRatio": "Hedge ratio"
     },
     "hedgeSpotShortConfig": "Spot Short Hedge Config",
+    "hedgeSpotShortConfigLongOnly": "Spot Short Hedge Config (Long grid only)",
+    "hedgeSpotShortShortWarning": "Spot short hedge only applies to long grid. With short grid, hedge will not take effect.",
+    "hedgeSpotShortBothWarning": "Spot short hedge is designed for long grid. With bidirectional grid, hedge behavior may not match expectations.",
     "shortNotionalRatio": "Short Notional Ratio",
     "shortNotionalRatioHint": "Short notional exposure as % of grid notional, default 0.25 (25%)",
     "hedgeTriggerLayers": "Hedge Trigger Layers",
