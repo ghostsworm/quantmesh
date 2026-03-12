@@ -27,9 +27,10 @@ import {
 import { AddIcon, ChevronRightIcon, RepeatIcon, DeleteIcon, TimeIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
-import { getBots, getBotGroups, startBot, stopBot, deleteBot, pollBotUntilRunning, BotInfo } from '../services/api'
+import { getBots, getBotGroups, startBot, stopBot, deleteBot, pollBotUntilRunning, closePositionsV2, BotInfo } from '../services/api'
 import type { BotGroupResponse } from '../services/api'
 import BotBacktestDialog from './BotBacktestDialog'
+import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 import { computeLiquidationPrice } from './ParamAdvisor'
 
 type FilterStatus = 'all' | 'running' | 'stopped'
@@ -44,7 +45,9 @@ const BotList: React.FC = () => {
   const [actionBotId, setActionBotId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
   const [deleteTarget, setDeleteTarget] = useState<BotInfo | null>(null)
+  const [stopTarget, setStopTarget] = useState<BotInfo | null>(null)
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
+  const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
   const cancelDeleteRef = React.useRef<HTMLButtonElement>(null)
   const runningCardBg = useColorModeValue('green.50', 'green.900')
   const runningBorder = useColorModeValue('green.200', 'green.700')
@@ -124,14 +127,47 @@ const BotList: React.FC = () => {
     }
   }
 
-  const handleStop = async (botId: string) => {
-    setActionBotId(botId)
+  const handleStopClick = (bot: BotInfo) => {
+    setStopTarget(bot)
+    onStopDialogOpen()
+  }
+
+  const handleStopDialogClose = () => {
+    onStopDialogClose()
+    setStopTarget(null)
+  }
+
+  const handleStopOnly = async () => {
+    if (!stopTarget) return
+    setActionBotId(stopTarget.bot_id)
     try {
-      await stopBot(botId)
+      await stopBot(stopTarget.bot_id)
       toast({ title: t('botList.stopSuccess'), status: 'success', duration: 2000 })
+      handleStopDialogClose()
       fetchBots()
     } catch (err) {
       toast({ title: t('botList.stopFailed'), status: 'error', duration: 3000 })
+    } finally {
+      setActionBotId(null)
+    }
+  }
+
+  const handleStopAndClose = async (req: Parameters<typeof closePositionsV2>[1]) => {
+    if (!stopTarget) return
+    setActionBotId(stopTarget.bot_id)
+    try {
+      await closePositionsV2(stopTarget.bot_id, req)
+      await stopBot(stopTarget.bot_id)
+      toast({ title: t('globalDashboard.closePositions.success'), status: 'success', duration: 2000 })
+      handleStopDialogClose()
+      fetchBots()
+    } catch (err) {
+      toast({
+        title: t('globalDashboard.closePositions.failed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 4000,
+      })
     } finally {
       setActionBotId(null)
     }
@@ -386,7 +422,7 @@ const BotList: React.FC = () => {
                         colorScheme="red"
                         variant="outline"
                         isLoading={actionBotId === bot.bot_id}
-                        onClick={() => handleStop(bot.bot_id)}
+                        onClick={() => handleStopClick(bot)}
                       >
                         {t('botList.stop')}
                       </Button>
@@ -471,6 +507,18 @@ const BotList: React.FC = () => {
           onClose={handleCloseBacktest}
           botId={backtestBotId}
           botName={backtestBotName}
+        />
+      )}
+
+      {/* 停止确认对话框（与 BotDetail 一致：询问是否平仓） */}
+      {stopTarget && (
+        <StopWithCloseConfirmDialog
+          isOpen={isStopDialogOpen}
+          onClose={handleStopDialogClose}
+          onStopOnly={handleStopOnly}
+          onStopAndClose={handleStopAndClose}
+          botId={stopTarget.bot_id}
+          botName={stopTarget.name || stopTarget.symbol}
         />
       )}
     </Box>
