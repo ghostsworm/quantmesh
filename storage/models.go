@@ -6,6 +6,7 @@ import "time"
 type Order struct {
 	OrderID       int64
 	BotID         string
+	Account       string // 账戶標识（为空时回退 bot_id）
 	ClientOrderID string
 	Symbol        string
 	Side          string
@@ -392,6 +393,7 @@ type BotState struct {
 // FixSessionState FIX 会话状态（用于断线重连与序号恢复）
 type FixSessionState struct {
 	SessionID       string
+	BotID           string // 单会话绑定单 bot
 	Role            string // acceptor / initiator
 	BeginString     string // FIX.4.4 / FIXT.1.1
 	SenderCompID    string

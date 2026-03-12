@@ -233,6 +233,33 @@ func (sm *StrategyManager) OnOrderUpdate(update *position.OrderUpdate) {
 	}
 }
 
+// OnOrderUpdateForStrategy 精確路由到單一策略，若未命中則回退為廣播
+func (sm *StrategyManager) OnOrderUpdateForStrategy(strategyName string, update *position.OrderUpdate) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if strategyName == "" {
+		for name, strategy := range sm.strategies {
+			if sm.IsStrategyEnabled(name) {
+				go func(n string, s Strategy) {
+					if err := s.OnOrderUpdate(update); err != nil {
+						logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
+					}
+				}(name, strategy)
+			}
+		}
+		return
+	}
+	strategy, ok := sm.strategies[strategyName]
+	if !ok || !sm.IsStrategyEnabled(strategyName) {
+		return
+	}
+	go func(n string, s Strategy) {
+		if err := s.OnOrderUpdate(update); err != nil {
+			logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
+		}
+	}(strategyName, strategy)
+}
+
 // GetCapitalAllocator 獲取资金分配器
 func (sm *StrategyManager) GetCapitalAllocator() *CapitalAllocator {
 	return sm.allocator

@@ -396,6 +396,16 @@ func startSymbolRuntime(
 	logger.Info("✅ [%s] 持倉安全性检查通過", botID)
 
 	// 核心组件
+	// 生成账戶標识（使用 API Key 的前 8 位）
+	accountID := ""
+	if exCfg, ok := baseCfg.Exchanges[symCfg.Exchange]; ok {
+		if len(exCfg.APIKey) > 8 {
+			accountID = exCfg.APIKey[:8]
+		} else {
+			accountID = exCfg.APIKey
+		}
+	}
+
 	exchangeExecutor := order.NewExchangeOrderExecutor(
 		ex,
 		symCfg.Symbol,
@@ -408,18 +418,9 @@ func startSymbolRuntime(
 		eventBus:  eventBus,
 		symbol:    symCfg.Symbol,
 		exchange:  symCfg.Exchange,
+		accountID: accountID,
 	}
 	exchangeAdapter := &positionExchangeAdapter{exchange: ex}
-
-	// 生成账戶標识（使用 API Key 的前 8 位）
-	accountID := ""
-	if exCfg, ok := baseCfg.Exchanges[symCfg.Exchange]; ok {
-		if len(exCfg.APIKey) > 8 {
-			accountID = exCfg.APIKey[:8]
-		} else {
-			accountID = exCfg.APIKey
-		}
-	}
 
 	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
 	if storageService != nil {
@@ -434,13 +435,16 @@ func startSymbolRuntime(
 		superPositionManager.SetEventBus(eventBus)
 	}
 
-	riskMonitor := safety.NewRiskMonitor(&localCfg, ex)
+	// 風控監控默認綁定到當前 runtime 的交易對，避免多 Bot/多交易對互相影響
+	runtimeRiskCfg := localCfg
+	runtimeRiskCfg.RiskControl.MonitorSymbols = []string{symCfg.Symbol}
+	riskMonitor := safety.NewRiskMonitor(&runtimeRiskCfg, ex)
 	if storageService != nil {
 		riskMonitor.SetStorage(storageService.GetStorage())
 	}
 
 	// 創建深度監控器
-	depthMonitor := safety.NewDepthMonitor(&localCfg, ex)
+	depthMonitor := safety.NewDepthMonitor(&runtimeRiskCfg, ex)
 
 	// 創建資金費率監控器（僅對合約啟用）
 	var fundingMonitor *safety.FundingRateMonitor
@@ -528,6 +532,7 @@ func startSymbolRuntime(
 					"type":            posUpdate.Type,
 					"realized_pnl":    posUpdate.RealizedPnL,
 					"exchange":        symCfg.Exchange,
+					"account":         accountID,
 					"bot_id":          localCfg.Trading.BotID,
 					"market_type":     localCfg.Trading.MarketType,
 					"order_source":    utils.ParseOrderSource(posUpdate.ClientOrderID), // 從 ClientOrderID 解析（如 _SL=止損）
@@ -546,9 +551,17 @@ func startSymbolRuntime(
 		superPositionManager.OnOrderUpdate(*posUpdate)
 		// 通知策略層訂單更新（DCA/馬丁等），並在成交或取消時釋放當時預留的資金，避免「可用」只減不增
 		if strategyManager != nil {
-			strategyManager.OnOrderUpdate(posUpdate)
+			routedStrategy := ""
+			if multiExecutor != nil {
+				routedStrategy = multiExecutor.GetStrategyByOrderID(posUpdate.OrderID)
+				if routedStrategy == "" {
+					routedStrategy = multiExecutor.GetStrategyByClientOrderID(posUpdate.ClientOrderID)
+				}
+			}
+			strategyManager.OnOrderUpdateForStrategy(routedStrategy, posUpdate)
 		}
 		if multiExecutor != nil && (posUpdate.Status == "FILLED" || posUpdate.Status == "CANCELED") {
+			multiExecutor.ReleaseOrderCapitalByClientOrderID(posUpdate.ClientOrderID)
 			multiExecutor.ReleaseOrderCapitalByOrderID(posUpdate.OrderID)
 		}
 	}); err != nil {
@@ -749,6 +762,26 @@ func startSymbolRuntime(
 					strategyManager.RegisterStrategy("spot_short", spotShortStrategy, si.Weight, 0)
 					logger.Info("✅ [%s] 現貨做空策略已注册 (group=%v)", symCfg.Symbol, spotShortCfg["group_id"])
 					break
+				}
+			}
+		}
+
+		// 重啟恢復：從持久化訂單恢復 orderID/clientOrderID -> strategy 路由，避免回報廣播錯配
+		if storageService != nil {
+			if st := storageService.GetStorage(); st != nil {
+				restoreStatuses := []string{"NEW", "PARTIALLY_FILLED"}
+				for _, restoreStatus := range restoreStatuses {
+					orders, err := st.QueryOrdersWithFilter(2000, 0, restoreStatus, symCfg.Exchange, symCfg.Symbol, nil, nil)
+					if err != nil {
+						logger.Warn("⚠️ [%s] 恢復策略路由失敗(status=%s): %v", symCfg.Symbol, restoreStatus, err)
+						continue
+					}
+					for _, o := range orders {
+						if o == nil || o.StrategyName == "" {
+							continue
+						}
+						multiExecutor.RestoreOrderRoute(o.OrderID, o.ClientOrderID, o.StrategyName)
+					}
 				}
 			}
 		}
@@ -960,9 +993,9 @@ func startSymbolRuntime(
 
 						// 记录新配置参数
 						if newProfileName != "default" {
-						logger.Info("📋 [%s:%s] 新配置档案参数: price_interval=%.2f, order_quantity=%.2f, buy_window=%d, sell_window=%d",
-							symCfg.Exchange, symCfg.Symbol, newProfile.PriceInterval, newProfile.OrderQuantity,
-							newProfile.BuyWindowSize, newProfile.SellWindowSize)
+							logger.Info("📋 [%s:%s] 新配置档案参数: price_interval=%.2f, order_quantity=%.2f, buy_window=%d, sell_window=%d",
+								symCfg.Exchange, symCfg.Symbol, newProfile.PriceInterval, newProfile.OrderQuantity,
+								newProfile.BuyWindowSize, newProfile.SellWindowSize)
 						}
 
 						oldProfileName := currentProfileName
@@ -974,13 +1007,13 @@ func startSymbolRuntime(
 							eventBus.Publish(&event.Event{
 								Type: event.EventTypeConfigSwitched,
 								Data: map[string]interface{}{
-									"exchange":      symCfg.Exchange,
-									"symbol":        symCfg.Symbol,
-									"old_profile":   oldProfileName,
-									"new_profile":   newProfileName,
-									"funding_rate":  currentFundingRate,
-									"fee_rate":      currentFeeRate,
-									"message":       fmt.Sprintf("配置档案切换建议: %s -> %s", oldProfileName, newProfileName),
+									"exchange":     symCfg.Exchange,
+									"symbol":       symCfg.Symbol,
+									"old_profile":  oldProfileName,
+									"new_profile":  newProfileName,
+									"funding_rate": currentFundingRate,
+									"fee_rate":     currentFeeRate,
+									"message":      fmt.Sprintf("配置档案切换建议: %s -> %s", oldProfileName, newProfileName),
 								},
 							})
 						}

@@ -286,8 +286,8 @@ type SuperPositionManager struct {
 	fillMu         sync.RWMutex
 
 	// 槽位過濾器
-	slotFilter     *config.SlotFilterConfig
-	slotFilterMu   sync.RWMutex
+	slotFilter   *config.SlotFilterConfig
+	slotFilterMu sync.RWMutex
 
 	// 智能掛單管理器
 	smartOrderMgr *SmartOrderManager
@@ -339,8 +339,8 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 		exchange:           exchange,
 		exchangeName:       exchangeName,
 		botID:              botID,
-		strategyName:       strategyName,  // 策略名称
-		strategyType:       "grid",        // 策略類型固定為 grid
+		strategyName:       strategyName, // 策略名称
+		strategyType:       "grid",       // 策略類型固定為 grid
 		insufficientMargin: false,
 		marginLockDuration: time.Duration(marginLockSec) * time.Second,
 		priceDecimals:      priceDecimals,
@@ -395,38 +395,38 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 	spm.isOpeningPaused.Store(true)
 	spm.openingPauseReason.Store(reason)
 	logger.Warn("⏸️ [%s] 開倉管理：已暫停開倉，原因: %s", spm.logPrefix(), reason)
-	
+
 	// 撤銷所有開倉委託
 	spm.CancelAllOpenOrders()
-	
+
 	// 為了確保萬無一失，特別是在幣安合約等場景，
 	// 如果本地 slots 狀態同步有延遲，直接調用交易所接口撤銷開倉方向的所有訂單
 	go func() {
 		// 延遲一小段時間，等待可能的本地狀態更新
 		time.Sleep(1 * time.Second)
-		
+
 		openSide := "BUY"
 		if spm.isShort() {
 			openSide = "SELL"
 		}
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		
+
 		// 獲取交易所所有掛單
 		openOrdersInterface, err := spm.exchange.GetOpenOrders(ctx, spm.config.Trading.Symbol)
 		if err != nil {
 			logger.Error("❌ [%s] 暫停開倉時獲取掛單失敗: %v", spm.logPrefix(), err)
 			return
 		}
-		
+
 		// 類型斷言，因為 IExchange.GetOpenOrders 返回 interface{}
 		// 這裡我們需要根據 IExchange 實際返回的類型進行斷言
 		// 在 adapter 中通常返回的是 []*exchange.Order，但為了避免循環導入，
 		// 我們可能需要處理成 []interface{} 或者反射處理，或者在這裡定義一個兼容的結構
-		
+
 		var toCancel []int64
-		
+
 		// 嘗試反射處理，這樣最通用
 		v := reflect.ValueOf(openOrdersInterface)
 		if v.Kind() == reflect.Slice {
@@ -435,11 +435,11 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 				if orderVal.Kind() == reflect.Ptr {
 					orderVal = orderVal.Elem()
 				}
-				
+
 				if orderVal.Kind() == reflect.Struct {
 					sideField := orderVal.FieldByName("Side")
 					idField := orderVal.FieldByName("OrderID")
-					
+
 					if sideField.IsValid() && idField.IsValid() {
 						sideStr := fmt.Sprintf("%v", sideField.Interface())
 						if sideStr == openSide {
@@ -449,7 +449,7 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 				}
 			}
 		}
-		
+
 		if len(toCancel) > 0 {
 			logger.Warn("🔄 [%s] 暫停開倉：發現 %d 個殘留開倉委託，正在強制撤銷", spm.logPrefix(), len(toCancel))
 			if err := spm.executor.BatchCancelOrders(toCancel); err != nil {
@@ -892,13 +892,38 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 }
 
 // generateClientOrderID 生成自定义订單ID
-// 使用新的紧凑格式，最大长度不超過18字符（止損單加 _SL 後綴約 21 字符）
 // 格式: {price_int}_{side}_{timestamp}{seq} 或 {price_int}_{side}_{timestamp}{seq}_SL
 // price_int: price * 10^decimals (轉為整數)
 // side: B=Buy, S=Sell
 // orderSource: 可選，傳 "stop_loss" 時追加 _SL，便於從交易所訂單中解析訂單來源
 func (spm *SuperPositionManager) generateClientOrderID(price float64, side string, orderSource string) string {
 	return utils.GenerateOrderIDWithSource(price, side, spm.priceDecimals, orderSource)
+}
+
+func (spm *SuperPositionManager) findSlotByOrderID(orderID int64) (*InventorySlot, float64, bool) {
+	if orderID <= 0 {
+		return nil, 0, false
+	}
+	var (
+		foundSlot  *InventorySlot
+		foundPrice float64
+		found      bool
+	)
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot, ok := value.(*InventorySlot)
+		if !ok || slot == nil || slot.OrderID != orderID {
+			return true
+		}
+		price, ok := key.(float64)
+		if !ok {
+			return true
+		}
+		foundSlot = slot
+		foundPrice = price
+		found = true
+		return false
+	})
+	return foundSlot, foundPrice, found
 }
 
 // isReduceOnlyCooldown 检查槽位是否处于 ReduceOnly 冷却期（2 分钟内不再尝试平仓）
@@ -1037,14 +1062,14 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 							Type:      event.EventTypeStopLoss,
 							Timestamp: time.Now(),
 							Data: map[string]interface{}{
-								"bot_id":        spm.botID,
-								"symbol":        spm.config.Trading.Symbol,
-								"exchange":      spm.exchangeName,
-								"reason":        "grid_risk_control",
-								"pnl_ratio_pct": pnlRatio * 100,
-								"threshold_pct": stopLossRatio * 100,
+								"bot_id":         spm.botID,
+								"symbol":         spm.config.Trading.Symbol,
+								"exchange":       spm.exchangeName,
+								"reason":         "grid_risk_control",
+								"pnl_ratio_pct":  pnlRatio * 100,
+								"threshold_pct":  stopLossRatio * 100,
 								"unrealized_pnl": unrealizedPnL,
-								"total_value":   totalValue,
+								"total_value":    totalValue,
 							},
 						})
 					}
@@ -2096,12 +2121,25 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 	// 🔥 重構：完全依赖 ClientOrderID 解析
 	price, side, valid := spm.parseClientOrderID(update.ClientOrderID)
 
+	var slot *InventorySlot
 	if !valid {
-		logger.Debug("⏳ [忽略] 無法识别的订單更新: ID=%d, ClientOID=%s", update.OrderID, update.ClientOrderID)
-		return
+		// 兜底：若 ClientOrderID 無法解析，改用 OrderID 在現有槽位中反查，避免因前綴截斷直接丟回報
+		foundSlot, foundPrice, ok := spm.findSlotByOrderID(update.OrderID)
+		if !ok {
+			logger.Debug("⏳ [忽略] 無法识别的订單更新: ID=%d, ClientOID=%s", update.OrderID, update.ClientOrderID)
+			return
+		}
+		slot = foundSlot
+		price = foundPrice
+		if slot.OrderSide != "" {
+			side = slot.OrderSide
+		}
+	} else {
+		slot = spm.getOrCreateSlot(price)
 	}
-
-	slot := spm.getOrCreateSlot(price)
+	if side == "" && update.Side != "" {
+		side = strings.ToUpper(update.Side)
+	}
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
 
@@ -2157,7 +2195,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				if actualBuyPrice <= 0 {
 					actualBuyPrice = slot.OrderPrice
 				}
-				
+
 				// 🔥 监控价格偏差：实际成交价格与委托价格的差异
 				if slot.OrderPrice > 0 && actualBuyPrice > 0 {
 					priceDeviation := (actualBuyPrice - slot.OrderPrice) / slot.OrderPrice * 100
@@ -2171,7 +2209,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 							slot.OrderPrice, actualBuyPrice, priceDeviation, deltaQty)
 					}
 				}
-				
+
 				// 计算新的平均买入价格
 				if slot.PositionQty > 0 && slot.AvgBuyPrice > 0 {
 					// 加权平均：(旧价格 * 旧数量 + 新价格 * 新数量) / 总数量
@@ -2181,7 +2219,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					// 首次买入或之前没有持仓，直接使用当前买入价格
 					slot.AvgBuyPrice = actualBuyPrice
 				}
-				
+
 				slot.PositionQty += deltaQty
 				// 累加统计
 				oldTotal := spm.totalBuyQty.Load().(float64)
@@ -2263,10 +2301,10 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					if buyPrice <= 0 {
 						// 如果没有平均买入价格（异常情况），回退到槽位价格
 						buyPrice = slot.Price
-						logger.Warn("⚠️ [交易記錄] 槽位 %s 没有平均买入价格，使用槽位价格 %.2f", 
+						logger.Warn("⚠️ [交易記錄] 槽位 %s 没有平均买入价格，使用槽位价格 %.2f",
 							formatPrice(slot.Price, spm.priceDecimals), buyPrice)
 					}
-					
+
 					// 賣出價格使用成交均價，如果没有则使用订單價格
 					sellPrice := update.AvgPrice
 					if sellPrice <= 0 {
@@ -2275,7 +2313,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					if sellPrice <= 0 {
 						sellPrice = slot.OrderPrice
 					}
-					
+
 					// 🔥 监控卖出价格偏差：实际成交价格与委托价格的差异
 					if slot.OrderPrice > 0 && sellPrice > 0 {
 						sellPriceDeviation := (sellPrice - slot.OrderPrice) / slot.OrderPrice * 100
@@ -2298,7 +2336,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						// 计算盈亏：(賣出價格 - 實際買入價格) * 數量（毛利，未扣手續費）
 						// 注意：對於USDT本位合約（如BTCUSDT），價格是USDT，數量是BTC，盈亏單位是USDT
 						pnl := (sellPrice - buyPrice) * deltaQty
-						
+
 						// 🔥 检查价格偏差对策略的影响：如果实际盈亏与理论盈亏差异过大，警告
 						theoreticalPnL := (slot.OrderPrice - slot.Price) * deltaQty // 理论盈亏（基于槽位价格）
 						if theoreticalPnL > 0 && pnl < 0 {
@@ -2330,10 +2368,10 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						// 🔥 计算价格偏差（实际成交价格 - 委托价格）
 						// 买入价格偏差：实际平均买入价格 - 槽位基准价格（槽位价格是买入委托价格）
 						buyPriceDeviation := (buyPrice - slot.Price) * deltaQty // USDT单位
-						
+
 						// 卖出价格偏差：实际卖出价格 - 委托卖出价格
 						sellPriceDeviation := (sellPrice - slot.OrderPrice) * deltaQty // USDT单位
-						
+
 						// 保存交易記錄（買入订單ID設為0，因為無法追溯历史订單）
 						buyOrderID := int64(0)
 						sellOrderID := update.OrderID
@@ -3011,7 +3049,7 @@ func (spm *SuperPositionManager) GetTradingParamsSummary() map[string]interface{
 
 	result := map[string]interface{}{
 		"price_interval":   priceInterval,
-		"profit_spread":     profitSpread,
+		"profit_spread":    profitSpread,
 		"order_quantity":   spm.config.Trading.OrderQuantity,
 		"buy_window_size":  buyWindowSize,
 		"sell_window_size": sellWindowSize,
@@ -3295,7 +3333,7 @@ func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
 		openSide = "SELL"
 	}
 	type slotOrder struct {
-		price  float64
+		price   float64
 		orderID int64
 	}
 	var openOrders []slotOrder
@@ -3903,7 +3941,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		// 設置為有倉状態
 		slot.PositionStatus = PositionStatusFilled
 		slot.PositionQty = slotQty
-		
+
 		// 🔥 設置平均买入价格（恢复持仓时，使用槽位价格作为平均买入价格）
 		// 因为无法知道实际买入价格，使用槽位价格作为近似值
 		if slot.AvgBuyPrice <= 0 {
