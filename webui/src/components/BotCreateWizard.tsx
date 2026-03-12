@@ -309,7 +309,7 @@ const BotCreateWizard: React.FC = () => {
         grid_risk_control_enabled: form.enable_risk_control,
         grid_risk_control_stop_loss_ratio: form.enable_risk_control ? toNum(form.stop_loss_ratio, 0.2) : undefined,
         grid_risk_control_take_profit_trigger_ratio: form.enable_risk_control ? toNum(form.take_profit_trigger_ratio, 0.08) : undefined,
-        grid_risk_control_trend_filter_enabled: form.enable_risk_control ? form.enable_trend_filter : undefined,
+        grid_risk_control_trend_filter_enabled: form.enable_trend_filter,
         // 三级火箭网格
         rocket_tiered_grid: form.rocket_tiered_grid_enabled
           ? {
@@ -667,6 +667,17 @@ const BotCreateWizard: React.FC = () => {
                 </Text>
               </FormControl>
 
+              <FormControl>
+                <FormLabel>{t('botCreate.enableTrendFilter')}</FormLabel>
+                <Switch
+                  isChecked={form.enable_trend_filter || false}
+                  onChange={(e) => setForm((f) => ({ ...f, enable_trend_filter: e.target.checked }))}
+                />
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.enableTrendFilterHint')}
+                </Text>
+              </FormControl>
+
               {form.enable_risk_control && (
                 <>
                   <FormControl>
@@ -696,17 +707,6 @@ const BotCreateWizard: React.FC = () => {
                     />
                     <Text fontSize="xs" color="gray.500" mt={1}>
                       {t('botCreate.takeProfitTriggerRatioHint')}
-                    </Text>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel>{t('botCreate.enableTrendFilter')}</FormLabel>
-                    <Switch
-                      isChecked={form.enable_trend_filter || false}
-                      onChange={(e) => setForm((f) => ({ ...f, enable_trend_filter: e.target.checked }))}
-                    />
-                    <Text fontSize="xs" color="gray.500" mt={1}>
-                      {t('botCreate.enableTrendFilterHint')}
                     </Text>
                   </FormControl>
                 </>

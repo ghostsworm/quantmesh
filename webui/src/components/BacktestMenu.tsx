@@ -1744,6 +1744,21 @@ export default function BacktestMenu() {
                         </Box>
                       </FormControl>
 
+                      {/* 趋势过滤（独立于风控） */}
+                      <FormControl mb={3} display="flex" alignItems="center">
+                        <Switch
+                          isChecked={(params['grid_risk_control_trend_filter_enabled'] as boolean) || false}
+                          onChange={(e) => setParams((prev) => ({ ...prev, grid_risk_control_trend_filter_enabled: e.target.checked }))}
+                          size="sm"
+                        />
+                        <Box ml={3}>
+                          <FormLabel fontSize="sm" mb={0}>{t('backtest.enableTrendFilter')}</FormLabel>
+                          <Text fontSize="xs" color="gray.500" display="block">
+                            {t('backtest.enableTrendFilterHint')}
+                          </Text>
+                        </Box>
+                      </FormControl>
+
                       {/* 风控参数 */}
                       {(params['grid_risk_control_enabled'] as boolean) && (
                         <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3} mb={3}>
@@ -1811,20 +1826,6 @@ export default function BacktestMenu() {
                             <Text fontSize="xs" color="gray.500" mt={1}>
                               {t('backtest.trailingTakeProfitRatioHint')}
                             </Text>
-                          </FormControl>
-
-                          <FormControl display="flex" alignItems="center">
-                            <Switch
-                              isChecked={(params['grid_risk_control_trend_filter_enabled'] as boolean) || false}
-                              onChange={(e) => setParams((prev) => ({ ...prev, grid_risk_control_trend_filter_enabled: e.target.checked }))}
-                              size="sm"
-                            />
-                            <Box ml={3}>
-                              <FormLabel fontSize="sm" mb={0}>{t('backtest.enableTrendFilter')}</FormLabel>
-                              <Text fontSize="xs" color="gray.500" display="block">
-                                {t('backtest.enableTrendFilterHint')}
-                              </Text>
-                            </Box>
                           </FormControl>
                         </SimpleGrid>
                       )}
