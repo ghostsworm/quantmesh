@@ -815,18 +815,21 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		logger.Debug("🌐 [Binance] 正在從主网獲取帳戶信息")
 	}
 
-	// 🔥 修複：使用合約账戶专用的 API
-	account, err := b.client.NewGetAccountService().Do(ctx)
+	// 優先使用 WebSocket API（v2/account.status），失敗時回退 REST
+	account, err := b.fetchAccountViaWebSocket(ctx)
 	if err != nil {
-		// 將常见的英文錯误轉换為友好的中文提示
-		errStr := err.Error()
-		if strings.Contains(errStr, "Service unavailable from a restricted location") {
-			return nil, fmt.Errorf("你的网络连接在限制服務区域，请检查网络或使用代理")
+		logger.Debug("⚠️ [Binance] WebSocket 賬戶查詢失敗，回退 REST: %v", err)
+		account, err = b.fetchAccountViaREST(ctx)
+		if err != nil {
+			errStr := err.Error()
+			if strings.Contains(errStr, "Service unavailable from a restricted location") {
+				return nil, fmt.Errorf("你的网络连接在限制服務区域，请检查网络或使用代理")
+			}
+			return nil, err
 		}
-		return nil, err
 	}
 
-	// 🔥 修複：從合約账戶的 Assets 中獲取 USDT 餘額
+	// 從賬戶數據解析餘額與持倉
 	availableBalance := 0.0
 	totalWalletBalance := 0.0
 	totalMarginBalance := 0.0
@@ -889,6 +892,61 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	b.accountCacheMu.Unlock()
 
 	return result, nil
+}
+
+// accountData 統一賬戶數據結構，供 WebSocket/REST 共用
+type accountData struct {
+	Assets    []*futures.AccountAsset
+	Positions []*futures.AccountPosition
+}
+
+// fetchAccountViaWebSocket 使用 WebSocket API (v2/account.status) 獲取賬戶
+func (b *BinanceAdapter) fetchAccountViaWebSocket(ctx context.Context) (*accountData, error) {
+	resp, err := b.client.GetAccountInfoWs()
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != 200 || resp.Error != nil {
+		if resp.Error != nil {
+			return nil, fmt.Errorf("WebSocket API error: %s", resp.Error.Message)
+		}
+		return nil, fmt.Errorf("WebSocket API status %d", resp.Status)
+	}
+	// 將 AccountV3 轉為 accountData（與 REST Account 結構兼容）
+	r := resp.Result
+	data := &accountData{
+		Assets:    make([]*futures.AccountAsset, 0, len(r.Assets)),
+		Positions: make([]*futures.AccountPosition, 0, len(r.Positions)),
+	}
+	for _, a := range r.Assets {
+		data.Assets = append(data.Assets, &futures.AccountAsset{
+			Asset:             a.Asset,
+			WalletBalance:     a.WalletBalance,
+			AvailableBalance:  a.AvailableBalance,
+			MarginBalance:     a.MarginBalance,
+		})
+	}
+	for _, p := range r.Positions {
+		// go-binance AccountPositionV3 無 EntryPrice/Leverage，API 會返回但被忽略
+		// 使用 0/1 作為默認，杠杆可從 GetPositions 補全
+		data.Positions = append(data.Positions, &futures.AccountPosition{
+			Symbol:           p.Symbol,
+			PositionAmt:      p.PositionAmt,
+			EntryPrice:       "0",
+			UnrealizedProfit: p.UnrealizedProfit,
+			Leverage:         "1", // WebSocket 返回的 AccountPositionV3 無此字段，由 GetPositions 補全
+		})
+	}
+	return data, nil
+}
+
+// fetchAccountViaREST 使用 REST API 獲取賬戶
+func (b *BinanceAdapter) fetchAccountViaREST(ctx context.Context) (*accountData, error) {
+	acc, err := b.client.NewGetAccountService().Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &accountData{Assets: acc.Assets, Positions: acc.Positions}, nil
 }
 
 // parseBanTime 從錯误消息中解析封禁時间（毫秒時间戳）
