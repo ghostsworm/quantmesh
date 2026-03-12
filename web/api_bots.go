@@ -817,6 +817,15 @@ func deleteBotGroup(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot group not found"})
 		return
 	}
+	// 先停止组内所有运行中的 Bot，避免删除配置后出现“孤儿腿”继续交易
+	if botManagerProvider != nil {
+		for _, botID := range botIDsToRemove {
+			if err := botManagerProvider.StopBot(botID); err != nil {
+				respondError(c, http.StatusInternalServerError, "error.stop_bot_failed", err)
+				return
+			}
+		}
+	}
 	removeSet := make(map[string]bool)
 	for _, id := range botIDsToRemove {
 		removeSet[id] = true

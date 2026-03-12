@@ -28,6 +28,7 @@ type BotRuntime struct {
 type BotManager struct {
 	cfg             *config.Config
 	runtimes        map[string]*BotRuntime
+	runtimesMu      sync.RWMutex
 	eventBus        *event.EventBus
 	storageService  *storage.StorageService
 	distributedLock lock.DistributedLock
@@ -53,6 +54,12 @@ func symbolKey(exchange, symbol, marketType string) string {
 // 同交易所同幣同市場類型的多個 Bot 會共享交易所的同一個倉位，
 // 導致倉位重複認領、訂單互相干擾、對賬互相覆蓋等嚴重問題。
 func (bm *BotManager) findConflictingBot(exchange, symbol, marketType string) *BotRuntime {
+	bm.runtimesMu.RLock()
+	defer bm.runtimesMu.RUnlock()
+	return bm.findConflictingBotLocked(exchange, symbol, marketType)
+}
+
+func (bm *BotManager) findConflictingBotLocked(exchange, symbol, marketType string) *BotRuntime {
 	targetKey := symbolKey(exchange, symbol, marketType)
 	for _, br := range bm.runtimes {
 		existingKey := symbolKey(br.Config.Exchange, br.Config.Symbol, br.Config.GetMarketType())
@@ -69,7 +76,10 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 	if botID == "" {
 		botID = config.GenerateBotID(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType())
 	}
-	if _, ok := bm.runtimes[botID]; ok {
+	bm.runtimesMu.RLock()
+	_, exists := bm.runtimes[botID]
+	bm.runtimesMu.RUnlock()
+	if exists {
 		return nil, nil // 已在運行
 	}
 
@@ -124,7 +134,24 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 		Inner:    rt,
 		EventBus: bm.eventBus,
 	}
+	bm.runtimesMu.Lock()
+	if _, ok := bm.runtimes[botID]; ok {
+		bm.runtimesMu.Unlock()
+		if rt != nil && rt.Stop != nil {
+			rt.Stop()
+		}
+		return nil, nil
+	}
+	if conflict := bm.findConflictingBotLocked(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType()); conflict != nil {
+		bm.runtimesMu.Unlock()
+		if rt != nil && rt.Stop != nil {
+			rt.Stop()
+		}
+		return nil, fmt.Errorf("symbol_conflict: %s:%s(%s) 已有 Bot [%s] 在運行",
+			botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
+	}
 	bm.runtimes[botID] = br
+	bm.runtimesMu.Unlock()
 
 	// 发布启动成功事件
 	bm.eventBus.Publish(&event.Event{
@@ -142,15 +169,18 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 
 // StopBot 停止指定 Bot
 func (bm *BotManager) StopBot(botID string) error {
+	bm.runtimesMu.Lock()
 	br, ok := bm.runtimes[botID]
 	if !ok {
+		bm.runtimesMu.Unlock()
 		return nil
 	}
+	delete(bm.runtimes, botID)
+	bm.runtimesMu.Unlock()
 
 	if br.Inner != nil && br.Inner.Stop != nil {
 		br.Inner.Stop()
 	}
-	delete(bm.runtimes, botID)
 
 	// 🔥 保存停止狀態到數據庫（持久化，重啟後仍然有效）
 	bm.saveBotStateToDB(botID, false, "web_ui", "用戶通過 Web UI 停止")
@@ -182,6 +212,8 @@ func (bm *BotManager) EnableBot(botID string) error {
 
 // Get 按 BotID 獲取運行時
 func (bm *BotManager) Get(botID string) (*BotRuntime, bool) {
+	bm.runtimesMu.RLock()
+	defer bm.runtimesMu.RUnlock()
 	br, ok := bm.runtimes[botID]
 	return br, ok
 }
@@ -198,6 +230,8 @@ func (bm *BotManager) GetByExchangeSymbol(exchangeName, symbol string, marketTyp
 
 // List 列出所有 Bot 運行時
 func (bm *BotManager) List() []*BotRuntime {
+	bm.runtimesMu.RLock()
+	defer bm.runtimesMu.RUnlock()
 	list := make([]*BotRuntime, 0, len(bm.runtimes))
 	for _, br := range bm.runtimes {
 		list = append(list, br)
@@ -215,21 +249,31 @@ func (bm *BotManager) AddRuntime(br *BotRuntime) {
 	if br == nil || br.BotID == "" {
 		return
 	}
+	bm.runtimesMu.Lock()
+	defer bm.runtimesMu.Unlock()
 	bm.runtimes[br.BotID] = br
 }
 
 // StopAll 停止所有 Bot
 func (bm *BotManager) StopAll() {
+	bm.runtimesMu.Lock()
+	runtimes := make([]*BotRuntime, 0, len(bm.runtimes))
 	for _, br := range bm.runtimes {
+		runtimes = append(runtimes, br)
+	}
+	bm.runtimes = make(map[string]*BotRuntime)
+	bm.runtimesMu.Unlock()
+	for _, br := range runtimes {
 		if br != nil && br.Inner != nil && br.Inner.Stop != nil {
 			br.Inner.Stop()
 		}
 	}
-	bm.runtimes = make(map[string]*BotRuntime)
 }
 
 // ListSymbolRuntimes 返回底層 SymbolRuntime 列表（供需要兼容 SymbolManager 的調用方使用）
 func (bm *BotManager) ListSymbolRuntimes() []*SymbolRuntime {
+	bm.runtimesMu.RLock()
+	defer bm.runtimesMu.RUnlock()
 	list := make([]*SymbolRuntime, 0, len(bm.runtimes))
 	for _, br := range bm.runtimes {
 		if br.Inner != nil {
@@ -247,7 +291,9 @@ func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (upda
 		if botID == "" {
 			botID = config.GenerateBotID(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType())
 		}
+		bm.runtimesMu.RLock()
 		br, ok := bm.runtimes[botID]
+		bm.runtimesMu.RUnlock()
 		if !ok || br.Inner == nil || br.Inner.SuperPositionManager == nil {
 			continue
 		}
@@ -602,23 +648,22 @@ func (br *BotRuntime) autoResumeAfter(seconds int) {
 
 	logger.Info("⏰ [%s] 自动恢复定时器已启动，将在 %d 秒后恢复开仓", br.BotID, seconds)
 
-	select {
-	case <-time.After(time.Duration(seconds) * time.Second):
-		// 检查是否仍处于暂停状态
-		br.configMu.RLock()
-		stillPaused := br.Config.OpenPositionControl.PauseOpening
-		pauseReason := ""
-		if br.Config.OpenPositionControl.BotRiskControl != nil {
-			pauseReason = br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason
-		}
-		br.configMu.RUnlock()
+	time.Sleep(time.Duration(seconds) * time.Second)
 
-		if stillPaused {
-			logger.Info("🔔 [%s] 自动恢复定时器触发，恢复开仓（暂停原因: %s）", br.BotID, pauseReason)
-			br.ResumeOpening()
-		} else {
-			logger.Info("ℹ️ [%s] 自动恢复定时器触发，但开仓已恢复，跳过", br.BotID)
-		}
+	// 检查是否仍处于暂停状态
+	br.configMu.RLock()
+	stillPaused := br.Config.OpenPositionControl.PauseOpening
+	pauseReason := ""
+	if br.Config.OpenPositionControl.BotRiskControl != nil {
+		pauseReason = br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason
+	}
+	br.configMu.RUnlock()
+
+	if stillPaused {
+		logger.Info("🔔 [%s] 自动恢复定时器触发，恢复开仓（暂停原因: %s）", br.BotID, pauseReason)
+		br.ResumeOpening()
+	} else {
+		logger.Info("ℹ️ [%s] 自动恢复定时器触发，但开仓已恢复，跳过", br.BotID)
 	}
 }
 

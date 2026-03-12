@@ -420,3 +420,73 @@ func TestPostgresUnsupported(t *testing.T) {
 		t.Errorf("期望錯誤包含「PostgreSQL 暂不支持」，得到: %v", err)
 	}
 }
+
+// TestSaveOrderKeepIsolationByExchangeAndBotID 驗證相同 order_id 在不同交易所/Bot 不會互相覆蓋
+func TestSaveOrderKeepIsolationByExchangeAndBotID(t *testing.T) {
+	dbPath := "./test_order_isolation.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now()
+	orderA := &Order{
+		OrderID:       12345,
+		BotID:         "binance:BTCUSDT:futures",
+		ClientOrderID: "oid-a",
+		Exchange:      "binance",
+		Symbol:        "BTCUSDT",
+		Side:          "BUY",
+		Price:         60000,
+		Quantity:      0.01,
+		Status:        "NEW",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	orderB := &Order{
+		OrderID:       12345,
+		BotID:         "gate:BTCUSDT:futures",
+		ClientOrderID: "oid-b",
+		Exchange:      "gate",
+		Symbol:        "BTCUSDT",
+		Side:          "BUY",
+		Price:         59999,
+		Quantity:      0.02,
+		Status:        "NEW",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	if err := st.SaveOrder(orderA); err != nil {
+		t.Fatalf("保存訂單 A 失败: %v", err)
+	}
+	if err := st.SaveOrder(orderB); err != nil {
+		t.Fatalf("保存訂單 B 失败: %v", err)
+	}
+
+	orders, err := st.QueryOrders(10, 0, "NEW")
+	if err != nil {
+		t.Fatalf("查詢訂單失败: %v", err)
+	}
+	if len(orders) != 2 {
+		t.Fatalf("期望保留兩筆同 order_id 不同交易所訂單，實際 %d", len(orders))
+	}
+
+	foundBotA, foundBotB := false, false
+	for _, o := range orders {
+		if o.Exchange == "binance" && o.BotID == "binance:BTCUSDT:futures" {
+			foundBotA = true
+		}
+		if o.Exchange == "gate" && o.BotID == "gate:BTCUSDT:futures" {
+			foundBotB = true
+		}
+	}
+	if !foundBotA || !foundBotB {
+		t.Fatalf("期望查詢結果保留兩個 bot_id，foundBotA=%v foundBotB=%v", foundBotA, foundBotB)
+	}
+}
