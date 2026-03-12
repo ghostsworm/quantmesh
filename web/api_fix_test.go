@@ -1,6 +1,8 @@
 package web
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +11,30 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"quantmesh/config"
 	"quantmesh/storage"
 )
+
+type mockFixBotManager struct{}
+
+func (m *mockFixBotManager) ListBots() []BotResponse { return nil }
+func (m *mockFixBotManager) GetBot(botID string) (*BotDetailResponse, bool) {
+	if botID != "binance:BTCUSDT:futures" {
+		return nil, false
+	}
+	return &BotDetailResponse{
+		BotResponse: BotResponse{
+			BotID:      botID,
+			Exchange:   "binance",
+			Symbol:     "BTCUSDT",
+			MarketType: "futures",
+			Running:    true,
+		},
+	}, true
+}
+func (m *mockFixBotManager) StartBot(ctx context.Context, botCfg config.BotConfig) error { return nil }
+func (m *mockFixBotManager) StopBot(botID string) error                                  { return nil }
+func (m *mockFixBotManager) EnableBot(botID string) error                                { return nil }
 
 func TestGetFixSessions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -136,5 +160,63 @@ func TestGetFixOrderLinks(t *testing.T) {
 	}
 	if resp.Orders[0].ClOrdID != "A-1001" || resp.Orders[0].OrdStatus != "NEW" {
 		t.Fatalf("响应字段异常: %+v", resp.Orders[0])
+	}
+}
+
+func TestFixLogonAndHeartbeat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dbPath := "./test_api_fix_logon_heartbeat.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("创建存储失败: %v", err)
+	}
+	defer st.Close()
+
+	origStorageProvider := storageServiceProvider
+	origBotProvider := botManagerProvider
+	SetStorageServiceProvider(&testStorageProvider{st: st})
+	RegisterBotManagerProvider(&mockFixBotManager{})
+	t.Cleanup(func() {
+		SetStorageServiceProvider(origStorageProvider)
+		RegisterBotManagerProvider(origBotProvider)
+	})
+
+	logonBody := []byte(`{
+		"session_id":"FIX.4.4:BUYER->SELLER",
+		"bot_id":"binance:BTCUSDT:futures",
+		"role":"acceptor",
+		"begin_string":"FIX.4.4",
+		"sender_comp_id":"SELLER",
+		"target_comp_id":"BUYER"
+	}`)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/fix/sessions/logon", bytes.NewReader(logonBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	fixLogonSession(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("logon expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	state, err := st.GetFixSessionState("FIX.4.4:BUYER->SELLER")
+	if err != nil || state == nil {
+		t.Fatalf("logon 后应有会话状态: err=%v state=%+v", err, state)
+	}
+	if !state.IsLoggedOn {
+		t.Fatalf("会话绑定异常: %+v", state)
+	}
+
+	heartbeatBody := []byte(`{"session_id":"FIX.4.4:BUYER->SELLER"}`)
+	w2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(w2)
+	c2.Request = httptest.NewRequest(http.MethodPost, "/api/fix/sessions/heartbeat", bytes.NewReader(heartbeatBody))
+	c2.Request.Header.Set("Content-Type", "application/json")
+	fixHeartbeat(c2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("heartbeat expected 200, got %d body=%s", w2.Code, w2.Body.String())
 	}
 }

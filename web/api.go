@@ -1912,8 +1912,10 @@ func getFixSessions(c *gin.Context) {
 	}
 	resp := make([]map[string]interface{}, 0, len(sessions))
 	for _, s := range sessions {
+		botID := getFixSessionBotBinding(s.SessionID)
 		item := map[string]interface{}{
 			"session_id":        s.SessionID,
+			"bot_id":            botID,
 			"role":              s.Role,
 			"begin_string":      s.BeginString,
 			"sender_comp_id":    s.SenderCompID,
@@ -1993,6 +1995,532 @@ func getFixOrderLinks(c *gin.Context) {
 		"orders":      resp,
 		"total_count": len(resp),
 	})
+}
+
+type fixLogonRequest struct {
+	SessionID      string `json:"session_id" binding:"required"`
+	BotID          string `json:"bot_id" binding:"required"`
+	Role           string `json:"role"`
+	BeginString    string `json:"begin_string"`
+	SenderCompID   string `json:"sender_comp_id"`
+	TargetCompID   string `json:"target_comp_id"`
+	ResetSeqNumFlg bool   `json:"reset_seq_num_flg"`
+}
+
+type fixHeartbeatRequest struct {
+	SessionID string `json:"session_id" binding:"required"`
+}
+
+type fixNewOrderRequest struct {
+	SessionID    string  `json:"session_id" binding:"required"`
+	ClOrdID      string  `json:"cl_ord_id" binding:"required"`
+	Symbol       string  `json:"symbol"`
+	Side         string  `json:"side" binding:"required"`
+	Price        float64 `json:"price" binding:"required,gt=0"`
+	OrderQty     float64 `json:"order_qty" binding:"required,gt=0"`
+	OrdType      string  `json:"ord_type"`
+	ReduceOnly   bool    `json:"reduce_only"`
+	PostOnly     bool    `json:"post_only"`
+	StrategyName string  `json:"strategy_name"`
+	StrategyType string  `json:"strategy_type"`
+}
+
+type fixCancelOrderRequest struct {
+	SessionID   string `json:"session_id" binding:"required"`
+	ClOrdID     string `json:"cl_ord_id" binding:"required"`
+	OrigClOrdID string `json:"orig_cl_ord_id" binding:"required"`
+}
+
+type fixReplaceOrderRequest struct {
+	SessionID   string  `json:"session_id" binding:"required"`
+	ClOrdID     string  `json:"cl_ord_id" binding:"required"`
+	OrigClOrdID string  `json:"orig_cl_ord_id" binding:"required"`
+	Price       float64 `json:"price" binding:"required,gt=0"`
+	OrderQty    float64 `json:"order_qty" binding:"required,gt=0"`
+}
+
+var (
+	fixSessionBotBinding   = make(map[string]string)
+	fixSessionBindingMutex sync.RWMutex
+)
+
+func setFixSessionBotBinding(sessionID, botID string) {
+	fixSessionBindingMutex.Lock()
+	defer fixSessionBindingMutex.Unlock()
+	if botID == "" {
+		delete(fixSessionBotBinding, sessionID)
+		return
+	}
+	fixSessionBotBinding[sessionID] = botID
+}
+
+func getFixSessionBotBinding(sessionID string) string {
+	fixSessionBindingMutex.RLock()
+	defer fixSessionBindingMutex.RUnlock()
+	return fixSessionBotBinding[sessionID]
+}
+
+// fixLogonSession FIX 登录与会话绑定
+// POST /api/fix/sessions/logon
+func fixLogonSession(c *gin.Context) {
+	var req fixLogonRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+	if botManagerProvider == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.not_supported", fmt.Errorf("bot manager not available"))
+		return
+	}
+	if _, ok := botManagerProvider.GetBot(req.BotID); !ok {
+		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
+		return
+	}
+
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.storage_not_found", fmt.Errorf("storage unavailable"))
+		return
+	}
+	st := storageProv.GetStorage()
+
+	now := utils.NowUTC()
+	current, err := st.GetFixSessionState(req.SessionID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.query_failed", err)
+		return
+	}
+	nextSenderSeq := int64(1)
+	nextTargetSeq := int64(1)
+	if current != nil {
+		nextSenderSeq = current.NextSenderSeq
+		nextTargetSeq = current.NextTargetSeq
+	}
+	if req.ResetSeqNumFlg {
+		nextSenderSeq = 1
+		nextTargetSeq = 1
+	}
+	role := req.Role
+	if role == "" {
+		role = "acceptor"
+	}
+	beginString := req.BeginString
+	if beginString == "" {
+		beginString = "FIX.4.4"
+	}
+	state := &storage.FixSessionState{
+		SessionID:       req.SessionID,
+		Role:            role,
+		BeginString:     beginString,
+		SenderCompID:    req.SenderCompID,
+		TargetCompID:    req.TargetCompID,
+		NextSenderSeq:   nextSenderSeq,
+		NextTargetSeq:   nextTargetSeq,
+		IsLoggedOn:      true,
+		LastLogonAt:     &now,
+		LastHeartbeatAt: &now,
+		UpdatedAt:       now,
+	}
+	if err := st.UpsertFixSessionState(state); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.save_failed", err)
+		return
+	}
+	setFixSessionBotBinding(req.SessionID, req.BotID)
+	c.JSON(http.StatusOK, gin.H{
+		"ok":                true,
+		"session_id":        state.SessionID,
+		"bot_id":            req.BotID,
+		"next_sender_seq":   state.NextSenderSeq,
+		"next_target_seq":   state.NextTargetSeq,
+		"is_logged_on":      true,
+		"last_logon_at":     utils.ToUTC8(now),
+		"last_heartbeat_at": utils.ToUTC8(now),
+	})
+}
+
+// fixHeartbeat FIX 心跳
+// POST /api/fix/sessions/heartbeat
+func fixHeartbeat(c *gin.Context) {
+	var req fixHeartbeatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.storage_not_found", fmt.Errorf("storage unavailable"))
+		return
+	}
+	st := storageProv.GetStorage()
+	state, err := st.GetFixSessionState(req.SessionID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.query_failed", err)
+		return
+	}
+	if state == nil || !state.IsLoggedOn {
+		respondError(c, http.StatusBadRequest, "error.invalid_session")
+		return
+	}
+	now := utils.NowUTC()
+	state.LastHeartbeatAt = &now
+	state.UpdatedAt = now
+	if err := st.UpsertFixSessionState(state); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.save_failed", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "session_id": req.SessionID, "last_heartbeat_at": utils.ToUTC8(now)})
+}
+
+// fixNewOrder FIX 新单
+// POST /api/fix/orders/new
+func fixNewOrder(c *gin.Context) {
+	var req fixNewOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+	st, state, botDetail, ex, symbol, err := resolveFixExecutionContext(c, req.SessionID)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_session", err)
+		return
+	}
+	if req.Symbol != "" && !strings.EqualFold(req.Symbol, symbol) {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", fmt.Errorf("symbol mismatch with bound bot"))
+		return
+	}
+	side := strings.ToUpper(strings.TrimSpace(req.Side))
+	if side != "BUY" && side != "SELL" {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", fmt.Errorf("side must be BUY or SELL"))
+		return
+	}
+	ordType := strings.ToUpper(strings.TrimSpace(req.OrdType))
+	if ordType == "" {
+		ordType = "LIMIT"
+	}
+	if ordType != "LIMIT" && ordType != "MARKET" {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", fmt.Errorf("ord_type must be LIMIT or MARKET"))
+		return
+	}
+
+	orderReq := &exchange.OrderRequest{
+		Symbol:        symbol,
+		Side:          exchange.Side(side),
+		Type:          exchange.OrderType(ordType),
+		TimeInForce:   exchange.TimeInForceGTC,
+		Quantity:      req.OrderQty,
+		Price:         req.Price,
+		ReduceOnly:    req.ReduceOnly,
+		PostOnly:      req.PostOnly,
+		ClientOrderID: req.ClOrdID,
+		StrategyName:  req.StrategyName,
+		StrategyType:  req.StrategyType,
+	}
+	if ordType == "MARKET" {
+		orderReq.Price = 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	exOrder, placeErr := ex.PlaceOrder(ctx, orderReq)
+	now := utils.NowUTC()
+	reportStatus := "REJECTED"
+	execType := "8"
+	var internalOrderID int64
+	var cumQty, leavesQty, avgPx float64
+	reportText := ""
+	if placeErr == nil && exOrder != nil {
+		reportStatus = mapExchangeOrderStatus(string(exOrder.Status))
+		if reportStatus == "NEW" {
+			execType = "0"
+		}
+		internalOrderID = exOrder.OrderID
+		cumQty = exOrder.ExecutedQty
+		if exOrder.Quantity > exOrder.ExecutedQty {
+			leavesQty = exOrder.Quantity - exOrder.ExecutedQty
+		}
+		avgPx = exOrder.AvgPrice
+	} else if placeErr != nil {
+		reportText = placeErr.Error()
+	}
+
+	_ = st.UpsertFixOrderLink(&storage.FixOrderLink{
+		SessionID:       req.SessionID,
+		ClOrdID:         req.ClOrdID,
+		BotID:           botDetail.BotID,
+		Exchange:        botDetail.Exchange,
+		Symbol:          symbol,
+		Side:            side,
+		InternalOrderID: internalOrderID,
+		LastExecID:      fmt.Sprintf("exec-%d", now.UnixNano()),
+		OrdStatus:       reportStatus,
+		CumQty:          cumQty,
+		LeavesQty:       leavesQty,
+		AvgPx:           avgPx,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
+	bumpFixSessionSeq(state, now)
+	_ = st.UpsertFixSessionState(state)
+
+	statusCode := http.StatusOK
+	if placeErr != nil {
+		statusCode = http.StatusBadRequest
+	}
+	c.JSON(statusCode, gin.H{
+		"session_id":      req.SessionID,
+		"cl_ord_id":       req.ClOrdID,
+		"exec_type":       execType,
+		"ord_status":      reportStatus,
+		"order_id":        internalOrderID,
+		"cum_qty":         cumQty,
+		"leaves_qty":      leavesQty,
+		"avg_px":          avgPx,
+		"text":            reportText,
+		"next_sender_seq": state.NextSenderSeq,
+		"next_target_seq": state.NextTargetSeq,
+	})
+}
+
+// fixCancelOrder FIX 撤单
+// POST /api/fix/orders/cancel
+func fixCancelOrder(c *gin.Context) {
+	var req fixCancelOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+	st, state, botDetail, ex, symbol, err := resolveFixExecutionContext(c, req.SessionID)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_session", err)
+		return
+	}
+	orig, err := st.GetFixOrderLinkByClOrdID(req.SessionID, req.OrigClOrdID)
+	if err != nil || orig == nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", fmt.Errorf("orig_cl_ord_id not found"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	cancelErr := ex.CancelOrder(ctx, symbol, orig.InternalOrderID)
+	now := utils.NowUTC()
+	status := "CANCELED"
+	execType := "4"
+	text := ""
+	if cancelErr != nil {
+		status = "REJECTED"
+		execType = "8"
+		text = cancelErr.Error()
+	}
+	_ = st.UpsertFixOrderLink(&storage.FixOrderLink{
+		SessionID:       req.SessionID,
+		ClOrdID:         req.ClOrdID,
+		OrigClOrdID:     req.OrigClOrdID,
+		BotID:           botDetail.BotID,
+		Exchange:        botDetail.Exchange,
+		Symbol:          symbol,
+		Side:            orig.Side,
+		InternalOrderID: orig.InternalOrderID,
+		LastExecID:      fmt.Sprintf("exec-%d", now.UnixNano()),
+		OrdStatus:       status,
+		CumQty:          orig.CumQty,
+		LeavesQty:       0,
+		AvgPx:           orig.AvgPx,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
+	bumpFixSessionSeq(state, now)
+	_ = st.UpsertFixSessionState(state)
+	code := http.StatusOK
+	if cancelErr != nil {
+		code = http.StatusBadRequest
+	}
+	c.JSON(code, gin.H{
+		"session_id":      req.SessionID,
+		"cl_ord_id":       req.ClOrdID,
+		"orig_cl_ord_id":  req.OrigClOrdID,
+		"exec_type":       execType,
+		"ord_status":      status,
+		"order_id":        orig.InternalOrderID,
+		"text":            text,
+		"next_sender_seq": state.NextSenderSeq,
+		"next_target_seq": state.NextTargetSeq,
+	})
+}
+
+// fixReplaceOrder FIX 改单（撤旧挂新）
+// POST /api/fix/orders/replace
+func fixReplaceOrder(c *gin.Context) {
+	var req fixReplaceOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+	st, state, botDetail, ex, symbol, err := resolveFixExecutionContext(c, req.SessionID)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_session", err)
+		return
+	}
+	orig, err := st.GetFixOrderLinkByClOrdID(req.SessionID, req.OrigClOrdID)
+	if err != nil || orig == nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", fmt.Errorf("orig_cl_ord_id not found"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = ex.CancelOrder(ctx, symbol, orig.InternalOrderID)
+	orderReq := &exchange.OrderRequest{
+		Symbol:        symbol,
+		Side:          exchange.Side(strings.ToUpper(orig.Side)),
+		Type:          exchange.OrderTypeLimit,
+		TimeInForce:   exchange.TimeInForceGTC,
+		Quantity:      req.OrderQty,
+		Price:         req.Price,
+		ClientOrderID: req.ClOrdID,
+	}
+	newOrder, placeErr := ex.PlaceOrder(ctx, orderReq)
+	now := utils.NowUTC()
+	status := "REPLACED"
+	execType := "5"
+	var orderID int64
+	text := ""
+	if placeErr != nil || newOrder == nil {
+		status = "REJECTED"
+		execType = "8"
+		if placeErr != nil {
+			text = placeErr.Error()
+		}
+	} else {
+		orderID = newOrder.OrderID
+	}
+	_ = st.UpsertFixOrderLink(&storage.FixOrderLink{
+		SessionID:       req.SessionID,
+		ClOrdID:         req.ClOrdID,
+		OrigClOrdID:     req.OrigClOrdID,
+		BotID:           botDetail.BotID,
+		Exchange:        botDetail.Exchange,
+		Symbol:          symbol,
+		Side:            orig.Side,
+		InternalOrderID: orderID,
+		LastExecID:      fmt.Sprintf("exec-%d", now.UnixNano()),
+		OrdStatus:       status,
+		CumQty:          0,
+		LeavesQty:       req.OrderQty,
+		AvgPx:           0,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
+	bumpFixSessionSeq(state, now)
+	_ = st.UpsertFixSessionState(state)
+	code := http.StatusOK
+	if placeErr != nil {
+		code = http.StatusBadRequest
+	}
+	c.JSON(code, gin.H{
+		"session_id":      req.SessionID,
+		"cl_ord_id":       req.ClOrdID,
+		"orig_cl_ord_id":  req.OrigClOrdID,
+		"exec_type":       execType,
+		"ord_status":      status,
+		"order_id":        orderID,
+		"text":            text,
+		"next_sender_seq": state.NextSenderSeq,
+		"next_target_seq": state.NextTargetSeq,
+	})
+}
+
+func resolveFixExecutionContext(c *gin.Context, sessionID string) (storage.Storage, *storage.FixSessionState, *BotDetailResponse, exchange.IExchange, string, error) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		return nil, nil, nil, nil, "", fmt.Errorf("storage unavailable")
+	}
+	st := storageProv.GetStorage()
+	state, err := st.GetFixSessionState(sessionID)
+	if err != nil {
+		return nil, nil, nil, nil, "", err
+	}
+	if state == nil || !state.IsLoggedOn {
+		return nil, nil, nil, nil, "", fmt.Errorf("session not logged on")
+	}
+	botID := getFixSessionBotBinding(sessionID)
+	if botID == "" {
+		return nil, nil, nil, nil, "", fmt.Errorf("session bot binding missing; please logon again")
+	}
+	if botManagerProvider == nil {
+		return nil, nil, nil, nil, "", fmt.Errorf("bot manager unavailable")
+	}
+	botDetail, ok := botManagerProvider.GetBot(botID)
+	if !ok || botDetail == nil {
+		return nil, nil, nil, nil, "", fmt.Errorf("bound bot not found")
+	}
+	if symbolManagerProvider == nil {
+		return nil, nil, nil, nil, "", fmt.Errorf("symbol manager unavailable")
+	}
+	rt, found := symbolManagerProvider.GetEx(botDetail.Exchange, botDetail.Symbol, botDetail.MarketType)
+	if !found {
+		return nil, nil, nil, nil, "", fmt.Errorf("bot runtime not running")
+	}
+	ex, err := extractExchangeFromRuntime(rt)
+	if err != nil {
+		return nil, nil, nil, nil, "", err
+	}
+	return st, state, botDetail, ex, botDetail.Symbol, nil
+}
+
+func extractExchangeFromRuntime(rt interface{}) (exchange.IExchange, error) {
+	v := reflect.ValueOf(rt)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	field := v.FieldByName("Exchange")
+	if !field.IsValid() || field.IsNil() {
+		return nil, fmt.Errorf("runtime exchange not available")
+	}
+	ex, ok := field.Interface().(exchange.IExchange)
+	if !ok {
+		return nil, fmt.Errorf("runtime exchange type assertion failed")
+	}
+	return ex, nil
+}
+
+func mapExchangeOrderStatus(status string) string {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "NEW":
+		return "NEW"
+	case "PARTIALLY_FILLED":
+		return "PARTIALLY_FILLED"
+	case "FILLED":
+		return "FILLED"
+	case "CANCELED", "CANCELLED":
+		return "CANCELED"
+	case "EXPIRED":
+		return "EXPIRED"
+	default:
+		return "REJECTED"
+	}
+}
+
+func bumpFixSessionSeq(state *storage.FixSessionState, now time.Time) {
+	if state == nil {
+		return
+	}
+	if state.NextSenderSeq <= 0 {
+		state.NextSenderSeq = 1
+	}
+	if state.NextTargetSeq <= 0 {
+		state.NextTargetSeq = 1
+	}
+	state.NextSenderSeq++
+	state.NextTargetSeq++
+	state.UpdatedAt = now
 }
 
 var (
