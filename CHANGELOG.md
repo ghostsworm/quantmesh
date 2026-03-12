@@ -2,6 +2,19 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc12] - 2026-03-12
+
+### Fixed
+- **已停止 Bot 重啟後自動運行**：修復重大 bug，停止過的 Bot 在系統重啟後不再自動啟動
+  - 存儲不可用或查詢失敗時保守返回「禁用」，避免誤啟動
+  - 存儲未啟用時新增 `./data/bot_states.json` 文件 fallback，確保停止狀態持久化
+  - MySQL 用戶：新增 `bot_states` 表遷移（此前僅 SQLite 有），`SetBotState` 支援 MySQL 語法
+
+### Test
+- **bot_manager_test.go**：新增 `TestBotManagerIsBotEnabledInDB_StorageUnavailable`、`TestBotManagerBotStateFileFallback`
+
+---
+
 ## [3.76.0-rc11] - 2026-03-12
 
 ### Fixed
