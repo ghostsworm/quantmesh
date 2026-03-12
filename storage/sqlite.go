@@ -84,6 +84,11 @@ func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 orders 表失败: %w", err)
 		}
+		// 迁移：risk_check_history 表增加 bot_id / exchange / market_type 列
+		if err := migrateRiskCheckHistoryTable(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 risk_check_history 表失败: %w", err)
+		}
 
 		// 迁移：创建系统设置表
 		if err := migrateSystemSettingsTable(db); err != nil {
@@ -236,6 +241,9 @@ func createTables(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS risk_check_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		check_time TIMESTAMP NOT NULL,
+		bot_id TEXT DEFAULT '',
+		exchange TEXT DEFAULT '',
+		market_type TEXT DEFAULT '',
 		symbol TEXT NOT NULL,
 		is_healthy INTEGER NOT NULL,
 		price_deviation REAL,
@@ -244,8 +252,10 @@ func createTables(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time ON risk_check_history(check_time);
+	CREATE INDEX IF NOT EXISTS idx_risk_check_history_bot_id ON risk_check_history(bot_id);
 	CREATE INDEX IF NOT EXISTS idx_risk_check_history_symbol ON risk_check_history(symbol);
-	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time_symbol ON risk_check_history(check_time, symbol);`
+	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time_symbol ON risk_check_history(check_time, symbol);
+	CREATE INDEX IF NOT EXISTS idx_risk_check_history_bot_time ON risk_check_history(bot_id, check_time);`
 
 	// 资金费率表
 	fundingRatesSQL := `
@@ -1133,6 +1143,39 @@ func migrateOrdersTable(db *sql.DB) error {
 
 	if err := ensureOrdersCompositeUniqueConstraint(db); err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateRiskCheckHistoryTable(db *sql.DB) error {
+	columns := []struct {
+		name string
+		def  string
+	}{
+		{"bot_id", "ALTER TABLE risk_check_history ADD COLUMN bot_id TEXT DEFAULT ''"},
+		{"exchange", "ALTER TABLE risk_check_history ADD COLUMN exchange TEXT DEFAULT ''"},
+		{"market_type", "ALTER TABLE risk_check_history ADD COLUMN market_type TEXT DEFAULT ''"},
+	}
+	for _, col := range columns {
+		row := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('risk_check_history') WHERE name=?`, col.name)
+		var count int
+		if err := row.Scan(&count); err != nil {
+			continue
+		}
+		if count == 0 {
+			if _, err := db.Exec(col.def); err != nil {
+				logger.Warn("⚠️ risk_check_history 表添加列 %s 失败: %v", col.name, err)
+			} else {
+				logger.Info("🔄 risk_check_history 表成功添加列: %s", col.name)
+			}
+		}
+	}
+
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_risk_check_history_bot_id ON risk_check_history(bot_id)`); err != nil {
+		logger.Warn("⚠️ 创建 risk_check_history bot_id 索引失败: %v", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_risk_check_history_bot_time ON risk_check_history(bot_id, check_time)`); err != nil {
+		logger.Warn("⚠️ 创建 risk_check_history bot_id+check_time 索引失败: %v", err)
 	}
 	return nil
 }
@@ -2951,14 +2994,14 @@ func (s *SQLiteStorage) SaveRiskCheck(record *RiskCheckRecord) error {
 	checkTime := utils.ToUTC(record.CheckTime)
 	_, err := s.db.Exec(`
 		INSERT INTO risk_check_history 
-		(check_time, symbol, is_healthy, price_deviation, volume_ratio, reason)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, checkTime, record.Symbol, record.IsHealthy, record.PriceDeviation, record.VolumeRatio, record.Reason)
+		(check_time, bot_id, exchange, market_type, symbol, is_healthy, price_deviation, volume_ratio, reason)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, checkTime, record.BotID, record.Exchange, record.MarketType, record.Symbol, record.IsHealthy, record.PriceDeviation, record.VolumeRatio, record.Reason)
 	return err
 }
 
 // QueryRiskCheckHistory 查詢风控检查历史
-func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limit int) ([]*RiskCheckHistory, error) {
+func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limit int, botID string) ([]*RiskCheckHistory, error) {
 	// 如果 limit <= 0，默认限制為 200 条，防止前端渲染數據過大導致卡顿
 	if limit <= 0 {
 		limit = 200
@@ -2986,13 +3029,22 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limi
 	}
 
 	// 查詢數據，按時间倒序，限制數量
-	rows, err := s.db.Query(`
+	query := `
 		SELECT check_time, symbol, is_healthy, price_deviation, volume_ratio, reason
 		FROM risk_check_history
 		WHERE check_time >= ? AND check_time <= ?
+	`
+	args := []interface{}{startTime, endTime}
+	if botID != "" {
+		query += ` AND bot_id = ?`
+		args = append(args, botID)
+	}
+	query += `
 		ORDER BY check_time DESC
 		LIMIT ?
-	`, startTime, endTime, limit*4) // 多查詢一些，因為后面會聚合，但限制在 4 倍以内防止過大
+	`
+	args = append(args, limit*4) // 多查詢一些，因為后面會聚合，但限制在 4 倍以内防止過大
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查詢风控检查历史失败: %w", err)
 	}

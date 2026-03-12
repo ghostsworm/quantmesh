@@ -4828,6 +4828,7 @@ func getRiskCheckHistory(c *gin.Context) {
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
 	limitStr := c.Query("limit")
+	botID := c.Query("bot_id")
 
 	var startTime, endTime time.Time
 	var err error
@@ -4865,7 +4866,7 @@ func getRiskCheckHistory(c *gin.Context) {
 	}
 
 	// 查詢历史數據
-	histories, err := storage.QueryRiskCheckHistory(startTime, endTime, limit)
+	histories, err := storage.QueryRiskCheckHistory(startTime, endTime, limit, botID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

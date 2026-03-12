@@ -44,6 +44,7 @@ func parseExportParams(c *gin.Context) storage.ExportParams {
 		Format:    format,
 		StartTime: startTime,
 		EndTime:   endTime,
+		BotID:     c.Query("bot_id"),
 		Exchange:  c.Query("exchange"),
 		Symbol:    c.Query("symbol"),
 		Account:   account,
