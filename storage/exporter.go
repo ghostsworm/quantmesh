@@ -27,6 +27,7 @@ type ExportParams struct {
 	Format     ExportFormat
 	StartTime  time.Time
 	EndTime    time.Time
+	BotID      string
 	Exchange   string
 	Symbol     string
 	Account    string
@@ -180,7 +181,7 @@ func (e *Exporter) ExportRiskChecks(params ExportParams) ([]byte, string, error)
 		endTime = utils.NowConfiguredTimezone()
 	}
 
-	histories, err := e.storage.QueryRiskCheckHistory(startTime, endTime, 500)
+	histories, err := e.storage.QueryRiskCheckHistory(startTime, endTime, 500, params.BotID)
 	if err != nil {
 		return nil, "", err
 	}

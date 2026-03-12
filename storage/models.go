@@ -197,6 +197,9 @@ type PnLBySymbol struct {
 // RiskCheckRecord 风控检查記錄（單条）
 type RiskCheckRecord struct {
 	CheckTime      time.Time
+	BotID          string
+	Exchange       string
+	MarketType     string
 	Symbol         string
 	IsHealthy      bool
 	PriceDeviation float64

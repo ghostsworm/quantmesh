@@ -64,7 +64,7 @@ type Storage interface {
 	GetActualProfitBySymbol(symbol, account string, beforeTime time.Time) (float64, error)
 	GetTotalBuySellQty(symbol, account string) (totalBuyQty, totalSellQty float64, err error)
 	SaveRiskCheck(record *RiskCheckRecord) error
-	QueryRiskCheckHistory(startTime, endTime time.Time, limit int) ([]*RiskCheckHistory, error)
+	QueryRiskCheckHistory(startTime, endTime time.Time, limit int, botID string) ([]*RiskCheckHistory, error)
 	CleanupRiskCheckHistory(beforeTime time.Time) error
 	SaveFundingRate(symbol, exchange string, rate float64, timestamp time.Time) error
 	GetLatestFundingRate(symbol, exchange string) (float64, error)

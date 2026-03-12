@@ -1382,6 +1382,7 @@ export interface RiskCheckHistoryParams {
   start_time?: string
   end_time?: string
   limit?: number
+  bot_id?: string
 }
 
 export async function getRiskCheckHistory(params?: RiskCheckHistoryParams): Promise<RiskCheckHistoryResponse> {
@@ -1389,6 +1390,7 @@ export async function getRiskCheckHistory(params?: RiskCheckHistoryParams): Prom
   if (params?.start_time) queryParams.append('start_time', params.start_time)
   if (params?.end_time) queryParams.append('end_time', params.end_time)
   if (params?.limit) queryParams.append('limit', String(params.limit))
+  if (params?.bot_id) queryParams.append('bot_id', params.bot_id)
   
   const url = `${API_BASE_URL}/risk/history${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)

@@ -421,6 +421,74 @@ func TestPostgresUnsupported(t *testing.T) {
 	}
 }
 
+func TestQueryRiskCheckHistoryByBotID(t *testing.T) {
+	dbPath := "./test_risk_check_bot_filter.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC()
+	if err := st.SaveRiskCheck(&RiskCheckRecord{
+		CheckTime:      now,
+		BotID:          "binance:BTCUSDT:futures",
+		Exchange:       "binance",
+		MarketType:     "futures",
+		Symbol:         "BTCUSDT",
+		IsHealthy:      false,
+		PriceDeviation: -7.2,
+		VolumeRatio:    3.1,
+		Reason:         "panic",
+	}); err != nil {
+		t.Fatalf("保存风控记录 A 失败: %v", err)
+	}
+	if err := st.SaveRiskCheck(&RiskCheckRecord{
+		CheckTime:      now.Add(1 * time.Minute),
+		BotID:          "binance:ETHUSDT:futures",
+		Exchange:       "binance",
+		MarketType:     "futures",
+		Symbol:         "ETHUSDT",
+		IsHealthy:      true,
+		PriceDeviation: 0.2,
+		VolumeRatio:    1.1,
+		Reason:         "ok",
+	}); err != nil {
+		t.Fatalf("保存风控记录 B 失败: %v", err)
+	}
+
+	histories, err := st.QueryRiskCheckHistory(now.Add(-1*time.Hour), now.Add(1*time.Hour), 200, "binance:BTCUSDT:futures")
+	if err != nil {
+		t.Fatalf("按 bot_id 查询风控历史失败: %v", err)
+	}
+	if len(histories) == 0 {
+		t.Fatalf("期望有风控历史数据")
+	}
+
+	foundBTC := false
+	foundETH := false
+	for _, h := range histories {
+		for _, s := range h.Symbols {
+			if s.Symbol == "BTCUSDT" {
+				foundBTC = true
+			}
+			if s.Symbol == "ETHUSDT" {
+				foundETH = true
+			}
+		}
+	}
+	if !foundBTC {
+		t.Fatalf("按 bot_id 过滤后应包含 BTCUSDT")
+	}
+	if foundETH {
+		t.Fatalf("按 bot_id 过滤后不应包含 ETHUSDT")
+	}
+}
+
 // TestSaveOrderKeepIsolationByExchangeAndBotID 驗證相同 order_id 在不同交易所/Bot 不會互相覆蓋
 func TestSaveOrderKeepIsolationByExchangeAndBotID(t *testing.T) {
 	dbPath := "./test_order_isolation.db"

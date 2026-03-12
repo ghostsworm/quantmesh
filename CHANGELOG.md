@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.75.0-rc3] - 2026-03-12
+
+### Fixed
+- **风控历史归属增强**：`risk_check_history` 新增 `bot_id`、`exchange`、`market_type` 字段并补充索引，风控检查记录可明确归属到 Bot，避免多 Bot 同交易对时历史混淆
+- **风险历史查询支持 Bot 过滤**：`GET /api/risk/history` 与导出 `GET /api/export/risk-checks` 新增 `bot_id` 过滤参数，支持按 Bot 精准查看风控轨迹
+
+### Test
+- **storage/sqlite_test.go**：新增 `TestQueryRiskCheckHistoryByBotID` 验证按 `bot_id` 过滤
+- **web/api_risk_history_test.go**：新增 `TestGetRiskCheckHistoryWithBotIDFilter` 验证 API 过滤生效
+
+---
+
 ## [3.75.0-rc2] - 2026-03-12
 
 ### Fixed

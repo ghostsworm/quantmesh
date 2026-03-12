@@ -194,6 +194,12 @@ func (r *RiskMonitor) onCandleUpdate(candle *exchange.Candle) {
 func (r *RiskMonitor) checkMarket() {
 	checkTime := time.Now()
 	var checkRecords []*storage.RiskCheckRecord
+	exchangeName := ""
+	if r.exchange != nil {
+		exchangeName = r.exchange.GetName()
+	}
+	botID := r.cfg.Trading.BotID
+	marketType := r.cfg.Trading.MarketType
 
 	// 先检查當前状態（不持有鎖）
 	r.mu.RLock()
@@ -209,6 +215,9 @@ func (r *RiskMonitor) checkMarket() {
 			isRecovered, reason := r.checkSymbolRecovery(symbol)
 			record := &storage.RiskCheckRecord{
 				CheckTime: checkTime,
+				BotID:     botID,
+				Exchange:  exchangeName,
+				MarketType: marketType,
 				Symbol:    symbol,
 				IsHealthy: isRecovered,
 				Reason:    reason,
@@ -285,6 +294,9 @@ func (r *RiskMonitor) checkMarket() {
 				// 收集检查結果
 				record := &storage.RiskCheckRecord{
 					CheckTime: checkTime,
+					BotID:     botID,
+					Exchange:  exchangeName,
+					MarketType: marketType,
 					Symbol:    symbol,
 					IsHealthy: !isPanic,
 					Reason:    reason,
