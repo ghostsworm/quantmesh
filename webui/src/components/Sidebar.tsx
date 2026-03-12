@@ -626,6 +626,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               {t('sidebar.servicesStatus')}
             </NavItem>
             <NavItem
+              icon={AttachmentIcon}
+              to="/fix"
+              isActive={isRouteActive('/fix')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.fixManagement')}
+            </NavItem>
+            <NavItem
               icon={InfoIcon}
               to="/wizard"
               isActive={isRouteActive('/wizard')}

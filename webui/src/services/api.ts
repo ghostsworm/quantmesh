@@ -3303,3 +3303,78 @@ export async function getBuiltInRuleTemplates(): Promise<{
   return fetchWithAuth(`${API_BASE_URL}/hybrid/rules/templates`)
 }
 
+// FIX 协议
+export interface FixSessionItem {
+  session_id: string
+  bot_id: string
+  role: string
+  begin_string: string
+  sender_comp_id: string
+  target_comp_id: string
+  next_sender_seq: number
+  next_target_seq: number
+  is_logged_on: boolean
+  last_logon_at?: string
+  last_heartbeat_at?: string
+  updated_at: string
+}
+
+export interface FixSessionsResponse {
+  sessions: FixSessionItem[]
+  total_count: number
+}
+
+export async function getFixSessions(limit?: number, offset?: number): Promise<FixSessionsResponse> {
+  const params = new URLSearchParams()
+  if (limit != null) params.append('limit', String(limit))
+  if (offset != null) params.append('offset', String(offset))
+  const q = params.toString()
+  return fetchWithAuth(`${API_BASE_URL}/fix/sessions${q ? '?' + q : ''}`)
+}
+
+export interface FixOrderLinkItem {
+  id: number
+  session_id: string
+  cl_ord_id: string
+  orig_cl_ord_id: string
+  bot_id: string
+  exchange: string
+  symbol: string
+  side: string
+  internal_order_id: number
+  last_exec_id: string
+  ord_status: string
+  cum_qty: number
+  leaves_qty: number
+  avg_px: number
+  created_at: string
+  updated_at: string
+}
+
+export interface FixOrdersResponse {
+  orders: FixOrderLinkItem[]
+  total_count: number
+}
+
+export async function getFixOrders(params?: {
+  session_id?: string
+  ord_status?: string
+  limit?: number
+  offset?: number
+}): Promise<FixOrdersResponse> {
+  const q = new URLSearchParams()
+  if (params?.session_id) q.append('session_id', params.session_id)
+  if (params?.ord_status) q.append('ord_status', params.ord_status)
+  if (params?.limit != null) q.append('limit', String(params.limit))
+  if (params?.offset != null) q.append('offset', String(params.offset))
+  const qs = q.toString()
+  return fetchWithAuth(`${API_BASE_URL}/fix/orders${qs ? '?' + qs : ''}`)
+}
+
+export async function fixLogout(sessionId: string): Promise<{ ok: boolean; session_id: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/fix/sessions/logout`, {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId }),
+  })
+}
+

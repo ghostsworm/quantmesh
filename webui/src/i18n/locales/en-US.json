@@ -295,6 +295,7 @@
     "fundingRate": "Funding Rate",
     "basisMonitor": "Basis Monitor",
     "servicesStatus": "Service Status",
+    "fixManagement": "FIX Management",
     "configManagement": "Configuration",
     "firstTimeWizard": "First-time Setup Wizard",
     "profile": "Profile",
@@ -684,6 +685,30 @@
       "backtestNotInit": "Backtest service not initialized. Ensure storage is enabled and initialized (see Data Storage above), save config, then restart.",
       "smartParamsNotInit": "Not initialized (backtest still works; only parameter recommendation is affected)."
     }
+  },
+  "fixManagement": {
+    "title": "FIX Management",
+    "hint": "View FIX sessions and order mappings for institutional access.",
+    "sessions": "Sessions",
+    "orders": "Orders",
+    "sessionId": "Session ID",
+    "botId": "Bot ID",
+    "role": "Role",
+    "status": "Status",
+    "lastHeartbeat": "Last Heartbeat",
+    "logout": "Logout",
+    "logoutSuccess": "Logout successful",
+    "logoutFailed": "Logout failed",
+    "loggedOn": "Logged On",
+    "loggedOut": "Logged Out",
+    "noSessions": "No sessions",
+    "noOrders": "No orders",
+    "clOrdId": "ClOrdID",
+    "symbol": "Symbol",
+    "side": "Side",
+    "ordStatus": "Order Status",
+    "internalOrderId": "Internal Order ID",
+    "updatedAt": "Updated At"
   },
   "headerStatus": {
     "runningBots": "Running",

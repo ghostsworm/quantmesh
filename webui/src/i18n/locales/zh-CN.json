@@ -295,6 +295,7 @@
     "fundingRate": "资金费率",
     "basisMonitor": "价差监控",
     "servicesStatus": "服务状态",
+    "fixManagement": "FIX 管理",
     "configManagement": "配置管理",
     "firstTimeWizard": "首次设置向导",
     "profile": "个人资料",
@@ -685,6 +686,30 @@
       "backtestNotInit": "回测服务未初始化。请确保持储已启用且初始化成功（见上方「数据存储」状态），保存配置后重启。",
       "smartParamsNotInit": "未初始化（不影响回测提交，仅影响参数推荐）。"
     }
+  },
+  "fixManagement": {
+    "title": "FIX 管理",
+    "hint": "查看 FIX 会话与订单映射，支持机构接入。",
+    "sessions": "会话",
+    "orders": "订单",
+    "sessionId": "会话 ID",
+    "botId": "Bot ID",
+    "role": "角色",
+    "status": "状态",
+    "lastHeartbeat": "最后心跳",
+    "logout": "登出",
+    "logoutSuccess": "登出成功",
+    "logoutFailed": "登出失败",
+    "loggedOn": "已登录",
+    "loggedOut": "已登出",
+    "noSessions": "暂无会话",
+    "noOrders": "暂无订单",
+    "clOrdId": "ClOrdID",
+    "symbol": "交易对",
+    "side": "方向",
+    "ordStatus": "订单状态",
+    "internalOrderId": "内部订单ID",
+    "updatedAt": "更新时间"
   },
   "headerStatus": {
     "runningBots": "运行中",

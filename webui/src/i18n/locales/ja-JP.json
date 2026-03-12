@@ -58,6 +58,7 @@
     "fundingRate": "資金調達率",
     "basisMonitor": "ベーシス監視",
     "servicesStatus": "サービス状態",
+    "fixManagement": "FIX 管理",
     "configManagement": "設定",
     "firstTimeWizard": "初回セットアップウィザード",
     "profile": "プロフィール",
