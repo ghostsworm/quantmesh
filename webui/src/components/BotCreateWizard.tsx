@@ -707,7 +707,7 @@ const BotCreateWizard: React.FC = () => {
                 </Text>
               </FormControl>
 
-              {/* 网格风控设置 - 简化版，只显示关键选项 */}
+              {/* 网格风控设置 - 简化版，启用风控 + 止损/止盈放一起，趋势过滤独立 */}
               <Text fontWeight="medium" fontSize="sm" mt={2}>{t('botCreate.gridRiskControl')}</Text>
               <FormControl>
                 <FormLabel>{t('botCreate.enableRiskControl')}</FormLabel>
@@ -717,17 +717,6 @@ const BotCreateWizard: React.FC = () => {
                 />
                 <Text fontSize="xs" color="gray.500" mt={1}>
                   {t('botCreate.enableRiskControlHint')}
-                </Text>
-              </FormControl>
-
-              <FormControl>
-                <FormLabel>{t('botCreate.enableTrendFilter')}</FormLabel>
-                <Switch
-                  isChecked={form.enable_trend_filter || false}
-                  onChange={(e) => setForm((f) => ({ ...f, enable_trend_filter: e.target.checked }))}
-                />
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  {t('botCreate.enableTrendFilterHint')}
                 </Text>
               </FormControl>
 
@@ -764,6 +753,17 @@ const BotCreateWizard: React.FC = () => {
                   </FormControl>
                 </>
               )}
+
+              <FormControl>
+                <FormLabel>{t('botCreate.enableTrendFilter')}</FormLabel>
+                <Switch
+                  isChecked={form.enable_trend_filter || false}
+                  onChange={(e) => setForm((f) => ({ ...f, enable_trend_filter: e.target.checked }))}
+                />
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.enableTrendFilterHint')}
+                </Text>
+              </FormControl>
             </VStack>
           )}
 
