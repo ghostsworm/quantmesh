@@ -640,7 +640,7 @@ func getBotGroupByID(c *gin.Context) {
 // postBotGroupCreate 創建 Bot 組（原子化創建 futures+spot 兩個 Bot）
 // POST /api/bot-groups
 func postBotGroupCreate(c *gin.Context) {
-	if configManager == nil {
+	if fileConfigManager == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.config_manager_unavailable")
 		return
 	}
@@ -859,7 +859,7 @@ func deleteBotGroup(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_group_id")
 		return
 	}
-	if configManager == nil {
+	if fileConfigManager == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.config_manager_unavailable")
 		return
 	}

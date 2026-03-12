@@ -149,6 +149,13 @@
       "hedgeSpot": "现货策略",
       "hedgeRatio": "对冲比例"
     },
+    "hedgeSpotShortConfig": "现货做空对冲参数",
+    "shortNotionalRatio": "做空名义敞口比例",
+    "shortNotionalRatioHint": "做空名义敞口占网格名义敞口的比例，默认 0.25（25%）",
+    "hedgeTriggerLayers": "触发对冲阈值",
+    "hedgeTriggerLayersHint": "网格满几格才触发开现货空仓，默认 3",
+    "hedgeRebalanceInterval": "再平衡间隔（秒）",
+    "hedgeRebalanceIntervalHint": "对冲仓位再平衡检查间隔，默认 3600 秒",
     "strategyTemplate": {
       "grid_trend": "网格+趋势",
       "dca_martingale": "DCA+马丁",

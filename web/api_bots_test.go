@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -265,6 +266,72 @@ func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
 	}
 
 	_ = os.Remove(configPath)
+}
+
+// TestPostBotGroupCreateWorksWithFileConfigManagerOnly 驗證：當 configManager 為 nil 但 fileConfigManager 已設置時，
+// postBotGroupCreate 仍可成功創建對沖組（修復 503 Service Unavailable）
+func TestPostBotGroupCreateWorksWithFileConfigManagerOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	cfg := &config.Config{
+		Bots:      []config.BotConfig{},
+		BotGroups: []config.BotGroup{},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 10
+	cfg.Trading.MinOrderValue = 6
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	fcm := NewFileConfigManager(configPath)
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = nil // 模擬 configManager 未初始化
+	t.Cleanup(func() { configManager = origCM })
+
+	mock := &mockBotManagerForGroupConsistencyTest{}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	body := `{
+		"name": "test-hedge",
+		"type": "futures_spot_hedge",
+		"hedge_config": {"hedge_ratio": 0.5, "short_notional_ratio": 0.25, "hedge_trigger_layers": 3, "rebalance_interval": 3600},
+		"futures_bot": {"exchange": "binance", "symbol": "ETHUSDT", "strategies": [{"type": "grid", "weight": 1}], "price_interval": 100, "order_quantity": 100},
+		"spot_bot": {"exchange": "binance", "symbol": "ETHUSDT", "strategies": [{"type": "grid", "weight": 1}], "price_interval": 100, "order_quantity": 100}
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/bot-groups", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	postBotGroupCreate(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, ok := resp["group_id"]; !ok {
+		t.Fatalf("response should contain group_id")
+	}
 }
 
 func TestGetBotGroupByIDIncludesConsistency(t *testing.T) {
