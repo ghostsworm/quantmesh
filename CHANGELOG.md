@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc1] - 2026-03-12
+
+### Added
+- **FIX 持久化基础能力**：新增 `fix_session_states` 与 `fix_order_links` 表，用于 FIX 会话序号恢复与主订单到内部订单映射，支持后续 Acceptor/Initiator 双模式接入
+- **FIX 存储接口扩展**：`storage.Storage` 新增 FIX 会话与订单映射读写接口（upsert/query/list），便于协议层与 API 层复用
+- **FIX 查询 API**：新增 `GET /api/fix/sessions` 与 `GET /api/fix/orders`，支持按会话与订单状态查看 FIX 运行轨迹
+
+### Test
+- **storage/sqlite_test.go**：新增 `TestFixSessionStateCRUD`、`TestFixOrderLinkCRUD`，覆盖 FIX 会话状态与订单映射的增改查列表
+
+---
+
 ## [3.75.0-rc4] - 2026-03-12
 
 ### Added

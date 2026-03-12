@@ -29,10 +29,10 @@ import (
 	"quantmesh/inspector"
 	"quantmesh/lock"
 	"quantmesh/logger"
-		"quantmesh/macro"
-		"quantmesh/metrics"
-		"quantmesh/monitor"
-		"quantmesh/notify"
+	"quantmesh/macro"
+	"quantmesh/metrics"
+	"quantmesh/monitor"
+	"quantmesh/notify"
 	"quantmesh/order"
 	"quantmesh/plugin"
 	"quantmesh/position"
@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.75.0-rc4"
+var Version = "3.76.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -810,13 +810,13 @@ func convertStrategies(strategies []config.StrategyInstance) []web.BotStrategyIn
 func getStrategyDisplayName(strategyType string) string {
 	// 策略类型到显示名称的映射
 	strategyNames := map[string]string{
-		"grid":          "网格交易",
-		"dca":           "DCA定投",
-		"dca_enhanced":  "增强DCA",
-		"martingale":    "马丁格尔",
+		"grid":            "网格交易",
+		"dca":             "DCA定投",
+		"dca_enhanced":    "增强DCA",
+		"martingale":      "马丁格尔",
 		"trend_following": "趋势跟踪",
 		"mean_reversion":  "均值回归",
-		"combo":         "组合策略",
+		"combo":           "组合策略",
 	}
 	if name, ok := strategyNames[strategyType]; ok {
 		return name
@@ -2930,9 +2930,9 @@ func main() {
 		eventBus.Publish(&event.Event{
 			Type: event.EventTypeSystemStart,
 			Data: map[string]interface{}{
-				"startup_time":    startTime,
+				"startup_time":     startTime,
 				"startup_duration": time.Since(startTime).String(),
-				"version":         Version,
+				"version":          Version,
 			},
 		})
 	}
@@ -3222,10 +3222,10 @@ func (a *exchangeProviderAdapter) GetPositions(ctx context.Context, symbol strin
 
 // exchangeExecutorAdapter 适配器，將 order.ExchangeOrderExecutor 轉换為 position.OrderExecutorInterface
 type exchangeExecutorAdapter struct {
-	executor  *order.ExchangeOrderExecutor
-	eventBus  *event.EventBus
-	symbol    string
-	exchange  string // 交易所名稱，用於 order_placed 事件入庫時正確寫入 exchange 字段
+	executor *order.ExchangeOrderExecutor
+	eventBus *event.EventBus
+	symbol   string
+	exchange string // 交易所名稱，用於 order_placed 事件入庫時正確寫入 exchange 字段
 }
 
 func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {

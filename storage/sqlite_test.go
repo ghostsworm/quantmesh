@@ -290,7 +290,7 @@ func TestSaveOrderWithPartialIndexMigration(t *testing.T) {
 
 	// 應能正常 SaveOrder（修復前會報 ON CONFLICT clause does not match）
 	o := &Order{
-		OrderID:   777666, Symbol: "ETHUSDT", Side: "BUY", Exchange: "binance",
+		OrderID: 777666, Symbol: "ETHUSDT", Side: "BUY", Exchange: "binance",
 		Price: 3000, Quantity: 0.1, Status: "NEW", CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	if err := st.SaveOrder(o); err != nil {
@@ -333,7 +333,7 @@ func TestSaveOrderWithNonUniqueIndexMigration(t *testing.T) {
 	defer st.Close()
 
 	o := &Order{
-		OrderID:   888999, Symbol: "BTCUSDT", Side: "SELL", Exchange: "binance",
+		OrderID: 888999, Symbol: "BTCUSDT", Side: "SELL", Exchange: "binance",
 		Price: 50000, Quantity: 0.01, Status: "FILLED", CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	if err := st.SaveOrder(o); err != nil {
@@ -556,5 +556,139 @@ func TestSaveOrderKeepIsolationByExchangeAndBotID(t *testing.T) {
 	}
 	if !foundBotA || !foundBotB {
 		t.Fatalf("期望查詢結果保留兩個 bot_id，foundBotA=%v foundBotB=%v", foundBotA, foundBotB)
+	}
+}
+
+func TestFixSessionStateCRUD(t *testing.T) {
+	dbPath := "./test_fix_session_state.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC()
+	state := &FixSessionState{
+		SessionID:       "FIX.4.4:SELLER->BUYER",
+		Role:            "acceptor",
+		BeginString:     "FIX.4.4",
+		SenderCompID:    "SELLER",
+		TargetCompID:    "BUYER",
+		NextSenderSeq:   12,
+		NextTargetSeq:   34,
+		IsLoggedOn:      true,
+		LastLogonAt:     &now,
+		LastHeartbeatAt: &now,
+		UpdatedAt:       now,
+	}
+	if err := st.UpsertFixSessionState(state); err != nil {
+		t.Fatalf("保存 FIX 会话状态失败: %v", err)
+	}
+
+	got, err := st.GetFixSessionState(state.SessionID)
+	if err != nil {
+		t.Fatalf("查询 FIX 会话状态失败: %v", err)
+	}
+	if got == nil || got.NextSenderSeq != 12 || got.NextTargetSeq != 34 || !got.IsLoggedOn {
+		t.Fatalf("FIX 会话状态读取异常: %+v", got)
+	}
+
+	// 再次 upsert 验证更新
+	state.NextSenderSeq = 13
+	state.NextTargetSeq = 35
+	state.IsLoggedOn = false
+	state.LastHeartbeatAt = nil
+	state.UpdatedAt = now.Add(time.Minute)
+	if err := st.UpsertFixSessionState(state); err != nil {
+		t.Fatalf("更新 FIX 会话状态失败: %v", err)
+	}
+
+	got, err = st.GetFixSessionState(state.SessionID)
+	if err != nil {
+		t.Fatalf("查询 FIX 会话状态失败: %v", err)
+	}
+	if got.NextSenderSeq != 13 || got.NextTargetSeq != 35 || got.IsLoggedOn {
+		t.Fatalf("FIX 会话状态更新异常: %+v", got)
+	}
+
+	list, err := st.ListFixSessionStates(10, 0)
+	if err != nil {
+		t.Fatalf("列出 FIX 会话状态失败: %v", err)
+	}
+	if len(list) != 1 || list[0].SessionID != state.SessionID {
+		t.Fatalf("FIX 会话列表异常: %+v", list)
+	}
+}
+
+func TestFixOrderLinkCRUD(t *testing.T) {
+	dbPath := "./test_fix_order_link.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC()
+	link := &FixOrderLink{
+		SessionID:       "FIX.4.4:SELLER->BUYER",
+		ClOrdID:         "A-1001",
+		BotID:           "binance:BTCUSDT:futures",
+		Exchange:        "binance",
+		Symbol:          "BTCUSDT",
+		Side:            "BUY",
+		InternalOrderID: 987654321,
+		LastExecID:      "exec-1",
+		OrdStatus:       "NEW",
+		CumQty:          0,
+		LeavesQty:       1,
+		AvgPx:           0,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := st.UpsertFixOrderLink(link); err != nil {
+		t.Fatalf("保存 FIX 订单映射失败: %v", err)
+	}
+
+	byClOrdID, err := st.GetFixOrderLinkByClOrdID(link.SessionID, link.ClOrdID)
+	if err != nil {
+		t.Fatalf("按 cl_ord_id 查询失败: %v", err)
+	}
+	if byClOrdID == nil || byClOrdID.InternalOrderID != link.InternalOrderID {
+		t.Fatalf("按 cl_ord_id 查询结果异常: %+v", byClOrdID)
+	}
+
+	// 模拟成交推进
+	link.LastExecID = "exec-2"
+	link.OrdStatus = "PARTIALLY_FILLED"
+	link.CumQty = 0.4
+	link.LeavesQty = 0.6
+	link.AvgPx = 60500
+	link.UpdatedAt = now.Add(time.Minute)
+	if err := st.UpsertFixOrderLink(link); err != nil {
+		t.Fatalf("更新 FIX 订单映射失败: %v", err)
+	}
+
+	byInternal, err := st.GetFixOrderLinkByInternalOrderID(link.SessionID, link.InternalOrderID)
+	if err != nil {
+		t.Fatalf("按 internal_order_id 查询失败: %v", err)
+	}
+	if byInternal == nil || byInternal.LastExecID != "exec-2" || byInternal.OrdStatus != "PARTIALLY_FILLED" {
+		t.Fatalf("按 internal_order_id 查询结果异常: %+v", byInternal)
+	}
+
+	list, err := st.ListFixOrderLinks(link.SessionID, "PARTIALLY_FILLED", 10, 0)
+	if err != nil {
+		t.Fatalf("按状态列出 FIX 订单映射失败: %v", err)
+	}
+	if len(list) != 1 || list[0].ClOrdID != link.ClOrdID {
+		t.Fatalf("FIX 订单映射列表异常: %+v", list)
 	}
 }
