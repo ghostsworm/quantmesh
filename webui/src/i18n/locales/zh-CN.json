@@ -85,6 +85,8 @@
     "botNamePlaceholder": "可选，给 Bot 起个名字方便辨认",
     "selectSymbol": "请选择交易对",
     "priceInterval": "价格间隔",
+    "profitSpread": "利润间距",
+    "profitSpreadHint": "不填或填 0 则使用价格间隔。例如价格间隔 80、利润间距 100 时，卖出价 = 买入价 + 100",
     "orderQuantity": "每单金额",
     "buyWindowSize": "买单窗口",
     "sellWindowSize": "卖单窗口",
