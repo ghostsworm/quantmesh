@@ -443,6 +443,12 @@ func (ss *StorageService) saveOrderFromMap(data map[string]interface{}) error {
 	if botID, ok := data["bot_id"].(string); ok {
 		order.BotID = botID
 	}
+	if account, ok := data["account"].(string); ok {
+		order.Account = account
+	}
+	if order.Account == "" {
+		order.Account = order.BotID
+	}
 	if symbol, ok := data["symbol"].(string); ok {
 		order.Symbol = symbol
 	}

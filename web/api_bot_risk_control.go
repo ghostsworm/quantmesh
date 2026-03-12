@@ -12,16 +12,16 @@ import (
 
 // BotRiskControlRequest 风控配置请求
 type BotRiskControlRequest struct {
-	Enabled             *bool    `json:"enabled"`
-	MaxPositionQuantity *float64 `json:"max_position_quantity"`
-	MaxPositionValue    *float64 `json:"max_position_value"`
-	MaxPositionLayers   *int     `json:"max_position_layers"`
-	MaxOpenOrders       *int     `json:"max_open_orders"`       // 最多開倉掛單數，0=不限制
-	OpenOrderDistance   *float64 `json:"open_order_distance"`   // 開倉單距離當前價的最大間隔數
-	StopLossRatio       *float64 `json:"stop_loss_ratio"`
-	TakeProfitRatio     *float64 `json:"take_profit_ratio"`
-	TrailingStopRatio   *float64 `json:"trailing_stop_ratio"`
-	TrendFilterEnabled  *bool    `json:"trend_filter_enabled"`
+	Enabled             *bool                   `json:"enabled"`
+	MaxPositionQuantity *float64                `json:"max_position_quantity"`
+	MaxPositionValue    *float64                `json:"max_position_value"`
+	MaxPositionLayers   *int                    `json:"max_position_layers"`
+	MaxOpenOrders       *int                    `json:"max_open_orders"`     // 最多開倉掛單數，0=不限制
+	OpenOrderDistance   *float64                `json:"open_order_distance"` // 開倉單距離當前價的最大間隔數
+	StopLossRatio       *float64                `json:"stop_loss_ratio"`
+	TakeProfitRatio     *float64                `json:"take_profit_ratio"`
+	TrailingStopRatio   *float64                `json:"trailing_stop_ratio"`
+	TrendFilterEnabled  *bool                   `json:"trend_filter_enabled"`
 	GridRiskControl     *config.GridRiskControl `json:"grid_risk_control,omitempty"` // 網格風控（止損、止盈、回撤等）
 }
 
@@ -156,6 +156,9 @@ func updateBotRiskControl(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if err := persistBotRiskControlToConfig(botID, *currentRiskControl); err != nil {
+		logger.Warn("⚠️ [%s] Bot 風控持久化失敗（運行時已更新）: %v", botID, err)
+	}
 
 	// 更新網格風控（若請求中包含）
 	if req.GridRiskControl != nil {
@@ -183,8 +186,34 @@ func updateBotRiskControl(c *gin.Context) {
 		"trailing_stop_ratio":   currentRiskControl.TrailingStopRatio,
 		"trend_filter_enabled":  currentRiskControl.TrendFilterEnabled,
 		"grid_risk_control":     bot.GetGridRiskControl(),
+		"persisted":             true,
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// persistBotRiskControlToConfig 將 Bot 風控寫入主配置文件
+func persistBotRiskControlToConfig(botID string, rc config.BotRiskControl) error {
+	if fileConfigManager == nil {
+		return nil
+	}
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
+		return err
+	}
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if id == botID {
+			if cfg.Bots[i].OpenPositionControl.BotRiskControl == nil {
+				cfg.Bots[i].OpenPositionControl.BotRiskControl = &config.BotRiskControl{}
+			}
+			*cfg.Bots[i].OpenPositionControl.BotRiskControl = rc
+			return fileConfigManager.UpdateConfig(cfg)
+		}
+	}
+	return nil
 }
 
 // persistGridRiskControlToConfig 將網格風控寫入主配置文件
@@ -236,6 +265,10 @@ func pauseBotOpening(c *gin.Context) {
 		// 保存风控配置
 		if err := bot.SetBotRiskControl(riskControl); err != nil {
 			logger.Warn("⚠️ [%s] 保存自动恢复时间失败: %v", botID, err)
+		} else if riskControl != nil {
+			if err := persistBotRiskControlToConfig(botID, *riskControl); err != nil {
+				logger.Warn("⚠️ [%s] 保存自动恢复时间到配置失败: %v", botID, err)
+			}
 		}
 		resumeAt := time.Now().Add(time.Duration(*req.AutoResumeSec) * time.Second)
 		logger.Info("⏸️ [%s] 暂停开仓（原因: %s），将在 %s 自动恢复", botID, req.Reason, resumeAt.Format("15:04:05"))
@@ -293,16 +326,16 @@ func getBotPositionStatus(c *gin.Context) {
 		}
 		if id == botID {
 			c.JSON(http.StatusOK, gin.H{
-				"stopped":             true,
-				"total_position_qty":  0,
+				"stopped":              true,
+				"total_position_qty":   0,
 				"total_position_value": 0,
-				"position_layers":     0,
-				"current_price":       0,
-				"paused":              false,
-				"reached_limit_qty":   false,
+				"position_layers":      0,
+				"current_price":        0,
+				"paused":               false,
+				"reached_limit_qty":    false,
 				"reached_limit_value":  false,
 				"reached_limit_layers": false,
-				"should_stop_opening": false,
+				"should_stop_opening":  false,
 			})
 			return
 		}

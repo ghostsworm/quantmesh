@@ -559,6 +559,109 @@ func TestSaveOrderKeepIsolationByExchangeAndBotID(t *testing.T) {
 	}
 }
 
+// TestSaveOrderKeepIsolationByExchangeAccountSymbol 驗證相同 exchange+order_id 在不同 account/symbol 下可共存
+func TestSaveOrderKeepIsolationByExchangeAccountSymbol(t *testing.T) {
+	dbPath := "./test_order_exchange_account_symbol.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now()
+	baseOrder := &Order{
+		OrderID:       999001,
+		BotID:         "binance:BTCUSDT:futures",
+		Account:       "acc-A",
+		ClientOrderID: "oid-a1",
+		Exchange:      "binance",
+		Symbol:        "BTCUSDT",
+		Side:          "BUY",
+		Price:         50000,
+		Quantity:      0.01,
+		Status:        "NEW",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	sameIDDiffAccount := &Order{
+		OrderID:       999001,
+		BotID:         "binance:BTCUSDT:futures",
+		Account:       "acc-B",
+		ClientOrderID: "oid-b1",
+		Exchange:      "binance",
+		Symbol:        "BTCUSDT",
+		Side:          "BUY",
+		Price:         50001,
+		Quantity:      0.02,
+		Status:        "NEW",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	sameIDDiffSymbol := &Order{
+		OrderID:       999001,
+		BotID:         "binance:ETHUSDT:futures",
+		Account:       "acc-A",
+		ClientOrderID: "oid-a2",
+		Exchange:      "binance",
+		Symbol:        "ETHUSDT",
+		Side:          "BUY",
+		Price:         3000,
+		Quantity:      0.5,
+		Status:        "NEW",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	if err := st.SaveOrder(baseOrder); err != nil {
+		t.Fatalf("保存 baseOrder 失败: %v", err)
+	}
+	if err := st.SaveOrder(sameIDDiffAccount); err != nil {
+		t.Fatalf("保存 sameIDDiffAccount 失败: %v", err)
+	}
+	if err := st.SaveOrder(sameIDDiffSymbol); err != nil {
+		t.Fatalf("保存 sameIDDiffSymbol 失败: %v", err)
+	}
+
+	orders, err := st.QueryOrders(20, 0, "NEW")
+	if err != nil {
+		t.Fatalf("查詢訂單失败: %v", err)
+	}
+	if len(orders) != 3 {
+		t.Fatalf("期望 3 筆不同行鍵訂單，實際 %d", len(orders))
+	}
+
+	// 同一複合鍵再次寫入應 upsert，不應新增行
+	upsertSameKey := &Order{
+		OrderID:       999001,
+		BotID:         "binance:BTCUSDT:futures",
+		Account:       "acc-A",
+		ClientOrderID: "oid-a1-updated",
+		Exchange:      "binance",
+		Symbol:        "BTCUSDT",
+		Side:          "BUY",
+		Price:         50002,
+		Quantity:      0.03,
+		Status:        "FILLED",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := st.SaveOrder(upsertSameKey); err != nil {
+		t.Fatalf("upsert same key 失败: %v", err)
+	}
+
+	allOrders, err := st.QueryOrdersWithTimeRange(50, 0, "", nil, nil)
+	if err != nil {
+		t.Fatalf("查詢所有訂單失败: %v", err)
+	}
+	if len(allOrders) != 3 {
+		t.Fatalf("同鍵 upsert 後行數應保持 3，實際 %d", len(allOrders))
+	}
+}
+
 func TestFixSessionStateCRUD(t *testing.T) {
 	dbPath := "./test_fix_session_state.db"
 	defer os.Remove(dbPath)
@@ -574,6 +677,7 @@ func TestFixSessionStateCRUD(t *testing.T) {
 	now := time.Now().UTC()
 	state := &FixSessionState{
 		SessionID:       "FIX.4.4:SELLER->BUYER",
+		BotID:           "binance:BTCUSDT:futures",
 		Role:            "acceptor",
 		BeginString:     "FIX.4.4",
 		SenderCompID:    "SELLER",
@@ -593,7 +697,7 @@ func TestFixSessionStateCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("查询 FIX 会话状态失败: %v", err)
 	}
-	if got == nil || got.NextSenderSeq != 12 || got.NextTargetSeq != 34 || !got.IsLoggedOn {
+	if got == nil || got.NextSenderSeq != 12 || got.NextTargetSeq != 34 || !got.IsLoggedOn || got.BotID != state.BotID {
 		t.Fatalf("FIX 会话状态读取异常: %+v", got)
 	}
 

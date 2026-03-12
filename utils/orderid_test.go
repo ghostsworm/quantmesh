@@ -15,9 +15,15 @@ func TestGenerateOrderID(t *testing.T) {
 		t.Fatal("生成的订單ID不能為空")
 	}
 
-	// 驗证包含價格整數部分
-	if !strings.HasPrefix(id1, "6500050_B_") {
-		t.Errorf("订單ID格式錯误: %s", id1)
+	parsedPrice, parsedSide, _, valid := ParseOrderID(id1, decimals)
+	if !valid {
+		t.Fatalf("生成的订單ID應可解析: %s", id1)
+	}
+	if parsedPrice != price {
+		t.Errorf("解析價格错误: 期望 %.2f, 得到 %.2f", price, parsedPrice)
+	}
+	if parsedSide != side {
+		t.Errorf("解析方向错误: 期望 %s, 得到 %s", side, parsedSide)
 	}
 
 	// 驗证唯一性（连续調用）
@@ -78,7 +84,7 @@ func TestGenerateOrderIDWithSource(t *testing.T) {
 func TestParseOrderSource(t *testing.T) {
 	tests := []struct {
 		clientOrderID string
-		want         string
+		want          string
 	}{
 		{"65000_S_1702468800123", "normal"},
 		{"65000_S_1702468800123_SL", "stop_loss"},
@@ -148,5 +154,25 @@ func TestBrokerPrefix(t *testing.T) {
 	binanceSL := AddBrokerPrefix("binance", slOID)
 	if len(binanceSL) > 36 {
 		t.Errorf("止損單加幣安前綴超长: %d > 36, %s", len(binanceSL), binanceSL)
+	}
+}
+
+func TestParseCompactOrderID(t *testing.T) {
+	// 使用大價格與高精度觸發緊湊格式
+	price := 123456.789012
+	decimals := 6
+	clientOID := GenerateOrderID(price, "BUY", decimals)
+	parsedPrice, parsedSide, ts, valid := ParseOrderID(clientOID, decimals)
+	if !valid {
+		t.Fatalf("緊湊格式應可解析: %s", clientOID)
+	}
+	if parsedPrice != price {
+		t.Fatalf("緊湊格式價格不一致: want=%.6f got=%.6f id=%s", price, parsedPrice, clientOID)
+	}
+	if parsedSide != "BUY" {
+		t.Fatalf("緊湊格式方向不一致: %s", parsedSide)
+	}
+	if ts <= 0 {
+		t.Fatalf("緊湊格式時間戳無效: %d", ts)
 	}
 }

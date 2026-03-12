@@ -14,7 +14,10 @@ type MultiStrategyExecutor struct {
 	executor            *order.ExchangeOrderExecutor
 	allocator           *CapitalAllocator
 	strategies          map[string]string  // orderID -> strategyName
-	orderReservedAmount map[int64]float64   // orderID -> 下單時預留的金額（僅開倉買單）
+	clientStrategies    map[string]string  // clientOrderID -> strategyName
+	orderReservedAmount map[int64]float64  // orderID -> 下單時預留的金額（僅開倉買單）
+	clientReserved      map[string]float64 // clientOrderID -> 預留金額（處理秒成交回報）
+	clientToOrderID     map[string]int64   // clientOrderID -> orderID（避免重複釋放）
 	mu                  sync.RWMutex
 }
 
@@ -27,8 +30,28 @@ func NewMultiStrategyExecutor(
 		executor:            executor,
 		allocator:           allocator,
 		strategies:          make(map[string]string),
+		clientStrategies:    make(map[string]string),
 		orderReservedAmount: make(map[int64]float64),
+		clientReserved:      make(map[string]float64),
+		clientToOrderID:     make(map[string]int64),
 		mu:                  sync.RWMutex{},
+	}
+}
+
+func (mse *MultiStrategyExecutor) bindOrderRouteLocked(orderID int64, clientOrderID, strategyName string) {
+	if strategyName != "" {
+		if orderID > 0 {
+			mse.strategies[fmt.Sprintf("%d", orderID)] = strategyName
+		}
+		if clientOrderID != "" {
+			mse.clientStrategies[clientOrderID] = strategyName
+		}
+	}
+	if orderID > 0 && clientOrderID != "" {
+		mse.clientToOrderID[clientOrderID] = orderID
+		if amount, ok := mse.clientReserved[clientOrderID]; ok && amount > 0 {
+			mse.orderReservedAmount[orderID] = amount
+		}
 	}
 }
 
@@ -108,6 +131,15 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 		}
 	}
 
+	if req.ClientOrderID != "" {
+		mse.mu.Lock()
+		mse.clientStrategies[req.ClientOrderID] = strategyName
+		if !isReducePosition && estimatedAmount > 0 {
+			mse.clientReserved[req.ClientOrderID] = estimatedAmount
+		}
+		mse.mu.Unlock()
+	}
+
 	// 執行订單
 	orderReq := &order.OrderRequest{
 		Symbol:        req.Symbol,
@@ -128,14 +160,27 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 		if !isReducePosition && estimatedAmount > 0 {
 			mse.allocator.Release(strategyName, estimatedAmount)
 		}
+		if req.ClientOrderID != "" {
+			mse.mu.Lock()
+			delete(mse.clientStrategies, req.ClientOrderID)
+			delete(mse.clientReserved, req.ClientOrderID)
+			delete(mse.clientToOrderID, req.ClientOrderID)
+			mse.mu.Unlock()
+		}
 		return nil, fmt.Errorf("下單失败: %w", err)
 	}
 
 	// 標記订單所属策略，並記錄預留金額（訂單成交/取消時用於釋放資金）
 	mse.mu.Lock()
-	mse.strategies[fmt.Sprintf("%d", ord.OrderID)] = strategyName
+	mse.bindOrderRouteLocked(ord.OrderID, ord.ClientOrderID, strategyName)
+	if req.ClientOrderID != "" && req.ClientOrderID != ord.ClientOrderID {
+		mse.bindOrderRouteLocked(ord.OrderID, req.ClientOrderID, strategyName)
+	}
 	if !isReducePosition && estimatedAmount > 0 {
 		mse.orderReservedAmount[ord.OrderID] = estimatedAmount
+		if ord.ClientOrderID != "" {
+			mse.clientReserved[ord.ClientOrderID] = estimatedAmount
+		}
 	}
 	mse.mu.Unlock()
 
@@ -214,6 +259,14 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 		if !isReducePosition && estimatedAmount > 0 {
 			orderAmounts[req.ClientOrderID] = estimatedAmount
 		}
+		if req.ClientOrderID != "" {
+			mse.mu.Lock()
+			mse.clientStrategies[req.ClientOrderID] = strategyName
+			if !isReducePosition && estimatedAmount > 0 {
+				mse.clientReserved[req.ClientOrderID] = estimatedAmount
+			}
+			mse.mu.Unlock()
+		}
 	}
 
 	// 批量下單
@@ -225,7 +278,10 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 	for _, ord := range batchResult.PlacedOrders {
 		// 標記订單
 		mse.mu.Lock()
-		mse.strategies[fmt.Sprintf("%d", ord.OrderID)] = strategyName
+		mse.bindOrderRouteLocked(ord.OrderID, ord.ClientOrderID, strategyName)
+		if amount, ok := orderAmounts[ord.ClientOrderID]; ok && amount > 0 {
+			mse.orderReservedAmount[ord.OrderID] = amount
+		}
 		mse.mu.Unlock()
 
 		result.PlacedOrders = append(result.PlacedOrders, &position.Order{
@@ -248,6 +304,11 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 	for clientOID, amount := range orderAmounts {
 		if !placedClientOIDs[clientOID] {
 			mse.allocator.Release(strategyName, amount)
+			mse.mu.Lock()
+			delete(mse.clientStrategies, clientOID)
+			delete(mse.clientReserved, clientOID)
+			delete(mse.clientToOrderID, clientOID)
+			mse.mu.Unlock()
 		}
 	}
 
@@ -276,6 +337,13 @@ func (mse *MultiStrategyExecutor) ReleaseOrderCapitalByOrderID(orderID int64) {
 	mse.mu.Lock()
 	strategyName, hasStrategy := mse.strategies[fmt.Sprintf("%d", orderID)]
 	amount, hasAmount := mse.orderReservedAmount[orderID]
+	for clientOID, mappedOrderID := range mse.clientToOrderID {
+		if mappedOrderID == orderID {
+			delete(mse.clientToOrderID, clientOID)
+			delete(mse.clientStrategies, clientOID)
+			delete(mse.clientReserved, clientOID)
+		}
+	}
 	if hasStrategy && hasAmount {
 		delete(mse.strategies, fmt.Sprintf("%d", orderID))
 		delete(mse.orderReservedAmount, orderID)
@@ -286,9 +354,52 @@ func (mse *MultiStrategyExecutor) ReleaseOrderCapitalByOrderID(orderID int64) {
 	mse.mu.Unlock()
 }
 
+// ReleaseOrderCapitalByClientOrderID 根據 ClientOrderID 釋放預留資金（處理秒成交先到）
+func (mse *MultiStrategyExecutor) ReleaseOrderCapitalByClientOrderID(clientOrderID string) {
+	if clientOrderID == "" {
+		return
+	}
+	mse.mu.Lock()
+	strategyName, hasStrategy := mse.clientStrategies[clientOrderID]
+	amount, hasAmount := mse.clientReserved[clientOrderID]
+	orderID, hasOrderID := mse.clientToOrderID[clientOrderID]
+	if hasStrategy {
+		delete(mse.clientStrategies, clientOrderID)
+	}
+	if hasAmount {
+		delete(mse.clientReserved, clientOrderID)
+	}
+	if hasOrderID {
+		delete(mse.clientToOrderID, clientOrderID)
+		delete(mse.strategies, fmt.Sprintf("%d", orderID))
+		delete(mse.orderReservedAmount, orderID)
+	}
+	mse.mu.Unlock()
+	if hasStrategy && hasAmount && amount > 0 {
+		mse.allocator.Release(strategyName, amount)
+	}
+}
+
 // GetStrategyByOrderID 根據订單ID獲取策略名称
 func (mse *MultiStrategyExecutor) GetStrategyByOrderID(orderID int64) string {
 	mse.mu.RLock()
 	defer mse.mu.RUnlock()
 	return mse.strategies[fmt.Sprintf("%d", orderID)]
+}
+
+// GetStrategyByClientOrderID 根據 ClientOrderID 獲取策略名称
+func (mse *MultiStrategyExecutor) GetStrategyByClientOrderID(clientOrderID string) string {
+	mse.mu.RLock()
+	defer mse.mu.RUnlock()
+	return mse.clientStrategies[clientOrderID]
+}
+
+// RestoreOrderRoute 從持久化記錄恢復策略路由
+func (mse *MultiStrategyExecutor) RestoreOrderRoute(orderID int64, clientOrderID, strategyName string) {
+	if strategyName == "" {
+		return
+	}
+	mse.mu.Lock()
+	defer mse.mu.Unlock()
+	mse.bindOrderRouteLocked(orderID, clientOrderID, strategyName)
 }

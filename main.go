@@ -3236,10 +3236,11 @@ func (a *exchangeProviderAdapter) GetPositions(ctx context.Context, symbol strin
 
 // exchangeExecutorAdapter 适配器，將 order.ExchangeOrderExecutor 轉换為 position.OrderExecutorInterface
 type exchangeExecutorAdapter struct {
-	executor *order.ExchangeOrderExecutor
-	eventBus *event.EventBus
-	symbol   string
-	exchange string // 交易所名稱，用於 order_placed 事件入庫時正確寫入 exchange 字段
+	executor  *order.ExchangeOrderExecutor
+	eventBus  *event.EventBus
+	symbol    string
+	exchange  string // 交易所名稱，用於 order_placed 事件入庫時正確寫入 exchange 字段
+	accountID string
 }
 
 func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
@@ -3273,6 +3274,7 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 				"quantity":        ord.Quantity,
 				"status":          ord.Status,
 				"exchange":        a.exchange,
+				"account":         a.accountID,
 				"strategy_name":   req.StrategyName,
 				"strategy_type":   req.StrategyType,
 				"order_source":    req.OrderSource,
@@ -3366,6 +3368,7 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 					"quantity":        ord.Quantity,
 					"status":          ord.Status,
 					"exchange":        a.exchange,
+					"account":         a.accountID,
 					"strategy_name":   sName,
 					"strategy_type":   sType,
 					"order_source":    oSource,

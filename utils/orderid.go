@@ -10,7 +10,7 @@ import (
 )
 
 // OrderIDGenerator 订單ID生成器
-// 生成紧凑的 ClientOrderID，最大长度不超過18字符
+// 生成紧凑的 ClientOrderID（優先舊格式，超長時切換緊湊格式）
 type OrderIDGenerator struct {
 	mu       sync.Mutex
 	lastSec  int64
@@ -33,7 +33,7 @@ var globalIDGen = &OrderIDGenerator{}
 //	65000_B_1702468800001  (價格65000，買單，约18字符)
 //	950_S_1702468800123    (價格0.950，賣單，约16字符)
 //
-// 注意: 為了兼容各交易所的限制，總长度控制在18字符以内
+// 注意: 舊格式在極端價格位數下可能超長，函數會自動回退到緊湊格式
 func GenerateOrderID(price float64, side string, priceDecimals int) string {
 	globalIDGen.mu.Lock()
 	defer globalIDGen.mu.Unlock()
@@ -63,9 +63,23 @@ func GenerateOrderID(price float64, side string, priceDecimals int) string {
 	// 時间戳(10位) + 序列号(3位) = 13字符
 	timestampSeq := fmt.Sprintf("%d%03d", currentSec, globalIDGen.sequence)
 
-	// 最终格式: {price}_{side}_{timestamp}{seq}
-	// 例如: 65000_B_1702468800001 (约18字符)
-	return fmt.Sprintf("%d_%s_%s", priceInt, sideCode, timestampSeq)
+	// 優先使用可讀的舊格式
+	legacy := fmt.Sprintf("%d_%s_%s", priceInt, sideCode, timestampSeq)
+	if len(legacy) <= 18 {
+		return legacy
+	}
+
+	// 超長時使用緊湊格式: c{price36}_{side}_{ts36}{seq36}
+	priceB36 := strings.ToLower(strconv.FormatInt(priceInt, 36))
+	tsB36 := strings.ToLower(strconv.FormatInt(currentSec, 36))
+	seqB36 := strings.ToLower(strconv.FormatInt(int64(globalIDGen.sequence), 36))
+	if len(seqB36) < 2 {
+		seqB36 = strings.Repeat("0", 2-len(seqB36)) + seqB36
+	}
+	if len(seqB36) > 2 {
+		seqB36 = seqB36[len(seqB36)-2:]
+	}
+	return fmt.Sprintf("c%s_%s_%s%s", priceB36, sideCode, tsB36, seqB36)
 }
 
 // GenerateOrderIDWithSource 生成带訂單來源標識的 ClientOrderID
@@ -101,10 +115,23 @@ func ParseOrderID(clientOrderID string, priceDecimals int) (float64, string, int
 		return 0, "", 0, false
 	}
 
-	// 1. 解析價格整數
-	priceInt, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return 0, "", 0, false
+	var (
+		priceInt  int64
+		timestamp int64
+		err       error
+	)
+
+	// 1. 解析價格整數（兼容舊格式與緊湊格式）
+	if strings.HasPrefix(parts[0], "c") {
+		priceInt, err = strconv.ParseInt(parts[0][1:], 36, 64)
+		if err != nil {
+			return 0, "", 0, false
+		}
+	} else {
+		priceInt, err = strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			return 0, "", 0, false
+		}
 	}
 
 	// 还原為浮点數價格
@@ -118,18 +145,72 @@ func ParseOrderID(clientOrderID string, priceDecimals int) (float64, string, int
 		side = "SELL"
 	}
 
-	// 3. 解析時间戳（前10位）
+	// 3. 解析時间戳
 	timestampSeq := parts[2]
-	if len(timestampSeq) < 10 {
-		return 0, "", 0, false
-	}
-
-	timestamp, err := strconv.ParseInt(timestampSeq[:10], 10, 64)
-	if err != nil {
-		return 0, "", 0, false
+	if strings.HasPrefix(parts[0], "c") {
+		if len(timestampSeq) < 3 { // 至少 ts1 + seq2
+			return 0, "", 0, false
+		}
+		tsPart := timestampSeq[:len(timestampSeq)-2]
+		timestamp, err = strconv.ParseInt(tsPart, 36, 64)
+		if err != nil {
+			return 0, "", 0, false
+		}
+	} else {
+		if len(timestampSeq) < 10 {
+			return 0, "", 0, false
+		}
+		timestamp, err = strconv.ParseInt(timestampSeq[:10], 10, 64)
+		if err != nil {
+			return 0, "", 0, false
+		}
 	}
 
 	return price, side, timestamp, true
+}
+
+func compactLegacyOrderID(clientOrderID string) (string, bool) {
+	baseID := strings.TrimSuffix(clientOrderID, "_SL")
+	isStopLoss := strings.HasSuffix(clientOrderID, "_SL")
+	parts := strings.Split(baseID, "_")
+	if len(parts) != 3 {
+		return "", false
+	}
+	priceInt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return "", false
+	}
+	tsPart := parts[2]
+	if len(tsPart) < 10 {
+		return "", false
+	}
+	sec, err := strconv.ParseInt(tsPart[:10], 10, 64)
+	if err != nil {
+		return "", false
+	}
+	seqVal := int64(0)
+	if len(tsPart) > 10 {
+		if v, e := strconv.ParseInt(tsPart[10:], 10, 64); e == nil {
+			seqVal = v
+		}
+	}
+	seqB36 := strings.ToLower(strconv.FormatInt(seqVal, 36))
+	if len(seqB36) < 2 {
+		seqB36 = strings.Repeat("0", 2-len(seqB36)) + seqB36
+	}
+	if len(seqB36) > 2 {
+		seqB36 = seqB36[len(seqB36)-2:]
+	}
+	compact := fmt.Sprintf("c%s_%s_%s%s",
+		strings.ToLower(strconv.FormatInt(priceInt, 36)),
+		parts[1],
+		strings.ToLower(strconv.FormatInt(sec, 36)),
+		seqB36,
+	)
+	if isStopLoss {
+		compact += "_SL"
+	}
+	return compact, true
 }
 
 // AddBrokerPrefix 為不同交易所添加返佣前缀
@@ -146,7 +227,11 @@ func AddBrokerPrefix(exchange, clientOrderID string) string {
 
 		// 长度检查（币安限制36字符）
 		if len(result) > 36 {
-			// 如果超长，截断 clientOrderID 部分
+			if compact, ok := compactLegacyOrderID(clientOrderID); ok {
+				result = prefix + compact
+			}
+		}
+		if len(result) > 36 {
 			maxIDLen := 36 - len(prefix)
 			if maxIDLen > 0 {
 				result = prefix + clientOrderID[:maxIDLen]
@@ -163,7 +248,11 @@ func AddBrokerPrefix(exchange, clientOrderID string) string {
 
 		// 长度检查（Gate.io 限制30字符）
 		if len(result) > 30 {
-			// 如果超长，截断 clientOrderID 部分
+			if compact, ok := compactLegacyOrderID(clientOrderID); ok {
+				result = prefix + compact
+			}
+		}
+		if len(result) > 30 {
 			maxIDLen := 30 - len(prefix)
 			if maxIDLen > 0 {
 				result = prefix + clientOrderID[:maxIDLen]
