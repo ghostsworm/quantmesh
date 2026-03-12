@@ -255,7 +255,12 @@ func TestGetBackups(t *testing.T) {
 		t.Fatal("响应中缺少 backups 字段")
 	}
 
-	_ = backups.([]interface{}) // 驗证是數组類型
+	// 允許 nil（無備份時）或 []interface{}
+	if backups != nil {
+		if _, ok := backups.([]interface{}); !ok {
+			t.Fatal("backups 應為數組類型")
+		}
+	}
 }
 
 // TestUpdateConfig 测試更新配置

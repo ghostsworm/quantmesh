@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc11] - 2026-03-12
+
+### Fixed
+- **TestGetBackups panic**：當 backups 為 nil 時避免 type assertion panic
+
+---
+
 ## [3.76.0-rc10] - 2026-03-12
 
 ### Changed
