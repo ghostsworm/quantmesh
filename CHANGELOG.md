@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc10] - 2026-03-12
+
+### Changed
+- **Binance 合約 GetAccount 優先 WebSocket**：賬戶查詢優先使用 WebSocket API（v2/account.status），失敗時回退 REST，進一步降低 REST 調用
+
+---
+
 ## [3.76.0-rc9] - 2026-03-12
 
 ### Fixed
