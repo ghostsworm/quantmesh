@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc16] - 2026-03-12
+
+### Fixed
+- **存儲初始化失敗 no such column: bot_id**：修復舊版 `risk_check_history` 表（無 bot_id 列）導致 SQLite 存儲初始化失敗
+  - `createTables` 中移除對 `bot_id` 的 CREATE INDEX，改由 `migrateRiskCheckHistoryTable` 在添加列後創建，避免舊表時報錯
+  - 修復後 `storageServiceProvider` 可正常設置，統計接口可查詢數據庫
+
+---
+
 ## [3.76.0-rc15] - 2026-03-12
 
 ### Fixed

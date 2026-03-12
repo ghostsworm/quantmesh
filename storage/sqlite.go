@@ -245,6 +245,8 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_reconciliation_history_time ON reconciliation_history(reconcile_time);`
 
 	// 风控检查历史表
+	// 注意：bot_id / exchange / market_type 相关索引不在此处创建，由 migrateRiskCheckHistoryTable 在添加列后创建，
+	// 避免旧表（无 bot_id 列）时 CREATE INDEX ON (bot_id) 报错 "no such column: bot_id"
 	riskCheckHistorySQL := `
 	CREATE TABLE IF NOT EXISTS risk_check_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,10 +262,8 @@ func createTables(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time ON risk_check_history(check_time);
-	CREATE INDEX IF NOT EXISTS idx_risk_check_history_bot_id ON risk_check_history(bot_id);
 	CREATE INDEX IF NOT EXISTS idx_risk_check_history_symbol ON risk_check_history(symbol);
-	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time_symbol ON risk_check_history(check_time, symbol);
-	CREATE INDEX IF NOT EXISTS idx_risk_check_history_bot_time ON risk_check_history(bot_id, check_time);`
+	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time_symbol ON risk_check_history(check_time, symbol);`
 
 	// 资金费率表
 	fundingRatesSQL := `
