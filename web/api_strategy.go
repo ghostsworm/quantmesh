@@ -154,6 +154,14 @@ func getStrategyTemplatesHandler(c *gin.Context) {
 			Strategies:  []string{"grid", "futures_short"},
 			Tags:        []string{"对冲", "现货", "合约", "现货主腿"},
 		},
+		{
+			ID:          "spot_grid_short_futures_long_hedge",
+			Name:        "現貨網格做空+合約做多對沖",
+			Description: "現貨網格做空 + 合約做多對沖，對沖上漲風險（需現貨槓桿）",
+			Type:        "hedge",
+			Strategies:  []string{"grid", "futures_long"},
+			Tags:        []string{"对冲", "现货", "合约", "做空", "现货主腿"},
+		},
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,

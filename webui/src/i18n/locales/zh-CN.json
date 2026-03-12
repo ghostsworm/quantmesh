@@ -155,6 +155,7 @@
     "hedgeSpotShortBothWarning": "现货做空对冲针对网格做多部分设计，双向网格时对冲行为可能不符合预期。",
     "hedgeSpotLongConfig": "现货做多对冲参数",
     "hedgeSpotGridFuturesConfig": "现货网格+合约对冲参数",
+    "hedgeSpotGridShortFuturesLongConfig": "现货网格做空+合约做多对冲参数",
     "hedgeSpotLongDirectionWarning": "现货做多对冲仅适用于做空网格，请将交易方向设为「单向做空」。",
     "longNotionalRatio": "做多名义敞口比例",
     "longNotionalRatioHint": "做多名义敞口占网格名义敞口的比例，默认 0.25（25%）",
@@ -170,7 +171,8 @@
       "futures_spot_hedge": "合约+现货对冲",
       "grid_spot_short_hedge": "网格+现货做空对冲",
       "grid_spot_long_hedge": "网格+现货做多对冲",
-      "spot_grid_futures_hedge": "现货网格+合约对冲"
+      "spot_grid_futures_hedge": "现货网格+合约对冲",
+      "spot_grid_short_futures_long_hedge": "现货网格做空+合约做多对冲"
     },
     "strategyParams": {}
   },
@@ -2693,7 +2695,8 @@
     "breakout": "突破策略",
     "spot_short": "现货借币做空",
     "spot_long": "现货买入做多",
-    "futures_short": "合约做空对冲"
+    "futures_short": "合约做空对冲",
+    "futures_long": "合约做多对冲"
   },
   "strategyDescriptions": {
     "grid": "经典网格交易策略，在价格区间内自动挂单，赚取波动差价",
