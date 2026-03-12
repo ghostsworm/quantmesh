@@ -2,6 +2,20 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.75.0-rc4] - 2026-03-12
+
+### Added
+- **对冲组一致性巡检与状态输出**：`GET /api/bot-groups` 与 `GET /api/bot-groups/:id` 返回新增 `consistency` 字段（`status`、`alert`、运行/停止腿列表），支持识别 `single_leg_running` 场景
+
+### Fixed
+- **单腿运行事件告警**：当对冲组从双腿变为单腿运行时，`BotManager` 自动发布告警事件并记录 warning 日志；双腿恢复后发布恢复事件，降低“半边仓位裸奔”风险
+
+### Test
+- **bot_manager_test.go**：新增 `TestBotManagerWarnsOnSingleLegRunning`，验证单腿告警与恢复事件
+- **web/api_bots_test.go**：新增 `TestGetBotGroupByIDIncludesConsistency`，验证组详情返回一致性巡检结果
+
+---
+
 ## [3.75.0-rc3] - 2026-03-12
 
 ### Fixed

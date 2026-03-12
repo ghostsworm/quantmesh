@@ -29,6 +29,7 @@ type BotManager struct {
 	cfg             *config.Config
 	runtimes        map[string]*BotRuntime
 	runtimesMu      sync.RWMutex
+	groupLegAlerted map[string]bool
 	eventBus        *event.EventBus
 	storageService  *storage.StorageService
 	distributedLock lock.DistributedLock
@@ -39,6 +40,7 @@ func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService 
 	return &BotManager{
 		cfg:             cfg,
 		runtimes:        make(map[string]*BotRuntime),
+		groupLegAlerted: make(map[string]bool),
 		eventBus:        eventBus,
 		storageService:  storageService,
 		distributedLock: distributedLock,
@@ -163,6 +165,7 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 			"strategy": botCfg.Strategies,
 		},
 	})
+	bm.checkGroupLegConsistencyForBot(botID)
 
 	return br, nil
 }
@@ -195,6 +198,7 @@ func (bm *BotManager) StopBot(botID string) error {
 			"strategy": br.Config.Strategies,
 		},
 	})
+	bm.checkGroupLegConsistencyForBot(botID)
 
 	return nil
 }
@@ -251,6 +255,9 @@ func (bm *BotManager) AddRuntime(br *BotRuntime) {
 	}
 	bm.runtimesMu.Lock()
 	defer bm.runtimesMu.Unlock()
+	if bm.groupLegAlerted == nil {
+		bm.groupLegAlerted = make(map[string]bool)
+	}
 	bm.runtimes[br.BotID] = br
 }
 
@@ -262,12 +269,92 @@ func (bm *BotManager) StopAll() {
 		runtimes = append(runtimes, br)
 	}
 	bm.runtimes = make(map[string]*BotRuntime)
+	bm.groupLegAlerted = make(map[string]bool)
 	bm.runtimesMu.Unlock()
 	for _, br := range runtimes {
 		if br != nil && br.Inner != nil && br.Inner.Stop != nil {
 			br.Inner.Stop()
 		}
 	}
+}
+
+func (bm *BotManager) checkGroupLegConsistencyForBot(botID string) {
+	if bm == nil || bm.cfg == nil || botID == "" {
+		return
+	}
+	for _, group := range bm.cfg.BotGroups {
+		if len(group.BotIDs) < 2 || !containsBotID(group.BotIDs, botID) {
+			continue
+		}
+
+		var runningIDs []string
+		total := len(group.BotIDs)
+		publishAlert := false
+		publishRecovered := false
+
+		bm.runtimesMu.Lock()
+		if bm.groupLegAlerted == nil {
+			bm.groupLegAlerted = make(map[string]bool)
+		}
+		for _, id := range group.BotIDs {
+			if _, ok := bm.runtimes[id]; ok {
+				runningIDs = append(runningIDs, id)
+			}
+		}
+		running := len(runningIDs)
+		alreadyAlerted := bm.groupLegAlerted[group.ID]
+		if running > 0 && running < total {
+			if !alreadyAlerted {
+				bm.groupLegAlerted[group.ID] = true
+				publishAlert = true
+			}
+		} else {
+			if running == total && alreadyAlerted {
+				publishRecovered = true
+			}
+			bm.groupLegAlerted[group.ID] = false
+		}
+		bm.runtimesMu.Unlock()
+
+		if publishAlert {
+			logger.Warn("⚠️ [BotGroup:%s] 对冲组出现单腿运行，running=%v total=%d", group.ID, runningIDs, total)
+			if bm.eventBus != nil {
+				bm.eventBus.Publish(&event.Event{
+					Type: event.EventTypeError,
+					Data: map[string]interface{}{
+						"group_id":         group.ID,
+						"group_name":       group.Name,
+						"issue":            "single_leg_running",
+						"running_bot_ids":  runningIDs,
+						"expected_bot_ids": group.BotIDs,
+					},
+				})
+			}
+		}
+		if publishRecovered {
+			logger.Info("✅ [BotGroup:%s] 对冲组双腿已恢复一致运行", group.ID)
+			if bm.eventBus != nil {
+				bm.eventBus.Publish(&event.Event{
+					Type: event.EventTypeRiskRecovered,
+					Data: map[string]interface{}{
+						"group_id":        group.ID,
+						"group_name":      group.Name,
+						"issue":           "single_leg_running",
+						"running_bot_ids": runningIDs,
+					},
+				})
+			}
+		}
+	}
+}
+
+func containsBotID(botIDs []string, target string) bool {
+	for _, id := range botIDs {
+		if id == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ListSymbolRuntimes 返回底層 SymbolRuntime 列表（供需要兼容 SymbolManager 的調用方使用）

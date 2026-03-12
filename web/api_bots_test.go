@@ -177,6 +177,29 @@ func (m *mockBotManagerForDeleteGroupTest) StopBot(botID string) error {
 }
 func (m *mockBotManagerForDeleteGroupTest) EnableBot(botID string) error { return nil }
 
+type mockBotManagerForGroupConsistencyTest struct {
+	running map[string]bool
+}
+
+func (m *mockBotManagerForGroupConsistencyTest) ListBots() []BotResponse { return nil }
+func (m *mockBotManagerForGroupConsistencyTest) GetBot(botID string) (*BotDetailResponse, bool) {
+	r, ok := m.running[botID]
+	if !ok {
+		return nil, false
+	}
+	return &BotDetailResponse{
+		BotResponse: BotResponse{
+			BotID:   botID,
+			Running: r,
+		},
+	}, true
+}
+func (m *mockBotManagerForGroupConsistencyTest) StartBot(ctx context.Context, cfg config.BotConfig) error {
+	return nil
+}
+func (m *mockBotManagerForGroupConsistencyTest) StopBot(botID string) error { return nil }
+func (m *mockBotManagerForGroupConsistencyTest) EnableBot(botID string) error { return nil }
+
 func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -242,4 +265,73 @@ func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
 	}
 
 	_ = os.Remove(configPath)
+}
+
+func TestGetBotGroupByIDIncludesConsistency(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	cfg := &config.Config{
+		Bots: []config.BotConfig{
+			{ID: "fut-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
+			{ID: "spot-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
+		},
+		BotGroups: []config.BotGroup{
+			{ID: "g-consistency", Name: "hedge-btc", Type: "futures_spot_hedge", BotIDs: []string{"fut-bot", "spot-bot"}},
+		},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	fcm := NewFileConfigManager(configPath)
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	mock := &mockBotManagerForGroupConsistencyTest{
+		running: map[string]bool{
+			"fut-bot":  true,
+			"spot-bot": false,
+		},
+	}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/bot-groups/g-consistency", nil)
+	c.Params = gin.Params{{Key: "id", Value: "g-consistency"}}
+
+	getBotGroupByID(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	groupObj, ok := resp["bot_group"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("bot_group should be object")
+	}
+	consistency, ok := groupObj["consistency"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("bot_group.consistency should exist")
+	}
+	if consistency["status"] != "single_leg_running" {
+		t.Fatalf("expected status single_leg_running, got %v", consistency["status"])
+	}
 }

@@ -528,6 +528,66 @@ type CreateBotGroupRequest struct {
 	SpotBot     CreateBotRequest       `json:"spot_bot"`
 }
 
+func buildBotGroupConsistency(group config.BotGroup) gin.H {
+	total := len(group.BotIDs)
+	runningIDs := make([]string, 0, total)
+	stoppedIDs := make([]string, 0, total)
+
+	for _, botID := range group.BotIDs {
+		isRunning := false
+		if botManagerProvider != nil {
+			if bot, ok := botManagerProvider.GetBot(botID); ok && bot != nil && bot.Running {
+				isRunning = true
+			}
+		}
+		if isRunning {
+			runningIDs = append(runningIDs, botID)
+		} else {
+			stoppedIDs = append(stoppedIDs, botID)
+		}
+	}
+
+	runningCount := len(runningIDs)
+	status := "all_stopped"
+	alert := false
+	message := "all legs are stopped"
+	switch {
+	case runningCount == total && total > 0:
+		status = "fully_running"
+		message = "all legs are running"
+	case runningCount > 0 && runningCount < total:
+		alert = true
+		if runningCount == 1 && total == 2 {
+			status = "single_leg_running"
+			message = "hedge group is running with only one leg"
+		} else {
+			status = "partial_running"
+			message = "hedge group has partial legs running"
+		}
+	}
+
+	return gin.H{
+		"status":          status,
+		"alert":           alert,
+		"running_bot_ids": runningIDs,
+		"stopped_bot_ids": stoppedIDs,
+		"running_count":   runningCount,
+		"total_count":     total,
+		"message":         message,
+	}
+}
+
+func buildBotGroupResponse(group config.BotGroup) gin.H {
+	return gin.H{
+		"id":           group.ID,
+		"name":         group.Name,
+		"type":         group.Type,
+		"bot_ids":      group.BotIDs,
+		"hedge_config": group.HedgeConfig,
+		"consistency":  buildBotGroupConsistency(group),
+	}
+}
+
 // getBotGroups 獲取 Bot 組列表
 // GET /api/bot-groups
 func getBotGroups(c *gin.Context) {
@@ -544,7 +604,11 @@ func getBotGroups(c *gin.Context) {
 	if groups == nil {
 		groups = []config.BotGroup{}
 	}
-	c.JSON(http.StatusOK, gin.H{"bot_groups": groups})
+	resp := make([]gin.H, 0, len(groups))
+	for _, g := range groups {
+		resp = append(resp, buildBotGroupResponse(g))
+	}
+	c.JSON(http.StatusOK, gin.H{"bot_groups": resp})
 }
 
 // getBotGroupByID 獲取 Bot 組詳情
@@ -566,7 +630,7 @@ func getBotGroupByID(c *gin.Context) {
 	}
 	for _, g := range cfg.BotGroups {
 		if g.ID == groupID {
-			c.JSON(http.StatusOK, gin.H{"bot_group": g})
+			c.JSON(http.StatusOK, gin.H{"bot_group": buildBotGroupResponse(g)})
 			return
 		}
 	}
