@@ -71,10 +71,11 @@ const StrategyPicker: React.FC<StrategyPickerProps> = ({
   const baseStrategies = strategies.filter((s) =>
     ['grid', 'dca', 'dca_enhanced', 'martingale', 'trend_following', 'mean_reversion', 'breakout'].includes(s.id)
   )
-  // 現貨腿額外支援 spot_short（借幣做空對沖）
+  // 現貨腿額外支援 spot_short（借幣做空對沖，做多網格用）、spot_long（買入持倉對沖，做空網格用）
   const spotStrategies = [
     ...baseStrategies,
     ...(baseStrategies.some((s) => s.id === 'spot_short') ? [] : [{ id: 'spot_short', name: 'Spot Short' }]),
+    ...(baseStrategies.some((s) => s.id === 'spot_long') ? [] : [{ id: 'spot_long', name: 'Spot Long' }]),
   ]
 
   const applyTemplate = (tmpl: StrategyTemplate) => {

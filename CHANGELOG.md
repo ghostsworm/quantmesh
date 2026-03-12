@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc18] - 2026-03-12
+
+### Added
+- **做空網格現貨做多對沖**：支援合約做空網格 + 現貨買入持倉對沖
+  - 新增 `SpotLongStrategy`：訂閱 `target_spot_long` 信號，買入/賣出現貨以對沖做空網格的上漲風險
+  - `HedgeCoordinator` 根據 `HedgeConfig.Direction`：LONG 發 `target_spot_short`，SHORT 發 `target_spot_long`
+  - `HedgeConfig` 新增 `Direction` 欄位，從合約腿繼承
+  - 前端：對沖策略選擇器新增 `spot_long` 選項，新增「網格+現貨做多對沖」模板
+  - 選擇 `spot_long` 時自動將方向設為做空，並顯示對應參數配置
+
+---
+
 ## [3.76.0-rc17] - 2026-03-12
 
 ### Changed

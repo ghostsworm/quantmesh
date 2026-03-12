@@ -139,10 +139,13 @@ const BotCreateWizard: React.FC = () => {
         setHedgePrimary(strategies[0])
         setHedgeSecondary(strategies[1])
         setHedgeRatio(template.config.hedge_ratio ?? 0.5)
-        if (strategies[1] === 'spot_short') {
+        if (strategies[1] === 'spot_short' || strategies[1] === 'spot_long') {
           setHedgeShortNotionalRatio(template.config.short_notional_ratio ?? 0.25)
           setHedgeTriggerLayers(template.config.hedge_trigger_layers ?? 3)
           setHedgeRebalanceInterval(template.config.rebalance_interval ?? 3600)
+        }
+        if (strategies[1] === 'spot_long') {
+          setForm(f => ({ ...f, direction: 'SHORT' }))
         }
       }
 
@@ -550,10 +553,10 @@ const BotCreateWizard: React.FC = () => {
                 value={strategyParams}
                 onChange={setStrategyParams}
               />
-              {strategyType === 'hedge' && hedgeSecondary === 'spot_short' && (
+              {strategyType === 'hedge' && (hedgeSecondary === 'spot_short' || hedgeSecondary === 'spot_long') && (
                 <>
                   <Divider my={2} />
-                  {(form.direction === 'SHORT' || form.direction === 'BOTH') && (
+                  {hedgeSecondary === 'spot_short' && (form.direction === 'SHORT' || form.direction === 'BOTH') && (
                     <Box p={3} bg="orange.50" borderRadius="md" fontSize="sm" borderWidth={1} borderColor="orange.200">
                       <Text color="orange.800">
                         {form.direction === 'SHORT'
@@ -562,13 +565,18 @@ const BotCreateWizard: React.FC = () => {
                       </Text>
                     </Box>
                   )}
+                  {hedgeSecondary === 'spot_long' && form.direction !== 'SHORT' && (
+                    <Box p={3} bg="orange.50" borderRadius="md" fontSize="sm" borderWidth={1} borderColor="orange.200">
+                      <Text color="orange.800">{t('botCreate.hedgeSpotLongDirectionWarning')}</Text>
+                    </Box>
+                  )}
                   <Text fontWeight="medium" fontSize="sm">
-                    {form.direction === 'LONG'
-                      ? t('botCreate.hedgeSpotShortConfig')
-                      : t('botCreate.hedgeSpotShortConfigLongOnly')}
+                    {hedgeSecondary === 'spot_short'
+                      ? (form.direction === 'LONG' ? t('botCreate.hedgeSpotShortConfig') : t('botCreate.hedgeSpotShortConfigLongOnly'))
+                      : t('botCreate.hedgeSpotLongConfig')}
                   </Text>
                   <FormControl>
-                    <FormLabel>{t('botCreate.shortNotionalRatio')}</FormLabel>
+                    <FormLabel>{hedgeSecondary === 'spot_long' ? t('botCreate.longNotionalRatio') : t('botCreate.shortNotionalRatio')}</FormLabel>
                     <DecimalNumberInput
                       value={hedgeShortNotionalRatio ?? 0.25}
                       min={0.05}
@@ -578,7 +586,7 @@ const BotCreateWizard: React.FC = () => {
                       onChange={(v) => setHedgeShortNotionalRatio(v ?? 0.25)}
                     />
                     <Text fontSize="xs" color="gray.500" mt={1}>
-                      {t('botCreate.shortNotionalRatioHint')}
+                      {hedgeSecondary === 'spot_long' ? t('botCreate.longNotionalRatioHint') : t('botCreate.shortNotionalRatioHint')}
                     </Text>
                   </FormControl>
                   <FormControl>
@@ -757,10 +765,10 @@ const BotCreateWizard: React.FC = () => {
                     </Box>
                   )
                 })}
-                {strategyType === 'hedge' && hedgeSecondary === 'spot_short' && (
+                {strategyType === 'hedge' && (hedgeSecondary === 'spot_short' || hedgeSecondary === 'spot_long') && (
                   <Box mt={2} pl={2} borderLeftWidth={2} borderColor="blue.300">
                     <Text fontWeight="medium" mb={1}>
-                      {form.direction === 'LONG' ? t('botCreate.hedgeSpotShortConfig') : t('botCreate.hedgeSpotShortConfigLongOnly')}
+                      {hedgeSecondary === 'spot_short' ? (form.direction === 'LONG' ? t('botCreate.hedgeSpotShortConfig') : t('botCreate.hedgeSpotShortConfigLongOnly')) : t('botCreate.hedgeSpotLongConfig')}
                     </Text>
                     <Text pl={2}><strong>{t('botCreate.shortNotionalRatio')}:</strong> {hedgeShortNotionalRatio}</Text>
                     <Text pl={2}><strong>{t('botCreate.hedgeTriggerLayers')}:</strong> {hedgeTriggerLayers}</Text>

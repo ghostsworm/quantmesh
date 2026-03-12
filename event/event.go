@@ -150,9 +150,10 @@ type HedgeSignalPayload struct {
 	GroupID             string  `json:"group_id"`
 	Symbol              string  `json:"symbol"`
 	Exchange            string  `json:"exchange"`
-	TargetSpotShort     float64 `json:"target_spot_short"`      // 目標現貨空倉數量（base 資產）
-	FuturesFilledLayers int     `json:"futures_filled_layers"`  // 網格已買入層數
-	FuturesPosition     float64 `json:"futures_position"`       // 合約持倉數量
+	TargetSpotShort     float64 `json:"target_spot_short"`      // 目標現貨空倉數量（做多網格用）
+	TargetSpotLong      float64 `json:"target_spot_long"`       // 目標現貨多倉數量（做空網格用）
+	FuturesFilledLayers int     `json:"futures_filled_layers"`  // 網格已買入/賣出層數
+	FuturesPosition     float64 `json:"futures_position"`        // 合約持倉數量（正=多，負=空）
 }
 
 // EventSource 事件源

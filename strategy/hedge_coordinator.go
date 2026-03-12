@@ -166,23 +166,41 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 			logger.Debug("HedgeCoordinator: 網格未滿 %d 格 (當前 %d)，跳過對沖", triggerLayers, filledLayers)
 			return
 		}
-		targetSpotShort := position * shortRatio
-		if targetSpotShort < 0.000001 {
-			return
+		hc.mu.Lock()
+		direction := hc.group.HedgeConfig.Direction
+		hc.mu.Unlock()
+		if direction == "" {
+			direction = "LONG"
 		}
-		hc.eventBus.Publish(&event.Event{
-			Type: event.EventTypeHedgeSignal,
-			Data: map[string]interface{}{
-				"group_id":              hc.group.ID,
-				"symbol":                symbol,
-				"exchange":              exchangeName,
-				"target_spot_short":     targetSpotShort,
-				"futures_filled_layers":  filledLayers,
-				"futures_position":      position,
-			},
-		})
-		logger.Info("📤 HedgeCoordinator: 發送對沖信號 group=%s symbol=%s target_short=%.6f layers=%d",
-			hc.group.ID, symbol, targetSpotShort, filledLayers)
+		evtData := map[string]interface{}{
+			"group_id":             hc.group.ID,
+			"symbol":               symbol,
+			"exchange":             exchangeName,
+			"futures_filled_layers": filledLayers,
+			"futures_position":     position,
+		}
+		// LONG 網格：合約持倉為正，發 target_spot_short（現貨做空對沖）
+		// SHORT 網格：合約持倉為負，發 target_spot_long（現貨做多對沖）
+		switch direction {
+		case "SHORT":
+			targetSpotLong := -position * shortRatio
+			if targetSpotLong < 0.000001 {
+				return
+			}
+			evtData["target_spot_long"] = targetSpotLong
+			hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
+			logger.Info("📤 HedgeCoordinator: 發送對沖信號(做空) group=%s symbol=%s target_long=%.6f layers=%d",
+				hc.group.ID, symbol, targetSpotLong, filledLayers)
+		default:
+			targetSpotShort := position * shortRatio
+			if targetSpotShort < 0.000001 {
+				return
+			}
+			evtData["target_spot_short"] = targetSpotShort
+			hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
+			logger.Info("📤 HedgeCoordinator: 發送對沖信號(做多) group=%s symbol=%s target_short=%.6f layers=%d",
+				hc.group.ID, symbol, targetSpotShort, filledLayers)
+		}
 	}
 }
 

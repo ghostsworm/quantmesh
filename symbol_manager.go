@@ -757,7 +757,7 @@ func startSymbolRuntime(
 			logger.Info("✅ [%s] 组合策略已注册", symCfg.Symbol)
 		}
 
-		// spot_short：現貨借幣做空策略（僅 spot/spot_margin，對沖組現貨腿）
+		// spot_short：現貨借幣做空策略（僅 spot/spot_margin，對沖組現貨腿，做多網格用）
 		if symCfg.GetMarketType() == "spot" || symCfg.GetMarketType() == "spot_margin" {
 			for _, si := range symCfg.Strategies {
 				if si.Type == "spot_short" {
@@ -769,6 +769,22 @@ func startSymbolRuntime(
 					spotShortStrategy := strategy.NewSpotShortStrategy("spot_short", &localCfg, spotShortExecutor, exchangeAdapter, ex, spotShortCfg)
 					strategyManager.RegisterStrategy("spot_short", spotShortStrategy, si.Weight, 0)
 					logger.Info("✅ [%s] 現貨做空策略已注册 (group=%v)", symCfg.Symbol, spotShortCfg["group_id"])
+					break
+				}
+			}
+		}
+		// spot_long：現貨做多對沖策略（僅 spot，對沖組現貨腿，做空網格用）
+		if symCfg.GetMarketType() == "spot" {
+			for _, si := range symCfg.Strategies {
+				if si.Type == "spot_long" {
+					spotLongCfg := map[string]interface{}{}
+					if si.Config != nil {
+						spotLongCfg = si.Config
+					}
+					spotLongExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_long")
+					spotLongStrategy := strategy.NewSpotLongStrategy("spot_long", &localCfg, spotLongExecutor, exchangeAdapter, spotLongCfg)
+					strategyManager.RegisterStrategy("spot_long", spotLongStrategy, si.Weight, 0)
+					logger.Info("✅ [%s] 現貨做多對沖策略已注册 (group=%v)", symCfg.Symbol, spotLongCfg["group_id"])
 					break
 				}
 			}
