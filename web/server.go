@@ -214,6 +214,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/exchanges", getExchanges)
 			protected.GET("/positions", getPositions)
 			protected.GET("/positions/summary", getPositionsSummary)
+			protected.GET("/positions/exchange-summary", getExchangePositionsSummary)
 			protected.GET("/positions/summary/all", getPositionsSummaryAll)
 			protected.GET("/orders", getOrders)
 			protected.GET("/orders/history", getOrderHistory)

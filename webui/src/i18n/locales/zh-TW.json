@@ -218,6 +218,8 @@
     "currentPrice": "當前價格",
     "unrealizedPnl": "未實現盈虧",
     "startToViewOverview": "請先啟動 Bot 以查看概覽數據",
+    "stoppedBotPositionsDisclaimer": "以下為該交易對在交易所的持倉，可能非本 Bot 開倉，僅供參考。",
+    "exchangePositionsForSymbol": "該交易對持倉（交易所數據）",
     "strategyHint": "策略參數與資金分配在工作區中配置",
     "riskHint": "風控監控與歷史記錄",
     "logsHint": "最近 50 條包含該交易對的日誌",
