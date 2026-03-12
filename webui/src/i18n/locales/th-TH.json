@@ -57,6 +57,7 @@
     "fundingRate": "Funding Rate",
     "basisMonitor": "Basis Monitor",
     "servicesStatus": "Service Status",
+    "fixManagement": "FIX Management",
     "configManagement": "การตั้งค่า",
     "firstTimeWizard": "ตัวช่วยตั้งค่าครั้งแรก",
     "profile": "Profile",

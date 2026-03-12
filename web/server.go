@@ -222,6 +222,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/fix/orders", getFixOrderLinks)
 			protected.POST("/fix/sessions/logon", fixLogonSession)
 			protected.POST("/fix/sessions/heartbeat", fixHeartbeat)
+			protected.POST("/fix/sessions/logout", fixLogoutSession)
 			protected.POST("/fix/orders/new", fixNewOrder)
 			protected.POST("/fix/orders/cancel", fixCancelOrder)
 			protected.POST("/fix/orders/replace", fixReplaceOrder)

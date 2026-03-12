@@ -57,6 +57,7 @@
     "fundingRate": "Funding Rate",
     "basisMonitor": "Basis Monitor",
     "servicesStatus": "Service Status",
+    "fixManagement": "FIX Management",
     "configManagement": "Configuration",
     "firstTimeWizard": "First-time Setup Wizard",
     "profile": "Profile",

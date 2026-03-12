@@ -57,6 +57,7 @@
     "fundingRate": "Ставка фінансування",
     "basisMonitor": "Монітор базису",
     "servicesStatus": "Статус сервісів",
+    "fixManagement": "FIX Management",
     "configManagement": "Конфігурація",
     "firstTimeWizard": "Майстер першого запуску",
     "profile": "Профіль",

@@ -78,6 +78,7 @@ const PositionPlan = lazy(() => import('./components/PositionPlan'))
 const NewbieRiskCheck = lazy(() => import('./components/NewbieRiskCheck'))
 const BacktestMenu = lazy(() => import('./components/BacktestMenu'))
 const ServiceStatusPage = lazy(() => import('./components/ServiceStatusPage'))
+const FixManagement = lazy(() => import('./components/FixManagement'))
 const DataExport = lazy(() => import('./components/DataExport'))
 const KlineFilesManager = lazy(() => import('./components/KlineFilesManager'))
 const StrategyMarket = lazy(() => import('./components/StrategyMarket'))
@@ -544,6 +545,7 @@ const AppContent: React.FC = () => {
                 <Route path="/kline-files" element={<ProtectedRoute><KlineFilesManager /></ProtectedRoute>} />
                 <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
                 <Route path="/services/status" element={<ProtectedRoute><ServiceStatusPage /></ProtectedRoute>} />
+                <Route path="/fix" element={<ProtectedRoute><FixManagement /></ProtectedRoute>} />
                 <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/terms" element={<TermsPage />} />

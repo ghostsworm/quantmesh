@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc4] - 2026-03-12
+
+### Added
+- **FIX 登出 API**：`POST /api/fix/sessions/logout` 支持主动登出 FIX 会话，将 `is_logged_on=false` 并清空内存绑定
+- **FIX 管理页**：Web UI 新增 FIX 管理（`/fix`），会话列表与订单列表双 Tab，支持查看会话状态、最后心跳、主动登出；订单列表展示 ClOrdID、交易对、方向、状态、内部订单映射
+- **FIX 管理 i18n**：`fixManagement` 与 `sidebar.fixManagement` 文案已接入中英等多语言
+
+---
+
 ## [3.76.0-rc3] - 2026-03-12
 
 ### Added

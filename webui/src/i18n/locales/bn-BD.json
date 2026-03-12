@@ -57,6 +57,7 @@
     "fundingRate": "Funding Rate",
     "basisMonitor": "Basis Monitor",
     "servicesStatus": "Service Status",
+    "fixManagement": "FIX Management",
     "configManagement": "কনফিগারেশন",
     "firstTimeWizard": "প্রথমবার সেটআপ উইজার্ড",
     "profile": "Profile",

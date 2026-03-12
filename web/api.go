@@ -2186,6 +2186,43 @@ func fixHeartbeat(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "session_id": req.SessionID, "last_heartbeat_at": utils.ToUTC8(now)})
 }
 
+// fixLogoutSession FIX 主动登出
+// POST /api/fix/sessions/logout
+func fixLogoutSession(c *gin.Context) {
+	var req fixHeartbeatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.storage_not_found", fmt.Errorf("storage unavailable"))
+		return
+	}
+	st := storageProv.GetStorage()
+	state, err := st.GetFixSessionState(req.SessionID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.query_failed", err)
+		return
+	}
+	if state == nil {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "session_id": req.SessionID, "message": "session not found or already logged out"})
+		return
+	}
+	state.IsLoggedOn = false
+	state.UpdatedAt = utils.NowUTC()
+	if err := st.UpsertFixSessionState(state); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.save_failed", err)
+		return
+	}
+	setFixSessionBotBinding(req.SessionID, "")
+	logger.Info("FIX logout: session_id=%s", req.SessionID)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "session_id": req.SessionID})
+}
+
 // fixNewOrder FIX 新单
 // POST /api/fix/orders/new
 func fixNewOrder(c *gin.Context) {
