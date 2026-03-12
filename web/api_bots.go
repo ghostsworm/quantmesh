@@ -652,7 +652,7 @@ func postBotGroupCreate(c *gin.Context) {
 	if req.Type == "" {
 		req.Type = "futures_spot_hedge"
 	}
-	if req.Type != "futures_spot_hedge" && req.Type != "long_short_hedge" {
+	if req.Type != "futures_spot_hedge" && req.Type != "long_short_hedge" && req.Type != "spot_grid_futures_hedge" {
 		respondError(c, http.StatusBadRequest, "error.invalid_group_type")
 		return
 	}
@@ -663,6 +663,8 @@ func postBotGroupCreate(c *gin.Context) {
 	}
 	req.FuturesBot.MarketType = "futures"
 	req.SpotBot.MarketType = "spot"
+
+	isSpotPrimary := req.Type == "spot_grid_futures_hedge"
 
 	cfg, err := GetLatestConfig()
 	if err != nil || cfg == nil {
@@ -800,6 +802,16 @@ func postBotGroupCreate(c *gin.Context) {
 			break
 		}
 	}
+	// 若合約腿為 futures_short（現貨網格+合約對沖），注入 group_id
+	for i := range bcFutures.Strategies {
+		if bcFutures.Strategies[i].Type == "futures_short" {
+			if bcFutures.Strategies[i].Config == nil {
+				bcFutures.Strategies[i].Config = make(map[string]interface{})
+			}
+			bcFutures.Strategies[i].Config["group_id"] = groupID
+			break
+		}
+	}
 	applyBotDefaults(&bcSpot)
 
 	hedgeCfg := req.HedgeConfig
@@ -815,28 +827,50 @@ func postBotGroupCreate(c *gin.Context) {
 	if hedgeCfg.HedgeTriggerLayers <= 0 {
 		hedgeCfg.HedgeTriggerLayers = 3
 	}
-	// 從合約腿繼承方向，供 HedgeCoordinator 決定發 target_spot_short 或 target_spot_long
+	// 從合約腿繼承方向，供 HedgeCoordinator 決定發 target_spot_short 或 target_spot_long（合約主腿時）
 	if hedgeCfg.Direction == "" {
-		d := req.FuturesBot.Direction
-		if d == "" {
-			d = "LONG"
+		if isSpotPrimary {
+			hedgeCfg.Direction = "LONG" // 現貨網格恆為做多
+		} else {
+			d := req.FuturesBot.Direction
+			if d == "" {
+				d = "LONG"
+			}
+			hedgeCfg.Direction = d
 		}
-		hedgeCfg.Direction = d
+	}
+	if isSpotPrimary {
+		hedgeCfg.PrimaryLeg = "spot"
 	}
 
-	group := config.BotGroup{
-		ID:          groupID,
-		Name:        groupName,
-		Type:        req.Type,
-		BotIDs:      []string{futuresID, spotID},
-		HedgeConfig: hedgeCfg,
+	var group config.BotGroup
+	var botsToAppend []config.BotConfig
+	if isSpotPrimary {
+		// 現貨主腿：BotIDs = [spotID, futuresID]，spot 跑 grid，futures 跑 futures_short
+		group = config.BotGroup{
+			ID:          groupID,
+			Name:        groupName,
+			Type:        req.Type,
+			BotIDs:      []string{spotID, futuresID},
+			HedgeConfig: hedgeCfg,
+		}
+		botsToAppend = []config.BotConfig{bcSpot, bcFutures}
+	} else {
+		group = config.BotGroup{
+			ID:          groupID,
+			Name:        groupName,
+			Type:        req.Type,
+			BotIDs:      []string{futuresID, spotID},
+			HedgeConfig: hedgeCfg,
+		}
+		botsToAppend = []config.BotConfig{bcFutures, bcSpot}
 	}
 
 	if cfg.BotGroups == nil {
 		cfg.BotGroups = []config.BotGroup{}
 	}
 	cfg.BotGroups = append(cfg.BotGroups, group)
-	cfg.Bots = append(cfg.Bots, bcFutures, bcSpot)
+	cfg.Bots = append(cfg.Bots, botsToAppend...)
 
 	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)

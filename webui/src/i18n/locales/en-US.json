@@ -154,6 +154,7 @@
     "hedgeSpotShortShortWarning": "Spot short hedge only applies to long grid. With short grid, hedge will not take effect.",
     "hedgeSpotShortBothWarning": "Spot short hedge is designed for long grid. With bidirectional grid, hedge behavior may not match expectations.",
     "hedgeSpotLongConfig": "Spot Long Hedge Config",
+    "hedgeSpotGridFuturesConfig": "Spot Grid + Futures Hedge Config",
     "hedgeSpotLongDirectionWarning": "Spot long hedge only applies to short grid. Please set direction to Short Only.",
     "longNotionalRatio": "Long Notional Ratio",
     "longNotionalRatioHint": "Long notional exposure as % of grid notional, default 0.25 (25%)",
@@ -168,7 +169,8 @@
       "dca_martingale": "DCA + Martingale",
       "futures_spot_hedge": "Futures + Spot Hedge",
       "grid_spot_short_hedge": "Grid + Spot Short Hedge",
-      "grid_spot_long_hedge": "Grid + Spot Long Hedge"
+      "grid_spot_long_hedge": "Grid + Spot Long Hedge",
+      "spot_grid_futures_hedge": "Spot Grid + Futures Hedge"
     },
     "strategyParams": {}
   },
@@ -2852,7 +2854,8 @@
     "mean_reversion": "Mean Reversion Strategy",
     "breakout": "Breakout Strategy",
     "spot_short": "Spot Short (Borrow & Sell)",
-    "spot_long": "Spot Long (Buy & Hold)"
+    "spot_long": "Spot Long (Buy & Hold)",
+    "futures_short": "Futures Short Hedge"
   },
   "strategyDescriptions": {
     "grid": "Classic grid trading strategy that automatically places orders within a price range to capture volatility spreads",

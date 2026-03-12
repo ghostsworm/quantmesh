@@ -77,6 +77,11 @@ const StrategyPicker: React.FC<StrategyPickerProps> = ({
     ...(baseStrategies.some((s) => s.id === 'spot_short') ? [] : [{ id: 'spot_short', name: 'Spot Short' }]),
     ...(baseStrategies.some((s) => s.id === 'spot_long') ? [] : [{ id: 'spot_long', name: 'Spot Long' }]),
   ]
+  // 合約腿額外支援 futures_short（現貨網格+合約對沖用）
+  const futuresStrategies = [
+    ...baseStrategies,
+    ...(baseStrategies.some((s) => s.id === 'futures_short') ? [] : [{ id: 'futures_short', name: 'Futures Short' }]),
+  ]
 
   const applyTemplate = (tmpl: StrategyTemplate) => {
     if (tmpl.type === 'combo' && tmpl.strategies?.length) {
@@ -211,7 +216,7 @@ const StrategyPicker: React.FC<StrategyPickerProps> = ({
             <Text fontSize="sm" mb={1}>{t('botCreate.strategyPicker.hedgeFutures')}</Text>
             <RadioGroup value={hedgePrimary || ''} onChange={(v) => onHedgeChange(v, hedgeSecondary || '', hedgeRatio)}>
               <Stack spacing={1}>
-                {baseStrategies.map((s) => (
+                {futuresStrategies.map((s) => (
                   <Radio key={s.id} value={s.id}>{t(`strategyNames.${s.id}`, s.name)}</Radio>
                 ))}
               </Stack>

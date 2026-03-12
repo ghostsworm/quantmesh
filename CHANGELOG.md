@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc19] - 2026-03-13
+
+### Added
+- **現貨網格+合約對沖**：支援現貨網格做多 + 合約做空對沖
+  - 新增 `FuturesShortStrategy`：訂閱 `target_futures_short` 信號，在合約側開空/平空以對沖現貨網格持倉
+  - `HedgeCoordinator` 支援 `PrimaryLeg=spot`：監聽現貨腿持倉變化，向合約腿發送 `target_futures_short`
+  - `HedgeConfig` 新增 `PrimaryLeg` 欄位（futures/spot）
+  - 新增模板 `spot_grid_futures_hedge`，創建時 BotIDs=[spotID, futuresID]
+  - 前端：對沖策略選擇器新增 `futures_short` 選項，支援「現貨網格+合約對沖」創建流程
+
+---
+
 ## [3.76.0-rc18] - 2026-03-12
 
 ### Added
