@@ -2043,12 +2043,27 @@ type fixReplaceOrderRequest struct {
 	OrderQty    float64 `json:"order_qty" binding:"required,gt=0"`
 }
 
-const fixSessionHeartbeatTimeout = 120 * time.Second
-
 var (
 	fixSessionBotBinding   = make(map[string]string)
 	fixSessionBindingMutex sync.RWMutex
 )
+
+func isFixEnabled() bool {
+	if globalConfig == nil {
+		return true // 未注入配置时保持原行为
+	}
+	if globalConfig.Fix.Enabled == nil {
+		return true
+	}
+	return *globalConfig.Fix.Enabled
+}
+
+func getFixHeartbeatTimeout() time.Duration {
+	if globalConfig == nil || globalConfig.Fix.HeartbeatTimeoutSec <= 0 {
+		return 120 * time.Second
+	}
+	return time.Duration(globalConfig.Fix.HeartbeatTimeoutSec) * time.Second
+}
 
 func setFixSessionBotBinding(sessionID, botID string) {
 	fixSessionBindingMutex.Lock()
@@ -2064,6 +2079,18 @@ func getFixSessionBotBinding(sessionID string) string {
 	fixSessionBindingMutex.RLock()
 	defer fixSessionBindingMutex.RUnlock()
 	return fixSessionBotBinding[sessionID]
+}
+
+// fixEnabledMiddleware 当 config.fix.enabled=false 时返回 503
+func fixEnabledMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !isFixEnabled() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "FIX protocol is disabled (config.fix.enabled=false)"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }
 
 // fixLogonSession FIX 登录与会话绑定
@@ -2506,7 +2533,7 @@ func resolveFixExecutionContext(c *gin.Context, sessionID string) (storage.Stora
 		return nil, nil, nil, nil, "", fmt.Errorf("session not logged on")
 	}
 	// 心跳超时判定：超过阈值则标记失活并拒单
-	if state.LastHeartbeatAt != nil && time.Since(*state.LastHeartbeatAt) > fixSessionHeartbeatTimeout {
+	if state.LastHeartbeatAt != nil && time.Since(*state.LastHeartbeatAt) > getFixHeartbeatTimeout() {
 		state.IsLoggedOn = false
 		state.UpdatedAt = utils.NowUTC()
 		_ = st.UpsertFixSessionState(state)

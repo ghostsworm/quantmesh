@@ -23,7 +23,7 @@
 
 ### 2.3 会话可靠性
 - BotID 持久化到存储，进程重启可恢复
-- 心跳超时 120 秒自动失活
+- 心跳超时可配置（`config.fix.heartbeat_timeout_sec`，預設 120 秒）
 - reset_seq_num_flg 支持序号重置
 
 ### 2.4 可观测
@@ -36,9 +36,9 @@
 - [x] POST /api/fix/sessions/logout 主动登出
 - [x] Web UI FIX 管理页：会话列表、订单列表、登出操作（`/fix`）
 
-### P2 - 配置化
-- [ ] 心跳超时可配置（config.fix.heartbeat_timeout_sec）
-- [ ] FIX 开关（config.fix.enabled）
+### P2 - 配置化（已完成 3.76.0-rc5）
+- [x] 心跳超时可配置（config.fix.heartbeat_timeout_sec，預設 120）
+- [x] FIX 开关（config.fix.enabled，預設 true，关闭时所有 FIX API 返回 503）
 
 ### P3 - 协议层（可选）
 - [ ] FIX Tag=Value 报文解析

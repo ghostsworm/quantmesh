@@ -15,6 +15,7 @@ import (
 	"quantmesh/storage"
 )
 
+
 type mockFixBotManager struct{}
 
 func (m *mockFixBotManager) ListBots() []BotResponse { return nil }
@@ -352,5 +353,98 @@ func TestFixLogoutSession(t *testing.T) {
 	}
 	if state.IsLoggedOn {
 		t.Fatalf("登出后 is_logged_on 应为 false, got %+v", state)
+	}
+}
+
+func TestFixDisabledReturns503(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	origConfig := globalConfig
+	t.Cleanup(func() { globalConfig = origConfig })
+
+	// 设置 FIX 关闭
+	globalConfig = &config.Config{}
+	globalConfig.Fix.Enabled = config.BoolPtr(false)
+	globalConfig.Fix.HeartbeatTimeoutSec = 120
+
+	r := gin.New()
+	api := r.Group("/api")
+	protected := api.Group("")
+	protected.Use(func(c *gin.Context) { c.Next() }) // 跳过认证
+	fixGroup := protected.Group("/fix")
+	fixGroup.Use(fixEnabledMiddleware())
+	fixGroup.GET("/sessions", getFixSessions)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/fix/sessions?limit=10&offset=0", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("FIX 关闭时应返回 503, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestFixHeartbeatTimeoutConfig(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	origConfig := globalConfig
+	t.Cleanup(func() { globalConfig = origConfig })
+	globalConfig = &config.Config{}
+	globalConfig.Fix.Enabled = config.BoolPtr(true)
+	globalConfig.Fix.HeartbeatTimeoutSec = 10 // 10 秒超时
+
+	dbPath := "./test_api_fix_timeout_config.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("创建存储失败: %v", err)
+	}
+	defer st.Close()
+
+	oldTime := time.Now().Add(-15 * time.Second) // 15 秒前
+	state := &storage.FixSessionState{
+		SessionID:       "FIX.4.4:TIMEOUT_CFG",
+		BotID:           "binance:BTCUSDT:futures",
+		Role:            "acceptor",
+		BeginString:     "FIX.4.4",
+		NextSenderSeq:   1,
+		NextTargetSeq:   1,
+		IsLoggedOn:      true,
+		LastLogonAt:     &oldTime,
+		LastHeartbeatAt: &oldTime,
+		UpdatedAt:       time.Now().UTC(),
+	}
+	if err := st.UpsertFixSessionState(state); err != nil {
+		t.Fatalf("创建超时会话失败: %v", err)
+	}
+	setFixSessionBotBinding(state.SessionID, state.BotID)
+
+	origStorageProvider := storageServiceProvider
+	origBotProvider := botManagerProvider
+	SetStorageServiceProvider(&testStorageProvider{st: st})
+	RegisterBotManagerProvider(&mockFixBotManager{})
+	t.Cleanup(func() {
+		SetStorageServiceProvider(origStorageProvider)
+		RegisterBotManagerProvider(origBotProvider)
+	})
+
+	newOrderBody := []byte(`{
+		"session_id":"FIX.4.4:TIMEOUT_CFG",
+		"cl_ord_id":"T-CFG-1",
+		"side":"BUY",
+		"price":50000,
+		"order_qty":0.001
+	}`)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/fix/orders/new", bytes.NewReader(newOrderBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	fixNewOrder(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("配置 10 秒超时、会话 15 秒未心跳应拒单 400, got %d body=%s", w.Code, w.Body.String())
 	}
 }

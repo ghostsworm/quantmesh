@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc5] - 2026-03-12
+
+### Added
+- **FIX 配置化（P2）**：`config.fix.enabled` 开关（預設 true），关闭时所有 FIX API 返回 503；`config.fix.heartbeat_timeout_sec` 心跳超时秒数（預設 120），支持按环境调整
+
+### Test
+- **web/api_fix_test.go**：`TestFixDisabledReturns503` 验证 FIX 关闭时 503；`TestFixHeartbeatTimeoutConfig` 验证可配置超时生效
+
+---
+
 ## [3.76.0-rc4] - 2026-03-12
 
 ### Added
