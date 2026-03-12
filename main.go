@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.76.0-rc1"
+var Version = "3.76.0-rc2"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -396,15 +396,29 @@ func (a *symbolManagerWebAdapter) Get(exchange, symbol string) (interface{}, boo
 }
 
 func (a *symbolManagerWebAdapter) GetEx(exchange, symbol, marketType string) (interface{}, bool) {
-	mt := marketType
-	if mt == "" {
-		mt = "futures"
+	mt := strings.TrimSpace(strings.ToLower(marketType))
+	if mt != "" {
+		rt, ok := a.manager.Get(exchange, symbol, mt)
+		if !ok {
+			return nil, false
+		}
+		return rt, true
 	}
-	rt, ok := a.manager.Get(exchange, symbol, mt)
-	if !ok {
+
+	// 未指定 market_type 時，僅在唯一候選時返回，避免默認 futures 造成錯配
+	spotRT, spotOK := a.manager.Get(exchange, symbol, "spot")
+	futuresRT, futuresOK := a.manager.Get(exchange, symbol, "futures")
+	if spotOK && !futuresOK {
+		return spotRT, true
+	}
+	if futuresOK && !spotOK {
+		return futuresRT, true
+	}
+	if spotOK && futuresOK {
+		logger.Warn("⚠️ GetEx 命中 spot/futures 同名交易對，需顯式指定 market_type: %s:%s", exchange, symbol)
 		return nil, false
 	}
-	return rt, true
+	return nil, false
 }
 
 func (a *symbolManagerWebAdapter) List() []interface{} {
