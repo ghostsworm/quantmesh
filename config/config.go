@@ -1554,8 +1554,9 @@ func (c *Config) MigrateToBots() {
 		}
 		return
 	}
-	// 已有 Bots：合併 Symbols 中尚未存在的項（按 symbolKey 判重，避免同交易所同幣同市場類型重複）
-	// 交易所倉位按 symbol 隔離，同一 exchange+symbol+marketType 只能有一個 Bot，否則會導致倉位重複認領等問題
+	// 已有 Bots：合併 Symbols 中尚未存在的項（按 symbolKey 判重，避免從 Symbols 遷移時重複）
+	// 註：同一 exchange+symbol+marketType 允許多個 Bot 配置存在（如舊的已停止 + 新建的），
+	// 僅當有運行中的同交易對 Bot 時，創建/啟動會拒絕（由 API 與 BotManager 檢查）
 	hasSymbolKey := func(bc BotConfig) bool {
 		key := GenerateBotID(bc.Exchange, bc.Symbol, bc.GetMarketType())
 		for _, b := range c.Bots {
