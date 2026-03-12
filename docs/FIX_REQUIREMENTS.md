@@ -32,9 +32,9 @@
 
 ## 三、待办（按优先级）
 
-### P1 - 管理能力
-- [ ] POST /api/fix/sessions/logout 主动登出
-- [ ] Web UI FIX 管理页：会话列表、订单列表、登出操作
+### P1 - 管理能力（已完成 3.76.0-rc4）
+- [x] POST /api/fix/sessions/logout 主动登出
+- [x] Web UI FIX 管理页：会话列表、订单列表、登出操作（`/fix`）
 
 ### P2 - 配置化
 - [ ] 心跳超时可配置（config.fix.heartbeat_timeout_sec）
