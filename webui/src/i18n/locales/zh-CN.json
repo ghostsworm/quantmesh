@@ -2458,6 +2458,7 @@
     "pauseSuccess": "已暂停开仓",
     "resumeSuccess": "已恢复开仓",
     "configSaved": "配置已保存",
+    "botStopped": "Bot 未运行",
     "weekday0": "日",
     "weekday1": "一",
     "weekday2": "二",

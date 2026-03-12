@@ -3,12 +3,51 @@ package web
 import (
 	"net/http"
 	"reflect"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
 	"quantmesh/logger"
 	"quantmesh/position"
 )
+
+// findOpeningControlConfigFromConfig 從配置文件中查找開倉控制配置（Bot 未運行時使用）
+func findOpeningControlConfigFromConfig(exchange, symbol, marketType string) *config.OpenPositionControl {
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
+		return nil
+	}
+	mt := strings.TrimSpace(strings.ToLower(marketType))
+	if mt != "spot" && mt != "futures" {
+		mt = "futures"
+	}
+	// 優先從 Bots 查找
+	for i := range cfg.Bots {
+		b := &cfg.Bots[i]
+		bmt := b.GetMarketType()
+		if bmt == "spot_margin" {
+			bmt = "spot"
+		}
+		if strings.EqualFold(b.Exchange, exchange) && strings.EqualFold(b.Symbol, symbol) && bmt == mt {
+			return &b.OpenPositionControl
+		}
+	}
+	// 兼容舊配置：從 Trading.Symbols 查找
+	for i := range cfg.Trading.Symbols {
+		s := &cfg.Trading.Symbols[i]
+		symMT := s.GetMarketType()
+		if symMT == "" {
+			symMT = "futures"
+		}
+		if symMT == "spot_margin" {
+			symMT = "spot"
+		}
+		if strings.EqualFold(s.Exchange, exchange) && strings.EqualFold(s.Symbol, symbol) && symMT == mt {
+			return &s.OpenPositionControl
+		}
+	}
+	return nil
+}
 
 // getOpeningControlStatus 獲取開倉控制狀態
 // GET /api/opening-control/status?exchange=xxx&symbol=xxx
@@ -22,6 +61,31 @@ func getOpeningControlStatus(c *gin.Context) {
 
 	spm, cfg, ok := getOpeningControlComponents(c, exchange, symbol)
 	if !ok {
+		// Bot 未運行時，從配置返回降級狀態（僅配置，無實時倉位數據）
+		marketType := c.DefaultQuery("market_type", "futures")
+		if marketType != "spot" && marketType != "futures" {
+			marketType = "futures"
+		}
+		cfgFallback := findOpeningControlConfigFromConfig(exchange, symbol, marketType)
+		if cfgFallback != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"exchange":                    exchange,
+				"symbol":                      symbol,
+				"opening_paused":              true,
+				"pause_reason":                "bot_stopped",
+				"current_position_value_usdt": 0.0,
+				"current_actual_margin_usdt":  0.0,
+				"current_leverage":            1,
+				"current_layers":              0,
+				"config": gin.H{
+					"max_position_value":  cfgFallback.MaxPositionValue,
+					"max_position_layers": cfgFallback.MaxPositionLayers,
+					"schedule_rules":      cfgFallback.ScheduleRules,
+					"periodic_rule":       cfgFallback.PeriodicRule,
+				},
+			})
+			return
+		}
 		return
 	}
 
@@ -109,6 +173,15 @@ func getOpeningControlConfig(c *gin.Context) {
 
 	_, cfg, ok := getOpeningControlComponents(c, exchange, symbol)
 	if !ok {
+		marketType := c.DefaultQuery("market_type", "futures")
+		if marketType != "spot" && marketType != "futures" {
+			marketType = "futures"
+		}
+		cfgFallback := findOpeningControlConfigFromConfig(exchange, symbol, marketType)
+		if cfgFallback != nil {
+			c.JSON(http.StatusOK, cfgFallback)
+			return
+		}
 		return
 	}
 
@@ -131,56 +204,99 @@ func putOpeningControlConfig(c *gin.Context) {
 		return
 	}
 
+	marketType := c.DefaultQuery("market_type", "futures")
+	if marketType != "spot" && marketType != "futures" {
+		marketType = "futures"
+	}
+
 	rtInterface, oc, ok := getOpeningControlRuntimeAndController(c, exchange, symbol)
-	if !ok {
-		return
-	}
-
-	// 更新運行時 Config 中的 OpenPositionControl（不包含 PauseOpening 運行時狀態）
-	rtVal := reflect.ValueOf(rtInterface)
-	if rtVal.Kind() == reflect.Ptr {
-		rtVal = rtVal.Elem()
-	}
-	configField := rtVal.FieldByName("Config")
-	if configField.IsValid() && configField.CanSet() {
-		cfg := configField.Addr().Interface().(*config.SymbolConfig)
-		cfg.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
-		cfg.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
-		cfg.OpenPositionControl.ScheduleRules = req.ScheduleRules
-		cfg.OpenPositionControl.PeriodicRule = req.PeriodicRule
-	}
-
-	// 更新 OpeningController 的配置指針（Config 已在上方更新，oc 持有 &rt.Config 會自動看到）
-	if oc != nil {
+	if ok {
+		// 更新運行時 Config 中的 OpenPositionControl（不包含 PauseOpening 運行時狀態）
 		rtVal := reflect.ValueOf(rtInterface)
 		if rtVal.Kind() == reflect.Ptr {
 			rtVal = rtVal.Elem()
 		}
 		configField := rtVal.FieldByName("Config")
-		if configField.IsValid() {
-			cfgPtr := configField.Addr().Interface().(*config.SymbolConfig)
-			oc.UpdateConfig(cfgPtr)
+		if configField.IsValid() && configField.CanSet() {
+			cfg := configField.Addr().Interface().(*config.SymbolConfig)
+			cfg.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
+			cfg.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
+			cfg.OpenPositionControl.ScheduleRules = req.ScheduleRules
+			cfg.OpenPositionControl.PeriodicRule = req.PeriodicRule
+		}
+
+		// 更新 OpeningController 的配置指針（Config 已在上方更新，oc 持有 &rt.Config 會自動看到）
+		if oc != nil {
+			rtVal := reflect.ValueOf(rtInterface)
+			if rtVal.Kind() == reflect.Ptr {
+				rtVal = rtVal.Elem()
+			}
+			configField := rtVal.FieldByName("Config")
+			if configField.IsValid() {
+				cfgPtr := configField.Addr().Interface().(*config.SymbolConfig)
+				oc.UpdateConfig(cfgPtr)
+			}
 		}
 	}
 
-	// 持久化到配置文件
-	if globalConfig != nil {
-		cfg := globalConfig
-		if cfg != nil {
-			for i := range cfg.Trading.Symbols {
-				sym := &cfg.Trading.Symbols[i]
-				if sym.Exchange == exchange && sym.Symbol == symbol {
-					sym.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
-					sym.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
-					sym.OpenPositionControl.ScheduleRules = req.ScheduleRules
-					sym.OpenPositionControl.PeriodicRule = req.PeriodicRule
-					if err := fileConfigManager.UpdateConfig(cfg); err != nil {
-						logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
-					}
-					break
-				}
+	// 持久化到配置文件（Bot 運行與否都需持久化，從 GetLatestConfig 獲取最新配置）
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil || fileConfigManager == nil {
+		if !ok {
+			respondError(c, http.StatusNotFound, "error.symbol_not_found")
+			return
+		}
+		logger.Warn("⚠️ [開倉管理] 配置持久化跳過（配置管理器不可用）")
+		c.JSON(http.StatusOK, gin.H{"message": "配置已更新"})
+		return
+	}
+
+	persisted := false
+	// 更新 Bots 中的開倉控制配置
+	for i := range cfg.Bots {
+		b := &cfg.Bots[i]
+		bmt := b.GetMarketType()
+		if bmt == "spot_margin" {
+			bmt = "spot"
+		}
+		if strings.EqualFold(b.Exchange, exchange) && strings.EqualFold(b.Symbol, symbol) && bmt == marketType {
+			b.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
+			b.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
+			b.OpenPositionControl.ScheduleRules = req.ScheduleRules
+			b.OpenPositionControl.PeriodicRule = req.PeriodicRule
+			persisted = true
+			break
+		}
+	}
+	// 兼容舊配置：更新 Trading.Symbols
+	if !persisted {
+		for i := range cfg.Trading.Symbols {
+			sym := &cfg.Trading.Symbols[i]
+			symMT := sym.GetMarketType()
+			if symMT == "" {
+				symMT = "futures"
+			}
+			if symMT == "spot_margin" {
+				symMT = "spot"
+			}
+			if strings.EqualFold(sym.Exchange, exchange) && strings.EqualFold(sym.Symbol, symbol) && symMT == marketType {
+				sym.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
+				sym.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
+				sym.OpenPositionControl.ScheduleRules = req.ScheduleRules
+				sym.OpenPositionControl.PeriodicRule = req.PeriodicRule
+				persisted = true
+				break
 			}
 		}
+	}
+
+	if persisted {
+		if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+			logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
+		}
+	} else if !ok {
+		respondError(c, http.StatusNotFound, "error.symbol_not_found")
+		return
 	}
 
 	logger.Info("🔄 [開倉管理] 配置已更新 [%s:%s]", exchange, symbol)

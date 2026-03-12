@@ -2620,6 +2620,7 @@
     "pauseSuccess": "Opening paused",
     "resumeSuccess": "Opening resumed",
     "configSaved": "Config saved",
+    "botStopped": "Bot not running",
     "weekday0": "Sun",
     "weekday1": "Mon",
     "weekday2": "Tue",
