@@ -102,6 +102,12 @@ func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 config_tables 表失败: %w", err)
 		}
+	} else if dbType == "mysql" {
+		// MySQL 需單獨遷移 bot_states 表（SQLite 在 createTables 中已包含）
+		if err := migrateBotStatesTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 bot_states 表失败: %w", err)
+		}
 	}
 
 	return &SQLiteStorage{db: db, dbType: dbType}, nil
@@ -4542,7 +4548,7 @@ func (s *SQLiteStorage) IsKlineFileProtected(filename string) (bool, error) {
 	return count > 0, nil
 }
 
-// migrateBotStatesTable 遷移 Bot 啟停狀態表
+// migrateBotStatesTable 遷移 Bot 啟停狀態表（SQLite）
 func migrateBotStatesTable(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS bot_states (
@@ -4556,6 +4562,26 @@ func migrateBotStatesTable(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_bot_states_updated_at ON bot_states(updated_at);
 	`)
 	return err
+}
+
+// migrateBotStatesTableMySQL 遷移 Bot 啟停狀態表（MySQL）
+func migrateBotStatesTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS bot_states (
+			bot_id VARCHAR(255) PRIMARY KEY,
+			enabled TINYINT NOT NULL DEFAULT 1,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_by VARCHAR(255),
+			reason TEXT
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	// MySQL 8.0+ 支持 IF NOT EXISTS，較舊版本可能需忽略重複索引錯誤
+	_, _ = db.Exec("CREATE INDEX idx_bot_states_enabled ON bot_states(enabled)")
+	_, _ = db.Exec("CREATE INDEX idx_bot_states_updated_at ON bot_states(updated_at)")
+	return nil
 }
 
 // GetBotState 獲取 Bot 啟停狀態
@@ -4601,16 +4627,30 @@ func (s *SQLiteStorage) SetBotState(state *BotState) error {
 		enabled = 1
 	}
 
-	_, err := s.db.Exec(`
-		INSERT INTO bot_states (bot_id, enabled, updated_at, updated_by, reason)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(bot_id) DO UPDATE SET
-			enabled = excluded.enabled,
-			updated_at = excluded.updated_at,
-			updated_by = excluded.updated_by,
-			reason = excluded.reason`,
-		state.BotID, enabled, state.UpdatedAt.Format(time.RFC3339),
-		state.UpdatedBy, state.Reason)
+	updatedAt := state.UpdatedAt.Format(time.RFC3339)
+	var err error
+	switch s.dbType {
+	case "mysql":
+		_, err = s.db.Exec(`
+			INSERT INTO bot_states (bot_id, enabled, updated_at, updated_by, reason)
+			VALUES (?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE
+				enabled = VALUES(enabled),
+				updated_at = VALUES(updated_at),
+				updated_by = VALUES(updated_by),
+				reason = VALUES(reason)`,
+			state.BotID, enabled, updatedAt, state.UpdatedBy, state.Reason)
+	default:
+		_, err = s.db.Exec(`
+			INSERT INTO bot_states (bot_id, enabled, updated_at, updated_by, reason)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(bot_id) DO UPDATE SET
+				enabled = excluded.enabled,
+				updated_at = excluded.updated_at,
+				updated_by = excluded.updated_by,
+				reason = excluded.reason`,
+			state.BotID, enabled, updatedAt, state.UpdatedBy, state.Reason)
+	}
 
 	if err != nil {
 		return fmt.Errorf("設置 bot_state 失败: %w", err)

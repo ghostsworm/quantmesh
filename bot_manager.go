@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -26,13 +29,16 @@ type BotRuntime struct {
 
 // BotManager 管理多個 BotRuntime，按 BotID 進行生命週期管理
 type BotManager struct {
-	cfg             *config.Config
-	runtimes        map[string]*BotRuntime
-	runtimesMu      sync.RWMutex
-	groupLegAlerted map[string]bool
-	eventBus        *event.EventBus
-	storageService  *storage.StorageService
-	distributedLock lock.DistributedLock
+	cfg               *config.Config
+	runtimes          map[string]*BotRuntime
+	runtimesMu        sync.RWMutex
+	groupLegAlerted   map[string]bool
+	groupLegTimers    map[string]*time.Timer
+	singleLegGraceSec int
+	eventBus          *event.EventBus
+	storageService    *storage.StorageService
+	distributedLock   lock.DistributedLock
+	botStatesFileOverride string // 測試用，空時用默認 ./data/bot_states.json
 }
 
 // NewBotManager 創建 Bot 管理器
@@ -41,6 +47,8 @@ func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService 
 		cfg:             cfg,
 		runtimes:        make(map[string]*BotRuntime),
 		groupLegAlerted: make(map[string]bool),
+		groupLegTimers:  make(map[string]*time.Timer),
+		singleLegGraceSec: 30,
 		eventBus:        eventBus,
 		storageService:  storageService,
 		distributedLock: distributedLock,
@@ -270,6 +278,12 @@ func (bm *BotManager) StopAll() {
 	}
 	bm.runtimes = make(map[string]*BotRuntime)
 	bm.groupLegAlerted = make(map[string]bool)
+	for _, timer := range bm.groupLegTimers {
+		if timer != nil {
+			timer.Stop()
+		}
+	}
+	bm.groupLegTimers = make(map[string]*time.Timer)
 	bm.runtimesMu.Unlock()
 	for _, br := range runtimes {
 		if br != nil && br.Inner != nil && br.Inner.Stop != nil {
@@ -308,11 +322,13 @@ func (bm *BotManager) checkGroupLegConsistencyForBot(botID string) {
 				bm.groupLegAlerted[group.ID] = true
 				publishAlert = true
 			}
+			bm.scheduleSingleLegEnforcementLocked(group.ID)
 		} else {
 			if running == total && alreadyAlerted {
 				publishRecovered = true
 			}
 			bm.groupLegAlerted[group.ID] = false
+			bm.cancelSingleLegEnforcementLocked(group.ID)
 		}
 		bm.runtimesMu.Unlock()
 
@@ -345,6 +361,87 @@ func (bm *BotManager) checkGroupLegConsistencyForBot(botID string) {
 				})
 			}
 		}
+	}
+}
+
+func (bm *BotManager) scheduleSingleLegEnforcementLocked(groupID string) {
+	if bm.singleLegGraceSec <= 0 {
+		return
+	}
+	if bm.groupLegTimers == nil {
+		bm.groupLegTimers = make(map[string]*time.Timer)
+	}
+	if _, exists := bm.groupLegTimers[groupID]; exists {
+		return
+	}
+	delay := time.Duration(bm.singleLegGraceSec) * time.Second
+	bm.groupLegTimers[groupID] = time.AfterFunc(delay, func() {
+		bm.enforceSingleLegPause(groupID)
+	})
+}
+
+func (bm *BotManager) cancelSingleLegEnforcementLocked(groupID string) {
+	if bm.groupLegTimers == nil {
+		return
+	}
+	if timer, exists := bm.groupLegTimers[groupID]; exists {
+		timer.Stop()
+		delete(bm.groupLegTimers, groupID)
+	}
+}
+
+func (bm *BotManager) enforceSingleLegPause(groupID string) {
+	if bm == nil || bm.cfg == nil || groupID == "" {
+		return
+	}
+
+	var targetGroup *config.BotGroup
+	for i := range bm.cfg.BotGroups {
+		if bm.cfg.BotGroups[i].ID == groupID {
+			targetGroup = &bm.cfg.BotGroups[i]
+			break
+		}
+	}
+	if targetGroup == nil {
+		bm.runtimesMu.Lock()
+		bm.cancelSingleLegEnforcementLocked(groupID)
+		bm.runtimesMu.Unlock()
+		return
+	}
+
+	runningIDs := make([]string, 0, len(targetGroup.BotIDs))
+	bm.runtimesMu.Lock()
+	for _, id := range targetGroup.BotIDs {
+		if _, ok := bm.runtimes[id]; ok {
+			runningIDs = append(runningIDs, id)
+		}
+	}
+	// 当前已经恢复（全运行）或全部停止，不执行自动暂停
+	if len(runningIDs) == 0 || len(runningIDs) == len(targetGroup.BotIDs) {
+		bm.cancelSingleLegEnforcementLocked(groupID)
+		bm.runtimesMu.Unlock()
+		return
+	}
+	bm.cancelSingleLegEnforcementLocked(groupID)
+	bm.runtimesMu.Unlock()
+
+	for _, id := range runningIDs {
+		if br, ok := bm.Get(id); ok && br != nil {
+			br.PauseOpening("single_leg_running")
+		}
+	}
+
+	logger.Warn("🛑 [BotGroup:%s] 单腿运行超过 %d 秒，自动暂停开仓。running=%v", groupID, bm.singleLegGraceSec, runningIDs)
+	if bm.eventBus != nil {
+		bm.eventBus.Publish(&event.Event{
+			Type: event.EventTypeRiskTriggered,
+			Data: map[string]interface{}{
+				"group_id":        groupID,
+				"issue":           "single_leg_running",
+				"action":          "pause_opening",
+				"running_bot_ids": runningIDs,
+			},
+		})
 	}
 }
 
@@ -764,20 +861,27 @@ func (bm *BotManager) IsBotEnabledInDB(botID string) (bool, string) {
 // isBotEnabledInDB 检查數據庫中的 Bot 啟停狀態
 // 返回值: (是否啟用, 原因)
 // 如果數據庫中沒有記錄，默認返回 (true, "")（使用配置文件的值）
+// 若存儲不可用或查詢失敗，保守返回 (false, reason)，避免已停止的 Bot 重啟後自動運行
 func (bm *BotManager) isBotEnabledInDB(botID string) (bool, string) {
 	if bm.storageService == nil {
-		return true, "" // 存儲服務未啟用，使用配置文件
+		logger.Warn("存儲服務未初始化，保守跳過 Bot 自動啟動（避免已停止狀態遺失）[%s]", botID)
+		return false, "storage_unavailable"
 	}
 
 	store := bm.storageService.GetStorage()
 	if store == nil {
-		return true, "" // 存儲未初始化，使用配置文件
+		// 存儲未啟用（如 storage.enabled=false），嘗試文件 fallback
+		if enabled, found := bm.isBotEnabledFromFile(botID); found {
+			return enabled, "from_file"
+		}
+		logger.Warn("存儲未初始化，保守跳過 Bot 自動啟動（避免已停止狀態遺失）[%s]", botID)
+		return false, "storage_unavailable"
 	}
 
 	state, err := store.GetBotState(botID)
 	if err != nil {
-		logger.Warn("查詢 Bot 狀態失敗: %v，使用配置文件值", err)
-		return true, ""
+		logger.Warn("查詢 Bot 狀態失敗: %v，保守視為已禁用", err)
+		return false, "query_failed"
 	}
 
 	if state == nil {
@@ -788,17 +892,8 @@ func (bm *BotManager) isBotEnabledInDB(botID string) (bool, string) {
 	return state.Enabled, state.Reason
 }
 
-// saveBotStateToDB 保存 Bot 啟停狀態到數據庫
+// saveBotStateToDB 保存 Bot 啟停狀態到數據庫（存儲不可用時 fallback 到文件）
 func (bm *BotManager) saveBotStateToDB(botID string, enabled bool, updatedBy, reason string) {
-	if bm.storageService == nil {
-		return
-	}
-
-	store := bm.storageService.GetStorage()
-	if store == nil {
-		return
-	}
-
 	state := &storage.BotState{
 		BotID:     botID,
 		Enabled:   enabled,
@@ -807,10 +902,79 @@ func (bm *BotManager) saveBotStateToDB(botID string, enabled bool, updatedBy, re
 		Reason:    reason,
 	}
 
-	if err := store.SetBotState(state); err != nil {
-		logger.Error("保存 Bot 狀態失敗: %v", err)
-	} else {
-		logger.Info("✅ [%s] Bot 狀態已保存到數據庫: enabled=%v, reason=%s", botID, enabled, reason)
+	if bm.storageService != nil {
+		store := bm.storageService.GetStorage()
+		if store != nil {
+			if err := store.SetBotState(state); err != nil {
+				logger.Error("保存 Bot 狀態失敗: %v", err)
+			} else {
+				logger.Info("✅ [%s] Bot 狀態已保存到數據庫: enabled=%v, reason=%s", botID, enabled, reason)
+				return
+			}
+		}
 	}
+
+	// 存儲不可用時 fallback 到文件，確保停止狀態能持久化
+	if err := bm.saveBotStateToFile(state); err != nil {
+		logger.Error("保存 Bot 狀態到文件失敗: %v", err)
+	} else {
+		logger.Info("✅ [%s] Bot 狀態已保存到文件: enabled=%v, reason=%s", botID, enabled, reason)
+	}
+}
+
+// botStatesFilePath 返回 bot_states 文件路徑
+func (bm *BotManager) botStatesFilePath() string {
+	if bm != nil && bm.botStatesFileOverride != "" {
+		return bm.botStatesFileOverride
+	}
+	return filepath.Join("./data", "bot_states.json")
+}
+
+// isBotEnabledFromFile 從文件讀取 Bot 啟停狀態（存儲不可用時的 fallback）
+func (bm *BotManager) isBotEnabledFromFile(botID string) (enabled bool, found bool) {
+	path := bm.botStatesFilePath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, false
+	}
+	var m map[string]struct {
+		Enabled bool   `json:"enabled"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return false, false
+	}
+	s, ok := m[botID]
+	if !ok {
+		return false, false
+	}
+	return s.Enabled, true
+}
+
+// saveBotStateToFile 保存 Bot 狀態到文件（存儲不可用時的 fallback）
+func (bm *BotManager) saveBotStateToFile(state *storage.BotState) error {
+	path := bm.botStatesFilePath()
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	m := make(map[string]struct {
+		Enabled   bool   `json:"enabled"`
+		UpdatedBy string `json:"updated_by"`
+		Reason    string `json:"reason"`
+	})
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &m)
+	}
+	m[state.BotID] = struct {
+		Enabled   bool   `json:"enabled"`
+		UpdatedBy string `json:"updated_by"`
+		Reason    string `json:"reason"`
+	}{state.Enabled, state.UpdatedBy, state.Reason}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
