@@ -415,6 +415,163 @@ func TestPostBotGroupCreateRejectsWhenRunningBotExists(t *testing.T) {
 	}
 }
 
+// mockBotManagerForCreateTest 用於單 Bot 創建測試
+type mockBotManagerForCreateTest struct {
+	bots []BotResponse
+}
+
+func (m *mockBotManagerForCreateTest) ListBots() []BotResponse { return m.bots }
+func (m *mockBotManagerForCreateTest) GetBot(botID string) (*BotDetailResponse, bool) {
+	for _, b := range m.bots {
+		if b.BotID == botID {
+			return &BotDetailResponse{BotResponse: b}, true
+		}
+	}
+	return nil, false
+}
+func (m *mockBotManagerForCreateTest) StartBot(ctx context.Context, cfg config.BotConfig) error { return nil }
+func (m *mockBotManagerForCreateTest) StopBot(botID string) error                              { return nil }
+func (m *mockBotManagerForCreateTest) EnableBot(botID string) error                            { return nil }
+
+// TestPostBotCreateAllowsWhenOnlyStoppedBotExists 驗證：當同交易對僅有已停止的 Bot 時，單 Bot 創建應成功
+func TestPostBotCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	cfg := &config.Config{
+		Bots: []config.BotConfig{
+			{ID: "stopped-bot-id", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
+		},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	fcm := NewFileConfigManager(configPath)
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	// 無運行中 Bot（ListBots 返回空或僅已停止的）
+	mock := &mockBotManagerForCreateTest{
+		bots: []BotResponse{
+			{BotID: "stopped-bot-id", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Running: false},
+		},
+	}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	body := `{
+		"exchange": "binance",
+		"symbol": "BTCUSDT",
+		"market_type": "futures",
+		"strategies": [{"type": "grid", "weight": 1}],
+		"price_interval": 100,
+		"order_quantity": 100,
+		"min_order_value": 6
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/bots/create", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	postBotCreate(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 when only stopped bot exists, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, ok := resp["bot_id"]; !ok {
+		t.Fatalf("response should contain bot_id")
+	}
+}
+
+// TestPostBotCreateRejectsWhenRunningBotExists 驗證：當同交易對有運行中的 Bot 時，單 Bot 創建應拒絕
+func TestPostBotCreateRejectsWhenRunningBotExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	cfg := &config.Config{
+		Bots: []config.BotConfig{},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 10
+	cfg.Trading.MinOrderValue = 6
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	fcm := NewFileConfigManager(configPath)
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	// 有運行中的 Bot
+	mock := &mockBotManagerForCreateTest{
+		bots: []BotResponse{
+			{BotID: "running-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Running: true},
+		},
+	}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	body := `{
+		"exchange": "binance",
+		"symbol": "BTCUSDT",
+		"market_type": "futures",
+		"strategies": [{"type": "grid", "weight": 1}],
+		"price_interval": 100,
+		"order_quantity": 100,
+		"min_order_value": 6
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/bots/create", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	postBotCreate(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when running bot exists, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if resp["error_key"] != "error.bot_symbol_running" {
+		t.Errorf("expected error_key=error.bot_symbol_running, got %v", resp["error_key"])
+	}
+}
+
 // TestPostBotGroupCreateWorksWithFileConfigManagerOnly 驗證：當 configManager 為 nil 但 fileConfigManager 已設置時，
 // postBotGroupCreate 仍可成功創建對沖組（修復 503 Service Unavailable）
 func TestPostBotGroupCreateWorksWithFileConfigManagerOnly(t *testing.T) {
