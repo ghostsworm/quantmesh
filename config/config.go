@@ -1319,8 +1319,9 @@ type StrategyConfig struct {
 type HedgeConfig struct {
 	HedgeRatio          float64 `yaml:"hedge_ratio" json:"hedge_ratio"`                     // 對沖比例 0-1
 	ShortNotionalRatio  float64 `yaml:"short_notional_ratio" json:"short_notional_ratio"`   // 做空/做多名義敞口占網格名義敞口比例，默認 0.25
-	HedgeTriggerLayers  int     `yaml:"hedge_trigger_layers" json:"hedge_trigger_layers"`   // 網格滿幾格才觸發開現貨對沖倉，默認 3
-	Direction           string  `yaml:"direction" json:"direction"`                          // 合約網格方向：LONG/SHORT/BOTH，用於決定發 target_spot_short 或 target_spot_long
+	HedgeTriggerLayers  int     `yaml:"hedge_trigger_layers" json:"hedge_trigger_layers"`   // 網格滿幾格才觸發開對沖倉，默認 3
+	Direction           string  `yaml:"direction" json:"direction"`                        // 合約網格方向：LONG/SHORT/BOTH，用於決定發 target_spot_short 或 target_spot_long
+	PrimaryLeg          string  `yaml:"primary_leg" json:"primary_leg"`                     // 主腿：futures（默認，合約主+現貨從）或 spot（現貨主+合約從）
 	MaxDrawdown         float64 `yaml:"max_drawdown" json:"max_drawdown"`                   // 觸發對沖的最大回撤
 	AutoRebalance       bool    `yaml:"auto_rebalance" json:"auto_rebalance"`               // 自動再平衡
 	RebalanceInterval   int     `yaml:"rebalance_interval" json:"rebalance_interval"`       // 再平衡間隔（秒）

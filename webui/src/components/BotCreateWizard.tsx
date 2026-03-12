@@ -139,7 +139,7 @@ const BotCreateWizard: React.FC = () => {
         setHedgePrimary(strategies[0])
         setHedgeSecondary(strategies[1])
         setHedgeRatio(template.config.hedge_ratio ?? 0.5)
-        if (strategies[1] === 'spot_short' || strategies[1] === 'spot_long') {
+        if (strategies[1] === 'spot_short' || strategies[1] === 'spot_long' || strategies[1] === 'futures_short') {
           setHedgeShortNotionalRatio(template.config.short_notional_ratio ?? 0.25)
           setHedgeTriggerLayers(template.config.hedge_trigger_layers ?? 3)
           setHedgeRebalanceInterval(template.config.rebalance_interval ?? 3600)
@@ -327,26 +327,33 @@ const BotCreateWizard: React.FC = () => {
       }
 
       if (strategyType === 'hedge') {
+        const isSpotGridFuturesHedge = hedgePrimary === 'grid' && hedgeSecondary === 'futures_short'
+        const groupType = isSpotGridFuturesHedge ? 'spot_grid_futures_hedge' : 'futures_spot_hedge'
+        const shortNotional = toNum(hedgeShortNotionalRatio, 0.25)
+        const triggerLayers = Math.max(1, Math.min(20, Math.round(toNum(hedgeTriggerLayers, 3))))
+        const rebalanceInt = Math.max(60, Math.round(toNum(hedgeRebalanceInterval, 3600)))
+        const hedgeConfig = {
+          hedge_ratio: hedgeRatio,
+          short_notional_ratio: shortNotional,
+          hedge_trigger_layers: triggerLayers,
+          rebalance_interval: rebalanceInt,
+        }
         const futuresStrategies = hedgePrimary
           ? [{ type: hedgePrimary, weight: 1.0, config: normalizeConfigForApi((strategyParams[hedgePrimary] || {}) as Record<string, unknown>) }]
           : [{ type: 'grid', weight: 1.0, config: {} }]
         const spotStrategies = hedgeSecondary
           ? [{ type: hedgeSecondary, weight: 1.0, config: normalizeConfigForApi((strategyParams[hedgeSecondary] || {}) as Record<string, unknown>) }]
           : [{ type: 'grid', weight: 1.0, config: {} }]
-        const shortNotional = toNum(hedgeShortNotionalRatio, 0.25)
-        const triggerLayers = Math.max(1, Math.min(20, Math.round(toNum(hedgeTriggerLayers, 3))))
-        const rebalanceInt = Math.max(60, Math.round(toNum(hedgeRebalanceInterval, 3600)))
         await createBotGroup({
           name: form.name?.trim() || `${form.symbol} Hedge`,
-          type: 'futures_spot_hedge',
-          hedge_config: {
-            hedge_ratio: hedgeRatio,
-            short_notional_ratio: shortNotional,
-            hedge_trigger_layers: triggerLayers,
-            rebalance_interval: rebalanceInt,
-          },
-          futures_bot: { ...baseReq, market_type: 'futures', strategies: futuresStrategies },
-          spot_bot: { ...baseReq, market_type: 'spot', strategies: spotStrategies },
+          type: groupType,
+          hedge_config: hedgeConfig,
+          futures_bot: isSpotGridFuturesHedge
+            ? { ...baseReq, market_type: 'futures', strategies: spotStrategies }
+            : { ...baseReq, market_type: 'futures', strategies: futuresStrategies },
+          spot_bot: isSpotGridFuturesHedge
+            ? { ...baseReq, market_type: 'spot', strategies: futuresStrategies }
+            : { ...baseReq, market_type: 'spot', strategies: spotStrategies },
         })
         toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
         navigate('/bots')
@@ -553,7 +560,7 @@ const BotCreateWizard: React.FC = () => {
                 value={strategyParams}
                 onChange={setStrategyParams}
               />
-              {strategyType === 'hedge' && (hedgeSecondary === 'spot_short' || hedgeSecondary === 'spot_long') && (
+              {strategyType === 'hedge' && (hedgeSecondary === 'spot_short' || hedgeSecondary === 'spot_long' || hedgeSecondary === 'futures_short') && (
                 <>
                   <Divider my={2} />
                   {hedgeSecondary === 'spot_short' && (form.direction === 'SHORT' || form.direction === 'BOTH') && (
@@ -571,9 +578,11 @@ const BotCreateWizard: React.FC = () => {
                     </Box>
                   )}
                   <Text fontWeight="medium" fontSize="sm">
-                    {hedgeSecondary === 'spot_short'
-                      ? (form.direction === 'LONG' ? t('botCreate.hedgeSpotShortConfig') : t('botCreate.hedgeSpotShortConfigLongOnly'))
-                      : t('botCreate.hedgeSpotLongConfig')}
+                    {hedgeSecondary === 'futures_short'
+                      ? t('botCreate.hedgeSpotGridFuturesConfig')
+                      : hedgeSecondary === 'spot_short'
+                        ? (form.direction === 'LONG' ? t('botCreate.hedgeSpotShortConfig') : t('botCreate.hedgeSpotShortConfigLongOnly'))
+                        : t('botCreate.hedgeSpotLongConfig')}
                   </Text>
                   <FormControl>
                     <FormLabel>{hedgeSecondary === 'spot_long' ? t('botCreate.longNotionalRatio') : t('botCreate.shortNotionalRatio')}</FormLabel>
@@ -765,10 +774,10 @@ const BotCreateWizard: React.FC = () => {
                     </Box>
                   )
                 })}
-                {strategyType === 'hedge' && (hedgeSecondary === 'spot_short' || hedgeSecondary === 'spot_long') && (
+                {strategyType === 'hedge' && (hedgeSecondary === 'spot_short' || hedgeSecondary === 'spot_long' || hedgeSecondary === 'futures_short') && (
                   <Box mt={2} pl={2} borderLeftWidth={2} borderColor="blue.300">
                     <Text fontWeight="medium" mb={1}>
-                      {hedgeSecondary === 'spot_short' ? (form.direction === 'LONG' ? t('botCreate.hedgeSpotShortConfig') : t('botCreate.hedgeSpotShortConfigLongOnly')) : t('botCreate.hedgeSpotLongConfig')}
+                      {hedgeSecondary === 'futures_short' ? t('botCreate.hedgeSpotGridFuturesConfig') : hedgeSecondary === 'spot_short' ? (form.direction === 'LONG' ? t('botCreate.hedgeSpotShortConfig') : t('botCreate.hedgeSpotShortConfigLongOnly')) : t('botCreate.hedgeSpotLongConfig')}
                     </Text>
                     <Text pl={2}><strong>{t('botCreate.shortNotionalRatio')}:</strong> {hedgeShortNotionalRatio}</Text>
                     <Text pl={2}><strong>{t('botCreate.hedgeTriggerLayers')}:</strong> {hedgeTriggerLayers}</Text>

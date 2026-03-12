@@ -133,14 +133,31 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 		if botID == "" {
 			return
 		}
-		// 僅處理本組的 futures Bot（第一個 BotID）
-		if len(hc.group.BotIDs) < 2 || hc.group.BotIDs[0] != botID {
+		if len(hc.group.BotIDs) < 2 {
+			return
+		}
+		hc.mu.Lock()
+		primaryLeg := hc.group.HedgeConfig.PrimaryLeg
+		hc.mu.Unlock()
+		if primaryLeg == "" {
+			primaryLeg = "futures"
+		}
+
+		// primary_leg=futures：主腿為 BotIDs[0]（合約），監聽 futures 事件，發 target_spot_short/long
+		// primary_leg=spot：主腿為 BotIDs[0]（現貨），監聽 spot 事件，發 target_futures_short
+		primaryBotID := hc.group.BotIDs[0]
+		if botID != primaryBotID {
 			return
 		}
 		marketType := getString(evt.Data, "market_type")
-		if marketType != "futures" {
+		expectMarket := "futures"
+		if primaryLeg == "spot" {
+			expectMarket = "spot"
+		}
+		if marketType != expectMarket {
 			return
 		}
+
 		position := getFloat64(evt.Data, "position")
 		filledLayers := getInt(evt.Data, "filled_layers")
 		symbol := getString(evt.Data, "symbol")
@@ -166,19 +183,37 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 			logger.Debug("HedgeCoordinator: 網格未滿 %d 格 (當前 %d)，跳過對沖", triggerLayers, filledLayers)
 			return
 		}
+
+		evtData := map[string]interface{}{
+			"group_id": hc.group.ID,
+			"symbol":   symbol,
+			"exchange": exchangeName,
+		}
+
+		if primaryLeg == "spot" {
+			// 現貨主腿：現貨網格做多，持倉為正，對沖用合約做空
+			evtData["spot_filled_layers"] = filledLayers
+			evtData["spot_position"] = position
+			targetFuturesShort := position * shortRatio
+			if targetFuturesShort < 0.000001 {
+				return
+			}
+			evtData["target_futures_short"] = targetFuturesShort
+			hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
+			logger.Info("📤 HedgeCoordinator: 發送對沖信號(現貨主) group=%s symbol=%s target_futures_short=%.6f layers=%d",
+				hc.group.ID, symbol, targetFuturesShort, filledLayers)
+			return
+		}
+
+		// 合約主腿：原有邏輯
 		hc.mu.Lock()
 		direction := hc.group.HedgeConfig.Direction
 		hc.mu.Unlock()
 		if direction == "" {
 			direction = "LONG"
 		}
-		evtData := map[string]interface{}{
-			"group_id":             hc.group.ID,
-			"symbol":               symbol,
-			"exchange":             exchangeName,
-			"futures_filled_layers": filledLayers,
-			"futures_position":     position,
-		}
+		evtData["futures_filled_layers"] = filledLayers
+		evtData["futures_position"] = position
 		// LONG 網格：合約持倉為正，發 target_spot_short（現貨做空對沖）
 		// SHORT 網格：合約持倉為負，發 target_spot_long（現貨做多對沖）
 		switch direction {

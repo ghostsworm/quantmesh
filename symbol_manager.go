@@ -789,6 +789,22 @@ func startSymbolRuntime(
 				}
 			}
 		}
+		// futures_short：合約做空對沖策略（僅 futures，對沖組合約腿，現貨網格做多時用）
+		if symCfg.GetMarketType() == "futures" {
+			for _, si := range symCfg.Strategies {
+				if si.Type == "futures_short" {
+					futuresShortCfg := map[string]interface{}{}
+					if si.Config != nil {
+						futuresShortCfg = si.Config
+					}
+					futuresShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "futures_short")
+					futuresShortStrategy := strategy.NewFuturesShortStrategy("futures_short", &localCfg, futuresShortExecutor, exchangeAdapter, futuresShortCfg)
+					strategyManager.RegisterStrategy("futures_short", futuresShortStrategy, si.Weight, 0)
+					logger.Info("✅ [%s] 合約做空對沖策略已注册 (group=%v)", symCfg.Symbol, futuresShortCfg["group_id"])
+					break
+				}
+			}
+		}
 
 		// 重啟恢復：從持久化訂單恢復 orderID/clientOrderID -> strategy 路由，避免回報廣播錯配
 		if storageService != nil {
