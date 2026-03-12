@@ -530,6 +530,21 @@ const BotCreateWizard: React.FC = () => {
                   </HStack>
                 </Box>
               )}
+              {/* 网格方向放在最前面，先选方向再配网格 */}
+              <FormControl>
+                <FormLabel>{t('botCreate.direction')}</FormLabel>
+                <Select
+                  value={form.direction || 'LONG'}
+                  onChange={(e) => setForm((f) => ({ ...f, direction: e.target.value }))}
+                >
+                  <option value="LONG">{t('botDetail.strategy.directionLong')}</option>
+                  <option value="SHORT">{t('botDetail.strategy.directionShort')}</option>
+                  <option value="BOTH">{t('botDetail.strategy.directionBoth')}</option>
+                </Select>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.directionHint')}
+                </Text>
+              </FormControl>
               <StrategyParamForm
                 strategyIds={getStrategyIds()}
                 value={strategyParams}
@@ -538,7 +553,20 @@ const BotCreateWizard: React.FC = () => {
               {strategyType === 'hedge' && hedgeSecondary === 'spot_short' && (
                 <>
                   <Divider my={2} />
-                  <Text fontWeight="medium" fontSize="sm">{t('botCreate.hedgeSpotShortConfig')}</Text>
+                  {(form.direction === 'SHORT' || form.direction === 'BOTH') && (
+                    <Box p={3} bg="orange.50" borderRadius="md" fontSize="sm" borderWidth={1} borderColor="orange.200">
+                      <Text color="orange.800">
+                        {form.direction === 'SHORT'
+                          ? t('botCreate.hedgeSpotShortShortWarning')
+                          : t('botCreate.hedgeSpotShortBothWarning')}
+                      </Text>
+                    </Box>
+                  )}
+                  <Text fontWeight="medium" fontSize="sm">
+                    {form.direction === 'LONG'
+                      ? t('botCreate.hedgeSpotShortConfig')
+                      : t('botCreate.hedgeSpotShortConfigLongOnly')}
+                  </Text>
                   <FormControl>
                     <FormLabel>{t('botCreate.shortNotionalRatio')}</FormLabel>
                     <DecimalNumberInput
@@ -638,22 +666,6 @@ const BotCreateWizard: React.FC = () => {
                 </Text>
               </FormControl>
 
-              {/* 网格方向设置 */}
-              <FormControl>
-                <FormLabel>{t('botCreate.direction')}</FormLabel>
-                <Select
-                  value={form.direction || 'LONG'}
-                  onChange={(e) => setForm((f) => ({ ...f, direction: e.target.value }))}
-                >
-                  <option value="LONG">{t('botDetail.strategy.directionLong')}</option>
-                  <option value="SHORT">{t('botDetail.strategy.directionShort')}</option>
-                  <option value="BOTH">{t('botDetail.strategy.directionBoth')}</option>
-                </Select>
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  {t('botCreate.directionHint')}
-                </Text>
-              </FormControl>
-
               {/* 网格风控设置 - 简化版，只显示关键选项 */}
               <Text fontWeight="medium" fontSize="sm" mt={2}>{t('botCreate.gridRiskControl')}</Text>
               <FormControl>
@@ -747,13 +759,16 @@ const BotCreateWizard: React.FC = () => {
                 })}
                 {strategyType === 'hedge' && hedgeSecondary === 'spot_short' && (
                   <Box mt={2} pl={2} borderLeftWidth={2} borderColor="blue.300">
-                    <Text fontWeight="medium" mb={1}>{t('botCreate.hedgeSpotShortConfig')}</Text>
+                    <Text fontWeight="medium" mb={1}>
+                      {form.direction === 'LONG' ? t('botCreate.hedgeSpotShortConfig') : t('botCreate.hedgeSpotShortConfigLongOnly')}
+                    </Text>
                     <Text pl={2}><strong>{t('botCreate.shortNotionalRatio')}:</strong> {hedgeShortNotionalRatio}</Text>
                     <Text pl={2}><strong>{t('botCreate.hedgeTriggerLayers')}:</strong> {hedgeTriggerLayers}</Text>
                     <Text pl={2}><strong>{t('botCreate.hedgeRebalanceInterval')}:</strong> {hedgeRebalanceInterval} s</Text>
                   </Box>
                 )}
-                <Text mt={2}><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
+                <Text mt={2}><strong>{t('botCreate.direction')}:</strong> {form.direction === 'LONG' ? t('botDetail.strategy.directionLong') : form.direction === 'SHORT' ? t('botDetail.strategy.directionShort') : t('botDetail.strategy.directionBoth')}</Text>
+                <Text><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
                 <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
                 <Text><strong>{t('botCreate.buyWindowSize')}:</strong> {form.buy_window_size}</Text>
                 <Text><strong>{t('botCreate.sellWindowSize')}:</strong> {form.sell_window_size}</Text>

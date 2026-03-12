@@ -150,6 +150,9 @@
       "hedgeRatio": "对冲比例"
     },
     "hedgeSpotShortConfig": "现货做空对冲参数",
+    "hedgeSpotShortConfigLongOnly": "现货做空对冲参数（仅网格做多时生效）",
+    "hedgeSpotShortShortWarning": "现货做空对冲仅适用于合约网格做多。当前为做空网格，对冲将不生效。",
+    "hedgeSpotShortBothWarning": "现货做空对冲针对网格做多部分设计，双向网格时对冲行为可能不符合预期。",
     "shortNotionalRatio": "做空名义敞口比例",
     "shortNotionalRatioHint": "做空名义敞口占网格名义敞口的比例，默认 0.25（25%）",
     "hedgeTriggerLayers": "触发对冲阈值",
