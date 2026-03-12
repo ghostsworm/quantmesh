@@ -255,6 +255,7 @@ func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) {
 		Price:         price,
 		Quantity:      amount,
 		PriceDecimals: s.getPriceDecimals(),
+		PostOnly:      true,
 	}
 	if _, err := s.executor.PlaceOrder(req); err != nil {
 		logger.Error("SpotShortStrategy 賣出失敗: %v", err)
@@ -281,6 +282,7 @@ func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) {
 		Price:         price,
 		Quantity:      amount,
 		PriceDecimals: s.getPriceDecimals(),
+		PostOnly:      true,
 	}
 	ord, err := s.executor.PlaceOrder(req)
 	if err != nil {

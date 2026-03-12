@@ -431,10 +431,11 @@ func (s *MartingaleStrategy) openInitialPosition(price float64) error {
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     side,
-		Quantity: quantity,
-		Price:    price,
+		Symbol:     s.strategyCfg.Symbol,
+		Side:       side,
+		Quantity:   quantity,
+		Price:      price,
+		PostOnly:   true,
 	})
 
 	if err != nil {
@@ -528,10 +529,11 @@ func (s *MartingaleStrategy) checkMartingale(price float64) error {
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     side,
-		Quantity: quantity,
-		Price:    price,
+		Symbol:     s.strategyCfg.Symbol,
+		Side:       side,
+		Quantity:   quantity,
+		Price:      price,
+		PostOnly:   true,
 	})
 
 	if err != nil {
@@ -593,10 +595,11 @@ func (s *MartingaleStrategy) checkReverseMartingale(price float64) error {
 	}
 
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     side,
-		Quantity: quantity,
-		Price:    price,
+		Symbol:     s.strategyCfg.Symbol,
+		Side:       side,
+		Quantity:   quantity,
+		Price:      price,
+		PostOnly:   true,
 	})
 
 	if err != nil {
@@ -704,6 +707,8 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 		Side:        side,
 		Quantity:    s.totalQty,
 		Price:       price,
+		ReduceOnly:  true,
+		PostOnly:    true,
 		OrderSource: orderSource,
 	})
 
