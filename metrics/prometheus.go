@@ -195,6 +195,29 @@ var (
 		[]string{"key"},
 	)
 
+	// FIX 协议指标
+	fixSessionLogonTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "quantmesh_fix_session_logon_total",
+			Help: "Total FIX session logons",
+		},
+		[]string{"session_id", "bot_id"},
+	)
+	fixOrderTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "quantmesh_fix_order_total",
+			Help: "Total FIX orders (new/cancel/replace)",
+		},
+		[]string{"session_id", "action", "status"}, // status: ok, reject
+	)
+	fixSessionTimeoutTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "quantmesh_fix_session_timeout_total",
+			Help: "Total FIX session heartbeat timeouts",
+		},
+		[]string{"session_id"},
+	)
+
 	memoryAllocBytes = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "quantmesh_memory_alloc_bytes",
@@ -486,6 +509,17 @@ func (pm *PrometheusMetrics) RecordAPICall(exchange, endpoint, status string, du
 // RecordAPIRateLimitHit 記錄 API 限流
 func (pm *PrometheusMetrics) RecordAPIRateLimitHit(exchange string) {
 	apiRateLimitHit.WithLabelValues(exchange).Inc()
+}
+
+// FIX 协议指标
+func (pm *PrometheusMetrics) RecordFixSessionLogon(sessionID, botID string) {
+	fixSessionLogonTotal.WithLabelValues(sessionID, botID).Inc()
+}
+func (pm *PrometheusMetrics) RecordFixOrder(sessionID, action, status string) {
+	fixOrderTotal.WithLabelValues(sessionID, action, status).Inc()
+}
+func (pm *PrometheusMetrics) RecordFixSessionTimeout(sessionID string) {
+	fixSessionTimeoutTotal.WithLabelValues(sessionID).Inc()
 }
 
 // 價格相关指標記錄
