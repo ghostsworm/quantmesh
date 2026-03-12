@@ -2,6 +2,30 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc7] - 2026-03-12
+
+### Fixed
+- **创建对冲组 503**：`POST /api/bot-groups` 在 `configManager` 未初始化时返回 503；现改为检查 `fileConfigManager`（与配置读写一致），在 Web 服务就绪后即可创建对冲组
+
+### Added
+- **网格+现货做空对冲参数**：创建「网格+现货做空对冲」时，步骤 3 新增现货腿参数配置：做空名义敞口比例、触发对冲阈值、再平衡间隔，支持用户自定义对冲行为
+
+### Test
+- **web/api_bots_test.go**：新增 `TestPostBotGroupCreateWorksWithFileConfigManagerOnly`，验证仅 `fileConfigManager` 时创建对冲组成功
+
+---
+
+## [3.76.0-rc6] - 2026-03-12
+
+### Added
+- **对冲单腿主动处置**：`BotManager` 新增单腿运行超时自动暂停开仓机制（默认 30 秒），避免对冲组长时间半边裸奔
+- **对冲风险事件增强**：单腿超时触发 `risk_triggered` 事件（`issue=single_leg_running`、`action=pause_opening`），便于告警系统联动
+
+### Test
+- **bot_manager_test.go**：新增 `TestBotManagerAutoPausesSingleLegAfterGrace`，验证单腿超时后自动暂停开仓
+
+---
+
 ## [3.76.0-rc5] - 2026-03-12
 
 ### Added

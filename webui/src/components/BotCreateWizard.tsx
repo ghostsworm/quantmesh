@@ -64,6 +64,9 @@ const BotCreateWizard: React.FC = () => {
   const [hedgePrimary, setHedgePrimary] = useState<string | null>(null)
   const [hedgeSecondary, setHedgeSecondary] = useState<string | null>(null)
   const [hedgeRatio, setHedgeRatio] = useState(0.5)
+  const [hedgeShortNotionalRatio, setHedgeShortNotionalRatio] = useState<number | string>(0.25)
+  const [hedgeTriggerLayers, setHedgeTriggerLayers] = useState<number | string>(3)
+  const [hedgeRebalanceInterval, setHedgeRebalanceInterval] = useState<number | string>(3600)
   const [strategyParams, setStrategyParams] = useState<Record<string, Record<string, unknown>>>({})
 
   const [form, setForm] = useState<{
@@ -130,6 +133,17 @@ const BotCreateWizard: React.FC = () => {
         })
         setSelectedCombo(ids)
         setComboWeights(weights)
+      } else if (template.strategy_type === 'hedge' && template.config?.strategies?.length >= 2) {
+        setStrategyType('hedge')
+        const strategies = template.config.strategies as string[]
+        setHedgePrimary(strategies[0])
+        setHedgeSecondary(strategies[1])
+        setHedgeRatio(template.config.hedge_ratio ?? 0.5)
+        if (strategies[1] === 'spot_short') {
+          setHedgeShortNotionalRatio(template.config.short_notional_ratio ?? 0.25)
+          setHedgeTriggerLayers(template.config.hedge_trigger_layers ?? 3)
+          setHedgeRebalanceInterval(template.config.rebalance_interval ?? 3600)
+        }
       }
 
       // Apply form defaults from template
@@ -316,10 +330,18 @@ const BotCreateWizard: React.FC = () => {
         const spotStrategies = hedgeSecondary
           ? [{ type: hedgeSecondary, weight: 1.0, config: normalizeConfigForApi((strategyParams[hedgeSecondary] || {}) as Record<string, unknown>) }]
           : [{ type: 'grid', weight: 1.0, config: {} }]
+        const shortNotional = toNum(hedgeShortNotionalRatio, 0.25)
+        const triggerLayers = Math.max(1, Math.min(20, Math.round(toNum(hedgeTriggerLayers, 3))))
+        const rebalanceInt = Math.max(60, Math.round(toNum(hedgeRebalanceInterval, 3600)))
         await createBotGroup({
           name: form.name?.trim() || `${form.symbol} Hedge`,
           type: 'futures_spot_hedge',
-          hedge_config: { hedge_ratio: hedgeRatio, short_notional_ratio: 0.25, hedge_trigger_layers: 3, rebalance_interval: 3600 },
+          hedge_config: {
+            hedge_ratio: hedgeRatio,
+            short_notional_ratio: shortNotional,
+            hedge_trigger_layers: triggerLayers,
+            rebalance_interval: rebalanceInt,
+          },
           futures_bot: { ...baseReq, market_type: 'futures', strategies: futuresStrategies },
           spot_bot: { ...baseReq, market_type: 'spot', strategies: spotStrategies },
         })
@@ -513,6 +535,53 @@ const BotCreateWizard: React.FC = () => {
                 value={strategyParams}
                 onChange={setStrategyParams}
               />
+              {strategyType === 'hedge' && hedgeSecondary === 'spot_short' && (
+                <>
+                  <Divider my={2} />
+                  <Text fontWeight="medium" fontSize="sm">{t('botCreate.hedgeSpotShortConfig')}</Text>
+                  <FormControl>
+                    <FormLabel>{t('botCreate.shortNotionalRatio')}</FormLabel>
+                    <DecimalNumberInput
+                      value={hedgeShortNotionalRatio ?? 0.25}
+                      min={0.05}
+                      max={1}
+                      step={0.05}
+                      precision={2}
+                      onChange={(v) => setHedgeShortNotionalRatio(v ?? 0.25)}
+                    />
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {t('botCreate.shortNotionalRatioHint')}
+                    </Text>
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>{t('botCreate.hedgeTriggerLayers')}</FormLabel>
+                    <DecimalNumberInput
+                      value={hedgeTriggerLayers ?? 3}
+                      min={1}
+                      max={20}
+                      step={1}
+                      precision={0}
+                      onChange={(v) => setHedgeTriggerLayers(v ?? 3)}
+                    />
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {t('botCreate.hedgeTriggerLayersHint')}
+                    </Text>
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>{t('botCreate.hedgeRebalanceInterval')}</FormLabel>
+                    <DecimalNumberInput
+                      value={hedgeRebalanceInterval ?? 3600}
+                      min={60}
+                      step={60}
+                      precision={0}
+                      onChange={(v) => setHedgeRebalanceInterval(v ?? 3600)}
+                    />
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {t('botCreate.hedgeRebalanceIntervalHint')}
+                    </Text>
+                  </FormControl>
+                </>
+              )}
               <FormControl>
                 <FormLabel>{t('botCreate.priceInterval')}</FormLabel>
                 <DecimalNumberInput
@@ -676,6 +745,14 @@ const BotCreateWizard: React.FC = () => {
                     </Box>
                   )
                 })}
+                {strategyType === 'hedge' && hedgeSecondary === 'spot_short' && (
+                  <Box mt={2} pl={2} borderLeftWidth={2} borderColor="blue.300">
+                    <Text fontWeight="medium" mb={1}>{t('botCreate.hedgeSpotShortConfig')}</Text>
+                    <Text pl={2}><strong>{t('botCreate.shortNotionalRatio')}:</strong> {hedgeShortNotionalRatio}</Text>
+                    <Text pl={2}><strong>{t('botCreate.hedgeTriggerLayers')}:</strong> {hedgeTriggerLayers}</Text>
+                    <Text pl={2}><strong>{t('botCreate.hedgeRebalanceInterval')}:</strong> {hedgeRebalanceInterval} s</Text>
+                  </Box>
+                )}
                 <Text mt={2}><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
                 <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
                 <Text><strong>{t('botCreate.buyWindowSize')}:</strong> {form.buy_window_size}</Text>

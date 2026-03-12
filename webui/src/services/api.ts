@@ -244,7 +244,14 @@ export async function getBotGroups(): Promise<{ bot_groups: BotGroupResponse[] }
 export async function createBotGroup(req: {
   name?: string
   type: 'futures_spot_hedge' | 'long_short_hedge'
-  hedge_config?: { hedge_ratio?: number; max_drawdown?: number; auto_rebalance?: boolean; rebalance_interval?: number }
+  hedge_config?: {
+    hedge_ratio?: number
+    short_notional_ratio?: number
+    hedge_trigger_layers?: number
+    rebalance_interval?: number
+    max_drawdown?: number
+    auto_rebalance?: boolean
+  }
   futures_bot: CreateBotRequest
   spot_bot: CreateBotRequest
 }): Promise<{ ok: boolean; group_id: string; bot_ids: string[] }> {

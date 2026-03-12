@@ -149,6 +149,13 @@
       "hedgeSpot": "Spot strategy",
       "hedgeRatio": "Hedge ratio"
     },
+    "hedgeSpotShortConfig": "Spot Short Hedge Config",
+    "shortNotionalRatio": "Short Notional Ratio",
+    "shortNotionalRatioHint": "Short notional exposure as % of grid notional, default 0.25 (25%)",
+    "hedgeTriggerLayers": "Hedge Trigger Layers",
+    "hedgeTriggerLayersHint": "Grid layers filled before opening spot short, default 3",
+    "hedgeRebalanceInterval": "Rebalance Interval (sec)",
+    "hedgeRebalanceIntervalHint": "Hedge position rebalance check interval, default 3600 sec",
     "strategyTemplate": {
       "grid_trend": "Grid + Trend",
       "dca_martingale": "DCA + Martingale",
