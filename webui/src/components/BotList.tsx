@@ -309,9 +309,14 @@ const BotList: React.FC = () => {
                       {bot.risk_triggered && (
                         <Badge colorScheme="red" fontSize="10px">{t('botList.riskTriggered')}</Badge>
                       )}
-                      {botIdToGroup.get(bot.bot_id) && (
-                        <Badge colorScheme="purple" fontSize="10px" title={botIdToGroup.get(bot.bot_id)!.name}>
-                          {t('botList.hedgeGroup')}
+                      {(bot.hedge_group_name || botIdToGroup.get(bot.bot_id)) && (
+                        <Badge colorScheme="purple" fontSize="10px" title={bot.hedge_group_name || botIdToGroup.get(bot.bot_id)!.name}>
+                          {bot.hedge_group_name ? t('botList.hedgeGroupWithName', { name: bot.hedge_group_name }) : t('botList.hedgeGroup')}
+                        </Badge>
+                      )}
+                      {bot.direction && (
+                        <Badge colorScheme="teal" fontSize="10px" variant="outline">
+                          {bot.direction === 'SHORT' ? t('botList.gridShort') : bot.direction === 'BOTH' ? t('botList.gridBoth') : t('botList.gridLong')}
                         </Badge>
                       )}
                     </HStack>
@@ -324,6 +329,11 @@ const BotList: React.FC = () => {
                       {bot.name || bot.symbol}
                     </Heading>
                     <Text fontSize="xs" color="gray.500">{bot.exchange} · {bot.symbol} ({bot.market_type})</Text>
+                    {bot.created_at && (
+                      <Text fontSize="xs" color="gray.400" mt={0.5}>
+                        {t('botList.createdAt')} {new Date(bot.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+                      </Text>
+                    )}
 
                     {/* 策略显示 */}
                     {bot.strategies && bot.strategies.length > 0 && (

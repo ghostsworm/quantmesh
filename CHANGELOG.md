@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.76.0-rc26] - 2026-03-13
+
+### Added
+- **Bot 列表標籤與信息**：Bot 列表卡片新增創建時間、是否對沖、網格方向等標籤
+  - 創建時間：顯示 Bot 創建時間（新建 Bot 自動記錄，舊 Bot 無則不顯示）
+  - 對沖組：若 Bot 屬於對沖組，顯示「對沖組「組名」」標籤
+  - 網格方向：顯示做多/做空/雙向標籤（LONG/SHORT/BOTH）
+  - 後端 BotResponse 新增 `created_at`、`hedge_group_name`、`direction` 字段
+  - BotConfig 新增 `created_at` 字段，創建 Bot 時自動寫入
+
+---
+
 ## [3.76.0-rc25] - 2026-03-13
 
 ### Fixed

@@ -126,7 +126,12 @@
     "profitSpread": "利潤間距",
     "orderQuantity": "每單金額",
     "totalCapital": "投入資金",
-    "totalInvestment": "總投入"
+    "totalInvestment": "總投入",
+    "createdAt": "創建於",
+    "hedgeGroupWithName": "對沖組「{{name}}」",
+    "gridLong": "做多",
+    "gridShort": "做空",
+    "gridBoth": "雙向"
   },
   "error": {
     "bot_symbol_conflict": "該交易對已存在 Bot，同一交易對不能運行多個 Bot。",

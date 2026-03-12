@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.76.0-rc25"
+var Version = "3.76.0-rc26"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -877,6 +877,9 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			TotalAllocatedCapital: bc.TotalAllocatedCapital,
 			Strategies:            convertStrategies(bc.Strategies),
 			BuyWindowSize:         bc.BuyWindowSize,
+			CreatedAt:             bc.CreatedAt,
+			HedgeGroupName:        web.FindGroupNameByBotID(cfg, botID),
+			Direction:             bc.GetDirection(),
 		}
 		// 从策略配置中读取杠杆和最大资金占用
 		for _, strategy := range bc.Strategies {
@@ -930,6 +933,9 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 				ProfitSpread:          bc.ProfitSpread,
 				OrderQuantity:         bc.OrderQuantity,
 				TotalAllocatedCapital: bc.TotalAllocatedCapital,
+				CreatedAt:             bc.CreatedAt,
+				HedgeGroupName:        web.FindGroupNameByBotID(cfg, botID),
+				Direction:             bc.GetDirection(),
 			}
 			if br, ok := runningMap[botID]; ok && br.Inner != nil {
 				resp.Running = true
@@ -952,6 +958,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse, bool) {
 	botMgr := a.manager.GetBotManager()
 	br, ok := botMgr.Get(botID)
+	cfg, _ := web.GetLatestConfig()
 	if ok && br != nil && br.Inner != nil {
 		name := br.Config.Name
 		if name == "" {
@@ -971,6 +978,9 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 				TotalAllocatedCapital: br.Config.TotalAllocatedCapital,
 				Strategies:            convertStrategies(br.Config.Strategies),
 				BuyWindowSize:         br.Config.BuyWindowSize,
+				CreatedAt:             br.Config.CreatedAt,
+				HedgeGroupName:        web.FindGroupNameByBotID(cfg, br.BotID),
+				Direction:             br.Config.GetDirection(),
 			},
 			Config: &br.Config,
 		}
@@ -997,8 +1007,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 		}
 		return resp, true
 	}
-	cfg, err := web.GetLatestConfig()
-	if err != nil || cfg == nil {
+	if cfg == nil {
 		return nil, false
 	}
 	for i := range cfg.Bots {
@@ -1026,6 +1035,9 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 					TotalAllocatedCapital: bc.TotalAllocatedCapital,
 					Strategies:            convertStrategies(bc.Strategies),
 					BuyWindowSize:         bc.BuyWindowSize,
+					CreatedAt:             bc.CreatedAt,
+					HedgeGroupName:        web.FindGroupNameByBotID(cfg, botID),
+					Direction:             bc.GetDirection(),
 				},
 				Config: bc,
 			}
