@@ -2825,6 +2825,10 @@ export interface GridRiskControl {
   max_grid_layers?: number
   max_open_orders_at_cap?: number
   trend_filter_enabled?: boolean
+  /** 關閉條件：滿足時平倉並停止 Bot */
+  close_condition_enabled?: boolean
+  close_condition_profit_target?: number
+  close_condition_loss_limit?: number
 }
 
 // Bot 风控配置

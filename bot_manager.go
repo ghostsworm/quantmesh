@@ -124,7 +124,10 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 	}
 
 	symCfg := config.BotConfigToSymbolConfig(botCfg)
-	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock)
+	onRequestStop := func(botID string) {
+		_ = bm.StopBotWithReason(botID, "close_condition", "關閉條件觸發")
+	}
+	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock, onRequestStop)
 	if err != nil {
 		// 发布启动失败事件
 		bm.eventBus.Publish(&event.Event{
@@ -180,6 +183,11 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 
 // StopBot 停止指定 Bot
 func (bm *BotManager) StopBot(botID string) error {
+	return bm.StopBotWithReason(botID, "web_ui", "用戶通過 Web UI 停止")
+}
+
+// StopBotWithReason 停止指定 Bot 並記錄原因（供關閉條件等自動停止場景使用）
+func (bm *BotManager) StopBotWithReason(botID, updatedBy, reason string) error {
 	bm.runtimesMu.Lock()
 	br, ok := bm.runtimes[botID]
 	if !ok {
@@ -194,7 +202,7 @@ func (bm *BotManager) StopBot(botID string) error {
 	}
 
 	// 🔥 保存停止狀態到數據庫（持久化，重啟後仍然有效）
-	bm.saveBotStateToDB(botID, false, "web_ui", "用戶通過 Web UI 停止")
+	bm.saveBotStateToDB(botID, false, updatedBy, reason)
 
 	// 发布停止事件
 	bm.eventBus.Publish(&event.Event{
@@ -204,6 +212,7 @@ func (bm *BotManager) StopBot(botID string) error {
 			"exchange": br.Config.Exchange,
 			"symbol":   br.Config.Symbol,
 			"strategy": br.Config.Strategies,
+			"reason":   reason,
 		},
 	})
 	bm.checkGroupLegConsistencyForBot(botID)

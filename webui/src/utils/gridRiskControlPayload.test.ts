@@ -74,4 +74,16 @@ describe('normalizeGridRiskControlPayload', () => {
     expect(out.trend_filter_enabled).toBe(true)
     expect(out.enabled).toBe(false)
   })
+
+  it('normalizes close_condition_profit_target and close_condition_loss_limit', () => {
+    const input = {
+      close_condition_enabled: true,
+      close_condition_profit_target: 20,
+      close_condition_loss_limit: '10',
+    }
+    const out = normalizeGridRiskControlPayload(input)
+    expect(out.close_condition_profit_target).toBe(0.2)
+    expect(out.close_condition_loss_limit).toBe(0.1)
+    expect(out.close_condition_enabled).toBe(true)
+  })
 })

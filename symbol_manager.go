@@ -212,6 +212,7 @@ func applyProfile(symCfg config.SymbolConfig, profile config.ProfileConfig) conf
 }
 
 // startSymbolRuntime 啟动單個交易對的核心组件
+// onRequestStop: 當關閉條件觸發時調用，用於自動停止 Bot
 func startSymbolRuntime(
 	ctx context.Context,
 	baseCfg *config.Config,
@@ -219,6 +220,7 @@ func startSymbolRuntime(
 	eventBus *event.EventBus,
 	storageService *storage.StorageService,
 	distributedLock lock.DistributedLock,
+	onRequestStop func(botID string),
 ) (*SymbolRuntime, error) {
 	// 獲取交易手续费率（在创建交易所实例之前）
 	configFeeRate := baseCfg.Exchanges[symCfg.Exchange].FeeRate
@@ -433,6 +435,12 @@ func startSymbolRuntime(
 	// 設置事件總線（用於发送告警）
 	if eventBus != nil {
 		superPositionManager.SetEventBus(eventBus)
+	}
+	// 設置關閉條件觸發時的回調（滿足盈利率目標或虧損限制時自動停止 Bot）
+	if onRequestStop != nil {
+		superPositionManager.SetRequestStopFunc(func() {
+			go onRequestStop(botID)
+		})
 	}
 
 	// 風控監控默認綁定到當前 runtime 的交易對，避免多 Bot/多交易對互相影響

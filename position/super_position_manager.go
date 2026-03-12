@@ -298,6 +298,9 @@ type SuperPositionManager struct {
 	// 网格自动重建管理器（可选，用于价格偏离时自动调整网格锚点）
 	autoRebuilder *GridAutoRebuilder
 
+	// 關閉條件：滿足時調用此回調以停止 Bot（由 symbol_manager 注入）
+	requestStopFunc func()
+
 	mu sync.RWMutex // 全局鎖（用於关键操作）
 }
 
@@ -808,6 +811,13 @@ type ArbitrageManager interface {
 	OnGridPositionChange(delta float64, price float64)
 }
 
+// SetRequestStopFunc 設置關閉條件觸發時的回調（用於自動停止 Bot）
+func (spm *SuperPositionManager) SetRequestStopFunc(fn func()) {
+	spm.mu.Lock()
+	defer spm.mu.Unlock()
+	spm.requestStopFunc = fn
+}
+
 // SetArbitrageManager 設置套利管理器
 func (spm *SuperPositionManager) SetArbitrageManager(am ArbitrageManager) {
 	spm.mu.Lock()
@@ -1112,6 +1122,51 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 	// === 网格风控逻辑結束 ===
+
+	// === 關閉條件：滿足時平倉並停止 Bot ===
+	if spm.config.Trading.GridRiskControl.CloseConditionEnabled {
+		profitTarget := spm.config.Trading.GridRiskControl.CloseConditionProfitTarget
+		lossLimit := spm.config.Trading.GridRiskControl.CloseConditionLossLimit
+		if profitTarget > 0 || lossLimit > 0 {
+			unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
+			totalValue := spm.calculateTotalPositionValue(currentPrice)
+			if totalValue > 0 {
+				pnlRatio := unrealizedPnL / totalValue
+				triggered := false
+				reason := ""
+				if profitTarget > 0 && pnlRatio >= profitTarget {
+					triggered = true
+					reason = fmt.Sprintf("盈利率 %.2f%% 達到目標 %.2f%%", pnlRatio*100, profitTarget*100)
+				} else if lossLimit > 0 && pnlRatio <= -lossLimit {
+					triggered = true
+					reason = fmt.Sprintf("虧損率 %.2f%% 達到限制 %.2f%%", -pnlRatio*100, lossLimit*100)
+				}
+				if triggered {
+					logger.Info("🛑 [關閉條件] 觸發: %s，執行平倉並停止 Bot", reason)
+					if spm.eventBus != nil {
+						spm.eventBus.Publish(&event.Event{
+							Type:      event.EventTypeStopLoss,
+							Timestamp: time.Now(),
+							Data: map[string]interface{}{
+								"bot_id":    spm.botID,
+								"symbol":    spm.config.Trading.Symbol,
+								"exchange":  spm.exchangeName,
+								"reason":    "close_condition",
+								"detail":    reason,
+								"pnl_ratio": pnlRatio,
+							},
+						})
+					}
+					spm.LiquidateAll()
+					if spm.requestStopFunc != nil {
+						go spm.requestStopFunc()
+					}
+					return nil
+				}
+			}
+		}
+	}
+	// === 關閉條件結束 ===
 
 	// 检查保证金不足状態
 	if spm.insufficientMargin {
