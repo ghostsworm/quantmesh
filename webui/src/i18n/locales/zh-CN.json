@@ -215,6 +215,8 @@
     "currentPrice": "当前价格",
     "unrealizedPnl": "未实现盈亏",
     "startToViewOverview": "请先启动 Bot 以查看概览数据",
+    "stoppedBotPositionsDisclaimer": "以下为该交易对在交易所的持仓，可能非本 Bot 开仓，仅供参考。",
+    "exchangePositionsForSymbol": "该交易对持仓（交易所数据）",
     "strategyHint": "策略参数与资金分配在左侧菜单的「策略配比」中设置",
     "riskHint": "风控监控与历史记录",
     "logsHint": "最近 50 条包含该交易对的日志",

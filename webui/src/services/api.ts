@@ -458,6 +458,27 @@ export async function getPositionsSummary(exchange?: string, symbol?: string): P
   return fetchWithAuth(url)
 }
 
+/** 交易所持倉彙總（不依賴運行中的 Bot，用於已停止 Bot 的概覽） */
+export interface ExchangePositionsSummary {
+  has_data: boolean
+  quantity: number
+  entry_price: number
+  mark_price: number
+  unrealized_pnl: number
+  leverage: number
+  current_price: number
+  total_value?: number
+}
+
+export async function getExchangePositionsSummary(
+  exchange: string,
+  symbol: string,
+  marketType: string = 'futures'
+): Promise<ExchangePositionsSummary> {
+  const params = new URLSearchParams({ exchange, symbol, market_type: marketType })
+  return fetchWithAuth(`${API_BASE_URL}/positions/exchange-summary?${params.toString()}`)
+}
+
 // 按交易所、币种、策略列出的所有持倉彙總
 export interface PositionSummaryItem {
   bot_id?: string

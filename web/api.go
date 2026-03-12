@@ -1332,6 +1332,76 @@ func getPositionsSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// getExchangePositionsSummary 獲取交易所持倉彙總（不依賴運行中的 Bot，用於已停止 Bot 的概覽）
+// GET /api/positions/exchange-summary?exchange=xxx&symbol=xxx&market_type=xxx
+func getExchangePositionsSummary(c *gin.Context) {
+	exchangeName := c.Query("exchange")
+	symbol := c.Query("symbol")
+	marketType := c.DefaultQuery("market_type", "futures")
+
+	if exchangeName == "" || symbol == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 exchange 或 symbol 參數"})
+		return
+	}
+
+	ex, err := getExchangeForCancel(exchangeName, symbol, marketType)
+	if err != nil {
+		logger.Warn("❌ [exchange-positions] 獲取交易所失敗: exchange=%s, symbol=%s, error=%v", exchangeName, symbol, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取交易所失敗: " + err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	positions, err := ex.GetPositions(ctx, symbol)
+	if err != nil {
+		logger.Warn("⚠️ [exchange-positions] 從交易所獲取倉位失敗: exchange=%s, symbol=%s, error=%v", exchangeName, symbol, err)
+		c.JSON(http.StatusOK, gin.H{
+			"has_data":       false,
+			"quantity":       0,
+			"entry_price":    0,
+			"mark_price":     0,
+			"unrealized_pnl": 0,
+			"leverage":       0,
+			"current_price":  0,
+		})
+		return
+	}
+
+	var totalSize, unrealizedPnL float64
+	var markPrice, entryPrice float64
+	leverage := 0
+
+	for _, pos := range positions {
+		if pos.Size != 0 {
+			totalSize += pos.Size
+			unrealizedPnL += pos.UnrealizedPNL
+			markPrice = pos.MarkPrice
+			entryPrice = pos.EntryPrice
+			if pos.Leverage > 0 {
+				leverage = pos.Leverage
+			}
+		}
+	}
+
+	currentPrice := markPrice
+	if currentPrice == 0 {
+		currentPrice = entryPrice
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"has_data":       totalSize != 0,
+		"quantity":       totalSize,
+		"entry_price":    entryPrice,
+		"mark_price":     markPrice,
+		"unrealized_pnl": unrealizedPnL,
+		"leverage":       leverage,
+		"current_price":  currentPrice,
+		"total_value":    totalSize * currentPrice,
+	})
+}
+
 // getPositionsSummaryAll 獲取所有交易對的持倉彙總（按交易所、币种、策略列出）
 // GET /api/positions/summary/all
 func getPositionsSummaryAll(c *gin.Context) {

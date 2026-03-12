@@ -70,6 +70,7 @@ import {
   pollBotUntilRunning,
   closePositionsV2,
   getPositionsSummary,
+  getExchangePositionsSummary,
   getStatistics,
   getLogs,
   getOrderHistory,
@@ -137,6 +138,16 @@ const BotDetail: React.FC = () => {
   const [exchangeOrders, setExchangeOrders] = useState<ExchangeOpenOrderInfo[]>([])
   const [exchangeOrdersLoading, setExchangeOrdersLoading] = useState(false)
   const [cancellingAll, setCancellingAll] = useState(false)
+  const [exchangePositionsSummary, setExchangePositionsSummary] = useState<{
+    has_data: boolean
+    quantity: number
+    entry_price: number
+    mark_price: number
+    unrealized_pnl: number
+    leverage: number
+    current_price: number
+    total_value?: number
+  } | null>(null)
   const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
 
   const fetchBot = async () => {
@@ -183,6 +194,29 @@ const BotDetail: React.FC = () => {
     const interval = setInterval(fetchOverview, 10000)
     return () => clearInterval(interval)
   }, [bot?.running, bot?.exchange, bot?.symbol, botId])
+
+  // 已停止的 Bot：仍拉取該交易對的交易所持倉（可能非本 Bot 開倉）
+  useEffect(() => {
+    if (bot?.running || !bot?.exchange || !bot?.symbol) {
+      setExchangePositionsSummary(null)
+      return
+    }
+    const fetchExchangePositions = async () => {
+      try {
+        const res = await getExchangePositionsSummary(
+          bot.exchange,
+          bot.symbol,
+          bot.market_type || 'futures'
+        )
+        setExchangePositionsSummary(res)
+      } catch {
+        setExchangePositionsSummary(null)
+      }
+    }
+    fetchExchangePositions()
+    const interval = setInterval(fetchExchangePositions, 10000)
+    return () => clearInterval(interval)
+  }, [bot?.running, bot?.exchange, bot?.symbol, bot?.market_type])
 
   const fetchLogs = async () => {
     if (!bot?.symbol) return
@@ -738,7 +772,60 @@ const BotDetail: React.FC = () => {
                 </SimpleGrid>
               </>
             ) : (
-              <Text color="gray.500">{t('botDetail.startToViewOverview')}</Text>
+              <>
+                {exchangePositionsSummary?.has_data ? (
+                  <Box>
+                    <Alert status="info" borderRadius="md" mb={4}>
+                      <AlertIcon />
+                      <AlertDescription>{t('botDetail.stoppedBotPositionsDisclaimer')}</AlertDescription>
+                    </Alert>
+                    <Text fontSize="sm" color="gray.500" mb={3}>{t('botDetail.exchangePositionsForSymbol')}</Text>
+                    <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botDetail.currentPrice')}</StatLabel>
+                            <StatNumber>
+                              ${(exchangePositionsSummary.current_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </StatNumber>
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botDetail.unrealizedPnl')}</StatLabel>
+                            <StatNumber color={(exchangePositionsSummary.unrealized_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
+                              {(exchangePositionsSummary.unrealized_pnl ?? 0) >= 0 ? '+' : ''}
+                              {(exchangePositionsSummary.unrealized_pnl ?? 0).toFixed(2)}
+                            </StatNumber>
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botRiskControl.totalPositionQty')}</StatLabel>
+                            <StatNumber>{exchangePositionsSummary.quantity?.toFixed(4) ?? '-'}</StatNumber>
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                      <Card>
+                        <CardBody>
+                          <Stat>
+                            <StatLabel>{t('botRiskControl.totalPositionValue')}</StatLabel>
+                            <StatNumber>
+                              ${(exchangePositionsSummary.total_value ?? exchangePositionsSummary.quantity * (exchangePositionsSummary.current_price || 0)).toFixed(2)}
+                            </StatNumber>
+                          </Stat>
+                        </CardBody>
+                      </Card>
+                    </SimpleGrid>
+                  </Box>
+                ) : (
+                  <Text color="gray.500">{t('botDetail.startToViewOverview')}</Text>
+                )}
+              </>
             )}
           </TabPanel>
           <TabPanel px={0}>

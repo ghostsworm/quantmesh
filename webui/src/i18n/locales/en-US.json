@@ -215,6 +215,8 @@
     "currentPrice": "Current Price",
     "unrealizedPnl": "Unrealized PnL",
     "startToViewOverview": "Start the bot to view overview data",
+    "stoppedBotPositionsDisclaimer": "Below are positions for this trading pair on the exchange; they may not be from this bot.",
+    "exchangePositionsForSymbol": "Positions for this symbol (exchange data)",
     "strategyHint": "Strategy params and capital allocation are configured in workspace",
     "riskHint": "Risk monitor and history",
     "logsHint": "Last 50 logs containing this symbol",
