@@ -67,4 +67,11 @@ describe('normalizeGridRiskControlPayload', () => {
     const out = normalizeGridRiskControlPayload(input)
     expect(out.max_grid_layers).toBe(5)
   })
+
+  it('preserves trend_filter_enabled independently of enabled', () => {
+    const input = { enabled: false, trend_filter_enabled: true }
+    const out = normalizeGridRiskControlPayload(input)
+    expect(out.trend_filter_enabled).toBe(true)
+    expect(out.enabled).toBe(false)
+  })
 })
