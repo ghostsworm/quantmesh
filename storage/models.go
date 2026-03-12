@@ -9,11 +9,11 @@ type Order struct {
 	ClientOrderID string
 	Symbol        string
 	Side          string
-	Exchange      string  // 交易所名稱（binance, gate 等）
-	Type          string  // 订單類型（LIMIT, MARKET 等）
+	Exchange      string // 交易所名稱（binance, gate 等）
+	Type          string // 订單類型（LIMIT, MARKET 等）
 	Price         float64
 	Quantity      float64
-	FilledQty     float64  // 已成交數量
+	FilledQty     float64 // 已成交數量
 	Status        string
 	RealizedPnL   *float64 // 交易所計算的已實現盈虧（nil 表示無數據）
 	StrategyName  string   // 策略名称（如 "Grid-BTCUSDT-1"）
@@ -37,42 +37,42 @@ type Position struct {
 
 // Trade 交易模型（買賣配對）
 type Trade struct {
-	BuyOrderID      int64
-	SellOrderID     int64
-	Exchange        string
-	Account         string // 账戶標识（如 API Key 的哈希或前缀）
-	Symbol          string
-	BuyPrice        float64
-	SellPrice       float64
-	Quantity        float64
-	PnL             float64  // 网格方式盈亏（sell_price - buy_level）* quantity
-	ExchangePnL     float64  // 交易所方式盈亏（average cost basis）
-	Fee             float64  // 手續費（買+賣合計）
-	FeeAsset        string  // 手續費幣種
+	BuyOrderID         int64
+	SellOrderID        int64
+	Exchange           string
+	Account            string // 账戶標识（如 API Key 的哈希或前缀）
+	Symbol             string
+	BuyPrice           float64
+	SellPrice          float64
+	Quantity           float64
+	PnL                float64 // 网格方式盈亏（sell_price - buy_level）* quantity
+	ExchangePnL        float64 // 交易所方式盈亏（average cost basis）
+	Fee                float64 // 手續費（買+賣合計）
+	FeeAsset           string  // 手續費幣種
 	BuyPriceDeviation  float64 // 🔥 買入價格偏差（實際買入價 - 委託買入價，USDT）
 	SellPriceDeviation float64 // 🔥 賣出價格偏差（實際賣出價 - 委託賣出價，USDT）
-	CreatedAt       time.Time
+	CreatedAt          time.Time
 }
 
 // Statistics 统计模型
 type Statistics struct {
-	Date              time.Time
-	TotalTrades       int
-	TotalVolume       float64
-	TotalPnL          float64 // 淨利潤（毛利 - 手續費）
-	GrossPnL          float64 // 毛利（價差盈虧，未扣手續費）
-	TotalFee          float64 // 手續費合計
-	WinRate           float64
-	TotalBuyDeviation float64 // 🔥 買入價格偏差總和（USDT）
+	Date               time.Time
+	TotalTrades        int
+	TotalVolume        float64
+	TotalPnL           float64 // 淨利潤（毛利 - 手續費）
+	GrossPnL           float64 // 毛利（價差盈虧，未扣手續費）
+	TotalFee           float64 // 手續費合計
+	WinRate            float64
+	TotalBuyDeviation  float64 // 🔥 買入價格偏差總和（USDT）
 	TotalSellDeviation float64 // 🔥 賣出價格偏差總和（USDT）
-	CreatedAt         time.Time
+	CreatedAt          time.Time
 }
 
 // TodayStatistics 當日統計模型（用於 Bot 概覽頁）
 type TodayStatistics struct {
-	TotalTrades      int     // 當日成交筆數
-	GridPnL          float64 // 當日網格盈虧（trades 表）
-	ExchangePnL      float64 // 當日交易所盈虧（orders 表 realized_pnl）
+	TotalTrades int     // 當日成交筆數
+	GridPnL     float64 // 當日網格盈虧（trades 表）
+	ExchangePnL float64 // 當日交易所盈虧（orders 表 realized_pnl）
 }
 
 // DailyStatisticsWithTradeCount 每日统计（包含盈利/亏损交易數）
@@ -171,27 +171,27 @@ type ReconciliationHistory struct {
 
 // PnLSummary 盈亏彙總（按币种對）
 type PnLSummary struct {
-	Symbol           string
-	TotalPnL         float64  // 网格方式盈亏
-	ExchangePnL      float64  // 交易所方式盈亏
-	TotalTrades      int
-	TotalVolume      float64
-	WinRate          float64  // 网格方式胜率
-	ExchangeWinRate  float64  // 交易所方式胜率
-	WinningTrades    int
-	LosingTrades     int
+	Symbol          string
+	TotalPnL        float64 // 网格方式盈亏
+	ExchangePnL     float64 // 交易所方式盈亏
+	TotalTrades     int
+	TotalVolume     float64
+	WinRate         float64 // 网格方式胜率
+	ExchangeWinRate float64 // 交易所方式胜率
+	WinningTrades   int
+	LosingTrades    int
 }
 
 // PnLBySymbol 按币种對的盈亏數據
 type PnLBySymbol struct {
-	Exchange          string
-	Symbol            string
-	TotalPnL          float64  // 网格方式盈亏
-	ExchangePnL       float64  // 交易所方式盈亏
-	TotalTrades       int
-	TotalVolume       float64
-	WinRate           float64  // 网格方式胜率
-	ExchangeWinRate   float64  // 交易所方式胜率
+	Exchange        string
+	Symbol          string
+	TotalPnL        float64 // 网格方式盈亏
+	ExchangePnL     float64 // 交易所方式盈亏
+	TotalTrades     int
+	TotalVolume     float64
+	WinRate         float64 // 网格方式胜率
+	ExchangeWinRate float64 // 交易所方式胜率
 }
 
 // RiskCheckRecord 风控检查記錄（單条）
@@ -387,4 +387,39 @@ type BotState struct {
 	UpdatedAt time.Time // 最後更新時間
 	UpdatedBy string    // 更新來源: web_ui, api, system
 	Reason    string    // 停用原因（可選）
+}
+
+// FixSessionState FIX 会话状态（用于断线重连与序号恢复）
+type FixSessionState struct {
+	SessionID       string
+	Role            string // acceptor / initiator
+	BeginString     string // FIX.4.4 / FIXT.1.1
+	SenderCompID    string
+	TargetCompID    string
+	NextSenderSeq   int64
+	NextTargetSeq   int64
+	IsLoggedOn      bool
+	LastLogonAt     *time.Time
+	LastHeartbeatAt *time.Time
+	UpdatedAt       time.Time
+}
+
+// FixOrderLink FIX 主订单与内部订单映射
+type FixOrderLink struct {
+	ID              int64
+	SessionID       string
+	ClOrdID         string
+	OrigClOrdID     string
+	BotID           string
+	Exchange        string
+	Symbol          string
+	Side            string
+	InternalOrderID int64
+	LastExecID      string
+	OrdStatus       string
+	CumQty          float64
+	LeavesQty       float64
+	AvgPx           float64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }

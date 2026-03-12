@@ -16,9 +16,9 @@ import (
 )
 
 var (
-	globalConfig    *config.Config
-	configStorage   storage.ConfigStorage
-	configManager   *cfgmgr.ConfigManager
+	globalConfig  *config.Config
+	configStorage storage.ConfigStorage
+	configManager *cfgmgr.ConfigManager
 )
 
 // SetGlobalConfig 設置全局配置
@@ -218,6 +218,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/orders", getOrders)
 			protected.GET("/orders/history", getOrderHistory)
 			protected.POST("/orders/sync", syncOrders)
+			protected.GET("/fix/sessions", getFixSessions)
+			protected.GET("/fix/orders", getFixOrderLinks)
 			protected.GET("/statistics", getStatistics)
 			protected.GET("/statistics/daily", getDailyStatistics)
 			protected.GET("/statistics/daily/breakdown", getDailyPnLBreakdown)
@@ -497,13 +499,13 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 策略管理 API
 			strategies := protected.Group("/strategies")
 			{
-			strategies.GET("", getStrategiesHandler)
-			strategies.GET("/templates", getStrategyTemplatesHandler)
-			strategies.GET("/types", getStrategyTypesHandler)
+				strategies.GET("", getStrategiesHandler)
+				strategies.GET("/templates", getStrategyTemplatesHandler)
+				strategies.GET("/types", getStrategyTypesHandler)
 				strategies.GET("/configs", getStrategyConfigsHandler)
 				strategies.GET("/enabled", getEnabledStrategiesHandler)
 				strategies.GET("/runtime", getStrategyRuntimeStatusHandler)         // 獲取所有策略運行狀態
-				strategies.GET("/runtime/all", getStrategyRuntimeAllHandler)       // 獲取所有幣種下所有策略運行狀態（聚合）
+				strategies.GET("/runtime/all", getStrategyRuntimeAllHandler)        // 獲取所有幣種下所有策略運行狀態（聚合）
 				strategies.GET("/runtime/:id", getStrategyRuntimeStatusByIDHandler) // 獲取單個策略運行狀態
 				strategies.POST("/batch-update", batchUpdateStrategiesHandler)
 				strategies.POST("/release-all-capital", releaseAllStrategiesCapital) // 释放所有策略锁定资金

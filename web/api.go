@@ -70,8 +70,8 @@ type SystemStatus struct {
 	TotalTrades   int     `json:"total_trades"`
 	RiskTriggered bool    `json:"risk_triggered"`
 	Uptime        int64   `json:"uptime"`         // 运行時间（秒）
-	OpeningPaused bool    `json:"opening_paused"`  // 是否暫停開倉
-	PauseReason   string  `json:"pause_reason"`    // 暫停原因：manual / schedule / periodic / position_limit
+	OpeningPaused bool    `json:"opening_paused"` // 是否暫停開倉
+	PauseReason   string  `json:"pause_reason"`   // 暫停原因：manual / schedule / periodic / position_limit
 }
 
 var (
@@ -1883,6 +1883,118 @@ func getOrderHistory(c *gin.Context) {
 	})
 }
 
+// getFixSessions 获取 FIX 会话状态列表
+// GET /api/fix/sessions
+func getFixSessions(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusOK, gin.H{"sessions": []interface{}{}, "total_count": 0})
+		return
+	}
+	st := storageProv.GetStorage()
+
+	limit := 100
+	offset := 0
+	if l, err := strconv.Atoi(c.DefaultQuery("limit", "100")); err == nil && l > 0 {
+		limit = l
+	}
+	if o, err := strconv.Atoi(c.DefaultQuery("offset", "0")); err == nil && o >= 0 {
+		offset = o
+	}
+
+	sessions, err := st.ListFixSessionStates(limit, offset)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.query_failed", err)
+		return
+	}
+	resp := make([]map[string]interface{}, 0, len(sessions))
+	for _, s := range sessions {
+		item := map[string]interface{}{
+			"session_id":        s.SessionID,
+			"role":              s.Role,
+			"begin_string":      s.BeginString,
+			"sender_comp_id":    s.SenderCompID,
+			"target_comp_id":    s.TargetCompID,
+			"next_sender_seq":   s.NextSenderSeq,
+			"next_target_seq":   s.NextTargetSeq,
+			"is_logged_on":      s.IsLoggedOn,
+			"last_logon_at":     nil,
+			"last_heartbeat_at": nil,
+			"updated_at":        utils.ToUTC8(s.UpdatedAt),
+		}
+		if s.LastLogonAt != nil {
+			item["last_logon_at"] = utils.ToUTC8(*s.LastLogonAt)
+		}
+		if s.LastHeartbeatAt != nil {
+			item["last_heartbeat_at"] = utils.ToUTC8(*s.LastHeartbeatAt)
+		}
+		resp = append(resp, item)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"sessions":    resp,
+		"total_count": len(resp),
+	})
+}
+
+// getFixOrderLinks 获取 FIX 主订单映射列表
+// GET /api/fix/orders
+func getFixOrderLinks(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		storageProv = storageServiceProvider
+	}
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}, "total_count": 0})
+		return
+	}
+	st := storageProv.GetStorage()
+
+	sessionID := c.Query("session_id")
+	ordStatus := c.Query("ord_status")
+	limit := 100
+	offset := 0
+	if l, err := strconv.Atoi(c.DefaultQuery("limit", "100")); err == nil && l > 0 {
+		limit = l
+	}
+	if o, err := strconv.Atoi(c.DefaultQuery("offset", "0")); err == nil && o >= 0 {
+		offset = o
+	}
+
+	links, err := st.ListFixOrderLinks(sessionID, ordStatus, limit, offset)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.query_failed", err)
+		return
+	}
+	resp := make([]map[string]interface{}, 0, len(links))
+	for _, l := range links {
+		resp = append(resp, map[string]interface{}{
+			"id":                l.ID,
+			"session_id":        l.SessionID,
+			"cl_ord_id":         l.ClOrdID,
+			"orig_cl_ord_id":    l.OrigClOrdID,
+			"bot_id":            l.BotID,
+			"exchange":          l.Exchange,
+			"symbol":            l.Symbol,
+			"side":              l.Side,
+			"internal_order_id": l.InternalOrderID,
+			"last_exec_id":      l.LastExecID,
+			"ord_status":        l.OrdStatus,
+			"cum_qty":           l.CumQty,
+			"leaves_qty":        l.LeavesQty,
+			"avg_px":            l.AvgPx,
+			"created_at":        utils.ToUTC8(l.CreatedAt),
+			"updated_at":        utils.ToUTC8(l.UpdatedAt),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"orders":      resp,
+		"total_count": len(resp),
+	})
+}
+
 var (
 	// 存儲服務提供者（需要從main.go注入）
 	storageServiceProvider StorageServiceProvider
@@ -2101,12 +2213,12 @@ func getStatistics(c *gin.Context) {
 		"total_fee":            totalFee,
 		"win_rate":             winRate,
 		"total_buy_deviation":  totalBuyDeviation,  // 🔥 買入價格偏差總和
-		"total_sell_deviation": totalSellDeviation,  // 🔥 賣出價格偏差總和
-		"exchange_pnl":         exchangePnL,         // 🔥 交易所已實現盈虧合計
-		"unrealized_pnl":       unrealizedPnL,       // 🔥 待實現盈虧（當前持倉×當前價格）
-		"today_trades":         todayTrades,         // 🔥 當日成交筆數
-		"today_pnl":            todayPnL,            // 🔥 當日網格盈虧
-		"today_exchange_pnl":   todayExchangePnL,    // 🔥 當日交易所盈虧
+		"total_sell_deviation": totalSellDeviation, // 🔥 賣出價格偏差總和
+		"exchange_pnl":         exchangePnL,        // 🔥 交易所已實現盈虧合計
+		"unrealized_pnl":       unrealizedPnL,      // 🔥 待實現盈虧（當前持倉×當前價格）
+		"today_trades":         todayTrades,        // 🔥 當日成交筆數
+		"today_pnl":            todayPnL,           // 🔥 當日網格盈虧
+		"today_exchange_pnl":   todayExchangePnL,   // 🔥 當日交易所盈虧
 	})
 }
 
@@ -2628,11 +2740,11 @@ var (
 
 // SymbolManagerProvider SymbolManager 提供者接口
 type SymbolManagerProvider interface {
-	Get(exchange, symbol string) (interface{}, bool) // 回傳 SymbolRuntime（使用 interface{} 避免循环依赖）
+	Get(exchange, symbol string) (interface{}, bool)               // 回傳 SymbolRuntime（使用 interface{} 避免循环依赖）
 	GetEx(exchange, symbol, marketType string) (interface{}, bool) // 按 market_type 獲取（spot/futures），空則默認 futures
-	List() []interface{}                             // 回傳 SymbolRuntime 列表
-	StartSymbol(exchange, symbol, marketType string) error // 啟动指定交易所/币种的交易，marketType 為空時自動選首個未運行的
-	StopSymbol(exchange, symbol string) error        // 停止指定交易所/币种的交易
+	List() []interface{}                                           // 回傳 SymbolRuntime 列表
+	StartSymbol(exchange, symbol, marketType string) error         // 啟动指定交易所/币种的交易，marketType 為空時自動選首個未運行的
+	StopSymbol(exchange, symbol string) error                      // 停止指定交易所/币种的交易
 }
 
 // TradingParamsUpdater 交易参數热更新接口（可选接口，用於配置变更時推送到运行時）
@@ -3174,8 +3286,8 @@ func getPendingOrders(c *gin.Context) {
 type PendingOrderInfo struct {
 	OrderID        int64     `json:"order_id"`
 	ClientOrderID  string    `json:"client_order_id"`
-	Exchange       string    `json:"exchange"`           // 交易所
-	Symbol         string    `json:"symbol"`             // 交易对
+	Exchange       string    `json:"exchange"` // 交易所
+	Symbol         string    `json:"symbol"`   // 交易对
 	Price          float64   `json:"price"`
 	Quantity       float64   `json:"quantity"`
 	Side           string    `json:"side"` // BUY/SELL
@@ -3295,20 +3407,20 @@ func batchCancelOrders(c *gin.Context) {
 
 // ExchangeOpenOrderInfo 交易所开放委托信息
 type ExchangeOpenOrderInfo struct {
-	OrderID        int64     `json:"order_id"`
-	ClientOrderID  string    `json:"client_order_id"`
-	Exchange       string    `json:"exchange"`
-	Symbol         string    `json:"symbol"`
-	Price          float64   `json:"price"`
-	Quantity       float64   `json:"quantity"`
-	ExecutedQty    float64   `json:"executed_qty"`
-	Side           string    `json:"side"`
-	Type           string    `json:"type"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	IsMine         bool      `json:"is_mine"`          // 是否为本机器人管理的委托
-	StrategyName   string    `json:"strategy_name"`    // 如果是本机器人的委托，关联的策略名
-	SlotPrice      float64   `json:"slot_price"`       // 关联槽位价格
+	OrderID       int64     `json:"order_id"`
+	ClientOrderID string    `json:"client_order_id"`
+	Exchange      string    `json:"exchange"`
+	Symbol        string    `json:"symbol"`
+	Price         float64   `json:"price"`
+	Quantity      float64   `json:"quantity"`
+	ExecutedQty   float64   `json:"executed_qty"`
+	Side          string    `json:"side"`
+	Type          string    `json:"type"`
+	Status        string    `json:"status"`
+	CreatedAt     time.Time `json:"created_at"`
+	IsMine        bool      `json:"is_mine"`       // 是否为本机器人管理的委托
+	StrategyName  string    `json:"strategy_name"` // 如果是本机器人的委托，关联的策略名
+	SlotPrice     float64   `json:"slot_price"`    // 关联槽位价格
 }
 
 // getExchangeOpenOrders 直接从交易所查询开放委托，并与内部 slots 对比标记
@@ -3696,14 +3808,14 @@ func vacuumLogs(c *gin.Context) {
 
 // ReconciliationStatus 對账状態
 type ReconciliationStatus struct {
-	ReconcileCount      int64     `json:"reconcile_count"`       // 對账次數（運行時自增，重啟後歸零）
-	HistoryRecordCount  int64     `json:"history_record_count"` // 對账歷史記錄數（數據庫，與下方列表一致）
-	LastReconcileTime   time.Time `json:"last_reconcile_time"`   // 最后對账時间
-	LocalPosition       float64   `json:"local_position"`        // 本地持倉
-	TotalBuyQty         float64   `json:"total_buy_qty"`         // 累计買入
-	TotalSellQty        float64   `json:"total_sell_qty"`        // 累计賣出
-	EstimatedProfit     float64   `json:"estimated_profit"`      // 預计盈利
-	ActualProfit        float64   `json:"actual_profit"`         // 實際盈利（来自 trades 表）
+	ReconcileCount     int64     `json:"reconcile_count"`      // 對账次數（運行時自增，重啟後歸零）
+	HistoryRecordCount int64     `json:"history_record_count"` // 對账歷史記錄數（數據庫，與下方列表一致）
+	LastReconcileTime  time.Time `json:"last_reconcile_time"`  // 最后對账時间
+	LocalPosition      float64   `json:"local_position"`       // 本地持倉
+	TotalBuyQty        float64   `json:"total_buy_qty"`        // 累计買入
+	TotalSellQty       float64   `json:"total_sell_qty"`       // 累计賣出
+	EstimatedProfit    float64   `json:"estimated_profit"`     // 預计盈利
+	ActualProfit       float64   `json:"actual_profit"`        // 實際盈利（来自 trades 表）
 }
 
 // ReconciliationHistoryInfo 對账历史信息
@@ -3754,11 +3866,11 @@ func getReconciliationStatus(c *gin.Context) {
 			"reconcile_count":      0,
 			"history_record_count": historyRecordCount,
 			"last_reconcile_time":  time.Time{},
-			"local_position":      0,
-			"total_buy_qty":       0,
-			"total_sell_qty":      0,
-			"estimated_profit":    0,
-			"actual_profit":       0,
+			"local_position":       0,
+			"total_buy_qty":        0,
+			"total_sell_qty":       0,
+			"estimated_profit":     0,
+			"actual_profit":        0,
 		})
 		return
 	}
@@ -5226,13 +5338,13 @@ func InitDefaultDataSourceProvider() {
 
 // builtinDataSourceProvider 內置數據源提供者（不依賴 AI 模塊）
 type builtinDataSourceProvider struct {
-	httpClient        *http.Client
-	rssFeeds         []string
-	fearGreedAPIURL  string
-	mu               sync.RWMutex
-	cachedRSS        []RSSFeedInfo
-	cachedFearGreed  *FearGreedIndexInfo
-	lastRSSUpdate    time.Time
+	httpClient          *http.Client
+	rssFeeds            []string
+	fearGreedAPIURL     string
+	mu                  sync.RWMutex
+	cachedRSS           []RSSFeedInfo
+	cachedFearGreed     *FearGreedIndexInfo
+	lastRSSUpdate       time.Time
 	lastFearGreedUpdate time.Time
 }
 
@@ -5728,18 +5840,18 @@ func (a *dataSourceAdapter) fetchPolymarketFromGamma(baseURL string, keywords []
 		return nil, fmt.Errorf("Gamma API %d", resp.StatusCode)
 	}
 	var events []struct {
-		ID       string `json:"id"`
-		Title    string `json:"title"`
-		Markets  []struct {
-			ID           string `json:"id"`
-			Question     string `json:"question"`
-			Description  string `json:"description"`
-			Outcomes     string `json:"outcomes"`
-			Volume       string `json:"volume"`
-			Liquidity    string `json:"liquidity"`
+		ID      string `json:"id"`
+		Title   string `json:"title"`
+		Markets []struct {
+			ID           string  `json:"id"`
+			Question     string  `json:"question"`
+			Description  string  `json:"description"`
+			Outcomes     string  `json:"outcomes"`
+			Volume       string  `json:"volume"`
+			Liquidity    string  `json:"liquidity"`
 			VolumeNum    float64 `json:"volumeNum"`
 			LiquidityNum float64 `json:"liquidityNum"`
-			EndDate      string `json:"endDate"`
+			EndDate      string  `json:"endDate"`
 		} `json:"markets"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
@@ -7149,10 +7261,10 @@ func getPriceStability(c *gin.Context) {
 
 	if len(history) < 2 {
 		c.JSON(http.StatusOK, gin.H{
-			"symbol":     symbol,
-			"hours":      hours,
+			"symbol":      symbol,
+			"hours":       hours,
 			"data_points": len(history),
-			"message":    "数据点不足，无法计算稳定性",
+			"message":     "数据点不足，无法计算稳定性",
 		})
 		return
 	}
@@ -7177,10 +7289,10 @@ func getPriceStability(c *gin.Context) {
 
 	if len(prices) < 2 {
 		c.JSON(http.StatusOK, gin.H{
-			"symbol":     symbol,
-			"hours":      hours,
+			"symbol":      symbol,
+			"hours":       hours,
 			"data_points": len(prices),
-			"message":    "有效数据点不足",
+			"message":     "有效数据点不足",
 		})
 		return
 	}
@@ -7236,21 +7348,21 @@ func getPriceStability(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"symbol":            symbol,
-		"hours":             hours,
-		"data_points":      len(prices),
-		"current_price":     prices[len(prices)-1],
-		"average_price":    avgPrice,
-		"min_price":        minPrice,
-		"max_price":        maxPrice,
-		"price_range":      priceRange,
+		"symbol":              symbol,
+		"hours":               hours,
+		"data_points":         len(prices),
+		"current_price":       prices[len(prices)-1],
+		"average_price":       avgPrice,
+		"min_price":           minPrice,
+		"max_price":           maxPrice,
+		"price_range":         priceRange,
 		"price_range_percent": priceRangePercent,
-		"volatility":        volatility,
-		"return_volatility": returnStdDev,
-		"std_dev":          stdDev,
-		"stability_level":  stabilityLevel,
-		"start_time":        startTime.Format(time.RFC3339),
-		"end_time":          endTime.Format(time.RFC3339),
+		"volatility":          volatility,
+		"return_volatility":   returnStdDev,
+		"std_dev":             stdDev,
+		"stability_level":     stabilityLevel,
+		"start_time":          startTime.Format(time.RFC3339),
+		"end_time":            endTime.Format(time.RFC3339),
 	})
 }
 

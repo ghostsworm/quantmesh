@@ -140,6 +140,15 @@ type Storage interface {
 	GetBotState(botID string) (*BotState, error)
 	SetBotState(state *BotState) error
 	ListBotStates() ([]*BotState, error)
+
+	// FIX 会话状态与订单映射
+	UpsertFixSessionState(state *FixSessionState) error
+	GetFixSessionState(sessionID string) (*FixSessionState, error)
+	ListFixSessionStates(limit, offset int) ([]*FixSessionState, error)
+	UpsertFixOrderLink(link *FixOrderLink) error
+	GetFixOrderLinkByClOrdID(sessionID, clOrdID string) (*FixOrderLink, error)
+	GetFixOrderLinkByInternalOrderID(sessionID string, internalOrderID int64) (*FixOrderLink, error)
+	ListFixOrderLinks(sessionID, ordStatus string, limit, offset int) ([]*FixOrderLink, error)
 }
 
 // storageEvent 存儲事件
