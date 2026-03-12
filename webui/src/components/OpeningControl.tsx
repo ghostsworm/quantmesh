@@ -208,13 +208,13 @@ const OpeningControl: React.FC = () => {
                   <Switch
                     isChecked={!status.opening_paused}
                     onChange={handleToggleOpening}
-                    isDisabled={toggling}
+                    isDisabled={toggling || status.pause_reason === 'bot_stopped'}
                     colorScheme="green"
                   />
                 </FormControl>
                 <Text color={status.opening_paused ? 'orange.600' : 'green.600'} fontWeight="medium">
                   {status.opening_paused
-                    ? `${t('openingControl.paused')}${status.pause_reason ? ` (${status.pause_reason})` : ''}`
+                    ? t('openingControl.paused') + (status.pause_reason ? ` (${status.pause_reason === 'bot_stopped' ? t('openingControl.botStopped') : status.pause_reason})` : '')
                     : t('openingControl.opening')}
                 </Text>
               </Flex>
