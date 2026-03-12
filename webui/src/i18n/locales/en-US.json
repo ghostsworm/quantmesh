@@ -66,7 +66,12 @@
     "profitSpread": "Profit Spread",
     "orderQuantity": "Order Amount",
     "totalCapital": "Capital",
-    "totalInvestment": "Total Investment"
+    "totalInvestment": "Total Investment",
+    "createdAt": "Created",
+    "hedgeGroupWithName": "Hedge «{{name}}»",
+    "gridLong": "Long",
+    "gridShort": "Short",
+    "gridBoth": "Both"
   },
   "botCreate": {
     "title": "Create Bot",

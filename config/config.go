@@ -1340,6 +1340,7 @@ type BotGroup struct {
 type BotConfig struct {
 	ID                    string                 `yaml:"id" json:"id"`                                                       // Bot 唯一標識，由 Exchange:Symbol:MarketType 生成或 UUID
 	Name                  string                 `yaml:"name" json:"name"`                                                   // 顯示名稱
+	CreatedAt             string                 `yaml:"created_at,omitempty" json:"created_at,omitempty"`                     // 創建時間 ISO 8601，可選
 	Exchange              string                 `yaml:"exchange" json:"exchange"`                                           // 所屬交易所
 	Symbol                string                 `yaml:"symbol" json:"symbol"`                                               // 交易對，如 BTCUSDT
 	MarketType            string                 `yaml:"market_type" json:"market_type"`                                     // 市場類型：spot 現貨 / futures 合約，預設 futures

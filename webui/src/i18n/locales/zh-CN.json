@@ -66,7 +66,12 @@
     "profitSpread": "利润间距",
     "orderQuantity": "每单金额",
     "totalCapital": "投入资金",
-    "totalInvestment": "总投入"
+    "totalInvestment": "总投入",
+    "createdAt": "创建于",
+    "hedgeGroupWithName": "对冲组「{{name}}」",
+    "gridLong": "做多",
+    "gridShort": "做空",
+    "gridBoth": "双向"
   },
   "botCreate": {
     "title": "创建 Bot",

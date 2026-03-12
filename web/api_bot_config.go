@@ -231,7 +231,7 @@ func deleteBotConfigFile(c *gin.Context) {
 	if configManager != nil {
 		cfg, err := GetLatestConfig()
 		if err == nil && cfg != nil {
-			if groupName := findGroupNameByBotID(cfg, botID); groupName != "" {
+			if groupName := FindGroupNameByBotID(cfg, botID); groupName != "" {
 				c.JSON(http.StatusForbidden, gin.H{
 					"error":      "bot_in_hedge_group",
 					"error_key":  "error.bot_in_hedge_group_cannot_delete_config",

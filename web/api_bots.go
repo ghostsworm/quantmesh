@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,9 @@ type BotResponse struct {
 	Leverage               float64 `json:"leverage,omitempty"`                 // 杠杆倍數
 	MaxCapitalRatio        float64 `json:"max_capital_ratio,omitempty"`        // 最大資金占用比例 (0.1-1.0)
 	BuyWindowSize          int     `json:"buy_window_size,omitempty"`          // 買窗大小（用於計算平倉價）
+	CreatedAt              string  `json:"created_at,omitempty"`               // 創建時間 ISO 8601
+	HedgeGroupName         string  `json:"hedge_group_name,omitempty"`         // 所屬對沖組名稱，空則非對沖
+	Direction              string  `json:"direction,omitempty"`                // 網格/策略方向：LONG/SHORT/BOTH
 }
 
 // BotStrategyInfo Bot 策略信息（用于列表显示）
@@ -58,8 +62,8 @@ type BotManagerProvider interface {
 
 var botManagerProvider BotManagerProvider
 
-// findGroupNameByBotID 若 botID 屬於某個 BotGroup，返回該組名稱；否則返回空字串
-func findGroupNameByBotID(cfg *config.Config, botID string) string {
+// FindGroupNameByBotID 若 botID 屬於某個 BotGroup，返回該組名稱；否則返回空字串（供 main 等調用）
+func FindGroupNameByBotID(cfg *config.Config, botID string) string {
 	if cfg == nil || cfg.BotGroups == nil {
 		return ""
 	}
@@ -221,7 +225,7 @@ func postBotCreate(c *gin.Context) {
 		}
 		existingKey := config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
 		if existingKey == symbolKey {
-			if groupName := findGroupNameByBotID(cfg, id); groupName != "" {
+			if groupName := FindGroupNameByBotID(cfg, id); groupName != "" {
 				logger.Warn("⚠️ [Bot創建] 衝突：%s 已被對沖組「%s」占用", symbolKey, groupName)
 				c.JSON(http.StatusConflict, gin.H{
 					"error":      "symbol_used_by_hedge_group",
@@ -266,6 +270,7 @@ func postBotCreate(c *gin.Context) {
 	bc := config.BotConfig{
 		ID:                    botID,
 		Name:                  name,
+		CreatedAt:             time.Now().Format(time.RFC3339),
 		Exchange:              req.Exchange,
 		Symbol:                req.Symbol,
 		MarketType:            mt,
@@ -442,7 +447,7 @@ func deleteBot(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
 		return
 	}
-	if groupName := findGroupNameByBotID(cfg, botID); groupName != "" {
+	if groupName := FindGroupNameByBotID(cfg, botID); groupName != "" {
 		logger.Warn("⚠️ [Bot刪除] 拒絕：%s 屬於對沖組「%s」，禁止單獨刪除", botID, groupName)
 		c.JSON(http.StatusForbidden, gin.H{
 			"error":      "bot_in_hedge_group",
@@ -682,8 +687,8 @@ func postBotGroupCreate(c *gin.Context) {
 		if id == "" {
 			id = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
 		}
-		if (id == futuresID || id == spotID) && findGroupNameByBotID(cfg, id) != "" {
-			groupName := findGroupNameByBotID(cfg, id)
+		if (id == futuresID || id == spotID) && FindGroupNameByBotID(cfg, id) != "" {
+			groupName := FindGroupNameByBotID(cfg, id)
 			logger.Warn("⚠️ [對沖組創建] 衝突：%s 已被對沖組「%s」占用", id, groupName)
 			c.JSON(http.StatusConflict, gin.H{
 				"error":      "symbol_used_by_hedge_group",
@@ -746,9 +751,11 @@ func postBotGroupCreate(c *gin.Context) {
 		spotName = req.SpotBot.Symbol + " (spot)"
 	}
 
+	createdAt := time.Now().Format(time.RFC3339)
 	bcFutures := config.BotConfig{
 		ID:                    futuresID,
 		Name:                  futuresName,
+		CreatedAt:             createdAt,
 		Exchange:              req.FuturesBot.Exchange,
 		Symbol:                req.FuturesBot.Symbol,
 		MarketType:            "futures",
@@ -788,6 +795,7 @@ func postBotGroupCreate(c *gin.Context) {
 	bcSpot := config.BotConfig{
 		ID:                    spotID,
 		Name:                  spotName,
+		CreatedAt:             createdAt,
 		Exchange:              req.SpotBot.Exchange,
 		Symbol:                req.SpotBot.Symbol,
 		MarketType:            "spot",
