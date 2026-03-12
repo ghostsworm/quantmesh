@@ -16,6 +16,143 @@ import (
 	"quantmesh/config"
 )
 
+func TestFindGroupNameByBotID(t *testing.T) {
+	tests := []struct {
+		name   string
+		cfg    *config.Config
+		botID  string
+		want   string
+	}{
+		{
+			name:  "nil_config",
+			cfg:   nil,
+			botID: "bot-1",
+			want:  "",
+		},
+		{
+			name:  "nil_bot_groups",
+			cfg:   &config.Config{BotGroups: nil},
+			botID: "bot-1",
+			want:  "",
+		},
+		{
+			name:  "empty_bot_groups",
+			cfg:   &config.Config{BotGroups: []config.BotGroup{}},
+			botID: "bot-1",
+			want:  "",
+		},
+		{
+			name: "bot_in_group",
+			cfg: &config.Config{
+				BotGroups: []config.BotGroup{
+					{ID: "g1", Name: "ETH Hedge", BotIDs: []string{"futures-bot", "spot-bot"}},
+				},
+			},
+			botID: "futures-bot",
+			want:  "ETH Hedge",
+		},
+		{
+			name: "bot_not_in_any_group",
+			cfg: &config.Config{
+				BotGroups: []config.BotGroup{
+					{ID: "g1", Name: "ETH Hedge", BotIDs: []string{"futures-bot", "spot-bot"}},
+				},
+			},
+			botID: "other-bot",
+			want:  "",
+		},
+		{
+			name: "bot_in_second_group",
+			cfg: &config.Config{
+				BotGroups: []config.BotGroup{
+					{ID: "g1", Name: "Group A", BotIDs: []string{"a1", "a2"}},
+					{ID: "g2", Name: "Group B", BotIDs: []string{"b1", "b2"}},
+				},
+			},
+			botID: "b2",
+			want:  "Group B",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FindGroupNameByBotID(tt.cfg, tt.botID)
+			if got != tt.want {
+				t.Errorf("FindGroupNameByBotID() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetBotsReturnsBotResponseFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mock := &mockBotManagerForGetBotsTest{
+		bots: []BotResponse{
+			{
+				BotID:          "bot-1",
+				Name:           "Test Bot",
+				CreatedAt:      "2026-03-13T10:00:00Z",
+				HedgeGroupName:  "ETH Hedge",
+				Direction:      "LONG",
+			},
+		},
+	}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/bots", nil)
+
+	getBots(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Bots []struct {
+			BotID         string `json:"bot_id"`
+			CreatedAt     string `json:"created_at"`
+			HedgeGroupName string `json:"hedge_group_name"`
+			Direction     string `json:"direction"`
+		} `json:"bots"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(resp.Bots) != 1 {
+		t.Fatalf("expected 1 bot, got %d", len(resp.Bots))
+	}
+	b := resp.Bots[0]
+	if b.CreatedAt != "2026-03-13T10:00:00Z" {
+		t.Errorf("created_at = %q, want 2026-03-13T10:00:00Z", b.CreatedAt)
+	}
+	if b.HedgeGroupName != "ETH Hedge" {
+		t.Errorf("hedge_group_name = %q, want ETH Hedge", b.HedgeGroupName)
+	}
+	if b.Direction != "LONG" {
+		t.Errorf("direction = %q, want LONG", b.Direction)
+	}
+}
+
+type mockBotManagerForGetBotsTest struct {
+	bots []BotResponse
+}
+
+func (m *mockBotManagerForGetBotsTest) ListBots() []BotResponse { return m.bots }
+func (m *mockBotManagerForGetBotsTest) GetBot(botID string) (*BotDetailResponse, bool) {
+	for _, b := range m.bots {
+		if b.BotID == botID {
+			return &BotDetailResponse{BotResponse: b}, true
+		}
+	}
+	return nil, false
+}
+func (m *mockBotManagerForGetBotsTest) StartBot(ctx context.Context, cfg config.BotConfig) error { return nil }
+func (m *mockBotManagerForGetBotsTest) StopBot(botID string) error                              { return nil }
+func (m *mockBotManagerForGetBotsTest) EnableBot(botID string) error                           { return nil }
+
 func TestUpdateBotStrategyRequest_SmartOrderEnabled(t *testing.T) {
 	// 驗證 smart_order_enabled 能正確解析並持久化
 	body := `{"strategies":[{"type":"grid","weight":1}],"smart_order_enabled":true,"smart_order_max_open_orders":4,"smart_order_open_order_distance":6}`
@@ -496,8 +633,27 @@ func TestPostBotCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
-	if _, ok := resp["bot_id"]; !ok {
+	botID, _ := resp["bot_id"].(string)
+	if botID == "" {
 		t.Fatalf("response should contain bot_id")
+	}
+	// 驗證新建 Bot 的 created_at 已寫入
+	latest, err := GetLatestConfig()
+	if err != nil {
+		t.Fatalf("GetLatestConfig: %v", err)
+	}
+	var found *config.BotConfig
+	for i := range latest.Bots {
+		if latest.Bots[i].ID == botID {
+			found = &latest.Bots[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("created bot %q not found in config", botID)
+	}
+	if found.CreatedAt == "" {
+		t.Error("created bot should have non-empty created_at")
 	}
 }
 
