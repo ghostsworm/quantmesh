@@ -594,6 +594,12 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 					bots.POST("/:id/resume-opening", resumeBotOpening)
 					bots.GET("/:id/position-status", getBotPositionStatus)
 
+					// 期权对冲 API（外部 Put + 单向做多网格）
+					bots.GET("/:id/option-hedge/status", getOptionHedgeStatus)
+					bots.POST("/:id/option-hedge/sync", postOptionHedgeSync)
+					bots.GET("/:id/option-hedge/roll-suggestions", getOptionHedgeRollSuggestions)
+					bots.POST("/:id/option-hedge/execute-roll", postOptionHedgeExecuteRoll)
+
 					// 回测 API
 					bots.POST("/:id/backtest", postBotBacktestCreate)
 					bots.GET("/:id/backtest/tasks", listBotBacktestTasks)

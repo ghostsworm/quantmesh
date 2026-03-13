@@ -127,12 +127,23 @@ func GetDefaultAutoRebuildConfig() GridAutoRebuildConfig {
 }
 
 // RiskControlConfig 风控配置
+// OptionHedgeConfig 外部期权对冲配置（Put 保护 + 单向做多网格）
+type OptionHedgeConfig struct {
+	Enabled             bool    `yaml:"enabled" json:"enabled"`
+	Exchange            string  `yaml:"exchange" json:"exchange"`                           // binance / deribit
+	TargetCoverageRatio float64 `yaml:"target_coverage_ratio" json:"target_coverage_ratio"` // 目标覆盖率 0-1，默认 0.25
+	MinCoverageRatio    float64 `yaml:"min_coverage_ratio" json:"min_coverage_ratio"`       // 最小覆盖率，低于则联动风控
+	DTEWarningDays      int     `yaml:"dte_warning_days" json:"dte_warning_days"`           // DTE 低于此值告警
+	RebalanceInterval   int     `yaml:"rebalance_interval" json:"rebalance_interval"`       // 同步间隔（秒）
+}
+
 type RiskControlConfig struct {
-	GridRiskControl      GridRiskControl      `yaml:"grid_risk_control,omitempty" json:"grid_risk_control,omitempty"`
-	OpenPositionControl  OpenPositionControl  `yaml:"open_position_control,omitempty" json:"open_position_control,omitempty"`
-	MaxDrawdownRatio     float64              `yaml:"max_drawdown_ratio,omitempty" json:"max_drawdown_ratio,omitempty"`
-	StopLossRatio        float64              `yaml:"stop_loss_ratio,omitempty" json:"stop_loss_ratio,omitempty"`
-	TakeProfitRatio      float64              `yaml:"take_profit_ratio,omitempty" json:"take_profit_ratio,omitempty"`
+	GridRiskControl     GridRiskControl     `yaml:"grid_risk_control,omitempty" json:"grid_risk_control,omitempty"`
+	OpenPositionControl OpenPositionControl `yaml:"open_position_control,omitempty" json:"open_position_control,omitempty"`
+	OptionHedge         *OptionHedgeConfig  `yaml:"option_hedge,omitempty" json:"option_hedge,omitempty"`
+	MaxDrawdownRatio    float64             `yaml:"max_drawdown_ratio,omitempty" json:"max_drawdown_ratio,omitempty"`
+	StopLossRatio       float64             `yaml:"stop_loss_ratio,omitempty" json:"stop_loss_ratio,omitempty"`
+	TakeProfitRatio     float64             `yaml:"take_profit_ratio,omitempty" json:"take_profit_ratio,omitempty"`
 }
 
 // AdvancedConfig 高级配置

@@ -3030,6 +3030,31 @@
     "positionStatusFailed": "获取仓位状态失败",
     "stoppedBotNoPosition": "停止交易的 Bot，没有仓位"
   },
+  "optionHedge": {
+    "title": "期权对冲",
+    "disabledHint": "在 Bot 风控中启用「期权对冲」后，可在此查看外部 Put 仓位与覆盖率。",
+    "sync": "同步仓位",
+    "syncSuccess": "期权仓位已同步",
+    "syncFailed": "同步失败",
+    "nominalCoverage": "名义覆盖率",
+    "deltaCoverage": "Delta 覆盖率",
+    "minDTE": "最近到期天数",
+    "totalPremium": "总权利金",
+    "positions": "期权仓位",
+    "noPositions": "暂无期权仓位",
+    "rollSuggestions": "展期建议",
+    "loadSuggestions": "加载建议",
+    "recordRoll": "记录展期",
+    "rollRecorded": "展期已记录",
+    "rollFailed": "记录失败",
+    "conservative": "保守",
+    "neutral": "中性",
+    "aggressive": "进攻",
+    "alert": {
+      "below_min_coverage": "覆盖率低于最小阈值",
+      "dte_warning": "期权即将到期"
+    }
+  },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved.",
     "versionInfo": "前端: {{frontend}} | 后端: {{backend}}",

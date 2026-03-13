@@ -3027,6 +3027,31 @@
     "positionStatusFailed": "Failed to fetch position status",
     "stoppedBotNoPosition": "Stopped bot has no position"
   },
+  "optionHedge": {
+    "title": "Option Hedge",
+    "disabledHint": "Enable \"Option Hedge\" in Bot risk control to view external Put positions and coverage here.",
+    "sync": "Sync Positions",
+    "syncSuccess": "Option positions synced",
+    "syncFailed": "Sync failed",
+    "nominalCoverage": "Nominal Coverage",
+    "deltaCoverage": "Delta Coverage",
+    "minDTE": "Min DTE",
+    "totalPremium": "Total Premium",
+    "positions": "Option Positions",
+    "noPositions": "No option positions",
+    "rollSuggestions": "Roll Suggestions",
+    "loadSuggestions": "Load Suggestions",
+    "recordRoll": "Record Roll",
+    "rollRecorded": "Roll recorded",
+    "rollFailed": "Record failed",
+    "conservative": "Conservative",
+    "neutral": "Neutral",
+    "aggressive": "Aggressive",
+    "alert": {
+      "below_min_coverage": "Coverage below minimum",
+      "dte_warning": "Option expiring soon"
+    }
+  },
   "footer": {
     "copyright": "© {{year}} QuantMesh Market Maker. All rights reserved.",
     "versionInfo": "Frontend: {{frontend}} | Backend: {{backend}}",
