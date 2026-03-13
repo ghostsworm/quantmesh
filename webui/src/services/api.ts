@@ -2933,6 +2933,93 @@ export async function getBotPositionStatus(botID: string): Promise<PositionStatu
   return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/position-status`)
 }
 
+// ==================== Option Hedge API ====================
+
+export interface OptionHedgePosition {
+  exchange: string
+  symbol: string
+  instrument: string
+  right: string
+  strike: number
+  expiry: string
+  qty: number
+  mark_price: number
+  delta: number
+  vega: number
+  theta: number
+  premium: number
+  source: string
+  updated_at: string
+}
+
+export interface OptionHedgeCoverage {
+  bot_id: string
+  grid_notional: number
+  grid_position_qty: number
+  option_notional: number
+  option_delta_hedge: number
+  nominal_coverage: number
+  delta_coverage: number
+  min_dte: number
+  total_premium: number
+  below_min_coverage: boolean
+  dte_warning: boolean
+  snapshot_at: string
+}
+
+export interface OptionHedgeStatus {
+  bot_id: string
+  enabled: boolean
+  positions: OptionHedgePosition[]
+  coverage?: OptionHedgeCoverage
+  sync_status: string
+  last_sync_at?: string
+  alerts?: string[]
+}
+
+export interface RollSuggestion {
+  rank: number
+  label: string
+  instrument?: string
+  strike: number
+  expiry?: string
+  dte: number
+  estimated_premium?: number
+  expected_coverage: number
+  risk_if_skip: string
+}
+
+export async function getOptionHedgeStatus(botID: string): Promise<OptionHedgeStatus> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/option-hedge/status`)
+}
+
+export async function syncOptionHedge(botID: string): Promise<{
+  bot_id: string
+  sync_status: string
+  error?: string
+  positions: OptionHedgePosition[]
+  coverage?: OptionHedgeCoverage
+}> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/option-hedge/sync`, {
+    method: 'POST',
+  })
+}
+
+export async function getOptionHedgeRollSuggestions(botID: string): Promise<{ suggestions: RollSuggestion[] }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/option-hedge/roll-suggestions`)
+}
+
+export async function executeOptionHedgeRoll(
+  botID: string,
+  body: { from_instrument?: string; to_instrument?: string; action?: string; details?: string }
+): Promise<{ bot_id: string; action: string; recorded: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/option-hedge/execute-roll`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 // ==================== Bot Backtest API ====================
 
 // Bot 回测请求

@@ -90,6 +90,7 @@ import { useConfig } from '../contexts/ConfigContext'
 import { formatTime as formatTimeUtil } from '../utils/dateFormat'
 import { buildBacktestUrl } from '../utils/backtestUrl'
 import BotRiskControlPanel from './BotRiskControlPanel'
+import OptionHedgePanel from './OptionHedgePanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 import { computeLiquidationPrice } from './ParamAdvisor'
 
@@ -833,7 +834,10 @@ const BotDetail: React.FC = () => {
           </TabPanel>
           <TabPanel px={0}>
             {botId && (
-              <BotRiskControlPanel botId={botId} botRunning={bot.running} hidePositionStatus />
+              <VStack align="stretch" spacing={2}>
+                <BotRiskControlPanel botId={botId} botRunning={bot.running} hidePositionStatus />
+                <OptionHedgePanel botId={botId} />
+              </VStack>
             )}
           </TabPanel>
           <TabPanel px={0}>

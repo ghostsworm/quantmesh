@@ -2,6 +2,21 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.77.0-rc1] - 2026-03-13
+
+### Added
+- **外部期权对冲模式（Put + 单向做多网格）**：支持用户在币安/Deribit 等平台买入看跌期权，在 QuantMesh 运行单向做多网格，实现保护性对冲
+  - 新增 `option` 包：`OptionHedgePosition`、`CoverageSnapshot`、`RollSuggestion` 数据模型
+  - 新增 Binance/Deribit 期权 API 适配器，统一拉取 Put 仓位
+  - 新增覆盖率计算引擎（名义覆盖率、Delta 覆盖率、DTE 告警）
+  - 新增展期建议引擎与执行记录 API
+  - 新增 `GET/POST /api/v2/bots/:id/option-hedge/*` 接口
+  - 风控配置新增 `option_hedge` 段：`target_coverage_ratio`、`min_coverage_ratio`、`dte_warning_days`
+  - 前端 Bot 风控页新增「期权对冲」面板，支持同步仓位、查看覆盖率、加载展期建议、记录展期
+  - 中英文 i18n 支持
+
+---
+
 ## [3.76.0-rc27] - 2026-03-13
 
 ### Fixed
