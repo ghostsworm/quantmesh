@@ -765,8 +765,8 @@ type Config struct {
 	// 存儲配置
 	Storage struct {
 		Enabled       bool   `yaml:"enabled"`
-		Type          string `yaml:"type"`           // sqlite
-		Path          string `yaml:"path"`           // 數據库文件路径
+		Type          string `yaml:"type"`           // sqlite, mysql；線上推薦 mysql
+		Path          string `yaml:"path"`           // SQLite 時為文件路徑；MySQL 時為 DSN（可留空使用 database.dsn）
 		BufferSize    int    `yaml:"buffer_size"`    // 缓冲区大小（預設 1000）
 		BatchSize     int    `yaml:"batch_size"`     // 批量写入大小（預設 100）
 		FlushInterval int    `yaml:"flush_interval"` // 刷新间隔（秒，預設5）
@@ -2539,8 +2539,8 @@ func (c *Config) Validate() error {
 	if c.Storage.Type == "" {
 		c.Storage.Type = "sqlite" // 預設SQLite
 	}
-	if c.Storage.Path == "" {
-		c.Storage.Path = "./data/quantmesh.db" // 預設路径
+	if c.Storage.Path == "" && c.Storage.Type != "mysql" {
+		c.Storage.Path = "./data/quantmesh.db" // SQLite 預設路径；MySQL 可留空，屆時使用 database.dsn
 	}
 	// 若已配置路徑與類型，則視為啟用存儲（避免僅填路徑卻未勾選 enabled 導致回測等不可用）
 	if c.Storage.Path != "" && c.Storage.Type != "" {

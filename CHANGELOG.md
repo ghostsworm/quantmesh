@@ -2,6 +2,33 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.78.0-rc1] - 2026-03-14
+
+### Added
+- **存储类型选择（SQLite / MySQL）**：支持在设置中切换数据存储类型
+  - 选择 SQLite 时显示「数据库文件路径」输入框
+  - 选择 MySQL 时显示「MySQL 连接字符串 (DSN)」输入框
+  - 线上环境推荐使用 MySQL，无需 SQLite 文件
+  - MySQL 可留空 DSN 以使用 Database 配置中的 DSN
+
+### Changed
+- 服务状态页「数据存储」标签改为通用显示（不再硬编码 SQLite）
+- 配置默认值：MySQL 类型时 storage.path 可留空
+
+---
+
+## [3.77.0-rc2] - 2026-03-13
+
+### Added
+- **做空网格 + Call 期权对冲**：期权对冲现支持做空网格场景
+  - 适配器 `FetchPositions` 按网格方向拉取：LONG 拉 Put，SHORT 拉 Call
+  - 覆盖率计算支持 Call 多头（delta 为正，对冲短仓）
+  - 展期建议：做空时推荐 OTM Call（行权价高于现价），做多时推荐 OTM Put（行权价低于现价）
+  - 配置支持 `option_hedge.direction` 或从 `grid.direction` 自动推断
+  - 前端期权对冲面板根据方向显示「Put 保护」或「Call 保护」
+
+---
+
 ## [3.77.0-rc1] - 2026-03-13
 
 ### Added
