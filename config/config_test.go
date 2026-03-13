@@ -22,6 +22,7 @@ func createValidConfig() *Config {
 	cfg.Trading.MinOrderValue = 6.0
 
 	// 初始化热更新和备份相关的默认值
+	cfg.Storage.Type = "sqlite"
 	cfg.Storage.Path = "./test_data/quantmesh.db"
 	cfg.Web.Port = 28888
 
@@ -59,6 +60,30 @@ func TestConfigValidate(t *testing.T) {
 	}
 	if cfgWithDefaults.Timing.WebSocketReconnectDelay != 5 {
 		t.Errorf("期望默认重连時间為5, 得到 %d", cfgWithDefaults.Timing.WebSocketReconnectDelay)
+	}
+}
+
+func TestStorageDefaults(t *testing.T) {
+	// SQLite 且 Path 為空時應設置默認路徑
+	cfg1 := createValidConfig()
+	cfg1.Storage.Type = "sqlite"
+	cfg1.Storage.Path = ""
+	if err := cfg1.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg1.Storage.Path != "./data/quantmesh.db" {
+		t.Errorf("SQLite Path 空時應默認 ./data/quantmesh.db，得到 %s", cfg1.Storage.Path)
+	}
+
+	// MySQL 且 Path 為空時應保持空（使用 database.dsn）
+	cfg2 := createValidConfig()
+	cfg2.Storage.Type = "mysql"
+	cfg2.Storage.Path = ""
+	if err := cfg2.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg2.Storage.Path != "" {
+		t.Errorf("MySQL Path 空時應保持空，得到 %s", cfg2.Storage.Path)
 	}
 }
 

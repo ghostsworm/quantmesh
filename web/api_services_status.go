@@ -33,7 +33,11 @@ func getServicesStatus(c *gin.Context) {
 	if globalConfig != nil {
 		if !globalConfig.Storage.Enabled {
 			storageMsgKey = "storageDisabled"
-		} else if globalConfig.Storage.Path == "" || globalConfig.Storage.Type == "" {
+		} else if globalConfig.Storage.Type == "" {
+			storageMsgKey = "storageNotConfigured"
+		} else if globalConfig.Storage.Type == "sqlite" && globalConfig.Storage.Path == "" {
+			storageMsgKey = "storageNotConfigured"
+		} else if globalConfig.Storage.Type == "mysql" && globalConfig.Storage.Path == "" && globalConfig.Database.DSN == "" {
 			storageMsgKey = "storageNotConfigured"
 		} else if storageServiceProvider == nil {
 			storageMsgKey = "storageProviderNil"
@@ -41,8 +45,14 @@ func getServicesStatus(c *gin.Context) {
 			storageMsgKey = "storageInstanceNil"
 		} else {
 			storageOk = true
-			storageMsgKey = "normalWithPath"
-			storageParams = map[string]string{"type": globalConfig.Storage.Type, "path": globalConfig.Storage.Path}
+			if globalConfig.Storage.Path != "" {
+				storageMsgKey = "normalWithPath"
+				storageParams = map[string]string{"type": globalConfig.Storage.Type, "path": globalConfig.Storage.Path}
+			} else {
+				// MySQL 使用 database.dsn 時 path 為空
+				storageMsgKey = "normalWithType"
+				storageParams = map[string]string{"type": globalConfig.Storage.Type}
+			}
 		}
 	} else {
 		storageMsgKey = "configNotLoaded"

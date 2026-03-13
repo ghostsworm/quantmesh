@@ -1607,13 +1607,39 @@ const Configuration: React.FC = () => {
                         {t('configuration.storageEnabledHint')}
                       </Text>
                       <FormControl mb={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.databasePath')}</FormLabel>
-                        <Input
-                          value={config.storage?.path || ''}
-                          onChange={(e) => updateConfigField('storage.path', e.target.value)}
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.storageType')}</FormLabel>
+                        <Select
+                          value={config.storage?.type || 'sqlite'}
+                          onChange={(e) => updateConfigField('storage.type', e.target.value)}
                           borderRadius="xl"
-                        />
+                        >
+                          <option value="sqlite">{t('configuration.storageTypeSqlite')}</option>
+                          <option value="mysql">{t('configuration.storageTypeMysql')}</option>
+                        </Select>
                       </FormControl>
+                      {(config.storage?.type || 'sqlite') === 'sqlite' && (
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.databasePath')}</FormLabel>
+                          <Input
+                            value={config.storage?.path || ''}
+                            onChange={(e) => updateConfigField('storage.path', e.target.value)}
+                            borderRadius="xl"
+                            placeholder="./data/quantmesh.db"
+                          />
+                        </FormControl>
+                      )}
+                      {(config.storage?.type || 'sqlite') === 'mysql' && (
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.mysqlDsn')}</FormLabel>
+                          <Input
+                            value={config.storage?.path || ''}
+                            onChange={(e) => updateConfigField('storage.path', e.target.value)}
+                            borderRadius="xl"
+                            placeholder="user:pass@tcp(host:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local"
+                          />
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.mysqlDsnHint')}</Text>
+                        </FormControl>
+                      )}
                       <HStack spacing={4}>
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buffer')}</FormLabel>
