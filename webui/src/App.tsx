@@ -88,6 +88,7 @@ const BotDetail = lazy(() => import('./components/BotDetail'))
 const BotCreateWizard = lazy(() => import('./components/BotCreateWizard'))
 const AgentChat = lazy(() => import('./components/AgentChat'))
 const GlobalPositions = lazy(() => import('./components/GlobalPositions'))
+const OscillationAnalysis = lazy(() => import('./components/OscillationAnalysis'))
 
 // 懒加载 fallback
 const LazyFallback = () => (
@@ -505,6 +506,7 @@ const AppContent: React.FC = () => {
                 <Route path="/kline" element={<Navigate to="/bots" replace />} />
                 <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
                 <Route path="/basis-monitor" element={<ProtectedRoute><BasisMonitor /></ProtectedRoute>} />
+                <Route path="/oscillation" element={<ProtectedRoute><OscillationAnalysis /></ProtectedRoute>} />
                 <Route path="/news-analysis/history" element={<Navigate to="/news-analysis" replace />} />
                 <Route path="/news-analysis/predictions" element={<Navigate to="/news-analysis" replace />} />
                 <Route path="/system-monitor" element={<ProtectedRoute><SystemMonitor /></ProtectedRoute>} />
