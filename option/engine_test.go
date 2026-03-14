@@ -25,9 +25,12 @@ func TestEngine_ComputeCoverage(t *testing.T) {
 		},
 	}
 
-	cov := eng.ComputeCoverage("bot1", 100000, 1.0, positions)
+	cov := eng.ComputeCoverage("bot1", 100000, 1.0, positions, "PUT")
 	if cov == nil {
 		t.Fatal("expected non-nil coverage")
+	}
+	if cov.HedgeType != "PUT" {
+		t.Errorf("hedge type: want PUT, got %s", cov.HedgeType)
 	}
 	if cov.GridNotional != 100000 {
 		t.Errorf("grid notional: want 100000, got %f", cov.GridNotional)
@@ -43,7 +46,7 @@ func TestEngine_ComputeCoverage(t *testing.T) {
 
 func TestEngine_ComputeCoverage_EmptyPositions(t *testing.T) {
 	eng := NewEngine(OptionHedgeConfig{Enabled: true, MinCoverageRatio: 0.15})
-	cov := eng.ComputeCoverage("bot1", 50000, 0.5, nil)
+	cov := eng.ComputeCoverage("bot1", 50000, 0.5, nil, "PUT")
 	if cov == nil {
 		t.Fatal("expected non-nil coverage")
 	}
@@ -57,13 +60,30 @@ func TestEngine_ComputeCoverage_EmptyPositions(t *testing.T) {
 
 func TestEngine_SuggestRolls(t *testing.T) {
 	eng := NewEngine(OptionHedgeConfig{TargetCoverageRatio: 0.25})
-	snap := &CoverageSnapshot{MinDTE: 5, BotID: "b1"}
+	snap := &CoverageSnapshot{MinDTE: 5, BotID: "b1", HedgeType: "PUT"}
 	suggestions := eng.SuggestRolls(snap, 95000)
 	if len(suggestions) != 3 {
 		t.Errorf("want 3 suggestions, got %d", len(suggestions))
 	}
 	if suggestions[0].Rank != 1 || suggestions[0].Label != "conservative" {
 		t.Errorf("first suggestion: want rank=1 conservative, got rank=%d label=%s", suggestions[0].Rank, suggestions[0].Label)
+	}
+	// Put: strike below price
+	if suggestions[0].Strike >= 95000 {
+		t.Errorf("Put strike should be below price, got %f", suggestions[0].Strike)
+	}
+}
+
+func TestEngine_SuggestRolls_Call(t *testing.T) {
+	eng := NewEngine(OptionHedgeConfig{TargetCoverageRatio: 0.25})
+	snap := &CoverageSnapshot{MinDTE: 5, BotID: "b1", HedgeType: "CALL"}
+	suggestions := eng.SuggestRolls(snap, 95000)
+	if len(suggestions) != 3 {
+		t.Errorf("want 3 suggestions, got %d", len(suggestions))
+	}
+	// Call: strike above price
+	if suggestions[0].Strike <= 95000 {
+		t.Errorf("Call strike should be above price, got %f", suggestions[0].Strike)
 	}
 }
 

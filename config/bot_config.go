@@ -127,10 +127,11 @@ func GetDefaultAutoRebuildConfig() GridAutoRebuildConfig {
 }
 
 // RiskControlConfig 风控配置
-// OptionHedgeConfig 外部期权对冲配置（Put 保护 + 单向做多网格）
+// OptionHedgeConfig 外部期权对冲配置（做多网格+Put / 做空网格+Call）
 type OptionHedgeConfig struct {
 	Enabled             bool    `yaml:"enabled" json:"enabled"`
 	Exchange            string  `yaml:"exchange" json:"exchange"`                           // binance / deribit
+	Direction           string  `yaml:"direction,omitempty" json:"direction,omitempty"`       // LONG=Put 保护，SHORT=Call 保护；空时从 grid.direction 推断
 	TargetCoverageRatio float64 `yaml:"target_coverage_ratio" json:"target_coverage_ratio"` // 目标覆盖率 0-1，默认 0.25
 	MinCoverageRatio    float64 `yaml:"min_coverage_ratio" json:"min_coverage_ratio"`       // 最小覆盖率，低于则联动风控
 	DTEWarningDays      int     `yaml:"dte_warning_days" json:"dte_warning_days"`           // DTE 低于此值告警

@@ -58,8 +58,8 @@ type binanceOptionPosition struct {
 // Exchange 实现 Adapter
 func (b *BinanceAdapter) Exchange() string { return "binance" }
 
-// FetchPositions 拉取期权 Put 仓位
-func (b *BinanceAdapter) FetchPositions(ctx context.Context, symbol string) ([]OptionHedgePosition, error) {
+// FetchPositions 拉取期权仓位，按 direction 决定拉 Put 还是 Call
+func (b *BinanceAdapter) FetchPositions(ctx context.Context, params FetchParams) ([]OptionHedgePosition, error) {
 	if b.apiKey == "" || b.secretKey == "" {
 		return nil, fmt.Errorf("binance options: api credentials required")
 	}
@@ -69,10 +69,15 @@ func (b *BinanceAdapter) FetchPositions(ctx context.Context, symbol string) ([]O
 		return nil, err
 	}
 
+	wantRight := "PUT"
+	if strings.ToUpper(params.Direction) == "SHORT" {
+		wantRight = "CALL"
+	}
+
 	var out []OptionHedgePosition
 	now := time.Now()
 	for _, p := range positions {
-		if strings.ToUpper(p.OptionSide) != "PUT" {
+		if strings.ToUpper(p.OptionSide) != wantRight {
 			continue
 		}
 		if p.Quantity == 0 {
@@ -80,9 +85,9 @@ func (b *BinanceAdapter) FetchPositions(ctx context.Context, symbol string) ([]O
 		}
 		pos := OptionHedgePosition{
 			Exchange:   "binance",
-			Symbol:     p.Symbol,
+			Symbol:     params.Symbol,
 			Instrument: p.Symbol,
-			Right:      "PUT",
+			Right:      wantRight,
 			Strike:     p.StrikePrice,
 			Expiry:     time.UnixMilli(p.ExpiryDate),
 			Qty:        p.Quantity,
@@ -94,7 +99,7 @@ func (b *BinanceAdapter) FetchPositions(ctx context.Context, symbol string) ([]O
 		}
 		out = append(out, pos)
 	}
-	logger.Info("Binance options: fetched %d PUT positions", len(out))
+	logger.Info("Binance options: fetched %d %s positions", len(out), wantRight)
 	return out, nil
 }
 

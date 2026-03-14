@@ -69,8 +69,8 @@ type deribitTicker struct {
 // Exchange 实现 Adapter
 func (d *DeribitAdapter) Exchange() string { return "deribit" }
 
-// FetchPositions 拉取期权 Put 仓位
-func (d *DeribitAdapter) FetchPositions(ctx context.Context, symbol string) ([]OptionHedgePosition, error) {
+// FetchPositions 拉取期权仓位，按 direction 决定拉 Put 还是 Call
+func (d *DeribitAdapter) FetchPositions(ctx context.Context, params FetchParams) ([]OptionHedgePosition, error) {
 	if d.apiKey == "" || d.secretKey == "" {
 		return nil, fmt.Errorf("deribit: api credentials required")
 	}
@@ -79,7 +79,7 @@ func (d *DeribitAdapter) FetchPositions(ctx context.Context, symbol string) ([]O
 	}
 
 	currency := "BTC"
-	if strings.HasPrefix(strings.ToUpper(symbol), "ETH") {
+	if strings.HasPrefix(strings.ToUpper(params.Symbol), "ETH") {
 		currency = "ETH"
 	}
 
@@ -88,11 +88,18 @@ func (d *DeribitAdapter) FetchPositions(ctx context.Context, symbol string) ([]O
 		return nil, err
 	}
 
+	wantPut := strings.ToUpper(params.Direction) != "SHORT"
+
 	var out []OptionHedgePosition
 	now := time.Now()
 	for _, p := range positions {
-		if !isPutInstrument(p.InstrumentName) {
+		isPut := isPutInstrument(p.InstrumentName)
+		if isPut != wantPut {
 			continue
+		}
+		right := "PUT"
+		if !isPut {
+			right = "CALL"
 		}
 		delta := p.Delta
 		if p.Delta == 0 {
@@ -104,9 +111,9 @@ func (d *DeribitAdapter) FetchPositions(ctx context.Context, symbol string) ([]O
 		strike, expiry := parseDeribitInstrument(p.InstrumentName)
 		pos := OptionHedgePosition{
 			Exchange:   "deribit",
-			Symbol:     symbol,
+			Symbol:     params.Symbol,
 			Instrument: p.InstrumentName,
-			Right:      "PUT",
+			Right:      right,
 			Strike:     strike,
 			Expiry:     expiry,
 			Qty:        p.Size,
