@@ -23,16 +23,17 @@ type OptionHedgePosition struct {
 // CoverageSnapshot 覆盖率快照
 type CoverageSnapshot struct {
 	BotID              string    `json:"bot_id"`
+	HedgeType          string    `json:"hedge_type"`           // PUT / CALL，用于前端显示「Put 保护」或「Call 保护」
 	GridNotional       float64   `json:"grid_notional"`        // 网格名义敞口
 	GridPositionQty    float64   `json:"grid_position_qty"`    // 网格持仓数量
-	OptionNotional     float64   `json:"option_notional"`      // 期权名义敞口（Put 保护）
+	OptionNotional     float64   `json:"option_notional"`      // 期权名义敞口
 	OptionDeltaHedge   float64   `json:"option_delta_hedge"`   // 期权 Delta 对冲量
 	NominalCoverage    float64   `json:"nominal_coverage"`     // 名义覆盖率 0-1
 	DeltaCoverage      float64   `json:"delta_coverage"`       // Delta 覆盖率 0-1
-	MinDTE             int      `json:"min_dte"`               // 最近到期天数
+	MinDTE             int       `json:"min_dte"`              // 最近到期天数
 	TotalPremium       float64   `json:"total_premium"`         // 总权利金
-	BelowMinCoverage   bool     `json:"below_min_coverage"`    // 是否低于最小覆盖率
-	DTEWarning         bool     `json:"dte_warning"`           // 是否 DTE 告警
+	BelowMinCoverage   bool      `json:"below_min_coverage"`   // 是否低于最小覆盖率
+	DTEWarning         bool      `json:"dte_warning"`          // 是否 DTE 告警
 	SnapshotAt         time.Time `json:"snapshot_at"`
 }
 
@@ -51,13 +52,14 @@ type RollSuggestion struct {
 
 // OptionHedgeStatus API 响应：期权对冲状态
 type OptionHedgeStatus struct {
-	BotID           string               `json:"bot_id"`
-	Enabled         bool                 `json:"enabled"`
+	BotID           string                `json:"bot_id"`
+	Enabled         bool                  `json:"enabled"`
+	HedgeType       string                `json:"hedge_type"`        // PUT / CALL，用于前端显示「Put 保护」或「Call 保护」
 	Positions       []OptionHedgePosition `json:"positions"`
-	Coverage        *CoverageSnapshot    `json:"coverage,omitempty"`
-	SyncStatus      string               `json:"sync_status"`       // ok / degraded / failed
-	LastSyncAt      *time.Time           `json:"last_sync_at,omitempty"`
-	Alerts          []string             `json:"alerts,omitempty"`
+	Coverage        *CoverageSnapshot     `json:"coverage,omitempty"`
+	SyncStatus      string                `json:"sync_status"`      // ok / degraded / failed
+	LastSyncAt      *time.Time            `json:"last_sync_at,omitempty"`
+	Alerts          []string              `json:"alerts,omitempty"`
 }
 
 // OptionHedgeConfig 期权对冲配置（用于 Bot 或风控）

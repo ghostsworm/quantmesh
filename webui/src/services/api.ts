@@ -2954,6 +2954,7 @@ export interface OptionHedgePosition {
 
 export interface OptionHedgeCoverage {
   bot_id: string
+  hedge_type?: string // PUT / CALL，用于显示「Put 保护」或「Call 保护」
   grid_notional: number
   grid_position_qty: number
   option_notional: number
@@ -2970,6 +2971,7 @@ export interface OptionHedgeCoverage {
 export interface OptionHedgeStatus {
   bot_id: string
   enabled: boolean
+  hedge_type?: string // PUT / CALL，用于显示「Put 保护」或「Call 保护」
   positions: OptionHedgePosition[]
   coverage?: OptionHedgeCoverage
   sync_status: string

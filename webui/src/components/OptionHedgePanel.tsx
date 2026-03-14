@@ -117,12 +117,18 @@ const OptionHedgePanel: React.FC<OptionHedgePanelProps> = ({ botId }) => {
     )
   }
 
+  const hedgeTypeLabel = (status.hedge_type || status.coverage?.hedge_type || 'PUT') === 'CALL'
+    ? t('optionHedge.callProtection')
+    : t('optionHedge.putProtection')
+
   return (
     <VStack spacing={4} align="stretch">
       <Card>
         <CardBody>
           <Flex justify="space-between" align="center" mb={4}>
-            <Heading size="sm">{t('optionHedge.title')}</Heading>
+            <Heading size="sm">
+              {t('optionHedge.title')} · {hedgeTypeLabel}
+            </Heading>
             <Button size="sm" colorScheme="blue" onClick={handleSync} isLoading={syncing}>
               {t('optionHedge.sync')}
             </Button>

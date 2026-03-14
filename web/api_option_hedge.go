@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"strings"
 
 	"quantmesh/config"
 	"quantmesh/option"
@@ -36,14 +37,20 @@ func getOptionHedgeStatus(c *gin.Context) {
 		return
 	}
 
+	hedgeType := getOptionHedgeType(bcf, cfg)
+
 	st := optionStore.GetState(botID)
 	resp := option.OptionHedgeStatus{
-		BotID:   botID,
-		Enabled: true,
+		BotID:     botID,
+		Enabled:   true,
+		HedgeType: hedgeType,
 	}
 	if st != nil {
 		resp.Positions = st.Positions
 		resp.Coverage = st.Coverage
+		if st.Coverage != nil && st.Coverage.HedgeType != "" {
+			resp.HedgeType = st.Coverage.HedgeType
+		}
 		resp.SyncStatus = st.SyncStatus
 		resp.LastSyncAt = st.LastSyncAt
 		if st.LastError != "" {
@@ -89,7 +96,13 @@ func postOptionHedgeSync(c *gin.Context) {
 		return
 	}
 
-	positions, err := adapter.FetchPositions(c.Request.Context(), bcf.Symbol)
+	direction := getOptionHedgeDirection(bcf, cfg)
+	hedgeType := getOptionHedgeType(bcf, cfg)
+
+	positions, err := adapter.FetchPositions(c.Request.Context(), option.FetchParams{
+		Symbol:    bcf.Symbol,
+		Direction: direction,
+	})
 	syncStatus := "ok"
 	errMsg := ""
 	if err != nil {
@@ -116,14 +129,15 @@ func postOptionHedgeSync(c *gin.Context) {
 		DTEWarningDays:      cfg.DTEWarningDays,
 	})
 	gridNotional, gridQty := getGridPositionForBot(botID)
-	cov := eng.ComputeCoverage(botID, gridNotional, gridQty, positions)
+	cov := eng.ComputeCoverage(botID, gridNotional, gridQty, positions, hedgeType)
 	optionStore.SetCoverage(botID, cov)
 
 	c.JSON(http.StatusOK, gin.H{
 		"bot_id":      botID,
 		"sync_status": syncStatus,
+		"hedge_type":  hedgeType,
 		"positions":   positions,
-		"coverage":   cov,
+		"coverage":    cov,
 	})
 }
 
@@ -155,8 +169,12 @@ func getOptionHedgeRollSuggestions(c *gin.Context) {
 	})
 
 	currentPrice := 0.0
-	if st.Coverage.GridNotional > 0 && st.Coverage.GridPositionQty > 0 {
-		currentPrice = st.Coverage.GridNotional / st.Coverage.GridPositionQty
+	gridQtyAbs := st.Coverage.GridPositionQty
+	if gridQtyAbs < 0 {
+		gridQtyAbs = -gridQtyAbs
+	}
+	if st.Coverage.GridNotional > 0 && gridQtyAbs > 0 {
+		currentPrice = st.Coverage.GridNotional / gridQtyAbs
 	}
 	suggestions := eng.SuggestRolls(st.Coverage, currentPrice)
 	c.JSON(http.StatusOK, gin.H{"suggestions": suggestions})
@@ -205,6 +223,25 @@ func getOptionHedgeConfigFromBot(bcf *config.BotConfigFile) *config.OptionHedgeC
 		return nil
 	}
 	return bcf.RiskControl.OptionHedge
+}
+
+// getOptionHedgeDirection 从 option_hedge.direction 或 grid.direction 推断对冲方向
+func getOptionHedgeDirection(bcf *config.BotConfigFile, cfg *config.OptionHedgeConfig) string {
+	if cfg != nil && strings.ToUpper(cfg.Direction) == "SHORT" {
+		return "SHORT"
+	}
+	if bcf != nil && bcf.Grid.Direction != "" && strings.ToUpper(bcf.Grid.Direction) == "SHORT" {
+		return "SHORT"
+	}
+	return "LONG"
+}
+
+// getOptionHedgeType 返回 hedge_type：LONG 网格用 PUT，SHORT 网格用 CALL
+func getOptionHedgeType(bcf *config.BotConfigFile, cfg *config.OptionHedgeConfig) string {
+	if getOptionHedgeDirection(bcf, cfg) == "SHORT" {
+		return "CALL"
+	}
+	return "PUT"
 }
 
 func getOptionAdapter(cfg *config.OptionHedgeConfig, exchange string, testnet bool) option.Adapter {

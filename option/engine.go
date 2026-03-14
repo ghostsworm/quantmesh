@@ -25,10 +25,16 @@ func NewEngine(cfg OptionHedgeConfig) *Engine {
 }
 
 // ComputeCoverage 计算覆盖率快照
-func (e *Engine) ComputeCoverage(botID string, gridNotional, gridPositionQty float64, positions []OptionHedgePosition) *CoverageSnapshot {
+// hedgeType: PUT（做多网格）或 CALL（做空网格），用于过滤仓位并写入快照
+// Put 多头：delta 为负，对冲做多网格；Call 多头：delta 为正，对冲做空网格；均用 |delta|*qty 计入对冲量
+func (e *Engine) ComputeCoverage(botID string, gridNotional, gridPositionQty float64, positions []OptionHedgePosition, hedgeType string) *CoverageSnapshot {
 	now := time.Now()
+	if hedgeType == "" {
+		hedgeType = "PUT"
+	}
 	snap := &CoverageSnapshot{
 		BotID:           botID,
+		HedgeType:       hedgeType,
 		GridNotional:    gridNotional,
 		GridPositionQty: gridPositionQty,
 		SnapshotAt:      now,
@@ -37,7 +43,7 @@ func (e *Engine) ComputeCoverage(botID string, gridNotional, gridPositionQty flo
 	var optionNotional, optionDelta float64
 	minDTE := 999
 	for _, p := range positions {
-		if p.Right != "PUT" || p.Qty <= 0 {
+		if p.Right != hedgeType || p.Qty <= 0 {
 			continue
 		}
 		notional := p.Strike * p.Qty
@@ -59,8 +65,9 @@ func (e *Engine) ComputeCoverage(botID string, gridNotional, gridPositionQty flo
 	if gridNotional > 0 {
 		snap.NominalCoverage = optionNotional / gridNotional
 	}
-	if gridPositionQty > 0 && optionDelta > 0 {
-		snap.DeltaCoverage = math.Min(1, optionDelta/gridPositionQty)
+	gridQtyAbs := math.Abs(gridPositionQty)
+	if gridQtyAbs > 0 && optionDelta > 0 {
+		snap.DeltaCoverage = math.Min(1, optionDelta/gridQtyAbs)
 	}
 
 	snap.BelowMinCoverage = snap.NominalCoverage < e.cfg.MinCoverageRatio
@@ -70,37 +77,65 @@ func (e *Engine) ComputeCoverage(botID string, gridNotional, gridPositionQty flo
 }
 
 // SuggestRolls 生成展期建议（2-3 档）
+// hedgeType PUT：做多网格，推荐 OTM Put（行权价低于现价）；CALL：做空网格，推荐 OTM Call（行权价高于现价）
 func (e *Engine) SuggestRolls(snap *CoverageSnapshot, currentPrice float64) []RollSuggestion {
 	if snap == nil || snap.MinDTE < 0 {
 		return nil
 	}
 	var out []RollSuggestion
-	// 保守：建议立即展期
-	out = append(out, RollSuggestion{
-		Rank:             1,
-		Label:            "conservative",
-		Strike:           currentPrice * 0.9,
-		DTE:              14,
-		ExpectedCoverage: e.cfg.TargetCoverageRatio,
-		RiskIfSkip:       "protection_gap_if_expiry",
-	})
-	// 中性：7 天后到期
-	out = append(out, RollSuggestion{
-		Rank:             2,
-		Label:            "neutral",
-		Strike:           currentPrice * 0.92,
-		DTE:              21,
-		ExpectedCoverage: e.cfg.TargetCoverageRatio,
-		RiskIfSkip:       "reduced_protection_window",
-	})
-	// 进攻：更远月
-	out = append(out, RollSuggestion{
-		Rank:             3,
-		Label:            "aggressive",
-		Strike:           currentPrice * 0.95,
-		DTE:              30,
-		ExpectedCoverage: e.cfg.TargetCoverageRatio,
-		RiskIfSkip:       "higher_premium_cost",
-	})
+	isCall := snap.HedgeType == "CALL"
+	if isCall {
+		// 做空网格 + Call：行权价高于现价（OTM Call）
+		out = append(out, RollSuggestion{
+			Rank:             1,
+			Label:            "conservative",
+			Strike:           currentPrice * 1.05,
+			DTE:              14,
+			ExpectedCoverage: e.cfg.TargetCoverageRatio,
+			RiskIfSkip:       "protection_gap_if_expiry",
+		})
+		out = append(out, RollSuggestion{
+			Rank:             2,
+			Label:            "neutral",
+			Strike:           currentPrice * 1.08,
+			DTE:              21,
+			ExpectedCoverage: e.cfg.TargetCoverageRatio,
+			RiskIfSkip:       "reduced_protection_window",
+		})
+		out = append(out, RollSuggestion{
+			Rank:             3,
+			Label:            "aggressive",
+			Strike:           currentPrice * 1.10,
+			DTE:              30,
+			ExpectedCoverage: e.cfg.TargetCoverageRatio,
+			RiskIfSkip:       "higher_premium_cost",
+		})
+	} else {
+		// 做多网格 + Put：行权价低于现价（OTM Put）
+		out = append(out, RollSuggestion{
+			Rank:             1,
+			Label:            "conservative",
+			Strike:           currentPrice * 0.9,
+			DTE:              14,
+			ExpectedCoverage: e.cfg.TargetCoverageRatio,
+			RiskIfSkip:       "protection_gap_if_expiry",
+		})
+		out = append(out, RollSuggestion{
+			Rank:             2,
+			Label:            "neutral",
+			Strike:           currentPrice * 0.92,
+			DTE:              21,
+			ExpectedCoverage: e.cfg.TargetCoverageRatio,
+			RiskIfSkip:       "reduced_protection_window",
+		})
+		out = append(out, RollSuggestion{
+			Rank:             3,
+			Label:            "aggressive",
+			Strike:           currentPrice * 0.95,
+			DTE:              30,
+			ExpectedCoverage: e.cfg.TargetCoverageRatio,
+			RiskIfSkip:       "higher_premium_cost",
+		})
+	}
 	return out
 }

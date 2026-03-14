@@ -23,7 +23,9 @@
       "Bash(sqlite3:*)",
       "Bash(pkill:*)",
       "Bash(mysql:*)",
-      "Bash(git describe:*)"
+      "Bash(git describe:*)",
+      "Bash(go get:*)",
+      "Bash(go test:*)"
     ],
     "deny": [],
     "ask": []
