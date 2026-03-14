@@ -531,6 +531,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
             >
               {t('sidebar.basisMonitor')}
             </NavItem>
+            <NavItem
+              icon={RepeatIcon}
+              to="/oscillation"
+              isActive={isRouteActive('/oscillation')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.oscillation')}
+            </NavItem>
             {!collapsed && (
               <Box px="7" mb="2" mt={2}>
                 <Heading size="xs" color="gray.400" textTransform="uppercase" letterSpacing="0.1em" fontSize="10px">
