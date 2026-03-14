@@ -349,7 +349,7 @@ func getOpeningControlRuntimeAndController(c *gin.Context, exchange, symbol stri
 	}
 	rtInterface, exists := symbolManagerProvider.GetEx(exchange, symbol, marketType)
 	if !exists {
-		respondError(c, http.StatusNotFound, "error.symbol_not_found")
+		// 不發送 HTTP 響應，僅返回 false，讓調用者決定如何處理（例如從配置文件讀取）
 		return nil, nil, false
 	}
 
