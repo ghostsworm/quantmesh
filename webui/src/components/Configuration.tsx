@@ -186,7 +186,6 @@ const Configuration: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
   const [previewDiff, setPreviewDiff] = useState<ConfigDiff | null>(null)
   const [requiresRestart, setRequiresRestart] = useState(false)
   const [feeRateInputs, setFeeRateInputs] = useState<Record<string, string>>({})
@@ -400,6 +399,8 @@ const Configuration: React.FC = () => {
         description: result.requires_restart ? t('configuration.requiresRestart') : t('configuration.configUpdated'),
         status: 'success',
         duration: 3000,
+        isClosable: true,
+        position: 'top-right',
       })
       
       onDiffClose()
@@ -413,6 +414,8 @@ const Configuration: React.FC = () => {
         description: err instanceof Error ? err.message : t('configuration.saveConfigFailed'),
         status: 'error',
         duration: 5000,
+        isClosable: true,
+        position: 'top-right',
       })
     } finally {
       setYamlSaving(false)
@@ -582,26 +585,24 @@ const Configuration: React.FC = () => {
     if (!config) return
     setSaving(true)
     setError(null)
-    setSuccess(null)
     try {
       const toSend = normalizeConfigForSave(config)
       const result = await updateConfig(toSend)
       trackConfigSaved(isGlobalView ? 'global' : 'symbol')
-      setSuccess(result.message)
       onPreviewClose()
       const hotUpdated = (result as any).hot_updated as string[] | undefined
       if (hotUpdated && hotUpdated.length > 0) {
         setHotUpdatedSymbols(hotUpdated)
-        toast({ title: t('configuration.saveSuccess'), description: t('configuration.priceRangeHotUpdateSuccess'), status: 'success', duration: 5000, isClosable: true })
+        toast({ title: t('configuration.saveSuccess'), description: t('configuration.priceRangeHotUpdateSuccess'), status: 'success', duration: 5000, isClosable: true, position: 'top-right' })
       } else {
-        toast({ title: t('configuration.saveSuccess'), status: 'success', duration: 3000, isClosable: true })
+        toast({ title: t('configuration.saveSuccess'), status: 'success', duration: 3000, isClosable: true, position: 'top-right' })
       }
       await loadConfig()
       if (selectedExchange && selectedSymbol) setTimeout(fetchPriceRange, 500)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : t('configuration.saveFailed')
       setError(errorMessage)
-      toast({ title: t('configuration.saveFailed'), description: errorMessage, status: 'error', duration: 5000, isClosable: true })
+      toast({ title: t('configuration.saveFailed'), description: errorMessage, status: 'error', duration: 5000, isClosable: true, position: 'top-right' })
       console.error('保存配置失败:', err)
     } finally {
       setSaving(false)
@@ -623,7 +624,6 @@ const Configuration: React.FC = () => {
     if (!config) return
     setSaving(true)
     setError(null)
-    setSuccess(null)
     try {
       await performSaveWithOptions(options)
       setSaveOptionsOpen(false)
@@ -772,14 +772,6 @@ const Configuration: React.FC = () => {
             <AlertIcon />
             <AlertTitle>{t('configuration.saveFailed')}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert status="success" borderRadius="lg">
-            <AlertIcon />
-            <AlertTitle>{t('configuration.saveSuccess')}</AlertTitle>
-            <AlertDescription>{success}</AlertDescription>
           </Alert>
         )}
 
@@ -2853,6 +2845,12 @@ const Configuration: React.FC = () => {
             )}
           </MotionBox>
         </AnimatePresence>
+
+        <Flex justify="center" py={8}>
+          <Button size="md" colorScheme="blue" onClick={handleSave} isLoading={saving} borderRadius="full" px={8}>
+            {t('configuration.saveChanges')}
+          </Button>
+        </Flex>
 
         {/* Restore Modals & Overlays from previous version */}
         <Modal isOpen={isPreviewOpen} onClose={onPreviewClose} size="xl">
