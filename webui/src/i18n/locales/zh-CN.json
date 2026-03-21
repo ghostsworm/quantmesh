@@ -1999,6 +1999,7 @@
     "min": "最小值",
     "avg": "平均值",
     "noData": "暂无数据",
+    "noDataHint": "系统每 2 分钟采集一次，请稍后刷新或等待数据积累",
     "avgLabel": "平均值",
     "maxLabel": "最大值",
     "minLabel": "最小值"

@@ -172,7 +172,12 @@ const SystemMonitor: React.FC = () => {
   // 简化的數據展示
   const renderSimpleChart = () => {
     if (chartData.datasets.length === 0) {
-      return <Text color="gray.500" textAlign="center" py={8}>{t('systemMonitor.noData')}</Text>
+      return (
+        <Box textAlign="center" py={8}>
+          <Text color="gray.500">{t('systemMonitor.noData')}</Text>
+          <Text color="gray.400" fontSize="sm" mt={2}>{t('systemMonitor.noDataHint')}</Text>
+        </Box>
+      )
     }
 
     const mainDataset = chartData.datasets[0]
@@ -180,7 +185,12 @@ const SystemMonitor: React.FC = () => {
     const rawLabels = chartData.labels as string[]
     
     if (rawValues.length === 0) {
-      return <Text color="gray.500" textAlign="center" py={8}>{t('systemMonitor.noData')}</Text>
+      return (
+        <Box textAlign="center" py={8}>
+          <Text color="gray.500">{t('systemMonitor.noData')}</Text>
+          <Text color="gray.400" fontSize="sm" mt={2}>{t('systemMonitor.noDataHint')}</Text>
+        </Box>
+      )
     }
 
     // 對數據進行采样，最多显示 100 個數據点以保证图表可读性
