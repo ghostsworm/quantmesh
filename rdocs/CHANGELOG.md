@@ -10,6 +10,21 @@
 
 ---
 
+## v3.79.2-rc3 - 2026年03月21日
+
+**Git Tag**: `v3.79.2-rc3`
+
+### 新增 (Added)
+
+- **SQLite 主庫定期 VACUUM**：Watchdog 清理過期性能數據後，每 24 小時對 SQLite 主庫執行一次 VACUUM，回收 DELETE 後的空間，避免文件膨脹
+
+### 說明
+
+- 性能數據清理邏輯已存在：細粒度數據保留 `detail_days`（預設 7 天），每日彙總保留 `daily_days`（預設 90 天），每小時清理一次
+- MySQL 存儲時 Vacuum 為 no-op
+
+---
+
 ## v3.79.2-rc2 - 2026年03月21日
 
 **Git Tag**: `v3.79.2-rc2`

@@ -32,6 +32,9 @@ type Watchdog struct {
 	// 历史數據缓存（用於变化率检查）
 	historyCache []*SystemMetrics
 	maxHistory   int
+
+	// 上次執行 VACUUM 的時间（SQLite 主庫優化，避免每小時執行）
+	lastVacuumTime time.Time
 }
 
 // NewWatchdog 創建看门狗實例
@@ -377,6 +380,17 @@ func (w *Watchdog) cleanup() error {
 			} else {
 				logger.Debug("🧹 清理過期日志（保留最近 %d 天）", logRetentionDays)
 			}
+		}
+	}
+
+	// SQLite 主庫定期 VACUUM（每 24 小時一次，回收 DELETE 后的空間）
+	vacuumInterval := 24 * time.Hour
+	if time.Since(w.lastVacuumTime) >= vacuumInterval {
+		if err := storage.Vacuum(); err != nil {
+			logger.Warn("⚠️ SQLite VACUUM 失败: %v", err)
+		} else {
+			w.lastVacuumTime = time.Now()
+			logger.Info("🧹 SQLite 主庫 VACUUM 完成")
 		}
 	}
 

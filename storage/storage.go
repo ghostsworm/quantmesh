@@ -29,6 +29,8 @@ type Storage interface {
 	GetLatestSystemMetrics() (*SystemMetrics, error)
 	CleanupSystemMetrics(beforeTime time.Time) error
 	CleanupDailySystemMetrics(beforeDate time.Time) error
+	// Vacuum 优化 SQLite 數據库（回收 DELETE 后的空间），MySQL 為 no-op
+	Vacuum() error
 	QueryOrders(limit, offset int, status string) ([]*Order, error)
 	QueryOrdersWithTimeRange(limit, offset int, status string, startTime, endTime *time.Time) ([]*Order, error)
 	// QueryOrdersWithFilter 带完整筛选条件的订单查询（支持 exchange、symbol 筛选）

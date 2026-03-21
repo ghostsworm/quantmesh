@@ -138,3 +138,12 @@ func (s *SQLiteStorage) CleanupDailySystemMetrics(beforeDate time.Time) error {
 	`, beforeDate)
 	return err
 }
+
+// Vacuum 优化 SQLite 數據库（回收 DELETE 后的空间），MySQL 為 no-op
+func (s *SQLiteStorage) Vacuum() error {
+	if s.dbType != "sqlite" {
+		return nil
+	}
+	_, err := s.db.Exec("VACUUM")
+	return err
+}
