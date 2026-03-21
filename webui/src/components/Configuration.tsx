@@ -104,6 +104,7 @@ import ConfigSaveOptionsModal from './ConfigSaveOptionsModal'
 import type { SymbolTarget } from './ConfigSaveOptionsModal'
 import ParamAdvisor from './ParamAdvisor'
 import { trackConfigSaved } from '../services/telemetry'
+import { SUPPORTED_EXCHANGES, EXCHANGES_REQUIRING_PASSPHRASE } from '../constants/exchanges'
 
 const MotionBox = motion(Box)
 
@@ -733,15 +734,10 @@ const Configuration: React.FC = () => {
     )
   }
 
-  const exchanges = ['binance', 'bitget', 'bybit', 'gate', 'edgex', 'bit']
-  const exchangeNames: Record<string, string> = {
-    binance: t('exchanges.binance'),
-    bitget: t('exchanges.bitget'),
-    bybit: t('exchanges.bybit'),
-    gate: t('exchanges.gate'),
-    edgex: t('exchanges.edgex'),
-    bit: t('exchanges.bit'),
-  }
+  const exchanges = [...SUPPORTED_EXCHANGES]
+  const exchangeNames: Record<string, string> = Object.fromEntries(
+    exchanges.map((ex) => [ex, t(`exchanges.${ex}`) || ex])
+  )
 
   if (loading) return <Center h="400px"><Spinner size="xl" thickness="4px" color="blue.500" /></Center>
   if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />{t('configuration.loadFailed')}</Alert></Container>
@@ -1237,6 +1233,12 @@ const Configuration: React.FC = () => {
                             {renderPasswordInput(`exchanges.${exchange}.secret_key`)}
                           </FormControl>
                         </SimpleGrid>
+                        {EXCHANGES_REQUIRING_PASSPHRASE.includes(exchange as any) && (
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configSetup.passphrase')}</FormLabel>
+                            {renderPasswordInput(`exchanges.${exchange}.passphrase`, t('configSetup.passphrasePlaceholder'))}
+                          </FormControl>
+                        )}
                         <Flex justify="space-between" align="center" mt={2}>
                           <HStack>
                             <Switch

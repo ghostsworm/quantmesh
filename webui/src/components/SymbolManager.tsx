@@ -56,6 +56,7 @@ import { Config, SymbolConfig } from '../services/config'
 import { getExchangeSymbols } from '../services/setup'
 import { getSymbols } from '../services/api'
 import { getQuoteAsset } from '../utils/symbol'
+import { SUPPORTED_EXCHANGES, SPOT_SUPPORTED_EXCHANGES } from '../constants/exchanges'
 
 interface SymbolManagerProps {
   config: Config
@@ -127,18 +128,11 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     direction: 'LONG',
   })
 
-  const exchanges = ['binance', 'bitget', 'bybit', 'gate', 'edgex', 'bit']
-  const exchangeNames: Record<string, string> = {
-    binance: t('exchanges.binance'),
-    bitget: t('exchanges.bitget'),
-    bybit: t('exchanges.bybit'),
-    gate: t('exchanges.gate'),
-    edgex: t('exchanges.edgex'),
-    bit: t('exchanges.bit'),
-  }
-  
-  // 支援現貨的交易所列表
-  const spotSupportedExchanges = ['binance', 'bitget', 'bybit', 'gate', 'okx']
+  const exchanges = [...SUPPORTED_EXCHANGES]
+  const exchangeNames: Record<string, string> = Object.fromEntries(
+    exchanges.map((ex) => [ex, t(`exchanges.${ex}`) || ex])
+  )
+  const spotSupportedExchanges = [...SPOT_SUPPORTED_EXCHANGES]
   
   // 常用交易對列表（根據交易所格式不同）
   const getCommonSymbols = (exchange: string): string[] => {
