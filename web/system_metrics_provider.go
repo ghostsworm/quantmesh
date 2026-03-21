@@ -80,44 +80,51 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 
 // GetMetrics 獲取系统監控數據
 func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, granularity string) ([]*SystemMetricsResponse, error) {
-	if p.storageService == nil {
-		return []*SystemMetricsResponse{}, nil
-	}
+	var storageMetrics []*storage.SystemMetrics
 
-	storageImpl := p.storageService.GetStorage()
-	if storageImpl == nil {
-		return []*SystemMetricsResponse{}, nil
-	}
+	if p.storageService != nil {
+		storageImpl := p.storageService.GetStorage()
+		if storageImpl != nil {
+			// 限制查詢時间範圍，防止返回過多數據導致記憶體问题
+			maxDuration := 7 * 24 * time.Hour // 最多查詢7天
+			actualDuration := endTime.Sub(startTime)
+			if actualDuration > maxDuration {
+				startTime = endTime.Add(-maxDuration)
+			}
 
-	// 限制查詢時间範圍，防止返回過多數據導致記憶體问题
-	maxDuration := 7 * 24 * time.Hour // 最多查詢7天
-	actualDuration := endTime.Sub(startTime)
-	if actualDuration > maxDuration {
-		startTime = endTime.Add(-maxDuration)
-	}
+			metrics, err := storageImpl.QuerySystemMetrics(startTime, endTime)
+			if err != nil {
+				return nil, fmt.Errorf("查詢監控數據失败: %w", err)
+			}
 
-	storageMetrics, err := storageImpl.QuerySystemMetrics(startTime, endTime)
-	if err != nil {
-		return nil, fmt.Errorf("查詢監控數據失败: %w", err)
-	}
-
-	// 限制返回的數據量，防止記憶體占用過大
-	maxDataPoints := 10000 // 最多返回1万条數據
-	if len(storageMetrics) > maxDataPoints {
-		// 采样：均匀间隔选擇數據点
-		step := len(storageMetrics) / maxDataPoints
-		sampledMetrics := make([]*storage.SystemMetrics, 0, maxDataPoints)
-		for i := 0; i < len(storageMetrics); i += step {
-			if i < len(storageMetrics) {
-				sampledMetrics = append(sampledMetrics, storageMetrics[i])
+			// 限制返回的數據量，防止記憶體占用過大
+			maxDataPoints := 10000 // 最多返回1万条數據
+			if len(metrics) > maxDataPoints {
+				step := len(metrics) / maxDataPoints
+				sampledMetrics := make([]*storage.SystemMetrics, 0, maxDataPoints)
+				for i := 0; i < len(metrics); i += step {
+					if i < len(metrics) {
+						sampledMetrics = append(sampledMetrics, metrics[i])
+					}
+				}
+				lastIdx := len(metrics) - 1
+				if len(sampledMetrics) > 0 && sampledMetrics[len(sampledMetrics)-1] != metrics[lastIdx] {
+					sampledMetrics = append(sampledMetrics, metrics[lastIdx])
+				}
+				storageMetrics = sampledMetrics
+			} else {
+				storageMetrics = metrics
 			}
 		}
-		// 确保包含最后一個數據点
-		lastIdx := len(storageMetrics) - 1
-		if len(sampledMetrics) > 0 && sampledMetrics[len(sampledMetrics)-1] != storageMetrics[lastIdx] {
-			sampledMetrics = append(sampledMetrics, storageMetrics[lastIdx])
+	}
+
+	// 若無歷史數據，用當前指標作為單點回退，避免圖表空白
+	if len(storageMetrics) == 0 {
+		current, err := p.GetCurrentMetrics()
+		if err == nil && current != nil {
+			return []*SystemMetricsResponse{current}, nil
 		}
-		storageMetrics = sampledMetrics
+		return []*SystemMetricsResponse{}, nil
 	}
 
 	metrics := make([]*SystemMetricsResponse, len(storageMetrics))

@@ -1709,6 +1709,7 @@
     "min": "最小值",
     "avg": "平均值",
     "noData": "暫無數據",
+    "noDataHint": "系統每 2 分鐘採集一次，請稍後刷新或等待數據積累",
     "avgLabel": "平均值",
     "maxLabel": "最大值",
     "minLabel": "最小值"
