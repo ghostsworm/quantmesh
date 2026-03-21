@@ -4326,11 +4326,13 @@ func (p *builtinDataSourceProvider) GetFearGreedIndex() (*FearGreedIndexInfo, er
 	}
 	defer resp.Body.Close()
 
+	// Alternative.me API 返回格式: data 為數組，value/timestamp 為字串
+	// 例: {"data":[{"value":"12","value_classification":"Extreme Fear","timestamp":"1774051200"}]}
 	var result struct {
-		Data struct {
-			Value          int    `json:"value"`
+		Data []struct {
+			Value          string `json:"value"`
 			Classification string `json:"value_classification"`
-			Timestamp      int64  `json:"timestamp"`
+			Timestamp      string `json:"timestamp"`
 		} `json:"data"`
 	}
 
@@ -4342,10 +4344,24 @@ func (p *builtinDataSourceProvider) GetFearGreedIndex() (*FearGreedIndexInfo, er
 		return nil, err
 	}
 
+	if len(result.Data) == 0 {
+		if p.cachedFearGreed != nil {
+			return p.cachedFearGreed, nil
+		}
+		return nil, fmt.Errorf("API 返回空數據")
+	}
+
+	item := result.Data[0]
+	value, _ := strconv.Atoi(item.Value)
+	timestampSec, _ := strconv.ParseInt(item.Timestamp, 10, 64)
+	if timestampSec == 0 {
+		timestampSec = time.Now().Unix()
+	}
+
 	fgi := &FearGreedIndexInfo{
-		Value:          result.Data.Value,
-		Classification: result.Data.Classification,
-		Timestamp:      time.Unix(result.Data.Timestamp, 0),
+		Value:          value,
+		Classification: item.Classification,
+		Timestamp:      time.Unix(timestampSec, 0),
 	}
 
 	p.cachedFearGreed = fgi
