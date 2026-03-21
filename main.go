@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.1-rc4"
+var Version = "3.79.2-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -905,6 +905,8 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			if br.Inner.RiskMonitor != nil {
 				resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
 			}
+		} else if stoppedAt, ok := botMgr.GetStoppedAt(botID); ok {
+			resp.StoppedAt = stoppedAt
 		}
 		result = append(result, resp)
 	}
@@ -948,6 +950,8 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 				if br.Inner.RiskMonitor != nil {
 					resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
 				}
+			} else if stoppedAt, ok := botMgr.GetStoppedAt(botID); ok {
+				resp.StoppedAt = stoppedAt
 			}
 			result = append(result, resp)
 		}

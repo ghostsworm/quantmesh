@@ -2,6 +2,22 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.2-rc1] - 2026-03-21
+
+### Added
+- **Bot 列表卡片显示创建与停止时间**：每个 Bot 卡片展示创建时间；若当前为已停止状态，则额外展示停止时间
+  - 后端 `BotResponse` 新增 `stopped_at` 字段，从 `bot_states` 表或 `bot_states.json` 文件读取
+  - `BotManager.GetStoppedAt` 支持数据库与文件 fallback
+
+### Changed
+- **Bot 列表页 Apple 风格重设计**：按苹果设计总监标准重构卡片与布局
+  - 卡片：圆角 2xl、柔和阴影、悬停微动效
+  - 时间信息：创建时间与停止时间独立展示，层次清晰
+  - 总投入汇总区：圆角 xl、浅色背景
+  - 强平价文案国际化（`botList.liquidationPrice`）
+
+---
+
 ## [3.79.1-rc4] - 2026-03-21
 
 ### Fixed

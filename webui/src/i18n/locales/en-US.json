@@ -68,10 +68,12 @@
     "totalCapital": "Capital",
     "totalInvestment": "Total Investment",
     "createdAt": "Created",
+    "stoppedAt": "Stopped",
     "hedgeGroupWithName": "Hedge «{{name}}»",
     "gridLong": "Long",
     "gridShort": "Short",
-    "gridBoth": "Both"
+    "gridBoth": "Both",
+    "liquidationPrice": "Liq. Price"
   },
   "botCreate": {
     "title": "Create Bot",

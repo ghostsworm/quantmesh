@@ -34,6 +34,7 @@ type BotResponse struct {
 	MaxCapitalRatio        float64 `json:"max_capital_ratio,omitempty"`        // 最大資金占用比例 (0.1-1.0)
 	BuyWindowSize          int     `json:"buy_window_size,omitempty"`          // 買窗大小（用於計算平倉價）
 	CreatedAt              string  `json:"created_at,omitempty"`               // 創建時間 ISO 8601
+	StoppedAt              string  `json:"stopped_at,omitempty"`               // 停止時間 ISO 8601（僅當已停止時有值）
 	HedgeGroupName         string  `json:"hedge_group_name,omitempty"`         // 所屬對沖組名稱，空則非對沖
 	Direction              string  `json:"direction,omitempty"`                // 網格/策略方向：LONG/SHORT/BOTH
 }
