@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.1-rc4] - 2026-03-21
+
+### Fixed
+- **配置界面无法添加 OKX 等交易所**：修复配置页交易所 API 选项卡仅显示 6 个交易所（binance/bitget/bybit/gate/edgex/bit）的问题
+  - 新增 `webui/src/constants/exchanges.ts` 集中维护与后端 factory 一致的 25 个交易所列表
+  - Configuration、SymbolManager 改用完整交易所列表，支持 OKX、Huobi、KuCoin、Kraken 等
+  - 为 Bitget/OKX/KuCoin 在配置页增加 Passphrase 输入框
+  - 补全 zh-CN、en-US 的交易所名称 i18n
+
+---
+
 ## [3.79.1-rc3] - 2026-03-21
 
 ### Changed
