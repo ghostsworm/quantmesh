@@ -960,6 +960,52 @@ func (bm *BotManager) isBotEnabledFromFile(botID string) (enabled bool, found bo
 	return s.Enabled, true
 }
 
+// GetStoppedAt 返回已停止 Bot 的停止時間（ISO 8601）。若 Bot 正在運行或無停止記錄則返回空。
+func (bm *BotManager) GetStoppedAt(botID string) (string, bool) {
+	bm.runtimesMu.RLock()
+	_, running := bm.runtimes[botID]
+	bm.runtimesMu.RUnlock()
+	if running {
+		return "", false
+	}
+	if bm.storageService != nil {
+		store := bm.storageService.GetStorage()
+		if store != nil {
+			state, err := store.GetBotState(botID)
+			if err == nil && state != nil && !state.Enabled {
+				return state.UpdatedAt.Format(time.RFC3339), true
+			}
+		}
+	}
+	// 文件 fallback：若存儲不可用，嘗試從文件讀取
+	if stoppedAt, ok := bm.getStoppedAtFromFile(botID); ok {
+		return stoppedAt, true
+	}
+	return "", false
+}
+
+// getStoppedAtFromFile 從 bot_states.json 讀取停止時間（僅當 enabled=false 時有效）
+func (bm *BotManager) getStoppedAtFromFile(botID string) (string, bool) {
+	path := bm.botStatesFilePath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var m map[string]struct {
+		Enabled   bool   `json:"enabled"`
+		UpdatedAt string `json:"updated_at"`
+		Reason    string `json:"reason"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return "", false
+	}
+	s, ok := m[botID]
+	if !ok || s.Enabled || s.UpdatedAt == "" {
+		return "", false
+	}
+	return s.UpdatedAt, true
+}
+
 // saveBotStateToFile 保存 Bot 狀態到文件（存儲不可用時的 fallback）
 func (bm *BotManager) saveBotStateToFile(state *storage.BotState) error {
 	path := bm.botStatesFilePath()
@@ -969,6 +1015,7 @@ func (bm *BotManager) saveBotStateToFile(state *storage.BotState) error {
 	}
 	m := make(map[string]struct {
 		Enabled   bool   `json:"enabled"`
+		UpdatedAt string `json:"updated_at"`
 		UpdatedBy string `json:"updated_by"`
 		Reason    string `json:"reason"`
 	})
@@ -977,9 +1024,10 @@ func (bm *BotManager) saveBotStateToFile(state *storage.BotState) error {
 	}
 	m[state.BotID] = struct {
 		Enabled   bool   `json:"enabled"`
+		UpdatedAt string `json:"updated_at"`
 		UpdatedBy string `json:"updated_by"`
 		Reason    string `json:"reason"`
-	}{state.Enabled, state.UpdatedBy, state.Reason}
+	}{state.Enabled, state.UpdatedAt.Format(time.RFC3339), state.UpdatedBy, state.Reason}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err

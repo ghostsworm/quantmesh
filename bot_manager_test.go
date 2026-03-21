@@ -197,3 +197,39 @@ func TestBotManagerBotStateFileFallback(t *testing.T) {
 		t.Fatalf("不存在的 bot 應返回 found=false")
 	}
 }
+
+// TestBotManagerGetStoppedAtFromFile 驗證從文件讀取停止時間
+func TestBotManagerGetStoppedAtFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bot_states.json")
+	stoppedAt := "2026-03-21T10:30:00+08:00"
+	data := fmt.Sprintf(`{"stopped-bot":{"enabled":false,"updated_at":"%s","reason":"用戶停止"}}`, stoppedAt)
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	bm := &BotManager{storageService: nil, botStatesFileOverride: path}
+	got, ok := bm.GetStoppedAt("stopped-bot")
+	if !ok {
+		t.Fatalf("應從文件讀取到 stopped-bot 的停止時間")
+	}
+	if got != stoppedAt {
+		t.Fatalf("expected stopped_at=%q, got %q", stoppedAt, got)
+	}
+
+	// 不存在的 bot 應返回 ok=false
+	_, ok2 := bm.GetStoppedAt("nonexistent")
+	if ok2 {
+		t.Fatalf("不存在的 bot 應返回 ok=false")
+	}
+
+	// enabled=true 的 bot 不應返回停止時間（視為從未停止過，或已重新啟用）
+	data2 := `{"running-bot":{"enabled":true,"updated_at":"2026-03-21T10:00:00+08:00","reason":""}}`
+	if err := os.WriteFile(path, []byte(data2), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	_, ok3 := bm.GetStoppedAt("running-bot")
+	if ok3 {
+		t.Fatalf("enabled=true 的 bot 不應返回停止時間")
+	}
+}
