@@ -1,20 +1,30 @@
 package monitor
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	"quantmesh/config"
 )
 
-func TestNewsCollector_FetchFromNewsAPI(t *testing.T) {
-	// 使用用户提供的 API Key
-	apiKey := "1ed7e84648694bcd8524aaef69b03a7c"
-	if apiKey == "" {
-		t.Skip("NewsAPI key not provided, skipping test")
+// 聯網 NewsAPI 測試預設關閉，避免 CI/無外網環境失敗；真機驗證時設：
+//   NEWSAPI_INTEGRATION_TEST=1 NEWSAPI_TEST_KEY=你的key go test ./monitor/... -run NewsAPI -v
+func integrationNewsAPIKey(t *testing.T) string {
+	t.Helper()
+	if os.Getenv("NEWSAPI_INTEGRATION_TEST") != "1" {
+		t.Skip("live NewsAPI disabled; set NEWSAPI_INTEGRATION_TEST=1 and NEWSAPI_TEST_KEY")
 	}
+	key := os.Getenv("NEWSAPI_TEST_KEY")
+	if key == "" {
+		t.Skip("NEWSAPI_TEST_KEY not set")
+	}
+	return key
+}
 
-	// 创建测试配置
+func TestNewsCollector_FetchFromNewsAPI(t *testing.T) {
+	apiKey := integrationNewsAPIKey(t)
+
 	cfg := &config.Config{}
 	cfg.NewsMonitor.Enabled = true
 	cfg.NewsMonitor.NewsAPIKey = apiKey
@@ -29,13 +39,10 @@ func TestNewsCollector_FetchFromNewsAPI(t *testing.T) {
 		},
 	}
 
-	// 创建 NewsCollector
 	collector := NewNewsCollector(cfg)
 
-	// 测试获取新闻
 	keywords := []string{"bitcoin", "btc", "cryptocurrency"}
 	newsItems, err := collector.fetchFromNewsAPI(apiKey, keywords)
-
 	if err != nil {
 		t.Fatalf("Failed to fetch news from NewsAPI: %v", err)
 	}
@@ -45,7 +52,6 @@ func TestNewsCollector_FetchFromNewsAPI(t *testing.T) {
 	} else {
 		t.Logf("Successfully fetched %d news items", len(newsItems))
 
-		// 验证新闻项的基本字段
 		for i, item := range newsItems {
 			if item.Title == "" {
 				t.Errorf("News item %d has empty title", i)
@@ -66,13 +72,8 @@ func TestNewsCollector_FetchFromNewsAPI(t *testing.T) {
 }
 
 func TestNewsCollector_CollectNow(t *testing.T) {
-	// 使用用户提供的 API Key
-	apiKey := "1ed7e84648694bcd8524aaef69b03a7c"
-	if apiKey == "" {
-		t.Skip("NewsAPI key not provided, skipping test")
-	}
+	apiKey := integrationNewsAPIKey(t)
 
-	// 创建测试配置
 	cfg := &config.Config{}
 	cfg.NewsMonitor.Enabled = true
 	cfg.NewsMonitor.NewsAPIKey = apiKey
@@ -88,16 +89,13 @@ func TestNewsCollector_CollectNow(t *testing.T) {
 		},
 	}
 
-	// 创建 NewsCollector
 	collector := NewNewsCollector(cfg)
 
-	// 测试立即收集
 	err := collector.CollectNow()
 	if err != nil {
 		t.Fatalf("Failed to collect news: %v", err)
 	}
 
-	// 验证缓存中有新闻
 	cachedNews := collector.GetAllCachedNews()
 	if len(cachedNews) == 0 {
 		t.Log("Warning: No news in cache after collection, but collection succeeded")
@@ -105,19 +103,13 @@ func TestNewsCollector_CollectNow(t *testing.T) {
 		t.Logf("Successfully collected and cached %d news items", len(cachedNews))
 	}
 
-	// 验证最近2小时的新闻
 	recentNews := collector.GetRecentNews(2)
 	t.Logf("Recent news (last 2 hours): %d items", len(recentNews))
 }
 
 func TestNewsCollector_WithMultipleKeywords(t *testing.T) {
-	// 使用用户提供的 API Key
-	apiKey := "1ed7e84648694bcd8524aaef69b03a7c"
-	if apiKey == "" {
-		t.Skip("NewsAPI key not provided, skipping test")
-	}
+	apiKey := integrationNewsAPIKey(t)
 
-	// 创建测试配置，包含多个资产的关键词
 	cfg := &config.Config{}
 	cfg.NewsMonitor.Enabled = true
 	cfg.NewsMonitor.NewsAPIKey = apiKey
@@ -140,14 +132,11 @@ func TestNewsCollector_WithMultipleKeywords(t *testing.T) {
 
 	collector := NewNewsCollector(cfg)
 
-	// 测试收集关键词合并（通过 CollectNow 间接测试）
-	// 注意：collectKeywords 是私有方法，我们通过 CollectNow 来测试
 	err := collector.CollectNow()
 	if err != nil {
 		t.Fatalf("Failed to collect news: %v", err)
 	}
-	
-	// 使用测试关键词
+
 	keywords := []string{"bitcoin", "btc", "gold", "XAU"}
 	if len(keywords) == 0 {
 		t.Fatal("No keywords collected")
@@ -155,7 +144,6 @@ func TestNewsCollector_WithMultipleKeywords(t *testing.T) {
 
 	t.Logf("Collected keywords: %v", keywords)
 
-	// 测试获取新闻
 	newsItems, err := collector.fetchFromNewsAPI(apiKey, keywords)
 	if err != nil {
 		t.Fatalf("Failed to fetch news with multiple keywords: %v", err)
@@ -165,11 +153,7 @@ func TestNewsCollector_WithMultipleKeywords(t *testing.T) {
 }
 
 func TestNewsCollector_ContextCancellation(t *testing.T) {
-	// 使用用户提供的 API Key
-	apiKey := "1ed7e84648694bcd8524aaef69b03a7c"
-	if apiKey == "" {
-		t.Skip("NewsAPI key not provided, skipping test")
-	}
+	apiKey := integrationNewsAPIKey(t)
 
 	cfg := &config.Config{}
 	cfg.NewsMonitor.Enabled = true
@@ -179,11 +163,9 @@ func TestNewsCollector_ContextCancellation(t *testing.T) {
 
 	collector := NewNewsCollector(cfg)
 
-	// 测试正常获取新闻（context 取消测试在实际使用中由 collector 内部处理）
 	keywords := []string{"bitcoin"}
 	_, err := collector.fetchFromNewsAPI(apiKey, keywords)
 
-	// 测试函数不会 panic，能正常处理请求
 	if err != nil {
 		t.Logf("API call returned error: %v", err)
 	} else {
