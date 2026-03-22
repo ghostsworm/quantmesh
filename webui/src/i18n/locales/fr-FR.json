@@ -117,7 +117,9 @@
     "profitSpread": "Écart de profit",
     "orderQuantity": "Montant par ordre",
     "totalCapital": "Capital",
-    "totalInvestment": "Investissement total"
+    "totalInvestment": "Investissement total",
+    "filterExchangeAll": "Tous les exchanges",
+    "filterSymbolAll": "Tous les symboles"
   },
   "error": {
     "bot_symbol_conflict": "Un bot existe déjà pour ce symbole.",

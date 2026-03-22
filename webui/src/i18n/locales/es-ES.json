@@ -115,7 +115,9 @@
     "profitSpread": "Margen de beneficio",
     "orderQuantity": "Importe del pedido",
     "totalCapital": "Capital",
-    "totalInvestment": "Inversión total"
+    "totalInvestment": "Inversión total",
+    "filterExchangeAll": "Todos los exchange",
+    "filterSymbolAll": "Todos los símbolos"
   },
   "error": {
     "bot_symbol_conflict": "Ya existe un bot para este símbolo.",

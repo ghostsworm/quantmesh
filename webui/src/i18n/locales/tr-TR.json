@@ -115,7 +115,9 @@
     "profitSpread": "Kar aralığı",
     "orderQuantity": "Sipariş tutarı",
     "totalCapital": "Sermaye",
-    "totalInvestment": "Toplam yatırım"
+    "totalInvestment": "Toplam yatırım",
+    "filterExchangeAll": "Tüm borsalar",
+    "filterSymbolAll": "Tüm semboller"
   },
   "error": {
     "bot_symbol_conflict": "Bu sembol için zaten bir bot mevcut.",

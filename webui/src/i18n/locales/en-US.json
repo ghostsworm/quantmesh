@@ -74,7 +74,9 @@
     "gridLong": "Long",
     "gridShort": "Short",
     "gridBoth": "Both",
-    "liquidationPrice": "Liq. Price"
+    "liquidationPrice": "Liq. Price",
+    "filterExchangeAll": "All Exchanges",
+    "filterSymbolAll": "All Symbols"
   },
   "botCreate": {
     "title": "Create Bot",

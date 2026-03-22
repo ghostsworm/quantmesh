@@ -115,7 +115,9 @@
     "profitSpread": "Khoảng lợi nhuận",
     "orderQuantity": "Số tiền đặt hàng",
     "totalCapital": "Vốn",
-    "totalInvestment": "Tổng đầu tư"
+    "totalInvestment": "Tổng đầu tư",
+    "filterExchangeAll": "Tất cả sàn",
+    "filterSymbolAll": "Tất cả mã"
   },
   "error": {
     "bot_symbol_conflict": "Đã tồn tại bot cho ký hiệu này.",

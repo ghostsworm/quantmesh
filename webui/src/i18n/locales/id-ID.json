@@ -115,7 +115,9 @@
     "profitSpread": "Spread keuntungan",
     "orderQuantity": "Jumlah pesanan",
     "totalCapital": "Modal",
-    "totalInvestment": "Total investasi"
+    "totalInvestment": "Total investasi",
+    "filterExchangeAll": "Semua bursa",
+    "filterSymbolAll": "Semua simbol"
   },
   "error": {
     "bot_symbol_conflict": "Bot untuk simbol ini sudah ada.",

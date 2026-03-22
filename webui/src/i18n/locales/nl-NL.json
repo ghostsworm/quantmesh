@@ -115,7 +115,9 @@
     "profitSpread": "Winstmarge",
     "orderQuantity": "Orderbedrag",
     "totalCapital": "Kapitaal",
-    "totalInvestment": "Totale investering"
+    "totalInvestment": "Totale investering",
+    "filterExchangeAll": "Alle beurzen",
+    "filterSymbolAll": "Alle symbolen"
   },
   "error": {
     "bot_symbol_conflict": "Er bestaat al een bot voor dit symbool.",

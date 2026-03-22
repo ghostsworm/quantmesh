@@ -368,7 +368,9 @@
     "profitSpread": "فاصله سود",
     "orderQuantity": "مبلغ سفارش",
     "totalCapital": "سرمایه",
-    "totalInvestment": "کل سرمایه‌گذاری"
+    "totalInvestment": "کل سرمایه‌گذاری",
+    "filterExchangeAll": "همه صرافی‌ها",
+    "filterSymbolAll": "همه نمادها"
   },
   "error": {
     "bot_symbol_conflict": "ربات برای این نماد از قبل وجود دارد.",

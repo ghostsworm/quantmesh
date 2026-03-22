@@ -368,7 +368,9 @@
     "profitSpread": "Agwat ng kita",
     "orderQuantity": "Halaga ng order",
     "totalCapital": "Kapital",
-    "totalInvestment": "Kabuuang pamumuhunan"
+    "totalInvestment": "Kabuuang pamumuhunan",
+    "filterExchangeAll": "Lahat ng exchange",
+    "filterSymbolAll": "Lahat ng simbolo"
   },
   "error": {
     "bot_symbol_conflict": "May umiiral nang bot para sa simbolong ito.",
