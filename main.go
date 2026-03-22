@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.5-rc6"
+var Version = "3.79.6-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1409,13 +1409,16 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 解析調試参數（-debug / --debug）
+	// 解析調試参數（-debug / --debug）與 --migrate-app-config
 	debugMode := false
+	migrateAppCfg := false
 	filteredArgs := []string{os.Args[0]}
 	for _, arg := range os.Args[1:] {
 		switch arg {
 		case "-debug", "--debug":
 			debugMode = true
+		case "--migrate-app-config":
+			migrateAppCfg = true
 		default:
 			filteredArgs = append(filteredArgs, arg)
 		}
@@ -1625,6 +1628,16 @@ func main() {
 	if cfg.Storage.Path != "" && cfg.Storage.Type != "" {
 		cfg.Storage.Enabled = true
 	}
+	// 遷移主配置入庫時必須能打開主庫
+	if migrateAppCfg {
+		cfg.Storage.Enabled = true
+		if cfg.Storage.Type == "" {
+			cfg.Storage.Type = "sqlite"
+		}
+		if cfg.Storage.Path == "" {
+			cfg.Storage.Path = "./data/quantmesh.db"
+		}
+	}
 	storageService, err := storage.NewStorageService(cfg, ctx)
 	if err != nil {
 		logger.Warn("⚠️ 初始化存儲服務失败: %v (將继续运行，但不保存數據)", err)
@@ -1637,6 +1650,50 @@ func main() {
 	}
 	logger.Info("✅ 存儲服務初始化完成 (enabled=%v, storage!=nil=%v)", cfg.Storage.Enabled, storageService != nil && storageService.GetStorage() != nil)
 	logger.Info("⏱️ [啟動] 存儲服務完成 (耗時: %v)", time.Since(startTime))
+
+	if migrateAppCfg {
+		if storageService == nil || storageService.GetStorage() == nil {
+			logger.Fatalf("❌ --migrate-app-config 需要可用的主庫存儲（請配置 storage.path 或檢查上述警告）")
+		}
+		botsDir := os.Getenv("QUANTMESH_BOTS_DIR")
+		if botsDir == "" {
+			botsDir = "./bots"
+		}
+		if err := storage.MigrateYAMLToAppConfigDB(ctx, storageService.GetStorage(), configPath, botsDir); err != nil {
+			logger.Fatalf("❌ 遷移失敗: %v", err)
+		}
+		logger.Info("✅ 已將主配置與 Bot 配置寫入數據庫（下次啟動將優先從 app_config 加載，可用 QUANTMESH_USE_APP_CONFIG=0 禁用）")
+		os.Exit(0)
+	}
+
+	if storageService != nil && storageService.GetStorage() != nil {
+		if err := storage.ApplyAppConfigFromDBIfPresent(storageService.GetStorage(), &cfg); err != nil {
+			logger.Fatalf("❌ %v", err)
+		}
+		// 若從數據庫覆蓋了配置，同步時区、日誌級別與 i18n
+		if err := utils.SetLocation(cfg.System.Timezone); err != nil {
+			logger.Warn("⚠️ 加載時区 %s 失败: %v，將使用默认時区 Asia/Shanghai", cfg.System.Timezone, err)
+			utils.SetLocation("Asia/Shanghai")
+		} else {
+			logger.SetLocation(utils.GlobalLocation)
+		}
+		logLangDB := cfg.System.LogLanguage
+		if logLangDB == "" {
+			logLangDB = "zh-CN"
+		}
+		if err := i18n.Init(logLangDB); err != nil {
+			logger.Warn("⚠️ i18n 重新初始化失敗: %v", err)
+		}
+		logLangForLoggerDB := logLangDB
+		if logLangDB == "zh-CN" || logLangDB == "zh" {
+			logLangForLoggerDB = "zh-TW"
+		}
+		logger.SetLogLanguage(logLangForLoggerDB)
+		logger.SetTranslateFunc(func(key string, data ...interface{}) string {
+			return i18n.TWithLang(logLangForLoggerDB, key, data...)
+		})
+		logger.SetLevel(logger.ParseLogLevel(cfg.System.LogLevel))
+	}
 
 	// 初始化配置管理器
 	var configManager *cfgmgr.ConfigManager

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -1672,6 +1673,80 @@ type SymbolAllocation struct {
 	} `yaml:"tiered_limits"`
 }
 
+// DecryptSensitiveFields 解密交易所與 AI 相關敏感字段（與 LoadConfig 行為一致）
+func DecryptSensitiveFields(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	masterKey, _ := LoadMasterKey("")
+
+	for name, exchangeCfg := range cfg.Exchanges {
+		if exchangeCfg.APIKey != "" {
+			if IsEncrypted(exchangeCfg.APIKey) && masterKey == nil {
+				return fmt.Errorf("检测到加密的 API Key（交易所 %s），但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", name, MasterKeyEnvVar, DefaultMasterKeyPath)
+			}
+			if masterKey != nil {
+				decrypted, err := DecryptAPIKey(exchangeCfg.APIKey, masterKey)
+				if err != nil {
+					return fmt.Errorf("解密交易所 %s 的 API Key 失败: %v（请检查主密钥是否正确）", name, err)
+				}
+				exchangeCfg.APIKey = decrypted
+			}
+		}
+		if exchangeCfg.SecretKey != "" {
+			if IsEncrypted(exchangeCfg.SecretKey) && masterKey == nil {
+				return fmt.Errorf("检测到加密的 Secret Key（交易所 %s），但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", name, MasterKeyEnvVar, DefaultMasterKeyPath)
+			}
+			if masterKey != nil {
+				decrypted, err := DecryptAPIKey(exchangeCfg.SecretKey, masterKey)
+				if err != nil {
+					return fmt.Errorf("解密交易所 %s 的 Secret Key 失败: %v（请检查主密钥是否正确）", name, err)
+				}
+				exchangeCfg.SecretKey = decrypted
+			}
+		}
+		if exchangeCfg.Passphrase != "" {
+			if IsEncrypted(exchangeCfg.Passphrase) && masterKey == nil {
+				return fmt.Errorf("检测到加密的 Passphrase（交易所 %s），但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", name, MasterKeyEnvVar, DefaultMasterKeyPath)
+			}
+			if masterKey != nil {
+				decrypted, err := DecryptAPIKey(exchangeCfg.Passphrase, masterKey)
+				if err != nil {
+					return fmt.Errorf("解密交易所 %s 的 Passphrase 失败: %v（请检查主密钥是否正确）", name, err)
+				}
+				exchangeCfg.Passphrase = decrypted
+			}
+		}
+		cfg.Exchanges[name] = exchangeCfg
+	}
+
+	if cfg.AI.APIKey != "" {
+		if IsEncrypted(cfg.AI.APIKey) && masterKey == nil {
+			return fmt.Errorf("检测到加密的 AI API Key，但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", MasterKeyEnvVar, DefaultMasterKeyPath)
+		}
+		if masterKey != nil {
+			decrypted, err := DecryptAPIKey(cfg.AI.APIKey, masterKey)
+			if err != nil {
+				return fmt.Errorf("解密 AI API Key 失败: %v（请检查主密钥是否正确）", err)
+			}
+			cfg.AI.APIKey = decrypted
+		}
+	}
+	if cfg.AI.GeminiAPIKey != "" {
+		if IsEncrypted(cfg.AI.GeminiAPIKey) && masterKey == nil {
+			return fmt.Errorf("检测到加密的 AI Gemini API Key，但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", MasterKeyEnvVar, DefaultMasterKeyPath)
+		}
+		if masterKey != nil {
+			decrypted, err := DecryptAPIKey(cfg.AI.GeminiAPIKey, masterKey)
+			if err != nil {
+				return fmt.Errorf("解密 AI Gemini API Key 失败: %v（请检查主密钥是否正确）", err)
+			}
+			cfg.AI.GeminiAPIKey = decrypted
+		}
+	}
+	return nil
+}
+
 // LoadConfig 加載配置文件
 func LoadConfig(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
@@ -1684,79 +1759,8 @@ func LoadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %v", err)
 	}
 
-	// 自动解密敏感字段（支持明文和密文）
-	// DecryptAPIKey 函数会自动检测：如果有加密前缀则解密，否则返回原字符串（明文）
-	// 尝试加载主密钥，如果不存在则跳过解密（明文模式）
-	masterKey, _ := LoadMasterKey("")
-
-	// 解密交易所配置中的敏感字段
-	for name, exchangeCfg := range cfg.Exchanges {
-		if exchangeCfg.APIKey != "" {
-			// 如果检测到加密前缀但主密钥不存在，直接返回错误
-			if IsEncrypted(exchangeCfg.APIKey) && masterKey == nil {
-				return nil, fmt.Errorf("检测到加密的 API Key（交易所 %s），但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", name, MasterKeyEnvVar, DefaultMasterKeyPath)
-			}
-			// 如果有主密钥或明文，尝试解密（DecryptAPIKey 会自动处理明文）
-			if masterKey != nil {
-				decrypted, err := DecryptAPIKey(exchangeCfg.APIKey, masterKey)
-				if err != nil {
-					return nil, fmt.Errorf("解密交易所 %s 的 API Key 失败: %v（请检查主密钥是否正确）", name, err)
-				}
-				exchangeCfg.APIKey = decrypted
-			}
-			// 如果主密钥不存在且是明文，直接使用（无需解密）
-		}
-		if exchangeCfg.SecretKey != "" {
-			if IsEncrypted(exchangeCfg.SecretKey) && masterKey == nil {
-				return nil, fmt.Errorf("检测到加密的 Secret Key（交易所 %s），但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", name, MasterKeyEnvVar, DefaultMasterKeyPath)
-			}
-			if masterKey != nil {
-				decrypted, err := DecryptAPIKey(exchangeCfg.SecretKey, masterKey)
-				if err != nil {
-					return nil, fmt.Errorf("解密交易所 %s 的 Secret Key 失败: %v（请检查主密钥是否正确）", name, err)
-				}
-				exchangeCfg.SecretKey = decrypted
-			}
-		}
-		if exchangeCfg.Passphrase != "" {
-			if IsEncrypted(exchangeCfg.Passphrase) && masterKey == nil {
-				return nil, fmt.Errorf("检测到加密的 Passphrase（交易所 %s），但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", name, MasterKeyEnvVar, DefaultMasterKeyPath)
-			}
-			if masterKey != nil {
-				decrypted, err := DecryptAPIKey(exchangeCfg.Passphrase, masterKey)
-				if err != nil {
-					return nil, fmt.Errorf("解密交易所 %s 的 Passphrase 失败: %v（请检查主密钥是否正确）", name, err)
-				}
-				exchangeCfg.Passphrase = decrypted
-			}
-		}
-		cfg.Exchanges[name] = exchangeCfg
-	}
-
-	// 解密 AI 配置中的敏感字段
-	if cfg.AI.APIKey != "" {
-		if IsEncrypted(cfg.AI.APIKey) && masterKey == nil {
-			return nil, fmt.Errorf("检测到加密的 AI API Key，但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", MasterKeyEnvVar, DefaultMasterKeyPath)
-		}
-		if masterKey != nil {
-			decrypted, err := DecryptAPIKey(cfg.AI.APIKey, masterKey)
-			if err != nil {
-				return nil, fmt.Errorf("解密 AI API Key 失败: %v（请检查主密钥是否正确）", err)
-			}
-			cfg.AI.APIKey = decrypted
-		}
-	}
-	if cfg.AI.GeminiAPIKey != "" {
-		if IsEncrypted(cfg.AI.GeminiAPIKey) && masterKey == nil {
-			return nil, fmt.Errorf("检测到加密的 AI Gemini API Key，但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", MasterKeyEnvVar, DefaultMasterKeyPath)
-		}
-		if masterKey != nil {
-			decrypted, err := DecryptAPIKey(cfg.AI.GeminiAPIKey, masterKey)
-			if err != nil {
-				return nil, fmt.Errorf("解密 AI Gemini API Key 失败: %v（请检查主密钥是否正确）", err)
-			}
-			cfg.AI.GeminiAPIKey = decrypted
-		}
+	if err := DecryptSensitiveFields(&cfg); err != nil {
+		return nil, err
 	}
 
 	// MigrateToBots 在 Validate 內執行
@@ -1764,6 +1768,21 @@ func LoadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("配置驗证失败: %v", err)
 	}
 
+	return &cfg, nil
+}
+
+// LoadConfigFromJSON 從 JSON 字節加載配置（用於數據庫 app_config.content）
+func LoadConfigFromJSON(data []byte) (*Config, error) {
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("解析 JSON 配置失败: %v", err)
+	}
+	if err := DecryptSensitiveFields(&cfg); err != nil {
+		return nil, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("配置驗证失败: %v", err)
+	}
 	return &cfg, nil
 }
 
