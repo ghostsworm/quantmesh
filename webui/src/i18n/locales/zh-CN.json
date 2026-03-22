@@ -9,6 +9,7 @@
     "cancel": "取消",
     "close": "关闭",
     "save": "保存",
+    "saving": "保存中...",
     "reset": "重置",
     "confirm": "确认",
     "delete": "删除",
@@ -3645,7 +3646,14 @@
     "negativeBasisDesc": "（合約價格 < 現貨價格）：市场看跌，可考虑反向套利（空現貨+買合約）",
     "fundingRateLabel": "资金费率",
     "fundingRateDesc": "：正费率表示多头支付空头，负费率表示空头支付多头",
-    "basisCorrelationHint": "價差與资金费率通常呈正相关，但背离時可能存在套利机會"
+    "basisCorrelationHint": "價差與资金费率通常呈正相关，但背离時可能存在套利机會",
+    "enableInPage": "可在本頁直接啟用價差監控，無需編輯 config.yaml：",
+    "configEnabled": "啟用價差監控",
+    "configInterval": "檢查間隔（分鐘）",
+    "configSymbols": "監控交易對（逗號分隔）",
+    "configSave": "保存並啟用",
+    "configHint": "配置將寫入數據庫並即時生效，無需重啟服務。",
+    "configSaveFailed": "保存配置失敗"
   },
   "oscillation": {
     "title": "震荡分析",

@@ -490,6 +490,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/funding/history", getFundingRateHistory)
 
 			// 價差監控
+			protected.GET("/basis/config", getBasisConfig)
+			protected.PUT("/basis/config", putBasisConfig)
 			protected.GET("/basis/current", getBasisCurrent)
 			protected.GET("/basis/history", getBasisHistory)
 			protected.GET("/basis/statistics", getBasisStatistics)
