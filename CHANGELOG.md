@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc1] - 2026-03-23
+
+### Added
+- **主配置數據庫化（Phase A）**：主庫 SQLite/MySQL 新增 `app_config`、`app_config_history`、`bot_configs`、`bot_config_history` 表；`--migrate-app-config` 將 `config.yaml` 與 `bots/*/config.yaml` 寫入庫；啟動時若 `app_config` 有快照則優先 `LoadConfigFromJSON` 覆蓋（`QUANTMESH_USE_APP_CONFIG=0` 可禁用；重遷移需 `QUANTMESH_MIGRATE_APP_CONFIG_FORCE=1`）
+- **config**：`DecryptSensitiveFields`、`LoadConfigFromJSON` 供 DB 快照與 YAML 共用解密與校驗
+
+---
+
 ## [3.79.5-rc6] - 2026-03-23
 
 ### Added

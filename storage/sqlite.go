@@ -102,11 +102,20 @@ func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 config_tables 表失败: %w", err)
 		}
+		// 迁移：主配置 / Bot 文檔表（app_config、bot_configs 及歷史表）
+		if err := migrateAppConfigDocumentTables(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 app_config 文檔表失败: %w", err)
+		}
 	} else if dbType == "mysql" {
 		// MySQL 需單獨遷移 bot_states 表（SQLite 在 createTables 中已包含）
 		if err := migrateBotStatesTableMySQL(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 bot_states 表失败: %w", err)
+		}
+		if err := migrateAppConfigDocumentTablesMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 app_config 文檔表失败: %w", err)
 		}
 	}
 
