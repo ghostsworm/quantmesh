@@ -22,13 +22,22 @@ func SetKlineCollector(collector *monitor.KlineCollector) {
 
 // listKlineFilesHandler 列出所有K线数据文件
 // GET /api/kline-files
+// 当 KlineCollector 未初始化时，从 data/kline 目录扫描并返回文件列表（需 storage 可用）
 func listKlineFilesHandler(c *gin.Context) {
-	if klineCollector == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "K线收集器未初始化"})
-		return
+	var files []monitor.KlineFileInfo
+	var err error
+
+	if klineCollector != nil {
+		files, err = klineCollector.ListFiles()
+	} else {
+		storageProv := PickStorageProvider(c)
+		if storageProv == nil || storageProv.GetStorage() == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "K线收集器未初始化且存储服务未就绪"})
+			return
+		}
+		files, err = monitor.ListKlineFilesFromDir(monitor.DefaultKlineDataDir, storageProv.GetStorage())
 	}
 
-	files, err := klineCollector.ListFiles()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -107,13 +116,12 @@ func downloadKlineFileHandler(c *gin.Context) {
 		return
 	}
 
-	if klineCollector == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "K线收集器未初始化"})
-		return
+	dataDir := monitor.DefaultKlineDataDir
+	if klineCollector != nil {
+		dataDir = klineCollector.GetDataDir()
 	}
-
-	filepath := filepath.Join(klineCollector.GetDataDir(), filename)
-	c.File(filepath)
+	fullPath := filepath.Join(dataDir, filename)
+	c.File(fullPath)
 }
 
 // listAvailableKlineFilesHandler 列出可用于回测的 K 线文件
