@@ -2563,6 +2563,7 @@
     "webauthnRegFailed": "WebAuthn registration failed"
   },
   "klineChart": {
+    "intervalSelector": "K선 주기 선택",
     "loadFailed": "Failed to load K-line data",
     "title": "K-Line Chart"
   },

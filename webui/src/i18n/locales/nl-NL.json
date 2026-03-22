@@ -2558,6 +2558,7 @@
     "webauthnRegFailed": "WebAuthn registration failed"
   },
   "klineChart": {
+    "intervalSelector": "K-line interval kiezer",
     "loadFailed": "Failed to load K-line data",
     "title": "K-Line Chart"
   },
