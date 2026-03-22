@@ -193,6 +193,53 @@ flowchart TB
 
 **主配置与 Bot 编排**：若迁移后主 `config.Config` 内仍含「Bot ID 列表」类字段，迁移脚本应 **去重**：策略参数以 `bot_configs.content` 为准，主配置中只保留引用/顺序，避免同一参数在 `app_config` 与 `bot_configs` 两处重复（实现时由单一写入路径保证）。
 
+### 7.1 零参与自动迁移（已实现）
+
+目标：**用户无需手动执行** `--migrate-app-config`，在「仍使用 YAML 单机部署」的典型场景下，**首次启动**自动完成：可选生成 `.env`、自动入库、自动归档 YAML。
+
+**二次启动（磁盘已无 `config.yaml`）**：`main` 在检测到配置文件不存在时，会按 `QUANTMESH_SQLITE_PATH`（默认 `./data/quantmesh.db`）调用 `LoadConfigFromAppConfigDBIfExists`；若库中有有效 `app_config` 快照则直接加载，否则仍创建最小化向导 `config.yaml`。
+
+#### 建议触发条件（同时满足才自动迁移）
+
+1. 主库已能打开（`storage` 已初始化且 `GetStorage()` 非空）。
+2. `app_config` **无有效快照**（无行、或 `revision=0`、或 `content` 为空）。
+3. 磁盘上存在 **`config.yaml`**（或 CLI 指定的配置文件路径），且 **`LoadConfig` 成功**（能通过 `Validate()`）。
+4. 未设置 **`QUANTMESH_SKIP_AUTO_MIGRATE=1`**（供高级用户、CI、只读容器显式关闭）。
+5. （可选收紧）仅当配置「可用于交易」或「非最小化向导态」时再自动迁移，避免把不完整的 `CreateMinimalConfig` 写进库；若选择「任何合法 Validate 都迁」，需在文档中说明。
+
+#### 自动生成 `.env`（当仓库/工作目录下不存在 `.env` 时）
+
+- **不要**把 `config.yaml` 里的 **API Key、Secret、Passphrase** 自动抄进 `.env`（避免双份明文、误提交、与加密配置策略冲突）。
+- **可以**写入 **非密钥、可重复推导** 的项，便于后续「无 YAML 启动」与运维对齐，例如：
+  - `QUANTMESH_DATA_DIR` 或 `QUANTMESH_SQLITE_PATH`：与当前 `cfg.Storage.Path` / `cfg.Database.DSN` 解析结果一致（SQLite 文件绝对路径或约定相对路径）。
+  - `QUANTMESH_BOTS_DIR`：默认 `./bots`。
+  - 注释块说明：`# 主配置已迁移至数据库，见 app_config；本文件仅作连接与路径提示`。
+- 若用户 **已有** `.env`，**绝不覆盖**，只追加缺失键（可选）或完全跳过。
+- 生成后建议将 `.env` 加入 `.gitignore`（若尚未忽略），并在日志中提示「已创建 .env，请勿提交密钥」。
+
+#### 自动迁移与 YAML 归档顺序（建议同一事务/同一临界区）
+
+1. 调用与现有一致的 **`MigrateYAMLToAppConfigDB`**（`source` 记为 `auto_startup` / `auto_migrate`）。
+2. **仅当第 1 步提交成功** 后，将 **`config.yaml` 重命名** 为例如：  
+   `config.yaml.migrated.<UTC时间戳>.bak`（与 [`config/backup`](../config/backup.go) 命名风格一致亦可）。
+3. **可选**：对每个已导入的 `bots/<id>/config.yaml` 同样重命名为 `.migrated.<ts>.bak`，避免双源；若希望保留文件副本供人类编辑，可只改主配置、Bot 仅入库不删文件（产品二选一，须在发行说明写清）。
+
+#### 自动迁移后的启动路径
+
+- 下一次启动：`app_config` 已有内容 → **`ApplyAppConfigFromDBIfPresent`** 生效；磁盘上已无 `config.yaml` 时，进程应 **只依赖 DB**（或最小 bootstrap 读 `.env` 连库），不再要求 `config.yaml` 存在（与「去掉 YAML 依赖」终态一致）。
+
+#### 风险与边界（实现时必须处理）
+
+| 因素 | 处理建议 |
+|------|----------|
+| **并发双实例** | 两个进程同时「见库空」同时迁移：依赖 DB **事务 + 唯一约束/SELECT FOR UPDATE** 或迁移后二次校验；失败方重试读库。 |
+| **只读文件系统 / 权限** | `.env` 或重命名 `config.yaml` 失败时：**库已写入则不回滚库**（或文档约定先 rename 再 migrate）；日志告警并提示手动处理。 |
+| **Docker / 挂载** | `config.yaml` 在只读 volume 上：无法 rename → 仅入库 + 日志说明。 |
+| **MySQL** | 自动生成 `.env` 时应写入 **`DATABASE_DSN`**（或项目约定变量名），与 `NewStorage` 一致；勿在 `.env` 写明文密码若用户不希望（可只写占位 + 注释）。 |
+| **Git 跟踪的 config.yaml** | rename 后工作区出现「删除+未跟踪备份」；文档说明：备份文件应 **gitignore**，或用户改用 `config.local.yaml`。 |
+| **迁移失败** | 事务回滚；**不** rename YAML；下次启动可重试。 |
+| **用户只想暂时用 YAML** | `QUANTMESH_SKIP_AUTO_MIGRATE=1` 或 `QUANTMESH_USE_APP_CONFIG=0` 保留现有行为。 |
+
 ---
 
 ## 8. 写路径与 API 行为

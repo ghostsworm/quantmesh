@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.6-rc1"
+var Version = "3.79.6-rc2"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1427,6 +1427,7 @@ func main() {
 		log.Printf("[INFO] Debug 模式已啟用：Gin 將输出全量请求日志")
 	}
 	os.Args = filteredArgs
+	_ = config.LoadDotEnvIfPresent(".")
 
 	// 注意：不再設置 time.Local，避免竞態条件
 	// 時区处理统一使用 utils.GlobalLocation（通過 init() 或 config 設置）
@@ -1468,18 +1469,37 @@ func main() {
 	// 检查配置文件是否存在
 	var cfg *config.Config
 	var configComplete bool
+	var configFileExisted bool
 	_, err = os.Stat(configPath)
+	configFileExisted = err == nil
 	if os.IsNotExist(err) {
-		// 配置文件不存在，創建最小化配置
-		logger.Info("ℹ️ 配置文件不存在，創建最小化配置（僅啟用 Web 服務）")
-		cfg = config.CreateMinimalConfig()
-		configComplete = false
-
-		// 保存最小化配置到文件（不驗证，因為配置不完整）
-		if err := config.SaveConfigWithoutValidation(cfg, configPath); err != nil {
-			logger.Warn("⚠️ 保存最小化配置失败: %v，將继续运行", err)
-		} else {
-			logger.Info("✅ 已創建最小化配置文件: %s", configPath)
+		// 無 config.yaml：先嘗試從主庫 app_config 加載（自動遷移並歸檔 YAML 後常見）
+		sqlitePath := strings.TrimSpace(os.Getenv("QUANTMESH_SQLITE_PATH"))
+		if sqlitePath == "" {
+			sqlitePath = "./data/quantmesh.db"
+		}
+		cfgFromDB, errDB := storage.LoadConfigFromAppConfigDBIfExists(sqlitePath)
+		if errDB != nil {
+			logger.Warn("⚠️ 嘗試從數據庫加載配置失敗: %v", errDB)
+		} else if cfgFromDB != nil {
+			cfg = cfgFromDB
+			configComplete = cfg.App.CurrentExchange != "" &&
+				len(cfg.Exchanges) > 0 &&
+				cfg.Exchanges[cfg.App.CurrentExchange].APIKey != "" &&
+				cfg.Exchanges[cfg.App.CurrentExchange].SecretKey != "" &&
+				len(cfg.Trading.Symbols) > 0 &&
+				cfg.Trading.Symbols[0].Symbol != ""
+			logger.Info("ℹ️ 已從數據庫 app_config 加載（無 config.yaml，可能已自動遷移歸檔）")
+		}
+		if cfg == nil {
+			logger.Info("ℹ️ 配置文件不存在，創建最小化配置（僅啟用 Web 服務）")
+			cfg = config.CreateMinimalConfig()
+			configComplete = false
+			if err := config.SaveConfigWithoutValidation(cfg, configPath); err != nil {
+				logger.Warn("⚠️ 保存最小化配置失败: %v，將继续运行", err)
+			} else {
+				logger.Info("✅ 已創建最小化配置文件: %s", configPath)
+			}
 		}
 	} else {
 		// 配置文件存在，加載配置
@@ -1500,6 +1520,8 @@ func main() {
 			logger.Info("ℹ️ 配置不完整，僅啟动 Web 服務，请通過引導页面完成配置")
 		}
 	}
+
+	config.ApplyStoragePathFromEnv(cfg)
 
 	if err := utils.SetLocation(cfg.System.Timezone); err != nil {
 		logger.Warn("⚠️ 加載時区 %s 失败: %v，將使用默认時区 Asia/Shanghai", cfg.System.Timezone, err)
@@ -1628,8 +1650,10 @@ func main() {
 	if cfg.Storage.Path != "" && cfg.Storage.Type != "" {
 		cfg.Storage.Enabled = true
 	}
+	willAutoMigrate := !migrateAppCfg && os.Getenv("QUANTMESH_SKIP_AUTO_MIGRATE") != "1" &&
+		configComplete && configFileExisted
 	// 遷移主配置入庫時必須能打開主庫
-	if migrateAppCfg {
+	if migrateAppCfg || willAutoMigrate {
 		cfg.Storage.Enabled = true
 		if cfg.Storage.Type == "" {
 			cfg.Storage.Type = "sqlite"
@@ -1659,11 +1683,32 @@ func main() {
 		if botsDir == "" {
 			botsDir = "./bots"
 		}
-		if err := storage.MigrateYAMLToAppConfigDB(ctx, storageService.GetStorage(), configPath, botsDir); err != nil {
+		if _, err := storage.MigrateYAMLToAppConfigDB(ctx, storageService.GetStorage(), configPath, botsDir, storage.MigrateYAMLModeCLI); err != nil {
 			logger.Fatalf("❌ 遷移失敗: %v", err)
 		}
 		logger.Info("✅ 已將主配置與 Bot 配置寫入數據庫（下次啟動將優先從 app_config 加載，可用 QUANTMESH_USE_APP_CONFIG=0 禁用）")
 		os.Exit(0)
+	}
+
+	if willAutoMigrate && storageService != nil && storageService.GetStorage() != nil {
+		if err := config.EnsureEnvFileIfMissing(".", cfg); err != nil {
+			logger.Warn("⚠️ 自動生成 .env 失敗（可忽略）: %v", err)
+		}
+		botsDir := os.Getenv("QUANTMESH_BOTS_DIR")
+		if botsDir == "" {
+			botsDir = "./bots"
+		}
+		did, migErr := storage.MigrateYAMLToAppConfigDB(ctx, storageService.GetStorage(), configPath, botsDir, storage.MigrateYAMLModeAuto)
+		if migErr != nil {
+			logger.Warn("⚠️ 自動遷移主配置入庫失敗（可稍後使用 --migrate-app-config）: %v", migErr)
+		} else if did {
+			logger.Info("✅ 已自動將主配置與 Bot 配置寫入數據庫（來源: config.yaml）")
+			if backup, err := config.RenameConfigYAMLToBackup(configPath); err != nil {
+				logger.Warn("⚠️ 已入庫但無法歸檔 config.yaml（請手動改名或檢查目錄權限）: %v", err)
+			} else {
+				logger.Info("✅ 已歸檔配置文件: %s", backup)
+			}
+		}
 	}
 
 	if storageService != nil && storageService.GetStorage() != nil {
