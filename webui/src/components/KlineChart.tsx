@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts'
+import { Box, HStack, Button } from '@chakra-ui/react'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, getKlines, KlineData } from '../services/api'
 import VolatilityIndicator from './VolatilityIndicator'
@@ -367,67 +368,80 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
     }
   }, [symbol, exchange, interval, loadKlines])
 
-  // 使用useMemo缓存按钮样式，避免重複计算
-  const buttonStyle = useMemo(() => ({
-    padding: '8px 16px',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '14px',
-  }), [])
-
-  // 优化按钮组件，使用React.memo避免不必要的重渲染
-  const IntervalButton = React.memo<{ 
-    iv: Interval
-    currentInterval: Interval
-    onClick: () => void
-  }>(({ iv, currentInterval, onClick }) => (
-    <button
-      onClick={onClick}
-      style={{
-        ...buttonStyle,
-        backgroundColor: currentInterval === iv ? '#1890ff' : '#f0f0f0',
-        color: currentInterval === iv ? 'white' : 'black',
-      }}
-    >
-      {iv}
-    </button>
-  ))
-
-  IntervalButton.displayName = 'IntervalButton'
+  const handleIntervalClick = useCallback((iv: Interval) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+    }
+    debounceTimerRef.current = setTimeout(() => setInterval(iv), 300)
+  }, [])
 
   return (
-    <div style={{ padding: '20px' }}>
-      <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>{t('klineChart.title')} {symbol && `- ${symbol}`}</h2>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          {INTERVALS.map((iv) => (
-            <IntervalButton
-              key={iv}
-              iv={iv}
-              currentInterval={interval}
-              onClick={() => {
-                // 防抖：延迟300ms切换，避免快速点击時频繁请求
-                if (debounceTimerRef.current) {
-                  clearTimeout(debounceTimerRef.current)
-                }
-                debounceTimerRef.current = setTimeout(() => {
-                  setInterval(iv)
-                }, 300)
-              }}
-            />
-          ))}
-        </div>
-      </div>
+    <Box padding="20px">
+      <Box mb="20px" display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="3">
+        <h2 style={{ margin: 0 }}>{t('klineChart.title')} {symbol && `- ${symbol}`}</h2>
+        {/* Apple HIG Segmented Control: 胶囊轨道 + 选中态白底阴影 */}
+        <Box
+          as="nav"
+          display="inline-flex"
+          p="3px"
+          bg="gray.200"
+          borderRadius="full"
+          role="group"
+          aria-label={t('klineChart.intervalSelector')}
+          sx={{
+            boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)',
+          }}
+        >
+          <HStack spacing="2px" role="tablist">
+            {INTERVALS.map((iv) => {
+              const isSelected = interval === iv
+              return (
+                <Button
+                  key={iv}
+                  role="tab"
+                  aria-selected={isSelected}
+                  aria-label={iv}
+                  size="sm"
+                  variant="ghost"
+                  minW="44px"
+                  h="32px"
+                  px="14px"
+                  borderRadius="full"
+                  fontSize="13px"
+                  fontWeight={isSelected ? 600 : 500}
+                  color={isSelected ? 'gray.800' : 'gray.600'}
+                  bg={isSelected ? 'white' : 'transparent'}
+                  boxShadow={isSelected ? '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)' : 'none'}
+                  transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+                  _hover={{
+                    bg: isSelected ? 'white' : 'blackAlpha.100',
+                    color: isSelected ? 'gray.800' : 'gray.700',
+                  }}
+                  _active={{
+                    transform: 'scale(0.98)',
+                  }}
+                  _focusVisible={{
+                    ring: 2,
+                    ringColor: 'brand.400',
+                  }}
+                  onClick={() => handleIntervalClick(iv)}
+                >
+                  {iv}
+                </Button>
+              )
+            })}
+          </HStack>
+        </Box>
+      </Box>
 
       {error && (
-        <div style={{ padding: '10px', backgroundColor: '#fff2f0', color: '#ff4d4f', marginBottom: '10px', borderRadius: '4px' }}>
+        <Box p="10px" bg="red.50" color="red.600" mb="10px" borderRadius="md">
           {t('common.error')}: {error}
-        </div>
+        </Box>
       )}
 
       {loading && !error && (
-        <div style={{ textAlign: 'center', padding: '40px' }}>{t('common.loading')}</div>
+        <Box textAlign="center" p="40px">{t('common.loading')}</Box>
       )}
 
       {/* 波动率指标面板 */}
@@ -435,16 +449,15 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
         <VolatilityIndicator klines={klineDataForMetrics} />
       )}
 
-      <div
+      <Box
         ref={chartContainerRef}
-        style={{
-          width: '100%',
-          height: '600px',
-          border: '1px solid #e0e0e0',
-          borderRadius: '4px',
-        }}
+        w="100%"
+        h="600px"
+        border="1px solid"
+        borderColor="gray.200"
+        borderRadius="md"
       />
-    </div>
+    </Box>
   )
 }
 
