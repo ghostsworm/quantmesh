@@ -52,8 +52,11 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	if err != nil {
 		logger.Warn("Failed to get Phemex product: %v", err)
 	} else {
-		adapter.priceScale = product.PriceScale
-		adapter.priceDecimals = product.PriceScale
+		ps := int(product.PriceScale)
+		if ps > 0 {
+			adapter.priceScale = ps
+			adapter.priceDecimals = ps
+		}
 		adapter.quantityDecimals = 0
 
 		// 解析基础资產和报價资產
@@ -229,7 +232,9 @@ func (a *Adapter) GetLatestPrice(ctx context.Context, symbol string) (float64, e
 		// 獲取目標交易對的價格缩放因子
 		product, err := a.client.GetProduct(context.Background(), targetSymbol)
 		if err == nil {
-			priceScale = product.PriceScale
+			if ps := int(product.PriceScale); ps > 0 {
+				priceScale = ps
+			}
 		}
 	}
 

@@ -34,11 +34,8 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 
 	client := NewDeribitClient(apiKey, secretKey, isTestnet)
 
-	// 认证
 	ctx := context.Background()
-	if err := client.Authenticate(ctx); err != nil {
-		return nil, fmt.Errorf("Deribit authentication failed: %w", err)
-	}
+	// 公眾接口（get_instruments 等）無需先 auth；密鑰僅在下單等私有調用時需要
 
 	// 解析交易對：BTCUSDT -> BTC-PERPETUAL
 	currency := "BTC"

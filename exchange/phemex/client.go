@@ -17,6 +17,39 @@ import (
 	"quantmesh/logger"
 )
 
+// asInt64 兼容 JSON 中數字或字符串（Phemex 部分字段會以字符串形式返回）
+type asInt64 int64
+
+func (a *asInt64) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == "null" {
+		*a = 0
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		if s == "" {
+			*a = 0
+			return nil
+		}
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return err
+		}
+		*a = asInt64(v)
+		return nil
+	}
+	var v int64
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*a = asInt64(v)
+	return nil
+}
+
 const (
 	PhemexMainnetBaseURL = "https://api.phemex.com"         // Phemex 主网
 	PhemexTestnetBaseURL = "https://testnet-api.phemex.com" // Phemex 測試網
@@ -408,14 +441,14 @@ type Product struct {
 	DisplaySymbol  string  `json:"displaySymbol"`
 	QuoteCurrency  string  `json:"quoteCurrency"`
 	SettleCurrency string  `json:"settleCurrency"`
-	PriceScale     int     `json:"priceScale"`   // 價格缩放因子
-	RatioScale     int     `json:"ratioScale"`   // 比率缩放因子
-	QtyStepSize    int64   `json:"qtyStepSize"`  // 數量步长
-	MinPriceEp     int64   `json:"minPriceEp"`   // 最小價格
-	MaxPriceEp     int64   `json:"maxPriceEp"`   // 最大價格
-	MaxOrderQty    int64   `json:"maxOrderQty"`  // 最大订單數量
-	LotSize        int64   `json:"lotSize"`      // 最小訂單數量
-	TickSize       int64   `json:"tickSize"`     // 價格步长
+	PriceScale     asInt64 `json:"priceScale"`   // 價格缩放因子
+	RatioScale     asInt64 `json:"ratioScale"`   // 比率缩放因子
+	QtyStepSize    asInt64 `json:"qtyStepSize"`  // 數量步长
+	MinPriceEp     asInt64 `json:"minPriceEp"`   // 最小價格
+	MaxPriceEp     asInt64 `json:"maxPriceEp"`   // 最大價格
+	MaxOrderQty    asInt64 `json:"maxOrderQty"`  // 最大订單數量
+	LotSize        asInt64 `json:"lotSize"`      // 最小訂單數量
+	TickSize       asInt64 `json:"tickSize"`     // 價格步长
 	ContractSize   float64 `json:"contractSize"` // 合約大小
 }
 

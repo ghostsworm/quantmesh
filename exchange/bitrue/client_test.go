@@ -132,6 +132,6 @@ func TestAdapterGetQuantityDecimals(t *testing.T) {
 
 	decimals := adapter.GetQuantityDecimals()
 	if decimals <= 0 {
-		t.Errorf("數量精度应該大於 0, 得到 %d", decimals)
+		t.Errorf("數量精度不應為負, 得到 %d", decimals)
 	}
 }

@@ -153,7 +153,7 @@ type ContractInfo struct {
 	Symbol         string `json:"symbol"`
 	ContractCode   string `json:"contract_code"`
 	PriceTick      string `json:"price_tick"`
-	ContractSize   string `json:"contract_size"`
+	ContractSize   float64 `json:"contract_size"`
 	SettlementDate string `json:"settlement_date"`
 }
 

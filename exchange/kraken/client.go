@@ -426,8 +426,8 @@ type ContractInfo struct {
 	Underlying      string  `json:"underlying"`
 	TickSize        float64 `json:"tickSize"`
 	ContractSize    float64 `json:"contractSize"`
-	MaxPositionSize int     `json:"maxPositionSize"`
-	ImpactMidSize   int     `json:"impactMidSize"`
+	MaxPositionSize float64 `json:"maxPositionSize"`
+	ImpactMidSize   float64 `json:"impactMidSize"`
 	OpeningDate     string  `json:"openingDate"`
 	MarginLevels    []struct {
 		Contracts         int     `json:"contracts"`

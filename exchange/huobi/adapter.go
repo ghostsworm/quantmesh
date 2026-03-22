@@ -159,6 +159,11 @@ func NewHuobiAdapter(cfg map[string]string, symbol string) (*HuobiAdapter, error
 		logger.Warn("⚠️ [Huobi] 獲取合約信息失败: %v，使用默认精度", err)
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 0
+		parts := strings.Split(adapter.contractCode, "-")
+		if len(parts) == 2 {
+			adapter.baseAsset = parts[0]
+			adapter.quoteAsset = parts[1]
+		}
 	}
 
 	return adapter, nil

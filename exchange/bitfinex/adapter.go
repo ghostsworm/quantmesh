@@ -78,7 +78,7 @@ func parseSymbol(symbol string) (string, string) {
 
 // GetName 獲取交易所名称
 func (a *Adapter) GetName() string {
-	return "bitfinex"
+	return "Bitfinex"
 }
 
 // GetMarketType 獲取市場類型：futures 合約
