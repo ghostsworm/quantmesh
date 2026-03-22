@@ -51,10 +51,18 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	if err != nil {
 		logger.Warn("Failed to get XT.COM symbol: %v", err)
 	} else {
-		adapter.priceDecimals = symbolInfo.PricePrecision
-		adapter.quantityDecimals = symbolInfo.QuantityPrecision
-		adapter.baseAsset = strings.ToUpper(symbolInfo.BaseCurrency)
-		adapter.quoteAsset = strings.ToUpper(symbolInfo.QuoteCurrency)
+		if symbolInfo.PricePrecision > 0 {
+			adapter.priceDecimals = symbolInfo.PricePrecision
+		}
+		if symbolInfo.QuantityPrecision > 0 {
+			adapter.quantityDecimals = symbolInfo.QuantityPrecision
+		}
+		if b := strings.TrimSpace(symbolInfo.BaseCurrency); b != "" {
+			adapter.baseAsset = strings.ToUpper(b)
+		}
+		if q := strings.TrimSpace(symbolInfo.QuoteCurrency); q != "" {
+			adapter.quoteAsset = strings.ToUpper(q)
+		}
 	}
 
 	return adapter, nil
