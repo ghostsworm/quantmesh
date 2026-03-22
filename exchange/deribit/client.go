@@ -86,10 +86,9 @@ func (c *DeribitClient) sendRequest(ctx context.Context, method string, params m
 		return nil, fmt.Errorf("marshal request error: %w", err)
 	}
 
-	reqURL := c.baseURL + "/api/v2/public/" + method
-	if c.accessToken != "" {
-		reqURL = c.baseURL + "/api/v2/private/" + method
-	}
+	// 官方 JSON-RPC：統一 POST /api/v2，method（如 public/get_instruments）僅在請求體中；
+	// 舊實現拼成 /api/v2/public/public/get_instruments 會觸發 11050 bad_request。
+	reqURL := c.baseURL + "/api/v2"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(reqBody))
 	if err != nil {

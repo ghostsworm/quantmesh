@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc6] - 2026-03-23
+
+### Fixed
+- **Deribit**：`sendRequest` 改為官方要求的 `POST {base}/api/v2`（method 僅在 JSON-RPC 體內），避免錯誤拼成 `/api/v2/public/public/...` 導致 `11050 bad_request`
+- **測試**：`TestSendRequestUsesSingleJSONRPCEndpoint` 用 httptest 鎖定路徑為 `/api/v2`
+
+---
+
 ## [3.79.6-rc5] - 2026-03-23
 
 ### Fixed

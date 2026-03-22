@@ -1,8 +1,35 @@
 package deribit
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestSendRequestUsesSingleJSONRPCEndpoint(t *testing.T) {
+	var sawPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[]}`))
+	}))
+	defer srv.Close()
+
+	base := strings.TrimSuffix(srv.URL, "")
+	c := &DeribitClient{
+		baseURL:    base,
+		httpClient: http.DefaultClient,
+	}
+	_, err := c.sendRequest(context.Background(), "public/get_instruments", map[string]interface{}{"currency": "BTC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sawPath != "/api/v2" {
+		t.Fatalf("JSON-RPC 應 POST 至 /api/v2，實際路徑 %q", sawPath)
+	}
+}
 
 func TestNewDeribitClient(t *testing.T) {
 	apiKey := "test_api_key"
