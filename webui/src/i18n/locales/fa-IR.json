@@ -2582,6 +2582,7 @@
     "webauthnRegFailed": "WebAuthn registration failed"
   },
   "klineChart": {
+    "intervalSelector": "انتخاب بازه زمانی کندل",
     "loadFailed": "Failed to load K-line data",
     "title": "K-Line Chart"
   },

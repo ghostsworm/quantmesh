@@ -2587,6 +2587,7 @@
     "webauthnRegFailed": "WebAuthn registration failed"
   },
   "klineChart": {
+    "intervalSelector": "K線間隔の選択",
     "loadFailed": "Failed to load K-line data",
     "title": "K-Line Chart"
   },

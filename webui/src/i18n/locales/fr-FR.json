@@ -2560,6 +2560,7 @@
     "webauthnRegFailed": "WebAuthn registration failed"
   },
   "klineChart": {
+    "intervalSelector": "Sélecteur d'intervalle de chandeliers",
     "loadFailed": "Failed to load K-line data",
     "title": "K-Line Chart"
   },
