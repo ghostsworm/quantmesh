@@ -3835,7 +3835,10 @@
   },
   "klineChart": {
     "loadFailed": "Failed to load K-line data",
-    "title": "K-Line Chart"
+    "title": "K-Line Chart",
+    "changeSymbol": "Change Symbol",
+    "globalSelectSymbol": "Select exchange and trading pair to view K-line chart (supports mainstream coins without Bot)",
+    "showChart": "Show Chart"
   },
   "volatilityIndicator": {
     "title": "24h Volatility",

@@ -63,6 +63,7 @@ const FirstTimeSetup = lazy(() => import('./components/FirstTimeSetup'))
 const FirstTimeWizard = lazy(() => import('./components/FirstTimeWizard'))
 const ConfigSetup = lazy(() => import('./components/ConfigSetup'))
 const KlineChart = lazy(() => import('./components/KlineChart'))
+const GlobalKlinePage = lazy(() => import('./components/GlobalKlinePage'))
 const Configuration = lazy(() => import('./components/Configuration'))
 const FundingRate = lazy(() => import('./components/FundingRate'))
 const BasisMonitor = lazy(() => import('./components/BasisMonitor'))
@@ -503,7 +504,7 @@ const AppContent: React.FC = () => {
                 <Route path="/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
                 <Route path="/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
                 <Route path="/position-plan" element={<Navigate to="/bots" replace />} />
-                <Route path="/kline" element={<Navigate to="/bots" replace />} />
+                <Route path="/kline" element={<ProtectedRoute><GlobalKlinePage /></ProtectedRoute>} />
                 <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />
                 <Route path="/basis-monitor" element={<ProtectedRoute><BasisMonitor /></ProtectedRoute>} />
                 <Route path="/oscillation" element={<ProtectedRoute><OscillationAnalysis /></ProtectedRoute>} />

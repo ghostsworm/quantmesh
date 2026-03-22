@@ -62,9 +62,18 @@ const getLimitByInterval = (interval: Interval): number => {
   }
 }
 
-const KlineChart: React.FC = () => {
+interface KlineChartProps {
+  /** 全局模式下覆蓋交易所（無 bot 時從 URL 傳入） */
+  overrideExchange?: string | null
+  /** 全局模式下覆蓋交易對（無 bot 時從 URL 傳入） */
+  overrideSymbol?: string | null
+}
+
+const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbol } = {}) => {
   const { t } = useTranslation()
   const { selectedExchange, selectedSymbol } = useSymbol()
+  const exchange = overrideExchange ?? selectedExchange
+  const symbol = overrideSymbol ?? selectedSymbol
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -269,7 +278,7 @@ const KlineChart: React.FC = () => {
   // 加載K線數據（带取消支援和增量更新）
   const loadKlines = useCallback(async (currentInterval: Interval, isInitialLoad = false) => {
     // 如果没有交易對，不加載
-    if (!selectedSymbol) {
+    if (!symbol) {
       return
     }
 
@@ -290,7 +299,7 @@ const KlineChart: React.FC = () => {
     
     try {
       const limit = getLimitByInterval(currentInterval)
-      const response = await getKlines(currentInterval, limit, selectedExchange || undefined, selectedSymbol || undefined, abortController.signal)
+      const response = await getKlines(currentInterval, limit, exchange || undefined, symbol || undefined, abortController.signal)
       
       // 检查请求是否已被取消
       if (abortController.signal.aborted) {
@@ -322,11 +331,11 @@ const KlineChart: React.FC = () => {
         setLoading(false)
       }
     }
-  }, [selectedExchange, selectedSymbol, transformKlineData, updateChartIncremental])
+  }, [exchange, symbol, transformKlineData, updateChartIncremental])
 
   // 加載K線數據（带防抖）
   useEffect(() => {
-    if (!selectedSymbol || !candlestickSeriesRef.current || !volumeSeriesRef.current) return
+    if (!symbol || !candlestickSeriesRef.current || !volumeSeriesRef.current) return
 
     // 清除之前的防抖定時器
     if (debounceTimerRef.current) {
@@ -356,7 +365,7 @@ const KlineChart: React.FC = () => {
         abortControllerRef.current.abort()
       }
     }
-  }, [selectedSymbol, selectedExchange, interval, loadKlines])
+  }, [symbol, exchange, interval, loadKlines])
 
   // 使用useMemo缓存按钮样式，避免重複计算
   const buttonStyle = useMemo(() => ({
@@ -390,7 +399,7 @@ const KlineChart: React.FC = () => {
   return (
     <div style={{ padding: '20px' }}>
       <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>{t('klineChart.title')} {selectedSymbol && `- ${selectedSymbol}`}</h2>
+        <h2>{t('klineChart.title')} {symbol && `- ${symbol}`}</h2>
         <div style={{ display: 'flex', gap: '10px' }}>
           {INTERVALS.map((iv) => (
             <IntervalButton

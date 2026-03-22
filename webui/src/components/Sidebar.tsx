@@ -455,6 +455,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               {t('sidebar.profitManagement')}
             </NavItem>
             <NavItem
+              icon={TimeIcon}
+              to="/kline"
+              isActive={isRouteActive('/kline')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.klineDepth')}
+            </NavItem>
+            <NavItem
               icon={EditIcon}
               to="/logs"
               isActive={isRouteActive('/logs')}

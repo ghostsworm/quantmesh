@@ -3833,27 +3833,60 @@ type KlineData struct {
 	Volume float64 `json:"volume"`
 }
 
+// publicKlineProviderAdapter 將 exchange.IExchange 適配為 ExchangeProvider，僅用於獲取公開 K 線（無需 bot 啟動）
+type publicKlineProviderAdapter struct {
+	ex exchange.IExchange
+}
+
+func (a *publicKlineProviderAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*exchange.Candle, error) {
+	return a.ex.GetHistoricalKlines(ctx, symbol, interval, limit)
+}
+
+func (a *publicKlineProviderAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	return 0, fmt.Errorf("not supported for public kline provider")
+}
+
+func (a *publicKlineProviderAdapter) GetPositions(ctx context.Context, symbol string) ([]*exchange.Position, error) {
+	return nil, fmt.Errorf("not supported for public kline provider")
+}
+
 // getKlines 獲取K線數據
 // GET /api/klines
 // 查詢参數：
+//   - exchange: 交易所（如 binance）
+//   - symbol: 交易對（如 BTCUSDT）
 //   - interval: K線週期（1m/5m/15m/30m/1h/4h/1d等，默认1m）
 //   - limit: 返回K線數量（默认500，最大1000）
+// 當無對應 bot 時，若傳入 exchange+symbol，會嘗試使用公開 API 拉取主流幣 K 線（如 Binance 無需 API 密鑰）
 func getKlines(c *gin.Context) {
-	prov := pickExchangeProvider(c)
-	if prov == nil {
-		c.JSON(http.StatusOK, gin.H{"klines": []interface{}{}})
-		return
-	}
-
-	// 獲取當前交易币种（從系统状態）
+	// 獲取交易對與交易所（優先查詢參數，其次系統狀態）
 	symbol := c.Query("symbol")
-	if symbol == "" {
+	exchangeName := c.Query("exchange")
+	if symbol == "" || exchangeName == "" {
 		if st := pickStatus(c); st != nil {
-			symbol = st.Symbol
+			if symbol == "" {
+				symbol = st.Symbol
+			}
+			if exchangeName == "" {
+				exchangeName = st.Exchange
+			}
 		}
 	}
 	if symbol == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無法獲取交易币种"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無法獲取交易币种，請提供 symbol 參數或先啟動對應 bot"})
+		return
+	}
+
+	prov := pickExchangeProvider(c)
+	// 無 bot 時，若提供了 exchange+symbol，嘗試使用公開 API 拉取 K 線（主流幣如 BTC 等無需認證）
+	if prov == nil && exchangeName != "" {
+		if pubEx, err := exchange.NewExchangeForPublicKlines(exchangeName, symbol); err == nil {
+			prov = &publicKlineProviderAdapter{ex: pubEx}
+			logger.Info("📊 [Klines] 使用公開 API 拉取 %s %s K 線（無 bot）", exchangeName, symbol)
+		}
+	}
+	if prov == nil {
+		c.JSON(http.StatusOK, gin.H{"klines": []interface{}{}, "symbol": symbol, "interval": c.DefaultQuery("interval", "1m")})
 		return
 	}
 
