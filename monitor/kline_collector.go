@@ -540,8 +540,7 @@ func (kc *KlineCollector) cleanupOldFilesOnce() {
 
 // isKlineFile 检查是否是K线数据文件
 func (kc *KlineCollector) isKlineFile(filename string) bool {
-	return len(filename) > 4 && filename[len(filename)-4:] == ".csv" &&
-		(filename[:4] == "tick" || filename[:2] == "1m" || filename[:2] == "1h")
+	return isKlineFilename(filename)
 }
 
 // getProtectedFiles 获取保护的文件列表
@@ -591,14 +590,63 @@ func (kc *KlineCollector) ListFiles() ([]KlineFileInfo, error) {
 
 // parseFilename 解析文件名
 func (kc *KlineCollector) parseFilename(filename string) KlineFileInfo {
-	// 格式: tick_binance_BTCUSDT_20260102.csv
-	// 格式: 1m_binance_BTCUSDT_20260102.csv
-	// 格式: 1h_binance_BTCUSDT_20260102.csv
+	return parseKlineFilename(filename)
+}
 
-	info := KlineFileInfo{
-		Filename: filename,
+// DefaultKlineDataDir 默认 K 线数据目录
+const DefaultKlineDataDir = "./data/kline"
+
+// ListKlineFilesFromDir 从指定目录扫描并列出 K 线文件（不依赖 KlineCollector 实例）
+// 当 KlineCollector 未初始化时，可由 web 层调用此函数获取文件列表
+func ListKlineFilesFromDir(dataDir string, st storage.Storage) ([]KlineFileInfo, error) {
+	files, err := os.ReadDir(dataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []KlineFileInfo{}, nil
+		}
+		return nil, err
 	}
 
+	var fileInfos []KlineFileInfo
+	protectedSet := make(map[string]bool)
+	if st != nil {
+		protectedFiles, _ := st.GetProtectedKlineFiles()
+		for _, f := range protectedFiles {
+			protectedSet[f] = true
+		}
+	}
+
+	for _, file := range files {
+		if file.IsDir() || !isKlineFilename(file.Name()) {
+			continue
+		}
+
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
+
+		fileInfo := parseKlineFilename(file.Name())
+		fileInfo.FileSize = info.Size()
+		fileInfo.ModifiedAt = info.ModTime()
+		fileInfo.CreatedAt = info.ModTime()
+		fileInfo.IsProtected = protectedSet[file.Name()]
+
+		fileInfos = append(fileInfos, fileInfo)
+	}
+
+	return fileInfos, nil
+}
+
+// isKlineFilename 检查是否是 K 线数据文件名
+func isKlineFilename(filename string) bool {
+	return len(filename) > 4 && filename[len(filename)-4:] == ".csv" &&
+		(filename[:4] == "tick" || (len(filename) >= 2 && (filename[:2] == "1m" || filename[:2] == "1h")))
+}
+
+// parseKlineFilename 解析 K 线文件名
+func parseKlineFilename(filename string) KlineFileInfo {
+	info := KlineFileInfo{Filename: filename}
 	parts := splitFilename(filename)
 	if len(parts) >= 4 {
 		info.Interval = parts[0]
@@ -606,7 +654,6 @@ func (kc *KlineCollector) parseFilename(filename string) KlineFileInfo {
 		info.Symbol = parts[2]
 		info.HasDepth = info.Interval == "1m" || info.Interval == "1h"
 	}
-
 	return info
 }
 
