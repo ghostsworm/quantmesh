@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.4-rc2] - 2026-03-22
+
+### Fixed
+- **bots/create 返回 503**：當存儲服務（storageService）初始化失敗時，配置管理器（configManager）未設置到 Web，導致 `POST /api/bots/create` 返回 503。現改為在 Web 服務器啟動時即設置 configManager，與 storageService 脫鉤，避免該問題。
+
+---
+
 ## [3.79.4-rc1] - 2026-03-22
 
 ### Added

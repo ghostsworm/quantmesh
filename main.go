@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.4-rc1"
+var Version = "3.79.4-rc2"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1930,6 +1930,14 @@ func main() {
 			} else {
 				logger.Info("✅ Web服務器已啟动，可通過 http://%s:%d 访问", cfg.Web.Host, cfg.Web.Port)
 				logger.Info("⏱️ [啟動] Web API 已就緒 (耗時: %v)", time.Since(startTime))
+				// 設置配置存儲和配置管理器到 Web（與 storageService 無關，避免 storage 初始化失敗時 bots/create 等 API 返回 503）
+				if configStorage != nil {
+					web.SetConfigStorage(configStorage)
+				}
+				if configManager != nil {
+					web.SetConfigManager(configManager)
+					logger.Info("✅ 配置管理器已設置到 Web 服務器")
+				}
 				time.Sleep(100 * time.Millisecond)
 			}
 		}
