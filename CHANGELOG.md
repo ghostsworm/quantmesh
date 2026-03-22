@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.5-rc3] - 2026-03-22
+
+### Fixed
+- **存储不可用时 Bot 无法启动**：当 storage 服务未初始化时，`isBotEnabledInDB` 直接返回「已禁用」且不读文件，导致 EnableBot 写入 `bot_states.json` 后 StartBot 仍拒绝启动。现改为 storage 为 nil 时也尝试 `isBotEnabledFromFile`，与 `saveBotStateToDB` 的写入逻辑对应。
+
+---
+
 ## [3.79.5-rc2] - 2026-03-22
 
 ### Removed

@@ -870,9 +870,15 @@ func (bm *BotManager) IsBotEnabledInDB(botID string) (bool, string) {
 // isBotEnabledInDB 检查數據庫中的 Bot 啟停狀態
 // 返回值: (是否啟用, 原因)
 // 如果數據庫中沒有記錄，默認返回 (true, "")（使用配置文件的值）
-// 若存儲不可用或查詢失敗，保守返回 (false, reason)，避免已停止的 Bot 重啟後自動運行
+// 若存儲不可用或查詢失敗，嘗試從文件 fallback 讀取（與 saveBotStateToDB 的寫入邏輯對應）
+// 若文件也無記錄，保守返回 (false, reason)，避免已停止的 Bot 重啟後自動運行
 func (bm *BotManager) isBotEnabledInDB(botID string) (bool, string) {
 	if bm.storageService == nil {
+		// 存儲未初始化時，與 store==nil 一樣嘗試文件 fallback
+		// 否則 EnableBot 寫入文件後，StartBot 仍會因不讀文件而拒絕啟動
+		if enabled, found := bm.isBotEnabledFromFile(botID); found {
+			return enabled, "from_file"
+		}
 		logger.Warn("存儲服務未初始化，保守跳過 Bot 自動啟動（避免已停止狀態遺失）[%s]", botID)
 		return false, "storage_unavailable"
 	}
