@@ -9,6 +9,7 @@
     "cancel": "Cancel",
     "close": "Close",
     "save": "Save",
+    "saving": "Saving...",
     "reset": "Reset",
     "confirm": "Confirm",
     "delete": "Delete",
@@ -3642,7 +3643,14 @@
     "negativeBasisDesc": " (Futures < Spot): Bearish market, consider reverse arbitrage (short spot + buy futures)",
     "fundingRateLabel": "Funding Rate",
     "fundingRateDesc": ": Positive rate means longs pay shorts, negative rate means shorts pay longs",
-    "basisCorrelationHint": "Basis and funding rate are usually positively correlated; divergence may indicate arbitrage opportunities"
+    "basisCorrelationHint": "Basis and funding rate are usually positively correlated; divergence may indicate arbitrage opportunities",
+    "enableInPage": "You can enable basis monitoring directly on this page, no config file editing needed:",
+    "configEnabled": "Enable basis monitoring",
+    "configInterval": "Check interval (minutes)",
+    "configSymbols": "Symbols to monitor (comma-separated)",
+    "configSave": "Save and Enable",
+    "configHint": "Config will be saved to database and take effect immediately, no service restart required.",
+    "configSaveFailed": "Failed to save config"
   },
   "oscillation": {
     "title": "Oscillation Analysis",

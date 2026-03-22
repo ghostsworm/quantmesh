@@ -2392,6 +2392,26 @@ export async function getBasisStatistics(symbol: string, hours: number = 24): Pr
   return response.data
 }
 
+export interface BasisMonitorConfig {
+  enabled: boolean
+  interval_minutes: number
+  symbols: string[]
+}
+
+export async function getBasisConfig(): Promise<{ config: BasisMonitorConfig }> {
+  const url = `${API_BASE_URL}/basis/config`
+  return fetchWithAuth(url)
+}
+
+export async function putBasisConfig(config: Partial<BasisMonitorConfig>): Promise<{ ok: boolean; config: BasisMonitorConfig }> {
+  const url = `${API_BASE_URL}/basis/config`
+  const body: Record<string, unknown> = {}
+  if (config.enabled !== undefined) body.enabled = config.enabled
+  if (config.interval_minutes !== undefined) body.interval_minutes = config.interval_minutes
+  if (config.symbols !== undefined) body.symbols = config.symbols
+  return fetchWithAuth(url, { method: 'PUT', body: JSON.stringify(body) })
+}
+
 // AI 配置助手
 
 // 按币种分配的资金配置

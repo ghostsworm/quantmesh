@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.2-rc4"
+var Version = "3.79.3-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2428,19 +2428,18 @@ func main() {
 			go startFundingIncomeSync(ctx, storageService.GetStorage(), firstRuntime.Exchange,
 				firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, firstRuntime.AccountID)
 
-			// 初始化價差監控
-			if cfg.BasisMonitor.Enabled {
-				logger.Info("🔍 初始化價差監控...")
-				basisMonitor := monitor.NewBasisMonitor(
-					storageService.GetStorage(),
-					firstRuntime.Exchange,
-					cfg.BasisMonitor.Symbols,
-					cfg.BasisMonitor.IntervalMinutes,
-				)
-				basisMonitor.Start()
-				web.SetBasisMonitorProvider(basisMonitor)
-				logger.Info("✅ 價差監控已啟动")
+			// 初始化價差監控（支持數據庫配置覆蓋 config.yaml，UI 可動態啟停）
+			logger.Info("🔍 初始化價差監控...")
+			getBasisExch := func() exchange.IExchange {
+				if firstRuntime != nil && firstRuntime.Exchange != nil {
+					return firstRuntime.Exchange
+				}
+				return nil
 			}
+			basisCtrl := web.NewBasisMonitorController(storageService.GetStorage(), getBasisExch, cfg)
+			web.SetBasisMonitorController(basisCtrl)
+			effectiveBasis := basisCtrl.GetEffectiveConfig(ctx)
+			basisCtrl.ApplyConfig(ctx, effectiveBasis)
 
 			// 初始化新聞監控（Gemini 分析 + NewsAPI 收集）
 			// 始終創建 NewsMonitor 並設置 provider，以便「手動觸發分析」在未啟用時也可用
@@ -2803,6 +2802,12 @@ func main() {
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
+			if st := storageService.GetStorage(); st != nil {
+				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
+					web.SetSystemSettingsProvider(ssAdapter)
+					logger.Info("✅ 系統設置提供者已設置")
+				}
+			}
 			logger.Info("✅ 全局存儲服務提供者已設置")
 
 			// 設置配置存儲和配置管理器
@@ -2889,6 +2894,11 @@ func main() {
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
+			if st := storageService.GetStorage(); st != nil {
+				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
+					web.SetSystemSettingsProvider(ssAdapter)
+				}
+			}
 			if st := storageService.GetStorage(); st != nil {
 				if taskStore := st.GetBacktestTaskStore(); taskStore != nil {
 					binanceConfig := buildBinanceConfigForBacktest(cfg)

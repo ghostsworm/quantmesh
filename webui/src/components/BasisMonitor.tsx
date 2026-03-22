@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getBasisCurrent, getBasisHistory, getBasisStatistics, BasisData, BasisStats } from '../services/api';
+import { getBasisCurrent, getBasisHistory, getBasisStatistics, getBasisConfig, putBasisConfig, BasisData, BasisStats, BasisMonitorConfig } from '../services/api';
 import AIMarketInterpret from './AIMarketInterpret';
 import { Line } from 'react-chartjs-2';
 import {
@@ -35,6 +35,10 @@ const BasisMonitor: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [serviceUnavailable, setServiceUnavailable] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [config, setConfig] = useState<BasisMonitorConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configForm, setConfigForm] = useState<BasisMonitorConfig>({ enabled: false, interval_minutes: 1, symbols: ['BTCUSDT', 'ETHUSDT'] });
 
   // 检查是否是服務不可用錯误
   const isServiceUnavailable = (err: unknown): boolean => {
@@ -104,6 +108,41 @@ const BasisMonitor: React.FC = () => {
           setError(err instanceof Error ? err.message : t('basisMonitor.fetchStatisticsFailed'));
         }
       }
+    }
+  };
+
+  // 獲取配置（服務不可用時或首次加載）
+  const fetchConfig = useCallback(async () => {
+    setConfigLoading(true);
+    try {
+      const { config: c } = await getBasisConfig();
+      setConfig(c);
+      setConfigForm(c);
+    } catch {
+      setConfigForm({ enabled: true, interval_minutes: 1, symbols: ['BTCUSDT', 'ETHUSDT'] });
+    } finally {
+      setConfigLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
+
+  const saveConfig = async () => {
+    setConfigSaving(true);
+    try {
+      await putBasisConfig(configForm);
+      setConfig(configForm);
+      setServiceUnavailable(false);
+      setError(null);
+      await fetchCurrentBasis();
+      await fetchHistory(selectedSymbol);
+      await fetchStatistics(selectedSymbol);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('basisMonitor.configSaveFailed'));
+    } finally {
+      setConfigSaving(false);
     }
   };
 
@@ -243,7 +282,7 @@ const BasisMonitor: React.FC = () => {
         </div>
       </div>
 
-      {/* 錯誤提示 */}
+      {/* 錯誤提示 / 配置引導 */}
       {error && (
         <div className={`border px-4 py-3 rounded ${
           serviceUnavailable 
@@ -255,21 +294,52 @@ const BasisMonitor: React.FC = () => {
           </div>
           <div className="text-sm">{error}</div>
           {serviceUnavailable && (
-            <div className="mt-3 text-sm">
-              <p className="font-semibold mb-1">{t('basisMonitor.enableMethod')}</p>
-              <ol className="list-decimal list-inside space-y-1 ml-2">
-                <li>{t('basisMonitor.editConfigFile')} <code className="bg-yellow-100 px-1 rounded">config.yaml</code></li>
-                <li>{t('basisMonitor.addOrModifyConfig')}</li>
-              </ol>
-              <pre className="mt-2 p-3 bg-yellow-100 rounded text-xs overflow-x-auto">
-{`basis_monitor:
-  enabled: true
-  interval_minutes: 1
-  symbols:
-    - BTCUSDT
-    - ETHUSDT`}
-              </pre>
-              <p className="mt-2 text-xs">{t('basisMonitor.restartServiceHint')}</p>
+            <div className="mt-4 p-4 bg-white/60 rounded border border-yellow-300">
+              <p className="font-semibold mb-3">{t('basisMonitor.enableInPage')}</p>
+              {configLoading ? (
+                <div className="text-sm">{t('common.loading')}</div>
+              ) : (
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={configForm.enabled}
+                      onChange={(e) => setConfigForm(f => ({ ...f, enabled: e.target.checked }))}
+                      className="form-checkbox"
+                    />
+                    <span>{t('basisMonitor.configEnabled')}</span>
+                  </label>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">{t('basisMonitor.configInterval')}</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={configForm.interval_minutes}
+                      onChange={(e) => setConfigForm(f => ({ ...f, interval_minutes: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+                      className="border rounded px-2 py-1 w-24"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">{t('basisMonitor.configSymbols')}</label>
+                    <input
+                      type="text"
+                      value={configForm.symbols.join(', ')}
+                      onChange={(e) => setConfigForm(f => ({ ...f, symbols: e.target.value.split(/[\s,]+/).filter(Boolean) }))}
+                      placeholder="BTCUSDT, ETHUSDT"
+                      className="border rounded px-2 py-1 w-full max-w-md"
+                    />
+                  </div>
+                  <button
+                    onClick={saveConfig}
+                    disabled={configSaving}
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {configSaving ? t('common.saving') : t('basisMonitor.configSave')}
+                  </button>
+                </div>
+              )}
+              <p className="mt-3 text-xs text-gray-600">{t('basisMonitor.configHint')}</p>
             </div>
           )}
         </div>
