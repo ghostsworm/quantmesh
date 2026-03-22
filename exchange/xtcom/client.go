@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -129,13 +130,34 @@ func (c *XTClient) GetSymbol(ctx context.Context, symbol string) (*Symbol, error
 		return nil, fmt.Errorf("API error: code=%d, msg=%s", apiResp.Rc, apiResp.Mc)
 	}
 
-	var symbolInfo Symbol
-	dataBytes, _ := json.Marshal(apiResp.Result)
-	if err := json.Unmarshal(dataBytes, &symbolInfo); err != nil {
-		return nil, fmt.Errorf("unmarshal data error: %w", err)
+	symbolInfo, err := parseSymbolFromAPIResult(apiResp.Result)
+	if err != nil {
+		return nil, fmt.Errorf("parse symbol result: %w", err)
 	}
+	return symbolInfo, nil
+}
 
-	return &symbolInfo, nil
+// parseSymbolFromAPIResult XT.COM /v4/public/symbol 的 result 為 { time, version, symbols: [...] }，
+// 若按單一 Symbol 反序列化會得到全零字段。
+func parseSymbolFromAPIResult(result interface{}) (*Symbol, error) {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	var wrapped struct {
+		Symbols []Symbol `json:"symbols"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err == nil && len(wrapped.Symbols) > 0 {
+		return &wrapped.Symbols[0], nil
+	}
+	var direct Symbol
+	if err := json.Unmarshal(data, &direct); err != nil {
+		return nil, fmt.Errorf("unmarshal symbol: %w", err)
+	}
+	if strings.TrimSpace(direct.Symbol) != "" || strings.TrimSpace(direct.BaseCurrency) != "" {
+		return &direct, nil
+	}
+	return nil, fmt.Errorf("XT.COM symbol: empty result")
 }
 
 // PlaceOrder 下單

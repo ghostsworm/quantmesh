@@ -1,6 +1,7 @@
 package xtcom
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -127,5 +128,23 @@ func TestAdapterBasicMethods(t *testing.T) {
 
 	if adapter.GetQuoteAsset() == "" {
 		t.Error("报價资產不能為空")
+	}
+}
+
+func TestParseSymbolFromAPIResult_WrappedSymbolsArray(t *testing.T) {
+	const sample = `{"time":1,"version":"v","symbols":[{"symbol":"btc_usdt","baseCurrency":"btc","quoteCurrency":"usdt","pricePrecision":2,"quantityPrecision":5}]}`
+	var result interface{}
+	if err := json.Unmarshal([]byte(sample), &result); err != nil {
+		t.Fatal(err)
+	}
+	s, err := parseSymbolFromAPIResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Symbol != "btc_usdt" || s.PricePrecision != 2 || s.QuantityPrecision != 5 {
+		t.Fatalf("unexpected: %+v", s)
+	}
+	if s.BaseCurrency != "btc" || s.QuoteCurrency != "usdt" {
+		t.Fatalf("currencies: %+v", s)
 	}
 }
