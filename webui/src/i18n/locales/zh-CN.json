@@ -74,7 +74,9 @@
     "gridLong": "做多",
     "gridShort": "做空",
     "gridBoth": "双向",
-    "liquidationPrice": "强平价"
+    "liquidationPrice": "强平价",
+    "filterExchangeAll": "全部交易所",
+    "filterSymbolAll": "全部币种"
   },
   "botCreate": {
     "title": "创建 Bot",

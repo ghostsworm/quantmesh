@@ -115,7 +115,9 @@
     "profitSpread": "लाभ अंतराल",
     "orderQuantity": "ऑर्डर राशि",
     "totalCapital": "पूंजी",
-    "totalInvestment": "कुल निवेश"
+    "totalInvestment": "कुल निवेश",
+    "filterExchangeAll": "सभी एक्सचेंज",
+    "filterSymbolAll": "सभी प्रतीक"
   },
   "error": {
     "bot_symbol_conflict": "इस प्रतीक के लिए पहले से बॉट मौजूद है।",

@@ -117,7 +117,9 @@
     "profitSpread": "이익 간격",
     "orderQuantity": "주문 금액",
     "totalCapital": "투자 금액",
-    "totalInvestment": "총 투자"
+    "totalInvestment": "총 투자",
+    "filterExchangeAll": "모든 거래소",
+    "filterSymbolAll": "모든 심볼"
   },
   "error": {
     "bot_symbol_conflict": "이 심볼에 대한 봇이 이미 존재합니다.",

@@ -368,7 +368,9 @@
     "profitSpread": "ช่วงกำไร",
     "orderQuantity": "จำนวนคำสั่ง",
     "totalCapital": "ทุน",
-    "totalInvestment": "การลงทุนทั้งหมด"
+    "totalInvestment": "การลงทุนทั้งหมด",
+    "filterExchangeAll": "ทุกตลาด",
+    "filterSymbolAll": "ทุกสัญลักษณ์"
   },
   "error": {
     "bot_symbol_conflict": "มีบอทสำหรับสัญลักษณ์นี้อยู่แล้ว",

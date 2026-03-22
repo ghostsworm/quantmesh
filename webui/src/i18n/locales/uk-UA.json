@@ -368,7 +368,9 @@
     "profitSpread": "Прибутковий інтервал",
     "orderQuantity": "Сума замовлення",
     "totalCapital": "Капітал",
-    "totalInvestment": "Загальні інвестиції"
+    "totalInvestment": "Загальні інвестиції",
+    "filterExchangeAll": "Усі біржі",
+    "filterSymbolAll": "Усі символи"
   },
   "error": {
     "bot_symbol_conflict": "Бот для цього символу вже існує.",

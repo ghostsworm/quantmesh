@@ -368,7 +368,9 @@
     "profitSpread": "Marża zysku",
     "orderQuantity": "Kwota zamówienia",
     "totalCapital": "Kapitał",
-    "totalInvestment": "Całkowita inwestycja"
+    "totalInvestment": "Całkowita inwestycja",
+    "filterExchangeAll": "Wszystkie giełdy",
+    "filterSymbolAll": "Wszystkie symbole"
   },
   "error": {
     "bot_symbol_conflict": "Bot dla tego symbolu już istnieje.",

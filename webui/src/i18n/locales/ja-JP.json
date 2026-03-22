@@ -107,7 +107,9 @@
     "profitSpread": "利潤間隔",
     "orderQuantity": "1注金額",
     "totalCapital": "投入資金",
-    "totalInvestment": "総投入"
+    "totalInvestment": "総投入",
+    "filterExchangeAll": "すべての取引所",
+    "filterSymbolAll": "すべてのシンボル"
   },
   "error": {
     "bot_symbol_conflict": "このシンボルのBotは既に存在します。",

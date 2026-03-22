@@ -115,7 +115,9 @@
     "profitSpread": "فاصل الربح",
     "orderQuantity": "مبلغ الطلب",
     "totalCapital": "رأس المال",
-    "totalInvestment": "إجمالي الاستثمار"
+    "totalInvestment": "إجمالي الاستثمار",
+    "filterExchangeAll": "جميع البورصات",
+    "filterSymbolAll": "جميع الرموز"
   },
   "error": {
     "bot_symbol_conflict": "يوجد بالفعل بوت لهذا الرمز.",

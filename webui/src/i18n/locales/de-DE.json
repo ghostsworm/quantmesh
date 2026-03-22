@@ -117,7 +117,9 @@
     "profitSpread": "Gewinnabstand",
     "orderQuantity": "Orderbetrag",
     "totalCapital": "Kapital",
-    "totalInvestment": "Gesamtinvestition"
+    "totalInvestment": "Gesamtinvestition",
+    "filterExchangeAll": "Alle Börsen",
+    "filterSymbolAll": "Alle Symbole"
   },
   "error": {
     "bot_symbol_conflict": "Ein Bot für dieses Symbol existiert bereits.",

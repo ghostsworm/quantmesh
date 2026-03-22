@@ -10,6 +10,7 @@ import {
   Heading,
   HStack,
   IconButton,
+  Select,
   Spinner,
   Text,
   Badge,
@@ -29,6 +30,7 @@ import { AddIcon, ChevronRightIcon, RepeatIcon, DeleteIcon, TimeIcon } from '@ch
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { getBots, getBotGroups, startBot, stopBot, deleteBot, pollBotUntilRunning, closePositionsV2, BotInfo } from '../services/api'
+import { getUniqueExchangesAndSymbols, filterBotsByExchangeAndSymbol } from '../utils/botListFilters'
 import type { BotGroupResponse } from '../services/api'
 import BotBacktestDialog from './BotBacktestDialog'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
@@ -48,6 +50,8 @@ const BotList: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [actionBotId, setActionBotId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const [filterExchange, setFilterExchange] = useState<string>('')
+  const [filterSymbol, setFilterSymbol] = useState<string>('')
   const [deleteTarget, setDeleteTarget] = useState<BotInfo | null>(null)
   const [stopTarget, setStopTarget] = useState<BotInfo | null>(null)
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure()
@@ -78,11 +82,21 @@ const BotList: React.FC = () => {
     return m
   }, [botGroups])
 
-  const filteredBots = bots.filter((b) => {
+  const { uniqueExchanges, uniqueSymbols } = useMemo(
+    () => getUniqueExchangesAndSymbols(bots),
+    [bots]
+  )
+
+  const statusFiltered = bots.filter((b) => {
     if (filterStatus === 'running') return b.running
     if (filterStatus === 'stopped') return !b.running
     return true
-  }).sort((a, b) => {
+  })
+  const filteredBots = filterBotsByExchangeAndSymbol(
+    statusFiltered,
+    filterExchange,
+    filterSymbol
+  ).sort((a, b) => {
     if (a.running && !b.running) return -1
     if (!a.running && b.running) return 1
     return 0
@@ -272,6 +286,40 @@ const BotList: React.FC = () => {
               {t('botList.stopped')}
             </Button>
           </ButtonGroup>
+          {(uniqueExchanges.length > 0 || uniqueSymbols.length > 0) && (
+            <HStack spacing={2}>
+              {uniqueExchanges.length > 0 && (
+                <Select
+                  size="sm"
+                  w="auto"
+                  minW="120px"
+                  value={filterExchange}
+                  onChange={(e) => setFilterExchange(e.target.value)}
+                  borderRadius="lg"
+                >
+                  <option value="">{t('botList.filterExchangeAll')}</option>
+                  {uniqueExchanges.map((ex) => (
+                    <option key={ex} value={ex}>{ex}</option>
+                  ))}
+                </Select>
+              )}
+              {uniqueSymbols.length > 0 && (
+                <Select
+                  size="sm"
+                  w="auto"
+                  minW="120px"
+                  value={filterSymbol}
+                  onChange={(e) => setFilterSymbol(e.target.value)}
+                  borderRadius="lg"
+                >
+                  <option value="">{t('botList.filterSymbolAll')}</option>
+                  {uniqueSymbols.map((sym) => (
+                    <option key={sym} value={sym}>{sym}</option>
+                  ))}
+                </Select>
+              )}
+            </HStack>
+          )}
           <Button leftIcon={<RepeatIcon />} size="sm" variant="outline" onClick={fetchBots} borderRadius="lg">
             {t('common.refresh')}
           </Button>

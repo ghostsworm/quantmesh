@@ -368,7 +368,9 @@
     "profitSpread": "منافع کا فاصلہ",
     "orderQuantity": "آرڈر کی رقم",
     "totalCapital": "سرمایہ",
-    "totalInvestment": "کل سرمایہ کاری"
+    "totalInvestment": "کل سرمایہ کاری",
+    "filterExchangeAll": "تمام ایکسچینج",
+    "filterSymbolAll": "تمام علامات"
   },
   "error": {
     "bot_symbol_conflict": "اس علامت کے لیے بوٹ پہلے سے موجود ہے۔",

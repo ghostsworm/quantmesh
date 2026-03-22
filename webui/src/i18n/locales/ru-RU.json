@@ -115,7 +115,9 @@
     "profitSpread": "Прибыльный интервал",
     "orderQuantity": "Сумма заказа",
     "totalCapital": "Капитал",
-    "totalInvestment": "Общие инвестиции"
+    "totalInvestment": "Общие инвестиции",
+    "filterExchangeAll": "Все биржи",
+    "filterSymbolAll": "Все символы"
   },
   "error": {
     "bot_symbol_conflict": "Бот для этого символа уже существует.",
