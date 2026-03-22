@@ -160,15 +160,34 @@ func TestBotManagerAutoPausesSingleLegAfterGrace(t *testing.T) {
 	}
 }
 
-// TestBotManagerIsBotEnabledInDB_StorageUnavailable 驗證存儲不可用時保守返回禁用
+// TestBotManagerIsBotEnabledInDB_StorageUnavailable 驗證存儲不可用時：無文件記錄則保守返回禁用
 func TestBotManagerIsBotEnabledInDB_StorageUnavailable(t *testing.T) {
 	bm := &BotManager{storageService: nil}
 	enabled, reason := bm.IsBotEnabledInDB("test-bot")
 	if enabled {
-		t.Fatalf("storage 不可用時應保守返回 enabled=false，got enabled=true")
+		t.Fatalf("storage 不可用且無文件記錄時應保守返回 enabled=false，got enabled=true")
 	}
 	if reason != "storage_unavailable" {
 		t.Fatalf("expected reason=storage_unavailable, got %q", reason)
+	}
+}
+
+// TestBotManagerIsBotEnabledInDB_StorageNil_FileFallback 驗證存儲為 nil 時從文件讀取（修復 EnableBot 寫文件後 StartBot 仍拒絕啟動）
+func TestBotManagerIsBotEnabledInDB_StorageNil_FileFallback(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bot_states.json")
+	data := `{"enabled-bot":{"enabled":true,"reason":"用戶通過 Web UI 啟用"}}`
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	bm := &BotManager{storageService: nil, botStatesFileOverride: path}
+	enabled, reason := bm.IsBotEnabledInDB("enabled-bot")
+	if !enabled {
+		t.Fatalf("文件中有 enabled=true 時應返回 enabled=true，got enabled=false")
+	}
+	if reason != "from_file" {
+		t.Fatalf("expected reason=from_file, got %q", reason)
 	}
 }
 
