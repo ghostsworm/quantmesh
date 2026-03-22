@@ -105,6 +105,7 @@ import type { SymbolTarget } from './ConfigSaveOptionsModal'
 import ParamAdvisor from './ParamAdvisor'
 import { trackConfigSaved } from '../services/telemetry'
 import { SUPPORTED_EXCHANGES, EXCHANGES_REQUIRING_PASSPHRASE } from '../constants/exchanges'
+import { hasTradingParamChanges } from '../utils/configSaveOptions'
 
 const MotionBox = motion(Box)
 
@@ -613,11 +614,23 @@ const Configuration: React.FC = () => {
   const handleSave = async () => {
     if (!config) return
     const targets = getSaveTargets()
-    if (targets.length > 0) {
-      onPreviewClose()
-      setSaveOptionsOpen(true)
-    } else {
-      await doSaveConfig()
+    try {
+      const diff = await previewConfig(config)
+      const needsSaveOptions = targets.length > 0 && hasTradingParamChanges(diff)
+      if (needsSaveOptions) {
+        onPreviewClose()
+        setSaveOptionsOpen(true)
+      } else {
+        await doSaveConfig()
+      }
+    } catch {
+      // 无法获取 diff 时保守处理：有 targets 则弹框
+      if (targets.length > 0) {
+        onPreviewClose()
+        setSaveOptionsOpen(true)
+      } else {
+        await doSaveConfig()
+      }
     }
   }
 
