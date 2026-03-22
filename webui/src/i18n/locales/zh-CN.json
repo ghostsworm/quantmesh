@@ -3839,6 +3839,7 @@
     "price": "价格"
   },
   "klineChart": {
+    "intervalSelector": "K线周期选择",
     "loadFailed": "加载K线数据失败",
     "title": "K线图",
     "changeSymbol": "切换币种",

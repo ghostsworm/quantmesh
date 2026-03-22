@@ -3836,6 +3836,7 @@
     "price": "Price"
   },
   "klineChart": {
+    "intervalSelector": "K-line interval selector",
     "loadFailed": "Failed to load K-line data",
     "title": "K-Line Chart",
     "changeSymbol": "Change Symbol",
