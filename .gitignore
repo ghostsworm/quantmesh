@@ -43,6 +43,7 @@ data/
 
 # Config files with sensitive data (keep example configs)
 config.yaml
+config.yaml.migrated.*.bak
 config.json
 !config.example.yaml
 !config.example.json

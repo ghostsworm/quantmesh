@@ -262,37 +262,61 @@ func upsertBotConfigTx(ctx context.Context, tx *sql.Tx, dbType string, botID str
 	return nextRev, nil
 }
 
-// MigrateYAMLToAppConfigDB 將主 config.yaml 與 bots/*/config.yaml 寫入主庫文檔表（冪等：已存在時需 QUANTMESH_MIGRATE_APP_CONFIG_FORCE=1）
-func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, botsDir string) error {
+// MigrateYAMLMode 主配置 YAML 入庫模式
+type MigrateYAMLMode int
+
+const (
+	// MigrateYAMLModeCLI 手動遷移：已存在 app_config 時需 QUANTMESH_MIGRATE_APP_CONFIG_FORCE=1
+	MigrateYAMLModeCLI MigrateYAMLMode = iota
+	// MigrateYAMLModeAuto 啟動自動遷移：已存在有效快照則跳過（不報錯）
+	MigrateYAMLModeAuto
+)
+
+// MigrateYAMLToAppConfigDB 將主 config.yaml 與 bots/*/config.yaml 寫入主庫文檔表。
+// 返回 migrated=true 表示本次寫入了數據庫（可用於歸檔 YAML）。
+func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, botsDir string, mode MigrateYAMLMode) (bool, error) {
 	ss, ok := st.(*SQLiteStorage)
 	if !ok || ss == nil {
-		return fmt.Errorf("MigrateYAMLToAppConfigDB: 需要主庫 *SQLiteStorage")
+		return false, fmt.Errorf("MigrateYAMLToAppConfigDB: 需要主庫 *SQLiteStorage")
 	}
-	if os.Getenv("QUANTMESH_MIGRATE_APP_CONFIG_FORCE") != "1" {
-		doc, err := ss.GetAppConfigDocument(ctx)
-		if err != nil {
-			return err
+	doc, err := ss.GetAppConfigDocument(ctx)
+	if err != nil {
+		return false, err
+	}
+	hasExisting := doc != nil && doc.Revision > 0 && strings.TrimSpace(doc.Content) != ""
+	if mode == MigrateYAMLModeAuto {
+		if hasExisting {
+			return false, nil
 		}
-		if doc != nil && doc.Revision > 0 && strings.TrimSpace(doc.Content) != "" {
-			return fmt.Errorf("app_config 已存在（revision=%d），設置環境變量 QUANTMESH_MIGRATE_APP_CONFIG_FORCE=1 後重試", doc.Revision)
+	} else {
+		if hasExisting && os.Getenv("QUANTMESH_MIGRATE_APP_CONFIG_FORCE") != "1" {
+			return false, fmt.Errorf("app_config 已存在（revision=%d），設置環境變量 QUANTMESH_MIGRATE_APP_CONFIG_FORCE=1 後重試", doc.Revision)
 		}
 	}
+
+	op := "cli"
+	src := "migrate_yaml"
+	if mode == MigrateYAMLModeAuto {
+		op = "auto"
+		src = "auto_startup"
+	}
+
 	cfg, err := config.LoadConfig(mainConfigPath)
 	if err != nil {
-		return err
+		return false, err
 	}
 	jsonBytes, err := json.Marshal(cfg)
 	if err != nil {
-		return err
+		return false, err
 	}
 	tx, err := ss.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 
-	if _, err := upsertAppConfigTx(ctx, tx, ss.dbType, 1, string(jsonBytes), "cli", "migrate_yaml"); err != nil {
-		return err
+	if _, err := upsertAppConfigTx(ctx, tx, ss.dbType, 1, string(jsonBytes), op, src); err != nil {
+		return false, err
 	}
 
 	if botsDir == "" {
@@ -300,7 +324,7 @@ func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, b
 	}
 	entries, err := os.ReadDir(botsDir)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return false, err
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -314,17 +338,40 @@ func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, b
 		}
 		var bf config.BotConfigFile
 		if err := yaml.Unmarshal(data, &bf); err != nil {
-			return fmt.Errorf("解析 bot %s 配置: %w", botID, err)
+			return false, fmt.Errorf("解析 bot %s 配置: %w", botID, err)
 		}
 		botJSON, err := json.Marshal(bf)
 		if err != nil {
-			return err
+			return false, err
 		}
-		if _, err := upsertBotConfigTx(ctx, tx, ss.dbType, botID, 1, string(botJSON), "cli", "migrate_yaml"); err != nil {
-			return err
+		if _, err := upsertBotConfigTx(ctx, tx, ss.dbType, botID, 1, string(botJSON), op, src); err != nil {
+			return false, err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// LoadConfigFromAppConfigDBIfExists 僅打開 SQLite 主庫並嘗試讀取 app_config（無快照時返回 nil, nil）。用於磁盤無 config.yaml 時的啟動引導。
+func LoadConfigFromAppConfigDBIfExists(sqlitePath string) (*config.Config, error) {
+	if strings.TrimSpace(sqlitePath) == "" {
+		return nil, nil
+	}
+	st, err := NewSQLiteStorage(sqlitePath)
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	doc, err := st.GetAppConfigDocument(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil || doc.Revision < 1 || strings.TrimSpace(doc.Content) == "" {
+		return nil, nil
+	}
+	return config.LoadConfigFromJSON([]byte(doc.Content))
 }
 
 // ApplyAppConfigFromDBIfPresent 若 app_config 有有效快照則覆蓋內存中的 *Config（環境變量 QUANTMESH_USE_APP_CONFIG=0 可禁用）

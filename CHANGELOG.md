@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc2] - 2026-03-23
+
+### Fixed
+- **零參與自動遷移後二次啟動**：`config.yaml` 已歸檔且磁盤上無 YAML 時，啟動時先按 `QUANTMESH_SQLITE_PATH`（默認 `./data/quantmesh.db`）從主庫 `app_config` 加載配置，避免誤走「最小化向導」路徑
+- **測試**：`MigrateYAMLToAppConfigDB` 簽名變更後更新 `storage` 單元測試
+
+### Changed
+- **.gitignore**：忽略 `config.yaml.migrated.*.bak` 歸檔文件
+
+---
+
 ## [3.79.6-rc1] - 2026-03-23
 
 ### Added
