@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.4-rc1] - 2026-03-22
+
+### Added
+- **K 線 API 無 Bot 支持**：`GET /api/klines` 在未啟動對應交易對 Bot 時，可通過 `exchange`+`symbol` 參數使用公開 API 拉取主流幣 K 線（如 Binance 無需 API 密鑰）
+- **全局 K 線深度菜單**：側欄新增「K線深度」入口，全局模式下可先選幣種再查看 K 線圖表，無需進入某個 Bot
+
+### Changed
+- **exchange**：新增 `NewExchangeForPublicKlines`，支持 Binance 公開 K 線查詢
+- **web**：`getKlines` 在 provider 為空時嘗試創建公開數據適配器
+
+---
+
 ## [3.79.3-rc2] - 2026-03-22
 
 ### Changed

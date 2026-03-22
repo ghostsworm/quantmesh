@@ -2,6 +2,8 @@ package exchange
 
 import (
 	"fmt"
+	"strings"
+
 	"quantmesh/config"
 	"quantmesh/exchange/ascendex"
 	"quantmesh/exchange/binance"
@@ -569,5 +571,26 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 
 	default:
 		return nil, fmt.Errorf("不支援的交易所: %s", exchangeName)
+	}
+}
+
+// NewExchangeForPublicKlines 創建僅用於獲取公開 K 線數據的交易所實例（無需 API 密鑰）。
+// 適用於未啟動 bot 時查詢主流幣種 K 線，如 Binance 的 K 線為公開接口。
+func NewExchangeForPublicKlines(exchangeName, symbol string) (IExchange, error) {
+	exchangeName = strings.ToLower(exchangeName)
+	switch exchangeName {
+	case "binance":
+		cfgMap := map[string]string{
+			"api_key":    "",
+			"secret_key": "",
+			"testnet":    "false",
+		}
+		adapter, err := binance.NewBinanceAdapterForPublicData(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &binanceWrapper{adapter: adapter}, nil
+	default:
+		return nil, fmt.Errorf("交易所 %s 暫不支援無認證公開 K 線查詢，請先啟動對應交易對的 bot", exchangeName)
 	}
 }

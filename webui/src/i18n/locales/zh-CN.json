@@ -3838,7 +3838,10 @@
   },
   "klineChart": {
     "loadFailed": "加载K线数据失败",
-    "title": "K线图"
+    "title": "K线图",
+    "changeSymbol": "切换币种",
+    "globalSelectSymbol": "请先选择交易所和交易对查看 K 线（支持主流币，无需启动 Bot）",
+    "showChart": "查看图表"
   },
   "volatilityIndicator": {
     "title": "24h波动率",
