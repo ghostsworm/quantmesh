@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.5-rc2] - 2026-03-22
+
+### Removed
+- **CD 飞书通知**：移除 GitHub Actions CD workflow 中的 Release 成功后飞书 Webhook 通知
+
+---
+
 ## [3.79.5-rc1] - 2026-03-22
 
 ### Added
