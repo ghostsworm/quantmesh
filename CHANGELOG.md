@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.5-rc6] - 2026-03-23
+
+### Added
+- **文档**：新增 [主配置数据库化设计文档](docs/config-database-design.md)（`app_config` JSON 文档模型、数组与迁移策略、与 `system_settings` 过渡期关系）
+
+---
+
 ## [3.79.5-rc5] - 2026-03-22
 
 ### Changed
