@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc3] - 2026-03-23
+
+### Fixed
+- **測試**：`MockGridExchange` 實現 `position.IExchange` 全量存根，避免嵌入 nil 接口導致 `GetAccount` 等調用 panic（`TestGridStrategy_Delegation`）
+- **測試**：`MockRiskExchange` 覆蓋 `GetName` / `StopKlineStream`，避免嵌入 nil `exchange.IExchange` 時 panic（`TestRiskMonitor_IsTriggered`）
+
+---
+
 ## [3.79.6-rc2] - 2026-03-23
 
 ### Fixed

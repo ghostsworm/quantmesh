@@ -7,11 +7,14 @@ import (
 	"testing"
 )
 
-// MockRiskExchange 模拟风控所需的交易所方法
+// MockRiskExchange 模拟风控所需的交易所方法。
+// 勿只嵌入 exchange.IExchange 而不赋值：未覆蓋的方法會转发到 nil 接口並在運行時 panic。
 type MockRiskExchange struct {
 	exchange.IExchange
 	HistoricalKlines []*exchange.Candle
 }
+
+func (m *MockRiskExchange) GetName() string { return "mock" }
 
 func (m *MockRiskExchange) GetHistoricalKlines(ctx context.Context, symbol, interval string, limit int) ([]*exchange.Candle, error) {
 	return m.HistoricalKlines, nil
@@ -20,6 +23,8 @@ func (m *MockRiskExchange) GetHistoricalKlines(ctx context.Context, symbol, inte
 func (m *MockRiskExchange) StartKlineStream(ctx context.Context, symbols []string, interval string, callback exchange.CandleUpdateCallback) error {
 	return nil
 }
+
+func (m *MockRiskExchange) StopKlineStream() error { return nil }
 
 func TestRiskMonitor_IsTriggered(t *testing.T) {
 	cfg := &config.Config{}

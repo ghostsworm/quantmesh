@@ -37,19 +37,33 @@ func (m *MockGridExecutor) BatchPlaceOrdersWithDetails(orders []*position.OrderR
 	}
 }
 
-// MockGridExchange 模拟交易所
-type MockGridExchange struct {
-	position.IExchange
-}
+// MockGridExchange 模拟交易所（必須實現 position.IExchange 全量方法；勿嵌入 nil 接口否則未實現方法會 panic）
+type MockGridExchange struct{}
 
 func (m *MockGridExchange) GetName() string      { return "mock" }
 func (m *MockGridExchange) GetBaseAsset() string { return "BTC" }
 func (m *MockGridExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
 	return nil, nil
 }
-func (m *MockGridExchange) GetQuoteAsset() string { return "USDT" }
+func (m *MockGridExchange) GetOpenOrders(ctx context.Context, symbol string) (interface{}, error) {
+	return nil, nil
+}
+func (m *MockGridExchange) GetOrder(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
+	return nil, nil
+}
+func (m *MockGridExchange) CancelAllOrders(ctx context.Context, symbol string) error { return nil }
+func (m *MockGridExchange) GetAccount(ctx context.Context) (interface{}, error)       { return nil, nil }
 func (m *MockGridExchange) GetPriceDecimals() int    { return 2 }
 func (m *MockGridExchange) GetQuantityDecimals() int { return 3 }
+func (m *MockGridExchange) GetOrderBook(ctx context.Context, symbol string, limit int) (*position.OrderBook, error) {
+	return &position.OrderBook{}, nil
+}
+func (m *MockGridExchange) GetOrderFills(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
+	return nil, nil
+}
+func (m *MockGridExchange) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	return 50000, nil
+}
 
 func TestGridStrategy_Delegation(t *testing.T) {
 	cfg := &config.Config{}
