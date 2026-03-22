@@ -1,12 +1,18 @@
 package kraken
 
 import (
+	"encoding/base64"
 	"testing"
 )
 
+// Kraken API secret 在签名時需能 base64 解碼；測試中用固定合法串避免請求階段報錯。
+func testKrakenValidSecret() string {
+	return base64.StdEncoding.EncodeToString([]byte("test-secret-key-bytes!!"))
+}
+
 func TestNewKrakenClient(t *testing.T) {
 	apiKey := "test_api_key"
-	secretKey := "test_secret_key"
+	secretKey := testKrakenValidSecret()
 
 	client := NewKrakenClient(apiKey, secretKey)
 	if client == nil {
@@ -21,7 +27,7 @@ func TestNewKrakenClient(t *testing.T) {
 }
 
 func TestSignRequest(t *testing.T) {
-	client := NewKrakenClient("test_key", "test_secret")
+	client := NewKrakenClient("test_key", testKrakenValidSecret())
 
 	path := "/0/private/Balance"
 	nonce := "1234567890"
@@ -43,7 +49,7 @@ func TestSignRequest(t *testing.T) {
 func TestNewAdapter(t *testing.T) {
 	config := map[string]string{
 		"api_key":    "test_api_key",
-		"secret_key": "test_secret_key",
+		"secret_key": testKrakenValidSecret(),
 		"testnet":    "false",
 	}
 
@@ -64,7 +70,7 @@ func TestNewAdapter(t *testing.T) {
 func TestAdapterBasicMethods(t *testing.T) {
 	config := map[string]string{
 		"api_key":    "test_api_key",
-		"secret_key": "test_secret_key",
+		"secret_key": testKrakenValidSecret(),
 		"testnet":    "false",
 	}
 
@@ -78,8 +84,9 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("價格精度应該大於 0")
 	}
 
-	if adapter.GetQuantityDecimals() <= 0 {
-		t.Error("數量精度应該大於 0")
+	// 合約/整數張數時數量小數位可為 0
+	if adapter.GetQuantityDecimals() < 0 {
+		t.Error("數量精度不應為負")
 	}
 
 	if adapter.GetBaseAsset() == "" {

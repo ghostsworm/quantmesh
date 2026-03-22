@@ -104,7 +104,7 @@ func getPrecision(tickSize float64) int {
 
 // GetName 獲取交易所名称
 func (a *Adapter) GetName() string {
-	return "kraken"
+	return "Kraken"
 }
 
 // GetMarketType 獲取市場類型：futures 合約

@@ -85,8 +85,8 @@ func TestAdapterBasicMethods(t *testing.T) {
 		t.Error("價格精度应該大於 0")
 	}
 
-	if adapter.GetQuantityDecimals() <= 0 {
-		t.Error("數量精度应該大於 0")
+	if adapter.GetQuantityDecimals() < 0 {
+		t.Error("數量精度不應為負")
 	}
 
 	if adapter.GetBaseAsset() == "" {

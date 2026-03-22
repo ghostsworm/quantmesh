@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc5] - 2026-03-23
+
+### Fixed
+- **交易所測試**：各 `client_test` 中數量精度改為「不得為負」（合約整數張時可為 0）；Kraken 測試用合法 base64 secret、`ContractInfo` 數值字段與 API 對齊；KuCoin/MEXC/Phemex 等適配器與前述輪次一致
+- **Bitfinex**：`GetName` 顯示為 `Bitfinex`
+- **CoinEx**：僅在 API 返回有效精度/幣種時覆蓋默認值
+- **Deribit**：`NewAdapter` 不再強制先 `Authenticate`（公共 `get_instruments` 無需密鑰）
+- **Huobi**：`contract_size` JSON 兼容數值；獲取合約失敗時從 `contractCode` 補全基礎/報價資產
+
+---
+
 ## [3.79.6-rc4] - 2026-03-23
 
 ### Fixed

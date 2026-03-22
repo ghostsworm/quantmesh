@@ -56,8 +56,12 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 		logger.Warn("Failed to get MEXC exchange info: %v", err)
 	} else {
 		if detail, ok := exchangeInfo.Symbols[adapter.symbol]; ok {
-			adapter.priceDecimals = detail.PriceScale
-			adapter.quantityDecimals = detail.VolScale
+			if detail.PriceScale > 0 {
+				adapter.priceDecimals = detail.PriceScale
+			}
+			if detail.VolScale > 0 {
+				adapter.quantityDecimals = detail.VolScale
+			}
 		}
 	}
 

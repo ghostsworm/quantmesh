@@ -51,10 +51,18 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	if err != nil {
 		logger.Warn("Failed to get CoinEx market: %v", err)
 	} else {
-		adapter.priceDecimals = marketInfo.PricingDecimal
-		adapter.quantityDecimals = marketInfo.TradingDecimal
-		adapter.baseAsset = marketInfo.TradingName
-		adapter.quoteAsset = marketInfo.PricingName
+		if marketInfo.PricingDecimal > 0 {
+			adapter.priceDecimals = marketInfo.PricingDecimal
+		}
+		if marketInfo.TradingDecimal > 0 {
+			adapter.quantityDecimals = marketInfo.TradingDecimal
+		}
+		if marketInfo.TradingName != "" {
+			adapter.baseAsset = marketInfo.TradingName
+		}
+		if marketInfo.PricingName != "" {
+			adapter.quoteAsset = marketInfo.PricingName
+		}
 	}
 
 	return adapter, nil
