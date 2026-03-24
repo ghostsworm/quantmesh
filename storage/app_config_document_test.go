@@ -2,10 +2,36 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
+
+func TestEnsureAppConfigDocumentTables_OnBareDB(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bare.db")
+	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS _placeholder(x INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	s := &SQLiteStorage{db: db, dbType: "sqlite"}
+	if err := s.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetAppConfigDocument(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestMigrateYAMLToAppConfigDB_Minimal(t *testing.T) {
 	dir := t.TempDir()
