@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo/qm_thick_tail_white.svg" alt="QuantMesh Logo" width="200"/>
+  <img src="../../logo/qm_thick_tail_white.svg" alt="QuantMesh Logo" width="200"/>
   
   # QuantMesh Market Maker
   
@@ -13,14 +13,14 @@
   </p>
 
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
-  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../../LICENSE)
   [![GitHub Stars](https://img.shields.io/github/stars/ghostsworm/quantmesh.svg?style=social&label=Stars)](https://github.com/ghostsworm/quantmesh)
   [![GitHub Forks](https://img.shields.io/github/forks/ghostsworm/quantmesh.svg?style=social&label=Forks)](https://github.com/ghostsworm/quantmesh)
   [![GitHub Issues](https://img.shields.io/github/issues/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/issues)
   [![GitHub Release](https://img.shields.io/github/release/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/releases)
   [![Website](https://img.shields.io/badge/Website-quantmesh.io-green.svg)](https://quantmesh.io)
   
-  [简体中文](../../README.md) | [繁體中文](README.zh-TW.md) | [English](docs/i18n/README.en.md) | [Español](docs/i18n/README.es.md) | [Français](docs/i18n/README.fr.md) | [Português](docs/i18n/README.pt.md) | [Deutsch](docs/i18n/README.de.md) | [日本語](docs/i18n/README.ja.md) | [한국어](docs/i18n/README.ko.md) | [Русский](docs/i18n/README.ru.md) | [العربية](docs/i18n/README.ar.md) | [हिन्दी](docs/i18n/README.hi.md) | [Bahasa Indonesia](docs/i18n/README.id.md) | [Tiếng Việt](docs/i18n/README.vi.md) | [ไทย](docs/i18n/README.th.md) | [Türkçe](docs/i18n/README.tr.md) | [Українська](docs/i18n/README.uk.md) | [فارسی](docs/i18n/README.fa.md) | [Nederlands](docs/i18n/README.nl.md) | [Italiano](docs/i18n/README.it.md) | [বাংলা](docs/i18n/README.bn.md) | [اردو](docs/i18n/README.ur.md) | [Polski](docs/i18n/README.pl.md) | [Tagalog](docs/i18n/README.tl.md)
+  [简体中文](../../README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Русский](README.ru.md) | [العربية](README.ar.md) | [हिन्दी](README.hi.md) | [Bahasa Indonesia](README.id.md) | [Tiếng Việt](README.vi.md) | [ไทย](README.th.md) | [Türkçe](README.tr.md) | [Українська](README.uk.md) | [فارسی](README.fa.md) | [Nederlands](README.nl.md) | [Italiano](README.it.md) | [বাংলা](README.bn.md) | [اردو](README.ur.md) | [Polski](README.pl.md) | [Tagalog](README.tl.md)
 </div>
 
 ---
@@ -127,7 +127,7 @@ QuantMesh 是高效能、低延遲的加密貨幣做市商系統，專注於永�
 | **事件與新聞** | 事件中心（價格波動/交易事件）、新聞收集與 AI 分析、預測驗證 |
 | **外掛與擴展** | 外掛載入、授權驗證、自訂策略與交易所適配 |
 
-詳細說明見 [ARCHITECTURE.md](ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](docs/API_REFERENCE.md)。
+詳細說明見 [ARCHITECTURE.md](../../ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](../../docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](../../docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](../../docs/API_REFERENCE.md)。
 
 ## 模組架構
 
@@ -325,7 +325,7 @@ yarn dev
 - **Super Position Manager**：核心倉位管理，基於 Slot 機制管理訂單生命週期
 - **Safety & Risk Control**：多層風控，含啟動檢查、執行時監控與異常熔斷
 
-更多架構說明請參閱 [ARCHITECTURE.md](ARCHITECTURE.md)。
+更多架構說明請參閱 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
 ## 📊 使用統計與隱私保護
 
@@ -373,9 +373,9 @@ VITE_DISABLE_TELEMETRY=1
 ### 📖 詳細說明
 
 更多關於統計功能的詳細說明，請參閱：
-- 📖 [統計功能完整指南](docs/TELEMETRY_GUIDE.md)
-- 🔒 [隱私保護說明](docs/TELEMETRY_PRIVACY.md)
-- 🚀 [快速配置指南](docs/TELEMETRY_SIMPLE_GUIDE.md)
+- 📖 [統計功能完整指南](../../docs/TELEMETRY_GUIDE.md)
+- 🔒 [隱私保護說明](../../docs/TELEMETRY_PRIVACY.md)
+- 🚀 [快速配置指南](../../docs/TELEMETRY_SIMPLE_GUIDE.md)
 
 ---
 
@@ -398,10 +398,10 @@ QuantMesh 支援以加密貨幣支付訂閱與授權：
 2. **直接錢包**：無第三方、較私密、需手動確認（約 1–24 小時）
 
 ### 文件
-- 📖 [使用者支付指南](docs/CRYPTO_PAYMENT_GUIDE.md)
-- 🚀 [快速開始](docs/CRYPTO_PAYMENT_QUICKSTART.md)
-- 🔧 [設定指南](docs/CRYPTO_PAYMENT_SETUP.md)
-- 📊 [實作摘要](docs/reports/CRYPTO_PAYMENT_SUMMARY.md)
+- 📖 [使用者支付指南](../../docs/CRYPTO_PAYMENT_GUIDE.md)
+- 🚀 [快速開始](../../docs/CRYPTO_PAYMENT_QUICKSTART.md)
+- 🔧 [設定指南](../../docs/CRYPTO_PAYMENT_SETUP.md)
+- 📊 [實作摘要](../../docs/reports/CRYPTO_PAYMENT_SUMMARY.md)
 
 ## 📜 授權
 
@@ -428,7 +428,7 @@ QuantMesh 支援以加密貨幣支付訂閱與授權：
 
 **注意**：依 AGPL-3.0，對本專案之貢獻皆以相同 AGPL-3.0 授權發布。
 
-詳見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+詳見 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
 
 ## 📞 聯絡與支援
@@ -438,7 +438,7 @@ QuantMesh 支援以加密貨幣支付訂閱與授權：
 - 💬 **Discord**：歡迎在 [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions) 參與討論
 - 🐛 **Issues**：[GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)
 - 💬 **討論**：[GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)
-- 📖 **文件**：[完整文件](docs/)
+- 📖 **文件**：[完整文件](../../docs/)
 
 ---
 
