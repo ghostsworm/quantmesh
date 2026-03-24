@@ -62,10 +62,10 @@ func EnsureEnvFileIfMissing(dir string, cfg *Config) error {
 		}
 		b.WriteString(fmt.Sprintf("QUANTMESH_SQLITE_PATH=%s\n", sqlitePath))
 	}
-	if cfg.Database.Type == "mysql" && cfg.Database.DSN != "" {
-		b.WriteString("# MySQL（如需從環境覆蓋 DSN，請自行取消註釋並填寫）\n")
-		b.WriteString("# QUANTMESH_DATABASE_DSN=\n")
-	}
+	b.WriteString("# 主庫 DSN（覆蓋 config.yaml 中 database.dsn；敏感信息建議只放 .env）\n")
+	b.WriteString("# QUANTMESH_DATABASE_DSN=\n")
+	b.WriteString("# 可選：mysql | sqlite | postgres（未設時僅在 database.type 為空時根據 DSN 推斷）\n")
+	b.WriteString("# QUANTMESH_DATABASE_TYPE=\n")
 	botsDir := os.Getenv("QUANTMESH_BOTS_DIR")
 	if botsDir == "" {
 		botsDir = "./bots"
@@ -86,6 +86,53 @@ func ApplyStoragePathFromEnv(cfg *Config) {
 			cfg.Storage.Type = "sqlite"
 			cfg.Storage.Path = p
 		}
+	}
+}
+
+// ApplyDatabaseDSNFromEnv 使用環境變量覆蓋主庫連接（十二要素：密碼不進 YAML）。
+// QUANTMESH_DATABASE_DSN：非空時寫入 cfg.Database.DSN（覆蓋 config.yaml）。
+// QUANTMESH_DATABASE_TYPE：可選，非空時寫入 cfg.Database.Type（mysql/sqlite/postgres）。
+// 若未設 TYPE 且 cfg.Database.Type 為空，則根據 DSN 簡單推斷（含 @tcp( / @unix( 視為 mysql 等）。
+// 當 Database 與 Storage 均為 sqlite 時，同步 Storage.Path = Database.DSN（與 Validate 內邏輯一致）。
+func ApplyDatabaseDSNFromEnv(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	dsn := strings.TrimSpace(os.Getenv("QUANTMESH_DATABASE_DSN"))
+	if dsn == "" {
+		return
+	}
+	cfg.Database.DSN = dsn
+
+	if t := strings.TrimSpace(os.Getenv("QUANTMESH_DATABASE_TYPE")); t != "" {
+		cfg.Database.Type = strings.ToLower(t)
+		syncStoragePathWithDatabaseDSN(cfg)
+		return
+	}
+
+	if cfg.Database.Type != "" {
+		syncStoragePathWithDatabaseDSN(cfg)
+		return
+	}
+
+	switch {
+	case strings.Contains(dsn, "@tcp(") || strings.Contains(dsn, "@unix("):
+		cfg.Database.Type = "mysql"
+	case strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://"):
+		cfg.Database.Type = "postgres"
+	default:
+		cfg.Database.Type = "sqlite"
+	}
+	syncStoragePathWithDatabaseDSN(cfg)
+}
+
+func syncStoragePathWithDatabaseDSN(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	if cfg.Database.Type == "sqlite" && strings.TrimSpace(cfg.Database.DSN) != "" &&
+		cfg.Storage.Enabled && cfg.Storage.Type == "sqlite" {
+		cfg.Storage.Path = strings.TrimSpace(cfg.Database.DSN)
 	}
 }
 
