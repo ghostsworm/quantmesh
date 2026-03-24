@@ -1,6 +1,6 @@
 # 文檔多語系 (docs i18n)
 
-本目錄存放文檔的英文與繁體中文版本。專案預設文檔語言為**繁體中文**，位於 `docs/` 根目錄。
+本目錄存放文檔的英文與其他語言版本。倉庫根目錄 [README.md](../../README.md) 為**簡體中文**主說明；繁體版見同目錄 `README.zh-TW.md`。
 
 ## 目錄結構
 
@@ -12,8 +12,9 @@
 
 ## 既有 i18n 檔案（README）
 
-- `README.zh.md`：繁體中文 README（對應根目錄 README）
-- `README.zh-Hans.md`：簡體中文 README
+- `../../README.md`：簡體中文 README（預設）
+- `README.zh-TW.md`：繁體中文 README
+- `README.zh-Hans.md`：簡體中文副本（與根目錄內容可能不同步時請以根目錄為準）
 - `README.en.md`：英文 README
 - `README.es.md`、`README.fr.md`、`README.pt.md`：其他語系
 

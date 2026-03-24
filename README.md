@@ -3,9 +3,9 @@
   
   # QuantMesh Market Maker
   
-  **毫秒級高頻加密貨幣做市商系統**
+  **毫秒级高频加密货币做市商系统**
   
-  <h3>⭐ 如果這個項目對您有幫助，請給個 Star 支持一下！</h3>
+  <h3>⭐ 如果这个项目对您有帮助，请给个 Star 支持一下！</h3>
   <p>
     <a href="https://github.com/ghostsworm/quantmesh">
       <img src="https://img.shields.io/github/stars/ghostsworm/quantmesh?style=social" alt="GitHub Stars">
@@ -20,260 +20,242 @@
   [![GitHub Release](https://img.shields.io/github/release/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/releases)
   [![Website](https://img.shields.io/badge/Website-quantmesh.io-green.svg)](https://quantmesh.io)
   
-  [繁體中文](README.md) | [简体中文](docs/i18n/README.zh-Hans.md) | [English](docs/i18n/README.en.md) | [Español](docs/i18n/README.es.md) | [Français](docs/i18n/README.fr.md) | [Português](docs/i18n/README.pt.md) | [Deutsch](docs/i18n/README.de.md) | [日本語](docs/i18n/README.ja.md) | [한국어](docs/i18n/README.ko.md) | [Русский](docs/i18n/README.ru.md) | [العربية](docs/i18n/README.ar.md) | [हिन्दी](docs/i18n/README.hi.md) | [Bahasa Indonesia](docs/i18n/README.id.md) | [Tiếng Việt](docs/i18n/README.vi.md) | [ไทย](docs/i18n/README.th.md) | [Türkçe](docs/i18n/README.tr.md) | [Українська](docs/i18n/README.uk.md) | [فارسی](docs/i18n/README.fa.md) | [Nederlands](docs/i18n/README.nl.md) | [Italiano](docs/i18n/README.it.md) | [বাংলা](docs/i18n/README.bn.md) | [اردو](docs/i18n/README.ur.md) | [Polski](docs/i18n/README.pl.md) | [Tagalog](docs/i18n/README.tl.md)
+  [简体中文](README.md) | [繁体中文](docs/i18n/README.zh-TW.md) | [English](docs/i18n/README.en.md) | [Español](docs/i18n/README.es.md) | [Français](docs/i18n/README.fr.md) | [Português](docs/i18n/README.pt.md) | [Deutsch](docs/i18n/README.de.md) | [日本語](docs/i18n/README.ja.md) | [한국어](docs/i18n/README.ko.md) | [Русский](docs/i18n/README.ru.md) | [العربية](docs/i18n/README.ar.md) | [हिन्दी](docs/i18n/README.hi.md) | [Bahasa Indonesia](docs/i18n/README.id.md) | [Tiếng Việt](docs/i18n/README.vi.md) | [ไทย](docs/i18n/README.th.md) | [Türkçe](docs/i18n/README.tr.md) | [Українська](docs/i18n/README.uk.md) | [فارسی](docs/i18n/README.fa.md) | [Nederlands](docs/i18n/README.nl.md) | [Italiano](docs/i18n/README.it.md) | [বাংলা](docs/i18n/README.bn.md) | [اردو](docs/i18n/README.ur.md) | [Polski](docs/i18n/README.pl.md) | [Tagalog](docs/i18n/README.tl.md)
 </div>
 
 ---
 
-## 🎯 為何選擇 QuantMesh？
+## 🎯 为何选择 QuantMesh？
 
 | 功能 | QuantMesh | 其他方案 |
 |---------|-----------|----------------|
 | **交易所支援** | 20+ 家 | 通常 3–5 家 |
-| **回應延遲** | 毫秒級 | 秒級 |
-| **風控** | 多層主動控制 | 基礎控制 |
-| **實戰驗證** | $1 億+ 交易量 | 未經驗證 |
-| **Web 介面** | ✅ 完整 React UI | ❌ 無/簡陋 |
-| **開源** | AGPL-3.0 | 閉源/受限 |
-| **即時資料** | 僅 WebSocket | REST 輪詢 |
-| **並行** | 1000+ 單/秒 | 有限 |
+| **回应延迟** | 毫秒级 | 秒级 |
+| **风控** | 多层主动控制 | 基础控制 |
+| **实战验证** | $1 亿+ 交易量 | 未经验证 |
+| **Web 介面** | ✅ 完整 React UI | ❌ 无/简陋 |
+| **开源** | AGPL-3.0 | 闭源/受限 |
+| **即时资料** | 仅 WebSocket | REST 轮询 |
+| **并行** | 1000+ 单/秒 | 有限 |
 
-**核心優勢：**
-- ✅ **實戰驗證**：$1 億+ 交易量驗證
-- ✅ **高效能**：WebSocket 架構，延遲 <10ms
-- ✅ **功能完整**：從交易到監控的完整方案
-- ✅ **透明**：完全開源，可審計程式碼
-- ✅ **可擴展**：外掛系統可自訂
+**核心优势：**
+- ✅ **实战验证**：$1 亿+ 交易量验证
+- ✅ **高效能**：WebSocket 架构，延迟 <10ms
+- ✅ **功能完整**：从交易到监控的完整方案
+- ✅ **透明**：完全开源，可审计代码
+- ✅ **可扩展**：外挂系统可自订
 
 ---
 
-## 📊 效能指標
+## 📊 效能指标
 
-- **交易量**：$1 億+ 實戰驗證
-- **回應延遲**：<10ms（WebSocket 驅動）
+- **交易量**：$1 亿+ 实战验证
+- **回应延迟**：<10ms（WebSocket 驱动）
 - **支援交易所**：20+
-- **並行處理**：1000+ 單/秒
-- **系統可用性**：99.9%+
-- **每日交易能力**：$300 萬+/天（例：ETHUSDC）
+- **并行处理**：1000+ 单/秒
+- **系统可用性**：99.9%+
+- **每日交易能力**：$300 万+/天（例：ETHUSDC）
 
 ---
 
-## 📖 專案簡介
+## 📖 项目简介
 
-QuantMesh 是高效能、低延遲的加密貨幣做市商系統，專注於永續合約市場的單向做多無限獨立網格策略。以 Go 開發，以 WebSocket 即時資料流驅動，旨在為 Binance、Bitget、Gate.io 等主流交易所提供穩定流動性支援。
+QuantMesh 是高效能、低延迟的加密货币做市商系统，专注于永续合约市场的单向做多无限独立网格策略。以 Go 开发，以 WebSocket 即时资料流驱动，旨在为 Binance、Bitget、Gate.io 等主流交易所提供稳定流动性支援。
 
-經過多個版本迭代，我們已使用此系統交易超過 1 億美元虛擬貨幣。例如：交易幣安 ETHUSDC，零手續費，價格間隔 1 美元，每筆 300 美元，每日交易量可超過 300 萬美元、每月超過 5000 萬美元；只要市場震盪或向上即可持續獲利。若市場單邊下跌，3 萬美元保證金可保證下跌 1000 點不爆倉；透過不斷交易拉低成本，回漲 50% 即可保本，漲回開倉價可獲豐厚利潤。若出現單邊急跌，主動風控會自動識別並立即停止交易，待市場恢復後才允許繼續下單，無須擔心插針爆倉。
+经过多个版本迭代，我们已使用此系统交易超过 1 亿美元虚拟货币。例如：交易币安 ETHUSDC，零手续费，价格间隔 1 美元，每笔 300 美元，每日交易量可超过 300 万美元、每月超过 5000 万美元；只要市场震荡或向上即可持续获利。若市场单边下跌，3 万美元保证金可保证下跌 1000 点不爆仓；透过不断交易拉低成本，回涨 50% 即可保本，涨回开仓价可获丰厚利润。若出现单边急跌，主动风控会自动识别并立即停止交易，待市场恢复后才允许继续下单，无须担心插针爆仓。
 
-舉例：ETH 3000 點開始交易，跌至 2700 點約虧 3000 美元；漲回 2850 點以上保本，漲回 3000 點則獲利約 1000–3000 美元。
+举例：ETH 3000 点开始交易，跌至 2700 点约亏 3000 美元；涨回 2850 点以上保本，涨回 3000 点则获利约 1000–3000 美元。
 
-## 📜 專案來源
-
-本專案最初基於 [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) 開發，原始專案由 [dennisyang1986](https://github.com/dennisyang1986) 發布，採用 MIT 授權。
-
-在原始專案基礎上，我們做了以下主要改進與擴展：
-
-- ✨ **完整前端介面**：新增以 React + TypeScript 建構的 Web 管理介面，提供可視化交易監控、配置管理與資料分析
-- 🏦 **交易所擴展**：從原始 3 家（Binance、Bitget、Gate.io）擴展至 **20+ 家主流交易所**
-- 🔒 **金融級穩定性**：全面提升系統可靠性，含完善錯誤處理、並行安全機制、資料一致性保證、自動恢復等
-- 📊 **增強監控**：完善日誌系統、指標收集（Prometheus）、健康檢查與即時告警
-- 🛡️ **強化風控**：多層風險監控、自動對帳、異常熔斷、資金安全保護
-- 🔌 **外掛系統**：支援可擴展外掛機制，便於功能自訂與二次開發
-- 📱 **國際化**：多語介面（21 種語言，含中文/英/波斯語/烏克蘭語/烏爾都語/孟加拉語/泰語等），i18n 支援
-- 🧪 **測試網**：支援多家交易所測試網，便於開發與測試
-
-詳細改進說明與第三方軟體資訊請參閱 [NOTICE](NOTICE) 檔案。
-
-**重要說明**：本專案現以 **GNU Affero General Public License v3.0 (AGPL-3.0)** 分發。依原始專案 MIT 授權要求，我們保留對原始專案的致謝聲明。
 
 ## ✨ 核心特性
 
-- **多交易所支援**：適配 Binance、Bitget、Gate.io、Bybit、EdgeX 等主流平台；支援現貨與合約
-- **毫秒級回應**：全 WebSocket 驅動（行情與訂單流），無輪詢延遲
+- **多交易所支援**：适配 Binance、Bitget、Gate.io、Bybit、EdgeX 等主流平台；支援现货与合约
+- **毫秒级回应**：全 WebSocket 驱动（行情与订单流），无轮询延迟
 - **多策略支援**：
-  - **網格策略**：固定金額模式、超級槽位系統；**網格風控**（止損/止盈/回撤止盈/最大層數/趨勢過濾）、**價格範圍**（軟限制）、**觸發價格**、**等差/等比模式**、**網格上移/下移**、**終止時全部平倉**；進階 P1 資金費率趨勢聯動、P2 訂單簿優化掛單
-  - **DCA / 馬丁格爾 / 均值回歸 / 動量 / 趨勢跟蹤 / 組合策略**：可並行、可分配資金
-- **技術指標庫**：50+ 專業指標（趨勢、動量、波動率、成交量），供策略與回測使用
-- **AI 功能**：市場分析、參數優化、風險評估、情緒分析（新聞 / Polymarket 等）
-- **回測系統**：歷史 K 線回測、多策略回測、20+ 風險指標與報告
-- **強大風控系統**：
-  - **主動風控**：即時監控 K 線成交量異常，自動暫停交易
-  - **資金安全**：啟動前自動檢查餘額、槓桿與最大持倉風險
-  - **自動對帳**：定期同步本地與交易所狀態，確保資料一致
-  - **期權對沖**：支援做多/做空網格與 Put/Call 期權對沖，從 Binance/Deribit 拉取持倉、計算覆蓋率、展期建議
-- **完整監控體系**：Prometheus 指標、Grafana 儀表板、多層告警、Watchdog 健康檢查
-- **事件中心與新聞監控**：價格波動與交易事件記錄、AI 新聞分析與預測驗證
-- **使用統計（可選）**：匿名使用數據收集，幫助改進產品；完全透明、可審查、可禁用
-- **高並行架構**：基於 Goroutine + Channel + Sync.Map 的高效並行模型
+  - **网格策略**：固定金额模式、超级槽位系统；**网格风控**（止损/止盈/回撤止盈/最大层数/趋势过滤）、**价格范围**（软限制）、**触发价格**、**等差/等比模式**、**网格上移/下移**、**终止时全部平仓**；进阶 P1 资金费率趋势联动、P2 订单簿优化挂单
+  - **DCA / 马丁格尔 / 均值回归 / 动量 / 趋势跟踪 / 组合策略**：可并行、可分配资金
+- **技术指标库**：50+ 专业指标（趋势、动量、波动率、成交量），供策略与回测使用
+- **AI 功能**：市场分析、参数优化、风险评估、情绪分析（新闻 / Polymarket 等）
+- **回测系统**：历史 K 线回测、多策略回测、20+ 风险指标与报告
+- **强大风控系统**：
+  - **主动风控**：即时监控 K 线成交量异常，自动暂停交易
+  - **资金安全**：启动前自动检查余额、杠杆与最大持仓风险
+  - **自动对帐**：定期同步本地与交易所状态，确保资料一致
+  - **期权对冲**：支援做多/做空网格与 Put/Call 期权对冲，从 Binance/Deribit 拉取持仓、计算覆盖率、展期建议
+- **完整监控体系**：Prometheus 指标、Grafana 仪表板、多层告警、Watchdog 健康检查
+- **事件中心与新闻监控**：价格波动与交易事件记录、AI 新闻分析与预测验证
+- **使用统计（可选）**：匿名使用数据收集，帮助改进产品；完全透明、可审查、可禁用
+- **高并行架构**：基于 Goroutine + Channel + Sync.Map 的高效并行模型
 
 ## 🏦 支援的交易所
 
-| 交易所 | 狀態 | 日均交易量 | 備註 |
+| 交易所 | 状态 | 日均交易量 | 备注 |
 |--------|------|-----------|------|
 | **Binance** | ✅ Stable | $50B+ | 全球最大交易所 |
-| **Bitget** | ✅ Stable | $10B+ | 合約交易主流平台 |
+| **Bitget** | ✅ Stable | $10B+ | 合约交易主流平台 |
 | **Gate.io** | ✅ Stable | $5B+ | 老牌交易所 |
-| **OKX** | ✅ Stable | $20B+ | 全球前三，中文用戶多 |
-| **Bybit** | ✅ Stable | $15B+ | 合約交易主流平台 |
-| **Huobi (HTX)** | ✅ Stable | $5B+ | 老牌交易所，中文市場強 |
-| **KuCoin** | ✅ Stable | $3B+ | 山寨幣豐富，期貨合約支援 |
-| **Kraken** | ✅ Stable | $2B+ | 合規性強，歐美主流 |
-| **Bitfinex** | ✅ Stable | $1B+ | 老牌交易所，流動性好 |
-| **MEXC（抹茶）** | ✅ Stable | $8B+ | 合約交易量大，山寨幣豐富，支援測試網 |
-| **BingX** | ✅ Stable | $3B+ | 社交交易平台，合約體驗佳，支援測試網 |
-| **Deribit** | ✅ Stable | $2B+ | 全球最大期權交易所，支援期貨+期權，支援測試網 |
-| **BitMEX** | ✅ Stable | $2B+ | 老牌衍生品交易所，最高 100x 槓桿，支援測試網 |
-| **Phemex** | ✅ Stable | $2B+ | 零手續費合約，高效能引擎，支援測試網 |
-| **WOO X** | ✅ Stable | $1.5B+ | 機構級交易所，深度流動性，支援測試網 |
-| **CoinEx** | ✅ Stable | $1B+ | 老牌交易所（2017），山寨幣豐富，支援測試網 |
-| **Bitrue** | ✅ Stable | $1B+ | XRP 生態主要交易所，東南亞市場強，支援測試網 |
-| **XT.COM** | ✅ Stable | $800M+ | 新興交易所，山寨幣豐富，支援測試網 |
-| **BTCC** | ✅ Stable | $500M+ | 老牌交易所（2011），中國首家比特幣交易所，支援測試網 |
-| **AscendEX** | ✅ Stable | $400M+ | 機構級，DeFi 友善，支援測試網 |
-| **Poloniex** | ✅ Stable | $300M+ | 老牌交易所（2014），幣種豐富，支援測試網 |
-| **Crypto.com** | ✅ Stable | $500M+ | 知名品牌，全球數千萬用戶，支援測試網 |
+| **OKX** | ✅ Stable | $20B+ | 全球前三，中文用户多 |
+| **Bybit** | ✅ Stable | $15B+ | 合约交易主流平台 |
+| **Huobi (HTX)** | ✅ Stable | $5B+ | 老牌交易所，中文市场强 |
+| **KuCoin** | ✅ Stable | $3B+ | 山寨币丰富，期货合约支援 |
+| **Kraken** | ✅ Stable | $2B+ | 合规性强，欧美主流 |
+| **Bitfinex** | ✅ Stable | $1B+ | 老牌交易所，流动性好 |
+| **MEXC（抹茶）** | ✅ Stable | $8B+ | 合约交易量大，山寨币丰富，支援测试网 |
+| **BingX** | ✅ Stable | $3B+ | 社交交易平台，合约体验佳，支援测试网 |
+| **Deribit** | ✅ Stable | $2B+ | 全球最大期权交易所，支援期货+期权，支援测试网 |
+| **BitMEX** | ✅ Stable | $2B+ | 老牌衍生品交易所，最高 100x 杠杆，支援测试网 |
+| **Phemex** | ✅ Stable | $2B+ | 零手续费合约，高效能引擎，支援测试网 |
+| **WOO X** | ✅ Stable | $1.5B+ | 机构级交易所，深度流动性，支援测试网 |
+| **CoinEx** | ✅ Stable | $1B+ | 老牌交易所（2017），山寨币丰富，支援测试网 |
+| **Bitrue** | ✅ Stable | $1B+ | XRP 生态主要交易所，东南亚市场强，支援测试网 |
+| **XT.COM** | ✅ Stable | $800M+ | 新兴交易所，山寨币丰富，支援测试网 |
+| **BTCC** | ✅ Stable | $500M+ | 老牌交易所（2011），中国首家比特币交易所，支援测试网 |
+| **AscendEX** | ✅ Stable | $400M+ | 机构级，DeFi 友善，支援测试网 |
+| **Poloniex** | ✅ Stable | $300M+ | 老牌交易所（2014），币种丰富，支援测试网 |
+| **Crypto.com** | ✅ Stable | $500M+ | 知名品牌，全球数千万用户，支援测试网 |
 
-## 功能模組概覽
+## 功能模组概览
 
-| 模組 | 說明 |
+| 模组 | 说明 |
 |------|------|
-| **交易策略** | 網格、DCA、馬丁格爾、均值回歸、動量、趨勢跟蹤、組合策略；支援多交易對與現貨/合約 |
-| **技術分析** | 50+ 技術指標（趨勢、動量、波動率、成交量）；策略信號與回測 |
-| **AI** | 市場分析、參數優化、風險評估、情緒分析、Polymarket 信號 |
-| **回測** | 歷史 K 線回測、多策略、風險指標與 Markdown 報告 |
-| **風控與對帳** | 主動 K 線風控、深度監控、持倉對帳、訂單清理、啟動前安全檢查、期權對沖（Put/Call 覆蓋率、展期建議） |
-| **監控與告警** | Prometheus、Grafana、多層告警、Watchdog、資金費率與價差監控 |
-| **事件與新聞** | 事件中心（價格波動/交易事件）、新聞收集與 AI 分析、預測驗證 |
-| **外掛與擴展** | 外掛載入、授權驗證、自訂策略與交易所適配 |
+| **交易策略** | 网格、DCA、马丁格尔、均值回归、动量、趋势跟踪、组合策略；支援多交易对与现货/合约 |
+| **技术分析** | 50+ 技术指标（趋势、动量、波动率、成交量）；策略信号与回测 |
+| **AI** | 市场分析、参数优化、风险评估、情绪分析、Polymarket 信号 |
+| **回测** | 历史 K 线回测、多策略、风险指标与 Markdown 报告 |
+| **风控与对帐** | 主动 K 线风控、深度监控、持仓对帐、订单清理、启动前安全检查、期权对冲（Put/Call 覆盖率、展期建议） |
+| **监控与告警** | Prometheus、Grafana、多层告警、Watchdog、资金费率与价差监控 |
+| **事件与新闻** | 事件中心（价格波动/交易事件）、新闻收集与 AI 分析、预测验证 |
+| **外挂与扩展** | 外挂载入、授权验证、自订策略与交易所适配 |
 
-詳細說明見 [ARCHITECTURE.md](ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](docs/API_REFERENCE.md)。
+详细说明见 [ARCHITECTURE.md](ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](docs/API_REFERENCE.md)。
 
-## 模組架構
+## 模组架构
 
 ```
 quantmesh_platform/
-├── main.go                    # 主程式入口，元件編排
+├── main.go                    # 主程序入口，元件编排
 │
 ├── config/                    # 配置管理
-│   ├── config.go              # YAML 配置載入與驗證
-│   ├── backup.go              # 配置備份
-│   ├── history.go             # 配置歷史
-│   └── hot_reload.go          # 配置熱更新
+│   ├── config.go              # YAML 配置载入与验证
+│   ├── backup.go              # 配置备份
+│   ├── history.go             # 配置历史
+│   └── hot_reload.go          # 配置热更新
 │
-├── exchange/                  # 交易所抽象層（核心）
-│   ├── interface.go           # IExchange 統一介面
-│   ├── binance/               # 幣安（現貨/合約）
-│   ├── bitget/                # Bitget 實作
-│   ├── gate/                  # Gate.io 實作
-│   └── [20+ 交易所實作]
+├── exchange/                  # 交易所抽象层（核心）
+│   ├── interface.go           # IExchange 统一介面
+│   ├── binance/               # 币安（现货/合约）
+│   ├── bitget/                # Bitget 实作
+│   ├── gate/                  # Gate.io 实作
+│   └── [20+ 交易所实作]
 │
-├── strategy/                  # 策略模組
-│   ├── grid_strategy.go       # 網格策略
+├── strategy/                  # 策略模组
+│   ├── grid_strategy.go       # 网格策略
 │   ├── dca_enhanced.go        # DCA 策略
-│   ├── martingale.go          # 馬丁格爾
-│   ├── mean_reversion.go      # 均值回歸
-│   ├── momentum.go            # 動量策略
-│   ├── trend_following.go     # 趨勢跟蹤
-│   └── combo_strategy.go      # 組合策略
+│   ├── martingale.go          # 马丁格尔
+│   ├── mean_reversion.go      # 均值回归
+│   ├── momentum.go            # 动量策略
+│   ├── trend_following.go     # 趋势跟踪
+│   └── combo_strategy.go      # 组合策略
 │
-├── indicators/                # 技術指標庫
-│   ├── trend.go               # 趨勢指標（MACD、ADX 等）
-│   ├── momentum.go            # 動量指標（RSI、Stochastic 等）
-│   ├── volatility.go          # 波動率指標（ATR、Bollinger 等）
-│   └── volume.go              # 成交量指標
+├── indicators/                # 技术指标库
+│   ├── trend.go               # 趋势指标（MACD、ADX 等）
+│   ├── momentum.go            # 动量指标（RSI、Stochastic 等）
+│   ├── volatility.go          # 波动率指标（ATR、Bollinger 等）
+│   └── volume.go              # 成交量指标
 │
 ├── ai/                        # AI 功能
-│   ├── service/               # 市場分析、參數優化、風險與情緒分析
-│   └── risk_assessor.go       # AI 風險評估
+│   ├── service/               # 市场分析、参数优化、风险与情绪分析
+│   └── risk_assessor.go       # AI 风险评估
 │
-├── backtest/                  # 回測系統
-│   ├── data_fetcher.go        # 歷史 K 線獲取與快取
-│   ├── backtester.go          # 回測引擎
-│   └── metrics.go             # 風險指標
+├── backtest/                  # 回测系统
+│   ├── data_fetcher.go        # 历史 K 线获取与快取
+│   ├── backtester.go          # 回测引擎
+│   └── metrics.go             # 风险指标
 │
-├── position/                  # 倉位管理（核心）
-│   └── super_position_manager.go  # 超級槽位管理器（P1/P2 整合）
+├── position/                  # 仓位管理（核心）
+│   └── super_position_manager.go  # 超级槽位管理器（P1/P2 整合）
 │
-├── safety/                    # 安全與風控
-│   ├── safety.go              # 啟動前安全檢查
-│   ├── risk_monitor.go        # 主動風控（K 線監控）
-│   ├── reconciler.go          # 持倉對帳
-│   ├── order_cleaner.go       # 訂單清理
-│   └── funding_monitor.go     # 資金費率監控
+├── safety/                    # 安全与风控
+│   ├── safety.go              # 启动前安全检查
+│   ├── risk_monitor.go        # 主动风控（K 线监控）
+│   ├── reconciler.go          # 持仓对帐
+│   ├── order_cleaner.go       # 订单清理
+│   └── funding_monitor.go     # 资金费率监控
 │
-├── monitor/                   # 監控（價格、新聞、價差、Watchdog）
+├── monitor/                   # 监控（价格、新闻、价差、Watchdog）
 ├── event/                     # 事件中心
-├── metrics/                   # Prometheus 指標
-├── plugin/                    # 外掛載入與授權
-├── web/                       # Web API 與前端靜態資源
-└── webui/                     # React 前端原始碼
+├── metrics/                   # Prometheus 指标
+├── plugin/                    # 外挂载入与授权
+├── web/                       # Web API 与前端静态资源
+└── webui/                     # React 前端原始码
 ```
 
-## 最佳實踐
+## 最佳实践
 
-1. **刷交易所 VIP**：本系統為刷量工具；若漲跌幅度不大，3000 美元保證金約 2–3 天可刷出 1000 萬美元交易量。
+1. **刷交易所 VIP**：本系统为刷量工具；若涨跌幅度不大，3000 美元保证金约 2–3 天可刷出 1000 万美元交易量。
 
-2. **獲利最佳實踐**：在一輪下跌後進場，先買一筆持倉再啟動軟體，會自動向上一格一格賣出；持倉賣完後停止系統。若不確定是否為低點，可不買底倉啟動，若再跌在低點補一筆持倉後重啟持續賣出，利潤最大化。如此循環持續獲利；下跌時程式會持續拉低成本，只要漲回一半即可保本。
+2. **获利最佳实践**：在一轮下跌后进场，先买一笔持仓再启动软件，会自动向上一格一格卖出；持仓卖完后停止系统。若不确定是否为低点，可不买底仓启动，若再跌在低点补一笔持仓后重启持续卖出，利润最大化。如此循环持续获利；下跌时程序会持续拉低成本，只要涨回一半即可保本。
 
-## 🚀 快速開始
+## 🚀 快速开始
 
-### 方式一：Docker 一鍵運行（推薦，最簡單）
+### 方式一：Docker 一键运行（推荐，最简单）
 
 **只需 3 步：**
 
-1. **克隆倉庫並準備配置**
+1. **克隆仓库并准备配置**
    ```bash
    git clone https://github.com/ghostsworm/quantmesh.git
    cd quantmesh
    cp config.example.yaml config.yaml
    ```
 
-2. **編輯配置**：編輯 `config.yaml`，填入 API Key 與策略參數（見下方配置說明）
+2. **编辑配置**：编辑 `config.yaml`，填入 API Key 与策略参数（见下方配置说明）
 
-3. **啟動服務**
+3. **启动服务**
    ```bash
    docker-compose up -d
    ```
 
-   訪問 **http://localhost:8080** 即可使用 Web UI。
+   访问 **http://localhost:8080** 即可使用 Web UI。
 
-   **停止服務：**
+   **停止服务：**
    ```bash
    docker-compose down
    ```
 
 ---
 
-### 方式二：從源碼編譯運行
+### 方式二：从源码编译运行
 
-#### 環境需求
+#### 环境需求
 - Go 1.21 或更高
-- 網路環境可存取交易所 API
+- 网路环境可存取交易所 API
 
-#### 安裝
+#### 安装
 
-1. **克隆倉庫**
+1. **克隆仓库**
    ```bash
    git clone https://github.com/ghostsworm/quantmesh.git
    cd quantmesh
    ```
 
-2. **安裝依賴**
+2. **安装依赖**
    ```bash
    go mod download
    ```
 
 #### 配置
 
-1. 複製範例配置：
+1. 复制范例配置：
    ```bash
    cp config.example.yaml config.yaml
    ```
 
-2. 編輯 `config.yaml`，填入 API Key 與策略參數：
+2. 编辑 `config.yaml`，填入 API Key 与策略参数：
 
    ```yaml
    app:
-     current_exchange: "binance"  # 選擇交易所
+     current_exchange: "binance"  # 选择交易所
 
    exchanges:
      binance:
@@ -282,14 +264,14 @@ quantmesh_platform/
        fee_rate: 0.0002
 
    trading:
-     symbol: "ETHUSDT"       # 交易對
-     price_interval: 2       # 網格間距（價格）
-     order_quantity: 30      # 每格投入金額 (USDT)
-     buy_window_size: 10     # 買單掛單數量
-     sell_window_size: 10    # 賣單掛單數量
+     symbol: "ETHUSDT"       # 交易对
+     price_interval: 2       # 网格间距（价格）
+     order_quantity: 30      # 每格投入金额 (USDT)
+     buy_window_size: 10     # 买单挂单数量
+     sell_window_size: 10    # 卖单挂单数量
    ```
 
-#### 執行
+#### 执行
 
 **正式模式：**
 
@@ -297,36 +279,36 @@ quantmesh_platform/
 go run main.go
 ```
 
-或編譯後執行：
+或编译后执行：
 
 ```bash
 go build -o quantmesh
 ./quantmesh
 ```
 
-後端將在 port 28888（預設）提供前端靜態檔案。
+后端将在 port 28888（预设）提供前端静态档案。
 
-#### 開發模式
+#### 开发模式
 
-若需前端熱重載與除錯：
+若需前端热重载与除错：
 
-**方式一：使用開發腳本（建議）**
+**方式一：使用开发脚本（建议）**
 
 ```bash
 ./dev.sh
 ```
 
-腳本會：啟動 Go 後端（port 28888）、啟動 Vite 開發伺服器（port 15173）、啟用熱重載與 source map。  
+脚本会：启动 Go 后端（port 28888）、启动 Vite 开发伺服器（port 15173）、启用热重载与 source map。  
 存取 **http://localhost:15173** 即可。
 
-**方式二：手動啟動**
+**方式二：手动启动**
 
-終端 1 - 啟動 Go 後端：
+终端 1 - 启动 Go 后端：
 ```bash
 go run main.go
 ```
 
-終端 2 - 啟動 Vite：
+终端 2 - 启动 Vite：
 ```bash
 cd webui
 yarn dev
@@ -334,47 +316,47 @@ yarn dev
 
 存取 **http://localhost:15173**。
 
-## 🏗️ 架構
+## 🏗️ 架构
 
-系統採模組化設計，核心元件包含：
+系统采模组化设计，核心元件包含：
 
-- **Exchange Layer**：統一交易所介面抽象，屏蔽底層 API 差異
-- **Price Monitor**：全域唯一 WebSocket 價格源，確保決策一致
-- **Super Position Manager**：核心倉位管理，基於 Slot 機制管理訂單生命週期
-- **Safety & Risk Control**：多層風控，含啟動檢查、執行時監控與異常熔斷
+- **Exchange Layer**：统一交易所介面抽象，屏蔽底层 API 差异
+- **Price Monitor**：全域唯一 WebSocket 价格源，确保决策一致
+- **Super Position Manager**：核心仓位管理，基于 Slot 机制管理订单生命周期
+- **Safety & Risk Control**：多层风控，含启动检查、执行时监控与异常熔断
 
-更多架構說明請參閱 [ARCHITECTURE.md](ARCHITECTURE.md)。
+更多架构说明请参阅 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-## 📊 使用統計與隱私保護
+## 📊 使用统计与隐私保护
 
-QuantMesh 包含一個可選的使用統計功能，用於收集匿名的使用數據，幫助我們了解項目使用情況並改進產品。**所有數據收集都是完全透明的，代碼可審查，並且可以隨時禁用。**
+QuantMesh 包含一个可选的使用统计功能，用于收集匿名的使用数据，帮助我们了解项目使用情况并改进产品。**所有数据收集都是完全透明的，代码可审查，并且可以随时禁用。**
 
-### 🔒 隱私保護
+### 🔒 隐私保护
 
-**我們收集的數據（匿名）：**
-- ✅ **基礎信息**：版本號、操作系統、架構、實例 ID（隨機生成的 UUID）
-- ✅ **使用情況**：使用的交易所名稱、交易幣種對
-- ✅ **性能指標**：API 請求/響應耗時、WebSocket 延時
-- ✅ **交易活動**：交易方向（買入/賣出），不包含交易金額
+**我们收集的数据（匿名）：**
+- ✅ **基础信息**：版本号、操作系统、架构、实例 ID（随机生成的 UUID）
+- ✅ **使用情况**：使用的交易所名称、交易币种对
+- ✅ **性能指标**：API 请求/响应耗时、WebSocket 延时
+- ✅ **交易活动**：交易方向（买入/卖出），不包含交易金额
 
-**我們不收集的數據：**
-- ❌ **IP 地址**：前端已禁用 IP 捕獲，後端使用實例 ID 而非 IP
-- ❌ **地理位置**：不收集經緯度、城市等位置信息
-- ❌ **個人信息**：不收集用戶 ID、郵箱、姓名等任何身份信息
-- ❌ **敏感數據**：不收集 API 密鑰、交易金額、賬戶餘額、持倉信息
-- ❌ **財務數據**：不收集任何財務或交易敏感信息
+**我们不收集的数据：**
+- ❌ **IP 地址**：前端已禁用 IP 捕获，后端使用实例 ID 而非 IP
+- ❌ **地理位置**：不收集经纬度、城市等位置信息
+- ❌ **个人信息**：不收集用户 ID、邮箱、姓名等任何身份信息
+- ❌ **敏感数据**：不收集 API 密钥、交易金额、账户余额、持仓信息
+- ❌ **财务数据**：不收集任何财务或交易敏感信息
 
-### 🛡️ 隱私保護措施
+### 🛡️ 隐私保护措施
 
-1. **實例 ID 機制**：使用隨機生成的 UUID 作為唯一標識符，存儲在 `./data/instance_id` 文件中，不包含任何個人信息
-2. **前端 IP 禁用**：PostHog SDK 配置了 `ip_capture: false`，禁用 IP 地址捕獲和地理位置推斷
-3. **後端不發送 IP**：後端代碼不發送 IP 地址到統計服務
-4. **完全可選**：用戶可以隨時通過環境變量禁用統計功能
-5. **代碼透明**：所有統計代碼都可以審查，位於 `utils/telemetry.go`
+1. **实例 ID 机制**：使用随机生成的 UUID 作为唯一标识符，存储在 `./data/instance_id` 文件中，不包含任何个人信息
+2. **前端 IP 禁用**：PostHog SDK 配置了 `ip_capture: false`，禁用 IP 地址捕获和地理位置推断
+3. **后端不发送 IP**：后端代码不发送 IP 地址到统计服务
+4. **完全可选**：用户可以随时通过环境变量禁用统计功能
+5. **代码透明**：所有统计代码都可以审查，位于 `utils/telemetry.go`
 
-### ⚙️ 如何禁用統計
+### ⚙️ 如何禁用统计
 
-**方法一：環境變量（推薦）**
+**方法一：环境变量（推荐）**
 ```bash
 export QUANTMESH_DISABLE_TELEMETRY=1
 ```
@@ -385,90 +367,85 @@ export QUANTMESH_DISABLE_TELEMETRY=1
 VITE_DISABLE_TELEMETRY=1
 ```
 
-**方法三：修改代碼**
-編輯 `utils/telemetry.go`，將 `Enabled` 設為 `false`
+**方法三：修改代码**
+编辑 `utils/telemetry.go`，将 `Enabled` 设为 `false`
 
-### 📖 詳細說明
+### 📖 详细说明
 
-更多關於統計功能的詳細說明，請參閱：
-- 📖 [統計功能完整指南](docs/TELEMETRY_GUIDE.md)
-- 🔒 [隱私保護說明](docs/TELEMETRY_PRIVACY.md)
+更多关于统计功能的详细说明，请参阅：
+- 📖 [统计功能完整指南](docs/TELEMETRY_GUIDE.md)
+- 🔒 [隐私保护说明](docs/TELEMETRY_PRIVACY.md)
 - 🚀 [快速配置指南](docs/TELEMETRY_SIMPLE_GUIDE.md)
 
 ---
 
-## ⚠️ 免責聲明
+## ⚠️ 免责声明
 
-本軟體僅供教育與研究使用。加密貨幣交易風險極高，可能導致資金損失。
-- 使用本軟體產生之盈虧由使用者自行承擔。
-- 使用真實資金前請務必在測試網 (Testnet) 充分測試。
-- 開發者不對軟體錯誤、網路延遲或交易所故障所致損失負責。
+本软件仅供教育与研究使用。加密货币交易风险极高，可能导致资金损失。
+- 使用本软件产生之盈亏由使用者自行承担。
+- 使用真实资金前请务必在测试网 (Testnet) 充分测试。
+- 开发者不对软件错误、网路延迟或交易所故障所致损失负责。
 
-## 🪙 加密貨幣支付支援
+## 🪙 加密货币支付支援
 
-QuantMesh 支援以加密貨幣支付訂閱與授權：
+QuantMesh 支援以加密货币支付订阅与授权：
 
-### 支援幣種
+### 支援币种
 - **BTC** (Bitcoin)、**ETH** (Ethereum)、**USDT** (Tether, ERC20)、**USDC** (USD Coin, ERC20)
 
 ### 支付方式
-1. **Coinbase Commerce**（建議）：自動確認、多幣種、簡易付款頁
-2. **直接錢包**：無第三方、較私密、需手動確認（約 1–24 小時）
+1. **Coinbase Commerce**（建议）：自动确认、多币种、简易付款页
+2. **直接钱包**：无第三方、较私密、需手动确认（约 1–24 小时）
 
 ### 文件
 - 📖 [使用者支付指南](docs/CRYPTO_PAYMENT_GUIDE.md)
-- 🚀 [快速開始](docs/CRYPTO_PAYMENT_QUICKSTART.md)
-- 🔧 [設定指南](docs/CRYPTO_PAYMENT_SETUP.md)
-- 📊 [實作摘要](docs/reports/CRYPTO_PAYMENT_SUMMARY.md)
+- 🚀 [快速开始](docs/CRYPTO_PAYMENT_QUICKSTART.md)
+- 🔧 [设定指南](docs/CRYPTO_PAYMENT_SETUP.md)
+- 📊 [实作摘要](docs/reports/CRYPTO_PAYMENT_SUMMARY.md)
 
-## 📜 授權
+## 📜 授权
 
-本專案採用**雙授權 (Dual License)**：
+本项目采用**双授权 (Dual License)**：
 
-### AGPL-3.0 開源授權
-- ✅ 可免費使用、修改與分發
-- ⚠️ **所有衍生作品須開源**並以 AGPL-3.0 發布
-- ⚠️ 即使以網路服務提供也須提供原始碼
-- ⚠️ 修改後程式碼須回饋社群
+### AGPL-3.0 开源授权
+- ✅ 可免费使用、修改与分发
+- ⚠️ **所有衍生作品须开源**并以 AGPL-3.0 发布
+- ⚠️ 即使以网路服务提供也须提供原始码
+- ⚠️ 修改后代码须回馈社群
 
-### 商業授權
-若需在專有應用或服務中使用，或不願開源修改，須購買商業授權。
+### 商业授权
+若需在专有应用或服务中使用，或不愿开源修改，须购买商业授权。
 
-**商業授權範圍**：於專有應用中使用、修改無須開源、可整合至專有產品分發、優先技術支援與更新。
+**商业授权范围**：于专有应用中使用、修改无须开源、可整合至专有产品分发、优先技术支援与更新。
 
-**商業授權洽詢**：📧 contact@quantmesh.io、🌐 https://quantmesh.io/commercial
+**商业授权洽询**：📧 contact@quantmesh.io、🌐 https://quantmesh.io/commercial
 
-詳情請見上方說明；商業授權洽詢：📧 contact@quantmesh.io、🌐 https://quantmesh.io/commercial
+详情请见上方说明；商业授权洽询：📧 contact@quantmesh.io、🌐 https://quantmesh.io/commercial
 
-## 🤝 貢獻
+## 🤝 贡献
 
-歡迎提交 Issue 與 Pull Request。
+欢迎提交 Issue 与 Pull Request。
 
-**注意**：依 AGPL-3.0，對本專案之貢獻皆以相同 AGPL-3.0 授權發布。
+**注意**：依 AGPL-3.0，对本项目之贡献皆以相同 AGPL-3.0 授权发布。
 
-詳見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## 🙏 致謝
 
-感謝原始專案 [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) 作者 [dennisyang1986](https://github.com/dennisyang1986) 的開源貢獻，為本專案奠定基礎。更多資訊請參閱 [NOTICE](NOTICE) 檔案。
+## 📞 联络与支援
 
----
-
-## 📞 聯絡與支援
-
-- 🌐 **官網**：https://quantmesh.io
+- 🌐 **官网**：https://quantmesh.io
 - 📧 **Email**：contact@quantmesh.io
-- 💬 **Discord**：歡迎在 [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions) 參與討論
+- 💬 **Discord**：欢迎在 [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions) 参与讨论
 - 🐛 **Issues**：[GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)
-- 💬 **討論**：[GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)
+- 💬 **讨论**：[GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)
 - 📖 **文件**：[完整文件](docs/)
 
 ---
 
 <div align="center">
   <strong>Made with ❤️ by QuantMesh Team</strong><br/>
-  <sub>若本專案對您有幫助，歡迎給予 ⭐</sub><br/>
-  <sub>Version 3.77.0-rc2</sub>
+  <sub>若本项目对您有帮助，欢迎给予 ⭐</sub><br/>
+  <sub>Version 3.79.6-rc11</sub>
 </div>
 
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
