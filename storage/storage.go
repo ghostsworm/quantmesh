@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -173,6 +174,30 @@ type StorageService struct {
 	stopMu       sync.Mutex
 }
 
+// IsMySQLStorageDSNString 判斷 s 是否為 go-sql-driver/mysql 格式的 DSN（含 @tcp / @unix 等）。
+// 用於區分「真正的 MySQL 連接串」與誤填的 SQLite 路徑（如 ./data/quantmesh.db）。
+func IsMySQLStorageDSNString(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	return strings.Contains(s, "@tcp(") || strings.Contains(s, "@unix(") ||
+		strings.HasPrefix(s, "mysql://")
+}
+
+// resolveMySQLStorageDSN 決定 MySQL 存儲使用的 DSN：storage.path 若為有效 MySQL DSN 則優先；
+// 若為空或像 SQLite 文件路徑，則回退到 database.dsn（避免誤把 .db 路徑當成 DSN）。
+func resolveMySQLStorageDSN(cfg *config.Config) string {
+	path := strings.TrimSpace(cfg.Storage.Path)
+	if path != "" && IsMySQLStorageDSNString(path) {
+		return path
+	}
+	if cfg.Database.DSN != "" {
+		return cfg.Database.DSN
+	}
+	return path
+}
+
 // NewStorageService 創建存儲服務（支援 SQLite/MySQL，PostgreSQL 暂不支持）
 func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService, error) {
 	if !cfg.Storage.Enabled {
@@ -207,11 +232,7 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 			return nil, fmt.Errorf("初始化 SQLite 存儲失败: %w", err)
 		}
 	case "mysql":
-		// 使用 database 配置中的 DSN，或使用 storage.path
-		dsn := cfg.Storage.Path
-		if dsn == "" && cfg.Database.DSN != "" {
-			dsn = cfg.Database.DSN
-		}
+		dsn := resolveMySQLStorageDSN(cfg)
 		ss.storage, err = NewMySQLStorage(dsn)
 		if err != nil {
 			return nil, fmt.Errorf("初始化 MySQL 存儲失败: %w", err)

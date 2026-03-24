@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"quantmesh/storage"
 )
 
 // ServiceStatusItem 單項服務狀態（前端用 id / message_key + message_params 做 i18n，name 僅作兼容）
@@ -37,7 +39,7 @@ func getServicesStatus(c *gin.Context) {
 			storageMsgKey = "storageNotConfigured"
 		} else if globalConfig.Storage.Type == "sqlite" && globalConfig.Storage.Path == "" {
 			storageMsgKey = "storageNotConfigured"
-		} else if globalConfig.Storage.Type == "mysql" && globalConfig.Storage.Path == "" && globalConfig.Database.DSN == "" {
+		} else if globalConfig.Storage.Type == "mysql" && globalConfig.Database.DSN == "" && !storage.IsMySQLStorageDSNString(globalConfig.Storage.Path) {
 			storageMsgKey = "storageNotConfigured"
 		} else if storageServiceProvider == nil {
 			storageMsgKey = "storageProviderNil"

@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc10] - 2026-03-24
+
+### Fixed
+- **存儲**：`storage.type: mysql` 時若 `storage.path` 誤填為 SQLite 路徑（如 `./data/quantmesh.db`），改為自動回退使用 `database.dsn`，避免將路徑當成 MySQL DSN 導致 `default addr for network './data' unknown`；服務狀態 API 同步按「有效 DSN」判斷是否已配置
+
+---
+
 ## [3.79.6-rc9] - 2026-03-24
 
 ### Added
