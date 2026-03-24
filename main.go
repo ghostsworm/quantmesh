@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.6-rc8"
+var Version = "3.79.6-rc9"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1525,6 +1525,7 @@ func main() {
 	}
 
 	config.ApplyStoragePathFromEnv(cfg)
+	config.ApplyDatabaseDSNFromEnv(cfg)
 
 	if err := utils.SetLocation(cfg.System.Timezone); err != nil {
 		logger.Warn("⚠️ 加載時区 %s 失败: %v，將使用默认時区 Asia/Shanghai", cfg.System.Timezone, err)
@@ -1743,6 +1744,9 @@ func main() {
 		if err := storage.ApplyAppConfigFromDBIfPresent(storageService.GetStorage(), &cfg); err != nil {
 			logger.Fatalf("❌ %v", err)
 		}
+		// app_config 覆蓋 YAML 後，仍允許 .env / 環境變量覆蓋 SQLite 路徑與主庫 DSN（密鑰不進庫）
+		config.ApplyStoragePathFromEnv(cfg)
+		config.ApplyDatabaseDSNFromEnv(cfg)
 		// 若從數據庫覆蓋了配置，同步時区、日誌級別與 i18n
 		if err := utils.SetLocation(cfg.System.Timezone); err != nil {
 			logger.Warn("⚠️ 加載時区 %s 失败: %v，將使用默认時区 Asia/Shanghai", cfg.System.Timezone, err)

@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc9] - 2026-03-24
+
+### Added
+- **配置**：`ApplyDatabaseDSNFromEnv` — 啟動時在 `LoadDotEnvIfPresent` 之後應用 `QUANTMESH_DATABASE_DSN`（可選 `QUANTMESH_DATABASE_TYPE`）覆蓋 `database.dsn`，並在雙 sqlite 時同步 `storage.path`；自動生成的 `.env` 模板補充說明
+
+---
+
 ## [3.79.6-rc8] - 2026-03-24
 
 ### Fixed
