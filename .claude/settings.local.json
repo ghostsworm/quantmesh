@@ -25,7 +25,14 @@
       "Bash(mysql:*)",
       "Bash(git describe:*)",
       "Bash(go get:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(do echo \"=== $file ===\" grep \"^func [a-zA-Z]\" \"$file\")",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(while:*)",
+      "Bash(do:*)",
+      "Bash(done:*)"
     ],
     "deny": [],
     "ask": []
