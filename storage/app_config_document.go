@@ -130,6 +130,41 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(h[:])
 }
 
+// isAppConfigTableMissing 判斷是否為「文檔表尚未創建」類錯誤（舊庫或中斷遷移）
+func isAppConfigTableMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "no such table") {
+		return true
+	}
+	// MySQL: Error 1146: Table 'db.app_config' doesn't exist
+	if strings.Contains(msg, "doesn't exist") && strings.Contains(msg, "app_config") {
+		return true
+	}
+	if strings.Contains(msg, "1146") {
+		return true
+	}
+	return false
+}
+
+// EnsureAppConfigDocumentTables 幂等創建 app_config、app_config_history、bot_configs、bot_config_history（SQLite 與 MySQL）。
+// 用於舊部署補表、CLI 修復，以及啟動時與 NewStorage 內遷移雙重保險。
+func (s *SQLiteStorage) EnsureAppConfigDocumentTables() error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("storage 未初始化")
+	}
+	switch s.dbType {
+	case "mysql":
+		return migrateAppConfigDocumentTablesMySQL(s.db)
+	case "sqlite":
+		return migrateAppConfigDocumentTables(s.db)
+	default:
+		return fmt.Errorf("不支援的數據庫類型: %q", s.dbType)
+	}
+}
+
 // GetAppConfigDocument 讀取主配置文檔；無行或空內容時返回 nil, nil
 func (s *SQLiteStorage) GetAppConfigDocument(ctx context.Context) (*AppConfigDocument, error) {
 	if s == nil || s.db == nil {
@@ -143,6 +178,19 @@ func (s *SQLiteStorage) GetAppConfigDocument(ctx context.Context) (*AppConfigDoc
 		FROM app_config WHERE id = ?`, appConfigSingletonID).Scan(
 		&doc.ID, &doc.SchemaVersion, &doc.Content, &doc.Revision, &contentHash, &updatedAt,
 	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil && isAppConfigTableMissing(err) {
+		if e2 := s.EnsureAppConfigDocumentTables(); e2 != nil {
+			return nil, fmt.Errorf("補建 app_config 表失敗: %w (原錯: %v)", e2, err)
+		}
+		err = s.db.QueryRowContext(ctx, `
+		SELECT id, schema_version, content, revision, content_hash, updated_at
+		FROM app_config WHERE id = ?`, appConfigSingletonID).Scan(
+			&doc.ID, &doc.SchemaVersion, &doc.Content, &doc.Revision, &contentHash, &updatedAt,
+		)
+	}
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -278,6 +326,9 @@ func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, b
 	ss, ok := st.(*SQLiteStorage)
 	if !ok || ss == nil {
 		return false, fmt.Errorf("MigrateYAMLToAppConfigDB: 需要主庫 *SQLiteStorage")
+	}
+	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+		return false, fmt.Errorf("確保 app_config 文檔表: %w", err)
 	}
 	doc, err := ss.GetAppConfigDocument(ctx)
 	if err != nil {

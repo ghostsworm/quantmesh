@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc8] - 2026-03-24
+
+### Fixed
+- **存儲**：`app_config` / `bot_configs` 文檔表缺失時自動幂等補建（`GetAppConfigDocument` 自癒、`MigrateYAMLToAppConfigDB` 前強制確保）；新增 `./quantmesh --repair-app-config-tables config.yaml` 與 `scripts/sql/sqlite_app_config_document_tables.sql` 便於線上手動修復
+
+---
+
 ## [3.79.6-rc7] - 2026-03-23
 
 ### Fixed

@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.6-rc7"
+var Version = "3.79.6-rc8"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1409,9 +1409,10 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 解析調試参數（-debug / --debug）與 --migrate-app-config
+	// 解析調試参數（-debug / --debug）與 --migrate-app-config、--repair-app-config-tables
 	debugMode := false
 	migrateAppCfg := false
+	repairAppCfgTables := false
 	filteredArgs := []string{os.Args[0]}
 	for _, arg := range os.Args[1:] {
 		switch arg {
@@ -1419,6 +1420,8 @@ func main() {
 			debugMode = true
 		case "--migrate-app-config":
 			migrateAppCfg = true
+		case "--repair-app-config-tables":
+			repairAppCfgTables = true
 		default:
 			filteredArgs = append(filteredArgs, arg)
 		}
@@ -1674,6 +1677,31 @@ func main() {
 	}
 	logger.Info("✅ 存儲服務初始化完成 (enabled=%v, storage!=nil=%v)", cfg.Storage.Enabled, storageService != nil && storageService.GetStorage() != nil)
 	logger.Info("⏱️ [啟動] 存儲服務完成 (耗時: %v)", time.Since(startTime))
+
+	// 幂等補建 app_config / bot_configs 文檔表（舊部署可能缺少該遷移）
+	if storageService != nil {
+		if st := storageService.GetStorage(); st != nil {
+			if ss, ok := st.(*storage.SQLiteStorage); ok {
+				if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+					logger.Warn("⚠️ 確保 app_config 文檔表失敗: %v", err)
+				}
+			}
+		}
+	}
+	if repairAppCfgTables {
+		if storageService == nil || storageService.GetStorage() == nil {
+			logger.Fatalf("❌ --repair-app-config-tables 需要 storage.enabled=true 且主庫可連接")
+		}
+		ss, ok := storageService.GetStorage().(*storage.SQLiteStorage)
+		if !ok {
+			logger.Fatalf("❌ --repair-app-config-tables 需要 SQLite 或 MySQL 主庫實例")
+		}
+		if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+			logger.Fatalf("❌ 修復 app_config 表失敗: %v", err)
+		}
+		logger.Info("✅ app_config / bot_configs 文檔表已確保存在（幂等）")
+		os.Exit(0)
+	}
 
 	if migrateAppCfg {
 		if storageService == nil || storageService.GetStorage() == nil {
