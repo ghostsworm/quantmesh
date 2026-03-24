@@ -75,6 +75,7 @@ coverage.txt
 coverage.html
 
 # Temporary files
+.venv-readme/
 *.tmp
 *.temp
 *.orig

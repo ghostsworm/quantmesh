@@ -8,7 +8,7 @@
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
   [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../../LICENSE)
   
-  [繁體中文](../../README.md) | [简体中文](README.zh-Hans.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
+  [简体中文](../../README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
 </div>
 
 ---
@@ -21,24 +21,6 @@ QuantMesh Market Maker 是一个高性能、低延迟的加密货币做市商系
 
 举例： eth 3000点开始交易，价格下跌到2700点，亏损约3000美元，价格涨回2850点以上已经保本，涨回3000点，盈利在1000-3000美元。
 
-## 📜 项目来源
-
-本项目最初基于 [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) 开发，原始项目由 [dennisyang1986](https://github.com/dennisyang1986) 发布，采用 MIT 许可证。
-
-在原始项目的基础上，我们进行了以下主要改进和扩展：
-
-- ✨ **完整的前端界面**：新增 React + TypeScript 构建的 Web 管理界面，提供可视化的交易监控、配置管理和数据分析
-- 🏦 **交易所扩展**：从原始项目的 3 个交易所（Binance, Bitget, Gate.io）扩展到 **20+ 个主流交易所**
-- 🔒 **金融级稳定性**：全面提升系统可靠性，包括完善的错误处理、并发安全机制、数据一致性保证、自动恢复等
-- 📊 **增强监控**：完善日志系统、指标收集（Prometheus）、健康检查和实时告警
-- 🛡️ **强化风控**：多层级风险监控、自动对账、异常熔断、资金安全保护
-- 🔌 **插件系统**：支持扩展插件机制，便于功能定制和二次开发
-- 📱 **国际化支持**：多语言界面（中英文），i18n 支持
-- 🧪 **测试网支持**：支持多个交易所的测试网环境，便于开发和测试
-
-详细的改进说明和第三方软件信息请参阅 [NOTICE](../../NOTICE) 文件。
-
-**重要说明**：本项目现采用 **GNU Affero General Public License v3.0 (AGPL-3.0)** 进行分发。根据原始项目的 MIT 许可证要求，我们保留了对原始项目的致谢声明。
 
 ## ✨ 核心特性
 
@@ -253,9 +235,6 @@ go build -o quantmesh
 
 **注意：** 根据 AGPL-3.0 许可，所有对本项目的贡献都将以相同的 AGPL-3.0 许可发布。
 
-## 🙏 致谢
-
-感谢原始项目 [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) 的作者 [dennisyang1986](https://github.com/dennisyang1986) 的开源贡献，为本项目提供了坚实的基础。更多信息请参阅 [NOTICE](../../NOTICE) 文件。
 
 ---
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
