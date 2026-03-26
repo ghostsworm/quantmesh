@@ -736,6 +736,7 @@
     "telegramBot": "텔레그램 봇",
     "token": "토큰",
     "chatId": "채팅 ID",
+    "telegramChatIdHelp": "① Telegram에서 봇에게 아무 메시지나 보냅니다.\n② 브라우저에서 https://api.telegram.org/bot<token>/getUpdates 를 엽니다(<token>을 위 Token으로 바꿈).\n③ JSON 응답의 chat.id를 확인합니다. 개인 ID는 @userinfobot으로도 확인 가능합니다. 그룹은 봇을 먼저 초대하고, 그룹 ID는 보통 음수입니다.",
     "webhook": "Webhook",
     "url": "URL",
     "email": "이메일",

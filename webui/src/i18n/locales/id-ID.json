@@ -513,6 +513,7 @@
     "telegramBot": "Telegram Bot",
     "token": "Token",
     "chatId": "ID Obrolan",
+    "telegramChatIdHelp": "① Kirim pesan apa pun ke bot di Telegram.\n② Buka https://api.telegram.org/bot<token>/getUpdates di browser (ganti <token> dengan Token di atas).\n③ Cari chat.id di JSON. ID pengguna juga lewat @userinfobot; untuk grup, tambahkan bot dulu—ID grup biasanya negatif.",
     "webhook": "Webhook",
     "url": "URL",
     "email": "Email",

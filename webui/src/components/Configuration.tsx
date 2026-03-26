@@ -12,6 +12,7 @@ import {
   Spinner,
   Center,
   FormControl,
+  FormHelperText,
   FormLabel,
   Input,
   NumberInput,
@@ -1337,16 +1338,19 @@ const Configuration: React.FC = () => {
                           />
                         </FormControl>
                         <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">Token</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.token')}</FormLabel>
                           {renderPasswordInput('notifications.telegram.bot_token')}
                         </FormControl>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">Chat ID</FormLabel>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.chatId')}</FormLabel>
                           <Input
                             value={config.notifications?.telegram?.chat_id || ''}
                             onChange={(e) => updateConfigField('notifications.telegram.chat_id', e.target.value)}
                             borderRadius="xl"
                           />
+                          <FormHelperText fontSize="xs" color="gray.600" whiteSpace="pre-line" mt={2}>
+                            {t('configuration.telegramChatIdHelp')}
+                          </FormHelperText>
                         </FormControl>
                         <Divider />
                         <Button

@@ -513,6 +513,7 @@
     "telegramBot": "Telegram Botu",
     "token": "Token",
     "chatId": "Sohbet ID'si",
+    "telegramChatIdHelp": "① Telegram’da botunuza herhangi bir mesaj gönderin.\n② Tarayıcıda https://api.telegram.org/bot<token>/getUpdates adresini açın (<token> yerine yukarıdaki Token’ı yazın).\n③ JSON içinde chat.id değerini bulun. Kullanıcı ID’si için @userinfobot da kullanılabilir; gruplarda önce botu ekleyin—grup ID’leri genelde negatiftir.",
     "webhook": "Webhook",
     "url": "URL",
     "email": "E-posta",

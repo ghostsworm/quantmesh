@@ -748,6 +748,7 @@
     "telegramBot": "Telegram-Bot",
     "token": "Token",
     "chatId": "Chat-ID",
+    "telegramChatIdHelp": "① Senden Sie Ihrem Bot in Telegram eine beliebige Nachricht.\n② Öffnen Sie https://api.telegram.org/bot<token>/getUpdates im Browser (<token> durch den Token oben ersetzen).\n③ Lesen Sie chat.id aus der JSON-Antwort. Nutzer-ID auch über @userinfobot; für Gruppen Bot zuerst hinzufügen—Gruppen-IDs sind oft negativ.",
     "webhook": "Webhook",
     "url": "URL",
     "email": "E-Mail",

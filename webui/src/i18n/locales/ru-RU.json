@@ -513,6 +513,7 @@
     "telegramBot": "Telegram Bot",
     "token": "Токен",
     "chatId": "ID чата",
+    "telegramChatIdHelp": "① Отправьте боту в Telegram любое сообщение.\n② Откройте в браузере https://api.telegram.org/bot<token>/getUpdates (замените <token> на Token выше).\n③ Найдите chat.id в JSON. ID пользователя можно узнать у @userinfobot; для групп сначала добавьте бота—ID групп часто отрицательные.",
     "webhook": "Webhook",
     "url": "URL",
     "email": "Email",

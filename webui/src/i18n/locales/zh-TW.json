@@ -783,6 +783,7 @@
     "telegramBot": "Telegram Bot",
     "token": "Token",
     "chatId": "Chat ID",
+    "telegramChatIdHelp": "① 在 Telegram 向該 Bot 傳送任意一則訊息。\n② 瀏覽器開啟 https://api.telegram.org/bot<token>/getUpdates（將 <token> 換成上方 Token）。\n③ 在回傳的 JSON 中找到 chat.id。個人用戶 ID 也可用 @userinfobot；群組需先將 Bot 加入，群組 ID 多為負數。",
     "webhook": "Webhook",
     "url": "URL",
     "email": "郵件通知",

@@ -513,6 +513,7 @@
     "telegramBot": "بوت التيليجرام",
     "token": "الرمز",
     "chatId": "معرف الدردشة",
+    "telegramChatIdHelp": "① أرسل أي رسالة إلى البوت في Telegram.\n② افتح https://api.telegram.org/bot<token>/getUpdates في المتصفح (استبدل <token> بالرمز أعلاه).\n③ ابحث عن chat.id في JSON. يمكن استخدام @userinfobot لمعرف المستخدم؛ للمجموعات أضف البوت أولاً—غالبًا تكون معرفات المجموعات سالبة.",
     "webhook": "Webhook",
     "url": "عنوان URL",
     "email": "البريد الإلكتروني",
