@@ -12,6 +12,10 @@ import (
 	"quantmesh/event"
 )
 
+// telegramRequestTimeout 調用 Telegram Bot API 的總超時（含 TLS、連線與讀取響應）。
+// 過短會在跨網或 api.telegram.org 較慢時出現「消息已發出但接口報 context deadline exceeded」的假失敗。
+const telegramRequestTimeout = 30 * time.Second
+
 // TelegramNotifier Telegram 通知器
 type TelegramNotifier struct {
 	botToken string
@@ -29,7 +33,7 @@ func NewTelegramNotifier(cfg *config.Config) (*TelegramNotifier, error) {
 		botToken: cfg.Notifications.Telegram.BotToken,
 		chatID:   cfg.Notifications.Telegram.ChatID,
 		client: &http.Client{
-			Timeout: 3 * time.Second,
+			Timeout: telegramRequestTimeout,
 		},
 	}, nil
 }
@@ -55,8 +59,7 @@ func (tn *TelegramNotifier) Send(evt *event.Event) error {
 		return fmt.Errorf("序列化消息失败: %w", err)
 	}
 
-	// 設置超時（3秒）
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), telegramRequestTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
