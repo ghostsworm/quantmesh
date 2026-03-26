@@ -771,6 +771,7 @@
     "telegramBot": "Telegram Bot",
     "token": "Token",
     "chatId": "Chat ID",
+    "telegramChatIdHelp": "① Telegram でボットに任意のメッセージを送信します。\n② ブラウザで https://api.telegram.org/bot<token>/getUpdates を開きます（<token> を上記の Token に置き換え）。\n③ 返却 JSON の chat.id を確認。ユーザー ID は @userinfobot でも取得可能。グループは先にボットを追加し、グループ ID は負の数になることが多いです。",
     "webhook": "Webhook",
     "url": "URL",
     "email": "Email",

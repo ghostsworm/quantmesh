@@ -1067,6 +1067,7 @@
     "telegramBot": "Telegram Bot",
     "token": "Token",
     "chatId": "Chat ID",
+    "telegramChatIdHelp": "① 在 Telegram 向该 Bot 发送任意一条消息。\n② 浏览器打开 https://api.telegram.org/bot<token>/getUpdates（将 <token> 换成上方 Token）。\n③ 在返回的 JSON 中找到 chat.id。个人用户 ID 也可用 @userinfobot；群组需先将 Bot 拉入群，群组 ID 多为负数。",
     "webhook": "Webhook",
     "url": "URL",
     "email": "邮件通知",

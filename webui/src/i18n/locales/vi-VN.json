@@ -513,6 +513,7 @@
     "telegramBot": "Telegram Bot",
     "token": "Token",
     "chatId": "ID Chat",
+    "telegramChatIdHelp": "① Gửi bất kỳ tin nhắn nào cho bot trên Telegram.\n② Mở https://api.telegram.org/bot<token>/getUpdates trong trình duyệt (thay <token> bằng Token phía trên).\n③ Tìm chat.id trong JSON. Có thể dùng @userinfobot cho ID cá nhân; với nhóm, hãy thêm bot trước—ID nhóm thường là số âm.",
     "webhook": "Webhook",
     "url": "URL",
     "email": "Email",

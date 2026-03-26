@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc15] - 2026-03-26
+
+### Added
+- **Web UI**：配置页 Telegram 区块在 Chat ID 输入框下增加多语言说明（如何发消息、`getUpdates` 取 `chat.id`、@userinfobot、群组 ID 等）
+
+---
+
 ## [3.79.6-rc14] - 2026-03-26
 
 ### Fixed

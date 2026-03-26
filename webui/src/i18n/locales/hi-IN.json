@@ -513,6 +513,7 @@
     "telegramBot": "टेलीग्राम बॉट",
     "token": "टोकन",
     "chatId": "चैट आईडी",
+    "telegramChatIdHelp": "① Telegram में अपने बॉट को कोई संदेश भेजें।\n② ब्राउज़र में https://api.telegram.org/bot<token>/getUpdates खोलें (<token> को ऊपर के Token से बदलें)।\n③ JSON में chat.id खोजें। @userinfobot से उपयोगकर्ता ID भी मिल सकती है; समूहों के लिए पहले बॉट जोड़ें—समूह ID अक्सर ऋणात्मक होते हैं।",
     "webhook": "वेबहुक",
     "url": "URL",
     "email": "ईमेल",
