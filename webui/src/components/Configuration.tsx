@@ -48,6 +48,7 @@ import {
   Code,
   Stack,
   Flex,
+  Link as ChakraLink,
   Tabs,
   TabList,
   Tab,
@@ -63,8 +64,8 @@ import DecimalNumberInput from './DecimalNumberInput'
 import { COMMON_TIMEZONES } from '../utils/dateFormat'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { Trans, useTranslation } from 'react-i18next'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import {
   getConfig,
@@ -775,6 +776,30 @@ const Configuration: React.FC = () => {
             <Button size="sm" colorScheme="blue" onClick={handleSave} isLoading={saving} borderRadius="full" px={6}>{t('configuration.saveChanges')}</Button>
           </HStack>
         </Flex>
+
+        {!isGlobalView && (
+          <Alert status="info" borderRadius="lg" variant="subtle">
+            <AlertIcon />
+            <Box>
+              <Text fontSize="sm" lineHeight="tall">
+                <Trans
+                  i18nKey="configuration.singleBotGlobalHint"
+                  components={{
+                    configLink: (
+                      <ChakraLink
+                        as={RouterLink}
+                        to="/config"
+                        color="blue.600"
+                        fontWeight="semibold"
+                        textDecoration="underline"
+                      />
+                    ),
+                  }}
+                />
+              </Text>
+            </Box>
+          </Alert>
+        )}
 
         {error && (
           <Alert status="error" borderRadius="lg">

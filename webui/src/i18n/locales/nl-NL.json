@@ -473,6 +473,7 @@
     "title": "Instellingen",
     "globalDescription": "Configureer globale systeemparameters",
     "symbolDescription": "Beheer de speciale configuratie voor {{symbol}}",
+    "singleBotGlobalHint": "Deze pagina configureert alleen de huidige bot. Voor globale instellingen (exchange-API, meldingen, YAML, enz.) ga naar <configLink>/config</configLink>.",
     "backupManagement": "Back-upbeheer",
     "saveChanges": "Wijzigingen opslaan",
     "globalTabs": {

@@ -473,6 +473,7 @@
     "title": "настройки",
     "globalDescription": "Настройте глобальные параметры системы",
     "symbolDescription": "Управление выделенной конфигурацией для {{symbol}}",
+    "singleBotGlobalHint": "Эта страница настраивает только текущего бота. Для глобальных параметров (API биржи, уведомления, YAML и т. д.) откройте <configLink>/config</configLink>.",
     "backupManagement": "Управление резервным копированием",
     "saveChanges": "Сохранить изменения",
     "globalTabs": {

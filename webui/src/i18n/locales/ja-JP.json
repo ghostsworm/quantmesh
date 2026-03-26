@@ -731,6 +731,7 @@
     "title": "設定",
     "globalDescription": "Configure global system parameters",
     "symbolDescription": "Manage dedicated configuration for {{symbol}}",
+    "singleBotGlobalHint": "このページは現在の Bot のみを設定します。全体設定（取引所 API、通知、YAML など）は <configLink>/config</configLink> へどうぞ。",
     "backupManagement": "Backup Management",
     "saveChanges": "変更を保存",
     "globalTabs": {

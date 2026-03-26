@@ -473,6 +473,7 @@
     "title": "सेटिंग्स",
     "globalDescription": "वैश्विक सिस्टम पैरामीटर कॉन्फ़िगर करें",
     "symbolDescription": "{{symbol}} के लिए समर्पित कॉन्फ़िगरेशन प्रबंधित करें",
+    "singleBotGlobalHint": "यह पृष्ठ केवल वर्तमान बॉट कॉन्फ़िगर करता है। वैश्विक सेटिंग्स (एक्सचेंज API, सूचनाएँ, YAML आदि) के लिए <configLink>/config</configLink> खोलें।",
     "backupManagement": "बैकअप प्रबंधन",
     "saveChanges": "परिवर्तन सहेजें",
     "globalTabs": {

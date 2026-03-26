@@ -696,6 +696,7 @@
     "title": "설정",
     "globalDescription": "전역 시스템 파라미터 구성",
     "symbolDescription": "{{symbol}}에 대한 전용 구성 관리",
+    "singleBotGlobalHint": "이 페이지는 현재 봇만 구성합니다. 전역 설정(거래소 API, 알림, YAML 등)은 <configLink>/config</configLink>로 이동하세요.",
     "backupManagement": "백업 관리",
     "saveChanges": "변경 사항 저장",
     "globalTabs": {

@@ -726,6 +726,7 @@
     "title": "সেটিংস",
     "globalDescription": "Configure global system parameters",
     "symbolDescription": "Manage dedicated configuration for {{symbol}}",
+    "singleBotGlobalHint": "This page only configures the current bot. For global settings (exchange API, notifications, YAML, etc.), go to <configLink>/config</configLink>.",
     "backupManagement": "Backup Management",
     "saveChanges": "পরিবর্তন সংরক্ষণ করুন",
     "globalTabs": {
