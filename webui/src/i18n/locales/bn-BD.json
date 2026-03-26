@@ -766,7 +766,7 @@
     "telegramBot": "Telegram Bot",
     "token": "Token",
     "chatId": "Chat ID",
-    "telegramChatIdHelp": "① Send any message to your bot in Telegram.\n② Open https://api.telegram.org/bot<token>/getUpdates in a browser (replace <token> with the Token above).\n③ Find chat.id in the JSON. You can also use @userinfobot for your user ID; for groups, add the bot to the group first—group IDs are often negative.",
+    "telegramChatIdHelp": "① Telegram-এ আপনার বটকে যেকোনো বার্তা পাঠান।\n② ব্রাউজারে https://api.telegram.org/bot<token>/getUpdates খুলুন (<token>-কে উপরের Token দিয়ে প্রতিস্থাপন করুন)।\n③ JSON-এ chat.id খুঁজুন। ব্যবহারকারীর ID-এর জন্য @userinfobot ব্যবহার করা যায়; গ্রুপের ক্ষেত্রে আগে বট যোগ করুন — গ্রুপ ID প্রায়শই ঋণাত্মক।",
     "webhook": "Webhook",
     "url": "URL",
     "email": "Email",
