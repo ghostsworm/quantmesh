@@ -27,6 +27,12 @@ type BotRuntime struct {
 	configMu sync.RWMutex // 保護 Config 的並發訪問
 }
 
+// botStartFailure 記錄異步啟動失敗原因（供 Web API 與前端輪詢展示）
+type botStartFailure struct {
+	Message string
+	At      time.Time
+}
+
 // BotManager 管理多個 BotRuntime，按 BotID 進行生命週期管理
 type BotManager struct {
 	cfg               *config.Config
@@ -39,6 +45,8 @@ type BotManager struct {
 	storageService    *storage.StorageService
 	distributedLock   lock.DistributedLock
 	botStatesFileOverride string // 測試用，空時用默認 ./data/bot_states.json
+	startFailMu           sync.RWMutex
+	startFail             map[string]botStartFailure
 }
 
 // NewBotManager 創建 Bot 管理器
@@ -52,6 +60,7 @@ func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService 
 		eventBus:        eventBus,
 		storageService:  storageService,
 		distributedLock: distributedLock,
+		startFail:       make(map[string]botStartFailure),
 	}
 }
 
@@ -80,12 +89,53 @@ func (bm *BotManager) findConflictingBotLocked(exchange, symbol, marketType stri
 	return nil
 }
 
+func (bm *BotManager) recordStartFailure(botID string, err error) {
+	if bm == nil || err == nil || botID == "" {
+		return
+	}
+	bm.startFailMu.Lock()
+	defer bm.startFailMu.Unlock()
+	if bm.startFail == nil {
+		bm.startFail = make(map[string]botStartFailure)
+	}
+	bm.startFail[botID] = botStartFailure{Message: err.Error(), At: time.Now()}
+}
+
+func (bm *BotManager) clearStartFailure(botID string) {
+	if bm == nil || botID == "" {
+		return
+	}
+	bm.startFailMu.Lock()
+	defer bm.startFailMu.Unlock()
+	if bm.startFail != nil {
+		delete(bm.startFail, botID)
+	}
+}
+
+// GetLastStartFailure 返回最近一次啟動失敗信息（無則 ok=false）
+func (bm *BotManager) GetLastStartFailure(botID string) (message string, failedAt time.Time, ok bool) {
+	if bm == nil || botID == "" {
+		return "", time.Time{}, false
+	}
+	bm.startFailMu.RLock()
+	defer bm.startFailMu.RUnlock()
+	if bm.startFail == nil {
+		return "", time.Time{}, false
+	}
+	rec, ok := bm.startFail[botID]
+	if !ok {
+		return "", time.Time{}, false
+	}
+	return rec.Message, rec.At, true
+}
+
 // StartBot 啟動指定 Bot
 func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
 	botID := botCfg.ID
 	if botID == "" {
 		botID = config.GenerateBotID(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType())
 	}
+	bm.clearStartFailure(botID)
 	bm.runtimesMu.RLock()
 	_, exists := bm.runtimes[botID]
 	bm.runtimesMu.RUnlock()
@@ -101,8 +151,10 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 			"交易所倉位按幣種隔離，多個 Bot 共享同一倉位會導致互相衝突。"+
 			"如需多策略，請在同一 Bot 內配置多個 strategies。",
 			botID, botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
-		return nil, fmt.Errorf("symbol_conflict: %s:%s(%s) 已有 Bot [%s] 在運行",
+		err := fmt.Errorf("symbol_conflict: %s:%s(%s) 已有 Bot [%s] 在運行",
 			botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
+		bm.recordStartFailure(botID, err)
+		return nil, err
 	}
 
 	// 🔒 檢查數據庫中的啟停狀態（優先級高於配置文件）
@@ -120,7 +172,9 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 				"error":    fmt.Sprintf("Bot 在數據庫中被禁用: %s", reason),
 			},
 		})
-		return nil, fmt.Errorf("bot_disabled_in_database: %s", reason)
+		err := fmt.Errorf("bot_disabled_in_database: %s", reason)
+		bm.recordStartFailure(botID, err)
+		return nil, err
 	}
 
 	symCfg := config.BotConfigToSymbolConfig(botCfg)
@@ -139,6 +193,7 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 				"error":    err.Error(),
 			},
 		})
+		bm.recordStartFailure(botID, err)
 		return nil, err
 	}
 	br := &BotRuntime{
@@ -160,11 +215,15 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 		if rt != nil && rt.Stop != nil {
 			rt.Stop()
 		}
-		return nil, fmt.Errorf("symbol_conflict: %s:%s(%s) 已有 Bot [%s] 在運行",
+		err := fmt.Errorf("symbol_conflict: %s:%s(%s) 已有 Bot [%s] 在運行",
 			botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
+		bm.recordStartFailure(botID, err)
+		return nil, err
 	}
 	bm.runtimes[botID] = br
 	bm.runtimesMu.Unlock()
+
+	bm.clearStartFailure(botID)
 
 	// 发布启动成功事件
 	bm.eventBus.Publish(&event.Event{

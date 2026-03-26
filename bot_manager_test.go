@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -250,5 +251,23 @@ func TestBotManagerGetStoppedAtFromFile(t *testing.T) {
 	_, ok3 := bm.GetStoppedAt("running-bot")
 	if ok3 {
 		t.Fatalf("enabled=true 的 bot 不應返回停止時間")
+	}
+}
+
+func TestBotManager_LastStartFailureRoundTrip(t *testing.T) {
+	eb := event.NewEventBus(16)
+	bm := NewBotManager(&config.Config{}, eb, nil, nil)
+	bid := "test-bot-fail"
+
+	bm.recordStartFailure(bid, errors.New("账戶餘額不足"))
+	msg, _, ok := bm.GetLastStartFailure(bid)
+	if !ok || msg != "账戶餘額不足" {
+		t.Fatalf("GetLastStartFailure: ok=%v msg=%q", ok, msg)
+	}
+
+	bm.clearStartFailure(bid)
+	_, _, ok2 := bm.GetLastStartFailure(bid)
+	if ok2 {
+		t.Fatalf("clear 後應無記錄")
 	}
 }

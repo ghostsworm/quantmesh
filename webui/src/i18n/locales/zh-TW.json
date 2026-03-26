@@ -223,6 +223,8 @@
     "tabRisk": "風控",
     "tabBacktest": "回測",
     "tabLogs": "實時日誌",
+    "lastStartErrorTitle": "最近啟動失敗",
+    "lastStartErrorAt": "時間：{{time}}",
     "currentPrice": "當前價格",
     "unrealizedPnl": "未實現盈虧",
     "startToViewOverview": "請先啟動 Bot 以查看概覽數據",
@@ -734,6 +736,7 @@
     "title": "設置",
     "globalDescription": "配置全局系統參數",
     "symbolDescription": "管理 {{symbol}} 的專用配置",
+    "singleBotGlobalHint": "此頁面僅設定目前單一 Bot。如需全系統設定（交易所 API、通知、YAML 等），請前往 <configLink>/config</configLink>。",
     "backupManagement": "備份管理",
     "saveChanges": "保存更改",
     "globalTabs": {

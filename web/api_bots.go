@@ -37,6 +37,8 @@ type BotResponse struct {
 	StoppedAt              string  `json:"stopped_at,omitempty"`               // 停止時間 ISO 8601（僅當已停止時有值）
 	HedgeGroupName         string  `json:"hedge_group_name,omitempty"`         // 所屬對沖組名稱，空則非對沖
 	Direction              string  `json:"direction,omitempty"`                // 網格/策略方向：LONG/SHORT/BOTH
+	LastStartError         string  `json:"last_start_error,omitempty"`         // 最近一次異步啟動失敗原因（供前端展示）
+	LastStartErrorAt       string  `json:"last_start_error_at,omitempty"`      // 失敗時間 RFC3339
 }
 
 // BotStrategyInfo Bot 策略信息（用于列表显示）
@@ -420,7 +422,7 @@ func postBotStart(c *gin.Context) {
 		}()
 		ctx := context.Background()
 		if err := botManagerProvider.StartBot(ctx, bc); err != nil {
-			logger.Error("❌ [%s] Bot 異步啟動失敗: %v", botID, err)
+			logger.Error("❌ [%s] [%s] Bot 異步啟動失敗: %v", botID, bc.Symbol, err)
 		}
 	}()
 	c.JSON(http.StatusAccepted, gin.H{

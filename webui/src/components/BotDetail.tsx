@@ -361,9 +361,17 @@ const BotDetail: React.FC = () => {
       const res = await startBot(botId)
       if (res.status === 'starting') {
         toast({ title: t('botList.starting'), status: 'info', duration: 3000 })
-        const running = await pollBotUntilRunning(botId)
-        if (running) {
+        const outcome = await pollBotUntilRunning(botId)
+        if (outcome.running) {
           toast({ title: t('botList.startSuccess'), status: 'success', duration: 2000 })
+        } else if (outcome.lastStartError) {
+          toast({
+            title: t('botList.startFailed'),
+            description: outcome.lastStartError,
+            status: 'error',
+            duration: 12000,
+            isClosable: true,
+          })
         } else {
           toast({ title: t('botList.startPending'), status: 'warning', duration: 4000 })
         }
@@ -560,6 +568,25 @@ const BotDetail: React.FC = () => {
           </Flex>
         </CardBody>
       </Card>
+
+      {!bot.running && bot.last_start_error && (
+        <Alert status="error" borderRadius="md" mb={4}>
+          <AlertIcon />
+          <Box flex="1">
+            <AlertTitle fontSize="sm">{t('botDetail.lastStartErrorTitle')}</AlertTitle>
+            <AlertDescription fontSize="sm" mt={1}>
+              {bot.last_start_error}
+              {bot.last_start_error_at ? (
+                <Text mt={2} fontSize="xs" color="gray.600">
+                  {t('botDetail.lastStartErrorAt', {
+                    time: formatLogTime(bot.last_start_error_at),
+                  })}
+                </Text>
+              ) : null}
+            </AlertDescription>
+          </Box>
+        </Alert>
+      )}
 
       <Tabs colorScheme="blue" variant="enclosed">
         <TabList>
