@@ -473,6 +473,7 @@
     "title": "Cài đặt",
     "globalDescription": "Cấu hình các tham số hệ thống toàn cục",
     "symbolDescription": "Quản lý cấu hình chuyên dụng cho {{symbol}}",
+    "singleBotGlobalHint": "Trang này chỉ cấu hình bot hiện tại. Để cài đặt toàn hệ thống (API sàn, thông báo, YAML, v.v.), mở <configLink>/config</configLink>.",
     "backupManagement": "Quản lý sao lưu",
     "saveChanges": "Lưu thay đổi",
     "globalTabs": {

@@ -693,6 +693,7 @@
     "title": "Paramètres",
     "globalDescription": "Configurer les paramètres globaux du système",
     "symbolDescription": "Gérer la configuration dédiée pour {{symbol}}",
+    "singleBotGlobalHint": "Cette page ne configure que le bot actuel. Pour les paramètres globaux (API d’échange, notifications, YAML, etc.), ouvrez <configLink>/config</configLink>.",
     "backupManagement": "Gestion des sauvegardes",
     "saveChanges": "Enregistrer les modifications",
     "globalTabs": {

@@ -473,6 +473,7 @@
     "title": "Impostazioni",
     "globalDescription": "Configura i parametri globali del sistema",
     "symbolDescription": "Gestisci la configurazione dedicata per {{symbol}}",
+    "singleBotGlobalHint": "Questa pagina configura solo il bot corrente. Per le impostazioni globali (API exchange, notifiche, YAML, ecc.) apri <configLink>/config</configLink>.",
     "backupManagement": "Gestione Backup",
     "saveChanges": "Salva Modifiche",
     "globalTabs": {

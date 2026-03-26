@@ -473,6 +473,7 @@
     "title": "Pengaturan",
     "globalDescription": "Konfigurasi parameter sistem global",
     "symbolDescription": "Kelola konfigurasi khusus untuk {{symbol}}",
+    "singleBotGlobalHint": "Halaman ini hanya mengonfigurasi bot saat ini. Untuk pengaturan global (API exchange, notifikasi, YAML, dll.), buka <configLink>/config</configLink>.",
     "backupManagement": "Manajemen Cadangan",
     "saveChanges": "Simpan Perubahan",
     "globalTabs": {

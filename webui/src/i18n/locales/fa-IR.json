@@ -726,6 +726,7 @@
     "title": "تنظیمات",
     "globalDescription": "پیکربندی پارامترهای سراسری سیستم",
     "symbolDescription": "مدیریت پیکربندی اختصاصی {{symbol}}",
+    "singleBotGlobalHint": "این صفحه فقط ربات فعلی را پیکربندی می‌کند. برای تنظیمات سراسری (API صراف، اعلان‌ها، YAML و غیره) به <configLink>/config</configLink> بروید.",
     "backupManagement": "Backup Management",
     "saveChanges": "Save Changes",
     "globalTabs": {

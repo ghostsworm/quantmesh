@@ -473,6 +473,7 @@
     "title": "Ayarlar",
     "globalDescription": "Genel sistem parametrelerini yapılandır",
     "symbolDescription": "{{symbol}} için özel yapılandırmayı yönet",
+    "singleBotGlobalHint": "Bu sayfa yalnızca geçerli botu yapılandırır. Genel ayarlar (borsa API’si, bildirimler, YAML vb.) için <configLink>/config</configLink> sayfasına gidin.",
     "backupManagement": "Yedek Yönetimi",
     "saveChanges": "Değişiklikleri Kaydet",
     "globalTabs": {

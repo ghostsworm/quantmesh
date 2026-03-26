@@ -473,6 +473,7 @@
     "title": "الإعدادات",
     "globalDescription": "تكوين معلمات النظام العامة",
     "symbolDescription": "إدارة التكوين المخصص لـ {{symbol}}",
+    "singleBotGlobalHint": "تُعدِّل هذه الصفحة البوت الحالي فقط. للإعدادات العامة (واجهة API للمنصة، الإشعارات، YAML، إلخ) انتقل إلى <configLink>/config</configLink>.",
     "backupManagement": "إدارة النسخ الاحتياطي",
     "saveChanges": "حفظ التغييرات",
     "globalTabs": {
