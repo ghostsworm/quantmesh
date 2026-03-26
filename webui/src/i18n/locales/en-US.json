@@ -197,6 +197,8 @@
     "tabOrders": "Open Orders",
     "tabBacktest": "Backtest",
     "tabLogs": "Logs",
+    "lastStartErrorTitle": "Last start failed",
+    "lastStartErrorAt": "Time: {{time}}",
     "noTpSlOrders": "No stop-loss or take-profit orders",
     "exchangeOpenOrders": "Exchange Open Orders",
     "exchangeOpenOrdersDesc": "Directly query all open orders for this symbol from the exchange and identify which ones are managed by this bot",
@@ -1017,6 +1019,7 @@
     "title": "Settings",
     "globalDescription": "Configure global system parameters",
     "symbolDescription": "Manage dedicated configuration for {{symbol}}",
+    "singleBotGlobalHint": "This page only configures the current bot. For global settings (exchange API, notifications, YAML, etc.), go to <configLink>/config</configLink>.",
     "backupManagement": "Backup Management",
     "saveChanges": "Save Changes",
     "globalTabs": {

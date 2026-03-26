@@ -153,6 +153,9 @@ export interface BotInfo {
   stopped_at?: string // 停止时间 ISO 8601（仅当已停止时有值）
   hedge_group_name?: string // 所属对冲组名称，空则非对冲
   direction?: string // 网格/策略方向：LONG/SHORT/BOTH
+  /** 最近一次异步启动失败原因（服务端内存记录，成功启动后会清空） */
+  last_start_error?: string
+  last_start_error_at?: string
 }
 
 export interface BotStrategyInfo {
@@ -292,20 +295,36 @@ export async function startBot(botId: string): Promise<StartBotResponse> {
   })
 }
 
-/** 輪詢 Bot 狀態直到運行或超時（用於異步啟動後確認） */
+/** 輪詢 Bot 狀態直到運行、出現啟動失敗記錄或超時（異步啟動後確認） */
 export async function pollBotUntilRunning(
   botId: string,
   options?: { intervalMs?: number; timeoutMs?: number }
-): Promise<boolean> {
+): Promise<{
+  running: boolean
+  lastStartError?: string
+  lastStartErrorAt?: string
+}> {
   const intervalMs = options?.intervalMs ?? 2000
   const timeoutMs = options?.timeoutMs ?? 60000
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const bot = await getBotById(botId)
-    if (bot.running) return true
+    if (bot.running) return { running: true }
+    if (bot.last_start_error) {
+      return {
+        running: false,
+        lastStartError: bot.last_start_error,
+        lastStartErrorAt: bot.last_start_error_at,
+      }
+    }
     await new Promise((r) => setTimeout(r, intervalMs))
   }
-  return false
+  const bot = await getBotById(botId)
+  return {
+    running: !!bot.running,
+    lastStartError: bot.last_start_error,
+    lastStartErrorAt: bot.last_start_error_at,
+  }
 }
 
 export async function stopBot(botId: string): Promise<{ ok: boolean; bot_id: string }> {

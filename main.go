@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.6-rc11"
+var Version = "3.79.6-rc12"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -842,6 +842,16 @@ type botManagerProviderAdapter struct {
 	manager *SymbolManager
 }
 
+func attachBotLastStartFailure(botMgr *BotManager, resp *web.BotResponse) {
+	if botMgr == nil || resp == nil {
+		return
+	}
+	if msg, at, ok := botMgr.GetLastStartFailure(resp.BotID); ok {
+		resp.LastStartError = msg
+		resp.LastStartErrorAt = at.UTC().Format(time.RFC3339)
+	}
+}
+
 func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 	cfg, err := web.GetLatestConfig()
 	if err != nil || cfg == nil {
@@ -908,6 +918,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 		} else if stoppedAt, ok := botMgr.GetStoppedAt(botID); ok {
 			resp.StoppedAt = stoppedAt
 		}
+		attachBotLastStartFailure(botMgr, &resp)
 		result = append(result, resp)
 	}
 	// 兼容：若 Bots 為空但 Symbols 有數據，從 Symbols 轉換
@@ -953,6 +964,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			} else if stoppedAt, ok := botMgr.GetStoppedAt(botID); ok {
 				resp.StoppedAt = stoppedAt
 			}
+			attachBotLastStartFailure(botMgr, &resp)
 			result = append(result, resp)
 		}
 	}
@@ -1009,6 +1021,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 		if br.Inner.RiskMonitor != nil {
 			resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
 		}
+		attachBotLastStartFailure(botMgr, &resp.BotResponse)
 		return resp, true
 	}
 	if cfg == nil {
@@ -1057,6 +1070,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 					break
 				}
 			}
+			attachBotLastStartFailure(botMgr, &resp.BotResponse)
 			return resp, true
 		}
 	}
