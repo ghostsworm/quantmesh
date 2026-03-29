@@ -249,3 +249,6 @@ A: 重定向输出：
 # Python 版本帮助
 python3 scripts/log_analyzer.py --help
 ```
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

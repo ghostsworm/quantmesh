@@ -272,3 +272,6 @@ GitHub: https://github.com/ghostsworm/quantmesh
 ---
 
 **记住：** Star 增长通常是缓慢的，但持续维护和积极互动会带来长期价值。质量比单次爆款更重要！
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

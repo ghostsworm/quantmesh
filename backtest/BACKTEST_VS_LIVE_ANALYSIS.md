@@ -454,3 +454,5 @@ for candle in candles:
 
 *本分析由 QuantMesh 系统生成*
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

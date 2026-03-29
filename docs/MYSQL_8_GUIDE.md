@@ -450,3 +450,6 @@ SHOW INDEX FROM async_tasks;
 - [MySQL 8.0 官方文档](https://dev.mysql.com/doc/refman/8.0/en/)
 - [GORM MySQL 驱动](https://github.com/go-gorm/mysql)
 - [MySQL 性能优化指南](https://dev.mysql.com/doc/refman/8.0/en/optimization.html)
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

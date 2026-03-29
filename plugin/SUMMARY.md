@@ -399,3 +399,5 @@ func main() {
 
 **现在就可以开始使用了！** 🎊
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

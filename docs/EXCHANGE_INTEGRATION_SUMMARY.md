@@ -323,3 +323,5 @@ docs/
 **版本**: v2.0.0  
 **作者**: QuantMesh Team
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -300,3 +300,6 @@ https://github.com/ghostsworm/quantmesh?utm_source=telegram&utm_medium=channel&u
 ---
 
 **记住：** Telegram 推广需要耐心和持续努力。先建立信任，再推广项目，效果会更好。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

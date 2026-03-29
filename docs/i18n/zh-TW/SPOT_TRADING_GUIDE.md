@@ -85,3 +85,6 @@ trading:
 - [ ] 確認 `price_interval`、`order_quantity` 符合現貨流動性與手續費。
 
 多交易對與驗證說明見 [CONFIGURATION_GUIDE.md](../../CONFIGURATION_GUIDE.md)、[CONFIGURATION_REDUNDANCY_AND_MIGRATION.md](../../CONFIGURATION_REDUNDANCY_AND_MIGRATION.md)。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

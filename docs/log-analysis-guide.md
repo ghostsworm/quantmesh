@@ -367,3 +367,6 @@ python3 scripts/log_analyzer.py --stats --output-json stats.json
 - [日志系统架构](./logging-architecture.md)
 - [监控和告警](./monitoring-guide.md)
 - [故障排查指南](./troubleshooting.md)
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

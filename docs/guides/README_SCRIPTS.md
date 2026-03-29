@@ -136,3 +136,5 @@ lsof -ti:28888 | xargs kill -9
 pkill -9 quantmesh
 ```
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

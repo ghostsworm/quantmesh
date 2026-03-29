@@ -2527,3 +2527,6 @@ QuantMesh 是一个全面的、企业级加密货币做市平台，结合了复�
 **文档版本**: v3.61.3
 **最后更新**: 2026-03-08
 **维护者**: QuantMesh Team
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

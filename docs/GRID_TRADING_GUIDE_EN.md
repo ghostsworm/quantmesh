@@ -62,3 +62,5 @@ In simple terms, what we do is: **Use high-tech means (HFT) to harvest tiny prof
 
 It doesn't require you to understand complex charts or stay up all night. It's a "harvester" based on math and logic—as long as the market is moving, it's making money for you.
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

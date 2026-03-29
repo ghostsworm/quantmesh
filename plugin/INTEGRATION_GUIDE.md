@@ -520,3 +520,5 @@ A: 确保:
 - 💬 Telegram: @quantmesh_support
 - 📖 文档: https://docs.quantmesh.com/plugins
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

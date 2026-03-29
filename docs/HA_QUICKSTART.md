@@ -559,3 +559,5 @@ docker rm quantmesh-4
 - [备份恢复指南](BACKUP_RECOVERY.md)
 - [生产部署指南](PRODUCTION_DEPLOYMENT.md)
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

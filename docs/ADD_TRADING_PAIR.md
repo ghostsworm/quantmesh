@@ -179,3 +179,6 @@ trading:
 3. **资金充足**：确保账户有足够的资金支持多个交易对同时交易
 4. **风险控制**：合理设置 `position_safety_check` 和 `min_order_value` 来控制风险
 5. **监控运行状态**：添加交易对后，注意监控其运行状态和盈亏情况
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

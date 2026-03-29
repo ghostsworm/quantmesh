@@ -145,3 +145,6 @@ A: 对于个人用户：
 如果你对隐私有严格要求，建议：
 - 使用 `QUANTMESH_DISABLE_TELEMETRY=1` 完全禁用统计功能
 - 或者使用自托管 PostHog，完全控制数据收集和处理
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

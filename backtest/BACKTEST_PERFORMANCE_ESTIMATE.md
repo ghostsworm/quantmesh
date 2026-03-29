@@ -273,3 +273,5 @@ export http_proxy=http://127.0.0.1:7890
 - 支持实时参数调整和策略对比
 - 专业的性能表现增强用户信任
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

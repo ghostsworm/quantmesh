@@ -119,3 +119,6 @@ export QUANTMESH_DISABLE_TELEMETRY=1
 1. 运行安装脚本：`sudo ./install.sh`
 2. 或启动程序：`./quantmesh`
 3. 在 PostHog 控制台的 "Events" 页面查看是否有 `install` 或 `startup` 事件
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -182,3 +182,5 @@
 - 2 张 SOP（英文）：Front desk SOP / Driver SOP
 - 试点协议模板（英文/中文都可，至少英文版）
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

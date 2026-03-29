@@ -130,3 +130,6 @@ trading:
 - 深度正常：價格不變或微調幅度很小
 - 深度薄：價格應向有量檔位偏移
 - API 失敗：回退到原價格，無異常
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

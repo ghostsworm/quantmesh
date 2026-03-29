@@ -148,3 +148,5 @@
 - 完成 **10 次有效访谈**（问出单量+事故+渠道）
 - 签下 **3 家试点**（至少 2 家付费试点）
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

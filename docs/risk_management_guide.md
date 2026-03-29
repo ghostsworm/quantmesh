@@ -685,3 +685,6 @@ M = \frac{V}{L}
 *文档版本: 2.0*
 *最后更新: 2026-03-09*
 *研究类型: 理论研究与实践指南*
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

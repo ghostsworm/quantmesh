@@ -120,3 +120,6 @@ sqlite3 data/quantmesh.db "SELECT id, event_type, data, created_at FROM events W
 1. **停用 Storage 对 events 的写入**：在 Storage 的批量处理逻辑中，对 `order_placed`、`position_opened` 等继续落库，但对通用事件不再写入 `events` 表，只由 EventCenter 写入。
 2. **统一由 EventCenter 写入**：确认 EventCenter 已启动（`event_center.enabled: true`），且 `database` 配置正确。
 3. **兼容读取旧数据**：在查询事件时，若 `type` 为空但 `event_type` 有值，可从 `event_type` 和 `data` 解析并回填到 `type`、`title`、`message` 等字段再返回给前端。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

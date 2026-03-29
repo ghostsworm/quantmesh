@@ -774,3 +774,6 @@ profit_management:
 - [回测系统](./BACKTESTING.md)
 - [API 文档](./API_REFERENCE.md)
 - [部署指南](./DEPLOYMENT.md)
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -470,3 +470,6 @@ Cảm ơn dự án gốc [OpenSQT Market Maker](https://github.com/dennisyang198
 </div>
 
 Copyright © 2025 QuantMesh Team. Bảo lưu mọi quyền.
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

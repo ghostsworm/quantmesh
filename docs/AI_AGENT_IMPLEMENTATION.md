@@ -361,3 +361,6 @@ QuantMesh AI Agent 系统结合了：
 5. **现代化 UI** - 直观的对话式配置体验
 
 这个系统大大降低了策略配置的门槛，让用户可以通过自然语言轻松配置复杂的交易策略。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

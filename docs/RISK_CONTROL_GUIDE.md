@@ -169,3 +169,6 @@ trading:
 | 訂單簿過薄時暫停 | `risk_control.depth_monitor` |
 
 配置冗餘與遷移見 [CONFIGURATION_REDUNDANCY_AND_MIGRATION.md](CONFIGURATION_REDUNDANCY_AND_MIGRATION.md)；完整配置見 [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md)。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

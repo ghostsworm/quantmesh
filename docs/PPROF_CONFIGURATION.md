@@ -144,3 +144,6 @@ go tool pprof http://localhost:28888/debug/pprof/goroutine
 
 - [pprof 使用指南](PPROF_GUIDE.md) - 详细的 pprof 使用说明
 - [Nginx 配置指南](NGINX_CONFIG.md) - 如何在 Nginx 中限制 pprof 访问
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

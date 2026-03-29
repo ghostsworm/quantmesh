@@ -68,3 +68,6 @@ GitHub 👉 https://github.com/ghostsworm/quantmesh
 - 若字數超限，可刪減「AGPL-3.0」或「官網」那行，或改用方案 B。
 - 發文時記得附上 GitHub 連結，方便大家直接點 Star。
 - 若有產品截圖或架構圖，可附一張圖，點擊率通常更高。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

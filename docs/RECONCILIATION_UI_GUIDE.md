@@ -259,3 +259,6 @@ A: 目前版本暂不支持导出功能，未来版本会添加CSV/Excel导出�
 - **桌面端**: 完整显示所有功能
 - **平板**: 适当调整图表大小
 - **移动端**: 垂直堆叠，优化触摸操作
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -62,3 +62,5 @@ node generate-icons.js
 - 考虑深色和浅色背景的兼容性
 - 为 maskable 图标预留安全区域（20% 边距）
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

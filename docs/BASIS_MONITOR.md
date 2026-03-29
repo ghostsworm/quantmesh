@@ -289,3 +289,5 @@ A: 目前支持：
 
 *本文档最后更新: 2026-01-01*
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

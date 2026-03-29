@@ -474,3 +474,6 @@ QuantMesh پرداخت‌های رمزنگاری را برای اشتراک‌ه
 Copyright © 2025 QuantMesh Team. تمامی حقوق محفوظ است.
 
 </div>
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

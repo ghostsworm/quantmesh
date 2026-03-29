@@ -523,3 +523,5 @@ distributed_lock:
 - [快速开始指南](HA_QUICKSTART.md)
 - [多实例解决方案](MULTI_INSTANCE_SOLUTION.md)
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

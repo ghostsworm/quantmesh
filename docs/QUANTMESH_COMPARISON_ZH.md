@@ -57,3 +57,6 @@ QuantMesh 是针对高性能需求开发的新一代工具，主要解决复杂�
 **项目开源地址：** [https://github.com/ghostsworm/quantmesh](https://github.com/ghostsworm/quantmesh)
 
 #标签：#量化交易 #网格机器人 #比特币交易 #QuantMesh #Hummingbot #3Commas #加密货币指南
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

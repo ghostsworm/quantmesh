@@ -177,3 +177,6 @@ trading:
 | 網格風控 | `position/super_position_manager.go` (AdjustOrders) |
 | 深度監控 | `safety/depth_monitor.go` |
 | 網格下單邏輯 | `position/super_position_manager.go` (calculateSlotPrices, getOrCreateSlot) |
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

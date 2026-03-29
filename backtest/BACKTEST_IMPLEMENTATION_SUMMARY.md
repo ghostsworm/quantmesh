@@ -324,3 +324,5 @@ curl http://localhost:8080/api/backtest/cache/stats
 
 系统已通过所有测试，可以投入使用。回测系统为商业插件提供了强有力的验证工具，能够有效增强用户信任、辅助购买决策，提升产品竞争力。
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

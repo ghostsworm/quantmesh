@@ -165,3 +165,6 @@ marginBalance, _ := strconv.ParseFloat(asset.MarginBalance, 64)
 - 取消不需要的挂单
 - 等待订单完全成交
 - 此时可转出金额应该接近钱包余额
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

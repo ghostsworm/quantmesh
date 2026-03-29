@@ -211,3 +211,5 @@ ai:
    - 回测历史预测市场数据，验证信号有效性
    - 优化信号生成参数
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

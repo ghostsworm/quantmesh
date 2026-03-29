@@ -62,3 +62,5 @@
 
 它不需要你懂复杂的曲线图，不需要你熬夜看盘。它是一套基于数学和逻辑的“收割机”，只要市场还在动，它就在为你赚钱。
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

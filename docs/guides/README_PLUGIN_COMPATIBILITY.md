@@ -140,3 +140,5 @@ A: 可以，但必须确保使用完全相同的 Go 版本和依赖版本。建�
 
 **最后更新**: 2026-01-01
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

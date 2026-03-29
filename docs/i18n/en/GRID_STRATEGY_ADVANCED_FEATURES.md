@@ -130,3 +130,6 @@ Dynamic adjustment (including order quantity) can be configured from the Web UI 
 | `dynamic_adjustment.order_quantity.*` | `trading` | — | P0 dynamic quantity |
 
 For full P1/P2 implementation details, see [GRID_ALPHA_P1_P2_SPEC.md](../../GRID_ALPHA_P1_P2_SPEC.md).
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

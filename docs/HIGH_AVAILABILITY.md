@@ -612,5 +612,5 @@ func (g *GormDatabase) BatchSaveTrades(ctx context.Context, trades []*Trade) err
 - [etcd 文档](https://etcd.io/docs/)
 - [PostgreSQL 高可用](https://www.postgresql.org/docs/current/high-availability.html)
 
-
-
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

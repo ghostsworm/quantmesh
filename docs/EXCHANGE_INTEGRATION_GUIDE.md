@@ -471,3 +471,5 @@ func TestYourExchangeAdapter_WebSocket(t *testing.T) {
 **最后更新**: 2025-12-28  
 **版本**: v1.0.0
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

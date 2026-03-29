@@ -470,3 +470,6 @@ QuantMesh поддерживает криптовалютные платежи �
 </div>
 
 Copyright © 2025 QuantMesh Team. Все права защищены.
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

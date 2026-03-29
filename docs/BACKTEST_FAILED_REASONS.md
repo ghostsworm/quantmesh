@@ -20,3 +20,6 @@
 2. **结果区**：点击该任务的「查看」，下方会显示红色告警框「任務執行失敗」及完整错误信息。
 
 相关逻辑：`backtest/task_manager.go`（`failTask`、`RunTask`）、`backtest/grid_adapter.go`（网格参数校验）。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -91,3 +91,6 @@ curl -v https://www.okx.com/
 1. **fake-ip 模式**：如果使用 fake-ip 模式，必须将需要正确解析的域名加入 `fake-ip-filter`
 2. **DNS 服务器选择**：推荐使用 Cloudflare (1.1.1.1) 或 Google (8.8.8.8)
 3. **代理规则**：确保 OKX 域名规则在 DNS 配置之后生效
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

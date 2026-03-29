@@ -423,3 +423,5 @@ func TestMyPlugin(t *testing.T) {
 - 插件系统框架: AGPL-3.0 (开源)
 - 商业插件: 专有许可证 (需购买)
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

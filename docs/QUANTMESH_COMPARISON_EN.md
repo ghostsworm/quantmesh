@@ -57,3 +57,6 @@ QuantMesh is a next-generation tool designed for high-performance needs, focusin
 **GitHub Repository:** [https://github.com/ghostsworm/quantmesh](https://github.com/ghostsworm/quantmesh)
 
 #Keywords: #QuantTrading #GridBot #BitcoinTrading #QuantMesh #Hummingbot #3Commas #CryptoGuide #HFT
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

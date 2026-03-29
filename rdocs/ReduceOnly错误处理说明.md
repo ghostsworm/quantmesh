@@ -146,3 +146,5 @@ for clientOID := range result.ReduceOnlyErrors {
 3. 验证清空槽位后能否正常下新的买单
 4. 运行对账功能，确认本地持仓与交易所一致
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

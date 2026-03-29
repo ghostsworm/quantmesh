@@ -323,3 +323,5 @@ if signal_strength < 0.7:  # 只执行高置信度信号
 
 *本报告由 QuantMesh 回测系统自动生成*
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

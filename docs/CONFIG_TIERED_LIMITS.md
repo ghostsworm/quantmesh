@@ -366,3 +366,6 @@ journalctl -u quantmesh -f
 3. **修改后必须重启**：配置不会自动生效
 4. **监控日志**：确认配置已正确加载
 5. **逐步调整**：不要一次性改动太大，建议小步调整观察效果
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

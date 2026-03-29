@@ -192,3 +192,6 @@ QuantMesh 项目已完全支持 MySQL 8.0+ 和 MySQL 9.x，包括：
 - [MySQL 8 配置和迁移指南](./MYSQL_8_GUIDE.md)
 - [MySQL 8 配置示例](../config-mysql8-example.yaml)
 - [高可用配置示例](../config-ha-example.yaml)
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -583,3 +583,5 @@ if err := lock.TryLock(ctx, key, ttl); err != nil {
 **最后更新**: 2025-01-29  
 **作者**: QuantMesh Team
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

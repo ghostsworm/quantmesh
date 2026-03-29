@@ -85,3 +85,6 @@
 - **重複曝光**：同一專案可以在不同時間、用不同角度（架構、實戰、對比）在 Reddit、Twitter、部落格多講幾次，每次都能帶一點新流量。
 
 若你願意，下一步可以從「修正 README 連結 + 補 CONTRIBUTING.md + 填 GitHub Topics」開始，再選一個社群（例如 Reddit r/algotrading）發一篇介紹文試水溫。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

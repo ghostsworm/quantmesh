@@ -405,3 +405,5 @@
 - OTA/PMS 官方对接（周期不可控）
 - 自动派单/路线优化（先用“手动派单 + 留痕”跑通价值）
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

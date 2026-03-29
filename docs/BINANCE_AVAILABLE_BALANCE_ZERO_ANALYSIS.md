@@ -146,3 +146,6 @@ var accountBalance float64 = 0
 - 继续观察策略运行情况
 - 等待持仓盈利后自动卖出
 - 如果确实需要立即交易，可以考虑手动平仓部分持仓或增加账户资金
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

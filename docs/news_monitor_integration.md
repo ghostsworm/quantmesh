@@ -203,3 +203,6 @@ nm.highRiskKeywords = map[string]float64{
 1. **无法获取新闻**：检查网络连接、API密钥、代理配置
 2. **风险评分始终为0**：检查关键词配置、新闻源是否正常工作
 3. **误报过多**：调整风险阈值、优化关键词库、增加时间衰减权重
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

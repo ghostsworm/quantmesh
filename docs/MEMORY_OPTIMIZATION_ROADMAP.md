@@ -336,3 +336,6 @@ return encoder.Encode(obj)
 - 改善系统响应性能
 
 建议按照优先级逐步实施，每次优化后进行验证和监控。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

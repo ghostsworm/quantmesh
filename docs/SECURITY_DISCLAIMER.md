@@ -290,3 +290,5 @@ QuantMesh 做市商系统（以下简称"本系统"）是一个开源的加密�
 
 **API 密钥安全是您的责任，请务必妥善保管！**
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

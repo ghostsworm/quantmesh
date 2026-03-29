@@ -211,3 +211,6 @@ ssh -L 28888:localhost:28888 root@facev.app
 # 浏览器访问
 http://localhost:28888
 ```
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

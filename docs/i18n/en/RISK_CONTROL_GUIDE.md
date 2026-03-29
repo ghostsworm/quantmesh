@@ -154,3 +154,6 @@ Use this when you want to pause or limit trading in thin book conditions.
 | Pause on thin orderbook | `risk_control.depth_monitor` |
 
 For config redundancy and migration, see [CONFIGURATION_REDUNDANCY_AND_MIGRATION.md](CONFIGURATION_REDUNDANCY_AND_MIGRATION.md). For full config reference, see [CONFIGURATION_GUIDE.md](../../CONFIGURATION_GUIDE.md).
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

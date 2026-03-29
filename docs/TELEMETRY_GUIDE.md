@@ -303,3 +303,6 @@ utils.TrackTradingActivity(Version, exchangeName, req.Symbol, strings.ToLower(re
 ---
 
 **记住**：统计功能是为了了解项目的使用情况，帮助我们改进项目。如果你不希望发送统计，可以随时禁用。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

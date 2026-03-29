@@ -301,3 +301,5 @@ if rsi < 30 and price_change > 0.5% and volume > avg_volume * 1.5:
 
 *本报告由 QuantMesh 回测系统生成*
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

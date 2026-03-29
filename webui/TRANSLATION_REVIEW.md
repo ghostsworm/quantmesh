@@ -86,3 +86,5 @@ cat webui/src/i18n/locales/fr-FR.json | jq 'keys'
 2. 提供更好的翻译建议
 3. 说明问题所在（术语、语法、文化适应等）
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

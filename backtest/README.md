@@ -230,3 +230,5 @@ Web 仪表板功能通过 API 接口提供，前端可以使用任何框架（Re
 - [ ] 蒙特卡洛模拟
 - [ ] 更多策略支持（网格、套利等）
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

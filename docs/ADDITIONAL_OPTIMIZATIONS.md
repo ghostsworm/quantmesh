@@ -301,3 +301,6 @@ curl http://localhost:15173/api/system/metrics/current | jq '.gc'
 4. 持续监控内存和 GC 指标
 
 当前系统的内存管理已经相当完善，可以支持长期稳定运行。进一步的优化应该基于实际运行数据和性能分析结果。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -143,3 +143,6 @@ ssh root@facev.app 'systemctl status quantmesh'
 # 查看实时日志
 ssh root@facev.app 'journalctl -u quantmesh -f'
 ```
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)
