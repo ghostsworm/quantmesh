@@ -378,3 +378,6 @@ A: 不会。分级限额只影响新开仓的资金分配，不会影响已有�
 - [资金分配管理](./CAPITAL_ALLOCATION.md)
 - [风险控制配置](./RISK_CONTROL.md)
 - [通知配置](./NOTIFICATION_CONFIG.md)
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

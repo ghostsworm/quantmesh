@@ -75,3 +75,6 @@ node scripts/translate-locales.js
 2. 執行 `node webui/scripts/merge-locales.js`，讓其他語系補齊鍵（缺譯顯示英文）。
 3. 繁體中文：執行 `node webui/scripts/zh-cn-to-zh-tw.js` 由 zh-CN 生成 zh-TW。
 4. 其他語系：在本機執行 `node webui/scripts/translate-locales.js`（需 `GEMINI_API_KEY`；若遇地區限制請用 VPN）；或手動翻譯/校對重點語系。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

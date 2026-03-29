@@ -32,3 +32,6 @@
 ---
 
 如有疑問，可透過 [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions) 或 contact@quantmesh.io 聯繫。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

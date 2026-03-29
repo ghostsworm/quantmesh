@@ -373,3 +373,6 @@
 - `500`：伺服器錯誤；請查回應內容與日誌。
 
 錯誤回應主體通常為 JSON，例如 `{ "error": "訊息" }`。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

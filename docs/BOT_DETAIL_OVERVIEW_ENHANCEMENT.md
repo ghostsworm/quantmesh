@@ -100,3 +100,6 @@ Bot 详情页「概览」Tab 当前仅展示**全部累计**指标：
 - 网格盈亏 vs 交易所盈亏说明：`rdocs/网格盈亏与交易所盈亏的差异说明.md`
 - 日盈亏拆解 API：`GET /api/statistics/daily/breakdown`
 - 盈亏诊断 API：`GET /api/statistics/pnl/diagnosis`
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

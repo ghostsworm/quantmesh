@@ -470,3 +470,6 @@ QuantMesh는 구독 및 라이선스를 위한 암호화폐 결제를 지원합�
 </div>
 
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

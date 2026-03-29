@@ -500,3 +500,5 @@ tail -f logs/quantmesh.log | grep plugin
 ⏱️ **快**: 1-2天即可完成基础设施搭建
 🔧 **易**: 无需复杂的许可证服务器
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -357,3 +357,6 @@ if newInterval < minInterval {
 5. ⚙️ **高度可配置**：所有参数都可以自定义
 
 这个系统特别适合网格策略，能够在低波动时优化收益，在高波动时保护资金，正是用户所需要的功能。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

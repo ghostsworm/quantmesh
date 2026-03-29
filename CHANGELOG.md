@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.6-rc17] - 2026-03-29
+
+### Added
+- **统计**：在仓库主要 Markdown（README、docs、CONTRIBUTING 等）末尾增加阅读量像素；Web UI 在应用初始化时加载同源像素（与 `VITE_DISABLE_TELEMETRY` / `QUANTMESH_DISABLE_TELEMETRY` 一致，关闭遥测时亦不加载）
+
+---
+
 ## [3.79.6-rc16] - 2026-03-26
 
 ### Changed

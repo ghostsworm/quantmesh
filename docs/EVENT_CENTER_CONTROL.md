@@ -173,3 +173,6 @@ event_center:
 2. **历史记录**：记录事件中心启停历史
 3. **统计信息**：显示事件中心运行时长、处理事件数等统计信息
 4. **批量操作**：支持批量启停多个模块
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

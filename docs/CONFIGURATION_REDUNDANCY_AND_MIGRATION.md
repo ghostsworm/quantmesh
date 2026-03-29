@@ -77,3 +77,6 @@ storage:
 | notifications.* | 各頻道 enabled | 總開關＋各頻道；只啟用需要的頻道 |
 
 依上述方式可刪減 `config.yaml` 中的冗餘鍵，並依賴預設值與載入器行為。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

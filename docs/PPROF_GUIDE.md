@@ -273,3 +273,5 @@ pprofGroup.Use(authMiddleware()) // 添加认证中间件
 - [Go 性能分析实战](https://github.com/google/pprof/blob/master/doc/README.md)
 - [Profiling Go Programs](https://blog.golang.org/pprof)
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

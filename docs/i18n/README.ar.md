@@ -474,3 +474,6 @@ VITE_DISABLE_TELEMETRY=1
 Copyright © 2025 QuantMesh Team. جميع الحقوق محفوظة.
 
 </div>
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -255,3 +255,6 @@ trading:
 ## 总结
 
 通过以上强化措施，系统应该能够长期稳定运行，内存使用保持在合理范围内。如果发现问题，请参考故障排查部分。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

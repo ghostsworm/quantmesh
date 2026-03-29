@@ -573,3 +573,5 @@ if err := lock.TryLock(ctx, key, ttl); err != nil {
 - [配置示例](../config-ha-example.yaml)
 - [Docker Compose](../docker-compose.ha.yml)
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -77,3 +77,6 @@ storage:
 | notifications.*   | Per-channel enabled| Global + per-channel; enable only what you use      |
 
 After applying these, you can trim redundant keys from `config.yaml` and rely on defaults and the loader behavior above.
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

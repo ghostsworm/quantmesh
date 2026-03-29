@@ -166,3 +166,6 @@ spot_capital = grid_capital × grid_leverage × 0.25
 | `webui/src/components/bot-create/StrategyPicker.tsx` | 对冲模式下的策略选择 |
 | `backtest/hedge_pair_engine.go` | 对冲回测（leg_a 长、leg_b 短） |
 | `docs/i18n/zh-TW/SPOT_TRADING_GUIDE.md` | 现货交易说明（无做空） |
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

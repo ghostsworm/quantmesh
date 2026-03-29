@@ -215,3 +215,6 @@ GitHub Insights 可以显示：
 ---
 
 **记住：** Clone 多说明项目有价值，现在需要的是引导这些用户去 Star。通过代码提示、README 优化和站外推广，可以显著提升 Star 数量。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

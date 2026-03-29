@@ -977,3 +977,6 @@ QuantMesh AI Agent 内置了：
 - **内置波动率预设** - 针对不同品种的优化配置
 
 这些 Tools 和 Skills 让用户可以通过自然语言完成几乎所有策略配置和管理任务！
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

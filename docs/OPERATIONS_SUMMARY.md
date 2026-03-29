@@ -483,3 +483,5 @@ curl -X POST "https://api.telegram.org/bot<TOKEN>/sendMessage" \
 **最后更新**: 2025-01-29  
 **维护者**: QuantMesh Team
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

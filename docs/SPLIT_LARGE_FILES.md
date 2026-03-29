@@ -157,3 +157,6 @@ webui/src/i18n/locales/
 - [ ] `go test ./...` 通过
 - [ ] 前端 `yarn build` 通过
 - [ ] 语言切换、API 调用与拆分前行为一致
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

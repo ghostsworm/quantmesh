@@ -289,3 +289,6 @@ for _, k := range klines {
 - Tick 級風險管理
 - 多策略組合回測
 - 回測結果可視化
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

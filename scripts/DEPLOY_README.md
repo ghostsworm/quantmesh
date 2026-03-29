@@ -255,3 +255,6 @@ sudo systemctl start quantmesh
 # 查看部署帮助
 ./scripts/deploy-to-server.sh --help
 ```
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

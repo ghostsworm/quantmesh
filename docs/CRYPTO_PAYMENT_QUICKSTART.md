@@ -386,3 +386,5 @@ A:
 
 **恭喜!** 🎉 你已成功接入加密货币支付系统!
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

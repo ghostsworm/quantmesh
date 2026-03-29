@@ -223,3 +223,6 @@ grep "超过限制" logs/app-*.log
 5. ✅ 超过限制时记录警告日志
 
 这些优化确保了系统在长期运行过程中不会因为大规模内存分配而导致内存问题。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

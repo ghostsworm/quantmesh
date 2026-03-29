@@ -470,3 +470,6 @@ Danke an das ursprüngliche Projekt [OpenSQT Market Maker](https://github.com/de
 </div>
 
 Copyright © 2025 QuantMesh Team. Alle Rechte vorbehalten.
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -504,3 +504,5 @@ rsync -avz --delete ./backups/ user@remote-server:/path/to/backups/
 - [AWS S3 备份最佳实践](https://docs.aws.amazon.com/AmazonS3/latest/userguide/backup-for-s3.html)
 - [3-2-1 备份策略](https://www.backblaze.com/blog/the-3-2-1-backup-strategy/)
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

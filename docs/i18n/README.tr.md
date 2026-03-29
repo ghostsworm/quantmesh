@@ -470,3 +470,6 @@ Orijinal proje [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_
 </div>
 
 Copyright © 2025 QuantMesh Team. Tüm hakları saklıdır.
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

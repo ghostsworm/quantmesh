@@ -1094,3 +1094,5 @@
 4. 重要的算法调整需要详细说明调整原因和预期效果
 5. 破坏性变更需要特别标注 **[BREAKING CHANGE]**
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

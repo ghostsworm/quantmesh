@@ -373,3 +373,6 @@ All HTTP APIs are under the `/api` prefix. Successful JSON responses use `200` u
 - `500`: Server error; check response body and logs.
 
 Response body for errors is typically JSON, e.g. `{ "error": "message" }`.
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

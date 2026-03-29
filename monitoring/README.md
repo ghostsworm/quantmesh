@@ -208,3 +208,5 @@ global:
 - [Grafana 官方文档](https://grafana.com/docs/)
 - [AlertManager 官方文档](https://prometheus.io/docs/alerting/latest/alertmanager/)
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

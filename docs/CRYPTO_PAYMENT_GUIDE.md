@@ -297,3 +297,5 @@ A: 企业客户请联系销售:
 
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

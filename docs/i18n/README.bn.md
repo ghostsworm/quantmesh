@@ -470,3 +470,6 @@ QuantMesh সাবস্ক্রিপশন এবং লাইসেন্�
 </div>
 
 Copyright © ২০২৫ QuantMesh Team. সর্বস্বত্ব সংরক্ষিত।
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

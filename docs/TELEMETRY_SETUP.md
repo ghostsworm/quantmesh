@@ -113,3 +113,6 @@ DefaultTelemetryConfig = TelemetryConfig{
 - `main.go` - 程序启动时的统计调用
 
 所有代码都可以审查，确保没有后门或恶意行为。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

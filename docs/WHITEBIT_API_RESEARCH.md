@@ -335,3 +335,6 @@ WhiteBIT交易所API技术成熟，文档完善，支持期货交易，适合接
 3. WebSocket认证流程相对复杂（需要先获取token）
 
 总体评估：**推荐接入**，预计实施周期2-3周。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -241,3 +241,6 @@ import _ "net/http/pprof"
 经过全面检查和修复，所有长期运行的 goroutine 都已经正确实现了退出机制。系统应该能够优雅地关闭所有协程，避免 goroutine 泄漏。
 
 如果发现新的 goroutine 泄漏问题，请参考本文档的最佳实践进行修复。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

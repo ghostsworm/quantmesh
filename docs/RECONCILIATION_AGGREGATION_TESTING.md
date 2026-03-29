@@ -220,3 +220,6 @@ curl -X GET "http://localhost:8080/api/reconciliation/aggregated?period=month&sy
 - Safari (最新版本)
 
 验证所有功能在不同浏览器中都能正常工作。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

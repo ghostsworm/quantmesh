@@ -52,3 +52,6 @@
 ## 四、架构约束
 - 单会话单 Bot：每个 FIX 会话绑定一个 bot_id，订单路由到该 Bot 的交易所实例
 - 序号策略：登录时可重置，订单/心跳推进 sender/target 序号
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

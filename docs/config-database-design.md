@@ -292,3 +292,6 @@ flowchart TB
 ## 12. 文档位置
 
 本文档路径：`docs/config-database-design.md`（与 `docs/examples/` 下的示例配置并列）。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

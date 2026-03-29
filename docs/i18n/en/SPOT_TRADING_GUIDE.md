@@ -85,3 +85,6 @@ Check each exchange's adapter and docs for symbol format (e.g. `BTCUSDT` for spo
 - [ ] Ensure `price_interval` and `order_quantity` suit spot liquidity and fees.
 
 For multi-symbol and validation details, see [CONFIGURATION_GUIDE.md](../../CONFIGURATION_GUIDE.md) and [CONFIGURATION_REDUNDANCY_AND_MIGRATION.md](../../CONFIGURATION_REDUNDANCY_AND_MIGRATION.md).
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

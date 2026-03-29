@@ -130,3 +130,6 @@ trading:
 | `dynamic_adjustment.order_quantity.*` | `trading` | — | P0 動態單筆金額 |
 
 實作細節見 [GRID_ALPHA_P1_P2_SPEC.md](../../GRID_ALPHA_P1_P2_SPEC.md)。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

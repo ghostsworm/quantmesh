@@ -79,3 +79,6 @@ def choose_kline_interval(symbol, volatility, grid_gap_percent):
         return "1h", 180
     else:
         return "4h", 360
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

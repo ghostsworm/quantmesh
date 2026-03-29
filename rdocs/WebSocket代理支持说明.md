@@ -112,3 +112,5 @@ func getProxyDialer() *websocket.Dialer {
 - **SOCKS5 需要额外代码支持**
 - **推荐使用 HTTP 代理端口，最简单可靠**
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

@@ -360,3 +360,5 @@ A: 可以,但建议通过主程序提供的接口访问,而不是直接访问数
 
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

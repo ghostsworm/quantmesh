@@ -474,3 +474,5 @@ sudo systemctl start quantmesh
 - [Semantic Versioning](https://semver.org/)
 - [Git Flow](https://nvie.com/posts/a-successful-git-branching-model/)
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

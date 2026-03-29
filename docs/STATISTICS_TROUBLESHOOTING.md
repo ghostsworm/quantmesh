@@ -235,3 +235,6 @@ WHERE (account = ? OR account IS NULL OR account = '')
          → 统计 API 查询 trades 表
          → 前端显示统计数据
 ```
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

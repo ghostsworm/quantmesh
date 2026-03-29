@@ -883,3 +883,6 @@ func (cm *ConversationManager) Export(sessionID string, format string) ([]byte, 
 5. **多策略支持** - 简单和复杂策略都能配置
 
 系统设计遵循"简单可靠"的原则，从核心功能开始，逐步添加高级特性。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

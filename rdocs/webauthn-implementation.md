@@ -1162,3 +1162,5 @@ Cookie: session_id=...
 
 SSLcat 的指纹登录功能基于 WebAuthn 标准实现，提供了安全、便捷的无密码登录体验。通过公钥加密、挑战-响应机制和凭证计数器等多重安全机制，有效防止了各种攻击。用户可以在多个设备上注册凭证，并随时管理这些凭证。
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

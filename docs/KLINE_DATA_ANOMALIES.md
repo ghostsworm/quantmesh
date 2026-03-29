@@ -31,3 +31,6 @@ K 線圖上偶爾會出現「插針」：單根 K 線的 High 或 Low 遠離當�
 - 效果：圖表和依賴這些 K 線的展示不再出現明顯不合理的插針，同時保留正常波動；若某根被裁剪，日誌中會有 `[K線插針裁剪]` 記錄，便於排查。
 
 相關代碼與註釋見：`exchange/spike_filter.go`、`web/api.go`（getKlines 等）。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

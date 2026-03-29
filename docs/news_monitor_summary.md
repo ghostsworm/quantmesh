@@ -207,3 +207,6 @@ if r.newsMonitor != nil && r.newsMonitor.IsHighRisk() {
 - ✅ 易于扩展的架构
 
 可以作为现有技术指标风控系统的有效补充，提供更全面的风险预警能力。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

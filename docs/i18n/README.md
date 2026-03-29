@@ -28,3 +28,6 @@ python3 scripts/s2t_comments.py
 ```
 
 若需將**簡體中文 Markdown 文檔**轉成繁體，可手動撰寫或另寫腳本對 `.md` 套用相同用詞對照；`s2t_comments.py` 內的 `S2T` 對照表可複用。
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

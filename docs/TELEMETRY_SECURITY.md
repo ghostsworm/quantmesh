@@ -129,3 +129,6 @@ VITE_QUANTMESH_TELEMETRY_HOST=https://us.i.posthog.com
 - [PostHog 文档 - Project API Key](https://posthog.com/docs/api/post-only-endpoints)
 - [PostHog 文档 - Rate Limiting](https://posthog.com/docs/api/rate-limits)
 - [PostHog 文档 - Data Management](https://posthog.com/docs/data/data-management)
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

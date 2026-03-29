@@ -176,3 +176,5 @@
 3. P2 清债：clientOrderId 协议统一、风控作用域分层、配置持久化补齐、查询入口去默认值
 4. 验证要求：每项至少包含并发单测、重启恢复测试、跨交易所回归用例
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

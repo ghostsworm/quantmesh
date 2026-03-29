@@ -550,3 +550,5 @@ QuantMesh:
 
 **有任何问题，随时讨论！** 💪
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

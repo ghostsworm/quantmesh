@@ -280,3 +280,5 @@ MIT License - 详见 [LICENSE](LICENSE)
 
 **不要下载第三方打包的应用！**
 
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

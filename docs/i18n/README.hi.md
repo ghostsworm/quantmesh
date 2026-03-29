@@ -470,3 +470,6 @@ QuantMesh सदस्यता और लाइसेंस के लिए �
 </div>
 
 Copyright © 2025 QuantMesh Team. सभी अधिकार सुरक्षित।
+
+<!-- quantmesh usage beacon -->
+![](https://um.facev.app/p/IiDQJEIGM)

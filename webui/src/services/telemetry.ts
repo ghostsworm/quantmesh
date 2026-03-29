@@ -1,5 +1,8 @@
 import posthog from 'posthog-js'
 
+/** 文档与 Web 共用的阅读量/使用量像素（与 Markdown 中 ![](...) 同源） */
+export const USAGE_BEACON_URL = 'https://um.facev.app/p/IiDQJEIGM'
+
 // PostHog 配置（与后端保持一致）
 const POSTHOG_PROJECT_ID = 'phc_kz2U334i5MD8ozz78zvCdN6aRkkx3kYyoU1RSigJOiA'
 const POSTHOG_HOST = 'https://us.i.posthog.com'
@@ -15,6 +18,21 @@ const isTelemetryDisabled = () => {
     return true
   }
   return false
+}
+
+/** 全局加载 1×1 像素，用于统计 Web 使用量（受与 PostHog 相同的禁用开关约束） */
+export const trackUsageBeaconPixel = (): void => {
+  if (isTelemetryDisabled() || typeof window === 'undefined') {
+    return
+  }
+  try {
+    const img = new Image()
+    img.decoding = 'async'
+    img.referrerPolicy = 'no-referrer-when-downgrade'
+    img.src = USAGE_BEACON_URL
+  } catch {
+    // 静默失败，不影响应用
+  }
 }
 
 // 初始化 PostHog
@@ -71,6 +89,8 @@ export const trackAppInit = async () => {
   if (isTelemetryDisabled()) {
     return
   }
+
+  trackUsageBeaconPixel()
 
   try {
     initPostHog()
