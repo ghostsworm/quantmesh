@@ -70,6 +70,36 @@ describe('trackUsageBeaconPixel', () => {
     expect(ctor).not.toHaveBeenCalled()
   })
 
+  it('still loads beacon when localStorage.getItem throws (e.g. privacy mode)', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('blocked')
+      },
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    })
+    let lastSrc = ''
+    vi.stubGlobal(
+      'Image',
+      class {
+        decoding = ''
+        referrerPolicy = ''
+        set src(v: string) {
+          lastSrc = v
+        }
+        get src() {
+          return lastSrc
+        }
+      },
+    )
+    const { trackUsageBeaconPixel, USAGE_BEACON_URL } = await import('./telemetry')
+    trackUsageBeaconPixel()
+    expect(lastSrc).toBe(USAGE_BEACON_URL)
+  })
+
   it('loads beacon URL when telemetry is allowed', async () => {
     let lastSrc = ''
     vi.stubGlobal(
