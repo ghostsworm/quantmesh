@@ -445,7 +445,7 @@ QuantMesh 支援以加密货币支付订阅与授权：
 <div align="center">
   <strong>Made with ❤️ by QuantMesh Team</strong><br/>
   <sub>若本项目对您有帮助，欢迎给予 ⭐</sub><br/>
-  <sub>Version 3.79.6-rc17</sub>
+  <sub>Version 3.79.6-rc18</sub>
 </div>
 
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
