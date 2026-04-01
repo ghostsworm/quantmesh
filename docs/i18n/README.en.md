@@ -3,7 +3,14 @@
   
   # QuantMesh Market Maker
   
-  **High-Frequency Crypto Market Maker**
+  **Millisecond-level high-frequency cryptocurrency market maker**
+  
+  <h3>⭐ If this project helps you, a Star is much appreciated!</h3>
+  <p>
+    <a href="https://github.com/ghostsworm/quantmesh">
+      <img src="https://img.shields.io/github/stars/ghostsworm/quantmesh?style=social" alt="GitHub Stars">
+    </a>
+  </p>
 
   [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
   [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](../../LICENSE)
@@ -13,408 +20,306 @@
   [![GitHub Release](https://img.shields.io/github/release/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/releases)
   [![Website](https://img.shields.io/badge/Website-quantmesh.io-green.svg)](https://quantmesh.io)
   
-  [简体中文](../../README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md)
+  [简体中文](../../README.md) | [繁体中文](README.zh-TW.md) | [English](README.en.md) | [Español](README.es.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Русский](README.ru.md) | [العربية](README.ar.md) | [हिन्दी](README.hi.md) | [Bahasa Indonesia](README.id.md) | [Tiếng Việt](README.vi.md) | [ไทย](README.th.md) | [Türkçe](README.tr.md) | [Українська](README.uk.md) | [فارسی](README.fa.md) | [Nederlands](README.nl.md) | [Italiano](README.it.md) | [বাংলা](README.bn.md) | [اردو](README.ur.md) | [Polski](README.pl.md) | [Tagalog](README.tl.md)
 </div>
 
 ---
 
-## 🎯 Why Choose QuantMesh?
+## QuantMesh in three sentences
 
-| Feature | QuantMesh | Other Solutions |
-|---------|-----------|----------------|
-| **Exchange Support** | 20+ exchanges | Usually 3-5 |
-| **Response Latency** | Millisecond-level | Second-level |
-| **Risk Control** | Multi-layer active control | Basic control |
-| **Production Tested** | $100M+ trading volume | Untested |
-| **Web Interface** | ✅ Complete React UI | ❌ None/Basic |
-| **Open Source** | AGPL-3.0 | Closed source/Restricted |
-| **Real-time Data** | WebSocket-only | REST polling |
-| **Concurrency** | 1000+ orders/sec | Limited |
-
-**Key Advantages:**
-- ✅ **Battle-tested**: Proven with $100M+ trading volume
-- ✅ **High Performance**: Sub-10ms latency with WebSocket architecture
-- ✅ **Comprehensive**: Complete solution from trading to monitoring
-- ✅ **Transparent**: Fully open source, auditable code
-- ✅ **Extensible**: Plugin system for customization
+1. **One pipeline for market making**: Market data and orders flow over WebSocket; decisions and execution live in one Go service—fewer “script polling” layers means less latency and fewer failure modes.  
+2. **More than a grid bot**: Grid plus DCA / martingale / mean reversion / momentum / trend / combo strategies in parallel; 50+ indicators and backtesting in the same repo—tune parameters *after* seeing them in history.  
+3. **Production-shaped README**: Multi-layer active risk controls, reconciliation, Prometheus/Grafana, and a full React console—for teams that care about volume *and* sleep.
 
 ---
 
-## 📊 Performance Metrics
+## 🎯 How is this different from “typical grid / MM scripts”?
 
-- **Trading Volume**: $100M+ production-tested
-- **Response Latency**: <10ms (WebSocket-driven)
-- **Supported Exchanges**: 20+
-- **Concurrent Processing**: 1000+ orders/second
-- **System Availability**: 99.9%+
-- **Daily Trading Capacity**: $3M+ per day (example: ETHUSDC)
+The table below contrasts **common closed-source tools, exchange-built grids, or DIY glue scripts** with QuantMesh, which targets an **auditable open-source market-making platform**, not a single-strategy toy.
+
+| Dimension | QuantMesh | Typical alternatives |
+|-----------|-----------|----------------------|
+| **Exchange coverage** | 20+ via one abstraction | Often 3–5 venues or single-exchange |
+| **Latency profile** | Millisecond-grade; WebSocket-first for data and orders | Often second-level REST polling or semi-manual |
+| **Strategy depth** | Advanced grid features + multiple strategy types, parallel, capital allocation | Often one strategy or very few knobs |
+| **Backtest & indicators** | 50+ built-in indicators, multi-strategy backtests and reports | Often external tools or none |
+| **Risk control** | Active K-line circuit breakers, startup checks, reconciliation, options hedging, etc. | Often simple stops or none |
+| **Observability** | Prometheus, Grafana, alerts, Watchdog | Often logs or a bare panel |
+| **Web console** | Full React UI (config, bots, monitoring) | None or minimal |
+| **Code & license** | AGPL-3.0, auditable, fork-friendly | Closed box or restricted license |
+| **Production scale** | $100M+ reported live volume (self-reported) | Often undisclosed or unverifiable |
+
+**In one line:** If you want **multi-exchange, backtests, risk controls, monitoring, and the freedom to change code**—that is the gap QuantMesh fills versus ad-hoc scripts.
+
+---
+
+## 📊 Performance metrics
+
+- **Trading volume**: $100M+ production-tested (reported)
+- **Response latency**: &lt;10ms (WebSocket-driven)
+- **Supported exchanges**: 20+
+- **Throughput**: 1000+ orders/second
+- **Availability**: 99.9%+
+- **Daily capacity (example)**: $3M+/day (e.g. ETHUSDC-style setups)
 
 ---
 
 ## 📖 Introduction
 
-QuantMesh is a high-performance, low-latency cryptocurrency market maker system focusing on long grid trading strategies for perpetual contract markets. Developed in Go and driven by WebSocket real-time data streams, it aims to provide stable liquidity support for major exchanges like Binance, Bitget, and Gate.io.
+**QuantMesh** is a high-performance cryptocurrency market-making system written in **Go**. It drives market data and orders over **WebSocket end-to-end**, unifies **20+ exchanges** (Binance, Bitget, Gate.io, …), and defaults to **long-only infinite grid** on perpetuals—while supporting DCA, martingale, mean reversion, momentum, trend, and combo strategies in parallel.
 
-After several iterations, we have used this system to trade over $100 million in virtual currency. For example, trading Binance ETHUSDC with zero fees, a price interval of $1, and $300 per order, the daily trading volume can exceed $3 million, and over $50 million per month. As long as the market is oscillating or trending upward, it will continue to generate profits. If the market falls unilaterally, $30,000 in margin can guarantee no liquidation for a drop of 1000 points. Through continuous trading to lower costs, a 50% recovery is enough to break even, and returning to the original opening price can yield substantial profits. If there is a unilateral rapid decline, the active risk control system will automatically identify and immediately stop trading, only allowing continued orders when the market recovers, without worrying about liquidation from price spikes.
+The team reports **$100M+ cumulative live notional** (for information only; not a promise of returns). Example: on Binance ETHUSDC with zero fees, $1 spacing, ~$300 per clip, daily notional can reach millions of dollars in favorable conditions; in sharp drops, **active risk controls** aim to pause trading until conditions stabilize.
 
-Example: Starting trading ETH at 3000 points, the price drops to 2700 points, losing approximately $3,000. When the price recovers to above 2850 points, it breaks even. Returning to 3000 points, profits range from $1,000 to $3,000.
+**Illustrative numbers (not investment advice):** ETH from 3000 to 2700 may show ~$3,000 paper loss; recovery toward ~2850 can approach breakeven; at 3000, P&amp;L depends on fees and parameters. Always validate on **testnet** and **small size** first.
 
-## 📜 Project Origin
+## ✨ Key features
 
-This project was originally developed based on [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker), published by [dennisyang1986](https://github.com/dennisyang1986) under the MIT License.
+> Grouped as **trading → risk → observability → extension**. Skim the **bold** lines first.
 
-Based on the original project, we have made the following major improvements and extensions:
+- **Multi-exchange**: Binance, Bitget, Gate.io, Bybit, EdgeX, and more; spot and derivatives
+- **Millisecond response**: WebSocket for market data and order flow—no polling tax
+- **Multi-strategy**:
+  - **Grid**: fixed-notional mode, super-slot system; **grid risk** (stop-loss / take-profit / trailing / max layers / trend filter); **price band** (soft limits); **trigger price**; arithmetic/geometric grids; **grid shift**; **close all on stop**; advanced P1 funding-rate linkage, P2 order-book aware quoting
+  - **DCA / martingale / mean reversion / momentum / trend / combo**: parallel execution and capital allocation
+- **Indicators**: 50+ (trend, momentum, volatility, volume) for signals and backtests
+- **AI**: market analysis, parameter suggestions, risk and sentiment (news / Polymarket, etc.)
+- **Backtesting**: historical K-line runs, multi-strategy, 20+ risk metrics and Markdown reports
+- **Risk & safety**:
+  - **Active risk**: K-line volume anomalies → optional trading pause
+  - **Fund safety**: balance, leverage, and max-position checks before start
+  - **Reconciliation**: periodic sync between local state and the exchange
+  - **Options hedge**: long/short grid with Put/Call hedging; positions from Binance/Deribit, coverage and roll suggestions
+- **Monitoring**: Prometheus, Grafana, layered alerts, Watchdog
+- **Events & news**: price/trade events, AI-assisted news analysis and prediction checks
+- **Telemetry (optional)**: anonymous usage stats to improve the product—transparent, reviewable, **disable anytime**
+- **Concurrency**: Goroutine + channel + sync.Map patterns for high throughput
 
-- ✨ **Complete Frontend Interface**: Added a React + TypeScript web management interface providing visual trading monitoring, configuration management, and data analysis
-- 🏦 **Exchange Expansion**: Expanded from 3 exchanges (Binance, Bitget, Gate.io) in the original project to **20+ major exchanges**
-- 🔒 **Financial-Grade Stability**: Comprehensively improved system reliability, including comprehensive error handling, concurrency safety mechanisms, data consistency guarantees, automatic recovery, etc.
-- 📊 **Enhanced Monitoring**: Improved logging system, metrics collection (Prometheus), health checks, and real-time alerts
-- 🛡️ **Strengthened Risk Control**: Multi-layer risk monitoring, automatic reconciliation, anomaly circuit breaking, and fund safety protection
-- 🔌 **Plugin System**: Support for extensible plugin mechanisms for easy customization and secondary development
-- 📱 **Internationalization Support**: Multi-language interface (Chinese/English), i18n support
-- 🧪 **Testnet Support**: Support for testnet environments of multiple exchanges for development and testing
+## 🏦 Supported exchanges
 
-For detailed improvement descriptions and third-party software information, please refer to the [NOTICE](../../NOTICE) file.
+| Exchange | Status | Daily volume (approx.) | Notes |
+|----------|--------|--------------------------|-------|
+| **Binance** | ✅ Stable | $50B+ | Largest global venue |
+| **Bitget** | ✅ Stable | $10B+ | Major derivatives |
+| **Gate.io** | ✅ Stable | $5B+ | Long-running exchange |
+| **OKX** | ✅ Stable | $20B+ | Top-tier global |
+| **Bybit** | ✅ Stable | $15B+ | Major derivatives |
+| **Huobi (HTX)** | ✅ Stable | $5B+ | Strong in Chinese market |
+| **KuCoin** | ✅ Stable | $3B+ | Many altcoins, futures |
+| **Kraken** | ✅ Stable | $2B+ | Compliance-focused |
+| **Bitfinex** | ✅ Stable | $1B+ | Deep liquidity legacy venue |
+| **MEXC** | ✅ Stable | $8B+ | High perp volume, testnet |
+| **BingX** | ✅ Stable | $3B+ | Social trading, testnet |
+| **Deribit** | ✅ Stable | $2B+ | Options leader, testnet |
+| **BitMEX** | ✅ Stable | $2B+ | Legacy derivatives, testnet |
+| **Phemex** | ✅ Stable | $2B+ | Zero-fee perps, testnet |
+| **WOO X** | ✅ Stable | $1.5B+ | Institutional, testnet |
+| **CoinEx** | ✅ Stable | $1B+ | Since 2017, testnet |
+| **Bitrue** | ✅ Stable | $1B+ | XRP ecosystem, testnet |
+| **XT.COM** | ✅ Stable | $800M+ | Emerging, testnet |
+| **BTCC** | ✅ Stable | $500M+ | Since 2011, testnet |
+| **AscendEX** | ✅ Stable | $400M+ | DeFi-friendly, testnet |
+| **Poloniex** | ✅ Stable | $300M+ | Since 2014, testnet |
+| **Crypto.com** | ✅ Stable | $500M+ | Large retail base, testnet |
 
-**Important Note**: This project is now distributed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. In accordance with the MIT License requirements of the original project, we have retained acknowledgment of the original project.
+## Module overview
 
-## ✨ Key Features
+| Module | What it does |
+|--------|----------------|
+| **Trading strategies** | Grid, DCA, martingale, mean reversion, momentum, trend, combo; multi-symbol spot/perp |
+| **Technical analysis** | 50+ indicators; signals and backtests |
+| **AI** | Analysis, tuning hints, risk & sentiment, Polymarket-style signals |
+| **Backtesting** | Historical K-line, multi-strategy, risk metrics, Markdown reports |
+| **Risk & reconciliation** | Active K-line controls, depth monitoring, reconciliation, order cleanup, startup checks, options hedge (coverage, rolls) |
+| **Monitoring & alerts** | Prometheus, Grafana, alerts, Watchdog, funding & spread monitors |
+| **Events & news** | Event hub, news ingestion, AI analysis, prediction validation |
+| **Plugins** | Loadable plugins, licensing hooks, custom strategies and adapters |
 
-- **Multi-Exchange Support**: Compatible with Binance, Bitget, Gate.io, Bybit, EdgeX, and other major platforms.
-- **Millisecond-Level Response**: Fully WebSocket-driven (market data and order flow), eliminating polling delays.
-- **Smart Grid Strategy**: 
-  - **Fixed Amount Mode**: More controllable capital utilization.
-  - **Super Slot System**: Intelligently manages order and position states, preventing concurrency conflicts.
-- **Powerful Risk Control System**:
-  - **Active Risk Control**: Real-time monitoring of K-line volume anomalies, automatically pausing trading.
-  - **Fund Safety**: Automatically checks balance, leverage, and maximum position risk before startup.
-  - **Automatic Reconciliation**: Regularly synchronizes local and exchange states to ensure data consistency.
-- **High-Concurrency Architecture**: Efficient concurrency model based on Goroutine + Channel + Sync.Map.
+See also [ARCHITECTURE.md](../../ARCHITECTURE.md), [GRID_STRATEGY_ADVANCED_FEATURES.md](../GRID_STRATEGY_ADVANCED_FEATURES.md), [RISK_CONTROL_GUIDE.md](../RISK_CONTROL_GUIDE.md), [API_REFERENCE.md](../API_REFERENCE.md).
 
-## 🏦 Supported Exchanges
-
-| Exchange | Status | Daily Trading Volume | Notes |
-|----------|--------|---------------------|-------|
-| **Binance** | ✅ Stable | $50B+ | World's largest exchange |
-| **Bitget** | ✅ Stable | $10B+ | Mainstream futures trading platform |
-| **Gate.io** | ✅ Stable | $5B+ | Established exchange |
-| **OKX** | ✅ Stable | $20B+ | Top 3 globally, strong Chinese user base |
-| **Bybit** | ✅ Stable | $15B+ | Mainstream futures trading platform |
-| **Huobi (HTX)** | ✅ Stable | $5B+ | Established exchange, strong Chinese market |
-| **KuCoin** | ✅ Stable | $3B+ | Rich altcoins, futures contract support |
-| **Kraken** | ✅ Stable | $2B+ | Strong compliance, mainstream in Europe and America |
-| **Bitfinex** | ✅ Stable | $1B+ | Established exchange, good liquidity |
-| **MEXC** | ✅ Stable | $8B+ | Large futures trading volume, rich altcoins, testnet supported |
-| **BingX** | ✅ Stable | $3B+ | Social trading platform, good futures experience, testnet supported |
-| **Deribit** | ✅ Stable | $2B+ | World's largest options exchange, supports futures + options, testnet supported |
-| **BitMEX** | ✅ Stable | $2B+ | Established derivatives exchange, up to 100x leverage, testnet supported |
-| **Phemex** | ✅ Stable | $2B+ | Zero-fee futures trading, high-performance engine, testnet supported |
-| **WOO X** | ✅ Stable | $1.5B+ | Institutional-grade exchange, deep liquidity, testnet supported |
-| **CoinEx** | ✅ Stable | $1B+ | Established exchange (2017), rich altcoins, testnet supported |
-| **Bitrue** | ✅ Stable | $1B+ | Main XRP ecosystem exchange, strong Southeast Asian market, testnet supported |
-| **XT.COM** | ✅ Stable | $800M+ | Emerging exchange, rich altcoins, testnet supported |
-| **BTCC** | ✅ Stable | $500M+ | Established exchange (2011), China's first Bitcoin exchange, testnet supported |
-| **AscendEX** | ✅ Stable | $400M+ | Institutional-grade exchange, DeFi-friendly, testnet supported |
-| **Poloniex** | ✅ Stable | $300M+ | Established exchange (2014), rich coin variety, testnet supported |
-| **Crypto.com** | ✅ Stable | $500M+ | Well-known brand, tens of millions of users globally, testnet supported |
-
-## Module Architecture
+## Repository layout (high level)
 
 ```
 quantmesh_platform/
-├── main.go                    # Main program entry, component orchestration
-│
-├── config/                    # Configuration management
-│   └── config.go              # YAML configuration loading and validation
-│
-├── exchange/                  # Exchange abstraction layer (core)
-│   ├── interface.go           # IExchange unified interface
-│   ├── factory.go             # Factory pattern for creating exchange instances
-│   ├── types.go               # Common data structures
-│   ├── wrapper_*.go           # Adapters (wrapping exchanges)
-│   ├── binance/               # Binance implementation
-│   ├── bitget/                # Bitget implementation
-│   └── gate/                  # Gate.io implementation
-│
-├── logger/                    # Logging system
-│   └── logger.go              # File logging + console logging
-│
-├── monitor/                   # Price monitoring
-│   └── price_monitor.go       # Global unique price stream
-│
-├── order/                     # Order execution layer
-│   └── executor_adapter.go    # Order executor (rate limiting + retry)
-│
-├── position/                  # Position management (core)
-│   └── super_position_manager.go  # Super slot manager
-│
-├── safety/                    # Safety and risk control
-│   ├── safety.go              # Pre-startup safety checks
-│   ├── risk_monitor.go        # Active risk control (K-line monitoring)
-│   ├── reconciler.go          # Position reconciliation
-│   └── order_cleaner.go       # Order cleanup
-│
-└── utils/                     # Utility functions
-    └── orderid.go             # Custom order ID generation
+├── main.go                    # Entry, wiring
+├── config/                    # YAML load, backup, history, hot reload
+├── exchange/                  # IExchange + 20+ venue implementations
+├── strategy/                  # grid, DCA, martingale, mean reversion, momentum, trend, combo
+├── indicators/                # trend, momentum, volatility, volume
+├── ai/                        # analysis, tuning, risk, sentiment
+├── backtest/                  # data, engine, metrics
+├── position/                  # super position / slot manager (P1/P2)
+├── safety/                    # startup checks, risk monitor, reconciler, order cleaner, funding monitor
+├── monitor/                   # prices, news, spread, watchdog
+├── event/                     # event hub
+├── metrics/                   # Prometheus
+├── plugin/                    # plugins & license
+├── web/                       # API + static assets
+└── webui/                     # React source
 ```
 
-## Best Practices
+## Best practices
 
-1. **For Exchange VIP Status**: This system is a volume generation tool. If price fluctuations are not large, $3,000 in margin can generate $10 million in trading volume in 2-3 days.
+1. **Exchange VIP / volume**: The system can generate large reported volume; with moderate volatility, ~$3,000 margin may produce on the order of $10M notional in a few days (parameters and venue rules apply).
 
-2. **Best Practice for Profit**: Enter the market after a round of decline. First buy a position, then start the software. It will automatically sell grid by grid upward. When your position is sold out, stop the system. If you're unsure whether the current market is a low point, you can start without a base position. If it falls further, add a position at the low point and restart to continue selling. This maximizes profits. Repeat this cycle to continuously profit. Don't worry about declines - the program continuously lowers costs. As long as it recovers by half, you break even.
+2. **Profit workflow (conceptual)**: After a dip, you may open a base position, start the bot, and let it scale out grid-by-grid upward; stop when flat. If the bottom is unclear, start without a base leg and add at a lower level if needed. **Always match this to your own risk tolerance.**
 
-## 🚀 Getting Started
+## 🚀 Getting started
 
-### Prerequisites
-- Go 1.21 or higher
-- Network environment capable of accessing exchange APIs
+### Option A: Docker (recommended)
 
-### Installation
-
-1. **Clone the repository**
+1. Clone and copy config:
    ```bash
    git clone https://github.com/ghostsworm/quantmesh.git
    cd quantmesh
-   ```
-
-2. **Install dependencies**
-   ```bash
-   go mod download
-   ```
-
-### Configuration
-
-1. Copy the example configuration file:
-   ```bash
    cp config.example.yaml config.yaml
    ```
-
-2. Edit `config.yaml` and fill in your API Key and strategy parameters:
-
-   ```yaml
-   app:
-     current_exchange: "binance"  # Select exchange
-
-   exchanges:
-     binance:
-       api_key: "YOUR_API_KEY"
-       secret_key: "YOUR_SECRET_KEY"
-       fee_rate: 0.0002
-
-   trading:
-     symbol: "ETHUSDT"       # Trading pair
-     price_interval: 2       # Grid spacing (price)
-     order_quantity: 30     # Amount per grid (USDT)
-     buy_window_size: 10    # Number of buy orders
-     sell_window_size: 10   # Number of sell orders
+2. Edit `config.yaml` (API keys, strategy).
+3. Run:
+   ```bash
+   docker-compose up -d
    ```
+4. Open **http://localhost:8080** for the Web UI.  
+   Stop: `docker-compose down`
 
-### Usage
+### Option B: Build from source
 
-#### Production Mode
+**Requirements:** Go 1.21+, reachable exchange APIs.
 
-Run the compiled binary:
+```bash
+git clone https://github.com/ghostsworm/quantmesh.git
+cd quantmesh
+go mod download
+cp config.example.yaml config.yaml
+# edit config.yaml — example:
+```
+
+```yaml
+app:
+  current_exchange: "binance"
+
+exchanges:
+  binance:
+    api_key: "YOUR_API_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+    fee_rate: 0.0002
+
+trading:
+  symbol: "ETHUSDT"
+  price_interval: 2
+  order_quantity: 30
+  buy_window_size: 10
+  sell_window_size: 10
+```
+
+**Production:**
 
 ```bash
 go run main.go
+# or
+go build -o quantmesh && ./quantmesh
 ```
 
-Or build and run:
+Backend serves the embedded UI on port **28888** by default.
 
-```bash
-go build -o quantmesh
-./quantmesh
-```
-
-The backend will serve the frontend static files on port 28888 (default).
-
-#### Development Mode
-
-For frontend development with hot reload and source code debugging:
-
-**Option 1: Use the development script (Recommended)**
+**Development (hot reload):**
 
 ```bash
 ./dev.sh
 ```
 
-This script will:
-- Start the Go backend server on port 28888
-- Start the Vite dev server on port 15173
-- Enable hot reload for frontend code changes
-- Provide source maps for debugging (no minified code)
+Or manually: terminal 1 `go run main.go`, terminal 2:
 
-Then access the application at: **http://localhost:15173**
-
-**Option 2: Manual startup**
-
-Terminal 1 - Start Go backend:
-```bash
-go run main.go
-```
-
-Terminal 2 - Start Vite dev server:
 ```bash
 cd webui
-pnpm dev
+yarn dev
 ```
 
-Then access the application at: **http://localhost:15173**
-
-**Development Mode Benefits:**
-- ✅ Hot reload - Frontend code changes are instantly reflected
-- ✅ Source maps - Debug with original TypeScript/React code (not minified)
-- ✅ Fast refresh - React components update without losing state
-- ✅ Better error messages - See actual file names and line numbers
-
-**Note:** In development mode, the Vite dev server proxies API requests (`/api/*`) and WebSocket connections (`/ws`) to the Go backend running on port 28888.
+Open **http://localhost:15173** (Vite proxies `/api` and `/ws` to the Go backend).
 
 ## 🏗️ Architecture
 
-The system adopts a modular design with core components including:
+- **Exchange layer**: One interface, many venues
+- **Price monitor**: Single WebSocket price source for consistent decisions
+- **Super position manager**: Slot-based order lifecycle
+- **Safety & risk**: Startup checks, runtime monitoring, circuit breaking
 
-- **Exchange Layer**: Unified exchange interface abstraction, shielding underlying API differences.
-- **Price Monitor**: Global unique WebSocket price source, ensuring decision consistency.
-- **Super Position Manager**: Core position manager, managing order lifecycle based on Slot mechanism.
-- **Safety & Risk Control**: Multi-layer risk control, including startup checks, runtime monitoring, and anomaly circuit breaking.
+Details: [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
-For more detailed architecture documentation, please refer to [ARCHITECTURE.md](../../ARCHITECTURE.md).
+## 📊 Telemetry & privacy
+
+QuantMesh can send **optional anonymous usage statistics** to help improve the product. Collection is **transparent**, **reviewable in code**, and **can be disabled**.
+
+### What we may collect (anonymous)
+
+- Version, OS, arch, random instance UUID
+- Exchange name and symbol pairs in use
+- API latency, WebSocket timing
+- Trade **side** only (buy/sell)—not size or P&amp;L
+
+### What we do **not** collect
+
+- IP (disabled on the client; instance ID only)
+- Geo or identity
+- API keys, balances, positions, or amounts
+
+### Disable telemetry
+
+```bash
+export QUANTMESH_DISABLE_TELEMETRY=1
+```
+
+Or in `webui/.env.local`: `VITE_DISABLE_TELEMETRY=1`
+
+See [TELEMETRY_GUIDE.md](../TELEMETRY_GUIDE.md), [TELEMETRY_PRIVACY.md](../TELEMETRY_PRIVACY.md), [TELEMETRY_SIMPLE_GUIDE.md](../TELEMETRY_SIMPLE_GUIDE.md).
+
+---
 
 ## ⚠️ Disclaimer
 
-This software is for educational and research purposes only. Cryptocurrency trading involves high risk and may result in capital loss.
-- Users are solely responsible for any profits or losses from using this software.
-- Always test thoroughly on Testnet before using real funds.
-- The developers are not liable for losses due to software bugs, network latency, or exchange failures.
+This software is for education and research. Crypto trading is risky.
 
-## 🪙 Crypto Payment Support
+- You are responsible for your own P&amp;L.
+- Test on **testnet** before real funds.
+- The authors are not liable for bugs, latency, or exchange outages.
 
-QuantMesh supports cryptocurrency payments for subscriptions and licenses:
+## 🪙 Crypto payments (subscriptions / license)
 
-### Supported Cryptocurrencies
-- **BTC** (Bitcoin)
-- **ETH** (Ethereum)
-- **USDT** (Tether, ERC20)
-- **USDC** (USD Coin, ERC20)
+Supported: **BTC**, **ETH**, **USDT (ERC20)**, **USDC (ERC20)** — Coinbase Commerce or direct wallet.
 
-### Payment Methods
-1. **Coinbase Commerce** (Recommended)
-   - Automatic confirmation
-   - Multiple cryptocurrencies supported
-   - Easy payment page
+- [CRYPTO_PAYMENT_GUIDE.md](../CRYPTO_PAYMENT_GUIDE.md)
+- [CRYPTO_PAYMENT_QUICKSTART.md](../CRYPTO_PAYMENT_QUICKSTART.md)
+- [CRYPTO_PAYMENT_SETUP.md](../CRYPTO_PAYMENT_SETUP.md)
+- [reports/CRYPTO_PAYMENT_SUMMARY.md](../reports/CRYPTO_PAYMENT_SUMMARY.md)
 
-2. **Direct Wallet Payment**
-   - No third-party involvement
-   - More privacy
-   - Manual confirmation (1-24 hours)
+## 📜 License (dual)
 
-### Quick Start
-```bash
-# Method A: Coinbase Commerce (15 minutes)
-# 1. Register at https://commerce.coinbase.com
-# 2. Configure API Key in .env.crypto
-# 3. Start service
+### AGPL-3.0
 
-# Method B: Direct Wallet (5 minutes)
-# 1. Configure wallet addresses
-# 2. Start service
-# 3. Manual confirmation
-```
+- Free to use, modify, and distribute
+- Derivatives must be AGPL-3.0 and source must be offered (including network use)
 
-### Documentation
-- 📖 [User Payment Guide](../CRYPTO_PAYMENT_GUIDE.md)
-- 🚀 [Quick Start Guide](../CRYPTO_PAYMENT_QUICKSTART.md)
-- 🔧 [Setup Guide](../CRYPTO_PAYMENT_SETUP.md)
-- 📊 [Implementation Summary](../reports/CRYPTO_PAYMENT_SUMMARY.md)
+### Commercial license
 
-### Why Crypto Payments?
-✅ No credit card or bank account required  
-✅ Global accessibility, no regional restrictions  
-✅ Lower transaction fees (1% vs 2.9%)  
-✅ Better privacy protection  
-✅ Fast confirmation (10-30 minutes)  
-✅ Perfect fit for crypto trading software  
-
-## 📜 License
-
-This project uses a **Dual License model**:
-
-### AGPL-3.0 Open Source License
-- ✅ Free to use, modify, and distribute
-- ⚠️ **All derivative works must be open-sourced** and released under AGPL-3.0
-- ⚠️ Source code must be provided even for network services
-- ⚠️ Modified code must be contributed back to the community
-
-### Commercial License
-If you need to use this software in proprietary applications or services, or do not wish to open-source your modifications, you need to purchase a commercial license.
-
-**Commercial License Scope:**
-- Use in proprietary applications
-- No obligation to open-source modifications
-- Integrate into proprietary products for distribution
-- Priority technical support and updates
-
-**Commercial License Inquiries:**
-- 📧 Email: contact@quantmesh.io
-- 🌐 Website: https://quantmesh.io/commercial
-
----
-
-### License Details
-
-This project is dual-licensed under:
-
-1. **AGPL-3.0 (GNU Affero General Public License v3.0)**
-   - Free for use, modification, and distribution
-   - All derivative works must be open-sourced under AGPL-3.0
-   - Source code must be provided to all users, even for network services
-   - Modifications must be contributed back to the community
-
-2. **Commercial License**
-   - Required for proprietary use
-   - No obligation to open-source modifications
-   - Includes priority support and updates
-
-For commercial licensing inquiries, please contact:
-- 📧 Email: contact@quantmesh.io
-- 🌐 Website: https://quantmesh.io/commercial
+For proprietary use without AGPL obligations: **contact@quantmesh.io** — https://quantmesh.io/commercial
 
 ## 🤝 Contributing
 
-We welcome contributions! Here's how you can help:
+Issues and PRs are welcome. Contributions are licensed under AGPL-3.0. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-- ⭐ **Star this repo** if you find it helpful
-- 🍴 **Fork and use** the project
-- 🐛 **Report bugs** via [GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)
-- 💡 **Suggest features** via [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)
-- 📝 **Submit PRs** for improvements
-- 📖 **Improve documentation**
+## 📞 Contact
 
-**Note:** According to the AGPL-3.0 license, all contributions to this project will be released under the same AGPL-3.0 license.
-
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for detailed guidelines.
-
-## 🙏 Acknowledgments
-
-Thanks to the original project [OpenSQT Market Maker](https://github.com/dennisyang1986/opensqt_market_maker) by [dennisyang1986](https://github.com/dennisyang1986) for their open-source contribution, which provided a solid foundation for this project. For more information, please refer to the [NOTICE](../../NOTICE) file.
-
----
-
-## 📞 Contact & Support
-
-- 🌐 **Website**: https://quantmesh.io
-- 📧 **Email**: contact@quantmesh.io
-- 💬 **Discord**: [Join our community](https://discord.gg/YOUR_INVITE_LINK)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)
-- 📖 **Documentation**: [Full Documentation](../)
+- Website: https://quantmesh.io  
+- Email: contact@quantmesh.io  
+- [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)  
+- [GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)  
+- Docs: [docs/](../)
 
 ---
 
 <div align="center">
   <strong>Made with ❤️ by QuantMesh Team</strong><br/>
-  <sub>If you find this project helpful, please consider giving it a ⭐</sub>
+  <sub>If this project helps you, a ⭐ is welcome</sub><br/>
+  <sub>Version 3.79.6-rc20</sub>
 </div>
 
 Copyright © 2025 QuantMesh Team. All Rights Reserved.
