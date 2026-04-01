@@ -13,11 +13,15 @@ const isTelemetryDisabled = () => {
   if (import.meta.env.VITE_DISABLE_TELEMETRY === '1' || import.meta.env.VITE_DISABLE_TELEMETRY === 'true') {
     return true
   }
-  // 检查 localStorage（用户可能通过设置禁用）
-  if (typeof window !== 'undefined' && localStorage.getItem('QUANTMESH_DISABLE_TELEMETRY') === '1') {
-    return true
+  // 检查 localStorage（用户可能通过设置禁用）；部分环境会抛错（隐私模式、禁用存储等）
+  if (typeof window === 'undefined') {
+    return false
   }
-  return false
+  try {
+    return localStorage.getItem('QUANTMESH_DISABLE_TELEMETRY') === '1'
+  } catch {
+    return false
+  }
 }
 
 /** 全局加载 1×1 像素，用于统计 Web 使用量（受与 PostHog 相同的禁用开关约束） */
@@ -50,9 +54,8 @@ const initPostHog = () => {
       autocapture: false,
       // 禁用会话录制（隐私保护）
       disable_session_recording: true,
-      // 禁用热力图
+      // 是否禁用本地持久化（匿名 ID 等）；false 表示仍写入 localStorage
       disable_persistence: false,
-      // 禁用 cookie
       disable_cookie: false,
       // 加载时立即初始化
       loaded: (posthog) => {
