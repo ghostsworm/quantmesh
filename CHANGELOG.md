@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc4] - 2026-04-03
+
+### Changed
+- **Web UI / PWA**：Workbox precache 排除動態語言包 chunk（`assets/xx-YY-*.js`），避免 Service Worker 安裝時批量預取所有語言；運行時仍按需加載當前語言（與 `i18n/config` 中 `resourcesToBackend` 一致）
+
+---
+
 ## [3.79.8-rc3] - 2026-04-02
 
 ### Fixed

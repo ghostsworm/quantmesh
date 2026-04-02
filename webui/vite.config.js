@@ -56,6 +56,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // 動態 i18n chunk（Vite 命名為 xx-YY-hash.js）不加入 precache，否則 SW 安裝時會一次性拉取所有語言；
+        // 運行時仍由 i18next resourcesToBackend 按需 import()，僅下載當前語言（zh-CN 已靜態打入主包）
+        globIgnores: ['**/assets/??-??-*.js'],
         // 允許預緩存最大 5MB 的文件（默認 2MB）
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         // 添加版本号，确保 Service Worker 更新
