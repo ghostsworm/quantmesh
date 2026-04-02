@@ -27,3 +27,18 @@ func TestApplyTopLevelFuturesBalancesPreservesAssetSum(t *testing.T) {
 		t.Fatalf("expected sums preserved, got avail=%v wallet=%v margin=%v", a, w, m)
 	}
 }
+
+func TestApplyTopLevelFuturesBalancesUsesMarginWhenTopAvailZero(t *testing.T) {
+	t.Parallel()
+	// 幣安多資產下帳戶級 availableBalance 可能為 0，但 totalMarginBalance 仍正確
+	a, w, m := applyTopLevelFuturesBalances(0, 0, 0, "0", "10212.48", "9775.95")
+	if math.Abs(a-9775.95) > 1e-6 {
+		t.Fatalf("available: got %v want 9775.95", a)
+	}
+	if math.Abs(w-10212.48) > 1e-6 {
+		t.Fatalf("wallet: got %v want 10212.48", w)
+	}
+	if math.Abs(m-9775.95) > 1e-6 {
+		t.Fatalf("margin: got %v want 9775.95", m)
+	}
+}

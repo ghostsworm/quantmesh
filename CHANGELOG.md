@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc10] - 2026-04-03
+
+### Fixed
+- **Binance 合約 / 持倉安全檢查**：進一步處理 U 本位多資產下 **帳戶級 `availableBalance` 為 0** 但 **`totalMarginBalance` / `totalWalletBalance` 仍為正** 的情況，依序回退為保證金餘額、錢包餘額；若 WebSocket `v2/account.status` 合併後仍全 0，再請求 REST `/fapi/v2/account` 補全，避免誤判餘額為 0
+
+---
+
 ## [3.79.8-rc9] - 2026-04-03
 
 ### Fixed

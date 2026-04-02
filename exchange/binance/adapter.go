@@ -816,9 +816,10 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}
 
 	// 優先使用 WebSocket API（v2/account.status），失敗時回退 REST
-	account, err := b.fetchAccountViaWebSocket(ctx)
-	if err != nil {
-		logger.Debug("⚠️ [Binance] WebSocket 賬戶查詢失敗，回退 REST: %v", err)
+	account, wsErr := b.fetchAccountViaWebSocket(ctx)
+	if wsErr != nil {
+		logger.Debug("⚠️ [Binance] WebSocket 賬戶查詢失敗，回退 REST: %v", wsErr)
+		var err error
 		account, err = b.fetchAccountViaREST(ctx)
 		if err != nil {
 			errStr := err.Error()
@@ -827,28 +828,30 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 			}
 			return nil, err
 		}
-	}
-
-	// 從賬戶數據解析餘額與持倉
-	availableBalance := 0.0
-	totalWalletBalance := 0.0
-	totalMarginBalance := 0.0
-
-	for _, asset := range account.Assets {
-		if asset.Asset == "USDT" || asset.Asset == "USDC" || asset.Asset == "BUSD" || asset.Asset == "U" {
-			balance, _ := strconv.ParseFloat(asset.WalletBalance, 64)
-			available, _ := strconv.ParseFloat(asset.AvailableBalance, 64)
-			marginBalance, _ := strconv.ParseFloat(asset.MarginBalance, 64)
-
-			totalWalletBalance += balance
-			availableBalance += available
-			totalMarginBalance += marginBalance
+	} else {
+		a, w, m := computeBalancesFromAccountData(account)
+		// WS 成功但合併後仍全 0 時再拉 REST（測試網/多資產下 WS 可能返回空欄位或與 REST 不一致）
+		if a <= 0 && m <= 0 && w <= 0 {
+			if rest, err := b.fetchAccountViaREST(ctx); err == nil {
+				a2, w2, m2 := computeBalancesFromAccountData(rest)
+				if a2 > a {
+					a = a2
+				}
+				if w2 > w {
+					w = w2
+				}
+				if m2 > m {
+					m = m2
+				}
+				if a > 0 || m > 0 || w > 0 {
+					logger.Debug("ℹ️ [Binance] REST 帳戶補全餘額（WS 合併為 0）")
+					account = rest
+				}
+			}
 		}
 	}
-	availableBalance, totalWalletBalance, totalMarginBalance = applyTopLevelFuturesBalances(
-		availableBalance, totalWalletBalance, totalMarginBalance,
-		account.TopAccountAvailableBalance, account.TopTotalWalletBalance, account.TopTotalMarginBalance,
-	)
+
+	availableBalance, totalWalletBalance, totalMarginBalance := computeBalancesFromAccountData(account)
 
 	positions := make([]*Position, 0, len(account.Positions))
 	accountLeverage := 1 // 默認 1 倍杠杆
@@ -901,19 +904,51 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 // applyTopLevelFuturesBalances 在僅累加 USDT/USDC 資產行得到 0 時，回退到帳戶級字段（多資產保證金模式）
 func applyTopLevelFuturesBalances(sumAvail, sumWallet, sumMargin float64, topAvailStr, topWalletStr, topMarginStr string) (float64, float64, float64) {
 	topAvail, _ := strconv.ParseFloat(topAvailStr, 64)
-	if topAvail > 0 && sumAvail <= 0 {
-		sumAvail = topAvail
-		logger.Debug("ℹ️ [Binance] 使用帳戶級可用餘額（多資產/資產級可用為 0 時）: %.4f", topAvail)
-	}
 	topWallet, _ := strconv.ParseFloat(topWalletStr, 64)
 	topMargin, _ := strconv.ParseFloat(topMarginStr, 64)
+
 	if topWallet > 0 && sumWallet <= 0 {
 		sumWallet = topWallet
 	}
 	if topMargin > 0 && sumMargin <= 0 {
 		sumMargin = topMargin
 	}
+
+	if sumAvail <= 0 {
+		if topAvail > 0 {
+			sumAvail = topAvail
+			logger.Debug("ℹ️ [Binance] 使用帳戶級可用餘額（多資產/資產級可用為 0 時）: %.4f", topAvail)
+		} else if topMargin > 0 {
+			sumAvail = topMargin
+			logger.Debug("ℹ️ [Binance] 使用帳戶級保證金餘額（可用為 0）: %.4f", topMargin)
+		} else if topWallet > 0 {
+			sumAvail = topWallet
+			logger.Debug("ℹ️ [Binance] 使用帳戶級錢包餘額（可用為 0）: %.4f", topWallet)
+		} else if sumMargin > 0 {
+			sumAvail = sumMargin
+			logger.Debug("ℹ️ [Binance] 使用累加保證金餘額（可用為 0）: %.4f", sumMargin)
+		}
+	}
 	return sumAvail, sumWallet, sumMargin
+}
+
+// computeBalancesFromAccountData 累加穩定幣資產行後套用帳戶級回退
+func computeBalancesFromAccountData(account *accountData) (availableBalance, totalWalletBalance, totalMarginBalance float64) {
+	for _, asset := range account.Assets {
+		if asset.Asset == "USDT" || asset.Asset == "USDC" || asset.Asset == "BUSD" || asset.Asset == "U" {
+			balance, _ := strconv.ParseFloat(asset.WalletBalance, 64)
+			available, _ := strconv.ParseFloat(asset.AvailableBalance, 64)
+			marginBalance, _ := strconv.ParseFloat(asset.MarginBalance, 64)
+
+			totalWalletBalance += balance
+			availableBalance += available
+			totalMarginBalance += marginBalance
+		}
+	}
+	return applyTopLevelFuturesBalances(
+		availableBalance, totalWalletBalance, totalMarginBalance,
+		account.TopAccountAvailableBalance, account.TopTotalWalletBalance, account.TopTotalMarginBalance,
+	)
 }
 
 // accountData 統一賬戶數據結構，供 WebSocket/REST 共用
