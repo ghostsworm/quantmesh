@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc2] - 2026-04-02
+
+### Fixed
+- **Storage / MySQL**：網格買賣配對成交與 GORM `trades`（逐筆成交、`pn_l`）同庫時表名衝突，導致 `Unknown column 'pnl'`；MySQL 使用獨立表 `qm_paired_trades` 並補齊 `QueryDailyStatisticsByExchange`、`GetPnLBySymbol`、`GetPnLByTimeRange`、`GetActualProfitBySymbol`、`GetTotalBuySellQty` 等查詢走 `tradesTbl()`
+
+---
+
 ## [3.79.8-rc1] - 2026-04-02
 
 ### Added
