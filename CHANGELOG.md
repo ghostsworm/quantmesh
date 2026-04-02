@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc8] - 2026-04-03
+
+### Fixed
+- **Storage / MySQL / kline_files**：列名 `interval` 在 MySQL 中為保留字，對 `kline_files` 的 SQL **始終**使用反引號 `` `interval` ``（不再僅依 `dbType == "mysql"` 分支），避免 `Error 1064`（`near ', start_time, ...'`）及 K 線文件同步失敗
+
+---
+
 ## [3.79.8-rc7] - 2026-04-03
 
 ### Added

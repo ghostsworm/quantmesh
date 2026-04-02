@@ -811,3 +811,10 @@ func TestSQLiteStorage_mysqlQuoteIdent(t *testing.T) {
 		t.Fatalf("sqlite: want interval, got %q", got)
 	}
 }
+
+func TestKlineFilesIntervalColAlwaysQuoted(t *testing.T) {
+	t.Parallel()
+	if klineFilesIntervalCol != "`interval`" {
+		t.Fatalf("klineFilesIntervalCol = %q, want quoted MySQL-safe ident", klineFilesIntervalCol)
+	}
+}
