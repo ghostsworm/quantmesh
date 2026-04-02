@@ -522,6 +522,7 @@ distributed_lock:
 - [高可用架构设计](HIGH_AVAILABILITY.md)
 - [快速开始指南](HA_QUICKSTART.md)
 - [多实例解决方案](MULTI_INSTANCE_SOLUTION.md)
+- [AI 命名上游（多 profile 设计）](AI_UPSTREAM_PROFILES.md) · [English](i18n/en/AI_UPSTREAM_PROFILES.md)
 
 <!-- quantmesh usage beacon -->
 ![](https://um.facev.app/p/IiDQJEIGM)

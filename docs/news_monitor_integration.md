@@ -38,6 +38,10 @@ news_monitor:
   risk_threshold: 70               # 风险阈值，超过此值触发警告
 ```
 
+### AI 上游与多 profile（设计）
+
+新闻分析可走 `news_monitor.ai_provider`（`provider` / `model` / `api_key` / `base_url`），并可在未填 key 时从全局 `ai` 继承。若需**多套命名上游**（办公/家庭/兼容网关切换、按模块绑定），详见设计文档：[AI 命名上游（Upstream Profiles）](AI_UPSTREAM_PROFILES.md)。其中说明了计划中的 `ai.upstreams`、`default_upstream` 以及 `news_monitor.ai_provider.upstream_ref` 等字段语义；具体是否已在当前版本生效，以实现与 `CHANGELOG` 为准。
+
 ## 集成到现有系统
 
 ### 1. 在main.go中初始化
