@@ -36,6 +36,14 @@ func (s *SQLiteStorage) tradesTbl() string {
 	return "trades"
 }
 
+// mysqlQuoteIdent MySQL 保留字（如 key、interval）作列名時需反引號；SQLite 保持原名。
+func (s *SQLiteStorage) mysqlQuoteIdent(name string) string {
+	if s == nil || s.dbType != "mysql" {
+		return name
+	}
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
 // NewSQLiteStorage 創建 SQLite 存儲
 func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 	return NewStorage("sqlite", path+"?_journal_mode=WAL&_synchronous=NORMAL")
