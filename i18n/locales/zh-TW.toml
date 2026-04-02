@@ -27,6 +27,9 @@ other = "無效的開始時間格式"
 [error.invalid_end_time]
 other = "無效的結束時間格式"
 
+[error.invalid_time_range]
+other = "結束時間必須晚於開始時間"
+
 [error.query_orders_failed]
 other = "查詢訂單失敗"
 

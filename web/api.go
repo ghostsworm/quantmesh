@@ -3182,6 +3182,9 @@ type SymbolPnLInfo struct {
 	WinRate     float64 `json:"win_rate"`
 }
 
+// maxPnLExchangeQueryRange 按交易所聚合盈亏時允許的最大時间跨度（防止一次掃描過大時間區間拖慢 MySQL）
+const maxPnLExchangeQueryRange = 90 * 24 * time.Hour
+
 // getPnLByExchange 按交易所分组查詢盈亏數據
 // GET /api/statistics/pnl/exchange
 func getPnLByExchange(c *gin.Context) {
@@ -3222,6 +3225,17 @@ func getPnLByExchange(c *gin.Context) {
 		}
 	} else {
 		endTime = time.Now()
+	}
+
+	if endTime.Before(startTime) {
+		respondError(c, http.StatusBadRequest, "error.invalid_time_range")
+		return
+	}
+
+	rangeClamped := false
+	if endTime.Sub(startTime) > maxPnLExchangeQueryRange {
+		startTime = endTime.Add(-maxPnLExchangeQueryRange)
+		rangeClamped = true
 	}
 
 	// 獲取當前账戶標识
@@ -3291,7 +3305,15 @@ func getPnLByExchange(c *gin.Context) {
 		return response[i].Exchange < response[j].Exchange
 	})
 
-	c.JSON(http.StatusOK, gin.H{"exchanges": response})
+	out := gin.H{
+		"exchanges": response,
+	}
+	if rangeClamped {
+		out["range_clamped"] = true
+		out["effective_start_time"] = startTime.UTC().Format(time.RFC3339)
+		out["effective_end_time"] = endTime.UTC().Format(time.RFC3339)
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // getAnomalousTrades 检查异常交易記錄（用於調試盈亏计算问题）

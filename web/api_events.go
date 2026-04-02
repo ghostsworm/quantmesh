@@ -166,8 +166,8 @@ func handleGetEventStats(c *gin.Context) {
 		return
 	}
 
-	// 查詢统计
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 查詢统计（事件表大時單次聚合仍可能較慢，略放寬超時）
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
 	stats, err := eventProvider.GetEventStats(ctx)

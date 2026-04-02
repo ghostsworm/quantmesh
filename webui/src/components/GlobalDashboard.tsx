@@ -65,6 +65,7 @@ import { useSymbol } from '../contexts/SymbolContext'
 import { checkSetupStatus } from '../services/setup'
 import ConfirmDialog from './ConfirmDialog'
 import { mapCapitalHistoryToEquityCurve } from '../utils/capitalHistory'
+import { getPnLExchangeDefaultRangeISO } from '../constants/pnl'
 
 // 超时包装函数，防止API调用卡住
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
@@ -158,9 +159,8 @@ const GlobalDashboard: React.FC = () => {
     if (isFetchingRef.current) return
     isFetchingRef.current = true
     try {
-      // 查詢所有历史數據（從2020年开始，确保包含所有交易記錄）
-      const startTime = new Date('2020-01-01T00:00:00Z').toISOString()
-      const endTime = new Date().toISOString()
+      // 與後端 max 區間一致：避免一次聚合過多年數據拖慢 API
+      const { startTime, endTime } = getPnLExchangeDefaultRangeISO()
       
       const [symbolsData, pnlData, statusesData, positionsAllData, capitalRes, historyRes] = await Promise.all([
         getSymbols(),

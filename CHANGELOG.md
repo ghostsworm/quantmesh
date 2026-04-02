@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc7] - 2026-04-03
+
+### Added
+- **API**：`GET /api/statistics/pnl/exchange` 對查詢區間設上限（90 天）；超出時將 `start_time` 截斷為 `end_time` 前 90 天，並在 JSON 中返回 `range_clamped`、`effective_start_time`、`effective_end_time`
+- **i18n**：`error.invalid_time_range`（結束時間早於開始時間）
+
+### Changed
+- **Web UI**：全局儀表板與頂欄不再請求「自 2020 年 / 近 365 天」的按交易所盈亏，改為與後端一致的 **最近 90 天**（`constants/pnl.ts`）
+- **Events**：`GetEventStats` 改為單次 SQL 聚合 severity 計數，減少往返；`/api/events/stats` 上下文超時由 10s 調整為 25s
+
+---
+
 ## [3.79.8-rc6] - 2026-04-03
 
 ### Fixed

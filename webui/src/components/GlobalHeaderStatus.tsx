@@ -3,6 +3,7 @@ import { Flex, Text, Badge, Spinner, HStack, Tooltip, Button } from '@chakra-ui/
 import { useParams } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getFundingRateCurrent, getBots, getPnLByExchange, getEventStats, getBotById } from '../services/api'
+import { getPnLExchangeDefaultRangeISO } from '../constants/pnl'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
@@ -57,12 +58,10 @@ const GlobalHeaderStatus: React.FC = () => {
     if (!isGlobalView) return
     const fetchGlobal = async () => {
       try {
+        const { startTime, endTime } = getPnLExchangeDefaultRangeISO()
         const [botsRes, pnlRes, eventRes] = await Promise.all([
           getBots().catch(() => ({ bots: [] })),
-          getPnLByExchange(
-            new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
-            new Date().toISOString()
-          ).catch(() => ({ exchanges: [] })),
+          getPnLByExchange(startTime, endTime).catch(() => ({ exchanges: [] })),
           getEventStats().catch(() => ({ total_count: 0, critical_count: 0 })),
         ])
         setRunningCount((botsRes.bots || []).filter((b) => b.running).length)

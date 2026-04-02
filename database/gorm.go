@@ -664,31 +664,39 @@ func (g *GormDatabase) GetPositionPlans(ctx context.Context, filter *PositionPla
 	return plans, nil
 }
 
-// GetEventStats 獲取事件统计
+// GetEventStats 獲取事件统计（單次掃描 severity 聚合，減少往返）
 func (g *GormDatabase) GetEventStats(ctx context.Context) (*EventStats, error) {
 	stats := &EventStats{
 		CountByType:   make(map[string]int),
 		CountBySource: make(map[string]int),
 	}
 
-	// 總數
-	var totalCount int64
-	g.db.WithContext(ctx).Model(&EventRecord{}).Count(&totalCount)
-	stats.TotalCount = int(totalCount)
-
-	// 按严重程度统计
-	var criticalCount, warningCount, infoCount int64
-	g.db.WithContext(ctx).Model(&EventRecord{}).Where("severity = ?", "critical").Count(&criticalCount)
-	g.db.WithContext(ctx).Model(&EventRecord{}).Where("severity = ?", "warning").Count(&warningCount)
-	g.db.WithContext(ctx).Model(&EventRecord{}).Where("severity = ?", "info").Count(&infoCount)
-	stats.CriticalCount = int(criticalCount)
-	stats.WarningCount = int(warningCount)
-	stats.InfoCount = int(infoCount)
+	var sevAgg struct {
+		Total    int64 `gorm:"column:total"`
+		Critical int64 `gorm:"column:critical"`
+		Warning  int64 `gorm:"column:warning"`
+		Info     int64 `gorm:"column:info"`
+	}
+	err := g.db.WithContext(ctx).Model(&EventRecord{}).
+		Select(`COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END), 0) AS critical,
+			COALESCE(SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END), 0) AS warning,
+			COALESCE(SUM(CASE WHEN severity = 'info' THEN 1 ELSE 0 END), 0) AS info`).
+		Scan(&sevAgg).Error
+	if err != nil {
+		return nil, err
+	}
+	stats.TotalCount = int(sevAgg.Total)
+	stats.CriticalCount = int(sevAgg.Critical)
+	stats.WarningCount = int(sevAgg.Warning)
+	stats.InfoCount = int(sevAgg.Info)
 
 	// 最近24小時（按配置時區）
 	last24h := utils.NowConfiguredTimezone().Add(-24 * time.Hour)
 	var last24hCount int64
-	g.db.WithContext(ctx).Model(&EventRecord{}).Where("created_at >= ?", last24h).Count(&last24hCount)
+	if err := g.db.WithContext(ctx).Model(&EventRecord{}).Where("created_at >= ?", last24h).Count(&last24hCount).Error; err != nil {
+		return nil, err
+	}
 	stats.Last24HoursCount = int(last24hCount)
 
 	// 按類型统计（top 20）
@@ -696,12 +704,14 @@ func (g *GormDatabase) GetEventStats(ctx context.Context) (*EventStats, error) {
 		Type  string
 		Count int
 	}
-	g.db.WithContext(ctx).Model(&EventRecord{}).
+	if err := g.db.WithContext(ctx).Model(&EventRecord{}).
 		Select("type, COUNT(*) as count").
 		Group("type").
 		Order("count DESC").
 		Limit(20).
-		Scan(&typeStats)
+		Scan(&typeStats).Error; err != nil {
+		return nil, err
+	}
 	for _, ts := range typeStats {
 		stats.CountByType[ts.Type] = ts.Count
 	}
@@ -711,10 +721,12 @@ func (g *GormDatabase) GetEventStats(ctx context.Context) (*EventStats, error) {
 		Source string
 		Count  int
 	}
-	g.db.WithContext(ctx).Model(&EventRecord{}).
+	if err := g.db.WithContext(ctx).Model(&EventRecord{}).
 		Select("source, COUNT(*) as count").
 		Group("source").
-		Scan(&sourceStats)
+		Scan(&sourceStats).Error; err != nil {
+		return nil, err
+	}
 	for _, ss := range sourceStats {
 		stats.CountBySource[ss.Source] = ss.Count
 	}
