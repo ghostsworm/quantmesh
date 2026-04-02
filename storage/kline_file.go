@@ -53,9 +53,12 @@ type KlineFile struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
+// klineFilesIntervalCol 列名 interval 在 MySQL 中為保留字，必須用反引號；SQLite 亦接受反引號標識符。
+// 始終使用反引號，避免僅依賴 dbType 時漏判導致 Error 1064。
+const klineFilesIntervalCol = "`interval`"
+
 func (s *SQLiteStorage) klineFilesSelectColumns() string {
-	iv := s.mysqlQuoteIdent("interval")
-	return fmt.Sprintf("id, filename, exchange, symbol, %s, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at", iv)
+	return fmt.Sprintf("id, filename, exchange, symbol, %s, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at", klineFilesIntervalCol)
 }
 
 // CreateKlineFile 创建 K 线文件记录
@@ -63,7 +66,7 @@ func (s *SQLiteStorage) CreateKlineFile(kf *KlineFile) error {
 	query := fmt.Sprintf(`
 		INSERT INTO kline_files (filename, exchange, symbol, %s, start_time, end_time, status, has_depth, candle_count, file_size, source)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, s.mysqlQuoteIdent("interval"))
+	`, klineFilesIntervalCol)
 	var endTime interface{}
 	if kf.EndTime != nil {
 		endTime = kf.EndTime.Unix()
@@ -201,7 +204,7 @@ func (s *SQLiteStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, e
 			args = append(args, filter.Symbol)
 		}
 		if filter.Interval != "" {
-			query += fmt.Sprintf(" AND %s = ?", s.mysqlQuoteIdent("interval"))
+			query += fmt.Sprintf(" AND %s = ?", klineFilesIntervalCol)
 			args = append(args, filter.Interval)
 		}
 		if filter.Status != "" {
@@ -273,7 +276,7 @@ func (s *SQLiteStorage) UpdateKlineFile(kf *KlineFile) error {
 		UPDATE kline_files 
 		SET exchange=?, symbol=?, %s=?, start_time=?, end_time=?, status=?, has_depth=?, candle_count=?, file_size=?, source=?, updated_at=?
 		WHERE id=?
-	`, s.mysqlQuoteIdent("interval"))
+	`, klineFilesIntervalCol)
 	var endTime interface{}
 	if kf.EndTime != nil {
 		endTime = kf.EndTime.Unix()
@@ -355,14 +358,13 @@ func (s *SQLiteStorage) GetCompletedKlineFiles(exchange, symbol, interval string
 
 // GetKlineFilesInTimeRange 获取时间范围内的 K 线文件列表
 func (s *SQLiteStorage) GetKlineFilesInTimeRange(exchange, symbol, interval string, startTimeParam, endTimeParam time.Time) ([]*KlineFile, error) {
-	iv := s.mysqlQuoteIdent("interval")
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM kline_files 
 		WHERE exchange=? AND symbol=? AND %s=? AND status='completed'
 		  AND start_time <= ? AND (end_time IS NULL OR end_time >= ?)
 		ORDER BY start_time ASC
-	`, s.klineFilesSelectColumns(), iv)
+	`, s.klineFilesSelectColumns(), klineFilesIntervalCol)
 
 	rows, err := s.db.Query(query, exchange, symbol, interval, endTimeParam.Unix(), startTimeParam.Unix())
 	if err != nil {
