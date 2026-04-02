@@ -1060,3 +1060,75 @@ func getPriceRangeHandler(c *gin.Context) {
 
 	c.JSON(http.StatusNotFound, gin.H{"error": "未找到交易对配置"})
 }
+
+// parseSecurityFromConfigYAML 從原始 YAML 讀取 security 段（該段不在 config.Config 結構體中，需單獨解析）
+func parseSecurityFromConfigYAML(configFilePath string) (encryptionEnabled bool, masterKeyPath string) {
+	masterKeyPath = config.DefaultMasterKeyPath
+	data, err := os.ReadFile(configFilePath)
+	if err != nil {
+		return false, masterKeyPath
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return false, masterKeyPath
+	}
+	sec, ok := raw["security"].(map[string]interface{})
+	if !ok {
+		return false, masterKeyPath
+	}
+	if v, ok := sec["encryption_enabled"].(bool); ok {
+		encryptionEnabled = v
+	}
+	if p, ok := sec["master_key_path"].(string); ok {
+		if s := strings.TrimSpace(p); s != "" {
+			masterKeyPath = s
+		}
+	}
+	return encryptionEnabled, masterKeyPath
+}
+
+func masterKeyFileOrEnvPresent(masterKeyPath string) bool {
+	if os.Getenv(config.MasterKeyEnvVar) != "" {
+		return true
+	}
+	_, err := os.Stat(masterKeyPath)
+	return err == nil
+}
+
+// getConfigSecurityStatusHandler 獲取 API 密鑰加密相關狀態
+// GET /api/config/security/status
+func getConfigSecurityStatusHandler(c *gin.Context) {
+	if fileConfigManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
+		return
+	}
+	encryptionEnabled, masterKeyPath := parseSecurityFromConfigYAML(fileConfigManager.GetConfigPath())
+	c.JSON(http.StatusOK, gin.H{
+		"encryption_enabled": encryptionEnabled,
+		"master_key_path":    masterKeyPath,
+		"master_key_exists":  masterKeyFileOrEnvPresent(masterKeyPath),
+	})
+}
+
+// postConfigSecurityGenerateKeyHandler 在磁盤上生成主密鑰文件（環境變量優先時不寫文件）
+// POST /api/config/security/generate-key
+func postConfigSecurityGenerateKeyHandler(c *gin.Context) {
+	if fileConfigManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
+		return
+	}
+	if os.Getenv(config.MasterKeyEnvVar) != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "已通過環境變量設置主密鑰，無需生成密鑰文件"})
+		return
+	}
+	_, masterKeyPath := parseSecurityFromConfigYAML(fileConfigManager.GetConfigPath())
+	if masterKeyFileOrEnvPresent(masterKeyPath) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "主密鑰已存在（環境變量或密鑰文件）"})
+		return
+	}
+	if _, err := config.LoadOrGenerateMasterKey(masterKeyPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"master_key_path": masterKeyPath})
+}

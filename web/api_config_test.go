@@ -86,6 +86,8 @@ exchanges:
 		api.GET("/config/backups", getBackupsHandler)
 		api.POST("/config/restore/:backup_id", restoreBackupHandler)
 		api.DELETE("/config/backup/:backup_id", deleteBackupHandler)
+		api.GET("/config/security/status", getConfigSecurityStatusHandler)
+		api.POST("/config/security/generate-key", postConfigSecurityGenerateKeyHandler)
 	}
 
 	return r
@@ -440,5 +442,139 @@ func TestUpdateConfigWithStringNumbers(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("期望状態碼 %d，實際 %d。响应: %s", http.StatusOK, w.Code, w.Body.String())
+	}
+}
+
+func TestGetConfigSecurityStatus(t *testing.T) {
+	t.Setenv(config.MasterKeyEnvVar, "")
+	gin.SetMode(gin.TestMode)
+	tempDir := t.TempDir()
+	testConfigPath := filepath.Join(tempDir, "test_config.yaml")
+	// 指定唯一路徑，避免與開發機 cwd 下 ./data/master.key 衝突
+	mkPath := filepath.Join(tempDir, "nope", "not_created_yet.key")
+	testConfigContent := `app:
+  current_exchange: "binance"
+security:
+  encryption_enabled: false
+  master_key_path: "` + mkPath + `"
+trading:
+  symbol: "BTCUSDT"
+  price_interval: 100
+  order_quantity: 100
+  buy_window_size: 10
+  sell_window_size: 10
+exchanges:
+  binance:
+    api_key: "test_key"
+    secret_key: "test_secret"
+    fee_rate: 0.0002
+`
+	if err := os.WriteFile(testConfigPath, []byte(testConfigContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	testConfig, err := config.LoadConfig(testConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileConfigMgr := NewFileConfigManager(testConfigPath)
+	SetFileConfigManager(fileConfigMgr)
+	SetConfigBackupManager(config.NewBackupManager(testConfigPath))
+	SetConfigHotReloader(config.NewHotReloader(testConfig))
+
+	r := gin.New()
+	r.GET("/api/config/security/status", getConfigSecurityStatusHandler)
+
+	req, _ := http.NewRequest("GET", "/api/config/security/status", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 %d，實際 %d: %s", http.StatusOK, w.Code, w.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["encryption_enabled"] != false {
+		t.Errorf("encryption_enabled 期望 false，得到 %v", body["encryption_enabled"])
+	}
+	if body["master_key_path"] != mkPath {
+		t.Errorf("master_key_path 期望 %q，得到 %v", mkPath, body["master_key_path"])
+	}
+	if body["master_key_exists"] != false {
+		t.Errorf("master_key_exists 期望 false，得到 %v", body["master_key_exists"])
+	}
+}
+
+func TestPostConfigSecurityGenerateKey(t *testing.T) {
+	t.Setenv(config.MasterKeyEnvVar, "")
+	gin.SetMode(gin.TestMode)
+	tempDir := t.TempDir()
+	testConfigPath := filepath.Join(tempDir, "test_config.yaml")
+	mkPath := filepath.Join(tempDir, "data", "master.key")
+	testConfigContent := `app:
+  current_exchange: "binance"
+security:
+  encryption_enabled: true
+  master_key_path: "` + mkPath + `"
+trading:
+  symbol: "BTCUSDT"
+  price_interval: 100
+  order_quantity: 100
+  buy_window_size: 10
+  sell_window_size: 10
+exchanges:
+  binance:
+    api_key: "test_key"
+    secret_key: "test_secret"
+    fee_rate: 0.0002
+`
+	if err := os.WriteFile(testConfigPath, []byte(testConfigContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	testConfig, err := config.LoadConfig(testConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileConfigMgr := NewFileConfigManager(testConfigPath)
+	// 勿調用 UpdateConfig：SaveConfig 會覆寫 YAML 並丟失不在 config.Config 中的 security 段
+	SetFileConfigManager(fileConfigMgr)
+	SetConfigBackupManager(config.NewBackupManager(testConfigPath))
+	SetConfigHotReloader(config.NewHotReloader(testConfig))
+
+	r := gin.New()
+	r.GET("/api/config/security/status", getConfigSecurityStatusHandler)
+	r.POST("/api/config/security/generate-key", postConfigSecurityGenerateKeyHandler)
+
+	reqGen, _ := http.NewRequest("POST", "/api/config/security/generate-key", nil)
+	wGen := httptest.NewRecorder()
+	r.ServeHTTP(wGen, reqGen)
+	if wGen.Code != http.StatusOK {
+		t.Fatalf("生成主密鑰期望 %d，實際 %d: %s", http.StatusOK, wGen.Code, wGen.Body.String())
+	}
+	var genBody map[string]interface{}
+	if err := json.Unmarshal(wGen.Body.Bytes(), &genBody); err != nil {
+		t.Fatal(err)
+	}
+	if genBody["master_key_path"] != mkPath {
+		t.Errorf("master_key_path 期望 %q，得到 %v", mkPath, genBody["master_key_path"])
+	}
+
+	reqGen2, _ := http.NewRequest("POST", "/api/config/security/generate-key", nil)
+	wGen2 := httptest.NewRecorder()
+	r.ServeHTTP(wGen2, reqGen2)
+	if wGen2.Code != http.StatusBadRequest {
+		t.Errorf("重複生成期望 %d，實際 %d: %s", http.StatusBadRequest, wGen2.Code, wGen2.Body.String())
+	}
+
+	reqSt, _ := http.NewRequest("GET", "/api/config/security/status", nil)
+	wSt := httptest.NewRecorder()
+	r.ServeHTTP(wSt, reqSt)
+	if wSt.Code != http.StatusOK {
+		t.Fatalf("status 期望 %d，實際 %d", http.StatusOK, wSt.Code)
+	}
+	var stBody map[string]interface{}
+	_ = json.Unmarshal(wSt.Body.Bytes(), &stBody)
+	if stBody["master_key_exists"] != true {
+		t.Errorf("生成後 master_key_exists 期望 true，得到 %v", stBody["master_key_exists"])
 	}
 }
