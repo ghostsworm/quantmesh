@@ -845,6 +845,10 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 			totalMarginBalance += marginBalance
 		}
 	}
+	availableBalance, totalWalletBalance, totalMarginBalance = applyTopLevelFuturesBalances(
+		availableBalance, totalWalletBalance, totalMarginBalance,
+		account.TopAccountAvailableBalance, account.TopTotalWalletBalance, account.TopTotalMarginBalance,
+	)
 
 	positions := make([]*Position, 0, len(account.Positions))
 	accountLeverage := 1 // 默認 1 倍杠杆
@@ -894,10 +898,32 @@ func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	return result, nil
 }
 
+// applyTopLevelFuturesBalances 在僅累加 USDT/USDC 資產行得到 0 時，回退到帳戶級字段（多資產保證金模式）
+func applyTopLevelFuturesBalances(sumAvail, sumWallet, sumMargin float64, topAvailStr, topWalletStr, topMarginStr string) (float64, float64, float64) {
+	topAvail, _ := strconv.ParseFloat(topAvailStr, 64)
+	if topAvail > 0 && sumAvail <= 0 {
+		sumAvail = topAvail
+		logger.Debug("ℹ️ [Binance] 使用帳戶級可用餘額（多資產/資產級可用為 0 時）: %.4f", topAvail)
+	}
+	topWallet, _ := strconv.ParseFloat(topWalletStr, 64)
+	topMargin, _ := strconv.ParseFloat(topMarginStr, 64)
+	if topWallet > 0 && sumWallet <= 0 {
+		sumWallet = topWallet
+	}
+	if topMargin > 0 && sumMargin <= 0 {
+		sumMargin = topMargin
+	}
+	return sumAvail, sumWallet, sumMargin
+}
+
 // accountData 統一賬戶數據結構，供 WebSocket/REST 共用
 type accountData struct {
 	Assets    []*futures.AccountAsset
 	Positions []*futures.AccountPosition
+	// 帳戶級字段（REST Account / WS AccountV3），多資產保證金下必須使用，僅累加 USDT/USDC 資產行會得到 0
+	TopAccountAvailableBalance string
+	TopTotalWalletBalance      string
+	TopTotalMarginBalance      string
 }
 
 // fetchAccountViaWebSocket 使用 WebSocket API (v2/account.status) 獲取賬戶
@@ -915,8 +941,11 @@ func (b *BinanceAdapter) fetchAccountViaWebSocket(ctx context.Context) (*account
 	// 將 AccountV3 轉為 accountData（與 REST Account 結構兼容）
 	r := resp.Result
 	data := &accountData{
-		Assets:    make([]*futures.AccountAsset, 0, len(r.Assets)),
-		Positions: make([]*futures.AccountPosition, 0, len(r.Positions)),
+		Assets:                     make([]*futures.AccountAsset, 0, len(r.Assets)),
+		Positions:                  make([]*futures.AccountPosition, 0, len(r.Positions)),
+		TopAccountAvailableBalance: r.AvailableBalance,
+		TopTotalWalletBalance:      r.TotalWalletBalance,
+		TopTotalMarginBalance:      r.TotalMarginBalance,
 	}
 	for _, a := range r.Assets {
 		data.Assets = append(data.Assets, &futures.AccountAsset{
@@ -946,7 +975,13 @@ func (b *BinanceAdapter) fetchAccountViaREST(ctx context.Context) (*accountData,
 	if err != nil {
 		return nil, err
 	}
-	return &accountData{Assets: acc.Assets, Positions: acc.Positions}, nil
+	return &accountData{
+		Assets:                     acc.Assets,
+		Positions:                  acc.Positions,
+		TopAccountAvailableBalance: acc.AvailableBalance,
+		TopTotalWalletBalance:      acc.TotalWalletBalance,
+		TopTotalMarginBalance:      acc.TotalMarginBalance,
+	}, nil
 }
 
 // parseBanTime 從錯误消息中解析封禁時间（毫秒時间戳）
