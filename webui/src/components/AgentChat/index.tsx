@@ -18,10 +18,17 @@ import {
   ListItem,
   ListIcon,
   Divider,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalBody,
+  ModalCloseButton,
+  useDisclosure,
 } from '@chakra-ui/react'
-import { IoSend, IoRefresh, IoStopCircle, IoCheckmarkCircle, IoWarning, IoImage, IoChatbubblesOutline, IoAddCircle, IoTrashOutline } from 'react-icons/io5'
+import { IoSend, IoRefresh, IoCheckmarkCircle, IoWarning, IoImage, IoChatbubblesOutline, IoAddCircle, IoTrashOutline, IoDownloadOutline } from 'react-icons/io5'
+import { MdFullscreen, MdPictureInPicture } from 'react-icons/md'
 import { useTranslation } from 'react-i18next'
-import { api } from '../services/api'
+import { downloadMediaFromUrl, togglePictureInPicture } from './mediaUtils'
 
 interface ChatMessage {
   id: string
@@ -586,15 +593,14 @@ const AgentChat: React.FC<AgentChatProps> = ({ botId, onConfigApplied }) => {
           <Flex gap={2} mb={2} flexWrap="wrap">
             {selectedImages.map((image, idx) => (
               <Box key={idx} position="relative">
-                <Image
-                  src={`data:${image.mime_type};base64,${image.data}`}
-                  alt={`Preview ${idx + 1}`}
-                  boxSize="60px"
-                  objectFit="cover"
-                  borderRadius="md"
-                  border="2px solid"
-                  borderColor="blue.200"
-                />
+                <Box border="2px solid" borderColor="blue.200" borderRadius="md" overflow="hidden">
+                  <ImageWithLightbox
+                    src={`data:${image.mime_type};base64,${image.data}`}
+                    alt={`Preview ${idx + 1}`}
+                    boxSize="60px"
+                    objectFit="cover"
+                  />
+                </Box>
                 <CloseButton
                   position="absolute"
                   top="-8px"
@@ -679,8 +685,193 @@ const AgentChat: React.FC<AgentChatProps> = ({ botId, onConfigApplied }) => {
   )
 }
 
+/** 缩略图点击打开全屏遮罩预览，右上角关闭 */
+const ImageWithLightbox: React.FC<{
+  src: string
+  alt: string
+  maxW?: string
+  maxH?: string
+  boxSize?: string
+  objectFit?: 'contain' | 'cover'
+}> = ({ src, alt, maxW = '300px', maxH = '300px', boxSize, objectFit = 'contain' }) => {
+  const { t } = useTranslation()
+  const { isOpen, onOpen, onClose } = useDisclosure()
+
+  return (
+    <>
+      <Image
+        src={src}
+        alt={alt}
+        {...(boxSize ? { boxSize } : { maxW, maxH })}
+        objectFit={objectFit}
+        borderRadius="md"
+        cursor="pointer"
+        onClick={onOpen}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen()
+          }
+        }}
+        aria-label={t('agent.clickToEnlargeImage')}
+      />
+      <Modal isOpen={isOpen} onClose={onClose} size="full" isCentered>
+        <ModalOverlay bg="blackAlpha.800" />
+        <ModalContent maxW="100vw" m={0} bg="transparent" boxShadow="none">
+          <ModalCloseButton
+            color="white"
+            size="lg"
+            zIndex={2}
+            top={4}
+            right={4}
+            aria-label={t('agent.closePreview')}
+          />
+          <ModalBody p={6} display="flex" justifyContent="center" alignItems="center" minH="100vh">
+            <Image src={src} alt={alt} maxW="95vw" maxH="90vh" objectFit="contain" />
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+    </>
+  )
+}
+
+const GeneratedVideoBlock: React.FC<{ file: GeneratedFile; isUser: boolean }> = ({
+  file,
+  isUser,
+}) => {
+  const { t } = useTranslation()
+  const toast = useToast()
+  const inlineRef = useRef<HTMLVideoElement>(null)
+  const modalRef = useRef<HTMLVideoElement>(null)
+  const { isOpen, onOpen, onClose } = useDisclosure()
+
+  useEffect(() => {
+    if (!isOpen) {
+      modalRef.current?.pause()
+    }
+  }, [isOpen])
+
+  const runPiP = async (ref: React.RefObject<HTMLVideoElement>) => {
+    const v = ref.current
+    if (!v) return
+    try {
+      await togglePictureInPicture(v)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      toast({
+        title: t('agent.pipFailed'),
+        description: msg,
+        status: 'error',
+        duration: 4000,
+      })
+    }
+  }
+
+  const runDownload = async () => {
+    const name = file.filename?.trim() || 'video.mp4'
+    const result = await downloadMediaFromUrl(file.url, name)
+    if (result.ok) return
+    window.open(file.url, '_blank', 'noopener,noreferrer')
+    toast({
+      title: t('agent.downloadFailed'),
+      description: t('agent.downloadOpenedNewTabHint'),
+      status: 'info',
+      duration: 5000,
+    })
+  }
+
+  const btnColor = isUser ? 'blue.100' : 'gray.600'
+  const btnHover = isUser ? 'blue.50' : 'gray.100'
+
+  return (
+    <Box>
+      <video
+        ref={inlineRef}
+        src={file.url}
+        controls
+        playsInline
+        preload="metadata"
+        style={{ maxWidth: '300px', maxHeight: '300px', borderRadius: '8px', display: 'block' }}
+      />
+      <HStack mt={2} spacing={1} flexWrap="wrap">
+        <Tooltip label={t('agent.enlargePlay')}>
+          <IconButton
+            aria-label={t('agent.enlargePlay')}
+            size="sm"
+            variant="ghost"
+            color={btnColor}
+            _hover={{ bg: btnHover }}
+            icon={<Icon as={MdFullscreen} />}
+            onClick={onOpen}
+          />
+        </Tooltip>
+        <Tooltip label={t('agent.pictureInPicture')}>
+          <IconButton
+            aria-label={t('agent.pictureInPicture')}
+            size="sm"
+            variant="ghost"
+            color={btnColor}
+            _hover={{ bg: btnHover }}
+            icon={<Icon as={MdPictureInPicture} />}
+            onClick={() => runPiP(inlineRef)}
+          />
+        </Tooltip>
+        <Tooltip label={t('agent.downloadMedia')}>
+          <IconButton
+            aria-label={t('agent.downloadMedia')}
+            size="sm"
+            variant="ghost"
+            color={btnColor}
+            _hover={{ bg: btnHover }}
+            icon={<Icon as={IoDownloadOutline} />}
+            onClick={runDownload}
+          />
+        </Tooltip>
+      </HStack>
+
+      <Modal isOpen={isOpen} onClose={onClose} size="6xl" isCentered>
+        <ModalOverlay bg="blackAlpha.700" />
+        <ModalContent bg="black" maxW="min(96vw, 1200px)">
+          <ModalCloseButton color="white" zIndex={2} aria-label={t('agent.closePreview')} />
+          <ModalBody p={4} pt={10}>
+            <video
+              ref={modalRef}
+              src={file.url}
+              controls
+              playsInline
+              autoPlay
+              style={{ width: '100%', maxHeight: 'min(85vh, 800px)', borderRadius: '8px' }}
+            />
+            <HStack mt={3} spacing={2} justify="center">
+              <Tooltip label={t('agent.pictureInPicture')}>
+                <IconButton
+                  aria-label={t('agent.pictureInPicture')}
+                  colorScheme="whiteAlpha"
+                  icon={<Icon as={MdPictureInPicture} />}
+                  onClick={() => runPiP(modalRef)}
+                />
+              </Tooltip>
+              <Tooltip label={t('agent.downloadMedia')}>
+                <IconButton
+                  aria-label={t('agent.downloadMedia')}
+                  colorScheme="whiteAlpha"
+                  icon={<Icon as={IoDownloadOutline} />}
+                  onClick={runDownload}
+                />
+              </Tooltip>
+            </HStack>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+    </Box>
+  )
+}
+
 // 消息气泡组件
 const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
+  const { t } = useTranslation()
   const isUser = message.role === 'user'
 
   return (
@@ -697,14 +888,13 @@ const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
         {message.images && message.images.length > 0 && (
           <Flex gap={2} mb={2} flexWrap="wrap">
             {message.images.map((image, idx) => (
-              <Image
+              <ImageWithLightbox
                 key={idx}
                 src={`data:${image.mime_type};base64,${image.data}`}
                 alt={`Uploaded image ${idx + 1}`}
                 maxW="200px"
                 maxH="200px"
                 objectFit="cover"
-                borderRadius="md"
               />
             ))}
           </Flex>
@@ -716,31 +906,23 @@ const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
             {message.generatedFiles.map((file, idx) => (
               <Box key={idx} bg={isUser ? 'blue.400' : 'gray.50'} p={2} borderRadius="md">
                 {file.type === 'image' ? (
-                  <Image
+                  <ImageWithLightbox
                     src={file.url}
                     alt={`Generated image ${idx + 1}`}
                     maxW="300px"
                     maxH="300px"
                     objectFit="contain"
-                    borderRadius="md"
                   />
                 ) : file.type === 'video' ? (
-                  <Box>
-                    <video
-                      src={file.url}
-                      controls
-                      style={{ maxWidth: '300px', maxHeight: '300px', borderRadius: '8px' }}
-                    />
-                  </Box>
+                  <GeneratedVideoBlock file={file} isUser={isUser} />
                 ) : file.type === 'chart' ? (
                   <Box>
-                    <Image
+                    <ImageWithLightbox
                       src={file.url}
                       alt={`Chart ${idx + 1}`}
                       maxW="300px"
                       maxH="300px"
                       objectFit="contain"
-                      borderRadius="md"
                     />
                     <Text fontSize="xs" mt={1} color={isUser ? 'blue.100' : 'gray.500'}>
                       {file.filename}
@@ -804,6 +986,7 @@ const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
 
 // 工具调用卡片
 const ToolCallCard: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
+  const { t } = useTranslation()
   const statusColor = {
     pending: 'gray',
     executing: 'blue',

@@ -4270,7 +4270,15 @@
     "sessionId": "会话ID",
     "sessionLoadFailed": "加载会话失败",
     "sessionDeleted": "会话已删除",
-    "sessionDeleteFailed": "删除会话失败"
+    "sessionDeleteFailed": "删除会话失败",
+    "closePreview": "关闭预览",
+    "clickToEnlargeImage": "点击放大图片",
+    "enlargePlay": "放大播放",
+    "pictureInPicture": "画中画",
+    "downloadMedia": "下载",
+    "pipFailed": "无法使用画中画",
+    "downloadFailed": "直接下载未成功",
+    "downloadOpenedNewTabHint": "已在新标签页打开链接，可右键将视频另存为"
   },
   "template": {
     "selectTemplate": "选择策略模板",

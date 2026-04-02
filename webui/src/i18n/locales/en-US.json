@@ -4267,7 +4267,15 @@
     "sessionId": "Session ID",
     "sessionLoadFailed": "Failed to load session",
     "sessionDeleted": "Session deleted",
-    "sessionDeleteFailed": "Failed to delete session"
+    "sessionDeleteFailed": "Failed to delete session",
+    "closePreview": "Close preview",
+    "clickToEnlargeImage": "Click to enlarge image",
+    "enlargePlay": "Larger player",
+    "pictureInPicture": "Picture-in-picture",
+    "downloadMedia": "Download",
+    "pipFailed": "Picture-in-picture unavailable",
+    "downloadFailed": "Direct download did not complete",
+    "downloadOpenedNewTabHint": "Opened in a new tab; right-click the video to save"
   },
   "template": {
     "selectTemplate": "Select Strategy Template",
