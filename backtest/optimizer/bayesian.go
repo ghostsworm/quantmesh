@@ -31,9 +31,18 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 	if err := ValidateSearchSpace(space); err != nil {
 		return nil, err
 	}
+	if err := ValidateOptimConfig(config); err != nil {
+		return nil, err
+	}
 	if len(candles) == 0 {
 		return nil, errInvalidRange
 	}
+
+	train, val, holdOut, err := SplitCandlesForValidation(candles, config.ValidationRatio)
+	if err != nil {
+		return nil, err
+	}
+	feeRate, slip := DefaultFeeSlippage(config)
 
 	nCalls := config.MaxIterations
 	if nCalls <= 0 {
@@ -53,32 +62,30 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 	}
 	var X [][]float64
 	var y []float64
-	var paramsList []backtest.GridBacktestParams
 
 	var allParamResults []ParamResult
 	for i := 0; i < nInit; i++ {
 		select {
 		case <-ctx.Done():
-			return b.buildResultFromParamResults(allParamResults, "bayesian")
+			return b.buildResultFromParamResults(allParamResults, "bayesian", holdOut, feeRate, slip)
 		default:
 		}
-		p := b.sampleParams(space, initialCapital)
-		score, metrics, err := b.evalOne(ctx, symbol, candles, p, lambda, initialCapital)
-		if err != nil {
+		p := b.sampleParams(space, initialCapital, feeRate, slip)
+		pr := EvalParamSet(symbol, train, val, holdOut, p, lambda, initialCapital)
+		if math.IsInf(pr.TrainScore, -1) {
 			continue
 		}
 		x := b.paramsToVec(p, bounds)
 		X = append(X, x)
-		y = append(y, score)
-		paramsList = append(paramsList, p)
-		allParamResults = append(allParamResults, ParamResult{Params: p, Score: score, Metrics: metrics})
+		y = append(y, pr.TrainScore)
+		allParamResults = append(allParamResults, pr)
 	}
 
 	// 迭代：用 GP 預测 EI，取最大 EI 点评估
 	for iter := nInit; iter < nCalls; iter++ {
 		select {
 		case <-ctx.Done():
-			return b.buildResultFromParamResults(allParamResults, "bayesian")
+			return b.buildResultFromParamResults(allParamResults, "bayesian", holdOut, feeRate, slip)
 		default:
 		}
 
@@ -95,7 +102,7 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 		var nextP backtest.GridBacktestParams
 		var nextX []float64
 		for c := 0; c < nCandidates; c++ {
-			p := b.sampleParams(space, initialCapital)
+			p := b.sampleParams(space, initialCapital, feeRate, slip)
 			x := b.paramsToVec(p, bounds)
 			mu, sigma := b.gpPredict(X, y, x)
 			ei := b.expectedImprovement(mu, sigma, bestObs)
@@ -106,17 +113,16 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 			}
 		}
 
-		score, metrics, err := b.evalOne(ctx, symbol, candles, nextP, lambda, initialCapital)
-		if err != nil {
+		pr := EvalParamSet(symbol, train, val, holdOut, nextP, lambda, initialCapital)
+		if math.IsInf(pr.TrainScore, -1) {
 			continue
 		}
 		X = append(X, nextX)
-		y = append(y, score)
-		paramsList = append(paramsList, nextP)
-		allParamResults = append(allParamResults, ParamResult{Params: nextP, Score: score, Metrics: metrics})
+		y = append(y, pr.TrainScore)
+		allParamResults = append(allParamResults, pr)
 	}
 
-	return b.buildResultFromParamResults(allParamResults, "bayesian")
+	return b.buildResultFromParamResults(allParamResults, "bayesian", holdOut, feeRate, slip)
 }
 
 func (b *BayesianOptimizer) spaceBounds(space OptimSearchSpace) (bounds [4][2]float64) {
@@ -147,7 +153,7 @@ func (b *BayesianOptimizer) paramsToVec(p backtest.GridBacktestParams, bounds [4
 	return x
 }
 
-func (b *BayesianOptimizer) sampleParams(space OptimSearchSpace, totalCapital float64) backtest.GridBacktestParams {
+func (b *BayesianOptimizer) sampleParams(space OptimSearchSpace, totalCapital float64, feeRate, slippage float64) backtest.GridBacktestParams {
 	low := space.PriceLowRange.Min + (space.PriceLowRange.Max-space.PriceLowRange.Min)*b.randSrc.Float64()
 	high := space.PriceHighRange.Min + (space.PriceHighRange.Max-space.PriceHighRange.Min)*b.randSrc.Float64()
 	if high <= low {
@@ -167,15 +173,7 @@ func (b *BayesianOptimizer) sampleParams(space OptimSearchSpace, totalCapital fl
 	if qty <= 0 || qty > totalCapital {
 		qty = totalCapital * 0.02
 	}
-	return ParamsFromSpace(low, high, gc, qty, totalCapital, 0.0004, 0.0003)
-}
-
-func (b *BayesianOptimizer) evalOne(ctx context.Context, symbol string, candles []*exchange.Candle, p backtest.GridBacktestParams, lambda, initialCapital float64) (float64, backtest.Metrics, error) {
-	res, err := BacktestRunner(symbol, candles, p, initialCapital)
-	if err != nil {
-		return math.Inf(-1), backtest.Metrics{}, err
-	}
-	return CalculateScore(res.Metrics, lambda), res.Metrics, nil
+	return ParamsFromSpace(low, high, gc, qty, totalCapital, feeRate, slippage)
 }
 
 // rbfKernel RBF 核 K(a, b) = exp(-||a-b||^2 / (2*l^2))
@@ -299,26 +297,25 @@ func (b *BayesianOptimizer) expectedImprovement(mu, sigma, fBest float64) float6
 	return ei
 }
 
-func (b *BayesianOptimizer) buildResultFromParamResults(allResults []ParamResult, method string) (*OptimResult, error) {
+func (b *BayesianOptimizer) buildResultFromParamResults(allResults []ParamResult, method string, holdOut bool, feeRate, slip float64) (*OptimResult, error) {
 	if len(allResults) == 0 {
-		return &OptimResult{Method: method}, nil
+		return &OptimResult{Method: method, HoldOutEnabled: holdOut, FeeRateUsed: feeRate, SlippageUsed: slip}, nil
 	}
-	bestScore := math.Inf(-1)
-	var best ParamResult
-	for _, r := range allResults {
-		if r.Score > bestScore {
-			bestScore = r.Score
-			best = r
-		}
+	best, ok := PickBestParamResult(allResults)
+	if !ok {
+		best = ParamResult{}
 	}
 	heatmap := BuildHeatmapFromResults(allResults, "grid_count", "price_range")
 	return &OptimResult{
-		BestParams:  best.Params,
-		BestScore:   best.Score,
-		BestMetrics: best.Metrics,
-		AllResults:  allResults,
-		HeatmapData: heatmap,
-		Iterations:  len(allResults),
-		Method:      method,
+		BestParams:       best.Params,
+		BestScore:        best.Score,
+		BestMetrics:      best.Metrics,
+		AllResults:       allResults,
+		HeatmapData:      heatmap,
+		Iterations:       len(allResults),
+		Method:           method,
+		HoldOutEnabled:   holdOut,
+		FeeRateUsed:      feeRate,
+		SlippageUsed:     slip,
 	}, nil
 }

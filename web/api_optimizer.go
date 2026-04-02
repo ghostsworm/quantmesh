@@ -65,6 +65,10 @@ func postOptimizerRun(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	if err := optimizer.ValidateOptimConfig(req.Config); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
 	validMethods := map[string]bool{"grid": true, "bayesian": true, "genetic": true}
 	if !validMethods[req.Config.Method] {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的优化方法: %s", req.Config.Method)})
@@ -203,6 +207,8 @@ func runOptimizerTask(ctx context.Context, taskID, symbol string, candles []*exc
 	task.Status = "completed"
 	task.Progress = 100
 	task.Result = result
+	logger.Info("优化任務 %s 完成: hold_out=%v fee_rate=%.6f slippage=%.6f best_score=%.6f",
+		taskID, result.HoldOutEnabled, result.FeeRateUsed, result.SlippageUsed, result.BestScore)
 }
 
 // getOptimizerStatus 查詢优化任務状態 GET /api/optimizer/status/:id

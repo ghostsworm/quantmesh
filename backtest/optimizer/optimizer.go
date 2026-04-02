@@ -36,6 +36,11 @@ type OptimConfig struct {
 	MaxIterations int     `json:"max_iterations"` // 最大迭代次數
 	Tolerance     float64 `json:"tolerance"`      // 收敛容差
 	Parallelism   int     `json:"parallelism"`    // 並行度，0 表示 NumCPU
+	// ValidationRatio 將時間序列後段劃為樣本外驗證集（例如 0.2）；0 表示不劃分，全樣本訓練與評分。
+	ValidationRatio float64 `json:"validation_ratio"`
+	// FeeRate、SlippageRatio 傳入網格回測參數；0 表示使用庫內默認（taker 約萬四、滑點約萬三）。
+	FeeRate       float64 `json:"fee_rate"`
+	SlippageRatio float64 `json:"slippage_ratio"`
 }
 
 // Optimizer 优化器接口
@@ -77,6 +82,17 @@ func DefaultOptimConfig() OptimConfig {
 		Tolerance:     1e-4,
 		Parallelism:   0,
 	}
+}
+
+// ValidateOptimConfig 校驗可選優化參數（驗證集比例等）。validation_ratio=0 表示不啟用樣本外。
+func ValidateOptimConfig(cfg OptimConfig) error {
+	if cfg.ValidationRatio < 0 {
+		return errInvalidValidationRatio
+	}
+	if cfg.ValidationRatio > 0 && cfg.ValidationRatio >= 0.5 {
+		return errInvalidValidationRatio
+	}
+	return nil
 }
 
 // ValidateSearchSpace 校驗搜索空间合法性

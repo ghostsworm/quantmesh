@@ -97,4 +97,19 @@ func TestGridStrategy_Delegation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OnOrderUpdate failed: %v", err)
 	}
+
+	pos := gs.GetPositions()
+	if pos == nil {
+		t.Fatal("GetPositions: nil")
+	}
+	orders := gs.GetOrders()
+	if orders == nil {
+		t.Fatal("GetOrders: nil")
+	}
+	stats := gs.GetStatistics()
+	if stats == nil {
+		t.Fatal("GetStatistics: nil")
+	}
+	_ = len(pos)
+	_ = len(orders)
 }
