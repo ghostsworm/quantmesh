@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc3] - 2026-04-02
+
+### Fixed
+- **Storage / MySQL**：啟動時遷移 `system_metrics`、`daily_system_metrics`（原僅 SQLite `createTables` 會建表，MySQL 未建導致 `Table 'qt.system_metrics' doesn't exist`）；`SaveDailySystemMetrics` 在 MySQL 使用 `ON DUPLICATE KEY UPDATE` 替代 `INSERT OR REPLACE`
+
+---
+
 ## [3.79.8-rc2] - 2026-04-02
 
 ### Fixed

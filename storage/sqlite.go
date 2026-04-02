@@ -135,6 +135,10 @@ func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL 網格配對成交表失败: %w", err)
 		}
+		if err := migrateSystemMetricsTablesMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL system_metrics 表失败: %w", err)
+		}
 	}
 
 	tradesTbl := "trades"
@@ -1610,6 +1614,24 @@ func (s *SQLiteStorage) SaveSystemMetrics(metrics *SystemMetrics) error {
 func (s *SQLiteStorage) SaveDailySystemMetrics(metrics *DailySystemMetrics) error {
 	// 轉换為UTC時间存儲
 	date := utils.ToUTC(metrics.Date)
+	if s.dbType == "mysql" {
+		_, err := s.db.Exec(`
+			INSERT INTO daily_system_metrics
+			(date, avg_cpu_percent, max_cpu_percent, min_cpu_percent,
+			 avg_memory_mb, max_memory_mb, min_memory_mb, sample_count)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE
+				avg_cpu_percent = VALUES(avg_cpu_percent),
+				max_cpu_percent = VALUES(max_cpu_percent),
+				min_cpu_percent = VALUES(min_cpu_percent),
+				avg_memory_mb = VALUES(avg_memory_mb),
+				max_memory_mb = VALUES(max_memory_mb),
+				min_memory_mb = VALUES(min_memory_mb),
+				sample_count = VALUES(sample_count)
+		`, date, metrics.AvgCPUPercent, metrics.MaxCPUPercent, metrics.MinCPUPercent,
+			metrics.AvgMemoryMB, metrics.MaxMemoryMB, metrics.MinMemoryMB, metrics.SampleCount)
+		return err
+	}
 	_, err := s.db.Exec(`
 		INSERT OR REPLACE INTO daily_system_metrics 
 		(date, avg_cpu_percent, max_cpu_percent, min_cpu_percent, 
@@ -4593,6 +4615,46 @@ func migrateBotStatesTable(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_bot_states_updated_at ON bot_states(updated_at);
 	`)
 	return err
+}
+
+// migrateSystemMetricsTablesMySQL 創建系統監控表（SQLite 在 createTables 中建表；MySQL 路徑不跑 createTables，須單獨遷移）
+func migrateSystemMetricsTablesMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS system_metrics (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  timestamp DATETIME(3) NOT NULL,
+  cpu_percent DOUBLE NOT NULL,
+  memory_mb DOUBLE NOT NULL,
+  memory_percent DOUBLE NULL,
+  process_id BIGINT NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_system_metrics_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`
+CREATE TABLE IF NOT EXISTS daily_system_metrics (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  date DATE NOT NULL,
+  avg_cpu_percent DOUBLE NOT NULL,
+  max_cpu_percent DOUBLE NOT NULL,
+  min_cpu_percent DOUBLE NOT NULL,
+  avg_memory_mb DOUBLE NOT NULL,
+  max_memory_mb DOUBLE NOT NULL,
+  min_memory_mb DOUBLE NOT NULL,
+  sample_count INT NOT NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_daily_system_metrics_date (date),
+  KEY idx_daily_system_metrics_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL system_metrics / daily_system_metrics 表已就緒")
+	return nil
 }
 
 // migratePairedTradesTableMySQL 創建網格買賣配對成交表（與 GORM trades 分表，列名含 pnl）
