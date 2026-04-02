@@ -19,12 +19,21 @@ func (g *GridSearchOptimizer) Run(ctx context.Context, symbol string, candles []
 	if err := ValidateSearchSpace(space); err != nil {
 		return nil, err
 	}
+	if err := ValidateOptimConfig(config); err != nil {
+		return nil, err
+	}
 	if len(candles) == 0 {
 		return nil, errInvalidRange
 	}
 
+	train, val, holdOut, err := SplitCandlesForValidation(candles, config.ValidationRatio)
+	if err != nil {
+		return nil, err
+	}
+	feeRate, slip := DefaultFeeSlippage(config)
+
 	// 生成所有参數组合
-	paramSets := g.enumerateParams(space, initialCapital)
+	paramSets := g.enumerateParams(space, initialCapital, feeRate, slip)
 	if len(paramSets) == 0 {
 		return nil, errInvalidRange
 	}
@@ -38,37 +47,33 @@ func (g *GridSearchOptimizer) Run(ctx context.Context, symbol string, candles []
 	}
 
 	start := time.Now()
-	results := g.runParallel(ctx, symbol, candles, paramSets, config.Lambda, initialCapital, parallelism)
+	results := g.runParallel(ctx, symbol, train, val, holdOut, paramSets, config.Lambda, initialCapital, parallelism)
 	elapsed := time.Since(start)
 
-	// 找最优
-	var best ParamResult
-	bestScore := math.Inf(-1)
-	for _, r := range results {
-		if r.Score > bestScore {
-			bestScore = r.Score
-			best = r
-		}
+	best, ok := PickBestParamResult(results)
+	if !ok {
+		best = ParamResult{}
 	}
 
 	heatmap := BuildHeatmapFromResults(results, "grid_count", "price_range")
 	return &OptimResult{
-		BestParams:  best.Params,
-		BestScore:   best.Score,
-		BestMetrics: best.Metrics,
-		AllResults:  results,
-		HeatmapData: heatmap,
-		Elapsed:     elapsed,
-		Iterations:  len(results),
-		Method:      "grid",
+		BestParams:       best.Params,
+		BestScore:        best.Score,
+		BestMetrics:      best.Metrics,
+		AllResults:       results,
+		HeatmapData:      heatmap,
+		Elapsed:          elapsed,
+		Iterations:       len(results),
+		Method:           "grid",
+		HoldOutEnabled:   holdOut,
+		FeeRateUsed:      feeRate,
+		SlippageUsed:     slip,
 	}, nil
 }
 
 // enumerateParams 枚举搜索空间内的参數组合
-func (g *GridSearchOptimizer) enumerateParams(space OptimSearchSpace, totalCapital float64) []backtest.GridBacktestParams {
+func (g *GridSearchOptimizer) enumerateParams(space OptimSearchSpace, totalCapital float64, feeRate, slippage float64) []backtest.GridBacktestParams {
 	var out []backtest.GridBacktestParams
-	feeRate := 0.0004
-	slippage := 0.0003
 
 	// 價格下限步進
 	lowSteps := steps(space.PriceLowRange.Min, space.PriceLowRange.Max, space.PriceLowRange.Step)
@@ -124,7 +129,7 @@ func intSteps(min, max, step int) []int {
 }
 
 // runParallel 使用 worker pool 並行回测
-func (g *GridSearchOptimizer) runParallel(ctx context.Context, symbol string, candles []*exchange.Candle, paramSets []backtest.GridBacktestParams, lambda float64, initialCapital float64, workers int) []ParamResult {
+func (g *GridSearchOptimizer) runParallel(ctx context.Context, symbol string, train, val []*exchange.Candle, holdOut bool, paramSets []backtest.GridBacktestParams, lambda float64, initialCapital float64, workers int) []ParamResult {
 	type job struct {
 		index int
 		param backtest.GridBacktestParams
@@ -162,20 +167,8 @@ func (g *GridSearchOptimizer) runParallel(ctx context.Context, symbol string, ca
 				case <-ctx.Done():
 					return
 				default:
-					res, err := BacktestRunner(symbol, candles, j.param, initialCapital)
-					if err != nil {
-						resultCh <- result{index: j.index, pr: ParamResult{Params: j.param, Score: math.Inf(-1), Metrics: backtest.Metrics{}}}
-						continue
-					}
-					score := CalculateScore(res.Metrics, lambda)
-					resultCh <- result{
-						index: j.index,
-						pr: ParamResult{
-							Params:  j.param,
-							Score:   score,
-							Metrics: res.Metrics,
-						},
-					}
+					pr := EvalParamSet(symbol, train, val, holdOut, j.param, lambda, initialCapital)
+					resultCh <- result{index: j.index, pr: pr}
 				}
 			}
 		}()

@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc1] - 2026-04-02
+
+### Added
+- **回測指標**：`CalculateMetrics` 依權益曲線採樣間隔推斷年化期數，修正波動率與夏普/索提諾的年化口徑；無成交紀錄時仍計算基於權益的收益與回撤類指標
+- **網格優化器**：`OptimConfig` 支持 `validation_ratio`（時間序列末尾樣本外）、`fee_rate` / `slippage_ratio`；`OptimResult` 帶出 `hold_out_enabled`、`fee_rate_used`、`slippage_used` 與訓練/驗證指標；網格/贝叶斯/遗传均統一評估邏輯（GP/GA 用訓練集得分，最終最優按驗證集）
+- **API**：`POST /api/optimizer/run` 校驗 `validation_ratio`
+
+### Changed
+- **GridStrategy**：`GetPositions` / `GetOrders` / `GetStatistics` 從 `SuperPositionManager` 聚合槽位與成交量
+
+---
+
 ## [3.79.7-rc1] - 2026-04-02
 
 ### Added

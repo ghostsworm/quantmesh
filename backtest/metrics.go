@@ -2,6 +2,7 @@ package backtest
 
 import (
 	"math"
+	"sort"
 )
 
 // Metrics 回测指標
@@ -52,13 +53,14 @@ func CalculateMetrics(equity []EquityPoint, trades []Trade, initialCapital float
 
 // CalculateMetricsWithPrice 計算所有指標（包含當前價格用於交易所風格指標）
 func CalculateMetricsWithPrice(equity []EquityPoint, trades []Trade, initialCapital float64, totalSlippageLoss float64, currentPrice float64) Metrics {
-	if len(equity) == 0 || len(trades) == 0 {
+	if len(equity) < 2 {
 		return Metrics{
 			TotalSlippageLoss: totalSlippageLoss,
 		}
 	}
 
 	returns := calculateReturns(equity)
+	periodsPerYear := inferPeriodsPerYear(equity)
 
 	metrics := Metrics{
 		// 收益指標
@@ -68,36 +70,76 @@ func CalculateMetricsWithPrice(equity []EquityPoint, trades []Trade, initialCapi
 		// 风險指標
 		MaxDrawdown:         calculateMaxDrawdown(equity),
 		MaxDrawdownDuration: calculateMaxDrawdownDuration(equity),
-		Volatility:          calculateVolatility(returns),
+		Volatility:          calculateVolatility(returns, periodsPerYear),
 
 		// 风險調整收益
-		SharpeRatio:  calculateSharpeRatio(returns),
-		SortinoRatio: calculateSortinoRatio(returns),
+		SharpeRatio:  calculateSharpeRatio(returns, periodsPerYear),
+		SortinoRatio: calculateSortinoRatio(returns, periodsPerYear),
 		CalmarRatio:  calculateCalmarRatio(equity, initialCapital),
-
-		// 交易指標
-		TotalTrades:  calculateTotalTrades(trades),
-		BuyCount:     calculateBuyCount(trades),
-		SellCount:    calculateSellCount(trades),
-		WinRate:      calculateWinRate(trades),
-		ProfitFactor: calculateProfitFactor(trades),
-		AvgWin:       calculateAvgWin(trades),
-		AvgLoss:      calculateAvgLoss(trades),
-		LargestWin:   calculateLargestWin(trades),
-		LargestLoss:  calculateLargestLoss(trades),
-
-		// 连续性指標
-		MaxConsecutiveWins:   calculateMaxConsecutiveWins(trades),
-		MaxConsecutiveLosses: calculateMaxConsecutiveLosses(trades),
 
 		// 🔥 價格偏差損失
 		TotalSlippageLoss: totalSlippageLoss,
+	}
+
+	if len(trades) > 0 {
+		metrics.TotalTrades = calculateTotalTrades(trades)
+		metrics.BuyCount = calculateBuyCount(trades)
+		metrics.SellCount = calculateSellCount(trades)
+		metrics.WinRate = calculateWinRate(trades)
+		metrics.ProfitFactor = calculateProfitFactor(trades)
+		metrics.AvgWin = calculateAvgWin(trades)
+		metrics.AvgLoss = calculateAvgLoss(trades)
+		metrics.LargestWin = calculateLargestWin(trades)
+		metrics.LargestLoss = calculateLargestLoss(trades)
+		metrics.MaxConsecutiveWins = calculateMaxConsecutiveWins(trades)
+		metrics.MaxConsecutiveLosses = calculateMaxConsecutiveLosses(trades)
 	}
 
 	// 计算交易所风格指标
 	metrics.ExchangeStyle = CalculateExchangeStyleMetrics(trades, currentPrice)
 
 	return metrics
+}
+
+// inferPeriodsPerYear 根據權益曲線相鄰點時間間隔的中位數，推斷每年有多少個「收益期」，
+// 用於波動率與夏普/索提諾的年化。無法推斷時回退為 252（等價於日頻假設）。
+func inferPeriodsPerYear(equity []EquityPoint) float64 {
+	const (
+		defaultPeriods = 252.0
+		msPerYear      = 365.25 * 86400 * 1000
+		minPeriods     = 4.0    // 至多季線級採樣
+		maxPeriods     = 1.0e7 // 極細採樣上界，避免數值爆炸
+	)
+	if len(equity) < 2 {
+		return defaultPeriods
+	}
+	var gaps []float64
+	for i := 1; i < len(equity); i++ {
+		d := float64(equity[i].Timestamp - equity[i-1].Timestamp)
+		if d > 0 {
+			gaps = append(gaps, d)
+		}
+	}
+	if len(gaps) == 0 {
+		return defaultPeriods
+	}
+	sort.Float64s(gaps)
+	mid := len(gaps) / 2
+	med := gaps[mid]
+	if len(gaps)%2 == 0 {
+		med = (gaps[mid-1] + gaps[mid]) / 2
+	}
+	if med <= 0 {
+		return defaultPeriods
+	}
+	ppy := msPerYear / med
+	if ppy < minPeriods {
+		ppy = minPeriods
+	}
+	if ppy > maxPeriods {
+		ppy = maxPeriods
+	}
+	return ppy
 }
 
 // calculateReturns 計算收益率序列
@@ -212,9 +254,9 @@ func calculateMaxDrawdownDuration(equity []EquityPoint) int {
 	return maxDurationDays
 }
 
-// calculateVolatility 計算波动率（年化）
-func calculateVolatility(returns []float64) float64 {
-	if len(returns) == 0 {
+// calculateVolatility 計算波动率（年化）；periodsPerYear 為每年收益期數（由權益曲線採樣間隔推斷）
+func calculateVolatility(returns []float64, periodsPerYear float64) float64 {
+	if len(returns) == 0 || periodsPerYear <= 0 {
 		return 0
 	}
 
@@ -231,13 +273,12 @@ func calculateVolatility(returns []float64) float64 {
 	}
 	variance /= float64(len(returns))
 
-	// 年化波动率（假設每天一個數據点）
-	return math.Sqrt(variance) * math.Sqrt(252) * 100
+	return math.Sqrt(variance) * math.Sqrt(periodsPerYear) * 100
 }
 
-// calculateSharpeRatio 計算夏普比率
-func calculateSharpeRatio(returns []float64) float64 {
-	if len(returns) == 0 {
+// calculateSharpeRatio 計算夏普比率（年化無風險利率 2%，按 periodsPerYear 分攤到每期）
+func calculateSharpeRatio(returns []float64, periodsPerYear float64) float64 {
+	if len(returns) == 0 || periodsPerYear <= 0 {
 		return 0
 	}
 
@@ -259,13 +300,13 @@ func calculateSharpeRatio(returns []float64) float64 {
 		return 0
 	}
 
-	riskFreeRate := 0.02 / 252 // 日化無风險利率（假設年化2%）
-	return (mean - riskFreeRate) / stdDev * math.Sqrt(252)
+	riskFreePerPeriod := 0.02 / periodsPerYear
+	return (mean - riskFreePerPeriod) / stdDev * math.Sqrt(periodsPerYear)
 }
 
 // calculateSortinoRatio 計算索提诺比率（只考虑下行波动）
-func calculateSortinoRatio(returns []float64) float64 {
-	if len(returns) == 0 {
+func calculateSortinoRatio(returns []float64, periodsPerYear float64) float64 {
+	if len(returns) == 0 || periodsPerYear <= 0 {
 		return 0
 	}
 
@@ -296,8 +337,8 @@ func calculateSortinoRatio(returns []float64) float64 {
 		return 0
 	}
 
-	riskFreeRate := 0.02 / 252
-	return (mean - riskFreeRate) / downStdDev * math.Sqrt(252)
+	riskFreePerPeriod := 0.02 / periodsPerYear
+	return (mean - riskFreePerPeriod) / downStdDev * math.Sqrt(periodsPerYear)
 }
 
 // calculateCalmarRatio 計算卡玛比率（年化收益率 / 最大回撤）

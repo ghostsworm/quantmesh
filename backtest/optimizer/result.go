@@ -12,20 +12,28 @@ import (
 // ParamResult 單组参數的回测結果與得分
 type ParamResult struct {
 	Params  backtest.GridBacktestParams `json:"params"`
-	Score   float64                    `json:"score"`
-	Metrics backtest.Metrics           `json:"metrics"`
+	Score   float64                     `json:"score"` // 啟用樣本外時為驗證集得分；否則為全樣本得分
+	Metrics backtest.Metrics            `json:"metrics"`
+
+	TrainScore        float64          `json:"train_score,omitempty"`
+	TrainMetrics      backtest.Metrics `json:"train_metrics,omitempty"`
+	ValidationMetrics backtest.Metrics `json:"validation_metrics,omitempty"` // 與 Metrics 相同（便於前端區分欄位）
 }
 
 // OptimResult 优化結果
 type OptimResult struct {
 	BestParams  backtest.GridBacktestParams `json:"best_params"`
-	BestScore   float64                    `json:"best_score"`
-	BestMetrics backtest.Metrics          `json:"best_metrics"`
-	AllResults  []ParamResult              `json:"all_results"`
-	HeatmapData *HeatmapData               `json:"heatmap_data,omitempty"`
-	Elapsed     time.Duration              `json:"elapsed"`
-	Iterations  int                       `json:"iterations"`
-	Method      string                    `json:"method"`
+	BestScore   float64                     `json:"best_score"`
+	BestMetrics backtest.Metrics            `json:"best_metrics"`
+	AllResults  []ParamResult               `json:"all_results"`
+	HeatmapData *HeatmapData                `json:"heatmap_data,omitempty"`
+	Elapsed     time.Duration               `json:"elapsed"`
+	Iterations  int                         `json:"iterations"`
+	Method      string                      `json:"method"`
+
+	HoldOutEnabled bool    `json:"hold_out_enabled"`
+	FeeRateUsed    float64 `json:"fee_rate_used"`
+	SlippageUsed   float64 `json:"slippage_used"`
 }
 
 // HeatmapData 热力图數據，供前端 ECharts 使用

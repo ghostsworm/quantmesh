@@ -33,10 +33,10 @@ func NewGeneticOptimizer() *GeneticOptimizer {
 
 // individual 個体：一组参數编碼（归一化 [0,1] 便於交叉变异）
 type individual struct {
-	genes []float64 // [priceLowNorm, priceHighNorm, gridCountNorm, orderQtyNorm]
-	score float64
-	params backtest.GridBacktestParams
-	metrics backtest.Metrics
+	genes      []float64 // [priceLowNorm, priceHighNorm, gridCountNorm, orderQtyNorm]
+	trainScore float64   // 適應度（訓練集得分）；樣本外時最終最優按驗證集在 AllResults 中選取
+	params     backtest.GridBacktestParams
+	metrics    backtest.Metrics // 驗證集指標（便於展示）
 }
 
 // Run 執行遗傳算法优化
@@ -44,9 +44,18 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 	if err := ValidateSearchSpace(space); err != nil {
 		return nil, err
 	}
+	if err := ValidateOptimConfig(config); err != nil {
+		return nil, err
+	}
 	if len(candles) == 0 {
 		return nil, errInvalidRange
 	}
+
+	train, val, holdOut, err := SplitCandlesForValidation(candles, config.ValidationRatio)
+	if err != nil {
+		return nil, err
+	}
+	feeRate, slip := DefaultFeeSlippage(config)
 
 	popSize := g.PopulationSize
 	generations := g.Generations
@@ -64,36 +73,33 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 	bounds := g.spaceBounds(space)
 	// 初始化种群
 	pop := make([]individual, popSize)
+	var allResults []ParamResult
 	for i := 0; i < popSize; i++ {
-		p := g.sampleParams(space, initialCapital)
-		score, metrics, err := g.evalOne(ctx, symbol, candles, p, lambda, initialCapital)
-		if err != nil {
-			score = math.Inf(-1)
-			metrics = backtest.Metrics{}
+		p := g.sampleParams(space, initialCapital, feeRate, slip)
+		pr := EvalParamSet(symbol, train, val, holdOut, p, lambda, initialCapital)
+		ts := pr.TrainScore
+		if math.IsInf(ts, -1) {
+			ts = math.Inf(-1)
 		}
 		pop[i] = individual{
-			genes:   g.paramsToVec(p, bounds),
-			score:   score,
-			params:  p,
-			metrics: metrics,
+			genes:      g.paramsToVec(p, bounds),
+			trainScore: ts,
+			params:     p,
+			metrics:    pr.Metrics,
 		}
-	}
-
-	var allResults []ParamResult
-	for _, ind := range pop {
-		allResults = append(allResults, ParamResult{Params: ind.params, Score: ind.score, Metrics: ind.metrics})
+		allResults = append(allResults, pr)
 	}
 
 	start := time.Now()
 	for gen := 0; gen < generations; gen++ {
 		select {
 		case <-ctx.Done():
-			return g.buildResultFromPopulation(pop, allResults, time.Since(start), "genetic")
+			return g.buildResultFromPopulation(pop, allResults, time.Since(start), "genetic", holdOut, feeRate, slip)
 		default:
 		}
 
-		// 按适应度排序（降序）
-		sort.Slice(pop, func(i, j int) bool { return pop[i].score > pop[j].score })
+		// 按适应度排序（降序，訓練集得分）
+		sort.Slice(pop, func(i, j int) bool { return pop[i].trainScore > pop[j].trainScore })
 
 		// 精英保留
 		eliteCount := int(float64(popSize) * g.EliteRatio)
@@ -111,24 +117,24 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 			parent2 := g.tournamentSelect(pop, 3)
 			childGenes := g.crossover(parent1.genes, parent2.genes)
 			g.mutate(childGenes)
-			childParams := g.vecToParams(childGenes, bounds, space, initialCapital)
-			score, metrics, err := g.evalOne(ctx, symbol, candles, childParams, lambda, initialCapital)
-			if err != nil {
-				score = math.Inf(-1)
-				metrics = backtest.Metrics{}
+			childParams := g.vecToParams(childGenes, bounds, space, initialCapital, feeRate, slip)
+			pr := EvalParamSet(symbol, train, val, holdOut, childParams, lambda, initialCapital)
+			ts := pr.TrainScore
+			if math.IsInf(ts, -1) {
+				ts = math.Inf(-1)
 			}
 			newPop[i] = individual{
-				genes:   childGenes,
-				score:   score,
-				params:  childParams,
-				metrics: metrics,
+				genes:      childGenes,
+				trainScore: ts,
+				params:     childParams,
+				metrics:    pr.Metrics,
 			}
-			allResults = append(allResults, ParamResult{Params: childParams, Score: score, Metrics: metrics})
+			allResults = append(allResults, pr)
 		}
 		pop = newPop
 	}
 
-	return g.buildResultFromPopulation(pop, allResults, time.Since(start), "genetic")
+	return g.buildResultFromPopulation(pop, allResults, time.Since(start), "genetic", holdOut, feeRate, slip)
 }
 
 func (g *GeneticOptimizer) spaceBounds(space OptimSearchSpace) (bounds [4][2]float64) {
@@ -159,7 +165,7 @@ func (g *GeneticOptimizer) paramsToVec(p backtest.GridBacktestParams, bounds [4]
 	return x
 }
 
-func (g *GeneticOptimizer) vecToParams(genes []float64, bounds [4][2]float64, space OptimSearchSpace, totalCapital float64) backtest.GridBacktestParams {
+func (g *GeneticOptimizer) vecToParams(genes []float64, bounds [4][2]float64, space OptimSearchSpace, totalCapital float64, feeRate, slippage float64) backtest.GridBacktestParams {
 	low := bounds[0][0] + genes[0]*(bounds[0][1]-bounds[0][0])
 	high := bounds[1][0] + genes[1]*(bounds[1][1]-bounds[1][0])
 	if high <= low {
@@ -173,10 +179,10 @@ func (g *GeneticOptimizer) vecToParams(genes []float64, bounds [4][2]float64, sp
 	if qty <= 0 || qty > totalCapital {
 		qty = totalCapital * 0.02
 	}
-	return ParamsFromSpace(low, high, gc, qty, totalCapital, 0.0004, 0.0003)
+	return ParamsFromSpace(low, high, gc, qty, totalCapital, feeRate, slippage)
 }
 
-func (g *GeneticOptimizer) sampleParams(space OptimSearchSpace, totalCapital float64) backtest.GridBacktestParams {
+func (g *GeneticOptimizer) sampleParams(space OptimSearchSpace, totalCapital float64, feeRate, slippage float64) backtest.GridBacktestParams {
 	low := space.PriceLowRange.Min + (space.PriceLowRange.Max-space.PriceLowRange.Min)*g.randSrc.Float64()
 	high := space.PriceHighRange.Min + (space.PriceHighRange.Max-space.PriceHighRange.Min)*g.randSrc.Float64()
 	if high <= low {
@@ -196,22 +202,14 @@ func (g *GeneticOptimizer) sampleParams(space OptimSearchSpace, totalCapital flo
 	if qty <= 0 || qty > totalCapital {
 		qty = totalCapital * 0.02
 	}
-	return ParamsFromSpace(low, high, gc, qty, totalCapital, 0.0004, 0.0003)
-}
-
-func (g *GeneticOptimizer) evalOne(ctx context.Context, symbol string, candles []*exchange.Candle, p backtest.GridBacktestParams, lambda, initialCapital float64) (float64, backtest.Metrics, error) {
-	res, err := BacktestRunner(symbol, candles, p, initialCapital)
-	if err != nil {
-		return math.Inf(-1), backtest.Metrics{}, err
-	}
-	return CalculateScore(res.Metrics, lambda), res.Metrics, nil
+	return ParamsFromSpace(low, high, gc, qty, totalCapital, feeRate, slippage)
 }
 
 func (g *GeneticOptimizer) tournamentSelect(pop []individual, k int) individual {
 	best := pop[g.randSrc.Intn(len(pop))]
 	for i := 0; i < k-1; i++ {
 		cand := pop[g.randSrc.Intn(len(pop))]
-		if cand.score > best.score {
+		if cand.trainScore > best.trainScore {
 			best = cand
 		}
 	}
@@ -245,21 +243,26 @@ func (g *GeneticOptimizer) mutate(genes []float64) {
 	}
 }
 
-func (g *GeneticOptimizer) buildResultFromPopulation(pop []individual, allResults []ParamResult, elapsed time.Duration, method string) (*OptimResult, error) {
+func (g *GeneticOptimizer) buildResultFromPopulation(pop []individual, allResults []ParamResult, elapsed time.Duration, method string, holdOut bool, feeRate, slip float64) (*OptimResult, error) {
 	if len(pop) == 0 {
-		return &OptimResult{Method: method, Elapsed: elapsed}, nil
+		return &OptimResult{Method: method, Elapsed: elapsed, HoldOutEnabled: holdOut, FeeRateUsed: feeRate, SlippageUsed: slip}, nil
 	}
-	sort.Slice(pop, func(i, j int) bool { return pop[i].score > pop[j].score })
-	best := pop[0]
+	bestPR, ok := PickBestParamResult(allResults)
+	if !ok {
+		bestPR = ParamResult{}
+	}
 	heatmap := BuildHeatmapFromResults(allResults, "grid_count", "price_range")
 	return &OptimResult{
-		BestParams:  best.params,
-		BestScore:   best.score,
-		BestMetrics: best.metrics,
-		AllResults:  allResults,
-		HeatmapData: heatmap,
-		Elapsed:     elapsed,
-		Iterations:  len(allResults),
-		Method:      method,
+		BestParams:       bestPR.Params,
+		BestScore:        bestPR.Score,
+		BestMetrics:      bestPR.Metrics,
+		AllResults:       allResults,
+		HeatmapData:      heatmap,
+		Elapsed:          elapsed,
+		Iterations:       len(allResults),
+		Method:           method,
+		HoldOutEnabled:   holdOut,
+		FeeRateUsed:      feeRate,
+		SlippageUsed:     slip,
 	}, nil
 }

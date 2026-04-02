@@ -98,27 +98,98 @@ func (gs *GridStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 
 // GetPositions 獲取持倉
 func (gs *GridStrategy) GetPositions() []*Position {
-	// 從 SuperPositionManager 獲取持倉信息
-	// TODO: 實現從 SuperPositionManager 獲取持倉的逻辑
-	// 目前返回空，因為 SuperPositionManager 的持倉資訊結構不同
-	return []*Position{}
+	if gs.manager == nil {
+		return nil
+	}
+	symbol := ""
+	if gs.cfg != nil {
+		symbol = gs.cfg.Trading.Symbol
+	}
+	slots := gs.manager.GetAllSlotsDetailed()
+	var totalQty float64
+	var cost float64
+	for _, s := range slots {
+		if s.PositionQty <= 0 {
+			continue
+		}
+		totalQty += s.PositionQty
+		cost += s.Price * s.PositionQty
+	}
+	if totalQty <= 0 {
+		return []*Position{}
+	}
+	entry := cost / totalQty
+	ctx := gs.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cur := 0.0
+	if gs.exchange != nil && symbol != "" {
+		if p, err := gs.exchange.GetLatestPrice(ctx, symbol); err == nil {
+			cur = p
+		}
+	}
+	pnl := gs.manager.GetUnrealizedPnL(cur)
+	return []*Position{{
+		Symbol:       symbol,
+		Size:         totalQty,
+		EntryPrice:   entry,
+		CurrentPrice: cur,
+		PnL:          pnl,
+	}}
 }
 
 // GetOrders 獲取訂單
 func (gs *GridStrategy) GetOrders() []*Order {
-	// TODO: 實現從 SuperPositionManager 獲取訂單的逻辑
-	return []*Order{}
+	if gs.manager == nil {
+		return nil
+	}
+	symbol := ""
+	if gs.cfg != nil {
+		symbol = gs.cfg.Trading.Symbol
+	}
+	slots := gs.manager.GetAllSlotsDetailed()
+	out := make([]*Order, 0)
+	for _, s := range slots {
+		if s.OrderID == 0 {
+			continue
+		}
+		out = append(out, &Order{
+			OrderID:  s.OrderID,
+			Symbol:   symbol,
+			Side:     s.OrderSide,
+			Price:    s.OrderPrice,
+			Quantity: s.OrderFilledQty,
+			Status:   s.OrderStatus,
+		})
+	}
+	return out
 }
 
 // GetStatistics 獲取统计
 func (gs *GridStrategy) GetStatistics() *StrategyStatistics {
-	// TODO: 實現從 SuperPositionManager 獲取统计的逻辑
-	return &StrategyStatistics{
-		TotalTrades: 0,
-		WinRate:     0,
-		TotalPnL:    0,
-		TotalVolume: 0,
+	if gs.manager == nil {
+		return &StrategyStatistics{}
 	}
+	ctx := gs.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sym := ""
+	if gs.cfg != nil {
+		sym = gs.cfg.Trading.Symbol
+	}
+	buyQ := gs.manager.GetTotalBuyQty()
+	sellQ := gs.manager.GetTotalSellQty()
+	st := &StrategyStatistics{
+		TotalVolume: buyQ + sellQ,
+	}
+	if gs.exchange != nil && sym != "" {
+		if p, err := gs.exchange.GetLatestPrice(ctx, sym); err == nil {
+			st.TotalPnL = gs.manager.GetUnrealizedPnL(p)
+		}
+	}
+	return st
 }
 
 // GetManager 獲取 SuperPositionManager（用於外部访问）
