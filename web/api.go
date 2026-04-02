@@ -5725,11 +5725,7 @@ func generateAIConfig(c *gin.Context) {
 	// 优先使用请求中傳入的 Key，否则使用配置文件中的 Key
 	geminiAPIKey := req.GeminiAPIKey
 	if geminiAPIKey == "" {
-		// 獲取 Gemini API Key（优先使用 gemini_api_key，否则使用 api_key）
-		geminiAPIKey = cfg.AI.GeminiAPIKey
-		if geminiAPIKey == "" {
-			geminiAPIKey = cfg.AI.APIKey
-		}
+		geminiAPIKey = config.ResolveGlobalGeminiAPIKey(cfg)
 	}
 
 	if geminiAPIKey == "" {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	aiservice "quantmesh/ai/service"
+	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/storage"
@@ -199,10 +200,7 @@ func createMarketInterpret(c *gin.Context) {
 		return
 	}
 
-	geminiAPIKey := cfg.AI.GeminiAPIKey
-	if geminiAPIKey == "" {
-		geminiAPIKey = cfg.AI.APIKey
-	}
+	geminiAPIKey := config.ResolveGlobalGeminiAPIKey(cfg)
 	if geminiAPIKey == "" {
 		respondError(c, http.StatusBadRequest, "error.gemini_api_key_not_configured")
 		return

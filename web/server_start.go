@@ -54,14 +54,17 @@ func NewWebServer(cfg *config.Config) *WebServer {
 	llmAPIKey := cfg.Web.AI.LLMAPIKey
 	llmModel := cfg.Web.AI.LLMModel
 
-	// 如果 web.ai 未配置，尝试使用 ai.gemini_api_key
-	if llmAPIKey == "" && cfg.AI.GeminiAPIKey != "" {
-		llmProvider = "gemini"
-		llmAPIKey = cfg.AI.GeminiAPIKey
-		if llmModel == "" {
-			llmModel = "gemini-2.5-flash" // 默认使用 gemini-2.5-flash 模型
+	// 如果 web.ai 未配置，尝试使用全局 AI（含 ai.upstreams / default_upstream）
+	if llmAPIKey == "" {
+		r := config.ResolveGlobalAI(cfg)
+		if r.Provider == "gemini" && r.APIKey != "" {
+			llmProvider = "gemini"
+			llmAPIKey = r.APIKey
+			if llmModel == "" {
+				llmModel = "gemini-2.5-flash"
+			}
+			logger.Info("🔄 AI Agent 使用全局 AI 配置（gemini）")
 		}
-		logger.Info("🔄 AI Agent 使用全局 ai.gemini_api_key 配置")
 	}
 
 	if llmAPIKey != "" && llmProvider != "" {

@@ -232,6 +232,8 @@ func requiresRestart(path string) bool {
 		"ai.provider",           // AI服務提供商
 		"ai.api_key",            // AI API密钥
 		"ai.base_url",           // AI基础URL
+		"ai.default_upstream",  // 默認命名上游
+		"ai.upstreams",          // 命名上游表
 		"notifications.enabled", // 通知總开关（可能影响初始化）
 		"risk_control.enabled",  // 风控總开关（可能影响初始化）
 	}

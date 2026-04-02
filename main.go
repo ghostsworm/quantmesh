@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.6-rc21"
+var Version = "3.79.7-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2885,12 +2885,13 @@ func main() {
 				BalanceChangePct:  cfg.Inspector.Thresholds.BalanceChangePct,
 			})
 			var geminiClient inspector.GeminiContentGenerator
-			if cfg.AI.Enabled && (cfg.AI.GeminiAPIKey != "" || cfg.AI.APIKey != "") {
-				apiKey := cfg.AI.GeminiAPIKey
-				if apiKey == "" {
-					apiKey = cfg.AI.APIKey
+			if cfg.AI.Enabled {
+				apiKey := config.ResolveInspectorGeminiAPIKey(cfg)
+				if apiKey != "" {
+					geminiClient = ai.NewGeminiClient(apiKey)
+				} else if ins := config.ResolveInspectorAI(cfg); ins.Provider != "" && ins.Provider != "gemini" {
+					logger.Warn("⚠️ 智子巡檢當前僅支援 Gemini 客戶端，inspector 上游為 %s 時請改用 gemini 或留空 upstream_ref", ins.Provider)
 				}
-				geminiClient = ai.NewGeminiClient(apiKey)
 			}
 			reportCfg := inspector.DefaultReportConfig()
 			reportCfg.Name = cfg.Inspector.Name

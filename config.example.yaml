@@ -445,6 +445,13 @@ ai:
   provider: "gemini"          # AI服务提供商：gemini, openai
   api_key: "YOUR_AI_API_KEY"  # AI服务API密钥
   base_url: ""                # 可选，自定义API端点
+  # default_upstream: ""      # 可选，默认使用的命名上游键（对应下方 upstreams）
+  # upstreams:                # 可选，多套命名上游（provider/model/api_key/base_url）
+  #   my-openai:
+  #     provider: openai
+  #     model: gpt-4o-mini
+  #     api_key: ""
+  #     base_url: ""
   
   # 各模块开关
   modules:

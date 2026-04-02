@@ -266,3 +266,58 @@ func TestMigrateToBots_SymbolKeyDeduplication(t *testing.T) {
 		t.Errorf("不同 marketType 應並存：期望 2 個 bot，實際 %d 個", len(cfg.Bots))
 	}
 }
+
+func TestResolveGlobalAI_FlatOnly(t *testing.T) {
+	cfg := createValidConfig()
+	cfg.AI.Provider = "gemini"
+	cfg.AI.GeminiAPIKey = "gk-test"
+	r := ResolveGlobalAI(cfg)
+	if r.Provider != "gemini" || r.APIKey != "gk-test" || r.Source != "flat" {
+		t.Fatalf("flat: %+v", r)
+	}
+}
+
+func TestResolveGlobalAI_DefaultUpstream(t *testing.T) {
+	cfg := createValidConfig()
+	cfg.AI.Upstreams = map[string]AIUpstreamProfile{
+		"p1": {Provider: "openai", Model: "gpt-4o", APIKey: "sk-xxx", BaseURL: "https://api.openai.com/v1"},
+	}
+	cfg.AI.DefaultUpstream = "p1"
+	r := ResolveGlobalAI(cfg)
+	if r.Provider != "openai" || r.APIKey != "sk-xxx" || r.Source != "profile:p1" {
+		t.Fatalf("default_upstream: %+v", r)
+	}
+}
+
+func TestResolveGlobalAI_UpstreamsNoDefaultUsesFlat(t *testing.T) {
+	cfg := createValidConfig()
+	cfg.AI.Upstreams = map[string]AIUpstreamProfile{"x": {Provider: "openai", APIKey: "k"}}
+	cfg.AI.GeminiAPIKey = "flat-g"
+	r := ResolveGlobalAI(cfg)
+	if r.APIKey != "flat-g" || r.Source != "flat" {
+		t.Fatalf("expected flat when default_upstream empty: %+v", r)
+	}
+}
+
+func TestValidateAIUpstreamRefs_InvalidDefault(t *testing.T) {
+	cfg := createValidConfig()
+	cfg.AI.DefaultUpstream = "missing"
+	cfg.AI.Upstreams = map[string]AIUpstreamProfile{"other": {APIKey: "a"}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for invalid default_upstream")
+	}
+}
+
+func TestApplyNewsMonitorAIFromUpstreamRef(t *testing.T) {
+	cfg := createValidConfig()
+	cfg.AI.Upstreams = map[string]AIUpstreamProfile{
+		"nm": {Provider: "openai", Model: "gpt-4o-mini", APIKey: "sk-nm", BaseURL: ""},
+	}
+	cfg.NewsMonitor.AIProvider.UpstreamRef = "nm"
+	if err := ApplyNewsMonitorAIFromUpstreamRef(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NewsMonitor.AIProvider.Provider != "openai" || cfg.NewsMonitor.AIProvider.APIKey != "sk-nm" {
+		t.Fatalf("news merge: %+v", cfg.NewsMonitor.AIProvider)
+	}
+}

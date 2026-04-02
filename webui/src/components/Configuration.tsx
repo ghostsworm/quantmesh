@@ -1011,11 +1011,18 @@ const Configuration: React.FC = () => {
                           colorScheme="purple"
                           variant="outline"
                           onClick={onAIWizardOpen}
-                          isDisabled={!getNestedValue(config, 'ai.gemini_api_key')}
+                          isDisabled={
+                            !getNestedValue(config, 'ai.gemini_api_key') &&
+                            !getNestedValue(config, 'ai.api_key') &&
+                            !(config.ai?.default_upstream && config.ai?.upstreams?.[config.ai.default_upstream]?.api_key) &&
+                            !Object.values(config.ai?.upstreams || {}).some((p) => p?.api_key)
+                          }
                         >
                           {t('configuration.openAIAssistant')}
                         </Button>
-                        {!getNestedValue(config, 'ai.gemini_api_key') && (
+                        {!getNestedValue(config, 'ai.gemini_api_key') && !getNestedValue(config, 'ai.api_key') &&
+                          !(config.ai?.default_upstream && config.ai?.upstreams?.[config.ai.default_upstream]?.api_key) &&
+                          !Object.values(config.ai?.upstreams || {}).some((p) => p?.api_key) && (
                           <Alert status="info" size="sm" borderRadius="md">
                             <AlertIcon />
                             <AlertDescription fontSize="xs">
@@ -1023,6 +1030,22 @@ const Configuration: React.FC = () => {
                             </AlertDescription>
                           </Alert>
                         )}
+                      </VStack>
+                    </ConfigCard>
+
+                    <ConfigCard title={t('configuration.aiUpstreamProfilesTitle')} icon={<InfoIcon />}>
+                      <VStack spacing={3} align="stretch">
+                        <Text fontSize="xs" color="gray.500">{t('configuration.aiUpstreamProfilesDesc')}</Text>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.aiDefaultUpstream')}</FormLabel>
+                          <Input
+                            borderRadius="xl"
+                            value={config.ai?.default_upstream || ''}
+                            placeholder={t('configuration.aiDefaultUpstreamPlaceholder')}
+                            onChange={(e) => updateConfigField('ai.default_upstream', e.target.value)}
+                          />
+                        </FormControl>
+                        <Text fontSize="xs" color="gray.600">{t('configuration.aiUpstreamsYamlHint')}</Text>
                       </VStack>
                     </ConfigCard>
 
@@ -1079,6 +1102,15 @@ const Configuration: React.FC = () => {
 
                         <Divider />
                         
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.aiNewsUpstreamRef')}</FormLabel>
+                          <Input
+                            borderRadius="xl"
+                            value={config.news_monitor?.ai_provider?.upstream_ref || ''}
+                            placeholder={t('configuration.aiNewsUpstreamRefPlaceholder')}
+                            onChange={(e) => updateConfigField('news_monitor.ai_provider.upstream_ref', e.target.value)}
+                          />
+                        </FormControl>
                         <Text fontSize="sm" fontWeight="600" color="gray.700">{t('configuration.aiProviderConfig')}</Text>
                         
                         <SimpleGrid columns={2} spacing={4}>
