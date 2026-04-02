@@ -981,6 +981,10 @@ export interface ExchangePnLResponse {
 
 export interface ExchangePnLResponseData {
   exchanges: ExchangePnLResponse[]
+  /** 请求区间超过服务端上限时已截断为最近 N 天（见 effective_*） */
+  range_clamped?: boolean
+  effective_start_time?: string
+  effective_end_time?: string
 }
 
 export async function getPnLByExchange(startTime?: string, endTime?: string): Promise<ExchangePnLResponseData> {

@@ -27,6 +27,9 @@ other = "无效的开始时间格式"
 [error.invalid_end_time]
 other = "无效的结束时间格式"
 
+[error.invalid_time_range]
+other = "结束时间必须晚于开始时间"
+
 [error.query_orders_failed]
 other = "查询订单失败"
 

@@ -27,6 +27,9 @@ other = "Invalid start time format"
 [error.invalid_end_time]
 other = "Invalid end time format"
 
+[error.invalid_time_range]
+other = "End time must be after start time"
+
 [error.query_orders_failed]
 other = "Failed to query orders"
 
