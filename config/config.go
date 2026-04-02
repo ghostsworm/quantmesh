@@ -654,10 +654,11 @@ type Config struct {
 		Assets               []AssetConfig `yaml:"assets"`                 // 多资產配置（crypto_btc, commodity_gold）
 		// AI Provider 配置
 		AIProvider struct {
-			Provider string `yaml:"provider"` // gemini, openai, claude, poe，預設 gemini
-			Model    string `yaml:"model"`    // 模型名稱，如 "gpt-4", "claude-3-opus"，預設為各provider的默認模型
-			APIKey   string `yaml:"api_key"`  // Provider 的 API Key
-			BaseURL  string `yaml:"base_url"` // 可選，自定義 API 端點（用於 Poe 等代理）
+			UpstreamRef string `yaml:"upstream_ref"` // 可選，指向 ai.upstreams 鍵名（優先於內聯 provider/key）
+			Provider    string `yaml:"provider"`     // gemini, openai, claude, poe，預設 gemini
+			Model       string `yaml:"model"`        // 模型名稱，如 "gpt-4", "claude-3-opus"，預設為各provider的默認模型
+			APIKey      string `yaml:"api_key"`      // Provider 的 API Key
+			BaseURL     string `yaml:"base_url"`     // 可選，自定義 API 端點（用於 Poe 等代理）
 		} `yaml:"ai_provider"`
 	} `yaml:"news_monitor"`
 
@@ -984,6 +985,7 @@ type Config struct {
 		} `yaml:"thresholds"`
 		FocusSymbols []InspectorFocusSymbol `yaml:"focus_symbols"`
 		AI           struct {
+			UpstreamRef   string `yaml:"upstream_ref"` // 可選，指向 ai.upstreams
 			Provider      string `yaml:"provider"` // gemini
 			Model         string `yaml:"model"`
 			AnalysisDepth string `yaml:"analysis_depth"` // brief, standard, detailed
@@ -998,33 +1000,39 @@ type Config struct {
 
 	// AI配置
 	AI struct {
-		Enabled      bool   `yaml:"enabled"`
-		Provider     string `yaml:"provider"` // gemini, openai
-		APIKey       string `yaml:"api_key"`
-		GeminiAPIKey string `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果為空则使用 api_key）
-		BaseURL      string `yaml:"base_url"`       // 可選，用於自定义API端点
+		Enabled          bool   `yaml:"enabled"`
+		DefaultUpstream  string `yaml:"default_upstream"` // 可選，指向 ai.upstreams 的鍵名
+		Upstreams        map[string]AIUpstreamProfile `yaml:"upstreams"` // 可選，命名上游
+		Provider         string `yaml:"provider"` // gemini, openai
+		APIKey           string `yaml:"api_key"`
+		GeminiAPIKey     string `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果為空则使用 api_key）
+		BaseURL          string `yaml:"base_url"`       // 可選，用於自定义API端点
 
 		// 各模塊开关
 		Modules struct {
 			MarketAnalysis struct {
-				Enabled        bool `yaml:"enabled"`
-				UpdateInterval int  `yaml:"update_interval"` // 秒
+				Enabled        bool   `yaml:"enabled"`
+				UpdateInterval int    `yaml:"update_interval"` // 秒
+				UpstreamRef    string `yaml:"upstream_ref"`    // 可選，指向 ai.upstreams
 			} `yaml:"market_analysis"`
 
 			ParameterOptimization struct {
-				Enabled              bool `yaml:"enabled"`
-				OptimizationInterval int  `yaml:"optimization_interval"` // 秒
-				AutoApply            bool `yaml:"auto_apply"`            // 是否自動套用優化結果
+				Enabled              bool   `yaml:"enabled"`
+				OptimizationInterval int    `yaml:"optimization_interval"` // 秒
+				AutoApply            bool   `yaml:"auto_apply"`            // 是否自動套用優化結果
+				UpstreamRef          string `yaml:"upstream_ref"`
 			} `yaml:"parameter_optimization"`
 
 			RiskAnalysis struct {
-				Enabled          bool `yaml:"enabled"`
-				AnalysisInterval int  `yaml:"analysis_interval"` // 秒
+				Enabled          bool   `yaml:"enabled"`
+				AnalysisInterval int    `yaml:"analysis_interval"` // 秒
+				UpstreamRef      string `yaml:"upstream_ref"`
 			} `yaml:"risk_analysis"`
 
 			SentimentAnalysis struct {
-				Enabled          bool `yaml:"enabled"`
-				AnalysisInterval int  `yaml:"analysis_interval"` // 秒
+				Enabled          bool   `yaml:"enabled"`
+				AnalysisInterval int    `yaml:"analysis_interval"` // 秒
+				UpstreamRef      string `yaml:"upstream_ref"`
 				DataSources      struct {
 					News struct {
 						Enabled       bool     `yaml:"enabled"`
@@ -1047,12 +1055,14 @@ type Config struct {
 			} `yaml:"sentiment_analysis"`
 
 			StrategyGeneration struct {
-				Enabled bool `yaml:"enabled"` // 實驗性功能
+				Enabled       bool   `yaml:"enabled"` // 實驗性功能
+				UpstreamRef   string `yaml:"upstream_ref"`
 			} `yaml:"strategy_generation"`
 
 			PolymarketSignal struct {
 				Enabled          bool   `yaml:"enabled"`
 				AnalysisInterval int    `yaml:"analysis_interval"` // 秒
+				UpstreamRef      string `yaml:"upstream_ref"`
 				APIURL           string `yaml:"api_url"`           // Polymarket API地址
 				Markets          struct {
 					Keywords        []string `yaml:"keywords"`           // 关注的市场关键词
@@ -1744,6 +1754,22 @@ func DecryptSensitiveFields(cfg *Config) error {
 			cfg.AI.GeminiAPIKey = decrypted
 		}
 	}
+	for name, prof := range cfg.AI.Upstreams {
+		if prof.APIKey == "" {
+			continue
+		}
+		if IsEncrypted(prof.APIKey) && masterKey == nil {
+			return fmt.Errorf("检测到加密的上游 %s 的 api_key，但主密钥不存在（请设置 %s 环境变量或创建 %s 文件）", name, MasterKeyEnvVar, DefaultMasterKeyPath)
+		}
+		if masterKey != nil {
+			decrypted, err := DecryptAPIKey(prof.APIKey, masterKey)
+			if err != nil {
+				return fmt.Errorf("解密上游 %s 的 api_key 失败: %v（请检查主密钥是否正确）", name, err)
+			}
+			prof.APIKey = decrypted
+			cfg.AI.Upstreams[name] = prof
+		}
+	}
 	return nil
 }
 
@@ -1852,6 +1878,15 @@ func SanitizeForExport(cfg *Config) *Config {
 	}
 	if cfg.AI.GeminiAPIKey != "" {
 		out.AI.GeminiAPIKey = "****"
+	}
+	if len(cfg.AI.Upstreams) > 0 {
+		out.AI.Upstreams = make(map[string]AIUpstreamProfile)
+		for k, v := range cfg.AI.Upstreams {
+			if v.APIKey != "" {
+				v.APIKey = "****"
+			}
+			out.AI.Upstreams[k] = v
+		}
 	}
 	return &out
 }
@@ -2707,6 +2742,10 @@ func (c *Config) Validate() error {
 			{AssetType: "crypto_doge", Symbol: "DOGEUSDT", Keywords: DefaultDogeKeywords(), Enabled: false},
 		}
 	}
+	// 命名上游：upstream_ref 優先合併到 news_monitor.ai_provider
+	if err := ApplyNewsMonitorAIFromUpstreamRef(c); err != nil {
+		return err
+	}
 	// 設置 AI Provider 配置預設值
 	if c.NewsMonitor.AIProvider.Provider == "" {
 		c.NewsMonitor.AIProvider.Provider = "gemini" // 預設使用 Gemini
@@ -2833,6 +2872,10 @@ func (c *Config) Validate() error {
 	}
 	if c.Compliance.OSS.UploadTime == "" {
 		c.Compliance.OSS.UploadTime = "02:00"
+	}
+
+	if err := ValidateAIUpstreamRefs(c); err != nil {
+		return err
 	}
 
 	return nil

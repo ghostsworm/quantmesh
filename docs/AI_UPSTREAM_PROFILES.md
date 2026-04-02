@@ -199,14 +199,14 @@ A: 上游解析应发生在任务执行前或请求构造时；故障转移若�
 
 ## 11. 实现对照清单（供开发 PR）
 
-实现时可按下列顺序推进，并更新 `CHANGELOG` 与版本号（遵循项目发版规范）。
+以下已在 **v3.79.7-rc1** 起落地（细节以代码为准）。
 
 1. `config.Config` 增加 `default_upstream`、`upstreams` 映射类型。  
-2. `ApplyDefaults`、`DecryptAPIKey`、`SanitizeConfig` 覆盖新字段。  
-3. 新增 `ResolveAIUpstream(ref string) (…)` 或等价函数，集中四元组解析。  
-4. 替换 `main` / `web` / `monitor` 等分散读取处，改为经解析器（含 `GeminiNewsAnalyzer` 构造路径）。  
-5. `config_test.go` 覆盖边界：无 `upstreams`、仅有 `upstreams`、`default_upstream` 非法、`upstream_ref` 不存在等。  
-6. WebUI `config.ts` 与表单、i18n 文案。  
+2. `Validate` 内新闻 `upstream_ref` 合并、`DecryptSensitiveFields`、`SanitizeForExport` 覆盖新字段。  
+3. `config/ai_upstream.go`：`ResolveGlobalAI`、`ResolveAIUpstreamByRef`、`ResolveInspectorAI`、`ResolveModuleAI`、`ApplyNewsMonitorAIFromUpstreamRef`、`ValidateAIUpstreamRefs`。  
+4. `web`（`api.go`、`api_market_interpret.go`、`server_start.go`）、`main`（智子巡检）已改用解析结果；新闻分析器仍读合并后的 `news_monitor.ai_provider`。  
+5. `config_test.go` 覆盖扁平、default_upstream、无 default 时走扁平、非法 default、新闻合并。  
+6. WebUI `config.ts`、配置页表单项、zh-CN / en-US i18n。  
 
 ---
 

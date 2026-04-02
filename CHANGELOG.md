@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.7-rc1] - 2026-04-02
+
+### Added
+- **配置 / AI**：支持多套「命名上游」`ai.upstreams` 与可选 `ai.default_upstream`；`news_monitor.ai_provider.upstream_ref`、`inspector.ai.upstream_ref`、各 `ai.modules.*.upstream_ref` 可引用命名上游；集中解析 `ResolveGlobalAI` / `ResolveInspectorAI` 等，Web 与智子巡检、市场解读等路径已接入；加密与导出脱敏覆盖 upstreams 内 api_key
+- **Web UI**：配置页增加默认上游名与新闻分析 `upstream_ref` 表单项（中英 i18n）
+
+### Changed
+- **文档**：`docs/AI_UPSTREAM_PROFILES.md` 第 11 节与实现同步
+
+---
+
 ## [3.79.6-rc21] - 2026-04-02
 
 ### Added

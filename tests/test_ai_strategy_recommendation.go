@@ -29,10 +29,7 @@ func main() {
 	}
 
 	// 2. 獲取 Gemini API Key
-	geminiAPIKey := cfg.AI.GeminiAPIKey
-	if geminiAPIKey == "" {
-		geminiAPIKey = cfg.AI.APIKey
-	}
+	geminiAPIKey := config.ResolveGlobalGeminiAPIKey(cfg)
 	if geminiAPIKey == "" {
 		fmt.Println("❌ 未找到 Gemini API Key，请在 config.yaml 中配置 ai.gemini_api_key")
 		os.Exit(1)

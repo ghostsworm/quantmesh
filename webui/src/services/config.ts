@@ -141,6 +141,8 @@ export interface SymbolConfig {
 // AI模塊配置
 export interface AIModuleConfig {
   enabled: boolean
+  /** 可選，指向 ai.upstreams 的鍵名 */
+  upstream_ref?: string
   update_interval?: number
   optimization_interval?: number
   auto_apply?: boolean
@@ -366,6 +368,15 @@ export interface Config {
   }
   ai: {
     enabled: boolean
+    /** 默認使用的命名上游鍵（對應 ai.upstreams） */
+    default_upstream?: string
+    /** 命名上游表，鍵為自定義名稱 */
+    upstreams?: Record<string, {
+      provider?: string
+      model?: string
+      api_key?: string
+      base_url?: string
+    }>
     provider: string
     api_key: string
     gemini_api_key?: string  // Gemini API Key，用於 AI 配置助手
@@ -416,6 +427,7 @@ export interface Config {
       enabled?: boolean
     }>
     ai_provider?: {
+      upstream_ref?: string  // 可選，指向 ai.upstreams（優先於內聯字段）
       provider?: string  // gemini, openai, claude, poe
       model?: string     // 模型名称，如 "gpt-4", "claude-3-opus"
       api_key?: string   // Provider的API Key
