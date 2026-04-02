@@ -15,11 +15,25 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// pairedTradesTableMySQL 網格買賣配對成交表。須與 database 包 GORM 的 trades（逐筆成交、列名 pn_l 等）分離，
+// 否則與 storage 預期的 buy_order_id/sell_order_id/pnl 結構衝突，導致查詢 Unknown column 'pnl'。
+const pairedTradesTableMySQL = "qm_paired_trades"
+
 // SQLiteStorage SQLite 存儲實現（現在支援多種數據库）
 type SQLiteStorage struct {
 	db     *sql.DB
 	dbType string // sqlite, mysql, postgres
 	closed bool
+	// tradesTable 網格配對成交表名：SQLite 為 trades；MySQL 為 qm_paired_trades（避免與 GORM trades 同庫衝突）
+	tradesTable string
+}
+
+// tradesTbl 返回網格配對成交表名（永遠為內部常量，非用戶輸入）
+func (s *SQLiteStorage) tradesTbl() string {
+	if s != nil && s.tradesTable != "" {
+		return s.tradesTable
+	}
+	return "trades"
 }
 
 // NewSQLiteStorage 創建 SQLite 存儲
@@ -117,9 +131,17 @@ func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 app_config 文檔表失败: %w", err)
 		}
+		if err := migratePairedTradesTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL 網格配對成交表失败: %w", err)
+		}
 	}
 
-	return &SQLiteStorage{db: db, dbType: dbType}, nil
+	tradesTbl := "trades"
+	if dbType == "mysql" {
+		tradesTbl = pairedTradesTableMySQL
+	}
+	return &SQLiteStorage{db: db, dbType: dbType, tradesTable: tradesTbl}, nil
 }
 
 // createTables 創建表
@@ -1509,11 +1531,11 @@ func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
 	if exchange == "" {
 		exchange = "binance"
 	}
-	_, err := s.db.Exec(`
-		INSERT INTO trades
+	_, err := s.db.Exec(fmt.Sprintf(`
+		INSERT INTO %s
 		(buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, trade.BuyOrderID, trade.SellOrderID, exchange, trade.Account, trade.Symbol,
+	`, s.tradesTbl()), trade.BuyOrderID, trade.SellOrderID, exchange, trade.Account, trade.Symbol,
 		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.ExchangePnL, trade.Fee, trade.FeeAsset,
 		trade.BuyPriceDeviation, trade.SellPriceDeviation, createdAt)
 	if err != nil {
@@ -2041,13 +2063,13 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 		logger.Warn("⚠️ 交易查詢 limit 超過限制 (%d)，已限制為 %d", limit, maxLimit)
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := s.db.Query(fmt.Sprintf(`
 		SELECT buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, COALESCE(fee, 0) as fee, created_at
-		FROM trades
+		FROM %s
 		WHERE created_at >= ? AND created_at <= ?
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?
-	`, startTime, endTime, limit, offset)
+	`, s.tradesTbl()), startTime, endTime, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("查詢交易失败: %w", err)
 	}
@@ -2099,8 +2121,8 @@ func (s *SQLiteStorage) GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64
 		args = append(args, id)
 	}
 	query := fmt.Sprintf(`
-		SELECT sell_order_id, pnl FROM trades WHERE sell_order_id IN (%s)
-	`, placeholders)
+		SELECT sell_order_id, pnl FROM %s WHERE sell_order_id IN (%s)
+	`, s.tradesTbl(), placeholders)
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查詢賣單盈虧失败: %w", err)
@@ -2161,7 +2183,7 @@ func (s *SQLiteStorage) GetStatisticsSummary(account string) (*Statistics, error
 
 // GetStatisticsSummaryByExchange 獲取指定交易所的统计彙總
 func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string) (*Statistics, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_trades,
 			COALESCE(SUM(quantity), 0) as total_volume,
@@ -2175,9 +2197,9 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 			END as win_rate,
 			COALESCE(SUM(COALESCE(buy_price_deviation, 0)), 0) as total_buy_deviation,
 			COALESCE(SUM(COALESCE(sell_price_deviation, 0)), 0) as total_sell_deviation
-		FROM trades
+		FROM %s
 		WHERE 1=1
-	`
+	`, s.tradesTbl())
 	args := []interface{}{}
 	if exchange != "" {
 		query += " AND exchange = ?"
@@ -2240,7 +2262,7 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 
 // GetStatisticsSummaryByExchangeAndSymbol 獲取指定交易所、指定交易對的统计彙總
 func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_trades,
 			COALESCE(SUM(quantity), 0) as total_volume,
@@ -2254,9 +2276,9 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol
 			END as win_rate,
 			COALESCE(SUM(COALESCE(buy_price_deviation, 0)), 0) as total_buy_deviation,
 			COALESCE(SUM(COALESCE(sell_price_deviation, 0)), 0) as total_sell_deviation
-		FROM trades
+		FROM %s
 		WHERE 1=1
-	`
+	`, s.tradesTbl())
 	args := []interface{}{}
 	if exchange != "" {
 		query += " AND exchange = ?"
@@ -2343,14 +2365,14 @@ func (s *SQLiteStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, 
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	todayEnd := todayStart.Add(24 * time.Hour)
 
-	// 查詢當日網格盈虧（trades 表）
-	gridQuery := `
+	// 查詢當日網格盈虧（網格配對成交表）
+	gridQuery := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_trades,
 			COALESCE(SUM(pnl), 0) as grid_pnl
-		FROM trades
+		FROM %s
 		WHERE created_at >= ? AND created_at < ?
-	`
+	`, s.tradesTbl())
 	gridArgs := []interface{}{todayStart, todayEnd}
 	if exchange != "" {
 		gridQuery += " AND exchange = ?"
@@ -2476,9 +2498,9 @@ func (s *SQLiteStorage) GetDailyTradesSummary(exchange, account, dateStr string)
 	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
 	query := fmt.Sprintf(`
 		SELECT COUNT(*), COALESCE(SUM(pnl), 0), COALESCE(SUM(COALESCE(fee, 0)), 0)
-		FROM trades
+		FROM %s
 		WHERE date(datetime(created_at, '%s')) = ?
-	`, tzModifier)
+	`, s.tradesTbl(), tzModifier)
 	args := []interface{}{dateStr}
 	if exchange != "" {
 		query += " AND (exchange = ? OR exchange = '')"
@@ -2575,9 +2597,9 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 			SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades,
 			COALESCE(SUM(CASE WHEN pnl > 0 THEN quantity ELSE 0 END), 0) as volume_profit,
 			COALESCE(SUM(CASE WHEN pnl <= 0 THEN quantity ELSE 0 END), 0) as volume_stop_loss
-		FROM trades
+		FROM %s
 		WHERE date(datetime(created_at, '%s')) >= ? AND date(datetime(created_at, '%s')) <= ?
-	`, tzModifier, tzModifier, tzModifier)
+	`, tzModifier, s.tradesTbl(), tzModifier, tzModifier)
 	args := []interface{}{startDateStr, endDateStr}
 	if exchange != "" {
 		query += " AND exchange = ?"
@@ -2835,16 +2857,16 @@ func (s *SQLiteStorage) GetReconciliationCount(exchange, symbol, account string)
 
 // GetPnLBySymbol 按币种對查詢盈亏數據（TotalPnL 為淨利潤，已扣手續費）
 func (s *SQLiteStorage) GetPnLBySymbol(symbol, account string, startTime, endTime time.Time) (*PnLSummary, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_trades,
 			COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as total_pnl,
 			SUM(quantity) as total_volume,
 			SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
 			SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades
-		FROM trades
+		FROM %s
 		WHERE symbol = ? AND created_at >= ? AND created_at <= ?
-		`
+		`, s.tradesTbl())
 	args := []interface{}{symbol, startTime, endTime}
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
@@ -2899,7 +2921,7 @@ func (s *SQLiteStorage) GetPnLBySymbol(symbol, account string, startTime, endTim
 func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime time.Time) ([]*PnLBySymbol, error) {
 	// 限制最大返回數量，防止記憶體占用過大（分组后的結果通常不會太多，但还是要限制）
 	maxLimit := 1000 // 最多返回1000個币种對
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			exchange,
 			symbol,
@@ -2909,9 +2931,9 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 			SUM(quantity) as total_volume,
 			CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as win_rate,
 			CAST(SUM(CASE WHEN exchange_pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as exchange_win_rate
-		FROM trades
+		FROM %s
 		WHERE created_at >= ? AND created_at <= ?
-		`
+		`, s.tradesTbl())
 	args := []interface{}{startTime, endTime}
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
@@ -2969,11 +2991,11 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 
 // GetActualProfitBySymbol 计算指定币种在指定時间之前的累计實際盈利（淨利潤，已扣手續費）
 func (s *SQLiteStorage) GetActualProfitBySymbol(symbol, account string, beforeTime time.Time) (float64, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as total_pnl
-		FROM trades
+		FROM %s
 		WHERE symbol = ? AND created_at <= ?
-		`
+		`, s.tradesTbl())
 	args := []interface{}{symbol, beforeTime}
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
@@ -3001,12 +3023,12 @@ func (s *SQLiteStorage) GetActualProfitBySymbol(symbol, account string, beforeTi
 
 // GetTotalBuySellQty 獲取累计買入和累计賣出數量（從trades表计算）
 func (s *SQLiteStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty, totalSellQty float64, err error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			COALESCE(SUM(quantity), 0) as total_qty
-		FROM trades
+		FROM %s
 		WHERE symbol = ?
-	`
+	`, s.tradesTbl())
 	args := []interface{}{symbol}
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
@@ -4571,6 +4593,38 @@ func migrateBotStatesTable(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_bot_states_updated_at ON bot_states(updated_at);
 	`)
 	return err
+}
+
+// migratePairedTradesTableMySQL 創建網格買賣配對成交表（與 GORM trades 分表，列名含 pnl）
+func migratePairedTradesTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS ` + pairedTradesTableMySQL + ` (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  buy_order_id BIGINT,
+  sell_order_id BIGINT,
+  exchange VARCHAR(64) DEFAULT 'binance',
+  account VARCHAR(255) DEFAULT '',
+  symbol VARCHAR(64),
+  buy_price DECIMAL(20,8),
+  sell_price DECIMAL(20,8),
+  quantity DECIMAL(20,8),
+  pnl DECIMAL(20,8) DEFAULT 0,
+  exchange_pnl DECIMAL(20,8) DEFAULT 0,
+  fee DECIMAL(20,8) DEFAULT 0,
+  fee_asset VARCHAR(32) DEFAULT '',
+  buy_price_deviation DECIMAL(20,8) DEFAULT 0,
+  sell_price_deviation DECIMAL(20,8) DEFAULT 0,
+  created_at TIMESTAMP(3) NULL,
+  KEY idx_qm_pt_created_at (created_at),
+  KEY idx_qm_pt_account_symbol (account(64), symbol(32)),
+  KEY idx_qm_pt_exchange_symbol (exchange(32), symbol(32))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL 網格配對成交表已就緒: %s", pairedTradesTableMySQL)
+	return nil
 }
 
 // migrateBotStatesTableMySQL 遷移 Bot 啟停狀態表（MySQL）
