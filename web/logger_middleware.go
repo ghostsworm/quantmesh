@@ -8,6 +8,9 @@ import (
 	"quantmesh/logger"
 )
 
+// slowHTTPRequestThreshold 超過此耗時的請求額外打 [GIN_SLOW]（對應瀏覽器里「等待服務器響應」過長時便於對照 journal / web 日志）
+const slowHTTPRequestThreshold = 2 * time.Second
+
 // GinLoggerMiddleware 自定义 Gin 日志中间件
 // logAll=true 時全量输出；否则僅記錄錯误请求 (状態碼 >= 400)
 func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
@@ -21,14 +24,25 @@ func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
 		c.Next()
 
 		statusCode := c.Writer.Status()
-		// 非 debug 模式只記錄 4xx/5xx
+		latency := time.Since(start)
+
+		// 慢請求：無論是否 debug，均記錄（便於排查 TTFB 與後端處理時間）
+		if latency >= slowHTTPRequestThreshold {
+			fullPath := path
+			if raw != "" {
+				fullPath = path + "?" + raw
+			}
+			slowMsg := fmt.Sprintf("[GIN_SLOW] %d | %v | %s | %-7s %s",
+				statusCode, latency, c.ClientIP(), c.Request.Method, fullPath)
+			logger.Warn("%s", slowMsg)
+			logger.WriteWebLog(slowMsg)
+		}
+
+		// 非 debug 模式只記錄 4xx/5xx（快請求且 2xx 則跳過）
 		if !logAll && statusCode < 400 {
 			return
 		}
 
-		// 计算请求处理時间
-		latency := time.Since(start)
-		
 		// 獲取客戶端 IP
 		clientIP := c.ClientIP()
 		

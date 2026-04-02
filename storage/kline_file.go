@@ -53,12 +53,17 @@ type KlineFile struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
+func (s *SQLiteStorage) klineFilesSelectColumns() string {
+	iv := s.mysqlQuoteIdent("interval")
+	return fmt.Sprintf("id, filename, exchange, symbol, %s, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at", iv)
+}
+
 // CreateKlineFile 创建 K 线文件记录
 func (s *SQLiteStorage) CreateKlineFile(kf *KlineFile) error {
-	query := `
-		INSERT INTO kline_files (filename, exchange, symbol, interval, start_time, end_time, status, has_depth, candle_count, file_size, source)
+	query := fmt.Sprintf(`
+		INSERT INTO kline_files (filename, exchange, symbol, %s, start_time, end_time, status, has_depth, candle_count, file_size, source)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
+	`, s.mysqlQuoteIdent("interval"))
 	var endTime interface{}
 	if kf.EndTime != nil {
 		endTime = kf.EndTime.Unix()
@@ -90,10 +95,10 @@ func (s *SQLiteStorage) CreateKlineFile(kf *KlineFile) error {
 
 // GetKlineFile 根据ID获取 K 线文件记录
 func (s *SQLiteStorage) GetKlineFile(id int) (*KlineFile, error) {
-	query := `
-		SELECT id, filename, exchange, symbol, interval, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM kline_files WHERE id = ?
-	`
+	`, s.klineFilesSelectColumns())
 
 	kf := &KlineFile{}
 	var startTime interface{}
@@ -130,10 +135,10 @@ func (s *SQLiteStorage) GetKlineFile(id int) (*KlineFile, error) {
 
 // GetKlineFileByFilename 根据文件名获取 K 线文件记录
 func (s *SQLiteStorage) GetKlineFileByFilename(filename string) (*KlineFile, error) {
-	query := `
-		SELECT id, filename, exchange, symbol, interval, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM kline_files WHERE filename = ?
-	`
+	`, s.klineFilesSelectColumns())
 
 	kf := &KlineFile{}
 	var startTime interface{}
@@ -180,10 +185,10 @@ type KlineFileFilter struct {
 }
 
 func (s *SQLiteStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, error) {
-	query := `
-		SELECT id, filename, exchange, symbol, interval, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM kline_files WHERE 1=1
-	`
+	`, s.klineFilesSelectColumns())
 	args := make([]interface{}, 0)
 
 	if filter != nil {
@@ -196,7 +201,7 @@ func (s *SQLiteStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, e
 			args = append(args, filter.Symbol)
 		}
 		if filter.Interval != "" {
-			query += " AND interval = ?"
+			query += fmt.Sprintf(" AND %s = ?", s.mysqlQuoteIdent("interval"))
 			args = append(args, filter.Interval)
 		}
 		if filter.Status != "" {
@@ -264,11 +269,11 @@ func (s *SQLiteStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, e
 
 // UpdateKlineFile 更新 K 线文件记录
 func (s *SQLiteStorage) UpdateKlineFile(kf *KlineFile) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE kline_files 
-		SET exchange=?, symbol=?, interval=?, start_time=?, end_time=?, status=?, has_depth=?, candle_count=?, file_size=?, source=?, updated_at=?
+		SET exchange=?, symbol=?, %s=?, start_time=?, end_time=?, status=?, has_depth=?, candle_count=?, file_size=?, source=?, updated_at=?
 		WHERE id=?
-	`
+	`, s.mysqlQuoteIdent("interval"))
 	var endTime interface{}
 	if kf.EndTime != nil {
 		endTime = kf.EndTime.Unix()
@@ -350,13 +355,14 @@ func (s *SQLiteStorage) GetCompletedKlineFiles(exchange, symbol, interval string
 
 // GetKlineFilesInTimeRange 获取时间范围内的 K 线文件列表
 func (s *SQLiteStorage) GetKlineFilesInTimeRange(exchange, symbol, interval string, startTimeParam, endTimeParam time.Time) ([]*KlineFile, error) {
-	query := `
-		SELECT id, filename, exchange, symbol, interval, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at
+	iv := s.mysqlQuoteIdent("interval")
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM kline_files 
-		WHERE exchange=? AND symbol=? AND interval=? AND status='completed'
+		WHERE exchange=? AND symbol=? AND %s=? AND status='completed'
 		  AND start_time <= ? AND (end_time IS NULL OR end_time >= ?)
 		ORDER BY start_time ASC
-	`
+	`, s.klineFilesSelectColumns(), iv)
 
 	rows, err := s.db.Query(query, exchange, symbol, interval, endTimeParam.Unix(), startTimeParam.Unix())
 	if err != nil {

@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc6] - 2026-04-03
+
+### Fixed
+- **Storage / MySQL**：`system_settings` 與 `kline_files` 查詢中未對保留字 `key`、`value`、`type`、`interval` 加反引號，導致 MariaDB/MySQL 報 `Error 1064`（與 facev.app 日誌中「同步文件到數據庫失敗」「讀取 local_dev_mode 失敗」一致）；MySQL 路徑下改為正確引用列名
+
+### Added
+- **Web / 可觀測性**：Gin 中間件對單次請求處理耗時 ≥2s 額外輸出 `[GIN_SLOW]`（`logger.Warn` + Web 日志文件），便於對照瀏覽器 Network 中「等待服務器響應」與後端實際耗時
+
+---
+
 ## [3.79.8-rc5] - 2026-04-03
 
 ### Changed

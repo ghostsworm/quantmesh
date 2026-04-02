@@ -796,3 +796,18 @@ func TestFixOrderLinkCRUD(t *testing.T) {
 		t.Fatalf("FIX 订单映射列表异常: %+v", list)
 	}
 }
+
+func TestSQLiteStorage_mysqlQuoteIdent(t *testing.T) {
+	t.Parallel()
+	mysqlSt := &SQLiteStorage{dbType: "mysql"}
+	if got := mysqlSt.mysqlQuoteIdent("interval"); got != "`interval`" {
+		t.Fatalf("mysql interval: want `interval`, got %q", got)
+	}
+	if got := mysqlSt.mysqlQuoteIdent("key"); got != "`key`" {
+		t.Fatalf("mysql key: want `key`, got %q", got)
+	}
+	sqliteSt := &SQLiteStorage{dbType: "sqlite"}
+	if got := sqliteSt.mysqlQuoteIdent("interval"); got != "interval" {
+		t.Fatalf("sqlite: want interval, got %q", got)
+	}
+}

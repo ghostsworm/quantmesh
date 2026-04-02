@@ -25,17 +25,28 @@ type SystemSettingFilter struct {
 	Key string
 }
 
+func (s *SQLiteStorage) systemSettingsSelectColumns() string {
+	if s != nil && s.dbType == "mysql" {
+		return "id, `key`, `value`, `type`, created_at, updated_at"
+	}
+	return "id, key, value, type, created_at, updated_at"
+}
+
+func (s *SQLiteStorage) systemSettingsKeyColumn() string {
+	return s.mysqlQuoteIdent("key")
+}
+
 // GetSystemSettings 获取系统设置
 func (s *SQLiteStorage) GetSystemSettings(ctx context.Context, filter *SystemSettingFilter) ([]*SystemSetting, error) {
-	query := "SELECT id, key, value, type, created_at, updated_at FROM system_settings"
+	query := "SELECT " + s.systemSettingsSelectColumns() + " FROM system_settings"
 	args := []interface{}{}
 
 	if filter != nil && filter.Key != "" {
-		query += " WHERE key = ?"
+		query += " WHERE " + s.systemSettingsKeyColumn() + " = ?"
 		args = append(args, filter.Key)
 	}
 
-	query += " ORDER BY key"
+	query += " ORDER BY " + s.systemSettingsKeyColumn()
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -61,7 +72,7 @@ func (s *SQLiteStorage) GetSystemSettings(ctx context.Context, filter *SystemSet
 
 // GetSystemSetting 获取单个系统设置
 func (s *SQLiteStorage) GetSystemSetting(ctx context.Context, key string) (*SystemSetting, error) {
-	query := "SELECT id, key, value, type, created_at, updated_at FROM system_settings WHERE key = ?"
+	query := "SELECT " + s.systemSettingsSelectColumns() + " FROM system_settings WHERE " + s.systemSettingsKeyColumn() + " = ?"
 
 	var setting SystemSetting
 	err := s.db.QueryRowContext(ctx, query, key).Scan(
@@ -89,8 +100,16 @@ func (s *SQLiteStorage) SaveSystemSetting(ctx context.Context, setting *SystemSe
 	}
 
 	if existing != nil {
-		// 更新
-		query := `UPDATE system_settings SET value = ?, type = ?, updated_at = ? WHERE key = ?`
+		// 更新（MySQL 中 value/type/key 可能與保留字衝突）
+		var query string
+		if s.dbType == "mysql" {
+			query = fmt.Sprintf(
+				"UPDATE system_settings SET %s = ?, %s = ?, updated_at = ? WHERE %s = ?",
+				s.mysqlQuoteIdent("value"), s.mysqlQuoteIdent("type"), s.systemSettingsKeyColumn(),
+			)
+		} else {
+			query = `UPDATE system_settings SET value = ?, type = ?, updated_at = ? WHERE key = ?`
+		}
 		_, err = s.db.ExecContext(ctx, query, setting.Value, setting.Type, now, setting.Key)
 		if err != nil {
 			return fmt.Errorf("更新设置失败: %w", err)
@@ -102,7 +121,15 @@ func (s *SQLiteStorage) SaveSystemSetting(ctx context.Context, setting *SystemSe
 		// 插入
 		setting.CreatedAt = now
 		setting.UpdatedAt = now
-		query := `INSERT INTO system_settings (key, value, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`
+		var query string
+		if s.dbType == "mysql" {
+			query = fmt.Sprintf(
+				"INSERT INTO system_settings (%s, %s, %s, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+				s.mysqlQuoteIdent("key"), s.mysqlQuoteIdent("value"), s.mysqlQuoteIdent("type"),
+			)
+		} else {
+			query = `INSERT INTO system_settings (key, value, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`
+		}
 		result, err := s.db.ExecContext(ctx, query, setting.Key, setting.Value, setting.Type, setting.CreatedAt, setting.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("插入设置失败: %w", err)
@@ -116,7 +143,7 @@ func (s *SQLiteStorage) SaveSystemSetting(ctx context.Context, setting *SystemSe
 
 // DeleteSystemSetting 删除系统设置
 func (s *SQLiteStorage) DeleteSystemSetting(ctx context.Context, key string) error {
-	query := `DELETE FROM system_settings WHERE key = ?`
+	query := "DELETE FROM system_settings WHERE " + s.systemSettingsKeyColumn() + " = ?"
 	_, err := s.db.ExecContext(ctx, query, key)
 	if err != nil {
 		return fmt.Errorf("删除设置失败: %w", err)
