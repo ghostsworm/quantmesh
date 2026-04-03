@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -27,32 +26,25 @@ type SetupStatusResponse struct {
 // getSetupStatusHandler 獲取配置状態
 // GET /api/setup/status
 func getSetupStatusHandler(c *gin.Context) {
-	configPath := "config.yaml"
-	if fileConfigManager != nil {
-		configPath = fileConfigManager.GetConfigPath()
-	}
+	const configPathHint = "" // 主配置僅存於主庫 app_config，不再使用磁盤路徑
 
-	// 检查配置文件是否存在
-	_, err := os.Stat(configPath)
-	if os.IsNotExist(err) {
+	if fileConfigManager == nil {
 		c.JSON(http.StatusOK, SetupStatusResponse{
 			NeedsSetup: true,
-			ConfigPath: configPath,
+			ConfigPath: configPathHint,
 		})
 		return
 	}
 
-	// 检查配置是否完整
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
+	cfg, err := fileConfigManager.GetConfig()
+	if err != nil || cfg == nil {
 		c.JSON(http.StatusOK, SetupStatusResponse{
 			NeedsSetup: true,
-			ConfigPath: configPath,
+			ConfigPath: configPathHint,
 		})
 		return
 	}
 
-	// 检查配置是否完整
 	needsSetup := cfg.App.CurrentExchange == "" ||
 		len(cfg.Exchanges) == 0 ||
 		cfg.Exchanges[cfg.App.CurrentExchange].APIKey == "" ||
@@ -62,7 +54,7 @@ func getSetupStatusHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, SetupStatusResponse{
 		NeedsSetup: needsSetup,
-		ConfigPath: configPath,
+		ConfigPath: configPathHint,
 		Exchanges:  cfg.Exchanges,
 		Symbols:    cfg.Trading.Symbols,
 	})
@@ -144,16 +136,9 @@ func initSetupHandler(c *gin.Context) {
 		return
 	}
 
-	// 獲取配置文件路径
-	configPath := "config.yaml"
-	if fileConfigManager != nil {
-		configPath = fileConfigManager.GetConfigPath()
-	}
-
-	// 尝試加載現有配置，如果不存在则創建最小化配置
 	var cfg *config.Config
-	if _, err := os.Stat(configPath); err == nil {
-		if existingCfg, err := config.LoadConfig(configPath); err == nil {
+	if fileConfigManager != nil {
+		if existingCfg, err := fileConfigManager.GetConfig(); err == nil && existingCfg != nil {
 			cfg = existingCfg
 		}
 	}
@@ -235,38 +220,14 @@ func initSetupHandler(c *gin.Context) {
 		cfg.Trading.Symbol = cfg.Trading.Symbols[0].Symbol
 	}
 
-	// 检查配置文件是否已存在，如果存在则先备份
-	var backupPath string
-	_, err := os.Stat(configPath)
-	if err == nil {
-		// 配置文件存在，先創建备份
-		backupManager := config.NewBackupManager(configPath)
-		backupInfo, backupErr := backupManager.CreateBackup(configPath, "首次設置向導覆盖前自动备份")
-		if backupErr != nil {
-			logger.Warn("⚠️ 創建配置备份失败: %v，但继续保存配置", backupErr)
-		} else {
-			backupPath = backupInfo.FilePath
-			logger.Info("✅ 已創建配置备份: %s", backupPath)
-		}
-
-		// 检查配置是否完整（用於日志記錄，但不阻止覆盖）
-		existingCfg, loadErr := config.LoadConfig(configPath)
-		if loadErr == nil {
-			isComplete := existingCfg.App.CurrentExchange != "" &&
-				len(existingCfg.Exchanges) > 0 &&
-				existingCfg.Exchanges[existingCfg.App.CurrentExchange].APIKey != "" &&
-				existingCfg.Exchanges[existingCfg.App.CurrentExchange].SecretKey != "" &&
-				len(existingCfg.Trading.Symbols) > 0 &&
-				existingCfg.Trading.Symbols[0].Symbol != ""
-
-			if isComplete {
-				logger.Info("ℹ️ 检测到完整配置，已备份到: %s", backupPath)
-			}
-		}
+	if fileConfigManager == nil {
+		c.JSON(http.StatusInternalServerError, SetupInitResponse{
+			Success: false,
+			Message: "配置管理器未初始化",
+		})
+		return
 	}
-
-	// 保存配置
-	if err := config.SaveConfig(cfg, configPath); err != nil {
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		logger.Error("❌ 保存配置失败: %v", err)
 		c.JSON(http.StatusInternalServerError, SetupInitResponse{
 			Success: false,
@@ -274,12 +235,9 @@ func initSetupHandler(c *gin.Context) {
 		})
 		return
 	}
-
-	// 更新配置管理器中的配置
-	if fileConfigManager != nil {
-		fileConfigManager.mu.Lock()
-		fileConfigManager.currentConfig = cfg
-		fileConfigManager.mu.Unlock()
+	SetGlobalConfig(cfg)
+	if configHotReloader != nil {
+		_, _ = configHotReloader.UpdateConfig(cfg)
 	}
 
 	symbolsStr := ""
@@ -291,16 +249,12 @@ func initSetupHandler(c *gin.Context) {
 	}
 	logger.Info("✅ 配置初始化成功: 交易所=%s, 交易對=%s", req.Exchange, symbolsStr)
 
-	message := "配置已保存，请重啟系统以應用配置"
-	if backupPath != "" {
-		message = fmt.Sprintf("配置已保存（原配置已备份到: %s），请重啟系统以應用配置", backupPath)
-	}
+	message := "配置已寫入主庫，请重啟系统以應用配置"
 
 	c.JSON(http.StatusOK, SetupInitResponse{
 		Success:         true,
 		Message:         message,
 		RequiresRestart: true,
-		BackupPath:      backupPath,
 	})
 }
 

@@ -184,46 +184,6 @@ func TestHotReloader(t *testing.T) {
 	}
 }
 
-func TestConfigBackup(t *testing.T) {
-	tempDir := t.TempDir()
-	backupDir := filepath.Join(tempDir, "backups")
-
-	bm := &BackupManager{
-		backupDir:  backupDir,
-		maxBackups: 5,
-	}
-
-	testConfigPath := filepath.Join(tempDir, "test_config.yaml")
-	testConfigContent := "app:\n  current_exchange: \"binance\"\n"
-	err := os.WriteFile(testConfigPath, []byte(testConfigContent), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	backupInfo, err := bm.CreateBackup(testConfigPath, "测試备份")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := os.Stat(backupInfo.FilePath); os.IsNotExist(err) {
-		t.Fatal("备份文件不存在")
-	}
-
-	backups, err := bm.ListBackups()
-	if err != nil {
-		t.Fatalf("列出备份失败: %v", err)
-	}
-
-	if len(backups) != 1 {
-		t.Errorf("备份列表數量不正确: 期望1個，實際%d個", len(backups))
-		// 列出所有文件以便調試
-		entries, _ := os.ReadDir(backupDir)
-		for _, entry := range entries {
-			t.Logf("备份目錄中的文件: %s (isDir: %v)", entry.Name(), entry.IsDir())
-		}
-	}
-}
-
 // TestMigrateToBots_SymbolKeyDeduplication 驗證 MigrateToBots 按 symbolKey 去重，避免同交易所同幣同市場類型重複
 func TestMigrateToBots_SymbolKeyDeduplication(t *testing.T) {
 	cfg := &Config{}

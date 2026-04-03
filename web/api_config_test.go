@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,15 +12,27 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
+	"quantmesh/storage"
 )
 
-func setupTestRouter() *gin.Engine {
+func setupTestRouter(t *testing.T) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
-	// 創建临時配置管理器
-	tempDir, _ := os.MkdirTemp("", "config_test_*")
+	tempDir := t.TempDir()
 	testConfigPath := filepath.Join(tempDir, "test_config.yaml")
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	st, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatal(err)
+	}
+	SetPrimaryStorageForAppConfig(st)
 
 	// 創建测試配置（使用YAML内容）
 	testConfigContent := `
@@ -38,44 +51,24 @@ exchanges:
     fee_rate: 0.0002
 `
 
-	// 保存测試配置
-	os.WriteFile(testConfigPath, []byte(testConfigContent), 0644)
-
-	// 加載配置以确保格式正确
-	testConfig, err := config.LoadConfig(testConfigPath)
-	if err != nil {
-		// 如果加載失败，創建一個最小配置
-		testConfig = &config.Config{}
-		testConfig.App.CurrentExchange = "binance"
-		testConfig.Exchanges = make(map[string]config.ExchangeConfig)
-		testConfig.Exchanges["binance"] = config.ExchangeConfig{
-			APIKey:    "test_key",
-			SecretKey: "test_secret",
-			FeeRate:   0.0002,
-		}
-		testConfig.Trading.Symbol = "BTCUSDT"
-		testConfig.Trading.PriceInterval = 100
-		testConfig.Trading.OrderQuantity = 100
-		testConfig.Trading.BuyWindowSize = 10
-		testConfig.Trading.SellWindowSize = 10
-		testConfig.Validate()
-		config.SaveConfig(testConfig, testConfigPath)
+	if err := os.WriteFile(testConfigPath, []byte(testConfigContent), 0644); err != nil {
+		t.Fatal(err)
 	}
 
-	// 初始化配置管理器
-	fileConfigMgr := NewFileConfigManager(testConfigPath)
-	fileConfigMgr.UpdateConfig(testConfig)
+	testConfig, err := config.LoadConfig(testConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fileConfigMgr := NewFileConfigManager("")
+	if err := fileConfigMgr.UpdateConfig(testConfig); err != nil {
+		t.Fatal(err)
+	}
 	SetFileConfigManager(fileConfigMgr)
 
-	// 初始化备份管理器
-	backupMgr := config.NewBackupManager(testConfigPath)
-	SetConfigBackupManager(backupMgr)
-
-	// 初始化热更新器
 	hotReloader := config.NewHotReloader(testConfig)
 	SetConfigHotReloader(hotReloader)
 
-	// 設置路由
 	api := r.Group("/api")
 	{
 		api.GET("/config", getConfigHandler)
@@ -83,9 +76,6 @@ exchanges:
 		api.POST("/config/validate", validateConfigHandler)
 		api.POST("/config/preview", previewConfigHandler)
 		api.POST("/config/update", updateConfigHandler)
-		api.GET("/config/backups", getBackupsHandler)
-		api.POST("/config/restore/:backup_id", restoreBackupHandler)
-		api.DELETE("/config/backup/:backup_id", deleteBackupHandler)
 		api.GET("/config/security/status", getConfigSecurityStatusHandler)
 		api.POST("/config/security/generate-key", postConfigSecurityGenerateKeyHandler)
 	}
@@ -95,7 +85,7 @@ exchanges:
 
 // TestGetConfigJSON 测試獲取配置JSON
 func TestGetConfigJSON(t *testing.T) {
-	router := setupTestRouter()
+	router := setupTestRouter(t)
 
 	req, _ := http.NewRequest("GET", "/api/config/json", nil)
 	w := httptest.NewRecorder()
@@ -122,7 +112,7 @@ func TestGetConfigJSON(t *testing.T) {
 
 // TestValidateConfig 测試配置驗证
 func TestValidateConfig(t *testing.T) {
-	router := setupTestRouter()
+	router := setupTestRouter(t)
 
 	validConfig := map[string]interface{}{
 		"app": map[string]interface{}{
@@ -167,7 +157,7 @@ func TestValidateConfig(t *testing.T) {
 
 // TestPreviewConfig 测試配置預览
 func TestPreviewConfig(t *testing.T) {
-	router := setupTestRouter()
+	router := setupTestRouter(t)
 
 	newConfig := map[string]interface{}{
 		"app": map[string]interface{}{
@@ -222,52 +212,9 @@ func TestPreviewConfig(t *testing.T) {
 	}
 }
 
-// TestGetBackups 测試獲取备份列表
-func TestGetBackups(t *testing.T) {
-	router := setupTestRouter()
-
-	// 先創建一個备份
-	configManager := configManager
-	if configManager != nil {
-		cfg, _ := fileConfigManager.GetConfig()
-		if cfg != nil {
-			backupMgr := configBackupMgr
-			if backupMgr != nil {
-				backupMgr.CreateBackup(fileConfigManager.GetConfigPath(), "测試备份")
-			}
-		}
-	}
-
-	req, _ := http.NewRequest("GET", "/api/config/backups", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("期望状態碼 %d，實際 %d", http.StatusOK, w.Code)
-	}
-
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	if err != nil {
-		t.Fatalf("解析响应失败: %v", err)
-	}
-
-	backups, exists := response["backups"]
-	if !exists {
-		t.Fatal("响应中缺少 backups 字段")
-	}
-
-	// 允許 nil（無備份時）或 []interface{}
-	if backups != nil {
-		if _, ok := backups.([]interface{}); !ok {
-			t.Fatal("backups 應為數組類型")
-		}
-	}
-}
-
 // TestUpdateConfig 测試更新配置
 func TestUpdateConfig(t *testing.T) {
-	router := setupTestRouter()
+	router := setupTestRouter(t)
 
 	newConfig := map[string]interface{}{
 		"app": map[string]interface{}{
@@ -312,11 +259,6 @@ func TestUpdateConfig(t *testing.T) {
 
 	if message.(string) != "配置更新成功" {
 		t.Errorf("期望消息 '配置更新成功'，實際 '%s'", message)
-	}
-
-	// 驗证备份ID存在
-	if _, exists := response["backup_id"]; !exists {
-		t.Error("响应中应該包含 backup_id")
 	}
 }
 
@@ -412,7 +354,7 @@ func TestNormalizeNumericStrings(t *testing.T) {
 }
 
 func TestUpdateConfigWithStringNumbers(t *testing.T) {
-	router := setupTestRouter()
+	router := setupTestRouter(t)
 
 	configWithStrings := map[string]interface{}{
 		"app": map[string]interface{}{
@@ -450,7 +392,6 @@ func TestGetConfigSecurityStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tempDir := t.TempDir()
 	testConfigPath := filepath.Join(tempDir, "test_config.yaml")
-	// 指定唯一路徑，避免與開發機 cwd 下 ./data/master.key 衝突
 	mkPath := filepath.Join(tempDir, "nope", "not_created_yet.key")
 	testConfigContent := `app:
   current_exchange: "binance"
@@ -476,9 +417,40 @@ exchanges:
 	if err != nil {
 		t.Fatal(err)
 	}
-	fileConfigMgr := NewFileConfigManager(testConfigPath)
+	dbPath := filepath.Join(tempDir, "sec.db")
+	st, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatal(err)
+	}
+	baseJSON, err := json.Marshal(testConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(baseJSON, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["security"] = map[string]interface{}{
+		"encryption_enabled": false,
+		"master_key_path":    mkPath,
+	}
+	merged, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.SaveAppConfigSnapshotFromJSON(context.Background(), st, merged, "test", "test"); err != nil {
+		t.Fatal(err)
+	}
+	SetPrimaryStorageForAppConfig(st)
+	t.Cleanup(func() { SetPrimaryStorageForAppConfig(nil) })
+
+	fileConfigMgr := NewFileConfigManager("")
+	fileConfigMgr.SetRuntimeConfig(testConfig)
 	SetFileConfigManager(fileConfigMgr)
-	SetConfigBackupManager(config.NewBackupManager(testConfigPath))
 	SetConfigHotReloader(config.NewHotReloader(testConfig))
 
 	r := gin.New()
@@ -535,10 +507,40 @@ exchanges:
 	if err != nil {
 		t.Fatal(err)
 	}
-	fileConfigMgr := NewFileConfigManager(testConfigPath)
-	// 勿調用 UpdateConfig：SaveConfig 會覆寫 YAML 並丟失不在 config.Config 中的 security 段
+	dbPath := filepath.Join(tempDir, "sec2.db")
+	st, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatal(err)
+	}
+	baseJSON, err := json.Marshal(testConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(baseJSON, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["security"] = map[string]interface{}{
+		"encryption_enabled": true,
+		"master_key_path":    mkPath,
+	}
+	merged, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.SaveAppConfigSnapshotFromJSON(context.Background(), st, merged, "test", "test"); err != nil {
+		t.Fatal(err)
+	}
+	SetPrimaryStorageForAppConfig(st)
+	t.Cleanup(func() { SetPrimaryStorageForAppConfig(nil) })
+
+	fileConfigMgr := NewFileConfigManager("")
+	fileConfigMgr.SetRuntimeConfig(testConfig)
 	SetFileConfigManager(fileConfigMgr)
-	SetConfigBackupManager(config.NewBackupManager(testConfigPath))
 	SetConfigHotReloader(config.NewHotReloader(testConfig))
 
 	r := gin.New()

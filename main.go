@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.8-rc19"
+var Version = "3.79.8-rc20"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1482,23 +1482,42 @@ func main() {
 	logger.Info("🚀 QuantMesh 做市商系統啟动...")
 	logger.Info("📦 版本号: %s", Version)
 
-	configPath := "config.yaml"
+	// 可選：第一個命令行參數為一次性導入用主配置 YAML 路徑；省略則僅從主庫 app_config / 引導加載
+	mainYAMLPath := ""
 	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+		mainYAMLPath = os.Args[1]
 	}
 
-	// 检查配置文件是否存在
+	sqlitePath := strings.TrimSpace(os.Getenv("QUANTMESH_SQLITE_PATH"))
+	if sqlitePath == "" {
+		sqlitePath = "./data/quantmesh.db"
+	}
+
+	var err error
 	var cfg *config.Config
 	var configComplete bool
 	var configFileExisted bool
-	_, err = os.Stat(configPath)
-	configFileExisted = err == nil
-	if os.IsNotExist(err) {
-		// 無 config.yaml：先嘗試從主庫 app_config 加載（自動遷移並歸檔 YAML 後常見）
-		sqlitePath := strings.TrimSpace(os.Getenv("QUANTMESH_SQLITE_PATH"))
-		if sqlitePath == "" {
-			sqlitePath = "./data/quantmesh.db"
+
+	if mainYAMLPath != "" {
+		_, err = os.Stat(mainYAMLPath)
+		configFileExisted = err == nil
+		if !configFileExisted {
+			logger.Fatalf("❌ 找不到主配置 YAML: %s", mainYAMLPath)
 		}
+		cfg, err = config.LoadConfig(mainYAMLPath)
+		if err != nil {
+			logger.Fatalf("❌ 加載配置失败: %v", err)
+		}
+		configComplete = cfg.App.CurrentExchange != "" &&
+			len(cfg.Exchanges) > 0 &&
+			cfg.Exchanges[cfg.App.CurrentExchange].APIKey != "" &&
+			cfg.Exchanges[cfg.App.CurrentExchange].SecretKey != "" &&
+			len(cfg.Trading.Symbols) > 0 &&
+			cfg.Trading.Symbols[0].Symbol != ""
+		if !configComplete {
+			logger.Info("ℹ️ 配置不完整，僅啟动 Web 服務，请通過引導页面完成配置")
+		}
+	} else {
 		cfgFromDB, errDB := storage.LoadConfigFromAppConfigDBIfExists(sqlitePath)
 		if errDB != nil {
 			logger.Warn("⚠️ 嘗試從數據庫加載配置失敗: %v", errDB)
@@ -1510,35 +1529,12 @@ func main() {
 				cfg.Exchanges[cfg.App.CurrentExchange].SecretKey != "" &&
 				len(cfg.Trading.Symbols) > 0 &&
 				cfg.Trading.Symbols[0].Symbol != ""
-			logger.Info("ℹ️ 已從數據庫 app_config 加載（無 config.yaml，可能已自動遷移歸檔）")
+			logger.Info("ℹ️ 已從主庫 app_config 加載（未指定命令行 YAML 路徑）")
 		}
 		if cfg == nil {
-			logger.Info("ℹ️ 配置文件不存在，創建最小化配置（僅啟用 Web 服務）")
+			logger.Info("ℹ️ 主庫無快照，使用最小化配置（僅啟用 Web 服務）")
 			cfg = config.CreateMinimalConfig()
 			configComplete = false
-			if err := config.SaveConfigWithoutValidation(cfg, configPath); err != nil {
-				logger.Warn("⚠️ 保存最小化配置失败: %v，將继续运行", err)
-			} else {
-				logger.Info("✅ 已創建最小化配置文件: %s", configPath)
-			}
-		}
-	} else {
-		// 配置文件存在，加載配置
-		cfg, err = config.LoadConfig(configPath)
-		if err != nil {
-			logger.Fatalf("❌ 加載配置失败: %v", err)
-		}
-
-		// 检查配置是否完整（是否有交易所配置和交易對配置）
-		configComplete = cfg.App.CurrentExchange != "" &&
-			len(cfg.Exchanges) > 0 &&
-			cfg.Exchanges[cfg.App.CurrentExchange].APIKey != "" &&
-			cfg.Exchanges[cfg.App.CurrentExchange].SecretKey != "" &&
-			len(cfg.Trading.Symbols) > 0 &&
-			cfg.Trading.Symbols[0].Symbol != ""
-
-		if !configComplete {
-			logger.Info("ℹ️ 配置不完整，僅啟动 Web 服務，请通過引導页面完成配置")
 		}
 	}
 
@@ -1730,7 +1726,19 @@ func main() {
 		if botsDir == "" {
 			botsDir = "./bots"
 		}
-		if _, err := storage.MigrateYAMLToAppConfigDB(ctx, storageService.GetStorage(), configPath, botsDir, storage.MigrateYAMLModeCLI); err != nil {
+		yamlImport := mainYAMLPath
+		if yamlImport == "" {
+			yamlImport = strings.TrimSpace(os.Getenv("QUANTMESH_IMPORT_YAML"))
+		}
+		if yamlImport == "" {
+			if _, e := os.Stat("config.yaml"); e == nil {
+				yamlImport = "config.yaml"
+			}
+		}
+		if yamlImport == "" {
+			logger.Fatalf("❌ --migrate-app-config 需要 YAML 路徑：命令行第一參數、環境變量 QUANTMESH_IMPORT_YAML，或當前目錄存在 config.yaml")
+		}
+		if _, err := storage.MigrateYAMLToAppConfigDB(ctx, storageService.GetStorage(), yamlImport, botsDir, storage.MigrateYAMLModeCLI); err != nil {
 			logger.Fatalf("❌ 遷移失敗: %v", err)
 		}
 		logger.Info("✅ 已將主配置與 Bot 配置寫入數據庫（下次啟動將優先從 app_config 加載，可用 QUANTMESH_USE_APP_CONFIG=0 禁用）")
@@ -1745,15 +1753,17 @@ func main() {
 		if botsDir == "" {
 			botsDir = "./bots"
 		}
-		did, migErr := storage.MigrateYAMLToAppConfigDB(ctx, storageService.GetStorage(), configPath, botsDir, storage.MigrateYAMLModeAuto)
+		did, migErr := storage.MigrateYAMLToAppConfigDB(ctx, storageService.GetStorage(), mainYAMLPath, botsDir, storage.MigrateYAMLModeAuto)
 		if migErr != nil {
 			logger.Warn("⚠️ 自動遷移主配置入庫失敗（可稍後使用 --migrate-app-config）: %v", migErr)
 		} else if did {
-			logger.Info("✅ 已自動將主配置與 Bot 配置寫入數據庫（來源: config.yaml）")
-			if backup, err := config.RenameConfigYAMLToBackup(configPath); err != nil {
-				logger.Warn("⚠️ 已入庫但無法歸檔 config.yaml（請手動改名或檢查目錄權限）: %v", err)
-			} else {
-				logger.Info("✅ 已歸檔配置文件: %s", backup)
+			logger.Info("✅ 已自動將主配置與 Bot 配置寫入數據庫（來源: 命令行指定的 YAML）")
+			if mainYAMLPath != "" {
+				if backup, err := config.RenameConfigYAMLToBackup(mainYAMLPath); err != nil {
+					logger.Warn("⚠️ 已入庫但無法歸檔源 YAML（請手動改名或檢查目錄權限）: %v", err)
+				} else {
+					logger.Info("✅ 已歸檔源配置文件: %s", backup)
+				}
 			}
 		}
 	}
@@ -1761,6 +1771,18 @@ func main() {
 	if storageService != nil && storageService.GetStorage() != nil {
 		if err := storage.ApplyAppConfigFromDBIfPresent(storageService.GetStorage(), &cfg); err != nil {
 			logger.Fatalf("❌ %v", err)
+		}
+		if ss, ok := storageService.GetStorage().(*storage.SQLiteStorage); ok && ss != nil {
+			doc, derr := ss.GetAppConfigDocument(context.Background())
+			if derr != nil {
+				logger.Warn("⚠️ 讀取 app_config 狀態失敗: %v", derr)
+			} else if doc == nil || doc.Revision < 1 || strings.TrimSpace(doc.Content) == "" {
+				if _, serr := storage.SaveAppConfigSnapshot(context.Background(), storageService.GetStorage(), cfg, "bootstrap", "main.go"); serr != nil {
+					logger.Warn("⚠️ 寫入初始 app_config 失敗: %v", serr)
+				} else {
+					logger.Info("✅ 已將當前配置寫入主庫 app_config（首次快照）")
+				}
+			}
 		}
 		// app_config 覆蓋 YAML 後，仍允許 .env / 環境變量覆蓋 SQLite 路徑與主庫 DSN（密鑰不進庫）
 		config.ApplyStoragePathFromEnv(cfg)
@@ -2031,7 +2053,10 @@ func main() {
 			logger.Info("✅ WebAuthn 管理器已初始化 (rpID=%s, rpOrigin=%s)", rpID, rpOrigin)
 		}
 
-		fileConfigManager := web.NewFileConfigManager(configPath)
+		if storageService != nil && storageService.GetStorage() != nil {
+			web.SetPrimaryStorageForAppConfig(storageService.GetStorage())
+		}
+		fileConfigManager := web.NewFileConfigManager("")
 		fileConfigManager.SetRuntimeConfig(cfg)
 		web.SetFileConfigManager(fileConfigManager)
 		web.SetGlobalConfig(cfg)
@@ -2039,10 +2064,6 @@ func main() {
 
 		web.SetVersion(Version)
 		logger.Info("✅ 版本号已設置: %s", Version)
-
-		backupManager := config.NewBackupManager(configPath)
-		web.SetConfigBackupManager(backupManager)
-		logger.Info("✅ 配置备份管理器已初始化")
 
 		// 初始化 Bot 配置文件管理器
 		if err := web.InitBotConfigManager("."); err != nil {
@@ -2052,14 +2073,6 @@ func main() {
 		// 初始化策略模板管理器
 		if err := web.InitStrategyTemplateManager("."); err != nil {
 			logger.Warn("⚠️ 初始化策略模板管理器失败: %v", err)
-		}
-
-		historyManager, err := config.NewHistoryManager("./data", configPath)
-		if err != nil {
-			logger.Warn("⚠️ 初始化配置历史管理器失败: %v", err)
-		} else {
-			web.SetConfigHistoryManager(historyManager)
-			logger.Info("✅ 配置历史管理器已初始化")
 		}
 
 		hotReloader := config.NewHotReloader(cfg)

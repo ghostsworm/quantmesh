@@ -5876,11 +5876,7 @@ func generateAIConfig(c *gin.Context) {
 		}
 
 		// 驗证配置
-		configPath := "config.yaml" // 默认配置文件路径
-		if fileConfigManager != nil {
-			configPath = fileConfigManager.GetConfigPath()
-		}
-		configService := ai.NewConfigService(configPath)
+		configService := ai.NewConfigService()
 		if err := configService.ValidateAIConfig(aiConfig, totalCapital); err != nil {
 			logger.Error("❌ [AI任務] %s 配置驗证失败: %v", task.TaskID, err)
 			aiTaskManager.UpdateTask(task.TaskID, TaskStatusFailed, nil, err)
@@ -6049,19 +6045,28 @@ func applyAIConfig(c *gin.Context) {
 		return
 	}
 
-	configPath := "config.yaml" // 默认配置文件路径
-	if fileConfigManager != nil {
-		configPath = fileConfigManager.GetConfigPath()
-	}
-	configService := ai.NewConfigService(configPath)
+	configService := ai.NewConfigService()
 	if err := configService.ApplyAIConfig(&req, cfg); err != nil {
 		logger.Error("❌ 应用 AI 配置失败: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.apply_config_failed", err)
 		return
 	}
+	if fileConfigManager == nil {
+		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
+		return
+	}
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+		logger.Error("❌ 持久化 AI 配置失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "error.apply_config_failed", err)
+		return
+	}
+	SetGlobalConfig(cfg)
+	if configHotReloader != nil {
+		_, _ = configHotReloader.UpdateConfig(cfg)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "配置已成功应用，请重啟服務使配置生效",
+		"message": "配置已成功应用並寫入主庫",
 	})
 }
 

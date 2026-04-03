@@ -5,16 +5,12 @@ import (
 	"quantmesh/config"
 )
 
-// ConfigService AI 配置服務
-type ConfigService struct {
-	configPath string
-}
+// ConfigService AI 配置服務（持久化由 Web 層調用 fileConfigManager.UpdateConfig）
+type ConfigService struct{}
 
 // NewConfigService 創建配置服務
-func NewConfigService(configPath string) *ConfigService {
-	return &ConfigService{
-		configPath: configPath,
-	}
+func NewConfigService() *ConfigService {
+	return &ConfigService{}
 }
 
 // ApplyAIConfig 应用 AI 生成的配置
@@ -174,11 +170,6 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 				MaxPercentage: allocCfg.MaxPercentage,
 			})
 		}
-	}
-
-	// 3. 保存配置
-	if err := config.SaveConfig(cfg, cs.configPath); err != nil {
-		return fmt.Errorf("保存配置失败: %w", err)
 	}
 
 	return nil

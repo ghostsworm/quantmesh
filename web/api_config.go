@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,28 +18,61 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/notify"
+	"quantmesh/storage"
 )
 
 var (
 	// 全局配置管理器（需要從main.go注入）
-	fileConfigManager    *FileConfigManager
-	configBackupMgr    *config.BackupManager
-	configHotReloader  *config.HotReloader
-	configHistoryMgr   *config.HistoryManager
+	fileConfigManager *FileConfigManager
+	configHotReloader *config.HotReloader
+	// primaryStorageForAppConfig 主庫（SQLiteStorage，含 MySQL），用於持久化 app_config
+	primaryStorageForAppConfig storage.Storage
 )
 
-// FileConfigManager 配置文件管理器
+// SetPrimaryStorageForAppConfig 設置主庫存儲（啟動時注入），用於寫入 app_config。
+func SetPrimaryStorageForAppConfig(st storage.Storage) {
+	primaryStorageForAppConfig = st
+}
+
+// persistAppConfigToDB 將完整主配置寫入主庫 app_config（唯一持久化來源）。
+func persistAppConfigToDB(cfg *config.Config, operator, source string) error {
+	if cfg == nil {
+		return fmt.Errorf("配置為空")
+	}
+	if primaryStorageForAppConfig == nil {
+		return fmt.Errorf("主庫未初始化，無法持久化主配置（請檢查 storage.enabled）")
+	}
+	_, err := storage.SaveAppConfigSnapshot(context.Background(), primaryStorageForAppConfig, cfg, operator, source)
+	return err
+}
+
+func loadConfigFromPrimaryDB() (*config.Config, error) {
+	if primaryStorageForAppConfig == nil {
+		return nil, fmt.Errorf("主庫未初始化")
+	}
+	ss, ok := primaryStorageForAppConfig.(*storage.SQLiteStorage)
+	if !ok || ss == nil {
+		return nil, fmt.Errorf("主庫類型異常")
+	}
+	doc, err := ss.GetAppConfigDocument(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil || doc.Revision < 1 || strings.TrimSpace(doc.Content) == "" {
+		return nil, nil
+	}
+	return config.LoadConfigFromJSON([]byte(doc.Content))
+}
+
+// FileConfigManager 運行時主配置持有者（權威數據來自內存與主庫 app_config，不再讀寫磁盤 YAML）。
 type FileConfigManager struct {
-	configPath    string
 	currentConfig *config.Config
 	mu            sync.RWMutex
 }
 
-// NewFileConfigManager 創建配置文件管理器
-func NewFileConfigManager(configPath string) *FileConfigManager {
-	return &FileConfigManager{
-		configPath: configPath,
-	}
+// NewFileConfigManager 創建配置管理器（保留函數名以兼容 main；不再使用磁盤路徑）。
+func NewFileConfigManager(_ string) *FileConfigManager {
+	return &FileConfigManager{}
 }
 
 // SetRuntimeConfig 將主進程已加載的配置寫入管理器（與磁盤一致或來自 app_config）。
@@ -57,19 +92,9 @@ func SetFileConfigManager(cm *FileConfigManager) {
 	fileConfigManager = cm
 }
 
-// SetConfigBackupManager 設置备份管理器
-func SetConfigBackupManager(bm *config.BackupManager) {
-	configBackupMgr = bm
-}
-
 // SetConfigHotReloader 設置熱重載器
 func SetConfigHotReloader(hr *config.HotReloader) {
 	configHotReloader = hr
-}
-
-// SetConfigHistoryManager 設置歷史管理器
-func SetConfigHistoryManager(hm *config.HistoryManager) {
-	configHistoryMgr = hm
 }
 
 // GetConfig 獲取當前配置
@@ -114,9 +139,12 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 	// 确保有最新配置
 	cfg := fileConfigManager.currentConfig
 	if cfg == nil {
-		loaded, err := config.LoadConfig(fileConfigManager.configPath)
-		if err != nil {
-			return err
+		loaded, err := loadConfigFromPrimaryDB()
+		if err != nil || loaded == nil {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("無法加載配置（內存為空且主庫無快照）")
 		}
 		cfg = loaded
 	}
@@ -143,18 +171,8 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 		return fmt.Errorf("未找到交易對配置: %s:%s (market_type=%s)", exchange, symbol, mt)
 	}
 
-	// 保存到文件（含校驗/normalize）
-	if err := config.SaveConfig(cfg, fileConfigManager.configPath); err != nil {
+	if err := persistAppConfigToDB(cfg, "system", "symbol_enabled"); err != nil {
 		return err
-	}
-
-	// 保存到历史
-	if configHistoryMgr != nil {
-		currentContent, err := os.ReadFile(fileConfigManager.configPath)
-		if err == nil {
-			description := fmt.Sprintf("自动更新交易對狀態: %s:%s -> %v", exchange, symbol, enabled)
-			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "system")
-		}
 	}
 
 	// 更新記憶體中的配置
@@ -194,25 +212,32 @@ func GetCurrentAccountID() string {
 // GetConfig 獲取當前配置
 func (fcm *FileConfigManager) GetConfig() (*config.Config, error) {
 	fcm.mu.RLock()
-	defer fcm.mu.RUnlock()
+	if fcm.currentConfig != nil {
+		c := fcm.currentConfig
+		fcm.mu.RUnlock()
+		return c, nil
+	}
+	fcm.mu.RUnlock()
 
+	fcm.mu.Lock()
+	defer fcm.mu.Unlock()
 	if fcm.currentConfig != nil {
 		return fcm.currentConfig, nil
 	}
-
-	// 如果記憶體中没有，從文件加載
-	cfg, err := config.LoadConfig(fcm.configPath)
+	cfg, err := loadConfigFromPrimaryDB()
 	if err != nil {
 		return nil, err
 	}
-
+	if cfg == nil {
+		return nil, fmt.Errorf("無可用配置（請先完成引導或確保主庫 app_config 有快照）")
+	}
 	fcm.currentConfig = cfg
 	return cfg, nil
 }
 
-// GetConfigPath 獲取配置文件路径
+// GetConfigPath 已廢棄：主配置不再使用磁盤 YAML，保留方法返回空字串避免舊代碼崩潰。
 func (fcm *FileConfigManager) GetConfigPath() string {
-	return fcm.configPath
+	return ""
 }
 
 // UpdateConfig 更新配置
@@ -220,31 +245,13 @@ func (fcm *FileConfigManager) UpdateConfig(newConfig *config.Config) error {
 	fcm.mu.Lock()
 	defer fcm.mu.Unlock()
 
-	// 保存當前配置到历史
-	if configHistoryMgr != nil {
-		currentContent, err := os.ReadFile(fcm.configPath)
-		if err == nil {
-			// 生成变更描述
-			description := "通過 Web UI 更新配置"
-			// 獲取舊配置用於對比（如果可能）
-			if fcm.currentConfig != nil {
-				diff := config.DiffConfig(fcm.currentConfig, newConfig)
-				if len(diff.Changes) > 0 {
-					description = fmt.Sprintf("通過 Web UI 修改了 %d 项配置", len(diff.Changes))
-				}
-			}
-			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
-		}
-	}
-
-	// 保存到文件
-	if err := config.SaveConfig(newConfig, fcm.configPath); err != nil {
+	if err := newConfig.Validate(); err != nil {
 		return err
 	}
-
-	// 更新記憶體中的配置
+	if err := persistAppConfigToDB(newConfig, "web", "file_config_update"); err != nil {
+		return err
+	}
 	fcm.currentConfig = newConfig
-
 	return nil
 }
 
@@ -446,16 +453,6 @@ func updateConfigHandler(c *gin.Context) {
 	// 生成差异
 	diff := config.DiffConfig(oldConfig, newConfig)
 
-	// 創建备份
-	var backupInfo *config.BackupInfo
-	if configBackupMgr != nil {
-		backupInfo, err = configBackupMgr.CreateBackup(fileConfigManager.GetConfigPath(), "通過Web界面更新配置")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "創建备份失败: " + err.Error()})
-			return
-		}
-	}
-
 	// 保存配置
 	if err := fileConfigManager.UpdateConfig(newConfig); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
@@ -481,222 +478,10 @@ func updateConfigHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":          "配置更新成功",
-		"backup_id":        backupInfo.ID,
 		"diff":             diff,
 		"requires_restart": diff.RequiresRestart,
 		"hot_updated":      updatedSymbols,
 	})
-}
-
-// getBackupsHandler 獲取备份列表
-// GET /api/config/backups
-func getBackupsHandler(c *gin.Context) {
-	if configBackupMgr == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "备份管理器未初始化"})
-		return
-	}
-
-	backups, err := configBackupMgr.ListBackups()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取备份列表失败: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"backups": backups,
-		"count":   len(backups),
-	})
-}
-
-// restoreBackupHandler 恢複备份
-// POST /api/config/restore/:backup_id
-func restoreBackupHandler(c *gin.Context) {
-	if fileConfigManager == nil || configBackupMgr == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器或备份管理器未初始化"})
-		return
-	}
-
-	backupID := c.Param("backup_id")
-	if backupID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "备份ID不能為空"})
-		return
-	}
-
-	// 恢複备份
-	if err := configBackupMgr.RestoreBackup(backupID, fileConfigManager.GetConfigPath()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "恢複备份失败: " + err.Error()})
-		return
-	}
-
-	// 重新加載配置
-	cfg, err := config.LoadConfig(fileConfigManager.GetConfigPath())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "重新加載配置失败: " + err.Error()})
-		return
-	}
-
-	// 更新記憶體中的配置
-	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新配置失败: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":   "备份恢複成功",
-		"backup_id": backupID,
-	})
-}
-
-// deleteBackupHandler 刪除备份
-// DELETE /api/config/backup/:backup_id
-func deleteBackupHandler(c *gin.Context) {
-	if configBackupMgr == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "备份管理器未初始化"})
-		return
-	}
-
-	backupID := c.Param("backup_id")
-	if backupID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "备份ID不能為空"})
-		return
-	}
-
-	if err := configBackupMgr.DeleteBackup(backupID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "刪除备份失败: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":   "备份刪除成功",
-		"backup_id": backupID,
-	})
-}
-
-// ========== 配置历史 API ==========
-
-// getConfigHistoryListHandler 獲取配置历史列表
-// GET /api/config/history
-func getConfigHistoryListHandler(c *gin.Context) {
-	if configHistoryMgr == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置历史管理器未初始化"})
-		return
-	}
-
-	// 解析分页参數
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
-
-	histories, total, err := configHistoryMgr.ListHistory(limit, offset)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取歷史列表失败: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"histories": histories,
-		"total":     total,
-		"limit":     limit,
-		"offset":    offset,
-	})
-}
-
-// getConfigHistoryHandler 獲取指定版本的配置历史
-// GET /api/config/history/:version
-func getConfigHistoryHandler(c *gin.Context) {
-	if configHistoryMgr == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置历史管理器未初始化"})
-		return
-	}
-
-	versionStr := c.Param("version")
-	version, err := strconv.Atoi(versionStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的版本号"})
-		return
-	}
-
-	history, err := configHistoryMgr.GetHistory(version)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, history)
-}
-
-// restoreConfigHistoryHandler 恢複到指定历史版本
-// POST /api/config/history/:version/restore
-func restoreConfigHistoryHandler(c *gin.Context) {
-	if configHistoryMgr == nil || fileConfigManager == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
-		return
-	}
-
-	versionStr := c.Param("version")
-	version, err := strconv.Atoi(versionStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的版本号"})
-		return
-	}
-
-	// 先保存當前配置到历史（作為恢複前的备份）
-	currentContent, err := os.ReadFile(fileConfigManager.GetConfigPath())
-	if err == nil {
-		_, _ = configHistoryMgr.SaveHistory(string(currentContent), fmt.Sprintf("恢複到版本 %d 前的自动备份", version), "system")
-	}
-
-	// 恢複到指定版本
-	if err := configHistoryMgr.RestoreHistory(version); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "恢複失败: " + err.Error()})
-		return
-	}
-
-	// 重新加載配置到記憶體
-	cfg, err := config.LoadConfig(fileConfigManager.GetConfigPath())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "重新加載配置失败: " + err.Error()})
-		return
-	}
-
-	// 更新記憶體中的配置
-	fileConfigManager.mu.Lock()
-	fileConfigManager.currentConfig = cfg
-	fileConfigManager.mu.Unlock()
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": fmt.Sprintf("已恢複到版本 %d", version),
-		"version": version,
-	})
-}
-
-// diffConfigHistoryHandler 對比两個版本的配置
-// POST /api/config/history/diff
-func diffConfigHistoryHandler(c *gin.Context) {
-	if configHistoryMgr == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置历史管理器未初始化"})
-		return
-	}
-
-	var req config.HistoryDiffRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的请求参數: " + err.Error()})
-		return
-	}
-
-	response, err := configHistoryMgr.DiffVersions(req.SourceVersion, req.TargetVersion)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, response)
 }
 
 // validateConfigYAMLHandler 驗證 YAML 配置（直接接收 YAML 文本）
@@ -749,8 +534,6 @@ func updateConfigYAMLHandler(c *gin.Context) {
 		return
 	}
 
-	yamlContent := string(body)
-
 	// 解析 YAML
 	newConfig, err := config.LoadConfigFromBytes(body)
 	if err != nil {
@@ -774,38 +557,10 @@ func updateConfigYAMLHandler(c *gin.Context) {
 	// 生成差异
 	diff := config.DiffConfig(oldConfig, newConfig)
 
-	// 保存當前配置到历史
-	if configHistoryMgr != nil {
-		currentContent, err := os.ReadFile(fileConfigManager.GetConfigPath())
-		if err == nil {
-			// 生成变更描述
-			description := "通過 YAML 编辑器更新配置"
-			if len(diff.Changes) > 0 {
-				description = fmt.Sprintf("修改了 %d 项配置", len(diff.Changes))
-			}
-			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
-		}
-	}
-
-	// 創建磁盘备份
-	var backupID string
-	if configBackupMgr != nil {
-		backupInfo, err := configBackupMgr.CreateBackup(fileConfigManager.GetConfigPath(), "通過YAML编辑器更新配置")
-		if err == nil && backupInfo != nil {
-			backupID = backupInfo.ID
-		}
-	}
-
-	// 直接写入 YAML 文件（保持原始格式）
-	if err := os.WriteFile(fileConfigManager.GetConfigPath(), []byte(yamlContent), 0644); err != nil {
+	if err := fileConfigManager.UpdateConfig(newConfig); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
 		return
 	}
-
-	// 更新記憶體中的配置
-	fileConfigManager.mu.Lock()
-	fileConfigManager.currentConfig = newConfig
-	fileConfigManager.mu.Unlock()
 
 	// 尝試热更新
 	if configHotReloader != nil {
@@ -814,7 +569,6 @@ func updateConfigYAMLHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":          "配置更新成功",
-		"backup_id":        backupID,
 		"changes_count":    len(diff.Changes),
 		"requires_restart": diff.RequiresRestart,
 	})
@@ -1073,15 +827,22 @@ func getPriceRangeHandler(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "未找到交易对配置"})
 }
 
-// parseSecurityFromConfigYAML 從原始 YAML 讀取 security 段（該段不在 config.Config 結構體中，需單獨解析）
-func parseSecurityFromConfigYAML(configFilePath string) (encryptionEnabled bool, masterKeyPath string) {
+// parseSecurityFromAppConfigRaw 從主庫 app_config JSON 讀取 security 段（該段不在 config.Config 結構體中）。
+func parseSecurityFromAppConfigRaw() (encryptionEnabled bool, masterKeyPath string) {
 	masterKeyPath = config.DefaultMasterKeyPath
-	data, err := os.ReadFile(configFilePath)
-	if err != nil {
+	if primaryStorageForAppConfig == nil {
+		return false, masterKeyPath
+	}
+	ss, ok := primaryStorageForAppConfig.(*storage.SQLiteStorage)
+	if !ok || ss == nil {
+		return false, masterKeyPath
+	}
+	doc, err := ss.GetAppConfigDocument(context.Background())
+	if err != nil || doc == nil || strings.TrimSpace(doc.Content) == "" {
 		return false, masterKeyPath
 	}
 	var raw map[string]interface{}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	if err := json.Unmarshal([]byte(doc.Content), &raw); err != nil {
 		return false, masterKeyPath
 	}
 	sec, ok := raw["security"].(map[string]interface{})
@@ -1114,7 +875,7 @@ func getConfigSecurityStatusHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
 		return
 	}
-	encryptionEnabled, masterKeyPath := parseSecurityFromConfigYAML(fileConfigManager.GetConfigPath())
+	encryptionEnabled, masterKeyPath := parseSecurityFromAppConfigRaw()
 	c.JSON(http.StatusOK, gin.H{
 		"encryption_enabled": encryptionEnabled,
 		"master_key_path":    masterKeyPath,
@@ -1133,7 +894,7 @@ func postConfigSecurityGenerateKeyHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "已通過環境變量設置主密鑰，無需生成密鑰文件"})
 		return
 	}
-	_, masterKeyPath := parseSecurityFromConfigYAML(fileConfigManager.GetConfigPath())
+	_, masterKeyPath := parseSecurityFromAppConfigRaw()
 	if masterKeyFileOrEnvPresent(masterKeyPath) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "主密鑰已存在（環境變量或密鑰文件）"})
 		return

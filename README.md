@@ -214,10 +214,10 @@ quantmesh_platform/
    ```bash
    git clone https://github.com/ghostsworm/quantmesh.git
    cd quantmesh
-   cp config.example.yaml config.yaml
+   cp config.example.yaml my-config.yaml
    ```
 
-2. **编辑配置**：编辑 `config.yaml`，填入 API Key 与策略参数（见下方配置说明）
+2. **编辑模板**：在 `my-config.yaml` 中填入 API Key 与策略参数；首次启动前用 **`./quantmesh --migrate-app-config my-config.yaml`**（或环境变量 `QUANTMESH_IMPORT_YAML`）将主配置写入主库 **`app_config`**（见 `docs/config-database-design.md`）。日常运行不再依赖磁盘上的固定 `config.yaml` 文件名。
 
 3. **启动服务**
    ```bash
@@ -254,12 +254,12 @@ quantmesh_platform/
 
 #### 配置
 
-1. 复制范例配置：
+1. 复制范例配置（模板，不落盘为固定文件名亦可）：
    ```bash
-   cp config.example.yaml config.yaml
+   cp config.example.yaml my-config.yaml
    ```
 
-2. 编辑 `config.yaml`，填入 API Key 与策略参数：
+2. 编辑 `my-config.yaml`，填入 API Key 与策略参数；执行 **`./quantmesh --migrate-app-config my-config.yaml`** 写入主库（或配置 `QUANTMESH_DATABASE_DSN` / `.env` 后由 Web 引导完成）。主配置权威来源为数据库 **`app_config`**。
 
    ```yaml
    app:

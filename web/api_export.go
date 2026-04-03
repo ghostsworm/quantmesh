@@ -89,43 +89,6 @@ func exportConfigHandler(c *gin.Context) {
 	serveExport(c, data, "application/x-yaml", filename)
 }
 
-// exportConfigHistoryHandler 下載历史配置（脱敏）
-// GET /api/export/config/history/:version
-func exportConfigHistoryHandler(c *gin.Context) {
-	if configHistoryMgr == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置历史管理器未初始化"})
-		return
-	}
-
-	version, err := strconv.Atoi(c.Param("version"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的版本号"})
-		return
-	}
-
-	history, err := configHistoryMgr.GetHistory(version)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 解析並脱敏
-	cfg, err := config.LoadConfigFromBytes([]byte(history.Content))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析历史配置失败"})
-		return
-	}
-	sanitized := config.SanitizeForExport(cfg)
-	data, err := yaml.Marshal(sanitized)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "序列化配置失败"})
-		return
-	}
-
-	filename := "config_v" + strconv.Itoa(version) + "_" + time.Now().Format("20060102") + ".yaml"
-	serveExport(c, data, "application/x-yaml", filename)
-}
-
 // exportTradesHandler 導出交易历史
 // GET /api/export/trades
 func exportTradesHandler(c *gin.Context) {

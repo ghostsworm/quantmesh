@@ -2,9 +2,7 @@ package web
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -222,19 +220,6 @@ func putNewsKeywords(c *gin.Context) {
 	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
-	}
-
-	// 保存到历史
-	if configHistoryMgr != nil {
-		configPath := "config.yaml" // 默认配置文件路径
-		if fileConfigManager != nil {
-			configPath = fileConfigManager.GetConfigPath()
-		}
-		currentContent, err := os.ReadFile(configPath)
-		if err == nil {
-			description := fmt.Sprintf("通過 Web UI 更新新聞監控關鍵詞: %d 個關鍵詞", len(req.Keywords))
-			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
-		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "keywords": req.Keywords})

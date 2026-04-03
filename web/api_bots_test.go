@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,7 +13,27 @@ import (
 	"github.com/gin-gonic/gin"
 	"quantmesh/cfgmgr"
 	"quantmesh/config"
+	"quantmesh/storage"
 )
+
+// setupTestPrimaryAppConfigStorage 為需調用 FileConfigManager.UpdateConfig 的測試注入主庫 SQLite。
+func setupTestPrimaryAppConfigStorage(t *testing.T) func() {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "api_bots_test_app.db")
+	st, err := storage.NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatal(err)
+	}
+	orig := primaryStorageForAppConfig
+	SetPrimaryStorageForAppConfig(st)
+	return func() {
+		SetPrimaryStorageForAppConfig(orig)
+		_ = st.Close()
+	}
+}
 
 func TestFindGroupNameByBotID(t *testing.T) {
 	tests := []struct {
@@ -243,9 +262,8 @@ func (m *mockBotManagerForStartTest) EnableBot(botID string) error {
 // postBotStart 會先調用 EnableBot 清除數據庫中的禁用標記，否則 StartBot 會因 bot_disabled_in_database 失敗
 func TestPostBotStartCallsEnableBotBeforeStart(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
 	cfg := &config.Config{}
 	cfg.App.CurrentExchange = "binance"
 	cfg.Exchanges = map[string]config.ExchangeConfig{
@@ -259,12 +277,11 @@ func TestPostBotStartCallsEnableBotBeforeStart(t *testing.T) {
 	cfg.Bots = []config.BotConfig{
 		{ID: "test-bot-id", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100},
 	}
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
 
-	fcm := NewFileConfigManager(configPath)
-	fcm.UpdateConfig(cfg)
+	fcm := NewFileConfigManager("")
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
 	origFCM := fileConfigManager
 	SetFileConfigManager(fcm)
 	t.Cleanup(func() { SetFileConfigManager(origFCM) })
@@ -340,9 +357,8 @@ func (m *mockBotManagerForGroupConsistencyTest) EnableBot(botID string) error { 
 
 func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
 	cfg := &config.Config{
 		Bots: []config.BotConfig{
 			{ID: "futures-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
@@ -356,11 +372,8 @@ func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
 	cfg.Exchanges = map[string]config.ExchangeConfig{
 		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
 	}
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
 
-	fcm := NewFileConfigManager(configPath)
+	fcm := NewFileConfigManager("")
 	if err := fcm.UpdateConfig(cfg); err != nil {
 		t.Fatalf("UpdateConfig: %v", err)
 	}
@@ -401,8 +414,6 @@ func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
 	if len(latest.BotGroups) != 0 {
 		t.Fatalf("group should be removed, got groups=%d", len(latest.BotGroups))
 	}
-
-	_ = os.Remove(configPath)
 }
 
 // mockBotManagerForGroupCreateTest 用於對沖組創建測試，可返回運行中/已停止的 Bot 列表
@@ -426,9 +437,8 @@ func (m *mockBotManagerForGroupCreateTest) EnableBot(botID string) error        
 // TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists 驗證：當同交易對僅有已停止的 Bot 時，對沖組創建應成功
 func TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
 	futuresID := config.GenerateBotID("binance", "ETHUSDT", "futures")
 	cfg := &config.Config{
 		Bots: []config.BotConfig{
@@ -440,11 +450,8 @@ func TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 	cfg.Exchanges = map[string]config.ExchangeConfig{
 		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
 	}
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
 
-	fcm := NewFileConfigManager(configPath)
+	fcm := NewFileConfigManager("")
 	if err := fcm.UpdateConfig(cfg); err != nil {
 		t.Fatalf("UpdateConfig: %v", err)
 	}
@@ -486,9 +493,8 @@ func TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 // TestPostBotGroupCreateRejectsWhenRunningBotExists 驗證：當同交易對有運行中的 Bot 時，對沖組創建應拒絕
 func TestPostBotGroupCreateRejectsWhenRunningBotExists(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
 	cfg := &config.Config{
 		Bots:      []config.BotConfig{},
 		BotGroups: []config.BotGroup{},
@@ -502,11 +508,8 @@ func TestPostBotGroupCreateRejectsWhenRunningBotExists(t *testing.T) {
 	cfg.Exchanges = map[string]config.ExchangeConfig{
 		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
 	}
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
 
-	fcm := NewFileConfigManager(configPath)
+	fcm := NewFileConfigManager("")
 	if err := fcm.UpdateConfig(cfg); err != nil {
 		t.Fatalf("UpdateConfig: %v", err)
 	}
@@ -573,9 +576,8 @@ func (m *mockBotManagerForCreateTest) EnableBot(botID string) error             
 // TestPostBotCreateAllowsWhenOnlyStoppedBotExists 驗證：當同交易對僅有已停止的 Bot 時，單 Bot 創建應成功
 func TestPostBotCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
 	cfg := &config.Config{
 		Bots: []config.BotConfig{
 			{ID: "stopped-bot-id", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
@@ -585,11 +587,8 @@ func TestPostBotCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 	cfg.Exchanges = map[string]config.ExchangeConfig{
 		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
 	}
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
 
-	fcm := NewFileConfigManager(configPath)
+	fcm := NewFileConfigManager("")
 	if err := fcm.UpdateConfig(cfg); err != nil {
 		t.Fatalf("UpdateConfig: %v", err)
 	}
@@ -660,9 +659,8 @@ func TestPostBotCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 // TestPostBotCreateRejectsWhenRunningBotExists 驗證：當同交易對有運行中的 Bot 時，單 Bot 創建應拒絕
 func TestPostBotCreateRejectsWhenRunningBotExists(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
 	cfg := &config.Config{
 		Bots: []config.BotConfig{},
 	}
@@ -675,11 +673,8 @@ func TestPostBotCreateRejectsWhenRunningBotExists(t *testing.T) {
 	cfg.Exchanges = map[string]config.ExchangeConfig{
 		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
 	}
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
 
-	fcm := NewFileConfigManager(configPath)
+	fcm := NewFileConfigManager("")
 	if err := fcm.UpdateConfig(cfg); err != nil {
 		t.Fatalf("UpdateConfig: %v", err)
 	}
@@ -732,9 +727,8 @@ func TestPostBotCreateRejectsWhenRunningBotExists(t *testing.T) {
 // postBotGroupCreate 仍可成功創建對沖組（修復 503 Service Unavailable）
 func TestPostBotGroupCreateWorksWithFileConfigManagerOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
 	cfg := &config.Config{
 		Bots:      []config.BotConfig{},
 		BotGroups: []config.BotGroup{},
@@ -748,11 +742,8 @@ func TestPostBotGroupCreateWorksWithFileConfigManagerOnly(t *testing.T) {
 	cfg.Exchanges = map[string]config.ExchangeConfig{
 		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
 	}
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
 
-	fcm := NewFileConfigManager(configPath)
+	fcm := NewFileConfigManager("")
 	if err := fcm.UpdateConfig(cfg); err != nil {
 		t.Fatalf("UpdateConfig: %v", err)
 	}
@@ -796,9 +787,8 @@ func TestPostBotGroupCreateWorksWithFileConfigManagerOnly(t *testing.T) {
 
 func TestGetBotGroupByIDIncludesConsistency(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
 	cfg := &config.Config{
 		Bots: []config.BotConfig{
 			{ID: "fut-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10},
@@ -812,10 +802,7 @@ func TestGetBotGroupByIDIncludesConsistency(t *testing.T) {
 	cfg.Exchanges = map[string]config.ExchangeConfig{
 		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
 	}
-	if err := config.SaveConfig(cfg, configPath); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
-	fcm := NewFileConfigManager(configPath)
+	fcm := NewFileConfigManager("")
 	if err := fcm.UpdateConfig(cfg); err != nil {
 		t.Fatalf("UpdateConfig: %v", err)
 	}

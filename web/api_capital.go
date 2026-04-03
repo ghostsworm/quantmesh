@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -889,7 +888,7 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 		}
 	}
 
-	// 3. 持久化到 config.yaml
+	// 3. 持久化到主庫 app_config
 	if capitalDataSource != nil {
 		globalCfg := capitalDataSource.GetConfig()
 		if globalCfg != nil {
@@ -950,10 +949,15 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 				}
 			}
 			
-			// 保存到文件
 			if updated {
-				configPath := "config.yaml"
-				if err := config.SaveConfig(globalCfg, configPath); err != nil {
+				if fileConfigManager == nil {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"success": false,
+						"message": "配置管理器未初始化",
+					})
+					return
+				}
+				if err := fileConfigManager.UpdateConfig(globalCfg); err != nil {
 					logger.Error("❌ 保存资金分配配置失败: %v", err)
 					c.JSON(http.StatusInternalServerError, gin.H{
 						"success": false,
@@ -961,16 +965,11 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 					})
 					return
 				}
-
-				// 保存到历史
-				if configHistoryMgr != nil {
-					currentContent, err := os.ReadFile(configPath)
-					if err == nil {
-						description := fmt.Sprintf("通過 Web UI 更新资金分配配置: 修改了 %d 個策略", len(req.Allocations))
-						_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
-					}
+				SetGlobalConfig(globalCfg)
+				if configHotReloader != nil {
+					_, _ = configHotReloader.UpdateConfig(globalCfg)
 				}
-				logger.Info("✅ 资金分配配置已保存到 %s", configPath)
+				logger.Info("✅ 资金分配配置已寫入主庫 app_config")
 			}
 		}
 	}
@@ -1171,7 +1170,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		})
 	}
 
-	// 4. 如果不是 DryRun，则應用配置（實際写入 config.yaml）
+	// 4. 如果不是 DryRun，则應用配置（寫入主庫 app_config）
 	if !req.DryRun {
 		globalCfg := capitalDataSource.GetConfig()
 		for _, change := range changes {
@@ -1183,19 +1182,16 @@ func rebalanceCapitalHandler(c *gin.Context) {
 				globalCfg.Strategies.Configs[change.StrategyID] = sc
 			}
 		}
-		// 保存到文件
-		if err := config.SaveConfig(globalCfg, "config.yaml"); err != nil {
+		if fileConfigManager == nil {
+			logger.Error("❌ 保存再平衡配置失败: 配置管理器未初始化")
+		} else if err := fileConfigManager.UpdateConfig(globalCfg); err != nil {
 			logger.Error("❌ 保存再平衡配置失败: %v", err)
 		} else {
-			// 保存到历史
-			if configHistoryMgr != nil {
-				currentContent, err := os.ReadFile("config.yaml")
-				if err == nil {
-					description := fmt.Sprintf("執行资金再平衡 (%s 模式)", req.Mode)
-					_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "system")
-				}
+			SetGlobalConfig(globalCfg)
+			if configHotReloader != nil {
+				_, _ = configHotReloader.UpdateConfig(globalCfg)
 			}
-			logger.Info("✅ 资金再平衡配置已保存")
+			logger.Info("✅ 资金再平衡配置已寫入主庫 app_config")
 		}
 	}
 
