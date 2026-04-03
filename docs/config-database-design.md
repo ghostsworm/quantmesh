@@ -9,7 +9,8 @@
 
 ### 1.1 现状（代码事实）
 
-- 主配置以 **YAML 文件** 为中心：[`LoadConfig`](../config/config.go) / [`SaveConfig`](../config/config.go)，路径常为 `config.yaml`（亦见 [`web/api_config.go`](../web/api_config.go)、[`web/api_capital.go`](../web/api_capital.go) 等）。
+- **已实现**：主配置权威在 **主库 `app_config`（JSON）**；Web 与资金/AI 等路径经 [`SaveAppConfigSnapshot`](../storage/app_config_document.go) / `SaveAppConfigSnapshotFromJSON` 持久化。可选 **一次性 YAML 文件** 仅用于导入/迁移（`--migrate-app-config`、命令行首参），**不再**以固定磁盘 `config.yaml` 为 SSOT。
+- 仍保留 [`LoadConfig`](../config/config.go) / [`SaveConfig`](../config/config.go) 供 CLI、工具链与迁移读取 **任意路径** YAML。
 - 配置体为大型嵌套结构 [`config.Config`](../config/config.go)，含 **map**（如 `exchanges`）、**切片**（如 `SymbolConfig.Strategies`、`RocketTieredGridConfig.Tiers`）、**不定长列表**等。
 - 已有 **SQLite `system_settings`**：`key / value / type`，支持 JSON 读写（见 [`storage/system_settings.go`](../storage/system_settings.go)）。
 - 已有 **「数据库覆盖 YAML」** 模式：价差监控等用 JSON blob 存 key，运行时合并（见 [`web/api_basis_config.go`](../web/api_basis_config.go) 中 `basis_monitor_config`）。
