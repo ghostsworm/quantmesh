@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc11] - 2026-04-03
+
+### Changed
+- **启动脚本**：`start.sh` / `restart.sh` 不再强制要求磁盘上存在 `config.yaml`；缺失时与主程序一致，依赖 SQLite 主库 `app_config`（配合 `.env` 中 `QUANTMESH_SQLITE_PATH`）
+- 新增仓库内 **`.env.example`**（本机 SQLite 默认值说明）
+
+---
+
 ## [3.79.8-rc10] - 2026-04-03
 
 ### Fixed

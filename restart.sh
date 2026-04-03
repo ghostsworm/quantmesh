@@ -9,7 +9,7 @@
 # - 自動處理端口衝突 / Auto handle port conflicts
 #
 # 使用方法 / Usage:
-#   ./restart.sh [config.yaml]       # 生產模式重啟 / Production mode restart
+#   ./restart.sh [config.yaml]       # 生產模式；config 可缺省，由主庫 app_config 加載
 #   ./restart.sh --dev               # 開發模式重啟 / Development mode restart
 #   ./restart.sh -d                  # 開發模式重啟（簡寫）/ Dev mode (short)
 
@@ -57,10 +57,10 @@ show_help() {
     echo "  -h, --help     顯示此幫助信息 / Show this help message"
     echo ""
     echo "示例 / Examples:"
-    echo "  $0                    # 生產模式重啟，使用默認配置文件 config.yaml"
-    echo "                        Production mode restart with default config"
-    echo "  $0 config.yaml        # 生產模式重啟，使用指定配置文件"
-    echo "                        Production mode restart with specified config"
+    echo "  $0                    # 生產模式；默認路徑 config.yaml（文件可不存在，從 app_config 加載）"
+    echo "                        Production mode; YAML optional if app_config exists"
+    echo "  $0 config.yaml        # 生產模式，顯式指定配置文件"
+    echo "                        Production mode with explicit config path"
     echo "  $0 --dev              # 開發模式重啟 / Development mode restart"
     echo "  $0 -d                 # 開發模式重啟（簡寫）/ Development mode (short)"
     echo ""
