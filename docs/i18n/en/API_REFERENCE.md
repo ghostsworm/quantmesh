@@ -134,6 +134,8 @@ All HTTP APIs are under the `/api` prefix. Successful JSON responses use `200` u
 
 ## Config
 
+> **Note:** Primary config is persisted in **`app_config`** (primary DB). Legacy REST for **disk backups / config history** (`/api/config/backups`, `/api/config/history*`, `/api/export/config/history/*`, etc.) has been removed — see `CHANGELOG`.
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/api/config` | Yes | Get config |
@@ -143,13 +145,12 @@ All HTTP APIs are under the `/api` prefix. Successful JSON responses use `200` u
 | POST | `/api/config/preview` | Yes | Preview config |
 | POST | `/api/config/update` | Yes | Update config |
 | POST | `/api/config/update-yaml` | Yes | Update config from YAML |
-| GET | `/api/config/backups` | Yes | List backups |
-| POST | `/api/config/restore/:backup_id` | Yes | Restore backup |
-| DELETE | `/api/config/backup/:backup_id` | Yes | Delete backup |
-| GET | `/api/config/history` | Yes | Config history list |
-| GET | `/api/config/history/:version` | Yes | Config at version |
-| POST | `/api/config/history/:version/restore` | Yes | Restore config version |
-| POST | `/api/config/history/diff` | Yes | Diff config versions |
+| POST | `/api/config/test-notification` | Yes | Test notification |
+| GET | `/api/config/param-advisor` | Yes | Parameter advisor |
+| GET | `/api/config/exchange-fees` | Yes | Exchange fees |
+| GET | `/api/config/price-range` | Yes | Price range |
+| GET | `/api/config/security/status` | Yes | Security config status |
+| POST | `/api/config/security/generate-key` | Yes | Generate encryption key |
 
 ---
 
@@ -158,7 +159,6 @@ All HTTP APIs are under the `/api` prefix. Successful JSON responses use `200` u
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/api/export/config` | Yes | Export config |
-| GET | `/api/export/config/history/:version` | Yes | Export config version |
 | GET | `/api/export/trades` | Yes | Export trades |
 | GET | `/api/export/orders` | Yes | Export orders |
 | GET | `/api/export/positions` | Yes | Export positions |
@@ -168,6 +168,7 @@ All HTTP APIs are under the `/api` prefix. Successful JSON responses use `200` u
 | GET | `/api/export/system-metrics` | Yes | Export system metrics |
 | GET | `/api/export/logs` | Yes | Export logs |
 | GET | `/api/export/audit-logs` | Yes | Export audit logs |
+| GET | `/api/export/backtest-reports` | Yes | Export backtest reports |
 | GET | `/api/export/all` | Yes | Export all |
 
 ---

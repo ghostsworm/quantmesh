@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc23] - 2026-04-03
+
+### Docs
+- **`API_REFERENCE.md`**（及 **`docs/i18n/en`**、**`docs/i18n/zh-TW`**）：刪除已下線的 **`/api/config/backups`**、**`/api/config/history*`**、**`/api/export/config/history/*`**；補齊現有 **`/api/config/*`**（param-advisor、security、test-notification 等）與 **`/api/export/backtest-reports`**；註明主配置 **`app_config`**。
+- **`docs/reports/CONFIG_TEST_REPORT.md`**：與上述 API/前端變更對齊，標註過時項。
+
+---
+
 ## [3.79.8-rc22] - 2026-04-03
 
 ### Docs

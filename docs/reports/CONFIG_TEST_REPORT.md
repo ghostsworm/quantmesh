@@ -120,29 +120,24 @@
 - [x] 配置热更新
 - [x] 热更新回调机制
 
-### ✅ Web API 功能
+### ✅ Web API 功能（以当前代码为准）
 - [x] GET `/api/config` - 获取当前配置（YAML格式）
 - [x] GET `/api/config/json` - 获取当前配置（JSON格式）
 - [x] POST `/api/config/validate` - 验证配置
 - [x] POST `/api/config/preview` - 预览配置变更
-- [x] POST `/api/config/update` - 更新配置
-- [x] GET `/api/config/backups` - 获取备份列表
-- [x] POST `/api/config/backups/:id/restore` - 恢复备份
-- [x] DELETE `/api/config/backups/:id` - 删除备份
+- [x] POST `/api/config/update` - 更新配置（主库持久化）
+- ~~GET `/api/config/backups` 等~~ — **已移除**；主配置见 **`app_config`**
 
 ### ✅ 前端功能
 - [x] 配置编辑界面
 - [x] 配置变更预览
 - [x] 重启警告提示
-- [x] 配置备份管理界面
-- [x] 备份恢复功能
 - [x] 配置提交确认
+- ~~配置备份管理 / 备份恢复 UI~~ — **已移除**（与磁盘 `config.yaml` 中心架构一并下线）
 
 ### ✅ 系统集成
-- [x] 配置文件监控（fsnotify）
-- [x] 外部文件修改检测
-- [x] 自动热更新触发
-- [x] 配置变更通知
+- [x] 主配置数据库化（`app_config` / `app_config_history`）
+- ~~配置文件监控（fsnotify）~~ — **以主库与 Web 保存为准**（旧版行为不再作为 SSOT）
 
 ## 运行测试
 

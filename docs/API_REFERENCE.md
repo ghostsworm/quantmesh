@@ -136,6 +136,8 @@
 
 ## 配置
 
+> **說明**：主配置持久化在 **`app_config`（主庫）**；以下為 **HTTP API**。舊版 **磁碟備份/配置歷史** 相關 REST（`/api/config/backups`、`/api/config/history*`、`/api/export/config/history/*` 等）已移除，見 `CHANGELOG`。
+
 | 方法 | 路徑 | 認證 | 說明 |
 |--------|------|------|-------------|
 | GET | `/api/config` | 是 | 取得配置 |
@@ -145,13 +147,12 @@
 | POST | `/api/config/preview` | 是 | 預覽配置 |
 | POST | `/api/config/update` | 是 | 更新配置 |
 | POST | `/api/config/update-yaml` | 是 | 以 YAML 更新配置 |
-| GET | `/api/config/backups` | 是 | 備份列表 |
-| POST | `/api/config/restore/:backup_id` | 是 | 還原備份 |
-| DELETE | `/api/config/backup/:backup_id` | 是 | 刪除備份 |
-| GET | `/api/config/history` | 是 | 配置歷史列表 |
-| GET | `/api/config/history/:version` | 是 | 指定版本配置 |
-| POST | `/api/config/history/:version/restore` | 是 | 還原該版本 |
-| POST | `/api/config/history/diff` | 是 | 配置版本差異 |
+| POST | `/api/config/test-notification` | 是 | 測試通知 |
+| GET | `/api/config/param-advisor` | 是 | 參數建議 |
+| GET | `/api/config/exchange-fees` | 是 | 交易所手續費 |
+| GET | `/api/config/price-range` | 是 | 價格區間 |
+| GET | `/api/config/security/status` | 是 | 安全配置狀態 |
+| POST | `/api/config/security/generate-key` | 是 | 生成加密金鑰 |
 
 ---
 
@@ -160,7 +161,6 @@
 | 方法 | 路徑 | 認證 | 說明 |
 |--------|------|------|-------------|
 | GET | `/api/export/config` | 是 | 匯出配置 |
-| GET | `/api/export/config/history/:version` | 是 | 匯出指定版本配置 |
 | GET | `/api/export/trades` | 是 | 匯出成交 |
 | GET | `/api/export/orders` | 是 | 匯出訂單 |
 | GET | `/api/export/positions` | 是 | 匯出持倉 |
@@ -170,6 +170,7 @@
 | GET | `/api/export/system-metrics` | 是 | 匯出系統指標 |
 | GET | `/api/export/logs` | 是 | 匯出日誌 |
 | GET | `/api/export/audit-logs` | 是 | 匯出審計日誌 |
+| GET | `/api/export/backtest-reports` | 是 | 匯出回測報告 |
 | GET | `/api/export/all` | 是 | 匯出全部 |
 
 ---
