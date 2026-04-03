@@ -11,6 +11,9 @@
 ### Added
 - **`storage.SaveAppConfigSnapshotFromJSON`**：寫入含擴展鍵（如 `security`）的完整 JSON 快照。
 
+### Docs
+- **`README.md` / `docs/config-database-design.md` / `rdocs/部署指南.md`**：改為「範例 YAML + 環境變量 + 主庫 `app_config`」敘事；systemd / supervisor 示例不再強制 `config.yaml` 參數。
+
 ---
 
 ## [3.79.8-rc19] - 2026-04-03
