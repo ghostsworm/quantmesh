@@ -31,6 +31,14 @@ func getPlanManager(c *gin.Context) *position.PlanManager {
 	return planManagerProviderVar.GetPlanManager()
 }
 
+// GetPlanManager 返回注入的倉位计划管理器（後台任務用，可為 nil）
+func GetPlanManager() *position.PlanManager {
+	if planManagerProviderVar == nil {
+		return nil
+	}
+	return planManagerProviderVar.GetPlanManager()
+}
+
 // getCurrentPositionValueUSDT 根據 exchange:symbol 從 positionProviders 计算當前倉位價值（USDT）
 func getCurrentPositionValueUSDT(exchange, symbol string) float64 {
 	key := exchange + ":" + symbol
