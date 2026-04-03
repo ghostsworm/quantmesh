@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc25] - 2026-04-03
+
+### Docs / i18n
+- **`rdocs/articles/zh/07-常见问题.md`**：GitHub Issues 鏈接改為 **`ghostsworm/quantmesh`**。
+- **Web UI 多語言**：移除已下線「磁盤備份 / 配置歷史 API」相關且無代碼引用的 **`configuration.backupManagement*`**、**`loadBackupListFailed`**、**`globalTabs.history`**、**`configHistory`** 等鍵（24 個 locale JSON），避免與 **`app_config` SSOT** 敘事混淆。
+
+---
+
 ## [3.79.8-rc24] - 2026-04-03
 
 ### Docs
