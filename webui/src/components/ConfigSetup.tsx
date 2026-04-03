@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useToast } from '@chakra-ui/react'
 import { saveInitialConfig, SetupInitRequest } from '../services/setup'
+import { DEFAULT_APP_TOAST_OPTIONS } from '../constants/appToast'
 import {
   CONFIG_SETUP_SYMBOL_ORDER,
   CONFIG_SETUP_SYMBOL_PRESETS,
@@ -14,6 +16,7 @@ const defaultPreset = CONFIG_SETUP_SYMBOL_PRESETS[defaultSymbol]
 const ConfigSetup: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const toast = useToast()
   const [formData, setFormData] = useState<SetupInitRequest>({
     exchange: 'bitget',
     api_key: '',
@@ -29,7 +32,6 @@ const ConfigSetup: React.FC = () => {
     fee_rate: 0.0002,
   })
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
   // 需要 passphrase 的交易所
@@ -83,40 +85,48 @@ const ConfigSetup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
     setSuccess(false)
+
+    const showValidationToast = (title: string) => {
+      toast({
+        ...DEFAULT_APP_TOAST_OPTIONS,
+        title,
+        status: 'warning',
+        duration: 4000,
+      })
+    }
 
     // 驗证必填字段 - 允許只配置一個交易所
     if (!formData.exchange) {
-      setError(t('configSetup.selectExchange'))
+      showValidationToast(t('configSetup.selectExchange'))
       return
     }
     if (!formData.api_key.trim()) {
-      setError(t('configSetup.enterApiKey'))
+      showValidationToast(t('configSetup.enterApiKey'))
       return
     }
     if (!formData.secret_key.trim()) {
-      setError(t('configSetup.enterSecretKey'))
+      showValidationToast(t('configSetup.enterSecretKey'))
       return
     }
     if (exchangesRequiringPassphrase.includes(formData.exchange) && !formData.passphrase?.trim()) {
-      setError(t('configSetup.exchangeRequiresPassphrase'))
+      showValidationToast(t('configSetup.exchangeRequiresPassphrase'))
       return
     }
     if (!formData.symbol.trim()) {
-      setError(t('configSetup.enterSymbol'))
+      showValidationToast(t('configSetup.enterSymbol'))
       return
     }
     if (formData.price_interval <= 0) {
-      setError(t('configSetup.priceIntervalMustBeGreaterThanZero'))
+      showValidationToast(t('configSetup.priceIntervalMustBeGreaterThanZero'))
       return
     }
     if (formData.order_quantity <= 0) {
-      setError(t('configSetup.orderAmountMustBeGreaterThanZero'))
+      showValidationToast(t('configSetup.orderAmountMustBeGreaterThanZero'))
       return
     }
     if (formData.buy_window_size <= 0) {
-      setError(t('configSetup.buyWindowSizeMustBeGreaterThanZero'))
+      showValidationToast(t('configSetup.buyWindowSizeMustBeGreaterThanZero'))
       return
     }
 
@@ -126,17 +136,34 @@ const ConfigSetup: React.FC = () => {
       const response = await saveInitialConfig(formData)
       if (response.success) {
         setSuccess(true)
-        // 清除跳過標記
         sessionStorage.removeItem('config_setup_skipped')
-        // 3秒后刷新页面
+        toast({
+          ...DEFAULT_APP_TOAST_OPTIONS,
+          title: t('configSetup.saved'),
+          description: t('configSetup.saveSuccess'),
+          status: 'success',
+          duration: 5000,
+        })
         setTimeout(() => {
           window.location.reload()
         }, 3000)
       } else {
-        setError(response.message || t('configSetup.saveFailed'))
+        toast({
+          ...DEFAULT_APP_TOAST_OPTIONS,
+          title: t('configSetup.saveFailed'),
+          description: response.message || undefined,
+          status: 'error',
+          duration: 6000,
+        })
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('configSetup.saveFailed'))
+      toast({
+        ...DEFAULT_APP_TOAST_OPTIONS,
+        title: t('configSetup.saveFailed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 6000,
+      })
     } finally {
       setIsLoading(false)
     }
@@ -165,32 +192,6 @@ const ConfigSetup: React.FC = () => {
         <p style={{ textAlign: 'center', marginBottom: '30px', color: '#8c8c8c', fontSize: '14px' }}>
           {t('configSetup.subtitle')}
         </p>
-
-        {error && (
-          <div style={{
-            padding: '12px',
-            backgroundColor: '#fff2f0',
-            border: '1px solid #ffccc7',
-            borderRadius: '4px',
-            color: '#ff4d4f',
-            marginBottom: '20px'
-          }}>
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div style={{
-            padding: '12px',
-            backgroundColor: '#f6ffed',
-            border: '1px solid #b7eb8f',
-            borderRadius: '4px',
-            color: '#52c41a',
-            marginBottom: '20px'
-          }}>
-            {t('configSetup.saveSuccess')}
-          </div>
-        )}
 
         <form onSubmit={handleSubmit}>
           {/* 交易所配置 */}
