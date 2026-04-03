@@ -9,9 +9,9 @@
 # - 自動處理端口衝突 / Auto handle port conflicts
 #
 # 使用方法 / Usage:
-#   ./restart.sh [config.yaml]       # 生產模式；config 可缺省，由主庫 app_config 加載
-#   ./restart.sh --dev               # 開發模式重啟 / Development mode restart
-#   ./restart.sh -d                  # 開發模式重啟（簡寫）/ Dev mode (short)
+#   ./restart.sh                     # 默認開發模式（Go + Vite 熱更新）
+#   ./restart.sh --prod [config.yaml]  # 生產模式（構建後端 + webui/dist）
+#   ./restart.sh -d                  # 等同默認，明確指定開發模式
 
 set -e
 
@@ -49,20 +49,19 @@ log_error() {
 
 # 显示帮助信息
 show_help() {
-    echo "使用方法 / Usage: $0 [选项] [配置文件]"
+    echo "使用方法 / Usage: $0 [选项] [配置文件（僅 --prod）]"
     echo ""
     echo "选项 / Options:"
-    echo "  -d, --dev      開發模式重啟（同時重啟 Go 後端和 Vite 前端）"
-    echo "                 Development mode restart (restart Go backend and Vite frontend)"
-    echo "  -h, --help     顯示此幫助信息 / Show this help message"
+    echo "  （默認）         開發模式：Go go run + webui Vite 熱更新"
+    echo "  -d, --dev        同上，明確指定開發模式"
+    echo "  -p, --prod       生產模式：編譯二進制 + webui build，讀取 config.yaml（可缺省）"
+    echo "  -h, --help       顯示此幫助信息 / Show this help message"
     echo ""
     echo "示例 / Examples:"
-    echo "  $0                    # 生產模式；默認路徑 config.yaml（文件可不存在，從 app_config 加載）"
-    echo "                        Production mode; YAML optional if app_config exists"
-    echo "  $0 config.yaml        # 生產模式，顯式指定配置文件"
-    echo "                        Production mode with explicit config path"
-    echo "  $0 --dev              # 開發模式重啟 / Development mode restart"
-    echo "  $0 -d                 # 開發模式重啟（簡寫）/ Development mode (short)"
+    echo "  $0                    # 開發模式（默認）"
+    echo "  $0 --prod             # 生產模式，默認 config.yaml"
+    echo "  $0 -p my.yaml         # 生產模式，指定配置"
+    echo "  $0 -d                 # 開發模式（明確）"
     echo ""
     echo "端口配置 / Port Configuration:"
     echo "  Go 後端 / Backend: ${GO_PORT}"
@@ -71,9 +70,10 @@ show_help() {
     exit 0
 }
 
-# 解析参数
-DEV_MODE=false
+# 解析参数（默認開發模式；需生產模式時顯式傳 --prod / -p）
+DEV_MODE=true
 CONFIG_FILE=""
+PROD_EXPLICIT=false
 
 for arg in "$@"; do
     case $arg in
@@ -82,6 +82,10 @@ for arg in "$@"; do
             ;;
         -d|--dev)
             DEV_MODE=true
+            ;;
+        -p|--prod)
+            DEV_MODE=false
+            PROD_EXPLICIT=true
             ;;
         -*)
             log_error "未知选项: $arg"
@@ -94,6 +98,12 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# 未使用 --prod 時若帶了配置文件參數，提示並忽略（避免誤以為會影響 dev）
+if [ "$DEV_MODE" = true ] && [ -n "$CONFIG_FILE" ] && [ "$PROD_EXPLICIT" = false ]; then
+    log_warn "已忽略參數「${CONFIG_FILE}」：開發模式不使用該路徑；生產模式請用: $0 --prod ${CONFIG_FILE}"
+    CONFIG_FILE=""
+fi
 
 # 默认配置文件
 CONFIG_FILE="${CONFIG_FILE:-config.yaml}"
