@@ -4,6 +4,26 @@ import (
 	"testing"
 )
 
+func TestNormalizeBinanceSymbolTypo(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"BTCUSTD", "BTCUSDT"},
+		{"btcustd", "BTCUSDT"},
+		{"ETHUSTD", "ETHUSDT"},
+		{"BTCUSDT", "BTCUSDT"},
+		{"  BTCUSDT  ", "BTCUSDT"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := normalizeBinanceSymbolTypo(tt.in)
+		if got != tt.want {
+			t.Errorf("normalizeBinanceSymbolTypo(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestNewAdapter(t *testing.T) {
 	config := map[string]string{
 		"api_key":    "test_api_key",

@@ -53,6 +53,8 @@ func NewBinanceSpotAdapter(cfg map[string]string, symbol string) (*BinanceSpotAd
 		return nil, fmt.Errorf("Binance API 配置不完整")
 	}
 
+	symbol = normalizeBinanceSymbolTypo(symbol)
+
 	client := binancesdk.NewClient(apiKey, secretKey)
 	if useTestnet {
 		client.SetApiEndpoint("https://testnet.binance.vision")
