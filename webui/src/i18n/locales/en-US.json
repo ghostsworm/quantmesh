@@ -902,6 +902,7 @@
     "todayPnL": "Today's P&L",
     "tradeCount": "Trade count",
     "loadFailed": "Load failed",
+    "loadTimeoutHint": "Some API calls did not return within 60s; wait ended. Check backend or network if data is still missing.",
     "fetchStatusFailed": "Failed to fetch status for {{exchange}}:{{symbol}}",
     "fetchGlobalDataFailed": "Failed to fetch global data",
     "overview": "Overview",
