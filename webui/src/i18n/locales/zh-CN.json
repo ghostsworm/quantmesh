@@ -437,7 +437,7 @@
     "hybridStrategy": {
       "title": "混合策略模式",
       "description": "策略协作与条件联动",
-      "enabled": "已启用",
+      "enabled": "启用",
       "disabled": "未启用",
       "whatIsHybridStrategy": "什么是混合策略？",
       "whatIsHybridStrategyDesc": "混合策略允许您组合多个策略，并通过协作规则实现条件联动。例如：网格策略 + 趋势过滤，当趋势向下时阻止做多开仓。",
@@ -457,7 +457,6 @@
       "enableHybridModeFailed": "启用混合模式失败",
       "disableHybridModeFailed": "禁用混合模式失败",
       "priority": "优先级",
-      "enabled": "启用",
       "weight": "权重",
       "strategyParams": "策略参数",
       "condition": "条件",
@@ -549,7 +548,6 @@
     "showingFirst": "（仅显示前 {{count}} 条）",
     "time": "时间",
     "reason": "原因",
-    "type": "类型",
     "durationKlines": "持续K线",
     "skippedBuys": "跳过买入",
     "klineTrend": "期间 K 线走势（收盘价，拆为 4 段）",
@@ -677,13 +675,11 @@
     "results": "回测结果",
     "executionCompleted": "回测已完成",
     "taskId": "任务ID",
-    "profitFactor": "盈亏比",
     "totalFees": "总手续费",
     "totalSlippage": "总滑点",
     "equityCurve": "权益曲线",
     "strategyStats": "策略统计",
     "trades": "交易",
-    "pnl": "盈亏",
     "date": "日期",
     "equity": "权益",
     "config": "参数配置",
@@ -1026,7 +1022,6 @@
     "globalDescription": "配置全局系统参数",
     "symbolDescription": "管理 {{symbol}} 的专用配置",
     "singleBotGlobalHint": "此页面仅配置当前单个 Bot。如需全局设置（交易所 API、通知、YAML 等），请前往 <configLink>/config</configLink>。",
-    "backupManagement": "备份管理",
     "saveChanges": "保存更改",
     "globalTabs": {
       "general": "常规设置",
@@ -1034,8 +1029,7 @@
       "notifications": "通知设置",
       "storageWeb": "存储与 Web",
       "security": "安全设置",
-      "yamlEditor": "YAML 编辑器",
-      "history": "配置历史"
+      "yamlEditor": "YAML 编辑器"
     },
     "symbolTabs": {
       "tradingParams": "交易参数",
@@ -1046,7 +1040,6 @@
     "previewFailed": "预览失败",
     "saveSuccess": "保存成功",
     "saveFailed": "保存配置失败",
-    "loadBackupListFailed": "加载备份列表失败",
     "hide": "隐藏",
     "show": "显示",
     "generalAppConfig": "常规应用配置",
@@ -1145,11 +1138,6 @@
     "confirmChanges": "确认变更",
     "cancel": "取消",
     "confirmSave": "确认保存",
-    "backupManagementTitle": "备份管理",
-    "time": "时间",
-    "size": "大小",
-    "action": "操作",
-    "restore": "恢复",
     "dynamicAdjustment": "动态调整",
     "enableDynamicAdjustment": "启用动态调整",
     "enableDynamicAdjustmentDesc": "根据市场波动率、资金利用率等自动调整网格参数",
@@ -1211,11 +1199,6 @@
     "interval4h": "4 小时",
     "interval8h": "8 小时",
     "interval24h": "24 小时",
-    "interval1h": "1 小时",
-    "interval2h": "2 小时",
-    "interval4h": "4 小时",
-    "interval8h": "8 小时",
-    "interval24h": "24 小时",
     "newsApiKeyMissing": "未配置 NewsAPI Key，新闻监控功能将无法收集新闻",
     "tradingPairManagement": "交易对管理",
     "defaultDirection": "默认交易方向",
@@ -1252,8 +1235,6 @@
     "previewChanges": "预览变更",
     "clickRefreshToLoad": "点击\"刷新\"加载配置",
     "loadConfig": "加载配置",
-    "configHistoryTitle": "配置历史版本",
-    "configHistoryDesc": "查看和管理配置的历史版本，支持版本对比和恢复",
     "binanceMinOrderWarning": "币安合约最小下单名义金额通常要求 ≥ 100 USDT。为避免数量精度/步进导致 99.x 的临界失败，建议设置 ≥ 105。",
     "geminiSearch": "Gemini 搜索",
     "analysisInterval": "分析间隔",
@@ -1875,7 +1856,6 @@
     "saveRules": "保存规则",
     "rulesSaved": "规则已保存",
     "saveError": "保存失败",
-    "date": "日期",
     "amount": "金额",
     "type": "类型",
     "status": "状态",
@@ -2808,36 +2788,102 @@
   },
   "strategyParams": {
     "grid": {
-      "gridCount": { "name": "网格数量", "description": "网格档位数量" },
-      "upperPrice": { "name": "网格上限价格", "description": "网格价格区间上限" },
-      "lowerPrice": { "name": "网格下限价格", "description": "网格价格区间下限" },
-      "totalAmount": { "name": "总投资金额", "description": "策略总投入资金 (USDT)" }
+      "gridCount": {
+        "name": "网格数量",
+        "description": "网格档位数量"
+      },
+      "upperPrice": {
+        "name": "网格上限价格",
+        "description": "网格价格区间上限"
+      },
+      "lowerPrice": {
+        "name": "网格下限价格",
+        "description": "网格价格区间下限"
+      },
+      "totalAmount": {
+        "name": "总投资金额",
+        "description": "策略总投入资金 (USDT)"
+      }
     },
     "dca": {
-      "interval": { "name": "定投间隔", "description": "每次定投的时间间隔" },
-      "amount": { "name": "每次投资金额", "description": "单次定投金额 (USDT)" }
+      "interval": {
+        "name": "定投间隔",
+        "description": "每次定投的时间间隔"
+      },
+      "amount": {
+        "name": "每次投资金额",
+        "description": "单次定投金额 (USDT)"
+      }
     },
     "dca_enhanced": {
-      "base_order_amount": { "name": "基础订单金额", "description": "初始买入订单金额 (USDT)" },
-      "safety_order_amount": { "name": "安全订单金额", "description": "补仓订单金额 (USDT)" },
-      "max_safety_orders": { "name": "最大安全订单数", "description": "最多补仓层数" },
-      "atr_period": { "name": "ATR 周期", "description": "ATR 指标计算周期" },
-      "atr_multiplier": { "name": "ATR 乘数", "description": "ATR 动态间距乘数" },
-      "total_take_profit": { "name": "全仓止盈比例", "description": "全部仓位止盈比例 (%)" },
-      "stop_loss": { "name": "止损比例", "description": "止损触发比例 (%)" }
+      "base_order_amount": {
+        "name": "基础订单金额",
+        "description": "初始买入订单金额 (USDT)"
+      },
+      "safety_order_amount": {
+        "name": "安全订单金额",
+        "description": "补仓订单金额 (USDT)"
+      },
+      "max_safety_orders": {
+        "name": "最大安全订单数",
+        "description": "最多补仓层数"
+      },
+      "atr_period": {
+        "name": "ATR 周期",
+        "description": "ATR 指标计算周期"
+      },
+      "atr_multiplier": {
+        "name": "ATR 乘数",
+        "description": "ATR 动态间距乘数"
+      },
+      "total_take_profit": {
+        "name": "全仓止盈比例",
+        "description": "全部仓位止盈比例 (%)"
+      },
+      "stop_loss": {
+        "name": "止损比例",
+        "description": "止损触发比例 (%)"
+      }
     },
     "martingale": {
-      "initial_amount": { "name": "初始金额", "description": "首笔订单金额 (USDT)" },
-      "multiplier": { "name": "加仓倍数", "description": "补仓金额倍增倍数" },
-      "max_levels": { "name": "最大层数", "description": "最大补仓层数" },
-      "price_step": { "name": "加仓间距", "description": "触发补仓的价格间距 (%)" },
-      "take_profit": { "name": "止盈比例", "description": "单层止盈比例 (%)" },
-      "direction": { "name": "方向", "description": "做多 LONG / 做空 SHORT" }
+      "initial_amount": {
+        "name": "初始金额",
+        "description": "首笔订单金额 (USDT)"
+      },
+      "multiplier": {
+        "name": "加仓倍数",
+        "description": "补仓金额倍增倍数"
+      },
+      "max_levels": {
+        "name": "最大层数",
+        "description": "最大补仓层数"
+      },
+      "price_step": {
+        "name": "加仓间距",
+        "description": "触发补仓的价格间距 (%)"
+      },
+      "take_profit": {
+        "name": "止盈比例",
+        "description": "单层止盈比例 (%)"
+      },
+      "direction": {
+        "name": "方向",
+        "description": "做多 LONG / 做空 SHORT"
+      }
     },
     "combo": {
-      "total_capital": { "name": "总资金", "description": "组合策略总资金 (USDT)" },
-      "market_detection": { "name": "市况检测", "description": "启用市场状态自动检测" },
-      "hedge_enabled": { "name": "对冲", "description": "启用多空对冲" }
+      "total_capital": {
+        "name": "总资金",
+        "description": "组合策略总资金 (USDT)"
+      },
+      "market_detection": {
+        "name": "市况检测",
+        "description": "启用市场状态自动检测"
+      },
+      "hedge_enabled": {
+        "name": "对冲",
+        "description": "启用多空对冲"
+      }
     }
   },
   "strategyWizard": {
@@ -3562,44 +3608,6 @@
     "tradeCount": "交易数",
     "best": "最佳",
     "exportCsv": "导出 CSV"
-  },
-  "configHistory": {
-    "loadHistoryFailed": "加載历史記錄失败",
-    "loadFailed": "加載失败",
-    "getVersionDetailFailed": "獲取版本详情失败",
-    "diffFailed": "對比失败",
-    "getVersionDiffFailed": "獲取版本差异失败",
-    "restoreSuccess": "恢複成功",
-    "restoredToVersion": "已恢複到版本 {{version}}",
-    "restoreFailed": "恢複失败",
-    "restoreVersionFailed": "恢複版本失败",
-    "loadingHistory": "加載历史記錄...",
-    "noHistory": "暂無历史記錄",
-    "autoSaveHint": "配置修改后會自动保存历史版本",
-    "title": "配置历史版本",
-    "versionCount": "{{count}} 個版本",
-    "version": "版本",
-    "time": "時间",
-    "description": "描述",
-    "size": "大小",
-    "viewThisVersion": "查看此版本",
-    "view": "查看",
-    "diff": "對比",
-    "diffWithCurrent": "與當前配置對比",
-    "diffWithOther": "與其他版本對比...",
-    "restoreToThisVersion": "恢複到此版本",
-    "restore": "恢複",
-    "versionDetail": "版本 {{version}} 详情",
-    "selectDiffTarget": "选擇對比目標",
-    "diffDescription": "將版本 {{version}} 與以下版本進行對比：",
-    "currentConfig": "當前配置",
-    "versionWithTime": "版本 {{version}} - {{time}}",
-    "versionLabel": "版本 {{version}}",
-    "versionDiff": "版本對比",
-    "confirmRestore": "确认恢複",
-    "confirmRestoreMessage": "确定要恢複到版本 {{version}} 吗？當前配置將被覆盖。",
-    "restoreBackupHint": "恢複前會自动保存當前配置的备份，您可以随時恢複。",
-    "restoring": "恢複中..."
   },
   "profile": {
     "title": "個人资料",
