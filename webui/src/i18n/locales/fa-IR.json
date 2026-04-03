@@ -370,7 +370,9 @@
     "totalCapital": "سرمایه",
     "totalInvestment": "کل سرمایه‌گذاری",
     "filterExchangeAll": "همه صرافی‌ها",
-    "filterSymbolAll": "همه نمادها"
+    "filterSymbolAll": "همه نمادها",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "ربات برای این نماد از قبل وجود دارد.",

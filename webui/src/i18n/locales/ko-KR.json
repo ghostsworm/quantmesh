@@ -119,7 +119,9 @@
     "totalCapital": "투자 금액",
     "totalInvestment": "총 투자",
     "filterExchangeAll": "모든 거래소",
-    "filterSymbolAll": "모든 심볼"
+    "filterSymbolAll": "모든 심볼",
+    "envTestnet": "테스트넷",
+    "envLive": "실거래"
   },
   "error": {
     "bot_symbol_conflict": "이 심볼에 대한 봇이 이미 존재합니다.",

@@ -76,7 +76,9 @@
     "gridBoth": "Both",
     "liquidationPrice": "Liq. Price",
     "filterExchangeAll": "All Exchanges",
-    "filterSymbolAll": "All Symbols"
+    "filterSymbolAll": "All Symbols",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "botCreate": {
     "title": "Create Bot",

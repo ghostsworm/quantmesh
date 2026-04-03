@@ -134,7 +134,9 @@
     "gridShort": "做空",
     "gridBoth": "雙向",
     "filterExchangeAll": "全部交易所",
-    "filterSymbolAll": "全部幣種"
+    "filterSymbolAll": "全部幣種",
+    "envTestnet": "測試網",
+    "envLive": "實盤"
   },
   "error": {
     "bot_symbol_conflict": "該交易對已存在 Bot，同一交易對不能運行多個 Bot。",

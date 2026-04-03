@@ -117,7 +117,9 @@
     "totalCapital": "Kapitaal",
     "totalInvestment": "Totale investering",
     "filterExchangeAll": "Alle beurzen",
-    "filterSymbolAll": "Alle symbolen"
+    "filterSymbolAll": "Alle symbolen",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "Er bestaat al een bot voor dit symbool.",

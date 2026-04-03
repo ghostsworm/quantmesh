@@ -321,3 +321,21 @@ func TestApplyNewsMonitorAIFromUpstreamRef(t *testing.T) {
 		t.Fatalf("news merge: %+v", cfg.NewsMonitor.AIProvider)
 	}
 }
+
+func TestEffectiveTestnetForExchange(t *testing.T) {
+	if !(*Config)(nil).EffectiveTestnetForExchange("binance", true) {
+		t.Error("nil config should fall back to botStoredTestnet")
+	}
+	cfg := createValidConfig()
+	cfg.Exchanges["binance"] = ExchangeConfig{Testnet: true}
+	if !cfg.EffectiveTestnetForExchange("binance", false) {
+		t.Error("exchange entry should win when testnet true")
+	}
+	cfg.Exchanges["binance"] = ExchangeConfig{Testnet: false}
+	if cfg.EffectiveTestnetForExchange("binance", true) {
+		t.Error("exchange entry should win when testnet false")
+	}
+	if !cfg.EffectiveTestnetForExchange("unknown", true) {
+		t.Error("missing exchange should fall back to bot stored")
+	}
+}

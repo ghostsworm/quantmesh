@@ -370,7 +370,9 @@
     "totalCapital": "Kapital",
     "totalInvestment": "Kabuuang pamumuhunan",
     "filterExchangeAll": "Lahat ng exchange",
-    "filterSymbolAll": "Lahat ng simbolo"
+    "filterSymbolAll": "Lahat ng simbolo",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "May umiiral nang bot para sa simbolong ito.",

@@ -39,6 +39,7 @@ type BotResponse struct {
 	Direction              string  `json:"direction,omitempty"`                // 網格/策略方向：LONG/SHORT/BOTH
 	LastStartError         string  `json:"last_start_error,omitempty"`         // 最近一次異步啟動失敗原因（供前端展示）
 	LastStartErrorAt       string  `json:"last_start_error_at,omitempty"`      // 失敗時間 RFC3339
+	Testnet                bool    `json:"testnet"`                              // 是否測試網（與當前 exchanges[exchange].testnet 一致，無交易所條目時回退 Bot 記錄）
 }
 
 // BotStrategyInfo Bot 策略信息（用于列表显示）

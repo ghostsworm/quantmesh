@@ -117,7 +117,9 @@
     "totalCapital": "رأس المال",
     "totalInvestment": "إجمالي الاستثمار",
     "filterExchangeAll": "جميع البورصات",
-    "filterSymbolAll": "جميع الرموز"
+    "filterSymbolAll": "جميع الرموز",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "يوجد بالفعل بوت لهذا الرمز.",

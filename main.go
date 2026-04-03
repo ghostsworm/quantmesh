@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.8-rc17"
+var Version = "3.79.8-rc18"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -890,6 +890,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			CreatedAt:             bc.CreatedAt,
 			HedgeGroupName:        web.FindGroupNameByBotID(cfg, botID),
 			Direction:             bc.GetDirection(),
+			Testnet:               cfg.EffectiveTestnetForExchange(bc.Exchange, bc.Testnet),
 		}
 		// 从策略配置中读取杠杆和最大资金占用
 		for _, strategy := range bc.Strategies {
@@ -949,6 +950,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 				CreatedAt:             bc.CreatedAt,
 				HedgeGroupName:        web.FindGroupNameByBotID(cfg, botID),
 				Direction:             bc.GetDirection(),
+				Testnet:               testnet,
 			}
 			if br, ok := runningMap[botID]; ok && br.Inner != nil {
 				resp.Running = true
@@ -997,6 +999,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 				CreatedAt:             br.Config.CreatedAt,
 				HedgeGroupName:        web.FindGroupNameByBotID(cfg, br.BotID),
 				Direction:             br.Config.GetDirection(),
+				Testnet:               cfg.EffectiveTestnetForExchange(br.Config.Exchange, br.Config.Testnet),
 			},
 			Config: &br.Config,
 		}
@@ -1055,6 +1058,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 					CreatedAt:             bc.CreatedAt,
 					HedgeGroupName:        web.FindGroupNameByBotID(cfg, botID),
 					Direction:             bc.GetDirection(),
+					Testnet:               cfg.EffectiveTestnetForExchange(bc.Exchange, bc.Testnet),
 				},
 				Config: bc,
 			}

@@ -370,7 +370,9 @@
     "totalCapital": "ทุน",
     "totalInvestment": "การลงทุนทั้งหมด",
     "filterExchangeAll": "ทุกตลาด",
-    "filterSymbolAll": "ทุกสัญลักษณ์"
+    "filterSymbolAll": "ทุกสัญลักษณ์",
+    "envTestnet": "Testnet",
+    "envLive": "จริง"
   },
   "error": {
     "bot_symbol_conflict": "มีบอทสำหรับสัญลักษณ์นี้อยู่แล้ว",

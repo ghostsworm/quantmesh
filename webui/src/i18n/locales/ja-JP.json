@@ -109,7 +109,9 @@
     "totalCapital": "投入資金",
     "totalInvestment": "総投入",
     "filterExchangeAll": "すべての取引所",
-    "filterSymbolAll": "すべてのシンボル"
+    "filterSymbolAll": "すべてのシンボル",
+    "envTestnet": "テストネット",
+    "envLive": "本番"
   },
   "error": {
     "bot_symbol_conflict": "このシンボルのBotは既に存在します。",

@@ -370,7 +370,9 @@
     "totalCapital": "سرمایہ",
     "totalInvestment": "کل سرمایہ کاری",
     "filterExchangeAll": "تمام ایکسچینج",
-    "filterSymbolAll": "تمام علامات"
+    "filterSymbolAll": "تمام علامات",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "اس علامت کے لیے بوٹ پہلے سے موجود ہے۔",

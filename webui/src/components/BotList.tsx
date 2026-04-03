@@ -415,6 +415,15 @@ const BotList: React.FC = () => {
                             {bot.direction === 'SHORT' ? t('botList.gridShort') : bot.direction === 'BOTH' ? t('botList.gridBoth') : t('botList.gridLong')}
                           </Badge>
                         )}
+                        {bot.testnet === true ? (
+                          <Badge colorScheme="orange" fontSize="11px" variant="solid" px={2} py={0.5} borderRadius="full">
+                            {t('botList.envTestnet')}
+                          </Badge>
+                        ) : (
+                          <Badge colorScheme="red" fontSize="11px" variant="outline" px={2} py={0.5} borderRadius="full">
+                            {t('botList.envLive')}
+                          </Badge>
+                        )}
                       </HStack>
 
                       <Heading

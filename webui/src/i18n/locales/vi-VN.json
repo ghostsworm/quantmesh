@@ -117,7 +117,9 @@
     "totalCapital": "Vốn",
     "totalInvestment": "Tổng đầu tư",
     "filterExchangeAll": "Tất cả sàn",
-    "filterSymbolAll": "Tất cả mã"
+    "filterSymbolAll": "Tất cả mã",
+    "envTestnet": "Testnet",
+    "envLive": "Thực"
   },
   "error": {
     "bot_symbol_conflict": "Đã tồn tại bot cho ký hiệu này.",
