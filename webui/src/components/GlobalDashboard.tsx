@@ -33,6 +33,10 @@ import {
   Th,
   Td,
   TableContainer,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
 } from '@chakra-ui/react'
 import { 
   CheckCircleIcon, 
@@ -78,7 +82,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultVal
     return defaultValue
   }
 }
-import { Alert, AlertIcon, AlertTitle, AlertDescription } from '@chakra-ui/react'
+
 import {
   AreaChart,
   Area,
@@ -91,6 +95,9 @@ import {
   Cell,
   Legend,
 } from 'recharts'
+
+/** 防止任一接口長時間不 resolve 導致全局看板永遠 loading */
+const GLOBAL_DASHBOARD_FETCH_TIMEOUT_MS = 60_000
 
 const MotionBox = motion(Box)
 
@@ -128,6 +135,10 @@ const GlobalDashboard: React.FC = () => {
   const [capitalOverview, setCapitalOverview] = useState<{ totalBalance: number; unrealizedPnL: number } | null>(null)
   const [capitalHistory, setCapitalHistory] = useState<Array<{ date: string; balance: number }>>([])
   const toast = useToast()
+  const toastRef = useRef(toast)
+  toastRef.current = toast
+  const tRef = useRef(t)
+  tRef.current = t
   const { setSymbolPair } = useSymbol()
 
   const cardBg = useColorModeValue('white', 'gray.800')
@@ -135,7 +146,10 @@ const GlobalDashboard: React.FC = () => {
   const hoverBg = useColorModeValue('gray.50', 'gray.700')
 
   // 辅助函数：去掉交易所名称中的 [DryRun] 后缀
-  const normalizeExchangeName = (exchangeName: string): string => {
+  const normalizeExchangeName = (exchangeName: string | undefined): string => {
+    if (exchangeName == null || exchangeName === '') {
+      return 'unknown'
+    }
     return exchangeName.toLowerCase().replace(/\s*\[dryrun\]\s*/gi, '').trim()
   }
 
@@ -161,20 +175,26 @@ const GlobalDashboard: React.FC = () => {
     try {
       // 與後端 max 區間一致：避免一次聚合過多年數據拖慢 API
       const { startTime, endTime } = getPnLExchangeDefaultRangeISO()
-      
-      const [symbolsData, pnlData, statusesData, positionsAllData, capitalRes, historyRes] = await Promise.all([
+
+      const coreFetch = Promise.all([
         getSymbols(),
         getPnLByExchange(startTime, endTime),
         getSystemStatuses(),
         getPositionsSummaryAll().catch(() => ({ positions: [] })),
-        // 使用超时包装，防止 capital API 卡住页面加载（5秒超时）
         withTimeout(getCapitalOverview(), 5000, null as any),
-        // 使用超时包装，防止 history API 卡住页面加载（5秒超时）
         withTimeout(getCapitalHistory(30), 5000, { history: [] } as any),
       ])
-      
-      setSymbols(symbolsData.symbols)
-      setExchangePnL(pnlData.exchanges || [])
+
+      const [symbolsData, pnlData, statusesData, positionsAllData, capitalRes, historyRes] = await Promise.race([
+        coreFetch,
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('GLOBAL_DASHBOARD_FETCH_TIMEOUT')), GLOBAL_DASHBOARD_FETCH_TIMEOUT_MS)
+        }),
+      ])
+
+      const symbolList = Array.isArray(symbolsData?.symbols) ? symbolsData.symbols : []
+      setSymbols(symbolList)
+      setExchangePnL(pnlData?.exchanges || [])
       setPositionsAll(positionsAllData?.positions || [])
       if (capitalRes?.success && capitalRes.overview) {
         setCapitalOverview({
@@ -209,10 +229,10 @@ const GlobalDashboard: React.FC = () => {
       } else {
         // 兜底：批量接口异常時，改為並发拉單個状態，避免串行卡住
         const results = await Promise.allSettled(
-          symbolsData.symbols.map(sym => getSystemStatus(sym.exchange, sym.symbol, sym.market_type))
+          symbolList.map(sym => getSystemStatus(sym.exchange, sym.symbol, sym.market_type))
         )
         results.forEach((res, idx) => {
-          const sym = symbolsData.symbols[idx]
+          const sym = symbolList[idx]
           if (res.status === 'fulfilled') {
             const st = res.value
             const normalizedExchange = normalizeExchangeName(sym.exchange)
@@ -234,28 +254,43 @@ const GlobalDashboard: React.FC = () => {
       }
 
       setSymbolStatuses(statusMap)
-      setLoading(false)
     } catch (error) {
       console.error('Failed to fetch global data', error)
-      toast({
-        title: t('globalDashboard.loadFailed'),
-        description: error instanceof Error ? error.message : t('globalDashboard.unknownError'),
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      })
-      setLoading(false)
+      const tr = tRef.current
+      const msg = error instanceof Error ? error.message : tr('globalDashboard.unknownError')
+      if (msg === 'GLOBAL_DASHBOARD_FETCH_TIMEOUT') {
+        toastRef.current({
+          title: tr('globalDashboard.loadFailed'),
+          description: tr('globalDashboard.loadTimeoutHint'),
+          status: 'warning',
+          duration: 6000,
+          isClosable: true,
+        })
+      } else {
+        toastRef.current({
+          title: tr('globalDashboard.loadFailed'),
+          description: msg,
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        })
+      }
     } finally {
+      setLoading(false)
       isFetchingRef.current = false
     }
   }
 
   useEffect(() => {
-    fetchData()
-    // 概览價格更敏感，缩短刷新间隔
-    const interval = setInterval(fetchData, 5000)
+    const run = () => {
+      void fetchData()
+    }
+    run()
+    const interval = setInterval(run, 5000)
     return () => clearInterval(interval)
-  }, [toast])
+    // 僅掛載時綁定輪詢；toast/t 經 ref 讀取，避免依賴變化導致 effect 反覆清理/重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const summary = useMemo(() => {
     let totalPnL = 0

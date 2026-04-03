@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc14] - 2026-04-03
+
+### Fixed
+- **Web / 全局看板**：`setLoading(false)` 移入 `finally`，避免 try 內處理數據時拋錯導致永遠轉圈；`symbols` 缺省為空數組；`normalizeExchangeName` 防禦空值；`Promise.all` 增加 60s 總超時；輪詢 `useEffect` 改為僅掛載綁定（避免依賴 `toast` 反覆卸載 interval）；錯誤提示經 `toastRef`/`tRef` 保證最新 i18n
+
+---
+
 ## [3.79.8-rc13] - 2026-04-03
 
 ### Changed

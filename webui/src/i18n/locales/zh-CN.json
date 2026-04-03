@@ -903,6 +903,7 @@
     "todayPnL": "今日盈亏",
     "tradeCount": "成交次数",
     "loadFailed": "加载失败",
+    "loadTimeoutHint": "部分接口在 60 秒内未返回，已结束等待；若仍无数据请检查后端或网络。",
     "fetchStatusFailed": "获取 {{exchange}}:{{symbol}} 状态失败",
     "fetchGlobalDataFailed": "获取全局数据失败",
     "overview": "概览",
