@@ -91,6 +91,9 @@ Thumbs.db
 _mine/
 .worktrees/
 
+# Snapshot from remote host (may contain secrets; never commit)
+remote-from-facev/
+
 # Backup directories
 backups/
 config_backups/
