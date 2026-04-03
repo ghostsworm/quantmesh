@@ -117,7 +117,9 @@
     "totalCapital": "Капитал",
     "totalInvestment": "Общие инвестиции",
     "filterExchangeAll": "Все биржи",
-    "filterSymbolAll": "Все символы"
+    "filterSymbolAll": "Все символы",
+    "envTestnet": "Testnet",
+    "envLive": "Боевой"
   },
   "error": {
     "bot_symbol_conflict": "Бот для этого символа уже существует.",

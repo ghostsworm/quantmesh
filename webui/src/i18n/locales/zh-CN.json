@@ -76,7 +76,9 @@
     "gridBoth": "双向",
     "liquidationPrice": "强平价",
     "filterExchangeAll": "全部交易所",
-    "filterSymbolAll": "全部币种"
+    "filterSymbolAll": "全部币种",
+    "envTestnet": "测试网",
+    "envLive": "实盘"
   },
   "botCreate": {
     "title": "创建 Bot",

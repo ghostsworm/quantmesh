@@ -156,6 +156,8 @@ export interface BotInfo {
   /** 最近一次异步启动失败原因（服务端内存记录，成功启动后会清空） */
   last_start_error?: string
   last_start_error_at?: string
+  /** 是否測試網：與當前 exchanges[exchange].testnet 一致，無交易所條目時回退 Bot 記錄 */
+  testnet?: boolean
 }
 
 export interface BotStrategyInfo {

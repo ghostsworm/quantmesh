@@ -471,6 +471,15 @@ const BotDetail: React.FC = () => {
                 {bot.risk_triggered && (
                   <Badge colorScheme="red" fontSize="10px">{t('botList.riskTriggered')}</Badge>
                 )}
+                {bot.testnet === true ? (
+                  <Badge colorScheme="orange" fontSize="10px" variant="solid">
+                    {t('botList.envTestnet')}
+                  </Badge>
+                ) : (
+                  <Badge colorScheme="red" fontSize="10px" variant="outline">
+                    {t('botList.envLive')}
+                  </Badge>
+                )}
               </HStack>
               <Heading size="md">{bot.name || bot.symbol}</Heading>
               <Text fontSize="sm" color="gray.500" mt={1}>

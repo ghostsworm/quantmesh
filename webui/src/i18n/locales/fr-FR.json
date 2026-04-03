@@ -119,7 +119,9 @@
     "totalCapital": "Capital",
     "totalInvestment": "Investissement total",
     "filterExchangeAll": "Tous les exchanges",
-    "filterSymbolAll": "Tous les symboles"
+    "filterSymbolAll": "Tous les symboles",
+    "envTestnet": "Testnet",
+    "envLive": "Réel"
   },
   "error": {
     "bot_symbol_conflict": "Un bot existe déjà pour ce symbole.",

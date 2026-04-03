@@ -370,7 +370,9 @@
     "totalCapital": "Kapitał",
     "totalInvestment": "Całkowita inwestycja",
     "filterExchangeAll": "Wszystkie giełdy",
-    "filterSymbolAll": "Wszystkie symbole"
+    "filterSymbolAll": "Wszystkie symbole",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "Bot dla tego symbolu już istnieje.",

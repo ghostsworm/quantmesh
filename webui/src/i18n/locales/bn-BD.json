@@ -370,7 +370,9 @@
     "totalCapital": "মূলধন",
     "totalInvestment": "মোট বিনিয়োগ",
     "filterExchangeAll": "সমস্ত এক্সচেঞ্জ",
-    "filterSymbolAll": "সমস্ত প্রতীক"
+    "filterSymbolAll": "সমস্ত প্রতীক",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "এই সিম্বলের জন্য ইতিমধ্যে বট বিদ্যমান।",

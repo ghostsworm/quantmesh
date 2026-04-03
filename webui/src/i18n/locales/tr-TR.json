@@ -117,7 +117,9 @@
     "totalCapital": "Sermaye",
     "totalInvestment": "Toplam yatırım",
     "filterExchangeAll": "Tüm borsalar",
-    "filterSymbolAll": "Tüm semboller"
+    "filterSymbolAll": "Tüm semboller",
+    "envTestnet": "Testnet",
+    "envLive": "Canlı"
   },
   "error": {
     "bot_symbol_conflict": "Bu sembol için zaten bir bot mevcut.",

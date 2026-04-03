@@ -117,7 +117,9 @@
     "totalCapital": "Modal",
     "totalInvestment": "Total investasi",
     "filterExchangeAll": "Semua bursa",
-    "filterSymbolAll": "Semua simbol"
+    "filterSymbolAll": "Semua simbol",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "Bot untuk simbol ini sudah ada.",

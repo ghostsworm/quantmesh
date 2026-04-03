@@ -370,7 +370,9 @@
     "totalCapital": "Капітал",
     "totalInvestment": "Загальні інвестиції",
     "filterExchangeAll": "Усі біржі",
-    "filterSymbolAll": "Усі символи"
+    "filterSymbolAll": "Усі символи",
+    "envTestnet": "Testnet",
+    "envLive": "Бойовий"
   },
   "error": {
     "bot_symbol_conflict": "Бот для цього символу вже існує.",

@@ -1640,6 +1640,17 @@ func (c *Config) SyncSymbolsFromBots() {
 	}
 }
 
+// EffectiveTestnetForExchange 返回當前配置中該交易所是否啟用測試網：若 exchanges 中存在對應條目則以其中的 testnet 為準（與 Web「交易所配置」一致），否則回退為 Bot 記錄中的值。
+func (c *Config) EffectiveTestnetForExchange(exchange string, botStoredTestnet bool) bool {
+	if c == nil {
+		return botStoredTestnet
+	}
+	if ex, ok := c.Exchanges[exchange]; ok {
+		return ex.Testnet
+	}
+	return botStoredTestnet
+}
+
 // ExchangeConfig 交易所配置
 type ExchangeConfig struct {
 	APIKey     string  `yaml:"api_key" json:"api_key"`

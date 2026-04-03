@@ -117,7 +117,9 @@
     "totalCapital": "पूंजी",
     "totalInvestment": "कुल निवेश",
     "filterExchangeAll": "सभी एक्सचेंज",
-    "filterSymbolAll": "सभी प्रतीक"
+    "filterSymbolAll": "सभी प्रतीक",
+    "envTestnet": "Testnet",
+    "envLive": "Live"
   },
   "error": {
     "bot_symbol_conflict": "इस प्रतीक के लिए पहले से बॉट मौजूद है।",

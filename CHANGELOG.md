@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc18] - 2026-04-03
+
+### Added
+- **API / Bot 列表與詳情**：響應增加 **`testnet`**，取值與當前 `exchanges[exchange].testnet` 一致（無交易所條目時回退 Bot 記錄）；`Config.EffectiveTestnetForExchange` 統一邏輯
+- **Web / Bot 列表與詳情**：展示 **測試網 / 實盤** 標籤；i18n 鍵 `botList.envTestnet`、`botList.envLive`（全語言）
+
+---
+
 ## [3.79.8-rc17] - 2026-04-03
 
 ### Fixed
