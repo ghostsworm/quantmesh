@@ -266,6 +266,52 @@ func RegisterSymbolProviders(exchange, symbol string, providers *SymbolScopedPro
 	providersMu.Unlock()
 }
 
+// IsSymbolStatusRegistered 判斷該交易對是否已在 statusBySymbol 中注册（含 market_type，默認 futures）
+func IsSymbolStatusRegistered(exchange, symbol string, marketType ...string) bool {
+	key := makeSymbolKey(exchange, symbol, marketType...)
+	statusMu.RLock()
+	defer statusMu.RUnlock()
+	_, ok := statusBySymbol[key]
+	return ok
+}
+
+// GetRegisteredSystemStatus 返回已注册的运行状態指針（用於避免啟動階段重複 Register）
+func GetRegisteredSystemStatus(exchange, symbol string, marketType ...string) (*SystemStatus, bool) {
+	key := makeSymbolKey(exchange, symbol, marketType...)
+	statusMu.RLock()
+	defer statusMu.RUnlock()
+	st, ok := statusBySymbol[key]
+	return st, ok
+}
+
+// UnregisterSymbolProviders 移除單個交易對的 Web 状態與 provider（Bot 停止時調用）
+func UnregisterSymbolProviders(exchange, symbol string, marketType ...string) {
+	mt := "futures"
+	if len(marketType) > 0 && marketType[0] != "" {
+		mt = marketType[0]
+	}
+	key := makeSymbolKey(exchange, symbol, mt)
+	compatKey := makeSymbolKeyCompat(exchange, symbol)
+
+	statusMu.Lock()
+	if st, ok := statusBySymbol[key]; ok && st != nil {
+		st.Running = false
+	}
+	delete(statusBySymbol, key)
+	delete(statusBySymbol, compatKey)
+	statusMu.Unlock()
+
+	providersMu.Lock()
+	delete(priceProviders, key)
+	delete(exchangeProviders, key)
+	delete(positionProviders, key)
+	delete(riskProviders, key)
+	delete(storageProviders, key)
+	delete(fundingProviders, key)
+	delete(fundingProviders, compatKey)
+	providersMu.Unlock()
+}
+
 // RegisterFundingProvider 單独注册资金费率提供者
 func RegisterFundingProvider(exchange, symbol string, provider FundingMonitorProvider) {
 	if provider == nil {

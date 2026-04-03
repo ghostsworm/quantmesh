@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.8"
+var Version = "3.79.9"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2466,6 +2466,17 @@ func main() {
 				continue
 			}
 			marketType := rt.Config.GetMarketType()
+			if marketType == "" {
+				marketType = "futures"
+			}
+			mapKey := fmt.Sprintf("%s:%s:%s", rt.Config.Exchange, rt.Config.Symbol, marketType)
+			// StartBot 已调用 registerWebSymbolProvidersForRuntime 時避免重複注册與雙重 goroutine
+			if web.IsSymbolStatusRegistered(rt.Config.Exchange, rt.Config.Symbol, marketType) {
+				if st, ok := web.GetRegisteredSystemStatus(rt.Config.Exchange, rt.Config.Symbol, marketType); ok {
+					statusMap[mapKey] = st
+				}
+				continue
+			}
 			status := &web.SystemStatus{
 				Running:       true,
 				Exchange:      rt.Config.Exchange,
@@ -2477,7 +2488,7 @@ func main() {
 				RiskTriggered: false,
 				Uptime:        0,
 			}
-			statusMap[fmt.Sprintf("%s:%s:%s", rt.Config.Exchange, rt.Config.Symbol, marketType)] = status
+			statusMap[mapKey] = status
 
 			web.RegisterSymbolProviders(rt.Config.Exchange, rt.Config.Symbol, &web.SymbolScopedProviders{
 				Status:   status,
@@ -2577,7 +2588,13 @@ func main() {
 
 		if firstRuntime != nil {
 			web.SetDefaultSymbolKey(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol)
-			web.SetStatusProvider(statusMap[fmt.Sprintf("%s:%s", firstRuntime.Config.Exchange, firstRuntime.Config.Symbol)])
+			mt := firstRuntime.Config.GetMarketType()
+			if mt == "" {
+				mt = "futures"
+			}
+			if st, ok := statusMap[fmt.Sprintf("%s:%s:%s", firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, mt)]; ok && st != nil {
+				web.SetStatusProvider(st)
+			}
 			web.SetOrderQuantityConfig(firstRuntime.Config.OrderQuantity)
 		}
 
@@ -3415,6 +3432,110 @@ func startFundingIncomeSync(ctx context.Context, st storage.Storage, ex exchange
 			}
 		}
 	}
+}
+
+// registerWebSymbolProvidersForRuntime 在 Bot 啟動成功後掛接 Web /api/status（熱啟動後與 Bot 詳情「运行中」一致）
+func registerWebSymbolProvidersForRuntime(rt *SymbolRuntime, bc *config.BotConfig, storageSvc *storage.StorageService) {
+	if rt == nil || bc == nil || storageSvc == nil {
+		return
+	}
+	mt := bc.GetMarketType()
+	if mt == "" {
+		mt = "futures"
+	}
+	ex := bc.Exchange
+	sym := bc.Symbol
+	if web.IsSymbolStatusRegistered(ex, sym, mt) {
+		return
+	}
+	status := &web.SystemStatus{
+		Running:       true,
+		Exchange:      ex,
+		Symbol:        sym,
+		MarketType:    mt,
+		CurrentPrice:  0,
+		TotalPnL:      0,
+		TotalTrades:   0,
+		RiskTriggered: false,
+		Uptime:        0,
+	}
+	web.RegisterSymbolProviders(ex, sym, &web.SymbolScopedProviders{
+		Status:   status,
+		Price:    rt.PriceMonitor,
+		Exchange: &exchangeProviderAdapter{exchange: rt.Exchange},
+		Position: web.NewPositionManagerAdapter(rt.SuperPositionManager),
+		Risk:     rt.RiskMonitor,
+		Storage:  web.NewStorageServiceAdapter(storageSvc),
+	}, mt)
+
+	startTime := time.Now()
+	planMgr := web.GetPlanManager()
+	go runSymbolStatusUpdateLoop(rt, status, startTime, storageSvc, planMgr)
+}
+
+// runSymbolStatusUpdateLoop 與啟動時 Web 綁定邏輯一致，在 st.Running=false 或 Unregister 後退出
+func runSymbolStatusUpdateLoop(rt *SymbolRuntime, st *web.SystemStatus, started time.Time, storageSvc *storage.StorageService, planMgr *position.PlanManager) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	dbQueryCounter := 0
+	for range ticker.C {
+		if !st.Running {
+			return
+		}
+		if rt.PriceMonitor != nil {
+			st.CurrentPrice = rt.PriceMonitor.GetLastPrice()
+		}
+		if rt.RiskMonitor != nil {
+			st.RiskTriggered = rt.RiskMonitor.IsTriggered()
+		}
+		if rt.SuperPositionManager != nil {
+			dbQueryCounter++
+			useEstimation := true
+			if storageSvc != nil && storageSvc.GetStorage() != nil {
+				if dbQueryCounter >= 5 || st.TotalPnL == 0 {
+					dbQueryCounter = 0
+					now := utils.NowUTC()
+					allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+					pnlSummary, err := storageSvc.GetStorage().GetPnLBySymbol(rt.Config.Symbol, rt.AccountID, allHistoryStart, now)
+					if err == nil {
+						st.TotalPnL = pnlSummary.TotalPnL
+						st.TotalTrades = pnlSummary.TotalTrades
+						useEstimation = false
+					}
+				} else {
+					useEstimation = false
+				}
+			}
+			if useEstimation {
+				totalBuyQty := rt.SuperPositionManager.GetTotalBuyQty()
+				totalSellQty := rt.SuperPositionManager.GetTotalSellQty()
+				profitSpread := rt.SuperPositionManager.GetProfitSpread()
+				st.TotalPnL = totalSellQty * profitSpread
+				if st.CurrentPrice > 0 {
+					orderQtyInBase := rt.Config.OrderQuantity / st.CurrentPrice
+					if orderQtyInBase > 0 {
+						st.TotalTrades = int((totalBuyQty + totalSellQty) / (orderQtyInBase * 2))
+					}
+				}
+			}
+			if planMgr != nil {
+				currentValue := rt.SuperPositionManager.GetTotalPositionValueUSDT()
+				_ = planMgr.CheckPlanProgress(context.Background(), rt.Config.Exchange, rt.Config.Symbol, currentValue)
+			}
+		}
+		st.Uptime = int64(time.Since(started).Seconds())
+	}
+}
+
+func unregisterWebSymbolProvidersForRuntime(bc *config.BotConfig) {
+	if bc == nil {
+		return
+	}
+	mt := bc.GetMarketType()
+	if mt == "" {
+		mt = "futures"
+	}
+	web.UnregisterSymbolProviders(bc.Exchange, bc.Symbol, mt)
 }
 
 // exchangeProviderAdapter 适配器，將 exchange.IExchange 轉换為 web.ExchangeProvider

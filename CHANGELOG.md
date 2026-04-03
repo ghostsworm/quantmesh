@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.9] - 2026-04-04
+
+### Fixed
+- **Web `/api/status` 與 Bot 詳情不一致**：進程啟動後再通過 UI/API 啟動的 Bot 此前未掛接 `statusBySymbol`，導致儀表盤顯示「幣種未運行」而 Bot 頁為「运行中」。現於 `StartBot` 成功後注册 Web 狀態與 provider，於 `StopBot` 時注销；服務啟動時若已在 `StartBot` 中注册則跳過重複注册，並修正 `SetStatusProvider` 使用含 `market_type` 的鍵。
+
+---
+
 ## [3.79.8] - 2026-04-04
 
 ### Release

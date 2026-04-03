@@ -225,6 +225,10 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 
 	bm.clearStartFailure(botID)
 
+	if bm.storageService != nil {
+		registerWebSymbolProvidersForRuntime(rt, &botCfg, bm.storageService)
+	}
+
 	// 发布启动成功事件
 	bm.eventBus.Publish(&event.Event{
 		Type: event.EventTypeTradingStarted,
@@ -255,6 +259,8 @@ func (bm *BotManager) StopBotWithReason(botID, updatedBy, reason string) error {
 	}
 	delete(bm.runtimes, botID)
 	bm.runtimesMu.Unlock()
+
+	unregisterWebSymbolProvidersForRuntime(&br.Config)
 
 	if br.Inner != nil && br.Inner.Stop != nil {
 		br.Inner.Stop()
