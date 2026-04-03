@@ -209,6 +209,48 @@ func (s *SQLiteStorage) GetAppConfigDocument(ctx context.Context) (*AppConfigDoc
 	return &doc, nil
 }
 
+// SaveAppConfigSnapshot 將完整主配置 JSON 寫入 app_config 並追加 app_config_history（與 MigrateYAMLToAppConfigDB 入庫一致）。
+func SaveAppConfigSnapshot(ctx context.Context, st Storage, cfg *config.Config, operator, source string) (revision int, err error) {
+	if st == nil || cfg == nil {
+		return 0, fmt.Errorf("SaveAppConfigSnapshot: storage 或配置為空")
+	}
+	jsonBytes, err := json.Marshal(cfg)
+	if err != nil {
+		return 0, fmt.Errorf("序列化配置為 JSON: %w", err)
+	}
+	return SaveAppConfigSnapshotFromJSON(ctx, st, jsonBytes, operator, source)
+}
+
+// SaveAppConfigSnapshotFromJSON 將主配置 JSON 寫入 app_config（可含 config.Config 結構體未涵蓋的鍵，例如 security）。
+func SaveAppConfigSnapshotFromJSON(ctx context.Context, st Storage, jsonBytes []byte, operator, source string) (revision int, err error) {
+	if st == nil {
+		return 0, fmt.Errorf("SaveAppConfigSnapshotFromJSON: storage 為空")
+	}
+	if strings.TrimSpace(string(jsonBytes)) == "" {
+		return 0, fmt.Errorf("SaveAppConfigSnapshotFromJSON: JSON 為空")
+	}
+	ss, ok := st.(*SQLiteStorage)
+	if !ok || ss == nil {
+		return 0, fmt.Errorf("SaveAppConfigSnapshotFromJSON: 需要主庫 *SQLiteStorage")
+	}
+	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+		return 0, err
+	}
+	tx, err := ss.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rev, err := upsertAppConfigTx(ctx, tx, ss.dbType, 1, string(jsonBytes), operator, source)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return rev, nil
+}
+
 // upsertAppConfigTx 寫入主配置與歷史（同一事務）
 func upsertAppConfigTx(ctx context.Context, tx *sql.Tx, dbType string, schemaVersion int, contentJSON string, operator, source string) (int, error) {
 	hash := sha256Hex(contentJSON)

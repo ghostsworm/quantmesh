@@ -72,9 +72,6 @@ import {
   getConfig,
   updateConfig,
   previewConfig,
-  getBackups,
-  restoreBackup,
-  deleteBackup,
   getConfigYAML,
   validateConfigYAML,
   updateConfigYAML,
@@ -82,7 +79,6 @@ import {
   generateMasterKey,
   testNotification,
   Config,
-  BackupInfo,
   ConfigDiff,
   type GridRiskControl,
 } from '../services/config'
@@ -100,7 +96,6 @@ import type { PriceRangeData } from '../services/api'
 import AIConfigWizard from './AIConfigWizard'
 import YamlEditor from './YamlEditor'
 import DiffPreviewModal from './DiffPreviewModal'
-import ConfigHistory from './ConfigHistory'
 import ConfirmDialog from './ConfirmDialog'
 import ConfigSaveOptionsModal from './ConfigSaveOptionsModal'
 import type { SymbolTarget } from './ConfigSaveOptionsModal'
@@ -203,10 +198,6 @@ const Configuration: React.FC = () => {
   // Tab control
   const [tabIndex, setTabIndex] = useState(0)
   
-  // Backup management
-  const [backups, setBackups] = useState<BackupInfo[]>([])
-  const [restoringBackup, setRestoringBackup] = useState<string | null>(null)
-  
   // Password visibility
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({})
   
@@ -236,7 +227,6 @@ const Configuration: React.FC = () => {
   const [hotUpdatedSymbols, setHotUpdatedSymbols] = useState<string[]>([])
   
   const { isOpen: isPreviewOpen, onOpen: onPreviewOpen, onClose: onPreviewClose } = useDisclosure()
-  const { isOpen: isBackupsOpen, onOpen: onBackupsOpen, onClose: onBackupsClose } = useDisclosure()
   const { isOpen: isAIWizardOpen, onOpen: onAIWizardOpen, onClose: onAIWizardClose } = useDisclosure()
   const { isOpen: isDiffOpen, onOpen: onDiffOpen, onClose: onDiffClose } = useDisclosure()
   const toast = useToast()
@@ -312,15 +302,6 @@ const Configuration: React.FC = () => {
       setPriceRangeSource('')
     } finally {
       setPriceRangeLoading(false)
-    }
-  }
-
-  const loadBackups = async () => {
-    try {
-      const backupList = await getBackups()
-      setBackups(backupList)
-    } catch (err) {
-      console.error(t('configuration.loadBackupListFailed'), err)
     }
   }
 
@@ -466,7 +447,6 @@ const Configuration: React.FC = () => {
 
   useEffect(() => {
     loadConfig()
-    loadBackups()
     loadSecurityStatus()
   }, [])
 
@@ -757,7 +737,7 @@ const Configuration: React.FC = () => {
   if (loading) return <Center h="400px"><Spinner size="xl" thickness="4px" color="blue.500" /></Center>
   if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />{t('configuration.loadFailed')}</Alert></Container>
 
-  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), t('configuration.globalTabs.security'), t('configuration.globalTabs.yamlEditor'), t('configuration.globalTabs.history')]
+  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), t('configuration.globalTabs.security'), t('configuration.globalTabs.yamlEditor')]
   const symbolTabs = [t('configuration.symbolTabs.tradingParams'), t('configuration.symbolTabs.riskControl'), t('configuration.symbolTabs.aiStrategy')]
 
   const activeTabs = isGlobalView ? globalTabs : symbolTabs
@@ -773,7 +753,6 @@ const Configuration: React.FC = () => {
             </Text>
           </Box>
           <HStack spacing={3}>
-            <Button size="sm" variant="outline" onClick={onBackupsOpen} borderRadius="full">{t('configuration.backupManagement')}</Button>
             <Button size="sm" colorScheme="blue" onClick={handleSave} isLoading={saving} borderRadius="full" px={6}>{t('configuration.saveChanges')}</Button>
           </HStack>
         </Flex>
@@ -1897,21 +1876,6 @@ const Configuration: React.FC = () => {
                   </VStack>
                 )}
 
-                {tabIndex === 6 && (
-                  <VStack spacing={6} align="stretch">
-                    <ConfigCard title={t('configuration.configHistoryTitle')} icon={<RepeatIcon />}>
-                      <Text fontSize="sm" color="gray.500" mb={4}>
-                        {t('configuration.configHistoryDesc')}
-                      </Text>
-                      <ConfigHistory
-                        onRestore={() => {
-                          loadConfig()
-                          loadYamlContent()
-                        }}
-                      />
-                    </ConfigCard>
-                  </VStack>
-                )}
               </>
             ) : (
               <>
@@ -2952,33 +2916,6 @@ const Configuration: React.FC = () => {
               <Button variant="ghost" mr={3} onClick={onPreviewClose}>{t('configuration.cancel')}</Button>
               <Button colorScheme="blue" onClick={handleSave} isLoading={saving}>{t('configuration.confirmSave')}</Button>
             </ModalFooter>
-          </ModalContent>
-        </Modal>
-
-        {/* Backups Modal */}
-        <Modal isOpen={isBackupsOpen} onClose={onBackupsClose} size="lg">
-          <ModalOverlay backdropFilter="blur(4px)" />
-          <ModalContent borderRadius="2xl">
-            <ModalHeader>{t('configuration.backupManagementTitle')}</ModalHeader>
-            <ModalCloseButton />
-            <ModalBody>
-              <TableContainer>
-                <Table variant="simple" size="sm">
-                  <Thead><Tr><Th>{t('configuration.time')}</Th><Th>{t('configuration.size')}</Th><Th>{t('configuration.action')}</Th></Tr></Thead>
-                  <Tbody>
-                    {backups.map((b) => (
-                      <Tr key={b.id}>
-                        <Td>{new Date(b.timestamp).toLocaleString()}</Td>
-                        <Td>{(b.size / 1024).toFixed(1)}KB</Td>
-                        <Td>
-                          <Button size="xs" variant="link" colorScheme="blue" onClick={() => {}}>{t('configuration.restore')}</Button>
-                        </Td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
-              </TableContainer>
-            </ModalBody>
           </ModalContent>
         </Modal>
 

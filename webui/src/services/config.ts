@@ -517,14 +517,6 @@ export interface ConfigDiff {
 }
 
 // 备份信息
-export interface BackupInfo {
-  id: string
-  timestamp: string
-  file_path: string
-  size: number
-  description?: string
-}
-
 // 獲取當前配置（YAML格式）
 export async function getConfigYAML(): Promise<string> {
   const response = await fetch(`${window.location.origin}/api/config`, {
@@ -560,96 +552,12 @@ export async function previewConfig(config: Config): Promise<ConfigDiff> {
 // 更新配置
 export async function updateConfig(config: Config): Promise<{
   message: string
-  backup_id?: string
   diff?: ConfigDiff
   requires_restart: boolean
 }> {
   return fetchWithAuth(`${window.location.origin}/api/config/update`, {
     method: 'POST',
     body: JSON.stringify(config),
-  })
-}
-
-// 獲取备份列表
-export async function getBackups(): Promise<BackupInfo[]> {
-  const data = await fetchWithAuth(`${window.location.origin}/api/config/backups`)
-  return data.backups || []
-}
-
-// 恢複备份
-export async function restoreBackup(backupId: string): Promise<{ message: string; backup_id: string }> {
-  return fetchWithAuth(`${window.location.origin}/api/config/restore/${backupId}`, {
-    method: 'POST',
-  })
-}
-
-// 刪除备份
-export async function deleteBackup(backupId: string): Promise<{ message: string; backup_id: string }> {
-  return fetchWithAuth(`${window.location.origin}/api/config/backup/${backupId}`, {
-    method: 'DELETE',
-  })
-}
-
-// ========== 配置历史 API ==========
-
-// 配置历史列表项
-export interface ConfigHistoryItem {
-  id: number
-  version: number
-  description: string
-  created_at: string
-  created_by: string
-  size: number
-}
-
-// 配置历史详情
-export interface ConfigHistoryDetail {
-  id: number
-  version: number
-  content: string
-  description: string
-  created_at: string
-  created_by: string
-}
-
-// 版本對比响应
-export interface HistoryDiffResponse {
-  source_version: number
-  target_version: number
-  source_content: string
-  target_content: string
-  source_time: string
-  target_time: string
-}
-
-// 獲取配置历史列表
-export async function getConfigHistory(limit = 50, offset = 0): Promise<{
-  histories: ConfigHistoryItem[]
-  total: number
-}> {
-  return fetchWithAuth(`${window.location.origin}/api/config/history?limit=${limit}&offset=${offset}`)
-}
-
-// 獲取指定版本的配置历史
-export async function getConfigHistoryDetail(version: number): Promise<ConfigHistoryDetail> {
-  return fetchWithAuth(`${window.location.origin}/api/config/history/${version}`)
-}
-
-// 恢複到指定历史版本
-export async function restoreConfigHistory(version: number): Promise<{ message: string; version: number }> {
-  return fetchWithAuth(`${window.location.origin}/api/config/history/${version}/restore`, {
-    method: 'POST',
-  })
-}
-
-// 對比两個版本
-export async function diffConfigHistory(sourceVersion: number, targetVersion: number): Promise<HistoryDiffResponse> {
-  return fetchWithAuth(`${window.location.origin}/api/config/history/diff`, {
-    method: 'POST',
-    body: JSON.stringify({
-      source_version: sourceVersion,
-      target_version: targetVersion,
-    }),
   })
 }
 
@@ -711,7 +619,6 @@ export async function testNotification(
 // 更新配置（YAML 格式）
 export async function updateConfigYAML(yamlContent: string): Promise<{
   message: string
-  backup_id?: string
   changes_count: number
   requires_restart: boolean
 }> {

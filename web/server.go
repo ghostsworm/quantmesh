@@ -392,19 +392,11 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.POST("/config/test-notification", testNotificationHandler)
 			protected.GET("/config/security/status", getConfigSecurityStatusHandler)
 			protected.POST("/config/security/generate-key", postConfigSecurityGenerateKeyHandler)
-			protected.GET("/config/backups", getBackupsHandler)
-			protected.POST("/config/restore/:backup_id", restoreBackupHandler)
-			protected.DELETE("/config/backup/:backup_id", deleteBackupHandler)
 
 			// 配置历史API
-			protected.GET("/config/history", getConfigHistoryListHandler)
-			protected.GET("/config/history/:version", getConfigHistoryHandler)
-			protected.POST("/config/history/:version/restore", restoreConfigHistoryHandler)
-			protected.POST("/config/history/diff", diffConfigHistoryHandler)
 
 			// 數據導出 API
 			protected.GET("/export/config", exportConfigHandler)
-			protected.GET("/export/config/history/:version", exportConfigHistoryHandler)
 			protected.GET("/export/trades", exportTradesHandler)
 			protected.GET("/export/orders", exportOrdersHandler)
 			protected.GET("/export/positions", exportPositionsHandler)

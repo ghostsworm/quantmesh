@@ -67,12 +67,6 @@ export async function exportConfig(): Promise<void> {
   await downloadFile(url, 'config.yaml')
 }
 
-// 導出歷史配置
-export async function exportConfigHistory(version: number): Promise<void> {
-  const url = `${API_BASE_URL}/export/config/history/${version}`
-  await downloadFile(url, `config_v${version}.yaml`)
-}
-
 // 導出交易歷史
 export async function exportTrades(params: ExportParams = {}): Promise<void> {
   const query = buildQueryString(params)

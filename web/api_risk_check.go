@@ -3,7 +3,6 @@ package web
 import (
 	"math"
 	"net/http"
-	"os"
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
@@ -294,19 +293,6 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 	if err := fileConfigManager.UpdateConfig(&newConfig); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存加固配置失败: " + err.Error()})
 		return
-	}
-
-	// 保存到历史
-	if configHistoryMgr != nil {
-		configPath := "config.yaml" // 默认配置文件路径
-		if fileConfigManager != nil {
-			configPath = fileConfigManager.GetConfigPath()
-		}
-		currentContent, err := os.ReadFile(configPath)
-		if err == nil {
-			description := "通過 Web UI 執行新手安全加固"
-			_, _ = configHistoryMgr.SaveHistory(string(currentContent), description, "web")
-		}
 	}
 
 	// 热更新

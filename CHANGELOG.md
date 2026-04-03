@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc20] - 2026-04-03
+
+### Breaking
+- **主配置持久化**：移除磁盤 **`config.yaml` 作為權威來源**、**`backups/`**、**`config_history.db`** 及相關 REST（`/api/config/backups`、`/api/config/history*`、`GET /api/export/config/history/:version` 等）。主配置僅經 **`app_config` / `app_config_history`**（主庫）持久化；Web 仍支援 **YAML 編輯**（序列化自內存，不落盤為固定文件名）。
+- **啟動參數**：未傳命令行 YAML 路徑時，僅從主庫或引導加載；**不再自動寫入最小 `config.yaml`**。可選第一參數為一次性 YAML 路徑；`--migrate-app-config` 需 **`QUANTMESH_IMPORT_YAML`**、命令行路徑或當前目錄存在 **`config.yaml`**。
+
+### Added
+- **`storage.SaveAppConfigSnapshotFromJSON`**：寫入含擴展鍵（如 `security`）的完整 JSON 快照。
+
+---
+
 ## [3.79.8-rc19] - 2026-04-03
 
 ### Changed
