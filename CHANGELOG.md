@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc26] - 2026-04-03
+
+### Docs / scripts
+- **主倉庫鏈接**：**`plugin/`**、**`docs/reports/IMPLEMENTATION_SUMMARY.md`**、**`docs/i18n/README.{pt,es,fr}.md`**、**`docs/PRODUCTION_DEPLOYMENT.md`**、**`scripts/create_plugin.sh`** 等處的 clone / Issues 統一為 **`ghostsworm/quantmesh`**，目錄名 **`quantmesh`**（移除過時的 **`quantmesh_market_maker`** / 錯誤 org）。
+- **路徑拼寫**：示例與部署腳本中的 **`/root/quntmesh`** 更正為 **`/root/quantmesh`**（**`docs/SSH_TUNNEL_ACCESS.md`**、**`docs/CONFIG_TIERED_LIMITS.md`**、**`scripts/DEPLOY_GIT_README.md`**、**`scripts/deploy-git.sh`**、**`scripts/emergency_security_check.sh`**）；**`CHANGELOG`** 舊條目改為說明歷史誤拼 **`quntmesh`** 的遷移語義。
+
+---
+
 ## [3.79.8-rc25] - 2026-04-03
 
 ### Docs / i18n
@@ -3123,7 +3131,7 @@
   - 自動安裝二進位檔到 `/opt/quantmesh`
   - 自動設定 systemd 服務
   - 智慧處理配置檔案（保留/覆蓋/備份）
-  - 支援從舊路徑 `/root/quntmesh` 遷移資料
+  - 支援從舊路徑遷移資料（歷史誤拼目錄名 `quntmesh` 亦會處理）
   - 建立 quantmesh 使用者並設定安全權限
 
 ### Changed

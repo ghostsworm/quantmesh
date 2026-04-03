@@ -69,7 +69,7 @@ ssh quantmesh
 
 ### 服务器配置
 
-文件（若使用磁盘导入副本；权威在 **`app_config`**）：`/root/quntmesh/config.yaml`
+文件（若使用磁盘导入副本；权威在 **`app_config`**）：`/root/quantmesh/config.yaml`
 
 ```yaml
 web:
@@ -139,7 +139,7 @@ curl http://localhost:28888/api/version
 ```bash
 # 1. 修改配置
 ssh root@facev.app
-cd /root/quntmesh
+cd /root/quantmesh
 sed -i 's/host: 127.0.0.1/host: 0.0.0.0/' config.yaml  # 改后需 migrate 或 Web 保存
 
 # 2. 重启服务
@@ -181,7 +181,7 @@ ssh root@facev.app "systemctl status quantmesh"
 ### 查看日志
 
 ```bash
-ssh root@facev.app "tail -f /root/quntmesh/logs/quantmesh.log"
+ssh root@facev.app "tail -f /root/quantmesh/logs/quantmesh.log"
 ```
 
 ### 重启服务

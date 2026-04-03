@@ -20,7 +20,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 工作目录
-WORK_DIR="/root/quntmesh"
+WORK_DIR="/root/quantmesh"
 cd "$WORK_DIR" || {
     echo -e "${RED}❌ 无法进入工作目录: $WORK_DIR${NC}"
     exit 1

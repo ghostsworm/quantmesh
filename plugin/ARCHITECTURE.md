@@ -184,7 +184,7 @@ SignalPlugin (信号插件)
 ### 文件结构
 
 ```
-quantmesh_market_maker/
+quantmesh/
 ├── main.go                      # 主程序入口
 ├── （可选）导入用 YAML           # 非固定名；权威在主库 app_config
 │

@@ -40,7 +40,7 @@ position_allocation:
 ssh root@facev.app
 
 # 2. 备份配置文件
-cd /root/quntmesh
+cd /root/quantmesh
 cp config.yaml config.yaml.backup.$(date +%Y%m%d_%H%M%S)
 
 # 3. 编辑配置文件
@@ -57,7 +57,7 @@ journalctl -u quantmesh -f | grep "资金分配"
 
 ### 方法二：使用脚本批量修改
 
-创建修改脚本 `/root/quntmesh/update_limits.sh`：
+创建修改脚本 `/root/quantmesh/update_limits.sh`：
 
 ```bash
 #!/bin/bash
@@ -71,7 +71,7 @@ LOSS_USD=500           # 亏损触发阈值
 PRICE_RECOVER=5        # 价格恢复阈值
 COOLDOWN=300           # 冷却时间
 
-cd /root/quntmesh
+cd /root/quantmesh
 
 # 备份
 cp config.yaml config.yaml.backup.$(date +%Y%m%d_%H%M%S)
@@ -116,7 +116,7 @@ journalctl -u quantmesh --since "10 seconds ago" | grep "资金分配"
 
 ```bash
 # 赋予执行权限
-chmod +x /root/quntmesh/update_limits.sh
+chmod +x /root/quantmesh/update_limits.sh
 
 # 执行脚本
 ./update_limits.sh
@@ -338,17 +338,17 @@ systemctl restart quantmesh
 ## 配置与备份位置（权威）
 
 - **运行时权威**：主库表 **`app_config`**（路径取决于 `database.dsn` / `storage`，常见为 `data/quantmesh.db`）。
-- **可选磁盘 YAML**：如 `/root/quntmesh/config.yaml`，仅作导入或人机编辑副本；**非**固定 SSOT 文件名。
+- **可选磁盘 YAML**：如 `/root/quantmesh/config.yaml`，仅作导入或人机编辑副本；**非**固定 SSOT 文件名。
 - **灾备**：以 **数据库备份** +（可选）**导出的 YAML** 为主；若仍保留 `config.yaml.backup.*` 可一并纳入。
 
 ## 相关命令（节选）
 
 ```bash
 # 若存在导入/编辑用 YAML
-cat /root/quntmesh/config.yaml | grep -A 20 "position_allocation"
+cat /root/quantmesh/config.yaml | grep -A 20 "position_allocation"
 
 # 备份磁盘 YAML（若使用）
-cp /root/quntmesh/config.yaml /root/quntmesh/config.yaml.backup.$(date +%Y%m%d_%H%M%S)
+cp /root/quantmesh/config.yaml /root/quantmesh/config.yaml.backup.$(date +%Y%m%d_%H%M%S)
 
 # 重启服务（Web 保存的配置一般已入库；纯改文件需配合迁移或 Web）
 systemctl restart quantmesh
