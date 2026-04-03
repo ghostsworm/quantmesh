@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc19] - 2026-04-03
+
+### Changed
+- **啟動 / 無 config.yaml**：`LoadConfigFromAppConfigDBIfExists` 在本地 SQLite 無有效 `app_config` 快照時，若已設置 **`QUANTMESH_DATABASE_DSN`**（MySQL），會再從 **MySQL `app_config`** 加載，便於純 RDS 部署、不再依賴 `./data/quantmesh.db` 做啟動引導
+
+---
+
 ## [3.79.8-rc18] - 2026-04-03
 
 ### Added
