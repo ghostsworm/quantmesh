@@ -44,7 +44,7 @@
 
 ## ⚙️ 配置系统使用模拟盘
 
-创建好模拟盘 API Key 后，在 `config.yaml` 中配置：
+创建好模拟盘 API Key 后，在主配置（Web / 导入 YAML）中配置：
 
 ```yaml
 exchanges:
@@ -115,7 +115,7 @@ x-simulated-trading: 1
 ### Q2: 创建了 API Key，但系统显示"实盘模式"？
 
 **A**: 
-- 检查 `config.yaml` 中 `testnet: true` 是否设置正确
+- 检查主配置中 `testnet: true` 是否设置正确（Web 或 `app_config`）
 - 确认使用的是模拟盘 API Key（不是实盘 API Key）
 - 查看日志确认配置是否生效
 

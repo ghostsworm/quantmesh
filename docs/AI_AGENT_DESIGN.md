@@ -724,7 +724,7 @@ User: 应用
 
 Agent: ✓ 配置已应用！
 
-策略已保存到: bots/smart_grid_btctestnet/config.yaml
+策略已保存到: bots/smart_grid_btctestnet/config.yaml（Bot 级路径示例；主配置权威见 app_config）
 
 您可以：
 1. 查看配置详情

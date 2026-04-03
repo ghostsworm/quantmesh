@@ -44,7 +44,7 @@ QuantMesh 已针对 MySQL 8.0+ 进行了优化，支持以下特性：
 
 ### 基本配置
 
-在 `config.yaml` 中添加 MySQL 8 配置：
+在主配置（Web / **`app_config`** / 导入 YAML）中添加 MySQL 8 配置：
 
 ```yaml
 database:

@@ -303,10 +303,10 @@ curl https://instance-abc123.quantmesh.cloud/api/export/trades \
   -H "Authorization: Bearer YOUR_TOKEN" \
   > trades.csv
 
-# 导出配置
+# 导出配置（YAML，人机可读；与主库 app_config 对应）
 curl https://instance-abc123.quantmesh.cloud/api/export/config \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  > config.yaml
+  > quantmesh-config-export.yaml
 ```
 
 ### Q: 支持哪些交易所?

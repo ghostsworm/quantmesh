@@ -308,7 +308,7 @@ journalctl -u quantmesh | grep "恢复正常限额"
 ### 手动调整限额
 
 如果需要手动调整限额，可以：
-1. 修改 `config.yaml` 中的配置
+1. 在 **Web** 或主配置中修改（或改导入 YAML 后执行 `--migrate-app-config`）
 2. 重启服务：`systemctl restart quantmesh`
 
 ## 常见问题

@@ -68,7 +68,7 @@ conn_max_lifetime: 3600s
 
 ## 🔧 配置示例
 
-### config.yaml 配置
+### 主配置（YAML / app_config）中的数据库配置
 ```yaml
 database:
   type: mysql

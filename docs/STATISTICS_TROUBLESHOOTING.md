@@ -92,7 +92,8 @@ CREATE TABLE trades (
 
 ```bash
 # 查看配置文件
-cat config.yaml | grep -A 5 "trading:"
+# 若有导入用 YAML：cat my-import.yaml | grep -A 5 "trading:"
+# 或从 Web / app_config 核对 trading 段
 ```
 
 确认以下配置：

@@ -61,7 +61,7 @@ if len(storageMetrics) > maxDataPoints {
 
 ## 配置建议
 
-确保 `config.yaml` 中的清理配置正确：
+确保主配置（Web / **`app_config`** / 导入 YAML）中的清理配置正确：
 
 ```yaml
 watchdog:

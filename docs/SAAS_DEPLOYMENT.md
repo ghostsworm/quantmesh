@@ -193,7 +193,7 @@ func (m *InstanceManager) CreateInstance(userID, plan string) (*Instance, error)
     // 2. 分配资源
     resources := m.allocateResources(plan)
 
-    // 3. 生成配置文件
+    // 3. 生成每实例导入用 YAML（路径示例；运行权威在 app_config）
     configPath := fmt.Sprintf("/data/instances/%s/config.yaml", instanceID)
     if err := m.generateConfig(userID, configPath); err != nil {
         return nil, err

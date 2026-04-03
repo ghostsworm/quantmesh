@@ -112,7 +112,7 @@ func (ec *EventCenter) IsRunning() bool {
 ## 配置说明
 
 ### 配置文件
-`config.yaml` 中的 `event_center.enabled` 字段控制系统启动时的默认状态：
+主配置（Web / **`app_config`** / 导入 YAML）中的 `event_center.enabled` 字段控制系统启动时的默认状态：
 
 ```yaml
 event_center:

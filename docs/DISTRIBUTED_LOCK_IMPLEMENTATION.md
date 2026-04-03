@@ -188,6 +188,8 @@ distributed_lock:
 
 ## 📖 使用指南
 
+> **说明**：`./quantmesh <path/to.yaml>` 表示 **首个参数为 YAML 路径**（加载/导入）；运行期主配置权威在 **`app_config`**，与 `docs/config-database-design.md` 一致。
+
 ### 单机模式（默认）
 
 无需任何修改，直接启动：
@@ -203,7 +205,7 @@ distributed_lock:
    docker run -d --name redis -p 6379:6379 redis:7-alpine
    ```
 
-2. **修改配置文件**:
+2. **在主配置（Web / `app_config` / 导入 YAML）中启用**，例如：
    ```yaml
    distributed_lock:
        enabled: true
@@ -244,7 +246,7 @@ distributed_lock:
 - `symbol_manager.go` - 传递锁实例给组件
 - `main.go` - 初始化分布式锁
 - `config/config.go` - 添加锁配置
-- `config.yaml` - 添加默认锁配置
+- 主配置文档（或示例 YAML）中的 `distributed_lock` 段
 - `metrics/prometheus.go` - 添加锁监控指标
 
 ## ⚠️ 注意事项

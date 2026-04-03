@@ -199,9 +199,10 @@ license-server/                          # License 验证服务器
 git clone https://github.com/quantmesh/quantmesh_market_maker.git
 cd quantmesh_market_maker
 
-# 配置
-cp config.example.yaml config.yaml
-vim config.yaml
+# 配置模板（导入后权威在 app_config）
+cp config.example.yaml my-import.yaml
+vim my-import.yaml
+./quantmesh --migrate-app-config my-import.yaml
 
 # 构建
 go build -o quantmesh main.go

@@ -137,14 +137,16 @@ docker buildx build --platform linux/amd64,linux/arm64 -t quantmesh/market-maker
 
 ### 运行容器
 
+> **说明**：仅挂载 `config.yaml` 而不传首参时，进程**不会**自动读取该文件；需 `command: ["/app/quantmesh", "/app/config.yaml"]` 或事先 `--migrate-app-config` 写入 `app_config` 并挂 `./data`。
+
 ```bash
-# 基本运行
+# 基本运行（示例：首参传入挂载的 YAML）
 docker run -d \
   --name quantmesh \
   -p 28888:28888 \
-  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v $(pwd)/data:/app/data \
-  quantmesh/market-maker:latest
+  quantmesh/market-maker:latest /app/config.yaml
 
 # 使用 Docker Compose
 docker-compose up -d
@@ -168,7 +170,7 @@ services:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./backups:/app/backups
+    # 可选：command: ["/app/quantmesh", "/app/config.yaml"]
     environment:
       - TZ=Asia/Shanghai
     healthcheck:

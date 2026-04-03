@@ -160,7 +160,7 @@ func (mm *MemoryManager) getGCStats() map[string]interface{} {
 
 **实现方式**:
 ```go
-// 在 config.yaml 中添加配置
+// 在主配置（app_config / 导入 YAML）中添加
 memory:
   channel_buffers:
     event_bus: 1000      # 事件总线缓冲区
@@ -553,7 +553,7 @@ func logf(level LogLevel, format string, args ...interface{}) {
 
 ## 五、配置建议
 
-在 `config.yaml` 中添加以下配置：
+在主配置（Web / `app_config` / 导入 YAML）中添加以下配置：
 
 ```yaml
 memory:

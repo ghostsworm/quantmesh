@@ -21,9 +21,11 @@
 
 ## 🚀 快速开始
 
+主配置权威在 **`app_config`**；以下片段可粘贴到 **Web** 或 **导入用 YAML**。
+
 ### 1. 配置 OKX 交易所
 
-编辑 `config.yaml` 文件：
+在导入 YAML 或 Web 中配置：
 
 ```yaml
 app:
@@ -46,7 +48,7 @@ trading:
 
 ### 2. 配置 Bybit 交易所
 
-编辑 `config.yaml` 文件：
+在导入 YAML 或 Web 中配置：
 
 ```yaml
 app:

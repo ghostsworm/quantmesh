@@ -2092,8 +2092,9 @@ go mod download
 # 编译
 go build -o quantmesh cmd/quantmesh/main.go
 
-# 运行
-./quantmesh --config config.yaml
+# 运行（首参为可选 YAML 路径；主配置权威见 app_config）
+./quantmesh
+# 或: ./quantmesh ./my-import.yaml
 ```
 
 - **Go 编译**
