@@ -28,8 +28,8 @@ show_help() {
     echo "  -h, --help     显示此帮助信息"
     echo ""
     echo "示例:"
-    echo "  $0                    # 使用默认配置文件 config.yaml"
-    echo "  $0 config.yaml        # 使用指定配置文件"
+    echo "  $0                    # 默认路径 config.yaml；文件可不存在（从主库 app_config 加载）"
+    echo "  $0 config.yaml        # 显式指定配置文件路径"
     echo "  $0 -f                 # 强制重新编译"
     echo "  $0 --api-only         # 仅重启 API，不碰前端"
     echo ""
@@ -88,26 +88,13 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 检查配置文件
+# 配置文件：可缺失。缺失时由主程序从 SQLite 主库 app_config 加载（需 .env 中 QUANTMESH_SQLITE_PATH 或默认 ./data/quantmesh.db）
 if [ ! -f "${SCRIPT_DIR}/${CONFIG_FILE}" ]; then
-    log_error "配置文件不存在: ${CONFIG_FILE}"
-    if [ -f "${SCRIPT_DIR}/config.example.yaml" ]; then
-        log_warn "发现示例配置文件: config.example.yaml"
-        log_info "是否要复制为 ${CONFIG_FILE}？(y/n)"
-        read -r answer
-        if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
-            cp "${SCRIPT_DIR}/config.example.yaml" "${SCRIPT_DIR}/${CONFIG_FILE}"
-            log_info "✅ 已复制示例配置文件为 ${CONFIG_FILE}"
-            log_warn "⚠️  请先编辑 ${CONFIG_FILE} 配置交易所API密钥等信息，然后重新运行此脚本"
-            exit 0
-        else
-            log_error "请先创建配置文件 ${CONFIG_FILE}"
-            log_info "提示: cp config.example.yaml ${CONFIG_FILE}"
-            exit 1
-        fi
+    log_warn "未找到 ${CONFIG_FILE}，将依赖主库 app_config（首次可在 Web 中完成配置）"
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        log_info "已检测到 .env；请确认其中 QUANTMESH_SQLITE_PATH 指向主库 SQLite"
     else
-        log_error "请先创建配置文件 ${CONFIG_FILE}"
-        exit 1
+        log_warn "未找到 .env，主程序将使用默认主库路径 ./data/quantmesh.db（可复制 .env.example 为 .env）"
     fi
 fi
 
