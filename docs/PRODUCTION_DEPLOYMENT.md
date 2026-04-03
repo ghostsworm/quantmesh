@@ -54,7 +54,7 @@ make build
 # 复制二进制文件
 sudo cp quantmesh /opt/quantmesh/
 
-# 复制配置文件
+# 复制示例模板（仅作首次导入用；运行权威在主库 app_config）
 sudo cp config.example.yaml /opt/quantmesh/config.yaml
 
 # 复制脚本
@@ -66,9 +66,19 @@ sudo chmod +x /opt/quantmesh/quantmesh
 sudo chmod +x /opt/quantmesh/scripts/*.sh
 ```
 
-### 4. 配置文件
+### 4. 配置文件（导入主库）
 
-编辑 `/opt/quantmesh/config.yaml`：
+编辑 `/opt/quantmesh/config.yaml`（或任意路径的 YAML），填好密钥与策略后，**首次**将内容写入主库（需能打开 `data/quantmesh.db` 等存储）：
+
+```bash
+cd /opt/quantmesh
+sudo -u quantmesh env QUANTMESH_IMPORT_YAML=/opt/quantmesh/config.yaml ./quantmesh --migrate-app-config
+# 或：sudo -u quantmesh ./quantmesh --migrate-app-config /opt/quantmesh/config.yaml
+```
+
+之后进程优先从 **`app_config`** 加载；可保留该 YAML 作人机可读备份，但非 SSOT。详见 `docs/config-database-design.md`。
+
+示例 YAML 片段：
 
 ```yaml
 app:
@@ -405,8 +415,8 @@ VACUUM;
    # 查看日志
    sudo journalctl -u quantmesh -n 100
    
-   # 检查配置
-   /opt/quantmesh/quantmesh --config=/opt/quantmesh/config.yaml --check-config
+   # 若需验证 YAML 可被解析，可临时以首参加载（会按实现尝试迁移/启动；生产请以 systemd 与主库为准）
+   # /opt/quantmesh/quantmesh /opt/quantmesh/config.yaml
    
    # 检查端口占用
    sudo lsof -i :28888
@@ -464,8 +474,7 @@ sudo systemctl stop quantmesh
 # 3. 替换二进制文件
 sudo cp quantmesh /opt/quantmesh/
 
-# 4. 检查配置兼容性
-/opt/quantmesh/quantmesh --config=/opt/quantmesh/config.yaml --check-config
+# 4. 检查：查看 journalctl；必要时用 Web 或导出接口核对 app_config；勿使用已废弃的 --config 标志
 
 # 5. 启动服务
 sudo systemctl start quantmesh

@@ -174,16 +174,16 @@ flowchart TB
 
 ---
 
-## 7. 从 `config.yaml` 迁移
+## 7. 从 YAML 文件迁移（`--migrate-app-config`）
 
-**触发条件**（示例）：`app_config` 为空且检测到 `CONFIG_PATH` 指向的 yaml 存在，或显式子命令 `quantmesh migrate-config`。
+**触发条件**（示例）：显式执行 `./quantmesh --migrate-app-config`，且 YAML 路径来自 **命令行第一参数**、环境变量 `QUANTMESH_IMPORT_YAML`，或工作目录下存在 `config.yaml`（与 [`main.go`](../main.go) 一致）。
 
 **步骤**：
 
 1. `yaml.ReadFile` → 已有逻辑可用 **与 `LoadConfig` 相同** 的解析路径得到 `*Config`（含解密若启用）。
 2. `json.Marshal(cfg)` → 写入 `app_config`（`schema_version` 初始为 1，`revision=1`）。
-3. **幂等**：若 `app_config` 已有 `revision>0` 且非 `FORCE`，则跳过或仅校验 hash。
-4. **归档**：将原 `config.yaml` 重命名为 `config.yaml.imported.<timestamp>.bak`（或移入 [`config/backup`](../config/backup.go) 同类目录），避免双源。
+3. **幂等**：若 `app_config` 已有 `revision>0` 且非 `FORCE`，则跳过或仅校验 hash（需 `QUANTMESH_MIGRATE_APP_CONFIG_FORCE=1` 覆盖）。
+4. **归档**：将原 YAML 重命名为带时间戳的备份名（与 [`config.RenameConfigYAMLToBackup`](../config/config.go) 一致），避免双源。
 
 **Bot 目录 `bots/{bot_id}/config.yaml`**（首版即迁移）：
 
@@ -198,7 +198,7 @@ flowchart TB
 
 目标：**用户无需手动执行** `--migrate-app-config`，在「仍使用 YAML 单机部署」的典型场景下，**首次启动**自动完成：可选生成 `.env`、自动入库、自动归档 YAML。
 
-**二次启动（磁盘已无 `config.yaml`）**：`main` 在检测到配置文件不存在时，会按 `QUANTMESH_SQLITE_PATH`（默认 `./data/quantmesh.db`）调用 `LoadConfigFromAppConfigDBIfExists`；若库中有有效 `app_config` 快照则直接加载，否则仍创建最小化向导 `config.yaml`。
+**二次启动（未再传入 YAML 首参）**：`main` 在未指定命令行 YAML 路径时，按 `QUANTMESH_SQLITE_PATH`（默认 `./data/quantmesh.db`）调用 `LoadConfigFromAppConfigDBIfExists`；若库中有有效 `app_config` 快照则直接加载，否则在内存中使用 [`CreateMinimalConfig`](../config/config.go)（**不**强制在磁盘写入 `config.yaml`）。
 
 #### 建议触发条件（同时满足才自动迁移）
 
@@ -221,8 +221,8 @@ flowchart TB
 #### 自动迁移与 YAML 归档顺序（建议同一事务/同一临界区）
 
 1. 调用与现有一致的 **`MigrateYAMLToAppConfigDB`**（`source` 记为 `auto_startup` / `auto_migrate`）。
-2. **仅当第 1 步提交成功** 后，将 **`config.yaml` 重命名** 为例如：  
-   `config.yaml.migrated.<UTC时间戳>.bak`（与 [`config/backup`](../config/backup.go) 命名风格一致亦可）。
+2. **仅当第 1 步提交成功** 后，将 **源 YAML** 重命名为例如：  
+   `config.yaml.migrated.<UTC时间戳>.bak`（与 [`RenameConfigYAMLToBackup`](../config/config.go) 一致）。
 3. **可选**：对每个已导入的 `bots/<id>/config.yaml` 同样重命名为 `.migrated.<ts>.bak`，避免双源；若希望保留文件副本供人类编辑，可只改主配置、Bot 仅入库不删文件（产品二选一，须在发行说明写清）。
 
 #### 自动迁移后的启动路径
@@ -254,7 +254,7 @@ flowchart TB
 | `QUANTMESH_USE_APP_CONFIG=0` | 禁用启动时从 `app_config` 覆盖内存配置 |
 | `QUANTMESH_MIGRATE_APP_CONFIG_FORCE=1` | 允许迁移覆盖已有 `app_config` |
 
-- **主配置 Web/API**：现有 [`SaveConfig` 写文件](../web/api_config.go) 改为 **事务内**：`INSERT app_config_history`（上一版或新快照）→ `UPDATE app_config`（`revision` 递增）；不匹配则 `409 Conflict`（后续 Phase B）。
+- **主配置 Web/API**：保存路径以 **主库** `app_config` / `app_config_history` 为准（见 [`SaveAppConfigSnapshot`](../storage/app_config_document.go)）；不匹配 `revision` 时返回 `409 Conflict`（按实现为准）。
 - **Bot 配置 API**：按 `bot_id` 更新 **`bot_configs`**，同一事务内 **`INSERT bot_config_history`**，携带客户端 `revision` 乐观锁。
 - **导出/下载**：可将主配置与各 Bot 序列化为 YAML **仅供人类阅读/灾备**，不作为 SSOT。
 - **热更新**：保存成功后广播内部事件或依赖现有配置重载钩子（实现时对照 `main` 与 web 层已有 reload 点）。
@@ -264,7 +264,7 @@ flowchart TB
 ## 9. 开发与灾备
 
 - **本地无 DB**：可选 `CONFIG_JSON_FILE` 指向单文件 JSON，仅开发用；生产禁用或只读。
-- **备份**：定期导出 `app_config` JSON；**Bot** 侧导出 `bot_configs` 全表或按 `bot_id`；历史表可按保留策略归档（例如仅保留最近 N 条或按时间分区）。与现有配置备份策略对齐 [`config/backup.go`](../config/backup.go)。
+- **备份**：定期导出 `app_config` JSON；**Bot** 侧导出 `bot_configs` 全表或按 `bot_id`；历史表可按保留策略归档（例如仅保留最近 N 条或按时间分区）。与运维侧数据库/文件备份策略对齐（不再依赖已移除的独立配置备份模块）。
 
 ---
 
@@ -285,7 +285,7 @@ flowchart TB
 **分支**：全程在 **功能分支**（见第 1.3 节）开发，合并前完成迁移与回滚演练。
 
 - **Phase A（核心）**：`app_config` + **`app_config_history`**；`bot_configs` + **`bot_config_history`**；`storage` 迁移；启动从 DB 组装配置；**主配置 + Bot YAML** 迁移命令（幂等）；历史写入与主表同一事务。
-- **Phase B**：替换所有 [`SaveConfig(..., config.yaml)`](../web/api_capital.go) 及 Bot 文件写入路径；**前端**主配置与 Bot 编辑对接 `revision`；必要时提供「按 Bot 历史回滚」API。
+- **Phase B**：收敛仍写本地文件的遗留路径（若有）；**前端**主配置与 Bot 编辑对接 `revision`；必要时提供「按 Bot 历史回滚」API。
 - **Phase C**：收敛 `system_settings` 中与主配置重复的 JSON key；清理文档与示例；历史表保留策略与运维说明。
 
 ---

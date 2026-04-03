@@ -165,20 +165,22 @@ quantmesh_platform/
 
 ## 🚀 Getting started
 
+**Configuration model:** The **authoritative** trading configuration is stored in the primary database table **`app_config`** (JSON). `config.example.yaml` is a **template** for import only; there is no requirement for a fixed on-disk `config.yaml` filename. Use **`./quantmesh --migrate-app-config`** (with `QUANTMESH_IMPORT_YAML`, or `config.yaml` in the working directory), or pass a YAML path as the **first argument** to `./quantmesh` so the process can load it and (when complete) auto-migrate into the DB. Set **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`** (or `.env`) so the process can open the primary DB. See `docs/config-database-design.md`.
+
 ### Option A: Docker (recommended)
 
-1. Clone and copy config:
+1. Clone and prepare a file from the example (any name, e.g. `config.yaml` for Compose mounts):
    ```bash
    git clone https://github.com/ghostsworm/quantmesh.git
    cd quantmesh
    cp config.example.yaml config.yaml
    ```
-2. Edit `config.yaml` (API keys, strategy).
+2. Edit that YAML (API keys, strategy). Mount **`./data`** so `app_config` survives restarts. The default image entrypoint runs **`/app/quantmesh` with no args** — if you rely on a mounted YAML file, pass it explicitly, e.g. add to the service: `command: ["/app/quantmesh", "/app/config.yaml"]`, or run a one-off migrate: `docker compose run --rm quantmesh /app/quantmesh --migrate-app-config` with `QUANTMESH_IMPORT_YAML=/app/config.yaml` as appropriate.
 3. Run:
    ```bash
    docker-compose up -d
    ```
-4. Open **http://localhost:8080** for the Web UI.  
+4. Open the Web UI (port per your `docker-compose` / reverse proxy; the app default listen is **28888** unless mapped otherwise).  
    Stop: `docker-compose down`
 
 ### Option B: Build from source
@@ -189,8 +191,8 @@ quantmesh_platform/
 git clone https://github.com/ghostsworm/quantmesh.git
 cd quantmesh
 go mod download
-cp config.example.yaml config.yaml
-# edit config.yaml — example:
+cp config.example.yaml my-import.yaml
+# edit my-import.yaml — example:
 ```
 
 ```yaml
@@ -211,12 +213,19 @@ trading:
   sell_window_size: 10
 ```
 
-**Production:**
+**Import into DB (once):**
+
+```bash
+./quantmesh --migrate-app-config my-import.yaml
+# or: QUANTMESH_IMPORT_YAML=my-import.yaml ./quantmesh --migrate-app-config
+```
+
+**Production (after import, or with YAML as first arg):**
 
 ```bash
 go run main.go
-# or
-go build -o quantmesh && ./quantmesh
+# or: go build -o quantmesh && ./quantmesh
+# or: ./quantmesh my-import.yaml   # first-arg path loads YAML; complete configs may auto-migrate
 ```
 
 Backend serves the embedded UI on port **28888** by default.

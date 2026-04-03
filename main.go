@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.8-rc20"
+var Version = "3.79.8-rc21"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1493,7 +1493,6 @@ func main() {
 		sqlitePath = "./data/quantmesh.db"
 	}
 
-	var err error
 	var cfg *config.Config
 	var configComplete bool
 	var configFileExisted bool

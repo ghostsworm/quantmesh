@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc21] - 2026-04-03
+
+### Docs
+- **`docs/` 全量清查**：與 **zh / en** 基準對齊——`README.*`、`config-database-design.md`、`CONFIGURATION_REDUNDANCY_*`、`BACKUP_RECOVERY`、`PRODUCTION_DEPLOYMENT`、`guides/README_SCRIPTS`、`AI_UPSTREAM_PROFILES`、新聞監控文檔等統一為 **主庫 `app_config` + 導入 YAML / `--migrate-app-config`** 敘事；移除已刪模組（如 `config/backup.go`）引用；修正不存在的 `--config` / `--check-config` 示例。
+
+---
+
 ## [3.79.8-rc20] - 2026-04-03
 
 ### Breaking

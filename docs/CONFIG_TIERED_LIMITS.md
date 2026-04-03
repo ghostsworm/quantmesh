@@ -1,8 +1,10 @@
 # 分级限额配置指南
 
+> **说明：** 运行时的权威配置在主库 **`app_config`**。下述 YAML 片段适用于 **Web 控制台编辑** 或 **一次性导入 YAML**；若仍使用磁盘路径，仅为运维示例，非强制文件名。
+
 ## 快速修改配置
 
-在服务器上修改配置文件 `/root/quntmesh/config.yaml`，找到 `position_allocation` 部分：
+在 Web 或主配置 YAML 中找到 `position_allocation` 部分（示例路径如 `/opt/quantmesh/config.yaml` 仅作参考）：
 
 ```yaml
 position_allocation:

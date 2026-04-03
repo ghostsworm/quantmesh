@@ -14,7 +14,7 @@
 
 ## 配置说明
 
-在 `config.yaml` 中添加以下配置：
+在主配置（Web 保存的 `app_config` 或导入用 YAML）中添加以下配置：
 
 ```yaml
 news_monitor:

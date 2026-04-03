@@ -6,7 +6,7 @@ This document describes **named, reusable AI upstream profiles** for QuantMesh: 
 
 ### 1.1 Goals
 
-- Maintain **multiple** distinct credentials and endpoints in one `config.yaml` (e.g. office OpenAI, home Poe, regional gateway).
+- Maintain **multiple** distinct credentials and endpoints in the **primary app config** (Web-saved `app_config` or a one-shot YAML import) (e.g. office OpenAI, home Poe, regional gateway).
 - Allow **feature-level** selection (news analysis, inspector, AI submodules) instead of a single global key/base URL.
 - **Backward compatibility**: if new fields are unused, behavior matches historical flat `ai` configuration.
 

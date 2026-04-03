@@ -30,10 +30,10 @@
 ### 启动服务
 
 ```bash
-# 使用默认配置文件 config.yaml
+# 默认：若未传路径，进程从主库 app_config 加载（无 config.yaml 亦可）
 ./start.sh
 
-# 使用自定义配置文件
+# 显式传入 YAML 路径（作为 ./quantmesh 的第一个参数，用于导入或启动时加载）
 ./start.sh my_config.yaml
 ```
 
@@ -62,7 +62,7 @@
 
 ### 修改端口
 
-在 `config.yaml` 中修改：
+在主配置（Web 保存的 `app_config` 或导入 YAML）中修改：
 
 ```yaml
 web:
