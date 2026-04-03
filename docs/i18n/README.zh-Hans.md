@@ -110,6 +110,8 @@ quantmesh_platform/
 
 ## 🚀 快速开始
 
+**配置说明：** 交易主配置的**权威来源**是主库表 **`app_config`**（JSON）。`config.example.yaml` 仅为**导入模板**，运行时**不依赖**固定磁盘文件名 `config.yaml`。将 YAML 写入主库：`./quantmesh --migrate-app-config`（可配合 `QUANTMESH_IMPORT_YAML` 或工作目录下的 `config.yaml`），或将 YAML 路径作为 **`./quantmesh` 的第一个参数**；配置完整时可能**自动迁移**入庫。请配置 **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`**（或 `.env`）以连接主库。详见 [`docs/config-database-design.md`](../config-database-design.md)。
+
 ### 环境要求
 - Go 1.21 或更高版本
 - 网络环境需能访问交易所 API
@@ -118,8 +120,8 @@ quantmesh_platform/
 
 1. **克隆仓库**
    ```bash
-   git clone https://github.com/dennisyang1986/quantmesh_market_maker.git
-   cd quantmesh_market_maker
+   git clone https://github.com/ghostsworm/quantmesh.git
+   cd quantmesh
    ```
 
 2. **安装依赖**
@@ -129,12 +131,12 @@ quantmesh_platform/
 
 ### 配置
 
-1. 复制示例配置文件：
+1. 复制示例模板（文件名可自定，例如 `my-import.yaml`）：
    ```bash
-   cp config.example.yaml config.yaml
+   cp config.example.yaml my-import.yaml
    ```
 
-2. 编辑 `config.yaml`，填入你的 API Key 和策略参数：
+2. 编辑 `my-import.yaml`，填入你的 API Key 和策略参数：
 
    ```yaml
    app:
@@ -154,18 +156,28 @@ quantmesh_platform/
      sell_window_size: 10    # 卖单挂单数量
    ```
 
+3. **导入主库（建议首次执行一次）：**
+   ```bash
+   ./quantmesh --migrate-app-config my-import.yaml
+   # 或：QUANTMESH_IMPORT_YAML=my-import.yaml ./quantmesh --migrate-app-config
+   ```
+
 ### 运行
 
 ```bash
 go run main.go
 ```
 
-或者编译后运行：
+或编译后：
 
 ```bash
 go build -o quantmesh
 ./quantmesh
+# 导入后无首参时，优先从 app_config 加载；或直接：
+./quantmesh my-import.yaml
 ```
+
+后端默认在 **28888** 端口提供嵌入式前端。
 
 ## 🏗️ 系统架构
 

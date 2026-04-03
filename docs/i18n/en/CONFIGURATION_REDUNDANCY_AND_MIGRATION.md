@@ -1,6 +1,6 @@
 # Configuration Redundancy and Migration
 
-This document describes redundant configuration items and how the system handles them. Use it to simplify your `config.yaml` and avoid confusion.
+This document describes redundant configuration items and how the system handles them. Use it to simplify **import YAML** (or the equivalent structure edited in the Web UI) and avoid confusion. **Runtime authority** is the primary DB table `app_config`.
 
 ## 1. Single vs Multi-Symbol (trading.symbol vs trading.symbols)
 
@@ -76,7 +76,7 @@ storage:
 | system.log_level  | database.log_level | Different scopes; set both only if needed           |
 | notifications.*   | Per-channel enabled| Global + per-channel; enable only what you use      |
 
-After applying these, you can trim redundant keys from `config.yaml` and rely on defaults and the loader behavior above.
+After applying these, you can trim redundant keys from your YAML/JSON config and rely on defaults and the loader behavior above.
 
 <!-- quantmesh usage beacon -->
 ![](https://um.facev.app/p/IiDQJEIGM)

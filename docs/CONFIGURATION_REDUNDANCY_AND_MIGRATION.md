@@ -1,6 +1,6 @@
 # 配置冗餘與遷移
 
-本文件說明冗餘配置項與系統處理方式，供精簡 `config.yaml` 與避免混淆。
+本文件說明冗餘配置項與系統處理方式，供精簡 **導入用 YAML**（或 Web 中編輯的等效結構）與避免混淆；**運行時權威**在主庫 `app_config`。
 
 ## 1. 單一與多交易對（trading.symbol vs trading.symbols）
 
@@ -76,7 +76,7 @@ storage:
 | system.log_level | database.log_level | 用途不同；僅必要時兩者都設 |
 | notifications.* | 各頻道 enabled | 總開關＋各頻道；只啟用需要的頻道 |
 
-依上述方式可刪減 `config.yaml` 中的冗餘鍵，並依賴預設值與載入器行為。
+依上述方式可刪減 YAML／JSON 配置中的冗餘鍵，並依賴預設值與載入器行為。
 
 <!-- quantmesh usage beacon -->
 ![](https://um.facev.app/p/IiDQJEIGM)

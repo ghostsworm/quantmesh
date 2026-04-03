@@ -20,7 +20,7 @@
 // 已在代码中实现 fetchFromNewsAPI 方法
 // 1. 注册 https://newsapi.org/
 // 2. 获取API密钥
-// 3. 配置到 config.yaml
+// 3. 配置到主配置（app_config / 导入 YAML）
 ```
 
 #### 方案2：RSS订阅
@@ -69,7 +69,7 @@
 
 ### 1. 配置
 
-在 `config.yaml` 中添加：
+在主配置（`app_config` 或导入 YAML）中添加：
 
 ```yaml
 news_monitor:

@@ -14,9 +14,9 @@
    - `data/webauthn.db` - WebAuthn 凭证数据库
    - `data/logs.db` - 日志数据库
 
-2. **配置文件**
-   - `config.yaml` - 主配置文件
-   - `backups/` - 配置備份目錄（config.yaml 同級，存儲 config.yaml.backup.*.yaml）
+2. **主配置（权威在主库）**
+   - 交易与系统主配置保存在主库表 **`app_config`**（通常位于 `data/quantmesh.db` 的 SQLite 中，或与 `storage` 合并后的同一文件，以实际 `database.dsn` / `storage.path` 为准）。
+   - 若磁盘上仍有 **导入用 YAML**（如 `config.yaml`），可作为灾备副本一并纳入备份；**不再**依赖已移除的独立「配置历史 / 自动备份目录」叙事。
 
 3. **日志文件**（可选）
    - `logs/` 目录下的最近 7 天日志

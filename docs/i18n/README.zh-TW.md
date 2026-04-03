@@ -198,25 +198,25 @@ quantmesh_platform/
 
 ## 🚀 快速開始
 
+**配置說明：** 交易主配置的**權威來源**是主庫表 **`app_config`**（JSON）。`config.example.yaml` 僅為**匯入範本**，執行時**不依賴**固定磁碟檔名 `config.yaml`。將 YAML 寫入主庫：`./quantmesh --migrate-app-config`（可配合 `QUANTMESH_IMPORT_YAML` 或工作目錄下的 `config.yaml`），或將 YAML 路徑作為 **`./quantmesh` 的第一個參數**；配置完整時可能**自動遷移**入庫。請設定 **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`**（或 `.env`）以連線主庫。詳見 [`docs/config-database-design.md`](../config-database-design.md)。
+
 ### 方式一：Docker 一鍵運行（推薦，最簡單）
 
-**只需 3 步：**
-
-1. **克隆倉庫並準備配置**
+1. **克隆倉庫並準備配置**（檔名可自訂，Compose 常見掛載名為 `config.yaml`）：
    ```bash
    git clone https://github.com/ghostsworm/quantmesh.git
    cd quantmesh
    cp config.example.yaml config.yaml
    ```
 
-2. **編輯配置**：編輯 `config.yaml`，填入 API Key 與策略參數（見下方配置說明）
+2. **編輯**該 YAML（API Key、策略）。請掛載 **`./data`** 以持久化 `app_config`。預設映像 **ENTRYPOINT** 為無參數的 `/app/quantmesh`——若依賴掛載的 YAML，請顯式傳入首參，例如在服務中加：`command: ["/app/quantmesh", "/app/config.yaml"]`，或單次執行遷移（視環境設定 `QUANTMESH_IMPORT_YAML` 等）。
 
 3. **啟動服務**
    ```bash
    docker-compose up -d
    ```
 
-   訪問 **http://localhost:8080** 即可使用 Web UI。
+   Web UI 埠位依 `docker-compose`／反代而定（應用預設監聽 **28888**）。
 
    **停止服務：**
    ```bash
@@ -246,12 +246,12 @@ quantmesh_platform/
 
 #### 配置
 
-1. 複製範例配置：
+1. 複製範例範本：
    ```bash
-   cp config.example.yaml config.yaml
+   cp config.example.yaml my-import.yaml
    ```
 
-2. 編輯 `config.yaml`，填入 API Key 與策略參數：
+2. 編輯 `my-import.yaml`，填入 API Key 與策略參數：
 
    ```yaml
    app:
@@ -271,6 +271,11 @@ quantmesh_platform/
      sell_window_size: 10    # 賣單掛單數量
    ```
 
+3. **匯入主庫（建議首次執行一次）：**
+   ```bash
+   ./quantmesh --migrate-app-config my-import.yaml
+   ```
+
 #### 執行
 
 **正式模式：**
@@ -279,14 +284,15 @@ quantmesh_platform/
 go run main.go
 ```
 
-或編譯後執行：
+或編譯後：
 
 ```bash
 go build -o quantmesh
 ./quantmesh
+./quantmesh my-import.yaml
 ```
 
-後端將在 port 28888（預設）提供前端靜態檔案。
+後端將在 port **28888**（預設）提供前端靜態檔案。
 
 #### 開發模式
 

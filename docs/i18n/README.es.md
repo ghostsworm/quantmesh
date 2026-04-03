@@ -147,6 +147,8 @@ quantmesh_platform/
 
 ### Configuración
 
+> **Runtime SSOT:** The primary database table `app_config` holds the authoritative configuration. One-time YAML import: `./quantmesh --migrate-app-config` (with `QUANTMESH_IMPORT_YAML`, or `config.yaml` in the working directory), or run `./quantmesh /path/to/file.yaml` as the first argument. See [`docs/config-database-design.md`](../config-database-design.md).
+
 1. Copie el archivo de configuración de ejemplo:
    ```bash
    cp config.example.yaml config.yaml
