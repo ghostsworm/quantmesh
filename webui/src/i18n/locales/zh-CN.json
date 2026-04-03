@@ -94,6 +94,8 @@
     "botName": "Bot 名称",
     "botNamePlaceholder": "可选，给 Bot 起个名字方便辨认",
     "selectSymbol": "请选择交易对",
+    "symbolListLoadFailed": "无法拉取交易对列表",
+    "symbolListNoCredentials": "当前配置里没有该交易所的 API Key。请先在「交易所 / 密钥」中保存密钥，或确认配置已从数据库同步后再试。",
     "priceInterval": "价格间隔",
     "profitSpread": "利润间距",
     "profitSpreadHint": "不填或填 0 则使用价格间隔。例如价格间隔 80、利润间距 100 时，卖出价 = 买入价 + 100",

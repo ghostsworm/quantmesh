@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.8-rc16"
+var Version = "3.79.8-rc17"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2028,6 +2028,7 @@ func main() {
 		}
 
 		fileConfigManager := web.NewFileConfigManager(configPath)
+		fileConfigManager.SetRuntimeConfig(cfg)
 		web.SetFileConfigManager(fileConfigManager)
 		web.SetGlobalConfig(cfg)
 		logger.Info("✅ 配置管理器已初始化")

@@ -32,6 +32,9 @@ import {
   useDisclosure,
   Switch,
   Divider,
+  Alert,
+  AlertIcon,
+  AlertDescription,
 } from '@chakra-ui/react'
 import { ChevronLeftIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
@@ -45,6 +48,17 @@ import StrategyPicker from './bot-create/StrategyPicker'
 import StrategyParamForm from './bot-create/StrategyParamForm'
 import StrategyTemplates from './StrategyTemplates'
 import { getStrategyTemplateById } from '../services/strategy'
+
+function getExchangeConfigRow(
+  cfg: Config | null,
+  exchange: string
+): ExchangeConfig | undefined {
+  if (!cfg?.exchanges || !exchange) return undefined
+  const raw = cfg.exchanges as Record<string, ExchangeConfig>
+  const key =
+    Object.keys(raw).find((k) => k.toLowerCase() === exchange.toLowerCase()) ?? ''
+  return key ? raw[key] : undefined
+}
 
 const STEPS = 5
 
@@ -105,6 +119,7 @@ const BotCreateWizard: React.FC = () => {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [symbolsError, setSymbolsError] = useState<string | null>(null)
   const [marketTicker, setMarketTicker] = useState<{
     mark_price: number
     last_price: number
@@ -200,11 +215,13 @@ const BotCreateWizard: React.FC = () => {
 
   useEffect(() => {
     if (!form.exchange || !config?.exchanges) return
-    const exCfg = (config.exchanges as Record<string, ExchangeConfig>)?.[form.exchange]
+    const exCfg = getExchangeConfigRow(config, form.exchange)
     if (!exCfg?.api_key || !exCfg?.secret_key) {
       setSymbols([])
+      setSymbolsError(null)
       return
     }
+    setSymbolsError(null)
     const load = async () => {
       try {
         const res = await getExchangeSymbols({
@@ -215,8 +232,12 @@ const BotCreateWizard: React.FC = () => {
           market_type: form.market_type === 'spot' ? 'spot' : 'futures',
         })
         setSymbols(res.symbols || [])
-      } catch {
+        setSymbolsError(null)
+      } catch (e) {
+        console.error('[BotCreate] exchange-symbols failed:', e)
         setSymbols([])
+        const msg = e instanceof Error ? e.message : String(e)
+        setSymbolsError(msg)
       }
     }
     load()
@@ -503,6 +524,21 @@ const BotCreateWizard: React.FC = () => {
               )}
               {strategyType === 'hedge' && (
                 <Text fontSize="sm" color="gray.600">{t('botCreate.hedgeMarketHint')}</Text>
+              )}
+              {config && form.exchange && !getExchangeConfigRow(config, form.exchange)?.api_key && (
+                <Alert status="warning" borderRadius="md">
+                  <AlertIcon />
+                  <AlertDescription>{t('botCreate.symbolListNoCredentials')}</AlertDescription>
+                </Alert>
+              )}
+              {symbolsError && (
+                <Alert status="error" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <Text fontWeight="semibold" mb={1}>{t('botCreate.symbolListLoadFailed')}</Text>
+                    <AlertDescription>{symbolsError}</AlertDescription>
+                  </Box>
+                </Alert>
               )}
               <FormControl isRequired>
                 <FormLabel>{t('configSetup.symbol')}</FormLabel>
