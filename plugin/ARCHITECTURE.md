@@ -81,7 +81,7 @@
     ↓
 创建 PluginLoader
     ↓
-加载配置 (config.yaml)
+加载主配置（**`app_config`** / 内存 / 导入 YAML）
     ↓
 ┌─────────────────────────────────────┐
 │ 对每个启用的插件:                    │
@@ -186,7 +186,7 @@ SignalPlugin (信号插件)
 ```
 quantmesh_market_maker/
 ├── main.go                      # 主程序入口
-├── config.yaml                  # 配置文件
+├── （可选）导入用 YAML           # 非固定名；权威在主库 app_config
 │
 ├── plugin/                      # 插件系统 (开源)
 │   ├── plugin.go               # 插件框架

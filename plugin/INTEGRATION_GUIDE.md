@@ -169,9 +169,9 @@ type PluginConfig struct {
 }
 ```
 
-### 3. 更新配置文件
+### 3. 更新主配置
 
-在 `config.yaml` 中添加：
+在 **Web** 或主配置（**`app_config`** / 导入 YAML）的 `plugins` 段中添加：
 
 ```yaml
 # 插件配置

@@ -111,8 +111,8 @@ go build -ldflags="-s -w" -o quantmesh .
 # 上传二进制文件
 scp -i ~/.ssh/id_rsa quantmesh user@server:/opt/quantmesh/
 
-# 上传配置文件（如果需要更新）
-scp -i ~/.ssh/id_rsa config.yaml user@server:/opt/quantmesh/
+# 上传导入用 YAML（可选；主配置在库内 app_config）
+scp -i ~/.ssh/id_rsa my-import.yaml user@server:/opt/quantmesh/
 ```
 
 #### 3. 在服务器上部署
@@ -138,7 +138,8 @@ chmod +x quantmesh
 # 启动服务
 sudo systemctl start quantmesh
 # 或
-nohup ./quantmesh config.yaml > logs/quantmesh.log 2>&1 &
+nohup ./quantmesh > logs/quantmesh.log 2>&1 &
+# 或显式传入 YAML：nohup ./quantmesh /opt/quantmesh/my-import.yaml > logs/quantmesh.log 2>&1 &
 
 # 检查服务状态
 sudo systemctl status quantmesh
@@ -197,7 +198,7 @@ curl http://localhost:28888/api/status
 
 **解决：**
 - 查看日志：`journalctl -u quantmesh -n 100`
-- 检查配置文件：`./quantmesh --check-config`
+- 核对日志与主库：无 `--check-config` 子命令，请查 `journalctl` 与 `data/*.db`
 - 检查端口占用：`lsof -i :28888`
 - 检查数据库文件权限
 
@@ -235,7 +236,7 @@ sudo systemctl start quantmesh
 ## 注意事项
 
 1. **数据库保护**：部署脚本会自动备份数据库，但建议在部署前手动备份重要数据
-2. **配置文件**：部署不会覆盖 `config.yaml`，需要手动更新
+2. **主配置**：部署不覆盖数据库中的 **`app_config`**；若使用磁盘 YAML 仅作导入副本，需自行同步
 3. **服务管理**：如果使用systemd，确保服务配置正确
 4. **端口冲突**：确保部署时端口未被占用
 5. **依赖检查**：确保服务器上已安装所有必需的依赖

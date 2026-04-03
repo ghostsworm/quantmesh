@@ -86,7 +86,7 @@ ssh root@facev.app 'systemctl start quantmesh'
 
 1. **Git 权限**：确保服务器可以访问 GitHub 仓库（SSH key 或 HTTPS token）
 2. **数据库保护**：脚本会自动备份数据库，但建议定期手动备份
-3. **配置文件**：`config.yaml` 不会被覆盖，需要手动更新
+3. **主配置**：数据库 **`app_config`** 不会被 Git 覆盖；磁盘 YAML 若存在需自行维护
 4. **服务状态**：部署后检查服务状态确保正常运行
 
 ## 故障排查
