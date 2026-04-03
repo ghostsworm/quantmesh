@@ -94,6 +94,8 @@
     "botName": "Bot Name",
     "botNamePlaceholder": "Optional, give the bot a name for easy identification",
     "selectSymbol": "Select symbol",
+    "symbolListLoadFailed": "Failed to load symbol list",
+    "symbolListNoCredentials": "No API key for this exchange in the current config. Save exchange API keys first, or ensure config is synced from the database.",
     "priceInterval": "Price Interval",
     "profitSpread": "Profit Spread",
     "profitSpreadHint": "Leave empty or 0 to use price interval. E.g., interval 80, spread 100 → sell price = buy price + 100",

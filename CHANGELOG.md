@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc17] - 2026-04-03
+
+### Fixed
+- **Web / 創建 Bot**：啟動時將主進程已加載的配置注入 `FileConfigManager`，使 `GET /api/config/json` 含完整交易所密鑰（例如僅存於 `app_config` 時），`/bots/create` 可正常拉取交易對列表
+- **Web / 創建 Bot**：`exchanges` 鍵名不區分大小寫匹配；拉取失敗或缺少 API Key 時顯示明確提示（i18n zh-CN / en-US）
+
+---
+
 ## [3.79.8-rc16] - 2026-04-03
 
 ### Fixed

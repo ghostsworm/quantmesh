@@ -40,6 +40,18 @@ func NewFileConfigManager(configPath string) *FileConfigManager {
 	}
 }
 
+// SetRuntimeConfig 將主進程已加載的配置寫入管理器（與磁盤一致或來自 app_config）。
+// 避免首次 GET /api/config/json 僅從可能為「最小化」的 YAML 讀取，導致 exchanges 密鑰為空，
+// 進而前端無法調用 exchange-symbols 拉取交易對。
+func (fcm *FileConfigManager) SetRuntimeConfig(cfg *config.Config) {
+	if fcm == nil || cfg == nil {
+		return
+	}
+	fcm.mu.Lock()
+	defer fcm.mu.Unlock()
+	fcm.currentConfig = cfg
+}
+
 // SetFileConfigManager 設置配置文件管理器
 func SetFileConfigManager(cm *FileConfigManager) {
 	fileConfigManager = cm
