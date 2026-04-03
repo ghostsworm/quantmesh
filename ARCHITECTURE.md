@@ -142,7 +142,7 @@ quantmesh_platform/
 
 ### 启动流程
 ```
-1. 加载配置 (config.yaml)
+1. 加载主配置（**`app_config`** / 可选首参 YAML）
    ↓
 2. 创建交易所实例 (factory.go)
    ↓

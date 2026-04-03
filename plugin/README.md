@@ -329,10 +329,10 @@ func (v *LicenseValidator) ValidateOnline(licenseKey string) error {
 }
 ```
 
-## 📝 配置文件
+## 📝 主配置中的 `plugins` 段（Web / **`app_config`** / 导入 YAML）
 
 ```yaml
-# config.yaml
+# 示例片段
 plugins:
   enabled: true
   directory: "./plugins"

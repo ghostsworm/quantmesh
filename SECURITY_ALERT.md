@@ -28,7 +28,7 @@ cd /Users/user/Sites/btc/quantmesh-opensource
 查看以下文件的修改时间是否异常：
 ```bash
 ls -la data/auth.db
-ls -la config.yaml
+ls -la config.yaml 2>/dev/null || true  # 若无磁盘 YAML，请检查 data/*.db / Web 导出
 ```
 
 查看日志中是否有可疑活动：
@@ -45,7 +45,7 @@ grep "设置密码\|配置初始化\|SECURITY" logs/*.log | tail -20
 
 **检查配置**：
 ```bash
-cat config.yaml
+cat config.yaml  # 若存在；否则核对 app_config / Web
 ```
 
 确认 API Key、Secret Key、交易对是否是你设置的。
@@ -53,7 +53,7 @@ cat config.yaml
 **从备份恢复**（如果配置被篡改）：
 ```bash
 ls backups/
-cp backups/config_backup_YYYYMMDD_HHMMSS.yaml config.yaml
+cp backups/config_backup_YYYYMMDD_HHMMSS.yaml my-import.yaml && ./quantmesh --migrate-app-config my-import.yaml
 ```
 
 **重置密码**：

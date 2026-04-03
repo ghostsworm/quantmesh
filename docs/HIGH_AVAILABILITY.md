@@ -459,15 +459,17 @@ trading:
 
 ### Step 4: 启动多实例
 
+首参为各实例 **YAML 路径**（非 `--config` 标志）；端口、DSN 写在各自 YAML 的 `web` / `database` 中。
+
 ```bash
 # 实例 1
-./quantmesh --config=config-instance1.yaml
+./quantmesh config-instance1.yaml
 
 # 实例 2
-./quantmesh --config=config-instance2.yaml
+./quantmesh config-instance2.yaml
 
-# 实例 3 (热备)
-./quantmesh --config=config-instance3.yaml --standby
+# 实例 3（另需独立 data/DSN 时自行拆分）
+./quantmesh config-instance3.yaml
 ```
 
 ## 数据库迁移

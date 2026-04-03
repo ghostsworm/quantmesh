@@ -2,6 +2,8 @@
 
 本文档记录 OpenSQT Market Maker 项目的所有重要功能变更、算法调整和版本更新。
 
+> **阅读说明（现行架构）**：主配置权威在数据库 **`app_config`**。下文 **历史版本** 条目中出现的「固定磁盘 `config.yaml`」「`/api/config/backups`」等可能已废弃，**请以主仓库根目录 `CHANGELOG.md` 与 `docs/config-database-design.md` 为准**。
+
 ## 版本规范
 
 - 每次功能变更或算法调整都会打一个 Git Tag

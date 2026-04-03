@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc24] - 2026-04-03
+
+### Docs
+- **`rdocs/`**（快速入門、FAQ、部署指南、測試網/槓桿率等）：與 **`app_config` + `--migrate-app-config` / 首參 YAML** 敘事對齊；倉庫克隆地址改為 **`ghostsworm/quantmesh`**。
+- **`plugin/*.md`、`scripts/*README.md`、根目錄 `ARCHITECTURE.md` / `SECURITY_ALERT.md`、`docs/HIGH_AVAILABILITY.md`**：去掉不存在的 **`--config` / `--check-config` / `--standby`** 示例；**`rdocs/CHANGELOG.md`** 頂部增加歷史條目免責說明。
+
+---
+
 ## [3.79.8-rc23] - 2026-04-03
 
 ### Docs

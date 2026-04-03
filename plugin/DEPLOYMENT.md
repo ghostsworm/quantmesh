@@ -173,7 +173,7 @@ go get github.com/quantmesh-pro/premium-ai@latest
 # import "github.com/quantmesh-pro/premium-ai"
 
 # 5. 配置许可证
-cat >> config.yaml << 'EOF'
+cat >> my-import.yaml << 'EOF'
 plugins:
   enabled: true
   plugins:
