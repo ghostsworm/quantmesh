@@ -2,6 +2,14 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { saveInitialConfig, SetupInitRequest } from '../services/setup'
+import {
+  CONFIG_SETUP_SYMBOL_ORDER,
+  CONFIG_SETUP_SYMBOL_PRESETS,
+  getPresetForSymbol,
+} from '../config/configSetupSymbolPresets'
+
+const defaultSymbol = 'BTCUSDT'
+const defaultPreset = CONFIG_SETUP_SYMBOL_PRESETS[defaultSymbol]
 
 const ConfigSetup: React.FC = () => {
   const { t } = useTranslation()
@@ -11,12 +19,12 @@ const ConfigSetup: React.FC = () => {
     api_key: '',
     secret_key: '',
     passphrase: '',
-    symbol: 'ETHUSDT',
-    price_interval: 2,
-    order_quantity: 30,
-    min_order_value: 20,
-    buy_window_size: 10,
-    sell_window_size: 10,
+    symbol: defaultSymbol,
+    price_interval: defaultPreset.price_interval,
+    order_quantity: defaultPreset.order_quantity,
+    min_order_value: defaultPreset.min_order_value,
+    buy_window_size: defaultPreset.buy_window_size,
+    sell_window_size: defaultPreset.sell_window_size,
     testnet: false,
     fee_rate: 0.0002,
   })
@@ -27,13 +35,42 @@ const ConfigSetup: React.FC = () => {
   // 需要 passphrase 的交易所
   const exchangesRequiringPassphrase = ['bitget', 'okx', 'kucoin']
 
+  const parseNum = (raw: string): number => {
+    const v = parseFloat(raw)
+    return Number.isFinite(v) ? v : 0
+  }
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
     const checked = (e.target as HTMLInputElement).checked
 
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : (name === 'price_interval' || name === 'order_quantity' || name === 'min_order_value' || name === 'fee_rate' ? parseFloat(value) || 0 : (name === 'buy_window_size' || name === 'sell_window_size' ? parseInt(value) || 0 : value)),
+      [name]: type === 'checkbox'
+        ? checked
+        : name === 'price_interval' || name === 'order_quantity' || name === 'min_order_value' || name === 'fee_rate'
+          ? parseNum(value)
+          : name === 'buy_window_size' || name === 'sell_window_size'
+            ? parseInt(value, 10) || 0
+            : value,
+    }))
+  }
+
+  const handleSymbolChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const sym = e.target.value
+    const preset = getPresetForSymbol(sym)
+    setFormData(prev => ({
+      ...prev,
+      symbol: sym,
+      ...(preset
+        ? {
+            price_interval: preset.price_interval,
+            order_quantity: preset.order_quantity,
+            min_order_value: preset.min_order_value,
+            buy_window_size: preset.buy_window_size,
+            sell_window_size: preset.sell_window_size,
+          }
+        : {}),
     }))
   }
 
@@ -320,11 +357,10 @@ const ConfigSetup: React.FC = () => {
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
                 {t('configSetup.symbol')} <span style={{ color: '#ff4d4f' }}>{t('configSetup.required')}</span>
               </label>
-              <input
-                type="text"
+              <select
                 name="symbol"
                 value={formData.symbol}
-                onChange={handleChange}
+                onChange={handleSymbolChange}
                 disabled={isLoading}
                 style={{
                   width: '100%',
@@ -333,8 +369,16 @@ const ConfigSetup: React.FC = () => {
                   borderRadius: '4px',
                   fontSize: '14px'
                 }}
-                placeholder={t('configSetup.symbolPlaceholder')}
-              />
+              >
+                {CONFIG_SETUP_SYMBOL_ORDER.map(sym => (
+                  <option key={sym} value={sym}>
+                    {t(`configSetup.pairSymbolLabels.${sym}`, { defaultValue: sym })}
+                  </option>
+                ))}
+              </select>
+              <div style={{ marginTop: '4px', fontSize: '12px', color: '#8c8c8c' }}>
+                {t('configSetup.symbolSelectHint')}
+              </div>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
@@ -347,8 +391,8 @@ const ConfigSetup: React.FC = () => {
                 value={formData.price_interval}
                 onChange={handleChange}
                 disabled={isLoading}
-                step="0.01"
-                min="0.01"
+                step="0.0001"
+                min="0.0001"
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -399,8 +443,8 @@ const ConfigSetup: React.FC = () => {
                 value={formData.min_order_value}
                 onChange={handleChange}
                 disabled={isLoading}
-                step="1"
-                min="1"
+                step="0.01"
+                min="0.01"
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -410,6 +454,9 @@ const ConfigSetup: React.FC = () => {
                 }}
                 placeholder={t('configSetup.minOrderValuePlaceholder')}
               />
+              <div style={{ marginTop: '4px', fontSize: '12px', color: '#8c8c8c' }}>
+                {t('configSetup.minOrderValueDecimalsHint')}
+              </div>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
@@ -422,8 +469,8 @@ const ConfigSetup: React.FC = () => {
                 value={formData.buy_window_size}
                 onChange={handleChange}
                 disabled={isLoading}
-                step="0.01"
-                min="0.01"
+                step="1"
+                min="1"
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -448,8 +495,8 @@ const ConfigSetup: React.FC = () => {
                 value={formData.sell_window_size}
                 onChange={handleChange}
                 disabled={isLoading}
-                step="0.01"
-                min="0.01"
+                step="1"
+                min="1"
                 style={{
                   width: '100%',
                   padding: '12px',
