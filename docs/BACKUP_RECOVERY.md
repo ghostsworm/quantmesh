@@ -184,10 +184,11 @@ ls -lh ./backups/*.tar.gz
 
 ### 恢复后操作
 
-1. **验证配置文件**
+1. **验证主配置**
+   - 在 **Web** 核对交易所、交易对与风控；或检查主库 **`app_config`** 快照是否恢复。
+   - 若仍使用磁盘导入副本：`cat /path/to/your-import.yaml`（文件名任意）。
    ```bash
-   cat config.yaml
-   # 检查 API Key、交易对等配置是否正确
+   sqlite3 data/quantmesh.db "SELECT revision, length(content) FROM app_config LIMIT 1;" 2>/dev/null || true
    ```
 
 2. **验证数据库**

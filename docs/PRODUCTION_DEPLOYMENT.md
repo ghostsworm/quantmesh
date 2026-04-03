@@ -298,14 +298,10 @@ sudo dpkg-reconfigure -plow unattended-upgrades
 ### 多实例部署
 
 ```bash
-# 实例 1
-/opt/quantmesh/quantmesh --config=/opt/quantmesh/config1.yaml --port=28888
-
-# 实例 2
-/opt/quantmesh/quantmesh --config=/opt/quantmesh/config2.yaml --port=28889
-
-# 实例 3（备用）
-/opt/quantmesh/quantmesh --config=/opt/quantmesh/config3.yaml --port=28890
+# 多实例：首参为各实例 YAML；监听端口、数据库路径写在各自 YAML 的 web.* / database.*（勿使用不存在的 --config / --port 标志）
+/opt/quantmesh/quantmesh /opt/quantmesh/config1.yaml
+/opt/quantmesh/quantmesh /opt/quantmesh/config2.yaml
+/opt/quantmesh/quantmesh /opt/quantmesh/config3.yaml
 ```
 
 ### Nginx 负载均衡

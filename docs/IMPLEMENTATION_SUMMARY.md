@@ -280,10 +280,10 @@ docker run -d --name postgres \
 # 3. 编译应用
 go build -o quantmesh .
 
-# 4. 启动实例
-./quantmesh --config=config-instance1.yaml &
-./quantmesh --config=config-instance2.yaml &
-./quantmesh --config=config-instance3.yaml &
+# 4. 启动实例（首参为 YAML 路径；每实例独立 data 目录）
+./quantmesh config-instance1.yaml &
+./quantmesh config-instance2.yaml &
+./quantmesh config-instance3.yaml &
 ```
 
 ## 🔍 使用示例
@@ -291,7 +291,7 @@ go build -o quantmesh .
 ### 示例 1: 配置单实例（开发环境）
 
 ```yaml
-# config.yaml
+# 示例 YAML（导入用；权威在 app_config）
 instance:
   id: "dev-instance"
   index: 0

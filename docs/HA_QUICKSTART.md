@@ -475,8 +475,8 @@ vim config-instance4.yaml
 docker run -d \
   --name quantmesh-4 \
   --network quantmesh \
-  -v $(pwd)/config-instance4.yaml:/app/config.yaml \
-  quantmesh/market-maker:latest
+  -v $(pwd)/config-instance4.yaml:/app/config.yaml:ro \
+  quantmesh/market-maker:latest /app/config.yaml
 
 # 4. 更新 Nginx 配置
 # 添加新实例到 upstream

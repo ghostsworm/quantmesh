@@ -183,7 +183,7 @@ file my_plugin.so
 # 复制到 plugins 目录
 cp my_plugin.so /path/to/quantmesh/plugins/
 
-# 配置 config.yaml
+# 主配置 plugins 段（Web / app_config / 导入 YAML）
 plugins:
   enabled: true
   directory: "./plugins"

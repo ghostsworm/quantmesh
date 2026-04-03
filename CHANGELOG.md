@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.8-rc22] - 2026-04-03
+
+### Docs
+- **第二輪掃描 `docs/`**：補齊運維/故障/內存/MySQL/PWA/許可/WebAuthn 等零散文檔中仍以 **`config.yaml` 為唯一敘事** 的段落；`OPERATIONS_SUMMARY`、`PRODUCTION_DEPLOYMENT`（多實例）、`CICD_GUIDE`、`HA_QUICKSTART`、`DISTRIBUTED_LOCK`、`CONFIG_TIERED_LIMITS`、`SECURITY_FIX_SETUP_AUTH`、`reports/*` 等與 **`app_config` SSOT** 對齊；Docker 示例補 **首參**或 **migrate** 說明；刪除/替換不存在的 **`--config` / `--check-config` / `--port`** 旗標示例。
+
+---
+
 ## [3.79.8-rc21] - 2026-04-03
 
 ### Docs

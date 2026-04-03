@@ -92,7 +92,7 @@ eyJwbHVnaW5fbmFtZSI6ImFpX3N0cmF0ZWd5IiwiY3VzdG9tZXJfaWQiOiJjdXN0b21lcjEyMyIsInBs
 
 ### 2. 配置 License
 
-编辑 `config.yaml`:
+在主配置（Web / 导入 YAML）中编辑 `plugins` 等：
 
 ```yaml
 plugins:
@@ -161,7 +161,7 @@ curl http://localhost:8080/api/plugins/licenses
 ### 更新 License
 
 1. 获取新的 License Key
-2. 更新 `config.yaml`
+2. 更新主配置（Web 或导入后 **`app_config`**）
 3. 重启 QuantMesh
 
 或者通过 API 更新:

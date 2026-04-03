@@ -164,7 +164,7 @@ if len(s.priceHistory) > maxHistory {
 
 ### 内存管理配置
 
-在 `config.yaml` 中添加内存管理配置（可选）：
+在主配置（Web / **`app_config`** / 导入 YAML）中添加内存管理配置（可选）：
 
 ```yaml
 memory:

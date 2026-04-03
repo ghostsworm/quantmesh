@@ -31,6 +31,8 @@ position_allocation:
 
 ## 修改步骤
 
+> **推荐**：优先在 **Web 控制台** 修改并保存（写入 **`app_config`**）。以下「SSH 直接改磁盘 YAML」为运维备选；若只改文件未 **`./quantmesh --migrate-app-config`** 且未在 Web 保存，进程仍可能使用库内旧配置。
+
 ### 方法一：SSH 直接修改
 
 ```bash
@@ -333,31 +335,24 @@ systemctl restart quantmesh
 - 降低 `position_layers`（如从 20 改为 15）
 - 降低 `unrealized_loss_usd`（如从 500 改为 300）
 
-## 配置文件位置
+## 配置与备份位置（权威）
 
-- **服务器配置文件**：`/root/quntmesh/config.yaml`
-- **配置备份目录**：`/root/quntmesh/config.yaml.backup.*`
-- **本地配置文件**：`./config.yaml`
+- **运行时权威**：主库表 **`app_config`**（路径取决于 `database.dsn` / `storage`，常见为 `data/quantmesh.db`）。
+- **可选磁盘 YAML**：如 `/root/quntmesh/config.yaml`，仅作导入或人机编辑副本；**非**固定 SSOT 文件名。
+- **灾备**：以 **数据库备份** +（可选）**导出的 YAML** 为主；若仍保留 `config.yaml.backup.*` 可一并纳入。
 
-## 相关命令
+## 相关命令（节选）
 
 ```bash
-# 查看配置文件
+# 若存在导入/编辑用 YAML
 cat /root/quntmesh/config.yaml | grep -A 20 "position_allocation"
 
-# 备份配置文件
+# 备份磁盘 YAML（若使用）
 cp /root/quntmesh/config.yaml /root/quntmesh/config.yaml.backup.$(date +%Y%m%d_%H%M%S)
 
-# 恢复配置文件
-cp /root/quntmesh/config.yaml.backup.20260122_120000 /root/quntmesh/config.yaml
-
-# 重启服务
+# 重启服务（Web 保存的配置一般已入库；纯改文件需配合迁移或 Web）
 systemctl restart quantmesh
-
-# 查看服务状态
 systemctl status quantmesh
-
-# 查看日志
 journalctl -u quantmesh -f
 ```
 

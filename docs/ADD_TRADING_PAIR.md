@@ -9,7 +9,7 @@
 ### 步骤
 
 1. **打开配置文件**
-   - 配置文件路径：`config.yaml`
+   - 主配置：Web 或 **`app_config`**（导入 YAML 仅为模板）
    - 如果不存在，可以复制 `config.example.yaml` 并重命名
 
 2. **找到交易对配置部分**

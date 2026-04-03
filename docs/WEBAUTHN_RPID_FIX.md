@@ -20,7 +20,7 @@ The relying party ID is not a registrable domain suffix of, nor equal to the cur
 
 ### 方案 1：配置文件修复（推薦）
 
-1. **修改 `config.yaml`** 文件，添加域名配置：
+1. **在主配置**（Web / **`app_config`** / 导入 YAML）中添加域名配置：
 
 ```yaml
 web:

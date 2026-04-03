@@ -74,8 +74,8 @@
 - 定时备份配置
 
 **备份内容：**
-- 数据库文件（quantmesh.db, auth.db, webauthn.db, logs.db）
-- 配置文件（config.yaml, backups/）
+- 数据库文件（quantmesh.db, auth.db, webauthn.db, logs.db；**主配置 JSON 在 `app_config`**）
+- 可选：导入用 YAML（如 `config.yaml`）、`scripts/backup.sh` 能扫到的旧版 `backups/` 副本
 - 日志文件（最近 7 天）
 
 **文件位置：**
@@ -294,13 +294,13 @@ curl http://localhost:28888/api/status
 # 构建镜像
 docker build -t quantmesh/market-maker:latest .
 
-# 运行容器
+# 运行容器（需让进程读到 YAML 时：加 command 传入首参，或事先 migrate 入庫并仅挂 data）
 docker run -d \
   --name quantmesh \
   -p 28888:28888 \
-  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v $(pwd)/data:/app/data \
-  quantmesh/market-maker:latest
+  quantmesh/market-maker:latest /app/config.yaml
 ```
 
 ## 故障排查
@@ -311,8 +311,8 @@ docker run -d \
 # 查看日志
 sudo journalctl -u quantmesh -n 100
 
-# 检查配置
-./quantmesh --check-config
+# 检查近期错误与配置加载日志（无 --check-config 子命令）
+sudo journalctl -u quantmesh -n 80
 
 # 检查端口占用
 sudo lsof -i :28888

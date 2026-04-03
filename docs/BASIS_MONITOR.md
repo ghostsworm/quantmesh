@@ -27,7 +27,7 @@
 
 ### 1. 配置
 
-编辑 `config.yaml` 文件，启用价差监控：
+在主配置（Web / **`app_config`** / 导入 YAML）中启用价差监控：
 
 ```yaml
 # 价差监控配置
@@ -144,7 +144,7 @@ GET /api/basis/statistics?symbol=BTCUSDT&hours=24
 ### 安装价差预警插件
 
 1. 购买 `basis_alert` 插件 License
-2. 配置 `config.yaml`:
+2. 在主配置中配置 `plugins` 等：
 
 ```yaml
 plugins:
@@ -238,7 +238,7 @@ A: 检查以下几点：
 
 ### Q: 如何添加更多交易对？
 
-A: 在 `config.yaml` 的 `basis_monitor.symbols` 列表中添加交易对名称：
+A: 在主配置（Web 或 YAML）的 `basis_monitor.symbols` 列表中添加交易对名称：
 
 ```yaml
 basis_monitor:

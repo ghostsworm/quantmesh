@@ -253,7 +253,7 @@
          │  │            │              │  │
          │  │  ┌─────────┴──────────┐  │  │
          │  │  │  配置文件           │  │  │
-         │  │  │  config.yaml        │  │  │
+         │  │  │  app_config (DB)    │  │  │
          │  │  │  - API Key          │  │  │
          │  │  │  - API Secret       │  │  │
          │  │  └────────────────────┘  │  │
@@ -314,8 +314,8 @@
    go build -o quantmesh
    
    # 配置 API 密钥
-   cp config.example.yaml config.yaml
-   vim config.yaml  # 编辑配置
+   cp config.example.yaml my-import.yaml
+   vim my-import.yaml && ./quantmesh --migrate-app-config my-import.yaml
    
    # 启动系统
    ./quantmesh

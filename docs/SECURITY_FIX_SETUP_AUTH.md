@@ -68,6 +68,8 @@ if hasPassword {
 
 ## 紧急应对措施
 
+> **配置形态**：当前发行版主配置权威在 **`app_config`**（主库）。若生产环境**没有**磁盘 `config.yaml`，下文涉及该文件的检查请改为核对 **数据库备份**、**Web 导出**或 **`data/*.db` 修改时间**。
+
 如果你的系统已经部署到公网，**立即执行以下步骤**：
 
 ### 1. 检查是否被攻击
@@ -76,8 +78,8 @@ if hasPassword {
 # 检查认证数据库的修改时间
 ls -la data/auth.db
 
-# 检查配置文件的修改时间
-ls -la config.yaml
+# 检查配置文件的修改时间（若仍使用磁盘 YAML）
+ls -la config.yaml 2>/dev/null || true
 
 # 查看系统日志，搜索可疑的设置密码和配置初始化请求
 grep "设置密码" logs/*.log
@@ -92,7 +94,7 @@ grep "SECURITY" logs/*.log
 ./stop.sh
 ```
 
-**检查配置文件**：
+**检查配置**（有磁盘副本时）：
 ```bash
 cat config.yaml
 ```

@@ -8,7 +8,7 @@ QuantMesh 已集成 Go 原生的 pprof 性能分析工具，可以通过配置�
 
 **重要**: pprof **默认关闭**，必须显式配置 `enabled: true` 才会启用。
 
-在 `config.yaml` 中添加以下配置：
+在主配置（Web / **`app_config`** / 导入 YAML）中添加以下配置：
 
 ```yaml
 web:
