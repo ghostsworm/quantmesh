@@ -227,6 +227,8 @@ func NewBinanceAdapterForPublicData(cfg map[string]string, symbol string) (*Bina
 
 // newBinanceAdapterWithKeys 內部實現，支持占位密鑰（用於僅拉取公開數據如 K 線）
 func newBinanceAdapterWithKeys(apiKey, secretKey, symbol string, useTestnet bool) (*BinanceAdapter, error) {
+	symbol = normalizeBinanceSymbolTypo(symbol)
+
 	client := futures.NewClient(apiKey, secretKey)
 
 	// 同步服務器時间
@@ -278,6 +280,22 @@ func (b *BinanceAdapter) GetName() string {
 // GetMarketType 獲取市場類型：futures 合約
 func (b *BinanceAdapter) GetMarketType() string {
 	return "futures"
+}
+
+// normalizeBinanceSymbolTypo 修正常見拼寫錯誤（如少寫一個 T：BTCUSTD → BTCUSDT）。
+// 現貨與 U 本位永续均以 USDT/USDC 等結尾；合法符號不會以「USTD」結尾卻不是「USDT」。
+func normalizeBinanceSymbolTypo(symbol string) string {
+	s := strings.TrimSpace(symbol)
+	if s == "" {
+		return s
+	}
+	u := strings.ToUpper(s)
+	if strings.HasSuffix(u, "USTD") && !strings.HasSuffix(u, "USDT") {
+		fixed := strings.TrimSuffix(u, "USTD") + "USDT"
+		logger.Warn("⚠️ [Binance] 交易對拼寫已自動修正: %s → %s（USDT 計價）", s, fixed)
+		return fixed
+	}
+	return u
 }
 
 // fetchExchangeInfo 獲取合約信息（價格精度、數量精度等）
