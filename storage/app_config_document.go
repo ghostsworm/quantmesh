@@ -405,16 +405,11 @@ func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, b
 	return true, nil
 }
 
-// LoadConfigFromAppConfigDBIfExists 僅打開 SQLite 主庫並嘗試讀取 app_config（無快照時返回 nil, nil）。用於磁盤無 config.yaml 時的啟動引導。
-func LoadConfigFromAppConfigDBIfExists(sqlitePath string) (*config.Config, error) {
-	if strings.TrimSpace(sqlitePath) == "" {
+// loadConfigFromAppConfigDocument 從已打開的主庫讀取 app_config 並解析為 Config（無有效快照時返回 nil, nil）。
+func loadConfigFromAppConfigDocument(st *SQLiteStorage) (*config.Config, error) {
+	if st == nil {
 		return nil, nil
 	}
-	st, err := NewSQLiteStorage(sqlitePath)
-	if err != nil {
-		return nil, err
-	}
-	defer st.Close()
 	doc, err := st.GetAppConfigDocument(context.Background())
 	if err != nil {
 		return nil, err
@@ -423,6 +418,42 @@ func LoadConfigFromAppConfigDBIfExists(sqlitePath string) (*config.Config, error
 		return nil, nil
 	}
 	return config.LoadConfigFromJSON([]byte(doc.Content))
+}
+
+// LoadConfigFromAppConfigDBIfExists 在磁盤無 config.yaml 時嘗試從主庫 app_config 加載快照。
+// 優先嘗試 SQLite 文件路徑（歷史行為）；若無有效快照且設置了 QUANTMESH_DATABASE_DSN（MySQL 連接串），則再嘗試 MySQL（純 RDS 部署可不依賴本地 quantmesh.db）。
+func LoadConfigFromAppConfigDBIfExists(sqlitePath string) (*config.Config, error) {
+	trySQLite := strings.TrimSpace(sqlitePath) != ""
+	if trySQLite {
+		st, err := NewSQLiteStorage(sqlitePath)
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := loadConfigFromAppConfigDocument(st)
+		_ = st.Close()
+		if err != nil {
+			return nil, err
+		}
+		if cfg != nil {
+			return cfg, nil
+		}
+	}
+
+	dsn := strings.TrimSpace(os.Getenv("QUANTMESH_DATABASE_DSN"))
+	if dsn != "" && IsMySQLStorageDSNString(dsn) {
+		st, err := NewMySQLStorage(dsn)
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := loadConfigFromAppConfigDocument(st)
+		_ = st.Close()
+		if err != nil {
+			return nil, err
+		}
+		return cfg, nil
+	}
+
+	return nil, nil
 }
 
 // ApplyAppConfigFromDBIfPresent 若 app_config 有有效快照則覆蓋內存中的 *Config（環境變量 QUANTMESH_USE_APP_CONFIG=0 可禁用）
