@@ -53,7 +53,7 @@
 ```bash
 REMOTE_HOST="facev.app"                    # 服务器地址
 REMOTE_USER="root"                         # SSH用户名
-REMOTE_PATH="/root/quntmesh"              # 部署路径
+REMOTE_PATH="/root/quantmesh"              # 部署路径
 GIT_REPO="git@github.com:ghostsworm/quantmesh.git"  # Git仓库
 GIT_BRANCH="main"                          # Git分支
 SERVICE_NAME="quantmesh"                   # systemd服务名
@@ -95,10 +95,10 @@ ssh root@facev.app 'systemctl start quantmesh'
 
 ```bash
 # 检查 Git 配置
-ssh root@facev.app "cd /root/quntmesh && git remote -v"
+ssh root@facev.app "cd /root/quantmesh && git remote -v"
 
 # 手动拉取
-ssh root@facev.app "cd /root/quntmesh && git pull origin main"
+ssh root@facev.app "cd /root/quantmesh && git pull origin main"
 ```
 
 ### 2. 编译失败
@@ -118,7 +118,7 @@ ssh root@facev.app "node --version && yarn --version"
 ssh root@facev.app "journalctl -u quantmesh -n 100 --no-pager"
 
 # 检查配置文件
-ssh root@facev.app "cd /root/quntmesh && ./quantmesh --help"
+ssh root@facev.app "cd /root/quantmesh && ./quantmesh --help"
 ```
 
 ## 与 rsync 部署的区别

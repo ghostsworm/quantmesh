@@ -541,7 +541,7 @@ sudo systemctl start quantmesh
 
 - 技术支持: support@quantmesh.com
 - 文档: https://docs.quantmesh.com
-- GitHub Issues: https://github.com/quantmesh/quantmesh/issues
+- GitHub Issues: https://github.com/ghostsworm/quantmesh/issues
 
 <!-- quantmesh usage beacon -->
 ![](https://um.facev.app/p/IiDQJEIGM)

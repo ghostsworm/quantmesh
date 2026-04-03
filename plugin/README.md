@@ -251,7 +251,7 @@ if validator.CheckFeature("premium_ai_strategy", "ai") {
 ```bash
 # 用户直接编译
 git clone https://github.com/yourname/quantmesh-plugin-example
-cd quantmesh_market_maker
+cd quantmesh
 go build -o quantmesh
 ```
 

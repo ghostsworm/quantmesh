@@ -198,7 +198,7 @@ ${PLUGIN_NAME} 策略插件
 
 \`\`\`bash
 # 将插件添加到主程序
-cd quantmesh_market_maker
+cd quantmesh
 go mod edit -replace quantmesh/plugins/${PLUGIN_NAME}=./plugins/${PLUGIN_NAME}
 go build
 \`\`\`

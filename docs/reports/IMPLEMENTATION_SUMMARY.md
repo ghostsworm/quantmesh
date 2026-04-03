@@ -196,8 +196,8 @@ license-server/                          # License 验证服务器
 
 ```bash
 # 克隆仓库
-git clone https://github.com/quantmesh/quantmesh_market_maker.git
-cd quantmesh_market_maker
+git clone https://github.com/ghostsworm/quantmesh.git
+cd quantmesh
 
 # 配置模板（导入后权威在 app_config）
 cp config.example.yaml my-import.yaml
@@ -350,7 +350,7 @@ go run .
 - 🌐 官网: https://quantmesh.io
 - 📧 商务: sales@quantmesh.io
 - 💬 支持: support@quantmesh.io
-- 🐛 Issues: https://github.com/quantmesh/quantmesh_market_maker/issues
+- 🐛 Issues: https://github.com/ghostsworm/quantmesh/issues
 
 ---
 
