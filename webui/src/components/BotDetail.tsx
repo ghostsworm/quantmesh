@@ -171,6 +171,14 @@ const BotDetail: React.FC = () => {
   }, [botId])
 
   useEffect(() => {
+    if (!bot?.running || !botId) return
+    const id = window.setInterval(() => {
+      fetchBot()
+    }, 15000)
+    return () => clearInterval(id)
+  }, [bot?.running, botId])
+
+  useEffect(() => {
     if (!bot?.running || !bot?.exchange || !bot?.symbol) {
       if (!bot?.running) setPositionStatus(null)
       return
@@ -871,7 +879,13 @@ const BotDetail: React.FC = () => {
           <TabPanel px={0}>
             {botId && (
               <VStack align="stretch" spacing={2}>
-                <BotRiskControlPanel botId={botId} botRunning={bot.running} hidePositionStatus />
+                <BotRiskControlPanel
+                  botId={botId}
+                  botRunning={bot.running}
+                  hidePositionStatus
+                  riskTriggered={bot.risk_triggered}
+                  riskTriggerMessage={bot.risk_trigger_message}
+                />
                 <OptionHedgePanel botId={botId} />
               </VStack>
             )}

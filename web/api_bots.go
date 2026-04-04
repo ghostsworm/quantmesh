@@ -24,6 +24,8 @@ type BotResponse struct {
 	TotalPnL               float64 `json:"total_pnl,omitempty"`
 	TotalTrades            int     `json:"total_trades,omitempty"`
 	RiskTriggered          bool    `json:"risk_triggered,omitempty"`
+	// RiskTriggerMessage K 線風控與深度風控的最近說明（與運行時 lastMsg 一致，多條以分號拼接）
+	RiskTriggerMessage string `json:"risk_trigger_message,omitempty"`
 	Uptime                 int64   `json:"uptime,omitempty"`
 	PriceInterval          float64 `json:"price_interval,omitempty"`           // 價格間隔
 	ProfitSpread           float64 `json:"profit_spread,omitempty"`             // 利潤間距

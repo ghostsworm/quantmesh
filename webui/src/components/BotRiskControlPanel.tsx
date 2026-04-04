@@ -54,15 +54,26 @@ import {
   BotRiskControl as BotRiskControlType,
   PositionStatus,
 } from '../services/api'
+import { displayPauseOpeningReason } from '../utils/botPauseReason'
 
 interface BotRiskControlPanelProps {
   botId: string
   botRunning: boolean
   /** 隱藏持倉狀態區塊（已移至概覽標籤） */
   hidePositionStatus?: boolean
+  /** 與列表/詳情徽章一致：市場或深度風控是否觸發 */
+  riskTriggered?: boolean
+  /** 後端 RiskMonitor/DepthMonitor 的 lastMsg（多條分號拼接） */
+  riskTriggerMessage?: string
 }
 
-const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRunning, hidePositionStatus }) => {
+const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
+  botId,
+  botRunning,
+  hidePositionStatus,
+  riskTriggered,
+  riskTriggerMessage,
+}) => {
   const { t } = useTranslation()
   const toast = useToast()
   const { isOpen: showConfig, onToggle: toggleConfig } = useDisclosure({ defaultIsOpen: true })
@@ -196,16 +207,45 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({ botId, botRun
     } : null)
   }, [])
 
+  const marketRiskBanner = !!riskTriggered && (
+    <Alert status="error" borderRadius="md" variant="subtle">
+      <AlertIcon />
+      <Box>
+        <Text fontWeight="bold" fontSize="sm">{t('botRiskControl.riskTriggerBannerTitle')}</Text>
+        <Text fontSize="sm" mt={1} whiteSpace="pre-wrap" wordBreak="break-word">
+          {(riskTriggerMessage && riskTriggerMessage.trim()) ? riskTriggerMessage.trim() : t('botRiskControl.riskTriggerNoDetail')}
+        </Text>
+      </Box>
+    </Alert>
+  )
+
+  const pauseOpeningBanner = riskControl?.pause_opening && (
+    <Alert status="warning" borderRadius="md" variant="subtle">
+      <AlertIcon />
+      <Box>
+        <Text fontWeight="bold" fontSize="sm">{t('botRiskControl.pauseOpeningBannerTitle')}</Text>
+        <Text fontSize="sm" mt={1} whiteSpace="pre-wrap" wordBreak="break-word">
+          {displayPauseOpeningReason(riskControl.pause_opening_reason, t)}
+        </Text>
+      </Box>
+    </Alert>
+  )
+
   if (loading) {
     return (
-      <Flex justify="center" align="center" minH="200px">
-        <Spinner size="lg" />
-      </Flex>
+      <VStack spacing={4} align="stretch">
+        {marketRiskBanner}
+        <Flex justify="center" align="center" minH="200px">
+          <Spinner size="lg" />
+        </Flex>
+      </VStack>
     )
   }
 
   return (
     <VStack spacing={4} align="stretch">
+      {marketRiskBanner}
+      {pauseOpeningBanner}
       {/* 当前状态卡片（可隱藏，已移至概覽） */}
       {!hidePositionStatus && (
       <Card>

@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.9"
+var Version = "3.79.10"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -852,6 +852,28 @@ func attachBotLastStartFailure(botMgr *BotManager, resp *web.BotResponse) {
 	}
 }
 
+// attachBotRiskFields 填充 Bot API 的風控觸發狀態與說明（K 線風控 + 深度風控，與 symbol_manager 撤買單邏輯一致）
+func attachBotRiskFields(inner *SymbolRuntime, resp *web.BotResponse) {
+	if inner == nil || resp == nil {
+		return
+	}
+	rmTriggered := inner.RiskMonitor != nil && inner.RiskMonitor.IsTriggered()
+	dmTriggered := inner.DepthMonitor != nil && inner.DepthMonitor.IsTriggered()
+	resp.RiskTriggered = rmTriggered || dmTriggered
+	var parts []string
+	if rmTriggered && inner.RiskMonitor != nil {
+		if msg := inner.RiskMonitor.GetLastMsg(); msg != "" {
+			parts = append(parts, msg)
+		}
+	}
+	if dmTriggered && inner.DepthMonitor != nil {
+		if msg := inner.DepthMonitor.GetLastMsg(); msg != "" {
+			parts = append(parts, msg)
+		}
+	}
+	resp.RiskTriggerMessage = strings.Join(parts, "; ")
+}
+
 func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 	cfg, err := web.GetLatestConfig()
 	if err != nil || cfg == nil {
@@ -913,9 +935,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 				resp.TotalPnL = br.Inner.SuperPositionManager.GetUnrealizedPnL(resp.CurrentPrice)
 				// TotalTrades 需從存儲查詢，此處暫不填充
 			}
-			if br.Inner.RiskMonitor != nil {
-				resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
-			}
+			attachBotRiskFields(br.Inner, &resp)
 		} else if stoppedAt, ok := botMgr.GetStoppedAt(botID); ok {
 			resp.StoppedAt = stoppedAt
 		}
@@ -960,9 +980,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 				if br.Inner.SuperPositionManager != nil {
 					resp.TotalPnL = br.Inner.SuperPositionManager.GetUnrealizedPnL(resp.CurrentPrice)
 				}
-				if br.Inner.RiskMonitor != nil {
-					resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
-				}
+				attachBotRiskFields(br.Inner, &resp)
 			} else if stoppedAt, ok := botMgr.GetStoppedAt(botID); ok {
 				resp.StoppedAt = stoppedAt
 			}
@@ -1021,9 +1039,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 		if br.Inner.SuperPositionManager != nil {
 			resp.TotalPnL = br.Inner.SuperPositionManager.GetUnrealizedPnL(resp.CurrentPrice)
 		}
-		if br.Inner.RiskMonitor != nil {
-			resp.RiskTriggered = br.Inner.RiskMonitor.IsTriggered()
-		}
+		attachBotRiskFields(br.Inner, &resp.BotResponse)
 		attachBotLastStartFailure(botMgr, &resp.BotResponse)
 		return resp, true
 	}

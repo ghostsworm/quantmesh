@@ -140,6 +140,8 @@ export interface BotInfo {
   total_pnl?: number
   total_trades?: number
   risk_triggered?: boolean
+  /** 市場/深度風控最近說明（API risk_trigger_message） */
+  risk_trigger_message?: string
   uptime?: number
   price_interval?: number
   profit_spread?: number

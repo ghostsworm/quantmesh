@@ -3115,7 +3115,20 @@
     "configUpdateSuccess": "Risk config updated",
     "configUpdateFailed": "Failed to update risk config",
     "positionStatusFailed": "Failed to fetch position status",
-    "stoppedBotNoPosition": "Stopped bot has no position"
+    "stoppedBotNoPosition": "Stopped bot has no position",
+    "riskTriggerBannerTitle": "Market or depth risk control triggered",
+    "riskTriggerNoDetail": "No detail from server yet. Check Real-time Logs or refresh.",
+    "pauseOpeningBannerTitle": "Opening is paused",
+    "pauseReason": {
+      "single_leg_running": "Hedge group single-leg timeout; opening paused",
+      "manual": "Opening paused manually",
+      "position_limit": "Position or margin limit reached; opening paused",
+      "schedule": "Scheduled rule triggered; opening paused",
+      "periodic": "Periodic rule triggered; opening paused",
+      "circuit_breaker": "Global circuit breaker; opening paused",
+      "emergency_stop": "Emergency stop",
+      "emergency_pause": "Emergency pause"
+    }
   },
   "optionHedge": {
     "title": "Option Hedge",
