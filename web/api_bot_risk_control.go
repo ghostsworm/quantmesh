@@ -43,19 +43,20 @@ func getBotRiskControl(c *gin.Context) {
 		}
 		grc := bot.GetGridRiskControl()
 		c.JSON(http.StatusOK, gin.H{
-			"enabled":               rc.Enabled,
-			"max_position_quantity": rc.MaxPositionQuantity,
-			"max_position_value":    rc.MaxPositionValue,
-			"max_position_layers":   rc.MaxPositionLayers,
-			"max_open_orders":       rc.MaxOpenOrders,
-			"open_order_distance":   rc.OpenOrderDistance,
-			"stop_loss_ratio":       rc.StopLossRatio,
-			"take_profit_ratio":     rc.TakeProfitRatio,
-			"trailing_stop_ratio":   rc.TrailingStopRatio,
-			"trend_filter_enabled":  rc.TrendFilterEnabled,
-			"pause_opening":         rc.PauseOpening,
-			"auto_resume_after":     rc.AutoResumeAfter,
-			"grid_risk_control":     grc,
+			"enabled":                 rc.Enabled,
+			"max_position_quantity":   rc.MaxPositionQuantity,
+			"max_position_value":      rc.MaxPositionValue,
+			"max_position_layers":     rc.MaxPositionLayers,
+			"max_open_orders":         rc.MaxOpenOrders,
+			"open_order_distance":     rc.OpenOrderDistance,
+			"stop_loss_ratio":         rc.StopLossRatio,
+			"take_profit_ratio":       rc.TakeProfitRatio,
+			"trailing_stop_ratio":     rc.TrailingStopRatio,
+			"trend_filter_enabled":    rc.TrendFilterEnabled,
+			"pause_opening":           rc.PauseOpening,
+			"pause_opening_reason":    rc.PauseOpeningReason,
+			"auto_resume_after":       rc.AutoResumeAfter,
+			"grid_risk_control":       grc,
 		})
 		return
 	}
@@ -77,19 +78,20 @@ func getBotRiskControl(c *gin.Context) {
 			}
 			grc := cfg.Bots[i].GridRiskControl
 			c.JSON(http.StatusOK, gin.H{
-				"enabled":               rc.Enabled,
-				"max_position_quantity": rc.MaxPositionQuantity,
-				"max_position_value":    rc.MaxPositionValue,
-				"max_position_layers":   rc.MaxPositionLayers,
-				"max_open_orders":       rc.MaxOpenOrders,
-				"open_order_distance":   rc.OpenOrderDistance,
-				"stop_loss_ratio":       rc.StopLossRatio,
-				"take_profit_ratio":     rc.TakeProfitRatio,
-				"trailing_stop_ratio":   rc.TrailingStopRatio,
-				"trend_filter_enabled":  rc.TrendFilterEnabled,
-				"pause_opening":         rc.PauseOpening,
-				"auto_resume_after":     rc.AutoResumeAfter,
-				"grid_risk_control":     grc,
+				"enabled":                 rc.Enabled,
+				"max_position_quantity":   rc.MaxPositionQuantity,
+				"max_position_value":      rc.MaxPositionValue,
+				"max_position_layers":     rc.MaxPositionLayers,
+				"max_open_orders":         rc.MaxOpenOrders,
+				"open_order_distance":     rc.OpenOrderDistance,
+				"stop_loss_ratio":         rc.StopLossRatio,
+				"take_profit_ratio":       rc.TakeProfitRatio,
+				"trailing_stop_ratio":     rc.TrailingStopRatio,
+				"trend_filter_enabled":    rc.TrendFilterEnabled,
+				"pause_opening":           rc.PauseOpening,
+				"pause_opening_reason":    rc.PauseOpeningReason,
+				"auto_resume_after":       rc.AutoResumeAfter,
+				"grid_risk_control":       grc,
 			})
 			return
 		}

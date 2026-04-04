@@ -3117,7 +3117,20 @@
     "configUpdateSuccess": "风控配置已更新",
     "configUpdateFailed": "风控配置更新失败",
     "positionStatusFailed": "获取仓位状态失败",
-    "stoppedBotNoPosition": "停止交易的 Bot，没有仓位"
+    "stoppedBotNoPosition": "停止交易的 Bot，没有仓位",
+    "riskTriggerBannerTitle": "市场 / 深度风控已触发",
+    "riskTriggerNoDetail": "服务端未返回详细说明，请查看「实时日志」或稍后刷新。",
+    "pauseOpeningBannerTitle": "开仓已暂停",
+    "pauseReason": {
+      "single_leg_running": "对冲组单腿超时，已自动暂停开仓",
+      "manual": "手动暂停开仓",
+      "position_limit": "已达仓位或资金限制，暂停开仓",
+      "schedule": "定时规则触发，暂停开仓",
+      "periodic": "周期性规则触发，暂停开仓",
+      "circuit_breaker": "全局熔断，暂停开仓",
+      "emergency_stop": "紧急停止",
+      "emergency_pause": "紧急暂停"
+    }
   },
   "optionHedge": {
     "title": "期权对冲",

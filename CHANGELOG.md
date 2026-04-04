@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.10] - 2026-04-04
+
+### Added
+- **Bot 風控頁展示觸發原因**：API 增加 `risk_trigger_message`（K 線風控與深度風控 lastMsg 合併）；`/api/bots/:id/risk-control` 返回 `pause_opening_reason`。Web 風控標籤頂部展示市場/深度說明與暫停開倉原因；Bot 詳情每 15s 刷新以同步狀態。
+
+---
+
 ## [3.79.9] - 2026-04-04
 
 ### Fixed
