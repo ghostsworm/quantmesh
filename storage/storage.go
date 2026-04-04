@@ -37,8 +37,9 @@ type Storage interface {
 	// QueryOrdersWithFilter 带完整筛选条件的订单查询（支持 exchange、symbol 筛选）
 	QueryOrdersWithFilter(limit, offset int, status, exchange, symbol string, startTime, endTime *time.Time) ([]*Order, error)
 	CountOrders(status string) (int64, error)
-	// CountOrdersWithFilter 带筛选条件的订单计数（支持 exchange、symbol 筛选）
-	CountOrdersWithFilter(status, exchange, symbol string) (int64, error)
+	// CountOrdersWithFilter 带筛选条件的订单计数（支持 exchange、symbol 筛选）。
+	// startTime/endTime 非 nil 时按 updated_at 与 QueryOrdersWithFilter 一致。
+	CountOrdersWithFilter(status, exchange, symbol string, startTime, endTime *time.Time) (int64, error)
 	QueryPositions(limit, offset int) ([]*Position, error)
 	QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error)
 	// GetTradesBySellOrderIDs 根據賣單 ID 查詢對應的成交盈虧，返回 sell_order_id -> pnl 的映射

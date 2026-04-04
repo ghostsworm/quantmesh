@@ -1205,6 +1205,7 @@
     "timeRangeMaxDays": "時間範囲は7日を超えることはできません",
     "timeRangeInvalid": "終了時間は開始時間より後である必要があります",
     "defaultTimeRange": "デフォルト: 過去24時間",
+    "timeRangeFilterHint": "The range filters by last update time (fills/cancels update it), not placement time. Grid orders may rest for days and fill recently—older logic used create time and could hide them.",
     "buyPrice": "Buy Price",
     "clickToViewDetail": "Click to view fill details",
     "fee": "Fee",
