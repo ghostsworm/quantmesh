@@ -1232,6 +1232,7 @@
     "timeRangeMaxDays": "時間範圍不能超過7天",
     "timeRangeInvalid": "結束時間必須晚於開始時間",
     "defaultTimeRange": "預設最近24小時",
+    "timeRangeFilterHint": "篩選依據為訂單最後更新時間（成交、撤單等會更新），不是下單時間；網格單常掛較久、近日才成交，先前若選「最近24小時」可能看不到。",
     "syncSuccessMessage": "Orders synced successfully, order list updated",
     "syncing": "Syncing...",
     "takeProfit": "Take Profit",

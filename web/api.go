@@ -817,21 +817,21 @@ func getOrderHistory(c *gin.Context) {
 
 	// 尝試從數據库获取真实总数（带交易所/交易对筛选）
 	type orderCounterWithFilter interface {
-		CountOrdersWithFilter(status, exchange, symbol string) (int64, error)
+		CountOrdersWithFilter(status, exchange, symbol string, startTime, endTime *time.Time) (int64, error)
 	}
 	if counter, ok := storage.(orderCounterWithFilter); ok {
-		filledCount, err1 := counter.CountOrdersWithFilter("FILLED", exchange, symbol)
-		canceledCount, err2 := counter.CountOrdersWithFilter("CANCELED", exchange, symbol)
+		filledCount, err1 := counter.CountOrdersWithFilter("FILLED", exchange, symbol, startTime, endTime)
+		canceledCount, err2 := counter.CountOrdersWithFilter("CANCELED", exchange, symbol, startTime, endTime)
 		if err1 == nil && err2 == nil {
 			totalCount = filledCount + canceledCount
 		}
 	}
 
-	// 计算今日订單数（从已返回的订單中统计）
+	// 计算今日订單数（从已返回的订單中统计，按更新日期与列表筛选一致）
 	nowLocal := utils.NowConfiguredTimezone()
 	todayStr := nowLocal.Format("2006-01-02")
 	for _, order := range orders {
-		orderDate := utils.ToConfiguredTimezone(order.CreatedAt).Format("2006-01-02")
+		orderDate := utils.ToConfiguredTimezone(order.UpdatedAt).Format("2006-01-02")
 		if orderDate == todayStr {
 			todayCount++
 		}

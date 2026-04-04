@@ -192,6 +192,57 @@ func TestQueryOrdersWithFilterExchange(t *testing.T) {
 	}
 }
 
+// TestQueryOrdersWithFilterTimeRangeUsesUpdatedAt 驗證時間範圍按 updated_at 篩選（早掛單、晚成交仍應出現在「最近」窗口）
+func TestQueryOrdersWithFilterTimeRangeUsesUpdatedAt(t *testing.T) {
+	dbPath := "./test_quantmesh_order_updated_at_range.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLiteStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC()
+	createdOld := now.Add(-80 * time.Hour)
+	updatedRecent := now.Add(-2 * time.Hour)
+	o := &Order{
+		OrderID:       555001,
+		ClientOrderID: "cid_updated_at_range",
+		Symbol:        "BTCUSDT",
+		Side:          "BUY",
+		Exchange:      "binance",
+		Price:         1,
+		Quantity:      1,
+		Status:        "FILLED",
+		CreatedAt:     createdOld,
+		UpdatedAt:     updatedRecent,
+	}
+	if err := st.SaveOrder(o); err != nil {
+		t.Fatalf("保存訂單失败: %v", err)
+	}
+
+	winStart := now.Add(-24 * time.Hour)
+	winEnd := now.Add(time.Hour)
+	got, err := st.QueryOrdersWithFilter(10, 0, "FILLED", "binance", "BTCUSDT", &winStart, &winEnd)
+	if err != nil {
+		t.Fatalf("查詢失败: %v", err)
+	}
+	if len(got) != 1 || got[0].OrderID != o.OrderID {
+		t.Fatalf("預期 1 筆 FILLED（按 updated_at 落在窗口內），得到 len=%d ids=%v", len(got), got)
+	}
+
+	cnt, err := st.CountOrdersWithFilter("FILLED", "binance", "BTCUSDT", &winStart, &winEnd)
+	if err != nil {
+		t.Fatalf("計數失败: %v", err)
+	}
+	if cnt != 1 {
+		t.Fatalf("CountOrdersWithFilter 預期 1，得到 %d", cnt)
+	}
+}
+
 // TestSaveOrderUpsert 驗證 order_placed 等事件的 SaveOrder 使用 ON CONFLICT 正確 upsert
 // 修復: ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint
 func TestSaveOrderUpsert(t *testing.T) {

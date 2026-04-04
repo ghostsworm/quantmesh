@@ -860,6 +860,7 @@ const Orders: React.FC = () => {
               {/* 时间范围选择器 */}
               <Box>
                 <Text fontSize="sm" fontWeight="medium" mb={2}>{t('orders.timeRange')}</Text>
+                <Text fontSize="xs" color="gray.500" mb={2}>{t('orders.timeRangeFilterHint')}</Text>
                 <Flex gap={2} wrap="wrap" align="center">
                   <FormControl isInvalid={!validateTimeRange().valid && historyStartTime && historyEndTime} maxW="200px">
                     <FormLabel fontSize="xs">{t('orders.startTime')}</FormLabel>

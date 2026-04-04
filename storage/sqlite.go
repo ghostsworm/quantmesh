@@ -1904,7 +1904,7 @@ func (s *SQLiteStorage) CountOrders(status string) (int64, error) {
 }
 
 // CountOrdersWithFilter 带筛选条件的订单计数（支持 exchange、symbol 筛选）
-func (s *SQLiteStorage) CountOrdersWithFilter(status, exchange, symbol string) (int64, error) {
+func (s *SQLiteStorage) CountOrdersWithFilter(status, exchange, symbol string, startTime, endTime *time.Time) (int64, error) {
 	query := `SELECT COUNT(*) FROM orders WHERE 1=1`
 	args := []interface{}{}
 
@@ -1919,6 +1919,14 @@ func (s *SQLiteStorage) CountOrdersWithFilter(status, exchange, symbol string) (
 	if symbol != "" {
 		query += " AND symbol = ?"
 		args = append(args, symbol)
+	}
+	if startTime != nil {
+		query += " AND updated_at >= ?"
+		args = append(args, *startTime)
+	}
+	if endTime != nil {
+		query += " AND updated_at <= ?"
+		args = append(args, *endTime)
 	}
 
 	var count int64
@@ -1972,17 +1980,17 @@ func (s *SQLiteStorage) QueryOrdersWithFilter(limit, offset int, status, exchang
 		args = append(args, symbol)
 	}
 
-	// 添加时间范围条件
+	// 添加时间范围条件（按 updated_at：挂单早、近日才成交的订单可被「最近24小时」命中）
 	if startTime != nil {
-		query += " AND created_at >= ?"
+		query += " AND updated_at >= ?"
 		args = append(args, *startTime)
 	}
 	if endTime != nil {
-		query += " AND created_at <= ?"
+		query += " AND updated_at <= ?"
 		args = append(args, *endTime)
 	}
 
-	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
 	rows, err := s.db.Query(query, args...)
