@@ -13,7 +13,7 @@ import (
 	"quantmesh/logger"
 )
 
-// TaskStore 回测任務存儲介面（由 storage.SQLiteStorage 實現）
+// TaskStore 回测任務存儲介面（由 storage.SQLStorage 實現）
 type TaskStore interface {
 	CreateBacktestTask(task *BacktestTask) error
 	GetBacktestTask(id string) (*BacktestTask, error)

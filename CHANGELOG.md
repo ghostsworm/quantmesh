@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.12] - 2026-04-05
+
+### Changed
+- **存儲命名**：`storage/sqlite.go` 更名為 `storage/sql_storage.go`（實際為 SQLite/MySQL 共用的 `database/sql` 實現）；類型 `SQLiteStorage`、構造函數 `NewSQLiteStorage` 分別更名為 `SQLStorage`、`NewSQLStorage`。文檔中舊路徑已同步替換。
+
+---
+
 ## [3.79.11] - 2026-04-05
 
 ### Fixed
@@ -2412,7 +2419,7 @@
   - CSV文件存储到 `./data/kline` 目录
   - 7天自动清理未保护的文件
   - 文件保护机制：用户可保护重要文件不被自动删除
-  - 后端：`monitor/kline_collector.go`、`web/api_kline_files.go`、`storage/sqlite.go`（新增 `protected_kline_files` 表）
+  - 后端：`monitor/kline_collector.go`、`web/api_kline_files.go`、`storage/sql_storage.go`（新增 `protected_kline_files` 表）
   - 前端：`webui/src/components/KlineFilesManager.tsx`、`webui/src/services/klineFiles.ts`
   - API：`GET /api/kline-files`、`POST /api/kline-files/:filename/protect`、`DELETE /api/kline-files/:filename/protect`、`GET /api/kline-files/:filename/download`
 
@@ -2489,7 +2496,7 @@
 
 ### Fixed
 - **日曆視圖時區修正**：修復統計日曆按 UTC 時間分組導致日期錯位的問題，現按配置時區（如 Asia/Shanghai）正確分組每日統計數據
-  - 涉及：`storage/sqlite.go`（`QueryDailyStatisticsByExchange` 使用時區偏移）、`utils/timezone.go`（新增 `GetTimezoneOffsetSeconds`）
+  - 涉及：`storage/sql_storage.go`（`QueryDailyStatisticsByExchange` 使用時區偏移）、`utils/timezone.go`（新增 `GetTimezoneOffsetSeconds`）
 
 ## [3.29.1-rc2] - 2026-02-03
 

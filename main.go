@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.79.11"
+var Version = "3.79.12"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -319,7 +319,7 @@ func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int
 	}); ok {
 		return sqliteSt.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, 0, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt)
 	}
-	// 使用SQLiteStorage的SaveTradeWithDeviation方法
+	// 使用SQLStorage的SaveTradeWithDeviation方法
 	if sqliteSt, ok := st.(interface {
 		SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
 	}); ok {
@@ -353,7 +353,7 @@ func (a *tradeStorageAdapter) SaveTradeWithExchangePnL(buyOrderID, sellOrderID i
 	if st == nil {
 		return nil
 	}
-	// 使用SQLiteStorage的SaveTradeWithExchangePnL方法
+	// 使用SQLStorage的SaveTradeWithExchangePnL方法
 	if sqliteSt, ok := st.(interface {
 		SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
 	}); ok {
@@ -1711,7 +1711,7 @@ func main() {
 	// 幂等補建 app_config / bot_configs 文檔表（舊部署可能缺少該遷移）
 	if storageService != nil {
 		if st := storageService.GetStorage(); st != nil {
-			if ss, ok := st.(*storage.SQLiteStorage); ok {
+			if ss, ok := st.(*storage.SQLStorage); ok {
 				if err := ss.EnsureAppConfigDocumentTables(); err != nil {
 					logger.Warn("⚠️ 確保 app_config 文檔表失敗: %v", err)
 				}
@@ -1722,7 +1722,7 @@ func main() {
 		if storageService == nil || storageService.GetStorage() == nil {
 			logger.Fatalf("❌ --repair-app-config-tables 需要 storage.enabled=true 且主庫可連接")
 		}
-		ss, ok := storageService.GetStorage().(*storage.SQLiteStorage)
+		ss, ok := storageService.GetStorage().(*storage.SQLStorage)
 		if !ok {
 			logger.Fatalf("❌ --repair-app-config-tables 需要 SQLite 或 MySQL 主庫實例")
 		}
@@ -1787,7 +1787,7 @@ func main() {
 		if err := storage.ApplyAppConfigFromDBIfPresent(storageService.GetStorage(), &cfg); err != nil {
 			logger.Fatalf("❌ %v", err)
 		}
-		if ss, ok := storageService.GetStorage().(*storage.SQLiteStorage); ok && ss != nil {
+		if ss, ok := storageService.GetStorage().(*storage.SQLStorage); ok && ss != nil {
 			doc, derr := ss.GetAppConfigDocument(context.Background())
 			if derr != nil {
 				logger.Warn("⚠️ 讀取 app_config 狀態失敗: %v", derr)
@@ -1902,7 +1902,7 @@ func main() {
 	// 运行 K 线文件迁移（一次性迁移现有文件到统一管理系统）
 	if storageService != nil {
 		if st := storageService.GetStorage(); st != nil {
-			// 注意：现在使用 GormStorage，不再是 SQLiteStorage
+			// 注意：现在使用 GormStorage，不再是 SQLStorage
 			// 迁移逻辑需要更新
 			logger.Info("✅ 存儲服務已啟用 (GORM)")
 		}

@@ -25,7 +25,7 @@ var (
 	// 全局配置管理器（需要從main.go注入）
 	fileConfigManager *FileConfigManager
 	configHotReloader *config.HotReloader
-	// primaryStorageForAppConfig 主庫（SQLiteStorage，含 MySQL），用於持久化 app_config
+	// primaryStorageForAppConfig 主庫（SQLStorage，含 MySQL），用於持久化 app_config
 	primaryStorageForAppConfig storage.Storage
 )
 
@@ -50,7 +50,7 @@ func loadConfigFromPrimaryDB() (*config.Config, error) {
 	if primaryStorageForAppConfig == nil {
 		return nil, fmt.Errorf("主庫未初始化")
 	}
-	ss, ok := primaryStorageForAppConfig.(*storage.SQLiteStorage)
+	ss, ok := primaryStorageForAppConfig.(*storage.SQLStorage)
 	if !ok || ss == nil {
 		return nil, fmt.Errorf("主庫類型異常")
 	}
@@ -833,7 +833,7 @@ func parseSecurityFromAppConfigRaw() (encryptionEnabled bool, masterKeyPath stri
 	if primaryStorageForAppConfig == nil {
 		return false, masterKeyPath
 	}
-	ss, ok := primaryStorageForAppConfig.(*storage.SQLiteStorage)
+	ss, ok := primaryStorageForAppConfig.(*storage.SQLStorage)
 	if !ok || ss == nil {
 		return false, masterKeyPath
 	}

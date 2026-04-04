@@ -24,7 +24,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 	testConfigPath := filepath.Join(tempDir, "test_config.yaml")
 
 	dbPath := filepath.Join(tempDir, "test.db")
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ exchanges:
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(tempDir, "sec.db")
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +508,7 @@ exchanges:
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(tempDir, "sec2.db")
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}

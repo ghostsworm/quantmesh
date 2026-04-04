@@ -14,7 +14,7 @@ import (
 
 // MigrateExistingKlineFiles 扫描现有文件并导入 kline_files 表
 // 这是一个一次性迁移函数，用于将现有的 K 线文件导入新的统一管理系统
-func (s *SQLiteStorage) MigrateExistingKlineFiles() error {
+func (s *SQLStorage) MigrateExistingKlineFiles() error {
 	logger.Info("🔄 开始迁移现有 K 线文件到统一管理系统...")
 
 	// 1. 扫描 ./data/kline 目录
@@ -32,7 +32,7 @@ func (s *SQLiteStorage) MigrateExistingKlineFiles() error {
 }
 
 // scanKlineDirectory 扫描 KlineCollector 目录
-func (s *SQLiteStorage) scanKlineDirectory(dir, source string) error {
+func (s *SQLStorage) scanKlineDirectory(dir, source string) error {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		logger.Info("📁 目录 %s 不存在，跳过", dir)
 		return nil
@@ -62,7 +62,7 @@ func (s *SQLiteStorage) scanKlineDirectory(dir, source string) error {
 }
 
 // scanBacktestCacheDirectory 扫描回测缓存目录
-func (s *SQLiteStorage) scanBacktestCacheDirectory(dir string) error {
+func (s *SQLStorage) scanBacktestCacheDirectory(dir string) error {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		logger.Info("📁 目录 %s 不存在，跳过", dir)
 		return nil
@@ -102,7 +102,7 @@ func (s *SQLiteStorage) scanBacktestCacheDirectory(dir string) error {
 }
 
 // importKlineCollectorFile 导入 KlineCollector 文件
-func (s *SQLiteStorage) importKlineCollectorFile(dir, filename, source string) error {
+func (s *SQLStorage) importKlineCollectorFile(dir, filename, source string) error {
 	// 解析文件名：{interval}_{exchange}_{symbol}_{date}.csv
 	parts := strings.Split(strings.TrimSuffix(filename, ".csv"), "_")
 	if len(parts) < 4 {
@@ -172,7 +172,7 @@ func (s *SQLiteStorage) importKlineCollectorFile(dir, filename, source string) e
 }
 
 // importBacktestCacheFile 导入回测缓存文件
-func (s *SQLiteStorage) importBacktestCacheFile(dir, filename string) error {
+func (s *SQLStorage) importBacktestCacheFile(dir, filename string) error {
 	// 解析文件名：
 	// 旧格式: {exchange}_{symbol}_{interval}_{start}_{end}.csv
 	// 新格式: {symbol}_{interval}_{start}_{end}.csv
@@ -252,7 +252,7 @@ func (s *SQLiteStorage) importBacktestCacheFile(dir, filename string) error {
 }
 
 // analyzeCSVFile 分析 CSV 文件，返回 (是否有深度, K线数量, 文件大小, 错误)
-func (s *SQLiteStorage) analyzeCSVFile(filePath string) (bool, int, int64, error) {
+func (s *SQLStorage) analyzeCSVFile(filePath string) (bool, int, int64, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("打开文件失败: %w", err)
@@ -304,7 +304,7 @@ func (s *SQLiteStorage) analyzeCSVFile(filePath string) (bool, int, int64, error
 }
 
 // moveFileToUnifiedDir 移动文件到统一目录
-func (s *SQLiteStorage) moveFileToUnifiedDir(oldPath, newPath string) error {
+func (s *SQLStorage) moveFileToUnifiedDir(oldPath, newPath string) error {
 	// 确保目标目录存在
 	targetDir := filepath.Dir(newPath)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -326,6 +326,6 @@ func (s *SQLiteStorage) moveFileToUnifiedDir(oldPath, newPath string) error {
 }
 
 // RunKlineFilesMigration 运行 K 线文件迁移（供外部调用）
-func RunKlineFilesMigration(storage *SQLiteStorage) error {
+func RunKlineFilesMigration(storage *SQLStorage) error {
 	return storage.MigrateExistingKlineFiles()
 }

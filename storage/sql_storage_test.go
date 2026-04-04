@@ -10,13 +10,13 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func TestSQLiteStorage(t *testing.T) {
+func TestSQLStorage(t *testing.T) {
 	dbPath := "./test_quantmesh.db"
 	defer os.Remove(dbPath)
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	storage, err := NewSQLiteStorage(dbPath)
+	storage, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestQueryOrdersWithFilterExchange(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestQueryOrdersWithFilterTimeRangeUsesUpdatedAt(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestSaveOrderUpsert(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -332,8 +332,8 @@ func TestSaveOrderWithPartialIndexMigration(t *testing.T) {
 		t.Fatalf("創建 partial 索引表失败: %v", err)
 	}
 
-	// NewSQLiteStorage 會執行遷移：刪除 partial 索引並創建完整索引
-	st, err := NewSQLiteStorage(dbPath)
+	// NewSQLStorage 會執行遷移：刪除 partial 索引並創建完整索引
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestSaveOrderWithNonUniqueIndexMigration(t *testing.T) {
 		t.Fatalf("創建非唯一索引表失败: %v", err)
 	}
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestGetReconciliationCount(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestQueryRiskCheckHistoryByBotID(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -547,7 +547,7 @@ func TestSaveOrderKeepIsolationByExchangeAndBotID(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestSaveOrderKeepIsolationByExchangeAccountSymbol(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -719,7 +719,7 @@ func TestFixSessionStateCRUD(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -785,7 +785,7 @@ func TestFixOrderLinkCRUD(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("創建存儲失败: %v", err)
 	}
@@ -848,16 +848,16 @@ func TestFixOrderLinkCRUD(t *testing.T) {
 	}
 }
 
-func TestSQLiteStorage_mysqlQuoteIdent(t *testing.T) {
+func TestSQLStorage_mysqlQuoteIdent(t *testing.T) {
 	t.Parallel()
-	mysqlSt := &SQLiteStorage{dbType: "mysql"}
+	mysqlSt := &SQLStorage{dbType: "mysql"}
 	if got := mysqlSt.mysqlQuoteIdent("interval"); got != "`interval`" {
 		t.Fatalf("mysql interval: want `interval`, got %q", got)
 	}
 	if got := mysqlSt.mysqlQuoteIdent("key"); got != "`key`" {
 		t.Fatalf("mysql key: want `key`, got %q", got)
 	}
-	sqliteSt := &SQLiteStorage{dbType: "sqlite"}
+	sqliteSt := &SQLStorage{dbType: "sqlite"}
 	if got := sqliteSt.mysqlQuoteIdent("interval"); got != "interval" {
 		t.Fatalf("sqlite: want interval, got %q", got)
 	}

@@ -20,7 +20,7 @@ import (
 func setupTestPrimaryAppConfigStorage(t *testing.T) func() {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "api_bots_test_app.db")
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}

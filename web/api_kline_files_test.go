@@ -18,7 +18,7 @@ func TestListKlineFilesWithoutCollector(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("创建存储失败: %v", err)
 	}

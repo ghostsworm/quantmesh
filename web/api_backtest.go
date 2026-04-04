@@ -1747,7 +1747,7 @@ func validateKlineFileForBacktest(filename string, c *gin.Context) error {
 		return nil // 无存储服务时跳过校验
 	}
 
-	sqliteStorage, ok := storageProv.GetStorage().(*storage.SQLiteStorage)
+	sqliteStorage, ok := storageProv.GetStorage().(*storage.SQLStorage)
 	if !ok {
 		return nil // 非 SQLite 存储时跳过校验
 	}

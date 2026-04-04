@@ -729,7 +729,7 @@ func (kc *KlineCollector) syncKlineFileToDatabase(filename string, hasDepth bool
 	// 如果是新文件，创建数据库记录
 	if isNewFile {
 		// 检查是否已存在记录
-		sqliteStorage, ok := kc.storage.(*storage.SQLiteStorage)
+		sqliteStorage, ok := kc.storage.(*storage.SQLStorage)
 		if !ok {
 			return nil // 非 SQLite 存储，跳过
 		}
@@ -773,7 +773,7 @@ func (kc *KlineCollector) updateCompletedKlineFiles() error {
 		return nil
 	}
 
-	sqliteStorage, ok := kc.storage.(*storage.SQLiteStorage)
+	sqliteStorage, ok := kc.storage.(*storage.SQLStorage)
 	if !ok {
 		return nil
 	}
@@ -879,7 +879,7 @@ func (kc *KlineCollector) syncAllExistingFiles() error {
 		return nil
 	}
 
-	sqliteStorage, ok := kc.storage.(*storage.SQLiteStorage)
+	sqliteStorage, ok := kc.storage.(*storage.SQLStorage)
 	if !ok {
 		return nil
 	}

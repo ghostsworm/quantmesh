@@ -9,7 +9,7 @@ import (
 )
 
 // QuerySystemMetrics 查詢系统監控细粒度數據
-func (s *SQLiteStorage) QuerySystemMetrics(startTime, endTime time.Time) ([]*SystemMetrics, error) {
+func (s *SQLStorage) QuerySystemMetrics(startTime, endTime time.Time) ([]*SystemMetrics, error) {
 	rows, err := s.db.Query(`
 		SELECT id, timestamp, cpu_percent, memory_mb, memory_percent, process_id, created_at
 		FROM system_metrics
@@ -47,7 +47,7 @@ func (s *SQLiteStorage) QuerySystemMetrics(startTime, endTime time.Time) ([]*Sys
 }
 
 // QueryDailySystemMetrics 查詢每日彙總數據（按配置時區）
-func (s *SQLiteStorage) QueryDailySystemMetrics(days int) ([]*DailySystemMetrics, error) {
+func (s *SQLStorage) QueryDailySystemMetrics(days int) ([]*DailySystemMetrics, error) {
 	startDate := utils.NowConfiguredTimezone().Add(-time.Duration(days) * 24 * time.Hour)
 	startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, utils.GlobalLocation)
 
@@ -88,7 +88,7 @@ func (s *SQLiteStorage) QueryDailySystemMetrics(days int) ([]*DailySystemMetrics
 }
 
 // GetLatestSystemMetrics 獲取最新的系统監控數據
-func (s *SQLiteStorage) GetLatestSystemMetrics() (*SystemMetrics, error) {
+func (s *SQLStorage) GetLatestSystemMetrics() (*SystemMetrics, error) {
 	row := s.db.QueryRow(`
 		SELECT id, timestamp, cpu_percent, memory_mb, memory_percent, process_id, created_at
 		FROM system_metrics
@@ -122,7 +122,7 @@ func (s *SQLiteStorage) GetLatestSystemMetrics() (*SystemMetrics, error) {
 }
 
 // CleanupSystemMetrics 清理過期的细粒度數據
-func (s *SQLiteStorage) CleanupSystemMetrics(beforeTime time.Time) error {
+func (s *SQLStorage) CleanupSystemMetrics(beforeTime time.Time) error {
 	_, err := s.db.Exec(`
 		DELETE FROM system_metrics
 		WHERE timestamp < ?
@@ -131,7 +131,7 @@ func (s *SQLiteStorage) CleanupSystemMetrics(beforeTime time.Time) error {
 }
 
 // CleanupDailySystemMetrics 清理過期的每日彙總數據
-func (s *SQLiteStorage) CleanupDailySystemMetrics(beforeDate time.Time) error {
+func (s *SQLStorage) CleanupDailySystemMetrics(beforeDate time.Time) error {
 	_, err := s.db.Exec(`
 		DELETE FROM daily_system_metrics
 		WHERE date < ?
@@ -140,7 +140,7 @@ func (s *SQLiteStorage) CleanupDailySystemMetrics(beforeDate time.Time) error {
 }
 
 // Vacuum 优化 SQLite 數據库（回收 DELETE 后的空间），MySQL 為 no-op
-func (s *SQLiteStorage) Vacuum() error {
+func (s *SQLStorage) Vacuum() error {
 	if s.dbType != "sqlite" {
 		return nil
 	}

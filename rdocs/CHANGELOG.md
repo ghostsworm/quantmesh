@@ -737,7 +737,7 @@
     - 新增 `utils.NowUTC()` 和 `utils.NowUTC8()` 函数：获取当前UTC或UTC+8时间
     - 修改所有API返回函数，在返回前将时间字段转换为UTC+8
     - 修改所有数据库存储函数，在存储前将时间字段转换为UTC
-    - 涉及的文件：`main.go`, `web/api.go`, `web/system_metrics_provider.go`, `storage/sqlite.go`, `storage/storage.go`, `storage/log_storage.go`
+    - 涉及的文件：`main.go`, `web/api.go`, `web/system_metrics_provider.go`, `storage/sql_storage.go`, `storage/storage.go`, `storage/log_storage.go`
 
 ---
 
@@ -993,7 +993,7 @@
   - `strategy/executor_adapter.go`: 适配新接口
   - `main.go`: 优化退出流程，调整组件关闭顺序
   - `storage/storage.go`: 添加停止状态检查，改进 Stop/Save/batchSave 方法
-  - `storage/sqlite.go`: 添加关闭状态标记，防止重复关闭
+  - `storage/sql_storage.go`: 添加关闭状态标记，防止重复关闭
   - `web/api_auth.go`: 设置密码后自动创建会话
   - `web/session_manager.go`: 将 Cookie SameSite 模式改为 Lax，添加延迟确保 Cookie 处理
   - `web/session_manager.go`: SessionID 使用 RawURLEncoding（无 '=' 填充），避免 Cookie 转义导致会话查找失败

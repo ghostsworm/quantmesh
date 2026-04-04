@@ -133,7 +133,7 @@ func listAvailableKlineFilesHandler(c *gin.Context) {
 		return
 	}
 
-	sqliteStorage, ok := storageProv.GetStorage().(*storage.SQLiteStorage)
+	sqliteStorage, ok := storageProv.GetStorage().(*storage.SQLStorage)
 	if !ok {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "需要 SQLite 存储服务"})
 		return

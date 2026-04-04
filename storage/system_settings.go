@@ -25,19 +25,19 @@ type SystemSettingFilter struct {
 	Key string
 }
 
-func (s *SQLiteStorage) systemSettingsSelectColumns() string {
+func (s *SQLStorage) systemSettingsSelectColumns() string {
 	if s != nil && s.dbType == "mysql" {
 		return "id, `key`, `value`, `type`, created_at, updated_at"
 	}
 	return "id, key, value, type, created_at, updated_at"
 }
 
-func (s *SQLiteStorage) systemSettingsKeyColumn() string {
+func (s *SQLStorage) systemSettingsKeyColumn() string {
 	return s.mysqlQuoteIdent("key")
 }
 
 // GetSystemSettings 获取系统设置
-func (s *SQLiteStorage) GetSystemSettings(ctx context.Context, filter *SystemSettingFilter) ([]*SystemSetting, error) {
+func (s *SQLStorage) GetSystemSettings(ctx context.Context, filter *SystemSettingFilter) ([]*SystemSetting, error) {
 	query := "SELECT " + s.systemSettingsSelectColumns() + " FROM system_settings"
 	args := []interface{}{}
 
@@ -71,7 +71,7 @@ func (s *SQLiteStorage) GetSystemSettings(ctx context.Context, filter *SystemSet
 }
 
 // GetSystemSetting 获取单个系统设置
-func (s *SQLiteStorage) GetSystemSetting(ctx context.Context, key string) (*SystemSetting, error) {
+func (s *SQLStorage) GetSystemSetting(ctx context.Context, key string) (*SystemSetting, error) {
 	query := "SELECT " + s.systemSettingsSelectColumns() + " FROM system_settings WHERE " + s.systemSettingsKeyColumn() + " = ?"
 
 	var setting SystemSetting
@@ -90,7 +90,7 @@ func (s *SQLiteStorage) GetSystemSetting(ctx context.Context, key string) (*Syst
 }
 
 // SaveSystemSetting 保存系统设置
-func (s *SQLiteStorage) SaveSystemSetting(ctx context.Context, setting *SystemSetting) error {
+func (s *SQLStorage) SaveSystemSetting(ctx context.Context, setting *SystemSetting) error {
 	now := time.Now()
 
 	// 检查是否已存在
@@ -142,7 +142,7 @@ func (s *SQLiteStorage) SaveSystemSetting(ctx context.Context, setting *SystemSe
 }
 
 // DeleteSystemSetting 删除系统设置
-func (s *SQLiteStorage) DeleteSystemSetting(ctx context.Context, key string) error {
+func (s *SQLStorage) DeleteSystemSetting(ctx context.Context, key string) error {
 	query := "DELETE FROM system_settings WHERE " + s.systemSettingsKeyColumn() + " = ?"
 	_, err := s.db.ExecContext(ctx, query, key)
 	if err != nil {
@@ -152,7 +152,7 @@ func (s *SQLiteStorage) DeleteSystemSetting(ctx context.Context, key string) err
 }
 
 // GetSystemSettingBool 获取布尔类型的系统设置
-func (s *SQLiteStorage) GetSystemSettingBool(ctx context.Context, key string, defaultValue bool) (bool, error) {
+func (s *SQLStorage) GetSystemSettingBool(ctx context.Context, key string, defaultValue bool) (bool, error) {
 	setting, err := s.GetSystemSetting(ctx, key)
 	if err != nil {
 		return defaultValue, err
@@ -174,7 +174,7 @@ func (s *SQLiteStorage) GetSystemSettingBool(ctx context.Context, key string, de
 }
 
 // GetSystemSettingString 获取字符串类型的系统设置
-func (s *SQLiteStorage) GetSystemSettingString(ctx context.Context, key string, defaultValue string) (string, error) {
+func (s *SQLStorage) GetSystemSettingString(ctx context.Context, key string, defaultValue string) (string, error) {
 	setting, err := s.GetSystemSetting(ctx, key)
 	if err != nil {
 		return defaultValue, err
@@ -191,7 +191,7 @@ func (s *SQLiteStorage) GetSystemSettingString(ctx context.Context, key string, 
 }
 
 // GetSystemSettingJSON 获取 JSON 类型的系统设置
-func (s *SQLiteStorage) GetSystemSettingJSON(ctx context.Context, key string, target interface{}) error {
+func (s *SQLStorage) GetSystemSettingJSON(ctx context.Context, key string, target interface{}) error {
 	setting, err := s.GetSystemSetting(ctx, key)
 	if err != nil {
 		return err
@@ -208,7 +208,7 @@ func (s *SQLiteStorage) GetSystemSettingJSON(ctx context.Context, key string, ta
 }
 
 // SetSystemSettingBool 设置布尔类型的系统设置
-func (s *SQLiteStorage) SetSystemSettingBool(ctx context.Context, key string, value bool) error {
+func (s *SQLStorage) SetSystemSettingBool(ctx context.Context, key string, value bool) error {
 	setting := &SystemSetting{
 		Key:   key,
 		Value: fmt.Sprintf("%v", value),
@@ -218,7 +218,7 @@ func (s *SQLiteStorage) SetSystemSettingBool(ctx context.Context, key string, va
 }
 
 // SetSystemSettingString 设置字符串类型的系统设置
-func (s *SQLiteStorage) SetSystemSettingString(ctx context.Context, key, value string) error {
+func (s *SQLStorage) SetSystemSettingString(ctx context.Context, key, value string) error {
 	setting := &SystemSetting{
 		Key:   key,
 		Value: value,
@@ -228,7 +228,7 @@ func (s *SQLiteStorage) SetSystemSettingString(ctx context.Context, key, value s
 }
 
 // SetSystemSettingJSON 设置 JSON 类型的系统设置
-func (s *SQLiteStorage) SetSystemSettingJSON(ctx context.Context, key string, value interface{}) error {
+func (s *SQLStorage) SetSystemSettingJSON(ctx context.Context, key string, value interface{}) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("序列化 JSON 失败: %w", err)

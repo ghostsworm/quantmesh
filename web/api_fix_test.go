@@ -45,7 +45,7 @@ func TestGetFixSessions(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("创建存储失败: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestGetFixOrderLinks(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("创建存储失败: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestFixLogonAndHeartbeat(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("创建存储失败: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestFixSessionTimeout(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("创建存储失败: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestFixLogoutSession(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("创建存储失败: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestFixHeartbeatTimeoutConfig(t *testing.T) {
 	defer os.Remove(dbPath + "-shm")
 	defer os.Remove(dbPath + "-wal")
 
-	st, err := storage.NewSQLiteStorage(dbPath)
+	st, err := storage.NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("创建存储失败: %v", err)
 	}

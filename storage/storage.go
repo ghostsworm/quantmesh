@@ -228,7 +228,7 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 	var err error
 	switch cfg.Storage.Type {
 	case "sqlite":
-		ss.storage, err = NewSQLiteStorage(cfg.Storage.Path)
+		ss.storage, err = NewSQLStorage(cfg.Storage.Path)
 		if err != nil {
 			return nil, fmt.Errorf("初始化 SQLite 存儲失败: %w", err)
 		}

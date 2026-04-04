@@ -133,7 +133,7 @@ func (m *MarketInterpretTaskManager) GetTaskByPageType(pageType string) *MarketI
 }
 
 // getMarketInterpretStorage 获取用于持久化市场解读的 SQLite 存储（仅 web 包内使用）
-func getMarketInterpretStorage(c *gin.Context) *storage.SQLiteStorage {
+func getMarketInterpretStorage(c *gin.Context) *storage.SQLStorage {
 	p := PickStorageProvider(c)
 	if p == nil {
 		return nil
@@ -142,7 +142,7 @@ func getMarketInterpretStorage(c *gin.Context) *storage.SQLiteStorage {
 	if s == nil {
 		return nil
 	}
-	st, ok := s.(*storage.SQLiteStorage)
+	st, ok := s.(*storage.SQLStorage)
 	if !ok {
 		return nil
 	}

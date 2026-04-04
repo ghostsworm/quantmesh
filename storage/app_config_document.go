@@ -151,7 +151,7 @@ func isAppConfigTableMissing(err error) bool {
 
 // EnsureAppConfigDocumentTables 幂等創建 app_config、app_config_history、bot_configs、bot_config_history（SQLite 與 MySQL）。
 // 用於舊部署補表、CLI 修復，以及啟動時與 NewStorage 內遷移雙重保險。
-func (s *SQLiteStorage) EnsureAppConfigDocumentTables() error {
+func (s *SQLStorage) EnsureAppConfigDocumentTables() error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("storage 未初始化")
 	}
@@ -166,7 +166,7 @@ func (s *SQLiteStorage) EnsureAppConfigDocumentTables() error {
 }
 
 // GetAppConfigDocument 讀取主配置文檔；無行或空內容時返回 nil, nil
-func (s *SQLiteStorage) GetAppConfigDocument(ctx context.Context) (*AppConfigDocument, error) {
+func (s *SQLStorage) GetAppConfigDocument(ctx context.Context) (*AppConfigDocument, error) {
 	if s == nil || s.db == nil {
 		return nil, nil
 	}
@@ -229,9 +229,9 @@ func SaveAppConfigSnapshotFromJSON(ctx context.Context, st Storage, jsonBytes []
 	if strings.TrimSpace(string(jsonBytes)) == "" {
 		return 0, fmt.Errorf("SaveAppConfigSnapshotFromJSON: JSON 為空")
 	}
-	ss, ok := st.(*SQLiteStorage)
+	ss, ok := st.(*SQLStorage)
 	if !ok || ss == nil {
-		return 0, fmt.Errorf("SaveAppConfigSnapshotFromJSON: 需要主庫 *SQLiteStorage")
+		return 0, fmt.Errorf("SaveAppConfigSnapshotFromJSON: 需要主庫 *SQLStorage")
 	}
 	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
 		return 0, err
@@ -365,9 +365,9 @@ const (
 // MigrateYAMLToAppConfigDB 將主 config.yaml 與 bots/*/config.yaml 寫入主庫文檔表。
 // 返回 migrated=true 表示本次寫入了數據庫（可用於歸檔 YAML）。
 func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, botsDir string, mode MigrateYAMLMode) (bool, error) {
-	ss, ok := st.(*SQLiteStorage)
+	ss, ok := st.(*SQLStorage)
 	if !ok || ss == nil {
-		return false, fmt.Errorf("MigrateYAMLToAppConfigDB: 需要主庫 *SQLiteStorage")
+		return false, fmt.Errorf("MigrateYAMLToAppConfigDB: 需要主庫 *SQLStorage")
 	}
 	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
 		return false, fmt.Errorf("確保 app_config 文檔表: %w", err)
@@ -448,7 +448,7 @@ func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, b
 }
 
 // loadConfigFromAppConfigDocument 從已打開的主庫讀取 app_config 並解析為 Config（無有效快照時返回 nil, nil）。
-func loadConfigFromAppConfigDocument(st *SQLiteStorage) (*config.Config, error) {
+func loadConfigFromAppConfigDocument(st *SQLStorage) (*config.Config, error) {
 	if st == nil {
 		return nil, nil
 	}
@@ -467,7 +467,7 @@ func loadConfigFromAppConfigDocument(st *SQLiteStorage) (*config.Config, error) 
 func LoadConfigFromAppConfigDBIfExists(sqlitePath string) (*config.Config, error) {
 	trySQLite := strings.TrimSpace(sqlitePath) != ""
 	if trySQLite {
-		st, err := NewSQLiteStorage(sqlitePath)
+		st, err := NewSQLStorage(sqlitePath)
 		if err != nil {
 			return nil, err
 		}
@@ -506,7 +506,7 @@ func ApplyAppConfigFromDBIfPresent(st Storage, cfg **config.Config) error {
 	if os.Getenv("QUANTMESH_USE_APP_CONFIG") == "0" {
 		return nil
 	}
-	ss, ok := st.(*SQLiteStorage)
+	ss, ok := st.(*SQLStorage)
 	if !ok || ss == nil {
 		return nil
 	}

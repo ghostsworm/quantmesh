@@ -131,7 +131,7 @@ func readResponseBody(resp *http.Response) ([]byte, error) {
 **优化位置**:
 - `position/allocation_manager.go`: `allocations` map
 - `monitor/watchdog.go`: 各种缓存 map
-- `storage/sqlite.go`: 查询结果 map
+- `storage/sql_storage.go`: 查询结果 map
 
 **优化示例**:
 ```go
