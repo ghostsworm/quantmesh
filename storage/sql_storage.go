@@ -19,7 +19,7 @@ import (
 // 否則與 storage 預期的 buy_order_id/sell_order_id/pnl 結構衝突，導致查詢 Unknown column 'pnl'。
 const pairedTradesTableMySQL = "qm_paired_trades"
 
-// SQLStorage 基於 database/sql 的存儲實現（SQLite 與 MySQL 共用本類型，見 sql_storage.go）。
+// SQLStorage 基於 database/sql 的存儲實現（SQLite 與 MySQL 共用本類型）。
 type SQLStorage struct {
 	db     *sql.DB
 	dbType string // sqlite, mysql, postgres
