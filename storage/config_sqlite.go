@@ -45,11 +45,11 @@ func NewConfigStorage(dbPath string) (ConfigStorage, error) {
 		return nil, fmt.Errorf("创建配置表失败: %w", err)
 	}
 
-	return &SQLiteStorage{db: db}, nil
+	return &SQLStorage{db: db}, nil
 }
 
 // GetConfig 获取单个配置
-func (s *SQLiteStorage) GetConfig(ctx context.Context, scope ConfigScope, scopeID, key string) (*ConfigEntry, error) {
+func (s *SQLStorage) GetConfig(ctx context.Context, scope ConfigScope, scopeID, key string) (*ConfigEntry, error) {
 	var entry ConfigEntry
 	var enabled, required int
 
@@ -81,7 +81,7 @@ func (s *SQLiteStorage) GetConfig(ctx context.Context, scope ConfigScope, scopeI
 }
 
 // GetConfigByKeys 批量获取配置
-func (s *SQLiteStorage) GetConfigByKeys(ctx context.Context, scope ConfigScope, scopeID string, keys []string) ([]*ConfigEntry, error) {
+func (s *SQLStorage) GetConfigByKeys(ctx context.Context, scope ConfigScope, scopeID string, keys []string) ([]*ConfigEntry, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
@@ -131,7 +131,7 @@ func (s *SQLiteStorage) GetConfigByKeys(ctx context.Context, scope ConfigScope, 
 }
 
 // GetConfigsByScope 按作用域获取配置
-func (s *SQLiteStorage) GetConfigsByScope(ctx context.Context, scope ConfigScope, scopeID string) ([]*ConfigEntry, error) {
+func (s *SQLStorage) GetConfigsByScope(ctx context.Context, scope ConfigScope, scopeID string) ([]*ConfigEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, key, scope, scope_id, type, value, number_value, bool_value,
 		       json_value, default_value, description, category, display_name,
@@ -169,7 +169,7 @@ func (s *SQLiteStorage) GetConfigsByScope(ctx context.Context, scope ConfigScope
 }
 
 // GetConfigsByCategory 按分类获取配置
-func (s *SQLiteStorage) GetConfigsByCategory(ctx context.Context, scope ConfigScope, category string) ([]*ConfigEntry, error) {
+func (s *SQLStorage) GetConfigsByCategory(ctx context.Context, scope ConfigScope, category string) ([]*ConfigEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, key, scope, scope_id, type, value, number_value, bool_value,
 		       json_value, default_value, description, category, display_name,
@@ -207,7 +207,7 @@ func (s *SQLiteStorage) GetConfigsByCategory(ctx context.Context, scope ConfigSc
 }
 
 // GetAllConfigs 获取所有配置
-func (s *SQLiteStorage) GetAllConfigs(ctx context.Context) ([]*ConfigEntry, error) {
+func (s *SQLStorage) GetAllConfigs(ctx context.Context) ([]*ConfigEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, key, scope, scope_id, type, value, number_value, bool_value,
 		       json_value, default_value, description, category, display_name,
@@ -243,7 +243,7 @@ func (s *SQLiteStorage) GetAllConfigs(ctx context.Context) ([]*ConfigEntry, erro
 }
 
 // SetConfig 设置配置
-func (s *SQLiteStorage) SetConfig(ctx context.Context, entry *ConfigEntry, updatedBy string) error {
+func (s *SQLStorage) SetConfig(ctx context.Context, entry *ConfigEntry, updatedBy string) error {
 	// 验证配置
 	if err := s.ValidateConfig(entry); err != nil {
 		return err
@@ -330,7 +330,7 @@ func (s *SQLiteStorage) SetConfig(ctx context.Context, entry *ConfigEntry, updat
 }
 
 // SetConfigs 批量设置配置
-func (s *SQLiteStorage) SetConfigs(ctx context.Context, entries []*ConfigEntry, updatedBy string) error {
+func (s *SQLStorage) SetConfigs(ctx context.Context, entries []*ConfigEntry, updatedBy string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("开始事务失败: %w", err)
@@ -410,7 +410,7 @@ func (s *SQLiteStorage) SetConfigs(ctx context.Context, entries []*ConfigEntry, 
 }
 
 // DeleteConfig 删除配置（恢复默认值）
-func (s *SQLiteStorage) DeleteConfig(ctx context.Context, scope ConfigScope, scopeID, key string) error {
+func (s *SQLStorage) DeleteConfig(ctx context.Context, scope ConfigScope, scopeID, key string) error {
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM config_entries
 		WHERE key = ? AND scope = ? AND scope_id = ?`,
@@ -423,7 +423,7 @@ func (s *SQLiteStorage) DeleteConfig(ctx context.Context, scope ConfigScope, sco
 }
 
 // GetConfigHistory 获取配置历史
-func (s *SQLiteStorage) GetConfigHistory(ctx context.Context, configID int64, limit int) ([]*ConfigHistory, error) {
+func (s *SQLStorage) GetConfigHistory(ctx context.Context, configID int64, limit int) ([]*ConfigHistory, error) {
 	query := `
 		SELECT id, config_id, key, scope, scope_id, old_value, new_value,
 		       old_number, new_number, old_bool, new_bool, reason, changed_by, changed_at
@@ -464,7 +464,7 @@ func (s *SQLiteStorage) GetConfigHistory(ctx context.Context, configID int64, li
 }
 
 // GetConfigHistoryByKey 按键获取配置历史
-func (s *SQLiteStorage) GetConfigHistoryByKey(ctx context.Context, scope ConfigScope, scopeID, key string, limit int) ([]*ConfigHistory, error) {
+func (s *SQLStorage) GetConfigHistoryByKey(ctx context.Context, scope ConfigScope, scopeID, key string, limit int) ([]*ConfigHistory, error) {
 	query := `
 		SELECT id, config_id, key, scope, scope_id, old_value, new_value,
 		       old_number, new_number, old_bool, new_bool, reason, changed_by, changed_at
@@ -505,7 +505,7 @@ func (s *SQLiteStorage) GetConfigHistoryByKey(ctx context.Context, scope ConfigS
 }
 
 // InitializeConfigs 批量初始化配置
-func (s *SQLiteStorage) InitializeConfigs(ctx context.Context, entries []*ConfigEntry) error {
+func (s *SQLStorage) InitializeConfigs(ctx context.Context, entries []*ConfigEntry) error {
 	for _, entry := range entries {
 		// 检查是否已存在
 		existing, _ := s.GetConfig(ctx, entry.Scope, entry.ScopeID, entry.Key)
@@ -521,7 +521,7 @@ func (s *SQLiteStorage) InitializeConfigs(ctx context.Context, entries []*Config
 }
 
 // ValidateConfig 验证配置
-func (s *SQLiteStorage) ValidateConfig(entry *ConfigEntry) error {
+func (s *SQLStorage) ValidateConfig(entry *ConfigEntry) error {
 	// 基本验证
 	if entry.Key == "" {
 		return fmt.Errorf("配置键不能为空")

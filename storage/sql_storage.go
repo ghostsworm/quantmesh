@@ -19,8 +19,8 @@ import (
 // 否則與 storage 預期的 buy_order_id/sell_order_id/pnl 結構衝突，導致查詢 Unknown column 'pnl'。
 const pairedTradesTableMySQL = "qm_paired_trades"
 
-// SQLiteStorage SQLite 存儲實現（現在支援多種數據库）
-type SQLiteStorage struct {
+// SQLStorage 基於 database/sql 的存儲實現（SQLite 與 MySQL 共用本類型，見 sql_storage.go）。
+type SQLStorage struct {
 	db     *sql.DB
 	dbType string // sqlite, mysql, postgres
 	closed bool
@@ -29,7 +29,7 @@ type SQLiteStorage struct {
 }
 
 // tradesTbl 返回網格配對成交表名（永遠為內部常量，非用戶輸入）
-func (s *SQLiteStorage) tradesTbl() string {
+func (s *SQLStorage) tradesTbl() string {
 	if s != nil && s.tradesTable != "" {
 		return s.tradesTable
 	}
@@ -37,25 +37,25 @@ func (s *SQLiteStorage) tradesTbl() string {
 }
 
 // mysqlQuoteIdent MySQL 保留字（如 key、interval）作列名時需反引號；SQLite 保持原名。
-func (s *SQLiteStorage) mysqlQuoteIdent(name string) string {
+func (s *SQLStorage) mysqlQuoteIdent(name string) string {
 	if s == nil || s.dbType != "mysql" {
 		return name
 	}
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
 
-// NewSQLiteStorage 創建 SQLite 存儲
-func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
+// NewSQLStorage 打開 SQLite 路徑並初始化存儲（含表遷移）
+func NewSQLStorage(path string) (*SQLStorage, error) {
 	return NewStorage("sqlite", path+"?_journal_mode=WAL&_synchronous=NORMAL")
 }
 
 // NewMySQLStorage 創建 MySQL 存儲
-func NewMySQLStorage(dsn string) (*SQLiteStorage, error) {
+func NewMySQLStorage(dsn string) (*SQLStorage, error) {
 	return NewStorage("mysql", dsn)
 }
 
 // NewStorage 創建通用存儲（支援 sqlite、mysql，PostgreSQL 暂不支持）
-func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
+func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 	var driverName string
 	switch dbType {
 	case "sqlite":
@@ -153,7 +153,7 @@ func NewStorage(dbType, dsn string) (*SQLiteStorage, error) {
 	if dbType == "mysql" {
 		tradesTbl = pairedTradesTableMySQL
 	}
-	return &SQLiteStorage{db: db, dbType: dbType, tradesTable: tradesTbl}, nil
+	return &SQLStorage{db: db, dbType: dbType, tradesTable: tradesTbl}, nil
 }
 
 // createTables 創建表
@@ -1400,7 +1400,7 @@ func ensureOrdersCompositeUniqueConstraint(db *sql.DB) error {
 }
 
 // SaveOrder 保存订單（使用 UPSERT 保留已有非零值，支援 SQLite/MySQL/PostgreSQL）
-func (s *SQLiteStorage) SaveOrder(order *Order) error {
+func (s *SQLStorage) SaveOrder(order *Order) error {
 	// 轉换為UTC時间存儲
 	createdAt := utils.ToUTC(order.CreatedAt)
 	updatedAt := utils.ToUTC(order.UpdatedAt)
@@ -1515,7 +1515,7 @@ func (s *SQLiteStorage) SaveOrder(order *Order) error {
 }
 
 // SavePosition 保存持倉
-func (s *SQLiteStorage) SavePosition(position *Position) error {
+func (s *SQLStorage) SavePosition(position *Position) error {
 	// 轉换為UTC時间存儲
 	openedAt := utils.ToUTC(position.OpenedAt)
 	var closedAt interface{}
@@ -1535,7 +1535,7 @@ func (s *SQLiteStorage) SavePosition(position *Position) error {
 }
 
 // SaveTrade 保存交易
-func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
+func (s *SQLStorage) SaveTrade(trade *Trade) error {
 	// 轉换為UTC時间存儲
 	createdAt := utils.ToUTC(trade.CreatedAt)
 	// 确保 exchange 不為空，默认為 binance（兼容舊數據）
@@ -1561,7 +1561,7 @@ func (s *SQLiteStorage) SaveTrade(trade *Trade) error {
 }
 
 // SaveTradeWithDeviation 保存交易記錄（包含價格偏差）
-func (s *SQLiteStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
+func (s *SQLStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
 	trade := &Trade{
 		BuyOrderID:         buyOrderID,
 		SellOrderID:        sellOrderID,
@@ -1581,7 +1581,7 @@ func (s *SQLiteStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, ex
 }
 
 // SaveTradeWithExchangePnL 保存交易記錄（包含交易所盈虧和價格偏差）
-func (s *SQLiteStorage) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
+func (s *SQLStorage) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
 	trade := &Trade{
 		BuyOrderID:         buyOrderID,
 		SellOrderID:        sellOrderID,
@@ -1602,7 +1602,7 @@ func (s *SQLiteStorage) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, 
 }
 
 // SaveSystemMetrics 保存系统監控细粒度數據
-func (s *SQLiteStorage) SaveSystemMetrics(metrics *SystemMetrics) error {
+func (s *SQLStorage) SaveSystemMetrics(metrics *SystemMetrics) error {
 	// 轉换為UTC時间存儲
 	timestamp := utils.ToUTC(metrics.Timestamp)
 	var memoryPercent interface{}
@@ -1619,7 +1619,7 @@ func (s *SQLiteStorage) SaveSystemMetrics(metrics *SystemMetrics) error {
 }
 
 // SaveDailySystemMetrics 保存系统監控每日彙總數據
-func (s *SQLiteStorage) SaveDailySystemMetrics(metrics *DailySystemMetrics) error {
+func (s *SQLStorage) SaveDailySystemMetrics(metrics *DailySystemMetrics) error {
 	// 轉换為UTC時间存儲
 	date := utils.ToUTC(metrics.Date)
 	if s.dbType == "mysql" {
@@ -1651,7 +1651,7 @@ func (s *SQLiteStorage) SaveDailySystemMetrics(metrics *DailySystemMetrics) erro
 }
 
 // SaveEvent 保存事件
-func (s *SQLiteStorage) SaveEvent(eventType string, data map[string]interface{}) error {
+func (s *SQLStorage) SaveEvent(eventType string, data map[string]interface{}) error {
 	// 检查是否是系统監控事件
 	if eventType == "system_metrics" {
 		return s.saveSystemMetricsFromMap(data)
@@ -1671,7 +1671,7 @@ func (s *SQLiteStorage) SaveEvent(eventType string, data map[string]interface{})
 }
 
 // saveSystemMetricsFromMap 從 map 保存系统監控數據
-func (s *SQLiteStorage) saveSystemMetricsFromMap(data map[string]interface{}) error {
+func (s *SQLStorage) saveSystemMetricsFromMap(data map[string]interface{}) error {
 	metrics := &SystemMetrics{}
 
 	if timestamp, ok := data["timestamp"].(time.Time); ok {
@@ -1707,7 +1707,7 @@ func (s *SQLiteStorage) saveSystemMetricsFromMap(data map[string]interface{}) er
 }
 
 // SaveStatistics 保存统计
-func (s *SQLiteStorage) SaveStatistics(stats *Statistics) error {
+func (s *SQLStorage) SaveStatistics(stats *Statistics) error {
 	// 轉换為UTC時间存儲
 	date := utils.ToUTC(stats.Date)
 	createdAt := utils.ToUTC(stats.CreatedAt)
@@ -1721,7 +1721,7 @@ func (s *SQLiteStorage) SaveStatistics(stats *Statistics) error {
 }
 
 // QueryOrders 查詢訂單
-func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order, error) {
+func (s *SQLStorage) QueryOrders(limit, offset int, status string) ([]*Order, error) {
 	// 限制最大返回數量，防止記憶體占用過大
 	maxLimit := 10000 // 最多返回1万条订單
 	if limit <= 0 {
@@ -1797,7 +1797,7 @@ func (s *SQLiteStorage) QueryOrders(limit, offset int, status string) ([]*Order,
 }
 
 // QueryOrdersWithTimeRange 查詢訂單（带时间范围）
-func (s *SQLiteStorage) QueryOrdersWithTimeRange(limit, offset int, status string, startTime, endTime *time.Time) ([]*Order, error) {
+func (s *SQLStorage) QueryOrdersWithTimeRange(limit, offset int, status string, startTime, endTime *time.Time) ([]*Order, error) {
 	// 限制最大返回數量，防止記憶體占用過大
 	maxLimit := 10000 // 最多返回1万条订單
 	if limit <= 0 {
@@ -1886,7 +1886,7 @@ func (s *SQLiteStorage) QueryOrdersWithTimeRange(limit, offset int, status strin
 }
 
 // CountOrders 统计订單数量（不受 limit 限制，返回真实总数）
-func (s *SQLiteStorage) CountOrders(status string) (int64, error) {
+func (s *SQLStorage) CountOrders(status string) (int64, error) {
 	query := `SELECT COUNT(*) FROM orders WHERE 1=1`
 	args := []interface{}{}
 
@@ -1904,7 +1904,7 @@ func (s *SQLiteStorage) CountOrders(status string) (int64, error) {
 }
 
 // CountOrdersWithFilter 带筛选条件的订单计数（支持 exchange、symbol 筛选）
-func (s *SQLiteStorage) CountOrdersWithFilter(status, exchange, symbol string, startTime, endTime *time.Time) (int64, error) {
+func (s *SQLStorage) CountOrdersWithFilter(status, exchange, symbol string, startTime, endTime *time.Time) (int64, error) {
 	query := `SELECT COUNT(*) FROM orders WHERE 1=1`
 	args := []interface{}{}
 
@@ -1938,7 +1938,7 @@ func (s *SQLiteStorage) CountOrdersWithFilter(status, exchange, symbol string, s
 }
 
 // QueryOrdersWithFilter 带完整筛选条件的订单查询（支持 exchange、symbol 筛选）
-func (s *SQLiteStorage) QueryOrdersWithFilter(limit, offset int, status, exchange, symbol string, startTime, endTime *time.Time) ([]*Order, error) {
+func (s *SQLStorage) QueryOrdersWithFilter(limit, offset int, status, exchange, symbol string, startTime, endTime *time.Time) ([]*Order, error) {
 	// 限制最大返回數量，防止記憶體占用過大
 	maxLimit := 10000 // 最多返回1万条订單
 	if limit <= 0 {
@@ -2040,7 +2040,7 @@ func (s *SQLiteStorage) QueryOrdersWithFilter(limit, offset int, status, exchang
 }
 
 // QueryPositions 查詢持倉历史
-func (s *SQLiteStorage) QueryPositions(limit, offset int) ([]*Position, error) {
+func (s *SQLStorage) QueryPositions(limit, offset int) ([]*Position, error) {
 	maxLimit := 10000
 	if limit <= 0 {
 		limit = 100
@@ -2090,7 +2090,7 @@ func (s *SQLiteStorage) QueryPositions(limit, offset int) ([]*Position, error) {
 }
 
 // QueryTrades 查詢交易
-func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error) {
+func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error) {
 	// 限制最大返回數量，防止記憶體占用過大
 	maxLimit := 10000 // 最多返回1万条交易
 	if limit <= 0 {
@@ -2143,7 +2143,7 @@ func (s *SQLiteStorage) QueryTrades(startTime, endTime time.Time, limit, offset 
 }
 
 // GetTradesBySellOrderIDs 根據賣單 ID 查詢對應的成交盈虧，返回 sell_order_id -> pnl 的映射
-func (s *SQLiteStorage) GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64]float64, error) {
+func (s *SQLStorage) GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64]float64, error) {
 	result := make(map[int64]float64)
 	if len(sellOrderIDs) == 0 {
 		return result, nil
@@ -2178,7 +2178,7 @@ func (s *SQLiteStorage) GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64
 }
 
 // QueryStatistics 查詢统计數據
-func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error) {
+func (s *SQLStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error) {
 	// 限制最大返回數量，防止記憶體占用過大
 	maxStats := 10000 // 最多返回1万条统计數據
 
@@ -2215,12 +2215,12 @@ func (s *SQLiteStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statis
 }
 
 // GetStatisticsSummary 獲取统计彙總（從 trades 表實時计算）
-func (s *SQLiteStorage) GetStatisticsSummary(account string) (*Statistics, error) {
+func (s *SQLStorage) GetStatisticsSummary(account string) (*Statistics, error) {
 	return s.GetStatisticsSummaryByExchange("", account)
 }
 
 // GetStatisticsSummaryByExchange 獲取指定交易所的统计彙總
-func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string) (*Statistics, error) {
+func (s *SQLStorage) GetStatisticsSummaryByExchange(exchange, account string) (*Statistics, error) {
 	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_trades,
@@ -2299,7 +2299,7 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchange(exchange, account string)
 }
 
 // GetStatisticsSummaryByExchangeAndSymbol 獲取指定交易所、指定交易對的统计彙總
-func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error) {
+func (s *SQLStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error) {
 	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_trades,
@@ -2380,7 +2380,7 @@ func (s *SQLiteStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol
 }
 
 // GetExchangePnLTotal 獲取交易所已實現盈虧的總計（從 orders 表的 realized_pnl 聚合）
-func (s *SQLiteStorage) GetExchangePnLTotal(exchange, symbol string) (float64, error) {
+func (s *SQLStorage) GetExchangePnLTotal(exchange, symbol string) (float64, error) {
 	query := `SELECT COALESCE(SUM(realized_pnl), 0) FROM orders WHERE realized_pnl IS NOT NULL AND status = 'FILLED'`
 	args := []interface{}{}
 	if exchange != "" {
@@ -2397,7 +2397,7 @@ func (s *SQLiteStorage) GetExchangePnLTotal(exchange, symbol string) (float64, e
 }
 
 // GetTodayStatisticsByExchangeAndSymbol 獲取指定交易所、交易對的當日統計
-func (s *SQLiteStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, account string) (*TodayStatistics, error) {
+func (s *SQLStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, account string) (*TodayStatistics, error) {
 	// 獲取當日日期（UTC）
 	now := time.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
@@ -2465,7 +2465,7 @@ func (s *SQLiteStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, 
 
 // GetExchangePnLOrderStats 獲取交易所盈虧相關的訂單統計（用於診斷差異）
 // 返回：有 realized_pnl 的訂單數、無 realized_pnl 的 FILLED SELL 訂單數、有 realized_pnl 的訂單總和
-func (s *SQLiteStorage) GetExchangePnLOrderStats(exchange, symbol string) (withPnLCount, missingPnLCount int, totalPnL float64, err error) {
+func (s *SQLStorage) GetExchangePnLOrderStats(exchange, symbol string) (withPnLCount, missingPnLCount int, totalPnL float64, err error) {
 	baseWhere := "status = 'FILLED'"
 	args := []interface{}{}
 	if exchange != "" {
@@ -2492,7 +2492,7 @@ func (s *SQLiteStorage) GetExchangePnLOrderStats(exchange, symbol string) (withP
 }
 
 // GetDailyExchangePnL 獲取每日交易所已實現盈虧（從 orders 表按日期聚合 realized_pnl）
-func (s *SQLiteStorage) GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error) {
+func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error) {
 	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
 	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
 	query := fmt.Sprintf(`
@@ -2531,7 +2531,7 @@ func (s *SQLiteStorage) GetDailyExchangePnL(exchange, symbol string, startDate, 
 }
 
 // GetDailyTradesSummary 獲取指定日（配置時區）的成交筆數、毛利、手續費
-func (s *SQLiteStorage) GetDailyTradesSummary(exchange, account, dateStr string) (count int, grossPnl, totalFee float64, err error) {
+func (s *SQLStorage) GetDailyTradesSummary(exchange, account, dateStr string) (count int, grossPnl, totalFee float64, err error) {
 	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
 	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
 	query := fmt.Sprintf(`
@@ -2567,7 +2567,7 @@ func (s *SQLiteStorage) GetDailyTradesSummary(exchange, account, dateStr string)
 }
 
 // GetFilledOrderQtySumBeforeTime 獲取指定時間前已成交訂單的買/賣數量合計（用於日初持倉）
-func (s *SQLiteStorage) GetFilledOrderQtySumBeforeTime(exchange, symbol string, before time.Time) (buyQty, sellQty float64, err error) {
+func (s *SQLStorage) GetFilledOrderQtySumBeforeTime(exchange, symbol string, before time.Time) (buyQty, sellQty float64, err error) {
 	query := `
 		SELECT
 			COALESCE(SUM(CASE WHEN side = 'BUY' THEN COALESCE(filled_qty, quantity) ELSE 0 END), 0),
@@ -2599,12 +2599,12 @@ func (s *SQLiteStorage) GetFilledOrderQtySumBeforeTime(exchange, symbol string, 
 }
 
 // QueryDailyStatisticsFromTrades 從 trades 表查詢每日统计
-func (s *SQLiteStorage) QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
+func (s *SQLStorage) QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
 	return s.QueryDailyStatisticsByExchange("", account, startDate, endDate)
 }
 
 // QueryDailyStatisticsByExchange 從 trades 表查詢指定交易所的每日统计
-func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
+func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
 	// 限制最大返回數量，防止記憶體占用過大（分组后的結果通常不會太多，但还是要限制）
 	maxLimit := 3650 // 最多返回10年的每日统计（3650天）
 
@@ -2723,7 +2723,7 @@ func (s *SQLiteStorage) QueryDailyStatisticsByExchange(exchange, account string,
 }
 
 // SaveReconciliationHistory 保存對账历史
-func (s *SQLiteStorage) SaveReconciliationHistory(history *ReconciliationHistory) error {
+func (s *SQLStorage) SaveReconciliationHistory(history *ReconciliationHistory) error {
 	// 轉换為UTC時间存儲
 	reconcileTime := utils.ToUTC(history.ReconcileTime)
 	createdAt := utils.ToUTC(history.CreatedAt)
@@ -2740,7 +2740,7 @@ func (s *SQLiteStorage) SaveReconciliationHistory(history *ReconciliationHistory
 }
 
 // QueryReconciliationHistory 查詢對账历史
-func (s *SQLiteStorage) QueryReconciliationHistory(exchange, symbol, account string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error) {
+func (s *SQLStorage) QueryReconciliationHistory(exchange, symbol, account string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error) {
 	// 限制最大返回數量，防止記憶體占用過大
 	maxLimit := 10000 // 最多返回1万条對账記錄
 	if limit <= 0 {
@@ -2815,7 +2815,7 @@ func (s *SQLiteStorage) QueryReconciliationHistory(exchange, symbol, account str
 }
 
 // GetLatestReconciliationHistory 獲取指定币种的最新對账記錄
-func (s *SQLiteStorage) GetLatestReconciliationHistory(exchange, symbol, account string) (*ReconciliationHistory, error) {
+func (s *SQLStorage) GetLatestReconciliationHistory(exchange, symbol, account string) (*ReconciliationHistory, error) {
 	query := `
 		SELECT id, exchange, symbol, account, reconcile_time, local_position, exchange_position, position_diff,
 		       active_buy_orders, active_sell_orders, pending_sell_qty,
@@ -2868,7 +2868,7 @@ func (s *SQLiteStorage) GetLatestReconciliationHistory(exchange, symbol, account
 }
 
 // GetReconciliationCount 獲取指定币种的對账次數（统计历史記錄數量）
-func (s *SQLiteStorage) GetReconciliationCount(exchange, symbol, account string) (int64, error) {
+func (s *SQLStorage) GetReconciliationCount(exchange, symbol, account string) (int64, error) {
 	query := `SELECT COUNT(*) FROM reconciliation_history WHERE symbol = ?`
 	args := []interface{}{symbol}
 	if exchange != "" {
@@ -2894,7 +2894,7 @@ func (s *SQLiteStorage) GetReconciliationCount(exchange, symbol, account string)
 }
 
 // GetPnLBySymbol 按币种對查詢盈亏數據（TotalPnL 為淨利潤，已扣手續費）
-func (s *SQLiteStorage) GetPnLBySymbol(symbol, account string, startTime, endTime time.Time) (*PnLSummary, error) {
+func (s *SQLStorage) GetPnLBySymbol(symbol, account string, startTime, endTime time.Time) (*PnLSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_trades,
@@ -2956,7 +2956,7 @@ func (s *SQLiteStorage) GetPnLBySymbol(symbol, account string, startTime, endTim
 }
 
 // GetPnLByTimeRange 按時间区间查詢盈亏數據（按币种對分组）
-func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime time.Time) ([]*PnLBySymbol, error) {
+func (s *SQLStorage) GetPnLByTimeRange(account string, startTime, endTime time.Time) ([]*PnLBySymbol, error) {
 	// 限制最大返回數量，防止記憶體占用過大（分组后的結果通常不會太多，但还是要限制）
 	maxLimit := 1000 // 最多返回1000個币种對
 	query := fmt.Sprintf(`
@@ -3028,7 +3028,7 @@ func (s *SQLiteStorage) GetPnLByTimeRange(account string, startTime, endTime tim
 }
 
 // GetActualProfitBySymbol 计算指定币种在指定時间之前的累计實際盈利（淨利潤，已扣手續費）
-func (s *SQLiteStorage) GetActualProfitBySymbol(symbol, account string, beforeTime time.Time) (float64, error) {
+func (s *SQLStorage) GetActualProfitBySymbol(symbol, account string, beforeTime time.Time) (float64, error) {
 	query := fmt.Sprintf(`
 		SELECT COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as total_pnl
 		FROM %s
@@ -3060,7 +3060,7 @@ func (s *SQLiteStorage) GetActualProfitBySymbol(symbol, account string, beforeTi
 }
 
 // GetTotalBuySellQty 獲取累计買入和累计賣出數量（從trades表计算）
-func (s *SQLiteStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty, totalSellQty float64, err error) {
+func (s *SQLStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty, totalSellQty float64, err error) {
 	query := fmt.Sprintf(`
 		SELECT 
 			COALESCE(SUM(quantity), 0) as total_qty
@@ -3095,7 +3095,7 @@ func (s *SQLiteStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty,
 }
 
 // SaveRiskCheck 保存风控检查記錄
-func (s *SQLiteStorage) SaveRiskCheck(record *RiskCheckRecord) error {
+func (s *SQLStorage) SaveRiskCheck(record *RiskCheckRecord) error {
 	// 轉换為UTC時间存儲
 	checkTime := utils.ToUTC(record.CheckTime)
 	_, err := s.db.Exec(`
@@ -3107,7 +3107,7 @@ func (s *SQLiteStorage) SaveRiskCheck(record *RiskCheckRecord) error {
 }
 
 // QueryRiskCheckHistory 查詢风控检查历史
-func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limit int, botID string) ([]*RiskCheckHistory, error) {
+func (s *SQLStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limit int, botID string) ([]*RiskCheckHistory, error) {
 	// 如果 limit <= 0，默认限制為 200 条，防止前端渲染數據過大導致卡顿
 	if limit <= 0 {
 		limit = 200
@@ -3225,7 +3225,7 @@ func (s *SQLiteStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limi
 }
 
 // CleanupRiskCheckHistory 清理指定時间之前的风控检查历史
-func (s *SQLiteStorage) CleanupRiskCheckHistory(beforeTime time.Time) error {
+func (s *SQLStorage) CleanupRiskCheckHistory(beforeTime time.Time) error {
 	_, err := s.db.Exec(`
 		DELETE FROM risk_check_history 
 		WHERE check_time < ?
@@ -3234,7 +3234,7 @@ func (s *SQLiteStorage) CleanupRiskCheckHistory(beforeTime time.Time) error {
 }
 
 // SaveFundingRate 保存资金费率（僅在变动時存儲）
-func (s *SQLiteStorage) SaveFundingRate(symbol, exchange string, rate float64, timestamp time.Time) error {
+func (s *SQLStorage) SaveFundingRate(symbol, exchange string, rate float64, timestamp time.Time) error {
 	// 獲取該交易對的最新资金费率
 	latestRate, err := s.GetLatestFundingRate(symbol, exchange)
 	if err == nil {
@@ -3255,7 +3255,7 @@ func (s *SQLiteStorage) SaveFundingRate(symbol, exchange string, rate float64, t
 }
 
 // GetLatestFundingRate 獲取最新的资金费率
-func (s *SQLiteStorage) GetLatestFundingRate(symbol, exchange string) (float64, error) {
+func (s *SQLStorage) GetLatestFundingRate(symbol, exchange string) (float64, error) {
 	var rate float64
 	err := s.db.QueryRow(`
 		SELECT rate FROM funding_rates
@@ -3270,7 +3270,7 @@ func (s *SQLiteStorage) GetLatestFundingRate(symbol, exchange string) (float64, 
 }
 
 // GetFundingRateHistory 獲取资金费率历史
-func (s *SQLiteStorage) GetFundingRateHistory(symbol, exchange string, limit int) ([]*FundingRate, error) {
+func (s *SQLStorage) GetFundingRateHistory(symbol, exchange string, limit int) ([]*FundingRate, error) {
 	// 限制最大返回數量，防止記憶體占用過大
 	maxLimit := 10000 // 最多返回1万条资金费率記錄
 	if limit <= 0 {
@@ -3320,7 +3320,7 @@ func (s *SQLiteStorage) GetFundingRateHistory(symbol, exchange string, limit int
 }
 
 // SaveFundingPayment 保存資金費用記錄
-func (s *SQLiteStorage) SaveFundingPayment(payment *FundingPayment) error {
+func (s *SQLStorage) SaveFundingPayment(payment *FundingPayment) error {
 	tradeTime := utils.ToUTC(payment.TradeTime)
 	_, err := s.db.Exec(`
 		INSERT INTO funding_payments (exchange, symbol, account, income_type, income, asset, info, transaction_id, trade_time, created_at)
@@ -3330,7 +3330,7 @@ func (s *SQLiteStorage) SaveFundingPayment(payment *FundingPayment) error {
 }
 
 // GetFundingPayments 獲取資金費用記錄（按時間區間）
-func (s *SQLiteStorage) GetFundingPayments(account, exchange string, startTime, endTime time.Time) ([]*FundingPayment, error) {
+func (s *SQLStorage) GetFundingPayments(account, exchange string, startTime, endTime time.Time) ([]*FundingPayment, error) {
 	startUTC := utils.ToUTC(startTime)
 	endUTC := utils.ToUTC(endTime)
 	query := `
@@ -3371,7 +3371,7 @@ func (s *SQLiteStorage) GetFundingPayments(account, exchange string, startTime, 
 }
 
 // GetFundingPaymentsSum 獲取資金費用淨額（收入 - 支出，正數表示淨收入）
-func (s *SQLiteStorage) GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error) {
+func (s *SQLStorage) GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error) {
 	startUTC := utils.ToUTC(startTime)
 	endUTC := utils.ToUTC(endTime)
 	query := `
@@ -3400,7 +3400,7 @@ func (s *SQLiteStorage) GetFundingPaymentsSum(account, exchange string, startTim
 }
 
 // GetDailyFundingPayments 獲取每日資金費用（按日期分組）
-func (s *SQLiteStorage) GetDailyFundingPayments(account, exchange string, startTime, endTime time.Time) (map[string]float64, error) {
+func (s *SQLStorage) GetDailyFundingPayments(account, exchange string, startTime, endTime time.Time) (map[string]float64, error) {
 	startUTC := utils.ToUTC(startTime)
 	endUTC := utils.ToUTC(endTime)
 
@@ -3451,7 +3451,7 @@ func abs(x float64) float64 {
 }
 
 // GetAIPromptTemplate 獲取AI提示词模板
-func (s *SQLiteStorage) GetAIPromptTemplate(module string) (*AIPromptTemplate, error) {
+func (s *SQLStorage) GetAIPromptTemplate(module string) (*AIPromptTemplate, error) {
 	var template AIPromptTemplate
 	err := s.db.QueryRow(
 		"SELECT id, module, template, system_prompt, updated_at FROM ai_prompts WHERE module = ?",
@@ -3468,7 +3468,7 @@ func (s *SQLiteStorage) GetAIPromptTemplate(module string) (*AIPromptTemplate, e
 }
 
 // SetAIPromptTemplate 設置AI提示词模板
-func (s *SQLiteStorage) SetAIPromptTemplate(template *AIPromptTemplate) error {
+func (s *SQLStorage) SetAIPromptTemplate(template *AIPromptTemplate) error {
 	_, err := s.db.Exec(
 		`INSERT INTO ai_prompts (module, template, system_prompt, updated_at) 
 		 VALUES (?, ?, ?, ?)
@@ -3482,7 +3482,7 @@ func (s *SQLiteStorage) SetAIPromptTemplate(template *AIPromptTemplate) error {
 }
 
 // GetAllAIPromptTemplates 獲取所有AI提示词模板
-func (s *SQLiteStorage) GetAllAIPromptTemplates() ([]*AIPromptTemplate, error) {
+func (s *SQLStorage) GetAllAIPromptTemplates() ([]*AIPromptTemplate, error) {
 	rows, err := s.db.Query(
 		"SELECT id, module, template, system_prompt, updated_at FROM ai_prompts ORDER BY module",
 	)
@@ -3505,7 +3505,7 @@ func (s *SQLiteStorage) GetAllAIPromptTemplates() ([]*AIPromptTemplate, error) {
 }
 
 // SaveBasisData 保存價差數據
-func (s *SQLiteStorage) SaveBasisData(data *BasisData) error {
+func (s *SQLStorage) SaveBasisData(data *BasisData) error {
 	_, err := s.db.Exec(`
 		INSERT INTO basis_data (symbol, exchange, spot_price, futures_price, basis, basis_percent, funding_rate, timestamp)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -3514,7 +3514,7 @@ func (s *SQLiteStorage) SaveBasisData(data *BasisData) error {
 }
 
 // GetLatestBasis 獲取最新價差數據
-func (s *SQLiteStorage) GetLatestBasis(symbol, exchange string) (*BasisData, error) {
+func (s *SQLStorage) GetLatestBasis(symbol, exchange string) (*BasisData, error) {
 	var data BasisData
 	err := s.db.QueryRow(`
 		SELECT symbol, exchange, spot_price, futures_price, basis, basis_percent, funding_rate, timestamp
@@ -3537,7 +3537,7 @@ func (s *SQLiteStorage) GetLatestBasis(symbol, exchange string) (*BasisData, err
 }
 
 // GetBasisHistory 獲取價差历史數據
-func (s *SQLiteStorage) GetBasisHistory(symbol, exchange string, limit int) ([]*BasisData, error) {
+func (s *SQLStorage) GetBasisHistory(symbol, exchange string, limit int) ([]*BasisData, error) {
 	// 限制最大返回數量，防止記憶體占用過大
 	maxLimit := 10000 // 最多返回1万条價差記錄
 	if limit <= 0 {
@@ -3578,7 +3578,7 @@ func (s *SQLiteStorage) GetBasisHistory(symbol, exchange string, limit int) ([]*
 }
 
 // GetBasisStatistics 獲取價差统计數據
-func (s *SQLiteStorage) GetBasisStatistics(symbol, exchange string, hours int) (*BasisStats, error) {
+func (s *SQLStorage) GetBasisStatistics(symbol, exchange string, hours int) (*BasisStats, error) {
 	if hours <= 0 {
 		hours = 24
 	}
@@ -3656,7 +3656,7 @@ func (s *SQLiteStorage) GetBasisStatistics(symbol, exchange string, hours int) (
 }
 
 // SaveNewsAnalysisHistory 保存新聞分析历史（成功后填充 history.ID）
-func (s *SQLiteStorage) SaveNewsAnalysisHistory(history *NewsAnalysisHistory) error {
+func (s *SQLStorage) SaveNewsAnalysisHistory(history *NewsAnalysisHistory) error {
 	result, err := s.db.Exec(`
 		INSERT INTO news_analysis_history (analysis_time, symbol, current_price, assessment, recent_news_summary, gemini_prompt, gemini_response, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -3672,7 +3672,7 @@ func (s *SQLiteStorage) SaveNewsAnalysisHistory(history *NewsAnalysisHistory) er
 }
 
 // SaveInspectionReport 保存智子巡檢報告
-func (s *SQLiteStorage) SaveInspectionReport(report *InspectionReport) error {
+func (s *SQLStorage) SaveInspectionReport(report *InspectionReport) error {
 	if report == nil {
 		return nil
 	}
@@ -3694,7 +3694,7 @@ func (s *SQLiteStorage) SaveInspectionReport(report *InspectionReport) error {
 }
 
 // QueryNewsAnalysisHistory 查詢新聞分析历史（分页，回傳 total 總數）
-func (s *SQLiteStorage) QueryNewsAnalysisHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*NewsAnalysisHistory, int64, error) {
+func (s *SQLStorage) QueryNewsAnalysisHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*NewsAnalysisHistory, int64, error) {
 	args := []interface{}{startTime, endTime}
 	whereSymbol := ""
 	if symbol != "" {
@@ -3742,7 +3742,7 @@ func (s *SQLiteStorage) QueryNewsAnalysisHistory(symbol string, startTime, endTi
 }
 
 // GetLatestNewsAnalysisHistory 獲取指定币种最新分析記錄（symbol 為空時返回任意币种最新）
-func (s *SQLiteStorage) GetLatestNewsAnalysisHistory(symbol string) (*NewsAnalysisHistory, error) {
+func (s *SQLStorage) GetLatestNewsAnalysisHistory(symbol string) (*NewsAnalysisHistory, error) {
 	var query string
 	var args []interface{}
 	if symbol != "" {
@@ -3784,7 +3784,7 @@ func (s *SQLiteStorage) GetLatestNewsAnalysisHistory(symbol string) (*NewsAnalys
 }
 
 // GetNewsAnalysisHistoryByID 按 ID 獲取分析記錄
-func (s *SQLiteStorage) GetNewsAnalysisHistoryByID(id int64) (*NewsAnalysisHistory, error) {
+func (s *SQLStorage) GetNewsAnalysisHistoryByID(id int64) (*NewsAnalysisHistory, error) {
 	var h NewsAnalysisHistory
 	var prompt, response sql.NullString
 	err := s.db.QueryRow(`
@@ -3807,13 +3807,13 @@ func (s *SQLiteStorage) GetNewsAnalysisHistoryByID(id int64) (*NewsAnalysisHisto
 }
 
 // CleanupNewsAnalysisHistory 清理指定時间之前的記錄
-func (s *SQLiteStorage) CleanupNewsAnalysisHistory(beforeTime time.Time) error {
+func (s *SQLStorage) CleanupNewsAnalysisHistory(beforeTime time.Time) error {
 	_, err := s.db.Exec(`DELETE FROM news_analysis_history WHERE analysis_time < ?`, beforeTime)
 	return err
 }
 
 // SavePriceHistory 保存價格历史
-func (s *SQLiteStorage) SavePriceHistory(h *PriceHistory) error {
+func (s *SQLStorage) SavePriceHistory(h *PriceHistory) error {
 	_, err := s.db.Exec(`
 		INSERT INTO price_history (asset_type, symbol, price, source, recorded_at, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -3822,7 +3822,7 @@ func (s *SQLiteStorage) SavePriceHistory(h *PriceHistory) error {
 }
 
 // GetPriceAtTime 獲取指定時间附近的價格（在 tolerance 範圍内取最近的一条）
-func (s *SQLiteStorage) GetPriceAtTime(assetType, symbol string, t time.Time, tolerance time.Duration) (*PriceHistory, error) {
+func (s *SQLStorage) GetPriceAtTime(assetType, symbol string, t time.Time, tolerance time.Duration) (*PriceHistory, error) {
 	start := t.Add(-tolerance)
 	end := t.Add(tolerance)
 	var h PriceHistory
@@ -3842,7 +3842,7 @@ func (s *SQLiteStorage) GetPriceAtTime(assetType, symbol string, t time.Time, to
 }
 
 // GetPriceHistory 查詢價格历史
-func (s *SQLiteStorage) GetPriceHistory(assetType, symbol string, startTime, endTime time.Time, limit int) ([]*PriceHistory, error) {
+func (s *SQLStorage) GetPriceHistory(assetType, symbol string, startTime, endTime time.Time, limit int) ([]*PriceHistory, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
@@ -3872,7 +3872,7 @@ func (s *SQLiteStorage) GetPriceHistory(assetType, symbol string, startTime, end
 }
 
 // SavePredictionVerification 保存預测驗证記錄
-func (s *SQLiteStorage) SavePredictionVerification(v *PredictionVerification) error {
+func (s *SQLStorage) SavePredictionVerification(v *PredictionVerification) error {
 	isCorrect := 0
 	if v.IsCorrect {
 		isCorrect = 1
@@ -3892,7 +3892,7 @@ func (s *SQLiteStorage) SavePredictionVerification(v *PredictionVerification) er
 }
 
 // QueryPredictionVerifications 查詢預测驗证記錄
-func (s *SQLiteStorage) QueryPredictionVerifications(assetType, symbol string, startTime, endTime time.Time, limit, offset int) ([]*PredictionVerification, int64, error) {
+func (s *SQLStorage) QueryPredictionVerifications(assetType, symbol string, startTime, endTime time.Time, limit, offset int) ([]*PredictionVerification, int64, error) {
 	args := []interface{}{startTime, endTime}
 	where := "WHERE prediction_time >= ? AND prediction_time <= ?"
 	if assetType != "" {
@@ -3943,7 +3943,7 @@ func (s *SQLiteStorage) QueryPredictionVerifications(assetType, symbol string, s
 }
 
 // GetPredictionVerificationsByStatus 按状態查詢
-func (s *SQLiteStorage) GetPredictionVerificationsByStatus(status string, limit int) ([]*PredictionVerification, error) {
+func (s *SQLStorage) GetPredictionVerificationsByStatus(status string, limit int) ([]*PredictionVerification, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -3979,7 +3979,7 @@ func (s *SQLiteStorage) GetPredictionVerificationsByStatus(status string, limit 
 }
 
 // UpdatePredictionVerification 更新預测驗证記錄
-func (s *SQLiteStorage) UpdatePredictionVerification(v *PredictionVerification) error {
+func (s *SQLStorage) UpdatePredictionVerification(v *PredictionVerification) error {
 	isCorrect := 0
 	if v.IsCorrect {
 		isCorrect = 1
@@ -3994,7 +3994,7 @@ func (s *SQLiteStorage) UpdatePredictionVerification(v *PredictionVerification) 
 }
 
 // GetPredictionAccuracyStats 獲取預测准确率统计
-func (s *SQLiteStorage) GetPredictionAccuracyStats(assetType string, since time.Time) (total int, correct int, err error) {
+func (s *SQLStorage) GetPredictionAccuracyStats(assetType string, since time.Time) (total int, correct int, err error) {
 	query := "SELECT COUNT(*), SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) FROM prediction_verification WHERE status = 'verified' AND verified_at >= ?"
 	args := []interface{}{since}
 	if assetType != "" {
@@ -4013,7 +4013,7 @@ func (s *SQLiteStorage) GetPredictionAccuracyStats(assetType string, since time.
 }
 
 // GetPredictionAccuracyStatsByTimeframe 獲取按時间窗口分組的預测准确率统计
-func (s *SQLiteStorage) GetPredictionAccuracyStatsByTimeframe(assetType string, since time.Time) (map[string]struct{ Total, Correct int }, error) {
+func (s *SQLStorage) GetPredictionAccuracyStatsByTimeframe(assetType string, since time.Time) (map[string]struct{ Total, Correct int }, error) {
 	query := "SELECT timeframe, COUNT(*), SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) FROM prediction_verification WHERE status = 'verified' AND verified_at >= ?"
 	args := []interface{}{since}
 	if assetType != "" {
@@ -4046,7 +4046,7 @@ func (s *SQLiteStorage) GetPredictionAccuracyStatsByTimeframe(assetType string, 
 }
 
 // GetPredictionDirectionStatsByTimeframe 獲取按時间窗口和方向分組的預测统计
-func (s *SQLiteStorage) GetPredictionDirectionStatsByTimeframe(assetType string, since time.Time) (map[string]map[string]struct{ Total, Correct int }, error) {
+func (s *SQLStorage) GetPredictionDirectionStatsByTimeframe(assetType string, since time.Time) (map[string]map[string]struct{ Total, Correct int }, error) {
 	query := "SELECT timeframe, predicted_direction, COUNT(*), SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) FROM prediction_verification WHERE status = 'verified' AND verified_at >= ?"
 	args := []interface{}{since}
 	if assetType != "" {
@@ -4084,7 +4084,7 @@ func (s *SQLiteStorage) GetPredictionDirectionStatsByTimeframe(assetType string,
 }
 
 // Close 关闭數據库连接
-func (s *SQLiteStorage) Close() error {
+func (s *SQLStorage) Close() error {
 	if s.closed {
 		return nil
 	}
@@ -4093,7 +4093,7 @@ func (s *SQLiteStorage) Close() error {
 }
 
 // ListAccountIDsWithProfitRules 返回有提取规则的所有 account_id（用於定時任務）
-func (s *SQLiteStorage) ListAccountIDsWithProfitRules() ([]string, error) {
+func (s *SQLStorage) ListAccountIDsWithProfitRules() ([]string, error) {
 	rows, err := s.db.Query(`SELECT DISTINCT account_id FROM profit_withdraw_rules WHERE enabled = 1`)
 	if err != nil {
 		return nil, fmt.Errorf("查詢 account_id 失败: %w", err)
@@ -4111,7 +4111,7 @@ func (s *SQLiteStorage) ListAccountIDsWithProfitRules() ([]string, error) {
 }
 
 // ListProfitWithdrawRules 查詢指定账戶的自动提取规则（返回全交易所）
-func (s *SQLiteStorage) ListProfitWithdrawRules(accountID string) ([]*ProfitWithdrawRule, error) {
+func (s *SQLStorage) ListProfitWithdrawRules(accountID string) ([]*ProfitWithdrawRule, error) {
 	if accountID == "" {
 		accountID = "default"
 	}
@@ -4177,7 +4177,7 @@ func (s *SQLiteStorage) ListProfitWithdrawRules(accountID string) ([]*ProfitWith
 }
 
 // ReplaceProfitWithdrawRules 用一组规则替换指定账戶的全部规则（事務保证原子性）
-func (s *SQLiteStorage) ReplaceProfitWithdrawRules(accountID string, rules []*ProfitWithdrawRule) error {
+func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*ProfitWithdrawRule) error {
 	if accountID == "" {
 		accountID = "default"
 	}
@@ -4264,7 +4264,7 @@ func (s *SQLiteStorage) ReplaceProfitWithdrawRules(accountID string, rules []*Pr
 }
 
 // UpsertProfitWithdrawRule 創建或更新單条规则
-func (s *SQLiteStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWithdrawRule) error {
+func (s *SQLStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWithdrawRule) error {
 	if rule == nil {
 		return fmt.Errorf("rule 不能為空")
 	}
@@ -4327,7 +4327,7 @@ func (s *SQLiteStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitW
 }
 
 // DeleteProfitWithdrawRule 刪除單条规则（按账戶隔离）
-func (s *SQLiteStorage) DeleteProfitWithdrawRule(accountID string, ruleID string) error {
+func (s *SQLStorage) DeleteProfitWithdrawRule(accountID string, ruleID string) error {
 	if accountID == "" {
 		accountID = "default"
 	}
@@ -4342,7 +4342,7 @@ func (s *SQLiteStorage) DeleteProfitWithdrawRule(accountID string, ruleID string
 }
 
 // UpdateRuleLastTriggeredAt 更新规则最后執行時间
-func (s *SQLiteStorage) UpdateRuleLastTriggeredAt(ruleID string, triggeredAt time.Time) error {
+func (s *SQLStorage) UpdateRuleLastTriggeredAt(ruleID string, triggeredAt time.Time) error {
 	_, err := s.db.Exec(`UPDATE profit_withdraw_rules SET last_triggered_at = ?, updated_at = ? WHERE id = ?`,
 		triggeredAt, time.Now(), ruleID)
 	if err != nil {
@@ -4352,7 +4352,7 @@ func (s *SQLiteStorage) UpdateRuleLastTriggeredAt(ruleID string, triggeredAt tim
 }
 
 // SaveWithdrawRecord 保存提取記錄
-func (s *SQLiteStorage) SaveWithdrawRecord(record *ProfitWithdrawRecord) error {
+func (s *SQLStorage) SaveWithdrawRecord(record *ProfitWithdrawRecord) error {
 	_, err := s.db.Exec(`
 		INSERT INTO profit_withdraw_records (id, rule_id, account_id, exchange_id, strategy_id, amount, fee, net_amount, currency, type, status, destination, transfer_id, created_at, completed_at, failed_reason, note)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -4366,7 +4366,7 @@ func (s *SQLiteStorage) SaveWithdrawRecord(record *ProfitWithdrawRecord) error {
 }
 
 // UpdateWithdrawRecordStatus 更新提取記錄状態
-func (s *SQLiteStorage) UpdateWithdrawRecordStatus(id, status, transferID, failedReason string) error {
+func (s *SQLStorage) UpdateWithdrawRecordStatus(id, status, transferID, failedReason string) error {
 	var completedAt interface{}
 	if status == "completed" || status == "failed" {
 		completedAt = time.Now()
@@ -4383,7 +4383,7 @@ func (s *SQLiteStorage) UpdateWithdrawRecordStatus(id, status, transferID, faile
 }
 
 // GetWithdrawRecords 查詢提取記錄（按創建時间倒序）
-func (s *SQLiteStorage) GetWithdrawRecords(accountID string, limit int) ([]*ProfitWithdrawRecord, error) {
+func (s *SQLStorage) GetWithdrawRecords(accountID string, limit int) ([]*ProfitWithdrawRecord, error) {
 	if accountID == "" {
 		accountID = "default"
 	}
@@ -4429,7 +4429,7 @@ func (s *SQLiteStorage) GetWithdrawRecords(accountID string, limit int) ([]*Prof
 }
 
 // SaveHourlyEquityRecord 保存小時權益記錄
-func (s *SQLiteStorage) SaveHourlyEquityRecord(record *HourlyEquityRecord) error {
+func (s *SQLStorage) SaveHourlyEquityRecord(record *HourlyEquityRecord) error {
 	_, err := s.db.Exec(`
 		INSERT INTO hourly_equity_records (exchange, symbol, account, timestamp, equity, unrealized_pnl, total_position_value, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -4442,7 +4442,7 @@ func (s *SQLiteStorage) SaveHourlyEquityRecord(record *HourlyEquityRecord) error
 }
 
 // SaveDailySnapshot 保存每日快照（upsert）
-func (s *SQLiteStorage) SaveDailySnapshot(snapshot *DailySnapshot) error {
+func (s *SQLStorage) SaveDailySnapshot(snapshot *DailySnapshot) error {
 	_, err := s.db.Exec(`
 		INSERT INTO daily_snapshots (exchange, symbol, account, date, unrealized_pnl, total_position_value, intraday_max_drawdown, intraday_max_drawdown_pct, intraday_peak_equity, closing_price, snapshot_time, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -4464,7 +4464,7 @@ func (s *SQLiteStorage) SaveDailySnapshot(snapshot *DailySnapshot) error {
 }
 
 // QueryDailySnapshots 查詢日期範圍內的每日快照
-func (s *SQLiteStorage) QueryDailySnapshots(exchange, symbol, account string, startDate, endDate time.Time) ([]*DailySnapshot, error) {
+func (s *SQLStorage) QueryDailySnapshots(exchange, symbol, account string, startDate, endDate time.Time) ([]*DailySnapshot, error) {
 	rows, err := s.db.Query(`
 		SELECT id, exchange, symbol, account, date, unrealized_pnl, total_position_value, intraday_max_drawdown, intraday_max_drawdown_pct, intraday_peak_equity, closing_price, snapshot_time, created_at
 		FROM daily_snapshots
@@ -4499,7 +4499,7 @@ func (s *SQLiteStorage) QueryDailySnapshots(exchange, symbol, account string, st
 }
 
 // GetDailySnapshot 查詢單日快照
-func (s *SQLiteStorage) GetDailySnapshot(exchange, symbol, account string, date time.Time) (*DailySnapshot, error) {
+func (s *SQLStorage) GetDailySnapshot(exchange, symbol, account string, date time.Time) (*DailySnapshot, error) {
 	dateStr := date.Format("2006-01-02")
 	row := s.db.QueryRow(`
 		SELECT id, exchange, symbol, account, date, unrealized_pnl, total_position_value, intraday_max_drawdown, intraday_max_drawdown_pct, intraday_peak_equity, closing_price, snapshot_time, created_at
@@ -4529,7 +4529,7 @@ func (s *SQLiteStorage) GetDailySnapshot(exchange, symbol, account string, date 
 }
 
 // QueryHourlyEquityRecords 查詢時間範圍內的小時權益記錄（用於計算日內最大回撤）
-func (s *SQLiteStorage) QueryHourlyEquityRecords(exchange, symbol, account string, startTime, endTime time.Time) ([]*HourlyEquityRecord, error) {
+func (s *SQLStorage) QueryHourlyEquityRecords(exchange, symbol, account string, startTime, endTime time.Time) ([]*HourlyEquityRecord, error) {
 	rows, err := s.db.Query(`
 		SELECT id, exchange, symbol, account, timestamp, equity, unrealized_pnl, total_position_value, created_at
 		FROM hourly_equity_records
@@ -4556,7 +4556,7 @@ func (s *SQLiteStorage) QueryHourlyEquityRecords(exchange, symbol, account strin
 }
 
 // DeleteHourlyEquityRecordsBefore 刪除指定時間之前的小時級數據（用於 90 天清理）
-func (s *SQLiteStorage) DeleteHourlyEquityRecordsBefore(cutoff time.Time) error {
+func (s *SQLStorage) DeleteHourlyEquityRecordsBefore(cutoff time.Time) error {
 	result, err := s.db.Exec(`DELETE FROM hourly_equity_records WHERE timestamp < ?`, cutoff)
 	if err != nil {
 		return fmt.Errorf("刪除過期 hourly_equity_records 失败: %w", err)
@@ -4569,7 +4569,7 @@ func (s *SQLiteStorage) DeleteHourlyEquityRecordsBefore(cutoff time.Time) error 
 }
 
 // ProtectKlineFile 保護K線文件
-func (s *SQLiteStorage) ProtectKlineFile(filename string) error {
+func (s *SQLStorage) ProtectKlineFile(filename string) error {
 	_, err := s.db.Exec(`
 		INSERT OR IGNORE INTO protected_kline_files (filename) VALUES (?)`,
 		filename)
@@ -4580,7 +4580,7 @@ func (s *SQLiteStorage) ProtectKlineFile(filename string) error {
 }
 
 // UnprotectKlineFile 取消保護K線文件
-func (s *SQLiteStorage) UnprotectKlineFile(filename string) error {
+func (s *SQLStorage) UnprotectKlineFile(filename string) error {
 	_, err := s.db.Exec(`DELETE FROM protected_kline_files WHERE filename = ?`, filename)
 	if err != nil {
 		return fmt.Errorf("取消保護文件失败: %w", err)
@@ -4589,7 +4589,7 @@ func (s *SQLiteStorage) UnprotectKlineFile(filename string) error {
 }
 
 // GetProtectedKlineFiles 獲取所有保護的文件列表
-func (s *SQLiteStorage) GetProtectedKlineFiles() ([]string, error) {
+func (s *SQLStorage) GetProtectedKlineFiles() ([]string, error) {
 	rows, err := s.db.Query(`SELECT filename FROM protected_kline_files`)
 	if err != nil {
 		return nil, fmt.Errorf("查詢保護文件列表失败: %w", err)
@@ -4608,7 +4608,7 @@ func (s *SQLiteStorage) GetProtectedKlineFiles() ([]string, error) {
 }
 
 // IsKlineFileProtected 檢查文件是否被保護
-func (s *SQLiteStorage) IsKlineFileProtected(filename string) (bool, error) {
+func (s *SQLStorage) IsKlineFileProtected(filename string) (bool, error) {
 	var count int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM protected_kline_files WHERE filename = ?`, filename).Scan(&count)
 	if err != nil {
@@ -4726,7 +4726,7 @@ func migrateBotStatesTableMySQL(db *sql.DB) error {
 }
 
 // GetBotState 獲取 Bot 啟停狀態
-func (s *SQLiteStorage) GetBotState(botID string) (*BotState, error) {
+func (s *SQLStorage) GetBotState(botID string) (*BotState, error) {
 	var state BotState
 	var enabled int
 	var updatedAt, updatedBy, reason sql.NullString
@@ -4762,7 +4762,7 @@ func (s *SQLiteStorage) GetBotState(botID string) (*BotState, error) {
 }
 
 // SetBotState 設置 Bot 啟停狀態
-func (s *SQLiteStorage) SetBotState(state *BotState) error {
+func (s *SQLStorage) SetBotState(state *BotState) error {
 	enabled := 0
 	if state.Enabled {
 		enabled = 1
@@ -4800,7 +4800,7 @@ func (s *SQLiteStorage) SetBotState(state *BotState) error {
 }
 
 // ListBotStates 列出所有 Bot 狀態
-func (s *SQLiteStorage) ListBotStates() ([]*BotState, error) {
+func (s *SQLStorage) ListBotStates() ([]*BotState, error) {
 	rows, err := s.db.Query(`
 		SELECT bot_id, enabled, updated_at, updated_by, reason
 		FROM bot_states
@@ -4839,7 +4839,7 @@ func (s *SQLiteStorage) ListBotStates() ([]*BotState, error) {
 }
 
 // UpsertFixSessionState 保存或更新 FIX 会话状态
-func (s *SQLiteStorage) UpsertFixSessionState(state *FixSessionState) error {
+func (s *SQLStorage) UpsertFixSessionState(state *FixSessionState) error {
 	if state == nil {
 		return fmt.Errorf("fix session state is nil")
 	}
@@ -4881,7 +4881,7 @@ func (s *SQLiteStorage) UpsertFixSessionState(state *FixSessionState) error {
 }
 
 // GetFixSessionState 根据 session_id 获取 FIX 会话状态
-func (s *SQLiteStorage) GetFixSessionState(sessionID string) (*FixSessionState, error) {
+func (s *SQLStorage) GetFixSessionState(sessionID string) (*FixSessionState, error) {
 	var item FixSessionState
 	var isLoggedOn int
 	var lastLogonAt sql.NullTime
@@ -4907,7 +4907,7 @@ func (s *SQLiteStorage) GetFixSessionState(sessionID string) (*FixSessionState, 
 }
 
 // ListFixSessionStates 列出 FIX 会话状态
-func (s *SQLiteStorage) ListFixSessionStates(limit, offset int) ([]*FixSessionState, error) {
+func (s *SQLStorage) ListFixSessionStates(limit, offset int) ([]*FixSessionState, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -4948,7 +4948,7 @@ func (s *SQLiteStorage) ListFixSessionStates(limit, offset int) ([]*FixSessionSt
 }
 
 // UpsertFixOrderLink 保存或更新 FIX 主订单映射
-func (s *SQLiteStorage) UpsertFixOrderLink(link *FixOrderLink) error {
+func (s *SQLStorage) UpsertFixOrderLink(link *FixOrderLink) error {
 	if link == nil {
 		return fmt.Errorf("fix order link is nil")
 	}
@@ -4990,7 +4990,7 @@ func (s *SQLiteStorage) UpsertFixOrderLink(link *FixOrderLink) error {
 }
 
 // GetFixOrderLinkByClOrdID 通过 cl_ord_id 查询 FIX 主订单映射
-func (s *SQLiteStorage) GetFixOrderLinkByClOrdID(sessionID, clOrdID string) (*FixOrderLink, error) {
+func (s *SQLStorage) GetFixOrderLinkByClOrdID(sessionID, clOrdID string) (*FixOrderLink, error) {
 	row := s.db.QueryRow(`
 		SELECT id, session_id, cl_ord_id, orig_cl_ord_id, bot_id, exchange, symbol, side, internal_order_id, last_exec_id, ord_status, cum_qty, leaves_qty, avg_px, created_at, updated_at
 		FROM fix_order_links
@@ -5000,7 +5000,7 @@ func (s *SQLiteStorage) GetFixOrderLinkByClOrdID(sessionID, clOrdID string) (*Fi
 }
 
 // GetFixOrderLinkByInternalOrderID 通过内部订单号查询 FIX 主订单映射
-func (s *SQLiteStorage) GetFixOrderLinkByInternalOrderID(sessionID string, internalOrderID int64) (*FixOrderLink, error) {
+func (s *SQLStorage) GetFixOrderLinkByInternalOrderID(sessionID string, internalOrderID int64) (*FixOrderLink, error) {
 	row := s.db.QueryRow(`
 		SELECT id, session_id, cl_ord_id, orig_cl_ord_id, bot_id, exchange, symbol, side, internal_order_id, last_exec_id, ord_status, cum_qty, leaves_qty, avg_px, created_at, updated_at
 		FROM fix_order_links
@@ -5012,7 +5012,7 @@ func (s *SQLiteStorage) GetFixOrderLinkByInternalOrderID(sessionID string, inter
 }
 
 // ListFixOrderLinks 列出 FIX 主订单映射
-func (s *SQLiteStorage) ListFixOrderLinks(sessionID, ordStatus string, limit, offset int) ([]*FixOrderLink, error) {
+func (s *SQLStorage) ListFixOrderLinks(sessionID, ordStatus string, limit, offset int) ([]*FixOrderLink, error) {
 	if limit <= 0 {
 		limit = 100
 	}

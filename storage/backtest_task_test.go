@@ -14,7 +14,7 @@ func TestBacktestTaskRoundTripPreservesMultiStrategyFields(t *testing.T) {
 		_ = removeSQLiteFiles(dbPath)
 	})
 
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}

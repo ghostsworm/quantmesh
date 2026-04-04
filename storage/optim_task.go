@@ -15,7 +15,7 @@ func nilInt64Opt(t *time.Time) interface{} {
 }
 
 // CreateOptimTask 创建参数优化任务
-func (s *SQLiteStorage) CreateOptimTask(task *backtest.OptimTask) error {
+func (s *SQLStorage) CreateOptimTask(task *backtest.OptimTask) error {
 	searchSpaceJSON, err := task.SearchSpaceToJSON()
 	if err != nil {
 		return err
@@ -45,7 +45,7 @@ func (s *SQLiteStorage) CreateOptimTask(task *backtest.OptimTask) error {
 }
 
 // GetOptimTask 获取参数优化任务
-func (s *SQLiteStorage) GetOptimTask(id string) (*backtest.OptimTask, error) {
+func (s *SQLStorage) GetOptimTask(id string) (*backtest.OptimTask, error) {
 	var (
 		startTime, endTime, createdAt int64
 		startedAt, completedAt        sql.NullInt64
@@ -96,7 +96,7 @@ func (s *SQLiteStorage) GetOptimTask(id string) (*backtest.OptimTask, error) {
 }
 
 // ListOptimTasks 列出参数优化任务
-func (s *SQLiteStorage) ListOptimTasks(limit, offset int) ([]*backtest.OptimTask, error) {
+func (s *SQLStorage) ListOptimTasks(limit, offset int) ([]*backtest.OptimTask, error) {
 	rows, err := s.db.Query(`
 		SELECT id, status, strategy, symbol, interval, start_time, end_time, total_capital, search_space, progress, total_combos, completed_combos, created_at, started_at, completed_at, result_path, error
 		FROM optim_tasks ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
@@ -135,7 +135,7 @@ func (s *SQLiteStorage) ListOptimTasks(limit, offset int) ([]*backtest.OptimTask
 }
 
 // UpdateOptimTaskProgress 更新任务进度
-func (s *SQLiteStorage) UpdateOptimTaskProgress(id string, completed int, progress int) error {
+func (s *SQLStorage) UpdateOptimTaskProgress(id string, completed int, progress int) error {
 	_, err := s.db.Exec(`
 		UPDATE optim_tasks SET completed_combos=?, progress=? WHERE id=?`,
 		completed, progress, id,
@@ -144,7 +144,7 @@ func (s *SQLiteStorage) UpdateOptimTaskProgress(id string, completed int, progre
 }
 
 // UpdateOptimTaskStatus 更新任务状态（startedAt 用于 running 时，completedAt 用于 completed/failed 时）
-func (s *SQLiteStorage) UpdateOptimTaskStatus(id, status string, startedAt, completedAt *time.Time, errMsg, resultPath string) error {
+func (s *SQLStorage) UpdateOptimTaskStatus(id, status string, startedAt, completedAt *time.Time, errMsg, resultPath string) error {
 	_, err := s.db.Exec(`
 		UPDATE optim_tasks SET status=?, started_at=COALESCE(?, started_at), completed_at=COALESCE(?, completed_at), error=?, result_path=? WHERE id=?`,
 		status,
@@ -158,12 +158,12 @@ func (s *SQLiteStorage) UpdateOptimTaskStatus(id, status string, startedAt, comp
 }
 
 // DeleteOptimTask 删除参数优化任务
-func (s *SQLiteStorage) DeleteOptimTask(id string) error {
+func (s *SQLStorage) DeleteOptimTask(id string) error {
 	_, err := s.db.Exec(`DELETE FROM optim_tasks WHERE id=?`, id)
 	return err
 }
 
 // GetOptimTaskStore 返回自身作为 backtest.OptimTaskStore 实现
-func (s *SQLiteStorage) GetOptimTaskStore() backtest.OptimTaskStore {
+func (s *SQLStorage) GetOptimTaskStore() backtest.OptimTaskStore {
 	return s
 }

@@ -8,7 +8,7 @@ import (
 	"quantmesh/storage"
 )
 
-// systemSettingsStorage 系统设置存储接口（*storage.SQLiteStorage 已实现）
+// systemSettingsStorage 系统设置存储接口（*storage.SQLStorage 已实现）
 type systemSettingsStorage interface {
 	GetSystemSetting(ctx context.Context, key string) (*storage.SystemSetting, error)
 	GetSystemSettings(ctx context.Context, filter *storage.SystemSettingFilter) ([]*storage.SystemSetting, error)

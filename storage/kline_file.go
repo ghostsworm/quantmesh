@@ -57,12 +57,12 @@ type KlineFile struct {
 // 始終使用反引號，避免僅依賴 dbType 時漏判導致 Error 1064。
 const klineFilesIntervalCol = "`interval`"
 
-func (s *SQLiteStorage) klineFilesSelectColumns() string {
+func (s *SQLStorage) klineFilesSelectColumns() string {
 	return fmt.Sprintf("id, filename, exchange, symbol, %s, start_time, end_time, status, has_depth, candle_count, file_size, source, created_at, updated_at", klineFilesIntervalCol)
 }
 
 // CreateKlineFile 创建 K 线文件记录
-func (s *SQLiteStorage) CreateKlineFile(kf *KlineFile) error {
+func (s *SQLStorage) CreateKlineFile(kf *KlineFile) error {
 	query := fmt.Sprintf(`
 		INSERT INTO kline_files (filename, exchange, symbol, %s, start_time, end_time, status, has_depth, candle_count, file_size, source)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -97,7 +97,7 @@ func (s *SQLiteStorage) CreateKlineFile(kf *KlineFile) error {
 }
 
 // GetKlineFile 根据ID获取 K 线文件记录
-func (s *SQLiteStorage) GetKlineFile(id int) (*KlineFile, error) {
+func (s *SQLStorage) GetKlineFile(id int) (*KlineFile, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM kline_files WHERE id = ?
@@ -137,7 +137,7 @@ func (s *SQLiteStorage) GetKlineFile(id int) (*KlineFile, error) {
 }
 
 // GetKlineFileByFilename 根据文件名获取 K 线文件记录
-func (s *SQLiteStorage) GetKlineFileByFilename(filename string) (*KlineFile, error) {
+func (s *SQLStorage) GetKlineFileByFilename(filename string) (*KlineFile, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM kline_files WHERE filename = ?
@@ -187,7 +187,7 @@ type KlineFileFilter struct {
 	Offset   int
 }
 
-func (s *SQLiteStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, error) {
+func (s *SQLStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM kline_files WHERE 1=1
@@ -271,7 +271,7 @@ func (s *SQLiteStorage) ListKlineFiles(filter *KlineFileFilter) ([]*KlineFile, e
 }
 
 // UpdateKlineFile 更新 K 线文件记录
-func (s *SQLiteStorage) UpdateKlineFile(kf *KlineFile) error {
+func (s *SQLStorage) UpdateKlineFile(kf *KlineFile) error {
 	query := fmt.Sprintf(`
 		UPDATE kline_files 
 		SET exchange=?, symbol=?, %s=?, start_time=?, end_time=?, status=?, has_depth=?, candle_count=?, file_size=?, source=?, updated_at=?
@@ -302,7 +302,7 @@ func (s *SQLiteStorage) UpdateKlineFile(kf *KlineFile) error {
 }
 
 // UpdateKlineFileStatus 更新 K 线文件状态
-func (s *SQLiteStorage) UpdateKlineFileStatus(filename string, status string, endTime *time.Time, candleCount int, fileSize int64) error {
+func (s *SQLStorage) UpdateKlineFileStatus(filename string, status string, endTime *time.Time, candleCount int, fileSize int64) error {
 	query := `
 		UPDATE kline_files 
 		SET status=?, end_time=?, candle_count=?, file_size=?, updated_at=?
@@ -322,7 +322,7 @@ func (s *SQLiteStorage) UpdateKlineFileStatus(filename string, status string, en
 }
 
 // DeleteKlineFile 删除 K 线文件记录
-func (s *SQLiteStorage) DeleteKlineFile(id int) error {
+func (s *SQLStorage) DeleteKlineFile(id int) error {
 	query := `DELETE FROM kline_files WHERE id = ?`
 
 	_, err := s.db.Exec(query, id)
@@ -334,7 +334,7 @@ func (s *SQLiteStorage) DeleteKlineFile(id int) error {
 }
 
 // DeleteKlineFileByFilename 根据文件名删除 K 线文件记录
-func (s *SQLiteStorage) DeleteKlineFileByFilename(filename string) error {
+func (s *SQLStorage) DeleteKlineFileByFilename(filename string) error {
 	query := `DELETE FROM kline_files WHERE filename = ?`
 
 	_, err := s.db.Exec(query, filename)
@@ -346,7 +346,7 @@ func (s *SQLiteStorage) DeleteKlineFileByFilename(filename string) error {
 }
 
 // GetCompletedKlineFiles 获取已完成的 K 线文件列表（可用于回测）
-func (s *SQLiteStorage) GetCompletedKlineFiles(exchange, symbol, interval string) ([]*KlineFile, error) {
+func (s *SQLStorage) GetCompletedKlineFiles(exchange, symbol, interval string) ([]*KlineFile, error) {
 	filter := &KlineFileFilter{
 		Exchange: exchange,
 		Symbol:   symbol,
@@ -357,7 +357,7 @@ func (s *SQLiteStorage) GetCompletedKlineFiles(exchange, symbol, interval string
 }
 
 // GetKlineFilesInTimeRange 获取时间范围内的 K 线文件列表
-func (s *SQLiteStorage) GetKlineFilesInTimeRange(exchange, symbol, interval string, startTimeParam, endTimeParam time.Time) ([]*KlineFile, error) {
+func (s *SQLStorage) GetKlineFilesInTimeRange(exchange, symbol, interval string, startTimeParam, endTimeParam time.Time) ([]*KlineFile, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM kline_files 

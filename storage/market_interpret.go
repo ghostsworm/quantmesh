@@ -19,7 +19,7 @@ type MarketInterpretRecord struct {
 }
 
 // SaveMarketInterpretTask 创建或更新市场解读任务记录
-func (s *SQLiteStorage) SaveMarketInterpretTask(r *MarketInterpretRecord) error {
+func (s *SQLStorage) SaveMarketInterpretTask(r *MarketInterpretRecord) error {
 	_, err := s.db.Exec(`
 		INSERT INTO market_interpret_tasks (task_id, page_type, symbol, status, progress, result, error, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -37,7 +37,7 @@ func (s *SQLiteStorage) SaveMarketInterpretTask(r *MarketInterpretRecord) error 
 }
 
 // GetMarketInterpretTask 根据 task_id 获取任务
-func (s *SQLiteStorage) GetMarketInterpretTask(taskID string) (*MarketInterpretRecord, error) {
+func (s *SQLStorage) GetMarketInterpretTask(taskID string) (*MarketInterpretRecord, error) {
 	var createdAt, updatedAt int64
 	r := &MarketInterpretRecord{TaskID: taskID}
 	err := s.db.QueryRow(`
@@ -56,7 +56,7 @@ func (s *SQLiteStorage) GetMarketInterpretTask(taskID string) (*MarketInterpretR
 }
 
 // GetLatestMarketInterpretByPageType 获取指定页面类型下最新一条任务（用于返回页面时恢复显示）
-func (s *SQLiteStorage) GetLatestMarketInterpretByPageType(pageType string) (*MarketInterpretRecord, error) {
+func (s *SQLStorage) GetLatestMarketInterpretByPageType(pageType string) (*MarketInterpretRecord, error) {
 	var createdAt, updatedAt int64
 	r := &MarketInterpretRecord{}
 	err := s.db.QueryRow(`
@@ -76,7 +76,7 @@ func (s *SQLiteStorage) GetLatestMarketInterpretByPageType(pageType string) (*Ma
 }
 
 // ListMarketInterpretHistory 按页面类型列出历史解读（倒序）
-func (s *SQLiteStorage) ListMarketInterpretHistory(pageType string, limit int) ([]*MarketInterpretRecord, error) {
+func (s *SQLStorage) ListMarketInterpretHistory(pageType string, limit int) ([]*MarketInterpretRecord, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}

@@ -21,7 +21,7 @@ func TestEnsureAppConfigDocumentTables_OnBareDB(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS _placeholder(x INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
-	s := &SQLiteStorage{db: db, dbType: "sqlite"}
+	s := &SQLStorage{db: db, dbType: "sqlite"}
 	if err := s.EnsureAppConfigDocumentTables(); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestEnsureAppConfigDocumentTables_OnBareDB(t *testing.T) {
 func TestMigrateYAMLToAppConfigDB_Minimal(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "t.db")
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ trading:
 func TestLoadConfigFromAppConfigDBIfExists(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "boot.db")
-	st, err := NewSQLiteStorage(dbPath)
+	st, err := NewSQLStorage(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}

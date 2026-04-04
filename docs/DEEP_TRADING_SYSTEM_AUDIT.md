@@ -6,7 +6,7 @@
 
 ### 1) 订单主键只按 `order_id` 全局唯一，跨交易所/账户会互相覆盖
 
-- 路径 + 函数：`storage/sqlite.go` `createTables()`、`SaveOrder()`
+- 路径 + 函数：`storage/sql_storage.go` `createTables()`、`SaveOrder()`
 - 证据摘要：
   - `orders` 表定义 `order_id BIGINT UNIQUE`
   - `SaveOrder` 使用 `ON CONFLICT(order_id)` upsert

@@ -200,7 +200,7 @@ A: 可以：
 ## 相关文件
 
 - 统计 API: `web/api.go` (getStatistics 函数)
-- 数据查询: `storage/sqlite.go` (GetStatisticsSummary 函数)
+- 数据查询: `storage/sql_storage.go` (GetStatisticsSummary 函数)
 - 交易保存: `position/super_position_manager.go` (SaveTrade 调用)
 - 前端组件: `webui/src/components/Statistics.tsx`
 
@@ -231,7 +231,7 @@ WHERE (account = ? OR account IS NULL OR account = '')
 订单成交 → SuperPositionManager.handleOrderUpdate()
          → 计算盈亏
          → tradeStorage.SaveTrade()
-         → SQLiteStorage.SaveTrade()
+         → SQLStorage.SaveTrade()
          → INSERT INTO trades
          → 统计 API 查询 trades 表
          → 前端显示统计数据

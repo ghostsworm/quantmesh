@@ -9,7 +9,7 @@
 | 文件 | 行数 | 建议优先级 |
 |------|------|------------|
 | `web/api.go` | **8069** | 🔴 最高 |
-| `storage/sqlite.go` | **5071** | 🔴 高 |
+| `storage/sql_storage.go` | **5071** | 🔴 高 |
 | `position/super_position_manager.go` | **4689** | 🟡 中 |
 | `main.go` | **3611** | 🟡 中 |
 | `config/config.go` | **2819** | 🟡 中 |
@@ -48,7 +48,7 @@
 
 ---
 
-### 2. `storage/sqlite.go`（5071 行）— 成本中等
+### 2. `storage/sql_storage.go`（5071 行）— 成本中等
 
 **现状**：大量 `migrate*` 函数（约 30+ 个迁移）与核心 CRUD 混在一起。
 
@@ -62,7 +62,7 @@
 | `storage/sqlite_*.go` | 其他表按业务域拆分 | 各 ~300 |
 
 **操作要点**：
-- `SQLiteStorage` 结构体保留在 `sqlite.go`
+- `SQLStorage` 结构体保留在 `sql_storage.go`
 - 迁移函数可全部移到 `sqlite_migrations.go`，在 `NewStorage` 中调用
 - 同一 package 内可互相调用，无需改接口
 
@@ -146,7 +146,7 @@ webui/src/i18n/locales/
 
 1. **先做**：`web/api.go` 拆分（收益大、风险小、模式已有）
 2. **其次**：语言文件方案 A（构建时合并）
-3. **再**：`storage/sqlite.go` 迁移函数拆分
+3. **再**：`storage/sql_storage.go` 迁移函数拆分
 4. **最后**：`position`、`main`、`config` 按需推进
 
 ---

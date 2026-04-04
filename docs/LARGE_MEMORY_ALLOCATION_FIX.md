@@ -55,7 +55,7 @@ spm.slots.Range(func(key, value interface{}) bool {
 })
 ```
 
-### 3. 数据库查询限制优化 (`storage/sqlite.go`)
+### 3. 数据库查询限制优化 (`storage/sql_storage.go`)
 
 **问题**: 多个数据库查询方法没有对返回数量进行限制，可能导致一次性返回大量数据。
 

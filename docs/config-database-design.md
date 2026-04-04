@@ -165,7 +165,7 @@ flowchart TB
 
 ## 6. 运行时加载顺序（建议）
 
-1. 解析环境变量，打开存储（与当前 [`storage`](../storage/sqlite.go) 一致）。
+1. 解析环境变量，打开存储（与当前 [`storage`](../storage/sql_storage.go) 一致）。
 2. 读取 `app_config`；若 **无行或为空**，进入 **迁移或默认**（第 7 节）。
 3. `json.Unmarshal` → `*config.Config`；必要时执行 **解密占位**（非本文范围时仍可调现有 `LoadConfig` 内解密逻辑，或加载后单独对 `Exchanges` 走同一套函数）。
 4. 按需加载 **`bot_configs`**（按 `bot_id` 列表或全表），组装内存中的 Bot 运行时视图（与现有 `BotManager` 生命周期对齐）。
