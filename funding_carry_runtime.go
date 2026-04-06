@@ -131,7 +131,7 @@ func startFundingCarrySymbolRuntime(
 	}
 
 	rt.Stop = func() {
-		logger.Info("⏹️ [%s] 停止資金費套利運行時", symCfg.Symbol)
+		logger.Info("⏹️ [%s] 停止資金費套利運行時（策略 Stop 會自動嘗試平倉）", symCfg.Symbol)
 		if strategyManager != nil {
 			strategyManager.StopAll()
 		}
