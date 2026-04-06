@@ -46,6 +46,7 @@
     "positionPlan": "خطة المراكز",
     "backtest": "الاختبار الخلفي",
     "tradingPanel": "لوحة التداول",
+    "botDetail": "تفاصيل البوت",
     "currentPositions": "المراكز الحالية",
     "orderManagement": "إدارة الطلبات",
     "strategySlots": "فتحات الاستراتيجية",

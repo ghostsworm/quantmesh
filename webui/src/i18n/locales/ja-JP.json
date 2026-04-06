@@ -47,6 +47,7 @@
     "positionPlan": "ポジション計画",
     "backtest": "バックテスト",
     "tradingPanel": "取引パネル",
+    "botDetail": "Bot詳細",
     "currentPositions": "現在のポジション",
     "orderManagement": "注文管理",
     "strategySlots": "戦略スロット",

@@ -46,6 +46,7 @@
     "positionPlan": "Position Plan",
     "backtest": "แบ็กเทสต์",
     "tradingPanel": "แผงเทรด",
+    "botDetail": "รายละเอียดบอท",
     "currentPositions": "ตำแหน่งปัจจุบัน",
     "orderManagement": "การจัดการออเดอร์",
     "strategySlots": "Strategy Slots",

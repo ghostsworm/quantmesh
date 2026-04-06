@@ -46,6 +46,7 @@
     "positionPlan": "План позицій",
     "backtest": "Бектест",
     "tradingPanel": "Панель торгівлі",
+    "botDetail": "Деталі бота",
     "currentPositions": "Поточні позиції",
     "orderManagement": "Управління ордерами",
     "strategySlots": "Слоти стратегій",

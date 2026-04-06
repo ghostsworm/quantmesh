@@ -46,6 +46,7 @@
     "positionPlan": "포지션 계획",
     "backtest": "백테스트",
     "tradingPanel": "거래 패널",
+    "botDetail": "봇 상세",
     "currentPositions": "현재 포지션",
     "orderManagement": "주문 관리",
     "strategySlots": "전략 슬롯",
