@@ -79,14 +79,28 @@ func (bm *BotManager) findConflictingBot(exchange, symbol, marketType string) *B
 }
 
 func (bm *BotManager) findConflictingBotLocked(exchange, symbol, marketType string) *BotRuntime {
-	targetKey := symbolKey(exchange, symbol, marketType)
 	for _, br := range bm.runtimes {
-		existingKey := symbolKey(br.Config.Exchange, br.Config.Symbol, br.Config.GetMarketType())
-		if existingKey == targetKey {
+		if botRuntimeSymbolConflict(br, exchange, symbol, marketType) {
 			return br
 		}
 	}
 	return nil
+}
+
+// botRuntimeSymbolConflict 運行中衝突：同交易所同幣下，funding_carry 與任意 spot/futures 互斥；
+// 非 funding 時仍按原規則僅同 market_type 衝突。
+func botRuntimeSymbolConflict(br *BotRuntime, exchange, symbol, newMarketType string) bool {
+	if br == nil {
+		return false
+	}
+	if !strings.EqualFold(br.Config.Exchange, exchange) || !strings.EqualFold(br.Config.Symbol, symbol) {
+		return false
+	}
+	oldMT := br.Config.GetMarketType()
+	if oldMT == config.MarketTypeFundingCarry || newMarketType == config.MarketTypeFundingCarry {
+		return true
+	}
+	return strings.EqualFold(oldMT, newMarketType)
 }
 
 func (bm *BotManager) recordStartFailure(botID string, err error) {

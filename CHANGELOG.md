@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.79.14] - 2026-04-07
+
+### Added
+- **資金費率套利 Bot（funding_carry）**：獨立 `market_type` 與單策略 `funding_carry`；與同交易所同幣種其它 Bot 互斥；幣安雙市場預檢 API `POST /api/bots/preflight-funding`；運行時雙連線（UM 合約 + 現貨）與 `FundingCarryStrategy`。
+- **Web**：Bot 創建向導與 `CreateBotRequest` 類型支援 `funding_carry`；`preflightFundingCarry` 客戶端封裝；中英文 `error.funding_carry_single_strategy` / `error.bot_symbol_market_conflict`。
+
+### Fixed
+- **`config/config_test.go`**：移除未使用 import，恢復 `go test ./config/...` 可編譯。
+
+---
+
 ## [3.79.13] - 2026-04-06
 
 ### Added

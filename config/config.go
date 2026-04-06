@@ -1275,6 +1275,9 @@ func (sc *SymbolConfig) IsEnabled() bool {
 // GetMarketType 返回市場類型，空時預設為 futures（向后兼容）
 // 若 UseSpotMargin 為 true 且 MarketType 為 spot，返回 spot_margin（現貨槓桿借幣做空）
 func (sc *SymbolConfig) GetMarketType() string {
+	if sc.MarketType == MarketTypeFundingCarry {
+		return MarketTypeFundingCarry
+	}
 	if sc.MarketType == "spot" {
 		if sc.UseSpotMargin {
 			return "spot_margin"
@@ -1436,6 +1439,9 @@ func (bc *BotConfig) IsEnabled() bool {
 // GetMarketType 返回市場類型，空時預設為 futures
 // 若 UseSpotMargin 為 true 且 MarketType 為 spot，返回 spot_margin（現貨槓桿借幣做空）
 func (bc *BotConfig) GetMarketType() string {
+	if bc.MarketType == MarketTypeFundingCarry {
+		return MarketTypeFundingCarry
+	}
 	if bc.MarketType == "spot" {
 		if bc.UseSpotMargin {
 			return "spot_margin"
@@ -1502,9 +1508,12 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 	}
 	name := sc.Name
 	if name == "" {
-		if mt == "spot" {
+		switch mt {
+		case "spot":
 			name = sc.Symbol + " (spot)"
-		} else {
+		case MarketTypeFundingCarry:
+			name = sc.Symbol + " (funding_carry)"
+		default:
 			name = sc.Symbol + " (futures)"
 		}
 	}
@@ -2214,12 +2223,56 @@ func (c *Config) Validate() error {
 			return sc, fmt.Errorf("交易對不能為空")
 		}
 
-		// 市场類型：僅允許 spot 或 futures，空時預設為 futures
+		// 市场類型：spot / futures / funding_carry，空時預設為 futures
 		if sc.MarketType == "" {
 			sc.MarketType = "futures"
 		}
-		if sc.MarketType != "spot" && sc.MarketType != "futures" {
-			return sc, fmt.Errorf("交易對 %s 的 market_type 無效: %s（只支援 spot 或 futures）", sc.Symbol, sc.MarketType)
+		if !ValidMarketType(sc.MarketType) {
+			return sc, fmt.Errorf("交易對 %s 的 market_type 無效: %s（支援 spot、futures、funding_carry）", sc.Symbol, sc.MarketType)
+		}
+
+		// 資金費套利：不要求網格參數，以總分配資金為主
+		if sc.MarketType == MarketTypeFundingCarry {
+			if sc.TotalAllocatedCapital <= 0 && sc.OrderQuantity > 0 {
+				sc.TotalAllocatedCapital = sc.OrderQuantity
+			}
+			if sc.OrderQuantity <= 0 && sc.TotalAllocatedCapital > 0 {
+				sc.OrderQuantity = sc.TotalAllocatedCapital
+			}
+			if sc.TotalAllocatedCapital <= 0 {
+				return sc, fmt.Errorf("交易對 %s（funding_carry）的 total_allocated_capital 或 order_quantity 必須大於 0", sc.Symbol)
+			}
+			if sc.PriceInterval <= 0 {
+				sc.PriceInterval = 1
+			}
+			if sc.ProfitSpread <= 0 {
+				sc.ProfitSpread = sc.PriceInterval
+			}
+			if sc.BuyWindowSize <= 0 {
+				sc.BuyWindowSize = 1
+			}
+			if sc.SellWindowSize <= 0 {
+				sc.SellWindowSize = 1
+			}
+			if sc.MinOrderValue <= 0 {
+				sc.MinOrderValue = 20
+			}
+			if sc.ReconcileInterval <= 0 {
+				sc.ReconcileInterval = 60
+			}
+			if sc.OrderCleanupThreshold <= 0 {
+				sc.OrderCleanupThreshold = 50
+			}
+			if sc.CleanupBatchSize <= 0 {
+				sc.CleanupBatchSize = 10
+			}
+			if sc.MarginLockDurationSec <= 0 {
+				sc.MarginLockDurationSec = 10
+			}
+			if sc.PositionSafetyCheck <= 0 {
+				sc.PositionSafetyCheck = 100
+			}
+			return sc, nil
 		}
 
 		// 數值預設

@@ -723,6 +723,203 @@ func TestPostBotCreateRejectsWhenRunningBotExists(t *testing.T) {
 	}
 }
 
+// TestPostBotCreateFundingCarrySuccess 資金費套利：單策略 funding_carry、無同幣種配置時創建成功
+func TestPostBotCreateFundingCarrySuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
+
+	cfg := &config.Config{Bots: []config.BotConfig{}}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 10
+	cfg.Trading.MinOrderValue = 6
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+
+	fcm := NewFileConfigManager("")
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	mock := &mockBotManagerForCreateTest{bots: nil}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	body := `{
+		"exchange": "binance",
+		"symbol": "BTCUSDT",
+		"market_type": "funding_carry",
+		"strategies": [{"type": "funding_carry", "weight": 1, "config": {"min_funding_rate": 0.0004}}],
+		"total_allocated_capital": 1000
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/bots/create", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	postBotCreate(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	botID, _ := resp["bot_id"].(string)
+	if botID == "" {
+		t.Fatal("expected bot_id")
+	}
+	latest, err := GetLatestConfig()
+	if err != nil {
+		t.Fatalf("GetLatestConfig: %v", err)
+	}
+	var found *config.BotConfig
+	for i := range latest.Bots {
+		if latest.Bots[i].ID == botID {
+			found = &latest.Bots[i]
+			break
+		}
+	}
+	if found == nil || found.GetMarketType() != config.MarketTypeFundingCarry {
+		t.Fatalf("created bot missing or wrong market_type: %+v", found)
+	}
+	if len(found.Strategies) != 1 || found.Strategies[0].Type != "funding_carry" {
+		t.Fatalf("strategies: %+v", found.Strategies)
+	}
+}
+
+// TestPostBotCreateFundingCarryRejectsNonSingleStrategy 必須僅含 funding_carry 單策略
+func TestPostBotCreateFundingCarryRejectsNonSingleStrategy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
+
+	cfg := &config.Config{Bots: []config.BotConfig{}}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 10
+	cfg.Trading.MinOrderValue = 6
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+
+	fcm := NewFileConfigManager("")
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	mock := &mockBotManagerForCreateTest{}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	body := `{
+		"exchange": "binance",
+		"symbol": "BTCUSDT",
+		"market_type": "funding_carry",
+		"strategies": [{"type": "grid", "weight": 1}, {"type": "funding_carry", "weight": 0}]
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/bots/create", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	postBotCreate(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if resp["error_key"] != "error.funding_carry_single_strategy" {
+		t.Errorf("error_key = %v, want error.funding_carry_single_strategy", resp["error_key"])
+	}
+}
+
+// TestPostBotCreateFundingCarryConflictsWithExistingSpot 同幣種已有 spot Bot 時拒絕 funding_carry
+func TestPostBotCreateFundingCarryConflictsWithExistingSpot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
+
+	cfg := &config.Config{
+		Bots: []config.BotConfig{
+			{
+				ID: "spot-1", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot",
+				PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10,
+			},
+		},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 10
+	cfg.Trading.MinOrderValue = 6
+	cfg.Exchanges = map[string]config.ExchangeConfig{
+		"binance": {APIKey: "k", SecretKey: "s", FeeRate: 0.0002},
+	}
+
+	fcm := NewFileConfigManager("")
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	mock := &mockBotManagerForCreateTest{}
+	origProvider := botManagerProvider
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	body := `{
+		"exchange": "binance",
+		"symbol": "BTCUSDT",
+		"market_type": "funding_carry",
+		"strategies": [{"type": "funding_carry", "weight": 1}]
+	}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/bots/create", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	postBotCreate(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if resp["error_key"] != "error.bot_symbol_market_conflict" {
+		t.Errorf("error_key = %v, want error.bot_symbol_market_conflict", resp["error_key"])
+	}
+}
+
 // TestPostBotGroupCreateWorksWithFileConfigManagerOnly 驗證：當 configManager 為 nil 但 fileConfigManager 已設置時，
 // postBotGroupCreate 仍可成功創建對沖組（修復 503 Service Unavailable）
 func TestPostBotGroupCreateWorksWithFileConfigManagerOnly(t *testing.T) {

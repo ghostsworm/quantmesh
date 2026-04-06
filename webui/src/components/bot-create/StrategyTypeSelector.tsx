@@ -7,10 +7,10 @@ import {
   useColorModeValue,
   Icon,
 } from '@chakra-ui/react'
-import { CopyIcon, AddIcon, RepeatIcon } from '@chakra-ui/icons'
+import { CopyIcon, AddIcon, RepeatIcon, StarIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 
-export type StrategyTypeCategory = 'single' | 'combo' | 'hedge'
+export type StrategyTypeCategory = 'single' | 'combo' | 'hedge' | 'funding'
 
 interface StrategyTypeOption {
   id: StrategyTypeCategory
@@ -22,6 +22,7 @@ const OPTIONS: StrategyTypeOption[] = [
   { id: 'single', icon: CopyIcon, riskKey: 'low' },
   { id: 'combo', icon: AddIcon, riskKey: 'medium' },
   { id: 'hedge', icon: RepeatIcon, riskKey: 'medium' },
+  { id: 'funding', icon: StarIcon, riskKey: 'low' },
 ]
 
 interface StrategyTypeSelectorProps {
@@ -37,7 +38,7 @@ const StrategyTypeSelector: React.FC<StrategyTypeSelectorProps> = ({ value, onCh
   const hoverBorderColor = useColorModeValue('blue.300', 'blue.500')
 
   return (
-    <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+    <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
       {OPTIONS.map((opt) => {
         const isSelected = value === opt.id
         return (

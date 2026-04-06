@@ -73,6 +73,10 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 	if marketType == "" {
 		marketType = "futures"
 	}
+	// 資金費套利 Bot 主連線使用合約適配器
+	if marketType == config.MarketTypeFundingCarry {
+		marketType = "futures"
+	}
 	supportedSpotExchanges := map[string]bool{
 		"binance": true, "bitget": true, "gate": true, "okx": true, "bybit": true,
 		"bitkub": true, "coinsph": true,

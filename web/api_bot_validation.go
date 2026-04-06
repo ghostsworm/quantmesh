@@ -74,9 +74,9 @@ func validateBotConfig(cfg *config.BotConfigFile) ValidationResult {
 	}
 
 	// 验证市场类型
-	if cfg.MarketType != "spot" && cfg.MarketType != "futures" {
+	if !config.ValidMarketType(cfg.MarketType) {
 		result.Valid = false
-		result.Errors = append(result.Errors, "市场类型必须是 spot 或 futures")
+		result.Errors = append(result.Errors, "市场类型必须是 spot、futures 或 funding_carry")
 	}
 
 	// 验证策略配置

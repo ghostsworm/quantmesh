@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
+	"quantmesh/exchange"
+	qmi18n "quantmesh/i18n"
 	"quantmesh/logger"
 )
 
@@ -211,7 +213,7 @@ func postBotCreate(c *gin.Context) {
 	if mt == "" {
 		mt = "futures"
 	}
-	if mt != "spot" && mt != "futures" {
+	if !config.ValidMarketType(mt) {
 		respondError(c, http.StatusBadRequest, "error.invalid_market_type")
 		return
 	}
@@ -220,6 +222,18 @@ func postBotCreate(c *gin.Context) {
 	if err != nil || cfg == nil {
 		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
 		return
+	}
+
+	if mt == config.MarketTypeFundingCarry {
+		if len(req.Strategies) != 1 || req.Strategies[0].Type != "funding_carry" {
+			lang := GetLanguage(c)
+			msg := qmi18n.TWithLang(lang, "error.funding_carry_single_strategy", nil)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":     msg,
+				"error_key": "error.funding_carry_single_strategy",
+			})
+			return
+		}
 	}
 
 	// 1. 檢查對沖組占用：若該交易對已被對沖組占用，拒絕
@@ -243,21 +257,43 @@ func postBotCreate(c *gin.Context) {
 		}
 	}
 
+	// 1b. funding_carry 與同幣種任意其它 Bot 配置互斥（保留同幣種多個 futures/spot UUID 配置的既有語義）
+	for _, b := range cfg.Bots {
+		id := b.ID
+		if id == "" {
+			id = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
+		}
+		if !strings.EqualFold(b.Exchange, req.Exchange) || !strings.EqualFold(b.Symbol, req.Symbol) {
+			continue
+		}
+		oldMT := b.GetMarketType()
+		if oldMT == config.MarketTypeFundingCarry || mt == config.MarketTypeFundingCarry {
+			logger.Warn("⚠️ [Bot創建] 與既有 Bot [%s] 衝突（資金費套利與同幣種其它 Bot 互斥）", id)
+			c.JSON(http.StatusConflict, gin.H{
+				"error":     "symbol_market_conflict",
+				"error_key": "error.bot_symbol_market_conflict",
+				"bot_id":    id,
+			})
+			return
+		}
+	}
+
 	// 2. 檢查運行中衝突：若同一交易對已有 Bot 在運行，拒絕（同一交易對只能有一個運行）
 	if botManagerProvider != nil {
 		for _, resp := range botManagerProvider.ListBots() {
-			if resp.Running &&
-				strings.EqualFold(resp.Exchange, req.Exchange) &&
-				strings.EqualFold(resp.Symbol, req.Symbol) &&
-				strings.EqualFold(resp.MarketType, mt) {
-				logger.Warn("⚠️ [Bot創建] 衝突：%s 已有 Bot [%s] 在運行，請先停止或刪除", symbolKey, resp.BotID)
-				c.JSON(http.StatusConflict, gin.H{
-					"error":     "symbol_running",
-					"error_key": "error.bot_symbol_running",
-					"bot_id":    resp.BotID,
-				})
-				return
+			if !resp.Running {
+				continue
 			}
+			if !config.BotsSameSymbolMarketConflict(resp.Exchange, resp.Symbol, resp.MarketType, req.Exchange, req.Symbol, mt) {
+				continue
+			}
+			logger.Warn("⚠️ [Bot創建] 衝突：%s 已有 Bot [%s] 在運行，請先停止或刪除", symbolKey, resp.BotID)
+			c.JSON(http.StatusConflict, gin.H{
+				"error":     "symbol_running",
+				"error_key": "error.bot_symbol_running",
+				"bot_id":    resp.BotID,
+			})
+			return
 		}
 	}
 
@@ -267,9 +303,12 @@ func postBotCreate(c *gin.Context) {
 	// 構建 BotConfig
 	name := req.Name
 	if name == "" {
-		if mt == "spot" {
+		switch mt {
+		case "spot":
 			name = req.Symbol + " (spot)"
-		} else {
+		case config.MarketTypeFundingCarry:
+			name = req.Symbol + " (funding_carry)"
+		default:
 			name = req.Symbol + " (futures)"
 		}
 	}
@@ -329,9 +368,13 @@ func postBotCreate(c *gin.Context) {
 	if bc.MinOrderValue <= 0 {
 		bc.MinOrderValue = 20
 	}
-	// 若無策略，預設 grid
+	// 若無策略，預設 grid（funding_carry 則預設資金費套利）
 	if len(bc.Strategies) == 0 {
-		bc.Strategies = []config.StrategyInstance{{Type: "grid", Weight: 1.0, Config: map[string]interface{}{}}}
+		if mt == config.MarketTypeFundingCarry {
+			bc.Strategies = []config.StrategyInstance{{Type: "funding_carry", Weight: 1.0, Config: map[string]interface{}{}}}
+		} else {
+			bc.Strategies = []config.StrategyInstance{{Type: "grid", Weight: 1.0, Config: map[string]interface{}{}}}
+		}
 	}
 
 	cfg.Bots = append(cfg.Bots, bc)
@@ -1207,4 +1250,39 @@ func putBotStrategy(c *gin.Context) {
 		"bot_id":  botID,
 		"message": "Strategy updated successfully",
 	})
+}
+
+// PreflightFundingCarryRequest 資金費套利創建前預檢
+type PreflightFundingCarryRequest struct {
+	Exchange string `json:"exchange"`
+	Symbol   string `json:"symbol"`
+}
+
+// postBotPreflightFunding POST /api/bots/preflight-funding
+func postBotPreflightFunding(c *gin.Context) {
+	var req PreflightFundingCarryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
+		return
+	}
+	if req.Exchange == "" || req.Symbol == "" {
+		respondError(c, http.StatusBadRequest, "error.invalid_bot_config")
+		return
+	}
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	res, err := exchange.CheckFundingCarrySetup(ctx, cfg, req.Exchange, req.Symbol)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, res)
 }
