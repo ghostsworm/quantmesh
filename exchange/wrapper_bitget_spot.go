@@ -264,6 +264,10 @@ func (w *bitgetSpotWrapper) GetFundingRate(ctx context.Context, symbol string) (
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
+func (w *bitgetSpotWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	return nil, ErrNotImplemented
+}
+
 func (w *bitgetSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return nil, nil
 }

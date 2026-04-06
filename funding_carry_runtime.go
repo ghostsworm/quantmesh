@@ -63,6 +63,18 @@ func startFundingCarrySymbolRuntime(
 		return nil, fmt.Errorf("創建現貨連線失敗: %w", err)
 	}
 
+	// 嘗試建立保證金帳戶連線（反向套利用，失敗不阻塞啟動）
+	var marginEx exchange.ISpotMarginExchange
+	marginRaw, marginErr := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "spot_margin")
+	if marginErr == nil {
+		if me, ok := marginRaw.(exchange.ISpotMarginExchange); ok {
+			marginEx = me
+			logger.Info("✅ [%s] 保證金帳戶已連線（支援反向套利）", symCfg.Symbol)
+		}
+	} else {
+		logger.Info("ℹ️ [%s] 保證金帳戶不可用（%v），反向套利已禁用", symCfg.Symbol, marginErr)
+	}
+
 	priceMonitor := monitor.NewPriceMonitor(
 		futEx,
 		symCfg.Symbol,
@@ -101,7 +113,7 @@ func startFundingCarrySymbolRuntime(
 			break
 		}
 	}
-	fc := strategy.NewFundingCarryStrategy("funding_carry", &localCfg, symCfg, futEx, spotEx, fcCfg)
+	fc := strategy.NewFundingCarryStrategy("funding_carry", &localCfg, symCfg, futEx, spotEx, marginEx, fcCfg)
 	strategyManager.RegisterStrategy("funding_carry", fc, 1.0, 0)
 	if err := strategyManager.StartAll(); err != nil {
 		return nil, err
@@ -116,14 +128,20 @@ func startFundingCarrySymbolRuntime(
 		}
 	}
 
+	// 每個 funding_carry bot 獨立同步資金費收入
+	if storageService != nil {
+		go startFundingIncomeSync(ctx, storageService.GetStorage(), futEx,
+			symCfg.Exchange, symCfg.Symbol, accountID)
+	}
+
 	rt := &SymbolRuntime{
-		Config:           symCfg,
-		Exchange:         futEx,
-		PriceMonitor:     priceMonitor,
-		StrategyManager:  strategyManager,
-		EventBus:         eventBus,
-		StorageService:   storageService,
-		AccountID:        accountID,
+		Config:               symCfg,
+		Exchange:             futEx,
+		PriceMonitor:         priceMonitor,
+		StrategyManager:      strategyManager,
+		EventBus:             eventBus,
+		StorageService:       storageService,
+		AccountID:            accountID,
 		SuperPositionManager: nil,
 		ExchangeExecutor:     nil,
 		ExecutorAdapter:      nil,

@@ -2,6 +2,22 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.80.0] - 2026-04-07
+
+### Added（Funding Carry Pro 五大增強特性）
+- **結算時間感知**：`IExchange` 接口新增 `GetFundingInfo` 方法，策略自動追蹤 `nextSettlement` 時間，結算臨近時暫停開倉（可配 `settlement_buffer_min`），結算後自動觸發利潤歸集。
+- **資金自動劃轉**：開倉前 `ensureFuturesMargin` 自動從現貨劃轉 USDT 到合約帳戶；結算後 `harvestProfit` 自動歸集合約盈餘到現貨帳戶。可配 `auto_transfer_enabled`、`transfer_reserve_spot`、`profit_harvest_enabled`、`profit_harvest_min`。
+- **負費率反向套利**：當費率持續為負時自動借幣賣出現貨 + 合約做多，收取負費率。需 `ISpotMarginExchange`（目前僅 Binance）。可配 `reverse_enabled`、`reverse_min_funding_rate`、`reverse_exit_funding_rate`、`margin_interest_max`。
+- **多幣種並行**：每個 `funding_carry` Bot 獨立同步資金費收入（不再依賴全局 `firstRuntime`）；新增 `POST /api/funding-carry/batch-create` 批量創建 API，支援多幣種均分資金。
+- **歷史收益面板**：新增 `GET /api/funding-carry/dashboard` 和 `GET /api/funding-carry/income-history` API；前端 `FundingCarryDashboard.tsx` 組件含總收益卡片、每日收益圖表（柱狀 + 累計折線）、各幣種狀態表格；側邊欄新增入口。
+
+### Changed
+- `FundingCarryStrategy` 構造函數新增 `marginEx exchange.ISpotMarginExchange` 參數（可 nil）。
+- 策略持倉狀態從單一 `spotQty/futQty` 擴展為含 `direction`（Forward/Reverse/None）、`marginDebt` 的完整狀態機。
+- `funding_carry_runtime.go` 啟動時嘗試建立 `spot_margin` 連線，失敗不阻塞但禁用反向。
+
+---
+
 ## [3.79.14-rc2] - 2026-04-07
 
 ### Fixed（資金費套利策略生產級加固）

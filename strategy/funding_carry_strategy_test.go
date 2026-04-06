@@ -18,8 +18,13 @@ func TestNewFundingCarryStrategy_ConfigParams(t *testing.T) {
 		"exit_funding_rate":      0.0005,
 		"max_basis_pct":          0.3,
 		"rebalance_interval_sec": 120.0,
+		"settlement_buffer_min":  10.0,
+		"reverse_enabled":        true,
+		"auto_transfer_enabled":  true,
+		"profit_harvest_enabled": true,
+		"profit_harvest_min":     10.0,
 	}
-	s := NewFundingCarryStrategy("fc-test", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, nil, nil, stratCfg)
+	s := NewFundingCarryStrategy("fc-test", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, nil, nil, nil, stratCfg)
 	if s.minFundingRate != 0.001 {
 		t.Errorf("minFundingRate = %v, want 0.001", s.minFundingRate)
 	}
@@ -32,10 +37,26 @@ func TestNewFundingCarryStrategy_ConfigParams(t *testing.T) {
 	if s.tickInterval.Seconds() != 120 {
 		t.Errorf("tickInterval = %v, want 120s", s.tickInterval)
 	}
+	if s.settlementBuffer != 10*time.Minute {
+		t.Errorf("settlementBuffer = %v, want 10m", s.settlementBuffer)
+	}
+	// reverse_enabled 為 true 但 marginEx 為 nil，應被強制禁用
+	if s.reverseEnabled {
+		t.Error("reverseEnabled should be false when marginEx is nil")
+	}
+	if !s.autoTransferEnabled {
+		t.Error("autoTransferEnabled should be true")
+	}
+	if !s.profitHarvestEnabled {
+		t.Error("profitHarvestEnabled should be true")
+	}
+	if s.profitHarvestMin != 10.0 {
+		t.Errorf("profitHarvestMin = %v, want 10.0", s.profitHarvestMin)
+	}
 }
 
 func TestNewFundingCarryStrategy_Defaults(t *testing.T) {
-	s := NewFundingCarryStrategy("fc-def", nil, config.SymbolConfig{Symbol: "ETHUSDT"}, nil, nil, nil)
+	s := NewFundingCarryStrategy("fc-def", nil, config.SymbolConfig{Symbol: "ETHUSDT"}, nil, nil, nil, nil)
 	if s.minFundingRate != 0.0004 {
 		t.Errorf("default minFundingRate = %v, want 0.0004", s.minFundingRate)
 	}
@@ -47,6 +68,12 @@ func TestNewFundingCarryStrategy_Defaults(t *testing.T) {
 	}
 	if s.tickInterval != 45*time.Second {
 		t.Errorf("default tickInterval = %v, want 45s", s.tickInterval)
+	}
+	if s.settlementBuffer != 5*time.Minute {
+		t.Errorf("default settlementBuffer = %v, want 5m", s.settlementBuffer)
+	}
+	if s.reverseEnabled {
+		t.Error("default reverseEnabled should be false")
 	}
 }
 
@@ -71,12 +98,10 @@ func TestRoundQty(t *testing.T) {
 }
 
 func TestPublishEvent_NilBus(t *testing.T) {
-	s := NewFundingCarryStrategy("fc-nil-bus", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, nil, nil, nil)
-	// 不 panic 即可
+	s := NewFundingCarryStrategy("fc-nil-bus", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, nil, nil, nil, nil)
 	s.publishEvent(event.EventTypePositionOpened, map[string]interface{}{"test": true})
 }
 
-// mockEventBus 用於驗證事件發布
 type mockEventBus struct {
 	mu     sync.Mutex
 	events []*event.Event
@@ -96,7 +121,6 @@ func (m *mockEventBus) getEvents() []*event.Event {
 	return cp
 }
 
-// mockFCExchange 简化的 mock 交易所
 type mockFCExchange struct {
 	name             string
 	marketType       string
@@ -114,14 +138,16 @@ type mockFCExchange struct {
 	mu               sync.Mutex
 }
 
-func (m *mockFCExchange) GetName() string                { return m.name }
-func (m *mockFCExchange) GetMarketType() string          { return m.marketType }
-func (m *mockFCExchange) GetBaseAsset() string            { return m.baseAsset }
-func (m *mockFCExchange) GetQuoteAsset() string           { return "USDT" }
-func (m *mockFCExchange) GetPriceDecimals() int           { return m.priceDecimals }
-func (m *mockFCExchange) GetQuantityDecimals() int        { return m.quantityDecimals }
-func (m *mockFCExchange) StartOrderStream(ctx context.Context, cb func(interface{})) error { return nil }
-func (m *mockFCExchange) StopOrderStream() error          { return nil }
+func (m *mockFCExchange) GetName() string       { return m.name }
+func (m *mockFCExchange) GetMarketType() string  { return m.marketType }
+func (m *mockFCExchange) GetBaseAsset() string   { return m.baseAsset }
+func (m *mockFCExchange) GetQuoteAsset() string  { return "USDT" }
+func (m *mockFCExchange) GetPriceDecimals() int  { return m.priceDecimals }
+func (m *mockFCExchange) GetQuantityDecimals() int { return m.quantityDecimals }
+func (m *mockFCExchange) StartOrderStream(ctx context.Context, cb func(interface{})) error {
+	return nil
+}
+func (m *mockFCExchange) StopOrderStream() error { return nil }
 func (m *mockFCExchange) StartPriceStream(ctx context.Context, symbol string, cb func(float64)) error {
 	return nil
 }
@@ -161,10 +187,17 @@ func (m *mockFCExchange) GetOrderBook(ctx context.Context, symbol string, limit 
 	return nil, nil
 }
 func (m *mockFCExchange) InternalTransfer(ctx context.Context, from, to, asset string, amount float64) (string, error) {
-	return "", nil
+	return "tx-mock", nil
 }
 func (m *mockFCExchange) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return nil, nil
+}
+func (m *mockFCExchange) GetFundingInfo(ctx context.Context, symbol string) (*exchange.FundingInfo, error) {
+	return &exchange.FundingInfo{
+		Symbol:          symbol,
+		Rate:            m.fundingRate,
+		NextFundingTime: time.Now().Add(4 * time.Hour),
+	}, nil
 }
 func (m *mockFCExchange) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
 	return m.latestPrice, nil
@@ -216,7 +249,7 @@ func TestOpenHedge_AtomicSuccess(t *testing.T) {
 
 	s := NewFundingCarryStrategy("fc", nil,
 		config.SymbolConfig{Symbol: "BTCUSDT", TotalAllocatedCapital: 500},
-		futEx, spotEx, nil)
+		futEx, spotEx, nil, nil)
 	s.SetEventBus(bus)
 
 	err := s.openHedge(context.Background(), 50050, 50000, 0.001)
@@ -250,18 +283,14 @@ func TestOpenHedge_AtomicSuccess(t *testing.T) {
 	}
 }
 
-func TestSyncPositions(t *testing.T) {
-	spotEx := &mockFCExchange{
-		baseAsset: "ETH", balance: 1.5,
-	}
+func TestSyncPositions_Forward(t *testing.T) {
+	spotEx := &mockFCExchange{baseAsset: "ETH", balance: 1.5}
 	futEx := &mockFCExchange{
-		positions: []*exchange.Position{
-			{Symbol: "ETHUSDT", Size: -1.2},
-		},
+		positions: []*exchange.Position{{Symbol: "ETHUSDT", Size: -1.2}},
 	}
 	s := NewFundingCarryStrategy("fc", nil,
 		config.SymbolConfig{Symbol: "ETHUSDT"},
-		futEx, spotEx, nil)
+		futEx, spotEx, nil, nil)
 
 	if err := s.syncPositions(context.Background()); err != nil {
 		t.Fatalf("syncPositions: %v", err)
@@ -271,6 +300,24 @@ func TestSyncPositions(t *testing.T) {
 	}
 	if s.futQty != 1.2 {
 		t.Errorf("futQty = %v, want 1.2", s.futQty)
+	}
+	if s.direction != DirectionForward {
+		t.Errorf("direction = %v, want Forward", s.direction)
+	}
+}
+
+func TestSyncPositions_None(t *testing.T) {
+	spotEx := &mockFCExchange{baseAsset: "ETH", balance: 0}
+	futEx := &mockFCExchange{positions: []*exchange.Position{}}
+	s := NewFundingCarryStrategy("fc", nil,
+		config.SymbolConfig{Symbol: "ETHUSDT"},
+		futEx, spotEx, nil, nil)
+
+	if err := s.syncPositions(context.Background()); err != nil {
+		t.Fatalf("syncPositions: %v", err)
+	}
+	if s.direction != DirectionNone {
+		t.Errorf("direction = %v, want None", s.direction)
 	}
 }
 
@@ -289,7 +336,7 @@ func TestCloseAll_PublishesEvent(t *testing.T) {
 
 	s := NewFundingCarryStrategy("fc", nil,
 		config.SymbolConfig{Symbol: "BTCUSDT"},
-		futEx, spotEx, nil)
+		futEx, spotEx, nil, nil)
 	s.SetEventBus(bus)
 
 	err := s.closeAll(context.Background(), "test_exit")
@@ -312,14 +359,85 @@ func TestCloseAll_PublishesEvent(t *testing.T) {
 	}
 }
 
+func TestEstimateNextSettlement(t *testing.T) {
+	tests := []struct {
+		hour int
+		want int
+	}{
+		{3, 8},
+		{10, 16},
+		{20, 0}, // next day
+	}
+	for _, tt := range tests {
+		now := time.Date(2026, 4, 7, tt.hour, 30, 0, 0, time.UTC)
+		next := estimateNextSettlement(now)
+		if next.Hour() != tt.want {
+			t.Errorf("hour=%d: nextSettlement hour=%d, want %d", tt.hour, next.Hour(), tt.want)
+		}
+		if !next.After(now) {
+			t.Errorf("hour=%d: nextSettlement should be after now", tt.hour)
+		}
+	}
+}
+
+func TestCarryDirection_String(t *testing.T) {
+	if DirectionNone.String() != "none" {
+		t.Errorf("None = %v", DirectionNone.String())
+	}
+	if DirectionForward.String() != "forward" {
+		t.Errorf("Forward = %v", DirectionForward.String())
+	}
+	if DirectionReverse.String() != "reverse" {
+		t.Errorf("Reverse = %v", DirectionReverse.String())
+	}
+}
+
+func TestGetFundingStatus(t *testing.T) {
+	s := NewFundingCarryStrategy("fc", nil,
+		config.SymbolConfig{Symbol: "BTCUSDT"},
+		nil, nil, nil, nil)
+	s.nextSettlement = time.Now().Add(2 * time.Hour)
+	s.spotQty = 0.5
+	s.futQty = 0.5
+	s.direction = DirectionForward
+
+	status := s.GetFundingStatus()
+	if status["symbol"] != "BTCUSDT" {
+		t.Errorf("symbol = %v", status["symbol"])
+	}
+	if status["direction"] != "forward" {
+		t.Errorf("direction = %v", status["direction"])
+	}
+	secUntil, ok := status["seconds_until_settlement"].(int)
+	if !ok || secUntil <= 0 {
+		t.Errorf("seconds_until_settlement = %v", status["seconds_until_settlement"])
+	}
+}
+
+func TestGetVisualizationData(t *testing.T) {
+	s := NewFundingCarryStrategy("fc", nil,
+		config.SymbolConfig{Symbol: "ETHUSDT"},
+		nil, nil, nil, map[string]interface{}{"reverse_enabled": false})
+	s.direction = DirectionForward
+	s.spotQty = 1.0
+	s.futQty = 1.0
+
+	data := s.GetVisualizationData()
+	if data["direction"] != "forward" {
+		t.Errorf("direction = %v", data["direction"])
+	}
+	if data["position_open"] != true {
+		t.Error("expected position_open = true")
+	}
+}
+
 func TestConsecutiveErrorsTriggersNotification(t *testing.T) {
 	bus := &mockEventBus{}
 	s := NewFundingCarryStrategy("fc", nil,
 		config.SymbolConfig{Symbol: "BTCUSDT"},
-		nil, nil, nil)
+		nil, nil, nil, nil)
 	s.SetEventBus(bus)
 
-	// 模擬連續錯誤
 	for i := 0; i < maxConsecutiveErrors; i++ {
 		s.mu.Lock()
 		s.consecutiveErrors++

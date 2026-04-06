@@ -290,6 +290,10 @@ func (w *xtcomWrapper) GetFundingRate(ctx context.Context, symbol string) (float
 	return w.adapter.GetFundingRate(ctx)
 }
 
+func (w *xtcomWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	return nil, ErrNotImplemented
+}
+
 func (w *xtcomWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return nil, nil
 }

@@ -75,6 +75,7 @@ const EventCenter = lazy(() => import('./components/EventCenter'))
 const AITaskManager = lazy(() => import('./components/AITaskManager'))
 const CapitalManagement = lazy(() => import('./components/CapitalManagement'))
 const ProfitManagement = lazy(() => import('./components/ProfitManagement'))
+const FundingCarryDashboard = lazy(() => import('./components/FundingCarryDashboard'))
 const PositionPlan = lazy(() => import('./components/PositionPlan'))
 const NewbieRiskCheck = lazy(() => import('./components/NewbieRiskCheck'))
 const BacktestMenu = lazy(() => import('./components/BacktestMenu'))
@@ -503,6 +504,7 @@ const AppContent: React.FC = () => {
                 <Route path="/opening-control" element={<Navigate to="/bots" replace />} />
                 <Route path="/news-analysis" element={<ProtectedRoute><NewsAnalysis /></ProtectedRoute>} />
                 <Route path="/profit-management" element={<ProtectedRoute><ProfitManagement /></ProtectedRoute>} />
+                <Route path="/funding-carry" element={<ProtectedRoute><FundingCarryDashboard /></ProtectedRoute>} />
                 <Route path="/position-plan" element={<Navigate to="/bots" replace />} />
                 <Route path="/kline" element={<ProtectedRoute><GlobalKlinePage /></ProtectedRoute>} />
                 <Route path="/funding-rate" element={<ProtectedRoute><FundingRate /></ProtectedRoute>} />

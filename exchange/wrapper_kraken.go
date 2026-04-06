@@ -261,6 +261,10 @@ func (w *krakenWrapper) GetFundingRate(ctx context.Context, symbol string) (floa
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
+func (w *krakenWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	return nil, ErrNotImplemented
+}
+
 func (w *krakenWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return nil, nil
 }

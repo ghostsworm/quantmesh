@@ -290,6 +290,10 @@ func (w *deribitWrapper) GetFundingRate(ctx context.Context, symbol string) (flo
 	return w.adapter.GetFundingRate(ctx)
 }
 
+func (w *deribitWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	return nil, ErrNotImplemented
+}
+
 func (w *deribitWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return nil, nil
 }

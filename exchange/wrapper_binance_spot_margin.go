@@ -277,6 +277,10 @@ func (w *binanceSpotMarginWrapper) GetFundingRate(ctx context.Context, symbol st
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
+func (w *binanceSpotMarginWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	return nil, ErrNotImplemented
+}
+
 func (w *binanceSpotMarginWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return nil, nil
 }

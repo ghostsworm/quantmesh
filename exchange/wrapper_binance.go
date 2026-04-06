@@ -310,6 +310,20 @@ func (w *binanceWrapper) GetFundingRate(ctx context.Context, symbol string) (flo
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
+func (w *binanceWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	info, err := w.adapter.GetFundingInfo(ctx, symbol)
+	if err != nil {
+		return nil, err
+	}
+	return &FundingInfo{
+		Symbol:          info.Symbol,
+		Rate:            info.Rate,
+		NextFundingTime: info.NextFundingTime,
+		MarkPrice:       info.MarkPrice,
+		IndexPrice:      info.IndexPrice,
+	}, nil
+}
+
 func (w *binanceWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return w.adapter.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)
 }

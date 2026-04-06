@@ -288,6 +288,10 @@ func (w *poloniexWrapper) GetFundingRate(ctx context.Context, symbol string) (fl
 	return w.adapter.GetFundingRate(ctx)
 }
 
+func (w *poloniexWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	return nil, ErrNotImplemented
+}
+
 func (w *poloniexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return nil, nil
 }

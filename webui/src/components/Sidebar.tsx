@@ -543,6 +543,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
             </NavItem>
             <NavItem
               icon={AtSignIcon}
+              to="/funding-carry"
+              isActive={isRouteActive('/funding-carry')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('profitManagement.fundingCarryDashboard', 'Funding Carry')}
+            </NavItem>
+            <NavItem
+              icon={AtSignIcon}
               to="/basis-monitor"
               isActive={isRouteActive('/basis-monitor')}
               onClick={onNavItemClick}
