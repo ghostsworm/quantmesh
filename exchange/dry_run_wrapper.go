@@ -257,6 +257,10 @@ func (d *DryRunWrapper) GetFundingRate(ctx context.Context, symbol string) (floa
 	return d.wrapped.GetFundingRate(ctx, symbol)
 }
 
+func (d *DryRunWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	return d.wrapped.GetFundingInfo(ctx, symbol)
+}
+
 // GetIncomeHistory 獲取收入歷史（透傳）
 func (d *DryRunWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return d.wrapped.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)

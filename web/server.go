@@ -174,6 +174,13 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/bots", getBots)
 			protected.POST("/bots/create", postBotCreate)
 			protected.POST("/bots/preflight-funding", postBotPreflightFunding)
+
+			// 資金費套利管理
+			protected.POST("/funding-carry/batch-create", postBatchCreateFunding)
+			protected.GET("/funding-carry/dashboard", getFundingCarryDashboard)
+			protected.GET("/funding-carry/status/:botId", getFundingCarryStatus)
+			protected.GET("/funding-carry/income-history", getFundingIncomeHistory)
+
 			protected.GET("/bots/:id", getBotByID)
 			protected.DELETE("/bots/:id", deleteBot)
 			protected.POST("/bots/:id/start", postBotStart)

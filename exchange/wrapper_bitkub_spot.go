@@ -315,6 +315,10 @@ func (w *bitkubSpotWrapper) GetFundingRate(ctx context.Context, symbol string) (
 	return w.adapter.GetFundingRate(ctx, symbol)
 }
 
+func (w *bitkubSpotWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	return nil, ErrNotImplemented
+}
+
 // GetIncomeHistory 獲取收入歷史
 func (w *bitkubSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
 	return nil, nil

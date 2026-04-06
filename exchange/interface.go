@@ -146,6 +146,12 @@ type IExchange interface {
 	// 返回: 订單簿數據，包含買賣盘深度
 	GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error)
 
+	// === 資金費率詳情 ===
+
+	// GetFundingInfo 獲取資金費率詳細信息（含下次結算時間）
+	// 不支援的交易所可返回 nil, ErrNotImplemented
+	GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error)
+
 	// === 內部轉帳（盈利提取） ===
 
 	// InternalTransfer 交易所內部轉帳
