@@ -46,6 +46,7 @@
     "positionPlan": "Piano di posizione",
     "backtest": "Backtest",
     "tradingPanel": "Pannello di trading",
+    "botDetail": "Dettagli bot",
     "currentPositions": "Posizioni correnti",
     "orderManagement": "Gestione degli ordini",
     "strategySlots": "Slot di strategia",

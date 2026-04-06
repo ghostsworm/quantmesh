@@ -46,6 +46,7 @@
     "positionPlan": "Position Plan",
     "backtest": "Backtest",
     "tradingPanel": "Trading Panel",
+    "botDetail": "Bot Details",
     "currentPositions": "Kasalukuyang Posisyon",
     "orderManagement": "Order Management",
     "strategySlots": "Strategy Slots",

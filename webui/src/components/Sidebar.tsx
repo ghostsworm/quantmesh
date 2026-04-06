@@ -41,6 +41,7 @@ import {
 import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
 import { useTranslation } from 'react-i18next'
+import { isBotWorkspaceRoot } from '../utils/botRouteActive'
 
 const MotionBox = motion(Box)
 const MotionFlex = motion(Flex)
@@ -256,6 +257,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
                 </Heading>
               </Box>
             )}
+            <NavItem
+              icon={InfoIcon}
+              to={botPrefix}
+              isActive={isBotWorkspaceRoot(location.pathname, botPrefix)}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.botDetail')}
+            </NavItem>
             <NavItem
               icon={ViewIcon}
               to={`${botPrefix}/dashboard`}

@@ -46,6 +46,7 @@
     "positionPlan": "Rencana Posisi",
     "backtest": "Uji Balik",
     "tradingPanel": "Panel Perdagangan",
+    "botDetail": "Detail Bot",
     "currentPositions": "Posisi Saat Ini",
     "orderManagement": "Manajemen Pesanan",
     "strategySlots": "Slot Strategi",

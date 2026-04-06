@@ -322,6 +322,7 @@
     "positionPlan": "仓位计划",
     "backtest": "回测",
     "tradingPanel": "交易面板",
+    "botDetail": "机器人详情",
     "currentPositions": "当前持仓",
     "orderManagement": "订单管理",
     "strategySlots": "策略槽位",

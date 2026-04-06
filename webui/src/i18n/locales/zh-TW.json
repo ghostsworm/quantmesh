@@ -49,6 +49,7 @@
     "positionPlan": "倉位計劃",
     "backtest": "回測",
     "tradingPanel": "交易面板",
+    "botDetail": "機器人詳情",
     "currentPositions": "當前持倉",
     "orderManagement": "訂單管理",
     "strategySlots": "策略槽位",

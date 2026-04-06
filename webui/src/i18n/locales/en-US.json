@@ -322,6 +322,7 @@
     "positionPlan": "Position Plan",
     "backtest": "Backtest",
     "tradingPanel": "Trading Panel",
+    "botDetail": "Bot Details",
     "currentPositions": "Current Positions",
     "orderManagement": "Order Management",
     "strategySlots": "Strategy Slots",

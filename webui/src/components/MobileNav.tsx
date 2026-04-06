@@ -17,6 +17,7 @@ import {
   ChevronLeftIcon,
 } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
+import { isBotWorkspaceRoot } from '../utils/botRouteActive'
 
 interface MobileNavProps {
   onMenuOpen?: () => void
@@ -39,6 +40,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ onMenuOpen }) => {
   const navItems = botId
     ? [
         { path: '/bots', icon: ChevronLeftIcon, label: t('sidebar.backToBotList', 'Back') },
+        { path: botPrefix, icon: InfoIcon, label: t('sidebar.botDetail', 'Bot Details') },
         { path: `${botPrefix}/dashboard`, icon: ViewIcon, label: t('nav.dashboard', 'Dashboard') },
         { path: `${botPrefix}/positions`, icon: TriangleUpIcon, label: t('nav.positions', 'Positions') },
         { path: `${botPrefix}/config`, icon: SettingsIcon, label: t('nav.settings', 'Settings') },
@@ -52,6 +54,9 @@ export const MobileNav: React.FC<MobileNavProps> = ({ onMenuOpen }) => {
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'
+    if (botId && path === botPrefix) {
+      return isBotWorkspaceRoot(location.pathname, botPrefix)
+    }
     return location.pathname === path || location.pathname.startsWith(path + '/')
   }
 
