@@ -1,6 +1,13 @@
 // 策略類型定义
 
-export type StrategyType = 'grid' | 'dca' | 'martingale' | 'trend' | 'mean_reversion' | 'combo'
+export type StrategyType =
+  | 'grid'
+  | 'dca'
+  | 'martingale'
+  | 'trend'
+  | 'mean_reversion'
+  | 'combo'
+  | 'funding_carry'
 
 export type RiskLevel = 'low' | 'medium' | 'high'
 

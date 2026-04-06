@@ -173,6 +173,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/symbols", getSymbols)
 			protected.GET("/bots", getBots)
 			protected.POST("/bots/create", postBotCreate)
+			protected.POST("/bots/preflight-funding", postBotPreflightFunding)
 			protected.GET("/bots/:id", getBotByID)
 			protected.DELETE("/bots/:id", deleteBot)
 			protected.POST("/bots/:id/start", postBotStart)

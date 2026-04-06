@@ -35,7 +35,9 @@
     "bot_symbol_running": "A bot ({{botId}}) for this symbol is already running. Stop or delete it first. Only one bot per symbol can run at a time.",
     "bot_in_hedge_group_cannot_delete": "This bot belongs to hedge group {{groupName}}. Delete the hedge group first.",
     "bot_running_cannot_modify": "Cannot modify strategy while bot is running. Please stop the bot first.",
-    "invalid_strategy_change": "Invalid strategy type change. Grid strategies can only switch to grid-related types, DCA strategies can only switch to DCA-related types."
+    "invalid_strategy_change": "Invalid strategy type change. Grid strategies can only switch to grid-related types, DCA strategies can only switch to DCA-related types.",
+    "funding_carry_single_strategy": "Funding carry bots must use a single strategy: funding_carry.",
+    "bot_symbol_market_conflict": "Conflicts with existing bot {{botId}}: funding carry is mutually exclusive with other bot types on the same symbol."
   },
   "botList": {
     "title": "Bot List",
@@ -148,8 +150,21 @@
         "title": "Hedge Group",
         "desc": "Futures + spot cross-market hedge, reduces directional risk.",
         "scene": "Suitable for capital preservation."
+      },
+      "funding": {
+        "title": "Funding Rate Carry",
+        "desc": "Spot long + perpetual short to collect positive funding when rate is high. Not risk-free; basis and fees apply.",
+        "scene": "Binance only in this version; requires spot + futures API access."
       }
     },
+    "marketTypeFundingCarry": "Funding carry (spot + perp)",
+    "fundingMarketLockedHint": "Funding carry uses both spot and futures; market type is fixed.",
+    "fundingRiskHint": "This mode is not risk-free. Check funding rate, basis, fees, and minimum notional (~100 USDT per leg on Binance).",
+    "fundingAllocatedCapital": "Allocated capital (USDT)",
+    "fundingAllocatedCapitalHint": "Recommended ≥ 200 USDT so each leg can meet contract minimums.",
+    "fundingMinRate": "Min funding rate (enter)",
+    "fundingExitRate": "Exit funding rate (close)",
+    "fundingMaxBasis": "Max basis % (spot vs perp)",
     "riskLevel": {
       "low": "Low risk",
       "medium": "Medium risk",
@@ -2893,7 +2908,8 @@
     "spot_short": "Spot Short (Borrow & Sell)",
     "spot_long": "Spot Long (Buy & Hold)",
     "futures_short": "Futures Short Hedge",
-    "futures_long": "Futures Long Hedge"
+    "futures_long": "Futures Long Hedge",
+    "funding_carry": "Funding Rate Carry"
   },
   "strategyDescriptions": {
     "grid": "Classic grid trading strategy that automatically places orders within a price range to capture volatility spreads",

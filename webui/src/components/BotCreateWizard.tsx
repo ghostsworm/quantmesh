@@ -86,7 +86,7 @@ const BotCreateWizard: React.FC = () => {
   const [form, setForm] = useState<{
     exchange: string
     symbol: string
-    market_type: 'spot' | 'futures'
+    market_type: 'spot' | 'futures' | 'funding_carry'
     name: string
     price_interval: number | string
     profit_spread: number | string
@@ -214,6 +214,21 @@ const BotCreateWizard: React.FC = () => {
   }, [])
 
   useEffect(() => {
+    if (strategyType === 'funding') {
+      setForm((f) => ({ ...f, market_type: 'funding_carry' }))
+      setSelectedSingle('funding_carry')
+      setStrategyParams((p) => ({
+        ...p,
+        funding_carry: p.funding_carry ?? {
+          min_funding_rate: 0.0004,
+          exit_funding_rate: 0.0002,
+          max_basis_pct: 0.5,
+        },
+      }))
+    }
+  }, [strategyType])
+
+  useEffect(() => {
     if (!form.exchange || !config?.exchanges) return
     const exCfg = getExchangeConfigRow(config, form.exchange)
     if (!exCfg?.api_key || !exCfg?.secret_key) {
@@ -224,12 +239,13 @@ const BotCreateWizard: React.FC = () => {
     setSymbolsError(null)
     const load = async () => {
       try {
+        const symMt = form.market_type === 'spot' ? 'spot' : 'futures'
         const res = await getExchangeSymbols({
           exchange: form.exchange,
           api_key: String(exCfg.api_key),
           secret_key: String(exCfg.secret_key),
           passphrase: String(exCfg.passphrase || ''),
-          market_type: form.market_type === 'spot' ? 'spot' : 'futures',
+          market_type: symMt,
         })
         setSymbols(res.symbols || [])
         setSymbolsError(null)
@@ -250,7 +266,8 @@ const BotCreateWizard: React.FC = () => {
     }
     const load = async () => {
       try {
-        const res = await getMarketTicker(form.exchange, form.symbol, form.market_type)
+        const tickerMt = form.market_type === 'spot' ? 'spot' : 'futures'
+        const res = await getMarketTicker(form.exchange, form.symbol, tickerMt)
         setMarketTicker({
           mark_price: res.mark_price,
           last_price: res.last_price,
@@ -265,6 +282,7 @@ const BotCreateWizard: React.FC = () => {
   }, [form.exchange, form.symbol, form.market_type])
 
   const getStrategyIds = (): string[] => {
+    if (strategyType === 'funding') return ['funding_carry']
     if (strategyType === 'single' && selectedSingle) return [selectedSingle]
     if (strategyType === 'combo' && selectedCombo.length > 0) return selectedCombo
     if (strategyType === 'hedge') {
@@ -326,6 +344,8 @@ const BotCreateWizard: React.FC = () => {
         symbol: form.symbol,
         market_type: form.market_type,
         name: form.name?.trim() || undefined,
+        total_allocated_capital:
+          strategyType === 'funding' ? toNum(form.order_quantity, 300) : undefined,
         price_interval: toNum(form.price_interval, 2),
         profit_spread: toNum(form.profit_spread, 0),
         order_quantity: toNum(form.order_quantity, 30),
@@ -407,6 +427,7 @@ const BotCreateWizard: React.FC = () => {
 
   const canProceedStep0 = strategyType !== null
   const canProceedStep1 =
+    strategyType === 'funding' ||
     (strategyType === 'single' && selectedSingle) ||
     (strategyType === 'combo' && selectedCombo.length > 0) ||
     (strategyType === 'hedge' && hedgePrimary && hedgeSecondary)
@@ -475,7 +496,14 @@ const BotCreateWizard: React.FC = () => {
             <StrategyTypeSelector value={strategyType} onChange={setStrategyType} />
           )}
 
-          {step === 1 && (
+          {step === 1 && strategyType === 'funding' && (
+            <Box p={4} borderRadius="md" bg="blue.50" borderWidth={1} borderColor="blue.100">
+              <Text fontWeight="medium" mb={2}>{t('botCreate.strategyType.funding.title')}</Text>
+              <Text fontSize="sm" color="gray.700">{t('botCreate.strategyType.funding.desc')}</Text>
+            </Box>
+          )}
+
+          {step === 1 && strategyType !== 'funding' && (
             <StrategyPicker
               strategyType={strategyType!}
               selectedSingle={selectedSingle}
@@ -515,11 +543,23 @@ const BotCreateWizard: React.FC = () => {
                   <FormLabel>{t('botCreate.marketType')}</FormLabel>
                   <Select
                     value={form.market_type || 'futures'}
-                    onChange={(e) => setForm((f) => ({ ...f, market_type: e.target.value as 'spot' | 'futures' }))}
+                    isDisabled={strategyType === 'funding'}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        market_type: e.target.value as 'spot' | 'futures' | 'funding_carry',
+                      }))
+                    }
                   >
                     <option value="futures">{t('symbolManager.futures')}</option>
                     <option value="spot">{t('symbolManager.spot')}</option>
+                    <option value="funding_carry">{t('botCreate.marketTypeFundingCarry')}</option>
                   </Select>
+                  {strategyType === 'funding' && (
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {t('botCreate.fundingMarketLockedHint')}
+                    </Text>
+                  )}
                 </FormControl>
               )}
               {strategyType === 'hedge' && (
@@ -573,7 +613,87 @@ const BotCreateWizard: React.FC = () => {
             </VStack>
           )}
 
-          {step === 3 && (
+          {step === 3 && strategyType === 'funding' && (
+            <VStack spacing={4} align="stretch">
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <AlertDescription>{t('botCreate.fundingRiskHint')}</AlertDescription>
+              </Alert>
+              {marketTicker && (
+                <Box p={3} bg="blue.50" borderRadius="md" fontSize="sm">
+                  <Text fontWeight="medium" mb={2}>{t('botCreate.marketData')}</Text>
+                  <HStack spacing={4} flexWrap="wrap">
+                    <Text><strong>{t('botCreate.markPrice')}:</strong> {marketTicker.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hHigh')}:</strong> {marketTicker.high_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hLow')}:</strong> {marketTicker.low_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                  </HStack>
+                </Box>
+              )}
+              <FormControl isRequired>
+                <FormLabel>{t('botCreate.fundingAllocatedCapital')}</FormLabel>
+                <DecimalNumberInput
+                  value={form.order_quantity ?? 300}
+                  min={200}
+                  step={10}
+                  precision={2}
+                  onChange={(v) => setForm((f) => ({ ...f, order_quantity: v ?? 300 }))}
+                />
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.fundingAllocatedCapitalHint')}
+                </Text>
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('botCreate.fundingMinRate')}</FormLabel>
+                <DecimalNumberInput
+                  value={(strategyParams.funding_carry?.min_funding_rate as number) ?? 0.0004}
+                  min={0.00001}
+                  max={0.01}
+                  step={0.0001}
+                  precision={6}
+                  onChange={(v) =>
+                    setStrategyParams((p) => ({
+                      ...p,
+                      funding_carry: { ...p.funding_carry, min_funding_rate: v ?? 0.0004 },
+                    }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('botCreate.fundingExitRate')}</FormLabel>
+                <DecimalNumberInput
+                  value={(strategyParams.funding_carry?.exit_funding_rate as number) ?? 0.0002}
+                  min={0.00001}
+                  max={0.01}
+                  step={0.0001}
+                  precision={6}
+                  onChange={(v) =>
+                    setStrategyParams((p) => ({
+                      ...p,
+                      funding_carry: { ...p.funding_carry, exit_funding_rate: v ?? 0.0002 },
+                    }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('botCreate.fundingMaxBasis')}</FormLabel>
+                <DecimalNumberInput
+                  value={(strategyParams.funding_carry?.max_basis_pct as number) ?? 0.5}
+                  min={0.05}
+                  max={5}
+                  step={0.05}
+                  precision={2}
+                  onChange={(v) =>
+                    setStrategyParams((p) => ({
+                      ...p,
+                      funding_carry: { ...p.funding_carry, max_basis_pct: v ?? 0.5 },
+                    }))
+                  }
+                />
+              </FormControl>
+            </VStack>
+          )}
+
+          {step === 3 && strategyType !== 'funding' && (
             <VStack spacing={4} align="stretch">
               {marketTicker && (
                 <Box p={3} bg="blue.50" borderRadius="md" fontSize="sm">
@@ -811,6 +931,9 @@ const BotCreateWizard: React.FC = () => {
                 <Text><strong>{t('configSetup.exchange')}:</strong> {form.exchange}</Text>
                 <Text><strong>{t('configSetup.symbol')}:</strong> {form.symbol}</Text>
                 <Text><strong>{t('botCreate.strategyTypeLabel')}:</strong> {t(`botCreate.strategyType.${strategyType}.title`)}</Text>
+                {strategyType === 'funding' && (
+                  <Text><strong>{t('botCreate.strategyLabel')}:</strong> {t('strategyNames.funding_carry', 'funding_carry')}</Text>
+                )}
                 {strategyType === 'single' && selectedSingle && (
                   <Text><strong>{t('botCreate.strategyLabel')}:</strong> {t(`strategyNames.${selectedSingle}`, selectedSingle)}</Text>
                 )}
@@ -850,16 +973,25 @@ const BotCreateWizard: React.FC = () => {
                     <Text pl={2}><strong>{t('botCreate.hedgeRebalanceInterval')}:</strong> {hedgeRebalanceInterval} s</Text>
                   </Box>
                 )}
-                <Text mt={2}><strong>{t('botCreate.direction')}:</strong> {form.direction === 'LONG' ? t('botDetail.strategy.directionLong') : form.direction === 'SHORT' ? t('botDetail.strategy.directionShort') : t('botDetail.strategy.directionBoth')}</Text>
-                <Text><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
-                {(form.profit_spread != null && form.profit_spread !== '') && (
-                  <Text><strong>{t('botCreate.profitSpread')}:</strong> {form.profit_spread}</Text>
+                {strategyType !== 'funding' && (
+                  <>
+                    <Text mt={2}><strong>{t('botCreate.direction')}:</strong> {form.direction === 'LONG' ? t('botDetail.strategy.directionLong') : form.direction === 'SHORT' ? t('botDetail.strategy.directionShort') : t('botDetail.strategy.directionBoth')}</Text>
+                    <Text><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
+                    {(form.profit_spread != null && form.profit_spread !== '') && (
+                      <Text><strong>{t('botCreate.profitSpread')}:</strong> {form.profit_spread}</Text>
+                    )}
+                    <Text><strong>{t('botCreate.buyWindowSize')}:</strong> {form.buy_window_size}</Text>
+                    <Text><strong>{t('botCreate.sellWindowSize')}:</strong> {form.sell_window_size}</Text>
+                    {form.rocket_tiered_grid_enabled && (
+                      <Text><strong>{t('botCreate.rocketTieredGrid')}:</strong> {t('common.enabled')}</Text>
+                    )}
+                  </>
                 )}
-                <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
-                <Text><strong>{t('botCreate.buyWindowSize')}:</strong> {form.buy_window_size}</Text>
-                <Text><strong>{t('botCreate.sellWindowSize')}:</strong> {form.sell_window_size}</Text>
-                {form.rocket_tiered_grid_enabled && (
-                  <Text><strong>{t('botCreate.rocketTieredGrid')}:</strong> {t('common.enabled')}</Text>
+                {strategyType === 'funding' && (
+                  <Text><strong>{t('botCreate.fundingAllocatedCapital')}:</strong> {form.order_quantity}</Text>
+                )}
+                {strategyType !== 'funding' && (
+                  <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
                 )}
               </Box>
             </VStack>

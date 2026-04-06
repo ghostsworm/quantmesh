@@ -181,7 +181,7 @@ export interface CreateBotRequest {
   name?: string
   exchange: string
   symbol: string
-  market_type?: 'spot' | 'futures'
+  market_type?: 'spot' | 'futures' | 'funding_carry'
   testnet?: boolean
   strategies?: Array<{ type: string; weight: number; config?: Record<string, unknown> }>
   total_allocated_capital?: number
@@ -225,6 +225,28 @@ export async function createBot(req: CreateBotRequest): Promise<{ ok: boolean; b
   return fetchWithAuth(`${API_BASE_URL}/bots/create`, {
     method: 'POST',
     body: JSON.stringify(req),
+  })
+}
+
+/** POST /api/bots/preflight-funding — 資金費套利創建前雙市場預檢（當前以 Binance 為準） */
+export interface PreflightFundingCarryResponse {
+  ok: boolean
+  exchange?: string
+  missing?: string[]
+  futures_ok?: boolean
+  spot_ok?: boolean
+  futures_message?: string
+  spot_message?: string
+  error?: string
+}
+
+export async function preflightFundingCarry(body: {
+  exchange: string
+  symbol: string
+}): Promise<PreflightFundingCarryResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/preflight-funding`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   })
 }
 

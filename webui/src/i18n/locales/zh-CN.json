@@ -35,7 +35,9 @@
     "bot_symbol_running": "该交易对已有 Bot（{{botId}}）在运行，请先停止或删除后再创建新 Bot。同一交易对同一时刻只能有一个 Bot 运行。",
     "bot_in_hedge_group_cannot_delete": "该 Bot 属于对冲组「{{groupName}}」，请先删除对冲组。",
     "bot_running_cannot_modify": "Bot 正在运行中，无法修改策略配置。请先停止 Bot。",
-    "invalid_strategy_change": "不支持的策略类型切换。网格策略只能在网格相关类型间切换，DCA 策略只能在 DCA 相关类型间切换。"
+    "invalid_strategy_change": "不支持的策略类型切换。网格策略只能在网格相关类型间切换，DCA 策略只能在 DCA 相关类型间切换。",
+    "funding_carry_single_strategy": "资金费套利 Bot 只能配置单策略 funding_carry。",
+    "bot_symbol_market_conflict": "与已有 Bot（{{botId}}）冲突：资金费套利与同交易对其它类型 Bot 互斥。"
   },
   "botList": {
     "title": "Bot 列表",
@@ -148,8 +150,21 @@
         "title": "对冲策略",
         "desc": "合约+现货跨市场对冲，降低方向性风险。",
         "scene": "适合资金保值。"
+      },
+      "funding": {
+        "title": "资金费率套利",
+        "desc": "现货多 + 永续空，在资金费率为正时收取资金费；非无风险，存在基差与手续费。",
+        "scene": "当前版本仅币安；需 API 同时具备现货与 U 本位合约权限。"
       }
     },
+    "marketTypeFundingCarry": "资金费套利（现货+永续）",
+    "fundingMarketLockedHint": "资金费套利同时使用现货与合约，市场类型固定。",
+    "fundingRiskHint": "该模式并非无风险。请关注资金费率、期现基差、手续费及合约最小名义（币安约每腿 100 USDT）。",
+    "fundingAllocatedCapital": "分配资金（USDT）",
+    "fundingAllocatedCapitalHint": "建议 ≥ 200 USDT，以便双腿满足最小名义要求。",
+    "fundingMinRate": "最低资金费率（开仓）",
+    "fundingExitRate": "退出资金费率（平仓）",
+    "fundingMaxBasis": "最大期现基差（%）",
     "riskLevel": {
       "low": "低风险",
       "medium": "中风险",
@@ -2730,7 +2745,8 @@
     "spot_short": "现货借币做空",
     "spot_long": "现货买入做多",
     "futures_short": "合约做空对冲",
-    "futures_long": "合约做多对冲"
+    "futures_long": "合约做多对冲",
+    "funding_carry": "资金费率套利"
   },
   "strategyDescriptions": {
     "grid": "经典网格交易策略，在价格区间内自动挂单，赚取波动差价",
