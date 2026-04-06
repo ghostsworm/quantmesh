@@ -6,6 +6,7 @@
 
 ### Changed
 - **README**：改寫語氣，減少套話式排版與營銷腔；收斂大表與 emoji 標題；保留核心事實與鏈接；頁腳版本與 `main.go` 對齊為 **3.79.12**；版權年份 2026。
+- **docs(i18n)**：`docs/i18n/README.en.md` 與根目錄中文版結構與語氣對齊；移除舊版大表與 AI 營銷條目；版本與版權年同步。
 - **存儲命名**：`storage/sqlite.go` 更名為 `storage/sql_storage.go`（實際為 SQLite/MySQL 共用的 `database/sql` 實現）；類型 `SQLiteStorage`、構造函數 `NewSQLiteStorage` 分別更名為 `SQLStorage`、`NewSQLStorage`。文檔中舊路徑已同步替換。
 
 ---

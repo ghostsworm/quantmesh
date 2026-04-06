@@ -25,175 +25,80 @@
 
 ---
 
-## QuantMesh in three sentences
+## What this is
 
-1. **One pipeline for market making**: Market data and orders flow over WebSocket; decisions and execution live in one Go service—fewer “script polling” layers means less latency and fewer failure modes.  
-2. **More than a grid bot**: Grid plus DCA / martingale / mean reversion / momentum / trend / combo strategies in parallel; 50+ indicators and backtesting in the same repo—tune parameters *after* seeing them in history.  
-3. **Production-shaped README**: Multi-layer active risk controls, reconciliation, Prometheus/Grafana, and a full React console—for teams that care about volume *and* sleep.
+A Go market-making daemon: market data and orders go over WebSocket where possible; strategy logic and execution stay in one process so you skip an extra “poll with a script” layer—less latency and fewer split-brain bugs. Most people run long-only infinite grid on perpetuals first, but the repo also ships DCA, martingale, mean reversion, momentum, trend, and combo strategies (parallel); indicators and backtests live here too, so you can try parameters on history before leaning on live markets.
 
----
+Compared to exchange-built grids or random closed-source bots, you get a real multi-exchange wrapper, backtests, active risk controls and reconciliation, Prometheus/Grafana, and a React console. The license is AGPL—you can read and change the code. The team claims **$100M+** cumulative live notional over time; treat that as a story, not a return guarantee. Concrete examples and risk notes are below.
 
-## 🎯 How is this different from “typical grid / MM scripts”?
+## Rough capabilities (not a feature matrix)
 
-The table below contrasts **common closed-source tools, exchange-built grids, or DIY glue scripts** with QuantMesh, which targets an **auditable open-source market-making platform**, not a single-strategy toy.
+Roughly twenty venues are wired up; Binance, Bitget, Gate, OKX, Bybit, Deribit, and others live under `exchange/`—spot vs perp depends on the adapter. Grids can get quite deep: super slots, stop/take-profit, trailing, max layers, trend filters, soft price bands, trigger price, arithmetic/geometric spacing, shifting the whole ladder, flatten on exit; plus P1 funding-rate hooks and P2 order-book-aware quoting.
 
-| Dimension | QuantMesh | Typical alternatives |
-|-----------|-----------|----------------------|
-| **Exchange coverage** | 20+ via one abstraction | Often 3–5 venues or single-exchange |
-| **Latency profile** | Millisecond-grade; WebSocket-first for data and orders | Often second-level REST polling or semi-manual |
-| **Strategy depth** | Advanced grid features + multiple strategy types, parallel, capital allocation | Often one strategy or very few knobs |
-| **Backtest & indicators** | 50+ built-in indicators, multi-strategy backtests and reports | Often external tools or none |
-| **Risk control** | Active K-line circuit breakers, startup checks, reconciliation, options hedging, etc. | Often simple stops or none |
-| **Observability** | Prometheus, Grafana, alerts, Watchdog | Often logs or a bare panel |
-| **Web console** | Full React UI (config, bots, monitoring) | None or minimal |
-| **Code & license** | AGPL-3.0, auditable, fork-friendly | Closed box or restricted license |
-| **Production scale** | $100M+ reported live volume (self-reported) | Often undisclosed or unverifiable |
+Risk is more than a single stop: K-line anomalies, startup balance/leverage checks, periodic reconciliation, order cleanup; options hedging (Put/Call, coverage, rolls) is partially integrated. Monitoring: Prometheus, Grafana, alerts, Watchdog. The event hub records price moves and trade-related events; news and external feeds are optional—your core path does not depend on them.
 
-**In one line:** If you want **multi-exchange, backtests, risk controls, monitoring, and the freedom to change code**—that is the gap QuantMesh fills versus ad-hoc scripts.
+There is an `ai/` package for summaries, tuning hints, and risk-style helpers—**execution does not depend on it**; leave it off or ignore it.
 
----
+## Numbers and examples (still not investment advice)
 
-## 📊 Performance metrics
+Example: Binance ETHUSDC, zero fees, ~$1 spacing, ~$300 per clip can reach millions of dollars per day in notional—highly dependent on market and settings. ETH from 3000 to 2700 might show a few thousand USDT in paper pain; back toward ~2850 can get near breakeven; at 3000, P&L depends on fees and grid settings. **Before real money: testnet and small size.**
 
-- **Trading volume**: $100M+ production-tested (reported)
-- **Response latency**: &lt;10ms (WebSocket-driven)
-- **Supported exchanges**: 20+
-- **Throughput**: 1000+ orders/second
-- **Availability**: 99.9%+
-- **Daily capacity (example)**: $3M+/day (e.g. ETHUSDC-style setups)
-
----
-
-## 📖 Introduction
-
-**QuantMesh** is a high-performance cryptocurrency market-making system written in **Go**. It drives market data and orders over **WebSocket end-to-end**, unifies **20+ exchanges** (Binance, Bitget, Gate.io, …), and defaults to **long-only infinite grid** on perpetuals—while supporting DCA, martingale, mean reversion, momentum, trend, and combo strategies in parallel.
-
-The team reports **$100M+ cumulative live notional** (for information only; not a promise of returns). Example: on Binance ETHUSDC with zero fees, $1 spacing, ~$300 per clip, daily notional can reach millions of dollars in favorable conditions; in sharp drops, **active risk controls** aim to pause trading until conditions stabilize.
-
-**Illustrative numbers (not investment advice):** ETH from 3000 to 2700 may show ~$3,000 paper loss; recovery toward ~2850 can approach breakeven; at 3000, P&amp;L depends on fees and parameters. Always validate on **testnet** and **small size** first.
-
-## ✨ Key features
-
-> Grouped as **trading → risk → observability → extension**. Skim the **bold** lines first.
-
-- **Multi-exchange**: Binance, Bitget, Gate.io, Bybit, EdgeX, and more; spot and derivatives
-- **Millisecond response**: WebSocket for market data and order flow—no polling tax
-- **Multi-strategy**:
-  - **Grid**: fixed-notional mode, super-slot system; **grid risk** (stop-loss / take-profit / trailing / max layers / trend filter); **price band** (soft limits); **trigger price**; arithmetic/geometric grids; **grid shift**; **close all on stop**; advanced P1 funding-rate linkage, P2 order-book aware quoting
-  - **DCA / martingale / mean reversion / momentum / trend / combo**: parallel execution and capital allocation
-- **Indicators**: 50+ (trend, momentum, volatility, volume) for signals and backtests
-- **AI**: market analysis, parameter suggestions, risk and sentiment (news / Polymarket, etc.)
-- **Backtesting**: historical K-line runs, multi-strategy, 20+ risk metrics and Markdown reports
-- **Risk & safety**:
-  - **Active risk**: K-line volume anomalies → optional trading pause
-  - **Fund safety**: balance, leverage, and max-position checks before start
-  - **Reconciliation**: periodic sync between local state and the exchange
-  - **Options hedge**: long/short grid with Put/Call hedging; positions from Binance/Deribit, coverage and roll suggestions
-- **Monitoring**: Prometheus, Grafana, layered alerts, Watchdog
-- **Events & news**: price/trade events, AI-assisted news analysis and prediction checks
-- **Telemetry (optional)**: anonymous usage stats to improve the product—transparent, reviewable, **disable anytime**
-- **Concurrency**: Goroutine + channel + sync.Map patterns for high throughput
-
-## 🏦 Supported exchanges
-
-| Exchange | Status | Daily volume (approx.) | Notes |
-|----------|--------|--------------------------|-------|
-| **Binance** | ✅ Stable | $50B+ | Largest global venue |
-| **Bitget** | ✅ Stable | $10B+ | Major derivatives |
-| **Gate.io** | ✅ Stable | $5B+ | Long-running exchange |
-| **OKX** | ✅ Stable | $20B+ | Top-tier global |
-| **Bybit** | ✅ Stable | $15B+ | Major derivatives |
-| **Huobi (HTX)** | ✅ Stable | $5B+ | Strong in Chinese market |
-| **KuCoin** | ✅ Stable | $3B+ | Many altcoins, futures |
-| **Kraken** | ✅ Stable | $2B+ | Compliance-focused |
-| **Bitfinex** | ✅ Stable | $1B+ | Deep liquidity legacy venue |
-| **MEXC** | ✅ Stable | $8B+ | High perp volume, testnet |
-| **BingX** | ✅ Stable | $3B+ | Social trading, testnet |
-| **Deribit** | ✅ Stable | $2B+ | Options leader, testnet |
-| **BitMEX** | ✅ Stable | $2B+ | Legacy derivatives, testnet |
-| **Phemex** | ✅ Stable | $2B+ | Zero-fee perps, testnet |
-| **WOO X** | ✅ Stable | $1.5B+ | Institutional, testnet |
-| **CoinEx** | ✅ Stable | $1B+ | Since 2017, testnet |
-| **Bitrue** | ✅ Stable | $1B+ | XRP ecosystem, testnet |
-| **XT.COM** | ✅ Stable | $800M+ | Emerging, testnet |
-| **BTCC** | ✅ Stable | $500M+ | Since 2011, testnet |
-| **AscendEX** | ✅ Stable | $400M+ | DeFi-friendly, testnet |
-| **Poloniex** | ✅ Stable | $300M+ | Since 2014, testnet |
-| **Crypto.com** | ✅ Stable | $500M+ | Large retail base, testnet |
-
-## Module overview
-
-| Module | What it does |
-|--------|----------------|
-| **Trading strategies** | Grid, DCA, martingale, mean reversion, momentum, trend, combo; multi-symbol spot/perp |
-| **Technical analysis** | 50+ indicators; signals and backtests |
-| **AI** | Analysis, tuning hints, risk & sentiment, Polymarket-style signals |
-| **Backtesting** | Historical K-line, multi-strategy, risk metrics, Markdown reports |
-| **Risk & reconciliation** | Active K-line controls, depth monitoring, reconciliation, order cleanup, startup checks, options hedge (coverage, rolls) |
-| **Monitoring & alerts** | Prometheus, Grafana, alerts, Watchdog, funding & spread monitors |
-| **Events & news** | Event hub, news ingestion, AI analysis, prediction validation |
-| **Plugins** | Loadable plugins, licensing hooks, custom strategies and adapters |
-
-See also [ARCHITECTURE.md](../../ARCHITECTURE.md), [GRID_STRATEGY_ADVANCED_FEATURES.md](../GRID_STRATEGY_ADVANCED_FEATURES.md), [RISK_CONTROL_GUIDE.md](../RISK_CONTROL_GUIDE.md), [API_REFERENCE.md](../API_REFERENCE.md).
-
-## Repository layout (high level)
+## Layout (quick scan)
 
 ```
 quantmesh_platform/
-├── main.go                    # Entry, wiring
-├── config/                    # YAML load, backup, history, hot reload
-├── exchange/                  # IExchange + 20+ venue implementations
-├── strategy/                  # grid, DCA, martingale, mean reversion, momentum, trend, combo
-├── indicators/                # trend, momentum, volatility, volume
-├── ai/                        # analysis, tuning, risk, sentiment
-├── backtest/                  # data, engine, metrics
-├── position/                  # super position / slot manager (P1/P2)
-├── safety/                    # startup checks, risk monitor, reconciler, order cleaner, funding monitor
-├── monitor/                   # prices, news, spread, watchdog
-├── event/                     # event hub
-├── metrics/                   # Prometheus
-├── plugin/                    # plugins & license
-├── web/                       # API + static assets
-└── webui/                     # React source
+├── main.go
+├── config/                 # YAML, hot reload, history
+├── exchange/               # venue adapters
+├── strategy/               # grid, DCA, martingale, mean reversion, momentum, trend, combo
+├── indicators/
+├── ai/                     # optional helpers, not the main trading path
+├── backtest/
+├── position/               # super slots, etc.
+├── safety/                 # startup checks, risk, reconciliation, order cleanup, funding
+├── monitor/  event/  metrics/  plugin/
+├── web/                    # API + static assets
+└── webui/                  # React
 ```
 
-## Best practices
+More detail: [ARCHITECTURE.md](../../ARCHITECTURE.md), [GRID_STRATEGY_ADVANCED_FEATURES.md](../GRID_STRATEGY_ADVANCED_FEATURES.md), [RISK_CONTROL_GUIDE.md](../RISK_CONTROL_GUIDE.md), [API_REFERENCE.md](../API_REFERENCE.md).
 
-1. **Exchange VIP / volume**: The system can generate large reported volume; with moderate volatility, ~$3,000 margin may produce on the order of $10M notional in a few days (parameters and venue rules apply).
+## Run it
 
-2. **Profit workflow (conceptual)**: After a dip, you may open a base position, start the bot, and let it scale out grid-by-grid upward; stop when flat. If the bottom is unclear, start without a base leg and add at a lower level if needed. **Always match this to your own risk tolerance.**
+### Docker
 
-## 🚀 Getting started
+```bash
+git clone https://github.com/ghostsworm/quantmesh.git
+cd quantmesh
+cp config.example.yaml my-config.yaml
+# edit my-config.yaml — API keys and strategy
+# first import into the primary DB:
+# ./quantmesh --migrate-app-config my-config.yaml
+# see ../config-database-design.md — authoritative config is app_config
+docker-compose up -d
+```
 
-**Configuration model:** The **authoritative** trading configuration is stored in the primary database table **`app_config`** (JSON). `config.example.yaml` is a **template** for import only; there is no requirement for a fixed on-disk `config.yaml` filename. Use **`./quantmesh --migrate-app-config`** (with `QUANTMESH_IMPORT_YAML`, or `config.yaml` in the working directory), or pass a YAML path as the **first argument** to `./quantmesh` so the process can load it and (when complete) auto-migrate into the DB. Set **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`** (or `.env`) so the process can open the primary DB. See `docs/config-database-design.md`.
+Open http://localhost:8080 in the browser. Stop: `docker-compose down`.
 
-### Option A: Docker (recommended)
+(If your compose file maps ports differently, adjust; the app’s default HTTP listen is often **28888** unless overridden.)
 
-1. Clone and prepare a file from the example (any name, e.g. `config.yaml` for Compose mounts):
-   ```bash
-   git clone https://github.com/ghostsworm/quantmesh.git
-   cd quantmesh
-   cp config.example.yaml config.yaml
-   ```
-2. Edit that YAML (API keys, strategy). Mount **`./data`** so `app_config` survives restarts. The default image entrypoint runs **`/app/quantmesh` with no args** — if you rely on a mounted YAML file, pass it explicitly, e.g. add to the service: `command: ["/app/quantmesh", "/app/config.yaml"]`, or run a one-off migrate: `docker compose run --rm quantmesh /app/quantmesh --migrate-app-config` with `QUANTMESH_IMPORT_YAML=/app/config.yaml` as appropriate.
-3. Run:
-   ```bash
-   docker-compose up -d
-   ```
-4. Open the Web UI (port per your `docker-compose` / reverse proxy; the app default listen is **28888** unless mapped otherwise).  
-   Stop: `docker-compose down`
+### From source
 
-### Option B: Build from source
-
-**Requirements:** Go 1.21+, reachable exchange APIs.
+Go 1.21+ and reachable exchange APIs.
 
 ```bash
 git clone https://github.com/ghostsworm/quantmesh.git
 cd quantmesh
 go mod download
-cp config.example.yaml my-import.yaml
-# edit my-import.yaml — example:
+cp config.example.yaml my-config.yaml
+# after editing: ./quantmesh --migrate-app-config my-config.yaml
+go run main.go
+# or: go build -o quantmesh && ./quantmesh
 ```
+
+By default the backend serves the embedded UI on **28888**. For dev, run `./dev.sh` or `go run main.go` plus `cd webui && yarn dev` (Vite defaults to **15173**).
+
+Sample config snippet:
 
 ```yaml
 app:
@@ -213,112 +118,46 @@ trading:
   sell_window_size: 10
 ```
 
-**Import into DB (once):**
+**Config note:** The canonical trading config lives in the primary DB table **`app_config`**. YAML is for import and migration; see [config-database-design.md](../config-database-design.md).
 
-```bash
-./quantmesh --migrate-app-config my-import.yaml
-# or: QUANTMESH_IMPORT_YAML=my-import.yaml ./quantmesh --migrate-app-config
-```
+## Architecture in four bullets
 
-**Production (after import, or with YAML as first arg):**
+- **Exchange**: one interface, venue-specific quirks hidden behind it.  
+- **Price monitor**: a single WebSocket price path so decisions do not disagree.  
+- **Super position manager**: slots own order lifecycles.  
+- **Safety**: checks at startup, monitoring while running, circuit breaking when needed.
 
-```bash
-go run main.go
-# or: go build -o quantmesh && ./quantmesh
-# or: ./quantmesh my-import.yaml   # first-arg path loads YAML; complete configs may auto-migrate
-```
+Full write-up: [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
-Backend serves the embedded UI on port **28888** by default.
+## Telemetry (optional)
 
-**Development (hot reload):**
-
-```bash
-./dev.sh
-```
-
-Or manually: terminal 1 `go run main.go`, terminal 2:
-
-```bash
-cd webui
-yarn dev
-```
-
-Open **http://localhost:15173** (Vite proxies `/api` and `/ws` to the Go backend).
-
-## 🏗️ Architecture
-
-- **Exchange layer**: One interface, many venues
-- **Price monitor**: Single WebSocket price source for consistent decisions
-- **Super position manager**: Slot-based order lifecycle
-- **Safety & risk**: Startup checks, runtime monitoring, circuit breaking
-
-Details: [ARCHITECTURE.md](../../ARCHITECTURE.md).
-
-## 📊 Telemetry & privacy
-
-QuantMesh can send **optional anonymous usage statistics** to help improve the product. Collection is **transparent**, **reviewable in code**, and **can be disabled**.
-
-### What we may collect (anonymous)
-
-- Version, OS, arch, random instance UUID
-- Exchange name and symbol pairs in use
-- API latency, WebSocket timing
-- Trade **side** only (buy/sell)—not size or P&amp;L
-
-### What we do **not** collect
-
-- IP (disabled on the client; instance ID only)
-- Geo or identity
-- API keys, balances, positions, or amounts
-
-### Disable telemetry
+Anonymous stats may be sent (version, OS, exchange name, symbols, latency, etc.). **We do not** collect IP, balances, API keys, or trade sizes. Disable:
 
 ```bash
 export QUANTMESH_DISABLE_TELEMETRY=1
 ```
 
-Or in `webui/.env.local`: `VITE_DISABLE_TELEMETRY=1`
+Or set `VITE_DISABLE_TELEMETRY=1` in `webui/.env.local`, or edit `utils/telemetry.go`. Long form: [TELEMETRY_GUIDE.md](../TELEMETRY_GUIDE.md), [TELEMETRY_PRIVACY.md](../TELEMETRY_PRIVACY.md).
 
-See [TELEMETRY_GUIDE.md](../TELEMETRY_GUIDE.md), [TELEMETRY_PRIVACY.md](../TELEMETRY_PRIVACY.md), [TELEMETRY_SIMPLE_GUIDE.md](../TELEMETRY_SIMPLE_GUIDE.md).
+## Disclaimer
 
----
+For learning and research. Crypto trading can wipe an account; you own the P&L. Prove things out on testnet before mainnet. The authors are not liable for bugs, network delay, or exchange outages.
 
-## ⚠️ Disclaimer
+## Crypto payments (subscription / license)
 
-This software is for education and research. Crypto trading is risky.
+BTC, ETH, USDT (ERC20), USDC (ERC20). Coinbase Commerce or direct on-chain (slower confirms).  
+Docs: [CRYPTO_PAYMENT_GUIDE.md](../CRYPTO_PAYMENT_GUIDE.md), [CRYPTO_PAYMENT_QUICKSTART.md](../CRYPTO_PAYMENT_QUICKSTART.md).
 
-- You are responsible for your own P&amp;L.
-- Test on **testnet** before real funds.
-- The authors are not liable for bugs, latency, or exchange outages.
+## License
 
-## 🪙 Crypto payments (subscriptions / license)
+Dual license: **AGPL-3.0** (derivatives must stay AGPL; network use counts—offer source) or a **commercial license** for proprietary integration.  
+Contact: contact@quantmesh.io · https://quantmesh.io/commercial
 
-Supported: **BTC**, **ETH**, **USDT (ERC20)**, **USDC (ERC20)** — Coinbase Commerce or direct wallet.
+## Contributing and contact
 
-- [CRYPTO_PAYMENT_GUIDE.md](../CRYPTO_PAYMENT_GUIDE.md)
-- [CRYPTO_PAYMENT_QUICKSTART.md](../CRYPTO_PAYMENT_QUICKSTART.md)
-- [CRYPTO_PAYMENT_SETUP.md](../CRYPTO_PAYMENT_SETUP.md)
-- [reports/CRYPTO_PAYMENT_SUMMARY.md](../reports/CRYPTO_PAYMENT_SUMMARY.md)
-
-## 📜 License (dual)
-
-### AGPL-3.0
-
-- Free to use, modify, and distribute
-- Derivatives must be AGPL-3.0 and source must be offered (including network use)
-
-### Commercial license
-
-For proprietary use without AGPL obligations: **contact@quantmesh.io** — https://quantmesh.io/commercial
-
-## 🤝 Contributing
-
-Issues and PRs are welcome. Contributions are licensed under AGPL-3.0. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
-
-## 📞 Contact
+Issues and PRs welcome; contributions are AGPL-3.0. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 - Website: https://quantmesh.io  
-- Email: contact@quantmesh.io  
 - [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)  
 - [GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)  
 - Docs: [docs/](../)
@@ -326,12 +165,10 @@ Issues and PRs are welcome. Contributions are licensed under AGPL-3.0. See [CONT
 ---
 
 <div align="center">
-  <strong>Made with ❤️ by QuantMesh Team</strong><br/>
-  <sub>If this project helps you, a ⭐ is welcome</sub><br/>
-  <sub>Version 3.79.6-rc20</sub>
+  QuantMesh Team · <sub>Version 3.79.12</sub>
 </div>
 
-Copyright © 2025 QuantMesh Team. All Rights Reserved.
+Copyright © 2026 QuantMesh Team. All Rights Reserved.
 
 <!-- quantmesh usage beacon -->
 ![](https://um.facev.app/p/IiDQJEIGM)
