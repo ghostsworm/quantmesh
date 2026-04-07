@@ -822,6 +822,78 @@ func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float6
 	return 0, fmt.Errorf("未找到交易對 %s 的资金费率", symbol)
 }
 
+// FundingInfo 資金費率詳情（供 exchange wrapper 轉換）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+func gateEstimateNextFundingUTC8h(now time.Time) time.Time {
+	now = now.UTC()
+	hour := now.Hour()
+	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	switch {
+	case hour < 8:
+		return base.Add(8 * time.Hour)
+	case hour < 16:
+		return base.Add(16 * time.Hour)
+	default:
+		return base.Add(24 * time.Hour)
+	}
+}
+
+// GetFundingInfo 從期貨 tickers 獲取資金費、下次結算時間與標記/指數價
+func (g *GateAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	gateSymbol := convertToGateSymbol(symbol)
+	path := fmt.Sprintf("/futures/%s/tickers", g.settle)
+	queryString := fmt.Sprintf("contract=%s", gateSymbol)
+	respBody, err := g.client.DoRequest(ctx, "GET", path, queryString, nil)
+	if err != nil {
+		return nil, fmt.Errorf("獲取期貨 tickers 失败: %w", err)
+	}
+	var rows []struct {
+		Contract           string  `json:"contract"`
+		Last               string  `json:"last"`
+		FundingRate        string  `json:"funding_rate"`
+		FundingNextApply   float64 `json:"funding_next_apply"` // Unix 時間戳（秒，浮點）
+		MarkPrice          string  `json:"mark_price"`
+		IndexPrice         string  `json:"index_price"`
+	}
+	if err := json.Unmarshal(respBody, &rows); err != nil {
+		return nil, fmt.Errorf("解析 tickers 失败: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("未找到合約 %s", gateSymbol)
+	}
+	r := rows[0]
+	rate, _ := strconv.ParseFloat(r.FundingRate, 64)
+	mark, _ := strconv.ParseFloat(r.MarkPrice, 64)
+	if mark == 0 {
+		mark, _ = strconv.ParseFloat(r.Last, 64)
+	}
+	idx, _ := strconv.ParseFloat(r.IndexPrice, 64)
+	if idx == 0 {
+		idx = mark
+	}
+	var next time.Time
+	if r.FundingNextApply > 0 {
+		next = time.Unix(int64(r.FundingNextApply), 0).UTC()
+	}
+	if next.IsZero() {
+		next = gateEstimateNextFundingUTC8h(time.Now().UTC())
+	}
+	return &FundingInfo{
+		Symbol:          symbol,
+		Rate:            rate,
+		NextFundingTime: next,
+		MarkPrice:       mark,
+		IndexPrice:      idx,
+	}, nil
+}
+
 // GetFuturesPrice 獲取期货市场價格
 func (g *GateAdapter) GetFuturesPrice(ctx context.Context, symbol string) (float64, error) {
 	// 轉换為 Gate.io 期货格式: BTCUSDT -> BTC_USDT

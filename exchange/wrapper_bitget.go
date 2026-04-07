@@ -297,7 +297,17 @@ func (w *bitgetWrapper) GetFundingRate(ctx context.Context, symbol string) (floa
 }
 
 func (w *bitgetWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	info, err := w.adapter.GetFundingInfo(ctx, symbol)
+	if err != nil {
+		return nil, err
+	}
+	return &FundingInfo{
+		Symbol:          info.Symbol,
+		Rate:            info.Rate,
+		NextFundingTime: info.NextFundingTime,
+		MarkPrice:       info.MarkPrice,
+		IndexPrice:      info.IndexPrice,
+	}, nil
 }
 
 func (w *bitgetWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

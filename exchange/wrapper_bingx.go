@@ -289,7 +289,7 @@ func (w *bingxWrapper) GetFundingRate(ctx context.Context, symbol string) (float
 }
 
 func (w *bingxWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRateFixedSymbol(ctx, symbol, w.adapter)
 }
 
 func (w *bingxWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

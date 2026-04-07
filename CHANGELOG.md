@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.82.0-rc2] - 2026-04-08
+
+### Added
+- **交易所 GetFundingInfo**：除幣安外，為 OKX、Huobi、Bybit、Gate、Bitget 在適配層實現完整資金費詳情（費率 + 下次結算時間 + 標記/指數價，依各所公開 API）；其餘合約所透過 `GetFundingRate` + `GetLatestPrice` 與 UTC 8h 估算結算時間後備；新增 `exchange/funding_estimate.go` 共用邏輯與單測。
+
+---
+
 ## [3.82.0-rc1] - 2026-04-08
 
 ### Added

@@ -293,7 +293,7 @@ func (w *btccWrapper) GetFundingRate(ctx context.Context, symbol string) (float6
 }
 
 func (w *btccWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRateFixedSymbol(ctx, symbol, w.adapter)
 }
 
 func (w *btccWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

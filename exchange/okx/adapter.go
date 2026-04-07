@@ -715,6 +715,58 @@ func (o *OKXAdapter) GetFundingRate(ctx context.Context, symbol string) (float64
 	return rate, nil
 }
 
+// FundingInfo 資金費率詳情（與 exchange.FundingInfo 同構，供 wrapper 轉換）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+func okxEstimateNextFundingUTC8h(now time.Time) time.Time {
+	now = now.UTC()
+	hour := now.Hour()
+	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	switch {
+	case hour < 8:
+		return base.Add(8 * time.Hour)
+	case hour < 16:
+		return base.Add(16 * time.Hour)
+	default:
+		return base.Add(24 * time.Hour)
+	}
+}
+
+// GetFundingInfo 獲取資金費率與下次結算時間（OKX public funding-rate）
+func (o *OKXAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	fr, err := o.client.GetFundingRate(ctx, o.instId)
+	if err != nil {
+		return nil, fmt.Errorf("獲取资金费率失败: %w", err)
+	}
+	rate, _ := strconv.ParseFloat(fr.FundingRate, 64)
+	var next time.Time
+	if fr.NextTime != "" {
+		if ms, err := strconv.ParseInt(fr.NextTime, 10, 64); err == nil && ms > 0 {
+			next = time.UnixMilli(ms)
+		}
+	}
+	if next.IsZero() {
+		next = okxEstimateNextFundingUTC8h(time.Now().UTC())
+	}
+	mark, err := o.GetLatestPrice(ctx, symbol)
+	if err != nil {
+		mark = 0
+	}
+	return &FundingInfo{
+		Symbol:          symbol,
+		Rate:            rate,
+		NextFundingTime: next,
+		MarkPrice:       mark,
+		IndexPrice:      mark,
+	}, nil
+}
+
 // GetSpotPrice 獲取現貨市场價格
 func (o *OKXAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	// 將合約交易對轉换為現貨交易對

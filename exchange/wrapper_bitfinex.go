@@ -252,7 +252,7 @@ func (w *bitfinexWrapper) GetFundingRate(ctx context.Context, symbol string) (fl
 }
 
 func (w *bitfinexWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRate(ctx, symbol, w.adapter)
 }
 
 func (w *bitfinexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

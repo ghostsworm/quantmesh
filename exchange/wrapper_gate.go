@@ -330,7 +330,17 @@ func (w *gateWrapper) GetFundingRate(ctx context.Context, symbol string) (float6
 }
 
 func (w *gateWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	info, err := w.adapter.GetFundingInfo(ctx, symbol)
+	if err != nil {
+		return nil, err
+	}
+	return &FundingInfo{
+		Symbol:          info.Symbol,
+		Rate:            info.Rate,
+		NextFundingTime: info.NextFundingTime,
+		MarkPrice:       info.MarkPrice,
+		IndexPrice:      info.IndexPrice,
+	}, nil
 }
 
 func (w *gateWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

@@ -289,7 +289,7 @@ func (w *ascendexWrapper) GetFundingRate(ctx context.Context, symbol string) (fl
 }
 
 func (w *ascendexWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRateFixedSymbol(ctx, symbol, w.adapter)
 }
 
 func (w *ascendexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
