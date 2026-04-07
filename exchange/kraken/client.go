@@ -320,36 +320,52 @@ func (c *KrakenClient) GetPositionInfo(ctx context.Context) ([]KrakenPositionInf
 	return resp.OpenPositions, nil
 }
 
-// GetFundingRate 獲取资金费率
-func (c *KrakenClient) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
-	path := fmt.Sprintf("/derivatives/api/v3/tickers")
+// PerpetualTicker 永续合約 tickers 項（/derivatives/api/v3/tickers）
+type PerpetualTicker struct {
+	Symbol                  string  `json:"symbol"`
+	Tag                     string  `json:"tag"`
+	FundingRate             float64 `json:"fundingRate"`
+	FundingRatePrediction   float64 `json:"fundingRatePrediction"`
+	MarkPrice               float64 `json:"markPrice"`
+	IndexPrice              float64 `json:"indexPrice"`
+}
+
+// GetPerpetualTicker 獲取指定合约的 ticker（含資金費與標記/指數價）
+func (c *KrakenClient) GetPerpetualTicker(ctx context.Context, symbol string) (*PerpetualTicker, error) {
+	path := "/derivatives/api/v3/tickers"
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	var resp struct {
-		Result  string `json:"result"`
-		Tickers []struct {
-			Symbol      string  `json:"symbol"`
-			FundingRate float64 `json:"fundingRate"`
-		} `json:"tickers"`
+		Result  string           `json:"result"`
+		Tickers []PerpetualTicker `json:"tickers"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return 0, fmt.Errorf("unmarshal funding rate response error: %w", err)
+		return nil, fmt.Errorf("unmarshal tickers response error: %w", err)
 	}
 
 	if resp.Result != "success" {
-		return 0, fmt.Errorf("get funding rate failed: %s", string(respBody))
+		return nil, fmt.Errorf("get tickers failed: %s", string(respBody))
 	}
 
-	for _, ticker := range resp.Tickers {
-		if ticker.Symbol == symbol {
-			return ticker.FundingRate, nil
+	for i := range resp.Tickers {
+		if resp.Tickers[i].Symbol == symbol {
+			return &resp.Tickers[i], nil
 		}
 	}
 
-	return 0, fmt.Errorf("symbol %s not found", symbol)
+	return nil, fmt.Errorf("symbol %s not found", symbol)
+}
+
+// GetFundingRate 獲取资金费率
+func (c *KrakenClient) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
+	t, err := c.GetPerpetualTicker(ctx, symbol)
+	if err != nil {
+		return 0, err
+	}
+	return t.FundingRate, nil
 }
 
 // GetHistoricalKlines 獲取歷史K線數據

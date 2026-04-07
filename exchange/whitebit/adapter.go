@@ -655,6 +655,69 @@ func (w *WhiteBITAdapter) GetPositions(ctx context.Context, symbol string) ([]*A
 	return result, nil
 }
 
+// FundingInfo 資金費率詳情（供 exchange wrapper 轉換）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+func parseWhiteBITNextFundingTimestamp(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, fmt.Errorf("empty next_funding_rate_timestamp")
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t.UTC(), nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC(), nil
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		if f > 1e12 {
+			return time.UnixMilli(int64(f)).UTC(), nil
+		}
+		if f > 1e9 {
+			return time.Unix(int64(f), 0).UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("cannot parse next_funding_rate_timestamp: %q", s)
+}
+
+// GetFundingInfo 從 /api/v4/public/futures 獲取 funding_rate、index_price、next_funding_rate_timestamp
+func (w *WhiteBITAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	m, err := w.client.GetFuturesMarketByTicker(ctx, w.market)
+	if err != nil {
+		return nil, err
+	}
+	next, err := parseWhiteBITNextFundingTimestamp(m.NextFundingRateTimestamp)
+	if err != nil {
+		return nil, err
+	}
+	rate, err := strconv.ParseFloat(m.FundingRate, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析 funding_rate: %w", err)
+	}
+	mark, _ := strconv.ParseFloat(m.LastPrice, 64)
+	idx, _ := strconv.ParseFloat(m.IndexPrice, 64)
+	if mark == 0 {
+		mark = idx
+	}
+	out := strings.TrimSpace(symbol)
+	if out == "" {
+		out = w.symbol
+	}
+	return &FundingInfo{
+		Symbol:          out,
+		Rate:            rate,
+		NextFundingTime: next,
+		MarkPrice:       mark,
+		IndexPrice:      idx,
+	}, nil
+}
+
 // GetFundingRate 獲取资金费率
 func (w *WhiteBITAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return w.client.GetFundingRate(ctx, w.market)

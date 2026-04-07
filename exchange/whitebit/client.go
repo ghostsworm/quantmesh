@@ -282,6 +282,20 @@ func (c *WhiteBITClient) GetFuturesMarkets(ctx context.Context) ([]FuturesMarket
 	return resp.Result, nil
 }
 
+// GetFuturesMarketByTicker 按 ticker_id（如 BTC_PERP）獲取單個期货市场信息（含下次資金費時間戳）
+func (c *WhiteBITClient) GetFuturesMarketByTicker(ctx context.Context, tickerID string) (*FuturesMarket, error) {
+	markets, err := c.GetFuturesMarkets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range markets {
+		if markets[i].TickerID == tickerID {
+			return &markets[i], nil
+		}
+	}
+	return nil, fmt.Errorf("未找到期货市场: %s", tickerID)
+}
+
 // Balance 余额信息
 type Balance struct {
 	Available string `json:"available"` // 可用余额
