@@ -308,8 +308,20 @@ export async function deleteBotGroup(groupId: string): Promise<{ ok: boolean; gr
   })
 }
 
+/** Bot detail `config.funding_perp_spread` (matches backend JSON) */
+export interface FundingPerpSpreadConfigApi {
+  leg_a: { exchange: string; symbol: string }
+  leg_b: { exchange: string; symbol: string }
+  min_funding_spread?: number
+  exit_funding_spread?: number
+  max_basis_pct?: number
+}
+
 export interface BotDetailInfo extends BotInfo {
-  config?: Record<string, unknown>
+  config?: {
+    funding_perp_spread?: FundingPerpSpreadConfigApi
+    [key: string]: unknown
+  }
 }
 
 export async function getBotById(botId: string): Promise<BotDetailInfo> {

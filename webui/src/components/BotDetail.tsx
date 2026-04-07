@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Button,
@@ -84,6 +84,8 @@ import {
   UpdateBotStrategyRequest,
   PositionStatus,
   ExchangeOpenOrderInfo,
+  getMarketTicker,
+  MarketTickerResponse,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useConfig } from '../contexts/ConfigContext'
@@ -94,6 +96,7 @@ import BotRiskControlHistoryPanel from './BotRiskControlHistoryPanel'
 import OptionHedgePanel from './OptionHedgePanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 import { computeLiquidationPrice } from './ParamAdvisor'
+import { parseFundingPerpSpread } from '../utils/fundingPerpSpread'
 
 // 策略选项定义
 interface StrategyOption {
@@ -151,6 +154,41 @@ const BotDetail: React.FC = () => {
     total_value?: number
   } | null>(null)
   const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
+
+  const fundingPerpLegs = useMemo(() => parseFundingPerpSpread(bot), [bot])
+  const [legTicks, setLegTicks] = useState<{ a: MarketTickerResponse | null; b: MarketTickerResponse | null }>({
+    a: null,
+    b: null,
+  })
+
+  useEffect(() => {
+    if (!fundingPerpLegs) {
+      setLegTicks({ a: null, b: null })
+      return
+    }
+    const fetchBoth = async () => {
+      try {
+        const [a, b] = await Promise.all([
+          getMarketTicker(fundingPerpLegs.leg_a.exchange, fundingPerpLegs.leg_a.symbol, 'futures').catch(() => null),
+          getMarketTicker(fundingPerpLegs.leg_b.exchange, fundingPerpLegs.leg_b.symbol, 'futures').catch(() => null),
+        ])
+        setLegTicks({ a, b })
+      } catch {
+        setLegTicks({ a: null, b: null })
+      }
+    }
+    fetchBoth()
+    const id = window.setInterval(fetchBoth, 8000)
+    return () => clearInterval(id)
+  }, [fundingPerpLegs])
+
+  const perpBasisMidPct = useMemo(() => {
+    const a = legTicks.a?.mark_price
+    const b = legTicks.b?.mark_price
+    if (a == null || b == null || a <= 0 || b <= 0) return null
+    const mid = (a + b) / 2
+    return ((a - b) / mid) * 100
+  }, [legTicks])
 
   const fetchBot = async () => {
     if (!botId) return
@@ -492,20 +530,47 @@ const BotDetail: React.FC = () => {
               </HStack>
               <Heading size="md">{bot.name || bot.symbol}</Heading>
               <Text fontSize="sm" color="gray.500" mt={1}>
-                {bot.exchange} · {bot.symbol} ({bot.market_type})
+                {fundingPerpLegs ? (
+                  <>
+                    {fundingPerpLegs.leg_a.exchange} · {fundingPerpLegs.leg_a.symbol} ·{' '}
+                    {fundingPerpLegs.leg_b.exchange} · {fundingPerpLegs.leg_b.symbol} ({bot.market_type})
+                  </>
+                ) : (
+                  <>
+                    {bot.exchange} · {bot.symbol} ({bot.market_type})
+                  </>
+                )}
               </Text>
               {bot.running && (
-                <HStack spacing={4} mt={3} fontSize="sm">
-                  {bot.current_price != null && (
-                    <Text>${bot.current_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                <HStack spacing={4} mt={3} fontSize="sm" flexWrap="wrap">
+                  {bot.market_type === 'funding_perp_spread' && fundingPerpLegs && legTicks.a && legTicks.b ? (
+                    <>
+                      <Text>
+                        A ${legTicks.a.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Text>
+                      <Text>
+                        B ${legTicks.b.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Text>
+                      {perpBasisMidPct != null && (
+                        <Text color="blue.500">
+                          {t('botDetail.perpBasisMid')}: {perpBasisMidPct >= 0 ? '+' : ''}
+                          {perpBasisMidPct.toFixed(4)}%
+                        </Text>
+                      )}
+                    </>
+                  ) : (
+                    bot.current_price != null && (
+                      <Text>${bot.current_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    )
                   )}
                   {bot.total_pnl != null && (
                     <Text color={bot.total_pnl >= 0 ? 'green.500' : 'red.500'}>
                       PnL: {bot.total_pnl >= 0 ? '+' : ''}{bot.total_pnl.toFixed(2)}
                     </Text>
                   )}
-                  {/* 平仓价估算 */}
-                  {(() => {
+                  {/* 平仓价估算（网格类；双永续不适用） */}
+                  {bot.market_type !== 'funding_perp_spread' &&
+                    (() => {
                     if (!bot.current_price || bot.current_price <= 0) {
                       return <Text color="gray.400">强平价: -</Text>
                     }
@@ -604,6 +669,78 @@ const BotDetail: React.FC = () => {
             </AlertDescription>
           </Box>
         </Alert>
+      )}
+
+      {fundingPerpLegs && (
+        <Card mb={4}>
+          <CardBody>
+            <Heading size="sm" mb={3}>
+              {t('botDetail.perpSpreadSectionTitle')}
+            </Heading>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <Box borderWidth="1px" borderRadius="md" p={3}>
+                <Badge mb={2}>{t('botCreate.perpSpreadLegA')}</Badge>
+                <Text fontSize="xs" color="gray.500">
+                  {fundingPerpLegs.leg_a.exchange} · {fundingPerpLegs.leg_a.symbol}
+                </Text>
+                {legTicks.a ? (
+                  <VStack align="stretch" spacing={1} mt={2} fontSize="sm">
+                    <Text>
+                      {t('botCreate.markPrice')}:{' '}
+                      {legTicks.a.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </Text>
+                    <Text>
+                      {t('botDetail.lastPrice')}:{' '}
+                      {legTicks.a.last_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </Text>
+                    <Text fontSize="xs" color="gray.500">
+                      {t('botCreate.last24hHigh')} / {t('botCreate.last24hLow')}:{' '}
+                      {legTicks.a.high_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })} /{' '}
+                      {legTicks.a.low_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </Text>
+                  </VStack>
+                ) : (
+                  <Text mt={2} color="gray.400" fontSize="sm">
+                    —
+                  </Text>
+                )}
+              </Box>
+              <Box borderWidth="1px" borderRadius="md" p={3}>
+                <Badge mb={2}>{t('botCreate.perpSpreadLegB')}</Badge>
+                <Text fontSize="xs" color="gray.500">
+                  {fundingPerpLegs.leg_b.exchange} · {fundingPerpLegs.leg_b.symbol}
+                </Text>
+                {legTicks.b ? (
+                  <VStack align="stretch" spacing={1} mt={2} fontSize="sm">
+                    <Text>
+                      {t('botCreate.markPrice')}:{' '}
+                      {legTicks.b.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </Text>
+                    <Text>
+                      {t('botDetail.lastPrice')}:{' '}
+                      {legTicks.b.last_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </Text>
+                    <Text fontSize="xs" color="gray.500">
+                      {t('botCreate.last24hHigh')} / {t('botCreate.last24hLow')}:{' '}
+                      {legTicks.b.high_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })} /{' '}
+                      {legTicks.b.low_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </Text>
+                  </VStack>
+                ) : (
+                  <Text mt={2} color="gray.400" fontSize="sm">
+                    —
+                  </Text>
+                )}
+              </Box>
+            </SimpleGrid>
+            {perpBasisMidPct != null && (
+              <Text mt={4} fontSize="sm" fontWeight="medium">
+                {t('botDetail.perpBasisMid')}: {perpBasisMidPct >= 0 ? '+' : ''}
+                {perpBasisMidPct.toFixed(4)}%
+              </Text>
+            )}
+          </CardBody>
+        </Card>
       )}
 
       <Tabs colorScheme="blue" variant="enclosed">
@@ -735,9 +872,13 @@ const BotDetail: React.FC = () => {
                   <Card>
                     <CardBody>
                       <Stat>
-                        <StatLabel>{t('botDetail.currentPrice')}</StatLabel>
+                        <StatLabel>
+                          {fundingPerpLegs ? t('botDetail.perpMidPrice') : t('botDetail.currentPrice')}
+                        </StatLabel>
                         <StatNumber>
-                          ${(positionsSummary?.current_price ?? bot.current_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          {fundingPerpLegs && legTicks.a && legTicks.b
+                            ? `$${((legTicks.a.mark_price + legTicks.b.mark_price) / 2).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                            : `$${(positionsSummary?.current_price ?? bot.current_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                         </StatNumber>
                       </Stat>
                     </CardBody>
@@ -869,7 +1010,9 @@ const BotDetail: React.FC = () => {
                     </SimpleGrid>
                   </Box>
                 ) : (
-                  <Text color="gray.500">{t('botDetail.startToViewOverview')}</Text>
+                  <Text color="gray.500">
+                    {fundingPerpLegs ? t('botDetail.perpOverviewStoppedHint') : t('botDetail.startToViewOverview')}
+                  </Text>
                 )}
               </>
             )}
