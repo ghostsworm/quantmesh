@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.83.0-rc1] - 2026-04-08
+
+### Added
+- **KuCoin GetFundingInfo**：透過期貨公開接口 `GET /api/v1/contracts/{symbol}` 解析 `nextFundingRateDateTime`、標記/指數價與 `fundingFeeRate`；`BTC-USDT` 映射為合約代碼 `XBTUSDTM`；失敗時仍回退 `GetFundingRate` + UTC 8h 估算。
+
+---
+
 ## [3.82.0-rc2] - 2026-04-08
 
 ### Added
