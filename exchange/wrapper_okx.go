@@ -317,7 +317,17 @@ func (w *okxWrapper) GetFundingRate(ctx context.Context, symbol string) (float64
 }
 
 func (w *okxWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	info, err := w.adapter.GetFundingInfo(ctx, symbol)
+	if err != nil {
+		return nil, err
+	}
+	return &FundingInfo{
+		Symbol:          info.Symbol,
+		Rate:            info.Rate,
+		NextFundingTime: info.NextFundingTime,
+		MarkPrice:       info.MarkPrice,
+		IndexPrice:      info.IndexPrice,
+	}, nil
 }
 
 func (w *okxWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

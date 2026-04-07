@@ -290,7 +290,7 @@ func (w *coinexWrapper) GetFundingRate(ctx context.Context, symbol string) (floa
 }
 
 func (w *coinexWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRateFixedSymbol(ctx, symbol, w.adapter)
 }
 
 func (w *coinexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

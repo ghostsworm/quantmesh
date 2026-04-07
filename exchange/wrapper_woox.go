@@ -288,7 +288,7 @@ func (w *wooxWrapper) GetFundingRate(ctx context.Context, symbol string) (float6
 }
 
 func (w *wooxWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRateFixedSymbol(ctx, symbol, w.adapter)
 }
 
 func (w *wooxWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

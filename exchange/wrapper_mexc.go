@@ -289,7 +289,7 @@ func (w *mexcWrapper) GetFundingRate(ctx context.Context, symbol string) (float6
 }
 
 func (w *mexcWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRateFixedSymbol(ctx, symbol, w.adapter)
 }
 
 func (w *mexcWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

@@ -749,6 +749,56 @@ func (b *BybitAdapter) GetFundingRate(ctx context.Context, symbol string) (float
 	return rate, nil
 }
 
+// FundingInfo 資金費率詳情（供 exchange wrapper 轉換）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+func bybitEstimateNextFundingUTC8h(now time.Time) time.Time {
+	now = now.UTC()
+	hour := now.Hour()
+	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	switch {
+	case hour < 8:
+		return base.Add(8 * time.Hour)
+	case hour < 16:
+		return base.Add(16 * time.Hour)
+	default:
+		return base.Add(24 * time.Hour)
+	}
+}
+
+// GetFundingInfo 從 /v5/market/tickers 獲取資金費與下次結算時間
+func (b *BybitAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	tk, err := b.client.GetFundingTicker(ctx, "linear", symbol)
+	if err != nil {
+		return nil, fmt.Errorf("獲取 funding ticker 失败: %w", err)
+	}
+	rate, _ := strconv.ParseFloat(tk.FundingRate, 64)
+	mark, _ := strconv.ParseFloat(tk.MarkPrice, 64)
+	idx, _ := strconv.ParseFloat(tk.IndexPrice, 64)
+	var next time.Time
+	if tk.NextFundingTime != "" {
+		if ms, err := strconv.ParseInt(tk.NextFundingTime, 10, 64); err == nil && ms > 0 {
+			next = time.UnixMilli(ms)
+		}
+	}
+	if next.IsZero() {
+		next = bybitEstimateNextFundingUTC8h(time.Now().UTC())
+	}
+	return &FundingInfo{
+		Symbol:          symbol,
+		Rate:            rate,
+		NextFundingTime: next,
+		MarkPrice:       mark,
+		IndexPrice:      idx,
+	}, nil
+}
+
 // GetSpotPrice 獲取現貨市场價格
 // BybitOrderFill 訂單成交記錄（本地類型，避免循環導入）
 type BybitOrderFill struct {

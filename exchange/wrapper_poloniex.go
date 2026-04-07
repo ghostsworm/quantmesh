@@ -289,7 +289,7 @@ func (w *poloniexWrapper) GetFundingRate(ctx context.Context, symbol string) (fl
 }
 
 func (w *poloniexWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRateFixedSymbol(ctx, symbol, w.adapter)
 }
 
 func (w *poloniexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

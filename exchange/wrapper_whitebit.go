@@ -315,7 +315,7 @@ func (w *whitebitWrapper) GetFundingRate(ctx context.Context, symbol string) (fl
 }
 
 func (w *whitebitWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRate(ctx, symbol, w.adapter)
 }
 
 // GetIncomeHistory 獲取收入歷史

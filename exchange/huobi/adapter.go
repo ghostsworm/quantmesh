@@ -620,6 +620,58 @@ func (h *HuobiAdapter) GetFundingRate(ctx context.Context, symbol string) (float
 	return rate, nil
 }
 
+// FundingInfo 資金費率詳情（供 exchange wrapper 轉換）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+func huobiEstimateNextFundingUTC8h(now time.Time) time.Time {
+	now = now.UTC()
+	hour := now.Hour()
+	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	switch {
+	case hour < 8:
+		return base.Add(8 * time.Hour)
+	case hour < 16:
+		return base.Add(16 * time.Hour)
+	default:
+		return base.Add(24 * time.Hour)
+	}
+}
+
+// GetFundingInfo 獲取資金費率與下次結算時間
+func (h *HuobiAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	fr, err := h.client.GetFundingRate(ctx, h.contractCode)
+	if err != nil {
+		return nil, fmt.Errorf("獲取资金费率失败: %w", err)
+	}
+	rate, _ := strconv.ParseFloat(fr.FundingRate, 64)
+	var next time.Time
+	if fr.FundingTime != "" {
+		if ms, err := strconv.ParseInt(fr.FundingTime, 10, 64); err == nil && ms > 0 {
+			next = time.UnixMilli(ms)
+		}
+	}
+	if next.IsZero() {
+		next = huobiEstimateNextFundingUTC8h(time.Now().UTC())
+	}
+	mark, err := h.GetLatestPrice(ctx, symbol)
+	if err != nil {
+		mark = 0
+	}
+	return &FundingInfo{
+		Symbol:          symbol,
+		Rate:            rate,
+		NextFundingTime: next,
+		MarkPrice:       mark,
+		IndexPrice:      mark,
+	}, nil
+}
+
 // InternalTransfer 交易所內部轉帳（Huobi 暂未實現）
 func (h *HuobiAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Huobi")

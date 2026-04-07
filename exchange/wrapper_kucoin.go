@@ -255,7 +255,7 @@ func (w *kucoinWrapper) GetFundingRate(ctx context.Context, symbol string) (floa
 }
 
 func (w *kucoinWrapper) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
-	return nil, ErrNotImplemented
+	return FundingInfoFallbackFromRate(ctx, symbol, w.adapter)
 }
 
 func (w *kucoinWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

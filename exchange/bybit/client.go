@@ -504,6 +504,37 @@ func (c *BybitClient) GetFundingRate(ctx context.Context, category, symbol strin
 	return &result.List[0], nil
 }
 
+// FundingTicker 市場 ticker 中的資金費與結算時間（/v5/market/tickers）
+type FundingTicker struct {
+	Symbol            string `json:"symbol"`
+	FundingRate       string `json:"fundingRate"`
+	NextFundingTime   string `json:"nextFundingTime"`
+	MarkPrice         string `json:"markPrice"`
+	IndexPrice        string `json:"indexPrice"`
+}
+
+// GetFundingTicker 從市場 ticker 獲取資金費率、下次結算時間與標記/指數價
+func (c *BybitClient) GetFundingTicker(ctx context.Context, category, symbol string) (*FundingTicker, error) {
+	params := map[string]interface{}{
+		"category": category,
+		"symbol":   symbol,
+	}
+	data, err := c.request(ctx, "GET", "/v5/market/tickers", params)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		List []FundingTicker `json:"list"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("解析 tickers 失败: %w", err)
+	}
+	if len(result.List) == 0 {
+		return nil, fmt.Errorf("未找到 ticker")
+	}
+	return &result.List[0], nil
+}
+
 // Ticker 行情數據
 type Ticker struct {
 	Symbol    string `json:"symbol"`

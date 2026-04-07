@@ -1197,6 +1197,99 @@ func (b *BitgetAdapter) GetFundingRate(ctx context.Context, symbol string) (floa
 	return fundingRate, nil
 }
 
+// FundingInfo 資金費率詳情（供 exchange wrapper 轉換）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+func bitgetEstimateNextFundingUTC8h(now time.Time) time.Time {
+	now = now.UTC()
+	hour := now.Hour()
+	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	switch {
+	case hour < 8:
+		return base.Add(8 * time.Hour)
+	case hour < 16:
+		return base.Add(16 * time.Hour)
+	default:
+		return base.Add(24 * time.Hour)
+	}
+}
+
+// GetFundingInfo 獲取資金費與下次結算（current-fundRate 擴展欄位 + 後備估算）
+func (b *BitgetAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	bitgetSymbol := convertToBitgetSymbol(symbol)
+	path := fmt.Sprintf("/api/v2/mix/market/current-fundRate?symbol=%s&productType=USDT-FUTURES", bitgetSymbol)
+	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("獲取资金费率失败: %w", err)
+	}
+	var raw struct {
+		FundingRate     string `json:"fundingRate"`
+		NextFundingTime string `json:"nextFundingTime"`
+		NextSettleTime  string `json:"nextSettleTime"`
+		FundingTime     string `json:"fundingTime"`
+		MarkPrice       string `json:"markPrice"`
+		IndexPrice      string `json:"indexPrice"`
+	}
+	if err := json.Unmarshal(resp.Data, &raw); err != nil || raw.FundingRate == "" {
+		var results []struct {
+			FundingRate     string `json:"fundingRate"`
+			NextFundingTime string `json:"nextFundingTime"`
+			MarkPrice       string `json:"markPrice"`
+			IndexPrice      string `json:"indexPrice"`
+		}
+		if err2 := json.Unmarshal(resp.Data, &results); err2 != nil || len(results) == 0 {
+			return nil, fmt.Errorf("解析响应失败: %w", err)
+		}
+		raw.FundingRate = results[0].FundingRate
+		raw.NextFundingTime = results[0].NextFundingTime
+		raw.MarkPrice = results[0].MarkPrice
+		raw.IndexPrice = results[0].IndexPrice
+	}
+	rate, _ := strconv.ParseFloat(raw.FundingRate, 64)
+	mark, _ := strconv.ParseFloat(raw.MarkPrice, 64)
+	idx, _ := strconv.ParseFloat(raw.IndexPrice, 64)
+	if idx == 0 {
+		idx = mark
+	}
+	if mark == 0 {
+		mark, _ = b.GetLatestPrice(ctx, symbol)
+		idx = mark
+	}
+	ts := raw.NextFundingTime
+	if ts == "" {
+		ts = raw.NextSettleTime
+	}
+	if ts == "" {
+		ts = raw.FundingTime
+	}
+	var next time.Time
+	if ts != "" {
+		if ms, err := strconv.ParseInt(ts, 10, 64); err == nil && ms > 0 {
+			if ms < 1e12 {
+				next = time.Unix(ms, 0).UTC()
+			} else {
+				next = time.UnixMilli(ms).UTC()
+			}
+		}
+	}
+	if next.IsZero() {
+		next = bitgetEstimateNextFundingUTC8h(time.Now().UTC())
+	}
+	return &FundingInfo{
+		Symbol:          symbol,
+		Rate:            rate,
+		NextFundingTime: next,
+		MarkPrice:       mark,
+		IndexPrice:      idx,
+	}, nil
+}
+
 // GetSpotPrice 獲取現貨市场價格
 func (b *BitgetAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	// 轉换為 Bitget 現貨格式: BTCUSDT -> BTCUSDT
