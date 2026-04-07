@@ -157,8 +157,20 @@
         "title": "资金费率套利",
         "desc": "现货多 + 永续空，在资金费率为正时收取资金费；非无风险，存在基差与手续费。",
         "scene": "当前版本仅币安；需 API 同时具备现货与 U 本位合约权限。"
+      },
+      "funding_perp": {
+        "title": "双永续跨所资金费",
+        "desc": "两所各一张 U 本位永续，一多一空，赚取资金费率差；需两地分别备保证金，不含跨所划转。",
+        "scene": "适合已开通多交易所合约 API 的用户。"
       }
     },
+    "perpSpreadLegA": "腿 A（主显示/价格参考）",
+    "perpSpreadLegB": "腿 B",
+    "perpSpreadLegHint": "符号格式须与各所适配器一致（如 BTCUSDT 与 BTC-USDT-SWAP）。两腿不可完全相同。",
+    "perpSpreadRiskHint": "非纯资金费收益：仍存在基差、手续费与强平风险；请设置阈值并预留保证金。",
+    "perpSpreadMinSpread": "最小资金费率差（开仓）",
+    "perpSpreadExitSpread": "退出资金费率差（平仓）",
+    "perpSpreadMaxBasis": "最大基差（%）",
     "marketTypeFundingCarry": "资金费套利（现货+永续）",
     "fundingMarketLockedHint": "资金费套利同时使用现货与合约，市场类型固定。",
     "fundingRiskHint": "该模式并非无风险。请关注资金费率、期现基差、手续费及合约最小名义（币安约每腿 100 USDT）。",
