@@ -3127,8 +3127,9 @@
   },
   "botRiskControl": {
     "title": "Bot Risk Control",
+    "globalMarketRiskHint": "Configure exchange-wide K-line and order-book depth risk under <configLink>Settings</configLink> → Market Risk. The switch and fields below apply only to this bot (independent risk).",
     "enabled": "Enable Bot-specific risk control",
-    "enabledDesc": "Set separate risk rules for this bot, overriding global config",
+    "enabledDesc": "When on, limits below apply to this bot only; this is separate from global Market Risk (K-line / depth).",
     "positionLimits": "Position Limits",
     "maxPositionQty": "Max Position Qty",
     "maxPositionQtyDesc": "Limit by asset quantity (e.g. max 4 PAXG)",

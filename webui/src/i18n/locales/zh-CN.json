@@ -3128,8 +3128,9 @@
   },
   "botRiskControl": {
     "title": "Bot 风控",
+    "globalMarketRiskHint": "全市场 K 线异常、订单簿深度等请在 <configLink>全局设置</configLink> 的「市场风控」中配置。本页开关与下方参数仅作用于当前 Bot（独立风控）。",
     "enabled": "启用 Bot 独立风控",
-    "enabledDesc": "为该 Bot 设置单独的风控规则，可覆盖全局配置",
+    "enabledDesc": "开启后仅约束本 Bot 的仓位与网格规则；与全局「市场风控」中的 K 线/深度不是同一套配置。",
     "positionLimits": "仓位限制",
     "maxPositionQty": "最大持仓数量",
     "maxPositionQtyDesc": "按币种数量限制（如：最多持有 4 个 PAXG）",

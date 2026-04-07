@@ -13,3 +13,14 @@ describe('configuration.singleBotGlobalHint', () => {
     }
   })
 })
+
+describe('botRiskControl.globalMarketRiskHint', () => {
+  it('includes configLink placeholder for Trans in primary locales', () => {
+    for (const bundle of [enUS, zhCN, zhTW]) {
+      const hint = bundle.botRiskControl.globalMarketRiskHint
+      expect(hint).toBeDefined()
+      expect(hint).toContain('<configLink>')
+      expect(hint).toContain('</configLink>')
+    }
+  })
+})
