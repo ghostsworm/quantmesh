@@ -268,6 +268,7 @@ const Statistics: React.FC = () => {
                 <option value={7}>{t('statistics.last7d')}</option>
                 <option value={30}>{t('statistics.last30d')}</option>
                 <option value={90}>{t('statistics.last90d')}</option>
+                <option value={365}>{t('statistics.last365d')}</option>
               </select>
             </label>
           </div>
