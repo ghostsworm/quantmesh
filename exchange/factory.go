@@ -77,6 +77,9 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 	if marketType == config.MarketTypeFundingCarry {
 		marketType = "futures"
 	}
+	if marketType == config.MarketTypeFundingPerpSpread {
+		marketType = "futures"
+	}
 	supportedSpotExchanges := map[string]bool{
 		"binance": true, "bitget": true, "gate": true, "okx": true, "bybit": true,
 		"bitkub": true, "coinsph": true,

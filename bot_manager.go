@@ -69,38 +69,23 @@ func symbolKey(exchange, symbol, marketType string) string {
 	return strings.ToLower(fmt.Sprintf("%s:%s:%s", exchange, symbol, marketType))
 }
 
-// findConflictingBot 檢查是否已有同一交易所+交易對+市場類型的 Bot 在運行
-// 同交易所同幣同市場類型的多個 Bot 會共享交易所的同一個倉位，
-// 導致倉位重複認領、訂單互相干擾、對賬互相覆蓋等嚴重問題。
-func (bm *BotManager) findConflictingBot(exchange, symbol, marketType string) *BotRuntime {
+// findConflictingRuntime 檢查是否已有與待啟動 Bot 衝突的運行中實例（期現套利規則 + 期貨腿重疊）
+func (bm *BotManager) findConflictingRuntime(newBot *config.BotConfig) *BotRuntime {
 	bm.runtimesMu.RLock()
 	defer bm.runtimesMu.RUnlock()
-	return bm.findConflictingBotLocked(exchange, symbol, marketType)
+	return bm.findConflictingRuntimeUnlocked(newBot)
 }
 
-func (bm *BotManager) findConflictingBotLocked(exchange, symbol, marketType string) *BotRuntime {
+func (bm *BotManager) findConflictingRuntimeUnlocked(newBot *config.BotConfig) *BotRuntime {
 	for _, br := range bm.runtimes {
-		if botRuntimeSymbolConflict(br, exchange, symbol, marketType) {
+		if br == nil {
+			continue
+		}
+		if config.BotsConflict(&br.Config, newBot) {
 			return br
 		}
 	}
 	return nil
-}
-
-// botRuntimeSymbolConflict 運行中衝突：同交易所同幣下，funding_carry 與任意 spot/futures 互斥；
-// 非 funding 時仍按原規則僅同 market_type 衝突。
-func botRuntimeSymbolConflict(br *BotRuntime, exchange, symbol, newMarketType string) bool {
-	if br == nil {
-		return false
-	}
-	if !strings.EqualFold(br.Config.Exchange, exchange) || !strings.EqualFold(br.Config.Symbol, symbol) {
-		return false
-	}
-	oldMT := br.Config.GetMarketType()
-	if oldMT == config.MarketTypeFundingCarry || newMarketType == config.MarketTypeFundingCarry {
-		return true
-	}
-	return strings.EqualFold(oldMT, newMarketType)
 }
 
 func (bm *BotManager) recordStartFailure(botID string, err error) {
@@ -145,10 +130,8 @@ func (bm *BotManager) GetLastStartFailure(botID string) (message string, failedA
 
 // StartBot 啟動指定 Bot
 func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
-	botID := botCfg.ID
-	if botID == "" {
-		botID = config.GenerateBotID(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType())
-	}
+	botID := config.BotIDOrGenerate(botCfg)
+	botCfg.ID = botID
 	bm.clearStartFailure(botID)
 	bm.runtimesMu.RLock()
 	_, exists := bm.runtimes[botID]
@@ -160,13 +143,11 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 	// 🔒 衝突檢測：阻止同一交易所+交易對+市場類型啟動多個 Bot
 	// 原因：交易所倉位按 Symbol 隔離，多個 Bot 無法區分誰擁有哪部分倉位，
 	// 會導致倉位重複認領、訂單互撞、對賬覆蓋等問題。
-	if conflict := bm.findConflictingBot(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType()); conflict != nil {
-		logger.Warn("🚫 [%s] 跳過啟動：同一交易對 %s:%s(%s) 已有 Bot [%s] 在運行。"+
-			"交易所倉位按幣種隔離，多個 Bot 共享同一倉位會導致互相衝突。"+
+	if conflict := bm.findConflictingRuntime(&botCfg); conflict != nil {
+		logger.Warn("🚫 [%s] 跳過啟動：與運行中 Bot [%s] 衝突（期貨腿或資金費套利互斥規則）。"+
 			"如需多策略，請在同一 Bot 內配置多個 strategies。",
-			botID, botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
-		err := fmt.Errorf("symbol_conflict: %s:%s(%s) 已有 Bot [%s] 在運行",
-			botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
+			botID, conflict.BotID)
+		err := fmt.Errorf("symbol_conflict: 與 Bot [%s] 衝突", conflict.BotID)
 		bm.recordStartFailure(botID, err)
 		return nil, err
 	}
@@ -224,13 +205,12 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 		}
 		return nil, nil
 	}
-	if conflict := bm.findConflictingBotLocked(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType()); conflict != nil {
+	if conflict := bm.findConflictingRuntimeUnlocked(&botCfg); conflict != nil {
 		bm.runtimesMu.Unlock()
 		if rt != nil && rt.Stop != nil {
 			rt.Stop()
 		}
-		err := fmt.Errorf("symbol_conflict: %s:%s(%s) 已有 Bot [%s] 在運行",
-			botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType(), conflict.BotID)
+		err := fmt.Errorf("symbol_conflict: 與 Bot [%s] 衝突", conflict.BotID)
 		bm.recordStartFailure(botID, err)
 		return nil, err
 	}

@@ -148,6 +148,9 @@ type CreateBotRequest struct {
 
 	// 三級火箭網格
 	RocketTieredGrid *config.RocketTieredGridConfig `json:"rocket_tiered_grid,omitempty"`
+
+	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
+	FundingPerpSpread *config.FundingPerpSpreadConfig `json:"funding_perp_spread,omitempty"`
 }
 
 // buildGridRiskControlFromRequest 從創建請求構建 GridRiskControl
@@ -205,16 +208,24 @@ func postBotCreate(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
 		return
 	}
-	if req.Exchange == "" || req.Symbol == "" {
-		respondError(c, http.StatusBadRequest, "error.invalid_bot_config")
-		return
-	}
 	mt := req.MarketType
 	if mt == "" {
 		mt = "futures"
 	}
 	if !config.ValidMarketType(mt) {
 		respondError(c, http.StatusBadRequest, "error.invalid_market_type")
+		return
+	}
+	if mt == config.MarketTypeFundingPerpSpread && req.FundingPerpSpread != nil {
+		if req.Exchange == "" {
+			req.Exchange = strings.TrimSpace(req.FundingPerpSpread.LegA.Exchange)
+		}
+		if req.Symbol == "" {
+			req.Symbol = strings.TrimSpace(req.FundingPerpSpread.LegA.Symbol)
+		}
+	}
+	if req.Exchange == "" || req.Symbol == "" {
+		respondError(c, http.StatusBadRequest, "error.invalid_bot_config")
 		return
 	}
 
@@ -234,6 +245,29 @@ func postBotCreate(c *gin.Context) {
 			})
 			return
 		}
+	}
+	if mt == config.MarketTypeFundingPerpSpread {
+		if err := config.ValidateFundingPerpSpread(req.FundingPerpSpread); err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_bot_config", err)
+			return
+		}
+		if len(req.Strategies) != 1 || req.Strategies[0].Type != "funding_perp_spread" {
+			lang := GetLanguage(c)
+			msg := qmi18n.TWithLang(lang, "error.funding_perp_spread_single_strategy", nil)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":     msg,
+				"error_key": "error.funding_perp_spread_single_strategy",
+			})
+			return
+		}
+	}
+
+	candidate := config.BotConfig{
+		Exchange:          req.Exchange,
+		Symbol:            req.Symbol,
+		MarketType:        mt,
+		FundingPerpSpread: req.FundingPerpSpread,
+		Strategies:        req.Strategies,
 	}
 
 	// 1. 檢查對沖組占用：若該交易對已被對沖組占用，拒絕
@@ -257,18 +291,15 @@ func postBotCreate(c *gin.Context) {
 		}
 	}
 
-	// 1b. funding_carry 與同幣種任意其它 Bot 配置互斥（保留同幣種多個 futures/spot UUID 配置的既有語義）
-	for _, b := range cfg.Bots {
+	// 1b. 期貨腿 / 資金費套利互斥（含雙永续兩腿）
+	for i := range cfg.Bots {
+		b := &cfg.Bots[i]
 		id := b.ID
 		if id == "" {
-			id = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
+			id = config.BotIDOrGenerate(*b)
 		}
-		if !strings.EqualFold(b.Exchange, req.Exchange) || !strings.EqualFold(b.Symbol, req.Symbol) {
-			continue
-		}
-		oldMT := b.GetMarketType()
-		if oldMT == config.MarketTypeFundingCarry || mt == config.MarketTypeFundingCarry {
-			logger.Warn("⚠️ [Bot創建] 與既有 Bot [%s] 衝突（資金費套利與同幣種其它 Bot 互斥）", id)
+		if config.BotsConflict(b, &candidate) {
+			logger.Warn("⚠️ [Bot創建] 與既有 Bot [%s] 配置衝突", id)
 			c.JSON(http.StatusConflict, gin.H{
 				"error":     "symbol_market_conflict",
 				"error_key": "error.bot_symbol_market_conflict",
@@ -278,22 +309,35 @@ func postBotCreate(c *gin.Context) {
 		}
 	}
 
-	// 2. 檢查運行中衝突：若同一交易對已有 Bot 在運行，拒絕（同一交易對只能有一個運行）
+	// 2. 檢查運行中衝突
 	if botManagerProvider != nil {
 		for _, resp := range botManagerProvider.ListBots() {
 			if !resp.Running {
 				continue
 			}
-			if !config.BotsSameSymbolMarketConflict(resp.Exchange, resp.Symbol, resp.MarketType, req.Exchange, req.Symbol, mt) {
+			var running *config.BotConfig
+			for i := range cfg.Bots {
+				id := cfg.Bots[i].ID
+				if id == "" {
+					id = config.BotIDOrGenerate(cfg.Bots[i])
+				}
+				if id == resp.BotID {
+					running = &cfg.Bots[i]
+					break
+				}
+			}
+			if running == nil {
 				continue
 			}
-			logger.Warn("⚠️ [Bot創建] 衝突：%s 已有 Bot [%s] 在運行，請先停止或刪除", symbolKey, resp.BotID)
-			c.JSON(http.StatusConflict, gin.H{
-				"error":     "symbol_running",
-				"error_key": "error.bot_symbol_running",
-				"bot_id":    resp.BotID,
-			})
-			return
+			if config.BotsConflict(running, &candidate) {
+				logger.Warn("⚠️ [Bot創建] 與運行中 Bot [%s] 衝突", resp.BotID)
+				c.JSON(http.StatusConflict, gin.H{
+					"error":     "symbol_running",
+					"error_key": "error.bot_symbol_running",
+					"bot_id":    resp.BotID,
+				})
+				return
+			}
 		}
 	}
 
@@ -308,6 +352,8 @@ func postBotCreate(c *gin.Context) {
 			name = req.Symbol + " (spot)"
 		case config.MarketTypeFundingCarry:
 			name = req.Symbol + " (funding_carry)"
+		case config.MarketTypeFundingPerpSpread:
+			name = req.Symbol + " (funding_perp_spread)"
 		default:
 			name = req.Symbol + " (futures)"
 		}
@@ -346,6 +392,7 @@ func postBotCreate(c *gin.Context) {
 		AutoRebuild:           buildGridAutoRebuildFromRequest(req),
 		SmartOrder:            buildSmartOrderFromRequest(req),
 		RocketTieredGrid:      req.RocketTieredGrid,
+		FundingPerpSpread:     req.FundingPerpSpread,
 	}
 	if bc.ReconcileInterval <= 0 {
 		bc.ReconcileInterval = 60
@@ -372,6 +419,8 @@ func postBotCreate(c *gin.Context) {
 	if len(bc.Strategies) == 0 {
 		if mt == config.MarketTypeFundingCarry {
 			bc.Strategies = []config.StrategyInstance{{Type: "funding_carry", Weight: 1.0, Config: map[string]interface{}{}}}
+		} else if mt == config.MarketTypeFundingPerpSpread {
+			bc.Strategies = []config.StrategyInstance{{Type: "funding_perp_spread", Weight: 1.0, Config: map[string]interface{}{}}}
 		} else {
 			bc.Strategies = []config.StrategyInstance{{Type: "grid", Weight: 1.0, Config: map[string]interface{}{}}}
 		}

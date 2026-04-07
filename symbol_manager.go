@@ -225,6 +225,9 @@ func startSymbolRuntime(
 	if symCfg.GetMarketType() == config.MarketTypeFundingCarry {
 		return startFundingCarrySymbolRuntime(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop)
 	}
+	if symCfg.GetMarketType() == config.MarketTypeFundingPerpSpread {
+		return startFundingPerpSpreadSymbolRuntime(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop)
+	}
 
 	// 獲取交易手续费率（在创建交易所实例之前）
 	configFeeRate := baseCfg.Exchanges[symCfg.Exchange].FeeRate
