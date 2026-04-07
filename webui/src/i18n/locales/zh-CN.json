@@ -2420,7 +2420,14 @@
     "diagnosisDiscrepancy": "差异",
     "diagnosisOrdersWithPnL": "有 realized_pnl 的订单数",
     "diagnosisSellOrdersMissingPnL": "卖单缺少 PnL 数",
-    "diagnosisNoData": "暂无诊断数据"
+    "diagnosisNoData": "暂无诊断数据",
+    "dailyEquityCurveTitle": "按日累计净值曲线",
+    "dailyEquityCurveRange": "范围",
+    "dailyEquityCurveHint": "蓝线为后端返回的「累计盈亏」；橙柱为当日「盈亏 + 资金费」，便于发现表格里绿字为正但资金费拖累净结果的情况。",
+    "dailyEquityCurveEmpty": "暂无数据，请先产生交易统计",
+    "dailyEquityCurveSeriesCumulative": "累计盈亏（曲线）",
+    "dailyEquityCurveSeriesDailyNet": "当日综合（盈亏+资金费）",
+    "dailyStatsRangeHint": "与上图同一日期范围"
   },
   "dailyBreakdown": {
     "title": "日盈亏拆解",
