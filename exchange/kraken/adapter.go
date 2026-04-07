@@ -411,6 +411,40 @@ func (a *Adapter) GetQuoteAsset() string {
 	return a.quoteAsset
 }
 
+// FundingInfo 資金費率詳情（供 exchange wrapper 轉換）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+// nextKrakenFundingUTC 與 exchange.EstimateNextFundingKrakenHourlyUTC 同邏輯（kraken 包不可 import exchange）
+func nextKrakenFundingUTC(now time.Time) time.Time {
+	now = now.UTC()
+	return time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, time.UTC).Add(time.Hour)
+}
+
+// GetFundingInfo 從 tickers 取費率與標記/指數價；下次結算時間 REST 無欄位，按每小時 UTC 整點對齊
+func (a *Adapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	t, err := a.client.GetPerpetualTicker(ctx, a.symbol)
+	if err != nil {
+		return nil, err
+	}
+	out := strings.TrimSpace(symbol)
+	if out == "" {
+		out = fmt.Sprintf("%s-USDT", a.baseAsset)
+	}
+	return &FundingInfo{
+		Symbol:          out,
+		Rate:            t.FundingRate,
+		NextFundingTime: nextKrakenFundingUTC(time.Now().UTC()),
+		MarkPrice:       t.MarkPrice,
+		IndexPrice:      t.IndexPrice,
+	}, nil
+}
+
 // GetFundingRate 獲取资金费率
 func (a *Adapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	return a.client.GetFundingRate(ctx, a.symbol)

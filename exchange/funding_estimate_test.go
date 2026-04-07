@@ -17,3 +17,11 @@ func TestEstimateNextFundingUTC8h(t *testing.T) {
 		t.Fatalf("want 16:00, got %v", next)
 	}
 }
+
+func TestEstimateNextFundingKrakenHourlyUTC(t *testing.T) {
+	now := time.Date(2026, 4, 8, 10, 30, 0, 0, time.UTC)
+	next := EstimateNextFundingKrakenHourlyUTC(now)
+	if next.Hour() != 11 || next.Minute() != 0 {
+		t.Fatalf("want 11:00 UTC, got %v", next)
+	}
+}

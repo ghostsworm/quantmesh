@@ -21,6 +21,13 @@ func EstimateNextFundingUTC8h(now time.Time) time.Time {
 	}
 }
 
+// EstimateNextFundingKrakenHourlyUTC 下一個整點 UTC。Kraken 永续資金費為每小時整點（與 historical-funding-rates 時間戳一致）；
+// REST /tickers 不提供下次結算欄位時用此對齊。
+func EstimateNextFundingKrakenHourlyUTC(now time.Time) time.Time {
+	now = now.UTC()
+	return time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, time.UTC).Add(time.Hour)
+}
+
 // FundingInfoFromRateEstimate 使用當前費率與標記/指數價，並以 UTC 8h 估算下次結算時間。
 func FundingInfoFromRateEstimate(symbol string, rate, markPrice, indexPrice float64) *FundingInfo {
 	return &FundingInfo{

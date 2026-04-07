@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.83.0-rc2] - 2026-04-08
+
+### Added
+- **Kraken GetFundingInfo**：`GetPerpetualTicker` 取費率與標記/指數價；下次結算 REST 無欄位，按每整點 UTC（與官方 hourly historical funding 一致），並在 `exchange` 增加 `EstimateNextFundingKrakenHourlyUTC` 供共用說明與單測。
+- **WhiteBIT GetFundingInfo**：`GetFuturesMarketByTicker` 讀取 `next_funding_rate_timestamp`、`funding_rate`、`index_price` / `last_price`；解析失敗時回退原 `GetFundingRate` + 8h 估算。
+
+---
+
 ## [3.83.0-rc1] - 2026-04-08
 
 ### Added
