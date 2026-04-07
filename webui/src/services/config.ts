@@ -281,6 +281,14 @@ export interface Config {
     average_window: number
     recovery_threshold: number
     max_leverage: number
+    depth_monitor?: {
+      enabled: boolean
+      check_interval: number
+      depth_levels: number
+      drop_threshold: number
+      recovery_threshold: number
+      min_depth_usdt: number
+    }
   }
   timing: {
     websocket_reconnect_delay: number
