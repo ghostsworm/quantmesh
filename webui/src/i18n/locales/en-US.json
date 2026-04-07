@@ -157,8 +157,20 @@
         "title": "Funding Rate Carry",
         "desc": "Spot long + perpetual short to collect positive funding when rate is high. Not risk-free; basis and fees apply.",
         "scene": "Binance only in this version; requires spot + futures API access."
+      },
+      "funding_perp": {
+        "title": "Cross-Exchange Perp Funding Spread",
+        "desc": "Long and short USDT perps on two exchanges to capture funding spread; fund both sides separately; no auto transfer.",
+        "scene": "For users with futures API keys on multiple exchanges."
       }
     },
+    "perpSpreadLegA": "Leg A (primary / price reference)",
+    "perpSpreadLegB": "Leg B",
+    "perpSpreadLegHint": "Use each exchange’s symbol format (e.g. BTCUSDT vs BTC-USDT-SWAP). Legs must not be identical.",
+    "perpSpreadRiskHint": "Not pure funding PnL: basis, fees, and liquidation still apply; set thresholds and margin.",
+    "perpSpreadMinSpread": "Min funding spread (open)",
+    "perpSpreadExitSpread": "Exit funding spread (close)",
+    "perpSpreadMaxBasis": "Max basis (%)",
     "marketTypeFundingCarry": "Funding carry (spot + perp)",
     "fundingMarketLockedHint": "Funding carry uses both spot and futures; market type is fixed.",
     "fundingRiskHint": "This mode is not risk-free. Check funding rate, basis, fees, and minimum notional (~100 USDT per leg on Binance).",

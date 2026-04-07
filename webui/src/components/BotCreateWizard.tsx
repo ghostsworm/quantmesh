@@ -83,10 +83,16 @@ const BotCreateWizard: React.FC = () => {
   const [hedgeRebalanceInterval, setHedgeRebalanceInterval] = useState<number | string>(3600)
   const [strategyParams, setStrategyParams] = useState<Record<string, Record<string, unknown>>>({})
 
+  /** 雙永续跨所：兩腿交易所+合約符號 */
+  const [perpLegA, setPerpLegA] = useState({ exchange: 'binance', symbol: '' })
+  const [perpLegB, setPerpLegB] = useState({ exchange: 'okx', symbol: '' })
+  const [symbolsLegA, setSymbolsLegA] = useState<string[]>([])
+  const [symbolsLegB, setSymbolsLegB] = useState<string[]>([])
+
   const [form, setForm] = useState<{
     exchange: string
     symbol: string
-    market_type: 'spot' | 'futures' | 'funding_carry'
+    market_type: 'spot' | 'futures' | 'funding_carry' | 'funding_perp_spread'
     name: string
     price_interval: number | string
     profit_spread: number | string
@@ -229,7 +235,32 @@ const BotCreateWizard: React.FC = () => {
   }, [strategyType])
 
   useEffect(() => {
+    if (strategyType === 'funding_perp') {
+      setSelectedSingle('funding_perp_spread')
+      setStrategyParams((p) => ({
+        ...p,
+        funding_perp_spread: p.funding_perp_spread ?? {
+          min_funding_spread: 0.0001,
+          exit_funding_spread: 0.00005,
+          max_basis_pct: 1.0,
+        },
+      }))
+    }
+  }, [strategyType])
+
+  useEffect(() => {
+    if (strategyType !== 'funding_perp') return
+    setForm((f) => ({
+      ...f,
+      market_type: 'funding_perp_spread',
+      exchange: perpLegA.exchange,
+      symbol: perpLegA.symbol,
+    }))
+  }, [strategyType, perpLegA.exchange, perpLegA.symbol])
+
+  useEffect(() => {
     if (!form.exchange || !config?.exchanges) return
+    if (strategyType === 'funding_perp') return
     const exCfg = getExchangeConfigRow(config, form.exchange)
     if (!exCfg?.api_key || !exCfg?.secret_key) {
       setSymbols([])
@@ -257,9 +288,56 @@ const BotCreateWizard: React.FC = () => {
       }
     }
     load()
-  }, [form.exchange, form.market_type, config?.exchanges])
+  }, [form.exchange, form.market_type, strategyType, config?.exchanges])
 
   useEffect(() => {
+    if (strategyType !== 'funding_perp' || !config?.exchanges) return
+    const loadLeg = async (exchange: string, setSyms: (s: string[]) => void) => {
+      const exCfg = getExchangeConfigRow(config, exchange)
+      if (!exCfg?.api_key || !exCfg?.secret_key) {
+        setSyms([])
+        return
+      }
+      try {
+        const res = await getExchangeSymbols({
+          exchange,
+          api_key: String(exCfg.api_key),
+          secret_key: String(exCfg.secret_key),
+          passphrase: String(exCfg.passphrase || ''),
+          market_type: 'futures',
+        })
+        setSyms(res.symbols || [])
+      } catch (e) {
+        console.error('[BotCreate] perp leg symbols failed:', e)
+        setSyms([])
+      }
+    }
+    void loadLeg(perpLegA.exchange, setSymbolsLegA)
+    void loadLeg(perpLegB.exchange, setSymbolsLegB)
+  }, [strategyType, perpLegA.exchange, perpLegB.exchange, config?.exchanges])
+
+  useEffect(() => {
+    if (strategyType === 'funding_perp') {
+      if (!perpLegA.exchange || !perpLegA.symbol) {
+        setMarketTicker(null)
+        return
+      }
+      const load = async () => {
+        try {
+          const res = await getMarketTicker(perpLegA.exchange, perpLegA.symbol, 'futures')
+          setMarketTicker({
+            mark_price: res.mark_price,
+            last_price: res.last_price,
+            high_24h: res.high_24h,
+            low_24h: res.low_24h,
+          })
+        } catch {
+          setMarketTicker(null)
+        }
+      }
+      void load()
+      return
+    }
     if (!form.exchange || !form.symbol) {
       setMarketTicker(null)
       return
@@ -278,11 +356,12 @@ const BotCreateWizard: React.FC = () => {
         setMarketTicker(null)
       }
     }
-    load()
-  }, [form.exchange, form.symbol, form.market_type])
+    void load()
+  }, [strategyType, perpLegA.exchange, perpLegA.symbol, form.exchange, form.symbol, form.market_type])
 
   const getStrategyIds = (): string[] => {
     if (strategyType === 'funding') return ['funding_carry']
+    if (strategyType === 'funding_perp') return ['funding_perp_spread']
     if (strategyType === 'single' && selectedSingle) return [selectedSingle]
     if (strategyType === 'combo' && selectedCombo.length > 0) return selectedCombo
     if (strategyType === 'hedge') {
@@ -327,7 +406,12 @@ const BotCreateWizard: React.FC = () => {
   }
 
   const handleSubmit = async () => {
-    if (!form.exchange || !form.symbol) {
+    if (strategyType === 'funding_perp') {
+      if (!legsDistinct) {
+        toast({ title: t('botCreate.fillRequired'), status: 'error', duration: 3000 })
+        return
+      }
+    } else if (!form.exchange || !form.symbol) {
       toast({ title: t('botCreate.fillRequired'), status: 'error', duration: 3000 })
       return
     }
@@ -345,7 +429,9 @@ const BotCreateWizard: React.FC = () => {
         market_type: form.market_type,
         name: form.name?.trim() || undefined,
         total_allocated_capital:
-          strategyType === 'funding' ? toNum(form.order_quantity, 300) : undefined,
+          strategyType === 'funding' || strategyType === 'funding_perp'
+            ? toNum(form.order_quantity, 300)
+            : undefined,
         price_interval: toNum(form.price_interval, 2),
         profit_spread: toNum(form.profit_spread, 0),
         order_quantity: toNum(form.order_quantity, 30),
@@ -407,6 +493,41 @@ const BotCreateWizard: React.FC = () => {
         })
         toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
         navigate('/bots')
+      } else if (strategyType === 'funding_perp') {
+        const sp = strategyParams.funding_perp_spread || {}
+        const minS = (sp.min_funding_spread as number) ?? 0.0001
+        const exitS = (sp.exit_funding_spread as number) ?? 0.00005
+        const maxB = (sp.max_basis_pct as number) ?? 1.0
+        const res = await createBot({
+          exchange: perpLegA.exchange.trim(),
+          symbol: perpLegA.symbol.trim(),
+          market_type: 'funding_perp_spread',
+          name: form.name?.trim() || undefined,
+          total_allocated_capital: toNum(form.order_quantity, 400),
+          order_quantity: toNum(form.order_quantity, 400),
+          price_interval: 0,
+          profit_spread: 0,
+          buy_window_size: 0,
+          sell_window_size: 0,
+          direction: 'LONG',
+          strategies: [
+            {
+              type: 'funding_perp_spread',
+              weight: 1,
+              config: normalizeConfigForApi((strategyParams.funding_perp_spread || {}) as Record<string, unknown>),
+            },
+          ],
+          funding_perp_spread: {
+            leg_a: { exchange: perpLegA.exchange.trim(), symbol: perpLegA.symbol.trim() },
+            leg_b: { exchange: perpLegB.exchange.trim(), symbol: perpLegB.symbol.trim() },
+            min_funding_spread: minS,
+            exit_funding_spread: exitS,
+            max_basis_pct: maxB,
+          },
+        })
+        toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
+        if (res?.bot_id) navigate(`/bots/${res.bot_id}`)
+        else navigate('/bots')
       } else {
         const res = await createBot(baseReq)
         toast({ title: t('botCreate.success'), status: 'success', duration: 2000 })
@@ -428,10 +549,21 @@ const BotCreateWizard: React.FC = () => {
   const canProceedStep0 = strategyType !== null
   const canProceedStep1 =
     strategyType === 'funding' ||
+    strategyType === 'funding_perp' ||
     (strategyType === 'single' && selectedSingle) ||
     (strategyType === 'combo' && selectedCombo.length > 0) ||
     (strategyType === 'hedge' && hedgePrimary && hedgeSecondary)
-  const canProceedStep2 = form.exchange && form.symbol
+  const legsDistinct =
+    perpLegA.exchange &&
+    perpLegA.symbol &&
+    perpLegB.exchange &&
+    perpLegB.symbol &&
+    (perpLegA.exchange.trim().toLowerCase() !== perpLegB.exchange.trim().toLowerCase() ||
+      perpLegA.symbol.trim().toLowerCase() !== perpLegB.symbol.trim().toLowerCase())
+  const canProceedStep2 =
+    strategyType === 'funding_perp'
+      ? Boolean(legsDistinct)
+      : Boolean(form.exchange && form.symbol)
 
   if (loading) {
     return (
@@ -503,7 +635,14 @@ const BotCreateWizard: React.FC = () => {
             </Box>
           )}
 
-          {step === 1 && strategyType !== 'funding' && (
+          {step === 1 && strategyType === 'funding_perp' && (
+            <Box p={4} borderRadius="md" bg="purple.50" borderWidth={1} borderColor="purple.100">
+              <Text fontWeight="medium" mb={2}>{t('botCreate.strategyType.funding_perp.title')}</Text>
+              <Text fontSize="sm" color="gray.700">{t('botCreate.strategyType.funding_perp.desc')}</Text>
+            </Box>
+          )}
+
+          {step === 1 && strategyType !== 'funding' && strategyType !== 'funding_perp' && (
             <StrategyPicker
               strategyType={strategyType!}
               selectedSingle={selectedSingle}
@@ -525,7 +664,97 @@ const BotCreateWizard: React.FC = () => {
             />
           )}
 
-          {step === 2 && (
+          {step === 2 && strategyType === 'funding_perp' && (
+            <VStack spacing={4} align="stretch">
+              <Text fontSize="sm" color="gray.600">{t('botCreate.perpSpreadLegHint')}</Text>
+              <Text fontWeight="semibold">{t('botCreate.perpSpreadLegA')}</Text>
+              <HStack align="flex-start" spacing={4} flexWrap="wrap">
+                <FormControl isRequired flex="1" minW="200px">
+                  <FormLabel>{t('configSetup.exchange')}</FormLabel>
+                  <Select
+                    value={perpLegA.exchange || ''}
+                    onChange={(e) =>
+                      setPerpLegA((l) => ({ ...l, exchange: e.target.value }))
+                    }
+                  >
+                    {exchanges.map((ex) => (
+                      <option key={ex} value={ex}>{ex.toUpperCase()}</option>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl isRequired flex="1" minW="200px">
+                  <FormLabel>{t('configSetup.symbol')}</FormLabel>
+                  <Select
+                    value={perpLegA.symbol || ''}
+                    onChange={(e) =>
+                      setPerpLegA((l) => ({ ...l, symbol: e.target.value }))
+                    }
+                    placeholder={t('botCreate.selectSymbol')}
+                  >
+                    {symbolsLegA.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </Select>
+                </FormControl>
+              </HStack>
+              <Text fontWeight="semibold">{t('botCreate.perpSpreadLegB')}</Text>
+              <HStack align="flex-start" spacing={4} flexWrap="wrap">
+                <FormControl isRequired flex="1" minW="200px">
+                  <FormLabel>{t('configSetup.exchange')}</FormLabel>
+                  <Select
+                    value={perpLegB.exchange || ''}
+                    onChange={(e) =>
+                      setPerpLegB((l) => ({ ...l, exchange: e.target.value }))
+                    }
+                  >
+                    {exchanges.map((ex) => (
+                      <option key={ex} value={ex}>{ex.toUpperCase()}</option>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl isRequired flex="1" minW="200px">
+                  <FormLabel>{t('configSetup.symbol')}</FormLabel>
+                  <Select
+                    value={perpLegB.symbol || ''}
+                    onChange={(e) =>
+                      setPerpLegB((l) => ({ ...l, symbol: e.target.value }))
+                    }
+                    placeholder={t('botCreate.selectSymbol')}
+                  >
+                    {symbolsLegB.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </Select>
+                </FormControl>
+              </HStack>
+              {!legsDistinct && perpLegA.symbol && perpLegB.symbol && (
+                <Alert status="warning" borderRadius="md">
+                  <AlertIcon />
+                  <AlertDescription>{t('botCreate.perpSpreadLegHint')}</AlertDescription>
+                </Alert>
+              )}
+              <FormControl>
+                <FormLabel>{t('botCreate.botName')}</FormLabel>
+                <Input
+                  value={form.name || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value.trim() }))}
+                  placeholder={t('botCreate.botNamePlaceholder')}
+                />
+              </FormControl>
+              {marketTicker && (
+                <Box p={3} bg="blue.50" borderRadius="md" fontSize="sm">
+                  <Text fontWeight="medium" mb={2}>{t('botCreate.marketData')} ({perpLegA.exchange} / {perpLegA.symbol})</Text>
+                  <HStack spacing={4} flexWrap="wrap">
+                    <Text><strong>{t('botCreate.markPrice')}:</strong> {marketTicker.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hHigh')}:</strong> {marketTicker.high_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hLow')}:</strong> {marketTicker.low_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                  </HStack>
+                </Box>
+              )}
+            </VStack>
+          )}
+
+          {step === 2 && strategyType !== 'funding_perp' && (
             <VStack spacing={4} align="stretch">
               <FormControl isRequired>
                 <FormLabel>{t('configSetup.exchange')}</FormLabel>
@@ -613,6 +842,86 @@ const BotCreateWizard: React.FC = () => {
             </VStack>
           )}
 
+          {step === 3 && strategyType === 'funding_perp' && (
+            <VStack spacing={4} align="stretch">
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <AlertDescription>{t('botCreate.perpSpreadRiskHint')}</AlertDescription>
+              </Alert>
+              {marketTicker && (
+                <Box p={3} bg="blue.50" borderRadius="md" fontSize="sm">
+                  <Text fontWeight="medium" mb={2}>{t('botCreate.marketData')}</Text>
+                  <HStack spacing={4} flexWrap="wrap">
+                    <Text><strong>{t('botCreate.markPrice')}:</strong> {marketTicker.mark_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hHigh')}:</strong> {marketTicker.high_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                    <Text><strong>{t('botCreate.last24hLow')}:</strong> {marketTicker.low_24h.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                  </HStack>
+                </Box>
+              )}
+              <FormControl isRequired>
+                <FormLabel>{t('botCreate.fundingAllocatedCapital')}</FormLabel>
+                <DecimalNumberInput
+                  value={form.order_quantity ?? 400}
+                  min={200}
+                  step={10}
+                  precision={2}
+                  onChange={(v) => setForm((f) => ({ ...f, order_quantity: v ?? 400 }))}
+                />
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botCreate.fundingAllocatedCapitalHint')}
+                </Text>
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('botCreate.perpSpreadMinSpread')}</FormLabel>
+                <DecimalNumberInput
+                  value={(strategyParams.funding_perp_spread?.min_funding_spread as number) ?? 0.0001}
+                  min={0.00001}
+                  max={0.01}
+                  step={0.0001}
+                  precision={6}
+                  onChange={(v) =>
+                    setStrategyParams((p) => ({
+                      ...p,
+                      funding_perp_spread: { ...p.funding_perp_spread, min_funding_spread: v ?? 0.0001 },
+                    }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('botCreate.perpSpreadExitSpread')}</FormLabel>
+                <DecimalNumberInput
+                  value={(strategyParams.funding_perp_spread?.exit_funding_spread as number) ?? 0.00005}
+                  min={0.00001}
+                  max={0.01}
+                  step={0.0001}
+                  precision={6}
+                  onChange={(v) =>
+                    setStrategyParams((p) => ({
+                      ...p,
+                      funding_perp_spread: { ...p.funding_perp_spread, exit_funding_spread: v ?? 0.00005 },
+                    }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('botCreate.perpSpreadMaxBasis')}</FormLabel>
+                <DecimalNumberInput
+                  value={(strategyParams.funding_perp_spread?.max_basis_pct as number) ?? 1.0}
+                  min={0.05}
+                  max={10}
+                  step={0.05}
+                  precision={2}
+                  onChange={(v) =>
+                    setStrategyParams((p) => ({
+                      ...p,
+                      funding_perp_spread: { ...p.funding_perp_spread, max_basis_pct: v ?? 1.0 },
+                    }))
+                  }
+                />
+              </FormControl>
+            </VStack>
+          )}
+
           {step === 3 && strategyType === 'funding' && (
             <VStack spacing={4} align="stretch">
               <Alert status="info" borderRadius="md">
@@ -693,7 +1002,7 @@ const BotCreateWizard: React.FC = () => {
             </VStack>
           )}
 
-          {step === 3 && strategyType !== 'funding' && (
+          {step === 3 && strategyType !== 'funding' && strategyType !== 'funding_perp' && (
             <VStack spacing={4} align="stretch">
               {marketTicker && (
                 <Box p={3} bg="blue.50" borderRadius="md" fontSize="sm">
@@ -928,11 +1237,23 @@ const BotCreateWizard: React.FC = () => {
               <Text>{t('botCreate.reviewDesc')}</Text>
               <Box bg="gray.50" p={4} borderRadius="md" fontSize="sm">
                 {form.name && <Text><strong>{t('botCreate.botName')}:</strong> {form.name}</Text>}
-                <Text><strong>{t('configSetup.exchange')}:</strong> {form.exchange}</Text>
-                <Text><strong>{t('configSetup.symbol')}:</strong> {form.symbol}</Text>
+                {strategyType === 'funding_perp' ? (
+                  <>
+                    <Text><strong>{t('botCreate.perpSpreadLegA')}:</strong> {perpLegA.exchange} / {perpLegA.symbol}</Text>
+                    <Text><strong>{t('botCreate.perpSpreadLegB')}:</strong> {perpLegB.exchange} / {perpLegB.symbol}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text><strong>{t('configSetup.exchange')}:</strong> {form.exchange}</Text>
+                    <Text><strong>{t('configSetup.symbol')}:</strong> {form.symbol}</Text>
+                  </>
+                )}
                 <Text><strong>{t('botCreate.strategyTypeLabel')}:</strong> {t(`botCreate.strategyType.${strategyType}.title`)}</Text>
                 {strategyType === 'funding' && (
                   <Text><strong>{t('botCreate.strategyLabel')}:</strong> {t('strategyNames.funding_carry', 'funding_carry')}</Text>
+                )}
+                {strategyType === 'funding_perp' && (
+                  <Text><strong>{t('botCreate.strategyLabel')}:</strong> {t('strategyNames.funding_perp_spread')}</Text>
                 )}
                 {strategyType === 'single' && selectedSingle && (
                   <Text><strong>{t('botCreate.strategyLabel')}:</strong> {t(`strategyNames.${selectedSingle}`, selectedSingle)}</Text>
@@ -973,7 +1294,7 @@ const BotCreateWizard: React.FC = () => {
                     <Text pl={2}><strong>{t('botCreate.hedgeRebalanceInterval')}:</strong> {hedgeRebalanceInterval} s</Text>
                   </Box>
                 )}
-                {strategyType !== 'funding' && (
+                {strategyType !== 'funding' && strategyType !== 'funding_perp' && (
                   <>
                     <Text mt={2}><strong>{t('botCreate.direction')}:</strong> {form.direction === 'LONG' ? t('botDetail.strategy.directionLong') : form.direction === 'SHORT' ? t('botDetail.strategy.directionShort') : t('botDetail.strategy.directionBoth')}</Text>
                     <Text><strong>{t('botCreate.priceInterval')}:</strong> {form.price_interval}</Text>
@@ -987,10 +1308,10 @@ const BotCreateWizard: React.FC = () => {
                     )}
                   </>
                 )}
-                {strategyType === 'funding' && (
+                {(strategyType === 'funding' || strategyType === 'funding_perp') && (
                   <Text><strong>{t('botCreate.fundingAllocatedCapital')}:</strong> {form.order_quantity}</Text>
                 )}
-                {strategyType !== 'funding' && (
+                {strategyType !== 'funding' && strategyType !== 'funding_perp' && (
                   <Text><strong>{t('botCreate.orderQuantity')}:</strong> {form.order_quantity}</Text>
                 )}
               </Box>

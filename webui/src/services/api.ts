@@ -181,7 +181,15 @@ export interface CreateBotRequest {
   name?: string
   exchange: string
   symbol: string
-  market_type?: 'spot' | 'futures' | 'funding_carry'
+  market_type?: 'spot' | 'futures' | 'funding_carry' | 'funding_perp_spread'
+  /** 雙永续跨所資金費差：兩腿與閾值（market_type=funding_perp_spread 時由前端填寫） */
+  funding_perp_spread?: {
+    leg_a: { exchange: string; symbol: string }
+    leg_b: { exchange: string; symbol: string }
+    min_funding_spread?: number
+    exit_funding_spread?: number
+    max_basis_pct?: number
+  }
   testnet?: boolean
   strategies?: Array<{ type: string; weight: number; config?: Record<string, unknown> }>
   total_allocated_capital?: number
