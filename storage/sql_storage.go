@@ -147,6 +147,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL system_metrics 表失败: %w", err)
 		}
+		if err := migrateBotRiskControlEventsMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL bot_risk_control_events 表失败: %w", err)
+		}
 	}
 
 	tradesTbl := "trades"
@@ -308,6 +312,18 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_risk_check_history_symbol ON risk_check_history(symbol);
 	CREATE INDEX IF NOT EXISTS idx_risk_check_history_time_symbol ON risk_check_history(check_time, symbol);`
 
+	// Bot 開倉風控暫停/恢復事件（持久化，供詳情頁查詢與導出）
+	botRiskControlEventsSQL := `
+	CREATE TABLE IF NOT EXISTS bot_risk_control_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		bot_id TEXT NOT NULL,
+		event_type TEXT NOT NULL,
+		reason TEXT DEFAULT '',
+		source TEXT DEFAULT '',
+		created_at TIMESTAMP NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_bot_rce_bot_time ON bot_risk_control_events(bot_id, created_at);`
+
 	// 资金费率表
 	fundingRatesSQL := `
 	CREATE TABLE IF NOT EXISTS funding_rates (
@@ -419,6 +435,7 @@ func createTables(db *sql.DB) error {
 		statisticsSQL,
 		reconciliationHistorySQL,
 		riskCheckHistorySQL,
+		botRiskControlEventsSQL,
 		fundingRatesSQL,
 		aiPromptsSQL,
 		basisDataSQL,
@@ -3094,6 +3111,71 @@ func (s *SQLStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty, to
 	return 0, 0, nil
 }
 
+// SaveBotRiskControlEvent 保存 Bot 開倉風控暫停/恢復事件
+func (s *SQLStorage) SaveBotRiskControlEvent(record *BotRiskControlEventRecord) error {
+	if record == nil || strings.TrimSpace(record.BotID) == "" {
+		return nil
+	}
+	et := strings.TrimSpace(record.EventType)
+	if et != "paused" && et != "resumed" {
+		return fmt.Errorf("invalid event_type: %s", record.EventType)
+	}
+	t := utils.ToUTC(record.CreatedAt)
+	if t.IsZero() {
+		t = time.Now().UTC()
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO bot_risk_control_events (bot_id, event_type, reason, source, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, record.BotID, et, record.Reason, record.Source, t)
+	return err
+}
+
+// QueryBotRiskControlEvents 按 Bot 查詢事件（新到舊）
+func (s *SQLStorage) QueryBotRiskControlEvents(botID string, limit, offset int) ([]*BotRiskControlEventRecord, error) {
+	if strings.TrimSpace(botID) == "" {
+		return nil, fmt.Errorf("bot_id required")
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.db.Query(`
+		SELECT id, bot_id, event_type, reason, source, created_at
+		FROM bot_risk_control_events
+		WHERE bot_id = ?
+		ORDER BY created_at DESC, id DESC
+		LIMIT ? OFFSET ?
+	`, botID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*BotRiskControlEventRecord
+	for rows.Next() {
+		var r BotRiskControlEventRecord
+		if err := rows.Scan(&r.ID, &r.BotID, &r.EventType, &r.Reason, &r.Source, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}
+
+// CountBotRiskControlEvents 統計某 Bot 事件總數
+func (s *SQLStorage) CountBotRiskControlEvents(botID string) (int64, error) {
+	if strings.TrimSpace(botID) == "" {
+		return 0, fmt.Errorf("bot_id required")
+	}
+	var n int64
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM bot_risk_control_events WHERE bot_id = ?
+	`, botID).Scan(&n)
+	return n, err
+}
+
 // SaveRiskCheck 保存风控检查記錄
 func (s *SQLStorage) SaveRiskCheck(record *RiskCheckRecord) error {
 	// 轉换為UTC時间存儲
@@ -4670,6 +4752,26 @@ CREATE TABLE IF NOT EXISTS daily_system_metrics (
 		return err
 	}
 	logger.Info("✅ MySQL system_metrics / daily_system_metrics 表已就緒")
+	return nil
+}
+
+// migrateBotRiskControlEventsMySQL 創建 Bot 開倉風控事件表（SQLite 在 createTables 中建表）
+func migrateBotRiskControlEventsMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS bot_risk_control_events (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  bot_id VARCHAR(128) NOT NULL,
+  event_type VARCHAR(32) NOT NULL,
+  reason TEXT,
+  source VARCHAR(64) DEFAULT '',
+  created_at DATETIME(3) NOT NULL,
+  KEY idx_bot_rce_bot_time (bot_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL bot_risk_control_events 表已就緒")
 	return nil
 }
 

@@ -70,6 +70,9 @@ type Storage interface {
 	SaveRiskCheck(record *RiskCheckRecord) error
 	QueryRiskCheckHistory(startTime, endTime time.Time, limit int, botID string) ([]*RiskCheckHistory, error)
 	CleanupRiskCheckHistory(beforeTime time.Time) error
+	SaveBotRiskControlEvent(record *BotRiskControlEventRecord) error
+	QueryBotRiskControlEvents(botID string, limit, offset int) ([]*BotRiskControlEventRecord, error)
+	CountBotRiskControlEvents(botID string) (int64, error)
 	SaveFundingRate(symbol, exchange string, rate float64, timestamp time.Time) error
 	GetLatestFundingRate(symbol, exchange string) (float64, error)
 	GetFundingRateHistory(symbol, exchange string, limit int) ([]*FundingRate, error)

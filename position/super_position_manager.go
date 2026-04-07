@@ -15,6 +15,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/logger"
+	"quantmesh/storage"
 	"quantmesh/utils"
 )
 
@@ -399,6 +400,8 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 	spm.openingPauseReason.Store(reason)
 	logger.Warn("⏸️ [%s] 開倉管理：已暫停開倉，原因: %s", spm.logPrefix(), reason)
 
+	storage.AppendBotRiskControlEvent(spm.botID, "paused", reason, "opening_manager")
+
 	// 撤銷所有開倉委託
 	spm.CancelAllOpenOrders()
 
@@ -469,6 +472,8 @@ func (spm *SuperPositionManager) ResumeOpening() {
 	spm.isOpeningPaused.Store(false)
 	spm.openingPauseReason.Store("")
 	logger.Info("▶️ [%s] 開倉管理：已恢復開倉", spm.logPrefix())
+
+	storage.AppendBotRiskControlEvent(spm.botID, "resumed", "", "opening_manager")
 }
 
 // IsOpeningPaused 是否已暫停開倉

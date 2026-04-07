@@ -3207,7 +3207,26 @@
       "circuit_breaker": "全局熔断，暂停开仓",
       "emergency_stop": "紧急停止",
       "emergency_pause": "紧急暂停"
-    }
+    },
+    "riskHistoryTitle": "风控记录",
+    "riskHistoryDesc": "记录本 Bot 暂停/恢复开仓的时刻与来源，数据持久保存在数据库中，可导出 CSV。",
+    "riskHistoryTime": "时间",
+    "riskHistoryEventType": "类型",
+    "riskHistoryReason": "原因",
+    "riskHistorySource": "来源",
+    "riskHistoryPaused": "暂停开仓",
+    "riskHistoryResumed": "恢复开仓",
+    "riskHistorySourceConfig": "配置/策略（含熔断、单腿、手动等）",
+    "riskHistorySourceOpening": "开仓控制器（限仓、定时、周期等）",
+    "riskHistorySourceAutoTimer": "自动恢复定时器",
+    "riskHistoryDownload": "下载 CSV",
+    "riskHistoryEmpty": "暂无记录。暂停或恢复开仓后，将在此出现条目。",
+    "riskHistoryPageInfo": "第 {{page}} / {{totalPage}} 页，共 {{total}} 条",
+    "riskHistoryPrev": "上一页",
+    "riskHistoryNext": "下一页",
+    "riskHistoryLoadFailed": "加载风控记录失败",
+    "riskHistoryDownloadOk": "已开始下载",
+    "riskHistoryDownloadFailed": "下载失败"
   },
   "optionHedge": {
     "title": "期权对冲",

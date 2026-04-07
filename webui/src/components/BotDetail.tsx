@@ -90,6 +90,7 @@ import { useConfig } from '../contexts/ConfigContext'
 import { formatTime as formatTimeUtil } from '../utils/dateFormat'
 import { buildBacktestUrl } from '../utils/backtestUrl'
 import BotRiskControlPanel from './BotRiskControlPanel'
+import BotRiskControlHistoryPanel from './BotRiskControlHistoryPanel'
 import OptionHedgePanel from './OptionHedgePanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 import { computeLiquidationPrice } from './ParamAdvisor'
@@ -886,6 +887,7 @@ const BotDetail: React.FC = () => {
                   riskTriggered={bot.risk_triggered}
                   riskTriggerMessage={bot.risk_trigger_message}
                 />
+                <BotRiskControlHistoryPanel botId={botId} />
                 <OptionHedgePanel botId={botId} />
               </VStack>
             )}

@@ -722,6 +722,8 @@ func (br *BotRuntime) PauseOpening(reason string) {
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = reason
 	br.Config.OpenPositionControl.BotRiskControl.Enabled = true
 
+	storage.AppendBotRiskControlEvent(br.BotID, "paused", reason, "config")
+
 	// 🔥 如果设置了自动恢复时间，启动自动恢复 goroutine
 	if br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter > 0 {
 		autoResumeSec := br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter
@@ -731,6 +733,10 @@ func (br *BotRuntime) PauseOpening(reason string) {
 
 // ResumeOpening 恢复开仓
 func (br *BotRuntime) ResumeOpening() {
+	br.resumeOpening("config")
+}
+
+func (br *BotRuntime) resumeOpening(source string) {
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
 
@@ -742,6 +748,8 @@ func (br *BotRuntime) ResumeOpening() {
 		br.Config.OpenPositionControl.BotRiskControl.PauseOpening = false
 		br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = ""
 	}
+
+	storage.AppendBotRiskControlEvent(br.BotID, "resumed", "", source)
 }
 
 // GetPositionStatus 获取仓位状态（包括是否达到限制）
@@ -933,7 +941,7 @@ func (br *BotRuntime) autoResumeAfter(seconds int) {
 
 	if stillPaused {
 		logger.Info("🔔 [%s] 自动恢复定时器触发，恢复开仓（暂停原因: %s）", br.BotID, pauseReason)
-		br.ResumeOpening()
+		br.resumeOpening("auto_timer")
 	} else {
 		logger.Info("ℹ️ [%s] 自动恢复定时器触发，但开仓已恢复，跳过", br.BotID)
 	}
