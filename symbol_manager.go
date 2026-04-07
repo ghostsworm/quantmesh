@@ -295,6 +295,9 @@ func startSymbolRuntime(
 		localCfg.Trading.SmartOrder.OpenOrderDistance = 5
 	}
 
+	// 將 Bot 上的 strategies 合并到本交易对 localCfg，使实盘与 API 策略类型（如 trend_following）一致
+	config.ApplyBotStrategiesToLocalConfig(&localCfg, &symCfg)
+
 	// 創建交易所實例（根據交易對配置的市场類型：spot / futures）
 	// 如果之前创建了临时实例，重用它；否则创建新实例
 	var ex exchange.IExchange
@@ -589,7 +592,10 @@ func startSymbolRuntime(
 
 	// 🔥 如果啟动時已有持倉（满倉或接近满倉），立即調用 AdjustOrders 初始化賣單
 	// 避免等待價格變化才触发订單調整，确保满倉状態下也能立即开始交易
-	if err := superPositionManager.AdjustOrders(currentPrice); err != nil {
+	// 純趋势/动量等非網格多策略模式跳过首輪網格挂单，避免误挂
+	if config.ShouldSkipInitialGridAdjustOrders(&localCfg) {
+		logger.Info("⏭️ [%s] 啟动時跳过網格订單初始化（當前為非網格多策略模式）", symCfg.Symbol)
+	} else if err := superPositionManager.AdjustOrders(currentPrice); err != nil {
 		logger.Warn("⚠️ [%s] 啟动時初始化订單失败: %v", symCfg.Symbol, err)
 	} else {
 		logger.Info("✅ [%s] 啟动時订單初始化完成（如有持倉已自动挂賣單）", symCfg.Symbol)

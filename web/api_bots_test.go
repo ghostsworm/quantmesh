@@ -172,6 +172,23 @@ func (m *mockBotManagerForGetBotsTest) StartBot(ctx context.Context, cfg config.
 func (m *mockBotManagerForGetBotsTest) StopBot(botID string) error                              { return nil }
 func (m *mockBotManagerForGetBotsTest) EnableBot(botID string) error                           { return nil }
 
+func TestUpdateBotStrategyRequest_StrategyConfigNested(t *testing.T) {
+	body := `{"strategies":[{"type":"trend_following","weight":1,"config":{"fast_period":12,"slow_period":26}}]}`
+	var req UpdateBotStrategyRequest
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+	if len(req.Strategies) != 1 {
+		t.Fatalf("expected 1 strategy, got %d", len(req.Strategies))
+	}
+	if req.Strategies[0].Config == nil {
+		t.Fatal("expected strategies[0].config")
+	}
+	if fp, ok := req.Strategies[0].Config["fast_period"].(float64); !ok || fp != 12 {
+		t.Fatalf("fast_period: %#v", req.Strategies[0].Config["fast_period"])
+	}
+}
+
 func TestUpdateBotStrategyRequest_SmartOrderEnabled(t *testing.T) {
 	// 驗證 smart_order_enabled 能正確解析並持久化
 	body := `{"strategies":[{"type":"grid","weight":1}],"smart_order_enabled":true,"smart_order_max_open_orders":4,"smart_order_open_order_distance":6}`

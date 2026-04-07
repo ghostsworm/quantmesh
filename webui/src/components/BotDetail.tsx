@@ -1287,6 +1287,44 @@ const STRATEGY_PARAM_DEFS: Record<string, Array<{ key: string; labelKey: string;
   mean_reversion: [
     { key: 'period', labelKey: 'backtest.paramLabels.period', fallback: 'Period' },
   ],
+  'grid+trend': [
+    { key: 'grid_weight', labelKey: 'botDetail.strategy.gridComboGridWeight', fallback: 'Grid weight' },
+    { key: 'trend_weight', labelKey: 'botDetail.strategy.gridComboTrendWeight', fallback: 'Trend weight' },
+  ],
+  dca: [
+    { key: 'interval_days', labelKey: 'backtest.paramLabels.interval_days', fallback: 'DCA interval (days)' },
+    { key: 'amount_per_trade', labelKey: 'backtest.paramLabels.amount_per_trade', fallback: 'Amount per trade' },
+  ],
+  martingale: [
+    { key: 'base_amount', labelKey: 'backtest.paramLabels.base_amount', fallback: 'Base amount' },
+    { key: 'multiplier', labelKey: 'backtest.paramLabels.multiplier', fallback: 'Multiplier' },
+  ],
+}
+
+function strategyUsesGridParams(strategyType: string): boolean {
+  return strategyType === 'grid' || strategyType.startsWith('grid+')
+}
+
+function shouldShowStrategySpecificForm(strategyType: string): boolean {
+  if (strategyType === 'grid' || strategyType === 'grid+dca' || strategyType === 'grid+martingale') return false
+  if (strategyType === 'grid+trend') return true
+  const defs = STRATEGY_PARAM_DEFS[strategyType]
+  return defs != null && defs.length > 0
+}
+
+function buildStrategyConfigPayload(
+  strategyType: string,
+  paramValues: Record<string, string>
+): Record<string, unknown> {
+  const defs = STRATEGY_PARAM_DEFS[strategyType] || []
+  const out: Record<string, unknown> = {}
+  for (const d of defs) {
+    const raw = (paramValues[d.key] ?? '').trim()
+    if (raw === '') continue
+    const num = parseFloat(raw)
+    if (!Number.isNaN(num)) out[d.key] = num
+  }
+  return out
 }
 
 // BotBacktestPanel Bot 回测面板：展示参数并跳转全局回测
@@ -1475,6 +1513,9 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
   // 三级火箭网格
   const [rocketTieredGridEnabled, setRocketTieredGridEnabled] = useState(false)
 
+  // 非网格策略 / grid+trend 组合权重等专属参数（与 strategies[0].config 同步）
+  const [strategyParamValues, setStrategyParamValues] = useState<Record<string, string>>({})
+
   // 策略类型选项（根据当前策略类型限制可切换的类型）
   const getAvailableStrategies = () => {
     if (!bot?.config?.strategies || bot.config.strategies.length === 0) {
@@ -1526,6 +1567,15 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       // 三级火箭网格
       const rtg = cfg.rocket_tiered_grid as { enabled?: boolean } | undefined
       setRocketTieredGridEnabled(rtg?.enabled ?? false)
+
+      const firstType = cfg.strategies?.[0]?.type || 'grid'
+      const firstStratCfg = cfg.strategies?.[0]?.config as Record<string, unknown> | undefined
+      const initParams: Record<string, string> = {}
+      for (const d of STRATEGY_PARAM_DEFS[firstType] || []) {
+        const v = firstStratCfg?.[d.key]
+        initParams[d.key] = v != null && v !== '' ? String(v) : ''
+      }
+      setStrategyParamValues(initParams)
     }
   }, [bot])
 
@@ -1545,11 +1595,12 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
 
     setSaving(true)
     try {
+      const stratCfg = buildStrategyConfigPayload(strategyType, strategyParamValues)
       const updateData: UpdateBotStrategyRequest = {
         strategies: [{
           type: strategyType,
           weight: 1.0,
-          config: {},
+          config: stratCfg,
         }],
       }
 
@@ -1620,6 +1671,18 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       setSmartOrderMaxOpenOrders(smartOrder.max_open_orders?.toString() || '3')
       setSmartOrderOpenOrderDistance(smartOrder.open_order_distance?.toString() || '5')
 
+      const rtgReset = cfg.rocket_tiered_grid as { enabled?: boolean } | undefined
+      setRocketTieredGridEnabled(rtgReset?.enabled ?? false)
+
+      const firstType = cfg.strategies?.[0]?.type || 'grid'
+      const firstStratCfg = cfg.strategies?.[0]?.config as Record<string, unknown> | undefined
+      const initParams: Record<string, string> = {}
+      for (const d of STRATEGY_PARAM_DEFS[firstType] || []) {
+        const v = firstStratCfg?.[d.key]
+        initParams[d.key] = v != null && v !== '' ? String(v) : ''
+      }
+      setStrategyParamValues(initParams)
+
       setHasChanges(false)
     }
   }
@@ -1670,8 +1733,14 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                 <Select
                   value={strategyType}
                   onChange={(e) => {
-                    setStrategyType(e.target.value)
+                    const next = e.target.value
+                    setStrategyType(next)
                     setHasChanges(true)
+                    const nextInit: Record<string, string> = {}
+                    for (const d of STRATEGY_PARAM_DEFS[next] || []) {
+                      nextInit[d.key] = ''
+                    }
+                    setStrategyParamValues(nextInit)
                   }}
                 >
                   {getAvailableStrategies().map((s) => (
@@ -1694,7 +1763,8 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
         </CardBody>
       </Card>
 
-      {/* 网格参数配置 */}
+      {/* 网格参数配置（网格及 grid+ 组合中需要网格的腿） */}
+      {strategyUsesGridParams(strategyType) && (
       <Card>
         <CardBody>
           <Heading size="sm" mb={4}>{t('botDetail.strategy.gridParams')}</Heading>
@@ -1854,8 +1924,40 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
           </VStack>
         </CardBody>
       </Card>
+      )}
 
-      {/* 智能挂单配置 */}
+      {/* 趋势/动量/均值回归/DCA/马丁/网格+趋势权重等专属参数 */}
+      {shouldShowStrategySpecificForm(strategyType) && (
+      <Card>
+        <CardBody>
+          <Heading size="sm" mb={4}>{t('botDetail.strategy.strategySpecificParamsEditable')}</Heading>
+          <VStack align="stretch" spacing={4}>
+            {(STRATEGY_PARAM_DEFS[strategyType] || []).map((pd) => (
+              <FormControl key={pd.key}>
+                <FormLabel>{t(pd.labelKey, { defaultValue: pd.fallback })}</FormLabel>
+                <NumberInput
+                  value={strategyParamValues[pd.key] ?? ''}
+                  onChange={(valueString) => {
+                    setStrategyParamValues((prev) => ({ ...prev, [pd.key]: valueString }))
+                    setHasChanges(true)
+                  }}
+                  min={0}
+                >
+                  <NumberInputField />
+                  <NumberInputStepper>
+                    <NumberIncrementStepper />
+                    <NumberDecrementStepper />
+                  </NumberInputStepper>
+                </NumberInput>
+              </FormControl>
+            ))}
+          </VStack>
+        </CardBody>
+      </Card>
+      )}
+
+      {/* 智能挂单配置（仅网格类策略） */}
+      {strategyUsesGridParams(strategyType) && (
       <Card>
         <CardBody>
           <Heading size="sm" mb={4}>🧠 {t('botDetail.strategy.smartOrderConfig')}</Heading>
@@ -1943,6 +2045,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
           </VStack>
         </CardBody>
       </Card>
+      )}
 
       {/* 各策略专属参数展示（只读） */}
       {bot?.config?.strategies && (bot.config as any).strategies.length > 1 && (() => {
