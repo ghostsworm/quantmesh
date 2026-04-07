@@ -328,7 +328,10 @@
       "openOrderDistanceHint": "订单距离当前价格的最大间隔数，超过此距离的订单会被撤销",
       "smartOrderEffect": "启用后，系统将只在当前价格附近 {{count}} 个间隔内挂单，每 60 秒检查一次并自动调整。",
       "rocketTieredGrid": "三级火箭网格",
-      "rocketTieredGridHint": "小波动小网格、大波动大网格，根据持仓层数自动切换间距"
+      "rocketTieredGridHint": "小波动小网格、大波动大网格，根据持仓层数自动切换间距",
+      "strategySpecificParamsEditable": "策略专属参数",
+      "gridComboGridWeight": "网格腿权重（相对比例，可与趋势腿相加后归一）",
+      "gridComboTrendWeight": "趋势腿权重（相对比例）"
     }
   },
   "sidebar": {

@@ -328,7 +328,10 @@
       "openOrderDistanceHint": "Max intervals from current price for open orders; orders beyond this will be cancelled",
       "smartOrderEffect": "When enabled, system will place orders only within {{count}} intervals of current price, checked every 60 seconds.",
       "rocketTieredGrid": "Rocket Tiered Grid",
-      "rocketTieredGridHint": "Small grid for small moves, larger grid for bigger drops"
+      "rocketTieredGridHint": "Small grid for small moves, larger grid for bigger drops",
+      "strategySpecificParamsEditable": "Strategy-specific parameters",
+      "gridComboGridWeight": "Grid leg weight (relative; normalized with trend leg)",
+      "gridComboTrendWeight": "Trend leg weight (relative)"
     }
   },
   "sidebar": {

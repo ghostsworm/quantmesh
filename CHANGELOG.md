@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.85.0-rc1] - 2026-04-08
+
+### Added
+- **Bot 策略与实盘对齐**：`ApplyBotStrategiesToLocalConfig` 将 `SymbolConfig.strategies` 合并到运行时的 `localCfg.Strategies`（`trend_following`→`trend`、`grid+trend` 展开为 grid+trend 双策略、快慢线参数别名）；纯网格单策略仍走 legacy SPM；`ShouldSkipInitialGridAdjustOrders` 在非网格多策略启动时跳过首轮网格挂单。
+- **Web Bot 详情**：策略参数面板按类型分支——网格类显示网格/智能挂单/三级火箭；趋势/动量/均值回归/DCA/马丁及 `grid+trend` 显示可编辑专属参数并写入 `strategies[].config`。
+
+### Tests
+- `config`：`ApplyBotStrategiesToLocalConfig` / `ShouldSkipInitialGridAdjustOrders` 单测。
+- `web`：`UpdateBotStrategyRequest` 嵌套 `strategies[].config` JSON 解析单测。
+
+---
+
 ## [3.84.0-rc3] - 2026-04-08
 
 ### Added
