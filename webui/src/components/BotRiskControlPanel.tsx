@@ -28,6 +28,7 @@ import {
   IconButton,
   Collapse,
   useDisclosure,
+  Link as ChakraLink,
 } from '@chakra-ui/react'
 import DecimalNumberInput from './DecimalNumberInput'
 import { normalizeGridRiskControlPayload } from '../utils/gridRiskControlPayload'
@@ -44,7 +45,8 @@ const PauseIcon = (props: React.ComponentProps<typeof Icon>) => (
     <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
   </Icon>
 )
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
+import { Link as RouterLink } from 'react-router-dom'
 import {
   getBotRiskControl,
   updateBotRiskControl,
@@ -231,10 +233,27 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
     </Alert>
   )
 
+  const globalMarketRiskHintBanner = (
+    <Alert status="info" borderRadius="md" variant="subtle">
+      <AlertIcon />
+      <Box fontSize="sm" lineHeight="tall">
+        <Trans
+          i18nKey="botRiskControl.globalMarketRiskHint"
+          components={{
+            configLink: (
+              <ChakraLink as={RouterLink} to="/config" color="blue.500" fontWeight="600" />
+            ),
+          }}
+        />
+      </Box>
+    </Alert>
+  )
+
   if (loading) {
     return (
       <VStack spacing={4} align="stretch">
         {marketRiskBanner}
+        {globalMarketRiskHintBanner}
         <Flex justify="center" align="center" minH="200px">
           <Spinner size="lg" />
         </Flex>
@@ -246,6 +265,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
     <VStack spacing={4} align="stretch">
       {marketRiskBanner}
       {pauseOpeningBanner}
+      {globalMarketRiskHintBanner}
       {/* 当前状态卡片（可隱藏，已移至概覽） */}
       {!hidePositionStatus && (
       <Card>
