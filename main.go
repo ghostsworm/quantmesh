@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.83.0-rc2"
+var Version = "3.84.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -831,7 +831,8 @@ func getStrategyDisplayName(strategyType string) string {
 		"trend_following": "趋势跟踪",
 		"mean_reversion":  "均值回归",
 		"combo":           "组合策略",
-		"funding_carry":   "资金费率套利",
+		"funding_carry":        "资金费率套利",
+		"funding_perp_spread":  "双永续跨所资金费套利",
 	}
 	if name, ok := strategyNames[strategyType]; ok {
 		return name

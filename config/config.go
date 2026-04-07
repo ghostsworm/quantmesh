@@ -1262,6 +1262,8 @@ type SymbolConfig struct {
 	// 多套配置自动切换
 	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`       // 配置档案（如 positive, negative）
 	SwitchRules           SwitchRules              `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"` // 切换规则
+	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
+	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
 }
 
 // IsEnabled 返回交易對是否啟用（nil 預設為 true）
@@ -1277,6 +1279,9 @@ func (sc *SymbolConfig) IsEnabled() bool {
 func (sc *SymbolConfig) GetMarketType() string {
 	if sc.MarketType == MarketTypeFundingCarry {
 		return MarketTypeFundingCarry
+	}
+	if sc.MarketType == MarketTypeFundingPerpSpread {
+		return MarketTypeFundingPerpSpread
 	}
 	if sc.MarketType == "spot" {
 		if sc.UseSpotMargin {
@@ -1392,6 +1397,8 @@ type BotConfig struct {
 	AutoRebuild           GridAutoRebuildConfig `yaml:"auto_rebuild,omitempty" json:"auto_rebuild,omitempty"`                 // 網格自動重建配置
 	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`                      // 配置檔案（多套參數切換）
 	SwitchRules           SwitchRules           `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"`                  // 切換規則
+	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
+	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
 }
 
 // ClosePositionConfig 平倉配置
@@ -1441,6 +1448,9 @@ func (bc *BotConfig) IsEnabled() bool {
 func (bc *BotConfig) GetMarketType() string {
 	if bc.MarketType == MarketTypeFundingCarry {
 		return MarketTypeFundingCarry
+	}
+	if bc.MarketType == MarketTypeFundingPerpSpread {
+		return MarketTypeFundingPerpSpread
 	}
 	if bc.MarketType == "spot" {
 		if bc.UseSpotMargin {
@@ -1494,6 +1504,17 @@ func GenerateBotID(exchange, symbol, marketType string) string {
 	return strings.ToLower(fmt.Sprintf("%s:%s:%s", exchange, symbol, mt))
 }
 
+// BotIDOrGenerate 若未指定 ID 則按市場類型生成（雙永续使用兩腿拼接）
+func BotIDOrGenerate(bc BotConfig) string {
+	if bc.ID != "" {
+		return bc.ID
+	}
+	if bc.GetMarketType() == MarketTypeFundingPerpSpread && bc.FundingPerpSpread != nil {
+		return GenerateBotIDFundingPerpSpread(bc.FundingPerpSpread)
+	}
+	return GenerateBotID(bc.Exchange, bc.Symbol, bc.GetMarketType())
+}
+
 // GenerateUniqueBotID 生成全局唯一的 Bot ID（UUID），用於允許同一交易對存在多個 Bot 配置
 func GenerateUniqueBotID() string {
 	return uuid.New().String()
@@ -1504,7 +1525,11 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 	mt := sc.GetMarketType()
 	id := sc.ID
 	if id == "" {
-		id = GenerateBotID(sc.Exchange, sc.Symbol, mt)
+		if mt == MarketTypeFundingPerpSpread && sc.FundingPerpSpread != nil {
+			id = GenerateBotIDFundingPerpSpread(sc.FundingPerpSpread)
+		} else {
+			id = GenerateBotID(sc.Exchange, sc.Symbol, mt)
+		}
 	}
 	name := sc.Name
 	if name == "" {
@@ -1513,6 +1538,8 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 			name = sc.Symbol + " (spot)"
 		case MarketTypeFundingCarry:
 			name = sc.Symbol + " (funding_carry)"
+		case MarketTypeFundingPerpSpread:
+			name = sc.Symbol + " (funding_perp_spread)"
 		default:
 			name = sc.Symbol + " (futures)"
 		}
@@ -1552,6 +1579,7 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 		CloseOnStop:           sc.CloseOnStop,
 		Profiles:              sc.Profiles,
 		SwitchRules:           sc.SwitchRules,
+		FundingPerpSpread:     sc.FundingPerpSpread,
 	}
 	return bc
 }
@@ -1633,6 +1661,7 @@ func BotConfigToSymbolConfig(bc BotConfig) SymbolConfig {
 		UseSpotMargin:         bc.UseSpotMargin,
 		Profiles:              bc.Profiles,
 		SwitchRules:           bc.SwitchRules,
+		FundingPerpSpread:     bc.FundingPerpSpread,
 	}
 }
 

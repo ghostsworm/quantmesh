@@ -37,6 +37,7 @@
     "bot_running_cannot_modify": "Cannot modify strategy while bot is running. Please stop the bot first.",
     "invalid_strategy_change": "Invalid strategy type change. Grid strategies can only switch to grid-related types, DCA strategies can only switch to DCA-related types.",
     "funding_carry_single_strategy": "Funding carry bots must use a single strategy: funding_carry.",
+    "funding_perp_spread_single_strategy": "Funding perp spread bots must use a single strategy: funding_perp_spread, with both legs (exchange + symbol) set.",
     "funding_carry_insufficient_capital": "Insufficient capital, min 200 USDT per symbol",
     "bot_symbol_market_conflict": "Conflicts with existing bot {{botId}}: funding carry is mutually exclusive with other bot types on the same symbol."
   },
@@ -2967,7 +2968,8 @@
     "spot_long": "Spot Long (Buy & Hold)",
     "futures_short": "Futures Short Hedge",
     "futures_long": "Futures Long Hedge",
-    "funding_carry": "Funding Rate Carry"
+    "funding_carry": "Funding Rate Carry",
+    "funding_perp_spread": "Cross-Exchange Perp Funding Spread"
   },
   "strategyDescriptions": {
     "grid": "Classic grid trading strategy that automatically places orders within a price range to capture volatility spreads",

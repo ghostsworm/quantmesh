@@ -37,6 +37,7 @@
     "bot_running_cannot_modify": "Bot 正在运行中，无法修改策略配置。请先停止 Bot。",
     "invalid_strategy_change": "不支持的策略类型切换。网格策略只能在网格相关类型间切换，DCA 策略只能在 DCA 相关类型间切换。",
     "funding_carry_single_strategy": "资金费套利 Bot 只能配置单策略 funding_carry。",
+    "funding_perp_spread_single_strategy": "双永续跨所资金费差 Bot 只能配置单策略 funding_perp_spread，且须填写两腿交易所与合约。",
     "funding_carry_insufficient_capital": "总资金不足，每币种至少需要 200 USDT",
     "bot_symbol_market_conflict": "与已有 Bot（{{botId}}）冲突：资金费套利与同交易对其它类型 Bot 互斥。"
   },
@@ -2804,7 +2805,8 @@
     "spot_long": "现货买入做多",
     "futures_short": "合约做空对冲",
     "futures_long": "合约做多对冲",
-    "funding_carry": "资金费率套利"
+    "funding_carry": "资金费率套利",
+    "funding_perp_spread": "双永续跨所资金费套利"
   },
   "strategyDescriptions": {
     "grid": "经典网格交易策略，在价格区间内自动挂单，赚取波动差价",

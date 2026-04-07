@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.84.0-rc1] - 2026-04-08
+
+### Added
+- **雙永续跨所資金費差套利**：新 `market_type`：`funding_perp_spread`；配置 `funding_perp_spread` 兩腿（各所合約符號）；策略 `FundingPerpSpreadStrategy` 對比兩腿資金費率，高費率腿做空、低費率腿做多；運行時 `startFundingPerpSpreadSymbolRuntime`；Bot 衝突檢測改為 `BotsConflict`（期貨腿重疊 + 資金費期現套利規則）；API 創建 Bot 支援兩腿與單策略 `funding_perp_spread` 校驗。
+
+---
+
 ## [3.83.0-rc2] - 2026-04-08
 
 ### Added
