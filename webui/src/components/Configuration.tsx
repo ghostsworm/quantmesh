@@ -9,6 +9,7 @@ import {
   AlertIcon,
   AlertTitle,
   AlertDescription,
+  Textarea,
   Spinner,
   Center,
   FormControl,
@@ -103,6 +104,7 @@ import ParamAdvisor from './ParamAdvisor'
 import { trackConfigSaved } from '../services/telemetry'
 import { SUPPORTED_EXCHANGES, EXCHANGES_REQUIRING_PASSPHRASE } from '../constants/exchanges'
 import { hasTradingParamChanges } from '../utils/configSaveOptions'
+import { parseMonitorSymbolsInput } from '../utils/riskControlUi'
 
 const MotionBox = motion(Box)
 
@@ -737,7 +739,7 @@ const Configuration: React.FC = () => {
   if (loading) return <Center h="400px"><Spinner size="xl" thickness="4px" color="blue.500" /></Center>
   if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />{t('configuration.loadFailed')}</Alert></Container>
 
-  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), t('configuration.globalTabs.security'), t('configuration.globalTabs.yamlEditor')]
+  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), t('configuration.globalTabs.security'), t('configuration.globalTabs.marketRisk'), t('configuration.globalTabs.yamlEditor')]
   const symbolTabs = [t('configuration.symbolTabs.tradingParams'), t('configuration.symbolTabs.riskControl'), t('configuration.symbolTabs.aiStrategy')]
 
   const activeTabs = isGlobalView ? globalTabs : symbolTabs
@@ -1807,6 +1809,209 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 5 && (
                   <VStack spacing={6} align="stretch">
+                    <Alert status="info" borderRadius="lg">
+                      <AlertIcon />
+                      <Box>
+                        <AlertTitle fontSize="sm">{t('configuration.globalMarketRiskIntro')}</AlertTitle>
+                        <AlertDescription fontSize="xs" mt={2}>
+                          {t('configuration.globalMarketRiskVsBot')}
+                        </AlertDescription>
+                      </Box>
+                    </Alert>
+
+                    <ConfigCard title={t('configuration.riskControlSettings')} icon={<LockIcon />}>
+                      <Flex justify="space-between" align="center" mb={6}>
+                        <Box>
+                          <Text fontWeight="600">{t('configuration.enableRiskEngine')}</Text>
+                          <Text fontSize="xs" color="gray.500">{t('configuration.enableRiskEngineDesc')}</Text>
+                        </Box>
+                        <Switch
+                          colorScheme="orange"
+                          isChecked={config.risk_control?.enabled || false}
+                          onChange={(e) => updateConfigField('risk_control.enabled', e.target.checked)}
+                        />
+                      </Flex>
+                      <FormControl mb={4}>
+                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.monitorSymbols')}</FormLabel>
+                        <Textarea
+                          rows={3}
+                          value={(config.risk_control?.monitor_symbols || []).join(', ')}
+                          onChange={(e) => {
+                            updateConfigField('risk_control.monitor_symbols', parseMonitorSymbolsInput(e.target.value))
+                          }}
+                          borderRadius="xl"
+                          placeholder="BTCUSDT, ETHUSDT"
+                        />
+                        <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.monitorSymbolsDesc')}</Text>
+                      </FormControl>
+                      <SimpleGrid columns={2} spacing={6}>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.riskKlineInterval')}</FormLabel>
+                          <Select
+                            value={config.risk_control?.interval || '1m'}
+                            onChange={(e) => updateConfigField('risk_control.interval', e.target.value)}
+                            borderRadius="xl"
+                          >
+                            <option value="1m">1m</option>
+                            <option value="3m">3m</option>
+                            <option value="5m">5m</option>
+                            <option value="15m">15m</option>
+                            <option value="30m">30m</option>
+                            <option value="1h">1h</option>
+                          </Select>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.volumeMultiplier')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.volume_multiplier || 0}
+                            onChange={(_, v) => updateConfigField('risk_control.volume_multiplier', v)}
+                            precision={2}
+                            step={0.1}
+                            min={0}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.averageWindow')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.average_window ?? 20}
+                            onChange={(_, v) => updateConfigField('risk_control.average_window', v ?? 20)}
+                            min={1}
+                            max={500}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.averageWindowDesc')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.recoveryThresholdKline')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.recovery_threshold ?? 3}
+                            onChange={(_, v) => updateConfigField('risk_control.recovery_threshold', v ?? 3)}
+                            min={1}
+                            max={50}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.recoveryThresholdKlineDesc')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.maxLeverage')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.max_leverage || 0}
+                            onChange={(_, v) => updateConfigField('risk_control.max_leverage', v)}
+                            min={0}
+                            max={125}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.maxLeverageZeroHint')}</Text>
+                        </FormControl>
+                      </SimpleGrid>
+                    </ConfigCard>
+
+                    <ConfigCard title={t('configuration.depthMonitorCard')} icon={<LockIcon />}>
+                      <Flex justify="space-between" align="center" mb={6}>
+                        <Box>
+                          <Text fontWeight="600">{t('configuration.depthMonitorEnabled')}</Text>
+                          <Text fontSize="xs" color="gray.500">{t('configuration.depthMonitorEnabledDesc')}</Text>
+                        </Box>
+                        <Switch
+                          colorScheme="orange"
+                          isChecked={config.risk_control?.depth_monitor?.enabled || false}
+                          onChange={(e) => {
+                            const dm = config.risk_control?.depth_monitor || {}
+                            updateConfigField('risk_control.depth_monitor', { ...dm, enabled: e.target.checked })
+                          }}
+                        />
+                      </Flex>
+                      <SimpleGrid columns={2} spacing={6}>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.depthCheckIntervalSec')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.depth_monitor?.check_interval ?? 5}
+                            onChange={(_, v) => {
+                              const dm = config.risk_control?.depth_monitor || {}
+                              updateConfigField('risk_control.depth_monitor', { ...dm, check_interval: v ?? 5 })
+                            }}
+                            min={1}
+                            max={3600}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.depthLevels')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.depth_monitor?.depth_levels ?? 10}
+                            onChange={(_, v) => {
+                              const dm = config.risk_control?.depth_monitor || {}
+                              updateConfigField('risk_control.depth_monitor', { ...dm, depth_levels: v ?? 10 })
+                            }}
+                            min={1}
+                            max={100}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.depthDropThreshold')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.depth_monitor?.drop_threshold ?? 0.5}
+                            onChange={(_, v) => {
+                              const dm = config.risk_control?.depth_monitor || {}
+                              updateConfigField('risk_control.depth_monitor', { ...dm, drop_threshold: v ?? 0.5 })
+                            }}
+                            precision={2}
+                            step={0.05}
+                            min={0}
+                            max={1}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.depthDropThresholdDesc')}</Text>
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.depthRecoveryThreshold')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.depth_monitor?.recovery_threshold ?? 0.7}
+                            onChange={(_, v) => {
+                              const dm = config.risk_control?.depth_monitor || {}
+                              updateConfigField('risk_control.depth_monitor', { ...dm, recovery_threshold: v ?? 0.7 })
+                            }}
+                            precision={2}
+                            step={0.05}
+                            min={0}
+                            max={1}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.depthRecoveryThresholdDesc')}</Text>
+                        </FormControl>
+                        <FormControl gridColumn={{ base: '1', md: '1 / -1' }}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.minDepthUsdt')}</FormLabel>
+                          <NumberInput
+                            value={config.risk_control?.depth_monitor?.min_depth_usdt ?? 10000}
+                            onChange={(_, v) => {
+                              const dm = config.risk_control?.depth_monitor || {}
+                              updateConfigField('risk_control.depth_monitor', { ...dm, min_depth_usdt: v ?? 10000 })
+                            }}
+                            min={0}
+                            precision={0}
+                            step={100}
+                          >
+                            <NumberInputField borderRadius="xl" />
+                          </NumberInput>
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.minDepthUsdtDesc')}</Text>
+                        </FormControl>
+                      </SimpleGrid>
+                    </ConfigCard>
+                  </VStack>
+                )}
+
+                {tabIndex === 6 && (
+                  <VStack spacing={6} align="stretch">
                     <ConfigCard title={t('configuration.yamlEditorTitle')} icon={<SettingsIcon />}>
                       <VStack spacing={4} align="stretch">
                         <HStack justify="space-between">
@@ -2758,33 +2963,22 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 1 && (
                   <>
-                  <ConfigCard title={t('configuration.riskControlSettings')} icon={<LockIcon />}>
-                    <Flex justify="space-between" align="center" mb={6}>
-                      <Box>
-                        <Text fontWeight="600">{t('configuration.enableRiskEngine')}</Text>
-                        <Text fontSize="xs" color="gray.500">{t('configuration.enableRiskEngineDesc')}</Text>
-                      </Box>
-                      <Switch
-                        colorScheme="orange"
-                        isChecked={config.risk_control?.enabled || false}
-                        onChange={(e) => updateConfigField('risk_control.enabled', e.target.checked)}
-                      />
-                    </Flex>
-                    <SimpleGrid columns={2} spacing={6}>
-                      <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.maxLeverage')}</FormLabel>
-                        <NumberInput value={config.risk_control?.max_leverage || 0} onChange={(_, v) => updateConfigField('risk_control.max_leverage', v)}>
-                          <NumberInputField borderRadius="xl" />
-                        </NumberInput>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.volumeMultiplier')}</FormLabel>
-                        <NumberInput value={config.risk_control?.volume_multiplier || 0} onChange={(_, v) => updateConfigField('risk_control.volume_multiplier', v)} precision={2} step={0.1}>
-                          <NumberInputField borderRadius="xl" />
-                        </NumberInput>
-                      </FormControl>
-                    </SimpleGrid>
-                  </ConfigCard>
+                  <Alert status="info" borderRadius="lg" variant="subtle">
+                    <AlertIcon />
+                    <Box>
+                      <AlertTitle fontSize="sm">{t('configuration.symbolMarketRiskMovedGlobal')}</AlertTitle>
+                      <AlertDescription fontSize="xs" mt={2}>
+                        <Trans
+                          i18nKey="configuration.symbolMarketRiskMovedGlobalBody"
+                          components={{
+                            configLink: (
+                              <ChakraLink as={RouterLink} to="/config" color="blue.500" fontWeight="600" />
+                            ),
+                          }}
+                        />
+                      </AlertDescription>
+                    </Box>
+                  </Alert>
 
                   <ConfigCard title={t('configuration.newsMonitorTitle')} icon={<BellIcon />}>
                     <Flex justify="space-between" align="center" mb={6}>
