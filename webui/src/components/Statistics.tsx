@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -20,6 +20,8 @@ import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
 import { getStatistics, getDailyStatistics, getPnLByTimeRange, getExchangePnLDiagnosis, type ExchangePnLDiagnosisResponse } from '../services/api'
 import StatisticsCalendar from './StatisticsCalendar'
+import DailyCumulativePnLChart from './DailyCumulativePnLChart'
+import { buildDailyEquityChartPoints, filterDailyStatsByRecentDays } from '../utils/dailyEquityChartData'
 
 interface StatisticsData {
   total_trades: number
@@ -131,7 +133,17 @@ const Statistics: React.FC = () => {
     const interval = setInterval(fetchData, 30000)
 
     return () => clearInterval(interval)
-  }, [days, selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol])
+
+  const filteredDailyStats = useMemo(
+    () => filterDailyStatsByRecentDays(dailyStats, days),
+    [dailyStats, days]
+  )
+
+  const dailyEquityChartPoints = useMemo(
+    () => buildDailyEquityChartPoints(filteredDailyStats),
+    [filteredDailyStats]
+  )
 
   // 獲取按時间区间的盈亏數據
   useEffect(() => {
@@ -246,6 +258,26 @@ const Statistics: React.FC = () => {
         </div>
       )}
 
+      <div style={{ marginTop: '32px', maxWidth: '960px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
+          <h3 style={{ margin: 0 }}>{t('statistics.dailyEquityCurveTitle')}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '14px', color: '#595959' }}>
+              {t('statistics.dailyEquityCurveRange')}
+              <select value={days} onChange={(e) => setDays(Number(e.target.value))} style={{ marginLeft: '8px', padding: '8px' }}>
+                <option value={7}>{t('statistics.last7d')}</option>
+                <option value={30}>{t('statistics.last30d')}</option>
+                <option value={90}>{t('statistics.last90d')}</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <p style={{ fontSize: '13px', color: '#8c8c8c', marginBottom: '16px', lineHeight: 1.5 }}>
+          {t('statistics.dailyEquityCurveHint')}
+        </p>
+        <DailyCumulativePnLChart data={dailyEquityChartPoints} />
+      </div>
+
       <div style={{ marginTop: '32px', maxWidth: '900px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3>{t('statistics.calendarView')}</h3>
@@ -300,13 +332,9 @@ const Statistics: React.FC = () => {
       <div style={{ marginTop: '32px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3>{t('statistics.dailyStats')}</h3>
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))} style={{ padding: '8px' }}>
-            <option value={7}>{t('statistics.last7d')}</option>
-            <option value={30}>{t('statistics.last30d')}</option>
-            <option value={90}>{t('statistics.last90d')}</option>
-          </select>
+          <span style={{ fontSize: '13px', color: '#8c8c8c' }}>{t('statistics.dailyStatsRangeHint')}</span>
         </div>
-        {dailyStats.length > 0 ? (
+        {filteredDailyStats.length > 0 ? (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -318,7 +346,7 @@ const Statistics: React.FC = () => {
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.volumeStopLoss')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.pnl')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }} title={t('statistics.exchangePnlTooltip')}>{t('statistics.exchangePnl')}</th>
-                  {(dailyStats.some(s => s.gross_pnl !== undefined) || dailyStats.some(s => s.total_fee !== undefined)) && (
+                  {(filteredDailyStats.some(s => s.gross_pnl !== undefined) || filteredDailyStats.some(s => s.total_fee !== undefined)) && (
                     <>
                       <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.grossPnL')}</th>
                       <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.totalFee')}</th>
@@ -336,7 +364,7 @@ const Statistics: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {dailyStats.map((stat, index) => (
+                {filteredDailyStats.map((stat, index) => (
                   <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
                     <td style={{ padding: '12px' }}>{new Date(stat.date).toLocaleDateString('zh-CN')}</td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{stat.total_trades}</td>

@@ -2584,7 +2584,14 @@
     "diagnosisDiscrepancy": "Discrepancy",
     "diagnosisOrdersWithPnL": "Orders with realized PnL",
     "diagnosisSellOrdersMissingPnL": "Sell orders missing PnL",
-    "diagnosisNoData": "No diagnosis data"
+    "diagnosisNoData": "No diagnosis data",
+    "dailyEquityCurveTitle": "Daily cumulative equity curve",
+    "dailyEquityCurveRange": "Range",
+    "dailyEquityCurveHint": "Blue line: cumulative P&L from the server. Orange bars: daily (strategy P&L + funding fee) to spot cases where the table shows green P&L but funding drags the net result.",
+    "dailyEquityCurveEmpty": "No data yet — trade statistics will appear here once available.",
+    "dailyEquityCurveSeriesCumulative": "Cumulative P&L (line)",
+    "dailyEquityCurveSeriesDailyNet": "Daily net (P&L + funding)",
+    "dailyStatsRangeHint": "Same date range as the chart above"
   },
   "dailyBreakdown": {
     "title": "Daily PnL Breakdown",

@@ -2074,7 +2074,14 @@
     "diagnosisDiscrepancy": "差異",
     "diagnosisOrdersWithPnL": "有 realized_pnl 的訂單數",
     "diagnosisSellOrdersMissingPnL": "賣單缺少 PnL 數",
-    "diagnosisNoData": "暫無診斷數據"
+    "diagnosisNoData": "暫無診斷數據",
+    "dailyEquityCurveTitle": "按日累計淨值曲線",
+    "dailyEquityCurveRange": "範圍",
+    "dailyEquityCurveHint": "藍線為後端返回的「累計盈虧」；橙柱為當日「盈虧 + 資金費」，便於發現表格綠字為正但資金費拖累淨結果的情況。",
+    "dailyEquityCurveEmpty": "暫無數據，請先產生交易統計",
+    "dailyEquityCurveSeriesCumulative": "累計盈虧（曲線）",
+    "dailyEquityCurveSeriesDailyNet": "當日綜合（盈虧+資金費）",
+    "dailyStatsRangeHint": "與上圖同一日期範圍"
   },
   "riskMonitor": {
     "title": "風控監控",
