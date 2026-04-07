@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -306,6 +307,34 @@ func (c *KuCoinClient) GetFundingRate(ctx context.Context, symbol string) (float
 	}
 
 	return resp.Data.Value, nil
+}
+
+// ContractDetail 單個合約詳情（/api/v1/contracts/{symbol}），含下次資金費結算時間
+type ContractDetail struct {
+	Symbol                  string  `json:"symbol"`
+	FundingFeeRate          float64 `json:"fundingFeeRate"`
+	NextFundingRateDateTime int64   `json:"nextFundingRateDateTime"`
+	MarkPrice               float64 `json:"markPrice"`
+	IndexPrice              float64 `json:"indexPrice"`
+}
+
+// GetContractDetail 獲取合約詳情（公開接口，仍走簽名請求與現有 client 一致）
+func (c *KuCoinClient) GetContractDetail(ctx context.Context, contractSymbol string) (*ContractDetail, error) {
+	path := "/api/v1/contracts/" + url.PathEscape(contractSymbol)
+	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Code string         `json:"code"`
+		Data ContractDetail `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf("unmarshal contract detail error: %w", err)
+	}
+
+	return &resp.Data, nil
 }
 
 // GetHistoricalKlines 獲取歷史K線數據

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"quantmesh/logger"
 )
@@ -400,6 +401,74 @@ func (a *Adapter) GetBaseAsset() string {
 // GetQuoteAsset 獲取报價资產
 func (a *Adapter) GetQuoteAsset() string {
 	return a.quoteAsset
+}
+
+// FundingInfo 資金費率詳情（供 exchange wrapper 轉換）
+type FundingInfo struct {
+	Symbol          string
+	Rate            float64
+	NextFundingTime time.Time
+	MarkPrice       float64
+	IndexPrice      float64
+}
+
+// normalizeUnifiedSymbol 將 BTCUSDT / BTC-USDT 統一為 BASE-QUOTE
+func normalizeUnifiedSymbol(sym string) string {
+	sym = strings.TrimSpace(sym)
+	if sym == "" {
+		return ""
+	}
+	if strings.Contains(sym, "-") {
+		return sym
+	}
+	sym = strings.ToUpper(sym)
+	if strings.HasSuffix(sym, "USDT") {
+		return strings.TrimSuffix(sym, "USDT") + "-USDT"
+	}
+	return sym
+}
+
+// kucoinContractSymbolForFutures 將 BTC-USDT 等映射為 KuCoin 合約代碼（如 XBTUSDTM）
+func kucoinContractSymbolForFutures(unified string) string {
+	parts := strings.Split(unified, "-")
+	if len(parts) != 2 {
+		return ""
+	}
+	base, quote := strings.ToUpper(parts[0]), strings.ToUpper(parts[1])
+	if quote != "USDT" {
+		return ""
+	}
+	if base == "BTC" {
+		base = "XBT"
+	}
+	return base + "USDTM"
+}
+
+// GetFundingInfo 從 /api/v1/contracts/{symbol} 獲取費率、標記/指數價與下次結算時間
+func (a *Adapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	unified := normalizeUnifiedSymbol(symbol)
+	if unified == "" {
+		unified = a.symbol
+	}
+	contractID := kucoinContractSymbolForFutures(unified)
+	if contractID == "" {
+		return nil, fmt.Errorf("kucoin: unsupported symbol for contract funding info: %s", symbol)
+	}
+	detail, err := a.client.GetContractDetail(ctx, contractID)
+	if err != nil {
+		return nil, err
+	}
+	if detail.NextFundingRateDateTime <= 0 {
+		return nil, fmt.Errorf("kucoin: empty nextFundingRateDateTime for %s", contractID)
+	}
+	next := time.UnixMilli(detail.NextFundingRateDateTime).UTC()
+	return &FundingInfo{
+		Symbol:          unified,
+		Rate:            detail.FundingFeeRate,
+		NextFundingTime: next,
+		MarkPrice:       detail.MarkPrice,
+		IndexPrice:      detail.IndexPrice,
+	}, nil
 }
 
 // GetFundingRate 獲取资金费率
