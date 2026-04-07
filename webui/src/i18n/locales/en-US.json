@@ -3205,7 +3205,26 @@
       "circuit_breaker": "Global circuit breaker; opening paused",
       "emergency_stop": "Emergency stop",
       "emergency_pause": "Emergency pause"
-    }
+    },
+    "riskHistoryTitle": "Risk control log",
+    "riskHistoryDesc": "Pause/resume opening events for this bot are stored in the database. Export as CSV anytime.",
+    "riskHistoryTime": "Time",
+    "riskHistoryEventType": "Type",
+    "riskHistoryReason": "Reason",
+    "riskHistorySource": "Source",
+    "riskHistoryPaused": "Opening paused",
+    "riskHistoryResumed": "Opening resumed",
+    "riskHistorySourceConfig": "Config / strategy (circuit breaker, single-leg, manual, etc.)",
+    "riskHistorySourceOpening": "Opening controller (limits, schedule, periodic, etc.)",
+    "riskHistorySourceAutoTimer": "Auto-resume timer",
+    "riskHistoryDownload": "Download CSV",
+    "riskHistoryEmpty": "No entries yet. They appear after pause or resume.",
+    "riskHistoryPageInfo": "Page {{page}} / {{totalPage}}, {{total}} total",
+    "riskHistoryPrev": "Previous page",
+    "riskHistoryNext": "Next page",
+    "riskHistoryLoadFailed": "Failed to load risk log",
+    "riskHistoryDownloadOk": "Download started",
+    "riskHistoryDownloadFailed": "Download failed"
   },
   "optionHedge": {
     "title": "Option Hedge",

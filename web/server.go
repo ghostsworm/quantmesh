@@ -591,7 +591,9 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 					bots.DELETE("/:id/slot-filter/rules/:index", removeSlotFilterRule)
 					bots.POST("/:id/slots/toggle", toggleSlotEnabled)
 
-					// 风控管理 API
+					// 风控管理 API（具體子路徑須在 /risk-control 參數路由之前註冊）
+					bots.GET("/:id/risk-control/events/export", exportBotRiskControlEvents)
+					bots.GET("/:id/risk-control/events", getBotRiskControlEvents)
 					bots.GET("/:id/risk-control", getBotRiskControl)
 					bots.PUT("/:id/risk-control", updateBotRiskControl)
 					bots.POST("/:id/pause-opening", pauseBotOpening)

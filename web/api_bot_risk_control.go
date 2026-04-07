@@ -1,7 +1,12 @@
 package web
 
 import (
+	"bytes"
+	"encoding/csv"
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"quantmesh/config"
@@ -343,4 +348,149 @@ func getBotPositionStatus(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+}
+
+// BotRiskControlEventJSON Bot 風控事件 API 響應項
+type BotRiskControlEventJSON struct {
+	ID        int64  `json:"id"`
+	EventType string `json:"event_type"`
+	Reason    string `json:"reason"`
+	Source    string `json:"source"`
+	CreatedAt string `json:"created_at"`
+}
+
+// getBotRiskControlEvents 分頁查詢 Bot 開倉風控暫停/恢復事件
+// GET /api/v2/bots/:id/risk-control/events?page=1&page_size=20
+func getBotRiskControlEvents(c *gin.Context) {
+	botID := c.Param("id")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 500 {
+		pageSize = 20
+	}
+
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"events":     []BotRiskControlEventJSON{},
+			"total":      int64(0),
+			"page":       page,
+			"page_size":  pageSize,
+			"total_page": int64(0),
+		})
+		return
+	}
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"events":     []BotRiskControlEventJSON{},
+			"total":      int64(0),
+			"page":       page,
+			"page_size":  pageSize,
+			"total_page": int64(0),
+		})
+		return
+	}
+
+	total, err := st.CountBotRiskControlEvents(botID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.storage_query")
+		return
+	}
+	offset := (page - 1) * pageSize
+	records, err := st.QueryBotRiskControlEvents(botID, pageSize, offset)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.storage_query")
+		return
+	}
+
+	out := make([]BotRiskControlEventJSON, 0, len(records))
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		out = append(out, BotRiskControlEventJSON{
+			ID:        r.ID,
+			EventType: r.EventType,
+			Reason:    r.Reason,
+			Source:    r.Source,
+			CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	var totalPage int64
+	if total > 0 {
+		totalPage = (total + int64(pageSize) - 1) / int64(pageSize)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"events":     out,
+		"total":      total,
+		"page":       page,
+		"page_size":  pageSize,
+		"total_page": totalPage,
+	})
+}
+
+// exportBotRiskControlEvents 導出 Bot 風控事件為 CSV（UTF-8 BOM）
+// GET /api/v2/bots/:id/risk-control/events/export
+func exportBotRiskControlEvents(c *gin.Context) {
+	botID := c.Param("id")
+	limit := 50000
+	if ls := strings.TrimSpace(c.Query("limit")); ls != "" {
+		if n, err := strconv.Atoi(ls); err == nil && n > 0 && n <= 100000 {
+			limit = n
+		}
+	}
+
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "storage_unavailable"})
+		return
+	}
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "storage_unavailable"})
+		return
+	}
+
+	records, err := st.QueryBotRiskControlEvents(botID, limit, 0)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.storage_query")
+		return
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("\xef\xbb\xbf")
+	w := csv.NewWriter(&buf)
+	_ = w.Write([]string{"id", "event_type", "reason", "source", "created_at"})
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		_ = w.Write([]string{
+			fmt.Sprintf("%d", r.ID),
+			r.EventType,
+			r.Reason,
+			r.Source,
+			r.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.export_csv")
+		return
+	}
+
+	safeName := strings.Map(func(r rune) rune {
+		if r <= 32 || strings.ContainsRune(`\/:*?"<>|`, r) {
+			return '_'
+		}
+		return r
+	}, botID)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="bot_risk_events_%s.csv"`, safeName))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", buf.Bytes())
 }

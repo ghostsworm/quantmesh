@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.82.0-rc1] - 2026-04-08
+
+### Added
+- **Bot 詳情 / 風控**：持久化「開倉暫停 / 恢復」事件（含原因與來源：配置層、開倉控制器、自動恢復計時器等），SQLite/MySQL 表 `bot_risk_control_events`；API `GET/GET export /api/v2/bots/:id/risk-control/events`；前端「風控」標籤頁內「風控記錄」分頁列表與 CSV 下載。
+
+---
+
 ## [3.81.2-rc2] - 2026-04-07
 
 ### Changed

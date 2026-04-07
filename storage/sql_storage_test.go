@@ -540,6 +540,58 @@ func TestQueryRiskCheckHistoryByBotID(t *testing.T) {
 	}
 }
 
+func TestBotRiskControlEventsPersist(t *testing.T) {
+	dbPath := "./test_bot_risk_control_events.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	st, err := NewSQLStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	botID := "binance:BTCUSDT:futures"
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := st.SaveBotRiskControlEvent(&BotRiskControlEventRecord{
+		BotID:     botID,
+		EventType: "paused",
+		Reason:    "position_limit",
+		Source:    "opening_manager",
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("SaveBotRiskControlEvent: %v", err)
+	}
+	if err := st.SaveBotRiskControlEvent(&BotRiskControlEventRecord{
+		BotID:     botID,
+		EventType: "resumed",
+		Source:    "opening_manager",
+		CreatedAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("SaveBotRiskControlEvent resumed: %v", err)
+	}
+
+	n, err := st.CountBotRiskControlEvents(botID)
+	if err != nil {
+		t.Fatalf("CountBotRiskControlEvents: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("count want 2 got %d", n)
+	}
+
+	rows, err := st.QueryBotRiskControlEvents(botID, 10, 0)
+	if err != nil {
+		t.Fatalf("QueryBotRiskControlEvents: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows want 2 got %d", len(rows))
+	}
+	if rows[0].EventType != "resumed" {
+		t.Fatalf("first row should be newest (resumed), got %s", rows[0].EventType)
+	}
+}
+
 // TestSaveOrderKeepIsolationByExchangeAndBotID 驗證相同 order_id 在不同交易所/Bot 不會互相覆蓋
 func TestSaveOrderKeepIsolationByExchangeAndBotID(t *testing.T) {
 	dbPath := "./test_order_isolation.db"

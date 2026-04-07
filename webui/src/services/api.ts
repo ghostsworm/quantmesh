@@ -3003,6 +3003,63 @@ export async function getBotPositionStatus(botID: string): Promise<PositionStatu
   return fetchWithAuth(`${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/position-status`)
 }
 
+/** Bot 開倉風控暫停/恢復事件（持久化記錄） */
+export interface BotRiskControlEventItem {
+  id: number
+  event_type: string
+  reason: string
+  source: string
+  created_at: string
+}
+
+export interface BotRiskControlEventsResponse {
+  events: BotRiskControlEventItem[]
+  total: number
+  page: number
+  page_size: number
+  total_page: number
+}
+
+export async function getBotRiskControlEvents(
+  botID: string,
+  page = 1,
+  pageSize = 20
+): Promise<BotRiskControlEventsResponse> {
+  const q = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  return fetchWithAuth(
+    `${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/risk-control/events?${q.toString()}`
+  )
+}
+
+/** 下載風控事件 CSV（需已登入，含 Cookie） */
+export async function downloadBotRiskControlEventsCsv(botID: string): Promise<void> {
+  const url = `${API_BASE_URL}/v2/bots/${encodeURIComponent(botID)}/risk-control/events/export`
+  const currentLang = localStorage.getItem('i18nextLng') || 'zh-CN'
+  const res = await fetch(url, {
+    credentials: 'include',
+    headers: {
+      Accept: 'text/csv',
+      'Accept-Language': currentLang,
+    },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+  const blob = await res.blob()
+  const safe = botID.replace(/[/\\:*?"<>|]/g, '_')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `bot_risk_events_${safe}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(a.href)
+}
+
 // ==================== Option Hedge API ====================
 
 export interface OptionHedgePosition {

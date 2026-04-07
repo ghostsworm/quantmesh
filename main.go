@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.81.2-rc2"
+var Version = "3.82.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -3010,6 +3010,12 @@ func main() {
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
+			storage.SetBotRiskControlStorageGetter(func() storage.Storage {
+				if storageService == nil {
+					return nil
+				}
+				return storageService.GetStorage()
+			})
 			if st := storageService.GetStorage(); st != nil {
 				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
 					web.SetSystemSettingsProvider(ssAdapter)
@@ -3102,6 +3108,12 @@ func main() {
 		if storageService != nil {
 			storageAdapter := web.NewStorageServiceAdapter(storageService)
 			web.SetStorageServiceProvider(storageAdapter)
+			storage.SetBotRiskControlStorageGetter(func() storage.Storage {
+				if storageService == nil {
+					return nil
+				}
+				return storageService.GetStorage()
+			})
 			if st := storageService.GetStorage(); st != nil {
 				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
 					web.SetSystemSettingsProvider(ssAdapter)

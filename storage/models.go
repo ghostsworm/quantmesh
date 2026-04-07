@@ -225,6 +225,16 @@ type RiskCheckHistory struct {
 	TotalCount   int
 }
 
+// BotRiskControlEventRecord Bot 開倉風控暫停/恢復事件（持久化）
+type BotRiskControlEventRecord struct {
+	ID        int64
+	BotID     string
+	EventType string // paused | resumed
+	Reason    string
+	Source    string // config | opening_manager | auto_timer
+	CreatedAt time.Time
+}
+
 // FundingRate 资金费率模型
 type FundingRate struct {
 	ID        int64
