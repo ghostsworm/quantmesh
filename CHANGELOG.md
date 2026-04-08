@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.88.0-rc3] - 2026-04-08
+
+### Fixed
+- **全局持倉**：定時刷新（每 10s）時合併已加載的開/平倉委託緩存，並用規範化行鍵（exchange/symbol 小寫）避免展開行與委託列表被清空或展開態丟失。
+
+### Tests
+- `webui`：`positionRowKey` / `mergePositionRowsForRefresh` 單測。
+
+---
+
 ## [3.88.0-rc2] - 2026-04-08
 
 ### Fixed
