@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import {
   getMarketIntelligence,
   MarketIntelligenceResponse,
+  MarketIntelligenceParams,
   getMacroEvents,
   getMacroImpact,
   MacroEventsResponse,
@@ -10,6 +11,13 @@ import {
 } from '../services/api'
 import { useConfig } from '../contexts/ConfigContext'
 import { formatDateTime } from '../utils/dateFormat'
+import {
+  buildMarketIntelCacheParams,
+  readMarketIntelCache,
+  writeMarketIntelCache,
+  readMacroIntelCache,
+  writeMacroIntelCache,
+} from '../utils/marketIntelligenceCache'
 
 const MarketIntelligence: React.FC = () => {
   const { t, i18n } = useTranslation()
@@ -29,36 +37,54 @@ const MarketIntelligence: React.FC = () => {
   const [selectedSource, setSelectedSource] = useState<string>('')
   const [activeTab, setActiveTab] = useState<'rss' | 'fear_greed' | 'reddit' | 'polymarket' | 'macro' | 'all'>('all')
 
-  // 獲取市場情报數據
-  const fetchData = async () => {
+  const applyIntelResponse = (response: MarketIntelligenceResponse) => {
+    setData(response)
+    const isEmpty = (
+      response.rss_feeds.length === 0 &&
+      response.fear_greed === null &&
+      response.reddit_posts.length === 0 &&
+      response.polymarket.length === 0
+    )
+    if (isEmpty) {
+      setIsEmptyData(true)
+      setError(t('marketIntelligence.noDataHint'))
+    } else {
+      setIsEmptyData(false)
+      setError(null)
+    }
+  }
+
+  // 獲取市場情报數據（forceRefresh：手動刷新/搜索時跳過 session 短期緩存）
+  const fetchData = async (forceRefresh = false) => {
+    const apiParams: MarketIntelligenceParams = { limit: 50 }
+    if (searchKeyword) {
+      apiParams.keyword = searchKeyword
+    }
+    if (selectedSource && selectedSource !== 'all') {
+      apiParams.source = selectedSource as MarketIntelligenceParams['source']
+    }
+    const cacheParams = buildMarketIntelCacheParams({
+      limit: 50,
+      keyword: searchKeyword || undefined,
+      source: selectedSource && selectedSource !== 'all' ? selectedSource : undefined,
+    })
+
+    if (!forceRefresh) {
+      const cached = readMarketIntelCache<MarketIntelligenceResponse>(cacheParams)
+      if (cached) {
+        applyIntelResponse(cached)
+        setLoading(false)
+        return
+      }
+    }
+
     try {
       setLoading(true)
       setError(null)
       setIsEmptyData(false)
-      const params: any = {
-        limit: 50,
-      }
-      if (searchKeyword) {
-        params.keyword = searchKeyword
-      }
-      if (selectedSource && selectedSource !== 'all') {
-        params.source = selectedSource
-      }
-      const response = await getMarketIntelligence(params)
-      setData(response)
-      
-      // 检查數據是否為空
-      const isEmpty = (
-        response.rss_feeds.length === 0 &&
-        response.fear_greed === null &&
-        response.reddit_posts.length === 0 &&
-        response.polymarket.length === 0
-      )
-      
-      if (isEmpty) {
-        setIsEmptyData(true)
-        setError(t('marketIntelligence.noDataHint'))
-      }
+      const response = await getMarketIntelligence(apiParams)
+      applyIntelResponse(response)
+      writeMarketIntelCache(cacheParams, response)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : t('marketIntelligence.fetchFailed')
       setError(t('marketIntelligence.fetchError', { error: errorMessage }))
@@ -69,7 +95,15 @@ const MarketIntelligence: React.FC = () => {
     }
   }
 
-  const fetchMacroData = async () => {
+  const fetchMacroData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = readMacroIntelCache()
+      if (cached) {
+        setMacroEvents(cached.events as MacroEventsResponse)
+        setMacroImpact(cached.impact as MacroImpactResponse)
+        return
+      }
+    }
     try {
       const [eventsRes, impactRes] = await Promise.all([
         getMacroEvents().catch(() => ({ events: [], last_fetched: null, enabled: false })),
@@ -77,6 +111,7 @@ const MarketIntelligence: React.FC = () => {
       ])
       setMacroEvents(eventsRes)
       setMacroImpact(impactRes)
+      writeMacroIntelCache({ events: eventsRes, impact: impactRes })
     } catch {
       setMacroEvents(null)
       setMacroImpact(null)
@@ -84,10 +119,10 @@ const MarketIntelligence: React.FC = () => {
   }
 
   useEffect(() => {
-    fetchData()
-    fetchMacroData()
-    const interval = setInterval(fetchData, 10 * 60 * 1000)
-    const macroInterval = setInterval(fetchMacroData, 5 * 60 * 1000)
+    void fetchData(false)
+    void fetchMacroData(false)
+    const interval = setInterval(() => void fetchData(false), 10 * 60 * 1000)
+    const macroInterval = setInterval(() => void fetchMacroData(false), 5 * 60 * 1000)
     return () => {
       clearInterval(interval)
       clearInterval(macroInterval)
@@ -96,7 +131,7 @@ const MarketIntelligence: React.FC = () => {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    fetchData()
+    void fetchData(true)
   }
 
   const getFearGreedColor = (value: number) => {
@@ -163,7 +198,11 @@ const MarketIntelligence: React.FC = () => {
           <option value="polymarket">Polymarket</option>
         </select>
         <button
-          onClick={fetchData}
+          type="button"
+          onClick={() => {
+            void fetchData(true)
+            void fetchMacroData(true)
+          }}
           disabled={loading}
           style={{
             padding: '8px 16px',
