@@ -1203,21 +1203,13 @@ func getDailyStatistics(c *gin.Context) {
 	startDateStr := startDate.Format("2006-01-02")
 	endDateStr := endDate.Format("2006-01-02")
 
-	// 处理所有日期（包括 statistics 表和 trades 表中的日期）
-	allDates := make(map[string]bool)
-	for dateKey := range statsMap {
-		allDates[dateKey] = true
-	}
-	for dateKey := range tradesStatsMap {
-		allDates[dateKey] = true
-	}
+	// 处理所有日期：statistics / trades，以及僅有資金費、交易所已實現或日快照的日期（避免日曆缺日）
+	allDates := collectDailyStatDateKeysInRange(startDateStr, endDateStr, statsMap, tradesStatsMap, fundingMap, exchangePnLMap, snapshotMap)
 
 	// 轉换為列表
 	var dateList []string
 	for dateKey := range allDates {
-		if dateKey >= startDateStr && dateKey <= endDateStr {
-			dateList = append(dateList, dateKey)
-		}
+		dateList = append(dateList, dateKey)
 	}
 
 	// 按日期倒序排序
@@ -1264,7 +1256,18 @@ func getDailyStatistics(c *gin.Context) {
 			item["volume_stop_loss"] = tradeStat.VolumeStopLoss
 			dailyPnL = tradeStat.TotalPnL
 		} else {
-			continue
+			// 無網格 statistics / trades，但仍有資金費、交易所已實現或快照時仍輸出當日（否則前端日曆顯示「無數據」）
+			_, hasFunding := fundingMap[dateKey]
+			_, hasExchange := exchangePnLMap[dateKey]
+			_, hasSnap := snapshotMap[dateKey]
+			if !hasFunding && !hasExchange && !hasSnap {
+				continue
+			}
+			item["total_trades"] = 0
+			item["total_volume"] = 0
+			item["total_pnl"] = 0
+			item["win_rate"] = 0
+			dailyPnL = 0
 		}
 
 		// 如果 statistics 表的數據存在，但從 trades 表可以獲取盈利/亏损交易數和交易量細分，也添加進去
