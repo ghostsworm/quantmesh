@@ -1061,6 +1061,8 @@
     "symbolDescription": "Manage dedicated configuration for {{symbol}}",
     "singleBotGlobalHint": "This page only configures the current bot. For global settings (exchange API, notifications, YAML, etc.), go to <configLink>/config</configLink>.",
     "saveChanges": "Save Changes",
+    "unsavedReminder": "You have unsaved changes. Click \"Save Changes\" for form edits; if you edited YAML, use Preview/Save in the YAML editor.",
+    "leaveUnsavedConfirm": "Leave this page? Unsaved changes will be lost.",
     "globalTabs": {
       "general": "General Settings",
       "exchangeAPI": "Exchange API",
