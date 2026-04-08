@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.85.0-rc1"
+var Version = "3.86.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -380,6 +380,22 @@ func (a *snapshotRuntimeAdapter) CurrentSnapshot() (currentPrice, unrealizedPnL,
 	unrealizedPnL = a.rt.SuperPositionManager.GetUnrealizedPnL(currentPrice)
 	totalPositionValue = a.rt.SuperPositionManager.GetTotalPositionValueAtPrice(currentPrice)
 	return currentPrice, unrealizedPnL, totalPositionValue
+}
+
+// AccountEquityUSDT 從交易所 GetAccount 拉取帳戶權益（U 本位總權益），用于統計頁真實淨值曲線
+func (a *snapshotRuntimeAdapter) AccountEquityUSDT(ctx context.Context) (float64, bool) {
+	if a.rt == nil || a.rt.Exchange == nil {
+		return 0, false
+	}
+	acc, err := a.rt.Exchange.GetAccount(ctx)
+	if err != nil || acc == nil {
+		return 0, false
+	}
+	total := acc.TotalMarginBalance
+	if total <= 0 {
+		total = acc.TotalWalletBalance
+	}
+	return total, true
 }
 
 type symbolManagerWebAdapter struct {

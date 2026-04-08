@@ -31,4 +31,11 @@ describe('buildDailyEquityChartPoints', () => {
     expect(pts[0].dailyNetWithFunding).toBeCloseTo(2.2 - 8.94)
     expect(pts[0].cumulativePnl).toBe(100)
   })
+
+  it('maps account_equity from API when present', () => {
+    const pts = buildDailyEquityChartPoints([
+      { date: '2026-04-04', total_pnl: 0, cumulative_pnl: 10, account_equity: 12345.67 },
+    ])
+    expect(pts[0].accountEquity).toBeCloseTo(12345.67)
+  })
 })

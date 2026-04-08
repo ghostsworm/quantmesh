@@ -10,6 +10,11 @@ import (
 	"quantmesh/utils"
 )
 
+// accountEquitySampler 可選：由 snapshotRuntimeAdapter 實現，小時任務中調用交易所 GetAccount
+type accountEquitySampler interface {
+	AccountEquityUSDT(ctx context.Context) (float64, bool)
+}
+
 // RuntimeSnapshotSource 提供單個交易對的當前快照數據（由 main 注入）
 type RuntimeSnapshotSource interface {
 	Exchange() string
@@ -111,9 +116,11 @@ func (r *DailySnapshotRunner) hourlyLoop() {
 // recordHourlyForAll 為所有 runtime 寫入當前小時權益記錄
 func (r *DailySnapshotRunner) recordHourlyForAll(ts time.Time) {
 	runtimes := r.getRuntimes()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	for _, rt := range runtimes {
 		_, unrealized, totalVal := rt.CurrentSnapshot()
-		equity := totalVal // 權益即當前持倉市值
+		equity := totalVal // 持倉市值（與日內回撤計算一致）
 		rec := &storage.HourlyEquityRecord{
 			Exchange:           rt.Exchange(),
 			Symbol:             rt.Symbol(),
@@ -122,6 +129,11 @@ func (r *DailySnapshotRunner) recordHourlyForAll(ts time.Time) {
 			Equity:             equity,
 			UnrealizedPnL:      unrealized,
 			TotalPositionValue: totalVal,
+		}
+		if s, ok := rt.(accountEquitySampler); ok {
+			if v, ok2 := s.AccountEquityUSDT(ctx); ok2 {
+				rec.AccountEquity = &v
+			}
 		}
 		if err := r.storage.SaveHourlyEquityRecord(rec); err != nil {
 			logger.Warn("⚠️ 保存小時權益記錄失敗 %s:%s: %v", rt.Exchange(), rt.Symbol(), err)
@@ -174,8 +186,15 @@ func (r *DailySnapshotRunner) aggregateDaily(date time.Time) {
 			maxDrawdownPct = 0
 		}
 
-		// 收盤時刻的未實現盈虧與持倉價值取當日最后一條小時記錄
+		// 收盤時刻的未實現盈虧與持倉價值取當日最后一條小時記錄；帳戶權益取當日末條有效採樣
 		last := records[len(records)-1]
+		var closingAcct *float64
+		for i := len(records) - 1; i >= 0; i-- {
+			if records[i].AccountEquity != nil {
+				closingAcct = records[i].AccountEquity
+				break
+			}
+		}
 		snap := &storage.DailySnapshot{
 			Exchange:               exchange,
 			Symbol:                 symbol,
@@ -188,6 +207,7 @@ func (r *DailySnapshotRunner) aggregateDaily(date time.Time) {
 			IntradayPeakEquity:     peakEquity,
 			ClosingPrice:           0, // 可從 K 線或 API 補齊
 			SnapshotTime:           last.Timestamp,
+			AccountEquity:          closingAcct,
 		}
 		if err := r.storage.SaveDailySnapshot(snap); err != nil {
 			logger.Warn("⚠️ 保存每日快照失敗 %s:%s %s: %v", exchange, symbol, date.Format("2006-01-02"), err)
@@ -203,9 +223,17 @@ func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
 	}
 	today := time.Date(ts.Year(), ts.Month(), ts.Day(), 0, 0, 0, 0, loc)
 	runtimes := r.getRuntimes()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	for _, rt := range runtimes {
 		exchange, symbol, account := rt.Exchange(), rt.Symbol(), rt.Account()
 		_, unrealized, totalVal := rt.CurrentSnapshot()
+		var acct *float64
+		if s, ok := rt.(accountEquitySampler); ok {
+			if v, ok2 := s.AccountEquityUSDT(ctx); ok2 {
+				acct = &v
+			}
+		}
 		snap := &storage.DailySnapshot{
 			Exchange:               exchange,
 			Symbol:                 symbol,
@@ -218,6 +246,7 @@ func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
 			IntradayPeakEquity:     totalVal,
 			ClosingPrice:           0,
 			SnapshotTime:           ts,
+			AccountEquity:          acct,
 		}
 		if err := r.storage.SaveDailySnapshot(snap); err != nil {
 			logger.Warn("⚠️ 保存 0 點未實現快照失敗 %s:%s %s: %v", exchange, symbol, today.Format("2006-01-02"), err)

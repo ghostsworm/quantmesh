@@ -23,6 +23,11 @@ const DailyCumulativePnLChart: React.FC<DailyCumulativePnLChartProps> = ({ data,
 
   const hasData = data.length > 0
 
+  const hasExchangeAccountEquity = useMemo(
+    () => data.some((p) => p.accountEquity !== undefined && !Number.isNaN(p.accountEquity)),
+    [data]
+  )
+
   const chartData = useMemo(() => data, [data])
 
   if (!hasData) {
@@ -65,11 +70,13 @@ const DailyCumulativePnLChart: React.FC<DailyCumulativePnLChartProps> = ({ data,
           <Tooltip
             formatter={(value: number, name: string) => {
               const label =
-                name === 'cumulativePnl'
-                  ? t('statistics.dailyEquityCurveSeriesCumulative')
-                  : name === 'dailyNetWithFunding'
-                    ? t('statistics.dailyEquityCurveSeriesDailyNet')
-                    : name
+                name === 'accountEquity'
+                  ? t('statistics.dailyEquityCurveSeriesAccountEquity')
+                  : name === 'cumulativePnl'
+                    ? t('statistics.dailyEquityCurveSeriesCumulative')
+                    : name === 'dailyNetWithFunding'
+                      ? t('statistics.dailyEquityCurveSeriesDailyNet')
+                      : name
               return [`${value >= 0 ? '+' : ''}${value.toFixed(2)}`, label]
             }}
             labelFormatter={(_, payload) => {
@@ -79,11 +86,13 @@ const DailyCumulativePnLChart: React.FC<DailyCumulativePnLChartProps> = ({ data,
           />
           <Legend
             formatter={(value) =>
-              value === 'cumulativePnl'
-                ? t('statistics.dailyEquityCurveSeriesCumulative')
-                : value === 'dailyNetWithFunding'
-                  ? t('statistics.dailyEquityCurveSeriesDailyNet')
-                  : value
+              value === 'accountEquity'
+                ? t('statistics.dailyEquityCurveSeriesAccountEquity')
+                : value === 'cumulativePnl'
+                  ? t('statistics.dailyEquityCurveSeriesCumulative')
+                  : value === 'dailyNetWithFunding'
+                    ? t('statistics.dailyEquityCurveSeriesDailyNet')
+                    : value
             }
           />
           <Bar
@@ -94,16 +103,42 @@ const DailyCumulativePnLChart: React.FC<DailyCumulativePnLChartProps> = ({ data,
             opacity={0.85}
             maxBarSize={28}
           />
-          <Line
-            yAxisId="left"
-            type="monotone"
-            dataKey="cumulativePnl"
-            name="cumulativePnl"
-            stroke="#1890ff"
-            strokeWidth={2}
-            dot={chartData.length <= 45}
-            activeDot={{ r: 4 }}
-          />
+          {hasExchangeAccountEquity ? (
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="accountEquity"
+              name="accountEquity"
+              stroke="#1890ff"
+              strokeWidth={2}
+              dot={chartData.length <= 45}
+              activeDot={{ r: 4 }}
+              connectNulls={false}
+            />
+          ) : (
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="cumulativePnl"
+              name="cumulativePnl"
+              stroke="#1890ff"
+              strokeWidth={2}
+              dot={chartData.length <= 45}
+              activeDot={{ r: 4 }}
+            />
+          )}
+          {hasExchangeAccountEquity ? (
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="cumulativePnl"
+              name="cumulativePnl"
+              stroke="#bfbfbf"
+              strokeWidth={1.5}
+              strokeDasharray="6 4"
+              dot={false}
+            />
+          ) : null}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

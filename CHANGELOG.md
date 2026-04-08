@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.86.0-rc1] - 2026-04-08
+
+### Added
+- **統計淨值曲線**：小時任務調用交易所 `GetAccount` 採樣帳戶權益（USDT）寫入 `hourly_equity_records` / `daily_snapshots`；`/api/statistics/daily` 返回 `account_equity` 與 `market_type`；Web 曲線實心藍線為交易所帳戶權益、灰虚線為本地累計盈虧對照；每日明細表可選展示「帳戶權益」列。
+
+### Tests
+- `webui`：`buildDailyEquityChartPoints` 含 `account_equity` 映射單測。
+
+---
+
 ## [3.85.0-rc1] - 2026-04-08
 
 ### Added
