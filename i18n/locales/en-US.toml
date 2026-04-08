@@ -108,6 +108,12 @@ other = "Bot manager unavailable"
 [error.config_load_failed]
 other = "Failed to load config"
 
+[error.market_intel_digest_failed]
+other = "Failed to generate AI news digest"
+
+[error.market_intel_no_headlines]
+other = "No RSS headlines available for digest; check data sources or try again later"
+
 [error.bot_start_failed]
 other = "Failed to start Bot"
 

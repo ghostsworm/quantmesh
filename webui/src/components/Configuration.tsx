@@ -163,10 +163,7 @@ const PolymarketConfigSection: React.FC<{
   const { t } = useTranslation()
   const ps = config.ai?.modules?.polymarket_signal
   const enabled = ps?.enabled ?? false
-  const gammaUrl =
-    (config as { macro_event?: { gamma_api_url?: string } }).macro_event?.gamma_api_url ||
-    ps?.api_url ||
-    ''
+  const gammaUrl = config.macro_event?.gamma_api_url || ps?.api_url || ''
 
   return (
     <ConfigCard title={t('configuration.polymarketSectionTitle')} icon={<StarIcon />}>
@@ -194,6 +191,58 @@ const PolymarketConfigSection: React.FC<{
           })}
         </Text>
       )}
+    </ConfigCard>
+  )
+}
+
+const MacroEventConfigSection: React.FC<{
+  config: Config
+  updateConfigField: (path: string, value: unknown) => void
+}> = ({ config, updateConfigField }) => {
+  const { t } = useTranslation()
+  const me = config.macro_event
+  const enabled = me?.enabled ?? false
+  const interval = me?.fetch_interval ?? 300
+  const gammaUrl = me?.gamma_api_url ?? ''
+
+  return (
+    <ConfigCard title={t('configuration.macroEventSectionTitle')} icon={<StarIcon />}>
+      <Text fontSize="xs" color="gray.500" mb={4}>{t('configuration.macroEventSectionDesc')}</Text>
+      <Flex justify="space-between" align="center" mb={4}>
+        <Box>
+          <Text fontWeight="600">{t('configuration.macroEventEnable')}</Text>
+          <Text fontSize="xs" color="gray.500">{t('configuration.macroEventEnableDesc')}</Text>
+        </Box>
+        <Switch
+          colorScheme="purple"
+          isChecked={enabled}
+          onChange={(e) => updateConfigField('macro_event.enabled', e.target.checked)}
+        />
+      </Flex>
+      <FormControl mb={4}>
+        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.macroEventFetchInterval')}</FormLabel>
+        <NumberInput
+          value={interval}
+          min={60}
+          max={86400}
+          step={60}
+          onChange={(_, v) => updateConfigField('macro_event.fetch_interval', v ?? 300)}
+        >
+          <NumberInputField borderRadius="xl" />
+          <NumberInputStepper>
+            <NumberIncrementStepper />
+            <NumberDecrementStepper />
+          </NumberInputStepper>
+        </NumberInput>
+        <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.macroEventFetchIntervalDesc')}</Text>
+      </FormControl>
+      {gammaUrl ? (
+        <Text fontSize="xs" color="gray.600" mb={2}>{t('configuration.macroEventGammaUrl')}: {gammaUrl}</Text>
+      ) : null}
+      <Alert status="info" borderRadius="lg">
+        <AlertIcon />
+        <Text fontSize="xs">{t('configuration.macroEventRestartHint')}</Text>
+      </Alert>
     </ConfigCard>
   )
 }
@@ -1921,6 +1970,7 @@ const Configuration: React.FC = () => {
                     </Alert>
 
                     <PolymarketConfigSection config={config} setConfig={setConfig} />
+                    <MacroEventConfigSection config={config} updateConfigField={updateConfigField} />
 
                     <ConfigCard title={t('configuration.riskControlSettings')} icon={<LockIcon />}>
                       <Flex justify="space-between" align="center" mb={6}>
@@ -3144,6 +3194,7 @@ const Configuration: React.FC = () => {
                 {tabIndex === 2 && (
                   <VStack spacing={6} align="stretch">
                     <PolymarketConfigSection config={config} setConfig={setConfig} />
+                    <MacroEventConfigSection config={config} updateConfigField={updateConfigField} />
                     <ConfigCard title={t('configuration.aiDecisionEngine')} icon={<StarIcon />}>
                       <Flex justify="space-between" align="center" mb={6}>
                         <Box>

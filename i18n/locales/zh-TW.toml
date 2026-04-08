@@ -108,6 +108,12 @@ other = "Bot 管理器不可用"
 [error.config_load_failed]
 other = "載入配置失敗"
 
+[error.market_intel_digest_failed]
+other = "市場新聞 AI 簡報產生失敗"
+
+[error.market_intel_no_headlines]
+other = "暫無 RSS 標題可用於簡報，請檢查資料來源或稍後再試"
+
 [error.bot_start_failed]
 other = "啟動 Bot 失敗"
 

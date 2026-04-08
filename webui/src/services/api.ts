@@ -2412,6 +2412,20 @@ export async function getMarketIntelligence(params?: MarketIntelligenceParams): 
   return fetchWithAuth(url)
 }
 
+export interface MarketIntelNewsDigestResponse {
+  digest: string
+  cached?: boolean
+}
+
+/** RSS 標題聚合的 AI 簡報（後端 Gemini，帶服務端緩存） */
+export async function getMarketIntelNewsDigest(lang?: 'zh' | 'en'): Promise<MarketIntelNewsDigestResponse> {
+  const q = new URLSearchParams()
+  if (lang) q.set('lang', lang)
+  const qs = q.toString()
+  const url = `${API_BASE_URL}/market-intelligence/news-digest${qs ? `?${qs}` : ''}`
+  return fetchWithAuth(url)
+}
+
 // ==================== 價差監控 ====================
 
 export interface BasisData {

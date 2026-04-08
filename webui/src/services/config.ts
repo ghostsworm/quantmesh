@@ -442,6 +442,12 @@ export interface Config {
       base_url?: string  // 可选，自定义API端点（用于Poe等代理）
     }
   }
+  /** 宏觀事件（Polymarket Gamma）拉取與風控；保存後需重啟進程使拉取任務生效 */
+  macro_event?: {
+    enabled?: boolean
+    fetch_interval?: number
+    gamma_api_url?: string
+  }
   strategies?: {
     enabled: boolean
     capital_allocation?: {
