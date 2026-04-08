@@ -23,6 +23,7 @@ import (
 	"quantmesh/exchange"
 	qmi18n "quantmesh/i18n"
 	"quantmesh/logger"
+	"quantmesh/polymarket"
 	"quantmesh/position"
 	"quantmesh/storage"
 	ordersync "quantmesh/sync"
@@ -4261,10 +4262,34 @@ func InitDefaultDataSourceProvider() {
 			"https://cointelegraph.com/rss",
 			"https://cryptonews.com/news/feed/",
 		},
-		fearGreedAPIURL: "https://api.alternative.me/fng/",
+		fearGreedAPIURL:  "https://api.alternative.me/fng/",
+		gammaBaseURL:     "https://gamma-api.polymarket.com",
 	}
 	dataSourceProvider = provider
 	logger.Info("✅ 已初始化內置數據源提供者")
+}
+
+// ApplyDataSourcePolymarketConfig 根據配置設置 Gamma API 根地址（僅內置提供者）。
+// 優先 macro_event.gamma_api_url，其次 ai.modules.polymarket_signal.api_url，默認 gamma-api.polymarket.com。
+func ApplyDataSourcePolymarketConfig(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	p, ok := dataSourceProvider.(*builtinDataSourceProvider)
+	if !ok {
+		return
+	}
+	gamma := strings.TrimSpace(cfg.MacroEvent.GammaAPIURL)
+	if gamma == "" {
+		gamma = strings.TrimSpace(cfg.AI.Modules.PolymarketSignal.APIURL)
+	}
+	if gamma == "" {
+		gamma = "https://gamma-api.polymarket.com"
+	}
+	p.mu.Lock()
+	p.gammaBaseURL = strings.TrimSuffix(gamma, "/")
+	p.mu.Unlock()
+	logger.Info("✅ 市場情报 Polymarket Gamma 地址: %s", p.gammaBaseURL)
 }
 
 // builtinDataSourceProvider 內置數據源提供者（不依賴 AI 模塊）
@@ -4272,11 +4297,17 @@ type builtinDataSourceProvider struct {
 	httpClient          *http.Client
 	rssFeeds            []string
 	fearGreedAPIURL     string
+	gammaBaseURL        string
 	mu                  sync.RWMutex
 	cachedRSS           []RSSFeedInfo
 	cachedFearGreed     *FearGreedIndexInfo
 	lastRSSUpdate       time.Time
 	lastFearGreedUpdate time.Time
+	// Polymarket 列表緩存（減輕 Gamma 壓力；關鍵詞搜索不長期緩存）
+	polyMu            sync.RWMutex
+	cachedPoly        []PolymarketMarketInfo
+	cachedPolyKW      string
+	lastPolyFetch     time.Time
 }
 
 // GetRSSFeeds 獲取RSS新聞
@@ -4491,10 +4522,43 @@ func (p *builtinDataSourceProvider) GetRedditPosts(subreddits []string, limit in
 	return []RedditPostInfo{}, nil
 }
 
-// GetPolymarketMarkets 獲取Polymarket市場（暫未實現）
+// GetPolymarketMarkets 從 Polymarket Gamma REST 拉取活躍市場（無需 token）。
 func (p *builtinDataSourceProvider) GetPolymarketMarkets(keywords []string) ([]PolymarketMarketInfo, error) {
-	// Polymarket API 需要特殊處理，暫未實現
-	return []PolymarketMarketInfo{}, nil
+	kwKey := strings.Join(keywords, "\x1e")
+	p.polyMu.RLock()
+	base := p.gammaBaseURL
+	if base == "" {
+		base = "https://gamma-api.polymarket.com"
+	}
+	if kwKey == p.cachedPolyKW && time.Since(p.lastPolyFetch) < 5*time.Minute && len(p.cachedPoly) > 0 {
+		out := append([]PolymarketMarketInfo(nil), p.cachedPoly...)
+		p.polyMu.RUnlock()
+		return out, nil
+	}
+	p.polyMu.RUnlock()
+
+	raw, err := polymarket.FetchActiveMarkets(base, keywords, p.httpClient, 50)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PolymarketMarketInfo, 0, len(raw))
+	for _, m := range raw {
+		out = append(out, PolymarketMarketInfo{
+			ID:          m.ID,
+			Question:    m.Question,
+			Description: m.Description,
+			EndDate:     m.EndDate,
+			Outcomes:    m.Outcomes,
+			Volume:      m.Volume,
+			Liquidity:   m.Liquidity,
+		})
+	}
+	p.polyMu.Lock()
+	p.cachedPoly = append([]PolymarketMarketInfo(nil), out...)
+	p.cachedPolyKW = kwKey
+	p.lastPolyFetch = time.Now()
+	p.polyMu.Unlock()
+	return out, nil
 }
 
 // dataSourceAdapter 數據源适配器
@@ -4719,7 +4783,7 @@ func (a *dataSourceAdapter) GetPolymarketMarkets(keywords []string) ([]Polymarke
 	if a.polymarketAPIURL != "" && strings.Contains(a.polymarketAPIURL, "gamma") {
 		gammaURL = strings.TrimSuffix(a.polymarketAPIURL, "/")
 	}
-	markets, err := a.fetchPolymarketFromGamma(gammaURL, keywords)
+	markets, err := fetchPolymarketMarketsFromGamma(gammaURL, keywords)
 	if err == nil && len(markets) > 0 {
 		return markets, nil
 	}
@@ -4770,84 +4834,23 @@ func (a *dataSourceAdapter) GetPolymarketMarkets(keywords []string) ([]Polymarke
 	return markets, err
 }
 
-// fetchPolymarketFromGamma 從 Polymarket Gamma REST API 拉取市場
-func (a *dataSourceAdapter) fetchPolymarketFromGamma(baseURL string, keywords []string) ([]PolymarketMarketInfo, error) {
-	url := baseURL + "/events?limit=50&active=true&closed=false&order=volume24hr&ascending=false"
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+// fetchPolymarketMarketsFromGamma 從 Polymarket Gamma REST API 拉取市場（與內置提供者共用 polymarket 包）。
+func fetchPolymarketMarketsFromGamma(baseURL string, keywords []string) ([]PolymarketMarketInfo, error) {
+	raw, err := polymarket.FetchActiveMarkets(baseURL, keywords, &http.Client{Timeout: 15 * time.Second}, 50)
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Gamma API %d", resp.StatusCode)
-	}
-	var events []struct {
-		ID      string `json:"id"`
-		Title   string `json:"title"`
-		Markets []struct {
-			ID           string  `json:"id"`
-			Question     string  `json:"question"`
-			Description  string  `json:"description"`
-			Outcomes     string  `json:"outcomes"`
-			Volume       string  `json:"volume"`
-			Liquidity    string  `json:"liquidity"`
-			VolumeNum    float64 `json:"volumeNum"`
-			LiquidityNum float64 `json:"liquidityNum"`
-			EndDate      string  `json:"endDate"`
-		} `json:"markets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
-		return nil, err
-	}
-	kwLower := make(map[string]bool)
-	for _, k := range keywords {
-		kwLower[strings.ToLower(k)] = true
-	}
-	var out []PolymarketMarketInfo
-	for _, evt := range events {
-		titleLower := strings.ToLower(evt.Title)
-		if len(kwLower) > 0 {
-			matched := false
-			for k := range kwLower {
-				if strings.Contains(titleLower, k) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				continue
-			}
-		}
-		for _, m := range evt.Markets {
-			var outcomes []string
-			_ = json.Unmarshal([]byte(m.Outcomes), &outcomes)
-			vol, _ := strconv.ParseFloat(m.Volume, 64)
-			liq, _ := strconv.ParseFloat(m.Liquidity, 64)
-			if vol == 0 {
-				vol = m.VolumeNum
-			}
-			if liq == 0 {
-				liq = m.LiquidityNum
-			}
-			var endDate time.Time
-			if m.EndDate != "" {
-				endDate, _ = time.Parse(time.RFC3339, m.EndDate)
-			}
-			out = append(out, PolymarketMarketInfo{
-				ID:          m.ID,
-				Question:    m.Question,
-				Description: m.Description,
-				EndDate:     endDate,
-				Outcomes:    outcomes,
-				Volume:      vol,
-				Liquidity:   liq,
-			})
-		}
+	out := make([]PolymarketMarketInfo, 0, len(raw))
+	for _, m := range raw {
+		out = append(out, PolymarketMarketInfo{
+			ID:          m.ID,
+			Question:    m.Question,
+			Description: m.Description,
+			EndDate:     m.EndDate,
+			Outcomes:    m.Outcomes,
+			Volume:      m.Volume,
+			Liquidity:   m.Liquidity,
+		})
 	}
 	return out, nil
 }
@@ -5012,14 +5015,15 @@ func getMarketIntelligence(c *gin.Context) {
 			keywords = []string{keyword}
 		}
 		polymarketMarkets, err := dataSourceProvider.GetPolymarketMarkets(keywords)
-		if err == nil {
+		if err != nil {
+			logger.Warn("獲取 Polymarket 市場失敗: %v", err)
+			result["polymarket"] = []interface{}{}
+		} else {
 			if len(polymarketMarkets) > limit {
 				result["polymarket"] = polymarketMarkets[:limit]
 			} else {
 				result["polymarket"] = polymarketMarkets
 			}
-		} else {
-			result["polymarket"] = []interface{}{}
 		}
 	}
 
