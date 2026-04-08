@@ -2,6 +2,29 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.87.0-rc2] - 2026-04-08
+
+### Fixed
+- **Polymarket / Gamma 缺省值**：`ApplyGammaRelatedDefaults` 在舊庫存 `app_config` 缺字段時補齊 Gamma URL、分析間隔與 `signal_generation` 閾值；`LoadConfigFromBytes` 與 YAML/JSON 路徑一致應用缺省。
+
+### Tests
+- `config`：`ApplyGammaRelatedDefaults` 單測。
+
+---
+
+## [3.87.0-rc1] - 2026-04-08
+
+### Added
+- **Polymarket 市場情报**：內置數據源從 Gamma REST（`https://gamma-api.polymarket.com`）拉取活躍預測市場，無需登錄 token；支援 `macro_event.gamma_api_url` / `ai.modules.polymarket_signal.api_url` 覆寫；`ApplyDataSourcePolymarketConfig` 在路由初始化時應用。
+- **Polymarket + LLM 信號**：新增 `ai.PolymarketSignalAnalyzer`，在 `ai.modules.polymarket_signal.enabled` 且 AI 上游有效時註冊 Web API，定時拉取 Gamma 並用 LLM 輸出綜合信號與市場級解讀；註冊不依賴「當前有無運行中的交易對」。
+- **`polymarket` 包**：`FetchActiveMarkets` 供 Web 與 AI 共用。
+
+### Tests
+- `polymarket`：Gamma 解析與關鍵詞過濾單測。
+- `ai`：`parsePolymarketJSON` 單測。
+
+---
+
 ## [3.86.0-rc2] - 2026-04-08
 
 ### Fixed

@@ -1833,6 +1833,7 @@ func LoadConfig(configPath string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("解析配置文件失败: %v", err)
 	}
+	ApplyGammaRelatedDefaults(&cfg)
 
 	if err := DecryptSensitiveFields(&cfg); err != nil {
 		return nil, err
@@ -1852,6 +1853,7 @@ func LoadConfigFromJSON(data []byte) (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("解析 JSON 配置失败: %v", err)
 	}
+	ApplyGammaRelatedDefaults(&cfg)
 	if err := DecryptSensitiveFields(&cfg); err != nil {
 		return nil, err
 	}
@@ -1867,6 +1869,7 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("解析配置文件失败: %v", err)
 	}
+	ApplyGammaRelatedDefaults(&cfg)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("配置驗证失败: %v", err)
@@ -2109,6 +2112,8 @@ func CreateMinimalConfig() *Config {
 	cfg.Compliance.OSS.Provider = "aliyun"
 	cfg.Compliance.OSS.Prefix = "audit/"
 	cfg.Compliance.OSS.UploadTime = "02:00"
+
+	ApplyGammaRelatedDefaults(cfg)
 
 	return cfg
 }
