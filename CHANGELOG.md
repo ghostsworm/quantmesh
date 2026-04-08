@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.88.0-rc1] - 2026-04-08
+
+### Added
+- **配置界面 Polymarket 一鍵預填**：全域「市場風控」與單 Bot「AI 策略」中新增開關；開啟時合併 `config.example.yaml` 對應的 `ai.modules.polymarket_signal` 預設（Gamma URL、間隔、關鍵詞、信號閾值等），並補齊 `macro_event.gamma_api_url` / `fetch_interval`（不自動開啟 `macro_event.enabled`）。
+
+### Tests
+- `webui`：`polymarketConfigDefaults` 合併邏輯單測。
+
+---
+
 ## [3.87.0-rc2] - 2026-04-08
 
 ### Fixed
