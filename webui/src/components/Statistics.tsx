@@ -22,6 +22,7 @@ import { getStatistics, getDailyStatistics, getPnLByTimeRange, getExchangePnLDia
 import StatisticsCalendar from './StatisticsCalendar'
 import DailyCumulativePnLChart from './DailyCumulativePnLChart'
 import { buildDailyEquityChartPoints, filterDailyStatsByRecentDays } from '../utils/dailyEquityChartData'
+import { calendarMonthMatchesDateStr } from '../utils/calendarDateMatch'
 
 interface StatisticsData {
   total_trades: number
@@ -343,10 +344,9 @@ const Statistics: React.FC = () => {
         <StatisticsCalendar 
           year={currentYear}
           month={currentMonth}
-          dailyStats={dailyStats.filter(stat => {
-            const statDate = new Date(stat.date)
-            return statDate.getFullYear() === currentYear && statDate.getMonth() + 1 === currentMonth
-          })}
+          dailyStats={dailyStats.filter(stat =>
+            calendarMonthMatchesDateStr(stat.date, currentYear, currentMonth)
+          )}
           onDayClick={(date) => {
             if (botId) navigate(`/bots/${botId}/statistics/daily/${date}`)
             else navigate(`/statistics/daily/${date}`)

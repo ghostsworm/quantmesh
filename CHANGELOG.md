@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.86.0-rc2] - 2026-04-08
+
+### Fixed
+- **每日統計 API**：合併日期鍵時納入資金費、交易所已實現盈虧與日快照；僅有資金費/交易所數據而無網格成交時仍返回當日記錄，避免統計頁日曆「中間缺一日」。
+- **統計日曆**：月份過濾改用 `YYYY-MM-DD` 字串解析，避免 `new Date('YYYY-MM-DD')` 在部分時區導致月份錯位。
+
+### Tests
+- `web`：`collectDailyStatDateKeysInRange` 單測。
+- `webui`：`calendarMonthMatchesDateStr` 單測。
+
+---
+
 ## [3.86.0-rc1] - 2026-04-08
 
 ### Added
