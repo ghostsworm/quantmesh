@@ -1295,11 +1295,14 @@ func getDailyStatistics(c *gin.Context) {
 		cumulativePnLList = append(cumulativePnLList, cumulativePnL)
 		item["cumulative_pnl"] = cumulativePnL
 
-		// 合併每日快照：未實現盈虧、日內最大回撤
+		// 合併每日快照：未實現盈虧、日內最大回撤、交易所帳戶權益（真實淨值）
 		if snap, ok := snapshotMap[dateKey]; ok {
 			item["unrealized_pnl"] = snap.UnrealizedPnL
 			item["intraday_max_drawdown"] = snap.IntradayMaxDrawdown
 			item["intraday_max_drawdown_pct"] = snap.IntradayMaxDrawdownPct
+			if snap.AccountEquity != nil {
+				item["account_equity"] = *snap.AccountEquity
+			}
 		}
 
 		// 合併每日資金費用
@@ -1382,11 +1385,20 @@ func getDailyStatistics(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"statistics":       result,
 		"max_drawdown":     maxDrawdown,
 		"max_drawdown_pct": maxDrawdownPct,
-	})
+	}
+	if st := pickStatus(c); st != nil {
+		mt := strings.TrimSpace(st.MarketType)
+		if mt == "" {
+			mt = "futures"
+		}
+		resp["market_type"] = mt
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // getTradeStatistics 獲取交易统计

@@ -102,10 +102,12 @@ type HourlyEquityRecord struct {
 	Symbol             string
 	Account            string
 	Timestamp          time.Time
-	Equity             float64 // 權益 = 持倉價值 + 未實現盈虧
+	Equity             float64 // 持倉市值（與未實現相關的倉位價值語義，見 monitor）
 	UnrealizedPnL      float64
 	TotalPositionValue float64
-	CreatedAt          time.Time
+	// AccountEquity 交易所 GetAccount 返回的帳戶權益（U 本位總權益/錢包+保證金，依各所實現），用於真實淨值曲線
+	AccountEquity *float64
+	CreatedAt     time.Time
 }
 
 // DailySnapshot 每日收盤快照（未實現盈虧、日內最大回撤）
@@ -122,7 +124,9 @@ type DailySnapshot struct {
 	IntradayPeakEquity     float64
 	ClosingPrice           float64
 	SnapshotTime           time.Time
-	CreatedAt              time.Time
+	// AccountEquity 當日收盤時交易所帳戶權益（由小時採樣末條或 0 點快照寫入），可為 nil
+	AccountEquity *float64
+	CreatedAt     time.Time
 }
 
 // SystemMetrics 系统監控细粒度數據模型

@@ -57,6 +57,8 @@ interface DailyStatistics {
   intraday_max_drawdown?: number
   intraday_max_drawdown_pct?: number
   exchange_pnl?: number // 當日交易所已實現盈虧
+  /** 交易所 API 帳戶權益（USDT） */
+  account_equity?: number
 }
 
 interface PnLBySymbol {
@@ -88,6 +90,7 @@ const Statistics: React.FC = () => {
   const { isOpen: isDiagnosisOpen, onOpen: onDiagnosisOpen, onClose: onDiagnosisClose } = useDisclosure()
   const [diagnosisData, setDiagnosisData] = useState<ExchangePnLDiagnosisResponse | null>(null)
   const [diagnosisLoading, setDiagnosisLoading] = useState(false)
+  const [dailyMarketType, setDailyMarketType] = useState<string | undefined>(undefined)
 
   const handleOpenDiagnosis = async () => {
     onDiagnosisOpen()
@@ -113,10 +116,15 @@ const Statistics: React.FC = () => {
         // 查詢365天的历史數據，确保显示所有交易記錄
         const [statsData, dailyData] = await Promise.all([
           getStatistics(selectedExchange || undefined, selectedSymbol || undefined),
-          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined, 365).catch(() => ({ statistics: [], max_drawdown: 0, max_drawdown_pct: 0 })),
+          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined, 365).catch(() => ({
+            statistics: [],
+            max_drawdown: 0,
+            max_drawdown_pct: 0,
+          })),
         ])
         setStats(statsData)
         setDailyStats(dailyData.statistics || [])
+        setDailyMarketType(dailyData.market_type)
         setMaxDrawdown(dailyData.max_drawdown || 0)
         setMaxDrawdownPct(dailyData.max_drawdown_pct || 0)
         setError(null)
@@ -260,7 +268,23 @@ const Statistics: React.FC = () => {
 
       <div style={{ marginTop: '32px', maxWidth: '960px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
-          <h3 style={{ margin: 0 }}>{t('statistics.dailyEquityCurveTitle')}</h3>
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {t('statistics.dailyEquityCurveTitle')}
+            {dailyMarketType ? (
+              <span
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: '#595959',
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  background: '#f0f0f0',
+                }}
+              >
+                {dailyMarketType === 'spot' ? t('statistics.marketTypeSpot') : t('statistics.marketTypeFutures')}
+              </span>
+            ) : null}
+          </h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <label style={{ fontSize: '14px', color: '#595959' }}>
               {t('statistics.dailyEquityCurveRange')}
@@ -356,6 +380,11 @@ const Statistics: React.FC = () => {
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.fundingFee')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.unrealizedPnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }} title={t('statistics.bookValuePnL')}>{t('statistics.bookValuePnL')}</th>
+                  {filteredDailyStats.some((s) => s.account_equity !== undefined && s.account_equity !== null) ? (
+                    <th style={{ padding: '12px', textAlign: 'right' }} title={t('statistics.accountEquityTooltip')}>
+                      {t('statistics.accountEquity')}
+                    </th>
+                  ) : null}
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.cumulativePnL')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.winRate')}</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>{t('statistics.intradayDrawdown')}</th>
@@ -407,6 +436,13 @@ const Statistics: React.FC = () => {
                     <td style={{ padding: '12px', textAlign: 'right', color: ((stat.book_value_pnl ?? stat.total_pnl) >= 0 ? '#389e0d' : '#cf1322'), fontWeight: 600 }}>
                       {(stat.book_value_pnl ?? stat.total_pnl) >= 0 ? '+' : ''}{(stat.book_value_pnl ?? stat.total_pnl).toFixed(2)}
                     </td>
+                    {filteredDailyStats.some((s) => s.account_equity !== undefined && s.account_equity !== null) ? (
+                      <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600, color: '#1890ff' }}>
+                        {stat.account_equity !== undefined && stat.account_equity !== null
+                          ? stat.account_equity.toFixed(2)
+                          : '—'}
+                      </td>
+                    ) : null}
                     <td style={{ padding: '12px', textAlign: 'right', color: (stat.cumulative_pnl || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
                       {(stat.cumulative_pnl || 0) >= 0 ? '+' : ''}{(stat.cumulative_pnl || 0).toFixed(2)}
                     </td>

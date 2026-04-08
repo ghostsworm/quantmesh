@@ -4,6 +4,8 @@ export interface DailyEquityStatRow {
   total_pnl: number
   cumulative_pnl?: number
   funding_fee?: number
+  /** 交易所 API 帳戶權益（USDT） */
+  account_equity?: number
 }
 
 export function filterDailyStatsByRecentDays<T extends { date: string }>(items: T[], days: number): T[] {
@@ -26,6 +28,8 @@ export interface DailyEquityChartPoint {
   cumulativePnl: number
   /** 当日综合：网格/策略盈亏 + 资金费（用于观察与「累计盈亏」列是否因资金费产生体感偏差） */
   dailyNetWithFunding: number
+  /** 交易所帳戶權益（USDT），無採樣時為 undefined */
+  accountEquity?: number
 }
 
 export function buildDailyEquityChartPoints(items: DailyEquityStatRow[]): DailyEquityChartPoint[] {
@@ -34,11 +38,14 @@ export function buildDailyEquityChartPoints(items: DailyEquityStatRow[]): DailyE
     const label = Number.isNaN(d.getTime())
       ? r.date
       : `${d.getMonth() + 1}/${d.getDate()}`
+    const ae = r.account_equity
     return {
       dateKey: r.date,
       label,
       cumulativePnl: r.cumulative_pnl ?? 0,
       dailyNetWithFunding: r.total_pnl + (r.funding_fee ?? 0),
+      accountEquity:
+        ae !== undefined && ae !== null && !Number.isNaN(Number(ae)) ? Number(ae) : undefined,
     }
   })
 }

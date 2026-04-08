@@ -855,12 +855,16 @@ export interface DailyStatistics {
   book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
   intraday_max_drawdown?: number    // 日內最大回撤金額
   intraday_max_drawdown_pct?: number // 日內最大回撤百分比
+  /** 交易所 GetAccount 採樣的帳戶權益（USDT），用於真實淨值曲線 */
+  account_equity?: number
 }
 
 export interface DailyStatisticsResponse {
   statistics: DailyStatistics[]
   max_drawdown?: number     // 最大回撤金額
   max_drawdown_pct?: number // 最大回撤百分比
+  /** spot / futures 等，用於統計頁展示市場類型 */
+  market_type?: string
 }
 
 export async function getDailyStatistics(exchange?: string, symbol?: string, days?: number): Promise<DailyStatisticsResponse> {
