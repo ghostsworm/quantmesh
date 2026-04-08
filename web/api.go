@@ -4417,14 +4417,19 @@ func stripHTMLTags(html string) string {
 	}
 
 	// 簡單的 HTML 標簽移除（使用正則表達式）
-	// 移除 <script> 和 <style> 標簽及其內容
-	scriptRegex := `(?i)<(script|style)[^>]*>.*?</\1>`
-	re := regexp.MustCompile(scriptRegex)
-	html = re.ReplaceAllString(html, "")
+	// 移除 <script> 和 <style> 標簽及其內容。
+	// Go regexp（RE2）不支持 \1 回溯引用，須分開匹配；(?is) 使 . 可跨行匹配標簽內容。
+	for _, pattern := range []string{
+		`(?is)<script[^>]*>.*?</script>`,
+		`(?is)<style[^>]*>.*?</style>`,
+	} {
+		re := regexp.MustCompile(pattern)
+		html = re.ReplaceAllString(html, "")
+	}
 
 	// 移除 HTML 標簽
 	tagRegex := `<[^>]*>`
-	re = regexp.MustCompile(tagRegex)
+	re := regexp.MustCompile(tagRegex)
 	html = re.ReplaceAllString(html, "")
 
 	// 移除連續的空白字符
