@@ -39,20 +39,15 @@ import {
   getPositionsSummaryAll,
   getPendingOrders,
   type PositionSummaryItem,
-  type PendingOrderInfo,
 } from '../services/api'
+import {
+  mergePositionRowsForRefresh,
+  positionRowKey,
+  type PositionRowData,
+} from '../utils/globalPositionsMerge'
 import { useNavigate } from 'react-router-dom'
 import TpSlRulesModal from './TpSlRulesModal'
 import { loadRules } from '../utils/tpSlStorage'
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface PositionRowData extends PositionSummaryItem {
-  openOrders: PendingOrderInfo[]
-  closeOrders: PendingOrderInfo[]
-  ordersLoading: boolean
-  ordersLoaded: boolean
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -185,13 +180,7 @@ const GlobalPositions: React.FC = () => {
       else setRefreshing(true)
 
       const resp = await getPositionsSummaryAll()
-      setRows((resp.positions || []).map(p => ({
-        ...p,
-        openOrders: [],
-        closeOrders: [],
-        ordersLoading: false,
-        ordersLoaded: false,
-      })))
+      setRows(prev => mergePositionRowsForRefresh(prev, resp.positions || []))
     } catch (err) {
       if (!silent) {
         toast({
@@ -215,7 +204,7 @@ const GlobalPositions: React.FC = () => {
 
   // ── 展开行，懒加载委托 ──
   const toggleExpand = useCallback(async (row: PositionRowData) => {
-    const key = `${row.exchange}:${row.symbol}:${row.market_type || 'futures'}`
+    const key = positionRowKey(row)
 
     setExpandedKeys(prev => {
       const next = new Set(prev)
@@ -228,9 +217,7 @@ const GlobalPositions: React.FC = () => {
 
     // 标记加载中
     setRows(prev => prev.map(r =>
-      r.exchange === row.exchange && r.symbol === row.symbol
-        ? { ...r, ordersLoading: true }
-        : r
+      positionRowKey(r) === key ? { ...r, ordersLoading: true } : r
     ))
 
     try {
@@ -240,13 +227,13 @@ const GlobalPositions: React.FC = () => {
       const closeOrders = all.filter(o => (o.side || '').toUpperCase() === 'SELL')
 
       setRows(prev => prev.map(r =>
-        r.exchange === row.exchange && r.symbol === row.symbol
+        positionRowKey(r) === key
           ? { ...r, openOrders, closeOrders, ordersLoading: false, ordersLoaded: true }
           : r
       ))
     } catch {
       setRows(prev => prev.map(r =>
-        r.exchange === row.exchange && r.symbol === row.symbol
+        positionRowKey(r) === key
           ? { ...r, ordersLoading: false, ordersLoaded: true }
           : r
       ))
@@ -349,7 +336,7 @@ const GlobalPositions: React.FC = () => {
             </Thead>
             <Tbody>
               {rows.map(row => {
-                const key = `${row.exchange}:${row.symbol}:${row.market_type || 'futures'}`
+                const key = positionRowKey(row)
                 const isExpanded = expandedKeys.has(key)
                 const ruleCount = loadRules(row.exchange, row.symbol).filter(r => !r.triggered).length
 
