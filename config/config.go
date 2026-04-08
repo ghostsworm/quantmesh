@@ -1878,7 +1878,8 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 	return &cfg, nil
 }
 
-// SaveConfig 保存配置到文件
+// SaveConfig 將配置寫入磁盤 YAML（CLI/遷移/導出等工具路徑）。
+// 運行時主配置 SSOT 為主庫 app_config；Web 保存走 persistAppConfigToDB，不調用本函數。
 func SaveConfig(cfg *Config, configPath string) error {
 	// 驗证配置
 	if err := cfg.Validate(); err != nil {
@@ -1943,7 +1944,7 @@ func SanitizeForExport(cfg *Config) *Config {
 	return &out
 }
 
-// SaveConfigWithoutValidation 保存配置到文件（不驗证，用於保存最小化配置）
+// SaveConfigWithoutValidation 寫入磁盤 YAML（不驗证），例如生成 config.minimal.yaml 供人工遷移；非 Web 主路徑。
 func SaveConfigWithoutValidation(cfg *Config, configPath string) error {
 	// 序列化為YAML
 	data, err := yaml.Marshal(cfg)

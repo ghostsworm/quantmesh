@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.89.0-rc2] - 2026-04-08
+
+### Changed
+- **部署腳本**：`scripts/deploy-git.sh` 新建 systemd 單元時 `ExecStart` 改為無參數（與主庫 `app_config` SSOT 一致），不再默認附加 `config.yaml`。
+- **配置**：`SaveConfig` / `SaveConfigWithoutValidation` 註釋標明僅供 CLI/遷移/工具，Web 保存走數據庫。
+
+---
+
 ## [3.89.0-rc1] - 2026-04-08
 
 ### Added
