@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.88.0-rc4] - 2026-04-08
+
+### Fixed
+- **市場情報 HTTP 500**：`stripHTMLTags` 曾使用含 `\1` 回溯引用的正則；Go `regexp`（RE2）不支持該語法，`MustCompile` 在處理 RSS 描述等路徑時 panic，導致聚合接口返回 500。改為分別匹配 `<script>` / `<style>`，並用 `(?is)` 支持跨行內容。
+
+### Tests
+- `web`：`stripHTMLTags` 單測（含多行 script）。
+
+---
+
 ## [3.88.0-rc3] - 2026-04-08
 
 ### Fixed
