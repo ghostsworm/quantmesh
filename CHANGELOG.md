@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.88.0-rc2] - 2026-04-08
+
+### Fixed
+- **CI / 倉庫完整性**：補提交 `ai/polymarket_signal.go`、`polymarket/` 與 Web 內置數據源 Gamma 相關改動，修復 `main.go` 引用 `PolymarketSignalAnalyzer` 時遠端編譯 `undefined` 的問題。
+
+---
+
 ## [3.88.0-rc1] - 2026-04-08
 
 ### Added

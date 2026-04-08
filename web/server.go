@@ -62,6 +62,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 
 	// 初始化默認數據源提供者（如果還沒有設置）
 	InitDefaultDataSourceProvider()
+	ApplyDataSourcePolymarketConfig(cfg)
 
 	// 首先处理根路径，回傳 index.html（必須在其他路由之前）
 	r.GET("/", func(c *gin.Context) {
