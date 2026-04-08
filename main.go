@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.86.0-rc2"
+var Version = "3.87.0-rc2"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -161,6 +161,32 @@ type planManagerProviderAdapter struct {
 
 func (a *planManagerProviderAdapter) GetPlanManager() *position.PlanManager {
 	return a.planManager
+}
+
+// polymarketSignalAdapter 將 PolymarketSignalAnalyzer 接到 Web API（開源版內建）。
+type polymarketSignalAdapter struct {
+	analyzer *ai.PolymarketSignalAnalyzer
+}
+
+func (a *polymarketSignalAdapter) GetLastAnalysis() interface{} {
+	if a == nil || a.analyzer == nil {
+		return nil
+	}
+	return a.analyzer.GetLastAnalysis()
+}
+
+func (a *polymarketSignalAdapter) GetLastAnalysisTime() time.Time {
+	if a == nil || a.analyzer == nil {
+		return time.Time{}
+	}
+	return a.analyzer.GetLastAnalysisTime()
+}
+
+func (a *polymarketSignalAdapter) PerformAnalysis() error {
+	if a == nil || a.analyzer == nil {
+		return fmt.Errorf("polymarket analyzer 未初始化")
+	}
+	return a.analyzer.TriggerAnalysis()
 }
 
 // AI适配器（用於Web API）
@@ -3195,6 +3221,33 @@ func main() {
 		}
 
 		logger.Info("ℹ️ Web 服務已啟动，等待配置完成")
+	}
+
+	// Polymarket + LLM 綜合信號（不依賴交易對運行時；需 web 已啟動且配置 ai.modules.polymarket_signal.enabled）
+	if webServer != nil && cfg.AI.Modules.PolymarketSignal.Enabled {
+		up := config.ResolveModuleAI(cfg, cfg.AI.Modules.PolymarketSignal.UpstreamRef)
+		client, errClient := ai.NewAIClient(up.Provider, up.Model, up.APIKey, up.BaseURL)
+		if errClient != nil {
+			logger.Warn("⚠️ Polymarket 信號已啟用但 AI 客戶端創建失敗: %v", errClient)
+		} else {
+			pma := ai.NewPolymarketSignalAnalyzer(cfg, client)
+			if pma != nil {
+				web.SetAIPolymarketSignalProvider(&polymarketSignalAdapter{analyzer: pma})
+				interval := cfg.AI.Modules.PolymarketSignal.AnalysisInterval
+				if interval < 60 {
+					interval = 3600
+				}
+				go func() {
+					_ = pma.TriggerAnalysis()
+					ticker := time.NewTicker(time.Duration(interval) * time.Second)
+					defer ticker.Stop()
+					for range ticker.C {
+						_ = pma.TriggerAnalysis()
+					}
+				}()
+				logger.Info("✅ Polymarket 信號分析已啟用（輪詢間隔 %d 秒，Gamma + LLM）", interval)
+			}
+		}
 	}
 
 	// 所有初始化完成，程序進入运行状態
