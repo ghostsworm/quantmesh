@@ -499,7 +499,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/basis/history", getBasisHistory)
 			protected.GET("/basis/statistics", getBasisStatistics)
 
-			// 市场情报API
+			// 市场情报API（具體子路徑須在 /market-intelligence 之前註冊）
+			protected.GET("/market-intelligence/news-digest", getMarketIntelNewsDigest)
 			protected.GET("/market-intelligence", getMarketIntelligence)
 
 			// 宏觀事件預測市場 API

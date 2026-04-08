@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.89.0-rc1] - 2026-04-08
+
+### Added
+- **市場情報**：恐慌貪婪指數區塊置頂；RSS 區提供「AI 新聞簡報」按鈕（`GET /api/market-intelligence/news-digest`，後端 Gemini + 15 分鐘服務端緩存，需全局 Gemini API Key）。
+- **市場情報客戶端緩存**：按數據源分層 TTL（如恐慌指數 10 分鐘、RSS/Reddit 2 分鐘等），「全部」視圖並行拉取各來源並合併；宏觀事件緩存獨立鍵。
+- **配置頁**：新增「宏觀事件（Gamma）」卡片，可開啟 `macro_event.enabled` 與調整 `fetch_interval`（保存後需重啟進程）。
+
+### Tests
+- `webui`：`marketIntelligenceCache` 單測更新（分源 TTL、合併）。
+
+---
+
 ## [3.88.0-rc7] - 2026-04-08
 
 ### Added

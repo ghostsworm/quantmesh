@@ -8,16 +8,21 @@ import {
   getMacroImpact,
   MacroEventsResponse,
   MacroImpactResponse,
+  getMarketIntelNewsDigest,
 } from '../services/api'
 import { useConfig } from '../contexts/ConfigContext'
 import { formatDateTime } from '../utils/dateFormat'
 import {
-  buildMarketIntelCacheParams,
-  readMarketIntelCache,
-  writeMarketIntelCache,
+  mergeMarketIntelParts,
+  normalizeMarketIntelResponse,
+  readMarketIntelSourceCache,
+  writeMarketIntelSourceCache,
   readMacroIntelCache,
   writeMacroIntelCache,
+  type MarketIntelSourceKey,
 } from '../utils/marketIntelligenceCache'
+
+const INTEL_SOURCES: MarketIntelSourceKey[] = ['fear_greed', 'rss', 'reddit', 'polymarket']
 
 const MarketIntelligence: React.FC = () => {
   const { t, i18n } = useTranslation()
@@ -36,6 +41,9 @@ const MarketIntelligence: React.FC = () => {
   const [searchKeyword, setSearchKeyword] = useState('')
   const [selectedSource, setSelectedSource] = useState<string>('')
   const [activeTab, setActiveTab] = useState<'rss' | 'fear_greed' | 'reddit' | 'polymarket' | 'macro' | 'all'>('all')
+  const [newsDigest, setNewsDigest] = useState<string | null>(null)
+  const [digestLoading, setDigestLoading] = useState(false)
+  const [digestError, setDigestError] = useState<string | null>(null)
 
   const applyIntelResponse = (response: MarketIntelligenceResponse) => {
     setData(response)
@@ -54,25 +62,64 @@ const MarketIntelligence: React.FC = () => {
     }
   }
 
-  // 獲取市場情报數據（forceRefresh：手動刷新/搜索時跳過 session 短期緩存）
+  const fetchNewsDigest = async () => {
+    setDigestLoading(true)
+    setDigestError(null)
+    try {
+      const lang = i18n.language.startsWith('en') ? 'en' : 'zh'
+      const res = await getMarketIntelNewsDigest(lang)
+      setNewsDigest(res.digest)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setDigestError(msg)
+      setNewsDigest(null)
+    } finally {
+      setDigestLoading(false)
+    }
+  }
+
+  /** 按數據源分層緩存：「全部」時並行請求各來源並合併；單選時只拉該來源 */
   const fetchData = async (forceRefresh = false) => {
-    const apiParams: MarketIntelligenceParams = { limit: 50 }
-    if (searchKeyword) {
-      apiParams.keyword = searchKeyword
+    const limit = 50
+    const keyword = searchKeyword || undefined
+    const cacheBase = { limit, keyword: searchKeyword || '' }
+
+    const runSingleSource = async (src: MarketIntelSourceKey) => {
+      if (!forceRefresh) {
+        const hit = readMarketIntelSourceCache(src, cacheBase)
+        if (hit) {
+          applyIntelResponse(normalizeMarketIntelResponse(hit))
+          setLoading(false)
+          return
+        }
+      }
+      try {
+        setLoading(true)
+        setError(null)
+        setIsEmptyData(false)
+        const response = await getMarketIntelligence({ limit, keyword, source: src })
+        const norm = normalizeMarketIntelResponse(response)
+        applyIntelResponse(norm)
+        writeMarketIntelSourceCache(src, cacheBase, norm)
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : t('marketIntelligence.fetchFailed')
+        setError(t('marketIntelligence.fetchError', { error: errorMessage }))
+        setIsEmptyData(false)
+        console.error('Failed to fetch market intelligence:', err)
+      } finally {
+        setLoading(false)
+      }
     }
+
     if (selectedSource && selectedSource !== 'all') {
-      apiParams.source = selectedSource as MarketIntelligenceParams['source']
+      await runSingleSource(selectedSource as MarketIntelSourceKey)
+      return
     }
-    const cacheParams = buildMarketIntelCacheParams({
-      limit: 50,
-      keyword: searchKeyword || undefined,
-      source: selectedSource && selectedSource !== 'all' ? selectedSource : undefined,
-    })
 
     if (!forceRefresh) {
-      const cached = readMarketIntelCache<MarketIntelligenceResponse>(cacheParams)
-      if (cached) {
-        applyIntelResponse(cached)
+      const cachedChunks = INTEL_SOURCES.map((src) => readMarketIntelSourceCache(src, cacheBase))
+      if (cachedChunks.every(Boolean)) {
+        applyIntelResponse(mergeMarketIntelParts(cachedChunks.map((c) => normalizeMarketIntelResponse(c!))))
         setLoading(false)
         return
       }
@@ -82,9 +129,19 @@ const MarketIntelligence: React.FC = () => {
       setLoading(true)
       setError(null)
       setIsEmptyData(false)
-      const response = await getMarketIntelligence(apiParams)
-      applyIntelResponse(response)
-      writeMarketIntelCache(cacheParams, response)
+      const partials = await Promise.all(
+        INTEL_SOURCES.map(async (src) => {
+          if (!forceRefresh) {
+            const hit = readMarketIntelSourceCache(src, cacheBase)
+            if (hit) return normalizeMarketIntelResponse(hit)
+          }
+          const response = await getMarketIntelligence({ limit, keyword, source: src })
+          const norm = normalizeMarketIntelResponse(response)
+          writeMarketIntelSourceCache(src, cacheBase, norm)
+          return norm
+        }),
+      )
+      applyIntelResponse(mergeMarketIntelParts(partials))
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : t('marketIntelligence.fetchFailed')
       setError(t('marketIntelligence.fetchError', { error: errorMessage }))
@@ -248,7 +305,7 @@ const MarketIntelligence: React.FC = () => {
         <>
           {/* 標签页 */}
           <div style={{ marginBottom: '20px', display: 'flex', gap: '8px', borderBottom: '2px solid #e5e7eb', flexWrap: 'wrap' }}>
-            {(['all', 'rss', 'fear_greed', 'reddit', 'polymarket', 'macro'] as const).map((tab) => (
+            {(['all', 'fear_greed', 'rss', 'reddit', 'polymarket', 'macro'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -268,6 +325,81 @@ const MarketIntelligence: React.FC = () => {
               </button>
             ))}
           </div>
+
+          {/* 恐慌贪婪指數（置頂） */}
+          {(activeTab === 'all' || activeTab === 'fear_greed') && (
+            <div style={{ marginBottom: '40px' }}>
+              <h3>{t('marketIntelligence.fearGreedIndex')}</h3>
+              {!data.fear_greed ? (
+                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>{t('marketIntelligence.noFearGreedData')}</p>
+              ) : (
+                <div
+                  style={{
+                    backgroundColor: '#fff',
+                    borderRadius: '8px',
+                    padding: '24px',
+                    border: `2px solid ${getFearGreedColor(data.fear_greed.value)}`,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                    <div>
+                      <div style={{ fontSize: '32px', fontWeight: 'bold', color: getFearGreedColor(data.fear_greed.value) }}>
+                        {data.fear_greed.value}
+                      </div>
+                      <div style={{ fontSize: '18px', color: '#6b7280', marginTop: '4px' }}>
+                        {data.fear_greed.classification}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#9ca3af' }}>
+                      {formatDate(data.fear_greed.timestamp)}
+                    </div>
+                  </div>
+                  <div style={{ height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${data.fear_greed.value}%`,
+                        backgroundColor: getFearGreedColor(data.fear_greed.value),
+                        transition: 'width 0.3s',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI 新聞簡報（Gemini） */}
+          {(activeTab === 'all' || activeTab === 'rss') && (
+            <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                <h3 style={{ margin: 0 }}>{t('marketIntelligence.aiDigestTitle')}</h3>
+                <button
+                  type="button"
+                  onClick={() => void fetchNewsDigest()}
+                  disabled={digestLoading}
+                  style={{
+                    padding: '8px 14px',
+                    backgroundColor: digestLoading ? '#9ca3af' : '#6366f1',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: digestLoading ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                  }}
+                >
+                  {digestLoading ? t('marketIntelligence.aiDigestLoading') : t('marketIntelligence.aiDigestButton')}
+                </button>
+              </div>
+              <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 12px' }}>{t('marketIntelligence.aiDigestHint')}</p>
+              {digestError && (
+                <p style={{ color: '#b91c1c', fontSize: '14px', marginBottom: '8px' }}>{digestError}</p>
+              )}
+              {newsDigest && (
+                <div style={{ fontSize: '14px', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{newsDigest}</div>
+              )}
+            </div>
+          )}
 
           {/* RSS新闻 */}
           {(activeTab === 'all' || activeTab === 'rss') && (
@@ -320,49 +452,6 @@ const MarketIntelligence: React.FC = () => {
                     </div>
                   </div>
                 ))
-              )}
-            </div>
-          )}
-
-          {/* 恐慌贪婪指數 */}
-          {(activeTab === 'all' || activeTab === 'fear_greed') && (
-            <div style={{ marginBottom: '40px' }}>
-              <h3>{t('marketIntelligence.fearGreedIndex')}</h3>
-              {!data.fear_greed ? (
-                <p style={{ color: '#6b7280', padding: '20px', textAlign: 'center' }}>{t('marketIntelligence.noFearGreedData')}</p>
-              ) : (
-                <div
-                  style={{
-                    backgroundColor: '#fff',
-                    borderRadius: '8px',
-                    padding: '24px',
-                    border: `2px solid ${getFearGreedColor(data.fear_greed.value)}`,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                    <div>
-                      <div style={{ fontSize: '32px', fontWeight: 'bold', color: getFearGreedColor(data.fear_greed.value) }}>
-                        {data.fear_greed.value}
-                      </div>
-                      <div style={{ fontSize: '18px', color: '#6b7280', marginTop: '4px' }}>
-                        {data.fear_greed.classification}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: '14px', color: '#9ca3af' }}>
-                      {formatDate(data.fear_greed.timestamp)}
-                    </div>
-                  </div>
-                  <div style={{ height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${data.fear_greed.value}%`,
-                        backgroundColor: getFearGreedColor(data.fear_greed.value),
-                        transition: 'width 0.3s',
-                      }}
-                    />
-                  </div>
-                </div>
               )}
             </div>
           )}
