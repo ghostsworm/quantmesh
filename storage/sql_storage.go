@@ -413,9 +413,8 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_created_at ON profit_withdraw_records(created_at);
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_rule_id ON profit_withdraw_records(rule_id);`
 
-	// 創建索引
+	// orders 複合 UNIQUE 索引不可在此創建：舊庫或測試夾具可能尚無 account 等列；由 migrateOrdersTable → ensureOrdersCompositeUniqueConstraint 在列就緒後創建。
 	indexesSQL := `
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_exchange_order_id ON orders(exchange, order_id);
 	CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
 	CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
 	CREATE INDEX IF NOT EXISTS idx_positions_slot_price ON positions(slot_price);
@@ -1341,6 +1340,74 @@ func hasLegacyOrderIDUniqueConstraint(db *sql.DB) (bool, error) {
 	return false, nil
 }
 
+// ordersCompositeUniqueIndexName 與 SaveOrder 中 SQLite ON CONFLICT 目標列一致。
+const ordersCompositeUniqueIndexName = "idx_orders_exchange_account_symbol_order_id"
+
+// ordersCompositeUniqueIndexMatches 檢查是否存在與 upsert 一致的複合 UNIQUE 索引（列名與順序須完全一致）。
+func ordersCompositeUniqueIndexMatches(db *sql.DB) (bool, error) {
+	rows, err := db.Query(`PRAGMA index_list('orders')`)
+	if err != nil {
+		return false, err
+	}
+	found := false
+	for rows.Next() {
+		var seq int
+		var name string
+		var unique int
+		var origin string
+		var partial int
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			rows.Close()
+			return false, err
+		}
+		if name != ordersCompositeUniqueIndexName {
+			continue
+		}
+		if unique == 0 || partial != 0 {
+			rows.Close()
+			return false, nil
+		}
+		found = true
+		break
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, err
+	}
+	rows.Close() // SQLite 單連接：必須關閉結果集後再發起 PRAGMA index_info，否則死鎖
+
+	if !found {
+		return false, nil
+	}
+	infoRows, err := db.Query(fmt.Sprintf(`PRAGMA index_info('%s')`, ordersCompositeUniqueIndexName))
+	if err != nil {
+		return false, err
+	}
+	defer infoRows.Close()
+	want := []string{"exchange", "account", "symbol", "order_id"}
+	var cols []string
+	for infoRows.Next() {
+		var seqno, cid int
+		var colName string
+		if err := infoRows.Scan(&seqno, &cid, &colName); err != nil {
+			return false, err
+		}
+		cols = append(cols, colName)
+	}
+	if err := infoRows.Err(); err != nil {
+		return false, err
+	}
+	if len(cols) != len(want) {
+		return false, nil
+	}
+	for i := range want {
+		if cols[i] != want[i] {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func rebuildOrdersTableForCompositeUnique(db *sql.DB) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -1433,8 +1500,21 @@ func ensureOrdersCompositeUniqueConstraint(db *sql.DB) error {
 	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_orders_exchange_order_id`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_exchange_account_symbol_order_id ON orders(exchange, account, symbol, order_id)`); err != nil {
+	ok, err := ordersCompositeUniqueIndexMatches(db)
+	if err != nil {
 		return err
+	}
+	if !ok {
+		logger.Info("🔄 orders 複合唯一索引缺失或與 ON CONFLICT 列不一致，正在重建 %s", ordersCompositeUniqueIndexName)
+		if _, err := db.Exec(fmt.Sprintf(`DROP INDEX IF EXISTS %s`, ordersCompositeUniqueIndexName)); err != nil {
+			return err
+		}
+		if _, err := db.Exec(fmt.Sprintf(
+			`CREATE UNIQUE INDEX %s ON orders(exchange, account, symbol, order_id)`,
+			ordersCompositeUniqueIndexName,
+		)); err != nil {
+			return fmt.Errorf("創建 orders 複合唯一索引失败（若表中存在重複的 exchange/account/symbol/order_id 組合，請先清理重複行）: %w", err)
+		}
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)`); err != nil {
 		return err
