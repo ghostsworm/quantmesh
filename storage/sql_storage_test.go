@@ -392,6 +392,50 @@ func TestSaveOrderWithNonUniqueIndexMigration(t *testing.T) {
 	}
 }
 
+// TestSaveOrderWrongCompositeIndexRepaired 同名複合索引若列與 ON CONFLICT 不一致（歷史誤建），啟動遷移應刪除並重建
+func TestSaveOrderWrongCompositeIndexRepaired(t *testing.T) {
+	dbPath := "./test_wrong_composite_idx.db"
+	defer os.Remove(dbPath)
+	defer os.Remove(dbPath + "-shm")
+	defer os.Remove(dbPath + "-wal")
+
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
+	if err != nil {
+		t.Fatalf("打開 DB 失败: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			order_id BIGINT,
+			bot_id TEXT DEFAULT '',
+			account TEXT DEFAULT '',
+			client_order_id TEXT, symbol TEXT, side TEXT, exchange TEXT DEFAULT '', type TEXT,
+			price DECIMAL(20,8), quantity DECIMAL(20,8), filled_qty DECIMAL(20,8) DEFAULT 0,
+			status TEXT, realized_pnl DECIMAL(20,8), strategy_name TEXT, strategy_type TEXT,
+			order_source TEXT, created_at TIMESTAMP, updated_at TIMESTAMP
+		);
+		CREATE UNIQUE INDEX idx_orders_exchange_account_symbol_order_id ON orders(exchange, order_id)
+	`)
+	db.Close()
+	if err != nil {
+		t.Fatalf("創建錯誤複合索引表失败: %v", err)
+	}
+
+	st, err := NewSQLStorage(dbPath)
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	defer st.Close()
+
+	o := &Order{
+		OrderID: 111222, Symbol: "BTCUSDT", Side: "BUY", Exchange: "binance",
+		Price: 50000, Quantity: 0.01, Status: "NEW", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := st.SaveOrder(o); err != nil {
+		t.Fatalf("錯誤索引修復後 SaveOrder 失败: %v", err)
+	}
+}
+
 // TestGetReconciliationCount 驗證對账歷史記錄數統計（與對账頁面卡片顯示一致）
 func TestGetReconciliationCount(t *testing.T) {
 	dbPath := "./test_recon_count.db"

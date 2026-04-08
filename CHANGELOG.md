@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.88.0-rc6] - 2026-04-08
+
+### Fixed
+- **SQLite `order_placed` / SaveOrder**：`ON CONFLICT(exchange, account, symbol, order_id)` 必須與複合 UNIQUE 索引列完全一致。舊庫可能僅有 `(exchange, order_id)` 唯一約束，或同名 `idx_orders_exchange_account_symbol_order_id` 列序錯誤；`IF NOT EXISTS` 不會覆寫已定義索引。遷移時用 `PRAGMA index_info` 校驗，不符則 `DROP` 並重建。初始 `createTables` 不再在尚無 `account` 等列的舊表上提前建複合索引。修復校驗時未關閉首個 `Query` 結果集導致的 SQLite 單連接死鎖。
+
+### Tests
+- `storage`：`TestSaveOrderWrongCompositeIndexRepaired`。
+
+---
+
 ## [3.88.0-rc5] - 2026-04-08
 
 ### Added
