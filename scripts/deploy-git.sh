@@ -153,7 +153,8 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=${REMOTE_PATH}
-ExecStart=${REMOTE_PATH}/quantmesh config.yaml
+# 無參數啟動：從主庫 app_config 加載（見 main.go）；勿強制 config.yaml
+ExecStart=${REMOTE_PATH}/quantmesh
 Restart=always
 RestartSec=10
 StandardOutput=journal
