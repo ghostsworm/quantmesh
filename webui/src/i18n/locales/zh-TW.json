@@ -741,6 +741,8 @@
     "symbolDescription": "管理 {{symbol}} 的專用配置",
     "singleBotGlobalHint": "此頁面僅設定目前單一 Bot。如需全系統設定（交易所 API、通知、YAML 等），請前往 <configLink>/config</configLink>。",
     "saveChanges": "保存更改",
+    "unsavedReminder": "您有未保存的更改。表單修改請點擊「保存更改」；若在 YAML 編輯器中修改，請使用 YAML 的預覽/保存流程。",
+    "leaveUnsavedConfirm": "確定要離開嗎？未保存的更改將遺失。",
     "globalTabs": {
       "general": "常規設置",
       "exchangeAPI": "交易所 API",

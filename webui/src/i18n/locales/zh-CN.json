@@ -1061,6 +1061,8 @@
     "symbolDescription": "管理 {{symbol}} 的专用配置",
     "singleBotGlobalHint": "此页面仅配置当前单个 Bot。如需全局设置（交易所 API、通知、YAML 等），请前往 <configLink>/config</configLink>。",
     "saveChanges": "保存更改",
+    "unsavedReminder": "您有未保存的更改。表单修改请点击「保存更改」；若在 YAML 编辑器中修改，请使用 YAML 的预览/保存流程。",
+    "leaveUnsavedConfirm": "确定要离开吗？未保存的更改将丢失。",
     "globalTabs": {
       "general": "常规设置",
       "exchangeAPI": "交易所 API",

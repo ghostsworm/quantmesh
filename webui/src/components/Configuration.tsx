@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Box,
   Container,
@@ -67,7 +67,7 @@ import { COMMON_TIMEZONES } from '../utils/dateFormat'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Trans, useTranslation } from 'react-i18next'
-import { Link as RouterLink, useNavigate } from 'react-router-dom'
+import { Link as RouterLink, useNavigate, useBlocker } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import {
   getConfig,
@@ -106,6 +106,7 @@ import { SUPPORTED_EXCHANGES, EXCHANGES_REQUIRING_PASSPHRASE } from '../constant
 import { hasTradingParamChanges } from '../utils/configSaveOptions'
 import { parseMonitorSymbolsInput } from '../utils/riskControlUi'
 import { applyPolymarketEnabledToConfig } from '../utils/polymarketConfigDefaults'
+import { mergeFeeRateInputsIntoConfig } from '../utils/configDirty'
 
 const MotionBox = motion(Box)
 
@@ -230,6 +231,7 @@ const Configuration: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [savedFormFingerprint, setSavedFormFingerprint] = useState<string | null>(null)
   const [previewDiff, setPreviewDiff] = useState<ConfigDiff | null>(null)
   const [requiresRestart, setRequiresRestart] = useState(false)
   const [feeRateInputs, setFeeRateInputs] = useState<Record<string, string>>({})
@@ -275,6 +277,48 @@ const Configuration: React.FC = () => {
   const { isOpen: isAIWizardOpen, onOpen: onAIWizardOpen, onClose: onAIWizardClose } = useDisclosure()
   const { isOpen: isDiffOpen, onOpen: onDiffOpen, onClose: onDiffClose } = useDisclosure()
   const toast = useToast()
+
+  const deepNormalizeNumerics = (obj: any): any => {
+    if (obj === null || obj === undefined) return obj
+    if (Array.isArray(obj)) return obj.map(deepNormalizeNumerics)
+    if (typeof obj === 'object') {
+      const result: any = {}
+      for (const [k, v] of Object.entries(obj)) {
+        result[k] = deepNormalizeNumerics(v)
+      }
+      return result
+    }
+    if (typeof obj === 'string' && obj !== '' && !isNaN(Number(obj)) && obj.trim() === obj) {
+      return Number(obj)
+    }
+    return obj
+  }
+
+  const normalizeConfigForSave = (c: typeof config) => {
+    if (!c) return c
+    let result = c
+    if (result?.trading?.symbols) {
+      result = {
+        ...result,
+        trading: {
+          ...result.trading,
+          symbols: result.trading.symbols.map((s: any) => {
+            const grc = s?.grid_risk_control
+            if (!grc) return s
+            const fixed = { ...grc }
+            if (typeof fixed.stop_loss_ratio === 'string')
+              fixed.stop_loss_ratio = parseFloat(fixed.stop_loss_ratio || '0') / 100
+            if (typeof fixed.take_profit_trigger_ratio === 'string')
+              fixed.take_profit_trigger_ratio = parseFloat(fixed.take_profit_trigger_ratio || '0') / 100
+            if (typeof fixed.trailing_take_profit_ratio === 'string')
+              fixed.trailing_take_profit_ratio = parseFloat(fixed.trailing_take_profit_ratio || '0') / 100
+            return { ...s, grid_risk_control: fixed }
+          }),
+        },
+      }
+    }
+    return deepNormalizeNumerics(result)
+  }
 
   const togglePasswordVisibility = (key: string) => {
     setShowPasswords(prev => ({ ...prev, [key]: !prev[key] }))
@@ -326,6 +370,9 @@ const Configuration: React.FC = () => {
         nextFeeRateInputs[exchange] = value === undefined || value === null ? '' : String(value)
       })
       setFeeRateInputs(nextFeeRateInputs)
+      const merged = mergeFeeRateInputsIntoConfig(cfg, nextFeeRateInputs)
+      const normalized = normalizeConfigForSave(merged)
+      setSavedFormFingerprint(JSON.stringify(normalized))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('configuration.loadFailed'))
     } finally {
@@ -568,47 +615,41 @@ const Configuration: React.FC = () => {
     await doSaveConfig()
   }
 
-  const deepNormalizeNumerics = (obj: any): any => {
-    if (obj === null || obj === undefined) return obj
-    if (Array.isArray(obj)) return obj.map(deepNormalizeNumerics)
-    if (typeof obj === 'object') {
-      const result: any = {}
-      for (const [k, v] of Object.entries(obj)) {
-        result[k] = deepNormalizeNumerics(v)
-      }
-      return result
-    }
-    if (typeof obj === 'string' && obj !== '' && !isNaN(Number(obj)) && obj.trim() === obj) {
-      return Number(obj)
-    }
-    return obj
-  }
+  const mergedFormFingerprint = useMemo(() => {
+    if (!config) return null
+    const merged = mergeFeeRateInputsIntoConfig(config, feeRateInputs)
+    const normalized = normalizeConfigForSave(merged)
+    return JSON.stringify(normalized)
+    // normalizeConfigForSave 语义稳定，仅随 config / 手续费输入变化重算
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, feeRateInputs])
 
-  const normalizeConfigForSave = (c: typeof config) => {
-    if (!c) return c
-    let result = c
-    if (result?.trading?.symbols) {
-      result = {
-        ...result,
-        trading: {
-          ...result.trading,
-          symbols: result.trading.symbols.map((s: any) => {
-            const grc = s?.grid_risk_control
-            if (!grc) return s
-            const fixed = { ...grc }
-            if (typeof fixed.stop_loss_ratio === 'string')
-              fixed.stop_loss_ratio = parseFloat(fixed.stop_loss_ratio || '0') / 100
-            if (typeof fixed.take_profit_trigger_ratio === 'string')
-              fixed.take_profit_trigger_ratio = parseFloat(fixed.take_profit_trigger_ratio || '0') / 100
-            if (typeof fixed.trailing_take_profit_ratio === 'string')
-              fixed.trailing_take_profit_ratio = parseFloat(fixed.trailing_take_profit_ratio || '0') / 100
-            return { ...s, grid_risk_control: fixed }
-          }),
-        },
-      }
+  const hasUnsavedFormChanges =
+    savedFormFingerprint !== null &&
+    mergedFormFingerprint !== null &&
+    mergedFormFingerprint !== savedFormFingerprint
+
+  const hasUnsavedYamlChanges = yamlContent !== originalYamlContent
+  const hasUnsavedChanges = hasUnsavedFormChanges || hasUnsavedYamlChanges
+
+  const blocker = useBlocker(hasUnsavedChanges)
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    const ok = window.confirm(t('configuration.leaveUnsavedConfirm'))
+    if (ok) blocker.proceed()
+    else blocker.reset()
+  }, [blocker, t])
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return
+      e.preventDefault()
+      e.returnValue = ''
     }
-    return deepNormalizeNumerics(result)
-  }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [hasUnsavedChanges])
 
   const doSaveConfig = async () => {
     if (!config) return
@@ -798,9 +839,26 @@ const Configuration: React.FC = () => {
             </Text>
           </Box>
           <HStack spacing={3}>
-            <Button size="sm" colorScheme="blue" onClick={handleSave} isLoading={saving} borderRadius="full" px={6}>{t('configuration.saveChanges')}</Button>
+            <Button
+              size="sm"
+              colorScheme={hasUnsavedChanges ? 'orange' : 'blue'}
+              onClick={handleSave}
+              isLoading={saving}
+              borderRadius="full"
+              px={6}
+              boxShadow={hasUnsavedChanges ? '0 0 0 2px var(--chakra-colors-orange-200)' : undefined}
+            >
+              {t('configuration.saveChanges')}
+            </Button>
           </HStack>
         </Flex>
+
+        {hasUnsavedChanges && (
+          <Alert status="warning" borderRadius="lg" variant="subtle">
+            <AlertIcon />
+            <AlertDescription fontSize="sm">{t('configuration.unsavedReminder')}</AlertDescription>
+          </Alert>
+        )}
 
         {!isGlobalView && (
           <Alert status="info" borderRadius="lg" variant="subtle">
@@ -3127,7 +3185,15 @@ const Configuration: React.FC = () => {
         </AnimatePresence>
 
         <Flex justify="center" py={8}>
-          <Button size="md" colorScheme="blue" onClick={handleSave} isLoading={saving} borderRadius="full" px={8}>
+          <Button
+            size="md"
+            colorScheme={hasUnsavedChanges ? 'orange' : 'blue'}
+            onClick={handleSave}
+            isLoading={saving}
+            borderRadius="full"
+            px={8}
+            boxShadow={hasUnsavedChanges ? '0 0 0 2px var(--chakra-colors-orange-200)' : undefined}
+          >
             {t('configuration.saveChanges')}
           </Button>
         </Flex>
