@@ -105,6 +105,7 @@ import { trackConfigSaved } from '../services/telemetry'
 import { SUPPORTED_EXCHANGES, EXCHANGES_REQUIRING_PASSPHRASE } from '../constants/exchanges'
 import { hasTradingParamChanges } from '../utils/configSaveOptions'
 import { parseMonitorSymbolsInput } from '../utils/riskControlUi'
+import { applyPolymarketEnabledToConfig } from '../utils/polymarketConfigDefaults'
 
 const MotionBox = motion(Box)
 
@@ -151,6 +152,48 @@ const WindowSizeSlider: React.FC<{
         ))}
       </HStack>
     </VStack>
+  )
+}
+
+const PolymarketConfigSection: React.FC<{
+  config: Config
+  setConfig: React.Dispatch<React.SetStateAction<Config | null>>
+}> = ({ config, setConfig }) => {
+  const { t } = useTranslation()
+  const ps = config.ai?.modules?.polymarket_signal
+  const enabled = ps?.enabled ?? false
+  const gammaUrl =
+    (config as { macro_event?: { gamma_api_url?: string } }).macro_event?.gamma_api_url ||
+    ps?.api_url ||
+    ''
+
+  return (
+    <ConfigCard title={t('configuration.polymarketSectionTitle')} icon={<StarIcon />}>
+      <Flex justify="space-between" align="center" mb={4}>
+        <Box>
+          <Text fontWeight="600">{t('configuration.polymarketEnable')}</Text>
+          <Text fontSize="xs" color="gray.500">
+            {t('configuration.polymarketEnableDesc')}
+          </Text>
+        </Box>
+        <Switch
+          colorScheme="purple"
+          isChecked={enabled}
+          onChange={(e) => {
+            const checked = e.target.checked
+            setConfig((prev) => (prev ? applyPolymarketEnabledToConfig(prev, checked) : null))
+          }}
+        />
+      </Flex>
+      {enabled && (
+        <Text fontSize="xs" color="gray.600" whiteSpace="pre-line">
+          {t('configuration.polymarketFilledHint', {
+            url: gammaUrl || '—',
+            interval: ps?.analysis_interval ?? 300,
+          })}
+        </Text>
+      )}
+    </ConfigCard>
   )
 }
 
@@ -1819,6 +1862,8 @@ const Configuration: React.FC = () => {
                       </Box>
                     </Alert>
 
+                    <PolymarketConfigSection config={config} setConfig={setConfig} />
+
                     <ConfigCard title={t('configuration.riskControlSettings')} icon={<LockIcon />}>
                       <Flex justify="space-between" align="center" mb={6}>
                         <Box>
@@ -3040,6 +3085,7 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 2 && (
                   <VStack spacing={6} align="stretch">
+                    <PolymarketConfigSection config={config} setConfig={setConfig} />
                     <ConfigCard title={t('configuration.aiDecisionEngine')} icon={<StarIcon />}>
                       <Flex justify="space-between" align="center" mb={6}>
                         <Box>
