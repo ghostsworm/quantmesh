@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.90.0-rc1] - 2026-04-11
+
+### Added
+- **Web 控制台**：側欄左下角開源更新提示；後台請求 GitHub `releases/latest` 與本地 `/api/version` 比對，若有新版本可一鍵在新分頁打開倉庫（`VITE_GITHUB_REPO` / `VITE_DISABLE_OPEN_SOURCE_UPDATE` 可選）。
+
+### Tests
+- `webui`：`semverCompare` 單元測試。
+
+---
+
 ## [3.89.0-rc2] - 2026-04-08
 
 ### Changed

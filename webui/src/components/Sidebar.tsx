@@ -42,6 +42,7 @@ import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
 import { useTranslation } from 'react-i18next'
 import { isBotWorkspaceRoot } from '../utils/botRouteActive'
+import SidebarUpdateHint from './SidebarUpdateHint'
 
 const MotionBox = motion(Box)
 const MotionFlex = motion(Flex)
@@ -192,6 +193,19 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
     }
   }, [sidebarWidth, isDrawer])
 
+  const scrollCss = {
+    '&::-webkit-scrollbar': {
+      width: '4px',
+    },
+    '&::-webkit-scrollbar-track': {
+      width: '6px',
+    },
+    '&::-webkit-scrollbar-thumb': {
+      background: 'rgba(0,0,0,0.05)',
+      borderRadius: '24px',
+    },
+  }
+
   return (
     <Box
       as="nav"
@@ -199,9 +213,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
       left="0"
       h={isDrawer ? '100vh' : 'calc(100vh - 56px)'}
       top={isDrawer ? '0' : '56px'}
-      pb="10"
-      overflowX="hidden"
-      overflowY="auto"
+      display="flex"
+      flexDirection="column"
+      overflow="hidden"
       bg={isDrawer ? 'transparent' : bgColor}
       backdropFilter={isDrawer ? 'none' : 'blur(20px)'}
       borderRight={isDrawer ? 'none' : '1px solid'}
@@ -209,19 +223,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
       w={isDrawer ? 'full' : sidebarWidth}
       zIndex="10"
       transition="width 0.3s ease"
-      css={{
-        '&::-webkit-scrollbar': {
-          width: '4px',
-        },
-        '&::-webkit-scrollbar-track': {
-          width: '6px',
-        },
-        '&::-webkit-scrollbar-thumb': {
-          background: 'rgba(0,0,0,0.05)',
-          borderRadius: '24px',
-        },
-      }}
     >
+      <Box flex="1" minH={0} overflowX="hidden" overflowY="auto" pb={2} css={scrollCss}>
       <VStack align="stretch" spacing={1} mt={isDrawer ? 10 : 5}>
         {/* 收起/展开按钮 */}
         {!isDrawer && (
@@ -692,6 +695,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           </>
         )}
       </VStack>
+      </Box>
+      <SidebarUpdateHint
+        collapsed={collapsed}
+        isDrawer={isDrawer}
+        onOpenExternal={onNavItemClick}
+      />
     </Box>
   )
 }
