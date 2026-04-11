@@ -2655,7 +2655,7 @@
     "diagnosisNoData": "No diagnosis data",
     "dailyEquityCurveTitle": "Daily account NAV curve",
     "dailyEquityCurveRange": "Range",
-    "dailyEquityCurveHint": "Solid blue: account equity (USDT) from the exchange GetAccount API. Gray dashed: locally aggregated cumulative P&L for comparison. Orange bars: daily strategy P&L + funding. Blue appears after the bot runs past at least one hourly snapshot.",
+    "dailyEquityCurveHint": "Gray dashed: local cumulative P&L. Solid blue: account equity (USDT) from GetAccount; filled from daily snapshot or the last hourly sample per day. Orange bars: daily P&L + funding. If blue never appears, check that the exchange returns wallet/margin balance.",
     "dailyEquityCurveEmpty": "No data yet — trade statistics will appear here once available.",
     "dailyEquityCurveSeriesCumulative": "Cumulative P&L (local)",
     "dailyEquityCurveSeriesAccountEquity": "Account equity (exchange API)",
