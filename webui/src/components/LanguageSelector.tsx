@@ -48,8 +48,10 @@ const LanguageSelector: React.FC = () => {
       borderRadius="full"
       borderColor={borderColor}
       bg={bgColor}
-      fontSize="12px"
-      fontWeight="600"
+      fontSize="xs"
+      fontWeight="normal"
+      lineHeight="short"
+      fontFamily="body"
       cursor="pointer"
       _hover={{
         bg: hoverBg,
