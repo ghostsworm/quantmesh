@@ -975,7 +975,7 @@ const GlobalDashboard: React.FC = () => {
                         const status = symbolStatuses.get(key)
                         const isRunning = status?.running || false
                         const pnlInfo = exchange.symbols.find(s => s.symbol === sym.symbol && (s.market_type || 'futures') === (sym.market_type || 'futures'))
-                        const botId = findBotIdForSymbol(bots, normalizeExchange, normalizedExchange, sym.symbol, sym.market_type)
+                        const botId = findBotIdForSymbol(bots, normalizeExchangeName, normalizedExchange, sym.symbol, sym.market_type)
                         
                         return (
                           <MotionBox
