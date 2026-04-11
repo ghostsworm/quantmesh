@@ -156,6 +156,8 @@ const GlobalDashboard: React.FC = () => {
     }
     return exchangeName.toLowerCase().replace(/\s*\[dryrun\]\s*/gi, '').trim()
   }
+  /** 與 `botLookup.findBotIdForSymbol` 參數名對齊，避免壓縮/舊包中出現未綁定的 `normalizeExchange` */
+  const normalizeExchange = normalizeExchangeName
 
   // 检查配置状態
   useEffect(() => {
@@ -975,7 +977,7 @@ const GlobalDashboard: React.FC = () => {
                         const status = symbolStatuses.get(key)
                         const isRunning = status?.running || false
                         const pnlInfo = exchange.symbols.find(s => s.symbol === sym.symbol && (s.market_type || 'futures') === (sym.market_type || 'futures'))
-                        const botId = findBotIdForSymbol(bots, normalizeExchangeName, normalizedExchange, sym.symbol, sym.market_type)
+                        const botId = findBotIdForSymbol(bots, normalizeExchange, normalizedExchange, sym.symbol, sym.market_type)
                         
                         return (
                           <MotionBox
