@@ -771,7 +771,18 @@
     "logCleanupRetentionDays": "Retention days",
     "logCleanupSchedule": "Schedule (HH:MM)",
     "aiAssistantTabIntro": "Configure global AI upstream and the AI configuration wizard. For NewsAPI and Gemini news analysis, use the News Analysis tab.",
-    "newsAnalysisTabIntro": "Configure NewsAPI, the AI provider used for news analysis (including its own API key), and asset lists. Independent from the AI Assistant tab."
+    "newsAnalysisTabIntro": "Configure NewsAPI, the AI provider used for news analysis (including its own API key), and asset lists. Independent from the AI Assistant tab.",
+    "testGeminiKey": "Test Gemini key",
+    "testExchangeCredentials": "Test exchange connection",
+    "testingCredentials": "Testing…",
+    "exchangeCredentialTestHint": "Uses the values in the form (no need to save first); read-only account check, no orders.",
+    "geminiKeyRequiredForTest": "Enter a Gemini API key first",
+    "passphraseRequiredForTest": "This exchange requires a passphrase to test",
+    "credentialTestTotalWallet": "Total wallet",
+    "credentialTestAvailable": "Available",
+    "credentialVerifySuccess": "Verification succeeded",
+    "credentialVerifyFailed": "Verification failed",
+    "exchangeKeysRequiredForTest": "Enter API Key and Secret for this exchange"
   },
   "configSetup": {
     "title": "Configuratiehandleiding",

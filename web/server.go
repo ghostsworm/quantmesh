@@ -399,6 +399,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.POST("/config/update", updateConfigHandler)
 			protected.POST("/config/update-yaml", updateConfigYAMLHandler)
 			protected.POST("/config/test-notification", testNotificationHandler)
+			protected.POST("/config/test-gemini", postConfigTestGemini)
+			protected.POST("/config/test-exchange", postConfigTestExchange)
 			protected.GET("/config/security/status", getConfigSecurityStatusHandler)
 			protected.POST("/config/security/generate-key", postConfigSecurityGenerateKeyHandler)
 

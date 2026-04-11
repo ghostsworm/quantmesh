@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.94.0-rc1] - 2026-04-12
+
+### Added
+- **Web 控制台**：`/config` 全局設置中 **Gemini API Key** 與 **各交易所 API** 下方新增「測試」按鈕；**Gemini** 以輕量問答驗證金鑰與回傳格式；**交易所** 以臨時憑證呼叫 `GetAccount` 讀取帳戶權益（僅讀取、不下單）。
+- **API**：`POST /api/config/test-gemini`、`POST /api/config/test-exchange`（需登入）。
+
+### Tests
+- `web`：`defaultTestSymbolAndMarket` 單元測試（Bitkub/Coins.ph 等現貨預設 symbol）。
+
+---
+
 ## [3.93.0-rc1] - 2026-04-12
 
 ### Changed
