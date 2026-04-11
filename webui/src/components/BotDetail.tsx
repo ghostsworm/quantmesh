@@ -62,7 +62,16 @@ const PauseIcon = (props: React.ComponentProps<typeof Icon>) => (
 )
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { ExternalLinkIcon } from '@chakra-ui/icons'
+import {
+  ExternalLinkIcon,
+  ViewIcon,
+  RepeatIcon,
+  WarningIcon,
+  ArrowUpIcon,
+  TimeIcon,
+  StarIcon,
+  ChatIcon,
+} from '@chakra-ui/icons'
 import {
   getBotById,
   startBot,
@@ -97,6 +106,7 @@ import OptionHedgePanel from './OptionHedgePanel'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 import { computeLiquidationPrice } from './ParamAdvisor'
 import { parseFundingPerpSpread } from '../utils/fundingPerpSpread'
+import { ResponsiveTabLabel, useCompactConfigTabs } from './ResponsiveTabLabel'
 
 // 策略选项定义
 interface StrategyOption {
@@ -127,6 +137,9 @@ const getMixedStrategies = (t: any): StrategyOption[] => [
 const BOT_DETAIL_LOG_LIMIT_DEFAULT = 500
 const BOT_DETAIL_LOG_LIMIT_OPTIONS = [200, 500, 1000, 2000] as const
 
+/** Bot 主內容區分頁圖標（與 Tab 順序一致） */
+const BOT_MAIN_TAB_ICONS = [ViewIcon, RepeatIcon, WarningIcon, ArrowUpIcon, TimeIcon, StarIcon, ChatIcon] as const
+
 type BotLogLevelFilter = '' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL'
 
 const BotDetail: React.FC = () => {
@@ -134,6 +147,8 @@ const BotDetail: React.FC = () => {
   const navigate = useNavigate()
   const { t, i18n } = useTranslation()
   const toast = useToast()
+  const compactTabs = useCompactConfigTabs()
+  const [mainTabIndex, setMainTabIndex] = useState(0)
   const { navigateToBot } = useSymbol()
   const { timezone } = useConfig()
   const [bot, setBot] = useState<BotDetailInfo | null>(null)
@@ -751,22 +766,93 @@ const BotDetail: React.FC = () => {
         </Card>
       )}
 
-      <Tabs colorScheme="blue" variant="enclosed">
-        <TabList>
-          <Tab>{t('botDetail.tabOverview')}</Tab>
-          <Tab>{t('botDetail.tabStrategy')}</Tab>
-          <Tab>{t('botDetail.tabRisk')}</Tab>
-          <Tab>{t('botDetail.tabTpSl')}</Tab>
-          <Tab onClick={fetchExchangeOrders}>
-            {t('botDetail.tabOrders')}
-            {exchangeOrders.length > 0 && (
-              <Badge ml={1} colorScheme="orange" borderRadius="full" fontSize="xs">
-                {exchangeOrders.length}
-              </Badge>
-            )}
-          </Tab>
-          <Tab>{t('botDetail.tabBacktest')}</Tab>
-          <Tab>{t('botDetail.tabLogs')}</Tab>
+      <Tabs
+        colorScheme="blue"
+        variant="enclosed"
+        index={mainTabIndex}
+        onChange={(idx) => {
+          setMainTabIndex(idx)
+          if (idx === 4) void fetchExchangeOrders()
+        }}
+      >
+        <TabList
+          flexWrap="nowrap"
+          overflowX={{ base: 'auto', md: 'visible' }}
+          maxW="100%"
+          sx={{
+            scrollbarWidth: 'thin',
+            '&::-webkit-scrollbar': { height: '6px' },
+            '&::-webkit-scrollbar-thumb': { borderRadius: 'full', bg: 'blackAlpha.300' },
+          }}
+        >
+          {(
+            [
+              t('botDetail.tabOverview'),
+              t('botDetail.tabStrategy'),
+              t('botDetail.tabRisk'),
+              t('botDetail.tabTpSl'),
+              t('botDetail.tabOrders'),
+              t('botDetail.tabBacktest'),
+              t('botDetail.tabLogs'),
+            ] as const
+          ).map((label, i) => {
+            const IconComp = BOT_MAIN_TAB_ICONS[i]
+            const selected = mainTabIndex === i
+            const isOrdersTab = i === 4
+            const ordersCount = exchangeOrders.length
+            const ordersBadge = isOrdersTab && ordersCount > 0
+            const iconCompactBadge = isOrdersTab && compactTabs && !selected && ordersBadge
+
+            const tabIcon =
+              iconCompactBadge ? (
+                <Box position="relative" display="inline-flex" alignItems="center" justifyContent="center">
+                  <TimeIcon boxSize={4} />
+                  <Badge
+                    position="absolute"
+                    top="-4px"
+                    right="-8px"
+                    px={1}
+                    minW={4}
+                    h={4}
+                    borderRadius="full"
+                    fontSize="10px"
+                    colorScheme="orange"
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="center"
+                  >
+                    {ordersCount}
+                  </Badge>
+                </Box>
+              ) : (
+                <IconComp boxSize={4} />
+              )
+
+            return (
+              <Tab
+                key={label}
+                px={compactTabs ? 2 : 3}
+                py={2}
+                whiteSpace="nowrap"
+                aria-label={label}
+                title={compactTabs ? label : undefined}
+              >
+                <HStack spacing={2}>
+                  <ResponsiveTabLabel
+                    icon={tabIcon}
+                    label={label}
+                    selected={selected}
+                    compact={compactTabs}
+                  />
+                  {ordersBadge && (!compactTabs || selected) && (
+                    <Badge ml={0} colorScheme="orange" borderRadius="full" fontSize="xs">
+                      {ordersCount}
+                    </Badge>
+                  )}
+                </HStack>
+              </Tab>
+            )
+          })}
         </TabList>
         <TabPanels>
           <TabPanel px={0}>
