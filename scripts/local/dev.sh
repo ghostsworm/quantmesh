@@ -190,7 +190,8 @@ wait_for_backend() {
     while [ $attempt -le $max_attempts ]; do
         if kill -0 $GO_PID 2>/dev/null; then
             if command -v curl >/dev/null 2>&1; then
-                if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1 "http://127.0.0.1:${port}/api/version" 2>/dev/null | grep -q '200'; then
+                # 必須跳過 HTTP(S)_PROXY，否則本機地址會被送到代理，/api/version 得不到 200
+                if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1 --noproxy '*' "http://127.0.0.1:${port}/api/version" 2>/dev/null | grep -q '200'; then
                     return 0
                 fi
             elif command -v nc >/dev/null 2>&1; then
