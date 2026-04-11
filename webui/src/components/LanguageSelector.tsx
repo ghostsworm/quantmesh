@@ -36,13 +36,19 @@ const LanguageSelector: React.FC = () => {
     i18n.changeLanguage(newLanguage)
   }
 
+  /** 瀏覽器可能回傳 `en` 等簡碼，與選項 `en-US` 不一致時 Chakra Select 可能異常，需對齊到已列舉值 */
+  const selectValue =
+    languages.find((l) => l.code === i18n.language)?.code ??
+    languages.find((l) => i18n.language?.toLowerCase().startsWith(l.code.split('-')[0].toLowerCase()))?.code ??
+    'zh-CN'
+
   const bgColor = 'white'
   const borderColor = 'gray.200'
   const hoverBg = 'gray.50'
 
   return (
     <Select
-      value={i18n.language}
+      value={selectValue}
       onChange={handleLanguageChange}
       size="xs"
       borderRadius="full"

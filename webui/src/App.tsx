@@ -22,7 +22,6 @@ import {
   useDisclosure,
 } from '@chakra-ui/react'
 import { HamburgerIcon, ChevronLeftIcon } from '@chakra-ui/icons'
-import { motion, AnimatePresence } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { BotProvider, useBot } from './contexts/BotContext'
 import { SymbolProvider, useSymbol } from './contexts/SymbolContext'
@@ -103,17 +102,11 @@ const LazyFallback = () => (
 
 const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation()
+  // 勿使用 initial opacity:0：在部分嵌入 WebView / 與 AnimatePresence 組合下，進場動畫可能未執行完畢，導致頁面看似白屏
   return (
-    <motion.div
-      key={location.pathname}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      style={{ width: '100%', height: '100%' }}
-    >
+    <Box key={location.pathname} w="100%" minH="100%">
       {children}
-    </motion.div>
+    </Box>
   )
 }
 
@@ -507,7 +500,6 @@ const AppContent: React.FC = () => {
 
           <Container maxW={isGlobalView ? "full" : "container.xl"} px={{ base: 4, md: 8 }} py={{ base: 6, md: 8 }}>
             <Suspense fallback={<LazyFallback />}>
-            <AnimatePresence mode="wait">
               <Routes>
                 <Route path="/" element={
                   <ProtectedRoute>
@@ -581,7 +573,6 @@ const AppContent: React.FC = () => {
                 <Route path="/setup" element={<FirstTimeSetup />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
-            </AnimatePresence>
             </Suspense>
           </Container>
           {!isMobile && <Footer />}
