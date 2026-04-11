@@ -487,7 +487,9 @@
       "notifications": "Notificatie-instellingen",
       "storageWeb": "Opslag & Web",
       "security": "Security",
-      "yamlEditor": "YAML Editor"
+      "yamlEditor": "YAML Editor",
+      "aiAssistant": "AI Assistant",
+      "newsAnalysis": "News Analysis"
     },
     "symbolTabs": {
       "tradingParams": "Handelsparameters",
@@ -767,7 +769,9 @@
     "logCleanupLevels": "Levels to clean",
     "logCleanupLevelsDesc": "Selected levels will be cleaned periodically. Unselected are kept (recommend keeping ERROR/DEBUG for troubleshooting)",
     "logCleanupRetentionDays": "Retention days",
-    "logCleanupSchedule": "Schedule (HH:MM)"
+    "logCleanupSchedule": "Schedule (HH:MM)",
+    "aiAssistantTabIntro": "Configure global AI upstream and the AI configuration wizard. For NewsAPI and Gemini news analysis, use the News Analysis tab.",
+    "newsAnalysisTabIntro": "Configure NewsAPI, the AI provider used for news analysis (including its own API key), and asset lists. Independent from the AI Assistant tab."
   },
   "configSetup": {
     "title": "Configuratiehandleiding",

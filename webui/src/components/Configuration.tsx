@@ -867,7 +867,17 @@ const Configuration: React.FC = () => {
   if (loading) return <Center h="400px"><Spinner size="xl" thickness="4px" color="blue.500" /></Center>
   if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />{t('configuration.loadFailed')}</Alert></Container>
 
-  const globalTabs = [t('configuration.globalTabs.general'), t('configuration.globalTabs.exchangeAPI'), t('configuration.globalTabs.notifications'), t('configuration.globalTabs.storageWeb'), t('configuration.globalTabs.security'), t('configuration.globalTabs.marketRisk'), t('configuration.globalTabs.yamlEditor')]
+  const globalTabs = [
+    t('configuration.globalTabs.general'),
+    t('configuration.globalTabs.exchangeAPI'),
+    t('configuration.globalTabs.aiAssistant'),
+    t('configuration.globalTabs.newsAnalysis'),
+    t('configuration.globalTabs.notifications'),
+    t('configuration.globalTabs.storageWeb'),
+    t('configuration.globalTabs.security'),
+    t('configuration.globalTabs.marketRisk'),
+    t('configuration.globalTabs.yamlEditor'),
+  ]
   const symbolTabs = [t('configuration.symbolTabs.tradingParams'), t('configuration.symbolTabs.riskControl'), t('configuration.symbolTabs.aiStrategy')]
 
   const activeTabs = isGlobalView ? globalTabs : symbolTabs
@@ -1122,6 +1132,69 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 1 && (
                   <VStack spacing={6} align="stretch">
+                    {exchanges.map((exchange) => (
+                      <ConfigCard key={exchange} title={exchangeNames[exchange]} icon={<RepeatIcon />}>
+                        <SimpleGrid columns={2} spacing={6}>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">API Key</FormLabel>
+                            {renderPasswordInput(`exchanges.${exchange}.api_key`)}
+                          </FormControl>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Secret Key</FormLabel>
+                            {renderPasswordInput(`exchanges.${exchange}.secret_key`)}
+                          </FormControl>
+                        </SimpleGrid>
+                        {EXCHANGES_REQUIRING_PASSPHRASE.includes(exchange as any) && (
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configSetup.passphrase')}</FormLabel>
+                            {renderPasswordInput(`exchanges.${exchange}.passphrase`, t('configSetup.passphrasePlaceholder'))}
+                          </FormControl>
+                        )}
+                        <Flex justify="space-between" align="center" mt={2}>
+                          <HStack>
+                            <Switch
+                              size="sm"
+                              isChecked={getNestedValue(config, `exchanges.${exchange}.testnet`) || false}
+                              onChange={(e) => updateConfigField(`exchanges.${exchange}.testnet`, e.target.checked)}
+                            />
+                            <Text fontSize="sm" fontWeight="600">{t('configuration.useTestnet')}</Text>
+                          </HStack>
+                          <HStack>
+                            <Text fontSize="xs" color="gray.500">{t('configuration.feeRate')}</Text>
+                            <DecimalNumberInput
+                              size="sm"
+                              w="100px"
+                              value={feeRateInputs[exchange] ?? ''}
+                              onChange={(v) => setFeeRateInputs((prev) => ({ ...prev, [exchange]: v !== undefined && v !== '' ? v : '' }))}
+                              onBlur={() => {
+                                const rawValue = feeRateInputs[exchange] ?? ''
+                                const trimmed = String(rawValue).trim()
+                                const parsed = trimmed === '' ? 0 : Number(trimmed)
+                                if (Number.isNaN(parsed)) {
+                                  const currentValue = getNestedValue(config, `exchanges.${exchange}.fee_rate`)
+                                  const fallback = currentValue === undefined || currentValue === null ? '' : String(currentValue)
+                                  setFeeRateInputs((prev) => ({ ...prev, [exchange]: fallback }))
+                                  return
+                                }
+                                updateConfigField(`exchanges.${exchange}.fee_rate`, parsed)
+                              }}
+                              precision={6}
+                              step={0.0001}
+                              sx={{ '& input': { borderRadius: 'md' } }}
+                            />
+                          </HStack>
+                        </Flex>
+                      </ConfigCard>
+                    ))}
+                  </VStack>
+                )}
+
+                {tabIndex === 2 && (
+                  <VStack spacing={6} align="stretch">
+                    <Alert status="info" borderRadius="lg" variant="subtle">
+                      <AlertIcon />
+                      <AlertDescription fontSize="sm">{t('configuration.aiAssistantTabIntro')}</AlertDescription>
+                    </Alert>
                     <ConfigCard title={t('configuration.aiConfigAssistant')} icon={<StarIcon />}>
                       <VStack spacing={4} align="stretch">
                         <FormControl>
@@ -1174,7 +1247,15 @@ const Configuration: React.FC = () => {
                         <Text fontSize="xs" color="gray.600">{t('configuration.aiUpstreamsYamlHint')}</Text>
                       </VStack>
                     </ConfigCard>
+                  </VStack>
+                )}
 
+                {tabIndex === 3 && (
+                  <VStack spacing={6} align="stretch">
+                    <Alert status="info" borderRadius="lg" variant="subtle">
+                      <AlertIcon />
+                      <AlertDescription fontSize="sm">{t('configuration.newsAnalysisTabIntro')}</AlertDescription>
+                    </Alert>
                     <ConfigCard title={t('configuration.newsMonitorConfig')} icon={<InfoIcon />}>
                       <VStack spacing={4} align="stretch">
                         <Flex justify="space-between" align="center">
@@ -1417,65 +1498,10 @@ const Configuration: React.FC = () => {
                         )}
                       </VStack>
                     </ConfigCard>
-
-                    {exchanges.map((exchange) => (
-                      <ConfigCard key={exchange} title={exchangeNames[exchange]} icon={<RepeatIcon />}>
-                        <SimpleGrid columns={2} spacing={6}>
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">API Key</FormLabel>
-                            {renderPasswordInput(`exchanges.${exchange}.api_key`)}
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Secret Key</FormLabel>
-                            {renderPasswordInput(`exchanges.${exchange}.secret_key`)}
-                          </FormControl>
-                        </SimpleGrid>
-                        {EXCHANGES_REQUIRING_PASSPHRASE.includes(exchange as any) && (
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configSetup.passphrase')}</FormLabel>
-                            {renderPasswordInput(`exchanges.${exchange}.passphrase`, t('configSetup.passphrasePlaceholder'))}
-                          </FormControl>
-                        )}
-                        <Flex justify="space-between" align="center" mt={2}>
-                          <HStack>
-                            <Switch
-                              size="sm"
-                              isChecked={getNestedValue(config, `exchanges.${exchange}.testnet`) || false}
-                              onChange={(e) => updateConfigField(`exchanges.${exchange}.testnet`, e.target.checked)}
-                            />
-                            <Text fontSize="sm" fontWeight="600">{t('configuration.useTestnet')}</Text>
-                          </HStack>
-                          <HStack>
-                            <Text fontSize="xs" color="gray.500">{t('configuration.feeRate')}</Text>
-                            <DecimalNumberInput
-                              size="sm"
-                              w="100px"
-                              value={feeRateInputs[exchange] ?? ''}
-                              onChange={(v) => setFeeRateInputs((prev) => ({ ...prev, [exchange]: v !== undefined && v !== '' ? v : '' }))}
-                              onBlur={() => {
-                                const rawValue = feeRateInputs[exchange] ?? ''
-                                const trimmed = String(rawValue).trim()
-                                const parsed = trimmed === '' ? 0 : Number(trimmed)
-                                if (Number.isNaN(parsed)) {
-                                  const currentValue = getNestedValue(config, `exchanges.${exchange}.fee_rate`)
-                                  const fallback = currentValue === undefined || currentValue === null ? '' : String(currentValue)
-                                  setFeeRateInputs((prev) => ({ ...prev, [exchange]: fallback }))
-                                  return
-                                }
-                                updateConfigField(`exchanges.${exchange}.fee_rate`, parsed)
-                              }}
-                              precision={6}
-                              step={0.0001}
-                              sx={{ '& input': { borderRadius: 'md' } }}
-                            />
-                          </HStack>
-                        </Flex>
-                      </ConfigCard>
-                    ))}
                   </VStack>
                 )}
 
-                {tabIndex === 2 && (
+                {tabIndex === 4 && (
                   <VStack spacing={6} align="stretch">
                     <ConfigCard title={t('configuration.globalNotificationSwitch')} icon={<BellIcon />}>
                       <Flex justify="space-between" align="center">
@@ -1784,7 +1810,7 @@ const Configuration: React.FC = () => {
                   </VStack>
                 )}
 
-                {tabIndex === 3 && (
+                {tabIndex === 5 && (
                   <SimpleGrid columns={2} spacing={6}>
                     <ConfigCard title={t('configuration.dataStorage')} icon={<SettingsIcon />}>
                       <FormControl mb={4} display="flex" alignItems="center">
@@ -1864,7 +1890,7 @@ const Configuration: React.FC = () => {
                   </SimpleGrid>
                 )}
 
-                {tabIndex === 4 && (
+                {tabIndex === 6 && (
                   <VStack spacing={6} align="stretch">
                     <ConfigCard title={t('configuration.securitySettings')} icon={<LockIcon />}>
                       <VStack spacing={6} align="stretch">
@@ -1952,7 +1978,7 @@ const Configuration: React.FC = () => {
                   </VStack>
                 )}
 
-                {tabIndex === 5 && (
+                {tabIndex === 7 && (
                   <VStack spacing={6} align="stretch">
                     <Alert status="info" borderRadius="lg">
                       <AlertIcon />
@@ -2158,7 +2184,7 @@ const Configuration: React.FC = () => {
                   </VStack>
                 )}
 
-                {tabIndex === 6 && (
+                {tabIndex === 8 && (
                   <VStack spacing={6} align="stretch">
                     <ConfigCard title={t('configuration.yamlEditorTitle')} icon={<SettingsIcon />}>
                       <VStack spacing={4} align="stretch">
