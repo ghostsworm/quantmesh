@@ -103,6 +103,18 @@ const DailyCumulativePnLChart: React.FC<DailyCumulativePnLChartProps> = ({ data,
             opacity={0.85}
             maxBarSize={28}
           />
+          {/* 灰色虚线：本地累计盈亏（始终绘制，与图例说明一致） */}
+          <Line
+            yAxisId="left"
+            type="monotone"
+            dataKey="cumulativePnl"
+            name="cumulativePnl"
+            stroke="#8c8c8c"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            dot={false}
+          />
+          {/* 实心蓝线：交易所账户权益（仅在有采样数据时） */}
           {hasExchangeAccountEquity ? (
             <Line
               yAxisId="left"
@@ -110,33 +122,10 @@ const DailyCumulativePnLChart: React.FC<DailyCumulativePnLChartProps> = ({ data,
               dataKey="accountEquity"
               name="accountEquity"
               stroke="#1890ff"
-              strokeWidth={2}
+              strokeWidth={2.5}
               dot={chartData.length <= 45}
               activeDot={{ r: 4 }}
-              connectNulls={false}
-            />
-          ) : (
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="cumulativePnl"
-              name="cumulativePnl"
-              stroke="#1890ff"
-              strokeWidth={2}
-              dot={chartData.length <= 45}
-              activeDot={{ r: 4 }}
-            />
-          )}
-          {hasExchangeAccountEquity ? (
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="cumulativePnl"
-              name="cumulativePnl"
-              stroke="#bfbfbf"
-              strokeWidth={1.5}
-              strokeDasharray="6 4"
-              dot={false}
+              connectNulls
             />
           ) : null}
         </ComposedChart>

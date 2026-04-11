@@ -1084,6 +1084,34 @@ func getStatistics(c *gin.Context) {
 	})
 }
 
+// lastAccountEquityPerDayFromHourly 從 hourly_equity_records 聚合每個日曆日「時间戳最晚的一條非空 account_equity」，供日統計在 daily_snapshots 未帶權益時回填淨值曲線。
+func lastAccountEquityPerDayFromHourly(st storage.Storage, exchange, symbol, account string, rangeStart, rangeEnd time.Time) map[string]float64 {
+	out := make(map[string]float64)
+	lastTs := make(map[string]time.Time)
+	if st == nil || exchange == "" || symbol == "" {
+		return out
+	}
+	loc := utils.GlobalLocation
+	if loc == nil {
+		loc = time.Local
+	}
+	recs, err := st.QueryHourlyEquityRecords(exchange, symbol, account, rangeStart, rangeEnd)
+	if err != nil {
+		return out
+	}
+	for _, rec := range recs {
+		if rec == nil || rec.AccountEquity == nil {
+			continue
+		}
+		dayKey := rec.Timestamp.In(loc).Format("2006-01-02")
+		if prev, ok := lastTs[dayKey]; !ok || rec.Timestamp.After(prev) {
+			lastTs[dayKey] = rec.Timestamp
+			out[dayKey] = *rec.AccountEquity
+		}
+	}
+	return out
+}
+
 // getDailyStatistics 獲取每日统计（混合模式：优先使用 statistics 表，缺失的日期從 trades 表补充）
 // GET /api/statistics/daily
 func getDailyStatistics(c *gin.Context) {
@@ -1145,6 +1173,19 @@ func getDailyStatistics(c *gin.Context) {
 				snapshotMap[dateKey] = snap
 			}
 		}
+	}
+
+	// 3c. 小時權益：按日最后一條 account_equity（日快照未寫入權益時仍可畫淨值曲線）
+	var hourlyAcctByDay map[string]float64
+	if status != nil && status.Exchange != "" && status.Symbol != "" {
+		loc := utils.GlobalLocation
+		if loc == nil {
+			loc = time.Local
+		}
+		startDay, _ := time.ParseInLocation("2006-01-02", startDate.Format("2006-01-02"), loc)
+		endDay, _ := time.ParseInLocation("2006-01-02", endDate.Format("2006-01-02"), loc)
+		rangeEnd := endDay.Add(24*time.Hour - time.Nanosecond)
+		hourlyAcctByDay = lastAccountEquityPerDayFromHourly(st, status.Exchange, status.Symbol, accountID, startDay, rangeEnd)
 	}
 
 	// 4. 獲取日K線數據用於计算开盘/收盘價和涨跌幅
@@ -1306,6 +1347,11 @@ func getDailyStatistics(c *gin.Context) {
 			item["intraday_max_drawdown_pct"] = snap.IntradayMaxDrawdownPct
 			if snap.AccountEquity != nil {
 				item["account_equity"] = *snap.AccountEquity
+			}
+		}
+		if _, ok := item["account_equity"]; !ok && hourlyAcctByDay != nil {
+			if v, ok2 := hourlyAcctByDay[dateKey]; ok2 {
+				item["account_equity"] = v
 			}
 		}
 
