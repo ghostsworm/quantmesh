@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.94.1-rc2] - 2026-04-12
+
+### Fixed
+- **Web 控制台**：修復部分環境（含 Cursor 內嵌瀏覽器）下首頁 `/` **白屏**：`PageWrapper` 不再使用 `motion` 的 `initial opacity:0` 進場動畫；移除包裹 `Routes` 的 `AnimatePresence`（與 RR6 組合易導致首屏不可見）。
+- **語言選擇器**：當 `i18n.language` 為瀏覽器簡碼（如 `en`）與下拉選項（`en-US`）不一致時，對齊到已列舉值，避免 Chakra `Select` 異常。
+
+---
+
 ## [3.94.1-rc1] - 2026-04-12
 
 ### Changed
