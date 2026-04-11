@@ -281,7 +281,7 @@ Sistem, şunları içeren çekirdek bileşenlerle modüler bir tasarım benimser
 - **Süper Pozisyon Yöneticisi**: Çekirdek pozisyon yöneticisi, Slot mekanizmasına dayalı sipariş yaşam döngüsünü yönetir.
 - **Güvenlik ve Risk Kontrolü**: Başlatma kontrolleri, çalışma zamanı izleme ve anomali devre kesici dahil çok katmanlı risk kontrolü.
 
-Daha ayrıntılı mimari dokümantasyon için lütfen [ARCHITECTURE.md](../../ARCHITECTURE.md) dosyasına bakın.
+Daha ayrıntılı mimari dokümantasyon için lütfen [ARCHITECTURE.md](../ARCHITECTURE.md) dosyasına bakın.
 
 ## 📊 Kullanım İstatistikleri ve Gizlilik Koruması
 
@@ -447,7 +447,7 @@ Katkıları memnuniyetle karşılıyoruz! İşte nasıl yardımcı olabileceğin
 
 **Not:** AGPL-3.0 lisansına göre, bu projeye yapılan tüm katkılar aynı AGPL-3.0 lisansı altında yayınlanacaktır.
 
-Ayrıntılı yönergeler için [CONTRIBUTING.md](../../CONTRIBUTING.md) dosyasına bakın.
+Ayrıntılı yönergeler için [CONTRIBUTING.md](../CONTRIBUTING.md) dosyasına bakın.
 
 ## 🙏 Teşekkürler
 

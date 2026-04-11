@@ -281,7 +281,7 @@ Sistem mengadopsi desain modular dengan komponen inti termasuk:
 - **Manajer Posisi Super**: Manajer posisi inti, mengelola siklus hidup pesanan berdasarkan mekanisme Slot.
 - **Keamanan & Kontrol Risiko**: Kontrol risiko multi-layer, termasuk pemeriksaan startup, pemantauan runtime, dan pemutus sirkuit anomali.
 
-Untuk dokumentasi arsitektur yang lebih detail, silakan lihat [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Untuk dokumentasi arsitektur yang lebih detail, silakan lihat [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 📊 Statistik Penggunaan & Perlindungan Privasi
 
@@ -447,7 +447,7 @@ Kami menyambut kontribusi! Berikut cara Anda dapat membantu:
 
 **Catatan:** Menurut lisensi AGPL-3.0, semua kontribusi untuk proyek ini akan dirilis di bawah lisensi AGPL-3.0 yang sama.
 
-Lihat [CONTRIBUTING.md](../../CONTRIBUTING.md) untuk pedoman detail.
+Lihat [CONTRIBUTING.md](../CONTRIBUTING.md) untuk pedoman detail.
 
 ## 🙏 Ucapan Terima Kasih
 

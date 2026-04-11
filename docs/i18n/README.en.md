@@ -61,7 +61,7 @@ quantmesh_platform/
 └── webui/                  # React
 ```
 
-More detail: [ARCHITECTURE.md](../../ARCHITECTURE.md), [GRID_STRATEGY_ADVANCED_FEATURES.md](../GRID_STRATEGY_ADVANCED_FEATURES.md), [RISK_CONTROL_GUIDE.md](../RISK_CONTROL_GUIDE.md), [API_REFERENCE.md](../API_REFERENCE.md).
+More detail: [ARCHITECTURE.md](../ARCHITECTURE.md), [GRID_STRATEGY_ADVANCED_FEATURES.md](../GRID_STRATEGY_ADVANCED_FEATURES.md), [RISK_CONTROL_GUIDE.md](../RISK_CONTROL_GUIDE.md), [API_REFERENCE.md](../API_REFERENCE.md).
 
 ## Run it
 
@@ -127,7 +127,7 @@ trading:
 - **Super position manager**: slots own order lifecycles.  
 - **Safety**: checks at startup, monitoring while running, circuit breaking when needed.
 
-Full write-up: [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Full write-up: [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## Telemetry (optional)
 
@@ -155,7 +155,7 @@ Contact: contact@quantmesh.io · https://quantmesh.io/commercial
 
 ## Contributing and contact
 
-Issues and PRs welcome; contributions are AGPL-3.0. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
+Issues and PRs welcome; contributions are AGPL-3.0. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 - Website: https://quantmesh.io  
 - [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)  

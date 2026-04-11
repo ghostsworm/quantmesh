@@ -188,7 +188,7 @@ go build -o quantmesh
 - **Super Position Manager**: 核心仓位管理器，基于槽位 (Slot) 机制管理订单生命周期。
 - **Safety & Risk Control**: 多层级风控，包含启动检查、运行时监控和异常熔断。
 
-更多详细架构说明请参阅 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
+更多详细架构说明请参阅 [ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 ## ⚠️ 免责声明
 

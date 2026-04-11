@@ -107,7 +107,7 @@ trading:
 - **风控**：K 线异常、余额与杠杆检查、定期对帐、订单清理；部分期权对冲能力。  
 - **可选项**：`ai/` 提供摘要与建议类辅助，**关闭不影响主交易链路**。
 
-更细的说明见 [ARCHITECTURE.md](ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](docs/API_REFERENCE.md)。
+更细的说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](docs/API_REFERENCE.md)。
 
 ## 数字与示例（仍不是投资建议）
 
@@ -120,13 +120,14 @@ trading:
 - **Super Position Manager**：槽位管理订单生命周期。  
 - **Safety**：启动检查、运行监控、该熔断时熔断。
 
-详情见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+详情见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 仓库目录（速览）
 
 ```
 quantmesh_platform/
-├── main.go
+├── main.go          # 入口（Bot/Symbol 運行時與 main 同包，見同目錄 *.go）
+├── docs/            # 架構說明、貢獻指南、API 等（首屏請看本 README）
 ├── config/          # YAML、热更新、历史
 ├── exchange/        # 各所适配
 ├── strategy/        # 多类策略
@@ -161,7 +162,7 @@ export QUANTMESH_DISABLE_TELEMETRY=1
 
 ## 贡献与联络
 
-欢迎 Issue / PR；贡献同样以 AGPL-3.0 发布。见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎 Issue / PR；贡献同样以 AGPL-3.0 发布。见 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)。
 
 - 官网：https://quantmesh.io  
 - 讨论：[GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)  
@@ -175,7 +176,7 @@ export QUANTMESH_DISABLE_TELEMETRY=1
 ---
 
 <div align="center">
-  QuantMesh Team · <sub>Version 3.90.0-rc3</sub>
+  QuantMesh Team · <sub>Version 3.90.0-rc4</sub>
 </div>
 
 Copyright © 2026 QuantMesh Team. All Rights Reserved.

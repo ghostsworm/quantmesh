@@ -281,7 +281,7 @@ pnpm dev
 - **슈퍼 포지션 관리자**: 핵심 포지션 관리자, Slot 메커니즘을 기반으로 주문 수명 주기 관리.
 - **안전 및 위험 관리**: 다층 위험 관리, 시작 검사, 런타임 모니터링 및 이상 회로 차단 포함.
 
-더 자세한 아키텍처 문서는 [ARCHITECTURE.md](../../ARCHITECTURE.md)를 참조하세요.
+더 자세한 아키텍처 문서는 [ARCHITECTURE.md](../ARCHITECTURE.md)를 참조하세요.
 
 ## 📊 사용 통계 및 개인정보 보호
 
@@ -447,7 +447,7 @@ QuantMesh는 구독 및 라이선스를 위한 암호화폐 결제를 지원합�
 
 **참고:** AGPL-3.0 라이선스에 따라 이 프로젝트에 대한 모든 기여는 동일한 AGPL-3.0 라이선스 하에 릴리스됩니다.
 
-자세한 지침은 [CONTRIBUTING.md](../../CONTRIBUTING.md)를 참조하세요.
+자세한 지침은 [CONTRIBUTING.md](../CONTRIBUTING.md)를 참조하세요.
 
 ## 🙏 감사의 말
 

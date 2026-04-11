@@ -281,7 +281,7 @@ Il sistema adotta un design modulare con componenti principali inclusi:
 - **Gestore Posizione Super**: Gestore posizioni principale, gestendo il ciclo di vita degli ordini basato sul meccanismo Slot.
 - **Sicurezza & Controllo del Rischio**: Controllo del rischio multi-livello, inclusi controlli di avvio, monitoraggio runtime e interruttore di anomalie.
 
-Per documentazione architetturale più dettagliata, si prega di fare riferimento a [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Per documentazione architetturale più dettagliata, si prega di fare riferimento a [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 📊 Statistiche di Utilizzo e Protezione della Privacy
 
@@ -447,7 +447,7 @@ Accogliamo i contributi! Ecco come puoi aiutare:
 
 **Nota:** Secondo la licenza AGPL-3.0, tutti i contributi a questo progetto saranno rilasciati sotto la stessa licenza AGPL-3.0.
 
-Vedi [CONTRIBUTING.md](../../CONTRIBUTING.md) per linee guida dettagliate.
+Vedi [CONTRIBUTING.md](../CONTRIBUTING.md) per linee guida dettagliate.
 
 ## 🙏 Ringraziamenti
 

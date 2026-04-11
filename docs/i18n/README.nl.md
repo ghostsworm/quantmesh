@@ -281,7 +281,7 @@ Het systeem neemt een modulair ontwerp aan met kerncomponenten inclusief:
 - **Super Positie Manager**: Kern positie manager, beheert order levenscyclus gebaseerd op Slot mechanisme.
 - **Veiligheid & Risicobeheer**: Multi-laag risicobeheer, inclusief opstartcontroles, runtime monitoring en anomalie circuitbreker.
 
-Voor meer gedetailleerde architectuurdocumentatie, verwijzen wij naar [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Voor meer gedetailleerde architectuurdocumentatie, verwijzen wij naar [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 📊 Gebruiksstatistieken & Privacybescherming
 
@@ -447,7 +447,7 @@ We verwelkomen bijdragen! Hier is hoe u kunt helpen:
 
 **Opmerking:** Volgens de AGPL-3.0 licentie zullen alle bijdragen aan dit project worden vrijgegeven onder dezelfde AGPL-3.0 licentie.
 
-Zie [CONTRIBUTING.md](../../CONTRIBUTING.md) voor gedetailleerde richtlijnen.
+Zie [CONTRIBUTING.md](../CONTRIBUTING.md) voor gedetailleerde richtlijnen.
 
 ## 🙏 Erkenningen
 

@@ -770,7 +770,7 @@ profit_management:
 
 ## 相关文档
 
-- [系统架构](../ARCHITECTURE.md)
+- [系统架构](ARCHITECTURE.md)
 - [回测系统](./BACKTESTING.md)
 - [API 文档](./API_REFERENCE.md)
 - [部署指南](./DEPLOYMENT.md)
