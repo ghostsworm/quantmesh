@@ -37,17 +37,17 @@ clean:
 
 # 开发模式启动
 dev:
-	@./dev.sh
+	@./scripts/local/dev.sh
 
 # 停止开发模式
 dev-stop:
-	@./stop.sh --dev
+	@./scripts/local/stop.sh --dev
 
 # 重启（生产模式）
 restart:
-	@./restart.sh
+	@./scripts/local/restart.sh
 
 # 重启（开发模式）
 restart-dev:
-	@./restart.sh --dev
+	@./scripts/local/restart.sh --dev
 

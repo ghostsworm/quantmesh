@@ -71,13 +71,13 @@ grep -A 10 "web:" "$CONFIG_FILE" | head -15
 
 echo
 echo "🎯 下一步操作:"
-echo "1. 重啟應用: ./stop.sh && ./start.sh"
+echo "1. 重啟應用: ./scripts/local/stop.sh && ./scripts/local/start.sh"
 echo "2. 检查日誌: tail -f logs/app.log"
 echo "3. 寻找日誌中的: 'WebAuthn 管理器已初始化'"
 echo "4. 应該顯示: rpID=$DOMAIN"
 echo
 echo "🔧 或者使用環境變數方式:"
 echo "export DOMAIN=$DOMAIN"
-echo "./start.sh"
+echo "./scripts/local/start.sh"
 echo
 echo "✅ 修復完成！"

@@ -40,7 +40,7 @@ grep "设置密码\|配置初始化\|SECURITY" logs/*.log | tail -20
 
 **立即停止系统**：
 ```bash
-./stop.sh
+./scripts/local/stop.sh
 ```
 
 **检查配置**：
@@ -71,7 +71,7 @@ git pull origin main
 go build -o quantmesh
 
 # 重启系统
-./start.sh
+./scripts/local/start.sh
 ```
 
 ### 修复内容

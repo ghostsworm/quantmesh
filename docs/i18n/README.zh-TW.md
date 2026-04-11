@@ -301,7 +301,7 @@ go build -o quantmesh
 **方式一：使用開發腳本（建議）**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 腳本會：啟動 Go 後端（port 28888）、啟動 Vite 開發伺服器（port 15173）、啟用熱重載與 source map。  

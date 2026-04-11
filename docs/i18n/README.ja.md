@@ -238,7 +238,7 @@ go build -o quantmesh
 **オプション1: 開発スクリプトを使用（推奨）**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 このスクリプトは:

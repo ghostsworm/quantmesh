@@ -4,9 +4,9 @@
 # 支持停止生产模式和开发模式的所有进程
 #
 # 使用方法：
-#   ./stop.sh           # 停止所有进程（生产和开发）
-#   ./stop.sh --dev     # 仅停止开发模式进程
-#   ./stop.sh --prod    # 仅停止生产模式进程
+#   ./scripts/local/stop.sh           # 停止所有进程（生产和开发）
+#   ./scripts/local/stop.sh --dev     # 仅停止开发模式进程
+#   ./scripts/local/stop.sh --prod    # 仅停止生产模式进程
 
 set -e
 
@@ -17,7 +17,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # 配置
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_NAME="quantmesh"
 BINARY_NAME="quantmesh"
 

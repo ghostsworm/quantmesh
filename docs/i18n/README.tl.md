@@ -238,7 +238,7 @@ Para sa frontend development na may hot reload at source code debugging:
 **Option 1: Gamitin ang development script (Inirerekomenda)**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 Ang script na ito ay:
