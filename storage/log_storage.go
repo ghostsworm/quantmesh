@@ -392,8 +392,8 @@ func (ls *LogStorage) GetLogs(params LogQueryParams) ([]*LogRecord, int, error) 
 	if params.Limit <= 0 {
 		params.Limit = 100 // 預設 100条
 	}
-	if params.Limit > 1000 {
-		params.Limit = 1000 // 最大1000条
+	if params.Limit > 2000 {
+		params.Limit = 2000 // 最大 2000 条（Bot 详情等场景按级别筛选时需要更多）
 	}
 
 	querySQL := fmt.Sprintf(`

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Button,
@@ -123,6 +123,12 @@ const getMixedStrategies = (t: any): StrategyOption[] => [
   { value: 'grid+martingale', label: t('strategyNames.grid+martingale', '网格+马丁格尔') },
 ]
 
+/** Bot 详情「实时日志」默认条数；与后端 /api/logs 上限 2000 对齐 */
+const BOT_DETAIL_LOG_LIMIT_DEFAULT = 500
+const BOT_DETAIL_LOG_LIMIT_OPTIONS = [200, 500, 1000, 2000] as const
+
+type BotLogLevelFilter = '' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL'
+
 const BotDetail: React.FC = () => {
   const { botId } = useParams<{ botId: string }>()
   const navigate = useNavigate()
@@ -138,6 +144,9 @@ const BotDetail: React.FC = () => {
   const [positionStatus, setPositionStatus] = useState<PositionStatus | null>(null)
   const [logs, setLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+  const [logsTotal, setLogsTotal] = useState(0)
+  const [logLevelFilter, setLogLevelFilter] = useState<BotLogLevelFilter>('')
+  const [logLimit, setLogLimit] = useState(BOT_DETAIL_LOG_LIMIT_DEFAULT)
   const [tpSlOrders, setTpSlOrders] = useState<any[]>([])
   const [tpSlLoading, setTpSlLoading] = useState(false)
   const [exchangeOrders, setExchangeOrders] = useState<ExchangeOpenOrderInfo[]>([])
@@ -266,29 +275,28 @@ const BotDetail: React.FC = () => {
     return () => clearInterval(interval)
   }, [bot?.running, bot?.exchange, bot?.symbol, bot?.market_type])
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     if (!bot?.symbol) return
     setLogsLoading(true)
     try {
-      const res = await getLogs({ limit: 50, keyword: bot.symbol })
+      const res = await getLogs({
+        limit: logLimit,
+        keyword: bot.symbol,
+        ...(logLevelFilter ? { level: logLevelFilter } : {}),
+      })
       setLogs(res.logs || [])
+      setLogsTotal(typeof res.total === 'number' ? res.total : 0)
     } catch {
       setLogs([])
+      setLogsTotal(0)
     } finally {
       setLogsLoading(false)
     }
-  }
+  }, [bot?.symbol, logLevelFilter, logLimit])
 
-  // 進入頁面時自動加載最新 50 條日誌
   useEffect(() => {
-    if (bot?.symbol) {
-      setLogsLoading(true)
-      getLogs({ limit: 50, keyword: bot.symbol })
-        .then((res) => setLogs(res.logs || []))
-        .catch(() => setLogs([]))
-        .finally(() => setLogsLoading(false))
-    }
-  }, [bot?.symbol])
+    void fetchLogs()
+  }, [fetchLogs])
 
   const fetchTpSlOrders = async () => {
     if (!bot?.exchange || !bot?.symbol) return
@@ -1205,14 +1213,55 @@ const BotDetail: React.FC = () => {
           <TabPanel px={0}>
             <Card>
               <CardBody>
-                <Flex justify="space-between" align="center" mb={4}>
-                  <Text color="gray.600">{t('botDetail.logsHint')}</Text>
-                  <Button size="sm" variant="outline" onClick={fetchLogs} isLoading={logsLoading}>
-                    {t('common.refresh')}
-                  </Button>
+                <Flex
+                  justify="space-between"
+                  align={{ base: 'stretch', md: 'center' }}
+                  mb={4}
+                  gap={3}
+                  direction={{ base: 'column', md: 'row' }}
+                  flexWrap="wrap"
+                >
+                  <Text color="gray.600" flex="1" minW="0">
+                    {t('botDetail.logsHint', { max: logLimit })}
+                  </Text>
+                  <HStack spacing={2} flexWrap="wrap" justify={{ base: 'flex-start', md: 'flex-end' }}>
+                    <FormControl w={{ base: '100%', sm: '140px' }} minW="120px">
+                      <FormLabel fontSize="xs" mb={1}>{t('botDetail.logLevelFilter')}</FormLabel>
+                      <Select
+                        size="sm"
+                        value={logLevelFilter}
+                        onChange={(e) => setLogLevelFilter(e.target.value as BotLogLevelFilter)}
+                      >
+                        <option value="">{t('botDetail.logLevelAll')}</option>
+                        <option value="DEBUG">DEBUG</option>
+                        <option value="INFO">INFO</option>
+                        <option value="WARN">WARN</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="FATAL">FATAL</option>
+                      </Select>
+                    </FormControl>
+                    <FormControl w={{ base: '100%', sm: '120px' }} minW="100px">
+                      <FormLabel fontSize="xs" mb={1}>{t('botDetail.logFetchLimit')}</FormLabel>
+                      <Select
+                        size="sm"
+                        value={logLimit}
+                        onChange={(e) => setLogLimit(Number(e.target.value))}
+                      >
+                        {BOT_DETAIL_LOG_LIMIT_OPTIONS.map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <Button size="sm" variant="outline" onClick={() => void fetchLogs()} isLoading={logsLoading} alignSelf={{ base: 'stretch', md: 'flex-end' }}>
+                      {t('common.refresh')}
+                    </Button>
+                  </HStack>
                 </Flex>
+                <Text fontSize="xs" color="gray.500" mb={3}>
+                  {t('botDetail.logsCountHint', { shown: logs.length, total: logsTotal, max: logLimit })}
+                </Text>
                 {logs.length > 0 ? (
-                  <TableContainer maxH="300px" overflowY="auto">
+                  <TableContainer maxH="min(60vh, 640px)" overflowY="auto">
                     <Table size="sm" sx={{ tableLayout: 'fixed' }}>
                       <Thead>
                         <Tr>
