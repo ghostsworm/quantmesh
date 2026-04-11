@@ -1,6 +1,6 @@
 {
   "name": "quantmesh-webui",
-  "version": "3.94.1-rc3",
+  "version": "3.94.1-rc4",
   "type": "module",
   "packageManager": "yarn@4.12.0",
   "scripts": {

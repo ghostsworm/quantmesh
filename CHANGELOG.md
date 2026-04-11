@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.94.1-rc4] - 2026-04-12
+
+### Fixed
+- **Web 控制台**：`GlobalDashboard` 為 `findBotIdForSymbol` 增加顯式別名 `normalizeExchange`（等同 `normalizeExchangeName`），避免生產包中仍出現 `ReferenceError: normalizeExchange is not defined`。
+
+---
+
 ## [3.94.1-rc3] - 2026-04-12
 
 ### Fixed
