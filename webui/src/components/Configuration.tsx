@@ -64,7 +64,19 @@ import {
 } from '@chakra-ui/react'
 import DecimalNumberInput from './DecimalNumberInput'
 import { COMMON_TIMEZONES } from '../utils/dateFormat'
-import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
+import {
+  ViewIcon,
+  ViewOffIcon,
+  SettingsIcon,
+  BellIcon,
+  InfoIcon,
+  RepeatIcon,
+  StarIcon,
+  LockIcon,
+  WarningIcon,
+  EditIcon,
+  HamburgerIcon,
+} from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Trans, useTranslation } from 'react-i18next'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
@@ -109,8 +121,23 @@ import { hasTradingParamChanges } from '../utils/configSaveOptions'
 import { parseMonitorSymbolsInput } from '../utils/riskControlUi'
 import { applyPolymarketEnabledToConfig } from '../utils/polymarketConfigDefaults'
 import { mergeFeeRateInputsIntoConfig } from '../utils/configDirty'
+import { ResponsiveTabLabel, useCompactConfigTabs } from './ResponsiveTabLabel'
 
 const MotionBox = motion(Box)
+
+/** 與 globalTabs / symbolTabs 順序一致 */
+const GLOBAL_CONFIG_TAB_ICONS = [
+  SettingsIcon,
+  RepeatIcon,
+  StarIcon,
+  InfoIcon,
+  BellIcon,
+  HamburgerIcon,
+  LockIcon,
+  WarningIcon,
+  EditIcon,
+] as const
+const SYMBOL_CONFIG_TAB_ICONS = [RepeatIcon, WarningIcon, StarIcon] as const
 
 const WINDOW_SIZE_PRESETS = [10, 20, 30, 50, 100] as const
 
@@ -330,6 +357,7 @@ const Configuration: React.FC = () => {
   const { isOpen: isAIWizardOpen, onOpen: onAIWizardOpen, onClose: onAIWizardClose } = useDisclosure()
   const { isOpen: isDiffOpen, onOpen: onDiffOpen, onClose: onDiffClose } = useDisclosure()
   const toast = useToast()
+  const compactTabs = useCompactConfigTabs()
 
   const deepNormalizeNumerics = (obj: any): any => {
     if (obj === null || obj === undefined) return obj
@@ -1075,24 +1103,44 @@ const Configuration: React.FC = () => {
           variant="soft-rounded" 
           colorScheme="blue"
         >
-          <TabList 
-            bg="gray.100" 
-            p={1} 
-            borderRadius="full" 
+          <TabList
+            bg="gray.100"
+            p={1}
+            borderRadius="full"
             display="inline-flex"
+            flexWrap="nowrap"
+            overflowX={{ base: 'auto', md: 'visible' }}
+            maxW="100%"
+            sx={{
+              scrollbarWidth: 'thin',
+              '&::-webkit-scrollbar': { height: '6px' },
+              '&::-webkit-scrollbar-thumb': { borderRadius: 'full', bg: 'blackAlpha.300' },
+            }}
           >
-            {activeTabs.map((tab) => (
-              <Tab 
-                key={tab} 
-                fontSize="sm" 
-                fontWeight="600" 
-                px={6} 
-                borderRadius="full"
-                _selected={{ bg: 'white', boxShadow: 'sm', color: 'blue.600' }}
-              >
-                {tab}
-              </Tab>
-            ))}
+            {activeTabs.map((tab, i) => {
+              const IconComp = (isGlobalView ? GLOBAL_CONFIG_TAB_ICONS : SYMBOL_CONFIG_TAB_ICONS)[i]
+              return (
+                <Tab
+                  key={tab}
+                  fontSize="sm"
+                  fontWeight="600"
+                  px={compactTabs ? 3 : 6}
+                  py={2}
+                  borderRadius="full"
+                  whiteSpace="nowrap"
+                  aria-label={tab}
+                  title={compactTabs ? tab : undefined}
+                  _selected={{ bg: 'white', boxShadow: 'sm', color: 'blue.600' }}
+                >
+                  <ResponsiveTabLabel
+                    icon={<IconComp boxSize={4} />}
+                    label={tab}
+                    selected={tabIndex === i}
+                    compact={compactTabs}
+                  />
+                </Tab>
+              )
+            })}
           </TabList>
         </Tabs>
 
