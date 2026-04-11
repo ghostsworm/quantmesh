@@ -2529,7 +2529,7 @@ func SetLogStorageProvider(provider LogStorageProvider) {
 //   - end_time: 結束時间（可選，ISO 8601格式，默认當前時间）
 //   - level: 日志级别（可選，DEBUG/INFO/WARN/ERROR/FATAL）
 //   - keyword: 关键词搜索（可選）
-//   - limit: 每页數量（可選，預設 100，最大1000）
+//   - limit: 每页數量（可選，預設 100，最大 2000）
 //   - offset: 偏移量（可選，默认0）
 func getLogs(c *gin.Context) {
 	if logStorageProvider == nil {
@@ -2574,8 +2574,8 @@ func getLogs(c *gin.Context) {
 	limit := 100
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = l
-		if limit > 1000 {
-			limit = 1000
+		if limit > 2000 {
+			limit = 2000
 		}
 	}
 
