@@ -281,7 +281,7 @@ Hệ thống áp dụng thiết kế mô-đun với các thành phần cốt lõ
 - **Trình quản lý vị thế siêu**: Trình quản lý vị thế cốt lõi, quản lý vòng đời lệnh dựa trên cơ chế Slot.
 - **An toàn & Kiểm soát rủi ro**: Kiểm soát rủi ro đa lớp, bao gồm kiểm tra khởi động, giám sát thời gian chạy và ngắt mạch bất thường.
 
-Để tài liệu kiến trúc chi tiết hơn, vui lòng tham khảo [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Để tài liệu kiến trúc chi tiết hơn, vui lòng tham khảo [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 📊 Thống kê sử dụng & Bảo vệ quyền riêng tư
 
@@ -447,7 +447,7 @@ Chúng tôi hoan nghênh đóng góp! Đây là cách bạn có thể giúp:
 
 **Lưu ý:** Theo giấy phép AGPL-3.0, tất cả đóng góp cho dự án này sẽ được phát hành theo cùng giấy phép AGPL-3.0.
 
-Xem [CONTRIBUTING.md](../../CONTRIBUTING.md) để biết hướng dẫn chi tiết.
+Xem [CONTRIBUTING.md](../CONTRIBUTING.md) để biết hướng dẫn chi tiết.
 
 ## 🙏 Lời cảm ơn
 

@@ -127,7 +127,7 @@ QuantMesh 是高效能、低延遲的加密貨幣做市商系統，專注於永�
 | **事件與新聞** | 事件中心（價格波動/交易事件）、新聞收集與 AI 分析、預測驗證 |
 | **外掛與擴展** | 外掛載入、授權驗證、自訂策略與交易所適配 |
 
-詳細說明見 [ARCHITECTURE.md](../../ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](../../docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](../../docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](../../docs/API_REFERENCE.md)。
+詳細說明見 [ARCHITECTURE.md](../ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](../../docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](../../docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](../../docs/API_REFERENCE.md)。
 
 ## 模組架構
 
@@ -331,7 +331,7 @@ yarn dev
 - **Super Position Manager**：核心倉位管理，基於 Slot 機制管理訂單生命週期
 - **Safety & Risk Control**：多層風控，含啟動檢查、執行時監控與異常熔斷
 
-更多架構說明請參閱 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
+更多架構說明請參閱 [ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 ## 📊 使用統計與隱私保護
 
@@ -434,7 +434,7 @@ QuantMesh 支援以加密貨幣支付訂閱與授權：
 
 **注意**：依 AGPL-3.0，對本專案之貢獻皆以相同 AGPL-3.0 授權發布。
 
-詳見 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
+詳見 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 
 
 ## 📞 聯絡與支援

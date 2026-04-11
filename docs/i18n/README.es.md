@@ -196,7 +196,7 @@ El sistema adopta un diseño modular con componentes principales que incluyen:
 - **Administrador de Posición Super**: Administrador de posiciones principal, gestionando el ciclo de vida de órdenes basado en el mecanismo Slot.
 - **Seguridad y Control de Riesgo**: Control de riesgo multicapa, incluyendo verificaciones de inicio, monitoreo en tiempo de ejecución y corte de circuito de anomalías.
 
-Para documentación de arquitectura más detallada, consulte [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Para documentación de arquitectura más detallada, consulte [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## ⚠️ Descargo de Responsabilidad
 

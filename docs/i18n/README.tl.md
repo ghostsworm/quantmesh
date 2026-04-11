@@ -281,7 +281,7 @@ Ang system ay gumagamit ng modular design na may core components kasama ang:
 - **Super Position Manager**: Core position manager, namamahala sa order lifecycle batay sa Slot mechanism.
 - **Safety & Risk Control**: Multi-layer risk control, kasama ang startup checks, runtime monitoring, at anomaly circuit breaking.
 
-Para sa mas detalyadong architecture documentation, pakitingnan ang [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Para sa mas detalyadong architecture documentation, pakitingnan ang [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 📊 Usage Statistics & Privacy Protection
 
@@ -447,7 +447,7 @@ Tinatanggap namin ang contributions! Narito kung paano ka makakatulong:
 
 **Note:** Ayon sa AGPL-3.0 license, lahat ng contributions sa proyektong ito ay i-release sa ilalim ng parehong AGPL-3.0 license.
 
-Tingnan ang [CONTRIBUTING.md](../../CONTRIBUTING.md) para sa detailed guidelines.
+Tingnan ang [CONTRIBUTING.md](../CONTRIBUTING.md) para sa detailed guidelines.
 
 ## 🙏 Acknowledgments
 

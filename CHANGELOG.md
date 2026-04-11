@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.90.0-rc4] - 2026-04-11
+
+### Changed
+- **倉庫佈局**：`ARCHITECTURE.md`、`CONTRIBUTING.md`、`SECURITY_ALERT.md`、`K线文件统一管理功能说明.md`、`test_new_features.md` 移至 `docs/`，根目錄首屏更易聚焦 `README.md`；各語言 README 與內部鏈接已同步。
+
+---
+
 ## [3.90.0-rc3] - 2026-04-11
 
 ### Changed
@@ -354,7 +361,7 @@
 
 ### Docs
 - **`rdocs/`**（快速入門、FAQ、部署指南、測試網/槓桿率等）：與 **`app_config` + `--migrate-app-config` / 首參 YAML** 敘事對齊；倉庫克隆地址改為 **`ghostsworm/quantmesh`**。
-- **`plugin/*.md`、`scripts/*README.md`、根目錄 `ARCHITECTURE.md` / `SECURITY_ALERT.md`、`docs/HIGH_AVAILABILITY.md`**：去掉不存在的 **`--config` / `--check-config` / `--standby`** 示例；**`rdocs/CHANGELOG.md`** 頂部增加歷史條目免責說明。
+- **`plugin/*.md`、`scripts/*README.md`、`docs/ARCHITECTURE.md`、`docs/SECURITY_ALERT.md`、`docs/HIGH_AVAILABILITY.md`**：去掉不存在的 **`--config` / `--check-config` / `--standby`** 示例；**`rdocs/CHANGELOG.md`** 頂部增加歷史條目免責說明。
 
 ---
 

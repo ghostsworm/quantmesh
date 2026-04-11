@@ -281,7 +281,7 @@ System przyjmuje modułowy projekt z głównymi komponentami, w tym:
 - **Menedżer pozycji Super**: Główny menedżer pozycji, zarządzający cyklem życia zamówień opartym na mechanizmie Slot.
 - **Bezpieczeństwo i kontrola ryzyka**: Wielowarstwowa kontrola ryzyka, w tym kontrole uruchomienia, monitorowanie czasu wykonania i wyłącznik anomalii.
 
-Aby uzyskać bardziej szczegółową dokumentację architektury, zapoznaj się z [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Aby uzyskać bardziej szczegółową dokumentację architektury, zapoznaj się z [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 📊 Statystyki użycia i ochrona prywatności
 
@@ -447,7 +447,7 @@ Witamy wkład! Oto jak możesz pomóc:
 
 **Uwaga:** Zgodnie z licencją AGPL-3.0, wszystkie wkłady do tego projektu będą wydane pod tą samą licencją AGPL-3.0.
 
-Zobacz [CONTRIBUTING.md](../../CONTRIBUTING.md) dla szczegółowych wytycznych.
+Zobacz [CONTRIBUTING.md](../CONTRIBUTING.md) dla szczegółowych wytycznych.
 
 ## 🙏 Podziękowania
 

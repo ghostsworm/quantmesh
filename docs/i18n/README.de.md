@@ -281,7 +281,7 @@ Das System verwendet ein modulares Design mit Kernkomponenten, einschließlich:
 - **Super-Positions-Manager**: Kernpositionsmanager, der den Orderlebenszyklus basierend auf dem Slot-Mechanismus verwaltet.
 - **Sicherheit & Risikokontrolle**: Mehrschichtige Risikokontrolle, einschließlich Startprüfungen, Laufzeitüberwachung und Anomalieschutzschalter.
 
-Für detailliertere Architekturdokumentation siehe bitte [ARCHITECTURE.md](../../ARCHITECTURE.md).
+Für detailliertere Architekturdokumentation siehe bitte [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 📊 Nutzungsstatistiken & Datenschutz
 
@@ -447,7 +447,7 @@ Wir freuen uns über Beiträge! So können Sie helfen:
 
 **Hinweis:** Gemäß der AGPL-3.0-Lizenz werden alle Beiträge zu diesem Projekt unter derselben AGPL-3.0-Lizenz veröffentlicht.
 
-Siehe [CONTRIBUTING.md](../../CONTRIBUTING.md) für detaillierte Richtlinien.
+Siehe [CONTRIBUTING.md](../CONTRIBUTING.md) für detaillierte Richtlinien.
 
 ## 🙏 Danksagungen
 
