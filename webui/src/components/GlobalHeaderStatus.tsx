@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Flex, Text, Badge, Spinner, HStack, Tooltip, Button } from '@chakra-ui/react'
+import { Flex, Text, Badge, Spinner, HStack, Tooltip, Button, Wrap, WrapItem } from '@chakra-ui/react'
 import { useParams } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getFundingRateCurrent, getBots, getPnLByExchange, getEventStats, getBotById } from '../services/api'
@@ -126,44 +126,54 @@ const GlobalHeaderStatus: React.FC = () => {
     )
   }
 
-  // 3. 全局模式：未进入任一 bot
+  // 3. 全局模式：未进入任一 bot（窄屏用 Wrap + nowrap，避免标签与数值上下错位）
   return (
-    <HStack spacing={4}>
-      <Button as={Link} to="/bots" size="xs" variant="ghost" colorScheme="blue">
-        {t('sidebar.botList')}
-      </Button>
-      <HStack spacing={2} fontSize="xs" color="gray.600">
-        <Text fontWeight="medium">{t('headerStatus.runningBots')}:</Text>
-        <Badge colorScheme="green" fontSize="10px">
-          {runningCount}
-        </Badge>
-      </HStack>
-      {totalPnL !== null && (
-        <HStack spacing={1} fontSize="xs">
-          <Text color="gray.500">{t('headerStatus.totalPnL')}:</Text>
-          <Text fontWeight="bold" color={totalPnL >= 0 ? 'green.500' : 'red.500'}>
-            {totalPnL >= 0 ? '+' : ''}{totalPnL.toFixed(2)} USDT
-          </Text>
-        </HStack>
-      )}
-      <Button
-        as={Link}
-        to="/events"
-        size="xs"
-        variant="ghost"
-        colorScheme={criticalCount > 0 ? 'red' : 'gray'}
-      >
-        {t('sidebar.eventCenter')}
-        {criticalCount > 0 && (
-          <Badge ml={1} colorScheme="red" fontSize="9px">
-            {criticalCount}
+    <Wrap spacing={2} rowGap={2} justify={{ base: 'center', md: 'flex-start' }} align="center" maxW="100%">
+      <WrapItem flexShrink={0}>
+        <Button as={Link} to="/bots" size="xs" variant="ghost" colorScheme="blue">
+          {t('sidebar.botList')}
+        </Button>
+      </WrapItem>
+      <WrapItem flexShrink={0}>
+        <HStack spacing={2} fontSize="xs" color="gray.600" whiteSpace="nowrap">
+          <Text fontWeight="medium">{t('headerStatus.runningBots')}:</Text>
+          <Badge colorScheme="green" fontSize="10px">
+            {runningCount}
           </Badge>
-        )}
-      </Button>
-      <Badge colorScheme="purple" variant="subtle" fontSize="10px" borderRadius="full" px={3}>
-        {t('statusBar.globalView')}
-      </Badge>
-    </HStack>
+        </HStack>
+      </WrapItem>
+      {totalPnL !== null && (
+        <WrapItem flexShrink={0}>
+          <HStack spacing={1} fontSize="xs" whiteSpace="nowrap">
+            <Text color="gray.500">{t('headerStatus.totalPnL')}:</Text>
+            <Text fontWeight="bold" color={totalPnL >= 0 ? 'green.500' : 'red.500'}>
+              {totalPnL >= 0 ? '+' : ''}{totalPnL.toFixed(2)} USDT
+            </Text>
+          </HStack>
+        </WrapItem>
+      )}
+      <WrapItem flexShrink={0}>
+        <Button
+          as={Link}
+          to="/events"
+          size="xs"
+          variant="ghost"
+          colorScheme={criticalCount > 0 ? 'red' : 'gray'}
+        >
+          {t('sidebar.eventCenter')}
+          {criticalCount > 0 && (
+            <Badge ml={1} colorScheme="red" fontSize="9px">
+              {criticalCount}
+            </Badge>
+          )}
+        </Button>
+      </WrapItem>
+      <WrapItem flexShrink={0}>
+        <Badge colorScheme="purple" variant="subtle" fontSize="10px" borderRadius="full" px={3}>
+          {t('statusBar.globalView')}
+        </Badge>
+      </WrapItem>
+    </Wrap>
   )
 }
 

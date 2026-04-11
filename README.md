@@ -176,7 +176,7 @@ export QUANTMESH_DISABLE_TELEMETRY=1
 ---
 
 <div align="center">
-  QuantMesh Team · <sub>Version 3.90.0-rc4</sub>
+  QuantMesh Team · <sub>Version 3.90.0-rc5</sub>
 </div>
 
 Copyright © 2026 QuantMesh Team. All Rights Reserved.
