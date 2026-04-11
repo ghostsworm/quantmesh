@@ -630,6 +630,42 @@ export async function testNotification(
   )
 }
 
+/** POST /api/config/test-gemini — 驗證 Gemini API Key（輕量問答，不下單） */
+export async function testGeminiKey(geminiApiKey: string): Promise<{
+  success: boolean
+  message: string
+  reply_preview?: string
+  model?: string
+}> {
+  return fetchWithAuth(`${window.location.origin}/api/config/test-gemini`, {
+    method: 'POST',
+    body: JSON.stringify({ gemini_api_key: geminiApiKey }),
+  })
+}
+
+/** POST /api/config/test-exchange — 以臨時密鑰讀取合約/現貨帳戶（僅 GetAccount） */
+export async function testExchangeCredentials(payload: {
+  exchange: string
+  api_key: string
+  secret_key: string
+  passphrase?: string
+  testnet: boolean
+  market_type?: string
+}): Promise<{
+  success: boolean
+  message: string
+  exchange?: string
+  market_type?: string
+  total_wallet_balance?: number
+  available_balance?: number
+  total_margin_balance?: number
+}> {
+  return fetchWithAuth(`${window.location.origin}/api/config/test-exchange`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 // 更新配置（YAML 格式）
 export async function updateConfigYAML(yamlContent: string): Promise<{
   message: string

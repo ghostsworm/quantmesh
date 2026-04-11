@@ -35,6 +35,9 @@ export type SupportedExchange = (typeof SUPPORTED_EXCHANGES)[number]
 /** 需要 passphrase 的交易所 */
 export const EXCHANGES_REQUIRING_PASSPHRASE = ['bitget', 'okx', 'kucoin'] as const
 
+/** 僅現貨、測試連線時強制走 spot 適配器 */
+export const SPOT_ONLY_EXCHANGES = ['bitkub', 'coinsph'] as const
+
 /** 支持现货交易的交易所 */
 export const SPOT_SUPPORTED_EXCHANGES = [
   'binance',

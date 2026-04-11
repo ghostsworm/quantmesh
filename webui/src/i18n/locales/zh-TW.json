@@ -1046,7 +1046,18 @@
     "testConnectionError": "测试连接出错",
     "testConnectionFailed": "测试通知发送失败",
     "testConnectionSending": "发送中...",
-    "testConnectionSuccess": "测试通知发送成功"
+    "testConnectionSuccess": "测试通知发送成功",
+    "testGeminiKey": "測試 Gemini 金鑰",
+    "testExchangeCredentials": "測試交易所連線",
+    "testingCredentials": "測試中…",
+    "exchangeCredentialTestHint": "使用目前表單內容測試（無需先儲存）；僅唯讀查詢帳戶，不會下單。",
+    "geminiKeyRequiredForTest": "請先填寫 Gemini API Key",
+    "exchangeKeysRequiredForTest": "請先填寫該交易所的 API Key 與 Secret",
+    "passphraseRequiredForTest": "此交易所需填寫 Passphrase 後才能測試",
+    "credentialTestTotalWallet": "總權益",
+    "credentialTestAvailable": "可用餘額",
+    "credentialVerifySuccess": "驗證成功",
+    "credentialVerifyFailed": "驗證失敗"
   },
   "configSetup": {
     "title": "配置引導",

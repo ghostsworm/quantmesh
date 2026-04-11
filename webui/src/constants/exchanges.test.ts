@@ -3,6 +3,7 @@ import {
   SUPPORTED_EXCHANGES,
   EXCHANGES_REQUIRING_PASSPHRASE,
   SPOT_SUPPORTED_EXCHANGES,
+  SPOT_ONLY_EXCHANGES,
 } from './exchanges'
 
 describe('exchanges constants', () => {
@@ -29,5 +30,10 @@ describe('exchanges constants', () => {
     for (const ex of SPOT_SUPPORTED_EXCHANGES) {
       expect(SUPPORTED_EXCHANGES).toContain(ex)
     }
+  })
+
+  it('SPOT_ONLY_EXCHANGES lists spot-only venues', () => {
+    expect(SPOT_ONLY_EXCHANGES).toContain('bitkub')
+    expect(SPOT_ONLY_EXCHANGES).toContain('coinsph')
   })
 })

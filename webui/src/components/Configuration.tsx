@@ -79,6 +79,8 @@ import {
   getSecurityStatus,
   generateMasterKey,
   testNotification,
+  testGeminiKey,
+  testExchangeCredentials,
   Config,
   ConfigDiff,
   type GridRiskControl,
@@ -102,7 +104,7 @@ import ConfigSaveOptionsModal from './ConfigSaveOptionsModal'
 import type { SymbolTarget } from './ConfigSaveOptionsModal'
 import ParamAdvisor from './ParamAdvisor'
 import { trackConfigSaved } from '../services/telemetry'
-import { SUPPORTED_EXCHANGES, EXCHANGES_REQUIRING_PASSPHRASE } from '../constants/exchanges'
+import { SUPPORTED_EXCHANGES, EXCHANGES_REQUIRING_PASSPHRASE, SPOT_ONLY_EXCHANGES } from '../constants/exchanges'
 import { hasTradingParamChanges } from '../utils/configSaveOptions'
 import { parseMonitorSymbolsInput } from '../utils/riskControlUi'
 import { applyPolymarketEnabledToConfig } from '../utils/polymarketConfigDefaults'
@@ -315,6 +317,8 @@ const Configuration: React.FC = () => {
   
   // Notification test state
   const [testingChannel, setTestingChannel] = useState<string | null>(null)
+  const [testingGemini, setTestingGemini] = useState(false)
+  const [testingExchangeKey, setTestingExchangeKey] = useState<string | null>(null)
 
   // Price range state
   const [priceRange, setPriceRange] = useState<PriceRangeData | null>(null)
@@ -405,6 +409,125 @@ const Configuration: React.FC = () => {
       })
     } finally {
       setTestingChannel(null)
+    }
+  }
+
+  const handleTestGemini = async () => {
+    if (!config || testingGemini) return
+    const key = String(getNestedValue(config, 'ai.gemini_api_key') || '').trim()
+    if (!key) {
+      toast({
+        title: t('configuration.credentialVerifyFailed'),
+        description: t('configuration.geminiKeyRequiredForTest'),
+        status: 'warning',
+        duration: 4000,
+        isClosable: true,
+      })
+      return
+    }
+    setTestingGemini(true)
+    try {
+      const res = await testGeminiKey(key)
+      if (res.success) {
+        toast({
+          title: t('configuration.credentialVerifySuccess'),
+          description: [res.message, res.reply_preview].filter(Boolean).join('\n'),
+          status: 'success',
+          duration: 6000,
+          isClosable: true,
+        })
+      } else {
+        toast({
+          title: t('configuration.credentialVerifyFailed'),
+          description: res.message,
+          status: 'error',
+          duration: 8000,
+          isClosable: true,
+        })
+      }
+    } catch (err: unknown) {
+      toast({
+        title: t('configuration.testConnectionError'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 6000,
+        isClosable: true,
+      })
+    } finally {
+      setTestingGemini(false)
+    }
+  }
+
+  const handleTestExchange = async (ex: string) => {
+    if (!config || testingExchangeKey) return
+    const apiKey = String(getNestedValue(config, `exchanges.${ex}.api_key`) || '').trim()
+    const secretKey = String(getNestedValue(config, `exchanges.${ex}.secret_key`) || '').trim()
+    const passphrase = String(getNestedValue(config, `exchanges.${ex}.passphrase`) || '').trim()
+    if (!apiKey || !secretKey) {
+      toast({
+        title: t('configuration.credentialVerifyFailed'),
+        description: t('configuration.exchangeKeysRequiredForTest'),
+        status: 'warning',
+        duration: 4000,
+        isClosable: true,
+      })
+      return
+    }
+    if (EXCHANGES_REQUIRING_PASSPHRASE.includes(ex as 'bitget' | 'okx' | 'kucoin') && !passphrase) {
+      toast({
+        title: t('configuration.credentialVerifyFailed'),
+        description: t('configuration.passphraseRequiredForTest'),
+        status: 'warning',
+        duration: 5000,
+        isClosable: true,
+      })
+      return
+    }
+    setTestingExchangeKey(ex)
+    try {
+      const marketType = SPOT_ONLY_EXCHANGES.includes(ex as (typeof SPOT_ONLY_EXCHANGES)[number]) ? 'spot' : 'futures'
+      const res = await testExchangeCredentials({
+        exchange: ex,
+        api_key: apiKey,
+        secret_key: secretKey,
+        passphrase: passphrase || undefined,
+        testnet: !!(getNestedValue(config, `exchanges.${ex}.testnet`)),
+        market_type: marketType,
+      })
+      if (res.success) {
+        const lines = [res.message]
+        if (res.total_wallet_balance != null) {
+          lines.push(`${t('configuration.credentialTestTotalWallet')}: ${res.total_wallet_balance}`)
+        }
+        if (res.available_balance != null) {
+          lines.push(`${t('configuration.credentialTestAvailable')}: ${res.available_balance}`)
+        }
+        toast({
+          title: t('configuration.credentialVerifySuccess'),
+          description: lines.join('\n'),
+          status: 'success',
+          duration: 8000,
+          isClosable: true,
+        })
+      } else {
+        toast({
+          title: t('configuration.credentialVerifyFailed'),
+          description: res.message,
+          status: 'error',
+          duration: 10000,
+          isClosable: true,
+        })
+      }
+    } catch (err: unknown) {
+      toast({
+        title: t('configuration.testConnectionError'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error',
+        duration: 8000,
+        isClosable: true,
+      })
+    } finally {
+      setTestingExchangeKey(null)
     }
   }
 
@@ -1184,6 +1307,27 @@ const Configuration: React.FC = () => {
                             />
                           </HStack>
                         </Flex>
+                        <Text fontSize="xs" color="gray.500" mt={3}>
+                          {t('configuration.exchangeCredentialTestHint')}
+                        </Text>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          mt={1}
+                          alignSelf="flex-start"
+                          isLoading={testingExchangeKey === exchange}
+                          loadingText={t('configuration.testingCredentials')}
+                          onClick={() => handleTestExchange(exchange)}
+                          isDisabled={
+                            !String(getNestedValue(config, `exchanges.${exchange}.api_key`) || '').trim() ||
+                            !String(getNestedValue(config, `exchanges.${exchange}.secret_key`) || '').trim() ||
+                            (EXCHANGES_REQUIRING_PASSPHRASE.includes(exchange as (typeof EXCHANGES_REQUIRING_PASSPHRASE)[number]) &&
+                              !String(getNestedValue(config, `exchanges.${exchange}.passphrase`) || '').trim())
+                          }
+                        >
+                          {t('configuration.testExchangeCredentials')}
+                        </Button>
                       </ConfigCard>
                     ))}
                   </VStack>
@@ -1204,7 +1348,18 @@ const Configuration: React.FC = () => {
                             {t('configuration.geminiApiKeyDesc')}
                           </Text>
                         </FormControl>
-                        
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          alignSelf="flex-start"
+                          isLoading={testingGemini}
+                          loadingText={t('configuration.testingCredentials')}
+                          onClick={handleTestGemini}
+                          isDisabled={!String(getNestedValue(config, 'ai.gemini_api_key') || '').trim()}
+                        >
+                          {t('configuration.testGeminiKey')}
+                        </Button>
                         <Button
                           leftIcon={<StarIcon />}
                           colorScheme="purple"
