@@ -67,7 +67,7 @@ import { COMMON_TIMEZONES } from '../utils/dateFormat'
 import { ViewIcon, ViewOffIcon, SettingsIcon, BellIcon, InfoIcon, RepeatIcon, StarIcon, LockIcon } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Trans, useTranslation } from 'react-i18next'
-import { Link as RouterLink, useNavigate, useBlocker } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import {
   getConfig,
@@ -681,14 +681,9 @@ const Configuration: React.FC = () => {
   const hasUnsavedYamlChanges = yamlContent !== originalYamlContent
   const hasUnsavedChanges = hasUnsavedFormChanges || hasUnsavedYamlChanges
 
-  const blocker = useBlocker(hasUnsavedChanges)
-
-  useEffect(() => {
-    if (blocker.state !== 'blocked') return
-    const ok = window.confirm(t('configuration.leaveUnsavedConfirm'))
-    if (ok) blocker.proceed()
-    else blocker.reset()
-  }, [blocker, t])
+  // 注意：useBlocker 仅能在 createBrowserRouter / RouterProvider（data router）下使用；
+  // 本项目使用 BrowserRouter，调用 useBlocker 会在运行时抛错导致白屏。站内路由离开时的拦截
+  // 暂不实现；关闭/刷新标签页仍由下方 beforeunload 处理。
 
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {

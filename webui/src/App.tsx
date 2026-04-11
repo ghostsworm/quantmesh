@@ -12,6 +12,8 @@ import {
   Badge, 
   Text, 
   HStack,
+  Grid,
+  GridItem,
   IconButton,
   Drawer,
   DrawerOverlay,
@@ -387,62 +389,82 @@ const AppContent: React.FC = () => {
         borderColor={borderColor}
       >
         <Container maxW="full" px={{ base: 4, md: 6 }}>
-          <Flex h="14" alignItems="center" justifyContent="space-between">
-            <HStack spacing={{ base: 2, md: 4 }}>
-              <IconButton
-                display={{ base: 'flex', md: 'none' }}
-                aria-label="Open menu"
-                icon={<HamburgerIcon />}
-                variant="ghost"
-                onClick={onOpen}
-              />
-              {isInBotMode && (
-                <Button
-                  leftIcon={<ChevronLeftIcon />}
+          <Grid
+            templateAreas={{
+              base: `"brand actions"\n"status status"`,
+              md: `"brand status actions"`,
+            }}
+            templateColumns={{
+              base: 'minmax(0,1fr) auto',
+              md: 'auto minmax(0,1fr) auto',
+            }}
+            alignItems="center"
+            columnGap={{ base: 2, md: 4 }}
+            rowGap={{ base: 2, md: 0 }}
+            py={{ base: 2, md: 0 }}
+            minH={{ md: '14' }}
+          >
+            <GridItem area="brand" minW={0}>
+              <HStack spacing={{ base: 2, md: 4 }}>
+                <IconButton
+                  display={{ base: 'flex', md: 'none' }}
+                  aria-label="Open menu"
+                  icon={<HamburgerIcon />}
                   variant="ghost"
-                  size="sm"
+                  onClick={onOpen}
+                />
+                {isInBotMode && (
+                  <Button
+                    leftIcon={<ChevronLeftIcon />}
+                    variant="ghost"
+                    size="sm"
+                    colorScheme="blue"
+                    onClick={() => navigate('/bots')}
+                    fontWeight="600"
+                  >
+                    {t('sidebar.backToBotList')}
+                  </Button>
+                )}
+                <Heading size="sm" fontWeight="800" color="blue.600" letterSpacing="tighter">
+                  QuantMesh
+                </Heading>
+                <Badge
+                  display={{ base: 'none', sm: 'inline-block' }}
                   colorScheme="blue"
-                  onClick={() => navigate('/bots')}
-                  fontWeight="600"
+                  variant="subtle"
+                  fontSize="10px"
+                  borderRadius="full"
+                  px={2}
                 >
-                  {t('sidebar.backToBotList')}
-                </Button>
-              )}
-              <Heading size="sm" fontWeight="800" color="blue.600" letterSpacing="tighter">
-                QuantMesh
-              </Heading>
-              <Badge 
-                display={{ base: 'none', sm: 'inline-block' }}
-                colorScheme="blue" 
-                variant="subtle" 
-                fontSize="10px" 
-                borderRadius="full" 
-                px={2}
-              >
-                MM
-              </Badge>
-            </HStack>
-            
-            <Box flex="1" display="flex" justifyContent="center" alignItems="center" gap={3}>
-              <GlobalHeaderStatus />
-            </Box>
+                  MM
+                </Badge>
+              </HStack>
+            </GridItem>
+
+            <GridItem area="status" minW={0} justifySelf={{ base: 'center', md: 'stretch' }} w="100%">
+              <Flex justify="center" align="center" w="100%" minW={0}>
+                <GlobalHeaderStatus />
+              </Flex>
+            </GridItem>
 
             {isAuthenticated && (
-              <HStack spacing={{ base: 2, md: 4 }}>
-                <LanguageSelector />
-                <Button
-                  variant="ghost"
-                  colorScheme="gray"
-                  size="xs"
-                  onClick={handleLogout}
-                  fontWeight="600"
-                  borderRadius="full"
-                >
-                  {t('common.logout')}
-                </Button>
-              </HStack>
+              <GridItem area="actions" justifySelf="end">
+                <HStack spacing={{ base: 2, md: 4 }}>
+                  <LanguageSelector />
+                  <Button
+                    variant="ghost"
+                    colorScheme="gray"
+                    size="xs"
+                    onClick={handleLogout}
+                    fontWeight="600"
+                    borderRadius="full"
+                  >
+                    {t('common.logout')}
+                  </Button>
+                </HStack>
+              </GridItem>
             )}
-          </Flex>
+          </Grid>
         </Container>
       </Box>
 

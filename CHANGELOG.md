@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.90.0-rc5] - 2026-04-11
+
+### Fixed
+- **Web 控制台**：`/config` 配置页在 `BrowserRouter` 下误用 `useBlocker`（仅支持 data router）导致运行时抛错白屏；已移除并对未保存提示保留 `beforeunload`。
+- **Web 控制台**：窄屏顶栏中间状态区与品牌/操作区挤压换行错位；顶栏改为响应式 Grid，全局状态条使用 `Wrap` + `whiteSpace="nowrap"`。
+
+### Tests
+- `webui`：`reactRouterDataApi` 约定说明单测。
+
+---
+
 ## [3.90.0-rc4] - 2026-04-11
 
 ### Changed
