@@ -25,7 +25,7 @@
 - `/Users/user/Sites/quantmesh-premium/` - 私有仓库
 - `plugin/loader.go` - 插件加载器
 - `plugin/interfaces.go` - 插件接口定义
-- `config.example.yaml` - 插件配置示例
+- `docs/config/examples/config.example.yaml` - 插件配置示例
 
 **开源部分** (保留在主仓库):
 - 核心框架 (main.go, config/, logger/, metrics/)
@@ -139,7 +139,7 @@ opensqt_market_maker/                    # 开源主仓库
 ├── test_saas_system.sh                  # ✅ SaaS 系统测试脚本
 ├── docker-compose.yml                   # ✅ Docker Compose 配置
 ├── .dockerignore                        # ✅ Docker 忽略文件
-└── config.example.yaml                  # ✅ 配置示例 (已更新)
+└── docs/config/examples/config.example.yaml                  # ✅ 配置示例 (已更新)
 
 quantmesh-premium/                       # 私有仓库 (闭源)
 ├── plugins/
@@ -200,7 +200,7 @@ git clone https://github.com/ghostsworm/quantmesh.git
 cd quantmesh
 
 # 配置模板（导入后权威在 app_config）
-cp config.example.yaml my-import.yaml
+cp docs/config/examples/config.example.yaml my-import.yaml
 vim my-import.yaml
 ./quantmesh --migrate-app-config my-import.yaml
 

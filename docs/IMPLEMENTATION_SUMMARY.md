@@ -110,7 +110,7 @@ tx.Commit()
 
 #### 配置文件
 
-**文件**: `config-ha-example.yaml`
+**文件**: `docs/config/examples/config-ha-example.yaml`
 - 实例配置（ID、索引、总数）
 - 数据库配置（类型、DSN、连接池）
 - 分布式锁配置（类型、Redis 地址）
@@ -514,7 +514,7 @@ if err := lock.TryLock(ctx, key, ttl); err != nil {
 
 ### 配置文件
 
-- ✅ `config-ha-example.yaml` - 高可用配置示例
+- ✅ `docs/config/examples/config-ha-example.yaml` - 高可用配置示例
 - ✅ `docker-compose.ha.yml` - Docker Compose 部署文件
 
 ### 文档

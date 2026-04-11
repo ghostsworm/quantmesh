@@ -110,7 +110,7 @@ quantmesh_platform/
 
 ## 🚀 快速开始
 
-**配置说明：** 交易主配置的**权威来源**是主库表 **`app_config`**（JSON）。`config.example.yaml` 仅为**导入模板**，运行时**不依赖**固定磁盘文件名 `config.yaml`。将 YAML 写入主库：`./quantmesh --migrate-app-config`（可配合 `QUANTMESH_IMPORT_YAML` 或工作目录下的 `config.yaml`），或将 YAML 路径作为 **`./quantmesh` 的第一个参数**；配置完整时可能**自动迁移**入庫。请配置 **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`**（或 `.env`）以连接主库。详见 [`docs/config-database-design.md`](../config-database-design.md)。
+**配置说明：** 交易主配置的**权威来源**是主库表 **`app_config`**（JSON）。`docs/config/examples/config.example.yaml` 仅为**导入模板**，运行时**不依赖**固定磁盘文件名 `config.yaml`。将 YAML 写入主库：`./quantmesh --migrate-app-config`（可配合 `QUANTMESH_IMPORT_YAML` 或工作目录下的 `config.yaml`），或将 YAML 路径作为 **`./quantmesh` 的第一个参数**；配置完整时可能**自动迁移**入庫。请配置 **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`**（或 `.env`）以连接主库。详见 [`docs/config-database-design.md`](../config-database-design.md)。
 
 ### 环境要求
 - Go 1.21 或更高版本
@@ -133,7 +133,7 @@ quantmesh_platform/
 
 1. 复制示例模板（文件名可自定，例如 `my-import.yaml`）：
    ```bash
-   cp config.example.yaml my-import.yaml
+   cp docs/config/examples/config.example.yaml my-import.yaml
    ```
 
 2. 编辑 `my-import.yaml`，填入你的 API Key 和策略参数：

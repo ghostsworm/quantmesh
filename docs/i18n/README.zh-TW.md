@@ -198,7 +198,7 @@ quantmesh_platform/
 
 ## 🚀 快速開始
 
-**配置說明：** 交易主配置的**權威來源**是主庫表 **`app_config`**（JSON）。`config.example.yaml` 僅為**匯入範本**，執行時**不依賴**固定磁碟檔名 `config.yaml`。將 YAML 寫入主庫：`./quantmesh --migrate-app-config`（可配合 `QUANTMESH_IMPORT_YAML` 或工作目錄下的 `config.yaml`），或將 YAML 路徑作為 **`./quantmesh` 的第一個參數**；配置完整時可能**自動遷移**入庫。請設定 **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`**（或 `.env`）以連線主庫。詳見 [`docs/config-database-design.md`](../config-database-design.md)。
+**配置說明：** 交易主配置的**權威來源**是主庫表 **`app_config`**（JSON）。`docs/config/examples/config.example.yaml` 僅為**匯入範本**，執行時**不依賴**固定磁碟檔名 `config.yaml`。將 YAML 寫入主庫：`./quantmesh --migrate-app-config`（可配合 `QUANTMESH_IMPORT_YAML` 或工作目錄下的 `config.yaml`），或將 YAML 路徑作為 **`./quantmesh` 的第一個參數**；配置完整時可能**自動遷移**入庫。請設定 **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`**（或 `.env`）以連線主庫。詳見 [`docs/config-database-design.md`](../config-database-design.md)。
 
 ### 方式一：Docker 一鍵運行（推薦，最簡單）
 
@@ -206,7 +206,7 @@ quantmesh_platform/
    ```bash
    git clone https://github.com/ghostsworm/quantmesh.git
    cd quantmesh
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. **編輯**該 YAML（API Key、策略）。請掛載 **`./data`** 以持久化 `app_config`。預設映像 **ENTRYPOINT** 為無參數的 `/app/quantmesh`——若依賴掛載的 YAML，請顯式傳入首參，例如在服務中加：`command: ["/app/quantmesh", "/app/config.yaml"]`，或單次執行遷移（視環境設定 `QUANTMESH_IMPORT_YAML` 等）。
@@ -248,7 +248,7 @@ quantmesh_platform/
 
 1. 複製範例範本：
    ```bash
-   cp config.example.yaml my-import.yaml
+   cp docs/config/examples/config.example.yaml my-import.yaml
    ```
 
 2. 編輯 `my-import.yaml`，填入 API Key 與策略參數：

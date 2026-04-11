@@ -2,7 +2,7 @@ package config
 
 import "strings"
 
-// Gamma / Polymarket 相關缺省（與 config.example.yaml、web ApplyDataSourcePolymarketConfig 對齊）。
+// Gamma / Polymarket 相關缺省（與 docs/config/examples/config.example.yaml、web ApplyDataSourcePolymarketConfig 對齊）。
 const (
 	// DefaultGammaAPIURL Polymarket Gamma REST 根地址（無需 token）。
 	DefaultGammaAPIURL = "https://gamma-api.polymarket.com"

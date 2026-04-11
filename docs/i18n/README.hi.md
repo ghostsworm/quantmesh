@@ -189,7 +189,7 @@ quantmesh_platform/
 
 1. उदाहरण कॉन्फ़िगरेशन फ़ाइल कॉपी करें:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. `config.yaml` संपादित करें और अपना API Key और रणनीति पैरामीटर भरें:

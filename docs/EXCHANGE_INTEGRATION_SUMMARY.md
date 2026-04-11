@@ -78,7 +78,7 @@
 
 ### 3. 配置文件更新
 
-**文件**: `config.example.yaml`
+**文件**: `docs/config/examples/config.example.yaml`
 
 ✅ 添加了所有新交易所的配置模板：
 - OKX（含 passphrase 和 testnet 配置）

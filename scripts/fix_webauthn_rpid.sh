@@ -23,7 +23,7 @@ echo
 # 检查配置文件是否存在
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "❌ 配置文件 $CONFIG_FILE 不存在"
-    echo "請先複製 config.example.yaml 到 config.yaml"
+    echo "請先複製 docs/config/examples/config.example.yaml 到 config.yaml"
     exit 1
 fi
 

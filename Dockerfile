@@ -71,7 +71,7 @@ WORKDIR /app
 COPY --from=builder /build/quantmesh .
 
 # 复制配置文件示例
-COPY config.example.yaml ./config.example.yaml
+COPY docs/config/examples/config.example.yaml ./config.example.yaml
 
 # 创建数据目录
 RUN mkdir -p /app/data /app/logs /app/backups && \

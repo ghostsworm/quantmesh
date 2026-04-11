@@ -52,7 +52,7 @@
 ```bash
 git clone https://github.com/ghostsworm/quantmesh.git
 cd quantmesh
-cp config.example.yaml my-config.yaml
+cp docs/config/examples/config.example.yaml my-config.yaml
 # 编辑 my-config.yaml，填 API 与策略
 # 首次把配置写入主库：
 # ./quantmesh --migrate-app-config my-config.yaml
@@ -70,14 +70,15 @@ docker-compose up -d
 git clone https://github.com/ghostsworm/quantmesh.git
 cd quantmesh
 go mod download
-cp config.example.yaml my-config.yaml
+cp docs/config/examples/config.example.yaml my-config.yaml
 # 编辑后：./quantmesh --migrate-app-config my-config.yaml
 go run main.go
 # 或 go build -o quantmesh && ./quantmesh
 ```
 
 默认后端在 **28888** 嵌入前端静态资源。本地开发可执行 `./scripts/local/dev.sh`，或分别运行 `go run main.go` 与 `cd webui && yarn dev`（Vite 默认 **15173**）。  
-常用启停脚本已放在 [`scripts/local/`](scripts/local/)，避免仓库根目录杂乱、便于在 GitHub 首页先看到本说明。
+常用启停脚本已放在 [`scripts/local/`](scripts/local/)，避免仓库根目录杂乱、便于在 GitHub 首页先看到本说明。  
+示例与场景 YAML 集中在 [`docs/config/examples/`](docs/config/examples/)，运行时以数据库为准，无需在根目录堆配置文件。
 
 配置片段示例：
 
@@ -174,7 +175,7 @@ export QUANTMESH_DISABLE_TELEMETRY=1
 ---
 
 <div align="center">
-  QuantMesh Team · <sub>Version 3.90.0-rc2</sub>
+  QuantMesh Team · <sub>Version 3.90.0-rc3</sub>
 </div>
 
 Copyright © 2026 QuantMesh Team. All Rights Reserved.

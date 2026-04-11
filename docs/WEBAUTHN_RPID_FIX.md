@@ -145,7 +145,7 @@ A: 每個域名需要单独的 RPID 配置。如果有多個域名，建议使�
 ## 相關文档
 
 - [WebAuthn 实现文档](./webauthn-implementation.md)
-- [配置文件说明](../config.example.yaml)
+- [配置文件说明](../config/examples/config.example.yaml)
 - [部署指南](../scripts/DEPLOY_README.md)
 
 <!-- quantmesh usage beacon -->

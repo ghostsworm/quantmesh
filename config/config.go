@@ -1944,7 +1944,7 @@ func SanitizeForExport(cfg *Config) *Config {
 	return &out
 }
 
-// SaveConfigWithoutValidation 寫入磁盤 YAML（不驗证），例如生成 config.minimal.yaml 供人工遷移；非 Web 主路徑。
+// SaveConfigWithoutValidation 寫入磁盤 YAML（不驗证），例如生成 docs/config/examples/config.minimal.yaml 供人工遷移；非 Web 主路徑。
 func SaveConfigWithoutValidation(cfg *Config, configPath string) error {
 	// 序列化為YAML
 	data, err := yaml.Marshal(cfg)

@@ -191,7 +191,7 @@ quantmesh_platform/
 
 1. فایل پیکربندی نمونه را کپی کنید:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. `config.yaml` را ویرایش کنید و کلید API و پارامترهای استراتژی خود را پر کنید:

@@ -189,7 +189,7 @@ quantmesh_platform/
 
 1. Sao chép tệp cấu hình ví dụ:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. Chỉnh sửa `config.yaml` và điền API Key và tham số chiến lược của bạn:

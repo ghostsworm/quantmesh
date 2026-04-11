@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.90.0-rc3] - 2026-04-11
+
+### Changed
+- **倉庫佈局**：根目錄示例與場景 **YAML** 統一移至 `docs/config/examples/`；`Dockerfile`、發佈打包、`install.sh`、`.gitignore` 與文檔中路徑已同步。
+- **工具**：`analyze_market_data.go` 移至 `tools/`，默認讀當前目錄 `config.yaml`（可設 `QUANTMESH_CONFIG_YAML`）；`cfgmgr` 生成簡化 YAML 的路徑改為 `docs/config/examples/config.minimal.yaml`。
+
+---
+
 ## [3.90.0-rc2] - 2026-04-11
 
 ### Changed
@@ -100,7 +108,7 @@
 ## [3.88.0-rc1] - 2026-04-08
 
 ### Added
-- **配置界面 Polymarket 一鍵預填**：全域「市場風控」與單 Bot「AI 策略」中新增開關；開啟時合併 `config.example.yaml` 對應的 `ai.modules.polymarket_signal` 預設（Gamma URL、間隔、關鍵詞、信號閾值等），並補齊 `macro_event.gamma_api_url` / `fetch_interval`（不自動開啟 `macro_event.enabled`）。
+- **配置界面 Polymarket 一鍵預填**：全域「市場風控」與單 Bot「AI 策略」中新增開關；開啟時合併 `docs/config/examples/config.example.yaml` 對應的 `ai.modules.polymarket_signal` 預設（Gamma URL、間隔、關鍵詞、信號閾值等），並補齊 `macro_event.gamma_api_url` / `fetch_interval`（不自動開啟 `macro_event.enabled`）。
 
 ### Tests
 - `webui`：`polymarketConfigDefaults` 合併邏輯單測。
@@ -1566,7 +1574,7 @@
 - **MySQL 8 支持**：新增 MySQL 8 数据库兼容性
   - 添加 MySQL 8 配置指南和验证报告
   - 更新 database/gorm.go 以支持 MySQL 8
-  - 新增 config-mysql8-example.yaml 配置示例
+  - 新增 docs/config/examples/config-mysql8-example.yaml 配置示例
 
 ### Fixed
 - **登录认证流程**：修复登录页面 401 错误导致的刷新循环

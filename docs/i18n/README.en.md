@@ -70,7 +70,7 @@ More detail: [ARCHITECTURE.md](../../ARCHITECTURE.md), [GRID_STRATEGY_ADVANCED_F
 ```bash
 git clone https://github.com/ghostsworm/quantmesh.git
 cd quantmesh
-cp config.example.yaml my-config.yaml
+cp docs/config/examples/config.example.yaml my-config.yaml
 # edit my-config.yaml — API keys and strategy
 # first import into the primary DB:
 # ./quantmesh --migrate-app-config my-config.yaml
@@ -90,7 +90,7 @@ Go 1.21+ and reachable exchange APIs.
 git clone https://github.com/ghostsworm/quantmesh.git
 cd quantmesh
 go mod download
-cp config.example.yaml my-config.yaml
+cp docs/config/examples/config.example.yaml my-config.yaml
 # after editing: ./quantmesh --migrate-app-config my-config.yaml
 go run main.go
 # or: go build -o quantmesh && ./quantmesh

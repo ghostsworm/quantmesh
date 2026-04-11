@@ -28,9 +28,9 @@ EOF
 
 ```bash
 # 复制配置模板
-cp config-ha-example.yaml config-instance1.yaml
-cp config-ha-example.yaml config-instance2.yaml
-cp config-ha-example.yaml config-instance3.yaml
+cp docs/config/examples/config-ha-example.yaml config-instance1.yaml
+cp docs/config/examples/config-ha-example.yaml config-instance2.yaml
+cp docs/config/examples/config-ha-example.yaml config-instance3.yaml
 
 # 编辑实例 1 配置
 cat > config-instance1.yaml << 'EOF'
@@ -465,7 +465,7 @@ distributed_lock:
 
 ```bash
 # 1. 创建配置文件
-cp config-ha-example.yaml config-instance4.yaml
+cp docs/config/examples/config-ha-example.yaml config-instance4.yaml
 
 # 2. 编辑配置
 vim config-instance4.yaml

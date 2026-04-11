@@ -189,7 +189,7 @@ quantmesh_platform/
 
 1. 예제 구성 파일 복사:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. `config.yaml`을 편집하고 API 키 및 전략 매개변수를 입력:
