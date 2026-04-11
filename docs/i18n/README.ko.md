@@ -238,7 +238,7 @@ go build -o quantmesh
 **옵션 1: 개발 스크립트 사용(권장)**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 이 스크립트는:

@@ -238,7 +238,7 @@ Dla rozwoju frontend z hot reload i debugowaniem kodu źródłowego:
 **Opcja 1: Użyj skryptu deweloperskiego (Zalecane)**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 Ten skrypt:

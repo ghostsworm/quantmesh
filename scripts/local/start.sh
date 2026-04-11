@@ -7,7 +7,7 @@
 # 4. 启动新服务
 #
 # 使用方法：
-#   ./start.sh [config.yaml] [-f|--force]
+#   ./scripts/local/start.sh [config.yaml] [-f|--force]
 #   -f, --force: 强制重新编译前后端
 
 set -e
@@ -65,7 +65,7 @@ for arg in "$@"; do
 done
 
 # 配置
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_NAME="quantmesh"
 BINARY_NAME="quantmesh"
 CONFIG_FILE="${CONFIG_FILE:-config.yaml}"
@@ -448,7 +448,7 @@ if kill -0 "${NEW_PID}" 2>/dev/null; then
         log_info "   Web日志: ${WEB_LOG_FILE}"
     fi
     log_info ""
-    log_info "停止服务: kill ${NEW_PID} 或运行 stop.sh"
+    log_info "停止服务: kill ${NEW_PID} 或运行 scripts/local/stop.sh"
     log_info "按 Ctrl+C 停止查看日志（服务会继续运行）"
     log_info ""
     log_info "=========================================="

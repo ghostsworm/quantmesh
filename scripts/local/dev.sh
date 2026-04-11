@@ -20,8 +20,8 @@ NC='\033[0m' # No Color
 GO_PORT=28888
 VITE_PORT=15173
 
-# 脚本目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 仓库根目录（本脚本位于 scripts/local/）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PID_FILE_GO="${SCRIPT_DIR}/.dev_go.pid"
 PID_FILE_VITE="${SCRIPT_DIR}/.dev_vite.pid"
 
@@ -254,7 +254,7 @@ echo -e "${YELLOW}提示:${NC}"
 echo -e "  - 前端代码修改会自动热重载 (Hot Reload)"
 echo -e "  - 后端代码修改需要重启 Go 服务器"
 echo -e "  - 按 Ctrl+C 停止所有服务器"
-echo -e "  - 使用 ./restart.sh --dev 重启开发服务器"
+echo -e "  - 使用 ./scripts/local/restart.sh --dev 重启开发服务器"
 echo ""
 
 # 等待进程

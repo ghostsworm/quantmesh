@@ -238,7 +238,7 @@ Backend sẽ phục vụ các tệp tĩnh frontend trên cổng 28888 (mặc đ�
 **Tùy chọn 1: Sử dụng script phát triển (Được khuyến nghị)**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 Script này sẽ:

@@ -238,7 +238,7 @@ Hot reload ve kaynak kodu hata ayıklama ile frontend geliştirme için:
 **Seçenek 1: Geliştirme betiğini kullanın (Önerilen)**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 Bu betik:

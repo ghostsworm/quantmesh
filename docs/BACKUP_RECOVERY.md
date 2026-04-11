@@ -154,7 +154,7 @@ sudo systemctl list-timers
 
 1. **停止服务**（推荐）
    ```bash
-   ./stop.sh
+   ./scripts/local/stop.sh
    # 或
    pkill -f quantmesh
    ```
@@ -198,7 +198,7 @@ ls -lh ./backups/*.tar.gz
 
 3. **重启服务**
    ```bash
-   ./start.sh
+   ./scripts/local/start.sh
    ```
 
 4. **检查日志**
@@ -302,7 +302,7 @@ fi
 
 4. **启动服务**
    ```bash
-   ./start.sh
+   ./scripts/local/start.sh
    ```
 
 5. **验证功能**

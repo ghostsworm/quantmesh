@@ -91,7 +91,7 @@ grep "SECURITY" logs/*.log
 
 **立即停止系统**：
 ```bash
-./stop.sh
+./scripts/local/stop.sh
 ```
 
 **检查配置**（有磁盘副本时）：
@@ -138,8 +138,8 @@ git pull origin main
 go build -o quantmesh
 
 # 重启系统
-./stop.sh
-./start.sh
+./scripts/local/stop.sh
+./scripts/local/start.sh
 ```
 
 ## 安全建议
@@ -238,7 +238,7 @@ grep "密码错误" logs/*.log
 rm data/auth.db
 
 # 重启系统
-./stop.sh && ./start.sh
+./scripts/local/stop.sh && ./scripts/local/start.sh
 
 # 设置密码（应该成功）
 curl -X POST http://localhost:8080/api/auth/password/set \
@@ -314,9 +314,9 @@ curl -X POST http://localhost:8080/api/setup/init \
 
 A: 删除认证数据库重新设置：
 ```bash
-./stop.sh
+./scripts/local/stop.sh
 rm data/auth.db
-./start.sh
+./scripts/local/start.sh
 # 然后重新设置密码
 ```
 

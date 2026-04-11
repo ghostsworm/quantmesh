@@ -96,7 +96,7 @@ go run main.go
 # or: go build -o quantmesh && ./quantmesh
 ```
 
-By default the backend serves the embedded UI on **28888**. For dev, run `./dev.sh` or `go run main.go` plus `cd webui && yarn dev` (Vite defaults to **15173**).
+By default the backend serves the embedded UI on **28888**. For dev, run `./scripts/local/dev.sh` or `go run main.go` plus `cd webui && yarn dev` (Vite defaults to **15173**).
 
 Sample config snippet:
 

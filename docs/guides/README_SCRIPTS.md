@@ -31,26 +31,26 @@
 
 ```bash
 # 默认：若未传路径，进程从主库 app_config 加载（无 config.yaml 亦可）
-./start.sh
+./scripts/local/start.sh
 
 # 显式传入 YAML 路径（作为 ./quantmesh 的第一个参数，用于导入或启动时加载）
-./start.sh my_config.yaml
+./scripts/local/start.sh my_config.yaml
 ```
 
 ### 停止服务
 
 ```bash
-./stop.sh
+./scripts/local/stop.sh
 ```
 
 ### 重启服务
 
 ```bash
 # start.sh 本身就是重启模式，如果服务已运行会自动重启
-./start.sh
+./scripts/local/start.sh
 
 # 使用自定义配置文件
-./start.sh my_config.yaml
+./scripts/local/start.sh my_config.yaml
 ```
 
 ## 端口配置
@@ -102,7 +102,7 @@ ps aux | grep quantmesh
 kill $(cat .quantmesh.pid)
 
 # 或直接使用stop.sh
-./stop.sh
+./scripts/local/stop.sh
 ```
 
 ## 注意事项

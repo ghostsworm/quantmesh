@@ -6,10 +6,10 @@
 
 ```bash
 # 强制重新编译并启动
-./start.sh -f
+./scripts/local/start.sh -f
 
 # 或者只重启（如果代码没有变化）
-./restart.sh
+./scripts/local/restart.sh
 ```
 
 ## 部署到远程服务器
@@ -245,7 +245,7 @@ sudo systemctl start quantmesh
 
 ```bash
 # 本地重新部署
-./start.sh -f
+./scripts/local/start.sh -f
 
 # 部署到服务器（使用配置文件）
 ./scripts/deploy-to-server.sh --config scripts/deploy-config.sh

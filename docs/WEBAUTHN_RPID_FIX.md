@@ -40,10 +40,10 @@ web:
 
 ```bash
 # 停止應用
-./stop.sh
+./scripts/local/stop.sh
 
 # 啟動應用  
-./start.sh
+./scripts/local/start.sh
 ```
 
 ### 方案 2：環境變數（临時修復）
@@ -52,7 +52,7 @@ web:
 
 ```bash
 export DOMAIN=qt.facev.app
-./start.sh
+./scripts/local/start.sh
 ```
 
 ### 方案 3：代碼已自動修复

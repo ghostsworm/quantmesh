@@ -9,9 +9,9 @@
 # - 自動處理端口衝突 / Auto handle port conflicts
 #
 # 使用方法 / Usage:
-#   ./restart.sh                     # 默認開發模式（Go + Vite 熱更新）
-#   ./restart.sh --prod [config.yaml]  # 生產模式（構建後端 + webui/dist）
-#   ./restart.sh -d                  # 等同默認，明確指定開發模式
+#   ./scripts/local/restart.sh                     # 默認開發模式（Go + Vite 熱更新）
+#   ./scripts/local/restart.sh --prod [config.yaml]  # 生產模式（構建後端 + webui/dist）
+#   ./scripts/local/restart.sh -d                  # 等同默認，明確指定開發模式
 
 set -e
 
@@ -22,7 +22,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # 端口配置
 GO_PORT=28888
@@ -272,7 +272,7 @@ if [ "$DEV_MODE" = true ]; then
     
     # 启动开发模式
     log_info "启动开发模式..."
-    exec "${SCRIPT_DIR}/dev.sh"
+    exec "${SCRIPT_DIR}/scripts/local/dev.sh"
 else
     # 生产模式
     
@@ -288,6 +288,6 @@ else
     
     # 启动生产模式
     log_info "启动生产模式..."
-    exec "${SCRIPT_DIR}/start.sh" "${CONFIG_FILE}"
+    exec "${SCRIPT_DIR}/scripts/local/start.sh" "${CONFIG_FILE}"
 fi
 

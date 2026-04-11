@@ -3,9 +3,12 @@
   
   # QuantMesh Market Maker
   
-  **毫秒级高频加密货币做市商系统**
+  **面向实盘与研究的加密货币做市与网格系统 —— 开源可审计，控制台一站式管理**
   
-  <h3>⭐ 如果这个项目对您有帮助，请给个 Star 支持一下！</h3>
+  <p>
+    <a href="https://github.com/ghostsworm/quantmesh"><strong>若对你有用，请点右上角 Star ⭐</strong></a><br/>
+    <sub>Star 后可在 GitHub 首页「Following」里收到发版与重要更新动态，也方便我们判断项目是否值得持续投入。</sub>
+  </p>
   <p>
     <a href="https://github.com/ghostsworm/quantmesh">
       <img src="https://img.shields.io/github/stars/ghostsworm/quantmesh?style=social" alt="GitHub Stars">
@@ -25,47 +28,26 @@
 
 ---
 
-## 这是什么
+## 为什么选择 QuantMesh（你能得到什么）
 
-用 Go 写的做市程序：行情和下单尽量走 WebSocket，逻辑和下单在同一进程里，少一层脚本轮询就少一层延迟和状态不同步。默认大家用得最多的是永续上的单向做多无限网格，但仓库里还有 DCA、马丁、均值回归、动量、趋势、组合策略，可以并行跑；指标和回测也在同一代码库里，改参数之前可以先在历史数据上试。
+| 你关心的 | QuantMesh 的做法 |
+|----------|------------------|
+| **延迟与一致性** | 行情与下单优先走 WebSocket，策略与下单同进程，减少轮询带来的延迟和状态漂移。 |
+| **不止「交易所自带网格」** | 多策略（网格、DCA、马丁、均值回归、动量、趋势、组合等）、可并行；同一套代码里带指标与回测，改参数前可先跑历史。 |
+| **风控与可观测性** | 启动检查、运行监控、对帐、订单清理、资金费率等；Prometheus / Grafana、告警、事件中心。 |
+| **可审计** | **AGPL-3.0** 开源，可自行改逻辑、查实现；可选 AI 辅助模块，**不接管下单主路径**。 |
+| **运维面** | React Web 控制台；Docker 一键起服务。 |
 
-和「交易所自带网格」或网上那种闭源小工具比，这里多了几样硬东西：多家交易所的统一封装、回测、主动风控和对帐、Prometheus/Grafana、以及一套 React 控制台。代码是 AGPL，能自己改、能查。团队自称实盘累计成交过 **$1 亿+** 量级——听听就好，不构成任何收益承诺；数字举例、风险说明见下文。
+团队曾公开提及实盘累计成交约 **$1 亿+** 量级——**仅为背景信息，不构成收益承诺**，详见下文风险与示例。
 
-## 大致能力（别当采购清单背）
+## 适合谁 · 不适合谁
 
-交易所这块覆盖了二十来家，Binance / Bitget / Gate / OKX / Bybit / Deribit 等都在 `exchange/` 里有实现，现货和合约看具体适配情况。策略上网格可以玩得很细：超级槽位、止损止盈、回撤止盈、层数上限、趋势过滤、价格软边界、触发价、等差等比、网格整体平移、终止时全平；还有 P1 资金费率联动、P2 订单簿侧挂单优化之类进阶项。
+- **更适合**：希望在自有机房或 VPS 上运行做市/网格、需要可定制策略与风控、愿意阅读配置与日志的交易者与量化小团队。  
+- **请谨慎**：期望「安装即躺赚」、不愿承担加密资产波动与杠杆风险、或无法接受 AGPL 开源义务的用户——建议先使用测试网与小资金。
 
-风控不是只有「设个止损」：会盯 K 线异常、启动前检查余额和杠杆、定期对帐、订单清理；期权对冲（Put/Call、覆盖率、展期）也接了一部分。监控侧有 Prometheus、Grafana、告警、Watchdog。事件中心会记价格波动和成交相关事件；新闻和外部信号可以接，不接也不影响主交易链路。
+## 快速开始
 
-仓库里还有一块 `ai/`，做的是摘要、参数建议、风险类辅助——**下单不依赖它**，关掉或不用都行。
-
-## 数字与示例（仍不是投资建议）
-
-举例：币安 ETHUSDC、零手续费、间隔约 1 美元、单笔约 300 USDT 时，日成交量可以到数百万美元这个量级——取决于行情和参数。ETH 从 3000 跌到 2700，浮亏可能到几千 USDT 这个数量级；涨回 2850 附近有时接近保本，回到 3000 则要看手续费和网格参数。**上真金白银之前：测试网和小资金先跑熟。**
-
-## 目录结构（扫一眼用）
-
-```
-quantmesh_platform/
-├── main.go
-├── config/                 # YAML、热更新、历史
-├── exchange/               # 各所适配
-├── strategy/               # 网格、DCA、马丁、均值回归、动量、趋势、组合
-├── indicators/
-├── ai/                     # 可选：辅助分析，非主路径
-├── backtest/
-├── position/               # 超级槽位等
-├── safety/                 # 安检、风控、对帐、订单清理、资金费率
-├── monitor/  event/  metrics/  plugin/
-├── web/                    # API 与静态资源
-└── webui/                  # React
-```
-
-更细的说明见 [ARCHITECTURE.md](ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](docs/API_REFERENCE.md)。
-
-## 跑起来
-
-### Docker
+### Docker（推荐先跑起来）
 
 ```bash
 git clone https://github.com/ghostsworm/quantmesh.git
@@ -78,11 +60,11 @@ cp config.example.yaml my-config.yaml
 docker-compose up -d
 ```
 
-浏览器打开 http://localhost:8080 。停：`docker-compose down`。
+浏览器访问 http://localhost:8080 。停止：`docker-compose down`。
 
-### 源码
+### 源码运行
 
-需要 Go 1.21+，能访问交易所 API。
+需要 Go 1.21+，并能访问交易所 API。
 
 ```bash
 git clone https://github.com/ghostsworm/quantmesh.git
@@ -94,7 +76,8 @@ go run main.go
 # 或 go build -o quantmesh && ./quantmesh
 ```
 
-默认后端在 **28888** 提供前端静态文件。开发时用 `./dev.sh` 或分别起 `go run main.go` 与 `cd webui && yarn dev`（Vite 默认 **15173**）。
+默认后端在 **28888** 嵌入前端静态资源。本地开发可执行 `./scripts/local/dev.sh`，或分别运行 `go run main.go` 与 `cd webui && yarn dev`（Vite 默认 **15173**）。  
+常用启停脚本已放在 [`scripts/local/`](scripts/local/)，避免仓库根目录杂乱、便于在 GitHub 首页先看到本说明。
 
 配置片段示例：
 
@@ -116,52 +99,82 @@ trading:
   sell_window_size: 10
 ```
 
-## 架构就四句
+## 核心能力一览
 
-- Exchange：统一接口，屏蔽各所 API 差异。  
-- Price Monitor：全局 WebSocket 价格源，避免多处各读各的。  
-- Super Position Manager：槽位管订单生命周期。  
-- Safety：启动检查、运行中监控、该熔断时熔断。
+- **交易所**：二十余家适配（Binance、Bitget、Gate、OKX、Bybit、Deribit 等，见 `exchange/`），现货/合约以具体适配为准。  
+- **网格与进阶**：超级槽位、止损止盈、回撤止盈、层数上限、趋势过滤、触发价、等差/等比、整体平移、终止全平等；另有资金费率联动、订单簿侧挂单优化等。  
+- **风控**：K 线异常、余额与杠杆检查、定期对帐、订单清理；部分期权对冲能力。  
+- **可选项**：`ai/` 提供摘要与建议类辅助，**关闭不影响主交易链路**。
+
+更细的说明见 [ARCHITECTURE.md](ARCHITECTURE.md)、[docs/GRID_STRATEGY_ADVANCED_FEATURES.md](docs/GRID_STRATEGY_ADVANCED_FEATURES.md)、[docs/RISK_CONTROL_GUIDE.md](docs/RISK_CONTROL_GUIDE.md)、[docs/API_REFERENCE.md](docs/API_REFERENCE.md)。
+
+## 数字与示例（仍不是投资建议）
+
+举例：币安 ETHUSDC、零手续费、间隔约 1 美元、单笔约 300 USDT 时，日成交量可到数百万美元量级——取决于行情与参数。ETH 从 3000 跌到 2700，浮亏可能达数千 USDT；涨回 2850 附近有时接近保本，回到 3000 仍取决于手续费与网格参数。**真金白银前务必使用测试网与小资金验证。**
+
+## 架构要点（四句话）
+
+- **Exchange**：统一接口，屏蔽各所 API 差异。  
+- **Price Monitor**：全局 WebSocket 价格源。  
+- **Super Position Manager**：槽位管理订单生命周期。  
+- **Safety**：启动检查、运行监控、该熔断时熔断。
 
 详情见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
+## 仓库目录（速览）
+
+```
+quantmesh_platform/
+├── main.go
+├── config/          # YAML、热更新、历史
+├── exchange/        # 各所适配
+├── strategy/        # 多类策略
+├── indicators/      backtest/
+├── ai/              # 可选辅助
+├── position/        safety/  monitor/  web/  webui/
+```
+
 ## 使用统计（可选）
 
-默认会发匿名统计（版本、系统、交易所名、交易对、延迟等），**不收集** IP、余额、API Key、成交金额。关掉：
+默认发送匿名统计（版本、系统、交易所名、交易对等），**不收集** IP、余额、API Key、成交金额。关闭方式：
 
 ```bash
 export QUANTMESH_DISABLE_TELEMETRY=1
 ```
 
-或 `webui/.env.local` 里 `VITE_DISABLE_TELEMETRY=1`，或改 `utils/telemetry.go`。长说明见 [docs/TELEMETRY_GUIDE.md](docs/TELEMETRY_GUIDE.md)、[docs/TELEMETRY_PRIVACY.md](docs/TELEMETRY_PRIVACY.md)。
+或在 `webui/.env.local` 中设置 `VITE_DISABLE_TELEMETRY=1`。详见 [docs/TELEMETRY_GUIDE.md](docs/TELEMETRY_GUIDE.md)、[docs/TELEMETRY_PRIVACY.md](docs/TELEMETRY_PRIVACY.md)。
 
 ## 免责声明
 
-软件仅供学习与研究。加密货币交易可能亏光本金；盈亏自负；实盘前务必先在测试网充分验证。开发者不对程序 bug、网络延迟、交易所故障等造成的损失负责。
+本软件仅供学习与研究。加密货币交易可能导致本金全部损失；盈亏自负；实盘前请在测试网充分验证。开发者不对程序缺陷、网络延迟、交易所故障等造成的损失承担责任。
 
 ## 加密货币支付（订阅/授权）
 
-支持 BTC、ETH、USDT(ERC20)、USDC(ERC20)。可走 Coinbase Commerce，或直接链上转账（确认慢一些）。  
+支持 BTC、ETH、USDT(ERC20)、USDC(ERC20) 等；可走 Coinbase Commerce 或链上转账。  
 文档：[docs/CRYPTO_PAYMENT_GUIDE.md](docs/CRYPTO_PAYMENT_GUIDE.md)、[docs/CRYPTO_PAYMENT_QUICKSTART.md](docs/CRYPTO_PAYMENT_QUICKSTART.md)。
 
 ## 授权
 
-双授权：**AGPL-3.0**（衍生作品需同样开源；网络服务也要提供源码）或购买**商业授权**（闭源集成、商用等）。  
+双授权：**AGPL-3.0**（衍生作品需同样开源；网络服务亦需提供源码）或购买**商业授权**（闭源集成、商用等）。  
 联系：contact@quantmesh.io · https://quantmesh.io/commercial
 
 ## 贡献与联络
 
-Issue / PR 欢迎；贡献同样以 AGPL-3.0 发布。见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎 Issue / PR；贡献同样以 AGPL-3.0 发布。见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 - 官网：https://quantmesh.io  
-- 讨论： [GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)  
-- 问题： [GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)  
-- 文档目录：[docs/](docs/)
+- 讨论：[GitHub Discussions](https://github.com/ghostsworm/quantmesh/discussions)  
+- 问题：[GitHub Issues](https://github.com/ghostsworm/quantmesh/issues)  
+- 文档：[docs/](docs/)
+
+<p align="center">
+  <a href="https://github.com/ghostsworm/quantmesh"><strong>觉得有用就 Star ⭐ 一下，感谢支持</strong></a>
+</p>
 
 ---
 
 <div align="center">
-  QuantMesh Team · <sub>Version 3.79.12</sub>
+  QuantMesh Team · <sub>Version 3.90.0-rc2</sub>
 </div>
 
 Copyright © 2026 QuantMesh Team. All Rights Reserved.

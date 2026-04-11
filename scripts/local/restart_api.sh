@@ -4,8 +4,8 @@
 # 只停止并重启 Go API 服务，不编译前端（前端由 Vite 单独服务）
 #
 # 使用方法：
-#   ./restart_api.sh [config.yaml]   # 生产模式重启 API
-#   ./restart_api.sh --dev           # 开发模式（go run，Vite 保持运行）
+#   ./scripts/local/restart_api.sh [config.yaml]   # 生产模式重启 API
+#   ./scripts/local/restart_api.sh --dev           # 开发模式（go run，Vite 保持运行）
 
 set -e
 
@@ -14,7 +14,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GO_PORT=28888
 APP_NAME="quantmesh"
 PID_FILE="${SCRIPT_DIR}/.${APP_NAME}.pid"
@@ -119,5 +119,5 @@ if [ "$DEV_MODE" = true ]; then
     fi
 else
     log_info "启动生产模式 API（不编译前端）..."
-    exec "${SCRIPT_DIR}/start.sh" --api-only "${CONFIG_FILE}"
+    exec "${SCRIPT_DIR}/scripts/local/start.sh" --api-only "${CONFIG_FILE}"
 fi

@@ -238,7 +238,7 @@ hot reload اور source code debugging کے ساتھ فرنٹ اینڈ ڈویل
 **آپشن 1: ڈویلپمنٹ اسکرپٹ استعمال کریں (تجویز کردہ)**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 یہ اسکرپٹ:

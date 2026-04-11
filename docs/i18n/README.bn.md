@@ -238,7 +238,7 @@ go build -o quantmesh
 **বিকল্প ১: উন্নয়ন স্ক্রিপ্ট ব্যবহার করুন (সুপারিশকৃত)**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 এই স্ক্রিপ্টটি:

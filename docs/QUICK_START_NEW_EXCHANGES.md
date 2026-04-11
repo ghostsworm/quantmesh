@@ -75,7 +75,7 @@ trading:
 ./opensqt_market_maker
 
 # 方式2: 使用启动脚本
-./start.sh
+./scripts/local/start.sh
 
 # 方式3: 后台运行
 nohup ./opensqt_market_maker > logs/opensqt.log 2>&1 &

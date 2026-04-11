@@ -240,7 +240,7 @@ go build -o quantmesh
 **گزینه 1: استفاده از اسکریپت توسعه (توصیه می‌شود)**
 
 ```bash
-./dev.sh
+./scripts/local/dev.sh
 ```
 
 این اسکریپت:
