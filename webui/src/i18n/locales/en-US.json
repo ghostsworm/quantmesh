@@ -958,6 +958,7 @@
     "openingPaused": "Opening Paused",
     "totalPnL": "Total P&L",
     "exchangeOverview": "Exchange Overview",
+    "clickCardForBotDetail": "Click to open this bot's detail page",
     "addSymbol": "Add Bot",
     "openingPausedAlert": "{{count}} symbol(s) have opening paused",
     "openingPausedAlertDesc": "Some symbols have opening paused. No new buy orders will be created for these symbols.",

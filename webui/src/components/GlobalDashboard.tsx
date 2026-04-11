@@ -63,6 +63,8 @@ import {
   stopTrading,
   closeAllPositions,
   getSystemStatuses,
+  getBots,
+  type BotInfo,
 } from '../services/api'
 import { getCapitalOverview, getCapitalHistory } from '../services/capital'
 import { useSymbol } from '../contexts/SymbolContext'
@@ -70,6 +72,7 @@ import { checkSetupStatus } from '../services/setup'
 import ConfirmDialog from './ConfirmDialog'
 import { mapCapitalHistoryToEquityCurve } from '../utils/capitalHistory'
 import { getPnLExchangeDefaultRangeISO } from '../constants/pnl'
+import { findBotIdForSymbol } from '../utils/botLookup'
 
 // 超时包装函数，防止API调用卡住
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
@@ -117,6 +120,7 @@ const GlobalDashboard: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [symbols, setSymbols] = useState<SymbolInfo[]>([])
+  const [bots, setBots] = useState<BotInfo[]>([])
   const [exchangePnL, setExchangePnL] = useState<ExchangePnLResponse[]>([])
   const [positionsAll, setPositionsAll] = useState<PositionSummaryItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -183,9 +187,10 @@ const GlobalDashboard: React.FC = () => {
         getPositionsSummaryAll().catch(() => ({ positions: [] })),
         withTimeout(getCapitalOverview(), 5000, null as any),
         withTimeout(getCapitalHistory(30), 5000, { history: [] } as any),
+        getBots().catch(() => ({ bots: [] as BotInfo[] })),
       ])
 
-      const [symbolsData, pnlData, statusesData, positionsAllData, capitalRes, historyRes] = await Promise.race([
+      const [symbolsData, pnlData, statusesData, positionsAllData, capitalRes, historyRes, botsData] = await Promise.race([
         coreFetch,
         new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('GLOBAL_DASHBOARD_FETCH_TIMEOUT')), GLOBAL_DASHBOARD_FETCH_TIMEOUT_MS)
@@ -194,6 +199,7 @@ const GlobalDashboard: React.FC = () => {
 
       const symbolList = Array.isArray(symbolsData?.symbols) ? symbolsData.symbols : []
       setSymbols(symbolList)
+      setBots(Array.isArray(botsData?.bots) ? botsData.bots : [])
       setExchangePnL(pnlData?.exchanges || [])
       setPositionsAll(positionsAllData?.positions || [])
       if (capitalRes?.success && capitalRes.overview) {
@@ -969,6 +975,7 @@ const GlobalDashboard: React.FC = () => {
                         const status = symbolStatuses.get(key)
                         const isRunning = status?.running || false
                         const pnlInfo = exchange.symbols.find(s => s.symbol === sym.symbol && (s.market_type || 'futures') === (sym.market_type || 'futures'))
+                        const botId = findBotIdForSymbol(bots, normalizeExchange, normalizedExchange, sym.symbol, sym.market_type)
                         
                         return (
                           <MotionBox
@@ -984,6 +991,11 @@ const GlobalDashboard: React.FC = () => {
                               borderColor={isRunning ? 'blue.400' : borderColor}
                               boxShadow="sm"
                               _hover={{ boxShadow: 'md' }}
+                              cursor={botId ? 'pointer' : undefined}
+                              title={botId ? t('globalDashboard.clickCardForBotDetail') : undefined}
+                              onClick={() => {
+                                if (botId) navigate(`/bots/${botId}`)
+                              }}
                             >
                               <Flex justify="space-between" align="start" mb={4}>
                                 <VStack align="start" spacing={1}>
@@ -1073,7 +1085,10 @@ const GlobalDashboard: React.FC = () => {
                                 size="sm"
                                 colorScheme={isRunning ? 'red' : 'green'}
                                 width="full"
-                                onClick={() => handleToggleTrading(normalizedExchange, sym.symbol, isRunning, sym.market_type)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleToggleTrading(normalizedExchange, sym.symbol, isRunning, sym.market_type)
+                                }}
                                 isDisabled={togglePendingKeys.has(key)}
                                 isLoading={togglePendingKeys.has(key)}
                                 loadingText={isRunning ? t('dashboard.stopping') : t('dashboard.starting')}
@@ -1090,7 +1105,10 @@ const GlobalDashboard: React.FC = () => {
                                   colorScheme="red"
                                   variant="outline"
                                   width="full"
-                                  onClick={() => openClosePositionsDialog(normalizedExchange, sym.symbol)}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openClosePositionsDialog(normalizedExchange, sym.symbol)
+                                  }}
                                   isLoading={closingPositions.has(key)}
                                   borderRadius="lg"
                                 >
