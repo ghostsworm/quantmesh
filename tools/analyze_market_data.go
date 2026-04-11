@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"quantmesh/backtest"
@@ -12,8 +13,12 @@ import (
 )
 
 func main() {
-	// 加載配置
-	cfg, err := config.LoadConfig("config.yaml")
+	// 加載配置：默認當前目錄 config.yaml（可由 docs/config/examples/config.example.yaml 複製後填寫）；可設 QUANTMESH_CONFIG_YAML 覆蓋路徑
+	cfgPath := os.Getenv("QUANTMESH_CONFIG_YAML")
+	if cfgPath == "" {
+		cfgPath = "config.yaml"
+	}
+	cfg, err := config.LoadConfig(cfgPath)
 	if err != nil {
 		logger.Error("❌ 加載配置失败: %v", err)
 		return

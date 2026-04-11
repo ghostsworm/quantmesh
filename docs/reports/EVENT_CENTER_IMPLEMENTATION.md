@@ -123,7 +123,7 @@
 
 ### 配置文件
 
-1. **config.example.yaml** - 示例配置
+1. **docs/config/examples/config.example.yaml** - 示例配置
    - event_center 配置段
    - 保留策略示例
 

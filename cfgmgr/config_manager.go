@@ -679,7 +679,7 @@ func (cm *ConfigManager) watchConfigChanges() {
 // generateMinimalConfig 生成简化版配置文件
 // 只有在简化版配置文件不存在时才生成，避免覆盖用户自定义的配置
 func (cm *ConfigManager) generateMinimalConfig() error {
-	minimalConfigPath := "config.minimal.yaml"
+	minimalConfigPath := "docs/config/examples/config.minimal.yaml"
 
 	// 检查简化版配置文件是否已存在
 	if _, err := config.LoadConfig(minimalConfigPath); err == nil {
@@ -767,7 +767,7 @@ func (cm *ConfigManager) generateMinimalConfig() error {
 	logger.Info("   - 通知配置（开关、规则等）")
 	logger.Info("   - 交易配置（持仓安全检查等）")
 	logger.Info("   - 系统日志级别")
-	logger.Info("💡 如需使用简化版配置，请执行: mv config.minimal.yaml config.yaml")
+	logger.Info("💡 如需使用简化版配置，请执行: mv docs/config/examples/config.minimal.yaml config.yaml")
 
 	return nil
 }

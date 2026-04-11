@@ -127,11 +127,11 @@ echo "========================================"
 echo "测试 6: 验证高可用配置示例"
 echo "========================================"
 
-if [ -f "config-ha-example.yaml" ]; then
+if [ -f "docs/config/examples/config-ha-example.yaml" ]; then
     echo "✅ 高可用配置示例存在"
     
     # 验证启用了分布式锁
-    if grep -q "enabled: true" config-ha-example.yaml; then
+    if grep -q "enabled: true" docs/config/examples/config-ha-example.yaml; then
         echo "   ✅ 示例配置启用了分布式锁"
     else
         echo "   ❌ 示例配置未启用分布式锁"
@@ -139,7 +139,7 @@ if [ -f "config-ha-example.yaml" ]; then
     fi
     
     # 验证使用了 PostgreSQL
-    if grep -q "type: postgres" config-ha-example.yaml; then
+    if grep -q "type: postgres" docs/config/examples/config-ha-example.yaml; then
         echo "   ✅ 示例配置使用 PostgreSQL"
     else
         echo "   ⚠️  示例配置未使用 PostgreSQL"

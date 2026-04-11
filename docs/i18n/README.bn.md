@@ -189,7 +189,7 @@ quantmesh_platform/
 
 1. উদাহরণ কনফিগারেশন ফাইল কপি করুন:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. `config.yaml` সম্পাদনা করুন এবং আপনার API Key এবং কৌশল পরামিতি পূরণ করুন:

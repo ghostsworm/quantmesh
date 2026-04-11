@@ -191,7 +191,7 @@ quantmesh_platform/
 
 1. نسخ ملف التكوين المثال:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. تحرير `config.yaml` وملء مفتاح API ومعاملات الاستراتيجية:

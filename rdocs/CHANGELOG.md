@@ -471,14 +471,14 @@
   - 優先級：環境變數 `DOMAIN` → 配置文件 `web.domain` → `web.host` → `localhost`
   - 自動检测 HTTPS 並生成正确的 Origin
   - 新增 TLS 配置支持（`web.tls.enabled/cert_file/key_file`）
-- **相關文件**: `main.go`、`config/config.go`、`config.example.yaml`
+- **相關文件**: `main.go`、`config/config.go`、`docs/config/examples/config.example.yaml`
 
 #### 工具與文档
 
 - **新增**: WebAuthn 診斷工具 (`tools/webauthn_diagnose.go`)
 - **新增**: 快速修复脚本 (`scripts/fix_webauthn_rpid.sh`)  
 - **新增**: 修复指南文档 (`docs/WEBAUTHN_RPID_FIX.md`)
-- **新增**: 針對性配置示例 (`config.webauthn-fix.yaml`)
+- **新增**: 針對性配置示例 (`docs/config/examples/config.webauthn-fix.yaml`)
 
 ---
 
@@ -804,7 +804,7 @@
   - 支持多仓和空仓的自动平仓，使用当前价格或标记价格下单
   - 平仓操作在撤单之后、停止组件之前执行，确保顺序正确
   - 提供详细的平仓日志，包括成功/失败统计
-  - 涉及的文件：`main.go`, `config/config.go`, `config.example.yaml`
+  - 涉及的文件：`main.go`, `config/config.go`, `docs/config/examples/config.example.yaml`
   - 技术细节：
     - 实现 `closeAllPositions()` 函数，查询持仓并使用 ReduceOnly 订单平仓
     - 多仓（Size > 0）下 SELL 单平仓，空仓（Size < 0）下 BUY 单平仓

@@ -1,0 +1,1041 @@
+app:
+    current_exchange: ""
+exchanges:
+    binance:
+        api_key: 8fAtufMyMdu0jbMCIpigtd8zlOYh3I6apfHtDuvuUubGi2p1hd8AJEjOg38suW08
+        secret_key: 924o7RkK50rIvPH45UOwUIp9OQrBI3N7scbPNAjvXksZ5XjMJGGUfHoSTef67QB6
+        passphrase: ""
+        fee_rate: 0
+        testnet: false
+        leverage: 0
+    gate:
+        api_key: 90e077e0f97008585b11fc4432d37930
+        secret_key: e82d1ce1461c6caa31b2c6bf23c943486a740f6fbc0bf9fde56d848888b8f469
+        passphrase: ""
+        fee_rate: 0
+        testnet: false
+        leverage: 0
+    okx:
+        api_key: 09922dc4-0cc9-4d9a-9036-688056e1f64f
+        secret_key: C0E4FE7E22D2BE3BF039289DDBB51575
+        passphrase: KvydMM5iwtLvMS
+        fee_rate: 0
+        testnet: false
+        leverage: 0
+bots:
+    - id: binance:btcu:spot
+      name: BTCU (spot)
+      exchange: binance
+      symbol: BTCU
+      market_type: spot
+      testnet: false
+      enabled: true
+      strategies: []
+      total_allocated_capital: 0
+      withdrawal_policy:
+        enabled: false
+        threshold: 0
+        mode: ""
+        fixed_amount: 0
+        tiered_rules: []
+        withdraw_ratio: 0
+        principal_protection:
+            enabled: false
+            breakeven_protection: false
+            withdraw_principal: false
+            principal_withdraw_at: 0
+            max_loss_ratio: 0
+        schedule:
+            enabled: false
+            frequency: ""
+            day_of_week: 0
+            day_of_month: 0
+            time_of_day: ""
+        compound_ratio: 0
+        target_wallet: ""
+      price_interval: 0
+      order_quantity: 0
+      min_order_value: 0
+      buy_window_size: 0
+      sell_window_size: 0
+      reconcile_interval: 0
+      order_cleanup_threshold: 0
+      cleanup_batch_size: 0
+      margin_lock_duration_seconds: 0
+      position_safety_check: 0
+      grid_risk_control:
+        enabled: false
+        max_grid_layers: 0
+        max_open_orders_at_cap: 0
+        stop_loss_ratio: 0
+        take_profit_trigger_ratio: 0
+        trailing_take_profit_ratio: 0
+        trend_filter_enabled: false
+        close_condition_enabled: false
+        close_condition_profit_target: 0
+        close_condition_loss_limit: 0
+      open_position_control:
+        max_position_value: 0
+        max_position_quantity: 0
+        max_position_layers: 0
+      direction: ""
+      price_low: 0
+      price_high: 0
+      trigger_price: 0
+      grid_mode: ""
+      grid_shift_enabled: false
+      grid_shift_step: 0
+      close_on_stop: false
+    - id: binance:ethusdt:futures:short
+      name: ETHUSDT 网格空头 (配对交易)
+      exchange: binance
+      symbol: ETHUSDT
+      market_type: futures
+      testnet: false
+      enabled: false
+      strategies: []
+      total_allocated_capital: 0
+      withdrawal_policy:
+        enabled: false
+        threshold: 0
+        mode: ""
+        fixed_amount: 0
+        tiered_rules: []
+        withdraw_ratio: 0
+        principal_protection:
+            enabled: false
+            breakeven_protection: false
+            withdraw_principal: false
+            principal_withdraw_at: 0
+            max_loss_ratio: 0
+        schedule:
+            enabled: false
+            frequency: ""
+            day_of_week: 0
+            day_of_month: 0
+            time_of_day: ""
+        compound_ratio: 0
+        target_wallet: ""
+      price_interval: 0
+      order_quantity: 0
+      min_order_value: 0
+      buy_window_size: 0
+      sell_window_size: 0
+      reconcile_interval: 0
+      order_cleanup_threshold: 0
+      cleanup_batch_size: 0
+      margin_lock_duration_seconds: 0
+      position_safety_check: 0
+      grid_risk_control:
+        enabled: false
+        max_grid_layers: 0
+        max_open_orders_at_cap: 0
+        stop_loss_ratio: 0
+        take_profit_trigger_ratio: 0
+        trailing_take_profit_ratio: 0
+        trend_filter_enabled: false
+        close_condition_enabled: false
+        close_condition_profit_target: 0
+        close_condition_loss_limit: 0
+      open_position_control:
+        max_position_value: 0
+        max_position_quantity: 0
+        max_position_layers: 0
+      direction: ""
+      price_low: 0
+      price_high: 0
+      trigger_price: 0
+      grid_mode: ""
+      grid_shift_enabled: false
+      grid_shift_step: 0
+      close_on_stop: false
+    - id: binance:btcusdt:futures
+      name: vt
+      exchange: binance
+      symbol: BTCUSDT
+      market_type: futures
+      testnet: false
+      enabled: true
+      strategies: []
+      total_allocated_capital: 0
+      withdrawal_policy:
+        enabled: false
+        threshold: 0
+        mode: ""
+        fixed_amount: 0
+        tiered_rules: []
+        withdraw_ratio: 0
+        principal_protection:
+            enabled: false
+            breakeven_protection: false
+            withdraw_principal: false
+            principal_withdraw_at: 0
+            max_loss_ratio: 0
+        schedule:
+            enabled: false
+            frequency: ""
+            day_of_week: 0
+            day_of_month: 0
+            time_of_day: ""
+        compound_ratio: 0
+        target_wallet: ""
+      price_interval: 0
+      order_quantity: 0
+      min_order_value: 0
+      buy_window_size: 0
+      sell_window_size: 0
+      reconcile_interval: 0
+      order_cleanup_threshold: 0
+      cleanup_batch_size: 0
+      margin_lock_duration_seconds: 0
+      position_safety_check: 0
+      grid_risk_control:
+        enabled: false
+        max_grid_layers: 0
+        max_open_orders_at_cap: 0
+        stop_loss_ratio: 0
+        take_profit_trigger_ratio: 0
+        trailing_take_profit_ratio: 0
+        trend_filter_enabled: false
+        close_condition_enabled: false
+        close_condition_profit_target: 0
+        close_condition_loss_limit: 0
+      open_position_control:
+        max_position_value: 0
+        max_position_quantity: 0
+        max_position_layers: 0
+      direction: ""
+      price_low: 0
+      price_high: 0
+      trigger_price: 0
+      grid_mode: ""
+      grid_shift_enabled: false
+      grid_shift_step: 0
+      close_on_stop: false
+    - id: binance:btcusdt:spot
+      name: vt
+      exchange: binance
+      symbol: BTCUSDT
+      market_type: spot
+      testnet: false
+      enabled: true
+      strategies: []
+      total_allocated_capital: 0
+      withdrawal_policy:
+        enabled: false
+        threshold: 0
+        mode: ""
+        fixed_amount: 0
+        tiered_rules: []
+        withdraw_ratio: 0
+        principal_protection:
+            enabled: false
+            breakeven_protection: false
+            withdraw_principal: false
+            principal_withdraw_at: 0
+            max_loss_ratio: 0
+        schedule:
+            enabled: false
+            frequency: ""
+            day_of_week: 0
+            day_of_month: 0
+            time_of_day: ""
+        compound_ratio: 0
+        target_wallet: ""
+      price_interval: 0
+      order_quantity: 0
+      min_order_value: 0
+      buy_window_size: 0
+      sell_window_size: 0
+      reconcile_interval: 0
+      order_cleanup_threshold: 0
+      cleanup_batch_size: 0
+      margin_lock_duration_seconds: 0
+      position_safety_check: 0
+      grid_risk_control:
+        enabled: false
+        max_grid_layers: 0
+        max_open_orders_at_cap: 0
+        stop_loss_ratio: 0
+        take_profit_trigger_ratio: 0
+        trailing_take_profit_ratio: 0
+        trend_filter_enabled: false
+        close_condition_enabled: false
+        close_condition_profit_target: 0
+        close_condition_loss_limit: 0
+      open_position_control:
+        max_position_value: 0
+        max_position_quantity: 0
+        max_position_layers: 0
+      direction: ""
+      price_low: 0
+      price_high: 0
+      trigger_price: 0
+      grid_mode: ""
+      grid_shift_enabled: false
+      grid_shift_step: 0
+      close_on_stop: false
+    - id: binance:btcusdt:spot
+      name: BTCUSDT (spot)
+      exchange: binance
+      symbol: BTCUSDT
+      market_type: spot
+      testnet: false
+      enabled: true
+      strategies: []
+      total_allocated_capital: 0
+      withdrawal_policy:
+        enabled: false
+        threshold: 0
+        mode: ""
+        fixed_amount: 0
+        tiered_rules: []
+        withdraw_ratio: 0
+        principal_protection:
+            enabled: false
+            breakeven_protection: false
+            withdraw_principal: false
+            principal_withdraw_at: 0
+            max_loss_ratio: 0
+        schedule:
+            enabled: false
+            frequency: ""
+            day_of_week: 0
+            day_of_month: 0
+            time_of_day: ""
+        compound_ratio: 0
+        target_wallet: ""
+      price_interval: 0
+      order_quantity: 0
+      min_order_value: 0
+      buy_window_size: 0
+      sell_window_size: 0
+      reconcile_interval: 0
+      order_cleanup_threshold: 0
+      cleanup_batch_size: 0
+      margin_lock_duration_seconds: 0
+      position_safety_check: 0
+      grid_risk_control:
+        enabled: false
+        max_grid_layers: 0
+        max_open_orders_at_cap: 0
+        stop_loss_ratio: 0
+        take_profit_trigger_ratio: 0
+        trailing_take_profit_ratio: 0
+        trend_filter_enabled: false
+        close_condition_enabled: false
+        close_condition_profit_target: 0
+        close_condition_loss_limit: 0
+      open_position_control:
+        max_position_value: 0
+        max_position_quantity: 0
+        max_position_layers: 0
+      direction: ""
+      price_low: 0
+      price_high: 0
+      trigger_price: 0
+      grid_mode: ""
+      grid_shift_enabled: false
+      grid_shift_step: 0
+      close_on_stop: false
+    - id: binance:ethusdt:futures
+      name: 仍
+      exchange: binance
+      symbol: ETHUSDT
+      market_type: futures
+      testnet: false
+      enabled: true
+      strategies: []
+      total_allocated_capital: 0
+      withdrawal_policy:
+        enabled: false
+        threshold: 0
+        mode: ""
+        fixed_amount: 0
+        tiered_rules: []
+        withdraw_ratio: 0
+        principal_protection:
+            enabled: false
+            breakeven_protection: false
+            withdraw_principal: false
+            principal_withdraw_at: 0
+            max_loss_ratio: 0
+        schedule:
+            enabled: false
+            frequency: ""
+            day_of_week: 0
+            day_of_month: 0
+            time_of_day: ""
+        compound_ratio: 0
+        target_wallet: ""
+      price_interval: 0
+      order_quantity: 0
+      min_order_value: 0
+      buy_window_size: 0
+      sell_window_size: 0
+      reconcile_interval: 0
+      order_cleanup_threshold: 0
+      cleanup_batch_size: 0
+      margin_lock_duration_seconds: 0
+      position_safety_check: 0
+      grid_risk_control:
+        enabled: false
+        max_grid_layers: 0
+        max_open_orders_at_cap: 0
+        stop_loss_ratio: 0
+        take_profit_trigger_ratio: 0
+        trailing_take_profit_ratio: 0
+        trend_filter_enabled: false
+        close_condition_enabled: false
+        close_condition_profit_target: 0
+        close_condition_loss_limit: 0
+      open_position_control:
+        max_position_value: 0
+        max_position_quantity: 0
+        max_position_layers: 0
+      direction: ""
+      price_low: 0
+      price_high: 0
+      trigger_price: 0
+      grid_mode: ""
+      grid_shift_enabled: false
+      grid_shift_step: 0
+      close_on_stop: false
+    - id: binance:ethusdt:spot
+      name: 仍
+      exchange: binance
+      symbol: ETHUSDT
+      market_type: spot
+      testnet: false
+      enabled: true
+      strategies: []
+      total_allocated_capital: 0
+      withdrawal_policy:
+        enabled: false
+        threshold: 0
+        mode: ""
+        fixed_amount: 0
+        tiered_rules: []
+        withdraw_ratio: 0
+        principal_protection:
+            enabled: false
+            breakeven_protection: false
+            withdraw_principal: false
+            principal_withdraw_at: 0
+            max_loss_ratio: 0
+        schedule:
+            enabled: false
+            frequency: ""
+            day_of_week: 0
+            day_of_month: 0
+            time_of_day: ""
+        compound_ratio: 0
+        target_wallet: ""
+      price_interval: 0
+      order_quantity: 0
+      min_order_value: 0
+      buy_window_size: 0
+      sell_window_size: 0
+      reconcile_interval: 0
+      order_cleanup_threshold: 0
+      cleanup_batch_size: 0
+      margin_lock_duration_seconds: 0
+      position_safety_check: 0
+      grid_risk_control:
+        enabled: false
+        max_grid_layers: 0
+        max_open_orders_at_cap: 0
+        stop_loss_ratio: 0
+        take_profit_trigger_ratio: 0
+        trailing_take_profit_ratio: 0
+        trend_filter_enabled: false
+        close_condition_enabled: false
+        close_condition_profit_target: 0
+        close_condition_loss_limit: 0
+      open_position_control:
+        max_position_value: 0
+        max_position_quantity: 0
+        max_position_layers: 0
+      direction: ""
+      price_low: 0
+      price_high: 0
+      trigger_price: 0
+      grid_mode: ""
+      grid_shift_enabled: false
+      grid_shift_step: 0
+      close_on_stop: false
+bot_groups: []
+trading:
+    symbol: ""
+    market_type: ""
+    price_interval: 0
+    profit_spread: 0
+    order_quantity: 0
+    min_order_value: 0
+    buy_window_size: 0
+    sell_window_size: 0
+    reconcile_interval: 0
+    order_cleanup_threshold: 0
+    cleanup_batch_size: 0
+    margin_lock_duration_seconds: 0
+    position_safety_check: 0
+    direction: ""
+    price_low: 0
+    price_high: 0
+    trigger_price: 0
+    grid_mode: ""
+    grid_shift_enabled: false
+    grid_shift_step: 0
+    rocket_tiered_grid: null
+    close_on_stop: false
+    symbols: []
+    dynamic_adjustment:
+        enabled: false
+        price_interval:
+            enabled: false
+            min: 0
+            max: 0
+            volatility_window: 0
+            volatility_threshold: 0
+            adjustment_step: 0
+            check_interval: 0
+        window_size:
+            enabled: false
+            buy_window:
+                min: 0
+                max: 0
+            sell_window:
+                min: 0
+                max: 0
+            utilization_threshold: 0
+            adjustment_step: 0
+            check_interval: 0
+        order_quantity:
+            enabled: false
+            min: 0
+            max: 0
+            frequency_threshold: 0
+            adjustment_step: 0
+            check_interval: 0
+        volatility_detection:
+            enabled: false
+            short_period: 0
+            medium_period: 0
+            long_period: 0
+            low_threshold: 0
+            normal_threshold: 0
+            high_threshold: 0
+            extreme_threshold: 0
+            price_range_period: 0
+            price_range_threshold: 0
+    smart_position:
+        enabled: false
+        trend_detection:
+            enabled: false
+            window: 0
+            method: ""
+            short_period: 0
+            long_period: 0
+            check_interval: 0
+        window_adjustment:
+            enabled: false
+            max_adjustment: 0
+            adjustment_step: 0
+            min_buy_window: 0
+            min_sell_window: 0
+    grid_risk_control:
+        enabled: false
+        max_grid_layers: 0
+        max_open_orders_at_cap: 0
+        stop_loss_ratio: 0
+        take_profit_trigger_ratio: 0
+        trailing_take_profit_ratio: 0
+        trend_filter_enabled: false
+        close_condition_enabled: false
+        close_condition_profit_target: 0
+        close_condition_loss_limit: 0
+    orderbook_optimization:
+        enabled: false
+        depth_levels: 0
+        min_depth_usdt: 0
+        lookback_levels: 0
+        optimization_interval: 0
+    open_position_control:
+        max_position_value: 0
+        max_position_quantity: 0
+        max_position_layers: 0
+system:
+    log_level: debug
+    timezone: Asia/Shanghai
+    log_language: ""
+    cancel_on_exit: true
+    close_positions_on_exit: false
+    log_retention_days: 30
+    dry_run: false
+    log_cleanup:
+        enabled: true
+        schedule: "02:00"
+        retention_days: 7
+        levels_to_clean:
+            - INFO
+            - WARN
+instance:
+    id: ""
+    index: 0
+    total: 0
+database:
+    type: mysql
+    dsn: root@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=UTC
+    max_open_conns: 0
+    max_idle_conns: 0
+    conn_max_lifetime: 0
+    log_level: ""
+distributed_lock:
+    enabled: false
+    type: ""
+    prefix: ""
+    default_ttl: 0
+    redis:
+        addr: ""
+        password: ""
+        db: 0
+        pool_size: 0
+risk_control:
+    enabled: false
+    monitor_symbols: []
+    interval: ""
+    volume_multiplier: 0
+    average_window: 0
+    recovery_threshold: 0
+    max_leverage: 0
+    depth_monitor:
+        enabled: false
+        check_interval: 0
+        depth_levels: 0
+        drop_threshold: 0
+        recovery_threshold: 0
+        min_depth_usdt: 0
+composite_risk:
+    enabled: false
+    evaluate_interval: 0
+    thresholds:
+        caution: 0
+        reduce_position: 0
+        pause_buying: 0
+        stop_trading: 0
+    factors:
+        news:
+            enabled: false
+            weight: 0
+            use_rsi: false
+            use_macd: false
+            consecutive_negative_periods: 0
+        trend:
+            enabled: false
+            weight: 0
+            use_rsi: false
+            use_macd: false
+            consecutive_negative_periods: 0
+        funding_rate:
+            enabled: false
+            weight: 0
+            use_rsi: false
+            use_macd: false
+            consecutive_negative_periods: 0
+        depth:
+            enabled: false
+            weight: 0
+            use_rsi: false
+            use_macd: false
+            consecutive_negative_periods: 0
+        kline:
+            enabled: false
+            weight: 0
+            use_rsi: false
+            use_macd: false
+            consecutive_negative_periods: 0
+        macro:
+            enabled: false
+            weight: 0
+            use_rsi: false
+            use_macd: false
+            consecutive_negative_periods: 0
+funding_rate:
+    enabled: false
+    monitor_interval: 0
+    alert_threshold: 0
+    bias_enabled: false
+    high_rate_threshold: 0
+    pause_buy_threshold: 0
+    trend_sync_enabled: false
+    arbitrage_enabled: false
+    hedge_min_position: 0
+    hedge_rate_threshold: 0
+    max_spread_percent: 0
+news_monitor:
+    enabled: false
+    enable_analysis: null
+    check_interval: ""
+    analysis_interval: ""
+    news_collect_interval: ""
+    use_gemini_search: false
+    sources: []
+    news_api_key: ""
+    rss_feeds: []
+    custom_rss_feeds: []
+    keywords: []
+    risk_threshold: 0
+    prediction_timeframes: []
+    risk_thresholds:
+        stop_trading_probability: 0
+        reduce_position_probability: 0
+    history_retention_days: 0
+    assets: []
+    ai_provider:
+        upstream_ref: ""
+        provider: ""
+        model: ""
+        api_key: ""
+        base_url: ""
+timing:
+    websocket_reconnect_delay: 0
+    websocket_write_wait: 0
+    websocket_pong_wait: 0
+    websocket_ping_interval: 0
+    listen_key_keepalive_interval: 0
+    price_send_interval: 0
+    rate_limit_retry_delay: 0
+    order_retry_delay: 0
+    price_poll_interval: 0
+    status_print_interval: 0
+    order_cleanup_interval: 0
+notifications:
+    enabled: false
+    telegram:
+        enabled: false
+        bot_token: ""
+        chat_id: ""
+    webhook:
+        enabled: false
+        url: ""
+        timeout: 0
+    email:
+        enabled: false
+        provider: ""
+        smtp:
+            host: ""
+            port: 0
+            username: ""
+            password: ""
+        resend:
+            api_key: ""
+        mailgun:
+            api_key: ""
+            domain: ""
+        from: ""
+        to: ""
+        subject: ""
+    feishu:
+        enabled: false
+        webhook: ""
+    dingtalk:
+        enabled: false
+        webhook: ""
+        secret: ""
+    wechat_work:
+        enabled: false
+        webhook: ""
+    slack:
+        enabled: false
+        webhook: ""
+    rules:
+        order_placed: false
+        order_filled: false
+        risk_triggered: false
+        stop_loss: false
+        error: false
+        margin_insufficient: false
+        allocation_exceeded: false
+        inspector_report: false
+storage:
+    enabled: true
+    type: sqlite
+    path: ./data/quantmesh.db
+    buffer_size: 1000
+    batch_size: 100
+    flush_interval: 5
+web:
+    enabled: true
+    host: 0.0.0.0
+    port: 28888
+    domain: ""
+    api_key: ""
+    tls: null
+    shared_dir: ""
+    ai:
+        llm_provider: ""
+        llm_api_key: ""
+        llm_model: ""
+    pprof:
+        enabled: false
+        require_auth: false
+        allowed_ips: []
+fix:
+    enabled: null
+    heartbeat_timeout_sec: 0
+plugins:
+    enabled: false
+    directory: ""
+    licenses: {}
+    config: {}
+basis_monitor:
+    enabled: false
+    interval_minutes: 0
+    symbols: []
+event_center:
+    enabled: false
+    price_volatility_threshold: 0
+    monitored_symbols: []
+    retention:
+        critical_days: 0
+        warning_days: 0
+        info_days: 0
+        critical_max_count: 0
+        warning_max_count: 0
+        info_max_count: 0
+    cleanup_interval: 0
+macro_event:
+    enabled: false
+    fetch_interval: 0
+    gamma_api_url: ""
+    categories: {}
+    filters:
+        min_liquidity: 0
+        min_volume_24h: 0
+        active_only: false
+    signal:
+        probability_change_threshold: 0
+        high_probability_threshold: 0
+strategies:
+    enabled: false
+    capital_allocation:
+        mode: ""
+        total_capital: 0
+        fixed:
+            enabled: false
+            rebalance_on_start: false
+        dynamic:
+            enabled: false
+            rebalance_interval: 0
+            max_change_per_rebalance: 0
+            min_weight: 0
+            max_weight: 0
+            performance_weights: {}
+    configs: {}
+backtest:
+    enabled: false
+    start_time: ""
+    end_time: ""
+    initial_capital: 0
+position_allocation:
+    enabled: false
+    allocations: []
+metrics:
+    enabled: false
+    collect_interval: 0
+watchdog:
+    enabled: false
+    sampling:
+        interval: 0
+    retention:
+        detail_days: 0
+        daily_days: 0
+    notifications:
+        enabled: false
+        fixed_threshold:
+            enabled: false
+            cpu_percent: 0
+            memory_mb: 0
+        rate_threshold:
+            enabled: false
+            window_minutes: 0
+            cpu_increase: 0
+            memory_increase_mb: 0
+        cooldown_minutes: 0
+    aggregation:
+        enabled: false
+        schedule: ""
+inspector:
+    enabled: false
+    name: ""
+    schedule:
+        regular_interval: ""
+        quiet_hours_start: 0
+        quiet_hours_end: 0
+        quiet_interval: ""
+    thresholds:
+        pnl_change_alert: 0
+        risk_score_change: 0
+        funding_rate_alert: 0
+        correlation_change: 0
+        balance_change_pct: 0
+    focus_symbols: []
+    ai:
+        upstream_ref: ""
+        provider: ""
+        model: ""
+        analysis_depth: ""
+    report:
+        format: ""
+        include_ai_insights: false
+        include_technical_analysis: false
+        max_news_items: 0
+ai:
+    enabled: false
+    default_upstream: ""
+    upstreams: {}
+    provider: ""
+    api_key: ""
+    gemini_api_key: ""
+    base_url: ""
+    modules:
+        market_analysis:
+            enabled: false
+            update_interval: 0
+            upstream_ref: ""
+        parameter_optimization:
+            enabled: false
+            optimization_interval: 0
+            auto_apply: false
+            upstream_ref: ""
+        risk_analysis:
+            enabled: false
+            analysis_interval: 0
+            upstream_ref: ""
+        sentiment_analysis:
+            enabled: false
+            analysis_interval: 0
+            upstream_ref: ""
+            data_sources:
+                news:
+                    enabled: false
+                    rss_feeds: []
+                    fetch_interval: 0
+                fear_greed_index:
+                    enabled: false
+                    api_url: ""
+                    fetch_interval: 0
+                social_media:
+                    enabled: false
+                    subreddits: []
+                    post_limit: 0
+        strategy_generation:
+            enabled: false
+            upstream_ref: ""
+        polymarket_signal:
+            enabled: false
+            analysis_interval: 0
+            upstream_ref: ""
+            api_url: ""
+            markets:
+                keywords: []
+                min_liquidity: 0
+                min_volume_24h: 0
+                min_days_to_expiry: 0
+                max_days_to_expiry: 0
+            signal_generation:
+                buy_threshold: 0
+                sell_threshold: 0
+                min_signal_strength: 0
+                min_confidence: 0
+    decision_mode: ""
+    execution_rules:
+        high_risk_threshold: 0
+        low_risk_threshold: 0
+        require_confirmation: false
+compliance:
+    enabled: false
+    audit_log:
+        enabled: false
+        format: ""
+        directory: ""
+    oss:
+        enabled: false
+        provider: ""
+        endpoint: ""
+        bucket: ""
+        access_key_id: ""
+        access_key_secret: ""
+        prefix: ""
+        upload_time: ""
+auto_backtest:
+    enabled: false
+    schedule_interval_hours: 0
+    max_concurrent_tasks: 0
+    default_capital: 0
+    symbols: []
+circuit_breaker:
+    enabled: false
+    triggers:
+        total_daily_loss:
+            enabled: false
+            threshold: 0
+        max_drawdown:
+            enabled: false
+            threshold: 0
+        consecutive_losses:
+            enabled: false
+            count: 0
+        websocket_disconnected:
+            enabled: false
+            timeout: 0
+        api_auth_failed:
+            enabled: false
+            count: 0
+        allocation_exceeded:
+            enabled: false
+    actions:
+        stop_all_new_orders: false
+        cancel_all_open_orders: false
+        close_positions:
+            enabled: false
+            method: ""
+            timeout: 0
+        pause_duration: 0
+    recovery:
+        auto_resume: false
+        manual_required: false
+        cooldown_minutes: 0
+    notifications:
+        enabled: false
+        channels: []
+emergency_center:
+    enabled: false
+    require_confirmation: false
+    custom_scenarios: {}
+dynamic_stop_loss:
+    enabled: false
+    volatility_based:
+        enabled: false
+        atr_multiplier: 0
+        atr_period: 0
+        min_stop_loss: 0
+        max_stop_loss: 0
+        check_interval: 0
+    time_based:
+        enabled: false
+        high_volatility_hours: []
+        low_volatility_hours: []
+        high_volatility_multiplier: 0
+        low_volatility_multiplier: 0
+    profit_based_trailing:
+        enabled: false
+        activate_profit: 0
+        trailing_distance: 0
+        min_distance: 0
+        update_frequency: 0
+    trend_reversal:
+        enabled: false
+        trend_window: 0
+        reversal_threshold: 0
+        tighten_multiplier: 0

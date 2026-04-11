@@ -570,7 +570,7 @@ if err := lock.TryLock(ctx, key, ttl); err != nil {
 
 - [高可用架构设计](HIGH_AVAILABILITY.md)
 - [快速开始指南](HA_QUICKSTART.md)
-- [配置示例](../config-ha-example.yaml)
+- [配置示例](../config/examples/config-ha-example.yaml)
 - [Docker Compose](../docker-compose.ha.yml)
 
 <!-- quantmesh usage beacon -->

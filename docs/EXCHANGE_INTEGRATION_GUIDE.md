@@ -184,7 +184,7 @@ func NewExchange(cfg *config.Config, exchangeName, symbol string) (IExchange, er
 
 ### Step 7: 更新配置文件
 
-在 `config.example.yaml` 中添加：
+在 `docs/config/examples/config.example.yaml` 中添加：
 
 ```yaml
 exchanges:

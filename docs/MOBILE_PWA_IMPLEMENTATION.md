@@ -314,7 +314,7 @@
    go build -o quantmesh
    
    # 配置 API 密钥
-   cp config.example.yaml my-import.yaml
+   cp docs/config/examples/config.example.yaml my-import.yaml
    vim my-import.yaml && ./quantmesh --migrate-app-config my-import.yaml
    
    # 启动系统

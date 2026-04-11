@@ -189,7 +189,7 @@ quantmesh_platform/
 
 1. Copia il file di configurazione di esempio:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. Modifica `config.yaml` e inserisci la tua API Key e i parametri della strategia:

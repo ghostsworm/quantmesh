@@ -926,7 +926,7 @@ GET  /api/alerts                 # 告警列表
 
 #### 1. 多实例配置
 
-**配置文件**: `config-ha-example.yaml`
+**配置文件**: `docs/config/examples/config-ha-example.yaml`
 
 ```yaml
 instance:

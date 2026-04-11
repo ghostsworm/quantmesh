@@ -189,7 +189,7 @@ quantmesh_platform/
 
 1. Örnek yapılandırma dosyasını kopyalayın:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. `config.yaml` dosyasını düzenleyin ve API Anahtarınızı ve strateji parametrelerinizi doldurun:

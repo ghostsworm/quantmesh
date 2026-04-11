@@ -105,8 +105,8 @@ build_platform() {
     fi
     
     # 复制配置文件
-    if [ -f "${PROJECT_ROOT}/config.example.yaml" ]; then
-        cp "${PROJECT_ROOT}/config.example.yaml" "${OUTPUT_DIR}/config.yaml.example"
+    if [ -f "${PROJECT_ROOT}/docs/config/examples/config.example.yaml" ]; then
+        cp "${PROJECT_ROOT}/docs/config/examples/config.example.yaml" "${OUTPUT_DIR}/config.yaml.example"
         echo "  → 复制配置文件"
     fi
     

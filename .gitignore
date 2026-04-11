@@ -45,7 +45,7 @@ data/
 config.yaml
 config.yaml.migrated.*.bak
 config.json
-!config.example.yaml
+!docs/config/examples/config.example.yaml
 !config.example.json
 .env
 .env.local

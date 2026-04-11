@@ -55,7 +55,7 @@ make build
 sudo cp quantmesh /opt/quantmesh/
 
 # 复制示例模板（仅作首次导入用；运行权威在主库 app_config）
-sudo cp config.example.yaml /opt/quantmesh/config.yaml
+sudo cp docs/config/examples/config.example.yaml /opt/quantmesh/config.yaml
 
 # 复制脚本
 sudo cp -r scripts /opt/quantmesh/

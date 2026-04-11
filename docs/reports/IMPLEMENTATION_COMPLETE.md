@@ -70,7 +70,7 @@ docs/
   └── CONFIGURATION_GUIDE.md              # 配置指南
 
 test_ha_mode.sh       # 集成测试脚本
-config-ha-example.yaml  # 高可用配置示例
+docs/config/examples/config-ha-example.yaml  # 高可用配置示例
 docker-compose.ha.yml   # HA Docker Compose
 ```
 

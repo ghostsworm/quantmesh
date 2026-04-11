@@ -189,7 +189,7 @@ quantmesh_platform/
 
 1. Kopyahin ang example configuration file:
    ```bash
-   cp config.example.yaml config.yaml
+   cp docs/config/examples/config.example.yaml config.yaml
    ```
 
 2. I-edit ang `config.yaml` at punan ang iyong API Key at strategy parameters:
