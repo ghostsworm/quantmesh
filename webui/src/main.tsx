@@ -15,6 +15,11 @@ function registerServiceWorker() {
     return
   }
 
+  // Vite 開發服務不產出 /sw.js，請求會被回退成 index.html（MIME 為 text/html），註冊必失敗且刷屏
+  if (import.meta.env.DEV) {
+    return
+  }
+
   // 检查是否在认证流程页面，如果是则禁用 Service Worker
   const pathname = window.location.pathname
   if (pathname === '/login' || pathname === '/register' || pathname === '/setup') {

@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.94.1-rc3] - 2026-04-12
+
+### Fixed
+- **Web 控制台**：`GlobalDashboard` 交易所卡片誤傳未定義的 `normalizeExchange`，改為傳入 `normalizeExchangeName`，修復首頁白屏與 `ReferenceError`。
+- **開發環境**：`yarn dev` 下不再註冊 Service Worker（`/sw.js` 不存在會被 Vite 回成 HTML，導致 MIME 錯誤與控制台刷屏）。
+
+---
+
 ## [3.94.1-rc2] - 2026-04-12
 
 ### Fixed
