@@ -958,6 +958,7 @@
     "openingPaused": "开仓暂停",
     "totalPnL": "总盈亏",
     "exchangeOverview": "交易所概览",
+    "clickCardForBotDetail": "点击查看该 Bot 详情",
     "addSymbol": "添加 Bot",
     "openingPausedAlert": "{{count}} 个交易对已暂停开仓",
     "openingPausedAlertDesc": "部分交易对的开仓功能已被暂停，新的买入委托将不会被创建",
