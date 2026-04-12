@@ -758,6 +758,7 @@
   "configuration": {
     "title": "設置",
     "globalDescription": "配置全局系統參數",
+    "globalTradingParamsHint": "「交易參數」分頁（單筆金額、持倉安全檢查、買賣窗口等）不在本頁：請從左側 Bot 清單進入某個 Bot，再開「配置」或網址 /bots/該Bot的ID/config。本頁為全域設定（交易所 API、通知、YAML 等）。",
     "symbolDescription": "管理 {{symbol}} 的專用配置",
     "singleBotGlobalHint": "此頁面僅設定目前單一 Bot。如需全系統設定（交易所 API、通知、YAML 等），請前往 <configLink>/config</configLink>。",
     "saveChanges": "保存更改",

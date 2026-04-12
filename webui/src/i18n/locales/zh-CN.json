@@ -1079,6 +1079,7 @@
   "configuration": {
     "title": "设置",
     "globalDescription": "配置全局系统参数",
+    "globalTradingParamsHint": "「交易参数」标签（单笔金额、持仓安全检查、买卖窗口等）不在本页：请打开左侧 Bot 列表进入某个 Bot，再进入「配置」或访问路径 /bots/该Bot的ID/config。本页为全局设置（交易所 API、通知、YAML 等）。",
     "symbolDescription": "管理 {{symbol}} 的专用配置",
     "singleBotGlobalHint": "此页面仅配置当前单个 Bot。如需全局设置（交易所 API、通知、YAML 等），请前往 <configLink>/config</configLink>。",
     "saveChanges": "保存更改",
