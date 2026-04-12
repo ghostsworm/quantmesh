@@ -19,6 +19,8 @@ import { useTranslation } from 'react-i18next'
 export interface SymbolTarget {
   exchange: string
   symbol: string
+  /** 與後端 resolveSymbolKey 對齊，缺省視為 futures */
+  market_type?: string
 }
 
 export interface ConfigSaveOptionsModalProps {

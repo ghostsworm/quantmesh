@@ -787,26 +787,27 @@ const Configuration: React.FC = () => {
     if (selectedExchange && selectedSymbol) {
       const ex = (selectedExchange || config.app?.current_exchange || '').toLowerCase()
       const sym = (selectedSymbol || '').toLowerCase()
-      return [{ exchange: ex, symbol: sym }]
+      return [{ exchange: ex, symbol: sym, market_type: selectedMarketType ?? 'futures' }]
     }
     return config.trading.symbols
       .filter((s: any) => s.exchange && s.symbol)
       .map((s: any) => ({
         exchange: (s.exchange || config.app?.current_exchange || '').toLowerCase(),
         symbol: (s.symbol || '').toLowerCase(),
+        market_type: (s.market_type as string | undefined) ?? 'futures',
       }))
   }
 
   const performSaveWithOptions = async (options: { cancelOrders: boolean; closePositions: boolean }) => {
     if (!config) return
     const targets = getSaveTargets()
-    for (const { exchange, symbol } of targets) {
+    for (const { exchange, symbol, market_type } of targets) {
       if (options.cancelOrders) {
         try {
-          const pend = await getPendingOrders(exchange, symbol).catch(() => ({ orders: [] }))
+          const pend = await getPendingOrders(exchange, symbol, market_type ?? 'futures').catch(() => ({ orders: [] }))
           const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
           if (orderIds.length > 0) {
-            await batchCancelOrders(orderIds, exchange, symbol, selectedMarketType || 'futures')
+            await batchCancelOrders(orderIds, exchange, symbol, market_type ?? 'futures')
             toast({ title: t('configuration.saveOptionsCancelSuccess', { count: orderIds.length }), status: 'success', duration: 2000 })
           }
         } catch (e) {
@@ -3645,7 +3646,7 @@ const Configuration: React.FC = () => {
             const exchange = selectedExchange
             const symbol = selectedSymbol
             try {
-          const pend = await getPendingOrders(exchange, symbol).catch(() => ({ orders: [] }))
+          const pend = await getPendingOrders(exchange, symbol, selectedMarketType || 'futures').catch(() => ({ orders: [] }))
           const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
           if (orderIds.length > 0) {
             await batchCancelOrders(orderIds, exchange, symbol, selectedMarketType || 'futures')

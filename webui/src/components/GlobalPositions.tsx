@@ -221,7 +221,7 @@ const GlobalPositions: React.FC = () => {
     ))
 
     try {
-      const resp = await getPendingOrders(row.exchange, row.symbol)
+      const resp = await getPendingOrders(row.exchange, row.symbol, row.market_type ?? 'futures')
       const all = resp.orders || []
       const openOrders = all.filter(o => (o.side || '').toUpperCase() === 'BUY')
       const closeOrders = all.filter(o => (o.side || '').toUpperCase() === 'SELL')

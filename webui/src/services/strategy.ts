@@ -355,11 +355,13 @@ export async function getStrategyRuntimeStatusAll(): Promise<StrategyRuntimeAllR
 // 獲取所有策略的運行狀態
 export async function getStrategyRuntimeStatus(
   exchange?: string,
-  symbol?: string
+  symbol?: string,
+  marketType?: string
 ): Promise<StrategyRuntimeResponse> {
   const params = new URLSearchParams()
   if (exchange) params.append('exchange', exchange)
   if (symbol) params.append('symbol', symbol)
+  if (marketType) params.append('market_type', marketType)
   const queryString = params.toString()
   const url = `${API_BASE_URL}/strategies/runtime${queryString ? `?${queryString}` : ''}`
   return fetchWithAuth(url)
@@ -369,11 +371,13 @@ export async function getStrategyRuntimeStatus(
 export async function getStrategyRuntimeStatusById(
   strategyId: string,
   exchange?: string,
-  symbol?: string
+  symbol?: string,
+  marketType?: string
 ): Promise<SingleStrategyRuntimeResponse> {
   const params = new URLSearchParams()
   if (exchange) params.append('exchange', exchange)
   if (symbol) params.append('symbol', symbol)
+  if (marketType) params.append('market_type', marketType)
   const queryString = params.toString()
   const url = `${API_BASE_URL}/strategies/runtime/${strategyId}${queryString ? `?${queryString}` : ''}`
   return fetchWithAuth(url)

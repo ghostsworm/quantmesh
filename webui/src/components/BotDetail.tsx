@@ -248,9 +248,10 @@ const BotDetail: React.FC = () => {
     }
     const fetchOverview = async () => {
       try {
+        const mt = bot.market_type || 'futures'
         const [posRes, statRes, posStatus] = await Promise.all([
-          getPositionsSummary(bot.exchange, bot.symbol).catch(() => null),
-          getStatistics(bot.exchange, bot.symbol).catch(() => null),
+          getPositionsSummary(bot.exchange, bot.symbol, mt).catch(() => null),
+          getStatistics(bot.exchange, bot.symbol, mt).catch(() => null),
           botId ? getBotPositionStatus(botId).catch(() => null) : Promise.resolve(null),
         ])
         setPositionsSummary(posRes)
@@ -265,7 +266,7 @@ const BotDetail: React.FC = () => {
     fetchOverview()
     const interval = setInterval(fetchOverview, 10000)
     return () => clearInterval(interval)
-  }, [bot?.running, bot?.exchange, bot?.symbol, botId])
+  }, [bot?.running, bot?.exchange, bot?.symbol, bot?.market_type, botId])
 
   // 已停止的 Bot：仍拉取該交易對的交易所持倉（可能非本 Bot 開倉）
   useEffect(() => {
@@ -322,6 +323,7 @@ const BotDetail: React.FC = () => {
       const res = await getOrderHistory({
         exchange: bot.exchange,
         symbol: bot.symbol,
+        market_type: bot.market_type || 'futures',
         limit: 200,
         start_time: start.toISOString(),
         end_time: now.toISOString(),
@@ -344,7 +346,7 @@ const BotDetail: React.FC = () => {
       if (bot?.exchange && bot?.symbol) fetchTpSlOrders()
     }, 30000)
     return () => clearInterval(interval)
-  }, [bot?.exchange, bot?.symbol])
+  }, [bot?.exchange, bot?.symbol, bot?.market_type])
 
   const fetchExchangeOrders = async () => {
     if (!bot?.exchange || !bot?.symbol) return

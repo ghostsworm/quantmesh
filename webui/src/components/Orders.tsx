@@ -160,9 +160,10 @@ const Orders: React.FC = () => {
   }
 
   useEffect(() => {
+    const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
     const fetchPendingOrders = async () => {
       try {
-        const data = await getPendingOrders(selectedExchange, selectedSymbol)
+        const data = await getPendingOrders(selectedExchange, selectedSymbol, mt)
         setPendingOrders(data.orders || [])
         setPendingLeverage(data.leverage ?? 1)
       } catch (err) {
@@ -188,6 +189,7 @@ const Orders: React.FC = () => {
         const data = await getOrderHistory({
           exchange: selectedExchange,
           symbol: selectedSymbol,
+          market_type: mt,
           limit: 500,
           start_time: toRFC3339(historyStartTime),
           end_time: toRFC3339(historyEndTime),
@@ -228,7 +230,7 @@ const Orders: React.FC = () => {
     }, tabIndex === 0 ? 5000 : 30000)
 
     return () => clearInterval(interval)
-  }, [tabIndex, selectedExchange, selectedSymbol, historyStartTime, historyEndTime])
+  }, [tabIndex, selectedExchange, selectedSymbol, selectedMarketType, historyStartTime, historyEndTime])
 
   // 獲取當前交易對的方向（做多/做空）
   useEffect(() => {
@@ -253,7 +255,8 @@ const Orders: React.FC = () => {
   // 刷新待成交订單
   const refreshPendingOrders = async () => {
     try {
-      const data = await getPendingOrders(selectedExchange, selectedSymbol)
+      const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
+      const data = await getPendingOrders(selectedExchange, selectedSymbol, mt)
       setPendingOrders(data.orders || [])
       setPendingLeverage(data.leverage ?? 1)
     } catch (err) {
@@ -276,9 +279,11 @@ const Orders: React.FC = () => {
     }
     
     try {
+      const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
       const data = await getOrderHistory({
         exchange: selectedExchange,
         symbol: selectedSymbol,
+        market_type: mt,
         limit: 500,
         start_time: toRFC3339(historyStartTime),
         end_time: toRFC3339(historyEndTime),

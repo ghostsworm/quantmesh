@@ -47,6 +47,8 @@ import {
 interface StrategyRuntimeStatusProps {
   exchange?: string
   symbol?: string
+  /** 與後端 resolveSymbolKey 對齊；缺省則不傳 market_type */
+  marketType?: string
   refreshInterval?: number // 刷新間隔（毫秒），默認 10000
 }
 
@@ -330,6 +332,7 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
 const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
   exchange,
   symbol,
+  marketType,
   refreshInterval = 10000,
 }) => {
   const { t } = useTranslation()
@@ -344,7 +347,7 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await getStrategyRuntimeStatus(exchange, symbol)
+      const response = await getStrategyRuntimeStatus(exchange, symbol, marketType)
       if (response.success) {
         setStatuses(response.strategies || [])
         setError(null)
@@ -358,7 +361,7 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
     } finally {
       setLoading(false)
     }
-  }, [exchange, symbol])
+  }, [exchange, symbol, marketType, t])
 
   useEffect(() => {
     if (!exchange || !symbol) {
@@ -369,7 +372,10 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
       try {
         const res = await getSymbols()
         const sym = res.symbols?.find(
-          s => s.exchange?.toLowerCase() === exchange?.toLowerCase() && s.symbol === symbol
+          s =>
+            s.exchange?.toLowerCase() === exchange?.toLowerCase() &&
+            s.symbol === symbol &&
+            (s.market_type ?? 'futures') === (marketType ?? 'futures')
         )
         setSymbolDirection(sym?.direction === 'SHORT' ? 'SHORT' : 'LONG')
       } catch {
@@ -377,7 +383,7 @@ const StrategyRuntimeStatusPanel: React.FC<StrategyRuntimeStatusProps> = ({
       }
     }
     loadDirection()
-  }, [exchange, symbol])
+  }, [exchange, symbol, marketType])
 
   useEffect(() => {
     fetchStatus()

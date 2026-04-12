@@ -20,7 +20,8 @@ const Slots: React.FC = () => {
     
     const fetchSlots = async () => {
       try {
-        const data = await getSlots(selectedExchange || undefined, selectedSymbol || undefined)
+        const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
+        const data = await getSlots(selectedExchange || undefined, selectedSymbol || undefined, mt)
         setSlots(data.slots || [])
         setError(null)
       } catch (err) {
@@ -40,7 +41,7 @@ const Slots: React.FC = () => {
       // 🔥 修複：组件卸載時清空數據
       setSlots([])
     }
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   // 獲取當前交易對的方向（做多/做空）
   useEffect(() => {
