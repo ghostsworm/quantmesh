@@ -382,6 +382,149 @@ func pickStatus(c *gin.Context) *SystemStatus {
 	return currentStatus
 }
 
+// priceProviderFromSymbolRuntime 從 SymbolRuntime（interface{}）反射取出 PriceMonitor，供映射缺失時回退。
+func priceProviderFromSymbolRuntime(rt interface{}) PriceProvider {
+	if rt == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(rt)
+	if rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return nil
+		}
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() {
+		return nil
+	}
+	pm := rv.FieldByName("PriceMonitor")
+	if !pm.IsValid() || pm.IsNil() {
+		return nil
+	}
+	p, ok := pm.Interface().(PriceProvider)
+	if ok {
+		return p
+	}
+	return nil
+}
+
+// positionProviderFromSymbolRuntime 從 SymbolRuntime 反射取出持倉適配器。
+func positionProviderFromSymbolRuntime(rt interface{}) PositionManagerProvider {
+	if rt == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(rt)
+	if rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return nil
+		}
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() {
+		return nil
+	}
+	spm := rv.FieldByName("SuperPositionManager")
+	if !spm.IsValid() || spm.IsNil() {
+		return nil
+	}
+	if mgr, ok := spm.Interface().(*position.SuperPositionManager); ok && mgr != nil {
+		return NewPositionManagerAdapter(mgr)
+	}
+	return nil
+}
+
+// pickSymbolRuntimeByQuery 依查詢参數從 SymbolManager 取运行時（映射鍵不一致或 UUID bot_id 時仍可能命中）。
+func pickSymbolRuntimeByQuery(c *gin.Context) interface{} {
+	if symbolManagerProvider == nil {
+		return nil
+	}
+	ex := strings.TrimSpace(c.Query("exchange"))
+	sym := strings.TrimSpace(c.Query("symbol"))
+	if ex == "" || sym == "" {
+		return nil
+	}
+	mt := strings.TrimSpace(strings.ToLower(c.Query("market_type")))
+	if rt, ok := symbolManagerProvider.GetEx(ex, sym, mt); ok && rt != nil {
+		return rt
+	}
+	// 遍歷：自定義 bot_id（UUID）時 GenerateBotID 與運行時鍵不一致
+	wantMT := mt
+	if wantMT == "" {
+		wantMT = "futures"
+	}
+	for _, rtInterface := range symbolManagerProvider.List() {
+		if rtInterface == nil {
+			continue
+		}
+		cfgVal := reflect.ValueOf(rtInterface)
+		if cfgVal.Kind() == reflect.Ptr {
+			if cfgVal.IsNil() {
+				continue
+			}
+			cfgVal = cfgVal.Elem()
+		}
+		cf := cfgVal.FieldByName("Config")
+		if !cf.IsValid() {
+			continue
+		}
+		if cf.Kind() == reflect.Ptr {
+			if cf.IsNil() {
+				continue
+			}
+			cf = cf.Elem()
+		}
+		exF := cf.FieldByName("Exchange")
+		symF := cf.FieldByName("Symbol")
+		mtF := cf.FieldByName("MarketType")
+		if !exF.IsValid() || !symF.IsValid() {
+			continue
+		}
+		if !strings.EqualFold(exF.String(), ex) || !strings.EqualFold(symF.String(), sym) {
+			continue
+		}
+		rtMT := "futures"
+		if mtF.IsValid() && strings.TrimSpace(mtF.String()) != "" {
+			rtMT = strings.ToLower(strings.TrimSpace(mtF.String()))
+		}
+		usm := cf.FieldByName("UseSpotMargin")
+		if rtMT == "spot" && usm.IsValid() && usm.Bool() {
+			rtMT = "spot_margin"
+		}
+		if strings.EqualFold(rtMT, wantMT) {
+			return rtInterface
+		}
+	}
+	return nil
+}
+
+// UpsertPriceProviderForKey 將运行時價格寫入映射（用於已註冊 Status 但曾缺 Price 的補齊）。
+func UpsertPriceProviderForKey(exchange, symbol, marketType string, pm PriceProvider) {
+	if pm == nil {
+		return
+	}
+	if rv := reflect.ValueOf(pm); rv.Kind() == reflect.Ptr && rv.IsNil() {
+		return
+	}
+	key := makeSymbolKey(exchange, symbol, marketType)
+	providersMu.Lock()
+	priceProviders[key] = pm
+	providersMu.Unlock()
+}
+
+// UpsertPositionProviderForKey 將持倉適配器寫入映射。
+func UpsertPositionProviderForKey(exchange, symbol, marketType string, pm PositionManagerProvider) {
+	if pm == nil {
+		return
+	}
+	if rv := reflect.ValueOf(pm); rv.Kind() == reflect.Ptr && rv.IsNil() {
+		return
+	}
+	key := makeSymbolKey(exchange, symbol, marketType)
+	providersMu.Lock()
+	positionProviders[key] = pm
+	providersMu.Unlock()
+}
+
 func PickPriceProvider(c *gin.Context) PriceProvider {
 	if key := resolveSymbolKey(c); key != "" {
 		providersMu.RLock()
@@ -392,6 +535,12 @@ func PickPriceProvider(c *gin.Context) PriceProvider {
 			return p
 		}
 		logger.Warn("⚠️ [PickPriceProvider] no provider found for key=%s, falling back to default", key)
+	}
+	if rt := pickSymbolRuntimeByQuery(c); rt != nil {
+		if pp := priceProviderFromSymbolRuntime(rt); pp != nil {
+			logger.Info("[DEBUG] PickPriceProvider - resolved via SymbolManager List/GetEx")
+			return pp
+		}
 	}
 	logger.Info("[DEBUG] PickPriceProvider - using default priceProvider")
 	return priceProvider
@@ -422,6 +571,12 @@ func PickPositionProvider(c *gin.Context) PositionManagerProvider {
 
 		if ok && p != nil {
 			return p
+		}
+	}
+	if rt := pickSymbolRuntimeByQuery(c); rt != nil {
+		if pm := positionProviderFromSymbolRuntime(rt); pm != nil {
+			logger.Info("[DEBUG] PickPositionProvider - resolved via SymbolManager List/GetEx")
+			return pm
 		}
 	}
 

@@ -3243,9 +3243,13 @@ func (spm *SuperPositionManager) RestoreReconciliationStats(storage Reconciliati
 		return nil
 	}
 
-	// 4. 使用反射提取對账記錄字段
+	// 4. 使用反射提取對账記錄字段（支持 *T 與 **T 等多層指針）
 	v := reflect.ValueOf(latestHistoryInterface)
-	if v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			logger.Info("📊 [對账恢複] 未找到有效對账記錄，使用默认值")
+			return nil
+		}
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
