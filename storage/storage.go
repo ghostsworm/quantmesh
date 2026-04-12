@@ -65,8 +65,9 @@ type Storage interface {
 	GetReconciliationCount(exchange, symbol, account string) (int64, error)
 	GetPnLBySymbol(symbol, account string, startTime, endTime time.Time) (*PnLSummary, error)
 	GetPnLByTimeRange(account string, startTime, endTime time.Time) ([]*PnLBySymbol, error)
-	GetActualProfitBySymbol(symbol, account string, beforeTime time.Time) (float64, error)
-	GetTotalBuySellQty(symbol, account string) (totalBuyQty, totalSellQty float64, err error)
+	// botID 非空時僅統計該 Bot 的配對成交（與單 Bot 對賬頁一致）；空則同帳戶該交易對全部
+	GetActualProfitBySymbol(symbol, account string, beforeTime time.Time, botID string) (float64, error)
+	GetTotalBuySellQty(symbol, account, botID string) (totalBuyQty, totalSellQty float64, err error)
 	SaveRiskCheck(record *RiskCheckRecord) error
 	QueryRiskCheckHistory(startTime, endTime time.Time, limit int, botID string) ([]*RiskCheckHistory, error)
 	CleanupRiskCheckHistory(beforeTime time.Time) error
@@ -265,7 +266,7 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(exchange, symbol, acco
 	// 计算實際盈利（從 trades 表统计截止到對账時间的累计盈亏）
 	// 🔥 重要：先將 reconcileTime 轉换為 UTC，因為數據库中的 created_at 是 UTC 時间
 	reconcileTimeUTC := utils.ToUTC(reconcileTime)
-	actualProfit, err := ss.storage.GetActualProfitBySymbol(symbol, account, reconcileTimeUTC)
+	actualProfit, err := ss.storage.GetActualProfitBySymbol(symbol, account, reconcileTimeUTC, "")
 	if err != nil {
 		logger.Warn("⚠️ 计算實際盈利失败: %v，使用 0 作為默认值", err)
 		actualProfit = 0

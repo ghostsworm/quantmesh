@@ -2982,6 +2982,9 @@ func getReconciliationStatus(c *gin.Context) {
 	lastReconcileTime := pmProvider.GetLastReconcileTime()
 	profitSpread := pmProvider.GetProfitSpread()
 
+	// 單 Bot 對賬頁傳 bot_id 時，僅統計該 Bot 的配對成交，避免同帳戶同交易對多 Bot 累加導致「預計盈利」暴漲
+	reconcileBotID := strings.TrimSpace(c.Query("bot_id"))
+
 	// 优先從數據库實時计算累计買入和累计賣出（更准确，不受重啟影响）
 	totalBuyQty := 0.0
 	totalSellQty := 0.0
@@ -2989,22 +2992,22 @@ func getReconciliationStatus(c *gin.Context) {
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
 		// 從數據库直接计算累计買入和累计賣出（更高效）
 		accountID := GetCurrentAccountID()
-		buyQty, sellQty, err := storageProv.GetStorage().GetTotalBuySellQty(symbol, accountID)
+		buyQty, sellQty, err := storageProv.GetStorage().GetTotalBuySellQty(symbol, accountID, reconcileBotID)
 		if err == nil {
 			totalBuyQty = buyQty
 			totalSellQty = sellQty
-			logger.Info("📊 [對账状態] 從數據库查詢: symbol=%s, accountID=%s, 累计買入=%.4f, 累计賣出=%.4f", symbol, accountID, buyQty, sellQty)
+			logger.Info("📊 [對账状態] 從數據库查詢: symbol=%s, accountID=%s, bot_id=%s, 累计買入=%.4f, 累计賣出=%.4f", symbol, accountID, reconcileBotID, buyQty, sellQty)
 		} else {
 			logger.Warn("⚠️ 查詢累计買賣數量失败: symbol=%s, accountID=%s, error=%v", symbol, accountID, err)
 		}
 
-		// 如果數據库查詢返回0，尝試不限制account再查詢一次（兼容舊數據）
+		// 如果數據库查詢返回0，尝試不限制account再查詢一次（兼容舊數據）；bot_id 仍保留以免混入其他 Bot
 		if totalBuyQty == 0 && totalSellQty == 0 && accountID != "" {
-			buyQty2, sellQty2, err2 := storageProv.GetStorage().GetTotalBuySellQty(symbol, "")
+			buyQty2, sellQty2, err2 := storageProv.GetStorage().GetTotalBuySellQty(symbol, "", reconcileBotID)
 			if err2 == nil && (buyQty2 > 0 || sellQty2 > 0) {
 				totalBuyQty = buyQty2
 				totalSellQty = sellQty2
-				logger.Info("📊 [對账状態] 從數據库查詢(無account限制): symbol=%s, 累计買入=%.4f, 累计賣出=%.4f", symbol, buyQty2, sellQty2)
+				logger.Info("📊 [對账状態] 從數據库查詢(無account限制): symbol=%s, bot_id=%s, 累计買入=%.4f, 累计賣出=%.4f", symbol, reconcileBotID, buyQty2, sellQty2)
 			}
 		}
 	}
@@ -3036,7 +3039,7 @@ func getReconciliationStatus(c *gin.Context) {
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
 		// 查詢截止到現在的累计實際盈利
 		accountID := GetCurrentAccountID()
-		actualProfit, _ = storageProv.GetStorage().GetActualProfitBySymbol(symbol, accountID, time.Now().UTC())
+		actualProfit, _ = storageProv.GetStorage().GetActualProfitBySymbol(symbol, accountID, time.Now().UTC(), reconcileBotID)
 	}
 
 	status := ReconciliationStatus{

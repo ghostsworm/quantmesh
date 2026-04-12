@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useBot } from '../contexts/BotContext'
 import { useConfig } from '../contexts/ConfigContext'
 import { getSymbols } from '../services/api'
 import { formatDateTime } from '../utils/dateFormat'
@@ -72,6 +73,7 @@ type ViewMode = 'raw' | 'aggregated'
 
 const Reconciliation: React.FC = () => {
   const { t, i18n } = useTranslation()
+  const { botId } = useBot()
   const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const { timezone } = useConfig()
   const [status, setStatus] = useState<ReconciliationStatus | null>(null)
@@ -100,6 +102,7 @@ const Reconciliation: React.FC = () => {
       if (selectedExchange) params.append('exchange', selectedExchange)
       if (selectedSymbol) params.append('symbol', selectedSymbol)
       if (selectedMarketType) params.append('market_type', selectedMarketType)
+      if (botId) params.append('bot_id', botId)
       const response = await fetch(`/api/reconciliation/status?${params}`, {
         credentials: 'include',
       })
@@ -130,6 +133,7 @@ const Reconciliation: React.FC = () => {
       if (selectedExchange) params.append('exchange', selectedExchange)
       if (selectedSymbol) params.append('symbol', selectedSymbol)
       if (selectedMarketType) params.append('market_type', selectedMarketType)
+      if (botId) params.append('bot_id', botId)
       // 扩大時间範圍到最近30天，确保能查詢到所有历史記錄
       const endTime = new Date()
       const startTime = new Date()
@@ -164,7 +168,8 @@ const Reconciliation: React.FC = () => {
       if (selectedExchange) params.append('exchange', selectedExchange)
       if (selectedSymbol) params.append('symbol', selectedSymbol)
       if (selectedMarketType) params.append('market_type', selectedMarketType)
-      
+      if (botId) params.append('bot_id', botId)
+
       // 根據時间周期設置查詢範圍
       const endTime = new Date()
       const startTime = new Date()
@@ -212,7 +217,7 @@ const Reconciliation: React.FC = () => {
     fetchData()
     const interval = setInterval(fetchData, 10000) // 每10秒刷新一次
     return () => clearInterval(interval)
-  }, [historyLimit, historyOffset, selectedExchange, selectedSymbol, selectedMarketType, viewMode, timePeriod])
+  }, [historyLimit, historyOffset, selectedExchange, selectedSymbol, selectedMarketType, botId, viewMode, timePeriod])
 
   // 獲取當前交易對的方向（做多/做空）
   useEffect(() => {

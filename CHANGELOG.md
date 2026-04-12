@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.102.0-rc9] - 2026-04-12
+
+### Fixed
+- **Bot 對賬頁「預計盈利」異常偏大**：後端已支援 `bot_id` 僅統計該 Bot 配對成交；前端 **`Reconciliation`** 在 **`/api/reconciliation/status` / `history` / `aggregated`** 請求中帶上 **`bot_id`**（並納入 `useEffect` 依賴），換 Bot 時會重新拉數。
+
+---
+
 ## [3.102.0-rc8] - 2026-04-12
 
 ### Changed
