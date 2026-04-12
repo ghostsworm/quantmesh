@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.101.0-rc1] - 2026-04-12
+
+### Added
+- **Huobi（HTX）**：`InternalTransfer` 走現貨 `POST /v2/account/transfer`（`spot` ↔ `linear-swap`，全倉 `margin-account: USDT`）。
+- **Kraken**：`InternalTransfer` 現貨→期貨 `POST /0/private/WalletTransfer`；期貨→現貨 `POST /derivatives/api/v3/withdrawal`。
+- **劃轉映射單元測試**：`exchange/huobi`、`exchange/kraken` 與 KuCoin/Gate 風格一致之帳戶標籤（`UMFUTURE`/`SPOT`/`MAIN`）。
+
+---
+
 ## [3.100.0-rc1] - 2026-04-12
 
 ### Added

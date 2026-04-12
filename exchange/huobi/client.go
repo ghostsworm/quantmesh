@@ -22,6 +22,9 @@ import (
 const (
 	// 主网 API 地址
 	MainnetRestURL = "https://api.hbdm.com"
+	// SpotRestURL 現貨 REST（v2/account/transfer 等）
+	SpotRestURL = "https://api.huobi.pro"
+	spotAPIHost = "api.huobi.pro"
 	// WebSocket 地址
 	MainnetWsURL = "wss://api.hbdm.com/linear-swap-notification"
 )
@@ -146,6 +149,130 @@ func (c *HuobiClient) request(ctx context.Context, method, path string, params m
 	}
 
 	return apiResp.Data, nil
+}
+
+// requestSpot 向 api.huobi.pro 發送簽名請求（響應可為 v2 格式 code/success 或舊版 status: ok）
+func (c *HuobiClient) requestSpot(ctx context.Context, method, path string, params map[string]string, body interface{}) ([]byte, error) {
+	if params == nil {
+		params = make(map[string]string)
+	}
+	params["AccessKeyId"] = c.apiKey
+	params["SignatureMethod"] = "HmacSHA256"
+	params["SignatureVersion"] = "2"
+	params["Timestamp"] = time.Now().UTC().Format("2006-01-02T15:04:05")
+
+	signature := c.sign(method, spotAPIHost, path, params)
+	params["Signature"] = signature
+
+	values := url.Values{}
+	for k, v := range params {
+		values.Add(k, v)
+	}
+	fullURL := SpotRestURL + path + "?" + values.Encode()
+
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("序列化请求体失败: %w", err)
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("創建请求失败: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "QuantMesh/1.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("发送请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP 錯误 %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return parseHuobiSpotResponse(respBody)
+}
+
+func parseHuobiSpotResponse(respBody []byte) ([]byte, error) {
+	var legacy struct {
+		Status  string          `json:"status"`
+		ErrCode int             `json:"err_code"`
+		ErrMsg  string          `json:"err_msg"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &legacy); err == nil && legacy.Status == "ok" {
+		return legacy.Data, nil
+	}
+
+	var v2 struct {
+		Code    interface{}     `json:"code"`
+		Success bool            `json:"success"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &v2); err != nil {
+		return nil, fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	ok := v2.Success
+	if !ok {
+		switch c := v2.Code.(type) {
+		case float64:
+			ok = c == 200
+		case string:
+			ok = c == "200"
+		}
+	}
+	if !ok {
+		return nil, fmt.Errorf("Huobi 現貨 API: code=%v success=%v msg=%s", v2.Code, v2.Success, v2.Message)
+	}
+	if len(v2.Data) == 0 {
+		return respBody, nil
+	}
+	return v2.Data, nil
+}
+
+// LinearSwapAccountTransfer U 本位永續（全倉）與現貨互轉，走 POST /v2/account/transfer
+func (c *HuobiClient) LinearSwapAccountTransfer(ctx context.Context, currency string, amount float64, fromSpotToFutures bool) (string, error) {
+	cur := strings.ToLower(strings.TrimSpace(currency))
+	if cur == "" {
+		cur = "usdt"
+	}
+	from := "linear-swap"
+	to := "spot"
+	if fromSpotToFutures {
+		from = "spot"
+		to = "linear-swap"
+	}
+	body := map[string]interface{}{
+		"currency":       cur,
+		"amount":         amount,
+		"from":           from,
+		"to":             to,
+		"margin-account": "USDT",
+	}
+	data, err := c.requestSpot(ctx, "POST", "/v2/account/transfer", nil, body)
+	if err != nil {
+		return "", err
+	}
+	// data 可能為 JSON 字符串事務號
+	var idStr string
+	if err := json.Unmarshal(data, &idStr); err == nil && idStr != "" {
+		return idStr, nil
+	}
+	return strings.Trim(string(data), `"`), nil
 }
 
 // ContractInfo 合約信息
