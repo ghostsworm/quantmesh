@@ -1195,6 +1195,8 @@
     "profitSpread": "Profit Spread (Close Price Gap)",
     "profitSpreadHint": "Leave empty to use price interval",
     "orderAmount": "Order Amount (USDT)",
+    "positionSafetyCheck": "Position safety check (min. downward layers)",
+    "positionSafetyCheckHint": "Before start, requires your margin (balance × leverage vs. per-order size) to cover at least this many layers of downward adds. Default 5. Lower passes more easily but is weaker in drawdowns; higher needs more margin.",
     "buyWindowSize": "Buy Window Size",
     "sellWindowSize": "Sell Window Size",
     "riskControlSettings": "Risk Control Settings",

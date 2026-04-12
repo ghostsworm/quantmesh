@@ -1195,6 +1195,8 @@
     "profitSpread": "利润间距（平仓价差）",
     "profitSpreadHint": "不填则使用价格间隔",
     "orderAmount": "单笔订单金额 (USDT)",
+    "positionSafetyCheck": "持仓安全检查（最少向下持有层数）",
+    "positionSafetyCheckHint": "启动前按账户余额、杠杆与单笔金额估算，要求至少能覆盖多少层向下加仓；默认 5。数值越小越容易通过检查但抗单边风险越弱；越大则需要更多保证金。",
     "buyWindowSize": "买单窗口大小",
     "sellWindowSize": "卖单窗口大小",
     "riskControlSettings": "风险控制设置",
