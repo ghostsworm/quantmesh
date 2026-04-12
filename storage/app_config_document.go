@@ -209,6 +209,127 @@ func (s *SQLStorage) GetAppConfigDocument(ctx context.Context) (*AppConfigDocume
 	return &doc, nil
 }
 
+// BotConfigDocument 單個 Bot 配置快照（bot_configs 表，JSON 內容與 config.BotConfigFile 一致）
+type BotConfigDocument struct {
+	BotID         string
+	SchemaVersion int
+	Content       string
+	Revision      int
+	ContentHash   string
+	UpdatedAt     time.Time
+}
+
+func isBotConfigsTableMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "no such table") {
+		return strings.Contains(msg, "bot_config")
+	}
+	if strings.Contains(msg, "doesn't exist") && strings.Contains(msg, "bot_config") {
+		return true
+	}
+	if strings.Contains(msg, "1146") {
+		return true
+	}
+	return false
+}
+
+// GetBotConfigDocument 讀取單個 Bot 文檔；無行或空內容時返回 nil, nil
+func (s *SQLStorage) GetBotConfigDocument(ctx context.Context, botID string) (*BotConfigDocument, error) {
+	if s == nil || s.db == nil || strings.TrimSpace(botID) == "" {
+		return nil, nil
+	}
+	var doc BotConfigDocument
+	var contentHash sql.NullString
+	var updatedAt sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT bot_id, schema_version, content, revision, content_hash, updated_at
+		FROM bot_configs WHERE bot_id = ?`, botID).Scan(
+		&doc.BotID, &doc.SchemaVersion, &doc.Content, &doc.Revision, &contentHash, &updatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil && isBotConfigsTableMissing(err) {
+		if e2 := s.EnsureAppConfigDocumentTables(); e2 != nil {
+			return nil, fmt.Errorf("補建 bot_configs 表失敗: %w (原錯: %v)", e2, err)
+		}
+		err = s.db.QueryRowContext(ctx, `
+		SELECT bot_id, schema_version, content, revision, content_hash, updated_at
+		FROM bot_configs WHERE bot_id = ?`, botID).Scan(
+			&doc.BotID, &doc.SchemaVersion, &doc.Content, &doc.Revision, &contentHash, &updatedAt,
+		)
+	}
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if contentHash.Valid {
+		doc.ContentHash = contentHash.String
+	}
+	if updatedAt.Valid {
+		doc.UpdatedAt, _ = time.ParseInLocation("2006-01-02 15:04:05", updatedAt.String, time.Local)
+		if doc.UpdatedAt.IsZero() {
+			doc.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt.String)
+		}
+	}
+	return &doc, nil
+}
+
+// SaveBotConfigSnapshot 將 Bot 配置 JSON 寫入 bot_configs 與 bot_config_history（與 MigrateYAMLToAppConfigDB 入庫一致）
+func SaveBotConfigSnapshot(ctx context.Context, st Storage, bf *config.BotConfigFile, operator, source string) (revision int, err error) {
+	if st == nil || bf == nil {
+		return 0, fmt.Errorf("SaveBotConfigSnapshot: storage 或配置為空")
+	}
+	if strings.TrimSpace(bf.BotID) == "" {
+		return 0, fmt.Errorf("SaveBotConfigSnapshot: bot_id 為空")
+	}
+	ss, ok := st.(*SQLStorage)
+	if !ok || ss == nil {
+		return 0, fmt.Errorf("SaveBotConfigSnapshot: 需要主庫 *SQLStorage")
+	}
+	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+		return 0, err
+	}
+	jsonBytes, err := json.Marshal(bf)
+	if err != nil {
+		return 0, fmt.Errorf("序列化 Bot 配置: %w", err)
+	}
+	tx, err := ss.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rev, err := upsertBotConfigTx(ctx, tx, ss.dbType, bf.BotID, 1, string(jsonBytes), operator, source)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return rev, nil
+}
+
+// DeleteBotConfigSnapshot 從 bot_configs 刪除指定 Bot（歷史表保留審計）
+func DeleteBotConfigSnapshot(ctx context.Context, st Storage, botID string) error {
+	if st == nil || strings.TrimSpace(botID) == "" {
+		return fmt.Errorf("DeleteBotConfigSnapshot: 參數無效")
+	}
+	ss, ok := st.(*SQLStorage)
+	if !ok || ss == nil {
+		return fmt.Errorf("DeleteBotConfigSnapshot: 需要主庫 *SQLStorage")
+	}
+	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+		return err
+	}
+	_, err := ss.db.ExecContext(ctx, `DELETE FROM bot_configs WHERE bot_id = ?`, botID)
+	return err
+}
+
 // SaveAppConfigSnapshot 將完整主配置 JSON 寫入 app_config 並追加 app_config_history（與 MigrateYAMLToAppConfigDB 入庫一致）。
 func SaveAppConfigSnapshot(ctx context.Context, st Storage, cfg *config.Config, operator, source string) (revision int, err error) {
 	if st == nil || cfg == nil {
