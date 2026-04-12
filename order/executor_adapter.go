@@ -45,6 +45,7 @@ type Order struct {
 type ExchangeOrderExecutor struct {
 	exchange    exchange.IExchange
 	symbol      string
+	botID       string // 寫入 SQLite 日誌時附帶 logs.bot_id（空則不注入）
 	rateLimiter *rate.Limiter
 	lock        lock.DistributedLock // 分布式鎖
 
@@ -54,15 +55,23 @@ type ExchangeOrderExecutor struct {
 }
 
 // NewExchangeOrderExecutor 創建基於交易所接口的订單執行器
-func NewExchangeOrderExecutor(ex exchange.IExchange, symbol string, rateLimitRetryDelay, orderRetryDelay int, distributedLock lock.DistributedLock) *ExchangeOrderExecutor {
+func NewExchangeOrderExecutor(ex exchange.IExchange, symbol string, rateLimitRetryDelay, orderRetryDelay int, distributedLock lock.DistributedLock, botID string) *ExchangeOrderExecutor {
 	return &ExchangeOrderExecutor{
 		exchange:            ex,
 		symbol:              symbol,
+		botID:               strings.TrimSpace(botID),
 		rateLimiter:         rate.NewLimiter(rate.Limit(25), 30), // 25單/秒，突发30
 		lock:                distributedLock,
 		rateLimitRetryDelay: time.Duration(rateLimitRetryDelay) * time.Second,
 		orderRetryDelay:     time.Duration(orderRetryDelay) * time.Millisecond,
 	}
+}
+
+func (oe *ExchangeOrderExecutor) logCtx() context.Context {
+	if oe.botID == "" {
+		return context.Background()
+	}
+	return logger.WithBotID(context.Background(), oe.botID)
 }
 
 // isPostOnlyError 检查是否為PostOnly錯误
@@ -108,16 +117,16 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 
 	acquired, err := oe.lock.TryLock(ctx, lockKey, 5*time.Second)
 	if err != nil {
-		logger.Warn("⚠️ [%s] 獲取鎖失败: %v", exchangeName, err)
+		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 獲取鎖失败: %v", exchangeName, err)
 		// 鎖獲取失败不阻塞，继续執行（降级策略）
 	} else if !acquired {
-		logger.Debug("🔒 [%s] 價格位 %.2f 已被其他實例鎖定，跳過", exchangeName, req.Price)
+		logger.DebugCtx(oe.logCtx(), "🔒 [%s] 價格位 %.2f 已被其他實例鎖定，跳過", exchangeName, req.Price)
 		return nil, nil // 回傳 nil 表示跳過，不是錯误
 	} else {
 		// 成功獲取鎖，defer 释放
 		defer func() {
 			if unlockErr := oe.lock.Unlock(ctx, lockKey); unlockErr != nil {
-				logger.Warn("⚠️ [%s] 释放鎖失败: %v", exchangeName, unlockErr)
+				logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 释放鎖失败: %v", exchangeName, unlockErr)
 			}
 		}()
 	}
@@ -152,7 +161,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		// 🔥 如果PostOnly已失败3次，降级為普通限價單
 		if postOnlyFailCount >= 3 && req.PostOnly && !degraded {
 			degraded = true
-			logger.Warn("⚠️ [%s] PostOnly已失败3次，降级為普通限價單: %s %.2f",
+			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] PostOnly已失败3次，降级為普通限價單: %s %.2f",
 				oe.exchange.GetName(), req.Side, req.Price)
 			exchangeReq.PostOnly = false
 		}
@@ -182,7 +191,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			if !exchangeReq.PostOnly {
 				orderTypeDesc = "普通單(PostOnly降级)"
 			}
-			logger.Info("✅ [%s] 下單成功(%s): %s %.*f 數量: %.4f 订單ID: %d",
+			logger.InfoCtx(oe.logCtx(), "✅ [%s] 下單成功(%s): %s %.*f 數量: %.4f 订單ID: %d",
 				oe.exchange.GetName(), orderTypeDesc, req.Side, req.PriceDecimals, req.Price, req.Quantity, exchangeOrder.OrderID)
 			return order, nil
 		}
@@ -193,18 +202,18 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		errStr := err.Error()
 		if strings.Contains(errStr, "-4061") {
 			// 持倉模式不匹配：双向持倉 vs 單向持倉。不退出進程，僅記錄錯誤並返回，由上層決定是否重試或告警
-			logger.Error("❌ 下單失败，请在交易所將双向持倉改為單向持倉。錯误碼: -4061（進程繼續運行，請手動修改後重試）")
+			logger.ErrorCtx(oe.logCtx(), "❌ 下單失败，请在交易所將双向持倉改為單向持倉。錯误碼: -4061（進程繼續運行，請手動修改後重試）")
 			return nil, fmt.Errorf("持倉模式不匹配: %w", err)
 		} else if strings.Contains(errStr, "-1003") || strings.Contains(errStr, "rate limit") {
 			// 速率限制，等待后重試
 			pm.RecordAPIRateLimitHit(exchangeName)
-			logger.Warn("⚠️ 触发速率限制，等待后重試...")
+			logger.WarnCtx(oe.logCtx(), "⚠️ 触发速率限制，等待后重試...")
 			time.Sleep(oe.rateLimitRetryDelay)
 			continue
 		} else if isPostOnlyError(err) && !degraded {
 			// 🔥 PostOnly錯误：價格會立即成交，記錄失败次數(必須放在其他检查之前!)
 			postOnlyFailCount++
-			logger.Warn("⚠️ [%s] PostOnly被拒(%d/3): %s %.2f, 等待500ms后重試",
+			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] PostOnly被拒(%d/3): %s %.2f, 等待500ms后重試",
 				oe.exchange.GetName(), postOnlyFailCount, req.Side, req.Price)
 
 			// 如果还没达到3次，继续重試PostOnly
@@ -221,7 +230,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		} else if strings.Contains(errStr, "-4164") || strings.Contains(errStr, "Order's notional must be no smaller than 100") {
 			// 🔥 币安合約最小訂單金額不足：订單名义價值必須 >= 100 USDT（除非是reduce only订單）
 			// 这是配置问题，重試無效，直接返回錯误
-			logger.Error("❌ [%s] 订單金額不足：币安合約要求订單名义價值 >= 100 USDT（除非是reduce only订單）。订單金額=%.2f × %.8f = %.2f USDT",
+			logger.ErrorCtx(oe.logCtx(), "❌ [%s] 订單金額不足：币安合約要求订單名义價值 >= 100 USDT（除非是reduce only订單）。订單金額=%.2f × %.8f = %.2f USDT",
 				oe.exchange.GetName(), req.Price, req.Quantity, req.Price*req.Quantity)
 			return nil, fmt.Errorf("订單金額不足（币安合約最小訂單金額為100 USDT）: %w", err)
 		} else if strings.Contains(errStr, "-1021") {
@@ -229,7 +238,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			return nil, err
 		} else if isReduceOnlyError(err) {
 			// 🔥 ReduceOnly订單被拒绝：無持倉時尝試减倉，不重試
-			logger.Warn("⚠️ [%s] ReduceOnly订單被拒绝（無持倉）: %s %.2f",
+			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] ReduceOnly订單被拒绝（無持倉）: %s %.2f",
 				oe.exchange.GetName(), req.Side, req.Price)
 			return nil, fmt.Errorf("ReduceOnly订單被拒绝（無持倉）: %w", err)
 		}
@@ -270,18 +279,18 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 	for _, orderReq := range orders {
 		order, err := oe.PlaceOrder(orderReq)
 		if err != nil {
-			logger.Error("❌ [%s] 下單失败 %.2f %s: %v",
-				oe.exchange.GetName(), orderReq.Price, orderReq.Side, err)
+			logger.ErrorCtx(oe.logCtx(), "❌ [%s] %s 下單失败 %.2f %s: %v",
+				oe.exchange.GetName(), orderReq.Symbol, orderReq.Price, orderReq.Side, err)
 
 			// 检查錯误類型
 			errStr := err.Error()
 			if strings.Contains(errStr, "保证金不足") || strings.Contains(errStr, "-2019") || strings.Contains(errStr, "insufficient") {
 				result.HasMarginError = true
-				logger.Error("❌ [保证金不足] 订單 %.2f %s 因保证金不足失败", orderReq.Price, orderReq.Side)
+				logger.ErrorCtx(oe.logCtx(), "❌ [保证金不足] 订單 %.2f %s 因保证金不足失败", orderReq.Price, orderReq.Side)
 			} else if isReduceOnlyError(err) {
 				// 記錄 ReduceOnly 錯误（系統會自動清空槽位，降級為 WARN 減少告警噪音）
 				result.ReduceOnlyErrors[orderReq.ClientOrderID] = true
-				logger.Warn("⚠️ [ReduceOnly] 订單 %.2f %s 無持倉，將清空槽位", orderReq.Price, orderReq.Side)
+				logger.WarnCtx(oe.logCtx(), "⚠️ [ReduceOnly] 订單 %.2f %s 無持倉，將清空槽位", orderReq.Price, orderReq.Side)
 			}
 			continue
 		}
@@ -303,16 +312,16 @@ func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
 
 	acquired, err := oe.lock.TryLock(ctx, lockKey, 3*time.Second)
 	if err != nil {
-		logger.Warn("⚠️ [%s] 獲取取消鎖失败: %v", exchangeName, err)
+		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 獲取取消鎖失败: %v", exchangeName, err)
 		// 鎖獲取失败不阻塞，继续執行（降级策略）
 	} else if !acquired {
-		logger.Debug("🔒 [%s] 订單 %d 正在被其他實例取消，跳過", exchangeName, orderID)
+		logger.DebugCtx(oe.logCtx(), "🔒 [%s] 订單 %d 正在被其他實例取消，跳過", exchangeName, orderID)
 		return nil // 跳過，不是錯误
 	} else {
 		// 成功獲取鎖，defer 释放
 		defer func() {
 			if unlockErr := oe.lock.Unlock(ctx, lockKey); unlockErr != nil {
-				logger.Warn("⚠️ [%s] 释放取消鎖失败: %v", exchangeName, unlockErr)
+				logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 释放取消鎖失败: %v", exchangeName, unlockErr)
 			}
 		}()
 	}
@@ -327,13 +336,13 @@ func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
 		// 如果是"Unknown order"錯误，說明订單已經不存在（可能已成交或已取消），不算錯误
 		errStr := err.Error()
 		if strings.Contains(errStr, "-2011") || strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "does not exist") {
-			logger.Info("ℹ️ [%s] 订單 %d 已不存在（可能已成交或已取消），跳過取消", oe.exchange.GetName(), orderID)
+			logger.InfoCtx(oe.logCtx(), "ℹ️ [%s] 订單 %d 已不存在（可能已成交或已取消），跳過取消", oe.exchange.GetName(), orderID)
 			return nil
 		}
 		return fmt.Errorf("取消訂單失败: %v", err)
 	}
 
-	logger.Info("✅ [%s] 取消訂單成功: %d", oe.exchange.GetName(), orderID)
+	logger.InfoCtx(oe.logCtx(), "✅ [%s] 取消訂單成功: %d", oe.exchange.GetName(), orderID)
 	return nil
 }
 
@@ -346,11 +355,11 @@ func (oe *ExchangeOrderExecutor) BatchCancelOrders(orderIDs []int64) error {
 	// 使用交易所的批量撤單接口
 	err := oe.exchange.BatchCancelOrders(context.Background(), oe.symbol, orderIDs)
 	if err != nil {
-		logger.Warn("⚠️ [%s] 批量撤單失败: %v，尝試單個撤單", oe.exchange.GetName(), err)
+		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 批量撤單失败: %v，尝試單個撤單", oe.exchange.GetName(), err)
 		// 如果批量撤單失败，尝試單個撤單
 		for _, orderID := range orderIDs {
 			if err := oe.CancelOrder(orderID); err != nil {
-				logger.Warn("⚠️ [%s] 取消訂單 %d 失败: %v", oe.exchange.GetName(), orderID, err)
+				logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 取消訂單 %d 失败: %v", oe.exchange.GetName(), orderID, err)
 			}
 		}
 	}

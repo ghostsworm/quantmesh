@@ -282,7 +282,7 @@
     "exchangePositionsForSymbol": "该交易对持仓（交易所数据）",
     "strategyHint": "策略参数与资金分配在左侧菜单的「策略配比」中设置",
     "riskHint": "风控监控与历史记录",
-    "logsHint": "消息中包含该交易对（与关键词筛选一致），每次最多请求 {{max}} 条，可按级别筛选。",
+    "logsHint": "按本 Bot 的 bot_id、交易所、市场类型与消息是否包含该交易对筛选（每次最多 {{max}} 条，可按级别）。",
     "logLevelFilter": "级别",
     "logLevelAll": "全部",
     "logFetchLimit": "条数",
