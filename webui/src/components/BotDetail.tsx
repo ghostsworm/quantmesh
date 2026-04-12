@@ -297,10 +297,10 @@ const BotDetail: React.FC = () => {
     try {
       const res = await getLogs({
         limit: logLimit,
+        bot_id: botId,
         keyword: bot.symbol,
         exchange: bot.exchange,
         market_type: bot.market_type || 'futures',
-        bot_id: botId,
         ...(logLevelFilter ? { level: logLevelFilter } : {}),
       })
       setLogs(res.logs || [])

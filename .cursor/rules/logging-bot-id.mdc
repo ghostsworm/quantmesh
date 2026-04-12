@@ -1,0 +1,22 @@
+---
+description: Bot 相關日誌必須在寫入時帶 bot_id；禁止用「查詢時去掉 bot_id」湊合
+alwaysApply: true
+---
+
+# 日誌與 `bot_id`（SQLite `logs` 表）
+
+## 原則
+
+- **`logs.bot_id` 的權威來源是「寫日誌時」**，透過 **`logger.WithBotID(ctx, botID)`** 注入上下文，再使用 **`InfoCtx` / `WarnCtx` / `ErrorCtx` / `DebugCtx`** 等寫庫（見 `logger` 包）。
+- **Bot 詳情頁、API `/api/logs` 等查詢應保留 `bot_id` 精確篩選**（與 `exchange` / `keyword` / `market_type` 等 AND 組合），**不得**為了「讓列表有東西看」而在前端或後端**默認去掉 `bot_id` 參數**。
+- 若某條日誌在 UI 上對應某個 Bot，但寫庫時未帶 `bot_id`，**正確修正是補齊寫入路徑**（例如在該運行時路徑傳入 `bot_id`、在執行器/適配器上注入），而不是改查詢條件。
+
+## 紅線
+
+- **禁止**以「查詢不帶 `bot_id`」作為長期方案掩蓋寫入缺失。
+- 新增或修改會進 **`logs` 表**、且語義上屬於某個 **Bot 實例**的日誌時，**應**使用 **`WithBotID`**，除非明確屬於全局/未綁定 Bot 的診斷信息。
+
+## 參考實作
+
+- **`order.ExchangeOrderExecutor`**：構造時注入 **`botID`**，內部統一 **`oe.logCtx()`** 再 **`*Ctx` 日誌**。
+- **`startSymbolRuntime` / `symbol_manager`**：創建執行器時傳入當前 **`botID`**。

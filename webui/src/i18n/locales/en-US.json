@@ -282,7 +282,7 @@
     "exchangePositionsForSymbol": "Positions for this symbol (exchange data)",
     "strategyHint": "Strategy params and capital allocation are configured in workspace",
     "riskHint": "Risk monitor and history",
-    "logsHint": "Logs whose message contains this symbol (keyword filter). Up to {{max}} rows per request; filter by level.",
+    "logsHint": "Filter by this bot's bot_id, exchange, market type, and message containing this symbol (up to {{max}} rows; level filter).",
     "logLevelFilter": "Level",
     "logLevelAll": "All levels",
     "logFetchLimit": "Rows",

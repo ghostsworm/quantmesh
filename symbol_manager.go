@@ -425,6 +425,7 @@ func startSymbolRuntime(
 		localCfg.Timing.RateLimitRetryDelay,
 		localCfg.Timing.OrderRetryDelay,
 		distributedLock,
+		botID,
 	)
 	executorAdapter := &exchangeExecutorAdapter{
 		executor:  exchangeExecutor,

@@ -251,7 +251,7 @@
     "exchangePositionsForSymbol": "該交易對持倉（交易所數據）",
     "strategyHint": "策略參數與資金分配在工作區中配置",
     "riskHint": "風控監控與歷史記錄",
-    "logsHint": "訊息中包含該交易對（關鍵字篩選），每次最多請求 {{max}} 條，可按級別篩選。",
+    "logsHint": "依本 Bot 的 bot_id、交易所、市場類型與訊息是否含該交易對篩選（每次最多 {{max}} 條，可按級別）。",
     "logLevelFilter": "級別",
     "logLevelAll": "全部",
     "logFetchLimit": "條數",
