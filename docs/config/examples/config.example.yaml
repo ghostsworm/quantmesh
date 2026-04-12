@@ -211,7 +211,7 @@ trading:
       order_cleanup_threshold: 50
       cleanup_batch_size: 20
       margin_lock_duration_seconds: 20
-      position_safety_check: 100
+      position_safety_check: 5
     - exchange: "binance"
       symbol: "BTCUSDT"
       price_interval: 10
@@ -223,7 +223,7 @@ trading:
       order_cleanup_threshold: 50
       cleanup_batch_size: 20
       margin_lock_duration_seconds: 20
-      position_safety_check: 100
+      position_safety_check: 5
 
   # 兼容旧版：单交易对配置（如配置了 symbols 会自动忽略此项）
   symbol: "ETHUSDT"
@@ -263,7 +263,7 @@ trading:
   margin_lock_duration_seconds: 20  # 保证金不足时锁定时间（秒，默认10秒）
   
   # 持仓安全性配置
-  position_safety_check: 100        # 持仓安全性检查（默认100，最少能向下持有多少仓）
+  position_safety_check: 5        # 持仓安全性检查（默认5，最少能向下持有多少仓）
 
 
 # 时间间隔配置

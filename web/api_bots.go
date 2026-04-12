@@ -407,7 +407,7 @@ func postBotCreate(c *gin.Context) {
 		bc.MarginLockDurationSec = 10
 	}
 	if bc.PositionSafetyCheck <= 0 {
-		bc.PositionSafetyCheck = 100
+		bc.PositionSafetyCheck = config.DefaultPositionSafetyCheck
 	}
 	if bc.Direction == "" {
 		bc.Direction = "LONG"
@@ -1043,7 +1043,7 @@ func applyBotDefaults(bc *config.BotConfig) {
 		bc.MarginLockDurationSec = 10
 	}
 	if bc.PositionSafetyCheck <= 0 {
-		bc.PositionSafetyCheck = 100
+		bc.PositionSafetyCheck = config.DefaultPositionSafetyCheck
 	}
 	if bc.Direction == "" {
 		bc.Direction = "LONG"

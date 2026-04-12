@@ -146,21 +146,21 @@ func checkMarginBuffer(cfg *config.Config) NewbieRiskCheckItem {
 	safetyCheck := cfg.Trading.PositionSafetyCheck
 	item := NewbieRiskCheckItem{Item: "资金护城河"}
 
-	if safetyCheck >= 100 {
+	if safetyCheck >= 50 {
 		item.Score = 100
 		item.Level = "safe"
 		item.Message = "资金儲备充足"
-		item.Advice = "您的配置能支援向下补倉100层以上，具有极强的抗风險能力。"
-	} else if safetyCheck >= 50 {
+		item.Advice = "您的配置能支援較多層向下補倉，抗單邊下跌能力較強。"
+	} else if safetyCheck >= 20 {
 		item.Score = 60
 		item.Level = "warning"
 		item.Message = "资金儲备一般"
-		item.Advice = "當前設置僅能支撑约50层补倉，在遇到30%以上的單边下跌時可能面临资金耗尽的风險。"
+		item.Advice = "當前設置補倉層數中等，劇烈單邊行情時仍可能面臨資金壓力，可視情況調低每單金額或提高保證金。"
 	} else {
 		item.Score = 0
 		item.Level = "danger"
 		item.Message = "资金严重不足"
-		item.Advice = "补倉层數設置過低。建议調低每單交易金額或增加账戶保证金，确保能支撑至少80-100层补倉。"
+		item.Advice = "補倉層數偏低。建議調低每單交易金額或增加帳戶保證金，或適度提高 position_safety_check（預設已較低，可依風險承受度調整）。"
 	}
 	return item
 }
@@ -264,13 +264,13 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 		}
 	}
 
-	// 4. 提高资金安全检查阈值
-	if newConfig.Trading.PositionSafetyCheck < 100 {
-		newConfig.Trading.PositionSafetyCheck = 100
+	// 4. 提高资金安全检查阈值（與 config.DefaultPositionSafetyCheck 對齊）
+	if newConfig.Trading.PositionSafetyCheck < config.DefaultPositionSafetyCheck {
+		newConfig.Trading.PositionSafetyCheck = config.DefaultPositionSafetyCheck
 	}
 	for i := range newConfig.Trading.Symbols {
-		if newConfig.Trading.Symbols[i].PositionSafetyCheck < 100 {
-			newConfig.Trading.Symbols[i].PositionSafetyCheck = 100
+		if newConfig.Trading.Symbols[i].PositionSafetyCheck < config.DefaultPositionSafetyCheck {
+			newConfig.Trading.Symbols[i].PositionSafetyCheck = config.DefaultPositionSafetyCheck
 		}
 	}
 

@@ -21,7 +21,7 @@ const (
 //   - orderAmount: 每笔交易金額（USDT/USDC）
 //   - priceInterval: 價格間隔（買入價和賣出價的差值）
 //   - feeRate: 手续费率
-//   - requiredPositions: 要求的最少持倉數量（預設 100）
+//   - requiredPositions: 要求的最少持倉數量（預設見 config.DefaultPositionSafetyCheck）
 //   - priceDecimals: 價格小數位數（用於格式化显示）
 //   - maxLeverage: 最大允許杠杆倍數（0表示不限制，默认使用DefaultMaxLeverage）
 func CheckAccountSafety(ex exchange.IExchange, symbol string, currentPrice, orderAmount, priceInterval, feeRate float64, requiredPositions, priceDecimals int, maxLeverage int) error {

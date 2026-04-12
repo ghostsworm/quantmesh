@@ -76,7 +76,7 @@ func (cs *ConfigService) ApplyAIConfig(aiConfig *GenerateConfigResponse, cfg *co
 					newSymCfg.MarginLockDurationSec = 10
 				}
 				if newSymCfg.PositionSafetyCheck == 0 {
-					newSymCfg.PositionSafetyCheck = 100
+					newSymCfg.PositionSafetyCheck = config.DefaultPositionSafetyCheck
 				}
 				cfg.Trading.Symbols = append(cfg.Trading.Symbols, newSymCfg)
 			}
