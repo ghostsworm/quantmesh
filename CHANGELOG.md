@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.96.0-rc1] - 2026-04-12
+
+### Added
+- **OKX 現貨**：`StartPriceStream` 透過公共 WebSocket 訂閱 `tickers`（與合約適配器相同），支援僅 WebSocket 作為價格來源的啟動流程；`GetLatestPrice` 優先讀取 WS 緩存。
+
+### Tests
+- `exchange/okx`：`symbolToSpotInstId` 單元測試。
+
+---
+
 ## [3.95.0-rc3] - 2026-04-12
 
 ### Fixed
