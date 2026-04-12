@@ -270,7 +270,7 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 	for _, orderReq := range orders {
 		order, err := oe.PlaceOrder(orderReq)
 		if err != nil {
-			logger.Warn("⚠️ [%s] 下單失败 %.2f %s: %v",
+			logger.Error("❌ [%s] 下單失败 %.2f %s: %v",
 				oe.exchange.GetName(), orderReq.Price, orderReq.Side, err)
 
 			// 检查錯误類型

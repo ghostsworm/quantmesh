@@ -3,6 +3,7 @@ package okx
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,11 @@ type OKXSpotAdapter struct {
 	wsManager        *WebSocketManager // 公共 tickers 價格流（與合約適配器相同）
 	spotOrderWS      *SpotOrderWebSocketManager
 	klineWS          *KlineWebSocketManager
+
+	// 來自 instruments（用於價格/數量對齊與最小下單量校驗）
+	tickSz float64
+	lotSz  float64
+	minSz  float64
 }
 
 // NewOKXSpotAdapter 創建 OKX 現貨适配器
@@ -65,6 +71,9 @@ func NewOKXSpotAdapter(cfg map[string]string, symbol string) (*OKXSpotAdapter, e
 		logger.Warn("⚠️ [OKX Spot] 獲取交易對信息失败: %v，使用默认精度", err)
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 5
+		adapter.tickSz = 0.1
+		adapter.lotSz = 0.00000001
+		adapter.minSz = 0.00001
 		adapter.baseAsset = strings.Split(instId, "-")[0]
 		adapter.quoteAsset = "USDT"
 	}
@@ -79,6 +88,10 @@ func (o *OKXSpotAdapter) fetchSpotInstrument(ctx context.Context) error {
 	inst := instruments[0]
 	tickSz, _ := strconv.ParseFloat(inst.TickSz, 64)
 	lotSz, _ := strconv.ParseFloat(inst.LotSz, 64)
+	minSz, _ := strconv.ParseFloat(inst.MinSz, 64)
+	o.tickSz = tickSz
+	o.lotSz = lotSz
+	o.minSz = minSz
 	o.priceDecimals = getPrecision(tickSz)
 	o.quantityDecimals = getPrecision(lotSz)
 	o.baseAsset = inst.CtValCcy
@@ -106,17 +119,62 @@ func (o *OKXSpotAdapter) GetMarketType() string {
 	return "spot"
 }
 
+// roundToOKXTick 將限價對齊到 tickSz（OKX 拒絕不符合 tick 的 px 時常回外層 code=1）
+func roundToOKXTick(price, tick float64) float64 {
+	if tick <= 0 || math.IsNaN(price) {
+		return price
+	}
+	ratio := price / tick
+	// 補償 float64 十進位小數誤差（例如 70052.95/0.1 略小於 700529.5）
+	steps := math.Round(ratio + 1e-8)
+	return steps * tick
+}
+
+// floorToOKXLot 將數量向下對齊到 lotSz，避免浮點餘數導致低於最小步長
+func floorToOKXLot(qty, lot float64) float64 {
+	if lot <= 0 || math.IsNaN(qty) {
+		return qty
+	}
+	return math.Floor(qty/lot+1e-12) * lot
+}
+
 // PlaceOrder 下單（現貨 tdMode=cash，忽略 ReduceOnly）
 func (o *OKXSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	side := string(req.Side)
 	orderType := string(req.Type)
+
+	price := req.Price
+	if o.tickSz > 0 {
+		price = roundToOKXTick(req.Price, o.tickSz)
+	}
+	qty := req.Quantity
+	if o.lotSz > 0 {
+		qty = floorToOKXLot(req.Quantity, o.lotSz)
+	}
+	if qty <= 0 {
+		return nil, fmt.Errorf("數量對齊後為零（lotSz=%.10f），請調大 order_quantity", o.lotSz)
+	}
+	if o.minSz > 0 && qty+1e-12 < o.minSz {
+		return nil, fmt.Errorf("數量 %.8f 低於 OKX 最小下單量 minSz=%.8f %s（請調大 order_quantity 或檢查價格）",
+			qty, o.minSz, o.baseAsset)
+	}
+
+	pxDecimals := o.priceDecimals
+	if pxDecimals <= 0 {
+		pxDecimals = 8
+	}
+	szDecimals := o.quantityDecimals
+	if szDecimals <= 0 {
+		szDecimals = 8
+	}
+
 	orderReq := map[string]interface{}{
 		"instId":  o.instId,
 		"tdMode":  "cash", // 現貨
 		"side":    side,
 		"ordType": orderType,
-		"sz":      fmt.Sprintf("%.*f", o.quantityDecimals, req.Quantity),
-		"px":      fmt.Sprintf("%.*f", req.PriceDecimals, req.Price),
+		"sz":      fmt.Sprintf("%.*f", szDecimals, qty),
+		"px":      fmt.Sprintf("%.*f", pxDecimals, price),
 	}
 	if req.PostOnly {
 		orderReq["postOnly"] = true
@@ -142,8 +200,8 @@ func (o *OKXSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		Symbol:        o.symbol,
 		Side:          req.Side,
 		Type:          req.Type,
-		Price:         req.Price,
-		Quantity:      req.Quantity,
+		Price:         price,
+		Quantity:      qty,
 		Status:        OrderStatusNew,
 		CreatedAt:     time.Now(),
 		UpdateTime:    time.Now().UnixMilli(),
