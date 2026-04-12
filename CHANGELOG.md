@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.101.0-rc10] - 2026-04-12
+
+### Fixed
+- **Web API `PickPriceProvider`**：`priceProviders` 映射缺失時，改從 **SymbolManager**（`GetEx` + `List` 匹配配置）解析运行時 `PriceMonitor`，避免回退到默認所價格源；**`registerWebSymbolProvidersForRuntime`** 在「已註冊 Status」提前返回時仍 **Upsert** 價格/持倉適配器，修復僅有 Status 無 Price 映射時日誌出現 `no provider found for key=okx:...` 並誤用默認 Provider 的問題。
+- **對账恢複**：`RestoreReconciliationStats` 對 `*storage.ReconciliationHistory` 改為 **循環解引用** 至 struct，避免多層指針時誤報「對账記錄類型錯误」。
+
+---
+
 ## [3.101.0-rc9] - 2026-04-12
 
 ### Fixed

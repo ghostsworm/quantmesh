@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.101.0-rc9"
+var Version = "3.101.0-rc10"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -3546,6 +3546,13 @@ func registerWebSymbolProvidersForRuntime(rt *SymbolRuntime, bc *config.BotConfi
 	ex := bc.Exchange
 	sym := bc.Symbol
 	if web.IsSymbolStatusRegistered(ex, sym, mt) {
+		// 早期路徑可能只寫入了 Status，priceProviders 仍為空 → PickPriceProvider 落到默認所；在此補齊
+		if rt.PriceMonitor != nil {
+			web.UpsertPriceProviderForKey(ex, sym, mt, rt.PriceMonitor)
+		}
+		if rt.SuperPositionManager != nil {
+			web.UpsertPositionProviderForKey(ex, sym, mt, web.NewPositionManagerAdapter(rt.SuperPositionManager))
+		}
 		return
 	}
 	status := &web.SystemStatus{
