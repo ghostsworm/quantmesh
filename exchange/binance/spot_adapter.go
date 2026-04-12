@@ -35,6 +35,8 @@ type BinanceSpotAdapter struct {
 
 	// WebSocket 管理器
 	wsManager *SpotWebSocketManager
+	orderWS   *SpotUserDataWebSocketManager
+	klineWS   *KlineWebSocketManager // NewSpotKlineWebSocketManager
 }
 
 // NewBinanceSpotAdapter 創建币安現貨适配器
@@ -477,18 +479,32 @@ func (b *BinanceSpotAdapter) GetBalance(ctx context.Context, asset string) (floa
 	return 0, nil
 }
 
-// StartOrderStream 現貨訂單流（暂用輪詢，可后续接 User Data Stream）
+// StartOrderStream 現貨 User Data Stream（executionReport）
 func (b *BinanceSpotAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	return fmt.Errorf("現貨訂單流暂未實現，请依赖對账輪詢")
+	if b.orderWS == nil {
+		b.orderWS = NewSpotUserDataWebSocketManager(b.client, b.useTestnet)
+	}
+	return b.orderWS.Start(ctx, func(up OrderUpdate) {
+		callback(up)
+	})
 }
 
 // StopOrderStream 停止訂單流
 func (b *BinanceSpotAdapter) StopOrderStream() error {
+	if b.orderWS != nil {
+		b.orderWS.Stop()
+		b.orderWS = nil
+	}
 	return nil
 }
 
-// GetLatestPrice 獲取最新價（現貨）
+// GetLatestPrice 獲取最新價（現貨，優先 WebSocket 緩存）
 func (b *BinanceSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	if b.wsManager != nil {
+		if p := b.wsManager.GetLatestPrice(); p > 0 {
+			return p, nil
+		}
+	}
 	ticker, err := b.client.NewListPricesService().Symbol(symbol).Do(ctx)
 	if err != nil {
 		return 0, err
@@ -504,13 +520,20 @@ func (b *BinanceSpotAdapter) StartPriceStream(ctx context.Context, symbol string
 	return b.wsManager.StartPriceStream(ctx, symbol, callback)
 }
 
-// StartKlineStream 啟動K線流
+// StartKlineStream 啟動現貨 K 線流（combined stream）
 func (b *BinanceSpotAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(interface{})) error {
-	return fmt.Errorf("現貨K線流暂未實現")
+	if b.klineWS == nil {
+		b.klineWS = NewSpotKlineWebSocketManager(b.useTestnet)
+	}
+	return b.klineWS.Start(ctx, symbols, interval, callback)
 }
 
 // StopKlineStream 停止K線流
 func (b *BinanceSpotAdapter) StopKlineStream() error {
+	if b.klineWS != nil {
+		b.klineWS.Stop()
+		b.klineWS = nil
+	}
 	return nil
 }
 

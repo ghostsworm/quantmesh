@@ -24,6 +24,10 @@ const (
 
 	PublicWsURL        = "wss://stream.bybit.com/v5/public/linear"
 	PublicTestnetWsURL = "wss://stream-testnet.bybit.com/v5/public/linear"
+
+	// 現貨公共行情（與 linear 分屬不同路徑）
+	PublicSpotWsURL        = "wss://stream.bybit.com/v5/public/spot"
+	PublicSpotTestnetWsURL = "wss://stream-testnet.bybit.com/v5/public/spot"
 )
 
 // WebSocketManager WebSocket 管理器
@@ -164,6 +168,38 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, symbol string, 
 	go w.readPriceMessages(conn)
 
 	logger.Info("✅ [Bybit WebSocket] 價格流已啟动")
+	return nil
+}
+
+// StartSpotPriceStream 啟動現貨價格流（公共 spot WebSocket + tickers.{symbol}）
+func (w *WebSocketManager) StartSpotPriceStream(ctx context.Context, symbol string, callback func(float64)) error {
+	w.priceCallback = callback
+
+	wsURL := PublicSpotWsURL
+	if w.useTestnet {
+		wsURL = PublicSpotTestnetWsURL
+	}
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("连接現貨價格流 WebSocket 失败: %w", err)
+	}
+
+	subMsg := map[string]interface{}{
+		"op": "subscribe",
+		"args": []string{
+			fmt.Sprintf("tickers.%s", symbol),
+		},
+	}
+
+	if err := conn.WriteJSON(subMsg); err != nil {
+		conn.Close()
+		return fmt.Errorf("订阅現貨價格频道失败: %w", err)
+	}
+
+	go w.readPriceMessages(conn)
+
+	logger.Info("✅ [Bybit WebSocket] 現貨價格流已啟动")
 	return nil
 }
 

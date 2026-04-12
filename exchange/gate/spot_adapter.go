@@ -21,6 +21,8 @@ type GateSpotAdapter struct {
 	quantityDecimals int
 	baseAsset        string
 	quoteAsset       string
+	testnet          bool
+	spotPriceWS      *SpotPriceWebSocketManager
 }
 
 // NewGateSpotAdapter 創建 Gate.io 現貨适配器
@@ -37,9 +39,11 @@ func NewGateSpotAdapter(cfg map[string]string, symbol string) (*GateSpotAdapter,
 	gateSymbol := convertToGateSymbol(symbol)
 
 	adapter := &GateSpotAdapter{
-		client:     client,
-		symbol:     symbol,
-		gateSymbol: gateSymbol,
+		client:      client,
+		symbol:      symbol,
+		gateSymbol:  gateSymbol,
+		testnet:     testnet,
+		spotPriceWS: NewSpotPriceWebSocketManager(testnet),
 	}
 
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -426,8 +430,13 @@ func (g *GateSpotAdapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 最新價
+// GetLatestPrice 最新價（優先 WebSocket 緩存）
 func (g *GateSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	if g.spotPriceWS != nil {
+		if p := g.spotPriceWS.GetLatestPrice(); p > 0 {
+			return p, nil
+		}
+	}
 	path := "/spot/tickers"
 	query := fmt.Sprintf("currency_pair=%s", g.gateSymbol)
 	resp, err := g.client.DoRequest(ctx, "GET", path, query, nil)
@@ -444,9 +453,12 @@ func (g *GateSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (fl
 	return strconv.ParseFloat(list[0].Last, 64)
 }
 
-// StartPriceStream 暂不實現
+// StartPriceStream 公共 WebSocket spot.tickers
 func (g *GateSpotAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
-	return fmt.Errorf("Gate 現貨價格流暂未實現")
+	if g.spotPriceWS == nil {
+		g.spotPriceWS = NewSpotPriceWebSocketManager(g.testnet)
+	}
+	return g.spotPriceWS.Start(ctx, g.gateSymbol, callback)
 }
 
 // StartKlineStream 暂不實現

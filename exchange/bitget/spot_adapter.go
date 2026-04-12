@@ -20,6 +20,8 @@ type BitgetSpotAdapter struct {
 	quantityDecimals int
 	baseAsset        string
 	quoteAsset       string
+	testnet          bool
+	spotPriceWS      *SpotPublicPriceWS
 }
 
 // NewBitgetSpotAdapter 創建 Bitget 現貨适配器
@@ -35,8 +37,10 @@ func NewBitgetSpotAdapter(cfg map[string]string, symbol string) (*BitgetSpotAdap
 
 	client := NewClient(apiKey, secretKey, passphrase, testnet)
 	adapter := &BitgetSpotAdapter{
-		client: client,
-		symbol: symbol,
+		client:      client,
+		symbol:      symbol,
+		testnet:     testnet,
+		spotPriceWS: NewSpotPublicPriceWS(testnet),
 	}
 
 	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -423,8 +427,13 @@ func (b *BitgetSpotAdapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 最新價
+// GetLatestPrice 最新價（優先 WebSocket 緩存）
 func (b *BitgetSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	if b.spotPriceWS != nil {
+		if p := b.spotPriceWS.GetLatestPrice(); p > 0 {
+			return p, nil
+		}
+	}
 	bitgetSymbol := convertToBitgetSymbol(symbol)
 	path := fmt.Sprintf("/api/v2/spot/market/tickers?symbol=%s", bitgetSymbol)
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
@@ -441,9 +450,13 @@ func (b *BitgetSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (
 	return strconv.ParseFloat(results[0].LastPr, 64)
 }
 
-// StartPriceStream 暂不實現
+// StartPriceStream 公共 WebSocket SPOT ticker
 func (b *BitgetSpotAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
-	return fmt.Errorf("Bitget 現貨價格流暂未實現")
+	if b.spotPriceWS == nil {
+		b.spotPriceWS = NewSpotPublicPriceWS(b.testnet)
+	}
+	inst := convertToBitgetSymbol(b.symbol)
+	return b.spotPriceWS.Start(ctx, inst, callback)
 }
 
 // StartKlineStream 暂不實現
