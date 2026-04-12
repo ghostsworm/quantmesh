@@ -32,7 +32,7 @@ import {
 } from '@chakra-ui/react'
 import DecimalNumberInput from './DecimalNumberInput'
 import { normalizeGridRiskControlPayload } from '../utils/gridRiskControlPayload'
-import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons'
+import { ChevronDownIcon, ChevronUpIcon, WarningIcon } from '@chakra-ui/icons'
 
 // @chakra-ui/icons 不提供 PauseIcon/PlayIcon，使用自定义 SVG
 const PlayIcon = (props: React.ComponentProps<typeof Icon>) => (
@@ -55,7 +55,12 @@ import {
   resumeBotOpening,
   BotRiskControl as BotRiskControlType,
   PositionStatus,
+  getBotConfigFile,
+  updateBotConfigFile,
+  type BotConfigFile,
+  type BotConfigFileResponse,
 } from '../services/api'
+import { DEFAULT_POSITION_SAFETY_CHECK } from '../services/config'
 import { displayPauseOpeningReason } from '../utils/botPauseReason'
 
 interface BotRiskControlPanelProps {
@@ -86,6 +91,12 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
   const [updating, setUpdating] = useState(false)
   const [pausing, setPausing] = useState(false)
 
+  const [configFileResp, setConfigFileResp] = useState<BotConfigFileResponse | null>(null)
+  const [configFileLoading, setConfigFileLoading] = useState(true)
+  const [configFileError, setConfigFileError] = useState<string | null>(null)
+  const [positionSafetyDraft, setPositionSafetyDraft] = useState(DEFAULT_POSITION_SAFETY_CHECK)
+  const [savingPositionSafety, setSavingPositionSafety] = useState(false)
+
   // 使用 ref 避免依赖项变化导致定时器重建
   const botIdRef = useRef(botId)
 
@@ -93,6 +104,77 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
   useEffect(() => {
     botIdRef.current = botId
   }, [botId])
+
+  useEffect(() => {
+    let cancelled = false
+    setConfigFileLoading(true)
+    setConfigFileError(null)
+    getBotConfigFile(botId)
+      .then((r) => {
+        if (cancelled) return
+        setConfigFileResp(r)
+        const v = r.config?.advanced?.position_safety_check
+        const n =
+          typeof v === 'number' && Number.isFinite(v) && v >= 1
+            ? Math.min(1_000_000, Math.floor(v))
+            : DEFAULT_POSITION_SAFETY_CHECK
+        setPositionSafetyDraft(n)
+      })
+      .catch((err: Error & { status?: number }) => {
+        if (cancelled) return
+        setConfigFileError(err?.message || 'load failed')
+      })
+      .finally(() => {
+        if (!cancelled) setConfigFileLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [botId])
+
+  const handleSavePositionSafety = useCallback(async () => {
+    if (!configFileResp?.config) return
+    if (botRunning) {
+      toast({
+        title: t('botRiskControl.positionSafetyNeedStopBot'),
+        status: 'warning',
+        duration: 5000,
+        isClosable: true,
+      })
+      return
+    }
+    const merged: BotConfigFile = {
+      ...configFileResp.config,
+      advanced: {
+        ...configFileResp.config.advanced,
+        position_safety_check: positionSafetyDraft,
+      },
+    }
+    setSavingPositionSafety(true)
+    try {
+      await updateBotConfigFile(botId, merged)
+      setConfigFileResp((prev) => (prev ? { ...prev, config: merged } : prev))
+      toast({ title: t('common.success'), status: 'success', duration: 2500 })
+    } catch (e: unknown) {
+      const err = e as Error & { status?: number }
+      if (err.status === 409) {
+        toast({
+          title: t('botRiskControl.positionSafetyNeedStopBot'),
+          status: 'warning',
+          duration: 6000,
+          isClosable: true,
+        })
+      } else {
+        toast({
+          title: err?.message || t('common.error'),
+          status: 'error',
+          duration: 4000,
+        })
+      }
+    } finally {
+      setSavingPositionSafety(false)
+    }
+  }, [botId, botRunning, configFileResp, positionSafetyDraft, t, toast])
 
   // 使用 useCallback 缓存函数，避免不必要的重新渲染
   const fetchRiskControl = useCallback(async () => {
@@ -249,11 +331,98 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
     </Alert>
   )
 
+  const positionSafetyCard = (
+    <Card>
+      <CardBody>
+        <HStack spacing={2} mb={3}>
+          <WarningIcon color="orange.400" />
+          <Heading size="sm">{t('botRiskControl.positionSafetyTitle')}</Heading>
+        </HStack>
+        <Text fontSize="sm" color="gray.600" mb={4}>
+          {t('botRiskControl.positionSafetyDesc')}
+        </Text>
+        {configFileLoading ? (
+          <Flex justify="center" py={6}>
+            <Spinner size="md" />
+          </Flex>
+        ) : configFileError ? (
+          <Alert status="error" borderRadius="md" variant="subtle">
+            <AlertIcon />
+            <Box>
+              <Text fontSize="sm">{t('botRiskControl.positionSafetyLoadFailed')}</Text>
+              <Text fontSize="xs" color="gray.600" mt={1} wordBreak="break-word">
+                {configFileError}
+              </Text>
+            </Box>
+          </Alert>
+        ) : (
+          <>
+            <FormControl maxW="md">
+              <FormLabel fontSize="xs" fontWeight="bold">
+                {t('configuration.positionSafetyCheck')}
+              </FormLabel>
+              <NumberInput
+                value={positionSafetyDraft}
+                onChange={(_, v) => {
+                  const n = Number.isFinite(v)
+                    ? Math.max(1, Math.min(1_000_000, Math.floor(v)))
+                    : DEFAULT_POSITION_SAFETY_CHECK
+                  setPositionSafetyDraft(n)
+                }}
+                min={1}
+                max={1000000}
+                step={1}
+                size="md"
+                isDisabled={botRunning}
+              >
+                <NumberInputField borderRadius="md" />
+                <NumberInputStepper>
+                  <NumberIncrementStepper />
+                  <NumberDecrementStepper />
+                </NumberInputStepper>
+              </NumberInput>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                {t('configuration.positionSafetyCheckHint')}
+              </Text>
+            </FormControl>
+            {botRunning && (
+              <Alert status="warning" borderRadius="md" variant="subtle" mt={4}>
+                <AlertIcon />
+                <Text fontSize="sm">{t('botRiskControl.positionSafetyReadOnlyWhileRunning')}</Text>
+              </Alert>
+            )}
+            <Flex mt={4} gap={3} flexWrap="wrap" align="center">
+              <Button
+                size="sm"
+                colorScheme="blue"
+                onClick={handleSavePositionSafety}
+                isLoading={savingPositionSafety}
+                isDisabled={botRunning || savingPositionSafety}
+              >
+                {t('botRiskControl.positionSafetySave')}
+              </Button>
+              <ChakraLink
+                as={RouterLink}
+                to={`/bots/${encodeURIComponent(botId)}/config`}
+                fontSize="sm"
+                color="blue.500"
+                fontWeight="600"
+              >
+                {t('botRiskControl.positionSafetyOpenBotConfig')}
+              </ChakraLink>
+            </Flex>
+          </>
+        )}
+      </CardBody>
+    </Card>
+  )
+
   if (loading) {
     return (
       <VStack spacing={4} align="stretch">
         {marketRiskBanner}
         {globalMarketRiskHintBanner}
+        {positionSafetyCard}
         <Flex justify="center" align="center" minH="200px">
           <Spinner size="lg" />
         </Flex>
@@ -266,6 +435,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
       {marketRiskBanner}
       {pauseOpeningBanner}
       {globalMarketRiskHintBanner}
+      {positionSafetyCard}
       {/* 当前状态卡片（可隱藏，已移至概覽） */}
       {!hidePositionStatus && (
       <Card>

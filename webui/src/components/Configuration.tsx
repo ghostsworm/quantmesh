@@ -2600,27 +2600,6 @@ const Configuration: React.FC = () => {
                           )}
                         </FormControl>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.positionSafetyCheck')}</FormLabel>
-                          <NumberInput
-                            value={(getSelectedSymbolConfig()?.position_safety_check ?? config.trading?.position_safety_check ?? DEFAULT_POSITION_SAFETY_CHECK)}
-                            onChange={(_, v) => {
-                              const n = Number.isFinite(v) ? Math.max(1, Math.min(1_000_000, Math.floor(v))) : DEFAULT_POSITION_SAFETY_CHECK
-                              updateSelectedSymbolField('position_safety_check', n)
-                            }}
-                            min={1}
-                            max={1000000}
-                            step={1}
-                            size="md"
-                          >
-                            <NumberInputField borderRadius="xl" />
-                            <NumberInputStepper>
-                              <NumberIncrementStepper />
-                              <NumberDecrementStepper />
-                            </NumberInputStepper>
-                          </NumberInput>
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.positionSafetyCheckHint')}</Text>
-                        </FormControl>
-                        <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buyWindowSize')}</FormLabel>
                           <WindowSizeSlider
                             value={(getSelectedSymbolConfig()?.buy_window_size ?? config.trading?.buy_window_size) || 0}
@@ -3472,6 +3451,33 @@ const Configuration: React.FC = () => {
                       </AlertDescription>
                     </Box>
                   </Alert>
+
+                  <ConfigCard title={t('configuration.startupRiskChecksTitle')} icon={<WarningIcon />}>
+                    <Text fontSize="sm" color="gray.600" mb={4}>
+                      {t('configuration.startupRiskChecksIntro')}
+                    </Text>
+                    <FormControl maxW="md">
+                      <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.positionSafetyCheck')}</FormLabel>
+                      <NumberInput
+                        value={(getSelectedSymbolConfig()?.position_safety_check ?? config.trading?.position_safety_check ?? DEFAULT_POSITION_SAFETY_CHECK)}
+                        onChange={(_, v) => {
+                          const n = Number.isFinite(v) ? Math.max(1, Math.min(1_000_000, Math.floor(v))) : DEFAULT_POSITION_SAFETY_CHECK
+                          updateSelectedSymbolField('position_safety_check', n)
+                        }}
+                        min={1}
+                        max={1000000}
+                        step={1}
+                        size="md"
+                      >
+                        <NumberInputField borderRadius="xl" />
+                        <NumberInputStepper>
+                          <NumberIncrementStepper />
+                          <NumberDecrementStepper />
+                        </NumberInputStepper>
+                      </NumberInput>
+                      <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.positionSafetyCheckHint')}</Text>
+                    </FormControl>
+                  </ConfigCard>
 
                   <ConfigCard title={t('configuration.newsMonitorTitle')} icon={<BellIcon />}>
                     <Flex justify="space-between" align="center" mb={6}>
