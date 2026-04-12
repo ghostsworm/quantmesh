@@ -44,7 +44,8 @@ const Positions: React.FC = () => {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const data = await getPositions(selectedExchange || undefined, selectedSymbol || undefined)
+        const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
+        const data = await getPositions(selectedExchange || undefined, selectedSymbol || undefined, mt)
         console.log('[Positions] API Response:', data)
         console.log('[Positions] Response keys:', Object.keys(data || {}))
         console.log('[Positions] Summary:', data?.summary)
@@ -72,7 +73,7 @@ const Positions: React.FC = () => {
     const interval = setInterval(fetchData, 5000)
 
     return () => clearInterval(interval)
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   // 獲取當前交易對的方向（做多/做空）
   useEffect(() => {
@@ -98,7 +99,8 @@ const Positions: React.FC = () => {
     if (!selectedExchange || !selectedSymbol) return
     setCancellingAllBuy(true)
     try {
-      const { orders } = await getPendingOrders(selectedExchange, selectedSymbol)
+      const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
+      const { orders } = await getPendingOrders(selectedExchange, selectedSymbol, mt)
       const buyOrderIds = (orders || []).filter(o => (o.side || '').toUpperCase() === 'BUY').map(o => o.order_id)
       if (buyOrderIds.length === 0) {
         toast({

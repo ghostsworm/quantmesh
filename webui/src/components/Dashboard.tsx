@@ -152,14 +152,16 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const mt =
+          selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
         const [statusData, statsData, slotsData, allocationData, ordersData, positionsData, runtimeStatuses] = await Promise.all([
-          getStatus(selectedExchange || undefined, selectedSymbol || undefined, selectedMarketType ?? undefined),
-          getStatistics(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
-          getSlots(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
+          getStatus(selectedExchange || undefined, selectedSymbol || undefined, mt),
+          getStatistics(selectedExchange || undefined, selectedSymbol || undefined, mt).catch(() => null),
+          getSlots(selectedExchange || undefined, selectedSymbol || undefined, mt).catch(() => null),
           getStrategyAllocation().catch(() => null),
-          getPendingOrders().catch(() => null),
-          getPositionsSummary(selectedExchange || undefined, selectedSymbol || undefined).catch(() => null),
-          getStrategyRuntimeStatus(selectedExchange || undefined, selectedSymbol || undefined).catch(() => ({ success: true, strategies: [] })),
+          getPendingOrders(selectedExchange || undefined, selectedSymbol || undefined, mt).catch(() => null),
+          getPositionsSummary(selectedExchange || undefined, selectedSymbol || undefined, mt).catch(() => null),
+          getStrategyRuntimeStatus(selectedExchange || undefined, selectedSymbol || undefined, mt).catch(() => ({ success: true, strategies: [] })),
         ])
         setStatus(statusData)
         setStatistics(statsData)

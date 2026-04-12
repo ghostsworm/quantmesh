@@ -52,7 +52,7 @@ const StrategyDetail: React.FC = () => {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const res = await getStrategyRuntimeStatusById(strategyName, exchange, symbol)
+        const res = await getStrategyRuntimeStatusById(strategyName, exchange, symbol, marketType)
         if (res.success && res.strategy) {
           setStrategy(res.strategy)
         } else {

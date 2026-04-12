@@ -461,10 +461,11 @@ export interface PositionsResponse {
   summary: PositionSummary
 }
 
-export async function getPositions(exchange?: string, symbol?: string): Promise<PositionsResponse> {
+export async function getPositions(exchange?: string, symbol?: string, marketType?: string): Promise<PositionsResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/positions${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -519,10 +520,11 @@ export interface PositionsSummary {
   }
 }
 
-export async function getPositionsSummary(exchange?: string, symbol?: string): Promise<PositionsSummary> {
+export async function getPositionsSummary(exchange?: string, symbol?: string, marketType?: string): Promise<PositionsSummary> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/positions/summary${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -604,10 +606,11 @@ export interface OrdersResponse {
   leverage?: number     // 杠杆倍数，用于计算资金占用
 }
 
-export async function getOrders(exchange?: string, symbol?: string): Promise<OrdersResponse> {
+export async function getOrders(exchange?: string, symbol?: string, marketType?: string): Promise<OrdersResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/orders${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -619,6 +622,7 @@ export interface OrderHistoryParams {
   end_time?: string
   exchange?: string
   symbol?: string
+  market_type?: string
 }
 
 export async function getOrderHistory(params?: OrderHistoryParams): Promise<OrdersResponse> {
@@ -629,7 +633,8 @@ export async function getOrderHistory(params?: OrderHistoryParams): Promise<Orde
   if (params?.end_time) queryParams.append('end_time', params.end_time)
   if (params?.exchange) queryParams.append('exchange', params.exchange)
   if (params?.symbol) queryParams.append('symbol', params.symbol)
-  
+  if (params?.market_type) queryParams.append('market_type', params.market_type)
+
   const url = `${API_BASE_URL}/orders/history${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -655,10 +660,11 @@ export interface PendingOrdersResponse {
   leverage?: number  // 杠杆倍数，用于计算资金占用
 }
 
-export async function getPendingOrders(exchange?: string, symbol?: string): Promise<PendingOrdersResponse> {
+export async function getPendingOrders(exchange?: string, symbol?: string, marketType?: string): Promise<PendingOrdersResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/orders/pending${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -830,10 +836,11 @@ export interface StatisticsSummary {
 }
 
 // /statistics 直接返回彙總字段（非 {summary: ...} 包装）
-export async function getStatistics(exchange?: string, symbol?: string): Promise<StatisticsSummary> {
+export async function getStatistics(exchange?: string, symbol?: string, marketType?: string): Promise<StatisticsSummary> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/statistics${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -867,10 +874,11 @@ export interface DailyStatisticsResponse {
   market_type?: string
 }
 
-export async function getDailyStatistics(exchange?: string, symbol?: string, days?: number): Promise<DailyStatisticsResponse> {
+export async function getDailyStatistics(exchange?: string, symbol?: string, days?: number, marketType?: string): Promise<DailyStatisticsResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   // 默认查詢365天（1年）的历史數據，确保显示所有交易記錄
   if (days !== undefined) {
     queryParams.append('days', days.toString())
@@ -1071,13 +1079,15 @@ export async function getExchangePnLDiagnosis(
   exchange?: string,
   symbol?: string,
   startTime?: string,
-  endTime?: string
+  endTime?: string,
+  marketType?: string
 ): Promise<ExchangePnLDiagnosisResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
   if (startTime) queryParams.append('start_time', startTime)
   if (endTime) queryParams.append('end_time', endTime)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/statistics/pnl/diagnosis${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -1311,10 +1321,11 @@ export interface SlotsResponse {
   slots: SlotInfo[]
 }
 
-export async function getSlots(exchange?: string, symbol?: string): Promise<SlotsResponse> {
+export async function getSlots(exchange?: string, symbol?: string, marketType?: string): Promise<SlotsResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
   const url = `${API_BASE_URL}/slots${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }

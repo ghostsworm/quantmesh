@@ -75,7 +75,7 @@ const Statistics: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { botId } = useBot()
-  const { selectedExchange, selectedSymbol } = useSymbol()
+  const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const [stats, setStats] = useState<StatisticsData | null>(null)
   const [dailyStats, setDailyStats] = useState<DailyStatistics[]>([])
   const [maxDrawdown, setMaxDrawdown] = useState<number>(0)
@@ -100,7 +100,10 @@ const Statistics: React.FC = () => {
     try {
       const data = await getExchangePnLDiagnosis(
         selectedExchange || undefined,
-        selectedSymbol || undefined
+        selectedSymbol || undefined,
+        undefined,
+        undefined,
+        selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
       )
       setDiagnosisData(data)
     } catch (err) {
@@ -115,9 +118,10 @@ const Statistics: React.FC = () => {
       try {
         setLoading(true)
         // 查詢365天的历史數據，确保显示所有交易記錄
+        const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
         const [statsData, dailyData] = await Promise.all([
-          getStatistics(selectedExchange || undefined, selectedSymbol || undefined),
-          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined, 365).catch(() => ({
+          getStatistics(selectedExchange || undefined, selectedSymbol || undefined, mt),
+          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined, 365, mt).catch(() => ({
             statistics: [],
             max_drawdown: 0,
             max_drawdown_pct: 0,
@@ -142,7 +146,7 @@ const Statistics: React.FC = () => {
     const interval = setInterval(fetchData, 30000)
 
     return () => clearInterval(interval)
-  }, [selectedExchange, selectedSymbol])
+  }, [selectedExchange, selectedSymbol, selectedMarketType])
 
   const filteredDailyStats = useMemo(
     () => filterDailyStatsByRecentDays(dailyStats, days),
