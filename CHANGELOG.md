@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.95.0-rc1] - 2026-04-12
+
+### Added
+- **Gemini 用量**：後端在每次 `AIService.GenerateContent` 與 Agent `GeminiClient` 非流式調用成功後，記錄時間、模型、來源、輸入/輸出 token、耗時（進程內環形緩衝，約 300 條）。
+- **API**：`GET /api/ai/gemini/usage`（需登入），回傳 `entries` 與緩衝區內 `summary` 聚合。
+- **Web 控制台**：頂欄全局「Gemini 用量」下拉選單，展示上述記錄（中英繁文案）。
+
+### Tests
+- `ai/geminiusage`：環形緩衝順序與聚合單元測試。
+
+---
+
 ## [3.94.1-rc4] - 2026-04-12
 
 ### Fixed

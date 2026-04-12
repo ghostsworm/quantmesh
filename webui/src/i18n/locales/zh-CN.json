@@ -29,6 +29,19 @@
     "enabled": "启用",
     "disabled": "禁用"
   },
+  "geminiUsage": {
+    "menuButton": "Gemini 用量",
+    "title": "Gemini 调用记录（本会话）",
+    "time": "时间",
+    "model": "模型",
+    "source": "来源",
+    "inputTokens": "输入 token",
+    "outputTokens": "输出 token",
+    "durationMs": "耗时 (ms)",
+    "empty": "暂无 Gemini 调用记录。",
+    "summary": "共 {{count}} 次 · 入 {{inTok}} · 出 {{outTok}}",
+    "loadFailed": "用量加载失败"
+  },
   "error": {
     "bot_symbol_conflict": "该交易对已有 Bot 在运行时不能创建。请先停止或删除运行中的 Bot。",
     "bot_symbol_used_by_hedge_group": "该交易对已被对冲组「{{groupName}}」占用，请先删除对冲组再创建独立 Bot。",

@@ -29,6 +29,19 @@
     "enabled": "Enabled",
     "disabled": "Disabled"
   },
+  "geminiUsage": {
+    "menuButton": "Gemini usage",
+    "title": "Gemini API calls (this session)",
+    "time": "Time",
+    "model": "Model",
+    "source": "Source",
+    "inputTokens": "Input tokens",
+    "outputTokens": "Output tokens",
+    "durationMs": "Latency (ms)",
+    "empty": "No Gemini calls recorded yet.",
+    "summary": "{{count}} calls · in {{inTok}} · out {{outTok}}",
+    "loadFailed": "Failed to load usage"
+  },
   "error": {
     "bot_symbol_conflict": "A bot for this symbol already exists. Multiple bots on the same symbol are not allowed.",
     "bot_symbol_used_by_hedge_group": "This symbol is used by hedge group {{groupName}}. Delete the hedge group first to create a standalone bot.",

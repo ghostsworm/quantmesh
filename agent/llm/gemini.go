@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"quantmesh/agent/types"
+	"quantmesh/ai/geminiusage"
 	"quantmesh/logger"
 )
 
@@ -88,15 +89,26 @@ type geminiConfig struct {
 // geminiResponse Gemini API 响应
 type geminiResponse struct {
 	Candidates []geminiCandidate `json:"candidates"`
+	UsageMetadata struct {
+		PromptTokenCount     int64 `json:"promptTokenCount"`
+		CandidatesTokenCount int64 `json:"candidatesTokenCount"`
+		TotalTokenCount      int64 `json:"totalTokenCount"`
+	} `json:"usageMetadata"`
 }
 
 type geminiCandidate struct {
 	Content geminiContent `json:"content"`
 	FinishReason string     `json:"finishReason"`
+	UsageMetadata struct {
+		PromptTokenCount     int64 `json:"promptTokenCount"`
+		CandidatesTokenCount int64 `json:"candidatesTokenCount"`
+		TotalTokenCount      int64 `json:"totalTokenCount"`
+	} `json:"usageMetadata"`
 }
 
 // Generate 生成响应（支持多模态）
 func (c *GeminiClient) Generate(ctx context.Context, req types.GenerateRequest) (types.GenerateResponse, error) {
+	started := time.Now()
 	// 构建 Gemini 请求
 	geminiReq := c.buildRequest(req)
 
@@ -131,11 +143,24 @@ func (c *GeminiClient) Generate(ctx context.Context, req types.GenerateRequest) 
 		return types.GenerateResponse{}, err
 	}
 
-	return c.parseResponse(geminiResp)
+	out, err := c.parseResponse(geminiResp)
+	if err != nil {
+		return types.GenerateResponse{}, err
+	}
+	geminiusage.Record(geminiusage.Entry{
+		At:           time.Now(),
+		Model:        c.model,
+		Source:       "agent_llm",
+		InputTokens:  int64(out.Usage.PromptTokens),
+		OutputTokens: int64(out.Usage.CompletionTokens),
+		DurationMs:   time.Since(started).Milliseconds(),
+	})
+	return out, nil
 }
 
 // GenerateWithImage 生成响应（带图片）
 func (c *GeminiClient) GenerateWithImage(ctx context.Context, text string, images []types.ImageData, req types.GenerateRequest) (types.GenerateResponse, error) {
+	started := time.Now()
 	// 构建包含图片的内容
 	parts := []geminiPart{{Text: text}}
 
@@ -194,7 +219,19 @@ func (c *GeminiClient) GenerateWithImage(ctx context.Context, text string, image
 		return types.GenerateResponse{}, err
 	}
 
-	return c.parseResponse(geminiResp)
+	out, err := c.parseResponse(geminiResp)
+	if err != nil {
+		return types.GenerateResponse{}, err
+	}
+	geminiusage.Record(geminiusage.Entry{
+		At:           time.Now(),
+		Model:        c.model,
+		Source:       "agent_llm_image",
+		InputTokens:  int64(out.Usage.PromptTokens),
+		OutputTokens: int64(out.Usage.CompletionTokens),
+		DurationMs:   time.Since(started).Milliseconds(),
+	})
+	return out, nil
 }
 
 // GenerateStream 流式生成
@@ -341,6 +378,17 @@ func (c *GeminiClient) parseResponse(resp geminiResponse) (types.GenerateRespons
 
 	candidate := resp.Candidates[0]
 
+	inTok := int(resp.UsageMetadata.PromptTokenCount)
+	outTok := int(resp.UsageMetadata.CandidatesTokenCount)
+	totTok := int(resp.UsageMetadata.TotalTokenCount)
+	if inTok == 0 {
+		inTok = int(candidate.UsageMetadata.PromptTokenCount)
+		outTok = int(candidate.UsageMetadata.CandidatesTokenCount)
+		if totTok == 0 {
+			totTok = int(candidate.UsageMetadata.TotalTokenCount)
+		}
+	}
+
 	// 提取文本内容
 	var message string
 	var toolCalls []types.ToolCall
@@ -370,5 +418,10 @@ func (c *GeminiClient) parseResponse(resp geminiResponse) (types.GenerateRespons
 		Message:      message,
 		ToolCalls:    toolCalls,
 		FinishReason: candidate.FinishReason,
+		Usage: types.TokenUsage{
+			PromptTokens:     inTok,
+			CompletionTokens: outTok,
+			TotalTokens:      totTok,
+		},
 	}, nil
 }

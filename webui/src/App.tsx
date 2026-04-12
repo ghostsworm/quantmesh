@@ -34,6 +34,7 @@ import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
 import LanguageSelector from './components/LanguageSelector'
+import GeminiUsageMenu from './components/GeminiUsageMenu'
 import ConnectionStatusBanner from './components/ConnectionStatusBanner'
 import { checkSetupStatus } from './services/setup'
 import { logout } from './services/auth'
@@ -443,6 +444,7 @@ const AppContent: React.FC = () => {
             {isAuthenticated && (
               <GridItem area="actions" justifySelf="end">
                 <HStack spacing={{ base: 2, md: 4 }}>
+                  <GeminiUsageMenu />
                   <LanguageSelector />
                   <Button
                     variant="ghost"
