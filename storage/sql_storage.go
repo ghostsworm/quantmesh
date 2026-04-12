@@ -3236,7 +3236,8 @@ func (s *SQLStorage) GetPnLByTimeRange(account string, startTime, endTime time.T
 }
 
 // GetActualProfitBySymbol 计算指定币种在指定時间之前的累计實際盈利（淨利潤，已扣手續費）
-func (s *SQLStorage) GetActualProfitBySymbol(symbol, account string, beforeTime time.Time) (float64, error) {
+// botID 非空時僅統計該 Bot 的 trades（單 Bot 對賬）；空則該 symbol 下全部（兼容舊行為）。
+func (s *SQLStorage) GetActualProfitBySymbol(symbol, account string, beforeTime time.Time, botID string) (float64, error) {
 	query := fmt.Sprintf(`
 		SELECT COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) as total_pnl
 		FROM %s
@@ -3247,6 +3248,10 @@ func (s *SQLStorage) GetActualProfitBySymbol(symbol, account string, beforeTime 
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
+	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		query += " AND bot_id = ?"
+		args = append(args, bid)
 	}
 
 	row := s.db.QueryRow(query, args...)
@@ -3268,7 +3273,8 @@ func (s *SQLStorage) GetActualProfitBySymbol(symbol, account string, beforeTime 
 }
 
 // GetTotalBuySellQty 獲取累计買入和累计賣出數量（從trades表计算）
-func (s *SQLStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty, totalSellQty float64, err error) {
+// botID 非空時僅統計該 Bot 的配對成交；空則該 symbol 下全部（兼容舊行為）。
+func (s *SQLStorage) GetTotalBuySellQty(symbol, account, botID string) (totalBuyQty, totalSellQty float64, err error) {
 	query := fmt.Sprintf(`
 		SELECT 
 			COALESCE(SUM(quantity), 0) as total_qty
@@ -3281,6 +3287,10 @@ func (s *SQLStorage) GetTotalBuySellQty(symbol, account string) (totalBuyQty, to
 		// 这样可以确保即使舊數據的account字段為空，也能查詢到累计買賣數量
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
+	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		query += " AND bot_id = ?"
+		args = append(args, bid)
 	}
 
 	var totalQty sql.NullFloat64
