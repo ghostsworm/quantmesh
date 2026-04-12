@@ -50,6 +50,7 @@ func startFundingCarrySymbolRuntime(
 		botID = config.GenerateBotID(symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
 	}
 	localCfg.Trading.BotID = botID
+	ctx = logger.WithBotID(ctx, botID)
 	localCfg.Trading.Symbol = symCfg.Symbol
 	localCfg.Trading.MarketType = config.MarketTypeFundingCarry
 	mergeFundingCarryStrategyConfig(&localCfg, symCfg)
@@ -69,10 +70,10 @@ func startFundingCarrySymbolRuntime(
 	if marginErr == nil {
 		if me, ok := marginRaw.(exchange.ISpotMarginExchange); ok {
 			marginEx = me
-			logger.Info("✅ [%s] 保證金帳戶已連線（支援反向套利）", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 保證金帳戶已連線（支援反向套利）", symCfg.Symbol)
 		}
 	} else {
-		logger.Info("ℹ️ [%s] 保證金帳戶不可用（%v），反向套利已禁用", symCfg.Symbol, marginErr)
+		logger.InfoCtx(ctx, "ℹ️ [%s] 保證金帳戶不可用（%v），反向套利已禁用", symCfg.Symbol, marginErr)
 	}
 
 	priceMonitor := monitor.NewPriceMonitor(
@@ -149,7 +150,7 @@ func startFundingCarrySymbolRuntime(
 	}
 
 	rt.Stop = func() {
-		logger.Info("⏹️ [%s] 停止資金費套利運行時（策略 Stop 會自動嘗試平倉）", symCfg.Symbol)
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止資金費套利運行時（策略 Stop 會自動嘗試平倉）", symCfg.Symbol)
 		if strategyManager != nil {
 			strategyManager.StopAll()
 		}

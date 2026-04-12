@@ -1158,6 +1158,7 @@ export interface LogEntry {
   level: string
   message: string
   timestamp: string
+  bot_id?: string
 }
 
 export interface LogsParams {

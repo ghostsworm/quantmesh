@@ -40,6 +40,7 @@ func startFundingPerpSpreadSymbolRuntime(
 		botID = config.GenerateBotIDFundingPerpSpread(fp)
 	}
 	localCfg.Trading.BotID = botID
+	ctx = logger.WithBotID(ctx, botID)
 	localCfg.Trading.Symbol = symCfg.Symbol
 	localCfg.Trading.MarketType = config.MarketTypeFundingPerpSpread
 	mergeFundingPerpSpreadStrategyConfig(&localCfg, symCfg)
@@ -124,7 +125,7 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 
 	rt.Stop = func() {
-		logger.Info("⏹️ [%s] 停止雙永续跨所資金費運行時", botID)
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止雙永续跨所資金費運行時", botID)
 		if strategyManager != nil {
 			strategyManager.StopAll()
 		}
