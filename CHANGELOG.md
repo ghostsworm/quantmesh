@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.101.0-rc6] - 2026-04-12
+
+### Fixed
+- **Bot 獨立配置 API（`/api/bots/:id/config-file` 等）**：改為優先讀寫主庫 **`bot_configs` 文檔表**（與主配置 `app_config` 同庫），不再依賴可寫入的 `bots/<id>/config.yaml` 目錄；唯讀檔案系統（如容器根目錄）下可正常保存。
+- **storage**：新增 `GetBotConfigDocument`、`SaveBotConfigSnapshot`、`DeleteBotConfigSnapshot`；單元測試 `TestSaveBotConfigSnapshotRoundTrip`。
+
+### Changed
+- **Web 文案**：Bot 風控「啟動前持倉安全」按鈕改為「保存」，說明改為主庫文檔表（zh-CN / en-US / zh-TW）。
+
+---
+
 ## [3.101.0-rc5] - 2026-04-12
 
 ### Changed

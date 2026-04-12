@@ -1,18 +1,22 @@
 package web
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
 	"quantmesh/logger"
+	"quantmesh/storage"
 )
 
 var botConfigManager *config.BotConfigManager
 
-// InitBotConfigManager 初始化 Bot 配置管理器
+// InitBotConfigManager 初始化 Bot 配置文件管理器（僅作無主庫時的後備；權威持久化為 bot_configs 表）
 func InitBotConfigManager(baseDir string) error {
 	var err error
 	botConfigManager, err = config.NewBotConfigManager(baseDir)
@@ -23,15 +27,122 @@ func InitBotConfigManager(baseDir string) error {
 	return nil
 }
 
+// sqlStorageForBotConfig 主庫 *SQLStorage（與 app_config 同庫），用於 bot_configs 文檔表
+func sqlStorageForBotConfig() *storage.SQLStorage {
+	if primaryStorageForAppConfig == nil {
+		return nil
+	}
+	ss, ok := primaryStorageForAppConfig.(*storage.SQLStorage)
+	if !ok || ss == nil {
+		return nil
+	}
+	return ss
+}
+
+func botConfigSnapshotExists(botID string) (bool, error) {
+	ss := sqlStorageForBotConfig()
+	if ss != nil {
+		if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+			return false, err
+		}
+		doc, err := ss.GetBotConfigDocument(context.Background(), botID)
+		if err != nil {
+			return false, err
+		}
+		if doc != nil && strings.TrimSpace(doc.Content) != "" {
+			return true, nil
+		}
+	}
+	if botConfigManager != nil && botConfigManager.BotConfigExists(botID) {
+		return true, nil
+	}
+	return false, nil
+}
+
+// loadBotConfigUnified 優先從主庫 bot_configs 讀取，否則嘗試本地 bots/*/config.yaml
+func loadBotConfigUnified(botID string) (*config.BotConfigFile, error) {
+	ss := sqlStorageForBotConfig()
+	if ss != nil {
+		if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+			return nil, err
+		}
+		doc, err := ss.GetBotConfigDocument(context.Background(), botID)
+		if err != nil {
+			return nil, err
+		}
+		if doc != nil && strings.TrimSpace(doc.Content) != "" {
+			var bf config.BotConfigFile
+			if err := json.Unmarshal([]byte(doc.Content), &bf); err != nil {
+				return nil, fmt.Errorf("解析 bot_configs JSON: %w", err)
+			}
+			return &bf, nil
+		}
+	}
+	if botConfigManager != nil && botConfigManager.BotConfigExists(botID) {
+		return botConfigManager.LoadBotConfig(botID)
+	}
+	return nil, nil
+}
+
+func saveBotConfigUnified(bf *config.BotConfigFile, operator, source string) error {
+	if bf == nil {
+		return fmt.Errorf("配置為空")
+	}
+	if ss := sqlStorageForBotConfig(); ss != nil {
+		if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+			return err
+		}
+		_, err := storage.SaveBotConfigSnapshot(context.Background(), primaryStorageForAppConfig, bf, operator, source)
+		return err
+	}
+	if botConfigManager != nil {
+		return botConfigManager.SaveBotConfig(bf)
+	}
+	return fmt.Errorf("無可用 Bot 配置存儲（主庫未初始化且無本地管理器）")
+}
+
+func deleteBotConfigUnified(botID string) error {
+	var deleted bool
+	if ss := sqlStorageForBotConfig(); ss != nil {
+		if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+			return err
+		}
+		doc, err := ss.GetBotConfigDocument(context.Background(), botID)
+		if err != nil {
+			return err
+		}
+		if doc != nil && strings.TrimSpace(doc.Content) != "" {
+			if err := storage.DeleteBotConfigSnapshot(context.Background(), primaryStorageForAppConfig, botID); err != nil {
+				return err
+			}
+			deleted = true
+		}
+	}
+	if botConfigManager != nil && botConfigManager.BotConfigExists(botID) {
+		if err := botConfigManager.DeleteBotConfig(botID); err != nil {
+			return err
+		}
+		deleted = true
+	}
+	if !deleted {
+		return fmt.Errorf("not found")
+	}
+	return nil
+}
+
+func botConfigStorageReady() bool {
+	return sqlStorageForBotConfig() != nil || botConfigManager != nil
+}
+
 // BotConfigFileResponse Bot 配置文件响应
 type BotConfigFileResponse struct {
-	BotID      string              `json:"bot_id"`
-	Name       string              `json:"name"`
-	Exchange   string              `json:"exchange"`
-	Symbol     string              `json:"symbol"`
-	MarketType string              `json:"market_type"`
+	BotID      string                `json:"bot_id"`
+	Name       string                `json:"name"`
+	Exchange   string                `json:"exchange"`
+	Symbol     string                `json:"symbol"`
+	MarketType string                `json:"market_type"`
 	Config     *config.BotConfigFile `json:"config"`
-	Exists     bool                `json:"exists"`
+	Exists     bool                  `json:"exists"`
 }
 
 // getBotConfigFile 获取 Bot 配置文件
@@ -43,25 +154,22 @@ func getBotConfigFile(c *gin.Context) {
 		return
 	}
 
-	if botConfigManager == nil {
+	if !botConfigStorageReady() {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_config_manager_unavailable")
 		return
 	}
 
-	// 检查配置文件是否存在
-	exists := botConfigManager.BotConfigExists(botID)
+	botConfig, err := loadBotConfigUnified(botID)
+	if err != nil {
+		logger.Error("加载 Bot 配置失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+		return
+	}
 
-	var botConfig *config.BotConfigFile
-	if exists {
-		var err error
-		botConfig, err = botConfigManager.LoadBotConfig(botID)
-		if err != nil {
-			logger.Error("加载 Bot 配置文件失败: %v", err)
-			respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
-			return
-		}
+	exists := false
+	if botConfig != nil {
+		exists = true
 	} else {
-		// 如果配置文件不存在，尝试从主配置中获取并创建
 		cfg, err := GetLatestConfig()
 		if err != nil || cfg == nil {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -70,24 +178,19 @@ func getBotConfigFile(c *gin.Context) {
 			return
 		}
 
-		// 查找 Bot
 		for _, b := range cfg.Bots {
 			id := b.ID
 			if id == "" {
 				id = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
 			}
 			if id == botID {
-				// 转换为新的配置文件格式
 				botConfig = config.ConvertFromBotConfig(b)
 				botConfig.CreatedAt = time.Now().Format(time.RFC3339)
 				botConfig.UpdatedAt = time.Now().Format(time.RFC3339)
 
-				// 保存配置文件
-				if err := botConfigManager.CreateBotConfig(botConfig); err != nil {
-					logger.Error("创建 Bot 配置文件失败: %v", err)
-					// 不返回错误，继续返回内存中的配置
+				if err := saveBotConfigUnified(botConfig, "web", "get_bot_config_lazy_create"); err != nil {
+					logger.Warn("首次持久化 Bot 配置失敗（仍返回內存對象）: %v", err)
 				} else {
-					logger.Info("✅ 为 Bot %s 创建了独立配置文件", botID)
 					exists = true
 				}
 				break
@@ -120,7 +223,7 @@ func putBotConfigFile(c *gin.Context) {
 		return
 	}
 
-	if botConfigManager == nil {
+	if !botConfigStorageReady() {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_config_manager_unavailable")
 		return
 	}
@@ -131,14 +234,11 @@ func putBotConfigFile(c *gin.Context) {
 		return
 	}
 
-	// 验证 Bot ID
 	req.BotID = botID
 	req.UpdatedAt = time.Now().Format(time.RFC3339)
 
-	// 检查 Bot 是否正在运行
 	if botManagerProvider != nil {
 		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
-			// 运行中的 Bot 只允许修改部分参数
 			c.JSON(http.StatusConflict, gin.H{
 				"error":     "bot_running",
 				"error_key": "error.bot_running_cannot_update_full_config",
@@ -148,19 +248,22 @@ func putBotConfigFile(c *gin.Context) {
 		}
 	}
 
-	// 保存配置文件
-	existed := botConfigManager.BotConfigExists(botID)
-	if err := botConfigManager.SaveBotConfig(&req); err != nil {
-		logger.Error("保存 Bot 配置文件失败: %v", err)
+	existed, err := botConfigSnapshotExists(botID)
+	if err != nil {
+		logger.Error("檢查 Bot 配置是否存在失敗: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
 
-	// 同步更新主配置文件
+	if err := saveBotConfigUnified(&req, "web", "put_bot_config"); err != nil {
+		logger.Error("保存 Bot 配置失败: %v", err)
+		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+		return
+	}
+
 	if configManager != nil {
 		cfg, err := GetLatestConfig()
 		if err == nil && cfg != nil {
-			// 更新主配置中的 Bot
 			found := false
 			for i := range cfg.Bots {
 				id := cfg.Bots[i].ID
@@ -168,7 +271,6 @@ func putBotConfigFile(c *gin.Context) {
 					id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
 				}
 				if id == botID {
-					// 转换并更新
 					updatedBot := config.ConvertToBotConfig(&req)
 					cfg.Bots[i] = updatedBot
 					found = true
@@ -176,20 +278,18 @@ func putBotConfigFile(c *gin.Context) {
 				}
 			}
 
-			// 如果是新 Bot，添加到主配置
 			if !found && !existed {
 				newBot := config.ConvertToBotConfig(&req)
 				cfg.Bots = append(cfg.Bots, newBot)
 			}
 
-			// 保存主配置
 			if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 				logger.Error("同步主配置失败: %v", err)
 			}
 		}
 	}
 
-	logger.Info("✅ Bot %s 配置文件已更新", botID)
+	logger.Info("✅ Bot %s 配置已更新（主庫 bot_configs 或本地後備）", botID)
 	action := "created"
 	if existed {
 		action = "updated"
@@ -210,12 +310,11 @@ func deleteBotConfigFile(c *gin.Context) {
 		return
 	}
 
-	if botConfigManager == nil {
+	if !botConfigStorageReady() {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_config_manager_unavailable")
 		return
 	}
 
-	// 检查 Bot 是否正在运行
 	if botManagerProvider != nil {
 		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
@@ -227,7 +326,6 @@ func deleteBotConfigFile(c *gin.Context) {
 		}
 	}
 
-	// 检查 Bot 是否属于对冲组
 	if configManager != nil {
 		cfg, err := GetLatestConfig()
 		if err == nil && cfg != nil {
@@ -242,18 +340,23 @@ func deleteBotConfigFile(c *gin.Context) {
 		}
 	}
 
-	if !botConfigManager.BotConfigExists(botID) {
+	ok, err := botConfigSnapshotExists(botID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.config_delete_failed", err)
+		return
+	}
+	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot config file not found"})
 		return
 	}
 
-	if err := botConfigManager.DeleteBotConfig(botID); err != nil {
-		logger.Error("删除 Bot 配置文件失败: %v", err)
+	if err := deleteBotConfigUnified(botID); err != nil {
+		logger.Error("删除 Bot 配置失败: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.config_delete_failed", err)
 		return
 	}
 
-	logger.Info("✅ Bot %s 配置文件已删除", botID)
+	logger.Info("✅ Bot %s 配置已删除", botID)
 	c.JSON(http.StatusOK, gin.H{
 		"ok":     true,
 		"bot_id": botID,
@@ -262,8 +365,8 @@ func deleteBotConfigFile(c *gin.Context) {
 
 // StrategyConfigUpdateRequest 策略配置更新请求
 type StrategyConfigUpdateRequest struct {
-	StrategyIndex int                          `json:"strategy_index"` // 策略索引（多策略时）
-	Strategy      config.BotStrategyConfig    `json:"strategy"`       // 策略配置
+	StrategyIndex int                    `json:"strategy_index"` // 策略索引（多策略时）
+	Strategy      config.BotStrategyConfig `json:"strategy"`       // 策略配置
 }
 
 // putBotStrategyConfig 更新 Bot 的单个策略配置
@@ -275,7 +378,7 @@ func putBotStrategyConfig(c *gin.Context) {
 		return
 	}
 
-	if botConfigManager == nil {
+	if !botConfigStorageReady() {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_config_manager_unavailable")
 		return
 	}
@@ -286,14 +389,16 @@ func putBotStrategyConfig(c *gin.Context) {
 		return
 	}
 
-	// 加载配置文件
-	botConfig, err := botConfigManager.LoadBotConfig(botID)
+	botConfig, err := loadBotConfigUnified(botID)
 	if err != nil {
-		respondError(c, http.StatusNotFound, "error.bot_config_not_found", err)
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+		return
+	}
+	if botConfig == nil {
+		respondError(c, http.StatusNotFound, "error.bot_config_not_found", fmt.Errorf("not found"))
 		return
 	}
 
-	// 验证策略索引
 	if req.StrategyIndex < 0 || req.StrategyIndex >= len(botConfig.Strategies) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":     "invalid_strategy_index",
@@ -303,7 +408,6 @@ func putBotStrategyConfig(c *gin.Context) {
 		return
 	}
 
-	// 检查 Bot 是否正在运行（允许运行时修改参数，但不允许修改策略类型）
 	if botManagerProvider != nil {
 		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
 			oldType := botConfig.Strategies[req.StrategyIndex].Type
@@ -319,24 +423,21 @@ func putBotStrategyConfig(c *gin.Context) {
 		}
 	}
 
-	// 更新策略配置
 	botConfig.Strategies[req.StrategyIndex] = req.Strategy
 	botConfig.UpdatedAt = time.Now().Format(time.RFC3339)
 
-	// 保存配置文件
-	if err := botConfigManager.SaveBotConfig(botConfig); err != nil {
-		logger.Error("保存 Bot 配置文件失败: %v", err)
+	if err := saveBotConfigUnified(botConfig, "web", "put_bot_strategy_config"); err != nil {
+		logger.Error("保存 Bot 配置失败: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
 
-	// 同步更新主配置
 	syncBotConfigToMain(botID, botConfig)
 
 	logger.Info("✅ Bot %s 策略 %d 配置已更新", botID, req.StrategyIndex)
 	c.JSON(http.StatusOK, gin.H{
-		"ok":            true,
-		"bot_id":        botID,
+		"ok":             true,
+		"bot_id":         botID,
 		"strategy_index": req.StrategyIndex,
 	})
 }
@@ -350,7 +451,7 @@ func addBotStrategy(c *gin.Context) {
 		return
 	}
 
-	if botConfigManager == nil {
+	if !botConfigStorageReady() {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_config_manager_unavailable")
 		return
 	}
@@ -361,14 +462,16 @@ func addBotStrategy(c *gin.Context) {
 		return
 	}
 
-	// 加载配置文件
-	botConfig, err := botConfigManager.LoadBotConfig(botID)
+	botConfig, err := loadBotConfigUnified(botID)
 	if err != nil {
-		respondError(c, http.StatusNotFound, "error.bot_config_not_found", err)
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+		return
+	}
+	if botConfig == nil {
+		respondError(c, http.StatusNotFound, "error.bot_config_not_found", fmt.Errorf("not found"))
 		return
 	}
 
-	// 检查 Bot 是否正在运行
 	if botManagerProvider != nil {
 		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
@@ -380,28 +483,25 @@ func addBotStrategy(c *gin.Context) {
 		}
 	}
 
-	// 添加策略
 	botConfig.Strategies = append(botConfig.Strategies, strategy)
 	if len(botConfig.Strategies) > 1 {
 		botConfig.StrategyMode = "multi"
 	}
 	botConfig.UpdatedAt = time.Now().Format(time.RFC3339)
 
-	// 保存配置文件
-	if err := botConfigManager.SaveBotConfig(botConfig); err != nil {
-		logger.Error("保存 Bot 配置文件失败: %v", err)
+	if err := saveBotConfigUnified(botConfig, "web", "add_bot_strategy"); err != nil {
+		logger.Error("保存 Bot 配置失败: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
 
-	// 同步更新主配置
 	syncBotConfigToMain(botID, botConfig)
 
 	logger.Info("✅ Bot %s 已添加策略 %s", botID, strategy.Type)
 	c.JSON(http.StatusOK, gin.H{
-		"ok":            true,
-		"bot_id":        botID,
-		"strategy_type": strategy.Type,
+		"ok":             true,
+		"bot_id":         botID,
+		"strategy_type":  strategy.Type,
 		"strategy_count": len(botConfig.Strategies),
 	})
 }
@@ -417,26 +517,27 @@ func removeBotStrategy(c *gin.Context) {
 		return
 	}
 
-	if botConfigManager == nil {
+	if !botConfigStorageReady() {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_config_manager_unavailable")
 		return
 	}
 
-	// 解析策略索引
 	var index int
 	if _, err := fmt.Sscanf(strategyIndex, "%d", &index); err != nil {
 		respondError(c, http.StatusBadRequest, "error.invalid_strategy_index")
 		return
 	}
 
-	// 加载配置文件
-	botConfig, err := botConfigManager.LoadBotConfig(botID)
+	botConfig, err := loadBotConfigUnified(botID)
 	if err != nil {
-		respondError(c, http.StatusNotFound, "error.bot_config_not_found", err)
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed", err)
+		return
+	}
+	if botConfig == nil {
+		respondError(c, http.StatusNotFound, "error.bot_config_not_found", fmt.Errorf("not found"))
 		return
 	}
 
-	// 检查 Bot 是否正在运行
 	if botManagerProvider != nil {
 		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
@@ -448,7 +549,6 @@ func removeBotStrategy(c *gin.Context) {
 		}
 	}
 
-	// 验证索引
 	if index < 0 || index >= len(botConfig.Strategies) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":     "invalid_strategy_index",
@@ -457,7 +557,6 @@ func removeBotStrategy(c *gin.Context) {
 		return
 	}
 
-	// 至少保留一个策略
 	if len(botConfig.Strategies) <= 1 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":     "cannot_remove_last_strategy",
@@ -466,7 +565,6 @@ func removeBotStrategy(c *gin.Context) {
 		return
 	}
 
-	// 移除策略
 	removedType := botConfig.Strategies[index].Type
 	botConfig.Strategies = append(botConfig.Strategies[:index], botConfig.Strategies[index+1:]...)
 	if len(botConfig.Strategies) == 1 {
@@ -474,26 +572,24 @@ func removeBotStrategy(c *gin.Context) {
 	}
 	botConfig.UpdatedAt = time.Now().Format(time.RFC3339)
 
-	// 保存配置文件
-	if err := botConfigManager.SaveBotConfig(botConfig); err != nil {
-		logger.Error("保存 Bot 配置文件失败: %v", err)
+	if err := saveBotConfigUnified(botConfig, "web", "remove_bot_strategy"); err != nil {
+		logger.Error("保存 Bot 配置失败: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
 
-	// 同步更新主配置
 	syncBotConfigToMain(botID, botConfig)
 
 	logger.Info("✅ Bot %s 已移除策略 %s (索引 %d)", botID, removedType, index)
 	c.JSON(http.StatusOK, gin.H{
-		"ok":            true,
-		"bot_id":        botID,
-		"strategy_type": removedType,
+		"ok":             true,
+		"bot_id":         botID,
+		"strategy_type":  removedType,
 		"strategy_count": len(botConfig.Strategies),
 	})
 }
 
-// syncBotConfigToMain 将 Bot 配置同步到主配置文件
+// syncBotConfigToMain 将 Bot 配置同步到主配置（app_config 快照）
 func syncBotConfigToMain(botID string, botConfig *config.BotConfigFile) {
 	if configManager == nil {
 		return
@@ -504,7 +600,6 @@ func syncBotConfigToMain(botID string, botConfig *config.BotConfigFile) {
 		return
 	}
 
-	// 更新主配置中的 Bot
 	found := false
 	for i := range cfg.Bots {
 		id := cfg.Bots[i].ID
@@ -520,12 +615,10 @@ func syncBotConfigToMain(botID string, botConfig *config.BotConfigFile) {
 	}
 
 	if !found {
-		// 添加新 Bot
 		newBot := config.ConvertToBotConfig(botConfig)
 		cfg.Bots = append(cfg.Bots, newBot)
 	}
 
-	// 保存主配置
 	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		logger.Error("同步主配置失败: %v", err)
 	}
