@@ -292,11 +292,10 @@ const BotDetail: React.FC = () => {
   }, [bot?.running, bot?.exchange, bot?.symbol, bot?.market_type])
 
   const fetchLogs = useCallback(async () => {
-    if (!bot?.symbol || !botId) return
+    if (!botId) return
     setLogsLoading(true)
     try {
-      // 僅按 bot_id（+ 可選級別）查詢：後端對 exchange/market_type/keyword 皆為 message 子串 AND，
-      // OKX 常見 BTC-USDT 不含 BTCUSDT、正文無英文 spot，會把結果篩成 0 條。
+      // 只按 logs.bot_id 精準篩選（+ 可選級別、條數）；不依賴 message 子串。
       const res = await getLogs({
         limit: logLimit,
         bot_id: botId,
@@ -310,7 +309,7 @@ const BotDetail: React.FC = () => {
     } finally {
       setLogsLoading(false)
     }
-  }, [bot?.symbol, bot?.exchange, bot?.market_type, botId, logLevelFilter, logLimit])
+  }, [botId, logLevelFilter, logLimit])
 
   useEffect(() => {
     void fetchLogs()
