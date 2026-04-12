@@ -76,6 +76,8 @@ import {
   WarningIcon,
   EditIcon,
   HamburgerIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
 } from '@chakra-ui/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Trans, useTranslation } from 'react-i18next'
@@ -121,6 +123,7 @@ import { hasTradingParamChanges } from '../utils/configSaveOptions'
 import { parseMonitorSymbolsInput } from '../utils/riskControlUi'
 import { applyPolymarketEnabledToConfig } from '../utils/polymarketConfigDefaults'
 import { mergeFeeRateInputsIntoConfig } from '../utils/configDirty'
+import { isExchangeApiSlotVisuallyEmpty } from '../utils/exchangeConfigUi'
 import { ResponsiveTabLabel, useCompactConfigTabs } from './ResponsiveTabLabel'
 
 const MotionBox = motion(Box)
@@ -276,7 +279,12 @@ const MacroEventConfigSection: React.FC<{
   )
 }
 
-const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: any }> = ({ title, children, icon }) => {
+const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: any; headerRight?: React.ReactNode }> = ({
+  title,
+  children,
+  icon,
+  headerRight,
+}) => {
   const bg = 'white'
   const borderColor = 'gray.100'
   
@@ -290,9 +298,12 @@ const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: an
       boxShadow="sm"
       mb={6}
     >
-      <HStack mb={5} spacing={3}>
-        {icon && <Box color="blue.500">{icon}</Box>}
-        <Heading size="sm" fontWeight="600">{title}</Heading>
+      <HStack mb={5} spacing={3} justify="space-between" align="center">
+        <HStack spacing={3} minW={0}>
+          {icon && <Box color="blue.500" flexShrink={0}>{icon}</Box>}
+          <Heading size="sm" fontWeight="600" noOfLines={1}>{title}</Heading>
+        </HStack>
+        {headerRight}
       </HStack>
       <VStack spacing={5} align="stretch">
         {children}
@@ -313,6 +324,8 @@ const Configuration: React.FC = () => {
   const [previewDiff, setPreviewDiff] = useState<ConfigDiff | null>(null)
   const [requiresRestart, setRequiresRestart] = useState(false)
   const [feeRateInputs, setFeeRateInputs] = useState<Record<string, string>>({})
+  /** 未填寫憑證的交易所：使用者展開後可再收合為單行 */
+  const [expandedEmptyExchangeSlots, setExpandedEmptyExchangeSlots] = useState<Record<string, boolean>>({})
   const [directionConfirm, setDirectionConfirm] = useState<{ isOpen: boolean; newDirection: string; loading: boolean }>({
     isOpen: false,
     newDirection: '',
@@ -1018,6 +1031,82 @@ const Configuration: React.FC = () => {
   if (loading) return <Center h="400px"><Spinner size="xl" thickness="4px" color="blue.500" /></Center>
   if (!config) return <Container maxW="container.xl" py={8}><Alert status="error"><AlertIcon />{t('configuration.loadFailed')}</Alert></Container>
 
+  const renderExchangeApiFields = (exchange: string) => (
+    <>
+      <SimpleGrid columns={2} spacing={6}>
+        <FormControl>
+          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">API Key</FormLabel>
+          {renderPasswordInput(`exchanges.${exchange}.api_key`)}
+        </FormControl>
+        <FormControl>
+          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Secret Key</FormLabel>
+          {renderPasswordInput(`exchanges.${exchange}.secret_key`)}
+        </FormControl>
+      </SimpleGrid>
+      {EXCHANGES_REQUIRING_PASSPHRASE.includes(exchange as any) && (
+        <FormControl>
+          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configSetup.passphrase')}</FormLabel>
+          {renderPasswordInput(`exchanges.${exchange}.passphrase`, t('configSetup.passphrasePlaceholder'))}
+        </FormControl>
+      )}
+      <Flex justify="space-between" align="center" mt={2}>
+        <HStack>
+          <Switch
+            size="sm"
+            isChecked={getNestedValue(config, `exchanges.${exchange}.testnet`) || false}
+            onChange={(e) => updateConfigField(`exchanges.${exchange}.testnet`, e.target.checked)}
+          />
+          <Text fontSize="sm" fontWeight="600">{t('configuration.useTestnet')}</Text>
+        </HStack>
+        <HStack>
+          <Text fontSize="xs" color="gray.500">{t('configuration.feeRate')}</Text>
+          <DecimalNumberInput
+            size="sm"
+            w="100px"
+            value={feeRateInputs[exchange] ?? ''}
+            onChange={(v) => setFeeRateInputs((prev) => ({ ...prev, [exchange]: v !== undefined && v !== '' ? v : '' }))}
+            onBlur={() => {
+              const rawValue = feeRateInputs[exchange] ?? ''
+              const trimmed = String(rawValue).trim()
+              const parsed = trimmed === '' ? 0 : Number(trimmed)
+              if (Number.isNaN(parsed)) {
+                const currentValue = getNestedValue(config, `exchanges.${exchange}.fee_rate`)
+                const fallback = currentValue === undefined || currentValue === null ? '' : String(currentValue)
+                setFeeRateInputs((prev) => ({ ...prev, [exchange]: fallback }))
+                return
+              }
+              updateConfigField(`exchanges.${exchange}.fee_rate`, parsed)
+            }}
+            precision={6}
+            step={0.0001}
+            sx={{ '& input': { borderRadius: 'md' } }}
+          />
+        </HStack>
+      </Flex>
+      <Text fontSize="xs" color="gray.500" mt={3}>
+        {t('configuration.exchangeCredentialTestHint')}
+      </Text>
+      <Button
+        size="sm"
+        variant="outline"
+        colorScheme="blue"
+        mt={1}
+        alignSelf="flex-start"
+        isLoading={testingExchangeKey === exchange}
+        loadingText={t('configuration.testingCredentials')}
+        onClick={() => handleTestExchange(exchange)}
+        isDisabled={
+          !String(getNestedValue(config, `exchanges.${exchange}.api_key`) || '').trim() ||
+          !String(getNestedValue(config, `exchanges.${exchange}.secret_key`) || '').trim() ||
+          (EXCHANGES_REQUIRING_PASSPHRASE.includes(exchange as (typeof EXCHANGES_REQUIRING_PASSPHRASE)[number]) &&
+            !String(getNestedValue(config, `exchanges.${exchange}.passphrase`) || '').trim())
+        }
+      >
+        {t('configuration.testExchangeCredentials')}
+      </Button>
+    </>
+  )
+
   const globalTabs = [
     t('configuration.globalTabs.general'),
     t('configuration.globalTabs.exchangeAPI'),
@@ -1303,81 +1392,79 @@ const Configuration: React.FC = () => {
 
                 {tabIndex === 1 && (
                   <VStack spacing={6} align="stretch">
-                    {exchanges.map((exchange) => (
-                      <ConfigCard key={exchange} title={exchangeNames[exchange]} icon={<RepeatIcon />}>
-                        <SimpleGrid columns={2} spacing={6}>
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">API Key</FormLabel>
-                            {renderPasswordInput(`exchanges.${exchange}.api_key`)}
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Secret Key</FormLabel>
-                            {renderPasswordInput(`exchanges.${exchange}.secret_key`)}
-                          </FormControl>
-                        </SimpleGrid>
-                        {EXCHANGES_REQUIRING_PASSPHRASE.includes(exchange as any) && (
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configSetup.passphrase')}</FormLabel>
-                            {renderPasswordInput(`exchanges.${exchange}.passphrase`, t('configSetup.passphrasePlaceholder'))}
-                          </FormControl>
-                        )}
-                        <Flex justify="space-between" align="center" mt={2}>
-                          <HStack>
-                            <Switch
-                              size="sm"
-                              isChecked={getNestedValue(config, `exchanges.${exchange}.testnet`) || false}
-                              onChange={(e) => updateConfigField(`exchanges.${exchange}.testnet`, e.target.checked)}
-                            />
-                            <Text fontSize="sm" fontWeight="600">{t('configuration.useTestnet')}</Text>
-                          </HStack>
-                          <HStack>
-                            <Text fontSize="xs" color="gray.500">{t('configuration.feeRate')}</Text>
-                            <DecimalNumberInput
-                              size="sm"
-                              w="100px"
-                              value={feeRateInputs[exchange] ?? ''}
-                              onChange={(v) => setFeeRateInputs((prev) => ({ ...prev, [exchange]: v !== undefined && v !== '' ? v : '' }))}
-                              onBlur={() => {
-                                const rawValue = feeRateInputs[exchange] ?? ''
-                                const trimmed = String(rawValue).trim()
-                                const parsed = trimmed === '' ? 0 : Number(trimmed)
-                                if (Number.isNaN(parsed)) {
-                                  const currentValue = getNestedValue(config, `exchanges.${exchange}.fee_rate`)
-                                  const fallback = currentValue === undefined || currentValue === null ? '' : String(currentValue)
-                                  setFeeRateInputs((prev) => ({ ...prev, [exchange]: fallback }))
-                                  return
-                                }
-                                updateConfigField(`exchanges.${exchange}.fee_rate`, parsed)
-                              }}
-                              precision={6}
-                              step={0.0001}
-                              sx={{ '& input': { borderRadius: 'md' } }}
-                            />
-                          </HStack>
-                        </Flex>
-                        <Text fontSize="xs" color="gray.500" mt={3}>
-                          {t('configuration.exchangeCredentialTestHint')}
-                        </Text>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          mt={1}
-                          alignSelf="flex-start"
-                          isLoading={testingExchangeKey === exchange}
-                          loadingText={t('configuration.testingCredentials')}
-                          onClick={() => handleTestExchange(exchange)}
-                          isDisabled={
-                            !String(getNestedValue(config, `exchanges.${exchange}.api_key`) || '').trim() ||
-                            !String(getNestedValue(config, `exchanges.${exchange}.secret_key`) || '').trim() ||
-                            (EXCHANGES_REQUIRING_PASSPHRASE.includes(exchange as (typeof EXCHANGES_REQUIRING_PASSPHRASE)[number]) &&
-                              !String(getNestedValue(config, `exchanges.${exchange}.passphrase`) || '').trim())
+                    {exchanges.map((exchange) => {
+                      const isEmptySlot = isExchangeApiSlotVisuallyEmpty(config, exchange)
+                      const isCollapsed = isEmptySlot && !expandedEmptyExchangeSlots[exchange]
+                      if (isCollapsed) {
+                        return (
+                          <Box
+                            key={exchange}
+                            mb={6}
+                            bg="white"
+                            borderWidth="1px"
+                            borderColor="gray.100"
+                            borderRadius="2xl"
+                            boxShadow="sm"
+                            px={5}
+                            py={3}
+                            cursor="pointer"
+                            onClick={() => setExpandedEmptyExchangeSlots((prev) => ({ ...prev, [exchange]: true }))}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                setExpandedEmptyExchangeSlots((prev) => ({ ...prev, [exchange]: true }))
+                              }
+                            }}
+                            title={t('configuration.exchangeApiCollapsedHint')}
+                            aria-label={t('configuration.exchangeApiExpandAria', { name: exchangeNames[exchange] || exchange })}
+                          >
+                            <Flex justify="space-between" align="center" gap={3}>
+                              <HStack spacing={3} minW={0} flex={1}>
+                                <Box color="blue.500" flexShrink={0}>
+                                  <RepeatIcon />
+                                </Box>
+                                <Text fontWeight="600" noOfLines={1}>
+                                  {exchangeNames[exchange]}
+                                </Text>
+                                <Badge colorScheme="gray" fontSize="xs" flexShrink={0}>
+                                  {t('configuration.exchangeApiNotConfiguredBadge')}
+                                </Badge>
+                                <Text fontSize="xs" color="gray.500" noOfLines={1} display={{ base: 'none', md: 'inline' }}>
+                                  {t('configuration.exchangeApiCollapsedHint')}
+                                </Text>
+                              </HStack>
+                              <ChevronDownIcon boxSize={5} color="gray.400" flexShrink={0} aria-hidden />
+                            </Flex>
+                          </Box>
+                        )
+                      }
+                      const showCollapseBtn = isEmptySlot && expandedEmptyExchangeSlots[exchange]
+                      return (
+                        <ConfigCard
+                          key={exchange}
+                          title={exchangeNames[exchange]}
+                          icon={<RepeatIcon />}
+                          headerRight={
+                            showCollapseBtn ? (
+                              <IconButton
+                                aria-label={t('configuration.exchangeApiCollapse')}
+                                icon={<ChevronUpIcon />}
+                                size="sm"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setExpandedEmptyExchangeSlots((prev) => ({ ...prev, [exchange]: false }))
+                                }}
+                              />
+                            ) : undefined
                           }
                         >
-                          {t('configuration.testExchangeCredentials')}
-                        </Button>
-                      </ConfigCard>
-                    ))}
+                          {renderExchangeApiFields(exchange)}
+                        </ConfigCard>
+                      )
+                    })}
                   </VStack>
                 )}
 
