@@ -285,6 +285,10 @@ timing:
   status_print_interval: 1          # 定期打印状态的间隔（分钟，默认1）
   order_cleanup_interval: 10        # 订单清理检查间隔（秒，默认10）
 
+  # 手续费（启动持仓安全检查前会先刷新主库配置；可选从交易所接口拉取 Taker 费率）
+  skip_exchange_fee_on_bot_start: false  # true 时启动 Bot 前不调交易所 commission 接口，仅用配置中的 fee_rate
+  fee_rate_refresh_minutes: 0            # 定期从交易所同步 Taker 到内存（分钟），0 表示关闭；例如 60
+
 system:
   # 日志级别: DEBUG(调试) / INFO(信息) / WARN(警告) / ERROR(错误) / FATAL(致命)
   log_level: "INFO"

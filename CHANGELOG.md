@@ -2,6 +2,18 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.101.0-rc7] - 2026-04-12
+
+### Added
+- **Bot 啟動**：`StartBot` 前先按與 main 相同順序刷新內存主配置（命令行 YAML 若存在 → `app_config` 覆蓋 → 環境變量覆蓋），持倉安全檢查使用主庫中最新的 `fee_rate`。
+- **手續費**：預設在啟動前調用交易所接口（Binance / Bitget）拉取 **Taker** 並寫入內存 `exchanges.<name>.fee_rate`（可用 `timing.skip_exchange_fee_on_bot_start: true` 關閉）；邏輯抽至 `feerate` 包並與 Web「拉取費率」接口共用。
+- **定時同步**：`timing.fee_rate_refresh_minutes`（>0 時）按間隔刷新主配置並拉取各交易所 Taker 至內存（不強制寫回數據庫）。
+
+### Changed
+- `NewSymbolManager` / `NewBotManager` 增加參數 `primaryYAMLPath`（無則傳空字串）。
+
+---
+
 ## [3.101.0-rc6] - 2026-04-12
 
 ### Fixed

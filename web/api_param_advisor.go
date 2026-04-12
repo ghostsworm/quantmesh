@@ -1,18 +1,14 @@
 package web
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"strconv"
-	"time"
 
-	"quantmesh/logger"
+	"quantmesh/feerate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -287,118 +283,12 @@ func convertToOKXInstID(symbol string) string {
 	return symbol
 }
 
-// fetchFeeFromExchangeAPI 从交易所 API 获取手续费率
+// fetchFeeFromExchangeAPI 从交易所 API 获取手续费率（與 Bot 啟動時邏輯共用 feerate 包）
 func fetchFeeFromExchangeAPI(exchangeName, symbol string) (makerFee, takerFee float64, err error) {
-	exConfig := getExchangeConfig(exchangeName)
-	apiKey := exConfig["api_key"]
-	secretKey := exConfig["secret_key"]
-
-	if apiKey == "" || secretKey == "" {
-		return 0, 0, fmt.Errorf("交易所 API 密钥未配置")
+	if globalConfig == nil {
+		return 0, 0, fmt.Errorf("全局配置未初始化")
 	}
-
-	switch exchangeName {
-	case "binance":
-		return fetchBinanceFeeRate(apiKey, secretKey, symbol)
-	case "bitget":
-		passphrase := exConfig["passphrase"]
-		return fetchBitgetFeeRate(apiKey, secretKey, passphrase, symbol)
-	default:
-		return 0, 0, fmt.Errorf("暂不支持从 %s 自动获取费率", exchangeName)
-	}
-}
-
-// fetchBinanceFeeRate 从 Binance API 获取手续费率
-func fetchBinanceFeeRate(apiKey, secretKey, symbol string) (makerFee, takerFee float64, err error) {
-	// 尝试合约费率 API
-	timestamp := time.Now().UnixMilli()
-	queryString := fmt.Sprintf("symbol=%s&timestamp=%d", symbol, timestamp)
-
-	// HMAC-SHA256 签名
-	mac := hmac.New(sha256.New, []byte(secretKey))
-	mac.Write([]byte(queryString))
-	signature := hex.EncodeToString(mac.Sum(nil))
-
-	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/commissionRate?%s&signature=%s", queryString, signature)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	req.Header.Set("X-MBX-APIKEY", apiKey)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		logger.Warn("Binance commissionRate API 返回 %d: %s", resp.StatusCode, string(body))
-		return 0, 0, fmt.Errorf("API 返回 %d", resp.StatusCode)
-	}
-
-	var data struct {
-		MakerCommissionRate string `json:"makerCommissionRate"`
-		TakerCommissionRate string `json:"takerCommissionRate"`
-	}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return 0, 0, fmt.Errorf("解析费率失败: %v", err)
-	}
-
-	makerFee, _ = strconv.ParseFloat(data.MakerCommissionRate, 64)
-	takerFee, _ = strconv.ParseFloat(data.TakerCommissionRate, 64)
-	return makerFee, takerFee, nil
-}
-
-// fetchBitgetFeeRate 从 Bitget API 获取手续费率
-func fetchBitgetFeeRate(apiKey, secretKey, passphrase, symbol string) (makerFee, takerFee float64, err error) {
-	timestamp := fmt.Sprintf("%d", time.Now().UnixMilli())
-	path := fmt.Sprintf("/api/v2/common/trade-rate?symbol=%s&businessType=futures", symbol)
-	message := timestamp + "GET" + path
-
-	mac := hmac.New(sha256.New, []byte(secretKey))
-	mac.Write([]byte(message))
-	signature := hex.EncodeToString(mac.Sum(nil))
-
-	url := "https://api.bitget.com" + path
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	req.Header.Set("ACCESS-KEY", apiKey)
-	req.Header.Set("ACCESS-SIGN", signature)
-	req.Header.Set("ACCESS-PASSPHRASE", passphrase)
-	req.Header.Set("ACCESS-TIMESTAMP", timestamp)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		logger.Warn("Bitget trade-rate API 返回 %d: %s", resp.StatusCode, string(body))
-		return 0, 0, fmt.Errorf("API 返回 %d", resp.StatusCode)
-	}
-
-	var data struct {
-		Data struct {
-			MakerFeeRate string `json:"makerFeeRate"`
-			TakerFeeRate string `json:"takerFeeRate"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return 0, 0, fmt.Errorf("解析费率失败: %v", err)
-	}
-
-	makerFee, _ = strconv.ParseFloat(data.Data.MakerFeeRate, 64)
-	takerFee, _ = strconv.ParseFloat(data.Data.TakerFeeRate, 64)
-	return makerFee, takerFee, nil
+	return feerate.FetchFromExchangeAPI(globalConfig, exchangeName, symbol)
 }
 
 // getFeeRateFromConfig 从配置中获取手续费率

@@ -256,7 +256,7 @@ func TestBotManagerGetStoppedAtFromFile(t *testing.T) {
 
 func TestBotManager_LastStartFailureRoundTrip(t *testing.T) {
 	eb := event.NewEventBus(16)
-	bm := NewBotManager(&config.Config{}, eb, nil, nil)
+	bm := NewBotManager(&config.Config{}, eb, nil, nil, "")
 	bid := "test-bot-fail"
 
 	bm.recordStartFailure(bid, errors.New("账戶餘額不足"))

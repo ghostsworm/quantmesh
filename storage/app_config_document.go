@@ -645,3 +645,26 @@ func ApplyAppConfigFromDBIfPresent(st Storage, cfg **config.Config) error {
 	*cfg = newCfg
 	return nil
 }
+
+// RefreshTradingConfigFromPrimarySource 與 main 啟動順序一致：先加載命令行 YAML（若路徑非空），再由 app_config 覆蓋，最後應用環境變量對存儲路徑等的覆蓋。
+// 用於 Bot 啟動前刷新內存配置，使持倉安全檢查等使用主庫中最新的 fee_rate 等欄位。
+func RefreshTradingConfigFromPrimarySource(yamlPath string, st Storage, cfg **config.Config) error {
+	if cfg == nil || *cfg == nil {
+		return nil
+	}
+	if strings.TrimSpace(yamlPath) != "" {
+		c, err := config.LoadConfig(yamlPath)
+		if err != nil {
+			return fmt.Errorf("重新加載主配置 YAML 失敗: %w", err)
+		}
+		*cfg = c
+	}
+	if st != nil {
+		if err := ApplyAppConfigFromDBIfPresent(st, cfg); err != nil {
+			return fmt.Errorf("從主庫重新加載 app_config 失敗: %w", err)
+		}
+	}
+	config.ApplyStoragePathFromEnv(*cfg)
+	config.ApplyDatabaseDSNFromEnv(*cfg)
+	return nil
+}
