@@ -364,6 +364,53 @@ func (c *KuCoinClient) GetHistoricalKlines(ctx context.Context, symbol string, g
 	return resp.Data, nil
 }
 
+// GetFuturesTickerPrice 公共接口：最新成交價（合約 ticker）
+func (c *KuCoinClient) GetFuturesTickerPrice(ctx context.Context, symbol string) (float64, error) {
+	path := fmt.Sprintf("/api/v1/ticker?symbol=%s", symbol)
+	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		Code string `json:"code"`
+		Data struct {
+			Price string `json:"price"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return 0, fmt.Errorf("unmarshal ticker response error: %w", err)
+	}
+	price, err := strconv.ParseFloat(resp.Data.Price, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse ticker price: %w", err)
+	}
+	return price, nil
+}
+
+// GetFuturesOrderBookDepth 公共接口：level2 深度（depth20 或 depth100）
+func (c *KuCoinClient) GetFuturesOrderBookDepth(ctx context.Context, symbol, depthKind string) (bids [][]string, asks [][]string, ts int64, err error) {
+	if depthKind == "" {
+		depthKind = "depth20"
+	}
+	path := fmt.Sprintf("/api/v1/level2/%s?symbol=%s", depthKind, symbol)
+	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	var resp struct {
+		Code string `json:"code"`
+		Data struct {
+			Bids      [][]string `json:"bids"`
+			Asks      [][]string `json:"asks"`
+			Timestamp int64      `json:"timestamp"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, nil, 0, fmt.Errorf("unmarshal depth response error: %w", err)
+	}
+	return resp.Data.Bids, resp.Data.Asks, resp.Data.Timestamp, nil
+}
+
 // GetWebSocketToken 獲取 WebSocket 连接 token
 func (c *KuCoinClient) GetWebSocketToken(ctx context.Context, private bool) (*WebSocketToken, error) {
 	path := "/api/v1/bullet-public"

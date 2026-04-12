@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.99.0-rc1] - 2026-04-12
+
+### Added
+- **Gate.io / Bybit / Bitget**：`InternalTransfer` 實作（Gate `POST /wallet/transfers`；Bybit `POST /v5/asset/transfer`；Bitget `POST /api/spot/v1/wallet/transfer-v2`），並附帳戶標籤映射單元測試。
+- **KuCoin 合約**：`GetSpotPrice` / `GetOrderBook` 走公共 ticker 與 level2 深度；`wrapper_kucoin` 轉為通用 `OrderBook`。
+- **WhiteBIT**：`GetOrderFills`（`/api/v4/trade-account/order` 成交明细）與 wrapper 轉換；K 線流明確回傳不支援錯誤。
+
+---
+
 ## [3.98.0-rc1] - 2026-04-12
 
 ### Added

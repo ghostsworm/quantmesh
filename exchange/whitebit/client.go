@@ -690,6 +690,53 @@ func (c *WhiteBITClient) GetOrderBook(ctx context.Context, market string, limit 
 	return &orderBook, nil
 }
 
+// OrderDealRecord 訂單成交明细（POST /api/v4/trade-account/order）
+type OrderDealRecord struct {
+	Time          float64 `json:"time"`
+	Fee           string  `json:"fee"`
+	Price         string  `json:"price"`
+	Amount        string  `json:"amount"`
+	ID            int64   `json:"id"`
+	DealOrderID   int64   `json:"dealOrderId"`
+	ClientOrderID string  `json:"client_order_id"`
+	Role          int     `json:"role"`
+	Deal          string  `json:"deal"`
+	FeeAsset      string  `json:"feeAsset"`
+}
+
+// GetOrderDeals 查詢指定訂單的成交明细（需 order_id>0）
+func (c *WhiteBITClient) GetOrderDeals(ctx context.Context, orderID int64, limit, offset int) ([]OrderDealRecord, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("order_id 必填")
+	}
+	params := map[string]interface{}{
+		"order_id": orderID,
+	}
+	if limit > 0 {
+		params["limit"] = limit
+	} else {
+		params["limit"] = 50
+	}
+	if offset > 0 {
+		params["offset"] = offset
+	}
+	data, err := c.request(ctx, "POST", "/api/v4/trade-account/order", params)
+	if err != nil {
+		return nil, err
+	}
+	var wrap struct {
+		Records []OrderDealRecord `json:"records"`
+	}
+	if err := json.Unmarshal(data, &wrap); err == nil && wrap.Records != nil {
+		return wrap.Records, nil
+	}
+	var direct []OrderDealRecord
+	if err := json.Unmarshal(data, &direct); err == nil {
+		return direct, nil
+	}
+	return nil, fmt.Errorf("解析成交明细失败: %s", string(data))
+}
+
 // WebSocketToken WebSocket Token
 type WebSocketToken struct {
 	WebSocketToken string `json:"websocket_token"`

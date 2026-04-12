@@ -1039,7 +1039,33 @@ func (g *GateAdapter) GetOrderBook(ctx context.Context, symbol string, limit int
 	}, nil
 }
 
-// InternalTransfer 交易所內部轉帳（Gate 暂未實現）
+// InternalTransfer 交易所內部轉帳（POST /wallet/transfers：現貨 ↔ 永续合約帳戶）
 func (g *GateAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	return "", fmt.Errorf("internal transfer not implemented for Gate")
+	from, to, err := mapGateWalletEndpoints(fromAccount, toAccount)
+	if err != nil {
+		return "", err
+	}
+	cur := strings.TrimSpace(asset)
+	if cur == "" {
+		cur = "USDT"
+	}
+	amt := strconv.FormatFloat(amount, 'f', 8, 64)
+	txID, err := g.client.WalletTransfer(ctx, cur, amt, from, to, g.settle)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(txID, 10), nil
+}
+
+func mapGateWalletEndpoints(fromAccount, toAccount string) (from, to string, err error) {
+	f := strings.ToUpper(strings.TrimSpace(fromAccount))
+	t := strings.ToUpper(strings.TrimSpace(toAccount))
+	switch {
+	case (f == "UMFUTURE" || f == "CONTRACT" || f == "FUTURES") && (t == "SPOT" || t == "MAIN"):
+		return "futures", "spot", nil
+	case (f == "SPOT" || f == "MAIN") && (t == "UMFUTURE" || t == "CONTRACT" || t == "FUTURES"):
+		return "spot", "futures", nil
+	default:
+		return "", "", fmt.Errorf("Gate 不支援的劃轉: %s -> %s（僅支援現貨與合約帳戶互轉）", fromAccount, toAccount)
+	}
 }

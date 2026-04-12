@@ -2,6 +2,7 @@ package whitebit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"quantmesh/logger"
 	"quantmesh/utils"
 )
+
+var errKlineNotSupported = errors.New("whitebit futures kline stream not implemented")
 
 // 本地类型定义，避免循环导入
 type Side string
@@ -813,8 +816,7 @@ func (w *WhiteBITAdapter) StartPriceStream(ctx context.Context, symbol string, c
 
 // StartKlineStream 啟動K線流
 func (w *WhiteBITAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback CandleUpdateCallback) error {
-	// TODO: 实现K线流
-	return fmt.Errorf("K线流功能待实现")
+	return errKlineNotSupported
 }
 
 // StopKlineStream 停止K線流
@@ -825,8 +827,7 @@ func (w *WhiteBITAdapter) StopKlineStream() error {
 
 // GetHistoricalKlines 獲取歷史K線數據
 func (w *WhiteBITAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
-	// TODO: 实现历史K线获取
-	return nil, fmt.Errorf("历史K线功能待实现")
+	return nil, fmt.Errorf("whitebit: %w", errKlineNotSupported)
 }
 
 // EstimateFinalOrderAmount 預估最终下單金額
@@ -835,11 +836,20 @@ func (w *WhiteBITAdapter) EstimateFinalOrderAmount(symbol string, price, quantit
 	return price * quantity
 }
 
-// GetOrderFills 查詢訂單成交記錄（暂未实现）
+// GetOrderFills 查詢訂單成交記錄（POST /api/v4/trade-account/order，需 orderId>0）
 func (w *WhiteBITAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]interface{}, error) {
-	// WhiteBIT API支持查询订单成交记录，但需要进一步实现
-	// 可以使用 /api/v4/trade-account/order 端点
-	return nil, nil
+	if orderID <= 0 {
+		return nil, fmt.Errorf("WhiteBIT 查詢成交明细需指定 orderId")
+	}
+	deals, err := w.client.GetOrderDeals(ctx, orderID, 100, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]interface{}, len(deals))
+	for i := range deals {
+		out[i] = deals[i]
+	}
+	return out, nil
 }
 
 // GetIncomeHistory 獲取收入歷史（暂未实现）
@@ -891,6 +901,5 @@ func (w *WhiteBITAdapter) GetOrderBook(ctx context.Context, symbol string, limit
 
 // InternalTransfer 交易所內部轉帳
 func (w *WhiteBITAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	// TODO: 实现内部转账
-	return "", fmt.Errorf("内部转账功能待实现")
+	return "", fmt.Errorf("internal transfer not implemented for WhiteBIT")
 }
