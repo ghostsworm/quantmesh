@@ -258,6 +258,15 @@ func newBinanceAdapterWithKeys(apiKey, secretKey, symbol string, useTestnet bool
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 3
 	}
+	if adapter.baseAsset == "" || adapter.quoteAsset == "" {
+		b, q := parseFuturesSymbolBaseQuote(adapter.symbol)
+		if adapter.baseAsset == "" {
+			adapter.baseAsset = b
+		}
+		if adapter.quoteAsset == "" {
+			adapter.quoteAsset = q
+		}
+	}
 
 	// 註冊 ACCOUNT_UPDATE 回調，WebSocket 收到賬戶變更時失效緩存
 	adapter.wsManager.SetOnAccountUpdate(adapter.invalidateAccountCache)
@@ -280,6 +289,23 @@ func (b *BinanceAdapter) GetName() string {
 // GetMarketType 獲取市場類型：futures 合約
 func (b *BinanceAdapter) GetMarketType() string {
 	return "futures"
+}
+
+// parseFuturesSymbolBaseQuote 從 U 本位符号推斷 base/quote（exchangeInfo 拉取失敗時兜底）
+func parseFuturesSymbolBaseQuote(sym string) (base, quote string) {
+	s := strings.TrimSpace(strings.ToUpper(sym))
+	if s == "" {
+		return "", ""
+	}
+	for _, suf := range []string{"USDT", "USDC", "BUSD"} {
+		if strings.HasSuffix(s, suf) {
+			return strings.TrimSuffix(s, suf), suf
+		}
+	}
+	if strings.HasSuffix(s, "USD") {
+		return strings.TrimSuffix(s, "USD"), "USD"
+	}
+	return "", ""
 }
 
 // normalizeBinanceSymbolTypo 修正常見拼寫錯誤（如少寫一個 T：BTCUSTD → BTCUSDT）。

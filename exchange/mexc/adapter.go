@@ -332,6 +332,75 @@ func (a *Adapter) GetQuoteAsset() string {
 	return a.quoteAsset
 }
 
+// MEXCBookLevel 訂單簿檔位
+type MEXCBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// MEXCOrderBook 訂單簿（供 exchange wrapper 轉換）
+type MEXCOrderBook struct {
+	Symbol    string
+	Bids      []MEXCBookLevel
+	Asks      []MEXCBookLevel
+	Timestamp int64
+}
+
+// GetSpotPrice 指數／最新成交價兜底（公共 ticker）
+func (a *Adapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	sym := a.symbol
+	if strings.TrimSpace(symbol) != "" {
+		sym = convertSymbolToMEXC(symbol)
+	}
+	t, err := a.client.GetTicker(ctx, sym)
+	if err != nil {
+		return 0, err
+	}
+	if t.IndexPrice > 0 {
+		return t.IndexPrice, nil
+	}
+	return t.LastPrice, nil
+}
+
+// GetOrderBook 公共深度 REST
+func (a *Adapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*MEXCOrderBook, error) {
+	sym := a.symbol
+	if strings.TrimSpace(symbol) != "" {
+		sym = convertSymbolToMEXC(symbol)
+	}
+	bidsRaw, asksRaw, ts, err := a.client.GetContractDepth(ctx, sym)
+	if err != nil {
+		return nil, err
+	}
+	maxLevels := limit
+	if maxLevels <= 0 {
+		maxLevels = 20
+	}
+	parseSide := func(raw [][]float64) []MEXCBookLevel {
+		out := make([]MEXCBookLevel, 0, len(raw))
+		for i, row := range raw {
+			if i >= maxLevels {
+				break
+			}
+			if len(row) < 2 {
+				continue
+			}
+			out = append(out, MEXCBookLevel{Price: row[0], Quantity: row[1]})
+		}
+		return out
+	}
+	disp := symbol
+	if strings.TrimSpace(disp) == "" {
+		disp = convertSymbolFromMEXC(a.symbol)
+	}
+	return &MEXCOrderBook{
+		Symbol:    disp,
+		Bids:      parseSide(bidsRaw),
+		Asks:      parseSide(asksRaw),
+		Timestamp: ts,
+	}, nil
+}
+
 // GetFundingRate 獲取资金费率
 func (a *Adapter) GetFundingRate(ctx context.Context) (float64, error) {
 	ticker, err := a.client.GetTicker(ctx, a.symbol)

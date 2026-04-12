@@ -64,6 +64,20 @@ type CandleLocal struct {
 // CandleUpdateCallbackLocal K線更新回呼
 type CandleUpdateCallbackLocal func(candle *CandleLocal)
 
+// OrderBookLevelLocal 訂單簿檔位
+type OrderBookLevelLocal struct {
+	Price    float64
+	Quantity float64
+}
+
+// OrderBookLocal 訂單簿（供 exchange wrapper 轉換）
+type OrderBookLocal struct {
+	Symbol    string
+	Bids      []OrderBookLevelLocal
+	Asks      []OrderBookLevelLocal
+	Timestamp int64
+}
+
 // DeribitResolution K線週期
 type DeribitResolution string
 

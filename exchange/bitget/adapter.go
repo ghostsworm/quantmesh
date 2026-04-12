@@ -214,6 +214,16 @@ func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, err
 		}()
 	*/
 
+	if adapter.baseAsset == "" || adapter.quoteAsset == "" {
+		b, q := parseFuturesSymbolBaseQuote(adapter.symbol)
+		if adapter.baseAsset == "" {
+			adapter.baseAsset = b
+		}
+		if adapter.quoteAsset == "" {
+			adapter.quoteAsset = q
+		}
+	}
+
 	return adapter, nil
 }
 
@@ -1112,6 +1122,22 @@ func convertToBitgetInterval(interval string) string {
 	default:
 		return interval // 如果已經是 Bitget 格式，直接返回
 	}
+}
+
+func parseFuturesSymbolBaseQuote(sym string) (base, quote string) {
+	s := strings.TrimSpace(strings.ToUpper(sym))
+	if s == "" {
+		return "", ""
+	}
+	for _, suf := range []string{"USDT", "USDC", "BUSD"} {
+		if strings.HasSuffix(s, suf) {
+			return strings.TrimSuffix(s, suf), suf
+		}
+	}
+	if strings.HasSuffix(s, "USD") {
+		return strings.TrimSuffix(s, "USD"), "USD"
+	}
+	return "", ""
 }
 
 // convertToBitgetSymbol 將標准符号轉换為 Bitget 合約符号

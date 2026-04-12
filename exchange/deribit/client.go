@@ -359,6 +359,33 @@ func (c *DeribitClient) GetTicker(ctx context.Context, instrumentName string) (*
 	return &ticker, nil
 }
 
+// OrderBookSnapshot public/get_order_book 結果（bids/asks 為 [價格, 數量]）
+type OrderBookSnapshot struct {
+	Timestamp int64       `json:"timestamp"`
+	Bids      [][]float64 `json:"bids"`
+	Asks      [][]float64 `json:"asks"`
+}
+
+// GetOrderBook 公共訂單簿
+func (c *DeribitClient) GetOrderBook(ctx context.Context, instrumentName string, depth int) (*OrderBookSnapshot, error) {
+	if depth <= 0 {
+		depth = 20
+	}
+	params := map[string]interface{}{
+		"instrument_name": instrumentName,
+		"depth":           depth,
+	}
+	result, err := c.sendRequest(ctx, "public/get_order_book", params)
+	if err != nil {
+		return nil, err
+	}
+	var snap OrderBookSnapshot
+	if err := json.Unmarshal(result, &snap); err != nil {
+		return nil, fmt.Errorf("unmarshal order book: %w", err)
+	}
+	return &snap, nil
+}
+
 // GetTradingViewChartData 獲取 K線數據
 func (c *DeribitClient) GetTradingViewChartData(ctx context.Context, instrumentName, resolution string, startTime, endTime int64) (*ChartData, error) {
 	params := map[string]interface{}{

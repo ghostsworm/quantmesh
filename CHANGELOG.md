@@ -2,6 +2,19 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.100.0-rc1] - 2026-04-12
+
+### Added
+- **Kraken / Deribit / MEXC / Huobi / Bitfinex**：`GetSpotPrice` 與 `GetOrderBook`（公共 REST／JSON-RPC）；對應 wrapper 轉為通用 `OrderBook`。
+- **KuCoin 合約**：`InternalTransfer`（`POST /api/v3/transfer-out`、`POST /api/v1/transfer-in`，主帳 ↔ 合約）及劃轉方向單元測試。
+- **長尾所**：`GetSpotPrice` 委託 `GetLatestPrice`（BingX、BitMEX、CoinEx、XT、WOO X、Phemex、Poloniex、Bitrue、AscendEX、BTCC、Crypto.com）。
+
+### Fixed
+- **Bybit / Binance / Bitget / OKX**：合約信息拉取失敗時從交易對符号推斷 base/quote，避免測試或離線環境下 `GetBaseAsset` 為空。
+- **公開 K 線工廠測試**：遇 `Forbidden` 時跳過（與離線／沙箱環境一致）。
+
+---
+
 ## [3.99.0-rc1] - 2026-04-12
 
 ### Added

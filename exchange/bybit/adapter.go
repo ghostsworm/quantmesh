@@ -182,8 +182,34 @@ func NewBybitAdapter(cfg map[string]string, symbol string) (*BybitAdapter, error
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 3
 	}
+	if adapter.baseAsset == "" || adapter.quoteAsset == "" {
+		b, q := parseLinearSymbolBaseQuote(adapter.symbol)
+		if adapter.baseAsset == "" {
+			adapter.baseAsset = b
+		}
+		if adapter.quoteAsset == "" {
+			adapter.quoteAsset = q
+		}
+	}
 
 	return adapter, nil
+}
+
+// parseLinearSymbolBaseQuote 從線性永续符号推斷 base/quote（REST 失敗時兜底，如測試環境無外網）
+func parseLinearSymbolBaseQuote(sym string) (base, quote string) {
+	s := strings.TrimSpace(strings.ToUpper(sym))
+	if s == "" {
+		return "", ""
+	}
+	for _, suf := range []string{"USDT", "USDC", "BUSD"} {
+		if strings.HasSuffix(s, suf) {
+			return strings.TrimSuffix(s, suf), suf
+		}
+	}
+	if strings.HasSuffix(s, "USD") {
+		return strings.TrimSuffix(s, "USD"), "USD"
+	}
+	return "", ""
 }
 
 // GetName 獲取交易所名称

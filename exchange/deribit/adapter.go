@@ -379,6 +379,67 @@ func convertOrderState(state string) OrderStatus {
 	}
 }
 
+// resolveInstrumentName 解析永续合約名（BTCUSDT / 空 → 當前 instrument）
+func (a *Adapter) resolveInstrumentName(symbol string) string {
+	if strings.TrimSpace(symbol) == "" {
+		return a.instrumentName
+	}
+	s := strings.ToUpper(strings.TrimSpace(symbol))
+	if strings.HasPrefix(s, "ETH") {
+		return "ETH-PERPETUAL"
+	}
+	return "BTC-PERPETUAL"
+}
+
+// GetSpotPrice 指數／標記價兜底（公共 ticker）
+func (a *Adapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	inst := a.resolveInstrumentName(symbol)
+	t, err := a.client.GetTicker(ctx, inst)
+	if err != nil {
+		return 0, err
+	}
+	if t.IndexPrice > 0 {
+		return t.IndexPrice, nil
+	}
+	if t.MarkPrice > 0 {
+		return t.MarkPrice, nil
+	}
+	return t.LastPrice, nil
+}
+
+// GetOrderBook 公共訂單簿
+func (a *Adapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBookLocal, error) {
+	inst := a.resolveInstrumentName(symbol)
+	depth := limit
+	if depth <= 0 {
+		depth = 20
+	}
+	snap, err := a.client.GetOrderBook(ctx, inst, depth)
+	if err != nil {
+		return nil, err
+	}
+	parseSide := func(rows [][]float64) []OrderBookLevelLocal {
+		out := make([]OrderBookLevelLocal, 0, len(rows))
+		for _, row := range rows {
+			if len(row) < 2 {
+				continue
+			}
+			out = append(out, OrderBookLevelLocal{Price: row[0], Quantity: row[1]})
+		}
+		return out
+	}
+	disp := strings.TrimSpace(symbol)
+	if disp == "" {
+		disp = inst
+	}
+	return &OrderBookLocal{
+		Symbol:    disp,
+		Bids:      parseSide(snap.Bids),
+		Asks:      parseSide(snap.Asks),
+		Timestamp: snap.Timestamp,
+	}, nil
+}
+
 // InternalTransfer 交易所內部轉帳（Deribit 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Deribit")

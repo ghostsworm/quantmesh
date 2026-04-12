@@ -337,9 +337,9 @@ func (w *huobiWrapper) GetOrderFills(ctx context.Context, symbol string, orderID
 	return nil, nil
 }
 
-// GetSpotPrice 獲取現貨市场價格（未實現）
+// GetSpotPrice 獲取現貨市场價格（公共 merged，失敗時回退 WS 價）
 func (w *huobiWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
-	return 0, ErrNotImplemented
+	return w.adapter.GetSpotPrice(ctx, symbol)
 }
 
 // EstimateFinalOrderAmount 預估最终下單金額（默认實現：返回原始金額）
@@ -347,9 +347,26 @@ func (w *huobiWrapper) EstimateFinalOrderAmount(symbol string, price, quantity f
 	return price * quantity
 }
 
-// GetOrderBook 獲取訂單簿深度（暂未實現）
+// GetOrderBook 獲取訂單簿深度（公共 REST depth）
 func (w *huobiWrapper) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
-	return nil, ErrNotImplemented
+	ob, err := w.adapter.GetOrderBook(ctx, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+	bids := make([]OrderBookLevel, len(ob.Bids))
+	for i, b := range ob.Bids {
+		bids[i] = OrderBookLevel{Price: b.Price, Quantity: b.Quantity}
+	}
+	asks := make([]OrderBookLevel, len(ob.Asks))
+	for i, a := range ob.Asks {
+		asks[i] = OrderBookLevel{Price: a.Price, Quantity: a.Quantity}
+	}
+	return &OrderBook{
+		Symbol:    ob.Symbol,
+		Bids:      bids,
+		Asks:      asks,
+		Timestamp: ob.Timestamp,
+	}, nil
 }
 
 // InternalTransfer 交易所內部轉帳

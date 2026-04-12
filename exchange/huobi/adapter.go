@@ -672,6 +672,72 @@ func (h *HuobiAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fund
 	}, nil
 }
 
+// HuobiBookLevel 訂單簿檔位
+type HuobiBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// HuobiOrderBook 訂單簿（供 exchange wrapper 轉換）
+type HuobiOrderBook struct {
+	Symbol    string
+	Bids      []HuobiBookLevel
+	Asks      []HuobiBookLevel
+	Timestamp int64
+}
+
+// GetSpotPrice 公共 merged 收盤／最新價（不依賴 WS）
+func (h *HuobiAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	cc := h.contractCode
+	if strings.TrimSpace(symbol) != "" {
+		cc = convertSymbolToContractCode(symbol)
+	}
+	close, _, err := h.client.GetPublicMergedClose(ctx, cc)
+	if err != nil {
+		return h.GetLatestPrice(ctx, symbol)
+	}
+	return close, nil
+}
+
+// GetOrderBook 公共深度 REST
+func (h *HuobiAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*HuobiOrderBook, error) {
+	cc := h.contractCode
+	if strings.TrimSpace(symbol) != "" {
+		cc = convertSymbolToContractCode(symbol)
+	}
+	bidsRaw, asksRaw, ts, err := h.client.GetPublicDepth(ctx, cc)
+	if err != nil {
+		return nil, err
+	}
+	maxLevels := limit
+	if maxLevels <= 0 {
+		maxLevels = 20
+	}
+	parseSide := func(raw [][]float64) []HuobiBookLevel {
+		out := make([]HuobiBookLevel, 0, len(raw))
+		for i, row := range raw {
+			if i >= maxLevels {
+				break
+			}
+			if len(row) < 2 {
+				continue
+			}
+			out = append(out, HuobiBookLevel{Price: row[0], Quantity: row[1]})
+		}
+		return out
+	}
+	disp := symbol
+	if strings.TrimSpace(disp) == "" {
+		disp = h.symbol
+	}
+	return &HuobiOrderBook{
+		Symbol:    disp,
+		Bids:      parseSide(bidsRaw),
+		Asks:      parseSide(asksRaw),
+		Timestamp: ts,
+	}, nil
+}
+
 // InternalTransfer 交易所內部轉帳（Huobi 暂未實現）
 func (h *HuobiAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Huobi")
