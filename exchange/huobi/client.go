@@ -408,6 +408,81 @@ func (c *HuobiClient) GetFundingRate(ctx context.Context, symbol string) (*Fundi
 	return &rate, nil
 }
 
+// GetPublicMergedClose 公共 merged 行情（GET /linear-swap-ex/market/detail/merged，無需帳戶参數）
+func (c *HuobiClient) GetPublicMergedClose(ctx context.Context, contractCode string) (close float64, tsMillis int64, err error) {
+	u := fmt.Sprintf("%s/linear-swap-ex/market/detail/merged?contract_code=%s", c.baseURL, url.QueryEscape(contractCode))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, 0, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return 0, 0, fmt.Errorf("merged HTTP %s: %s", resp.Status, string(body))
+	}
+	var out struct {
+		Status string `json:"status"`
+		Tick   struct {
+			Close string `json:"close"`
+			Ts    int64  `json:"ts"`
+		} `json:"tick"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return 0, 0, fmt.Errorf("解析 merged: %w", err)
+	}
+	if out.Status != "ok" {
+		return 0, 0, fmt.Errorf("merged status: %s", string(body))
+	}
+	close, err = strconv.ParseFloat(out.Tick.Close, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("解析 close: %w", err)
+	}
+	return close, out.Tick.Ts, nil
+}
+
+// GetPublicDepth 公共深度（GET /linear-swap-ex/market/depth，type=step0）
+func (c *HuobiClient) GetPublicDepth(ctx context.Context, contractCode string) (bids [][]float64, asks [][]float64, ts int64, err error) {
+	u := fmt.Sprintf("%s/linear-swap-ex/market/depth?contract_code=%s&type=step0", c.baseURL, url.QueryEscape(contractCode))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, 0, fmt.Errorf("depth HTTP %s: %s", resp.Status, string(body))
+	}
+	var out struct {
+		Status string `json:"status"`
+		Tick   struct {
+			Bids [][]float64 `json:"bids"`
+			Asks [][]float64 `json:"asks"`
+			Ts   int64       `json:"ts"`
+		} `json:"tick"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, nil, 0, fmt.Errorf("解析 depth: %w", err)
+	}
+	if out.Status != "ok" {
+		return nil, nil, 0, fmt.Errorf("depth status: %s", string(body))
+	}
+	return out.Tick.Bids, out.Tick.Asks, out.Tick.Ts, nil
+}
+
 func init() {
 	logger.Info("📦 [Huobi Client] REST API 客戶端已初始化")
 }

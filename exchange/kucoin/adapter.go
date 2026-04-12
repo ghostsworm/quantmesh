@@ -623,7 +623,31 @@ func contractSymbolForPublicAPI(a *Adapter, symbol string) string {
 	return kucoinContractSymbolForFutures(u)
 }
 
-// InternalTransfer 交易所內部轉帳（KuCoin 暂未實現）
+func mapKuCoinTransferDirection(fromAccount, toAccount string) (fromFutures bool, err error) {
+	f := strings.ToUpper(strings.TrimSpace(fromAccount))
+	t := strings.ToUpper(strings.TrimSpace(toAccount))
+	switch {
+	case (f == "UMFUTURE" || f == "CONTRACT" || f == "FUTURES") && (t == "SPOT" || t == "MAIN"):
+		return true, nil
+	case (f == "SPOT" || f == "MAIN") && (t == "UMFUTURE" || t == "CONTRACT" || t == "FUTURES"):
+		return false, nil
+	default:
+		return false, fmt.Errorf("KuCoin 不支援的劃轉: %s -> %s（僅支援合約與主帳戶互轉）", fromAccount, toAccount)
+	}
+}
+
+// InternalTransfer 交易所內部轉帳（合約 ↔ 主帳：transfer-out v3 / transfer-in）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	return "", fmt.Errorf("internal transfer not implemented for KuCoin")
+	fromFutures, err := mapKuCoinTransferDirection(fromAccount, toAccount)
+	if err != nil {
+		return "", err
+	}
+	cur := strings.TrimSpace(asset)
+	if cur == "" {
+		cur = "USDT"
+	}
+	if fromFutures {
+		return a.client.FuturesTransferOutV3(ctx, cur, "MAIN", amount)
+	}
+	return a.client.FuturesTransferIn(ctx, cur, "MAIN", amount)
 }

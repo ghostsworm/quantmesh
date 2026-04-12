@@ -501,6 +501,82 @@ func convertIntervalToResolution(interval string) string {
 	}
 }
 
+// KrakenBookLevel 訂單簿檔位
+type KrakenBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// KrakenOrderBook 訂單簿（供 exchange wrapper 轉換）
+type KrakenOrderBook struct {
+	Symbol    string
+	Bids      []KrakenBookLevel
+	Asks      []KrakenBookLevel
+	Timestamp int64
+}
+
+// GetSpotPrice 指數／標記價兜底（永续 ticker）
+func (a *Adapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	sym := strings.TrimSpace(symbol)
+	if sym == "" {
+		sym = a.symbol
+	} else {
+		sym = convertToKrakenSymbol(sym)
+	}
+	t, err := a.client.GetPerpetualTicker(ctx, sym)
+	if err != nil {
+		return 0, err
+	}
+	if t.IndexPrice > 0 {
+		return t.IndexPrice, nil
+	}
+	if t.MarkPrice > 0 {
+		return t.MarkPrice, nil
+	}
+	return 0, fmt.Errorf("kraken: no index/mark in ticker")
+}
+
+// GetOrderBook 公共訂單簿深度
+func (a *Adapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*KrakenOrderBook, error) {
+	sym := strings.TrimSpace(symbol)
+	if sym == "" {
+		sym = a.symbol
+	} else {
+		sym = convertToKrakenSymbol(sym)
+	}
+	raw, err := a.client.GetPublicOrderBook(ctx, sym)
+	if err != nil {
+		return nil, err
+	}
+	maxLevels := limit
+	if maxLevels <= 0 {
+		maxLevels = 20
+	}
+	parseSide := func(rows [][]float64) []KrakenBookLevel {
+		out := make([]KrakenBookLevel, 0, len(rows))
+		for i, row := range rows {
+			if i >= maxLevels {
+				break
+			}
+			if len(row) < 2 {
+				continue
+			}
+			out = append(out, KrakenBookLevel{Price: row[0], Quantity: row[1]})
+		}
+		return out
+	}
+	disp := symbol
+	if strings.TrimSpace(disp) == "" {
+		disp = strings.ReplaceAll(sym, "_", "")
+	}
+	return &KrakenOrderBook{
+		Symbol:    disp,
+		Bids:      parseSide(raw.Bids),
+		Asks:      parseSide(raw.Asks),
+		Timestamp: time.Now().UnixMilli(),
+	}, nil
+}
+
 // InternalTransfer 交易所內部轉帳（Kraken 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Kraken")

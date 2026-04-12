@@ -615,6 +615,60 @@ type KuCoinPositionInfo struct {
 	UserId            int64   `json:"userId"`
 }
 
+// FuturesTransferOutV3 合約帳戶劃出至主帳／現貨（POST /api/v3/transfer-out）
+func (c *KuCoinClient) FuturesTransferOutV3(ctx context.Context, currency, recAccountType string, amount float64) (string, error) {
+	path := "/api/v3/transfer-out"
+	body := map[string]interface{}{
+		"currency":       strings.ToUpper(strings.TrimSpace(currency)),
+		"recAccountType": strings.ToUpper(strings.TrimSpace(recAccountType)),
+		"amount":         amount,
+	}
+	respBody, err := c.sendRequest(ctx, http.MethodPost, path, body)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Code string `json:"code"`
+		Data struct {
+			ApplyID string `json:"applyId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return "", fmt.Errorf("unmarshal transfer-out: %w", err)
+	}
+	if resp.Data.ApplyID == "" {
+		return "", fmt.Errorf("kucoin transfer-out: empty applyId: %s", string(respBody))
+	}
+	return resp.Data.ApplyID, nil
+}
+
+// FuturesTransferIn 主帳／現貨劃入合約帳戶（POST /api/v1/transfer-in）
+func (c *KuCoinClient) FuturesTransferIn(ctx context.Context, currency, payAccountType string, amount float64) (string, error) {
+	path := "/api/v1/transfer-in"
+	body := map[string]interface{}{
+		"currency":       strings.ToUpper(strings.TrimSpace(currency)),
+		"payAccountType": strings.ToUpper(strings.TrimSpace(payAccountType)),
+		"amount":         amount,
+	}
+	respBody, err := c.sendRequest(ctx, http.MethodPost, path, body)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Code string `json:"code"`
+		Data struct {
+			ApplyID string `json:"applyId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return "", fmt.Errorf("unmarshal transfer-in: %w", err)
+	}
+	if resp.Data.ApplyID == "" {
+		return "", fmt.Errorf("kucoin transfer-in: empty applyId: %s", string(respBody))
+	}
+	return resp.Data.ApplyID, nil
+}
+
 // Candle K線數據
 type Candle struct {
 	Time   int64   `json:"time"`

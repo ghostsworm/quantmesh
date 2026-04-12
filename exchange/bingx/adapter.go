@@ -374,6 +374,11 @@ func (a *Adapter) convertOrder(order *OrderInfo) *OrderLocal {
 	}
 }
 
+// GetSpotPrice 與 GetLatestPrice 一致（合約參考價）
+func (a *Adapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	return a.GetLatestPrice(ctx, symbol)
+}
+
 // InternalTransfer 交易所內部轉帳（BingX 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for BingX")

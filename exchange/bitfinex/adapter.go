@@ -471,6 +471,62 @@ func convertIntervalToTimeframe(interval string) string {
 	}
 }
 
+// BitfinexBookLevel 訂單簿檔位
+type BitfinexBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// BitfinexOrderBook 訂單簿（供 exchange wrapper 轉換）
+type BitfinexOrderBook struct {
+	Symbol    string
+	Bids      []BitfinexBookLevel
+	Asks      []BitfinexBookLevel
+	Timestamp int64
+}
+
+// GetSpotPrice 公共 ticker 最新價
+func (a *Adapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	sym := a.symbol
+	if strings.TrimSpace(symbol) != "" {
+		sym = convertToBitfinexSymbol(symbol)
+	}
+	t, err := a.client.GetTicker(ctx, sym)
+	if err != nil {
+		return 0, err
+	}
+	return t.LastPrice, nil
+}
+
+// GetOrderBook 公共深度 REST
+func (a *Adapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*BitfinexOrderBook, error) {
+	sym := a.symbol
+	if strings.TrimSpace(symbol) != "" {
+		sym = convertToBitfinexSymbol(symbol)
+	}
+	bidsRaw, asksRaw, err := a.client.GetOrderBook(ctx, sym, limit)
+	if err != nil {
+		return nil, err
+	}
+	toLocal := func(in []BitfinexDepthLevel) []BitfinexBookLevel {
+		out := make([]BitfinexBookLevel, len(in))
+		for i, x := range in {
+			out[i] = BitfinexBookLevel{Price: x.Price, Quantity: x.Quantity}
+		}
+		return out
+	}
+	disp := symbol
+	if strings.TrimSpace(disp) == "" {
+		disp = a.symbol
+	}
+	return &BitfinexOrderBook{
+		Symbol:    disp,
+		Bids:      toLocal(bidsRaw),
+		Asks:      toLocal(asksRaw),
+		Timestamp: time.Now().UnixMilli(),
+	}, nil
+}
+
 // InternalTransfer 交易所內部轉帳（Bitfinex 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for Bitfinex")

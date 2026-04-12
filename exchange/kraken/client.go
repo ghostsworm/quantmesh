@@ -359,6 +359,53 @@ func (c *KrakenClient) GetPerpetualTicker(ctx context.Context, symbol string) (*
 	return nil, fmt.Errorf("symbol %s not found", symbol)
 }
 
+// KrakenPublicOrderBook 公共訂單簿（無需签名，GET /derivatives/api/v3/orderbook）
+type KrakenPublicOrderBook struct {
+	Bids [][]float64 `json:"bids"`
+	Asks [][]float64 `json:"asks"`
+}
+
+// krakenOrderBookEnvelope API 回傳嵌套於 orderBook
+type krakenOrderBookEnvelope struct {
+	Result    string `json:"result"`
+	OrderBook struct {
+		Bids [][]float64 `json:"bids"`
+		Asks [][]float64 `json:"asks"`
+	} `json:"orderBook"`
+}
+
+// GetPublicOrderBook 獲取公共深度快照
+func (c *KrakenClient) GetPublicOrderBook(ctx context.Context, symbol string) (*KrakenPublicOrderBook, error) {
+	reqURL := fmt.Sprintf("%s/derivatives/api/v3/orderbook?symbol=%s", KrakenBaseURL, url.QueryEscape(symbol))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create orderbook request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("orderbook request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read orderbook body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("orderbook HTTP %s: %s", resp.Status, string(respBody))
+	}
+	var env krakenOrderBookEnvelope
+	if err := json.Unmarshal(respBody, &env); err != nil {
+		return nil, fmt.Errorf("unmarshal orderbook: %w", err)
+	}
+	if env.Result != "success" {
+		return nil, fmt.Errorf("orderbook result not success: %s", string(respBody))
+	}
+	return &KrakenPublicOrderBook{
+		Bids: env.OrderBook.Bids,
+		Asks: env.OrderBook.Asks,
+	}, nil
+}
+
 // GetFundingRate 獲取资金费率
 func (c *KrakenClient) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
 	t, err := c.GetPerpetualTicker(ctx, symbol)

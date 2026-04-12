@@ -303,7 +303,7 @@ func (w *poloniexWrapper) GetOrderFills(ctx context.Context, symbol string, orde
 
 // GetSpotPrice 獲取現貨市场價格（未實現）
 func (w *poloniexWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
-	return 0, ErrNotImplemented
+	return w.adapter.GetSpotPrice(ctx, symbol)
 }
 
 // EstimateFinalOrderAmount 預估最终下單金額（默认實現：返回原始金額）

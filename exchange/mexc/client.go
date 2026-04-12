@@ -375,6 +375,31 @@ func (c *MEXCClient) GetTicker(ctx context.Context, symbol string) (*TickerInfo,
 	return &resp.Data, nil
 }
 
+// GetContractDepth 合約深度快照（公共 GET /api/v1/contract/depth/{symbol}）
+func (c *MEXCClient) GetContractDepth(ctx context.Context, symbol string) (bids [][]float64, asks [][]float64, ts int64, err error) {
+	path := "/api/v1/contract/depth/" + symbol
+	respBody, err := c.sendRequest(ctx, http.MethodGet, path, url.Values{}, false)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	var resp struct {
+		Code    int    `json:"code"`
+		Success bool   `json:"success"`
+		Data    struct {
+			Bids      [][]float64 `json:"bids"`
+			Asks      [][]float64 `json:"asks"`
+			Timestamp int64       `json:"timestamp"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, nil, 0, fmt.Errorf("unmarshal depth: %w", err)
+	}
+	if !resp.Success {
+		return nil, nil, 0, fmt.Errorf("mexc depth failed: %s", string(respBody))
+	}
+	return resp.Data.Bids, resp.Data.Asks, resp.Data.Timestamp, nil
+}
+
 // GetKlines 獲取 K線數據
 func (c *MEXCClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	path := "/api/v1/contract/kline/" + symbol

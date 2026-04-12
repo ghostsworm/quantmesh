@@ -375,6 +375,46 @@ func (c *BitfinexClient) GetTicker(ctx context.Context, symbol string) (*TickerI
 	return ticker, nil
 }
 
+// BitfinexDepthLevel 公共訂單簿檔位（/v2/book）
+type BitfinexDepthLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// GetOrderBook 公共訂單簿（正數量為買盤，负數量為賣盤）
+func (c *BitfinexClient) GetOrderBook(ctx context.Context, symbol string, limit int) (bids []BitfinexDepthLevel, asks []BitfinexDepthLevel, err error) {
+	path := fmt.Sprintf("/v2/book/t%s/P0", symbol)
+	respBody, err := c.sendPublicRequest(ctx, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	var rows [][]interface{}
+	if err := json.Unmarshal(respBody, &rows); err != nil {
+		return nil, nil, fmt.Errorf("unmarshal book: %w", err)
+	}
+	for _, row := range rows {
+		if len(row) < 3 {
+			continue
+		}
+		price := parseFloat64(row[0])
+		amt := parseFloat64(row[2])
+		if amt > 0 {
+			bids = append(bids, BitfinexDepthLevel{Price: price, Quantity: amt})
+		} else if amt < 0 {
+			asks = append(asks, BitfinexDepthLevel{Price: price, Quantity: -amt})
+		}
+	}
+	if limit > 0 {
+		if len(bids) > limit {
+			bids = bids[:limit]
+		}
+		if len(asks) > limit {
+			asks = asks[:limit]
+		}
+	}
+	return bids, asks, nil
+}
+
 // GetCandles 獲取K線數據
 // 响应格式：[[MTS, OPEN, CLOSE, HIGH, LOW, VOLUME], ...]
 func (c *BitfinexClient) GetCandles(ctx context.Context, symbol, timeframe string, limit int) ([]Candle, error) {
